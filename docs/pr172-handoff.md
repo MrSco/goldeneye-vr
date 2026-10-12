@@ -9,6 +9,46 @@ remaining. The work is not complete.
 Read [current renderer fixes and evidence](pr172-renderer-follow-up.md) first.
 The earlier material notes/census document historical checkpoints.
 
+## Headset round 2026-10-12 morning (installed e4367b7, Dam)
+
+The user reported stutter in the tunnel and when turning, tower glass no
+longer see-through, and the gate switch missing its red/green lamp.
+Installed for them: release `07b1920` (user-authorized test install).
+
+- **Tower glass** (c24451d): 4f51c0c read the two-constant reflection
+  form's alpha from c13 (1.0); DAB reads the material alpha from c12 (the
+  window's 0.56). The pane is glass at 142 again; capture shows the
+  outside through it. `test_bean_material.py` checks the 142.
+- **Monitor screens** (76d7920, port of DAB's screen code in
+  `port/src/gevr_bean_screens.inc.h`): every Bean monitor had its part 0-3
+  screen lists registered blank, so no programme drew (gate switch lamps,
+  modem, consoles, TVs). Live screens are handed back, Bean's grey cards and
+  placeholders laid black behind the screen, recesses flattened, fitted
+  screens moved. Capture: the gate switch shows its red lamp, desk
+  monitors their green text. Open: the agent's extra recesses (door console
+  7, bridge consoles 2a/3a/3b 4) beyond DAB's logged ones, and the modem's
+  decal-depth screen, need a look in their scenes.
+- **Turning stutter**: two CPU changes, measured with `tools/perf` at pad
+  285 (3 runs each, user's settings, 120 Hz):
+  - a52a18e: the opaque world mesh splits runs at 2048 triangles, not 512
+    (Dam: 234 chunks, 126 of them from two landscape pictures).
+  - 35aba5e: mesh runs keep program/VAO/clip/cull bound for the next run
+    of the list (`gevr_mesh_settle()` at every other backend entry and at
+    the list's G_ENDDL).
+  - Smooth-turn fresh frames: median 6.5 -> 5.2 ms, p95 11.2 -> 10.1,
+    p99 12.4 -> 11.1; compositor dropped frames 906 -> 592 per 224 s.
+    Still over the 8.3 ms budget while turning: not solved.
+  - Ruled out: mipmapping Bean textures (no GPU change on this route).
+  - simpleperf after both: GL driver 37% of the render thread (mesh draw
+    7.7%, redraw replay 7.4%, CPU batches 3.6%), vrapi 7%, libc 7%,
+    phonon 4% on the render thread, gfx_sp_tri1 11% inclusive.
+  - The user's own session (sniper held, near the gate) was GPU-bound:
+    VrApi App 8-10 ms GPU, 64-76 fps. Not reproduced by the benchmark
+    routes; profile that scene next (`--scope-probe` at a gate pad).
+- `gevr_warp.txt` "near <model> <reach>" (07b1920) faces an object for
+  unattended captures: 336 gate switch, 104 window, 335 modem.
+  Driver used: `tools/perf/quest_profile.py` backup/restore around it.
+
 ## Repository and build
 
 - Worktree: `C:/Users/Occor/.codex/worktrees/abe0/goldeneye-vr`.
