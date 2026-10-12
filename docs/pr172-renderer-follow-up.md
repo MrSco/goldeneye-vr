@@ -139,6 +139,13 @@ separates fresh/redraw frames and excludes reset/detailed-frame overhead.
   the exact unstripped symbols and signed APKs, archived locally under
   `android/app/build/outputs/symbols/<build-id>/`.
 
+Installed checkpoint: clean source `e4367b706173e0de6a5263382f5f3fececf585d0`,
+`GoldenEye-VR-PR172-Renderer-Followup.apk`, SHA-256
+`30c20debfd31c3a73c1a29409f29686c377be8c492f2467a62cb1aff9be4a6c2`,
+native build ID `c56435e6df2a60cb6a17b1a38b779c851cd577ee`.
+The installed APK was pulled back and its hash matched. Full backup restoration
+verified save/settings and all protected markers byte for byte (or absence).
+
 Installation of PR 172 test builds was explicitly authorized by the user.
 No APK was published and this PR is not merged.
 
