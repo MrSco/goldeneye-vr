@@ -1094,10 +1094,11 @@ static bool namedCombo(const char *id, int count, const char *(*name)(int), int 
     return gevrNamedCombo(id, count, name, sel, longList, [](int) { return false; });
 }
 
-// The host's player count, 2..8 on any stage (VrMpMaxPlayers).
+// The host's player count, 2..8 on any stage (VrMpMaxPlayers), after its
+// "Players:" label: the number alone, so the stage chooser beside it keeps
+// room for every stage's name (user: "Caverns" was cut off).
 static const char *playerCountName(int idx) {
-    static const char *const names[] = { "2 players", "3 players", "4 players", "5 players",
-                                         "6 players", "7 players", "8 players" };
+    static const char *const names[] = { "2", "3", "4", "5", "6", "7", "8" };
     static_assert(sizeof(names) / sizeof(names[0]) == GEVR_MAX_PLAYERS - 1, "a name for every count");
     return idx >= 0 && idx < GEVR_MAX_PLAYERS - 1 ? names[idx] : names[2];
 }
@@ -1587,7 +1588,7 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
             int stage=netStageIndexOf((uint8_t)VrMpStage);if (stage<0)stage=9;
             ImGui::TextUnformatted("Stage:");ImGui::SameLine();
             const bool teams=netScenarioHasTeams(VrMpScenario);
-            const float playersWidth=ImGui::CalcTextSize("8 players").x + ImGui::GetFrameHeight()
+            const float playersWidth=ImGui::CalcTextSize("8").x + ImGui::GetFrameHeight()
                 + ImGui::GetStyle().FramePadding.x*2.0f;
             const float reserve=teams ? ImGui::CalcTextSize("Players: 8").x
                 : ImGui::CalcTextSize("Players:").x+playersWidth+ImGui::GetStyle().ItemSpacing.x;
