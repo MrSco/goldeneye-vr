@@ -27,6 +27,8 @@ struct GfxMeshDrawParams {
     float tex[2][4];     // per texture: u = s * [0] + [2], v = t * [1] + [3]
     float in_sel[GFX_MESH_MAX_INPUTS][16];   // per combiner input: which colour bytes (column-major)
     float in_const[GFX_MESH_MAX_INPUTS][4];  // ... plus what does not come from the vertex
+    bool normal_tex1;
+    float normal_axis[2][3];
     int num_inputs;
     bool skinned, lit, has_bounds, invert_y, authored_color, world_vertices;
     float lo[3], hi[3];

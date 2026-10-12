@@ -201,6 +201,7 @@ static void fillVert(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *
 	e->rgba[1] = t->rgba[corner * 4 + 1];
 	e->rgba[2] = t->rgba[corner * 4 + 2];
 	e->rgba[3] = t->rgba[corner * 4 + 3];
+	e->reflection=t->reflection;
 	e->tex = t->tex;
 	e->alpha = t->alpha;
 	e->cut = t->alphatest;
@@ -475,7 +476,7 @@ static int buildStage(int stage)
      * Transparent surfaces keep the game's room order below. A diagnostic marker
      * retains the old room submission for a controlled comparison. */
     FILE *control=fopen("gevr_room_draws.txt","r");
-    int merge=1;
+    int merge=0;
     if (control) { int mode=1; if (fscanf(control,"%d",&mode)==1) merge=mode!=0; fclose(control); }
     if (merge) {
         int count=0;

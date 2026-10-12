@@ -37,7 +37,7 @@ static FilteringMode current_filter_mode = FILTER_THREE_POINT;
     # and the maximum seven combiner inputs (vertex uniform pressure).
     main = '''int main(int argc, char **argv) {
     uint32_t options = std::stoul(argv[1]);
-    generate(0x107a1788107a1788ULL, options);
+    generate(argc>2 ? std::stoull(argv[2],nullptr,16) : 0x107a1788107a1788ULL, options);
 }\n'''
     cpp = directory / "generate.cpp"
     cpp.write_text(prelude + code + main)
@@ -56,6 +56,9 @@ static FilteringMode current_filter_mode = FILTER_THREE_POINT;
                     vs = vs.replace("layout(num_views = 2) in;", "")
                     vs = vs.replace("gl_ViewID_OVR", "0u")
                     yield options, vs, (directory / "mesh.frag").read_text()
+    subprocess.run([str(exe),"17","d000dadc10000108"],cwd=directory,check=True)
+    vs=(directory/"mesh.vert").read_text().replace("#extension GL_OVR_multiview2 : require","").replace("layout(num_views = 2) in;","").replace("gl_ViewID_OVR","0u")
+    yield -1,vs,(directory/"mesh.frag").read_text()
 
 
 class GLES:
@@ -111,12 +114,12 @@ class GLES:
             self.call("glAttachShader", None, [U, U], program, shader)
             self.call("glDeleteShader", None, [U], shader)
         names = ["aMeshPos", "aMeshST", "aMeshColor", "aSkinWeight", "aSkinBone"]
-        names += [f"aSkinP{i}" for i in range(4)] + [f"aSkinN{i}" for i in range(4)] + ["aSkinTint", "aSkinUnlit"]
+        names += [f"aSkinP{i}" for i in range(4)] + [f"aSkinN{i}" for i in range(4)] + ["aSkinTint", "aSkinUnlit", "aWorldNormal"]
         for i, name in enumerate(names):
             self.call("glBindAttribLocation", None, [U, U, C.c_char_p], program, i, name.encode())
         if capture:
-            varyings = (C.c_char_p * 4)(b"gl_Position", b"vInput1", b"vFog", b"vTexCoord0")
-            self.call("glTransformFeedbackVaryings", None, [U, I, P, U], program, 4, varyings, 0x8C8C)
+            varyings = (C.c_char_p * 5)(b"gl_Position", b"vInput1", b"vFog", b"vTexCoord0",b"vTexCoord1")
+            self.call("glTransformFeedbackVaryings", None, [U, I, P, U], program, 5, varyings, 0x8C8C)
         self.call("glLinkProgram", None, [U], program)
         status = I()
         self.call("glGetProgramiv", None, [U, U, P], program, 0x8B82, C.byref(status))
@@ -158,9 +161,9 @@ class GLES:
         self.call("glDrawArrays", None, [U, I, I], 0, 0, 1)
         self.call("glEndTransformFeedback", None, [])
         assert self.call("glGetError", U, []) == 0
-        ptr = self.call("glMapBufferRange", P, [U, C.c_ssize_t, C.c_ssize_t, U], 0x8C8E, 0, 56, 1)
+        ptr = self.call("glMapBufferRange", P, [U, C.c_ssize_t, C.c_ssize_t, U], 0x8C8E, 0, 64, 1)
         assert ptr
-        result = list(C.cast(ptr, C.POINTER(F * 14)).contents)
+        result = list(C.cast(ptr, C.POINTER(F * 16)).contents)
         self.call("glUnmapBuffer", U, [U], 0x8C8E)
         return result
 
@@ -178,7 +181,7 @@ def execution(gl, program):
     ubo = gl.buffer(0x8A11, C.sizeof(data), data, 0)
     block = gl.call("glGetUniformBlockIndex", U, [U, C.c_char_p], program, b"SkinPalette")
     gl.call("glUniformBlockBinding", None, [U, U, U], program, block, 0)
-    gl.buffer(0x8C8E, 56, binding=0)
+    gl.buffer(0x8C8E, 64, binding=0)
     identity = [1 if c == r else 0 for c in range(4) for r in range(4)]
     for name in ("uMeshMP", "uMeshInSel[0]"):
         gl.uniform(program, name, "m", identity)
@@ -216,6 +219,18 @@ def execution(gl, program):
     assert all(abs(a-b)<2e-5 for a,b in zip(uv,[.3,.2])),uv
     gl.uniform(program,"uMeshTexRotation[0]","f",[1,0])
     gl.uniform(program,"uMeshTex[0]","f",[0,0,0,0])
+    gl.uniform(program,"uNormalTex1","i",1)
+    gl.uniform(program,"uNormalAxis[0]","f",[1,0,0])
+    gl.uniform(program,"uNormalAxis[1]","f",[0,1,0])
+    assert all(abs(v-.5)<1e-5 for v in gl.capture()[14:16])
+    gl.uniform(program,"uSkinValid","u",[0,0])
+    gl.attribute(15,[3,0,4])
+    uv=gl.capture()[14:16]
+    assert all(abs(a-b)<1e-5 for a,b in zip(uv,[.8,.5])),uv
+    gl.uniform(program,"uNormalAxis[0]","f",[-1,0,0])
+    assert abs(gl.capture()[14]-.2)<1e-5
+    gl.uniform(program,"uNormalTex1","i",0)
+    gl.uniform(program,"uSkinValid","u",[3,0])
     # Invalid bone drops out, leaving bone 1's entire weight (not /255).
     gl.uniform(program, "uSkinValid", "u", [2, 0])
     out = gl.capture()
@@ -325,6 +340,44 @@ def culling(gl, program, identity):
     print("GLES culling: back/front and inverted-target winding passed")
 
 
+def reflection_pixels(gl,program):
+    gl.call("glUseProgram",None,[U],program)
+    gl.call("glDisable",None,[U],0x8C89)
+    gl.call("glDisable",None,[U],0x0B44)
+    vao=U();gl.call("glGenVertexArrays",None,[I,P],1,C.byref(vao))
+    gl.call("glBindVertexArray",None,[U],vao)
+    positions=(F*9)(-.5,-.5,0,.5,-.5,0,0,.5,0)
+    gl.buffer(0x8892,C.sizeof(positions),positions)
+    gl.call("glEnableVertexAttribArray",None,[U],0)
+    gl.call("glVertexAttribPointer",None,[U,I,U,U,I,P],0,3,0x1406,0,12,None)
+    identity=[1 if c==r else 0 for c in range(4) for r in range(4)]
+    gl.uniform(program,"uMeshMP","m",identity);gl.uniform(program,"uMeshInSel[0]","m",identity)
+    gl.uniform(program,"uVrFlat","i",1);gl.uniform(program,"uNormalTex1","i",1)
+    gl.uniform(program,"uNormalAxis[0]","f",[1,0,0]);gl.uniform(program,"uNormalAxis[1]","f",[0,1,0])
+    gl.attribute(2,[.2,.4,.6,1]);gl.attribute(15,[0,0,1])
+    colors=[[102,128,153,255],[26,51,77,255]]
+    for t,color in enumerate(colors):
+        texture=U();gl.call("glGenTextures",None,[I,P],1,C.byref(texture))
+        gl.call("glActiveTexture",None,[U],0x84C0+t)
+        gl.call("glBindTexture",None,[U,U],0x0DE1,texture)
+        for parameter,value in [(0x2801,0x2600),(0x2800,0x2600),(0x2802,0x812F),(0x2803,0x812F)]:
+            gl.call("glTexParameteri",None,[U,U,I],0x0DE1,parameter,value)
+        pixel=(C.c_ubyte*4)(*color)
+        gl.call("glTexImage2D",None,[U,I,I,I,I,I,U,U,P],0x0DE1,0,0x1908,1,1,0,0x1908,0x1401,pixel)
+        gl.uniform(program,f"uTex{t}","i",t)
+    gl.call("glViewport",None,[I,I,I,I],0,0,16,16)
+    gl.call("glClearColor",None,[F,F,F,F],0,0,0,0);gl.call("glClear",None,[U],0x4000)
+    gl.call("glDrawArrays",None,[U,I,I],4,0,3)
+    pixel=(C.c_ubyte*4)();gl.call("glReadPixels",None,[I,I,I,I,U,U,P],8,6,1,1,0x1908,0x1401,pixel)
+    expected=[]
+    for c,tint in enumerate([.2,.4,.6]):
+        lit=colors[0][c]/255*tint;r=colors[1][c]/255
+        expected.append((lit*(1-r)+r)*255)
+    assert all(abs(pixel[c]-expected[c])<2 for c in range(3)),(list(pixel),expected)
+    assert pixel[3]==255 and gl.call("glGetError",U,[])==0
+    print("GLES reflection pixels: diffuse*(1-R)+R on independent normal UVs passed")
+
+
 if __name__ == "__main__":
     if os.name == "nt":
         print("SKIP: GLES shader execution requires Mesa under WSL/Linux")
@@ -337,5 +390,7 @@ if __name__ == "__main__":
             count += 1
             if options == 3:
                 execution(gl, program)
+            if options == -1:
+                reflection_pixels(gl,program)
             gl.call("glDeleteProgram", None, [U], program)
         print(f"{count} production mesh shader variants compiled and linked")

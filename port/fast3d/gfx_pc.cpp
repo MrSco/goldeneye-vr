@@ -57,6 +57,7 @@ extern "C" {
 #include "gevr_mesh_visibility.h"
 #include "gevr_bean_room_state.h"
 extern "C" int32_t g_GlobalTimer;
+static bool s_beanNormalTex1;
 static const uint8_t *s_beanVertexTint;
 static unsigned s_beanVertexTintStride;
 static bool s_beanRoomFogLinear;
@@ -252,6 +253,7 @@ struct LoadedVertex {
     struct RGBA color;
     uint8_t fog;
     uint8_t clip_rej;
+    float normal_uv[2];
 };
 
 static struct {
@@ -2500,6 +2502,18 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
 
         d->u = U;
         d->v = V;
+        if(s_beanNormalTex1) {
+            const float *n=world ? world[i].normal : nullptr;
+            float normal[3]={n ? n[0] : (float)vcn->x/127,
+                             n ? n[1] : (float)vcn->y/127,
+                             n ? n[2] : (float)vcn->z/127};
+            float length=sqrtf(normal[0]*normal[0]+normal[1]*normal[1]+normal[2]*normal[2]);
+            for(int k=0;k<3;k++) normal[k]=length>1e-6f ? normal[k]/length : 0;
+            for(int a=0;a<2;a++) {
+                float axis[3]; calculate_normal_dir(&rsp.lookat[a],axis);
+                d->normal_uv[a]=.5f+.5f*clampf(normal[0]*axis[0]+normal[1]*axis[1]+normal[2]*axis[2],-1,1);
+            }
+        }
 
         // trivial clip rejection
         //
@@ -3136,8 +3150,13 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
 			uint32_t tex_h = (is_rect || tex_from_block[t]) ? tex_height[t] : tex_height2[t];
 
 			float un = u / tex_w, vn = v / tex_h;
-            buf_vbo[buf_vbo_len++] = beanMotion[t][0]*un + beanMotion[t][2]*vn + beanMotion[t][4];
-            buf_vbo[buf_vbo_len++] = beanMotion[t][1]*un + beanMotion[t][3]*vn + beanMotion[t][5];
+            if(t==1 && s_beanNormalTex1) {
+                buf_vbo[buf_vbo_len++]=v_arr[i]->normal_uv[0];
+                buf_vbo[buf_vbo_len++]=v_arr[i]->normal_uv[1];
+            } else {
+                buf_vbo[buf_vbo_len++] = beanMotion[t][0]*un + beanMotion[t][2]*vn + beanMotion[t][4];
+                buf_vbo[buf_vbo_len++] = beanMotion[t][1]*un + beanMotion[t][3]*vn + beanMotion[t][5];
+            }
         }
 
         if (use_fog) {
@@ -4306,6 +4325,8 @@ static bool gevr_mesh_params(struct GfxMeshDrawParams* p) {
         out[2] = { -1, c.b };
         out[3] = { -1, c.a };
     };
+    p->normal_tex1=s_beanNormalTex1;
+    if(p->normal_tex1) for(int a=0;a<2;a++) calculate_normal_dir(&rsp.lookat[a],p->normal_axis[a]);
     p->num_inputs = s_gevrMeshState.num_inputs;
     for (int j = 0; j < s_gevrMeshState.num_inputs; j++) {
         Byte color[4], tmp[4];
@@ -4703,6 +4724,10 @@ static void gfx_run_dl(Gfx* cmd) {
                 gfx_sp_set_other_mode(3, 29, gevrBeanRoomMode((uint32_t)cmd->words.w1, rsp.geometry_mode & G_FOG));
                 break;
             }
+            case G_GEVR_NORMAL_TEX1:
+                gfx_flush();
+                s_beanNormalTex1=cmd->words.w1!=0;
+                break;
             case G_GEVR_VERTEX_TINT:
                 s_beanVertexTint = (const uint8_t *)cmd->words.w1;
                 s_beanVertexTintStride = (cmd->words.w0 >> 8) & 0xffff;
@@ -5046,6 +5071,7 @@ extern "C" void gfx_init(const GfxInitSettings *settings) {
         tex_upload_buffer = (uint8_t*)malloc(max_tex_size * max_tex_size * 4);
     }
 
+    s_beanNormalTex1=false;
     rsp.lookat[0].dir[0] = rsp.lookat[1].dir[1] = 0x7F;
     rsp.current_lookat_coeffs[0][0] = rsp.current_lookat_coeffs[1][1] = 1.f;
     rsp.lookat_enabled = true;
