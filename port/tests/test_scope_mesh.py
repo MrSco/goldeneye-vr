@@ -52,6 +52,7 @@ static void gevr_scope_make_target(int) {}
 static void gevr_mesh_uniforms(const ShaderProgram*,const GfxMeshDrawParams*p) {savedParams=*p;}
 static void gevr_mesh_clip(bool) {}
 static void gevr_mesh_cull(int v) {cull=v;}
+static void gevr_mesh_settle(void) {}   // gfx_opengl.cpp: no mesh run is left bound here
 static void gfx_opengl_load_shader(ShaderProgram*p) {s_curPrg=p;}
 static void gfx_opengl_unload_shader(ShaderProgram*) {}
 static void gfx_opengl_set_depth_mode(bool,bool,bool,bool,uint16_t) {}

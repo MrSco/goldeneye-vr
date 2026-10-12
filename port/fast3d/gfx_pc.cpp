@@ -4522,6 +4522,7 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, 
     return true;
 }
 
+extern "C" void gfx_opengl_mesh_settle(void);
 static void gfx_run_dl(Gfx* cmd) {
     GevrProfileSection profile(GEVR_TIME_DL);
     // puts("dl");
@@ -4802,6 +4803,9 @@ static void gfx_run_dl(Gfx* cmd) {
                 }
                 break;
             case (uint8_t)G_ENDDL:
+                if (mesh != nullptr) {
+                    gfx_opengl_mesh_settle();   // its runs left their GL state bound
+                }
                 return;
             case (uint8_t)G_SETGEOMETRYMODE:
                 gfx_sp_geometry_mode(0, cmd->words.w1);

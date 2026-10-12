@@ -274,6 +274,7 @@ static GLuint load_bmp_texture(const char* path) {
 }
 
 extern "C" void gfx_opengl_load_mirror_logo(const char* path) {
+    gevr_mesh_settle();
     // Re-open to read dimensions from the BMP header
     FILE* f = fopen(path, "rb");
     if (!f) return;
@@ -405,6 +406,17 @@ static bool s_meshBroken;         // a mesh variant failed: the CPU draws the me
 static GLuint s_skinPaletteBuffer; // one transient UBO; redraw uploads its saved palette
 static uint32_t s_glGeneration;   // gfx_opengl_init: buffers made in an older context are gone
 static bool s_drawElements;       // gevr_issue_draw: the bound static mesh's indices, not the vertex ring
+/* gfx_opengl_draw_mesh leaves its mesh program, vertex array, clip distance
+ * and culling bound for the next run of the same list, as the redraw replay
+ * keeps a program across its draws; switching to fast3d's program and back
+ * for each of a wide view's hundreds of runs made the driver validate every
+ * draw anew. gevr_mesh_settle() puts back what fast3d left bound, before any
+ * other drawing, program, framebuffer or vertex-array work. */
+static struct ShaderProgram* s_meshLazyBase;   // fast3d's program while a mesh one is bound
+static GLuint s_meshLazyVao;
+static int s_meshLazyCull;
+static unsigned s_meshGpuMade;                // gevr_mesh_gpu binds the ring's array when it makes one
+static void gevr_mesh_settle(void);
 // What gfx_opengl_set_uniforms last wrote to each mesh variant: a mesh draw binds
 // its variant and the frontend's program again each time, and these rarely change
 struct GevrMeshUniforms {
@@ -735,6 +747,7 @@ static bool gfx_opengl_is_multiview(void) {
 
 static void gfx_opengl_set_eye_offsets(float left_ipd, float left_asym_x, float left_hud, float left_asym_y,
                                        float right_ipd, float right_asym_x, float right_hud, float right_asym_y) {
+    gevr_mesh_settle();
     // Left eye (gl_ViewID_OVR == 0)
     s_eye_offsets[0] = left_ipd;     // vec4.x: 3D IPD
     s_eye_offsets[1] = left_asym_x;  // vec4.y: horizontal lens asymmetry
@@ -751,6 +764,7 @@ static void gfx_opengl_set_eye_offsets(float left_ipd, float left_asym_x, float 
 
 
 extern "C" void gfx_opengl_connect_multiview_fbo(GLuint fbo_id, uint32_t width, uint32_t height) {
+    gevr_mesh_settle();
     if (framebuffers.empty()) framebuffers.resize(1);
     Framebuffer& fb = framebuffers[0];
     fb.fbo = fbo_id;   // points to gmultiviewFBO
@@ -765,6 +779,7 @@ extern "C" void gfx_opengl_connect_multiview_fbo(GLuint fbo_id, uint32_t width, 
 }
 
 void gfx_opengl_init_multiview() { // VR
+    gevr_mesh_settle();
     bool found = false;
     if (gl_es) {
         GLint numExts = 0;
@@ -902,6 +917,7 @@ static void menuOverlayInit() {
 
 extern "C" void gfx_opengl_draw_mirror_menu_overlay(GLuint menuTex, const float* mvp,
                                                     int vpX, int vpY, int vpW, int vpH) {
+    gevr_mesh_settle();
     if (menuTex == 0 || mvp == NULL) return;
     menuOverlayInit();
 
@@ -1009,6 +1025,7 @@ static void gfx_opengl_set_uniforms(struct ShaderProgram* prg) {
 }
 
 static void gfx_opengl_unload_shader(struct ShaderProgram* old_prg) {
+    gevr_mesh_settle();
     if (old_prg != NULL) {
         for (int i = 0; i < old_prg->num_attribs; i++) {
             if (old_prg->attrib_locations[i] >= 0) {
@@ -1022,6 +1039,7 @@ static void gfx_opengl_unload_shader(struct ShaderProgram* old_prg) {
  * a program is loaded, so the current program's copy is written here too. */
 void gfx_opengl_vr_hud_full_size(bool full)
 {
+    gevr_mesh_settle();
     // Nested size scopes restore their caller's choice rather than forcing
     // the ordinary HUD size when an inner timer ends.
     static bool previous[16];
@@ -1039,6 +1057,7 @@ void gfx_opengl_vr_hud_full_size(bool full)
 }
 
 static void gfx_opengl_load_shader(struct ShaderProgram* new_prg) {
+    gevr_mesh_settle();
     GevrCpuSection timing(GEVR_TIME_SHADER_BIND);
     // if (!new_prg) return;
     s_curPrg = new_prg;
@@ -1243,6 +1262,7 @@ gl_Position = mvPos;
 
 
 static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shader_id0, uint32_t shader_id1) {
+    gevr_mesh_settle();
     GevrCpuSection timing(GEVR_TIME_SHADER_COMPILE);
     struct CCFeatures cc_features = { 0 };
     gfx_cc_get_features(shader_id0, shader_id1, &cc_features);
@@ -1896,6 +1916,7 @@ static void gfx_opengl_shader_get_info(struct ShaderProgram* prg, uint8_t* num_i
 }
 
 static void gfx_opengl_clear_shaders(void) {
+    gevr_mesh_settle();
     glUseProgram(0);
     for (auto& pair : shader_program_pool) {
         glDeleteProgram(pair.second.opengl_program_id);
@@ -1919,6 +1940,7 @@ static GLuint gfx_opengl_new_texture(void) {
 }
 
 static void gfx_opengl_delete_texture(uint32_t texID) {
+    gevr_mesh_settle();
     glDeleteTextures(1, &texID);
 }
 
@@ -2187,6 +2209,7 @@ static bool gevr_scope_any_taken(void)
 
 void gfx_vr_scope_record(bool on, bool invert_y)
 {
+    gevr_mesh_settle();
     s_scopeRec = false;
     if (!on) {
         return;
@@ -2269,6 +2292,7 @@ static bool gfx_opengl_scope_sees_mesh(const float* mp, const float* lo, const f
 // gunfire.c gunDrawSight: a hand's sight drawn for its scope alone, after the world (-1 ends)
 void gfx_vr_scope_only(int hand)
 {
+    gevr_mesh_settle();
     s_scopeOnlyMask = (hand == 0 || hand == 1) && s_scopeTaken[hand] ? (uint8_t)(1 << hand) : 0;
 }
 
@@ -2363,6 +2387,7 @@ static void gevr_scope_make_target(int hand)
  */
 void gfx_vr_scope_prepare(void)
 {
+    gevr_mesh_settle();
     gevr_scope_make_target(0);
     gevr_scope_make_target(1);
 }
@@ -2371,6 +2396,7 @@ void gfx_vr_scope_prepare(void)
 // hand's scope. The GL state is saved and put back once around both passes.
 void gfx_vr_scope_render(void)
 {
+    gevr_mesh_settle();
     GevrProfileSection profile(GEVR_TIME_SCOPE);
     s_scopeRec = false;
     s_scopeOnlyMask = 0;
@@ -2615,6 +2641,7 @@ static void gevr_eye_present_draw(void) {
 }
 
 static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
+    gevr_mesh_settle();
     GevrCpuSection timing(GEVR_TIME_DRAW_BATCH);
     gevrFrameTimingCounters(1, 3*buf_vbo_num_tris, 0, 0, 0, 0);
 
@@ -2959,6 +2986,7 @@ static void gevr_eye_proj_times(const float* delta, float M[16]);
 // gfx_pc.cpp gfx_run, around the stereo eye pass
 void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* presentation)
 {
+    gevr_mesh_settle();
     if (on) {
         s_eyeDraws.clear();
         s_eyeMeshes.clear();
@@ -2992,6 +3020,7 @@ void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* p
 // gfx_pc.cpp: VR_HAND_DRAW, what follows a controller, 2 the body (gevr_bodyslots.c), -1 the world again
 void gfx_vr_eye_hand(int ctrl)
 {
+    gevr_mesh_settle();
     s_eyeHand = (ctrl >= 0 && ctrl <= 2) ? ctrl : -1;
 }
 
@@ -3178,6 +3207,7 @@ static void gevr_eye_replay_mesh(const GevrEyeDraw& d)
 
 void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand1, const float* body)
 {
+    gevr_mesh_settle();
     if (!s_eyeReady) {
         return;
     }
@@ -3359,6 +3389,7 @@ static GevrMeshGpu* gevr_mesh_gpu(void** slot, const void* vertices, uint32_t nu
         return g;
     }
     g = new GevrMeshGpu();
+    s_meshGpuMade++;
     g->generation = s_glGeneration;
     glGenVertexArrays(1, &g->vao);
     glGenBuffers(1, &g->vbo);
@@ -3403,6 +3434,7 @@ static GevrMeshGpu* gevr_mesh_gpu(void** slot, const void* vertices, uint32_t nu
 
 static void gfx_opengl_delete_mesh(void* gpu)
 {
+    gevr_mesh_settle();
     GevrMeshGpu* g = (GevrMeshGpu*)gpu;
     if (g == NULL) {
         return;
@@ -3417,6 +3449,7 @@ static void gfx_opengl_delete_mesh(void* gpu)
 }
 
 /* a mesh variant, its gfx_opengl_set_uniforms written only when they changed */
+static void gevr_mesh_refresh(struct ShaderProgram* mp);
 static void gevr_mesh_bind(struct ShaderProgram* mp)
 {
     s_curPrg = mp;
@@ -3427,6 +3460,12 @@ static void gevr_mesh_bind(struct ShaderProgram* mp)
     gCurIsMenuLoc = mp->isMenuLocation;
     gCurDecalBiasLoc = mp->decalBiasLocation;
     s_uniCacheValid = false;
+    gevr_mesh_refresh(mp);
+}
+
+/* the frontend-wide uniforms a mesh program shares (filters, menu, eyes) */
+static void gevr_mesh_refresh(struct ShaderProgram* mp)
+{
     GevrMeshUniforms now;
     memset(&now, 0, sizeof(now));
     now.frame = (int)frame_count;
@@ -3460,6 +3499,24 @@ static void gevr_mesh_rebind(struct ShaderProgram* base)
     s_uniCacheValid = false;
 }
 
+static void gevr_mesh_settle(void)
+{
+    struct ShaderProgram* base = s_meshLazyBase;
+    if (base == NULL) return;
+    s_meshLazyBase = NULL;
+    gevr_mesh_clip(false);
+    gevr_mesh_cull(0);
+    glBindVertexArray(opengl_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+    gevr_mesh_rebind(base);
+}
+
+/* gfx_pc.cpp, at the end of a mesh's list: nothing else leaves it bound */
+extern "C" void gfx_opengl_mesh_settle(void)
+{
+    gevr_mesh_settle();
+}
+
 static struct ShaderProgram* gevr_mesh_program(struct ShaderProgram* base)
 {
     const pair<uint64_t, uint32_t> key = make_pair(base->shader_id0, base->shader_id1);
@@ -3490,21 +3547,35 @@ static bool gfx_opengl_draw_mesh(void** gpu, const void* vertices, uint32_t num_
                                  uint32_t num_indices, uint32_t first, uint32_t count,
                                  const struct GfxMeshDrawParams* p)
 {
-    struct ShaderProgram* base = s_curPrg;
+    // fast3d's program: the one bound, or the one put back when the run before settles
+    struct ShaderProgram* base = s_meshLazyBase != NULL ? s_meshLazyBase : s_curPrg;
     if (!gevr_mesh_supported() || base == NULL || base->is_mesh || base->opt_grayscale ||
         p->num_inputs != base->num_inputs || s_scopeOnlyMask || gForceFlatShaderForMenu ||
         vr_dl_is_pause_or_menu || get_debug_VisCVG_flag()) {
+        gevr_mesh_settle();
         return false;
     }
+    if (mesh_program_pool.find(make_pair(base->shader_id0, base->shader_id1)) == mesh_program_pool.end()) {
+        gevr_mesh_settle();   // building one binds it
+    }
+    const unsigned made = s_meshGpuMade;
     GevrMeshGpu* g = gevr_mesh_gpu(gpu, vertices, num_vertices, indices, num_indices, p->skinned, p->world_vertices);
     struct ShaderProgram* mp = gevr_mesh_program(base);
     if (mp == NULL) {
-        gevr_mesh_rebind(base);   // building it bound it
+        if (s_meshLazyBase != NULL) gevr_mesh_settle();   // a program known broken: nothing was built
+        else gevr_mesh_rebind(base);   // building it bound it
         return false;
     }
     GevrCpuSection timing(GEVR_TIME_DRAW_BATCH);
     gevrFrameTimingCounters(1, count, 0, 0, 0, 0);
-    gevr_mesh_bind(mp);
+    // The run before left its program, array, clip and culling bound (made: a
+    // new mesh's buffers went up since, with the ring's array bound after).
+    const bool kept = s_meshLazyBase != NULL;
+    if (!kept || s_curPrg != mp) {
+        gevr_mesh_bind(mp);
+    } else {
+        gevr_mesh_refresh(mp);
+    }
     gevr_mesh_uniforms(mp, p);
     // gfx_opengl_draw_triangles' per-draw uniforms, for this world draw
     gevr_set_decal_bias((s_isDecal && s_decalMode == 2) ? gfx_decal_proj_z * s_decalA : 0.0f);
@@ -3515,9 +3586,9 @@ static bool gfx_opengl_draw_mesh(void** gpu, const void* vertices, uint32_t num_
         glUniform4fv(mp->zTintLocation, 1, s_zDebugTints[gevrZDebugMode == 1 ? s_zDebugClass : 5]);
     }
     gevr_eye_present_draw();
-    glBindVertexArray(g->vao);
-    gevr_mesh_clip(true);
-    gevr_mesh_cull(p->cull);
+    if (!kept || made != s_meshGpuMade || s_meshLazyVao != g->vao) glBindVertexArray(g->vao);
+    if (!kept) gevr_mesh_clip(true);
+    if (!kept || s_meshLazyCull != p->cull) gevr_mesh_cull(p->cull);
     gevr_scope_keep_mesh(g->vao, (GLint)first, (GLsizei)count, p);
     s_drawElements = true;
     gevr_issue_draw((GLint)first, (GLsizei)count, s_decalZ, gevrRoomDl && s_isDecal, 0.0f, false);
@@ -3528,11 +3599,10 @@ static bool gfx_opengl_draw_mesh(void** gpu, const void* vertices, uint32_t num_
         gevr_eye_keep((GLint)first, (GLsizei)count, false);
         s_eyeKeepMesh = 0;
     }
-    gevr_mesh_clip(false);
-    gevr_mesh_cull(0);
-    glBindVertexArray(opengl_vao);
-    glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
-    gevr_mesh_rebind(base);
+    // left bound for the next run: gevr_mesh_settle() puts fast3d's back
+    s_meshLazyBase = base;
+    s_meshLazyVao = g->vao;
+    s_meshLazyCull = p->cull;
     return true;
 }
 
@@ -3725,6 +3795,7 @@ static void gfx_opengl_init_extensions(void) {
 
 
 static void gfx_opengl_init(void) {
+    gevr_mesh_settle();
     if (!gladLoadGLLoader(gl_load_proc) || glGetString == NULL || glEnable == NULL) {
         sysFatalError("Could not load OpenGL.\nReported SDL error: %s", SDL_GetError());
     }
@@ -3871,9 +3942,11 @@ static void gfx_opengl_init(void) {
 
 
 static void gfx_opengl_on_resize(void) {
+    gevr_mesh_settle();
 }
 
 static void gfx_opengl_start_frame(void) {
+    gevr_mesh_settle();
     frame_count++;
     gevr_decal_switch_poll();
     gevr_zdebug_poll();
@@ -3890,15 +3963,18 @@ static void gfx_opengl_start_frame(void) {
 }
 
 static void gfx_opengl_end_frame(void) {
+    gevr_mesh_settle();
     glFlush();
 
 }
 
 static void gfx_opengl_finish_render(void) {
+    gevr_mesh_settle();
 
 }
 
 static int gfx_opengl_create_framebuffer() {
+    gevr_mesh_settle();
     size_t i = framebuffers.size();
     framebuffers.resize(i + 1);
 
@@ -3939,6 +4015,7 @@ static int gfx_opengl_create_framebuffer() {
 static void gfx_opengl_update_framebuffer_parameters(int fb_id, uint32_t width, uint32_t height, uint32_t msaa_level,
                                                      bool opengl_invert_y, bool render_target, bool has_depth_buffer,
                                                      bool can_extract_depth) {
+    gevr_mesh_settle();
 
     if (fb_id < 0 || fb_id >= (int)framebuffers.size()) {
         return;
@@ -4008,6 +4085,7 @@ static void gfx_opengl_update_framebuffer_parameters(int fb_id, uint32_t width, 
 }
 
 bool gfx_opengl_start_draw_to_framebuffer(int fbid, float noisescale) {
+    gevr_mesh_settle();
     if (gfx_framebuffers_enabled && fbid < (int)framebuffers.size()) {
         Framebuffer& fb = framebuffers[fbid];
 
@@ -4061,12 +4139,14 @@ static void gfx_opengl_vr_menu_fb_init(void) {
 }
 
 bool gfx_vr_menu_L_dirty_and_clear(void) {
+    gevr_mesh_settle();
     // GoldenEye: kept until the next game frame, see gfx_vr_menu_H_dirty_and_clear.
     return hud_L_was_drawn;
 }
 
 void gfx_vr_hud_capture_begin_L(void)
 {
+    gevr_mesh_settle();
     GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
     gfx_opengl_vr_menu_fb_init();
@@ -4112,6 +4192,7 @@ void gfx_vr_hud_capture_begin_L(void)
 
 void gfx_vr_hud_capture_end_L(void)
 {
+    gevr_mesh_settle();
     GevrProfileSection profile(GEVR_TIME_CAPTURE);
 
     gfx_flush();
@@ -4180,6 +4261,7 @@ static void gfx_opengl_vr_menu_R_fb_init(void)
 
 void gfx_vr_hud_capture_begin_R(void)
 {
+    gevr_mesh_settle();
     GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
     gfx_opengl_vr_menu_R_fb_init();
@@ -4220,6 +4302,7 @@ static void gevr_measure_R_capture(void)
 
 void gfx_vr_hud_capture_end_R(void)
 {
+    gevr_mesh_settle();
     GevrProfileSection profile(GEVR_TIME_CAPTURE);
     hud_R_was_drawn = true;
     gfx_flush();
@@ -4246,6 +4329,7 @@ GLuint gfx_opengl_get_vr_menu_texture_R(void)
 }
 
 bool gfx_vr_menu_R_dirty_and_clear(void) {
+    gevr_mesh_settle();
     // GoldenEye: kept until the next game frame, see gfx_vr_menu_H_dirty_and_clear.
     bool v = hud_R_was_drawn;
     return v;
@@ -4273,6 +4357,7 @@ static void gfx_opengl_vr_menu_H_fb_init(void) {
 
 void gfx_vr_hud_capture_begin_H(void)
 {
+    gevr_mesh_settle();
     GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
     gfx_opengl_vr_menu_H_fb_init();
@@ -4315,6 +4400,7 @@ void gfx_vr_hud_capture_begin_H(void)
 
 void gfx_vr_hud_capture_end_H(void)
 {
+    gevr_mesh_settle();
     GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
 
@@ -4352,6 +4438,7 @@ void gfx_vr_hud_capture_end_H(void)
 }
 
 bool gfx_vr_menu_H_dirty_and_clear(void) {
+    gevr_mesh_settle();
     // GoldenEye: the game draws at 60 Hz and the display runs at 72+, so a
     // captured HUD must stay up through the XR frames between game frames or
     // it flickers; gfx_vr_hud_H_new_frame (gfx_run) drops it instead.
@@ -4361,6 +4448,7 @@ bool gfx_vr_menu_H_dirty_and_clear(void) {
 // A new game frame is being drawn: whether it shows the head-locked HUD is
 // decided by whether it captures one.
 void gfx_vr_hud_H_new_frame(void) {
+    gevr_mesh_settle();
     hud_H_was_drawn = false;
     hud_P_was_drawn = false;
     hud_R_was_drawn = false;
@@ -4382,6 +4470,7 @@ static GLint gVrMenuPPrevViewport[4] = {0,0,0,0};
 
 void gfx_vr_hud_capture_begin_P(void)
 {
+    gevr_mesh_settle();
     GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
     {
@@ -4426,6 +4515,7 @@ void gfx_vr_hud_capture_begin_P(void)
 
 void gfx_vr_hud_capture_end_P(void)
 {
+    gevr_mesh_settle();
     GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
 
@@ -4453,6 +4543,7 @@ void gfx_vr_hud_capture_end_P(void)
 }
 
 bool gfx_vr_menu_P_dirty_and_clear(void) {
+    gevr_mesh_settle();
     return hud_P_was_drawn;   /* dropped by gfx_vr_hud_H_new_frame, as the head-locked HUD */
 }
 
@@ -4468,6 +4559,7 @@ GLuint gfx_opengl_get_vr_menu_texture_P(void) {
 
 
 void gfx_opengl_clear_framebuffer(bool clear_color, bool clear_depth) {
+    gevr_mesh_settle();
     glDisable(GL_SCISSOR_TEST);
 
     GLbitfield mask = 0;
@@ -4489,6 +4581,7 @@ void gfx_opengl_clear_framebuffer(bool clear_color, bool clear_depth) {
 }
 
 void gfx_opengl_resolve_msaa_color_buffer(int fb_id_target, int fb_id_source) {
+    gevr_mesh_settle();
     if (!gfx_framebuffers_enabled) {
         return;
     }
@@ -4522,6 +4615,7 @@ void* gfx_opengl_get_framebuffer_texture_id(int fbid) {
 
 
 void gfx_opengl_select_texture_fb(int fb_id) {
+    gevr_mesh_settle();
     //    LOGI( "GL select_texture_fb: fbid=%d clrbuf=%u is_mv=%d",
     //                 fb_id, framebuffers[fb_id].clrbuf, framebuffers[fb_id].is_multiview);
     // glDisable(GL_DEPTH_TEST);
@@ -4536,6 +4630,7 @@ void gfx_opengl_select_texture_fb(int fb_id) {
 
 
 void gfx_opengl_copy_framebuffer(int fb_dst, int fb_src, int left, int top, bool flip_y, bool use_back) {
+    gevr_mesh_settle();
     if (!gfx_framebuffers_enabled || fb_dst >= (int)framebuffers.size() || fb_src >= (int)framebuffers.size()) {
         return;
     }
@@ -4725,6 +4820,7 @@ void gfx_opengl_copy_framebuffer(int fb_dst, int fb_src, int left, int top, bool
 
 
 void gfx_opengl_set_texture_filter(FilteringMode mode) {
+    gevr_mesh_settle();
     current_filter_mode = mode;
 }
 
@@ -4770,6 +4866,7 @@ static void gfx_opengl_mirror_to_desktop(
         uint32_t src_w, uint32_t src_h,   // VR resolution
         uint32_t dst_w, uint32_t dst_h)   // real size of mirror_wnd
 {
+    gevr_mesh_settle();
 #ifndef ANDROID // if PC
 
     if (!gfx_sdl_is_mirror_enabled()) return;
@@ -4964,6 +5061,7 @@ float* vr_get_eye_proj_mtx(int eye);   // vr_openxr.cpp
 
 void gfx_opengl_draw_vignette(float strength)
 {
+    gevr_mesh_settle();
     if (strength <= 0.001f || !use_multiview) {
         return;
     }

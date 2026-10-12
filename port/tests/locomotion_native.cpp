@@ -50,6 +50,7 @@ static std::vector<ShaderProgram*> s_eyePresentationPrograms;
 static std::vector<int> s_eyeDraws;
 struct GevrEyeMesh { int vao; };   /* gfx_opengl.cpp: a static mesh draw kept for the redraw */
 static std::vector<GevrEyeMesh> s_eyeMeshes;
+static void gevr_mesh_settle(void) {}   /* gfx_opengl.cpp: no mesh run is left bound here */
 static void *s_pmPtr = &program;
 static std::map<int,int> reprojection;
 static float lastUniformMatrix[16];
