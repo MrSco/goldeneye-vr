@@ -55,6 +55,9 @@ static const GexWeaponDef *active;
 struct GevrScope { s32 item; f32 x,y,z,r; s32 nearOnly; };
 static const struct GevrScope s_gevrScopes[]={{ITEM_SNIPERRIFLE,13.5f,126.5f,-128,23.5f,0},{ITEM_LASER,0,100,-80,16,0}};
 static float VrScopeFit[2][4][4],s_gevrScopeTrim[4],scopeSize=1;
+/* bondview2.c gevrFitLook: these are GoldenEye X's models; gevr_scope.h's lens fit for a look */
+static int gevrFitLook(int hand) { (void)hand; return 1; }
+static float *gevrScopeFitOf(int look, int scope) { return VrScopeFit[look == 1 ? 1 : 0][scope]; }
 static int VrLeftHandedMode;
 #define GEVR_VIEWMODEL_CM 0.85f
 #define GEVR_GRIP_TO_ORIGIN_CM 12.0f
@@ -110,6 +113,8 @@ void modelInit(Model *model, ModelFileHeader *hdr, s32 *rw) { model->obj=hdr; mo
 static int legacySupportDraws;
 static Gfx *gevrHandTag(Gfx *gdl, int ctrl) { (void)ctrl; return gdl; }
 static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *rd) { (void)rd; legacySupportDraws++; return gdl; }
+/* bondview2.c: Bean's holding arm, which never holds GoldenEye X's guns */
+static Gfx *gevrRenderBeanGripArm(Gfx *gdl, ModelRenderData *rd, s32 *drawn) { (void)rd; *drawn = 0; return gdl; }
 static s32 gevrGexMagazineFitting(void);
 static s32 gevrGexIsHandHeld(const GexWeaponDef *def);
 static void gevrGexHandFitTo(const GexWeaponDef *def, Mtxf *rwmtx, s32 numMatrices);

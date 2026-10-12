@@ -1,12 +1,13 @@
 # Project Bean visuals (experimental)
 
-**Runtime validation failed on Quest 3.** Report `a2167162` from build
-`0bf6179` reproduced a Dam crash and incorrect model/texture rendering. That
-APK is withdrawn as a release candidate. The catalog checks below establish
-registration and memory safety, not correct visual mapping. DAB renderer
-parity and headset acceptance remain unfinished.
+Released in v0.4.20 after headset play on Quest 3 (2026-10-12): the import,
+characters, guns and their moving parts, the watch and weapon wheel, the HUD
+and menus, Bean's holding arm and Gun fit. Some material effects (Dam and
+Complex water, Silo and Control floors) are still simplified.
 
-The crash was in `bgTestHitOnObj` during stereo aiming: the importer had
+An earlier candidate, build `0bf6179`, was withdrawn after report `a2167162`
+(a Dam crash and incorrect model/texture rendering). The crash was in
+`bgTestHitOnObj` during stereo aiming: the importer had
 replaced native segmented display-list pointers with Bean heap pointers.
 Replacements are now selected only during rendering. Native pointers, model
 types and collision geometry remain intact. Model reloads also discard old
@@ -16,8 +17,7 @@ The source comparison additionally found a missing decoded-image row
 reversal, missing DAB magenta-placeholder handling, and fog/unset vertex alpha
 being used as opacity. These have regression coverage and source fixes.
 Bean diagnostics now use the game logger so exported reports include asset
-names and replacement counts. These fixes still require headset verification.
-See the [runtime audit](project-bean-runtime-audit.md) for evidence and the
+names and replacement counts. See the [runtime audit](project-bean-runtime-audit.md) for evidence and the
 remaining DAB paths required for mapping acceptance.
 
 GoldenEye VR can load characters, heads, weapons, props, rooms and skies from
