@@ -923,10 +923,90 @@ static const int s_inherit[GEVR_BEAN_SK_COUNT] = {
 	-1, -1, 14
 };
 
+/*
+ * DAB gebean.c beanGunFlashDraws(): which of a gun pickup's draws are the
+ * muzzle flash GoldenEye's prop/chr<gun> models carry as geometry - quads in
+ * the plane of the muzzle the game shows only for the frames a shot lasts.
+ * A rigid pickup lays every draw into one list, so the flash burned for as
+ * long as the gun was held or lay on the floor ("the rcp90 has the muzzle
+ * flash static, same with the AR"). It is dropped: GoldenEye's own gunfire
+ * node (weaponSetGunfireVisible()) still flashes for the shot.
+ *
+ * The test is the plane, along Bean's y (the barrel): a quad list wholly in
+ * one plane at one end of the gun, or flat quad by quad within the end (the
+ * Automatic Shotgun's two layers), or an alpha-tested sprite of a few
+ * triangles flat at the end (the Moonraker's). Across the release's
+ * twenty-five pickups DAB found the RC-P90, the AR33, the D5K, the Moonraker
+ * and the Automatic Shotgun. A bit per draw, the first 64.
+ */
+static uint64_t beanGunFlashDraws(const struct gevrBeanMesh *mesh)
+{
+	float lo = 1e18f, hi = -1e18f, dlo[64], dhi[64];
+	uint8_t quadsflat[64];
+	int ntris[64];
+	const int num = mesh->ndraws < 64 ? mesh->ndraws : 64;
+	uint64_t out = 0;
+
+	for (int di = 0; di < num; di++) {
+		const struct gevrBeanDrawSrc *d = &mesh->draws[di];
+		dlo[di] = 1e18f;
+		dhi[di] = -1e18f;
+		ntris[di] = d->idx && d->pos && d->state ? d->ntris : 0;
+		quadsflat[di] = d->prim == 13;
+		/* a quad list's triangles come two to a quad */
+		for (int q = 0; q + 1 < ntris[di] && quadsflat[di]; q += 2) {
+			float qlo = 1e18f, qhi = -1e18f;
+			for (int t = q * 3; t < q * 3 + 6; t++) {
+				const uint32_t v = d->idx[t];
+				if (v < d->nverts && (d->state[v] & GEVR_BEAN_V_READ)) {
+					qlo = d->pos[v][1] < qlo ? d->pos[v][1] : qlo;
+					qhi = d->pos[v][1] > qhi ? d->pos[v][1] : qhi;
+				}
+			}
+			if (qhi - qlo >= 1.0f)
+				quadsflat[di] = 0;
+		}
+		for (int t = 0; t < ntris[di] * 3; t++) {
+			const uint32_t v = d->idx[t];
+			if (v < d->nverts && (d->state[v] & GEVR_BEAN_V_READ)) {
+				dlo[di] = d->pos[v][1] < dlo[di] ? d->pos[v][1] : dlo[di];
+				dhi[di] = d->pos[v][1] > dhi[di] ? d->pos[v][1] : dhi[di];
+			}
+		}
+		if (dlo[di] <= dhi[di]) {
+			lo = dlo[di] < lo ? dlo[di] : lo;
+			hi = dhi[di] > hi ? dhi[di] : hi;
+		}
+	}
+	if (hi <= lo)
+		return 0;
+	for (int di = 0; di < num; di++) {
+		const struct gevrBeanDrawSrc *d = &mesh->draws[di];
+		const float end = (hi - lo) * 0.15f;
+		if (d->prim == 13 && dlo[di] <= dhi[di] &&
+		    ((dhi[di] - dlo[di] < 1.0f && (dlo[di] <= lo + end || dhi[di] >= hi - end)) ||
+		     (quadsflat[di] && (dhi[di] <= lo + end || dlo[di] >= hi - end))))
+			out |= 1ull << di;
+		if (d->prim == 4 && d->alphatest && ntris[di] > 0 && ntris[di] <= 8 && dlo[di] <= dhi[di] &&
+		    dhi[di] - dlo[di] < (hi - lo) * 0.01f && (dlo[di] <= lo + end || dhi[di] >= hi - end))
+			out |= 1ull << di;
+	}
+	return out;
+}
+
+/* the gun pickup applyMesh() is laying out, and its flash draws */
+static const struct gevrBeanMesh *s_flashMesh;
+static uint64_t s_flashDraws;
+
 static int triWanted(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *t, int kind, int hasHead)
 {
 	if (t->flags & GEVR_BEAN_F_FLASH) {
 		return 0;
+	}
+	if (mesh == s_flashMesh && s_flashDraws && mesh->triSrc) {
+		const int draw = mesh->triSrc[t - mesh->tris].draw;
+		if (draw >= 0 && draw < 64 && (s_flashDraws >> draw & 1))
+			return 0;
 	}
 	if (kind == BEAN_GUN && (t->flags & GEVR_BEAN_F_SLIDE)) {
 		return 0;
@@ -1909,6 +1989,17 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 				beanScreensBuild(&screens, header, mesh, fit, &binding, dls[best].node);
 				s_screenBuild = &screens;
 			}
+			/* DAB gebeanBuildRigid(): a gun's painted muzzle flash; a prop has
+			 * none, and a flat end of one is its own geometry. GoldenEye's
+			 * weapon models are the ones on its prop_weapon skeleton, as
+			 * weaponSetGunfireVisible() tells them. */
+			if (kind == BEAN_PROP && header->Skeleton == &skeleton_prop_weapon && mesh->draws && mesh->triSrc) {
+				s_flashDraws = beanGunFlashDraws(mesh);
+				s_flashMesh = mesh;
+				if (s_flashDraws)
+					GEVR_BEAN_LOG("gevr bean: %s: muzzle flash draws %llx left out\n", fit ? fit->source : "pickup",
+					              (unsigned long long)s_flashDraws);
+			}
 			int mainEmitted = emitRigid(mesh, kind, hasHead, dls[best].node, fit,
 			                            kind == BEAN_PROP ? &binding : NULL, -1, gun ? grp[dls[best].grp].o : NULL,
 			                            gun && !mesh->triggerCuffs ? 0 : -1, &gdl, &vtx);
@@ -1973,6 +2064,8 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 				s_screenBuild = NULL;
 				beanScreensFinish(&screens, header, dls[best].node, fit, mainEmitted);
 			}
+			s_flashMesh = NULL;
+			s_flashDraws = 0;
 		}
 	}
 	free(stack);
