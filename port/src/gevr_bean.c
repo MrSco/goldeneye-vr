@@ -63,6 +63,7 @@ static ModelFileHeader *s_registrationOwner;
 static int s_registrationWatchArm;
 static GevrStaticMesh *s_rigidMeshes[MAX_ALLOC];
 static int s_nrigidMeshes;
+static int s_registrationKind, s_rigidMinimum=256;
 struct beanSwap {
 	ModelFileHeader *owner;
 	void *node;
@@ -206,7 +207,7 @@ static void swapAdd(void *node, void *original, void *ours, int origType)
 	s_swap[s_nswap].skin = s_emittedSkin;
 	s_swap[s_nswap].deferredMatrix = 0;
 	s_swap[s_nswap].watchArm = s_registrationWatchArm;
-	s_emittedSkin = NULL;
+    s_emittedSkin = NULL;
 	swapIndexAdd(s_nswap);
 	s_nswap++;
 }
@@ -761,6 +762,11 @@ static void registerPrimary(ModelNode *n, Gfx *gdl, int blankType)
          * fallback. Their vertex buffers live until the level reset. */
         if (!s_emittedSkin && s_nrigidMeshes < MAX_ALLOC && retainedRigidList(gdl)) {
             GevrStaticMesh *mesh = gevrStaticMeshBuild(gdl);
+            /* Small props share CPU batches across instances. An individual
+             * indexed draw costs more than packing their few vertices. */
+            if(mesh && s_registrationKind==BEAN_PROP && mesh->numIndices<(uint32_t)s_rigidMinimum*3) {
+                gevrStaticMeshFree(mesh);mesh=NULL;
+            }
             Gfx *gpu = mesh ? malloc(2 * sizeof(Gfx)) : NULL;
             if (gpu && keepAlloc(gpu)) {
                 s_rigidMeshes[s_nrigidMeshes++] = mesh;
@@ -1574,6 +1580,14 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 	if (!header || !header->RootNode || !mesh) {
 		return;
 	}
+    s_registrationKind=kind;
+    FILE *minimum=fopen("gevr_rigid_min.txt","r");
+    s_rigidMinimum=256;
+    if(minimum) {
+        int value=256;
+        if(fscanf(minimum,"%d",&value)==1 && value>=0 && value<=1000000)s_rigidMinimum=value;
+        fclose(minimum);
+    }
 	s_registrationOwner = header;
 	s_registrationWatchArm = kind == BEAN_CHR && mesh->ntex == 12 && header->numSwitches == 10;
 	stack = calloc(MAX_WALK, sizeof(*stack));
