@@ -5,6 +5,7 @@
  */
 
 #include "gevr_bean_log.h"
+#include "gevr_bean_control.h"
 
 #include <ultra64.h>
 #include <PR/gbi.h>
@@ -1583,7 +1584,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 		return;
 	}
     s_registrationKind=kind;
-    FILE *minimum=fopen("gevr_rigid_min.txt","r");
+    FILE *minimum=gevrBeanControlOpen("gevr_rigid_min.txt");
     s_rigidMinimum=256;
     if(minimum) {
         int value=256;
@@ -1739,8 +1740,9 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
             /* Diagnostic only. Native distance alternatives share the same HD
              * geometry; real visibility switches still require separate limbs. */
             int combined=0; void *combinedG=NULL,*combinedV=NULL;
-            FILE *batch=fopen("gevr_body_batch.txt","r"); int batchOn=0;
+            FILE *batch=gevrBeanControlOpen("gevr_body_batch.txt"); int batchOn=0;
             if(batch){fscanf(batch,"%d",&batchOn);fclose(batch);}
+            GEVR_BEAN_LOG("gevr bean controls: rigid_min=%d body_batch=%d\n",s_rigidMinimum,batchOn);
             if(batchOn && !watchArm && nodeMatrix(header->RootNode)>=0) {
                 for(int i=0;i<nd;i++) {
                     int g=dls[i].grp;
@@ -1754,6 +1756,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
                     s_emittedSkin->anchor=nodeMatrix(header->RootNode);
                     swapAdd(header->RootNode,NULL,combinedG,0);
                     combined=1;
+                    GEVR_BEAN_LOG("gevr bean body-batch: %d limbs -> one palette, %d triangles\n",found,mesh->ntris);
                 }
             }
             for (int i = 0; i < nd; i++) {
