@@ -48,6 +48,13 @@ def adb(*args, check=True, timeout=120):
                           encoding='utf-8', errors='replace').stdout.strip()
 
 
+def push_back(local, remote, check=True):
+    # adb pushes as shell, mode 644: the game could then read its settings and
+    # save but not write them (Gun fit, progress). Give them back writable.
+    adb('push', str(local), remote, check=check)
+    adb('shell', 'chmod', '666', remote, check=check)
+
+
 def put(name, value):
     # Values are fixed numeric benchmark commands or validated labels. The game's
     # hooks read and delete a marker as soon as it exists, so write it whole and
@@ -94,7 +101,7 @@ def restore(out):
     adb('shell', 'am', 'force-stop', PACKAGE)
     for name, existed in manifest.items():
         if existed:
-            adb('push', str(folder / name), f'{FILES}/{name}')
+            push_back(folder / name, f'{FILES}/{name}')
         else:
             adb('shell', 'rm', '-f', f'{FILES}/{name}')
     adb('shell', 'am', 'broadcast', '-a', 'com.oculus.vrpowermanager.automation_disable', check=False)
@@ -244,8 +251,8 @@ def run(args, out):
     if "name='oculus.software.handtracking'" not in badging:
         print('warning: APK is not the benchmark variant; Quest may block the launch', flush=True)
     adb('install', '-r', str(args.apk), timeout=300)
-    adb('push', str(local), f'{FILES}/data/goldeneye-vr.ini')
-    adb('push', str(out / 'backup/eeprom.bin'), f'{FILES}/eeprom.bin')
+    push_back(local, f'{FILES}/data/goldeneye-vr.ini')
+    push_back(out / 'backup/eeprom.bin', f'{FILES}/eeprom.bin')
     info = {'apk': str(args.apk.resolve()), 'sha256': hashlib.sha256(args.apk.read_bytes()).hexdigest(),
             'hz': args.hz, 'detail': args.detail, 'showstats': args.showstats, 'runs': args.runs,
             'pad': args.pad, 'scope_probe': args.scope_probe, 'body_batch': args.body_batch, 'rigid_min': args.rigid_min, 'room_draws': args.room_draws, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
@@ -345,8 +352,8 @@ def run(args, out):
         for marker in MARKERS:
             adb('shell', 'rm', '-f', f'{FILES}/{marker}', check=False)
         # Success or failure, the headset gets the user's own settings and save back.
-        adb('push', str(out / 'backup/data/goldeneye-vr.ini'), f'{FILES}/data/goldeneye-vr.ini', check=False)
-        adb('push', str(out / 'backup/eeprom.bin'), f'{FILES}/eeprom.bin', check=False)
+        push_back(out / 'backup/data/goldeneye-vr.ini', f'{FILES}/data/goldeneye-vr.ini', check=False)
+        push_back(out / 'backup/eeprom.bin', f'{FILES}/eeprom.bin', check=False)
         (folder / 'build.json').write_text(json.dumps(info, indent=2))
 
 
