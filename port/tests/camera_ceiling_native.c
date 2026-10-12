@@ -143,6 +143,15 @@ int main(void)
     closeTo(eye.y,150);
 
     reset();
+    ceiling(1,45,7,40,-64,64); // the next stair steps, within the footprint
+    eye = (coord3d){.f={0,175,0}};
+    gevrBgClampCameraCeiling(eye.f,0,1,TRUE);
+    closeTo(eye.y,175); // are no ceiling (user: the view flashed short on stairs)
+    ceiling(1,105,10,40,-64,64); // a railing's top beside the eye
+    gevrBgClampCameraCeiling(eye.f,0,1,TRUE);
+    closeTo(eye.y,175);
+
+    reset();
     room_data_float1 = 0.25f;
     ceiling(1,42,-64,64,-64,64);
     meshes[1].offset.y = 100;
