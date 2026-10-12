@@ -53,7 +53,13 @@ static void netSetHostEqualization(bool,unsigned){}
 static void netHostEqualizationText(char *out,size_t n){std::snprintf(out,n,"Host delay: 50 ms");}
 static bool favoriteRow(const char*,int,const char*(*)(int),unsigned*,int){return false;}
 static const char* gevrBotCountName(int n){static const char*names[]={"1","2","3","4","5","6","7"};return names[n];}
-static bool namedCombo(const char*id,int count,const char*(*name)(int),int*value){return gevrNamedCombo(id,count,name,value,false,[](int){return false;});}
+/* the host's stage chooser as drawn: every stage's name must fit it (user: "Caverns" was cut off) */
+static float stageComboWidth=-1;
+static bool namedCombo(const char*id,int count,const char*(*name)(int),int*value){
+    const bool changed=gevrNamedCombo(id,count,name,value,false,[](int){return false;});
+    if(std::strcmp(id,"##stagecombo")==0)stageComboWidth=ImGui::GetItemRectSize().x;
+    return changed;
+}
 static bool gunCombo(const char*id,int*value){return namedCombo(id,netItemCount(),[](int i){return netItem(i)->name;},value);}
 static void gevrTeamChoiceRow(const char*) {
     if(!gevrLobbyHasTeams(&config))return;
@@ -82,6 +88,7 @@ static void layout(int page) {
             lobby.slots[i].connected=i<netGetMaxPlayers();lobby.slots[i].is_bot=i%2;
             lobby.slots[i].chr_id=i;std::snprintf(lobby.slots[i].name,GEVR_MAX_NAME_LEN,"abcdefghijklmnopqrstuvwx");
         }
+        stageComboWidth=-1;
         if(page==0)gevrMatchOptions();else if(page==1)comfort();else if(page==2)coop();
         else gevrHostLobbyOptions(gold,true,"TBGKYV43");
         if(pass==2) {
@@ -89,6 +96,16 @@ static void layout(int page) {
             if(w->DC.CursorMaxPos.y>w->ClipRect.Max.y) std::fprintf(stderr,"page=%d scenario=%d bots=%d content=%f limit=%f\n",page,VrMpScenario,VrMpBotMode,w->DC.CursorMaxPos.y,w->ClipRect.Max.y);
             check(w->DC.CursorMaxPos.y<=w->ClipRect.Max.y,"production tab fits vertically without scrolling");
             check(w->DC.CursorMaxPos.x<=w->ClipRect.Max.x,"production tab fits horizontally");
+            if(page==3 && VrMpMode!=NET_MODE_COOP) {
+                check(stageComboWidth>0,"the host's stage chooser is drawn");
+                for(int i=0;i<netStageCount();i++) {
+                    const float need=ImGui::CalcTextSize(netStageName(i)).x+ImGui::GetFrameHeight()
+                        +ImGui::GetStyle().FramePadding.x*2.0f;
+                    if(stageComboWidth<need) std::fprintf(stderr,"stage %s needs %.0f, chooser %.0f (scenario %d)\n",
+                                                          netStageName(i),need,stageComboWidth,VrMpScenario);
+                    check(stageComboWidth>=need,"every stage's name fits the host's stage chooser");
+                }
+            }
         }
         ImGui::EndChild();ImGui::End();ImGui::Render();
     }
