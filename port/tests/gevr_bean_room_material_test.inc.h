@@ -26,7 +26,7 @@ static void roomMaterialChecks(void)
         uint32_t plain = gevrBeanRoomMode(g->words.w1, 0);
         uint32_t fog = gevrBeanRoomMode(g->words.w1, 1);
         assert((plain & 0xcccc0000) == G_RM_PASS);
-        assert((fog & 0xcccc0000) == G_RM_FOG_SHADE_A);
+        assert((fog & 0xcccc0000u) == 0xc8000000u); /* SDK fog blender bits. */
         assert((plain & 0xffff) == (fog & 0xffff)); /* Fog preserves depth/alpha. */
         if ((plain & ZMODE_DEC) == ZMODE_DEC) {
             if (plain & CVG_X_ALPHA) { cut++; assert(plain & Z_UPD); }

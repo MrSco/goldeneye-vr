@@ -5,6 +5,10 @@
 #define G_GEVR_ROOM_STATE 0x6c
 static inline uint32_t gevrBeanRoomMode(uint32_t mode, int fog)
 {
-    return (mode & ~0xcccc0000u) | (fog ? G_RM_FOG_SHADE_A : G_RM_PASS);
+    /* G_RM_FOG_SHADE_A shifts signed 3 into bit 30 in the SDK macro.
+     * Use unsigned operands so the host command construction is defined. */
+    const uint32_t fogMode = GBL_c1((uint32_t)G_BL_CLR_FOG, (uint32_t)G_BL_A_SHADE,
+                                   (uint32_t)G_BL_CLR_IN, (uint32_t)G_BL_1MA);
+    return (mode & ~0xcccc0000u) | (fog ? fogMode : G_RM_PASS);
 }
 #endif

@@ -311,6 +311,30 @@ static uint32_t materialTex(const struct gevrCaff *c, const uint8_t *st, uint32_
 	return found ? best : 0;
 }
 
+/* DAB beanReflectingSurfacePictures: Complex binds two animated bumps,
+ * a reflection, and its own translucent water picture in slots 0..3.
+ * Shader offsets differ between release/CE files; identify the authored
+ * binding instead. The largest input is the reflection, never the surface. */
+static uint32_t surfaceTex(const struct gevrCaff *c, const uint8_t *st, uint32_t pc,
+        uint32_t size, const int *texfile, int ntex, const char *source, uint32_t chosen)
+{
+    if (!strstr(source, "new/background/complex/") && !strstr(source, "new\\background\\complex\\"))
+        return chosen;
+    uint32_t extra = be16(st + pc + 10), inputs[4] = {~0u, ~0u, ~0u, ~0u};
+    for (uint32_t k = extra; 12 + 8*k + 8 <= size; k++) {
+        uint32_t slot = be32(st + pc + 16 + 8*k) >> 16;
+        if (slot < 4) inputs[slot] = be32(st + pc + 12 + 8*k);
+    }
+    for (int k = 0; k < 4; k++) if (inputs[k] >= (uint32_t)ntex) return chosen;
+    for (int k = 0; k < 2; k++) {
+        uint32_t len = 0;
+        const uint8_t *b = gevrCaffBlob(c, texfile[inputs[k]], &len);
+        if (!b || len < 0x40 || be32(b + 0x1c) != 5) return chosen;
+    }
+    const char *name = gevrCaffAssetName(c, c->files[texfile[inputs[2]]].asset);
+    return name && !strcmp(name, "_0x0A8065B5.bin") ? inputs[3] : chosen;
+}
+
 static int pushTri(struct gevrBeanMesh *mesh, const struct beanVtx *a, const struct beanVtx *b,
 		const struct beanVtx *c, int tex, int alpha, int alphatest, const uint8_t *pal,
 		int numpal, const int *boneSk, const uint8_t *muzzle, const uint8_t *slide)
@@ -1523,6 +1547,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 			alphatest = be32(stream + pc + 8) != 0;
 		} else if (type == 0x2d && sz >= 20) {
 			tex = materialTex(&caff, stream, pc, sz, slen, texfile, ntex);
+            tex = surfaceTex(&caff, stream, pc, sz, texfile, ntex, source, tex);
 			matpc = pc;
             masktex = ~0u;
             maskslot = 0;
@@ -1702,7 +1727,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		/* Material indices address the original table, including failed decodes. */
 		mesh->ntex++;
 	}
-	if (levelFade) readTextureScroll(mesh, data, dlen, stream, slen);
+	/* Props also own scrolling pictures (the helicopter at 0.9 repeats/s). */
+	readTextureScroll(mesh, data, dlen, stream, slen);
 	fixPlaceholders(mesh, draws, ndraws, source);
 	textureAlphaFlags(mesh, texAlpha, texSoft);
     if (levelFade) markLevelBlendShaders(mesh, draws, ndraws, ibs, nibs, data, dlen, gpu, glen, uv20);
