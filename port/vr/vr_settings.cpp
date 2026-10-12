@@ -288,6 +288,24 @@ extern "C" void vrSettingsSave(void)
             VrBeanGripTrim[0][2], VrBeanGripTrim[0][3], VrBeanGripTrim[0][4], VrBeanGripTrim[0][5]);
     fprintf(f, "BeanGripRifle=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrBeanGripTrim[1][0], VrBeanGripTrim[1][1],
             VrBeanGripTrim[1][2], VrBeanGripTrim[1][3], VrBeanGripTrim[1][4], VrBeanGripTrim[1][5]);
+    fprintf(f, "; Each gun's own, once Gun fit has moved it (the models hold the hand their own\n");
+    fprintf(f, "; way): GunFit<gun> as GunOffX, Y and Z, GripFit<gun> as GripPistol; Bean* for\n");
+    fprintf(f, "; Bean's models. A gun without its own takes the ones above.\n");
+    for (int m = 0; m < 3; m++) {
+        const int set = gevrPerGunSet(m);
+        if (set < 0) continue;
+        for (const auto &w : kMuzzleWeapons) {
+            if (VrGunOffPerSet[set][w.item]) {
+                const float *t = VrGunOffPer[set][w.item];
+                fprintf(f, "%sGunFit%s=%.4f %.4f %.4f\n", kFitLookPrefix[m], w.name, t[0], t[1], t[2]);
+            }
+            if (VrGripTrimPerSet[set][w.item]) {
+                const float *t = VrGripTrimPer[set][w.item];
+                fprintf(f, "%sGripFit%s=%.2f %.2f %.2f %.1f %.1f %.1f\n", kFitLookPrefix[m], w.name,
+                        t[0], t[1], t[2], t[3], t[4], t[5]);
+            }
+        }
+    }
     fprintf(f, "; Hand reload, set with Gun fit's reload mode (X): where the off hand takes the\n");
     fprintf(f, "; magazine, cm right, up and back from the gun hand's grip (Gex* for GoldenEye X);\n");
     fprintf(f, "; the belt, cm below the eye, out to the side and ahead; and where a GoldenEye X\n");
@@ -446,6 +464,32 @@ extern "C" void vrSettingsLoad(void)
                 beanFitsRead = true;
             }
             continue;
+        }
+        if ((strncmp(fit, "GunFit", 6) == 0 || strncmp(fit, "GripFit", 7) == 0) && gevrPerGunSet(look) >= 0) {
+            const bool grip = fit[1] == 'r';
+            const char *name = fit + (grip ? 7 : 6);
+            bool known = false;
+            for (const auto &w : kMuzzleWeapons) {
+                const size_t nameLen = strlen(w.name);
+                if (strncmp(name, w.name, nameLen) != 0 || name[nameLen] != '=') continue;
+                known = true;
+                float t[6];
+                const int n = sscanf(name + nameLen + 1, "%f %f %f %f %f %f", &t[0], &t[1], &t[2], &t[3], &t[4], &t[5]);
+                bool finite = true;
+                for (int i = 0; i < (grip ? 6 : 3); i++) finite = finite && std::isfinite(t[i]);
+                const int set = gevrPerGunSet(look);
+                if (finite && grip && n == 6) {
+                    for (int i = 0; i < 6; i++) VrGripTrimPer[set][w.item][i] = t[i];
+                    VrGripTrimPerSet[set][w.item] = 1;
+                    beanFitsRead |= beanFit;
+                } else if (finite && !grip && n >= 3) {
+                    for (int i = 0; i < 3; i++) VrGunOffPer[set][w.item][i] = t[i];
+                    VrGunOffPerSet[set][w.item] = 1;
+                    beanFitsRead |= beanFit;
+                }
+                break;
+            }
+            if (known) continue;
         }
         if (strncmp(fit, "GripPistol=", 11) == 0 || strncmp(fit, "GripRifle=", 10) == 0) {
             const int cls = fit[4] == 'P' ? 0 : 1;

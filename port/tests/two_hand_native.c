@@ -22,6 +22,11 @@ static s32 s_gevrTwoHandGun = GUNRIGHT, s_gevrTwoHand, s_gevrTwoHandResetDir;
 static f32 s_gevrTwoHandAmt;
 static f32 VrGripTrim[2][6], VrGexGripTrim[2][6];
 #define s_gevrTwoHandTrim VrGripTrim
+/* gevr_scope.h's per-gun hold: one gun's own, when ownGripItem is held */
+static f32 ownGrip[6];
+static s32 ownGripItem = -1;
+static int gevrFitLook(int hand) { (void)hand; return 0; }
+static const float *gevrGripTrimOwnOf(int look, int item) { (void)look; return item == ownGripItem ? ownGrip : NULL; }
 static float VrGunOffX, VrGunOffY, VrGunOffZ;
 static const float *s_gevrGunOffOverride;
 static int s_gevrMuzzleValid[2];
@@ -163,6 +168,22 @@ static void testSlot(int gun, int leftHanded, int weapon)
         float side = (leftHanded != (gun == GUNLEFT)) ? r[i] : -r[i];
         near(palm, snap[i] + 2 * side * GEVR_UNITS_PER_METRE / 100);
     }
+    VrGripTrim[1][0] = 0;
+
+    /* A gun with its own hold (Gun fit, per gun) takes it, not its class's. */
+    VrGripTrim[1][0] = 2;
+    memset(ownGrip, 0, sizeof(ownGrip));
+    ownGrip[0] = -3;
+    ownGripItem = getCurrentPlayerWeaponId(gun);
+    assert(gevrStereoTwoHandMatrix(&m));
+    for (int i = 0; i < 3; i++)
+    {
+        float palm = m.m[3][i];
+        for (int j = 0; j < 3; j++) palm += s_gevrTwoHandPalm[j] * m.m[j][i];
+        float side = (leftHanded != (gun == GUNLEFT)) ? r[i] : -r[i];
+        near(palm, snap[i] - 3 * side * GEVR_UNITS_PER_METRE / 100);
+    }
+    ownGripItem = -1;
     VrGripTrim[1][0] = 0;
 
     /* Occluded support tracking keeps the hold; releasing its grip still ends it. */

@@ -235,6 +235,12 @@ float VrBeanGripTrim[2][6] = {
 float VrBeanReloadGrab[3] = { 0.0000f, -7.0000f, -8.0000f };
 float VrBeanScopeFit[4][4];
 float VrBeanMuzzleTrim[GEVR_MAX_WEAPONS][3];
+/* each gun's own place in the hand and two-handed hold, once Gun fit moves
+ * them: [0] GoldenEye's models, [1] Bean's (port/include/gevr_scope.h) */
+float VrGunOffPer[2][GEVR_MAX_WEAPONS][3];
+float VrGripTrimPer[2][GEVR_MAX_WEAPONS][6];
+unsigned char VrGunOffPerSet[2][GEVR_MAX_WEAPONS];
+unsigned char VrGripTrimPerSet[2][GEVR_MAX_WEAPONS];
 int gevrMuzzleFitting = 0;
 int gevrGunHandFitting = 0;   /* Gun fit moves GE-X's own gun hand on the gun (X), for bondview2.c and gun.c */
 
