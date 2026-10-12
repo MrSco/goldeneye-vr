@@ -1976,9 +1976,12 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
             (d->masktex == 10 || d->masktex == 11 || d->tex == 11);
         if (watchGlass) baseTex = 11;
         int mask=layers.mask, blendpic=layers.blend, decalpic=layers.decal;
-		if (mesh->draws)
+		if (mesh->draws) {
 			keepScreenDraw(&mesh->draws[di], source, &caff, texfile, ntex, d->tex, gpu, &vbrec, uvscale, numbones > 0,
 			               d->inst >= 0 && d->inst < ninst ? insts[d->inst] : NULL, tris, ntris);
+			mesh->draws[di].prim = (uint8_t)d->prim;
+			mesh->draws[di].alphatest = (uint8_t)(d->alphatest != 0);
+		}
 		for (int t = 0; t < ntris; t++) {
 			struct beanVtx corner[3];
 			int ok = 1;

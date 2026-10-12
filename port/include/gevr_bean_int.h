@@ -48,6 +48,8 @@ struct gevrBeanDrawSrc {
 	int ntris;
 	int16_t tex;
 	uint8_t placeholder; /* DAB beanScreenPlaceholder: picture _0x008C4635 */
+	uint8_t prim;        /* 4 triangle list, 13 quad list (DAB beandraw.prim) */
+	uint8_t alphatest;   /* DAB beandraw.alphatest (beanGunFlashDraws()) */
 };
 /* Which draw and buffer vertices a pushed triangle came from (DAB's mapped[]
  * is per draw and vertex). pane: corners on DAB's beanVertexDrops[]. */

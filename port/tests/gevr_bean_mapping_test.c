@@ -523,6 +523,33 @@ int main(int argc, char **argv)
     FILE *legacy=fopen("gevr_body_batch.txt","w");assert(legacy);fputs("0",legacy);fclose(legacy);
 	applyMesh(&header, mesh, kind, fitForName(argv[2]));
     remove("gevr_body_batch.txt");
+	/* DAB beanGunFlashDraws(): a gun pickup's painted muzzle flash, left out */
+	if (kind == BEAN_PROP && header.Skeleton == &skeleton_prop_weapon && mesh->draws && mesh->triSrc) {
+		const uint64_t flash = beanGunFlashDraws(mesh);
+		int flashTris = 0;
+		for (int t = 0; t < mesh->ntris; t++) {
+			const int draw = mesh->triSrc[t].draw;
+			flashTris += draw >= 0 && draw < 64 && (flash >> draw & 1);
+		}
+		/* what was laid into the lists is every wanted triangle but the flash's */
+		int emitted = 0, expected = 0;
+		for (int i = 0; i < s_nswap; i++) {
+			float (*v)[3];
+			if (s_swap[i].ours != s_blank) {
+				emitted += swapVerts(&s_swap[i], &v) / 3;
+				free(v);
+			}
+		}
+		s_flashMesh = mesh;
+		s_flashDraws = flash;
+		for (int t = 0; t < mesh->ntris; t++)
+			expected += triWanted(mesh, &mesh->tris[t], BEAN_PROP, 0);
+		s_flashMesh = NULL;
+		s_flashDraws = 0;
+		printf("FLASH %s draws %d mask %llx tris %d emitted %d expected %d\n", argv[2], mesh->ndraws,
+		       (unsigned long long)flash, flashTris, emitted, expected);
+		assert(!flash || emitted == expected);
+	}
 	int lists = 0, skin = 0;
 	for (int i = 0; i < s_nswap; i++) {
 		ModelNode *node = s_swap[i].node;

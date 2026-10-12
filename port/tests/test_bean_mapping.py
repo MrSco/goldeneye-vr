@@ -60,6 +60,30 @@ SCREEN_FITTED = {"Pconsole_sev2bZ": 0x1, "Pconsole_sevbZ": 0x1, "Pconsole1Z": 0x
 MONITORS = set(SCREEN_BACKING) | set(SCREEN_RECESS) | set(SCREEN_FITTED)
 
 
+# DAB gebean.c beanGunFlashDraws(): of the release's gun pickups, these carry
+# their muzzle flash as geometry (a draw each; the Automatic Shotgun's two
+# layers in four draws), which a rigid pickup drew all the time, with the
+# flash's triangles. DAB's notes also name the D5K; this pack's chrmp5k has
+# no such card (its only flat draws near the front are two small strips
+# beside the barrel, part of the gun).
+FLASH_PICKUPS = {'PchrautoshotZ': 16, 'Pchrfnp90Z': 6, 'Pchrm16Z': 12, 'PchrlaserZ': 4}
+
+
+def check_flash(results):
+    seen = {}
+    for line in results:
+        for m in re.finditer(r"FLASH (\w+) draws (\d+) mask ([0-9a-f]+) tris (\d+) emitted (\d+) expected (\d+)", line):
+            seen[m.group(1)] = (int(m.group(2)), int(m.group(3), 16), int(m.group(4)), int(m.group(5)), int(m.group(6)))
+    assert seen, "no FLASH lines: the muzzle flash checks did not run"
+    flashing = {name for name, (_, mask, *_) in seen.items() if mask}
+    print("Muzzle flash draws left out:", ", ".join(f"{n} {seen[n][1]:x} ({seen[n][2]} tris)" for n in sorted(flashing)))
+    assert flashing == set(FLASH_PICKUPS), f"flash pickups {sorted(flashing)}"
+    for name, tris in FLASH_PICKUPS.items():
+        assert seen[name][2] == tris, f"{name}: {seen[name][2]} flash triangles"
+        assert seen[name][3] == seen[name][4], f"{name}: {seen[name][3]} emitted of {seen[name][4]}"
+    print(f"Muzzle flashes: {len(seen)} gun pickups checked")
+
+
 def check_screens(results):
     seen = {}
     rx = re.compile(r"SCREENS (\w+) backing (\d+) recess (\d+) fitted (\d+) panes (\d+) screens (\d+) "
@@ -174,6 +198,7 @@ def main():
     if failures:
         raise SystemExit("Failed mapping: " + ", ".join(failures))
     check_screens(results)
+    check_flash(results)
 
 
 if __name__ == "__main__":
