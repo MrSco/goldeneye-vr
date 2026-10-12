@@ -72,3 +72,13 @@ sniper scope. Capture the same route with stats on. Scope-active views should
 retain `mesh:` GPU draws and supported guard skins instead of making all runs
 fall back. Compare DRAW/TICK, GPU times, `skin:` CPU poses and `mesh-cull:` counts.
 Rigid guns/props and tracked first-person culling overrides still cost CPU work.
+
+## Signed candidate
+
+Release-signed `GoldenEye-VR-PR172-Render-Fixes-25c1c1e.apk` was built from
+clean commit `25c1c1e`. SHA-256:
+`7d9a787e93f6f621d76b35ff9cee8545dc0ff0d0c162715d4969102c999eea0b`.
+The APK embeds that commit and is archived with its matching `libgevr.so`,
+full native symbols and build metadata under
+`android/app/build/outputs/symbols/617800c72e33febfe8427cd593f2a54bfeec2ab6/`.
+It was not installed or published.
