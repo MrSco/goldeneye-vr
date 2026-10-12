@@ -245,7 +245,7 @@ def run(args, out):
     adb('push', str(out / 'backup/eeprom.bin'), f'{FILES}/eeprom.bin')
     info = {'apk': str(args.apk.resolve()), 'sha256': hashlib.sha256(args.apk.read_bytes()).hexdigest(),
             'hz': args.hz, 'detail': args.detail, 'showstats': args.showstats, 'runs': args.runs,
-            'pad': args.pad, 'body_batch': args.body_batch, 'rigid_min': args.rigid_min, 'room_draws': args.room_draws, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
+            'pad': args.pad, 'scope_probe': args.scope_probe, 'body_batch': args.body_batch, 'rigid_min': args.rigid_min, 'room_draws': args.room_draws, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
     log = (folder / 'device.log').open('wb')
     logger = subprocess.Popen(['adb', 'logcat', '-T', '1', '-v', 'threadtime'], stdout=log, stderr=log)
     try:
@@ -260,6 +260,12 @@ def run(args, out):
             raise Unavailable('Renderer did not acknowledge requested diagnostic controls')
         if args.body_batch and 'gevr bean body-batch:' not in applied:
             raise Unavailable('Whole-character batching was requested but never applied')
+        if args.scope_probe:
+            put('gevr_cheat.txt','hold17 invincible maxammo scopeprobe')
+            time.sleep(3)
+            scope_log=recent()
+            if 'cheathook: synthetic scope grip on' not in scope_log or 'stereo: scope on (hand 0 item 17)' not in scope_log:
+                raise Unavailable('Synthetic scope probe did not activate the real scope renderer')
         for repeat in range(args.runs):
             label = f'{args.label}-{repeat + 1}'
             put('gevr_warp.txt', str(args.pad))
@@ -355,6 +361,8 @@ if __name__ == '__main__':
     parser.add_argument('--detail', type=int, choices=[0, 1], default=0)
     parser.add_argument('--showstats', type=int, choices=[0, 1], default=0)
     parser.add_argument('--texture-pack', help="'none' or a pack folder; default keeps the user's setting")
+    parser.add_argument('--scope-probe',action='store_true',
+                        help='equip sniper and use an explicit synthetic grip for unattended real scope rendering')
     parser.add_argument('--simpleperf', action='store_true',
                         help='sample the measured minute with simpleperf (attribution only; needs the benchmark build)')
     args = parser.parse_args()
