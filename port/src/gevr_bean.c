@@ -21,6 +21,7 @@
 #include "gevr_romlayout.h"
 #include "gevr_bean_int.h"
 #include "gevr_skin_mesh.h"
+#include "gevr_bean_room_state.h"
 
 extern int VrBeanModels;
 extern int VrGexGuns;
@@ -59,6 +60,9 @@ static struct beanSkin *s_emittedSkin;
 
 static ModelFileHeader *s_registrationOwner;
 static int s_registrationWatchArm;
+static int s_registrationGun;
+static GevrStaticMesh *s_rigidMeshes[MAX_ALLOC];
+static int s_nrigidMeshes;
 struct beanSwap {
 	ModelFileHeader *owner;
 	void *node;
@@ -310,8 +314,8 @@ static const struct gevrEmitVert *s_sortVerts;
 
 static int vertKey(const struct gevrEmitVert *v)
 {
-	return (int)((uint32_t)(uint16_t)v->tex << 16)
-		| ((int)v->alpha << 8) | ((int)v->cut << 4) | (int)v->decal;
+	return ((int)v->decal << 29) | ((int)v->cut << 28)
+        | ((v->tex + 1) << 16) | ((int)v->alpha << 8);
 }
 
 static int triCmp(const void *a, const void *b)
@@ -320,7 +324,7 @@ static int triCmp(const void *a, const void *b)
 	int ib = *(const int *)b;
 	int ka = vertKey(&s_sortVerts[ia * 3]);
 	int kb = vertKey(&s_sortVerts[ib * 3]);
-	return (ka > kb) - (ka < kb);
+	return ka == kb ? ia - ib : (ka > kb) - (ka < kb);
 }
 
 static int texMask(int n)
@@ -345,6 +349,17 @@ static s16 posClamp(float v)
 	if (v > 32767.0f) return 32767;
 	if (v < -32768.0f) return -32768;
 	return (s16)(v < 0.0f ? v - 0.5f : v + 0.5f);
+}
+
+static void beanRenderMode(Gfx **next, int mode1, int mode2, int room)
+{
+    Gfx *g = *next;
+    if (room) {
+        g->words.w0 = (uintptr_t)G_GEVR_ROOM_STATE << 24;
+        g->words.w1 = (uint32_t)(G_RM_PASS | mode2 | (mode1 & 0xffff));
+        g++;
+    } else { gDPSetRenderMode(g++, mode1, mode2); }
+    *next = g;
 }
 
 int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert *v, int nverts,
@@ -391,7 +406,7 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 	g = gdl;
 	vp = vtx;
 	gDPPipeSync(g++);
-	gDPSetCycleType(g++, G_CYC_1CYCLE);
+	gDPSetCycleType(g++, mesh->roomMaterial ? G_CYC_2CYCLE : G_CYC_1CYCLE);
 	gDPSetTexturePersp(g++, G_TP_PERSP);
 	gDPSetTextureLUT(g++, G_TT_NONE);
 	gDPSetAlphaCompare(g++, G_AC_NONE);
@@ -463,33 +478,45 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 			const int opa = zbuf ? G_RM_AA_ZB_OPA_SURF : G_RM_AA_OPA_SURF;
 			const int opa2 = zbuf ? G_RM_AA_ZB_OPA_SURF2 : G_RM_AA_OPA_SURF2;
 			if (base->alpha < 255) {
-				gDPSetRenderMode(g++, xlu, xlu2);
+                if (base->decal && zbuf) beanRenderMode(&g, G_RM_AA_ZB_XLU_DECAL, G_RM_AA_ZB_XLU_DECAL2, mesh->roomMaterial);
+                else beanRenderMode(&g, xlu, xlu2, mesh->roomMaterial);
 				if (tex < 0) {
-					gDPSetCombineMode(g++, G_CC_SHADE, G_CC_SHADE);
+					if (mesh->roomMaterial) { gDPSetCombineMode(g++, G_CC_SHADE, G_CC_PASS2); }
+					else { gDPSetCombineMode(g++, G_CC_SHADE, G_CC_SHADE); }
 				} else if (dim) {
-					gDPSetCombineMode(g++, G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM);
+					if (mesh->roomMaterial) { gDPSetCombineMode(g++, G_CC_MODULATEIA_PRIM, G_CC_PASS2); }
+					else { gDPSetCombineMode(g++, G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM); }
 				} else {
-					gDPSetCombineMode(g++, G_CC_MODULATEIA, G_CC_MODULATEIA);
+					if (mesh->roomMaterial) { gDPSetCombineMode(g++, G_CC_MODULATEIA, G_CC_PASS2); }
+					else { gDPSetCombineMode(g++, G_CC_MODULATEIA, G_CC_MODULATEIA); }
 				}
 			} else if (base->cut) {
-				gDPSetRenderMode(g++, edge, edge2);
-				gDPSetCombineMode(g++, G_CC_MODULATEIA, G_CC_MODULATEIA);
+                if (base->decal && zbuf) beanRenderMode(&g, (edge & ~ZMODE_DEC) | ZMODE_DEC,
+                        (edge2 & ~ZMODE_DEC) | ZMODE_DEC, mesh->roomMaterial);
+                else beanRenderMode(&g, edge, edge2, mesh->roomMaterial);
+				if (mesh->roomMaterial) { gDPSetCombineMode(g++, G_CC_MODULATEIA, G_CC_PASS2); }
+					else { gDPSetCombineMode(g++, G_CC_MODULATEIA, G_CC_MODULATEIA); }
 			} else if (base->decal && zbuf) {
-				gDPSetRenderMode(g++, G_RM_AA_ZB_OPA_DECAL, G_RM_AA_ZB_OPA_DECAL2);
+				beanRenderMode(&g, G_RM_AA_ZB_OPA_DECAL | Z_UPD, G_RM_AA_ZB_OPA_DECAL2, mesh->roomMaterial);
 				if (dim) {
-					gDPSetCombineMode(g++, G_CC_MODULATEI_PRIM, G_CC_MODULATEI_PRIM);
+					if (mesh->roomMaterial) { gDPSetCombineMode(g++, G_CC_MODULATEI_PRIM, G_CC_PASS2); }
+					else { gDPSetCombineMode(g++, G_CC_MODULATEI_PRIM, G_CC_MODULATEI_PRIM); }
 				} else {
-					gDPSetCombineMode(g++, G_CC_MODULATEI, G_CC_MODULATEI);
+					if (mesh->roomMaterial) { gDPSetCombineMode(g++, G_CC_MODULATEI, G_CC_PASS2); }
+					else { gDPSetCombineMode(g++, G_CC_MODULATEI, G_CC_MODULATEI); }
 				}
 			} else if (tex < 0) {
-				gDPSetRenderMode(g++, opa, opa2);
-				gDPSetCombineMode(g++, G_CC_SHADE, G_CC_SHADE);
+				beanRenderMode(&g, opa, opa2, mesh->roomMaterial);
+				if (mesh->roomMaterial) { gDPSetCombineMode(g++, G_CC_SHADE, G_CC_PASS2); }
+					else { gDPSetCombineMode(g++, G_CC_SHADE, G_CC_SHADE); }
 			} else if (dim) {
-				gDPSetRenderMode(g++, opa, opa2);
-				gDPSetCombineMode(g++, G_CC_MODULATEI_PRIM, G_CC_MODULATEI_PRIM);
+				beanRenderMode(&g, opa, opa2, mesh->roomMaterial);
+				if (mesh->roomMaterial) { gDPSetCombineMode(g++, G_CC_MODULATEI_PRIM, G_CC_PASS2); }
+					else { gDPSetCombineMode(g++, G_CC_MODULATEI_PRIM, G_CC_MODULATEI_PRIM); }
 			} else {
-				gDPSetRenderMode(g++, opa, opa2);
-				gDPSetCombineMode(g++, G_CC_MODULATEI, G_CC_MODULATEI);
+				beanRenderMode(&g, opa, opa2, mesh->roomMaterial);
+				if (mesh->roomMaterial) { gDPSetCombineMode(g++, G_CC_MODULATEI, G_CC_PASS2); }
+					else { gDPSetCombineMode(g++, G_CC_MODULATEI, G_CC_MODULATEI); }
 			}
 		}
 		while (batch < end) {
@@ -652,8 +679,21 @@ static void registerPrimary(ModelNode *n, Gfx *gdl, int blankType)
 	Gfx *old = NULL;
 	int oldType = 0;
 	if (gdl && gdl != s_blank) {
-		int matrix = nodeMatrix(n);
-		if (s_emittedSkin)
+        /* Rigid gun/glove runs keep their material commands and CPU fallback,
+         * just as rooms do. Their vertex buffers live until the level reset. */
+        if (s_registrationGun && !s_emittedSkin && s_nrigidMeshes < MAX_ALLOC) {
+            GevrStaticMesh *mesh = gevrStaticMeshBuild(gdl);
+            Gfx *gpu = mesh ? malloc(2 * sizeof(Gfx)) : NULL;
+            if (gpu && keepAlloc(gpu)) {
+                s_rigidMeshes[s_nrigidMeshes++] = mesh;
+                gpu[0].words.w0 = (uintptr_t)G_GEVR_MESH << 24;
+                gpu[0].words.w1 = (uintptr_t)mesh;
+                gSPBranchList(gpu + 1, gdl);
+                gdl = gpu;
+            } else { free(gpu); gevrStaticMeshFree(mesh); }
+        }
+        int matrix = nodeMatrix(n);
+        if (s_emittedSkin)
 			s_emittedSkin->anchor = matrix;
 		if (matrix >= 0) {
 			Gfx *wrapper = malloc(3 * sizeof(Gfx));
@@ -1198,6 +1238,7 @@ static int emitSkinned(const struct gevrBeanMesh *mesh, int sk, int hasHead,
 }
 
 #include "gevr_bean_pose.inc.h"
+#include "gevr_bean_preview.inc.h"
 
 static void classifyGroups(struct beanGrp *grp, int ng)
 {
@@ -1456,6 +1497,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 		return;
 	}
 	s_registrationOwner = header;
+	s_registrationGun = kind == BEAN_GUN;
 	s_registrationWatchArm = kind == BEAN_CHR && mesh->ntex == 12 && header->numSwitches == 10;
 	stack = calloc(MAX_WALK, sizeof(*stack));
 	seen = calloc(MAX_WALK, sizeof(*seen));
@@ -1869,6 +1911,8 @@ void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
 void gevrBeanReset(void)
 {
 	beanFrameReset();
+	for (int i = 0; i < s_nrigidMeshes; i++) gevrStaticMeshFree(s_rigidMeshes[i]);
+	s_nrigidMeshes = 0;
 	for (int i = 0; i < s_nskinMeshes; i++)
 		gfx_static_mesh_release(s_skinMeshes[i]);
 	s_nskinMeshes = 0;

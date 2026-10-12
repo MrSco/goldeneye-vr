@@ -1,4 +1,5 @@
 #include "../src/gevr_bean.c"
+#include "../src/gevr_static_mesh_build.inc.h"
 int gevrRomIsVariant(void) { return 0; } /* GoldenEye: no hack campaign */
 #include <assert.h>
 #undef assert
@@ -64,6 +65,7 @@ static void restOf(const ModelNode *n, float o[3])
 static int swapVerts(const struct beanSwap *s, float (**out)[3])
 {
 	const Gfx *body = (const Gfx *)(uintptr_t)((const Gfx *)s->ours)[1].words.w1;
+	if ((body[0].words.w0 >> 24) == G_GEVR_MESH) body = (void *)body[1].words.w1;
 	float rest[3];
 	int n = 0;
 	restOf(s->node, rest);
@@ -294,7 +296,35 @@ int main(int argc, char **argv)
 				}
 		}
 	}
-	checkRigid(&header, mesh, kind, fitForName(argv[2]), argv[2]);
+    checkRigid(&header, mesh, kind, fitForName(argv[2]), argv[2]);
+    if (kind == BEAN_GUN) {
+        Model model = {0}; model.obj = &header;
+        model.render_pos = calloc(header.numMatrices, sizeof(*model.render_pos));
+        float root[4][4] = {{0,2,0,0},{-2,0,0,0},{0,0,2,0},{17,23,41,1}};
+        assert(gevrBeanPreviewPose(&model, root));
+        for(int i=0;i<s_nswap;i++) {
+            const struct beanSwap *s=&s_swap[i]; if(s->ours==s_blank) continue;
+            int matrix=nodeMatrix(s->node); float rest[3]; restOf(s->node,rest);
+            float (*mv)[4]=model.render_pos[matrix].pos.m;
+            for(int k=0;k<3;k++) {
+                float expected=root[3][k]; for(int j=0;j<3;j++) expected+=rest[j]*root[j][k];
+                assert(fabsf(mv[3][k]-expected)<1e-3f);
+            }
+            Gfx *body=(void *)((Gfx *)s->ours)[1].words.w1;
+            assert((body[0].words.w0>>24)==G_GEVR_MESH);
+            GevrStaticMesh *gpu=(void *)body[0].words.w1;
+            assert(gpu->numIndices && gpu->numRuns);
+            /* The retained VBO's first point lands where the fitted list did. */
+            const Vtx *v=gpu->vertices; int index=gpu->indices[0];
+            for(int k=0;k<3;k++) {
+                float actual=mv[3][k],expected=root[3][k];
+                for(int j=0;j<3;j++) { actual+=v[index].v.ob[j]*mv[j][k]; expected+=(v[index].v.ob[j]+rest[j])*root[j][k]; }
+                assert(fabsf(actual-expected)<.02f);
+            }
+        }
+        s_want=0; assert(!gevrBeanPreviewPose(&model,root)); s_want=1;
+        free(model.render_pos);
+    }
 
     if (!strcmp(argv[2], "CdjbondZ") || !strcmp(argv[2], "Cgreatguard2Z")) {
         /* Check actual cartridge joint identities against the mesh sections,
@@ -331,10 +361,16 @@ int main(int argc, char **argv)
 	assert(lists > 0);
 	if (!strcmp(argv[2], "Csuit_lf_handZ")) {
 		assert(lists == 7); /* One bare watch, six outfit switches. */
-		int clock[3] = {0};
+		int clock[3] = {0}, glass = 0;
 		for (int i = 0; i < s_nswap; i++)
 			if (s_swap[i].skin) {
-				struct beanSkin *pose = s_swap[i].skin;
+                struct beanSkin *pose = s_swap[i].skin;
+                uintptr_t texture = 0;
+                for (int c=0;c<pose->ncommands;c++) {
+                    Gfx *g=&pose->gdl[c]; unsigned op=g->words.w0>>24;
+                    if(op==(G_SETTIMG&255)) texture=g->words.w1;
+                    if(op==(G_TRI1&255)&&texture==(uintptr_t)mesh->standin[11]) glass++;
+                }
 				for (int v = 0; v < pose->nverts; v++)
 					for (int w = 0; w < 4; w++)
 						if (pose->verts[v].weight[w] && pose->verts[v].matrix[w] >= 1 &&
@@ -342,6 +378,7 @@ int main(int argc, char **argv)
 							clock[pose->verts[v].matrix[w] - 1]++;
 			}
 		assert(clock[0] && clock[1] && clock[2]);
+		assert(glass == 135); /* The six outfits do not multiply the glass. */
 	}
 	if (!strcmp(argv[2], "GtriggerZ")) {
 		assert(lists == 7 && mesh->triggerCuffs);

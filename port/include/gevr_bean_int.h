@@ -41,6 +41,7 @@ struct gevrBeanMesh {
 	float uvscale;
 	int triggerCuffs;
 	int nativeChrome;
+	int roomMaterial;
 	int nbones;
 	float boneBind[64][3];
 	char boneName[64][64];
@@ -69,6 +70,7 @@ const void *gevrBeanTexDecode(const struct gevrCaff *c, int fileIndex, const cha
 		int *outW, int *outH, int *outAlpha);
 int gevrBeanTexture(const void *addr, const uint8_t **rgba, int *w, int *h);
 int gevrBeanTexIsPlaceholder(const void *addr);
+void gevrBeanTexScrollSet(const void *addr, float s, float t);
 void gevrBeanTexPaint(const void *addr, uint32_t rgb);
 void gevrBeanTexReset(void);
 uint8_t *gevrBeanTexDecodeRgba(const struct gevrCaff *c, int fileIndex, int *outW, int *outH);

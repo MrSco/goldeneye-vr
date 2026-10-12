@@ -3383,6 +3383,16 @@ Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf
 
     renderdata.zbufferenabled = FALSE;
 #ifdef GEVR
+    {
+        extern int gevrBeanPreviewPose(Model *, const float [4][4]);
+        if (gevrBeanPreviewPose((Model *) &model, mtx->m))
+        {
+            /* The Bean dial writes depth. Give its inventory preview its own
+             * depth, so the gun can sit behind the dial without being hidden. */
+            gDPParam(renderdata.gdl++, 0x7E /* G_CLEAR_DEPTH_EXT */, 0);
+            renderdata.zbufferenabled = TRUE;
+        }
+    }
     if (g_gevrItemModelOverride != NULL)
     {
         /*

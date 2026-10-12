@@ -28,6 +28,9 @@ void gevrBeanToggle(void);
 void gevrBeanForgetModel(struct ModelFileHeader *header);
 void gevrBeanForgetModelStorage(const void *base, u32 size);
 void gevrBeanModelApply(struct ModelFileHeader *header, const char *name);
+/* The watch initializes only native preview joints. Fit every replaced rigid
+ * part under its own rest pivot; return whether this is a Bean preview. */
+int gevrBeanPreviewPose(struct Model *model, const float root[4][4]);
 void gevrBeanReset(void);
 
 /* Stand-in tile address -> decoded RGBA8. 1 when addr is one of ours. */
@@ -37,6 +40,7 @@ int gevrBeanTexture(const void *addr, const uint8_t **rgba, int *w, int *h);
  * briefing folder, gevr_bean_folder.c). Bound while Bean is off too; the
  * renderer asks only while it is on. */
 int gevrBeanRepaint(const void *addr, const uint8_t **rgba, int *w, int *h);
+void gevrBeanRepaintStats(unsigned counts[3]); /* folder, font, image bindings */
 /* Who bound a repaint, so each can drop its own. */
 #define GEVR_PAINT_FOLDER 1   /* gevr_bean_folder.c: until the folder is unloaded */
 #define GEVR_PAINT_FONT   2   /* gevr_bean_font.c */
@@ -51,6 +55,9 @@ void gevrBeanRepaintUnbind(const void *addr);
 void gevrBeanImageLoaded(int image, const void *data, int width, int height, int depth);
 void gevrBeanImagesReset(void);
 
+/* Normalized game-time texture offsets and the active HD room fog line. */
+int gevrBeanTextureScroll(const void *addr, float seconds, float offset[2]);
+int gevrBeanRoomFog(float line[2], uint8_t rgb[3]);
 /* Render-time selection only. Definitions retain native lists/types for
  * gameplay, including aiming and bullet collision. Disabled returns current. */
 void *gevrBeanShownGdl(void *node, void *current);

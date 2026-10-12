@@ -2,8 +2,7 @@
 from pathlib import Path
 import os, shutil, subprocess, tempfile
 ROOT = Path(__file__).resolve().parents[2]
-source = (ROOT / 'port/src/gevr_bean_world.c').read_text()
-code = source[source.index('GevrStaticMesh *gevrStaticMeshBuild('):source.index('/* G_GEVR_MESH ahead')]
+code = (ROOT / 'port/src/gevr_static_mesh_build.inc.h').read_text()
 with tempfile.TemporaryDirectory(prefix='gevr-chunks-') as temp:
     c = Path(temp) / 'chunks.c'
     c.write_text((ROOT / 'port/tests/gevr_mesh_chunks_test.c').read_text().replace('/* PRODUCTION MESH BUILDER */', code))

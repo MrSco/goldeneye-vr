@@ -1270,6 +1270,8 @@ static void markLevelBlendShaders(const struct gevrBeanMesh *mesh, struct beanDr
                 draws[di].terrainBlend = 1;
 }
 
+#include "gevr_bean_motion.inc.h"
+
 int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 {
 	FILE *fp;
@@ -1700,6 +1702,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		/* Material indices address the original table, including failed decodes. */
 		mesh->ntex++;
 	}
+	if (levelFade) readTextureScroll(mesh, data, dlen, stream, slen);
 	fixPlaceholders(mesh, draws, ndraws, source);
 	textureAlphaFlags(mesh, texAlpha, texSoft);
     if (levelFade) markLevelBlendShaders(mesh, draws, ndraws, ibs, nibs, data, dlen, gpu, glen, uv20);
@@ -1734,6 +1737,12 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		ntris = gevrBeanTriangles(&in, &tris);
         struct beanLayers layers = levelLayers(mesh, d, &vbrec, gpu, tris, ntris, levelFade);
         int baseTex=layers.base, otherTex=layers.other;
+        /* DAB beanArmGlass: 10 is a grey shader input, 11 is the black,
+         * translucent glass the release draws once over its watch dial. */
+        int watchGlass = !original && ntex == 12 && strstr(source, "suitlfhand") &&
+            (d->tex == 10 || d->tex == 11) &&
+            (d->masktex == 10 || d->masktex == 11 || d->tex == 11);
+        if (watchGlass) baseTex = 11;
         int mask=layers.mask, blendpic=layers.blend, decalpic=layers.decal;
 		for (int t = 0; t < ntris; t++) {
 			struct beanVtx corner[3];
@@ -1789,7 +1798,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 				else
 					xlu = glass || (picAlpha && (fades || picSoft));
 				/* DAB's opaque leaf cuts a picture with alpha (writeLeaf()) */
-				cut = d->alphatest || (!levelFade && texi >= 0 && mesh->texCut[texi]) ||
+				cut = (!watchGlass && d->alphatest) || (!levelFade && texi >= 0 && mesh->texCut[texi]) ||
 				      (levelFade && d->blend && picAlpha && !xlu);
 				uint8_t a = glass ? d->alpha : xlu ? 254 : 255;
 				if (!pushTri(mesh, &corner[0], &corner[1], &corner[2], texi, a, cut,
