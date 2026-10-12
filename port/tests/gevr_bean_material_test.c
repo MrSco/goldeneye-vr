@@ -366,11 +366,17 @@ int main(int argc, char **argv)
         };
         for (unsigned g = 0; g < sizeof(guns) / sizeof(guns[0]); g++) {
             struct gevrBeanMesh *m = load(argv[1], guns[g].file);
-            int flash = 0;
-            for (int i = 0; i < m->ntris; i++)
+            int flash = 0, glass = 0;
+            for (int i = 0; i < m->ntris; i++) {
                 flash += (m->tris[i].flags & GEVR_BEAN_F_FLASH) != 0;
-            printf("%s: %d flash-card triangles left out\n", guns[g].file, flash);
+                glass += m->tris[i].alpha < 254;
+            }
+            printf("%s: %d flash-card triangles left out, %d material glass\n", guns[g].file, flash, glass);
             bad |= flash != guns[g].flash;
+            /* glass is a prop's: a first-person gun takes no material alpha
+             * (the RC-P90's magazine, alpha 0, drew as nothing); the trigger
+             * hand keeps its watch glass */
+            bad |= glass != (strcmp(guns[g].file, "gun/trigger") == 0 ? 135 : 0);
             gevrBeanMeshFree(m);
         }
     }

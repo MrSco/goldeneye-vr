@@ -2028,8 +2028,9 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
                 }
                 for (int j=0; j<3; j++) if (fabsf(corner[k].pos[j]) > 1e8f) ok = 0;
 				/* DAB ignores the native/fog alpha outside a fading material.
-				 * Nintendo's blended shader has no material fade and many zeros. */
-				if (!(d->blend && (d->alpha < 255 || levelFade)))
+				 * Nintendo's blended shader has no material fade and many zeros.
+				 * A first-person gun's material alpha fades nothing (below). */
+				if (!(d->blend && ((d->alpha < 255 && !fpCards) || levelFade)))
 					corner[k].argb |= 0xff000000u;
                 if (mask) corner[k].argb = (corner[k].argb & 0xffffff) | (uint32_t)raw[24]<<24;
 				/* DAB tints a level vertex by its material only in a draw of
@@ -2050,7 +2051,11 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 				int texi = decalpic ? otherTex : baseTex;
 				int picAlpha = texi >= 0 && texi < MAX_TEX && texAlpha[texi];
 				int picSoft = texi >= 0 && texi < MAX_TEX && texSoft[texi];
-				int fades = 0, glass = !levelFade && d->blend && d->alpha < 255, xlu, cut;
+				/* Glass is a prop's (DAB gebeanBuildRigid()); DAB's first-person
+				 * guns never take the material alpha. The RC-P90's magazine (c12
+				 * 0.148 0.124 0.035, alpha 0, in the blended pass) drew as nothing
+				 * in the hand, the gun seen through where it is. */
+				int fades = 0, glass = !levelFade && !fpCards && d->blend && d->alpha < 255, xlu, cut;
 				for (int k = 0; k < 3; k++)
 					fades |= (corner[k].argb >> 24) < 0xf0;
 				/* A level face is translucent by its picture or its vertices,
