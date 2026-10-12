@@ -5154,7 +5154,10 @@ end:
 void gevrBgClampCameraCeiling(float position[3], float floorY, int room, int loadRooms)
 {
     const f32 clearance = 20.0f;
-    const f32 footprint = 8.0f; /* covers both eyes at any head yaw/roll */
+    /* both eyes at any head yaw/roll, and the near plane 10 units ahead of
+     * them (vr_openxr.cpp g_camZNear): with 8 the view still showed above a
+     * doorway for a moment going in and out (user, online Caverns as Jaws) */
+    const f32 footprint = 14.0f;
     s32 rooms[MAXPORTALSPERROOM + 1];
     s32 count, r, ix, iz;
     f32 bottom = floorY + 30.0f;
@@ -5188,14 +5191,15 @@ void gevrBgClampCameraCeiling(float position[3], float floorY, int room, int loa
         if (loadRooms) bgCheckIfRoomModelNeedsLoad(rooms[r]);
         if (!info->vtx_batch_bounds) continue;
 
-        for (ix = -1; ix <= 1; ix++) for (iz = -1; iz <= 1; iz++)
+        /* every half footprint, so a thin lintel between the samples is not missed */
+        for (ix = -2; ix <= 2; ix++) for (iz = -2; iz <= 2; iz++)
         {
             coord3d from, to;
             HitThing hit;
             f32 y;
-            from.x = position[0] + ix * footprint;
+            from.x = position[0] + ix * footprint * 0.5f;
             from.y = bottom;
-            from.z = position[2] + iz * footprint;
+            from.z = position[2] + iz * footprint * 0.5f;
             to = from;
             to.y = ceiling;
             if (bgTestBulletHitBackground(&from, &to, rooms[r], &hit))

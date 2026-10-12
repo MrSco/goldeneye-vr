@@ -8,7 +8,10 @@ head rise can therefore put the camera above a walkable doorway.
 
 `gevrBgClampCameraCeiling` probes native solid background in the current room
 and its portal neighbours, upwards from 30 world units above the walking floor.
-Nine samples cover an 8-unit horizontal footprint around the eye midpoint.
+25 samples, every 7 units, cover a 14-unit horizontal footprint around the
+eye midpoint: both eyes, and the near plane 10 units ahead of them (with 8
+units the view still showed above a Caverns doorway for a moment going in
+and out, user).
 The eye is capped 20 units below the nearest hit, without changing character
 height in open space, player movement, collision bounds or crouch controls.
 It uses the asset scale for bounds and hits; visibility scaling is independent.
