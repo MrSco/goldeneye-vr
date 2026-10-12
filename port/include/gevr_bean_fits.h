@@ -352,7 +352,9 @@
  BEANFIT("GuziZ", "gun/uzi", 0, 1, 2, 1, 1, 1, 0.212765957f, 0, 0, 0, 0, 0, 0),
  BEANFIT("GvideotapeZ", "gun/videotape", 0, 1, 2, 1, 1, 1, 0.212765957f, 0, 0, 0, 0, 0, 0),
  BEANFIT("GwatchcommunicatorZ", "gun/watchcommunicator", 0, 1, 2, 1, 1, 1, 2.12904068f, 0, 0, 0, 0, 0, 0),
- BEANFIT("GwatchlaserZ", "gun/watchlaser", 0, 1, 2, 1, 1, 1, 0.212765957f, 0, 0, 0, 0, 0, 0),
+ /* the watch laser is the detonator's twin (same nodes, matrices and textures):
+  * DAB draws both with the release's gun/trigger, hands and cuffs (Igx023Z) */
+ BEANFIT("GwatchlaserZ", "gun/trigger", 0, 1, 2, 1, 1, 1, 0.212765957f, 0, 0, 0, 0, 0, 0),
  BEANFIT("GweaponcaseZ", "gun/weaponcase", 0, 1, 2, 1, 1, 1, 0.212765957f, 0, 0, 0, 0, 0, 0),
  BEANFIT("GwppkZ", "gun/ppk", 0, 1, 2, 1, 1, 1, 0.212765957f, 0, 0, 0, 0, 0, 0),
  BEANFIT("GwppksilZ", "gun/ppksilenced", 0, 1, 2, 1, 1, 1, 0.212765957f, 0, 0, 0, 0, 0, 0),
@@ -384,5 +386,9 @@
  BEANFIT("PchrwppksilZ", "prop/chrwppksil", 1, 0, 2, 1, -1, 1, 0.21189f, 0.00f, 0.00f, 0.00f, 279.70f, -257.90f, -49.78f),
  BEANFIT("Gak47Z", "gun/ak47", 0, 1, 2, 1, 1, 1, 0.212765957f, 0, 0, 0, 0, 0, 0),
  /* DAB gebean.c:510: Bean's watch alone, on its list's own origin. */
- BEANFIT("GwatchmagnetattractZ", "gun/watchmagnetattract", 0, 1, 2, 1, 1, 1, 2.16710f, 0, 0, 0, 2732.21436f, -1246.56738f, -436.127838f),
+ /* the release's watchmagnetattract is GoldenEye's watch back to front - its
+  * strap ends wrap to +z where GoldenEye's (and the release's own
+  * watchcommunicator's) go to -z - so the watch screen showed its back for
+  * the watch laser and the detonator: turned about the strap (x and z) */
+ BEANFIT("GwatchmagnetattractZ", "gun/watchmagnetattract", 0, 1, 2, -1, 1, -1, 2.16710f, 0, 0, 0, 2732.21436f, -1246.56738f, -436.127838f),
  BEANFIT("PfloppyZ", "prop/chrfloppy", 0, 1, 2, 1, 1, 1, 0.214410039f, 0, 0, 0, -0.0968210563f, -1.09282683f, -0.0136932052f),

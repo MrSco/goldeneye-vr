@@ -2090,11 +2090,20 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 		/* DAB gebean.c:12966: a first-person gun goes on the untoggled lists;
 		 * a second pass takes toggled ones for a gun that has nothing else. */
 		int untoggled = kind == BEAN_GUN && fit;
-		for (int pass = 0; pass < (restrictType || untoggled ? 2 : 1); pass++) {
+		/* A gun's body never goes on GoldenEye's hand when it has a list of
+		 * its own: the watch and the weapon panel switch the hand off, and
+		 * the throwing knife, whose hand's lists are not under a switch,
+		 * went with it (a last pass takes the hand for a model with nothing
+		 * else) */
+		const int passes = untoggled ? 3 : restrictType ? 2 : 1;
+		for (int pass = 0; pass < passes; pass++) {
 			for (int i = 0; i < nd; i++) {
 				int g = dls[i].grp;
 				int underJoint = g >= 0 && g < ng && grp[g].joint != 0;
 				if (kind == BEAN_GUN && (dls[i].simple || underJoint || gunFlashNode(header, dls[i].node))) {
+					continue;
+				}
+				if (untoggled && pass < 2 && gunHandNode(header, dls[i].node)) {
 					continue;
 				}
 				if (pass == 0 && restrictType && dls[i].modelType != 3) {

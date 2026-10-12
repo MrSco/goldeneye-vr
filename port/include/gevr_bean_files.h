@@ -145,7 +145,7 @@
  { "GuziZ", BEAN_GUN, "new/gun/uzi" },
  { "GvideotapeZ", BEAN_GUN, "new/gun/videotape" },
  { "GwatchcommunicatorZ", BEAN_GUN, "new/gun/watchcommunicator" },
- { "GwatchlaserZ", BEAN_GUN, "new/gun/watchlaser" },
+ { "GwatchlaserZ", BEAN_GUN, "new/gun/trigger" },
  { "GwatchmagnetattractZ", BEAN_GUN, "new/gun/watchmagnetattract" },
  { "GweaponcaseZ", BEAN_GUN, "new/gun/weaponcase" },
  { "GwppkZ", BEAN_GUN, "new/gun/ppk" },
