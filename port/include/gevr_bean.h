@@ -37,6 +37,8 @@ int gevrBeanPreviewPose(struct Model *model, const float root[4][4]);
  * drawn in its mouth then) */
 void gevrBeanSetLoaded(int loaded);
 int gevrBeanHasRound(const void *header);
+/* whether the release draws any of a model's lists now */
+int gevrBeanDrawsModel(const void *header);
 void gevrBeanReset(void);
 
 /* Stand-in tile address -> decoded RGBA8. 1 when addr is one of ours. */

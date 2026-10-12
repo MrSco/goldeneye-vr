@@ -257,6 +257,16 @@ int gevrBeanHasRound(const void *header)
 	return 0;
 }
 
+/* whether the release draws any of a model's lists now: a gun in the hand in
+ * 2D is then depth-tested on its own (gunfire.c), as GoldenEye X's are */
+int gevrBeanDrawsModel(const void *header)
+{
+	for (int i = 0; header && i < s_nswap; i++)
+		if (s_swap[i].owner == header && s_swap[i].ours != s_blank && activeSwap(s_swap[i].node) == &s_swap[i])
+			return 1;
+	return 0;
+}
+
 int gevrBeanShownModelType(void *node, int current)
 {
 	return activeSwap(node) ? 0 : current;
