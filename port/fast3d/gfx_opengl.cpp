@@ -1597,6 +1597,8 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         }
     }
 
+    if(cc_features.opt_reflect_diffuse && cc_features.used_textures[0] && cc_features.used_textures[1])
+        append_line(fs_buf,&fs_len,"    texVal1.rgb *= texVal0.rgb;");
     append_line(fs_buf, &fs_len, cc_features.opt_alpha ? "    vec4 texel;" : "    vec3 texel;");
     for (int c = 0; c < (cc_features.opt_2cyc ? 2 : 1); c++) {
         append_str(fs_buf, &fs_len, "    texel = ");

@@ -22,7 +22,7 @@
 struct beanDraw {
 	uint32_t vb, tex, prim, count, ib, vs, masktex, matpc;
 	uint8_t maskslot;
-    uint32_t reflectSpot,reflectLand; uint8_t reflectAmount[3];
+    uint32_t reflectSpot,reflectLand; uint8_t reflectAmount[3],reflectionDiffuse;
 	int16_t inst;
 	uint8_t blend, alpha, alphatest, terrainBlend;
 	uint8_t pal[GEVR_BEAN_MAXPAL];
@@ -1579,10 +1579,11 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
             maskslot = 0;
             reflectSpot=reflectLand=~0u; reflectForm=0;
             memset(reflectAmount,0,sizeof(reflectAmount));
-            int spotSlot=-1,landSlot=-1,pictureSlot=-1,scratchSlot=-1;uint32_t scratch=~0u;
+            int spotSlot=-1,landSlot=-1,pictureSlot=-1,scratchSlot=-1,validInputs=0;uint32_t scratch=~0u;
             for (uint32_t k = 0; 12 + 8*k + 8 <= sz && fits(pc+12+8*k, 8, slen); k++) {
                 uint32_t other = be32(stream+pc+12+8*k);
                 int slot=be32(stream+pc+16+8*k)>>16;
+                validInputs += other<(uint32_t)ntex;
                 int sphere=sphereTex(&caff,texfile,ntex,other);
                 if(sphere==1){reflectSpot=other;spotSlot=slot;}
                 else if(sphere==2){reflectLand=other;landSlot=slot;}
@@ -1594,6 +1595,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
                 }
             }
             reflectForm=spotSlot==0 && landSlot==1 && pictureSlot==2;
+            if(!reflectForm && validInputs==3 && spotSlot==1 && landSlot==2 && pictureSlot==0)
+                reflectForm=3; /* CCTV: the diffuse also tints R. */
             if(!reflectForm && scratchSlot==0 && pictureSlot==1) {
                 reflectForm=2;reflectSpot=~0u;reflectLand=scratch;
             }
@@ -1602,9 +1605,9 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		} else if (type == 0x06 && sz >= 28 && be32(stream + pc + 4) == 0 &&
 		           (be32(stream + pc + 8) >> 16) == 0x0c) {
             int twoConstants=reflectForm && sz>=44 && (be32(stream+pc+8)&0xffff)==2;
-            if(reflectForm==2 && twoConstants)
+            if((reflectForm==2 || reflectForm==3) && twoConstants)
                 for(int k=0;k<3;k++)if(fabsf(bef(stream+pc+28+k*4)-1.0f)>1e-6f)twoConstants=0;
-            if(reflectForm==2 && !twoConstants)reflectForm=0;
+            if((reflectForm==2 || reflectForm==3) && !twoConstants)reflectForm=0;
             if(twoConstants) for(int k=0;k<3;k++) {
                 float v=bef(stream+pc+12+k*4);
                 reflectAmount[k]=v>=1 ? 255 : v<=0 ? 0 : (uint8_t)(v*255+.5f);
@@ -1657,6 +1660,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 				d->vs = vs;
 				d->vb = vb;
 				d->tex = tex;
+                d->reflectionDiffuse=reflectForm==3;
                 d->reflectSpot=reflectForm ? reflectSpot : ~0u;
                 d->reflectLand=reflectForm ? reflectLand : ~0u;
                 memcpy(d->reflectAmount,reflectAmount,3);
@@ -1893,6 +1897,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 					break;
 				}
 				mesh->tris[mesh->ntris - 1].reflection=texi==(int)d->tex ? drawReflection : NULL;
+                mesh->tris[mesh->ntris - 1].reflectionDiffuse=d->reflectionDiffuse;
 				mesh->tris[mesh->ntris - 1].cuff = d->cuff;
 				notePass(&triPass, &passCap, mesh->ntris - 1, d->blend ? LDECAL_PASS_BLEND : 0);
                 if (blendpic || decalpic) {

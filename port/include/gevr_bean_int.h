@@ -21,6 +21,7 @@ struct gevrBeanTri {
 	uint8_t bone[12], weight[12];
 	uint8_t rgba[12];
     const void *reflection;
+    uint8_t reflectionDiffuse;
 	int8_t cuff;
 	int16_t tex;
 	uint8_t alpha;
@@ -63,6 +64,7 @@ struct gevrEmitVert {
 	uint8_t cut;
 	uint8_t decal;
     const void *reflection;
+    uint8_t reflectionDiffuse;
 };
 
 int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out);

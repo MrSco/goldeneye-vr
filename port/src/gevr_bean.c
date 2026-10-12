@@ -325,7 +325,7 @@ static uint32_t spatialBits(uint32_t x)
 
 static int vertKey(const struct gevrEmitVert *v)
 {
-	return ((int)v->decal << 29) | ((int)v->cut << 28)
+	return ((int)v->reflectionDiffuse << 30) | ((int)v->decal << 29) | ((int)v->cut << 28)
         | ((v->tex + 1) << 16) | ((int)v->alpha << 8);
 }
 
@@ -550,13 +550,18 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 				gDPSetCombineMode(g++, G_CC_MODULATEI, G_CC_PASS2);
 			}
 		}
-        int reflect=tex>=0 && base->reflection && base->alpha==255 && !base->cut;
-        g->words.w0=(uintptr_t)G_GEVR_NORMAL_TEX1<<24; g++->words.w1=reflect;
+        int reflect=tex>=0 && base->reflection;
+        g->words.w0=((uintptr_t)G_GEVR_NORMAL_TEX1<<24) | (base->reflectionDiffuse ? 1 : 0); g++->words.w1=reflect;
         if(reflect) {
             gDPLoadMultiBlock(g++,base->reflection,256,1,G_IM_FMT_RGBA,G_IM_SIZ_16b,
                              16,16,0,G_TX_CLAMP,G_TX_CLAMP,4,4,G_TX_NOLOD,G_TX_NOLOD);
-            gDPSetCombineLERP(g++,TEXEL0,0,SHADE,0,0,0,0,SHADE,
-                             1,COMBINED,TEXEL1,COMBINED,0,0,0,COMBINED);
+            if(base->alpha<255 || base->cut) {
+                gDPSetCombineLERP(g++,TEXEL0,0,SHADE,0,TEXEL0,0,SHADE,0,
+                                 1,COMBINED,TEXEL1,COMBINED,0,0,0,COMBINED);
+            } else {
+                gDPSetCombineLERP(g++,TEXEL0,0,SHADE,0,0,0,0,SHADE,
+                                 1,COMBINED,TEXEL1,COMBINED,0,0,0,COMBINED);
+            }
         }
         while (batch < end) {
 			int take = end - batch;
@@ -937,6 +942,7 @@ static void fillEmit(const struct gevrBeanTri *t, int texCut, struct gevrEmitVer
 	e->rgba[2] = t->rgba[corner * 4 + 2];
 	e->rgba[3] = t->rgba[corner * 4 + 3];
 	e->reflection=t->reflection;
+    e->reflectionDiffuse=t->reflectionDiffuse;
 	e->tex = t->tex;
 	e->alpha = t->alpha;
 	e->cut = (uint8_t)(t->alphatest || (t->tex >= 0 && texCut));

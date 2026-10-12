@@ -89,6 +89,21 @@ int main(void)
     assert(v[1].v.tc[0] == 100 * 8 * 32);
     free(gdl); free(raw);
 
+    /* Normal maps must be emitted for soft glass and alpha-tested visors too.
+     * Their combiner preserves diffuse alpha while reflecting only RGB. */
+    for(int cut=0;cut<=1;cut++) {
+        for(int i=0;i<3;i++){verts[i].reflection=mesh.standin[0];verts[i].alpha=127;
+            verts[i].cut=cut;verts[i].reflectionDiffuse=1;}
+        assert(gevrBeanEmitList(&mesh,verts,3,0,0,0,1,&gdl,&raw));
+        Gfx *commands=gdl;int reflection=0;
+        for(int c=0;(commands[c].words.w0>>24)!=(G_ENDDL&255);c++)
+            if((commands[c].words.w0>>24)==G_GEVR_NORMAL_TEX1 && commands[c].words.w1) {
+                reflection++;assert(commands[c].words.w0&1);
+            }
+        assert(reflection==1);
+        free(gdl);free(raw);
+    }
+    for(int i=0;i<3;i++){verts[i].reflection=NULL;verts[i].reflectionDiffuse=0;verts[i].cut=0;verts[i].alpha=255;}
     Vertex host[3] = {0}; host[1].coord.x = 10; host[2].coord.y = 10;
     union ModelRoData ro = {0};
     ro.DisplayList.Vertices = host; ro.DisplayList.numVertices = 3; ro.DisplayList.ModelType = 3;

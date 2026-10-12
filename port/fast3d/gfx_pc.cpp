@@ -57,7 +57,7 @@ extern "C" {
 #include "gevr_mesh_visibility.h"
 #include "gevr_bean_room_state.h"
 extern "C" int32_t g_GlobalTimer;
-static bool s_beanNormalTex1;
+static bool s_beanNormalTex1, s_beanReflectDiffuse;
 static const uint8_t *s_beanVertexTint;
 static unsigned s_beanVertexTintStride;
 static bool s_beanRoomFogLinear;
@@ -2907,6 +2907,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
         use_alpha = true;
     }
 
+    if (s_beanReflectDiffuse) cc_options |= SHADER_OPT_REFLECT_DIFFUSE;
     if (use_alpha) {
         cc_options |= (uint64_t)SHADER_OPT_ALPHA;
     }
@@ -4727,6 +4728,7 @@ static void gfx_run_dl(Gfx* cmd) {
             case G_GEVR_NORMAL_TEX1:
                 gfx_flush();
                 s_beanNormalTex1=cmd->words.w1!=0;
+                s_beanReflectDiffuse=s_beanNormalTex1 && (cmd->words.w0&1);
                 break;
             case G_GEVR_VERTEX_TINT:
                 s_beanVertexTint = (const uint8_t *)cmd->words.w1;
@@ -5071,7 +5073,7 @@ extern "C" void gfx_init(const GfxInitSettings *settings) {
         tex_upload_buffer = (uint8_t*)malloc(max_tex_size * max_tex_size * 4);
     }
 
-    s_beanNormalTex1=false;
+    s_beanNormalTex1=s_beanReflectDiffuse=false;
     rsp.lookat[0].dir[0] = rsp.lookat[1].dir[1] = 0x7F;
     rsp.current_lookat_coeffs[0][0] = rsp.current_lookat_coeffs[1][1] = 1.f;
     rsp.lookat_enabled = true;
