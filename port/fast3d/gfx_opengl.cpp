@@ -1323,7 +1323,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         append_line(vs_buf, &vs_len, "uniform int uMeshLit, uMeshNumLights;");
         append_line(vs_buf, &vs_len, "uniform vec3 uMeshAmbient, uMeshLightDir[7], uMeshLightColor[7];");
         append_line(vs_buf, &vs_len, "uniform vec4 uMeshFog;");
-        append_line(vs_buf, &vs_len, "uniform vec3 uMeshFogParams;");
+        append_line(vs_buf, &vs_len, "uniform vec4 uMeshFogParams;");
         append_line(vs_buf, &vs_len, "void skinAdd(int b, float w, vec3 p, vec3 n, inout vec3 pos, inout vec3 norm, inout float total) {");
         append_line(vs_buf, &vs_len, "  if (w == 0.0 || (uSkinValid[b / 32] & (1u << uint(b % 32))) == 0u) return;");
         append_line(vs_buf, &vs_len, "  vec4 r0 = uSkinRows[b*3], r1 = uSkinRows[b*3+1], r2 = uSkinRows[b*3+2];");
@@ -1383,7 +1383,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         if (cc_features.opt_fog) {
             append_line(vs_buf, &vs_len, "    float fw = abs(aVtxPos.w) < 0.001 ? 0.001 : aVtxPos.w;");
             append_line(vs_buf, &vs_len, "    float wi = fw < 0.0 ? 32767.0 : 1.0 / fw;");
-            append_line(vs_buf, &vs_len, "    vec4 aFog = vec4(uMeshFog.rgb, uMeshFogParams.z != 0.0 ? clamp(aVtxPos.z * wi * uMeshFogParams.x + uMeshFogParams.y, 0.0, 255.0) / 255.0 : uMeshFog.a);");
+            append_line(vs_buf, &vs_len, "    vec4 aFog = vec4(uMeshFog.rgb, uMeshFogParams.z != 0.0 ? clamp((uMeshFogParams.w != 0.0 ? aVtxPos.w : aVtxPos.z * wi) * uMeshFogParams.x + uMeshFogParams.y, 0.0, 255.0) / 255.0 : uMeshFog.a);");
         }
         if (s_meshClipDistance) {
             // gfx_sp_tri1 drops a triangle past the squashed far plane at all three
@@ -3060,7 +3060,7 @@ static void gevr_mesh_uniforms(const struct ShaderProgram* prg, const struct Gfx
         if (prg->meshLightColorLocation >= 0) glUniform3fv(prg->meshLightColorLocation, p->num_lights, &p->light_color[0][0]);
     }
     if (prg->meshFogLocation >= 0) glUniform4fv(prg->meshFogLocation, 1, p->fog);
-    if (prg->meshFogParamsLocation >= 0) glUniform3f(prg->meshFogParamsLocation, p->fog_mul, p->fog_offset, p->fog_enabled);
+    if (prg->meshFogParamsLocation >= 0) glUniform4f(prg->meshFogParamsLocation, p->fog_mul, p->fog_offset, p->fog_enabled, p->fog_linear);
     if (prg->meshMPLocation >= 0) glUniformMatrix4fv(prg->meshMPLocation, 1, GL_FALSE, p->mp);
     for (int t = 0; t < 2; t++) {
         if (prg->meshTexLocation[t] >= 0) glUniform4fv(prg->meshTexLocation[t], 1, p->tex[t]);

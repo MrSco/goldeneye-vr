@@ -190,7 +190,7 @@ def execution(gl, program):
     gl.uniform(program, "uMeshLightDir[0]", "f", [0, 0, 1])
     gl.uniform(program, "uMeshLightColor[0]", "f", [100, 110, 120])
     gl.uniform(program, "uMeshFog", "f", [.1, .2, .3, .4])
-    gl.uniform(program, "uMeshFogParams", "f", [100, 50, 1])
+    gl.uniform(program, "uMeshFogParams", "f", [100, 50, 1, 0])
     gl.attribute(0, [7, 8, 9])
     gl.attribute(2, [0, 0, 127/255, .7])
     gl.attribute(3, [128, 127, 0, 0])
@@ -241,7 +241,7 @@ def execution(gl, program):
     gl.uniform(program, "uMeshMP", "m", behind)
     gl.attribute(5, [0,0,1])
     assert abs(gl.capture()[11] - 1) < 2e-5
-    gl.uniform(program, "uMeshFogParams", "f", [100,50,0])
+    gl.uniform(program, "uMeshFogParams", "f", [100,50,0,0])
     assert abs(gl.capture()[11] - .4) < 2e-5
     gl.uniform(program, "uMeshMP", "m", identity)
     gl.uniform(program, "uSkinValid", "u", [0,0])
@@ -249,6 +249,15 @@ def execution(gl, program):
     # even with GL's default generic vec4 attribute (0,0,0,1).
     gl.attribute(3, [0,0,0,1])
     assert all(abs(a-b) < 2e-5 for a,b in zip(gl.capture()[:4], [7,8,2.7,1]))
+    # HD room fog is linear in eye depth, rather than concentrated at the
+    # clipping plane. Its copied parameters also survive replay.
+    gl.uniform(program, "uMeshFogParams", "f", [255/15100, 25500/15100, 1, 1])
+    linear = identity[:]; linear[15] = 7450
+    gl.uniform(program, "uMeshMP", "m", linear)
+    assert abs(gl.capture()[11] - .5) < 2e-5
+    linear[15] = 15100; gl.uniform(program, "uMeshMP", "m", linear)
+    assert abs(gl.capture()[11] - 1) < 2e-5
+    gl.uniform(program, "uMeshFogParams", "f", [100,50,0,0])
     # The mesh's head clip position must be reconstructed through the scope
     # camera exactly as the CPU capture is, including inverted eye Y.
     head = [2,0,0,0, 0,-3,0,0, 0,0,1,-1, 0,0,0,0]

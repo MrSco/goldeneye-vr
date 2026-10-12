@@ -33,7 +33,7 @@ struct GfxMeshDrawParams {
     float ambient[3], light_dir[7][3], light_color[7][3];
     float fog[4];       // RGB and constant factor when G_FOG is clear
     float fog_mul, fog_offset;
-    bool fog_enabled;
+    bool fog_enabled, fog_linear;
     GevrSkinPalette palette; // copied into redraw records, never a frame-arena pointer
 };
 

@@ -176,6 +176,7 @@ static const struct imagerow imageRows[] = {
 static s16 rowOf[IMAGE_IDS];   /* image id -> row + 1 */
 static u8 missing[NROWS];      /* the release's file is not on the device */
 static int built;
+static u8 reported[NROWS];
 
 static void buildIndex(void)
 {
@@ -382,7 +383,12 @@ void gevrBeanImageLoaded(int image, const void *data, int width, int height, int
 		GEVR_BEAN_LOG("gevr bean images: no %s for image %d", row->picture, image);
 		return;
 	}
-	gevrBeanRepaintBind(GEVR_PAINT_IMAGE, data, rgba, w, h);
+    if (!gevrBeanRepaintBind(GEVR_PAINT_IMAGE, data, rgba, w, h)) {
+        GEVR_BEAN_LOG("gevr bean images: repaint capacity exhausted at image %d (%s)", image, row->picture);
+    } else if (!reported[r]) {
+        reported[r] = 1;
+        GEVR_BEAN_LOG("gevr bean images: %d %s native %dx%d -> %dx%d", image, row->picture, width, height, w, h);
+    }
 }
 
 void gevrBeanImagesReset(void)
@@ -391,4 +397,5 @@ void gevrBeanImagesReset(void)
 	lastRgba = NULL;
 	lastName[0] = 0;
 	memset(missing, 0, sizeof(missing));
+	memset(reported, 0, sizeof(reported));
 }

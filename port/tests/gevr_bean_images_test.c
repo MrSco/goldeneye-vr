@@ -9,6 +9,7 @@
  */
 #include <ultra64.h>
 #include <stdarg.h>
+#include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -89,8 +90,23 @@ int main(int argc, char **argv)
 			fwrite(rgba, 4, (size_t)w * h, out);
 		}
 	}
-	fclose(out);
-	gevrBeanRepaintForget();
+    fclose(out);
+    /* Font/image pools can fill the registry. A reload of a bound address
+     * must still replace its picture and invalidate the renderer cache. */
+    static uint8_t addresses[1024];
+    for(int i=0;i<1024;i++) {
+        uint8_t *pixel=calloc(4,1);
+        if(!gevrBeanRepaintBind(GEVR_PAINT_FOLDER,&addresses[i],pixel,1,1)) break;
+    }
+    unsigned stats[3]; gevrBeanRepaintStats(stats);
+    assert(stats[0]+stats[1]+stats[2]==1024);
+    if(count) {
+        uint8_t *pixel=calloc(4,1); pixel[0]=173;
+        assert(gevrBeanRepaintBind(GEVR_PAINT_IMAGE,data[0],pixel,1,1));
+        const uint8_t *replaced; int w,h;
+        assert(gevrBeanRepaint(data[0],&replaced,&w,&h)&&w==1&&h==1&&replaced[0]==173);
+    }
+    gevrBeanRepaintForget();
 	printf("bound %d\n", bound);
 	return 0;
 }

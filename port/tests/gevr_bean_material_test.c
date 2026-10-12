@@ -13,6 +13,7 @@
  * usage: material <files folder>
  */
 #include "gevr_bean_int.h"
+int gevrBeanTextureScroll(const void *, float, float [2]);
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -127,7 +128,19 @@ int main(int argc, char **argv)
 		for (int i = 0; i < m->ntris; i++)
 			decals += (m->tris[i].flags & GEVR_BEAN_F_DECAL) != 0;
 		printf("%s: %d triangles, %d decal, %d opaque decal with nothing under it\n", rigid[r], m->ntris, decals, n);
-		bad |= n != 0;
+        bad |= n != 0;
+        if (r == 0) {
+            int glass = 0, grey = 0;
+            for (int i = 0; i < m->ntris; i++) {
+                grey += m->tris[i].tex == 10;
+                if (m->tris[i].tex == 11) { glass++; bad |= m->tris[i].alpha == 255; }
+            }
+            const uint8_t *pic = NULL; int w = 0, h = 0;
+            bad |= !gevrBeanTexture(m->standin[11], &pic, &w, &h);
+            if (w*h > 0) for (int i=0; i<w*h; i++) bad |= pic[i*4] || pic[i*4+1] || pic[i*4+2] || pic[i*4+3]>=128;
+            bad |= grey || glass != 135;
+            printf("Watch glass: %d translucent black faces, %d grey shader-input faces\n", glass, grey);
+        }
 		gevrBeanMeshFree(m);
 	}
 	{
@@ -148,7 +161,19 @@ int main(int argc, char **argv)
 			cleared += t->alpha == 0 && seen;
 		}
 		printf("background/dam: %d triangles, %d cleared by their material\n", m->ntris, cleared);
-		bad |= cleared != 0;
+        bad |= cleared != 0;
+        float scroll[2];
+        bad |= !gevrBeanTextureScroll(m->standin[71], 1.0f, scroll);
+        bad |= fabsf(scroll[0] - .5f)>1e-6f || fabsf(scroll[1]+.5f)>1e-6f;
+        gevrBeanTextureScroll(m->standin[71], 2.0f, scroll);
+        bad |= fabsf(scroll[0])>1e-6f || fabsf(scroll[1])>1e-6f;
+        bad |= gevrBeanTextureScroll(m->standin[0], 1.0f, scroll);
+        int paint=0;
+        for(int i=0;i<m->ntris;i++) if(m->tris[i].tex==72) {
+            paint++; bad |= !(m->tris[i].flags & GEVR_BEAN_F_DECAL) || m->tris[i].alpha==255;
+        }
+        bad |= paint!=4;
+        printf("Dam: reservoir scrolls at 0.5 repeats/s on game time; %d vertex-alpha road-paint faces retain decals\n",paint);
 		gevrBeanMeshFree(m);
 	}
 	puts(bad ? "FAIL" : "Bean material checks passed");

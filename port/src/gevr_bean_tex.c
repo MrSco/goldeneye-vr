@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #define FMT_8888  6
 #define FMT_DXT1  18
@@ -21,6 +22,7 @@ struct texSlot {
 	uint8_t *standin;
 	uint8_t *rgba;
 	int w, h;
+	float scroll[2];
 };
 
 static struct texSlot s_tex[TEX_SLOTS];
@@ -344,7 +346,7 @@ static int paintFind(const void *addr)
 
 int gevrBeanRepaintBind(int owner, const void *addr, uint8_t *rgba, int w, int h)
 {
-	if (!addr || !rgba || w <= 0 || h <= 0 || s_npaint >= PAINT_SLOTS) {
+	if (!addr || !rgba || w <= 0 || h <= 0) {
 		free(rgba);
 		return 0;
 	}
@@ -358,6 +360,7 @@ int gevrBeanRepaintBind(int owner, const void *addr, uint8_t *rgba, int w, int h
 		videoFreeCachedTexture(addr);
 		return 1;
 	}
+	if (s_npaint >= PAINT_SLOTS) { free(rgba); return 0; }
 	s_paint[s_npaint].addr = addr;
 	s_paint[s_npaint].rgba = rgba;
 	s_paint[s_npaint].w = w;
@@ -411,6 +414,13 @@ void gevrBeanRepaintUnbind(const void *addr)
 	}
 }
 
+void gevrBeanRepaintStats(unsigned counts[3])
+{
+    counts[0] = counts[1] = counts[2] = 0;
+    for (int i = 0; i < s_npaint; i++)
+        if (s_paint[i].owner >= 1 && s_paint[i].owner <= 3) counts[s_paint[i].owner-1]++;
+}
+
 int gevrBeanRepaint(const void *addr, const uint8_t **rgba, int *w, int *h)
 {
 	if (!addr || !s_npaint) {
@@ -452,6 +462,20 @@ int gevrBeanTexIsPlaceholder(const void *addr)
 		magenta += p[0] >= p[1] + 64 && p[2] >= p[1] + 64 && abs(p[0] - p[2]) < 48;
 	}
 	return magenta * 10 >= w * h * 9;
+}
+
+void gevrBeanTexScrollSet(const void *addr, float s, float t)
+{
+    int i = addr ? texFind(addr) : -1;
+    if (i >= 0) { s_tex[i].scroll[0] = s; s_tex[i].scroll[1] = t; }
+}
+int gevrBeanTextureScroll(const void *addr, float seconds, float offset[2])
+{
+    offset[0] = offset[1] = 0;
+    int i = addr ? texFind(addr) : -1;
+    if (i < 0 || !isfinite(seconds) || (!s_tex[i].scroll[0] && !s_tex[i].scroll[1])) return 0;
+    for (int k = 0; k < 2; k++) offset[k] = fmodf(seconds * s_tex[i].scroll[k], 1.0f);
+    return s_tex[i].scroll[0] != 0 || s_tex[i].scroll[1] != 0;
 }
 
 void gevrBeanTexPaint(const void *addr, uint32_t rgb)

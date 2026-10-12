@@ -55,6 +55,11 @@ extern "C" {
 #include "gevr_surface_math.h"
 #include "gevr_static_mesh.h"
 #include "gevr_mesh_visibility.h"
+#include "gevr_bean_room_state.h"
+extern "C" int32_t g_GlobalTimer;
+static bool s_beanRoomFogLinear;
+static float s_beanRoomFogLine[2];
+static unsigned s_beanPaintUploads, s_beanPaintHits;
 #include "gevr_bean.h"
 #include "gevr_romlayout.h"
 extern "C" int VrCampaign; /* vr_settings: the launcher's campaign */
@@ -1976,6 +1981,7 @@ static void import_texture(int i, int tile, bool is_rect) {
         int paintW = 0, paintH = 0;
         if (gevrBeanIsEnabled() && gevrBeanRepaint(orig_addr, &paint, &paintW, &paintH)
                 && paint && paintW > 0 && paintH > 0) {
+            ++s_beanPaintHits;
             TextureCacheKey key = { orig_addr, {}, G_IM_FMT_RGBA, G_IM_SIZ_32b, 0, 0, 0 };
             key.width = (uint32_t)paintW;
             key.height = (uint32_t)paintH;
@@ -1983,6 +1989,7 @@ static void import_texture(int i, int tile, bool is_rect) {
                 loaded_texture.id_mask = 0;
                 return;
             }
+            ++s_beanPaintUploads;
             gfx_rapi->upload_texture(paint, (uint32_t)paintW, (uint32_t)paintH);
             loaded_texture.id_mask = 0;
             return;
@@ -2526,7 +2533,8 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
                 winv = std::numeric_limits<int16_t>::max();
             }
 
-            float fog_z = z * winv * rsp.fog_mul + rsp.fog_offset;
+            float fog_z = s_beanRoomFogLinear ? w * s_beanRoomFogLine[0] + s_beanRoomFogLine[1] :
+                z * winv * rsp.fog_mul + rsp.fog_offset;
             d->fog = clampf(fog_z, 0.f, 255.f);
         } else {
             d->fog = rdp.fog_color.a;
@@ -2695,6 +2703,8 @@ static struct {
     bool tex_from_block[2];
     struct GfxClipParameters clip;
 } s_gevrMeshState;
+
+static void gevr_bean_scroll(int t, float offset[2]);
 
 static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bool is_rect) {
     GevrProfileSection profile(GEVR_TIME_CLIP);
@@ -3034,6 +3044,8 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
         return;
     }
 
+    float beanScroll[2][2] = {};
+    for (int t = 0; t < 2; t++) if (comb->used_textures[t]) gevr_bean_scroll(t, beanScroll[t]);
     for (int i = 0; i < 3; i++) {
         float x = v_arr[i]->x, y = v_arr[i]->y, z = v_arr[i]->z, w = v_arr[i]->w;
         if (gevrBackFace) {
@@ -3105,8 +3117,8 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
 			uint32_t tex_w = (is_rect || tex_from_block[t]) ? tex_width[t] : tex_width2[t];
 			uint32_t tex_h = (is_rect || tex_from_block[t]) ? tex_height[t] : tex_height2[t];
 
-			buf_vbo[buf_vbo_len++] = u / tex_w;
-			buf_vbo[buf_vbo_len++] = v / tex_h;
+			buf_vbo[buf_vbo_len++] = u / tex_w + beanScroll[t][0];
+			buf_vbo[buf_vbo_len++] = v / tex_h + beanScroll[t][1];
         }
 
         if (use_fog) {
@@ -4217,6 +4229,12 @@ static void gevr_mesh_frame(void) {
  * and each combiner input, byte by byte either a colour byte of the vertex or
  * a constant. false for what the shader does not do: the LOD fraction by w.
  */
+static void gevr_bean_scroll(int t, float offset[2])
+{
+    const auto& tile = rdp.texture_tile[rdp.first_tile_index + gfx_lod_tile_offset(t)];
+    gevrBeanTextureScroll(rdp.loaded_texture[tile.tmem].addr, g_GlobalTimer / 60.0f, offset);
+}
+
 static bool gevr_mesh_params(struct GfxMeshDrawParams* p) {
     memset(p, 0, sizeof(*p));
     for (int r = 0; r < 4; r++) {
@@ -4255,6 +4273,8 @@ static bool gevr_mesh_params(struct GfxMeshDrawParams* p) {
         p->tex[t][1] = k[1] / h;
         p->tex[t][2] = o[0] / w;
         p->tex[t][3] = o[1] / h;
+        float scroll[2]; gevr_bean_scroll(t, scroll);
+        p->tex[t][2] += scroll[0]; p->tex[t][3] += scroll[1];
     }
     // gfx_sp_tri1's input loop, a byte at a time: ch is the vertex colour's byte, or -1 for v
     struct Byte { int ch; uint8_t v; };
@@ -4373,7 +4393,8 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, 
     if ((!skin && (rsp.geometry_mode & (G_LIGHTING | G_CULL_BOTH))) ||
         (rsp.geometry_mode & G_TEXTURE_GEN) ||
         (rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH || rsp.vertex_colors != nullptr ||
-        rsp.modelview_hidden_stack[rsp.modelview_matrix_stack_size - 1] || gevrCullOff || gevrCullMirror ||
+        rsp.modelview_hidden_stack[rsp.modelview_matrix_stack_size - 1] ||
+        ((gevrCullOff || gevrCullMirror) && (rsp.geometry_mode & G_CULL_BOTH)) ||
         !(fbActive || vr_is_initialized())) {
         s_gevrMeshFallbacks++;
         return false;
@@ -4394,7 +4415,7 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, 
     rsp.geometry_mode = geometry;
     --gevr_perf_tri_calls;
     struct GfxMeshDrawParams params;
-    if (!s_gevrMeshState.ok || (!skin && s_gevrMeshState.use_fog) || s_gevrMeshState.use_grayscale ||
+    if (!s_gevrMeshState.ok || s_gevrMeshState.use_grayscale ||
         s_gevrMeshState.num_inputs > GFX_MESH_MAX_INPUTS || s_gevrMeshState.clip.z_is_from_0_to_1 ||
         !gevr_mesh_params(&params)) {
         s_gevrMeshFallbacks++;
@@ -4417,6 +4438,8 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, 
                 for (int k = 0; k < 3; k++) params.light_color[i][k] = rsp.current_lights[i].col[k];
             }
         }
+    }
+    {
         params.fog[0] = rdp.fog_color.r / 255.0f;
         params.fog[1] = rdp.fog_color.g / 255.0f;
         params.fog[2] = rdp.fog_color.b / 255.0f;
@@ -4424,6 +4447,8 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, 
         params.fog_enabled = (geometry & G_FOG) != 0;
         params.fog_mul = rsp.fog_mul;
         params.fog_offset = rsp.fog_offset;
+        params.fog_linear = s_beanRoomFogLinear;
+        if (params.fog_linear) { params.fog_mul = s_beanRoomFogLine[0]; params.fog_offset = s_beanRoomFogLine[1]; }
     }
     params.invert_y = s_gevrMeshState.clip.invert_y;
     params.has_bounds = !skin && run->hasBounds;
@@ -4614,6 +4639,7 @@ static void gfx_run_dl(Gfx* cmd) {
                          * differently inside a room's display list. */
                         if (gfx_opengl_batch_is_decal()) GEVR_FLUSH_BECAUSE(GEVR_FLUSH_ROOM);
                         gevrRoomDl = tag_w1 == VR_ROOM_DL_BEGIN;
+                        s_beanRoomFogLinear = false;
                         break;
                     }
                     default:
@@ -4641,6 +4667,13 @@ static void gfx_run_dl(Gfx* cmd) {
                 memset(s_gevrPresentedFresh, 0, sizeof(s_gevrPresentedFresh));   // pre-projected: none presented
                 gfx_sp_sky_vertex(C0(0, 8), (const GevrSkyVertex*)seg_addr(cmd->words.w1));
                 break;
+            case G_GEVR_ROOM_STATE: {
+                uint8_t rgb[3];
+                s_beanRoomFogLinear = gevrRoomDl && (rsp.geometry_mode & G_FOG) && gevrBeanRoomFog(s_beanRoomFogLine, rgb);
+                if (s_beanRoomFogLinear) { rdp.fog_color.r = rgb[0]; rdp.fog_color.g = rgb[1]; rdp.fog_color.b = rgb[2]; }
+                gfx_sp_set_other_mode(3, 29, gevrBeanRoomMode((uint32_t)cmd->words.w1, rsp.geometry_mode & G_FOG));
+                break;
+            }
             case G_GEVR_SKIN:
                 skin = (GevrSkinDraw*)cmd->words.w1;
                 mesh = skin->mesh;
@@ -5359,6 +5392,9 @@ extern "C" void gfx_run(Gfx* commands) {
                     vr_log("gfx: %u frames, %u tris, %u flushes, cimg %p", sFrames, sTris, sFlushes, rdp.color_image_address);
                     vr_log("mesh: %u draws, %u tris, %u runs on the CPU, %u meshes in buffers%s", s_gevrMeshDraws,
                            s_gevrMeshTris, s_gevrMeshFallbacks, (unsigned)s_gevrMeshLive.size(), s_gevrMeshOn ? "" : " (off)");
+                    unsigned repaint[3]; gevrBeanRepaintStats(repaint);
+                    vr_log("bean-paint: folder %u font %u images %u bound, %u renderer hits %u uploads", repaint[0], repaint[1], repaint[2], s_beanPaintHits, s_beanPaintUploads);
+                    s_beanPaintHits = s_beanPaintUploads = 0;
                     vr_log("skin: %u draws, %u tris on GPU, %u CPU poses%s", s_gevrSkinDraws,
                            s_gevrSkinTris, s_gevrSkinPoses, s_gevrSkinOn ? "" : " (gevr_noskin.txt)");
                     s_gevrSkinDraws = s_gevrSkinTris = s_gevrSkinPoses = 0;
