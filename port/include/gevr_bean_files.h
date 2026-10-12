@@ -1,7 +1,10 @@
 /* Intentional native fallbacks, matching DAB: the release's three civilian
  * bodies are broken; chrplastique and walletbond have no reliable native
  * geometry fit; the intro logo keeps its native animated metallic material.
- * Other absent catalog entries have no matching release source. */
+ * The taser is no row of DAB's either: the release's is GoldenEye's N64 hand
+ * and taser again (64x24 pictures), drawn as one mesh it doubled the hand and
+ * kept its arm in the watch. Other absent catalog entries have no matching
+ * release source. */
 /* Complete, case-sensitive native file-to-Bean mapping. Character aliases
  * follow DAB gebeanchrtable.h; port/licenses/dabs-mod.txt. */
  { "CcamguardZ", BEAN_CHR, "new/char/camguard" },
@@ -135,7 +138,6 @@
  { "GsniperrifleZ", BEAN_GUN, "new/gun/sniperrifle" },
  { "GspectreZ", BEAN_GUN, "new/gun/spectre" },
  { "GstafflistZ", BEAN_GUN, "new/gun/stafflist" },
- { "GtaserZ", BEAN_GUN, "new/gun/taser" },
  { "GthrowknifeZ", BEAN_GUN, "new/gun/throwingknife" },
  { "GtimedmineZ", BEAN_GUN, "new/gun/timedmine" },
  { "GtriggerZ", BEAN_GUN, "new/gun/trigger" },

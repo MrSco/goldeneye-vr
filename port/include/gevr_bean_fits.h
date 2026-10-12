@@ -345,7 +345,6 @@
  BEANFIT("GsniperrifleZ", "gun/sniperrifle", 0, 1, 2, 1, 1, 1, 0.212765957f, 0, 0, 0, 0, 0, 0),
  BEANFIT("GspectreZ", "gun/spectre", 0, 1, 2, 1, 1, 1, 0.212765957f, 0, 0, 0, 0, 0, 0),
  BEANFIT("GstafflistZ", "gun/stafflist", 0, 1, 2, 1, 1, 1, 0.212765957f, 0, 0, 0, 0, 0, 0),
- BEANFIT("GtaserZ", "gun/taser", 0, 1, 2, 1, 1, 1, 0.212765957f, 0, 0, 0, 0, 0, 0),
  BEANFIT("GthrowknifeZ", "gun/throwingknife", 0, 1, 2, 1, 1, 1, 0.212765957f, 0, 0, 0, 0, 0, 0),
  BEANFIT("GtimedmineZ", "gun/timedmine", 0, 1, 2, 1, 1, 1, 0.212765957f, 0, 0, 0, 0, 0, 0),
  BEANFIT("GtriggerZ", "gun/trigger", 0, 1, 2, 1, 1, 1, 0.212765957f, 0, 0, 0, 0, 0, 0),
