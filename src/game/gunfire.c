@@ -2848,8 +2848,16 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
 
         if (gevrStereoTwoHandGrip() && !gevrGexSupportHandShown(gevrStereoTwoHandGun()))
         {
+            /* Bean's own off hand holds (bondview2.c), else the taser's hand */
+            extern Gfx *gevrRenderBeanGripArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn);
+            s32 drawn = FALSE;
+
             gdl = gevrHandTag(gdl, 1 - gevrStereoTwoHandGun());
-            gdl = gevrRenderLeftArm(gdl, &renderdata);
+            gdl = gevrRenderBeanGripArm(gdl, &renderdata, &drawn);
+            if (!drawn)
+            {
+                gdl = gevrRenderLeftArm(gdl, &renderdata);
+            }
         }
     }
     gdl = gevrHandTag(gdl, -1);
