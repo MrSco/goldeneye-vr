@@ -194,8 +194,11 @@ def validate(path, hz, status):
     if not status.endswith(' 0'):
         raise Unavailable(f'Trace overflow reported: {status}')
     valid = [r for r in rows if int(r['kind']) and int(r['camera_valid'])]
-    if len(valid) < hz * 50:
-        raise Unavailable(f'Insufficient active XR gameplay: {len(valid)} rows; {metadata.strip()}')
+    # Count active time, not an assumed successful frame rate: a slow renderer
+    # must remain measurable at a requested 120 Hz. The game ticks at 60 Hz.
+    active_seconds = (int(valid[-1]['start_time_ns']) - int(valid[0]['start_time_ns'])) / 1e9 if valid else 0
+    if len(valid) < 60 * 30 or active_seconds < 50:
+        raise Unavailable(f'Insufficient active XR gameplay: {len(valid)} rows over {active_seconds:.1f} s; {metadata.strip()}')
     if any(int(r['errors']) for r in valid):
         raise Unavailable('Nested timing attribution errors; trace cannot support optimization')
     periods = [int(r['period_ns']) for r in valid]
