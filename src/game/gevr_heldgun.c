@@ -38,6 +38,8 @@
 #include "net_rules.h"
 
 extern bool netIsActive(void);
+extern void gevrBeanSetLoaded(int loaded);          /* port/src/gevr_bean.c: DAB fpRound */
+extern int gevrBeanHasRound(const void *header);
 extern int netGetLocalSlot(void);
 extern GunModelFileRecord gitem_structs[];
 extern Lights1 g_WeaponEnvmapLight;
@@ -695,9 +697,13 @@ Gfx *gevrHeldGunDraw(ChrRecord *chr, ModelRenderData *body, Gfx *gdl, s32 withal
             gSPLookAt(rd.gdl++, sub_GAME_7F078474());
         }
 
+        /* Bean's launcher carries its own round (DAB fpRound): loaded or
+         * not as the holder's is, and GoldenEye's rocket not drawn in it */
+        gevrBeanSetLoaded(inst->rocketon);
         subdraw(&rd, &inst->model);
+        gevrBeanSetLoaded(1);
 
-        if (inst->rocketon)
+        if (inst->rocketon && !gevrBeanHasRound(inst->model.obj))
         {
             subdraw(&rd, &inst->rocket);
         }

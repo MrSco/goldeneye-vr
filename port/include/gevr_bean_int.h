@@ -13,6 +13,7 @@
 #define GEVR_BEAN_F_SLIDE 2
 #define GEVR_BEAN_F_NECK  4
 #define GEVR_BEAN_F_DECAL 8
+#define GEVR_BEAN_F_ROUND 16   /* the rocket launcher's round in its tube (DAB fpRound) */
 
 struct gevrBeanTri {
 	float p[9];
@@ -117,6 +118,7 @@ void gevrBeanTexMotionSet(const void *addr, float s, float t, float degrees, flo
                           const struct gevrCaff *c, int fileIndex);
 const void *gevrBeanTexReflect(const void *spot,const void *land,const uint8_t amount[3],const char *key);
 const void *gevrBeanTexReflectRgba(const void *spot,const void *land,const uint8_t amount[4],const char *key);
+const void *gevrBeanTexReflectMetal(const void *map,const float hue[3],const char *key);
 void gevrBeanTexPaint(const void *addr, uint32_t rgb);
 void gevrBeanTexReset(void);
 uint8_t *gevrBeanTexDecodeRgba(const struct gevrCaff *c, int fileIndex, int *outW, int *outH);

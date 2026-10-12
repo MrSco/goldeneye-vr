@@ -60,6 +60,51 @@ static int fpGunFile(const char *source)
 	return 0;
 }
 
+/*
+ * DAB fpTint, beanShadeTint() and beanGoldPicture(): the Golden Gun's two
+ * pictures are a near-white scratch and shine map, which its shader lays under
+ * a gold reflection map on a second sampler (c12 1.77, c14 -0.77); one sampler
+ * drew it white. Its vertices take the gold, lit by their normals, and in first
+ * person the map is added as its reflection; the pickup takes the tint alone.
+ * The gold and silver PP7s carry the same material (no row of DAB's: DAB draws
+ * neither), so they take the same in their own metal.
+ */
+struct beanMetal {
+	const char *folder;
+	uint32_t tint;
+	float hue[3];
+};
+static const struct beanMetal s_metals[] = {
+	{ "/gun/goldengun/", 0xfff0c86eu, { 1.25f, 1.05f, 0.45f } },
+	{ "/prop/chrgolden/", 0xfff0c86eu, { 1.25f, 1.05f, 0.45f } },
+	{ "/gun/goldppk/", 0xfff0c86eu, { 1.25f, 1.05f, 0.45f } },
+	{ "/gun/silverPPK/", 0xffd8d8d8u, { 1.0f, 1.0f, 1.0f } },
+};
+
+static const struct beanMetal *beanMetalOf(const char *source)
+{
+	for (unsigned i = 0; i < sizeof(s_metals) / sizeof(s_metals[0]); i++)
+		if (strstr(source, s_metals[i].folder))
+			return &s_metals[i];
+	return NULL;
+}
+
+/* DAB beanShadeTint(): a tinted gun's colour lit by its normal from light -
+ * a flat tint read as matte paint (ambient 0.5, diffuse 0.45, a d^8 shine) */
+static uint32_t beanShadeTint(uint32_t argb, const float *nrm, const float *light)
+{
+	const float len = sqrtf(nrm[0] * nrm[0] + nrm[1] * nrm[1] + nrm[2] * nrm[2]);
+	float d = len > 0.0f ? (nrm[0] * light[0] + nrm[1] * light[1] + nrm[2] * light[2]) / len : 0.0f;
+	uint32_t out = argb & 0xff000000u;
+	d = d < 0.0f ? 0.0f : d;
+	const float d2 = d * d, shade = 0.5f + 0.45f * d + 0.4f * d2 * d2 * d2 * d2;
+	for (int shift = 16; shift >= 0; shift -= 8) {
+		const float c = ((argb >> shift) & 0xff) * shade;
+		out |= (uint32_t)(c > 255.0f ? 255.0f : c) << shift;
+	}
+	return out;
+}
+
 struct beanIb {
 	uint32_t obj, off, size, width;
 };
@@ -1641,6 +1686,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	              strstr(source, "\\gun\\");
 	triggerCuffs = strstr(source, "/gun/trigger/") != NULL || strstr(source, "\\gun\\trigger\\") != NULL;
 	const int fpCards = fpGunFile(source);
+	const struct beanMetal *metal = original ? NULL : beanMetalOf(source);
+	const int roundLauncher = !original && strstr(source, "/gun/rocketlauncher/") != NULL;
 	pal[0] = 0;
 	end = slen >= 8 ? be32(stream + 4) : 0;
 	if (end > slen) {
@@ -1978,6 +2025,13 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
                 : gevrBeanTexReflect(d->reflectSpot==~0u ? NULL : mesh->standin[d->reflectSpot],
                     mesh->standin[d->reflectLand],d->reflectAmount,key);
         }
+        /* a metal gun's own map, as its reflection in the hand (DAB beanGoldPicture()) */
+        const int metalGlove = d->tex < (uint32_t)mesh->ntex && mesh->texW[d->tex] == 512 && mesh->texH[d->tex] == 511;
+        if (metal && fpCards && !drawReflection && !metalGlove && d->tex < (uint32_t)mesh->ntex &&
+            d->masktex < (uint32_t)mesh->ntex) {
+            snprintf(key,sizeof(key),"%s#metal-%x",source,d->matpc);
+            drawReflection=mesh->reflection[d->tex]=gevrBeanTexReflectMetal(mesh->standin[d->masktex],metal->hue,key);
+        }
         uint32_t cr = d->colour;
 		if (!readVb(data, dlen, gpu, glen, d->vb, uv20, &vbrec)) {
 			continue;
@@ -2075,6 +2129,20 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 				cut = (!watchGlass && d->alphatest) || (!levelFade && texi >= 0 && mesh->texCut[texi]) ||
 				      (levelFade && d->blend && picAlpha && !xlu);
 				uint8_t a = glass ? d->alpha : xlu ? 254 : 255;
+				/* a metal gun's colour (DAB fpGunTint(), beanShadeTint()): in the
+				 * hand a quarter down under its reflection, lit from above and in
+				 * front of the eye; a pickup in full, lit from above. The glove
+				 * keeps its own. */
+				if (metal && !metalGlove) {
+					static const float fpLight[3] = { 0.0f, 0.75f, -0.66f }, gunLight[3] = { 0.0f, 0.5f, 0.87f };
+					uint32_t tint = metal->tint;
+					if (fpCards)
+						tint = (tint & 0xff000000u) | ((((tint >> 16) & 255) * 3 / 4) << 16) |
+						       ((((tint >> 8) & 255) * 3 / 4) << 8) | ((tint & 255) * 3 / 4);
+					for (int k = 0; k < 3; k++)
+						corner[k].argb = (corner[k].argb & 0xff000000u) |
+						                 (beanShadeTint(tint, corner[k].nrm, fpCards ? fpLight : gunLight) & 0xffffffu);
+				}
 				if (!pushTri(mesh, &corner[0], &corner[1], &corner[2], texi, a, cut,
 						d->pal, d->numpal, boneSk, muzzle, slideb)) {
 					break;
@@ -2083,6 +2151,14 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 				 * leaves the HD gun's small pictures (64x64 and under) out with
 				 * the hand's, which takes every flash card - the rocket
 				 * launcher's in its mouth is on no piece and no muzzle bone */
+				/* DAB fpRound: the rocket launcher's round - the rocket (draw 2,
+				 * less the launcher's back half it shares, its triangles wholly
+				 * behind z 1000), the disc in its mouth (1) and the cap on its
+				 * nose (21 and 22) */
+				if (roundLauncher && (di == 1 || di == 21 || di == 22 ||
+				                      (di == 2 && !(corner[0].pos[2] < 1000.0f && corner[1].pos[2] < 1000.0f &&
+				                                    corner[2].pos[2] < 1000.0f))))
+					mesh->tris[mesh->ntris - 1].flags |= GEVR_BEAN_F_ROUND;
 				if (fpCards && (d->piece == 0 ||
 				                (!original && texi >= 0 && mesh->texW[texi] <= 64 && mesh->texH[texi] <= 64)))
 					mesh->tris[mesh->ntris - 1].flags |= GEVR_BEAN_F_FLASH;
