@@ -20,6 +20,7 @@ static int g_gevrStereo = 1, VrLeftHandedMode;
 float D_800364CC = 1;
 static s32 s_gevrTwoHandGun = GUNRIGHT, s_gevrTwoHand, s_gevrTwoHandResetDir;
 static f32 s_gevrTwoHandAmt;
+static s32 s_gevrScopeProbe;
 static f32 VrGripTrim[2][6], VrGexGripTrim[2][6];
 #define s_gevrTwoHandTrim VrGripTrim
 static float VrGunOffX, VrGunOffY, VrGunOffZ;
