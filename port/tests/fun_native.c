@@ -16,7 +16,8 @@ static int online, flags, gun;
 int VrGunSizeCheat;
 s32 debug_VisCVG_flag;
 u8 g_CheatPlayerTextRelated[CHEAT_INVALID+1];
-struct ChrModelFileRecord c_item_entries[2];
+static struct ChrModelFileRecord s_chrRecords[2];
+struct ChrModelFileRecord *c_item_entries = s_chrRecords; /* a pointer since hack campaigns (image.c, chrobjdata.h) */
 bool netIsActive(void) { return online; }
 int netCoopActive(void) { return 0; }
 int gevrCoopThrownMissionItem(int weapon) { (void)weapon;return 0; }

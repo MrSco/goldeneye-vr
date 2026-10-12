@@ -161,7 +161,12 @@ Rotate Image:
 #define HUNDRED_PERCENT_CHANCE 0xFFFF
 
 #define SFX_RELATED_LEN 8
-#define MAX_PROPS 600
+/*
+ * GoldenEye's 600, plus the 1000 Goldfinger 64 chains on in Expansion Pak
+ * memory (its init at 7F0014E8 links 0x807F002C-0x807FCB4C after the
+ * stock pool): its Cartel alone places 1158 props. Room for both campaigns.
+ */
+#define MAX_PROPS 1600
 #define PTR_LIST_OBJECT_LOOKUP_INDICES_LEN 512
 #define BSS_8007161C_LEN 256
 #define BSS_8007161C_DATA_LEN 16
@@ -171,7 +176,8 @@ Rotate Image:
 #define PROJECTILES_ARR_MAX 20
 #define PROXIMITYARRMAX 30 /*canonical name for max mines*/
 #define EMBEDMENT_ARR_MAX 40
-#define ONSCREEN_PROP_LIST_LEN 500
+/* filled with no bound (chrprop.c): one entry a prop, and the NULL after */
+#define ONSCREEN_PROP_LIST_LEN (MAX_PROPS + 1)
 
 
 

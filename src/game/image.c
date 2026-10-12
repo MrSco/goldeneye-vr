@@ -12,6 +12,7 @@
 #include <string.h>
 #include "gevr_gex.h"
 #include "gevr_gexmodel.h"
+#include "gevr_bean.h"
 #endif
 #include "gevr_rom_segments.h"
 
@@ -155,11 +156,38 @@ s32 D_800492E4[] =
 
 //D:80049300
 //need way to calculate size at compile time from external data
-struct image_entry g_Textures[] = {
+static struct image_entry gevrRetailTextures[] = {
     #include <assets/images.def>
     {HIT_DEFAULT, HIT_DEFAULT,0xFFFF,0,0,0,0}
 };
+struct image_entry *g_Textures = gevrRetailTextures;
+static s32 g_TextureCount;
 #undef IMAGE
+
+s32 gevrTextureCount(void)
+{
+    s32 n = 0;
+
+    if (g_TextureCount > 0) {
+        return g_TextureCount;
+    }
+    if (g_Textures) {
+        while (n < 8192 && g_Textures[n].dataoffset != 0xffff) {
+            n++;
+        }
+    }
+    g_TextureCount = n;
+    return n;
+}
+
+void gevrTextureUse(struct image_entry *entries, s32 count)
+{
+    if (!entries || count <= 0) {
+        return;
+    }
+    g_Textures = entries;
+    g_TextureCount = count;
+}
 
 
 void nullsub_41(s32 arg0) {
@@ -2558,7 +2586,7 @@ void texLoad(uintptr_t *updateword, struct texpool *pool)
             thisoffset = 0;
             nextoffset = 0;
         }
-        else if (g_TexNumToLoad >= MAX_TEXTURES)
+        else if (g_TexNumToLoad >= gevrTextureCount())
         {
             return;
         }
@@ -2629,6 +2657,10 @@ void texLoad(uintptr_t *updateword, struct texpool *pool)
         }
 
         texFreeBytesInBuffer(pool);
+#ifdef GEVR
+        /* Bean: the release's picture for this image, at the address it just loaded to */
+        gevrBeanImageLoaded(gevrgex != NULL ? -1 : g_TexNumToLoad, tex->data, tex->width, tex->height, tex->depth);
+#endif
     }
 
     *updateword = osVirtualToPhysical(tex->data);
@@ -2644,9 +2676,19 @@ void texLoadFromModelFileHeader(ModelFileHeader* arg0, struct texpool* arg1)
 
     for (i = 0; i < arg0->numtextures; i++)
     {
-        if ((s32)textures[i].TextureID < (s32)MAX_TEXTURES)
         {
-            texLoad(&textures[i].TextureID, arg1);
+            s32 gevrTexId = (s32)textures[i].TextureID;
+            int gevrTexOk = gevrTexId >= 0 && gevrTexId < gevrTextureCount();
+#ifdef GEVR
+            if (gevrTexId >= GEVR_GEX_TEX_FIRST && gevrTexId <= GEVR_GEX_TEX_LAST)
+            {
+                gevrTexOk = 1;
+            }
+#endif
+            if (gevrTexOk)
+            {
+                texLoad(&textures[i].TextureID, arg1);
+            }
         }
     }
 }

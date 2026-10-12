@@ -1867,6 +1867,11 @@ Gfx *draw_background_health_and_armor(Gfx *gdl, Mtx *arg1, s32 zoom_squish)
     gDPSetCycleType(gdl++, G_CYC_1CYCLE);
     gDPSetRenderMode(gdl++, G_RM_AA_XLU_SURF, G_RM_AA_XLU_SURF2);
     gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
+#ifdef GEVR
+    /* Bean's watch is lit; these vertices carry the dial and gauge colours. */
+    gSPClearGeometryMode(gdl++, G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_FOG | G_ZBUFFER);
+    gSPTexture(gdl++, 0, 0, 0, G_TX_RENDERTILE, G_OFF);
+#endif
     gDPSetPrimColor(gdl++, 0, 0, 0xE6, 0xE6, 0xE6, 0x00);
     gSPMatrix(gdl++, arg1, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
     // end initial setup.
@@ -3879,6 +3884,8 @@ extern int VrNoKnockback, VrNoHitstun, VrDamageFlash;
 extern int VrLeftHandedMode, VrSwapJoysticks, VrGunFitArmed, VrShowStats, VrGunSizeCheat;
 extern int VrMinesStickToGuards, VrBodiesStay, VrFastReinforcements;
 extern int VrGexGuns;
+extern int gevrBeanIsAvailable(void), gevrBeanIsEnabled(void);
+extern void gevrBeanSetEnabled(int on);
 extern float VrScreenDistance, VrScreenFov;
 extern int VrScreenCurved, VrScreenPassthrough;
 extern void vr_screen_resize(float dist, float fov);   /* port/vr/vr_screen.h */
@@ -3906,7 +3913,7 @@ enum {
     GEVR_VR_RELOAD, GEVR_VR_RECOIL, GEVR_VR_THROW, GEVR_VR_THROWPOWER, GEVR_VR_THROWPITCH, GEVR_VR_THROWGAZE,
     GEVR_VR_REFRESH, GEVR_VR_WATCHFACE, GEVR_VR_STATS, GEVR_VR_SCREENSIZE, GEVR_VR_SCREENDIST, GEVR_VR_CURVED, GEVR_VR_PASSTHROUGH,
     GEVR_VR_MINESTICK, GEVR_VR_BODIES, GEVR_VR_FASTREINF,
-    GEVR_VR_GEXGUNS, GEVR_VR_GUNSIZE,
+    GEVR_VR_GEXGUNS, GEVR_VR_GUNSIZE, GEVR_VR_BEAN,
     GEVR_VR_MOVESPEED,
     GEVR_VR_ROWS
 };
@@ -3919,7 +3926,7 @@ static const char *s_gevrVrLabels[GEVR_VR_ROWS] = {
     "Hand reload WIP", "Gun recoil", "Motion throw", "Throw power", "Throw pitch", "Throw gaze",
     "Refresh", "Watch face", "Show stats", "Screen size", "Screen dist", "Curved", "Passthrough",
     "Mines stick", "Bodies stay", "Fast reinforcements",
-    "GoldenEye X", "Gun size",
+    "GoldenEye X", "Gun size", "Project Bean",
     "Movement speed",
 };
 
@@ -3931,7 +3938,7 @@ static const s32 s_gevrVrGestures[] = { GEVR_VR_WATCHPAUSE, GEVR_VR_BODYSLOTS, G
 static const s32 s_gevrVrWeapons[] = { GEVR_VR_RECOIL, GEVR_VR_THROW, GEVR_VR_THROWPOWER, GEVR_VR_THROWPITCH, GEVR_VR_THROWGAZE };
 static const s32 s_gevrVrDisplay[] = { GEVR_VR_REFRESH, GEVR_VR_WATCHFACE, GEVR_VR_STATS, GEVR_VR_SCREENSIZE, GEVR_VR_SCREENDIST, GEVR_VR_CURVED, GEVR_VR_PASSTHROUGH };
 static const s32 s_gevrVrRules[] = { GEVR_VR_MINESTICK, GEVR_VR_BODIES, GEVR_VR_FASTREINF };
-static const s32 s_gevrVrMods[] = { GEVR_VR_GEXGUNS, GEVR_VR_GUNSIZE };
+static const s32 s_gevrVrMods[] = { GEVR_VR_BEAN, GEVR_VR_GEXGUNS, GEVR_VR_GUNSIZE };
 
 static const struct
 {
@@ -4026,6 +4033,9 @@ static void gevrVrValueText(s32 row, char *buf)
 
     switch (row)
     {
+        case GEVR_VR_BEAN:
+            sprintf(buf, "%s", !gevrBeanIsAvailable() ? "NEEDS FILES" : gevrBeanIsEnabled() ? "ON" : "OFF");
+            break;
         case GEVR_VR_MOVESPEED:
             if (!netIsActive() && VrMovementSpeed == NET_MOVE_NORMAL) sprintf(buf, "100%% DEFAULT");
             else sprintf(buf, netIsActive() ? "HOST %d%%" : "%d%%",
@@ -4136,6 +4146,11 @@ static void gevrVrStep(s32 row, s32 dir)
     s32 i;
     s32 steps;
 
+    if (row == GEVR_VR_BEAN)
+    {
+        if (gevrBeanIsAvailable()) gevrBeanSetEnabled(dir == 2 ? !gevrBeanIsEnabled() : dir > 0);
+        return;
+    }
     if (row == GEVR_VR_FASTREINF && netIsActive())
     {
         /* The net setter accepts only the co-op host. A joiner's saved

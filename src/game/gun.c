@@ -2854,7 +2854,7 @@ Gfx *gevrGexDrawWatch(Gfx *gdl, ModelRenderData *templ, GUNHAND hand)
  * hand holds, scaled into the gun's units. Its matrices are this draw's own,
  * turned to the view's fixed point after it, as the launcher's rocket is.
  */
-extern struct ItemModelFileRecord PitemZ_entries[];
+extern struct ItemModelFileRecord *PitemZ_entries;
 static Model s_gevrGexPayloadModel;
 static u32 s_gevrGexPayloadRw[64];
 
@@ -3917,7 +3917,7 @@ void used_to_load_1st_person_model_on_demand(GUNHAND hand)
                     load_object_fill_header(&g_CurrentPlayer->copy_of_body_obj_header[hand], (u8 *)ptr_item_text, buffer_weapon, 0xBD70, &g_CurrentPlayer->item_related[hand]);
 #endif
                 }
-                else if ((item == ITEM_TRIGGER) || (item == ITEM_WATCHLASER))
+                else if ((item == ITEM_TRIGGER) || (GEVR_ITEM_AS(item) == ITEM_WATCHLASER))
                 {
 #ifdef GEVR
                     /* GoldenEye X's watch rig (user: the watch laser kept GoldenEye's arm,
@@ -4046,7 +4046,7 @@ void gunRequestHandWeaponChange(enum GUNHAND hand, s32 nextWeapon, s32 cycleDire
     extern s32 gevrMissionItemClaimed(s32 hand, s32 item);
 
     /* The watch laser has fixed roles even when picked with the off hand. */
-    if (g_gevrStereo && nextWeapon == ITEM_WATCHLASER)
+    if (g_gevrStereo && GEVR_ITEM_AS(nextWeapon) == ITEM_WATCHLASER)
     {
         gunRequestHandWeaponChange(GUNLEFT, ITEM_UNARMED, cycleDirection);
         hand = GUNRIGHT;
@@ -4058,7 +4058,7 @@ void gunRequestHandWeaponChange(enum GUNHAND hand, s32 nextWeapon, s32 cycleDire
         struct hand *primary = &g_CurrentPlayer->hands[GUNRIGHT];
         s32 selected = primary->weapon_animation_trigger ? primary->weapon_next_weapon
             : get_next_weapon_in_cycle_for_hand(GUNRIGHT, 0);
-        if (selected == ITEM_WATCHLASER)
+        if (GEVR_ITEM_AS(selected) == ITEM_WATCHLASER)
             gunRequestHandWeaponChange(GUNRIGHT, ITEM_FIST, cycleDirection);
     }
 #endif
@@ -4637,7 +4637,7 @@ void gunSetOffsetRelated(f32 param_1)
 
 f32 get_value_if_watch_is_on_hand_or_not(GUNHAND hand)
 {
-  if ((getCurrentPlayerWeaponId(hand) == ITEM_TRIGGER) || (getCurrentPlayerWeaponId(hand) == ITEM_WATCHLASER))
+  if ((getCurrentPlayerWeaponId(hand) == ITEM_TRIGGER) || (GEVR_ITEM_AS(getCurrentPlayerWeaponId(hand)) == ITEM_WATCHLASER))
   {
     return 0.08726647f;
   }

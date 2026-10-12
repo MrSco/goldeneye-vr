@@ -7,6 +7,11 @@
 #include <fr.h>
 #include <memp.h>
 #include "bg.h"
+#ifdef GEVR
+#include "gevr_romlayout.h"
+#include "gevr_camera_collision.h"
+#include <math.h>
+#endif
 #include "ob.h" /* _fileNameLoadToBank returns a pointer; without the prototype it was truncated */
 #include "bondview.h"
 #include "chr.h"
@@ -23,6 +28,7 @@
 #include "explosion.h"
 #include "bgroomtrans.h"
 #include "gevr_stage.h"
+#include "gevr_bean.h"
 #include "system.h"
 #include "platform.h"
 #include <stdlib.h>
@@ -694,6 +700,9 @@ static void gevrOrderSecondaryPass(void)
  */
 Gfx *sub_GAME_7F0B3C8C(Gfx *gdl)
 {
+#ifdef GEVR
+    gevrBeanWorldBeginView();
+#endif
 #ifdef VERSION_EU
     s16 i;
 #else
@@ -3028,6 +3037,16 @@ Gfx *bgRenderRoomPrimary(Gfx *gdl, s32 room_index)
         {
             gdl = applyRoomMatrixToDisplayList(gdl, room_index);
 
+#ifdef GEVR
+            {
+                int beanReplaced = 0;
+                gdl = gevrBeanRoomAppend(gdl, room_index, &beanReplaced);
+                if (beanReplaced) {
+                    g_BgRoomInfo[room_index].model_bin_loaded = 1;
+                    return gdl;
+                }
+            }
+#endif
             gSPSegment(gdl++, SPSEGMENT_BG_VTX, OS_K0_TO_PHYSICAL(g_BgRoomInfo[room_index].vertices));
             gSPDisplayList(gdl++, OS_K0_TO_PHYSICAL(g_BgRoomInfo[room_index].ptr_expanded_mapping_info));
 
@@ -3052,12 +3071,19 @@ Gfx *bgRenderRoomSecondary(Gfx *gdl, s32 room_index)
         return gdl;
     }
 
-    // Return if the room has no secondary geometry.
+    /* A Bean room still draws its glass when GoldenEye stored none. */
+#ifdef GEVR
+    if (g_BgRoomInfo[room_index].ptr_secondary_expanded_mapping_info == 0 && !gevrBeanIsEnabled())
+    {
+        return gdl;
+    }
+#else
     if (g_BgRoomInfo[room_index].ptr_secondary_expanded_mapping_info == 0)
     {
         return gdl;
     }
-    else if ((D_8004485C != 0) || (D_80044858 == (room_index % 10)))
+#endif
+    if ((D_8004485C != 0) || (D_80044858 == (room_index % 10)))
     {
         if (g_BgRoomInfo[room_index].model_bin_loaded == 0)
         {
@@ -3066,6 +3092,22 @@ Gfx *bgRenderRoomSecondary(Gfx *gdl, s32 room_index)
 
         if (g_BgRoomInfo[room_index].model_bin_loaded != 0)
         {
+#ifdef GEVR
+            if (gevrBeanIsEnabled())
+            {
+                int beanReplaced = 0;
+                Gfx *beanGdl = applyRoomMatrixToDisplayList(gdl, room_index);
+                beanGdl = gevrBeanRoomAppendSecondary(beanGdl, room_index, &beanReplaced);
+                if (beanReplaced) {
+                    g_BgRoomInfo[room_index].model_bin_loaded = 1;
+                    return beanGdl;
+                }
+            }
+            if (g_BgRoomInfo[room_index].ptr_secondary_expanded_mapping_info == 0)
+            {
+                return gdl;
+            }
+#endif
             gdl = applyRoomMatrixToDisplayList(gdl, room_index);
 
             gSPSegment(gdl++, SPSEGMENT_BG_VTX, OS_K0_TO_PHYSICAL(g_BgRoomInfo[room_index].vertices));
@@ -4709,6 +4751,62 @@ void *sub_GAME_7F0B8A24(s32 *pc)
 /**
  * Address: 7F0B8A6C
  */
+#ifdef GEVR
+/*
+ * Bean stages. A room's Bean geometry reaches far past GoldenEye's own box
+ * (Dam's rooms 3, 4 and 7 wholly; room 7's rock sits 3,000-5,000 units
+ * beyond it), and a room is drawn only when the portal walk reaches it or
+ * its box is on screen, so whole surfaces went missing and the sky showed
+ * through. DAB draws every room by distance (gebeanstage.c, "showed the sky
+ * colour in the shape of what was missing"). Here a room the walk did not
+ * reach is drawn when its box grown to its Bean geometry is on screen,
+ * tested by bgIsRoomOnScreen itself. It is reached outside the N64's view,
+ * so the AI's "am I on screen" (issue #46) is unchanged.
+ */
+extern int gevrBeanIsEnabled(void);
+extern int gevrBeanWorldRoomBounds(int room, float lo[3], float hi[3]);
+
+static void gevrAddBeanRooms(void)
+{
+    s32 room;
+
+    if (!gevrBeanIsEnabled())
+    {
+        return;
+    }
+
+    for (room = 1; room < g_MaxNumRooms && room < MAXROOMCOUNT; room++)
+    {
+        s_room_info *info = &g_BgRoomInfo[room];
+        coord3d nativeMin, nativeMax;
+        float lo[3], hi[3];
+        s32 k, on;
+
+        if (info->room_rendered || info->room_loaded_mask || !gevrBeanWorldRoomBounds(room, lo, hi))
+        {
+            continue;
+        }
+
+        nativeMin = info->minbounds;
+        nativeMax = info->maxbounds;
+        for (k = 0; k < 3; k++)
+        {
+            info->minbounds.f[k] = lo[k] < nativeMin.f[k] ? lo[k] : nativeMin.f[k];
+            info->maxbounds.f[k] = hi[k] > nativeMax.f[k] ? hi[k] : nativeMax.f[k];
+        }
+        on = bgIsRoomOnScreen(room, (struct rectbbox *)&g_CurrentPlayer->screensize);
+        info->minbounds = nativeMin;
+        info->maxbounds = nativeMax;
+
+        if (on)
+        {
+            s_gevrPathN64 = 0;
+            sub_GAME_7F0B39BC(room, 1, &g_CurrentPlayer->screensize, 0);
+        }
+    }
+}
+#endif
+
 void bgDetermineVisibleRooms(void) 
 {
     f32 screenbounds[4];
@@ -4763,9 +4861,15 @@ void bgDetermineVisibleRooms(void)
      * If the level is Cradle or Statue, or has no portals, skip the portal occlusion culling algorithm. Just add every room in the player's
      * screen bounds to the list of rooms to draw.
      */
-    if ((levelentry_index == LEVEL_INDEX_CRAD) || (levelentry_index == LEVEL_INDEX_STATUE) || (g_BgPortals->offset_portal == NULL)) 
+#ifdef GEVR
+    /* the campaign's own Cradle case: Goldfinger switches it off, Tomorrow Never Dies moves it */
+    const s32 gevrCrad = gevrRomBgCradle();
+#else
+    const s32 gevrCrad = LEVEL_INDEX_CRAD;
+#endif
+    if ((levelentry_index == gevrCrad) || (levelentry_index == LEVEL_INDEX_STATUE) || (g_BgPortals->offset_portal == NULL)) 
     {
-        if (levelentry_index == LEVEL_INDEX_CRAD) 
+        if (levelentry_index == gevrCrad) 
         {
             sub_GAME_7F0B39BC(9, 0, &g_CurrentPlayer->screensize, 1);
         }
@@ -4789,7 +4893,7 @@ void bgDetermineVisibleRooms(void)
     else 
     {
         // This can never execute since the above branch is taken if the level is Cradle.
-        if (levelentry_index == LEVEL_INDEX_CRAD) 
+        if (levelentry_index == gevrCrad) 
         {
             sub_GAME_7F0B39BC(9, 0, &g_CurrentPlayer->screensize, 1);
         }
@@ -4901,6 +5005,8 @@ void bgDetermineVisibleRooms(void)
             }
         }
     }
+
+    gevrAddBeanRooms();
 #endif
 }
 
@@ -4911,7 +5017,11 @@ void bgDetermineVisibleRooms(void)
 Gfx *sub_GAME_7F0B8D78(Gfx *arg0)
 {
     s32 i;
+#ifdef GEVR
+    if (levelentry_index == gevrRomBgDam())   /* Goldfinger's Ramirez Cartel is in Dam's slot */
+#else
     if (levelentry_index == LEVEL_INDEX_DAM)
+#endif
     {
         for (i=0; i<g_BgNumberOfRoomsDrawn; i++)
         {
@@ -5035,6 +5145,80 @@ end:
     return len;
 }
 
+
+#ifdef GEVR
+/* The walk mesh describes floors and horizontal boundaries, not lintels.
+ * Probe upwards from inside the walkable space, so an eye already above a
+ * low doorway is recovered as well as one approaching it. Use native solid
+ * background even when Bean supplies the rendered mesh. */
+void gevrBgClampCameraCeiling(float position[3], float floorY, int room, int loadRooms)
+{
+    const f32 clearance = 20.0f;
+    /* both eyes at any head yaw/roll, and the near plane 10 units ahead of
+     * them (vr_openxr.cpp g_camZNear): with 8 the view still showed above a
+     * doorway for a moment going in and out (user, online Caverns as Jaws) */
+    const f32 footprint = 14.0f;
+    s32 rooms[MAXPORTALSPERROOM + 1];
+    s32 count, r, ix, iz;
+    /* from above any stair step or railing top the footprint reaches (from 30
+     * units, the wider footprint took the next steps for a ceiling: the view
+     * flashed short on stairs, user), still below any doorway's top */
+    f32 bottom = floorY + 120.0f;
+    f32 ceiling = position[1] + clearance;
+    f32 scale = room_data_float1;
+
+    if (room <= 0 || room >= g_MaxNumRooms || !g_BgPortals ||
+        !isfinite(scale) || scale <= 0.0f || !isfinite(bottom) ||
+        !isfinite(position[0]) || !isfinite(position[1]) || !isfinite(position[2]) ||
+        ceiling <= bottom)
+        return;
+
+    rooms[0] = room;
+    count = 1 + bgGetConnectedRooms(room, rooms + 1, MAXPORTALSPERROOM);
+    for (r = 0; r < count; r++)
+    {
+        s_room_info *info;
+        if (rooms[r] <= 0 || rooms[r] >= g_MaxNumRooms) continue;
+        info = &g_BgRoomInfo[rooms[r]];
+        /* Bounds and bullet hits use the asset's level scale, not the
+         * renderer's independent visibility scale. Skip distant neighbours
+         * before loading or walking their display lists. */
+        if ((position[0] + footprint) * scale < info->minbounds.x ||
+            (position[0] - footprint) * scale > info->maxbounds.x ||
+            (position[2] + footprint) * scale < info->minbounds.z ||
+            (position[2] - footprint) * scale > info->maxbounds.z ||
+            ceiling * scale < info->minbounds.y || bottom * scale > info->maxbounds.y)
+            continue;
+        /* Loading is allowed only on a game frame. XR redraws query the
+         * retained native geometry without allocating/unloading room data. */
+        if (loadRooms) bgCheckIfRoomModelNeedsLoad(rooms[r]);
+        if (!info->vtx_batch_bounds) continue;
+
+        /* every half footprint, so a thin lintel between the samples is not missed */
+        for (ix = -2; ix <= 2; ix++) for (iz = -2; iz <= 2; iz++)
+        {
+            coord3d from, to;
+            HitThing hit;
+            f32 y;
+            from.x = position[0] + ix * footprint * 0.5f;
+            from.y = bottom;
+            from.z = position[2] + iz * footprint * 0.5f;
+            to = from;
+            to.y = ceiling;
+            if (bgTestBulletHitBackground(&from, &to, rooms[r], &hit))
+            {
+                y = hit.hitpos.y / scale;
+                /* The bullet routine tests an infinite forward ray. A
+                 * ceiling beyond this short segment must not lower the eye. */
+                if (isfinite(y) && y >= bottom && y < ceiling)
+                    ceiling = y;
+            }
+        }
+    }
+    if (ceiling - clearance < position[1])
+        position[1] = ceiling - clearance;
+}
+#endif
 
 // Scan all portals to see if these rooms are connected
 //

@@ -3,9 +3,22 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current build:** v0.4.19 (versionCode 74, protocol 21), released 2026-10-10.
-Latest release: v0.4.19. v0.4.16, v0.4.17 and v0.4.18 can join; v0.4.15 and older
-can't. Building does not publish a GitHub release. No game data is shipped.
+**Current release:** v0.4.20 (versionCode 76, protocol 21), 2026-10-12.
+v0.4.16 through v0.4.19 can join; v0.4.15 and older can't. Building does not
+publish a GitHub release. No game data is shipped.
+
+v0.4.20 merged PR #172: the Goldfinger 64 / Tomorrow Never Dies campaigns
+(solo, the player's own patched ROMs), Project Bean (#170), the Dam
+speedboat (#171), Dam wall alarms (#174) and Bean's GPU skinning and world
+batching. Bean is imported from the player's own XBLA copy (Mods, "Choose
+copy..."; nothing is downloaded; the old Bean releases are deleted and that
+repo is private). The last round, played in the headset: Bean's arm holds the
+gun with both hands, Gun fit per gun and placed by hand (the off hand's
+trigger), the user's Bean fits as defaults, low-doorway clearance for tall
+characters (online and on stairs), and the host's stage dropdown. Start with
+[PR #172 handoff](docs/pr172-handoff.md); setup:
+[Project Bean](docs/project-bean.md), [hack campaigns](docs/rom-hacks.md).
+Notes: [v0.4.20](docs/releases/v0.4.20.md).
 
 Movement speed: 50%-200%, 100% default, separate solo and host settings;
 host changes apply to the whole session, bots included. Room-scale walking
@@ -15,26 +28,11 @@ use two columns, and the eight-player lobby fits without scrolling. Chest
 and Belt defaults use saved Quest fits at 170 cm; custom fits stay intact.
 See [body slots](docs/body-slots.md).
 
-v0.4.19: valid inferred controller poses keep supported hands moving; scope
-and retained grip poses share the latest XR frame. Either hand can select
-mission gadgets; each device has one owner, and the GE-X gadget hand keeps
-its watch and fitted origin. Either selector invokes the canonical watch laser;
-offhand draws can leave it. ROM checks and bounded resource decoding (#168)
-include the legacy/zlib symbol collision fix. Native checks and signed build
-pass; latest startup, visual fit and occlusion behavior need headset retesting.
-Notes: [v0.4.19](docs/releases/v0.4.19.md).
-
-v0.4.18 (user headset-tested, Quest 3): the watch's Control page draws the
-headset's Touch controllers (Quest 1/2, Touch Plus, Touch Pro; VR settings >
-Controls > Controllers overrides), each over live lists of its controls that
-follow play mode, handedness, Swap sticks, the off hand's item, grip
-gestures and Motion throwing; parts move and light when pressed. Depth is
-cleared before the pair. Data generated from Meta's controller art; see
-[Touch controllers](docs/touch-controllers.md). The empty off hand's
-trigger no longer presses R (it aimed and lit the gun hand's crosshair).
-
 ## Recent releases
 
+**v0.4.20:** Project Bean visuals from the player's XBLA copy, Goldfinger 64
+and TND campaigns, Dam speedboat and alarms, per-gun Gun fit placed by hand,
+low doorways. Notes: [v0.4.20](docs/releases/v0.4.20.md).
 **v0.4.19:** hand/scope tracking, mission gadgets, watch laser, ROM validation
 and startup crash fix. Notes: [v0.4.19](docs/releases/v0.4.19.md).
 **v0.4.18:** Touch controllers on the watch's Control page, off-hand trigger
@@ -50,7 +48,7 @@ Notes: [v0.4.15](docs/releases/v0.4.15.md).
 **Earlier:** v0.4.14 bot doors, soft collision, hit immunity (#153); v0.4.13
 crash fixes (#151); v0.4.12 detonator watch fit; v0.4.11
 bots, 3D audio and GE-X for every weapon (#133-#149); v0.4.10 wall movement,
-co-op gadgets (#127, #131); v0.4.9 smooth locomotion, GE-X muzzles, belt
+co-op gadgets (#127, #132); v0.4.9 smooth locomotion, GE-X muzzles, belt
 reloads (#124-#126); v0.4.6-v0.4.8 settings persistence, GE-X KF7 and hand
 reload, watch settings (#110-#121); v0.4.0-v0.4.5 four-player co-op,
 eight-player deathmatch, weapon wheels, gadgets, passthrough. Notes for each
@@ -98,6 +96,12 @@ is goldeneyevr.com, in its own repository.
   Mid-level watch refresh and handedness changes still need headset checks.
 - Debug markers: gevr_zdebug.txt, gevr_decal.txt, cryptdoor logging;
   surface probe disabled unless its marker is present.
+- Solo Dam speedboat: board at the north jetty (B, or a hand on the hull),
+  ride to the island, B to step off. Hull is 1.75× retail. See
+  [Dam speedboat](docs/dam-speedboat.md). Headset crossing still to confirm.
+- Bean: Dam/Complex water and Silo/Control floor materials are simplified;
+  the grenade stays in GoldenEye's taser hand (the release has no hand
+  holding one, user). Campaigns, speedboat and alarms need broader play.
 - Use git worktree list for checkouts. Unmerged: feature/xbla-hd,
   fix/30-water-sky; claude/gex-watch-sleeves is parked, not for merge.
 

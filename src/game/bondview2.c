@@ -15,6 +15,9 @@
 #include "gevr_locomotion.h"
 #include "gevr_frame_timing.h"
 #include "gevr_collision_slide.h"
+#include "gevr_camera_collision.h"
+#include "gevr_romlayout.h"
+#include "gevr_dam_boat.h"
 #endif
 #include <ultra64.h>
 #ifdef GEVR
@@ -181,6 +184,19 @@ extern void netSendRespawnEvent(u8 pad_index, f32 theta);
 #define SPEED_RUN_MAX      1.25f
 #define SPEED_TICK_ADJUST  0.01f
 #define TANK_MAX_SPEED     15.0f
+#ifdef GEVR
+/*
+ * Goldfinger drives a tank record whose model is not PtankZ as a car (its
+ * code at 0x8005C550, entered from 7F082ADC): no shells, no start or crush
+ * sound, engine sound 63, top speed 20.0 and acceleration offset 0.75 for the
+ * tank's 15.0 and 0.5 (deceleration keeps 0.5). Making room for that, it also
+ * dropped the digital step-back reverse (7F082F60), for tanks too.
+ */
+static s32 s_gevrDrivingCar;
+#define GEVR_VEHICLE_MAX_SPEED (s_gevrDrivingCar ? 20.0f : TANK_MAX_SPEED)
+#define GEVR_VEHICLE_ACCEL     (s_gevrDrivingCar ? 0.75f : 0.5f)
+#define GEVR_VEHICLE_SFX(tank, car) (s_gevrDrivingCar ? (car) : (tank))
+#endif
 
 
 #define FLOAT_TEN_A 10.0f
@@ -806,12 +822,21 @@ static PadRecord *gevrWarpPad(s32 padnum)
  * (about 1.8 times the fog's reach, inside the extended one): the pads of
  * pickups and guards, which stand on open floor - an object's own pad drops
  * Bond inside it. Returns the pad, or -1; *dish is where to face.
+ * "near <model> <reach>" does the same for the first object drawn with that
+ * model (bondconstants.h PROP_*: 336 the gate switch, 104 a window), from
+ * about reach units away, to look at it from a test script.
  */
-static s32 gevrWarpNearDish(coord3d *dish)
+static s32 gevrWarpIsObject(s32 type)
+{
+    return type == PROPDEF_PROP || type == PROPDEF_MONITOR || type == PROPDEF_MULTI_MONITOR ||
+           type == PROPDEF_GLASS || type == PROPDEF_TINTED_GLASS || type == PROPDEF_DOOR;
+}
+
+static s32 gevrWarpNearDish(coord3d *dish, s32 model, f32 reach)
 {
     extern f32 g_ScaledFarFogIntensity;
     PropDefHeaderRecord *def = g_CurrentSetup.propDefs;
-    f32 target = g_ScaledFarFogIntensity * 1.8f;
+    f32 target = reach > 0.0f ? reach : g_ScaledFarFogIntensity * 1.8f;
     f32 bestdiff = 0.0f;
     s32 best = -1;
     s32 found = FALSE;
@@ -824,12 +849,13 @@ static s32 gevrWarpNearDish(coord3d *dish)
     {
         ObjectRecord *obj = (ObjectRecord *) def;
 
-        if (def->type == PROPDEF_PROP && (obj->obj == PROP_SEVDISH || obj->obj == PROP_SATDISH) && obj->pad >= 0)
+        if ((model < 0 ? def->type == PROPDEF_PROP && (obj->obj == PROP_SEVDISH || obj->obj == PROP_SATDISH)
+                       : gevrWarpIsObject(def->type) && obj->obj == model) && obj->pad >= 0)
         {
             PadRecord *pad = gevrWarpPad(obj->pad);
 
-            sysLogPrintf(LOG_NOTE, "warphook: satellite dish on pad %d at %.0f %.0f %.0f", obj->pad,
-                         pad->pos.x, pad->pos.y, pad->pos.z);
+            sysLogPrintf(LOG_NOTE, "warphook: %s on pad %d at %.0f %.0f %.0f", model < 0 ? "satellite dish" : "target",
+                         obj->pad, pad->pos.x, pad->pos.y, pad->pos.z);
             if (!found)
             {
                 *dish = pad->pos;
@@ -925,6 +951,8 @@ static void gevrWarpProbe(s32 inlevel)
     char word[32];
     coord3d dish;
     s32 facedish = FALSE;
+    s32 model = -1;
+    f32 reach = 0.0f;
 
     if (!inlevel || g_CurrentPlayer == NULL || g_CurrentPlayer->prop == NULL || (++tick % 30) != 0)
     {
@@ -940,11 +968,20 @@ static void gevrWarpProbe(s32 inlevel)
     {
         word[0] = 0;
     }
+    if (strcmp(word, "near") == 0 && fscanf(fp, "%d %f", &model, &reach) != 2)
+    {
+        model = -1;
+    }
     fclose(fp);
     unlink(path);
     if (strcmp(word, "sevdish") == 0)
     {
-        padnum = gevrWarpNearDish(&dish);
+        padnum = gevrWarpNearDish(&dish, -1, 0.0f);
+        facedish = TRUE;
+    }
+    else if (strcmp(word, "near") == 0 && model >= 0)
+    {
+        padnum = gevrWarpNearDish(&dish, model, reach);
         facedish = TRUE;
     }
     else if (sscanf(word, "%d", &padnum) != 1)
@@ -1676,18 +1713,46 @@ f32 gevrGunSizeNow(s32 *setting, s32 *online)
 }
 
 /*
+ * Gun fit's look for the hand's gun: GoldenEye's models (0), GoldenEye X's
+ * (1) or Bean's (2). Each sits differently in the hand and keeps its own
+ * fits (user; Bean's 2026-10-12, its two-handed hold sat low).
+ */
+int gevrFitLook(int hand)
+{
+    extern int gevrBeanIsEnabled(void);
+
+    return gevrGexHeld(hand) ? 1 : gevrBeanIsEnabled() ? 2 : 0;
+}
+
+/*
  * The gun's fit in the hand (Gun fit), cm right, up and back: GoldenEye's,
- * or for a GoldenEye X model its own, since those sit differently in the
- * hand (user): fitting one leaves the other.
+ * or for a GoldenEye X or Bean model its own, since those sit differently in
+ * the hand (user): fitting one leaves the others.
  */
 static void gevrGunOff(s32 hand, f32 off[3])
 {
+    extern float VrBeanGunOff[3];
+    /* the gun's own, once Gun fit has moved it (gevr_scope.h) */
+    const f32 *own = gevrGunOffOwnOf(gevrFitLook(hand), getCurrentPlayerWeaponId(hand));
+
     if (gevrGexHeld(hand))
     {
         const f32 *fit = gevrGexGunFit(gevrGexWeaponForHand(hand)->item);
         off[0] = fit[0];
         off[1] = fit[1];
         off[2] = fit[2];
+    }
+    else if (own != NULL)
+    {
+        off[0] = own[0];
+        off[1] = own[1];
+        off[2] = own[2];
+    }
+    else if (gevrFitLook(hand) == 2)
+    {
+        off[0] = VrBeanGunOff[0];
+        off[1] = VrBeanGunOff[1];
+        off[2] = VrBeanGunOff[2];
     }
     else
     {
@@ -2080,6 +2145,83 @@ static void gevrWatchArmHands(Mtxf *matrices, s32 mirrored)
 extern float VrGexWatch[4];   /* vr_settings_defaults.c */
 
 static ModelNode *s_gevrWatchHandDl;   /* the watch arm's hand: its first unswitched list */
+static f32 s_gevrWatchPalmCm[3];       /* its centre from the wrist, in the wrist frame (cm) */
+static s32 s_gevrWatchPalmKnown;
+
+/* the hand: the first display list right under the wrist, not under a switch */
+static ModelNode *gevrWatchHandDl(void)
+{
+    ModelNode *node = s_gevrWatchHeader.RootNode;
+
+    while (node != NULL && s_gevrWatchHandDl == NULL)
+    {
+        if ((node->Opcode & 0xff) == MODELNODE_OPCODE_DL && node->Parent != NULL
+            && (node->Parent->Opcode & 0xff) == MODELNODE_OPCODE_GROUP)
+        {
+            s_gevrWatchHandDl = node;
+        }
+        if (node->Child != NULL)
+        {
+            node = node->Child;
+        }
+        else
+        {
+            while (node != NULL && node->Next == NULL)
+            {
+                node = node->Parent;
+            }
+            node = node != NULL ? node->Next : NULL;
+        }
+    }
+    return s_gevrWatchHandDl;
+}
+
+/* the posed watch arm's hand: the centre of its list's vertices, by its group's matrix */
+static s32 gevrWatchArmPalm(const Mtxf *matrices, f32 palm[3])
+{
+    ModelNode *dl = gevrWatchHandDl();
+    ModelNode *up;
+    ModelRoData_DisplayListRecord *rec;
+    f32 c[3] = { 0.0f, 0.0f, 0.0f };
+    s32 mi = -1, i, j;
+
+    if (dl == NULL || dl->Data == NULL)
+    {
+        return FALSE;
+    }
+    rec = &dl->Data->DisplayList;
+    if (rec->Vertices == NULL || rec->numVertices == 0)
+    {
+        return FALSE;
+    }
+    for (up = dl->Parent; up != NULL && mi < 0; up = up->Parent)
+    {
+        if ((up->Opcode & 0xff) == MODELNODE_OPCODE_GROUP && up->Data != NULL)
+        {
+            mi = up->Data->Group.MatrixID0;
+        }
+    }
+    if (mi < 0 || mi >= s_gevrWatchHeader.numMatrices)
+    {
+        return FALSE;
+    }
+    for (i = 0; i < rec->numVertices; i++)
+    {
+        c[0] += rec->Vertices[i].coord.x;
+        c[1] += rec->Vertices[i].coord.y;
+        c[2] += rec->Vertices[i].coord.z;
+    }
+    for (j = 0; j < 3; j++)
+    {
+        c[j] /= rec->numVertices;
+    }
+    for (j = 0; j < 3; j++)
+    {
+        palm[j] = c[0] * matrices[mi].m[0][j] + c[1] * matrices[mi].m[1][j] + c[2] * matrices[mi].m[2][j]
+                + matrices[mi].m[3][j];
+    }
+    return TRUE;
+}
 
 /*
  * GoldenEye's watch alone (its body, face, hands and the status on its
@@ -2202,39 +2344,9 @@ Gfx *gevrRenderGexWatch(Gfx *gdl, ModelRenderData *templ, const f32 pos[3], cons
     Gfx *saved[2];
     s32 n, i;
 
-    if (!g_gevrStereo || !gevrLeftWatchLoad())
+    if (!g_gevrStereo || !gevrLeftWatchLoad() || gevrWatchHandDl() == NULL)
     {
         return gdl;
-    }
-    if (s_gevrWatchHandDl == NULL)
-    {
-        /* the hand: the first display list right under the wrist, not under a switch */
-        ModelNode *node = s_gevrWatchHeader.RootNode;
-
-        while (node != NULL && s_gevrWatchHandDl == NULL)
-        {
-            if ((node->Opcode & 0xff) == MODELNODE_OPCODE_DL && node->Parent != NULL
-                && (node->Parent->Opcode & 0xff) == MODELNODE_OPCODE_GROUP)
-            {
-                s_gevrWatchHandDl = node;
-            }
-            if (node->Child != NULL)
-            {
-                node = node->Child;
-            }
-            else
-            {
-                while (node != NULL && node->Next == NULL)
-                {
-                    node = node->Parent;
-                }
-                node = node != NULL ? node->Next : NULL;
-            }
-        }
-        if (s_gevrWatchHandDl == NULL)
-        {
-            return gdl;
-        }
     }
 
     n = s_gevrWatchHeader.numMatrices;
@@ -2314,17 +2426,23 @@ Gfx *gevrRenderGexWatch(Gfx *gdl, ModelRenderData *templ, const f32 pos[3], cons
     return gdl;
 }
 
+static s32 gevrStereoTwoHandTarget(f32 target[3]);
+static s32 gevrStereoTwoHandTurn(f32 w[3][3]);
+
 /*
  * gunfire.c gunRenderFirstPersonGunModels: returns whether the watch arm was
- * drawn (the mirrored fist is the fallback).
+ * drawn (the mirrored fist is the fallback). With `hold`, the arm holds the
+ * gun with both hands (gevrRenderBeanGripArm).
  */
-Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
+static Gfx *gevrWatchArmDraw(Gfx *gdl, ModelRenderData *templ, s32 *drawn, s32 hold)
 {
     ModelRenderData renderdata;
     Mtxf want, inv, corr;
     Mtxf *matrices;
     f32 pos[3], right[3], up[3], back[3], x[3], y[3], z[3];
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    /* a right arm: left-handed mode's off hand, or the hand holding a gun in the other hand */
+    const s32 mirror = hold ? (s_gevrTwoHandGun == GUNLEFT) != (VrLeftHandedMode != 0) : VrLeftHandedMode != 0;
     s32 n, i;
 
     *drawn = FALSE;
@@ -2348,13 +2466,14 @@ Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
     /* the game puts this arm (ITEM_SUIT_LF_HAND) in the left hand for the
      * watch: it stays on the controller while the pages are open */
     if (!g_gevrStereo
-        || (get_item_in_hand_or_watch_menu(GUNLEFT) != ITEM_UNARMED
+        || (!hold && get_item_in_hand_or_watch_menu(GUNLEFT) != ITEM_UNARMED
             && get_item_in_hand_or_watch_menu(GUNLEFT) != ITEM_SUIT_LF_HAND)
         || g_CurrentPlayer->bonddead)
     {
         return gdl;
     }
-    if (!gevrGripAxes(0, pos, right, up, back) || !gevrLeftWatchLoad())
+    /* holding, the gun hand's frame (aimed), mirrored below as the off controller's would be */
+    if (!gevrGripAxes(hold ? 1 - s_gevrTwoHandGun : 0, pos, right, up, back) || !gevrLeftWatchLoad())
     {
         return gdl;
     }
@@ -2372,7 +2491,7 @@ Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
     z[0] = x[1] * y[2] - x[2] * y[1];
     z[1] = x[2] * y[0] - x[0] * y[2];
     z[2] = x[0] * y[1] - x[1] * y[0];
-    if (VrLeftHandedMode)
+    if (mirror)
     {
         /* the right wrist: the same frame reflected across left/right, so
          * the left arm model comes out as a right arm, face to the holder's right */
@@ -2404,9 +2523,65 @@ Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
     {
         gevrMtxMul(&matrices[i], &corr, &matrices[i]);
     }
+    if (!s_gevrWatchPalmKnown)
+    {
+        /* the hand's centre from the wrist, for Gun fit's grab (gevrStereoTwoHandFollow) */
+        f32 palm[3], d[3];
+        const f32 unit = cm * gevrGunSizeFactor();
+        s32 j;
+
+        if (gevrWatchHandDl() != NULL && gevrWatchArmPalm(matrices, palm) && unit > 1e-6f)
+        {
+            for (j = 0; j < 3; j++)
+            {
+                d[j] = palm[j] - want.m[3][j];
+            }
+            s_gevrWatchPalmCm[0] = (d[0] * x[0] + d[1] * x[1] + d[2] * x[2]) / unit;
+            s_gevrWatchPalmCm[1] = (d[0] * y[0] + d[1] * y[1] + d[2] * y[2]) / unit;
+            s_gevrWatchPalmCm[2] = (d[0] * z[0] + d[1] * z[1] + d[2] * z[2]) / unit;
+            s_gevrWatchPalmKnown = TRUE;
+            sysLogPrintf(LOG_NOTE, "stereo: the watch arm's hand %.1f %.1f %.1f cm from the wrist (fingers, face, side)",
+                         s_gevrWatchPalmCm[0], s_gevrWatchPalmCm[1], s_gevrWatchPalmCm[2]);
+        }
+    }
+    if (hold)
+    {
+        /* the grip fit's turn about the hand, then the hand onto the hold point */
+        f32 palm[3], target[3], w[3][3], row[3];
+        s32 j, a;
+
+        if (gevrWatchHandDl() == NULL || !gevrWatchArmPalm(matrices, palm) || !gevrStereoTwoHandTarget(target)
+            || !gevrStereoTwoHandTurn(w))
+        {
+            return gdl;
+        }
+        for (i = 0; i < n; i++)
+        {
+            for (a = 0; a < 3; a++)
+            {
+                for (j = 0; j < 3; j++)
+                {
+                    row[j] = matrices[i].m[a][0] * w[0][j] + matrices[i].m[a][1] * w[1][j] + matrices[i].m[a][2] * w[2][j];
+                }
+                for (j = 0; j < 3; j++)
+                {
+                    matrices[i].m[a][j] = row[j];
+                }
+            }
+            for (j = 0; j < 3; j++)
+            {
+                row[j] = matrices[i].m[3][j] - palm[j];
+            }
+            for (j = 0; j < 3; j++)
+            {
+                matrices[i].m[3][j] = row[0] * w[0][j] + row[1] * w[1][j] + row[2] * w[2][j] + target[j];
+            }
+        }
+    }
 
     /* the watch hands: mission time, as the pause does (mirrored, they would run backwards) */
-    gevrWatchArmHands(matrices, VrLeftHandedMode);
+    gevrWatchArmHands(matrices, mirror);
+    if (!hold)
     {
         /*
          * Issue #31: the watch laser leaves the watch face (gevrStereoWatchPoint),
@@ -2448,7 +2623,7 @@ Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
                               | ((u32)g_CurrentPlayer->tileColor.b << 8);
     renderdata.cullmode = CULLMODE_NONE;
     matrix_4x4_7F058C64();
-    if (VrLeftHandedMode)
+    if (mirror)
     {
         gDPNoOpTag(renderdata.gdl++, 0x56580000); /* VR_CULL_MIRROR_BEGIN */
     }
@@ -2456,7 +2631,7 @@ Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
     subdraw(&renderdata, &s_gevrWatchModel);
     gdl = renderdata.gdl;
     gSPClearGeometryMode(gdl++, G_CULL_BOTH);
-    if (VrLeftHandedMode)
+    if (mirror)
     {
         gDPNoOpTag(gdl++, 0x56580001); /* VR_CULL_MIRROR_END */
     }
@@ -2465,6 +2640,11 @@ Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
     matrix_4x4_7F058C88();
     *drawn = TRUE;
     return gdl;
+}
+
+Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
+{
+    return gevrWatchArmDraw(gdl, templ, drawn, FALSE);
 }
 
 /*
@@ -2629,7 +2809,7 @@ s32 gevrStereoWatchItem(s32 item)
     {
         return FALSE;
     }
-    switch (item)
+    switch (GEVR_ITEM_AS(item))
     {
         case ITEM_WATCHLASER:
         case ITEM_TRIGGER:
@@ -2870,7 +3050,7 @@ static s32 gevrAimLogEnabled(void)
 /* guns, and the launchers; not knives, gadgets, throwables or the watch items */
 s32 gevrStereoTwoHandItem(s32 item)
 {
-    switch (item)
+    switch (GEVR_ITEM_AS(item))
     {
         case ITEM_WPPK: case ITEM_WPPKSIL: case ITEM_TT33: case ITEM_SKORPION: case ITEM_AK47:
         case ITEM_UZI: case ITEM_MP5K: case ITEM_MP5KSIL: case ITEM_SPECTRE: case ITEM_M16:
@@ -2921,7 +3101,7 @@ s32 gevrStereoTwoHandSupportCtrl(void)
 
 static s32 gevrTwoHandIsHandgun(s32 item)
 {
-    switch (item)
+    switch (GEVR_ITEM_AS(item))
     {
         case ITEM_WPPK: case ITEM_WPPKSIL: case ITEM_TT33: case ITEM_RUGER: case ITEM_GOLDENGUN:
         case ITEM_SILVERWPPK: case ITEM_GOLDWPPK: case ITEM_FLAREPISTOL: case ITEM_TASER: case ITEM_LASER:
@@ -3482,7 +3662,7 @@ s32 gevrTaserTouch(s32 hand)
     }
     for (i = 0; i < 3; i++)
     {
-        end[i] = s_gevrMuzzleValid[hand] && s_gevrMuzzleItem[hand] == ITEM_TASER
+        end[i] = s_gevrMuzzleValid[hand] && GEVR_ITEM_AS(s_gevrMuzzleItem[hand]) == ITEM_TASER
             ? s_gevrMuzzle[hand][i] : at[i] - back[i] * GEVR_TASER_TIP_CM * cm;
     }
     len = sqrtf(end[0] * end[0] + end[1] * end[1] + end[2] * end[2]);
@@ -4023,13 +4203,16 @@ void gevrGrenadeCookHapticTick(s32 hand, s32 cook_tick)
  * side, up and forward; degrees about the model's X, Y and Z (Z is along the
  * barrel). It is a setting (VrGripTrim, goldeneye-vr.ini GripPistol and
  * GripRifle), set in game with the launcher's Gun fit while holding with both
- * hands (port/src/input.c; user); GoldenEye X's models keep their own
- * (GexGripPistol, GexGripRifle). files/gevr_twohand.txt "class dx dy dz rx
+ * hands (port/src/input.c; user); GoldenEye X's and Bean's models keep their
+ * own (GexGrip*, BeanGrip*). files/gevr_twohand.txt "class dx dy dz rx
  * ry rz" (a line each) overrides it too, re-read every couple of seconds.
  */
 extern float VrGripTrim[2][6];      /* vr_settings_defaults.c */
 extern float VrGexGripTrim[2][6];
-#define s_gevrTwoHandTrim (gevrGexHeld(s_gevrTwoHandGun) ? VrGexGripTrim : VrGripTrim)
+extern float VrBeanGripTrim[2][6];
+#define s_gevrTwoHandTrim (gevrFitLook(s_gevrTwoHandGun) == 1   ? VrGexGripTrim  \
+                           : gevrFitLook(s_gevrTwoHandGun) == 2 ? VrBeanGripTrim \
+                                                                : VrGripTrim)
 
 /* the trim's class for the gun in hand: 0 handgun, 1 long gun */
 s32 gevrStereoTwoHandClass(void)
@@ -4037,15 +4220,24 @@ s32 gevrStereoTwoHandClass(void)
     return gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(s_gevrTwoHandGun)) ? 0 : 1;
 }
 
-s32 gevrStereoTwoHandMatrix(Mtxf *m)
+/* the hold's trim for the gun in hand: its own once Gun fit has moved it
+ * (gevr_scope.h; user: the guns' models hold the hand differently), else its
+ * class's */
+static f32 *gevrTwoHandTrimNow(void)
 {
-    f32 opos[3], snap[3], dist, gpos[3], right[3], up[3], back[3];
+    const s32 item = getCurrentPlayerWeaponId(s_gevrTwoHandGun);
+    const f32 *own = gevrGripTrimOwnOf(gevrFitLook(s_gevrTwoHandGun), item);
+
+    return own != NULL ? (f32 *)own : s_gevrTwoHandTrim[gevrTwoHandIsHandgun(item) ? 0 : 1];
+}
+
+/* the hold point plus the grip fit's offset along the off hand's side, up and forward */
+static s32 gevrStereoTwoHandTarget(f32 target[3])
+{
+    f32 opos[3], snap[3], dist, gpos[3], right[3], up[3], back[3], side;
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f * gevrGunSizeFactor();
-    f32 bx[3], by[3], bz[3], side[3], palm[3], target[3];
     f32 *tr;
-    Mtxf rot;
-    coord3d r;
-    s32 i, j;
+    s32 i;
     static u32 tick;
 
     if ((tick++ % 120) == 0)
@@ -4077,7 +4269,77 @@ s32 gevrStereoTwoHandMatrix(Mtxf *m)
     {
         return FALSE;
     }
-    tr = s_gevrTwoHandTrim[gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(s_gevrTwoHandGun)) ? 0 : 1];
+    tr = gevrTwoHandTrimNow();
+    for (i = 0; i < 3; i++)
+    {
+        side = (VrLeftHandedMode != (s_gevrTwoHandGun == GUNLEFT)) ? right[i] : -right[i];
+        target[i] = snap[i] + (tr[0] * side + tr[1] * up[i] - tr[2] * back[i]) * cm;
+    }
+    return TRUE;
+}
+
+/*
+ * The grip fit's turn as the taser hand takes it - about its model's X, Y
+ * and Z, its model being the gun hand's frame mirrored into the other hand
+ * (gunfire.c gevrRenderLeftArm) - as a turn of view
+ * space, w: a point p turns to p * w. gevrRenderBeanGripArm turns Bean's arm
+ * by it, so the fit means the same for both hands.
+ */
+static s32 gevrStereoTwoHandTurn(f32 w[3][3])
+{
+    f32 pos[3], right[3], up[3], back[3], e[3][3];
+    f32 *tr;
+    Mtxf rot;
+    coord3d r;
+    s32 i, j, a, b;
+
+    if (!gevrGripAxes(1 - s_gevrTwoHandGun, pos, right, up, back))
+    {
+        return FALSE;
+    }
+    tr = gevrTwoHandTrimNow();
+    for (i = 0; i < 3; i++)
+    {
+        /* gevrStereoGunMatrix's row 0, negated for a left-hand support (gevrRenderLeftArm) */
+        e[0][i] = (s_gevrTwoHandGun == GUNRIGHT) != (VrLeftHandedMode != 0) ? right[i] : -right[i];
+        e[1][i] = up[i];
+        e[2][i] = -back[i];
+    }
+    r.x = tr[3] * (M_PI_F / 180.0f);
+    r.y = tr[4] * (M_PI_F / 180.0f);
+    r.z = tr[5] * (M_PI_F / 180.0f);
+    matrix_4x4_set_rotation_around_xyz(&r, &rot);
+    /* gevrStereoTwoHandMatrix turns the model's rows by rot: in view space, e^T rot e */
+    for (a = 0; a < 3; a++)
+    {
+        for (b = 0; b < 3; b++)
+        {
+            w[a][b] = 0.0f;
+            for (i = 0; i < 3; i++)
+            {
+                for (j = 0; j < 3; j++)
+                {
+                    w[a][b] += e[i][a] * rot.m[i][j] * e[j][b];
+                }
+            }
+        }
+    }
+    return TRUE;
+}
+
+s32 gevrStereoTwoHandMatrix(Mtxf *m)
+{
+    f32 bx[3], by[3], bz[3], palm[3], target[3];
+    f32 *tr;
+    Mtxf rot;
+    coord3d r;
+    s32 i, j;
+
+    if (!gevrStereoTwoHandTarget(target))
+    {
+        return FALSE;
+    }
+    tr = gevrTwoHandTrimNow();
 
     /* the trim's turn, in the model's own frame */
     r.x = tr[3] * (M_PI_F / 180.0f);
@@ -4097,16 +4359,204 @@ s32 gevrStereoTwoHandMatrix(Mtxf *m)
         m->m[2][j] = bz[j];
     }
 
-    /* the palm onto the hold point, plus the offset along the off hand's side, up and forward */
+    /* the palm onto the hold point */
     for (i = 0; i < 3; i++)
     {
-        side[i] = (VrLeftHandedMode != (s_gevrTwoHandGun == GUNLEFT)) ? right[i] : -right[i];
         palm[i] = s_gevrTwoHandPalm[0] * m->m[0][i] + s_gevrTwoHandPalm[1] * m->m[1][i]
                 + s_gevrTwoHandPalm[2] * m->m[2][i] + m->m[3][i];
-        target[i] = snap[i] + (tr[0] * side[i] + tr[1] * up[i] - tr[2] * back[i]) * cm;
         m->m[3][i] += target[i] - palm[i];
     }
     return TRUE;
+}
+
+/* whether Bean's arm holds the gun (gevrRenderBeanGripArm), not the taser hand */
+static s32 gevrBeanGripArmUsed(void)
+{
+    extern int gevrBeanDrawsModel(const void *header);   /* port/src/gevr_bean.c */
+
+    return g_gevrStereo && gevrStereoTwoHandGrip() && gevrFitLook(s_gevrTwoHandGun) == 2 && gevrLeftWatchLoad()
+        && gevrBeanDrawsModel(&s_gevrWatchHeader);
+}
+
+/* degrees in (-180, 180]: the game's atan2f answers 0..2 pi (gevr-game-math) */
+static f32 gevrFitTurnDegrees(f32 radians)
+{
+    f32 d = radians * (180.0f / M_PI_F);
+
+    while (d > 180.0f)
+    {
+        d -= 360.0f;
+    }
+    while (d <= -180.0f)
+    {
+        d += 360.0f;
+    }
+    return d;
+}
+
+/*
+ * Gun fit's grab (user: turning the holding hand with the sticks was
+ * awkward): the hold's trims that put the holding hand where, and turned
+ * as, the off hand itself is - the hand the off controller shows holding
+ * nothing (the taser hand on the fist's frame, gevrStereoGunMatrix and
+ * gunfire.c gevrRenderLeftArm; Bean's arm as gevrRenderLeftWatchArm draws
+ * it). Gun fit sets them every frame while the off hand's trigger is held,
+ * so the hand follows the off hand and, let go, keeps that place on the gun.
+ * The turn is the one that takes the gun hand's frame to the off hand's
+ * (both mirrored the same way), as gevrStereoTwoHandMatrix and
+ * gevrStereoTwoHandTurn apply it.
+ */
+s32 gevrStereoTwoHandFollow(f32 out[6])
+{
+    f32 snap[3], ignore[3], dist, gpos[3], gr[3], gu[3], gb[3], spos[3], sr[3], su[3], sb[3];
+    f32 eg[3][3], es[3][3], palm[3], d[3], side[3];
+    const f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f * gevrGunSizeFactor();
+    const f32 sign = (s_gevrTwoHandGun == GUNRIGHT) != (VrLeftHandedMode != 0) ? 1.0f : -1.0f;
+    const s32 support = 1 - s_gevrTwoHandGun;
+    Mtxf rot;
+    coord3d angles;
+    s32 i, j;
+
+    if (!gevrStereoTwoHandGrip() || cm <= 1e-6f || !gevrTwoHandBarrel(ignore, snap, &dist, TRUE)
+        || !gevrGripAxes(1 - s_gevrTwoHandGun, gpos, gr, gu, gb) || !gevrGripAxes(s_gevrTwoHandGun, spos, sr, su, sb))
+    {
+        return FALSE;
+    }
+
+    /* the turn: the taser hand's frame on the gun hand to the same on the off hand */
+    for (i = 0; i < 3; i++)
+    {
+        eg[0][i] = sign * gr[i];
+        eg[1][i] = gu[i];
+        eg[2][i] = -gb[i];
+        es[0][i] = sign * sr[i];
+        es[1][i] = su[i];
+        es[2][i] = -sb[i];
+    }
+    matrix_4x4_set_identity(&rot);
+    for (i = 0; i < 3; i++)
+    {
+        for (j = 0; j < 3; j++)
+        {
+            rot.m[i][j] = es[i][0] * eg[j][0] + es[i][1] * eg[j][1] + es[i][2] * eg[j][2];
+        }
+    }
+    matrix_4x4_get_rotation_around_xyz(&rot, &angles);
+    out[3] = gevrFitTurnDegrees(angles.f[0]);
+    out[4] = gevrFitTurnDegrees(angles.f[1]);
+    out[5] = gevrFitTurnDegrees(angles.f[2]);
+
+    /* the place: the free hand's centre */
+    if (gevrBeanGripArmUsed())
+    {
+        const s32 mirror = (s_gevrTwoHandGun == GUNLEFT) != (VrLeftHandedMode != 0);
+        f32 x[3], y[3], z[3];
+
+        if (!s_gevrWatchPalmKnown)
+        {
+            return FALSE;
+        }
+        for (i = 0; i < 3; i++)
+        {
+            x[i] = -sb[i];
+            y[i] = -sr[i];
+        }
+        z[0] = x[1] * y[2] - x[2] * y[1];
+        z[1] = x[2] * y[0] - x[0] * y[2];
+        z[2] = x[0] * y[1] - x[1] * y[0];
+        for (i = 0; i < 3; i++)
+        {
+            if (mirror)
+            {
+                y[i] = sr[i];
+            }
+        }
+        for (i = 0; i < 3; i++)
+        {
+            palm[i] = spos[i] + (GEVR_WRIST_BEHIND_CM + VrGunOffZ) * sb[i] * cm
+                    + (s_gevrWatchPalmCm[0] * x[i] + s_gevrWatchPalmCm[1] * y[i] + s_gevrWatchPalmCm[2] * z[i]) * cm;
+        }
+    }
+    else
+    {
+        Mtxf m;
+
+        if (!gevrStereoGunMatrix(support, &m))
+        {
+            return FALSE;
+        }
+        if (support == GUNLEFT)
+        {
+            matrix_column_1_scalar_multiply(-1.0f, m.m[0]);
+        }
+        matrix_scalar_multiply(IDO_POINT_ONE, m.m[0]);
+        for (i = 0; i < 3; i++)
+        {
+            palm[i] = s_gevrTwoHandPalm[0] * m.m[0][i] + s_gevrTwoHandPalm[1] * m.m[1][i]
+                    + s_gevrTwoHandPalm[2] * m.m[2][i] + m.m[3][i];
+        }
+    }
+
+    /* as gevrStereoTwoHandTarget takes them: cm along the off hand's side, up and forward */
+    for (i = 0; i < 3; i++)
+    {
+        d[i] = palm[i] - snap[i];
+        side[i] = (VrLeftHandedMode != (s_gevrTwoHandGun == GUNLEFT)) ? gr[i] : -gr[i];
+    }
+    out[0] = (d[0] * side[0] + d[1] * side[1] + d[2] * side[2]) / cm;
+    out[1] = (d[0] * gu[0] + d[1] * gu[1] + d[2] * gu[2]) / cm;
+    out[2] = -(d[0] * gb[0] + d[1] * gb[1] + d[2] * gb[2]) / cm;
+    return TRUE;
+}
+
+/*
+ * Gun fit's grab without a hold: the off hand from the gun hand, in GunOff's
+ * axes and units (gevrStereoGunMatrix: cm right, mirrored when left-handed,
+ * up and back), so moving the off hand moves the gun along with it.
+ */
+s32 gevrGunFitOffHand(f32 out[3])
+{
+    f32 gpos[3], gr[3], gu[3], gb[3], opos[3], orr[3], ou[3], ob[3], d[3];
+    const f32 unit = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f * gevrGunSizeFactor();
+    s32 i;
+
+    if (!g_gevrStereo || unit <= 1e-6f || !gevrGripAxes(1, gpos, gr, gu, gb) || !gevrGripAxes(0, opos, orr, ou, ob))
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        d[i] = opos[i] - gpos[i];
+    }
+    out[0] = (d[0] * gr[0] + d[1] * gr[1] + d[2] * gr[2]) / unit * (VrLeftHandedMode ? -1.0f : 1.0f);
+    out[1] = (d[0] * gu[0] + d[1] * gu[1] + d[2] * gu[2]) / unit;
+    out[2] = (d[0] * gb[0] + d[1] * gb[1] + d[2] * gb[2]) / unit;
+    return TRUE;
+}
+
+/*
+ * #35 with Bean on: the hand holding the gun with the gun hand is the
+ * release's own, the arm the off hand shows the rest of the time (user: not
+ * GoldenEye's taser hand, gunfire.c gevrRenderLeftArm, which looked wrong
+ * beside it and was what Bean's grip fit had been set against). It is
+ * pinned to the gun as the taser hand is (user: on the off controller's turn
+ * it pivoted, as the taser hand once did): posed as the off controller
+ * poses it but on the gun hand's frame, mirrored, turned by Bean's grip fit
+ * as the taser hand is (gevrStereoTwoHandTurn), and its hand moved onto the
+ * hold point plus the fit's offset (gevrStereoTwoHandTarget). Holding a gun
+ * in the other hand, it is mirrored into that hand, as left-handed mode
+ * mirrors the off hand. DAB has no hold of this kind. Sets *drawn when drawn;
+ * the taser hand is the fallback. (The grenade stays in the taser hand: the
+ * release has no hand holding one, user.)
+ */
+Gfx *gevrRenderBeanGripArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
+{
+    *drawn = FALSE;
+    if (!gevrBeanGripArmUsed())
+    {
+        return gdl;
+    }
+    return gevrWatchArmDraw(gdl, templ, drawn, TRUE);
 }
 
 static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3])
@@ -4988,7 +5438,7 @@ static void gevrScopeLensPlace(s32 hand, const struct GevrScope *sc, f32 lens[4]
     f32 ey = sc->y;
     f32 ez = sc->z;
     f32 er = sc->r;
-    const f32 *fit = VrScopeFit[gevrGexHeld(hand) ? 1 : 0][sc - s_gevrScopes];
+    const f32 *fit = gevrScopeFitOf(gevrFitLook(hand), sc - s_gevrScopes);
     f32 off[3];
 
     const GexWeaponDef *gexDef = gevrGexHeld(hand) ? gevrGexWeaponForHand(hand) : NULL;
@@ -5678,6 +6128,20 @@ void solo_char_load(void)
             head = get_player_mp_char_head(get_cur_playernum());
             body = get_player_mp_char_body(get_cur_playernum());
         }
+
+#ifdef GEVR
+        if (getPlayerCount() == 1)
+        {
+            int gevrBody = 0;
+            int gevrHead = 0;
+
+            if (gevrRomBondOutfit((int)g_CurrentPlayer->bondtype, &gevrBody, &gevrHead))
+            {
+                body = gevrBody;
+                head = gevrHead;
+            }
+        }
+#endif
 
         if (g_CameraMode == CAMERAMODE_SWIRL)
         {
@@ -8997,7 +9461,7 @@ void bondviewWatchAnimationTick(void)
 
     if (g_CurrentPlayer->watch_animation_state)
     {
-        sp34 = getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_TRIGGER || getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_WATCHLASER;
+        sp34 = getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_TRIGGER || GEVR_ITEM_AS(getCurrentPlayerWeaponId(GUNRIGHT)) == ITEM_WATCHLASER;
         sp3c = sp34;
 
 #if defined (VERSION_US)
@@ -11101,6 +11565,13 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 
     if (moveData.btap)
     {
+#ifdef GEVR
+        /* Dam speedboat: B boards at the jetty and steps off at the island. */
+        if (gevrDamBoatOnB())
+        {
+        }
+        else
+#endif
         /* If Bond is in the tank and pressed B, then exit. */
         if (g_PlayerIsInTank == 1)
         {
@@ -11141,8 +11612,17 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         {
             spEC = (struct TankRecord *)g_PlayerTankProp->obj;
 
+#ifdef GEVR
+            s_gevrDrivingCar = gevrRomCars() && spEC->obj != PROP_TANK;
+            if (!s_gevrDrivingCar)
+            {
+                bondinvAddInvItem(ITEM_TANKSHELLS);
+                add_ammo_to_weapon(ITEM_TANKSHELLS, spEC->unkD8);
+            }
+#else
             bondinvAddInvItem(ITEM_TANKSHELLS);
             add_ammo_to_weapon(ITEM_TANKSHELLS, spEC->unkD8);
+#endif
             spEC->unkD8 = 0;
             g_TankTurretVerticalAngle = spEC->turret_vertical_angle;
             g_TankTurretVerticalAngleRelated = g_TankTurretVerticalAngle / TANK_VERT_ANGLE_FACTOR;
@@ -11299,7 +11779,11 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 {
                     ftemp_nostack_spD8 = 1.0f;
                 }
+#ifdef GEVR
+                else if (moveData.digitalStepBack && !gevrRomCars())
+#else
                 else if (moveData.digitalStepBack)
+#endif
                 {
                     ftemp_nostack_spD8 = -1.0f;
                 }
@@ -11313,7 +11797,11 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                     ftemp_nostack_spD8 = -1.0f;
                 }
 
+#ifdef GEVR
+                unadjustedTargetSpeed = ftemp_nostack_spD8 * GEVR_VEHICLE_MAX_SPEED;
+#else
                 unadjustedTargetSpeed = ftemp_nostack_spD8 * TANK_MAX_SPEED;
+#endif
                 targetSpeed = unadjustedTargetSpeed;
 
                 if (g_TankDamagePenaltyTicks > 0)
@@ -11327,7 +11815,11 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 {
                     if (g_CurrentPlayer->speedforwards < targetSpeed)
                     {
+#ifdef GEVR
+                        unadjustedTargetSpeed = ((((((targetSpeed - g_CurrentPlayer->speedforwards) / 4.0f) / GEVR_VEHICLE_MAX_SPEED) + GEVR_VEHICLE_ACCEL) * ftemp_nostack_spE8 * FLOAT_TEN_A) / 60.0f);
+#else
                         unadjustedTargetSpeed = ((((((targetSpeed - g_CurrentPlayer->speedforwards) / 4.0f) / TANK_MAX_SPEED) + 0.5f) * ftemp_nostack_spE8 * FLOAT_TEN_A) / 60.0f);
+#endif
 
                         g_CurrentPlayer->speedforwards += (unadjustedTargetSpeed) * g_GlobalTimerDelta;
 
@@ -11338,7 +11830,11 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                     }
                     else if (targetSpeed < g_CurrentPlayer->speedforwards)
                     {
+#ifdef GEVR
+                        unadjustedTargetSpeed = ((((((g_CurrentPlayer->speedforwards - targetSpeed) / 4.0f) / GEVR_VEHICLE_MAX_SPEED) + 0.5f) * ftemp_nostack_spE8 * -FLOAT_TEN_A) / 60.0f);
+#else
                         unadjustedTargetSpeed = ((((((g_CurrentPlayer->speedforwards - targetSpeed) / 4.0f) / TANK_MAX_SPEED) + 0.5f) * ftemp_nostack_spE8 * -FLOAT_TEN_A) / 60.0f);
+#endif
 
                         g_CurrentPlayer->speedforwards += (unadjustedTargetSpeed) * g_GlobalTimerDelta;
 
@@ -12421,6 +12917,13 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         g_CurrentPlayer->speedforwards = 0.0f;
         g_CurrentPlayer->speedsideways = 0.0f;
     }
+    if (gevrDamBoatAboard())
+    {
+        gevrDamBoatDrive(stick_x, stick_y);
+        g_CurrentPlayer->speedforwards = 0.0f;
+        g_CurrentPlayer->speedsideways = 0.0f;
+        g_CurrentPlayer->speedtheta = 0.0f;
+    }
 #endif
 
     if (lvlGetControlsLockedFlag())
@@ -12982,7 +13485,11 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 g_EnterTankAudioState = TANK_RUN_STATE_RUNNING;
                 if ((g_TankSfxState[0] == NULL) && (lvlGetControlsLockedFlag() == 0))
                 {
+#ifdef GEVR
+                    sndPlaySfx(g_musicSfxBufferPtr, GEVR_VEHICLE_SFX(TRUCK_START_SFX, NOTHING_SFX), &g_TankSfxState[0]);
+#else
                     sndPlaySfx(g_musicSfxBufferPtr, TRUCK_START_SFX, &g_TankSfxState[0]);
+#endif
                 }
 
                 sndCreatePostEvent(g_TankSfxState[0], 8, 0x61A8);
@@ -13028,7 +13535,11 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                     {
                         if (lvlGetControlsLockedFlag() == 0)
                         {
+#ifdef GEVR
+                            sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, GEVR_VEHICLE_SFX(TANK_SFX, TRAIN_STOP_SFX), &g_TankSfxState[1]);
+#else
                             sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, TANK_SFX, &g_TankSfxState[1]);
+#endif
                         }
                     }
 
@@ -13681,7 +14192,11 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                                 }
                                 if ((D_80048380 % 3) > 0)
                                 {
+#ifdef GEVR
+                                    chrobjSndCreatePostEventDefault(sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, GEVR_VEHICLE_SFX(TANK_CRUSH_MAN_SFX, NOTHING_SFX), NULL), &prop->pos);
+#else
                                     chrobjSndCreatePostEventDefault(sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, TANK_CRUSH_MAN_SFX, NULL), &prop->pos);
+#endif
                                 }
                             }
                         }
@@ -13719,6 +14234,9 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     }
 
     bondviewUpdatePlayerY(use_stanHeight, sp390);
+#ifdef GEVR
+    gevrDamBoatApplySeat();
+#endif
     bondviewUpdatePlayerCollisionPositionFields();
     bondviewUpdatePlayerCollisionBounds();
 
@@ -14409,6 +14927,47 @@ coord3d *gevrEyePosition(void)
 }
 #endif
 
+#ifdef GEVR
+static f32 s_gevrCameraFloor;
+static s32 s_gevrCameraRoom;
+static f32 s_gevrCameraCeilingDrop;
+
+f32 gevrCameraCeilingDrop(void) { return s_gevrCameraCeilingDrop; }
+
+void gevrClampCameraCeiling(float position[3])
+{
+    gevrBgClampCameraCeiling(position, s_gevrCameraFloor, s_gevrCameraRoom, FALSE);
+}
+
+static void gevrGameCameraCeiling(coord3d *position)
+{
+    s32 local = !netIsActive() || get_cur_playernum() == netGetLocalSlot();
+    s32 room;
+    f32 floor, rawY = position->y;
+    if (local && !s_gevrCopyTrace) {
+        s_gevrCameraRoom = 0;
+        s_gevrCameraCeilingDrop = 0.0f;
+    }
+    if (g_CurrentPlayer->cameramode == 1 || g_CurrentPlayer->bonddead || g_PlayerIsInTank ||
+        /* multiplayer plays in CAMERAMODE_NONE (gevrStereoFrame; user: online
+         * Caverns still showed the sky over the tunnel doors) */
+        (g_CameraMode != CAMERAMODE_FP && g_CameraMode != CAMERAMODE_FP_NOINPUT &&
+         !(g_CameraMode == CAMERAMODE_NONE && (netIsActive() || getPlayerCount() > 1))) ||
+        !g_CurrentPlayer->field_488.current_tile_ptr_for_portals)
+        return;
+
+    room = g_CurrentPlayer->field_488.current_tile_ptr_for_portals->room;
+    floor = g_CurrentPlayer->field_488.pos3.y;
+    gevrBgClampCameraCeiling(position->f, floor, room, TRUE);
+    if (g_gevrStereo && local && !s_gevrCopyTrace)
+    {
+        s_gevrCameraFloor = floor;
+        s_gevrCameraRoom = room;
+        s_gevrCameraCeilingDrop = rawY - position->y;
+    }
+}
+#endif
+
 Gfx *bondviewRenderDebugBondView(Gfx *gdl)
 {
     coord3d cam_pos;
@@ -14512,6 +15071,8 @@ Gfx *bondviewRenderDebugBondView(Gfx *gdl)
     }
 
 #ifdef GEVR
+    /* Apply after crouch/rise/menu offsets, in both flat and stereo play. */
+    gevrGameCameraCeiling(&cam_pos);
     s_gevrEyeWorld = cam_pos;   /* gevrEyePosition: where the frame is seen from */
     if (g_gevrStereo && !s_gevrCopyTrace &&
         (!netIsActive() || get_cur_playernum() == netGetLocalSlot()))
@@ -15679,7 +16240,7 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
     char buf[480];
     s32 x, y, w = 0, h = 0;
     extern bool netIsActive(void);
-    const char *gex = gevrGexHeld(GUNRIGHT) ? " (GOLDENEYE X)" : "";
+    const char *gex = gevrGexHeld(GUNRIGHT) ? " (GOLDENEYE X)" : gevrFitLook(GUNRIGHT) == 2 ? " (BEAN)" : "";
 
     if (!gevrGunFitActive || !g_gevrStereo || (!netIsActive() && getPlayerCount() != 1))
     {
@@ -15778,7 +16339,7 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
     else if (gevrScopeFitting && gevrScopeFitIndex() >= 0)
     {
         /* the gun's scope (X switches to it, input.c) */
-        const f32 *s = VrScopeFit[gevrGexHeld(GUNRIGHT) ? 1 : 0][gevrScopeFitIndex()];
+        const f32 *s = gevrScopeFitOf(gevrFitLook(GUNRIGHT), gevrScopeFitIndex());
         char label[32];
 
         gevrItemLabel(getCurrentPlayerWeaponId(GUNRIGHT), label, sizeof(label));
@@ -15810,9 +16371,8 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
     {
         /* barrel tip / muzzle fit (X switches to it, input.c) */
         s32 item = getCurrentPlayerWeaponId(GUNRIGHT);
-        const int gexIdx = gevrGexHeld(GUNRIGHT) ? 1 : 0;
         char label[32];
-        const f32 *t = (item >= 0 && item < GEVR_MAX_WEAPONS) ? VrMuzzleTrim[gexIdx][item] : NULL;
+        const f32 *t = (item >= 0 && item < GEVR_MAX_WEAPONS) ? gevrMuzzleTrimOf(gevrFitLook(GUNRIGHT), item) : NULL;
 
         gevrItemLabel(item, label, sizeof(label));
         snprintf(buf, sizeof(buf),
@@ -15841,11 +16401,11 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
     else if (gevrStereoTwoHandGrip())
     {
         /* holding with both hands: the sticks move the holding hand (input.c) */
-        const float *t = s_gevrTwoHandTrim[gevrStereoTwoHandClass()];
+        const float *t = gevrTwoHandTrimNow();
 
         snprintf(buf, sizeof(buf),
-                 "GRIP FIT (%s)%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTILT %.0f  ROLL %.0f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, TILT\nHOLD RIGHT GRIP: TURN STICK ROLLS\nA: SAVE   B: UNDO   MENU + A: DONE",
-                 gevrStereoTwoHandClass() ? "RIFLE" : "PISTOL", gex, t[2], -t[0], t[1], t[3], t[5]);
+                 "GRIP FIT (THIS %s)%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTILT %.0f  ROLL %.0f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, TILT\nHOLD RIGHT GRIP: TURN STICK ROLLS\nHOLD OFF TRIGGER: PLACE IT BY HAND\nA: SAVE   B: UNDO   MENU + A: DONE",
+                 gevrStereoTwoHandClass() ? "GUN" : "PISTOL", gex, t[2], -t[0], t[1], t[3], t[5]);
     }
     else
     {
@@ -15853,7 +16413,7 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
 
         gevrGunOff(GUNRIGHT, off);
         snprintf(buf, sizeof(buf),
-                 "GUN FIT%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nHOLD WITH BOTH HANDS: FIT THE GRIP\n%sA: SAVE   B: UNDO   MENU + A: DONE",
+                 "GUN FIT (THIS GUN)%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nHOLD OFF TRIGGER: MOVE IT BY HAND\nHOLD WITH BOTH HANDS: FIT THE GRIP\n%sA: SAVE   B: UNDO   MENU + A: DONE",
                  gex, -off[2], off[0], off[1], gevrFitNextLine(0));
     }
 
@@ -16154,8 +16714,8 @@ static s32 gevrHandSelected(s32 hand)
 
 s32 gevrWeaponUsesCopies(s32 item)
 {
-    return (item >= ITEM_WPPK && item <= ITEM_ROCKETLAUNCH && item != ITEM_WATCHLASER)
-        || item == ITEM_KNIFE || item == ITEM_TASER;
+    return (GEVR_ITEM_AS(item) >= ITEM_WPPK && GEVR_ITEM_AS(item) <= ITEM_ROCKETLAUNCH && GEVR_ITEM_AS(item) != ITEM_WATCHLASER)
+        || item == ITEM_KNIFE || GEVR_ITEM_AS(item) == ITEM_TASER;
 }
 
 /* Mission equipment is a single inventory object, including while a hand
@@ -16177,13 +16737,13 @@ static s32 gevrHandItemAllowed(s32 hand, s32 item)
     if (hand == GUNLEFT && item == ITEM_FIST) return FALSE;
     if (item == ITEM_TRIGGER && VrGexGuns) return FALSE;   /* GE-X's remote mines detonate themselves (gun.c) */
     /* Either selector can invoke the canonical watch/firing-hand setup. */
-    if (item == ITEM_WATCHLASER) return TRUE;
+    if (GEVR_ITEM_AS(item) == ITEM_WATCHLASER) return TRUE;
     {
         /* Selecting an offhand item exits the watch laser's two-arm setup.
          * Other watch devices retain their original restrictions. */
         extern s32 gevrGexWatchItem(s32 item);
 
-        if (hand == GUNLEFT && item != ITEM_UNARMED && other != ITEM_WATCHLASER && gevrGexWatchItem(other)) return FALSE;
+        if (hand == GUNLEFT && item != ITEM_UNARMED && GEVR_ITEM_AS(other) != ITEM_WATCHLASER && gevrGexWatchItem(other)) return FALSE;
     }
     if (hand == GUNLEFT && item != ITEM_UNARMED && !gevrLeftGunOk(item)) return FALSE;
     if (gevrMissionItemClaimed(hand, item)) return FALSE;
@@ -16205,14 +16765,14 @@ void gevrWeaponPickedUp(s32 item, s32 alreadyOwned)
     s32 held, i;
     if (!g_gevrStereo || !g_CurrentPlayer || g_CurrentPlayer->bonddead || alreadyOwned || s_gevrGripGrabbing
         || gevrSpectating() || (netIsActive() && get_cur_playernum() != netGetLocalSlot())
-        || item < ITEM_WPPK || item > ITEM_ROCKETLAUNCH || item == ITEM_WATCHLASER
+        || GEVR_ITEM_AS(item) < ITEM_WPPK || GEVR_ITEM_AS(item) > ITEM_ROCKETLAUNCH || GEVR_ITEM_AS(item) == ITEM_WATCHLASER
         || !gevrWeaponOwned(item) || !bondwalkItemHasAmmo(item)
         || !gevrHandItemAllowed(GUNRIGHT, item)) return;
     held = gevrHandSelected(GUNRIGHT);
     if (held != ITEM_FIST && held != ITEM_UNARMED) return;
     /* Only the first usable firearm: choosing fists later isn't undone by pickups. */
     for (i = ITEM_WPPK; i <= ITEM_ROCKETLAUNCH; i++)
-        if (i != item && i != ITEM_WATCHLASER && gevrWeaponOwned(i) && bondwalkItemHasAmmo(i)) return;
+        if (i != item && GEVR_ITEM_AS(i) != ITEM_WATCHLASER && gevrWeaponOwned(i) && bondwalkItemHasAmmo(i)) return;
     gunRequestHandWeaponChange(GUNRIGHT, item, 1);
 }
 
@@ -16544,7 +17104,7 @@ static s32 gevrHolsterTry(s32 hand)
 /* a gun just picked up goes into the hand that took it, where the rules allow */
 static void gevrGripEquip(s32 hand, s32 item)
 {
-    if (!((item >= ITEM_WPPK && item <= ITEM_ROCKETLAUNCH && item != ITEM_WATCHLASER) || item == ITEM_KNIFE)
+    if (!((GEVR_ITEM_AS(item) >= ITEM_WPPK && GEVR_ITEM_AS(item) <= ITEM_ROCKETLAUNCH && GEVR_ITEM_AS(item) != ITEM_WATCHLASER) || item == ITEM_KNIFE)
         || !gevrLeftHasGun(item))
     {
         return;
@@ -16616,6 +17176,10 @@ static s32 gevrGripGestureTry(s32 ctrl)
     for (i = 0; i < 3; i++)
     {
         p[i] = at[i] - back[i] * GEVR_GESTURE_FINGERS_CM * cm;
+    }
+    if (gevrDamBoatTryHand(p))
+    {
+        return TRUE;
     }
     {
         /* tuning, one line a press: where the hand is and what is nearest it */
@@ -16804,6 +17368,7 @@ static f32 s_gevrReloadTune[GEVR_RT_COUNT] = {
 };
 #define GEVR_RELOAD_BELT_EXIT_CM 5.0f   /* extra distance to rearm, beyond the fitted radius */
 extern float VrReloadGrab[2][3], VrReloadBelt[3], VrGexHeldMag[3];   /* vr_settings_defaults.c: Gun fit's reload mode */
+extern float VrBeanReloadGrab[3];   /* and Bean's models' grab */
 
 extern int VrManualReloading;
 /* Hand reload needs GoldenEye X's models (user): its reloads are GE-X's magazines
@@ -16812,7 +17377,7 @@ extern int VrManualReloading;
 
 static s32 gevrReloadGun(s32 item)
 {
-    return item >= ITEM_WPPK && item <= ITEM_ROCKETLAUNCH && item != ITEM_WATCHLASER && item != ITEM_LASER;
+    return GEVR_ITEM_AS(item) >= ITEM_WPPK && GEVR_ITEM_AS(item) <= ITEM_ROCKETLAUNCH && GEVR_ITEM_AS(item) != ITEM_WATCHLASER && GEVR_ITEM_AS(item) != ITEM_LASER;
 }
 
 /* The free controller follows the weapon slot, independently of handedness. */
@@ -17334,7 +17899,8 @@ extern s32 gevrGexMagPoints(f32 centre[3], f32 well[3], f32 held[3]);
 static void gevrReloadMagPoint(const f32 gun[3], const f32 gr[3], const f32 gu[3], const f32 gb[3], f32 cm, s32 gex,
                                f32 mag[3])
 {
-    const f32 *g = gex ? gevrGexGrabFit(getCurrentPlayerWeaponId(gevrReloadSupportGun())) : VrReloadGrab[0];
+    const f32 *g = gex ? gevrGexGrabFit(getCurrentPlayerWeaponId(gevrReloadSupportGun()))
+                 : gevrFitLook(gevrReloadSupportGun()) == 2 ? VrBeanReloadGrab : VrReloadGrab[0];
     const f32 sideways = (VrLeftHandedMode != (gevrReloadSupportGun() == GUNLEFT)) ? -1.0f : 1.0f;
     s32 i;
 
@@ -17590,7 +18156,8 @@ void gevrReloadFitSetGrab(void)
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
     const f32 sideways = VrLeftHandedMode ? -1.0f : 1.0f;
     f32 gun[3], gr[3], gu[3], gb[3], off[3], r[3], u[3], b[3], d[3];
-    f32 *g = gevrGexHeld(GUNRIGHT) ? gevrGexGrabFit(getCurrentPlayerWeaponId(GUNRIGHT)) : VrReloadGrab[0];
+    f32 *g = gevrGexHeld(GUNRIGHT) ? gevrGexGrabFit(getCurrentPlayerWeaponId(GUNRIGHT))
+           : gevrFitLook(GUNRIGHT) == 2 ? VrBeanReloadGrab : VrReloadGrab[0];
     s32 i;
 
     if (cm < 1e-6f || !gevrGripAxesRaw(1, gun, gr, gu, gb) || !gevrGripAxesRaw(0, off, r, u, b))
@@ -18809,7 +19376,7 @@ static Gfx *gevrDrawBodySlotWheel(Gfx *gdl, const GevrBodySlotWheel *slot)
         cx,by0+GEVR_WP_H-lp,slot->ready ? 0x80FF80FF : 0xFFE65AFF,lh,GEVR_WP_W-8,NULL);
     s32 shown = slot->items[slot->index];
     if (shown <= ITEM_UNARMED) shown = ITEM_FIST;   /* includes HOLSTER */
-    else if (shown == ITEM_TRIGGER || shown == ITEM_WATCHLASER) shown = ITEM_WATCHMAGNETATTRACT;
+    else if (shown == ITEM_TRIGGER || GEVR_ITEM_AS(shown) == ITEM_WATCHLASER) shown = ITEM_WATCHMAGNETATTRACT;
     const s32 savedLeft = gevrWeaponPanelLeft;
     gevrWeaponPanelLeft = slot->ctrl == 0;
     gdl = gevrDrawWeaponPanelModel(gdl,shown,cx-GEVR_WP_MODEL_W/2,cy-GEVR_WP_MODEL_H/2,
@@ -19014,7 +19581,7 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
              */
             shown = ITEM_FIST;
         }
-        else if (shown == ITEM_TRIGGER || shown == ITEM_WATCHLASER)
+        else if (shown == ITEM_TRIGGER || GEVR_ITEM_AS(shown) == ITEM_WATCHLASER)
         {
             shown = ITEM_WATCHMAGNETATTRACT;
         }
@@ -19180,19 +19747,12 @@ Gfx *maybe_mp_interface(Gfx *gdl)
     }
 #endif
     if (
-#ifdef GEVR
-        !(netIsActive() && !g_CurrentPlayer->mpmenuon && !cheatIsActive(CHEAT_NO_RADAR_MP)) &&
-#endif
         bondviewGetIfCurrentPlayerHealthShowTime() &&
         (g_CurrentPlayer->watch_animation_state == 0) && !g_CurrentPlayer->mpmenuon)
     {
-        if (
-#ifdef GEVR
-            gevrWatchShowsStandard(g_gevrStereo, FALSE, VrWatchFaceStatus)
-#else
-            TRUE
-#endif
-            ) gdl = bondviewRenderGaugeBars(gdl);
+        /* The temporary hit gauges are feedback, independent of radar,
+         * watch-face preference and the three hit comfort settings. */
+        gdl = bondviewRenderGaugeBars(gdl);
     }
     else if (mpwatchShouldDisplayGauges()
 #ifdef GEVR
@@ -19594,6 +20154,8 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
     {
         playerid = get_cur_playernum();
     }
+    const f32 gevrHealthBefore = g_CurrentPlayer->bondhealth, gevrArmourBefore = g_CurrentPlayer->bondarmour;
+    const s32 gevrShowBefore = g_CurrentPlayer->damageshowtime;
 #endif
     f32 damage_dealt = g_playerPerm->handicap * damage_amount;
     s32 cur_player_num;
@@ -19803,6 +20365,33 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
             }
         }
     }
+#ifdef GEVR
+    /*
+     * One line a hit taken (a guard's, gas, an explosion), to check the
+     * player's damage against GoldenEye's rules on the headset: what the
+     * difficulty and handicap made of it, what it took off, whether the last
+     * hit's flash (show) or the watch held it off, and the guards' fire that
+     * led to it (chraction.c chrlvUpdateShotbondsum).
+     */
+    {
+        extern f32 g_AiDamageModifier, g_AiAccuracyModifier;
+        extern void gevrGuardFireTake(s32 *aimed, s32 *off, s32 *held, f32 *chance);
+        s32 aimed, off, held;
+        f32 chance;
+
+        gevrGuardFireTake(&aimed, &off, &held, &chance);
+        /* gas calls every tick; its held-off ticks change nothing */
+        if (aimed || gevrHealthBefore != g_CurrentPlayer->bondhealth || gevrArmourBefore != g_CurrentPlayer->bondarmour)
+        sysLogPrintf(LOG_NOTE,
+                     "damage: %.4f (x%.2f) from %d: health %.3f->%.3f armour %.3f->%.3f show %d->%d watch %d "
+                     "inv %d/%d dead %d; ai dmg %.2f acc %.2f, dt %.2f clock %d; guard shots %d aimed %d off %d held, chance %.2f",
+                     damage_amount, g_playerPerm->handicap, playerid, gevrHealthBefore, g_CurrentPlayer->bondhealth,
+                     gevrArmourBefore, g_CurrentPlayer->bondarmour, gevrShowBefore, g_CurrentPlayer->damageshowtime,
+                     g_CurrentPlayer->watch_animation_state, g_CurrentPlayer->cheatBondInvincible, g_PlayerInvincible,
+                     g_CurrentPlayer->bonddead, g_AiDamageModifier, g_AiAccuracyModifier, g_GlobalTimerDelta, g_ClockTimer,
+                     aimed, off, held, chance);
+    }
+#endif
 }
 
 

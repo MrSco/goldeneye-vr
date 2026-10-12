@@ -18,6 +18,9 @@ static ObjectRecord target;
 static PropRecord targetProp;
 u8 *langGet(s32 id) { (void)id;return NULL; }
 bool bondinvHasGEKey(void) { return hasKey; }
+/* gevr_romlayout.c: GoldenEye's use-on-object items, the bomb defuser and datathief */
+static int gevrRomGadgetUse(int which) { return which ? ITEM_DATATHIEF : ITEM_BOMBDEFUSER; }
+static int gevrRomCaseAmmo(void) { return AMMO_KNIFE; }   /* the weapon case's first ammo */
 static void gevrCoopReportKeyCopy(void) { keyReports++; }
 ALSoundState *sndPlaySfx(struct ALBankAlt_s *bank,s16 id,ALSoundState *p) { (void)bank;(void)id;(void)p;return NULL; }
 static void sub_GAME_7F05D690(void) {}

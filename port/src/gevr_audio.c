@@ -13,6 +13,7 @@
 #include <ultra64.h>
 
 #include "gevr_rom_segments.h"
+#include "gevr_romlayout.h"
 #include "preprocess.h"
 #include "system.h"
 
@@ -91,38 +92,59 @@ static void gevrSwapMusicTable(u8 *sbk, u32 size)
 	}
 }
 
+static void gevrMusicBank(int rawIndex, u32 fallbackOff, u32 fallbackSize, u32 *off, u32 *size)
+{
+	const struct gevrRomLayout *layout = gevrRomActiveLayout();
+
+	*off = fallbackOff;
+	*size = fallbackSize;
+	if (gevrRomIsVariant() && layout && layout->raw[rawIndex][1]) {
+		*off = layout->raw[rawIndex][0];
+		*size = layout->raw[rawIndex][1];
+	}
+}
+
 void gevrRomBindMusic(void)
 {
 	u32 outSize;
 	u8 *raw;
 	u8 *host;
+	u32 sfxCtlOff, sfxCtlSize, sfxTblOff, sfxTblSize;
+	u32 instCtlOff, instCtlSize, instTblOff, instTblSize;
+	u32 musicOff, musicSize;
 
-	raw = gevrDupRom(GEVR_SFX_CTL_OFF, GEVR_SFX_CTL_SIZE);
-	host = preprocessALBankFile(raw, GEVR_SFX_CTL_SIZE, &outSize);
+	gevrMusicBank(5, GEVR_SFX_CTL_OFF, GEVR_SFX_CTL_SIZE, &sfxCtlOff, &sfxCtlSize);
+	gevrMusicBank(6, GEVR_SFX_TBL_OFF, GEVR_SFX_TBL_SIZE, &sfxTblOff, &sfxTblSize);
+	gevrMusicBank(2, GEVR_INST_CTL_OFF, GEVR_INST_CTL_SIZE, &instCtlOff, &instCtlSize);
+	gevrMusicBank(3, GEVR_INST_TBL_OFF, GEVR_INST_TBL_SIZE, &instTblOff, &instTblSize);
+	gevrMusicBank(4, GEVR_MUSIC_SBK_OFF, GEVR_MUSIC_SBK_SIZE, &musicOff, &musicSize);
+
+	raw = gevrDupRom(sfxCtlOff, sfxCtlSize);
+	host = preprocessALBankFile(raw, sfxCtlSize, &outSize);
 	sysMemFree(raw);
 	_sfxctlSegmentRomStart = host;
 	_sfxctlSegmentRomEnd = host + outSize;
 
-	_sfxtblSegmentRomStart = g_RomFile + GEVR_SFX_TBL_OFF;
-	_sfxtblSegmentRomEnd = _sfxtblSegmentRomStart + GEVR_SFX_TBL_SIZE;
+	_sfxtblSegmentRomStart = g_RomFile + sfxTblOff;
+	_sfxtblSegmentRomEnd = _sfxtblSegmentRomStart + sfxTblSize;
 
-	raw = gevrDupRom(GEVR_INST_CTL_OFF, GEVR_INST_CTL_SIZE);
-	host = preprocessALBankFile(raw, GEVR_INST_CTL_SIZE, &outSize);
+	raw = gevrDupRom(instCtlOff, instCtlSize);
+	host = preprocessALBankFile(raw, instCtlSize, &outSize);
 	sysMemFree(raw);
 	_instrumentsctlSegmentRomStart = host;
 	_instrumentsctlSegmentRomEnd = host + outSize;
 
-	_instrumentstblSegmentRomStart = g_RomFile + GEVR_INST_TBL_OFF;
-	_instrumentstblSegmentRomEnd = _instrumentstblSegmentRomStart + GEVR_INST_TBL_SIZE;
+	_instrumentstblSegmentRomStart = g_RomFile + instTblOff;
+	_instrumentstblSegmentRomEnd = _instrumentstblSegmentRomStart + instTblSize;
 
-	raw = gevrDupRom(GEVR_MUSIC_SBK_OFF, GEVR_MUSIC_SBK_SIZE);
-	gevrSwapMusicTable(raw, GEVR_MUSIC_SBK_SIZE);
+	raw = gevrDupRom(musicOff, musicSize);
+	gevrSwapMusicTable(raw, musicSize);
 	_musicsampletblSegmentRomStart = raw;
-	_musicsampletblSegmentRomEnd = raw + GEVR_MUSIC_SBK_SIZE;
+	_musicsampletblSegmentRomEnd = raw + musicSize;
 
 	sysLogPrintf(LOG_NOTE,
 			"music: banks bound (sfx ctl host %u, instruments ctl host %u, tracks %u)",
 			(u32)(_sfxctlSegmentRomEnd - _sfxctlSegmentRomStart),
 			(u32)(_instrumentsctlSegmentRomEnd - _instrumentsctlSegmentRomStart),
-			GEVR_MUSIC_SBK_SIZE);
+			musicSize);
 }

@@ -2,6 +2,7 @@
 #include "vr_input.h"
 #include "vr_log.h"
 #include "vr_settings.h"
+#include "gevr_romlayout.h"
 
 #include <cstdio>
 #include <cstring>
@@ -142,6 +143,8 @@ extern "C" HapticProfile *vrHapticsGetProfileByIndex(int index) {
 
 extern "C" HapticProfile *vrHapticsGetProfile(int id) {
     if (id == ITEM_FIST) id = ITEM_UNARMED;
+    /* a hack campaign's plain gun on a special item's file feels as the gun it plays as */
+    if (id > ITEM_UNARMED && id < 64) id = gevrItemAs(id);
     for (int i = 0; i < kNumProfiles; ++i) {
         if (s_profiles[i].id == id) {
             return &s_profiles[i];

@@ -1,4 +1,4 @@
-struct ChrModelFileRecord c_item_entries[] = {
+static struct ChrModelFileRecord gevrRetailChrRecords[] = {
     #include <assets/obseg/chr/camguard/chrModelFileRecord.inc.c>
     #include <assets/obseg/chr/greyguard/chrModelFileRecord.inc.c>
     #include <assets/obseg/chr/oliveguard/chrModelFileRecord.inc.c>
@@ -81,3 +81,4 @@ struct ChrModelFileRecord c_item_entries[] = {
     #include <assets/obseg/chr/spicebond/chrModelFileRecord.inc.c>
     {0, 0, 1.0, 0.0, 0x00, 0x00, 0x00, 0x00}
 };
+struct ChrModelFileRecord *c_item_entries = gevrRetailChrRecords;

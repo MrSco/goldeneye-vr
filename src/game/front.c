@@ -1,5 +1,6 @@
 #ifdef GEVR
 #include "system.h"
+#include "gevr_romlayout.h"
 #endif
 #include <os_extension.h>
 #include <assets/oddtextures.h>
@@ -447,7 +448,7 @@ struct coord3d folderpositions[] = {
 struct rectbbox folder_option_COPY_bound = { 0 };
 struct rectbbox folder_option_ERASE_bound = { 0 };
 
-struct mission_folder_setup mission_folder_setup_entries[];
+struct mission_folder_setup mission_folder_setup_entries[48];
 
 #ifdef GEVR
 /*
@@ -552,7 +553,7 @@ static void gevrLevelJumpProbe(void)
 }
 #endif
 
-struct mission_folder_setup mission_folder_setup_entries[] = {
+struct mission_folder_setup mission_folder_setup_entries[48] = {
   /* string_ptr  folder_text_preset                                                         icon_text_preset                                            stage_id           unknown type             mission_num briefing_name_ptr */
     {"1",        getStringID(LTITLE, TITLE_STR_120_ARK)            /* Arkangelsk */,        0,                                                          LEVELID_NONE,           0, MISSION_HEADER,          -1, 0},
     {"i",        getStringID(LTITLE, TITLE_STR_121_DAM)            /* Dam */,               0,                                                          LEVELID_DAM,            0, MISSION_PART,             0, "UbriefdamZ"},
@@ -2327,6 +2328,11 @@ void load_walletbond(void)
 void frontCleanUpWalletBond(void)
 {
     s32 i;
+#ifdef GEVR
+    extern void gevrBeanRepaintForgetOwner(int owner);
+
+    gevrBeanRepaintForgetOwner(1 /* GEVR_PAINT_FOLDER */);   /* the folder's textures go with it */
+#endif
 
     for (i = FOLDER1; i < MAX_FOLDER_COUNT; i++)
     {
@@ -5193,7 +5199,7 @@ void init_menu0f_mpcharsel(void)
 
     if (num_chars_selectable_mp != 0x40)
     {
-        if (fileIsStageUnlockedAtDifficulty(selected_folder_num, SP_LEVEL_CRADLE, DIFFICULTY_AGENT) == STAGESTATUS_COMPLETED)
+        if (fileIsStageUnlockedAtDifficulty(selected_folder_num, GEVR_SP_CRADLE, DIFFICULTY_AGENT) == STAGESTATUS_COMPLETED)
         {
             num_chars_selectable_mp = 0x21;
         }
@@ -7223,10 +7229,15 @@ static void gevrApplyLauncherCheats(void)
 {
     static unsigned long long applied;
     s32 i, any = FALSE;
+    /*
+     * Not in a hack campaign: the list names GoldenEye's guns, and the hack
+     * puts its own models on those items. Its own Cheat Options still work.
+     */
+    const unsigned long long mask = gevrRomIsVariant() ? 0 : VrCheatMask;
 
     for (i = 1; i < CHEAT_INVALID && i < 64; i++)
     {
-        if ((VrCheatMask >> i) & 1ULL)
+        if ((mask >> i) & 1ULL)
         {
             g_CheatActivated[i] = TRUE;
         }
@@ -7235,7 +7246,7 @@ static void gevrApplyLauncherCheats(void)
             g_CheatActivated[i] = FALSE;
         }
     }
-    applied = VrCheatMask;
+    applied = mask;
     for (i = 1; i < CHEAT_INVALID; i++)
     {
         if (g_CheatActivated[i])
@@ -7557,15 +7568,16 @@ void interface_menu0D_missioncomplete()
     {
         if (frontCompleteAllObjectivesAliveSuccess() && (!g_AppendCheatSinglePlayer))
         {
-            if (mission_folder_setup_entries[briefingpage].mission_num == SP_LEVEL_CRADLE)
+            s32 gevrMissionNum = mission_folder_setup_entries[briefingpage].mission_num;
+            if (gevrMissionNum == GEVR_SP_CRADLE)
             {
                 frontChangeMenu(MENU_RUN_STAGE, TRUE);
                 selected_stage = LEVELID_CUBA;
             }
-            else if (mission_folder_setup_entries[briefingpage].mission_num >= SP_LEVEL_AZTEC)
+            else if (gevrMissionNum >= GEVR_SP_ADVANCE_LIMIT)
             {
                 frontChangeMenu(MENU_MISSION_SELECT, FALSE);
-                set_cursor_to_stage_solo((s32)mission_folder_setup_entries[briefingpage].mission_num);
+                set_cursor_to_stage_solo(gevrMissionNum);
             }
             else
             {
@@ -8474,7 +8486,7 @@ void interface_menu18_displaycast(void)
         else if (full_actor_intro != 0)
         {
             frontChangeMenu(MENU_MISSION_SELECT, 1);
-            set_cursor_to_stage_solo(SP_LEVEL_CRADLE);
+            set_cursor_to_stage_solo(GEVR_SP_CRADLE);
             full_actor_intro = 0;
         }
         else

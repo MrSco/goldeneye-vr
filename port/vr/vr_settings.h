@@ -27,6 +27,9 @@ extern int VrPauseHub;
 #define VR_PLAYMODE_SCREEN 0
 #define VR_PLAYMODE_STEREO 1
 extern int VrPlayMode;
+/* 1 = Project Bean characters, guns, rooms and skies when those files are installed.
+ * Saved as XblaVisualsMode. Hold one grip and the right stick click to switch. */
+extern int VrBeanModels;
 extern int VrMicMuted;
 extern float VrMusicVolume;
 extern float VrVoiceVolume;
@@ -44,6 +47,7 @@ extern int VrMpMaxPlayers; // the host's player count, 2..8 on any stage
 extern int VrMpBotMode, VrMpBotCount, VrMpBotDifficulty; // bots: NET_BOT_OFF/FILL/FIXED, 1..7, NET_BOT_MEAT..DARK
 extern int VrDetailedGuns;   // guards and other players hold the first-person gun models (#95); 0 = the game's own
 extern int VrGexGuns;        // GoldenEye X's first-person models (guns, items, hands, the watch arm) from data/gex.z64
+extern int VrCampaign;       // 0 GoldenEye, 1 Goldfinger 64, 2 Tomorrow Never Dies. The retail ROM stays put.
 extern int VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound;
 extern int VrMpCustom[4];       // the host's custom set
 // Co-op (NET_MODE_COOP): the mode, the mission's LEVELID and the solo difficulty (0..3).
@@ -119,6 +123,9 @@ extern float VrGunOffZ;
 extern float VrGripTrim[2][6];  // two-handed hold's hand trim: [handgun, long gun][dx dy dz rx ry rz]
 extern float VrGexGunOff[3];    // the same two for GoldenEye X's models, which sit differently
 extern float VrGexGripTrim[2][6];
+extern float VrBeanGunOff[3];      // and for Bean's models (scope and barrel tip: gevr_scope.h)
+extern float VrBeanGripTrim[2][6];
+extern float VrBeanReloadGrab[3];
 extern float VrReloadGrab[2][3];   // Hand reload: the magazine from the gun hand's grip, GE / GE-X
 extern float VrReloadBelt[3];      // the belt: below the eye, out, ahead
 extern float VrGexHeldMag[3];      // a GE-X magazine's palm from the off hand's grip

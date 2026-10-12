@@ -1,0 +1,844 @@
+{
+  "assetCount": 987,
+  "groups": {
+    "new/background": 24,
+    "new/char": 43,
+    "new/gun": 67,
+    "new/head": 37,
+    "new/prop": 317,
+    "new/skydome": 11,
+    "original/background": 24,
+    "original/char": 43,
+    "original/gun": 67,
+    "original/head": 37,
+    "original/prop": 317
+  },
+  "textureHeaders": 7880,
+  "materialRecords": 25769,
+  "motionEntries": 27,
+  "meshSweep": true,
+  "failures": [],
+  "findings": {
+    "hdAssets": 499,
+    "hdTextureRecords": 3141,
+    "hdMaterialRecords": 10277,
+    "textureDecodeFailures": [],
+    "emptyMeshNativeScreenFallbacks": [
+      "new/prop/tv4screen",
+      "new/prop/tvscreen",
+      "original/prop/tv4screen",
+      "original/prop/tvscreen"
+    ],
+    "rotationAuthoredInHdAssets": [
+      "new/gun/fnp90",
+      "new/gun/m16",
+      "new/prop/bridgeconsole1a",
+      "new/prop/bridgeconsole1b",
+      "new/prop/bridgeconsole2a",
+      "new/prop/bridgeconsole3a",
+      "new/prop/bridgeconsole3b",
+      "new/prop/chrfnp90",
+      "new/prop/chrm16",
+      "new/prop/doorconsole",
+      "new/prop/helicopter"
+    ],
+    "rotationOnRegisteredHdProps": [
+      "new/prop/bridgeconsole1a",
+      "new/prop/bridgeconsole1b",
+      "new/prop/bridgeconsole2a",
+      "new/prop/bridgeconsole3a",
+      "new/prop/bridgeconsole3b",
+      "new/prop/doorconsole",
+      "new/prop/helicopter"
+    ],
+    "additionalReflectionOrScratchInputs": [
+      {
+        "source": "new/background/bunker",
+        "material": 22488
+      },
+      {
+        "source": "new/background/bunker",
+        "material": 22592
+      },
+      {
+        "source": "new/background/bunker",
+        "material": 22696
+      },
+      {
+        "source": "new/background/frigate",
+        "material": 23372
+      },
+      {
+        "source": "new/background/frigate",
+        "material": 23408
+      },
+      {
+        "source": "new/background/frigate",
+        "material": 23444
+      },
+      {
+        "source": "new/background/jungle",
+        "material": 15000
+      },
+      {
+        "source": "new/background/jungle",
+        "material": 15136
+      },
+      {
+        "source": "new/background/jungle",
+        "material": 15272
+      },
+      {
+        "source": "new/background/jungle",
+        "material": 16092
+      },
+      {
+        "source": "new/background/jungle",
+        "material": 16184
+      },
+      {
+        "source": "new/background/jungle",
+        "material": 16276
+      },
+      {
+        "source": "new/char/boris",
+        "material": 2672
+      },
+      {
+        "source": "new/char/boris",
+        "material": 2780
+      },
+      {
+        "source": "new/char/boris",
+        "material": 2888
+      },
+      {
+        "source": "new/char/boris",
+        "material": 3336
+      },
+      {
+        "source": "new/char/boris",
+        "material": 3428
+      },
+      {
+        "source": "new/char/boris",
+        "material": 3520
+      },
+      {
+        "source": "new/char/pilot",
+        "material": 2908
+      },
+      {
+        "source": "new/char/pilot",
+        "material": 3016
+      },
+      {
+        "source": "new/char/pilot",
+        "material": 3124
+      },
+      {
+        "source": "new/char/pilot",
+        "material": 3456
+      },
+      {
+        "source": "new/char/pilot",
+        "material": 3564
+      },
+      {
+        "source": "new/char/pilot",
+        "material": 3672
+      },
+      {
+        "source": "new/char/pilot",
+        "material": 4004
+      },
+      {
+        "source": "new/char/pilot",
+        "material": 4112
+      },
+      {
+        "source": "new/char/pilot",
+        "material": 4220
+      },
+      {
+        "source": "new/char/pilot",
+        "material": 4640
+      },
+      {
+        "source": "new/char/pilot",
+        "material": 4732
+      },
+      {
+        "source": "new/char/pilot",
+        "material": 4824
+      },
+      {
+        "source": "new/head/headbike",
+        "material": 416
+      },
+      {
+        "source": "new/head/headbike",
+        "material": 508
+      },
+      {
+        "source": "new/head/headbike",
+        "material": 600
+      },
+      {
+        "source": "new/head/headbike",
+        "material": 2280
+      },
+      {
+        "source": "new/head/headbike",
+        "material": 2388
+      },
+      {
+        "source": "new/head/headbike",
+        "material": 2496
+      },
+      {
+        "source": "new/head/headdave",
+        "material": 1252
+      },
+      {
+        "source": "new/head/headdave",
+        "material": 1360
+      },
+      {
+        "source": "new/head/headdave",
+        "material": 1468
+      },
+      {
+        "source": "new/head/headgraham",
+        "material": 2088
+      },
+      {
+        "source": "new/head/headgraham",
+        "material": 2180
+      },
+      {
+        "source": "new/head/headgraham",
+        "material": 2272
+      },
+      {
+        "source": "new/head/headgrant",
+        "material": 1252
+      },
+      {
+        "source": "new/head/headgrant",
+        "material": 1360
+      },
+      {
+        "source": "new/head/headgrant",
+        "material": 1468
+      },
+      {
+        "source": "new/head/headmark",
+        "material": 1272
+      },
+      {
+        "source": "new/head/headmark",
+        "material": 1364
+      },
+      {
+        "source": "new/head/headmark",
+        "material": 1456
+      },
+      {
+        "source": "new/head/headneil",
+        "material": 1252
+      },
+      {
+        "source": "new/head/headneil",
+        "material": 1344
+      },
+      {
+        "source": "new/head/headneil",
+        "material": 1436
+      },
+      {
+        "source": "new/head/headneil",
+        "material": 1860
+      },
+      {
+        "source": "new/head/headneil",
+        "material": 1960
+      },
+      {
+        "source": "new/head/headneil",
+        "material": 2060
+      },
+      {
+        "source": "new/prop/ICBM",
+        "material": 280
+      },
+      {
+        "source": "new/prop/ICBM",
+        "material": 432
+      },
+      {
+        "source": "new/prop/ICBM",
+        "material": 584
+      },
+      {
+        "source": "new/prop/ICBM",
+        "material": 1064
+      },
+      {
+        "source": "new/prop/ICBM",
+        "material": 1188
+      },
+      {
+        "source": "new/prop/ICBM",
+        "material": 1312
+      },
+      {
+        "source": "new/prop/ICBM",
+        "material": 1684
+      },
+      {
+        "source": "new/prop/ICBM",
+        "material": 1800
+      },
+      {
+        "source": "new/prop/ICBM",
+        "material": 1916
+      },
+      {
+        "source": "new/prop/ICBMnose",
+        "material": 280
+      },
+      {
+        "source": "new/prop/ICBMnose",
+        "material": 388
+      },
+      {
+        "source": "new/prop/ICBMnose",
+        "material": 496
+      },
+      {
+        "source": "new/prop/ICBMnose",
+        "material": 836
+      },
+      {
+        "source": "new/prop/ICBMnose",
+        "material": 936
+      },
+      {
+        "source": "new/prop/ICBMnose",
+        "material": 1036
+      },
+      {
+        "source": "new/prop/ICBMnose",
+        "material": 1188
+      },
+      {
+        "source": "new/prop/ICBMnose",
+        "material": 1288
+      },
+      {
+        "source": "new/prop/ICBMnose",
+        "material": 1388
+      },
+      {
+        "source": "new/prop/cctv",
+        "material": 356
+      },
+      {
+        "source": "new/prop/cctv",
+        "material": 456
+      },
+      {
+        "source": "new/prop/cctv",
+        "material": 556
+      },
+      {
+        "source": "new/prop/chrgoldeneyekey",
+        "material": 1308
+      },
+      {
+        "source": "new/prop/chrgoldeneyekey",
+        "material": 1400
+      },
+      {
+        "source": "new/prop/chrgoldeneyekey",
+        "material": 1492
+      },
+      {
+        "source": "new/prop/chrgoldeneyekey",
+        "material": 1848
+      },
+      {
+        "source": "new/prop/chrgoldeneyekey",
+        "material": 1940
+      },
+      {
+        "source": "new/prop/chrgoldeneyekey",
+        "material": 2032
+      },
+      {
+        "source": "new/prop/desklamp2",
+        "material": 280
+      },
+      {
+        "source": "new/prop/desklamp2",
+        "material": 396
+      },
+      {
+        "source": "new/prop/desklamp2",
+        "material": 512
+      },
+      {
+        "source": "new/prop/destseawolf",
+        "material": 1684
+      },
+      {
+        "source": "new/prop/destseawolf",
+        "material": 1800
+      },
+      {
+        "source": "new/prop/destseawolf",
+        "material": 1916
+      },
+      {
+        "source": "new/prop/destseawolf",
+        "material": 2264
+      },
+      {
+        "source": "new/prop/destseawolf",
+        "material": 2380
+      },
+      {
+        "source": "new/prop/destseawolf",
+        "material": 2496
+      },
+      {
+        "source": "new/prop/gasplantcleardoor",
+        "material": 732
+      },
+      {
+        "source": "new/prop/gasplantcleardoor",
+        "material": 824
+      },
+      {
+        "source": "new/prop/gasplantcleardoor",
+        "material": 916
+      },
+      {
+        "source": "new/prop/gastank",
+        "material": 280
+      },
+      {
+        "source": "new/prop/gastank",
+        "material": 380
+      },
+      {
+        "source": "new/prop/gastank",
+        "material": 480
+      },
+      {
+        "source": "new/prop/glassware1",
+        "material": 316
+      },
+      {
+        "source": "new/prop/glassware1",
+        "material": 408
+      },
+      {
+        "source": "new/prop/glassware1",
+        "material": 500
+      },
+      {
+        "source": "new/prop/glassware3",
+        "material": 316
+      },
+      {
+        "source": "new/prop/glassware3",
+        "material": 408
+      },
+      {
+        "source": "new/prop/glassware3",
+        "material": 500
+      },
+      {
+        "source": "new/prop/glassware4",
+        "material": 328
+      },
+      {
+        "source": "new/prop/glassware4",
+        "material": 420
+      },
+      {
+        "source": "new/prop/glassware4",
+        "material": 512
+      },
+      {
+        "source": "new/prop/hathelmet",
+        "material": 280
+      },
+      {
+        "source": "new/prop/hathelmet",
+        "material": 388
+      },
+      {
+        "source": "new/prop/hathelmet",
+        "material": 496
+      },
+      {
+        "source": "new/prop/jeep",
+        "material": 2292
+      },
+      {
+        "source": "new/prop/jeep",
+        "material": 2328
+      },
+      {
+        "source": "new/prop/jeep",
+        "material": 2364
+      },
+      {
+        "source": "new/prop/miltruck",
+        "material": 2588
+      },
+      {
+        "source": "new/prop/miltruck",
+        "material": 2680
+      },
+      {
+        "source": "new/prop/miltruck",
+        "material": 2772
+      },
+      {
+        "source": "new/prop/oildrum7",
+        "material": 280
+      },
+      {
+        "source": "new/prop/oildrum7",
+        "material": 396
+      },
+      {
+        "source": "new/prop/oildrum7",
+        "material": 512
+      },
+      {
+        "source": "new/prop/oildrum7",
+        "material": 844
+      },
+      {
+        "source": "new/prop/oildrum7",
+        "material": 944
+      },
+      {
+        "source": "new/prop/oildrum7",
+        "material": 1044
+      },
+      {
+        "source": "new/prop/plane",
+        "material": 356
+      },
+      {
+        "source": "new/prop/plane",
+        "material": 492
+      },
+      {
+        "source": "new/prop/plane",
+        "material": 628
+      },
+      {
+        "source": "new/prop/plane",
+        "material": 6440
+      },
+      {
+        "source": "new/prop/plane",
+        "material": 6532
+      },
+      {
+        "source": "new/prop/plane",
+        "material": 6624
+      },
+      {
+        "source": "new/prop/window",
+        "material": 316
+      },
+      {
+        "source": "new/prop/window",
+        "material": 408
+      },
+      {
+        "source": "new/prop/window",
+        "material": 500
+      }
+    ],
+    "registeredReflectionOrScratchAssets": [
+      "new/background/bunker",
+      "new/background/frigate",
+      "new/background/jungle",
+      "new/char/boris",
+      "new/char/pilot",
+      "new/head/headbike",
+      "new/head/headgraham",
+      "new/head/headgrant",
+      "new/head/headmark",
+      "new/head/headneil",
+      "new/prop/ICBM",
+      "new/prop/ICBMnose",
+      "new/prop/cctv",
+      "new/prop/chrgoldeneyekey",
+      "new/prop/desklamp2",
+      "new/prop/destseawolf",
+      "new/prop/gasplantcleardoor",
+      "new/prop/gastank",
+      "new/prop/glassware1",
+      "new/prop/glassware3",
+      "new/prop/glassware4",
+      "new/prop/hathelmet",
+      "new/prop/jeep",
+      "new/prop/miltruck",
+      "new/prop/oildrum7",
+      "new/prop/plane",
+      "new/prop/window"
+    ],
+    "genericSelectorDifferences": [
+      {
+        "source": "new/prop/cargolf",
+        "material": 1656,
+        "dab": 27,
+        "port": 3,
+        "dabIndexValid": false
+      },
+      {
+        "source": "new/prop/carweird",
+        "material": 392,
+        "dab": 27,
+        "port": 0,
+        "dabIndexValid": false
+      },
+      {
+        "source": "original/prop/cargolf",
+        "material": 1100,
+        "dab": 27,
+        "port": 2,
+        "dabIndexValid": false
+      },
+      {
+        "source": "original/prop/carweird",
+        "material": 392,
+        "dab": 27,
+        "port": 0,
+        "dabIndexValid": false
+      },
+      {
+        "source": "original/prop/glassware3",
+        "material": 360,
+        "dab": 27,
+        "port": 0,
+        "dabIndexValid": false
+      },
+      {
+        "source": "original/prop/jeep",
+        "material": 3580,
+        "dab": 27,
+        "port": 14,
+        "dabIndexValid": false
+      }
+    ],
+    "mappedLitModelColourCandidates": [
+      "new/char/armourguard",
+      "new/char/baronsamedi",
+      "new/char/bluecamguard",
+      "new/char/boilerbond",
+      "new/char/boilertrev",
+      "new/char/boris",
+      "new/char/camguard",
+      "new/char/cardiman",
+      "new/char/checkman",
+      "new/char/commguard",
+      "new/char/djbond",
+      "new/char/fattechwoman",
+      "new/char/greatguard",
+      "new/char/greatguard2",
+      "new/char/greyguard",
+      "new/char/jaws",
+      "new/char/jeanwoman",
+      "new/char/mayday",
+      "new/char/moonfemale",
+      "new/char/moonguard",
+      "new/char/natalya",
+      "new/char/navyguard",
+      "new/char/oddjob",
+      "new/char/oliveguard",
+      "new/char/orumov",
+      "new/char/pilot",
+      "new/char/redman",
+      "new/char/rusguard",
+      "new/char/snowbond",
+      "new/char/snowguard",
+      "new/char/spicebond",
+      "new/char/suitbond",
+      "new/char/suitlfhand",
+      "new/char/techman",
+      "new/char/techwoman",
+      "new/char/timberbond",
+      "new/char/trevelyan",
+      "new/char/trevguard",
+      "new/char/valentin",
+      "new/char/xenia",
+      "new/head/headalan",
+      "new/head/headb",
+      "new/head/headbalaclava",
+      "new/head/headbike",
+      "new/head/headchris",
+      "new/head/headdes",
+      "new/head/headduncan",
+      "new/head/headdwayne",
+      "new/head/headgraham",
+      "new/head/headgrant",
+      "new/head/headjim",
+      "new/head/headjoe",
+      "new/head/headjoe2",
+      "new/head/headjoel",
+      "new/head/headkarl",
+      "new/head/headken",
+      "new/head/headlee",
+      "new/head/headmark",
+      "new/head/headmartin",
+      "new/head/headmishkin",
+      "new/head/headneil",
+      "new/head/headpete",
+      "new/head/headrobin",
+      "new/head/headscott",
+      "new/head/headshaun",
+      "new/head/headstevee",
+      "new/head/headsteveh"
+    ],
+    "frameTextures": [
+      {
+        "source": "new/background/complex",
+        "texture": 20,
+        "frames": 16,
+        "emittedFaces": 0
+      },
+      {
+        "source": "new/background/complex",
+        "texture": 21,
+        "frames": 32,
+        "emittedFaces": 0
+      },
+      {
+        "source": "new/background/complex",
+        "texture": 24,
+        "frames": 2,
+        "emittedFaces": 8
+      },
+      {
+        "source": "new/prop/helicopter",
+        "texture": 0,
+        "frames": 2,
+        "emittedFaces": 36
+      }
+    ],
+    "coincidentGeometryCandidates": [
+      {
+        "source": "new/background/archives",
+        "groups": 2,
+        "faces": 4,
+        "oppositeWindingGroups": 0
+      },
+      {
+        "source": "new/background/bunker",
+        "groups": 37,
+        "faces": 74,
+        "oppositeWindingGroups": 0
+      },
+      {
+        "source": "new/background/bunker2",
+        "groups": 18,
+        "faces": 36,
+        "oppositeWindingGroups": 0
+      },
+      {
+        "source": "new/background/cavern",
+        "groups": 1,
+        "faces": 2,
+        "oppositeWindingGroups": 0
+      },
+      {
+        "source": "new/background/control",
+        "groups": 1,
+        "faces": 2,
+        "oppositeWindingGroups": 1
+      },
+      {
+        "source": "new/background/cradle",
+        "groups": 20,
+        "faces": 88,
+        "oppositeWindingGroups": 18
+      },
+      {
+        "source": "new/background/dam",
+        "groups": 26,
+        "faces": 52,
+        "oppositeWindingGroups": 24
+      },
+      {
+        "source": "new/background/depot",
+        "groups": 8,
+        "faces": 16,
+        "oppositeWindingGroups": 0
+      },
+      {
+        "source": "new/background/facility",
+        "groups": 8,
+        "faces": 16,
+        "oppositeWindingGroups": 0
+      },
+      {
+        "source": "new/background/frigate",
+        "groups": 1978,
+        "faces": 3956,
+        "oppositeWindingGroups": 0
+      },
+      {
+        "source": "new/background/jungle",
+        "groups": 25,
+        "faces": 50,
+        "oppositeWindingGroups": 1
+      },
+      {
+        "source": "new/background/statuepark",
+        "groups": 404,
+        "faces": 808,
+        "oppositeWindingGroups": 9
+      },
+      {
+        "source": "new/background/streets",
+        "groups": 12,
+        "faces": 24,
+        "oppositeWindingGroups": 12
+      },
+      {
+        "source": "new/background/temple",
+        "groups": 2,
+        "faces": 4,
+        "oppositeWindingGroups": 0
+      },
+      {
+        "source": "new/background/train",
+        "groups": 16,
+        "faces": 32,
+        "oppositeWindingGroups": 16
+      }
+    ],
+    "countCautions": [
+      "Material records include switch alternatives.",
+      "Model colour candidates may include discarded pieces; they are not confirmed visual defects per model.",
+      "Coincident faces can be intentional; inspect coverage and headset depth behavior before changing them.",
+      "Array water bumps need a reflection shader; helicopter frames do not run in the authored metadata."
+    ]
+  },
+  "baselineCommit": "2057eb20a42b62bb4735c9aabb1da6b580729af3",
+  "confirmedFaultClassesAtBaseline": 8,
+  "fixedInFollowup": 2,
+  "remainingConfirmedFaultClasses": 6,
+  "renderParityVerified": false
+}

@@ -1,4 +1,5 @@
 #include "gevr_gexweapon.h"
+#include "gevr_romlayout.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -33,6 +34,8 @@ extern "C" void inputRumbleSetStrength(int playernum, int strength);
 
 // goldeneye-vr.ini's names for VrScopeFit's guns, in its order (gevr_scope.h)
 static const char *const kScopeFitNames[GEVR_SCOPE_FITS] = { "Sniper", "Laser", "KF7", "AR33" };
+/* Gun fit's keys for each look (gevr_scope.h): GoldenEye's, GoldenEye X's, Bean's */
+static const char *const kFitLookPrefix[3] = { "", "Gex", "Bean" };
 // BodySlot<name>= lines, in gevr_bodyslot.h's order
 static const char *const kBodySlotKeys[GEVR_BODY_SLOTS] = { "HipGun", "HipOff", "BackGun", "BackOff", "Chest", "Belt" };
 
@@ -200,6 +203,9 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; virtual screen), 0 = everything on the virtual screen. Hold the right stick click\n");
     fprintf(f, "; in game to switch.\n");
     fprintf(f, "PlayMode=%d\n", VrPlayMode);
+    fprintf(f, "; 1 = Project Bean characters, guns, rooms and skies, when the files are in\n");
+    fprintf(f, "; added-content/xbla. Hold one grip and the right stick click to switch.\n");
+    fprintf(f, "XblaVisualsMode=%d\n", VrBeanModels);
     fprintf(f, "MicMuted=%d\n", VrMicMuted ? 1 : 0);
     fprintf(f, "MusicVolume=%.2f\n", VrMusicVolume);
     fprintf(f, "VoiceVolume=%.2f\n", VrVoiceVolume);
@@ -220,7 +226,11 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; 1 = guards and other players hold the detailed first-person gun models, 0 = the game's own.\n");
     fprintf(f, "DetailedGuns=%d\n", VrDetailedGuns ? 1 : 0);
     fprintf(f, "; 1 = GoldenEye X's first-person guns from data/gex.z64 (experimental, docs/gex-weapons.md).\n");
-    fprintf(f, "GexGuns=%d\n", VrGexGuns ? 1 : 0);
+    /* a hack campaign turns the models off for its run only (gevr_romload.c) */
+    fprintf(f, "GexGuns=%d\n", (VrGexGuns || gevrGexCampaignOff) ? 1 : 0);
+    fprintf(f, "; Campaign at Start: 0 GoldenEye, 1 Goldfinger 64, 2 Tomorrow Never Dies.\n");
+    fprintf(f, "; The three ROMs stay installed together (docs/rom-hacks.md).\n");
+    fprintf(f, "Campaign=%d\n", VrCampaign);
     fprintf(f, "; 1 = in the headset GoldenEye X's arms are every arm, the left wearing the watch; 0 = the watch arm.\n");
     for (int i = 0; i < 4; i++) fprintf(f, "MpCustom%d=%d\n", i + 1, VrMpCustom[i]);
     for (int i = 0; i < 4; i++) fprintf(f, "MpLoadout%d=%d\n", i + 1, VrMpLoadout[i]);
@@ -271,12 +281,38 @@ extern "C" void vrSettingsSave(void)
             VrGexGripTrim[0][2], VrGexGripTrim[0][3], VrGexGripTrim[0][4], VrGexGripTrim[0][5]);
     fprintf(f, "GexGripRifle=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrGexGripTrim[1][0], VrGexGripTrim[1][1],
             VrGexGripTrim[1][2], VrGexGripTrim[1][3], VrGexGripTrim[1][4], VrGexGripTrim[1][5]);
+    fprintf(f, "; Bean's models (MODS) keep theirs apart too: BeanGunOff, BeanGrip*, and BeanReloadGrab,\n");
+    fprintf(f, "; BeanScope* and BeanMuzzle* below.\n");
+    fprintf(f, "BeanGunOff=%.4f %.4f %.4f\n", VrBeanGunOff[0], VrBeanGunOff[1], VrBeanGunOff[2]);
+    fprintf(f, "BeanGripPistol=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrBeanGripTrim[0][0], VrBeanGripTrim[0][1],
+            VrBeanGripTrim[0][2], VrBeanGripTrim[0][3], VrBeanGripTrim[0][4], VrBeanGripTrim[0][5]);
+    fprintf(f, "BeanGripRifle=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrBeanGripTrim[1][0], VrBeanGripTrim[1][1],
+            VrBeanGripTrim[1][2], VrBeanGripTrim[1][3], VrBeanGripTrim[1][4], VrBeanGripTrim[1][5]);
+    fprintf(f, "; Each gun's own, once Gun fit has moved it (the models hold the hand their own\n");
+    fprintf(f, "; way): GunFit<gun> as GunOffX, Y and Z, GripFit<gun> as GripPistol; Bean* for\n");
+    fprintf(f, "; Bean's models. A gun without its own takes the ones above.\n");
+    for (int m = 0; m < 3; m++) {
+        const int set = gevrPerGunSet(m);
+        if (set < 0) continue;
+        for (const auto &w : kMuzzleWeapons) {
+            if (VrGunOffPerSet[set][w.item]) {
+                const float *t = VrGunOffPer[set][w.item];
+                fprintf(f, "%sGunFit%s=%.4f %.4f %.4f\n", kFitLookPrefix[m], w.name, t[0], t[1], t[2]);
+            }
+            if (VrGripTrimPerSet[set][w.item]) {
+                const float *t = VrGripTrimPer[set][w.item];
+                fprintf(f, "%sGripFit%s=%.2f %.2f %.2f %.1f %.1f %.1f\n", kFitLookPrefix[m], w.name,
+                        t[0], t[1], t[2], t[3], t[4], t[5]);
+            }
+        }
+    }
     fprintf(f, "; Hand reload, set with Gun fit's reload mode (X): where the off hand takes the\n");
     fprintf(f, "; magazine, cm right, up and back from the gun hand's grip (Gex* for GoldenEye X);\n");
     fprintf(f, "; the belt, cm below the eye, out to the side and ahead; and where a GoldenEye X\n");
     fprintf(f, "; magazine sits in the off hand, cm right, up and back from its grip.\n");
     fprintf(f, "ReloadGrab=%.2f %.2f %.2f\n", VrReloadGrab[0][0], VrReloadGrab[0][1], VrReloadGrab[0][2]);
     fprintf(f, "GexReloadGrab=%.2f %.2f %.2f\n", VrReloadGrab[1][0], VrReloadGrab[1][1], VrReloadGrab[1][2]);
+    fprintf(f, "BeanReloadGrab=%.2f %.2f %.2f\n", VrBeanReloadGrab[0], VrBeanReloadGrab[1], VrBeanReloadGrab[2]);
     fprintf(f, "ReloadBelt=%.2f %.2f %.2f\n", VrReloadBelt[0], VrReloadBelt[1], VrReloadBelt[2]);
     fprintf(f, "GexHeldMag=%.2f %.2f %.2f\n", VrGexHeldMag[0], VrGexHeldMag[1], VrGexHeldMag[2]);
     fprintf(f, "; The watch on GoldenEye X's left wrist (Gun fit's off hand mode, right grip):\n");
@@ -312,21 +348,21 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; A scope's lens, set with Gun fit holding the gun (X switches to its scope):\n");
     fprintf(f, "; cm right, up and back from the eyepiece, then cm wider. GexScope* for\n");
     fprintf(f, "; GoldenEye X's models.\n");
-    for (int m = 0; m < 2; m++) {
+    for (int m = 0; m < 3; m++) {
         for (int s = 0; s < GEVR_SCOPE_FITS; s++) {
-            const float *t = VrScopeFit[m][s];
-            fprintf(f, "%sScope%s=%.2f %.2f %.2f %.2f\n", m ? "Gex" : "", kScopeFitNames[s], t[0], t[1], t[2], t[3]);
+            const float *t = gevrScopeFitOf(m, s);
+            fprintf(f, "%sScope%s=%.2f %.2f %.2f %.2f\n", kFitLookPrefix[m], kScopeFitNames[s], t[0], t[1], t[2], t[3]);
         }
     }
     fprintf(f, "\n");
     fprintf(f, "; Barrel tip / muzzle fit, set with Gun fit holding the gun (X switches to barrel tip):\n");
     fprintf(f, "; cm right (side), up and forward from the default barrel tip. GexMuzzle* for\n");
     fprintf(f, "; GoldenEye X's models.\n");
-    for (int m = 0; m < 2; m++) {
+    for (int m = 0; m < 3; m++) {
         for (const auto &w : kMuzzleWeapons) {
-            const float *t = VrMuzzleTrim[m][w.item];
+            const float *t = gevrMuzzleTrimOf(m, w.item);
             if (t[0] != 0.0f || t[1] != 0.0f || t[2] != 0.0f) {
-                fprintf(f, "%sMuzzle%s=%.2f %.2f %.2f\n", m ? "Gex" : "", w.name, t[0], t[1], t[2]);
+                fprintf(f, "%sMuzzle%s=%.2f %.2f %.2f\n", kFitLookPrefix[m], w.name, t[0], t[1], t[2]);
             }
         }
     }
@@ -401,6 +437,8 @@ extern "C" void vrSettingsLoad(void)
     // The gun's trim (GunOffX/Y/Z): kept aside, see below.
     float gunOff[3] = { 0.0f, 0.0f, 0.0f };
     bool gunOffRead = false;
+    // Bean's own fits (Bean*): until one is saved they are the player's GoldenEye ones
+    bool beanFitsRead = false;
     while (fgets(line, sizeof(line), f)) {
         if (line[0] == '[' || line[0] == '\n' || line[0] == ';' || line[0] == '#') continue;
         if (strncmp(line, "WatchFaceStatus=", 16) == 0) {
@@ -413,22 +451,61 @@ extern "C" void vrSettingsLoad(void)
                 ? (int)choice : GEVR_WATCH_FACE_ON;
             continue;
         }
-        // Gun fit: Gex* are GoldenEye X's models' own
+        // Gun fit: Gex* are GoldenEye X's models' own, Bean* Bean's (gevr_scope.h's looks)
         const bool gexFit = strncmp(line, "Gex", 3) == 0;
-        const char *fit = gexFit ? line + 3 : line;
+        const bool beanFit = strncmp(line, "Bean", 4) == 0;
+        const int look = gexFit ? 1 : beanFit ? 2 : 0;
+        const char *fit = gexFit ? line + 3 : beanFit ? line + 4 : line;
+        if (beanFit && strncmp(fit, "GunOff=", 7) == 0) {
+            float t[3];
+            if (sscanf(fit + 7, "%f %f %f", &t[0], &t[1], &t[2]) == 3
+                && std::isfinite(t[0]) && std::isfinite(t[1]) && std::isfinite(t[2])) {
+                for (int i = 0; i < 3; i++) VrBeanGunOff[i] = t[i];
+                beanFitsRead = true;
+            }
+            continue;
+        }
+        if ((strncmp(fit, "GunFit", 6) == 0 || strncmp(fit, "GripFit", 7) == 0) && gevrPerGunSet(look) >= 0) {
+            const bool grip = fit[1] == 'r';
+            const char *name = fit + (grip ? 7 : 6);
+            bool known = false;
+            for (const auto &w : kMuzzleWeapons) {
+                const size_t nameLen = strlen(w.name);
+                if (strncmp(name, w.name, nameLen) != 0 || name[nameLen] != '=') continue;
+                known = true;
+                float t[6];
+                const int n = sscanf(name + nameLen + 1, "%f %f %f %f %f %f", &t[0], &t[1], &t[2], &t[3], &t[4], &t[5]);
+                bool finite = true;
+                for (int i = 0; i < (grip ? 6 : 3); i++) finite = finite && std::isfinite(t[i]);
+                const int set = gevrPerGunSet(look);
+                if (finite && grip && n == 6) {
+                    for (int i = 0; i < 6; i++) VrGripTrimPer[set][w.item][i] = t[i];
+                    VrGripTrimPerSet[set][w.item] = 1;
+                    beanFitsRead |= beanFit;
+                } else if (finite && !grip && n >= 3) {
+                    for (int i = 0; i < 3; i++) VrGunOffPer[set][w.item][i] = t[i];
+                    VrGunOffPerSet[set][w.item] = 1;
+                    beanFitsRead |= beanFit;
+                }
+                break;
+            }
+            if (known) continue;
+        }
         if (strncmp(fit, "GripPistol=", 11) == 0 || strncmp(fit, "GripRifle=", 10) == 0) {
             const int cls = fit[4] == 'P' ? 0 : 1;
             float t[6];
             if (sscanf(strchr(fit, '=') + 1, "%f %f %f %f %f %f", &t[0], &t[1], &t[2], &t[3], &t[4], &t[5]) == 6) {
-                for (int i = 0; i < 6; i++) (gexFit ? VrGexGripTrim : VrGripTrim)[cls][i] = t[i];
+                for (int i = 0; i < 6; i++) (look == 1 ? VrGexGripTrim : look == 2 ? VrBeanGripTrim : VrGripTrim)[cls][i] = t[i];
+                beanFitsRead |= beanFit;
             }
             continue;
         }
         if (strncmp(fit, "ReloadGrab=", 11) == 0 || strncmp(line, "ReloadBelt=", 11) == 0
             || strncmp(line, "GexHeldMag=", 11) == 0) {
             float t[3];
-            float *to = strncmp(fit, "ReloadGrab=", 11) == 0 ? VrReloadGrab[gexFit ? 1 : 0]
+            float *to = strncmp(fit, "ReloadGrab=", 11) == 0 ? (look == 2 ? VrBeanReloadGrab : VrReloadGrab[look])
                       : line[0] == 'R' ? VrReloadBelt : VrGexHeldMag;
+            beanFitsRead |= beanFit;
             if (sscanf(strchr(line, '=') + 1, "%f %f %f", &t[0], &t[1], &t[2]) == 3) {
                 for (int i = 0; i < 3; i++) to[i] = t[i];
             }
@@ -519,7 +596,8 @@ extern "C" void vrSettingsLoad(void)
             if (s < GEVR_SCOPE_FITS) {
                 float t[4];
                 if (sscanf(strchr(fit, '=') + 1, "%f %f %f %f", &t[0], &t[1], &t[2], &t[3]) == 4) {
-                    for (int i = 0; i < 4; i++) VrScopeFit[gexFit ? 1 : 0][s][i] = t[i];
+                    for (int i = 0; i < 4; i++) gevrScopeFitOf(look, s)[i] = t[i];
+                    beanFitsRead |= beanFit;
                 }
                 continue;
             }
@@ -530,7 +608,8 @@ extern "C" void vrSettingsLoad(void)
                 if (strncmp(fit + 6, w.name, nameLen) == 0 && fit[6 + nameLen] == '=') {
                     float t[3];
                     if (sscanf(fit + 6 + nameLen + 1, "%f %f %f", &t[0], &t[1], &t[2]) == 3) {
-                        for (int i = 0; i < 3; i++) VrMuzzleTrim[gexFit ? 1 : 0][w.item][i] = t[i];
+                        for (int i = 0; i < 3; i++) gevrMuzzleTrimOf(look, w.item)[i] = t[i];
+                        beanFitsRead |= beanFit;
                     }
                     break;
                 }
@@ -604,6 +683,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MatchCharacterHeight") == 0) VrMatchCharacterHeight = (ival != 0);
             else if (strcmp(key, "FistClench") == 0) VrFistClench = ival;
             else if (strcmp(key, "PlayMode") == 0) VrPlayMode = ival != 0 ? VR_PLAYMODE_STEREO : VR_PLAYMODE_SCREEN;
+            else if (strcmp(key, "XblaVisualsMode") == 0) VrBeanModels = ival != 0;
             else if (strcmp(key, "MicMuted") == 0) VrMicMuted = ival != 0;
             else if (strcmp(key, "MpStage") == 0) VrMpStage = ival;
             else if (strcmp(key, "MpWeaponSet") == 0) VrMpWeaponSet = ival;
@@ -620,6 +700,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MpBotDifficulty") == 0) VrMpBotDifficulty = ival >= 0 && ival <= 5 ? ival : 2;
             else if (strcmp(key, "DetailedGuns") == 0) VrDetailedGuns = ival != 0;
             else if (strcmp(key, "GexGuns") == 0) VrGexGuns = ival != 0;
+            else if (strcmp(key, "Campaign") == 0) VrCampaign = ival >= 0 && ival <= 2 ? ival : 0;
             /* GexArms (before one toggle): on by default, nothing without the guns; GexGuns decides */
             else if (strcmp(key, "MpVoiceMode") == 0) VrMpVoiceMode = ival == 1 ? 1 : 0;
             else if (strcmp(key, "MpScenario") == 0) VrMpScenario = ival;
@@ -754,6 +835,16 @@ extern "C" void vrSettingsLoad(void)
         VrGunOffX = gunOff[0];
         VrGunOffY = gunOff[1];
         VrGunOffZ = gunOff[2];
+    }
+    // Bean's models (MODS) stand where GoldenEye's would (gevr_bean.c), so an
+    // ini from before they had a set of their own starts their reload grab,
+    // scopes and barrel tips from the player's GoldenEye fits. Not the gun
+    // or the holds: Bean's are fitted on its own holding arm
+    // (vr_settings_defaults.c), GoldenEye's on the taser hand.
+    if (!beanFitsRead) {
+        memcpy(VrBeanReloadGrab, VrReloadGrab[0], sizeof(VrBeanReloadGrab));
+        memcpy(VrBeanScopeFit, VrScopeFit[0], sizeof(VrBeanScopeFit));
+        memcpy(VrBeanMuzzleTrim, VrMuzzleTrim[0], sizeof(VrBeanMuzzleTrim));
     }
 
     // Tell the engine to use external textures.

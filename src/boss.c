@@ -43,6 +43,9 @@
 #include "PR/R4300.h"
 #include "gevr_rom_segments.h"
 #include "gevr_sched.h"
+#ifdef GEVR
+#include "gevr_romlayout.h"
+#endif
 
 #ifdef GEVR
 #include "net_match.h"   /* NET_COOP_RESULT_* (integer-only) */
@@ -130,7 +133,8 @@ u32 g_CurentMMallocValue = 0x234800;
  * When a room's load failed it was silently not drawn and the sky showed
  * through (the Dam tunnel in stereo). GEVR PC ships GETV_VR_ROOMHEAP=4096 KB.
  */
-u32 g_CurentMaMallocValue = 4096 * 1024;
+#define GEVR_ROOM_HEAP (4096 * 1024)
+u32 g_CurentMaMallocValue = GEVR_ROOM_HEAP;
 #else
 u32 g_CurentMaMallocValue = 0x4B000;
 #endif
@@ -500,7 +504,17 @@ void bossMainloop(void)
                 }
             }
 
+#ifdef GEVR
+            {
+                /* a hack campaign's own split (gevr_romcampaign.c installMemStrings) */
+                const char *hack = gevrRomStageMemString(g_StageNum,
+                        g_StageNum != LEVELID_TITLE && get_selected_num_players() >= 2 && !gevrCoopActive());
+
+                tokenSetString(hack ? hack : memallocstringtable[stringIndex].string);
+            }
+#else
             tokenSetString(memallocstringtable[stringIndex].string);
+#endif
         }
 
         mempResetBank(MEMPOOL_STAGE);
@@ -518,6 +532,18 @@ void bossMainloop(void)
         {
             g_CurentMaMallocValue = (s32) (strtol(tokenFind(1, "-ma"), NULL, 0) * 1024);
         }
+#ifdef GEVR
+        /*
+         * Stage -ma tokens size the cartridge's room heap, even in retail
+         * GoldenEye. Converted display lists and stereo need the 4 MB floor
+         * GEVR PC ships (ROOMHEAP=4096) after these tokens are parsed. Keep
+         * larger explicit heaps for campaigns that request them.
+         */
+        if (g_CurentMaMallocValue < GEVR_ROOM_HEAP)
+        {
+            g_CurentMaMallocValue = GEVR_ROOM_HEAP;
+        }
+#endif
 
         memaReset(mempAllocBytesInBank(g_CurentMaMallocValue, MEMPOOL_STAGE), g_CurentMaMallocValue);
         reset_play_data_ptrs();

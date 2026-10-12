@@ -1,5 +1,7 @@
 #include "gevr_launcher_ui.h"
 #include "gevr_romcheck.h"
+#include "gevr_romlayout.h"
+#include "gevr_bean.h"
 /*
  * GoldenEye VR launcher, inside VR.
  *
@@ -13,7 +15,9 @@
  *  - the ROM in use (the first of gevr_romload.c's names that exists under the
  *    data directory) with its header check, and any other GoldenEye ROMs found
  *    in the data directory, /sdcard/GEVR and /sdcard/Download; picking one
- *    copies it over data/ge.z64;
+ *    copies it over data/ge.z64. Goldfinger 64 and Tomorrow Never Dies sit
+ *    beside it (data/goldfinger64.z64, data/tnd64.z64). The campaign radio
+ *    chooses which file Start loads, and the choice is saved;
  *  - Stereo VR or the flat screen (VrPlayMode), right-stick turning, smooth or
  *    snap 30/45/90 (VrUseSnapTurn), the comfort vignette (VrComfortVignette);
  *    saved to goldeneye-vr.ini with the game's own vrSettingsSave.
@@ -315,8 +319,8 @@ extern "C" void gevrRestartToLauncher(void)
     env->DeleteLocalRef(activity);
 }
 
-// MainActivity.openRomPicker / openGexPicker: the system file picker,
-// copying the pick to data/picked.z64 or data/picked-gex.z64
+// MainActivity.openRomPicker / openGexPicker / openGoldfingerPicker /
+// openTndPicker: the system file picker, copying the pick to data/picked*.z64
 static bool gevrOpenPicker(const char *method)
 {
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
@@ -343,6 +347,40 @@ static bool gevrOpenPicker(const char *method)
 bool gevrOpenRomPicker()
 {
     return gevrOpenPicker("openRomPicker");
+}
+
+static bool hackHeaderOk(const std::string &path, const char *tag)
+{
+    FILE *f = fopen(path.c_str(), "rb");
+    unsigned char hdr[0x40] = {};
+    size_t n;
+    long size;
+    const struct gevrRomLayout *layout;
+    if (!f) return false;
+    n = fread(hdr, 1, sizeof(hdr), f);
+    fseek(f, 0, SEEK_END);
+    size = ftell(f);
+    fclose(f);
+    if (n != sizeof(hdr) || size <= 0) return false;
+    if (!gevrRomNormaliseOrder(hdr, (unsigned int)sizeof(hdr))) return false;
+    layout = gevrRomLayoutMatchHeader(hdr, (uint32_t)size);
+    return layout && std::strcmp(layout->tag, tag) == 0;
+}
+
+static bool adoptHackFile(const char *pickedName, const char *finalName, const char *tag,
+                          const char *okText, const char *badText, std::string &message)
+{
+    const std::string picked = dataDir() + "/" + pickedName;
+    struct stat st;
+    if (stat(picked.c_str(), &st) != 0) return false;
+    if (hackHeaderOk(picked, tag) && rename(picked.c_str(), (dataDir() + "/" + finalName).c_str()) == 0) {
+        message = okText;
+        vr_log("launcher: %s adopted", finalName);
+        return true;
+    }
+    message = badText;
+    remove(picked.c_str());
+    return false;
 }
 
 // MainActivity.pickResult: a message about a failed or cancelled pick (a
@@ -760,17 +798,77 @@ struct ModPack {
     int mb = 0, progress = -1;
 };
 
+/*
+ * The main page's START row, with the campaign beside it rather than above:
+ * the page is laid out to its last pixel and must not scroll, so choosing
+ * Goldfinger 64 or Tomorrow Never Dies costs no height. A hack whose ROM is
+ * not installed is listed but disabled; the last two entries open the file
+ * picker for it.
+ */
+enum {
+    GEVR_START_ROW_NONE,
+    GEVR_START_ROW_START,
+    GEVR_START_ROW_CAMPAIGN,    // *campaign changed
+    GEVR_START_ROW_PICK_GF,
+    GEVR_START_ROW_PICK_TND,
+};
+
+static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool ready, bool focus)
+{
+    static const char *const names[] = { "GoldenEye", "Goldfinger 64", "Tomorrow Never Dies" };
+    const bool installed[] = { true, gfGood, tndGood };
+    const float startH = ImGui::GetFrameHeight() * 1.6f;
+    const float rowY = ImGui::GetCursorPosY();
+    int action = GEVR_START_ROW_NONE;
+    const int shown = *campaign >= 0 && *campaign < 3 ? *campaign : 0;
+
+    ImGui::SetCursorPosY(rowY + (startH - ImGui::GetFrameHeight()) * 0.5f);
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.38f);
+    if (ImGui::BeginCombo("##campaign", names[shown])) {
+        for (int c = 0; c < 3; c++) {
+            char label[64];
+
+            snprintf(label, sizeof(label), installed[c] ? "%s" : "%s (not installed)", names[c]);
+            ImGui::BeginDisabled(!installed[c]);
+            if (ImGui::Selectable(label, shown == c) && c != shown) {
+                *campaign = c;
+                action = GEVR_START_ROW_CAMPAIGN;
+            }
+            ImGui::EndDisabled();
+        }
+        ImGui::Separator();
+        if (ImGui::Selectable("Add Goldfinger 64 ROM...")) action = GEVR_START_ROW_PICK_GF;
+        if (ImGui::Selectable("Add Tomorrow Never Dies ROM...")) action = GEVR_START_ROW_PICK_TND;
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Campaign. Goldfinger 64 and Tomorrow Never Dies sit beside GoldenEye (docs/rom-hacks.md).");
+    ImGui::SameLine();
+    ImGui::SetCursorPosY(rowY);
+    ImGui::BeginDisabled(!ready);
+    if (ImGui::Button("START", ImVec2(-1, startH)))
+        action = GEVR_START_ROW_START;
+    if (focus) {
+        ImGui::SetItemDefaultFocus();
+        ImGui::SetKeyboardFocusHere(-1);
+    }
+    ImGui::EndDisabled();
+    return action;
+}
+
 static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad)
 {
     static std::vector<ModPack> packs;
     static Uint32 lastPoll = 0;
     static bool checked = false;
+    static std::string beanMessage;   // the picker would not open
     if (!checked) {
         checked = true;
         gevrJavaCommand("modsCommand", "check");   // newer pack releases on GitHub (ModManager.checkLatest)
     }
     if (now - lastPoll > 250 || lastPoll == 0) {
         lastPoll = now;
+        gevrBeanInit();   // an imported or downloaded pack becomes available without reopening the launcher
         packs.clear();
         std::string raw = gevrJavaString("modsStatus");
         if (!raw.empty()) {
@@ -794,81 +892,96 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     }
 
     ImGui::TextColored(gold, "MODS");
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    ImGui::TextWrapped("Texture packs made by fans replace the game's textures with sharper ones. They download "
-                       "when you ask; nothing is included with GoldenEye VR. A pack is used from the "
-                       "next START.");
-    ImGui::PopStyleColor();
+    ImGui::TextDisabled("Choose a look for your next game.");
     ImGui::Separator();
 
-    for (const ModPack &p : packs) {
-        ImGui::PushID(p.id.c_str());
-        ImGui::Text("%s  %s", p.title.c_str(), p.version.c_str());
-        // wrapped: the AI pack's credit ran off the page's right edge (user)
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        ImGui::TextWrapped("by %s  -  %s  -  %d MB", p.by.c_str(), p.site.c_str(), p.mb);
-        ImGui::PopStyleColor();
-        if (p.state == "downloading" || p.state == "installing") {
-            if (ImGui::SmallButton("Cancel")) gevrJavaCommand("modsCommand", "cancel");
-            ImGui::SameLine();
-            const char *what = p.state == "downloading" ? "Downloading" : "Unpacking";
-            if (p.progress >= 0) {
-                ImGui::TextColored(gold, "%s... %d%%", what, p.progress);
-            } else {
-                ImGui::TextColored(gold, "%s...", what);
-            }
-        } else if (p.state == "installed") {
-            bool inuse = p.id == g_ActiveExtTexPack;
-            ImGui::TextColored(good, inuse ? "Installed, in use." : "Installed.");
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Remove")) {
-                if (inuse) g_ActiveExtTexPack[0] = '\0';
-                gevrJavaCommand("modsCommand", ("remove:" + p.id).c_str());
-            }
-            if (!p.update.empty()) {
-                // a newer release of the pack (ModManager.checkLatest): it replaces this one
-                char label[64];
-                snprintf(label, sizeof(label), "Update to %s (%d MB)", p.update.c_str(), p.mb);
-                const float w = ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2;
-                ImGui::SameLine();
-                if (ImGui::GetContentRegionAvail().x < w) ImGui::NewLine();
-                if (ImGui::SmallButton(label)) gevrJavaCommand("modsCommand", ("install:" + p.id).c_str());
-            }
-            if (!p.message.empty()) {   // an update that failed; the installed pack stays
-                ImGui::PushStyleColor(ImGuiCol_Text, bad);
-                ImGui::TextWrapped("%s", p.message.c_str());
-                ImGui::PopStyleColor();
-            }
-        } else {
-            if (p.state == "error") {
-                ImGui::PushStyleColor(ImGuiCol_Text, bad);
-                ImGui::TextWrapped("%s", p.message.c_str());
-                ImGui::PopStyleColor();
-            }
-            char label[64];
-            snprintf(label, sizeof(label), p.state == "error" ? "Try again (%d MB)" : "Download and install (%d MB)", p.mb);
-            if (ImGui::Button(label)) gevrJavaCommand("modsCommand", ("install:" + p.id).c_str());
-        }
-        ImGui::PopID();
-        ImGui::Spacing();
-    }
-    ImGui::Separator();
-
-    // which textures the game uses
-    ImGui::TextColored(gold, "TEXTURES");
-    if (ImGui::RadioButton("Original", g_ActiveExtTexPack[0] == '\0')) {
+    if (ImGui::RadioButton("Original", !gevrBeanIsEnabled() && !g_ActiveExtTexPack[0])) {
         g_ActiveExtTexPack[0] = '\0';
+        gevrBeanSetEnabled(0);
     }
-    for (const ModPack &p : packs) {
-        if (p.state != "installed") continue;
-        // beside the last choice while it fits, else on the next line
-        const float w = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x + ImGui::CalcTextSize(p.title.c_str()).x;
-        ImGui::SameLine();
-        if (ImGui::GetContentRegionAvail().x < w) ImGui::NewLine();
-        if (ImGui::RadioButton(p.title.c_str(), p.id == g_ActiveExtTexPack)) {
-            snprintf(g_ActiveExtTexPack, 256, "%s", p.id.c_str());
+    bool beanListed = false;
+    if (ImGui::BeginTable("##visual-packs", 3, ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Look", ImGuiTableColumnFlags_WidthStretch, 1.4f);
+        ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthStretch, 1.2f);
+        for (const ModPack &p : packs) {
+            ImGui::PushID(p.id.c_str());
+            const bool bean = p.id == "ge007-bean";
+            const bool installed = p.state == "installed";
+            const bool busy = p.state == "downloading" || p.state == "installing" || p.state == "importing";
+            const bool localBean = bean && gevrBeanIsAvailable();
+            const bool usable = installed || localBean;
+            const bool active = bean ? gevrBeanIsEnabled() : !gevrBeanIsEnabled() && p.id == g_ActiveExtTexPack;
+            const char *title = bean ? "XBLA / Bean" : p.id == "ge007-hd-ai" ? "HD + AI" : "HD";
+            beanListed |= bean && usable;
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            // Bean's meshes are GoldenEye's models remade: off in a hack campaign
+            ImGui::BeginDisabled(!usable || (bean && VrCampaign != GEVR_CAMPAIGN_GE));
+            if (ImGui::RadioButton(title, active)) {
+                snprintf(g_ActiveExtTexPack, 256, "%s", p.id.c_str());
+                gevrBeanSetEnabled(bean);
+            }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                if (bean) ImGui::SetTooltip("%s\nby %s\nFrom your own copy of the game", p.title.c_str(), p.by.c_str());
+                else ImGui::SetTooltip("%s\nby %s\n%s\nVersion %s", p.title.c_str(), p.by.c_str(), p.site.c_str(), p.version.c_str());
+            }
+            ImGui::TextDisabled("%s", bean ? "Meshes + textures" : "Textures");
+            ImGui::TableNextColumn();
+            if (busy) {
+                const char *verb = p.state == "downloading" ? "Downloading" : p.state == "importing" ? "Importing" : "Unpacking";
+                if (p.progress >= 0) ImGui::TextColored(gold, "%s %d%%", verb, p.progress);
+                else ImGui::TextColored(gold, "%s...", verb);
+            } else {
+                ImGui::TextColored(p.state == "error" ? bad : usable ? good : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled),
+                                   "%s", active ? "Selected" : installed ? "Installed" : localBean ? "Local files"
+                                   : p.state == "error" ? (bean ? "Import failed" : "Download failed") : "Not installed");
+                if (!p.update.empty()) ImGui::TextDisabled("Update available");
+            }
+            const std::string &message = bean && p.message.empty() ? beanMessage : p.message;
+            if (!message.empty()) {
+                ImGui::PushStyleColor(ImGuiCol_Text, bad);
+                gevrLauncherStatus(message.c_str());
+                ImGui::PopStyleColor();
+            }
+            ImGui::TableNextColumn();
+            if (busy) {
+                if (ImGui::Button("Cancel")) gevrJavaCommand("modsCommand", "cancel");
+            } else if (bean && !installed) {
+                // Never downloaded: the player picks their own copy of the
+                // release and ModManager imports Bean's files from it
+                // (port/src/gevr_bean_import.c)
+                const char *label = "Choose copy...";
+                if (ImGui::Button(label))
+                    beanMessage = gevrOpenPicker("openXblaPicker") ? "" : "Could not open the file picker.";
+            } else if (!installed || !p.update.empty()) {
+                char label[64];
+                snprintf(label, sizeof(label), "%s (%d MB)", installed ? "Update" : p.state == "error" ? "Retry" : "Download", p.mb);
+                if (ImGui::Button(label)) gevrJavaCommand("modsCommand", ("install:" + p.id).c_str());
+            }
+            if (installed) {
+                if (!p.update.empty()) ImGui::SameLine();
+                if (ImGui::SmallButton("Remove")) {
+                    if (bean) gevrBeanSetEnabled(0);
+                    if (p.id == g_ActiveExtTexPack) g_ActiveExtTexPack[0] = '\0';
+                    vrSettingsSave();
+                    gevrJavaCommand("modsCommand", ("remove:" + p.id).c_str());
+                }
+            }
+            ImGui::PopID();
         }
+        ImGui::EndTable();
     }
+    if (!beanListed && gevrBeanIsAvailable() && ImGui::RadioButton("XBLA / Bean (local files)", gevrBeanIsEnabled())) {
+        gevrBeanSetEnabled(1);
+    }
+    if (VrCampaign != GEVR_CAMPAIGN_GE && gevrBeanIsAvailable())
+        ImGui::TextWrapped("XBLA / Bean is off while the Goldfinger 64 or Tomorrow Never Dies campaign is chosen.");
+    else if (gevrBeanIsEnabled())
+        ImGui::TextWrapped("Bean uses its own textures. Toggle in VR options or hold one grip + right-stick click for 1 second.");
+    else if (!gevrBeanIsAvailable())
+        ImGui::TextWrapped("XBLA / Bean reads your own GoldenEye XBLA: its .7z, .zip or Xbox 360 package. Nothing is downloaded.");
     ImGui::Separator();
 
     // GoldenEye X's first-person guns, read from the player's own patched ROM
@@ -909,7 +1022,11 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     }
     ImGui::TextColored(gold, "GOLDENEYE X");
     bool gex = VrGexGuns != 0;
-    if (ImGui::Checkbox("Its guns, items, hands and watch arm", &gex)) VrGexGuns = gex ? 1 : 0;
+    // Off for a Goldfinger 64 or Tomorrow Never Dies run (gevr_romload.c): its
+    // models would replace the hack's guns and its textures share Goldfinger's ids.
+    ImGui::BeginDisabled(VrCampaign != GEVR_CAMPAIGN_GE);
+    if (ImGui::Checkbox("GE-X guns, hands and watch", &gex)) VrGexGuns = gex ? 1 : 0;
+    ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::SmallButton(s_gexRom ? "Change ROM..." : "Choose ROM...")) {
         s_gexPicking = gevrOpenPicker("openGexPicker");
@@ -918,11 +1035,18 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     }
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
     ImGui::TextWrapped("%s", !s_gexMessage.empty() ? s_gexMessage.c_str()
+                       : VrCampaign != GEVR_CAMPAIGN_GE ? "Off while the Goldfinger 64 or Tomorrow Never Dies campaign is chosen."
                        : s_gexRom ? "Uses your GoldenEye X ROM (data/gex.z64)."
                                   : "Needs your own GoldenEye X ROM: Perfect Dark 1.1 with the GE-X 6a patch.");
     ImGui::PopStyleColor();
-    ImGui::Spacing();
+    if (gex && gevrBeanIsEnabled()) ImGui::TextDisabled("GE-X supplies first-person gear; Bean supplies the world.");
+    // Keep the exit in the same place in every download state, above the
+    // launcher's one-line hint, drawn under every page: placed at the very
+    // bottom, Done pushed the hint off the panel's edge.
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + std::fmax(0.0f, ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeight() -
+                                                                ImGui::GetTextLineHeightWithSpacing()));
     if (ImGui::Button("Done", ImVec2(-1, 0))) {
+        vrSettingsSave();
         open = false;
     }
 }
@@ -970,10 +1094,11 @@ static bool namedCombo(const char *id, int count, const char *(*name)(int), int 
     return gevrNamedCombo(id, count, name, sel, longList, [](int) { return false; });
 }
 
-// The host's player count, 2..8 on any stage (VrMpMaxPlayers).
+// The host's player count, 2..8 on any stage (VrMpMaxPlayers), after its
+// "Players:" label: the number alone, so the stage chooser beside it keeps
+// room for every stage's name (user: "Caverns" was cut off).
 static const char *playerCountName(int idx) {
-    static const char *const names[] = { "2 players", "3 players", "4 players", "5 players",
-                                         "6 players", "7 players", "8 players" };
+    static const char *const names[] = { "2", "3", "4", "5", "6", "7", "8" };
     static_assert(sizeof(names) / sizeof(names[0]) == GEVR_MAX_PLAYERS - 1, "a name for every count");
     return idx >= 0 && idx < GEVR_MAX_PLAYERS - 1 ? names[idx] : names[2];
 }
@@ -1463,7 +1588,7 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
             int stage=netStageIndexOf((uint8_t)VrMpStage);if (stage<0)stage=9;
             ImGui::TextUnformatted("Stage:");ImGui::SameLine();
             const bool teams=netScenarioHasTeams(VrMpScenario);
-            const float playersWidth=ImGui::CalcTextSize("8 players").x + ImGui::GetFrameHeight()
+            const float playersWidth=ImGui::CalcTextSize("8").x + ImGui::GetFrameHeight()
                 + ImGui::GetStyle().FramePadding.x*2.0f;
             const float reserve=teams ? ImGui::CalcTextSize("Players: 8").x
                 : ImGui::CalcTextSize("Players:").x+playersWidth+ImGui::GetStyle().ItemSpacing.x;
@@ -1540,6 +1665,11 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
     static uint32_t lastListMs = 0;
     static uint32_t lastHeartbeatMs = 0;
 
+    if (VrCampaign != GEVR_CAMPAIGN_GE && !netIsActive()) {
+        // the main page's button is off in a hack campaign; this covers a page left open
+        open = false;
+        return;
+    }
     vrEnsurePlayerName(); // here, not at launcher start: the settings load on the first frame
     for (int i = 0; i < 32; ++i) {
         const std::string raw = gevrJavaString("lobbyEvent");
@@ -2447,7 +2577,23 @@ extern "C" void gevrLauncherRun(void)
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    std::string active, message;
+    std::string active, message, gfNote, tndNote, campaignFail;
+    std::string footerNote;    // the line under START (gevrLauncherStartRow), this frame
+    bool footerBad = false;
+    bool gfGood = false, tndGood = false;   // the hack ROMs' header checks, refreshed about once a second
+    Uint32 hackCheckMs = 0;
+    {
+        // gevr_romload.c leaves this when a chosen campaign did not load
+        const std::string failed = dataDir() + "/" + GEVR_CAMPAIGN_FAILED_FILE;
+        FILE *f = fopen(failed.c_str(), "rb");
+        if (f) {
+            char text[160] = {};
+            fread(text, 1, sizeof(text) - 1, f);
+            fclose(f);
+            remove(failed.c_str());
+            campaignFail = text;
+        }
+    }
     RomInfo activeInfo;
     std::vector<RomInfo> others;
     bool pickerPending = false;
@@ -3006,7 +3152,10 @@ extern "C" void gevrLauncherRun(void)
             };
             ImGui::TextColored(gold, "CHEATS");
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-            ImGui::TextWrapped("On from the next mission. * stops missions saving, as in the original game.");
+            // a hack campaign skips this list (front.c gevrApplyLauncherCheats)
+            const bool hackCampaign = VrCampaign != GEVR_CAMPAIGN_GE;
+            ImGui::TextWrapped(hackCampaign ? "Off with Goldfinger 64 or TND chosen: use the game's own Cheat Options."
+                                            : "On from the next mission. * stops missions saving, as in the original game.");
             ImGui::PopStyleColor();
             if (ImGui::BeginTable("cheats", 3, ImGuiTableFlags_SizingStretchSame)) {
                 ImGui::TableNextColumn();
@@ -3019,6 +3168,7 @@ extern "C" void gevrLauncherRun(void)
                     vrSettingsSave();
                 }
                 // three even columns: the launcher page does not scroll
+                ImGui::BeginDisabled(hackCampaign);
                 ImGui::TextColored(gold, "FUN");
                 for (int i = 0; i < 7; i++) row(fun[i]);
                 ImGui::TableNextColumn();
@@ -3029,6 +3179,7 @@ extern "C" void gevrLauncherRun(void)
                 for (int i = 0; i < 2; i++) row(arms[i]);
                 ImGui::TableNextColumn();
                 for (int i = 2; i < (int)(sizeof(arms) / sizeof(arms[0])); i++) row(arms[i]);
+                ImGui::EndDisabled();
                 ImGui::EndTable();
             }
             if (ImGui::Button("All off")) {
@@ -3071,13 +3222,18 @@ extern "C" void gevrLauncherRun(void)
                 vrSettingsSave();
             }
             ImGui::Spacing();
+            // Online play, co-op and bots: GoldenEye only. A hack's levels and
+            // characters sit under GoldenEye's numbers and peers do not compare
+            // campaigns, so the two sides would load different games.
+            ImGui::BeginDisabled(VrCampaign != GEVR_CAMPAIGN_GE);
             if (ImGui::Button("Multiplayer...")) mpPage = true;
+            ImGui::EndDisabled();
             ImGui::Spacing();
             ImGui::TextColored(gold, "MODS & CHEATS");
-            if (ImGui::Button(g_ActiveExtTexPack[0] ? "Mods... (HD textures on)" : "Mods..."))
+            if (ImGui::Button(gevrBeanIsEnabled() ? "Mods... (Bean on)" : g_ActiveExtTexPack[0] && strcmp(g_ActiveExtTexPack, "ge007-bean") != 0 ? "Mods... (HD textures on)" : "Mods..."))
                 modsPage = true;
             int n = (VrGunSizeCheat ? 1 : 0) + (VrUnlockAll ? 1 : 0);
-            for (int b = 0; b < 64; b++) n += (int)((VrCheatMask >> b) & 1ULL);
+            for (int b = 0; b < 64 && VrCampaign == GEVR_CAMPAIGN_GE; b++) n += (int)((VrCheatMask >> b) & 1ULL);
             char label[48];
             snprintf(label, sizeof(label), n ? "Cheats... (%d on)" : "Cheats...", n);
             if (ImGui::Button(label)) cheatPage = true;
@@ -3276,6 +3432,26 @@ extern "C" void gevrLauncherRun(void)
             }
             ImGui::Spacing();
             ImGui::TextColored(gold, "DISPLAY RATE");
+            // XBLA / Bean's frames take longer than 120 Hz's 8.3 ms when turning
+            // in open levels (Dam on Quest 3: 197 missed frames in three
+            // minutes of turning at 120 Hz, 17 at 90). A warning on the
+            // heading's line, as long as it fits: the page must not grow or scroll.
+            if (gevrBeanIsEnabled() && VrRefreshRate > 90) {
+                const char *why = "XBLA / Bean's models and textures can take longer than a 120 Hz frame "
+                                  "while turning in open levels, which stutters. 90 Hz holds nearly every frame.";
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s", why);
+                const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+                const float from = ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x;
+                const char *warn = from + ImGui::CalcTextSize("90 Hz advised for Bean").x <= right
+                    ? "90 Hz advised for Bean" : "Bean: 90 Hz";
+                if (from + ImGui::CalcTextSize(warn).x <= right) {
+                    ImGui::SameLine();
+                    ImGui::TextColored(bad, "%s", warn);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%s", why);
+                }
+            }
             std::vector<int> rates(vr_get_supported_refresh_rates(nullptr, 0));
             const int count = vr_get_supported_refresh_rates(rates.data(), (int)rates.size());
             const int prevRate = VrRefreshRate;
@@ -3332,20 +3508,88 @@ extern "C" void gevrLauncherRun(void)
         }
         ImGui::EndChild();
         ImGui::Separator();
-        ImGui::BeginDisabled(active.empty() || !activeInfo.good);
-        if (ImGui::Button("START", ImVec2(-1, ImGui::GetFrameHeight() * 1.6f))
-            || (s_injectStart && !active.empty() && activeInfo.good)) {
+        {
+            // About once a second, not every frame: each check opens a 16-24 MB
+            // file on the headset's shared storage. A pick lands as
+            // data/picked-*.z64 and is adopted here.
+            const Uint32 nowMs = SDL_GetTicks();
+            if (hackCheckMs == 0 || nowMs - hackCheckMs > 1000) {
+                hackCheckMs = nowMs ? nowMs : 1;
+                if (adoptHackFile("picked-goldfinger.z64", GEVR_ROM_GF_FILE, "gf64",
+                                  "Goldfinger 64 ROM chosen.",
+                                  "That is not Goldfinger 64 1.0 (24 MB, title GOLDFINGER).",
+                                  gfNote)) {
+                    VrCampaign = GEVR_CAMPAIGN_GF64;
+                    gevrRomCampaignSet(VrCampaign);
+                    vrSettingsSave();
+                }
+                if (adoptHackFile("picked-tnd.z64", GEVR_ROM_TND_FILE, "tnd64",
+                                  "Tomorrow Never Dies ROM chosen.",
+                                  "That is not Tomorrow Never Dies 64 Expanded 06-22.",
+                                  tndNote)) {
+                    VrCampaign = GEVR_CAMPAIGN_TND64;
+                    gevrRomCampaignSet(VrCampaign);
+                    vrSettingsSave();
+                }
+                gfGood = hackHeaderOk(dataDir() + "/" + GEVR_ROM_GF_FILE, "gf64");
+                tndGood = hackHeaderOk(dataDir() + "/" + GEVR_ROM_TND_FILE, "tnd64");
+                if (VrCampaign == GEVR_CAMPAIGN_GF64 && !gfGood) {
+                    VrCampaign = GEVR_CAMPAIGN_GE;
+                    gevrRomCampaignSet(VrCampaign);
+                    vrSettingsSave();
+                    if (gfNote.empty()) gfNote = "Goldfinger 64 is not installed. This start uses GoldenEye.";
+                } else if (VrCampaign == GEVR_CAMPAIGN_TND64 && !tndGood) {
+                    VrCampaign = GEVR_CAMPAIGN_GE;
+                    gevrRomCampaignSet(VrCampaign);
+                    vrSettingsSave();
+                    if (tndNote.empty()) tndNote = "Tomorrow Never Dies is not installed. This start uses GoldenEye.";
+                }
+            }
+        }
+        const bool campaignReady = VrCampaign == GEVR_CAMPAIGN_GE
+            || (VrCampaign == GEVR_CAMPAIGN_GF64 && gfGood)
+            || (VrCampaign == GEVR_CAMPAIGN_TND64 && tndGood);
+        switch (gevrLauncherStartRow(&VrCampaign, gfGood, tndGood,
+                                     !active.empty() && activeInfo.good && campaignReady, focusStart)) {
+        case GEVR_START_ROW_START:
+            start = true;
+            break;
+        case GEVR_START_ROW_CAMPAIGN:
+            gevrRomCampaignSet(VrCampaign);
+            vrSettingsSave();
+            gfNote.clear();
+            tndNote.clear();
+            campaignFail.clear();
+            break;
+        case GEVR_START_ROW_PICK_GF:
+            gfNote = gevrOpenPicker("openGoldfingerPicker") ? "Pick the Goldfinger 64 ROM in the window that opened."
+                                                            : "Could not open the file picker.";
+            break;
+        case GEVR_START_ROW_PICK_TND:
+            tndNote = gevrOpenPicker("openTndPicker") ? "Pick the Tomorrow Never Dies ROM in the window that opened."
+                                                      : "Could not open the file picker.";
+            break;
+        }
+        if (s_injectStart && !active.empty() && activeInfo.good && campaignReady) {
             start = true;
         }
         s_injectStart = false;
-        if (focusStart) {
-            ImGui::SetItemDefaultFocus();
-            ImGui::SetKeyboardFocusHere(-1);
-            focusStart = false;
-        }
-        ImGui::EndDisabled();
+        focusStart = false;
+        // the line under START: a campaign's news if there is any, its terms if
+        // a hack is chosen, the hint otherwise (one line, so the page keeps its height)
+        footerNote = !campaignFail.empty() ? campaignFail : !gfNote.empty() ? gfNote : !tndNote.empty() ? tndNote
+                   : VrCampaign == GEVR_CAMPAIGN_GE ? std::string()
+                   : "Solo, with its own save. Online play, GoldenEye X, Bean and HD packs are off.";
+        footerBad = !campaignFail.empty();
         }   // cheatPage
-        ImGui::TextDisabled("Point and pull the trigger, or use the stick and A.");
+        if (footerNote.empty()) {
+            ImGui::TextDisabled("Point and pull the trigger, or use the stick and A.");
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Text, footerBad ? bad : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            gevrLauncherStatus(footerNote.c_str());
+            ImGui::PopStyleColor();
+            footerNote.clear();
+        }
         ImGui::End();
         ImGui::Render();
         showKeyboard(io);

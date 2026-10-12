@@ -23,7 +23,7 @@ import time
 FILES = '/sdcard/Android/data/com.gevr.port/files'
 PACKAGE = 'com.gevr.port'
 LAUNCH_CHECK = 'LaunchCheckControllerRequiredDialogActivity'
-MARKERS = ['gevr_input.txt', 'gevr_level.txt', 'gevr_warp.txt', 'gevr_cheat.txt',
+MARKERS = ['gevr_fakegrip.txt','gevr_scopedump','gevr_scope.pam', 'gevr_body_batch.txt','gevr_rigid_min.txt','gevr_room_draws.txt', 'gevr_input.txt', 'gevr_level.txt', 'gevr_warp.txt', 'gevr_cheat.txt',
            'gevr_profile.txt', 'gevr_profile.txt.status']
 PROTECTED = ['data/goldeneye-vr.ini', 'eeprom.bin', *MARKERS]
 WARMUP, MEASURE = 15, 60
@@ -46,6 +46,13 @@ class Unavailable(RuntimeError):
 def adb(*args, check=True, timeout=120):
     return subprocess.run(['adb', *args], check=check, capture_output=True, timeout=timeout,
                           encoding='utf-8', errors='replace').stdout.strip()
+
+
+def push_back(local, remote, check=True):
+    # adb pushes as shell, mode 644: the game could then read its settings and
+    # save but not write them (Gun fit, progress). Give them back writable.
+    adb('push', str(local), remote, check=check)
+    adb('shell', 'chmod', '666', remote, check=check)
 
 
 def put(name, value):
@@ -94,7 +101,7 @@ def restore(out):
     adb('shell', 'am', 'force-stop', PACKAGE)
     for name, existed in manifest.items():
         if existed:
-            adb('push', str(folder / name), f'{FILES}/{name}')
+            push_back(folder / name, f'{FILES}/{name}')
         else:
             adb('shell', 'rm', '-f', f'{FILES}/{name}')
     adb('shell', 'am', 'broadcast', '-a', 'com.oculus.vrpowermanager.automation_disable', check=False)
@@ -194,8 +201,11 @@ def validate(path, hz, status):
     if not status.endswith(' 0'):
         raise Unavailable(f'Trace overflow reported: {status}')
     valid = [r for r in rows if int(r['kind']) and int(r['camera_valid'])]
-    if len(valid) < hz * 50:
-        raise Unavailable(f'Insufficient active XR gameplay: {len(valid)} rows; {metadata.strip()}')
+    # Count active time, not an assumed successful frame rate: a slow renderer
+    # must remain measurable at a requested 120 Hz. The game ticks at 60 Hz.
+    active_seconds = (int(valid[-1]['start_time_ns']) - int(valid[0]['start_time_ns'])) / 1e9 if valid else 0
+    if len(valid) < 60 * 30 or active_seconds < 50:
+        raise Unavailable(f'Insufficient active XR gameplay: {len(valid)} rows over {active_seconds:.1f} s; {metadata.strip()}')
     if any(int(r['errors']) for r in valid):
         raise Unavailable('Nested timing attribution errors; trace cannot support optimization')
     periods = [int(r['period_ns']) for r in valid]
@@ -213,6 +223,9 @@ def run(args, out):
     folder = out / args.label
     folder.mkdir(parents=True, exist_ok=False)
     check_backup(out)
+    manifest=json.loads((out/'backup/manifest.json').read_text())
+    if any(marker not in manifest for marker in MARKERS):
+        raise Unavailable('Backup is missing new diagnostic markers; preserve them before running')
     # Every process starts from the user's own save and quality settings; only the
     # refresh rate, smooth turning and the stats readout (a once-a-second log
     # burst that would distort the tail) are set for the benchmark.
@@ -238,20 +251,40 @@ def run(args, out):
     if "name='oculus.software.handtracking'" not in badging:
         print('warning: APK is not the benchmark variant; Quest may block the launch', flush=True)
     adb('install', '-r', str(args.apk), timeout=300)
-    adb('push', str(local), f'{FILES}/data/goldeneye-vr.ini')
-    adb('push', str(out / 'backup/eeprom.bin'), f'{FILES}/eeprom.bin')
+    push_back(local, f'{FILES}/data/goldeneye-vr.ini')
+    push_back(out / 'backup/eeprom.bin', f'{FILES}/eeprom.bin')
     info = {'apk': str(args.apk.resolve()), 'sha256': hashlib.sha256(args.apk.read_bytes()).hexdigest(),
             'hz': args.hz, 'detail': args.detail, 'showstats': args.showstats, 'runs': args.runs,
-            'pad': args.pad, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
+            'pad': args.pad, 'scope_probe': args.scope_probe, 'body_batch': args.body_batch, 'rigid_min': args.rigid_min, 'room_draws': args.room_draws, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
     log = (folder / 'device.log').open('wb')
     logger = subprocess.Popen(['adb', 'logcat', '-T', '1', '-v', 'threadtime'], stdout=log, stderr=log)
     try:
         wake()
+        put('gevr_body_batch.txt',str(args.body_batch))
+        put('gevr_rigid_min.txt',str(args.rigid_min))
+        put('gevr_room_draws.txt',str(args.room_draws))
         launch()
+        applied=recent()
+        expected=f'gevr bean controls: rigid_min={args.rigid_min} body_batch={args.body_batch}'
+        if expected not in applied or f'gevr bean room-draws: {args.room_draws}' not in applied:
+            raise Unavailable('Renderer did not acknowledge requested diagnostic controls')
+        if args.body_batch and 'gevr bean body-batch:' not in applied:
+            raise Unavailable('Whole-character batching was requested but never applied')
+        if args.scope_probe:
+            put('gevr_fakegrip.txt','1 0 -0.10 -0.30 0.70710678 0 0 0.70710678')
+            put('gevr_cheat.txt','hold17 invincible maxammo')
+            time.sleep(3)
+            scope_log=recent()
+            if 'stereo: scope on (hand 0 item 17)' not in scope_log:
+                raise Unavailable('Synthetic scope probe did not activate the real scope renderer')
         for repeat in range(args.runs):
             label = f'{args.label}-{repeat + 1}'
             put('gevr_warp.txt', str(args.pad))
             time.sleep(2)
+            # Capture the actual location and geometry before recording/warm-up.
+            # A pad number alone does not establish which reported scene is tested.
+            screenshot=subprocess.check_output(['adb','exec-out','screencap','-p'],timeout=30)
+            (folder / f'{label}.view.png').write_bytes(screenshot)
             put('gevr_profile.txt', f'record {label} {WARMUP} {MEASURE} {args.detail}')
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
@@ -319,8 +352,8 @@ def run(args, out):
         for marker in MARKERS:
             adb('shell', 'rm', '-f', f'{FILES}/{marker}', check=False)
         # Success or failure, the headset gets the user's own settings and save back.
-        adb('push', str(out / 'backup/data/goldeneye-vr.ini'), f'{FILES}/data/goldeneye-vr.ini', check=False)
-        adb('push', str(out / 'backup/eeprom.bin'), f'{FILES}/eeprom.bin', check=False)
+        push_back(out / 'backup/data/goldeneye-vr.ini', f'{FILES}/data/goldeneye-vr.ini', check=False)
+        push_back(out / 'backup/eeprom.bin', f'{FILES}/eeprom.bin', check=False)
         (folder / 'build.json').write_text(json.dumps(info, indent=2))
 
 
@@ -332,10 +365,15 @@ if __name__ == '__main__':
     parser.add_argument('--label', default='baseline120')
     parser.add_argument('--hz', type=int, choices=[90, 120], default=120)
     parser.add_argument('--pad', type=int, default=0)
+    parser.add_argument('--room-draws',type=int,choices=[0,1],default=0,help='1 enables experimental opaque world batching')
+    parser.add_argument('--body-batch',type=int,choices=[0,1],default=0,help='1 tests whole-character material batching')
+    parser.add_argument('--rigid-min',type=int,default=256,help='minimum triangles for a retained prop; 0 retains all')
     parser.add_argument('--runs', type=int, default=3)
     parser.add_argument('--detail', type=int, choices=[0, 1], default=0)
     parser.add_argument('--showstats', type=int, choices=[0, 1], default=0)
     parser.add_argument('--texture-pack', help="'none' or a pack folder; default keeps the user's setting")
+    parser.add_argument('--scope-probe',action='store_true',
+                        help='equip sniper and use an explicit synthetic grip for unattended real scope rendering')
     parser.add_argument('--simpleperf', action='store_true',
                         help='sample the measured minute with simpleperf (attribution only; needs the benchmark build)')
     args = parser.parse_args()

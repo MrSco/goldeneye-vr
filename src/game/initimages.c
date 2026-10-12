@@ -11,6 +11,8 @@ void image_entries_load(void)
     s32 temp_t3;
     struct image_entry *entryp;
 
+    /* Count while the 0xFFFF terminator is still a size, then turn sizes into offsets. */
+    (void)gevrTextureCount();
     entryp = g_Textures;
     offset = 0;
     next_offset = entryp->dataoffset;

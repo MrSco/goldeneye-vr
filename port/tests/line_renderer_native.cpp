@@ -6,6 +6,7 @@ using GLint=int;using GLsizei=int;using GLuint=unsigned;using GLfloat=float;usin
 constexpr int GL_ELEMENT_ARRAY_BUFFER_BINDING=1,GL_POLYGON_OFFSET_FILL=2,GL_POLYGON_OFFSET_FACTOR=3,GL_POLYGON_OFFSET_UNITS=4,GL_TRIANGLES=5,GL_ELEMENT_ARRAY_BUFFER=6,GL_STREAM_DRAW=7,GL_LINES=8,GL_UNSIGNED_INT=9;
 constexpr GLboolean GL_FALSE=0,GL_TRUE=1;
 static bool current_depth_mask,s_opaqueDepthWrite;
+static bool s_drawElements;   /* gfx_opengl.cpp gevr_draw_range: off, the vertex ring */
 struct ShaderProgram { int opaque_depth_pass_location; } program={7};
 static ShaderProgram *s_curPrg=&program;
 static GLint elementBinding;
