@@ -53,12 +53,14 @@ def main():
             raw.write_bytes(decompress_1172(rom[offset:offset + size]))
             switches, matrices, textures = header_counts(name)
             run = subprocess.run([str(exe), str(raw), name, str(switches), str(textures),
-                                  str(matrices), str(file), kind], capture_output=True, text=True)
+                                  str(matrices), str(file), kind], cwd=directory, capture_output=True, text=True)
             if run.returncode:
                 failures.append(name)
                 print(name, run.stderr[-1200:], flush=True)
             else:
                 result = run.stdout.strip()
+                if name == 'CcamguardZ':
+                    assert 'COMBINED ' in result, 'guard whole-body proof was not exercised'
                 results.append(result)
                 print(result, flush=True)
         room_exe = directory / "rooms.exe"
