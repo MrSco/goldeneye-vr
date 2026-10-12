@@ -19,6 +19,7 @@ extern "C" {
 
 void gevrBeanInit(void);
 void gevrBeanBeginFrame(void);
+void gevrBeanWorldBeginView(void);
 int gevrBeanIsAvailable(void);
 int gevrBeanIsEnabled(void);
 void gevrBeanSetEnabled(int on);

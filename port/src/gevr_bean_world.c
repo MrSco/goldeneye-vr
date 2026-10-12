@@ -58,6 +58,12 @@ static int s_nrooms;
 static int s_stage = -9999;
 static int s_tried;
 static int s_ok;
+static Gfx *s_opaque, *s_opaqueWrap;
+static void *s_opaqueVertices;
+static GevrStaticMesh *s_opaqueMesh;
+static int s_opaqueDrawn;
+
+void gevrBeanWorldBeginView(void) { s_opaqueDrawn=0; }
 
 static Gfx *s_skyGdl;
 static void *s_skyVtx;
@@ -285,6 +291,10 @@ static Gfx *meshWrap(Gfx *list, GevrStaticMesh **mesh)
 
 static void clearRooms(void)
 {
+    gevrStaticMeshFree(s_opaqueMesh); free(s_opaqueWrap);
+    free(s_opaque); free(s_opaqueVertices);
+    s_opaqueMesh=NULL; s_opaqueWrap=NULL; s_opaque=NULL; s_opaqueVertices=NULL;
+    s_opaqueDrawn=0;
 	for (int i = 0; i < MAX_ROOMS; i++) {
 		for (int k = 0; k < 2; k++) {
 			gevrStaticMeshFree(s_room[i].mesh[k]);
@@ -356,6 +366,7 @@ static int buildStage(int stage)
 		return 0;
 	}
 	mesh->roomMaterial = 1;
+    mesh->worldVertices = 1;
 	assign = malloc((size_t)mesh->ntris * sizeof(int));
 	if (!assign) {
 		gevrBeanMeshFree(mesh);
@@ -460,8 +471,43 @@ static int buildStage(int stage)
 		free(opa);
 		free(xlu);
 	}
-	roomReferenceFree();
-	free(assign);
+    /* Opaque depth-writing geometry can share materials across room boundaries.
+     * Transparent surfaces keep the game's room order below. A diagnostic marker
+     * retains the old room submission for a controlled comparison. */
+    FILE *control=fopen("gevr_room_draws.txt","r");
+    int merge=1;
+    if (control) { int mode=1; if (fscanf(control,"%d",&mode)==1) merge=mode!=0; fclose(control); }
+    if (merge) {
+        int count=0;
+        for (int i=0;i<mesh->ntris;i++) if (assign[i]>=0 && mesh->tris[i].alpha==255) count+=3;
+        struct gevrEmitVert *opaque=malloc((size_t)count*sizeof(*opaque));
+        if (opaque && count) {
+            int vi=0;
+            for (int i=0;i<mesh->ntris;i++) if (assign[i]>=0 && mesh->tris[i].alpha==255)
+                for (int k=0;k<3;k++) {
+                    float p[3]; for (int j=0;j<3;j++) p[j]=mesh->tris[i].p[k*3+j]*fileScale;
+                    fillVert(mesh,&mesh->tris[i],&opaque[vi++],p,k);
+                }
+            mesh->spatialSort=1;
+            void *list=NULL;
+            if (gevrBeanEmitList(mesh,opaque,count,0,0,0,1,&list,&s_opaqueVertices)) {
+                s_opaque=list;
+                s_opaqueWrap=meshWrap(s_opaque,&s_opaqueMesh);
+                /* CPU replay of the float list is also complete if GPU creation fails. */
+                for (int r=0;r<nrooms;r++) {
+                    gevrStaticMeshFree(s_room[r].mesh[0]); free(s_room[r].wrap[0]);
+                    free(s_room[r].opa); free(s_room[r].vtxOpa);
+                    s_room[r].mesh[0]=NULL; s_room[r].wrap[0]=NULL;
+                    s_room[r].opa=NULL; s_room[r].vtxOpa=NULL;
+                }
+                GEVR_BEAN_LOG("gevr bean: opaque world %d tris, %u spatial material chunks\n",
+                              count/3,s_opaqueMesh ? s_opaqueMesh->numRuns : 0);
+            }
+        }
+        free(opaque);
+    }
+    roomReferenceFree();
+    free(assign);
 	s_nrooms = nrooms;
 	s_ok = 1;
 	GEVR_BEAN_LOG("gevr bean: HD rooms %s, %d tris across %d rooms, native scale %.8f\n", st->bg, mesh->ntris, nrooms, fileScale);
@@ -540,6 +586,7 @@ static int buildSky(int stage)
 		gevrBeanMeshFree(mesh);
 		return 0;
 	}
+	mesh->roomMaterial=2; /* sky: retain cleared fog */
 	k = SKY_EXTENT / extent;
 	ev = malloc((size_t)mesh->ntris * 3 * sizeof(*ev));
 	if (!ev) {
@@ -607,7 +654,26 @@ void *gevrBeanWorldRoom(void *gdl, int room, int *replaced)
 	if (replaced) {
 		*replaced = 1;
 	}
-	list = xlu ? s_room[room].xlu : s_room[room].opa;
+    if (!xlu && s_opaque) {
+        if (s_opaqueDrawn || !g_CurrentPlayer) return gdl;
+        Mtx *packed=dynAllocateMatrix();
+        if (!packed) return gdl;
+        Mtxf matrix; memset(&matrix,0,sizeof(matrix)); matrix.m[3][3]=1;
+        for (int k=0;k<3;k++) {
+            matrix.m[k][k]=room_data_float2;
+            matrix.m[3][k]=-g_CurrentPlayer->current_model_pos.f[k];
+        }
+        matrix_4x4_f32_to_s32(matrix.m,packed->m);
+        g=bgScissorCurrentPlayerViewDefault(gdl);
+        gSPMatrix(g++,osVirtualToPhysical(packed),G_MTX_MODELVIEW|G_MTX_LOAD|G_MTX_NOPUSH);
+        gSPDisplayList(g++,s_opaqueWrap ? s_opaqueWrap : s_opaque);
+        s_opaqueDrawn=1;
+        struct bbox2d box;
+        if (bgGet2dBboxByRoomId(room,&box))
+            g=bgScissorCurrentPlayerViewF(g,box.min.x,box.min.y,box.max.x,box.max.y);
+        return g;
+    }
+    list = xlu ? s_room[room].xlu : s_room[room].opa;
 	if (list && s_room[room].wrap[xlu])
 		list = s_room[room].wrap[xlu];
 	if (!list) {

@@ -147,6 +147,30 @@ int main(void)
     classifyGroups(rigGroups, 4);
     assert(rigGroups[0].sk == GEVR_BEAN_SK_BASE && rigGroups[1].sk == GEVR_BEAN_SK_BASE);
     assert(rigGroups[2].sk == GEVR_BEAN_SK_BACK && rigGroups[3].sk == GEVR_BEAN_SK_NECK);
+    /* The production float emitter and mesh dedup retain large coordinates
+     * and sub-unit separation. Material sorting retains all source corners. */
+    mesh.worldVertices=1; mesh.roomMaterial=1; mesh.spatialSort=1;
+    struct gevrEmitVert floating[6]={0};
+    for (int i=0;i<6;i++) {
+        floating[i].tex=0; floating[i].alpha=255;
+        floating[i].p[0]=50000.25f+(i%3);
+        floating[i].p[1]=i<3 ? 0.125f : 0.25f;
+        floating[i].p[2]=-(i%3)*0.375f;
+        memset(floating[i].rgba,255,4);
+    }
+    void *floatList=NULL,*floatVerts=NULL;
+    assert(gevrBeanEmitList(&mesh,floating,6,0,0,0,1,&floatList,&floatVerts));
+    GevrStaticMesh *floatMesh=gevrStaticMeshBuild(floatList);
+    assert(floatMesh && floatMesh->worldVertices && floatMesh->numIndices==6);
+    const GevrWorldVertex *fv=floatMesh->vertices;
+    for (int i=0;i<6;i++) {
+        const GevrWorldVertex *corner=&fv[floatMesh->indices[i]];
+        assert(corner->p[0]>=50000.25f && corner->p[0]<=50002.25f);
+        assert(corner->p[1]==0.125f || corner->p[1]==0.25f);
+    }
+    assert(floatMesh->runs[0].lo[1]==0.125f && floatMesh->runs[0].hi[1]==0.25f);
+    gevrStaticMeshFree(floatMesh); free(floatList); free(floatVerts);
+    mesh.worldVertices=0; mesh.roomMaterial=0; mesh.spatialSort=0;
     roomMaterialChecks();
     materialPathChecks();
     hitChecks();

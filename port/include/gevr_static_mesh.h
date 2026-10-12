@@ -16,6 +16,13 @@
  * so (gfx_pc.cpp gevr_mesh_draw_run) is run on the CPU as before.
  */
 #define G_GEVR_MESH 0x6F
+#define G_GEVR_WORLD_VTX 0x6A
+/* HD room coordinates retain sub-unit decal separation and large extents. */
+typedef struct GevrWorldVertex {
+    float p[3];
+    int16_t tc[2];
+    uint8_t rgba[4];
+} GevrWorldVertex;
 
 typedef struct GevrStaticMeshRun {
     const void *start, *end;   /* the run's first command and the one after it */
@@ -27,6 +34,7 @@ typedef struct GevrStaticMeshRun {
 typedef struct GevrStaticMesh {
     const void *vertices;      /* Vtx, as the list loads them, each once */
     uint32_t numVertices;
+    int worldVertices;
     const uint32_t *indices;   /* three per triangle, in the list's order */
     uint32_t numIndices;
     const GevrStaticMeshRun *runs;

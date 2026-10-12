@@ -42,6 +42,7 @@ struct gevrBeanMesh {
 	int triggerCuffs;
 	int nativeChrome;
 	int roomMaterial;
+    int worldVertices, spatialSort;
 	int watchArm;
 	int nbones;
 	float boneBind[64][3];

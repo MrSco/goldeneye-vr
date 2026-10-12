@@ -698,6 +698,9 @@ static void gevrOrderSecondaryPass(void)
  */
 Gfx *sub_GAME_7F0B3C8C(Gfx *gdl)
 {
+#ifdef GEVR
+    gevrBeanWorldBeginView();
+#endif
 #ifdef VERSION_EU
     s16 i;
 #else
