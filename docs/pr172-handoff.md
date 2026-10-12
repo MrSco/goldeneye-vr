@@ -113,6 +113,28 @@ first) before designing anything Bean, XBLA or GE-X.
 - Still open: the multiplayer stage dropdown cuts off "Caverns"; clipping
   through Caverns' narrow tunnel doors (likely old).
 
+## Headset round 2026-10-12 late (c30fbe3 on the Quest, vc 75)
+
+- d50af44: the watch laser's and detonator's pressing hand is Bean's right
+  hand on GoldenEye's palm and finger lists (gevr_bean.c pressHand()).
+- 7c1eddc: in 2D, Bean's guns are drawn on a cleared depth buffer, as GE-X's
+  (they test depth; GoldenEye's don't): looking down cut the PP7 off.
+- c3a7319, d5d86d5, c30fbe3: the two-handed hold with Bean on is Bean's
+  watch arm, not the taser hand (bondview2.c gevrRenderBeanGripArm). It is
+  pinned to the gun as the taser hand is (on the off controller's turn it
+  pivoted, user): the gun hand's frame mirrored, turned by Bean's grip fit in
+  the taser hand's frame (gevrStereoTwoHandTurn), its hand's centre on the
+  hold point plus the offset (gevrStereoTwoHandTarget). A gun in the off hand
+  mirrors it into the right arm. The user's BeanGripRifle was reset to the
+  default to fit the new hand from scratch.
+- The grenade stays in the taser hand (user): the release's grenade and mines
+  are the object alone, and Bean's fist is the flat melee hand.
+- ff9bf24: quest_profile.py restores goldeneye-vr.ini and eeprom.bin mode
+  666; adb left them shell-owned 644, so Gun fit and progress could not save.
+- The rocket's HUD picture showed garbled once (a sheared 7x22 picture, not
+  Bean's) and did not come back with a probe build: Bean's picture was bound
+  and drawn (74x280 over the 8x22 block). Cause unknown.
+
 ## Repository and build
 
 - Worktree: `C:/Users/Occor/.codex/worktrees/abe0/goldeneye-vr`.
