@@ -412,6 +412,10 @@ struct GevrMeshUniforms {
     float noise, eye[8], scale, tan[2];
 };
 static std::map<const struct ShaderProgram*, GevrMeshUniforms> s_meshUniforms;
+struct GevrMeshDrawUniforms { bool valid = false; GfxMeshDrawParams params = {}; };
+static std::map<const struct ShaderProgram*, GevrMeshDrawUniforms> s_meshDrawUniforms;
+static float s_skinPaletteRows[GEVR_SKIN_BONES][12];
+static bool s_skinPaletteUploaded;
 static GLuint opengl_vbo;
 static GLuint opengl_vao;
 static bool current_depth_mask;
@@ -1895,6 +1899,7 @@ static void gfx_opengl_clear_shaders(void) {
     }
     mesh_program_pool.clear();
     s_meshUniforms.clear();
+    s_meshDrawUniforms.clear();
 
 }
 
@@ -3051,35 +3056,53 @@ static void gevr_mesh_uniforms(const struct ShaderProgram* prg, const struct Gfx
 {
     const bool made = s_skinPaletteBuffer == 0;
     if (made) glGenBuffers(1, &s_skinPaletteBuffer);
+    // Keep binding explicitly: other renderers may use the UBO target/binding.
     glBindBuffer(GL_UNIFORM_BUFFER, s_skinPaletteBuffer);
-    // Static rooms need the block bound but never read it; do not stream a
-    // zero palette for every room run and every redraw.
-    if (made || p->skinned)
+    if (made || (p->skinned && (!s_skinPaletteUploaded ||
+        memcmp(s_skinPaletteRows, p->palette.rows, sizeof(s_skinPaletteRows)) != 0))) {
         glBufferData(GL_UNIFORM_BUFFER, sizeof(p->palette.rows), p->palette.rows, GL_STREAM_DRAW);
-    glBindBufferBase(GL_UNIFORM_BUFFER, 0, s_skinPaletteBuffer);
-    if (prg->meshValidLocation >= 0) glUniform2uiv(prg->meshValidLocation, 1, p->palette.valid);
-    if (prg->meshLitLocation >= 0) glUniform1i(prg->meshLitLocation, p->lit);
-    if (prg->meshTintLocation >= 0) glUniform1i(prg->meshTintLocation, p->authored_color);
-    if (prg->meshAmbientLocation >= 0) glUniform3fv(prg->meshAmbientLocation, 1, p->ambient);
-    if (prg->meshNumLightsLocation >= 0) glUniform1i(prg->meshNumLightsLocation, p->num_lights);
-    if (p->num_lights) {
-        if (prg->meshLightDirLocation >= 0) glUniform3fv(prg->meshLightDirLocation, p->num_lights, &p->light_dir[0][0]);
-        if (prg->meshLightColorLocation >= 0) glUniform3fv(prg->meshLightColorLocation, p->num_lights, &p->light_color[0][0]);
+        memcpy(s_skinPaletteRows, p->palette.rows, sizeof(s_skinPaletteRows));
+        s_skinPaletteUploaded = true;
     }
-    if (prg->meshFogLocation >= 0) glUniform4fv(prg->meshFogLocation, 1, p->fog);
-    if (prg->meshFogParamsLocation >= 0) glUniform4f(prg->meshFogParamsLocation, p->fog_mul, p->fog_offset, p->fog_enabled, p->fog_linear);
-    if (prg->meshMPLocation >= 0) glUniformMatrix4fv(prg->meshMPLocation, 1, GL_FALSE, p->mp);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 0, s_skinPaletteBuffer);
+    // Uniform values belong to each mesh program. Capture/replay supplies owned
+    // parameters; comparing values avoids repeatedly uploading the same room,
+    // instance palette and lighting once for every material draw.
+    auto &cache = s_meshDrawUniforms[prg];
+    const auto &old = cache.params;
+    auto changed = [&](const auto &a, const auto &b) { return !cache.valid || memcmp(&a,&b,sizeof(a)) != 0; };
+    if (prg->meshValidLocation >= 0 && changed(p->palette.valid,old.palette.valid)) glUniform2uiv(prg->meshValidLocation, 1, p->palette.valid);
+    if (prg->meshLitLocation >= 0 && changed(p->lit,old.lit)) glUniform1i(prg->meshLitLocation, p->lit);
+    if (prg->meshTintLocation >= 0 && changed(p->authored_color,old.authored_color)) glUniform1i(prg->meshTintLocation, p->authored_color);
+    if (prg->meshAmbientLocation >= 0 && changed(p->ambient,old.ambient)) glUniform3fv(prg->meshAmbientLocation, 1, p->ambient);
+    if (prg->meshNumLightsLocation >= 0 && changed(p->num_lights,old.num_lights)) glUniform1i(prg->meshNumLightsLocation, p->num_lights);
+    if (p->num_lights) {
+        const bool more = p->num_lights > old.num_lights;
+        if (prg->meshLightDirLocation >= 0 && (more || changed(p->light_dir,old.light_dir))) glUniform3fv(prg->meshLightDirLocation, p->num_lights, &p->light_dir[0][0]);
+        if (prg->meshLightColorLocation >= 0 && (more || changed(p->light_color,old.light_color))) glUniform3fv(prg->meshLightColorLocation, p->num_lights, &p->light_color[0][0]);
+    }
+    if (prg->meshFogLocation >= 0 && changed(p->fog,old.fog)) glUniform4fv(prg->meshFogLocation, 1, p->fog);
+    if (prg->meshFogParamsLocation >= 0 && (changed(p->fog_mul,old.fog_mul) || changed(p->fog_offset,old.fog_offset) ||
+        changed(p->fog_enabled,old.fog_enabled) || changed(p->fog_linear,old.fog_linear)))
+        glUniform4f(prg->meshFogParamsLocation, p->fog_mul, p->fog_offset, p->fog_enabled, p->fog_linear);
+    if (prg->meshMPLocation >= 0 && changed(p->mp,old.mp)) glUniformMatrix4fv(prg->meshMPLocation, 1, GL_FALSE, p->mp);
     for (int t = 0; t < 2; t++) {
-        if (prg->meshTexLocation[t] >= 0) glUniform4fv(prg->meshTexLocation[t], 1, p->tex[t]);
-        if (prg->meshTexRotationLocation[t] >= 0) {
+        if (prg->meshTexLocation[t] >= 0 && changed(p->tex[t],old.tex[t])) glUniform4fv(prg->meshTexLocation[t], 1, p->tex[t]);
+        if (prg->meshTexRotationLocation[t] >= 0 && changed(p->tex_rotation[t],old.tex_rotation[t])) {
             const float *r = p->tex_rotation[t];
             glUniform2f(prg->meshTexRotationLocation[t], r[0] == 0 && r[1] == 0 ? 1 : r[0], r[1]);
         }
     }
     for (int j = 0; j < p->num_inputs && j < GFX_MESH_MAX_INPUTS; j++) {
-        if (prg->meshInSelLocation[j] >= 0) glUniformMatrix4fv(prg->meshInSelLocation[j], 1, GL_FALSE, p->in_sel[j]);
-        if (prg->meshInConstLocation[j] >= 0) glUniform4fv(prg->meshInConstLocation[j], 1, p->in_const[j]);
+        const bool more = j >= old.num_inputs;
+        if (prg->meshInSelLocation[j] >= 0 && (more || changed(p->in_sel[j],old.in_sel[j]))) glUniformMatrix4fv(prg->meshInSelLocation[j], 1, GL_FALSE, p->in_sel[j]);
+        if (prg->meshInConstLocation[j] >= 0 && (more || changed(p->in_const[j],old.in_const[j]))) glUniform4fv(prg->meshInConstLocation[j], 1, p->in_const[j]);
     }
+    // The shared UBO owns its own palette snapshot; only validity bits are
+    // uniforms. Avoid copying all 64 matrices into every program's cache.
+    memcpy(&cache.params, p, offsetof(GfxMeshDrawParams, palette));
+    memcpy(cache.params.palette.valid, p->palette.valid, sizeof(p->palette.valid));
+    cache.valid = true;
 }
 
 /*
@@ -3699,6 +3722,8 @@ static void gfx_opengl_init(void) {
     // GoldenEye: static meshes made in an older context are gone with it
     s_glGeneration++;
     s_skinPaletteBuffer = 0; // the previous context owns the old name
+    s_skinPaletteUploaded = false;
+    s_meshDrawUniforms.clear();
     s_meshClipDistance = false;
     if (gl_es && glGetStringi && GLVersion.major >= 3) {
         GLint n = 0;
