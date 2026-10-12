@@ -734,8 +734,14 @@ int main(int argc, char **argv)
 		assert(clock[0] && clock[1] && clock[2]);
 		assert(glass == 135); /* The six outfits do not multiply the glass. */
 	}
-	if (!strcmp(argv[2], "GtriggerZ")) {
-		assert(lists == 7 && mesh->triggerCuffs);
+	if (!strcmp(argv[2], "GtriggerZ") || !strcmp(argv[2], "GwatchlaserZ")) {
+		/* the body, six outfit sleeves, and the pressing hand on GoldenEye's
+		 * palm and finger (Switches[6]), which the headset's grip draws alone */
+		assert(lists == 9 && mesh->triggerCuffs);
+		int finger = 0;
+		for (int i = 0; i < s_nswap; i++)
+			finger += s_swap[i].ours != s_blank && nodeMatrix(s_swap[i].node) == nodeMatrix(header.Switches[6]);
+		assert(finger == 1);
 		int cuffs[6] = {0};
 		for (int t = 0; t < mesh->ntris; t++)
 			if (mesh->tris[t].cuff >= 0) {
