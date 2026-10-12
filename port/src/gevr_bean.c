@@ -20,6 +20,7 @@
 #include "gevr_bean.h"
 #include "gevr_romlayout.h"
 #include "gevr_bean_int.h"
+#include "gevr_skin_mesh.h"
 
 extern int VrBeanModels;
 extern int VrGexGuns;
@@ -47,7 +48,12 @@ struct beanSkin {
 	Vtx *vtx;
 	Gfx *gdl;
 	int nverts, ncommands, anchor;
+	GevrStaticMesh *mesh;
+	int16_t bones[GEVR_SKIN_BONES];
+	int nbones, meshTried;
 };
+static GevrStaticMesh *s_skinMeshes[MAX_ALLOC];
+static int s_nskinMeshes;
 static const struct beanSkinVert *s_emitSkin;
 static struct beanSkin *s_emittedSkin;
 
@@ -1850,6 +1856,9 @@ void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
 void gevrBeanReset(void)
 {
 	beanFrameReset();
+	for (int i = 0; i < s_nskinMeshes; i++)
+		gfx_static_mesh_release(s_skinMeshes[i]);
+	s_nskinMeshes = 0;
 	for (int i = 0; i < s_nalloc; i++) {
 		free(s_alloc[i]);
 		s_alloc[i] = NULL;

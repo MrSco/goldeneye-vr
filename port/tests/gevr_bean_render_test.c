@@ -6,6 +6,7 @@ int gevrRomIsVariant(void) { return 0; } /* GoldenEye: no hack campaign */
 
 void sysLogPrintf(s32 level, const char *fmt, ...) { (void)level; (void)fmt; }
 
+void gfx_static_mesh_release(GevrStaticMesh *mesh) { (void)mesh; }
 int VrBeanModels = 1;
 int VrGexGuns;
 uintptr_t osVirtualToPhysical(void *addr) { return (uintptr_t)addr; }

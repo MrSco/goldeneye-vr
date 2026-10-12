@@ -374,6 +374,8 @@ struct ShaderProgram {
     uint64_t shader_id0;
     uint32_t shader_id1;
     bool opt_fog, opt_grayscale, is_mesh;
+    GLint meshLitLocation, meshAmbientLocation, meshLightDirLocation, meshLightColorLocation,
+        meshNumLightsLocation, meshFogLocation, meshFogParamsLocation, meshValidLocation;
     // each array element on its own: the compiler keeps only those the shader uses
     GLint meshMPLocation, meshTexLocation[2], meshInSelLocation[GFX_MESH_MAX_INPUTS],
         meshInConstLocation[GFX_MESH_MAX_INPUTS];
@@ -399,6 +401,7 @@ static std::map<pair<uint64_t, uint32_t>, struct ShaderProgram> mesh_program_poo
 static bool s_buildMesh;          // gfx_opengl_create_and_load_new_shader makes a mesh variant
 static bool s_meshClipDistance;   // GL_EXT_clip_cull_distance: the CPU's far reject under depth clamp
 static bool s_meshBroken;         // a mesh variant failed: the CPU draws the meshes
+static GLuint s_skinPaletteBuffer; // one transient UBO; redraw uploads its saved palette
 static uint32_t s_glGeneration;   // gfx_opengl_init: buffers made in an older context are gone
 static bool s_drawElements;       // gevr_issue_draw: the bound static mesh's indices, not the vertex ring
 // What gfx_opengl_set_uniforms last wrote to each mesh variant: a mesh draw binds
@@ -1309,6 +1312,23 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         append_line(vs_buf, &vs_len, "uniform vec4 uMeshTex[2];");
         append_line(vs_buf, &vs_len, "uniform mat4 uMeshInSel[7];");
         append_line(vs_buf, &vs_len, "uniform vec4 uMeshInConst[7];");
+        append_line(vs_buf, &vs_len, "INPUT vec4 aSkinWeight;");
+        append_line(vs_buf, &vs_len, "INPUT vec4 aSkinBone;");
+        for (int i = 0; i < 4; i++) {
+            vs_len += sprintf(vs_buf + vs_len, "INPUT vec3 aSkinP%d;\nINPUT vec3 aSkinN%d;\n", i, i);
+        }
+        append_line(vs_buf, &vs_len, "layout(std140) uniform SkinPalette { vec4 uSkinRows[192]; };");
+        append_line(vs_buf, &vs_len, "uniform uvec2 uSkinValid;");
+        append_line(vs_buf, &vs_len, "uniform int uMeshLit, uMeshNumLights;");
+        append_line(vs_buf, &vs_len, "uniform vec3 uMeshAmbient, uMeshLightDir[7], uMeshLightColor[7];");
+        append_line(vs_buf, &vs_len, "uniform vec4 uMeshFog;");
+        append_line(vs_buf, &vs_len, "uniform vec3 uMeshFogParams;");
+        append_line(vs_buf, &vs_len, "void skinAdd(int b, float w, vec3 p, vec3 n, inout vec3 pos, inout vec3 norm, inout float total) {");
+        append_line(vs_buf, &vs_len, "  if (w == 0.0 || (uSkinValid[b / 32] & (1u << uint(b % 32))) == 0u) return;");
+        append_line(vs_buf, &vs_len, "  vec4 r0 = uSkinRows[b*3], r1 = uSkinRows[b*3+1], r2 = uSkinRows[b*3+2];");
+        append_line(vs_buf, &vs_len, "  pos += w * vec3(dot(r0, vec4(p,1.0)), dot(r1, vec4(p,1.0)), dot(r2, vec4(p,1.0)));");
+        append_line(vs_buf, &vs_len, "  norm += w * vec3(dot(r0.xyz,n), dot(r1.xyz,n), dot(r2.xyz,n)); total += w;");
+        append_line(vs_buf, &vs_len, "}");
     } else {
         append_line(vs_buf, &vs_len, "INPUT vec4 aVtxPos;");
     }
@@ -1321,7 +1341,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         }
     }
     if (cc_features.opt_fog) {
-        append_line(vs_buf, &vs_len, "INPUT vec4 aFog;");
+        if (!s_buildMesh) append_line(vs_buf, &vs_len, "INPUT vec4 aFog;");
         append_line(vs_buf, &vs_len, "OUTPUT vec4 vFog;");
         num_floats += 4;
     }
@@ -1342,7 +1362,28 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
 
     append_line(vs_buf, &vs_len, "void main() {");
     if (s_buildMesh) {
-        append_line(vs_buf, &vs_len, "    vec4 aVtxPos = uMeshMP * vec4(aMeshPos, 1.0);");
+        append_line(vs_buf, &vs_len, "    vec3 meshPos = aMeshPos, meshNormal = vec3(0.0), skinnedPos = vec3(0.0); float total = 0.0;");
+        append_line(vs_buf, &vs_len, "    vec4 meshColor = aMeshColor;");
+        for (int i = 0; i < 4; i++)
+            vs_len += sprintf(vs_buf + vs_len, "    skinAdd(int(aSkinBone[%d]), aSkinWeight[%d], aSkinP%d, aSkinN%d, skinnedPos, meshNormal, total);\n", i, i, i, i);
+        append_line(vs_buf, &vs_len, "    if (total > 0.0) {");
+        append_line(vs_buf, &vs_len, "      vec3 p = skinnedPos / total;");
+        append_line(vs_buf, &vs_len, "      meshPos = trunc(clamp(p + sign(p) * 0.5, -32768.0, 32767.0));");
+        append_line(vs_buf, &vs_len, "      float len = length(meshNormal);");
+        append_line(vs_buf, &vs_len, "      meshNormal = len > 1e-6 ? trunc(meshNormal * (127.0 / len)) : vec3(0.0);");
+        append_line(vs_buf, &vs_len, "    } else { meshNormal = aMeshColor.xyz * 255.0; meshNormal -= step(vec3(128.0), meshNormal) * 256.0; }");
+        append_line(vs_buf, &vs_len, "    if (total > 0.0 && uMeshLit == 0) meshColor.rgb = mod(meshNormal, 256.0) / 255.0;");
+        append_line(vs_buf, &vs_len, "    if (uMeshLit != 0) {");
+        append_line(vs_buf, &vs_len, "      vec3 rgb = uMeshAmbient;");
+        append_line(vs_buf, &vs_len, "      for (int i = 0; i < uMeshNumLights; i++) rgb = trunc(rgb + max(0.0, dot(meshNormal, uMeshLightDir[i]) / 127.0) * uMeshLightColor[i]);");
+        append_line(vs_buf, &vs_len, "      meshColor.rgb = min(rgb, vec3(255.0)) / 255.0;");
+        append_line(vs_buf, &vs_len, "    }");
+        append_line(vs_buf, &vs_len, "    vec4 aVtxPos = uMeshMP * vec4(meshPos, 1.0);");
+        if (cc_features.opt_fog) {
+            append_line(vs_buf, &vs_len, "    float fw = abs(aVtxPos.w) < 0.001 ? 0.001 : aVtxPos.w;");
+            append_line(vs_buf, &vs_len, "    float wi = fw < 0.0 ? 32767.0 : 1.0 / fw;");
+            append_line(vs_buf, &vs_len, "    vec4 aFog = vec4(uMeshFog.rgb, uMeshFogParams.z != 0.0 ? clamp(aVtxPos.z * wi * uMeshFogParams.x + uMeshFogParams.y, 0.0, 255.0) / 255.0 : uMeshFog.a);");
+        }
         if (s_meshClipDistance) {
             // gfx_sp_tri1 drops a triangle past the squashed far plane at all three
             // corners; depth clamp would draw it at the far plane instead (DAB)
@@ -1354,7 +1395,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
             }
         }
         for (int i = 0; i < cc_features.num_inputs; i++) {
-            vs_len += sprintf(vs_buf + vs_len, "    vec%d aInput%d = (uMeshInSel[%d] * aMeshColor + uMeshInConst[%d])%s;\n",
+            vs_len += sprintf(vs_buf + vs_len, "    vec%d aInput%d = (uMeshInSel[%d] * meshColor + uMeshInConst[%d])%s;\n",
                               cc_features.opt_alpha ? 4 : 3, i + 1, i, i, cc_features.opt_alpha ? "" : ".xyz");
         }
     }
@@ -1501,7 +1542,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
 
         if (current_filter_mode == FILTER_THREE_POINT)
             append_line(fs_buf, &fs_len,
-                        "        lowp vec4 tex = mix(SAMPLE_TEX(t, scaled_uv), filter3point(t, scaled_uv, texSize), three_point_filter);");
+                        "        lowp vec4 tex = mix(SAMPLE_TEX(t, scaled_uv), filter3point(t, scaled_uv, texSize), float(three_point_filter));");
         else
             append_line(fs_buf, &fs_len, "        lowp vec4 tex = SAMPLE_TEX(t, scaled_uv);");
 
@@ -1515,7 +1556,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
             append_line(fs_buf, &fs_len,
                         "vec4 hookTexture2D(in sampler2D tex, in vec2 uv, in vec2 texSize, in int three_point_filter) {");
             append_line(fs_buf, &fs_len,
-                        "    return mix(SAMPLE_TEX(tex, uv), filter3point(tex, uv, texSize), three_point_filter);");
+                        "    return mix(SAMPLE_TEX(tex, uv), filter3point(tex, uv, texSize), float(three_point_filter));");
             append_line(fs_buf, &fs_len, "}");
         }
         else {
@@ -1673,6 +1714,15 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         glBindAttribLocation(shader_program, 0, "aMeshPos");
         glBindAttribLocation(shader_program, 1, "aMeshST");
         glBindAttribLocation(shader_program, 2, "aMeshColor");
+        glBindAttribLocation(shader_program, 3, "aSkinWeight");
+        glBindAttribLocation(shader_program, 4, "aSkinBone");
+        for (int i = 0; i < 4; i++) {
+            char name[32];
+            snprintf(name, sizeof(name), "aSkinP%d", i);
+            glBindAttribLocation(shader_program, 5 + i, name);
+            snprintf(name, sizeof(name), "aSkinN%d", i);
+            glBindAttribLocation(shader_program, 9 + i, name);
+        }
     }
     glLinkProgram(shader_program);
 
@@ -1753,6 +1803,18 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         prg->meshInConstLocation[i] = s_buildMesh ? glGetUniformLocation(shader_program, name) : -1;
     }
 
+    if (s_buildMesh) {
+        GLuint block = glGetUniformBlockIndex(shader_program, "SkinPalette");
+        if (block != GL_INVALID_INDEX) glUniformBlockBinding(shader_program, block, 0);
+    }
+    prg->meshLitLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshLit") : -1;
+    prg->meshAmbientLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshAmbient") : -1;
+    prg->meshLightDirLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshLightDir[0]") : -1;
+    prg->meshLightColorLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshLightColor[0]") : -1;
+    prg->meshNumLightsLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshNumLights") : -1;
+    prg->meshFogLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshFog") : -1;
+    prg->meshFogParamsLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshFogParams") : -1;
+    prg->meshValidLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uSkinValid") : -1;
     glUseProgram(shader_program);
 
     if (cc_features.used_textures[0]) {
@@ -2917,6 +2979,24 @@ static void gevr_eye_proj_times(const float* delta, float M[16])
 /* GoldenEye: static meshes (gfx_opengl_draw_mesh) - the batch's floats for the bound mesh variant */
 static void gevr_mesh_uniforms(const struct ShaderProgram* prg, const struct GfxMeshDrawParams* p)
 {
+    const bool made = s_skinPaletteBuffer == 0;
+    if (made) glGenBuffers(1, &s_skinPaletteBuffer);
+    glBindBuffer(GL_UNIFORM_BUFFER, s_skinPaletteBuffer);
+    // Static rooms need the block bound but never read it; do not stream a
+    // zero palette for every room run and every redraw.
+    if (made || p->skinned)
+        glBufferData(GL_UNIFORM_BUFFER, sizeof(p->palette.rows), p->palette.rows, GL_STREAM_DRAW);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 0, s_skinPaletteBuffer);
+    if (prg->meshValidLocation >= 0) glUniform2uiv(prg->meshValidLocation, 1, p->palette.valid);
+    if (prg->meshLitLocation >= 0) glUniform1i(prg->meshLitLocation, p->lit);
+    if (prg->meshAmbientLocation >= 0) glUniform3fv(prg->meshAmbientLocation, 1, p->ambient);
+    if (prg->meshNumLightsLocation >= 0) glUniform1i(prg->meshNumLightsLocation, p->num_lights);
+    if (p->num_lights) {
+        if (prg->meshLightDirLocation >= 0) glUniform3fv(prg->meshLightDirLocation, p->num_lights, &p->light_dir[0][0]);
+        if (prg->meshLightColorLocation >= 0) glUniform3fv(prg->meshLightColorLocation, p->num_lights, &p->light_color[0][0]);
+    }
+    if (prg->meshFogLocation >= 0) glUniform4fv(prg->meshFogLocation, 1, p->fog);
+    if (prg->meshFogParamsLocation >= 0) glUniform3f(prg->meshFogParamsLocation, p->fog_mul, p->fog_offset, p->fog_enabled);
     if (prg->meshMPLocation >= 0) glUniformMatrix4fv(prg->meshMPLocation, 1, GL_FALSE, p->mp);
     for (int t = 0; t < 2; t++) {
         if (prg->meshTexLocation[t] >= 0) glUniform4fv(prg->meshTexLocation[t], 1, p->tex[t]);
@@ -2943,6 +3023,14 @@ static void gevr_mesh_clip(bool on)
     }
 }
 
+static void gevr_mesh_cull(int mode)
+{
+    if (!mode) { glDisable(GL_CULL_FACE); return; }
+    glEnable(GL_CULL_FACE);
+    glFrontFace(mode < 0 ? GL_CW : GL_CCW);
+    glCullFace(abs(mode) == 1 ? GL_BACK : GL_FRONT);
+}
+
 /* The redraw: a mesh draw binds its own vertex array before its program, so the
  * vertex ring's attributes are never set on it; back to the ring's after. */
 static bool s_replayMesh;
@@ -2952,6 +3040,7 @@ static void gevr_eye_replay_done(void)
         glBindVertexArray(opengl_vao);
         glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
         gevr_mesh_clip(false);
+        gevr_mesh_cull(0);
         s_replayMesh = false;
         s_drawElements = false;
     }
@@ -2971,8 +3060,9 @@ static void gevr_eye_replay_mesh(const GevrEyeDraw& d)
 {
     if (d.mesh == 0) return;
     // unloading the program before may have disabled these on the bound array
-    for (GLuint a = 0; a < 3; a++) glEnableVertexAttribArray(a);
+    for (GLuint a = 0; a < (s_eyeMeshes[d.mesh - 1].params.skinned ? 13u : 3u); a++) glEnableVertexAttribArray(a);
     gevr_mesh_uniforms(d.prg, &s_eyeMeshes[d.mesh - 1].params);
+    gevr_mesh_cull(s_eyeMeshes[d.mesh - 1].params.cull);
 }
 
 void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand1, const float* body)
@@ -3146,7 +3236,7 @@ static bool gevr_mesh_supported(void)
 }
 
 static GevrMeshGpu* gevr_mesh_gpu(void** slot, const void* vertices, uint32_t num_vertices,
-                                  const uint32_t* indices, uint32_t num_indices)
+                                  const uint32_t* indices, uint32_t num_indices, bool skinned)
 {
     GevrMeshGpu* g = (GevrMeshGpu*)*slot;
     if (g != NULL && g->generation != s_glGeneration) {
@@ -3164,13 +3254,26 @@ static GevrMeshGpu* gevr_mesh_gpu(void** slot, const void* vertices, uint32_t nu
     glGenBuffers(1, &g->ibo);
     glBindVertexArray(g->vao);
     glBindBuffer(GL_ARRAY_BUFFER, g->vbo);
-    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)num_vertices * 16, vertices, GL_STATIC_DRAW);
+    const GLsizei stride = skinned ? sizeof(GevrSkinVertex) : 16;
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)num_vertices * stride, vertices, GL_STATIC_DRAW);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_SHORT, GL_FALSE, 16, (const void*)0);            // Vtx ob
+    glVertexAttribPointer(0, 3, GL_SHORT, GL_FALSE, stride, (const void*)0);            // Vtx ob
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 2, GL_SHORT, GL_FALSE, 16, (const void*)8);            // Vtx tc
+    glVertexAttribPointer(1, 2, GL_SHORT, GL_FALSE, stride, (const void*)8);            // Vtx tc
     glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, 16, (const void*)12);    // Vtx cn
+    glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride, (const void*)12);    // Vtx cn
+    if (skinned) {
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(3, 4, GL_UNSIGNED_BYTE, GL_FALSE, stride, (const void*)offsetof(GevrSkinVertex, weight));
+        glEnableVertexAttribArray(4);
+        glVertexAttribPointer(4, 4, GL_UNSIGNED_BYTE, GL_FALSE, stride, (const void*)offsetof(GevrSkinVertex, bone));
+        for (int i = 0; i < 4; i++) {
+            glEnableVertexAttribArray(5 + i);
+            glVertexAttribPointer(5 + i, 3, GL_FLOAT, GL_FALSE, stride, (const void*)(offsetof(GevrSkinVertex, p) + i * 3 * sizeof(float)));
+            glEnableVertexAttribArray(9 + i);
+            glVertexAttribPointer(9 + i, 3, GL_FLOAT, GL_FALSE, stride, (const void*)(offsetof(GevrSkinVertex, n) + i * 3 * sizeof(float)));
+        }
+    }
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g->ibo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)num_indices * sizeof(uint32_t), indices, GL_STATIC_DRAW);
     glBindVertexArray(opengl_vao);
@@ -3270,12 +3373,12 @@ static bool gfx_opengl_draw_mesh(void** gpu, const void* vertices, uint32_t num_
                                  const struct GfxMeshDrawParams* p)
 {
     struct ShaderProgram* base = s_curPrg;
-    if (!gevr_mesh_supported() || base == NULL || base->is_mesh || base->opt_fog || base->opt_grayscale ||
+    if (!gevr_mesh_supported() || base == NULL || base->is_mesh || base->opt_grayscale ||
         p->num_inputs != base->num_inputs || s_scopeRec || s_scopeOnlyMask || gForceFlatShaderForMenu ||
         vr_dl_is_pause_or_menu || get_debug_VisCVG_flag()) {
         return false;
     }
-    GevrMeshGpu* g = gevr_mesh_gpu(gpu, vertices, num_vertices, indices, num_indices);
+    GevrMeshGpu* g = gevr_mesh_gpu(gpu, vertices, num_vertices, indices, num_indices, p->skinned);
     struct ShaderProgram* mp = gevr_mesh_program(base);
     if (mp == NULL) {
         gevr_mesh_rebind(base);   // building it bound it
@@ -3296,6 +3399,7 @@ static bool gfx_opengl_draw_mesh(void** gpu, const void* vertices, uint32_t num_
     gevr_eye_present_draw();
     glBindVertexArray(g->vao);
     gevr_mesh_clip(true);
+    gevr_mesh_cull(p->cull);
     s_drawElements = true;
     gevr_issue_draw((GLint)first, (GLsizei)count, s_decalZ, gevrRoomDl && s_isDecal, 0.0f, false);
     s_drawElements = false;
@@ -3306,6 +3410,7 @@ static bool gfx_opengl_draw_mesh(void** gpu, const void* vertices, uint32_t num_
         s_eyeKeepMesh = 0;
     }
     gevr_mesh_clip(false);
+    gevr_mesh_cull(0);
     glBindVertexArray(opengl_vao);
     glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
     gevr_mesh_rebind(base);
@@ -3514,6 +3619,7 @@ static void gfx_opengl_init(void) {
     gfx_opengl_init_extensions();
     // GoldenEye: static meshes made in an older context are gone with it
     s_glGeneration++;
+    s_skinPaletteBuffer = 0; // the previous context owns the old name
     s_meshClipDistance = false;
     if (gl_es && glGetStringi && GLVersion.major >= 3) {
         GLint n = 0;

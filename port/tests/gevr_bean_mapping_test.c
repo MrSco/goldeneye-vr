@@ -10,6 +10,7 @@ int gevrRomIsVariant(void) { return 0; } /* GoldenEye: no hack campaign */
 		}                                                                                                    \
 	} while (0)
 
+void gfx_static_mesh_release(GevrStaticMesh *mesh) { (void)mesh; }
 int VrBeanModels = 1;
 int VrGexGuns;
 uintptr_t osVirtualToPhysical(void *p)
@@ -279,6 +280,10 @@ int main(int argc, char **argv)
 		assert(((Gfx *)s_swap[i].ours)->words.w1 == 0x03000000u + matrix * sizeof(Mtx));
 		if (s_swap[i].skin) {
 			struct beanSkin *pose = s_swap[i].skin;
+            assert(beanSkinMesh(pose));
+            assert(pose->mesh->numVertices == (unsigned)pose->nverts);
+            assert(pose->mesh->numIndices == (unsigned)pose->nverts);
+            assert(pose->mesh->numRuns > 0 && pose->nbones <= GEVR_SKIN_BONES);
 			for (int v = 0; v < pose->nverts; v++)
 				for (int w = 0; w < 4; w++) {
 					if (!pose->verts[v].weight[w])

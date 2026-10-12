@@ -1,5 +1,10 @@
 # PR #172 handoff (2026-10-11, end of session)
 
+GPU-skinning follow-up: Bean character GPU skinning is implemented and has
+offline shader/pose checks. See [GPU skinning notes](bean-gpu-skinning.md) for
+the implementation, CPU fallback limits and the `gevr_noskin.txt` A/B switch.
+It has not been installed or validated on the headset.
+
 Start here. Detailed notes: [Bean handoff](project-bean-handoff.md),
 [hack campaigns port notes](rom-hacks-port-notes.md),
 [visual runtime repair](visual-runtime-repair.md), [Dam speedboat](dam-speedboat.md).
@@ -56,9 +61,10 @@ To check on the headset:
 ## Next steps, in order
 
 1. **Headset round on `915f6c8`.** Fix what it shows before adding more.
-2. **GPU meshes phase 2:** Bean characters with GPU skinning.
-   - Use a bone palette of 64 × 12 floats (Dab `xblaMeshGpuPalette`, `xblamesh.c:8208`). Phase 1's mesh path falls back to the CPU today for lit, culled or fogged runs.
-   - The shader needs `gfx_sp_vertex`'s lighting math, GL back-face culling and fog.
+2. **GPU meshes phase 2:** Bean character skinning is implemented.
+   - Validate GPU/CPU character parity and frame time with the checklist in
+     `bean-gpu-skinning.md`. Lighting, fog, culling and palette redraws have
+     offline checks; scope and first-person overrides retain CPU fallback.
    - Then rigid models (guns and props) as static meshes.
    - Then per-chunk culling for Dam rooms 35, 132 and 135.
    - Optionally A/B `-fno-inline-functions` for fast3d (`CMakeLists.txt:120`).

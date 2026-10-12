@@ -69,16 +69,57 @@ static void poseChecks(void)
 	s_emittedSkin = &skin;
 	swapAdd(&node, NULL, list, 0);
 	Gfx *first = gevrBeanRenderGdl(&node, list, &model);
-	Vtx *firstVertices = (void *)first[1].words.w1;
+    assert((first[1].words.w0 >> 24) == G_GEVR_SKIN);
+    GevrSkinDraw *firstDraw = (void *)first[1].words.w1;
+    assert(!firstDraw->posedVertices);
+    assert(firstDraw->mesh == skin.mesh && skin.mesh->numIndices == 3);
+    Vtx *firstVertices = firstDraw->pose(firstDraw);
+    assert(firstDraw->pose(firstDraw) == firstVertices);
 	assert(first != list && firstVertices != original);
 	assert(firstVertices[0].v.ob[0] == 10 && firstVertices[0].v.ob[1] == 5);
 	assert(firstVertices[0].v.tc[0] == 123 && firstVertices[0].n.n[2] == 127);
 	/* Another instance may move before the first list reaches the GPU. */
 	matrices[1].pos.m[3][0] = 200;
 	Gfx *second = gevrBeanRenderGdl(&node, list, &model);
-	Vtx *secondVertices = (void *)second[1].words.w1;
+    GevrSkinDraw *secondDraw = (void *)second[1].words.w1;
+    assert(secondDraw->mesh == firstDraw->mesh && !secondDraw->posedVertices);
+    assert(secondDraw->palette.rows[1][3] == 100 && firstDraw->palette.rows[1][3] == 20);
+    Vtx *secondVertices = secondDraw->pose(secondDraw);
 	assert(secondVertices[0].v.ob[0] == 50 && firstVertices[0].v.ob[0] == 10);
 	assert(list[0].words.w1 == (uintptr_t)original && original[0].v.ob[0] == 0);
+    /* Palette and legacy CPU paths agree for rotated/scaled anchors, neck
+     * routing, missing influences and position clamping. */
+    influences[0].matrix[0] = -2;
+    influences[0].matrix[1] = -3;
+    influences[0].matrix[2] = 7; /* invalid: exclude from the weight total */
+    influences[0].weight[2] = 50;
+    influences[1].p[0][0] = -0.7f;
+    influences[1].p[1][1] = 0.4f;
+    influences[2].p[0][0] = influences[2].p[1][0] = 100000;
+    groupData.Group.Origin.f[0] = 3;
+    matrices[0].pos.m[0][0] = 0;
+    matrices[0].pos.m[0][1] = 2;
+    matrices[0].pos.m[1][0] = -3;
+    matrices[0].pos.m[1][1] = 0;
+    matrices[0].pos.m[2][2] = .5f;
+    struct beanSkin paletteSkin = {
+        .verts = influences, .vtx = original, .gdl = list, .nverts = 3, .ncommands = 3, .anchor = 0};
+    struct beanSkin legacySkin = paletteSkin;
+    legacySkin.meshTried = 1; /* force the unchanged legacy CPU renderer */
+    s_swap[0].skin = &legacySkin;
+    Gfx *legacy = gevrBeanRenderGdl(&node, list, &model);
+    Vtx *legacyVertices = (void *)legacy[1].words.w1;
+    s_swap[0].skin = &paletteSkin;
+    Gfx *palette = gevrBeanRenderGdl(&node, list, &model);
+    GevrSkinDraw *paletteDraw = (void *)palette[1].words.w1;
+    Vtx *paletteVertices = paletteDraw->pose(paletteDraw);
+    for (int i = 0; i < 3; i++) {
+        assert(paletteVertices[i].v.tc[0] == legacyVertices[i].v.tc[0]);
+        for (int k = 0; k < 3; k++) {
+            assert(abs(paletteVertices[i].v.ob[k] - legacyVertices[i].v.ob[k]) <= 1);
+            assert(abs(paletteVertices[i].n.n[k] - legacyVertices[i].n.n[k]) <= 1);
+        }
+    }
 	gevrBeanSetEnabled(0);
 	assert(gevrBeanRenderGdl(&node, list, &model) == list);
 	gevrBeanSetEnabled(1);
