@@ -1,130 +1,92 @@
-# PR #172 handoff (2026-10-11, end of session)
+# PR 172 handoff, October 12, 2026
 
-GPU-skinning follow-up: Bean character GPU skinning is implemented and has
-offline shader/pose checks. See [GPU skinning notes](bean-gpu-skinning.md) for
-the implementation, CPU fallback limits and the `gevr_noskin.txt` A/B switch.
-It has not been installed or validated on the headset.
+The renderer has working GPU skinning and complete character-body batching,
+float room geometry, world material batching, retained weapons, watch repairs,
+animated UVs/frames, HD fog and several normal-reflection shader forms.
+Fresh Quest traces show reduced Dam frame times, with fast-turn spikes still
+remaining. The work is not complete.
 
-Latest follow-up (source commit `2057eb2`): the user tested `25c1c1e` with
-Bean pack `.3` and confirmed logo chrome and Dam tower glass. Remaining reports
-were watch palette/preview, Dam stutter, road paint, missing fog and water motion.
-The new fixes, evidence, limitations and tests are in
-[watch/Dam material follow-up](pr172-material-followup.md).
+Read [current renderer fixes and evidence](pr172-renderer-follow-up.md) first.
+The earlier material notes/census document historical checkpoints.
 
-Current worktree: `C:/Users/Occor/.codex/worktrees/abe0/goldeneye-vr`, local branch
-`codex/pr172-gpu-skinning`, pushing to PR 172's `cursor/rom-hack-layouts-026b`.
-The new APK has been built and signed, but not installed or visually validated.
-Headset frame-time improvement remains unmeasured. Menu repaints pass offline;
-the next headset log has `bean-paint` binding/hit/upload counts for runtime checks.
+## Repository and build
 
-Start here. Detailed notes: [Bean handoff](project-bean-handoff.md),
-[hack campaigns port notes](rom-hacks-port-notes.md),
-[visual runtime repair](visual-runtime-repair.md), [Dam speedboat](dam-speedboat.md).
+- Worktree: `C:/Users/Occor/.codex/worktrees/abe0/goldeneye-vr`.
+- Local branch: `codex/pr172-gpu-skinning`.
+- PR branch: `cursor/rom-hack-layouts-026b`, PR #172.
+- Signed material checkpoint: `16f18ad`; newer local build identities and
+  installation receipts are archived with their symbols. See renderer notes.
+- Explicitly set `JAVA_HOME=C:/Program Files/Java/jdk-20` before every Gradle
+  invocation. Android Studio's Java 25 is incompatible with this Gradle setup.
+- The user explicitly authorized installing ongoing PR 172 test builds on Quest.
+  Preserve settings and save files; the profiling driver's backup/restore checks
+  hashes and test markers. Finish unattended testing with its full restore.
 
-## Where things are
+## Evidence and diagnostics
 
-- **Branch:** `cursor/rom-hack-layouts-026b` (draft PR #172), pushed, clean.
-  - Worktree: `.claude/worktrees/goldeneye-vr-pr-146-review-b63bd3`.
-  - It combines four PRs: the Goldfinger 64 / TND campaigns, Project Bean (#170), the Dam speedboat (#171) and Dam wall alarms (#174, closes #173). Those PRs are closed and their branches deleted.
-- **Latest test APK:** `GoldenEye-VR-PR172-Watch-Dam-2057eb2.apk`, release-signed from clean source commit `2057eb2`. Not installed by this work. Exact native symbols: `android/app/build/outputs/symbols/76bbcab9a1652cd6b6dc5307ad5434637334109c/` in the Codex `abe0` worktree. See `pr172-material-followup.md`.
-- **Bean pack:** MrSco/GoldenEye-007-Bean release `v2026.10.11.3`, the Latest.
-  - VR zip 188,298,238 bytes: 499 meshes, 2 font atlases, 334 pictures, 122 PNGs.
-  - `ModManager.java` pins it (version, URL, size).
-  - Process: the repo's `GOLDENEYE/` folder is the PNG source; `tools/package_bean.py` builds both zips.
-- **Dab's Mod reference** (MIT, pinned adef1dc2): `C:/Users/Occor/.codex/worktrees/d60f/goldeneye-vr/build/bean-reference/upstream`. Don't delete that Codex worktree until this reference is moved.
-- **The player's own files** (never commit):
-  - ROM: `007 - GoldenEye.z64` in the main checkout;
-  - XBLA files: `added-content/xbla/files`;
-  - Goldfinger ROM: `other_projects/goldfinger64`;
-  - TND Expanded: rebuild with `tools/gex/vcdiff_apply.py ge.z64 TND64/expanded/TND64_Expanded_06-22.xdelta out.z64`.
+Quest 3 serial `2G0YC1ZF8Q0JQ6`, Bean pack `2026.10.11.3`. Current defaults:
+world batching on, body batching on, retained prop threshold 256 triangles.
+The GPU-body anchor retains heads/hats/weapons and native gameplay traversal.
+Both regional gameplay joint walkers are covered by an executed fixture.
 
-## Last headset report (build cb33888+, Bean on, Dam)
+Controls are read from Android's absolute external files root. Require renderer
+acknowledgments. Before `f169043` the requested switches were not reliably read.
+`f169043` body-on traces omitted body geometry and are invalid. `95dc1f2` repairs
+that regression. Use its valid full-body traces or later builds only.
+Pad 285 is the reported curved road tunnel; pad 32 is near a guard post.
 
-The user saw:
-- Goldfinger maps now draw.
-- The Nintendo logo was translucent.
-- Fonts were HD but upside down.
-- The file-select crosshair was low-res.
-- The watch was see-through.
-- Guns, and guards' hands, sat set back.
-- The map had holes.
-- It stuttered: 52 fps of 120, DRAW/TICK 16 ms, GPU 2.6 ms.
+`tools/perf/quest_profile.py` preserves save/settings, installs a benchmark APK,
+launches the level, captures the actual scene, records a moving minute and pulls
+CSV/GPU/events/logs. `--scope-probe` equips a sniper and explicitly supplies a
+synthetic grip through the existing file hook so scope replay and lens
+submission run unattended; label that evidence.
+`tools/perf/analyze.py` separates fresh/redraw, reset and detailed frames.
+Local traces/captures live in `build/perf/pr172-follow-up/`.
 
-Everything below is fixed in source and has an offline check, but nothing has been verified on the headset:
+## Next work
 
-| Fix | Commit | Offline check |
-|---|---|---|
-| Fonts right way up | 1634b10 | `test_bean_fonts.py`: letter-shape check |
-| 121 HUD/menu/effect images repainted from `files/texture` (cursor 256x256, ammo, portraits, stage pictures, bullet holes, puffs, clouds, water) | 56ecb44 | `test_bean_images.py` |
-| Guns in GoldenEye's frame, glove on the hand list, pickups un-mirrored | 2334405 | mapping test |
-| Props and guns two-sided | ca729c0 | — |
-| fast3d presentation clip once per vertex, 1024-triangle batches, hashed Bean lookups, stats line VTX/TRI1/CLIP/ROOM/PRES | cf59657 | — |
-| Dab's translucency and decal rules: logo, wrist watch, reservoir water | 1d02ef1 | `test_bean_material.py` |
-| Bean rooms and sky as static GPU meshes (Dab's G_MESH_EXT) | 7f75f48 | offline bit-identical to the CPU path; room CPU 10 ms → 0.13 ms |
-| Rooms drawn by their Bean bounds (the holes) | 915f6c8 | — |
+1. Finish the special Dam/Complex water and Silo/Control floor shader forms.
+   Diffuse water UV motion is implemented; full bump/reflection/distortion is not.
+2. Remaining prop shader variants: the reflection census has 20 families with
+   some supported draws and seven with none. Do not treat these as 27 bugs or
+   count a whole family fixed because one variant now reflects.
+3. Diagnose remaining 120 Hz fast-turn and active-scope spikes. Straight tunnel
+   movement improved in controlled traces; whole-game performance is unproven.
+4. Verify road-dash fighting and distant fog in suitable moving views. Do not
+   remove coincident faces merely because the census found them.
+5. Complete menu/material appearance checks. Runtime folder bindings and watch
+   previews have evidence; every image/effect still needs scene validation.
 
-To check on the headset:
-1. Log line `GL: static meshes on`, and a `mesh:` line every 72 frames.
-2. DRAW/TICK should fall well below 16 ms.
-3. A/B by putting an empty `files/gevr_nomesh.txt` on the headset; it switches back to the CPU path.
-4. Visuals: holes, water, logo, watch, guns, guards' guns, menus, the scope, and 90/120 Hz redraws.
-5. Dump logcat to a file first, then search it.
+## Assets and references
 
-## Next steps, in order
+The player's ROM and extracted files stay local and must not be committed:
+`C:/Users/Occor/Documents/other_projects/goldeneye-vr/007 - GoldenEye.z64` and
+`added-content/xbla/files` in that checkout. DAB reference is pinned at
+`adef1dc2d4eca1a5c453a7f2bf03a3b6cdad99b8`, locally in
+`build/bean-reference/upstream`, under `port/licenses/dabs-mod.txt`.
+The pack-wide census has 987 CAFFs, all 7,880 textures decoded, 25,769 materials,
+and zero missing bindings on loaded meshes. Four empty dynamic TV containers
+retain native fallback. Current [reflection census](pr172-reflection-census.json).
 
-1. **Headset round on `915f6c8`.** Fix what it shows before adding more.
-2. **GPU meshes phase 2:** Bean character skinning is implemented.
-   - Validate GPU/CPU character parity and frame time with the checklist in
-     `bean-gpu-skinning.md`. Lighting, fog, culling and palette redraws have
-     offline checks; first-person overrides retain CPU fallback. Scope mesh
-     capture and room chunk culling are implemented; see `pr172-render-followup.md`.
-   - Then rigid models (guns and props) as static meshes.
-   - Validate per-chunk culling near Dam rooms 35, 132 and 135 on the headset.
-   - Optionally A/B `-fno-inline-functions` for fast3d (`CMakeLists.txt:120`).
-   - The `gevr_static_mesh.h` header and the agent's design notes in commit 7f75f48 are the starting point.
-3. **Bean leftovers** (details in the Bean handoff):
-   - `suitlfhand` texture 9: we drop it; Dab draws it. Unverified.
-   - Glass texture 11 (Dab's `beanArmGlass`).
-   - Decal sort order: `vertKey` sorts by texture before the decal bit.
-   - Hiding native backdrop rooms (Dab's rule) and the far plane.
-   - Per-bone routing of the trigger finger.
-   - Monitors (Dab draws `new/texture/monitors`).
-   - `titleblood` uses CAFF format 2, which doesn't decode.
-   - Nintendo logo uses native chrome setup on Bean geometry; verify visually.
-   - User request: with GE-X and Bean both on, draw Bean's watch on the GE-X wrist.
-4. **Bean PNG pack faults** (GoldenEye-007-Bean `GOLDENEYE/Matched`):
-   - the ammo PNGs are flipped and BGR;
-   - the 4 MP stage PNGs are keyed to the wrong images;
-   - the clouds PNG is flipped;
-   - the "portraits" are upscales of the ROM.
-   VR's repaints override all of these; GLideN64 users still see them.
-5. **Hack campaigns:**
-   - remaining Goldfinger and TND code changes (port notes);
-   - Goldfinger missions end to end on the headset.
+## Validation
 
-## Tests
+Run real-asset `test_bean_material.py` and `test_bean_mapping.py` under WSL with
+`BEAN_SANITIZE=1`; mapping includes 457 registrations and 26 stages. The GLES
+fixture `test_skin_shader.py` runs under Mesa/WSL, with skin/tint/fog/UV/scope and
+reflection RGB/alpha execution. Native emitter, joint walker, scope replay,
+uniform ownership, two-hand and lost-tracking/grip-redraw checks cover the new paths.
+Existing broader renderer/game and 36 JVM tests passed earlier checkpoints.
+Run checks appropriate to new changes rather than repeating every suite.
 
-- **Windows:** run every `port/tests/test_*.py`. `test_romcheck` fails on Windows only, as on main (ctypes can't find `zlib1.dll`).
-- **WSL** (`wsl -e bash -lc ...`), with `R=<ROM>` and `F=<xbla files>`:
-  - `BEAN_SANITIZE=1 test_bean.py`
-  - `test_bean_mapping.py R F`
-  - `test_bean_modes.py`
-  - `test_bean_fonts.py F`
-  - `test_bean_folder.py R F`
-  - `test_bean_images.py R F`
-  - `test_bean_material.py F`
-  - `test_launcher_mods.py`
-  - `test_bean_launcher.py`
-- **Real-ROM tests:**
-  - `GEVR_GF64_ROM=... test_romcampaign.py`
-  - `GEVR_GE_ROM=... test_speedboat.py`
-- **Build:** `JAVA_HOME=C:/Program Files/Java/jdk-20 android/gradlew.bat assembleRelease testReleaseUnitTest` (36 JVM tests). If `mergeDexRelease` says the file is in use, run `gradlew --stop`.
+## Other PR scope and historical notes
 
-## Traps
+This branch combines Goldfinger 64 / TND campaigns, Project Bean (#170),
+Dam speedboat (#171) and alarm-hit repairs (#174, closes #173). See
+[ROM hacks](rom-hacks-port-notes.md), [Bean](project-bean-handoff.md),
+[visual repairs](visual-runtime-repair.md) and [speedboat](dam-speedboat.md).
+Campaign end-to-end runs, multiplayer interactions and boat/alarm scene tests
+are separate from the renderer evidence above.
 
-- **Line endings:** the repo is `* -text` with mixed endings. Edit byte-preserving and compare `git diff --stat` with and without `--ignore-cr-at-eol`.
-- **Bash heredocs** eat backslashes. Write scripts with a file tool instead.
-- **Test fixtures:** `test_locomotion`, `test_multiplayer` and others paste production renderer functions into fixtures. A new static used by those functions needs a declaration in the fixture.
-- **Bean decode orientation:** `gevrBeanTexDecodeRgba` returns bottom row first. Repaints keep the ROM's own memory row order (checked by correlation tests); never flip by assumption.
-- **Agent permissions:** a subagent was once refused edits to a shared file. Don't route around a refusal; ask the user.
-- **Unconfirmed causes:** a plausible offline cause is not the cause until the headset confirms it. The Cartel's walls looked like a memory problem and were really `ALPHA_CVG_SEL`.
+Preserve mixed line endings (`* -text`); edit byte-preserving. Source-extraction
+fixtures need any new statics declared. A plausible offline cause is not a
+verified cause until the relevant scene is rendered and inspected.

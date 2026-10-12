@@ -1,0 +1,133 @@
+{
+  "sourceCommit": "16f18ade0126b757a6eb060385618b0ac0d23722",
+  "referenceCommit": "adef1dc2d4eca1a5c453a7f2bf03a3b6cdad99b8",
+  "assetCount": 987,
+  "textureHeaders": 7880,
+  "materialRecords": 25769,
+  "failures": [],
+  "registeredReflectionCandidates": [
+    "new/background/bunker",
+    "new/background/frigate",
+    "new/background/jungle",
+    "new/char/boris",
+    "new/char/pilot",
+    "new/head/headbike",
+    "new/head/headgraham",
+    "new/head/headgrant",
+    "new/head/headmark",
+    "new/head/headneil",
+    "new/prop/ICBM",
+    "new/prop/ICBMnose",
+    "new/prop/cctv",
+    "new/prop/chrgoldeneyekey",
+    "new/prop/desklamp2",
+    "new/prop/destseawolf",
+    "new/prop/gasplantcleardoor",
+    "new/prop/gastank",
+    "new/prop/glassware1",
+    "new/prop/glassware3",
+    "new/prop/glassware4",
+    "new/prop/hathelmet",
+    "new/prop/jeep",
+    "new/prop/miltruck",
+    "new/prop/oildrum7",
+    "new/prop/plane",
+    "new/prop/window"
+  ],
+  "registeredAssetsWithNormalReflectionFaces": [
+    {
+      "source": "new/background/jungle",
+      "faces": 8
+    },
+    {
+      "source": "new/char/boris",
+      "faces": 400
+    },
+    {
+      "source": "new/char/pilot",
+      "faces": 844
+    },
+    {
+      "source": "new/head/headbike",
+      "faces": 784
+    },
+    {
+      "source": "new/head/headgraham",
+      "faces": 32
+    },
+    {
+      "source": "new/head/headmark",
+      "faces": 66
+    },
+    {
+      "source": "new/head/headneil",
+      "faces": 96
+    },
+    {
+      "source": "new/prop/ICBMnose",
+      "faces": 65
+    },
+    {
+      "source": "new/prop/cctv",
+      "faces": 15
+    },
+    {
+      "source": "new/prop/chrgoldeneyekey",
+      "faces": 4
+    },
+    {
+      "source": "new/prop/gasplantcleardoor",
+      "faces": 2
+    },
+    {
+      "source": "new/prop/gastank",
+      "faces": 539
+    },
+    {
+      "source": "new/prop/glassware1",
+      "faces": 192
+    },
+    {
+      "source": "new/prop/glassware3",
+      "faces": 144
+    },
+    {
+      "source": "new/prop/glassware4",
+      "faces": 480
+    },
+    {
+      "source": "new/prop/hathelmet",
+      "faces": 744
+    },
+    {
+      "source": "new/prop/miltruck",
+      "faces": 10
+    },
+    {
+      "source": "new/prop/oildrum7",
+      "faces": 32
+    },
+    {
+      "source": "new/prop/plane",
+      "faces": 12
+    },
+    {
+      "source": "new/prop/window",
+      "faces": 2
+    }
+  ],
+  "registeredCandidatesWithoutNormalReflectionFaces": [
+    "new/background/bunker",
+    "new/background/frigate",
+    "new/head/headgrant",
+    "new/prop/ICBM",
+    "new/prop/desklamp2",
+    "new/prop/destseawolf",
+    "new/prop/jeep"
+  ],
+  "limits": [
+    "A bound reflection map does not certify a whole asset family or every shader variant.",
+    "Candidate bindings can be deliberately disabled by shader constants.",
+    "Bump distortion, specular light and special water/floor shaders remain incomplete."
+  ]
+}
