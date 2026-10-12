@@ -9,6 +9,8 @@
 #include "bg.h"
 #ifdef GEVR
 #include "gevr_romlayout.h"
+#include "gevr_camera_collision.h"
+#include <math.h>
 #endif
 #include "ob.h" /* _fileNameLoadToBank returns a pointer; without the prototype it was truncated */
 #include "bondview.h"
@@ -5143,6 +5145,73 @@ end:
     return len;
 }
 
+
+#ifdef GEVR
+/* The walk mesh describes floors and horizontal boundaries, not lintels.
+ * Probe upwards from inside the walkable space, so an eye already above a
+ * low doorway is recovered as well as one approaching it. Use native solid
+ * background even when Bean supplies the rendered mesh. */
+void gevrBgClampCameraCeiling(float position[3], float floorY, int room, int loadRooms)
+{
+    const f32 clearance = 20.0f;
+    const f32 footprint = 8.0f; /* covers both eyes at any head yaw/roll */
+    s32 rooms[MAXPORTALSPERROOM + 1];
+    s32 count, r, ix, iz;
+    f32 bottom = floorY + 30.0f;
+    f32 ceiling = position[1] + clearance;
+    f32 scale = room_data_float1;
+
+    if (room <= 0 || room >= g_MaxNumRooms || !g_BgPortals ||
+        !isfinite(scale) || scale <= 0.0f || !isfinite(bottom) ||
+        !isfinite(position[0]) || !isfinite(position[1]) || !isfinite(position[2]) ||
+        ceiling <= bottom)
+        return;
+
+    rooms[0] = room;
+    count = 1 + bgGetConnectedRooms(room, rooms + 1, MAXPORTALSPERROOM);
+    for (r = 0; r < count; r++)
+    {
+        s_room_info *info;
+        if (rooms[r] <= 0 || rooms[r] >= g_MaxNumRooms) continue;
+        info = &g_BgRoomInfo[rooms[r]];
+        /* Bounds and bullet hits use the asset's level scale, not the
+         * renderer's independent visibility scale. Skip distant neighbours
+         * before loading or walking their display lists. */
+        if ((position[0] + footprint) * scale < info->minbounds.x ||
+            (position[0] - footprint) * scale > info->maxbounds.x ||
+            (position[2] + footprint) * scale < info->minbounds.z ||
+            (position[2] - footprint) * scale > info->maxbounds.z ||
+            ceiling * scale < info->minbounds.y || bottom * scale > info->maxbounds.y)
+            continue;
+        /* Loading is allowed only on a game frame. XR redraws query the
+         * retained native geometry without allocating/unloading room data. */
+        if (loadRooms) bgCheckIfRoomModelNeedsLoad(rooms[r]);
+        if (!info->vtx_batch_bounds) continue;
+
+        for (ix = -1; ix <= 1; ix++) for (iz = -1; iz <= 1; iz++)
+        {
+            coord3d from, to;
+            HitThing hit;
+            f32 y;
+            from.x = position[0] + ix * footprint;
+            from.y = bottom;
+            from.z = position[2] + iz * footprint;
+            to = from;
+            to.y = ceiling;
+            if (bgTestBulletHitBackground(&from, &to, rooms[r], &hit))
+            {
+                y = hit.hitpos.y / scale;
+                /* The bullet routine tests an infinite forward ray. A
+                 * ceiling beyond this short segment must not lower the eye. */
+                if (isfinite(y) && y >= bottom && y < ceiling)
+                    ceiling = y;
+            }
+        }
+    }
+    if (ceiling - clearance < position[1])
+        position[1] = ceiling - clearance;
+}
+#endif
 
 // Scan all portals to see if these rooms are connected
 //

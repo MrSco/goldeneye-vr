@@ -33,7 +33,7 @@ runtime = [
     'extern "C" void gevrVrLocomotionSnapshot(const float position[3], const float tracking[3],\n                                        float yaw, uint64_t sequence)',
     'extern "C" void gevrVrCameraWorld(const float position[3], const float look[3], const float up[3])',
     'static void vr_quat_to_mat3(const XrQuaternionf& q, float m[9])',
-    'static bool vr_locomotion_camera(const GevrPresentationCamera& source,\n                                const GevrLocomotionPose& confirmed,\n                                const std::array<XrView, 2>& sourceViews)',
+    'static bool vr_locomotion_camera(const GevrPresentationCamera& source, float ceilingDrop,\n                                const GevrLocomotionPose& confirmed,\n                                const std::array<XrView, 2>& sourceViews)',
     'extern "C" int gevrVrPresentationDelta(float out[16])',
     'extern "C" void gevrVrMarkEyesRendered(int stereo)',
     'extern "C" int gevrVrRedrawDelta(float out[16])',

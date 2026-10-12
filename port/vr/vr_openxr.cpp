@@ -73,6 +73,7 @@
 #include "vr_screen.h"
 #include "gevr_render_size.h"
 #include "gevr_locomotion.h"
+#include "gevr_camera_collision.h"
 #include "gevr_frame_timing.h"
 #include "gevr_xr_metrics.h"
 #include "gevr_hud_bounds.h"
@@ -2744,6 +2745,7 @@ static GevrLocomotionHistory s_locomotion;
 static GevrLocomotionStats s_locomotionStats;
 static GevrPresentationCamera s_sourceCamera, s_recordedCamera, s_presentedCamera, s_recordedPresentation;
 static GevrLocomotionPose s_recordedLocomotion;
+static float s_sourceCeilingDrop, s_recordedCeilingDrop;
 static bool s_haveSourceCamera, s_haveRecordedCamera;
 static XrTime s_lastPresentationTime;
 static GevrLocomotionPose s_evaluatedLocomotion;
@@ -2830,6 +2832,7 @@ extern "C" void gevrVrCameraWorld(const float position[3], const float look[3], 
         s_sourceCamera.rotation[i*3+1] = correctedUp[i];
         s_sourceCamera.rotation[i*3+2] = back[i];
     }
+    s_sourceCeilingDrop = gevrCameraCeilingDrop();
     s_haveSourceCamera = true;
 }
 extern "C" const char *gevrPerfText(void);   // gevr_engine_shim.c: CPU time per frame
@@ -2975,6 +2978,7 @@ extern "C" void gevrVrMarkEyesRendered(int stereo)
         s_haveRecordedCamera = s_haveSourceCamera && s_locomotion.count != 0;
         if (s_haveRecordedCamera) {
             s_recordedCamera = s_sourceCamera; // retained vertices stay in the simulation camera
+            s_recordedCeilingDrop = s_sourceCeilingDrop;
             s_recordedPresentation = s_presentedCamera;
             s_recordedLocomotion = s_locomotion.poses[s_locomotion.count - 1];
         }
@@ -3016,7 +3020,7 @@ static void vr_quat_to_mat3(const XrQuaternionf& q, float m[9])   // row-major
 /* Shared by fresh draws and redraws. Head tracking is evaluated now; only
  * confirmed locomotion uses the delayed timeline. The GL ring still contains
  * simulation-camera vertices, so the correction is absolute, never cumulative. */
-static bool vr_locomotion_camera(const GevrPresentationCamera& source,
+static bool vr_locomotion_camera(const GevrPresentationCamera& source, float ceilingDrop,
                                 const GevrLocomotionPose& confirmed,
                                 const std::array<XrView, 2>& sourceViews)
 {
@@ -3058,6 +3062,13 @@ static bool vr_locomotion_camera(const GevrPresentationCamera& source,
         gevrLocomotionClipHead(source.rotation, contactT, s_collisionNormal, headT);
     }
     gevrLocomotionCamera(&source, &confirmed, &s_evaluatedLocomotion, headR, headT, &s_presentedCamera);
+    /* Undo the source camera clamp before applying current tracking. Small
+     * ducks must stay at the lintel until the raw eye clears it, and leaving
+     * the doorway must restore the character's actual height. */
+    s_presentedCamera.position[1] += ceilingDrop;
+    /* Tracking newer than the simulation camera must respect the same
+     * lintel clearance on fresh draws and retained-geometry redraws. */
+    gevrClampCameraCeiling(s_presentedCamera.position);
     gevrFrameTimingCamera(s_presentedCamera.position);
     return true;
 }
@@ -3065,7 +3076,7 @@ static bool vr_locomotion_camera(const GevrPresentationCamera& source,
 extern "C" int gevrVrPresentationDelta(float out[16])
 {
     if (!s_haveSourceCamera || !g_haveCameraViews || !s_locomotion.count) return 0;
-    if (!vr_locomotion_camera(s_sourceCamera, s_locomotion.poses[s_locomotion.count - 1], g_cameraViews)) return 0;
+    if (!vr_locomotion_camera(s_sourceCamera, s_sourceCeilingDrop, s_locomotion.poses[s_locomotion.count - 1], g_cameraViews)) return 0;
     gevrCameraDelta(&s_sourceCamera, &s_presentedCamera, vr_world_scale / 100.0f, out);
     return 1;
 }
@@ -3075,7 +3086,7 @@ extern "C" int gevrVrRedrawDelta(float out[16])
     if (!g_haveRecordedViews || !g_frameStarted || !g_frameState.shouldRender || vr_world_scale <= 0.0f) {
         return 0;
     }
-    if (s_haveRecordedCamera && vr_locomotion_camera(s_recordedCamera, s_recordedLocomotion, g_recordedViews)) {
+    if (s_haveRecordedCamera && vr_locomotion_camera(s_recordedCamera, s_recordedCeilingDrop, s_recordedLocomotion, g_recordedViews)) {
         float recorded[16], current[16];
         gevrCameraDelta(&s_recordedCamera, &s_recordedPresentation, vr_world_scale / 100.0f, recorded);
         gevrCameraDelta(&s_recordedPresentation, &s_presentedCamera, vr_world_scale / 100.0f, current);
