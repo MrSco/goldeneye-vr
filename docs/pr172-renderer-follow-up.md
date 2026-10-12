@@ -64,3 +64,15 @@ as fixed by this follow-up.
 
 No APK was installed. Repository instructions require an explicit installation
 request before installing a build on any device.
+
+## Signed review build
+
+- Clean source: `5c79082b4030d4d8f630bebbe022e07aa1974fd9`.
+- APK: `android/app/build/outputs/apk/release/GoldenEye-VR-PR172-Animation-Colour-Fog-5c79082.apk`.
+- SHA-256: `b7c8ebb077367bb26cea435eeaa91e8022ccc2eded1e30f35cfdb8b586031216`.
+- Native build ID: `ffa05ee609d169d21af6bfd7ba57135772df4a50`.
+- Exact symbols: `android/app/build/outputs/symbols/ffa05ee609d169d21af6bfd7ba57135772df4a50/`.
+- Signing and packaged source stamp verified; archive metadata records
+  `dirty: false`, `installed: false`, `published: false`.
+- Release build and JVM test task pass with JDK 20; JVM tests are cached because
+  this follow-up has no Java changes. Headset validation is pending installation.
