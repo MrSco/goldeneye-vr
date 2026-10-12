@@ -11,9 +11,10 @@ PR #172 (draft, branch cursor/rom-hack-layouts-026b) combines Goldfinger 64 /
 Tomorrow Never Dies campaigns, Project Bean (#170), the Dam speedboat (#171)
 and Dam wall alarms (#174). Bean is imported from the player's own XBLA
 copy (Mods, "Choose copy..."; nothing is downloaded, the old Bean releases
-are deleted and the repo private). Latest Bean round (2026-10-12, be8b409 on
+are deleted and the repo private). Latest Bean round (2026-10-12, c30fbe3 on
 the Quest): guns' moving parts on GoldenEye's matrices, watch previews,
-metal guns, the rocket's round, the trigger finger, Bean's own Gun fit set.
+metal guns, the rocket's round, the trigger finger, Bean's own Gun fit set,
+the watch items' pressing hand, 2D depth, Bean's arm in the two-handed hold.
 Start with [PR #172 handoff](docs/pr172-handoff.md); setup:
 [Project Bean](docs/project-bean.md), [hack campaigns](docs/rom-hacks.md).
 Candidate notes: [v0.4.20](docs/releases/v0.4.20.md). Latest published
