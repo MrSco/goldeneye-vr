@@ -8048,6 +8048,8 @@ s32 bondviewTryMoveToStan(struct coord3d *arg0, StandTile **stan)
 {
 #ifdef GEVR
     s32 gevrMoveTestsOk;
+    s32 gevrMoveLineOk;
+    s32 gevrMoveVolumeResult;
 #endif
     s32 sp94;
     StandTile *sp90;
@@ -8120,7 +8122,9 @@ s32 bondviewTryMoveToStan(struct coord3d *arg0, StandTile **stan)
             lineok = stanTestLineUnobstructed(&sp90, g_CurrentPlayer->field_488.collision_position.f[0],
                                               g_CurrentPlayer->field_488.collision_position.f[2], arg0->f[0], arg0->f[2],
                                               cdtypes, height, always_30, 0.0f, 1.0f) != 0;
-            volumeok = lineok && stanTestVolume(&sp90, arg0->f[0], arg0->f[2], collision_radius, cdtypes, height, always_30) < 0;
+            gevrMoveLineOk = lineok;
+            gevrMoveVolumeResult = lineok ? stanTestVolume(&sp90, arg0->f[0], arg0->f[2], collision_radius, cdtypes, height, always_30) : -2;
+            volumeok = lineok && gevrMoveVolumeResult < 0;
             g_gevrPlayerMoveTest = FALSE;
             gevrMoveTestsOk = volumeok;
         }
@@ -8161,6 +8165,31 @@ s32 bondviewTryMoveToStan(struct coord3d *arg0, StandTile **stan)
         {
 block_20:
 #ifdef GEVR
+            /* #164: placement checks passed, but the reporter still sticks
+             * after reloading. Record the actual movement failure, including
+             * scenery, guards and floor/ceiling checks omitted by older logs.
+             * Volume -2 means the failed line test short-circuited it. */
+            if (gevrCoopActive() && get_cur_playernum() == netGetLocalSlot()
+                && (fabsf(arg0->x - g_CurrentPlayer->field_488.collision_position.x) > 0.01f
+                    || fabsf(arg0->z - g_CurrentPlayer->field_488.collision_position.z) > 0.01f))
+            {
+                static u64 next_log_us;
+                u64 now = sysGetMicroseconds();
+                if (now >= next_log_us)
+                {
+                    PropRecord *blocker = stanSavedColl_posData;
+                    ObjectRecord *object = blocker && (blocker->type == PROP_TYPE_OBJ || blocker->type == PROP_TYPE_DOOR) ? blocker->obj : NULL;
+                    next_log_us = now + 1000000;
+                    sysLogPrintf(LOG_NOTE, "coop-move: stage %d slot %d camera %d from %.1f,%.1f,%.1f to %.1f,%.1f tile %p room %d radius %.1f height %.1f..%.1f line %d volume %d locus %d edge %d blocker type %d id %d pad %d",
+                        bossGetStageNum(), get_cur_playernum(), g_CameraMode,
+                        g_CurrentPlayer->field_488.collision_position.x, g_CurrentPlayer->field_488.collision_position.y, g_CurrentPlayer->field_488.collision_position.z,
+                        arg0->x, arg0->z, (void *)sp90, sp90 ? sp90->room : -1,
+                        collision_radius, always_30, height, gevrMoveLineOk, gevrMoveVolumeResult,
+                        stanGetLocusCount(&sp3C), sp7C, blocker ? blocker->type : -1,
+                        object ? object->obj : blocker && blocker->type == PROP_TYPE_CHR && blocker->chr ? blocker->chr->chrnum : -1,
+                        object ? object->pad : -1);
+                }
+            }
             /* a move refused for a door: which, and how open (Facility double door that opens but blocks, user 2026-09-30) */
             if (stanSavedColl_posData != NULL && stanSavedColl_posData->type == PROP_TYPE_DOOR && stanSavedColl_posData->door != NULL)
             {
