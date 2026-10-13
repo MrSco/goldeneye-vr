@@ -4425,6 +4425,14 @@ static bool gevr_mesh_run_visible(const GevrStaticMeshRun* run)
 }
 
 static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, GevrSkinDraw* skin) {
+    // These runs cannot contribute a pixel. Consuming them here avoids posing
+    // every Bean vertex on the CPU before gfx_sp_tri1 discards the triangles.
+    if (rsp.modelview_hidden_stack[rsp.modelview_matrix_stack_size - 1] ||
+        (!gevrCullOff && (rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH)) {
+        s_gevrMeshCulled++;
+        s_gevrMeshCulledTris += run->indexCount / 3;
+        return true;
+    }
     if (!s_gevrMeshOn || (skin && !s_gevrSkinOn) || gfx_rapi->draw_mesh == nullptr || run->indexCount == 0) {
         return false;
     }
@@ -4436,12 +4444,12 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, 
         return true; // consume the run without a GPU draw or CPU vertex walk
     }
     // Rooms remain unlit. Skins supply fitted influences, lights and culling;
-    // colour tables, generated UVs and first-person overrides use the CPU.
+    // colour tables, generated UVs and backface depth pushes use the CPU.
     if ((!skin && (rsp.geometry_mode & (G_LIGHTING | G_CULL_BOTH))) ||
         (rsp.geometry_mode & G_TEXTURE_GEN) ||
         (rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH || rsp.vertex_colors != nullptr ||
         rsp.modelview_hidden_stack[rsp.modelview_matrix_stack_size - 1] ||
-        ((gevrCullOff || gevrCullMirror) && (rsp.geometry_mode & G_CULL_BOTH)) ||
+        ((gevrCullOff || (!skin && gevrCullMirror)) && (rsp.geometry_mode & G_CULL_BOTH)) ||
         !(fbActive || vr_is_initialized())) {
         s_gevrMeshFallbacks++;
         return false;
@@ -4473,6 +4481,8 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, 
         params.skinned = true;
         params.palette = skin->palette;
         params.cull = (geometry & G_CULL_BACK) ? 1 : (geometry & G_CULL_FRONT) ? 2 : 0;
+        // Mirrored controller roles reverse winding just as the CPU path does.
+        if (params.cull && gevrCullMirror) params.cull = params.cull == 1 ? 2 : 1;
         // The MP uniform negates y on an inverted target, reversing winding.
         if (params.cull && s_gevrMeshState.clip.invert_y) params.cull = -params.cull;
         params.lit = (geometry & G_LIGHTING) != 0;

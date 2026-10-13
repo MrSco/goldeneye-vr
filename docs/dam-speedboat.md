@@ -14,6 +14,8 @@ one is as far out as the docks.
   The boat stays on the reservoir, out to the island.
 - **Step off:** press **B** once the hull is near the island landing. **B** in
   mid-crossing does not drop you in the water.
+- **Hull lost:** the hull is a normal prop (1000 health). If it is destroyed
+  or removed while you ride, you land back on the north jetty.
 
 Multiplayer does not spawn it, nor a Goldfinger 64 or Tomorrow Never Dies
 campaign (their own levels sit in Dam's slot). The island's floor only covers part of the

@@ -15,6 +15,11 @@ alone in Facility's vent. The user retested replacement 65f7831 and reported
 swaps and Jungle Natalya still need broader play. Notes:
 [v0.4.22](docs/releases/v0.4.22.md), [#164 evidence](docs/issue-161-164-campaign-fixes.md).
 
+Unreleased on main (PR #178, 2026-10-13): aim steadying per headset frame,
+no VR screen shake, chest/belt slot models half size on the slot (watch laser
+as the watch), each hand's ammo on its own hand, Dam boat crash 252ac6ae (hull
+lost aboard: back to the north jetty). [Notes](docs/vr-tracking-bean-validation.md).
+
 v0.4.20 merged PR #172: the Goldfinger 64 / Tomorrow Never Dies campaigns
 (solo, the player's own patched ROMs), Project Bean (#170), the Dam
 speedboat (#171), Dam wall alarms (#174) and Bean's GPU skinning and world
@@ -41,11 +46,7 @@ muzzle flashes hidden behind the world. Notes:
 **v0.4.20:** Project Bean visuals from the player's XBLA copy, Goldfinger 64
 and TND campaigns, Dam speedboat and alarms, per-gun Gun fit placed by hand,
 low doorways. Notes: [v0.4.20](docs/releases/v0.4.20.md).
-**v0.4.19:** hand/scope tracking, mission gadgets, watch laser, ROM validation
-and startup crash fix. Notes: [v0.4.19](docs/releases/v0.4.19.md).
-**v0.4.18:** Touch controllers on the watch's Control page, off-hand trigger
-no longer aims (PR #166). Notes: [v0.4.18](docs/releases/v0.4.18.md).
-**Earlier:** see docs/releases/ for v0.4.0–v0.4.17; older evidence is in
+**Earlier:** see docs/releases/ for v0.4.0–v0.4.19; older evidence is in
 docs/playtest-* and Git history.
 
 ## What it is and what works

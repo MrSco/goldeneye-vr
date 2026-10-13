@@ -66,6 +66,8 @@ typedef struct
     ModelFileHeader header;
     s32 fitted;                        /* 1 fitted, -1 no fit (the Pchr model is drawn) */
     Mtxf fit;                          /* G model space to the hand's (the Pchr model's) */
+    s32 centred;                       /* 1 centre found, -1 none (gevrHeldGunCentre) */
+    f32 centre[3];
 } HeldGunFile;
 
 typedef struct
@@ -205,6 +207,7 @@ static HeldGunFile *gevrHeldGunLoad(s32 item)
     f->item = item;
     f->ok = FALSE;
     f->fitted = 0;
+    f->centred = 0;
 
     if (f->buf == NULL && (f->buf = malloc(HG_BUFSIZE)) == NULL)
     {
@@ -275,39 +278,29 @@ void gevrHeldGunReset(void)
 
 /* ------------------------------------------------------------- the pose */
 
+/* Gadgets can have shorter switch tables than the first-person gun rigs. */
+static void gevrHeldGunSwitch(Model *m, ModelFileHeader *h, s32 index, s32 value)
+{
+    union ModelRwData *rw;
+    if (index < h->numSwitches && h->Switches[index] != NULL
+        && (rw = modelGetNodeRwData(m, h->Switches[index])) != NULL)
+    {
+        rw->Raw.unk00 = value;
+    }
+}
+
 /* As the watch poses it: no hands, sleeve or cuff; shells shown; no flash */
 static void gevrHeldGunStaticPose(Model *m, ModelFileHeader *h)
 {
-    union ModelRwData *rw;
     s32 k;
-
-    sub_GAME_7F05E978(m, 0);
-    sub_GAME_7F05EA94(m, 1);
-
-    if (h->Switches[1] != NULL && (rw = modelGetNodeRwData(m, h->Switches[1])) != NULL)
-    {
-        rw->Raw.unk00 = 0;
-    }
-
-    if (h->numSwitches >= 19)
-    {
-        for (k = 0; k < 5; k++)
-        {
-            if (h->Switches[18 + k] != NULL && (rw = modelGetNodeRwData(m, h->Switches[18 + k])) != NULL)
-            {
-                rw->Raw.unk00 = 1;
-            }
-            if (h->Switches[23 + k] != NULL && (rw = modelGetNodeRwData(m, h->Switches[23 + k])) != NULL)
-            {
-                rw->Raw.unk00 = 1;
-            }
-        }
-    }
-
-    if (h->numSwitches >= 17 && h->Switches[16] != NULL && (rw = modelGetNodeRwData(m, h->Switches[17])) != NULL)
-    {
-        rw->Raw.unk00 = 0;
-    }
+    for (k = 8; k <= 13; k++) gevrHeldGunSwitch(m, h, k, 0);
+    gevrHeldGunSwitch(m, h, 35, 0);
+    gevrHeldGunSwitch(m, h, 14, 1);
+    gevrHeldGunSwitch(m, h, 15, 1);
+    gevrHeldGunSwitch(m, h, 1, 0);
+    for (k = 18; k <= 27; k++) gevrHeldGunSwitch(m, h, k, 1);
+    if (h->numSwitches > 16 && h->Switches[16] != NULL)
+        gevrHeldGunSwitch(m, h, 17, 0);
 }
 
 /* every matrix the root, the revolver's and sw6/7's parts at their offsets */
@@ -323,19 +316,19 @@ static void gevrHeldGunMatrices(ModelFileHeader *h, Mtxf *root, Mtxf *mtx)
 
     if (h->Skeleton == &skeleton_gun_revolver)
     {
-        if (h->Switches[4] != NULL)
+        if (h->numSwitches > 4 && h->numMatrices > 3 && h->Switches[4] != NULL)
         {
             matrix_4x4_set_identity_and_position((coord3d *)h->Switches[4]->Data, &off);
             matrix_4x4_multiply(root, &off, &mtx[3]);
         }
-        if (h->Switches[5] != NULL)
+        if (h->numSwitches > 5 && h->numMatrices > 4 && h->Switches[5] != NULL)
         {
             matrix_4x4_set_identity_and_position((coord3d *)h->Switches[5]->Data, &off);
             matrix_4x4_multiply(root, &off, &mtx[4]);
         }
     }
 
-    for (i = 6; i <= 7; i++)
+    for (i = 6; i <= 7 && i < h->numSwitches; i++)
     {
         if (h->Switches[i] != NULL)
         {
@@ -411,6 +404,50 @@ static void hgBoxModel(ModelFileHeader *h, ModelNode **skip, s32 nskip, f32 ox, 
             node = node->Parent;
         }
     }
+}
+
+/* The middle of what the static pose draws (gevrHeldGunStaticPose's hidden
+ * hands, sleeve and flash left out), model units: a body slot centres on it.
+ */
+s32 gevrHeldGunCentre(s32 item, f32 c[3])
+{
+    static const s32 hidden[] = { 1, 8, 9, 10, 11, 12, 13, 35 };
+    HeldGunFile *f = gevrHeldGunLoad(item);
+    ModelFileHeader *h;
+    ModelNode *skip[9];
+    HgBox b = { { 0 }, { 0 }, 0 };
+    s32 i, n = 0;
+
+    if (f == NULL)
+    {
+        return FALSE;
+    }
+    if (f->centred == 0)
+    {
+        h = &f->header;
+        for (i = 0; i < (s32) (sizeof(hidden) / sizeof(hidden[0])); i++)
+        {
+            if (hidden[i] < h->numSwitches && h->Switches[hidden[i]] != NULL)
+            {
+                skip[n++] = h->Switches[hidden[i]];
+            }
+        }
+        if (h->numSwitches > 17 && h->Switches[16] != NULL && h->Switches[17] != NULL)
+        {
+            skip[n++] = h->Switches[17];
+        }
+        hgBoxModel(h, skip, n, 0.0f, 0.0f, 0.0f, &b);
+        f->centred = b.n >= 3 ? 1 : -1;
+        for (i = 0; i < 3; i++)
+        {
+            f->centre[i] = b.n >= 3 ? (b.min[i] + b.max[i]) * 0.5f : 0.0f;
+        }
+    }
+    for (i = 0; i < 3; i++)
+    {
+        c[i] = f->centre[i];
+    }
+    return f->centred > 0;
 }
 
 /*
