@@ -121,6 +121,12 @@ struct gevrRomFileRow {
 void gevrRomCampaignSet(int campaign);
 int gevrRomCampaign(void);
 int gevrRomIsVariant(void);
+/*
+ * The hack's own animation_table_ptrs1[] and ptrs2[] (initanitable.c), read
+ * from its data segment by gevrRomApplyVariant: where in its animation segment
+ * each animation's record is. 0 when no hack is bound.
+ */
+int gevrRomAnimTables(const uint32_t **ptrs1, int *count1, const uint32_t **ptrs2, int *count2);
 /* 1 when GexGuns was on but a hack campaign turned it off for this run; it is still saved as on. */
 extern int gevrGexCampaignOff;
 const struct gevrRomLayout *gevrRomActiveLayout(void);

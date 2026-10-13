@@ -273,6 +273,72 @@ void expand_ani_table_entries(uintptr_t *arg0)
      */
 }
 
+#ifdef GEVR
+#include <stdlib.h>
+#include "gevr_romlayout.h"
+
+/*
+ * A hack campaign whose own animation tables (gevr_romcampaign.c) put the
+ * records elsewhere than GoldenEye's: TND64 rebuilt the segment, and reading
+ * it at GoldenEye's offsets crashed it starting (report 3020ba2c: root motion
+ * in initWeaponAnimGroups). Its segment rebuilt at GoldenEye's offsets
+ * (gevr_romswap.c) takes this segment's place. FALSE when the hack's records
+ * are GoldenEye's (Goldfinger 64's are, to the byte) or no hack is bound.
+ */
+static s32 gevrAnimLoadHackSegment(s32 hackSize)
+{
+    static u32 geOfs[ARRAYCOUNT(animation_table_ptrs1) + ARRAYCOUNT(animation_table_ptrs2)];
+    static u32 hackOfs[ARRAYCOUNT(animation_table_ptrs1) + ARRAYCOUNT(animation_table_ptrs2)];
+    const uint32_t *hack1, *hack2;
+    int n1, n2, i;
+    u32 count = 0, size = 0;
+    s32 moved = FALSE;
+    u8 *bytes, *rebuilt;
+
+    if (hackSize <= 0 || !gevrRomAnimTables(&hack1, &n1, &hack2, &n2))
+    {
+        return FALSE;
+    }
+    for (i = 0; animation_table_ptrs1[i] != 0 && i < n1; i++)
+    {
+        geOfs[count] = (u32)animation_table_ptrs1[i];
+        hackOfs[count] = hack1[i];
+        moved |= geOfs[count] != hackOfs[count];
+        count++;
+    }
+    for (i = 0; animation_table_ptrs2[i] != NULL && i < n2; i++)
+    {
+        geOfs[count] = (u32)(uintptr_t)animation_table_ptrs2[i];
+        hackOfs[count] = hack2[i];
+        moved |= geOfs[count] != hackOfs[count];
+        count++;
+    }
+    if (!moved)
+    {
+        return FALSE;
+    }
+    if (n1 != ARRAYCOUNT(animation_table_ptrs1) - 1 || n2 != ARRAYCOUNT(animation_table_ptrs2) - 1)
+    {
+        sysLogPrintf(LOG_WARNING, "anim: the hack's tables hold %d and %d records, GoldenEye's %d and %d",
+                     n1, n2, ARRAYCOUNT(animation_table_ptrs1) - 1, ARRAYCOUNT(animation_table_ptrs2) - 1);
+    }
+    bytes = malloc((size_t)hackSize);
+    if (bytes == NULL)
+    {
+        return FALSE;
+    }
+    romCopy(bytes, _animation_dataSegmentRomStart, hackSize);
+    rebuilt = gevrRomRebuildAnimationData(bytes, (u32)hackSize, geOfs, hackOfs, count, &size);
+    free(bytes);
+    if (rebuilt == NULL)
+    {
+        return FALSE;
+    }
+    ptr_animation_table = (struct animation_table_data *)rebuilt;
+    return TRUE;
+}
+#endif
+
 void alloc_load_expand_ani_table(void)
 {
     s32 animsDataSegmentSize;
@@ -284,6 +350,14 @@ void alloc_load_expand_ani_table(void)
 
     animsDataSegmentSize = (s32)((uintptr_t)_animation_dataSegmentEnd - (uintptr_t)_animation_dataSegmentStart);
 
+#ifdef GEVR
+    if (gevrAnimLoadHackSegment(animsDataSegmentSize))
+    {
+        expand_ani_table_entries(animation_table_ptrs1);
+        expand_ani_table_entries((uintptr_t *)animation_table_ptrs2);
+        return;
+    }
+#endif
     ptr_animation_table = mempAllocBytesInBank(animsDataSegmentSize, MEMPOOL_PERMANENT);
 
     romCopy(ptr_animation_table, _animation_dataSegmentRomStart, animsDataSegmentSize);

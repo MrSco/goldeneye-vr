@@ -32,7 +32,20 @@ extern GunModelFileRecord gitem_structs[];
 #define GEVR_FOLDER_ROW 28u
 #define GEVR_FOLDER_CAP 48
 
+/*
+ * animation_table_ptrs1[] and ptrs2[] (initanitable.c) in the data segment:
+ * an animation's record as its offset in the animation segment, a guard's then
+ * an aircraft's. A hack that rebuilt the segment moved them (DAB geconvert.c
+ * animRecord(): TND64 moved every record but the first, by 4 to 0x528 bytes).
+ */
+#define GEVR_ANIM_TABLE1_AT  0x80029d6cu
+#define GEVR_ANIM_TABLE2_AT  0x8002a04cu
+#define GEVR_ANIM_TABLE1_CAP 256
+#define GEVR_ANIM_TABLE2_CAP 8
+
 static struct gevrDataWindow g_Window;
+static uint32_t g_AnimTable1[GEVR_ANIM_TABLE1_CAP], g_AnimTable2[GEVR_ANIM_TABLE2_CAP];
+static int g_AnimCount1, g_AnimCount2;
 static char g_FolderLabel[GEVR_FOLDER_CAP][8];
 static char g_FolderBrief[GEVR_FOLDER_CAP][24];
 
@@ -1001,6 +1014,41 @@ const char *gevrRomStageMemString(int stage, int multi)
 	return g_MemStrings[g_MemStringCount - 1].text;
 }
 
+/* a table of the hack's animation records, to its 0 */
+static int readAnimTable(uint32_t at, uint32_t *dst, int cap)
+{
+	int n = 0;
+
+	while (n < cap) {
+		const uint8_t *p = atVram(at + 4u * (uint32_t)n, 4);
+
+		if (!p || be32at(p) == 0) {
+			break;
+		}
+		dst[n++] = be32at(p);
+	}
+	return n;
+}
+
+static void installAnimTables(void)
+{
+	g_AnimCount1 = readAnimTable(GEVR_ANIM_TABLE1_AT, g_AnimTable1, GEVR_ANIM_TABLE1_CAP);
+	g_AnimCount2 = readAnimTable(GEVR_ANIM_TABLE2_AT, g_AnimTable2, GEVR_ANIM_TABLE2_CAP);
+	sysLogPrintf(LOG_NOTE, "rom: %d guard and %d aircraft animation records from the hack", g_AnimCount1, g_AnimCount2);
+}
+
+int gevrRomAnimTables(const uint32_t **ptrs1, int *count1, const uint32_t **ptrs2, int *count2)
+{
+	if (!gevrRomIsVariant() || g_AnimCount1 == 0) {
+		return 0;
+	}
+	*ptrs1 = g_AnimTable1;
+	*count1 = g_AnimCount1;
+	*ptrs2 = g_AnimTable2;
+	*count2 = g_AnimCount2;
+	return 1;
+}
+
 int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 {
 	const struct gevrRomLayout *L = gevrRomActiveLayout();
@@ -1011,6 +1059,7 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 
 	g_FileRowCount = 0;
 	g_MemStringCount = 0;
+	g_AnimCount1 = g_AnimCount2 = 0;
 	clearLamps();
 	gevrRomClearItemMap();
 	if (!rom || !L || !L->variant || romLen < GEVR_DATA_ROM + 3) {
@@ -1095,6 +1144,7 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 	installHats(L);
 	installLevelTables();
 	installMemStrings();
+	installAnimTables();
 	ok = 1;
 	sysLogPrintf(LOG_NOTE, "rom: %s ready (%u bytes)", L->name, romLen);
 	return ok;
