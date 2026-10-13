@@ -12,7 +12,11 @@ then after the Rare logo): its moved animation records and Rare logo are read
 where it put them; it loaded into its first mission in the headset. Co-op
 starts (#164, bb8acfe): every player's start, the first included, is checked
 against loaded scenery; two-headset starts still owed (Jungle, Train,
-Control, Caverns, Cradle; Natalya following in Jungle). Guards' and other
+Control, Caverns, Cradle; Natalya following in Jungle). The reporter still
+gets stuck in v0.4.21, including after reloads. A follow-up preserves the
+checked gameplay position through the co-op intro and reconnects the retained
+body at its end; native regressions pass, two-headset confirmation is pending.
+See [#164 follow-up](docs/issue-161-164-campaign-fixes.md). Guards' and other
 players' muzzle flashes (DetailedGuns) compare depth and no longer show
 through trunks and walls; confirmed in the headset. Notes:
 [v0.4.21](docs/releases/v0.4.21.md).

@@ -146,3 +146,58 @@ This repairs reproduced placement defects; confirming the reporter's exact
 symptom still requires both headsets running the patched build. Prioritize
 Jungle, Train, Control, Caverns and Cradle, then Facility's crouched entrance,
 the remaining missions and late joins. No APK was installed during this work.
+
+## #164 intro handoff fix (2026-10-12)
+
+The newest v0.4.21 report says P1 cannot move on Dam, Facility, Runway and
+Jungle while P2 can; neither can move on Control, Caverns and Cradle. Jungle
+worked once and then failed after a reload. Train remains in the original
+report, but was not included in that latest retest. P1/P2 does not establish
+whether the difference is host role, slot, character or position.
+
+PR #176 identified the intro as a hypothesis and added blocker diagnostics.
+This follow-up reproduces a concrete defect in its production player-tick
+path: `chrTick` moves the intro body's root position and floor tile, and
+`playerTick` copies both into the collision state after the spawn search.
+Co-op retains that body after the swirl; solo removes it. Placement clearance
+therefore does not establish clearance at the moment co-op gameplay starts.
+
+During the co-op intro, fade and swirl, the animated body's position/tile
+now stay separate from gameplay collision. On normal or skipped completion,
+the retained body is reconnected to the gameplay position and switched out of
+its intro action. Camera/portal positions, collision bounds and previous
+position are refreshed, and VR locomotion resets at the handoff. Missions
+without a swirl use the same handoff. An owner correction or late-join
+placement received during the intro is preserved. Solo, death and scripted
+ending cinematics retain their actor-driven collision behavior.
+
+The rate-limited `coop-move:` diagnostics from PR #176 are included so a
+remaining failure identifies its actual line/volume/floor or prop blocker.
+`coop-intro:` records the owner's gameplay position and tile at the handoff.
+No network protocol or release version changes are required.
+
+Validation on this Windows machine:
+
+- `python port/tests/test_coop_intro.py` passes with extracted production
+  cinematic ticks, camera advance, body removal, collision bounds and handoff.
+  The animation fixture deliberately displaces the visual body and loses its
+  tile. Tests cover all four slots, normal/skipped completion, extra passes,
+  three consecutive loads, a late-join correction, no-swirl missions and
+  solo/scripted/death controls. The same test with `--baseline-ref 8683dab`
+  fails when the animation replaces the checked collision position.
+- The existing co-op start, collision, spawn replication, items, debrief,
+  soft collision, edge slide, campaign items and frame timing suites pass,
+  as do all 77 multiplayer regressions and 30 Android release unit tests.
+- The owned-USA-ROM audit passes for all twenty mission entrances with
+  two/three/four-player floor placements. This is a floor audit, not a
+  headset test of loaded scenery, animation assets or movement input.
+- `:app:assembleRelease :app:testReleaseUnitTest` passes with `JAVA_HOME`
+  explicitly set to `C:/Program Files/Java/jdk-20`.
+
+This fixes the reproduced intro-state defect. The exact reported gameplay
+failure remains unconfirmed until both headsets run the patched release APK;
+keep #164 open. Prioritize a full intro and a skipped intro on Dam, Facility,
+Runway, Jungle, Train, Control, Caverns and Cradle; leave each entrance with
+both players, abort/reload each mission at least twice, then swap the host.
+Check Jungle Natalya separately and include a join during another player's
+intro. Capture `coop-intro:`, `coop-move:` and `spawn:` lines on both headsets.
