@@ -111,7 +111,32 @@ Perfect Dark's logo, which the vendored VR layer had shipped as the app icon.
   [`port/README.md`](port/README.md).
 - **What is ours in there:** the `gevr_`-prefixed files (ROM binding, runtime
   file table, byte-order passes, model/stage conversion, audio pump,
-  scheduler shim) and `menuimage.c`.
+  scheduler shim) and `menuimage.c`, with the Dab's Mod adaptations credited
+  below.
+
+### Dab / DabDavis - Dab's Mod, Perfect Dark PC port fork (MIT)
+
+- **Repo:** https://github.com/DabDavis/perfect-dark-dabs-mod (branch `dabs-mod`)
+- **What we use it for:** a substantial reference and source of adapted code
+  for our optional **XBLA / Project Bean** visuals: archive and Xbox 360 STFS
+  package import, mesh and texture decoding, native model mappings and fits,
+  weighted rig mapping, material and decal rules, fog tables, animated
+  textures, monitor screens, menu/font handling, and GPU mesh and bone-palette
+  rendering. These adaptations live in `port/src/gevr_bean*`, the associated
+  headers and Fast3D renderer; they are adapted to GoldenEye's native models,
+  skeletons and rooms. See [Bean notes](docs/project-bean.md),
+  [runtime audit](docs/project-bean-runtime-audit.md) and
+  [GPU skinning](docs/bean-gpu-skinning.md).
+- **Other references:** GE-X file/weapon mapping and animation notes, and
+  ROM-hack layout tables used by `port/src/gevr_romlayout.c`.
+- **Licence:** MIT; the upstream notice (`Copyright (c) 2022 Ryan Dwyer`) and
+  pinned source attribution are in
+  [`port/licenses/dabs-mod.txt`](port/licenses/dabs-mod.txt), also shipped in
+  the APK at `android/app/src/main/assets/licenses/dabs-mod.txt`. Source
+  comments record the commits used for individual adaptations.
+- **Assets:** Dab's work supplies the importer and rendering reference;
+  GoldenEye XBLA / Bean game assets come from the player's own copy and are
+  not shipped with this project.
 
 ### Alex-LeTux / perfect_dark_VR (MIT) - **vendored source**, our whole VR layer
 
