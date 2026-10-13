@@ -13,6 +13,8 @@ logo are read where it put them. It loaded into its first mission in the
 headset. Co-op starts (#164, bb8acfe): every player's start, the first
 included, is checked against loaded scenery; two-headset starts still owed
 (Jungle, Train, Control, Caverns, Cradle; Natalya following in Jungle).
+Guards' and other players' muzzle flashes (DetailedGuns) compare depth
+and no longer show through trunks and walls; confirmed in the headset.
 Draft notes: [v0.4.21](docs/releases/v0.4.21.md).
 
 v0.4.20 merged PR #172: the Goldfinger 64 / Tomorrow Never Dies campaigns
