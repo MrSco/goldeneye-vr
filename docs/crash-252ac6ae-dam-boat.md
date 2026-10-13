@@ -84,6 +84,7 @@ tracking, body-slot, Bean-dispatch and crash changes.
 No headset is connected. Device acceptance: board at the north jetty, cross
 and disembark normally; destroy the hull while beside it and while riding,
 including mid-crossing; verify that the ride ends without a crash, an invisible
-boat carrying the player or movement of a subsequently spawned prop. Check
-movement and collision after losing the boat over water. Reload Dam and repeat
+boat carrying the player or movement of a subsequently spawned prop. Losing
+the boat over water puts the player back on the north jetty; check movement
+and collision there. Reload Dam and repeat
 using both B boarding and the VR hull-grab gesture.

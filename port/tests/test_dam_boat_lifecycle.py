@@ -131,7 +131,6 @@ int main(int argc,char**argv){
     gevrDamBoatApplySeat();assert(player.prop->pos.z==s_ride.z);
     for(int kind=0;kind<7;kind++){
         prepare();int drawn=poses,registered=registrations;
-        coord3d position=player.field_488.collision_position;
         struct ObjectRecord replacement=object;
         if(kind==0)object.prop=NULL;
         if(kind==1)object.runtime_bitflags|=RUNTIMEBITFLAG_REMOVE;
@@ -145,16 +144,25 @@ int main(int argc,char**argv){
         assert(!gevrDamBoatAboard() && !gevrDamBoatOnB());
         float hand[3]={0};assert(!gevrDamBoatTryHand(hand));
         assert(poses==drawn && registrations==registered);
-        assert(memcmp(&position,&player.field_488.collision_position,sizeof(position))==0);
+        // Losing the hull aboard puts Bond back on the north jetty, not in the water.
+        const struct PadRecord*jetty=&g_CurrentSetup.pads[s_jetty_pad];
+        assert(s_jetty_pad>=0 && s_jetty_pad!=s_island_pad);
+        assert(player.field_488.collision_position.x==jetty->pos.x);
+        assert(player.field_488.collision_position.z==jetty->pos.z);
+        assert(player.field_70==jetty->pos.y && player.prop->pos.y==jetty->pos.y);
+        assert(player.field_488.current_tile_ptr==jetty->stan);
     }
     prepare();object.prop=NULL;assert(!gevrDamBoatAboard());
+    // Dead aboard: no warp; the death camera keeps where he fell.
+    prepare();player.field_70=-12345;player.bonddead=1;object.state|=PROPSTATE_DESTROYED;
+    assert(!gevrDamBoatAboard() && player.field_70==-12345);player.bonddead=0;
     prepare();object.prop=NULL;assert(!gevrDamBoatOnB());
     prepare();object.prop=NULL;float hand[3]={0};assert(!gevrDamBoatTryHand(hand));
     prepare();object.prop=NULL;int old=poses;gevrDamBoatApplySeat();assert(old==poses);
     prepare();gevrDamBoatPrepare(90);assert(!gevrDamBoatAboard() && !gevrDamBoatOnB());
     old=registrations;setupUpdateObjectRoomPosition(NULL);
     object.prop=NULL;setupUpdateObjectRoomPosition(&object);assert(old==registrations);
-    puts("PASS: Dam boat health, live ride, destruction/removal, recycled prop slots, lost model, all ride entry points, stage reset and detached room updates under ASan/UBSan");
+    puts("PASS: Dam boat health, live ride, destruction/removal back to the jetty, recycled prop slots, lost model, all ride entry points, stage reset and detached room updates under ASan/UBSan");
 }
 '''
 
