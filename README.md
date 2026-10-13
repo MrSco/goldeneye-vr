@@ -642,6 +642,9 @@ Some developer tools under `tools/` expect the full `assets/` tree of
 Built on the shoulders of:
 - **[n64decomp/007](https://github.com/n64decomp/007)**: the GoldenEye decompilation, our `src/`.
 - **[Perfect Dark PC port](https://github.com/fgsfdsfgs/perfect_dark)**: our host layer.
+- **[Dab's Mod](https://github.com/DabDavis/perfect-dark-dabs-mod)** by Dab / DabDavis:
+  XBLA / Project Bean import and rendering reference and adapted code, including
+  model mappings, rig fits, materials and GPU skinning.
 - **[Perfect Dark VR](https://github.com/Alex-LeTux/perfect_dark_VR)** by Alex-LeTux: our VR layer.
 - **[GoldenEye PC port](https://github.com/jkdansereau/goldeneye-pc-port)**: 64-bit porting findings.
 - **[GEVR](https://github.com/no6969el/GEVR)**: the PC VR project that inspired this one.
@@ -656,6 +659,7 @@ This project's own code is **MIT** licensed ([LICENSE](LICENSE)). Vendored compo
 | Path | Upstream | Notice |
 |------|----------|--------|
 | `port/` | Perfect Dark PC port | [`port/LICENSE`](port/LICENSE) |
+| Bean adaptations in `port/` | Dab / DabDavis, Dab's Mod | MIT, [`port/licenses/dabs-mod.txt`](port/licenses/dabs-mod.txt) |
 | `port/vr/` | perfect_dark_VR | [`port/vr/LICENSE`](port/vr/LICENSE) |
 | `src/` | n64decomp/007 | upstream ships no licence file |
 | `port/vr/imgui/` | Dear ImGui | `port/vr/imgui/LICENSE.txt` |

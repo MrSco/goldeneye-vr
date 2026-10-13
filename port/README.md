@@ -16,6 +16,7 @@ GoldenEye-specific files added alongside.
 | Path | Upstream | Notice |
 |------|----------|--------|
 | `src/`, `include/`, `preprocess/` | Perfect Dark PC port | [LICENSE](LICENSE) here — MIT |
+| Bean adaptations in `src/gevr_bean*`, associated headers and renderer code | Dab / DabDavis, [Dab's Mod](https://github.com/DabDavis/perfect-dark-dabs-mod) | [licenses/dabs-mod.txt](licenses/dabs-mod.txt) — MIT; also shipped in the APK |
 | `vr/` | Alex-LeTux / perfect_dark_VR | [vr/LICENSE](vr/LICENSE) — MIT, same notice |
 | `fast3d/` | Emill / MaikelChan, n64-fast3d-engine | [fast3d/LICENSE.txt](fast3d/LICENSE.txt) — MIT |
 | `vr/imgui/` | Dear ImGui | [vr/imgui/LICENSE.txt](vr/imgui/LICENSE.txt) |
@@ -29,12 +30,21 @@ this project's own contributions and does not override these.
 
 ## What is ours
 
-Files prefixed `gevr_` are written for this port and have no upstream
-counterpart — ROM binding and the runtime file table (`gevr_romload.c`,
+Files prefixed `gevr_` integrate GoldenEye with this port — ROM binding and
+the runtime file table (`gevr_romload.c`,
 `gevr_rom_manifest.c`), byte-order passes over cartridge data
 (`gevr_romswap.c`), model and stage conversion, the audio frame pump, and the
 scheduler shim. Also ours: `menuimage.c`, and in `vr/`, `vr_screen.cpp` and
 `vr_settings_defaults.c` (see [vr/README.md](vr/README.md)).
+
+The `gevr_` prefix does not mean every implementation is wholly original.
+The XBLA / Project Bean adapter includes code adapted from Dab's Mod for
+archive/package import, mesh and texture decoding, model mappings and fits,
+materials, screens, menus and GPU skinning. ROM-hack layout tables in
+`gevr_romlayout.c` also come from that project. See the
+[specific credits](../CREDITS.md#dab--dabdavis---dabs-mod-perfect-dark-pc-port-fork-mit)
+and [MIT notice](licenses/dabs-mod.txt); source comments identify the borrowed
+functions and reference commits.
 
 The optional GE-X 6a reader (`gevr_gex.c`), gun-model converter
 (`gevr_gexmodel.c`) and animation reader (`gevr_pdanim.c`) load the player's
