@@ -54,6 +54,8 @@ static Gfx*gevrHeldGunDrawPosed(int inst,int item,Mtxf*m,ModelRenderData*rd,Gfx*
     assert(draws<4 && inst>=0 && inst<4);instances[draws]=inst;drawn[draws++]=item;return g+1;
 }
 static int g_gevrStereo,g_ViShakeIntensity,g_ViShakeTimer;
+enum {ITEM_WATCHLASER=23,ITEM_WATCHMAGNETATTRACT=60};
+#define GEVR_ITEM_AS(i) (i)
 /* PRODUCTION */
 int main(void){
     Gfx commands[64];
@@ -72,13 +74,46 @@ int main(void){
     VrBodySlotShow=1;g_gevrExtraPass=1;gevrBodySlotsDraw(commands);assert(!draws);
     g_gevrExtraPass=0;items[GEVR_BS_CHEST]=items[GEVR_BS_BELT]=-1;
     gevrBodySlotsDraw(commands);assert(!draws);
+    // The watch laser on the belt draws the watch alone, never its two-arm rig.
+    items[GEVR_BS_BELT]=ITEM_WATCHLASER;draws=0;
+    gevrBodySlotsDraw(commands);assert(draws==1 && drawn[0]==ITEM_WATCHMAGNETATTRACT);
     viShake(20);assert(g_ViShakeIntensity==14 && g_ViShakeTimer==10);
     g_gevrStereo=1;viShake(20);assert(!g_ViShakeIntensity && !g_ViShakeTimer);
     g_gevrStereo=0;viShake(-2);assert(!g_ViShakeIntensity);
-    puts("PASS: chest/belt cues, four-instance bound, hip reload isolation, invisible/empty/disabled slots and VR screen-shake suppression");
+    puts("PASS: chest/belt cues, the watch laser as the watch alone, four-instance bound, hip reload isolation, invisible/empty/disabled slots and VR screen-shake suppression");
 }
 '''
-production = function(body, 'Gfx *gevrBodySlotsDraw(') + '\n' + function(video, 'void viShake(')
+production = function(body, 'static s32 gevrBodySlotModel(') + '\n' + function(body, 'Gfx *gevrBodySlotsDraw(') + '\n' + function(video, 'void viShake(')
+root_fixture = r'''
+#include <assert.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdint.h>
+#include "gevr_bodyslot.h"
+typedef int s32;typedef float f32;typedef struct {float m[4][4];} Mtxf;
+enum {ITEM_KNIFE=2,ITEM_THROWKNIFE=3,ITEM_PP7=5,ITEM_WATCHMAGNETATTRACT=60,ITEM_MINE=40};
+static GevrBodyFrame s_bodyFrame;static f32 s_bodyCentre[GEVR_BODY_SLOTS][3],D_800364CC=1;
+static float VrGunOffX,VrGunOffY,VrGunOffZ;
+static f32 gevrGunSizeNow(s32*s,s32*o){*s=*o=0;return 1;}
+static void gevrBodyToView(const float*p,float k,float*out){for(int i=0;i<3;i++)out[i]=p[i]*k;}
+static int gevrBodyItemPosed(int item){(void)item;return 0;}
+static void gevrStereoItemPose(int item,Mtxf*m){(void)item;(void)m;}
+/* PRODUCTION */
+static float scale(int slot,int item){Mtxf m;gevrBodySlotRoot(slot,item,&m);
+    return sqrtf(m.m[0][0]*m.m[0][0]+m.m[0][1]*m.m[0][1]+m.m[0][2]*m.m[0][2]);}
+int main(void){
+    for(int i=0;i<3;i++){s_bodyFrame.right[i]=i==0;s_bodyFrame.up[i]=i==1;s_bodyFrame.fwd[i]=i==2;}
+    const float hip=scale(GEVR_BS_HIP_GUN,ITEM_PP7);
+    assert(fabsf(hip-0.085f)<1e-6f && fabsf(scale(GEVR_BS_HIP_OFF,ITEM_PP7)-hip)<1e-6f);
+    // Knives and thrown on the chest, gadgets on the belt: half size.
+    assert(fabsf(scale(GEVR_BS_CHEST,ITEM_KNIFE)-hip/2)<1e-6f);
+    assert(fabsf(scale(GEVR_BS_CHEST,ITEM_MINE)-hip/2)<1e-6f);
+    assert(fabsf(scale(GEVR_BS_BELT,ITEM_MINE)-hip/2)<1e-6f);
+    // The watch menu's watch model at the size of the watch on the arm.
+    assert(fabsf(scale(GEVR_BS_BELT,ITEM_WATCHMAGNETATTRACT)-hip/10)<1e-6f);
+    puts("PASS: hips full size, chest and belt half, the watch at the wrist's size");
+}
+'''
 with tempfile.TemporaryDirectory(prefix='gevr-slot-render-') as directory:
     temp = Path(directory)
     source, exe = temp / 'render.c', temp / 'render'
@@ -86,4 +121,9 @@ with tempfile.TemporaryDirectory(prefix='gevr-slot-render-') as directory:
     subprocess.run([shutil.which('gcc') or 'gcc', '-std=gnu11', '-O2', '-Wall', '-Werror',
                     '-DGEVR', '-I' + str(ROOT / 'port/include'), str(source),
                     str(ROOT / 'port/src/gevr_bodyslot.c'), '-lm', '-o', str(exe)], check=True)
+    subprocess.run([str(exe)], check=True)
+    source, exe = temp / 'root.c', temp / 'root'
+    source.write_text(root_fixture.replace('/* PRODUCTION */', function(body, 'static void gevrBodySlotRoot(')))
+    subprocess.run([shutil.which('gcc') or 'gcc', '-std=gnu11', '-O2', '-Wall', '-Werror',
+                    '-DGEVR', '-I' + str(ROOT / 'port/include'), str(source), '-lm', '-o', str(exe)], check=True)
     subprocess.run([str(exe)], check=True)

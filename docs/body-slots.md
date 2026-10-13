@@ -72,7 +72,9 @@ greyed out while body slots are on.
   aside or looking down at the belt doesn't move them. Stick turns carry it with you. Recentring
   starts it again.
 - **On the body.** With Show enabled, the hips, chest and belt show the
-  item a grip would take, including knives, mines and handheld gadgets.
+  item a grip would take, including knives, mines and handheld gadgets;
+  the chest and belt at half size, the hips at full size. The watch laser
+  shows the watch alone, face up, at the size it is on the wrist.
   Hovering shows the selected choice; a holster-only choice shows no item.
   After the 150 ms dwell, an occupied slot gets a ring and its model gets
   the category highlight. Gun fit's Slots mode rings every slot. Only slots
