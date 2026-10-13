@@ -39,10 +39,10 @@
 > file on your headset. Please don't ask for ROMs, and don't share them in Issues.
 
 > [!NOTE]
-> **v0.4.15** adds **Body slots** (weapons holstered on your body, with a wheel
-> when you look at a slot), a GoldenEye X hand reload that keeps your magazines,
-> and two-handed grips with a gun in either hand. It plays online with v0.4.14;
-> v0.4.13 and older can't join. See [the v0.4.15 notes](docs/releases/v0.4.15.md).
+> **v0.4.22** fixes co-op mission starts blocked by unused player bodies,
+> including Facility's air vent, and preserves your start through the intro.
+> It plays online with v0.4.16 and newer; update every co-op headset to get
+> the fixes. See [the v0.4.22 notes](docs/releases/v0.4.22.md).
 
 ## ✨ What you get
 

@@ -3,39 +3,25 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current release:** v0.4.21 (versionCode 77, protocol 21), 2026-10-12.
-v0.4.16 through v0.4.20 can join; v0.4.15 and older can't. Building does not
+**Current release:** v0.4.22 (versionCode 78, protocol 21), 2026-10-12.
+v0.4.16 through v0.4.21 can join; v0.4.15 and older can't. Building does not
 publish a GitHub release. No game data is shipped.
 
-v0.4.21: Tomorrow Never Dies 64 starts again (v0.4.20 crashed launching it,
-then after the Rare logo): its moved animation records and Rare logo are read
-where it put them; it loaded into its first mission in the headset. Co-op
-starts (#164, bb8acfe): every player's start, the first included, is checked
-against loaded scenery; two-headset starts still owed (Jungle, Train,
-Control, Caverns, Cradle; Natalya following in Jungle). The reporter still
-gets stuck in v0.4.21, including after reloads. The intro follow-up also failed
-in a Quest 3 Facility test with the host alone: an unused player body exposed
-garbage collision bounds and blocked movement. The fix excludes vacant online
-slots from collision and initializes every spawn's bounds, alongside preserving
-the checked position through the intro. Native regressions pass for vacant and
-fully occupied parties; headset confirmation of the replacement is pending.
-See [#164 follow-up](docs/issue-161-164-campaign-fixes.md). Guards' and other
-players' muzzle flashes (DetailedGuns) compare depth and no longer show
-through trunks and walls; confirmed in the headset. Notes:
-[v0.4.21](docs/releases/v0.4.21.md).
+v0.4.22: co-op starts (#164, PR #177) exclude vacant player bodies from
+collision, initialize all spawn bounds, and preserve the checked position
+through the intro. Quest 3 logs identified unused slot 1 blocking a host
+alone in Facility's vent. The user retested replacement 65f7831 and reported
+"feels good," then approved release. Two/four-headset starts, reloads, host
+swaps and Jungle Natalya still need broader play. Notes:
+[v0.4.22](docs/releases/v0.4.22.md), [#164 evidence](docs/issue-161-164-campaign-fixes.md).
 
 v0.4.20 merged PR #172: the Goldfinger 64 / Tomorrow Never Dies campaigns
 (solo, the player's own patched ROMs), Project Bean (#170), the Dam
 speedboat (#171), Dam wall alarms (#174) and Bean's GPU skinning and world
-batching. Bean is imported from the player's own XBLA copy (Mods, "Choose
-copy..."; nothing is downloaded; the old Bean releases are deleted and that
-repo is private). The last round, played in the headset: Bean's arm holds the
-gun with both hands, Gun fit per gun and placed by hand (the off hand's
-trigger), the user's Bean fits as defaults, low-doorway clearance for tall
-characters (online and on stairs), and the host's stage dropdown. Start with
-[PR #172 handoff](docs/pr172-handoff.md); setup:
-[Project Bean](docs/project-bean.md), [hack campaigns](docs/rom-hacks.md).
-Notes: [v0.4.20](docs/releases/v0.4.20.md).
+batching. Bean uses the player's own XBLA copy. Headset checks covered
+both-hand Bean grips, per-gun fits and low-doorway clearance. Details:
+[PR #172 handoff](docs/pr172-handoff.md), [Project Bean](docs/project-bean.md),
+[hack campaigns](docs/rom-hacks.md), [v0.4.20](docs/releases/v0.4.20.md).
 
 Movement speed: 50%-200%, 100% default, separate solo and host settings;
 host changes apply to the whole session, bots included. Room-scale walking
@@ -47,6 +33,8 @@ See [body slots](docs/body-slots.md).
 
 ## Recent releases
 
+**v0.4.22:** vacant-body collision and intro handoff fixes for co-op starts.
+Notes: [v0.4.22](docs/releases/v0.4.22.md).
 **v0.4.21:** TND64 starts again, co-op starts clear of scenery (#164), guards'
 muzzle flashes hidden behind the world. Notes:
 [v0.4.21](docs/releases/v0.4.21.md).
@@ -57,16 +45,7 @@ low doorways. Notes: [v0.4.20](docs/releases/v0.4.20.md).
 and startup crash fix. Notes: [v0.4.19](docs/releases/v0.4.19.md).
 **v0.4.18:** Touch controllers on the watch's Control page, off-hand trigger
 no longer aims (PR #166). Notes: [v0.4.18](docs/releases/v0.4.18.md).
-**Earlier:** v0.4.17 crash fix fb1c9718, off-hand GE-X scope lens; v0.4.16
-live movement speed (protocol 21), two-column launcher, co-op fixes #161-#164
-(PR #165); v0.4.15 body slots, hand reloads, two-handed grips; v0.4.14 bot
-doors, soft collision, hit immunity (#153); v0.4.13 crash fixes (#151);
-v0.4.12 detonator watch fit; v0.4.11 bots, 3D audio and GE-X for every weapon
-(#133-#149); v0.4.10 wall movement, co-op gadgets (#127, #132); v0.4.9 smooth
-locomotion, GE-X muzzles, belt reloads (#124-#126); v0.4.6-v0.4.8 settings
-persistence, GE-X KF7 and hand reload, watch settings (#110-#121);
-v0.4.0-v0.4.5 four-player co-op, eight-player deathmatch, weapon wheels,
-gadgets, passthrough. Notes for each are in docs/releases/; older evidence in
+**Earlier:** see docs/releases/ for v0.4.0–v0.4.17; older evidence is in
 docs/playtest-* and Git history.
 
 ## What it is and what works
@@ -91,7 +70,9 @@ is goldeneyevr.com, in its own repository.
 
 ## Outstanding issues / limits
 
-- #161–#164: fixes released in v0.4.16; issues closed at v0.4.18 on the
+- #164: v0.4.22 fixes the logged vacant-body blocker; broader co-op mission
+  starts and reloads remain to be confirmed. Keep the issue open for now.
+- #161–#163: fixes released in v0.4.16; issues closed at v0.4.18 on the
   user's say. Only Natalya's solo movement/combat is headset-confirmed; the
   co-op checks in docs/issue-161-164-campaign-fixes.md are still owed.
 - Co-op cutscenes on a teammate, revive, menus and debrief need continued
@@ -117,8 +98,7 @@ is goldeneyevr.com, in its own repository.
 - Bean: Dam/Complex water and Silo/Control floor materials are simplified;
   the grenade stays in GoldenEye's taser hand (the release has no hand
   holding one, user). Campaigns, speedboat and alarms need broader play.
-- Use git worktree list for checkouts. Unmerged: feature/xbla-hd,
-  fix/30-water-sky; claude/gex-watch-sleeves is parked, not for merge.
+- Use git worktree list for active checkouts.
 
 ## How to work on it
 
