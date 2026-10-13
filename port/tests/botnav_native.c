@@ -36,6 +36,10 @@ static PropRecord s_prop;
 static s32 s_block_enabled;
 static f32 s_minx, s_maxx, s_minz, s_maxz, s_bottom, s_top;
 s32 propDoorGetCdTypes(PropRecord *prop) { (void)prop; return CDTYPE_CLOSEDDOORS; }
+/* This floor/glass fixture has no network session or player props. */
+bool netIsActive(void) { return FALSE; }
+bool netSlotOccupied(int slot) { (void)slot; return FALSE; }
+s32 getPlayerPointerIndex(PropRecord *prop) { (void)prop; return -1; }
 /* INSERT_PRODUCTION_CD_SELECTOR */
 
 static s32 slab(f32 start, f32 delta, f32 lo, f32 hi, f32 *enter, f32 *leave) {

@@ -20652,6 +20652,19 @@ void bondviewGetPropHeightRelatedValues(PropRecord *arg0, struct rect4f **field_
     s32 temp_v0;
 
     temp_v0 = getPlayerPointerIndex(arg0);
+#ifdef GEVR
+    /* Some callers ask for a footprint directly, without propIsOfCdType.
+     * Reserved online slots never moved, so their old bounds may be garbage. */
+    {
+        extern bool netSlotOccupied(int slot);
+        if (netIsActive() && !netSlotOccupied(temp_v0))
+        {
+            *field_B0 = NULL;
+            *arg2 = 0;
+            return;
+        }
+    }
+#endif
     if (g_playerPointers[temp_v0]->field_AC != 0)
     {
         // What is this doing and why is it 1 player only?

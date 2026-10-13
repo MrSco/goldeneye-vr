@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class Pos(C.Structure):
     _fields_ = [(a, C.c_float) for a in ('x', 'y', 'z')]
 
-def build_library(folder, source_ref=None):
+def build_library(folder, source_ref=None, player_source_ref=None):
     stan = (ROOT / 'src/game/stan.c').read_text()
     names = ('f32 getShortest2dDispToInfTileEdge(', 'f32 distToTilePnt2D(',
              'bool stanPointProjectsOntoTileEdge(', 'int getRotationalDirectionBetween(',
@@ -34,6 +34,14 @@ def build_library(folder, source_ref=None):
     solver = '\n'.join(block(view, n) for n in ('static s32 gevrCoopSpawnClear(',
         'static s32 gevrCoopSpawnPath(', 's32 gevrCoopFindSpawnSpot(') if n in view)
     fixture = (ROOT / 'port/tests/campaign_spawn_native.c').read_text()
+    player_props = (ROOT / 'src/game/chrprop.c').read_text()
+    player_view = (ROOT / 'src/game/bondview2.c').read_text()
+    if player_source_ref:
+        player_props = subprocess.check_output(['git', 'show', player_source_ref + ':src/game/chrprop.c'], cwd=ROOT, text=True)
+        player_view = subprocess.check_output(['git', 'show', player_source_ref + ':src/game/bondview2.c'], cwd=ROOT, text=True)
+    fixture = fixture.replace('/* INSERT_PLAYER_FILTER */', block(player_props, 's32 propIsOfCdType('))
+    fixture = fixture.replace('/* INSERT_PLAYER_BOUNDS */', block(player_view, 'void bondviewGetPropHeightRelatedValues('))
+    fixture = fixture.replace('/* INSERT_PLAYER_RULE */', block(stan, 'static s32 gevrNetInsidePlayerProp('))
     fixture = fixture.replace('/* INSERT_GEOMETRY */', geometry).replace('/* INSERT_SOLVER */', solver)
     fixture = fixture.replace('/* INSERT_START */',block(view,'static void gevrCoopStartSpot('))
     fixture = fixture.replace('/* INSERT_AI_SIZE */',
@@ -68,6 +76,12 @@ def build_library(folder, source_ref=None):
     lib.auditObstacle.argtypes = [C.c_int, C.c_float, C.c_float, C.c_float]
     lib.auditObstacleHeight.argtypes = [C.c_float, C.c_float]
     lib.auditWall.argtypes = [C.c_int, C.c_float, C.c_float, C.c_float]
+    lib.auditViewer.argtypes = [C.c_int] * 4
+    lib.auditViewerBounds.argtypes = [C.c_int]
+    lib.auditViewerState.argtypes = [C.c_int] * 4
+    lib.auditMoveVolume.argtypes = [C.POINTER(Pos), C.c_void_p]
+    lib.auditMoveLine.argtypes = [C.POINTER(Pos), C.POINTER(Pos), C.c_void_p]
+    lib.auditOnline.argtypes = [C.c_int]
     if hasattr(lib, 'auditPath'):
         lib.auditPath.argtypes = [C.POINTER(Pos), C.POINTER(Pos), C.POINTER(C.c_void_p)]
     lib.gevrConvertStan.argtypes = [C.c_void_p, C.c_size_t, C.c_size_t]
@@ -84,9 +98,10 @@ def main():
     import struct
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--baseline-ref', help='run the same checks against an older spawn implementation')
+    parser.add_argument('--player-baseline-ref', help='run player filtering checks against an older implementation')
     options = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix='gevr-coop-start-') as tmp:
-        lib = build_library(Path(tmp), options.baseline_ref)
+        lib = build_library(Path(tmp), options.baseline_ref, options.player_baseline_ref)
         try:
             # Clockwise rectangle, one floor with no links, broad enough for four.
             data = struct.pack('>3I', 0, 12, 0)
@@ -99,6 +114,44 @@ def main():
             assert size
             lib.auditGeometry(buf, 1.0, size)
             start = C.c_void_p.from_buffer(buf, 8).value
+            # Co-op reserves all four player props, even for a host alone.
+            # Vacant/loading/departed slots must not expose stale or poisoned
+            # footprints to the production line and volume collision tests.
+            here, step, across = Pos(-1,170,0), Pos(-2,170,0), Pos(1,170,0)
+            for player_slot in (1,2,3):
+                for poison in (0,1):
+                    lib.auditViewer(player_slot,1,0,poison)
+                    assert lib.auditMoveVolume(C.byref(step),start) < 0, 'vacant slot blocks volume'
+                    assert lib.auditMoveLine(C.byref(here),C.byref(across),start), 'vacant slot blocks line'
+                    assert lib.auditViewerBounds(player_slot) == 0, 'vacant slot exposes uninitialised bounds'
+                    # Occupied teammates use soft collision; their bounds
+                    # remain available to guard and projectile queries.
+                    lib.auditViewer(player_slot,1,1,0)
+                    assert lib.auditViewerBounds(player_slot) == 4
+                    assert lib.auditMoveVolume(C.byref(step),start) < 0
+                    assert lib.auditMoveLine(C.byref(here),C.byref(across),start)
+                    lib.auditViewer(player_slot,0,0,0)
+            # A full four-player party has no vacant props. All teammates
+            # remain passable and expose valid footprints to direct queries;
+            # the moving player's disabled collision does not block itself.
+            for player_slot in range(4):
+                lib.auditViewer(player_slot,1,1,0)
+            lib.auditViewerState(0,0,0,0)
+            assert lib.auditMoveVolume(C.byref(step),start) < 0, 'full party blocks volume'
+            assert lib.auditMoveLine(C.byref(here),C.byref(across),start), 'full party blocks line'
+            for player_slot in (1,2,3):
+                assert lib.auditViewerBounds(player_slot) == 4, 'live teammate loses footprint'
+                lib.auditViewerState(player_slot,1,1,0)
+                assert lib.auditViewerBounds(player_slot) == 0, 'cinematic player collision'
+                lib.auditViewerState(player_slot,1,0,1)
+                assert lib.auditViewerBounds(player_slot) == 0, 'dead player collision'
+            for player_slot in range(4):
+                lib.auditViewer(player_slot,0,0,0)
+            # Offline split-screen player collision remains solid.
+            lib.auditViewer(1,1,1,0); lib.auditOnline(0)
+            assert lib.auditMoveVolume(C.byref(step),start) >= 0
+            assert not lib.auditMoveLine(C.byref(here),C.byref(across),start)
+            lib.auditViewer(1,0,0,0); lib.auditOnline(1)
             lib.auditObstacle(1, 0, -70, 25)
             reserved = (Pos * 4)(); reserved[0] = Pos(0,0,0)
             for slot in range(1,4):
@@ -177,7 +230,7 @@ def main():
                        for i,a in outcomes.items() for j,b in outcomes.items() if i!=j)
         finally:
             unload(lib)
-    print('PASS: production scenery collision, height filtering, player 1 clearance, object interiors/escape, four reservations, narrow corridor, load order, safe failure')
+    print('PASS: vacant/poisoned player slot filtering, occupied/full-party soft collision, offline solidity, production scenery collision, height filtering, player 1 clearance, object interiors/escape, four reservations, narrow corridor, load order, safe failure')
 
 if __name__ == '__main__':
     main()

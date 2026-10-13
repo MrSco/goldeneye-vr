@@ -22,9 +22,9 @@ static float ox, oz, oradius;
 static float obstacle_top = 180, obstacle_bottom = 0;
 static int wall;
 static float wx, wz, wradius;
-PropRecord g_Props[2], *stanSavedColl_posData;
+PropRecord g_Props[6], *stanSavedColl_posData;
 static ObjectRecord objects[2];
-static s16 props[3] = {-1, -1, -1};
+static s16 props[7] = {-1, -1, -1, -1, -1, -1, -1};
 s16 *ptr_list_object_lookup_indices = props;
 s32 D_800413BC;
 coord2d stanSavedColl_pntA, stanSavedColl_pntB;
@@ -33,19 +33,41 @@ f32 stanSavedColl_someMin;
 #define LOG_NOTE 1
 #define LOG_ERROR 3
 void sysLogPrintf(s32 level, const char *fmt, ...) {}
-static s32 gevrNetInsidePlayerProp(PropRecord *p, f32 x, f32 z, const char *s) { return 0; }
+struct player {
+    PropRecord *prop;
+    rect4f collision_bounds;
+    s32 field_AC, bonddead, cameramode;
+    f32 field_70;
+};
+static struct player players[4], *g_playerPointers[4], *g_CurrentPlayer;
+static int viewer_room[4], viewer_occupied[4], online = 1;
+static bool netIsActive(void) { return online; }
+static bool netSlotOccupied(int slot) { return slot >= 0 && slot < 4 && viewer_occupied[slot]; }
+static s32 getPlayerPointerIndex(PropRecord *prop) { return prop - g_Props - 2; }
+static s32 getPlayerCount(void) { return 4; }
+static f32 bondviewGetPlayerDuckingHeightRelated(struct player *player) { return 170; }
+static s32 propDoorGetCdTypes(PropRecord *prop) { return CDTYPE_DOORS; }
+/* INSERT_PLAYER_FILTER */
+/* INSERT_PLAYER_BOUNDS */
+/* INSERT_PLAYER_RULE */
 static s32 gevrNetInsideDoorProp(PropRecord *p, rect4f *r, s32 n, f32 x, f32 z) { return 0; }
 static s32 gevrInsideObjProp(PropRecord *p, rect4f *r, s32 n, f32 x, f32 z) { return 0; }
 void roomGetProps(s32 *rooms) {
     int n = 0;
     if (obstacle) props[n++] = 0;
     if (wall) props[n++] = 1;
+    for (int slot = 0; slot < 4; slot++) if (viewer_room[slot]) props[n++] = slot + 2;
     props[n] = -1;
 }
-s32 propIsOfCdType(PropRecord *p, s32 types) { return (types & (p == &g_Props[0] ? CDTYPE_OBJS : CDTYPE_DOORS)) != 0; }
 void chraiGetCollisionBounds(PropRecord *p, rect4f **polygon, s32 *vertices, f32 *top, f32 *bottom)
 {
     static rect4f rect;
+    if (p->type == PROP_TYPE_VIEWER)
+    {
+        *polygon = NULL; *vertices = 0;
+        bondviewGetPropHeightRelatedValues(p, polygon, vertices, top, bottom);
+        return;
+    }
     bool first = p == &g_Props[0];
     float x = first ? ox : wx, z = first ? oz : wz, r = first ? oradius : wradius;
     rect.points[0] = (coord2d){{x-r, z-r}};
@@ -109,3 +131,45 @@ void auditWall(int on, float x, float z, float radius)
     g_Props[1].obj = &objects[1];
     objects[1].state = 0;
 }
+void auditViewer(s32 slot, s32 in_room, s32 occupied, s32 poison)
+{
+    struct player *player = &players[slot];
+    PropRecord *prop = &g_Props[slot + 2];
+    viewer_room[slot] = in_room;
+    viewer_occupied[slot] = occupied;
+    g_playerPointers[slot] = player;
+    player->prop = prop; prop->type = PROP_TYPE_VIEWER;
+    player->field_AC = 1; player->cameramode = 0; player->bonddead = 0; player->field_70 = 0;
+    /* A stale footprint whose edge lies inside the player's volume. */
+    player->collision_bounds.points[0] = (coord2d){{0,-100}};
+    player->collision_bounds.points[1] = (coord2d){{0,100}};
+    player->collision_bounds.points[2] = (coord2d){{100,100}};
+    player->collision_bounds.points[3] = (coord2d){{100,-100}};
+    if (poison) memset(&player->collision_bounds, 0xd7, sizeof(player->collision_bounds));
+    g_CurrentPlayer = &players[0];
+    players[0].prop = &g_Props[2];
+}
+s32 auditViewerBounds(s32 slot)
+{
+    rect4f *polygon = NULL;
+    s32 edges = -1;
+    f32 top = 0, bottom = 0;
+    bondviewGetPropHeightRelatedValues(&g_Props[slot + 2], &polygon, &edges, &top, &bottom);
+    return edges;
+}
+void auditViewerState(s32 slot, s32 enabled, s32 cinema, s32 dead)
+{
+    players[slot].field_AC = enabled;
+    players[slot].cameramode = cinema;
+    players[slot].bonddead = dead;
+}
+s32 auditMoveVolume(coord3d *pos, StandTile *tile)
+{
+    return stanTestVolume(&tile, pos->x, pos->z, 30, CDTYPE_PLAYERS | CDTYPE_OBJS | CDTYPE_DOORS, 180, 30);
+}
+s32 auditMoveLine(coord3d *from, coord3d *to, StandTile *tile)
+{
+    return stanTestLineUnobstructed(&tile, from->x, from->z, to->x, to->z,
+        CDTYPE_PLAYERS | CDTYPE_OBJS | CDTYPE_DOORS, 180, 30, 0, 1);
+}
+void auditOnline(s32 active) { online = active; }
