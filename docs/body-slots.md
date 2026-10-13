@@ -71,12 +71,14 @@ greyed out while body slots are on.
   hand is in a front slot or you look down more than 20 degrees, so glancing
   aside or looking down at the belt doesn't move them. Stick turns carry it with you. Recentring
   starts it again.
-- **On the body.** Only the hips show what they hold, when you look down;
-  the chest, belt and shoulders show just the label when a hand is there.
-  After the 150 ms dwell, the occupied slot gets a ring and a hovered hip
-  gun gets its category highlight. Gun fit's Slots mode rings every slot. Looking ahead,
-  nothing is drawn. GoldenEye X players see GoldenEye's models on the hips
-  for now.
+- **On the body.** With Show enabled, the hips, chest and belt show the
+  item a grip would take, including knives, mines and handheld gadgets.
+  Hovering shows the selected choice; a holster-only choice shows no item.
+  After the 150 ms dwell, an occupied slot gets a ring and its model gets
+  the category highlight. Gun fit's Slots mode rings every slot. Only slots
+  in view draw models; shoulders stay behind the body. A hip's reload-ammo
+  guide replaces its pistol preview while active and leaves chest and belt
+  previews visible. GoldenEye X players see GoldenEye's slot models for now.
 
 Defaults at 170 cm eye height (PlayerHeight), in cm below the eye / out to
 that side / ahead. The torso frame's eye is the eye held upright over the

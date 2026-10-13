@@ -623,6 +623,15 @@ void video_related_8(void)
 
 void viShake(f32 intensity)
 {
+#ifdef GEVR
+    extern s32 g_gevrStereo;
+    if (g_gevrStereo) {
+        /* The headset supplies camera motion; never carry screen shake into VR. */
+        g_ViShakeIntensity = 0;
+        g_ViShakeTimer = 0;
+        return;
+    }
+#endif
     if (intensity > 14.0f)
     {
         intensity = 14.0f;

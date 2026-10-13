@@ -366,6 +366,10 @@ void setupUpdateObjectRoomPosition(ObjectRecord *obj)
     struct ModelRoData_BoundingBoxRecord *sp30;
     f32 phi_f20;
 
+#ifdef GEVR
+    /* A removed object has no room registration to update (report 252ac6ae). */
+    if (obj == NULL || obj->prop == NULL) return;
+#endif
     temp_s1 = obj->prop;
     phi_f20 = 0.0f;
     chrpropDeregisterRooms(temp_s1);

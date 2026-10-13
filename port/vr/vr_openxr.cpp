@@ -2703,6 +2703,7 @@ extern "C" bool gfx_vr_menu_R_bbox(float out[4]);                     // gfx_ope
 
 // The game sampled the head for this frame's camera (bondview2.c gevrStereoFrame).
 extern "C" void gevrVrSnapshotControllers(const XrPosef *head, int focused);   // vr_input.cpp
+extern "C" void gevrVrSteadyControllers(XrTime time, int focused);
 
 extern "C" void gevrVrSnapshotCameraPose(void)
 {
@@ -4849,6 +4850,7 @@ extern "C" bool vr_begin_frame_and_update_poses()
     else if (s_locomotion.count && std::abs(g_frameState.predictedDisplayPeriod - s_locomotion.period) > 1000)
         gevrVrLocomotionResetReason(GEVR_LOCO_RESET_REFRESH);
     update_vr_controllers(g_frameState.predictedDisplayTime);
+    gevrVrSteadyControllers(g_frameState.predictedDisplayTime, g_sessionFocused ? 1 : 0);
     controller_pose();
     vr_pointer_update();
     gevrFrameTimingAdd(GEVR_TIME_POSES, timingStart);

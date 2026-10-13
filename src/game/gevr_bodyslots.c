@@ -973,10 +973,8 @@ static s32 gevrBodyInView(const f32 v[3])
 
 /*
  * bondview2.c maybe_mp_interface, before the first-person guns, culling off:
- * the pistols in the hips' holsters, drawn on the body (Doom3Quest and
- * Perfect Dark VR draw their holster and belt magazine always). Only the
- * slots in view are drawn, so looking ahead costs nothing. Not the chest's
- * or the belt's: looking down at the hips they were in the way (user).
+ * weapons at both hips, the chest and the gadget belt show where to grab.
+ * Only slots in view are drawn; shoulder weapons stay behind the body.
  */
 static Gfx *gevrReloadBeltDraw(Gfx *gdl)
 {
@@ -1015,7 +1013,7 @@ static Gfx *gevrReloadBeltDraw(Gfx *gdl)
 
 Gfx *gevrBodySlotsDraw(Gfx *gdl)
 {
-    static const s32 shown[] = { GEVR_BS_HIP_GUN, GEVR_BS_HIP_OFF };
+    static const s32 shown[] = { GEVR_BS_HIP_GUN, GEVR_BS_HIP_OFF, GEVR_BS_CHEST, GEVR_BS_BELT };
     ModelRenderData rd;
     u32 tint;
     s32 i, inst = 0, set = FALSE;
@@ -1054,7 +1052,8 @@ Gfx *gevrBodySlotsDraw(Gfx *gdl)
             gSPPerspNormalize(gdl++, matrix_4x4_calc_depth_scale(0.0f, 300.0f));   /* as the guns are */
             set = TRUE;
         }
-        if (gevrReloadBeltAmmo(slot == GEVR_BS_HIP_GUN ? 1 : 0) >= 0) continue;
+        if ((slot == GEVR_BS_HIP_GUN || slot == GEVR_BS_HIP_OFF)
+            && gevrReloadBeltAmmo(slot == GEVR_BS_HIP_GUN ? 1 : 0) >= 0) continue;
         rd.envcolour.word = tint;
         if ((s_bodyHand[0].slot == slot && s_bodyHand[0].ms >= 150.0f)
             || (s_bodyHand[1].slot == slot && s_bodyHand[1].ms >= 150.0f))
