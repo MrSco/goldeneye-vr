@@ -153,8 +153,8 @@ At 02:11 UTC, after the maintainer asked the reporter to try the newly
 published v0.4.21, GknightPR reported: "Jungle worked once, but I re loaded
 the level and still stuck, same for control ,caverns and cradle."
 [Latest report](https://github.com/MrSco/goldeneye-vr/issues/164#issuecomment-6136684271).
-The reporter did not restate the installed version or confirm that both
-headsets had updated. Treat the clearance patch as unaccepted; #164 is open.
+The maintainer confirmed in this work session that the reporter tested
+v0.4.21. Treat the clearance patch as unaccepted; #164 is open.
 The earlier Natalya stall was explicitly in co-op, not solo.
 
 Code inspection found that the placement solver recomputes reservations on
