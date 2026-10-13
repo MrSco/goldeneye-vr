@@ -185,7 +185,8 @@ static void gevrSwapAnimDescriptors(ModelAnimBitField *d)
 	}
 }
 
-void gevrRomSwapAnimationData(u8 *data, u32 size)
+/* swaps the headers at `offsets` and their descriptor blocks; returns how many were bad */
+static u32 gevrSwapAnimRecords(u8 *data, u32 size, const u32 *offsets, u32 count)
 {
 	/*
 	 * Several tables can name the same animation. Swapping a block twice
@@ -201,8 +202,8 @@ void gevrRomSwapAnimationData(u8 *data, u32 size)
 		sysFatalError("gevrRomSwapAnimationData: out of memory");
 	}
 
-	for (i = 0; i < ARRAYCOUNT(gevrAnimHeaderOffsets); i++) {
-		const u32 ofs = gevrAnimHeaderOffsets[i];
+	for (i = 0; i < count; i++) {
+		const u32 ofs = offsets[i];
 		ModelAnimation *h;
 
 		if (ofs + ANIM_HEADER_SIZE > size) {
@@ -244,4 +245,66 @@ void gevrRomSwapAnimationData(u8 *data, u32 size)
 
 	sysLogPrintf(bad ? LOG_ERROR : LOG_NOTE, "anim: swapped %u headers and %u descriptor blocks in %u bytes, %u bad",
 			headers, descriptors, size, bad);
+	return bad;
+}
+
+void gevrRomSwapAnimationData(u8 *data, u32 size)
+{
+	gevrSwapAnimRecords(data, size, gevrAnimHeaderOffsets, ARRAYCOUNT(gevrAnimHeaderOffsets));
+}
+
+u8 *gevrRomRebuildAnimationData(const u8 *hack, u32 hackSize, const u32 *geOfs, const u32 *hackOfs, u32 count,
+		u32 *outSize)
+{
+	u32 base = 0, i, nh = 0, copied = 0, missing = 0, bad;
+	u32 *headers;
+	u8 *out;
+
+	/* the hack's bytes go after the last of GoldenEye's headers */
+	for (i = 0; i < ARRAYCOUNT(gevrAnimHeaderOffsets); i++) {
+		if (gevrAnimHeaderOffsets[i] + ANIM_HEADER_SIZE > base) {
+			base = gevrAnimHeaderOffsets[i] + ANIM_HEADER_SIZE;
+		}
+	}
+	base = (base + 15) & ~15u;
+	out = calloc(base + hackSize, 1);
+	headers = malloc((count ? count : 1) * sizeof(u32));
+	if (!out || !headers) {
+		free(out);
+		free(headers);
+		return NULL;
+	}
+	memcpy(out + base, hack, hackSize);
+
+	/* the hack's records swapped where its tables say (null rows are 1: one byte in) */
+	for (i = 0; i < count; i++) {
+		if (geOfs[i] > 1 && hackOfs[i] > 1) {
+			headers[nh++] = hackOfs[i];
+		}
+	}
+	bad = gevrSwapAnimRecords(out + base, hackSize, headers, nh);
+	free(headers);
+
+	/* and each at GoldenEye's offset for it, its descriptors and stream moved with the bytes */
+	for (i = 0; i < count; i++) {
+		ModelAnimation *h;
+
+		if (geOfs[i] <= 1) {
+			continue;
+		}
+		if (hackOfs[i] <= 1 || geOfs[i] + ANIM_HEADER_SIZE > base || hackOfs[i] + ANIM_HEADER_SIZE > hackSize) {
+			missing++;
+			continue;
+		}
+		memcpy(out + geOfs[i], out + base + hackOfs[i], ANIM_HEADER_SIZE);
+		h = (ModelAnimation *)(out + geOfs[i]);
+		h->bitDescriptors += base;
+		h->bitStream += base;
+		copied++;
+	}
+	sysLogPrintf(bad || missing ? LOG_ERROR : LOG_NOTE,
+			"anim: the hack's segment rebuilt at GoldenEye's offsets: %u records, %u missing, %u bad, %u + %u bytes",
+			copied, missing, bad, base, hackSize);
+	*outSize = base + hackSize;
+	return out;
 }

@@ -27,6 +27,21 @@
 void gevrRomSwapAnimationData(u8 *data, u32 size);
 
 /*
+ * A hack that rebuilt the segment (TND64 moved every record but the first, by
+ * 4 to 0x528 bytes; DAB geconvert.c animRecord()): `hack` is its segment, as it
+ * came from the cartridge, and hackOfs[i] where its own tables put the
+ * animation GoldenEye has at geOfs[i] (animation_table_ptrs1/2, id for id).
+ * The game reads records at GoldenEye's offsets (PTR_ANIM_*, ANIM_DATA_* in
+ * its code and tables), so the hack's bytes go after GoldenEye's extent,
+ * swapped where its tables say, and each of GoldenEye's offsets gets a copy of
+ * the hack's header for the same animation, its descriptors and stream moved
+ * with the bytes. Returns the new segment (malloc'd, swapped) and its size, or
+ * NULL.
+ */
+u8 *gevrRomRebuildAnimationData(const u8 *hack, u32 hackSize, const u32 *geOfs, const u32 *hackOfs, u32 count,
+		u32 *outSize);
+
+/*
  * A font segment (fontbankgothic, fontzurichbold): builds a host-layout
  * struct font in the given memp bank from the cartridge bytes, with every
  * field swapped and each character's pixel-data offset resolved to a pointer.

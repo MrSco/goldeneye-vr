@@ -7,6 +7,7 @@ set GEVR_GF64_ROM to a Goldfinger 64 1.0 .z64 (the player's own) to run it;
 without it the test says SKIP.
 """
 import os
+import re
 from pathlib import Path
 import shutil
 import struct
@@ -106,14 +107,27 @@ def head_picks(rom):
     return picks
 
 
+def anim_tables(folder):
+    """GoldenEye's animation_table_ptrs1/2 from initanitable.c, for the harness's animation check."""
+    src = (ROOT / "src/game/initanitable.c").read_text(encoding="utf-8")
+    out = []
+    for name, c in (("animation_table_ptrs1[] = {", "s_geAnim1"), ("animation_table_ptrs2[] = {", "s_geAnim2")):
+        body = src[src.index(name) + len(name):src.index("};", src.index(name))]
+        rows = re.findall(r"PTR_ANIM_\w+", body)
+        out.append("static const u32 %s[] = { %s, 0 };" % (c, ", ".join(rows)))
+    (folder / "anim_tables.h").write_text("\n".join(out) + "\n", encoding="utf-8")
+
+
 def build():
     out = Path(tempfile.mkdtemp(prefix="gevr-romcampaign-")) / "romcampaign_native.exe"
+    anim_tables(out.parent)
     args = [shutil.which("gcc") or "gcc", "-O1", "-fms-extensions", "-Wno-builtin-declaration-mismatch", "-static"]
+    args += ["-I" + str(out.parent)]
     args += ["-D" + v for v in ("GEVR=1", "PLATFORM_64BIT=1", "_LANGUAGE_C=1", "VERSION=2", "VERSION_US=1", "LANG_US=1")]
     args += ["-I" + str(ROOT / v) for v in (".", "port/include", "include", "src", "src/game", "port/src")]
     args += [str(ROOT / p) for p in ("port/tests/romcampaign_native.c", "port/src/gevr_romcampaign.c",
                                       "port/src/gevr_romlayout.c", "port/src/gevr_romcheck.c", "src/random.c",
-                                      "port/src/gevr_rom_manifest.c")]
+                                      "port/src/gevr_rom_manifest.c", "port/src/gevr_romswap.c")]
     args += ["-lz", "-o", str(out)]
     subprocess.run(args, check=True, cwd=ROOT)
     return out
@@ -212,13 +226,47 @@ def close(a, b):
     return abs(float(a) - float(b)) <= 1e-3 * max(1.0, abs(float(b)))
 
 
+def tnd(exe):
+    """TND64 Expanded 06-22 rebuilt its animation segment (every record but the first moved,
+    DAB geconvert.c animRecord()): the binder reads its tables, and every one of GoldenEye's
+    records in the rebuilt segment is the hack's own (user: report 3020ba2c, it crashed starting)."""
+    path = os.environ.get("GEVR_TND64_ROM")
+    if not path or not Path(path).is_file():
+        print("SKIP: set GEVR_TND64_ROM to a Tomorrow Never Dies 64 Expanded 06-22 .z64 to check its animations")
+        return
+    out = subprocess.run([str(exe), path, "2"], capture_output=True, text=True, check=True).stdout
+    got = {}
+    for line in out.splitlines():
+        f = line.split()
+        got.setdefault(f[0], []).append(f[1:])
+    bad = []
+    if got.get("match") != [["yes"]] or got.get("apply") != [["1"]] or got.get("rebind") != [["1"]]:
+        bad.append("TND binds: %s %s %s" % (got.get("match"), got.get("apply"), got.get("rebind")))
+    tables = got.get("animtables", [[]])[0]
+    if len(tables) != 6 or tables[0] != tables[2] or tables[1] != tables[3] or int(tables[5]) == 0:
+        bad.append("TND animation tables: %s" % tables)
+    anim = got.get("anim", [["0", "1"]])[0]
+    if int(anim[1]) != 0 or int(anim[0]) < 170:
+        bad.append("TND animation records: %s ok, %s bad; %s" % (anim[0], anim[1], got.get("animbad", [])[:5]))
+    if bad:
+        print("\n".join(bad))
+        print("FAIL: Tomorrow Never Dies")
+        sys.exit(1)
+    print("PASS: Tomorrow Never Dies 64: binds, and its %s moved animation records read at GoldenEye's offsets (%s ok)"
+          % (tables[5], anim[0]))
+
+
 def main():
     path = os.environ.get("GEVR_GF64_ROM")
+    exe = None
+    if os.environ.get("GEVR_TND64_ROM"):
+        exe = build()
+        tnd(exe)
     if not path or not Path(path).is_file():
         print("SKIP: set GEVR_GF64_ROM to a Goldfinger 64 1.0 .z64 to run the binder on it")
         return
     rom = open(path, "rb").read()
-    exe = build()
+    exe = exe or build()
     out = subprocess.run([str(exe), path, str(GF["campaign"])], capture_output=True, text=True, check=True).stdout
     got = {}
     for line in out.splitlines():
@@ -304,6 +352,9 @@ def main():
     for r in got.get("memstr", []):
         want = memfor(int(r[0]), int(r[1]))
         check(" ".join(r[2:]) == want, "memory string %s/%s: %s != %s" % (r[0], r[1], " ".join(r[2:]), want))
+    tables = got.get("animtables", [[]])[0]
+    check(len(tables) == 6 and tables[5] == "0" and tables[0] == tables[2],
+          "Goldfinger's animation records are GoldenEye's: %s" % tables)
     check(got.get("poolinit") == [["1"]], "head pool level init")
     check(got.get("hats") == [["0", "126"]], "hat fits cover heads 0-125: %s" % got.get("hats"))
     hats = struct.unpack_from(">%df" % (126 * 6 * 6), rom, 0x17F8800)

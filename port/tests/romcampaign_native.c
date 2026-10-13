@@ -4,6 +4,11 @@
  * decodes the same ROM on its own and compares. No ROM data is kept here.
  *
  * usage: romcampaign_native <hack.z64> <campaign 1|2>
+ *
+ * It also rebuilds the hack's animation segment (gevr_romswap.c) from the
+ * tables the binder read, and checks every one of GoldenEye's records there
+ * against the hack's own: anim_tables.h holds GoldenEye's
+ * animation_table_ptrs1/2, written by test_romcampaign.py from initanitable.c.
  */
 #include <ultra64.h>
 #include <bondtypes.h>
@@ -18,6 +23,9 @@
 #include "ob.h"
 #include "gevr_romlayout.h"
 #include "gevr_romcheck.h"
+#include "gevr_romswap.h"
+#include <assets/animationtable_data.h>
+#include "anim_tables.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -90,6 +98,93 @@ static const struct { struct ModelSkeleton *s; const char *name; } s_skeletonNam
 	{ &skeleton_standard_gun, "standard_gun" }, { &skeleton_gun_revolver, "gun_revolver" },
 	{ &skeleton_gun_kf7, "gun_kf7" }, { &skeleton_g_weapon, "g_weapon" }, { &skeleton_guard, "guard" },
 };
+
+void sysFatalError(const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+	abort();
+}
+
+void *mempAllocBytesInBank(u32 bytes, u8 bank)
+{
+	(void)bank;
+	return calloc(1, bytes);
+}
+
+static uint32_t animBe32(const u8 *p) { return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3]; }
+static uint16_t animBe16(const u8 *p) { return (uint16_t)((p[0] << 8) | p[1]); }
+
+/* the hack's animation records, at GoldenEye's offsets in the rebuilt segment */
+static void animCheck(const u8 *rom, uint32_t romLen)
+{
+	static u32 ge[512], hk[512];
+	const struct gevrRomLayout *L = gevrRomActiveLayout();
+	const uint32_t *h1, *h2;
+	int n1, n2, i, count = 0, moved = 0, ok = 0, bad = 0;
+	u32 size = 0, segLen;
+	u8 *seg;
+
+	if (!gevrRomAnimTables(&h1, &n1, &h2, &n2)) {
+		printf("animtables none\n");
+		return;
+	}
+	for (i = 0; s_geAnim1[i] && i < n1; i++, count++) {
+		ge[count] = s_geAnim1[i];
+		hk[count] = h1[i];
+		moved += ge[count] != hk[count];
+	}
+	for (i = 0; s_geAnim2[i] && i < n2; i++, count++) {
+		ge[count] = s_geAnim2[i];
+		hk[count] = h2[i];
+		moved += ge[count] != hk[count];
+	}
+	printf("animtables %d %d %d %d moved %d\n", n1, n2, (int)(sizeof(s_geAnim1) / 4) - 1,
+			(int)(sizeof(s_geAnim2) / 4) - 1, moved);
+	if (!moved || !L || L->globalimages <= L->animdata || L->globalimages > romLen) {
+		return;
+	}
+	segLen = L->globalimages - L->animdata;
+	seg = gevrRomRebuildAnimationData(rom + L->animdata, segLen, ge, hk, (u32)count, &size);
+	if (!seg) {
+		printf("anim rebuild failed\n");
+		return;
+	}
+	for (i = 0; i < count; i++) {
+		const u8 *raw = rom + L->animdata + hk[i];
+		const ModelAnimation *a;
+		const ModelAnimBitField *d;
+		uint32_t rawDesc;
+		int k, good;
+
+		if (ge[i] <= 1 || hk[i] <= 1) {
+			continue;
+		}
+		a = (const ModelAnimation *)(seg + ge[i]);
+		rawDesc = animBe32(raw + 8);
+		good = a->address == (s32)animBe32(raw) && a->unk04 == animBe16(raw + 4) && a->unk06 == raw[6]
+			&& a->unk07 == raw[7] && a->unk0C == animBe16(raw + 12) && a->unk0E == animBe16(raw + 14)
+			&& a->bitDescriptors + 0x18 == a->bitStream && a->bitStream <= size
+			&& rawDesc + 0x18 == animBe32(raw + 16) && rawDesc + 0x18 <= segLen;
+		d = good ? (const ModelAnimBitField *)(seg + a->bitDescriptors) : NULL;
+		for (k = 0; good && k < 4; k++) {
+			const u8 *rd = rom + L->animdata + rawDesc + 6 * k;
+
+			good = d[k].bitOffset == animBe16(rd) && d[k].bitCount == rd[2] && d[k].valueOffset == animBe16(rd + 4);
+		}
+		if (good) {
+			ok++;
+		} else {
+			bad++;
+			printf("animbad %d ge 0x%X hack 0x%X\n", i, ge[i], hk[i]);
+		}
+	}
+	printf("anim %d %d\n", ok, bad);
+	free(seg);
+}
 
 static const char *skeletonName(const struct ModelSkeleton *s)
 {
@@ -191,6 +286,7 @@ int main(int argc, char **argv)
 	printf("apply %d\n", gevrRomApplyVariant(rom, (uint32_t)size));
 	/* obInit's rebind (ob.c) must keep the hack's rows */
 	printf("rebind %d\n", gevrRomRebindVariantFiles());
+	animCheck(rom, (uint32_t)size);
 
 	printf("images %d\n", gevrTextureCount());
 	for (i = 0; c_item_entries[i].header; i++) {
