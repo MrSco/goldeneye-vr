@@ -266,7 +266,10 @@ def run(args, out):
         launch()
         applied=recent()
         expected=f'gevr bean controls: rigid_min={args.rigid_min} body_batch={args.body_batch}'
-        if expected not in applied or f'gevr bean room-draws: {args.room_draws}' not in applied:
+        # The room switch is read only when XBLA rooms build (XblaVisualsMode=1);
+        # the Bean pack alone replaces characters and guns.
+        rooms = re.search(rb'XblaVisualsMode=1', config) is not None
+        if expected not in applied or (rooms and f'gevr bean room-draws: {args.room_draws}' not in applied):
             raise Unavailable('Renderer did not acknowledge requested diagnostic controls')
         if args.body_batch and 'gevr bean body-batch:' not in applied:
             raise Unavailable('Whole-character batching was requested but never applied')
