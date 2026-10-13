@@ -64,10 +64,25 @@ include the system `stddef.h`/`strings.h` and downgrade GCC 14's incompatible
 pointer diagnostic in the original game math. Production compiler flags and
 test assertions were unchanged.
 
+## Quest 3 measurement (2026-10-13)
+
+`quest_profile.py`, Dam pad 32, 120 Hz, 3 runs per build, this branch against
+main 59bf2c2, the player's own settings otherwise.
+
+- XBLA visuals off (Bean pack for characters and guns only): the GPU skin and
+  mesh paths never run (all counters 0), so this change cannot act there.
+  Fresh-frame deltas were within noise.
+- XBLA visuals on (`--xbla 1`, room and body batching on): GPU skin draws
+  fell from ~2530 to ~1880 a second; CPU poses were already 0 on main.
+  Fresh-frame app time dropped 0.85 ms median in angled wall contact and
+  0.26-0.44 ms at p95 when stationary, backing up or in contact (95% CIs
+  exclude 0); smooth turning was unchanged. Compositor drops stayed ~10/s
+  median in both builds: 120 Hz with XBLA rooms is still over budget when
+  turning, as before this branch.
+
 ## Quest 3 validation still needed
 
-No headset is connected in this environment. No claim of improved Quest frame
-times or sustained Bean rendering at 120 Hz is established by the local tests.
+Sustained Bean rendering at 120 Hz is not established (see above).
 The older measurements in `vr-render-stalls.md` concern original meshes with
 the HD pack; they do not identify the current Bean bottleneck.
 
