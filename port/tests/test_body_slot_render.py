@@ -96,8 +96,11 @@ static GevrBodyFrame s_bodyFrame;static f32 s_bodyCentre[GEVR_BODY_SLOTS][3],D_8
 static float VrGunOffX,VrGunOffY,VrGunOffZ;
 static f32 gevrGunSizeNow(s32*s,s32*o){*s=*o=0;return 1;}
 static void gevrBodyToView(const float*p,float k,float*out){for(int i=0;i<3;i++)out[i]=p[i]*k;}
-static int gevrBodyItemPosed(int item){(void)item;return 0;}
-static void gevrStereoItemPose(int item,Mtxf*m){(void)item;(void)m;}
+static int posed;
+static int gevrBodyItemPosed(int item){return posed && item==ITEM_MINE;}
+static void gevrStereoItemPose(int item,Mtxf*m){(void)item;for(int i=0;i<3;i++)m->m[3][i]+=50;}
+static const float model_mid[3]={10,-20,30};
+static int gevrHeldGunCentre(int item,float c[3]){for(int i=0;i<3;i++)c[i]=model_mid[i];return item!=ITEM_PP7;}
 /* PRODUCTION */
 static float scale(int slot,int item){Mtxf m;gevrBodySlotRoot(slot,item,&m);
     return sqrtf(m.m[0][0]*m.m[0][0]+m.m[0][1]*m.m[0][1]+m.m[0][2]*m.m[0][2]);}
@@ -111,7 +114,19 @@ int main(void){
     assert(fabsf(scale(GEVR_BS_BELT,ITEM_MINE)-hip/2)<1e-6f);
     // The watch menu's watch model at the size of the watch on the arm.
     assert(fabsf(scale(GEVR_BS_BELT,ITEM_WATCHMAGNETATTRACT)-hip/10)<1e-6f);
-    puts("PASS: hips full size, chest and belt half, the watch at the wrist's size");
+    // Chest and belt: the model's own middle on the slot's centre, even with an
+    // in-hand pose's offset; a hip keeps its grip placement.
+    posed=1;
+    for(int s=0;s<GEVR_BODY_SLOTS;s++)for(int i=0;i<3;i++)s_bodyCentre[s][i]=(float)(s+1)*(i+2);
+    const int slots[]={GEVR_BS_CHEST,GEVR_BS_BELT,GEVR_BS_BELT};
+    const int its[]={ITEM_KNIFE,ITEM_MINE,ITEM_WATCHMAGNETATTRACT};
+    for(int t=0;t<3;t++){Mtxf m;gevrBodySlotRoot(slots[t],its[t],&m);
+        for(int j=0;j<3;j++){float at=m.m[3][j];for(int i=0;i<3;i++)at+=model_mid[i]*m.m[i][j];
+            assert(fabsf(at-s_bodyCentre[slots[t]][j])<1e-4f);}}
+    Mtxf h;gevrBodySlotRoot(GEVR_BS_HIP_GUN,ITEM_KNIFE,&h);
+    float at=h.m[3][2];for(int i=0;i<3;i++)at+=model_mid[i]*h.m[i][2];
+    assert(fabsf(at-s_bodyCentre[GEVR_BS_HIP_GUN][2])>1);
+    puts("PASS: hips full size, chest and belt half, the watch at the wrist's size; chest and belt models centred on their slots");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='gevr-slot-render-') as directory:

@@ -66,6 +66,8 @@ typedef struct
     ModelFileHeader header;
     s32 fitted;                        /* 1 fitted, -1 no fit (the Pchr model is drawn) */
     Mtxf fit;                          /* G model space to the hand's (the Pchr model's) */
+    s32 centred;                       /* 1 centre found, -1 none (gevrHeldGunCentre) */
+    f32 centre[3];
 } HeldGunFile;
 
 typedef struct
@@ -205,6 +207,7 @@ static HeldGunFile *gevrHeldGunLoad(s32 item)
     f->item = item;
     f->ok = FALSE;
     f->fitted = 0;
+    f->centred = 0;
 
     if (f->buf == NULL && (f->buf = malloc(HG_BUFSIZE)) == NULL)
     {
@@ -401,6 +404,50 @@ static void hgBoxModel(ModelFileHeader *h, ModelNode **skip, s32 nskip, f32 ox, 
             node = node->Parent;
         }
     }
+}
+
+/* The middle of what the static pose draws (gevrHeldGunStaticPose's hidden
+ * hands, sleeve and flash left out), model units: a body slot centres on it.
+ */
+s32 gevrHeldGunCentre(s32 item, f32 c[3])
+{
+    static const s32 hidden[] = { 1, 8, 9, 10, 11, 12, 13, 35 };
+    HeldGunFile *f = gevrHeldGunLoad(item);
+    ModelFileHeader *h;
+    ModelNode *skip[9];
+    HgBox b = { { 0 }, { 0 }, 0 };
+    s32 i, n = 0;
+
+    if (f == NULL)
+    {
+        return FALSE;
+    }
+    if (f->centred == 0)
+    {
+        h = &f->header;
+        for (i = 0; i < (s32) (sizeof(hidden) / sizeof(hidden[0])); i++)
+        {
+            if (hidden[i] < h->numSwitches && h->Switches[hidden[i]] != NULL)
+            {
+                skip[n++] = h->Switches[hidden[i]];
+            }
+        }
+        if (h->numSwitches > 17 && h->Switches[16] != NULL && h->Switches[17] != NULL)
+        {
+            skip[n++] = h->Switches[17];
+        }
+        hgBoxModel(h, skip, n, 0.0f, 0.0f, 0.0f, &b);
+        f->centred = b.n >= 3 ? 1 : -1;
+        for (i = 0; i < 3; i++)
+        {
+            f->centre[i] = b.n >= 3 ? (b.min[i] + b.max[i]) * 0.5f : 0.0f;
+        }
+    }
+    for (i = 0; i < 3; i++)
+    {
+        c[i] = f->centre[i];
+    }
+    return f->centred > 0;
 }
 
 /*
