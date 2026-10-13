@@ -32,13 +32,135 @@ static void end(Gfx *g)
     g->words.w1 = 0;
 }
 
-int main(void)
+/*
+ * A loaded model file: the switch table first, and the lists in the file, as
+ * the converter leaves them. Its lists are reached by segment 5 addresses.
+ */
+static struct
 {
-    /* the flash's two lists, its star's list, the gun body's list */
-    Gfx flash[4], flash2[2], star[3], body[2];
+    ModelNode *switches[2];
+    Gfx flash[4], flash2[2], star[3], body[2];   /* the flash's two lists, its star's, the gun body's */
+} file;
+
+#define SEG5(p) ((Gfx *)(uintptr_t)(0x05000000u + (u32)((u8 *)(p) - (u8 *)&file)))
+
+/* gevr_bean_native_model.c: the production converter on a decompressed cartridge file */
+extern void free(void *);
+extern void *beanNativeModel(const char *path, const char *name, int switches, int textures, int matrices,
+                             ModelFileHeader *header);
+
+static ModelNode *nextNode(ModelNode *n)
+{
+    if (n->Child != NULL)
+    {
+        return n->Child;
+    }
+    while (n != NULL && n->Next == NULL)
+    {
+        n = n->Parent;
+    }
+    return n != NULL ? n->Next : NULL;
+}
+
+static int underFlash(ModelFileHeader *h, ModelNode *n)
+{
+    for (; n != NULL; n = n->Parent)
+    {
+        if (n == h->Switches[1])
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* render-mode commands in a list, and how many compare depth */
+static void countModes(ModelFileHeader *h, Gfx *list, int *modes, int *compare)
+{
+    uintptr_t at = (uintptr_t)list;
+    Gfx *g = (at >> 24) == 0x05 ? (Gfx *)((u8 *)h->Switches + (at & 0xffffff)) : list;
+
+    for (; g != NULL; g++)
+    {
+        u32 w0 = (u32)g->words.w0;
+
+        if ((s8)(w0 >> 24) == (s8)G_ENDDL)
+        {
+            break;
+        }
+        if ((s8)(w0 >> 24) == (s8)G_SETOTHERMODE_L && ((w0 >> 8) & 0xff) == G_MDSFT_RENDERMODE)
+        {
+            ++*modes;
+            *compare += (g->words.w1 & Z_CMP) != 0;
+        }
+    }
+}
+
+/* [0] the flash's modes, [1] those comparing depth, [2] the rest, [3] those comparing */
+static void census(ModelFileHeader *h, int out[4])
+{
+    ModelNode *n;
+
+    memset(out, 0, 4 * sizeof(int));
+    for (n = h->RootNode; n != NULL; n = nextNode(n))
+    {
+        int in = underFlash(h, n) ? 0 : 2;
+        s32 op = n->Opcode & 0xff;
+
+        if (n->Data != NULL && op == MODELNODE_OPCODE_DL)
+        {
+            countModes(h, n->Data->DisplayList.Primary, &out[in], &out[in + 1]);
+            countModes(h, n->Data->DisplayList.Secondary, &out[in], &out[in + 1]);
+        }
+        else if (n->Data != NULL && op == MODELNODE_OPCODE_DLPRIMARY)
+        {
+            countModes(h, n->Data->DisplayListPrimary.Primary, &out[in], &out[in + 1]);
+        }
+    }
+}
+
+static int num(const char *s)
+{
+    int v = 0;
+
+    while (*s >= '0' && *s <= '9')
+    {
+        v = v * 10 + (*s++ - '0');
+    }
+    return v;
+}
+
+/* argv: decompressed file, name, switches, textures, matrices */
+static void romModel(char **argv)
+{
+    ModelFileHeader h;
+    int before[4], after[4];
+    void *model = beanNativeModel(argv[1], argv[2], num(argv[3]), num(argv[4]), num(argv[5]), &h);
+
+    if (model == NULL)
+    {
+        check(0, "the cartridge model converts");
+        return;
+    }
+
+    census(&h, before);
+    gevrHeldGunFlashDepth(&h);
+    census(&h, after);
+
+    printf("%s: flash render modes %d (%d compare depth, %d before); other %d (%d compare, %d before)\n",
+           argv[2], after[0], after[1], before[1], after[2], after[3], before[3]);
+    check(after[0] > 0 && after[1] == after[0], "every flash render mode compares depth");
+    check(before[1] == 0, "the cartridge's flash compared no depth");
+    check(after[2] == before[2] && after[3] == before[3], "the rest of the gun is as the cartridge has it");
+    free(model);
+}
+
+int main(int argc, char **argv)
+{
+    Gfx *flash = file.flash, *flash2 = file.flash2, *star = file.star, *body = file.body;
+    ModelNode **switches = file.switches;
     union ModelRoData flashdl, stardl, bodydl;
     ModelNode root, sw, group, a, b, gun;
-    ModelNode *switches[2];
     ModelFileHeader h;
 
     memset(&flashdl, 0, sizeof(flashdl));
@@ -65,10 +187,10 @@ int main(void)
     mode(&body[0], G_MDSFT_RENDERMODE, 29, FLASH_MODE);
     end(&body[1]);
 
-    flashdl.DisplayList.Primary = flash;
-    flashdl.DisplayList.Secondary = flash2;
-    stardl.DisplayListPrimary.Primary = star;
-    bodydl.DisplayList.Primary = body;
+    flashdl.DisplayList.Primary = SEG5(flash);
+    flashdl.DisplayList.Secondary = flash2;   /* a plain pointer works as well */
+    stardl.DisplayListPrimary.Primary = SEG5(star);
+    bodydl.DisplayList.Primary = SEG5(body);
 
     /* root -> switch 1 -> group -> (a: list, b: star); the gun body is the switch's sibling */
     root.Opcode = MODELNODE_OPCODE_GROUPSIMPLE;
@@ -116,6 +238,11 @@ int main(void)
     h.numSwitches = 2;
     gevrHeldGunFlashDepth(&h);
     check(body[0].words.w1 == FLASH_MODE, "no switch 1: nothing changes");
+
+    if (argc == 6)
+    {
+        romModel(argv);
+    }
 
     if (fails)
     {

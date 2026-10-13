@@ -103,9 +103,17 @@ static u64 s_guardused[HG_GUARDS];
 /* ------------------------------------------------------------- the files */
 
 /* A render-mode command in this list gets the depth compare; the rest stays. */
-static void gevrHeldGunCompareDepth(Gfx *g)
+static void gevrHeldGunCompareDepth(ModelFileHeader *h, Gfx *list)
 {
+    uintptr_t at = (uintptr_t)list;
+    Gfx *g = list;
     s32 n;
+
+    /* a model's lists are segment 5 addresses into its file (bondview_r.c gevrPreloadStageGuns) */
+    if ((at >> 24) == 0x05)
+    {
+        g = (Gfx *)((u8 *)h->Switches + (at & 0xffffff));
+    }
 
     for (n = 0; g != NULL && n < 4096; n++, g++)
     {
@@ -143,12 +151,12 @@ static void gevrHeldGunFlashDepth(ModelFileHeader *h)
 
         if (node->Data != NULL && op == MODELNODE_OPCODE_DL)
         {
-            gevrHeldGunCompareDepth(node->Data->DisplayList.Primary);
-            gevrHeldGunCompareDepth(node->Data->DisplayList.Secondary);
+            gevrHeldGunCompareDepth(h, node->Data->DisplayList.Primary);
+            gevrHeldGunCompareDepth(h, node->Data->DisplayList.Secondary);
         }
         else if (node->Data != NULL && op == MODELNODE_OPCODE_DLPRIMARY)
         {
-            gevrHeldGunCompareDepth(node->Data->DisplayListPrimary.Primary);
+            gevrHeldGunCompareDepth(h, node->Data->DisplayListPrimary.Primary);
         }
 
         if (node->Child != NULL)
