@@ -10,9 +10,10 @@ publish a GitHub release. No game data is shipped.
 v0.4.21: Tomorrow Never Dies 64 starts again (v0.4.20 crashed launching it,
 then after the Rare logo): its moved animation records and Rare logo are read
 where it put them; it loaded into its first mission in the headset. Co-op
-starts (#164, bb8acfe): every player's start, the first included, is checked
-against loaded scenery; two-headset starts still owed (Jungle, Train,
-Control, Caverns, Cradle; Natalya following in Jungle). Guards' and other
+starts (#164, bb8acfe): every player's start is checked against scenery, but
+the Oct 13 retest still failed after a reload; #164 remains open. Jungle
+worked once; Control, Caverns and Cradle still stuck. See the follow-up in
+docs/issue-161-164-campaign-fixes.md. Guards' and other
 players' muzzle flashes (DetailedGuns) compare depth and no longer show
 through trunks and walls; confirmed in the headset. Notes:
 [v0.4.21](docs/releases/v0.4.21.md).
@@ -84,7 +85,10 @@ is goldeneyevr.com, in its own repository.
 
 ## Outstanding issues / limits
 
-- #161–#164: fixes released in v0.4.16; issues closed at v0.4.18 on the
+- #164: the post-v0.4.21 retest reports stuck starts after reloading. Local
+  branch investigate/164-coop-reload adds movement blocker diagnostics;
+  no further movement fix is confirmed. Two-headset logs are needed.
+- #161–#163: fixes released in v0.4.16; issues closed at v0.4.18 on the
   user's say. Only Natalya's solo movement/combat is headset-confirmed; the
   co-op checks in docs/issue-161-164-campaign-fixes.md are still owed.
 - Co-op cutscenes on a teammate, revive, menus and debrief need continued

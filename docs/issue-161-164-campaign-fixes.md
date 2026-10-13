@@ -146,3 +146,34 @@ This repairs reproduced placement defects; confirming the reporter's exact
 symptom still requires both headsets running the patched build. Prioritize
 Jungle, Train, Control, Caverns and Cradle, then Facility's crouched entrance,
 the remaining missions and late joins. No APK was installed during this work.
+
+## #164 retest: works once, then stuck after reload (2026-10-13)
+
+At 02:11 UTC, after the maintainer asked the reporter to try the newly
+published v0.4.21, GknightPR reported: "Jungle worked once, but I re loaded
+the level and still stuck, same for control ,caverns and cradle."
+[Latest report](https://github.com/MrSco/goldeneye-vr/issues/164#issuecomment-6136684271).
+The reporter did not restate the installed version or confirm that both
+headsets had updated. Treat the clearance patch as unaccepted; #164 is open.
+The earlier Natalya stall was explicitly in co-op, not solo.
+
+Code inspection found that the placement solver recomputes reservations on
+each call and the stage loader resets the enabled-slot cache on every load.
+This does not establish the runtime cause or exclude other reload state.
+The native spawn fixture passes but supplies model bounds and room membership;
+it does not run a mission reload, the intro or real headset movement.
+
+Branch `investigate/164-coop-reload`, based on released v0.4.21 (`8683dab`),
+adds a rate-limited `coop-move:` diagnostic to failed local co-op movement.
+It records mission, slot, camera mode, source/destination, floor tile/room,
+player radius/height, line and volume results, floor-locus results and the
+blocking prop's type, model/character ID and pad. Volume `-2` means the line
+failed and the volume check was skipped; `-1` means volume passed. The
+movement decisions and their short-circuit order are preserved.
+
+Use both headsets on this diagnostic build. Start Jungle, attempt to walk,
+abort and restart it in the same session, then attempt to walk again. Repeat
+Control, Caverns and Cradle; record which headset/slot is stuck and whether
+Natalya moves on the host. Capture `gevr.log` from each headset immediately
+after the stuck attempt (also available in the app's existing log report).
+The diagnostic build is not a claimed fix or a new release.
