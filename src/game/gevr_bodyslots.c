@@ -75,6 +75,7 @@ extern void matrix_4x4_7F058C88(void);
 extern u16 viGetPerspNorm(void);
 /* gevr_heldgun.c, gunfire.c */
 extern Gfx *gevrHeldGunDrawPosed(s32 inst, s32 item, Mtxf *root, ModelRenderData *templ, Gfx *gdl);
+extern s32 gevrHeldGunCentre(s32 item, f32 c[3]);
 extern Gfx *gevrDrawViewTagOverlay(Gfx *gdl, const char *name, const f32 at[3], f32 k, u32 panel);
 extern void gunRequestHandWeaponChange(enum GUNHAND hand, s32 nextWeapon, s32 cycleDirection);
 extern s32 gevrIsThrowable(s32 item);        /* port/src/input.c */
@@ -918,13 +919,13 @@ static s32 gevrBodyShownItem(s32 slot, s32 *hoveredBy)
  * hand's: the viewmodel's 0.85 cm a unit (and the flat game's 0.1, gunfire.c),
  * the grip on the slot's centre. A pistol hangs muzzle down with its slide
  * forward, the hand reaching down for its grip; a knife too; grenades, mines
- * and gadgets sit upright, facing ahead, gadgets at their in-hand size.
+ * and gadgets sit upright, facing ahead, chest and belt at half in-hand size.
  */
 static void gevrBodySlotRoot(s32 slot, s32 item, Mtxf *root)
 {
     const f32 *R = s_bodyFrame.right, *U = s_bodyFrame.up, *F = s_bodyFrame.fwd;
     s32 down = slot == GEVR_BS_HIP_GUN || slot == GEVR_BS_HIP_OFF || item == ITEM_KNIFE || item == ITEM_THROWKNIFE;
-    f32 x[3], y[3], z[3], xv[3], yv[3], zv[3], cv[3];
+    f32 x[3], y[3], z[3], xv[3], yv[3], zv[3], cv[3], mid[3];
     f32 cm = D_800364CC;
     s32 setting, online, i, j;
     f32 size = gevrGunSizeNow(&setting, &online);
@@ -953,13 +954,48 @@ static void gevrBodySlotRoot(s32 slot, s32 item, Mtxf *root)
     {
         gevrStereoItemPose(item, root);
     }
+    /* The chest's knives and the belt's gadgets at half size, out of the
+     * way (user); the hips' pistols stay full size. */
+    k = slot == GEVR_BS_CHEST || slot == GEVR_BS_BELT ? 0.05f : 0.1f;
+    /* The watch-only model is the watch menu's close-up, ten times the watch
+     * on the arm (face ~360 units against ~36): shown at the wrist's size. */
+    if (item == ITEM_WATCHMAGNETATTRACT)
+    {
+        /* Rolled so its face (the model's +z, seen side-on otherwise) looks
+         * up at the eye above the belt. */
+        f32 row;
+
+        k = 0.01f;
+        for (i = 0; i < 3; i++)
+        {
+            row = root->m[1][i];
+            root->m[1][i] = -root->m[2][i];
+            root->m[2][i] = row;
+        }
+    }
     for (i = 0; i < 3; i++)
     {
         for (j = 0; j < 3; j++)
         {
-            root->m[i][j] *= 0.1f;
+            root->m[i][j] *= k;
         }
     }
+    /* The chest's and the belt's items sit on the slot's centre, where its
+     * ring is: the grip offset and an in-hand pose's carried a gadget off it. */
+    if ((slot == GEVR_BS_CHEST || slot == GEVR_BS_BELT) && gevrHeldGunCentre(item, mid))
+    {
+        for (j = 0; j < 3; j++)
+        {
+            root->m[3][j] = cv[j] - (mid[0] * root->m[0][j] + mid[1] * root->m[1][j] + mid[2] * root->m[2][j]);
+        }
+    }
+}
+
+/* What a slot draws for its item: the watch laser's own model is the whole
+ * two-arm rig, so the watch alone, as the weapon wheel shows it. */
+static s32 gevrBodySlotModel(s32 item)
+{
+    return GEVR_ITEM_AS(item) == ITEM_WATCHLASER ? ITEM_WATCHMAGNETATTRACT : item;
 }
 
 /* in view, near enough the view's axis to be seen: about 70 degrees, past the
@@ -973,10 +1009,8 @@ static s32 gevrBodyInView(const f32 v[3])
 
 /*
  * bondview2.c maybe_mp_interface, before the first-person guns, culling off:
- * the pistols in the hips' holsters, drawn on the body (Doom3Quest and
- * Perfect Dark VR draw their holster and belt magazine always). Only the
- * slots in view are drawn, so looking ahead costs nothing. Not the chest's
- * or the belt's: looking down at the hips they were in the way (user).
+ * weapons at both hips, the chest and the gadget belt show where to grab.
+ * Only slots in view are drawn; shoulder weapons stay behind the body.
  */
 static Gfx *gevrReloadBeltDraw(Gfx *gdl)
 {
@@ -1015,7 +1049,7 @@ static Gfx *gevrReloadBeltDraw(Gfx *gdl)
 
 Gfx *gevrBodySlotsDraw(Gfx *gdl)
 {
-    static const s32 shown[] = { GEVR_BS_HIP_GUN, GEVR_BS_HIP_OFF };
+    static const s32 shown[] = { GEVR_BS_HIP_GUN, GEVR_BS_HIP_OFF, GEVR_BS_CHEST, GEVR_BS_BELT };
     ModelRenderData rd;
     u32 tint;
     s32 i, inst = 0, set = FALSE;
@@ -1054,11 +1088,13 @@ Gfx *gevrBodySlotsDraw(Gfx *gdl)
             gSPPerspNormalize(gdl++, matrix_4x4_calc_depth_scale(0.0f, 300.0f));   /* as the guns are */
             set = TRUE;
         }
-        if (gevrReloadBeltAmmo(slot == GEVR_BS_HIP_GUN ? 1 : 0) >= 0) continue;
+        if ((slot == GEVR_BS_HIP_GUN || slot == GEVR_BS_HIP_OFF)
+            && gevrReloadBeltAmmo(slot == GEVR_BS_HIP_GUN ? 1 : 0) >= 0) continue;
         rd.envcolour.word = tint;
         if ((s_bodyHand[0].slot == slot && s_bodyHand[0].ms >= 150.0f)
             || (s_bodyHand[1].slot == slot && s_bodyHand[1].ms >= 150.0f))
             rd.envcolour.word = gevrBodyCategoryTint(gevrBodySlotCategory(slot)) | 0xff;
+        item = gevrBodySlotModel(item);
         gevrBodySlotRoot(slot, item, &root);
         if (gevrBodyItemPosed(item))
         {

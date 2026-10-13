@@ -26,8 +26,11 @@ extern f32 gevrHandPropDistance(struct PropRecord *prop, const f32 p[3]);
 #define GEVR_DAM_BOAT_MAX_PADS 1024
 
 static struct PropRecord *s_boat;
+/* The stage-owned object survives prop removal; the prop slot can be reused. */
+static struct ObjectRecord *s_boatObj;
 static struct GevrBoatRide s_ride;
 static s32 s_island_pad;
+static s32 s_jetty_pad;
 static struct GevrBoatPad s_pads[GEVR_DAM_BOAT_MAX_PADS];
 
 static s32 gevrDamBoatPadCount(void)
@@ -90,16 +93,79 @@ static void gevrDamBoatMarkUsed(s32 count)
     }
 }
 
+static void gevrDamBoatAdoptTile(struct PropRecord *prop, struct StandTile *tile);
+
+/* Ends the ride with Bond standing on a pad: the island landing, or the
+ * north jetty when the hull is lost under him. */
+static void gevrDamBoatStepOffAt(s32 padnum)
+{
+    struct PadRecord *pad;
+
+    s_ride.aboard = 0;
+    if (g_CurrentSetup.pads == NULL || padnum < 0 || g_CurrentPlayer == NULL)
+    {
+        return;
+    }
+    pad = &g_CurrentSetup.pads[padnum];
+    g_CurrentPlayer->field_488.collision_position.f[0] = pad->pos.x;
+    g_CurrentPlayer->field_488.collision_position.f[2] = pad->pos.z;
+    g_CurrentPlayer->field_70 = pad->pos.y;
+    g_CurrentPlayer->stanHeight = pad->pos.y;
+    g_CurrentPlayer->field_7C = 0.0f;
+    g_CurrentPlayer->speedforwards = 0.0f;
+    g_CurrentPlayer->speedsideways = 0.0f;
+    g_CurrentPlayer->speedtheta = 0.0f;
+    if (pad->stan != NULL)
+    {
+        g_CurrentPlayer->field_488.current_tile_ptr = pad->stan;
+        gevrDamBoatAdoptTile(g_CurrentPlayer->prop, pad->stan);
+    }
+    if (g_CurrentPlayer->prop != NULL)
+    {
+        g_CurrentPlayer->prop->pos.x = pad->pos.x;
+        g_CurrentPlayer->prop->pos.y = pad->pos.y;
+        g_CurrentPlayer->prop->pos.z = pad->pos.z;
+    }
+}
+
+/* A cached prop pointer alone is insufficient: objFree clears obj->prop but
+ * leaves the released prop's obj pointer, until its pool slot is allocated again. */
+static int gevrDamBoatLive(void)
+{
+    if (s_boat != NULL && s_boatObj != NULL && s_boatObj->prop == s_boat
+        && s_boat->type == PROP_TYPE_OBJ && s_boat->obj == s_boatObj
+        && !(s_boatObj->runtime_bitflags & RUNTIMEBITFLAG_REMOVE)
+        && !(s_boatObj->state & PROPSTATE_DESTROYED) && s_boatObj->model != NULL)
+    {
+        return 1;
+    }
+    if (s_boat != NULL)
+        sysLogPrintf(LOG_NOTE, "dam boat: hull removed; ride ended");
+    s_boat = NULL;
+    s_boatObj = NULL;
+    if (s_ride.aboard)
+    {
+        /* Not left treading water mid-reservoir: back to the mainland. */
+        if (g_CurrentPlayer != NULL && !g_CurrentPlayer->bonddead)
+        {
+            gevrDamBoatStepOffAt(s_jetty_pad);
+            sysLogPrintf(LOG_NOTE, "dam boat: hull lost aboard; back on the north jetty");
+        }
+        s_ride.aboard = 0;
+    }
+    return 0;
+}
+
 static void gevrDamBoatPush(void)
 {
     struct ObjectRecord *obj;
     f32 pos[3];
 
-    if (s_boat == NULL || s_boat->obj == NULL)
+    if (!gevrDamBoatLive())
     {
         return;
     }
-    obj = s_boat->obj;
+    obj = s_boatObj;
     pos[0] = s_ride.x;
     pos[1] = s_ride.y;
     pos[2] = s_ride.z;
@@ -127,7 +193,7 @@ static void gevrDamBoatAdoptTile(struct PropRecord *prop, struct StandTile *tile
 
 static int gevrDamBoatPlayable(void)
 {
-    return s_boat != NULL && g_CurrentPlayer != NULL && !g_CurrentPlayer->bonddead
+    return gevrDamBoatLive() && g_CurrentPlayer != NULL && !g_CurrentPlayer->bonddead
         && !isBondInTank() && g_CurrentPlayer->watch_animation_state == 0;
 }
 
@@ -139,7 +205,7 @@ static void gevrDamBoatSeatNow(void)
     f32 groundy;
     s32 incentre;
 
-    if (!s_ride.aboard || g_CurrentPlayer == NULL || g_CurrentPlayer->bonddead)
+    if (!gevrDamBoatLive() || !s_ride.aboard || g_CurrentPlayer == NULL || g_CurrentPlayer->bonddead)
     {
         if (g_CurrentPlayer != NULL && g_CurrentPlayer->bonddead)
         {
@@ -180,34 +246,7 @@ static void gevrDamBoatSeatNow(void)
 
 static void gevrDamBoatDisembark(void)
 {
-    struct PadRecord *pad;
-
-    if (g_CurrentSetup.pads == NULL || s_island_pad < 0)
-    {
-        s_ride.aboard = 0;
-        return;
-    }
-    pad = &g_CurrentSetup.pads[s_island_pad];
-    s_ride.aboard = 0;
-    g_CurrentPlayer->field_488.collision_position.f[0] = pad->pos.x;
-    g_CurrentPlayer->field_488.collision_position.f[2] = pad->pos.z;
-    g_CurrentPlayer->field_70 = pad->pos.y;
-    g_CurrentPlayer->stanHeight = pad->pos.y;
-    g_CurrentPlayer->field_7C = 0.0f;
-    g_CurrentPlayer->speedforwards = 0.0f;
-    g_CurrentPlayer->speedsideways = 0.0f;
-    g_CurrentPlayer->speedtheta = 0.0f;
-    if (pad->stan != NULL)
-    {
-        g_CurrentPlayer->field_488.current_tile_ptr = pad->stan;
-        gevrDamBoatAdoptTile(g_CurrentPlayer->prop, pad->stan);
-    }
-    if (g_CurrentPlayer->prop != NULL)
-    {
-        g_CurrentPlayer->prop->pos.x = pad->pos.x;
-        g_CurrentPlayer->prop->pos.y = pad->pos.y;
-        g_CurrentPlayer->prop->pos.z = pad->pos.z;
-    }
+    gevrDamBoatStepOffAt(s_island_pad);
     sysLogPrintf(LOG_NOTE, "dam boat: stepped off at the island");
 }
 
@@ -220,7 +259,9 @@ void gevrDamBoatPrepare(s32 stageId)
     f32 retail;
 
     s_boat = NULL;
+    s_boatObj = NULL;
     s_island_pad = -1;
+    s_jetty_pad = -1;
     memset(&s_ride, 0, sizeof(s_ride));
     /* g_gevrStereo is per frame and still clear while the stage is loading. */
     /* a hack campaign puts its own level in Dam's slot (Goldfinger's Ramirez Cartel) */
@@ -268,6 +309,7 @@ void gevrDamBoatPrepare(s32 stageId)
     obj->type = PROPDEF_PROP;
     obj->obj = PROP_SPEEDBOAT;
     obj->flags2 = PROPFLAG2_NOFALL | PROPFLAG2_00020000;
+    obj->damage = 1000.0f;   /* standard prop health; objInit does not supply it */
     prop = objInitWithModelDef(obj, PitemZ_entries[PROP_SPEEDBOAT].header);
     if (prop == NULL || obj->model == NULL)
     {
@@ -279,7 +321,9 @@ void gevrDamBoatPrepare(s32 stageId)
                   s_pads[place.jetty].x, s_pads[place.jetty].y, s_pads[place.jetty].z,
                   s_pads[place.island].x, s_pads[place.island].y, s_pads[place.island].z);
     s_boat = prop;
+    s_boatObj = obj;
     s_island_pad = place.island;
+    s_jetty_pad = place.jetty;
     if (g_CurrentSetup.pads[place.jetty].stan != NULL)
     {
         prop->stan = g_CurrentSetup.pads[place.jetty].stan;
@@ -293,7 +337,7 @@ void gevrDamBoatPrepare(s32 stageId)
 
 int gevrDamBoatAboard(void)
 {
-    return s_ride.aboard;
+    return gevrDamBoatLive() && s_ride.aboard;
 }
 
 int gevrDamBoatOnB(void)
@@ -355,7 +399,7 @@ int gevrDamBoatTryHand(const f32 p[3])
 
 void gevrDamBoatDrive(f32 stick_x, f32 stick_y)
 {
-    if (!s_ride.aboard || !gevrDamBoatPlayable())
+    if (!gevrDamBoatPlayable() || !s_ride.aboard)
     {
         return;
     }
@@ -365,7 +409,7 @@ void gevrDamBoatDrive(f32 stick_x, f32 stick_y)
 
 void gevrDamBoatApplySeat(void)
 {
-    if (!s_ride.aboard)
+    if (!gevrDamBoatLive() || !s_ride.aboard)
     {
         return;
     }
