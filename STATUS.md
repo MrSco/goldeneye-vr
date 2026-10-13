@@ -3,22 +3,18 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current release:** v0.4.22 (versionCode 78, protocol 21), 2026-10-12.
-v0.4.16 through v0.4.21 can join; v0.4.15 and older can't. Building does not
+**Current release:** v0.4.23 (versionCode 79, protocol 21), 2026-10-13.
+v0.4.16 through v0.4.22 can join; v0.4.15 and older can't. Building does not
 publish a GitHub release. No game data is shipped.
 
-v0.4.22: co-op starts (#164, PR #177) exclude vacant player bodies from
-collision, initialize all spawn bounds, and preserve the checked position
-through the intro. Quest 3 logs identified unused slot 1 blocking a host
-alone in Facility's vent. The user retested replacement 65f7831 and reported
-"feels good," then approved release. Two/four-headset starts, reloads, host
-swaps and Jungle Natalya still need broader play. Notes:
-[v0.4.22](docs/releases/v0.4.22.md), [#164 evidence](docs/issue-161-164-campaign-fixes.md).
-
-Unreleased on main (PR #178, 2026-10-13): aim steadying per headset frame,
+v0.4.23 (PR #178): aim steadying per headset frame,
 no VR screen shake, chest/belt slot models half size on the slot (watch laser
 as the watch), each hand's ammo on its own hand, Dam boat crash 252ac6ae (hull
-lost aboard: back to the north jetty). [Notes](docs/vr-tracking-bean-validation.md).
+lost aboard: back to the north jetty). [v0.4.23](docs/releases/v0.4.23.md),
+[checks](docs/vr-tracking-bean-validation.md).
+
+v0.4.22's co-op start fixes (#164) still need two/four-headset starts, reloads,
+host swaps and Jungle Natalya. [#164 evidence](docs/issue-161-164-campaign-fixes.md).
 
 v0.4.20 merged PR #172: the Goldfinger 64 / Tomorrow Never Dies campaigns
 (solo, the player's own patched ROMs), Project Bean (#170), the Dam
@@ -38,6 +34,8 @@ See [body slots](docs/body-slots.md).
 
 ## Recent releases
 
+**v0.4.23:** steadier aim at 90/120 Hz, half-size chest/belt slot models, per-hand
+ammo, Dam boat crash fix. Notes: [v0.4.23](docs/releases/v0.4.23.md).
 **v0.4.22:** vacant-body collision and intro handoff fixes for co-op starts.
 Notes: [v0.4.22](docs/releases/v0.4.22.md).
 **v0.4.21:** TND64 starts again, co-op starts clear of scenery (#164), guards'
