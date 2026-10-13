@@ -2010,7 +2010,10 @@ static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw, bool grip, flo
         dot = -dot;
     }
     if (dot > 1.0f) dot = 1.0f;
-    const float deg = 2.0f * (float)acos((double)dot) * (180.0f / 3.14159265f);
+    // The thresholds are degrees per 60 Hz game frame: measure this XR
+    // frame's change at that rate, or a fast hand at 90/120 Hz reads slow.
+    const float deg = 2.0f * (float)acos((double)dot) * (180.0f / 3.14159265f)
+        / (ticks > 0.0f ? ticks : 1.0f);
 
     float eff_d0 = d0[lvl];
     float eff_d1 = d1[lvl];
