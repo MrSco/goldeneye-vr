@@ -74,8 +74,11 @@ from credits. Mission 13 retains its no-advance boundary. Remaining code changes
 - the laser's tests set to 153 (its FAMAS on GlaserZ): an itemas row, a rifle,
 - `bodyChooseHead` keeps retail's form with `& 7` (7F0235E4) and its own
   random head lists in the data segment,
-- animation records (moved; read `animation_table_ptrs1/2` from its data),
-- Rare logo at ROM 0x297930 (the PR reads GoldenEye's 0x29e560),
+- animation records (moved): done 2026-10-12 (825cfe7), the binder reads its
+  `animation_table_ptrs1/2` and initanitable.c rebuilds the segment at
+  GoldenEye's offsets; v0.4.20 crashed starting the campaign (report 3020ba2c),
+- Rare logo at ROM 0x297930: done 2026-10-12 (2e5005f, layout `rarelogo`);
+  TND64 now loads into its first mission (user, headset),
 - its own held props for the silver/gold PP7 slots (230, 231; 7F09B350),
 - Girl Power hooks (Dab's `tndHookConvert`); mission names in LmiscE.
 
