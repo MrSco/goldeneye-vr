@@ -8,7 +8,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 s = (ROOT / 'port/fast3d/gfx_opengl.cpp').read_text(encoding='utf-8')
-a = s.index('static void gevr_mesh_uniforms(const struct ShaderProgram* prg, const struct GfxMeshDrawParams* p)\n{')
+a = s.index('static void gevr_mesh_uniforms(const struct ShaderProgram* prg, const struct GfxMeshDrawParams* p, bool* paletteBound)\n{')
 b = s.index('\n/*', a)
 code = s[a:b]
 fields = sorted(set(re.findall(r'prg->(\w+)', code)))
@@ -31,12 +31,11 @@ static std::map<const ShaderProgram*,GevrMeshDrawUniforms> s_meshDrawUniforms;
 static GLuint s_skinPaletteBuffer;
 static bool s_skinPaletteUploaded;
 static float s_skinPaletteRows[GEVR_SKIN_BONES][12];
-static int uploads,uniforms; static std::map<int,int> calls;
+static int uploads,uniforms,baseBinds; static GLuint genericUbo,indexedUbo; static std::map<int,int> calls;
 static float uploaded[GEVR_SKIN_BONES][12];
 static void glGenBuffers(int,GLuint *p) {*p=1;}
-static void glBindBuffer(int,GLuint) {}
-static void glBindBufferBase(int,int,GLuint) {}
-static void glBufferData(int,size_t n,const void *p,int) {assert(n==sizeof(uploaded));memcpy(uploaded,p,n);uploads++;}
+static void glBindBufferBase(int,int,GLuint b) {genericUbo=indexedUbo=b;baseBinds++;}
+static void glBufferData(int,size_t n,const void *p,int) {assert(genericUbo==s_skinPaletteBuffer && indexedUbo==s_skinPaletteBuffer);assert(n==sizeof(uploaded));memcpy(uploaded,p,n);uploads++;}
 template<class...T> void glUniform2uiv(int l,T...) {calls[l]++;uniforms++;}
 template<class...T> void glUniform1i(int l,T...) {calls[l]++;uniforms++;}
 template<class...T> void glUniform3fv(int l,T...) {calls[l]++;uniforms++;}
@@ -45,6 +44,7 @@ template<class...T> void glUniform4f(int l,T...) {calls[l]++;uniforms++;}
 template<class...T> void glUniform2f(int l,T...) {calls[l]++;uniforms++;}
 template<class...T> void glUniformMatrix4fv(int l,T...) {calls[l]++;uniforms++;}
 '''
+pre += 'static void gevr_mesh_uniforms(const ShaderProgram*, const GfxMeshDrawParams*, bool* = nullptr);\n'
 main = 'int main() {\n ShaderProgram a={},b={}; int id=1;\n'
 main += '\n'.join((f' for(int j=0;j<{arrays[f]};j++) a.{f}[j]=id++;'
                    if f in arrays else f' a.{f}=id++;') for f in fields)
@@ -83,6 +83,19 @@ main += '''
  s_skinPaletteBuffer=0; s_skinPaletteUploaded=false; s_meshDrawUniforms.clear();
  int before=uniforms; gevr_mesh_uniforms(&a,&p);
  assert(uploads==5 && uniforms>before);
+ // A pass owns both bindings across identical draws and palette changes.
+ bool bound=false; baseBinds=0;
+ gevr_mesh_uniforms(&a,&p,&bound);
+ for(int j=0;j<100;j++) gevr_mesh_uniforms(&a,&p,&bound);
+ assert(bound && baseBinds==1 && uploads==5);
+ p.palette.rows[0][3]++; gevr_mesh_uniforms(&a,&p,&bound);
+ assert(baseBinds==1 && uploads==6);
+ // A new pass refreshes external mutations, including after a ring-only pass.
+ genericUbo=indexedUbo=900; bound=false;
+ gevr_mesh_uniforms(&a,&p,&bound); assert(baseBinds==2 && genericUbo==s_skinPaletteBuffer);
+ // Calls outside a pass always establish their own binding ownership.
+ genericUbo=indexedUbo=901;
+ gevr_mesh_uniforms(&a,&p); assert(baseBinds==3 && indexedUbo==s_skinPaletteBuffer);
  puts("Mesh uniform uploads and saved palette/program/context checks passed");
 }
 '''

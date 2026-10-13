@@ -52,12 +52,15 @@ with tempfile.TemporaryDirectory(prefix="gevr-frame-timing-") as temp:
     gl = (ROOT / "port/fast3d/gfx_opengl.cpp").read_text(encoding="utf-8")
     fixture = (ROOT / "port/tests/replay_state_native.cpp").read_text(encoding="utf-8")
     fixture = fixture.replace("/* INSERT_DRAW_STRUCT */", extract(gl, "struct GevrEyeDraw") + ";")
+    fixture = fixture.replace("/* INSERT_BINDINGS */", extract(gl, "struct GevrReplayBindings") + ";\n" +
+        extract(gl, "static void gevr_replay_vao(GevrReplayBindings& state, GLuint vao, bool mesh)") + "\n" +
+        extract(gl, "static void gevr_replay_mesh(GevrReplayBindings& state, const ShaderProgram* prg,\n                             const GfxMeshDrawParams* params, int cull)"))
     fixture = fixture.replace("/* INSERT_REPLAY */", extract(gl,
         "void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand1, const float* body)"))
     cpp = temp / "replay.cpp"
     cpp.write_text(fixture)
     exe = temp / "replay.exe"
-    subprocess.run([gxx, "-std=c++17", *flags, str(cpp), "-o", str(exe)], check=True)
+    subprocess.run([gxx, "-std=c++17", *flags, *inc, "-I" + str(ROOT / "port/fast3d"), str(cpp), "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True)
     # Vertex ring ownership: helper contract, then the production ring itself.
     exe = temp / "ownership.exe"
