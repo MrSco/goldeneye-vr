@@ -10,7 +10,10 @@ publish a GitHub release. No game data is shipped.
 **On main, unreleased:** Tomorrow Never Dies 64 starts again (v0.4.20 crashed
 launching it, then after the Rare logo): its moved animation records and Rare
 logo are read where it put them. It loaded into its first mission in the
-headset. Draft notes: [v0.4.21](docs/releases/v0.4.21.md).
+headset. Co-op starts (#164, bb8acfe): every player's start, the first
+included, is checked against loaded scenery; two-headset starts still owed
+(Jungle, Train, Control, Caverns, Cradle; Natalya following in Jungle).
+Draft notes: [v0.4.21](docs/releases/v0.4.21.md).
 
 v0.4.20 merged PR #172: the Goldfinger 64 / Tomorrow Never Dies campaigns
 (solo, the player's own patched ROMs), Project Bean (#170), the Dam
