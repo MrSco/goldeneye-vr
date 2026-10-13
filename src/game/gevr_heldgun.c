@@ -102,6 +102,70 @@ static u64 s_guardused[HG_GUARDS];
 
 /* ------------------------------------------------------------- the files */
 
+/* A render-mode command in this list gets the depth compare; the rest stays. */
+static void gevrHeldGunCompareDepth(Gfx *g)
+{
+    s32 n;
+
+    for (n = 0; g != NULL && n < 4096; n++, g++)
+    {
+        u32 w0 = (u32)g->words.w0;
+        s8 op = (s8)(w0 >> 24);
+
+        if (op == (s8)G_ENDDL)
+        {
+            break;
+        }
+        if (op == (s8)G_SETOTHERMODE_L && ((w0 >> 8) & 0xff) == G_MDSFT_RENDERMODE)
+        {
+            g->words.w1 |= Z_CMP;
+        }
+    }
+}
+
+/*
+ * A first-person gun's muzzle flash (switch 1) sets its own render mode, with
+ * no depth compare (0x00504340 in every gun file): the N64 draws the player's
+ * gun over everything. Held by a guard or another player, it showed through
+ * tree trunks and walls (user, 2026-10-12, Jungle, in stereo and on the
+ * screen). The held guns load their own copy (gevrHeldGunLoad's buffer), so
+ * only theirs compare depth, as the third-person models' gunfire does
+ * (model.c dogfnegx, G_RM_ZB_CLD_SURF); the player's own gun keeps the game's.
+ */
+static void gevrHeldGunFlashDepth(ModelFileHeader *h)
+{
+    ModelNode *start = h->numSwitches > 1 ? h->Switches[1] : NULL;
+    ModelNode *node = start != NULL ? start->Child : NULL;
+
+    while (node != NULL)
+    {
+        s32 op = node->Opcode & 0xff;
+
+        if (node->Data != NULL && op == MODELNODE_OPCODE_DL)
+        {
+            gevrHeldGunCompareDepth(node->Data->DisplayList.Primary);
+            gevrHeldGunCompareDepth(node->Data->DisplayList.Secondary);
+        }
+        else if (node->Data != NULL && op == MODELNODE_OPCODE_DLPRIMARY)
+        {
+            gevrHeldGunCompareDepth(node->Data->DisplayListPrimary.Primary);
+        }
+
+        if (node->Child != NULL)
+        {
+            node = node->Child;
+            continue;
+        }
+
+        while (node != NULL && node != start && node->Next == NULL)
+        {
+            node = node->Parent;
+        }
+
+        node = (node == NULL || node == start) ? NULL : node->Next;
+    }
+}
+
 static HeldGunFile *gevrHeldGunLoad(s32 item)
 {
     HeldGunFile *f = NULL;
@@ -152,6 +216,7 @@ static HeldGunFile *gevrHeldGunLoad(s32 item)
         return NULL;
     }
 
+    gevrHeldGunFlashDepth(&f->header);
     f->header.isLoaded = TRUE;
     f->ok = TRUE;
     return f;
