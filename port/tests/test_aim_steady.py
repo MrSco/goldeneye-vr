@@ -101,6 +101,25 @@ int main() {
             float p[3],q[4]; assert(gevrVrGripPoseSteady(ctrl,p,q)); result[r]=q[1];
         }
         near(result[0],result[1]); near(result[0],result[2]);
+        // A moving hand lags the same at 60/90/120 Hz: the speed test is per
+        // 60 Hz frame. Compare the steadied turn at the shared 1/30 s instants.
+        for(float speed: {60.0f,150.0f,300.0f}) {
+            float lag[3][16];
+            for(int r=0;r<3;r++) {
+                reset(); VrAimSteady=2; sample(ctrl,0,1000000000);
+                int per=rates[r]/30;
+                for(int k=1;k<=16*per;k++) {
+                    sample(ctrl,speed*k/rates[r],1000000000/rates[r]);
+                    if(k%per) continue;
+                    float p[3],q[4]; assert(gevrVrGripPoseSteady(ctrl,p,q));
+                    lag[r][k/per-1]=(2*asinf(gCtrlPosePlay[gevrPhysHand(ctrl)].orientation.y)-2*asinf(q[1]))*180/3.14159265f;
+                }
+            }
+            float worst=0;
+            for(int r=1;r<3;r++) for(int i=0;i<16;i++) worst=fmaxf(worst,fabsf(lag[r][i]-lag[0][i]));
+            std::printf("%.0f deg/s: worst lag gap vs 60 Hz %.2f deg\n",speed,worst);
+            assert(worst<0.75f);
+        }
         // Scope grip still filters with the launcher steadying setting Off.
         reset(); scopedGrip=1; magnification=25; twoHand=1;
         sample(ctrl,0,1000000000); sample(ctrl,1,8333333);
