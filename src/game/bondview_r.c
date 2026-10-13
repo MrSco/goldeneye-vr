@@ -1058,6 +1058,9 @@ void bondviewLoadSetupIntroSection(void)
     change_player_pos_to_target(&g_CurrentPlayer->field_488, &start_pos, start_stan);
 
 #ifdef GEVR
+    /* Initialise every slot before any collision query, including occupied
+     * peers that have not had a movement tick on this headset yet. */
+    bondviewUpdatePlayerCollisionBounds();
     /*
      * PORT probe. The first gameplay frame finds current_tile_ptr NULL even
      * though it is set right here from a live spawn stan. Record the player,
