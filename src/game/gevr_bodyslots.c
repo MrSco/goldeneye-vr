@@ -75,6 +75,7 @@ extern void matrix_4x4_7F058C88(void);
 extern u16 viGetPerspNorm(void);
 /* gevr_heldgun.c, gunfire.c */
 extern Gfx *gevrHeldGunDrawPosed(s32 inst, s32 item, Mtxf *root, ModelRenderData *templ, Gfx *gdl);
+extern s32 gevrHeldGunCentre(s32 item, f32 c[3]);
 extern Gfx *gevrDrawViewTagOverlay(Gfx *gdl, const char *name, const f32 at[3], f32 k, u32 panel);
 extern void gunRequestHandWeaponChange(enum GUNHAND hand, s32 nextWeapon, s32 cycleDirection);
 extern s32 gevrIsThrowable(s32 item);        /* port/src/input.c */
@@ -924,7 +925,7 @@ static void gevrBodySlotRoot(s32 slot, s32 item, Mtxf *root)
 {
     const f32 *R = s_bodyFrame.right, *U = s_bodyFrame.up, *F = s_bodyFrame.fwd;
     s32 down = slot == GEVR_BS_HIP_GUN || slot == GEVR_BS_HIP_OFF || item == ITEM_KNIFE || item == ITEM_THROWKNIFE;
-    f32 x[3], y[3], z[3], xv[3], yv[3], zv[3], cv[3];
+    f32 x[3], y[3], z[3], xv[3], yv[3], zv[3], cv[3], mid[3];
     f32 cm = D_800364CC;
     s32 setting, online, i, j;
     f32 size = gevrGunSizeNow(&setting, &online);
@@ -977,6 +978,15 @@ static void gevrBodySlotRoot(s32 slot, s32 item, Mtxf *root)
         for (j = 0; j < 3; j++)
         {
             root->m[i][j] *= k;
+        }
+    }
+    /* The chest's and the belt's items sit on the slot's centre, where its
+     * ring is: the grip offset and an in-hand pose's carried a gadget off it. */
+    if ((slot == GEVR_BS_CHEST || slot == GEVR_BS_BELT) && gevrHeldGunCentre(item, mid))
+    {
+        for (j = 0; j < 3; j++)
+        {
+            root->m[3][j] = cv[j] - (mid[0] * root->m[0][j] + mid[1] * root->m[1][j] + mid[2] * root->m[2][j]);
         }
     }
 }
