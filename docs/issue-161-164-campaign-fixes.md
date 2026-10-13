@@ -240,7 +240,12 @@ multiplayer regressions and the co-op/soft collision, intro, edge slide,
 campaign items and frame timing suites pass. The all-mission floor audit and
 the release build also pass.
 
-The replacement signed release APK still needs the same Facility check,
-followed by two/four-player starts, abort/reloads and host swaps on the
-reported missions. Natalya's behavior remains a separate checkpoint. The
-agent has not installed an APK on the device.
+The user retested replacement build `65f7831`, reported "feels good," and
+approved v0.4.22, main merge and branch cleanup. The device's package update
+time and gameplay log establish that the replacement was installed by the
+user. This is acceptance of the local replacement test, not confirmation of
+every two/four-player mission, abort/reload or host swap. Those broader checks
+and Jungle Natalya remain pending. The agent has not installed an APK.
+
+PR #176's diagnostic code is included in PR #177; its investigation is
+superseded by the captured vacant-body blocker and this fix.
