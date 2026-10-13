@@ -104,6 +104,13 @@ struct gevrRomLayout {
 	uint8_t cars;
 	/* Solo sequence numbers: TND moves the Aztec/Egypt difficulty gates. */
 	uint8_t bonusmissions[2];
+	/*
+	 * The rarewarelogo segment's ROM address, 0 for GoldenEye's: TND64 keeps
+	 * GoldenEye's logo byte for byte, right after its global image table
+	 * (user: it crashed after the logo spun, its display lists read from
+	 * GoldenEye's address).
+	 */
+	uint32_t rarelogo;
 };
 
 struct gevrDataWindow {

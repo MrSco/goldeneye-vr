@@ -420,6 +420,11 @@ static int gevrVariantSeg(s32 seg, u32 *off, u32 *size)
 		*off = L->raw[7][0];
 		*size = L->raw[7][1];
 		return *size != 0;
+	case GEVR_SEG_RAREWARELOGO:
+		/* GoldenEye's logo, where the hack moved it (TND64); its size is GoldenEye's */
+		*off = L->rarelogo;
+		*size = g_GevrRomSegments[seg].size;
+		return *off != 0;
 	default:
 		return 0;
 	}
