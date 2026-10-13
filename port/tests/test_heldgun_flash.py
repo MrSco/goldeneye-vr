@@ -1,7 +1,7 @@
 """A guard's (or another player's) first-person gun flash compares depth.
 
 Runs gevr_heldgun.c's flash patch on a synthetic model file. With the USA ROM
-(argv[1] or GEVR_ROM), also on each first-person gun as the game loads it:
+(argv[1] or GEVR_GE_ROM), also on each first-person gun as the game loads it:
 converted by the production converter, its lists left segmented.
 """
 from pathlib import Path
@@ -22,7 +22,7 @@ fixture = fixture.replace("/* INSERT_HELDGUN */", "\n".join(block(held, signatur
 GUNS = ["wppk", "tt33", "skorpion", "ak47", "uzi", "mp5k", "spectre", "m16", "fnp90", "shotgun",
         "autoshot", "sniperrifle", "ruger", "goldengun"]
 
-rom = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("GEVR_ROM")
+rom = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("GEVR_GE_ROM")
 
 with tempfile.TemporaryDirectory(prefix="gevr-heldgun-flash-") as temp:
     source, exe = Path(temp) / "test.c", Path(temp) / "test"
@@ -37,7 +37,7 @@ with tempfile.TemporaryDirectory(prefix="gevr-heldgun-flash-") as temp:
     subprocess.run([str(exe)], check=True)
 
     if not rom:
-        print("SKIP: the cartridge guns (pass the USA ROM or set GEVR_ROM)")
+        print("SKIP: the cartridge guns (pass the USA ROM or set GEVR_GE_ROM)")
         sys.exit(0)
 
     sys.path.insert(0, str(ROOT / "tools"))
