@@ -9,6 +9,7 @@
 #include "random.h"
 #include "game/bondinv.h"
 #include "game/chrai.h"
+#include "game/chr.h"
 #include "game/front.h"
 #include "game/gun.h"
 #include "game/language.h"
@@ -366,6 +367,64 @@ static s32 gevrAmmoSpawnSpot(PadRecord *pad, f32 lift, coord3d *pos, StandTile *
     return FALSE;
 }
 
+/* stanTestVolume tests polygon edges, not a point deep inside an object.
+ * After its room lookup, check those interiors too, at the player's height.
+ * Reversed height bounds (0, 1) disable Y filtering in the retail routines:
+ * that made ceilings and scenery on another floor block every alternative. */
+static s32 gevrCoopSpawnClear(coord3d *pos, StandTile *tile)
+{
+    const s32 cdtypes = CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER;
+    const f32 floor = stanGetPositionYValue(tile, pos->x, pos->z);
+    StandTile *volume = tile;
+    s16 *index;
+    if (stanTestVolume(&volume, pos->x, pos->z, 30.0f, cdtypes, 180.0f, 30.0f) >= 0)
+        return FALSE;
+    for (index = ptr_list_object_lookup_indices; *index >= 0; index++)
+    {
+        PropRecord *prop = &g_Props[*index];
+        rect4f *polygon;
+        s32 edges;
+        f32 top, bottom;
+        if (!propIsOfCdType(prop, cdtypes)) continue;
+        chraiGetCollisionBounds(prop, &polygon, &edges, &top, &bottom);
+        if (edges > 0 && bottom <= floor + 180.0f && top >= floor + 30.0f
+            && chrpropTestPointInPolygon(pos, polygon, edges)) return FALSE;
+    }
+    return TRUE;
+}
+
+/* A pad inside scenery must be able to reach a clear point outside that
+ * scenery. Ignore only footprints containing the anchor for this path test;
+ * restore them before testing the destination. Other objects/doors and the
+ * floor still block the path. The game's collision toggle is synchronous. */
+static s32 gevrCoopSpawnPath(const coord3d *origin, const coord3d *candidate, StandTile **tile)
+{
+    const s32 cdtypes = CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER;
+    StandTile *start = *tile;
+    PropRecord *ignored[8];
+    s32 count = 0, clear;
+    for (;;)
+    {
+        PropRecord *prop;
+        rect4f *polygon;
+        s32 edges;
+        f32 top, bottom;
+        coord3d anchor = *origin;
+        *tile = start;
+        clear = stanTestLineUnobstructed(tile, origin->x, origin->z, candidate->x, candidate->z,
+                                       cdtypes, 180.0f, 30.0f, 0.0f, 1.0f);
+        if (clear || count == 8) break;
+        prop = stanSavedColl_posData;
+        if (!prop || (prop->type != PROP_TYPE_OBJ && prop->type != PROP_TYPE_DOOR)) break;
+        chraiGetCollisionBounds(prop, &polygon, &edges, &top, &bottom);
+        if (edges <= 0 || !chrpropTestPointInPolygon(&anchor, polygon, edges)) break;
+        ignored[count++] = prop;
+        sub_GAME_7F03D058(prop, FALSE);
+    }
+    while (count > 0) sub_GAME_7F03D058(ignored[--count], TRUE);
+    return clear;
+}
+
 /* Shared by mission starts and late joins/revives. Search near the intended
  * entrance, testing the whole player cylinder and the path to it, rather
  * than accepting a floor point inside scenery (#164). Reservations keep
@@ -375,17 +434,16 @@ s32 gevrCoopFindSpawnSpot(coord3d *pos, StandTile **stan, f32 facing,
 {
     const coord3d origin = *pos;
     const f32 base = stanGetPositionYValue(*stan, origin.x, origin.z);
-    const s32 cdtypes = CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER;
     s32 ring, k, i;
 
-    for (ring = 1; ring <= 6; ring++)
+    /* Slot zero keeps the pad only when its cylinder is actually clear. */
+    for (ring = count == 0 ? 0 : 1; ring <= 6; ring++)
     {
-        for (k = 0; k < 16; k++)
+        for (k = 0; k < (ring == 0 ? 1 : 16); k++)
         {
             f32 angle = facing + (f32)((k * 5) % 16) * (M_TAU_F / 16.0f);
             coord3d candidate = origin;
             StandTile *tile = *stan;
-            StandTile *volume;
             candidate.x += sinf(angle) * (70.0f * ring);
             candidate.z += cosf(angle) * (70.0f * ring);
             for (i = 0; i < count; i++)
@@ -395,12 +453,10 @@ s32 gevrCoopFindSpawnSpot(coord3d *pos, StandTile **stan, f32 facing,
                 if (dx * dx + dz * dz < 65.0f * 65.0f) break;
             }
             if (i != count
-                || !stanTestLineUnobstructed(&tile, origin.x, origin.z, candidate.x, candidate.z,
-                    cdtypes, 0.0f, 1.0f, 0.0f, 1.0f)
+                || !gevrCoopSpawnPath(&origin, &candidate, &tile)
                 || tile == NULL
                 || fabsf(stanGetPositionYValue(tile, candidate.x, candidate.z) - base) > 30.0f) continue;
-            volume = tile;
-            if (stanTestVolume(&volume, candidate.x, candidate.z, 30.0f, cdtypes, 0.0f, 1.0f) >= 0) continue;
+            if (!gevrCoopSpawnClear(&candidate, tile)) continue;
             /* Reject a cylinder straddling a ledge or a steep floor step. */
             for (i = 0; i < 8; i++)
             {
@@ -425,9 +481,8 @@ static void gevrCoopStartSpot(coord3d *pos, StandTile **stan, PadRecord *pad, s3
     coord3d reserved[4];
     s32 i;
     /* Recompute earlier slots from the pad, independent of loading order,
-     * local slot and match seed. Slot zero retains the game's own start. */
-    reserved[0] = pad->pos;
-    for (i = 1; i <= slot && i < 4; i++)
+     * local slot and match seed, including the first player's clearance. */
+    for (i = 0; i <= slot && i < 4; i++)
     {
         coord3d candidate = pad->pos;
         StandTile *tile = pad->stan;
@@ -967,7 +1022,7 @@ void bondviewLoadSetupIntroSection(void)
 
         start_stan = g_Startpad[rand_pad_index]->stan;
 #ifdef GEVR
-        if (gevrCoopActive() && get_cur_playernum() > 0 && start_stan)
+        if (gevrCoopActive() && start_stan)
         {
             gevrCoopStartSpot(&start_pos, &start_stan, g_Startpad[rand_pad_index], get_cur_playernum());
         }

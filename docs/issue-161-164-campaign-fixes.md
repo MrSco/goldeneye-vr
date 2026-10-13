@@ -93,3 +93,56 @@ repeat starts with three/four sessions when available:
    join while the party is in a narrow corridor.
 
 Keep issues open until these gameplay results are confirmed.
+
+## #164 follow-up: stuck starts in v0.4.20 (2026-10-12)
+
+The reporter confirmed v0.4.20 for the repeat report: Jungle's first player
+cannot move while the second can; Train, Control, Caverns and Cradle still
+leave both stuck. The original all-mission audit checked floor geometry,
+and its scenery fixture replaced the game's line and volume routines. It
+did not establish that loaded scenery was clear on two headsets.
+
+Three defects remained in the shared placement code:
+
+- Slot zero bypassed clearance entirely. Every slot now goes through the
+  same deterministic search; the original pad is retained when clear, and
+  the first player's repaired location is reserved for the other players.
+- The line/volume calls passed height bounds `0, 1`, which disable the
+  retail routines' vertical filtering. Props above or below the player
+  could reject all alternatives. They now test the floor-relative interval
+  from 30 to 180 units, with the existing 30-unit radius.
+- Retail volume collision tests polygon edges and can report clear when
+  the cylinder is wholly inside a large prop. Placement now also tests the
+  centre against those loaded footprints. If the entrance itself is inside
+  scenery, the path search temporarily ignores only objects/doors containing
+  that entrance, restoring their collision before checking the destination.
+  Unrelated doors, objects and floor boundaries continue to block placement.
+
+The same solver serves late joins. Its existing search radius, floor-step
+checks, teammate separation and failure diagnostic remain in effect. An
+exhausted search still leaves the anchor intact; it does not guarantee a
+placement for every possible runtime obstruction.
+
+Validation:
+
+- `python port/tests/test_coop_start.py` now extracts the production line,
+  volume, polygon-interior and collision-toggle functions, alongside floor
+  traversal and placement. Only model bounds and room membership are fixtures.
+  Checks include all four slots, overhead/below-floor scenery, a partly
+  obstructed first pad, escape from a large enclosing prop, an unrelated
+  blocking door, collision restoration, load order and safe search failure.
+- `python port/tests/test_coop_start.py --baseline-ref 004d13e` fails on
+  v0.4.20: a huge enclosing prop is incorrectly accepted as a clear spawn.
+- The owned-USA-ROM floor audit passes for all twenty missions, including
+  slot zero and wrapper/solver agreement for every slot. It still does not
+  load scenery models or exercise real movement on headsets.
+- All 77 multiplayer regressions and the co-op, soft collision and movement
+  slide suites pass.
+- Android `:app:assembleDebug` succeeds with `JAVA_HOME` explicitly set to
+  `C:/Program Files/Java/jdk-20`. The test APK is
+  `android/app/build/outputs/apk/debug/app-debug.apk`.
+
+This repairs reproduced placement defects; confirming the reporter's exact
+symptom still requires both headsets running the patched build. Prioritize
+Jungle, Train, Control, Caverns and Cradle, then Facility's crouched entrance,
+the remaining missions and late joins. No APK was installed during this work.

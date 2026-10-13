@@ -124,9 +124,9 @@ def main():
                 lib.auditGeometry(buffer,scale,size)
                 tile = C.c_void_p.from_buffer(buffer,8).value+cart_tile-first
                 facing = math.atan2(look[0],look[2])+math.pi
-                reserved = (Pos*4)(); reserved[0] = pos
+                reserved = (Pos*4)()
                 distances = []
-                for slot in range(1,4):
+                for slot in range(4):
                     candidate, selected = Pos(pos.x,pos.y,pos.z), C.c_void_p(tile)
                     if not lib.gevrCoopFindSpawnSpot(C.byref(candidate), C.byref(selected), facing, reserved, slot):
                         failures.append(f'{name}: slot {slot}'); break
@@ -134,7 +134,7 @@ def main():
                     reserved[slot] = candidate
                 tags = held_tags(data, lib)
                 look_pos = Pos(*look)
-                for slot in (3,1,2):
+                for slot in (3,0,1,2):
                     candidate, selected = Pos(pos.x,pos.y,pos.z), C.c_void_p(tile)
                     lib.auditStart(C.byref(candidate),C.byref(selected),C.byref(look_pos),slot)
                     assert abs(candidate.x-reserved[slot].x)<0.01 and abs(candidate.z-reserved[slot].z)<0.01, (name,slot)
