@@ -11,7 +11,7 @@ static GLint alignment=8, rowLength=173, skipRows=3, skipPixels=7;
 static bool scissor=true, complete=true, failMap, corrupt, failBuffer, blank, failFence;
 static int reads, maps, unmaps, buffersMade, buffersDeleted, syncsMade, syncsDeleted;
 static int texturesMade, texturesDeleted, fbosMade, fbosDeleted;
-static int pixelX=96, pixelY=30;
+static int pixelX=96, pixelY=30, pixelX2=-1;   /* a second counter, the off hand's */
 static std::map<GLuint,std::vector<unsigned char>> buffers;
 struct Fence { GLuint buffer; GLenum result=GL_TIMEOUT_EXPIRED; };
 static std::map<GLsync,Fence> fences;
@@ -95,6 +95,7 @@ static void APIENTRY read(GLint,GLint,GLsizei w,GLsizei h,GLenum f,GLenum type,v
     reads++;bufferReady[packBuffer]=false;
     auto &pixels=buffers[packBuffer];std::memset(pixels.data(),0,pixels.size());
     if(!blank)for(int y=pixelY;y<pixelY+4;y++)for(int x=pixelX;x<pixelX+8;x++)pixels[(y*128+x)*4+3]=255;
+    if(!blank && pixelX2>=0)for(int y=pixelY;y<pixelY+4;y++)for(int x=pixelX2;x<pixelX2+8;x++)pixels[(y*128+x)*4+3]=255;
 }
 PFNGLGETINTEGERVPROC glad_glGetIntegerv=get;
 PFNGLPIXELSTOREIPROC glad_glPixelStorei=pixelStore;
@@ -140,6 +141,9 @@ int main(){
     assert(!gfx_vr_hud_bounds_box(box) && box[0]==0 && box[2]==1);
     signal();update();assert(maps==3 && unmaps==3 && reads==4);
     assert(gfx_vr_hud_bounds_box(box) && box[0]==96.f/128 && box[3]==34.f/128);
+    /* One gun: its count in the right half, nothing for the off hand. */
+    assert(gfx_vr_hud_bounds_side(1,box) && box[0]==96.f/128 && box[2]==104.f/128);
+    assert(!gfx_vr_hud_bounds_side(0,box) && !gfx_vr_hud_bounds_side(2,box));
     /* Pending normal-aim measurements must not crop a new aim layout. */
     pixelX=104;signal();const int before=maps;update(1);assert(maps==before);
     assert(!gfx_vr_hud_bounds_box(box) && box[2]==1);
@@ -156,5 +160,13 @@ int main(){
     blank=true;update();signal();update();assert(!gfx_vr_hud_bounds_box(box));cleanup();
     blank=false;failFence=true;const int beforeFenceReads=reads;update();assert(reads==beforeFenceReads+1);
     assert(fences.empty());cleanup();failFence=false;
-    puts("PASS: production HUD readback uses PBOs, polls with zero timeout, never maps pending transfers, restores GL state, handles aim/resize/full-ring/failures and cleans up");
+    /* Two guns: each half's own box, the whole box spanning both. */
+    pixelX=96;pixelX2=8;update();signal();update();
+    assert(gfx_vr_hud_bounds_box(box) && box[0]==8.f/128 && box[2]==104.f/128);
+    assert(gfx_vr_hud_bounds_side(0,box) && box[0]==8.f/128 && box[2]==16.f/128 && box[1]==30.f/128);
+    assert(gfx_vr_hud_bounds_side(1,box) && box[0]==96.f/128 && box[2]==104.f/128);
+    /* Never a half from an earlier aim layout. */
+    update(1);assert(!gfx_vr_hud_bounds_side(0,box) && !gfx_vr_hud_bounds_side(1,box));
+    pixelX2=-1;cleanup();assert(!gfx_vr_hud_bounds_side(0,box) && !gfx_vr_hud_bounds_side(1,box));
+    puts("PASS: production HUD readback uses PBOs, polls with zero timeout, never maps pending transfers, restores GL state, handles aim/resize/full-ring/failures, splits the two hands' counters and cleans up");
 }

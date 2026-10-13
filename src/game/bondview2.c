@@ -770,6 +770,15 @@ static void gevrCheatProbe(s32 inlevel)
             sysLogPrintf(LOG_NOTE, "cheathook: guards' detailed guns %s", g_gevrHeldGunGuards ? "on" : "off");
             continue;
         }
+        /* "holdl<N>": the same in the off hand, e.g. holdl4 to dual-wield PP7s */
+        if (strncasecmp(word, "holdl", 5) == 0)
+        {
+            id = atoi(word + 5);
+            bondinvAddInvItem((ITEM_IDS) id);
+            currentPlayerEquipWeaponWrapper(GUNLEFT, id);
+            sysLogPrintf(LOG_NOTE, "cheathook: off hand holds item %d", id);
+            continue;
+        }
         /* "hold<N>": give item N and draw it in the gun hand, e.g. hold17 = sniper rifle */
         if (strncasecmp(word, "hold", 4) == 0)
         {

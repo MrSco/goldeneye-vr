@@ -4292,6 +4292,11 @@ extern "C" bool gfx_vr_menu_R_bbox(float out[4])
     return gfx_vr_hud_bounds_box(out);
 }
 
+extern "C" bool gfx_vr_menu_R_bbox_side(int side, float out[4])
+{
+    return gfx_vr_hud_bounds_side(side, out);
+}
+
 extern "C" s32 gevrAimModeOn(void);
 static void gevr_measure_R_capture(void)
 {
