@@ -212,6 +212,17 @@ list(FILTER SRC_PORT EXCLUDE REGEX "port/src/(romdata|mod)\.c$")
 file(GLOB_RECURSE SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/*.cpp")
 list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/(external|tests)/.*")
 
+# Dab's Fast3D build restores inlining locally; keep the original game's
+# no-inlining/aliasing/arithmetic flags and floating-point semantics intact.
+# OFF provides a compiler-only A/B control for Quest profiling.
+option(GEVR_FAST3D_INLINE "Allow Fast3D function inlining in optimized builds" ON)
+if(GEVR_FAST3D_INLINE)
+  set(SRC_FAST3D_CXX ${SRC_PORT_CXX})
+  list(FILTER SRC_FAST3D_CXX INCLUDE REGEX "port/fast3d/[^/]+\\.cpp$")
+  set_property(SOURCE ${SRC_FAST3D_CXX} APPEND PROPERTY COMPILE_OPTIONS
+    "$<$<CONFIG:Release,RelWithDebInfo,MinSizeRel>:-finline-functions>")
+endif()
+
 file(GLOB_RECURSE SRC_GAME "${CMAKE_SOURCE_DIR}/src/game/*.c")
 
 # indy_comms.c drives the cartridge port to talk to an SGI Indy dev host.
