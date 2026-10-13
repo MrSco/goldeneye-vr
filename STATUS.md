@@ -7,6 +7,11 @@ logs are in docs/archive/; feature investigations keep their own notes.
 v0.4.16 through v0.4.19 can join; v0.4.15 and older can't. Building does not
 publish a GitHub release. No game data is shipped.
 
+**On main, unreleased:** Tomorrow Never Dies 64 starts again (v0.4.20 crashed
+launching it, then after the Rare logo): its moved animation records and Rare
+logo are read where it put them. It loaded into its first mission in the
+headset. Draft notes: [v0.4.21](docs/releases/v0.4.21.md).
+
 v0.4.20 merged PR #172: the Goldfinger 64 / Tomorrow Never Dies campaigns
 (solo, the player's own patched ROMs), Project Bean (#170), the Dam
 speedboat (#171), Dam wall alarms (#174) and Bean's GPU skinning and world
