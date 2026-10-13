@@ -226,6 +226,16 @@ def close(a, b):
     return abs(float(a) - float(b)) <= 1e-3 * max(1.0, abs(float(b)))
 
 
+# the Rare logo's display lists title.c draws (gevr_rarelogo.c), at their segment offsets
+LOGO_LISTS = {0x43E8: "ba00140200000000", 0x44B0: "b600000000060000", 0x4758: "ba00140200000000"}
+
+
+def logo_at(rom, got):
+    """Where the layout says the Rare logo is (0: GoldenEye's), and whether its lists are there."""
+    at = int(got.get("rarelogo", [["0"]])[0][0]) or 0x29E560
+    return at, all(rom[at + o:at + o + 8].hex() == want for o, want in LOGO_LISTS.items())
+
+
 def tnd(exe):
     """TND64 Expanded 06-22 rebuilt its animation segment (every record but the first moved,
     DAB geconvert.c animRecord()): the binder reads its tables, and every one of GoldenEye's
@@ -248,12 +258,16 @@ def tnd(exe):
     anim = got.get("anim", [["0", "1"]])[0]
     if int(anim[1]) != 0 or int(anim[0]) < 170:
         bad.append("TND animation records: %s ok, %s bad; %s" % (anim[0], anim[1], got.get("animbad", [])[:5]))
+    # it moved GoldenEye's Rare logo (user: it crashed after the logo spun, read at GoldenEye's address)
+    at, found = logo_at(open(path, "rb").read(), got)
+    if at != 0x297930 or not found:
+        bad.append("TND Rare logo at 0x%X: lists %s" % (at, "found" if found else "missing"))
     if bad:
         print("\n".join(bad))
         print("FAIL: Tomorrow Never Dies")
         sys.exit(1)
-    print("PASS: Tomorrow Never Dies 64: binds, and its %s moved animation records read at GoldenEye's offsets (%s ok)"
-          % (tables[5], anim[0]))
+    print("PASS: Tomorrow Never Dies 64: binds, its %s moved animation records read at GoldenEye's offsets (%s ok), "
+          "and its Rare logo is read where it moved it" % (tables[5], anim[0]))
 
 
 def main():
@@ -355,6 +369,7 @@ def main():
     tables = got.get("animtables", [[]])[0]
     check(len(tables) == 6 and tables[5] == "0" and tables[0] == tables[2],
           "Goldfinger's animation records are GoldenEye's: %s" % tables)
+    check(logo_at(rom, got) == (0x29E560, True), "Goldfinger's Rare logo is GoldenEye's, where GoldenEye has it")
     check(got.get("poolinit") == [["1"]], "head pool level init")
     check(got.get("hats") == [["0", "126"]], "hat fits cover heads 0-125: %s" % got.get("hats"))
     hats = struct.unpack_from(">%df" % (126 * 6 * 6), rom, 0x17F8800)

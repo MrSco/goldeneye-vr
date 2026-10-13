@@ -48,6 +48,7 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		1, { 18, 20 }, 33, 10, 17,
 		0,
 		{ 18, 19 },
+		0,
 	},
 	{
 		"Goldfinger 64", "gf64", "GOLDFINGER", "NGFE",
@@ -97,6 +98,7 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		/* its Aston Martin (PcarastonZ) on Fontainebleau's and Alpine Highway's tank records */
 		1,
 		{ 18, 19 },
+		0,
 	},
 	{
 		"Tomorrow Never Dies 64", "tnd64", "GOLDENEYE", "NGEE",
@@ -132,6 +134,7 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		1, { 18, 20 }, 33, 10, 17,
 		0,
 		{ 11, 12 },
+		0x297930,
 	},
 };
 

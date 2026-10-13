@@ -287,6 +287,7 @@ int main(int argc, char **argv)
 	/* obInit's rebind (ob.c) must keep the hack's rows */
 	printf("rebind %d\n", gevrRomRebindVariantFiles());
 	animCheck(rom, (uint32_t)size);
+	printf("rarelogo %u\n", gevrRomActiveLayout() ? gevrRomActiveLayout()->rarelogo : 0);
 
 	printf("images %d\n", gevrTextureCount());
 	for (i = 0; c_item_entries[i].header; i++) {
