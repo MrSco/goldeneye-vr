@@ -201,3 +201,46 @@ Runway, Jungle, Train, Control, Caverns and Cradle; leave each entrance with
 both players, abort/reload each mission at least twice, then swap the host.
 Check Jungle Natalya separately and include a join during another player's
 intro. Capture `coop-intro:`, `coop-move:` and `spawn:` lines on both headsets.
+
+## Quest evidence: vacant bodies block Facility (2026-10-12)
+
+The user installed build `4f36123` and started a co-op Facility game as player
+one on Quest 3. Turning and ducking worked, but they could not move in the
+vent. The captured session launch reports **one connected player**. The
+intro handoff logged slot 0 at `113.6,424.7,-956.5` on a valid tile. Repeated
+movement attempts had a clear line but failed the volume test (`volume 2`)
+against `PROP_TYPE_VIEWER`, even at crouched height. The accompanying log
+identifies **player slot 1**, 70 units away, with nonsensical collision bounds.
+
+Co-op always allocates four player structs/props. Unoccupied slots never get
+a movement tick, which previously initialized `collision_bounds`, but their
+`field_AC` and camera state still allowed collision queries to read that
+rectangle. The soft-player exception skipped occupied teammates only; it
+did not skip the unoccupied bodies. The earlier intro change did not fix
+this observed blocker. Raw logs are preserved locally under
+`scratchpad/issue164/` and are not committed.
+
+The collision-category selector now excludes vacant online slots, and direct
+player-footprint queries also return no footprint for them. This follows
+`netSlotOccupied`: empty, departed and not-yet-loaded remote slots do not
+participate in the in-game world. All slots' collision bounds are initialized
+at spawn before any query can read them. Occupied players retain their
+footprints for other gameplay queries and continue using the existing soft
+player movement rule. A full four-player party has no slots filtered out.
+Offline player collision is unchanged.
+
+The spawn regression now extracts the production player-category selector,
+footprint getter and soft-player exception, as well as the existing line and
+volume routines. It tests vacant slots 1–3 with stale and poisoned bounds,
+occupied teammates, a fully occupied four-player party, cinematic/dead
+players and offline solid-player controls. Running
+`python port/tests/test_coop_start.py --player-baseline-ref 4f36123` fails with
+**vacant slot blocks volume**; the updated implementation passes. All 77
+multiplayer regressions and the co-op/soft collision, intro, edge slide,
+campaign items and frame timing suites pass. The all-mission floor audit and
+the release build also pass.
+
+The replacement signed release APK still needs the same Facility check,
+followed by two/four-player starts, abort/reloads and host swaps on the
+reported missions. Natalya's behavior remains a separate checkpoint. The
+agent has not installed an APK on the device.

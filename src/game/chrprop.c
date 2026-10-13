@@ -3854,6 +3854,15 @@ s32 propIsOfCdType(PropRecord* prop, s32 cdtypes) {
             }
         }
     } else if (prop->type == PROP_TYPE_VIEWER) {
+#ifdef GEVR
+        /* Co-op allocates four player props even for a host alone. Empty,
+         * loading and departed slots have no actor in the network world. */
+        extern bool netIsActive(void);
+        extern bool netSlotOccupied(int slot);
+        if (netIsActive() && !netSlotOccupied(getPlayerPointerIndex(prop))) {
+            return 0;
+        }
+#endif
         if (!(cdtypes & CDTYPE_PLAYERS)) {
             ret = 0;
         }

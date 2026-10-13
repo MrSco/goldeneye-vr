@@ -13,9 +13,12 @@ where it put them; it loaded into its first mission in the headset. Co-op
 starts (#164, bb8acfe): every player's start, the first included, is checked
 against loaded scenery; two-headset starts still owed (Jungle, Train,
 Control, Caverns, Cradle; Natalya following in Jungle). The reporter still
-gets stuck in v0.4.21, including after reloads. A follow-up preserves the
-checked gameplay position through the co-op intro and reconnects the retained
-body at its end; native regressions pass, two-headset confirmation is pending.
+gets stuck in v0.4.21, including after reloads. The intro follow-up also failed
+in a Quest 3 Facility test with the host alone: an unused player body exposed
+garbage collision bounds and blocked movement. The fix excludes vacant online
+slots from collision and initializes every spawn's bounds, alongside preserving
+the checked position through the intro. Native regressions pass for vacant and
+fully occupied parties; headset confirmation of the replacement is pending.
 See [#164 follow-up](docs/issue-161-164-campaign-fixes.md). Guards' and other
 players' muzzle flashes (DetailedGuns) compare depth and no longer show
 through trunks and walls; confirmed in the headset. Notes:
