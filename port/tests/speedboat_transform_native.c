@@ -11,6 +11,10 @@ struct PropRecord { struct ObjectRecord *obj; struct coord3d pos; };
 static struct PropRecord *s_boat;
 static struct GevrBoatRide s_ride;
 static int room_updates;
+/* gevr_dam_boat.c's ride ends with its hull: test_dam_boat_lifecycle.py runs the
+ * real check; here the hull is live while the prop has its object. */
+static struct ObjectRecord *s_boatObj;
+static int gevrDamBoatLive(void) { s_boatObj = s_boat != NULL ? s_boat->obj : NULL; return s_boatObj != NULL; }
 static void setupUpdateObjectRoomPosition(struct ObjectRecord *obj) { (void)obj; room_updates++; }
 /* INSERT_TRANSFORM */
 /* INSERT_PUSH */
