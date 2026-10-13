@@ -12,6 +12,9 @@ uint64_t issued, applied;
 int width, height, aim = -1, burst;
 float boxes[2][4];
 bool valid[2];
+/* Per screen half: the off hand's gun counts at the left, the gun hand's at the right. */
+float sides[2][2][4];
+bool has[2][2];
 
 struct State {
     GLint read, draw, pack, tex, alignment, rowLength, skipRows, skipPixels;
@@ -72,18 +75,25 @@ bool initialize() {
     }
     return true;
 }
-bool bounds(const unsigned char *pixels, float out[4]) {
-    int x0=size, y0=size, x1=-1, y1=-1;
+bool bounds(const unsigned char *pixels, float out[4], float half[2][4], bool found[2]) {
+    int x0[3]={size,size,size}, y0[3]={size,size,size}, x1[3]={-1,-1,-1}, y1[3]={-1,-1,-1};
     for (int y=0;y<size;y++) for (int x=0;x<size;x++) if (pixels[(y*size+x)*4+3]>8) {
-        if (x<x0) x0=x;
-        if (x>x1) x1=x;
-        if (y<y0) y0=y;
-        if (y>y1) y1=y;
+        const int into[2]={x<size/2 ? 0 : 1, 2};   /* its half's box and the whole one */
+        for (int k : into) {
+            if (x<x0[k]) x0[k]=x;
+            if (x>x1[k]) x1[k]=x;
+            if (y<y0[k]) y0[k]=y;
+            if (y>y1[k]) y1[k]=y;
+        }
     }
-    if (x1<x0 || y1<y0) return false;
-    out[0]=(float)x0/size; out[1]=(float)y0/size;
-    out[2]=(float)(x1+1)/size; out[3]=(float)(y1+1)/size;
-    return true;
+    for (int k=0;k<3;k++) {
+        float *box=k<2 ? half[k] : out;
+        if (k<2) found[k]=x1[k]>=x0[k];
+        if (x1[k]<x0[k]) continue;
+        box[0]=(float)x0[k]/size; box[1]=(float)y0[k]/size;
+        box[2]=(float)(x1[k]+1)/size; box[3]=(float)(y1[k]+1)/size;
+    }
+    return x1[2]>=x0[2];
 }
 void poll() {
     for (auto &slot : slots) {
@@ -96,11 +106,13 @@ void poll() {
         glBindBuffer(GL_PIXEL_PACK_BUFFER, slot.buffer);
         const auto *pixels=(const unsigned char*)glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, bytes, GL_MAP_READ_BIT);
         if (!pixels) continue;
-        float box[4];
-        const bool found=bounds(pixels, box);
+        float box[4], half[2][4];
+        bool halves[2];
+        const bool found=bounds(pixels, box, half, halves);
         const bool intact=glUnmapBuffer(GL_PIXEL_PACK_BUFFER)!=GL_FALSE;
         if (found && intact) {
             std::memcpy(boxes[aim], box, sizeof(box)); valid[aim]=true; applied=slot.serial;
+            std::memcpy(sides[aim], half, sizeof(half)); has[aim][0]=halves[0]; has[aim][1]=halves[1];
         }
     }
 }
@@ -148,6 +160,11 @@ extern "C" void gfx_vr_hud_bounds_update(unsigned source, int w, int h, int aimi
         glBufferData(GL_PIXEL_PACK_BUFFER, bytes, nullptr, GL_STREAM_READ);
     }
 }
+extern "C" bool gfx_vr_hud_bounds_side(int side, float out[4]) {
+    if (side<0 || side>1 || aim<0 || !valid[aim] || !has[aim][side]) return false;
+    std::memcpy(out, sides[aim][side], sizeof(sides[aim][side]));
+    return true;
+}
 extern "C" void gfx_vr_hud_bounds_reset() {
     for (auto &slot : slots) {
         if (slot.fence) glDeleteSync(slot.fence);
@@ -158,4 +175,5 @@ extern "C" void gfx_vr_hud_bounds_reset() {
     if (texture) glDeleteTextures(1, &texture);
     fbo=texture=0; width=height=0; aim=-1; epoch=interval=0; issued=applied=0; burst=0;
     valid[0]=valid[1]=false;
+    std::memset(has, 0, sizeof(has));
 }

@@ -2700,6 +2700,7 @@ extern "C" void vr_screen_set_visible(int visible) { g_screenVisible = visible !
 extern "C" void vr_screen_set_overlay(int overlay) { g_screenOverlay = overlay != 0; }
 extern "C" int gevrVrGripPose(int hand, float pos[3], float quat[4]); // vr_input.cpp
 extern "C" bool gfx_vr_menu_R_bbox(float out[4]);                     // gfx_opengl.cpp
+extern "C" bool gfx_vr_menu_R_bbox_side(int side, float out[4]);      // gfx_opengl.cpp
 
 // The game sampled the head for this frame's camera (bondview2.c gevrStereoFrame).
 extern "C" void gevrVrSnapshotControllers(const XrPosef *head, int focused);   // vr_input.cpp
@@ -3740,6 +3741,50 @@ extern "C" int vrGetMenuMirrorMVPList(int eyeIndex, VrMirrorMenuEntry* outEntrie
 // ============================================================================
 // COMPOSITION - Layer Submission
 // ============================================================================
+// GoldenEye: the ammo capture is the whole eye buffer; only the ammo counts are
+// drawn into it, wherever fast3d's VR mapping puts them. A panel shows one box
+// of it (gfx_opengl.cpp gevr_measure_R_capture) plus a margin, at 2.5 mm a
+// texel-row-of-128 so the digits read about 2 cm tall. It goes from the raw grip
+// pose of its controller (view space, as the gun is placed: bondview2.c
+// gevrGripAxes), 7 cm up along the fist's thumb side (grip -Z), turned to face
+// the eyes so it reads from any hand angle. PD's facing test (mirrored gCtrl*
+// conventions) hid it.
+static bool vr_ammo_panel(XrCompositionLayerQuad *layer, int ctrl, const float box[4])
+{
+    const int32_t w = (int32_t)g_menuSwapchainWidth, h = (int32_t)g_menuSwapchainHeight;
+    const float m = 0.02f;
+    float bx0 = box[0] - m, by0 = box[1] - m, bx1 = box[2] + m, by1 = box[3] + m;
+    if (bx0 < 0.0f) bx0 = 0.0f;
+    if (by0 < 0.0f) by0 = 0.0f;
+    if (bx1 > 1.0f) bx1 = 1.0f;
+    if (by1 > 1.0f) by1 = 1.0f;
+    // OpenGL swapchain images: texel origin bottom-left, as the box is.
+    layer->subImage.imageRect.offset = {(int32_t)(bx0 * w), (int32_t)(by0 * h)};
+    layer->subImage.imageRect.extent = {(int32_t)((bx1 - bx0) * w), (int32_t)((by1 - by0) * h)};
+    const float width = (bx1 - bx0) * 0.6f;   // the whole capture would be 0.6 m wide
+    layer->size = {width, width * ((by1 - by0) * h) / ((bx1 - bx0) * w)};
+
+    float gp[3], gq[4];
+    if (!gevrVrGripPose(ctrl, gp, gq)) return false;
+    const float x = gq[0], y = gq[1], z = gq[2], ww = gq[3];
+    const float upx = -(2.0f * (x * z + ww * y));
+    const float upy = -(2.0f * (y * z - ww * x));
+    const float upz = -(1.0f - 2.0f * (x * x + y * y));
+    const float px = gp[0] + upx * 0.07f, py = gp[1] + upy * 0.07f, pz = gp[2] + upz * 0.07f;
+    layer->pose.position = {px, py, pz};
+
+    // yaw/pitch so the quad's +Z points back at the eye (origin)
+    const float len = sqrtf(px * px + py * py + pz * pz);
+    if (len > 0.01f) {
+        const float yaw = vr_atan2f(-px, -pz);
+        const float pitch = vr_asinf(py / len);
+        const XrQuaternionf qy = {0.0f, sinf(yaw * 0.5f), 0.0f, cosf(yaw * 0.5f)};
+        const XrQuaternionf qx = {sinf(pitch * 0.5f), 0.0f, 0.0f, cosf(pitch * 0.5f)};
+        layer->pose.orientation = MultiplyQuaternions(qy, qx);
+    }
+    return true;
+}
+
 static void rotvec(float *vx, float *vy, float *vz,
                    float qw, float qx, float qy, float qz)
 {
@@ -3918,6 +3963,9 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     if (submitMenuR) vr_update_menu_swapchain_R();
 
     XrCompositionLayerQuad menuLayerR = vr_init_menu_quad(g_menuSwapchainR);
+    // the off hand's gun count: the same capture, its left half
+    XrCompositionLayerQuad menuLayerAmmoL = vr_init_menu_quad(g_menuSwapchainR);
+    bool submitAmmoL = false;
 
     if (is_weapon_hud) {
         VrMenuResult res = vr_compute_weapon_menu(ctrlR, /*mirror=*/false, 0.0f, 0.0f, 0.0f);
@@ -3925,50 +3973,19 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         menuLayerR.size = {1.0f * XrAspect * 0.8f, 1.0f * 0.8f};
         submitMenuR = submitMenuR && res.facingPlayer;
 
-        // GoldenEye: the capture is the whole eye buffer; only the ammo count is
-        // drawn into it, wherever fast3d's VR mapping puts it. Crop the panel to
-        // the measured box (gfx_opengl.cpp gevr_measure_R_capture) plus a margin,
-        // at 2.5 mm a texel-row-of-128 so the digits read about 2 cm tall.
-        {
-            const int32_t w = (int32_t)g_menuSwapchainWidth, h = (int32_t)g_menuSwapchainHeight;
-            float box[4] = {0.60f, 0.02f, 1.0f, 0.22f};
-            gfx_vr_menu_R_bbox(box);
-            const float m = 0.02f;
-            float bx0 = box[0] - m, by0 = box[1] - m, bx1 = box[2] + m, by1 = box[3] + m;
-            if (bx0 < 0.0f) bx0 = 0.0f;
-            if (by0 < 0.0f) by0 = 0.0f;
-            if (bx1 > 1.0f) bx1 = 1.0f;
-            if (by1 > 1.0f) by1 = 1.0f;
-            // OpenGL swapchain images: texel origin bottom-left, as the box is.
-            menuLayerR.subImage.imageRect.offset = {(int32_t)(bx0 * w), (int32_t)(by0 * h)};
-            menuLayerR.subImage.imageRect.extent = {(int32_t)((bx1 - bx0) * w), (int32_t)((by1 - by0) * h)};
-            const float width = (bx1 - bx0) * 0.6f;   // the whole capture would be 0.6 m wide
-            menuLayerR.size = {width, width * ((by1 - by0) * h) / ((bx1 - bx0) * w)};
-
-            // Place it from the raw right grip pose (view space, as the gun is
-            // placed: bondview2.c gevrGripAxes), 7 cm up along the fist's
-            // thumb side (grip -Z), turned to face the eyes so it reads from any
-            // hand angle. PD's facing test (mirrored gCtrl* conventions) hid it.
-            float gp[3], gq[4];
-            if (gevrVrGripPose(1, gp, gq)) {
-                const float x = gq[0], y = gq[1], z = gq[2], ww = gq[3];
-                const float upx = -(2.0f * (x * z + ww * y));
-                const float upy = -(2.0f * (y * z - ww * x));
-                const float upz = -(1.0f - 2.0f * (x * x + y * y));
-                const float px = gp[0] + upx * 0.07f, py = gp[1] + upy * 0.07f, pz = gp[2] + upz * 0.07f;
-                menuLayerR.pose.position = {px, py, pz};
-
-                // yaw/pitch so the quad's +Z points back at the eye (origin)
-                const float len = sqrtf(px * px + py * py + pz * pz);
-                if (len > 0.01f) {
-                    const float yaw = vr_atan2f(-px, -pz);
-                    const float pitch = vr_asinf(py / len);
-                    const XrQuaternionf qy = {0.0f, sinf(yaw * 0.5f), 0.0f, cosf(yaw * 0.5f)};
-                    const XrQuaternionf qx = {sinf(pitch * 0.5f), 0.0f, 0.0f, cosf(pitch * 0.5f)};
-                    menuLayerR.pose.orientation = MultiplyQuaternions(qy, qx);
-                }
-                submitMenuR = (g_menuSwapchainR != XR_NULL_HANDLE) && gfx_vr_menu_R_dirty_and_clear();
-            }
+        // Each hand's gun count on its own hand: the game draws the off
+        // hand's (GUNLEFT, controller 0) at the screen's left and the gun
+        // hand's at the right. Until the capture is measured, the whole of it
+        // at the gun hand.
+        const bool dirty = (g_menuSwapchainR != XR_NULL_HANDLE) && gfx_vr_menu_R_dirty_and_clear();
+        float box[4];
+        if (gfx_vr_menu_R_bbox(box)) {
+            float half[4];
+            if (!gfx_vr_menu_R_bbox_side(1, half)) submitMenuR = false;
+            else if (vr_ammo_panel(&menuLayerR, ctrlR, half)) submitMenuR = dirty;
+            submitAmmoL = gfx_vr_menu_R_bbox_side(0, half) && vr_ammo_panel(&menuLayerAmmoL, ctrlL, half) && dirty;
+        } else if (vr_ammo_panel(&menuLayerR, ctrlR, box)) {
+            submitMenuR = dirty;
         }
     } else {
         submitMenuR = false;
@@ -4236,7 +4253,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     // If passthrough is active behind the screen, the passthrough layer is placed
     // at the very bottom (first layer).
     int numLayers = 0;
-    const XrCompositionLayerBaseHeader* layers[12];   // passthrough, screen, eyes, four menus, two scopes, room to spare
+    const XrCompositionLayerBaseHeader* layers[14];   // passthrough, screen, eyes, five menus, two scopes, room to spare
 
     const bool isScreenOnVoid = vr_screen_on_void();
     const bool usePassthrough = VrScreenPassthrough && g_passthroughSupported && isScreenOnVoid && (g_passthroughLayer != XR_NULL_HANDLE);
@@ -4283,6 +4300,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
 
     if (submitMenuL) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerL);
     if (submitMenuR) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerR);
+    if (submitAmmoL) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerAmmoL);
     if (submitMenuH) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerH);
     if (submitMenuP) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerP);
     for (int hand = 0; hand < 2; hand++) {
