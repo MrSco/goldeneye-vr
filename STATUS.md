@@ -11,8 +11,9 @@ v0.4.21: Tomorrow Never Dies 64 starts again (v0.4.20 crashed launching it,
 then after the Rare logo): its moved animation records and Rare logo are read
 where it put them; it loaded into its first mission in the headset. Co-op
 starts (#164, bb8acfe): every player's start is checked against scenery, but
-the Oct 13 retest still failed after a reload; #164 remains open. Jungle
-worked once; Control, Caverns and Cradle still stuck. See the follow-up in
+the Oct 13 v0.4.21 retest still fails; #164 remains open. P1 is stuck on
+Dam, Facility, Runway and Jungle; both on Control, Caverns and Cradle. See
+the follow-up in
 docs/issue-161-164-campaign-fixes.md. Guards' and other
 players' muzzle flashes (DetailedGuns) compare depth and no longer show
 through trunks and walls; confirmed in the headset. Notes:

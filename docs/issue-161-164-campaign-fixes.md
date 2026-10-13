@@ -187,3 +187,29 @@ tracked tests were unchanged. Android `assembleDebug` succeeds, and
 key, so it cannot update a release-key installation; build this branch with
 the existing release key for testing over an installed release. No headset
 or owned ROM was available here, and no APK was installed or published.
+
+### Expanded mission results (02:32 UTC, v0.4.21)
+
+[The reporter's next update](https://github.com/MrSco/goldeneye-vr/issues/164#issuecomment-6136926759)
+expands the affected missions:
+
+| Missions | P1 | P2 |
+| --- | --- | --- |
+| Dam, Facility, Runway, Jungle | Cannot move from start | Can move |
+| Control, Caverns, Cradle | Cannot move from start | Cannot move from start |
+
+Train was in the original report but was not mentioned in this update.
+This is broader than a Jungle/Natalya problem. The report identifies P1/P2;
+it does not independently establish whether the distinction follows the
+host role, slot number, character or starting position.
+
+Another untested path is the intro: `playerTick`'s cinematic branch calls
+`chrTick`, then copies the body's position and floor tile into
+`field_488.collision_position` and `current_tile_ptr`. `chrUpdateAnim` can
+advance that body's root position. These writes occur after the spawn search;
+the clearance fixture does not exercise them. The co-op swirl-to-gameplay
+transition keeps the body because `bondviewRemovePlayerBody` only removes
+it for a single-player session. This is a concrete path to investigate,
+not proof that intro motion causes the reporter's immobility. Compare the
+validated stage-load position with the position/tile at intro completion,
+then capture the failed movement test before changing the solver again.
