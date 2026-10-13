@@ -1968,30 +1968,30 @@ static unsigned gCamCtrlSnapshotId;
  * controller orientation carries hand tremor, which the crosshair - at the
  * aim ray's hit point, metres away - magnifies (1 degree is ~35 cm at 20 m).
  * The menu pointer was already smoothed; aiming was not. Perfect Dark VR
- * filters its controller rotation too (CTRL_SMOOTH_ALPHA_ROT_*), but the
- * GoldenEye stereo code reads these snapshots instead. Filtered here, once
- * per game frame, in play space (so a head turn never drags the gun), with
+ * filters its controller rotation too (CTRL_SMOOTH_ALPHA_ROT_*). Advance
+ * once per XR frame, including retained-geometry redraws, in play space
+ * (so a head turn never drags the gun), with
  * the pointer's speed-dependent weight: heavy for tremor-sized changes, none
  * once the hand really moves. Position is left raw.
  */
 static XrQuaternionf gSteadyQ[2];
 static bool gSteadyInit[2];
-static bool gSteadyUsed[2];   // this game frame's snapshot took the steadied turn
+static bool gSteadyUsed[2];   // the current XR pose uses the steadied turn
 
 /*
  * Aiming a gun with a scope (bondview2.c gevrGripSteadyOn), Perfect Dark VR's
  * grip steadying: while gripping a zoom weapon its controller turn is slerped
  * CTRL_SMOOTH_ALPHA_ROT_GRIP (0.10) of the way each XR frame, whatever the
- * hand's speed (vr_input.cpp WepCanZoom). Here once a game frame: 0.15 at
- * 60 Hz is its 0.10 at 90 Hz (1 - 0.9^1.5). Issue #58: the scope magnifies
- * the hand's tremor.
+ * hand's speed (vr_input.cpp WepCanZoom). Here 0.15 at
+ * 60 Hz is its 0.10 at 90 Hz (1 - 0.9^1.5), time-scaled below.
+ * Issue #58: the scope magnifies the hand's tremor.
  */
 #define GEVR_GRIP_STEADY_ALPHA 0.15f
 extern "C" int gevrGripSteadyOnCtrl(int ctrl);   // bondview2.c: 1 the gun hand, 0 the off hand
 extern "C" int gevrStereoTwoHandGrip(void); // bondview2.c
 extern "C" float gevrScopeMagnificationCtrl(int ctrl); // bondview2.c
 
-static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw, bool grip)
+static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw, bool grip, float ticks)
 {
     // weight a: aMin below d0 degrees of change per frame, 1 above d1
     static const float aMin[3] = { 1.0f, 0.30f, 0.12f };
@@ -2040,7 +2040,9 @@ static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw, bool grip)
 
     float t = (deg - eff_d0) / (eff_d1 - eff_d0);
     t = t < 0.0f ? 0.0f : t > 1.0f ? 1.0f : t;
-    const float a = targetA + (maxA - targetA) * t;
+    const float frameA = targetA + (maxA - targetA) * t;
+    // Preserve the 60 Hz response at any headset refresh rate.
+    const float a = 1.0f - powf(1.0f - frameA, ticks);
 
     XrQuaternionf q = { s.x + (raw.x - s.x) * a, s.y + (raw.y - s.y) * a,
                         s.z + (raw.z - s.z) * a, s.w + (raw.w - s.w) * a };
@@ -2048,6 +2050,30 @@ static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw, bool grip)
     if (len > 1e-6f) { q.x /= len; q.y /= len; q.z /= len; q.w /= len; }
     gSteadyQ[h] = q;
     return q;
+}
+
+/* Called after OpenXR samples both controllers, before either a fresh draw
+ * or a redraw. Getters and game snapshots only read this filtered pose. */
+extern "C" void gevrVrSteadyControllers(XrTime time, int focused)
+{
+    static XrTime previous;
+    if (time == previous) return;
+    const float dt = previous && time > previous ? (float)((time - previous) * 1e-9) : 1.0f / 60.0f;
+    const bool restart = !previous || time < previous || dt > 0.1f;
+    previous = time;
+    const float ticks = restart ? 1.0f : dt * 60.0f;
+    for (int h = 0; h < 2; h++) {
+        if (!focused || !gControllerStates[h].is_active) continue;
+        const XrQuaternionf& raw = gCtrlPosePlay[h].orientation;
+        if (raw.x == 0.0f && raw.y == 0.0f && raw.z == 0.0f && raw.w == 0.0f) continue;
+        const bool twoHand = gevrStereoTwoHandGrip() != 0;
+        const bool grip = gevrGripSteadyOnCtrl(gevrPhysHand(h)) ||
+            (h == gevrPhysHand(0) && twoHand && gevrGripSteadyOnCtrl(1));
+        if (restart) gSteadyInit[h] = false;
+        gSteadyUsed[h] = VrAimSteady > 0 || grip;
+        if (gSteadyUsed[h]) gevr_steady(h, raw, grip, ticks);
+        else gSteadyInit[h] = false;
+    }
 }
 
 static XrPosef gevrPlayPoseToView(const XrPosef& play, const XrPosef& head)
@@ -2081,23 +2107,14 @@ extern "C" void gevrVrSnapshotControllers(const XrPosef *head, int focused)
             const XrQuaternionf& q = gControllerStates[h].controller_pose.orientation;
             gCamCtrlValid[h] = !(q.x == 0.0f && q.y == 0.0f && q.z == 0.0f && q.w == 0.0f);
             gCamCtrlPose[h] = gControllerStates[h].controller_pose;
-            const XrQuaternionf& pq = gCtrlPosePlay[h].orientation;
-            const bool twoHand = gevrStereoTwoHandGrip() != 0;
-            // each hand by its own scope (gevrPhysHand is its own inverse); two-handed, the off hand too
-            const bool grip = gevrGripSteadyOnCtrl(gevrPhysHand(h)) || (h == gevrPhysHand(0) && twoHand && gevrGripSteadyOnCtrl(1));
-            gSteadyUsed[h] = false;
-            if ((VrAimSteady > 0 || grip) && !(pq.x == 0.0f && pq.y == 0.0f && pq.z == 0.0f && pq.w == 0.0f)) {
-                // steadied play-space orientation, seen from the camera head: head^-1 * s
-                const XrQuaternionf s = gevr_steady(h, pq, grip);
-                gSteadyUsed[h] = true;
+            if (gSteadyUsed[h] && gSteadyInit[h]) {
+                const XrQuaternionf s = gSteadyQ[h];
                 const XrQuaternionf hq = head->orientation;
                 const float cx = -hq.x, cy = -hq.y, cz = -hq.z, cw = hq.w;
                 gCamCtrlPose[h].orientation = { cw * s.x + cx * s.w + cy * s.z - cz * s.y,
                                                 cw * s.y - cx * s.z + cy * s.w + cz * s.x,
                                                 cw * s.z + cx * s.y - cy * s.x + cz * s.w,
                                                 cw * s.w - cx * s.x - cy * s.y - cz * s.z };
-            } else {
-                gSteadyInit[h] = false;
             }
             continue;
         }
@@ -2180,7 +2197,7 @@ extern "C" int gevrVrGripPoseCamera(int hand, float pos[3], float quat[4])
 }
 
 /*
- * The newest pose, its turn steadied as the game frame's was (gevr_steady):
+ * The newest pose, with this XR frame's steadied turn (gevr_steady):
  * the play-space steadying carried onto the newest view-space pose,
  * view = raw_view * raw_play^-1 * steady_play. The redrawn gun and the scope's
  * lens take it, so steadying is not undone between game frames (a raw newest
