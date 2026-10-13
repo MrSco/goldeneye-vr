@@ -177,3 +177,13 @@ Control, Caverns and Cradle; record which headset/slot is stuck and whether
 Natalya moves on the host. Capture `gevr.log` from each headset immediately
 after the stuck attempt (also available in the app's existing log report).
 The diagnostic build is not a claimed fix or a new release.
+
+Validation in the cloud workspace: spawn search, co-op player collision,
+soft collision, edge slide and frame-timing/collision-path suites pass.
+The Linux edge-slide harness needed a local compiler wrapper adding `-lm`;
+tracked tests were unchanged. Android `assembleDebug` succeeds, and
+`apksigner verify` passes. The APK contains the diagnostic code at commit
+`de3d9eb` and identifies as 0.4.21/versionCode 77. It uses the debug signing
+key, so it cannot update a release-key installation; build this branch with
+the existing release key for testing over an installed release. No headset
+or owned ROM was available here, and no APK was installed or published.
