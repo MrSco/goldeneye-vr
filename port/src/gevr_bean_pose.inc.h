@@ -19,6 +19,7 @@ static int beanInverse3(const float a[9], float out[9])
 	return 1;
 }
 
+#include "gevr_bean_wounds.inc.h"
 #include "gevr_bean_gpu.inc.h"
 
 /* A root registry entry is rendered once, before native limb/LOD traversal.

@@ -379,6 +379,7 @@ struct ShaderProgram {
     GLint meshTintLocation, meshLitLocation, meshAmbientLocation, meshLightDirLocation, meshLightColorLocation,
         meshNumLightsLocation, meshFogLocation, meshFogParamsLocation, meshValidLocation;
     // each array element on its own: the compiler keeps only those the shader uses
+    GLint meshWoundCountLocation, meshWoundLocation;
     GLint meshNormalTexLocation, meshNormalAxisLocation, meshMPLocation, meshTexLocation[2], meshTexRotationLocation[2], meshInSelLocation[GFX_MESH_MAX_INPUTS],
         meshInConstLocation[GFX_MESH_MAX_INPUTS];
 
@@ -1340,6 +1341,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         // gfx_mesh_vs_main). Below, main() makes the usual inputs of them.
         append_line(vs_buf, &vs_len, "INPUT vec3 aMeshPos; INPUT vec3 aWorldNormal;");
         append_line(vs_buf, &vs_len, "uniform int uNormalTex1; uniform vec3 uNormalAxis[4];");
+        append_line(vs_buf, &vs_len, "uniform int uWoundCount; uniform vec4 uWound[8];");
         append_line(vs_buf, &vs_len, "INPUT vec2 aMeshST;");
         append_line(vs_buf, &vs_len, "INPUT vec4 aMeshColor;");
         append_line(vs_buf, &vs_len, "uniform mat4 uMeshMP;");
@@ -1413,6 +1415,13 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         append_line(vs_buf, &vs_len, "      meshColor.rgb = min(rgb, vec3(255.0)) / 255.0;");
         append_line(vs_buf, &vs_len, "    }");
         append_line(vs_buf, &vs_len, "    if (uMeshTinted != 0) meshColor.rgb = aSkinUnlit > 0.0 || uMeshLit == 0 ? aSkinTint.rgb : meshColor.rgb * aSkinTint.rgb;");
+        // DAB xblaMeshWoundStrength: a Bean body's bullet wounds (gevr_bean_wounds.inc.h).
+        // The chr combiner lerps to the blood tint by shade alpha, times the shade:
+        // a wounded vertex loses alpha and is lifted towards white.
+        append_line(vs_buf, &vs_len, "    if (uWoundCount > 0) { float clean = 1.0;");
+        append_line(vs_buf, &vs_len, "      for (int i = 0; i < 8; i++) { if (i >= uWoundCount) break; vec3 d = meshPos - uWound[i].xyz;");
+        append_line(vs_buf, &vs_len, "        float f = 1.0 - dot(d, d) / (60.0 * 60.0); if (f > 0.0) clean *= 1.0 - uWound[i].w / 255.0 * f; }");
+        append_line(vs_buf, &vs_len, "      float s = 1.0 - clean; meshColor.a = min(meshColor.a, 1.0 - s); meshColor.rgb = mix(meshColor.rgb, vec3(1.0), s); }");
         append_line(vs_buf, &vs_len, "    vec4 aVtxPos = uMeshMP * vec4(meshPos, 1.0);");
         if (cc_features.opt_fog) {
             append_line(vs_buf, &vs_len, "    float fw = abs(aVtxPos.w) < 0.001 ? 0.001 : aVtxPos.w;");
@@ -1839,6 +1848,8 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     prg->opt_grayscale = cc_features.opt_grayscale;
     prg->is_mesh = s_buildMesh;
     prg->meshNormalTexLocation=s_buildMesh ? glGetUniformLocation(shader_program,"uNormalTex1") : -1;
+    prg->meshWoundCountLocation=s_buildMesh ? glGetUniformLocation(shader_program,"uWoundCount") : -1;
+    prg->meshWoundLocation=s_buildMesh ? glGetUniformLocation(shader_program,"uWound") : -1;
     prg->meshNormalAxisLocation=s_buildMesh ? glGetUniformLocation(shader_program,"uNormalAxis") : -1;
     prg->meshMPLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshMP") : -1;
     for (int i = 0; i < GFX_MESH_MAX_INPUTS; i++) {
@@ -3170,6 +3181,10 @@ static void gevr_mesh_uniforms(const struct ShaderProgram* prg, const struct Gfx
     if (prg->meshFogParamsLocation >= 0 && (changed(p->fog_mul,old.fog_mul) || changed(p->fog_offset,old.fog_offset) ||
         changed(p->fog_enabled,old.fog_enabled) || changed(p->fog_linear,old.fog_linear)))
         glUniform4f(prg->meshFogParamsLocation, p->fog_mul, p->fog_offset, p->fog_enabled, p->fog_linear);
+    if(prg->meshWoundCountLocation>=0 && changed(p->num_wounds,old.num_wounds))
+        glUniform1i(prg->meshWoundCountLocation,p->num_wounds);
+    if(prg->meshWoundLocation>=0 && p->num_wounds && changed(p->wounds,old.wounds))
+        glUniform4fv(prg->meshWoundLocation,GEVR_SKIN_WOUNDS,&p->wounds[0][0]);
     if(prg->meshNormalTexLocation>=0 && changed(p->normal_tex1,old.normal_tex1))
         glUniform1i(prg->meshNormalTexLocation,p->normal_tex1);
     if(prg->meshNormalAxisLocation>=0 && p->normal_tex1 && (!cache.valid || !old.normal_tex1 || changed(p->normal_axis,old.normal_axis)))
