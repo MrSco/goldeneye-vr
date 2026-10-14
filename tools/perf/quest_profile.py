@@ -23,7 +23,7 @@ import time
 FILES = '/sdcard/Android/data/com.gevr.port/files'
 PACKAGE = 'com.gevr.port'
 LAUNCH_CHECK = 'LaunchCheckControllerRequiredDialogActivity'
-MARKERS = ['gevr_fakegrip.txt','gevr_scopedump','gevr_scope.pam', 'gevr_body_batch.txt','gevr_rigid_min.txt','gevr_room_draws.txt', 'gevr_input.txt', 'gevr_level.txt', 'gevr_warp.txt', 'gevr_cheat.txt',
+MARKERS = ['gevr_fakegrip.txt','gevr_scopedump','gevr_scope.pam', 'gevr_body_batch.txt','gevr_rigid_min.txt','gevr_room_draws.txt', 'gevr_pipeline.txt', 'gevr_input.txt', 'gevr_level.txt', 'gevr_warp.txt', 'gevr_cheat.txt',
            'gevr_profile.txt', 'gevr_profile.txt.status']
 PROTECTED = ['data/goldeneye-vr.ini', 'eeprom.bin', *MARKERS]
 WARMUP, MEASURE = 15, 60
@@ -258,7 +258,7 @@ def run(args, out):
     push_back(out / 'backup/eeprom.bin', f'{FILES}/eeprom.bin')
     info = {'apk': str(args.apk.resolve()), 'sha256': hashlib.sha256(args.apk.read_bytes()).hexdigest(),
             'hz': args.hz, 'detail': args.detail, 'showstats': args.showstats, 'runs': args.runs,
-            'pad': args.pad, 'scope_probe': args.scope_probe, 'body_batch': args.body_batch, 'rigid_min': args.rigid_min, 'room_draws': args.room_draws, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'xbla': args.xbla, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
+            'pad': args.pad, 'scope_probe': args.scope_probe, 'body_batch': args.body_batch, 'rigid_min': args.rigid_min, 'room_draws': args.room_draws, 'pipeline': args.pipeline, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'xbla': args.xbla, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
     log = (folder / 'device.log').open('wb')
     logger = subprocess.Popen(['adb', 'logcat', '-T', '1', '-v', 'threadtime'], stdout=log, stderr=log)
     try:
@@ -266,13 +266,15 @@ def run(args, out):
         put('gevr_body_batch.txt',str(args.body_batch))
         put('gevr_rigid_min.txt',str(args.rigid_min))
         put('gevr_room_draws.txt',str(args.room_draws))
+        put('gevr_pipeline.txt',str(args.pipeline))
         launch()
         applied=recent()
         expected=f'gevr bean controls: rigid_min={args.rigid_min} body_batch={args.body_batch}'
         # The room switch is read only when XBLA rooms build (XblaVisualsMode=1);
         # the Bean pack alone replaces characters and guns.
         rooms = re.search(rb'XblaVisualsMode=1', config) is not None
-        if expected not in applied or (rooms and f'gevr bean room-draws: {args.room_draws}' not in applied):
+        if expected not in applied or (rooms and f'gevr bean room-draws: {args.room_draws}' not in applied) or \
+                f'gevr pipeline: {args.pipeline}' not in applied:
             raise Unavailable('Renderer did not acknowledge requested diagnostic controls')
         if args.body_batch and 'gevr bean body-batch:' not in applied:
             raise Unavailable('Whole-character batching was requested but never applied')
@@ -381,6 +383,8 @@ if __name__ == '__main__':
     parser.add_argument('--texture-pack', help="'none' or a pack folder; default keeps the user's setting")
     parser.add_argument('--scope-probe',action='store_true',
                         help='equip sniper and use an explicit synthetic grip for unattended real scope rendering')
+    parser.add_argument('--pipeline', type=int, choices=[0, 1], default=1,
+                        help='0 runs the game tick inside its XR frame (the order before the early tick)')
     parser.add_argument('--simpleperf', action='store_true',
                         help='sample the measured minute with simpleperf (attribution only; needs the benchmark build)')
     args = parser.parse_args()
