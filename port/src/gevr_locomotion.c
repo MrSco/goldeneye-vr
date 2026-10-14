@@ -152,7 +152,14 @@ int gevrLocomotionQuery(GevrLocomotionHistory *h, int64_t now, GevrLocomotionPos
     const int64_t target = now - h->delay;
     *p = h->poses[h->count - 1];
     h->targetLead = target - p->time;
-    if (now < h->lastDisplayTime || now - h->lastDisplayTime > 100000000) {
+    /* The early tick snapshots the game frame at the display time predicted
+     * before the frame's xrWaitFrame; the time that call returns can be a
+     * little earlier. Held as a stall, such a frame showed the newest pose, a
+     * whole game tick ahead of the delayed timeline, and the next frame
+     * stepped back: some 15 judders a second while walking or turning, none
+     * while only the head moved (user, 2026-10-14). Less than the delay back
+     * is within the history; only a larger regression is a clock fault. */
+    if (now + h->delay < h->lastDisplayTime || now - h->lastDisplayTime > 100000000) {
         h->clamps++;
         h->clampReason = GEVR_LOCO_CLAMP_STALE;
         return 1; /* a stall holds the latest confirmed position, never predicts */
