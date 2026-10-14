@@ -31,7 +31,7 @@ void init_menus_or_reset(void)
         menu_update = MENU_FILE_SELECT;
     }
 
-    ptr_logo_and_walletbond_DL = (u8 *)mempAllocBytesInBank(0x78000, MEMPOOL_STAGE); // allocation in bytes so cast to u8 from gfx
+    ptr_logo_and_walletbond_DL = (u8 *)mempAllocBytesInBank(GEVR_MENU_BUFFER_BYTES, MEMPOOL_STAGE); // allocation in bytes so cast to u8 from gfx
 
 #if defined(VERSION_EU)
     ptr_menu_videobuffer = (uintptr_t)mempAllocBytesInBank(0x55040, MEMPOOL_STAGE);
