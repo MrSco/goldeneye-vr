@@ -109,6 +109,11 @@ void *gevrBeanRareLogoGdl(const float lo[3], const float hi[3], const void **pic
 void gevrBeanNoteOpaque(const void *model);
 /* Self-contained replacement in a transparent-only native type-4 draw. */
 void *gevrBeanTransparentGdl(void *node, void *current, struct Model *model, int flags);
+/* A prop list with solid and translucent batches, split over the passes: 1 the
+ * opaque pass draws its solid batches, 2 the translucent pass its translucent
+ * ones, 0 the whole list. Draw it between gevrBeanPassMark(gdl, pass) and (gdl, 0). */
+int gevrBeanPassSplit(void *node, struct Model *model, int flags);
+void *gevrBeanPassMark(void *gdl, int pass);
 /* GoldenEye's monitor screens under Bean's meshes (DAB xblamesh.c
  * xblaMeshSetScreens()): the monitor whose programmes propobj.c has just
  * written, around its model's opaque render; NULL after. Its part 0-3 lists

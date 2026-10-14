@@ -356,13 +356,37 @@ static int opaqueDrawn(const void *model)
  * it (user, 2026-10-14, the guard tower's windows popping). A list with no
  * translucent batch the opaque pass already drew is not drawn again: a second,
  * clean copy lay over a destroyed prop's scorched one (Dam's drums) and every
- * such prop was drawn twice. */
+ * such prop was drawn twice. One with translucent batches is split over the
+ * passes (gevrBeanPassSplit). */
 void *gevrBeanTransparentGdl(void *node, void *current, struct Model *model, int flags)
 {
     struct beanSwap *s = activeSwap(node);
     return s && s->origType == 4 && (flags & 2) && !(flags & 1) && (current || !s->original) &&
            !(s->opaqueOnly && opaqueDrawn(model))
         ? gevrBeanRenderGdl(node, current, model) : NULL;
+}
+
+/* As GoldenEye's own type-4 nodes, solid in the opaque pass and translucent in
+ * the translucent one: a list with both draws its solid batches in the first
+ * (1) and its translucent ones in the second (2), each triangle once. Drawn
+ * whole in both, a guard tower with windows cost its every triangle twice
+ * (user, 2026-10-14). 0: the call draws the whole list (a pass drawn alone). */
+int gevrBeanPassSplit(void *node, struct Model *model, int flags)
+{
+    struct beanSwap *s = activeSwap(node);
+    if (!s || s->origType != 4 || s->opaqueOnly || !s->emitted)
+        return 0;
+    if (flags == 1)
+        return 1;
+    return flags == 2 && opaqueDrawn(model) ? 2 : 0;
+}
+
+void *gevrBeanPassMark(void *gdl, int pass)
+{
+    Gfx *g = gdl;
+    g->words.w0 = ((uintptr_t)G_GEVR_NODE_STATE << 24) | GEVR_NODE_PASS;
+    g->words.w1 = (uint32_t)pass;
+    return g + 1;
 }
 
 static int openRel(const char *rel, char *out, int outlen)

@@ -15,7 +15,8 @@
  * w1 is the list's own render mode (the G_GEVR_ROOM_STATE word). */
 #define G_GEVR_NODE_STATE 0x68
 enum { GEVR_NODE_OFF, GEVR_NODE_ON, GEVR_NODE_SAVE, GEVR_NODE_APPLY, GEVR_NODE_END,
-       GEVR_NODE_CULL };   /* w1 1: the model list culls its backs (gevrBeanCameraInside), 0 ends it */
+       GEVR_NODE_CULL,     /* w1 1: the model list culls its backs (gevrBeanCameraInside), 0 ends it */
+       GEVR_NODE_PASS };   /* w1 1: only the list's solid batches, 2: only its XLU ones, 0: all */
 #define GEVR_NODE_COMBINE 0x100  /* the node's combiner */
 #define GEVR_NODE_SPAN 0x200     /* the node's first cycle, the list's second */
 #define GEVR_NODE_CUT 0x400      /* a cut-out: prim alpha 0 (props' PropType 9 adds it) */

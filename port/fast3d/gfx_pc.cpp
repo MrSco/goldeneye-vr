@@ -72,6 +72,11 @@ static uint8_t s_beanFadeAlpha = 255;
  * (the node's combiner, its blender's first cycle) and restores it at END. */
 static bool s_beanNodeOn, s_beanNodeSaved, s_beanNodePrimTouched;
 static bool s_beanModelCull;   /* GEVR_NODE_CULL: a Bean prop with GoldenEye's camera inside it */
+/* GEVR_NODE_PASS: a prop's list split over GoldenEye's opaque and translucent
+ * passes (1 its solid batches, 2 its XLU ones); the batches the pass leaves out
+ * are skipped (s_beanPassSkip), their vertices and triangles both. */
+static uint8_t s_beanPass;
+static bool s_beanBatchXlu, s_beanPassSkip;
 static uint64_t s_beanNodeCombine;
 static uint32_t s_beanNodeMode, s_beanNodeFog, s_beanNodeLod;
 static uint8_t s_beanNodePrimA;   // prim alpha before a cut-out batch zeroed it
@@ -4242,6 +4247,11 @@ static void gfx_bean_node_state(uint32_t w0, uint32_t ownMode) {
         case GEVR_NODE_CULL:
             s_beanModelCull = ownMode != 0;
             break;
+        case GEVR_NODE_PASS:
+            s_beanPass = (uint8_t)ownMode;
+            s_beanBatchXlu = false;
+            s_beanPassSkip = s_beanPass == 2;
+            break;
         case GEVR_NODE_SAVE:
             // a one-cycle node (type 1: no shade, no fade) leaves the list its own state
             s_beanNodeSaved = s_beanNodeOn && (rdp.other_mode_h & (3U << G_MDSFT_CYCLETYPE)) == G_CYC_2CYCLE;
@@ -4255,6 +4265,8 @@ static void gfx_bean_node_state(uint32_t w0, uint32_t ownMode) {
             }
             break;
         case GEVR_NODE_APPLY: {
+            s_beanBatchXlu = (w0 & GEVR_NODE_XLU) != 0;
+            s_beanPassSkip = s_beanPass && s_beanBatchXlu != (s_beanPass == 2);
             if (!s_beanNodeSaved) break;
             /* A span: the list's second blender cycle (cut-out edge, decal,
              * translucent surface) under the node's first (its shade). A fading
@@ -4938,6 +4950,11 @@ static void gfx_run_dl(Gfx* cmd) {
                 break;
             case G_GEVR_WORLD_VTX:
             case G_VTX: {
+                if (s_beanPassSkip) {   // a batch the other pass draws (GEVR_NODE_PASS)
+                    if (mesh != nullptr && meshRun < mesh->numRuns && mesh->runs[meshRun].start == (const void*)cmd)
+                        cmd = (Gfx*)mesh->runs[meshRun++].end - 1;
+                    break;
+                }
                 const GevrStaticMeshRun* fallbackRun = nullptr;
                 if (mesh != nullptr && meshRun < mesh->numRuns && mesh->runs[meshRun].start == (const void*)cmd) {
                     const GevrStaticMeshRun* run = &mesh->runs[meshRun++];
@@ -5008,6 +5025,7 @@ static void gfx_run_dl(Gfx* cmd) {
                 gfx_sp_extra_geometry_mode(~C0(0, 24), cmd->words.w1);
                 break;
             case (uint8_t)G_TRI1:
+                if (s_beanPassSkip) break;
                 gfx_sp_tri1(C1(16, 8) / 10, C1(8, 8) / 10, C1(0, 8) / 10, false);
                 break;
             case (uint8_t)G_TRI4:
@@ -5231,6 +5249,8 @@ static void gfx_run_dl(Gfx* cmd) {
 static void gfx_sp_reset() {
     s_beanFadeAlpha = 255;
     s_beanNodeOn = s_beanNodeSaved = s_beanNodePrimTouched = s_beanModelCull = false;
+    s_beanPass = 0;
+    s_beanBatchXlu = s_beanPassSkip = false;
     rsp.modelview_matrix_stack_size = 1;
     rsp.modelview_hidden_stack[0] = false; //VR
     rsp.current_num_lights = 2;
