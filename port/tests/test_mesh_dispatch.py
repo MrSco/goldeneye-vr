@@ -26,7 +26,7 @@ static struct {
     float fog_mul, fog_offset;
 } rsp;
 static struct {struct {unsigned char r,g,b,a;} fog_color;} rdp;
-static bool s_gevrMeshOn=true, s_gevrSkinOn=true, gevrCullOff, gevrCullMirror;
+static bool s_gevrMeshOn=true, s_gevrSkinOn=true, gevrCullOff, gevrCullMirror; static uint8_t s_beanFadeAlpha=255;
 static bool fbActive=true, s_gevrMeshProbe, s_beanRoomFogLinear, gevrRoomDl;
 static float s_beanRoomFogLine[2];
 static unsigned s_gevrMeshCulled, s_gevrMeshCulledTris, s_gevrMeshFallbacks;
@@ -54,7 +54,7 @@ static bool draw(void**gpu,const void*,uint32_t,const uint32_t*,uint32_t,uint32_
 static void reset(){
     rsp.geometry_mode=0;rsp.modelview_hidden_stack[0]=false;
     gevrCullOff=gevrCullMirror=false;s_gevrMeshOn=s_gevrSkinOn=true;
-    probes=draws=flushes=0;invert=false;
+    probes=draws=flushes=0;invert=false;s_beanFadeAlpha=255;
 }
 int main(){
     api.draw_mesh=draw;
@@ -84,7 +84,11 @@ int main(){
     assert(!gevr_mesh_draw_run(&mesh,&run,&skin));assert(!draws && !probes);
     reset();gevrCullMirror=true;rsp.geometry_mode=G_CULL_BACK;
     assert(!gevr_mesh_draw_run(&mesh,&run,nullptr));assert(!draws && !probes);
-    puts("PASS: hidden runs bypass CPU posing and draw setup; mirrored skin winding matches CPU semantics; special fallbacks preserved");
+    // A fading body (G_GEVR_BEAN_FADE) draws on the CPU, which scales its alpha.
+    reset();s_beanFadeAlpha=128;
+    assert(!gevr_mesh_draw_run(&mesh,&run,&skin));assert(!draws && !probes);
+    assert(!gevr_mesh_draw_run(&mesh,&run,nullptr));assert(!draws && !probes);
+    puts("PASS: hidden runs bypass CPU posing and draw setup; mirrored skin winding matches CPU semantics; special fallbacks and fading bodies preserved");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='gevr-mesh-dispatch-') as directory:

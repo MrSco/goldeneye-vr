@@ -1016,7 +1016,13 @@ void drawjointlist(ModelRenderData *data, ModelHitEntry *entry)
 #ifdef GEVR
             if(data->flags&1) {
                 Gfx *body=gevrBeanWholeJointGdl(entry,beanFirst);
+                /* A fading body (chrRenderProp: PropType 8, the fade in env
+                 * alpha) reaches the game's lists through their render mode,
+                 * which Bean's lists set for themselves. */
+                const s32 fade=data->PropType==PROP_TYPE_EXPLOSION+1 ? (s32)(data->envcolour.word&0xff) : 255;
+                if(body&&fade<255)data->gdl=gevrBeanFadeMark(data->gdl,fade);
                 if(body)gSPDisplayList(data->gdl++,body);
+                if(body&&fade<255)data->gdl=gevrBeanFadeMark(data->gdl,255);
             }
 #endif
         }
@@ -1134,7 +1140,13 @@ void drawjointlist(ModelRenderData *data, ModelHitEntry *entry)
 #ifdef GEVR
             if(data->flags&1) {
                 Gfx *body=gevrBeanWholeJointGdl(entry,beanFirst);
+                /* A fading body (chrRenderProp: PropType 8, the fade in env
+                 * alpha) reaches the game's lists through their render mode,
+                 * which Bean's lists set for themselves. */
+                const s32 fade=data->PropType==PROP_TYPE_EXPLOSION+1 ? (s32)(data->envcolour.word&0xff) : 255;
+                if(body&&fade<255)data->gdl=gevrBeanFadeMark(data->gdl,fade);
                 if(body)gSPDisplayList(data->gdl++,body);
+                if(body&&fade<255)data->gdl=gevrBeanFadeMark(data->gdl,255);
             }
 #endif
         }

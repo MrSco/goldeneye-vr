@@ -239,6 +239,14 @@ void gevrBeanSetLoaded(int loaded)
 	s_loaded = loaded != 0;
 }
 
+void *gevrBeanFadeMark(void *gdl, int alpha)
+{
+    Gfx *g = gdl;
+    g->words.w0 = (uintptr_t)G_GEVR_BEAN_FADE << 24;
+    g->words.w1 = (uint32_t)(alpha < 0 ? 0 : alpha > 255 ? 255 : alpha);
+    return g + 1;
+}
+
 void *gevrBeanShownGdl(void *node, void *current)
 {
 	struct beanSwap *s = activeSwap(node);

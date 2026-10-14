@@ -21,6 +21,8 @@ prelude='''#include <stdio.h>
 static int bodyCalls[2],nativeCalls;
 static Model models[2];static Gfx body[1];
 void *gevrBeanWholeModelGdl(Model *model){bodyCalls[model-models]++;return body;}
+static int fadeMarks,fadeAlpha[8];
+void *gevrBeanFadeMark(void *gdl,int alpha){Gfx *g=gdl;if(fadeMarks<8)fadeAlpha[fadeMarks]=alpha;fadeMarks++;g->words.w0=0x6Du<<24;g->words.w1=alpha;return g+1;}
 uintptr_t osVirtualToPhysical(void *p){return (uintptr_t)p;}
 #define osSyncPrintf printf
 float getjointsize(Model *m,ModelNode *n){return 1;}
@@ -44,10 +46,22 @@ main='''int main(void){
   assert(bodyCalls[0]==(flags&1) && bodyCalls[1]==(flags&1));
   assert(data.gdl-commands==4+2*(flags&1));
  }
+ /* a fading chr (chrRenderProp: PropType 8, fade in env alpha): each Bean body
+    bracketed by G_GEVR_BEAN_FADE, the fade then 255; an opaque one never */
+ {
+  ModelRenderData data={0};data.gdl=commands;data.flags=1;
+  data.PropType=PROP_TYPE_EXPLOSION+1;data.envcolour.word=0x11223380;
+  fadeMarks=0;bodyCalls[0]=bodyCalls[1]=nativeCalls=0;drawjointlist(&data,entries);
+  assert(nativeCalls==4 && bodyCalls[0]==1 && bodyCalls[1]==1);
+  assert(fadeMarks==4 && fadeAlpha[0]==0x80 && fadeAlpha[1]==255 && fadeAlpha[2]==0x80 && fadeAlpha[3]==255);
+  assert(data.gdl-commands==4+2+4);
+  data.gdl=commands;data.PropType=PROP_TYPE_VIEWER+1;fadeMarks=0;drawjointlist(&data,entries);
+  assert(!fadeMarks);
+ }
  ModelRenderData data={0};data.gdl=commands;data.flags=1;data.unk18=1;
  bodyCalls[0]=bodyCalls[1]=nativeCalls=0;drawjointlist(&data,entries);
  assert(!nativeCalls && !bodyCalls[0] && !bodyCalls[1] && data.gdl==commands);
- puts("Production joint walker: interleaved instances, OPA/XLU gates and native visibility preserved");
+ puts("Production joint walker: interleaved instances, OPA/XLU gates, fading bodies and native visibility preserved");
 }'''
 with tempfile.TemporaryDirectory() as temp:
  p=Path(temp)
