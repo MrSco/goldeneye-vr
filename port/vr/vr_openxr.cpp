@@ -235,6 +235,7 @@ bool g_frameStarted = false;
 static bool g_posesEarly = false;
 static XrTime g_posesEarlyTime = 0, g_lastWaitDisplayTime = 0;
 static unsigned g_posesEarlyMissed = 0;   // the wait returned another display time
+static bool g_posesRelocate = false;      // vr_relocate_on_begin: locate again at the begin
 static bool vr_locate_frame_poses(XrTime t, bool outside);
 static XrFrameState g_frameState   = { XR_TYPE_FRAME_STATE };
 static std::array<XrView, 2> g_frameViews = { XrView{XR_TYPE_VIEW}, XrView{XR_TYPE_VIEW} };
@@ -3032,7 +3033,7 @@ static bool vr_locomotion_camera(const GevrPresentationCamera& source, float cei
                                 const GevrLocomotionPose& confirmed,
                                 const std::array<XrView, 2>& sourceViews)
 {
-    if (!s_locomotion.count || !g_frameStarted || !g_frameState.shouldRender || vr_world_scale <= 0) return false;
+    if (!s_locomotion.count || !(g_frameStarted || g_posesEarly) || !g_frameState.shouldRender || vr_world_scale <= 0) return false;
     if (s_lastPresentationTime != g_frameState.predictedDisplayTime) {
         const unsigned before = s_locomotion.clamps;
         if (!gevrLocomotionQuery(&s_locomotion, g_frameState.predictedDisplayTime, &s_evaluatedLocomotion)) return false;
@@ -4761,11 +4762,14 @@ extern "C" bool vr_begin_frame_and_update_poses()
      * keeps the poses located for it: the camera the game built, its hands and
      * the views submitted then agree, and the compositor's timewarp turns the
      * head from those views to the displayed pose. */
-    if (early && std::llabs((long long)(g_frameState.predictedDisplayTime - g_posesEarlyTime)) <
-                     (long long)(g_frameState.predictedDisplayPeriod / 4)) {
+    const bool relocate = g_posesRelocate;
+    g_posesRelocate = false;
+    const bool sameTime = early && std::llabs((long long)(g_frameState.predictedDisplayTime - g_posesEarlyTime)) <
+                                       (long long)(g_frameState.predictedDisplayPeriod / 4);
+    if (sameTime && !relocate) {
         return true;
     }
-    if (early) g_posesEarlyMissed++;
+    if (early && !sameTime) g_posesEarlyMissed++;
     if (!vr_locate_frame_poses(g_frameState.predictedDisplayTime, false)) {
         vr_end_empty_frame(g_frameState.predictedDisplayTime);
         g_frameStarted = false;
@@ -4797,6 +4801,14 @@ extern "C" int vr_prepare_next_frame(void)
     g_posesEarly = true;
     g_posesEarlyTime = t;
     return 1;
+}
+
+/* gfx_pc.cpp: the early tick's eye pass was kept for the replay, which corrects the
+ * head, hands and body from the poses its draws were made with to the frame's own,
+ * as for every frame between game frames: locate them again at the begin. */
+extern "C" void vr_relocate_on_begin(void)
+{
+    g_posesRelocate = true;
 }
 
 /* The pump found the game drew nothing on its early poses: no frame began. */

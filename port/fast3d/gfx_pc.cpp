@@ -169,7 +169,13 @@ void gfx_vr_scope_render(void);
 void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* presentation);
 void gfx_vr_eye_hand(int ctrl);
 bool gfx_vr_eye_replay_ready(void);
+bool gfx_vr_eye_record_possible(const float* proj, bool invert_y);
+void gfx_vr_eye_record_only(bool on);
 void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand1, const float* body);
+extern "C" int gevrVrFrameDeferred(void);         // gevr_engine_shim.c: the early tick's frame not begun
+extern "C" int gevrVrBeginDeferredFrame(void);    // ... begin it now; 1 if it did
+extern "C" void vr_relocate_on_begin(void);       // vr_openxr.cpp: the replay corrects the early poses
+static int gevr_vr_replay_frame(bool fresh);
 extern "C" int gevrVrRedrawDelta(float out[16]);   // vr_openxr.cpp
 extern "C" int gevrVrRedrawHandDelta(int hand, float out[16]);
 extern "C" int gevrVrRedrawBodyDelta(float out[16]);
@@ -5519,6 +5525,55 @@ extern "C" void gfx_run(Gfx* commands) {
             apply_offsets(offsets);
         }
 
+        // The early tick (gevr_engine_shim.c): the game ticked before its XR
+        // frame's wait. Its eye pass is kept, not drawn, while the frame has not
+        // begun; inside the frame the redraw replay draws it, as it draws every
+        // frame between game frames - the same draws, with the head, hands and
+        // body corrected to the frame's own poses. The XR frame then holds only
+        // the replay (about a redraw's 3 ms) instead of the whole display list.
+        const float* eyeProj = &g_viProjectionMatrixF[0][0];
+        const bool eyeInvertY = gfx_rapi->get_clip_parameters().invert_y;
+        if (!screenRendered && gevrVrFrameDeferred() && !(VrPauseHub && VrIsPaused) &&
+#ifdef ANDROID
+            !gevrNativePauseOpen() &&
+#endif
+            gfx_vr_eye_record_possible(eyeProj, eyeInvertY)) {
+            gfx_vr_eye_record_only(true);
+            gfx_rapi->start_draw_to_framebuffer(0, 1.0f);
+            s_gevrPresentationHand = -1;
+            s_gevrPresentationOn = gevrVrPresentationDelta(s_gevrPresentationDelta) != 0;
+            gevr_presentation_prepare(s_gevrPresentationOn);
+            ++gevr_perf_passes;
+            gevr_perf_present_passes += s_gevrPresentationOn ? 1 : 0;
+            gfx_vr_eye_record(true, eyeProj, eyeInvertY, s_gevrPresentationOn ? s_gevrPresentationDelta : nullptr);
+            run_display_list();
+            gfx_flush();
+            gfx_vr_eye_record(false, nullptr, false, nullptr);
+            gfx_vr_eye_record_only(false);
+            s_gevrPresentationOn = false;
+            gevr_presentation_prepare(false);
+            gevrVrMarkEyesRendered(1);
+            gfx_vr_scope_render();   // into the scopes' own targets
+            s_gevrLastVignette = gevrStereoVignette();
+
+            vr_relocate_on_begin();
+            const int began = gevrVrBeginDeferredFrame();
+            const uint64_t freshSpan = began ? gevrFrameTimingEnter(GEVR_TIME_FRESH) : 0;
+            if (!gevr_vr_replay_frame(true) && vr_begin_eye_render()) {
+                // Nothing kept: the eye image is cleared rather than left with
+                // whatever the runtime handed back.
+                gfx_vr_gpu_begin(0);
+                gfx_vr_gpu_end();
+                vr_end_eye_render();
+            }
+            gevrFrameTimingLeave(freshSpan);
+            gfx_rapi->end_frame();
+            gfx_wapi->swap_buffers_begin();
+            return;
+        }
+        // An early tick that cannot defer its eye pass begins its frame now.
+        const uint64_t lateFreshSpan = gevrVrBeginDeferredFrame() ? gevrFrameTimingEnter(GEVR_TIME_FRESH) : 0;
+
         // 1) Acquire + attach swapchain to g_multiviewFBO
         // Bails out when the runtime has no swapchain to give us (a dead or restarting
         // session): rendering the display list anyway would just dump a full scene into
@@ -5606,6 +5661,7 @@ extern "C" void gfx_run(Gfx* commands) {
             }
         }
 
+        gevrFrameTimingLeave(lateFreshSpan);
         gfx_rapi->end_frame();
         gfx_wapi->swap_buffers_begin();
         return;
@@ -5623,28 +5679,41 @@ extern "C" void gfx_run(Gfx* commands) {
  * is world-locked already, and its eye buffers hold only the pointer).
  */
 extern "C" int gfx_vr_redraw_frame(void) {
+    return gevr_vr_replay_frame(false);
+}
+
+/* fresh: the early tick's own game frame (gfx_run), drawn in its XR frame from
+ * the draws its eye pass kept. Without recorded views (no stereo camera this
+ * frame) its draws go in as kept, which is how the eye pass would have drawn
+ * them: presentation needs those views too. */
+static int gevr_vr_replay_frame(bool fresh) {
     float delta[16];
 
-    if (!vr_is_initialized() || !gfx_rapi->is_multiview() || gevrVrScreenMode
-        || !gfx_vr_eye_replay_ready() || !gevrVrRedrawDelta(delta)) {
+    if (!vr_is_initialized() || !gfx_rapi->is_multiview() || gevrVrScreenMode || !gfx_vr_eye_replay_ready()) {
         return 0;
+    }
+    const bool recorded = gevrVrRedrawDelta(delta) != 0;
+    if (!recorded) {
+        if (!fresh) return 0;
+        static const float identity[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+        memcpy(delta, identity, sizeof(delta));
     }
     if (!vr_begin_eye_render()) {
         return 0;
     }
-    gfx_vr_gpu_begin(1);
+    gfx_vr_gpu_begin(fresh ? 0 : 1);
     gfx_rapi->start_draw_to_framebuffer(0, 1.0f);
     {
         float hand[2][16], body[16];
-        const bool have0 = gevrVrRedrawHandDelta(0, hand[0]) != 0;
-        const bool have1 = gevrVrRedrawHandDelta(1, hand[1]) != 0;
-        const bool haveBody = gevrVrRedrawBodyDelta(body) != 0;
+        const bool have0 = recorded && gevrVrRedrawHandDelta(0, hand[0]) != 0;
+        const bool have1 = recorded && gevrVrRedrawHandDelta(1, hand[1]) != 0;
+        const bool haveBody = recorded && gevrVrRedrawBodyDelta(body) != 0;
         gfx_vr_eye_replay(delta, have0 ? hand[0] : nullptr, have1 ? hand[1] : nullptr, haveBody ? body : nullptr);
     }
     gfx_opengl_draw_vignette(s_gevrLastVignette);
     gfx_vr_gpu_end();
     vr_end_eye_render();
-    gevrVrMarkRedrawn();
+    if (recorded) gevrVrMarkRedrawn();
     return 1;
 }
 

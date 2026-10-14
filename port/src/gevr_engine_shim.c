@@ -280,7 +280,7 @@ OSMesgQueue *osScGetCmdQ(OSSched *s)
  * scheduler would have done when the RCP finished. Audio tasks have no
  * RSP work left: the classic mixer macros execute during alAudioFrame.
  */
-static void gevrVrBeginDeferredFrame(void);
+int gevrVrBeginDeferredFrame(void);
 
 s32 gevrSchedSend(OSMesgQueue *mq, OSMesg msg)
 {
@@ -293,7 +293,6 @@ s32 gevrSchedSend(OSMesgQueue *mq, OSMesg msg)
 	gevrSchedEnsureInit();
 
     if (t->list.t.type == M_GFXTASK && t->list.t.data_ptr) {
-		gevrVrBeginDeferredFrame();   /* an early tick's XR frame begins with its display list */
         const uint64_t renderSpan = gevrFrameTimingEnter(GEVR_TIME_FRESH);
 		if (!gevrFrameOpen) {
 			videoStartFrame();
@@ -305,6 +304,9 @@ s32 gevrSchedSend(OSMesgQueue *mq, OSMesg msg)
 			videoSubmitCommands((Gfx *)t->list.t.data_ptr);
 			gevrPerfAdd(1, gevrPerfNs() - t0);
 		}
+		/* gfx_run begins an early tick's XR frame (after its eye pass, or before
+		 * one it cannot defer); a list that took another path begins it here. */
+		gevrVrBeginDeferredFrame();
         gevrTasksThisFrame++;
         gevrFrameTimingLeave(renderSpan);
 	}
@@ -354,7 +356,9 @@ static u32 gevrRedraws;       /* in-between frames drawn again (issue #53) */
  * When the next XR frame is the game's, the pump locates that frame's poses
  * (vr_prepare_next_frame) and hands the game the retrace without waiting; the
  * wait and xrBeginFrame come when the game sends its display list
- * (gevrSchedSend). files/gevr_pipeline.txt "0" keeps the old order.
+ * (gfx_pc.cpp gfx_run): after its eye pass, which is kept and drawn by the
+ * redraw replay inside the frame. files/gevr_pipeline.txt: 0 the old order,
+ * 1 the early tick drawing its eye pass inside the frame, 2 (default) all of it.
  */
 extern int vr_prepare_next_frame(void);
 extern void vr_cancel_next_frame(void);
@@ -372,12 +376,12 @@ static int gevrPipelineEnabled(void)
 {
 	if (gevrPipelineOn < 0) {
 		FILE *control = gevrBeanControlOpen("gevr_pipeline.txt");
-		int mode = 1;
+		int mode = 2;
 		if (control) {
-			if (fscanf(control, "%d", &mode) != 1) mode = 1;
+			if (fscanf(control, "%d", &mode) != 1 || mode < 0 || mode > 2) mode = 2;
 			fclose(control);
 		}
-		gevrPipelineOn = mode != 0;
+		gevrPipelineOn = mode;
 		sysLogPrintf(LOG_NOTE, "gevr pipeline: %d", gevrPipelineOn);
 	}
 	return gevrPipelineOn;
@@ -535,11 +539,17 @@ static void gevrVrFrameBegin(void)
 	}
 }
 
-/* gevrSchedSend: the early tick's display list is ready; now wait for and begin its frame. */
-static void gevrVrBeginDeferredFrame(void)
+/* gfx_pc.cpp gfx_run: the early tick's frame has not begun yet, and its eye pass may be replayed */
+int gevrVrFrameDeferred(void)
+{
+	return gevrVrBeginDeferred && gevrPipelineOn >= 2;
+}
+
+/* gfx_run, once the early tick's display list has run: wait for and begin its frame. 1 if it did. */
+int gevrVrBeginDeferredFrame(void)
 {
 	if (!gevrVrBeginDeferred) {
-		return;
+		return 0;
 	}
 	gevrVrBeginDeferred = 0;
 	if (gevrEarlyTickUs) {
@@ -547,6 +557,7 @@ static void gevrVrBeginDeferredFrame(void)
 		gevrEarlyTickUs = 0;
 	}
 	gevrVrFrameBegin();
+	return 1;
 }
 
 /*
