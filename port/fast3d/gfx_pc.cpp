@@ -4573,7 +4573,7 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, 
     }
     // Rooms remain unlit. Skins supply fitted influences, lights and culling;
     // colour tables, generated UVs and backface depth pushes use the CPU.
-    if ((!skin && (rsp.geometry_mode & (G_LIGHTING | G_CULL_BOTH))) ||
+    if ((!skin && (rsp.geometry_mode & (G_LIGHTING | G_CULL_FRONT))) ||
         (rsp.geometry_mode & G_TEXTURE_GEN) ||
         (rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH || rsp.vertex_colors != nullptr ||
         rsp.modelview_hidden_stack[rsp.modelview_matrix_stack_size - 1] ||
@@ -4636,6 +4636,11 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, 
         params.fog_offset = rsp.fog_offset;
         params.fog_linear = s_beanRoomFogLinear;
         if (params.fog_linear) { params.fog_mul = s_beanRoomFogLine[0]; params.fog_offset = s_beanRoomFogLine[1]; }
+    }
+    if (!skin) {
+        // an HD room seen from outside the level (G_GEVR_ROOM_STATE): its backs culled
+        params.cull = (geometry & G_CULL_BACK) ? 1 : 0;
+        if (params.cull && s_gevrMeshState.clip.invert_y) params.cull = -params.cull;
     }
     params.invert_y = s_gevrMeshState.clip.invert_y;
     params.has_bounds = !skin && run->hasBounds;
@@ -4867,6 +4872,13 @@ static void gfx_run_dl(Gfx* cmd) {
                 }
                 if (s_beanRoomFogLinear) { rdp.fog_color.r = rgb[0]; rdp.fog_color.g = rgb[1]; rdp.fog_color.b = rgb[2]; }
                 uint32_t mode = (uint32_t)cmd->words.w1;
+                if ((cmd->words.w0 & 3) == 0) {
+                    /* an HD room seen from outside the level (gevrBeanWorldCullsBackFaces):
+                     * solid surfaces cull their backs; cut-outs and glass stay two-sided */
+                    extern int gevrBeanWorldCullsBackFaces(void);
+                    rsp.geometry_mode &= ~G_CULL_BOTH;
+                    if (gevrBeanWorldCullsBackFaces() && !(mode & (CVG_X_ALPHA | FORCE_BL))) rsp.geometry_mode |= G_CULL_BACK;
+                }
                 if (model && s_beanFadeAlpha < 255) {
                     mode = G_RM_PASS | ((mode & Z_CMP) ? G_RM_AA_ZB_XLU_SURF2 : G_RM_XLU_SURF2);
                 }

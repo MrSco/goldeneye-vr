@@ -701,7 +701,12 @@ static void gevrOrderSecondaryPass(void)
 Gfx *sub_GAME_7F0B3C8C(Gfx *gdl)
 {
 #ifdef GEVR
-    gevrBeanWorldBeginView();
+    {
+        const u32 mode = bondviewGetCameraMode();
+
+        gevrBeanWorldBeginView(mode != CAMERAMODE_FP && mode != CAMERAMODE_FP_NOINPUT && mode != CAMERAMODE_MP
+                               && mode != CAMERAMODE_NONE);
+    }
 #endif
 #ifdef VERSION_EU
     s16 i;
