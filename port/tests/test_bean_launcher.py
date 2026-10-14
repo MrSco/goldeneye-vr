@@ -22,7 +22,7 @@ using Uint32=unsigned;
 static char g_ActiveExtTexPack[256]={};
 static bool enabled=false,have=true,installed=true;
 static int VrGexGuns=1; static int VrCampaign=0; /* GoldenEye; hack campaigns grey out Bean and GE-X */
-static int VrBeanFillTextures=1;
+static int VrBeanFillTextures=1, VrBloodPatch=0;
 #define GEVR_CAMPAIGN_GE 0
 static std::vector<std::string> commands;
 static ImVec2 bean,hd,original,chooseBean;

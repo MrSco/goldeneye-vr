@@ -209,6 +209,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; 1 = with Project Bean on, the pictures it leaves as the cartridge's (the stage\n");
     fprintf(f, "; pictures and the like) come from the HD + AI or HD texture pack, if one is installed.\n");
     fprintf(f, "BeanFillTextures=%d\n", VrBeanFillTextures ? 1 : 0);
+    fprintf(f, "; 1 = Wreck's blood patch: shot guards spray the red sparks Rare left in the game.\n");
+    fprintf(f, "BloodPatch=%d\n", VrBloodPatch ? 1 : 0);
     fprintf(f, "MicMuted=%d\n", VrMicMuted ? 1 : 0);
     fprintf(f, "MusicVolume=%.2f\n", VrMusicVolume);
     fprintf(f, "VoiceVolume=%.2f\n", VrVoiceVolume);
@@ -688,6 +690,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "PlayMode") == 0) VrPlayMode = ival != 0 ? VR_PLAYMODE_STEREO : VR_PLAYMODE_SCREEN;
             else if (strcmp(key, "XblaVisualsMode") == 0) VrBeanModels = ival != 0;
             else if (strcmp(key, "BeanFillTextures") == 0) VrBeanFillTextures = ival != 0;
+            else if (strcmp(key, "BloodPatch") == 0) VrBloodPatch = ival != 0;
             else if (strcmp(key, "MicMuted") == 0) VrMicMuted = ival != 0;
             else if (strcmp(key, "MpStage") == 0) VrMpStage = ival;
             else if (strcmp(key, "MpWeaponSet") == 0) VrMpWeaponSet = ival;

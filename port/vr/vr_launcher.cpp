@@ -1055,6 +1055,13 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
                                   : "Needs your own GoldenEye X ROM: Perfect Dark 1.1 with the GE-X 6a patch.");
     ImGui::PopStyleColor();
     if (gex && gevrBeanIsEnabled()) ImGui::TextDisabled("GE-X supplies first-person gear; Bean supplies the world.");
+    ImGui::Separator();
+    // Wreck's blood patch (chr.c chrCreateHitPuffs): a cosmetic table, so it
+    // goes with every look and campaign, and online each headset its own.
+    bool blood = VrBloodPatch != 0;
+    if (ImGui::Checkbox("Blood patch (by Wreck)", &blood)) VrBloodPatch = blood ? 1 : 0;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Shot guards spray the red blood sparks Rare left in the game,\ninstead of smoke and sparks.");
     // Keep the exit in the same place in every download state, above the
     // launcher's one-line hint, drawn under every page: placed at the very
     // bottom, Done pushed the hint off the panel's edge.
