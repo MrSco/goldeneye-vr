@@ -24,6 +24,7 @@ struct texSlot {
 	uint8_t *rgba;
 	int w, h;
 	float scroll[2], rotation, secondsPerFrame;
+	int water;   /* moves as GoldenEye's water (gevrBeanTexWaterSet) */
 	int nframes;
 	const void **frames;
 };
@@ -481,6 +482,67 @@ int gevrBeanTextureScroll(const void *addr, float seconds, float offset[2])
     if (i < 0 || !isfinite(seconds) || (!s_tex[i].scroll[0] && !s_tex[i].scroll[1])) return 0;
     for (int k = 0; k < 2; k++) offset[k] = fmodf(seconds * s_tex[i].scroll[k], 1.0f);
     return s_tex[i].scroll[0] != 0 || s_tex[i].scroll[1] != 0;
+}
+
+/*
+ * GoldenEye's moving water on Bean's water pictures (DAB gewater.c,
+ * port/licenses/dabs-mod.txt). GoldenEye's tick (unk_092E50.c) slides its
+ * water's tile 0 by 0.25 and 0.1 of a quarter texel a frame, keeps tile 1 at
+ * 90 and 150 quarters from it, and fades one copy into the other. The
+ * release's table slides Dam's reservoir picture 0.5 repeats a second each
+ * way - its transparency map's rate, which raced across the reservoir at
+ * about 1,000 units a second, four times GoldenEye's water ("the water
+ * animation on dam still seems very fast", user, 2026-10-14) - so, as in
+ * Dab's, the water's own motion wins: GoldenEye's, measured across the ground
+ * and carried into Bean's picture (gevr_bean_world.c markWater), in quarter
+ * texels of a 32 texel repeat, kept as a fraction so it creeps smoothly.
+ */
+static float s_waterRate[2] = { 0.25f, 0.1f };
+static float s_waterS, s_waterT;
+
+static float waterWrap(float v)
+{
+    v = fmodf(v, 256.0f);
+    return v < 0 ? v + 256.0f : v;
+}
+
+void gevrBeanTexWaterSet(const void *addr)
+{
+    int i = addr ? texFind(addr) : -1;
+    if (i >= 0) s_tex[i].water = 1;
+}
+int gevrBeanTextureIsWater(const void *addr)
+{
+    int i = addr ? texFind(addr) : -1;
+    return i >= 0 && s_tex[i].water;
+}
+void gevrBeanWaterSetRate(int measured, float s, float t)
+{
+    /* nothing that fast is GoldenEye's water: a measure gone wrong (DAB) */
+    if (!measured || !isfinite(s) || !isfinite(t) || fabsf(s) > 8.0f || fabsf(t) > 8.0f) {
+        s = 0.25f;
+        t = 0.1f;
+    }
+    s_waterRate[0] = s;
+    s_waterRate[1] = t;
+    s_waterS = s_waterT = 0;
+}
+void gevrBeanWaterAdvance(float delta)
+{
+    if (!isfinite(delta)) return;
+    s_waterS = waterWrap(s_waterS + delta * s_waterRate[0]);
+    s_waterT = waterWrap(s_waterT + delta * s_waterRate[1]);
+}
+/* A water picture's tile (0, or 1 the second copy): where it samples, as
+ * fast3d's tile origin moves it (u less uls / 4 texels). */
+int gevrBeanWaterTransform(const void *addr, int tile, float m[6])
+{
+    if (!gevrBeanTextureIsWater(addr)) return 0;
+    m[0] = m[3] = 1;
+    m[1] = m[2] = 0;
+    m[4] = -(s_waterS + (tile ? 90.0f : 0.0f)) / 128.0f;
+    m[5] = -(s_waterT + (tile ? 150.0f : 0.0f)) / 128.0f;
+    return 1;
 }
 
 void gevrBeanTexPaint(const void *addr, uint32_t rgb)

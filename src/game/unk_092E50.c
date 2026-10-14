@@ -268,6 +268,13 @@ void sub_GAME_7F092E50(void)
     gDPSetTileSize(&MipMap2C_Something2_Setup[2], 0, (s32)flt_CODE_bss_80079E80, (s32)flt_CODE_bss_80079E84, 0, 0);
     gDPSetTileSize(&MipMap2C_Something2_Setup[3], 1, ((s32)flt_CODE_bss_80079E80 + 90) & 0xFF, ((s32)flt_CODE_bss_80079E84 + 150) & 0xFF, 0, 0);
     MipMap2C_Something2_Setup[4].words.w0 = MipMap2C_Something_Setup[4].words.w0;
+#ifdef GEVR
+    {
+        /* the same motion on Bean's water pictures (gevr_bean.c) */
+        extern void gevrBeanWaterTick(float delta, float phase);
+        gevrBeanWaterTick(delta, flt_CODE_bss_80079E88);
+    }
+#endif
 }
 
 

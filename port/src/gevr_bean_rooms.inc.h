@@ -11,6 +11,11 @@ struct beanRoomTri {
 	float p[3][3], lo[3], hi[3];
 	int room;
 	uint8_t opaque, culled;   /* the primary (opaque) list's; drawn under G_CULL_BACK */
+	/* its texture number (the list's G_NOOP, tex.c), -1 for none; its
+	 * vertices' s and t (s10.5) and the brightest of their colours */
+	int16_t tex;
+	uint8_t shade;
+	int16_t st[3][2];
 };
 struct beanRoomTree {
 	float lo[3], hi[3];
@@ -20,6 +25,9 @@ static struct beanRoomTri *s_reference;
 static struct beanRoomTree *s_tree;
 static int s_referenceCount, s_referenceCap, s_treeCount, s_roomSortAxis;
 static uint8_t s_referenceOpaque, s_referenceCulled;   /* the list being read, its geometry mode */
+static int s_referenceTex;                             /* and its texture number */
+static int16_t s_referenceSt[16][2];                   /* and its loaded vertices' s, t and shade */
+static uint8_t s_referenceShade[16];
 
 static unsigned roomBe32(const uint8_t *p)
 {
@@ -73,6 +81,14 @@ static int roomReferenceTri(int room, const float cache[16][3], unsigned valid, 
 	t->room = room;
 	t->opaque = s_referenceOpaque;
 	t->culled = s_referenceCulled;
+	t->tex = (int16_t)s_referenceTex;
+	t->shade = 0;
+	for (int v = 0; v < 3; v++) {
+		t->st[v][0] = s_referenceSt[index[v]][0];
+		t->st[v][1] = s_referenceSt[index[v]][1];
+		if (s_referenceShade[index[v]] > t->shade)
+			t->shade = s_referenceShade[index[v]];
+	}
 	for (int k = 0; k < 3; k++) {
 		t->lo[k] = 1e30f;
 		t->hi[k] = -1e30f;
@@ -95,6 +111,7 @@ static int roomReferenceLists(int room, const uint8_t *vertices, unsigned vlen, 
 	unsigned valid = 0, pc = 0, stack[32];
 	int depth = 0;
 	s_referenceCulled = 0;
+	s_referenceTex = -1;
 	for (unsigned guard = 0; pc + 8 <= glen && guard < 262144; guard++) {
 		unsigned w0 = roomBe32(gdl + pc), w1 = roomBe32(gdl + pc + 4), op = w0 >> 24;
 		pc += 8;
@@ -103,6 +120,9 @@ static int roomReferenceLists(int room, const uint8_t *vertices, unsigned vlen, 
 			s_referenceCulled = 1;
 		else if (op == (G_CLEARGEOMETRYMODE & 255) && (w1 & 0x2000))
 			s_referenceCulled = 0;
+		/* the cartridge's G_NOOP names the texture the triangles after it use (tex.c) */
+		if (op == 0xc0)
+			s_referenceTex = (int)(w1 & 0xfff);
 		if (op == (G_VTX & 255)) {
 			unsigned first = (w0 >> 16) & 15, count = (w0 & 0xffff) / 16, offset = w1 & 0xffffff;
 			if (first + count > 16 || offset > vlen || count > (vlen - offset) / 16) {
@@ -110,9 +130,14 @@ static int roomReferenceLists(int room, const uint8_t *vertices, unsigned vlen, 
 				continue;
 			}
 			for (unsigned v = 0; v < count; v++) {
+				const uint8_t *raw = vertices + offset + 16 * v;
 				for (int k = 0; k < 3; k++)
-					cache[first + v][k] = roomBe16(vertices + offset + 16 * v + 2 * k) +
+					cache[first + v][k] = roomBe16(raw + 2 * k) +
 					                      ptr_bgdata_room_fileposition_list[room].pos.f[k];
+				s_referenceSt[first + v][0] = (int16_t)roomBe16(raw + 8);
+				s_referenceSt[first + v][1] = (int16_t)roomBe16(raw + 10);
+				s_referenceShade[first + v] = raw[12] > raw[13] ? (raw[12] > raw[14] ? raw[12] : raw[14])
+				                                                : (raw[13] > raw[14] ? raw[13] : raw[14]);
 				valid |= 1u << (first + v);
 			}
 		} else if (op == (G_TRI1 & 255)) {

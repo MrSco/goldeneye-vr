@@ -295,6 +295,145 @@ static int cameraOutside(void)
 	return hits >= 8 && backs * 3 >= hits * 2;
 }
 
+/*
+ * DAB gebeanstage.c markWaterPictures (port/licenses/dabs-mod.txt): a Bean
+ * picture is water when at least two of its triangles, and at least half,
+ * lie within 64 units of GoldenEye's water (1508 Caverns, 1511 Dam; on
+ * vertices shaded black - Complex's pits - it is none). GoldenEye's slide,
+ * 0.25 and 0.1 quarter texels a frame of its own picture, is taken across the
+ * ground and into Bean's, which lies bigger and turned against it, from the
+ * two pictures' gradients over x and z, each the area-weighted mean.
+ */
+#define WATER_NEAR 64.0f
+#define WATER_BLACK 8
+
+struct waterMeasure {
+	double grad[2][2], area;
+};
+
+static void waterGrad(struct waterMeasure *m, const float v[3][3], const float f[3][2])
+{
+	const float ax = v[1][0] - v[0][0], az = v[1][2] - v[0][2];
+	const float bx = v[2][0] - v[0][0], bz = v[2][2] - v[0][2];
+	const float det = ax * bz - az * bx;
+	const float area = fabsf(det) * 0.5f;
+	if (area < 1.0f)
+		return;   /* a wall */
+	for (int j = 0; j < 2; j++) {
+		const float da = f[1][j] - f[0][j], db = f[2][j] - f[0][j];
+		m->grad[j][0] += (da * bz - db * az) / det * area;
+		m->grad[j][1] += (db * ax - da * bx) / det * area;
+	}
+	m->area += area;
+}
+
+static void markWater(const struct gevrBeanMesh *mesh, float fileScale)
+{
+	struct waterMeasure ge, hd;
+	float lo[3] = { 1e30f, 1e30f, 1e30f }, hi[3] = { -1e30f, -1e30f, -1e30f };
+	int nwater = 0, marked = 0;
+	memset(&ge, 0, sizeof(ge));
+	memset(&hd, 0, sizeof(hd));
+	gevrBeanWaterSetRate(0, 0, 0);
+	if (!s_reference || !mesh->ntex)
+		return;
+	int *water = malloc((size_t)s_referenceCount * sizeof(int));
+	int *on = calloc((size_t)mesh->ntex, sizeof(int)), *all = calloc((size_t)mesh->ntex, sizeof(int));
+	uint8_t *near = calloc((size_t)mesh->ntris + 1, 1);
+	if (!water || !on || !all || !near)
+		goto done;
+	for (int i = 0; i < s_referenceCount; i++) {
+		const struct beanRoomTri *t = &s_reference[i];
+		float f[3][2];
+		if ((t->tex != 1508 && t->tex != 1511) || t->shade <= WATER_BLACK)
+			continue;
+		water[nwater++] = i;
+		for (int k = 0; k < 3; k++) {
+			if (t->lo[k] < lo[k]) lo[k] = t->lo[k];
+			if (t->hi[k] > hi[k]) hi[k] = t->hi[k];
+		}
+		/* s10.5: an eighth is a quarter texel, the unit GoldenEye moves it in */
+		for (int v = 0; v < 3; v++) {
+			f[v][0] = t->st[v][0] / 8.0f;
+			f[v][1] = t->st[v][1] / 8.0f;
+		}
+		waterGrad(&ge, t->p, (const float (*)[2])f);
+	}
+	if (!nwater)
+		goto done;
+	for (int i = 0; i < mesh->ntris; i++) {
+		const struct gevrBeanTri *t = &mesh->tris[i];
+		float mid[3];
+		int inside = 1;
+		if (t->tex < 0 || t->tex >= mesh->ntex)
+			continue;
+		all[t->tex]++;
+		for (int k = 0; k < 3; k++) {
+			mid[k] = (t->p[k] + t->p[3 + k] + t->p[6 + k]) * fileScale / 3.0f;
+			if (mid[k] < lo[k] - WATER_NEAR || mid[k] > hi[k] + WATER_NEAR)
+				inside = 0;
+		}
+		if (!inside)
+			continue;
+		for (int j = 0; j < nwater; j++) {
+			const struct beanRoomTri *w = &s_reference[water[j]];
+			if (roomBoxDistance(mid, w->lo, w->hi) < WATER_NEAR * WATER_NEAR &&
+			    roomTriangleDistance(mid, w) < WATER_NEAR * WATER_NEAR) {
+				near[i] = 1;
+				on[t->tex]++;
+				break;
+			}
+		}
+	}
+	for (int x = 0; x < mesh->ntex; x++) {
+		if (mesh->standin[x] && on[x] >= 2 && on[x] * 2 >= all[x]) {
+			gevrBeanTexWaterSet(mesh->standin[x]);
+			marked++;
+			GEVR_BEAN_LOG("gevr bean water: picture %d moves as GoldenEye's water, %d of its %d triangles on it",
+			              x, on[x], all[x]);
+		}
+	}
+	/* Bean's UV is in repeats, drawn as quarter texels of a 32 texel repeat,
+	 * t running the other way (gevr_bean.c gevrBeanEmitList) */
+	for (int i = 0; marked && i < mesh->ntris; i++) {
+		const struct gevrBeanTri *t = &mesh->tris[i];
+		float v[3][3], f[3][2];
+		if (!near[i] || !gevrBeanTextureIsWater(mesh->standin[t->tex]))
+			continue;
+		for (int k = 0; k < 3; k++) {
+			for (int j = 0; j < 3; j++)
+				v[k][j] = t->p[k * 3 + j] * fileScale;
+			f[k][0] = t->uv[k * 2] * 128.0f;
+			f[k][1] = -t->uv[k * 2 + 1] * 128.0f;
+		}
+		waterGrad(&hd, (const float (*)[3])v, (const float (*)[2])f);
+	}
+	if (ge.area > 0 && hd.area > 0) {
+		double g[2][2], b[2][2];
+		for (int j = 0; j < 2; j++)
+			for (int k = 0; k < 2; k++) {
+				g[j][k] = ge.grad[j][k] / ge.area;
+				b[j][k] = hd.grad[j][k] / hd.area;
+			}
+		const double det = g[0][0] * g[1][1] - g[0][1] * g[1][0];
+		if (fabs(det) > 1e-9) {
+			/* the ground's motion under GoldenEye's slide, then Bean's picture's */
+			const double dx = (0.25 * g[1][1] - 0.1 * g[0][1]) / det;
+			const double dz = (0.1 * g[0][0] - 0.25 * g[1][0]) / det;
+			const double rs = b[0][0] * dx + b[0][1] * dz, rt = b[1][0] * dx + b[1][1] * dz;
+			gevrBeanWaterSetRate(1, (float)rs, (float)rt);
+			GEVR_BEAN_LOG("gevr bean water: %.3f %.3f units a frame, in Bean's picture %.3f %.3f quarter texels "
+			              "(GoldenEye's s/t %.4f %.4f %.4f %.4f, Bean's %.4f %.4f %.4f %.4f a unit)",
+			              dx, dz, rs, rt, g[0][0], g[0][1], g[1][0], g[1][1], b[0][0], b[0][1], b[1][0], b[1][1]);
+		}
+	}
+done:
+	free(water);
+	free(on);
+	free(all);
+	free(near);
+}
+
 static int roomFor(const float c[3], int nrooms)
 {
 	if (s_tree) {
@@ -487,6 +626,7 @@ static int buildStage(int stage)
 		c[2] /= 3.0f;
 		assign[i] = roomFor(c, nrooms);
 	}
+	markWater(mesh, fileScale);
 	for (int r = 0; r < nrooms; r++) {
 		int nopa = 0, nxlu = 0;
 		struct gevrEmitVert *opa = NULL, *xlu = NULL;
