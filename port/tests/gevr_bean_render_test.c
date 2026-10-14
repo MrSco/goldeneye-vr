@@ -30,6 +30,9 @@ void gevrBeanMeshFree(struct gevrBeanMesh *m) { free(m->tris); free(m); }
 void gevrBeanTexReset(void) {}
 /* the decoded pictures (gevr_bean_tex.c): a monitor's screen painted on its case */
 int gevrBeanTexture(const void *addr, const uint8_t **rgba, int *w, int *h) { (void)addr; (void)rgba; (void)w; (void)h; return 0; }
+/* GoldenEye's water on Bean's pictures (gevr_bean_tex.c): none here */
+int gevrBeanTextureIsWater(const void *addr) { (void)addr; return 0; }
+void gevrBeanWaterAdvance(float delta) { (void)delta; }
 /* the folder repaint (gevr_bean_folder.c, gevr_bean_tex.c) is tested on its own */
 void gevrBeanRepaintForget(void) {}
 void gevrBeanRepaintForgetOwner(int owner) { (void)owner; }

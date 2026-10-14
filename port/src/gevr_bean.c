@@ -525,6 +525,26 @@ static uint32_t beanRenderMode(Gfx **next, int mode1, int mode2, int room)
     return (uint32_t)g->words.w1;
 }
 
+/* GoldenEye's water list's fade (unk_092E50.c sub_GAME_7F092E50): sin(phase)
+ * * 127 + 128, the phase gaining 0.04 radians a frame; the slide is the
+ * renderer's (gevrBeanWaterTransform) */
+static Gfx s_waterGdl[2];
+
+void *gevrBeanWaterList(void)
+{
+	if (!s_waterGdl[1].words.w0)
+		gevrBeanWaterTick(0, 0);
+	return s_waterGdl;
+}
+
+void gevrBeanWaterTick(float delta, float phase)
+{
+	Gfx *g = s_waterGdl;
+	gevrBeanWaterAdvance(delta);
+	gDPSetPrimColor(g++, 0, (u32)(sinf(phase) * 127.0f + 128.0f), 0xff, 0xff, 0xff, 0xff);
+	gSPEndDisplayList(g++);
+}
+
 int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert *v, int nverts,
 		int lit, int dim, int cull, int zbuf, void **gdlOut, void **vtxOut)
 {
@@ -744,6 +764,14 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
                 gDPSetCombineLERP(g++,TEXEL0,0,SHADE,0,0,0,0,SHADE,
                                  1,COMBINED,TEXEL1,COMBINED,0,0,0,COMBINED);
             }
+        }
+        /* DAB gewater.c: a water picture is GoldenEye's water list's two
+         * copies (tile 1 the same picture, gevrBeanWaterTransform), the one
+         * faded into the other by the primitive LOD fraction, then shaded */
+        if (tex >= 0 && !dim && !reflect && gevrBeanTextureIsWater(mesh->standin[tex])) {
+            gSPDisplayList(g++, gevrBeanWaterList());
+            gDPSetCombineLERP(g++, TEXEL1, TEXEL0, PRIM_LOD_FRAC, TEXEL0, TEXEL1, TEXEL0, PRIM_LOD_FRAC, TEXEL0,
+                              COMBINED, 0, SHADE, 0, COMBINED, 0, SHADE, 0);
         }
         while (batch < end) {
 			int take = end - batch;

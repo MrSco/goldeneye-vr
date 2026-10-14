@@ -69,6 +69,10 @@ void gevrBeanImagesReset(void);
 /* Normalized game-time texture offsets and the active HD room fog line. */
 int gevrBeanTextureScroll(const void *addr, float seconds, float offset[2]);
 int gevrBeanTextureTransform(const void *addr, float seconds, float matrix[6]);
+/* A Bean water picture's tile 0 or 1 under GoldenEye's motion; 0 for others. */
+int gevrBeanWaterTransform(const void *addr, int tile, float matrix[6]);
+/* GoldenEye's water tick (unk_092E50.c): its delta and fade phase. */
+void gevrBeanWaterTick(float delta, float phase);
 const void *gevrBeanTextureFrame(const void *addr, float seconds);
 int gevrBeanRoomFog(float line[2], uint8_t rgb[3]);
 /* Render-time selection only. Definitions retain native lists/types for

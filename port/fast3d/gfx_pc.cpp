@@ -4498,7 +4498,8 @@ static void gevr_mesh_frame(void) {
 static void gevr_bean_transform(int t, float matrix[6])
 {
     const auto& tile = rdp.texture_tile[rdp.first_tile_index + gfx_lod_tile_offset(t)];
-    gevrBeanTextureTransform(rdp.loaded_texture[tile.tmem].addr, g_GlobalTimer / 60.0f, matrix);
+    if (!gevrBeanWaterTransform(rdp.loaded_texture[tile.tmem].addr, t, matrix))
+        gevrBeanTextureTransform(rdp.loaded_texture[tile.tmem].addr, g_GlobalTimer / 60.0f, matrix);
 }
 
 static bool gevr_mesh_params(struct GfxMeshDrawParams* p) {
