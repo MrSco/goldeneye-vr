@@ -8,6 +8,12 @@
  * space, and the skin shader lowers the shade alpha of the Bean vertices within
  * 60 units, falling off to nothing at the edge (gfx_opengl.cpp uWound).
  *
+ * GoldenEye paints the stock vertex nearest the hit, however far: a shot's
+ * point (chr.c, pushed out from the joint and back along the shot) can lie
+ * well off Bean's surface, and only 1 hit in 20 came within 60 units of a
+ * Bean vertex (user, 2026-10-14). The wound is moved onto the nearest Bean
+ * vertex bound to the hit part, in that part's own frame, as GoldenEye's is.
+ *
  * A wound lasts as long as GoldenEye's own bruise: while the part keeps the
  * vertex copy the stain was painted into (vtxstore takes it back from a corpse,
  * and a reused model starts clean).
@@ -58,13 +64,36 @@ void gevrBeanNoteWound(Model *model, ModelNode *hitnode, ModelNode *stained, con
 		memset(&s_wounds[pick], 0, sizeof(s_wounds[pick]));
 		s_wounds[pick].model = model;
 	}
+	float at[3] = { local->x, local->y, local->z };
+	{
+		/* the Bean body's nearest vertex bound to the hit part (struct beanSkinVert) */
+		const struct beanSwap *body = model->obj ? activeSwap(model->obj->RootNode) : NULL;
+		const struct beanSkin *skin = body ? body->skin : NULL;
+		float best = 1e30f;
+		for (int v = 0; skin && skin->verts && v < skin->nverts; v++) {
+			const struct beanSkinVert *sv = &skin->verts[v];
+			for (int k = 0; k < 4; k++) {
+				const int m = sv->matrix[k] == -2 ? skin->anchor : sv->matrix[k];
+				if (!sv->weight[k] || m != matrix)
+					continue;
+				const float dx = sv->p[k][0] - local->x, dy = sv->p[k][1] - local->y, dz = sv->p[k][2] - local->z;
+				const float d = dx * dx + dy * dy + dz * dz;
+				if (d < best) {
+					best = d;
+					at[0] = sv->p[k][0];
+					at[1] = sv->p[k][1];
+					at[2] = sv->p[k][2];
+				}
+			}
+		}
+	}
 	struct beanWound *w = &s_wounds[pick].ring[s_wounds[pick].serial++ % GEVR_SKIN_WOUNDS];
 	w->stained = stained;
 	w->vertices = vertices;
 	w->matrix = matrix;
-	w->local[0] = local->x;
-	w->local[1] = local->y;
-	w->local[2] = local->z;
+	w->local[0] = at[0];
+	w->local[1] = at[1];
+	w->local[2] = at[2];
 	w->alpha = (uint8_t)(alpha < 0 ? 0 : alpha > 255 ? 255 : alpha);
 	s_wounds[pick].used = ++s_woundUse;
 }
