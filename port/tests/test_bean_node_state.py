@@ -28,7 +28,7 @@ struct RGBA { uint8_t r, g, b, a; };
 static struct { uint32_t other_mode_l, other_mode_h, palette_fmt; bool textures_changed[2], tex_lod, tex_detail;
                 uint64_t combine_mode; struct RGBA prim_color; } rdp;
 static struct { uint32_t geometry_mode; } rsp;
-static bool s_beanNodeOn, s_beanNodeSaved, s_beanNodePrimTouched;
+static bool s_beanNodeOn, s_beanNodeSaved, s_beanNodePrimTouched, s_beanModelCull;
 static uint64_t s_beanNodeCombine;
 static uint32_t s_beanNodeMode, s_beanNodeFog, s_beanNodeLod;
 static uint8_t s_beanNodePrimA;
