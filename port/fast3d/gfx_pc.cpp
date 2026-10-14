@@ -61,6 +61,11 @@ static bool s_beanNormalTex1, s_beanReflectDiffuse;
 static const uint8_t *s_beanVertexTint;
 static unsigned s_beanVertexTintStride;
 static bool s_beanRoomFogLinear;
+/* G_GEVR_BEAN_FADE: a fading chr's Bean draws (chrRenderProp's PropType 8). The
+ * game's own lists fade through their render mode (modelApplyRenderModeType3:
+ * env alpha, G_RM_AA_ZB_XLU_SURF2); Bean's set theirs, so the renderer applies
+ * it: shade alpha scaled, blended without depth writes, on the CPU path. */
+static uint8_t s_beanFadeAlpha = 255;
 static float s_beanRoomFogLine[2];
 static unsigned s_beanPaintUploads, s_beanPaintHits;
 #include "gevr_bean.h"
@@ -2587,6 +2592,9 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
         } else {
             d->color.a = 255;
         }
+        if (s_beanFadeAlpha < 255) {
+            d->color.a = (uint8_t)((d->color.a * s_beanFadeAlpha + 127) / 255);
+        }
 
         if (s_gevrPresentReady) {   // otherwise no slot is fresh (gevr_presentation_prepare)
             s_gevrPresentedFresh[dest_index] = true;
@@ -4439,7 +4447,8 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, 
         s_gevrMeshCulledTris += run->indexCount / 3;
         return true;
     }
-    if (!s_gevrMeshOn || (skin && !s_gevrSkinOn) || gfx_rapi->draw_mesh == nullptr || run->indexCount == 0) {
+    if (!s_gevrMeshOn || (skin && !s_gevrSkinOn) || gfx_rapi->draw_mesh == nullptr || run->indexCount == 0 ||
+        s_beanFadeAlpha < 255) {   // a fading body's few draws take the CPU path, which fades
         return false;
     }
     if (!skin && run->hasBounds && (fbActive || vr_is_initialized()) &&
@@ -4743,9 +4752,17 @@ static void gfx_run_dl(Gfx* cmd) {
                     else rsp.geometry_mode &= ~G_FOG;
                 }
                 if (s_beanRoomFogLinear) { rdp.fog_color.r = rgb[0]; rdp.fog_color.g = rgb[1]; rdp.fog_color.b = rgb[2]; }
-                gfx_sp_set_other_mode(3, 29, gevrBeanRoomMode((uint32_t)cmd->words.w1, rsp.geometry_mode & G_FOG));
+                uint32_t mode = (uint32_t)cmd->words.w1;
+                if (model && s_beanFadeAlpha < 255) {
+                    mode = G_RM_PASS | ((mode & Z_CMP) ? G_RM_AA_ZB_XLU_SURF2 : G_RM_XLU_SURF2);
+                }
+                gfx_sp_set_other_mode(3, 29, gevrBeanRoomMode(mode, rsp.geometry_mode & G_FOG));
                 break;
             }
+            case G_GEVR_BEAN_FADE:
+                gfx_flush();
+                s_beanFadeAlpha = (uint8_t)(cmd->words.w1 & 0xff);
+                break;
             case G_GEVR_NORMAL_TEX1:
                 gfx_flush();
                 s_beanNormalTex1=cmd->words.w1!=0;
@@ -5058,6 +5075,7 @@ static void gfx_run_dl(Gfx* cmd) {
 }
 
 static void gfx_sp_reset() {
+    s_beanFadeAlpha = 255;
     rsp.modelview_matrix_stack_size = 1;
     rsp.modelview_hidden_stack[0] = false; //VR
     rsp.current_num_lights = 2;

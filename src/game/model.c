@@ -4327,7 +4327,18 @@ void modelRenderNodeGundl(ModelRenderData* renderdata, Model* model, ModelNode* 
                 modelApplyRenderModeType2(renderdata);
             }
 
+#ifdef GEVR
+            {
+                /* a fading chr's Bean part: see G_GEVR_BEAN_FADE (drawjointlist) */
+                const s32 fade = (shownPrimary != rodata->Primary && renderdata->PropType == PROP_TYPE_EXPLOSION + 1)
+                    ? (s32)(renderdata->envcolour.word & 0xff) : 255;
+                if (fade < 255) renderdata->gdl = gevrBeanFadeMark(renderdata->gdl, fade);
+                gSPDisplayList(renderdata->gdl++, shownPrimary);
+                if (fade < 255) renderdata->gdl = gevrBeanFadeMark(renderdata->gdl, 255);
+            }
+#else
             gSPDisplayList(renderdata->gdl++, shownPrimary);
+#endif
 
             if ((shownType == 3) && rodata->Secondary)
             {
@@ -4529,7 +4540,18 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
 
                 gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(rwdata->DisplayListCollisions.Vertices));
 
+#ifdef GEVR
+                {
+                    /* a fading chr's Bean part: see G_GEVR_BEAN_FADE (drawjointlist) */
+                    const s32 fade = (shownGdl != rwdata->DisplayListCollisions.gdl && renderdata->PropType == PROP_TYPE_EXPLOSION + 1)
+                        ? (s32)(renderdata->envcolour.word & 0xff) : 255;
+                    if (fade < 255) renderdata->gdl = gevrBeanFadeMark(renderdata->gdl, fade);
+                    gSPDisplayList(renderdata->gdl++, shownGdl);
+                    if (fade < 255) renderdata->gdl = gevrBeanFadeMark(renderdata->gdl, 255);
+                }
+#else
                 gSPDisplayList(renderdata->gdl++, shownGdl);
+#endif
 
                 if (shownType == 3 && rodata->DisplayListCollisions.Secondary)
                 {
@@ -5384,7 +5406,10 @@ void subdraw(ModelRenderData *mrData, Model *mdl)
 #ifdef GEVR
     if(mrData->unk18==0 && (mrData->flags&1)) {
         Gfx *body=gevrBeanWholeModelGdl(mdl);
+        const s32 fade=mrData->PropType==PROP_TYPE_EXPLOSION+1 ? (s32)(mrData->envcolour.word&0xff) : 255;
+        if(body&&fade<255)mrData->gdl=gevrBeanFadeMark(mrData->gdl,fade);
         if(body)gSPDisplayList(mrData->gdl++,body);
+        if(body&&fade<255)mrData->gdl=gevrBeanFadeMark(mrData->gdl,255);
     }
 #endif
 

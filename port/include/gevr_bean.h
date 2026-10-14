@@ -71,6 +71,8 @@ int gevrBeanRoomFog(float line[2], uint8_t rgb[3]);
 /* Render-time selection only. Definitions retain native lists/types for
  * gameplay, including aiming and bullet collision. Disabled returns current. */
 void *gevrBeanShownGdl(void *node, void *current);
+/* One G_GEVR_BEAN_FADE command at gdl (alpha 0-255, 255 ends the fade); returns the next. */
+void *gevrBeanFadeMark(void *gdl, int alpha);
 void *gevrBeanRenderGdl(void *node, void *current, struct Model *model);
 void *gevrBeanWholeModelGdl(struct Model *model);
 struct ModelHitEntry;
