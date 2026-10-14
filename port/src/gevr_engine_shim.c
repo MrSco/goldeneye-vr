@@ -564,6 +564,21 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 	musicFadeTick();
     if(fadeStart) gevrFrameTimingOutside(GEVR_TIME_AUDIO,gevrFrameTimingNow()-fadeStart);
 
+#ifdef GEVR
+	/*
+	 * The retrace's audio frame, mixed here between XR frames: after the loop
+	 * below it ran inside the next game frame and took 0.25-0.45 ms of its
+	 * 8.3 ms budget at 120 Hz (every other retrace mixes two retraces' worth).
+	 */
+	{
+        extern void gevrAudioFrame(void);
+        const uint64_t audioStart=gevrFrameTimingNow();
+        gevrAudioFrame();
+        if(audioStart) gevrFrameTimingOutside(GEVR_TIME_AUDIO,gevrFrameTimingNow()-audioStart);
+		gevrPumpStage = 7;
+	}
+#endif
+
 
 	/*
 	 * The N64 delivered a retrace every 1/60 s and the game ticks once per
@@ -631,16 +646,6 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 
 	gevrPumpStage = 6;
 	os_scheduler.frameCount++;
-
-#ifdef GEVR
-	{
-        extern void gevrAudioFrame(void);
-        const uint64_t audioSpan=gevrFrameTimingEnter(GEVR_TIME_AUDIO);
-        gevrAudioFrame();
-        gevrFrameTimingLeave(audioSpan);
-		gevrPumpStage = 7;
-	}
-#endif
 
 	if (msg) {
 		*msg = (OSMesg)&os_scheduler.retraceMsg;
