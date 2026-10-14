@@ -29,6 +29,8 @@ static struct { uint32_t other_mode_l, other_mode_h, palette_fmt; bool textures_
                 uint64_t combine_mode; struct RGBA prim_color; } rdp;
 static struct { uint32_t geometry_mode; } rsp;
 static bool s_beanNodeOn, s_beanNodeSaved, s_beanNodePrimTouched, s_beanModelCull;
+static uint8_t s_beanPass;
+static bool s_beanBatchXlu, s_beanPassSkip;
 static uint64_t s_beanNodeCombine;
 static uint32_t s_beanNodeMode, s_beanNodeFog, s_beanNodeLod;
 static uint8_t s_beanNodePrimA;
@@ -97,7 +99,27 @@ int main() {
     assert(!s_beanNodeSaved);
     op(GEVR_NODE_OFF);
     assert(!s_beanNodeOn);
-    puts("PASS: Bean node state: chr shade, cut-out and translucent spans, fading nodes, one-cycle and unmarked lists");
+
+    /* A list split over the passes: the opaque pass skips its XLU batches, the
+       translucent pass its solid ones (until the first APPLY says which), with or
+       without the node's state. */
+    op(GEVR_NODE_PASS, 1);
+    assert(!s_beanPassSkip);
+    op(GEVR_NODE_APPLY | GEVR_NODE_SPAN | GEVR_NODE_XLU, own(G_RM_AA_ZB_XLU_SURF, G_RM_AA_ZB_XLU_SURF2));
+    assert(s_beanPassSkip);
+    op(GEVR_NODE_APPLY | GEVR_NODE_COMBINE, own(G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2));
+    assert(!s_beanPassSkip);
+    op(GEVR_NODE_PASS, 2);
+    assert(s_beanPassSkip);
+    op(GEVR_NODE_APPLY | GEVR_NODE_SPAN | GEVR_NODE_XLU, own(G_RM_AA_ZB_XLU_SURF, G_RM_AA_ZB_XLU_SURF2));
+    assert(!s_beanPassSkip);
+    op(GEVR_NODE_APPLY | GEVR_NODE_COMBINE, own(G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2));
+    assert(s_beanPassSkip);
+    op(GEVR_NODE_PASS, 0);
+    assert(!s_beanPassSkip);
+    op(GEVR_NODE_APPLY | GEVR_NODE_SPAN | GEVR_NODE_XLU, own(G_RM_AA_ZB_XLU_SURF, G_RM_AA_ZB_XLU_SURF2));
+    assert(!s_beanPassSkip);
+    puts("PASS: Bean node state: chr shade, cut-out and translucent spans, fading nodes, one-cycle and unmarked lists, pass split");
 }
 '''
 production = function('static void gfx_sp_set_other_mode(') + '\n' + function('static void gfx_bean_node_state(')

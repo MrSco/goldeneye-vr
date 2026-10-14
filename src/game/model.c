@@ -4337,8 +4337,11 @@ void modelRenderNodeGundl(ModelRenderData* renderdata, Model* model, ModelNode* 
                     ? (s32)(renderdata->envcolour.word & 0xff) : 255;
                 if (fade < 255) renderdata->gdl = gevrBeanFadeMark(renderdata->gdl, fade);
                 if (nodeType != shownType) renderdata->gdl = gevrBeanNodeMark(renderdata->gdl, 1);
+                const s32 pass = shownPrimary != rodata->Primary ? gevrBeanPassSplit(arg1, model, renderdata->flags) : 0;
                 if (shownPrimary != rodata->Primary) gevrBeanNoteOpaque(model);
+                if (pass) renderdata->gdl = gevrBeanPassMark(renderdata->gdl, pass);
                 gSPDisplayList(renderdata->gdl++, shownPrimary);
+                if (pass) renderdata->gdl = gevrBeanPassMark(renderdata->gdl, 0);
                 if (nodeType != shownType) renderdata->gdl = gevrBeanNodeMark(renderdata->gdl, 0);
                 if (fade < 255) renderdata->gdl = gevrBeanFadeMark(renderdata->gdl, 255);
             }
@@ -4357,8 +4360,11 @@ void modelRenderNodeGundl(ModelRenderData* renderdata, Model* model, ModelNode* 
         Gfx *beanTransparent = (Gfx *)gevrBeanTransparentGdl(arg1, rodata->Primary, model, renderdata->flags);
         if (beanTransparent)
         {
+            const s32 pass = gevrBeanPassSplit(arg1, model, renderdata->flags);
             gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->BaseAddr));
+            if (pass) renderdata->gdl = gevrBeanPassMark(renderdata->gdl, pass);
             gSPDisplayList(renderdata->gdl++, beanTransparent);
+            if (pass) renderdata->gdl = gevrBeanPassMark(renderdata->gdl, 0);
         }
         else
 #endif
@@ -4605,8 +4611,11 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
                     if (fade < 255) renderdata->gdl = gevrBeanFadeMark(renderdata->gdl, fade);
                     if (nodeType != shownType) renderdata->gdl = gevrBeanNodeMark(renderdata->gdl, 1);
                     if (inside) renderdata->gdl = gevrBeanCullMark(renderdata->gdl, 1);
+                    const s32 pass = shownGdl != rwdata->DisplayListCollisions.gdl ? gevrBeanPassSplit(node, model, renderdata->flags) : 0;
                     if (shownGdl != rwdata->DisplayListCollisions.gdl) gevrBeanNoteOpaque(model);
+                    if (pass) renderdata->gdl = gevrBeanPassMark(renderdata->gdl, pass);
                     gSPDisplayList(renderdata->gdl++, shownGdl);
+                    if (pass) renderdata->gdl = gevrBeanPassMark(renderdata->gdl, 0);
                     if (inside) renderdata->gdl = gevrBeanCullMark(renderdata->gdl, 0);
                     if (nodeType != shownType) renderdata->gdl = gevrBeanNodeMark(renderdata->gdl, 0);
                     if (fade < 255) renderdata->gdl = gevrBeanFadeMark(renderdata->gdl, 255);
@@ -4639,9 +4648,12 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
             Gfx *beanTransparent = (Gfx *)gevrBeanTransparentGdl(node, shownGdl, model, renderdata->flags);
             if (beanTransparent)
             {
+                const s32 pass = gevrBeanPassSplit(node, model, renderdata->flags);
                 gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->DisplayListCollisions.BaseAddr));
                 gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(rwdata->DisplayListCollisions.Vertices));
+                if (pass) renderdata->gdl = gevrBeanPassMark(renderdata->gdl, pass);
                 gSPDisplayList(renderdata->gdl++, beanTransparent);
+                if (pass) renderdata->gdl = gevrBeanPassMark(renderdata->gdl, 0);
             }
             else
 #endif
