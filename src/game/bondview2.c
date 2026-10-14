@@ -770,6 +770,32 @@ static void gevrCheatProbe(s32 inlevel)
             sysLogPrintf(LOG_NOTE, "cheathook: guards' detailed guns %s", g_gevrHeldGunGuards ? "on" : "off");
             continue;
         }
+        /* "blast<R>": every object within R units of Bond (600 if none) takes the
+         * damage that destroys it, as a shot's would (objApplyDamage): destroyed
+         * props, scorched and crumpled, without aiming from the PC */
+        if (strncasecmp(word, "blast", 5) == 0)
+        {
+            extern void objApplyDamage(ObjectRecord *obj, f32 damage, coord3d *pos, ITEM_IDS itemnum, s32 playernum);
+            extern PropRecord *g_ActivePropsHead;
+            const f32 r = word[5] ? (f32) atoi(word + 5) : 600.0f;
+            PropRecord *prop, *next;
+            s32 n = 0;
+
+            for (prop = g_ActivePropsHead; prop != NULL; prop = next)
+            {
+                const f32 dx = prop->pos.x - g_CurrentPlayer->prop->pos.x;
+                const f32 dz = prop->pos.z - g_CurrentPlayer->prop->pos.z;
+
+                next = prop->next;
+                if (prop->type == PROP_TYPE_OBJ && prop->obj != NULL && dx * dx + dz * dz < r * r)
+                {
+                    objApplyDamage(prop->obj, 1000.0f, &prop->pos, ITEM_UNARMED, 0);
+                    n++;
+                }
+            }
+            sysLogPrintf(LOG_NOTE, "cheathook: blast %.0f: %d objects", (double) r, n);
+            continue;
+        }
         /* "holdl<N>": the same in the off hand, e.g. holdl4 to dual-wield PP7s */
         if (strncasecmp(word, "holdl", 5) == 0)
         {
