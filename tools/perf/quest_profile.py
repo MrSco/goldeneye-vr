@@ -24,7 +24,7 @@ import time
 FILES = '/sdcard/Android/data/com.gevr.port/files'
 PACKAGE = 'com.gevr.port'
 LAUNCH_CHECK = 'LaunchCheckControllerRequiredDialogActivity'
-MARKERS = ['gevr_fakegrip.txt','gevr_scopedump','gevr_scope.pam', 'gevr_body_batch.txt','gevr_rigid_min.txt','gevr_room_draws.txt', 'gevr_pipeline.txt', 'gevr_input.txt', 'gevr_level.txt', 'gevr_warp.txt', 'gevr_cheat.txt',
+MARKERS = ['gevr_fakegrip.txt','gevr_scopedump','gevr_scope.pam', 'gevr_body_batch.txt','gevr_rigid_min.txt','gevr_room_draws.txt', 'gevr_pipeline.txt', 'gevr_bean_nodemode.txt', 'gevr_input.txt', 'gevr_level.txt', 'gevr_warp.txt', 'gevr_cheat.txt',
            'gevr_profile.txt', 'gevr_profile.txt.status']
 PROTECTED = ['data/goldeneye-vr.ini', 'eeprom.bin', *MARKERS]
 WARMUP, MEASURE = 15, 60
@@ -259,7 +259,7 @@ def run(args, out):
     push_back(out / 'backup/eeprom.bin', f'{FILES}/eeprom.bin')
     info = {'apk': str(args.apk.resolve()), 'sha256': hashlib.sha256(args.apk.read_bytes()).hexdigest(),
             'hz': args.hz, 'detail': args.detail, 'showstats': args.showstats, 'runs': args.runs,
-            'pad': args.pad, 'scope_probe': args.scope_probe, 'body_batch': args.body_batch, 'rigid_min': args.rigid_min, 'room_draws': args.room_draws, 'pipeline': args.pipeline, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'xbla': args.xbla, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
+            'pad': args.pad, 'scope_probe': args.scope_probe, 'body_batch': args.body_batch, 'rigid_min': args.rigid_min, 'room_draws': args.room_draws, 'pipeline': args.pipeline, 'node_mode': args.node_mode, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'xbla': args.xbla, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
     log = (folder / 'device.log').open('wb')
     logger = subprocess.Popen(['adb', 'logcat', '-T', '1', '-v', 'threadtime'], stdout=log, stderr=log)
     try:
@@ -268,6 +268,7 @@ def run(args, out):
         put('gevr_rigid_min.txt',str(args.rigid_min))
         put('gevr_room_draws.txt',str(args.room_draws))
         put('gevr_pipeline.txt',str(args.pipeline))
+        put('gevr_bean_nodemode.txt',str(args.node_mode))
         launch()
         applied=recent()
         expected=f'gevr bean controls: rigid_min={args.rigid_min} body_batch={args.body_batch}'
@@ -290,6 +291,10 @@ def run(args, out):
             label = f'{args.label}-{repeat + 1}'
             put('gevr_warp.txt', str(args.pad))
             time.sleep(2)
+            # read at the first Bean model draw, so only once the level shows
+            if repeat == 0 and 'gevr bean controls: nodemode=' in recent() and \
+                    f'gevr bean controls: nodemode={args.node_mode}' not in recent():
+                raise Unavailable('Renderer did not acknowledge the requested Bean node mode')
             # Capture the actual location and geometry before recording/warm-up.
             # A pad number alone does not establish which reported scene is tested.
             screenshot=subprocess.check_output(['adb','exec-out','screencap','-p'],timeout=30)
@@ -387,6 +392,8 @@ if __name__ == '__main__':
     parser.add_argument('--pipeline', type=int, choices=[0, 1, 2], default=2,
                         help='0 ticks the game inside its XR frame (the old order), 1 ticks it early but draws its '
                              'eye pass inside the frame, 2 (the game default) also replays the eye pass')
+    parser.add_argument('--node-mode', type=int, choices=[0, 1], default=1,
+                        help="0 draws Bean's model lists in their own state, 1 (the game default) in the game's node state")
     parser.add_argument('--simpleperf', action='store_true',
                         help='sample the measured minute with simpleperf (attribution only; needs the benchmark build)')
     args = parser.parse_args()
