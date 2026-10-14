@@ -4337,6 +4337,7 @@ void modelRenderNodeGundl(ModelRenderData* renderdata, Model* model, ModelNode* 
                     ? (s32)(renderdata->envcolour.word & 0xff) : 255;
                 if (fade < 255) renderdata->gdl = gevrBeanFadeMark(renderdata->gdl, fade);
                 if (nodeType != shownType) renderdata->gdl = gevrBeanNodeMark(renderdata->gdl, 1);
+                if (shownPrimary != rodata->Primary) gevrBeanNoteOpaque(model);
                 gSPDisplayList(renderdata->gdl++, shownPrimary);
                 if (nodeType != shownType) renderdata->gdl = gevrBeanNodeMark(renderdata->gdl, 0);
                 if (fade < 255) renderdata->gdl = gevrBeanFadeMark(renderdata->gdl, 255);
@@ -4593,6 +4594,7 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
                     if (fade < 255) renderdata->gdl = gevrBeanFadeMark(renderdata->gdl, fade);
                     if (nodeType != shownType) renderdata->gdl = gevrBeanNodeMark(renderdata->gdl, 1);
                     if (inside) renderdata->gdl = gevrBeanCullMark(renderdata->gdl, 1);
+                    if (shownGdl != rwdata->DisplayListCollisions.gdl) gevrBeanNoteOpaque(model);
                     gSPDisplayList(renderdata->gdl++, shownGdl);
                     if (inside) renderdata->gdl = gevrBeanCullMark(renderdata->gdl, 0);
                     if (nodeType != shownType) renderdata->gdl = gevrBeanNodeMark(renderdata->gdl, 0);

@@ -33,6 +33,11 @@ extern int VrGexGuns;
 #define MAX_DL    1024
 #define MAX_WALK  4096
 
+/* The model instances whose Bean lists the opaque pass drew this frame
+ * (gevrBeanNoteOpaque): the translucent pass leaves them be. */
+#define MAX_OPAQUE_MODELS 1024
+static const void *s_opaqueModels[MAX_OPAQUE_MODELS];
+static int s_nopaqueModels;
 #include "gevr_bean_frame.inc.h"
 
 static Gfx s_blank[1];
@@ -330,10 +335,30 @@ void *gevrBeanNodeMark(void *gdl, int on)
 /* Native glass props may be submitted only with flags=2. Their replacement
  * owns both render modes, but must still be reachable in that pass. flags=3
  * already draws it once through the primary path. Preserve hidden/broken lists. */
+void gevrBeanNoteOpaque(const void *model)
+{
+    if (model && s_nopaqueModels < MAX_OPAQUE_MODELS &&
+        (s_nopaqueModels == 0 || s_opaqueModels[s_nopaqueModels - 1] != model))
+        s_opaqueModels[s_nopaqueModels++] = model;
+}
+
+static int opaqueDrawn(const void *model)
+{
+    for (int i = s_nopaqueModels - 1; i >= 0; i--)
+        if (s_opaqueModels[i] == model)
+            return 1;
+    return 0;
+}
+
+/* A type-4 prop's Bean list holds its translucent batches too, so the opaque
+ * pass drew all of it; drawn again here it lay a second, clean copy over a
+ * destroyed prop's scorched one (user, 2026-10-14: Dam's drums and crates)
+ * and drew every such prop twice. Only a prop the opaque pass did not draw
+ * (glass submitted to the translucent pass alone) is drawn here. */
 void *gevrBeanTransparentGdl(void *node, void *current, struct Model *model, int flags)
 {
     struct beanSwap *s = activeSwap(node);
-    return s && s->origType == 4 && (flags & 2) && !(flags & 1) && (current || !s->original)
+    return s && s->origType == 4 && (flags & 2) && !(flags & 1) && (current || !s->original) && !opaqueDrawn(model)
         ? gevrBeanRenderGdl(node, current, model) : NULL;
 }
 
