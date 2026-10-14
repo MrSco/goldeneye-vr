@@ -58,6 +58,7 @@ bool bgTestBulletHitBackground(coord3d *from, coord3d *to, s32 room, HitThing *h
 
 static struct TestPlayer {
     s32 cameramode, bonddead;
+    f32 field_70;
     struct { StandTile *current_tile_ptr_for_portals; coord3d pos3; } field_488;
 } player, *g_CurrentPlayer = &player;
 static s32 g_gevrStereo, s_gevrCopyTrace, g_PlayerIsInTank, g_CameraMode = CAMERAMODE_FP;
@@ -214,5 +215,20 @@ int main(void)
     online = 0; players = 2; eye.y = 205;
     gevrGameCameraCeiling(&eye); closeTo(eye.y,150);
     players = 1; g_CameraMode = CAMERAMODE_FP;
+
+    /* Stepping off a ledge: the tile below is the floor already, the feet are
+     * still up; the ledge's underside beside the eye is no ceiling. */
+    reset();
+    player.field_488.current_tile_ptr_for_portals = &tile;
+    ceiling(1,170,10,64,-64,64);   /* the deck just left, 100 below the feet */
+    player.field_488.pos3.y = 0;   /* the steps under Bond */
+    player.field_70 = 270;         /* his feet, still at the deck */
+    eye = (coord3d){.f={0,440,0}};
+    gevrGameCameraCeiling(&eye);
+    closeTo(eye.y,440);
+    player.field_70 = 0;           /* landed: a lintel over the steps clamps again */
+    eye = (coord3d){.f={0,175,0}};
+    gevrGameCameraCeiling(&eye);
+    closeTo(eye.y,150);
     puts("PASS: production lintel clearance, recovery, ducking, neighbouring rooms, footprint, asset scale, flat/stereo and local redraw context");
 }
