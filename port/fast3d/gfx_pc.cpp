@@ -1502,6 +1502,28 @@ static void gevr_packdump_note(uint32_t tex, uint32_t pal, bool ci, uint8_t fmt,
 }
 
 /* The pack entry for the texture tile draws from, or -1; *hw x *hh is the area the checksum covers. */
+/*
+ * The pack's image for a texture key. Bean's look indexes an HD pack only to
+ * fill in (s_tpFillOnly): it answers with Bean on and BeanFillTextures, for the
+ * pictures Bean leaves at the cartridge's (its own pictures and repaints are
+ * bound before the pack is asked), and never for the original look. An HD
+ * pack chosen as the look fills Bean's gaps the same way.
+ */
+extern "C" int VrBeanFillTextures;   /* port/vr/vr_settings_defaults.c */
+static bool s_tpFillOnly;            /* the indexed pack is Bean's fill, not the chosen look */
+static bool s_tpHasPack;             /* a pack is indexed at all */
+
+static int tp_find(uint64_t key, uint8_t fmt, uint8_t siz) {
+    if (!gevrBeanIsEnabled()) return s_tpFillOnly ? -1 : gevrtp::find(key, fmt, siz, false);
+    const int id = gevrtp::find(key, fmt, siz, true);
+    return id >= 0 || !VrBeanFillTextures ? id : gevrtp::find(key, fmt, siz, false);
+}
+
+/* For the Mods rows: an HD pack is indexed to fill Bean's gaps from. */
+extern "C" int gevrTexpackFillAvailable(void) {
+    return s_tpHasPack;
+}
+
 static int gevr_texpack_lookup(int tile, const LoadedTexture &lt, uint32_t *hw, uint32_t *hh) {
     const auto &t = rdp.texture_tile[tile];
     if (lt.load_type == 0 || lt.img_addr == nullptr) {
@@ -1564,11 +1586,11 @@ static int gevr_texpack_lookup(int tile, const LoadedTexture &lt, uint32_t *hw, 
         const intptr_t pstart = size == G_IM_SIZ_4b ? (intptr_t)t.palette * 32 : 0;
         s_tpSwap = 3;   // palettes are in N64 byte order
         pal = tp_rice(s_filterPalette + 8, pstart, cimax + 1, 1, 2, size == G_IM_SIZ_4b ? 32 : 512);
-        id = gevrtp::find((uint64_t)pal << 32 | tex, t.orig_fmt, (uint8_t)size, gevrBeanIsEnabled());
-        if (id < 0) id = gevrtp::find(pal, t.orig_fmt, (uint8_t)size, gevrBeanIsEnabled());
-        if (id < 0) id = gevrtp::find(tex, t.orig_fmt, (uint8_t)size, gevrBeanIsEnabled());
+        id = tp_find((uint64_t)pal << 32 | tex, t.orig_fmt, (uint8_t)size);
+        if (id < 0) id = tp_find(pal, t.orig_fmt, (uint8_t)size);
+        if (id < 0) id = tp_find(tex, t.orig_fmt, (uint8_t)size);
     } else {
-        id = gevrtp::find(tex, t.orig_fmt, (uint8_t)size, gevrBeanIsEnabled());
+        id = tp_find(tex, t.orig_fmt, (uint8_t)size);
     }
 
     if (s_tdOn && id < 0) {
@@ -1690,16 +1712,32 @@ extern "C" void gevrTexpackStartEarly(void) {
      * from GoldenEye. Dab's Mod turns its HD assets off on hack stages too.
      * The launcher's choice, as the ROM layer has not bound a campaign yet.
      */
+    s_tpFillOnly = false;
     if (VrCampaign == 0 && g_ActiveExtTexPack[0] != '\0' && strcmp(g_ActiveExtTexPack, "ge007-bean") != 0) {
         char rel[320];
         snprintf(rel, sizeof(rel), "$S/texture-packs/%s", g_ActiveExtTexPack);
         normal = fsFullPath(rel);
+    } else if (VrCampaign == 0 && (g_ActiveExtTexPack[0] != '\0' || gevrBeanIsEnabled())) {
+        /* Bean's look: an installed HD pack, to fill its gaps (tp_find, BeanFillTextures) */
+        for (const char *pack : { "ge007-hd-ai", "ge007-hd" }) {
+            char rel[320];
+            struct stat st;
+            snprintf(rel, sizeof(rel), "$S/texture-packs/%s/GOLDENEYE", pack);
+            if (stat(fsFullPath(rel), &st) == 0 && S_ISDIR(st.st_mode)) {
+                snprintf(rel, sizeof(rel), "$S/texture-packs/%s", pack);
+                normal = fsFullPath(rel);
+                s_tpFillOnly = true;
+                break;
+            }
+        }
     }
+    s_tpHasPack = !normal.empty();
     /*
      * No catalog for Bean: its pictures are the release's own, read from the
      * player's copy (gevr_bean_images.c), and the ROM's where it has none, as
-     * in Dab's Mod. The old downloaded pack's GOLDENEYE/ PNGs are not read, so
-     * with Bean on no pack image is found (find(..., bean)).
+     * in Dab's Mod. The old downloaded pack's GOLDENEYE/ PNGs are not read:
+     * with Bean on, only an HD pack's images fill in, and only for what Bean
+     * leaves at the cartridge's (tp_find).
      */
     gevrtp::start(normal.c_str());
 }
@@ -1708,7 +1746,7 @@ extern "C" void gevrTexpackStartEarly(void) {
 static void gevr_texpack_frame(void) {
     GevrProfileSection profile(GEVR_TIME_TEX_READY);
     static bool started = false;
-    static int lastBean = -1;
+    static int lastBean = -1, lastFill = -1;
     s_tpSyncBytes = 0;
     if (!started) {
         started = true;
@@ -1721,8 +1759,9 @@ static void gevr_texpack_frame(void) {
         gfx_texture_cache_clear();   // what was uploaded before the index existed looks again
     }
     const int bean = gevrBeanIsEnabled();
-    if (lastBean != bean || (s_tpIndexed && s_tpActive == (s_tpUserOff != 0))) {
+    if (lastBean != bean || lastFill != VrBeanFillTextures || (s_tpIndexed && s_tpActive == (s_tpUserOff != 0))) {
         lastBean = bean;
+        lastFill = VrBeanFillTextures;
         s_tpActive = s_tpIndexed && !s_tpUserOff;
         s_tpUploads.clear();
         s_tpPending.clear();
@@ -2008,8 +2047,14 @@ static void import_texture(int i, int tile, bool is_rect) {
     {
         const uint8_t *paint = nullptr;
         int paintW = 0, paintH = 0;
+        uint32_t packW, packH;
         if (gevrBeanIsEnabled() && gevrBeanRepaint(orig_addr, &paint, &paintW, &paintH)
-                && paint && paintW > 0 && paintH > 0) {
+                && paint && paintW > 0 && paintH > 0
+                /* BeanFillTextures: a release picture no bigger than the cartridge's (the
+                 * mission select's 68x44 stages) gives way to the HD pack's, if it has one */
+                && !(VrBeanFillTextures && s_tpActive && paintW <= (int)rdp.texture_tile[tile].width
+                     && paintH <= (int)rdp.texture_tile[tile].height
+                     && gevr_texpack_lookup(tile, loaded_texture, &packW, &packH) >= 0)) {
             ++s_beanPaintHits;
             TextureCacheKey key = { orig_addr, {}, G_IM_FMT_RGBA, G_IM_SIZ_32b, 0, 0, 0 };
             key.width = (uint32_t)paintW;

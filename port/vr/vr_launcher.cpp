@@ -978,8 +978,23 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     }
     if (VrCampaign != GEVR_CAMPAIGN_GE && gevrBeanIsAvailable())
         ImGui::TextWrapped("XBLA / Bean is off while the Goldfinger 64 or Tomorrow Never Dies campaign is chosen.");
-    else if (gevrBeanIsEnabled())
+    else if (gevrBeanIsEnabled()) {
         ImGui::TextWrapped("Bean uses its own textures. Toggle in VR options or hold one grip + right-stick click for 1 second.");
+        // the pictures Bean leaves at the cartridge's, from an installed HD pack (gfx_pc.cpp tp_find)
+        const char *fill = nullptr;
+        for (const char *id : { "ge007-hd-ai", "ge007-hd" })
+            for (const ModPack &p : packs)
+                if (!fill && p.id == id && p.state == "installed") fill = p.id == "ge007-hd-ai" ? "HD + AI" : "HD";
+        bool on = VrBeanFillTextures != 0;
+        char label[96];
+        snprintf(label, sizeof(label), "Fill Bean's gaps with %s textures", fill ? fill : "HD");
+        ImGui::BeginDisabled(fill == nullptr);
+        if (ImGui::Checkbox(label, &on)) VrBeanFillTextures = on ? 1 : 0;
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(fill ? "Pictures the XBLA release left as the cartridge's (the stage pictures and the like)\ncome from the %s pack."
+                                   : "Install the HD or HD + AI pack above to fill the pictures\nthe XBLA release left as the cartridge's.", fill);
+    }
     else if (!gevrBeanIsAvailable())
         ImGui::TextWrapped("XBLA / Bean reads your own GoldenEye XBLA: its .7z, .zip or Xbox 360 package. Nothing is downloaded.");
     ImGui::Separator();

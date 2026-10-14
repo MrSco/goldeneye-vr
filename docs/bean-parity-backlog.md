@@ -7,9 +7,6 @@ ships. References are Dab's unless marked GE (the decomp).
 
 ## Being ported now (PR 180)
 
-- A Mods option (user, 2026-10-14): with Bean on, fill the textures Bean
-  leaves at the cartridge's (the 68x44 stage pictures and the like) from the HD
-  or HD + AI texture pack when it has them.
 - Room culling for GoldenEye's own cameras outside the level
   (`gebeanStageTickCamera`, `bgRenderRoomOpaque`): opening shots, the swirl and
   cutscene cameras stand inside rock and under floors, and two-sided HD rooms
@@ -25,6 +22,8 @@ ships. References are Dab's unless marked GE (the decomp).
 - Boot sequence: the release's Rare logo (7aa5b3e) and its line in place of
   the Nintendo logo screen (879cbaa). The legal page was already the release's;
   the GoldenEye logo stays the cartridge's, as in Dab's Mod.
+- Bean HD fill (Mods, `BeanFillTextures`): the pictures Bean leaves at the
+  cartridge's, the 68x44 stage pictures among them, from the HD + AI or HD pack.
 
 ## Characters, props and guns
 
