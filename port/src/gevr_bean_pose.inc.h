@@ -132,3 +132,145 @@ void *gevrBeanRenderGdl(void *node, void *current, Model *model)
 	}
 	return commands;
 }
+
+/*
+ * A destroyed prop (DAB xblamesh.c xblaMeshBruiseMap 9812, xblaMeshBruiseColours
+ * 10712, xblaMeshDeformOffsets 10340). objDeform (propobj.c) gives the instance
+ * its own copy of the node's vertices, nine in ten of the upper half's (one in
+ * five of the lower's) blackened and all of them pressed down and jittered,
+ * and the game's list reads it through segment 4. Bean's list is the model
+ * file's, shared and with its own colours, so a destroyed barrel stayed whole
+ * and clean (user, 2026-10-14, Dam). Each Bean vertex takes the three nearest
+ * stock vertices (inverse squared distance, as Gouraud across the stock
+ * triangle would) and follows them: colour scaled by now/was, moved by the
+ * offset. The copy draws on the CPU, as DAB's destroyed props do.
+ */
+struct beanScorch {
+	const void *stock;
+	int nverts;
+	uint16_t (*ref)[3];
+	float (*w)[3];
+};
+
+static void beanScorchPosition(const struct beanSwap *swap, int i, float p[3])
+{
+	if (swap->emittedWorld) {
+		const GevrWorldVertex *v = (const GevrWorldVertex *)swap->emittedVtx + i;
+		p[0] = v->p[0]; p[1] = v->p[1]; p[2] = v->p[2];
+	} else {
+		const Vtx *v = (const Vtx *)swap->emittedVtx + i;
+		p[0] = v->v.ob[0]; p[1] = v->v.ob[1]; p[2] = v->v.ob[2];
+	}
+}
+
+static struct beanScorch *beanScorchMap(struct beanSwap *swap, const Vertex *stock, int count)
+{
+	struct beanScorch *sc = swap->scorch;
+	if (sc && sc->stock == stock && sc->nverts == swap->emittedVerts)
+		return sc;
+	if (!sc) {
+		sc = calloc(1, sizeof(*sc));
+		if (!sc || !keepAlloc(sc)) { free(sc); return NULL; }
+		swap->scorch = sc;
+	}
+	int n = swap->emittedVerts;
+	uint16_t (*ref)[3] = malloc((size_t)n * sizeof(*ref));
+	float (*w)[3] = malloc((size_t)n * sizeof(*w));
+	if (!ref || !w || !keepAlloc(ref) || !keepAlloc(w)) { free(ref); free(w); sc->stock = NULL; return NULL; }
+	for (int i = 0; i < n; i++) {
+		float p[3], best[3] = {1e30f, 1e30f, 1e30f};
+		int bi[3] = {0, 0, 0};
+		beanScorchPosition(swap, i, p);
+		for (int s = 0; s < count && s < 65536; s++) {
+			float dx = p[0] - stock[s].coord.x, dy = p[1] - stock[s].coord.y, dz = p[2] - stock[s].coord.z;
+			float d = dx * dx + dy * dy + dz * dz;
+			for (int k = 0; k < 3; k++) {
+				if (d < best[k]) {
+					for (int m = 2; m > k; m--) { best[m] = best[m - 1]; bi[m] = bi[m - 1]; }
+					best[k] = d; bi[k] = s;
+					break;
+				}
+			}
+		}
+		float total = 0;
+		for (int k = 0; k < 3; k++) {
+			w[i][k] = best[k] < 1e29f ? 1.0f / (best[k] + 1.0f) : 0.0f;
+			ref[i][k] = (uint16_t)bi[k];
+			total += w[i][k];
+		}
+		for (int k = 0; k < 3; k++)
+			w[i][k] = total > 0 ? w[i][k] / total : (k == 0);
+	}
+	sc->stock = stock;
+	sc->nverts = n;
+	sc->ref = ref;
+	sc->w = w;
+	return sc;
+}
+
+void *gevrBeanScorchedGdl(void *node, void *shown, const void *stockVertices, const void *nowVertices, int count)
+{
+	struct beanSwap *swap = activeSwap(node);
+	const Vertex *was = stockVertices, *now = nowVertices;
+	if (!gevrBeanIsEnabled() || !swap || swap->skin || !swap->emitted || swap->deferredMatrix ||
+	    !was || !now || was == now || count <= 0 || swap->emittedVerts <= 0)
+		return shown;
+	struct beanScorch *sc = beanScorchMap(swap, was, count);
+	if (!sc)
+		return shown;
+	const int n = swap->emittedVerts;
+	const size_t vsize = swap->emittedWorld ? sizeof(GevrWorldVertex) : sizeof(Vtx);
+	uint8_t *vertices = beanFrameAllocate((size_t)n * vsize);
+	Gfx *commands = beanFrameAllocate((size_t)(swap->emittedCommands + 3) * sizeof(Gfx));
+	if (!vertices || !commands)
+		return shown;
+	memcpy(vertices, swap->emittedVtx, (size_t)n * vsize);
+	for (int i = 0; i < n; i++) {
+		float colour[3] = {0, 0, 0}, offset[3] = {0, 0, 0};
+		for (int k = 0; k < 3; k++) {
+			const Vertex *a = &was[sc->ref[i][k]], *b = &now[sc->ref[i][k]];
+			const float wk = sc->w[i][k];
+			const u8 wa[3] = {a->r, a->g, a->b}, nb[3] = {b->r, b->g, b->b};
+			for (int c = 0; c < 3; c++)
+				colour[c] += wk * (wa[c] ? fminf((float)nb[c] / (float)wa[c], 1.0f) : 1.0f);
+			offset[0] += wk * (float)(b->coord.x - a->coord.x);
+			offset[1] += wk * (float)(b->coord.y - a->coord.y);
+			offset[2] += wk * (float)(b->coord.z - a->coord.z);
+		}
+		if (swap->emittedWorld) {
+			GevrWorldVertex *v = (GevrWorldVertex *)vertices + i;
+			for (int c = 0; c < 3; c++) {
+				v->rgba[c] = (u8)(v->rgba[c] * colour[c] + 0.5f);
+				v->p[c] += offset[c];
+			}
+		} else {
+			Vtx *v = (Vtx *)vertices + i;
+			for (int c = 0; c < 3; c++) {
+				v->v.cn[c] = (u8)(v->v.cn[c] * colour[c] + 0.5f);
+				v->v.ob[c] = posClamp((float)v->v.ob[c] + offset[c]);
+			}
+		}
+	}
+	/* the list again, its vertex loads pointed at the copy and without the
+	 * G_GEVR_MESH header that would draw the shared buffers */
+	Gfx *list = commands + 3;
+	int matrix = nodeMatrix(node);
+	Gfx *head = commands;
+	memcpy(list, swap->emitted, (size_t)swap->emittedCommands * sizeof(Gfx));
+	const uintptr_t base = (uintptr_t)swap->emittedVtx, end = base + (uintptr_t)n * vsize;
+	for (int c = 0; c < swap->emittedCommands; c++) {
+		const unsigned op = (unsigned)(list[c].words.w0 >> 24) & 255;
+		if (op == (G_VTX & 255) || op == G_GEVR_WORLD_VTX) {
+			const uintptr_t at = (uintptr_t)list[c].words.w1;
+			if (at >= base && at < end)
+				list[c].words.w1 = (uintptr_t)(vertices + (at - base));
+		}
+	}
+	if (matrix < 0)
+		return list;
+	gSPMatrix(head, (void *)(uintptr_t)(0x03000000u + matrix * sizeof(Mtx)),
+	          G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
+	gSPDisplayList(head + 1, list);
+	gSPEndDisplayList(head + 2);
+	return head;
+}

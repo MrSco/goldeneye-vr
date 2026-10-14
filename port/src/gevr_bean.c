@@ -75,7 +75,18 @@ struct beanSwap {
 	int deferredMatrix;
 	int watchArm;
 	void *spent;   /* DAB fpRound: the rocket launcher drawn with nothing in its tube */
+	/* A rigid prop's own list and vertices (gevrBeanEmitList), for the copy a
+	 * destroyed instance draws (gevrBeanScorchedGdl); NULL for the others. */
+	Gfx *emitted;
+	void *emittedVtx;
+	int emittedVerts, emittedCommands, emittedWorld;
+	struct beanScorch *scorch;
 };
+struct beanScorch;
+/* The rigid list gevrBeanEmitList made last: registerPrimary keeps it with its swap. */
+static Gfx *s_lastEmit;
+static void *s_lastEmitVtx;
+static int s_lastEmitVerts, s_lastEmitCommands, s_lastEmitWorld;
 
 static struct beanSwap s_swap[MAX_SWAP];
 static int s_nswap;
@@ -210,6 +221,10 @@ static void swapAdd(void *node, void *original, void *ours, int origType)
 	s_swap[s_nswap].deferredMatrix = 0;
 	s_swap[s_nswap].watchArm = s_registrationWatchArm;
 	s_swap[s_nswap].spent = NULL;
+	s_swap[s_nswap].emitted = NULL;
+	s_swap[s_nswap].emittedVtx = NULL;
+	s_swap[s_nswap].emittedVerts = s_swap[s_nswap].emittedCommands = s_swap[s_nswap].emittedWorld = 0;
+	s_swap[s_nswap].scorch = NULL;
     s_emittedSkin = NULL;
 	swapIndexAdd(s_nswap);
 	s_nswap++;
@@ -719,7 +734,12 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 	}
 	*gdlOut = gdl;
 	*vtxOut = vtx;
-	(void)vi;
+	/* an unlit rigid list (props): its colours are in the vertices */
+	s_lastEmit = !skin && !tints ? gdl : NULL;
+	s_lastEmitVtx = vtx;
+	s_lastEmitVerts = vi;
+	s_lastEmitCommands = (int)(g - gdl) + 1;
+	s_lastEmitWorld = world != NULL;
 	return 1;
 }
 
@@ -865,6 +885,7 @@ static void registerPrimary(ModelNode *n, Gfx *gdl, int blankType)
 	int op = nodeOp(n);
 	Gfx *old = NULL;
 	int oldType = 0;
+	Gfx *raw = gdl;
 	if (gdl && gdl != s_blank && !(gdl = wrapEmitted(n, gdl)))
 		return;
 	if (op == MODELNODE_OPCODE_DL && n->Data) {
@@ -879,6 +900,13 @@ static void registerPrimary(ModelNode *n, Gfx *gdl, int blankType)
 	struct beanSwap *registered = swapOf(n);
 	if (registered && gdl != s_blank)
 		registered->deferredMatrix = nodeMatrix(n) < 0;
+	if (registered && raw && raw == s_lastEmit && !registered->skin && !registered->emitted) {
+		registered->emitted = raw;
+		registered->emittedVtx = s_lastEmitVtx;
+		registered->emittedVerts = s_lastEmitVerts;
+		registered->emittedCommands = s_lastEmitCommands;
+		registered->emittedWorld = s_lastEmitWorld;
+	}
 	(void)blankType;
 }
 

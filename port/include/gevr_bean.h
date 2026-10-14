@@ -73,6 +73,9 @@ int gevrBeanRoomFog(float line[2], uint8_t rgb[3]);
 void *gevrBeanShownGdl(void *node, void *current);
 /* One G_GEVR_BEAN_FADE command at gdl (alpha 0-255, 255 ends the fade); returns the next. */
 void *gevrBeanFadeMark(void *gdl, int alpha);
+/* A destroyed prop's Bean list (objDeform's blackened, crumpled vertex copy): a frame copy
+ * that follows it, or shown when there is none to make. */
+void *gevrBeanScorchedGdl(void *node, void *shown, const void *stockVertices, const void *nowVertices, int count);
 void *gevrBeanRenderGdl(void *node, void *current, struct Model *model);
 void *gevrBeanWholeModelGdl(struct Model *model);
 struct ModelHitEntry;
