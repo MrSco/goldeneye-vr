@@ -775,25 +775,10 @@ static void gevrCheatProbe(s32 inlevel)
          * props, scorched and crumpled, without aiming from the PC */
         if (strncasecmp(word, "blast", 5) == 0)
         {
-            extern void objApplyDamage(ObjectRecord *obj, f32 damage, coord3d *pos, ITEM_IDS itemnum, s32 playernum);
-            extern PropRecord *g_ActivePropsHead;
+            extern s32 gevrBlastObjects(f32 radius);
             const f32 r = word[5] ? (f32) atoi(word + 5) : 600.0f;
-            PropRecord *prop, *next;
-            s32 n = 0;
 
-            for (prop = g_ActivePropsHead; prop != NULL; prop = next)
-            {
-                const f32 dx = prop->pos.x - g_CurrentPlayer->prop->pos.x;
-                const f32 dz = prop->pos.z - g_CurrentPlayer->prop->pos.z;
-
-                next = prop->next;
-                if (prop->type == PROP_TYPE_OBJ && prop->obj != NULL && dx * dx + dz * dz < r * r)
-                {
-                    objApplyDamage(prop->obj, 1000.0f, &prop->pos, ITEM_UNARMED, 0);
-                    n++;
-                }
-            }
-            sysLogPrintf(LOG_NOTE, "cheathook: blast %.0f: %d objects", (double) r, n);
+            sysLogPrintf(LOG_NOTE, "cheathook: blast %.0f: %d objects", (double) r, gevrBlastObjects(r));
             continue;
         }
         /* "holdl<N>": the same in the off hand, e.g. holdl4 to dual-wield PP7s */
@@ -865,6 +850,35 @@ static s32 gevrWarpIsObject(s32 type)
 {
     return type == PROPDEF_PROP || type == PROPDEF_MONITOR || type == PROPDEF_MULTI_MONITOR ||
            type == PROPDEF_GLASS || type == PROPDEF_TINTED_GLASS || type == PROPDEF_DOOR;
+}
+
+/* "blast<R>" (gevrCheatProbe): every setup object within radius of Bond takes the
+ * damage that destroys it, as a shot's would; returns how many */
+s32 gevrBlastObjects(f32 radius)
+{
+    extern void objApplyDamage(ObjectRecord *obj, f32 damage, coord3d *pos, ITEM_IDS itemnum, s32 playernum);
+    PropDefHeaderRecord *def = g_CurrentSetup.propDefs;
+    s32 n = 0;
+
+    for (; def != NULL && def->type != PROPDEF_END; def = sizepropdef(def) + def)
+    {
+        ObjectRecord *obj = (ObjectRecord *) def;
+
+        if (gevrWarpIsObject(def->type) && def->type != PROPDEF_DOOR && obj->prop != NULL)
+        {
+            const f32 dx = obj->prop->pos.x - g_CurrentPlayer->prop->pos.x;
+            const f32 dz = obj->prop->pos.z - g_CurrentPlayer->prop->pos.z;
+
+            if (dx * dx + dz * dz < radius * radius)
+            {
+                sysLogPrintf(LOG_NOTE, "cheathook: blast object %d at %.0f %.0f", obj->obj, (double) obj->prop->pos.x,
+                             (double) obj->prop->pos.z);
+                objApplyDamage(obj, 1000.0f, &obj->prop->pos, ITEM_UNARMED, 0);
+                n++;
+            }
+        }
+    }
+    return n;
 }
 
 static s32 gevrWarpNearDish(coord3d *dish, s32 model, f32 reach)
