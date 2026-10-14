@@ -4565,6 +4565,17 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
                     modelApplyCullMode(renderdata);
                 }
 
+#ifdef GEVR
+                /* DAB xblaMeshRenderNode (scorched): the game draws a destroyed prop in its
+                 * destroyed mode, PropType 9 with an env alpha, under which a Bean list
+                 * vanished whole (user, 2026-10-14: Dam's wooden crates left only smoke).
+                 * The env alpha is taken off round the Bean list, as in Dab's Mod. */
+                const u32 gevrEnv = renderdata->envcolour.word;
+                if (nodeType != shownType && renderdata->PropType == PROP_TYPE_SMOKE + 1 && (gevrEnv & 0xff))
+                {
+                    renderdata->envcolour.word &= 0xffffff00;
+                }
+#endif
                 if (nodeType == 1)
                 {
                     modelApplyRenderModeType1(renderdata);
@@ -4599,6 +4610,7 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
                     if (inside) renderdata->gdl = gevrBeanCullMark(renderdata->gdl, 0);
                     if (nodeType != shownType) renderdata->gdl = gevrBeanNodeMark(renderdata->gdl, 0);
                     if (fade < 255) renderdata->gdl = gevrBeanFadeMark(renderdata->gdl, 255);
+                    renderdata->envcolour.word = gevrEnv;
                 }
 #else
                 gSPDisplayList(renderdata->gdl++, shownGdl);
