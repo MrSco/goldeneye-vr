@@ -150,6 +150,34 @@ int main(void)
     gevrFrameTimingSubmit(4002000000ull, 0);
     gevrFrameTimingTake(&w);
     assert(!w.collisionCount && !w.stoppedTicks);
+    /* The frame pump's early tick runs between XR frames: its movement belongs
+     * to the next frame that begins, never to the one already submitted. */
+    gevrFrameTimingBegin(5000000000ull);
+    gevrFrameTimingPredicted(6000000000ll, 8333333);
+    gevrFrameTimingDuration(GEVR_TIME_REDRAW, 1000000);
+    gevrFrameTimingSubmit(5002000000ull, 1);
+    gevrFrameTimingResetMotion(15, 0);
+    gevrFrameTimingMoveBegin(1);
+    gevrFrameTimingMoveResult(GEVR_MOVE_SIMPLE, 0, edge0, edge1);
+    gevrFrameTimingCollision(zero, diagonal, slide, 0);
+    gevrFrameTimingSnapshot(body, root);
+    gevrFrameTimingSnapshot(zero, zero); /* one body sample per tick */
+    gevrFrameTimingBegin(5008333333ull);
+    gevrFrameTimingPredicted(6008333333ll, 8333333);
+    gevrFrameTimingDuration(GEVR_TIME_FRESH, 2000000);
+    gevrFrameTimingSubmit(5012000000ull, 1);
+    gevrFrameTimingTake(&w);
+    assert(w.moveTicks == 1 && w.collisionCount == 1);
+    assert(w.collisionTicks[0].requested[0] == 4 && w.collisionTicks[0].actual[1] == 3);
+    assert(w.collisionTicks[0].calls == 1 && w.collisionTicks[0].scoot == 1 && w.collisionTicks[0].edge[1] == 1);
+    assert(w.workFrame.resetReason == 15 && w.workFrame.kind == 1);
+    /* Nothing staged leaks into the frame after. */
+    gevrFrameTimingBegin(5016666666ull);
+    gevrFrameTimingPredicted(6016666666ll, 8333333);
+    gevrFrameTimingDuration(GEVR_TIME_REDRAW, 1000000);
+    gevrFrameTimingSubmit(5018000000ull, 1);
+    gevrFrameTimingTake(&w);
+    assert(!w.moveTicks && !w.collisionCount && !w.workFrame.resetReason);
     gevrFrameTimingEnable(0);
     sample(1500000000, 1505000000, 1, 1, 0, 1000000, 0);
     gevrFrameTimingGpu(99, 0);

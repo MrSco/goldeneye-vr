@@ -230,6 +230,12 @@ static std::vector<XrSwapchainImageOpenGLKHR> g_swapchainImages[1];
 #endif
 
 bool g_frameStarted = false;
+// The next frame's poses, located before its xrWaitFrame for the frame pump's
+// early game tick (vr_prepare_next_frame); current for the game until it begins.
+static bool g_posesEarly = false;
+static XrTime g_posesEarlyTime = 0, g_lastWaitDisplayTime = 0;
+static unsigned g_posesEarlyMissed = 0;   // the wait returned another display time
+static bool vr_locate_frame_poses(XrTime t, bool outside);
 static XrFrameState g_frameState   = { XR_TYPE_FRAME_STATE };
 static std::array<XrView, 2> g_frameViews = { XrView{XR_TYPE_VIEW}, XrView{XR_TYPE_VIEW} };
 // GoldenEye stereo: the views the game's camera was built from, and the views of
@@ -2721,7 +2727,7 @@ extern "C" void gevrVrSnapshotCameraPose(void)
 extern "C" int gevrVrFrameHeadPose(XrPosef *out)
 {
     const XrQuaternionf& q = g_frameViews[0].pose.orientation;
-    if (!g_frameStarted || (q.x == 0.0f && q.y == 0.0f && q.z == 0.0f && q.w == 0.0f)) return 0;
+    if (!(g_frameStarted || g_posesEarly) || (q.x == 0.0f && q.y == 0.0f && q.z == 0.0f && q.w == 0.0f)) return 0;
     out->orientation = q;
     out->position = { (g_frameViews[0].pose.position.x + g_frameViews[1].pose.position.x) * 0.5f,
                       (g_frameViews[0].pose.position.y + g_frameViews[1].pose.position.y) * 0.5f,
@@ -2774,7 +2780,7 @@ extern "C" void gevrVrLocomotionResetReason(GevrLocomotionResetReason reason)
 
 extern "C" void gevrVrLocomotionCollision(const float step[3], const float requested[3], const float actual[3])
 {
-    if (!g_frameStarted || !g_frameState.shouldRender || !positionValid || !orientationValid) {
+    if (!(g_frameStarted || g_posesEarly) || !g_frameState.shouldRender || !positionValid || !orientationValid) {
         s_collisionContact = false;
         return;
     }
@@ -2791,7 +2797,7 @@ extern "C" void gevrVrLocomotionCollision(const float step[3], const float reque
 extern "C" void gevrVrLocomotionSnapshot(const float position[3], const float tracking[3],
                                         float yaw, uint64_t sequence)
 {
-    if (!g_frameStarted || !g_frameState.shouldRender || !positionValid || !orientationValid) {
+    if (!(g_frameStarted || g_posesEarly) || !g_frameState.shouldRender || !positionValid || !orientationValid) {
         gevrVrLocomotionResetReason(GEVR_LOCO_RESET_TRACKING);
         return;
     }
@@ -4702,6 +4708,8 @@ static void vr_idle_pace()
 
 extern "C" bool vr_begin_frame_and_update_poses()
 {
+    const bool early = g_posesEarly;   // vr_prepare_next_frame located this frame's poses
+    g_posesEarly = false;
     if (!g_vrState.sessionRunning || g_vrState.session == XR_NULL_HANDLE) {
         gevrVrLocomotionResetReason(GEVR_LOCO_RESET_SESSION);
         gevrFrameTimingEnable(0);
@@ -4747,23 +4755,89 @@ extern "C" bool vr_begin_frame_and_update_poses()
         g_frameStarted = false;
         return false;
     }
+    g_lastWaitDisplayTime = g_frameState.predictedDisplayTime;
 
-    timingStart = gevrFrameTimingNow();
+    /* A game frame whose tick ran before this wait (vr_prepare_next_frame)
+     * keeps the poses located for it: the camera the game built, its hands and
+     * the views submitted then agree, and the compositor's timewarp turns the
+     * head from those views to the displayed pose. */
+    if (early && std::llabs((long long)(g_frameState.predictedDisplayTime - g_posesEarlyTime)) <
+                     (long long)(g_frameState.predictedDisplayPeriod / 4)) {
+        return true;
+    }
+    if (early) g_posesEarlyMissed++;
+    if (!vr_locate_frame_poses(g_frameState.predictedDisplayTime, false)) {
+        vr_end_empty_frame(g_frameState.predictedDisplayTime);
+        g_frameStarted = false;
+        return false;
+    }
+    return true;
+}
+
+/*
+ * The frame pump's early game tick: the next frame's head, views and
+ * controllers, located for its display time (the last frame's plus one
+ * period) before its xrWaitFrame, so the game's tick and display-list build
+ * run in the time the pump would otherwise spend waiting. xrLocate* take any
+ * display time; xrSyncActions needs no open frame. 0: take the ordinary path.
+ */
+extern "C" int vr_prepare_next_frame(void)
+{
+    g_posesEarly = false;
+    if (!g_vrState.sessionRunning || g_vrState.session == XR_NULL_HANDLE || g_frameStarted ||
+        g_lastWaitDisplayTime == 0 || g_frameState.predictedDisplayPeriod <= 0) {
+        return 0;
+    }
+    const XrTime t = g_lastWaitDisplayTime + g_frameState.predictedDisplayPeriod;
+    g_frameState.predictedDisplayTime = t;
+    g_frameState.shouldRender = XR_TRUE;
+    if (!vr_locate_frame_poses(t, true)) {
+        return 0;
+    }
+    g_posesEarly = true;
+    g_posesEarlyTime = t;
+    return 1;
+}
+
+/* The pump found the game drew nothing on its early poses: no frame began. */
+extern "C" void vr_cancel_next_frame(void)
+{
+    g_posesEarly = false;
+}
+
+extern "C" long long vr_display_period_ns(void)
+{
+    return (long long)g_frameState.predictedDisplayPeriod;
+}
+
+extern "C" int vr_eyes_hold_stereo(void)
+{
+    return g_eyesHoldStereo ? 1 : 0;
+}
+
+extern "C" unsigned vr_early_poses_missed(void)
+{
+    return g_posesEarlyMissed;
+}
+
+/* The views, head and controllers for display time t (the frame just begun,
+ * or the next one before its wait). outside: between XR frames. */
+static bool vr_locate_frame_poses(XrTime t, bool outside)
+{
+    uint64_t timingStart = gevrFrameTimingNow();
     for (auto& v : g_frameViews) { v.type = XR_TYPE_VIEW; v.next = nullptr; }
 
     XrViewLocateInfo viewLocate{ XR_TYPE_VIEW_LOCATE_INFO };
     viewLocate.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
-    viewLocate.displayTime           = g_frameState.predictedDisplayTime;
+    viewLocate.displayTime           = t;
     viewLocate.space                 = g_vrState.playSpace;
 
     XrViewState viewState{ XR_TYPE_VIEW_STATE };
     uint32_t viewCount = 2;
-    r = xrLocateViews(g_vrState.session, &viewLocate, &viewState, 2, &viewCount, g_frameViews.data());
+    XrResult r = xrLocateViews(g_vrState.session, &viewLocate, &viewState, 2, &viewCount, g_frameViews.data());
     if (XR_FAILED(r) || viewCount < 2) {
         gevrVrLocomotionResetReason(GEVR_LOCO_RESET_TRACKING);
         LOGE("xrLocateViews failed: %d", (int)r);
-        vr_end_empty_frame(g_frameState.predictedDisplayTime);
-        g_frameStarted = false;
         return false;
     }
 
@@ -4771,13 +4845,11 @@ extern "C" bool vr_begin_frame_and_update_poses()
     if ((viewState.viewStateFlags & needed) != needed) {
         gevrVrLocomotionResetReason(GEVR_LOCO_RESET_TRACKING);
         LOGE("viewStateFlags missing position/orientation");
-        vr_end_empty_frame(g_frameState.predictedDisplayTime);
-        g_frameStarted = false;
         return false;
     }
 
     for (auto it = g_screenRecenterTimes.begin(); it != g_screenRecenterTimes.end();) {
-        if (g_frameState.predictedDisplayTime >= *it) {
+        if (t >= *it) {
             g_screenPlaced = false;
             gevrVrLocomotionResetReason(GEVR_LOCO_RESET_RECENTER);
             it = g_screenRecenterTimes.erase(it);
@@ -4862,16 +4934,20 @@ extern "C" bool vr_begin_frame_and_update_poses()
 
 
 
-    vr_update_head_tracking(g_frameState.predictedDisplayTime);
+    vr_update_head_tracking(t);
     if (!positionValid || !orientationValid)
         gevrVrLocomotionResetReason(GEVR_LOCO_RESET_TRACKING);
     else if (s_locomotion.count && std::abs(g_frameState.predictedDisplayPeriod - s_locomotion.period) > 1000)
         gevrVrLocomotionResetReason(GEVR_LOCO_RESET_REFRESH);
-    update_vr_controllers(g_frameState.predictedDisplayTime);
-    gevrVrSteadyControllers(g_frameState.predictedDisplayTime, g_sessionFocused ? 1 : 0);
+    update_vr_controllers(t);
+    gevrVrSteadyControllers(t, g_sessionFocused ? 1 : 0);
     controller_pose();
     vr_pointer_update();
-    gevrFrameTimingAdd(GEVR_TIME_POSES, timingStart);
+    if (outside) {
+        if (timingStart) gevrFrameTimingOutside(GEVR_TIME_POSES, gevrFrameTimingNow() - timingStart);
+    } else {
+        gevrFrameTimingAdd(GEVR_TIME_POSES, timingStart);
+    }
 
     return true;
 }
