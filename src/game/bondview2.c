@@ -781,6 +781,17 @@ static void gevrCheatProbe(s32 inlevel)
             sysLogPrintf(LOG_NOTE, "cheathook: blast %.0f: %d objects", (double) r, gevrBlastObjects(r));
             continue;
         }
+        /* "wound<R>": every guard within R units of Bond (600 if none) takes a
+         * bullet's bruise on the chest (chrCreateBloodStain), as a shot's
+         * would, without aiming from the PC */
+        if (strncasecmp(word, "wound", 5) == 0)
+        {
+            extern s32 gevrWoundGuards(f32 radius);
+            const f32 r = word[5] ? (f32) atoi(word + 5) : 600.0f;
+
+            sysLogPrintf(LOG_NOTE, "cheathook: wound %.0f: %d guards", (double) r, gevrWoundGuards(r));
+            continue;
+        }
         /* "holdl<N>": the same in the off hand, e.g. holdl4 to dual-wield PP7s */
         if (strncasecmp(word, "holdl", 5) == 0)
         {
@@ -881,6 +892,69 @@ s32 gevrBlastObjects(f32 radius)
     return n;
 }
 
+/* "wound<R>" (gevrCheatProbe): a bruise on the chest of every guard within
+ * radius of Bond, at the chest box's origin; returns how many */
+static ModelNode *gevrWoundChest(ModelNode *node)
+{
+    for (; node != NULL; node = node->Next)
+    {
+        ModelNode *found;
+
+        if ((node->Opcode & 0xff) == MODELNODE_OPCODE_BBOX && node->Data != NULL &&
+            node->Data->BoundingBox.ModelNumber == 15)   /* HIT_CHEST (bondaicommands.h) */
+        {
+            return node;
+        }
+        if ((found = gevrWoundChest(node->Child)) != NULL)
+        {
+            return found;
+        }
+    }
+    return NULL;
+}
+
+s32 gevrWoundGuards(f32 radius)
+{
+    s32 i, n = 0;
+
+    for (i = 0; i < g_NumChrSlots; i++)
+    {
+        ChrRecord *chr = &g_ChrSlots[i];
+        ModelNode *chest;
+        coord3d local = {0, 0, 0};
+
+        if (chr->model == NULL || chr->prop == NULL || chr->model->obj == NULL)
+        {
+            continue;
+        }
+        {
+            const f32 dx = chr->prop->pos.x - g_CurrentPlayer->prop->pos.x;
+            const f32 dz = chr->prop->pos.z - g_CurrentPlayer->prop->pos.z;
+
+            if (dx * dx + dz * dz >= radius * radius)
+            {
+                continue;
+            }
+        }
+        chest = gevrWoundChest(chr->model->obj->RootNode);
+        if (chest != NULL)
+        {
+            /* on the chest box's front and back faces, where shots land */
+            const struct bbox *box = &chest->Data->BoundingBox.Bounds;
+
+            local.x = (box->xmin + box->xmax) * 0.5f;
+            local.y = (box->ymin + box->ymax) * 0.5f;
+            local.z = box->zmax;
+            chrCreateBloodStain(chr->model, 15, chest, &local);
+            local.z = box->zmin;
+            chrCreateBloodStain(chr->model, 15, chest, &local);
+            sysLogPrintf(LOG_NOTE, "cheathook: wound guard %d at %.0f %.0f", i, (double) chr->prop->pos.x, (double) chr->prop->pos.z);
+            n++;
+        }
+    }
+    return n;
+}
+
 static s32 gevrWarpNearDish(coord3d *dish, s32 model, f32 reach)
 {
     extern f32 g_ScaledFarFogIntensity;
@@ -894,7 +968,57 @@ static s32 gevrWarpNearDish(coord3d *dish, s32 model, f32 reach)
     {
         return -1;
     }
-    for (; def->type != PROPDEF_END; def = sizepropdef(def) + def)
+    if (model == -2)
+    {
+        /* "guard": the nearest guard alive, to look at from reach away */
+        s32 i;
+        f32 bestd = 1e30f;
+
+        for (i = 0; i < g_NumChrSlots; i++)
+        {
+            ChrRecord *chr = &g_ChrSlots[i];
+            f32 dx, dz;
+
+            if (chr->model == NULL || chr->prop == NULL || chr->actiontype == ACT_DIE || chr->actiontype == ACT_DEAD)
+            {
+                continue;
+            }
+            dx = chr->prop->pos.x - g_CurrentPlayer->prop->pos.x;
+            dz = chr->prop->pos.z - g_CurrentPlayer->prop->pos.z;
+            if (dx * dx + dz * dz < bestd)
+            {
+                bestd = dx * dx + dz * dz;
+                *dish = chr->prop->pos;
+                found = TRUE;
+            }
+        }
+        if (found)
+        {
+            /* any of the level's pads, reach away at the guard's height */
+            s32 p;
+
+            sysLogPrintf(LOG_NOTE, "warphook: guard at %.0f %.0f %.0f", dish->x, dish->y, dish->z);
+            for (p = 0; p < 4000 && g_CurrentSetup.pads != NULL && g_CurrentSetup.pads[p].plink != NULL; p++)
+            {
+                PadRecord *pad = &g_CurrentSetup.pads[p];
+                f32 dx = pad->pos.x - dish->x, dz = pad->pos.z - dish->z, diff;
+
+                if (pad->stan == NULL || fabsf(pad->pos.y - dish->y) > 100.0f)
+                {
+                    continue;
+                }
+                diff = fabsf(sqrtf(dx * dx + dz * dz) - target);
+                if (best < 0 || diff < bestdiff)
+                {
+                    best = p;
+                    bestdiff = diff;
+                }
+            }
+            return best;
+        }
+        def = g_CurrentSetup.propDefs + 0;
+    }
+    for (; model != -2 && def->type != PROPDEF_END; def = sizepropdef(def) + def)
     {
         ObjectRecord *obj = (ObjectRecord *) def;
 
@@ -1026,6 +1150,11 @@ static void gevrWarpProbe(s32 inlevel)
     if (strcmp(word, "sevdish") == 0)
     {
         padnum = gevrWarpNearDish(&dish, -1, 0.0f);
+        facedish = TRUE;
+    }
+    else if (strcmp(word, "guard") == 0)
+    {
+        padnum = gevrWarpNearDish(&dish, -2, 350.0f);
         facedish = TRUE;
     }
     else if (strcmp(word, "near") == 0 && model >= 0)
