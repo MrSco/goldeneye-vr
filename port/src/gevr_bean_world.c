@@ -455,6 +455,18 @@ static int buildStage(int stage)
 	}
 	mesh->roomMaterial = 1;
     mesh->worldVertices = 1;
+    /* The world's triangles a run (a draw). 4096: at the Dam's start, 24 fewer
+     * draws a frame than 2048, the eyes' GPU time no higher (2026-10-14).
+     * files/gevr_world_run.txt sets it, for A/B. */
+    int worldRun = 4096;
+    {
+        FILE *f = gevrBeanControlOpen("gevr_world_run.txt");
+        if (f) {
+            if (fscanf(f, "%d", &worldRun) != 1 || worldRun < 256 || worldRun > 65536) worldRun = 4096;
+            fclose(f);
+        }
+        GEVR_BEAN_LOG("gevr bean controls: world_run=%d", worldRun);
+    }
 	assign = malloc((size_t)mesh->ntris * sizeof(int));
 	if (!assign) {
 		gevrBeanMeshFree(mesh);
@@ -554,7 +566,12 @@ static int buildStage(int stage)
 			s_room[r].xlu = gdl;
 			s_room[r].vtxXlu = vtx;
 			s_room[r].has = 1;
+			/* Dam's valley room holds 16,000 tree triangles of one picture: at 512
+			 * a run they were 32 draws a frame; the opaque world's size (below)
+			 * makes them a few. The runs keep their order, which blending needs. */
+			s_meshRunTris = worldRun;
 			s_room[r].wrap[1] = meshWrap(gdl, &s_room[r].mesh[1]);
+			s_meshRunTris = 512;
 		}
 		free(opa);
 		free(xlu);
@@ -585,7 +602,7 @@ static int buildStage(int stage)
                  * triangles: at 512 a run they made 126 of 234 draws, and a wide
                  * view's draw calls cost a turning frame up to 13 ms on Quest 3.
                  * 2048 cut its p99 by 2.9 ms with no GPU cost (tools/perf). */
-                s_meshRunTris=2048;
+                s_meshRunTris=worldRun;
                 s_opaqueWrap=meshWrap(s_opaque,&s_opaqueMesh);
                 s_meshRunTris=512;
                 /* CPU replay of the float list is also complete if GPU creation fails. */
