@@ -66,6 +66,9 @@ ships. References are Dab's unless marked GE (the decomp).
   we put the sunset dome on Caverns, Egyptian, Frigate, Temple, Complex, the
   Bunkers and Surface 2. Sky cap fade and fill (`skyCapFade`).
 - Hide native rooms the Bean mesh leaves out (`gebeanStageRoomHidden`).
+- Dam's "Nine years ago" opening still over the water: a Bean rock rises in front of
+  the dam, and a lighter box shows in the water (user, 2026-10-14; also with the
+  camera cull off, so not 2906822).
 - Keep GoldenEye's translucent room leaves the Bean room lacks, water first
   (`fileWaterLeaves`): `gevr_bean_world.c` sets replaced before checking.
 - Far plane to the mesh's extent (`gebeanStageTickFar`); backdrop handling
