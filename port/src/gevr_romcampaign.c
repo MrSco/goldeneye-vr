@@ -43,6 +43,11 @@ extern GunModelFileRecord gitem_structs[];
 #define GEVR_ANIM_TABLE1_CAP 256
 #define GEVR_ANIM_TABLE2_CAP 8
 
+#define GEVR_CAST_AT 0x8002b600u
+#define GEVR_CAST_CAP 128
+static struct intro_char g_Cast[GEVR_CAST_CAP];
+static int g_CastCount;
+
 static struct gevrDataWindow g_Window;
 static uint32_t g_AnimTable1[GEVR_ANIM_TABLE1_CAP], g_AnimTable2[GEVR_ANIM_TABLE2_CAP];
 static int g_AnimCount1, g_AnimCount2;
@@ -71,6 +76,44 @@ static float bef32(const uint8_t *p)
 static const uint8_t *atVram(uint32_t vram, uint32_t need)
 {
 	return gevrRomDataBytes(&g_Window, vram, need);
+}
+
+/* N64 intro_char rows are 20 bytes, independent of host enum layout. */
+static int readCastTable(const struct gevrRomLayout *L)
+{
+    int i;
+    g_CastCount = 0;
+    if (gevrRomCampaign() != GEVR_CAMPAIGN_GF64) return 1;
+    for (i = 0; i < GEVR_CAST_CAP; i++) {
+        const uint8_t *row = atVram(GEVR_CAST_AT + 20u * (uint32_t)i, 20);
+        int32_t body, head;
+        if (!row) break;
+        body = (int32_t)be32at(row);
+        head = (int32_t)be32at(row + 4);
+        memset(&g_Cast[i], 0, sizeof(g_Cast[i]));
+        g_Cast[i].body = body;
+        if (body == -1) {
+            if (i < 2) break; /* index 1 starts the automatic cast */
+            g_CastCount = i;
+            return 1;
+        }
+        if (body < 0 || (uint32_t)body >= L->numchrs ||
+            (head != HEAD_FIXED && head != HEAD_RANDOM &&
+             (head < 0 || (uint32_t)head >= L->numchrs))) break;
+        g_Cast[i].head = head;
+        g_Cast[i].text1 = (s16)be16at(row + 8);
+        g_Cast[i].text2 = (s16)be16at(row + 10);
+        g_Cast[i].text3 = (s16)be16at(row + 12);
+        g_Cast[i].RESERVED = (s16)be16at(row + 14);
+        g_Cast[i].flag = (s32)be32at(row + 16);
+    }
+    sysLogPrintf(LOG_ERROR, "rom: Goldfinger cast table is invalid or unterminated");
+    return 0;
+}
+
+const struct intro_char *gevrRomCastTable(void)
+{
+    return gevrRomCampaign() == GEVR_CAMPAIGN_GF64 && g_CastCount ? g_Cast : NULL;
 }
 
 static const char *vramString(uint32_t ptr)
@@ -1060,6 +1103,7 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 	g_FileRowCount = 0;
 	g_MemStringCount = 0;
 	g_AnimCount1 = g_AnimCount2 = 0;
+	g_CastCount = 0;
 	clearLamps();
 	gevrRomClearItemMap();
 	if (!rom || !L || !L->variant || romLen < GEVR_DATA_ROM + 3) {
@@ -1090,6 +1134,10 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 	}
 	free(inflated);
 	inflated = NULL;
+	if (!readCastTable(L)) {
+		gevrRomDataFree(&g_Window);
+		return 0;
+	}
 
 	{
 		struct image_entry *savedTex = g_Textures;

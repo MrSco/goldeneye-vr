@@ -186,6 +186,10 @@ int gevrRomChooseHead(int male, int head);
 struct headHat *gevrRomHeadHats(int *first, int *count);
 /* The intro's body and head in a hack campaign's character table; unchanged for GoldenEye. */
 void gevrRomTitleBond(int *body, int *head);
+/* Goldfinger's validated attract-cast records, including the end row.
+ * NULL for campaigns that retain the retail cast. */
+struct intro_char;
+const struct intro_char *gevrRomCastTable(void);
 /* The item whose behaviour applies in this campaign (bondconstants.h GEVR_ITEM_AS). */
 int gevrItemAs(int item);
 /* The campaign's own level special cases and gadget-use items (GoldenEye's for GoldenEye). */
