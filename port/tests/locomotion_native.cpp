@@ -261,6 +261,15 @@ static void clampDiagnosticsAndPhysicalCollision() {
             assert(h.count==std::min<uint64_t>(tick-7,8));
             if (tick>=10) assert(h.clampReason==GEVR_LOCO_CLAMP_NONE);
         }
+        /* The early tick's display time can run a little ahead of the frame's
+         * own: a query slightly before the newest snapshot interpolates. */
+        {
+            const int64_t newest=h.lastDisplayTime;
+            gevrLocomotionQuery(&h,newest-300000,&q);
+            assert(h.clampReason==GEVR_LOCO_CLAMP_NONE && q.time==newest-300000-h.delay);
+            gevrLocomotionQuery(&h,newest-h.delay-1000,&q);
+            assert(h.clampReason==GEVR_LOCO_CLAMP_STALE);
+        }
         gevrLocomotionQuery(&h,h.lastDisplayTime+101000000,&q);
         assert(h.clampReason==GEVR_LOCO_CLAMP_STALE);
         const int64_t resume=h.lastDisplayTime+101000000;
