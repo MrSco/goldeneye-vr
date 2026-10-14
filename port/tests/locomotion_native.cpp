@@ -11,7 +11,7 @@
 #include <map>
 #include <vector>
 
-static bool g_frameStarted = true, positionValid = true, orientationValid = true;
+static bool g_frameStarted = true, g_posesEarly = false, positionValid = true, orientationValid = true;
 static bool g_haveCameraViews = true, g_haveRecordedViews = true, g_haveRenderedViews, g_eyesHoldStereo;
 static bool s_haveSourceCamera, s_haveRecordedCamera;
 static GevrLocomotionHistory s_locomotion;
