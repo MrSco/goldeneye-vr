@@ -72,7 +72,7 @@ static uint8_t s_beanFadeAlpha = 255;
  * (the node's combiner, its blender's first cycle) and restores it at END. */
 static bool s_beanNodeOn, s_beanNodeSaved, s_beanNodePrimTouched;
 static uint64_t s_beanNodeCombine;
-static uint32_t s_beanNodeMode, s_beanNodeFog;
+static uint32_t s_beanNodeMode, s_beanNodeFog, s_beanNodeLod;
 static uint8_t s_beanNodePrimA;   // prim alpha before a cut-out batch zeroed it
 static float s_beanRoomFogLine[2];
 static unsigned s_beanPaintUploads, s_beanPaintHits;
@@ -4189,6 +4189,7 @@ static void gfx_bean_node_state(uint32_t w0, uint32_t ownMode) {
                 s_beanNodeCombine = rdp.combine_mode;
                 s_beanNodeMode = rdp.other_mode_l;
                 s_beanNodeFog = rsp.geometry_mode & G_FOG;
+                s_beanNodeLod = rdp.other_mode_h & G_TL_LOD;
                 s_beanNodePrim = rdp.prim_color;
             }
             break;
@@ -4203,6 +4204,9 @@ static void gfx_bean_node_state(uint32_t w0, uint32_t ownMode) {
                 mode = (s_beanNodeMode & 0xcccc0000u) | (ownMode & 0x3333fff8u);
             }
             gfx_sp_set_other_mode(3, 29, mode & ~7u);
+            /* Tile 1 is tile 0's picture, so the nodes' LOD blend changes nothing;
+             * without it the list keeps the GPU mesh path (gevr_mesh_params). */
+            gfx_sp_set_other_mode(G_MDSFT_TEXTLOD + 32, 1, G_TL_TILE);
             if (w0 & GEVR_NODE_COMBINE) {
                 rdp.combine_mode = s_beanNodeCombine;
             }
@@ -4221,6 +4225,7 @@ static void gfx_bean_node_state(uint32_t w0, uint32_t ownMode) {
             if (!s_beanNodeSaved) break;
             rdp.combine_mode = s_beanNodeCombine;
             gfx_sp_set_other_mode(3, 29, s_beanNodeMode & ~7u);
+            gfx_sp_set_other_mode(G_MDSFT_TEXTLOD + 32, 1, (uint64_t)s_beanNodeLod << 32);
             rsp.geometry_mode = (rsp.geometry_mode & ~G_FOG) | s_beanNodeFog;
             rdp.prim_color = s_beanNodePrim;
             s_beanNodeSaved = s_beanNodePrimTouched = false;
