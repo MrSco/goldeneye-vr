@@ -8096,6 +8096,12 @@ void objDeform(ObjectRecord *obj, E_EXPLOSIONTYPE explosiontype)
         }
         
         *vtxslot = newverts;
+#ifdef GEVR
+        {
+            extern void gevrBeanMarkDeformed(const void *vertices);
+            gevrBeanMarkDeformed(newverts);   /* Bean's list follows it (gevrBeanScorchedGdl) */
+        }
+#endif
     }
     else
     {
