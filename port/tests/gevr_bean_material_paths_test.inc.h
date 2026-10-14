@@ -39,10 +39,13 @@ static void materialPathChecks(void)
                 }
             assert(draws == 1); /* flags=2 glass appears, flags=3 never doubles it. */
         }
-        /* the opaque pass then the translucent one in a frame: drawn once (a destroyed
-           prop's scorched copy is not covered by a clean one) */
-        {
+        /* the opaque pass then the translucent one in a frame: a list with translucent
+           batches (glass) is drawn in both, as the walls behind it must not cover it; an
+           opaque-only one once (a destroyed prop's scorched copy is not covered by a
+           clean one) */
+        for (int opaqueOnly = 0; opaqueOnly < 2; opaqueOnly++) {
             int draws = 0;
+            swapOf(&node)->opaqueOnly = opaqueOnly;
             gevrBeanBeginFrame();
             for (int flags = 1; flags <= 2; flags++) {
                 ModelRenderData r = {0}; r.gdl = output; r.flags = flags;
@@ -51,7 +54,7 @@ static void materialPathChecks(void)
                 for (Gfx *g = output; g < r.gdl; g++)
                     draws += (g->words.w0 >> 24) == (G_DL & 255);
             }
-            assert(draws == 1);
+            assert(draws == (opaqueOnly ? 1 : 2));
         }
         gevrBeanBeginFrame();
         assert(!gevrBeanTransparentGdl(&node, NULL, &model, 2)); /* shattered/hidden */

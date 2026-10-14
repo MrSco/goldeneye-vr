@@ -88,12 +88,13 @@ struct beanSwap {
 	struct beanScorch *scorch;
 	float box[2][3];   /* the emitted list's bounds, in the node's space */
 	int hasBox;
+	int opaqueOnly;    /* the emitted list has no translucent batch (gevrBeanTransparentGdl) */
 };
 struct beanScorch;
 /* The rigid list gevrBeanEmitList made last: registerPrimary keeps it with its swap. */
 static Gfx *s_lastEmit;
 static void *s_lastEmitVtx;
-static int s_lastEmitVerts, s_lastEmitCommands, s_lastEmitWorld;
+static int s_lastEmitVerts, s_lastEmitCommands, s_lastEmitWorld, s_lastEmitOpaque;
 
 static struct beanSwap s_swap[MAX_SWAP];
 static int s_nswap;
@@ -350,15 +351,17 @@ static int opaqueDrawn(const void *model)
     return 0;
 }
 
-/* A type-4 prop's Bean list holds its translucent batches too, so the opaque
- * pass drew all of it; drawn again here it lay a second, clean copy over a
- * destroyed prop's scorched one (user, 2026-10-14: Dam's drums and crates)
- * and drew every such prop twice. Only a prop the opaque pass did not draw
- * (glass submitted to the translucent pass alone) is drawn here. */
+/* A type-4 prop's Bean list holds its translucent batches too. Glass needs this
+ * pass: drawn in the opaque one alone, the walls behind it can be drawn over
+ * it (user, 2026-10-14, the guard tower's windows popping). A list with no
+ * translucent batch the opaque pass already drew is not drawn again: a second,
+ * clean copy lay over a destroyed prop's scorched one (Dam's drums) and every
+ * such prop was drawn twice. */
 void *gevrBeanTransparentGdl(void *node, void *current, struct Model *model, int flags)
 {
     struct beanSwap *s = activeSwap(node);
-    return s && s->origType == 4 && (flags & 2) && !(flags & 1) && (current || !s->original) && !opaqueDrawn(model)
+    return s && s->origType == 4 && (flags & 2) && !(flags & 1) && (current || !s->original) &&
+           !(s->opaqueOnly && opaqueDrawn(model))
         ? gevrBeanRenderGdl(node, current, model) : NULL;
 }
 
@@ -822,6 +825,9 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 	s_lastEmitVerts = vi;
 	s_lastEmitCommands = (int)(g - gdl) + 1;
 	s_lastEmitWorld = world != NULL;
+	s_lastEmitOpaque = 1;
+	for (int i = 0; i < nverts; i++)
+		if (v[i].alpha < 255) s_lastEmitOpaque = 0;
 	return 1;
 }
 
@@ -988,6 +994,7 @@ static void registerPrimary(ModelNode *n, Gfx *gdl, int blankType)
 		registered->emittedVerts = s_lastEmitVerts;
 		registered->emittedCommands = s_lastEmitCommands;
 		registered->emittedWorld = s_lastEmitWorld;
+		registered->opaqueOnly = s_lastEmitOpaque;
 		for (int k = 0; k < 3; k++) {
 			registered->box[0][k] = 1e30f;
 			registered->box[1][k] = -1e30f;
