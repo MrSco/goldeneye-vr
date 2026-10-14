@@ -3884,7 +3884,7 @@ extern int VrNoKnockback, VrNoHitstun, VrDamageFlash;
 extern int VrLeftHandedMode, VrSwapJoysticks, VrGunFitArmed, VrShowStats, VrGunSizeCheat;
 extern int VrMinesStickToGuards, VrBodiesStay, VrFastReinforcements;
 extern int VrGexGuns;
-extern int VrBeanFillTextures;
+extern int VrBeanFillTextures, VrBloodPatch;
 extern int gevrBeanIsAvailable(void), gevrBeanIsEnabled(void);
 extern int gevrTexpackFillAvailable(void);   /* port/fast3d/gfx_pc.cpp: an HD pack to fill Bean's gaps from */
 extern void gevrBeanSetEnabled(int on);
@@ -3915,7 +3915,7 @@ enum {
     GEVR_VR_RELOAD, GEVR_VR_RECOIL, GEVR_VR_THROW, GEVR_VR_THROWPOWER, GEVR_VR_THROWPITCH, GEVR_VR_THROWGAZE,
     GEVR_VR_REFRESH, GEVR_VR_WATCHFACE, GEVR_VR_STATS, GEVR_VR_SCREENSIZE, GEVR_VR_SCREENDIST, GEVR_VR_CURVED, GEVR_VR_PASSTHROUGH,
     GEVR_VR_MINESTICK, GEVR_VR_BODIES, GEVR_VR_FASTREINF,
-    GEVR_VR_GEXGUNS, GEVR_VR_GUNSIZE, GEVR_VR_BEAN, GEVR_VR_BEANFILL,
+    GEVR_VR_GEXGUNS, GEVR_VR_GUNSIZE, GEVR_VR_BEAN, GEVR_VR_BEANFILL, GEVR_VR_BLOOD,
     GEVR_VR_MOVESPEED,
     GEVR_VR_ROWS
 };
@@ -3928,7 +3928,7 @@ static const char *s_gevrVrLabels[GEVR_VR_ROWS] = {
     "Hand reload WIP", "Gun recoil", "Motion throw", "Throw power", "Throw pitch", "Throw gaze",
     "Refresh", "Watch face", "Show stats", "Screen size", "Screen dist", "Curved", "Passthrough",
     "Mines stick", "Bodies stay", "Fast reinforcements",
-    "GoldenEye X", "Gun size", "Project Bean", "Bean HD fill",
+    "GoldenEye X", "Gun size", "Project Bean", "Bean HD fill", "Blood patch",
     "Movement speed",
 };
 
@@ -3940,7 +3940,7 @@ static const s32 s_gevrVrGestures[] = { GEVR_VR_WATCHPAUSE, GEVR_VR_BODYSLOTS, G
 static const s32 s_gevrVrWeapons[] = { GEVR_VR_RECOIL, GEVR_VR_THROW, GEVR_VR_THROWPOWER, GEVR_VR_THROWPITCH, GEVR_VR_THROWGAZE };
 static const s32 s_gevrVrDisplay[] = { GEVR_VR_REFRESH, GEVR_VR_WATCHFACE, GEVR_VR_STATS, GEVR_VR_SCREENSIZE, GEVR_VR_SCREENDIST, GEVR_VR_CURVED, GEVR_VR_PASSTHROUGH };
 static const s32 s_gevrVrRules[] = { GEVR_VR_MINESTICK, GEVR_VR_BODIES, GEVR_VR_FASTREINF };
-static const s32 s_gevrVrMods[] = { GEVR_VR_BEAN, GEVR_VR_BEANFILL, GEVR_VR_GEXGUNS, GEVR_VR_GUNSIZE };
+static const s32 s_gevrVrMods[] = { GEVR_VR_BEAN, GEVR_VR_BEANFILL, GEVR_VR_GEXGUNS, GEVR_VR_GUNSIZE, GEVR_VR_BLOOD };
 
 static const struct
 {
@@ -3991,6 +3991,7 @@ static s32 *gevrVrToggle(s32 row)
         case GEVR_VR_FASTREINF:   return &VrFastReinforcements;
         case GEVR_VR_GEXGUNS:     return &VrGexGuns;
         case GEVR_VR_BEANFILL:    return &VrBeanFillTextures;
+        case GEVR_VR_BLOOD:       return &VrBloodPatch;
     }
     return NULL;
 }
