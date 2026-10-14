@@ -1339,7 +1339,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         // gfx_sp_tri1 would make of it (gfx_pc.cpp gevr_mesh_params; DAB's
         // gfx_mesh_vs_main). Below, main() makes the usual inputs of them.
         append_line(vs_buf, &vs_len, "INPUT vec3 aMeshPos; INPUT vec3 aWorldNormal;");
-        append_line(vs_buf, &vs_len, "uniform int uNormalTex1; uniform vec3 uNormalAxis[2];");
+        append_line(vs_buf, &vs_len, "uniform int uNormalTex1; uniform vec3 uNormalAxis[4];");
         append_line(vs_buf, &vs_len, "INPUT vec2 aMeshST;");
         append_line(vs_buf, &vs_len, "INPUT vec4 aMeshColor;");
         append_line(vs_buf, &vs_len, "uniform mat4 uMeshMP;");
@@ -1430,7 +1430,12 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
             }
         }
         if(cc_features.used_textures[1]) {
-            append_line(vs_buf,&vs_len,"    if(uNormalTex1 != 0) { vec3 n=total>0.0 ? meshNormal : aWorldNormal; float l=length(n); n=l>1e-6 ? n/l : vec3(0.0); aTexCoord1=vec2(.5)+.5*clamp(vec2(dot(n,uNormalAxis[0]),dot(n,uNormalAxis[1])),vec2(-1.0),vec2(1.0)); }");
+            // DAB G_ENVMAP_EXT: the view ray reflected in the normal, on the mirror
+            // sphere (gfx_pc.cpp gevr_reflect_uv; uNormalAxis: right, up, back, eye)
+            append_line(vs_buf,&vs_len,"    if(uNormalTex1 != 0) { vec3 n=total>0.0 ? meshNormal : aWorldNormal; float l=length(n); n=l>1e-6 ? n/l : vec3(0.0);");
+            append_line(vs_buf,&vs_len,"      vec3 e=meshPos-uNormalAxis[3]; float el=length(e); e=el>1e-6 ? e/el : -uNormalAxis[2]; vec3 r=e-2.0*dot(e,n)*n;");
+            append_line(vs_buf,&vs_len,"      vec3 q=vec3(dot(r,uNormalAxis[0]),dot(r,uNormalAxis[1]),dot(r,uNormalAxis[2])); float m=2.0*sqrt(q.x*q.x+q.y*q.y+(q.z+1.0)*(q.z+1.0));");
+            append_line(vs_buf,&vs_len,"      aTexCoord1=m>1e-6 ? clamp(q.xy/m+vec2(.5),vec2(0.0),vec2(1.0)) : vec2(.5); }");
         }
         for (int i = 0; i < cc_features.num_inputs; i++) {
             vs_len += sprintf(vs_buf + vs_len, "    vec%d aInput%d = (uMeshInSel[%d] * meshColor + uMeshInConst[%d])%s;\n",
@@ -3168,7 +3173,7 @@ static void gevr_mesh_uniforms(const struct ShaderProgram* prg, const struct Gfx
     if(prg->meshNormalTexLocation>=0 && changed(p->normal_tex1,old.normal_tex1))
         glUniform1i(prg->meshNormalTexLocation,p->normal_tex1);
     if(prg->meshNormalAxisLocation>=0 && p->normal_tex1 && (!cache.valid || !old.normal_tex1 || changed(p->normal_axis,old.normal_axis)))
-        glUniform3fv(prg->meshNormalAxisLocation,2,&p->normal_axis[0][0]);
+        glUniform3fv(prg->meshNormalAxisLocation,4,&p->normal_axis[0][0]);
     if (prg->meshMPLocation >= 0 && changed(p->mp,old.mp)) glUniformMatrix4fv(prg->meshMPLocation, 1, GL_FALSE, p->mp);
     for (int t = 0; t < 2; t++) {
         if (prg->meshTexLocation[t] >= 0 && changed(p->tex[t],old.tex[t])) glUniform4fv(prg->meshTexLocation[t], 1, p->tex[t]);

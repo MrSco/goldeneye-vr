@@ -2226,6 +2226,49 @@ static void calculate_normal_dir(const struct NormalColor *vcn, float coeffs[3])
     gfx_normalize_vector(coeffs);
 }
 
+/*
+ * DAB G_ENVMAP_EXT (gfx_opengl.cpp): a Bean reflection is the view ray
+ * reflected in the normal, on the mirror sphere its map was built as, at
+ * r.xy / (2 |r + (0,0,1)|) + 1/2. The normal alone gave every vertex of a flat
+ * pane the same texel: the guard tower's windows were one colour that jumped
+ * as the head moved (user, 2026-10-14). Straight ahead it is the old lookup.
+ * The frame, in model space: the texgen lookat's right and up, the view's back
+ * axis and the camera's position (the modelview inverted).
+ */
+static void gevr_reflect_frame(float f[4][3]) {
+    const float (*m)[4] = rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1];
+    calculate_normal_dir(&rsp.lookat[0], f[0]);
+    calculate_normal_dir(&rsp.lookat[1], f[1]);
+    const float back[3] = { 0.0f, 0.0f, 1.0f };
+    gfx_transposed_matrix_mul(f[2], back, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1]);
+    gfx_normalize_vector(f[2]);
+    // the model point the modelview takes to the eye: p M3 + t = 0
+    const float a = m[0][0], b = m[0][1], c = m[0][2], d = m[1][0], e = m[1][1], g = m[1][2],
+                h = m[2][0], i = m[2][1], k = m[2][2];
+    const float det = a * (e * k - g * i) - b * (d * k - g * h) + c * (d * i - e * h);
+    if (!(fabsf(det) > 1e-12f)) {
+        f[3][0] = f[3][1] = f[3][2] = 0.0f;
+        return;
+    }
+    const float inv[3][3] = { { (e * k - g * i) / det, (c * i - b * k) / det, (b * g - c * e) / det },
+                              { (g * h - d * k) / det, (a * k - c * h) / det, (c * d - a * g) / det },
+                              { (d * i - e * h) / det, (b * h - a * i) / det, (a * e - b * d) / det } };
+    for (int col = 0; col < 3; col++)
+        f[3][col] = -(m[3][0] * inv[0][col] + m[3][1] * inv[1][col] + m[3][2] * inv[2][col]);
+}
+
+static void gevr_reflect_uv(const float f[4][3], const float pos[3], const float normal[3], float uv[2]) {
+    float e[3] = { pos[0] - f[3][0], pos[1] - f[3][1], pos[2] - f[3][2] };
+    const float el = sqrtf(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
+    for (int k = 0; k < 3; k++) e[k] = el > 1e-6f ? e[k] / el : -f[2][k];
+    const float en = e[0] * normal[0] + e[1] * normal[1] + e[2] * normal[2];
+    float r[3], q[3];
+    for (int k = 0; k < 3; k++) r[k] = e[k] - 2.0f * en * normal[k];
+    for (int a = 0; a < 3; a++) q[a] = r[0] * f[a][0] + r[1] * f[a][1] + r[2] * f[a][2];
+    const float m = 2.0f * sqrtf(q[0] * q[0] + q[1] * q[1] + (q[2] + 1.0f) * (q[2] + 1.0f));
+    for (int a = 0; a < 2; a++) uv[a] = m > 1e-6f ? clampf(q[a] / m + 0.5f, 0.0f, 1.0f) : 0.5f;
+}
+
 static void gfx_matrix_mul(float res[4][4], const float a[4][4], const float b[4][4]) {
     float tmp[4][4];
     for (int i = 0; i < 4; i++) {
@@ -2455,6 +2498,8 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
     const bool probe = s_surfaceSampleFrame && (rsp.geometry_mode & G_LIGHTING)
         && (rsp.geometry_mode & G_TEXTURE_GEN) && s_surfaceVertexBatches < 4;
     if (probe) ++s_surfaceVertexBatches;
+    float reflectFrame[4][3];   // gevr_reflect_frame, once a batch
+    bool haveReflectFrame = false;
     for (size_t i = 0; i < n_vertices; i++, dest_index++) {
         Vtx packed = {};
         if (world) {
@@ -2613,10 +2658,8 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
                              n ? n[2] : (float)vcn->z/127};
             float length=sqrtf(normal[0]*normal[0]+normal[1]*normal[1]+normal[2]*normal[2]);
             for(int k=0;k<3;k++) normal[k]=length>1e-6f ? normal[k]/length : 0;
-            for(int a=0;a<2;a++) {
-                float axis[3]; calculate_normal_dir(&rsp.lookat[a],axis);
-                d->normal_uv[a]=.5f+.5f*clampf(normal[0]*axis[0]+normal[1]*axis[1]+normal[2]*axis[2],-1,1);
-            }
+            if(!haveReflectFrame) { gevr_reflect_frame(reflectFrame); haveReflectFrame=true; }
+            gevr_reflect_uv(reflectFrame,position,normal,d->normal_uv);
         }
 
         // trivial clip rejection
@@ -4511,7 +4554,7 @@ static bool gevr_mesh_params(struct GfxMeshDrawParams* p) {
         out[3] = { -1, c.a };
     };
     p->normal_tex1=s_beanNormalTex1;
-    if(p->normal_tex1) for(int a=0;a<2;a++) calculate_normal_dir(&rsp.lookat[a],p->normal_axis[a]);
+    if(p->normal_tex1) gevr_reflect_frame(p->normal_axis);
     p->num_inputs = s_gevrMeshState.num_inputs;
     for (int j = 0; j < s_gevrMeshState.num_inputs; j++) {
         Byte color[4], tmp[4];
