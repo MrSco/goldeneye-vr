@@ -140,10 +140,14 @@ void *gevrBeanRenderGdl(void *node, void *current, Model *model)
  * five of the lower's) blackened and all of them pressed down and jittered,
  * and the game's list reads it through segment 4. Bean's list is the model
  * file's, shared and with its own colours, so a destroyed barrel stayed whole
- * and clean (user, 2026-10-14, Dam). Each Bean vertex takes the three nearest
- * stock vertices (inverse squared distance, as Gouraud across the stock
- * triangle would) and follows them: colour scaled by now/was, moved by the
- * offset. The copy draws on the CPU, as DAB's destroyed props do.
+ * and clean (user, 2026-10-14, Dam). Each Bean vertex follows the stock
+ * triangle nearest it, by the barycentric weights of its closest point there
+ * (Gouraud across that triangle): colour scaled by now/was, moved by the
+ * offset. objDeform jitters each stock vertex up to 40 units, seeded by its
+ * position, so the stock surface crumples without tearing; three nearest
+ * vertices by distance changed sets between neighbouring Bean vertices and
+ * tore the mesh into black shards (user, 2026-10-14). The copy draws on the
+ * CPU, as DAB's destroyed props do.
  */
 struct beanScorch {
 	const void *stock;
@@ -163,6 +167,121 @@ static void beanScorchPosition(const struct beanSwap *swap, int i, float p[3])
 	}
 }
 
+/* The node's own triangles, as indices into its vertices (segment 4) */
+static int beanScorchTriangles(ModelNode *node, int count, uint16_t (**out)[3])
+{
+	Vertex *vertices;
+	int vcount, type, n = 0, cap = 0;
+	Gfx *gdl;
+	unsigned slot[16];
+	uint16_t (*tris)[3] = NULL;
+	dlVerts(node, &vertices, &vcount, &type, &gdl);
+	*out = NULL;
+	if (!gdl)
+		return 0;
+	if (((uintptr_t)gdl >> 24) == SPSEGMENT_MODEL_COL1) {
+		void *base = nodeOp(node) == MODELNODE_OPCODE_DL ? node->Data->DisplayList.BaseAddr
+		                                                       : node->Data->DisplayListCollisions.BaseAddr;
+		gdl = (Gfx *)((uint8_t *)base + ((uintptr_t)gdl & 0xffffff));
+	}
+	for (int k = 0; k < 16; k++)
+		slot[k] = 0xffff;
+	for (int c = 0; c < 8192; c++) {
+		const unsigned w0 = gdl[c].words.w0, op = w0 >> 24;
+		const uintptr_t w1 = gdl[c].words.w1;
+		unsigned t[4][3];
+		int nt = 0;
+		if (op == (G_ENDDL & 255))
+			break;
+		if (op == (G_VTX & 255)) {
+			const unsigned first = (w0 >> 16) & 15, nv = (w0 & 0xffff) / sizeof(Vertex);
+			const unsigned index = (unsigned)(w1 & 0xffffff) / sizeof(Vertex);
+			for (unsigned v = 0; v < nv && first + v < 16; v++)
+				slot[first + v] = (w1 >> 24) == SPSEGMENT_MODEL_VTX && index + v < (unsigned)count ? index + v : 0xffff;
+		} else if (op == (G_TRI1 & 255)) {
+			t[0][0] = (w1 >> 16 & 255) / 10;
+			t[0][1] = (w1 >> 8 & 255) / 10;
+			t[0][2] = (w1 & 255) / 10;
+			nt = 1;
+		} else if (op == 0xb1) {
+			for (int k = 0; k < 4; k++) {
+				const unsigned a = w1 >> (k * 8) & 15, b = w1 >> (k * 8 + 4) & 15, cc = w0 >> (k * 4) & 15;
+				if (a || b || cc) {
+					t[nt][0] = a;
+					t[nt][1] = b;
+					t[nt][2] = cc;
+					nt++;
+				}
+			}
+		}
+		for (int k = 0; k < nt; k++) {
+			if (t[k][0] >= 16 || t[k][1] >= 16 || t[k][2] >= 16 || slot[t[k][0]] == 0xffff ||
+			    slot[t[k][1]] == 0xffff || slot[t[k][2]] == 0xffff)
+				continue;
+			if (n == cap) {
+				cap = cap ? cap * 2 : 256;
+				uint16_t (*grown)[3] = realloc(tris, (size_t)cap * sizeof(*tris));
+				if (!grown) {
+					free(tris);
+					return 0;
+				}
+				tris = grown;
+			}
+			for (int v = 0; v < 3; v++)
+				tris[n][v] = (uint16_t)slot[t[k][v]];
+			n++;
+		}
+	}
+	*out = tris;
+	return n;
+}
+
+/* The point of triangle abc nearest p, as barycentric weights (Ericson,
+ * Real-Time Collision Detection 5.1.5); returns the squared distance. */
+static float beanScorchClosest(const float p[3], const float a[3], const float b[3], const float c[3], float w[3])
+{
+	float ab[3], ac[3], ap[3], bp[3], cp[3];
+	for (int k = 0; k < 3; k++) {
+		ab[k] = b[k] - a[k];
+		ac[k] = c[k] - a[k];
+		ap[k] = p[k] - a[k];
+		bp[k] = p[k] - b[k];
+		cp[k] = p[k] - c[k];
+	}
+#define DOT3(x, y) ((x)[0] * (y)[0] + (x)[1] * (y)[1] + (x)[2] * (y)[2])
+	const float d1 = DOT3(ab, ap), d2 = DOT3(ac, ap), d3 = DOT3(ab, bp), d4 = DOT3(ac, bp);
+	const float d5 = DOT3(ab, cp), d6 = DOT3(ac, cp);
+	const float va = d3 * d6 - d5 * d4, vb = d5 * d2 - d1 * d6, vc = d1 * d4 - d3 * d2;
+#undef DOT3
+	if (d1 <= 0 && d2 <= 0) {
+		w[0] = 1; w[1] = 0; w[2] = 0;
+	} else if (d3 >= 0 && d4 <= d3) {
+		w[0] = 0; w[1] = 1; w[2] = 0;
+	} else if (vc <= 0 && d1 >= 0 && d3 <= 0) {
+		const float v = d1 / (d1 - d3);
+		w[0] = 1 - v; w[1] = v; w[2] = 0;
+	} else if (d6 >= 0 && d5 <= d6) {
+		w[0] = 0; w[1] = 0; w[2] = 1;
+	} else if (vb <= 0 && d2 >= 0 && d6 <= 0) {
+		const float v = d2 / (d2 - d6);
+		w[0] = 1 - v; w[1] = 0; w[2] = v;
+	} else if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) {
+		const float v = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+		w[0] = 0; w[1] = 1 - v; w[2] = v;
+	} else {
+		const float denom = 1.0f / (va + vb + vc);
+		w[1] = vb * denom;
+		w[2] = vc * denom;
+		w[0] = 1 - w[1] - w[2];
+	}
+	float d = 0;
+	for (int k = 0; k < 3; k++) {
+		const float q = w[0] * a[k] + w[1] * b[k] + w[2] * c[k] - p[k];
+		d += q * q;
+	}
+	return d;
+}
+
 static struct beanScorch *beanScorchMap(struct beanSwap *swap, const Vertex *stock, int count)
 {
 	struct beanScorch *sc = swap->scorch;
@@ -177,7 +296,32 @@ static struct beanScorch *beanScorchMap(struct beanSwap *swap, const Vertex *sto
 	uint16_t (*ref)[3] = malloc((size_t)n * sizeof(*ref));
 	float (*w)[3] = malloc((size_t)n * sizeof(*w));
 	if (!ref || !w || !keepAlloc(ref) || !keepAlloc(w)) { free(ref); free(w); sc->stock = NULL; return NULL; }
-	for (int i = 0; i < n; i++) {
+	uint16_t (*tris)[3] = NULL;
+	const int ntris = beanScorchTriangles(swap->node, count, &tris);
+	for (int i = 0; i < n && ntris > 0; i++) {
+		float p[3], best = 1e30f, bw[3] = {1, 0, 0};
+		int bt = 0;
+		beanScorchPosition(swap, i, p);
+		for (int t = 0; t < ntris; t++) {
+			float a[3] = {stock[tris[t][0]].coord.x, stock[tris[t][0]].coord.y, stock[tris[t][0]].coord.z};
+			float b[3] = {stock[tris[t][1]].coord.x, stock[tris[t][1]].coord.y, stock[tris[t][1]].coord.z};
+			float c[3] = {stock[tris[t][2]].coord.x, stock[tris[t][2]].coord.y, stock[tris[t][2]].coord.z};
+			float w[3];
+			const float d = beanScorchClosest(p, a, b, c, w);
+			if (d < best) {
+				best = d;
+				bt = t;
+				memcpy(bw, w, sizeof(bw));
+			}
+		}
+		for (int k = 0; k < 3; k++) {
+			ref[i][k] = tris[bt][k];
+			w[i][k] = bw[k];
+		}
+	}
+	free(tris);
+	/* no triangles to follow (a list this walk cannot read): the three nearest vertices */
+	for (int i = 0; i < n && ntris <= 0; i++) {
 		float p[3], best[3] = {1e30f, 1e30f, 1e30f};
 		int bi[3] = {0, 0, 0};
 		beanScorchPosition(swap, i, p);
