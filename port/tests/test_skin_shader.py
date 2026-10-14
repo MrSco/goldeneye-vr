@@ -225,6 +225,8 @@ def execution(gl, program):
     gl.uniform(program,"uNormalTex1","i",1)
     gl.uniform(program,"uNormalAxis[0]","f",[1,0,0])
     gl.uniform(program,"uNormalAxis[1]","f",[0,1,0])
+    gl.uniform(program,"uNormalAxis[2]","f",[0,0,1])
+    gl.uniform(program,"uNormalAxis[3]","f",[0,0,1000000])   # the eye straight in front: the old lookup
     assert all(abs(v-.5)<1e-5 for v in gl.capture()[14:16])
     gl.uniform(program,"uSkinValid","u",[0,0])
     gl.attribute(15,[3,0,4])
@@ -358,6 +360,7 @@ def reflection_pixels(gl,program,coupled=False,cpu=False,soft=False,coloured=Fal
     gl.uniform(program,"uMeshMP","m",identity);gl.uniform(program,"uMeshInSel[0]","m",identity)
     gl.uniform(program,"uVrFlat","i",1);gl.uniform(program,"uNormalTex1","i",1)
     gl.uniform(program,"uNormalAxis[0]","f",[1,0,0]);gl.uniform(program,"uNormalAxis[1]","f",[0,1,0])
+    gl.uniform(program,"uNormalAxis[2]","f",[0,0,1]);gl.uniform(program,"uNormalAxis[3]","f",[0,0,1000000])
     color=gl.call("glGetAttribLocation",I,[U,C.c_char_p],program,b"aInput1" if cpu else b"aMeshColor")
     gl.attribute(color,[.2,.4,.6,.5 if soft else 1])
     if coloured:
