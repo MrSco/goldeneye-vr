@@ -96,6 +96,10 @@ int gevrBeanNodeMode(void);
 int gevrBeanNodeModeType(void *node, int current);
 /* G_GEVR_NODE_STATE ON (on) or OFF at gdl; returns the next. */
 void *gevrBeanNodeMark(void *gdl, int on);
+/* One of GoldenEye's own cameras stands inside this Bean prop's bounds: draw it
+ * between gevrBeanCullMark(gdl, 1) and (gdl, 0), its backs culled. */
+int gevrBeanCameraInside(void *node, struct Model *model);
+void *gevrBeanCullMark(void *gdl, int on);
 /* The release's Rare logo (new/prop/rarewarelogo) for title.c, fitted to the
  * cartridge logo's box lo..hi: lit, texture-generated triangles to draw with
  * *picture as the environment map. NULL without Bean or the file. */

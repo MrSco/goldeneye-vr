@@ -81,6 +81,8 @@ struct beanSwap {
 	void *emittedVtx;
 	int emittedVerts, emittedCommands, emittedWorld;
 	struct beanScorch *scorch;
+	float box[2][3];   /* the emitted list's bounds, in the node's space */
+	int hasBox;
 };
 struct beanScorch;
 /* The rigid list gevrBeanEmitList made last: registerPrimary keeps it with its swap. */
@@ -961,8 +963,58 @@ static void registerPrimary(ModelNode *n, Gfx *gdl, int blankType)
 		registered->emittedVerts = s_lastEmitVerts;
 		registered->emittedCommands = s_lastEmitCommands;
 		registered->emittedWorld = s_lastEmitWorld;
+		for (int k = 0; k < 3; k++) {
+			registered->box[0][k] = 1e30f;
+			registered->box[1][k] = -1e30f;
+		}
+		for (int v = 0; v < s_lastEmitVerts; v++)
+			for (int k = 0; k < 3; k++) {
+				const float p = s_lastEmitWorld ? ((const GevrWorldVertex *)s_lastEmitVtx)[v].p[k]
+				                                : ((const Vtx *)s_lastEmitVtx)[v].v.ob[k];
+				if (p < registered->box[0][k]) registered->box[0][k] = p;
+				if (p > registered->box[1][k]) registered->box[1][k] = p;
+			}
+		registered->hasBox = s_lastEmitVerts > 0;
 	}
 	(void)blankType;
+}
+
+/*
+ * GoldenEye stands its own cameras (the opening's stills, the swirl) against
+ * and inside props: its lists cull their backs, so from inside a gas tank it
+ * sees past it. Bean's props are two-sided (DAB: a truck cab's and a gate's
+ * far walls are single planes), so the camera saw the tank's inside, a dark
+ * green screen (user, 2026-10-14, Facility). While such a camera stands inside
+ * a Bean prop's bounds, that prop culls its backs.
+ */
+extern int gevrBeanWorldAuthoredView(void);
+int gevrBeanCameraInside(void *node, struct Model *model)
+{
+    struct beanSwap *s = activeSwap(node);
+    if (!s || !s->hasBox || !model || !model->render_pos || !model->obj || !gevrBeanWorldAuthoredView())
+        return 0;
+    const int matrix = nodeMatrix(node);
+    if (matrix < 0 || matrix >= model->obj->numMatrices)
+        return 0;
+    /* the node's matrix to the camera, row vectors: the camera in the node's space */
+    const float (*m)[4] = model->render_pos[matrix].pos.m;
+    const float s2 = m[0][0] * m[0][0] + m[0][1] * m[0][1] + m[0][2] * m[0][2];
+    if (s2 < 1e-12f)
+        return 0;
+    for (int k = 0; k < 3; k++) {
+        const float p = -(m[3][0] * m[k][0] + m[3][1] * m[k][1] + m[3][2] * m[k][2]) / s2;
+        if (p < s->box[0][k] - 1.0f || p > s->box[1][k] + 1.0f)
+            return 0;
+    }
+    return 1;
+}
+
+void *gevrBeanCullMark(void *gdl, int on)
+{
+    Gfx *g = gdl;
+    g->words.w0 = ((uintptr_t)G_GEVR_NODE_STATE << 24) | GEVR_NODE_CULL;
+    g->words.w1 = on != 0;
+    return g + 1;
 }
 
 #include "gevr_bean_pilot.inc.h"

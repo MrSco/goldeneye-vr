@@ -71,6 +71,7 @@ static uint8_t s_beanFadeAlpha = 255;
  * the game asks; a list SAVEs that state at its start, APPLYs it per batch
  * (the node's combiner, its blender's first cycle) and restores it at END. */
 static bool s_beanNodeOn, s_beanNodeSaved, s_beanNodePrimTouched;
+static bool s_beanModelCull;   /* GEVR_NODE_CULL: a Bean prop with GoldenEye's camera inside it */
 static uint64_t s_beanNodeCombine;
 static uint32_t s_beanNodeMode, s_beanNodeFog, s_beanNodeLod;
 static uint8_t s_beanNodePrimA;   // prim alpha before a cut-out batch zeroed it
@@ -4226,6 +4227,9 @@ static void gfx_bean_node_state(uint32_t w0, uint32_t ownMode) {
         case GEVR_NODE_OFF:
             s_beanNodeOn = (w0 & 0xff) == GEVR_NODE_ON;
             break;
+        case GEVR_NODE_CULL:
+            s_beanModelCull = ownMode != 0;
+            break;
         case GEVR_NODE_SAVE:
             // a one-cycle node (type 1: no shade, no fade) leaves the list its own state
             s_beanNodeSaved = s_beanNodeOn && (rdp.other_mode_h & (3U << G_MDSFT_CYCLETYPE)) == G_CYC_2CYCLE;
@@ -4249,6 +4253,7 @@ static void gfx_bean_node_state(uint32_t w0, uint32_t ownMode) {
                 mode = (s_beanNodeMode & 0xcccc0000u) | (ownMode & 0x3333fff8u);
             }
             gfx_sp_set_other_mode(3, 29, mode & ~7u);
+            if (s_beanModelCull) rsp.geometry_mode = (rsp.geometry_mode & ~G_CULL_BOTH) | G_CULL_BACK;
             /* Tile 1 is tile 0's picture, so the nodes' LOD blend changes nothing;
              * without it the list keeps the GPU mesh path (gevr_mesh_params). */
             gfx_sp_set_other_mode(G_MDSFT_TEXTLOD + 32, 1, G_TL_TILE);
@@ -4863,6 +4868,7 @@ static void gfx_run_dl(Gfx* cmd) {
             case G_GEVR_ROOM_STATE: {
                 uint8_t rgb[3];
                 const bool model = (cmd->words.w0 & 1) != 0;
+                if (model && s_beanModelCull) rsp.geometry_mode = (rsp.geometry_mode & ~G_CULL_BOTH) | G_CULL_BACK;
                 if (model && s_beanNodeSaved) break;   // the node's fog and mode stand (G_GEVR_NODE_STATE)
                 s_beanRoomFogLinear = !(cmd->words.w0 & 2) && (model ? !vr_dl_is_pause_or_menu : gevrRoomDl && (rsp.geometry_mode & G_FOG))
                     && gevrBeanRoomFog(s_beanRoomFogLine, rgb);
@@ -5205,7 +5211,7 @@ static void gfx_run_dl(Gfx* cmd) {
 
 static void gfx_sp_reset() {
     s_beanFadeAlpha = 255;
-    s_beanNodeOn = s_beanNodeSaved = s_beanNodePrimTouched = false;
+    s_beanNodeOn = s_beanNodeSaved = s_beanNodePrimTouched = s_beanModelCull = false;
     rsp.modelview_matrix_stack_size = 1;
     rsp.modelview_hidden_stack[0] = false; //VR
     rsp.current_num_lights = 2;

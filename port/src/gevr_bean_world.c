@@ -65,6 +65,7 @@ static GevrStaticMesh *s_opaqueMesh;
 static int s_opaqueDrawn;
 
 static int s_cullOutside;   /* this view's camera stands outside the level */
+static int s_authoredView;  /* this view is one of GoldenEye's own cameras */
 static int s_cullForce;     /* files/gevr_bean_roomcull.txt: 0 by the camera, 1 always, 2 never */
 static int cameraOutside(void);
 
@@ -80,6 +81,7 @@ static int cameraOutside(void);
 void gevrBeanWorldBeginView(int authored)
 {
 	s_opaqueDrawn = 0;
+	s_authoredView = authored;
 	const int outside = s_cullForce == 1 || (s_cullForce == 0 && authored && cameraOutside());
 	if (outside != s_cullOutside)
 		GEVR_BEAN_LOG("gevr bean: camera outside the level %d\n", outside);
@@ -89,6 +91,11 @@ void gevrBeanWorldBeginView(int authored)
 int gevrBeanWorldCullsBackFaces(void)
 {
 	return s_cullOutside;
+}
+
+int gevrBeanWorldAuthoredView(void)
+{
+	return s_authoredView;
 }
 
 static Gfx *s_skyGdl;

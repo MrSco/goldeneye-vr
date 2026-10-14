@@ -4588,9 +4588,13 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
                     /* a fading chr's Bean part: see G_GEVR_BEAN_FADE (drawjointlist) */
                     const s32 fade = (shownGdl != rwdata->DisplayListCollisions.gdl && renderdata->PropType == PROP_TYPE_EXPLOSION + 1)
                         ? (s32)(renderdata->envcolour.word & 0xff) : 255;
+                    /* one of GoldenEye's own cameras inside this Bean prop: its backs culled */
+                    const s32 inside = shownGdl != rwdata->DisplayListCollisions.gdl && gevrBeanCameraInside(node, model);
                     if (fade < 255) renderdata->gdl = gevrBeanFadeMark(renderdata->gdl, fade);
                     if (nodeType != shownType) renderdata->gdl = gevrBeanNodeMark(renderdata->gdl, 1);
+                    if (inside) renderdata->gdl = gevrBeanCullMark(renderdata->gdl, 1);
                     gSPDisplayList(renderdata->gdl++, shownGdl);
+                    if (inside) renderdata->gdl = gevrBeanCullMark(renderdata->gdl, 0);
                     if (nodeType != shownType) renderdata->gdl = gevrBeanNodeMark(renderdata->gdl, 0);
                     if (fade < 255) renderdata->gdl = gevrBeanFadeMark(renderdata->gdl, 255);
                 }
