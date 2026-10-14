@@ -120,6 +120,20 @@ int main() {
             std::printf("%.0f deg/s: worst lag gap vs 60 Hz %.2f deg\n",speed,worst);
             assert(worst<0.75f);
         }
+        // The frame's begin can locate a little before the early tick's time: the
+        // steadied turn holds (it used to restart on the raw turn); a large step
+        // back restarts.
+        {
+            reset(); VrAimSteady=2; sample(ctrl,0,1000000000);
+            for(int k=1;k<=20;k++) sample(ctrl,0.4f*k,8333333);
+            const auto held=gSteadyQ[gevrPhysHand(ctrl)];
+            assert(held.y<gCtrlPosePlay[gevrPhysHand(ctrl)].orientation.y);   // lagging
+            sample(ctrl,8.4f,-300000);
+            assert(memcmp(&held,&gSteadyQ[gevrPhysHand(ctrl)],sizeof(held))==0);
+            timeNow+=300000;
+            sample(ctrl,8.8f,-200000000);
+            near(gSteadyQ[gevrPhysHand(ctrl)].y,gCtrlPosePlay[gevrPhysHand(ctrl)].orientation.y);
+        }
         // Scope grip still filters with the launcher steadying setting Off.
         reset(); scopedGrip=1; magnification=25; twoHand=1;
         sample(ctrl,0,1000000000); sample(ctrl,1,8333333);
