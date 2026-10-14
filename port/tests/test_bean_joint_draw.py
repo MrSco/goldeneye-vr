@@ -8,6 +8,7 @@ def extract(source,name,start=0):
   depth+=(source[e]=='{')-(source[e]=='}');e+=1
  return source[a:e]
 source=(ROOT/'src/game/objecthandler.c').read_text()
+body_draw=extract((ROOT/'src/game/model.c').read_text(),'void modelDrawBeanBody')
 pose=(ROOT/'port/src/gevr_bean_pose.inc.h').read_text()
 helper=extract(pose,'gevrBeanWholeJointGdl')
 prelude='''#include <stdio.h>
@@ -23,6 +24,10 @@ static Model models[2];static Gfx body[1];
 void *gevrBeanWholeModelGdl(Model *model){bodyCalls[model-models]++;return body;}
 static int fadeMarks,fadeAlpha[8];
 void *gevrBeanFadeMark(void *gdl,int alpha){Gfx *g=gdl;if(fadeMarks<8)fadeAlpha[fadeMarks]=alpha;fadeMarks++;g->words.w0=0x6Du<<24;g->words.w1=alpha;return g+1;}
+static int nodeMode,nodeApplied,nodeMarks[8],nodeMarkCount;
+int gevrBeanNodeMode(void){return nodeMode;}
+void *gevrBeanNodeMark(void *gdl,int on){Gfx *g=gdl;if(nodeMarkCount<8)nodeMarks[nodeMarkCount]=on;nodeMarkCount++;g->words.w0=0x68u<<24|on;g->words.w1=0;return g+1;}
+void modelApplyRenderModeType3(ModelRenderData *d,int primary){assert(primary);nodeApplied++;}
 uintptr_t osVirtualToPhysical(void *p){return (uintptr_t)p;}
 #define osSyncPrintf printf
 float getjointsize(Model *m,ModelNode *n){return 1;}
@@ -58,6 +63,17 @@ main='''int main(void){
   data.gdl=commands;data.PropType=PROP_TYPE_VIEWER+1;fadeMarks=0;drawjointlist(&data,entries);
   assert(!fadeMarks);
  }
+ /* node mode: each Bean body under the chr's own type-3 state, bracketed by
+    G_GEVR_NODE_STATE ON/OFF; the fade is the node's, so no G_GEVR_BEAN_FADE */
+ {
+  ModelRenderData data={0};data.gdl=commands;data.flags=1;
+  data.PropType=PROP_TYPE_EXPLOSION+1;data.envcolour.word=0x11223380;
+  nodeMode=1;nodeApplied=nodeMarkCount=fadeMarks=0;bodyCalls[0]=bodyCalls[1]=nativeCalls=0;drawjointlist(&data,entries);
+  assert(nativeCalls==4 && bodyCalls[0]==1 && bodyCalls[1]==1 && nodeApplied==2 && !fadeMarks);
+  assert(nodeMarkCount==4 && nodeMarks[0]==1 && nodeMarks[1]==0 && nodeMarks[2]==1 && nodeMarks[3]==0);
+  assert(data.gdl-commands==4+2+4);
+  nodeMode=0;
+ }
  ModelRenderData data={0};data.gdl=commands;data.flags=1;data.unk18=1;
  bodyCalls[0]=bodyCalls[1]=nativeCalls=0;drawjointlist(&data,entries);
  assert(!nativeCalls && !bodyCalls[0] && !bodyCalls[1] && data.gdl==commands);
@@ -66,7 +82,7 @@ main='''int main(void){
 with tempfile.TemporaryDirectory() as temp:
  p=Path(temp)
  for branch,start in [('US',0),('EU',source.index('#if defined(VERSION_EU)\nvoid drawjointlist('))]:
-  f=p/'test.c';f.write_text(prelude+helper+extract(source,'drawjointlist',start)+main)
+  f=p/'test.c';f.write_text(prelude+helper+body_draw+extract(source,'drawjointlist',start)+main)
   exe=p/'test.exe'
   subprocess.run([shutil.which('gcc') or 'cc','-std=c11','-O2','-fms-extensions','-DPLATFORM_64BIT=1','-D_LANGUAGE_C','-DGEVR','-DVERSION_'+branch,*['-I'+str(ROOT/x) for x in ['.','include','src','src/game','port/include']],str(f),'-o',str(exe)],check=True)
   subprocess.run([str(exe)],check=True)

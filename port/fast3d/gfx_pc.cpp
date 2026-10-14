@@ -66,6 +66,14 @@ static bool s_beanRoomFogLinear;
  * env alpha, G_RM_AA_ZB_XLU_SURF2); Bean's set theirs, so the renderer applies
  * it: shade alpha scaled, blended without depth writes, on the CPU path. */
 static uint8_t s_beanFadeAlpha = 255;
+/* G_GEVR_NODE_STATE: a Bean model list under the state the game set for the
+ * node it replaces (DAB xblaMeshApplyNodeMode, xblaMeshSetSpanMode). ON while
+ * the game asks; a list SAVEs that state at its start, APPLYs it per batch
+ * (the node's combiner, its blender's first cycle) and restores it at END. */
+static bool s_beanNodeOn, s_beanNodeSaved, s_beanNodePrimTouched;
+static uint64_t s_beanNodeCombine;
+static uint32_t s_beanNodeMode, s_beanNodeFog;
+static uint8_t s_beanNodePrimA;   // prim alpha before a cut-out batch zeroed it
 static float s_beanRoomFogLine[2];
 static unsigned s_beanPaintUploads, s_beanPaintHits;
 #include "gevr_bean.h"
@@ -4166,6 +4174,60 @@ static void gfx_dp_set_other_mode(uint32_t h, uint32_t l) {
     rdp.other_mode_l = l;
 }
 
+static void gfx_bean_node_state(uint32_t w0, uint32_t ownMode) {
+    static struct RGBA s_beanNodePrim;
+    switch (w0 & 0xff) {
+        case GEVR_NODE_ON:
+        case GEVR_NODE_OFF:
+            s_beanNodeOn = (w0 & 0xff) == GEVR_NODE_ON;
+            break;
+        case GEVR_NODE_SAVE:
+            // a one-cycle node (type 1: no shade, no fade) leaves the list its own state
+            s_beanNodeSaved = s_beanNodeOn && (rdp.other_mode_h & (3U << G_MDSFT_CYCLETYPE)) == G_CYC_2CYCLE;
+            s_beanNodePrimTouched = false;
+            if (s_beanNodeSaved) {
+                s_beanNodeCombine = rdp.combine_mode;
+                s_beanNodeMode = rdp.other_mode_l;
+                s_beanNodeFog = rsp.geometry_mode & G_FOG;
+                s_beanNodePrim = rdp.prim_color;
+            }
+            break;
+        case GEVR_NODE_APPLY: {
+            if (!s_beanNodeSaved) break;
+            /* A span: the list's second blender cycle (cut-out edge, decal,
+             * translucent surface) under the node's first (its shade). A fading
+             * node keeps its own blend for everything but translucent batches. */
+            const bool nodeXlu = (s_beanNodeMode & FORCE_BL) != 0;
+            uint32_t mode = s_beanNodeMode;
+            if ((w0 & GEVR_NODE_SPAN) && (!nodeXlu || (w0 & GEVR_NODE_XLU))) {
+                mode = (s_beanNodeMode & 0xcccc0000u) | (ownMode & 0x3333fff8u);
+            }
+            gfx_sp_set_other_mode(3, 29, mode & ~7u);
+            if (w0 & GEVR_NODE_COMBINE) {
+                rdp.combine_mode = s_beanNodeCombine;
+            }
+            // props' PropType 9 adds prim alpha to the cover (DAB: zeroed around cut-outs)
+            if (w0 & GEVR_NODE_CUT) {
+                if (!s_beanNodePrimTouched) s_beanNodePrimA = rdp.prim_color.a;
+                s_beanNodePrimTouched = true;
+                rdp.prim_color.a = 0;
+            } else if (s_beanNodePrimTouched) {
+                rdp.prim_color.a = s_beanNodePrimA;
+                s_beanNodePrimTouched = false;
+            }
+            break;
+        }
+        case GEVR_NODE_END:
+            if (!s_beanNodeSaved) break;
+            rdp.combine_mode = s_beanNodeCombine;
+            gfx_sp_set_other_mode(3, 29, s_beanNodeMode & ~7u);
+            rsp.geometry_mode = (rsp.geometry_mode & ~G_FOG) | s_beanNodeFog;
+            rdp.prim_color = s_beanNodePrim;
+            s_beanNodeSaved = s_beanNodePrimTouched = false;
+            break;
+    }
+}
+
 static inline void *seg_addr(uintptr_t w1) {
     // Segmented addresses converted by the port's preprocess carry the least
     // significant bit as a tag. GoldenEye also hands over untagged ones: its
@@ -4746,6 +4808,7 @@ static void gfx_run_dl(Gfx* cmd) {
             case G_GEVR_ROOM_STATE: {
                 uint8_t rgb[3];
                 const bool model = (cmd->words.w0 & 1) != 0;
+                if (model && s_beanNodeSaved) break;   // the node's fog and mode stand (G_GEVR_NODE_STATE)
                 s_beanRoomFogLinear = !(cmd->words.w0 & 2) && (model ? !vr_dl_is_pause_or_menu : gevrRoomDl && (rsp.geometry_mode & G_FOG))
                     && gevrBeanRoomFog(s_beanRoomFogLine, rgb);
                 if (model) {
@@ -4760,6 +4823,9 @@ static void gfx_run_dl(Gfx* cmd) {
                 gfx_sp_set_other_mode(3, 29, gevrBeanRoomMode(mode, rsp.geometry_mode & G_FOG));
                 break;
             }
+            case G_GEVR_NODE_STATE:
+                gfx_bean_node_state(cmd->words.w0, (uint32_t)cmd->words.w1);
+                break;
             case G_GEVR_BEAN_FADE:
                 gfx_flush();
                 s_beanFadeAlpha = (uint8_t)(cmd->words.w1 & 0xff);
@@ -5077,6 +5143,7 @@ static void gfx_run_dl(Gfx* cmd) {
 
 static void gfx_sp_reset() {
     s_beanFadeAlpha = 255;
+    s_beanNodeOn = s_beanNodeSaved = s_beanNodePrimTouched = false;
     rsp.modelview_matrix_stack_size = 1;
     rsp.modelview_hidden_stack[0] = false; //VR
     rsp.current_num_lights = 2;

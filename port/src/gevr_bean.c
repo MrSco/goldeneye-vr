@@ -257,6 +257,7 @@ void gevrBeanSetLoaded(int loaded)
 void *gevrBeanFadeMark(void *gdl, int alpha)
 {
     Gfx *g = gdl;
+    if (gevrBeanNodeMode()) return gdl;   /* the node's render mode fades it */
     g->words.w0 = (uintptr_t)G_GEVR_BEAN_FADE << 24;
     g->words.w1 = (uint32_t)(alpha < 0 ? 0 : alpha > 255 ? 255 : alpha);
     return g + 1;
@@ -293,6 +294,35 @@ int gevrBeanDrawsModel(const void *header)
 int gevrBeanShownModelType(void *node, int current)
 {
 	return activeSwap(node) ? 0 : current;
+}
+
+int gevrBeanNodeMode(void)
+{
+    static int mode = -1;
+    if (mode < 0) {
+        FILE *f = gevrBeanControlOpen("gevr_bean_nodemode.txt");
+        mode = 1;
+        if (f) {
+            if (fscanf(f, "%d", &mode) != 1) mode = 1;
+            fclose(f);
+        }
+        GEVR_BEAN_LOG("gevr bean controls: nodemode=%d\n", mode);
+    }
+    return mode != 0;
+}
+
+int gevrBeanNodeModeType(void *node, int current)
+{
+    struct beanSwap *s = activeSwap(node);
+    return s && gevrBeanNodeMode() ? s->origType : current;
+}
+
+void *gevrBeanNodeMark(void *gdl, int on)
+{
+    Gfx *g = gdl;
+    g->words.w0 = ((uintptr_t)G_GEVR_NODE_STATE << 24) | (on ? GEVR_NODE_ON : GEVR_NODE_OFF);
+    g->words.w1 = 0;
+    return g + 1;
 }
 
 /* Native glass props may be submitted only with flags=2. Their replacement
@@ -432,12 +462,13 @@ static s16 posClamp(float v)
 	return (s16)(v < 0.0f ? v - 0.5f : v + 0.5f);
 }
 
-static void beanRenderMode(Gfx **next, int mode1, int mode2, int room)
+static uint32_t beanRenderMode(Gfx **next, int mode1, int mode2, int room)
 {
     Gfx *g = *next;
     g->words.w0 = ((uintptr_t)G_GEVR_ROOM_STATE << 24) | (room == 2 ? 2 : room ? 0 : 1);
     g->words.w1 = (uint32_t)(G_RM_PASS | mode2 | (mode1 & 0xffff));
     *next = g + 1;
+    return (uint32_t)g->words.w1;
 }
 
 int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert *v, int nverts,
@@ -467,7 +498,7 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
     ntri = nverts / 3;
     order = malloc((size_t)ntri * sizeof(int));
 	/* One texture group can be a single triangle, and gDPLoadTextureBlock writes several commands. */
-	cmdcap = 64 + ntri * 32;
+	cmdcap = 64 + ntri * 40;
 	gdl = malloc((size_t)cmdcap * sizeof(Gfx));
     vtx = malloc((size_t)nverts * (worldFormat ? sizeof(GevrWorldVertex) :
                  sizeof(Vtx) + (lit && !skin ? sizeof(GevrVertexTint) : 0)));
@@ -510,6 +541,9 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
     free(s_sortSpatial); s_sortSpatial=NULL;
 	g = gdl;
 	vp = vtx;
+    /* a model list keeps the node's state when the game asks (G_GEVR_NODE_STATE) */
+    const int node = !mesh->roomMaterial;
+    if (node) { g->words.w0 = ((uintptr_t)G_GEVR_NODE_STATE << 24) | GEVR_NODE_SAVE; g++->words.w1 = 0; }
 	gDPPipeSync(g++);
 	gDPSetCycleType(g++, G_CYC_2CYCLE);
 	gDPSetTexturePersp(g++, G_TP_PERSP);
@@ -574,10 +608,19 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 				G_TX_WRAP, maskT, G_TX_NOLOD, G_TX_WRAP, maskS, G_TX_NOLOD);
 			gDPSetTileSize(g++, G_TX_RENDERTILE, 0, 0,
 				(logicalW - 1) << G_TEXTURE_IMAGE_FRAC, (logicalH - 1) << G_TEXTURE_IMAGE_FRAC);
+            /* DAB xblaMeshSetMaterial: tile 1 the same picture, for the nodes'
+             * G_CC_TRILERP (fast3d's LOD fraction is 1 without G_TL_LOD) */
+            gDPSetTile(g++, G_IM_FMT_RGBA, G_IM_SIZ_16b,
+                (((logicalW) * 2) + 7) >> 3, 0, G_TX_RENDERTILE + 1, 0,
+                G_TX_WRAP, maskT, G_TX_NOLOD, G_TX_WRAP, maskS, G_TX_NOLOD);
+            gDPSetTileSize(g++, G_TX_RENDERTILE + 1, 0, 0,
+                (logicalW - 1) << G_TEXTURE_IMAGE_FRAC, (logicalH - 1) << G_TEXTURE_IMAGE_FRAC);
 		} else {
 			tex = -1;
 			gSPTexture(g++, 0, 0, 0, G_TX_RENDERTILE, G_OFF);
 		}
+        uint32_t ownMode;
+        int nodeFlags;
 		{
 			const int edge = zbuf ? G_RM_AA_ZB_TEX_EDGE : G_RM_AA_TEX_EDGE;
 			const int edge2 = zbuf ? G_RM_AA_ZB_TEX_EDGE2 : G_RM_AA_TEX_EDGE2;
@@ -586,8 +629,9 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 			const int opa = zbuf ? G_RM_AA_ZB_OPA_SURF : G_RM_AA_OPA_SURF;
 			const int opa2 = zbuf ? G_RM_AA_ZB_OPA_SURF2 : G_RM_AA_OPA_SURF2;
 			if (base->alpha < 255) {
-                if (base->decal && zbuf) beanRenderMode(&g, G_RM_AA_ZB_XLU_DECAL, G_RM_AA_ZB_XLU_DECAL2, mesh->roomMaterial);
-                else beanRenderMode(&g, xlu, xlu2, mesh->roomMaterial);
+                if (base->decal && zbuf) ownMode = beanRenderMode(&g, G_RM_AA_ZB_XLU_DECAL, G_RM_AA_ZB_XLU_DECAL2, mesh->roomMaterial);
+                else ownMode = beanRenderMode(&g, xlu, xlu2, mesh->roomMaterial);
+                nodeFlags = GEVR_NODE_SPAN | GEVR_NODE_XLU;
 				if (tex < 0) {
 					gDPSetCombineMode(g++, G_CC_SHADE, G_CC_PASS2);
 				} else if (dim) {
@@ -596,28 +640,37 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 					gDPSetCombineMode(g++, G_CC_MODULATEIA, G_CC_PASS2);
 				}
 			} else if (base->cut) {
-                if (base->decal && zbuf) beanRenderMode(&g, (edge & ~ZMODE_DEC) | ZMODE_DEC,
+                if (base->decal && zbuf) ownMode = beanRenderMode(&g, (edge & ~ZMODE_DEC) | ZMODE_DEC,
                         (edge2 & ~ZMODE_DEC) | ZMODE_DEC, mesh->roomMaterial);
-                else beanRenderMode(&g, edge, edge2, mesh->roomMaterial);
+                else ownMode = beanRenderMode(&g, edge, edge2, mesh->roomMaterial);
+                nodeFlags = GEVR_NODE_SPAN | GEVR_NODE_CUT | (tex >= 0 ? GEVR_NODE_COMBINE : 0);
 				gDPSetCombineMode(g++, G_CC_MODULATEIA, G_CC_PASS2);
 			} else if (base->decal && zbuf) {
-				beanRenderMode(&g, G_RM_AA_ZB_OPA_DECAL | Z_UPD, G_RM_AA_ZB_OPA_DECAL2, mesh->roomMaterial);
+				ownMode = beanRenderMode(&g, G_RM_AA_ZB_OPA_DECAL | Z_UPD, G_RM_AA_ZB_OPA_DECAL2, mesh->roomMaterial);
+                nodeFlags = GEVR_NODE_SPAN | (tex >= 0 ? GEVR_NODE_COMBINE : 0);
 				if (dim) {
 					gDPSetCombineMode(g++, G_CC_MODULATEI_PRIM, G_CC_PASS2);
 				} else {
 					gDPSetCombineMode(g++, G_CC_MODULATEI, G_CC_PASS2);
 				}
 			} else if (tex < 0) {
-				beanRenderMode(&g, opa, opa2, mesh->roomMaterial);
+				ownMode = beanRenderMode(&g, opa, opa2, mesh->roomMaterial);
+                nodeFlags = 0;
 				gDPSetCombineMode(g++, G_CC_SHADE, G_CC_PASS2);
 			} else if (dim) {
-				beanRenderMode(&g, opa, opa2, mesh->roomMaterial);
+				ownMode = beanRenderMode(&g, opa, opa2, mesh->roomMaterial);
+                nodeFlags = GEVR_NODE_COMBINE;
 				gDPSetCombineMode(g++, G_CC_MODULATEI_PRIM, G_CC_PASS2);
 			} else {
-				beanRenderMode(&g, opa, opa2, mesh->roomMaterial);
+				ownMode = beanRenderMode(&g, opa, opa2, mesh->roomMaterial);
+                nodeFlags = GEVR_NODE_COMBINE;
 				gDPSetCombineMode(g++, G_CC_MODULATEI, G_CC_PASS2);
 			}
 		}
+        if (node) {   /* DAB xblaMeshSetSpanMode */
+            g->words.w0 = ((uintptr_t)G_GEVR_NODE_STATE << 24) | GEVR_NODE_APPLY | (uint32_t)nodeFlags;
+            g++->words.w1 = ownMode;
+        }
         int reflect=tex>=0 && base->reflection;
         g->words.w0=((uintptr_t)G_GEVR_NORMAL_TEX1<<24) | (base->reflectionDiffuse==1 ? 1 : 0); g++->words.w1=reflect;
         if(reflect) {
@@ -669,12 +722,13 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 						    sqrtf(src->n[0] * src->n[0] + src->n[1] * src->n[1] + src->n[2] * src->n[2]);
 						for (int k = 0; k < 3; k++)
 							dst->n.n[k] = length > 1e-6f ? (s8)(src->n[k] * 127.0f / length) : 0;
-						dst->n.a = (uint8_t)((unsigned)src->alpha * src->rgba[3] / 255);
+						/* DAB: shade alpha 1 outside translucent materials, as the nodes' combiners lerp by it */
+						dst->n.a = node && src->alpha == 255 ? 255 : (uint8_t)((unsigned)src->alpha * src->rgba[3] / 255);
 					} else {
 						dst->v.cn[0] = src->rgba[0];
 						dst->v.cn[1] = src->rgba[1];
 						dst->v.cn[2] = src->rgba[2];
-						dst->v.cn[3] = (uint8_t)((unsigned)src->alpha * src->rgba[3] / 255);
+						dst->v.cn[3] = node && src->alpha == 255 ? 255 : (uint8_t)((unsigned)src->alpha * src->rgba[3] / 255);
 					}
                     if (world) {
                         memcpy(world[vi].p,src->p,sizeof(world[vi].p));
@@ -721,6 +775,7 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
     if (!mesh->roomMaterial) gSPClearGeometryMode(g++, G_FOG);
     g->words.w0=(uintptr_t)G_GEVR_NORMAL_TEX1<<24; g++->words.w1=0;
     g->words.w0 = G_GEVR_VERTEX_TINT << 24; g++->words.w1 = 0;
+    if (node) { g->words.w0 = ((uintptr_t)G_GEVR_NODE_STATE << 24) | GEVR_NODE_END; g++->words.w1 = 0; }
 	gSPEndDisplayList(g);
 	free(order);
 	if (skin) {

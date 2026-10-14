@@ -81,6 +81,14 @@ void *gevrBeanWholeModelGdl(struct Model *model);
 struct ModelHitEntry;
 void *gevrBeanWholeJointGdl(struct ModelHitEntry *entry,struct ModelHitEntry *first);
 int gevrBeanShownModelType(void *node, int current);
+/* DAB xblaMeshApplyNodeMode: Bean's model lists draw under the render mode the
+ * game sets for the node they replace (files/gevr_bean_nodemode.txt 0: their own). */
+int gevrBeanNodeMode(void);
+/* The type whose render mode a node's draw applies: the replaced list's own under
+ * node mode, else current. */
+int gevrBeanNodeModeType(void *node, int current);
+/* G_GEVR_NODE_STATE ON (on) or OFF at gdl; returns the next. */
+void *gevrBeanNodeMark(void *gdl, int on);
 /* Self-contained replacement in a transparent-only native type-4 draw. */
 void *gevrBeanTransparentGdl(void *node, void *current, struct Model *model, int flags);
 /* GoldenEye's monitor screens under Bean's meshes (DAB xblamesh.c
