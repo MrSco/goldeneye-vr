@@ -15083,6 +15083,13 @@ static void gevrGameCameraCeiling(coord3d *position)
 
     room = g_CurrentPlayer->field_488.current_tile_ptr_for_portals->room;
     floor = g_CurrentPlayer->field_488.pos3.y;
+    /* Stepping off a ledge, the tile under Bond is already the one below
+     * while his feet (field_70, which falls with gravity) are still up: from
+     * that floor the probe started under the ledge and took its underside for
+     * a ceiling, and the view dropped (user, 2026-10-14: the top of the Dam
+     * guard tower's steps). Probe from where the feet are. */
+    if (g_CurrentPlayer->field_70 > floor)
+        floor = g_CurrentPlayer->field_70;
     gevrBgClampCameraCeiling(position->f, floor, room, TRUE);
     if (g_gevrStereo && local && !s_gevrCopyTrace)
     {
