@@ -383,8 +383,9 @@ if __name__ == '__main__':
     parser.add_argument('--texture-pack', help="'none' or a pack folder; default keeps the user's setting")
     parser.add_argument('--scope-probe',action='store_true',
                         help='equip sniper and use an explicit synthetic grip for unattended real scope rendering')
-    parser.add_argument('--pipeline', type=int, choices=[0, 1], default=1,
-                        help='0 runs the game tick inside its XR frame (the order before the early tick)')
+    parser.add_argument('--pipeline', type=int, choices=[0, 1, 2], default=2,
+                        help='0 ticks the game inside its XR frame (the old order), 1 ticks it early but draws its '
+                             'eye pass inside the frame, 2 (the game default) also replays the eye pass')
     parser.add_argument('--simpleperf', action='store_true',
                         help='sample the measured minute with simpleperf (attribution only; needs the benchmark build)')
     args = parser.parse_args()

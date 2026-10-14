@@ -709,6 +709,14 @@ static bool s_opaqueDepthWrite;
 // ... and for the in-between frame's redraw (issue #53, gfx_vr_eye_replay)
 static GLint s_curViewport[4], s_curScissor[4];
 static bool s_eyeRec, s_eyeReady;   // recording the eye pass / a frame to redraw
+
+/* The early tick's eye pass (gfx_pc.cpp): kept for the replay that draws it once its
+ * XR frame has begun, not drawn (nothing may touch the eye image before then). */
+static bool s_eyeRecordOnly;
+static inline bool gevr_eye_draw_deferred(void)
+{
+    return s_eyeRecordOnly && !gForceFlatShaderForMenu && !gVrFlatPass;
+}
 static float s_eyeProj[16], s_eyeHeadP[2], s_eyePresentationVP[16];
 static int s_eyeHand = -1;
 static bool s_eyePresent;
@@ -2697,6 +2705,9 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
     if (s_eyeRec) {
         gevr_eye_keep(first, (GLsizei)(3 * buf_vbo_num_tris), lineMode);   // issue #53
     }
+    if (gevr_eye_draw_deferred()) {
+        return;   // the replay draws it in its XR frame
+    }
 
 
     // A HUD capture draws into a single 2D texture, so it hides the right eye by
@@ -3042,6 +3053,19 @@ void gfx_vr_eye_hand(int ctrl)
 bool gfx_vr_eye_replay_ready(void)
 {
     return s_eyeReady;
+}
+
+// gfx_pc.cpp: whether gfx_vr_eye_record would keep this pass (s_eyeRec's test)
+bool gfx_vr_eye_record_possible(const float* proj, bool invert_y)
+{
+    return proj != NULL && s_pmPtr != NULL && !invert_y && fabsf(proj[0]) > 1e-6f && fabsf(proj[5]) > 1e-6f;
+}
+
+// gfx_pc.cpp, around the early tick's eye pass: keep its draws without drawing them
+void gfx_vr_eye_record_only(bool on)
+{
+    gevr_mesh_settle();
+    s_eyeRecordOnly = on;
 }
 
 static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode)
@@ -3617,9 +3641,11 @@ static bool gfx_opengl_draw_mesh(void** gpu, const void* vertices, uint32_t num_
     if (!kept) gevr_mesh_clip(true);
     if (!kept || s_meshLazyCull != p->cull) gevr_mesh_cull(p->cull);
     gevr_scope_keep_mesh(g->vao, (GLint)first, (GLsizei)count, p);
-    s_drawElements = true;
-    gevr_issue_draw((GLint)first, (GLsizei)count, s_decalZ, gevrRoomDl && s_isDecal, 0.0f, false);
-    s_drawElements = false;
+    if (!gevr_eye_draw_deferred()) {   // else the replay draws it in its XR frame
+        s_drawElements = true;
+        gevr_issue_draw((GLint)first, (GLsizei)count, s_decalZ, gevrRoomDl && s_isDecal, 0.0f, false);
+        s_drawElements = false;
+    }
     if (s_eyeRec) {
         s_eyeMeshes.push_back({ g->vao, *p });
         s_eyeKeepMesh = (uint32_t)s_eyeMeshes.size();
@@ -4120,7 +4146,9 @@ bool gfx_opengl_start_draw_to_framebuffer(int fbid, float noisescale) {
             current_noise_scale = 1.0f / noisescale;
         }
 
-        glBindFramebuffer(GL_FRAMEBUFFER, fb.fbo);
+        // The early tick's eye pass keeps its draws for the replay: the eye
+        // framebuffer still holds the image the compositor was handed.
+        glBindFramebuffer(GL_FRAMEBUFFER, fbid == 0 && s_eyeRecordOnly ? 0 : fb.fbo);
         current_framebuffer = fbid;
 
         //        LOGI("GL start_draw_to_fb: fbid=%d w=%u h=%u is_mv=%d",
@@ -4592,6 +4620,9 @@ GLuint gfx_opengl_get_vr_menu_texture_P(void) {
 
 void gfx_opengl_clear_framebuffer(bool clear_color, bool clear_depth) {
     gevr_mesh_settle();
+    if (gevr_eye_draw_deferred()) {
+        return;   // the eye image is not this pass's yet; the replay keeps no clears
+    }
     glDisable(GL_SCISSOR_TEST);
 
     GLbitfield mask = 0;
