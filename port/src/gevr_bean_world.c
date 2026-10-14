@@ -47,6 +47,8 @@ struct roomSlot {
 	void *vtxOpa;
 	void *vtxXlu;
 	int has;
+	/* GoldenEye's own backdrop, which Bean leaves out: drawn as nothing (hiddenRoom) */
+	int hidden;
 	/* opa and xlu as static meshes (gevr_static_mesh.h): the lists drawn, or NULL */
 	Gfx *wrap[2];
 	GevrStaticMesh *mesh[2];
@@ -434,6 +436,82 @@ done:
 	free(near);
 }
 
+/*
+ * DAB gebeanstage.c (port/licenses/dabs-mod.txt, kept rooms): a GoldenEye
+ * room Bean's mesh leaves empty is GoldenEye's own backdrop, which the
+ * release remodelled further out and does not draw, when fewer than a quarter
+ * of its triangles come within 64 units of Bean's mesh - Dam's room 31, a low
+ * grey boulder of a cliff over the far end of the reservoir, stood in the
+ * water before the dam in the intro with its own N64 water ("dam intro still
+ * shows wacky mountain through the dam/dock", user, 2026-10-14) - or when
+ * every one lies on Bean's surface (within 8 units), a patch of GoldenEye's
+ * that Bean's own replaced.
+ */
+#define HIDDEN_NEAR 64.0f
+#define HIDDEN_ON 8.0f
+
+static int hiddenRoom(const struct gevrBeanMesh *mesh, float fileScale, int room)
+{
+	float lo[3] = { 1e30f, 1e30f, 1e30f }, hi[3] = { -1e30f, -1e30f, -1e30f };
+	int tris = 0, near = 0, on = 0, nbean = 0;
+	struct beanRoomTri *bean;
+	for (int i = 0; i < s_referenceCount; i++) {
+		if (s_reference[i].room != room)
+			continue;
+		tris++;
+		for (int k = 0; k < 3; k++) {
+			if (s_reference[i].lo[k] < lo[k]) lo[k] = s_reference[i].lo[k];
+			if (s_reference[i].hi[k] > hi[k]) hi[k] = s_reference[i].hi[k];
+		}
+	}
+	if (!tris)
+		return 0;
+	/* Bean's triangles that can come within reach of the room */
+	bean = malloc((size_t)mesh->ntris * sizeof(*bean));
+	if (!bean)
+		return 0;
+	for (int i = 0; i < mesh->ntris; i++) {
+		struct beanRoomTri *b = &bean[nbean];
+		int apart = 0;
+		for (int k = 0; k < 3; k++) {
+			b->lo[k] = 1e30f;
+			b->hi[k] = -1e30f;
+			for (int v = 0; v < 3; v++) {
+				b->p[v][k] = mesh->tris[i].p[v * 3 + k] * fileScale;
+				if (b->p[v][k] < b->lo[k]) b->lo[k] = b->p[v][k];
+				if (b->p[v][k] > b->hi[k]) b->hi[k] = b->p[v][k];
+			}
+			if (b->lo[k] > hi[k] + HIDDEN_NEAR || b->hi[k] < lo[k] - HIDDEN_NEAR)
+				apart = 1;
+		}
+		nbean += !apart;
+	}
+	for (int i = 0; i < s_referenceCount; i++) {
+		const struct beanRoomTri *t = &s_reference[i];
+		float mid[3], best = HIDDEN_NEAR * HIDDEN_NEAR;
+		if (t->room != room)
+			continue;
+		for (int k = 0; k < 3; k++)
+			mid[k] = (t->p[0][k] + t->p[1][k] + t->p[2][k]) / 3.0f;
+		for (int j = 0; j < nbean && best >= HIDDEN_ON * HIDDEN_ON; j++) {
+			if (roomBoxDistance(mid, bean[j].lo, bean[j].hi) >= best)
+				continue;
+			const float d = roomTriangleDistance(mid, &bean[j]);
+			if (d < best)
+				best = d;
+		}
+		if (best < HIDDEN_NEAR * HIDDEN_NEAR) {
+			near++;
+			on += best < HIDDEN_ON * HIDDEN_ON;
+		}
+	}
+	free(bean);
+	const int hidden = near * 4 < tris || on == tris;
+	GEVR_BEAN_LOG("gevr bean: room %d has none of Bean's mesh: %d of its %d triangles near it, %d on it%s",
+	              room, near, tris, on, hidden ? ": hidden" : ": GoldenEye's drawn");
+	return hidden;
+}
+
 static int roomFor(const float c[3], int nrooms)
 {
 	if (s_tree) {
@@ -538,6 +616,7 @@ static void clearRooms(void)
 		s_room[i].vtxOpa = NULL;
 		s_room[i].vtxXlu = NULL;
 		s_room[i].has = 0;
+		s_room[i].hidden = 0;
 	}
 	s_nrooms = 0;
 	s_ok = 0;
@@ -642,6 +721,8 @@ static int buildStage(int stage)
 			}
 		}
 		if (nopa + nxlu == 0) {
+			if (r > 0)
+				s_room[r].hidden = hiddenRoom(mesh, fileScale, r);
 			continue;
 		}
 		if (nopa) {
@@ -910,11 +991,11 @@ void *gevrBeanWorldRoom(void *gdl, int room, int *replaced)
 		xlu = 1;
 		room -= 100000;
 	}
-	if (!ensureStage() || room < 0 || room >= s_nrooms || !s_room[room].has) {
+	if (!ensureStage() || room < 0 || room >= s_nrooms || (!s_room[room].has && !s_room[room].hidden)) {
 		return gdl;
 	}
 	if (replaced) {
-		*replaced = 1;
+		*replaced = 1;   /* a hidden room's GoldenEye list is not drawn either */
 	}
     if (!xlu && s_opaque) {
         if (s_opaqueDrawn || !g_CurrentPlayer) return gdl;
