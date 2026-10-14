@@ -12,6 +12,7 @@ injected input on every frame, so analysis classifies phases from device data.
 Logs stream straight to disk; logcat is never cleared.
 """
 import argparse
+import os
 import csv
 import hashlib
 import json
@@ -390,12 +391,24 @@ if __name__ == '__main__':
                         help='sample the measured minute with simpleperf (attribution only; needs the benchmark build)')
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
-    if args.action == 'backup':
-        backup(args.out)
-    elif args.action == 'restore':
-        restore(args.out)
-    else:
-        try:
-            run(args, args.out)
-        except Unavailable as error:
-            raise SystemExit(f'UNAVAILABLE: {error}')
+    # One driver per headset: a second run's restore would overwrite the first's
+    # settings mid-trace and both would inject input into one game.
+    lock = args.out / '.driver.lock'
+    try:
+        handle = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        raise SystemExit(f'BUSY: another quest_profile.py holds {lock} (delete it if no driver is running)')
+    try:
+        os.write(handle, str(os.getpid()).encode())
+        os.close(handle)
+        if args.action == 'backup':
+            backup(args.out)
+        elif args.action == 'restore':
+            restore(args.out)
+        else:
+            try:
+                run(args, args.out)
+            except Unavailable as error:
+                raise SystemExit(f'UNAVAILABLE: {error}')
+    finally:
+        lock.unlink(missing_ok=True)
