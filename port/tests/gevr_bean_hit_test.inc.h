@@ -7,13 +7,14 @@ static Vertex *expectedHitVertices;
 static ModelRwData_DisplayList_CollisionRecord collisionRw;
 static int hitTriangles;
 
-static void *modelGetNodeRwData(Model *model, ModelNode *node)
+/* model.c's own signatures: gevr_bean_wounds.inc.h declares them */
+union ModelRwData *modelGetNodeRwData(Model *model, ModelNode *node)
 {
 	(void)model;
 	(void)node;
-	return &collisionRw;
+	return (union ModelRwData *)&collisionRw;
 }
-static int modelFindNodeMtxIndex(ModelNode *node, int unused)
+s32 modelFindNodeMtxIndex(ModelNode *node, s32 unused)
 {
 	(void)node;
 	(void)unused;
