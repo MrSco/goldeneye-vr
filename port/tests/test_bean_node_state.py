@@ -83,6 +83,14 @@ int main() {
     assert(rdp.other_mode_l == fading);
     op(GEVR_NODE_END);
 
+    /* A node without depth (the first-person hands): the list keeps its own depth test and write. */
+    node(G_CYC_2CYCLE, FOG_PRIM | G_RM_AA_OPA_SURF2, 0x44);
+    op(GEVR_NODE_SAVE);
+    op(GEVR_NODE_APPLY | GEVR_NODE_COMBINE, own(G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2));
+    assert((rdp.other_mode_l & (Z_CMP | Z_UPD)) == (Z_CMP | Z_UPD) && (rdp.other_mode_l & 0xcccc0000u) == FOG_PRIM);
+    op(GEVR_NODE_END);
+    assert(!(rdp.other_mode_l & (Z_CMP | Z_UPD)));
+
     /* A one-cycle node (type 1: no shade, no fade) leaves the list its own state. */
     node(G_CYC_1CYCLE, G_RM_AA_ZB_OPA_SURF, 0x66);
     op(GEVR_NODE_SAVE);

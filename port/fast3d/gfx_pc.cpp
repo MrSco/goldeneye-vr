@@ -4264,6 +4264,13 @@ static void gfx_bean_node_state(uint32_t w0, uint32_t ownMode) {
             if ((w0 & GEVR_NODE_SPAN) && (!nodeXlu || (w0 & GEVR_NODE_XLU))) {
                 mode = (s_beanNodeMode & 0xcccc0000u) | (ownMode & 0x3333fff8u);
             }
+            /* A node mode without a depth test (the first-person hands: the N64 drew
+             * them over everything) leaves the list its own depth test and write;
+             * under it Bean's arm drew over the watch on the wrist (user, 2026-10-14). */
+            if (!(s_beanNodeMode & Z_CMP)) {
+                const uint32_t depth = Z_CMP | Z_UPD | ZMODE_DEC;
+                mode = (mode & ~depth) | (ownMode & depth);
+            }
             gfx_sp_set_other_mode(3, 29, mode & ~7u);
             if (s_beanModelCull) rsp.geometry_mode = (rsp.geometry_mode & ~G_CULL_BOTH) | G_CULL_BACK;
             /* Tile 1 is tile 0's picture, so the nodes' LOD blend changes nothing;
