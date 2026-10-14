@@ -30,7 +30,7 @@ static struct { uint32_t other_mode_l, other_mode_h, palette_fmt; bool textures_
 static struct { uint32_t geometry_mode; } rsp;
 static bool s_beanNodeOn, s_beanNodeSaved, s_beanNodePrimTouched;
 static uint64_t s_beanNodeCombine;
-static uint32_t s_beanNodeMode, s_beanNodeFog;
+static uint32_t s_beanNodeMode, s_beanNodeFog, s_beanNodeLod;
 static uint8_t s_beanNodePrimA;
 /* PRODUCTION */
 static void op(uint32_t w0, uint32_t w1 = 0) { gfx_bean_node_state(w0, w1); }
@@ -39,6 +39,7 @@ static uint32_t own(uint32_t m1, uint32_t m2) { return (uint32_t)(G_RM_PASS | m2
 static void node(uint32_t cycle, uint32_t mode, uint64_t combine) {
     rdp.other_mode_h = cycle; rdp.other_mode_l = mode; rdp.combine_mode = combine;
     rdp.prim_color = {10, 20, 30, 40}; rsp.geometry_mode = G_FOG;
+    rdp.other_mode_h |= G_TL_LOD;   /* props' mipmapped G_CC_TRILERP */
 }
 int main() {
     const uint32_t chr = FOG_PRIM | G_RM_AA_ZB_OPA_SURF2;
@@ -58,6 +59,8 @@ int main() {
     rdp.combine_mode = 0x99; rdp.other_mode_l = own(G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2); rsp.geometry_mode = 0;
     op(GEVR_NODE_APPLY | GEVR_NODE_COMBINE, rdp.other_mode_l);
     assert(rdp.combine_mode == 0x1234 && rdp.other_mode_l == chr);
+    /* no LOD blend inside the list (tile 1 is tile 0's picture): the GPU mesh path takes it */
+    assert(!(rdp.other_mode_h & G_TL_LOD) && !rdp.tex_lod && (rdp.other_mode_h & G_CYC_2CYCLE));
     /* A cut-out: the node's shade cycle, the list's edge cycle, prim alpha 0 for it alone. */
     op(GEVR_NODE_APPLY | GEVR_NODE_COMBINE | GEVR_NODE_SPAN | GEVR_NODE_CUT, own(G_RM_AA_ZB_TEX_EDGE, G_RM_AA_ZB_TEX_EDGE2));
     assert(rdp.other_mode_l == (FOG_PRIM | G_RM_AA_ZB_TEX_EDGE2) && rdp.prim_color.a == 0);
@@ -70,6 +73,7 @@ int main() {
     op(GEVR_NODE_END);
     assert(!s_beanNodeSaved && rdp.combine_mode == 0x1234 && rdp.other_mode_l == chr);
     assert(rsp.geometry_mode == G_FOG && rdp.prim_color.r == 10 && rdp.prim_color.a == 40);
+    assert((rdp.other_mode_h & G_TL_LOD) && rdp.tex_lod);
 
     /* A fading node (PropType 8: XLU) keeps its blend for solid batches, cut-outs included. */
     const uint32_t fading = FOG_PRIM | G_RM_AA_ZB_XLU_SURF2;
