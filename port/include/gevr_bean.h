@@ -104,6 +104,9 @@ void *gevrBeanCullMark(void *gdl, int on);
  * cartridge logo's box lo..hi: lit, texture-generated triangles to draw with
  * *picture as the environment map. NULL without Bean or the file. */
 void *gevrBeanRareLogoGdl(const float lo[3], const float hi[3], const void **picture);
+/* The opaque pass drew this model instance's Bean lists (model.c): the
+ * translucent pass does not draw them again (gevrBeanTransparentGdl). */
+void gevrBeanNoteOpaque(const void *model);
 /* Self-contained replacement in a transparent-only native type-4 draw. */
 void *gevrBeanTransparentGdl(void *node, void *current, struct Model *model, int flags);
 /* GoldenEye's monitor screens under Bean's meshes (DAB xblamesh.c
