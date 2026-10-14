@@ -19,7 +19,10 @@ extern "C" {
 
 void gevrBeanInit(void);
 void gevrBeanBeginFrame(void);
-void gevrBeanWorldBeginView(void);
+/* authored: one of GoldenEye's own cameras (the opening, death and ending cameras) */
+void gevrBeanWorldBeginView(int authored);
+/* this view's camera stands outside the level: HD rooms cull their backs */
+int gevrBeanWorldCullsBackFaces(void);
 int gevrBeanIsAvailable(void);
 int gevrBeanIsEnabled(void);
 void gevrBeanSetEnabled(int on);

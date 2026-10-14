@@ -64,7 +64,32 @@ static void *s_opaqueVertices;
 static GevrStaticMesh *s_opaqueMesh;
 static int s_opaqueDrawn;
 
-void gevrBeanWorldBeginView(void) { s_opaqueDrawn=0; }
+static int s_cullOutside;   /* this view's camera stands outside the level */
+static int s_cullForce;     /* files/gevr_bean_roomcull.txt: 0 by the camera, 1 always, 2 never */
+static int cameraOutside(void);
+
+/*
+ * GoldenEye stands its own cameras (the opening's stills and swirl, the death
+ * and ending cameras) inside rock and under floors, and culls the backs of its
+ * opaque rooms; HD rooms are two-sided (4J's decks, treads and roofs are
+ * single planes), so there a wall or a floor fills the view (user, 2026-10-14,
+ * Facility's opening). DAB gebeanStageTickCamera: while such a camera runs,
+ * 48 rays against GoldenEye's own room triangles say whether it stands outside
+ * the level, and the HD rooms cull their backs for that view.
+ */
+void gevrBeanWorldBeginView(int authored)
+{
+	s_opaqueDrawn = 0;
+	const int outside = s_cullForce == 1 || (s_cullForce == 0 && authored && cameraOutside());
+	if (outside != s_cullOutside)
+		GEVR_BEAN_LOG("gevr bean: camera outside the level %d\n", outside);
+	s_cullOutside = outside;
+}
+
+int gevrBeanWorldCullsBackFaces(void)
+{
+	return s_cullOutside;
+}
 
 static Gfx *s_skyGdl;
 static void *s_skyVtx;
@@ -213,6 +238,56 @@ static void fillVert(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *
 
 #include "gevr_bean_rooms.inc.h"
 
+static int cameraOutside(void)
+{
+	const Mtxf *m = camGetWorldToScreenMtxf();
+	float right[3], up[3], look[3], o[3];
+	int hits = 0, backs = 0;
+	if (!m || !s_tree || !s_referenceCount)
+		return 0;
+	/* world to camera, row vectors: the rotation's columns are the camera's axes */
+	for (int k = 0; k < 3; k++) {
+		right[k] = m->m[k][0];
+		up[k] = m->m[k][1];
+		look[k] = -m->m[k][2];
+	}
+	const float s2 = right[0] * right[0] + right[1] * right[1] + right[2] * right[2];
+	if (s2 < 1e-12f)
+		return 0;
+	for (int k = 0; k < 3; k++)
+		o[k] = -(m->m[3][0] * m->m[k][0] + m->m[3][1] * m->m[k][1] + m->m[3][2] * m->m[k][2]) / s2;
+	const float s = sqrtf(s2);
+	for (int k = 0; k < 3; k++) {
+		right[k] /= s;
+		up[k] /= s;
+		look[k] /= s;
+	}
+	const float ty = tanf(viGetFovY() * (3.14159265f / 360.0f));
+	const float tx = ty * (viGetViewHeight() > 0 ? (float)viGetViewWidth() / viGetViewHeight() : 4.0f / 3.0f);
+	for (int y = 0; y < 6; y++) {
+		for (int x = 0; x < 8; x++) {
+			const float sx = ((x + 0.5f) / 8 * 2 - 1) * tx, sy = ((y + 0.5f) / 6 * 2 - 1) * ty;
+			float d[3], inv[3], best = 1e9f;
+			int facing = 0;
+			for (int k = 0; k < 3; k++)
+				d[k] = look[k] + right[k] * sx + up[k] * sy;
+			const float len = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+			for (int k = 0; k < 3; k++) {
+				d[k] /= len;
+				inv[k] = 1.0f / (d[k] != 0.0f ? d[k] : 1e-9f);
+			}
+			roomRayNode(0, o, d, inv, &best, &facing);
+			if (facing) {
+				hits++;
+				backs += facing < 0;
+			}
+		}
+	}
+	/* two thirds of what it sees the back of GoldenEye's level: outside it;
+	 * from inside, a back face is only ever a seam */
+	return hits >= 8 && backs * 3 >= hits * 2;
+}
+
 static int roomFor(const float c[3], int nrooms)
 {
 	if (s_tree) {
@@ -295,6 +370,8 @@ static Gfx *meshWrap(Gfx *list, GevrStaticMesh **mesh)
 
 static void clearRooms(void)
 {
+    roomReferenceFree();
+    s_cullOutside = 0;
     gevrStaticMeshFree(s_opaqueMesh); free(s_opaqueWrap);
     free(s_opaque); free(s_opaqueVertices);
     s_opaqueMesh=NULL; s_opaqueWrap=NULL; s_opaque=NULL; s_opaqueVertices=NULL;
@@ -517,8 +594,18 @@ static int buildStage(int stage)
         }
         free(opaque);
     }
-    roomReferenceFree();
+    /* GoldenEye's own triangles stay for the camera test (gevrBeanWorldBeginView) */
     free(assign);
+    {
+        FILE *force = gevrBeanControlOpen("gevr_bean_roomcull.txt");
+        s_cullForce = 0;
+        if (force) {
+            if (fscanf(force, "%d", &s_cullForce) != 1) s_cullForce = 0;
+            fclose(force);
+        }
+        GEVR_BEAN_LOG("gevr bean: %d of GoldenEye's room triangles for the camera test, roomcull=%d\n",
+                      s_referenceCount, s_cullForce);
+    }
 	s_nrooms = nrooms;
 	s_ok = 1;
 	GEVR_BEAN_LOG("gevr bean: HD rooms %s, %d tris across %d rooms, native scale %.8f\n", st->bg, mesh->ntris, nrooms, fileScale);

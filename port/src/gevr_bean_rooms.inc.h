@@ -10,6 +10,7 @@ extern s32 levelentry_index;
 struct beanRoomTri {
 	float p[3][3], lo[3], hi[3];
 	int room;
+	uint8_t opaque, culled;   /* the primary (opaque) list's; drawn under G_CULL_BACK */
 };
 struct beanRoomTree {
 	float lo[3], hi[3];
@@ -18,6 +19,7 @@ struct beanRoomTree {
 static struct beanRoomTri *s_reference;
 static struct beanRoomTree *s_tree;
 static int s_referenceCount, s_referenceCap, s_treeCount, s_roomSortAxis;
+static uint8_t s_referenceOpaque, s_referenceCulled;   /* the list being read, its geometry mode */
 
 static unsigned roomBe32(const uint8_t *p)
 {
@@ -69,6 +71,8 @@ static int roomReferenceTri(int room, const float cache[16][3], unsigned valid, 
 	struct beanRoomTri *t = &s_reference[s_referenceCount++];
 	int index[3] = {a, b, c};
 	t->room = room;
+	t->opaque = s_referenceOpaque;
+	t->culled = s_referenceCulled;
 	for (int k = 0; k < 3; k++) {
 		t->lo[k] = 1e30f;
 		t->hi[k] = -1e30f;
@@ -90,9 +94,15 @@ static int roomReferenceLists(int room, const uint8_t *vertices, unsigned vlen, 
 	float cache[16][3];
 	unsigned valid = 0, pc = 0, stack[32];
 	int depth = 0;
+	s_referenceCulled = 0;
 	for (unsigned guard = 0; pc + 8 <= glen && guard < 262144; guard++) {
 		unsigned w0 = roomBe32(gdl + pc), w1 = roomBe32(gdl + pc + 4), op = w0 >> 24;
 		pc += 8;
+		/* the cartridge's F3D geometry mode: G_CULL_BACK is 0x2000 there */
+		if (op == (G_SETGEOMETRYMODE & 255) && (w1 & 0x2000))
+			s_referenceCulled = 1;
+		else if (op == (G_CLEARGEOMETRYMODE & 255) && (w1 & 0x2000))
+			s_referenceCulled = 0;
 		if (op == (G_VTX & 255)) {
 			unsigned first = (w0 >> 16) & 15, count = (w0 & 0xffff) / 16, offset = w1 & 0xffffff;
 			if (first + count > 16 || offset > vlen || count > (vlen - offset) / 16) {
@@ -190,6 +200,7 @@ static int roomReferenceBuild(int rooms)
 			continue;
 		for (int pass = 0; pass < 2; pass++) {
 			void *address = pass ? data->pSecMappingBin : data->pPriMappingBin;
+			s_referenceOpaque = pass == 0;
 			unsigned length = 0;
 			uint8_t *g = roomReferenceStream(
 			    address, pass ? info->csize_secondary_DL_binary : info->csize_primary_DL_binary, &length);
@@ -212,6 +223,66 @@ static int roomReferenceBuild(int rooms)
 	}
 	roomReferenceTree(0, s_referenceCount);
 	return 1;
+}
+
+/*
+ * The nearest of GoldenEye's opaque room triangles along a ray from o (d a
+ * unit, so t is level units; DAB gebeanstage.c shellRay): 1 the side
+ * G_CULL_BACK keeps, or a triangle GoldenEye draws two-sided; -1 its back.
+ */
+static void roomRayNode(int node, const float o[3], const float d[3], const float inv[3], float *best, int *facing)
+{
+	const struct beanRoomTree *n = &s_tree[node];
+	float t0 = 0.0f, t1 = *best;
+	for (int k = 0; k < 3; k++) {
+		float a = (n->lo[k] - o[k]) * inv[k], b = (n->hi[k] - o[k]) * inv[k];
+		if (a > b) {
+			const float t = a;
+			a = b;
+			b = t;
+		}
+		t0 = a > t0 ? a : t0;
+		t1 = b < t1 ? b : t1;
+		if (t0 > t1)
+			return;
+	}
+	if (n->left >= 0) {
+		roomRayNode(n->left, o, d, inv, best, facing);
+		roomRayNode(n->right, o, d, inv, best, facing);
+		return;
+	}
+	for (int i = n->begin; i < n->end; i++) {
+		const struct beanRoomTri *t = &s_reference[i];
+		float e1[3], e2[3], p[3], s[3], q[3];
+		if (!t->opaque)
+			continue;
+		for (int k = 0; k < 3; k++) {
+			e1[k] = t->p[1][k] - t->p[0][k];
+			e2[k] = t->p[2][k] - t->p[0][k];
+			s[k] = o[k] - t->p[0][k];
+		}
+		p[0] = d[1] * e2[2] - d[2] * e2[1];
+		p[1] = d[2] * e2[0] - d[0] * e2[2];
+		p[2] = d[0] * e2[1] - d[1] * e2[0];
+		const float det = e1[0] * p[0] + e1[1] * p[1] + e1[2] * p[2];
+		if (det > -1e-6f && det < 1e-6f)
+			continue;
+		const float u = (s[0] * p[0] + s[1] * p[1] + s[2] * p[2]) / det;
+		if (u < 0.0f || u > 1.0f)
+			continue;
+		q[0] = s[1] * e1[2] - s[2] * e1[1];
+		q[1] = s[2] * e1[0] - s[0] * e1[2];
+		q[2] = s[0] * e1[1] - s[1] * e1[0];
+		const float w = (d[0] * q[0] + d[1] * q[1] + d[2] * q[2]) / det;
+		if (w < 0.0f || u + w > 1.0f)
+			continue;
+		const float tt = (e2[0] * q[0] + e2[1] * q[1] + e2[2] * q[2]) / det;
+		if (tt > 1.0f && tt < *best) {
+			*best = tt;
+			/* det is the normal (e1 x e2) against -d: positive on the side facing the ray */
+			*facing = det > 0.0f || !t->culled ? 1 : -1;
+		}
+	}
 }
 
 static float roomBoxDistance(const float p[3], const float lo[3], const float hi[3])
