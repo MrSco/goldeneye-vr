@@ -76,6 +76,10 @@ void *gevrBeanFadeMark(void *gdl, int alpha);
 /* A destroyed prop's Bean list (objDeform's blackened, crumpled vertex copy): a frame copy
  * that follows it, or shown when there is none to make. */
 void *gevrBeanScorchedGdl(void *node, void *shown, const void *stockVertices, const void *nowVertices, int count);
+/* objDeform's vertex copy (propobj.c), until the vertex store frees it (vtxstore.c) */
+void gevrBeanMarkDeformed(const void *vertices);
+void gevrBeanForgetDeformed(const void *vertices);
+int gevrBeanIsDeformed(const void *vertices);
 void *gevrBeanRenderGdl(void *node, void *current, struct Model *model);
 void *gevrBeanWholeModelGdl(struct Model *model);
 struct ModelHitEntry;

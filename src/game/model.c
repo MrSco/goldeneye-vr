@@ -4543,7 +4543,8 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
             s32 nodeType = gevrBeanNodeModeType(node, shownType);
             /* objDeform's own blackened, crumpled vertex copy (a destroyed prop) */
             if (shownGdl && shownGdl != rwdata->DisplayListCollisions.gdl &&
-                rwdata->DisplayListCollisions.Vertices != rodata->DisplayListCollisions.Vertices)
+                rwdata->DisplayListCollisions.Vertices != rodata->DisplayListCollisions.Vertices &&
+                gevrBeanIsDeformed(rwdata->DisplayListCollisions.Vertices))
             {
                 shownGdl = (Gfx *)gevrBeanScorchedGdl(node, shownGdl, rodata->DisplayListCollisions.Vertices,
                     rwdata->DisplayListCollisions.Vertices, rodata->DisplayListCollisions.numVertices);
