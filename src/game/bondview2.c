@@ -1141,6 +1141,10 @@ static void gevrWarpProbe(s32 inlevel)
     {
         word[0] = 0;
     }
+    if (strcmp(word, "guard") == 0 && fscanf(fp, "%f", &reach) != 1)
+    {
+        reach = 350.0f;
+    }
     if (strcmp(word, "near") == 0 && fscanf(fp, "%d %f", &model, &reach) != 2)
     {
         model = -1;
@@ -1154,7 +1158,7 @@ static void gevrWarpProbe(s32 inlevel)
     }
     else if (strcmp(word, "guard") == 0)
     {
-        padnum = gevrWarpNearDish(&dish, -2, 350.0f);
+        padnum = gevrWarpNearDish(&dish, -2, reach);
         facedish = TRUE;
     }
     else if (strcmp(word, "near") == 0 && model >= 0)
