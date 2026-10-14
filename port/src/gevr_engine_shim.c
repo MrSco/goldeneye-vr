@@ -750,6 +750,8 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 			sRetraces++;
 			if (sStatUs == 0) sStatUs = now;
 			if (now - sStatUs >= 1000000) {
+				/* diagnostics only: Show stats or a profile trace */
+				if (VrShowStats || gevrFrameTimingTracing())
 				sysLogPrintf(LOG_NOTE, "pump: %u retraces, %u xr frames (%u redrawn) in %llu ms; early ticks %u unused %u late %u, other display time %u",
 					sRetraces, gevrXrFramesBegun, gevrRedraws, (unsigned long long)((now - sStatUs) / 1000),
 					gevrEarlyTicks, gevrEarlyUnused, gevrLateTicks, vr_early_poses_missed());

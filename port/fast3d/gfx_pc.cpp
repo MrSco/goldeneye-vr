@@ -186,6 +186,7 @@ extern "C" int gevrVrRedrawHandDelta(int hand, float out[16]);
 extern "C" int gevrVrRedrawBodyDelta(float out[16]);
 extern "C" void gevrVrMarkRedrawn(void);
 extern "C" float g_viProjectionMatrixF[4][4];     // fr.c: the game's projection
+extern "C" int VrShowStats;                       // vr_input.cpp: the stats readout is on
 static float s_gevrLastVignette;                  // the eye pass's, for its redraws
 #include "gevr_locomotion.h"
 static bool s_gevrPresentationOn;
@@ -5495,16 +5496,21 @@ extern "C" void gfx_run(Gfx* commands) {
                 static uint32_t sFrames; static uint32_t sTris; static uint32_t sFlushes;
                 sFrames++; sTris += g_gevrTrisThisFrame; sFlushes += g_gevrFlushesThisFrame;
                 if (sFrames >= 72) {
+                    /* Diagnostics only (Show stats, or a profile trace): five lines a
+                     * second and a log-file write on the render thread otherwise. */
+                    const bool report = VrShowStats || gevrFrameTimingTracing();
+                    if (report) {
                     vr_log("gfx: %u frames, %u tris, %u flushes, cimg %p", sFrames, sTris, sFlushes, rdp.color_image_address);
                     vr_log("mesh: %u draws, %u tris, %u runs on the CPU, %u meshes in buffers%s", s_gevrMeshDraws,
                            s_gevrMeshTris, s_gevrMeshFallbacks, (unsigned)s_gevrMeshLive.size(), s_gevrMeshOn ? "" : " (off)");
                     unsigned repaint[3]; gevrBeanRepaintStats(repaint);
                     vr_log("bean-paint: folder %u font %u images %u bound, %u renderer hits %u uploads", repaint[0], repaint[1], repaint[2], s_beanPaintHits, s_beanPaintUploads);
-                    s_beanPaintHits = s_beanPaintUploads = 0;
                     vr_log("skin: %u draws, %u tris on GPU, %u CPU poses%s", s_gevrSkinDraws,
                            s_gevrSkinTris, s_gevrSkinPoses, s_gevrSkinOn ? "" : " (gevr_noskin.txt)");
-                    s_gevrSkinDraws = s_gevrSkinTris = s_gevrSkinPoses = 0;
                     vr_log("mesh-cull: %u chunks, %u tris rejected", s_gevrMeshCulled, s_gevrMeshCulledTris);
+                    }
+                    s_beanPaintHits = s_beanPaintUploads = 0;
+                    s_gevrSkinDraws = s_gevrSkinTris = s_gevrSkinPoses = 0;
                     s_gevrMeshCulled = s_gevrMeshCulledTris = 0;
                     s_gevrMeshDraws = s_gevrMeshTris = s_gevrMeshFallbacks = 0;
                     if (gevrFrameTimingTracing()) {
