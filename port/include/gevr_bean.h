@@ -93,6 +93,10 @@ int gevrBeanNodeMode(void);
 int gevrBeanNodeModeType(void *node, int current);
 /* G_GEVR_NODE_STATE ON (on) or OFF at gdl; returns the next. */
 void *gevrBeanNodeMark(void *gdl, int on);
+/* The release's Rare logo (new/prop/rarewarelogo) for title.c, fitted to the
+ * cartridge logo's box lo..hi: lit, texture-generated triangles to draw with
+ * *picture as the environment map. NULL without Bean or the file. */
+void *gevrBeanRareLogoGdl(const float lo[3], const float hi[3], const void **picture);
 /* Self-contained replacement in a transparent-only native type-4 draw. */
 void *gevrBeanTransparentGdl(void *node, void *current, struct Model *model, int flags);
 /* GoldenEye's monitor screens under Bean's meshes (DAB xblamesh.c

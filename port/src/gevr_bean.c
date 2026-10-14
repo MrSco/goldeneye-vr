@@ -2668,6 +2668,80 @@ int gevrBeanIsDeformed(const void *vertices)
     return 0;
 }
 
+static Gfx *s_rareLogo;
+static const void *s_rareLogoPicture;
+static int s_rareLogoTried;
+
+/* The release's Rare logo has no N64 model: GoldenEye draws its own from a
+ * cartridge segment (title.c, gevr_rarelogo.c). Its mesh carries no UVs; the
+ * gold picture is an environment map, as the cartridge's chrome is. */
+void *gevrBeanRareLogoGdl(const float lo[3], const float hi[3], const void **picture)
+{
+    if (!gevrBeanIsEnabled() || !gevrBeanIsAvailable() || gevrRomIsVariant()) return NULL;
+    if (!s_rareLogoTried) {
+        char path[192];
+        struct gevrBeanMesh *mesh = NULL;
+        s_rareLogoTried = 1;
+        if (findFile("new/prop/rarewarelogo", path, sizeof(path))) mesh = cachedLoad(path, 1);
+        int tex = -1;
+        float mlo[3] = {1e30f, 1e30f, 1e30f}, mhi[3] = {-1e30f, -1e30f, -1e30f};
+        for (int i = 0; mesh && i < mesh->ntris; i++) {
+            if (tex < 0) tex = mesh->tris[i].tex;
+            for (int k = 0; k < 9; k++) {
+                if (mesh->tris[i].p[k] < mlo[k % 3]) mlo[k % 3] = mesh->tris[i].p[k];
+                if (mesh->tris[i].p[k] > mhi[k % 3]) mhi[k % 3] = mesh->tris[i].p[k];
+            }
+        }
+        if (!mesh || tex < 0 || tex >= mesh->ntex || !mesh->standin[tex] || mhi[1] <= mlo[1]) {
+            GEVR_BEAN_LOG("gevr bean: rare logo: the cartridge's (%s)", mesh ? "no picture" : "no new/prop/rarewarelogo");
+            return NULL;
+        }
+        /* as tall as the cartridge's, on its centre */
+        const float scale = (hi[1] - lo[1]) / (mhi[1] - mlo[1]);
+        const int nverts = mesh->ntris * 3, triangles = mesh->ntris;
+        Vtx *verts = malloc((size_t)nverts * sizeof(Vtx));
+        Gfx *list = malloc((size_t)(triangles + (triangles + 4) / 5 + 16) * sizeof(Gfx));
+        if (!keepAlloc(verts)) {
+            free(verts);
+            free(list);
+            return NULL;
+        }
+        if (!keepAlloc(list)) {
+            free(list);
+            return NULL;
+        }
+        for (int i = 0; i < nverts; i++) {
+            const struct gevrBeanTri *t = &mesh->tris[i / 3];
+            const float *p = &t->p[(i % 3) * 3], *n = &t->n[(i % 3) * 3];
+            const float len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+            Vtx *dst = &verts[i];
+            memset(dst, 0, sizeof(*dst));
+            for (int k = 0; k < 3; k++) {
+                dst->n.ob[k] = posClamp((p[k] - (mlo[k] + mhi[k]) / 2) * scale + (lo[k] + hi[k]) / 2);
+                dst->n.n[k] = len > 1e-6f ? (s8)(n[k] * 127.0f / len) : 0;
+            }
+            dst->n.a = 255;
+        }
+        Gfx *g = list;
+        gSPSetGeometryMode(g++, G_ZBUFFER);
+        gDPSetRenderMode(g++, G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2);
+        for (int t = 0; t < triangles;) {
+            int take = triangles - t;
+            if (take > 5) take = 5;
+            gSPVertex(g++, osVirtualToPhysical(&verts[t * 3]), take * 3, 0);
+            for (int j = 0; j < take; j++) gSP1Triangle(g++, j * 3, j * 3 + 1, j * 3 + 2, 0);
+            t += take;
+        }
+        gSPClearGeometryMode(g++, G_ZBUFFER);
+        gSPEndDisplayList(g++);
+        s_rareLogo = list;
+        s_rareLogoPicture = mesh->standin[tex];
+        GEVR_BEAN_LOG("gevr bean: rare logo: the release's, %d triangles at %.2fx", triangles, scale);
+    }
+    *picture = s_rareLogoPicture;
+    return s_rareLogo;
+}
+
 void gevrBeanReset(void)
 {
 	beanFrameReset();
@@ -2681,7 +2755,9 @@ void gevrBeanReset(void)
 		s_alloc[i] = NULL;
 	}
 	s_nalloc = 0;
+	s_rareLogo = NULL;   /* its list and picture went with the level */
 	memset(s_deformed, 0, sizeof(s_deformed));
+	s_rareLogoTried = 0;
 	s_nswap = 0;
 	memset(s_swapIndex, 0, sizeof(s_swapIndex));
 	s_nscreenInfo = 0;
