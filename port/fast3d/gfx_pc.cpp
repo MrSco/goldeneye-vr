@@ -819,6 +819,9 @@ static uint32_t gevr_palette_key_hash(uint8_t siz, uint8_t palette_index) {
 }
 
 static bool s_tpActive = false;
+/* A release repaint the pack fills instead (import_texture), decided once per
+ * picture: looking it up hashed the texture at every load of it. */
+static std::unordered_map<const void *, bool> s_tpRepaintFill;
 #endif
 
 void gfx_texture_cache_clear() {
@@ -826,6 +829,7 @@ void gfx_texture_cache_clear() {
 #ifdef GEVR
     s_tpPending.clear();
     s_tpUploads.clear();
+    s_tpRepaintFill.clear();   // texture addresses are reused once the cache goes
 #endif
     for (const auto& entry : gfx_texture_cache.map) {
         gfx_texture_cache.free_texture_ids.push_back(entry.second.texture_id);
@@ -1642,6 +1646,15 @@ static bool gevr_texpack_upload(const uint8_t *img, uint32_t iw, uint32_t ih, ui
     return true;
 }
 
+static bool gevr_texpack_fills_repaint(int tile, const LoadedTexture &lt) {
+    auto it = s_tpRepaintFill.find(lt.addr);
+    if (it == s_tpRepaintFill.end()) {
+        uint32_t w, h;
+        it = s_tpRepaintFill.emplace(lt.addr, gevr_texpack_lookup(tile, lt, &w, &h) >= 0).first;
+    }
+    return it->second;
+}
+
 /* import_texture's miss: the pack's image if there is one and it's decoded. */
 static bool gevr_texpack_import(int tile, const LoadedTexture &lt, const TextureCacheKey &key) {
     s_td.pending = false;
@@ -1763,6 +1776,7 @@ static void gevr_texpack_frame(void) {
     if (lastBean != bean || lastFill != VrBeanFillTextures || (s_tpIndexed && s_tpActive == (s_tpUserOff != 0))) {
         lastBean = bean;
         lastFill = VrBeanFillTextures;
+        s_tpRepaintFill.clear();
         s_tpActive = s_tpIndexed && !s_tpUserOff;
         s_tpUploads.clear();
         s_tpPending.clear();
@@ -2048,14 +2062,12 @@ static void import_texture(int i, int tile, bool is_rect) {
     {
         const uint8_t *paint = nullptr;
         int paintW = 0, paintH = 0;
-        uint32_t packW, packH;
         if (gevrBeanIsEnabled() && gevrBeanRepaint(orig_addr, &paint, &paintW, &paintH)
                 && paint && paintW > 0 && paintH > 0
                 /* BeanFillTextures: a release picture no bigger than the cartridge's (the
                  * mission select's 68x44 stages) gives way to the HD pack's, if it has one */
                 && !(VrBeanFillTextures && s_tpActive && paintW <= (int)rdp.texture_tile[tile].width
-                     && paintH <= (int)rdp.texture_tile[tile].height
-                     && gevr_texpack_lookup(tile, loaded_texture, &packW, &packH) >= 0)) {
+                     && paintH <= (int)rdp.texture_tile[tile].height && gevr_texpack_fills_repaint(tile, loaded_texture))) {
             ++s_beanPaintHits;
             TextureCacheKey key = { orig_addr, {}, G_IM_FMT_RGBA, G_IM_SIZ_32b, 0, 0, 0 };
             key.width = (uint32_t)paintW;
