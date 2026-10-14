@@ -16237,6 +16237,179 @@ Gfx *bondviewRenderCredits(Gfx *gdl)
  */
 extern int VrShowStats;
 extern const char *gevrVrStatsText(void);
+
+/*
+ * The readout as one picture. textRender loads each glyph's own texture, so
+ * every character was a draw call: some 270 a frame for this readout, a third
+ * of the 800 it showed at the Dam's valley (user, 2026-10-14). The text changes
+ * about once a second; it is then laid out as textRender lays it (kerning, the
+ * '[' line height, 5 for a space) into a picture, white with the glyph's
+ * intensity for alpha, and drawn with one rectangle. Under Bean a glyph is
+ * Bean's repaint (gevr_bean_font.c) averaged down to the cartridge glyph's
+ * cell, as the GPU shrank it there.
+ * fast3d takes the picture in place of a 16x16 stand-in (gevrStatsPicture);
+ * two of each, so a picture a frame in flight still draws is not rewritten.
+ */
+#define GEVR_STATS_SIZE 512   /* power of two: 16/512 texels a pixel is exact */
+#ifndef G_INVALTEXCACHE_EXT
+#define G_INVALTEXCACHE_EXT 0x7C   /* fast3d: forget a texture's cached upload (gfx_pc.h) */
+#endif
+static u8 gevrStatsStandin[2][16 * 16] __attribute__((aligned(8)));
+static u8 *gevrStatsPictures[2];
+static s32 gevrStatsCurrent = -1, gevrStatsW, gevrStatsH;
+static char gevrStatsShown[1024];
+
+extern void gevrBeanFontRepaint(struct fontchar *native, int gothic, int character);
+extern int gevrBeanRepaint(const void *addr, const u8 **rgba, int *w, int *h);
+
+int gevrStatsPicture(const void *addr, const u8 **rgba, int *w, int *h)
+{
+    s32 i;
+
+    for (i = 0; i < 2; i++)
+    {
+        if (addr == gevrStatsStandin[i] && gevrStatsPictures[i])
+        {
+            *rgba = gevrStatsPictures[i];
+            *w = *h = GEVR_STATS_SIZE;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static s32 gevrStatsLayout(const char *text)
+{
+    struct fontchar *chars = ptrFontBankGothicChars;
+    struct font *font = ptrFontBankGothic;
+    const s32 lineheight = chars['['].height + chars['['].baseline;
+    const s32 next = gevrStatsCurrent < 0 ? 0 : gevrStatsCurrent ^ 1;
+    s32 x = 4, y = 0, w = 0, h = 0, prev = 'H';
+    u8 *picture;
+
+    if (!gevrStatsPictures[next])
+    {
+        gevrStatsPictures[next] = malloc(GEVR_STATS_SIZE * GEVR_STATS_SIZE * 4);
+        if (!gevrStatsPictures[next])
+        {
+            return 0;
+        }
+    }
+    picture = gevrStatsPictures[next];
+    memset(picture, 0, GEVR_STATS_SIZE * GEVR_STATS_SIZE * 4);
+    for (; *text; text++)
+    {
+        u8 ch = (u8)*text;
+        struct fontchar *glyph, *before;
+        s32 stride, r, c;
+        const u8 *paint = NULL;
+        int paintW = 0, paintH = 0;
+
+        if (ch == ' ')
+        {
+            x += 5;
+            prev = 'H';
+            continue;
+        }
+        if (ch == '\n')
+        {
+            y += lineheight;
+            x = 4;
+            prev = 'H';
+            continue;
+        }
+        if (ch < '!' || ch > '~')
+        {
+            ch = '?';
+        }
+        glyph = &chars[ch - 0x21];
+        before = &chars[prev - 0x21];
+        stride = (glyph->width + 7) & ~7;
+        x -= font->kerning[before->kerningindex * 13 + glyph->kerningindex] - 1;
+        gevrBeanFontRepaint(glyph, 1, ch);
+        if (!gevrBeanRepaint(glyph->pixeldata, &paint, &paintW, &paintH) || paintW <= 0 || paintH <= 0)
+        {
+            paint = NULL;
+        }
+        for (r = 0; r < glyph->height; r++)
+        {
+            const s32 py = y + glyph->baseline + r;
+
+            if (py < 0 || py >= GEVR_STATS_SIZE)
+            {
+                continue;
+            }
+            for (c = 0; c < glyph->width; c++)
+            {
+                const s32 px = x + c;
+                u8 *texel;
+
+                if (px < 0 || px >= GEVR_STATS_SIZE)
+                {
+                    continue;
+                }
+                texel = picture + (py * GEVR_STATS_SIZE + px) * 4;
+                texel[0] = texel[1] = texel[2] = 0xff;
+                if (paint)
+                {
+                    /* the repaint spans the padded cell: the texels under this one */
+                    const s32 x0 = c * paintW / stride, x1 = MAX((c + 1) * paintW / stride, x0 + 1);
+                    const s32 y0 = r * paintH / glyph->height, y1 = MAX((r + 1) * paintH / glyph->height, y0 + 1);
+                    s32 sum = 0, most = 0, sx, sy;
+
+                    for (sy = y0; sy < y1 && sy < paintH; sy++)
+                        for (sx = x0; sx < x1 && sx < paintW; sx++)
+                        {
+                            const s32 a = paint[(sy * paintW + sx) * 4 + 3];
+                            sum += a;
+                            most = MAX(most, a);
+                        }
+                    /* the mean alone thins a stroke narrower than the cell (I, 1) to nothing */
+                    texel[3] = (sum / ((x1 - x0) * (y1 - y0)) + most) / 2;
+                }
+                else
+                {
+                    texel[3] = glyph->pixeldata[r * stride + c];
+                }
+            }
+        }
+        x += glyph->width;
+        prev = ch;
+        if (x > w) w = x;
+        if (y + glyph->baseline + glyph->height > h) h = y + glyph->baseline + glyph->height;
+    }
+    gevrStatsCurrent = next;
+    gevrStatsW = w + 4 < GEVR_STATS_SIZE ? w + 4 : GEVR_STATS_SIZE;
+    gevrStatsH = h + 1 < GEVR_STATS_SIZE ? h + 1 : GEVR_STATS_SIZE;
+    return 1;
+}
+
+static Gfx *gevrDrawStatsText(Gfx *gdl, s32 x, s32 y, const char *text)
+{
+    const s32 changed = strcmp(text, gevrStatsShown) != 0 || gevrStatsCurrent < 0;
+
+    if (changed)
+    {
+        if (!gevrStatsLayout(text))
+        {
+            return textRender(gdl, &x, &y, (char *)text, ptrFontBankGothicChars, ptrFontBankGothic, -1, viGetX(), viGetY(), 0, 0);
+        }
+        snprintf(gevrStatsShown, sizeof(gevrStatsShown), "%s", text);
+        /* the stand-in's cached texture is the picture from two changes ago */
+        gdl->words.w0 = (uintptr_t)G_INVALTEXCACHE_EXT << 24;
+        gdl->words.w1 = (uintptr_t)gevrStatsStandin[gevrStatsCurrent];
+        gdl++;
+    }
+    gDPPipeSync(gdl++);
+    gDPSetPrimColor(gdl++, 0, 0, 0xff, 0xff, 0xff, 0xff);
+    gDPSetTextureLUT(gdl++, G_TT_NONE);
+    gDPLoadTextureBlock(gdl++, gevrStatsStandin[gevrStatsCurrent], G_IM_FMT_I, G_IM_SIZ_8b, 16, 16, 0,
+                        G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
+    gSPTextureRectangle(gdl++, (x - 4) * 4, y * 4, (x - 4 + gevrStatsW) * 4, (y + gevrStatsH) * 4,
+                        G_TX_RENDERTILE, 0, 0, (16 << 10) / GEVR_STATS_SIZE, (16 << 10) / GEVR_STATS_SIZE);
+    return gdl;
+}
+
 static Gfx *gevrDrawStats(Gfx *gdl)
 {
     char buf[1024];
@@ -16266,7 +16439,7 @@ static Gfx *gevrDrawStats(Gfx *gdl)
         y = viGetViewTop() + 10;
     }
     gdl = microcode_constructor_related_to_menus(gdl, x - 3, y - 2, x + w + 3, y + h + 2, 0x000000A0);
-    gdl = textRender(gdl, &x, &y, buf, ptrFontBankGothicChars, ptrFontBankGothic, -1, viGetX(), viGetY(), 0, 0);
+    gdl = gevrDrawStatsText(gdl, x, y, buf);
     gdl = combiner_bayer_lod_perspective(gdl);
     if (g_gevrStereo)
     {

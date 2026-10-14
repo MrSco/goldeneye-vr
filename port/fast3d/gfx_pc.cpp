@@ -82,6 +82,7 @@ static uint32_t s_beanNodeMode, s_beanNodeFog, s_beanNodeLod;
 static uint8_t s_beanNodePrimA;   // prim alpha before a cut-out batch zeroed it
 static float s_beanRoomFogLine[2];
 static unsigned s_beanPaintUploads, s_beanPaintHits;
+extern "C" int gevrStatsPicture(const void *addr, const uint8_t **rgba, int *w, int *h);   // bondview2.c
 #include "gevr_bean.h"
 #include "gevr_romlayout.h"
 extern "C" int VrCampaign; /* vr_settings: the launcher's campaign */
@@ -2055,6 +2056,22 @@ static void import_texture(int i, int tile, bool is_rect) {
     const uint8_t* orig_addr = loaded_texture.addr;
     SUPPORT_CHECK(orig_addr);
 
+#ifdef GEVR
+    {   // the Show stats readout, drawn as one picture (bondview2.c gevrDrawStatsText)
+        const uint8_t *picture = nullptr;
+        int pictureW = 0, pictureH = 0;
+        if (gevrStatsPicture(orig_addr, &picture, &pictureW, &pictureH)) {
+            TextureCacheKey key = { orig_addr, {}, G_IM_FMT_RGBA, G_IM_SIZ_32b, 0, 0, 0 };
+            key.width = (uint32_t)pictureW;
+            key.height = (uint32_t)pictureH;
+            if (!gfx_texture_cache_lookup(i, key)) {
+                gfx_rapi->upload_texture(picture, (uint32_t)pictureW, (uint32_t)pictureH);
+            }
+            loaded_texture.id_mask = 0;
+            return;
+        }
+    }
+#endif
     // ---------------------------------------------------------
     // ---> LOAD MENU IMAGE COVER <---
     // ---------------------------------------------------------
