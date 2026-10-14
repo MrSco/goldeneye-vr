@@ -206,6 +206,9 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; 1 = Project Bean characters, guns, rooms and skies, when the files are in\n");
     fprintf(f, "; added-content/xbla. Hold one grip and the right stick click to switch.\n");
     fprintf(f, "XblaVisualsMode=%d\n", VrBeanModels);
+    fprintf(f, "; 1 = with Project Bean on, the pictures it leaves as the cartridge's (the stage\n");
+    fprintf(f, "; pictures and the like) come from the HD + AI or HD texture pack, if one is installed.\n");
+    fprintf(f, "BeanFillTextures=%d\n", VrBeanFillTextures ? 1 : 0);
     fprintf(f, "MicMuted=%d\n", VrMicMuted ? 1 : 0);
     fprintf(f, "MusicVolume=%.2f\n", VrMusicVolume);
     fprintf(f, "VoiceVolume=%.2f\n", VrVoiceVolume);
@@ -684,6 +687,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "FistClench") == 0) VrFistClench = ival;
             else if (strcmp(key, "PlayMode") == 0) VrPlayMode = ival != 0 ? VR_PLAYMODE_STEREO : VR_PLAYMODE_SCREEN;
             else if (strcmp(key, "XblaVisualsMode") == 0) VrBeanModels = ival != 0;
+            else if (strcmp(key, "BeanFillTextures") == 0) VrBeanFillTextures = ival != 0;
             else if (strcmp(key, "MicMuted") == 0) VrMicMuted = ival != 0;
             else if (strcmp(key, "MpStage") == 0) VrMpStage = ival;
             else if (strcmp(key, "MpWeaponSet") == 0) VrMpWeaponSet = ival;
