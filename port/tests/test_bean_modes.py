@@ -94,6 +94,7 @@ static bool s_tpFillOnly=false;
 namespace gevrtp { int find(uint64_t k,uint8_t f,uint8_t s,bool b){return ::find(k,f,s,b);} }
 /* TPFIND */
 static bool s_tpActive=true,s_tpIndexed=true;
+static std::unordered_map<const void*,bool> s_tpRepaintFill;
 static std::vector<int> s_tpUploads,s_tpPending;
 void gfx_texture_cache_clear(){clears++;}
 void sysLogPrintf(int,const char*,...){}
