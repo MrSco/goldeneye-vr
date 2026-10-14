@@ -370,7 +370,7 @@ static s32 gevrPipelineOn = -1;  /* -1: files/gevr_pipeline.txt not read yet */
 static s32 gevrPipelineSkip;     /* the last early tick drew nothing: wait as before once */
 static u64 gevrVrLastBeginUs;    /* when the last xrWaitFrame returned */
 static u64 gevrEarlyTickUs;      /* when the early tick began */
-static u32 gevrEarlyTicks, gevrEarlyUnused; /* PORT probe, per second */
+static u32 gevrEarlyTicks, gevrEarlyUnused, gevrLateTicks; /* PORT probe, per second */
 
 static int gevrPipelineEnabled(void)
 {
@@ -669,14 +669,18 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 		static u64 nextRetraceUs;
 		u64 now;
 
+		s32 earlyFailed = 0, lateTick = 0;
 		gevrPumpStage = 4; gevrPumpLoops = 0;
 		for (;;) {
 			gevrPumpLoops++;
+			const s32 pipelined = gevrVrInitDone && nextRetraceUs != 0 && !gevrPipelineSkip && !earlyFailed &&
+			                      vr_eyes_hold_stereo() && gevrPipelineEnabled();
 			/* The next XR frame is the game's: tick it now, on that frame's poses. */
-			if (gevrVrInitDone && nextRetraceUs != 0 && gevrVrLastBeginUs != 0 && !gevrPipelineSkip &&
-			    vr_eyes_hold_stereo() && gevrPipelineEnabled()) {
+			if (pipelined && gevrVrLastBeginUs != 0) {
 				const long long period = vr_display_period_ns();
-				if (period > 0 && gevrVrLastBeginUs + (u64)(period / 1000) + 2000 >= nextRetraceUs) {
+				/* 1 ms more than the check after a wait below: the waits' jitter must not
+				 * flip a retrace near the edge between this slot and the next one. */
+				if (period > 0 && gevrVrLastBeginUs + (u64)(period / 1000) + 3000 >= nextRetraceUs) {
 					vr_poll_events();
 					if (vr_prepare_next_frame()) {
 						gevrVrBeginDeferred = 1;
@@ -686,6 +690,7 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 						gevrPumpStage = 8;
 						break;
 					}
+					earlyFailed = 1;
 				}
 			}
 			gevrPipelineSkip = 0;
@@ -696,7 +701,15 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 				nextRetraceUs = now;
 				break;
 			}
-			if (nextRetraceUs == 0 || now + 2000 >= nextRetraceUs) {
+			s32 due = nextRetraceUs == 0 || now + 2000 >= nextRetraceUs;
+			/* Due after all (the wait came back later than foreseen): rather than
+			 * run the whole display list inside this frame, draw it from the last
+			 * game frame and tick early for the next, a few ms late, once. */
+			if (due && pipelined && !lateTick && gevrVrFrameBegun && nextRetraceUs != 0 && now < nextRetraceUs + 6000) {
+				lateTick = 1;
+				due = 0;
+			}
+			if (due) {
 				break;
 			}
 			if (gevrVrFrameBegun) {
@@ -709,6 +722,13 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
                 gevrFrameTimingRedrawResult(redrawn);
 				gevrRedraws += redrawn;
 				gevrPerfAdd(1, gevrPerfNs() - t0);
+				if (lateTick == 1) {
+					if (!redrawn) {
+						break;   /* nothing to redraw: the game ticks in this frame, as before */
+					}
+					lateTick = 2;
+					gevrLateTicks++;
+				}
 			}
 			gevrVrFrameEnd();
 		}
@@ -730,11 +750,11 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 			sRetraces++;
 			if (sStatUs == 0) sStatUs = now;
 			if (now - sStatUs >= 1000000) {
-				sysLogPrintf(LOG_NOTE, "pump: %u retraces, %u xr frames (%u redrawn) in %llu ms; early ticks %u unused %u, other display time %u",
+				sysLogPrintf(LOG_NOTE, "pump: %u retraces, %u xr frames (%u redrawn) in %llu ms; early ticks %u unused %u late %u, other display time %u",
 					sRetraces, gevrXrFramesBegun, gevrRedraws, (unsigned long long)((now - sStatUs) / 1000),
-					gevrEarlyTicks, gevrEarlyUnused, vr_early_poses_missed());
+					gevrEarlyTicks, gevrEarlyUnused, gevrLateTicks, vr_early_poses_missed());
 				sStatUs = now; sRetraces = 0; gevrXrFramesBegun = 0; gevrRedraws = 0;
-				gevrEarlyTicks = gevrEarlyUnused = 0;
+				gevrEarlyTicks = gevrEarlyUnused = gevrLateTicks = 0;
 			}
 		}
 	}

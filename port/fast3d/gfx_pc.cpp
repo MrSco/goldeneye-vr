@@ -5553,7 +5553,6 @@ extern "C" void gfx_run(Gfx* commands) {
             s_gevrPresentationOn = false;
             gevr_presentation_prepare(false);
             gevrVrMarkEyesRendered(1);
-            gfx_vr_scope_render();   // into the scopes' own targets
             s_gevrLastVignette = gevrStereoVignette();
 
             vr_relocate_on_begin();
@@ -5566,6 +5565,10 @@ extern "C" void gfx_run(Gfx* commands) {
                 gfx_vr_gpu_end();
                 vr_end_eye_render();
             }
+            // The scopes' images (their own targets, submitted with this frame):
+            // here rather than in the early tick, which must end before this
+            // frame's slot begins while the frame itself has time to spare.
+            gfx_vr_scope_render();
             gevrFrameTimingLeave(freshSpan);
             gfx_rapi->end_frame();
             gfx_wapi->swap_buffers_begin();
