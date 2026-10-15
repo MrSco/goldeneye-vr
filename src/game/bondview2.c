@@ -760,6 +760,13 @@ static void gevrCheatProbe(s32 inlevel)
             sysLogPrintf(LOG_NOTE, "cheathook: countdown timer on");
             continue;
         }
+        /* "boat": Bond aboard the Dam speedboat at once, wherever he stands
+         * (gevr_dam_boat.c), to test the ride from the PC */
+        if (strcasecmp(word, "boat") == 0)
+        {
+            sysLogPrintf(LOG_NOTE, "cheathook: boat %s", gevrDamBoatBoardNow() ? "boarded" : "not available");
+            continue;
+        }
         /* "hqguards": guards' guns between the detailed models (gevr_heldgun.c,
          * the default) and the game's own, to compare */
         if (strcasecmp(word, "hqguards") == 0)
@@ -1366,6 +1373,11 @@ void gevrStereoFrame(s32 inlevel)
                 gevrVrLocomotionResetReason(GEVR_LOCO_RESET_TANK);
             else if (lastTeleport != g_gevrTeleportEpoch)
                 gevrVrLocomotionResetReason(GEVR_LOCO_RESET_TELEPORT);
+            /* Aboard the Dam speedboat, Bond is set on its deck each tick and the
+             * hull drawn where it is: the view smoothed between ticks ran ahead
+             * of the hull, which shook as it went (user, 2026-10-15) */
+            else if (gevrDamBoatAboard())
+                gevrVrLocomotionResetReason(GEVR_LOCO_RESET_TANK);
             lastPlayer = pl; lastStage = stage; lastPaused = paused;
             lastTank = g_PlayerIsInTank; lastTeleport = g_gevrTeleportEpoch;
             if (gevrSpectating() || gevrCoopLocalDowned()) gevrVrLocomotionResetReason(GEVR_LOCO_RESET_CONTEXT);
@@ -13180,10 +13192,14 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     }
     if (gevrDamBoatAboard())
     {
-        gevrDamBoatDrive(stick_x, stick_y);
+        /* the move stick drives: the N64 stick is zeroed in stereo and is the
+         * look stick on the 2D screen (input.c) */
+        extern f32 gevrMoveStickX, gevrMoveStickY;
+
+        gevrDamBoatDrive(gevrMoveStickX * 80.0f, gevrMoveStickY * 80.0f);
+        /* the boat carries him; he still turns (the 2D screen's right stick) */
         g_CurrentPlayer->speedforwards = 0.0f;
         g_CurrentPlayer->speedsideways = 0.0f;
-        g_CurrentPlayer->speedtheta = 0.0f;
     }
 #endif
 

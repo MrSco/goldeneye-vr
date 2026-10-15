@@ -355,6 +355,10 @@ void osContGetReadData(OSContPad *pad)
 			pad->button |= gevrInjectButtons;
 			pad->stick_x = gevrInjectX;
 			pad->stick_y = gevrInjectY;
+			/* the move stick too: the Dam speedboat reads that (input.c) */
+			extern float gevrMoveStickX, gevrMoveStickY;
+			gevrMoveStickX = gevrInjectX / 80.0f;
+			gevrMoveStickY = gevrInjectY / 80.0f;
 		}
 		if (i == 0 && (pad->button != 0 || pad->stick_x != 0 || pad->stick_y != 0)) {
 			/* PORT probe: proof that controller input reaches the game */
