@@ -1059,17 +1059,22 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     if (gex && gevrBeanIsEnabled()) ImGui::TextDisabled("GE-X supplies first-person gear; Bean supplies the world.");
     // Keep the exit in the same place in every download state, above the
     // launcher's one-line hint, drawn under every page: placed at the very
-    // bottom, Done pushed the hint off the panel's edge.
-    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + std::fmax(0.0f, ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeight() -
-                                                                ImGui::GetTextLineHeightWithSpacing()));
-    // Wreck's blood patch (chr.c chrCreateHitPuffs): a cosmetic table, so it
-    // goes with every look and campaign, and online each headset its own. On
-    // Done's row: a row of its own ran the page past the panel (no scrolling).
+    // bottom, Done pushed the hint off the panel's edge. Wreck's blood patch
+    // (chr.c chrCreateHitPuffs) takes the row above it, in the space the page
+    // leaves there (user, 2026-10-14): a cosmetic table, so it goes with every
+    // look and campaign, and online each headset its own. Where the page
+    // leaves no such space (a download error with an update and no Bean), it
+    // shares Done's row instead.
+    const float tail = ImGui::GetFrameHeight() + ImGui::GetTextLineHeightWithSpacing();
+    const float row = ImGui::GetContentRegionAvail().y >= ImGui::GetFrameHeightWithSpacing() + tail
+                          ? ImGui::GetFrameHeightWithSpacing() : 0.0f;
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + std::fmax(0.0f, ImGui::GetContentRegionAvail().y - row - tail));
     bool blood = VrBloodPatch != 0;
     if (ImGui::Checkbox("Blood patch (by Wreck)", &blood)) VrBloodPatch = blood ? 1 : 0;
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Shot guards spray the red blood sparks Rare left in the game,\ninstead of smoke and sparks.");
-    ImGui::SameLine();
+    if (row == 0.0f)
+        ImGui::SameLine();
     if (ImGui::Button("Done", ImVec2(-1, 0))) {
         vrSettingsSave();
         open = false;
