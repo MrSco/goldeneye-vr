@@ -43,9 +43,10 @@ typedef struct PropRecord {
 } PropRecord;
 struct bbox {float xmin,xmax,ymin,ymax,zmin,zmax;};
 struct ModelRoData_BoundingBoxRecord {u32 ModelNumber;struct bbox Bounds;};
-union ModelRoData {struct ModelRoData_BoundingBoxRecord BoundingBox;};
+struct ModelRoData_GroupRecord {coord3d Origin;};
+union ModelRoData {struct ModelRoData_BoundingBoxRecord BoundingBox;struct ModelRoData_GroupRecord Group;};
 typedef struct ModelNode {unsigned short Opcode;union ModelRoData*Data;struct ModelNode*Parent,*Next,*Prev,*Child;} ModelNode;
-enum {MODELNODE_OPCODE_BBOX=10};
+enum {MODELNODE_OPCODE_GROUP=2,MODELNODE_OPCODE_BBOX=10};
 struct ModelFileHeader {ModelNode*RootNode;};
 struct Model {float scale;struct ModelFileHeader*obj;};
 typedef struct ObjectRecord {
@@ -103,7 +104,9 @@ static void chrpropRegisterRooms(PropRecord*p){assert(p);registrations++;}
  * looks): 400 tall in its model, from 100 under its origin */
 static union ModelRoData hullBox={{0,{-50,50,-100,300,-200,200}}};
 static ModelNode hullBoxNode={MODELNODE_OPCODE_BBOX|0x100,&hullBox,NULL,NULL,NULL,NULL};
-static ModelNode hullGroup={0,NULL,NULL,NULL,NULL,&hullBoxNode};
+/* its group lowers it 50, as the speedboat's does 94 */
+static union ModelRoData hullOrigin={.Group={{{{0,-50,0}}}}};
+static ModelNode hullGroup={MODELNODE_OPCODE_GROUP,&hullOrigin,NULL,NULL,NULL,&hullBoxNode};
 static ModelNode hullRoot={0,NULL,NULL,NULL,NULL,&hullGroup};
 static struct ModelRoData_BoundingBoxRecord*chrobjGetBboxFromObjectRecord(ObjectRecord*o){(void)o;return NULL;}
 static float get_room_data_float2(void){return 4.0f;}
@@ -141,11 +144,11 @@ int main(int argc,char**argv){
     }
     assert(object.damage==1000 && object.maxdamage==0);
     {
-        /* on the water (-200 drawn at 4: -800), a quarter of the hull under it;
+        /* on the water (-200 drawn at 4: -800), a tenth of the hull under it;
          * Bond at half its height, not on the jetty's deck */
-        const float s=model.scale,lo=-100*s,hi=300*s,hull=-800-(lo+.25f*(hi-lo));
+        const float s=model.scale,lo=(-100-50)*s,hi=(300-50)*s,hull=-800-(lo+.1f*(hi-lo));
         assert(fabsf(boat.pos.y-hull)<.01f && fabsf(object.mtx.m[3][1]-hull)<.01f);
-        assert(fabsf(player.field_70-(hull+lo+.5f*(hi-lo)))<.01f);
+        assert(fabsf(player.field_70-hull)<.01f);   /* the model's origin, its gunwale */
         assert(fabsf(player.prop->pos.y-player.field_70)<.01f);
     }
     float before=s_ride.z;int oldposes=poses;
