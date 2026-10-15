@@ -8,9 +8,10 @@
 void gevrDamBoatPrepare(s32 stageId);
 int gevrDamBoatAboard(void);
 /* B at the hull boards. B at the island or back at the jetty steps off. B
- * mid-crossing is ignored. */
+ * mid-crossing is ignored. With grip to use, B is not the boat's. */
 int gevrDamBoatOnB(void);
-/* A grip with the hand on the hull boards. p is the hand in view units. */
+/* A grip with the hand over the hull boards; aboard, at the island or the
+ * jetty, steps off. p is the hand in view units. */
 int gevrDamBoatTryHand(const f32 p[3]);
 void gevrDamBoatDrive(f32 stick_x, f32 stick_y);
 void gevrDamBoatApplySeat(void);
