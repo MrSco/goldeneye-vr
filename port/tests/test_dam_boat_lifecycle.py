@@ -71,6 +71,7 @@ enum { PROPDEF_DOOR=1,PROPDEF_PROP=3,PROPDEF_KEY,PROPDEF_ALARM,PROPDEF_MAGAZINE,
 static struct {struct ModelFileHeader*header;float scale;} PitemZ_entries[PROP_SPEEDBOAT+1];
 static int g_gevrStereo=1,updates,registrations,deregistrations,poses,variant;
 static float g_GlobalTimerDelta=1,D_800364CC=1;
+static int VrGestureGripUse;
 static struct ObjectRecord object;
 static struct Model model;
 static struct ModelFileHeader header;
@@ -180,6 +181,18 @@ int main(int argc,char**argv){
     // Astern into the dock: the hull stops at it, its stern on the water.
     prepare();for(int k=0;k<400;k++)gevrDamBoatDrive(0,-80);
     assert(s_ride.z+s_halfLength<=2150+30 && s_ride.z+s_halfLength>2150-30);
+    // The hull launched out and lying below the jetty: in reach of its outline,
+    // a hand over its edge boards; a grip aboard back at the jetty steps off.
+    prepare();assert(gevrDamBoatOnB() && !gevrDamBoatAboard());
+    {
+        float edge[3]={s_ride.x,0,s_ride.z-s_halfLength*cosf(s_ride.yaw)-40*cosf(s_ride.yaw)};
+        edge[0]=s_ride.x-(s_halfLength+40)*sinf(s_ride.yaw);
+        assert(gevrDamBoatTryHand(edge) && gevrDamBoatAboard());
+        assert(gevrDamBoatTryHand(edge) && !gevrDamBoatAboard());
+    }
+    // With grip to use, B is not the boat's.
+    prepare();VrGestureGripUse=1;
+    assert(!gevrDamBoatOnB() && gevrDamBoatAboard());VrGestureGripUse=0;
     // B at the jetty steps off there; aboard mid-crossing, it does nothing.
     prepare();assert(gevrDamBoatOnB() && !gevrDamBoatAboard());
     assert(player.field_488.collision_position.z==g_CurrentSetup.pads[s_jetty_pad].pos.z);

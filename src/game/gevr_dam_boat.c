@@ -23,6 +23,7 @@
 extern bool netIsActive(void);
 extern s32 g_gevrStereo;
 extern f32 gevrHandPropDistance(struct PropRecord *prop, const f32 p[3]);
+extern int VrGestureGripUse;   /* Gestures: grip to use (vr_settings) */
 
 #define GEVR_DAM_BOAT_MAX_PADS 1024
 
@@ -463,34 +464,66 @@ int gevrDamBoatAboard(void)
     return gevrDamBoatLive() && s_ride.aboard;
 }
 
+/* How far a point is from the hull's outline on the water (its bounding box
+ * turned with it), 0 inside. Boarding measured to the middle of the hull, and
+ * once the launch moved out clear of the dock it was out of reach of the
+ * jetty (user, 2026-10-15). */
+static f32 gevrDamBoatFromHull(f32 x, f32 z)
+{
+    const f32 dx = x - s_ride.x, dz = z - s_ride.z;
+    const f32 along = fabsf(dx * sinf(s_ride.yaw) + dz * cosf(s_ride.yaw)) - s_halfLength;
+    const f32 across = fabsf(dx * cosf(s_ride.yaw) - dz * sinf(s_ride.yaw)) - s_halfWidth;
+    const f32 ea = along > 0.0f ? along : 0.0f, ec = across > 0.0f ? across : 0.0f;
+
+    return sqrtf(ea * ea + ec * ec);
+}
+
+/* Bond near the hull from the jetty, or beside it at the landing, on foot */
+static int gevrDamBoatInReach(void)
+{
+    return gevrDamBoatFromHull(g_CurrentPlayer->field_488.collision_position.f[0],
+                               g_CurrentPlayer->field_488.collision_position.f[2]) <= GEVR_DAM_BOAT_BOARD_UNITS
+        && fabsf(g_CurrentPlayer->field_70 - s_ride.y) <= GEVR_DAM_BOAT_BOARD_UNITS;
+}
+
+/* Aboard at the island landing or back at the jetty: off there. 0 elsewhere,
+ * mid-crossing, where nothing drops him in the water. */
+static int gevrDamBoatStepOffHere(void)
+{
+    const f32 dx = s_ride.x - s_ride.jetty_x, dz = s_ride.z - s_ride.jetty_z;
+
+    if (gevrBoatAtLanding(&s_ride))
+    {
+        gevrDamBoatDisembark();
+        return 1;
+    }
+    if (dx * dx + dz * dz <= GEVR_DAM_BOAT_LANDING_UNITS * GEVR_DAM_BOAT_LANDING_UNITS)
+    {
+        gevrDamBoatStepOffAt(s_jetty_pad);
+        sysLogPrintf(LOG_NOTE, "dam boat: stepped off at the north jetty");
+        return 1;
+    }
+    return 0;
+}
+
 int gevrDamBoatOnB(void)
 {
     if (!gevrDamBoatPlayable())
     {
         return 0;
     }
+    /* With grip to use (GE-X style) the grip boards and steps off, and B is
+     * left to its own job (user, 2026-10-15) */
+    if (g_gevrStereo && VrGestureGripUse)
+    {
+        return 0;
+    }
     if (s_ride.aboard)
     {
-        if (gevrBoatAtLanding(&s_ride))
-        {
-            gevrDamBoatDisembark();
-        }
-        else
-        {
-            /* back at the jetty: off there too, not only by losing the hull */
-            const f32 dx = s_ride.x - s_ride.jetty_x, dz = s_ride.z - s_ride.jetty_z;
-
-            if (dx * dx + dz * dz <= GEVR_DAM_BOAT_LANDING_UNITS * GEVR_DAM_BOAT_LANDING_UNITS)
-            {
-                gevrDamBoatStepOffAt(s_jetty_pad);
-                sysLogPrintf(LOG_NOTE, "dam boat: stepped off at the north jetty");
-            }
-        }
+        gevrDamBoatStepOffHere();
         return 1;
     }
-    if (gevrBoatWithin(&s_ride, g_CurrentPlayer->field_488.collision_position.f[0],
-                       g_CurrentPlayer->field_70, g_CurrentPlayer->field_488.collision_position.f[2],
-                       GEVR_DAM_BOAT_BOARD_UNITS))
+    if (gevrDamBoatInReach())
     {
         s_ride.aboard = 1;
         gevrDamBoatSeatNow();
@@ -505,11 +538,30 @@ int gevrDamBoatTryHand(const f32 p[3])
     f32 view_units;
     f32 dist;
 
-    if (p == NULL || !gevrDamBoatPlayable() || s_ride.aboard || !g_gevrStereo)
+    if (p == NULL || !gevrDamBoatPlayable() || !g_gevrStereo)
     {
         return 0;
     }
+    if (s_ride.aboard)
+    {
+        /* a grip aboard steps off at the landing or the jetty; mid-crossing
+         * the grip keeps its own jobs */
+        return gevrDamBoatStepOffHere();
+    }
     view_units = 100.0f * D_800364CC;
+    {
+        /* From the jetty the hull lies below, beyond a hand's box test: Bond
+         * within reach of its outline, the hand over its edge (80 units). */
+        const f32 s = D_800364CC > 1.0e-6f ? D_800364CC : 1.0f;
+
+        if (gevrDamBoatInReach() && gevrDamBoatFromHull(p[0] / s, p[2] / s) <= 80.0f)
+        {
+            s_ride.aboard = 1;
+            gevrDamBoatSeatNow();
+            sysLogPrintf(LOG_NOTE, "dam boat: hand over the hull, boarded");
+            return 1;
+        }
+    }
     dist = gevrHandPropDistance(s_boat, p);
     if (!(dist < 1.0e20f))
     {
