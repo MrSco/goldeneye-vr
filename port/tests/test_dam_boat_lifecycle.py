@@ -41,7 +41,12 @@ struct StandTile {u8 room;};
 typedef struct PropRecord {
     int type;struct ObjectRecord *obj;coord3d pos;struct StandTile*stan;u8 rooms[8];u32 flags;
 } PropRecord;
-struct ModelFileHeader {int placeholder;};
+struct bbox {float xmin,xmax,ymin,ymax,zmin,zmax;};
+struct ModelRoData_BoundingBoxRecord {u32 ModelNumber;struct bbox Bounds;};
+union ModelRoData {struct ModelRoData_BoundingBoxRecord BoundingBox;};
+typedef struct ModelNode {unsigned short Opcode;union ModelRoData*Data;struct ModelNode*Parent,*Next,*Prev,*Child;} ModelNode;
+enum {MODELNODE_OPCODE_BBOX=10};
+struct ModelFileHeader {ModelNode*RootNode;};
 struct Model {float scale;struct ModelFileHeader*obj;};
 typedef struct ObjectRecord {
     u8 type,state;int obj,pad;u32 flags,flags2,runtime_bitflags;
@@ -94,11 +99,16 @@ static struct StandTile*stanFindGroundAtCyl(coord3d*p,float r,void*cb,struct Sta
 static float gevrHandPropDistance(PropRecord*p,const float hand[3]){(void)hand;assert(p==&boat);return 0;}
 static void chrpropDeregisterRoom(PropRecord*p,u8 room){(void)room;assert(p);deregistrations++;}
 static void chrpropRegisterRooms(PropRecord*p){assert(p);registrations++;}
-struct ModelRoData_BoundingBoxRecord {u32 ModelNumber;struct {float xmin,xmax,ymin,ymax,zmin,zmax;} Bounds;};
-/* the hull's box: 400 tall in its model, from 100 under its origin */
-static struct ModelRoData_BoundingBoxRecord hullBox={0,{-50,50,-100,300,-200,200}};
-static struct ModelRoData_BoundingBoxRecord*chrobjGetBboxFromObjectRecord(ObjectRecord*o){(void)o;return &hullBox;}
+/* the hull's box, a level down under a group (not where chrobjGetBboxFromObjFile
+ * looks): 400 tall in its model, from 100 under its origin */
+static union ModelRoData hullBox={{0,{-50,50,-100,300,-200,200}}};
+static ModelNode hullBoxNode={MODELNODE_OPCODE_BBOX|0x100,&hullBox,NULL,NULL,NULL,NULL};
+static ModelNode hullGroup={0,NULL,NULL,NULL,NULL,&hullBoxNode};
+static ModelNode hullRoot={0,NULL,NULL,NULL,NULL,&hullGroup};
+static struct ModelRoData_BoundingBoxRecord*chrobjGetBboxFromObjectRecord(ObjectRecord*o){(void)o;return NULL;}
 static float get_room_data_float2(void){return 4.0f;}
+/* the dock: a floor over the water behind the jetty (z 2000, the island at 0); open water before it */
+static struct StandTile*stanFindTileBelowPos(coord3d*p,u8*rooms,float*y){(void)rooms;if(p->z>2150){*y=0;return &tile;}return NULL;}
 static u64 sysGetMicroseconds(void){static u64 t;return t+=2000000;}
 #define EXTENT(name) static float name(struct ModelRoData_BoundingBoxRecord*b,Mtxf*m){(void)b;(void)m;return 0;}
 EXTENT(chrpropSumMatrixPosX) EXTENT(chrpropSumMatrixPosY) EXTENT(chrpropSumMatrixPosZ)
@@ -109,7 +119,7 @@ static void prepare(void){
     static struct PadRecord pads[4];memset(pads,0,sizeof(pads));
     for(int i=0;i<3;i++){pads[i].plink=&tile;pads[i].stan=&tile;pads[i].pos.z=i*2000;}
     pads[0].pos.y=0;pads[1].pos.y=-1000;pads[2].pos.y=0;
-    g_CurrentSetup.pads=pads;PitemZ_entries[PROP_SPEEDBOAT].header=&header;
+    g_CurrentSetup.pads=pads;PitemZ_entries[PROP_SPEEDBOAT].header=&header;header.RootNode=&hullRoot;
     PitemZ_entries[PROP_SPEEDBOAT].scale=.1f;
     memset(&boat,0,sizeof(boat));memset(&model,0,sizeof(model));memset(&player,0,sizeof(player));
     memset(&playerProp,0,sizeof(playerProp));playerProp.rooms[0]=255;
@@ -164,6 +174,9 @@ int main(int argc,char**argv){
         assert(player.field_70==jetty->pos.y && player.prop->pos.y==jetty->pos.y);
         assert(player.field_488.current_tile_ptr==jetty->stan);
     }
+    // Astern into the dock: the hull stops at it, its stern on the water.
+    prepare();for(int k=0;k<400;k++)gevrDamBoatDrive(0,-80);
+    assert(s_ride.z+s_halfLength<=2150+30 && s_ride.z+s_halfLength>2150-30);
     // B at the jetty steps off there; aboard mid-crossing, it does nothing.
     prepare();assert(gevrDamBoatOnB() && !gevrDamBoatAboard());
     assert(player.field_488.collision_position.z==g_CurrentSetup.pads[s_jetty_pad].pos.z);
