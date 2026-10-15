@@ -386,6 +386,13 @@ void sub_GAME_7F09C044(Vertex* arg0) {
     s32 stop;
     s32 var_v1;
 
+#ifdef GEVR
+    {
+        extern void gevrBeanForgetDeformed(const void *vertices);
+        gevrBeanForgetDeformed(arg0);   /* no longer a destroyed prop's (objDeform) */
+    }
+#endif
+
     if ((arg0 >= dword_CODE_bss_8007A0E0) &&
         (arg0 <= dword_CODE_bss_8007A0E0 + (dword_CODE_bss_8007A0D0 - 1))) {
         var_a3 = dword_CODE_bss_8007A0E8;

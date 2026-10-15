@@ -47,6 +47,8 @@ struct roomSlot {
 	void *vtxOpa;
 	void *vtxXlu;
 	int has;
+	/* GoldenEye's own backdrop, which Bean leaves out: drawn as nothing (hiddenRoom) */
+	int hidden;
 	/* opa and xlu as static meshes (gevr_static_mesh.h): the lists drawn, or NULL */
 	Gfx *wrap[2];
 	GevrStaticMesh *mesh[2];
@@ -64,7 +66,39 @@ static void *s_opaqueVertices;
 static GevrStaticMesh *s_opaqueMesh;
 static int s_opaqueDrawn;
 
-void gevrBeanWorldBeginView(void) { s_opaqueDrawn=0; }
+static int s_cullOutside;   /* this view's camera stands outside the level */
+static int s_authoredView;  /* this view is one of GoldenEye's own cameras */
+static int s_cullForce;     /* files/gevr_bean_roomcull.txt: 0 by the camera, 1 always, 2 never */
+static int cameraOutside(void);
+
+/*
+ * GoldenEye stands its own cameras (the opening's stills and swirl, the death
+ * and ending cameras) inside rock and under floors, and culls the backs of its
+ * opaque rooms; HD rooms are two-sided (4J's decks, treads and roofs are
+ * single planes), so there a wall or a floor fills the view (user, 2026-10-14,
+ * Facility's opening). DAB gebeanStageTickCamera: while such a camera runs,
+ * 48 rays against GoldenEye's own room triangles say whether it stands outside
+ * the level, and the HD rooms cull their backs for that view.
+ */
+void gevrBeanWorldBeginView(int authored)
+{
+	s_opaqueDrawn = 0;
+	s_authoredView = authored;
+	const int outside = s_cullForce == 1 || (s_cullForce == 0 && authored && cameraOutside());
+	if (outside != s_cullOutside)
+		GEVR_BEAN_LOG("gevr bean: camera outside the level %d\n", outside);
+	s_cullOutside = outside;
+}
+
+int gevrBeanWorldCullsBackFaces(void)
+{
+	return s_cullOutside;
+}
+
+int gevrBeanWorldAuthoredView(void)
+{
+	return s_authoredView;
+}
 
 static Gfx *s_skyGdl;
 static void *s_skyVtx;
@@ -213,6 +247,300 @@ static void fillVert(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *
 
 #include "gevr_bean_rooms.inc.h"
 
+static int cameraOutside(void)
+{
+	const Mtxf *m = camGetWorldToScreenMtxf();
+	float right[3], up[3], look[3], o[3];
+	int hits = 0, backs = 0;
+	if (!m || !s_tree || !s_referenceCount)
+		return 0;
+	/* world to camera, row vectors: the rotation's columns are the camera's axes */
+	for (int k = 0; k < 3; k++) {
+		right[k] = m->m[k][0];
+		up[k] = m->m[k][1];
+		look[k] = -m->m[k][2];
+	}
+	const float s2 = right[0] * right[0] + right[1] * right[1] + right[2] * right[2];
+	if (s2 < 1e-12f)
+		return 0;
+	for (int k = 0; k < 3; k++)
+		o[k] = -(m->m[3][0] * m->m[k][0] + m->m[3][1] * m->m[k][1] + m->m[3][2] * m->m[k][2]) / s2;
+	const float s = sqrtf(s2);
+	for (int k = 0; k < 3; k++) {
+		right[k] /= s;
+		up[k] /= s;
+		look[k] /= s;
+	}
+	const float ty = tanf(viGetFovY() * (3.14159265f / 360.0f));
+	const float tx = ty * (viGetViewHeight() > 0 ? (float)viGetViewWidth() / viGetViewHeight() : 4.0f / 3.0f);
+	for (int y = 0; y < 6; y++) {
+		for (int x = 0; x < 8; x++) {
+			const float sx = ((x + 0.5f) / 8 * 2 - 1) * tx, sy = ((y + 0.5f) / 6 * 2 - 1) * ty;
+			float d[3], inv[3], best = 1e9f;
+			int facing = 0;
+			for (int k = 0; k < 3; k++)
+				d[k] = look[k] + right[k] * sx + up[k] * sy;
+			const float len = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+			for (int k = 0; k < 3; k++) {
+				d[k] /= len;
+				inv[k] = 1.0f / (d[k] != 0.0f ? d[k] : 1e-9f);
+			}
+			roomRayNode(0, o, d, inv, &best, &facing);
+			if (facing) {
+				hits++;
+				backs += facing < 0;
+			}
+		}
+	}
+	/* two thirds of what it sees the back of GoldenEye's level: outside it;
+	 * from inside, a back face is only ever a seam */
+	return hits >= 8 && backs * 3 >= hits * 2;
+}
+
+/*
+ * DAB gebeanstage.c markWaterPictures (port/licenses/dabs-mod.txt): a Bean
+ * picture is water when at least two of its triangles, and at least half,
+ * lie within 64 units of GoldenEye's water (1508 Caverns, 1511 Dam; on
+ * vertices shaded black - Complex's pits - it is none). Here such a triangle
+ * must also lie level, every corner within 16 units of the water's height:
+ * near was enough to take Dam's waterline concrete, the snow and the rocky
+ * grass of its shore for water, and they crept with it (2026-10-14). Dam's
+ * reservoir lies within 16 units, Caverns' pools within 4. GoldenEye's slide,
+ * 0.25 and 0.1 quarter texels a frame of its own picture, is taken across the
+ * ground and into Bean's, which lies bigger and turned against it, from the
+ * two pictures' gradients over x and z, each the area-weighted mean.
+ */
+#define WATER_NEAR 64.0f
+#define WATER_LEVEL 16.0f
+#define WATER_BLACK 8
+
+struct waterMeasure {
+	double grad[2][2], area;
+};
+
+static void waterGrad(struct waterMeasure *m, const float v[3][3], const float f[3][2])
+{
+	const float ax = v[1][0] - v[0][0], az = v[1][2] - v[0][2];
+	const float bx = v[2][0] - v[0][0], bz = v[2][2] - v[0][2];
+	const float det = ax * bz - az * bx;
+	const float area = fabsf(det) * 0.5f;
+	if (area < 1.0f)
+		return;   /* a wall */
+	for (int j = 0; j < 2; j++) {
+		const float da = f[1][j] - f[0][j], db = f[2][j] - f[0][j];
+		m->grad[j][0] += (da * bz - db * az) / det * area;
+		m->grad[j][1] += (db * ax - da * bx) / det * area;
+	}
+	m->area += area;
+}
+
+static void markWater(const struct gevrBeanMesh *mesh, float fileScale)
+{
+	struct waterMeasure ge, hd;
+	float lo[3] = { 1e30f, 1e30f, 1e30f }, hi[3] = { -1e30f, -1e30f, -1e30f };
+	int nwater = 0, marked = 0;
+	memset(&ge, 0, sizeof(ge));
+	memset(&hd, 0, sizeof(hd));
+	gevrBeanWaterSetRate(0, 0, 0);
+	if (!s_reference || !mesh->ntex)
+		return;
+	int *water = malloc((size_t)s_referenceCount * sizeof(int));
+	int *on = calloc((size_t)mesh->ntex, sizeof(int)), *all = calloc((size_t)mesh->ntex, sizeof(int));
+	uint8_t *near = calloc((size_t)mesh->ntris + 1, 1);
+	if (!water || !on || !all || !near)
+		goto done;
+	for (int i = 0; i < s_referenceCount; i++) {
+		const struct beanRoomTri *t = &s_reference[i];
+		float f[3][2];
+		if ((t->tex != 1508 && t->tex != 1511) || t->shade <= WATER_BLACK)
+			continue;
+		water[nwater++] = i;
+		for (int k = 0; k < 3; k++) {
+			if (t->lo[k] < lo[k]) lo[k] = t->lo[k];
+			if (t->hi[k] > hi[k]) hi[k] = t->hi[k];
+		}
+		/* s10.5: an eighth is a quarter texel, the unit GoldenEye moves it in */
+		for (int v = 0; v < 3; v++) {
+			f[v][0] = t->st[v][0] / 8.0f;
+			f[v][1] = t->st[v][1] / 8.0f;
+		}
+		waterGrad(&ge, t->p, (const float (*)[2])f);
+	}
+	if (!nwater)
+		goto done;
+	for (int i = 0; i < mesh->ntris; i++) {
+		const struct gevrBeanTri *t = &mesh->tris[i];
+		float mid[3];
+		int inside = 1;
+		if (t->tex < 0 || t->tex >= mesh->ntex)
+			continue;
+		all[t->tex]++;
+		for (int k = 0; k < 3; k++) {
+			mid[k] = (t->p[k] + t->p[3 + k] + t->p[6 + k]) * fileScale / 3.0f;
+			if (mid[k] < lo[k] - WATER_NEAR || mid[k] > hi[k] + WATER_NEAR)
+				inside = 0;
+		}
+		if (!inside)
+			continue;
+		float best = WATER_NEAR * WATER_NEAR;
+		const struct beanRoomTri *nearest = NULL;
+		for (int j = 0; j < nwater; j++) {
+			const struct beanRoomTri *w = &s_reference[water[j]];
+			if (roomBoxDistance(mid, w->lo, w->hi) >= best)
+				continue;
+			const float d = roomTriangleDistance(mid, w);
+			if (d < best) {
+				best = d;
+				nearest = w;
+			}
+		}
+		if (nearest) {
+			/* level, and at the water's height (GoldenEye's water is flat) */
+			const float height = (nearest->p[0][1] + nearest->p[1][1] + nearest->p[2][1]) / 3.0f;
+			float a[3], b[3], n[3];
+			int level = 1;
+			for (int k = 0; k < 3; k++) {
+				a[k] = (t->p[3 + k] - t->p[k]) * fileScale;
+				b[k] = (t->p[6 + k] - t->p[k]) * fileScale;
+				if (fabsf(t->p[k * 3 + 1] * fileScale - height) >= WATER_LEVEL)
+					level = 0;
+			}
+			n[0] = a[1] * b[2] - a[2] * b[1];
+			n[1] = a[2] * b[0] - a[0] * b[2];
+			n[2] = a[0] * b[1] - a[1] * b[0];
+			if (!(fabsf(n[1]) > 0.98f * sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2])))
+				level = 0;
+			if (level) {
+				near[i] = 1;
+				on[t->tex]++;
+			}
+		}
+	}
+	for (int x = 0; x < mesh->ntex; x++) {
+		if (mesh->standin[x] && on[x] >= 2 && on[x] * 2 >= all[x]) {
+			gevrBeanTexWaterSet(mesh->standin[x]);
+			marked++;
+			GEVR_BEAN_LOG("gevr bean water: picture %d moves as GoldenEye's water, %d of its %d triangles on it",
+			              x, on[x], all[x]);
+		}
+	}
+	/* Bean's UV is in repeats, drawn as quarter texels of a 32 texel repeat,
+	 * t running the other way (gevr_bean.c gevrBeanEmitList) */
+	for (int i = 0; marked && i < mesh->ntris; i++) {
+		const struct gevrBeanTri *t = &mesh->tris[i];
+		float v[3][3], f[3][2];
+		if (!near[i] || !gevrBeanTextureIsWater(mesh->standin[t->tex]))
+			continue;
+		for (int k = 0; k < 3; k++) {
+			for (int j = 0; j < 3; j++)
+				v[k][j] = t->p[k * 3 + j] * fileScale;
+			f[k][0] = t->uv[k * 2] * 128.0f;
+			f[k][1] = -t->uv[k * 2 + 1] * 128.0f;
+		}
+		waterGrad(&hd, (const float (*)[3])v, (const float (*)[2])f);
+	}
+	if (ge.area > 0 && hd.area > 0) {
+		double g[2][2], b[2][2];
+		for (int j = 0; j < 2; j++)
+			for (int k = 0; k < 2; k++) {
+				g[j][k] = ge.grad[j][k] / ge.area;
+				b[j][k] = hd.grad[j][k] / hd.area;
+			}
+		const double det = g[0][0] * g[1][1] - g[0][1] * g[1][0];
+		if (fabs(det) > 1e-9) {
+			/* the ground's motion under GoldenEye's slide, then Bean's picture's */
+			const double dx = (0.25 * g[1][1] - 0.1 * g[0][1]) / det;
+			const double dz = (0.1 * g[0][0] - 0.25 * g[1][0]) / det;
+			const double rs = b[0][0] * dx + b[0][1] * dz, rt = b[1][0] * dx + b[1][1] * dz;
+			gevrBeanWaterSetRate(1, (float)rs, (float)rt);
+			GEVR_BEAN_LOG("gevr bean water: %.3f %.3f units a frame, in Bean's picture %.3f %.3f quarter texels "
+			              "(GoldenEye's s/t %.4f %.4f %.4f %.4f, Bean's %.4f %.4f %.4f %.4f a unit)",
+			              dx, dz, rs, rt, g[0][0], g[0][1], g[1][0], g[1][1], b[0][0], b[0][1], b[1][0], b[1][1]);
+		}
+	}
+done:
+	free(water);
+	free(on);
+	free(all);
+	free(near);
+}
+
+/*
+ * DAB gebeanstage.c (port/licenses/dabs-mod.txt, kept rooms): a GoldenEye
+ * room Bean's mesh leaves empty is GoldenEye's own backdrop, which the
+ * release remodelled further out and does not draw, when fewer than a quarter
+ * of its triangles come within 64 units of Bean's mesh - Dam's room 31, a low
+ * grey boulder of a cliff over the far end of the reservoir, stood in the
+ * water before the dam in the intro with its own N64 water ("dam intro still
+ * shows wacky mountain through the dam/dock", user, 2026-10-14) - or when
+ * every one lies on Bean's surface (within 8 units), a patch of GoldenEye's
+ * that Bean's own replaced.
+ */
+#define HIDDEN_NEAR 64.0f
+#define HIDDEN_ON 8.0f
+
+static int hiddenRoom(const struct gevrBeanMesh *mesh, float fileScale, int room)
+{
+	float lo[3] = { 1e30f, 1e30f, 1e30f }, hi[3] = { -1e30f, -1e30f, -1e30f };
+	int tris = 0, near = 0, on = 0, nbean = 0;
+	struct beanRoomTri *bean;
+	for (int i = 0; i < s_referenceCount; i++) {
+		if (s_reference[i].room != room)
+			continue;
+		tris++;
+		for (int k = 0; k < 3; k++) {
+			if (s_reference[i].lo[k] < lo[k]) lo[k] = s_reference[i].lo[k];
+			if (s_reference[i].hi[k] > hi[k]) hi[k] = s_reference[i].hi[k];
+		}
+	}
+	if (!tris)
+		return 0;
+	/* Bean's triangles that can come within reach of the room */
+	bean = malloc((size_t)mesh->ntris * sizeof(*bean));
+	if (!bean)
+		return 0;
+	for (int i = 0; i < mesh->ntris; i++) {
+		struct beanRoomTri *b = &bean[nbean];
+		int apart = 0;
+		for (int k = 0; k < 3; k++) {
+			b->lo[k] = 1e30f;
+			b->hi[k] = -1e30f;
+			for (int v = 0; v < 3; v++) {
+				b->p[v][k] = mesh->tris[i].p[v * 3 + k] * fileScale;
+				if (b->p[v][k] < b->lo[k]) b->lo[k] = b->p[v][k];
+				if (b->p[v][k] > b->hi[k]) b->hi[k] = b->p[v][k];
+			}
+			if (b->lo[k] > hi[k] + HIDDEN_NEAR || b->hi[k] < lo[k] - HIDDEN_NEAR)
+				apart = 1;
+		}
+		nbean += !apart;
+	}
+	for (int i = 0; i < s_referenceCount; i++) {
+		const struct beanRoomTri *t = &s_reference[i];
+		float mid[3], best = HIDDEN_NEAR * HIDDEN_NEAR;
+		if (t->room != room)
+			continue;
+		for (int k = 0; k < 3; k++)
+			mid[k] = (t->p[0][k] + t->p[1][k] + t->p[2][k]) / 3.0f;
+		for (int j = 0; j < nbean && best >= HIDDEN_ON * HIDDEN_ON; j++) {
+			if (roomBoxDistance(mid, bean[j].lo, bean[j].hi) >= best)
+				continue;
+			const float d = roomTriangleDistance(mid, &bean[j]);
+			if (d < best)
+				best = d;
+		}
+		if (best < HIDDEN_NEAR * HIDDEN_NEAR) {
+			near++;
+			on += best < HIDDEN_ON * HIDDEN_ON;
+		}
+	}
+	free(bean);
+	const int hidden = near * 4 < tris || on == tris;
+	GEVR_BEAN_LOG("gevr bean: room %d has none of Bean's mesh: %d of its %d triangles near it, %d on it%s",
+	              room, near, tris, on, hidden ? ": hidden" : ": GoldenEye's drawn");
+	return hidden;
+}
+
 static int roomFor(const float c[3], int nrooms)
 {
 	if (s_tree) {
@@ -295,6 +623,8 @@ static Gfx *meshWrap(Gfx *list, GevrStaticMesh **mesh)
 
 static void clearRooms(void)
 {
+    roomReferenceFree();
+    s_cullOutside = 0;
     gevrStaticMeshFree(s_opaqueMesh); free(s_opaqueWrap);
     free(s_opaque); free(s_opaqueVertices);
     s_opaqueMesh=NULL; s_opaqueWrap=NULL; s_opaque=NULL; s_opaqueVertices=NULL;
@@ -315,6 +645,7 @@ static void clearRooms(void)
 		s_room[i].vtxOpa = NULL;
 		s_room[i].vtxXlu = NULL;
 		s_room[i].has = 0;
+		s_room[i].hidden = 0;
 	}
 	s_nrooms = 0;
 	s_ok = 0;
@@ -371,6 +702,18 @@ static int buildStage(int stage)
 	}
 	mesh->roomMaterial = 1;
     mesh->worldVertices = 1;
+    /* The world's triangles a run (a draw). 4096: at the Dam's start, 24 fewer
+     * draws a frame than 2048, the eyes' GPU time no higher (2026-10-14).
+     * files/gevr_world_run.txt sets it, for A/B. */
+    int worldRun = 4096;
+    {
+        FILE *f = gevrBeanControlOpen("gevr_world_run.txt");
+        if (f) {
+            if (fscanf(f, "%d", &worldRun) != 1 || worldRun < 256 || worldRun > 65536) worldRun = 4096;
+            fclose(f);
+        }
+        GEVR_BEAN_LOG("gevr bean controls: world_run=%d", worldRun);
+    }
 	assign = malloc((size_t)mesh->ntris * sizeof(int));
 	if (!assign) {
 		gevrBeanMeshFree(mesh);
@@ -391,6 +734,7 @@ static int buildStage(int stage)
 		c[2] /= 3.0f;
 		assign[i] = roomFor(c, nrooms);
 	}
+	markWater(mesh, fileScale);
 	for (int r = 0; r < nrooms; r++) {
 		int nopa = 0, nxlu = 0;
 		struct gevrEmitVert *opa = NULL, *xlu = NULL;
@@ -406,6 +750,8 @@ static int buildStage(int stage)
 			}
 		}
 		if (nopa + nxlu == 0) {
+			if (r > 0)
+				s_room[r].hidden = hiddenRoom(mesh, fileScale, r);
 			continue;
 		}
 		if (nopa) {
@@ -470,7 +816,12 @@ static int buildStage(int stage)
 			s_room[r].xlu = gdl;
 			s_room[r].vtxXlu = vtx;
 			s_room[r].has = 1;
+			/* Dam's valley room holds 16,000 tree triangles of one picture: at 512
+			 * a run they were 32 draws a frame; the opaque world's size (below)
+			 * makes them a few. The runs keep their order, which blending needs. */
+			s_meshRunTris = worldRun;
 			s_room[r].wrap[1] = meshWrap(gdl, &s_room[r].mesh[1]);
+			s_meshRunTris = 512;
 		}
 		free(opa);
 		free(xlu);
@@ -501,7 +852,7 @@ static int buildStage(int stage)
                  * triangles: at 512 a run they made 126 of 234 draws, and a wide
                  * view's draw calls cost a turning frame up to 13 ms on Quest 3.
                  * 2048 cut its p99 by 2.9 ms with no GPU cost (tools/perf). */
-                s_meshRunTris=2048;
+                s_meshRunTris=worldRun;
                 s_opaqueWrap=meshWrap(s_opaque,&s_opaqueMesh);
                 s_meshRunTris=512;
                 /* CPU replay of the float list is also complete if GPU creation fails. */
@@ -517,8 +868,18 @@ static int buildStage(int stage)
         }
         free(opaque);
     }
-    roomReferenceFree();
+    /* GoldenEye's own triangles stay for the camera test (gevrBeanWorldBeginView) */
     free(assign);
+    {
+        FILE *force = gevrBeanControlOpen("gevr_bean_roomcull.txt");
+        s_cullForce = 0;
+        if (force) {
+            if (fscanf(force, "%d", &s_cullForce) != 1) s_cullForce = 0;
+            fclose(force);
+        }
+        GEVR_BEAN_LOG("gevr bean: %d of GoldenEye's room triangles for the camera test, roomcull=%d\n",
+                      s_referenceCount, s_cullForce);
+    }
 	s_nrooms = nrooms;
 	s_ok = 1;
 	GEVR_BEAN_LOG("gevr bean: HD rooms %s, %d tris across %d rooms, native scale %.8f\n", st->bg, mesh->ntris, nrooms, fileScale);
@@ -659,11 +1020,11 @@ void *gevrBeanWorldRoom(void *gdl, int room, int *replaced)
 		xlu = 1;
 		room -= 100000;
 	}
-	if (!ensureStage() || room < 0 || room >= s_nrooms || !s_room[room].has) {
+	if (!ensureStage() || room < 0 || room >= s_nrooms || (!s_room[room].has && !s_room[room].hidden)) {
 		return gdl;
 	}
 	if (replaced) {
-		*replaced = 1;
+		*replaced = 1;   /* a hidden room's GoldenEye list is not drawn either */
 	}
     if (!xlu && s_opaque) {
         if (s_opaqueDrawn || !g_CurrentPlayer) return gdl;

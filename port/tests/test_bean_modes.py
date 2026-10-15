@@ -27,6 +27,7 @@ if os.name == "nt":
     index = "#define DT_UNKNOWN 0\n#define DT_DIR 4\n" + index.replace("de->d_type", "DT_UNKNOWN")
 find = function(pack, "int find(")
 gfx = (ROOT / "port/fast3d/gfx_pc.cpp").read_text()
+tp_find = function(gfx, "static int tp_find(")
 mode = gfx[gfx.index("    const int bean = gevrBeanIsEnabled();"):gfx.index("    // tools/texai texture dump", gfx.index("    const int bean = gevrBeanIsEnabled();"))]
 options = (ROOT / "src/game/options.c").read_text()
 step = function(options, "static void gevrVrStep(")
@@ -88,8 +89,12 @@ int gevrBeanIsEnabled(){return enabled;}
 int gevrBeanIsAvailable(){return available;}
 void gevrBeanSetEnabled(int on){enabled=on;}
 void gevrBeanToggle(){enabled=!enabled;}
-static int clears=0,lastBean=-1,s_tpUserOff=0;
+static int clears=0,lastBean=-1,lastFill=-1,s_tpUserOff=0,VrBeanFillTextures=1;
+static bool s_tpFillOnly=false;
+namespace gevrtp { int find(uint64_t k,uint8_t f,uint8_t s,bool b){return ::find(k,f,s,b);} }
+/* TPFIND */
 static bool s_tpActive=true,s_tpIndexed=true;
+static std::unordered_map<const void*,bool> s_tpRepaintFill;
 static std::vector<int> s_tpUploads,s_tpPending;
 void gfx_texture_cache_clear(){clears++;}
 void sysLogPrintf(int,const char*,...){}
@@ -130,6 +135,16 @@ int main(int argc,char** argv){
     tick();int baseline=clears;s_tpUploads={1};s_tpPending={2};enabled=true;tick();
     assert(clears==baseline+1 && s_tpUploads.empty() && s_tpPending.empty());tick();assert(clears==baseline+1);
     enabled=false;tick();assert(clears==baseline+2);
+    /* the fill: an HD pack indexed for Bean's look answers only with Bean on and the
+       option on, for what Bean has no picture of; a chosen HD pack as before */
+    s_tpFillOnly=true;assert(tp_find(0x11111111,0,2)==-1);
+    enabled=true;assert(tp_find(0x11111111,0,2)>=0);
+    assert(tp_find(0x12345678,0,2)==find(0x12345678,0,2,true));   // Bean's own entry first
+    VrBeanFillTextures=0;assert(tp_find(0x11111111,0,2)==-1);
+    tick();assert(clears==baseline+3);   // the option switched: every texture looks again
+    s_tpFillOnly=false;enabled=false;VrBeanFillTextures=1;tick();
+    assert(tp_find(0x11111111,0,2)>=0);
+    baseline=clears;
     char value[64];available=false;watchStep(1);assert(!enabled);watchValue(value);assert(!strcmp(value,"NEEDS FILES"));
     available=true;watchStep(1);assert(enabled);watchValue(value);assert(!strcmp(value,"ON"));watchStep(2);assert(!enabled);
     apply();assert(loads==1);gevrGexPendingFile=&player;apply();assert(loads==1);
@@ -149,7 +164,7 @@ int main(int argc,char** argv){
     puts("PASS: Bean ownership, cache invalidation, watch/shortcut, GE-X priority and all hit comfort/HUD combinations");
 }
 '''
-for marker, source in {"INDEX": index, "FIND": find, "MODE": mode, "STEP": bean_step,
+for marker, source in {"INDEX": index, "FIND": find, "TPFIND": tp_find, "MODE": mode, "STEP": bean_step,
                        "VALUE": bean_value, "HUD": hud, "DAMAGE": damage,
                        "HEALTH": health, "UPDATE": update, "HOOK": hook, "SHORTCUT": shortcut}.items():
     fixture = fixture.replace(f"/* {marker} */", source)

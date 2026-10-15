@@ -1014,10 +1014,8 @@ void drawjointlist(ModelRenderData *data, ModelHitEntry *entry)
             gdl = data->gdl++;
             gSPSegment(gdl, SPSEGMENT_MODEL_MTX, osVirtualToPhysical(entry->model->render_pos));
 #ifdef GEVR
-            if(data->flags&1) {
-                Gfx *body=gevrBeanWholeJointGdl(entry,beanFirst);
-                if(body)gSPDisplayList(data->gdl++,body);
-            }
+            if(data->flags&1)
+                modelDrawBeanBody(data,gevrBeanWholeJointGdl(entry,beanFirst));   /* the chr's shade and fade */
 #endif
         }
 
@@ -1132,10 +1130,8 @@ void drawjointlist(ModelRenderData *data, ModelHitEntry *entry)
             gdl = data->gdl++;
             gSPSegment(gdl, SPSEGMENT_MODEL_MTX, osVirtualToPhysical(entry->model->render_pos));
 #ifdef GEVR
-            if(data->flags&1) {
-                Gfx *body=gevrBeanWholeJointGdl(entry,beanFirst);
-                if(body)gSPDisplayList(data->gdl++,body);
-            }
+            if(data->flags&1)
+                modelDrawBeanBody(data,gevrBeanWholeJointGdl(entry,beanFirst));   /* the chr's shade and fade */
 #endif
         }
 

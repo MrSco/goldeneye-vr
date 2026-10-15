@@ -114,6 +114,14 @@ const void *gevrBeanTexDecode(const struct gevrCaff *c, int fileIndex, const cha
 int gevrBeanTexture(const void *addr, const uint8_t **rgba, int *w, int *h);
 int gevrBeanTexIsPlaceholder(const void *addr);
 void gevrBeanTexScrollSet(const void *addr, float s, float t);
+/* GoldenEye's moving water on a Bean picture (gevr_bean_tex.c): marks one,
+ * sets the rate (quarter texels a frame; 0 measured for GoldenEye's own). */
+void gevrBeanTexWaterSet(const void *addr);
+int gevrBeanTextureIsWater(const void *addr);
+void gevrBeanWaterSetRate(int measured, float s, float t);
+void gevrBeanWaterAdvance(float delta);
+/* G_DL target that sets the water's fade (gevr_bean.c gevrBeanWaterTick) */
+void *gevrBeanWaterList(void);
 void gevrBeanTexMotionSet(const void *addr, float s, float t, float degrees, float spf,
                           const struct gevrCaff *c, int fileIndex);
 const void *gevrBeanTexReflect(const void *spot,const void *land,const uint8_t amount[3],const char *key);

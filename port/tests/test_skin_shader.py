@@ -208,6 +208,21 @@ def execution(gl, program):
     first = gl.capture()
     expected = [10, 5, .3, 1, 110/255, 130/255, 150/255, .7, .1, .2, .3, 150/255]
     assert all(abs(a-b) < 2e-5 for a, b in zip(first, expected)), (first, expected)
+    # A bullet wound (gevr_bean_wounds.inc.h): on the vertex, the shade alpha the
+    # chr combiner lerps to blood by goes to 0 and the colour to white; 30 units
+    # off, 3/4 of that; outside the 60-unit radius, nothing.
+    gl.uniform(program, "uWoundCount", "i", 1)
+    gl.uniform(program, "uWound[0]", "f", [10, 5, .3, 255])
+    out = gl.capture()
+    assert all(abs(a-b) < 1e-3 for a, b in zip(out[4:8], [1, 1, 1, 0])), out   # the vertex rounds to whole units
+    gl.uniform(program, "uWound[0]", "f", [40, 5, .3, 255])
+    out = gl.capture()
+    lifted = [c + (1 - c) * .75 for c in (110/255, 130/255, 150/255)] + [.25]
+    assert all(abs(a-b) < 1e-3 for a, b in zip(out[4:8], lifted)), (out, lifted)
+    gl.uniform(program, "uWound[0]", "f", [80, 5, .3, 255])
+    out = gl.capture()
+    assert all(abs(a-b) < 2e-5 for a, b in zip(out[4:8], expected[4:8])), out
+    gl.uniform(program, "uWoundCount", "i", 0)
     gl.uniform(program, "uMeshTinted", "i", 1)
     gl.attribute(13, [.25,.5,.75,1])
     out=gl.capture()
@@ -225,6 +240,8 @@ def execution(gl, program):
     gl.uniform(program,"uNormalTex1","i",1)
     gl.uniform(program,"uNormalAxis[0]","f",[1,0,0])
     gl.uniform(program,"uNormalAxis[1]","f",[0,1,0])
+    gl.uniform(program,"uNormalAxis[2]","f",[0,0,1])
+    gl.uniform(program,"uNormalAxis[3]","f",[0,0,1000000])   # the eye straight in front: the old lookup
     assert all(abs(v-.5)<1e-5 for v in gl.capture()[14:16])
     gl.uniform(program,"uSkinValid","u",[0,0])
     gl.attribute(15,[3,0,4])
@@ -358,6 +375,7 @@ def reflection_pixels(gl,program,coupled=False,cpu=False,soft=False,coloured=Fal
     gl.uniform(program,"uMeshMP","m",identity);gl.uniform(program,"uMeshInSel[0]","m",identity)
     gl.uniform(program,"uVrFlat","i",1);gl.uniform(program,"uNormalTex1","i",1)
     gl.uniform(program,"uNormalAxis[0]","f",[1,0,0]);gl.uniform(program,"uNormalAxis[1]","f",[0,1,0])
+    gl.uniform(program,"uNormalAxis[2]","f",[0,0,1]);gl.uniform(program,"uNormalAxis[3]","f",[0,0,1000000])
     color=gl.call("glGetAttribLocation",I,[U,C.c_char_p],program,b"aInput1" if cpu else b"aMeshColor")
     gl.attribute(color,[.2,.4,.6,.5 if soft else 1])
     if coloured:

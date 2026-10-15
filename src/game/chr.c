@@ -3278,6 +3278,9 @@ Gfx *chrRenderProp(PropRecord *prop, Gfx *gdl, s32 withalpha)
  * Creates a smoke puff at the front of the character when the character is shot,
  * and also has a ~50% chance of creating a second smoke puff just behind the character.
  */
+#ifdef GEVR
+extern int VrBloodPatch;   /* vr_settings: Mods, the blood patch */
+#endif
 void chrCreateHitPuffs(PropRecord *prop, s32 anim_id, coord3d *vec, coord3d *pos)
 {
     s32 i;
@@ -3305,6 +3308,30 @@ void chrCreateHitPuffs(PropRecord *prop, s32 anim_id, coord3d *vec, coord3d *pos
     }
 
     entry = &g_HitReactionTable[index];
+#ifdef GEVR
+    /*
+     * Mods: Wreck's blood patch (turoksanctum.com n64vault, 2018-2020), as
+     * the values its IPS writes into this table (the 21990 file at 0xBBB7 on):
+     * a body part's hit puff is the red spark type 2 Rare left in the game,
+     * sizes 17/21/26 go to 16/18/20 (the gun's and hat's too), and no puff
+     * behind the body. The cartridge's table itself stays as it is.
+     */
+    struct ChrHitReaction gevrBlood;
+    if (VrBloodPatch && entry->hitpart != -1)
+    {
+        gevrBlood = *entry;
+        if (gevrBlood.hitpart >= HIT_LEFT_FOOT && gevrBlood.hitpart <= HIT_CHEST)
+        {
+            gevrBlood.impactPuffCount = 2;
+        }
+        gevrBlood.impactPuffSize = gevrBlood.impactPuffSize >= 26.0f ? 20.0f
+                                 : gevrBlood.impactPuffSize >= 21.0f ? 18.0f
+                                 : gevrBlood.impactPuffSize >= 17.0f ? 16.0f : gevrBlood.impactPuffSize;
+        gevrBlood.backImpactPuffCount = 0;
+        gevrBlood.backImpactPuffSize = 0.0f;
+        entry = &gevrBlood;
+    }
+#endif
 
     if (entry->backImpactPuffCount) {
         // True when randomGetNext() bit 2 is 0, so roughly 50% chance.
@@ -3539,6 +3566,15 @@ after_opcode:
         }
     }
 
+#ifdef GEVR
+    /* the bruise, for a Bean body's own vertices (gevr_bean_wounds.inc.h) */
+    if (((ModelRwData_DisplayList_CollisionRecord *) rwdata)->Vertices != ((ModelRoData_DisplayList_CollisionRecord *) node)->Vertices)
+    {
+        extern void gevrBeanNoteWound(Model *model, ModelNode *hitnode, ModelNode *stained, const void *vertices,
+                                      const coord3d *local, s32 alpha);
+        gevrBeanNoteWound(model, root, bestnode, ((ModelRwData_DisplayList_CollisionRecord *) rwdata)->Vertices, pos, paintval);
+    }
+#endif
     if ((relatedrwdata != NULL) && (relatedrwdata->Vertices != relatedrodata->Vertices))
     {
         s32 index;

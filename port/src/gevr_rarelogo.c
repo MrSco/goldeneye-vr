@@ -40,6 +40,7 @@ static u32 s_logoSize;
 static u8 *s_vtxDone;           /* one flag per 16-byte vertex slot */
 static struct { u32 ofs; Gfx *host; } s_dls[LOGO_MAX_DLS];
 static s32 s_numDls;
+static float s_lo[3] = {1e30f, 1e30f, 1e30f}, s_hi[3] = {-1e30f, -1e30f, -1e30f};
 
 static Gfx *gevrRareLogoDl(u32 ofs);
 
@@ -66,6 +67,11 @@ static void gevrRareLogoVertices(u32 ofs, u32 count)
 		h = (u16 *)(s_logo + at);
 		for (k = 0; k < 6; k++) {
 			h[k] = PD_BE16(h[k]);
+		}
+		for (k = 0; k < 3; k++) {
+			const float c = (float)(s16)h[k];
+			if (c < s_lo[k]) s_lo[k] = c;
+			if (c > s_hi[k]) s_hi[k] = c;
 		}
 	}
 }
@@ -163,4 +169,25 @@ void *gevrRareLogo(u32 ofs, s32 isdl)
 		return gevrRareLogoDl(ofs);
 	}
 	return ofs < s_logoSize ? (void *)(s_logo + ofs) : NULL;
+}
+
+/*
+ * The box the logo's vertices fill (model units), for a logo drawn in its
+ * place (gevrBeanRareLogoGdl). 0 before its lists are converted.
+ */
+s32 gevrRareLogoBounds(float lo[3], float hi[3])
+{
+	s32 k;
+
+	gevrRareLogo(0x43E8, 1);
+	gevrRareLogo(0x44B0, 1);
+	gevrRareLogo(0x4758, 1);
+	if (s_hi[0] < s_lo[0]) {
+		return 0;
+	}
+	for (k = 0; k < 3; k++) {
+		lo[k] = s_lo[k];
+		hi[k] = s_hi[k];
+	}
+	return 1;
 }

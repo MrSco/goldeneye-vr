@@ -2061,6 +2061,14 @@ extern "C" void gevrVrSteadyControllers(XrTime time, int focused)
 {
     static XrTime previous;
     if (time == previous) return;
+    /* The early tick locates the controllers for its frame's predicted display
+     * time, and the frame's begin locates them again for the time xrWaitFrame
+     * returned, which can be a little earlier. Taken as a clock fault that
+     * restarted the steadying on the raw turn some 15 times a second, and the
+     * filter dragged the hand back each time (user, 2026-10-14: the controllers
+     * stuttery, as if the position were fighting). A sample less than 50 ms
+     * back is skipped; only a larger regression restarts. */
+    if (previous && time < previous && previous - time < 50000000) return;
     const float dt = previous && time > previous ? (float)((time - previous) * 1e-9) : 1.0f / 60.0f;
     const bool restart = !previous || time < previous || dt > 0.1f;
     previous = time;

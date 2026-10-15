@@ -27,6 +27,7 @@ static void materialPathChecks(void)
         }
         swapAdd(&node, native, secondary, 4);
         for (int flags = 1; flags <= 3; flags++) {
+            gevrBeanBeginFrame();   /* each pass on its own, as a prop drawn in that pass alone */
             ModelRenderData r = {0}; r.gdl = output; r.flags = flags;
             if (collision) modelRenderNodeDl(&r, &model, &node);
             else modelRenderNodeGundl(&r, &model, &node);
@@ -38,6 +39,35 @@ static void materialPathChecks(void)
                 }
             assert(draws == 1); /* flags=2 glass appears, flags=3 never doubles it. */
         }
+        /* the opaque pass then the translucent one in a frame: a list with translucent
+           batches (glass) is drawn in both, as the walls behind it must not cover it; an
+           opaque-only one once (a destroyed prop's scorched copy is not covered by a
+           clean one) */
+        /* ... split over the passes: the opaque pass its solid batches, the
+           translucent one its translucent ones (GEVR_NODE_PASS 1 and 2, then 0) */
+        for (int opaqueOnly = 0; opaqueOnly < 2; opaqueOnly++) {
+            int draws = 0;
+            swapOf(&node)->opaqueOnly = opaqueOnly;
+            swapOf(&node)->emitted = secondary;
+            gevrBeanBeginFrame();
+            for (int flags = 1; flags <= 2; flags++) {
+                ModelRenderData r = {0}; r.gdl = output; r.flags = flags;
+                if (collision) modelRenderNodeDl(&r, &model, &node);
+                else modelRenderNodeGundl(&r, &model, &node);
+                int marks = 0, pass = -1;
+                for (Gfx *g = output; g < r.gdl; g++) {
+                    draws += (g->words.w0 >> 24) == (G_DL & 255);
+                    if ((g->words.w0 >> 24) == G_GEVR_NODE_STATE && (g->words.w0 & 0xff) == GEVR_NODE_PASS) {
+                        if (!marks++) pass = (int)g->words.w1;
+                        else assert(g->words.w1 == 0);
+                    }
+                }
+                assert(opaqueOnly ? !marks : marks == 2 && pass == flags);
+            }
+            assert(draws == (opaqueOnly ? 1 : 2));
+        }
+        swapOf(&node)->emitted = NULL;
+        gevrBeanBeginFrame();
         assert(!gevrBeanTransparentGdl(&node, NULL, &model, 2)); /* shattered/hidden */
         s_nswap = 0; swapIndexRebuild();
     }

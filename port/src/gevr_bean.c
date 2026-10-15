@@ -33,6 +33,11 @@ extern int VrGexGuns;
 #define MAX_DL    1024
 #define MAX_WALK  4096
 
+/* The model instances whose Bean lists the opaque pass drew this frame
+ * (gevrBeanNoteOpaque): the translucent pass leaves them be. */
+#define MAX_OPAQUE_MODELS 1024
+static const void *s_opaqueModels[MAX_OPAQUE_MODELS];
+static int s_nopaqueModels;
 #include "gevr_bean_frame.inc.h"
 
 static Gfx s_blank[1];
@@ -75,7 +80,21 @@ struct beanSwap {
 	int deferredMatrix;
 	int watchArm;
 	void *spent;   /* DAB fpRound: the rocket launcher drawn with nothing in its tube */
+	/* A rigid prop's own list and vertices (gevrBeanEmitList), for the copy a
+	 * destroyed instance draws (gevrBeanScorchedGdl); NULL for the others. */
+	Gfx *emitted;
+	void *emittedVtx;
+	int emittedVerts, emittedCommands, emittedWorld;
+	struct beanScorch *scorch;
+	float box[2][3];   /* the emitted list's bounds, in the node's space */
+	int hasBox;
+	int opaqueOnly;    /* the emitted list has no translucent batch (gevrBeanTransparentGdl) */
 };
+struct beanScorch;
+/* The rigid list gevrBeanEmitList made last: registerPrimary keeps it with its swap. */
+static Gfx *s_lastEmit;
+static void *s_lastEmitVtx;
+static int s_lastEmitVerts, s_lastEmitCommands, s_lastEmitWorld, s_lastEmitOpaque;
 
 static struct beanSwap s_swap[MAX_SWAP];
 static int s_nswap;
@@ -210,6 +229,10 @@ static void swapAdd(void *node, void *original, void *ours, int origType)
 	s_swap[s_nswap].deferredMatrix = 0;
 	s_swap[s_nswap].watchArm = s_registrationWatchArm;
 	s_swap[s_nswap].spent = NULL;
+	s_swap[s_nswap].emitted = NULL;
+	s_swap[s_nswap].emittedVtx = NULL;
+	s_swap[s_nswap].emittedVerts = s_swap[s_nswap].emittedCommands = s_swap[s_nswap].emittedWorld = 0;
+	s_swap[s_nswap].scorch = NULL;
     s_emittedSkin = NULL;
 	swapIndexAdd(s_nswap);
 	s_nswap++;
@@ -237,6 +260,15 @@ static int s_loaded = 1;
 void gevrBeanSetLoaded(int loaded)
 {
 	s_loaded = loaded != 0;
+}
+
+void *gevrBeanFadeMark(void *gdl, int alpha)
+{
+    Gfx *g = gdl;
+    if (gevrBeanNodeMode()) return gdl;   /* the node's render mode fades it */
+    g->words.w0 = (uintptr_t)G_GEVR_BEAN_FADE << 24;
+    g->words.w1 = (uint32_t)(alpha < 0 ? 0 : alpha > 255 ? 255 : alpha);
+    return g + 1;
 }
 
 void *gevrBeanShownGdl(void *node, void *current)
@@ -272,14 +304,89 @@ int gevrBeanShownModelType(void *node, int current)
 	return activeSwap(node) ? 0 : current;
 }
 
+int gevrBeanNodeMode(void)
+{
+    static int mode = -1;
+    if (mode < 0) {
+        FILE *f = gevrBeanControlOpen("gevr_bean_nodemode.txt");
+        mode = 1;
+        if (f) {
+            if (fscanf(f, "%d", &mode) != 1) mode = 1;
+            fclose(f);
+        }
+        GEVR_BEAN_LOG("gevr bean controls: nodemode=%d\n", mode);
+    }
+    return mode != 0;
+}
+
+int gevrBeanNodeModeType(void *node, int current)
+{
+    struct beanSwap *s = activeSwap(node);
+    return s && gevrBeanNodeMode() ? s->origType : current;
+}
+
+void *gevrBeanNodeMark(void *gdl, int on)
+{
+    Gfx *g = gdl;
+    g->words.w0 = ((uintptr_t)G_GEVR_NODE_STATE << 24) | (on ? GEVR_NODE_ON : GEVR_NODE_OFF);
+    g->words.w1 = 0;
+    return g + 1;
+}
+
 /* Native glass props may be submitted only with flags=2. Their replacement
  * owns both render modes, but must still be reachable in that pass. flags=3
  * already draws it once through the primary path. Preserve hidden/broken lists. */
+void gevrBeanNoteOpaque(const void *model)
+{
+    if (model && s_nopaqueModels < MAX_OPAQUE_MODELS &&
+        (s_nopaqueModels == 0 || s_opaqueModels[s_nopaqueModels - 1] != model))
+        s_opaqueModels[s_nopaqueModels++] = model;
+}
+
+static int opaqueDrawn(const void *model)
+{
+    for (int i = s_nopaqueModels - 1; i >= 0; i--)
+        if (s_opaqueModels[i] == model)
+            return 1;
+    return 0;
+}
+
+/* A type-4 prop's Bean list holds its translucent batches too. Glass needs this
+ * pass: drawn in the opaque one alone, the walls behind it can be drawn over
+ * it (user, 2026-10-14, the guard tower's windows popping). A list with no
+ * translucent batch the opaque pass already drew is not drawn again: a second,
+ * clean copy lay over a destroyed prop's scorched one (Dam's drums) and every
+ * such prop was drawn twice. One with translucent batches is split over the
+ * passes (gevrBeanPassSplit). */
 void *gevrBeanTransparentGdl(void *node, void *current, struct Model *model, int flags)
 {
     struct beanSwap *s = activeSwap(node);
-    return s && s->origType == 4 && (flags & 2) && !(flags & 1) && (current || !s->original)
+    return s && s->origType == 4 && (flags & 2) && !(flags & 1) && (current || !s->original) &&
+           !(s->opaqueOnly && opaqueDrawn(model))
         ? gevrBeanRenderGdl(node, current, model) : NULL;
+}
+
+/* As GoldenEye's own type-4 nodes, solid in the opaque pass and translucent in
+ * the translucent one: a list with both draws its solid batches in the first
+ * (1) and its translucent ones in the second (2), each triangle once. Drawn
+ * whole in both, a guard tower with windows cost its every triangle twice
+ * (user, 2026-10-14). 0: the call draws the whole list (a pass drawn alone). */
+int gevrBeanPassSplit(void *node, struct Model *model, int flags)
+{
+    struct beanSwap *s = activeSwap(node);
+    if (!s || s->origType != 4 || s->opaqueOnly || !s->emitted)
+        return 0;
+    if (flags == 1)
+        return 1;
+    return flags == 2 && opaqueDrawn(model) ? 2 : 0;
+}
+
+void *gevrBeanPassMark(void *gdl, int pass)
+{
+    Gfx *g = gdl;
+    g->words.w0 = ((uintptr_t)G_GEVR_NODE_STATE << 24) | GEVR_NODE_PASS;
+    g->words.w1 = (uint32_t)pass;
+    return g + 1;
 }
 
 static int openRel(const char *rel, char *out, int outlen)
@@ -409,12 +516,33 @@ static s16 posClamp(float v)
 	return (s16)(v < 0.0f ? v - 0.5f : v + 0.5f);
 }
 
-static void beanRenderMode(Gfx **next, int mode1, int mode2, int room)
+static uint32_t beanRenderMode(Gfx **next, int mode1, int mode2, int room)
 {
     Gfx *g = *next;
     g->words.w0 = ((uintptr_t)G_GEVR_ROOM_STATE << 24) | (room == 2 ? 2 : room ? 0 : 1);
     g->words.w1 = (uint32_t)(G_RM_PASS | mode2 | (mode1 & 0xffff));
     *next = g + 1;
+    return (uint32_t)g->words.w1;
+}
+
+/* GoldenEye's water list's fade (unk_092E50.c sub_GAME_7F092E50): sin(phase)
+ * * 127 + 128, the phase gaining 0.04 radians a frame; the slide is the
+ * renderer's (gevrBeanWaterTransform) */
+static Gfx s_waterGdl[2];
+
+void *gevrBeanWaterList(void)
+{
+	if (!s_waterGdl[1].words.w0)
+		gevrBeanWaterTick(0, 0);
+	return s_waterGdl;
+}
+
+void gevrBeanWaterTick(float delta, float phase)
+{
+	Gfx *g = s_waterGdl;
+	gevrBeanWaterAdvance(delta);
+	gDPSetPrimColor(g++, 0, (u32)(sinf(phase) * 127.0f + 128.0f), 0xff, 0xff, 0xff, 0xff);
+	gSPEndDisplayList(g++);
 }
 
 int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert *v, int nverts,
@@ -444,7 +572,7 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
     ntri = nverts / 3;
     order = malloc((size_t)ntri * sizeof(int));
 	/* One texture group can be a single triangle, and gDPLoadTextureBlock writes several commands. */
-	cmdcap = 64 + ntri * 32;
+	cmdcap = 64 + ntri * 40;
 	gdl = malloc((size_t)cmdcap * sizeof(Gfx));
     vtx = malloc((size_t)nverts * (worldFormat ? sizeof(GevrWorldVertex) :
                  sizeof(Vtx) + (lit && !skin ? sizeof(GevrVertexTint) : 0)));
@@ -487,6 +615,9 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
     free(s_sortSpatial); s_sortSpatial=NULL;
 	g = gdl;
 	vp = vtx;
+    /* a model list keeps the node's state when the game asks (G_GEVR_NODE_STATE) */
+    const int node = !mesh->roomMaterial;
+    if (node) { g->words.w0 = ((uintptr_t)G_GEVR_NODE_STATE << 24) | GEVR_NODE_SAVE; g++->words.w1 = 0; }
 	gDPPipeSync(g++);
 	gDPSetCycleType(g++, G_CYC_2CYCLE);
 	gDPSetTexturePersp(g++, G_TP_PERSP);
@@ -551,10 +682,19 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 				G_TX_WRAP, maskT, G_TX_NOLOD, G_TX_WRAP, maskS, G_TX_NOLOD);
 			gDPSetTileSize(g++, G_TX_RENDERTILE, 0, 0,
 				(logicalW - 1) << G_TEXTURE_IMAGE_FRAC, (logicalH - 1) << G_TEXTURE_IMAGE_FRAC);
+            /* DAB xblaMeshSetMaterial: tile 1 the same picture, for the nodes'
+             * G_CC_TRILERP (fast3d's LOD fraction is 1 without G_TL_LOD) */
+            gDPSetTile(g++, G_IM_FMT_RGBA, G_IM_SIZ_16b,
+                (((logicalW) * 2) + 7) >> 3, 0, G_TX_RENDERTILE + 1, 0,
+                G_TX_WRAP, maskT, G_TX_NOLOD, G_TX_WRAP, maskS, G_TX_NOLOD);
+            gDPSetTileSize(g++, G_TX_RENDERTILE + 1, 0, 0,
+                (logicalW - 1) << G_TEXTURE_IMAGE_FRAC, (logicalH - 1) << G_TEXTURE_IMAGE_FRAC);
 		} else {
 			tex = -1;
 			gSPTexture(g++, 0, 0, 0, G_TX_RENDERTILE, G_OFF);
 		}
+        uint32_t ownMode;
+        int nodeFlags;
 		{
 			const int edge = zbuf ? G_RM_AA_ZB_TEX_EDGE : G_RM_AA_TEX_EDGE;
 			const int edge2 = zbuf ? G_RM_AA_ZB_TEX_EDGE2 : G_RM_AA_TEX_EDGE2;
@@ -563,8 +703,9 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 			const int opa = zbuf ? G_RM_AA_ZB_OPA_SURF : G_RM_AA_OPA_SURF;
 			const int opa2 = zbuf ? G_RM_AA_ZB_OPA_SURF2 : G_RM_AA_OPA_SURF2;
 			if (base->alpha < 255) {
-                if (base->decal && zbuf) beanRenderMode(&g, G_RM_AA_ZB_XLU_DECAL, G_RM_AA_ZB_XLU_DECAL2, mesh->roomMaterial);
-                else beanRenderMode(&g, xlu, xlu2, mesh->roomMaterial);
+                if (base->decal && zbuf) ownMode = beanRenderMode(&g, G_RM_AA_ZB_XLU_DECAL, G_RM_AA_ZB_XLU_DECAL2, mesh->roomMaterial);
+                else ownMode = beanRenderMode(&g, xlu, xlu2, mesh->roomMaterial);
+                nodeFlags = GEVR_NODE_SPAN | GEVR_NODE_XLU;
 				if (tex < 0) {
 					gDPSetCombineMode(g++, G_CC_SHADE, G_CC_PASS2);
 				} else if (dim) {
@@ -573,28 +714,37 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 					gDPSetCombineMode(g++, G_CC_MODULATEIA, G_CC_PASS2);
 				}
 			} else if (base->cut) {
-                if (base->decal && zbuf) beanRenderMode(&g, (edge & ~ZMODE_DEC) | ZMODE_DEC,
+                if (base->decal && zbuf) ownMode = beanRenderMode(&g, (edge & ~ZMODE_DEC) | ZMODE_DEC,
                         (edge2 & ~ZMODE_DEC) | ZMODE_DEC, mesh->roomMaterial);
-                else beanRenderMode(&g, edge, edge2, mesh->roomMaterial);
+                else ownMode = beanRenderMode(&g, edge, edge2, mesh->roomMaterial);
+                nodeFlags = GEVR_NODE_SPAN | GEVR_NODE_CUT | (tex >= 0 ? GEVR_NODE_COMBINE : 0);
 				gDPSetCombineMode(g++, G_CC_MODULATEIA, G_CC_PASS2);
 			} else if (base->decal && zbuf) {
-				beanRenderMode(&g, G_RM_AA_ZB_OPA_DECAL | Z_UPD, G_RM_AA_ZB_OPA_DECAL2, mesh->roomMaterial);
+				ownMode = beanRenderMode(&g, G_RM_AA_ZB_OPA_DECAL | Z_UPD, G_RM_AA_ZB_OPA_DECAL2, mesh->roomMaterial);
+                nodeFlags = GEVR_NODE_SPAN | (tex >= 0 ? GEVR_NODE_COMBINE : 0);
 				if (dim) {
 					gDPSetCombineMode(g++, G_CC_MODULATEI_PRIM, G_CC_PASS2);
 				} else {
 					gDPSetCombineMode(g++, G_CC_MODULATEI, G_CC_PASS2);
 				}
 			} else if (tex < 0) {
-				beanRenderMode(&g, opa, opa2, mesh->roomMaterial);
+				ownMode = beanRenderMode(&g, opa, opa2, mesh->roomMaterial);
+                nodeFlags = 0;
 				gDPSetCombineMode(g++, G_CC_SHADE, G_CC_PASS2);
 			} else if (dim) {
-				beanRenderMode(&g, opa, opa2, mesh->roomMaterial);
+				ownMode = beanRenderMode(&g, opa, opa2, mesh->roomMaterial);
+                nodeFlags = GEVR_NODE_COMBINE;
 				gDPSetCombineMode(g++, G_CC_MODULATEI_PRIM, G_CC_PASS2);
 			} else {
-				beanRenderMode(&g, opa, opa2, mesh->roomMaterial);
+				ownMode = beanRenderMode(&g, opa, opa2, mesh->roomMaterial);
+                nodeFlags = GEVR_NODE_COMBINE;
 				gDPSetCombineMode(g++, G_CC_MODULATEI, G_CC_PASS2);
 			}
 		}
+        if (node) {   /* DAB xblaMeshSetSpanMode */
+            g->words.w0 = ((uintptr_t)G_GEVR_NODE_STATE << 24) | GEVR_NODE_APPLY | (uint32_t)nodeFlags;
+            g++->words.w1 = ownMode;
+        }
         int reflect=tex>=0 && base->reflection;
         g->words.w0=((uintptr_t)G_GEVR_NORMAL_TEX1<<24) | (base->reflectionDiffuse==1 ? 1 : 0); g++->words.w1=reflect;
         if(reflect) {
@@ -614,6 +764,14 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
                 gDPSetCombineLERP(g++,TEXEL0,0,SHADE,0,0,0,0,SHADE,
                                  1,COMBINED,TEXEL1,COMBINED,0,0,0,COMBINED);
             }
+        }
+        /* DAB gewater.c: a water picture is GoldenEye's water list's two
+         * copies (tile 1 the same picture, gevrBeanWaterTransform), the one
+         * faded into the other by the primitive LOD fraction, then shaded */
+        if (tex >= 0 && !dim && !reflect && gevrBeanTextureIsWater(mesh->standin[tex])) {
+            gSPDisplayList(g++, gevrBeanWaterList());
+            gDPSetCombineLERP(g++, TEXEL1, TEXEL0, PRIM_LOD_FRAC, TEXEL0, TEXEL1, TEXEL0, PRIM_LOD_FRAC, TEXEL0,
+                              COMBINED, 0, SHADE, 0, COMBINED, 0, SHADE, 0);
         }
         while (batch < end) {
 			int take = end - batch;
@@ -646,12 +804,13 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 						    sqrtf(src->n[0] * src->n[0] + src->n[1] * src->n[1] + src->n[2] * src->n[2]);
 						for (int k = 0; k < 3; k++)
 							dst->n.n[k] = length > 1e-6f ? (s8)(src->n[k] * 127.0f / length) : 0;
-						dst->n.a = (uint8_t)((unsigned)src->alpha * src->rgba[3] / 255);
+						/* DAB: shade alpha 1 outside translucent materials, as the nodes' combiners lerp by it */
+						dst->n.a = node && src->alpha == 255 ? 255 : (uint8_t)((unsigned)src->alpha * src->rgba[3] / 255);
 					} else {
 						dst->v.cn[0] = src->rgba[0];
 						dst->v.cn[1] = src->rgba[1];
 						dst->v.cn[2] = src->rgba[2];
-						dst->v.cn[3] = (uint8_t)((unsigned)src->alpha * src->rgba[3] / 255);
+						dst->v.cn[3] = node && src->alpha == 255 ? 255 : (uint8_t)((unsigned)src->alpha * src->rgba[3] / 255);
 					}
                     if (world) {
                         memcpy(world[vi].p,src->p,sizeof(world[vi].p));
@@ -698,6 +857,7 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
     if (!mesh->roomMaterial) gSPClearGeometryMode(g++, G_FOG);
     g->words.w0=(uintptr_t)G_GEVR_NORMAL_TEX1<<24; g++->words.w1=0;
     g->words.w0 = G_GEVR_VERTEX_TINT << 24; g++->words.w1 = 0;
+    if (node) { g->words.w0 = ((uintptr_t)G_GEVR_NODE_STATE << 24) | GEVR_NODE_END; g++->words.w1 = 0; }
 	gSPEndDisplayList(g);
 	free(order);
 	if (skin) {
@@ -711,7 +871,15 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 	}
 	*gdlOut = gdl;
 	*vtxOut = vtx;
-	(void)vi;
+	/* an unlit rigid list (props): its colours are in the vertices */
+	s_lastEmit = !skin && !tints ? gdl : NULL;
+	s_lastEmitVtx = vtx;
+	s_lastEmitVerts = vi;
+	s_lastEmitCommands = (int)(g - gdl) + 1;
+	s_lastEmitWorld = world != NULL;
+	s_lastEmitOpaque = 1;
+	for (int i = 0; i < nverts; i++)
+		if (v[i].alpha < 255) s_lastEmitOpaque = 0;
 	return 1;
 }
 
@@ -857,6 +1025,7 @@ static void registerPrimary(ModelNode *n, Gfx *gdl, int blankType)
 	int op = nodeOp(n);
 	Gfx *old = NULL;
 	int oldType = 0;
+	Gfx *raw = gdl;
 	if (gdl && gdl != s_blank && !(gdl = wrapEmitted(n, gdl)))
 		return;
 	if (op == MODELNODE_OPCODE_DL && n->Data) {
@@ -871,7 +1040,65 @@ static void registerPrimary(ModelNode *n, Gfx *gdl, int blankType)
 	struct beanSwap *registered = swapOf(n);
 	if (registered && gdl != s_blank)
 		registered->deferredMatrix = nodeMatrix(n) < 0;
+	if (registered && raw && raw == s_lastEmit && !registered->skin && !registered->emitted) {
+		registered->emitted = raw;
+		registered->emittedVtx = s_lastEmitVtx;
+		registered->emittedVerts = s_lastEmitVerts;
+		registered->emittedCommands = s_lastEmitCommands;
+		registered->emittedWorld = s_lastEmitWorld;
+		registered->opaqueOnly = s_lastEmitOpaque;
+		for (int k = 0; k < 3; k++) {
+			registered->box[0][k] = 1e30f;
+			registered->box[1][k] = -1e30f;
+		}
+		for (int v = 0; v < s_lastEmitVerts; v++)
+			for (int k = 0; k < 3; k++) {
+				const float p = s_lastEmitWorld ? ((const GevrWorldVertex *)s_lastEmitVtx)[v].p[k]
+				                                : ((const Vtx *)s_lastEmitVtx)[v].v.ob[k];
+				if (p < registered->box[0][k]) registered->box[0][k] = p;
+				if (p > registered->box[1][k]) registered->box[1][k] = p;
+			}
+		registered->hasBox = s_lastEmitVerts > 0;
+	}
 	(void)blankType;
+}
+
+/*
+ * GoldenEye stands its own cameras (the opening's stills, the swirl) against
+ * and inside props: its lists cull their backs, so from inside a gas tank it
+ * sees past it. Bean's props are two-sided (DAB: a truck cab's and a gate's
+ * far walls are single planes), so the camera saw the tank's inside, a dark
+ * green screen (user, 2026-10-14, Facility). While such a camera stands inside
+ * a Bean prop's bounds, that prop culls its backs.
+ */
+extern int gevrBeanWorldAuthoredView(void);
+int gevrBeanCameraInside(void *node, struct Model *model)
+{
+    struct beanSwap *s = activeSwap(node);
+    if (!s || !s->hasBox || !model || !model->render_pos || !model->obj || !gevrBeanWorldAuthoredView())
+        return 0;
+    const int matrix = nodeMatrix(node);
+    if (matrix < 0 || matrix >= model->obj->numMatrices)
+        return 0;
+    /* the node's matrix to the camera, row vectors: the camera in the node's space */
+    const float (*m)[4] = model->render_pos[matrix].pos.m;
+    const float s2 = m[0][0] * m[0][0] + m[0][1] * m[0][1] + m[0][2] * m[0][2];
+    if (s2 < 1e-12f)
+        return 0;
+    for (int k = 0; k < 3; k++) {
+        const float p = -(m[3][0] * m[k][0] + m[3][1] * m[k][1] + m[3][2] * m[k][2]) / s2;
+        if (p < s->box[0][k] - 1.0f || p > s->box[1][k] + 1.0f)
+            return 0;
+    }
+    return 1;
+}
+
+void *gevrBeanCullMark(void *gdl, int on)
+{
+    Gfx *g = gdl;
+    g->words.w0 = ((uintptr_t)G_GEVR_NODE_STATE << 24) | GEVR_NODE_CULL;
+    g->words.w1 = on != 0;
+    return g + 1;
 }
 
 #include "gevr_bean_pilot.inc.h"
@@ -2550,6 +2777,107 @@ void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
 	if (!cached) gevrBeanMeshFree(mesh);
 }
 
+/* objDeform's vertex copies: a destroyed prop's, for gevrBeanScorchedGdl. A
+ * node's own copy alone says nothing: chr.c gives chr parts theirs too, and a
+ * scorched list is a per-frame copy drawn on the CPU. */
+#define MAX_DEFORMED 64
+static const void *s_deformed[MAX_DEFORMED];
+static int s_deformedNext;
+
+void gevrBeanMarkDeformed(const void *vertices)
+{
+    gevrBeanForgetDeformed(vertices);
+    s_deformed[s_deformedNext] = vertices;
+    s_deformedNext = (s_deformedNext + 1) % MAX_DEFORMED;
+}
+
+void gevrBeanForgetDeformed(const void *vertices)
+{
+    for (int i = 0; vertices && i < MAX_DEFORMED; i++)
+        if (s_deformed[i] == vertices) s_deformed[i] = NULL;
+}
+
+int gevrBeanIsDeformed(const void *vertices)
+{
+    for (int i = 0; vertices && i < MAX_DEFORMED; i++)
+        if (s_deformed[i] == vertices) return 1;
+    return 0;
+}
+
+static Gfx *s_rareLogo;
+static const void *s_rareLogoPicture;
+static int s_rareLogoTried;
+
+/* The release's Rare logo has no N64 model: GoldenEye draws its own from a
+ * cartridge segment (title.c, gevr_rarelogo.c). Its mesh carries no UVs; the
+ * gold picture is an environment map, as the cartridge's chrome is. */
+void *gevrBeanRareLogoGdl(const float lo[3], const float hi[3], const void **picture)
+{
+    if (!gevrBeanIsEnabled() || !gevrBeanIsAvailable() || gevrRomIsVariant()) return NULL;
+    if (!s_rareLogoTried) {
+        char path[192];
+        struct gevrBeanMesh *mesh = NULL;
+        s_rareLogoTried = 1;
+        if (findFile("new/prop/rarewarelogo", path, sizeof(path))) mesh = cachedLoad(path, 1);
+        int tex = -1;
+        float mlo[3] = {1e30f, 1e30f, 1e30f}, mhi[3] = {-1e30f, -1e30f, -1e30f};
+        for (int i = 0; mesh && i < mesh->ntris; i++) {
+            if (tex < 0) tex = mesh->tris[i].tex;
+            for (int k = 0; k < 9; k++) {
+                if (mesh->tris[i].p[k] < mlo[k % 3]) mlo[k % 3] = mesh->tris[i].p[k];
+                if (mesh->tris[i].p[k] > mhi[k % 3]) mhi[k % 3] = mesh->tris[i].p[k];
+            }
+        }
+        if (!mesh || tex < 0 || tex >= mesh->ntex || !mesh->standin[tex] || mhi[1] <= mlo[1]) {
+            GEVR_BEAN_LOG("gevr bean: rare logo: the cartridge's (%s)", mesh ? "no picture" : "no new/prop/rarewarelogo");
+            return NULL;
+        }
+        /* as tall as the cartridge's, on its centre */
+        const float scale = (hi[1] - lo[1]) / (mhi[1] - mlo[1]);
+        const int nverts = mesh->ntris * 3, triangles = mesh->ntris;
+        Vtx *verts = malloc((size_t)nverts * sizeof(Vtx));
+        Gfx *list = malloc((size_t)(triangles + (triangles + 4) / 5 + 16) * sizeof(Gfx));
+        if (!keepAlloc(verts)) {
+            free(verts);
+            free(list);
+            return NULL;
+        }
+        if (!keepAlloc(list)) {
+            free(list);
+            return NULL;
+        }
+        for (int i = 0; i < nverts; i++) {
+            const struct gevrBeanTri *t = &mesh->tris[i / 3];
+            const float *p = &t->p[(i % 3) * 3], *n = &t->n[(i % 3) * 3];
+            const float len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+            Vtx *dst = &verts[i];
+            memset(dst, 0, sizeof(*dst));
+            for (int k = 0; k < 3; k++) {
+                dst->n.ob[k] = posClamp((p[k] - (mlo[k] + mhi[k]) / 2) * scale + (lo[k] + hi[k]) / 2);
+                dst->n.n[k] = len > 1e-6f ? (s8)(n[k] * 127.0f / len) : 0;
+            }
+            dst->n.a = 255;
+        }
+        Gfx *g = list;
+        gSPSetGeometryMode(g++, G_ZBUFFER);
+        gDPSetRenderMode(g++, G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2);
+        for (int t = 0; t < triangles;) {
+            int take = triangles - t;
+            if (take > 5) take = 5;
+            gSPVertex(g++, osVirtualToPhysical(&verts[t * 3]), take * 3, 0);
+            for (int j = 0; j < take; j++) gSP1Triangle(g++, j * 3, j * 3 + 1, j * 3 + 2, 0);
+            t += take;
+        }
+        gSPClearGeometryMode(g++, G_ZBUFFER);
+        gSPEndDisplayList(g++);
+        s_rareLogo = list;
+        s_rareLogoPicture = mesh->standin[tex];
+        GEVR_BEAN_LOG("gevr bean: rare logo: the release's, %d triangles at %.2fx", triangles, scale);
+    }
+    *picture = s_rareLogoPicture;
+    return s_rareLogo;
+}
+
 void gevrBeanReset(void)
 {
 	beanFrameReset();
@@ -2563,6 +2891,9 @@ void gevrBeanReset(void)
 		s_alloc[i] = NULL;
 	}
 	s_nalloc = 0;
+	s_rareLogo = NULL;   /* its list and picture went with the level */
+	memset(s_deformed, 0, sizeof(s_deformed));
+	s_rareLogoTried = 0;
 	s_nswap = 0;
 	memset(s_swapIndex, 0, sizeof(s_swapIndex));
 	s_nscreenInfo = 0;
