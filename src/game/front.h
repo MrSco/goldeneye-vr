@@ -5,6 +5,12 @@
 #include <bondconstants.h>
 
 
+/* One reusable menu allocation: textures, host cast models, then 440x330 Z. */
+#define GEVR_CAST_TEXTURE_BYTES 0x19000
+#define GEVR_CAST_MODEL_BYTES   0x100000
+#define GEVR_CAST_DEPTH_BYTES   (440 * 330 * 2)
+#define GEVR_MENU_BUFFER_BYTES (GEVR_CAST_TEXTURE_BYTES + GEVR_CAST_MODEL_BYTES + GEVR_CAST_DEPTH_BYTES + 64)
+
 #define TABS_LEFT_EDGE 390.0f
 #define TABS_RIGHT_EDGE 411
 

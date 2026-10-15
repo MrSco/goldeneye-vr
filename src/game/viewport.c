@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include <memp.h>
 #include "bondview.h"
+#include "viewport.h"
 #include <PR/os.h>
 #include <PR/gbi.h>
 #include <macro.h>
@@ -12,7 +13,7 @@ s32 z_buffer_width; // 0x8008e8f0
 s32 z_buffer_height; // 0x8008e8f4
 
 // data
-s32 z_buffer = 0; // 0x8004f010
+uintptr_t z_buffer = 0; // 0x8004f010
 
 /*
  * Address: 0x7f0d2870
@@ -46,7 +47,7 @@ void zbufAllocate(void)
         }
     }
 
-    z_buffer = mempAllocBytesInBank((z_buffer_width * z_buffer_height * 2) + 64, MEMPOOL_STAGE);
+    z_buffer = (uintptr_t)mempAllocBytesInBank((z_buffer_width * z_buffer_height * 2) + 64, MEMPOOL_STAGE);
     z_buffer = ALIGN64_V1(z_buffer);
 }
 
@@ -54,7 +55,7 @@ void zbufAllocate(void)
 /*
  * Address: 0x7f0d2938
 */
-void zbufSetBuffer(s32 buffer, s32 width, s32 height) {
+void zbufSetBuffer(uintptr_t buffer, s32 width, s32 height) {
     z_buffer = buffer;
     z_buffer_width = width;
     z_buffer_height = height;
@@ -66,7 +67,7 @@ void zbufSetBuffer(s32 buffer, s32 width, s32 height) {
 */
 Gfx *zbufInit(Gfx *gdl) {
     s32 phi_a3;
-    s32 test;
+    uintptr_t test;
     if (z_buffer == 0) {
         zbufAllocate();
     }
@@ -76,7 +77,7 @@ Gfx *zbufInit(Gfx *gdl) {
         phi_a3 = 0;
     }
     test = (z_buffer - phi_a3);
-    test = test & ~0x3F;
+    test = test & ~(uintptr_t)0x3F;
     gDPPipeSync(gdl++);
     gDPSetDepthImage(gdl++, test);
     return gdl;
