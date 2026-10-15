@@ -19,6 +19,7 @@ fixture = r'''
 using Uint32 = unsigned;
 static char g_ActiveExtTexPack[256];
 static int VrGexGuns=1, bean; static int VrCampaign=0; /* GoldenEye; hack campaigns grey out Bean and GE-X */
+static int VrBeanFillTextures=1, VrBloodPatch=0;   /* Mods: Bean HD fill, Wreck's blood patch */
 #define GEVR_CAMPAIGN_GE 0
 static bool available;
 static std::string raw;

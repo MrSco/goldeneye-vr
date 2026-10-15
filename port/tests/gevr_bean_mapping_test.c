@@ -14,6 +14,9 @@ int gevrRomIsVariant(void) { return 0; } /* GoldenEye: no hack campaign */
 void gfx_static_mesh_release(GevrStaticMesh *mesh) { (void)mesh; }
 int VrBeanModels = 1;
 int VrGexGuns;
+/* model.c, for gevr_bean_wounds.inc.h: no bruises in this fixture */
+union ModelRwData *modelGetNodeRwData(Model *model, ModelNode *node) { (void)model; (void)node; return NULL; }
+s32 modelFindNodeMtxIndex(ModelNode *node, s32 arg1) { (void)node; (void)arg1; return -1; }
 uintptr_t osVirtualToPhysical(void *p)
 {
 	return (uintptr_t)p;
