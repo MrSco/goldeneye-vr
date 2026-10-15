@@ -1373,6 +1373,11 @@ void gevrStereoFrame(s32 inlevel)
                 gevrVrLocomotionResetReason(GEVR_LOCO_RESET_TANK);
             else if (lastTeleport != g_gevrTeleportEpoch)
                 gevrVrLocomotionResetReason(GEVR_LOCO_RESET_TELEPORT);
+            /* Aboard the Dam speedboat, Bond is set on its deck each tick and the
+             * hull drawn where it is: the view smoothed between ticks ran ahead
+             * of the hull, which shook as it went (user, 2026-10-15) */
+            else if (gevrDamBoatAboard())
+                gevrVrLocomotionResetReason(GEVR_LOCO_RESET_TANK);
             lastPlayer = pl; lastStage = stage; lastPaused = paused;
             lastTank = g_PlayerIsInTank; lastTeleport = g_gevrTeleportEpoch;
             if (gevrSpectating() || gevrCoopLocalDowned()) gevrVrLocomotionResetReason(GEVR_LOCO_RESET_CONTEXT);
@@ -13187,11 +13192,11 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     }
     if (gevrDamBoatAboard())
     {
-        /* in stereo the N64 stick is zeroed (input.c): the VR move stick drives */
+        /* the move stick drives: the N64 stick is zeroed in stereo and is the
+         * look stick on the 2D screen (input.c) */
         extern f32 gevrMoveStickX, gevrMoveStickY;
 
-        gevrDamBoatDrive(stick_x != 0 ? (f32) stick_x : gevrMoveStickX * 80.0f,
-                         stick_y != 0 ? (f32) stick_y : gevrMoveStickY * 80.0f);
+        gevrDamBoatDrive(gevrMoveStickX * 80.0f, gevrMoveStickY * 80.0f);
         g_CurrentPlayer->speedforwards = 0.0f;
         g_CurrentPlayer->speedsideways = 0.0f;
         g_CurrentPlayer->speedtheta = 0.0f;
