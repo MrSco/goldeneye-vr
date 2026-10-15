@@ -9,11 +9,14 @@ It sits just off the north jetty, nosed at the island pad: the standable pad
 farthest across the level, and the unused pad on this side of the water when
 one is as far out as the docks.
 
-- **Board:** stand at the jetty and press **B**, or put a hand on the hull and grip.
-- **Ride:** the stick steers and drives. Walking does not carry you off the deck.
-  The boat stays on the reservoir, out to the island.
-- **Step off:** press **B** once the hull is near the island landing. **B** in
-  mid-crossing does not drop you in the water.
+- **Board:** from the jetty, reach over the hull's edge and grip, or press **B**
+  standing within about 3.5 m of it.
+- **Ride:** the left (move) stick drives: up goes ahead, left and right steer, in
+  VR and on the 2D screen. Walking does not carry you off the deck. The hull
+  floats a tenth of its height in the water and stops at the jetty and the docks.
+- **Step off:** grip (or **B**) once the hull is near the island landing or back
+  at the jetty. Mid-crossing you stay aboard. With **Grip to use** on (Gestures),
+  B is left to its own job and only the grip boards and steps off.
 - **Hull lost:** the hull is a normal prop (1000 health). If it is destroyed
   or removed while you ride, you land back on the north jetty.
 
