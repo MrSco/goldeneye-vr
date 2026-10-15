@@ -301,12 +301,17 @@ static int cameraOutside(void)
  * DAB gebeanstage.c markWaterPictures (port/licenses/dabs-mod.txt): a Bean
  * picture is water when at least two of its triangles, and at least half,
  * lie within 64 units of GoldenEye's water (1508 Caverns, 1511 Dam; on
- * vertices shaded black - Complex's pits - it is none). GoldenEye's slide,
+ * vertices shaded black - Complex's pits - it is none). Here such a triangle
+ * must also lie level, every corner within 16 units of the water's height:
+ * near was enough to take Dam's waterline concrete, the snow and the rocky
+ * grass of its shore for water, and they crept with it (2026-10-14). Dam's
+ * reservoir lies within 16 units, Caverns' pools within 4. GoldenEye's slide,
  * 0.25 and 0.1 quarter texels a frame of its own picture, is taken across the
  * ground and into Bean's, which lies bigger and turned against it, from the
  * two pictures' gradients over x and z, each the area-weighted mean.
  */
 #define WATER_NEAR 64.0f
+#define WATER_LEVEL 16.0f
 #define WATER_BLACK 8
 
 struct waterMeasure {
@@ -377,13 +382,37 @@ static void markWater(const struct gevrBeanMesh *mesh, float fileScale)
 		}
 		if (!inside)
 			continue;
+		float best = WATER_NEAR * WATER_NEAR;
+		const struct beanRoomTri *nearest = NULL;
 		for (int j = 0; j < nwater; j++) {
 			const struct beanRoomTri *w = &s_reference[water[j]];
-			if (roomBoxDistance(mid, w->lo, w->hi) < WATER_NEAR * WATER_NEAR &&
-			    roomTriangleDistance(mid, w) < WATER_NEAR * WATER_NEAR) {
+			if (roomBoxDistance(mid, w->lo, w->hi) >= best)
+				continue;
+			const float d = roomTriangleDistance(mid, w);
+			if (d < best) {
+				best = d;
+				nearest = w;
+			}
+		}
+		if (nearest) {
+			/* level, and at the water's height (GoldenEye's water is flat) */
+			const float height = (nearest->p[0][1] + nearest->p[1][1] + nearest->p[2][1]) / 3.0f;
+			float a[3], b[3], n[3];
+			int level = 1;
+			for (int k = 0; k < 3; k++) {
+				a[k] = (t->p[3 + k] - t->p[k]) * fileScale;
+				b[k] = (t->p[6 + k] - t->p[k]) * fileScale;
+				if (fabsf(t->p[k * 3 + 1] * fileScale - height) >= WATER_LEVEL)
+					level = 0;
+			}
+			n[0] = a[1] * b[2] - a[2] * b[1];
+			n[1] = a[2] * b[0] - a[0] * b[2];
+			n[2] = a[0] * b[1] - a[1] * b[0];
+			if (!(fabsf(n[1]) > 0.98f * sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2])))
+				level = 0;
+			if (level) {
 				near[i] = 1;
 				on[t->tex]++;
-				break;
 			}
 		}
 	}
