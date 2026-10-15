@@ -65,10 +65,8 @@ ships. References are Dab's unless marked GE (the decomp).
 - Release sky only on Surface, Dam and Runway (`gebeansky.c` `releaseSkyNames`);
   we put the sunset dome on Caverns, Egyptian, Frigate, Temple, Complex, the
   Bunkers and Surface 2. Sky cap fade and fill (`skyCapFade`).
-- Hide native rooms the Bean mesh leaves out (`gebeanStageRoomHidden`).
-- Dam's "Nine years ago" opening still over the water: a Bean rock rises in front of
-  the dam, and a lighter box shows in the water (user, 2026-10-14; also with the
-  camera cull off, so not 2906822).
+- Hidden native rooms (c94a8ff: Dam's intro boulder and its N64 water) still
+  stop shots; Dab's `prop.c` and `collision.c` skip `gebeanStageRoomHidden` rooms.
 - Keep GoldenEye's translucent room leaves the Bean room lacks, water first
   (`fileWaterLeaves`): `gevr_bean_world.c` sets replaced before checking.
 - Far plane to the mesh's extent (`gebeanStageTickFar`); backdrop handling
