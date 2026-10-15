@@ -71,7 +71,8 @@ enum { PROPDEF_DOOR=1,PROPDEF_PROP=3,PROPDEF_KEY,PROPDEF_ALARM,PROPDEF_MAGAZINE,
 static struct {struct ModelFileHeader*header;float scale;} PitemZ_entries[PROP_SPEEDBOAT+1];
 static int g_gevrStereo=1,updates,registrations,deregistrations,poses,variant;
 static float g_GlobalTimerDelta=1,D_800364CC=1;
-static int VrGestureGripUse;
+static int VrGestureGripUse,handReload;
+static int gevrHandReloadActive(void){return handReload;}
 static struct ObjectRecord object;
 static struct Model model;
 static struct ModelFileHeader header;
@@ -187,12 +188,16 @@ int main(int argc,char**argv){
     {
         float edge[3]={s_ride.x,0,s_ride.z-s_halfLength*cosf(s_ride.yaw)-40*cosf(s_ride.yaw)};
         edge[0]=s_ride.x-(s_halfLength+40)*sinf(s_ride.yaw);
+        // standing a step from its edge
+        player.field_488.collision_position.x=s_ride.x;player.field_488.collision_position.z=s_ride.z+s_halfLength+50;
         assert(gevrDamBoatTryHand(edge) && gevrDamBoatAboard());
         assert(gevrDamBoatTryHand(edge) && !gevrDamBoatAboard());
     }
     // With grip to use, B is not the boat's.
     prepare();VrGestureGripUse=1;
     assert(!gevrDamBoatOnB() && gevrDamBoatAboard());VrGestureGripUse=0;
+    // Hand reload with GE-X forces grip use: B ejects magazines, not the boat's.
+    prepare();handReload=1;assert(!gevrDamBoatOnB() && gevrDamBoatAboard());handReload=0;
     // B at the jetty steps off there; aboard mid-crossing, it does nothing.
     prepare();assert(gevrDamBoatOnB() && !gevrDamBoatAboard());
     assert(player.field_488.collision_position.z==g_CurrentSetup.pads[s_jetty_pad].pos.z);

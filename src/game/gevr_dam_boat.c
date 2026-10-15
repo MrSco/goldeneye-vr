@@ -24,6 +24,7 @@ extern bool netIsActive(void);
 extern s32 g_gevrStereo;
 extern f32 gevrHandPropDistance(struct PropRecord *prop, const f32 p[3]);
 extern int VrGestureGripUse;   /* Gestures: grip to use (vr_settings) */
+extern s32 gevrHandReloadActive(void);   /* hand reload with GE-X forces grip use (vr_launcher.cpp) */
 
 #define GEVR_DAM_BOAT_MAX_PADS 1024
 
@@ -512,9 +513,10 @@ int gevrDamBoatOnB(void)
     {
         return 0;
     }
-    /* With grip to use (GE-X style) the grip boards and steps off, and B is
-     * left to its own job (user, 2026-10-15) */
-    if (g_gevrStereo && VrGestureGripUse)
+    /* With grip use (GE-X style) the grip boards and steps off, and B is left
+     * to its own job (user, 2026-10-15): set, or forced on by hand reload with
+     * GE-X, where B ejects magazines - the game's grip checks both */
+    if (g_gevrStereo && (VrGestureGripUse || gevrHandReloadActive()))
     {
         return 0;
     }
@@ -561,26 +563,24 @@ int gevrDamBoatTryHand(const f32 p[3])
     }
     view_units = 100.0f * D_800364CC;
     {
-        /* From the jetty the hull lies below, beyond a hand's box test: Bond
-         * within reach of its outline, the hand toward it - within 150 units
-         * of its edge, or reaching out to it past his body. 80 units of hand
-         * alone boarded nobody (user, 2026-10-15). */
-        const f32 s = D_800364CC > 1.0e-6f ? D_800364CC : 1.0f;
-        const f32 hand = gevrDamBoatFromHull(p[0] / s, p[2] / s);
+        /* From the jetty the hull lies below, beyond a hand's box test. The
+         * hand is in view space (gevrGripAxesRaw), not on the ground's, so it
+         * read 7,460 units from a hull Bond stood at (user, 2026-10-15): a grip
+         * with Bond at the hull's edge - 150 units, a step - boards. */
         const f32 body = gevrDamBoatFromHull(g_CurrentPlayer->field_488.collision_position.f[0],
                                              g_CurrentPlayer->field_488.collision_position.f[2]);
 
-        if (gevrDamBoatInReach() && (hand <= 150.0f || hand < body - 30.0f))
+        if (body <= 150.0f && gevrDamBoatInReach())
         {
             s_ride.aboard = 1;
             gevrDamBoatSeatNow();
-            sysLogPrintf(LOG_NOTE, "dam boat: hand over the hull, boarded");
+            sysLogPrintf(LOG_NOTE, "dam boat: grip at the hull's edge, boarded");
             return 1;
         }
         if (body < 1500.0f)
         {
-            sysLogPrintf(LOG_NOTE, "dam boat: grip %.0f from the hull, hand %.0f, %.0f above its deck (board within %.0f)",
-                         body, hand, g_CurrentPlayer->field_70 - s_deckY, GEVR_DAM_BOAT_BOARD_UNITS);
+            sysLogPrintf(LOG_NOTE, "dam boat: grip %.0f from the hull, %.0f above its deck (board within 150)",
+                         body, g_CurrentPlayer->field_70 - s_deckY);
         }
     }
     dist = gevrHandPropDistance(s_boat, p);
