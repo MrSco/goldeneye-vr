@@ -13197,9 +13197,9 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         extern f32 gevrMoveStickX, gevrMoveStickY;
 
         gevrDamBoatDrive(gevrMoveStickX * 80.0f, gevrMoveStickY * 80.0f);
+        /* the boat carries him; he still turns (the 2D screen's right stick) */
         g_CurrentPlayer->speedforwards = 0.0f;
         g_CurrentPlayer->speedsideways = 0.0f;
-        g_CurrentPlayer->speedtheta = 0.0f;
     }
 #endif
 

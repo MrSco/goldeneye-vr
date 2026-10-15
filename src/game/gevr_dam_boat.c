@@ -39,9 +39,12 @@ static struct GevrBoatPad s_pads[GEVR_DAM_BOAT_MAX_PADS];
  * jetty pad's height, the jetty's deck, about 300 units over the reservoir: it
  * hung in the air (user, 2026-10-15). Dam's reservoir is flat: the retail
  * background's 101 lit water triangles (texture 1511) all lie at -200, drawn
- * at 1 / levelscale. The hull sits a quarter of its height in it, by its own
- * bounding box, and Bond stands at half its height. The ride's own y stays the
- * jetty's, which boarding measures from.
+ * at 1 / levelscale. The water is one plane, which no hull keeps out, so the
+ * hull rides high: a tenth of its height in it, by its own bounding box under
+ * its group's origin. A quarter, with the origin left out, put the water over
+ * the cabin's floor ("we sinking", user, 2026-10-15). Bond stands at the
+ * model's origin, its gunwale. The ride's own y stays the jetty's, which
+ * boarding measures from.
  */
 #define GEVR_DAM_WATER_BG_Y -200.0f
 static f32 s_hullY, s_deckY;
@@ -51,27 +54,36 @@ static f32 s_halfLength, s_halfWidth;
 
 /* The hull in its own model: the union of its bounding boxes, the whole tree
  * walked (chrobjGetBboxFromObjFile looks two levels down only, and found none
- * on the speedboat). 0 when it has none. */
-static int gevrDamBoatHullBox(ModelNode *node, s32 depth, struct bbox *out, s32 found)
+ * on the speedboat), each moved by its groups' origins as the hull is drawn
+ * (the speedboat's group lowers it 94). 0 when it has none. */
+static int gevrDamBoatHullBox(ModelNode *node, s32 depth, const f32 origin[3], struct bbox *out, s32 found)
 {
     for (; node != NULL && depth < 32; node = node->Next)
     {
+        f32 below[3] = { origin[0], origin[1], origin[2] };
+
         if ((node->Opcode & 0xff) == MODELNODE_OPCODE_BBOX && node->Data != NULL)
         {
             const struct bbox *box = &node->Data->BoundingBox.Bounds;
 
             if (box->ymax > box->ymin)
             {
-                if (!found || box->xmin < out->xmin) out->xmin = box->xmin;
-                if (!found || box->xmax > out->xmax) out->xmax = box->xmax;
-                if (!found || box->ymin < out->ymin) out->ymin = box->ymin;
-                if (!found || box->ymax > out->ymax) out->ymax = box->ymax;
-                if (!found || box->zmin < out->zmin) out->zmin = box->zmin;
-                if (!found || box->zmax > out->zmax) out->zmax = box->zmax;
+                if (!found || box->xmin + origin[0] < out->xmin) out->xmin = box->xmin + origin[0];
+                if (!found || box->xmax + origin[0] > out->xmax) out->xmax = box->xmax + origin[0];
+                if (!found || box->ymin + origin[1] < out->ymin) out->ymin = box->ymin + origin[1];
+                if (!found || box->ymax + origin[1] > out->ymax) out->ymax = box->ymax + origin[1];
+                if (!found || box->zmin + origin[2] < out->zmin) out->zmin = box->zmin + origin[2];
+                if (!found || box->zmax + origin[2] > out->zmax) out->zmax = box->zmax + origin[2];
                 found = 1;
             }
         }
-        found = gevrDamBoatHullBox(node->Child, depth + 1, out, found);
+        if ((node->Opcode & 0xff) == MODELNODE_OPCODE_GROUP && node->Data != NULL)
+        {
+            below[0] += node->Data->Group.Origin.f[0];
+            below[1] += node->Data->Group.Origin.f[1];
+            below[2] += node->Data->Group.Origin.f[2];
+        }
+        found = gevrDamBoatHullBox(node->Child, depth + 1, below, out, found);
     }
     return found;
 }
@@ -187,7 +199,7 @@ static void gevrDamBoatStepOffAt(s32 padnum)
     g_CurrentPlayer->field_7C = 0.0f;
     g_CurrentPlayer->speedforwards = 0.0f;
     g_CurrentPlayer->speedsideways = 0.0f;
-    g_CurrentPlayer->speedtheta = 0.0f;
+    g_CurrentPlayer->speedtheta = 0.0f;   /* stepped off: standing still */
     if (pad->stan != NULL)
     {
         g_CurrentPlayer->field_488.current_tile_ptr = pad->stan;
@@ -293,9 +305,9 @@ static void gevrDamBoatSeatNow(void)
     player->field_70 = s_deckY;
     player->stanHeight = s_deckY;
     player->field_7C = 0.0f;
+    /* the turn stays: on the 2D screen the right stick turns Bond aboard */
     player->speedforwards = 0.0f;
     player->speedsideways = 0.0f;
-    player->speedtheta = 0.0f;
     if (player->prop != NULL)
     {
         player->prop->pos.x = s_ride.x;
@@ -398,16 +410,17 @@ void gevrDamBoatPrepare(s32 stageId)
     s_halfLength = s_halfWidth = 0.0f;
     {
         struct bbox hull;
+        const f32 none[3] = { 0.0f, 0.0f, 0.0f };
 
         memset(&hull, 0, sizeof(hull));
-        if (obj->model->obj != NULL && gevrDamBoatHullBox(obj->model->obj->RootNode, 0, &hull, 0))
+        if (obj->model->obj != NULL && gevrDamBoatHullBox(obj->model->obj->RootNode, 0, none, &hull, 0))
         {
             const f32 lo = hull.ymin * obj->model->scale;
             const f32 hi = hull.ymax * obj->model->scale;
             const f32 water = GEVR_DAM_WATER_BG_Y * get_room_data_float2();
 
-            s_hullY = water - (lo + 0.25f * (hi - lo));
-            s_deckY = s_hullY + lo + 0.5f * (hi - lo);
+            s_hullY = water - (lo + 0.1f * (hi - lo));
+            s_deckY = s_hullY;
             s_halfLength = fmaxf(fabsf(hull.zmin), fabsf(hull.zmax)) * obj->model->scale;
             s_halfWidth = fmaxf(fabsf(hull.xmin), fabsf(hull.xmax)) * obj->model->scale;
             sysLogPrintf(LOG_NOTE, "dam boat: hull %.0f..%.0f, water %.0f: hull at %.0f, deck %.0f (jetty %.0f)",
