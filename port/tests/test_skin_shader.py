@@ -210,16 +210,23 @@ def execution(gl, program):
     assert all(abs(a-b) < 2e-5 for a, b in zip(first, expected)), (first, expected)
     # A bullet wound (gevr_bean_wounds.inc.h): on the vertex, the shade alpha the
     # chr combiner lerps to blood by goes to 0 and the colour to white; 30 units
-    # off, 3/4 of that; outside the 60-unit radius, nothing.
+    # off, 3/4 of that; outside the 60-unit radius, nothing. w carries the
+    # radius times 256 over the strength; a head's 40 reaches 20 units at 3/4.
     gl.uniform(program, "uWoundCount", "i", 1)
-    gl.uniform(program, "uWound[0]", "f", [10, 5, .3, 255])
+    gl.uniform(program, "uWound[0]", "f", [10, 5, .3, 255 + 256 * 60])
     out = gl.capture()
     assert all(abs(a-b) < 1e-3 for a, b in zip(out[4:8], [1, 1, 1, 0])), out   # the vertex rounds to whole units
-    gl.uniform(program, "uWound[0]", "f", [40, 5, .3, 255])
+    gl.uniform(program, "uWound[0]", "f", [40, 5, .3, 255 + 256 * 60])
     out = gl.capture()
     lifted = [c + (1 - c) * .75 for c in (110/255, 130/255, 150/255)] + [.25]
     assert all(abs(a-b) < 1e-3 for a, b in zip(out[4:8], lifted)), (out, lifted)
-    gl.uniform(program, "uWound[0]", "f", [80, 5, .3, 255])
+    gl.uniform(program, "uWound[0]", "f", [30, 5, .3, 255 + 256 * 40])
+    out = gl.capture()
+    assert all(abs(a-b) < 1e-3 for a, b in zip(out[4:8], lifted)), (out, lifted)
+    gl.uniform(program, "uWound[0]", "f", [50, 5, .3, 255 + 256 * 40])
+    out = gl.capture()
+    assert all(abs(a-b) < 2e-5 for a, b in zip(out[4:8], expected[4:8])), out
+    gl.uniform(program, "uWound[0]", "f", [80, 5, .3, 255 + 256 * 60])
     out = gl.capture()
     assert all(abs(a-b) < 2e-5 for a, b in zip(out[4:8], expected[4:8])), out
     gl.uniform(program, "uWoundCount", "i", 0)

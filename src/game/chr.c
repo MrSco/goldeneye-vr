@@ -3570,9 +3570,10 @@ after_opcode:
     /* the bruise, for a Bean body's own vertices (gevr_bean_wounds.inc.h) */
     if (((ModelRwData_DisplayList_CollisionRecord *) rwdata)->Vertices != ((ModelRoData_DisplayList_CollisionRecord *) node)->Vertices)
     {
-        extern void gevrBeanNoteWound(Model *model, ModelNode *hitnode, ModelNode *stained, const void *vertices,
-                                      const coord3d *local, s32 alpha);
-        gevrBeanNoteWound(model, root, bestnode, ((ModelRwData_DisplayList_CollisionRecord *) rwdata)->Vertices, pos, paintval);
+        extern void gevrBeanNoteWound(Model *model, s32 hitpart, ModelNode *hitnode, ModelNode *stained,
+                                      const void *vertices, const coord3d *local, s32 alpha);
+        gevrBeanNoteWound(model, arg1, root, bestnode, ((ModelRwData_DisplayList_CollisionRecord *) rwdata)->Vertices,
+                          pos, paintval);
     }
 #endif
     if ((relatedrwdata != NULL) && (relatedrwdata->Vertices != relatedrodata->Vertices))

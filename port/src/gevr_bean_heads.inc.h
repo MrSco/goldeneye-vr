@@ -55,6 +55,8 @@ static int emitHead(const struct gevrBeanMesh *mesh, int kind, void **gdl, void 
 	}
 	s_emitSkin = skin;
 	int ok = count && gevrBeanEmitList(mesh, vertices, count, 1, 0, 1, 1, gdl, vtx);
+	if (ok && s_emittedSkin)
+		s_emittedSkin->head = 1;
 	s_emitSkin = NULL;
 	free(vertices);
 	free(skin);
