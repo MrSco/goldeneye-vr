@@ -3,15 +3,19 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current release:** v0.4.23 (versionCode 79, protocol 21), 2026-10-13.
-v0.4.16 through v0.4.22 can join; v0.4.15 and older can't. Building does not
+**Current release:** v0.5.0 (versionCode 80, protocol 21), 2026-10-14.
+v0.4.16 through v0.4.23 can join; v0.4.15 and older can't. Building does not
 publish a GitHub release. No game data is shipped.
 
-v0.4.23 (PR #178): aim steadying per headset frame,
-no VR screen shake, chest/belt slot models half size on the slot (watch laser
-as the watch), each hand's ammo on its own hand, Dam boat crash 252ac6ae (hull
-lost aboard: back to the north jetty). [v0.4.23](docs/releases/v0.4.23.md),
-[checks](docs/vr-tracking-bean-validation.md).
+v0.5.0 (PR #180, PR #183): XBLA at 120 Hz on Quest 3 (early game tick before
+the XR wait, eye pass drawn by the redraw replay; 4-8 missed frames a minute on
+Dam, all in full-speed turns), Bean parity from Dab's Mod (node mode, body
+fade, scorched props, wounds, reflections, GoldenEye's water motion, hidden
+backdrop rooms, release boot logos, HD fill), #181 misses fly past Bond,
+Wreck's blood patch (Mods, off by default), guard tower stairs camera, Goldfinger
+title cast crash da10370a. [v0.5.0](docs/releases/v0.5.0.md),
+[performance](docs/bean-performance-improvements.md),
+[Bean backlog](docs/bean-parity-backlog.md).
 
 v0.4.22's co-op start fixes (#164) still need two/four-headset starts, reloads,
 host swaps and Jungle Natalya. [#164 evidence](docs/issue-161-164-campaign-fixes.md).
@@ -34,17 +38,14 @@ See [body slots](docs/body-slots.md).
 
 ## Recent releases
 
+**v0.5.0:** XBLA at 120 Hz, Bean parity (wounds, reflections, water, boot logos),
+#181, blood patch mod, Goldfinger cast crash. Notes: [v0.5.0](docs/releases/v0.5.0.md).
 **v0.4.23:** steadier aim at 90/120 Hz, half-size chest/belt slot models, per-hand
 ammo, Dam boat crash fix. Notes: [v0.4.23](docs/releases/v0.4.23.md).
 **v0.4.22:** vacant-body collision and intro handoff fixes for co-op starts.
 Notes: [v0.4.22](docs/releases/v0.4.22.md).
-**v0.4.21:** TND64 starts again, co-op starts clear of scenery (#164), guards'
-muzzle flashes hidden behind the world. Notes:
-[v0.4.21](docs/releases/v0.4.21.md).
-**v0.4.20:** Project Bean visuals from the player's XBLA copy, Goldfinger 64
-and TND campaigns, Dam speedboat and alarms, per-gun Gun fit placed by hand,
-low doorways. Notes: [v0.4.20](docs/releases/v0.4.20.md).
-**Earlier:** see docs/releases/ for v0.4.0–v0.4.19; older evidence is in
+**Earlier:** see docs/releases/ for v0.4.0–v0.4.21 (v0.4.20: Project Bean,
+Goldfinger 64/TND campaigns, Dam speedboat); older evidence is in
 docs/playtest-* and Git history.
 
 ## What it is and what works
@@ -94,7 +95,11 @@ is goldeneyevr.com, in its own repository.
 - Solo Dam speedboat: board at the north jetty (B, or a hand on the hull),
   ride to the island, B to step off. Hull is 1.75× retail. See
   [Dam speedboat](docs/dam-speedboat.md). Headset crossing still to confirm.
-- Bean: Dam/Complex water and Silo/Control floor materials are simplified;
+- Bean: the release's water shaders (bump, distortion, reflection) are not
+  drawn; Dam's reservoir and Caverns' pools move as GoldenEye's water. Remaining
+  120 Hz misses are in full-speed turns. Tower glass can pop in and out (not
+  yet reproduced from the PC). Bean heads take no wounds. Silo/Control floor
+  materials are simplified;
   the grenade stays in GoldenEye's taser hand (the release has no hand
   holding one, user). Campaigns, speedboat and alarms need broader play.
 - Use git worktree list for active checkouts.
