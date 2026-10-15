@@ -760,6 +760,13 @@ static void gevrCheatProbe(s32 inlevel)
             sysLogPrintf(LOG_NOTE, "cheathook: countdown timer on");
             continue;
         }
+        /* "boat": Bond aboard the Dam speedboat at once, wherever he stands
+         * (gevr_dam_boat.c), to test the ride from the PC */
+        if (strcasecmp(word, "boat") == 0)
+        {
+            sysLogPrintf(LOG_NOTE, "cheathook: boat %s", gevrDamBoatBoardNow() ? "boarded" : "not available");
+            continue;
+        }
         /* "hqguards": guards' guns between the detailed models (gevr_heldgun.c,
          * the default) and the game's own, to compare */
         if (strcasecmp(word, "hqguards") == 0)
@@ -13180,7 +13187,11 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     }
     if (gevrDamBoatAboard())
     {
-        gevrDamBoatDrive(stick_x, stick_y);
+        /* in stereo the N64 stick is zeroed (input.c): the VR move stick drives */
+        extern f32 gevrMoveStickX, gevrMoveStickY;
+
+        gevrDamBoatDrive(stick_x != 0 ? (f32) stick_x : gevrMoveStickX * 80.0f,
+                         stick_y != 0 ? (f32) stick_y : gevrMoveStickY * 80.0f);
         g_CurrentPlayer->speedforwards = 0.0f;
         g_CurrentPlayer->speedsideways = 0.0f;
         g_CurrentPlayer->speedtheta = 0.0f;

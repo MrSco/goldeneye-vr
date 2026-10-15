@@ -269,6 +269,9 @@ static bool gevrSwallowX;                  /* X answered the prompt: no weapon c
 static bool gevrSwallowA;                  /* A of Menu + A (gun fit): no weapon change until let go */
 extern s32 gevrWeaponPanelOpen, gevrWeaponPanelRelease;   /* bondview2.c, issue #10 */
 extern f32 gevrWeaponPanelStickX, gevrWeaponPanelStickY;
+/* The move stick, -1..1, in stereo play: the N64 stick is zeroed there (the
+ * C buttons walk), and the Dam speedboat drives from this (gevr_dam_boat.c). */
+f32 gevrMoveStickX, gevrMoveStickY;
 extern s32 gevrWeaponPanelStep;            /* bondview2.c: trigger steps through the wheel's category */
 extern s32 gevrWeaponPanelLeft;            /* bondview2.c, issue #56: the left hand's panel */
 extern s32 gevrLeftPanelAvailable(void);
@@ -2109,6 +2112,11 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // stick and "right" the turn stick, on whichever hands Swap sticks puts them.
         const bool panelOnMoveStick = gevrWeaponPanelOpen && ((gevrWeaponPanelLeft != 0) == (VrSwapJoysticks != 0));
         const bool panelOnTurnStick = gevrWeaponPanelOpen && !panelOnMoveStick;
+        gevrMoveStickX = gevrMoveStickY = 0.0f;
+        if (g_gevrStereo && !menu && !adjusting && !panelOnMoveStick) {
+            gevrMoveStickX = left.x;
+            gevrMoveStickY = left.y;
+        }
         gevrWeaponPanelStickX = panelOnMoveStick ? left.x : panelOnTurnStick ? right.x : 0.0f;
         gevrWeaponPanelStickY = panelOnMoveStick ? left.y : panelOnTurnStick ? right.y : 0.0f;
         if (g_gevrStereo && !menu && !adjusting && !panelOnTurnStick) {
