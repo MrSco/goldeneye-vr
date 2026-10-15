@@ -28,6 +28,7 @@
 #include "video.h"
 #include "gevr_sched.h"
 #include "gevr_frame_timing.h"
+#include "gevr_bean_control.h"
 #include "gevr_rom_segments.h"
 #include <music.h> /* musicFadeTick: the retrace-driven music cross-fade */
 
@@ -279,6 +280,8 @@ OSMesgQueue *osScGetCmdQ(OSSched *s)
  * scheduler would have done when the RCP finished. Audio tasks have no
  * RSP work left: the classic mixer macros execute during alAudioFrame.
  */
+int gevrVrBeginDeferredFrame(void);
+
 s32 gevrSchedSend(OSMesgQueue *mq, OSMesg msg)
 {
 	OSScTask *t = (OSScTask *)msg;
@@ -301,6 +304,9 @@ s32 gevrSchedSend(OSMesgQueue *mq, OSMesg msg)
 			videoSubmitCommands((Gfx *)t->list.t.data_ptr);
 			gevrPerfAdd(1, gevrPerfNs() - t0);
 		}
+		/* gfx_run begins an early tick's XR frame (after its eye pass, or before
+		 * one it cannot defer); a list that took another path begins it here. */
+		gevrVrBeginDeferredFrame();
         gevrTasksThisFrame++;
         gevrFrameTimingLeave(renderSpan);
 	}
@@ -342,6 +348,44 @@ static s32 gevrVrInitDone;
 static s32 gevrVrFrameBegun;
 static u32 gevrXrFramesBegun; /* PORT probe */
 static u32 gevrRedraws;       /* in-between frames drawn again (issue #53) */
+
+/*
+ * The early game tick. A game frame's tick and display-list build used to run
+ * inside its XR frame, after xrWaitFrame: about 2 ms of the 8.3 ms a 120 Hz
+ * frame has, while the pump sat in xrWaitFrame for most of the frame before.
+ * When the next XR frame is the game's, the pump locates that frame's poses
+ * (vr_prepare_next_frame) and hands the game the retrace without waiting; the
+ * wait and xrBeginFrame come when the game sends its display list
+ * (gfx_pc.cpp gfx_run): after its eye pass, which is kept and drawn by the
+ * redraw replay inside the frame. files/gevr_pipeline.txt: 0 the old order,
+ * 1 the early tick drawing its eye pass inside the frame, 2 (default) all of it.
+ */
+extern int vr_prepare_next_frame(void);
+extern void vr_cancel_next_frame(void);
+extern long long vr_display_period_ns(void);
+extern int vr_eyes_hold_stereo(void);
+extern unsigned vr_early_poses_missed(void);
+static s32 gevrVrBeginDeferred;  /* poses located, the XR frame not yet begun */
+static s32 gevrPipelineOn = -1;  /* -1: files/gevr_pipeline.txt not read yet */
+static s32 gevrPipelineSkip;     /* the last early tick drew nothing: wait as before once */
+static u64 gevrVrLastBeginUs;    /* when the last xrWaitFrame returned */
+static u64 gevrEarlyTickUs;      /* when the early tick began */
+static u32 gevrEarlyTicks, gevrEarlyUnused, gevrLateTicks; /* PORT probe, per second */
+
+static int gevrPipelineEnabled(void)
+{
+	if (gevrPipelineOn < 0) {
+		FILE *control = gevrBeanControlOpen("gevr_pipeline.txt");
+		int mode = 2;
+		if (control) {
+			if (fscanf(control, "%d", &mode) != 1 || mode < 0 || mode > 2) mode = 2;
+			fclose(control);
+		}
+		gevrPipelineOn = mode;
+		sysLogPrintf(LOG_NOTE, "gevr pipeline: %d", gevrPipelineOn);
+	}
+	return gevrPipelineOn;
+}
 
 static void gevrVrFrameEnd(void)
 {
@@ -478,6 +522,7 @@ static void gevrVrFrameBegin(void)
 		gevrVrFrameBegun = vr_begin_frame_and_update_poses() ? 1 : 0;
 		gevrPerfAdd(0, gevrPerfNs() - t0);
 	}
+	gevrVrLastBeginUs = gevrVrFrameBegun ? sysGetMicroseconds() : 0;
     gevrXrFramesBegun++; /* false: no session yet, or an empty frame already closed */
     gevrGameSpan = gevrFrameTimingEnter(GEVR_TIME_GAME);
 
@@ -492,6 +537,27 @@ static void gevrVrFrameBegin(void)
 			held = 0;
 		}
 	}
+}
+
+/* gfx_pc.cpp gfx_run: the early tick's frame has not begun yet, and its eye pass may be replayed */
+int gevrVrFrameDeferred(void)
+{
+	return gevrVrBeginDeferred && gevrPipelineOn >= 2;
+}
+
+/* gfx_run, once the early tick's display list has run: wait for and begin its frame. 1 if it did. */
+int gevrVrBeginDeferredFrame(void)
+{
+	if (!gevrVrBeginDeferred) {
+		return 0;
+	}
+	gevrVrBeginDeferred = 0;
+	if (gevrEarlyTickUs) {
+		gevrFrameTimingOutside(GEVR_TIME_GAME, (sysGetMicroseconds() - gevrEarlyTickUs) * 1000ull);
+		gevrEarlyTickUs = 0;
+	}
+	gevrVrFrameBegin();
+	return 1;
 }
 
 /*
@@ -509,6 +575,15 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 
 	gevrSchedEnsureInit();
 	gevrPumpStage = 1; gevrPumpEntries++;
+
+	if (gevrVrBeginDeferred) {
+		/* The early tick drew nothing, so its XR frame never began: wait as before next time. */
+		gevrVrBeginDeferred = 0;
+		gevrEarlyTickUs = 0;
+		vr_cancel_next_frame();
+		gevrPipelineSkip = 1;
+		gevrEarlyUnused++;
+	}
 
 	if (gevrFrameOpen) {
 		{
@@ -564,6 +639,21 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 	musicFadeTick();
     if(fadeStart) gevrFrameTimingOutside(GEVR_TIME_AUDIO,gevrFrameTimingNow()-fadeStart);
 
+#ifdef GEVR
+	/*
+	 * The retrace's audio frame, mixed here between XR frames: after the loop
+	 * below it ran inside the next game frame and took 0.25-0.45 ms of its
+	 * 8.3 ms budget at 120 Hz (every other retrace mixes two retraces' worth).
+	 */
+	{
+        extern void gevrAudioFrame(void);
+        const uint64_t audioStart=gevrFrameTimingNow();
+        gevrAudioFrame();
+        if(audioStart) gevrFrameTimingOutside(GEVR_TIME_AUDIO,gevrFrameTimingNow()-audioStart);
+		gevrPumpStage = 7;
+	}
+#endif
+
 
 	/*
 	 * The N64 delivered a retrace every 1/60 s and the game ticks once per
@@ -579,9 +669,31 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 		static u64 nextRetraceUs;
 		u64 now;
 
+		s32 earlyFailed = 0, lateTick = 0;
 		gevrPumpStage = 4; gevrPumpLoops = 0;
 		for (;;) {
 			gevrPumpLoops++;
+			const s32 pipelined = gevrVrInitDone && nextRetraceUs != 0 && !gevrPipelineSkip && !earlyFailed &&
+			                      vr_eyes_hold_stereo() && gevrPipelineEnabled();
+			/* The next XR frame is the game's: tick it now, on that frame's poses. */
+			if (pipelined && gevrVrLastBeginUs != 0) {
+				const long long period = vr_display_period_ns();
+				/* 1 ms more than the check after a wait below: the waits' jitter must not
+				 * flip a retrace near the edge between this slot and the next one. */
+				if (period > 0 && gevrVrLastBeginUs + (u64)(period / 1000) + 3000 >= nextRetraceUs) {
+					vr_poll_events();
+					if (vr_prepare_next_frame()) {
+						gevrVrBeginDeferred = 1;
+						now = sysGetMicroseconds();
+						gevrEarlyTickUs = now;
+						gevrEarlyTicks++;
+						gevrPumpStage = 8;
+						break;
+					}
+					earlyFailed = 1;
+				}
+			}
+			gevrPipelineSkip = 0;
 			gevrVrFrameBegin();
 			gevrPumpStage = 5;
 			now = sysGetMicroseconds();
@@ -589,7 +701,15 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 				nextRetraceUs = now;
 				break;
 			}
-			if (nextRetraceUs == 0 || now + 2000 >= nextRetraceUs) {
+			s32 due = nextRetraceUs == 0 || now + 2000 >= nextRetraceUs;
+			/* Due after all (the wait came back later than foreseen): rather than
+			 * run the whole display list inside this frame, draw it from the last
+			 * game frame and tick early for the next, a few ms late, once. */
+			if (due && pipelined && !lateTick && gevrVrFrameBegun && nextRetraceUs != 0 && now < nextRetraceUs + 6000) {
+				lateTick = 1;
+				due = 0;
+			}
+			if (due) {
 				break;
 			}
 			if (gevrVrFrameBegun) {
@@ -602,6 +722,13 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
                 gevrFrameTimingRedrawResult(redrawn);
 				gevrRedraws += redrawn;
 				gevrPerfAdd(1, gevrPerfNs() - t0);
+				if (lateTick == 1) {
+					if (!redrawn) {
+						break;   /* nothing to redraw: the game ticks in this frame, as before */
+					}
+					lateTick = 2;
+					gevrLateTicks++;
+				}
 			}
 			gevrVrFrameEnd();
 		}
@@ -623,24 +750,19 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 			sRetraces++;
 			if (sStatUs == 0) sStatUs = now;
 			if (now - sStatUs >= 1000000) {
-				sysLogPrintf(LOG_NOTE, "pump: %u retraces, %u xr frames (%u redrawn) in %llu ms", sRetraces, gevrXrFramesBegun, gevrRedraws, (unsigned long long)((now - sStatUs) / 1000));
+				/* diagnostics only: Show stats or a profile trace */
+				if (VrShowStats || gevrFrameTimingTracing())
+				sysLogPrintf(LOG_NOTE, "pump: %u retraces, %u xr frames (%u redrawn) in %llu ms; early ticks %u unused %u late %u, other display time %u",
+					sRetraces, gevrXrFramesBegun, gevrRedraws, (unsigned long long)((now - sStatUs) / 1000),
+					gevrEarlyTicks, gevrEarlyUnused, gevrLateTicks, vr_early_poses_missed());
 				sStatUs = now; sRetraces = 0; gevrXrFramesBegun = 0; gevrRedraws = 0;
+				gevrEarlyTicks = gevrEarlyUnused = gevrLateTicks = 0;
 			}
 		}
 	}
 
 	gevrPumpStage = 6;
 	os_scheduler.frameCount++;
-
-#ifdef GEVR
-	{
-        extern void gevrAudioFrame(void);
-        const uint64_t audioSpan=gevrFrameTimingEnter(GEVR_TIME_AUDIO);
-        gevrAudioFrame();
-        gevrFrameTimingLeave(audioSpan);
-		gevrPumpStage = 7;
-	}
-#endif
 
 	if (msg) {
 		*msg = (OSMesg)&os_scheduler.retraceMsg;

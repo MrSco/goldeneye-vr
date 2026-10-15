@@ -6,6 +6,7 @@
 #define G_GEVR_SKIN 0x6E
 #define G_GEVR_VERTEX_TINT 0x6B
 #define GEVR_SKIN_BONES 64
+#define GEVR_SKIN_WOUNDS 8
 
 typedef struct GevrVertexTint {
     uint8_t rgba[4], unlit, reserved[3];
@@ -34,6 +35,10 @@ typedef struct GevrSkinDraw {
     void *posedVertices;
     void *(*pose)(struct GevrSkinDraw *draw);
     int authoredColor;
+    /* bullet wounds in anchor space: xyz, then 255 less the bruise's alpha
+     * (gevr_bean_wounds.inc.h) */
+    int numWounds;
+    float wounds[GEVR_SKIN_WOUNDS][4];
 } GevrSkinDraw;
 
 #endif

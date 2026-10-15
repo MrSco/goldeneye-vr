@@ -15,7 +15,7 @@ static bool gCamCtrlValid[2],gCamCtrlTracked[2],gCamCtrlUsable[2],gSteadyUsed[2]
 static XrQuaternionf gSteadyQ[2];
 static unsigned gCamCtrlSnapshotId;
 static std::array<XrView,2> g_frameViews;
-static bool g_frameStarted=true,g_haveRecordedViews=true;
+static bool g_frameStarted=true,g_haveRecordedViews=true,g_posesEarly=false;
 static float vr_world_scale=20.0f;
 static int VrLeftHandedMode,VrAimSteady=0;
 static bool vr_fake_grip(int,float*,float*) { return false; }

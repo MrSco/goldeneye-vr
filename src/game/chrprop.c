@@ -2576,6 +2576,15 @@ f32 gevrHandPropDistance(PropRecord *prop, const f32 p[3])
     {
         return 1e30f;
     }
+    /* A model's render matrices (doors' too) hold only for a tick it was seen
+     * in, as the game's own readers check (objTick sets them and the flag
+     * together): off screen they are an old frame's buffer, by then other data. Read as the Dam boat's hull they
+     * put it in Bond's hand from across the level, boarding him (user,
+     * 2026-10-14: shooting guards, warped into the boat on the dock). */
+    if (!(prop->flags & PROPFLAG_ONSCREEN))
+    {
+        return 1e30f;
+    }
     {
         f32 s = gevrHandViewScale();
         f32 q[3];

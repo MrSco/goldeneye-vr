@@ -6968,33 +6968,13 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
                     stanResetHits();
                     self_stan = sp238;
 
-                    /*
-                     * Solo has no body model, and this line used to skip the
-                     * player cylinder, so a bullet tracer flew through Bond
-                     * and sparked on the wall or on the hands. Rockets and
-                     * grenades keep the old mask: the player is their target,
-                     * and a cylinder inside the launch clearance would cancel
-                     * the shot. The cylinder edge is short of prop->pos, so
-                     * the range test below still treats a hit on this player
-                     * as in range. Damage stays shotbondsum.
-                     */
+                    if (stanTestLineUnobstructed(&self_stan, sp240.f[0], sp240.f[2], sp258.f[0], sp258.f[2], CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_CHRS | CDTYPE_PATHBLOCKER, sp240.f[1], sp240.f[1], sp258.f[1], sp258.f[1]) == 0)
                     {
-                        s32 cdtypes = CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_CHRS | CDTYPE_PATHBLOCKER;
-                        s32 weapon = chrlvWeaponNumber(prop_selfchr);
-
-                        if ((weapon != ITEM_ROCKETLAUNCH) && (weapon != ITEM_GRENADELAUNCH))
-                        {
-                            cdtypes |= CDTYPE_PLAYERS;
-                        }
-
-                        if (stanTestLineUnobstructed(&self_stan, sp240.f[0], sp240.f[2], sp258.f[0], sp258.f[2], cdtypes, sp240.f[1], sp240.f[1], sp258.f[1], sp258.f[1]) == 0)
-                        {
-                            chrlvStanLineDirIntersection(&sp240, &sp220, &sp258);
-                            sp254 = self_stan;
-                            sp258.f[0] -= 26.0f * sp220.f[0];
-                            sp258.f[1] -= 26.0f * sp220.f[1];
-                            sp258.f[2] -= 26.0f * sp220.f[2];
-                        }
+                        chrlvStanLineDirIntersection(&sp240, &sp220, &sp258);
+                        sp254 = self_stan;
+                        sp258.f[0] -= 26.0f * sp220.f[0];
+                        sp258.f[1] -= 26.0f * sp220.f[1];
+                        sp258.f[2] -= 26.0f * sp220.f[2];
                     }
 
                     chrSetMoving(self, 1);
@@ -7113,7 +7093,7 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
                             dy = (player_prop->pos.f[1] - sp240.f[1]) - (sp220.f[1] * 15.0f);
                             dz = (player_prop->pos.f[2] - sp240.f[2]) - (sp220.f[2] * 15.0f);
 
-                            if ((((dx * dx) + (dy * dy) + (dz * dz)) <= sp20C) || (stanSavedColl_posData == player_prop))
+                            if (((dx * dx) + (dy * dy) + (dz * dz)) <= sp20C)
                             {
                                 chrlvUpdateShotbondsum(self, &sp234, &sp230, chrlvWeaponNumber(prop_selfchr));
                                 sp22C = sp230 == 0;

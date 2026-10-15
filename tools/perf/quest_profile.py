@@ -12,6 +12,7 @@ injected input on every frame, so analysis classifies phases from device data.
 Logs stream straight to disk; logcat is never cleared.
 """
 import argparse
+import os
 import csv
 import hashlib
 import json
@@ -23,7 +24,7 @@ import time
 FILES = '/sdcard/Android/data/com.gevr.port/files'
 PACKAGE = 'com.gevr.port'
 LAUNCH_CHECK = 'LaunchCheckControllerRequiredDialogActivity'
-MARKERS = ['gevr_fakegrip.txt','gevr_scopedump','gevr_scope.pam', 'gevr_body_batch.txt','gevr_rigid_min.txt','gevr_room_draws.txt', 'gevr_input.txt', 'gevr_level.txt', 'gevr_warp.txt', 'gevr_cheat.txt',
+MARKERS = ['gevr_fakegrip.txt','gevr_scopedump','gevr_scope.pam', 'gevr_body_batch.txt','gevr_rigid_min.txt','gevr_room_draws.txt', 'gevr_pipeline.txt', 'gevr_bean_nodemode.txt', 'gevr_input.txt', 'gevr_level.txt', 'gevr_warp.txt', 'gevr_cheat.txt',
            'gevr_profile.txt', 'gevr_profile.txt.status']
 PROTECTED = ['data/goldeneye-vr.ini', 'eeprom.bin', *MARKERS]
 WARMUP, MEASURE = 15, 60
@@ -258,7 +259,7 @@ def run(args, out):
     push_back(out / 'backup/eeprom.bin', f'{FILES}/eeprom.bin')
     info = {'apk': str(args.apk.resolve()), 'sha256': hashlib.sha256(args.apk.read_bytes()).hexdigest(),
             'hz': args.hz, 'detail': args.detail, 'showstats': args.showstats, 'runs': args.runs,
-            'pad': args.pad, 'scope_probe': args.scope_probe, 'body_batch': args.body_batch, 'rigid_min': args.rigid_min, 'room_draws': args.room_draws, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'xbla': args.xbla, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
+            'pad': args.pad, 'scope_probe': args.scope_probe, 'body_batch': args.body_batch, 'rigid_min': args.rigid_min, 'room_draws': args.room_draws, 'pipeline': args.pipeline, 'node_mode': args.node_mode, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'xbla': args.xbla, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
     log = (folder / 'device.log').open('wb')
     logger = subprocess.Popen(['adb', 'logcat', '-T', '1', '-v', 'threadtime'], stdout=log, stderr=log)
     try:
@@ -266,13 +267,16 @@ def run(args, out):
         put('gevr_body_batch.txt',str(args.body_batch))
         put('gevr_rigid_min.txt',str(args.rigid_min))
         put('gevr_room_draws.txt',str(args.room_draws))
+        put('gevr_pipeline.txt',str(args.pipeline))
+        put('gevr_bean_nodemode.txt',str(args.node_mode))
         launch()
         applied=recent()
         expected=f'gevr bean controls: rigid_min={args.rigid_min} body_batch={args.body_batch}'
         # The room switch is read only when XBLA rooms build (XblaVisualsMode=1);
         # the Bean pack alone replaces characters and guns.
         rooms = re.search(rb'XblaVisualsMode=1', config) is not None
-        if expected not in applied or (rooms and f'gevr bean room-draws: {args.room_draws}' not in applied):
+        if expected not in applied or (rooms and f'gevr bean room-draws: {args.room_draws}' not in applied) or \
+                f'gevr pipeline: {args.pipeline}' not in applied:
             raise Unavailable('Renderer did not acknowledge requested diagnostic controls')
         if args.body_batch and 'gevr bean body-batch:' not in applied:
             raise Unavailable('Whole-character batching was requested but never applied')
@@ -287,6 +291,10 @@ def run(args, out):
             label = f'{args.label}-{repeat + 1}'
             put('gevr_warp.txt', str(args.pad))
             time.sleep(2)
+            # read at the first Bean model draw, so only once the level shows
+            if repeat == 0 and 'gevr bean controls: nodemode=' in recent() and \
+                    f'gevr bean controls: nodemode={args.node_mode}' not in recent():
+                raise Unavailable('Renderer did not acknowledge the requested Bean node mode')
             # Capture the actual location and geometry before recording/warm-up.
             # A pad number alone does not establish which reported scene is tested.
             screenshot=subprocess.check_output(['adb','exec-out','screencap','-p'],timeout=30)
@@ -371,8 +379,8 @@ if __name__ == '__main__':
     parser.add_argument('--label', default='baseline120')
     parser.add_argument('--hz', type=int, choices=[90, 120], default=120)
     parser.add_argument('--pad', type=int, default=0)
-    parser.add_argument('--room-draws',type=int,choices=[0,1],default=0,help='1 enables experimental opaque world batching')
-    parser.add_argument('--body-batch',type=int,choices=[0,1],default=0,help='1 tests whole-character material batching')
+    parser.add_argument('--room-draws',type=int,choices=[0,1],default=1,help='0 disables opaque world batching (the game default is on)')
+    parser.add_argument('--body-batch',type=int,choices=[0,1],default=1,help='0 disables whole-character batching (the game default is on)')
     parser.add_argument('--rigid-min',type=int,default=256,help='minimum triangles for a retained prop; 0 retains all')
     parser.add_argument('--runs', type=int, default=3)
     parser.add_argument('--detail', type=int, choices=[0, 1], default=0)
@@ -381,16 +389,33 @@ if __name__ == '__main__':
     parser.add_argument('--texture-pack', help="'none' or a pack folder; default keeps the user's setting")
     parser.add_argument('--scope-probe',action='store_true',
                         help='equip sniper and use an explicit synthetic grip for unattended real scope rendering')
+    parser.add_argument('--pipeline', type=int, choices=[0, 1, 2], default=2,
+                        help='0 ticks the game inside its XR frame (the old order), 1 ticks it early but draws its '
+                             'eye pass inside the frame, 2 (the game default) also replays the eye pass')
+    parser.add_argument('--node-mode', type=int, choices=[0, 1], default=1,
+                        help="0 draws Bean's model lists in their own state, 1 (the game default) in the game's node state")
     parser.add_argument('--simpleperf', action='store_true',
                         help='sample the measured minute with simpleperf (attribution only; needs the benchmark build)')
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
-    if args.action == 'backup':
-        backup(args.out)
-    elif args.action == 'restore':
-        restore(args.out)
-    else:
-        try:
-            run(args, args.out)
-        except Unavailable as error:
-            raise SystemExit(f'UNAVAILABLE: {error}')
+    # One driver per headset: a second run's restore would overwrite the first's
+    # settings mid-trace and both would inject input into one game.
+    lock = args.out / '.driver.lock'
+    try:
+        handle = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        raise SystemExit(f'BUSY: another quest_profile.py holds {lock} (delete it if no driver is running)')
+    try:
+        os.write(handle, str(os.getpid()).encode())
+        os.close(handle)
+        if args.action == 'backup':
+            backup(args.out)
+        elif args.action == 'restore':
+            restore(args.out)
+        else:
+            try:
+                run(args, args.out)
+            except Unavailable as error:
+                raise SystemExit(f'UNAVAILABLE: {error}')
+    finally:
+        lock.unlink(missing_ok=True)

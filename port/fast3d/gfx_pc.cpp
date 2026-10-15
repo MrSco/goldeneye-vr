@@ -61,8 +61,28 @@ static bool s_beanNormalTex1, s_beanReflectDiffuse;
 static const uint8_t *s_beanVertexTint;
 static unsigned s_beanVertexTintStride;
 static bool s_beanRoomFogLinear;
+/* G_GEVR_BEAN_FADE: a fading chr's Bean draws (chrRenderProp's PropType 8). The
+ * game's own lists fade through their render mode (modelApplyRenderModeType3:
+ * env alpha, G_RM_AA_ZB_XLU_SURF2); Bean's set theirs, so the renderer applies
+ * it: shade alpha scaled, blended without depth writes, on the CPU path. */
+static uint8_t s_beanFadeAlpha = 255;
+/* G_GEVR_NODE_STATE: a Bean model list under the state the game set for the
+ * node it replaces (DAB xblaMeshApplyNodeMode, xblaMeshSetSpanMode). ON while
+ * the game asks; a list SAVEs that state at its start, APPLYs it per batch
+ * (the node's combiner, its blender's first cycle) and restores it at END. */
+static bool s_beanNodeOn, s_beanNodeSaved, s_beanNodePrimTouched;
+static bool s_beanModelCull;   /* GEVR_NODE_CULL: a Bean prop with GoldenEye's camera inside it */
+/* GEVR_NODE_PASS: a prop's list split over GoldenEye's opaque and translucent
+ * passes (1 its solid batches, 2 its XLU ones); the batches the pass leaves out
+ * are skipped (s_beanPassSkip), their vertices and triangles both. */
+static uint8_t s_beanPass;
+static bool s_beanBatchXlu, s_beanPassSkip;
+static uint64_t s_beanNodeCombine;
+static uint32_t s_beanNodeMode, s_beanNodeFog, s_beanNodeLod;
+static uint8_t s_beanNodePrimA;   // prim alpha before a cut-out batch zeroed it
 static float s_beanRoomFogLine[2];
 static unsigned s_beanPaintUploads, s_beanPaintHits;
+extern "C" int gevrStatsPicture(const void *addr, const uint8_t **rgba, int *w, int *h);   // bondview2.c
 #include "gevr_bean.h"
 #include "gevr_romlayout.h"
 extern "C" int VrCampaign; /* vr_settings: the launcher's campaign */
@@ -169,12 +189,19 @@ void gfx_vr_scope_render(void);
 void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* presentation);
 void gfx_vr_eye_hand(int ctrl);
 bool gfx_vr_eye_replay_ready(void);
+bool gfx_vr_eye_record_possible(const float* proj, bool invert_y);
+void gfx_vr_eye_record_only(bool on);
 void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand1, const float* body);
+extern "C" int gevrVrFrameDeferred(void);         // gevr_engine_shim.c: the early tick's frame not begun
+extern "C" int gevrVrBeginDeferredFrame(void);    // ... begin it now; 1 if it did
+extern "C" void vr_relocate_on_begin(void);       // vr_openxr.cpp: the replay corrects the early poses
+static int gevr_vr_replay_frame(bool fresh);
 extern "C" int gevrVrRedrawDelta(float out[16]);   // vr_openxr.cpp
 extern "C" int gevrVrRedrawHandDelta(int hand, float out[16]);
 extern "C" int gevrVrRedrawBodyDelta(float out[16]);
 extern "C" void gevrVrMarkRedrawn(void);
 extern "C" float g_viProjectionMatrixF[4][4];     // fr.c: the game's projection
+extern "C" int VrShowStats;                       // vr_input.cpp: the stats readout is on
 static float s_gevrLastVignette;                  // the eye pass's, for its redraws
 #include "gevr_locomotion.h"
 static bool s_gevrPresentationOn;
@@ -798,6 +825,9 @@ static uint32_t gevr_palette_key_hash(uint8_t siz, uint8_t palette_index) {
 }
 
 static bool s_tpActive = false;
+/* A release repaint the pack fills instead (import_texture), decided once per
+ * picture: looking it up hashed the texture at every load of it. */
+static std::unordered_map<const void *, bool> s_tpRepaintFill;
 #endif
 
 void gfx_texture_cache_clear() {
@@ -805,6 +835,7 @@ void gfx_texture_cache_clear() {
 #ifdef GEVR
     s_tpPending.clear();
     s_tpUploads.clear();
+    s_tpRepaintFill.clear();   // texture addresses are reused once the cache goes
 #endif
     for (const auto& entry : gfx_texture_cache.map) {
         gfx_texture_cache.free_texture_ids.push_back(entry.second.texture_id);
@@ -1482,6 +1513,28 @@ static void gevr_packdump_note(uint32_t tex, uint32_t pal, bool ci, uint8_t fmt,
 }
 
 /* The pack entry for the texture tile draws from, or -1; *hw x *hh is the area the checksum covers. */
+/*
+ * The pack's image for a texture key. Bean's look indexes an HD pack only to
+ * fill in (s_tpFillOnly): it answers with Bean on and BeanFillTextures, for the
+ * pictures Bean leaves at the cartridge's (its own pictures and repaints are
+ * bound before the pack is asked), and never for the original look. An HD
+ * pack chosen as the look fills Bean's gaps the same way.
+ */
+extern "C" int VrBeanFillTextures;   /* port/vr/vr_settings_defaults.c */
+static bool s_tpFillOnly;            /* the indexed pack is Bean's fill, not the chosen look */
+static bool s_tpHasPack;             /* a pack is indexed at all */
+
+static int tp_find(uint64_t key, uint8_t fmt, uint8_t siz) {
+    if (!gevrBeanIsEnabled()) return s_tpFillOnly ? -1 : gevrtp::find(key, fmt, siz, false);
+    const int id = gevrtp::find(key, fmt, siz, true);
+    return id >= 0 || !VrBeanFillTextures ? id : gevrtp::find(key, fmt, siz, false);
+}
+
+/* For the Mods rows: an HD pack is indexed to fill Bean's gaps from. */
+extern "C" int gevrTexpackFillAvailable(void) {
+    return s_tpHasPack;
+}
+
 static int gevr_texpack_lookup(int tile, const LoadedTexture &lt, uint32_t *hw, uint32_t *hh) {
     const auto &t = rdp.texture_tile[tile];
     if (lt.load_type == 0 || lt.img_addr == nullptr) {
@@ -1544,11 +1597,11 @@ static int gevr_texpack_lookup(int tile, const LoadedTexture &lt, uint32_t *hw, 
         const intptr_t pstart = size == G_IM_SIZ_4b ? (intptr_t)t.palette * 32 : 0;
         s_tpSwap = 3;   // palettes are in N64 byte order
         pal = tp_rice(s_filterPalette + 8, pstart, cimax + 1, 1, 2, size == G_IM_SIZ_4b ? 32 : 512);
-        id = gevrtp::find((uint64_t)pal << 32 | tex, t.orig_fmt, (uint8_t)size, gevrBeanIsEnabled());
-        if (id < 0) id = gevrtp::find(pal, t.orig_fmt, (uint8_t)size, gevrBeanIsEnabled());
-        if (id < 0) id = gevrtp::find(tex, t.orig_fmt, (uint8_t)size, gevrBeanIsEnabled());
+        id = tp_find((uint64_t)pal << 32 | tex, t.orig_fmt, (uint8_t)size);
+        if (id < 0) id = tp_find(pal, t.orig_fmt, (uint8_t)size);
+        if (id < 0) id = tp_find(tex, t.orig_fmt, (uint8_t)size);
     } else {
-        id = gevrtp::find(tex, t.orig_fmt, (uint8_t)size, gevrBeanIsEnabled());
+        id = tp_find(tex, t.orig_fmt, (uint8_t)size);
     }
 
     if (s_tdOn && id < 0) {
@@ -1597,6 +1650,15 @@ static bool gevr_texpack_upload(const uint8_t *img, uint32_t iw, uint32_t ih, ui
     }
     gfx_rapi->upload_texture_hd(s_tpCanvas.data(), cw, ch);
     return true;
+}
+
+static bool gevr_texpack_fills_repaint(int tile, const LoadedTexture &lt) {
+    auto it = s_tpRepaintFill.find(lt.addr);
+    if (it == s_tpRepaintFill.end()) {
+        uint32_t w, h;
+        it = s_tpRepaintFill.emplace(lt.addr, gevr_texpack_lookup(tile, lt, &w, &h) >= 0).first;
+    }
+    return it->second;
 }
 
 /* import_texture's miss: the pack's image if there is one and it's decoded. */
@@ -1670,16 +1732,32 @@ extern "C" void gevrTexpackStartEarly(void) {
      * from GoldenEye. Dab's Mod turns its HD assets off on hack stages too.
      * The launcher's choice, as the ROM layer has not bound a campaign yet.
      */
+    s_tpFillOnly = false;
     if (VrCampaign == 0 && g_ActiveExtTexPack[0] != '\0' && strcmp(g_ActiveExtTexPack, "ge007-bean") != 0) {
         char rel[320];
         snprintf(rel, sizeof(rel), "$S/texture-packs/%s", g_ActiveExtTexPack);
         normal = fsFullPath(rel);
+    } else if (VrCampaign == 0 && (g_ActiveExtTexPack[0] != '\0' || gevrBeanIsEnabled())) {
+        /* Bean's look: an installed HD pack, to fill its gaps (tp_find, BeanFillTextures) */
+        for (const char *pack : { "ge007-hd-ai", "ge007-hd" }) {
+            char rel[320];
+            struct stat st;
+            snprintf(rel, sizeof(rel), "$S/texture-packs/%s/GOLDENEYE", pack);
+            if (stat(fsFullPath(rel), &st) == 0 && S_ISDIR(st.st_mode)) {
+                snprintf(rel, sizeof(rel), "$S/texture-packs/%s", pack);
+                normal = fsFullPath(rel);
+                s_tpFillOnly = true;
+                break;
+            }
+        }
     }
+    s_tpHasPack = !normal.empty();
     /*
      * No catalog for Bean: its pictures are the release's own, read from the
      * player's copy (gevr_bean_images.c), and the ROM's where it has none, as
-     * in Dab's Mod. The old downloaded pack's GOLDENEYE/ PNGs are not read, so
-     * with Bean on no pack image is found (find(..., bean)).
+     * in Dab's Mod. The old downloaded pack's GOLDENEYE/ PNGs are not read:
+     * with Bean on, only an HD pack's images fill in, and only for what Bean
+     * leaves at the cartridge's (tp_find).
      */
     gevrtp::start(normal.c_str());
 }
@@ -1688,7 +1766,7 @@ extern "C" void gevrTexpackStartEarly(void) {
 static void gevr_texpack_frame(void) {
     GevrProfileSection profile(GEVR_TIME_TEX_READY);
     static bool started = false;
-    static int lastBean = -1;
+    static int lastBean = -1, lastFill = -1;
     s_tpSyncBytes = 0;
     if (!started) {
         started = true;
@@ -1701,8 +1779,10 @@ static void gevr_texpack_frame(void) {
         gfx_texture_cache_clear();   // what was uploaded before the index existed looks again
     }
     const int bean = gevrBeanIsEnabled();
-    if (lastBean != bean || (s_tpIndexed && s_tpActive == (s_tpUserOff != 0))) {
+    if (lastBean != bean || lastFill != VrBeanFillTextures || (s_tpIndexed && s_tpActive == (s_tpUserOff != 0))) {
         lastBean = bean;
+        lastFill = VrBeanFillTextures;
+        s_tpRepaintFill.clear();
         s_tpActive = s_tpIndexed && !s_tpUserOff;
         s_tpUploads.clear();
         s_tpPending.clear();
@@ -1976,6 +2056,22 @@ static void import_texture(int i, int tile, bool is_rect) {
     const uint8_t* orig_addr = loaded_texture.addr;
     SUPPORT_CHECK(orig_addr);
 
+#ifdef GEVR
+    {   // the Show stats readout, drawn as one picture (bondview2.c gevrDrawStatsText)
+        const uint8_t *picture = nullptr;
+        int pictureW = 0, pictureH = 0;
+        if (gevrStatsPicture(orig_addr, &picture, &pictureW, &pictureH)) {
+            TextureCacheKey key = { orig_addr, {}, G_IM_FMT_RGBA, G_IM_SIZ_32b, 0, 0, 0 };
+            key.width = (uint32_t)pictureW;
+            key.height = (uint32_t)pictureH;
+            if (!gfx_texture_cache_lookup(i, key)) {
+                gfx_rapi->upload_texture(picture, (uint32_t)pictureW, (uint32_t)pictureH);
+            }
+            loaded_texture.id_mask = 0;
+            return;
+        }
+    }
+#endif
     // ---------------------------------------------------------
     // ---> LOAD MENU IMAGE COVER <---
     // ---------------------------------------------------------
@@ -1989,7 +2085,11 @@ static void import_texture(int i, int tile, bool is_rect) {
         const uint8_t *paint = nullptr;
         int paintW = 0, paintH = 0;
         if (gevrBeanIsEnabled() && gevrBeanRepaint(orig_addr, &paint, &paintW, &paintH)
-                && paint && paintW > 0 && paintH > 0) {
+                && paint && paintW > 0 && paintH > 0
+                /* BeanFillTextures: a release picture no bigger than the cartridge's (the
+                 * mission select's 68x44 stages) gives way to the HD pack's, if it has one */
+                && !(VrBeanFillTextures && s_tpActive && paintW <= (int)rdp.texture_tile[tile].width
+                     && paintH <= (int)rdp.texture_tile[tile].height && gevr_texpack_fills_repaint(tile, loaded_texture))) {
             ++s_beanPaintHits;
             TextureCacheKey key = { orig_addr, {}, G_IM_FMT_RGBA, G_IM_SIZ_32b, 0, 0, 0 };
             key.width = (uint32_t)paintW;
@@ -2124,6 +2224,49 @@ static void calculate_normal_dir(const struct NormalColor *vcn, float coeffs[3])
 
     gfx_transposed_matrix_mul(coeffs, light_dir, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1]);
     gfx_normalize_vector(coeffs);
+}
+
+/*
+ * DAB G_ENVMAP_EXT (gfx_opengl.cpp): a Bean reflection is the view ray
+ * reflected in the normal, on the mirror sphere its map was built as, at
+ * r.xy / (2 |r + (0,0,1)|) + 1/2. The normal alone gave every vertex of a flat
+ * pane the same texel: the guard tower's windows were one colour that jumped
+ * as the head moved (user, 2026-10-14). Straight ahead it is the old lookup.
+ * The frame, in model space: the texgen lookat's right and up, the view's back
+ * axis and the camera's position (the modelview inverted).
+ */
+static void gevr_reflect_frame(float f[4][3]) {
+    const float (*m)[4] = rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1];
+    calculate_normal_dir(&rsp.lookat[0], f[0]);
+    calculate_normal_dir(&rsp.lookat[1], f[1]);
+    const float back[3] = { 0.0f, 0.0f, 1.0f };
+    gfx_transposed_matrix_mul(f[2], back, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1]);
+    gfx_normalize_vector(f[2]);
+    // the model point the modelview takes to the eye: p M3 + t = 0
+    const float a = m[0][0], b = m[0][1], c = m[0][2], d = m[1][0], e = m[1][1], g = m[1][2],
+                h = m[2][0], i = m[2][1], k = m[2][2];
+    const float det = a * (e * k - g * i) - b * (d * k - g * h) + c * (d * i - e * h);
+    if (!(fabsf(det) > 1e-12f)) {
+        f[3][0] = f[3][1] = f[3][2] = 0.0f;
+        return;
+    }
+    const float inv[3][3] = { { (e * k - g * i) / det, (c * i - b * k) / det, (b * g - c * e) / det },
+                              { (g * h - d * k) / det, (a * k - c * h) / det, (c * d - a * g) / det },
+                              { (d * i - e * h) / det, (b * h - a * i) / det, (a * e - b * d) / det } };
+    for (int col = 0; col < 3; col++)
+        f[3][col] = -(m[3][0] * inv[0][col] + m[3][1] * inv[1][col] + m[3][2] * inv[2][col]);
+}
+
+static void gevr_reflect_uv(const float f[4][3], const float pos[3], const float normal[3], float uv[2]) {
+    float e[3] = { pos[0] - f[3][0], pos[1] - f[3][1], pos[2] - f[3][2] };
+    const float el = sqrtf(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
+    for (int k = 0; k < 3; k++) e[k] = el > 1e-6f ? e[k] / el : -f[2][k];
+    const float en = e[0] * normal[0] + e[1] * normal[1] + e[2] * normal[2];
+    float r[3], q[3];
+    for (int k = 0; k < 3; k++) r[k] = e[k] - 2.0f * en * normal[k];
+    for (int a = 0; a < 3; a++) q[a] = r[0] * f[a][0] + r[1] * f[a][1] + r[2] * f[a][2];
+    const float m = 2.0f * sqrtf(q[0] * q[0] + q[1] * q[1] + (q[2] + 1.0f) * (q[2] + 1.0f));
+    for (int a = 0; a < 2; a++) uv[a] = m > 1e-6f ? clampf(q[a] / m + 0.5f, 0.0f, 1.0f) : 0.5f;
 }
 
 static void gfx_matrix_mul(float res[4][4], const float a[4][4], const float b[4][4]) {
@@ -2355,6 +2498,8 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
     const bool probe = s_surfaceSampleFrame && (rsp.geometry_mode & G_LIGHTING)
         && (rsp.geometry_mode & G_TEXTURE_GEN) && s_surfaceVertexBatches < 4;
     if (probe) ++s_surfaceVertexBatches;
+    float reflectFrame[4][3];   // gevr_reflect_frame, once a batch
+    bool haveReflectFrame = false;
     for (size_t i = 0; i < n_vertices; i++, dest_index++) {
         Vtx packed = {};
         if (world) {
@@ -2513,10 +2658,8 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
                              n ? n[2] : (float)vcn->z/127};
             float length=sqrtf(normal[0]*normal[0]+normal[1]*normal[1]+normal[2]*normal[2]);
             for(int k=0;k<3;k++) normal[k]=length>1e-6f ? normal[k]/length : 0;
-            for(int a=0;a<2;a++) {
-                float axis[3]; calculate_normal_dir(&rsp.lookat[a],axis);
-                d->normal_uv[a]=.5f+.5f*clampf(normal[0]*axis[0]+normal[1]*axis[1]+normal[2]*axis[2],-1,1);
-            }
+            if(!haveReflectFrame) { gevr_reflect_frame(reflectFrame); haveReflectFrame=true; }
+            gevr_reflect_uv(reflectFrame,position,normal,d->normal_uv);
         }
 
         // trivial clip rejection
@@ -2580,6 +2723,9 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
             d->color.a = vcn->a;
         } else {
             d->color.a = 255;
+        }
+        if (s_beanFadeAlpha < 255) {
+            d->color.a = (uint8_t)((d->color.a * s_beanFadeAlpha + 127) / 255);
         }
 
         if (s_gevrPresentReady) {   // otherwise no slot is fresh (gevr_presentation_prepare)
@@ -4151,6 +4297,83 @@ static void gfx_dp_set_other_mode(uint32_t h, uint32_t l) {
     rdp.other_mode_l = l;
 }
 
+static void gfx_bean_node_state(uint32_t w0, uint32_t ownMode) {
+    static struct RGBA s_beanNodePrim;
+    switch (w0 & 0xff) {
+        case GEVR_NODE_ON:
+        case GEVR_NODE_OFF:
+            s_beanNodeOn = (w0 & 0xff) == GEVR_NODE_ON;
+            break;
+        case GEVR_NODE_CULL:
+            s_beanModelCull = ownMode != 0;
+            break;
+        case GEVR_NODE_PASS:
+            s_beanPass = (uint8_t)ownMode;
+            s_beanBatchXlu = false;
+            s_beanPassSkip = s_beanPass == 2;
+            break;
+        case GEVR_NODE_SAVE:
+            // a one-cycle node (type 1: no shade, no fade) leaves the list its own state
+            s_beanNodeSaved = s_beanNodeOn && (rdp.other_mode_h & (3U << G_MDSFT_CYCLETYPE)) == G_CYC_2CYCLE;
+            s_beanNodePrimTouched = false;
+            if (s_beanNodeSaved) {
+                s_beanNodeCombine = rdp.combine_mode;
+                s_beanNodeMode = rdp.other_mode_l;
+                s_beanNodeFog = rsp.geometry_mode & G_FOG;
+                s_beanNodeLod = rdp.other_mode_h & G_TL_LOD;
+                s_beanNodePrim = rdp.prim_color;
+            }
+            break;
+        case GEVR_NODE_APPLY: {
+            s_beanBatchXlu = (w0 & GEVR_NODE_XLU) != 0;
+            s_beanPassSkip = s_beanPass && s_beanBatchXlu != (s_beanPass == 2);
+            if (!s_beanNodeSaved) break;
+            /* A span: the list's second blender cycle (cut-out edge, decal,
+             * translucent surface) under the node's first (its shade). A fading
+             * node keeps its own blend for everything but translucent batches. */
+            const bool nodeXlu = (s_beanNodeMode & FORCE_BL) != 0;
+            uint32_t mode = s_beanNodeMode;
+            if ((w0 & GEVR_NODE_SPAN) && (!nodeXlu || (w0 & GEVR_NODE_XLU))) {
+                mode = (s_beanNodeMode & 0xcccc0000u) | (ownMode & 0x3333fff8u);
+            }
+            /* A node mode without a depth test (the first-person hands: the N64 drew
+             * them over everything) leaves the list its own depth test and write;
+             * under it Bean's arm drew over the watch on the wrist (user, 2026-10-14). */
+            if (!(s_beanNodeMode & Z_CMP)) {
+                const uint32_t depth = Z_CMP | Z_UPD | ZMODE_DEC;
+                mode = (mode & ~depth) | (ownMode & depth);
+            }
+            gfx_sp_set_other_mode(3, 29, mode & ~7u);
+            if (s_beanModelCull) rsp.geometry_mode = (rsp.geometry_mode & ~G_CULL_BOTH) | G_CULL_BACK;
+            /* Tile 1 is tile 0's picture, so the nodes' LOD blend changes nothing;
+             * without it the list keeps the GPU mesh path (gevr_mesh_params). */
+            gfx_sp_set_other_mode(G_MDSFT_TEXTLOD + 32, 1, G_TL_TILE);
+            if (w0 & GEVR_NODE_COMBINE) {
+                rdp.combine_mode = s_beanNodeCombine;
+            }
+            // props' PropType 9 adds prim alpha to the cover (DAB: zeroed around cut-outs)
+            if (w0 & GEVR_NODE_CUT) {
+                if (!s_beanNodePrimTouched) s_beanNodePrimA = rdp.prim_color.a;
+                s_beanNodePrimTouched = true;
+                rdp.prim_color.a = 0;
+            } else if (s_beanNodePrimTouched) {
+                rdp.prim_color.a = s_beanNodePrimA;
+                s_beanNodePrimTouched = false;
+            }
+            break;
+        }
+        case GEVR_NODE_END:
+            if (!s_beanNodeSaved) break;
+            rdp.combine_mode = s_beanNodeCombine;
+            gfx_sp_set_other_mode(3, 29, s_beanNodeMode & ~7u);
+            gfx_sp_set_other_mode(G_MDSFT_TEXTLOD + 32, 1, (uint64_t)s_beanNodeLod << 32);
+            rsp.geometry_mode = (rsp.geometry_mode & ~G_FOG) | s_beanNodeFog;
+            rdp.prim_color = s_beanNodePrim;
+            s_beanNodeSaved = s_beanNodePrimTouched = false;
+            break;
+    }
+}
+
 static inline void *seg_addr(uintptr_t w1) {
     // Segmented addresses converted by the port's preprocess carry the least
     // significant bit as a tag. GoldenEye also hands over untagged ones: its
@@ -4275,7 +4498,8 @@ static void gevr_mesh_frame(void) {
 static void gevr_bean_transform(int t, float matrix[6])
 {
     const auto& tile = rdp.texture_tile[rdp.first_tile_index + gfx_lod_tile_offset(t)];
-    gevrBeanTextureTransform(rdp.loaded_texture[tile.tmem].addr, g_GlobalTimer / 60.0f, matrix);
+    if (!gevrBeanWaterTransform(rdp.loaded_texture[tile.tmem].addr, t, matrix))
+        gevrBeanTextureTransform(rdp.loaded_texture[tile.tmem].addr, g_GlobalTimer / 60.0f, matrix);
 }
 
 static bool gevr_mesh_params(struct GfxMeshDrawParams* p) {
@@ -4331,7 +4555,7 @@ static bool gevr_mesh_params(struct GfxMeshDrawParams* p) {
         out[3] = { -1, c.a };
     };
     p->normal_tex1=s_beanNormalTex1;
-    if(p->normal_tex1) for(int a=0;a<2;a++) calculate_normal_dir(&rsp.lookat[a],p->normal_axis[a]);
+    if(p->normal_tex1) gevr_reflect_frame(p->normal_axis);
     p->num_inputs = s_gevrMeshState.num_inputs;
     for (int j = 0; j < s_gevrMeshState.num_inputs; j++) {
         Byte color[4], tmp[4];
@@ -4433,7 +4657,8 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, 
         s_gevrMeshCulledTris += run->indexCount / 3;
         return true;
     }
-    if (!s_gevrMeshOn || (skin && !s_gevrSkinOn) || gfx_rapi->draw_mesh == nullptr || run->indexCount == 0) {
+    if (!s_gevrMeshOn || (skin && !s_gevrSkinOn) || gfx_rapi->draw_mesh == nullptr || run->indexCount == 0 ||
+        s_beanFadeAlpha < 255) {   // a fading body's few draws take the CPU path, which fades
         return false;
     }
     if (!skin && run->hasBounds && (fbActive || vr_is_initialized()) &&
@@ -4445,7 +4670,7 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, 
     }
     // Rooms remain unlit. Skins supply fitted influences, lights and culling;
     // colour tables, generated UVs and backface depth pushes use the CPU.
-    if ((!skin && (rsp.geometry_mode & (G_LIGHTING | G_CULL_BOTH))) ||
+    if ((!skin && (rsp.geometry_mode & (G_LIGHTING | G_CULL_FRONT))) ||
         (rsp.geometry_mode & G_TEXTURE_GEN) ||
         (rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH || rsp.vertex_colors != nullptr ||
         rsp.modelview_hidden_stack[rsp.modelview_matrix_stack_size - 1] ||
@@ -4480,6 +4705,8 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, 
     if (skin) {
         params.skinned = true;
         params.palette = skin->palette;
+        params.num_wounds = skin->numWounds < 0 ? 0 : skin->numWounds > GEVR_SKIN_WOUNDS ? GEVR_SKIN_WOUNDS : skin->numWounds;
+        memcpy(params.wounds, skin->wounds, sizeof(params.wounds));
         params.cull = (geometry & G_CULL_BACK) ? 1 : (geometry & G_CULL_FRONT) ? 2 : 0;
         // Mirrored controller roles reverse winding just as the CPU path does.
         if (params.cull && gevrCullMirror) params.cull = params.cull == 1 ? 2 : 1;
@@ -4508,6 +4735,11 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, 
         params.fog_offset = rsp.fog_offset;
         params.fog_linear = s_beanRoomFogLinear;
         if (params.fog_linear) { params.fog_mul = s_beanRoomFogLine[0]; params.fog_offset = s_beanRoomFogLine[1]; }
+    }
+    if (!skin) {
+        // an HD room seen from outside the level (G_GEVR_ROOM_STATE): its backs culled
+        params.cull = (geometry & G_CULL_BACK) ? 1 : 0;
+        if (params.cull && s_gevrMeshState.clip.invert_y) params.cull = -params.cull;
     }
     params.invert_y = s_gevrMeshState.clip.invert_y;
     params.has_bounds = !skin && run->hasBounds;
@@ -4730,6 +4962,8 @@ static void gfx_run_dl(Gfx* cmd) {
             case G_GEVR_ROOM_STATE: {
                 uint8_t rgb[3];
                 const bool model = (cmd->words.w0 & 1) != 0;
+                if (model && s_beanModelCull) rsp.geometry_mode = (rsp.geometry_mode & ~G_CULL_BOTH) | G_CULL_BACK;
+                if (model && s_beanNodeSaved) break;   // the node's fog and mode stand (G_GEVR_NODE_STATE)
                 s_beanRoomFogLinear = !(cmd->words.w0 & 2) && (model ? !vr_dl_is_pause_or_menu : gevrRoomDl && (rsp.geometry_mode & G_FOG))
                     && gevrBeanRoomFog(s_beanRoomFogLine, rgb);
                 if (model) {
@@ -4737,9 +4971,27 @@ static void gfx_run_dl(Gfx* cmd) {
                     else rsp.geometry_mode &= ~G_FOG;
                 }
                 if (s_beanRoomFogLinear) { rdp.fog_color.r = rgb[0]; rdp.fog_color.g = rgb[1]; rdp.fog_color.b = rgb[2]; }
-                gfx_sp_set_other_mode(3, 29, gevrBeanRoomMode((uint32_t)cmd->words.w1, rsp.geometry_mode & G_FOG));
+                uint32_t mode = (uint32_t)cmd->words.w1;
+                if ((cmd->words.w0 & 3) == 0) {
+                    /* an HD room seen from outside the level (gevrBeanWorldCullsBackFaces):
+                     * solid surfaces cull their backs; cut-outs and glass stay two-sided */
+                    extern int gevrBeanWorldCullsBackFaces(void);
+                    rsp.geometry_mode &= ~G_CULL_BOTH;
+                    if (gevrBeanWorldCullsBackFaces() && !(mode & (CVG_X_ALPHA | FORCE_BL))) rsp.geometry_mode |= G_CULL_BACK;
+                }
+                if (model && s_beanFadeAlpha < 255) {
+                    mode = G_RM_PASS | ((mode & Z_CMP) ? G_RM_AA_ZB_XLU_SURF2 : G_RM_XLU_SURF2);
+                }
+                gfx_sp_set_other_mode(3, 29, gevrBeanRoomMode(mode, rsp.geometry_mode & G_FOG));
                 break;
             }
+            case G_GEVR_NODE_STATE:
+                gfx_bean_node_state(cmd->words.w0, (uint32_t)cmd->words.w1);
+                break;
+            case G_GEVR_BEAN_FADE:
+                gfx_flush();
+                s_beanFadeAlpha = (uint8_t)(cmd->words.w1 & 0xff);
+                break;
             case G_GEVR_NORMAL_TEX1:
                 gfx_flush();
                 s_beanNormalTex1=cmd->words.w1!=0;
@@ -4761,6 +5013,11 @@ static void gfx_run_dl(Gfx* cmd) {
                 break;
             case G_GEVR_WORLD_VTX:
             case G_VTX: {
+                if (s_beanPassSkip) {   // a batch the other pass draws (GEVR_NODE_PASS)
+                    if (mesh != nullptr && meshRun < mesh->numRuns && mesh->runs[meshRun].start == (const void*)cmd)
+                        cmd = (Gfx*)mesh->runs[meshRun++].end - 1;
+                    break;
+                }
                 const GevrStaticMeshRun* fallbackRun = nullptr;
                 if (mesh != nullptr && meshRun < mesh->numRuns && mesh->runs[meshRun].start == (const void*)cmd) {
                     const GevrStaticMeshRun* run = &mesh->runs[meshRun++];
@@ -4831,6 +5088,7 @@ static void gfx_run_dl(Gfx* cmd) {
                 gfx_sp_extra_geometry_mode(~C0(0, 24), cmd->words.w1);
                 break;
             case (uint8_t)G_TRI1:
+                if (s_beanPassSkip) break;
                 gfx_sp_tri1(C1(16, 8) / 10, C1(8, 8) / 10, C1(0, 8) / 10, false);
                 break;
             case (uint8_t)G_TRI4:
@@ -5052,6 +5310,10 @@ static void gfx_run_dl(Gfx* cmd) {
 }
 
 static void gfx_sp_reset() {
+    s_beanFadeAlpha = 255;
+    s_beanNodeOn = s_beanNodeSaved = s_beanNodePrimTouched = s_beanModelCull = false;
+    s_beanPass = 0;
+    s_beanBatchXlu = s_beanPassSkip = false;
     rsp.modelview_matrix_stack_size = 1;
     rsp.modelview_hidden_stack[0] = false; //VR
     rsp.current_num_lights = 2;
@@ -5471,16 +5733,21 @@ extern "C" void gfx_run(Gfx* commands) {
                 static uint32_t sFrames; static uint32_t sTris; static uint32_t sFlushes;
                 sFrames++; sTris += g_gevrTrisThisFrame; sFlushes += g_gevrFlushesThisFrame;
                 if (sFrames >= 72) {
+                    /* Diagnostics only (Show stats, or a profile trace): five lines a
+                     * second and a log-file write on the render thread otherwise. */
+                    const bool report = VrShowStats || gevrFrameTimingTracing();
+                    if (report) {
                     vr_log("gfx: %u frames, %u tris, %u flushes, cimg %p", sFrames, sTris, sFlushes, rdp.color_image_address);
                     vr_log("mesh: %u draws, %u tris, %u runs on the CPU, %u meshes in buffers%s", s_gevrMeshDraws,
                            s_gevrMeshTris, s_gevrMeshFallbacks, (unsigned)s_gevrMeshLive.size(), s_gevrMeshOn ? "" : " (off)");
                     unsigned repaint[3]; gevrBeanRepaintStats(repaint);
                     vr_log("bean-paint: folder %u font %u images %u bound, %u renderer hits %u uploads", repaint[0], repaint[1], repaint[2], s_beanPaintHits, s_beanPaintUploads);
-                    s_beanPaintHits = s_beanPaintUploads = 0;
                     vr_log("skin: %u draws, %u tris on GPU, %u CPU poses%s", s_gevrSkinDraws,
                            s_gevrSkinTris, s_gevrSkinPoses, s_gevrSkinOn ? "" : " (gevr_noskin.txt)");
-                    s_gevrSkinDraws = s_gevrSkinTris = s_gevrSkinPoses = 0;
                     vr_log("mesh-cull: %u chunks, %u tris rejected", s_gevrMeshCulled, s_gevrMeshCulledTris);
+                    }
+                    s_beanPaintHits = s_beanPaintUploads = 0;
+                    s_gevrSkinDraws = s_gevrSkinTris = s_gevrSkinPoses = 0;
                     s_gevrMeshCulled = s_gevrMeshCulledTris = 0;
                     s_gevrMeshDraws = s_gevrMeshTris = s_gevrMeshFallbacks = 0;
                     if (gevrFrameTimingTracing()) {
@@ -5518,6 +5785,58 @@ extern "C" void gfx_run(Gfx* commands) {
             set_target(eyeW, eyeH);
             apply_offsets(offsets);
         }
+
+        // The early tick (gevr_engine_shim.c): the game ticked before its XR
+        // frame's wait. Its eye pass is kept, not drawn, while the frame has not
+        // begun; inside the frame the redraw replay draws it, as it draws every
+        // frame between game frames - the same draws, with the head, hands and
+        // body corrected to the frame's own poses. The XR frame then holds only
+        // the replay (about a redraw's 3 ms) instead of the whole display list.
+        const float* eyeProj = &g_viProjectionMatrixF[0][0];
+        const bool eyeInvertY = gfx_rapi->get_clip_parameters().invert_y;
+        if (!screenRendered && gevrVrFrameDeferred() && !(VrPauseHub && VrIsPaused) &&
+#ifdef ANDROID
+            !gevrNativePauseOpen() &&
+#endif
+            gfx_vr_eye_record_possible(eyeProj, eyeInvertY)) {
+            gfx_vr_eye_record_only(true);
+            gfx_rapi->start_draw_to_framebuffer(0, 1.0f);
+            s_gevrPresentationHand = -1;
+            s_gevrPresentationOn = gevrVrPresentationDelta(s_gevrPresentationDelta) != 0;
+            gevr_presentation_prepare(s_gevrPresentationOn);
+            ++gevr_perf_passes;
+            gevr_perf_present_passes += s_gevrPresentationOn ? 1 : 0;
+            gfx_vr_eye_record(true, eyeProj, eyeInvertY, s_gevrPresentationOn ? s_gevrPresentationDelta : nullptr);
+            run_display_list();
+            gfx_flush();
+            gfx_vr_eye_record(false, nullptr, false, nullptr);
+            gfx_vr_eye_record_only(false);
+            s_gevrPresentationOn = false;
+            gevr_presentation_prepare(false);
+            gevrVrMarkEyesRendered(1);
+            s_gevrLastVignette = gevrStereoVignette();
+
+            vr_relocate_on_begin();
+            const int began = gevrVrBeginDeferredFrame();
+            const uint64_t freshSpan = began ? gevrFrameTimingEnter(GEVR_TIME_FRESH) : 0;
+            if (!gevr_vr_replay_frame(true) && vr_begin_eye_render()) {
+                // Nothing kept: the eye image is cleared rather than left with
+                // whatever the runtime handed back.
+                gfx_vr_gpu_begin(0);
+                gfx_vr_gpu_end();
+                vr_end_eye_render();
+            }
+            // The scopes' images (their own targets, submitted with this frame):
+            // here rather than in the early tick, which must end before this
+            // frame's slot begins while the frame itself has time to spare.
+            gfx_vr_scope_render();
+            gevrFrameTimingLeave(freshSpan);
+            gfx_rapi->end_frame();
+            gfx_wapi->swap_buffers_begin();
+            return;
+        }
+        // An early tick that cannot defer its eye pass begins its frame now.
+        const uint64_t lateFreshSpan = gevrVrBeginDeferredFrame() ? gevrFrameTimingEnter(GEVR_TIME_FRESH) : 0;
 
         // 1) Acquire + attach swapchain to g_multiviewFBO
         // Bails out when the runtime has no swapchain to give us (a dead or restarting
@@ -5606,6 +5925,7 @@ extern "C" void gfx_run(Gfx* commands) {
             }
         }
 
+        gevrFrameTimingLeave(lateFreshSpan);
         gfx_rapi->end_frame();
         gfx_wapi->swap_buffers_begin();
         return;
@@ -5623,28 +5943,41 @@ extern "C" void gfx_run(Gfx* commands) {
  * is world-locked already, and its eye buffers hold only the pointer).
  */
 extern "C" int gfx_vr_redraw_frame(void) {
+    return gevr_vr_replay_frame(false);
+}
+
+/* fresh: the early tick's own game frame (gfx_run), drawn in its XR frame from
+ * the draws its eye pass kept. Without recorded views (no stereo camera this
+ * frame) its draws go in as kept, which is how the eye pass would have drawn
+ * them: presentation needs those views too. */
+static int gevr_vr_replay_frame(bool fresh) {
     float delta[16];
 
-    if (!vr_is_initialized() || !gfx_rapi->is_multiview() || gevrVrScreenMode
-        || !gfx_vr_eye_replay_ready() || !gevrVrRedrawDelta(delta)) {
+    if (!vr_is_initialized() || !gfx_rapi->is_multiview() || gevrVrScreenMode || !gfx_vr_eye_replay_ready()) {
         return 0;
+    }
+    const bool recorded = gevrVrRedrawDelta(delta) != 0;
+    if (!recorded) {
+        if (!fresh) return 0;
+        static const float identity[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+        memcpy(delta, identity, sizeof(delta));
     }
     if (!vr_begin_eye_render()) {
         return 0;
     }
-    gfx_vr_gpu_begin(1);
+    gfx_vr_gpu_begin(fresh ? 0 : 1);
     gfx_rapi->start_draw_to_framebuffer(0, 1.0f);
     {
         float hand[2][16], body[16];
-        const bool have0 = gevrVrRedrawHandDelta(0, hand[0]) != 0;
-        const bool have1 = gevrVrRedrawHandDelta(1, hand[1]) != 0;
-        const bool haveBody = gevrVrRedrawBodyDelta(body) != 0;
+        const bool have0 = recorded && gevrVrRedrawHandDelta(0, hand[0]) != 0;
+        const bool have1 = recorded && gevrVrRedrawHandDelta(1, hand[1]) != 0;
+        const bool haveBody = recorded && gevrVrRedrawBodyDelta(body) != 0;
         gfx_vr_eye_replay(delta, have0 ? hand[0] : nullptr, have1 ? hand[1] : nullptr, haveBody ? body : nullptr);
     }
     gfx_opengl_draw_vignette(s_gevrLastVignette);
     gfx_vr_gpu_end();
     vr_end_eye_render();
-    gevrVrMarkRedrawn();
+    if (recorded) gevrVrMarkRedrawn();
     return 1;
 }
 

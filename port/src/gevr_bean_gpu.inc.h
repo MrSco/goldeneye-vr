@@ -174,6 +174,7 @@ static Gfx *beanSkinGpuDraw(struct beanSkin *skin, Model *model, int anchorIndex
         }
         draw->palette.valid[b / 32] |= 1u << (b % 32);
     }
+    draw->numWounds = beanWoundsInAnchor(model, inverse, anchor[3], draw->wounds);
     gSPMatrix(commands, (void *)(uintptr_t)(0x03000000u + anchorIndex * sizeof(Mtx)),
               G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
     commands[1].words.w0 = (uintptr_t)G_GEVR_SKIN << 24;

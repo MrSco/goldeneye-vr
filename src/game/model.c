@@ -4290,6 +4290,8 @@ void modelRenderNodeGundl(ModelRenderData* renderdata, Model* model, ModelNode* 
     ModelRoData_DisplayListRecord* rodata = &arg1->Data->DisplayList;
 #ifdef GEVR
     s32 shownType = gevrBeanShownModelType(arg1, rodata->ModelType);
+    /* a Bean list keeps the replaced list's render mode (G_GEVR_NODE_STATE) */
+    s32 nodeType = gevrBeanNodeModeType(arg1, shownType);
     Gfx *shownPrimary = rodata->Primary;
     /* Pose ordinary replacements once; transparent-only glass is handled below. */
     if (renderdata->unk18 == 0 && (renderdata->flags & 1))
@@ -4297,6 +4299,7 @@ void modelRenderNodeGundl(ModelRenderData* renderdata, Model* model, ModelNode* 
 #else
     Gfx *shownPrimary = rodata->Primary;
     s32 shownType = rodata->ModelType;
+    s32 nodeType = shownType;
 #endif
 
     if (renderdata->unk18 == 0)
@@ -4310,24 +4313,41 @@ void modelRenderNodeGundl(ModelRenderData* renderdata, Model* model, ModelNode* 
                 modelApplyCullMode(renderdata);
             }
 
-            if (shownType == 1)
+            if (nodeType == 1)
             {
                 modelApplyRenderModeType1(renderdata);
             }
-            else if (shownType == 3)
+            else if (nodeType == 3)
             {
                 modelApplyRenderModeType3(renderdata, 1);
             }
-            else if (shownType == 4)
+            else if (nodeType == 4)
             {
                 modelApplyRenderModeType4(renderdata, 1);
             }
-            else if (shownType == 2)
+            else if (nodeType == 2)
             {
                 modelApplyRenderModeType2(renderdata);
             }
 
+#ifdef GEVR
+            {
+                /* a fading chr's Bean part: see G_GEVR_BEAN_FADE (drawjointlist) */
+                const s32 fade = (shownPrimary != rodata->Primary && renderdata->PropType == PROP_TYPE_EXPLOSION + 1)
+                    ? (s32)(renderdata->envcolour.word & 0xff) : 255;
+                if (fade < 255) renderdata->gdl = gevrBeanFadeMark(renderdata->gdl, fade);
+                if (nodeType != shownType) renderdata->gdl = gevrBeanNodeMark(renderdata->gdl, 1);
+                const s32 pass = shownPrimary != rodata->Primary ? gevrBeanPassSplit(arg1, model, renderdata->flags) : 0;
+                if (shownPrimary != rodata->Primary) gevrBeanNoteOpaque(model);
+                if (pass) renderdata->gdl = gevrBeanPassMark(renderdata->gdl, pass);
+                gSPDisplayList(renderdata->gdl++, shownPrimary);
+                if (pass) renderdata->gdl = gevrBeanPassMark(renderdata->gdl, 0);
+                if (nodeType != shownType) renderdata->gdl = gevrBeanNodeMark(renderdata->gdl, 0);
+                if (fade < 255) renderdata->gdl = gevrBeanFadeMark(renderdata->gdl, 255);
+            }
+#else
             gSPDisplayList(renderdata->gdl++, shownPrimary);
+#endif
 
             if ((shownType == 3) && rodata->Secondary)
             {
@@ -4340,8 +4360,11 @@ void modelRenderNodeGundl(ModelRenderData* renderdata, Model* model, ModelNode* 
         Gfx *beanTransparent = (Gfx *)gevrBeanTransparentGdl(arg1, rodata->Primary, model, renderdata->flags);
         if (beanTransparent)
         {
+            const s32 pass = gevrBeanPassSplit(arg1, model, renderdata->flags);
             gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->BaseAddr));
+            if (pass) renderdata->gdl = gevrBeanPassMark(renderdata->gdl, pass);
             gSPDisplayList(renderdata->gdl++, beanTransparent);
+            if (pass) renderdata->gdl = gevrBeanPassMark(renderdata->gdl, 0);
         }
         else
 #endif
@@ -4484,6 +4507,33 @@ Model Type 4: Normal Fog/Lighting object
 These are applied to each part of an object at runtime and can be overridden. loading the next part will use these values once more.
 GeometryMode is not in setup and is persistent accross parts.
 */
+#ifdef GEVR
+/* A Bean body (one list for a chr's replaced parts, drawjointlist and subdraw)
+ * under the chr's node state, as each part's list would draw (DAB
+ * xblaMeshApplyNodeMode): chrRenderProp's room shade in the fog colour, a
+ * fade in env alpha (PropType 8). Without node mode, G_GEVR_BEAN_FADE. */
+void modelDrawBeanBody(ModelRenderData *renderdata, Gfx *body)
+{
+    const s32 fade = renderdata->PropType == PROP_TYPE_EXPLOSION + 1 ? (s32)(renderdata->envcolour.word & 0xff) : 255;
+
+    if (!body)
+    {
+        return;
+    }
+    if (gevrBeanNodeMode())
+    {
+        modelApplyRenderModeType3(renderdata, TRUE);
+        renderdata->gdl = gevrBeanNodeMark(renderdata->gdl, 1);
+        gSPDisplayList(renderdata->gdl++, body);
+        renderdata->gdl = gevrBeanNodeMark(renderdata->gdl, 0);
+        return;
+    }
+    if (fade < 255) renderdata->gdl = gevrBeanFadeMark(renderdata->gdl, fade);
+    gSPDisplayList(renderdata->gdl++, body);
+    if (fade < 255) renderdata->gdl = gevrBeanFadeMark(renderdata->gdl, 255);
+}
+#endif
+
 void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *node)
 {
     union ModelRoData *rodata = node->Data;
@@ -4496,9 +4546,20 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
 #ifdef GEVR
             Gfx *shownGdl = (Gfx *)gevrBeanRenderGdl(node, rwdata->DisplayListCollisions.gdl, model);
             s32 shownType = gevrBeanShownModelType(node, rodata->DisplayListCollisions.ModelType);
+            /* a Bean list keeps the replaced list's render mode (G_GEVR_NODE_STATE) */
+            s32 nodeType = gevrBeanNodeModeType(node, shownType);
+            /* objDeform's own blackened, crumpled vertex copy (a destroyed prop) */
+            if (shownGdl && shownGdl != rwdata->DisplayListCollisions.gdl &&
+                rwdata->DisplayListCollisions.Vertices != rodata->DisplayListCollisions.Vertices &&
+                gevrBeanIsDeformed(rwdata->DisplayListCollisions.Vertices))
+            {
+                shownGdl = (Gfx *)gevrBeanScorchedGdl(node, shownGdl, rodata->DisplayListCollisions.Vertices,
+                    rwdata->DisplayListCollisions.Vertices, rodata->DisplayListCollisions.numVertices);
+            }
 #else
             Gfx *shownGdl = rwdata->DisplayListCollisions.gdl;
             s32 shownType = rodata->DisplayListCollisions.ModelType;
+            s32 nodeType = shownType;
 #endif
 
             if (shownGdl)
@@ -4510,26 +4571,59 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
                     modelApplyCullMode(renderdata);
                 }
 
-                if (shownType == 1)
+#ifdef GEVR
+                /* DAB xblaMeshRenderNode (scorched): the game draws a destroyed prop in its
+                 * destroyed mode, PropType 9 with an env alpha, under which a Bean list
+                 * vanished whole (user, 2026-10-14: Dam's wooden crates left only smoke).
+                 * The env alpha is taken off round the Bean list, as in Dab's Mod. */
+                const u32 gevrEnv = renderdata->envcolour.word;
+                if (nodeType != shownType && renderdata->PropType == PROP_TYPE_SMOKE + 1 && (gevrEnv & 0xff))
+                {
+                    renderdata->envcolour.word &= 0xffffff00;
+                }
+#endif
+                if (nodeType == 1)
                 {
                     modelApplyRenderModeType1(renderdata);
                 }
-                else if (shownType == 3)
+                else if (nodeType == 3)
                 {
                     modelApplyRenderModeType3(renderdata, TRUE);
                 }
-                else if (shownType == 4)
+                else if (nodeType == 4)
                 {
                     modelApplyRenderModeType4(renderdata, TRUE);
                 }
-                else if (shownType == 2)
+                else if (nodeType == 2)
                 {
                     modelApplyRenderModeType2(renderdata);
                 }
 
                 gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(rwdata->DisplayListCollisions.Vertices));
 
+#ifdef GEVR
+                {
+                    /* a fading chr's Bean part: see G_GEVR_BEAN_FADE (drawjointlist) */
+                    const s32 fade = (shownGdl != rwdata->DisplayListCollisions.gdl && renderdata->PropType == PROP_TYPE_EXPLOSION + 1)
+                        ? (s32)(renderdata->envcolour.word & 0xff) : 255;
+                    /* one of GoldenEye's own cameras inside this Bean prop: its backs culled */
+                    const s32 inside = shownGdl != rwdata->DisplayListCollisions.gdl && gevrBeanCameraInside(node, model);
+                    if (fade < 255) renderdata->gdl = gevrBeanFadeMark(renderdata->gdl, fade);
+                    if (nodeType != shownType) renderdata->gdl = gevrBeanNodeMark(renderdata->gdl, 1);
+                    if (inside) renderdata->gdl = gevrBeanCullMark(renderdata->gdl, 1);
+                    const s32 pass = shownGdl != rwdata->DisplayListCollisions.gdl ? gevrBeanPassSplit(node, model, renderdata->flags) : 0;
+                    if (shownGdl != rwdata->DisplayListCollisions.gdl) gevrBeanNoteOpaque(model);
+                    if (pass) renderdata->gdl = gevrBeanPassMark(renderdata->gdl, pass);
+                    gSPDisplayList(renderdata->gdl++, shownGdl);
+                    if (pass) renderdata->gdl = gevrBeanPassMark(renderdata->gdl, 0);
+                    if (inside) renderdata->gdl = gevrBeanCullMark(renderdata->gdl, 0);
+                    if (nodeType != shownType) renderdata->gdl = gevrBeanNodeMark(renderdata->gdl, 0);
+                    if (fade < 255) renderdata->gdl = gevrBeanFadeMark(renderdata->gdl, 255);
+                    renderdata->envcolour.word = gevrEnv;
+                }
+#else
                 gSPDisplayList(renderdata->gdl++, shownGdl);
+#endif
 
                 if (shownType == 3 && rodata->DisplayListCollisions.Secondary)
                 {
@@ -4554,9 +4648,12 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
             Gfx *beanTransparent = (Gfx *)gevrBeanTransparentGdl(node, shownGdl, model, renderdata->flags);
             if (beanTransparent)
             {
+                const s32 pass = gevrBeanPassSplit(node, model, renderdata->flags);
                 gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->DisplayListCollisions.BaseAddr));
                 gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(rwdata->DisplayListCollisions.Vertices));
+                if (pass) renderdata->gdl = gevrBeanPassMark(renderdata->gdl, pass);
                 gSPDisplayList(renderdata->gdl++, beanTransparent);
+                if (pass) renderdata->gdl = gevrBeanPassMark(renderdata->gdl, 0);
             }
             else
 #endif
@@ -5382,10 +5479,8 @@ void subdraw(ModelRenderData *mrData, Model *mdl)
     #endif
     gSPSegment(mrData->gdl++, 3, osVirtualToPhysical(mdl->render_pos));
 #ifdef GEVR
-    if(mrData->unk18==0 && (mrData->flags&1)) {
-        Gfx *body=gevrBeanWholeModelGdl(mdl);
-        if(body)gSPDisplayList(mrData->gdl++,body);
-    }
+    if(mrData->unk18==0 && (mrData->flags&1))
+        modelDrawBeanBody(mrData,gevrBeanWholeModelGdl(mdl));
 #endif
 
     while (root != NULL)

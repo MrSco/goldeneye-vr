@@ -96,6 +96,11 @@ int VrCoopFastReinforcements = 0; /* host-controlled co-op rule; clients follow 
  * screen. See vr_settings.h. */
 int VrPlayMode = 1;
 int VrBeanModels = 1;
+/* Bean's look: the pictures the release leaves at the cartridge's (the stage
+ * pictures and the like) from the HD + AI or HD pack, when one is installed. */
+int VrBeanFillTextures = 1;
+/* Mods: Wreck's blood patch, off as the cartridge ships. */
+int VrBloodPatch = 0;
 int VrWatchFaceStatus = GEVR_WATCH_FACE_ON;
 int VrWatchGesturePause = 1;
 /* The watch's Controls page: 0 draws the headset's own Touch controllers,

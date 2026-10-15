@@ -11,7 +11,7 @@
 #include <map>
 #include <vector>
 
-static bool g_frameStarted = true, positionValid = true, orientationValid = true;
+static bool g_frameStarted = true, g_posesEarly = false, positionValid = true, orientationValid = true;
 static bool g_haveCameraViews = true, g_haveRecordedViews = true, g_haveRenderedViews, g_eyesHoldStereo;
 static bool s_haveSourceCamera, s_haveRecordedCamera;
 static GevrLocomotionHistory s_locomotion;
@@ -260,6 +260,15 @@ static void clampDiagnosticsAndPhysicalCollision() {
             assert(h.resetReason==(tick==8 ? GEVR_LOCO_RESET_CLOCK : GEVR_LOCO_RESET_NONE));
             assert(h.count==std::min<uint64_t>(tick-7,8));
             if (tick>=10) assert(h.clampReason==GEVR_LOCO_CLAMP_NONE);
+        }
+        /* The early tick's display time can run a little ahead of the frame's
+         * own: a query slightly before the newest snapshot interpolates. */
+        {
+            const int64_t newest=h.lastDisplayTime;
+            gevrLocomotionQuery(&h,newest-300000,&q);
+            assert(h.clampReason==GEVR_LOCO_CLAMP_NONE && q.time==newest-300000-h.delay);
+            gevrLocomotionQuery(&h,newest-h.delay-1000,&q);
+            assert(h.clampReason==GEVR_LOCO_CLAMP_STALE);
         }
         gevrLocomotionQuery(&h,h.lastDisplayTime+101000000,&q);
         assert(h.clampReason==GEVR_LOCO_CLAMP_STALE);

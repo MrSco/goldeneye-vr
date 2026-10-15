@@ -340,6 +340,8 @@ Gfx *insert_bond_eye_intro(Gfx *gdl) {
  */
 extern void *gevrRareLogo(u32 ofs, s32 isdl);
 extern void gevrRareLogoLoad(void);
+extern s32 gevrRareLogoBounds(float lo[3], float hi[3]);
+extern void *gevrBeanRareLogoGdl(const float lo[3], const float hi[3], const void **picture);
 #define D_020043E8      (*(Gfx *)gevrRareLogo(0x43E8, 1))
 #define DL_RAREWARETEXT (*(Gfx *)gevrRareLogo(0x44B0, 1))
 #define D_02004758      (*(Gfx *)gevrRareLogo(0x4758, 1))
@@ -388,6 +390,26 @@ Gfx *load_display_rare_logo(Gfx *gdl, s32 arg1, s32 arg2, s32 arg3, s32 arg4) {
     gDPPipeSync(gdl++);
     gDPPipeSync(gdl++);
     gSPTexture(gdl++, 0x0800, 0x0800, 0, G_TX_RENDERTILE, G_ON);
+#ifdef GEVR
+    {
+        /* Bean: the release's own logo, a gold R sphere-mapped with its picture,
+         * spun and faded (the light colour) as this one is */
+        float lo[3], hi[3];
+        const void *picture = NULL;
+        Gfx *bean = gevrRareLogoBounds(lo, hi) ? (Gfx *)gevrBeanRareLogoGdl(lo, hi, &picture) : NULL;
+
+        if (bean)
+        {
+            /* Bean's stand-in is 16x16 (its picture is found by address); the
+             * tile is the 32x32 the generated coordinates span */
+            gDPLoadTextureBlock(gdl++, picture, G_IM_FMT_RGBA, G_IM_SIZ_16b, 16, 16, 0, (G_TX_NOMIRROR | G_TX_WRAP), (G_TX_NOMIRROR | G_TX_WRAP), 4, 4, G_TX_NOLOD, G_TX_NOLOD);
+            gDPSetTile(gdl++, G_IM_FMT_RGBA, G_IM_SIZ_16b, 8, 0, G_TX_RENDERTILE, 0, (G_TX_NOMIRROR | G_TX_WRAP), 5, G_TX_NOLOD, (G_TX_NOMIRROR | G_TX_WRAP), 5, G_TX_NOLOD);
+            gDPSetTileSize(gdl++, G_TX_RENDERTILE, 0, 0, 31 << G_TEXTURE_IMAGE_FRAC, 31 << G_TEXTURE_IMAGE_FRAC);
+            gSPDisplayList(gdl++, bean);
+            return gdl;
+        }
+    }
+#endif
     gDPLoadTextureBlock(gdl++, &D_02004FE8, G_IM_FMT_RGBA, G_IM_SIZ_16b, 32, 32, 0, (G_TX_NOMIRROR | G_TX_WRAP), (G_TX_NOMIRROR | G_TX_WRAP), 5, 5, G_TX_NOLOD, G_TX_NOLOD);
     gDPSetPrimColor(gdl++, 0, 0, arg4, arg4, arg4, 0xFF);
     gSPDisplayList(gdl++, &D_020043E8);

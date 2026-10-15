@@ -134,6 +134,16 @@ uint64_t gevrFrameTimingNow(void)
     if (!enabled) return 0;
     return rawNow();
 }
+/* A game tick run between XR frames (the frame pump's early tick) records its
+ * movement here; the next frame to begin is the one that shows it. */
+static GevrFrameTimingSample staged;
+static int stagedTick, stagedSampledBody;
+static GevrFrameTimingSample *tickSample(void)
+{
+    if (frame.start) return &frame;
+    stagedTick = 1;
+    return &staged;
+}
 void gevrFrameTimingBegin(uint64_t now)
 {
     memset(&frame, 0, sizeof(frame));
@@ -144,7 +154,26 @@ void gevrFrameTimingBegin(uint64_t now)
         memcpy(frame.pre,pending,sizeof(pending));memset(pending,0,sizeof(pending));
         frame.detailed = ((frameIndex++ % 16)==0) && (!recording.active || recording.detail);
         spans[depth].section=GEVR_TIME_FRAME;spans[depth].start=now;spans[depth].child=0;spans[depth++].token=++serial;
+        if (stagedTick) {
+            memcpy(frame.physical, staged.physical, sizeof(frame.physical));
+            memcpy(frame.requested, staged.requested, sizeof(frame.requested));
+            memcpy(frame.actual, staged.actual, sizeof(frame.actual));
+            memcpy(frame.bodyStep, staged.bodyStep, sizeof(frame.bodyStep));
+            memcpy(frame.rootStep, staged.rootStep, sizeof(frame.rootStep));
+            memcpy(frame.collisionEdge, staged.collisionEdge, sizeof(frame.collisionEdge));
+            frame.collision = staged.collision;
+            frame.physicalReset = staged.physicalReset;
+            frame.bodyValid = staged.bodyValid;
+            frame.resetReason = staged.resetReason;
+            frame.moveCalls = staged.moveCalls;
+            frame.scootCalls = staged.scootCalls;
+            frame.moveAttempted = staged.moveAttempted;
+            frame.moveAccepted = staged.moveAccepted;
+            sampledBody = stagedSampledBody;
+        }
     }
+    memset(&staged, 0, sizeof(staged));
+    stagedTick = stagedSampledBody = 0;
 }
 uint64_t gevrFrameTimingEnter(GevrFrameTimingSection section) {
     if(!enabled || !frame.start || section<0 || section>=GEVR_TIME_COUNT) return 0;
@@ -308,35 +337,38 @@ void gevrFrameTimingFormatSample(const GevrFrameTimingSample *s, char *out, size
 
 void gevrFrameTimingCollision(const float physical[3], const float requested[3], const float actual[3], int reset)
 {
-    if (!enabled || !frame.start) return;
-    memcpy(frame.physical, physical, sizeof(frame.physical));
-    memcpy(frame.requested, requested, sizeof(frame.requested));
-    memcpy(frame.actual, actual, sizeof(frame.actual));
-    frame.collision = 1;
-    frame.physicalReset = reset != 0;
+    if (!enabled) return;
+    GevrFrameTimingSample *s = tickSample();
+    memcpy(s->physical, physical, sizeof(s->physical));
+    memcpy(s->requested, requested, sizeof(s->requested));
+    memcpy(s->actual, actual, sizeof(s->actual));
+    s->collision = 1;
+    s->physicalReset = reset != 0;
 }
 void gevrFrameTimingMoveBegin(int allowScoot)
 {
-    if (!enabled || !frame.start) return;
-    frame.moveCalls++;
-    frame.scootCalls += allowScoot != 0;
+    if (!enabled) return;
+    GevrFrameTimingSample *s = tickSample();
+    s->moveCalls++;
+    s->scootCalls += allowScoot != 0;
 }
 void gevrFrameTimingMoveResult(GevrMoveAttempt kind, int result, const float edge0[3], const float edge1[3])
 {
-    if (!enabled || !frame.start || kind < GEVR_MOVE_SIMPLE || kind > GEVR_MOVE_PRECISION) return;
+    if (!enabled || kind < GEVR_MOVE_SIMPLE || kind > GEVR_MOVE_PRECISION) return;
+    GevrFrameTimingSample *s = tickSample();
     const unsigned bit = 1u << kind;
     /* A successful simple move never initialized its output collision edge. */
     if (kind == GEVR_MOVE_SIMPLE && result == 0 &&
-        frame.collisionEdge[0] == 0 && frame.collisionEdge[1] == 0) {
+        s->collisionEdge[0] == 0 && s->collisionEdge[1] == 0) {
         const float x = edge1[0] - edge0[0], z = edge1[2] - edge0[2];
         const float length = sqrtf(x*x + z*z);
         if (isfinite(length) && length > 0.0001f) {
-            frame.collisionEdge[0] = x / length;
-            frame.collisionEdge[1] = z / length;
+            s->collisionEdge[0] = x / length;
+            s->collisionEdge[1] = z / length;
         }
     }
-    frame.moveAttempted |= bit;
-    if (result > 0) frame.moveAccepted |= bit;
+    s->moveAttempted |= bit;
+    if (result > 0) s->moveAccepted |= bit;
 }
 void gevrFrameTimingFormatCollision(const GevrFrameTimingWindow *w, unsigned first, char *out, size_t size)
 {
@@ -356,13 +388,15 @@ void gevrFrameTimingFormatCollision(const GevrFrameTimingWindow *w, unsigned fir
 }
 void gevrFrameTimingSnapshot(const float body[3], const float root[3])
 {
-    if (!enabled || !frame.start || sampledBody) return;
-    sampledBody = 1;
-    frame.bodyValid = haveBody;
+    int *sampled = frame.start ? &sampledBody : &stagedSampledBody;
+    if (!enabled || *sampled) return;
+    GevrFrameTimingSample *s = tickSample();
+    *sampled = 1;
+    s->bodyValid = haveBody;
     for (int i = 0; i < 3; i++) {
         if (haveBody) {
-            frame.bodyStep[i] = body[i] - lastBody[i];
-            frame.rootStep[i] = root[i] - lastRoot[i];
+            s->bodyStep[i] = body[i] - lastBody[i];
+            s->rootStep[i] = root[i] - lastRoot[i];
         }
         lastBody[i] = body[i]; lastRoot[i] = root[i];
     }
@@ -382,7 +416,7 @@ void gevrFrameTimingCamera(const float position[3])
 void gevrFrameTimingResetMotion(unsigned reason, int discontinuity)
 {
     if (!enabled) return;
-    if (frame.start) frame.resetReason = reason;
+    tickSample()->resetReason = reason;
     if (discontinuity) haveBody = haveCamera = 0;
 }
 void gevrFrameTimingFormatMotion(const GevrFrameTimingSample *s, char *out, size_t size)

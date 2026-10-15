@@ -1890,6 +1890,35 @@ Gfx *constructor_menu01_nintendo(Gfx *DL)
     ninlogo = nintendologo_MRD;
 
     DL = clear_framebuffer_black(DL);
+#ifdef GEVR
+    {
+        /* Bean: the release puts a line of its own on this screen in place of the
+         * spinning logo (its text is compressed in the release, so it is written
+         * here). Two left-aligned lines as the release has them, the block
+         * centred: its 16:9 placement runs the first line off a 4:3 screen. */
+        extern int gevrBeanIsEnabled(void);
+        static u8 question[] = "Do you expect me to remove this Nintendo logo screen?\n";
+        static u8 answer[] = "No, Mr. Bond, I expect you to die.\n";
+
+        if (gevrBeanIsEnabled())
+        {
+            s32 height = 0, width = 0, x;
+
+            textMeasure(&height, &width, question, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+            x = (viGetX() - width) / 2;
+            if (x < 0)
+            {
+                x = 0;
+            }
+            DL = microcode_constructor(DL);
+            DL = display_aligned_white_text_to_screen(DL, x, (viGetY() * 40) / 100, LEFT_ALIGN, CENTER_ALIGN,
+                question, ptrFontZurichBoldChars, ptrFontZurichBold);
+            DL = display_aligned_white_text_to_screen(DL, x, (viGetY() * 50) / 100, LEFT_ALIGN, CENTER_ALIGN,
+                answer, ptrFontZurichBoldChars, ptrFontZurichBold);
+            return DL;
+        }
+    }
+#endif
 
     // Lights macro? These need to be on one line.
     gSPNumLights(DL++, 1); \

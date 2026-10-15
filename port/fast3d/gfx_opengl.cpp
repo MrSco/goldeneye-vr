@@ -379,6 +379,7 @@ struct ShaderProgram {
     GLint meshTintLocation, meshLitLocation, meshAmbientLocation, meshLightDirLocation, meshLightColorLocation,
         meshNumLightsLocation, meshFogLocation, meshFogParamsLocation, meshValidLocation;
     // each array element on its own: the compiler keeps only those the shader uses
+    GLint meshWoundCountLocation, meshWoundLocation;
     GLint meshNormalTexLocation, meshNormalAxisLocation, meshMPLocation, meshTexLocation[2], meshTexRotationLocation[2], meshInSelLocation[GFX_MESH_MAX_INPUTS],
         meshInConstLocation[GFX_MESH_MAX_INPUTS];
 
@@ -709,6 +710,14 @@ static bool s_opaqueDepthWrite;
 // ... and for the in-between frame's redraw (issue #53, gfx_vr_eye_replay)
 static GLint s_curViewport[4], s_curScissor[4];
 static bool s_eyeRec, s_eyeReady;   // recording the eye pass / a frame to redraw
+
+/* The early tick's eye pass (gfx_pc.cpp): kept for the replay that draws it once its
+ * XR frame has begun, not drawn (nothing may touch the eye image before then). */
+static bool s_eyeRecordOnly;
+static inline bool gevr_eye_draw_deferred(void)
+{
+    return s_eyeRecordOnly && !gForceFlatShaderForMenu && !gVrFlatPass;
+}
 static float s_eyeProj[16], s_eyeHeadP[2], s_eyePresentationVP[16];
 static int s_eyeHand = -1;
 static bool s_eyePresent;
@@ -1331,7 +1340,8 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         // gfx_sp_tri1 would make of it (gfx_pc.cpp gevr_mesh_params; DAB's
         // gfx_mesh_vs_main). Below, main() makes the usual inputs of them.
         append_line(vs_buf, &vs_len, "INPUT vec3 aMeshPos; INPUT vec3 aWorldNormal;");
-        append_line(vs_buf, &vs_len, "uniform int uNormalTex1; uniform vec3 uNormalAxis[2];");
+        append_line(vs_buf, &vs_len, "uniform int uNormalTex1; uniform vec3 uNormalAxis[4];");
+        append_line(vs_buf, &vs_len, "uniform int uWoundCount; uniform vec4 uWound[8];");
         append_line(vs_buf, &vs_len, "INPUT vec2 aMeshST;");
         append_line(vs_buf, &vs_len, "INPUT vec4 aMeshColor;");
         append_line(vs_buf, &vs_len, "uniform mat4 uMeshMP;");
@@ -1405,6 +1415,13 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         append_line(vs_buf, &vs_len, "      meshColor.rgb = min(rgb, vec3(255.0)) / 255.0;");
         append_line(vs_buf, &vs_len, "    }");
         append_line(vs_buf, &vs_len, "    if (uMeshTinted != 0) meshColor.rgb = aSkinUnlit > 0.0 || uMeshLit == 0 ? aSkinTint.rgb : meshColor.rgb * aSkinTint.rgb;");
+        // DAB xblaMeshWoundStrength: a Bean body's bullet wounds (gevr_bean_wounds.inc.h).
+        // The chr combiner lerps to the blood tint by shade alpha, times the shade:
+        // a wounded vertex loses alpha and is lifted towards white.
+        append_line(vs_buf, &vs_len, "    if (uWoundCount > 0) { float clean = 1.0;");
+        append_line(vs_buf, &vs_len, "      for (int i = 0; i < 8; i++) { if (i >= uWoundCount) break; vec3 d = meshPos - uWound[i].xyz;");
+        append_line(vs_buf, &vs_len, "        float f = 1.0 - dot(d, d) / (60.0 * 60.0); if (f > 0.0) clean *= 1.0 - uWound[i].w / 255.0 * f; }");
+        append_line(vs_buf, &vs_len, "      float s = 1.0 - clean; meshColor.a = min(meshColor.a, 1.0 - s); meshColor.rgb = mix(meshColor.rgb, vec3(1.0), s); }");
         append_line(vs_buf, &vs_len, "    vec4 aVtxPos = uMeshMP * vec4(meshPos, 1.0);");
         if (cc_features.opt_fog) {
             append_line(vs_buf, &vs_len, "    float fw = abs(aVtxPos.w) < 0.001 ? 0.001 : aVtxPos.w;");
@@ -1422,7 +1439,12 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
             }
         }
         if(cc_features.used_textures[1]) {
-            append_line(vs_buf,&vs_len,"    if(uNormalTex1 != 0) { vec3 n=total>0.0 ? meshNormal : aWorldNormal; float l=length(n); n=l>1e-6 ? n/l : vec3(0.0); aTexCoord1=vec2(.5)+.5*clamp(vec2(dot(n,uNormalAxis[0]),dot(n,uNormalAxis[1])),vec2(-1.0),vec2(1.0)); }");
+            // DAB G_ENVMAP_EXT: the view ray reflected in the normal, on the mirror
+            // sphere (gfx_pc.cpp gevr_reflect_uv; uNormalAxis: right, up, back, eye)
+            append_line(vs_buf,&vs_len,"    if(uNormalTex1 != 0) { vec3 n=total>0.0 ? meshNormal : aWorldNormal; float l=length(n); n=l>1e-6 ? n/l : vec3(0.0);");
+            append_line(vs_buf,&vs_len,"      vec3 e=meshPos-uNormalAxis[3]; float el=length(e); e=el>1e-6 ? e/el : -uNormalAxis[2]; vec3 r=e-2.0*dot(e,n)*n;");
+            append_line(vs_buf,&vs_len,"      vec3 q=vec3(dot(r,uNormalAxis[0]),dot(r,uNormalAxis[1]),dot(r,uNormalAxis[2])); float m=2.0*sqrt(q.x*q.x+q.y*q.y+(q.z+1.0)*(q.z+1.0));");
+            append_line(vs_buf,&vs_len,"      aTexCoord1=m>1e-6 ? clamp(q.xy/m+vec2(.5),vec2(0.0),vec2(1.0)) : vec2(.5); }");
         }
         for (int i = 0; i < cc_features.num_inputs; i++) {
             vs_len += sprintf(vs_buf + vs_len, "    vec%d aInput%d = (uMeshInSel[%d] * meshColor + uMeshInConst[%d])%s;\n",
@@ -1826,6 +1848,8 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     prg->opt_grayscale = cc_features.opt_grayscale;
     prg->is_mesh = s_buildMesh;
     prg->meshNormalTexLocation=s_buildMesh ? glGetUniformLocation(shader_program,"uNormalTex1") : -1;
+    prg->meshWoundCountLocation=s_buildMesh ? glGetUniformLocation(shader_program,"uWoundCount") : -1;
+    prg->meshWoundLocation=s_buildMesh ? glGetUniformLocation(shader_program,"uWound") : -1;
     prg->meshNormalAxisLocation=s_buildMesh ? glGetUniformLocation(shader_program,"uNormalAxis") : -1;
     prg->meshMPLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshMP") : -1;
     for (int i = 0; i < GFX_MESH_MAX_INPUTS; i++) {
@@ -2193,9 +2217,18 @@ struct GevrScopeDraw {
 static std::vector<GevrScopeDraw> s_scopeDraws;
 struct GevrScopeMesh { GLuint vao; GfxMeshDrawParams params; };
 static std::vector<GevrScopeMesh> s_scopeMeshes;
-static void gevr_mesh_uniforms(const ShaderProgram*, const GfxMeshDrawParams*);
+static void gevr_mesh_uniforms(const ShaderProgram*, const GfxMeshDrawParams*, bool* = NULL);
 static void gevr_mesh_clip(bool);
 static void gevr_mesh_cull(int);
+// Owned by one scope/eye pass. External renderers never inherit this cache.
+struct GevrReplayBindings {
+    GLuint vao = 0;
+    GLuint attribs = 0;
+    int cull = 0;
+    bool haveVao = false, mesh = false, haveCull = false, paletteBound = false;
+};
+static void gevr_replay_vao(GevrReplayBindings&, GLuint, bool);
+static void gevr_replay_mesh(GevrReplayBindings&, const ShaderProgram*, const GfxMeshDrawParams*, int);
 static bool s_scopeRec;
 static bool s_scopeTaken[2], s_scopeDrawn[2];   // per hand: recording this frame / image ready
 static uint8_t s_scopeOnlyMask;   // VR_SCOPE_ONLY: kept for that scope alone, not drawn to the eyes
@@ -2461,20 +2494,23 @@ void gfx_vr_scope_render(void)
         // each pass starts afresh (last == NULL): its first draw sets this scope's
         // camera, depth and blend state whatever the previous pass left
         const GevrScopeDraw* last = NULL;
+        GevrReplayBindings bindings;
+        GLuint replayTex[2] = {};
+        bool haveTexture[2] = {};
+        int replayFilter[2] = { -1, -1 };
         for (const GevrScopeDraw& d : s_scopeDraws) {
             if (!(d.mask & (1 << hand))) {
                 continue;
             }
             drawn[hand]++;
-            glBindVertexArray(d.mesh ? s_scopeMeshes[d.mesh - 1].vao : opengl_vao);
-            s_drawElements = d.mesh != 0;
-            gevr_mesh_clip(d.mesh != 0);
-            if (!d.mesh) gevr_mesh_cull(0);
+            gevr_replay_vao(bindings, d.mesh ? s_scopeMeshes[d.mesh - 1].vao : opengl_vao, d.mesh != 0);
             if (last == NULL || d.prg != bound) {
                 if (last != NULL || d.prg != bound) {
                     gfx_opengl_unload_shader(bound);
                 }
                 gfx_opengl_load_shader(d.prg);
+                bindings.attribs = 0;
+                replayFilter[0] = replayFilter[1] = -1;
                 bound = d.prg;
                 if (std::find(touched.begin(), touched.end(), d.prg) == touched.end()) {
                     touched.push_back(d.prg);
@@ -2485,10 +2521,15 @@ void gfx_vr_scope_render(void)
             }
             for (int t = 0; t < 2; t++) {
                 if (d.prg->used_textures[t]) {
-                    glActiveTexture(GL_TEXTURE0 + t);
-                    glBindTexture(GL_TEXTURE_2D, d.tex[t]);
-                    if (d.prg->three_point_filter_locations[t] >= 0) {
+                    if (!haveTexture[t] || replayTex[t] != d.tex[t]) {
+                        glActiveTexture(GL_TEXTURE0 + t);
+                        glBindTexture(GL_TEXTURE_2D, d.tex[t]);
+                        replayTex[t] = d.tex[t];
+                        haveTexture[t] = true;
+                    }
+                    if (d.prg->three_point_filter_locations[t] >= 0 && replayFilter[t] != (int)d.linear[t]) {
                         glUniform1i(d.prg->three_point_filter_locations[t], d.linear[t]);
+                        replayFilter[t] = d.linear[t];
                     }
                 }
             }
@@ -2502,10 +2543,8 @@ void gfx_vr_scope_render(void)
             }
             if (d.mesh) {
                 const GfxMeshDrawParams* params = &s_scopeMeshes[d.mesh - 1].params;
-                for (GLuint a = 0; a < (params->skinned ? 15u : 3u); a++) glEnableVertexAttribArray(a);
-                gevr_mesh_uniforms(d.prg, params);
                 // Scope VP uses an upright target, undo the eye target winding flip.
-                gevr_mesh_cull(params->invert_y ? -params->cull : params->cull);
+                gevr_replay_mesh(bindings, d.prg, params, params->invert_y ? -params->cull : params->cull);
             }
             gevr_issue_draw(d.first, d.count, false, d.decalDepth, d.decalPull, d.lineMode);
             last = &d;
@@ -2681,6 +2720,9 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
     }
     if (s_eyeRec) {
         gevr_eye_keep(first, (GLsizei)(3 * buf_vbo_num_tris), lineMode);   // issue #53
+    }
+    if (gevr_eye_draw_deferred()) {
+        return;   // the replay draws it in its XR frame
     }
 
 
@@ -3029,6 +3071,19 @@ bool gfx_vr_eye_replay_ready(void)
     return s_eyeReady;
 }
 
+// gfx_pc.cpp: whether gfx_vr_eye_record would keep this pass (s_eyeRec's test)
+bool gfx_vr_eye_record_possible(const float* proj, bool invert_y)
+{
+    return proj != NULL && s_pmPtr != NULL && !invert_y && fabsf(proj[0]) > 1e-6f && fabsf(proj[5]) > 1e-6f;
+}
+
+// gfx_pc.cpp, around the early tick's eye pass: keep its draws without drawing them
+void gfx_vr_eye_record_only(bool on)
+{
+    gevr_mesh_settle();
+    s_eyeRecordOnly = on;
+}
+
 static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode)
 {
     // not the HUD captures, which draw into their own targets
@@ -3090,19 +3145,22 @@ static void gevr_eye_proj_times(const float* delta, float M[16])
  * slots' weapons), which goes with the head's position but not its turn.
  */
 /* GoldenEye: static meshes (gfx_opengl_draw_mesh) - the batch's floats for the bound mesh variant */
-static void gevr_mesh_uniforms(const struct ShaderProgram* prg, const struct GfxMeshDrawParams* p)
+static void gevr_mesh_uniforms(const struct ShaderProgram* prg, const struct GfxMeshDrawParams* p, bool* paletteBound)
 {
     const bool made = s_skinPaletteBuffer == 0;
     if (made) glGenBuffers(1, &s_skinPaletteBuffer);
-    // Keep binding explicitly: other renderers may use the UBO target/binding.
-    glBindBuffer(GL_UNIFORM_BUFFER, s_skinPaletteBuffer);
+    // BindBufferBase also binds the generic UBO target used by BufferData.
+    // Only a controlled replay pass can retain ownership across calls.
+    if (made || paletteBound == NULL || !*paletteBound) {
+        glBindBufferBase(GL_UNIFORM_BUFFER, 0, s_skinPaletteBuffer);
+        if (paletteBound != NULL) *paletteBound = true;
+    }
     if (made || (p->skinned && (!s_skinPaletteUploaded ||
         memcmp(s_skinPaletteRows, p->palette.rows, sizeof(s_skinPaletteRows)) != 0))) {
         glBufferData(GL_UNIFORM_BUFFER, sizeof(p->palette.rows), p->palette.rows, GL_STREAM_DRAW);
         memcpy(s_skinPaletteRows, p->palette.rows, sizeof(s_skinPaletteRows));
         s_skinPaletteUploaded = true;
     }
-    glBindBufferBase(GL_UNIFORM_BUFFER, 0, s_skinPaletteBuffer);
     // Uniform values belong to each mesh program. Capture/replay supplies owned
     // parameters; comparing values avoids repeatedly uploading the same room,
     // instance palette and lighting once for every material draw.
@@ -3123,10 +3181,14 @@ static void gevr_mesh_uniforms(const struct ShaderProgram* prg, const struct Gfx
     if (prg->meshFogParamsLocation >= 0 && (changed(p->fog_mul,old.fog_mul) || changed(p->fog_offset,old.fog_offset) ||
         changed(p->fog_enabled,old.fog_enabled) || changed(p->fog_linear,old.fog_linear)))
         glUniform4f(prg->meshFogParamsLocation, p->fog_mul, p->fog_offset, p->fog_enabled, p->fog_linear);
+    if(prg->meshWoundCountLocation>=0 && changed(p->num_wounds,old.num_wounds))
+        glUniform1i(prg->meshWoundCountLocation,p->num_wounds);
+    if(prg->meshWoundLocation>=0 && p->num_wounds && changed(p->wounds,old.wounds))
+        glUniform4fv(prg->meshWoundLocation,GEVR_SKIN_WOUNDS,&p->wounds[0][0]);
     if(prg->meshNormalTexLocation>=0 && changed(p->normal_tex1,old.normal_tex1))
         glUniform1i(prg->meshNormalTexLocation,p->normal_tex1);
     if(prg->meshNormalAxisLocation>=0 && p->normal_tex1 && (!cache.valid || !old.normal_tex1 || changed(p->normal_axis,old.normal_axis)))
-        glUniform3fv(prg->meshNormalAxisLocation,2,&p->normal_axis[0][0]);
+        glUniform3fv(prg->meshNormalAxisLocation,4,&p->normal_axis[0][0]);
     if (prg->meshMPLocation >= 0 && changed(p->mp,old.mp)) glUniformMatrix4fv(prg->meshMPLocation, 1, GL_FALSE, p->mp);
     for (int t = 0; t < 2; t++) {
         if (prg->meshTexLocation[t] >= 0 && changed(p->tex[t],old.tex[t])) glUniform4fv(prg->meshTexLocation[t], 1, p->tex[t]);
@@ -3171,38 +3233,42 @@ static void gevr_mesh_cull(int mode)
     glCullFace(abs(mode) == 1 ? GL_BACK : GL_FRONT);
 }
 
-/* The redraw: a mesh draw binds its own vertex array before its program, so the
- * vertex ring's attributes are never set on it; back to the ring's after. */
-static bool s_replayMesh;
-static void gevr_eye_replay_done(void)
+/* Bind the destination array before changing programs: unloading a ring
+ * program disables attributes on the currently bound VAO. The caller resets
+ * attribs after every shader load so mesh attributes are repaired once. */
+static void gevr_replay_vao(GevrReplayBindings& state, GLuint vao, bool mesh)
 {
-    if (s_replayMesh) {
-        glBindVertexArray(opengl_vao);
-        glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
-        gevr_mesh_clip(false);
+    if (!state.haveVao || state.vao != vao) {
+        glBindVertexArray(vao);
+        state.vao = vao;
+        state.attribs = 0;
+    }
+    if (!state.haveVao || state.mesh != mesh) {
+        gevr_mesh_clip(mesh);
+        if (!mesh) glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+    }
+    if (!mesh && (!state.haveCull || state.cull != 0)) {
         gevr_mesh_cull(0);
-        s_replayMesh = false;
-        s_drawElements = false;
+        state.cull = 0;
+        state.haveCull = true;
     }
+    state.haveVao = true;
+    state.mesh = mesh;
+    s_drawElements = mesh;
 }
-static void gevr_eye_replay_vao(const GevrEyeDraw& d)
+
+static void gevr_replay_mesh(GevrReplayBindings& state, const ShaderProgram* prg,
+                             const GfxMeshDrawParams* params, int cull)
 {
-    if (d.mesh == 0) {
-        gevr_eye_replay_done();
-        return;
+    const GLuint attribs = params->skinned ? 15u : 3u;
+    for (GLuint a = state.attribs; a < attribs; a++) glEnableVertexAttribArray(a);
+    state.attribs = attribs;
+    gevr_mesh_uniforms(prg, params, &state.paletteBound);
+    if (!state.haveCull || state.cull != cull) {
+        gevr_mesh_cull(cull);
+        state.cull = cull;
+        state.haveCull = true;
     }
-    glBindVertexArray(s_eyeMeshes[d.mesh - 1].vao);
-    if (!s_replayMesh) gevr_mesh_clip(true);
-    s_replayMesh = true;
-    s_drawElements = true;
-}
-static void gevr_eye_replay_mesh(const GevrEyeDraw& d)
-{
-    if (d.mesh == 0) return;
-    // unloading the program before may have disabled these on the bound array
-    for (GLuint a = 0; a < (s_eyeMeshes[d.mesh - 1].params.skinned ? 15u : 3u); a++) glEnableVertexAttribArray(a);
-    gevr_mesh_uniforms(d.prg, &s_eyeMeshes[d.mesh - 1].params);
-    gevr_mesh_cull(s_eyeMeshes[d.mesh - 1].params.cull);
 }
 
 void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand1, const float* body)
@@ -3260,13 +3326,15 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
     GLuint replayTex[2] = {};
     bool haveTexture[2] = {};
     int replayFilter[2] = { -1, -1 };
+    GevrReplayBindings bindings;
     for (const GevrEyeDraw& d : s_eyeDraws) {
-        gevr_eye_replay_vao(d);
+        gevr_replay_vao(bindings, d.mesh ? s_eyeMeshes[d.mesh - 1].vao : opengl_vao, d.mesh != 0);
         if (last == NULL || d.prg != bound) {
             if (last != NULL || d.prg != bound) {
                 gfx_opengl_unload_shader(bound);
             }
             gfx_opengl_load_shader(d.prg);   // the eye offsets, as the eye pass had them
+            bindings.attribs = 0;
             bound = d.prg;
             lastMenu = -1;
             if (std::find(touched.begin(), touched.end(), d.prg) == touched.end()) {
@@ -3313,11 +3381,14 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
         if (last == NULL || memcmp(d.scissor, last->scissor, sizeof(d.scissor)) != 0) {
             glScissor(d.scissor[0], d.scissor[1], d.scissor[2], d.scissor[3]);
         }
-        gevr_eye_replay_mesh(d);
+        if (d.mesh) {
+            const GfxMeshDrawParams* params = &s_eyeMeshes[d.mesh - 1].params;
+            gevr_replay_mesh(bindings, d.prg, params, params->cull);
+        }
         gevr_issue_draw(d.first, d.count, d.decalZ, d.decalDepth, d.decalPull, d.lineMode);
         last = &d;
     }
-    gevr_eye_replay_done();
+    gevr_replay_vao(bindings, opengl_vao, false);
 
     // the programs back to the eye pass, and the state as fast3d left it
     for (struct ShaderProgram* p : touched) {
@@ -3590,9 +3661,11 @@ static bool gfx_opengl_draw_mesh(void** gpu, const void* vertices, uint32_t num_
     if (!kept) gevr_mesh_clip(true);
     if (!kept || s_meshLazyCull != p->cull) gevr_mesh_cull(p->cull);
     gevr_scope_keep_mesh(g->vao, (GLint)first, (GLsizei)count, p);
-    s_drawElements = true;
-    gevr_issue_draw((GLint)first, (GLsizei)count, s_decalZ, gevrRoomDl && s_isDecal, 0.0f, false);
-    s_drawElements = false;
+    if (!gevr_eye_draw_deferred()) {   // else the replay draws it in its XR frame
+        s_drawElements = true;
+        gevr_issue_draw((GLint)first, (GLsizei)count, s_decalZ, gevrRoomDl && s_isDecal, 0.0f, false);
+        s_drawElements = false;
+    }
     if (s_eyeRec) {
         s_eyeMeshes.push_back({ g->vao, *p });
         s_eyeKeepMesh = (uint32_t)s_eyeMeshes.size();
@@ -4093,7 +4166,9 @@ bool gfx_opengl_start_draw_to_framebuffer(int fbid, float noisescale) {
             current_noise_scale = 1.0f / noisescale;
         }
 
-        glBindFramebuffer(GL_FRAMEBUFFER, fb.fbo);
+        // The early tick's eye pass keeps its draws for the replay: the eye
+        // framebuffer still holds the image the compositor was handed.
+        glBindFramebuffer(GL_FRAMEBUFFER, fbid == 0 && s_eyeRecordOnly ? 0 : fb.fbo);
         current_framebuffer = fbid;
 
         //        LOGI("GL start_draw_to_fb: fbid=%d w=%u h=%u is_mv=%d",
@@ -4565,6 +4640,9 @@ GLuint gfx_opengl_get_vr_menu_texture_P(void) {
 
 void gfx_opengl_clear_framebuffer(bool clear_color, bool clear_depth) {
     gevr_mesh_settle();
+    if (gevr_eye_draw_deferred()) {
+        return;   // the eye image is not this pass's yet; the replay keeps no clears
+    }
     glDisable(GL_SCISSOR_TEST);
 
     GLbitfield mask = 0;

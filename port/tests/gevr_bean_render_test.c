@@ -30,6 +30,9 @@ void gevrBeanMeshFree(struct gevrBeanMesh *m) { free(m->tris); free(m); }
 void gevrBeanTexReset(void) {}
 /* the decoded pictures (gevr_bean_tex.c): a monitor's screen painted on its case */
 int gevrBeanTexture(const void *addr, const uint8_t **rgba, int *w, int *h) { (void)addr; (void)rgba; (void)w; (void)h; return 0; }
+/* GoldenEye's water on Bean's pictures (gevr_bean_tex.c): none here */
+int gevrBeanTextureIsWater(const void *addr) { (void)addr; return 0; }
+void gevrBeanWaterAdvance(float delta) { (void)delta; }
 /* the folder repaint (gevr_bean_folder.c, gevr_bean_tex.c) is tested on its own */
 void gevrBeanRepaintForget(void) {}
 void gevrBeanRepaintForgetOwner(int owner) { (void)owner; }
@@ -40,6 +43,7 @@ void gevrBeanFontReset(void) {}
 void gevrBeanWorldReset(void) {}
 void *gevrBeanWorldRoom(void *g, int r, int *replaced) { (void)r; *replaced = 0; return g; }
 void *gevrBeanWorldSky(void *g, int *drew) { *drew = 0; return g; }
+int gevrBeanWorldAuthoredView(void) { return 0; }
 
 #include "gevr_bean_pose_test.inc.h"
 #include <gevr_bean_hit_test.inc.h>
@@ -57,13 +61,41 @@ int main(void)
     verts[0].uv[0] = 2; verts[1].uv[0] = 3; verts[2].uv[0] = 2;
     verts[0].uv[1] = 0; verts[1].uv[1] = 0; verts[2].uv[1] = 1;
     void *gdl = NULL, *raw = NULL;
+    /* A room list keeps its own state and vertex alpha. */
+    mesh.roomMaterial = 1;
     assert(gevrBeanEmitList(&mesh, verts, 3, 0, 0, 1, 1, &gdl, &raw));
     Gfx *commands = gdl;
     assert((commands[1].words.w0 >> 24) == (G_SETOTHERMODE_H & 0xff));
     assert(commands[1].words.w1 == G_CYC_2CYCLE);
+    for (Gfx *g = gdl; (g->words.w0 >> 24) != (G_ENDDL & 255); g++) assert((g->words.w0 >> 24) != G_GEVR_NODE_STATE);
     Vtx *v = raw;
     assert(v[0].v.tc[0] == 0 && v[1].v.tc[0] == 128 * 32);
     assert(v[2].v.tc[1] == -64 * 32 && v[0].v.cn[3] == 128);
+    free(gdl); free(raw);
+    mesh.roomMaterial = 0;
+    /* A model list (DAB xblaMeshApplyNodeMode): SAVE first, an APPLY with the
+     * node's combiner per opaque batch, END last; tile 1 the same picture for
+     * the nodes' G_CC_TRILERP; shade alpha 1 outside translucent materials. */
+    assert(gevrBeanEmitList(&mesh, verts, 3, 0, 0, 1, 1, &gdl, &raw));
+    commands = gdl;
+    assert(commands[0].words.w0 == (((uintptr_t)G_GEVR_NODE_STATE << 24) | GEVR_NODE_SAVE));
+    assert((commands[2].words.w0 >> 24) == (G_SETOTHERMODE_H & 0xff) && commands[2].words.w1 == G_CYC_2CYCLE);
+    {
+        int applies = 0, tile1 = 0, c = 0;
+        for (; (commands[c].words.w0 >> 24) != (G_ENDDL & 255); c++) {
+            const unsigned op = commands[c].words.w0 >> 24;
+            if (op == G_GEVR_NODE_STATE && (commands[c].words.w0 & 0xff) == GEVR_NODE_APPLY) {
+                assert((commands[c].words.w0 & ~0xff000000u) == (GEVR_NODE_APPLY | GEVR_NODE_COMBINE));
+                assert(commands[c].words.w1 == commands[c - 2].words.w1);   /* the list's own mode */
+                applies++;
+            }
+            if (op == (G_SETTILE & 255) && ((commands[c].words.w1 >> 24) & 7) == G_TX_RENDERTILE + 1) tile1++;
+        }
+        assert(applies == 1 && tile1 == 1);
+        assert(commands[c - 1].words.w0 == (((uintptr_t)G_GEVR_NODE_STATE << 24) | GEVR_NODE_END));
+    }
+    v = raw;
+    assert(v[0].v.cn[3] == 255);
     free(gdl); free(raw);
     /* A rigid lit head must retain its authored colour too, even without
      * fitted skin influences. The final clear prevents tinting native draws. */

@@ -104,6 +104,7 @@ void sub_GAME_7F074534(ModelRenderData* data, Model* model, ModelNode* node);
 void subdraw(ModelRenderData *arg0, struct Model *);
 #ifdef GEVR
 void gevrModelTraceNextDraw(void);
+void modelDrawBeanBody(ModelRenderData *renderdata, Gfx *body);
 #endif
 uintptr_t loadAnimationFrame(ModelAnimation* anim, s32 frame, ModelSkeleton* unused);
 void modelResetAnimationsScratchBuffer(void);

@@ -770,6 +770,28 @@ static void gevrCheatProbe(s32 inlevel)
             sysLogPrintf(LOG_NOTE, "cheathook: guards' detailed guns %s", g_gevrHeldGunGuards ? "on" : "off");
             continue;
         }
+        /* "blast<R>": every object within R units of Bond (600 if none) takes the
+         * damage that destroys it, as a shot's would (objApplyDamage): destroyed
+         * props, scorched and crumpled, without aiming from the PC */
+        if (strncasecmp(word, "blast", 5) == 0)
+        {
+            extern s32 gevrBlastObjects(f32 radius);
+            const f32 r = word[5] ? (f32) atoi(word + 5) : 600.0f;
+
+            sysLogPrintf(LOG_NOTE, "cheathook: blast %.0f: %d objects", (double) r, gevrBlastObjects(r));
+            continue;
+        }
+        /* "wound<R>": every guard within R units of Bond (600 if none) takes a
+         * bullet's bruise on the chest (chrCreateBloodStain), as a shot's
+         * would, without aiming from the PC */
+        if (strncasecmp(word, "wound", 5) == 0)
+        {
+            extern s32 gevrWoundGuards(f32 radius);
+            const f32 r = word[5] ? (f32) atoi(word + 5) : 600.0f;
+
+            sysLogPrintf(LOG_NOTE, "cheathook: wound %.0f: %d guards", (double) r, gevrWoundGuards(r));
+            continue;
+        }
         /* "holdl<N>": the same in the off hand, e.g. holdl4 to dual-wield PP7s */
         if (strncasecmp(word, "holdl", 5) == 0)
         {
@@ -841,6 +863,98 @@ static s32 gevrWarpIsObject(s32 type)
            type == PROPDEF_GLASS || type == PROPDEF_TINTED_GLASS || type == PROPDEF_DOOR;
 }
 
+/* "blast<R>" (gevrCheatProbe): every setup object within radius of Bond takes the
+ * damage that destroys it, as a shot's would; returns how many */
+s32 gevrBlastObjects(f32 radius)
+{
+    extern void objApplyDamage(ObjectRecord *obj, f32 damage, coord3d *pos, ITEM_IDS itemnum, s32 playernum);
+    PropDefHeaderRecord *def = g_CurrentSetup.propDefs;
+    s32 n = 0;
+
+    for (; def != NULL && def->type != PROPDEF_END; def = sizepropdef(def) + def)
+    {
+        ObjectRecord *obj = (ObjectRecord *) def;
+
+        if (gevrWarpIsObject(def->type) && def->type != PROPDEF_DOOR && obj->prop != NULL)
+        {
+            const f32 dx = obj->prop->pos.x - g_CurrentPlayer->prop->pos.x;
+            const f32 dz = obj->prop->pos.z - g_CurrentPlayer->prop->pos.z;
+
+            if (dx * dx + dz * dz < radius * radius)
+            {
+                sysLogPrintf(LOG_NOTE, "cheathook: blast object %d at %.0f %.0f", obj->obj, (double) obj->prop->pos.x,
+                             (double) obj->prop->pos.z);
+                objApplyDamage(obj, 1000.0f, &obj->prop->pos, ITEM_UNARMED, 0);
+                n++;
+            }
+        }
+    }
+    return n;
+}
+
+/* "wound<R>" (gevrCheatProbe): a bruise on the chest of every guard within
+ * radius of Bond, at the chest box's origin; returns how many */
+static ModelNode *gevrWoundChest(ModelNode *node)
+{
+    for (; node != NULL; node = node->Next)
+    {
+        ModelNode *found;
+
+        if ((node->Opcode & 0xff) == MODELNODE_OPCODE_BBOX && node->Data != NULL &&
+            node->Data->BoundingBox.ModelNumber == 15)   /* HIT_CHEST (bondaicommands.h) */
+        {
+            return node;
+        }
+        if ((found = gevrWoundChest(node->Child)) != NULL)
+        {
+            return found;
+        }
+    }
+    return NULL;
+}
+
+s32 gevrWoundGuards(f32 radius)
+{
+    s32 i, n = 0;
+
+    for (i = 0; i < g_NumChrSlots; i++)
+    {
+        ChrRecord *chr = &g_ChrSlots[i];
+        ModelNode *chest;
+        coord3d local = {0, 0, 0};
+
+        if (chr->model == NULL || chr->prop == NULL || chr->model->obj == NULL)
+        {
+            continue;
+        }
+        {
+            const f32 dx = chr->prop->pos.x - g_CurrentPlayer->prop->pos.x;
+            const f32 dz = chr->prop->pos.z - g_CurrentPlayer->prop->pos.z;
+
+            if (dx * dx + dz * dz >= radius * radius)
+            {
+                continue;
+            }
+        }
+        chest = gevrWoundChest(chr->model->obj->RootNode);
+        if (chest != NULL)
+        {
+            /* on the chest box's front and back faces, where shots land */
+            const struct bbox *box = &chest->Data->BoundingBox.Bounds;
+
+            local.x = (box->xmin + box->xmax) * 0.5f;
+            local.y = (box->ymin + box->ymax) * 0.5f;
+            local.z = box->zmax;
+            chrCreateBloodStain(chr->model, 15, chest, &local);
+            local.z = box->zmin;
+            chrCreateBloodStain(chr->model, 15, chest, &local);
+            sysLogPrintf(LOG_NOTE, "cheathook: wound guard %d at %.0f %.0f", i, (double) chr->prop->pos.x, (double) chr->prop->pos.z);
+            n++;
+        }
+    }
+    return n;
+}
+
 static s32 gevrWarpNearDish(coord3d *dish, s32 model, f32 reach)
 {
     extern f32 g_ScaledFarFogIntensity;
@@ -854,7 +968,57 @@ static s32 gevrWarpNearDish(coord3d *dish, s32 model, f32 reach)
     {
         return -1;
     }
-    for (; def->type != PROPDEF_END; def = sizepropdef(def) + def)
+    if (model == -2)
+    {
+        /* "guard": the nearest guard alive, to look at from reach away */
+        s32 i;
+        f32 bestd = 1e30f;
+
+        for (i = 0; i < g_NumChrSlots; i++)
+        {
+            ChrRecord *chr = &g_ChrSlots[i];
+            f32 dx, dz;
+
+            if (chr->model == NULL || chr->prop == NULL || chr->actiontype == ACT_DIE || chr->actiontype == ACT_DEAD)
+            {
+                continue;
+            }
+            dx = chr->prop->pos.x - g_CurrentPlayer->prop->pos.x;
+            dz = chr->prop->pos.z - g_CurrentPlayer->prop->pos.z;
+            if (dx * dx + dz * dz < bestd)
+            {
+                bestd = dx * dx + dz * dz;
+                *dish = chr->prop->pos;
+                found = TRUE;
+            }
+        }
+        if (found)
+        {
+            /* any of the level's pads, reach away at the guard's height */
+            s32 p;
+
+            sysLogPrintf(LOG_NOTE, "warphook: guard at %.0f %.0f %.0f", dish->x, dish->y, dish->z);
+            for (p = 0; p < 4000 && g_CurrentSetup.pads != NULL && g_CurrentSetup.pads[p].plink != NULL; p++)
+            {
+                PadRecord *pad = &g_CurrentSetup.pads[p];
+                f32 dx = pad->pos.x - dish->x, dz = pad->pos.z - dish->z, diff;
+
+                if (pad->stan == NULL || fabsf(pad->pos.y - dish->y) > 100.0f)
+                {
+                    continue;
+                }
+                diff = fabsf(sqrtf(dx * dx + dz * dz) - target);
+                if (best < 0 || diff < bestdiff)
+                {
+                    best = p;
+                    bestdiff = diff;
+                }
+            }
+            return best;
+        }
+        def = g_CurrentSetup.propDefs + 0;
+    }
+    for (; model != -2 && def->type != PROPDEF_END; def = sizepropdef(def) + def)
     {
         ObjectRecord *obj = (ObjectRecord *) def;
 
@@ -977,6 +1141,10 @@ static void gevrWarpProbe(s32 inlevel)
     {
         word[0] = 0;
     }
+    if (strcmp(word, "guard") == 0 && fscanf(fp, "%f", &reach) != 1)
+    {
+        reach = 350.0f;
+    }
     if (strcmp(word, "near") == 0 && fscanf(fp, "%d %f", &model, &reach) != 2)
     {
         model = -1;
@@ -986,6 +1154,11 @@ static void gevrWarpProbe(s32 inlevel)
     if (strcmp(word, "sevdish") == 0)
     {
         padnum = gevrWarpNearDish(&dish, -1, 0.0f);
+        facedish = TRUE;
+    }
+    else if (strcmp(word, "guard") == 0)
+    {
+        padnum = gevrWarpNearDish(&dish, -2, reach);
         facedish = TRUE;
     }
     else if (strcmp(word, "near") == 0 && model >= 0)
@@ -15043,6 +15216,13 @@ static void gevrGameCameraCeiling(coord3d *position)
 
     room = g_CurrentPlayer->field_488.current_tile_ptr_for_portals->room;
     floor = g_CurrentPlayer->field_488.pos3.y;
+    /* Stepping off a ledge, the tile under Bond is already the one below
+     * while his feet (field_70, which falls with gravity) are still up: from
+     * that floor the probe started under the ledge and took its underside for
+     * a ceiling, and the view dropped (user, 2026-10-14: the top of the Dam
+     * guard tower's steps). Probe from where the feet are. */
+    if (g_CurrentPlayer->field_70 > floor)
+        floor = g_CurrentPlayer->field_70;
     gevrBgClampCameraCeiling(position->f, floor, room, TRUE);
     if (g_gevrStereo && local && !s_gevrCopyTrace)
     {
@@ -16197,6 +16377,179 @@ Gfx *bondviewRenderCredits(Gfx *gdl)
  */
 extern int VrShowStats;
 extern const char *gevrVrStatsText(void);
+
+/*
+ * The readout as one picture. textRender loads each glyph's own texture, so
+ * every character was a draw call: some 270 a frame for this readout, a third
+ * of the 800 it showed at the Dam's valley (user, 2026-10-14). The text changes
+ * about once a second; it is then laid out as textRender lays it (kerning, the
+ * '[' line height, 5 for a space) into a picture, white with the glyph's
+ * intensity for alpha, and drawn with one rectangle. Under Bean a glyph is
+ * Bean's repaint (gevr_bean_font.c) averaged down to the cartridge glyph's
+ * cell, as the GPU shrank it there.
+ * fast3d takes the picture in place of a 16x16 stand-in (gevrStatsPicture);
+ * two of each, so a picture a frame in flight still draws is not rewritten.
+ */
+#define GEVR_STATS_SIZE 512   /* power of two: 16/512 texels a pixel is exact */
+#ifndef G_INVALTEXCACHE_EXT
+#define G_INVALTEXCACHE_EXT 0x7C   /* fast3d: forget a texture's cached upload (gfx_pc.h) */
+#endif
+static u8 gevrStatsStandin[2][16 * 16] __attribute__((aligned(8)));
+static u8 *gevrStatsPictures[2];
+static s32 gevrStatsCurrent = -1, gevrStatsW, gevrStatsH;
+static char gevrStatsShown[1024];
+
+extern void gevrBeanFontRepaint(struct fontchar *native, int gothic, int character);
+extern int gevrBeanRepaint(const void *addr, const u8 **rgba, int *w, int *h);
+
+int gevrStatsPicture(const void *addr, const u8 **rgba, int *w, int *h)
+{
+    s32 i;
+
+    for (i = 0; i < 2; i++)
+    {
+        if (addr == gevrStatsStandin[i] && gevrStatsPictures[i])
+        {
+            *rgba = gevrStatsPictures[i];
+            *w = *h = GEVR_STATS_SIZE;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static s32 gevrStatsLayout(const char *text)
+{
+    struct fontchar *chars = ptrFontBankGothicChars;
+    struct font *font = ptrFontBankGothic;
+    const s32 lineheight = chars['['].height + chars['['].baseline;
+    const s32 next = gevrStatsCurrent < 0 ? 0 : gevrStatsCurrent ^ 1;
+    s32 x = 4, y = 0, w = 0, h = 0, prev = 'H';
+    u8 *picture;
+
+    if (!gevrStatsPictures[next])
+    {
+        gevrStatsPictures[next] = malloc(GEVR_STATS_SIZE * GEVR_STATS_SIZE * 4);
+        if (!gevrStatsPictures[next])
+        {
+            return 0;
+        }
+    }
+    picture = gevrStatsPictures[next];
+    memset(picture, 0, GEVR_STATS_SIZE * GEVR_STATS_SIZE * 4);
+    for (; *text; text++)
+    {
+        u8 ch = (u8)*text;
+        struct fontchar *glyph, *before;
+        s32 stride, r, c;
+        const u8 *paint = NULL;
+        int paintW = 0, paintH = 0;
+
+        if (ch == ' ')
+        {
+            x += 5;
+            prev = 'H';
+            continue;
+        }
+        if (ch == '\n')
+        {
+            y += lineheight;
+            x = 4;
+            prev = 'H';
+            continue;
+        }
+        if (ch < '!' || ch > '~')
+        {
+            ch = '?';
+        }
+        glyph = &chars[ch - 0x21];
+        before = &chars[prev - 0x21];
+        stride = (glyph->width + 7) & ~7;
+        x -= font->kerning[before->kerningindex * 13 + glyph->kerningindex] - 1;
+        gevrBeanFontRepaint(glyph, 1, ch);
+        if (!gevrBeanRepaint(glyph->pixeldata, &paint, &paintW, &paintH) || paintW <= 0 || paintH <= 0)
+        {
+            paint = NULL;
+        }
+        for (r = 0; r < glyph->height; r++)
+        {
+            const s32 py = y + glyph->baseline + r;
+
+            if (py < 0 || py >= GEVR_STATS_SIZE)
+            {
+                continue;
+            }
+            for (c = 0; c < glyph->width; c++)
+            {
+                const s32 px = x + c;
+                u8 *texel;
+
+                if (px < 0 || px >= GEVR_STATS_SIZE)
+                {
+                    continue;
+                }
+                texel = picture + (py * GEVR_STATS_SIZE + px) * 4;
+                texel[0] = texel[1] = texel[2] = 0xff;
+                if (paint)
+                {
+                    /* the repaint spans the padded cell: the texels under this one */
+                    const s32 x0 = c * paintW / stride, x1 = MAX((c + 1) * paintW / stride, x0 + 1);
+                    const s32 y0 = r * paintH / glyph->height, y1 = MAX((r + 1) * paintH / glyph->height, y0 + 1);
+                    s32 sum = 0, most = 0, sx, sy;
+
+                    for (sy = y0; sy < y1 && sy < paintH; sy++)
+                        for (sx = x0; sx < x1 && sx < paintW; sx++)
+                        {
+                            const s32 a = paint[(sy * paintW + sx) * 4 + 3];
+                            sum += a;
+                            most = MAX(most, a);
+                        }
+                    /* the mean alone thins a stroke narrower than the cell (I, 1) to nothing */
+                    texel[3] = (sum / ((x1 - x0) * (y1 - y0)) + most) / 2;
+                }
+                else
+                {
+                    texel[3] = glyph->pixeldata[r * stride + c];
+                }
+            }
+        }
+        x += glyph->width;
+        prev = ch;
+        if (x > w) w = x;
+        if (y + glyph->baseline + glyph->height > h) h = y + glyph->baseline + glyph->height;
+    }
+    gevrStatsCurrent = next;
+    gevrStatsW = w + 4 < GEVR_STATS_SIZE ? w + 4 : GEVR_STATS_SIZE;
+    gevrStatsH = h + 1 < GEVR_STATS_SIZE ? h + 1 : GEVR_STATS_SIZE;
+    return 1;
+}
+
+static Gfx *gevrDrawStatsText(Gfx *gdl, s32 x, s32 y, const char *text)
+{
+    const s32 changed = strcmp(text, gevrStatsShown) != 0 || gevrStatsCurrent < 0;
+
+    if (changed)
+    {
+        if (!gevrStatsLayout(text))
+        {
+            return textRender(gdl, &x, &y, (char *)text, ptrFontBankGothicChars, ptrFontBankGothic, -1, viGetX(), viGetY(), 0, 0);
+        }
+        snprintf(gevrStatsShown, sizeof(gevrStatsShown), "%s", text);
+        /* the stand-in's cached texture is the picture from two changes ago */
+        gdl->words.w0 = (uintptr_t)G_INVALTEXCACHE_EXT << 24;
+        gdl->words.w1 = (uintptr_t)gevrStatsStandin[gevrStatsCurrent];
+        gdl++;
+    }
+    gDPPipeSync(gdl++);
+    gDPSetPrimColor(gdl++, 0, 0, 0xff, 0xff, 0xff, 0xff);
+    gDPSetTextureLUT(gdl++, G_TT_NONE);
+    gDPLoadTextureBlock(gdl++, gevrStatsStandin[gevrStatsCurrent], G_IM_FMT_I, G_IM_SIZ_8b, 16, 16, 0,
+                        G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
+    gSPTextureRectangle(gdl++, (x - 4) * 4, y * 4, (x - 4 + gevrStatsW) * 4, (y + gevrStatsH) * 4,
+                        G_TX_RENDERTILE, 0, 0, (16 << 10) / GEVR_STATS_SIZE, (16 << 10) / GEVR_STATS_SIZE);
+    return gdl;
+}
+
 static Gfx *gevrDrawStats(Gfx *gdl)
 {
     char buf[1024];
@@ -16226,7 +16579,7 @@ static Gfx *gevrDrawStats(Gfx *gdl)
         y = viGetViewTop() + 10;
     }
     gdl = microcode_constructor_related_to_menus(gdl, x - 3, y - 2, x + w + 3, y + h + 2, 0x000000A0);
-    gdl = textRender(gdl, &x, &y, buf, ptrFontBankGothicChars, ptrFontBankGothic, -1, viGetX(), viGetY(), 0, 0);
+    gdl = gevrDrawStatsText(gdl, x, y, buf);
     gdl = combiner_bayer_lod_perspective(gdl);
     if (g_gevrStereo)
     {
