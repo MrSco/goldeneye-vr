@@ -36,7 +36,7 @@ union ModelRwData *modelGetNodeRwData(Model *model, ModelNode *node);
 s32 modelFindNodeMtxIndex(ModelNode *node, s32 arg1);
 
 struct beanWound {
-	const ModelNode *stained;    /* the node GoldenEye painted, and the copy it painted */
+	const union ModelRwData *rwdata; /* the instance record GoldenEye painted */
 	const void *vertices;
 	int matrix;                  /* the hit part's matrix, and the hit in its frame */
 	float local[3];
@@ -50,6 +50,13 @@ static struct {
 	struct beanWound ring[GEVR_SKIN_WOUNDS];
 } s_wounds[BEAN_WOUND_MODELS];
 static unsigned s_woundUse;
+
+void gevrBeanForgetWounds(Model *model)
+{
+	for (int i = 0; i < BEAN_WOUND_MODELS; i++)
+		if (s_wounds[i].model == model)
+			memset(&s_wounds[i], 0, sizeof(s_wounds[i]));
+}
 
 /* The Bean head drawn on the model (its skin, the node it draws on), found
  * through the body's head placeholder, which GoldenEye points at the head */
@@ -76,6 +83,12 @@ void gevrBeanNoteWound(Model *model, s32 hitpart, ModelNode *hitnode, ModelNode 
 		return;
 	const int matrix = modelFindNodeMtxIndex(hitnode, 0);
 	if (matrix < 0)
+		return;
+	/* Head nodes are shared. Their Parent is rewired for each body; looking up
+	 * stained again while drawing can use a different body's head rwdata index
+	 * (53f092b3). Capture this instance's record while the hit walk owns it. */
+	const union ModelRwData *rwdata = modelGetNodeRwData(model, stained);
+	if (!rwdata)
 		return;
 	for (int i = 0; i < BEAN_WOUND_MODELS && pick < 0; i++)
 		if (s_wounds[i].model == model)
@@ -149,7 +162,7 @@ void gevrBeanNoteWound(Model *model, s32 hitpart, ModelNode *hitnode, ModelNode 
 		}
 	}
 	struct beanWound *w = &s_wounds[pick].ring[s_wounds[pick].serial++ % GEVR_SKIN_WOUNDS];
-	w->stained = stained;
+	w->rwdata = rwdata;
 	w->vertices = vertices;
 	w->matrix = matrix;
 	w->local[0] = at[0];
@@ -179,7 +192,7 @@ static int beanWoundsInAnchor(Model *model, const struct beanSkin *skin, const f
 	const unsigned from = serial > GEVR_SKIN_WOUNDS ? serial - GEVR_SKIN_WOUNDS : 0;
 	for (unsigned s = from; s < serial; s++) {
 		const struct beanWound *w = &s_wounds[slot].ring[s % GEVR_SKIN_WOUNDS];
-		const union ModelRwData *rw = modelGetNodeRwData(model, (ModelNode *)w->stained);
+		const union ModelRwData *rw = w->rwdata;
 		if (!rw || rw->DisplayListCollisions.Vertices != w->vertices)
 			continue;   /* the copy is gone: so is the bruise */
 		live++;

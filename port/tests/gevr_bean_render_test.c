@@ -236,7 +236,12 @@ int main(void)
     materialPathChecks();
     hitChecks();
     poseChecks();
+    /* Level reset drops wounds before their instance records leave the pool. */
+    Model wounded = {0};
+    s_wounds[0].model = &wounded;
+    s_wounds[0].serial = s_woundUse = 1;
     gevrBeanReset();
+    assert(!s_wounds[0].model && !s_wounds[0].serial && !s_woundUse);
     puts("Bean UV, vertex alpha and same-level toggle checks passed");
     return 0;
 }
