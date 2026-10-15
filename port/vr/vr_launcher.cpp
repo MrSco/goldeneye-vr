@@ -924,7 +924,8 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
             }
             ImGui::EndDisabled();
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                if (bean) ImGui::SetTooltip("%s\nby %s\nFrom your own copy of the game", p.title.c_str(), p.by.c_str());
+                if (bean) ImGui::SetTooltip("%s\nby %s\nFrom your own copy of the game\nIn game: VR options, or hold one grip + right-stick click for 1 second",
+                                            p.title.c_str(), p.by.c_str());
                 else ImGui::SetTooltip("%s\nby %s\n%s\nVersion %s", p.title.c_str(), p.by.c_str(), p.site.c_str(), p.version.c_str());
             }
             ImGui::TextDisabled("%s", bean ? "Meshes + textures" : "Textures");
@@ -979,7 +980,8 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     if (VrCampaign != GEVR_CAMPAIGN_GE && gevrBeanIsAvailable())
         ImGui::TextWrapped("XBLA / Bean is off while the Goldfinger 64 or Tomorrow Never Dies campaign is chosen.");
     else if (gevrBeanIsEnabled()) {
-        ImGui::TextWrapped("Bean uses its own textures. Toggle in VR options or hold one grip + right-stick click for 1 second.");
+        // How to toggle Bean in game is the Bean row's tooltip: with the HD fill
+        // row and Done's blood patch, its two lines ran the page past the panel.
         // the pictures Bean leaves at the cartridge's, from an installed HD pack (gfx_pc.cpp tp_find)
         const char *fill = nullptr;
         for (const char *id : { "ge007-hd-ai", "ge007-hd" })
@@ -1055,18 +1057,19 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
                                   : "Needs your own GoldenEye X ROM: Perfect Dark 1.1 with the GE-X 6a patch.");
     ImGui::PopStyleColor();
     if (gex && gevrBeanIsEnabled()) ImGui::TextDisabled("GE-X supplies first-person gear; Bean supplies the world.");
-    ImGui::Separator();
-    // Wreck's blood patch (chr.c chrCreateHitPuffs): a cosmetic table, so it
-    // goes with every look and campaign, and online each headset its own.
-    bool blood = VrBloodPatch != 0;
-    if (ImGui::Checkbox("Blood patch (by Wreck)", &blood)) VrBloodPatch = blood ? 1 : 0;
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Shot guards spray the red blood sparks Rare left in the game,\ninstead of smoke and sparks.");
     // Keep the exit in the same place in every download state, above the
     // launcher's one-line hint, drawn under every page: placed at the very
     // bottom, Done pushed the hint off the panel's edge.
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + std::fmax(0.0f, ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeight() -
                                                                 ImGui::GetTextLineHeightWithSpacing()));
+    // Wreck's blood patch (chr.c chrCreateHitPuffs): a cosmetic table, so it
+    // goes with every look and campaign, and online each headset its own. On
+    // Done's row: a row of its own ran the page past the panel (no scrolling).
+    bool blood = VrBloodPatch != 0;
+    if (ImGui::Checkbox("Blood patch (by Wreck)", &blood)) VrBloodPatch = blood ? 1 : 0;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Shot guards spray the red blood sparks Rare left in the game,\ninstead of smoke and sparks.");
+    ImGui::SameLine();
     if (ImGui::Button("Done", ImVec2(-1, 0))) {
         vrSettingsSave();
         open = false;
