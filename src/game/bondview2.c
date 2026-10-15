@@ -783,13 +783,16 @@ static void gevrCheatProbe(s32 inlevel)
         }
         /* "wound<R>": every guard within R units of Bond (600 if none) takes a
          * bullet's bruise on the chest (chrCreateBloodStain), as a shot's
-         * would, without aiming from the PC */
+         * would, without aiming from the PC; "woundhead<R>" on the head */
         if (strncasecmp(word, "wound", 5) == 0)
         {
-            extern s32 gevrWoundGuards(f32 radius);
-            const f32 r = word[5] ? (f32) atoi(word + 5) : 600.0f;
+            extern s32 gevrWoundGuards(f32 radius, s32 part);
+            const s32 head = strncasecmp(word, "woundhead", 9) == 0;
+            const char *digits = word + (head ? 9 : 5);
+            const f32 r = *digits ? (f32) atoi(digits) : 600.0f;
 
-            sysLogPrintf(LOG_NOTE, "cheathook: wound %.0f: %d guards", (double) r, gevrWoundGuards(r));
+            sysLogPrintf(LOG_NOTE, "cheathook: wound%s %.0f: %d guards", head ? "head" : "", (double) r,
+                         gevrWoundGuards(r, head ? 8 : 15));   /* HIT_HEAD, HIT_CHEST (bondaicommands.h) */
             continue;
         }
         /* "holdl<N>": the same in the off hand, e.g. holdl4 to dual-wield PP7s */
@@ -892,20 +895,20 @@ s32 gevrBlastObjects(f32 radius)
     return n;
 }
 
-/* "wound<R>" (gevrCheatProbe): a bruise on the chest of every guard within
- * radius of Bond, at the chest box's origin; returns how many */
-static ModelNode *gevrWoundChest(ModelNode *node)
+/* "wound<R>" (gevrCheatProbe): a bruise on the chest (or head) of every guard
+ * within radius of Bond, on the part box's front and back; returns how many */
+static ModelNode *gevrWoundChest(ModelNode *node, s32 part)
 {
     for (; node != NULL; node = node->Next)
     {
         ModelNode *found;
 
         if ((node->Opcode & 0xff) == MODELNODE_OPCODE_BBOX && node->Data != NULL &&
-            node->Data->BoundingBox.ModelNumber == 15)   /* HIT_CHEST (bondaicommands.h) */
+            node->Data->BoundingBox.ModelNumber == part)
         {
             return node;
         }
-        if ((found = gevrWoundChest(node->Child)) != NULL)
+        if ((found = gevrWoundChest(node->Child, part)) != NULL)
         {
             return found;
         }
@@ -913,7 +916,7 @@ static ModelNode *gevrWoundChest(ModelNode *node)
     return NULL;
 }
 
-s32 gevrWoundGuards(f32 radius)
+s32 gevrWoundGuards(f32 radius, s32 part)
 {
     s32 i, n = 0;
 
@@ -936,7 +939,7 @@ s32 gevrWoundGuards(f32 radius)
                 continue;
             }
         }
-        chest = gevrWoundChest(chr->model->obj->RootNode);
+        chest = gevrWoundChest(chr->model->obj->RootNode, part);
         if (chest != NULL)
         {
             /* on the chest box's front and back faces, where shots land */
@@ -945,9 +948,9 @@ s32 gevrWoundGuards(f32 radius)
             local.x = (box->xmin + box->xmax) * 0.5f;
             local.y = (box->ymin + box->ymax) * 0.5f;
             local.z = box->zmax;
-            chrCreateBloodStain(chr->model, 15, chest, &local);
+            chrCreateBloodStain(chr->model, part, chest, &local);
             local.z = box->zmin;
-            chrCreateBloodStain(chr->model, 15, chest, &local);
+            chrCreateBloodStain(chr->model, part, chest, &local);
             sysLogPrintf(LOG_NOTE, "cheathook: wound guard %d at %.0f %.0f", i, (double) chr->prop->pos.x, (double) chr->prop->pos.z);
             n++;
         }

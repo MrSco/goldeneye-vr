@@ -56,6 +56,7 @@ struct beanSkin {
 	Vtx *vtx;
 	Gfx *gdl;
 	int nverts, ncommands, anchor;
+	int head;   /* a Bean head's (emitHead): wounds on the head box land on it */
 	GevrStaticMesh *mesh;
 	int16_t bones[GEVR_SKIN_BONES];
 	int nbones, meshTried;

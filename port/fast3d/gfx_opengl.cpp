@@ -1420,7 +1420,9 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         // a wounded vertex loses alpha and is lifted towards white.
         append_line(vs_buf, &vs_len, "    if (uWoundCount > 0) { float clean = 1.0;");
         append_line(vs_buf, &vs_len, "      for (int i = 0; i < 8; i++) { if (i >= uWoundCount) break; vec3 d = meshPos - uWound[i].xyz;");
-        append_line(vs_buf, &vs_len, "        float f = 1.0 - dot(d, d) / (60.0 * 60.0); if (f > 0.0) clean *= 1.0 - uWound[i].w / 255.0 * f; }");
+        // w: 255 less the bruise's alpha, plus 256 times the radius (60 a body, 40 a head)
+        append_line(vs_buf, &vs_len, "        float r = floor(uWound[i].w / 256.0); float s = uWound[i].w - r * 256.0;");
+        append_line(vs_buf, &vs_len, "        float f = r > 0.0 ? 1.0 - dot(d, d) / (r * r) : 0.0; if (f > 0.0) clean *= 1.0 - s / 255.0 * f; }");
         append_line(vs_buf, &vs_len, "      float s = 1.0 - clean; meshColor.a = min(meshColor.a, 1.0 - s); meshColor.rgb = mix(meshColor.rgb, vec3(1.0), s); }");
         append_line(vs_buf, &vs_len, "    vec4 aVtxPos = uMeshMP * vec4(meshPos, 1.0);");
         if (cc_features.opt_fog) {
