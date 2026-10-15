@@ -40,6 +40,7 @@
 #include "game/file2.h"
 #include "objecthandler.h"
 #include "dyn.h"
+#include "viewport.h"
 #include "assets/obseg/text/LtitleE.h"
 #include "matrixmath.h"
 #include "bg.h"
@@ -954,6 +955,13 @@ struct intro_char intro_char_table[] = {
     {BODY_Baron_Samedi,               HEAD_FIXED,               getStringID(LTITLE, TITLE_STR_231_GUESTSTAR),     getStringID(LTITLE, TITLE_STR_249_BERONSAMEDI),           getStringID(LTITLE, TITLE_STR_227_LF),               0, 0},
     {0xFFFFFFFF,                      0,                        0,                                                0,                                                        0,                                                   0, 0}
 };
+
+/* Goldfinger's cast uses its own character indices and captions. */
+static const struct intro_char *gevrCastTable(void)
+{
+    const struct intro_char *campaign = gevrRomCastTable();
+    return campaign ? campaign : intro_char_table;
+}
 
 struct intro_animation intro_animation_table[] = {
     {ANIM_spotting_bond, 98.0, 1.0, 0},
@@ -8255,11 +8263,11 @@ void init_menu18_displaycast(void)
     }
 
     randomly_selected_intro_animation = randomGetNext() % ((u32) intro_animation_count);
-    body = intro_char_table[intro_character_index].body;
-    head = intro_char_table[intro_character_index].head;
+    body = gevrCastTable()[intro_character_index].body;
+    head = gevrCastTable()[intro_character_index].head;
     cameraPreset = intro_animation_table[randomly_selected_intro_animation].camera_preset;
     
-    if (body == BODY_Special_Operations_Uniform)
+    if (!gevrRomCastTable() && body == BODY_Special_Operations_Uniform)
     {
         // Keep the multiple assignments on the same line for matching.
         switch (randomGetNext() % 5U) 
@@ -8280,14 +8288,14 @@ void init_menu18_displaycast(void)
             break; 
         } 
     } 
-    else if (body == BODY_Natalya_Skirt) 
+    else if (!gevrRomCastTable() && body == BODY_Natalya_Skirt)
     { 
         if (randomGetNext() & 1) 
         { 
             body = BODY_Natalya_Jungle_Fatigues; 
         } 
     } 
-    else if ((body == BODY_Trevelyan_006) && (randomGetNext() & 1))
+    else if (!gevrRomCastTable() && (body == BODY_Trevelyan_006) && (randomGetNext() & 1))
     { 
         body = BODY_Trevelyan_Janus; 
     } 
@@ -8297,14 +8305,14 @@ void init_menu18_displaycast(void)
         head = get_random_head(body); 
     } 
 
-    allocSize = 0x19000; 
-    bufferRemaining = 0x18160; 
+    allocSize = GEVR_CAST_TEXTURE_BYTES;
+    bufferRemaining = GEVR_CAST_MODEL_BYTES;
 
     if (1);
 
     bufferRemaining = bufferRemaining + allocSize; 
 
-    zbufSetBuffer(ALIGN64_V2(bufferPtr + bufferRemaining), Z_BUFFER_4_3_WIDTH, Z_BUFFER_4_3_HEIGHT);
+    zbufSetBuffer(ALIGN64_V1((uintptr_t)bufferPtr + bufferRemaining), Z_BUFFER_4_3_WIDTH, Z_BUFFER_4_3_HEIGHT);
     texInitPool(&texPool, bufferPtr, allocSize);
 
     bufferRemaining -= allocSize;
@@ -8342,7 +8350,7 @@ void init_menu18_displaycast(void)
         }
 
         // Replace Cougar Magnum with PP7 if Cradle has not been completed on any folder.
-        if (weaponProp == PROP_CHRRUGER)
+        if (!gevrRomCastTable() && weaponProp == PROP_CHRRUGER)
         {
             if (fileIsCradleCompletedAnyFolder() == FALSE)
             {
@@ -8351,7 +8359,7 @@ void init_menu18_displaycast(void)
         }
 
         // Replace Laser with PP7 if Aztec has not been completed on Secret Agent or 00 Agent on any folder.
-        if (weaponProp == PROP_CHRLASER)
+        if (!gevrRomCastTable() && weaponProp == PROP_CHRLASER)
         {
             if (check_aztec_completed_any_folder_secret_00() == FALSE)
             {
@@ -8360,7 +8368,7 @@ void init_menu18_displaycast(void)
         }
 
         // Replace Golden Gun with PP7 if Egyptian has not been completed on 00 Agent on any folder.
-        if (weaponProp == PROP_CHRGOLDEN)
+        if (!gevrRomCastTable() && weaponProp == PROP_CHRGOLDEN)
         {
             if (fileIsEgyptCompletedOn00AnyFolder() == FALSE)
             {
@@ -8455,43 +8463,43 @@ void interface_menu18_displaycast(void)
 
         while (1)
         {
-            if (intro_char_table[intro_character_index].flag && full_actor_intro == 0 && 1)
+            if (gevrCastTable()[intro_character_index].flag && full_actor_intro == 0 && 1)
             {
                 intro_character_index++;
                 continue;
             }
 
-            if ((intro_char_table[intro_character_index].body == BODY_Moonraker_Elite_1_Male) && (check_aztec_completed_any_folder_secret_00()) == 0)
+            if (!gevrRomCastTable() && (gevrCastTable()[intro_character_index].body == BODY_Moonraker_Elite_1_Male) && (check_aztec_completed_any_folder_secret_00()) == 0)
             {
                 intro_character_index++;
                 continue;
             }
 
-            if ((intro_char_table[intro_character_index].body == BODY_Moonraker_Elite_2_Female) && (check_aztec_completed_any_folder_secret_00() == 0))
+            if (!gevrRomCastTable() && (gevrCastTable()[intro_character_index].body == BODY_Moonraker_Elite_2_Female) && (check_aztec_completed_any_folder_secret_00() == 0))
             {
                 intro_character_index++;
                 continue;
             }
 
-            if ((intro_char_table[intro_character_index].body == BODY_Mayday) && (check_aztec_completed_any_folder_secret_00() == 0 && (randomGetNext() % 0x2710U)))
+            if (!gevrRomCastTable() && (gevrCastTable()[intro_character_index].body == BODY_Mayday) && (check_aztec_completed_any_folder_secret_00() == 0 && (randomGetNext() % 0x2710U)))
             {
                 intro_character_index++;
                 continue;
             }
 
-            if ((intro_char_table[intro_character_index].body == BODY_Jaws) && (check_aztec_completed_any_folder_secret_00() == 0 && (randomGetNext() % 0x2710U)))
+            if (!gevrRomCastTable() && (gevrCastTable()[intro_character_index].body == BODY_Jaws) && (check_aztec_completed_any_folder_secret_00() == 0 && (randomGetNext() % 0x2710U)))
             {
                 intro_character_index++;
                 continue;
             }
 
-            if ((intro_char_table[intro_character_index].body == BODY_Oddjob) && (fileIsEgyptCompletedOn00AnyFolder() == 0 && (randomGetNext() % 0x2710U)))
+            if (!gevrRomCastTable() && (gevrCastTable()[intro_character_index].body == BODY_Oddjob) && (fileIsEgyptCompletedOn00AnyFolder() == 0 && (randomGetNext() % 0x2710U)))
             {
                 intro_character_index++;
                 continue;
             }
 
-            if ((intro_char_table[intro_character_index].body == BODY_Baron_Samedi) && (fileIsEgyptCompletedOn00AnyFolder() == 0 && (randomGetNext() % 0x2710U) ))
+            if (!gevrRomCastTable() && (gevrCastTable()[intro_character_index].body == BODY_Baron_Samedi) && (fileIsEgyptCompletedOn00AnyFolder() == 0 && (randomGetNext() % 0x2710U) ))
             {
                 intro_character_index++;
                 continue;
@@ -8502,7 +8510,7 @@ void interface_menu18_displaycast(void)
 
         f = intro_character_index;
 
-        if (intro_char_table[f].body < 0)
+        if (gevrCastTable()[f].body < 0)
         {
             intro_character_index = 0;
             f = 0;
@@ -8774,7 +8782,7 @@ Gfx *constructor_menu18_displaycast(Gfx *DL)
  
     if (full_actor_intro == FALSE)
     {
-        text = langGet( (u16)intro_char_table[intro_character_index].text1);
+        text = langGet( (u16)gevrCastTable()[intro_character_index].text1);
  
         textMeasure(&textheight, &textwidth, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
  
@@ -8786,7 +8794,7 @@ Gfx *constructor_menu18_displaycast(Gfx *DL)
         DL = textRender(DL, &x, &y, text, ptrFontZurichBoldChars, ptrFontZurichBold, (u32)(255.0f * fade) | 0xFFFFFF00, viGetX(), viGetY(), 0, 0);
     }
  
-    text = langGet((u16)intro_char_table[intro_character_index].text2);
+    text = langGet((u16)gevrCastTable()[intro_character_index].text2);
  
     textMeasure(&textheight, &textwidth, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
  
@@ -8797,7 +8805,7 @@ Gfx *constructor_menu18_displaycast(Gfx *DL)
  
     DL = textRender(DL, &x, &y, text, ptrFontZurichBoldChars, ptrFontZurichBold, (u32)(255.0f * fade) | 0xFFFFFF00, viGetX(), viGetY(), 0, 0);
  
-    text = langGet((u16)intro_char_table[intro_character_index].text3);
+    text = langGet((u16)gevrCastTable()[intro_character_index].text3);
  
     textMeasure(&textheight, &textwidth, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
  
