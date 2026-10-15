@@ -3,8 +3,8 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current release:** v0.5.0 (versionCode 80, protocol 21), 2026-10-14.
-v0.4.16 through v0.4.23 can join; v0.4.15 and older can't. Building does not
+**Current release:** v0.5.1 (versionCode 81, protocol 21), 2026-10-14.
+v0.4.16 through v0.5.0 can join; v0.4.15 and older can't. Building does not
 publish a GitHub release. No game data is shipped.
 
 v0.5.0 (PR #180, PR #183): XBLA at 120 Hz on Quest 3 (early game tick before
@@ -13,7 +13,9 @@ Dam, all in full-speed turns), Bean parity from Dab's Mod (node mode, body
 fade, scorched props, wounds, reflections, GoldenEye's water motion, hidden
 backdrop rooms, release boot logos, HD fill), #181 misses fly past Bond,
 Wreck's blood patch (Mods, off by default), guard tower stairs camera, Goldfinger
-title cast crash da10370a. [v0.5.0](docs/releases/v0.5.0.md),
+title cast crash da10370a. v0.5.1: wounds on Bean heads (head box hits snap to
+the head, 40-unit radius), blood patch on its own Mods row above Done.
+[v0.5.0](docs/releases/v0.5.0.md), [v0.5.1](docs/releases/v0.5.1.md),
 [performance](docs/bean-performance-improvements.md),
 [Bean backlog](docs/bean-parity-backlog.md).
 
@@ -38,13 +40,13 @@ See [body slots](docs/body-slots.md).
 
 ## Recent releases
 
+**v0.5.1:** wounds on Bean heads, Mods page blood patch row. Notes:
+[v0.5.1](docs/releases/v0.5.1.md).
 **v0.5.0:** XBLA at 120 Hz, Bean parity (wounds, reflections, water, boot logos),
 #181, blood patch mod, Goldfinger cast crash. Notes: [v0.5.0](docs/releases/v0.5.0.md).
 **v0.4.23:** steadier aim at 90/120 Hz, half-size chest/belt slot models, per-hand
 ammo, Dam boat crash fix. Notes: [v0.4.23](docs/releases/v0.4.23.md).
-**v0.4.22:** vacant-body collision and intro handoff fixes for co-op starts.
-Notes: [v0.4.22](docs/releases/v0.4.22.md).
-**Earlier:** see docs/releases/ for v0.4.0–v0.4.21 (v0.4.20: Project Bean,
+**Earlier:** see docs/releases/ for v0.4.0–v0.4.22 (v0.4.20: Project Bean,
 Goldfinger 64/TND campaigns, Dam speedboat); older evidence is in
 docs/playtest-* and Git history.
 
@@ -98,7 +100,7 @@ is goldeneyevr.com, in its own repository.
 - Bean: the release's water shaders (bump, distortion, reflection) are not
   drawn; Dam's reservoir and Caverns' pools move as GoldenEye's water. Remaining
   120 Hz misses are in full-speed turns. Tower glass can pop in and out (not
-  yet reproduced from the PC). Bean heads take no wounds. Silo/Control floor
+  yet reproduced from the PC). Silo/Control floor
   materials are simplified;
   the grenade stays in GoldenEye's taser hand (the release has no hand
   holding one, user). Campaigns, speedboat and alarms need broader play.
