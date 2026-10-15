@@ -3,8 +3,8 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current release:** v0.5.1 (versionCode 81, protocol 21), 2026-10-14.
-v0.4.16 through v0.5.0 can join; v0.4.15 and older can't. Building does not
+**Current release:** v0.5.2 (versionCode 82, protocol 21), 2026-10-15.
+v0.4.16 through v0.5.1 can join; v0.4.15 and older can't. Building does not
 publish a GitHub release. No game data is shipped.
 
 v0.5.0 (PR #180, PR #183): XBLA at 120 Hz on Quest 3 (early game tick before
@@ -15,7 +15,10 @@ backdrop rooms, release boot logos, HD fill), #181 misses fly past Bond,
 Wreck's blood patch (Mods, off by default), guard tower stairs camera, Goldfinger
 title cast crash da10370a. v0.5.1: wounds on Bean heads (head box hits snap to
 the head, 40-unit radius), blood patch on its own Mods row above Done.
-[v0.5.0](docs/releases/v0.5.0.md), [v0.5.1](docs/releases/v0.5.1.md),
+v0.5.2 (PR #184, PR #185): Bean wound crashes 53f092b3/71b515e8 (shared head
+nodes), the Dam speedboat on the water, driven by the move stick in VR and 2D,
+stopped by the docks, grip on and off. [v0.5.0](docs/releases/v0.5.0.md),
+[v0.5.1](docs/releases/v0.5.1.md), [v0.5.2](docs/releases/v0.5.2.md),
 [performance](docs/bean-performance-improvements.md),
 [Bean backlog](docs/bean-parity-backlog.md).
 
@@ -40,13 +43,13 @@ See [body slots](docs/body-slots.md).
 
 ## Recent releases
 
+**v0.5.2:** Dam speedboat rides and drives, Bean wound crash fixes. Notes:
+[v0.5.2](docs/releases/v0.5.2.md).
 **v0.5.1:** wounds on Bean heads, Mods page blood patch row. Notes:
 [v0.5.1](docs/releases/v0.5.1.md).
 **v0.5.0:** XBLA at 120 Hz, Bean parity (wounds, reflections, water, boot logos),
 #181, blood patch mod, Goldfinger cast crash. Notes: [v0.5.0](docs/releases/v0.5.0.md).
-**v0.4.23:** steadier aim at 90/120 Hz, half-size chest/belt slot models, per-hand
-ammo, Dam boat crash fix. Notes: [v0.4.23](docs/releases/v0.4.23.md).
-**Earlier:** see docs/releases/ for v0.4.0–v0.4.22 (v0.4.20: Project Bean,
+**Earlier:** see docs/releases/ for v0.4.0–v0.4.23 (v0.4.20: Project Bean,
 Goldfinger 64/TND campaigns, Dam speedboat); older evidence is in
 docs/playtest-* and Git history.
 
@@ -94,9 +97,11 @@ is goldeneyevr.com, in its own repository.
   Mid-level watch refresh and handedness changes still need headset checks.
 - Debug markers: gevr_zdebug.txt, gevr_decal.txt, cryptdoor logging;
   surface probe disabled unless its marker is present.
-- Solo Dam speedboat: board at the north jetty (B, or a hand on the hull),
-  ride to the island, B to step off. Hull is 1.75× retail. See
-  [Dam speedboat](docs/dam-speedboat.md). Headset crossing still to confirm.
+- Solo Dam speedboat: grip at its edge (or B without grip use) to board at
+  the north jetty, the move stick drives, grip at the island or jetty to step
+  off. Hull is 1.75× retail. See [Dam speedboat](docs/dam-speedboat.md).
+  Headset: jetty boarding, driving and the dock confirmed; a full crossing to
+  the island landing still to play.
 - Bean: the release's water shaders (bump, distortion, reflection) are not
   drawn; Dam's reservoir and Caverns' pools move as GoldenEye's water. Remaining
   120 Hz misses are in full-speed turns. Tower glass can pop in and out (not
