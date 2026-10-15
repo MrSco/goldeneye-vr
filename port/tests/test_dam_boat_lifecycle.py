@@ -33,7 +33,7 @@ fixture = r'''
 #include <stdlib.h>
 #include <string.h>
 #include "gevr_speedboat.h"
-typedef int s32; typedef uint32_t u32; typedef unsigned char u8; typedef float f32;
+typedef int s32; typedef uint32_t u32; typedef unsigned char u8; typedef float f32; typedef unsigned long long u64;
 typedef struct coord3d {union {struct {float x,y,z;};float f[3];};} coord3d;
 typedef struct {float m[4][4];} Mtxf;
 struct ObjectRecord;
@@ -94,8 +94,12 @@ static struct StandTile*stanFindGroundAtCyl(coord3d*p,float r,void*cb,struct Sta
 static float gevrHandPropDistance(PropRecord*p,const float hand[3]){(void)hand;assert(p==&boat);return 0;}
 static void chrpropDeregisterRoom(PropRecord*p,u8 room){(void)room;assert(p);deregistrations++;}
 static void chrpropRegisterRooms(PropRecord*p){assert(p);registrations++;}
-struct ModelRoData_BoundingBoxRecord {int placeholder;};
-static struct ModelRoData_BoundingBoxRecord*chrobjGetBboxFromObjectRecord(ObjectRecord*o){(void)o;return NULL;}
+struct ModelRoData_BoundingBoxRecord {u32 ModelNumber;struct {float xmin,xmax,ymin,ymax,zmin,zmax;} Bounds;};
+/* the hull's box: 400 tall in its model, from 100 under its origin */
+static struct ModelRoData_BoundingBoxRecord hullBox={0,{-50,50,-100,300,-200,200}};
+static struct ModelRoData_BoundingBoxRecord*chrobjGetBboxFromObjectRecord(ObjectRecord*o){(void)o;return &hullBox;}
+static float get_room_data_float2(void){return 4.0f;}
+static u64 sysGetMicroseconds(void){static u64 t;return t+=2000000;}
 #define EXTENT(name) static float name(struct ModelRoData_BoundingBoxRecord*b,Mtxf*m){(void)b;(void)m;return 0;}
 EXTENT(chrpropSumMatrixPosX) EXTENT(chrpropSumMatrixPosY) EXTENT(chrpropSumMatrixPosZ)
 EXTENT(chrpropSumMatrixNegX) EXTENT(chrpropSumMatrixNegY) EXTENT(chrpropSumMatrixNegZ)
@@ -126,6 +130,14 @@ int main(int argc,char**argv){
         return 0;
     }
     assert(object.damage==1000 && object.maxdamage==0);
+    {
+        /* on the water (-200 drawn at 4: -800), a quarter of the hull under it;
+         * Bond at half its height, not on the jetty's deck */
+        const float s=model.scale,lo=-100*s,hi=300*s,hull=-800-(lo+.25f*(hi-lo));
+        assert(fabsf(boat.pos.y-hull)<.01f && fabsf(object.mtx.m[3][1]-hull)<.01f);
+        assert(fabsf(player.field_70-(hull+lo+.5f*(hi-lo)))<.01f);
+        assert(fabsf(player.prop->pos.y-player.field_70)<.01f);
+    }
     float before=s_ride.z;int oldposes=poses;
     gevrDamBoatDrive(0,80);assert(poses>oldposes && s_ride.z!=before);
     gevrDamBoatApplySeat();assert(player.prop->pos.z==s_ride.z);
@@ -152,6 +164,12 @@ int main(int argc,char**argv){
         assert(player.field_70==jetty->pos.y && player.prop->pos.y==jetty->pos.y);
         assert(player.field_488.current_tile_ptr==jetty->stan);
     }
+    // B at the jetty steps off there; aboard mid-crossing, it does nothing.
+    prepare();assert(gevrDamBoatOnB() && !gevrDamBoatAboard());
+    assert(player.field_488.collision_position.z==g_CurrentSetup.pads[s_jetty_pad].pos.z);
+    assert(player.field_70==g_CurrentSetup.pads[s_jetty_pad].pos.y);
+    prepare();s_ride.x=s_ride.anchor_x;s_ride.z=s_ride.anchor_z;
+    assert(gevrDamBoatOnB() && gevrDamBoatAboard());
     prepare();object.prop=NULL;assert(!gevrDamBoatAboard());
     // Dead aboard: no warp; the death camera keeps where he fell.
     prepare();player.field_70=-12345;player.bonddead=1;object.state|=PROPSTATE_DESTROYED;

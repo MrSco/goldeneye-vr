@@ -7,10 +7,13 @@
 #include <ultra64.h>
 void gevrDamBoatPrepare(s32 stageId);
 int gevrDamBoatAboard(void);
-/* B at the hull boards. B at the island steps off. B mid-crossing is ignored. */
+/* B at the hull boards. B at the island or back at the jetty steps off. B
+ * mid-crossing is ignored. */
 int gevrDamBoatOnB(void);
 /* A grip with the hand on the hull boards. p is the hand in view units. */
 int gevrDamBoatTryHand(const f32 p[3]);
 void gevrDamBoatDrive(f32 stick_x, f32 stick_y);
 void gevrDamBoatApplySeat(void);
+/* Test hook ("boat", bondview2.c): Bond aboard now. 0 when there is no ride. */
+int gevrDamBoatBoardNow(void);
 #endif

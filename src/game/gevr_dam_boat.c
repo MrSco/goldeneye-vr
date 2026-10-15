@@ -18,6 +18,7 @@
 #include "gevr_speedboat.h"
 #include "gevr_dam_boat.h"
 #include "gevr_romlayout.h"
+#include "bg.h"
 
 extern bool netIsActive(void);
 extern s32 g_gevrStereo;
@@ -32,6 +33,18 @@ static struct GevrBoatRide s_ride;
 static s32 s_island_pad;
 static s32 s_jetty_pad;
 static struct GevrBoatPad s_pads[GEVR_DAM_BOAT_MAX_PADS];
+
+/*
+ * The hull on the water, and Bond on its deck. The ride kept the hull at the
+ * jetty pad's height, the jetty's deck, about 300 units over the reservoir: it
+ * hung in the air (user, 2026-10-15). Dam's reservoir is flat: the retail
+ * background's 101 lit water triangles (texture 1511) all lie at -200, drawn
+ * at 1 / levelscale. The hull sits a quarter of its height in it, by its own
+ * bounding box, and Bond stands at half its height. The ride's own y stays the
+ * jetty's, which boarding measures from.
+ */
+#define GEVR_DAM_WATER_BG_Y -200.0f
+static f32 s_hullY, s_deckY;
 
 static s32 gevrDamBoatPadCount(void)
 {
@@ -167,13 +180,13 @@ static void gevrDamBoatPush(void)
     }
     obj = s_boatObj;
     pos[0] = s_ride.x;
-    pos[1] = s_ride.y;
+    pos[1] = s_hullY;
     pos[2] = s_ride.z;
     matrix_4x4_set_position_and_rotation_around_y(pos, s_ride.yaw, &obj->mtx);
     /* Ordinary props render this basis directly; model->scale is metadata. */
     matrix_scalar_multiply(obj->model->scale, obj->mtx.m[0]);
     obj->runtime_pos.x = s_boat->pos.x = s_ride.x;
-    obj->runtime_pos.y = s_boat->pos.y = s_ride.y;
+    obj->runtime_pos.y = s_boat->pos.y = s_hullY;
     obj->runtime_pos.z = s_boat->pos.z = s_ride.z;
     setupUpdateObjectRoomPosition(obj);
 }
@@ -216,8 +229,8 @@ static void gevrDamBoatSeatNow(void)
     player = g_CurrentPlayer;
     player->field_488.collision_position.f[0] = s_ride.x;
     player->field_488.collision_position.f[2] = s_ride.z;
-    player->field_70 = s_ride.y;
-    player->stanHeight = s_ride.y;
+    player->field_70 = s_deckY;
+    player->stanHeight = s_deckY;
     player->field_7C = 0.0f;
     player->speedforwards = 0.0f;
     player->speedsideways = 0.0f;
@@ -225,15 +238,15 @@ static void gevrDamBoatSeatNow(void)
     if (player->prop != NULL)
     {
         player->prop->pos.x = s_ride.x;
-        player->prop->pos.y = s_ride.y;
+        player->prop->pos.y = s_deckY;
         player->prop->pos.z = s_ride.z;
     }
 
     probe.x = s_ride.x;
-    probe.y = s_ride.y + 80.0f;
+    probe.y = s_deckY + 80.0f;
     probe.z = s_ride.z;
     found = stanFindGroundAtCyl(&probe, 0.0f, NULL, player->field_488.current_tile_ptr, &groundy, &incentre);
-    if (found != NULL && incentre && fabsf(groundy - s_ride.y) < 250.0f)
+    if (found != NULL && incentre && fabsf(groundy - s_deckY) < 250.0f)
     {
         player->field_488.current_tile_ptr = found;
         gevrDamBoatAdoptTile(player->prop, found);
@@ -320,6 +333,22 @@ void gevrDamBoatPrepare(s32 stageId)
     gevrBoatBegin(&s_ride,
                   s_pads[place.jetty].x, s_pads[place.jetty].y, s_pads[place.jetty].z,
                   s_pads[place.island].x, s_pads[place.island].y, s_pads[place.island].z);
+    s_hullY = s_deckY = s_ride.y;
+    {
+        struct ModelRoData_BoundingBoxRecord *box = chrobjGetBboxFromObjectRecord(obj);
+
+        if (box != NULL && box->Bounds.ymax > box->Bounds.ymin)
+        {
+            const f32 lo = box->Bounds.ymin * obj->model->scale;
+            const f32 hi = box->Bounds.ymax * obj->model->scale;
+            const f32 water = GEVR_DAM_WATER_BG_Y * get_room_data_float2();
+
+            s_hullY = water - (lo + 0.25f * (hi - lo));
+            s_deckY = s_hullY + lo + 0.5f * (hi - lo);
+            sysLogPrintf(LOG_NOTE, "dam boat: hull %.0f..%.0f, water %.0f: hull at %.0f, deck %.0f (jetty %.0f)",
+                         lo, hi, water, s_hullY, s_deckY, s_ride.y);
+        }
+    }
     s_boat = prop;
     s_boatObj = obj;
     s_island_pad = place.island;
@@ -352,6 +381,17 @@ int gevrDamBoatOnB(void)
         {
             gevrDamBoatDisembark();
         }
+        else
+        {
+            /* back at the jetty: off there too, not only by losing the hull */
+            const f32 dx = s_ride.x - s_ride.jetty_x, dz = s_ride.z - s_ride.jetty_z;
+
+            if (dx * dx + dz * dz <= GEVR_DAM_BOAT_LANDING_UNITS * GEVR_DAM_BOAT_LANDING_UNITS)
+            {
+                gevrDamBoatStepOffAt(s_jetty_pad);
+                sysLogPrintf(LOG_NOTE, "dam boat: stepped off at the north jetty");
+            }
+        }
         return 1;
     }
     if (gevrBoatWithin(&s_ride, g_CurrentPlayer->field_488.collision_position.f[0],
@@ -382,7 +422,7 @@ int gevrDamBoatTryHand(const f32 p[3])
         /* No hull box yet: the hand's world distance to the boat. */
         f32 s = D_800364CC > 1.0e-6f ? D_800364CC : 1.0f;
         f32 dx = p[0] / s - s_ride.x;
-        f32 dy = p[1] / s - s_ride.y;
+        f32 dy = p[1] / s - s_hullY;
         f32 dz = p[2] / s - s_ride.z;
 
         dist = sqrtf(dx * dx + dy * dy + dz * dz) * s;
@@ -405,6 +445,29 @@ void gevrDamBoatDrive(f32 stick_x, f32 stick_y)
     }
     gevrBoatDrive(&s_ride, stick_x, stick_y, g_GlobalTimerDelta);
     gevrDamBoatPush();
+    {
+        static u64 last;
+        const u64 now = sysGetMicroseconds();
+
+        if (now - last > 1000000)
+        {
+            last = now;
+            sysLogPrintf(LOG_NOTE, "dam boat: ride at %.0f %.0f yaw %.2f, stick %.0f %.0f", s_ride.x, s_ride.z, s_ride.yaw,
+                         stick_x, stick_y);
+        }
+    }
+}
+
+int gevrDamBoatBoardNow(void)
+{
+    if (!gevrDamBoatPlayable())
+    {
+        return 0;
+    }
+    s_ride.aboard = 1;
+    gevrDamBoatSeatNow();
+    gevrDamBoatPush();
+    return 1;
 }
 
 void gevrDamBoatApplySeat(void)
