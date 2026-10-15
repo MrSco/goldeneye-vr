@@ -2882,6 +2882,8 @@ void *gevrBeanRareLogoGdl(const float lo[3], const float hi[3], const void **pic
 void gevrBeanReset(void)
 {
 	beanFrameReset();
+	memset(s_wounds, 0, sizeof(s_wounds));
+	s_woundUse = 0;
 	for (int i = 0; i < s_nrigidMeshes; i++) gevrStaticMeshFree(s_rigidMeshes[i]);
 	s_nrigidMeshes = 0;
 	for (int i = 0; i < s_nskinMeshes; i++)

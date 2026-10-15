@@ -6609,6 +6609,9 @@ void modelInitRwData(Model *model, ModelNode *startnode)
 
 void modelInit(struct Model *objinst, struct ModelFileHeader *header, u32 *data)
 {
+#ifdef GEVR
+  gevrBeanForgetWounds(objinst);
+#endif
   objinst->obj = header;
   objinst->datas = data;
   objinst->rwdatalen = -1;
