@@ -20,6 +20,8 @@ s32 lvlGetCurrentStageToLoad(void) { return 39; }
 PropRecord *chrpropGetActiveTail(void) { return NULL; }
 union ModelRwData *modelGetNodeRwData(Model *model, ModelNode *node) { (void)model;(void)node;return NULL; }
 void sub_GAME_7F056690(void) {}
+/* gevr_bean.c: a freed copy is no longer a destroyed prop's */
+void gevrBeanForgetDeformed(const void *vertices) { (void)vertices; }
 static int canaries(void) {
     for(int i=0;i<block_count;i++) for(int j=0;j<64;j++)
         if(blocks[i].data[blocks[i].size+j]!=0xa5) return 0;
