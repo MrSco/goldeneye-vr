@@ -546,20 +546,41 @@ int gevrDamBoatTryHand(const f32 p[3])
     {
         /* a grip aboard steps off at the landing or the jetty; mid-crossing
          * the grip keeps its own jobs */
-        return gevrDamBoatStepOffHere();
+        if (gevrDamBoatStepOffHere())
+        {
+            return 1;
+        }
+        {
+            const f32 jx = s_ride.x - s_ride.jetty_x, jz = s_ride.z - s_ride.jetty_z;
+            const f32 ix = s_ride.x - s_ride.island_x, iz = s_ride.z - s_ride.island_z;
+
+            sysLogPrintf(LOG_NOTE, "dam boat: grip aboard, %.0f from the jetty, %.0f from the island (off within %.0f)",
+                         sqrtf(jx * jx + jz * jz), sqrtf(ix * ix + iz * iz), GEVR_DAM_BOAT_LANDING_UNITS);
+        }
+        return 0;
     }
     view_units = 100.0f * D_800364CC;
     {
         /* From the jetty the hull lies below, beyond a hand's box test: Bond
-         * within reach of its outline, the hand over its edge (80 units). */
+         * within reach of its outline, the hand toward it - within 150 units
+         * of its edge, or reaching out to it past his body. 80 units of hand
+         * alone boarded nobody (user, 2026-10-15). */
         const f32 s = D_800364CC > 1.0e-6f ? D_800364CC : 1.0f;
+        const f32 hand = gevrDamBoatFromHull(p[0] / s, p[2] / s);
+        const f32 body = gevrDamBoatFromHull(g_CurrentPlayer->field_488.collision_position.f[0],
+                                             g_CurrentPlayer->field_488.collision_position.f[2]);
 
-        if (gevrDamBoatInReach() && gevrDamBoatFromHull(p[0] / s, p[2] / s) <= 80.0f)
+        if (gevrDamBoatInReach() && (hand <= 150.0f || hand < body - 30.0f))
         {
             s_ride.aboard = 1;
             gevrDamBoatSeatNow();
             sysLogPrintf(LOG_NOTE, "dam boat: hand over the hull, boarded");
             return 1;
+        }
+        if (body < 1500.0f)
+        {
+            sysLogPrintf(LOG_NOTE, "dam boat: grip %.0f from the hull, hand %.0f, %.0f above its deck (board within %.0f)",
+                         body, hand, g_CurrentPlayer->field_70 - s_deckY, GEVR_DAM_BOAT_BOARD_UNITS);
         }
     }
     dist = gevrHandPropDistance(s_boat, p);
