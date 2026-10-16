@@ -1,9 +1,9 @@
 # Optional ragdolls and limb dismemberment
 
 Experimental implementation on `feature/ragdolls-dismemberment`. Both options
-default to **off**. In the launcher, open **Play → Game rules… → Ragdolls and
-limbs…**. Settings persist as `Ragdolls` and `Dismemberment` in
-`goldeneye-vr.ini`.
+default to **off**: **Ragdolls** and **Dismemberment** on the launcher's
+**Play → Game rules…** page, beside **Bodies stay**. Settings persist as
+`Ragdolls` and `Dismemberment` in `goldeneye-vr.ini`.
 
 Ragdolls work in solo, co-op and multiplayer, including bots, with native, HD
 or Bean character visuals. Limb dismemberment requires ragdolls. A locally
@@ -105,7 +105,16 @@ The tuning follows CE's human ragdoll (Stable, `e33826d`), not new numbers:
   (KF7 = 1, golden gun = 100) and a 40% chance; never punches; the shotgun cuts
   only when a whole volley lands on one limb of one body, at the cut nearest the
   body. Chest hits split the waist only at damage 50 or more. The head can come
-  off; hands and feet go with their forearm or shin. A private random sequence
+  off; hands and feet go with their forearm or shin. Of the guns logged so
+  far, the Skorpion is 0.6, so it never cuts.
+- **Explosions** (`ragdollOnExplosion`, ragdoll.c:1318;
+  `ragdollTryDismemberBlast`, dismember.c:1593): a guard killed by a blast is
+  thrown up and away from its centre (700 units/s, falloff over 1.5 times the
+  explosion type's damage range) instead of taking the native launch; joints
+  within 0.6 of that range (the waist 0.35) can come off, up to two, with a
+  40% chance falling off with distance. Bodies already down are thrown and
+  cut by an explosion's first damage pulse (GoldenEye repeats the pulse every
+  quarter of the explosion's life; CE blasts once). A private random sequence
   makes the rolls, so the game's own (co-op and replay) sequence is untouched.
 - **Kill floor and sleep** (ragdoll.c:1691, 1708): a body below y = -32000 is
   removed; a body still asleep after the step skips its pose read-back.
@@ -115,14 +124,15 @@ The tuning follows CE's human ragdoll (Stable, `e33826d`), not new numbers:
 
 Not ported: CE's animation blend, muscles and reflexes, grabbing, bodies as
 cover, translucent-surface passability (GoldenEye's primary room lists are
-opaque), prop triangle meshes, explosion cuts, and the optional physical-body
-cap (CE's default is unlimited).
+opaque), prop triangle meshes, and the optional physical-body cap (CE's
+default is unlimited).
 
-**Hinge axes still need a headset check.** CE's hinges turn about each joint's
-local Y, which PD's animated frames put across the limb. If GoldenEye's frames
-run Y along the bone instead, the port uses CE's own rule for rigs without known
-hinges (bend the way it is bent, about that axis). Every capture logs
-`hinge Y along bone` for both knees and elbows (`0` = CE's axis is in use).
+**Hinge axes** (headset, 2026-10-16): CE's hinges turn about each joint's
+local Y, which PD's animated frames put across the limb. GoldenEye's do too:
+every body logged `hinge Y along bone 0000`. If a rig ever runs Y along the
+bone, the port uses CE's own rule for rigs without known hinges (bend the way
+it is bent, about that axis). The game's `atan2f` returns 0..2pi, so death-pose
+angles are wrapped to -pi..pi before the limits are widened.
 
 ## Current limits
 
@@ -184,12 +194,13 @@ APK and JVM tests also build here; no headset or ROM is attached.
 
 ### Still to verify on headsets
 
-0. Logcat `ragdoll:` lines on Facility and Dam: `11 parts` per body, `hinge Y
-   along bone 0000` (else report the line), room collision counts and no
-   `floor-only` warnings. Knees bend backwards, elbows forwards, no limb folds
-   the wrong way. Each line prints the killing weapon's damage: only weapons at
-   2.0 or more cut (about two kills in five); a shotgun volley on one leg can
-   take it off at the hip. Note which GoldenEye weapons reach 2.0.
+0. First headset round (2026-10-16, Bean visuals): ragdolls fine, 11 parts and
+   CE hinge axes on every body; no cuts, because Skorpion kills are damage 0.6
+   and grenade-launcher kills had no blast rule yet (now ported). Next: grenade
+   and rocket kills cut and throw bodies (`blast 1` in the log), a shotgun
+   volley on one leg, a strong gun, with Bean and native visuals; room
+   collision counts and no `floor-only` warnings. Note which GoldenEye weapons
+   reach damage 2.0.
 
 1. Native and Bean deaths on Dam, Facility stairs/vents, moving doors and
    custom moving platforms; bodies under closing slabs, in hinged doorways,

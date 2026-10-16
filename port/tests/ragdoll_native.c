@@ -234,17 +234,44 @@ static void portChecks(void)
     /* Cut limits: no hands or feet bodies, never the pelvis */
     assert(!rdCut(b,b->body[0]));
     /* Drawn only while one of its rooms is drawn */
+    unsigned serialBefore=newest()->serial;
     Gfx *g=calloc(16384,sizeof(Gfx));
     roomsShown=0;gevrRagdollTick(0);drawn=0;gevrRagdollRender(g);assert(drawn==0);frameFree();
     roomsShown=1;gevrRagdollTick(0);drawn=0;gevrRagdollRender(g);assert(drawn>=1);frameFree();free(g);
+    /* CE's blasts: a guard killed by one is thrown up and away; bodies
+     * already down within reach lose up to two joints to it */
+    sourceChr.actiontype=ACT_STAND;gevrRagdollNeedsPose(&sourceChr);
+    coord3d centre={{0}};centre.x=sourceProp.pos.x+60;centre.y=60;centre.z=sourceProp.pos.z;
+    gevrRagdollExplosionChr(&sourceChr,&centre,280,1);
+    sourceChr.actiontype=ACT_DIE;gevrRagdollCapture(&sourceChr);
+    RdBody *thrown=newest();
+    assert(gevrRagdollSuppress(&sourceChr) && thrown->serial>serialBefore);
+    float before[3],after[3];pdphysRagdollGetPartPos(thrown->handle,thrown->root,before);
+    for(int i=0;i<6;i++){g_GlobalTimer++;gevrRagdollTick(1);}
+    pdphysRagdollGetPartPos(thrown->handle,thrown->root,after);
+    assert(after[1]>before[1]+5 && after[0]<before[0]); /* up, and away from the centre */
+    int blastcuts=0;
+    for(int n=0;n<20;n++) {
+        capture(0);RdBody *body=newest();
+        coord3d at;memcpy(at.f,body->joints[body->body[1]].m[3],sizeof(at.f));
+        gevrRagdollBlast(&at,280,1);
+        int pieces=0;for(int i=0;i<body->count;i++)pieces+=(body->cuts>>i)&1;
+        assert(pieces<=2);
+        for(int i=0;i<body->count;i++)if(body->cuts&(1u<<i))assert(g_RdSkelHuman.cutradius[body->skel[i]]>0);
+        blastcuts+=pieces;
+    }
+    assert(blastcuts>0);
+    VrDismemberment=0;capture(0);{RdBody *body=newest();coord3d at;memcpy(at.f,body->joints[0].m[3],sizeof(at.f));
+        gevrRagdollBlast(&at,280,1);assert(!body->cuts);}VrDismemberment=1;
     /* Another rig layout keeps its death animation */
     groupRo[5].Group.JointID=0;
     unsigned serial=newest()->serial;
+    (void)serialBefore;
     capture_nocheck();
     assert(newest()->serial==serial && !gevrRagdollSuppress(&sourceChr));
     groupRo[5].Group.JointID=6;
     gevrRagdollReset();
-    puts("PASS: CE human skeleton (11 bodies, hands/feet riding), masses, hinges, damage/chance/shotgun cut rules, room culling, layout fallback");
+    puts("PASS: CE human skeleton (11 bodies, hands/feet riding), masses, hinges, damage/chance/shotgun/blast cut rules, blast throws, room culling, layout fallback");
 }
 
 #include "ragdoll_movers_test.inc.h"

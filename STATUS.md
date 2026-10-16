@@ -8,7 +8,7 @@ v0.4.16 through v0.5.1 can join; v0.4.15 and older can't. Building does not
 publish a GitHub release. No game data is shipped.
 
 **Unreleased:** optional ragdolls and limb dismemberment, off by default,
-under Play > Game rules > Ragdolls and limbs. Cosmetic local physics in all
+on Play > Game rules. Cosmetic local physics in all
 modes, with Off/fade, 12, 24 or 48 bodies; snapshots survive respawns and NPC
 slot reuse. Moving door/platform collision and sleeping-rider carry are in;
 body tuning, cut rules and level collision are ported from Perfect Dark CE;
