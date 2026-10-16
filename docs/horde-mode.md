@@ -24,7 +24,8 @@ difficulty. The launcher disables multiplayer for other campaigns.
 - Stand beside a downed teammate for three seconds to revive them at half
   health. Horde checks intervening scenery/doors and floor height. Everyone
   down ends the run; a solo down ends it immediately.
-- The HUD reports the wave, remaining enemies and preparation countdown.
+- A HUD message announces each wave with its enemy count, each break with
+  its countdown, and the defeat, once each.
   The pause menu shows cleared waves, time, total kills and revives. Once the
   run ends, the host can select **Retry Horde**. **Leave party** returns to the
   launcher. Campaign saves, completion times and unlocks are not awarded.
