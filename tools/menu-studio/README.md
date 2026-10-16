@@ -67,18 +67,9 @@ before moving to a different URL, device or browser.
 
 ### GitHub Pages
 
-The repository includes `.github/workflows/menu-studio-pages.yml`. In GitHub,
-open **Settings → Pages → Build and deployment → Source** and select
-**GitHub Actions**. Then run **Actions → Deploy Menu Studio to GitHub Pages →
-Run workflow**. Later changes to the studio on `main` redeploy automatically.
-
-The standard repository URL is `https://mrsco.github.io/goldeneye-vr/`.
-Use the deployment URL shown by GitHub if the repository has a custom domain.
-The self-contained build works under the repository path without absolute
-asset paths or external packages. The workflow uploads only
-`build/menu-studio-site`, so the game repository and lobby backend are not
-served. GitHub Pages ignores the Cloudflare `_headers` file; it supplies its
-own hosting headers.
+Menu Studio is no longer published to GitHub Pages (2026-10-16): the
+repository's Pages site and its deploy workflow were removed. Build it locally
+as above, or host the `--site` build yourself.
 
 ## Shape the experience
 
