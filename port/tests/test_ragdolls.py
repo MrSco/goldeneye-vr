@@ -25,7 +25,7 @@ def function(source, name):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--jolt-source", type=Path)
-    parser.add_argument("--build-dir", type=Path, default=ROOT / "build-ragdoll-tests")
+    parser.add_argument("--build-dir", type=Path, default=ROOT / "build" / "ragdoll-tests")
     args = parser.parse_args()
     build = args.build_dir.resolve()
     build.mkdir(parents=True, exist_ok=True)
