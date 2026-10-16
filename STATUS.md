@@ -11,8 +11,9 @@ publish a GitHub release. No game data is shipped.
 under Play > Game rules > Ragdolls and limbs. Cosmetic local physics in all
 modes, with Off/fade, 12, 24 or 48 bodies; snapshots survive respawns and NPC
 slot reuse. Moving door/platform collision and sleeping-rider carry are in;
-native/Jolt stress, mover and mesh checks pass. Quest frame time and
-multi-headset play remain unverified. [Implementation and checks](docs/ragdolls.md).
+body tuning, cut rules and level collision are ported from Perfect Dark CE;
+native/Jolt stress, mover and mesh checks pass. Hinge axes, Quest frame time
+and multi-headset play remain unverified. [Implementation and checks](docs/ragdolls.md).
 
 v0.5.0 (PR #180, PR #183): XBLA at 120 Hz on Quest 3 (early game tick before
 the XR wait, eye pass drawn by the redraw replay; 4-8 missed frames a minute on
