@@ -52,15 +52,15 @@ const RdSkel g_RdSkelHuman = {
 typedef struct RdSeen {
     ChrRecord *chr;
     Model *model;
-    int suppressed, attempted, matrix, hitpart, hitTick, weapon;
-    float dir[3];
+    int suppressed, attempted, matrix, hitpart, hitTick, weapon, blastTick;
+    float dir[3], blast[3], blastRadius, blastDamage;
 } RdSeen;
 static RdSeen s_seen[512];
 
 /* Cuts are cosmetic and local: never draw from the game's own random
  * sequence, which co-op and replays depend on. */
 static unsigned s_random = 0x9e3779b9u;
-static int rdChance(int percent) { s_random = s_random * 1664525u + 1013904223u; return (int)((s_random >> 8) % 100) < percent; }
+static int rdChance(float percent) { s_random = s_random * 1664525u + 1013904223u; return (float)((s_random >> 8) % 100) < percent; }
 
 static float rdDamage(int weapon) { return weapon > 0 && weapon < ITEM_IDS_MAX ? gunItemGetDestructionAmount(weapon) : 0; }
 
@@ -486,7 +486,9 @@ static float rdHingeAngle(const RdBody *rd, int part)
     rdBones(rd,p,bone);
     const float *n1=bone[g_RdSkelHuman.parent[part]],*n2=bone[part],*y=rd->skelInitial[part].m[1];
     cross[0]=n1[1]*n2[2]-n1[2]*n2[1]; cross[1]=n1[2]*n2[0]-n1[0]*n2[2]; cross[2]=n1[0]*n2[1]-n1[1]*n2[0];
-    return atan2f(cross[0]*y[0]+cross[1]*y[1]+cross[2]*y[2],n1[0]*n2[0]+n1[1]*n2[1]+n1[2]*n2[2]);
+    float angle=atan2f(cross[0]*y[0]+cross[1]*y[1]+cross[2]*y[2],n1[0]*n2[0]+n1[1]*n2[1]+n1[2]*n2[2]);
+    /* GoldenEye's atan2f replaces libm's in the whole library and returns 0..2pi */
+    return angle>(float)M_PI ? angle-2*(float)M_PI : angle;
 }
 
 /* CE's human hinges turn about each joint's local Y (create.c:593). PD's
@@ -613,6 +615,63 @@ static void rdBuildParts(RdBody *rd, pdphysRagdollPart *parts, const float vel[3
     for(int i=0;i<rd->count;i++)if(rd->cuts&(1u<<i))parts[i].joint=PDPHYS_JOINT_NONE;
 }
 
+/* CE ragdollOnExplosion (ragdoll.c:1318) and ragdollTryDismemberBlast
+ * (dismember.c:1593): joints close to the blast can come off (up to two),
+ * and every part is thrown away from the centre and up */
+static void rdBlastBody(RdBody *b, const float centre[3], float radius, float damage)
+{
+    static const signed char joints[]={2,3,4,5,6,9,10,11,12,1};
+    if(radius<=0)return;
+    for(int i=0,cut=0;VrDismemberment && i<(int)sizeof(joints) && cut<2;i++) {
+        const int part=joints[i],body=b->body[part];
+        if(body<0 || (b->cuts&(1u<<body)))continue;
+        float dist=0,reach=part==1 ? radius*0.35f : radius*0.6f;
+        for(int k=0;k<3;k++){float x=b->joints[body].m[3][k]-centre[k];dist+=x*x;}
+        dist=sqrtf(dist);
+        if(dist<reach && rdChance(RD_DISMEMBER_CHANCE*(1-dist/reach)) && rdCut(b,body))cut++;
+    }
+    const float strength=fminf(2,fmaxf(0.5f,damage))*RD_PUSH_SCALE;
+    for(int i=0;i<b->count;i++) {
+        float dir[3],dist=0;
+        for(int k=0;k<3;k++){dir[k]=b->joints[i].m[3][k]-centre[k];dist+=dir[k]*dir[k];}
+        dist=sqrtf(dist);
+        if(dist<1){dir[0]=dir[2]=0;dir[1]=1;dist=1;}
+        else for(int k=0;k<3;k++)dir[k]/=dist;
+        const float falloff=fmaxf(0.15f,1-dist/(radius*1.5f));
+        const float speed=fminf(1100,700*strength*falloff);
+        const float v[3]={dir[0]*speed,dir[1]*speed*0.5f+speed*0.45f,dir[2]*speed};
+        pdphysRagdollAddVelocity(b->handle,i,v);
+    }
+    pdphysRagdollKeepAwake(b->handle,0.2f);
+    b->asleep=0;
+}
+
+/* explosion.c, every chr a damage pulse reaches: remembered for the body
+ * its death makes on the next tick */
+void gevrRagdollExplosionChr(ChrRecord *chr, const coord3d *centre, float radius, float damage)
+{
+    if(!VrRagdolls || !chr || !centre || gevrRagdollSuppress(chr))return;
+    RdSeen *s=rdSeen(chr,1);
+    if(!s)return;
+    s->blastTick=g_GlobalTimer?g_GlobalTimer:1;
+    memcpy(s->blast,centre->f,sizeof(s->blast));
+    s->blastRadius=radius; s->blastDamage=damage;
+}
+
+/* explosion.c, an explosion's first damage pulse: bodies already lying
+ * within its reach are thrown and cut */
+void gevrRagdollBlast(const coord3d *centre, float radius, float damage)
+{
+    if(!VrRagdolls || !pdphysIsReady() || !centre || radius<=0)return;
+    for(int i=0;i<RD_BODIES;i++) {
+        RdBody *b=&s_bodies[i];
+        if(!b->used)continue;
+        float dist=0;
+        for(int k=0;k<3;k++){float x=b->joints[b->root].m[3][k]-centre->f[k];dist+=x*x;}
+        if(dist<radius*radius*2.25f)rdBlastBody(b,centre->f,radius,damage);
+    }
+}
+
 void gevrRagdollCapture(ChrRecord *chr)
 {
     if(!gevrRagdollNeedsPose(chr) || !chr->model->render_pos)return;
@@ -633,9 +692,11 @@ void gevrRagdollCapture(ChrRecord *chr)
     /* The native explosion death already supplies a launch velocity in game
      * units per tick. Preserve it, with a bounded conversion to units/second.
      * (CE also carries the walking speed; GoldenEye keeps no previous root.) */
+    const int blasted=seen && seen->blastTick && g_GlobalTimer-seen->blastTick<=60
+        && (g_GlobalTimer-seen->hitTick>120 || seen->blastTick>=seen->hitTick);
     float fall=0;
     for(int k=0;k<3;k++)fall+=chr->fallspeed.f[k]*chr->fallspeed.f[k];
-    if(fall>1 && isfinite(fall)) {
+    if(!blasted && fall>1 && isfinite(fall)) {
         float factor=fminf(60,600/sqrtf(fall));
         for(int k=0;k<3;k++)velocity[k]=chr->fallspeed.f[k]*factor;
     }
@@ -645,7 +706,7 @@ void gevrRagdollCapture(ChrRecord *chr)
     slot->handle=pdphysRagdollCreate(parts,slot->count);
     if(slot->handle<0){rdRelease(slot);return;}
     slot->used=1; slot->serial=++s_serial; slot->alpha=255;
-    int hit=rdHitPart(slot,seen),weapon=seen && g_GlobalTimer-seen->hitTick<=120 ? seen->weapon : 0;
+    int hit=blasted ? -1 : rdHitPart(slot,seen),weapon=!blasted && seen && g_GlobalTimer-seen->hitTick<=120 ? seen->weapon : 0;
     /* CE ragdollOnChrDeath (ragdoll.c:1063): a strong push on the part that
      * was hit, a smaller push and a little lift on the whole body */
     if(weapon && seen) {
@@ -667,14 +728,15 @@ void gevrRagdollCapture(ChrRecord *chr)
         s_pending.chr=NULL;
     }
     if(cut>=0)rdCut(slot,cut);
+    if(blasted)rdBlastBody(slot,seen->blast,seen->blastRadius,seen->blastDamage);
     rdRooms(slot);
     slot->onscreen=rdOnScreen(slot);
     if(seen)seen->suppressed=1;
     float p[RD_SKEL][3],bone[RD_SKEL][3];
     rdBones(slot,p,bone);
-    sysLogPrintf(LOG_NOTE,"ragdoll: body %u, %d parts, %d meshes, torso %.1f, hit part %d, weapon %d (damage %.1f), cuts 0x%x,"
+    sysLogPrintf(LOG_NOTE,"ragdoll: body %u, %d parts, %d meshes, torso %.1f, hit part %d, weapon %d (damage %.1f), blast %d, cuts 0x%x,"
         " knees %.2f %.2f, elbows %.2f %.2f, hinge Y along bone %d%d%d%d",
-        slot->serial,slot->count,slot->nmeshes,slot->torso,hit,weapon,rdDamage(weapon),slot->cuts,
+        slot->serial,slot->count,slot->nmeshes,slot->torso,hit,weapon,rdDamage(weapon),blasted,slot->cuts,
         rdHingeAngle(slot,11),rdHingeAngle(slot,12),rdHingeAngle(slot,5),rdHingeAngle(slot,6),
         rdHingeAlongBone(slot,11,bone),rdHingeAlongBone(slot,12,bone),rdHingeAlongBone(slot,5,bone),rdHingeAlongBone(slot,6,bone));
 }
