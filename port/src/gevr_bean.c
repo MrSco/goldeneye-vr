@@ -67,6 +67,7 @@ struct beanSkin {
 	GevrStaticMesh *mesh;
 	int16_t bones[GEVR_SKIN_BONES];
 	int nbones, meshTried;
+	int *weld; /* gevr_bean_caps.inc.h: vertices that are the same vertex */
 };
 static GevrStaticMesh *s_skinMeshes[MAX_ALLOC];
 static int s_nskinMeshes;

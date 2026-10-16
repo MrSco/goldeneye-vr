@@ -11,6 +11,9 @@ typedef struct GevrBeanCuts {
     int (*active)(const struct Model *model);
     int (*piece)(const struct Model *model, int matrix);
     int (*remap)(const struct Model *model, int owner, int matrix, float p[3], float n[3]);
+    /* A hole's rim in the skin, posed in matrix's space: the piece it is on
+     * and the piece across the cut (optional) */
+    void (*cap)(const struct Model *model, int matrix, const s16 (*rim)[2][3], int nedges, int piece, int other);
 } GevrBeanCuts;
 void gevrBeanSetCuts(const GevrBeanCuts *cuts);
 struct fontchar;

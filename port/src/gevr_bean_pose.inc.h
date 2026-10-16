@@ -21,6 +21,7 @@ static int beanInverse3(const float a[9], float out[9])
 
 #include "gevr_bean_wounds.inc.h"
 #include "gevr_bean_gpu.inc.h"
+#include "gevr_bean_caps.inc.h"
 
 /* A root registry entry is rendered once, before native limb/LOD traversal.
  * Heads, hats and held weapons remain independent native model attachments. */
@@ -87,6 +88,8 @@ void *gevrBeanRenderGdl(void *node, void *current, Model *model)
 		return current;
 	memcpy(vertices, skin->vtx, skin->nverts * sizeof(Vtx));
 	int owner = anchorIndex;
+	int *tripiece = cut ? beanFrameAllocate((size_t)(skin->nverts / 3 + 1) * sizeof(int) * 2) : NULL;
+	int *triother = tripiece ? tripiece + skin->nverts / 3 + 1 : NULL;
 	for (int v = 0; v < skin->nverts; v++) {
         /* Skin vertices are emitted as independent triangle triples. Choose
          * one piece for the whole triangle, then rehome cross-cut weights in
@@ -105,6 +108,13 @@ void *gevrBeanRenderGdl(void *node, void *current, Model *model)
                 if (scores[at] > scores[best]) best = at;
             }
             owner = count ? matrices[best] : anchorIndex;
+            if (tripiece) {
+                int second = -1;
+                for (int at = 0; at < count; at++)
+                    if (at != best && (second < 0 || scores[at] > scores[second])) second = at;
+                tripiece[v / 3] = count ? pieces[best] : s_cuts.piece(model, anchorIndex);
+                triother[v / 3] = second >= 0 ? pieces[second] : -1;
+            }
         }
 		const struct beanSkinVert *src = &skin->verts[v];
 		float p[3] = {0}, n[3] = {0}, total = 0;
@@ -143,6 +153,8 @@ void *gevrBeanRenderGdl(void *node, void *current, Model *model)
 			vertices[v].n.n[k] = length > 1e-6f ? (s8)(normal[k] * 127.0f / length) : 0;
 		}
 	}
+	if (tripiece)
+		beanSkinCaps(model, skin, anchorIndex, vertices, tripiece, triother);
 	gSPMatrix(commands, (void *)(uintptr_t)(0x03000000u + anchorIndex * sizeof(Mtx)),
 	          G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
 	memcpy(commands + 1, skin->gdl, skin->ncommands * sizeof(Gfx));

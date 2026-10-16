@@ -30,6 +30,7 @@ Gfx *gevrRagdollRender(Gfx *gdl);
 int gevrRagdollModelCut(const struct Model *model);
 int gevrRagdollPiece(const struct Model *model, int matrix);
 int gevrRagdollRemap(const struct Model *model, int owner, int matrix, float p[3], float n[3]);
+void gevrRagdollBeanCap(const struct Model *model, int matrix, const s16 (*rim)[2][3], int nedges, int piece, int other);
 #ifdef __cplusplus
 }
 #endif

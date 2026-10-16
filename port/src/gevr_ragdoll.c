@@ -447,7 +447,7 @@ static int rdStart(void)
     if(pdphysIsReady())return 1;
     if(s_failed || !VrRagdolls || lvlGetCurrentStageToLoad()==LEVELID_TITLE)return 0;
     if(!pdphysInit(rdLog)) { s_failed=1; return 0; }
-    const GevrBeanCuts cuts={gevrRagdollModelCut,gevrRagdollPiece,gevrRagdollRemap};
+    const GevrBeanCuts cuts={gevrRagdollModelCut,gevrRagdollPiece,gevrRagdollRemap,gevrRagdollBeanCap};
     gevrBeanSetCuts(&cuts);
     rdWorldInit();
     return 1;
@@ -909,6 +909,14 @@ static RdBody *rdModel(const Model *model)
     return NULL;
 }
 int gevrRagdollModelCut(const Model *model) { RdBody *b=rdModel(model); return b ? (int)b->cuts : 0; }
+/* Bean's skin found a hole's rim (gevr_bean_caps.inc.h): drawn after the body */
+void gevrRagdollBeanCap(const Model *model,int matrix,const s16 (*rim)[2][3],int nedges,int piece,int other)
+{
+    RdBody *b=rdModel(model);
+    if(!b || b->nbean==RD_MAXCAPS || nedges<3 || matrix<0 || matrix>=b->matrices)return;
+    b->bean[b->nbean].matrix=matrix; b->bean[b->nbean].nedges=nedges; b->bean[b->nbean].rim=rim;
+    b->bean[b->nbean].piece=piece; b->bean[b->nbean++].other=other;
+}
 int gevrRagdollPiece(const Model *model,int matrix)
 {
     RdBody *b=rdModel(model);
@@ -941,6 +949,7 @@ Gfx *gevrRagdollRender(Gfx *gdl)
             rdMul(&b->offset[j],&b->joints[b->owner[j]],&world);
             rdMul(&world,camGetWorldToScreenMtxf(),&b->model.render_pos[j].pos);
         }
+        b->nbean=0; /* this view's Bean rims arrive during subdraw */
         ModelRenderData render=D_8002CCBC;
         render.gdl=gdl; render.flags=3;
         render.PropType=b->alpha<255?8:7;

@@ -53,6 +53,7 @@ typedef struct RdMesh {
 typedef struct RdCapVtx { s16 mtx, v[3]; } RdCapVtx;
 typedef struct RdCap {
     int matrix, numedges;   /* the centre is drawn with this matrix */
+    int cut, childside;     /* the body part cut off, and which side of it */
     s16 centre[3];
     RdCapVtx (*edges)[2];
 } RdCap;
@@ -78,6 +79,9 @@ typedef struct RdBody {
     u8 visrooms[16];
     RdCap caps[RD_MAXCAPS];
     int ncaps, ndiscs;
+    /* Bean skin rims this view (gevr_bean_caps.inc.h), drawn as fans */
+    struct { int matrix, nedges, piece, other; const s16 (*rim)[2][3]; } bean[RD_MAXCAPS];
+    int nbean;
     Mtxf bind[RD_MATRICES], offset[RD_MATRICES];
     Mtxf joints[RD_PARTS], initial[RD_PARTS];
     coord3d origin;
