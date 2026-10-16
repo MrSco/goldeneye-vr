@@ -69,6 +69,9 @@
 #include "chr.h"
 #include "gevr_rom_segments.h"
 #ifdef GEVR
+#include "gevr_ragdoll.h"
+#endif
+#ifdef GEVR
 extern bool netIsActive(void);
 extern int netGetPhase(void);
 #include "options.h"
@@ -319,6 +322,9 @@ void lvlStageLoad(s32 stage)
     s32 i;
     struct player_data *player_data;
 
+#ifdef GEVR
+    gevrRagdollReset();
+#endif
     g_CurrentStageToLoad = stage;
 
     // this if block pushes where g_CurrentStageToLoad gets loaded to the
@@ -1458,6 +1464,7 @@ void lvlManageMpGame(void)
     g_GlobalTimer += g_ClockTimer;
 #ifdef GEVR
     gevrVrStatsSimulation((unsigned)g_ClockTimer);
+    gevrRagdollTick(g_ClockTimer);
 #endif
     if ((g_CurrentStageToLoad != LEVELID_TITLE) && (D_80048394 == 0) && (g_ClockTimer > 0))
     {

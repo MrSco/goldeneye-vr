@@ -7,6 +7,15 @@ logs are in docs/archive/; feature investigations keep their own notes.
 v0.4.16 through v0.5.1 can join; v0.4.15 and older can't. Building does not
 publish a GitHub release. No game data is shipped.
 
+**Unreleased:** optional ragdolls and limb dismemberment, off by default,
+on Play > Game rules. Cosmetic local physics in all
+modes, with Off/fade, 12, 24 or 48 bodies; snapshots survive respawns and NPC
+slot reuse. Moving door/platform collision and sleeping-rider carry are in;
+body tuning, cut rules and level collision are ported from Perfect Dark CE;
+headset-accepted on Dam 2026-10-16 with PR 188 (zdebug log) and GE-X rocket
+launcher fixes (decals, round). Quest frame time with many bodies and
+multi-headset play remain unverified. [Implementation and checks](docs/ragdolls.md).
+
 v0.5.0 (PR #180, PR #183): XBLA at 120 Hz on Quest 3 (early game tick before
 the XR wait, eye pass drawn by the redraw replay; 4-8 missed frames a minute on
 Dam, all in full-speed turns), Bean parity from Dab's Mod (node mode, body
@@ -25,13 +34,10 @@ stopped by the docks, grip on and off. [v0.5.0](docs/releases/v0.5.0.md),
 v0.4.22's co-op start fixes (#164) still need two/four-headset starts, reloads,
 host swaps and Jungle Natalya. [#164 evidence](docs/issue-161-164-campaign-fixes.md).
 
-v0.4.20 merged PR #172: the Goldfinger 64 / Tomorrow Never Dies campaigns
-(solo, the player's own patched ROMs), Project Bean (#170), the Dam
-speedboat (#171), Dam wall alarms (#174) and Bean's GPU skinning and world
-batching. Bean uses the player's own XBLA copy. Headset checks covered
-both-hand Bean grips, per-gun fits and low-doorway clearance. Details:
-[PR #172 handoff](docs/pr172-handoff.md), [Project Bean](docs/project-bean.md),
-[hack campaigns](docs/rom-hacks.md), [v0.4.20](docs/releases/v0.4.20.md).
+v0.4.20 merged PR #172: the hack campaigns, Project Bean, the Dam speedboat
+and alarms. Headset checks covered Bean grips, gun fits and low doorways.
+[PR #172](docs/pr172-handoff.md), [Bean](docs/project-bean.md),
+[campaigns](docs/rom-hacks.md), [v0.4.20](docs/releases/v0.4.20.md).
 
 Movement speed: 50%-200%, 100% default, separate solo and host settings;
 host changes apply to the whole session, bots included. Room-scale walking
@@ -40,18 +46,6 @@ is unchanged. Native checks pass; two-headset checks pending. Details:
 use two columns, and the eight-player lobby fits without scrolling. Chest
 and Belt defaults use saved Quest fits at 170 cm; custom fits stay intact.
 See [body slots](docs/body-slots.md).
-
-## Recent releases
-
-**v0.5.2:** Dam speedboat rides and drives, Bean wound crash fixes. Notes:
-[v0.5.2](docs/releases/v0.5.2.md).
-**v0.5.1:** wounds on Bean heads, Mods page blood patch row. Notes:
-[v0.5.1](docs/releases/v0.5.1.md).
-**v0.5.0:** XBLA at 120 Hz, Bean parity (wounds, reflections, water, boot logos),
-#181, blood patch mod, Goldfinger cast crash. Notes: [v0.5.0](docs/releases/v0.5.0.md).
-**Earlier:** see docs/releases/ for v0.4.0–v0.4.23 (v0.4.20: Project Bean,
-Goldfinger 64/TND campaigns, Dam speedboat); older evidence is in
-docs/playtest-* and Git history.
 
 ## What it is and what works
 

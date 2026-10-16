@@ -101,6 +101,13 @@ int VrBeanModels = 1;
 int VrBeanFillTextures = 1;
 /* Mods: Wreck's blood patch, off as the cartridge ships. */
 int VrBloodPatch = 0;
+int VrRagdolls = 0;       /* optional Jolt death physics, every game mode */
+int VrDismemberment = 0; /* independent preference; requires ragdolls */
+/* CE's Ragdoll.RagdollDismemberDamage / RagdollDismemberChance (ragdoll.c:41).
+ * CE's 2.0 is its magnum; GoldenEye's guns are 1.0 or less (KF7 1.0,
+ * Skorpion 0.6), so 1.0 lets pistols and rifles cut (user, 2026-10-16). */
+float VrDismemberDamage = 1.0f;
+int VrDismemberChance = 40;
 int VrWatchFaceStatus = GEVR_WATCH_FACE_ON;
 int VrWatchGesturePause = 1;
 /* The watch's Controls page: 0 draws the headset's own Touch controllers,

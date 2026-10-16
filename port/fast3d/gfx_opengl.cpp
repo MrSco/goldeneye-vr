@@ -477,14 +477,15 @@ static void gevr_decal_switch_poll(void)
  *      without Z_UPD; untinted = ordinary opaque
  *   2  every draw without Z_CMP is depth-tested (GL_LESS) anyway
  *   3  stereo keeps the per-room portal scissor (bg.c bgScissorCurrentPlayerView)
- * While on, a count of draws per class is logged every 300 frames.
+ * While on, a count of draws per class is logged every 600 frames.
  */
 extern "C" { int gevrZDebugMode = 0; }
 static unsigned s_zDebugCount[6];
 static void gevr_zdebug_poll(void)
 {
     static unsigned n;
-    if ((n++ % 120) != 0) return;
+    unsigned frame = n++;
+    if ((frame % 120) != 0) return;
     FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_zdebug.txt", "r");
     int mode = 0;
     if (f) {
@@ -495,7 +496,7 @@ static void gevr_zdebug_poll(void)
         gevrZDebugMode = mode;
         sysLogPrintf(LOG_NOTE, "zdebug: mode %d", mode);
     }
-    if (gevrZDebugMode != 0 && (n % 600) == 0) {
+    if (gevrZDebugMode != 0 && (frame % 600) == 0) {
         sysLogPrintf(LOG_NOTE, "zdebug: draws since last: notest %u nocmp %u decal %u xlu %u noupd %u opaque %u",
                      s_zDebugCount[0], s_zDebugCount[1], s_zDebugCount[2], s_zDebugCount[3], s_zDebugCount[4], s_zDebugCount[5]);
         memset(s_zDebugCount, 0, sizeof(s_zDebugCount));
@@ -530,6 +531,13 @@ static void gevr_zdebug_apply(struct ShaderProgram* prg, bool world)
  * decals (texSelect: bullet holes, which must not hang over an edge).
  */
 bool gevrRoomDl;
+/* The stereo hand-held models (VR_CULL_OFF, gfx_pc.cpp): a gun is a few
+ * centimetres thick, so its decals take a band of GEVR_GUN_DECAL_CM, not the
+ * world's 3 view units (15 cm on the Dam), which let decals behind another
+ * part of GE-X's rocket launcher show through it (user, 2026-10-16). */
+bool gevrGunDl;
+#define GEVR_GUN_DECAL_CM 1.0f
+static bool s_issueGunDecal;   /* the draw being issued is one of them */
 
 static bool s_alphaArgs[2];
 /*
@@ -2797,6 +2805,7 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
     gevr_eye_present_draw();
     s_uniCacheValid = use_multiview;   /* without multiview the eye uniforms are never cached */
 
+    s_issueGunDecal = gevrGunDl;
     gevr_issue_draw(first, (GLsizei)(3 * buf_vbo_num_tris), s_decalZ, gevrRoomDl && s_isDecal, 0.0f, lineMode);
 }
 
@@ -2895,7 +2904,8 @@ static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalD
          * shadow followed by a white face in the same batch, and it came out
          * black over white. Marks are cleared by a separate pass after the
          * colour pass. */
-        const float bandD = (s_decalMode == 3 && s_decalA > 0.0f) ? s_decalA : 3.0f;
+        const float bandD = (s_decalMode == 3 && s_decalA > 0.0f) ? s_decalA
+                          : s_issueGunDecal ? GEVR_GUN_DECAL_CM * D_800364CC : 3.0f;
         GLboolean prevDepthMask = current_depth_mask ? GL_TRUE : GL_FALSE;
         glEnable(GL_STENCIL_TEST);
         glStencilMask(0xff);
@@ -3009,6 +3019,7 @@ struct GevrEyeDraw {
     uint16_t zmode;
     bool alpha[2];
     bool decalZ;
+    bool gunDecal;
     bool decalDepth;
     float decalPull;
     bool isMenu;
@@ -3106,6 +3117,7 @@ static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode)
     d.alpha[0] = s_alphaArgs[0];
     d.alpha[1] = s_alphaArgs[1];
     d.decalZ = s_decalZ;   // a room's decals take the reach pass, the game's own the band
+    d.gunDecal = gevrGunDl;  // a hand-held model's decals take the narrow band
     d.decalDepth = gevrRoomDl && s_isDecal;
     d.decalPull = 0.0f;
     d.isMenu = vr_dl_is_pause_or_menu;
@@ -3387,6 +3399,7 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
             const GfxMeshDrawParams* params = &s_eyeMeshes[d.mesh - 1].params;
             gevr_replay_mesh(bindings, d.prg, params, params->cull);
         }
+        s_issueGunDecal = d.gunDecal;
         gevr_issue_draw(d.first, d.count, d.decalZ, d.decalDepth, d.decalPull, d.lineMode);
         last = &d;
     }
@@ -3665,6 +3678,7 @@ static bool gfx_opengl_draw_mesh(void** gpu, const void* vertices, uint32_t num_
     gevr_scope_keep_mesh(g->vao, (GLint)first, (GLsizei)count, p);
     if (!gevr_eye_draw_deferred()) {   // else the replay draws it in its XR frame
         s_drawElements = true;
+        s_issueGunDecal = gevrGunDl;
         gevr_issue_draw((GLint)first, (GLsizei)count, s_decalZ, gevrRoomDl && s_isDecal, 0.0f, false);
         s_drawElements = false;
     }

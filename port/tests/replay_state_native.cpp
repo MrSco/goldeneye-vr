@@ -34,6 +34,7 @@ static bool s_eyeReady=true, s_uniCacheValid=true;
 static GLfloat s_eyeHeadP[2];
 static ShaderProgram *s_curPrg;
 static bool s_depthArgs[4], s_alphaArgs[2], current_depth_mask, s_isDecal, s_decalZ, s_opaqueDepthWrite;
+static bool s_issueGunDecal; /* gfx_opengl.cpp: a hand-held model's decal band */
 static uint16_t s_depthZmode;
 static GLint s_curViewport[4],s_curScissor[4];
 static GLuint opengl_vao=7,opengl_vbo=9,s_boundTex[2]={777,888};

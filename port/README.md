@@ -17,6 +17,7 @@ GoldenEye-specific files added alongside.
 |------|----------|--------|
 | `src/`, `include/`, `preprocess/` | Perfect Dark PC port | [LICENSE](LICENSE) here — MIT |
 | Bean adaptations in `src/gevr_bean*`, associated headers and renderer code | Dab / DabDavis, [Dab's Mod](https://github.com/DabDavis/perfect-dark-dabs-mod) | [licenses/dabs-mod.txt](licenses/dabs-mod.txt) — MIT; also shipped in the APK |
+| `external/pdphysics/` | Chesluk Industries, Perfect Dark CE Stable | [licenses/perfect-dark-ce.txt](licenses/perfect-dark-ce.txt) - MIT; Jolt [licenses/jolt.txt](licenses/jolt.txt); both shipped in the APK |
 | `vr/` | Alex-LeTux / perfect_dark_VR | [vr/LICENSE](vr/LICENSE) — MIT, same notice |
 | `fast3d/` | Emill / MaikelChan, n64-fast3d-engine | [fast3d/LICENSE.txt](fast3d/LICENSE.txt) — MIT |
 | `vr/imgui/` | Dear ImGui | [vr/imgui/LICENSE.txt](vr/imgui/LICENSE.txt) |

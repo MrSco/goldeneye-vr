@@ -22,8 +22,57 @@ static void registryChecks(void)
     s_registrationOwner = NULL;
 }
 
+static const Model *cutTarget;
+static int cutActive(const Model *model) { return model == cutTarget; }
+static int cutPiece(const Model *model,int matrix) { (void)model;return matrix; }
+static int cutRemap(const Model *model,int owner,int matrix,float p[3],float n[3])
+{ (void)model;(void)matrix;(void)p;(void)n;return owner; }
+
+/* Cut caps on Bean's skin: two fans of eight triangles meet at a shared
+ * rim (separate vertices with the same source data, as the skin repeats
+ * them per triangle). On different pieces, each side's border is the
+ * whole rim; an open rim on a triangle across the cut counts too, a
+ * stray open edge does not. */
+static void capChecks(void)
+{
+    struct beanSkinVert verts[16 * 3];
+    memset(verts, 0, sizeof(verts));
+    int tripiece[16], triother[16];
+    for (int side = 0; side < 2; side++)
+        for (int i = 0; i < 8; i++) {
+            struct beanSkinVert *v = &verts[(side * 8 + i) * 3];
+            for (int c = 0; c < 3; c++) { v[c].weight[0] = 255; v[c].matrix[0] = 0; }
+            v[0].p[0][1] = side ? -5.0f : 5.0f; /* each side's own centre */
+            v[1].p[0][0] = cosf(i * 0.785398f) * 10; v[1].p[0][2] = sinf(i * 0.785398f) * 10;
+            v[2].p[0][0] = cosf((i + 1) * 0.785398f) * 10; v[2].p[0][2] = sinf((i + 1) * 0.785398f) * 10;
+            if (i == 7) { v[2].p[0][0] = verts[(side * 8) * 3 + 1].p[0][0]; v[2].p[0][2] = verts[(side * 8) * 3 + 1].p[0][2]; }
+            tripiece[side * 8 + i] = side ? 3 : 0;
+            triother[side * 8 + i] = -1;
+        }
+    struct beanSkin skin = {0};
+    skin.verts = verts; skin.nverts = 48;
+    const struct beanCapCache *cache = beanCapLoops(&skin, 0x4, tripiece, triother);
+    assert(cache && cache->nloops == 2);
+    for (int l = 0; l < 2; l++) {
+        assert(cache->loops[l].nedges == 8);
+        assert(cache->loops[l].other == (cache->loops[l].piece ? 0 : 3));
+    }
+    assert(beanCapLoops(&skin, 0x4, tripiece, triother) == cache); /* cached */
+    /* One side only, open at the cut: its triangles straddle piece 3 */
+    struct beanSkin half = {0};
+    half.verts = verts; half.nverts = 24;
+    for (int i = 0; i < 8; i++) triother[i] = 3;
+    cache = beanCapLoops(&half, 0x4, tripiece, triother);
+    assert(cache && cache->nloops == 1 && cache->loops[0].nedges == 8 && cache->loops[0].other == 3);
+    for (int i = 0; i < 8; i++) triother[i] = -1;
+    cache = beanCapLoops(&half, 0x8, tripiece, triother);
+    assert(cache && cache->nloops == 0);
+    free(skin.weld); free(half.weld);
+}
+
 static void poseChecks(void)
 {
+    capChecks();
     registryChecks();
 	union ModelRoData groupData = {0};
 	groupData.Group.MatrixIDs[0] = 0;
@@ -78,6 +127,27 @@ static void poseChecks(void)
 	assert(first != list && firstVertices != original);
 	assert(firstVertices[0].v.ob[0] == 10 && firstVertices[0].v.ob[1] == 5);
 	assert(firstVertices[0].v.tc[0] == 123 && firstVertices[0].n.n[2] == 127);
+    /* Dismemberment must choose one piece per triangle, even when its
+     * corners favour different bones. Moving the other piece cannot stretch
+     * the cut triangle. Other instances keep their shared GPU skin. */
+    struct beanSkinVert saved[3];memcpy(saved,influences,sizeof(saved));
+    influences[0].weight[0]=255;influences[0].weight[1]=0;
+    influences[1].weight[0]=0;influences[1].weight[1]=255;
+    cutTarget=&model;
+    GevrBeanCuts cuts={cutActive,cutPiece,cutRemap};gevrBeanSetCuts(&cuts);
+    Gfx *cutFirst=gevrBeanRenderGdl(&node,list,&model);
+    assert((cutFirst[1].words.w0>>24)==(G_VTX&255));
+    Vtx *cutVertices=(void *)cutFirst[1].words.w1;
+    matrices[1].pos.m[3][0]+=500;
+    Gfx *cutSecond=gevrBeanRenderGdl(&node,list,&model);
+    Vtx *cutAgain=(void *)cutSecond[1].words.w1;
+    for(int v=0;v<3;v++)for(int k=0;k<3;k++)assert(cutVertices[v].v.ob[k]==cutAgain[v].v.ob[k]);
+    Model other=model;
+    Gfx *uncut=gevrBeanRenderGdl(&node,list,&other);
+    assert((uncut[1].words.w0>>24)==G_GEVR_SKIN);
+    assert(((GevrSkinDraw *)(uintptr_t)uncut[1].words.w1)->mesh==firstDraw->mesh);
+    matrices[1].pos.m[3][0]-=500;
+    gevrBeanSetCuts(NULL);memcpy(influences,saved,sizeof(saved));
 	/* Another instance may move before the first list reaches the GPU. */
 	matrices[1].pos.m[3][0] = 200;
 	Gfx *second = gevrBeanRenderGdl(&node, list, &model);

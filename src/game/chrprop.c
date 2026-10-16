@@ -8,6 +8,9 @@
 #include "gevr_romlayout.h"
 #endif
 #include <ultra64.h>
+#ifdef GEVR
+#include "gevr_ragdoll.h"
+#endif
 #include <assert.h>
 #include <bondgame.h>
 #include <bondtypes.h>
@@ -1594,6 +1597,10 @@ void chraiDefaultWeaponFireHandler(s32 hand)
         }
     }
 
+#ifdef GEVR
+    gevrRagdollShot(&shotdata);
+#endif
+
     for (k = 0; k < 10; k++)
     {
         if (shotdata.hits[k].prop != 0)
@@ -2733,10 +2740,16 @@ void chraiCheckUseHeldItem(s32 hand)
         {
             inc_curplayer_hitcount_with_weapon(item_id, SHOT_REGISTER_TOTAL);
 
+#ifdef GEVR
+            gevrRagdollVolley(1);
+#endif
             for (i=0; i<NUMBER_SHOTGUN_BULLETS; i++)
             {
                 chraiDefaultWeaponFireHandler(hand);
             }
+#ifdef GEVR
+            gevrRagdollVolley(0);
+#endif
         }
         else if (item_id == ITEM_CAMERA)
         {
