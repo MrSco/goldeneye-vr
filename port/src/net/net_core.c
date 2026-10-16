@@ -2001,9 +2001,15 @@ int netHordeActive(void) {
     return (s_state==NET_STATE_INGAME || s_state==NET_STATE_MIGRATING)
         && s_round.config.mode==NET_MODE_HORDE;
 }
+/* A late joiner spectates until the next break; its load must not pause the waves. */
+static bool netAllPlayersLoaded(void) {
+    for (int i = 0; i < s_max_players; i++)
+        if (s_lobby_state.slots[i].connected && !s_lobby_state.slots[i].spectator && !s_lobby_state.slots[i].loaded) return false;
+    return true;
+}
 int netHordeRunning(void) {
     return netHordeActive() && s_state==NET_STATE_INGAME && !s_round_reset_loading
-        && s_phase==NET_PHASE_IN_PROGRESS && netAllLoaded();
+        && s_phase==NET_PHASE_IN_PROGRESS && netAllPlayersLoaded();
 }
 uint32_t netGetWorldEpoch(void) { return s_round.world_epoch; }
 void netHordeRetry(void) {
