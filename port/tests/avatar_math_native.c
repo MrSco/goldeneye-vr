@@ -86,5 +86,11 @@ static void history(void) {
     for(int i=0;i<30;i++)gevrPosePush(&h,&p,anchor,2,2,1690000+i*16000);
     assert(h.count==GEVR_POSE_HISTORY);
     gevrPosePush(&h,&p,anchor,2,2,h.time[h.count-1]);assert(h.count==GEVR_POSE_HISTORY);
+    /* An untracked start carries no yaw: neither a NaN nor a 0 reaches the torso. */
+    GevrPoseHistory fresh={0};GevrAvatarPose flat={0};
+    flat.body_yaw=NAN;flat.head.pos[0]=NAN;assert(gevrPoseValidate(&flat) && flat.body_yaw==0 && flat.head.pos[0]==0);
+    flat.body_yaw=NAN;gevrPosePush(&fresh,&flat,anchor,3,1,2000000);
+    p=identity();p.body_yaw=90;gevrPosePush(&fresh,&p,anchor,3,1,2040000);
+    assert(gevrPoseSample(&fresh,2070000,&out,w));near(out.body_yaw,90);
 }
 int main(void) {arms();rotations();protocol();history();puts("avatar: solver, rotations, protocol, interpolation/reset checks passed");return 0;}

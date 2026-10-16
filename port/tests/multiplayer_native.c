@@ -46,7 +46,7 @@ EXPORT int test_protocol(void) {
     original.movement_speed=NET_MOVE_175;
     original.bot_mode=NET_BOT_FIXED;original.bot_count=5;original.bot_difficulty=NET_BOT_DARK;
     netbufStartWrite(&b); netbufWriteMatchConfig(&b,&original);
-    if (b.error || b.wp != 23 || GEVR_NET_VERSION != 21 || GEVR_MAX_PLAYERS != 8) return 1;
+    if (b.error || b.wp != 23 || GEVR_NET_VERSION != 22 || GEVR_MAX_PLAYERS != 8) return 1;
     netbufStartReadData(&b,raw,b.wp); netbufReadMatchConfig(&b,&received);
     if (b.error || netbufReadLeft(&b) || memcmp(&original,&received,sizeof(original))) return 2;
     for(int size=0;size<23;size++) {

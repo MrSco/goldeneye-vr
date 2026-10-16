@@ -67,6 +67,10 @@ The original animated body matrices are retained separately. `chrTestHit` uses
 those for body hit detection, then restores the displayed pose. This preserves
 existing body hitboxes and combat authority; visible tracked arms can differ
 from those hitboxes. Held objects/hats follow their displayed attachments.
+Projectile and thrown-object tests (`propobj.c`), the hit-list depth sort and
+held-gun hitboxes still read the displayed pose in the drawn pass. IK runs only
+in the drawn view pass: the extra per-copy and barrel passes (`lv.c`
+`gevrViewPass`) keep the animated pose and allocate nothing.
 Death and ragdoll posing continue on their original path.
 
 ## Checks

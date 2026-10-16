@@ -16,11 +16,14 @@ static float angle(float d) { return remainderf(d,360.0f); }
 
 int gevrPoseValidate(GevrAvatarPose *p) {
     if(p->flags & ~15u)return 0;
-    if(!(p->flags & GEVR_POSE_HEAD))return (p->flags & 6u)==0;
+    if(!(p->flags & GEVR_POSE_HEAD) && (p->flags & 6u))return 0;
+    /* Untracked parts carry no data: clear them so nothing unchecked
+     * (NaN included) reaches the history or the renderer. */
+    if(!(p->flags & GEVR_POSE_HEAD))p->body_yaw=0;
     if(!isfinite(p->body_yaw) || fabsf(p->body_yaw)>3600)return 0;
     for(int j=0;j<3;j++) {
         GevrTrackedPose *t=j?&p->hand[j-1]:&p->head;
-        if(!(p->flags & (1u<<j)))continue;
+        if(!(p->flags & (1u<<j))) {memset(t,0,sizeof(*t));t->q[3]=1;continue;}
         float d=0;
         for(int k=0;k<3;k++) {
             if(!isfinite(t->pos[k]))return 0;
@@ -104,7 +107,10 @@ int gevrPoseSample(const GevrPoseHistory *h,uint64_t now,GevrAvatarPose *out,flo
         if(h->valid_time[j] && now>=h->valid_time[j])
             weight[j]=clamp(1-((float)(now-h->valid_time[j])-100000)/200000,0,1);
     }
-    out->body_yaw=angle(h->pose[a].body_yaw+angle(h->pose[b].body_yaw-h->pose[a].body_yaw)*t);
+    /* The torso yaw rides with the head: no interpolation from an untracked start. */
+    float ya=h->pose[b].body_yaw;
+    if((h->pose[a].flags & GEVR_POSE_HEAD) || !(h->pose[b].flags & GEVR_POSE_HEAD))ya=h->pose[a].body_yaw;
+    out->body_yaw=angle(ya+angle(h->pose[b].body_yaw-ya)*t);
     out->flags=h->pose[h->count-1].flags;
     return weight[0]>0;
 }
