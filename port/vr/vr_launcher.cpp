@@ -3096,7 +3096,7 @@ extern "C" void gevrLauncherRun(void)
             // the original game's rule. Single player.
             ImGui::TextColored(gold, "GAME RULES");
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-            ImGui::TextWrapped("Off keeps the original rules. Mines and body retention are solo options. Fast reinforcements also works in co-op, controlled by the host.");
+            ImGui::TextWrapped("Off keeps the original rules. Mines are a solo option; with ragdolls on, bodies stay in every mode. Fast reinforcements also works in co-op, controlled by the host.");
             ImGui::PopStyleColor();
             bool stick = VrMinesStickToGuards != 0;
             if (ImGui::Checkbox("Mines stick to guards", &stick)) {
@@ -3105,6 +3105,40 @@ extern "C" void gevrLauncherRun(void)
             }
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("A thrown mine that hits a guard sticks to him and goes where he goes.");
+            // Perfect Dark CE's ragdolls (docs/ragdolls.md): cosmetic, each
+            // headset simulates its own
+            bool ragdolls = VrRagdolls != 0;
+            if (ImGui::Checkbox("Ragdolls", &ragdolls)) {
+                VrRagdolls = ragdolls ? 1 : 0;
+                vrSettingsSave();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Bodies fall with physics. Each headset simulates its own.");
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!ragdolls);
+            bool limbs = VrDismemberment != 0;
+            if (ImGui::Checkbox("Dismemberment", &limbs)) {
+                VrDismemberment = limbs ? 1 : 0;
+                vrSettingsSave();
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Strong guns, shotgun blasts and explosions can take off limbs and heads.");
+            ImGui::EndDisabled();
+            // Perfect Dark CE's two dismemberment settings
+            ImGui::BeginDisabled(!ragdolls || !VrDismemberment);
+            const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+            ImGui::SetNextItemWidth(half);
+            if (ImGui::SliderFloat("##DismemberDamage", &VrDismemberDamage, 0.5f, 10.0f, "Damage needed %.1f"))
+                vrSettingsSave();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("A shot cuts only with weapons this strong: PP7 and KF7 1.0, golden gun 100.");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(half);
+            if (ImGui::SliderInt("##DismemberChance", &VrDismemberChance, 0, 100, "Chance %d%%"))
+                vrSettingsSave();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("How often a strong enough shot, volley or blast takes something off.");
+            ImGui::EndDisabled();
             ImGui::Spacing();
             ImGui::TextUnformatted("Bodies stay");
             int prevBodies = VrBodiesStay;
@@ -3116,7 +3150,7 @@ extern "C" void gevrLauncherRun(void)
             ImGui::SameLine();
             ImGui::RadioButton("48##bodies", &VrBodiesStay, 48);
             if (VrBodiesStay != prevBodies) vrSettingsSave();
-            ImGui::TextWrapped("The newest bodies stay on the floor; the oldest goes when a new guard needs its place.");
+            ImGui::TextWrapped("The newest bodies stay on the floor, with their cut limbs; the oldest goes when a new guard needs its place.");
             ImGui::Spacing();
             const bool online = netIsActive();
             const bool coop = online && netGetMatchConfig()->mode == NET_MODE_COOP;
@@ -3137,6 +3171,7 @@ extern "C" void gevrLauncherRun(void)
             if (ImGui::Button("Original rules")) {
                 VrMinesStickToGuards = 0;
                 VrBodiesStay = 0;
+                VrRagdolls = VrDismemberment = 0;
                 if (online) gevrNetConfigSet(CFG_FAST_REINFORCEMENTS, 0);
                 else VrFastReinforcements = 0;
                 vrSettingsSave();
@@ -3268,7 +3303,7 @@ extern "C" void gevrLauncherRun(void)
             snprintf(label, sizeof(label), n ? "Cheats... (%d on)" : "Cheats...", n);
             if (ImGui::Button(label)) cheatPage = true;
             ImGui::SameLine();
-            const int rules = (VrMinesStickToGuards ? 1 : 0) + (VrBodiesStay ? 1 : 0) + (VrFastReinforcements ? 1 : 0);
+            const int rules = (VrMinesStickToGuards ? 1 : 0) + (VrBodiesStay ? 1 : 0) + (VrFastReinforcements ? 1 : 0) + (VrRagdolls ? 1 : 0) + (VrRagdolls && VrDismemberment ? 1 : 0);
             snprintf(label, sizeof(label), rules ? "Game rules... (%d changed)" : "Game rules...", rules);
             if (ImGui::Button(label)) rulesPage = true;
             ImGui::Spacing();

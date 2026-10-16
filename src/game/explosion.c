@@ -22,6 +22,7 @@
 #include "player.h"
 #ifdef GEVR
 #include "net_coop.h"
+#include "gevr_ragdoll.h"
 #endif
 #include "random.h"
 #include "snd.h"
@@ -646,6 +647,13 @@ void explosionInflictDamage(PropRecord *arg0, f32 horiz_range, f32 vert_range)
 
     if (temp_s2->age >= temp_s2->unk3CA)
     {
+#ifdef GEVR
+        /* Cosmetic ragdolls: the first pulse throws bodies already down */
+        if (temp_s2->unk3CA < 0)
+        {
+            gevrRagdollBlast(&arg0->pos, temp_s6->dmg_range, temp_s6->damage);
+        }
+#endif
         chraiGetPropRoomIds(arg0, &spE0[0]);
         roomGetProps(&spE0[0]);
 
@@ -787,6 +795,9 @@ void explosionInflictDamage(PropRecord *arg0, f32 horiz_range, f32 vert_range)
 
                         minfrac *= minfrac;
                         minfrac = minfrac * EXPLOSION_DAMAGE_SCALER * temp_s6->damage;
+#ifdef GEVR
+                        gevrRagdollExplosionChr(temp_s0->chr, &arg0->pos, temp_s6->dmg_range, temp_s6->damage);
+#endif
 
                         if (temp_s0->type == PROP_TYPE_CHR)
                         {

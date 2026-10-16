@@ -40,6 +40,7 @@ static void currentPlayerSetCameraMode(s32 mode) { g_CurrentPlayer->cameramode =
 static void sysLogPrintf(s32 level, const char *fmt, ...) {}
 static void bondviewUpdatePlayerRoom(struct player *p) { rooms++; }
 static void gevrNotifyTeleport(void) { teleports++; }
+static int gevrRagdollNeedsPose(struct ChrRecord *chr) { return 0; } /* ragdolls off */
 static f32 bondviewGetPlayerYawRadians(void) { return (360 - g_CurrentPlayer->vv_theta) * 6.2831853f / 360; }
 static void setsuboffset(Model *m, coord3d *p) { modelpos[m - models] = *p; }
 static void setsubroty(Model *m, f32 yaw) {}

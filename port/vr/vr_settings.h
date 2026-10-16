@@ -36,6 +36,10 @@ extern int VrBeanFillTextures;
 /* Mods: Wreck's blood patch - a guard's hit puffs are the red sparks Rare left
  * in the game (chr.c chrCreateHitPuffs). Saved as BloodPatch. */
 extern int VrBloodPatch;
+extern int VrRagdolls;
+extern int VrDismemberment;
+extern float VrDismemberDamage;
+extern int VrDismemberChance;
 extern int VrMicMuted;
 extern float VrMusicVolume;
 extern float VrVoiceVolume;

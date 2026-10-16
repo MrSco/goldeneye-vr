@@ -1,0 +1,185 @@
+/* Static collision, as CE's level.c builds it: the game's walkable floors for
+ * the whole stage, plus walls, overhangs and ceilings from each room's render
+ * list once it has loaded, and the ground its floors do not cover. Jolt copies the mesh, so unloading the room cannot
+ * invalidate collision. */
+#include "gevr_ragdoll_internal.h"
+#include "bg.h"
+#include "stan.h"
+#include "system.h"
+#include "gbi_extension.h"
+
+extern float inv_level_scale;
+#define RD_RENDER_MAXUP 0.35f  /* CE level.c: added when normal.y is below this */
+#define RD_ROOMSPERTICK 4      /* CE RD_CEIL_ROOMSPERTICK */
+static unsigned char s_rooms[MAXROOMCOUNT];
+static const char *s_why;
+static int s_walled, s_flooronly, s_tris;
+
+typedef struct RdTriangles { float *v; int *ix; int count, capacity, failed; } RdTriangles;
+
+static void rdTriangle(RdTriangles *t,const float *a,const float *b,const float *c)
+{
+    if(t->failed)return;
+    if(t->count==t->capacity) {
+        int cap=t->capacity?t->capacity*2:128;
+        if(cap>65536){t->failed=1;return;}
+        float *v=realloc(t->v,(size_t)cap*9*sizeof(float));
+        if(!v){t->failed=1;return;} t->v=v;
+        int *ix=realloc(t->ix,(size_t)cap*3*sizeof(int));
+        if(!ix){t->failed=1;return;} t->ix=ix; t->capacity=cap;
+    }
+    memcpy(t->v+t->count*9,a,3*sizeof(float));
+    memcpy(t->v+t->count*9+3,b,3*sizeof(float));
+    memcpy(t->v+t->count*9+6,c,3*sizeof(float));
+    for(int k=0;k<3;k++)t->ix[t->count*3+k]=t->count*3+k;
+    t->count++;
+}
+
+static int rdSubmit(RdTriangles *t,int room,int group)
+{
+    int ok=!t->failed && t->count && pdphysLevelAddRoomGroup(room,group,t->v,t->count*3,t->ix,t->count);
+    free(t->v); free(t->ix); return ok;
+}
+
+void rdWorldReset(void) { rdMoversReset(); memset(s_rooms,0,sizeof(s_rooms)); s_walled=s_flooronly=s_tris=0; }
+
+/* For the capture log: how much of the stage has walls so far, and whether
+ * this room does (1 walls, 2 floor-only, 0 not loaded yet) */
+void rdWorldStats(int room, int *walled, int *flooronly, int *tris, int *state)
+{
+    *walled=s_walled; *flooronly=s_flooronly; *tris=s_tris;
+    *state=room>0 && room<MAXROOMCOUNT ? s_rooms[room] : -1;
+}
+
+void rdWorldInit(void)
+{
+    rdWorldReset();
+    for(int room=1;room<(int)(sizeof(firststaninroom)/sizeof(firststaninroom[0]));room++) {
+        StandTile *tile=firststaninroom[room]; RdTriangles triangles={0};
+        for(int visited=0;tile && visited<32768;visited++) {
+            if(!*(u32 *)tile || tile->room!=room)break;
+            int n=(tile->tail.half>>12)&15;
+            if(n<3)break;
+            for(int i=1;i+1<n;i++) {
+                float v[3][3]; int indices[3]={0,i,i+1};
+                for(int k=0;k<3;k++) {
+                    StandTilePoint *p=&tile->points[indices[k]];
+                    v[k][0]=p->x*inv_level_scale; v[k][1]=p->y*inv_level_scale; v[k][2]=p->z*inv_level_scale;
+                }
+                rdTriangle(&triangles,v[0],v[1],v[2]);
+            }
+            tile=(StandTile *)((u8 *)tile+8+n*8);
+        }
+        rdSubmit(&triangles,room,0);
+    }
+    pdphysLevelFinish(NULL);
+}
+
+/* CE leaves up-facing render triangles to the game's floors, which in PD
+ * cover them. GoldenEye's floors cover only walkable ground: its cliffs,
+ * banks and terrain off the paths have none, and bodies fell through them
+ * (Dam, 2026-10-16). Such a triangle is added when the room's own floors
+ * are not right under (or just over) its middle and its corners; stairs,
+ * whose floors are ramps under the steps, stay ramps. */
+#define RD_COVER_ABOVE 40.0f
+#define RD_COVER_BELOW 60.0f
+static int rdFloorCovers(const float *a, const float *b, const float *c)
+{
+    float centre[3],point[3],from[3],to[3],hit[3];
+    for(int k=0;k<3;k++)centre[k]=(a[k]+b[k]+c[k])/3;
+    const float *corner[4]={centre,a,b,c};
+    for(int i=0;i<4;i++) {
+        for(int k=0;k<3;k++)point[k]=i ? centre[k]+(corner[i][k]-centre[k])*0.75f : centre[k];
+        memcpy(from,point,sizeof(from)); memcpy(to,point,sizeof(to));
+        from[1]+=RD_COVER_ABOVE; to[1]-=RD_COVER_BELOW;
+        if(!pdphysRaycastLevelGroups(from,to,1u<<0,hit,NULL))return 0;
+    }
+    return 1;
+}
+
+static int rdRoomMesh(int room)
+{
+    s_room_info *r=&g_BgRoomInfo[room];
+    Gfx *g=r->ptr_expanded_mapping_info;
+    s_why="no list";
+    if(!r->vertices || !g || r->usize_primary_DL_binary<=0 || r->usize_point_index_binary<=0)return 0;
+    int ncommands=r->usize_primary_DL_binary/sizeof(Gfx);
+    s_why="list too long";
+    if(ncommands>65536)return 0;
+    int skipped=0,uncovered=0;
+    pdphysSetQueryRooms(&room,1); /* its own floors, not a stacked room's */
+    int nvertices=r->usize_point_index_binary/sizeof(Vtx);
+    float slots[16][3]; unsigned loaded=0; RdTriangles triangles={0};
+    float scale=get_room_data_float1();
+    if(!isfinite(scale) || scale<=0)return 0;
+    for(int i=0;i<ncommands;i++) {
+        unsigned op=(g[i].words.w0>>24)&255;
+        if(op==(G_ENDDL&255))break;
+        if(op==(G_VTX&255)) {
+            unsigned n=((g[i].words.w0>>20)&15)+1, dest=(g[i].words.w0>>16)&15;
+            uintptr_t offset=g[i].words.w1&0xffffff;
+            if(offset%sizeof(Vtx) || offset/sizeof(Vtx)+n>(unsigned)nvertices || dest+n>16) { loaded=0; skipped++; continue; }
+            for(unsigned j=0;j<n;j++) {
+                Vtx *v=&r->vertices[offset/sizeof(Vtx)+j];
+                for(int k=0;k<3;k++)slots[dest+j][k]=(v->v.ob[k]+ptr_bgdata_room_fileposition_list[room].pos.f[k])/scale;
+                loaded|=1u<<(dest+j);
+            }
+        } else if(op==(G_TRI1&255) || op==(G_TRI4&255)) {
+            int n=op==(G_TRI1&255)?1:4;
+            for(int j=0;j<n;j++) {
+                unsigned a,b,c;
+                if(n==1) { a=((g[i].words.w1>>16)&255)/10; b=((g[i].words.w1>>8)&255)/10; c=(g[i].words.w1&255)/10; }
+                else { a=(g[i].words.w1>>(j*8))&15; b=(g[i].words.w1>>(j*8+4))&15; c=(g[i].words.w0>>(j*4))&15; }
+                if(a==b || a==c || b==c || a>=16 || b>=16 || c>=16)continue;
+                if((loaded & ((1u<<a)|(1u<<b)|(1u<<c)))!=((1u<<a)|(1u<<b)|(1u<<c)))continue;
+                /* CE ragdollAddRoomCeiling (level.c:245): only triangles not
+                 * facing up; up-facing ones are left to the floors, so stairs
+                 * stay the smooth ramps the game walks on */
+                float e1[3],e2[3],nrm[3],len;
+                for(int k=0;k<3;k++){e1[k]=slots[b][k]-slots[a][k];e2[k]=slots[c][k]-slots[a][k];}
+                nrm[0]=e1[1]*e2[2]-e1[2]*e2[1]; nrm[1]=e1[2]*e2[0]-e1[0]*e2[2]; nrm[2]=e1[0]*e2[1]-e1[1]*e2[0];
+                len=sqrtf(nrm[0]*nrm[0]+nrm[1]*nrm[1]+nrm[2]*nrm[2]);
+                if(len<0.01f)continue;
+                if(nrm[1]/len>=RD_RENDER_MAXUP) {
+                    if(rdFloorCovers(slots[a],slots[b],slots[c]))continue;
+                    uncovered++;
+                }
+                rdTriangle(&triangles,slots[a],slots[b],slots[c]);
+            }
+        } else if(op==(G_DL&255)) {
+            /* A called list's own triangles are not followed, and it may load
+             * vertices: the main list's next triangles need its next load */
+            loaded=0;
+        } else if(op==(G_MTX&255)) {
+            /* Do not guess a transform a custom campaign may supply */
+            s_why="matrix in list";
+            triangles.failed=1; break;
+        }
+    }
+    pdphysSetQueryRooms(NULL,-1);
+    const int count=triangles.failed?-1:triangles.count;
+    if(count==0) { s_walled++; return 1; } /* open ground: its floors are all it needs */
+    if(!triangles.failed)s_why="mesh rejected";
+    if(!rdSubmit(&triangles,room,1))return 0;
+    s_walled++; s_tris+=count;
+    sysLogPrintf(LOG_NOTE,"ragdoll: room %d collision, %d triangles (%d up-facing without floors)%s",room,count,uncovered,
+        skipped?", some vertex loads out of range":"");
+    return 1;
+}
+
+void rdWorldUpdate(void)
+{
+    int converted=0;
+    for(int room=1;room<g_MaxNumRooms && room<MAXROOMCOUNT && converted<RD_ROOMSPERTICK;room++)
+        if(!s_rooms[room] && g_BgRoomInfo[room].model_bin_loaded) {
+            converted++;
+            /* A room's list is the same each time it loads: parse it once.
+             * A failed room keeps its native floors for the whole stage. */
+            if(!rdRoomMesh(room)) {
+                s_rooms[room]=2; s_flooronly++;
+                sysLogPrintf(LOG_WARNING,"ragdoll: room %d keeps floor-only collision (%s)",room,s_why);
+                continue;
+            }
+            s_rooms[room]=1;
+        }
+}

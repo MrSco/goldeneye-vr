@@ -45,6 +45,13 @@ static int s_blankReady;
 static int s_want;
 static int s_available = -1;
 
+static GevrBeanCuts s_cuts;
+void gevrBeanSetCuts(const GevrBeanCuts *cuts)
+{
+    if (cuts) s_cuts = *cuts;
+    else memset(&s_cuts, 0, sizeof(s_cuts));
+}
+
 struct beanSkinVert {
 	float p[4][3], n[4][3];
 	uint8_t weight[4];
@@ -60,6 +67,7 @@ struct beanSkin {
 	GevrStaticMesh *mesh;
 	int16_t bones[GEVR_SKIN_BONES];
 	int nbones, meshTried;
+	int *weld; /* gevr_bean_caps.inc.h: vertices that are the same vertex */
 };
 static GevrStaticMesh *s_skinMeshes[MAX_ALLOC];
 static int s_nskinMeshes;
