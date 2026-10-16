@@ -158,7 +158,7 @@ static void rdDiscCap(RdBody *rd, int cut, int childside)
         cap->edges[i][0].mtx = cap->edges[i][1].mtx = (s16)matrix;
         if (!rdToLocal(rd, matrix, rim[i], cap->edges[i][0].v) || !rdToLocal(rd, matrix, rim[(i+1)%8], cap->edges[i][1].v)) return;
     }
-    cap->matrix = matrix; cap->numedges = 8;
+    cap->matrix = matrix; cap->numedges = 8; cap->cut = cut; cap->childside = childside;
     rd->ncaps++; rd->ndiscs++;
 }
 
@@ -301,7 +301,7 @@ void rdBuildCaps(RdBody *rd)
                 ring /= cnt;
                 /* A slight bulge outwards, so it reads as a surface, not a hole */
                 for (int k = 0; k < 3; k++) centre[k] += normal[k] / l * ring * 0.2f;
-                cap->matrix = rd->primary[frame];
+                cap->matrix = rd->primary[frame]; cap->cut = cut; cap->childside = childside;
                 if (!rdToLocal(rd, cap->matrix, centre, cap->centre)) continue;
                 rd->ncaps++;
                 covered[cut][childside] = 1;
@@ -317,11 +317,46 @@ done:
     }
 }
 
+/* A disc is only for a side no Bean rim covers this view */
+static int rdBeanCovers(const RdBody *rd, const RdCap *cap)
+{
+    const int child = rdPiece(rd, cap->cut), parent = rdPiece(rd, rd->parent[cap->cut]);
+    for (int i = 0; i < rd->nbean; i++)
+        if (cap->childside ? rd->bean[i].piece == child && rd->bean[i].other == parent
+                           : rd->bean[i].piece == parent && rd->bean[i].other == child)
+            return 1;
+    return 0;
+}
+
+static Gfx *rdFan(const RdBody *rd, const RdCap *cap, Gfx *gdl)
+{
+    Vtx *vertices=dynAllocate((size_t)cap->numedges*3*sizeof(Vtx));
+    if(!vertices)return gdl;
+    memset(vertices,0,(size_t)cap->numedges*3*sizeof(Vtx));
+    int current=-1;
+    for(int e=0;e<cap->numedges;e++) {
+        for(int k=0;k<3;k++) {
+            Vtx *v=&vertices[e*3+k];
+            const int matrix=k ? cap->edges[e][k-1].mtx : cap->matrix;
+            const s16 *xyz=k ? cap->edges[e][k-1].v : cap->centre;
+            for(int j=0;j<3;j++)v->v.ob[j]=xyz[j];
+            v->v.cn[0]=k?90:120; v->v.cn[1]=6; v->v.cn[2]=6; v->v.cn[3]=(u8)rd->alpha;
+            if(matrix!=current) {
+                gSPMatrix(gdl++,(void *)(uintptr_t)(0x03000000u+matrix*sizeof(Mtx)),G_MTX_MODELVIEW|G_MTX_LOAD|G_MTX_NOPUSH);
+                current=matrix;
+            }
+            gSPVertex(gdl++,v,1,k);
+        }
+        gSP1Triangle(gdl++,0,1,2,0);
+    }
+    return gdl;
+}
+
 /* CE ragdollRenderCaps: rim vertices load with the mesh's own matrices, so
  * the cap stays on the edge however the limb bends */
 Gfx *rdDrawCaps(RdBody *rd,Gfx *gdl)
 {
-    if(!rd->ncaps)return gdl;
+    if(!rd->ncaps && !rd->nbean)return gdl;
     gDPPipeSync(gdl++);
     gSPTexture(gdl++,0,0,0,G_TX_RENDERTILE,G_OFF);
     gDPSetCycleType(gdl++,G_CYC_1CYCLE);
@@ -330,27 +365,21 @@ Gfx *rdDrawCaps(RdBody *rd,Gfx *gdl)
     gSPSetGeometryMode(gdl++,G_ZBUFFER|G_SHADE|G_SHADING_SMOOTH);
     if(rd->alpha<255) { gDPSetRenderMode(gdl++,G_RM_AA_ZB_XLU_SURF,G_RM_AA_ZB_XLU_SURF2); }
     else { gDPSetRenderMode(gdl++,G_RM_AA_ZB_OPA_SURF,G_RM_AA_ZB_OPA_SURF2); }
-    for(int i=0;i<rd->ncaps;i++) {
-        const RdCap *cap=&rd->caps[i];
-        Vtx *vertices=dynAllocate((size_t)cap->numedges*3*sizeof(Vtx));
-        if(!vertices)continue;
-        memset(vertices,0,(size_t)cap->numedges*3*sizeof(Vtx));
-        int current=-1;
-        for(int e=0;e<cap->numedges;e++) {
-            for(int k=0;k<3;k++) {
-                Vtx *v=&vertices[e*3+k];
-                const int matrix=k ? cap->edges[e][k-1].mtx : cap->matrix;
-                const s16 *xyz=k ? cap->edges[e][k-1].v : cap->centre;
-                for(int j=0;j<3;j++)v->v.ob[j]=xyz[j];
-                v->v.cn[0]=k?90:120; v->v.cn[1]=6; v->v.cn[2]=6; v->v.cn[3]=(u8)rd->alpha;
-                if(matrix!=current) {
-                    gSPMatrix(gdl++,(void *)(uintptr_t)(0x03000000u+matrix*sizeof(Mtx)),G_MTX_MODELVIEW|G_MTX_LOAD|G_MTX_NOPUSH);
-                    current=matrix;
-                }
-                gSPVertex(gdl++,v,1,k);
-            }
-            gSP1Triangle(gdl++,0,1,2,0);
+    for(int i=0;i<rd->ncaps;i++)
+        if(!rd->nbean || !rdBeanCovers(rd,&rd->caps[i]))gdl=rdFan(rd,&rd->caps[i],gdl);
+    /* Bean's rims: a fan from their centre, in the skin's anchor space */
+    for(int i=0;i<rd->nbean;i++) {
+        RdCap cap={0};
+        cap.matrix=rd->bean[i].matrix; cap.numedges=rd->bean[i].nedges;
+        cap.edges=dynAllocate((size_t)cap.numedges*sizeof(*cap.edges));
+        if(!cap.edges)continue;
+        float centre[3]={0,0,0};
+        for(int e=0;e<cap.numedges;e++)for(int k=0;k<2;k++) {
+            cap.edges[e][k].mtx=(s16)cap.matrix;
+            for(int j=0;j<3;j++){cap.edges[e][k].v[j]=rd->bean[i].rim[e][k][j];centre[j]+=rd->bean[i].rim[e][k][j];}
         }
+        for(int j=0;j<3;j++)cap.centre[j]=(s16)roundf(centre[j]/(cap.numedges*2));
+        gdl=rdFan(rd,&cap,gdl);
     }
     return gdl;
 }
