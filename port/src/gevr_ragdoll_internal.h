@@ -63,7 +63,7 @@ typedef struct RdBody {
     Mtxf skelInitial[RD_SKEL];         /* every skeleton joint at death, hands and feet too */
     unsigned lastpush;
     float colroompos[3];
-    int asleep, onscreen;
+    int asleep, onscreen, crossed;
     u8 visrooms[16];
     Mtxf bind[RD_MATRICES], offset[RD_MATRICES];
     Mtxf joints[RD_PARTS], initial[RD_PARTS];
@@ -115,6 +115,7 @@ ModelNode *rdNext(Model *model, ModelNode *node);
 void rdWorldInit(void);
 void rdWorldUpdate(void);
 void rdWorldReset(void);
+void rdWorldStats(int room, int *walled, int *flooronly, int *tris, int *state);
 void rdMoversUpdate(float dt, RdBody *bodies, int count);
 void rdMoversReset(void);
 int rdCopyMeshes(RdBody *rd);
