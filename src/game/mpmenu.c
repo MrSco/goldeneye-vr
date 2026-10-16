@@ -2842,8 +2842,13 @@ s32 mpwatchShouldDisplayGauges(void)
 }
 
 
-s32 checkGamePaused(void) 
+s32 checkGamePaused(void)
 {
+#ifdef GEVR
+    { extern int netHordeActive(void); extern int netGetConnectedPlayerCount(void);
+      extern int gevrHordeDefeated(void);
+      if (netHordeActive() && (gevrHordeDefeated() || (netGetConnectedPlayerCount()==1 && gevrNativePauseOpen()))) return TRUE; }
+#endif
     return g_pausedFlag;
 }
 

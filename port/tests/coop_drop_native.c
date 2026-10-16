@@ -18,6 +18,8 @@ static Mtxf view;
 static WeaponObjRecord replacement;
 static PropRecord replacement_prop;
 static Model replacement_model;
+static int horde;
+int netHordeActive(void) { return horde; }
 
 void objDetach(PropRecord *prop);
 void chrpropReparent(PropRecord *prop, PropRecord *parent);
@@ -100,6 +102,7 @@ typedef struct {
 } Guard;
 
 static void reset(void) {
+    horde=0;
     memset(projectiles, 0, sizeof(projectiles));
     memset(&replacement, 0, sizeof(replacement));
     memset(&replacement_prop, 0, sizeof(replacement_prop));
@@ -186,6 +189,15 @@ EXPORT int test_coop_guard_hand_changes(void) {
     return 0;
 }
 
+EXPORT int test_horde_guard_guns_are_bounded(void) {
+    Guard g;reset();horde=1;initGuard(&g,1,0,ACT_DIE);
+    syncHands(&g.chr,0,0);tickDrops(&g.chr);
+    CHECK(freed==1 && !allocations && !activeCount());
+    reset();horde=1;initGuard(&g,0,0,ACT_STAND);
+    syncHands(&g.chr,ITEM_TT33,0);
+    CHECK(given==1 && (last_give_flags&PROPFLAG_AIUNDROPPABLE));
+    horde=0;return 0;
+}
 EXPORT int test_coop_guard_pickups_are_local(void) {
     Guard host, client; reset();
     initGuard(&host, 1, 0, ACT_DIE); initGuard(&client, 1, 0, ACT_DIE);

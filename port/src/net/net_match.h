@@ -27,8 +27,11 @@ int netStageIndexOf(uint8_t level_id);      /* -1 unknown */
  * config's stage then being the mission's LEVELID and its difficulty the
  * solo difficulty (DIFFICULTY_AGENT .. DIFFICULTY_007).
  */
-enum { NET_MODE_DEATHMATCH = 0, NET_MODE_COOP = 1 };
+enum { NET_MODE_DEATHMATCH = 0, NET_MODE_COOP = 1, NET_MODE_HORDE = 2 };
+#define NET_HORDE_STAGE 24 /* Archives */
+#define NET_LOBBY_HORDE_STAGE 0x7f /* distinct from campaign stage-byte encoding */
 #define NET_COOP_MAX_PLAYERS 4
+static inline int netModePve(int mode) { return mode == NET_MODE_COOP || mode == NET_MODE_HORDE; }
 #define NET_LOBBY_COOP_STAGE 0x80   /* a game list's stage byte: 0x80 | the co-op mission's LEVELID */
 #define NET_DIFFICULTY_COUNT 4
 
