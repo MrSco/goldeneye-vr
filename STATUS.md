@@ -3,18 +3,18 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current release:** v0.5.2 (versionCode 82, protocol 21), 2026-10-15.
-v0.4.16 through v0.5.1 can join; v0.4.15 and older can't. Building does not
+**Current release:** v0.5.3 (versionCode 83, protocol 21), 2026-10-16.
+v0.4.16 through v0.5.2 can join; v0.4.15 and older can't. Building does not
 publish a GitHub release. No game data is shipped.
 
-**Unreleased:** optional ragdolls and limb dismemberment, off by default,
-on Play > Game rules. Cosmetic local physics in all
-modes, with Off/fade, 12, 24 or 48 bodies; snapshots survive respawns and NPC
-slot reuse. Moving door/platform collision and sleeping-rider carry are in;
-body tuning, cut rules and level collision are ported from Perfect Dark CE;
-headset-accepted on Dam 2026-10-16 with PR 188 (zdebug log) and GE-X rocket
-launcher fixes (decals, round). Quest frame time with many bodies and
-multi-headset play remain unverified. [Implementation and checks](docs/ragdolls.md).
+v0.5.3 (PR #187, PR #188): optional ragdolls and dismemberment, off by
+default, on Play > Game rules (Damage needed / Chance sliders, Bodies stay in
+every mode). Cosmetic, local to each headset; tuning, cut rules, caps and level
+collision ported from Perfect Dark CE (Bean caps use CE's rule on Bean's skin);
+shot bodies bleed. GE-X rocket launcher: far-side decals culled, 1 cm decal
+band for hand-held models, its own rocket in the tube. Headset-accepted on Dam;
+Quest frame time with many bodies and two-headset play still unverified.
+[Ragdolls](docs/ragdolls.md), [v0.5.3](docs/releases/v0.5.3.md).
 
 v0.5.0 (PR #180, PR #183): XBLA at 120 Hz on Quest 3 (early game tick before
 the XR wait, eye pass drawn by the redraw replay; 4-8 missed frames a minute on
