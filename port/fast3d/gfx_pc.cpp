@@ -2964,6 +2964,30 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
      * back with a skin one at the base of the index finger, and drawn first
      * it won the GL_LESS tie from every side.
      */
+    /*
+     * A decal is paint on its surface: facing away from both eyes, it is the
+     * far side of something solid, and the RDP's tight decal depth test hid
+     * it. Our decal band (gfx_opengl.cpp, 3 view units, ~15 cm on the Dam)
+     * is wider than a gun barrel, so under VR_CULL_OFF a far-side decal drew
+     * through the surface in front: GE-X's rocket launcher showed its
+     * instructions through the barrel (user, 2026-10-16). Its list sets no
+     * cull mode, so this doesn't wait for one.
+     */
+    if (gevrCullOff && (rdp.other_mode_l & ZMODE_DEC) == ZMODE_DEC) {
+        bool away = true;
+        for (int eye = 0; eye < (vr_cull_stereo ? 2 : 1) && away; eye++) {
+            float cross = gfx_tri_signed_area(v1, v2, v3, vr_cull_eye_dx[eye]);
+            if (gfx_is_matrix_inverted() != gevrCullMirror) cross = -cross;
+            away = cross >= 0;   /* as G_CULL_BACK tests it below */
+        }
+        if (away) {
+            static unsigned s_decalAway;
+            if (s_decalAway++ == 0)
+                sysLogPrintf(LOG_NOTE, "decal: back-facing decals culled in the stereo gun pass (list cull bits %x)",
+                             (unsigned)(rsp.geometry_mode & G_CULL_BOTH));
+            return;
+        }
+    }
     bool gevrBackFace = false;
     if ((rsp.geometry_mode & G_CULL_BOTH) != 0 && !(gevrCullOff && (rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH)) {
         if ((rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH) {
@@ -3005,17 +3029,6 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
             }
         }
 
-        /*
-         * A decal is paint on its surface: facing away, it is the far side
-         * of something solid. The N64 culled it; drawn, the decal band
-         * (gfx_opengl.cpp, 3 view units, ~15 cm on the Dam) passed it through
-         * a thinner surface in front - GE-X rocket launcher's far-side
-         * instructions read through its barrel (user, 2026-10-16).
-         */
-        if (cull && gevrCullOff && (rdp.other_mode_l & ZMODE_DEC) == ZMODE_DEC) {
-            if (gevrMenuTrace) ++gevrMenuCulled;
-            return;
-        }
         if (cull && gevrCullOff) {
             gevrBackFace = true;
         } else if (cull) {
