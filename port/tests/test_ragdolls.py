@@ -7,6 +7,7 @@ from pathlib import Path
 import argparse
 import re
 import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -25,7 +26,7 @@ def function(source, name):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--jolt-source", type=Path)
-    parser.add_argument("--build-dir", type=Path, default=ROOT / "build" / "ragdoll-tests")
+    parser.add_argument("--build-dir", type=Path, default=ROOT / "build" / ("ragdoll-tests-" + sys.platform))
     args = parser.parse_args()
     build = args.build_dir.resolve()
     build.mkdir(parents=True, exist_ok=True)

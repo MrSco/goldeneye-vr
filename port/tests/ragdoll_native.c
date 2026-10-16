@@ -13,6 +13,15 @@
 #include "gevr_ragdoll.c"
 
 int VrRagdolls, VrDismemberment, VrBodiesStay;
+s32 lvlGetCurrentStageToLoad(void) { return LEVELID_DAM; }
+static float weaponDamage=1;
+f32 gunItemGetDestructionAmount(ITEM_IDS item) { (void)item; return weaponDamage; }
+f32 bondwalkItemGetForceOfImpact(ITEM_IDS item) { (void)item; return 1; }
+static int roomsShown=1;
+u8 getROOMID_isRendered(int room) { (void)room; return roomsShown; }
+bool camIsPosInScreen(coord3d *pos,f32 margin) { (void)pos;(void)margin; return 1; }
+s32 fogPositionIsVisibleThroughFog(coord3d *pos,f32 range) { (void)pos;(void)range; return 1; }
+f32 getinstsize(Model *model) { (void)model; return 100; }
 s32 g_GlobalTimer,g_gevrExtraPass;
 stagesetup g_CurrentSetup;
 static PropRecord *activeProps;
@@ -76,17 +85,19 @@ static void collisionChecks(void) {
     assert(pdphysRaycastAnyRoom(from,to,hit,NULL,NULL));assert(fabsf(hit[1]-50)<0.1f);
     static Vtx vertices[8];static Gfx commands[6];
     const int xyz[8][3]={{40,0,-40},{40,40,-40},{40,40,40},{40,0,40},
-        {-1000,0,-1000},{1000,0,-1000},{1000,0,1000},{-1000,0,1000}};
+        {-1000,6,-1000},{1000,6,-1000},{1000,6,1000},{-1000,6,1000}};
     for(int i=0;i<8;i++)for(int k=0;k<3;k++)vertices[i].v.ob[k]=xyz[i][k];
     Gfx *g=commands;gSPVertex(g++, (void *)0x04000000u,8,0);
     gSP1Triangle(g++,0,1,2,0);gSP1Triangle(g++,0,2,3,0);
-    gSP1Triangle(g++,4,5,6,0);gSP1Triangle(g++,4,6,7,0);gSPEndDisplayList(g++);
+    gSP1Triangle(g++,4,6,5,0);gSP1Triangle(g++,4,7,6,0);gSPEndDisplayList(g++);
     roomData[1].pos.x=10; /* room transform and 0.2 scale put the wall at x=250 */
     g_BgRoomInfo[1].vertices=vertices;g_BgRoomInfo[1].usize_point_index_binary=sizeof(vertices);
     g_BgRoomInfo[1].ptr_expanded_mapping_info=commands;g_BgRoomInfo[1].usize_primary_DL_binary=sizeof(commands);
     g_BgRoomInfo[1].model_bin_loaded=1;rdWorldUpdate();
     from[0]=100;from[1]=100;to[0]=400;to[1]=100;
     assert(pdphysRaycast(from,to,hit,NULL,NULL));assert(fabsf(hit[0]-250)<0.1f);
+    float down[3]={100,200,100},below[3]={100,-200,100};
+    assert(pdphysRaycast(down,below,hit,NULL,NULL));assert(fabsf(hit[1])<0.1f); /* native floor kept, render floor left out */
     g_BgRoomInfo[1].vertices=NULL;g_BgRoomInfo[1].model_bin_loaded=0;
     assert(pdphysRaycast(from,to,hit,NULL,NULL));assert(fabsf(hit[0]-250)<0.1f); /* copied, not borrowed */
 }
@@ -97,10 +108,11 @@ static ModelFileHeader modelHeader,headHeader;
 static Gfx lists[15][4]; static Vertex vertices[15][3];
 static RenderPosView sourceMatrices[16];
 static Model sourceModel; static PropRecord sourceProp; static ChrRecord sourceChr;
-static const int parent[15]={-1,0,1,1,1,0,0,3,4,5,6,7,8,9,10};
-static const float positions[15][3]={{0,100,0},{0,130,0},{0,155,0},{-20,145,0},{20,145,0},
- {-10,95,0},{10,95,0},{-40,130,0},{40,130,0},{-10,55,0},{10,55,0},
- {-55,115,0},{55,115,0},{-10,10,0},{10,10,0}};
+/* GoldenEye's guard joints 1-15 are CE's human parts 0-14 */
+static const int parent[15]={-1,0,1,1,1,3,4,5,6,0,0,9,10,11,12};
+static const float positions[15][3]={{0,100,0},{0,108,0},{0,150,0},{-20,145,0},{20,145,0},
+ {-22,118,0},{22,118,0},{-24,92,0},{24,92,0},{-10,95,0},{10,95,0},
+ {-10,55,0},{10,55,0},{-10,14,0},{10,14,0}};
 
 static Mtxf identity(void) { Mtxf m={0};for(int i=0;i<4;i++)m.m[i][i]=1;return m; }
 static void append(ModelNode *p,ModelNode *c) {
@@ -163,6 +175,78 @@ static void capture(int viewer)
     assert(gevrRagdollSuppress(&sourceChr));
 }
 
+static void capture_nocheck(void)
+{
+    sourceChr.actiontype=ACT_STAND;gevrRagdollNeedsPose(&sourceChr);
+    sourceChr.actiontype=ACT_DIE;gevrRagdollCapture(&sourceChr);
+}
+
+/* The CE tuning: skeleton table, shapes, hinges, cut rules, culling, layout check */
+static void portChecks(void)
+{
+    VrRagdolls=1;VrBodiesStay=48;VrDismemberment=1;playerCount=1;
+    capture(0);
+    RdBody *b=newest();
+    assert(b->count==11);
+    for(int part=0;part<RD_SKEL;part++)
+        assert((b->body[part]>=0)==(g_RdSkelHuman.hasbody[part]!=0));
+    assert(b->owner[8]==b->body[5] && b->owner[9]==b->body[6]);   /* hands ride the forearms */
+    assert(b->owner[14]==b->body[11] && b->owner[15]==b->body[12]); /* feet ride the shins */
+    assert(fabsf(b->torso-42)<0.01f);
+    pdphysRagdollPart parts[RD_PARTS];const float zero[3]={0};
+    rdBuildParts(b,parts,zero);
+    const float sc=42/RD_MASS_REFTORSO;
+    assert(fabsf(parts[b->body[9]].mass-11.4f*sc*sc*sc)<1e-3f);
+    assert(parts[b->body[0]].joint==PDPHYS_JOINT_NONE && parts[b->body[0]].parent==-1);
+    for(int j=5;j<=12;j++) if(j==5 || j==6 || j==11 || j==12) assert(parts[b->body[j]].joint==PDPHYS_JOINT_HINGE);
+    assert(parts[b->body[3]].joint==PDPHYS_JOINT_SWINGTWIST && parts[b->body[9]].joint==PDPHYS_JOINT_SWINGTWIST);
+    assert(parts[b->body[2]].shape==PDPHYS_SHAPE_SPHERE && fabsf(parts[b->body[2]].radius-42*0.26f)<1e-3f);
+    assert(parts[b->body[11]].footradius>0 && parts[b->body[11]].footb[1]<parts[b->body[11]].foota[1]+1);
+    /* A knee whose Y runs across the leg (PD's animated frames): CE's hinge
+     * about local Y, bending one way only, ~140 degrees */
+    Mtxf knee=b->skelInitial[11];
+    memset(knee.m,0,sizeof(float)*12);knee.m[0][1]=-1;knee.m[1][0]=1;knee.m[2][2]=1;
+    b->skelInitial[11]=knee;rdBuildParts(b,parts,zero);
+    pdphysRagdollPart *shin=&parts[b->body[11]];
+    assert(shin->joint==PDPHYS_JOINT_HINGE && shin->axis[0]==1 && shin->axis[1]==0);
+    assert(fabsf(shin->limits[0]+0.05f)<1e-4f && fabsf(shin->limits[1]-2.45f)<1e-4f);
+    /* Weapon damage: KF7-class shots never cut, magnum-class about 40% */
+    int cuts=0;weaponDamage=1;
+    for(int i=0;i<200;i++)cuts+=rdCutForHit(b,b->body[9],ITEM_AK47)>=0;
+    assert(!cuts);
+    weaponDamage=2;
+    for(int i=0;i<1000;i++)cuts+=rdCutForHit(b,b->body[9],ITEM_RUGER)>=0;
+    assert(cuts>300 && cuts<500);
+    for(int i=0;i<200;i++){assert(rdCutForHit(b,b->body[9],ITEM_FIST)<0);assert(rdCutForHit(b,b->body[9],ITEM_SHOTGUN)<0);}
+    for(int i=0;i<200;i++)assert(rdCutForHit(b,b->body[1],ITEM_RUGER)<0); /* the chest needs a split-the-waist hit */
+    weaponDamage=100;cuts=0;
+    for(int i=0;i<200;i++){int c=rdCutForHit(b,b->body[1],ITEM_GOLDENGUN);assert(c<0 || c==b->body[1]);cuts+=c>=0;}
+    assert(cuts>0);
+    VrDismemberment=0;for(int i=0;i<200;i++)assert(rdCutForHit(b,b->body[9],ITEM_GOLDENGUN)<0);VrDismemberment=1;
+    weaponDamage=1;
+    /* Shotgun volleys: all on one leg cuts at the hip nearest the body, two limbs never */
+    const int leg[3]={11,9,11},limbs[3]={11,9,5},torso[2]={9,1};
+    cuts=0;for(int i=0;i<500;i++){int c=rdVolleyCut(b,leg,3);assert(c<0 || c==b->body[9]);cuts+=c>=0;}
+    assert(cuts>100 && cuts<300);
+    for(int i=0;i<200;i++){assert(rdVolleyCut(b,limbs,3)<0);assert(rdVolleyCut(b,torso,2)<0);}
+    /* Hitparts map through the model's BBOX nodes, hands to forearms */
+    b->hitskel[9]=7;assert(rdSkelForHit(b,9)==5); /* HIT_LEFT_HAND */
+    /* Cut limits: no hands or feet bodies, never the pelvis */
+    assert(!rdCut(b,b->body[0]));
+    /* Drawn only while one of its rooms is drawn */
+    Gfx *g=calloc(16384,sizeof(Gfx));
+    roomsShown=0;gevrRagdollTick(0);drawn=0;gevrRagdollRender(g);assert(drawn==0);frameFree();
+    roomsShown=1;gevrRagdollTick(0);drawn=0;gevrRagdollRender(g);assert(drawn>=1);frameFree();free(g);
+    /* Another rig layout keeps its death animation */
+    groupRo[5].Group.JointID=0;
+    unsigned serial=newest()->serial;
+    capture_nocheck();
+    assert(newest()->serial==serial && !gevrRagdollSuppress(&sourceChr));
+    groupRo[5].Group.JointID=6;
+    gevrRagdollReset();
+    puts("PASS: CE human skeleton (11 bodies, hands/feet riding), masses, hinges, damage/chance/shotgun cut rules, room culling, layout fallback");
+}
+
 #include "ragdoll_movers_test.inc.h"
 
 int main(void)
@@ -171,6 +255,7 @@ int main(void)
     sourceInit();floors();
     movingCollisionChecks();
     guardLiftChecks();
+    portChecks();VrDismemberment=VrRagdolls=0;fflush(stdout);
     assert(!gevrRagdollNeedsPose(&sourceChr));assert(!pdphysIsReady());
     VrRagdolls=1;VrBodiesStay=48;
     for(int mode=1;mode<=8;mode*=2) {
