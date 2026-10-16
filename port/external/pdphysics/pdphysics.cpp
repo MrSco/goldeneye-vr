@@ -51,6 +51,7 @@ namespace {
 
 // Perfect Dark units are ~centimetres; Jolt is tuned for metres.
 constexpr float kUnitsPerMetre = 100.0f;
+constexpr float kRagdollLinearDamping = 0.1f;
 inline float toMetres(float units) { return units / kUnitsPerMetre; }
 inline float toUnits(float metres) { return metres * kUnitsPerMetre; }
 template <class V> inline void storeUnits(const V &p, float out[3]) { out[0] = toUnits((float) p.GetX()); out[1] = toUnits((float) p.GetY()); out[2] = toUnits((float) p.GetZ()); }
@@ -299,6 +300,7 @@ struct RoomSet {
 
 static RoomSet g_QueryRooms;
 static RoomSet g_RagdollRooms[256];
+static RoomSet g_PropRooms[256];
 static RoomSet g_GeneratedRooms; // rooms with query surfaces (pdphysMarkRoomGenerated)
 constexpr int kMaxContactFlags = 256;
 std::mutex g_ContactMutex;
@@ -343,6 +345,15 @@ public:
 	{
 		const Body *rd = (b1.GetUserData() & kRagdollUserFlag) ? &b1 : ((b2.GetUserData() & kRagdollUserFlag) ? &b2 : nullptr);
 		const Body *other = rd == &b1 ? &b2 : &b1;
+		if (rd && (other->GetUserData() & kPropUserFlag)) {
+			const RoomSet &a = g_RagdollRooms[rd->GetUserData() & 0xffff];
+			const RoomSet &b = g_PropRooms[other->GetUserData() & 0xffff];
+			if (a.enabled && b.enabled) {
+				bool overlap = false;
+				for (unsigned i = 0; i < sizeof(a.bits); i++) overlap |= (a.bits[i] & b.bits[i]) != 0;
+				if (!overlap) return ValidateResult::RejectAllContactsForThisBodyPair;
+			}
+		}
 
 		if (rd && !(other->GetUserData() & kRagdollUserFlag)
 				&& (other->GetObjectLayer() == Layers::STATIC || other->GetObjectLayer() == Layers::QUERY)) {
@@ -1825,7 +1836,7 @@ extern "C" int pdphysRagdollCreate(const pdphysRagdollPart *parts, int numparts)
 
 		BodyCreationSettings bcs(shape, pos, rot, EMotionType::Dynamic, Layers::MOVING);
 		bcs.mMotionQuality = EMotionQuality::LinearCast; // PD walls have no thickness
-		bcs.mLinearDamping = 0.1f;
+		bcs.mLinearDamping = kRagdollLinearDamping;
 		bcs.mAngularDamping = 0.6f;
 		bcs.mFriction = 0.8f;
 		bcs.mRestitution = 0.0f;
@@ -1937,6 +1948,15 @@ extern "C" void pdphysRagdollAddVelocity(int handle, int part, const float vel[3
 			bi.AddLinearVelocity(rd.bodies[i], v);
 		}
 	}
+}
+
+extern "C" void pdphysRagdollCarry(int handle, int part, const float delta[3], const float velocity[3], float dt)
+{
+	if (dt <= 0 || dt > 0.1f) return;
+	float damping = kRagdollLinearDamping * dt;
+	float change[3];
+	for (int k = 0; k < 3; k++) change[k] = delta[k] + velocity[k] * damping / (1.0f - damping);
+	pdphysRagdollAddVelocity(handle, part, change);
 }
 
 // Limits each part's speed relative to 'ref' (units/s, NULL = still) to
@@ -2915,7 +2935,68 @@ extern "C" int pdphysPropCreate(const pdphysPiece *pieces, int numpieces, const 
 	g_PropBodies[handle].lastMove = 0.0f;
 	g_PropBodies[handle].id = id;
 	g_PropBodies[handle].origin = org;
+	g_PropRooms[handle].enabled = false;
 
+	return handle;
+}
+
+extern "C" int pdphysPropResizeBox(int handle, const float half[3])
+{
+	if (!g_World || !propLive(handle)) return 0;
+	for (int k = 0; k < 3; k++) {
+		if (!std::isfinite(half[k]) || half[k] <= 0.001f) return 0;
+	}
+	Vec3 extent = vecFromUnits(half);
+	float radius = std::min(0.005f, 0.2f * extent.ReduceMin());
+	auto shape = BoxShapeSettings(extent, radius).Create();
+	if (shape.HasError()) return 0;
+	g_World->system.GetBodyInterface().SetShape(g_PropBodies[handle].id,
+		shape.Get(), false, EActivation::Activate);
+	return 1;
+}
+
+extern "C" void pdphysPropSetRooms(int handle, const int *rooms, int numrooms)
+{
+	if (g_World && propLive(handle)) g_PropRooms[handle].Set(rooms, numrooms);
+}
+
+extern "C" int pdphysPropSupportsPart(int handle, int ragdoll, int part)
+{
+	if (!g_World || !propLive(handle) || !ragdollLive(ragdoll)
+		|| part < 0 || part >= g_Ragdolls[ragdoll].numparts) return 0;
+	const RoomSet &a = g_RagdollRooms[ragdoll], &b = g_PropRooms[handle];
+	if (a.enabled && b.enabled) {
+		bool overlap = false;
+		for (unsigned i = 0; i < sizeof(a.bits); i++) overlap |= (a.bits[i] & b.bits[i]) != 0;
+		if (!overlap) return 0;
+	}
+	BodyInterface &bi = g_World->system.GetBodyInterface();
+	BodyID id = g_Ragdolls[ragdoll].bodies[part];
+	auto bounds = bi.GetTransformedShape(id).GetWorldSpaceBounds();
+	RVec3 center = bi.GetCenterOfMassPosition(id);
+	float bottom = bounds.mMin.GetY();
+	RRayCast ray(center, Vec3(0, bottom - (float)center.GetY() - 0.04f, 0));
+	RayCastResult hit;
+	if (!bi.GetTransformedShape(g_PropBodies[handle].id).CastRay(ray, hit)) return 0;
+	float y = (float)ray.GetPointOnRay(hit.mFraction).GetY();
+	return std::fabs(y - bottom) <= 0.03f && y < center.GetY();
+}
+
+extern "C" int pdphysPropCreateBox(const float half[3])
+{
+	for (int k = 0; k < 3; k++) {
+		if (!std::isfinite(half[k]) || half[k] <= 0.001f) return -1;
+	}
+	float vertices[8][3];
+	for (int i = 0; i < 8; i++) for (int k = 0; k < 3; k++)
+		vertices[i][k] = (i & (1 << k)) ? half[k] : -half[k];
+	pdphysPiece piece = {8, &vertices[0][0], 0};
+	const float origin[3] = {0, 0, 0};
+	int handle = pdphysPropCreate(&piece, 1, origin);
+	if (handle >= 0 && !pdphysPropResizeBox(handle, half)) {
+		pdphysPropDestroy(handle);
+		return -1;
+	}
 	return handle;
 }
 
@@ -2997,6 +3078,7 @@ extern "C" int pdphysPropCreateMesh(const float *verts, int numverts, const int 
 	g_PropBodies[handle].lastMove = 0.0f;
 	g_PropBodies[handle].id = id;
 	g_PropBodies[handle].origin = org;
+	g_PropRooms[handle].enabled = false;
 
 	return handle;
 }

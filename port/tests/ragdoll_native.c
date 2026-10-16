@@ -7,10 +7,16 @@
 #include "stan.h"
 #include "model.h"
 #include "gevr_bean.h"
+#include "propobj.h"
+#include "matrixmath.h"
+#include "chrai.h"
 #include "gevr_ragdoll.c"
 
 int VrRagdolls, VrDismemberment, VrBodiesStay;
 s32 g_GlobalTimer,g_gevrExtraPass;
+stagesetup g_CurrentSetup;
+static PropRecord *activeProps;
+PropRecord *chrpropGetActiveTail(void) { return activeProps; }
 ModelSkeleton skeleton_guard;
 ModelRenderData D_8002CCBC;
 static struct player players[8];
@@ -157,10 +163,14 @@ static void capture(int viewer)
     assert(gevrRagdollSuppress(&sourceChr));
 }
 
+#include "ragdoll_movers_test.inc.h"
+
 int main(void)
 {
     view=world=identity();for(int i=0;i<8;i++)g_playerPointers[i]=&players[i];
     sourceInit();floors();
+    movingCollisionChecks();
+    guardLiftChecks();
     assert(!gevrRagdollNeedsPose(&sourceChr));assert(!pdphysIsReady());
     VrRagdolls=1;VrBodiesStay=48;
     for(int mode=1;mode<=8;mode*=2) {

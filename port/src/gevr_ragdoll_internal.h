@@ -91,6 +91,8 @@ ModelNode *rdNext(Model *model, ModelNode *node);
 void rdWorldInit(void);
 void rdWorldUpdate(void);
 void rdWorldReset(void);
+void rdMoversUpdate(float dt, RdBody *bodies, int count);
+void rdMoversReset(void);
 int rdCopyMeshes(RdBody *rd);
 int rdCut(RdBody *rd, int part);
 Gfx *rdDrawCaps(RdBody *rd, Gfx *gdl);

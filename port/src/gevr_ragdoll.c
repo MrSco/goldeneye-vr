@@ -385,6 +385,7 @@ void gevrRagdollTick(int ticks60)
         rdRelease(old);
     }
     rdWorldUpdate();
+    rdMoversUpdate(dt,s_bodies,RD_BODIES);
     for(int i=0;i<RD_BODIES;i++)if(s_bodies[i].used && !pdphysRagdollIsAsleep(s_bodies[i].handle))rdRooms(&s_bodies[i]);
     pdphysStep(dt);
     for(int i=0;i<RD_BODIES;i++) {

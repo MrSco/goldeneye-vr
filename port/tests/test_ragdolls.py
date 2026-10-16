@@ -12,7 +12,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def function(source, name):
-    start = re.search(r"^[A-Za-z_][\w *]*\b" + re.escape(name) + r"\(", source, re.M).start()
+    start = re.search(r"^[A-Za-z_][\w *]*\b" + re.escape(name)
+                      + r"\([^;{]*\)\s*\{", source, re.M).start()
     opening = source.index("{", start)
     depth, end = 1, opening + 1
     while depth:
@@ -32,6 +33,16 @@ if __name__ == "__main__":
     fixture = (ROOT / "port/tests/ragdoll_native.c").read_text()
     lookups = "\n".join(function(model, name) for name in
                          ("modelGetNodeRwData", "modelApplyHeadRelations", "modelFindNodeMtxIndex"))
+    maths = (ROOT / "src/game/matrixmath.c").read_text()
+    lookups += "\n" + "\n".join(function(maths, name) for name in
+        ("matrix_4x4_copy", "matrix_4x4_multiply", "matrix_4x4_multiply_in_place",
+         "matrix_4x4_set_identity", "matrix_4x4_set_position", "matrix_4x4_set_identity_and_position",
+         "matrix_4x4_set_rotation_around_y", "matrix_4x4_set_rotation_around_z",
+         "matrix_column_3_scalar_multiply_2"))
+    props = (ROOT / "src/game/propobj.c").read_text()
+    lookups += "\n" + "\n".join(function(props, name) for name in
+        ("chrobjGetBboxFromObjFile", "chrobjGetBboxFromObjectRecord",
+         "sub_GAME_7F04F244", "door7F0526EC"))
     test_source = build / "ragdoll_native.c"
     test_source.write_text(fixture.replace("/* PRODUCTION_LOOKUPS */", lookups))
     configure = ["cmake", "-S", str(ROOT / "port/tests/ragdoll"), "-B", str(build),
