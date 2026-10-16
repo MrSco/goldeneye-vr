@@ -38,6 +38,8 @@ extern int VrBeanFillTextures;
 extern int VrBloodPatch;
 extern int VrRagdolls;
 extern int VrDismemberment;
+extern float VrDismemberDamage;
+extern int VrDismemberChance;
 extern int VrMicMuted;
 extern float VrMusicVolume;
 extern float VrVoiceVolume;

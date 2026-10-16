@@ -213,6 +213,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "BloodPatch=%d\n", VrBloodPatch ? 1 : 0);
     fprintf(f, "Ragdolls=%d\n", VrRagdolls ? 1 : 0);
     fprintf(f, "Dismemberment=%d\n", VrDismemberment ? 1 : 0);
+    fprintf(f, "DismemberDamage=%.1f\n", VrDismemberDamage);
+    fprintf(f, "DismemberChance=%d\n", VrDismemberChance);
     fprintf(f, "MicMuted=%d\n", VrMicMuted ? 1 : 0);
     fprintf(f, "MusicVolume=%.2f\n", VrMusicVolume);
     fprintf(f, "VoiceVolume=%.2f\n", VrVoiceVolume);
@@ -695,6 +697,8 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "BloodPatch") == 0) VrBloodPatch = ival != 0;
             else if (strcmp(key, "Ragdolls") == 0) VrRagdolls = ival != 0;
             else if (strcmp(key, "Dismemberment") == 0) VrDismemberment = ival != 0;
+            else if (strcmp(key, "DismemberChance") == 0) VrDismemberChance = ival < 0 ? 0 : ival > 100 ? 100 : ival;
+            else if (strcmp(key, "DismemberDamage") == 0) VrDismemberDamage = ival < 1 ? 0.5f : ival > 10 ? 10.0f : (float)ival;
             else if (strcmp(key, "MicMuted") == 0) VrMicMuted = ival != 0;
             else if (strcmp(key, "MpStage") == 0) VrMpStage = ival;
             else if (strcmp(key, "MpWeaponSet") == 0) VrMpWeaponSet = ival;
@@ -791,6 +795,7 @@ extern "C" void vrSettingsLoad(void)
                 if (fval > 1.0f) fval = 1.0f;
                 VrMotionThrowGazeAssist = fval;
             }
+            else if (strcmp(key, "DismemberDamage") == 0) VrDismemberDamage = fval < 0.5f ? 0.5f : fval > 10.0f ? 10.0f : fval;
             else if (strcmp(key, "MotionThrowStrength") == 0) {
                 if (fval < 0.2f) fval = 0.2f;
                 if (fval > 3.0f) fval = 3.0f;

@@ -3124,6 +3124,21 @@ extern "C" void gevrLauncherRun(void)
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Strong guns, shotgun blasts and explosions can take off limbs and heads.");
             ImGui::EndDisabled();
+            // Perfect Dark CE's two dismemberment settings
+            ImGui::BeginDisabled(!ragdolls || !VrDismemberment);
+            const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+            ImGui::SetNextItemWidth(half);
+            if (ImGui::SliderFloat("##DismemberDamage", &VrDismemberDamage, 0.5f, 10.0f, "Damage needed %.1f"))
+                vrSettingsSave();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("A shot cuts only with weapons this strong: PP7 and KF7 1.0, golden gun 100.");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(half);
+            if (ImGui::SliderInt("##DismemberChance", &VrDismemberChance, 0, 100, "Chance %d%%"))
+                vrSettingsSave();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("How often a strong enough shot, volley or blast takes something off.");
+            ImGui::EndDisabled();
             ImGui::Spacing();
             ImGui::TextUnformatted("Bodies stay");
             int prevBodies = VrBodiesStay;

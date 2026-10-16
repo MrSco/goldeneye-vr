@@ -21,7 +21,8 @@ fixture = r'''
 #include "imgui/imgui_internal.h"
 #include <cassert>
 #include <cstdio>
-static int VrRagdolls,VrDismemberment,VrBodiesStay,VrMinesStickToGuards,VrFastReinforcements;
+static int VrRagdolls,VrDismemberment,VrBodiesStay,VrMinesStickToGuards,VrFastReinforcements,VrDismemberChance=40;
+static float VrDismemberDamage=1.0f;
 static bool rulesPage,online;
 static ImVec4 gold(1,.8f,.3f,1);
 enum { NET_MODE_COOP=1,NET_COOP_FAST_REINFORCEMENTS=1,CFG_FAST_REINFORCEMENTS=1 };
