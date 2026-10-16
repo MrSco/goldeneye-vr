@@ -116,12 +116,20 @@ The tuning follows CE's human ragdoll (Stable, `e33826d`), not new numbers:
 - **Shots at bodies** (`ragdollOnChrShot`, ragdoll.c:858): 45% of the hit push
   and 15% of the whole-body push (only on the hit piece once cut), at most once
   every four ticks per body.
-- **Dismemberment** (dismember.c:1268, 1375, 1478): weapon damage 2.0 or more
-  (KF7 = 1, golden gun = 100) and a 40% chance; never punches; the shotgun cuts
+- **Dismemberment** (dismember.c:1268, 1375, 1478): CE's two settings,
+  **Damage needed** (0.5-10) and **Chance** (0-100%), are sliders on the Game
+  rules page (`DismemberDamage`, `DismemberChance`). CE's default damage 2.0 is
+  its magnum; GoldenEye's guns are 1.0 or less (KF7 1.0, Skorpion 0.6), so the
+  default here is 1.0 with CE's 40% (user, 2026-10-16). Never punches; the shotgun cuts
   only when a whole volley lands on one limb of one body, at the cut nearest the
   body. Chest hits split the waist only at damage 50 or more. The head can come
-  off; hands and feet go with their forearm or shin. Of the guns logged so
-  far, the Skorpion is 0.6, so it never cuts.
+  off; hands and feet go with their forearm or shin. The chance applies to
+  volleys and blasts too.
+- **Wounds on bodies**: a shot body bleeds where it is hit, as a living guard
+  does (`chrHandleBulletHit` -> `chrCreateBloodStain`, chr.c:3876): the
+  nearest hit box of that part, the game's own stain on the body's private
+  vertices, and Bean's wound through it (Dab's Mod). The game's random
+  sequence is restored after the stain. Stains survive later cuts.
 - **Explosions** (`ragdollOnExplosion`, ragdoll.c:1318;
   `ragdollTryDismemberBlast`, dismember.c:1593): a guard killed by a blast is
   thrown up and away from its centre (700 units/s, falloff over 1.5 times the
@@ -208,7 +216,12 @@ APK and JVM tests also build here; no headset or ROM is attached.
 
 ### Still to verify on headsets
 
-0. Fifth round (2026-10-16): Bean bodies still showed discs; Bean skin caps
+0. Next: shoot bodies on the ground with pistols and rifles (damage needed
+   1.0 cuts about two in five) and check wounds appear where the shots land,
+   native and Bean; move the sliders. GE-X rocket launcher: the far-side
+   decal no longer shows through (back-facing decals culled in the stereo gun
+   pass, branch fix/gex-decal-backface).
+   Fifth round (2026-10-16): Bean bodies still showed discs; Bean skin caps
    now follow the hole too. A rocket launcher's barrel showed its far-side
    decal text through the near side (first-person gun, not ragdoll code).
    Fourth round (2026-10-16, Dam): no body fell out of the level and no room
