@@ -29,6 +29,7 @@ extern waypoint *chrlvStanPathRelated(coord3d *pos, StandTile *stan);
 extern s32 netIsHost(void);
 extern unsigned netGetRandomSeed(void);
 extern AIRecord *ailistFindById(s32 id);
+extern void gevrHudmsgBottomLive(char *mess);
 extern PropRecord *chrSpawnAtCoord(s32 body,s32 head,coord3d *pos,StandTile *stan,f32 angle,AIRecord *ai,s32 flags);
 
 static HordeState s_state;
@@ -37,7 +38,7 @@ static s32 s_counted[HORDE_GUARD_SLOTS], s_dead_ticks[HORDE_GUARD_SLOTS];
 static coord3d s_last_pos[HORDE_GUARD_SLOTS];
 static s32 s_stall_ticks[HORDE_GUARD_SLOTS];
 static s32 s_pads[128], s_pad_count, s_body;
-static unsigned s_resupplied, s_shown_phase, s_shown_wave;
+static unsigned s_resupplied, s_shown_phase, s_shown_wave, s_shown_secs;
 static struct {
     SetupIntroSpawn spawn;
     struct SetupIntroItem item;
@@ -128,7 +129,7 @@ void gevrHordeStageLoaded(void)
     hordeInit(&s_state,netGetRandomSeed());
     memset(s_id,0,sizeof(s_id));memset(s_counted,0,sizeof(s_counted));
     memset(s_dead_ticks,0,sizeof(s_dead_ticks));
-    s_resupplied=~0u;s_shown_phase=~0u;s_shown_wave=~0u;
+    s_resupplied=~0u;s_shown_phase=~0u;s_shown_wave=~0u;s_shown_secs=~0u;
 }
 void gevrHordeApplyState(const HordeState *state)
 {
@@ -297,12 +298,19 @@ void gevrHordeTick(int ticks)
     }
     if ((s_state.phase==HORDE_PREPARE || s_state.phase==HORDE_INTERMISSION)
         && s_resupplied!=s_state.completed) hordeResupply();
-    /* Announce each wave, break and defeat once; the pause menu keeps the
-     * running stats. A message every second sat mid-view in VR all game. */
-    if (s_shown_phase!=s_state.phase || s_shown_wave!=s_state.wave) {
+    /* Announce each wave and the defeat once, and keep a break's countdown
+     * on screen while it runs; the pause menu keeps the running stats. A wave
+     * message every second sat mid-view in VR all game. */
+    s32 counting=s_state.phase==HORDE_PREPARE || s_state.phase==HORDE_INTERMISSION;
+    unsigned secs=counting?(s_state.timer+59)/60:0;
+    if (s_shown_phase!=s_state.phase || s_shown_wave!=s_state.wave || (counting && s_shown_secs!=secs)) {
         s32 me=netGetLocalSlot(),prev=get_cur_playernum();
         char text[100];gevrHordeText(text,sizeof(text));
-        if (me>=0 && me<4 && g_playerPointers[me]) {set_cur_player(me);hudmsgBottomShow(text);set_cur_player(prev);}
-        s_shown_phase=s_state.phase;s_shown_wave=s_state.wave;
+        if (me>=0 && me<4 && g_playerPointers[me]) {
+            set_cur_player(me);
+            if (counting) gevrHudmsgBottomLive(text); else hudmsgBottomShow(text);
+            set_cur_player(prev);
+        }
+        s_shown_phase=s_state.phase;s_shown_wave=s_state.wave;s_shown_secs=secs;
     }
 }

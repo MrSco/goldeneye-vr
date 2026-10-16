@@ -38,7 +38,9 @@ void set_cur_player(s32 slot) {assert(slot==0);}
 int bondinvAddInvItem(ITEM_IDS item) {return 1;}
 void give_cur_player_ammo(s32 ammo,s32 count) {assert(count==120);supplies++;}
 void hudmsgTopShow(char *text) {}
-void hudmsgBottomShow(char *text) {}
+static int shown,live_shown;
+void hudmsgBottomShow(char *text) {shown++;}
+void gevrHudmsgBottomLive(char *text) {live_shown++;}
 void netHordeSend(int slot) {}
 void netHordeAdmitPlayers(void) {}
 void chrStopFiring(ChrRecord *chr) {}
@@ -82,6 +84,8 @@ int main(void)
     gevrHordeStageLoaded();
     for(int i=0;i<60;i++)gevrHordeTick(15);
     assert(announced==1 && supplies==3 && gevrHordeState()->remaining==5);
+    /* the preparation countdown updates each second; the wave is announced once */
+    assert(live_shown>=2 && shown==1);
     unsigned remaining=gevrHordeState()->remaining;
     free_override=0;for(int i=0;i<20;i++)gevrHordeTick(15);
     assert(announced==1 && gevrHordeState()->remaining==remaining);free_override=-1;
