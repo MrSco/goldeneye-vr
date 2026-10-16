@@ -101,7 +101,12 @@ EXPORT int test_core_horde_lobby(void) {
     netReadyProgress();
     CHECK(!s_round_reset_loading && s_phase==NET_PHASE_IN_PROGRESS);
     CHECK(!netHostCanStartRound()); /* no deathmatch warmup/reset action */
-    c.friendly_fire=1;netLobbySetConfig(&c);CHECK(netDamageAllowed(0,1));
+    int stage=VrMpStage,max=VrMpMaxPlayers,bots=VrMpBotMode;
+    VrMpStage=34;VrMpMaxPlayers=8;VrMpBotMode=NET_BOT_FILL;
+    gevrNetConfigSet(CFG_FRIENDLY_FIRE,1);
+    CHECK(netDamageAllowed(0,1) && VrHordeFriendlyFire==1);
+    CHECK(VrMpStage==34 && VrMpMaxPlayers==8 && VrMpBotMode==NET_BOT_FILL);
+    VrMpStage=stage;VrMpMaxPlayers=max;VrMpBotMode=bots;
     return 0;
 }
 EXPORT int test_core_teams(void) {

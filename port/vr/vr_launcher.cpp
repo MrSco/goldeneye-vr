@@ -1245,6 +1245,7 @@ static void gevrHostChoiceChanged() {
     VrMpMode = accepted->mode;
     if (accepted->mode == NET_MODE_DEATHMATCH)
         VrMpStage = accepted->stage;
+    if (accepted->mode != NET_MODE_HORDE) {
     VrMpScenario = accepted->scenario;
     VrMpWeaponSet = accepted->weapon_set;
     VrMpLength = accepted->game_length;
@@ -1252,6 +1253,7 @@ static void gevrHostChoiceChanged() {
     VrMpDual = accepted->dual_wield;
     VrMpLoadouts = accepted->loadouts;
     VrMpNextRound = accepted->next_round;
+    }
     VrMpVoiceMode = accepted->voice_mode;
     if (accepted->mode == NET_MODE_HORDE) VrHordeFriendlyFire = accepted->friendly_fire;
     else VrMpFriendlyFire = accepted->friendly_fire;
@@ -1262,9 +1264,11 @@ static void gevrHostChoiceChanged() {
     VrMpMovementSpeed = accepted->movement_speed;
     if (accepted->mode == NET_MODE_DEATHMATCH) // co-op's four is not the deathmatch count
         VrMpMaxPlayers = accepted->max_players;
+    if (accepted->mode != NET_MODE_HORDE) {
     VrMpBotMode = accepted->bot_mode;
     VrMpBotCount = accepted->bot_count;
     VrMpBotDifficulty = accepted->bot_difficulty;
+    }
     for (int k = 0; k < 4; k++)
         VrMpCustom[k] = accepted->custom_set[k];
     vrSettingsSave();
