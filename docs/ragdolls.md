@@ -49,7 +49,12 @@ body retention rules apply.
   room display lists add only triangles that don't face up (walls, overhangs,
   ceilings), at most four rooms a tick, with the correct room offset and level
   scale; up-facing render triangles are left to the floors, so stairs stay
-  ramps (CE `ragdollAddRoomCeiling`, level.c:170-357). Jolt owns copies after
+  ramps (CE `ragdollAddRoomCeiling`, level.c:170-357). GoldenEye's floors cover
+  only walkable ground (PD's cover far more), so an up-facing triangle with
+  none of the room's own floors within 40 units above or 60 below its middle
+  and corners is added too: cliffs, banks and terrain off the paths (two
+  blasted Dam bodies fell out of the level without it). A called list in a
+  room's list is stepped over. Jolt owns copies after
   room unload. Room filters exclude unrelated geometry occupying the same world
   space; a body's collision rooms are redone every tick near the camera or
   after its pelvis moves 12 units, otherwise every fourth tick (CE
@@ -194,7 +199,10 @@ APK and JVM tests also build here; no headset or ROM is attached.
 
 ### Still to verify on headsets
 
-0. First headset round (2026-10-16, Bean visuals): ragdolls fine, 11 parts and
+0. Third headset round (2026-10-16, Dam): bodies bounce off walls; a blasted
+   guard clipped into a cliff and two bodies fell out of the level (ground
+   without floors, fixed above). Check the cliffs and banks again.
+   First headset round (2026-10-16, Bean visuals): ragdolls fine, 11 parts and
    CE hinge axes on every body; no cuts, because Skorpion kills are damage 0.6
    and grenade-launcher kills had no blast rule yet (now ported). Next: grenade
    and rocket kills cut and throw bodies (`blast 1` in the log), a shotgun
