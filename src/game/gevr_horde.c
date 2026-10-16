@@ -37,8 +37,7 @@ static s32 s_counted[HORDE_GUARD_SLOTS], s_dead_ticks[HORDE_GUARD_SLOTS];
 static coord3d s_last_pos[HORDE_GUARD_SLOTS];
 static s32 s_stall_ticks[HORDE_GUARD_SLOTS];
 static s32 s_pads[128], s_pad_count, s_body;
-static unsigned s_resupplied, s_shown_revision;
-static s32 s_hud_ticks;
+static unsigned s_resupplied, s_shown_phase, s_shown_wave;
 static struct {
     SetupIntroSpawn spawn;
     struct SetupIntroItem item;
@@ -129,7 +128,7 @@ void gevrHordeStageLoaded(void)
     hordeInit(&s_state,netGetRandomSeed());
     memset(s_id,0,sizeof(s_id));memset(s_counted,0,sizeof(s_counted));
     memset(s_dead_ticks,0,sizeof(s_dead_ticks));
-    s_resupplied=~0u;s_shown_revision=~0u;s_hud_ticks=0;
+    s_resupplied=~0u;s_shown_phase=~0u;s_shown_wave=~0u;
 }
 void gevrHordeApplyState(const HordeState *state)
 {
@@ -298,11 +297,12 @@ void gevrHordeTick(int ticks)
     }
     if ((s_state.phase==HORDE_PREPARE || s_state.phase==HORDE_INTERMISSION)
         && s_resupplied!=s_state.completed) hordeResupply();
-    s_hud_ticks-=ticks;
-    if (s_hud_ticks<=0 || s_shown_revision!=s_state.revision) {
+    /* Announce each wave, break and defeat once; the pause menu keeps the
+     * running stats. A message every second sat mid-view in VR all game. */
+    if (s_shown_phase!=s_state.phase || s_shown_wave!=s_state.wave) {
         s32 me=netGetLocalSlot(),prev=get_cur_playernum();
         char text[100];gevrHordeText(text,sizeof(text));
         if (me>=0 && me<4 && g_playerPointers[me]) {set_cur_player(me);hudmsgBottomShow(text);set_cur_player(prev);}
-        s_hud_ticks=60;s_shown_revision=s_state.revision;
+        s_shown_phase=s_state.phase;s_shown_wave=s_state.wave;
     }
 }
