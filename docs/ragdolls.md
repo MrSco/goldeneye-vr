@@ -7,8 +7,9 @@ limbs…**. Settings persist as `Ragdolls` and `Dismemberment` in
 
 Ragdolls work in solo, co-op and multiplayer, including bots, with native, HD
 or Bean character visuals. Limb dismemberment requires ragdolls. A locally
-resolved lethal limb hit, or a shot at a physics body, can detach that limb.
-There is no health or hitbox change for living actors.
+resolved lethal hit, or a shot at a physics body, can detach a limb or the
+head, by Perfect Dark CE's rules (below). There is no health or hitbox change
+for living actors.
 
 **Bodies stay controls retention in every mode when ragdolls are on:**
 
@@ -31,8 +32,10 @@ body retention rules apply.
   `e33826da88e929e782e22af1a62278e2de1d5cb6`. Notices are in `port/licenses/`
   and the APK's `assets/licenses/`.
 - `port/external/pdphysics/` builds outside the game's N64 compiler flags.
-  The backend starts on the first eligible death, uses two worker threads
-  when available, and shuts down on stage change or when disabled.
+  The backend and the stage's floors are built on the stage's first tick (as
+  CE's `ragdollStageLoad`), use two worker threads when available, and shut
+  down on stage change or when disabled. On Windows hosts Jolt is fetched
+  under `build/_deps` (the 260-character path limit).
 - `gevr_ragdoll.c` snapshots the guard rig's current world pose, private
   runtime data (including attached heads), vertex copies and display lists.
   Snapshots survive actor cleanup and player respawns. No actor slots or
@@ -42,12 +45,18 @@ body retention rules apply.
   Pause and additional camera passes cannot advance it or duplicate deaths.
   World rendering builds fresh matrices per view before native float-to-packed
   conversion. Mesh storage is retired three frames after eviction.
-- Native STAN floors provide collision in unvisited rooms. Loaded native
-  room display lists add solid walls, ceilings and ledges, with the correct
-  room offset and level scale. Jolt owns copies after room unload. Room
-  filters exclude unrelated geometry occupying the same world space.
+- Native STAN floors provide collision for the whole stage. Loaded native
+  room display lists add only triangles that don't face up (walls, overhangs,
+  ceilings), at most four rooms a tick, with the correct room offset and level
+  scale; up-facing render triangles are left to the floors, so stairs stay
+  ramps (CE `ragdollAddRoomCeiling`, level.c:170-357). Jolt owns copies after
+  room unload. Room filters exclude unrelated geometry occupying the same world
+  space; a body's collision rooms are redone every tick near the camera or
+  after its pelvis moves 12 units, otherwise every fourth tick (CE
+  ragdoll.c:1645).
 - `gevr_ragdoll_movers.c` adds nearby solid doors and props as kinematic
-  colliders. Sliding, vertical and hinged doors follow native world transforms,
+  colliders. Props are considered when their position is within 650 units of
+  a body's pelvis or a cut piece (CE `RD_PROPRANGE` + 400, props.c:1112). Sliding, vertical and hinged doors follow native world transforms,
   scale, reflection and current clipped bounds. Open/disabled/destroyed doors
   lose collision with the native game. Caverns eye/iris doors use an enclosing
   box around their native collision prism, including its reduced ajar height.
@@ -65,7 +74,55 @@ body retention rules apply.
 - Native cuts patch private seam vertices and matrix references. Bean cut
   triangles choose one piece for all their influences and use CPU posing;
   uncut bodies and other characters retain the shared GPU skinning path.
-  Both cut ends receive simple dark-red caps.
+  Both cut ends receive dark-red disc caps sized by CE's per-joint cut radius.
+
+## Ported from Perfect Dark CE
+
+The tuning follows CE's human ragdoll (Stable, `e33826d`), not new numbers:
+
+- **Skeleton** (`g_RdSkelHuman`, ragdoll.c:205): PD's chr skeleton is
+  GoldenEye's guard skeleton less its HEADER joint, so CE part *p* is the guard
+  GROUP with JointID *p*+1 (1 pelvis, 2 chest, 3 head, 4/5 upper arms, 6/7
+  forearms, 8/9 hands, 10/11 thighs, 12/13 shins, 14/15 feet;
+  `gevr_bean_mapping_test.c` checks these joints against the cartridge). Eleven
+  parts have bodies; hands and feet ride their forearms and shins. Any other rig
+  layout logs once and keeps its death animation (CE create.c:116). Hitparts map
+  to parts through the model's BBOX nodes, as CE's do.
+- **Shapes, masses, joints** (`ragdollCreatePhysics`, create.c:455): torso
+  length scales everything; segment masses after Winter / de Leva; pelvis
+  capsule across the hips, head sphere up the spine, foot capsules on the
+  shins; swing-twist limits per joint; elbows and knees are one-way hinges
+  widened to hold the death pose, never more than ~15 degrees backwards.
+- **Launch** (`ragdollOnChrDeath`, ragdoll.c:1063; `ragdollGetPushSpeeds`,
+  :656): 525 units/s on the hit part plus 180 on the whole body and 60 upward,
+  scaled by the weapon's damage and force of impact. Explosion deaths keep the
+  native launch velocity. CE also carries the walking speed; GoldenEye keeps no
+  previous root position, so that part is left out.
+- **Shots at bodies** (`ragdollOnChrShot`, ragdoll.c:858): 45% of the hit push
+  and 15% of the whole-body push (only on the hit piece once cut), at most once
+  every four ticks per body.
+- **Dismemberment** (dismember.c:1268, 1375, 1478): weapon damage 2.0 or more
+  (KF7 = 1, golden gun = 100) and a 40% chance; never punches; the shotgun cuts
+  only when a whole volley lands on one limb of one body, at the cut nearest the
+  body. Chest hits split the waist only at damage 50 or more. The head can come
+  off; hands and feet go with their forearm or shin. A private random sequence
+  makes the rolls, so the game's own (co-op and replay) sequence is untouched.
+- **Kill floor and sleep** (ragdoll.c:1691, 1708): a body below y = -32000 is
+  removed; a body still asleep after the step skips its pose read-back.
+- **Drawing** (`ragdollIsAnyPieceOnScreen`, rooms.c:460): drawn when one of its
+  pieces' rooms is drawn and any part is inside the view, culled at tick time
+  as chrTick culls guards. This replaces the 100 m distance check.
+
+Not ported: CE's animation blend, muscles and reflexes, grabbing, bodies as
+cover, translucent-surface passability (GoldenEye's primary room lists are
+opaque), prop triangle meshes, explosion cuts, and the optional physical-body
+cap (CE's default is unlimited).
+
+**Hinge axes still need a headset check.** CE's hinges turn about each joint's
+local Y, which PD's animated frames put across the limb. If GoldenEye's frames
+run Y along the bone instead, the port uses CE's own rule for rigs without known
+hinges (bend the way it is bent, about that axis). Every capture logs
+`hinge Y along bone` for both knees and elbows (`0` = CE's axis is in use).
 
 ## Current limits
 
@@ -77,12 +134,14 @@ Dark CE's grabbing, bodies as cover, physics death camera or witness AI.
 
 Collision uses native level geometry, including with Bean visuals. Moving
 props use their native root bounds; holes, articulated vehicle parts and
-custom sheared transforms are not reproduced. Up to 256 nearby prop colliders
+custom sheared transforms are not reproduced. Very large doors or platforms
+whose centre is more than 650 units from a body's pelvis are not picked up
+until the body comes closer. Up to 256 nearby prop colliders
 share the backend pool, separately from the configured body count. Detached
 limbs can be shot, but existing corpses
 do not receive explosion-area impulses. New explosion deaths preserve the
-native launch velocity. The caps are approximate joint disks, not exact mesh
-cross-sections. Models outside the native guard skeleton retain their original
+native launch velocity. The caps are CE's fallback discs, not its mesh-border
+caps. Models outside the native guard skeleton retain their original
 death rendering; a failed snapshot also falls back to it.
 
 Forty-eight bodies are supported by the pool and native stress test; **Quest
@@ -124,6 +183,13 @@ ragdoll fixture supplies its own strict-C11 compiler setup. The Android debug
 APK and JVM tests also build here; no headset or ROM is attached.
 
 ### Still to verify on headsets
+
+0. Logcat `ragdoll:` lines on Facility and Dam: `11 parts` per body, `hinge Y
+   along bone 0000` (else report the line), room collision counts and no
+   `floor-only` warnings. Knees bend backwards, elbows forwards, no limb folds
+   the wrong way. Each line prints the killing weapon's damage: only weapons at
+   2.0 or more cut (about two kills in five); a shotgun volley on one leg can
+   take it off at the hip. Note which GoldenEye weapons reach 2.0.
 
 1. Native and Bean deaths on Dam, Facility stairs/vents, moving doors and
    custom moving platforms; bodies under closing slabs, in hinged doorways,
