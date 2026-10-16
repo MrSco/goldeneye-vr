@@ -12,7 +12,8 @@
 #include "chrai.h"
 #include "gevr_ragdoll.c"
 
-int VrRagdolls, VrDismemberment, VrBodiesStay;
+int VrRagdolls, VrDismemberment, VrBodiesStay, VrDismemberChance=40;
+float VrDismemberDamage=2.0f; /* CE's defaults: the cut-rule checks are CE's */
 s32 lvlGetCurrentStageToLoad(void) { return LEVELID_DAM; }
 static float weaponDamage=1;
 f32 gunItemGetDestructionAmount(ITEM_IDS item) { (void)item; return weaponDamage; }
@@ -52,6 +53,11 @@ void sysLogPrintf(s32 level,const char *fmt,...) { (void)level; (void)fmt; }
 void gevrBeanForgetWounds(Model *model) { (void)model; }
 void gevrBeanSetCuts(const GevrBeanCuts *cuts) { (void)cuts; }
 static int beanDraws;
+u64 g_randomSeed=12345;
+static int stains; static ModelNode *stainedNode; static s32 stainedPart;
+void chrCreateBloodStain(Model *model,s32 part,ModelNode *node,coord3d *pos)
+{ (void)model;(void)pos; stains++; stainedNode=node; stainedPart=part; g_randomSeed=99; }
+f32 getjointsize(Model *model,ModelNode *node) { (void)model;(void)node; return 10; }
 int gevrBeanDrawsModel(const void *header) { (void)header; return beanDraws; }
 void subcalcmatrices(ModelRenderData *pose,Model *model) { (void)pose; (void)model; assert(!"fixture must supply a pose"); }
 void sub_GAME_7F073FC8(s32 alpha) { (void)alpha; }
@@ -112,8 +118,8 @@ static void collisionChecks(void) {
     assert(pdphysRaycast(from,to,hit,NULL,NULL));assert(fabsf(hit[0]-250)<0.1f); /* copied, not borrowed */
 }
 
-static ModelNode headerNode,groups[15],dlNodes[15],headNode;
-static union ModelRoData headerRo,groupRo[15],dlRo[15],headRo;
+static ModelNode headerNode,groups[15],dlNodes[15],headNode,thighBox;
+static union ModelRoData headerRo,groupRo[15],dlRo[15],headRo,thighBoxRo;
 static ModelFileHeader modelHeader,headHeader;
 static Gfx lists[15][4]; static Vertex vertices[15][3];
 static RenderPosView sourceMatrices[16];
@@ -163,6 +169,9 @@ static void sourceInit(void)
         gSPVertex(g++, (void *)0x04000000u, 3, 0);
         gSP1Triangle(g++,0,1,2,0);gSPEndDisplayList(g++);
     }
+    /* The left thigh's hit box (HIT_LEFT_THIGH) */
+    memset(&thighBox,0,sizeof(thighBox));thighBox.Opcode=MODELNODE_OPCODE_BBOX;thighBox.Data=&thighBoxRo;
+    thighBoxRo.BoundingBox.ModelNumber=3;append(&groups[9],&thighBox);
     /* Attached head runtime data points inside the original model allocation. */
     memset(&headNode,0,sizeof(headNode));headNode.Opcode=MODELNODE_OPCODE_HEAD;headNode.Data=&headRo;
     headRo.HeadPlaceholder.RwDataIndex=64;append(&groups[2],&headNode);
@@ -303,6 +312,21 @@ static void portChecks(void)
         /* Bean draws its own skin: CE's discs, both sides of each cut */
         beanDraws=1;rdBuildCaps(body);beanDraws=0;
         assert(body->ndiscs==4 && body->ncaps==4);
+    }
+    /* A shot body bleeds where it was hit: the hit box of that part, the
+     * game's random sequence put back; the paint survives a later cut */
+    capture(0);{
+        RdBody *body=newest();
+        assert(body->hitskel[3]==9 && body->nbbox==1);
+        float hit[3],dir[3]={1,0,0};
+        memcpy(hit,body->joints[body->body[9]].m[3],sizeof(hit));
+        stains=0;g_randomSeed=12345;
+        rdStain(body,body->body[3],hit,dir);assert(!stains); /* no box on the arm */
+        rdStain(body,body->body[9],hit,dir);
+        assert(stains==1 && stainedNode==&thighBox && stainedPart==3 && g_randomSeed==12345);
+        body->meshes[0].rw->Vertices[0].a=77;
+        assert(rdCut(body,body->body[3]));
+        assert(body->meshes[0].rw->Vertices[0].a==77);
     }
     /* Another rig layout keeps its death animation */
     groupRo[5].Group.JointID=0;

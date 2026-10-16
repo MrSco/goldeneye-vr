@@ -70,6 +70,8 @@ typedef struct RdBody {
     int primary[RD_PARTS], parent[RD_PARTS], joint[RD_PARTS];
     int skel[RD_PARTS], body[RD_SKEL]; /* body index <-> CE skeleton part */
     int hitskel[20];                   /* hitpart -> skeleton part (BBOX nodes) */
+    ModelNode *bbox[20];               /* the hit boxes, for blood stains */
+    int bboxHit[20], bboxSkel[20], nbbox;
     int owner[RD_MATRICES];
     float radius[RD_PARTS], torso;
     Mtxf skelInitial[RD_SKEL];         /* every skeleton joint at death, hands and feet too */
