@@ -46,6 +46,17 @@ typedef struct RdMesh {
     int ncommands, nvertices, owner;
 } RdMesh;
 
+/* CE's cut caps (dismember.c rdcap): a fan from the hole's centre to the
+ * rim edges, each rim vertex drawn with the matrix and coordinates the mesh
+ * uses there, so the cap stays on the edge of the hole */
+#define RD_MAXCAPS 24
+typedef struct RdCapVtx { s16 mtx, v[3]; } RdCapVtx;
+typedef struct RdCap {
+    int matrix, numedges;   /* the centre is drawn with this matrix */
+    s16 centre[3];
+    RdCapVtx (*edges)[2];
+} RdCap;
+
 typedef struct RdBody {
     int handle, count, matrices, root, used;
     unsigned serial, cuts;
@@ -65,6 +76,8 @@ typedef struct RdBody {
     float colroompos[3];
     int asleep, onscreen, crossed;
     u8 visrooms[16];
+    RdCap caps[RD_MAXCAPS];
+    int ncaps, ndiscs;
     Mtxf bind[RD_MATRICES], offset[RD_MATRICES];
     Mtxf joints[RD_PARTS], initial[RD_PARTS];
     coord3d origin;
@@ -120,5 +133,6 @@ void rdMoversUpdate(float dt, RdBody *bodies, int count);
 void rdMoversReset(void);
 int rdCopyMeshes(RdBody *rd);
 int rdCut(RdBody *rd, int part);
+void rdBuildCaps(RdBody *rd);
 Gfx *rdDrawCaps(RdBody *rd, Gfx *gdl);
 #endif
