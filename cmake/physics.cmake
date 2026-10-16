@@ -1,5 +1,10 @@
 # Perfect Dark CE's C interface, isolated from the game's N64 flags/defines.
 include(FetchContent)
+# Windows' 260-character path limit: FetchContent's stamp files inside a
+# worktree's android/app/.cxx/<config>/<hash>/arm64-v8a/_deps exceed it.
+if(CMAKE_HOST_WIN32)
+  set(FETCHCONTENT_BASE_DIR "${CMAKE_SOURCE_DIR}/build/_deps")
+endif()
 FetchContent_Declare(joltphysics
   GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
   GIT_TAG e77f175595e64cb44218cc9d9d56fc365ad0e36a
