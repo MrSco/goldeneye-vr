@@ -101,13 +101,23 @@ static int rdRoomMesh(int room)
             triangles.failed=1; break;
         }
     }
-    return rdSubmit(&triangles,room,1);
+    const int count=triangles.failed?-1:triangles.count;
+    if(!rdSubmit(&triangles,room,1))return 0;
+    sysLogPrintf(LOG_NOTE,"ragdoll: room %d collision, %d triangles",room,count);
+    return 1;
 }
 
 void rdWorldUpdate(void)
 {
     for(int room=1;room<g_MaxNumRooms && room<MAXROOMCOUNT;room++)
-        if(!s_rooms[room] && g_BgRoomInfo[room].model_bin_loaded && rdRoomMesh(room)) {
+        if(!s_rooms[room] && g_BgRoomInfo[room].model_bin_loaded) {
+            /* A room's list is the same each time it loads: parse it once.
+             * A failed room keeps its native floors for the whole stage. */
+            if(!rdRoomMesh(room)) {
+                s_rooms[room]=2;
+                sysLogPrintf(LOG_WARNING,"ragdoll: room %d keeps floor-only collision",room);
+                continue;
+            }
             s_rooms[room]=1;
             /* The render mesh includes its floors, avoiding two coplanar
              * collision surfaces. Retain native floors for unvisited rooms. */

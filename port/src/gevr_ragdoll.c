@@ -358,6 +358,8 @@ void gevrRagdollCapture(ChrRecord *chr)
     if(VrDismemberment && hit>=0)rdCut(slot,hit);
     rdRooms(slot);
     if(seen)seen->suppressed=1;
+    sysLogPrintf(LOG_NOTE,"ragdoll: body %u, %d parts, %d meshes, hit part %d, cuts 0x%x",
+        slot->serial,slot->count,slot->nmeshes,hit,slot->cuts);
 }
 
 void gevrRagdollTick(int ticks60)
