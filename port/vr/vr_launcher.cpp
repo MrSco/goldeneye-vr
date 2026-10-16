@@ -2713,7 +2713,7 @@ extern "C" void gevrLauncherRun(void)
     bool reportPage = false;
     bool reportCrash = false;
     bool cheatPage = false, modsPage = false, mpPage = false, hapticsPage = false, throwingPage = false;
-    bool gesturesPage = false, rulesPage = false, physicsPage = false;
+    bool gesturesPage = false, rulesPage = false;
     Uint32 lastReportPoll = 0;
     while (!start) {
         // SDL's native thread may reach the launcher before MainActivity has
@@ -3091,42 +3091,12 @@ extern "C" void gevrLauncherRun(void)
                 vrSettingsSave();
                 gesturesPage = false;
             }
-        } else if (physicsPage) {
-            ImGui::TextColored(gold, "RAGDOLLS AND LIMBS");
-            ImGui::TextWrapped("Experimental. Available in solo, co-op and multiplayer, with native, HD or Bean visuals.");
-            bool ragdolls = VrRagdolls != 0;
-            if (ImGui::Checkbox("Ragdoll deaths", &ragdolls)) {
-                VrRagdolls = ragdolls ? 1 : 0;
-                vrSettingsSave();
-            }
-            ImGui::BeginDisabled(!ragdolls);
-            bool limbs = VrDismemberment != 0;
-            if (ImGui::Checkbox("Limb dismemberment", &limbs)) {
-                VrDismemberment = limbs ? 1 : 0;
-                vrSettingsSave();
-            }
-            ImGui::EndDisabled();
-            ImGui::TextWrapped("Lethal limb hits and shots at bodies can detach arms and legs. Each headset simulates its own cosmetic physics.");
-            ImGui::Spacing();
-            ImGui::TextUnformatted("Bodies stay");
-            const int previous = VrBodiesStay;
-            ImGui::RadioButton("Off (fade)##physics", &VrBodiesStay, 0);
-            ImGui::SameLine(); ImGui::RadioButton("12##physics", &VrBodiesStay, 12);
-            ImGui::SameLine(); ImGui::RadioButton("24##physics", &VrBodiesStay, 24);
-            ImGui::SameLine(); ImGui::RadioButton("48##physics", &VrBodiesStay, 48);
-            if (previous != VrBodiesStay) vrSettingsSave();
-            ImGui::TextWrapped("Retains this many whole bodies, including their detached limbs, in every mode. Oldest bodies give way first. Higher counts cost more performance.");
-            ImGui::Spacing();
-            if (ImGui::Button("Done", ImVec2(-1, 0))) {
-                vrSettingsSave(); physicsPage = false; rulesPage = true;
-            }
         } else if (rulesPage) {
             // Game rules GEVR PC changed (vr450.2, its CORPSEKEEP); off keeps
             // the original game's rule. Single player.
             ImGui::TextColored(gold, "GAME RULES");
-            if (ImGui::Button("Ragdolls and limbs...", ImVec2(-1, 0))) { rulesPage = false; physicsPage = true; }
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-            ImGui::TextWrapped("Off keeps the original rules. Ragdoll body retention works in every mode; animated body retention and sticky mines are solo options. Co-op reinforcements follow the host.");
+            ImGui::TextWrapped("Off keeps the original rules. Mines are a solo option; with ragdolls on, bodies stay in every mode. Fast reinforcements also works in co-op, controlled by the host.");
             ImGui::PopStyleColor();
             bool stick = VrMinesStickToGuards != 0;
             if (ImGui::Checkbox("Mines stick to guards", &stick)) {
@@ -3135,6 +3105,25 @@ extern "C" void gevrLauncherRun(void)
             }
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("A thrown mine that hits a guard sticks to him and goes where he goes.");
+            // Perfect Dark CE's ragdolls (docs/ragdolls.md): cosmetic, each
+            // headset simulates its own
+            bool ragdolls = VrRagdolls != 0;
+            if (ImGui::Checkbox("Ragdolls", &ragdolls)) {
+                VrRagdolls = ragdolls ? 1 : 0;
+                vrSettingsSave();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Bodies fall with physics. Each headset simulates its own.");
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!ragdolls);
+            bool limbs = VrDismemberment != 0;
+            if (ImGui::Checkbox("Dismemberment", &limbs)) {
+                VrDismemberment = limbs ? 1 : 0;
+                vrSettingsSave();
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Strong guns, shotgun blasts and explosions can take off limbs and heads.");
+            ImGui::EndDisabled();
             ImGui::Spacing();
             ImGui::TextUnformatted("Bodies stay");
             int prevBodies = VrBodiesStay;
@@ -3146,7 +3135,7 @@ extern "C" void gevrLauncherRun(void)
             ImGui::SameLine();
             ImGui::RadioButton("48##bodies", &VrBodiesStay, 48);
             if (VrBodiesStay != prevBodies) vrSettingsSave();
-            ImGui::TextWrapped("The newest bodies stay on the floor; the oldest goes when a new guard needs its place.");
+            ImGui::TextWrapped("The newest bodies stay on the floor, with their cut limbs; the oldest goes when a new guard needs its place.");
             ImGui::Spacing();
             const bool online = netIsActive();
             const bool coop = online && netGetMatchConfig()->mode == NET_MODE_COOP;
