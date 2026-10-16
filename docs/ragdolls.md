@@ -84,8 +84,12 @@ body retention rules apply.
   by death-pose position; each hole's border loop (edges one piece shares with
   another, or open edges right at a cut) is closed by a fan whose rim vertices
   load with the mesh's own matrices and coordinates, so the cap sits on the
-  edge of the hole. Holes the mesh can't describe, and every cut with Bean
-  visuals (Bean draws its own skin), get CE's disc at 0.7 of the cut radius.
+  edge of the hole. Bean draws its own skin, so the same border rule runs on
+  the skin (`gevr_bean_caps.inc.h`): each cut triangle's piece, vertices
+  welded by their source data, open edges counted on triangles across the
+  cut; loops are cached per skin and cut set, and the posed rim is fanned by
+  the ragdoll. CE has no Bean; this is its rule on Bean's mesh. Holes neither
+  mesh describes get CE's disc at 0.7 of the cut radius.
 
 ## Ported from Perfect Dark CE
 
@@ -161,7 +165,7 @@ until the body comes closer. Up to 256 nearby prop colliders
 share the backend pool, separately from the configured body count. Detached
 limbs can be shot, but existing corpses
 do not receive explosion-area impulses. New explosion deaths preserve the
-native launch velocity. Bean caps are CE's fallback discs. Models outside the native guard skeleton retain their original
+native launch velocity. Models outside the native guard skeleton retain their original
 death rendering; a failed snapshot also falls back to it.
 
 Forty-eight bodies are supported by the pool and native stress test; **Quest
@@ -204,7 +208,10 @@ APK and JVM tests also build here; no headset or ROM is attached.
 
 ### Still to verify on headsets
 
-0. Fourth round (2026-10-16, Dam): no body fell out of the level and no room
+0. Fifth round (2026-10-16): Bean bodies still showed discs; Bean skin caps
+   now follow the hole too. A rocket launcher's barrel showed its far-side
+   decal text through the near side (first-person gun, not ragdoll code).
+   Fourth round (2026-10-16, Dam): no body fell out of the level and no room
    was floor-only after the uncovered-ground fix. The disc caps did not line up
    with the holes (screenshots of a torso and a head); caps now follow the mesh
    border. Check native caps line up, and Bean discs.
