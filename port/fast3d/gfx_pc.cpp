@@ -4923,12 +4923,13 @@ static void gfx_run_dl(Gfx* cmd) {
                         break;
 
                     case VR_CULL_OFF_BEGIN:
-                        gevrCullOff = true;
+                    case VR_CULL_OFF_END: {
+                        extern bool gevrGunDl;   // gfx_opengl.cpp: its decals' narrow band
+                        extern bool gfx_opengl_batch_is_decal(void);
+                        if (gfx_opengl_batch_is_decal()) GEVR_FLUSH_BECAUSE(GEVR_FLUSH_ROOM);
+                        gevrCullOff = gevrGunDl = tag_w1 == VR_CULL_OFF_BEGIN;
                         break;
-
-                    case VR_CULL_OFF_END:
-                        gevrCullOff = false;
-                        break;
+                    }
 
                     case VR_SCOPE_REC_BEGIN:   // issue #40, lv.c lvlRender
                         gfx_flush();
