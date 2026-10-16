@@ -10,6 +10,7 @@
 #include "net_core.h"
 #include "net_game.h"
 #include "net_coop.h"
+#include "net_horde.h"
 extern "C" { void gevrLobbySessionStopped(void);void gevrRestartToLauncher(void);int bossGetStageNum(void); }
 namespace {
 ImGuiContext* context=nullptr;
@@ -52,7 +53,7 @@ extern "C" void gevrNativePauseRender(void) {
     if(!wasOpen){ui=GevrPauseUi();vr_screen_recenter();io.ClearInputKeys();}
     gevrFeedPauseInput(!wasOpen);wasOpen=true;
     ImGui_ImplOpenGL3_NewFrame();ImGui::NewFrame();
-    GevrPauseView view;view.coop=netCoopActive()!=0;view.host=netIsHost();view.capacity=view.coop?4:netGetMaxPlayers();
+    GevrPauseView view;view.horde=netHordeActive()!=0;view.hordeDefeated=gevrHordeDefeated()!=0;view.coop=netCoopActive()!=0;view.host=netIsHost();view.capacity=view.coop?4:netGetMaxPlayers();
     view.canStart=!view.coop&&gevrPauseActionAvailable("START MATCH");
     view.soloWarmup=!view.coop&&netGetConnectedPlayerCount()==1;
     view.startRequested=netHostStartRequested()!=0;view.rosterReady=netRoundRosterReady()!=0;
@@ -60,6 +61,13 @@ extern "C" void gevrNativePauseRender(void) {
     view.canReturn=!view.coop&&gevrPauseActionAvailable("RETURN TO LOBBY");view.countdown=netCountdownSecondsLeft();view.localReady=netLocalReady()!=0;
     snprintf(view.session,sizeof(view.session),"%s",view.coop?netCoopStageName(bossGetStageNum()):netStageName(netStageIndexOf((uint8_t)netGetLobbyStage())));
     snprintf(view.status,sizeof(view.status),"%s",view.coop?netDifficultyName(netGetMatchConfig()->difficulty):view.countdown>0?"Match is starting":netGetPhase()==NET_PHASE_IN_PROGRESS?"Match continues while this menu is open":"Warmup / next round");
+    if(view.horde) {
+        snprintf(view.session,sizeof(view.session),"Horde: Archives");
+        gevrHordeText(view.status,sizeof(view.status));
+        const HordeState *s=gevrHordeState();
+        snprintf(view.hordeStats,sizeof(view.hordeStats),"Waves cleared: %u   Time: %u:%02u   Kills: %u   Revives: %u",
+            s->completed,s->elapsed/3600,(s->elapsed/60)%60,s->kills,s->revives);
+    }
     if(!view.coop && !view.countdown) {
         int seconds=netWarmupSecondsLeft();
         if(view.startRequested)snprintf(view.status,sizeof(view.status),"Waiting for ready / loading players");
@@ -90,6 +98,7 @@ extern "C" void gevrNativePauseRender(void) {
     if(scissorOn)glEnable(GL_SCISSOR_TEST);else glDisable(GL_SCISSOR_TEST);
     glClearColor(clear[0],clear[1],clear[2],clear[3]);glBindTexture(GL_TEXTURE_2D,(GLuint)boundTexture);
     vr_pointer_draw();ImGui::SetCurrentContext(previous);
+    if(action==GEVR_PAUSE_HORDE_RETRY){gevrNativePauseResume();netHordeRetry();}
     if(action==GEVR_PAUSE_RESUME)gevrNativePauseResume();
     if(action==GEVR_PAUSE_LEAVE){gevrNativePauseResume();gevrLobbySessionStopped();gevrRestartToLauncher();}
     if(action==GEVR_PAUSE_ABORT&&netIsHost()&&netCoopActive()){gevrNativePauseResume();netCoopMissionEnded(NET_COOP_RESULT_ABORTED);}

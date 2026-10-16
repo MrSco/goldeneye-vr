@@ -225,7 +225,7 @@ if(GEVR_FAST3D_INLINE)
     "$<$<CONFIG:Release,RelWithDebInfo,MinSizeRel>:-finline-functions>")
 endif()
 
-file(GLOB_RECURSE SRC_GAME "${CMAKE_SOURCE_DIR}/src/game/*.c")
+file(GLOB_RECURSE SRC_GAME CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/src/game/*.c")
 
 # indy_comms.c drives the cartridge port to talk to an SGI Indy dev host.
 # ob.c still routes unbound files through it, so on a headset it faults.

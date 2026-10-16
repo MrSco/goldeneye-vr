@@ -1,0 +1,34 @@
+"""Compile and run Horde's production director rules without a ROM or headset."""
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[2]
+with tempfile.TemporaryDirectory(prefix="gevr-horde-") as temp:
+    exe = Path(temp) / "horde"
+    subprocess.run([shutil.which("cc") or "gcc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                    "-I" + str(ROOT / "port/src/net"), str(ROOT / "port/tests/horde_native.c"),
+                    "-o", str(exe)], check=True)
+    subprocess.run([str(exe)], check=True)
+    exe = Path(temp) / "horde-runtime"
+    runtime_args = [shutil.which("gcc") or "gcc", "-std=c11", "-O2", "-fms-extensions"]
+    runtime_args += ["-D" + v for v in ("GEVR=1", "PLATFORM_64BIT=1", "_LANGUAGE_C=1",
+                                       "VERSION=2", "VERSION_US=1", "LANG_US=1")]
+    runtime_args += ["-I" + str(ROOT / p) for p in (".", "port/include", "include", "src", "src/game", "port/src/net")]
+    result = subprocess.run(runtime_args + [str(ROOT / "port/tests/horde_runtime_native.c"),
+                            str(ROOT / "src/game/gevr_horde.c"), "-lm", "-o", str(exe)], capture_output=True, text=True)
+    if result.returncode:
+        raise RuntimeError(result.stderr)
+    subprocess.run([str(exe)], check=True)
+    exe = Path(temp) / "horde-network"
+    args = [shutil.which("gcc") or "gcc", "-std=c11", "-O2", "-fms-extensions"]
+    args += ["-D" + v for v in ("GEVR=1", "PLATFORM_64BIT=1", "_LANGUAGE_C=1",
+                               "VERSION=2", "VERSION_US=1", "LANG_US=1")]
+    args += ["-I" + str(ROOT / p) for p in (".", "port/include", "include", "src", "src/game", "port/src", "port/src/net")]
+    args += [str(ROOT / p) for p in ("port/tests/horde_network_native.c", "port/src/net/net_horde.c",
+                                    "port/src/net/netbuf.c", "port/src/net/net_match.c")]
+    result = subprocess.run(args + ["-o", str(exe)], capture_output=True, text=True)
+    if result.returncode:
+        raise RuntimeError(result.stderr)
+    subprocess.run([str(exe)], check=True)
