@@ -536,7 +536,7 @@ bool gevrRoomDl;
  * world's 3 view units (15 cm on the Dam), which let decals behind another
  * part of GE-X's rocket launcher show through it (user, 2026-10-16). */
 bool gevrGunDl;
-#define GEVR_GUN_DECAL_CM 1.0f
+#define GEVR_GUN_DECAL_CM 0.25f /* 1 cm still left a sliver (headset, 2026-10-16) */
 static bool s_issueGunDecal;   /* the draw being issued is one of them */
 
 static bool s_alphaArgs[2];
