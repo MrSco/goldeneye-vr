@@ -12,6 +12,8 @@ extern float inv_level_scale;
 #define RD_RENDER_MAXUP 0.35f  /* CE level.c: added when normal.y is below this */
 #define RD_ROOMSPERTICK 4      /* CE RD_CEIL_ROOMSPERTICK */
 static unsigned char s_rooms[MAXROOMCOUNT];
+static const char *s_why;
+static int s_walled, s_flooronly, s_tris;
 
 typedef struct RdTriangles { float *v; int *ix; int count, capacity, failed; } RdTriangles;
 
@@ -39,7 +41,15 @@ static int rdSubmit(RdTriangles *t,int room,int group)
     free(t->v); free(t->ix); return ok;
 }
 
-void rdWorldReset(void) { rdMoversReset(); memset(s_rooms,0,sizeof(s_rooms)); }
+void rdWorldReset(void) { rdMoversReset(); memset(s_rooms,0,sizeof(s_rooms)); s_walled=s_flooronly=s_tris=0; }
+
+/* For the capture log: how much of the stage has walls so far, and whether
+ * this room does (1 walls, 2 floor-only, 0 not loaded yet) */
+void rdWorldStats(int room, int *walled, int *flooronly, int *tris, int *state)
+{
+    *walled=s_walled; *flooronly=s_flooronly; *tris=s_tris;
+    *state=room>0 && room<MAXROOMCOUNT ? s_rooms[room] : -1;
+}
 
 void rdWorldInit(void)
 {
@@ -69,9 +79,12 @@ static int rdRoomMesh(int room)
 {
     s_room_info *r=&g_BgRoomInfo[room];
     Gfx *g=r->ptr_expanded_mapping_info;
+    s_why="no list";
     if(!r->vertices || !g || r->usize_primary_DL_binary<=0 || r->usize_point_index_binary<=0)return 0;
     int ncommands=r->usize_primary_DL_binary/sizeof(Gfx);
+    s_why="list too long";
     if(ncommands>65536)return 0;
+    int skipped=0;
     int nvertices=r->usize_point_index_binary/sizeof(Vtx);
     float slots[16][3]; unsigned loaded=0; RdTriangles triangles={0};
     float scale=get_room_data_float1();
@@ -82,7 +95,7 @@ static int rdRoomMesh(int room)
         if(op==(G_VTX&255)) {
             unsigned n=((g[i].words.w0>>20)&15)+1, dest=(g[i].words.w0>>16)&15;
             uintptr_t offset=g[i].words.w1&0xffffff;
-            if(offset%sizeof(Vtx) || offset/sizeof(Vtx)+n>(unsigned)nvertices || dest+n>16) { loaded=0; continue; }
+            if(offset%sizeof(Vtx) || offset/sizeof(Vtx)+n>(unsigned)nvertices || dest+n>16) { loaded=0; skipped++; continue; }
             for(unsigned j=0;j<n;j++) {
                 Vtx *v=&r->vertices[offset/sizeof(Vtx)+j];
                 for(int k=0;k<3;k++)slots[dest+j][k]=(v->v.ob[k]+ptr_bgdata_room_fileposition_list[room].pos.f[k])/scale;
@@ -109,13 +122,16 @@ static int rdRoomMesh(int room)
         } else if(op==(G_DL&255) || op==(G_MTX&255)) {
             /* The room loader emits flat lists. Do not guess the address or
              * transform if a custom campaign supplies a different layout. */
+            s_why=op==(G_DL&255) ? "nested list" : "matrix in list";
             triangles.failed=1; break;
         }
     }
     const int count=triangles.failed?-1:triangles.count;
-    if(count==0)return 1; /* open ground: its floors are all it needs */
+    if(count==0) { s_walled++; return 1; } /* open ground: its floors are all it needs */
+    if(!triangles.failed)s_why="mesh rejected";
     if(!rdSubmit(&triangles,room,1))return 0;
-    sysLogPrintf(LOG_NOTE,"ragdoll: room %d collision, %d triangles",room,count);
+    s_walled++; s_tris+=count;
+    sysLogPrintf(LOG_NOTE,"ragdoll: room %d collision, %d wall triangles%s",room,count,skipped?", some vertex loads out of range":"");
     return 1;
 }
 
@@ -128,8 +144,8 @@ void rdWorldUpdate(void)
             /* A room's list is the same each time it loads: parse it once.
              * A failed room keeps its native floors for the whole stage. */
             if(!rdRoomMesh(room)) {
-                s_rooms[room]=2;
-                sysLogPrintf(LOG_WARNING,"ragdoll: room %d keeps floor-only collision",room);
+                s_rooms[room]=2; s_flooronly++;
+                sysLogPrintf(LOG_WARNING,"ragdoll: room %d keeps floor-only collision (%s)",room,s_why);
                 continue;
             }
             s_rooms[room]=1;

@@ -734,11 +734,39 @@ void gevrRagdollCapture(ChrRecord *chr)
     if(seen)seen->suppressed=1;
     float p[RD_SKEL][3],bone[RD_SKEL][3];
     rdBones(slot,p,bone);
+    int walled,flooronly,tris,state;
+    rdWorldStats(slot->rooms[0],&walled,&flooronly,&tris,&state);
+    sysLogPrintf(LOG_NOTE,"ragdoll: stage walls so far: %d rooms (%d triangles), %d floor-only; body %u died in room %d (%s)",
+        walled,tris,flooronly,s_serial,slot->rooms[0],state==1?"walls":state==2?"floor-only":"no walls yet");
     sysLogPrintf(LOG_NOTE,"ragdoll: body %u, %d parts, %d meshes, torso %.1f, hit part %d, weapon %d (damage %.1f), blast %d, cuts 0x%x,"
         " knees %.2f %.2f, elbows %.2f %.2f, hinge Y along bone %d%d%d%d",
         slot->serial,slot->count,slot->nmeshes,slot->torso,hit,weapon,rdDamage(weapon),blasted,slot->cuts,
         rdHingeAngle(slot,11),rdHingeAngle(slot,12),rdHingeAngle(slot,5),rdHingeAngle(slot,6),
         rdHingeAlongBone(slot,11,bone),rdHingeAlongBone(slot,12,bone),rdHingeAlongBone(slot,5,bone),rdHingeAlongBone(slot,6,bone));
+}
+
+/* Diagnostics for bodies seen in walls: the pelvis moved through level
+ * geometry this step. In its own rooms it went through a wall it collides
+ * with; only in other rooms, the room filter left that wall out. Once per
+ * body. */
+static void rdCrossCheck(RdBody *b, const float before[3], float dt)
+{
+    if(b->crossed || b->asleep)return;
+    const float *after=b->joints[b->root].m[3];
+    float moved=0;
+    for(int k=0;k<3;k++){float x=after[k]-before[k];moved+=x*x;}
+    if(moved<1)return;
+    float hit[3],normal[3]; int room=-1;
+    const int own=pdphysRagdollRaycast(b->handle,before,after,hit,normal,&room);
+    if(!own && !pdphysRaycastAnyRoom(before,after,hit,normal,&room))return;
+    if(fabsf(normal[1])>0.7f && !own)return; /* a floor of a stacked room */
+    b->crossed=1;
+    int walled,flooronly,tris,state;
+    rdWorldStats(room,&walled,&flooronly,&tris,&state);
+    sysLogPrintf(LOG_WARNING,"ragdoll: body %u's pelvis went through %s geometry (room %d, %s, normal y %.2f) at %.0f units/s; its rooms %d %d %d %d",
+        b->serial,own?"its own":"another room's",room,state==1?"walls":state==2?"floor-only":"no walls",normal[1],
+        sqrtf(moved)/dt,b->visrooms[0]==255?-1:b->visrooms[0],b->visrooms[1]==255?-1:b->visrooms[1],
+        b->visrooms[2]==255?-1:b->visrooms[2],b->visrooms[3]==255?-1:b->visrooms[3]);
 }
 
 static float rdCameraDistance2(const float pos[3])
@@ -798,8 +826,10 @@ void gevrRagdollTick(int ticks60)
         b->age+=dt;
         /* Still asleep after the step: the pose has not changed (CE :1691) */
         const int asleep=pdphysRagdollIsAsleep(b->handle);
+        float before[3];memcpy(before,b->joints[b->root].m[3],sizeof(before));
         if(!(b->asleep && asleep))pdphysRagdollGetJoints(b->handle,(float (*)[16])b->joints);
         b->asleep=asleep;
+        rdCrossCheck(b,before,dt);
         /* Fell out of the level (CE :1708) */
         if(b->joints[b->root].m[3][1]<RD_KILLFLOOR_Y) {
             sysLogPrintf(LOG_NOTE,"ragdoll: body %u fell out of the level, removing it",b->serial);
