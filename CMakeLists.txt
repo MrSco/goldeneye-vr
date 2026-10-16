@@ -27,6 +27,8 @@ if (NOT EXISTS ${CMAKE_BINARY_DIR}/CMakeCache.txt)
   endif()
 endif()
 
+add_subdirectory(port/external/pdphysics)
+
 # Options
 set(ROMID "ntsc-final" CACHE STRING "Which ROM to build for: ntsc-final")
 
@@ -350,7 +352,7 @@ add_library(steamaudio SHARED IMPORTED)
 set_target_properties(steamaudio PROPERTIES IMPORTED_LOCATION "${CMAKE_SOURCE_DIR}/port/external/steamaudio/lib/android-armv8/libphonon.so")
 target_include_directories(gevr PRIVATE "${CMAKE_SOURCE_DIR}/port/external/steamaudio/include")
 target_compile_definitions(gevr PRIVATE GEVR_STEAMAUDIO=1)
-target_link_libraries(gevr ${LIBS} openxr_loader juice-static opus steamaudio)
+target_link_libraries(gevr ${LIBS} openxr_loader juice-static opus steamaudio gevr_physics)
 target_link_options(gevr PRIVATE -Wl,--error-limit=0)
 
 # Alias for legacy Android loader references.

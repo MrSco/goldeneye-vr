@@ -77,7 +77,8 @@ void *gevrBeanRenderGdl(void *node, void *current, Model *model)
 			linear[i * 3 + j] = anchor[j][i];
 	if (!beanInverse3(linear, inverse))
 		return current;
-	Gfx *gpu = beanSkinGpuDraw(skin, model, anchorIndex, backIndex, neck, inverse);
+	const int cut = s_cuts.active && s_cuts.active(model);
+	Gfx *gpu = cut ? NULL : beanSkinGpuDraw(skin, model, anchorIndex, backIndex, neck, inverse);
 	if (gpu)
 		return gpu;
 	Vtx *vertices = beanFrameAllocate((size_t)skin->nverts * sizeof(Vtx));
@@ -85,7 +86,26 @@ void *gevrBeanRenderGdl(void *node, void *current, Model *model)
 	if (!vertices || !commands)
 		return current;
 	memcpy(vertices, skin->vtx, skin->nverts * sizeof(Vtx));
+	int owner = anchorIndex;
 	for (int v = 0; v < skin->nverts; v++) {
+        /* Skin vertices are emitted as independent triangle triples. Choose
+         * one piece for the whole triangle, then rehome cross-cut weights in
+         * the captured pose. Per-vertex choices would leave stretched edges. */
+        if (cut && v % 3 == 0) {
+            int matrices[12], pieces[12], scores[12] = {0}, count = 0, best = 0;
+            for (int c = v; c < v + 3 && c < skin->nverts; c++) for (int w = 0; w < 4; w++) {
+                int matrix = skin->verts[c].matrix[w];
+                if (matrix == -2) matrix = anchorIndex;
+                if (matrix == -3) matrix = backIndex >= 0 ? backIndex : anchorIndex;
+                if (!skin->verts[c].weight[w] || matrix < 0 || matrix >= model->obj->numMatrices) continue;
+                int piece = s_cuts.piece(model, matrix), at;
+                for (at = 0; at < count && pieces[at] != piece; at++) {}
+                if (at == count) { matrices[count] = matrix; pieces[count++] = piece; }
+                scores[at] += skin->verts[c].weight[w];
+                if (scores[at] > scores[best]) best = at;
+            }
+            owner = count ? matrices[best] : anchorIndex;
+        }
 		const struct beanSkinVert *src = &skin->verts[v];
 		float p[3] = {0}, n[3] = {0}, total = 0;
 		for (int w = 0; w < 4; w++) {
@@ -97,14 +117,16 @@ void *gevrBeanRenderGdl(void *node, void *current, Model *model)
 				matrix = backIndex >= 0 ? backIndex : anchorIndex;
 			if (!src->weight[w] || matrix < 0 || matrix >= count)
 				continue;
-			const float (*m)[4] = model->render_pos[matrix].pos.m;
 			float weight = src->weight[w];
-			float local[3];
+			float local[3], normalLocal[3];
 			for (int k = 0; k < 3; k++)
 				local[k] = src->p[w][k] + (back && neck ? neck->Data->Group.Origin.f[k] : 0);
+            memcpy(normalLocal, src->n[w], sizeof(normalLocal));
+            if (cut) matrix = s_cuts.remap(model, owner, matrix, local, normalLocal);
+            const float (*m)[4] = model->render_pos[matrix].pos.m;
 			for (int k = 0; k < 3; k++) {
 				p[k] += weight * (local[0] * m[0][k] + local[1] * m[1][k] + local[2] * m[2][k] + m[3][k]);
-				n[k] += weight * (src->n[w][0] * m[0][k] + src->n[w][1] * m[1][k] + src->n[w][2] * m[2][k]);
+				n[k] += weight * (normalLocal[0] * m[0][k] + normalLocal[1] * m[1][k] + normalLocal[2] * m[2][k]);
 			}
 			total += weight;
 		}

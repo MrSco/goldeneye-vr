@@ -22,6 +22,12 @@ static void registryChecks(void)
     s_registrationOwner = NULL;
 }
 
+static const Model *cutTarget;
+static int cutActive(const Model *model) { return model == cutTarget; }
+static int cutPiece(const Model *model,int matrix) { (void)model;return matrix; }
+static int cutRemap(const Model *model,int owner,int matrix,float p[3],float n[3])
+{ (void)model;(void)matrix;(void)p;(void)n;return owner; }
+
 static void poseChecks(void)
 {
     registryChecks();
@@ -78,6 +84,27 @@ static void poseChecks(void)
 	assert(first != list && firstVertices != original);
 	assert(firstVertices[0].v.ob[0] == 10 && firstVertices[0].v.ob[1] == 5);
 	assert(firstVertices[0].v.tc[0] == 123 && firstVertices[0].n.n[2] == 127);
+    /* Dismemberment must choose one piece per triangle, even when its
+     * corners favour different bones. Moving the other piece cannot stretch
+     * the cut triangle. Other instances keep their shared GPU skin. */
+    struct beanSkinVert saved[3];memcpy(saved,influences,sizeof(saved));
+    influences[0].weight[0]=255;influences[0].weight[1]=0;
+    influences[1].weight[0]=0;influences[1].weight[1]=255;
+    cutTarget=&model;
+    GevrBeanCuts cuts={cutActive,cutPiece,cutRemap};gevrBeanSetCuts(&cuts);
+    Gfx *cutFirst=gevrBeanRenderGdl(&node,list,&model);
+    assert((cutFirst[1].words.w0>>24)==(G_VTX&255));
+    Vtx *cutVertices=(void *)cutFirst[1].words.w1;
+    matrices[1].pos.m[3][0]+=500;
+    Gfx *cutSecond=gevrBeanRenderGdl(&node,list,&model);
+    Vtx *cutAgain=(void *)cutSecond[1].words.w1;
+    for(int v=0;v<3;v++)for(int k=0;k<3;k++)assert(cutVertices[v].v.ob[k]==cutAgain[v].v.ob[k]);
+    Model other=model;
+    Gfx *uncut=gevrBeanRenderGdl(&node,list,&other);
+    assert((uncut[1].words.w0>>24)==G_GEVR_SKIN);
+    assert(((GevrSkinDraw *)(uintptr_t)uncut[1].words.w1)->mesh==firstDraw->mesh);
+    matrices[1].pos.m[3][0]-=500;
+    gevrBeanSetCuts(NULL);memcpy(influences,saved,sizeof(saved));
 	/* Another instance may move before the first list reaches the GPU. */
 	matrices[1].pos.m[3][0] = 200;
 	Gfx *second = gevrBeanRenderGdl(&node, list, &model);

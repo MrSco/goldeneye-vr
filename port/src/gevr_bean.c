@@ -45,6 +45,13 @@ static int s_blankReady;
 static int s_want;
 static int s_available = -1;
 
+static GevrBeanCuts s_cuts;
+void gevrBeanSetCuts(const GevrBeanCuts *cuts)
+{
+    if (cuts) s_cuts = *cuts;
+    else memset(&s_cuts, 0, sizeof(s_cuts));
+}
+
 struct beanSkinVert {
 	float p[4][3], n[4][3];
 	uint8_t weight[4];

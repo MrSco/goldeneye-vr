@@ -3,6 +3,9 @@
 #include "gevr_romlayout.h"
 #endif
 #include <ultra64.h>
+#ifdef GEVR
+#include "gevr_ragdoll.h"
+#endif
 #include <bondaicommands.h>
 #include <bondgame.h>
 #include <bondconstants.h>
@@ -2511,6 +2514,7 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
     extern int netDamageAllowed(int attacker, int target);
     if (self->prop->type == PROP_TYPE_VIEWER &&
         !netDamageAllowed(get_cur_playernum(), getPlayerPointerIndex(self->prop))) return FALSE;
+    gevrRagdollNoteHit(self, -1, weaponid == ITEM_FIST ? HIT_CHEST : hitpart, vector->f);
     /* Co-op (#94): a guard is hurt on the host, which runs it (net_coop.c) */
     if (self->prop->type == PROP_TYPE_CHR && isPlayer)
     {
@@ -5485,7 +5489,12 @@ static s32 gevrBodyKeepTick(ChrRecord *self)
 void chrlvTickDead(ChrRecord *self)
 {
 #ifdef GEVR
-    if (gevrBodyKeepTick(self))
+    if (gevrRagdollSuppress(self)) {
+        /* A physics snapshot owns the visible body now. Drop any old native
+         * retention entry before this actor slot can be reused. */
+        for (s32 i = s_gevrBodyCount - 1; i >= 0; i--)
+            if (s_gevrBodies[i] == self) gevrBodyRelease(i);
+    } else if (gevrBodyKeepTick(self))
     {
         return;
     }

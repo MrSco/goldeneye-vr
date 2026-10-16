@@ -21,6 +21,7 @@
 #endif
 #include <ultra64.h>
 #ifdef GEVR
+#include "gevr_ragdoll.h"
 #include "system.h"
 static u32 g_gevrTeleportEpoch; /* bumped by gevrNotifyTeleport (chrai.c) */
 void gevrNotifyTeleport(void) { g_gevrTeleportEpoch++; gevrVrLocomotionResetReason(GEVR_LOCO_RESET_TELEPORT); }
@@ -21826,6 +21827,9 @@ s32 playerTick(PropRecord *prop)
  
     index = getPlayerPointerIndex(prop);
     chr = prop->chr;
+#ifdef GEVR
+    if (chr) gevrRagdollNeedsPose(chr); /* observe respawns even in first-person */
+#endif
  
     if (chr != NULL)
     {
@@ -22357,6 +22361,9 @@ join_768:
     return tailret;
  
 clear_and_return:
+#ifdef GEVR
+    gevrRagdollCapturePlayer(chr);
+#endif
     prop->flags &= ~PROPFLAG_ONSCREEN;
 
     return TICKOP_NONE;
