@@ -3075,6 +3075,20 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
     }
     if (!g_gevrStereo && phase >= 0.0f && inHand && def->gripMatrix)
         rwmtx[def->heldMatrix] = rwmtx[def->gripMatrix];
+    /* GE-X's launcher has no rocket in its tube (parts {-1, 40}). Loaded, its
+     * own rocket sits where it loads (heldToMag), as the watch shows it, and as
+     * Dab's Mod gives the borrowed launcher Perfect Dark's own missile:
+     * GoldenEye's PchrrocketZ, sized for its own launcher, put its fins through
+     * this barrel (user, 2026-10-16). gunfire.c no longer draws that prop here. */
+    if (def->item == ITEM_ROCKETLAUNCH && !inHand && !preview && (hand == GUNRIGHT || hand == GUNLEFT)
+        && g_CurrentPlayer != NULL && g_CurrentPlayer->hands[hand].rocket != NULL
+        && !g_CurrentPlayer->hands[hand].firedrocket
+        && def->heldMatrix > 0 && def->heldMatrix < hdr->numMatrices
+        && def->magMatrix >= 0 && def->magMatrix < hdr->numMatrices)
+    {
+        matrix_4x4_multiply(&rwmtx[def->magMatrix], (Mtxf *) def->heldToMag, &rwmtx[def->heldMatrix]);
+        inHand = TRUE;
+    }
     if (hand == GUNRIGHT || hand == GUNLEFT)
     {
         s_gevrGexPayloadOn[hand] = def->payloadProp > 0 && inHand;

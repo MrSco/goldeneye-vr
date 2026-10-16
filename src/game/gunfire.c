@@ -2991,8 +2991,9 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
 
                 model = handptr->rocket->model;
 
-                /* Bean's launcher carries its own round (DAB fpRound) */
-                if (!gevrBeanHasRound(handptr->weaponModel.obj))
+                /* Bean's launcher carries its own round (DAB fpRound), GE-X's
+                 * its own rocket (gun.c gevrGexPoseGun) */
+                if (!gevrBeanHasRound(handptr->weaponModel.obj) && !gevrGexHeld(handnum))
                 {
                     subdraw(&renderdata, model);
                 }
@@ -3017,8 +3018,9 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
  
 #ifdef GEVR
             extern int gevrBeanHasRound(const void *header);
+            extern s32 gevrGexHeld(s32 hand);
 
-            if (!gevrBeanHasRound(handptr->weaponModel.obj))
+            if (!gevrBeanHasRound(handptr->weaponModel.obj) && !gevrGexHeld(handnum))
 #endif
             subdraw(&renderdata, model);
             bondviewTransformManyPosToViewMatrix(model->render_pos, model->obj->numMatrices);
