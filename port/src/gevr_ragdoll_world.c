@@ -1,6 +1,6 @@
 /* Static collision, as CE's level.c builds it: the game's walkable floors for
  * the whole stage, plus walls, overhangs and ceilings from each room's render
- * list once it has loaded. Jolt copies the mesh, so unloading the room cannot
+ * list once it has loaded, and the ground its floors do not cover. Jolt copies the mesh, so unloading the room cannot
  * invalidate collision. */
 #include "gevr_ragdoll_internal.h"
 #include "bg.h"
@@ -75,6 +75,28 @@ void rdWorldInit(void)
     pdphysLevelFinish(NULL);
 }
 
+/* CE leaves up-facing render triangles to the game's floors, which in PD
+ * cover them. GoldenEye's floors cover only walkable ground: its cliffs,
+ * banks and terrain off the paths have none, and bodies fell through them
+ * (Dam, 2026-10-16). Such a triangle is added when the room's own floors
+ * are not right under (or just over) its middle and its corners; stairs,
+ * whose floors are ramps under the steps, stay ramps. */
+#define RD_COVER_ABOVE 40.0f
+#define RD_COVER_BELOW 60.0f
+static int rdFloorCovers(const float *a, const float *b, const float *c)
+{
+    float centre[3],point[3],from[3],to[3],hit[3];
+    for(int k=0;k<3;k++)centre[k]=(a[k]+b[k]+c[k])/3;
+    const float *corner[4]={centre,a,b,c};
+    for(int i=0;i<4;i++) {
+        for(int k=0;k<3;k++)point[k]=i ? centre[k]+(corner[i][k]-centre[k])*0.75f : centre[k];
+        memcpy(from,point,sizeof(from)); memcpy(to,point,sizeof(to));
+        from[1]+=RD_COVER_ABOVE; to[1]-=RD_COVER_BELOW;
+        if(!pdphysRaycastLevelGroups(from,to,1u<<0,hit,NULL))return 0;
+    }
+    return 1;
+}
+
 static int rdRoomMesh(int room)
 {
     s_room_info *r=&g_BgRoomInfo[room];
@@ -84,7 +106,8 @@ static int rdRoomMesh(int room)
     int ncommands=r->usize_primary_DL_binary/sizeof(Gfx);
     s_why="list too long";
     if(ncommands>65536)return 0;
-    int skipped=0;
+    int skipped=0,uncovered=0;
+    pdphysSetQueryRooms(&room,1); /* its own floors, not a stacked room's */
     int nvertices=r->usize_point_index_binary/sizeof(Vtx);
     float slots[16][3]; unsigned loaded=0; RdTriangles triangles={0};
     float scale=get_room_data_float1();
@@ -116,22 +139,31 @@ static int rdRoomMesh(int room)
                 for(int k=0;k<3;k++){e1[k]=slots[b][k]-slots[a][k];e2[k]=slots[c][k]-slots[a][k];}
                 nrm[0]=e1[1]*e2[2]-e1[2]*e2[1]; nrm[1]=e1[2]*e2[0]-e1[0]*e2[2]; nrm[2]=e1[0]*e2[1]-e1[1]*e2[0];
                 len=sqrtf(nrm[0]*nrm[0]+nrm[1]*nrm[1]+nrm[2]*nrm[2]);
-                if(len<0.01f || nrm[1]/len>=RD_RENDER_MAXUP)continue;
+                if(len<0.01f)continue;
+                if(nrm[1]/len>=RD_RENDER_MAXUP) {
+                    if(rdFloorCovers(slots[a],slots[b],slots[c]))continue;
+                    uncovered++;
+                }
                 rdTriangle(&triangles,slots[a],slots[b],slots[c]);
             }
-        } else if(op==(G_DL&255) || op==(G_MTX&255)) {
-            /* The room loader emits flat lists. Do not guess the address or
-             * transform if a custom campaign supplies a different layout. */
-            s_why=op==(G_DL&255) ? "nested list" : "matrix in list";
+        } else if(op==(G_DL&255)) {
+            /* A called list's own triangles are not followed, and it may load
+             * vertices: the main list's next triangles need its next load */
+            loaded=0;
+        } else if(op==(G_MTX&255)) {
+            /* Do not guess a transform a custom campaign may supply */
+            s_why="matrix in list";
             triangles.failed=1; break;
         }
     }
+    pdphysSetQueryRooms(NULL,-1);
     const int count=triangles.failed?-1:triangles.count;
     if(count==0) { s_walled++; return 1; } /* open ground: its floors are all it needs */
     if(!triangles.failed)s_why="mesh rejected";
     if(!rdSubmit(&triangles,room,1))return 0;
     s_walled++; s_tris+=count;
-    sysLogPrintf(LOG_NOTE,"ragdoll: room %d collision, %d wall triangles%s",room,count,skipped?", some vertex loads out of range":"");
+    sysLogPrintf(LOG_NOTE,"ragdoll: room %d collision, %d triangles (%d up-facing without floors)%s",room,count,uncovered,
+        skipped?", some vertex loads out of range":"");
     return 1;
 }
 

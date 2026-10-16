@@ -83,13 +83,19 @@ static void collisionChecks(void) {
     float from[3]={0,200,0},to[3]={0,-200,0},hit[3];
     assert(pdphysRaycast(from,to,hit,NULL,NULL));assert(fabsf(hit[1])<0.1f); /* excludes unrelated floor at 50 */
     assert(pdphysRaycastAnyRoom(from,to,hit,NULL,NULL));assert(fabsf(hit[1]-50)<0.1f);
-    static Vtx vertices[8];static Gfx commands[6];
+    static Vtx vertices[12];static Gfx commands[10];
     const int xyz[8][3]={{40,0,-40},{40,40,-40},{40,40,40},{40,0,40},
         {-1000,6,-1000},{1000,6,-1000},{1000,6,1000},{-1000,6,1000}};
     for(int i=0;i<8;i++)for(int k=0;k<3;k++)vertices[i].v.ob[k]=xyz[i][k];
+    /* A raised ledge no native floor covers (a cliff top) */
+    const int ledge[4][3]={{300,400,300},{400,400,300},{400,400,400},{300,400,400}};
+    for(int i=0;i<4;i++)for(int k=0;k<3;k++)vertices[8+i].v.ob[k]=ledge[i][k];
     Gfx *g=commands;gSPVertex(g++, (void *)0x04000000u,8,0);
     gSP1Triangle(g++,0,1,2,0);gSP1Triangle(g++,0,2,3,0);
-    gSP1Triangle(g++,4,6,5,0);gSP1Triangle(g++,4,7,6,0);gSPEndDisplayList(g++);
+    gSP1Triangle(g++,4,6,5,0);gSP1Triangle(g++,4,7,6,0);
+    gSPDisplayList(g++,(void *)0x0e000000u); /* a called list: stepped over */
+    gSPVertex(g++,(void *)(0x04000000u+8*sizeof(Vtx)),4,0);
+    gSP1Triangle(g++,0,2,1,0);gSP1Triangle(g++,0,3,2,0);gSPEndDisplayList(g++);
     roomData[1].pos.x=10; /* room transform and 0.2 scale put the wall at x=250 */
     g_BgRoomInfo[1].vertices=vertices;g_BgRoomInfo[1].usize_point_index_binary=sizeof(vertices);
     g_BgRoomInfo[1].ptr_expanded_mapping_info=commands;g_BgRoomInfo[1].usize_primary_DL_binary=sizeof(commands);
@@ -98,6 +104,8 @@ static void collisionChecks(void) {
     assert(pdphysRaycast(from,to,hit,NULL,NULL));assert(fabsf(hit[0]-250)<0.1f);
     float down[3]={100,200,100},below[3]={100,-200,100};
     assert(pdphysRaycast(down,below,hit,NULL,NULL));assert(fabsf(hit[1])<0.1f); /* native floor kept, render floor left out */
+    float cliff[3]={(350+10)/0.2f,2500,350/0.2f},under[3]={(350+10)/0.2f,1000,350/0.2f};
+    assert(pdphysRaycastAnyRoom(cliff,under,hit,NULL,NULL));assert(fabsf(hit[1]-2000)<0.1f); /* uncovered ground collides */
     g_BgRoomInfo[1].vertices=NULL;g_BgRoomInfo[1].model_bin_loaded=0;
     assert(pdphysRaycast(from,to,hit,NULL,NULL));assert(fabsf(hit[0]-250)<0.1f); /* copied, not borrowed */
 }
