@@ -47,7 +47,12 @@ int rdCopyMeshes(RdBody *rd)
 static void rdPatch(RdBody *rd,RdMesh *m)
 {
     memcpy(m->commands,m->originalCommands,(size_t)m->ncommands*sizeof(Gfx));
-    memcpy(m->rw->Vertices,m->original,(size_t)m->nvertices*sizeof(Vertex));
+    /* positions from the original, blood stains (alpha) as painted since */
+    for(int j=0;j<m->nvertices;j++) {
+        const s32 paint=m->rw->Vertices[j].a;
+        m->rw->Vertices[j]=m->original[j];
+        m->rw->Vertices[j].a=paint;
+    }
     int matrix=m->owner;
     for(int i=0;i<m->ncommands;i++) {
         Gfx *g=&m->commands[i]; unsigned op=(g->words.w0>>24)&255;

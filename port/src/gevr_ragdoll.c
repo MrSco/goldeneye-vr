@@ -15,8 +15,10 @@
 #include "matrixmath.h"
 #include "gun.h"
 #include "bgfog.h"
+#include "random.h"
 
-extern int VrRagdolls, VrDismemberment, VrBodiesStay;
+extern int VrRagdolls, VrDismemberment, VrBodiesStay, VrDismemberChance;
+extern float VrDismemberDamage;
 extern ModelRenderData D_8002CCBC;
 extern s32 g_gevrExtraPass;
 
@@ -36,9 +38,10 @@ const RdSkel g_RdSkelHuman = {
     { 0, 0.30f, 0.17f, 0.15f, 0.15f, 0.12f, 0.12f, 0, 0, 0.19f, 0.19f, 0.16f, 0.16f, 0, 0 },
 };
 
-/* CE ragdoll.c:41, 44, 651-654, 12; rd_internal.h RD_KILLFLOOR_Y, RD_COLROOM_MOVE */
-#define RD_DISMEMBER_DAMAGE 2.0f  /* weapon damage needed: KF7 = 1, golden gun = 100 */
-#define RD_DISMEMBER_CHANCE 40    /* % when strong enough */
+/* CE ragdoll.c:41, 44, 651-654, 12; rd_internal.h RD_KILLFLOOR_Y, RD_COLROOM_MOVE.
+ * Damage needed and chance are CE's two settings (VrDismemberDamage/Chance). */
+#define RD_DISMEMBER_DAMAGE VrDismemberDamage
+#define RD_DISMEMBER_CHANCE VrDismemberChance
 #define RD_SPLIT_DAMAGE     50.0f /* torso hits only split the waist this hard */
 #define RD_PUSH_HIT   525.0f
 #define RD_PUSH_ALL   180.0f
@@ -291,6 +294,10 @@ static int rdClone(RdBody *rd, ChrRecord *chr)
             for (ModelNode *a=n->Parent;a && hitpart>=0 && hitpart<20;a=a->Parent)
                 if ((a->Opcode&255)==MODELNODE_OPCODE_GROUP && a->Data->Group.JointID>=1 && a->Data->Group.JointID<=RD_SKEL) {
                     rd->hitskel[hitpart]=a->Data->Group.JointID-1;
+                    if (rd->nbbox<20) {
+                        rd->bbox[rd->nbbox]=n; rd->bboxHit[rd->nbbox]=hitpart;
+                        rd->bboxSkel[rd->nbbox++]=a->Data->Group.JointID-1;
+                    }
                     break;
                 }
         }
@@ -843,6 +850,40 @@ void gevrRagdollTick(int ticks60)
     }
 }
 
+/* A shot body bleeds where it was hit, as a living guard does
+ * (chrHandleBulletHit -> chrCreateBloodStain, chr.c:3876): the hit box of
+ * that part nearest the hit, the point pushed half out from its joint and
+ * half a joint into the body, in that box's matrix. The stain paints the
+ * body's own vertex copies, and Bean's wound follows it. The game's random
+ * sequence (the stain's shade) is put back: the body is cosmetic. */
+static void rdStain(RdBody *b, int part, const float hit[3], const float dir[3])
+{
+    int best=-1; float bestd=1e30f;
+    for(int i=0;i<b->nbbox;i++) {
+        int sp=b->bboxSkel[i];
+        while(sp>0 && b->body[sp]<0)sp=g_RdSkelHuman.parent[sp];
+        if(sp<0 || b->body[sp]!=part)continue;
+        const int m=modelFindNodeMtxIndex(b->bbox[i],0);
+        if(m<0 || m>=b->matrices)continue;
+        Mtxf w; rdMul(&b->offset[m],&b->joints[b->owner[m]],&w);
+        float d=0; for(int k=0;k<3;k++){float x=w.m[3][k]-hit[k];d+=x*x;}
+        if(d<bestd){bestd=d;best=i;}
+    }
+    if(best<0)return;
+    ModelNode *node=b->bbox[best];
+    const int m=modelFindNodeMtxIndex(node,0);
+    Mtxf w,inverse; rdMul(&b->offset[m],&b->joints[b->owner[m]],&w);
+    if(!rdInverse(&w,&inverse))return;
+    const float size=getjointsize(&b->model,node)*0.5f;
+    float p[3];
+    for(int k=0;k<3;k++)p[k]=hit[k]+(hit[k]-w.m[3][k])*0.5f-size*dir[k];
+    rdTransform(&inverse,p,1);
+    coord3d local; memcpy(local.f,p,sizeof(local.f));
+    const u64 seed=g_randomSeed;
+    chrCreateBloodStain(&b->model,b->bboxHit[best],node,&local);
+    g_randomSeed=seed;
+}
+
 /* The piece of body part 'part' and everything joined to it */
 static void rdPushPiece(RdBody *b, int part, const float v[3])
 {
@@ -876,6 +917,7 @@ void gevrRagdollShot(ShotData *shot)
         pdphysRagdollAddVelocity(handle,part,push);
         pdphysRagdollKeepAwake(handle,0.2f);
         b->asleep=0;
+        if(shot->weapon!=ITEM_FIST)rdStain(b,part,hit,shot->dir.f);
         const int cut=rdCutForHit(b,part,shot->weapon);
         if(cut>=0)rdCut(b,cut);
         return;
