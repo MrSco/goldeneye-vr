@@ -157,3 +157,11 @@ Allow microphone access when hosting or joining to talk. Denying it leaves voice
    Then with two headsets: the client sees the bots move smoothly and fire. Shots and kills land both ways, and the scores agree. A client joining a full game mid-round replaces the lowest-scoring bot at once. A client joining the warmup takes a bot's slot, and the bot comes back when the client leaves. When the host quits, the client takes the match over with the bots (`... bot(s) adopted`).
 
 The mode still needs a two-headset playtest of steps 8 and 9. Also test two separate home networks, a phone hotspot, a four-player and an eight-player game with mixed LAN and internet joins, private code visibility, and reconnecting after a disconnect. Confirm that damage and respawn state agree on all headsets after several kills.
+
+## Tracked head and arm poses
+
+Protocol 22 adds remote headset rotation and both controller poses, including
+the empty offhand. Living VR avatars use two-bone arm IK and an independent
+torso heading; guns follow their wrists, including left-handed mode. Bots
+and players without tracking keep their animations. All players need an
+updated build. See [behavior, validation and limits](docs/multiplayer-ik.md).

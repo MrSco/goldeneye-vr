@@ -9,9 +9,10 @@
 #include "net/netbuf.h"
 #include "net_rules.h"
 #include "net_match.h"
+#include "gevr_avatar_math.h"
 
 #define GEVR_NET_MAGIC           0x47455652  /* "GEVR" */
-#define GEVR_NET_VERSION         21  /* 21: host movement speed; 20: v0.4.14, the hit immunity rule's bits (NET_FUN_HIT_IMMUNITY, NET_FUN_HIT_EVERY), which v0.4.11-v0.4.13 refuse, and soft collision; 19: the No radar match rule (NET_FUN_NO_RADAR), which v0.4.11 rejects, and bots (the match config's bot fields, the lobby slot's is_bot); 18: v0.4.6, a match config may name Statue (22) and Cradle (41), which v0.4.5 rejects; 17: v0.4.0, the released form of 16 (16 named only unreleased test builds, whose packet layout changed under it); 16: eight player slots and the host's player count; co-op mode (mode, difficulty in the match config; guard, mission, menu and revive messages); 15: clock synchronization, timestamped shots, epoch/life IDs; 14: next-round fun settings; 13: team voice routing; 12: friendly fire and authoritative ammo transforms; 11: voice modes, pending/active teams, elimination, ping; 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
+#define GEVR_NET_VERSION         22  /* 22: tracked head/both wrists and torso yaw for multiplayer IK; 21: host movement speed; 20: hit immunity and soft collision; 19: no radar and bots; 18: Statue/Cradle; 17: v0.4.0; 16: eight players and co-op; 15: combat clock and lives; 14: next-round settings; 13: team voice; 12: friendly fire/ammo; 11: teams, elimination, ping; 10: owner health/death; 9: match config and left hand; 8: votes/migration; 7: gun aim and world events */
 #define GEVR_DEFAULT_PORT        27007
 #define GEVR_DISCOVERY_PORT      27008
 #define GEVR_MAX_PLAYERS         8   /* protocol 16; every slot is a game player number (src/bondconstants.h MAX_PLAYER_COUNT) */
@@ -412,6 +413,7 @@ struct netplayermove {
     f32 health;         /* bondhealth, 0..1 */
     f32 armour;         /* bondarmour, 0..1 */
     u8  dead;           /* bonddead */
+    GevrAvatarPose avatar; /* always serialized, flags=0 for flat players/bots */
 };
 
 /* Serialization for netplayermove */
@@ -438,6 +440,13 @@ static inline u32 netbufWritePlayerMove(struct netbuf *buf, const struct netplay
     netbufWriteF32(buf, m->health);
     netbufWriteF32(buf, m->armour);
     netbufWriteU8(buf, m->dead);
+    netbufWriteU8(buf, m->avatar.flags);
+    netbufWriteF32(buf, m->avatar.body_yaw);
+    for (int j=0;j<3;j++) {
+        const GevrTrackedPose *p=j?&m->avatar.hand[j-1]:&m->avatar.head;
+        for(int k=0;k<3;k++)netbufWriteF32(buf,p->pos[k]);
+        for(int k=0;k<4;k++)netbufWriteF32(buf,p->q[k]);
+    }
     return buf->error;
 }
 
@@ -464,6 +473,14 @@ static inline u32 netbufReadPlayerMove(struct netbuf *buf, struct netplayermove 
     m->health = netbufReadF32(buf);
     m->armour = netbufReadF32(buf);
     m->dead = netbufReadU8(buf);
+    m->avatar.flags=netbufReadU8(buf);
+    m->avatar.body_yaw=netbufReadF32(buf);
+    for(int j=0;j<3;j++) {
+        GevrTrackedPose *p=j?&m->avatar.hand[j-1]:&m->avatar.head;
+        for(int k=0;k<3;k++)p->pos[k]=netbufReadF32(buf);
+        for(int k=0;k<4;k++)p->q[k]=netbufReadF32(buf);
+    }
+    if(!buf->error && !gevrPoseValidate(&m->avatar))buf->error=1;
     return buf->error;
 }
 
