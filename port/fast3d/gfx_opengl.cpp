@@ -477,14 +477,15 @@ static void gevr_decal_switch_poll(void)
  *      without Z_UPD; untinted = ordinary opaque
  *   2  every draw without Z_CMP is depth-tested (GL_LESS) anyway
  *   3  stereo keeps the per-room portal scissor (bg.c bgScissorCurrentPlayerView)
- * While on, a count of draws per class is logged every 300 frames.
+ * While on, a count of draws per class is logged every 600 frames.
  */
 extern "C" { int gevrZDebugMode = 0; }
 static unsigned s_zDebugCount[6];
 static void gevr_zdebug_poll(void)
 {
     static unsigned n;
-    if ((n++ % 120) != 0) return;
+    unsigned frame = n++;
+    if ((frame % 120) != 0) return;
     FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_zdebug.txt", "r");
     int mode = 0;
     if (f) {
@@ -495,7 +496,7 @@ static void gevr_zdebug_poll(void)
         gevrZDebugMode = mode;
         sysLogPrintf(LOG_NOTE, "zdebug: mode %d", mode);
     }
-    if (gevrZDebugMode != 0 && (n % 600) == 0) {
+    if (gevrZDebugMode != 0 && (frame % 600) == 0) {
         sysLogPrintf(LOG_NOTE, "zdebug: draws since last: notest %u nocmp %u decal %u xlu %u noupd %u opaque %u",
                      s_zDebugCount[0], s_zDebugCount[1], s_zDebugCount[2], s_zDebugCount[3], s_zDebugCount[4], s_zDebugCount[5]);
         memset(s_zDebugCount, 0, sizeof(s_zDebugCount));
