@@ -1,4 +1,7 @@
 #include <ultra64.h>
+#ifdef GEVR
+#include "gevr_avatar.h"
+#endif
 #include <memp.h>
 #include "model.h"
 #ifdef GEVR
@@ -1597,6 +1600,15 @@ void process_02_position(ModelRenderData *arg0, Model *model, ModelNode *node)
     }
 #endif
 
+#ifdef GEVR
+    /* Override local joint rotations before generating primary AND bend matrices. */
+    if (gevrAvatarJointRotation(model, node, &rot1)) {
+        modelBuildGroupMatrices(arg0, model, node, &rot1);
+        gevrAvatarJointOffset(model, node);
+        return;
+    }
+#endif
+
     sub_GAME_7F06DEC0(jointnum.v, model->gunhand, skeleton, model->anim, model->unk34, &rot1);
 
     if (model->unk2c != 0.0f)
@@ -1653,6 +1665,9 @@ void process_02_position(ModelRenderData *arg0, Model *model, ModelNode *node)
     {
         modelBuildGroupMatrices(arg0, model, node, &rot1);
     }
+#ifdef GEVR
+    gevrAvatarJointOffset(model, node);
+#endif
 }
 
 
