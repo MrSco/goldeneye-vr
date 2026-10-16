@@ -17,8 +17,9 @@ void gevrRagdollCapture(struct ChrRecord *chr);
 void gevrRagdollCapturePlayer(struct ChrRecord *chr);
 int gevrRagdollSuppress(struct ChrRecord *chr);
 void gevrRagdollForgetChr(struct ChrRecord *chr);
-void gevrRagdollNoteHit(struct ChrRecord *chr, int matrix, int hitpart, const float dir[3]);
+void gevrRagdollNoteHit(struct ChrRecord *chr, int matrix, int hitpart, const float dir[3], int weapon);
 void gevrRagdollShot(struct ShotData *shot);
+void gevrRagdollVolley(int begin);
 Gfx *gevrRagdollRender(Gfx *gdl);
 
 /* Bean's cut triangles are posed on the CPU. Map cross-cut influences into

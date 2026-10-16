@@ -70,7 +70,7 @@ static void rdPatch(RdBody *rd,RdMesh *m)
 
 int rdCut(RdBody *rd,int part)
 {
-    if(part<0 || part>=rd->count || rd->parent[part]<0 || rd->joint[part]<4 || (rd->cuts&(1u<<part)))return 0;
+    if(part<0 || part>=rd->count || rd->parent[part]<0 || g_RdSkelHuman.cutradius[rd->skel[part]]<=0 || (rd->cuts&(1u<<part)))return 0;
     /* A nested list could still load the other piece's matrices. Leave that
      * model joined rather than allow a cut with an unpatched seam. */
     for(int i=0;i<rd->nmeshes;i++)for(int j=0;j<rd->meshes[i].ncommands;j++)
@@ -94,6 +94,8 @@ Gfx *rdDrawCaps(RdBody *rd,Gfx *gdl)
     else { gDPSetRenderMode(gdl++,G_RM_AA_ZB_OPA_SURF,G_RM_AA_ZB_OPA_SURF2); }
     for(int part=0;part<rd->count;part++)if(rd->cuts&(1u<<part)) {
         int parent=rd->parent[part];
+        /* CE's cap size per cut joint, a fraction of the torso length */
+        const float radius=g_RdSkelHuman.cutradius[rd->skel[part]]*rd->torso;
         float normal[3],u[3],v[3],length=0;
         for(int k=0;k<3;k++){normal[k]=rd->initial[part].m[3][k]-rd->initial[parent].m[3][k];length+=normal[k]*normal[k];}
         length=sqrtf(length); if(length<1e-6f)continue;
@@ -110,7 +112,7 @@ Gfx *rdDrawCaps(RdBody *rd,Gfx *gdl)
             memset(vertices,0,9*sizeof(Vtx));
             for(int j=0;j<9;j++) {
                 float p[3]; float angle=(j-1)*6.28318530718f/8;
-                for(int k=0;k<3;k++)p[k]=rd->initial[part].m[3][k]+(j?rd->radius[part]*(cosf(angle)*u[k]+sinf(angle)*v[k]):0);
+                for(int k=0;k<3;k++)p[k]=rd->initial[part].m[3][k]+(j?radius*(cosf(angle)*u[k]+sinf(angle)*v[k]):0);
                 rdTransform(&inverse,p,1);
                 for(int k=0;k<3;k++)vertices[j].v.ob[k]=(s16)fmaxf(-32768,fminf(32767,roundf(p[k])));
                 vertices[j].v.cn[0]=j?90:120; vertices[j].v.cn[1]=6; vertices[j].v.cn[2]=6; vertices[j].v.cn[3]=(u8)rd->alpha;

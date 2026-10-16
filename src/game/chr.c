@@ -3811,7 +3811,7 @@ void chrHandleBulletHit(struct ShotData *shot, struct BulletHit *bhit)
     chrCreateHitPuffs(bhit->prop, bhit->hitpart, &hitpos, &nearhitpos);
 
 #ifdef GEVR
-    gevrRagdollNoteHit(chr, bhit->room, bhit->hitpart, shot->dir.f);
+    gevrRagdollNoteHit(chr, bhit->room, bhit->hitpart, shot->dir.f, shot->weapon);
 #endif
     // Apply damage to the character.
     if (!handles_shot_actors(chr, bhit->hitpart, &shot->dir, shot->weapon, TRUE)) {

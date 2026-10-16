@@ -14,6 +14,23 @@
 #define RD_MATRICES 96
 #define RD_NODES 512
 
+/* Perfect Dark CE's human ragdoll skeleton (port/src/ragdoll.c g_RdSkelHuman).
+ * PD's chr skeleton is GoldenEye's guard skeleton less its HEADER joint:
+ * skeleton part p is the guard GROUP with JointID p+1 (1 pelvis, 2 chest,
+ * 3 head, 4/5 upper arms, 6/7 forearms, 8/9 hands, 10/11 thighs, 12/13 shins,
+ * 14/15 feet; gevr_bean_mapping_test checks these against the cartridge). */
+#define RD_SKEL 15
+typedef struct RdSkel {
+    s8 parent[RD_SKEL];
+    s8 hasbody[RD_SKEL];   /* 0: moves rigidly with its parent (hands, feet) */
+    s8 child[RD_SKEL];     /* the part its bone runs to, -1 = none */
+    s8 hingesign[RD_SKEL]; /* elbows and knees bend one way */
+    float mass[RD_SKEL];   /* kg at RD_MASS_REFTORSO */
+    float cutradius[RD_SKEL]; /* cap size (fraction of the torso), 0 = can't be cut */
+} RdSkel;
+extern const RdSkel g_RdSkelHuman;
+#define RD_MASS_REFTORSO 41.0f
+
 typedef struct RdMemory {
     struct RdMemory *next;
     unsigned retired;
@@ -39,8 +56,15 @@ typedef struct RdBody {
     int nmeshes;
     ModelNode *nodes[RD_PARTS];
     int primary[RD_PARTS], parent[RD_PARTS], joint[RD_PARTS];
+    int skel[RD_PARTS], body[RD_SKEL]; /* body index <-> CE skeleton part */
+    int hitskel[20];                   /* hitpart -> skeleton part (BBOX nodes) */
     int owner[RD_MATRICES];
-    float radius[RD_PARTS];
+    float radius[RD_PARTS], torso;
+    Mtxf skelInitial[RD_SKEL];         /* every skeleton joint at death, hands and feet too */
+    unsigned lastpush;
+    float colroompos[3];
+    int asleep, onscreen;
+    u8 visrooms[16];
     Mtxf bind[RD_MATRICES], offset[RD_MATRICES];
     Mtxf joints[RD_PARTS], initial[RD_PARTS];
     coord3d origin;
