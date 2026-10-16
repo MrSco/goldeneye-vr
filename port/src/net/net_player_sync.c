@@ -9,6 +9,7 @@
 #include "net_protocol.h"
 #include "net_voice.h"
 #include "system.h"
+#include "gevr_avatar.h"
 #include <ultra64.h>
 #include <bondtypes.h>
 #include "game/player.h"
@@ -686,6 +687,8 @@ void netPlayerSyncAfterTick(s32 playernum) {
         move.pos = pl->pos;
     }
     
+    gevrAvatarCapture(&move.avatar, pl);
+
     /* Hand controller transform */
     move.handpos.x = gCtrlPos[1][0];
     move.handpos.y = gCtrlPos[1][1];

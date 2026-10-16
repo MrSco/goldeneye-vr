@@ -194,6 +194,7 @@ static void netApplyDamage(uint8_t target, uint8_t attacker, uint8_t weapon, flo
 }
 static NetMsgPlayerState s_remote_players[GEVR_MAX_PLAYERS];
 static bool s_remote_active[GEVR_MAX_PLAYERS];
+static GevrPoseHistory s_avatar_history[GEVR_MAX_PLAYERS];
 static bool s_waiting_for_match_snapshot = false;
 static bool s_stage_ready_sent = false;
 static uint64_t s_last_stage_ready_us = 0;
@@ -2526,6 +2527,12 @@ const struct netplayermove *netGetRemotePlayerMove(int slot_id) {
     return &s_remote_moves[slot_id];
 }
 
+int netGetAvatarPose(int slot,GevrAvatarPose *pose,float weight[3]) {
+    if(!netIsActive() || !netIsRemotePlayerActive(slot) || netSlotIsBot(slot) ||
+       s_remote_moves[slot].dead)return 0;
+    return gevrPoseSample(&s_avatar_history[slot],sysGetMicroseconds(),pose,weight);
+}
+
 const NetMsgPlayerState *netGetRemotePlayerState(int slot_id) {
     if (slot_id < 0 || slot_id >= GEVR_MAX_PLAYERS) return NULL;
     return &s_remote_players[slot_id];
@@ -3518,6 +3525,8 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 netbufReadPlayerMove(&buf, &move);
                 if (buf.error || netbufReadLeft(&buf) != 0 || move.epoch!=s_combat_epoch || move.life_id!=s_hit_life[slot]) break;
                 if(s_remote_active[slot] && (int32_t)(move.tick-s_remote_moves[slot].tick)<=0)break;
+                if(!s_remote_active[slot])memset(&s_avatar_history[slot],0,sizeof(s_avatar_history[slot]));
+                gevrPosePush(&s_avatar_history[slot],&move.avatar,move.pos.f,move.epoch,move.life_id,sysGetMicroseconds());
                 s_remote_moves[slot] = move;
                 if (netIsHost()) netObserveHitMove(slot,&move);
                 
