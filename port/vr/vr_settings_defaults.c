@@ -101,6 +101,8 @@ int VrBeanModels = 1;
 int VrBeanFillTextures = 1;
 /* Mods: Wreck's blood patch, off as the cartridge ships. */
 int VrBloodPatch = 0;
+int VrRagdolls = 0;       /* optional Jolt death physics, every game mode */
+int VrDismemberment = 0; /* independent preference; requires ragdolls */
 int VrWatchFaceStatus = GEVR_WATCH_FACE_ON;
 int VrWatchGesturePause = 1;
 /* The watch's Controls page: 0 draws the headset's own Touch controllers,

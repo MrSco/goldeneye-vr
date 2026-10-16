@@ -72,6 +72,7 @@ Also:
 
   In game, hold **Menu** until the return-to-launcher prompt shows, then press **X** to switch the HD textures off and back on to compare.
 - **Multiplayer** (experimental): deathmatch for up to eight players, with **bots** to fill the empty slots or to play against on your own, or the campaign in co-op for up to four, each in their own headset, over the internet or your Wi-Fi: browse public games or share a private code. See [Multiplayer](#-multiplayer-experimental).
+- **Optional ragdolls and limb dismemberment** (experimental): Play -> Game rules -> Ragdolls and limbs. Off by default; works in every mode, with the body count set to fade, 12, 24 or 48. Physics and cuts are local to each headset. See [setup, limits and testing](docs/ragdolls.md).
 - **3D sound**: gunfire, explosions, doors and the game's other sounds come from where they happen, through the same Steam Audio 3D audio as voice chat. A fight in the next room sounds like it's round the corner, not through the wall.
 - **GoldenEye X** (optional, WIP): models and animations for every GoldenEye weapon and item, with magazines, single rounds
   and speedloaders reloaded by hand in VR, one-handed remote mines, and its arms wearing the watch, loaded from your own patched Perfect Dark ROM.

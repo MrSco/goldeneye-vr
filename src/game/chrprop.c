@@ -8,6 +8,9 @@
 #include "gevr_romlayout.h"
 #endif
 #include <ultra64.h>
+#ifdef GEVR
+#include "gevr_ragdoll.h"
+#endif
 #include <assert.h>
 #include <bondgame.h>
 #include <bondtypes.h>
@@ -1593,6 +1596,10 @@ void chraiDefaultWeaponFireHandler(s32 hand)
             }
         }
     }
+
+#ifdef GEVR
+    gevrRagdollShot(&shotdata);
+#endif
 
     for (k = 0; k < 10; k++)
     {

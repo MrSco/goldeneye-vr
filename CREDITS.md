@@ -281,3 +281,15 @@ If you spot a missing credit for something we really used, open an Issue titled 
 - [LICENSE](LICENSE) - MIT, for this tree
 - Upstream GEVR (PC/VR), including its `PRIOR-ART.md` and `LICENSE-MAP.md`:
   https://github.com/no6969el/GEVR
+
+## Chesluk Industries - Perfect Dark CE ragdoll backend
+
+The optional ragdoll integration uses the Jolt C interface from
+[Perfect Dark CE](https://github.com/Chesluk-Industries/Perfect-Dark-CE),
+Stable commit `e33826da88e929e782e22af1a62278e2de1d5cb6`. The GoldenEye
+character, retention and mesh integration is new. See
+[the MIT notice](port/licenses/perfect-dark-ce.txt), also shipped in the APK.
+
+[Jolt Physics](https://github.com/jrouwe/JoltPhysics), by Jorrit Rouwe, is
+pinned to v5.6.0 (`e77f175595e64cb44218cc9d9d56fc365ad0e36a`).
+Its [MIT notice](port/licenses/jolt.txt) is also shipped in the APK.

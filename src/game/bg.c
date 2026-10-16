@@ -1,4 +1,7 @@
 #include <ultra64.h>
+#ifdef GEVR
+#include "gevr_ragdoll.h"
+#endif
 #include <PR/os.h>
 #include <PR/gbi.h>
 #include <gbi_extension.h>
@@ -886,6 +889,9 @@ Gfx *sub_GAME_7F0B3C8C(Gfx *gdl)
     assert(notdone == 0);
     #endif
  
+#ifdef GEVR
+    gdl = gevrRagdollRender(gdl);
+#endif
     return gdl;
 }
 

@@ -5,6 +5,14 @@
 
 struct ModelFileHeader;
 struct Model;
+/* Optional presentation provider. With no provider the normal GPU path is
+ * unchanged, including standalone model tools and native regression fixtures. */
+typedef struct GevrBeanCuts {
+    int (*active)(const struct Model *model);
+    int (*piece)(const struct Model *model, int matrix);
+    int (*remap)(const struct Model *model, int owner, int matrix, float p[3], float n[3]);
+} GevrBeanCuts;
+void gevrBeanSetCuts(const GevrBeanCuts *cuts);
 struct fontchar;
 void gevrBeanFontRepaint(struct fontchar *glyph, int gothic, int character);
 void gevrBeanFontReset(void);

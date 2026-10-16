@@ -21,6 +21,8 @@ int VrBodiesStay, VrFastReinforcements;
 static bool network;
 static bool host, coop, host_fast;
 static s32 players = 1, free_slots = 64, next_slot = 1;
+static ChrRecord *physicsBody;
+s32 gevrRagdollSuppress(ChrRecord *chr) { return chr == physicsBody; }
 
 bool netIsActive(void) { return network; }
 s32 gevrCoopHostGuards(void) { return network && host && coop; }
@@ -89,6 +91,7 @@ static ChrRecord *reset(int bodies, int fast)
     memset(slots, 0, sizeof(slots));
     VrBodiesStay = bodies;
     VrFastReinforcements = fast;
+    physicsBody = NULL;
     network = FALSE; players = 1; free_slots = 63; next_slot = 1; g_ClockTimer = 0;
     host = coop = host_fast = FALSE;
     ChrRecord *parent = make_chr(0, 5);
@@ -198,6 +201,17 @@ static void fast_mode(void)
     }
 }
 
+static void physics_handoff(void)
+{
+    ChrRecord *parent=reset(48,0),*clone=spawn(parent);
+    die(clone);tick(clone,20);assert(gevrBodyKept(clone));
+    physicsBody=clone;tick(clone,1);
+    assert(!gevrBodyKept(clone) && clone->act_init.padding[0]==21);
+    tick(clone,CHRLV_TICK_DEAD_CHECK);
+    assert(clone->hidden & CHRHIDDEN_REMOVE);
+    physicsBody=NULL;
+}
+
 static void coop_mode(void)
 {
     ChrRecord *parent=reset(48,1), *latest=spawn(parent);
@@ -218,7 +232,7 @@ int main(int argc, char **argv)
 {
     if (argc > 1 && !strcmp(argv[1], "timing")) { timing(); return 0; }
     if (argc > 1 && !strcmp(argv[1], "tracking")) { tracking(); return 0; }
-    timing(); tracking(); retention_changes(); fast_mode(); coop_mode();
+    timing(); tracking(); retention_changes(); physics_handoff(); fast_mode(); coop_mode();
     printf("PASS: %d-tick fade parity, all body counts, replacement IDs, optional swarm and host-controlled co-op\n",
            CHRLV_TICK_DEAD_CHECK);
     return 0;

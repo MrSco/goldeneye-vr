@@ -31,6 +31,7 @@
 #ifdef GEVR
 #include "net_coop.h"
 #include "gevr_romlayout.h"
+#include "gevr_ragdoll.h"
 #endif
 #include "propobj.h"
 #include "stan.h"
@@ -1772,6 +1773,9 @@ void chrpropCleanupForRemoval(PropRecord *prop)
 
     chr = prop->chr;
     model = chr->model;
+#ifdef GEVR
+    gevrRagdollForgetChr(chr);
+#endif
 
     if (chr->field_160[0].ptr_SEbuffer1 != NULL && sndGetPlayingState(chr->field_160[0].ptr_SEbuffer1) != 0) {
         sndDeactivate(chr->field_160[0].ptr_SEbuffer1);
@@ -2677,6 +2681,9 @@ after_position_update:
         chr->field_20 = NULL;
     }
 
+#ifdef GEVR
+    if (gevrRagdollNeedsPose(chr)) headSwitchVisible = 1;
+#endif
     if (headSwitchVisible)
     {
         if (get_debug_chrnum_flag()) {}
@@ -2730,6 +2737,9 @@ after_position_update:
         }
 
         subcalcmatrices(&renderdata, model);
+#ifdef GEVR
+        gevrRagdollCapture(chr);
+#endif
 
         g_ModelJointPositionedFunc = NULL;
         modelSetDistanceScale(1.0f);
@@ -3104,6 +3114,12 @@ Gfx *chrRenderProp(PropRecord *prop, Gfx *gdl, s32 withalpha)
 
     chr = prop->chr;
     chrmodel = chr->model;
+#ifdef GEVR
+    if (gevrRagdollSuppress(chr)) {
+        if (withalpha && chr->field_20) { sub_GAME_7F06B248(chr->field_20); chr->field_20 = NULL; }
+        return gdl;
+    }
+#endif
     chrfadealpha = (s32) chr->fadealpha;
 
     if (!(chr->chrflags & CHRFLAG_04000000))
@@ -3639,7 +3655,11 @@ void chrTestHit(PropRecord *prop, ShotData *shotdata)
 
     chr = prop->chr;
 
-    if (chr->actiontype == ACT_DEAD)
+    if (chr->actiontype == ACT_DEAD
+#ifdef GEVR
+        || gevrRagdollSuppress(chr)
+#endif
+    )
     {
         return;
     }
@@ -3790,6 +3810,9 @@ void chrHandleBulletHit(struct ShotData *shot, struct BulletHit *bhit)
 
     chrCreateHitPuffs(bhit->prop, bhit->hitpart, &hitpos, &nearhitpos);
 
+#ifdef GEVR
+    gevrRagdollNoteHit(chr, bhit->room, bhit->hitpart, shot->dir.f);
+#endif
     // Apply damage to the character.
     if (!handles_shot_actors(chr, bhit->hitpart, &shot->dir, shot->weapon, TRUE)) {
         return;
