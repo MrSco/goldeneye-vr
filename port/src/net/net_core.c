@@ -2366,11 +2366,16 @@ void gevrNetConfigSet(int field, int value) {
     if (!netValidConfig(&c)) return;
     netLobbySetConfig(&c);
     c = s_lobby_state.config; // Persist the accepted host settings.
-    VrMpStage=c.stage; VrMpScenario=c.scenario; VrMpWeaponSet=c.weapon_set;
-    VrMpLength=c.game_length; VrMpHealth=c.health; VrMpDual=c.dual_wield;
-    VrMpLoadouts=c.loadouts; VrMpNextRound=c.next_round; VrMpVoiceMode=s_lobby_state.config.voice_mode; if(c.mode==NET_MODE_HORDE) VrHordeFriendlyFire=c.friendly_fire; else VrMpFriendlyFire=c.friendly_fire; VrMpFunFlags=c.fun_flags & NET_FUN_MASK; VrMpGunSize=c.gun_size; VrMpMaxPlayers=c.max_players;
+    if (c.mode != NET_MODE_HORDE) {
+        VrMpStage=c.stage; VrMpScenario=c.scenario; VrMpWeaponSet=c.weapon_set;
+        VrMpLength=c.game_length; VrMpHealth=c.health; VrMpDual=c.dual_wield;
+        VrMpLoadouts=c.loadouts; VrMpNextRound=c.next_round; VrMpMaxPlayers=c.max_players;
+        VrMpBotMode=c.bot_mode; VrMpBotCount=c.bot_count; VrMpBotDifficulty=c.bot_difficulty;
+    }
+    VrMpVoiceMode=c.voice_mode;
+    if(c.mode==NET_MODE_HORDE) VrHordeFriendlyFire=c.friendly_fire; else VrMpFriendlyFire=c.friendly_fire;
+    VrMpFunFlags=c.fun_flags & NET_FUN_MASK; VrMpGunSize=c.gun_size;
     VrMpMovementSpeed=c.movement_speed;
-    VrMpBotMode=c.bot_mode; VrMpBotCount=c.bot_count; VrMpBotDifficulty=c.bot_difficulty;
     if (c.mode == NET_MODE_COOP) VrCoopFastReinforcements = (c.fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0;
     for (int k=0;k<4;k++) VrMpCustom[k]=c.custom_set[k];
     vrSettingsSave();
