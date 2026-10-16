@@ -1145,6 +1145,7 @@ static const char *stageNameById(int levelId) { return netStageName(netStageInde
 // 0x80 | where the party is (its menus or a mission's level id), and its
 // difficulty in the weapons' place (net_core.c netGetLobbyStage).
 static std::string listedGameLabel(int stage, int weapons) {
+    if (stage == NET_LOBBY_HORDE_STAGE) return "Horde: Archives";
     if (stage & NET_LOBBY_COOP_STAGE) {
         const uint8_t where = (uint8_t)(stage & 0x7F);
         if (where == NET_COOP_FRONT_STAGE)
@@ -1188,6 +1189,13 @@ static NetMatchConfig gevrLauncherConfig() {
     c.bot_mode = (uint8_t)clampi(VrMpBotMode, NET_BOT_MODE_COUNT, NET_BOT_OFF);
     c.bot_count = (uint8_t)(VrMpBotCount >= 1 && VrMpBotCount < GEVR_MAX_PLAYERS ? VrMpBotCount : 3);
     c.bot_difficulty = (uint8_t)clampi(VrMpBotDifficulty, NET_BOT_DIFF_COUNT, NET_BOT_NORMAL);
+    if (VrMpMode == NET_MODE_HORDE) {
+        c.mode=NET_MODE_HORDE;c.stage=NET_HORDE_STAGE;c.difficulty=0;
+        c.friendly_fire=VrHordeFriendlyFire!=0;
+        c.max_players=NET_COOP_MAX_PLAYERS;c.bot_mode=NET_BOT_OFF;
+        c.scenario=0;c.game_length=0;c.loadouts=0;c.dual_wield=NET_DUAL_DOUBLES;
+        return c;
+    }
     if (VrMpMode == NET_MODE_COOP) {
         // the solo campaign for the party: it starts in the game's menus, where the
         // host picks each mission and difficulty; four players at most (the deathmatch
@@ -1204,7 +1212,7 @@ static NetMatchConfig gevrLauncherConfig() {
 
 // Co-op carries the host's deathmatch scenario along unused: never teams.
 static bool gevrConfigHasTeams(int mode, int scenario) {
-    return mode != NET_MODE_COOP && netScenarioHasTeams(scenario);
+    return mode == NET_MODE_DEATHMATCH && netScenarioHasTeams(scenario);
 }
 static bool gevrLobbyHasTeams(const NetMatchConfig *c) { return gevrConfigHasTeams(c->mode, c->scenario); }
 
@@ -1235,7 +1243,7 @@ static void gevrHostChoiceChanged() {
     netLobbySetConfig(&c);
     const NetMatchConfig *accepted = netGetMatchConfig();
     VrMpMode = accepted->mode;
-    if (accepted->mode != NET_MODE_COOP)
+    if (accepted->mode == NET_MODE_DEATHMATCH)
         VrMpStage = accepted->stage;
     VrMpScenario = accepted->scenario;
     VrMpWeaponSet = accepted->weapon_set;
@@ -1245,13 +1253,14 @@ static void gevrHostChoiceChanged() {
     VrMpLoadouts = accepted->loadouts;
     VrMpNextRound = accepted->next_round;
     VrMpVoiceMode = accepted->voice_mode;
-    VrMpFriendlyFire = accepted->friendly_fire;
+    if (accepted->mode == NET_MODE_HORDE) VrHordeFriendlyFire = accepted->friendly_fire;
+    else VrMpFriendlyFire = accepted->friendly_fire;
     VrMpFunFlags = accepted->fun_flags & NET_FUN_MASK;
     if (accepted->mode == NET_MODE_COOP)
         VrCoopFastReinforcements = (accepted->fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0;
     VrMpGunSize = accepted->gun_size;
     VrMpMovementSpeed = accepted->movement_speed;
-    if (accepted->mode != NET_MODE_COOP) // co-op's four is not the deathmatch count
+    if (accepted->mode == NET_MODE_DEATHMATCH) // co-op's four is not the deathmatch count
         VrMpMaxPlayers = accepted->max_players;
     VrMpBotMode = accepted->bot_mode;
     VrMpBotCount = accepted->bot_count;
@@ -1366,7 +1375,7 @@ static void gevrMatchOptions(bool favorites = false) {
         ImGui::TableNextColumn();
         ImGui::TextColored(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "BOTS AND LIVE SETTINGS");
         // Bots: player slots the host runs (gevr_bot.c); they change between rounds only
-        if (VrMpMode != NET_MODE_COOP) {
+        if (VrMpMode == NET_MODE_DEATHMATCH) {
             ImGui::BeginDisabled(netIsActive() && !gevrNetBotRowsEditable());
             ImGui::Text("Bots:");
             ImGui::SameLine();
@@ -1454,7 +1463,7 @@ static void gevrMatchLiveOptions() {
     ImGui::EndDisabled();
     char delays[128]; netHostEqualizationText(delays, sizeof(delays));
     if (delays[0] && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", delays);
-    if (VrMpMode != NET_MODE_COOP && netScenarioHasTeams(VrMpScenario)) {
+    if (VrMpMode == NET_MODE_DEATHMATCH && netScenarioHasTeams(VrMpScenario)) {
         bool ff = VrMpFriendlyFire != 0;
         if (ImGui::Checkbox("Friendly fire", &ff)) {
             VrMpFriendlyFire = ff;
@@ -1611,10 +1620,12 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
             if (ImGui::RadioButton("Private game", VrMpVisibility == 1)) { VrMpVisibility=1;vrSettingsSave(); }
         }
         ImGui::TextUnformatted("Mode:");ImGui::SameLine();
-        if (ImGui::RadioButton("Deathmatch", VrMpMode != NET_MODE_COOP)) { VrMpMode=NET_MODE_DEATHMATCH;gevrHostChoiceChanged(); }
+        if (ImGui::RadioButton("Deathmatch", VrMpMode == NET_MODE_DEATHMATCH)) { VrMpMode=NET_MODE_DEATHMATCH;gevrHostChoiceChanged(); }
         ImGui::SameLine();
         if (ImGui::RadioButton("Co-op", VrMpMode == NET_MODE_COOP)) { VrMpMode=NET_MODE_COOP;gevrHostChoiceChanged(); }
-        if (VrMpMode != NET_MODE_COOP) {
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Horde", VrMpMode == NET_MODE_HORDE)) { VrMpMode=NET_MODE_HORDE;gevrHostChoiceChanged(); }
+        if (VrMpMode == NET_MODE_DEATHMATCH) {
             int stage=netStageIndexOf((uint8_t)VrMpStage);if (stage<0)stage=9;
             ImGui::TextUnformatted("Stage:");ImGui::SameLine();
             const bool teams=netScenarioHasTeams(VrMpScenario);
@@ -1634,12 +1645,15 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
                 if (gevrNamedCombo("##playerscombo",GEVR_MAX_PLAYERS-1,playerCountName,&count,false,
                                   [&](int n){return n+2<minimum;})) { VrMpMaxPlayers=count+2;gevrHostChoiceChanged(); }
             }
+        } else if (VrMpMode == NET_MODE_HORDE) {
+            ImGui::TextDisabled("Archives: solo or up to 4 players");
+            ImGui::TextWrapped("Endless waves of armed guards. Resupply between waves. Everyone down ends the run.");
         } else {
             ImGui::TextDisabled("Campaign: up to %d players",NET_COOP_MAX_PLAYERS);
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Each player picks a folder. The host picks missions. Players can join or leave any time.");
         }
         ImGui::TableNextColumn();
-        if (VrMpMode != NET_MODE_COOP) {
+        if (VrMpMode == NET_MODE_DEATHMATCH) {
             if (VrMpScenario == SCENARIO_MWTGG) ImGui::TextDisabled("Weapons: Golden Gun");
             else {
                 ImGui::TextUnformatted("Weapons:");ImGui::SameLine();
@@ -1938,17 +1952,19 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                         ImGui::EndTabItem();
                     }
                     if (ImGui::BeginTabItem("Match")) {
-                        if (VrMpMode == NET_MODE_COOP) {
+                        if (netModePve(VrMpMode)) {
                             if (ImGui::BeginTable("coop-match-columns", 2, ImGuiTableFlags_SizingStretchSame)) {
                                 ImGui::TableNextColumn();
-                                ImGui::TextColored(gold, "MISSION RULES");
+                                ImGui::TextColored(gold, VrMpMode == NET_MODE_HORDE ? "HORDE RULES" : "MISSION RULES");
                                 // co-op: the mission and difficulty decide the rest (Lobby tab)
                                 ImGui::BeginDisabled(netIsActive() && !netIsHost());
-                                bool ff = VrMpFriendlyFire != 0;
+                                bool ff = (VrMpMode == NET_MODE_HORDE ? VrHordeFriendlyFire : VrMpFriendlyFire) != 0;
                                 if (ImGui::Checkbox("Friendly fire", &ff)) {
-                                    VrMpFriendlyFire = ff;
+                                    if (VrMpMode == NET_MODE_HORDE) VrHordeFriendlyFire = ff;
+                                    else VrMpFriendlyFire = ff;
                                     gevrHostChoiceChanged();
                                 }
+                                if (VrMpMode == NET_MODE_COOP) {
                                 bool fast = netIsActive() ? (netGetMatchConfig()->fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0
                                                     : VrCoopFastReinforcements != 0;
                                 if (ImGui::Checkbox("Fast reinforcements", &fast)) {
@@ -1956,6 +1972,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                                     gevrHostChoiceChanged();
                                 }
                                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Harder: guards can call more reinforcements while earlier ones are alive. Changes apply immediately.");
+                                }
                                 ImGui::EndDisabled();
                                 ImGui::TableNextColumn();
                                 ImGui::TextColored(gold, "LIVE SETTINGS");
@@ -2010,7 +2027,9 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                             ImGui::TextUnformatted("Connecting to host...");
                         else if (connected) {
                             const NetMatchConfig *cfg = netGetMatchConfig();
-                            if (cfg->mode == NET_MODE_COOP) {
+                            if (cfg->mode == NET_MODE_HORDE) {
+                                ImGui::TextDisabled("Horde: Archives, endless armed guard waves");
+                            } else if (cfg->mode == NET_MODE_COOP) {
                                 ImGui::Text("Co-op campaign: the host picks the missions");
                                 ImGui::TextDisabled("Fast reinforcements: %s (host chooses)",
                                     cfg->fun_flags & NET_COOP_FAST_REINFORCEMENTS ? "On" : "Off");
