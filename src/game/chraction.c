@@ -2514,7 +2514,7 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
     extern int netDamageAllowed(int attacker, int target);
     if (self->prop->type == PROP_TYPE_VIEWER &&
         !netDamageAllowed(get_cur_playernum(), getPlayerPointerIndex(self->prop))) return FALSE;
-    gevrRagdollNoteHit(self, -1, weaponid == ITEM_FIST ? HIT_CHEST : hitpart, vector->f);
+    gevrRagdollNoteHit(self, -1, weaponid == ITEM_FIST ? HIT_CHEST : hitpart, vector->f, weaponid);
     /* Co-op (#94): a guard is hurt on the host, which runs it (net_coop.c) */
     if (self->prop->type == PROP_TYPE_CHR && isPlayer)
     {
