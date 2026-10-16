@@ -24,6 +24,7 @@ static int focused=1,aiming;
 static uint64_t now=1000000;
 static coord3d eye;
 int g_gevrStereo=1,VrLeftHandedMode;
+s32 g_gevrExtraPass;
 int gevrVrReady(void) {return ready;}
 int gevrVrSessionFocused(void) {return focused;}
 s32 gevrStereoShotWorld(s32 role,coord3d *origin,coord3d *dir) {(void)role;memset(origin,0,sizeof(*origin));dir->x=1;dir->y=dir->z=0;return aiming;}

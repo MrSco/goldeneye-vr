@@ -1,6 +1,6 @@
 /* Remote VR avatar adapter. Arm geometry: PD CE's two-bone clutch (MIT);
  * independent torso following: Alex-LeTux's perfect_dark_VR (MIT).
- * See docs/multiplayer-ik.md and port/licenses/{perfect-dark-ce.txt,../vr/LICENSE}. */
+ * See docs/multiplayer-ik.md and port/licenses/{perfect-dark-ce,perfect-dark-vr}.txt. */
 #include <stdbool.h>
 #include "gevr_avatar.h"
 #include "net/net_core.h"
@@ -15,6 +15,7 @@
 #include <string.h>
 
 extern int g_gevrStereo, VrLeftHandedMode;
+extern s32 g_gevrExtraPass; /* lv.c: a copy's or barrel's view pass, never drawn */
 extern int gevrVrReady(void), gevrVrGripTracked(int hand), gevrVrGripUsable(int hand);
 extern int gevrVrSessionFocused(void);
 extern int gevrVrGripPoseCamera(int hand,float pos[3],float q[4]);
@@ -164,6 +165,9 @@ void gevrAvatarApply(ChrRecord *chr,ModelRenderData *data) {
     int slot=getPlayerPointerIndex(chr->prop);
     if(slot<0 || slot>=GEVR_MAX_PLAYERS)return;
     s_collision[slot].model=NULL;
+    /* Extra passes only place bodies for shot traces; skip the extra matrix
+     * builds and dyn memory there (up to ~15 passes a frame with eight players). */
+    if(g_gevrExtraPass)return;
     if(chr->actiontype==ACT_DIE || chr->actiontype==ACT_DEAD)return;
     GevrAvatarPose pose;float weight[3];
     if(!netGetAvatarPose(slot,&pose,weight) || !chr->model->anim)return;
@@ -237,9 +241,11 @@ RenderPosView *gevrAvatarCollisionPose(Model *model) {
     return NULL;
 }
 ModelNode *gevrAvatarWeaponHand(ChrRecord *chr,int hand,int *physicalLeft) {
-    if(!chr || !chr->prop || chr->prop->type!=PROP_TYPE_VIEWER)return NULL;
+    if(!chr || !chr->prop || chr->prop->type!=PROP_TYPE_VIEWER || g_gevrExtraPass || hand<0 || hand>1)return NULL;
     int slot=getPlayerPointerIndex(chr->prop);GevrAvatarPose pose;float weight[3];
     if(!netGetAvatarPose(slot,&pose,weight))return NULL;
+    /* An untracked hand keeps the native attachment, not an animated far-side wrist. */
+    if(weight[hand+1]<=0)return NULL;
     ModelNode *nodes[16];if(!findRig(chr->model,nodes))return NULL;
     *physicalLeft=(hand==GUNLEFT)^((pose.flags&GEVR_POSE_LEFT_HANDED)?1:0);
     return nodes[*physicalLeft?8:9];
