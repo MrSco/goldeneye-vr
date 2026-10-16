@@ -51,6 +51,8 @@ Gfx *bgScissorCurrentPlayerViewDefault(Gfx *g) { return g; }
 void sysLogPrintf(s32 level,const char *fmt,...) { (void)level; (void)fmt; }
 void gevrBeanForgetWounds(Model *model) { (void)model; }
 void gevrBeanSetCuts(const GevrBeanCuts *cuts) { (void)cuts; }
+static int beanDraws;
+int gevrBeanDrawsModel(const void *header) { (void)header; return beanDraws; }
 void subcalcmatrices(ModelRenderData *pose,Model *model) { (void)pose; (void)model; assert(!"fixture must supply a pose"); }
 void sub_GAME_7F073FC8(s32 alpha) { (void)alpha; }
 void modelApplyDistanceRelations(Model *m,ModelNode *n) { (void)m;(void)n; }
@@ -271,6 +273,37 @@ static void portChecks(void)
     assert(blastcuts>0);
     VrDismemberment=0;capture(0);{RdBody *body=newest();coord3d at;memcpy(at.f,body->joints[0].m[3],sizeof(at.f));
         gevrRagdollBlast(&at,280,1);assert(!body->cuts);}VrDismemberment=1;
+    /* CE's mesh caps: a shoulder stitched to the chest by a shared rim gets a
+     * cap on each side that follows the rim, not a disc */
+    capture(0);{
+        RdBody *body=newest();
+        static const int ring[8][2]={{0,6},{4,4},{6,0},{4,-4},{0,-6},{-4,-4},{-6,0},{-4,4}};
+        const int owners[2]={2,4};const float centres[2][3]={{-15,140,0},{-25,140,0}};
+        for(int side=0;side<2;side++) {
+            RdMesh *m=NULL;
+            for(int i=0;i<body->nmeshes;i++)if(body->meshes[i].owner==owners[side])m=&body->meshes[i];
+            assert(m);
+            const float *origin=body->bind[owners[side]].m[3];
+            Vertex *v=rdAlloc(body,9*sizeof(Vertex));Gfx *g=rdAlloc(body,10*sizeof(Gfx)),*g0=rdAlloc(body,10*sizeof(Gfx));
+            for(int k=0;k<3;k++)v[0].coord.AsArray[k]=(s16)(centres[side][k]-origin[k]);
+            for(int i=0;i<8;i++){const float w[3]={-20,145.0f+ring[i][0],(float)ring[i][1]};
+                for(int k=0;k<3;k++)v[1+i].coord.AsArray[k]=(s16)(w[k]-origin[k]);}
+            Gfx *c=g;gSPVertex(c++,(void *)0x04000000u,9,0);
+            for(int i=0;i<8;i++)gSP1Triangle(c++,0,1+i,1+(i+1)%8,0);
+            gSPEndDisplayList(c++);
+            memcpy(g0,g,10*sizeof(Gfx));
+            Vertex *orig=rdAlloc(body,9*sizeof(Vertex));memcpy(orig,v,9*sizeof(Vertex));
+            m->commands=g;m->originalCommands=g0;m->ncommands=10;m->original=orig;m->rw->Vertices=v;m->nvertices=9;
+        }
+        assert(rdCut(body,body->body[3]));
+        assert(body->ncaps==2 && body->ndiscs==0);
+        for(int i=0;i<2;i++)assert(body->caps[i].numedges==8);
+        Gfx *gl=calloc(16384,sizeof(Gfx));drawn=0;gevrRagdollRender(gl);assert(drawn>=1);frameFree();free(gl);
+        assert(rdCut(body,body->body[9]) && body->ncaps>=4);
+        /* Bean draws its own skin: CE's discs, both sides of each cut */
+        beanDraws=1;rdBuildCaps(body);beanDraws=0;
+        assert(body->ndiscs==4 && body->ncaps==4);
+    }
     /* Another rig layout keeps its death animation */
     groupRo[5].Group.JointID=0;
     unsigned serial=newest()->serial;
