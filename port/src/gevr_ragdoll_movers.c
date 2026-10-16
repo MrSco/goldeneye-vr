@@ -9,6 +9,7 @@
 extern void door7F0526EC(DoorRecord *door, Mtxf *world);
 
 #define RD_MOVERS 256
+#define RD_PROPRANGE 250.0f /* CE props.c: how far around a body to look for props */
 typedef struct RdMover {
     PropRecord *prop;
     ObjectRecord *object;
@@ -153,15 +154,27 @@ static void rdMoverWake(RdMover *m,const float dv[3],const float velocity[3],flo
 void rdMoversUpdate(float dt,RdBody *bodies,int count)
 {
     if(!pdphysIsReady() || dt<=0)return;
+    /* CE ragdollUpdateNearbyProps (props.c:1084): the pelvis and each cut
+     * piece, and props whose position is within reach of one of them */
     float positions[RD_BODIES*RD_PARTS][3];int npositions=0;
     for(int i=0;i<count;i++)if(bodies[i].used)for(int p=0;p<bodies[i].count;p++)
-        if(npositions<RD_BODIES*RD_PARTS)pdphysRagdollGetPartPos(bodies[i].handle,p,positions[npositions++]);
+        if((p==bodies[i].root || (bodies[i].cuts&(1u<<p))) && npositions<RD_BODIES*RD_PARTS)
+            pdphysRagdollGetPartPos(bodies[i].handle,p,positions[npositions++]);
     for(int i=0;i<RD_MOVERS;i++)s_movers[i].seen=0;
     /* Only nearby solid props need Jolt bodies. Settled corpses and detached
      * pieces participate in selection too, so their supports persist. */
     for(PropRecord *p=chrpropGetActiveTail();p;p=p->prev) {
         Mtxf pose;float half[3],q[4];
-        if(!npositions || !rdMoverGeometry(p,&pose,half,q) || !rdMoverNear(&pose,half,positions,npositions))continue;
+        if(!npositions)break;
+        int close=0;
+        for(int i=0;i<npositions && !close;i++) {
+            float d2=0;
+            for(int k=0;k<3;k++){float x=positions[i][k]-p->pos.f[k];d2+=x*x;}
+            close=d2<(RD_PROPRANGE+400)*(RD_PROPRANGE+400);
+        }
+        int tracked=0;
+        for(int i=0;i<RD_MOVERS && !tracked;i++)tracked=s_movers[i].prop==p;
+        if((!close && !tracked) || !rdMoverGeometry(p,&pose,half,q) || !rdMoverNear(&pose,half,positions,npositions))continue;
         RdMover *m=NULL,*freeSlot=NULL;
         for(int i=0;i<RD_MOVERS;i++) {
             if(s_movers[i].prop==p)m=&s_movers[i];

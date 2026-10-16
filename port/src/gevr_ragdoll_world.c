@@ -1,6 +1,7 @@
-/* Static collision: native walkable floors are available for the whole stage;
- * loaded native room display lists add walls, ceilings, stairs and ledges.
- * Jolt copies the mesh, so unloading the room cannot invalidate collision. */
+/* Static collision, as CE's level.c builds it: the game's walkable floors for
+ * the whole stage, plus walls, overhangs and ceilings from each room's render
+ * list once it has loaded. Jolt copies the mesh, so unloading the room cannot
+ * invalidate collision. */
 #include "gevr_ragdoll_internal.h"
 #include "bg.h"
 #include "stan.h"
@@ -8,6 +9,8 @@
 #include "gbi_extension.h"
 
 extern float inv_level_scale;
+#define RD_RENDER_MAXUP 0.35f  /* CE level.c: added when normal.y is below this */
+#define RD_ROOMSPERTICK 4      /* CE RD_CEIL_ROOMSPERTICK */
 static unsigned char s_rooms[MAXROOMCOUNT];
 
 typedef struct RdTriangles { float *v; int *ix; int count, capacity, failed; } RdTriangles;
@@ -93,6 +96,14 @@ static int rdRoomMesh(int room)
                 else { a=(g[i].words.w1>>(j*8))&15; b=(g[i].words.w1>>(j*8+4))&15; c=(g[i].words.w0>>(j*4))&15; }
                 if(a==b || a==c || b==c || a>=16 || b>=16 || c>=16)continue;
                 if((loaded & ((1u<<a)|(1u<<b)|(1u<<c)))!=((1u<<a)|(1u<<b)|(1u<<c)))continue;
+                /* CE ragdollAddRoomCeiling (level.c:245): only triangles not
+                 * facing up; up-facing ones are left to the floors, so stairs
+                 * stay the smooth ramps the game walks on */
+                float e1[3],e2[3],nrm[3],len;
+                for(int k=0;k<3;k++){e1[k]=slots[b][k]-slots[a][k];e2[k]=slots[c][k]-slots[a][k];}
+                nrm[0]=e1[1]*e2[2]-e1[2]*e2[1]; nrm[1]=e1[2]*e2[0]-e1[0]*e2[2]; nrm[2]=e1[0]*e2[1]-e1[1]*e2[0];
+                len=sqrtf(nrm[0]*nrm[0]+nrm[1]*nrm[1]+nrm[2]*nrm[2]);
+                if(len<0.01f || nrm[1]/len>=RD_RENDER_MAXUP)continue;
                 rdTriangle(&triangles,slots[a],slots[b],slots[c]);
             }
         } else if(op==(G_DL&255) || op==(G_MTX&255)) {
@@ -102,6 +113,7 @@ static int rdRoomMesh(int room)
         }
     }
     const int count=triangles.failed?-1:triangles.count;
+    if(count==0)return 1; /* open ground: its floors are all it needs */
     if(!rdSubmit(&triangles,room,1))return 0;
     sysLogPrintf(LOG_NOTE,"ragdoll: room %d collision, %d triangles",room,count);
     return 1;
@@ -109,8 +121,10 @@ static int rdRoomMesh(int room)
 
 void rdWorldUpdate(void)
 {
-    for(int room=1;room<g_MaxNumRooms && room<MAXROOMCOUNT;room++)
+    int converted=0;
+    for(int room=1;room<g_MaxNumRooms && room<MAXROOMCOUNT && converted<RD_ROOMSPERTICK;room++)
         if(!s_rooms[room] && g_BgRoomInfo[room].model_bin_loaded) {
+            converted++;
             /* A room's list is the same each time it loads: parse it once.
              * A failed room keeps its native floors for the whole stage. */
             if(!rdRoomMesh(room)) {
@@ -119,8 +133,5 @@ void rdWorldUpdate(void)
                 continue;
             }
             s_rooms[room]=1;
-            /* The render mesh includes its floors, avoiding two coplanar
-             * collision surfaces. Retain native floors for unvisited rooms. */
-            pdphysLevelRemoveRoomGroup(room,0);
         }
 }
