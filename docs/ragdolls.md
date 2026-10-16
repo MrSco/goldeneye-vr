@@ -79,7 +79,13 @@ body retention rules apply.
 - Native cuts patch private seam vertices and matrix references. Bean cut
   triangles choose one piece for all their influences and use CPU posing;
   uncut bodies and other characters retain the shared GPU skinning path.
-  Both cut ends receive dark-red disc caps sized by CE's per-joint cut radius.
+  Both cut ends are capped as CE caps them (dismember.c:590, 1636): the body's
+  native lists are walked as drawn after the seams are patched, vertices welded
+  by death-pose position; each hole's border loop (edges one piece shares with
+  another, or open edges right at a cut) is closed by a fan whose rim vertices
+  load with the mesh's own matrices and coordinates, so the cap sits on the
+  edge of the hole. Holes the mesh can't describe, and every cut with Bean
+  visuals (Bean draws its own skin), get CE's disc at 0.7 of the cut radius.
 
 ## Ported from Perfect Dark CE
 
@@ -155,8 +161,7 @@ until the body comes closer. Up to 256 nearby prop colliders
 share the backend pool, separately from the configured body count. Detached
 limbs can be shot, but existing corpses
 do not receive explosion-area impulses. New explosion deaths preserve the
-native launch velocity. The caps are CE's fallback discs, not its mesh-border
-caps. Models outside the native guard skeleton retain their original
+native launch velocity. Bean caps are CE's fallback discs. Models outside the native guard skeleton retain their original
 death rendering; a failed snapshot also falls back to it.
 
 Forty-eight bodies are supported by the pool and native stress test; **Quest
@@ -199,7 +204,11 @@ APK and JVM tests also build here; no headset or ROM is attached.
 
 ### Still to verify on headsets
 
-0. Third headset round (2026-10-16, Dam): bodies bounce off walls; a blasted
+0. Fourth round (2026-10-16, Dam): no body fell out of the level and no room
+   was floor-only after the uncovered-ground fix. The disc caps did not line up
+   with the holes (screenshots of a torso and a head); caps now follow the mesh
+   border. Check native caps line up, and Bean discs.
+   Third headset round (2026-10-16, Dam): bodies bounce off walls; a blasted
    guard clipped into a cliff and two bodies fell out of the level (ground
    without floors, fixed above). Check the cliffs and banks again.
    First headset round (2026-10-16, Bean visuals): ragdolls fine, 11 parts and
