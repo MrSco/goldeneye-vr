@@ -171,7 +171,9 @@ void gevrHordeBecameHost(void)
         unsigned missing=expected+extra-s_state.alive;
         s_state.remaining=s_state.remaining+missing>HORDE_MAX_QUOTA?HORDE_MAX_QUOTA:s_state.remaining+missing;
     }
-    s_state.revision++;netHordeSend(-1);
+    /* Another client may hold newer revisions from the old host than this one
+     * did; jump past them so the snapshots are not dropped as stale. */
+    s_state.revision+=0x10000;netHordeSend(-1);
 }
 
 static void hordeResupply(void)
@@ -198,7 +200,7 @@ static s32 hordeSpawn(void)
         PadRecord *pad=&g_CurrentSetup.pads[s_pads[(first+n)%s_pad_count]];
         s32 safe=TRUE, reachable=FALSE;
         waypoint *from=chrlvStanPathRelated(&pad->pos,pad->stan);
-        for (s32 p=0;p<4;p++) if(netLobbySlotConnected(p) && !netPlayerIsSpectator(p)
+        for (s32 p=0;p<4 && safe;p++) if(netLobbySlotConnected(p) && !netPlayerIsSpectator(p)
             && g_playerPointers[p] && g_playerPointers[p]->prop && !gevrCoopDowned(p)) {
             coord3d *pos=&g_playerPointers[p]->prop->pos;
             f32 dx=pos->x-pad->pos.x,dy=pos->y-pad->pos.y,dz=pos->z-pad->pos.z;
@@ -207,6 +209,8 @@ static s32 hordeSpawn(void)
             StandTile *tile=g_playerPointers[p]->prop->stan;
             if (tile && dy*dy<150.0f*150.0f && stanTestLineUnobstructed(&tile,pos->x,pos->z,pad->pos.x,pad->pos.z,
                 CDTYPE_OBJS|CDTYPE_DOORS|CDTYPE_PATHBLOCKER|CDTYPE_AIOPAQUE,140,140,0,1) && tile==pad->stan) safe=FALSE;
+            /* Route searches are the expensive part: skip them once the pad is ruled out or proven. */
+            if (!safe || reachable) continue;
             waypoint *to=chrlvStanPathRelated(pos,g_playerPointers[p]->prop->stan);
             waypoint *route[MAX_CHRWAYPOINTS];
             if (from && to && (from==to || waypointFindRoute(from,to,route,MAX_CHRWAYPOINTS)>=2)) reachable=TRUE;

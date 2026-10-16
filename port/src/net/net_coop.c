@@ -728,7 +728,8 @@ static int coopMakeSpawn(const CoopSpawn *sp)
     }
     /* chrAllocate takes the first free slot unchecked (chr.c): none, no call.
      * A roster's removals free theirs at the guards' next chrTick. */
-    if (existing && coopChrLive(existing)) existing->hidden |= CHRHIDDEN_REMOVE;
+    /* Horde reuses slots; a stale guard there gives way. Campaign co-op keeps its behaviour. */
+    if (netHordeActive() && existing && coopChrLive(existing)) existing->hidden |= CHRHIDDEN_REMOVE;
     if (chrGetNumFree() < 1) return 0;
     coord3d at = sp->pos, pos = sp->pos;
     f32 y;
