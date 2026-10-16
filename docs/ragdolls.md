@@ -216,11 +216,13 @@ APK and JVM tests also build here; no headset or ROM is attached.
 
 ### Still to verify on headsets
 
-0. Next: shoot bodies on the ground with pistols and rifles (damage needed
-   1.0 cuts about two in five) and check wounds appear where the shots land,
-   native and Bean; move the sliders. GE-X rocket launcher: the far-side
-   decal no longer shows through (back-facing decals culled in the stereo gun
-   pass, branch fix/gex-decal-backface).
+0. Headset, 2026-10-16 (Dam, GE-X weapons, Bean on and off): accepted.
+   Shot bodies bleed and cut with damage-1.0 guns; caps follow the holes;
+   GE-X's rocket launcher shows no far-side decal (decals facing away culled
+   in the stereo gun pass, a 1 cm decal band for hand-held models) and holds
+   its own rocket in the tube (GoldenEye's oversized round no longer drawn
+   on it). Still unverified: Quest frame time with many bodies, two-headset
+   co-op and deathmatch.
    Fifth round (2026-10-16): Bean bodies still showed discs; Bean skin caps
    now follow the hole too. A rocket launcher's barrel showed its far-side
    decal text through the near side (first-person gun, not ragdoll code).
