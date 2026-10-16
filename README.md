@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/hero.jpg" alt="GoldenEye VR" width="100%">
+  <img src="docs/banner.png" alt="GoldenEye VR: the classic, now in VR" width="100%">
 </p>
 
 <p align="center">
