@@ -46,6 +46,22 @@ body retention rules apply.
   room display lists add solid walls, ceilings and ledges, with the correct
   room offset and level scale. Jolt owns copies after room unload. Room
   filters exclude unrelated geometry occupying the same world space.
+- `gevr_ragdoll_movers.c` adds nearby solid doors and props as kinematic
+  colliders. Sliding, vertical and hinged doors follow native world transforms,
+  scale, reflection and current clipped bounds. Open/disabled/destroyed doors
+  lose collision with the native game. Caverns eye/iris doors use an enclosing
+  box around their native collision prism, including its reduced ajar height.
+  Colliders use simulation data even when a model is off screen or its render
+  matrices have been packed. They are removed on prop delisting, slot reuse,
+  stage change and option disable.
+- Moving solid platforms carry bodies through ascent, descent, horizontal
+  motion and stops. Contact tests transfer platform acceleration to connected
+  pieces resting on top, with damping relative to platform speed. Detached
+  pieces elsewhere receive no carry impulse. Nearby motion or support removal
+  wakes sleeping bodies. Script/network warps teleport colliders with zero
+  velocity instead of launching bodies. Room filters also apply to props.
+  GoldenEye has no separate lift object type; a solid moving object or door
+  panel supplies the platform. This adds no new playable elevators.
 - Native cuts patch private seam vertices and matrix references. Bean cut
   triangles choose one piece for all their influences and use CPU posing;
   uncut bodies and other characters retain the shared GPU skinning path.
@@ -59,9 +75,11 @@ are not replicated. Peers can choose different options and counts. Corpses
 do not block bullets, players or mission progress. This does not add Perfect
 Dark CE's grabbing, bodies as cover, physics death camera or witness AI.
 
-Collision uses native static level geometry, including with Bean visuals.
-Moving doors, lifts, vehicles and furniture do not yet have Jolt colliders.
-This can produce clipping. Detached limbs can be shot, but existing corpses
+Collision uses native level geometry, including with Bean visuals. Moving
+props use their native root bounds; holes, articulated vehicle parts and
+custom sheared transforms are not reproduced. Up to 256 nearby prop colliders
+share the backend pool, separately from the configured body count. Detached
+limbs can be shot, but existing corpses
 do not receive explosion-area impulses. New explosion deaths preserve the
 native launch velocity. The caps are approximate joint disks, not exact mesh
 cross-sections. Models outside the native guard skeleton retain their original
@@ -88,7 +106,14 @@ python3 port/tests/test_reinforcements.py
 covers 1/2/4/8-player deaths, repeated slot reuse, duplicate camera passes,
 private head/vertex ownership, 12/24/48 retention, 48-body simulation, pause,
 native seams, remapping, per-view draw, fade and shutdown. Collision checks
-cover stacked-room filtering, scaled room offsets and room unload. Bean's
+cover stacked-room filtering, scaled room offsets and room unload. Moving
+collision checks use the production door-transform and collision-eligibility
+functions with synthetic setup data. They cover sliding/clipped/hinged doors,
+eye/iris ajar height, reflection/nonuniform scale, warp handling, prop reuse
+and delisting, sleeping riders, support removal, unrelated rooms, pause and
+detached pieces. Forty-eight sphere riders follow lifts at 60/30/10 Hz; a
+captured 15-part guard and its severed arm ride through the game-clock path.
+These checks do not replace cartridge/Quest playtests. Bean's
 pose test checks triangle separation and preservation of another instance's
 GPU skin. The launcher test measures both pages at Quest's font scale.
 
@@ -100,7 +125,9 @@ APK and JVM tests also build here; no headset or ROM is attached.
 
 ### Still to verify on headsets
 
-1. Native and Bean deaths on Dam, Facility stairs/vents, and moving lifts;
+1. Native and Bean deaths on Dam, Facility stairs/vents, moving doors and
+   custom moving platforms; bodies under closing slabs, in hinged doorways,
+   on ascending/descending platforms, and falling when support is removed;
    limb seams, caps, shadows, blood and hats in stereo and cinema mode.
 2. Solo retention at Off/12/24/48; sustained 48-body combat on Quest 2 and
    Quest 3, especially multiple cut Bean bodies. Record CPU/GPU frame time.

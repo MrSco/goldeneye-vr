@@ -200,6 +200,9 @@ void pdphysRagdollDestroy(int handle);
 
 // Adds a velocity change (PD units per second) to one part, or to all parts if part < 0.
 void pdphysRagdollAddVelocity(int handle, int part, const float vel[3]);
+// Transfer a supporting platform's velocity change, compensating world-space
+// damping only for its reference velocity. Relative body motion remains free.
+void pdphysRagdollCarry(int handle, int part, const float delta[3], const float velocity[3], float dt);
 void pdphysRagdollClampSpeed(int handle, const float ref[3], float maxspeed);
 
 // Writes each part's current joint frame (same convention as jointmtx). Returns part count.
@@ -288,6 +291,15 @@ typedef struct pdphysPiece {
 
 // Returns a handle >= 0, or -1.
 int pdphysPropCreate(const pdphysPiece *pieces, int numpieces, const float origin[3]);
+
+// Box dimensions are half extents in game units. Resize preserves body
+// identity and motion; useful for the game's clipped sliding doors.
+int pdphysPropCreateBox(const float half[3]);
+int pdphysPropResizeBox(int handle, const float half[3]);
+// True when this part is resting on the prop's upper surface (3-unit tolerance).
+int pdphysPropSupportsPart(int handle, int ragdoll, int part);
+// Same room filtering as ragdolls; numrooms < 0 disables it.
+void pdphysPropSetRooms(int handle, const int *rooms, int numrooms);
 
 // A prop made of triangles (an object's model): verts are world space,
 // indices 3 per triangle. Both sides of each triangle are solid.

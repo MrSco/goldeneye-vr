@@ -36,7 +36,7 @@ static int rdSubmit(RdTriangles *t,int room,int group)
     free(t->v); free(t->ix); return ok;
 }
 
-void rdWorldReset(void) { memset(s_rooms,0,sizeof(s_rooms)); }
+void rdWorldReset(void) { rdMoversReset(); memset(s_rooms,0,sizeof(s_rooms)); }
 
 void rdWorldInit(void)
 {
