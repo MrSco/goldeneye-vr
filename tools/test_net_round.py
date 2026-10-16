@@ -28,7 +28,7 @@ while i < len(args):
     i += 1
 with tempfile.TemporaryDirectory(prefix='gevr-net-tests-') as temp:
     binary = Path(temp) / 'net_round_test'
-    sources = [root/'tools/tests/net_round_test.c', root/'port/src/net/netbuf.c', root/'port/src/net/net_match.c']
+    sources = [root/'tools/tests/net_round_test.c', root/'port/src/net/netbuf.c', root/'port/src/gevr_avatar_math.c', root/'port/src/net/net_match.c']
     subprocess.run([args[0], *flags, *map(str, sources), '-Wl,--gc-sections', '-llog', '-lm', '-o', str(binary)], cwd=entry['directory'], check=True)
     destination = '/data/local/tmp/gevr-net-round-test'
     subprocess.run(['adb', 'push', str(binary), destination], check=True)

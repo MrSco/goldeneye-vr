@@ -293,3 +293,15 @@ character, retention and mesh integration is new. See
 [Jolt Physics](https://github.com/jrouwe/JoltPhysics), by Jorrit Rouwe, is
 pinned to v5.6.0 (`e77f175595e64cb44218cc9d9d56fc365ad0e36a`).
 Its [MIT notice](port/licenses/jolt.txt) is also shipped in the APK.
+
+## Multiplayer avatar IK
+
+The two-bone arm geometry in `port/src/gevr_avatar_math.c` follows Perfect
+Dark CE `e985acc0de494b3c50a47ea1fcdc48839607e1b0`,
+`port/src/ragdoll/motion.c:856-895` (the wound-clutch reflex). Independent
+torso following adapts Alex-LeTux's Perfect Dark VR
+`7739e3b05fc19049535565bb18d5f71865366c1f`, `src/game/bondgun.c`.
+Both are MIT; the existing [PD CE notice](port/licenses/perfect-dark-ce.txt)
+and [PD VR notice](port/vr/LICENSE) are included in the APK. The network
+pose history and GoldenEye rig integration are new.
+See [implementation notes](docs/multiplayer-ik.md).

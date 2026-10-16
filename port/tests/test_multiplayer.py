@@ -33,7 +33,7 @@ def build():
     args = [shutil.which("gcc") or "gcc", "-shared", "-O2", "-fms-extensions", "-Wno-builtin-declaration-mismatch"]
     args += ["-D"+v for v in ("GEVR=1", "PLATFORM_64BIT=1", "GEVR_STEAMAUDIO=1", "_LANGUAGE_C=1", "VERSION=2", "VERSION_US=1", "LANG_US=1")]
     args += ["-I"+v for v in (".", "port/include", "include", "src", "port/src", "port/external/steamaudio/include")]
-    args += ["port/tests/multiplayer_native.c", "port/src/net/netbuf.c", "port/src/net/net_spatial.c", "port/src/net/net_match.c", str(NATIVE/"phonon.lib"), "-o", str(NATIVE/"multiplayer_native.dll")]
+    args += ["port/tests/multiplayer_native.c", "port/src/net/netbuf.c", "port/src/gevr_avatar_math.c", "port/src/net/net_spatial.c", "port/src/net/net_match.c", str(NATIVE/"phonon.lib"), "-o", str(NATIVE/"multiplayer_native.dll")]
     result = subprocess.run(args, cwd=ROOT, capture_output=True, text=True)
     if result.returncode: raise RuntimeError(result.stderr)
     global DLL_DIRECTORY
@@ -77,7 +77,7 @@ def build_core():
     args=[shutil.which("gcc") or "gcc","-shared","-O2","-fms-extensions","-Wno-builtin-declaration-mismatch"]
     args += ["-D"+v for v in ("GEVR=1","PLATFORM_64BIT=1","_LANGUAGE_C=1","VERSION=2","VERSION_US=1","LANG_US=1")]
     args += ["-I"+str(ROOT/v) for v in (".","port/include","include","src","src/game","port/src","port/src/net")]
-    args += [str(generated),str(ROOT/"port/src/net/netbuf.c"),str(ROOT/"port/src/net/net_match.c"),"-o",str(NATIVE/"net_core_native.dll")]
+    args += [str(generated),str(ROOT/"port/src/net/netbuf.c"),str(ROOT/"port/src/gevr_avatar_math.c"),str(ROOT/"port/src/net/net_match.c"),"-o",str(NATIVE/"net_core_native.dll")]
     result=subprocess.run(args,cwd=ROOT,capture_output=True,text=True)
     if result.returncode: raise RuntimeError(result.stderr)
     return C.CDLL(str(NATIVE/"net_core_native.dll"))
