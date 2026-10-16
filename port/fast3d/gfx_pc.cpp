@@ -3005,6 +3005,17 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
             }
         }
 
+        /*
+         * A decal is paint on its surface: facing away, it is the far side
+         * of something solid. The N64 culled it; drawn, the decal band
+         * (gfx_opengl.cpp, 3 view units, ~15 cm on the Dam) passed it through
+         * a thinner surface in front - GE-X rocket launcher's far-side
+         * instructions read through its barrel (user, 2026-10-16).
+         */
+        if (cull && gevrCullOff && (rdp.other_mode_l & ZMODE_DEC) == ZMODE_DEC) {
+            if (gevrMenuTrace) ++gevrMenuCulled;
+            return;
+        }
         if (cull && gevrCullOff) {
             gevrBackFace = true;
         } else if (cull) {
