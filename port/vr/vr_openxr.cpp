@@ -159,6 +159,8 @@ int VrSmallH = 0;
 int32_t g_internalRenderWidth  = 0;
 int32_t g_internalRenderHeight = 0;
 float RENDER_SCALE = 1.0f;
+extern "C" int VrEyeMsaa;          // vr_settings: the launcher's Anti-aliasing (EyeMsaa)
+extern "C" float VrRenderScale;    // vr_settings: the launcher's Resolution (RenderScale)
 static uint32_t g_systemMaxRenderWidth = 0, g_systemMaxRenderHeight = 0;
 
 // The runtime's name for the headset ("Oculus Quest2", "Meta Quest 3", ...):
@@ -856,6 +858,13 @@ extern "C" bool vr_configure_resolution() {
         recommendedWidth = std::max(recommendedWidth, valid ? view.recommendedImageRectWidth : 1832u);
         recommendedHeight = std::max(recommendedHeight, valid ? view.recommendedImageRectHeight : 1920u);
         if (!valid) LOGE("HMD eye %u invalid recommendation; using 1832 x 1920 fallback", eye);
+    }
+    // The launcher's Resolution (goldeneye-vr.ini RenderScale) over the game's
+    // Video.VRRenderScale, once: the eye images are made here, as VR starts.
+    static bool launcherScaleRead = false;
+    if (!launcherScaleRead) {
+        launcherScaleRead = true;
+        if (VrRenderScale > 0.0f) RENDER_SCALE = VrRenderScale;
     }
     const GevrRenderSize size = gevrQuestRenderSize(recommendedWidth, recommendedHeight, RENDER_SCALE,
                                                   g_maxRenderWidth, g_maxRenderHeight);
@@ -3519,6 +3528,11 @@ extern "C" float gevrVrAspect(void) { return XrAspect; }
 // Game units per metre: scales the eye separation (vr_get_eye_view_offset).
 extern "C" void gevrVrSetWorldScale(float unitsPerMetre) { vr_world_scale = unitsPerMetre; }
 
+/* vr_launcher.cpp: Anti-aliasing is offered where the driver can multisample
+ * the multiview eye images; Resolution shows the size in use. */
+extern "C" int vr_eye_msaa_supported(void) { return use_multiview && pfnFramebufferTextureMultisampleMultiviewOVR != nullptr; }
+extern "C" float vr_render_scale(void) { return RENDER_SCALE; }
+
 // ============================================================================
 // FBOs - Render Targets
 // ============================================================================
@@ -3527,12 +3541,12 @@ static bool vr_ensure_swapchain_images();
 
 static bool vr_attach_eye_fbo(GLuint colorTexture, bool validate)
 {
-    if (gfx_msaa_level > 1 && pfnFramebufferTextureMultisampleMultiviewOVR) {
+    // the launcher's Anti-aliasing, or the game's Video.MSAA; read every frame
+    GLsizei samples = (GLsizei)std::max<uint32_t>((uint32_t)VrEyeMsaa, gfx_msaa_level);
 #ifdef ANDROID
-        const GLsizei samples = std::min(gfx_msaa_level, 4u);
-#else
-        const GLsizei samples = gfx_msaa_level;
+    samples = std::min<GLsizei>(samples, 4);
 #endif
+    if (samples > 1 && pfnFramebufferTextureMultisampleMultiviewOVR) {
         pfnFramebufferTextureMultisampleMultiviewOVR(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
                                                     colorTexture, 0, samples, 0, 2);
         pfnFramebufferTextureMultisampleMultiviewOVR(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,

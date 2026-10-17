@@ -1,6 +1,7 @@
 #ifndef GEVR_LAUNCHER_UI_H
 #define GEVR_LAUNCHER_UI_H
 #include "imgui/imgui.h"
+#include "gevr_tooltip.h"
 #include <cmath>
 #include <string>
 #include <cstdio>
@@ -61,7 +62,7 @@ inline void gevrDisplayRateControls(int *preference, const int *rates, int count
     const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
     ImGui::RadioButton("Auto##display-rate", preference, 0);
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Use the headset's refresh setting, including external profiles.");
+        gevrTooltip("Use the headset's refresh setting, including external profiles.");
     bool available = *preference == 0;
     for (int i = 0; i < count; ++i) {
         char label[48];
@@ -78,6 +79,30 @@ inline void gevrDisplayRateControls(int *preference, const int *rates, int count
     // Auto may have been clicked after starting with an unavailable preference.
     if (!available && *preference != 0)
         ImGui::TextWrapped("Saved: %d Hz (unavailable on this headset).", *preference);
+}
+/* A label and its radio buttons on one line, a button moving down a line only
+ * when it would run past the panel; hovering the label or a button shows tip. */
+inline bool gevrRadioRow(const char *label, const char *const *names, int count, int *selected, const char *tip) {
+    const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(label);
+    bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled), changed = false;
+    for (int i = 0; i < count; ++i) {
+        char id[64];
+        std::snprintf(id, sizeof(id), "%s##%s", names[i], label);
+        const float width = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x +
+                            ImGui::CalcTextSize(names[i]).x;
+        if (ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + width <= right)
+            ImGui::SameLine();
+        if (ImGui::RadioButton(id, *selected == i)) {
+            *selected = i;
+            changed = true;
+        }
+        hovered |= ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
+    }
+    if (hovered && tip)
+        gevrTooltip("%s", tip);
+    return changed;
 }
 /* Only the combo's opening frame requests initial focus/scroll. ImGui's
  * navigation brings stick-selected rows into view; mouse hover never scrolls. */
@@ -122,7 +147,7 @@ inline void gevrLauncherStatus(const char *message) {
     }
     ImGui::TextUnformatted(line.c_str());
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("%s", message);
+        gevrTooltip("%s", message);
 }
 inline float gevrLauncherFooterHeight() {
     return ImGui::GetFrameHeight() * 1.5f + ImGui::GetTextLineHeightWithSpacing() * 2 + ImGui::GetStyle().ItemSpacing.y * 4;
