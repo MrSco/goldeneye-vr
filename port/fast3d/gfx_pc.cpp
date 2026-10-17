@@ -205,7 +205,8 @@ extern "C" int gevrVrMotionPrevDelta(float out[16]);
 extern "C" int gevrVrMotionPrevHandDelta(int hand, float out[16]);
 extern "C" void gevrVrMotionRemember(void);
 extern float vr_world_scale;                         // vr_openxr.cpp: game units per metre
-void gfx_vr_motion_pass(const float* const cur[4], const float* const prev[4], float unitsPerMetre);
+void gfx_vr_motion_pass(const float* const cur[4], const float* const prev[4], bool havePrev, float unitsPerMetre);
+void gfx_vr_motion_forget(void);
 extern "C" void gevrVrMarkRedrawn(void);
 extern "C" float g_viProjectionMatrixF[4][4];     // fr.c: the game's projection
 extern "C" int VrShowStats;                       // vr_input.cpp: the stats readout is on
@@ -6009,6 +6010,7 @@ static int gevr_vr_replay_frame(bool fresh) {
     vr_end_eye_render();
     // SpaceWarp: this game frame's motion vectors and depth, from the same moves
     // and the previous frame's (the body's taken as still: it goes with the head).
+    bool motion = false;
     if (fresh && recorded && vr_spacewarp_begin()) {
         float prevWorld[16], prevHand[2][16];
         const bool pw = gevrVrMotionPrevDelta(prevWorld) != 0;
@@ -6016,9 +6018,11 @@ static int gevr_vr_replay_frame(bool fresh) {
         const bool ph1 = have1 && gevrVrMotionPrevHandDelta(1, prevHand[1]) != 0;
         const float* const cur[4] = { delta, have0 ? hand[0] : delta, have1 ? hand[1] : delta, haveBody ? body : delta };
         const float* const prev[4] = { pw ? prevWorld : delta, ph0 ? prevHand[0] : cur[1], ph1 ? prevHand[1] : cur[2], cur[3] };
-        gfx_vr_motion_pass(cur, prev, vr_world_scale);
+        gfx_vr_motion_pass(cur, prev, pw, vr_world_scale);
         vr_spacewarp_end();
+        motion = true;
     }
+    if (!motion) gfx_vr_motion_forget();
     if (recorded) gevrVrMarkRedrawn();
     gevrVrMotionRemember();
     return 1;
