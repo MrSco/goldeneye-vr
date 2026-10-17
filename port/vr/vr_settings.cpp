@@ -191,6 +191,9 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "SpaceWarp=%d\n", VrSpaceWarp < 0 ? -1 : VrSpaceWarp ? 1 : 0);
     fprintf(f, "; Anti-aliasing of the eye images: 1 = off, 2 or 4 samples per pixel.\n");
     fprintf(f, "EyeMsaa=%d\n", VrEyeMsaa);
+    fprintf(f, "; CPU performance level asked of the headset at start: -1 = none, 0 = power savings,\n");
+    fprintf(f, "; 1 = sustained low, 2 = sustained high (lifts the CPU cap on battery).\n");
+    fprintf(f, "CpuLevel=%d\n", VrCpuLevel);
     fprintf(f, "Cheats=%llx\n", (unsigned long long)VrCheatMask);
     fprintf(f, "GunSizeCheat=%d\n", VrGunSizeCheat);
     fprintf(f, "; 1 = every mission at every difficulty, 007 mode and every cheat unlocked.\n");
@@ -705,6 +708,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "ShowStats") == 0) VrShowStats = (ival != 0);
             else if (strcmp(key, "SpaceWarp") == 0) VrSpaceWarp = ival < 0 ? -1 : ival != 0;
             else if (strcmp(key, "EyeMsaa") == 0) VrEyeMsaa = ival >= 4 ? 4 : ival >= 2 ? 2 : 1;
+            else if (strcmp(key, "CpuLevel") == 0) VrCpuLevel = ival < 0 ? -1 : ival > 2 ? 2 : ival;
             else if (strcmp(key, "RenderScale") == 0) VrResetRenderScale = 1;
             else if (strcmp(key, "GunSizeCheat") == 0) VrGunSizeCheat = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             else if (strcmp(key, "UnlockAll") == 0) VrUnlockAll = ival != 0;
