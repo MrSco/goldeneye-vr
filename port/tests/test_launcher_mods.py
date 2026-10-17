@@ -20,6 +20,8 @@ using Uint32 = unsigned;
 static char g_ActiveExtTexPack[256];
 static int VrGexGuns=1, bean; static int VrCampaign=0; /* GoldenEye; hack campaigns grey out Bean and GE-X */
 static int VrBeanFillTextures=1, VrBloodPatch=0;   /* Mods: Bean HD fill, Wreck's blood patch */
+static int VrOddjobHat=0;          /* Mods: Oddjob's hat (PR #196), drawn when its pack is listed */
+static int gevrHatAvailable() {return 1;}
 #define GEVR_CAMPAIGN_GE 0
 static bool available;
 static std::string raw;
