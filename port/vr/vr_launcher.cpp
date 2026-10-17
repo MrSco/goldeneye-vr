@@ -3657,7 +3657,7 @@ extern "C" void gevrLauncherRun(void)
                 ImGui::BeginDisabled(!vr_eye_msaa_supported());
                 if (gevrRadioRow("Anti-aliasing", sampleNames, 3, &sample,
                                  "Smooths jagged edges (multisample anti-aliasing). Changes right away. "
-                                 "Higher costs more GPU time.")) {
+                                 "Higher costs more GPU time, which the headset has less of on battery.")) {
                     VrEyeMsaa = samples[sample];
                     vrSettingsSave();
                 }

@@ -135,9 +135,11 @@ int VrSpaceWarp = -1;
  * still in that build's ini, puts the scale back to 1 once (vr_openxr.cpp). */
 int VrResetRenderScale = 0;
 /* The launcher's Anti-aliasing: samples per pixel of the eye images (1 off,
- * 2, 4), switched live (vr_openxr.cpp vr_attach_eye_fbo). 4x by default: the
- * Quest's most, with no cost the user could see (2026-10-17). */
-int VrEyeMsaa = 4;
+ * 2, 4), switched live (vr_openxr.cpp vr_attach_eye_fbo). 2x by default: on
+ * battery Quest caps the GPU, and 4x took the eye pass from 3.0 to 4.2 ms
+ * with Bean for edges that look the same as 2x once Bean's pictures are
+ * mipmapped and cutouts take alpha-to-coverage (2026-10-17). */
+int VrEyeMsaa = 2;
 /* The CPU performance level asked of the headset as each session begins
  * (XR_EXT_performance_settings): -1 none, 0 power savings, 1 sustained low,
  * 2 sustained high. Unplugged, Quest caps the CPU at the level its governor
