@@ -9,6 +9,9 @@ tracking, which lets Quest launch the app while the controllers are asleep.
 Each run: 15 s warm-up, then a 60 s trace whose phases are stationary, forward,
 backward, strafe, angled wall contact and smooth turning. The trace records the
 injected input on every frame, so analysis classifies phases from device data.
+--cold PADS instead traces first-view cost: a fresh process per run, recorded from
+its first level frames while it warps to each pad and turns around once, the route
+twice (cold, then warm); analyze.py cold reads it.
 Logs stream straight to disk; logcat is never cleared.
 """
 import argparse
@@ -24,7 +27,7 @@ import time
 FILES = '/sdcard/Android/data/com.gevr.port/files'
 PACKAGE = 'com.gevr.port'
 LAUNCH_CHECK = 'LaunchCheckControllerRequiredDialogActivity'
-MARKERS = ['gevr_fakegrip.txt','gevr_scopedump','gevr_scope.pam', 'gevr_body_batch.txt','gevr_rigid_min.txt','gevr_room_draws.txt', 'gevr_pipeline.txt', 'gevr_spacewarp.txt', 'gevr_bean_nodemode.txt', 'gevr_input.txt', 'gevr_level.txt', 'gevr_warp.txt', 'gevr_cheat.txt',
+MARKERS = ['gevr_fakegrip.txt','gevr_scopedump','gevr_scope.pam', 'gevr_body_batch.txt','gevr_rigid_min.txt','gevr_room_draws.txt', 'gevr_pipeline.txt', 'gevr_spacewarp.txt', 'gevr_cpulevel.txt', 'gevr_bean_nodemode.txt', 'gevr_input.txt', 'gevr_level.txt', 'gevr_warp.txt', 'gevr_cheat.txt',
            'gevr_profile.txt', 'gevr_profile.txt.status']
 PROTECTED = ['data/goldeneye-vr.ini', 'eeprom.bin', *MARKERS]
 WARMUP, MEASURE = 15, 60
@@ -37,6 +40,10 @@ PHASES = [(15.0, 0x8, 0, 5000, True, 'forward'),
           (25.0, 0x1, 0, 5000, False, 'strafe'),
           (30.5, 0x9, 0, 14000, True, 'angled-contact'),
           (45.0, 0x0, 100, 14500, True, 'smooth-turn')]
+# --cold: a fresh process per run, traced from its first level frames. Each pad
+# of the route is warped to and turned around once, the route twice (cold, then
+# warm). Each segment's turn value tags it in the trace: 55+i, then -(55+i).
+COLD_SEGMENT = 7.0
 TARGET_PID = ''
 
 
@@ -199,7 +206,13 @@ def read_status():
     return adb('shell', 'cat', f'{FILES}/gevr_profile.txt.status', check=False)
 
 
-def validate(path, hz, status, spacewarp=0):
+def cold_segments(pads):
+    """[(pad, turn, name)] for the cold pass then the warm pass over the route."""
+    return [(pad, sign * (55 + i), f'{kind}-{pad}') for sign, kind in ((1, 'cold'), (-1, 'warm'))
+            for i, pad in enumerate(pads)]
+
+
+def validate(path, hz, status, spacewarp=0, phases=PHASES, seconds=MEASURE):
     with path.open() as f:
         metadata = f.readline()
         rows = list(csv.DictReader(f))
@@ -211,7 +224,7 @@ def validate(path, hz, status, spacewarp=0):
     # Count active time, not an assumed successful frame rate: a slow renderer
     # must remain measurable at a requested 120 Hz. The game ticks at 60 Hz.
     active_seconds = (int(valid[-1]['start_time_ns']) - int(valid[0]['start_time_ns'])) / 1e9 if valid else 0
-    if len(valid) < 60 * 30 or active_seconds < 50:
+    if len(valid) < seconds * 30 or active_seconds < seconds - 10:
         raise Unavailable(f'Insufficient active XR gameplay: {len(valid)} rows over {active_seconds:.1f} s; {metadata.strip()}')
     if any(int(r['errors']) for r in valid):
         raise Unavailable('Nested timing attribution errors; trace cannot support optimization')
@@ -221,10 +234,105 @@ def validate(path, hz, status, spacewarp=0):
     if abs(sum(periods) / len(periods) - 1e9 / app_hz) > 10000:
         raise Unavailable('Runtime did not honor the requested display rate')
     inputs = {(int(r['input_buttons'], 16), int(r['input_turn'])) for r in valid}
-    missing = [p[5] for p in PHASES if (p[1], p[2]) not in inputs]
+    missing = [p[5] for p in phases if (p[1], p[2]) not in inputs]
     if missing:
         raise Unavailable(f'Phases never reached the game: {missing}')
     return len(valid)
+
+
+def start(args, config, folder):
+    """Diagnostic controls, launch into Dam, and check the renderer took them."""
+    wake()
+    put('gevr_body_batch.txt',str(args.body_batch))
+    put('gevr_rigid_min.txt',str(args.rigid_min))
+    put('gevr_room_draws.txt',str(args.room_draws))
+    put('gevr_pipeline.txt',str(args.pipeline))
+    put('gevr_spacewarp.txt', str(args.spacewarp))
+    if args.cpu_level is not None:
+        put('gevr_cpulevel.txt', str(args.cpu_level))
+    put('gevr_bean_nodemode.txt',str(args.node_mode))
+    launch()
+    applied=recent()
+    expected=f'gevr bean controls: rigid_min={args.rigid_min} body_batch={args.body_batch}'
+    # The room switch is read only when XBLA rooms build (XblaVisualsMode=1);
+    # the Bean pack alone replaces characters and guns.
+    rooms = re.search(rb'XblaVisualsMode=1', config) is not None
+    if expected not in applied or (rooms and f'gevr bean room-draws: {args.room_draws}' not in applied) or \
+            f'gevr pipeline: {args.pipeline}' not in applied:
+        raise Unavailable('Renderer did not acknowledge requested diagnostic controls')
+    # the run's own streamed log: the device's buffer rotates in under a minute
+    # while Quest launches, and lost SpaceWarp's lines before this check
+    swlog = (folder / 'device.log').read_text(errors='replace')
+    # a build without SpaceWarp says nothing about it; one with it must say what it did
+    if args.spacewarp and (f'gevr spacewarp: wanted=1' not in swlog or 'SpaceWarp: on' not in swlog):
+        raise Unavailable('SpaceWarp was requested but not turned on')
+    if args.body_batch and 'gevr bean body-batch:' not in applied:
+        raise Unavailable('Whole-character batching was requested but never applied')
+
+
+def await_trace(label, measure, folder, info, hz, spacewarp, phases, seconds):
+    """Wait for the device's export of a recorded trace, pull and validate it."""
+    deadline = measure + seconds + 60
+    while time.monotonic() < deadline:
+        status = read_status()
+        if status.startswith(('done ' + label + ' ', 'failed ' + label + ' ')):
+            break
+        time.sleep(1)
+    else:
+        raise Unavailable('Trace export never reported a result')
+    if status.startswith('failed'):
+        raise Unavailable(f'Trace export failed on the device: {status}')
+    remote = f'{FILES}/gevr_profile.txt.{label}.csv'
+    adb('pull', remote, str(folder / f'{label}.csv'))
+    adb('pull', remote + '.gpu.csv', str(folder / f'{label}.gpu.csv'))
+    adb('shell', 'rm', '-f', remote, remote + '.gpu.csv')   # pulled; never leave traces behind
+    rows = validate(folder / f'{label}.csv', hz, status, spacewarp, phases, seconds)
+    info['traces'].append({'label': label, 'status': status, 'valid_rows': rows})
+    print(label, 'validated', rows, 'active frames', flush=True)
+
+
+def cold_runs(args, config, folder, info):
+    """First-view cost: each run is a fresh process traced from its first level
+    frames over the route's pads, cold then warm (COLD_SEGMENT)."""
+    segments = cold_segments(args.cold)
+    seconds = int(len(segments) * COLD_SEGMENT) + 2
+    assert seconds <= 60, 'route too long for one trace'
+    phases = [(0, 0, turn, 0, True, name) for pad, turn, name in segments]
+    info['cold_segments'] = segments
+    for repeat in range(args.runs):
+        label = f'{args.label}-{repeat + 1}'
+        if repeat:
+            # nothing carried over: the next run starts a new process
+            adb('shell', 'am', 'force-stop', PACKAGE)
+            start(args, config, folder)
+        put('gevr_profile.txt', f'record {label} 1 {seconds} {args.detail}')
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            ack = read_status()
+            if ack.startswith(label + ' '):
+                break
+            time.sleep(.2)
+        else:
+            raise Unavailable('No profiling acknowledgment from an actively rendering runtime')
+        measure = time.monotonic() + 1
+        events = []
+        for i, (pad, turn, name) in enumerate(segments):
+            while time.monotonic() < measure + i * COLD_SEGMENT:
+                time.sleep(min(.25, measure + i * COLD_SEGMENT - time.monotonic()))
+            wake()
+            put('gevr_warp.txt', str(pad))
+            press('0', frames=1, turn=turn, wait=0, ms=int((COLD_SEGMENT - .5) * 1000))
+            events.append({'host_offset': time.monotonic() - measure, 'phase': name, 'pad': pad, 'turn': turn})
+            print(label, name, flush=True)
+        (folder / f'{label}.events.json').write_text(json.dumps(events, indent=2))
+        await_trace(label, measure, folder, info, args.hz, args.spacewarp, phases, seconds)
+        if repeat == 0:
+            # where each pad actually is, captured after the trace so it costs it nothing
+            for pad in args.cold:
+                put('gevr_warp.txt', str(pad))
+                time.sleep(2)
+                shot = subprocess.check_output(['adb', 'exec-out', 'screencap', '-p'], timeout=30)
+                (folder / f'pad{pad}.view.png').write_bytes(shot)
 
 
 def run(args, out):
@@ -253,7 +361,7 @@ def run(args, out):
         config, xbla_edits = re.subn(rb'XblaVisualsMode=\d', f'XblaVisualsMode={args.xbla}'.encode(), config)
         assert xbla_edits == 1, 'settings file layout changed'
     if args.msaa is not None:
-        # the launcher's Anti-aliasing (EyeMsaa: 1 off, 2, 4)
+        # the launcher's Anti-aliasing (EyeMsaa: 1 off, 2; a 4 reads as 2)
         config, msaa_edits = re.subn(rb'EyeMsaa=\d', f'EyeMsaa={args.msaa}'.encode(), config)
         assert msaa_edits == 1, 'settings file layout changed'
     local = folder / 'settings.ini'
@@ -271,32 +379,14 @@ def run(args, out):
     push_back(out / 'backup/eeprom.bin', f'{FILES}/eeprom.bin')
     info = {'apk': str(args.apk.resolve()), 'sha256': hashlib.sha256(args.apk.read_bytes()).hexdigest(),
             'hz': args.hz, 'detail': args.detail, 'showstats': args.showstats, 'runs': args.runs,
-            'pad': args.pad, 'scope_probe': args.scope_probe, 'body_batch': args.body_batch, 'rigid_min': args.rigid_min, 'room_draws': args.room_draws, 'pipeline': args.pipeline, 'spacewarp': args.spacewarp, 'node_mode': args.node_mode, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'xbla': args.xbla, 'msaa': args.msaa, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
+            'pad': args.pad, 'scope_probe': args.scope_probe, 'body_batch': args.body_batch, 'rigid_min': args.rigid_min, 'room_draws': args.room_draws, 'pipeline': args.pipeline, 'spacewarp': args.spacewarp, 'node_mode': args.node_mode, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'xbla': args.xbla, 'msaa': args.msaa, 'cpu_level': args.cpu_level, 'cold': args.cold, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
     log = (folder / 'device.log').open('wb')
     logger = subprocess.Popen(['adb', 'logcat', '-T', '1', '-v', 'threadtime'], stdout=log, stderr=log)
     try:
-        wake()
-        put('gevr_body_batch.txt',str(args.body_batch))
-        put('gevr_rigid_min.txt',str(args.rigid_min))
-        put('gevr_room_draws.txt',str(args.room_draws))
-        put('gevr_pipeline.txt',str(args.pipeline))
-        put('gevr_spacewarp.txt', str(args.spacewarp))
-        put('gevr_bean_nodemode.txt',str(args.node_mode))
-        launch()
-        applied=recent()
-        expected=f'gevr bean controls: rigid_min={args.rigid_min} body_batch={args.body_batch}'
-        # The room switch is read only when XBLA rooms build (XblaVisualsMode=1);
-        # the Bean pack alone replaces characters and guns.
-        rooms = re.search(rb'XblaVisualsMode=1', config) is not None
-        if expected not in applied or (rooms and f'gevr bean room-draws: {args.room_draws}' not in applied) or \
-                f'gevr pipeline: {args.pipeline}' not in applied:
-            raise Unavailable('Renderer did not acknowledge requested diagnostic controls')
-        swlog = adb('logcat', '-d', '-s', 'GoldenEye-VR:*', check=False)
-        # a build without SpaceWarp says nothing about it; one with it must say what it did
-        if args.spacewarp and (f'gevr spacewarp: wanted=1' not in swlog or 'SpaceWarp: on' not in swlog):
-            raise Unavailable('SpaceWarp was requested but not turned on')
-        if args.body_batch and 'gevr bean body-batch:' not in applied:
-            raise Unavailable('Whole-character batching was requested but never applied')
+        start(args, config, folder)
+        if args.cold:
+            cold_runs(args, config, folder, info)
+            return
         if args.scope_probe:
             put('gevr_fakegrip.txt','1 0 -0.10 -0.30 0.70710678 0 0 0.70710678')
             put('gevr_cheat.txt','hold17 invincible maxammo')
@@ -357,24 +447,8 @@ def run(args, out):
                 adb('pull', '/data/local/tmp/gevr-perf.data', str(folder / f'{label}.perf.data'))
                 adb('shell', 'rm', '-f', '/data/local/tmp/gevr-perf.data')
             # Export happens on the render thread after the minute; wait for its verdict.
-            deadline = measure + MEASURE + 60
-            while time.monotonic() < deadline:
-                status = read_status()
-                if status.startswith(('done ' + label + ' ', 'failed ' + label + ' ')):
-                    break
-                time.sleep(1)
-            else:
-                raise Unavailable('Trace export never reported a result')
-            if status.startswith('failed'):
-                raise Unavailable(f'Trace export failed on the device: {status}')
-            remote = f'{FILES}/gevr_profile.txt.{label}.csv'
-            adb('pull', remote, str(folder / f'{label}.csv'))
-            adb('pull', remote + '.gpu.csv', str(folder / f'{label}.gpu.csv'))
             (folder / f'{label}.events.json').write_text(json.dumps(events, indent=2))
-            adb('shell', 'rm', '-f', remote, remote + '.gpu.csv')   # pulled; never leave traces behind
-            rows = validate(folder / f'{label}.csv', args.hz, status, args.spacewarp)
-            info['traces'].append({'label': label, 'status': status, 'valid_rows': rows})
-            print(label, 'validated', rows, 'active frames', flush=True)
+            await_trace(label, measure, folder, info, args.hz, args.spacewarp, PHASES, MEASURE)
     finally:
         logger.terminate()
         logger.wait(timeout=10)
@@ -396,6 +470,9 @@ if __name__ == '__main__':
     parser.add_argument('--label', default='baseline120')
     parser.add_argument('--hz', type=int, choices=[90, 120], default=120)
     parser.add_argument('--pad', type=int, default=0)
+    parser.add_argument('--cold', type=lambda s: [int(p) for p in s.split(',')],
+                        help='first-view cost: comma-separated route pads, each a fresh process '
+                             'traced from its first level frames, cold pass then warm (analyze.py cold)')
     parser.add_argument('--room-draws',type=int,choices=[0,1],default=1,help='0 disables opaque world batching (the game default is on)')
     parser.add_argument('--body-batch',type=int,choices=[0,1],default=1,help='0 disables whole-character batching (the game default is on)')
     parser.add_argument('--rigid-min',type=int,default=256,help='minimum triangles for a retained prop; 0 retains all')
@@ -403,7 +480,10 @@ if __name__ == '__main__':
     parser.add_argument('--detail', type=int, choices=[0, 1], default=0)
     parser.add_argument('--showstats', type=int, choices=[0, 1], default=0)
     parser.add_argument('--xbla', type=int, choices=[0, 1], help="XBLA rooms/skies (XblaVisualsMode); default keeps the user's setting")
-    parser.add_argument('--msaa', type=int, choices=[1, 2, 4], help="eye anti-aliasing samples (EyeMsaa); default keeps the user's setting")
+    parser.add_argument('--msaa', type=int, choices=[1, 2], help="eye anti-aliasing samples (EyeMsaa); default keeps the user's setting")
+    parser.add_argument('--cpu-level', type=int, choices=[-1, 0, 1, 2],
+                        help='CPU performance level asked at session start (files/gevr_cpulevel.txt); '
+                             "-1 none; default keeps the game's CpuLevel")
     parser.add_argument('--texture-pack', help="'none' or a pack folder; default keeps the user's setting")
     parser.add_argument('--scope-probe',action='store_true',
                         help='equip sniper and use an explicit synthetic grip for unattended real scope rendering')

@@ -1945,7 +1945,10 @@ static void import_texture(int i, int tile, bool is_rect) {
                 loaded_texture.id_mask = 0;
                 return;
             }
-            gfx_rapi->upload_texture(beanRgba, (uint32_t)beanW, (uint32_t)beanH);
+            /* mipmapped and trilinear like a pack image: Bean's foliage drawn far
+             * smaller than its pictures sparkled and stair-stepped in the headset,
+             * which no Anti-aliasing setting touched (2026-10-17) */
+            gfx_rapi->upload_texture_hd(beanRgba, (uint32_t)beanW, (uint32_t)beanH);
             loaded_texture.id_mask = 0;
             return;
         }

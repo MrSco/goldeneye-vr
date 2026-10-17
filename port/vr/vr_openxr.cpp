@@ -414,6 +414,9 @@ static bool g_passthroughSupported = false;
 // renders at half the display rate (vr_spacewarp_*, below).
 static bool g_spaceWarpSupported = false;
 static uint32_t g_spaceWarpWidth = 0, g_spaceWarpHeight = 0;   // recommended motion-vector size
+// XR_EXT_performance_settings: the CPU level asked as a session begins (vr_request_cpu_level).
+static bool g_perfSettingsSupported = false;
+extern "C" int VrCpuLevel;         // vr_settings: goldeneye-vr.ini CpuLevel
 static XrPassthroughFB g_passthrough = XR_NULL_HANDLE;
 static XrPassthroughLayerFB g_passthroughLayer = XR_NULL_HANDLE;
 static bool g_passthroughRunning = false;
@@ -515,6 +518,38 @@ static void vr_request_refresh_rate(void)
     }
     g_sessionRefreshPreference = desired;
     LOGI("display: requested %.2f Hz%s", desired, desired == 0.0f ? " (Auto, no app preference)" : "");
+}
+
+/* Each session's CPU level (goldeneye-vr.ini CpuLevel; files/gevr_cpulevel.txt
+ * overrides it for profiling). Unplugged, Quest caps the CPU at the level its
+ * governor picks from the game's load, which SpaceWarp keeps low, and a busy
+ * view overruns before the level rises; sustained high lifts the cap. The GPU
+ * is left to the runtime: 545 MHz is already its battery ceiling (2026-10-17). */
+static void vr_request_cpu_level(void)
+{
+    if (!g_perfSettingsSupported || !g_vrState.sessionRunning) return;
+    int level = VrCpuLevel;
+    if (FILE *control = gevrBeanControlOpen("gevr_cpulevel.txt")) {
+        int v = 0;
+        if (fscanf(control, "%d", &v) == 1) level = v < 0 ? -1 : v > 2 ? 2 : v;
+        fclose(control);
+    }
+    if (level < 0) {
+        LOGI("perf: no CPU level requested");
+        return;
+    }
+    PFN_xrVoidFunction proc = nullptr;
+    XrResult result = xrGetInstanceProcAddr(g_vrState.instance, "xrPerfSettingsSetPerformanceLevelEXT", &proc);
+    const auto set = reinterpret_cast<PFN_xrPerfSettingsSetPerformanceLevelEXT>(proc);
+    if (XR_FAILED(result) || !set) {
+        LOGE("perf: level request unavailable (%d)", (int)result);
+        return;
+    }
+    static const XrPerfSettingsLevelEXT levels[] = {XR_PERF_SETTINGS_LEVEL_POWER_SAVINGS_EXT,
+        XR_PERF_SETTINGS_LEVEL_SUSTAINED_LOW_EXT, XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT};
+    result = set(g_vrState.session, XR_PERF_SETTINGS_DOMAIN_CPU_EXT, levels[level]);
+    if (XR_FAILED(result)) LOGE("perf: CPU level %d refused (%d)", level, (int)result);
+    else LOGI("perf: CPU level %d requested", level);
 }
 
 // XR_SESSION_STATE_FOCUSED: the game has the controllers (not the system menu).
@@ -649,6 +684,11 @@ static std::vector<const char*> vr_enumerate_extensions()
             enabledExts.push_back(XR_FB_SPACE_WARP_EXTENSION_NAME);
             g_spaceWarpSupported = true;
             LOGI("Extension enabled: %s", XR_FB_SPACE_WARP_EXTENSION_NAME);
+        }
+        if (std::strcmp(ext.extensionName, XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME) == 0) {
+            enabledExts.push_back(XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME);
+            g_perfSettingsSupported = true;
+            LOGI("Extension enabled: %s", XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME);
         }
     }
     return enabledExts;
@@ -4703,6 +4743,7 @@ extern "C" void vr_poll_events(void)
                                 g_vrState.sessionRunning = true;
                                 LOGI("Session begun");
                                 vr_request_refresh_rate();
+                                vr_request_cpu_level();
                             }
                         }
                         break;
