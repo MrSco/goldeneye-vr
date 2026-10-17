@@ -2019,6 +2019,7 @@ void netCoopBecameHost(void)
         s_target[i].player = -1;
         s_target[i].until60 = 0;
     }
+    gevrAllyBecameHost();
     s_mission_check_us = s_mission_sent_us = 0;
     s_ai_sent_us = 0;
     s_await_remap = false;

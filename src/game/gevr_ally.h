@@ -15,6 +15,7 @@ typedef struct GevrAllyState {
 void gevrAllyReset(void);
 void gevrAllyTick(void);
 void gevrAllyStop(void);
+void gevrAllyBecameHost(void);
 s32 gevrAllyIs(ChrRecord *chr);
 s32 gevrAllyThink(ChrRecord *chr);
 void gevrAllyAttach(ChrRecord *chr, u32 flags);
