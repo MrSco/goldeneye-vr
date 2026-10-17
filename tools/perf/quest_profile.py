@@ -288,7 +288,8 @@ def run(args, out):
                 f'gevr pipeline: {args.pipeline}' not in applied:
             raise Unavailable('Renderer did not acknowledge requested diagnostic controls')
         swlog = adb('logcat', '-d', '-s', 'GoldenEye-VR:*', check=False)
-        if f'gevr spacewarp: wanted={args.spacewarp}' not in swlog or (args.spacewarp and 'SpaceWarp: on' not in swlog):
+        # a build without SpaceWarp says nothing about it; one with it must say what it did
+        if args.spacewarp and (f'gevr spacewarp: wanted=1' not in swlog or 'SpaceWarp: on' not in swlog):
             raise Unavailable('SpaceWarp was requested but not turned on')
         if args.body_batch and 'gevr bean body-batch:' not in applied:
             raise Unavailable('Whole-character batching was requested but never applied')
