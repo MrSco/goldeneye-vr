@@ -19,8 +19,9 @@ difficulty. The launcher disables multiplayer for other campaigns.
   - **Non-lethal hit:** `+10 PTS`
   - **Standard body/limb kill:** `+60 PTS`
   - **Critical headshot kill (`HIT_HEAD`):** `+100 PTS`
+  - A kill no player is known to have caused (no player hit the guard) pays nobody.
 - **Call of Duty Mystery Box (`950 PTS`):**
-  - Located at one of four candidate box pads in the arena. Stand near the box and press **B / Reload-Activate** or **VR Grip Use** to spend `950 PTS`.
+  - Located at one of four candidate box pads in the arena, shown by an ammo crate that moves with it. Stand near the crate and press **B / Reload-Activate**, or reach a hand to it and press **Grip**, to spend `950 PTS`. A grip away from a station (a holster, a pickup, a door) buys nothing.
   - Cycles through 12 GoldenEye weapons (Cougar Magnum, ZMG 9mm, Phantom, RC-P90, Auto Shotgun, Sniper Rifle, Silver PP7, Gold PP7, Moonraker Laser, Golden Gun, Grenade Launcher, Rocket Launcher) for 3 seconds, then presents the rolled weapon for 8 seconds for the buyer to claim.
   - **Teddy Bear relocation:** After 4+ uses at a location, rolls have a 20% chance (guaranteed by the 10th use) to trigger a Teddy Bear relocation, refunding `950 PTS` to the buyer and moving the Mystery Box to another room's box location.
 - **Wall Buys & Ammo Refills:**
@@ -40,7 +41,10 @@ difficulty. The launcher disables multiplayer for other campaigns.
   down ends the run; a solo down ends it immediately.
 - A HUD message announces each wave with its enemy count, player points and defeat;
   during a break the countdown stays on screen until it ends, and standing near
-  the Mystery Box or a Wall Buy displays a live interaction prompt.
+  the Mystery Box or a Wall Buy displays a live interaction prompt (during a
+  break it carries the countdown too). Each Wall Buy is marked by its gun,
+  enlarged and turning above its pad; body armour by a vest. Station models
+  cannot be picked up.
   The pause menu shows points, cleared waves, time, total kills and revives. Once the
   run ends, the host can select **Retry Horde**. **Leave party** returns to the
   launcher. Campaign saves, completion times and unlocks are not awarded.
