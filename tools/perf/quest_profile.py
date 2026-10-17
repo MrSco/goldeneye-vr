@@ -252,6 +252,10 @@ def run(args, out):
     if args.xbla is not None:
         config, xbla_edits = re.subn(rb'XblaVisualsMode=\d', f'XblaVisualsMode={args.xbla}'.encode(), config)
         assert xbla_edits == 1, 'settings file layout changed'
+    if args.msaa is not None:
+        # the launcher's Anti-aliasing (EyeMsaa: 1 off, 2, 4)
+        config, msaa_edits = re.subn(rb'EyeMsaa=\d', f'EyeMsaa={args.msaa}'.encode(), config)
+        assert msaa_edits == 1, 'settings file layout changed'
     local = folder / 'settings.ini'
     local.write_bytes(config)
     adb('shell', 'am', 'force-stop', PACKAGE)
@@ -267,7 +271,7 @@ def run(args, out):
     push_back(out / 'backup/eeprom.bin', f'{FILES}/eeprom.bin')
     info = {'apk': str(args.apk.resolve()), 'sha256': hashlib.sha256(args.apk.read_bytes()).hexdigest(),
             'hz': args.hz, 'detail': args.detail, 'showstats': args.showstats, 'runs': args.runs,
-            'pad': args.pad, 'scope_probe': args.scope_probe, 'body_batch': args.body_batch, 'rigid_min': args.rigid_min, 'room_draws': args.room_draws, 'pipeline': args.pipeline, 'spacewarp': args.spacewarp, 'node_mode': args.node_mode, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'xbla': args.xbla, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
+            'pad': args.pad, 'scope_probe': args.scope_probe, 'body_batch': args.body_batch, 'rigid_min': args.rigid_min, 'room_draws': args.room_draws, 'pipeline': args.pipeline, 'spacewarp': args.spacewarp, 'node_mode': args.node_mode, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'xbla': args.xbla, 'msaa': args.msaa, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
     log = (folder / 'device.log').open('wb')
     logger = subprocess.Popen(['adb', 'logcat', '-T', '1', '-v', 'threadtime'], stdout=log, stderr=log)
     try:
@@ -399,6 +403,7 @@ if __name__ == '__main__':
     parser.add_argument('--detail', type=int, choices=[0, 1], default=0)
     parser.add_argument('--showstats', type=int, choices=[0, 1], default=0)
     parser.add_argument('--xbla', type=int, choices=[0, 1], help="XBLA rooms/skies (XblaVisualsMode); default keeps the user's setting")
+    parser.add_argument('--msaa', type=int, choices=[1, 2, 4], help="eye anti-aliasing samples (EyeMsaa); default keeps the user's setting")
     parser.add_argument('--texture-pack', help="'none' or a pack folder; default keeps the user's setting")
     parser.add_argument('--scope-probe',action='store_true',
                         help='equip sniper and use an explicit synthetic grip for unattended real scope rendering')
