@@ -2,6 +2,7 @@
 
   analyze.py summary RUN_DIR [RUN_DIR ...]      per-phase percentiles, waits, GPU, sections
   analyze.py compare BASE_DIR CAND_DIR          paired deltas with bootstrap 95% intervals
+  analyze.py cold RUN_DIR [RUN_DIR ...]         --cold runs: first-view cost per route segment
 
 App processing is the frame's CPU time minus the time it spent blocked:
 xrWaitFrame (runtime pacing), the swapchain image wait, the vertex-ring fence
@@ -282,6 +283,62 @@ def print_summary(s):
               (f" (unavailable: {', '.join(s['xr_metrics_unavailable'])})" if s['xr_metrics_unavailable'] else ''))
 
 
+COLD_COSTS = ['shader_compile', 'texture_upload', 'fresh', 'game', 'wait']
+
+
+def cold_summary(folders):
+    """quest_profile.py --cold traces: per route segment (pad, cold or warm pass),
+    missed frames, the worst frame and what the first views spent compiling and uploading."""
+    segs, worst = {}, []
+    for folder in folders:
+        info, traces = run_dirs_traces(folder)
+        names = {turn: name for pad, turn, name in info['cold_segments']}
+        for path in traces:
+            t = frame_table(path)
+            d = t['d']
+            turn = d['input_turn'].astype(int)
+            # A segment's warp lands just before its turn starts: frames take the next turn seen.
+            label = np.zeros(len(turn), int)
+            nxt = 0
+            for i in range(len(turn) - 1, -1, -1):
+                nxt = turn[i] or nxt
+                label[i] = nxt
+            if (label == 0).any():
+                label[label == 0] = turn[np.flatnonzero(turn)[-1]]
+            budget = d['period_ns']
+            for value, name in names.items():
+                m = t['active'] & (label == value)
+                if not m.any():
+                    continue
+                s = segs.setdefault(name, {'runs': 0, 'frames': 0, 'missed': [], 'over': 0, 'app_max': 0.0,
+                                           'upload_mb': 0.0, **{c: 0.0 for c in COLD_COSTS[:2]}, 'compile_max': 0.0})
+                s['runs'] += 1; s['frames'] += int(m.sum())
+                s['missed'].append(int(t['missed'][m].sum()))
+                s['over'] += int((t['app'][m] > budget[m]).sum())
+                s['app_max'] = max(s['app_max'], float(t['app'][m].max()) / 1e6)
+                s['upload_mb'] += float(d['upload_bytes'][m].sum()) / 1e6
+                for c in COLD_COSTS[:2]:
+                    s[c] += float(d[f'{c}_ns'][m].sum()) / 1e6
+                s['compile_max'] = max(s['compile_max'], float(d['shader_compile_ns'][m].max()) / 1e6)
+                for i in np.flatnonzero(m & (t['app'] > budget)):
+                    worst.append((float(t['app'][i]) / 1e6, name, path.name,
+                                  {c: float(d[f'{c}_ns'][i]) / 1e6 for c in COLD_COSTS},
+                                  int(d['draws'][i]), int(d['upload_bytes'][i])))
+    print('segment        runs  frames  missed per run  over budget  worst app ms  shader compile ms (max)  texture upload ms  uploaded MB')
+    order = sorted(segs, key=lambda n: (not n.startswith('cold'), n))
+    for name in order:
+        s = segs[name]
+        print(f"{name:14s} {s['runs']:4d} {s['frames']:7d}  {', '.join(map(str, s['missed'])):>14s}  {s['over']:11d}"
+              f"  {s['app_max']:12.2f}  {s['shader_compile']:12.2f} ({s['compile_max']:.2f})  {s['texture_upload']:17.2f}  {s['upload_mb']:11.2f}")
+    worst.sort(reverse=True)
+    if worst:
+        print('\nworst over-budget frames: app ms, segment, trace, ' + ' / '.join(COLD_COSTS) + ' ms, draws, upload bytes')
+        for app, name, trace, costs, draws, upload in worst[:15]:
+            print(f"  {app:6.2f}  {name:12s} {trace:24s} " + ' / '.join(f'{costs[c]:.2f}' for c in COLD_COSTS)
+                  + f'  {draws}  {upload}')
+    return {'segments': segs, 'worst': worst[:50]}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest='action', required=True)
@@ -289,8 +346,12 @@ def main(argv=None):
     c = sub.add_parser('compare'); c.add_argument('base'); c.add_argument('cand'); c.add_argument('--json')
     c.add_argument('--fresh', action='store_true',
                    help='fresh frames only (game tick + render); the mix with redraws is bimodal')
+    k = sub.add_parser('cold', help='quest_profile.py --cold runs: first-view cost per route segment')
+    k.add_argument('folders', nargs='+'); k.add_argument('--json')
     args = parser.parse_args(argv)
-    if args.action == 'summary':
+    if args.action == 'cold':
+        result = cold_summary(args.folders)
+    elif args.action == 'summary':
         result = [summarize(f) for f in args.folders]
         for r in result:
             print_summary(r)
