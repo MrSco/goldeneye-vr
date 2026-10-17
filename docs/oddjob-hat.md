@@ -99,16 +99,16 @@ units and degrees:
 
 ```
 held <brim radius> <dx> <dy> <dz> <yaw> <pitch> <roll>
-gex  <brim radius cm> <dx> <dy> <dz> <yaw> <pitch> <roll>
+gex  <brim radius> <dx> <dy> <dz> <yaw> <pitch> <roll>
 prop <brim radius> <dx> <dy> <dz> <pitch>
 height <times>
 ```
 
-Defaults: held 133 (about 3.3 of Bond's hand widths), gex 11.3 cm (the
-cartridge hat's size in the headset: GE-X's knife matrix measured 0.0170
-view units a unit on the Dam, so 15 cm, or GE-X's own 0.085 cm units, drew it
-a third bigger than the cartridge one; converted through the knife matrix's
-measured scale, which GE-X's item fit changes, and the guns' size), prop 200, height 0.55 (the capture's
+Defaults: held 133 (about 3.3 of Bond's hand widths), gex 133 (the knife
+matrix's units: it measured 0.0170 view units a unit in the hand on the Dam,
+so about 11 cm, which matched the cartridge hat in the headset; GE-X's own
+0.085 cm units, 176, drew it a third bigger. Model units also fit GE-X's
+weapon panel, drawn at about 1 view unit a unit), prop 200, height 0.55 (the capture's
 vertical stretch undone). The capture fixes
 the hat's width against its depth (the band is round) but not its height:
 as captured the crown is a top hat's, 1.2 times as tall as it is wide. The
