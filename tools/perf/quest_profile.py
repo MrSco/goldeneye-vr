@@ -361,7 +361,7 @@ def run(args, out):
         config, xbla_edits = re.subn(rb'XblaVisualsMode=\d', f'XblaVisualsMode={args.xbla}'.encode(), config)
         assert xbla_edits == 1, 'settings file layout changed'
     if args.msaa is not None:
-        # the launcher's Anti-aliasing (EyeMsaa: 1 off, 2, 4)
+        # the launcher's Anti-aliasing (EyeMsaa: 1 off, 2; a 4 reads as 2)
         config, msaa_edits = re.subn(rb'EyeMsaa=\d', f'EyeMsaa={args.msaa}'.encode(), config)
         assert msaa_edits == 1, 'settings file layout changed'
     local = folder / 'settings.ini'
@@ -480,7 +480,7 @@ if __name__ == '__main__':
     parser.add_argument('--detail', type=int, choices=[0, 1], default=0)
     parser.add_argument('--showstats', type=int, choices=[0, 1], default=0)
     parser.add_argument('--xbla', type=int, choices=[0, 1], help="XBLA rooms/skies (XblaVisualsMode); default keeps the user's setting")
-    parser.add_argument('--msaa', type=int, choices=[1, 2, 4], help="eye anti-aliasing samples (EyeMsaa); default keeps the user's setting")
+    parser.add_argument('--msaa', type=int, choices=[1, 2], help="eye anti-aliasing samples (EyeMsaa); default keeps the user's setting")
     parser.add_argument('--cpu-level', type=int, choices=[-1, 0, 1, 2],
                         help='CPU performance level asked at session start (files/gevr_cpulevel.txt); '
                              "-1 none; default keeps the game's CpuLevel")
