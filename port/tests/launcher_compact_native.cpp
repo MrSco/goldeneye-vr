@@ -71,7 +71,7 @@ static void gevrMatchLiveOptions();
 /* the Screen tab: the virtual screen, the display rate, SpaceWarp, anti-aliasing and resolution */
 static ImVec4 bad(1, .4f, .4f, 1);
 static int VrScreenCurved, VrScreenPassthrough, VrSpaceWarp, VrRefreshRate=120, VrEyeMsaa=1;
-static float VrScreenFov=60, VrScreenDistance=3, VrRenderScale;
+static float VrScreenFov=60, VrScreenDistance=3;
 static bool beanOn;
 #define VR_SCREEN_DISTANCE_MIN 1.0f
 #define VR_SCREEN_DISTANCE_MAX 10.0f
@@ -80,8 +80,8 @@ static bool beanOn;
 static int vr_screen_curve_supported(){return 1;}
 static int vr_passthrough_supported(){return 1;}
 static int vr_spacewarp_supported(){return 1;}
+static int vr_spacewarp_setting_on(){return VrSpaceWarp>=0?VrSpaceWarp!=0:beanOn;}
 static int vr_eye_msaa_supported(){return 1;}
-static float vr_render_scale(){return 1.0f;}
 static void vr_screen_resize(float,float){}
 static bool gevrBeanIsEnabled(){return beanOn;}
 static int vr_get_supported_refresh_rates(int *rates,int capacity){
@@ -172,11 +172,11 @@ int main() {
     online=host=1;
     for(VrMpMode=0;VrMpMode<2;VrMpMode++)for(VrMpScenario=0;VrMpScenario<10;VrMpScenario++)
         for(int set: {4,NET_WEAPON_SET_CUSTOM}) {VrMpWeaponSet=set;layout(3);}
-    // the Screen tab with every row it can show: Bean's 90 Hz warning, the
-    // resolution's "next start" note, each anti-aliasing and resolution choice
+    // the Screen tab with every row it can show: Bean's 90 Hz warning,
+    // SpaceWarp on and off, each anti-aliasing choice
     for(beanOn=false;;beanOn=true) {
-        for(VrSpaceWarp=0;VrSpaceWarp<2;VrSpaceWarp++)for(int s:{1,2,4})for(float r:{0.0f,1.25f,1.5f}) {
-            VrEyeMsaa=s;VrRenderScale=r;layout(4);
+        for(VrSpaceWarp=-1;VrSpaceWarp<2;VrSpaceWarp++)for(int s:{1,2,4}) {
+            VrEyeMsaa=s;layout(4);
         }
         if(beanOn)break;
     }

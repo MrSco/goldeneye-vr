@@ -123,14 +123,17 @@ int VrNoKnockback = 1;
 int VrNoHitstun = 0;
 int VrDamageFlash = 1;
 /* Application SpaceWarp: the runtime makes every other displayed frame from
- * motion vectors and depth (vr_openxr.cpp). Off by default while tried out. */
-int VrSpaceWarp = 0;
+ * motion vectors and depth (vr_openxr.cpp). 1 on, 0 off, -1 (the default) on
+ * while Bean is: the user's 2026-10-17 feel test, Bean holds 120 Hz with it. */
+int VrSpaceWarp = -1;
+/* The 2026-10-17 test build's launcher Resolution (goldeneye-vr.ini
+ * RenderScale) was saved into the game config's Video.VRRenderScale; its key,
+ * still in that build's ini, puts the scale back to 1 once (vr_openxr.cpp). */
+int VrResetRenderScale = 0;
 /* The launcher's Anti-aliasing: samples per pixel of the eye images (1 off,
- * 2, 4), switched live (vr_openxr.cpp vr_attach_eye_fbo). */
-int VrEyeMsaa = 1;
-/* The launcher's Resolution: the eye images' size over the headset's
- * recommendation, used as VR starts; 0 = the game's Video.VRRenderScale. */
-float VrRenderScale = 0.0f;
+ * 2, 4), switched live (vr_openxr.cpp vr_attach_eye_fbo). 4x by default: the
+ * Quest's most, with no cost the user could see (2026-10-17). */
+int VrEyeMsaa = 4;
 #ifdef ANDROID
 int VrRefreshRate = 0;     /* Auto: no app preference; runtime / external profile manages the rate. */
 #else

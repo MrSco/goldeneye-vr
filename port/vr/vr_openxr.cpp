@@ -160,7 +160,7 @@ int32_t g_internalRenderWidth  = 0;
 int32_t g_internalRenderHeight = 0;
 float RENDER_SCALE = 1.0f;
 extern "C" int VrEyeMsaa;          // vr_settings: the launcher's Anti-aliasing (EyeMsaa)
-extern "C" float VrRenderScale;    // vr_settings: the launcher's Resolution (RenderScale)
+extern "C" int VrResetRenderScale; // vr_settings: the test build's RenderScale key was read
 static uint32_t g_systemMaxRenderWidth = 0, g_systemMaxRenderHeight = 0;
 
 // The runtime's name for the headset ("Oculus Quest2", "Meta Quest 3", ...):
@@ -859,12 +859,11 @@ extern "C" bool vr_configure_resolution() {
         recommendedHeight = std::max(recommendedHeight, valid ? view.recommendedImageRectHeight : 1920u);
         if (!valid) LOGE("HMD eye %u invalid recommendation; using 1832 x 1920 fallback", eye);
     }
-    // The launcher's Resolution (goldeneye-vr.ini RenderScale) over the game's
-    // Video.VRRenderScale, once: the eye images are made here, as VR starts.
-    static bool launcherScaleRead = false;
-    if (!launcherScaleRead) {
-        launcherScaleRead = true;
-        if (VrRenderScale > 0.0f) RENDER_SCALE = VrRenderScale;
+    // The 2026-10-17 test build's launcher Resolution was saved into
+    // Video.VRRenderScale; that option is gone, so its ini key resets it once.
+    if (VrResetRenderScale) {
+        VrResetRenderScale = 0;
+        RENDER_SCALE = 1.0f;
     }
     const GevrRenderSize size = gevrQuestRenderSize(recommendedWidth, recommendedHeight, RENDER_SCALE,
                                                   g_maxRenderWidth, g_maxRenderHeight);
@@ -1464,7 +1463,8 @@ static bool g_swFrameReady = false; // this frame's motion vectors were drawn: c
 static bool g_swFboChecked = false;
 static int g_swOverride = -1;      // files/gevr_spacewarp.txt (profiling): 0 off, 1 on, -1 the setting
 static bool g_swMadeTried = false; // the images were made, or failed, this session
-extern "C" int VrSpaceWarp;        // vr_settings: goldeneye-vr.ini SpaceWarp
+extern "C" int VrSpaceWarp;        // vr_settings: goldeneye-vr.ini SpaceWarp (1, 0, -1 with Bean)
+extern "C" int gevrBeanIsEnabled(void);
 
 static int vr_spacewarp_override(void)
 {
@@ -1477,9 +1477,17 @@ static int vr_spacewarp_override(void)
     return value;
 }
 
+/* The setting: on or off as chosen, or (-1, the default) on while Bean is,
+ * which needs it to hold 120 Hz while turning. Read every frame, so turning
+ * Bean on or off in game takes SpaceWarp with it. */
+extern "C" int vr_spacewarp_setting_on(void)
+{
+    return VrSpaceWarp >= 0 ? VrSpaceWarp != 0 : gevrBeanIsEnabled() != 0;
+}
+
 static bool vr_spacewarp_wanted(void)
 {
-    return g_swOverride >= 0 ? g_swOverride != 0 : VrSpaceWarp != 0;
+    return g_swOverride >= 0 ? g_swOverride != 0 : vr_spacewarp_setting_on() != 0;
 }
 
 static void vr_spacewarp_destroy(void)
@@ -3529,9 +3537,8 @@ extern "C" float gevrVrAspect(void) { return XrAspect; }
 extern "C" void gevrVrSetWorldScale(float unitsPerMetre) { vr_world_scale = unitsPerMetre; }
 
 /* vr_launcher.cpp: Anti-aliasing is offered where the driver can multisample
- * the multiview eye images; Resolution shows the size in use. */
+ * the multiview eye images. */
 extern "C" int vr_eye_msaa_supported(void) { return use_multiview && pfnFramebufferTextureMultisampleMultiviewOVR != nullptr; }
-extern "C" float vr_render_scale(void) { return RENDER_SCALE; }
 
 // ============================================================================
 // FBOs - Render Targets
