@@ -3501,7 +3501,7 @@ extern "C" void gevrLauncherRun(void)
             // page does not grow. It takes effect from the next level on.
             {
                 ImGui::SameLine();
-                bool spaceWarp = VrSpaceWarp != 0;
+                bool spaceWarp = vr_spacewarp_setting_on() != 0;
                 ImGui::BeginDisabled(!vr_spacewarp_supported());
                 if (ImGui::Checkbox("SpaceWarp", &spaceWarp)) {
                     VrSpaceWarp = spaceWarp ? 1 : 0;
@@ -3509,15 +3509,15 @@ extern "C" void gevrLauncherRun(void)
                 }
                 ImGui::EndDisabled();
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                    gevrTooltip("Experimental. The game draws half the frames and the headset makes the ones "
+                    gevrTooltip("The game draws half the frames and the headset makes the ones "
                                       "between from motion and depth: Bean holds 120 Hz while turning, with a little "
-                                      "more latency. Text locked to your view can shimmer.");
+                                      "more latency. Text locked to your view can shimmer. On by default with Bean.");
             }
             // XBLA / Bean's frames take longer than 120 Hz's 8.3 ms when turning
             // in open levels (Dam on Quest 3: 197 missed frames in three
             // minutes of turning at 120 Hz, 17 at 90). A warning on the
             // heading's line, as long as it fits: the page must not grow or scroll.
-            if (gevrBeanIsEnabled() && VrRefreshRate > 90 && !VrSpaceWarp) {
+            if (gevrBeanIsEnabled() && VrRefreshRate > 90 && !vr_spacewarp_setting_on()) {
                 const char *why = "XBLA / Bean's models and textures can take longer than a 120 Hz frame "
                                   "while turning in open levels, which stutters. 90 Hz holds nearly every frame.";
                 if (ImGui::IsItemHovered())
@@ -3540,9 +3540,9 @@ extern "C" void gevrLauncherRun(void)
             if (VrRefreshRate != prevRate) {
                 vrSettingsSave();
             }
-            // Anti-aliasing: the eye images multisampled (vr_attach_eye_fbo), live.
-            // Resolution: their size over the headset's recommendation, made as VR
-            // starts (goldeneye-vr.ini RenderScale), so it waits for the next start.
+            // Anti-aliasing: the eye images multisampled (vr_attach_eye_fbo), live. No
+            // supersampling choice: 1.5x slowed Bean at 120 Hz with SpaceWarp and the
+            // user saw little gain (2026-10-17); Video.VRRenderScale still sets it.
             {
                 static const int samples[] = {1, 2, 4};
                 static const char *const sampleNames[] = {"Off", "2x", "4x"};
@@ -3555,29 +3555,6 @@ extern "C" void gevrLauncherRun(void)
                     vrSettingsSave();
                 }
                 ImGui::EndDisabled();
-                static const float scales[] = {1.0f, 1.25f, 1.5f};
-                static const char *const scaleNames[] = {"1x", "1.25x", "1.5x"};
-                const float now = vr_render_scale();
-                const float chosen = VrRenderScale > 0.0f ? VrRenderScale : now;
-                int scale = -1;
-                for (int i = 0; i < 3; i++)
-                    if (std::fabs(chosen - scales[i]) < 0.01f) scale = i;
-                if (gevrRadioRow("Resolution", scaleNames, 3, &scale,
-                                 "Supersampling: the game draws each eye at this multiple of the size the headset "
-                                 "recommends and the headset scales it down, which is sharper. 1.5x draws 2.25 times "
-                                 "the pixels, at that GPU cost. It multiplies a Quest Games Optimizer or SideQuest "
-                                 "resolution. Takes effect the next time the game starts.")) {
-                    VrRenderScale = scales[scale];
-                    vrSettingsSave();
-                }
-                if (std::fabs((VrRenderScale > 0.0f ? VrRenderScale : now) - now) >= 0.01f) {
-                    const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
-                    const float from = ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x;
-                    if (from + ImGui::CalcTextSize("next start").x <= right) {
-                        ImGui::SameLine();
-                        ImGui::TextDisabled("next start");
-                    }
-                }
             }
         });
         ImGui::Separator();
