@@ -3463,8 +3463,13 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
  * a skinned body's bone palette, shown through the previous frame's moves, so a
  * walking guard, an opening door or a swung gun carries its own motion. Others
  * (new this frame, the vertex ring) move with the head, hands and stick only.
- * A cutout (alpha-tested texture) discards as its own program does. Not the
- * screen-locked draws, decals, blended draws, menus or lines.
+ * A cutout (alpha-tested texture) discards as its own program does. Decals
+ * lie on their surface and take its motion (drawn onto it, depth kept). A
+ * blended draw (smoke, explosions, flashes, glass) writes where its texture is
+ * at least half opaque, or wholly when untextured, so a moving effect carries
+ * its own motion rather than the wall's behind it. Line mode draws the faces
+ * its lines lie on. Not the screen-locked HUD and menus: they follow the head,
+ * which the runtime's frames between cannot show from the eye image.
  */
 enum { GEVR_MOTION_RING, GEVR_MOTION_MESH, GEVR_MOTION_SKIN, GEVR_MOTION_KINDS };
 struct GevrMotionProgram {
@@ -3717,16 +3722,20 @@ void gfx_vr_motion_pass(const float* const cur[4], const float* const prev[4], b
     GLuint vao = 0, tex = 0;
     GLsizei stride = -1;
     bool texCoords = false;
+    bool onSurface = false;
     uint32_t drawn = 0, skipped = 0, matched = 0;
     for (const GevrEyeDraw& d : s_eyeDraws) {
         const GevrEyeMesh* mesh = d.mesh ? &s_eyeMeshes[d.mesh - 1] : NULL;
-        if (d.lineMode || d.isMenu || d.decalZ || d.decalDepth || d.alpha[0]) {
+        if (d.isMenu) {
             skipped++;
             continue;
         }
         const bool skin = mesh && mesh->params.skinned;
         const int kind = !mesh ? GEVR_MOTION_RING : skin ? GEVR_MOTION_SKIN : GEVR_MOTION_MESH;
-        const bool cutout = d.prg->motion_cut > 0.0f;
+        // blended: where at least half opaque (its texture), or wholly when untextured
+        const float cut = d.alpha[0] ? (d.prg->used_textures[0] ? std::max(0.5f, d.prg->motion_cut) : 0.0f)
+                                     : d.prg->motion_cut;
+        const bool cutout = cut > 0.0f;
         const GevrMotionProgram& m = s_motionPrg[kind][cutout ? 1 : 0];
         const GLuint want = mesh ? mesh->vao : opengl_vao;
         if (want != vao) {
@@ -3804,12 +3813,29 @@ void gfx_vr_motion_pass(const float* const cur[4], const float* const prev[4], b
                 glBindTexture(GL_TEXTURE_2D, d.tex[0]);
                 tex = d.tex[0];
             }
-            glUniform1f(m.cut, d.prg->motion_cut);
+            glUniform1f(m.cut, cut);
+        }
+        // decals: onto their surface (the eye pass's pull toward the eye), its depth kept
+        const bool decal = d.decalZ || d.decalDepth;
+        if (decal != onSurface) {
+            if (decal) {
+                glEnable(GL_POLYGON_OFFSET_FILL);
+                glPolygonOffset(-2.0f, -2.0f);
+                glDepthMask(GL_FALSE);
+            } else {
+                glDisable(GL_POLYGON_OFFSET_FILL);
+                glDepthMask(GL_TRUE);
+            }
+            onSurface = decal;
         }
         gevr_draw_range(d.first, d.count);
         drawn++;
     }
 
+    if (onSurface) {
+        glDisable(GL_POLYGON_OFFSET_FILL);
+        glDepthMask(GL_TRUE);
+    }
     // what the next frame's motion measures from
     s_motionIndex.clear();
     for (uint32_t i = 0; i < records.size(); i++) {
