@@ -8,6 +8,7 @@
 #include "bondview.h"
 #ifdef GEVR
 #include "gevr_hand_reload.h"
+#include "gevr_oddjobhat.h"
 #endif
 #include "bondinv.h"
 #include "gun.h"
@@ -5098,6 +5099,10 @@ void generate_player_thrown_knife(s32 hand)
     guRotateF(&spFC, 360.0f / ((randomGetNext() * (0.5f / (f32)INT_MAX)) + 12.1f), spA0_a.m[1][0], spA0_a.m[1][1], spA0_a.m[1][2]);
 
     wor = create_new_item_instance_of_model(PROP_CHRKNIFE, ITEM_THROWKNIFE);
+#ifdef GEVR
+    /* Mods: the hat is drawn for thrown knives, not the hunting knives sharing the model */
+    if (wor != NULL) gevrHatThrown(wor->model);
+#endif
 
     if (wor != NULL)
     {

@@ -2,6 +2,7 @@
 #include "gevr_romcheck.h"
 #include "gevr_romlayout.h"
 #include "gevr_bean.h"
+#include "gevr_oddjobhat.h"
 /*
  * GoldenEye VR launcher, inside VR.
  *
@@ -1073,6 +1074,15 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     if (ImGui::Checkbox("Blood patch (by Wreck)", &blood)) VrBloodPatch = blood ? 1 : 0;
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Shot guards spray the red blood sparks Rare left in the game,\ninstead of smoke and sparks.");
+    // Oddjob's hat shares the row: only there once the player has made its
+    // file from their own Nightfire capture (tools/gevr_oddjob_hat.py).
+    if (gevrHatAvailable()) {
+        ImGui::SameLine();
+        bool hat = VrOddjobHat != 0;
+        if (ImGui::Checkbox("Oddjob's hat", &hat)) VrOddjobHat = hat ? 1 : 0;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Throwing knives are Oddjob's hat: in your hand, in flight\nand lying about. Only the look changes.");
+    }
     if (row == 0.0f)
         ImGui::SameLine();
     if (ImGui::Button("Done", ImVec2(-1, 0))) {
