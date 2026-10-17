@@ -17,7 +17,7 @@ This is an experimental native Quest multiplayer mode. It uses ENet and borrows 
 
 Mode **Horde** plays endless Archives waves with regular armed guards, solo or
 with up to four humans. Hits and kills earn points for the Mystery Box and Wall Buys.
-Everyone down ends the run; the host can retry from the pause menu. An optional AI ally joins the party (Play > Game rules). Protocol 22
+Everyone down ends the run; the host can retry from the pause menu. An optional AI ally joins the party (Play > Game rules > AI ally). Protocol 22
 (v0.5.4: Horde, the AI ally and tracked heads and arms) requires v0.5.4 on every headset. See [Horde mode](docs/horde-mode.md) for
 implementation details and remaining hardware acceptance. Older protocol notes
 below describe prior releases.

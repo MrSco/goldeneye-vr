@@ -1,8 +1,9 @@
 # AI ally: solo, campaign co-op and Horde (#194)
 
-Enable **AI ally (Natalya)** in Play > Game rules before starting. The same
-preference also appears in Multiplayer > Host > Match for Co-op and Horde;
-weapon and durability choices are on Game rules. Off by default. One companion
+Enable **AI ally (Natalya)** on its own page, Play > Game rules > **AI ally
+(Natalya)...**, before starting. The same preference also appears in
+Multiplayer > Host > Match for Co-op and Horde; weapon and durability choices
+are on the ally's page. Off by default. One companion
 joins the whole party, including solo Horde from PR #191. Supported in the
 original GoldenEye campaign, in VR or flat presentation. Deathmatch, offline
 split-screen, title/ending stages and hack campaigns ignore it.

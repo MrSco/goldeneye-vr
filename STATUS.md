@@ -3,8 +3,8 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current release:** v0.5.4 (versionCode 84, protocol 22), 2026-10-17.
-Protocol 22 is new: v0.5.3 and older can't join. Building does not publish a
+**Current release:** v0.5.5 (versionCode 85, protocol 22), 2026-10-17.
+v0.5.4 can join; v0.5.3 and older can't. Building does not publish a
 GitHub release. No game data is shipped.
 
 v0.5.4: Horde in Archives (PR #191; points, Mystery Box, Wall Buys, PR #193),
@@ -16,7 +16,9 @@ default (the launcher's 1.5x supersampling was tried and dropped); Bean draw
 join (PR #192); wrapped launcher tooltips; Oddjob's hat 1.1 (PR #196/#197,
 a Mods download). Headset: solo Horde, two-headset co-op with the ally at Dam,
 SpaceWarp feel at 120 Hz. [Horde](docs/horde-mode.md),
-[AI ally](docs/ai-ally.md), [v0.5.4](docs/releases/v0.5.4.md).
+[AI ally](docs/ai-ally.md), [v0.5.4](docs/releases/v0.5.4.md). v0.5.5: the ally's
+settings moved to their own page, so Game rules no longer scrolls
+([v0.5.5](docs/releases/v0.5.5.md)).
 
 v0.5.3 (PR #187, PR #188): optional ragdolls and dismemberment, off by
 default, on Play > Game rules (Damage needed / Chance sliders, Bodies stay in
