@@ -318,7 +318,7 @@ def run(args, out):
                     time.sleep(.1)
                 # A user build only lets the shell sample a profileable app by package.
                 sampler = subprocess.Popen(['adb', 'shell', 'simpleperf', 'record', '--app', PACKAGE,
-                                            '-e', 'cpu-clock', '-f', '2000', '--call-graph', 'fp',
+                                            '-e', 'cpu-clock', '-f', '2000', '--call-graph', 'fp', '--clockid', 'monotonic',
                                             '--duration', str(MEASURE), '-o', '/data/local/tmp/gevr-perf.data'],
                                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             for offset, mask, turn, ms, warp, phase in PHASES:
