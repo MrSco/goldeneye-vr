@@ -3497,11 +3497,27 @@ extern "C" void gevrLauncherRun(void)
             }
             ImGui::Spacing();
             ImGui::TextColored(gold, "DISPLAY RATE");
+            // Application SpaceWarp (vr_openxr.cpp): on the heading's line too, so the
+            // page does not grow. It takes effect from the next level on.
+            {
+                ImGui::SameLine();
+                bool spaceWarp = VrSpaceWarp != 0;
+                ImGui::BeginDisabled(!vr_spacewarp_supported());
+                if (ImGui::Checkbox("SpaceWarp", &spaceWarp)) {
+                    VrSpaceWarp = spaceWarp ? 1 : 0;
+                    vrSettingsSave();
+                }
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("Experimental. The game draws half the frames and the headset makes the ones "
+                                      "between from motion and depth: Bean holds 120 Hz while turning, with a little "
+                                      "more latency. Text locked to your view can shimmer.");
+            }
             // XBLA / Bean's frames take longer than 120 Hz's 8.3 ms when turning
             // in open levels (Dam on Quest 3: 197 missed frames in three
             // minutes of turning at 120 Hz, 17 at 90). A warning on the
             // heading's line, as long as it fits: the page must not grow or scroll.
-            if (gevrBeanIsEnabled() && VrRefreshRate > 90) {
+            if (gevrBeanIsEnabled() && VrRefreshRate > 90 && !VrSpaceWarp) {
                 const char *why = "XBLA / Bean's models and textures can take longer than a 120 Hz frame "
                                   "while turning in open levels, which stutters. 90 Hz holds nearly every frame.";
                 if (ImGui::IsItemHovered())

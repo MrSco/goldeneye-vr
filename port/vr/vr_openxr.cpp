@@ -1440,8 +1440,8 @@ static bool vr_load_swapchain_images(XrSwapchain swapchain, Images &images)
  * motion-vector and depth images at the runtime's recommended size, and they
  * go with the projection layer; the runtime then runs the app at half the
  * display rate and makes the frames between. That removes the redraw replay,
- * which at 120 Hz drew every game frame's draws a second time. goldeneye-vr.ini
- * SpaceWarp=1 or files/gevr_spacewarp.txt "1" turns it on.
+ * which at 120 Hz drew every game frame's draws a second time. The launcher's
+ * Display page toggle (goldeneye-vr.ini SpaceWarp) or files/gevr_spacewarp.txt turns it on.
  */
 static XrSwapchain g_swMotionSwapchain = XR_NULL_HANDLE, g_swDepthSwapchain = XR_NULL_HANDLE;
 #ifdef ANDROID
@@ -1453,17 +1453,24 @@ static GLuint g_swFbo = 0;
 static bool g_swOn = false;        // swapchains made: the setting and the runtime allow it
 static bool g_swFrameReady = false; // this frame's motion vectors were drawn: chain them
 static bool g_swFboChecked = false;
+static int g_swOverride = -1;      // files/gevr_spacewarp.txt (profiling): 0 off, 1 on, -1 the setting
+static bool g_swMadeTried = false; // the images were made, or failed, this session
 extern "C" int VrSpaceWarp;        // vr_settings: goldeneye-vr.ini SpaceWarp
+
+static int vr_spacewarp_override(void)
+{
+    int value = -1;
+    if (FILE *control = gevrBeanControlOpen("gevr_spacewarp.txt")) {
+        int v = 0;
+        if (fscanf(control, "%d", &v) == 1) value = v != 0;
+        fclose(control);
+    }
+    return value;
+}
 
 static bool vr_spacewarp_wanted(void)
 {
-    int wanted = VrSpaceWarp;
-    if (FILE *control = gevrBeanControlOpen("gevr_spacewarp.txt")) {
-        int v = 0;
-        if (fscanf(control, "%d", &v) == 1) wanted = v != 0;
-        fclose(control);
-    }
-    return wanted != 0;
+    return g_swOverride >= 0 ? g_swOverride != 0 : VrSpaceWarp != 0;
 }
 
 static void vr_spacewarp_destroy(void)
@@ -1476,12 +1483,10 @@ static void vr_spacewarp_destroy(void)
     g_swOn = g_swFrameReady = g_swFboChecked = false;
 }
 
-static void vr_spacewarp_create(void)
+static void vr_spacewarp_make(void)
 {
-    const bool wanted = vr_spacewarp_wanted();
-    LOGI("gevr spacewarp: wanted=%d supported=%d size=%ux%u multiview=%d", wanted ? 1 : 0,
-         g_spaceWarpSupported ? 1 : 0, g_spaceWarpWidth, g_spaceWarpHeight, use_multiview ? 1 : 0);
-    if (!wanted || !g_spaceWarpSupported || !use_multiview || g_spaceWarpWidth < 16 || g_spaceWarpHeight < 16) return;
+    g_swMadeTried = true;
+    if (!g_spaceWarpSupported || !use_multiview || g_spaceWarpWidth < 16 || g_spaceWarpHeight < 16) return;
     XrSwapchainCreateInfo info{ XR_TYPE_SWAPCHAIN_CREATE_INFO };
     info.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
     info.format = GL_RGBA16F;
@@ -1511,11 +1516,32 @@ static void vr_spacewarp_create(void)
          g_swMotionImages.size(), g_swDepthImages.size());
 }
 
+/* Session start: the file switch is read once; the images are made the first
+ * time a game frame wants them, so the launcher's toggle takes effect in the
+ * next level without a restart. */
+static void vr_spacewarp_create(void)
+{
+    g_swOverride = vr_spacewarp_override();
+    g_swMadeTried = false;
+    const bool wanted = vr_spacewarp_wanted();
+    LOGI("gevr spacewarp: wanted=%d supported=%d size=%ux%u multiview=%d", wanted ? 1 : 0,
+         g_spaceWarpSupported ? 1 : 0, g_spaceWarpWidth, g_spaceWarpHeight, use_multiview ? 1 : 0);
+    if (wanted) vr_spacewarp_make();
+}
+
+/* vr_launcher.cpp: the toggle is offered where the runtime has the extension. */
+extern "C" int vr_spacewarp_supported(void)
+{
+    return g_spaceWarpSupported && use_multiview && g_spaceWarpWidth >= 16 && g_spaceWarpHeight >= 16;
+}
+
 /* gfx_pc.cpp, after a game frame's eye replay: bind and clear this frame's
  * motion-vector and depth images. 0: SpaceWarp is off, or no stereo game frame. */
 extern "C" int vr_spacewarp_begin(void)
 {
-    if (!g_swOn || !g_frameStarted || !g_frameState.shouldRender) return 0;
+    if (!vr_spacewarp_wanted() || !g_frameStarted || !g_frameState.shouldRender) return 0;
+    if (!g_swOn && !g_swMadeTried) vr_spacewarp_make();
+    if (!g_swOn) return 0;
     uint32_t mv = 0, depth = 0;
     XrSwapchainImageAcquireInfo acquire{ XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
     XrSwapchainImageWaitInfo wait{ XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
