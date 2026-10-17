@@ -216,6 +216,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "BeanFillTextures=%d\n", VrBeanFillTextures ? 1 : 0);
     fprintf(f, "; 1 = Wreck's blood patch: shot guards spray the red sparks Rare left in the game.\n");
     fprintf(f, "BloodPatch=%d\n", VrBloodPatch ? 1 : 0);
+    fprintf(f, "; 1 = Oddjob's hat in place of the throwing knife, from files/mods/oddjob_hat.bin.\n");
+    fprintf(f, "OddjobHat=%d\n", VrOddjobHat ? 1 : 0);
     fprintf(f, "Ragdolls=%d\n", VrRagdolls ? 1 : 0);
     fprintf(f, "Dismemberment=%d\n", VrDismemberment ? 1 : 0);
     fprintf(f, "DismemberDamage=%.1f\n", VrDismemberDamage);
@@ -704,6 +706,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "XblaVisualsMode") == 0) VrBeanModels = ival != 0;
             else if (strcmp(key, "BeanFillTextures") == 0) VrBeanFillTextures = ival != 0;
             else if (strcmp(key, "BloodPatch") == 0) VrBloodPatch = ival != 0;
+            else if (strcmp(key, "OddjobHat") == 0) VrOddjobHat = ival != 0;
             else if (strcmp(key, "Ragdolls") == 0) VrRagdolls = ival != 0;
             else if (strcmp(key, "Dismemberment") == 0) VrDismemberment = ival != 0;
             else if (strcmp(key, "DismemberChance") == 0) VrDismemberChance = ival < 0 ? 0 : ival > 100 ? 100 : ival;

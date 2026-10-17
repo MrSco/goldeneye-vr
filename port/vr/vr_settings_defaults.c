@@ -102,6 +102,8 @@ int VrBeanModels = 1;
 int VrBeanFillTextures = 1;
 /* Mods: Wreck's blood patch, off as the cartridge ships. */
 int VrBloodPatch = 0;
+/* Mods: Oddjob's hat, on when its file is there (gevr_oddjobhat.c) */
+int VrOddjobHat = 1;
 int VrRagdolls = 0;       /* optional Jolt death physics, every game mode */
 int VrDismemberment = 0; /* independent preference; requires ragdolls */
 /* CE's Ragdoll.RagdollDismemberDamage / RagdollDismemberChance (ragdoll.c:41).

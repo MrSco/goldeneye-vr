@@ -85,6 +85,7 @@ static unsigned s_beanPaintUploads, s_beanPaintHits;
 extern "C" int gevrStatsPicture(const void *addr, const uint8_t **rgba, int *w, int *h);   // bondview2.c
 #include "gevr_bean.h"
 #include "gevr_romlayout.h"
+#include "gevr_oddjobhat.h"
 extern "C" int VrCampaign; /* vr_settings: the launcher's campaign */
 
 #include "../vr/vr_hub.h"
@@ -1930,7 +1931,9 @@ static void import_texture(int i, int tile, bool is_rect) {
         const uint8_t *beanRgba = nullptr;
         int beanW = 0, beanH = 0;
         const void *frameAddr = gevrBeanTextureFrame(loaded_texture.addr, g_GlobalTimer / 60.0f);
-        if (gevrBeanTexture(frameAddr, &beanRgba, &beanW, &beanH) && beanRgba && beanW > 0 && beanH > 0) {
+        /* Mods: Oddjob's hat loads its pictures the same way (gevr_oddjobhat.c) */
+        if ((gevrBeanTexture(frameAddr, &beanRgba, &beanW, &beanH) || gevrHatTexture(frameAddr, &beanRgba, &beanW, &beanH))
+            && beanRgba && beanW > 0 && beanH > 0) {
             /* UV normalization below uses the logical tile, not the 16x16
              * stand-in's byte count. Keep both axes in those same units. */
             loaded_texture.orig_size_bytes = rdp.texture_tile[tile].width
