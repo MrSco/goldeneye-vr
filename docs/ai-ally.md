@@ -37,15 +37,21 @@ excludes the companion. No network protocol changes.
 
 - `python3 port/tests/test_ally.py`: runs the production controller against a
   synthetic stage. Covers solo/campaign/camera gating, retries, one spawn per
-  life, reload and reused slots, preference snapshots and bounds, weapons,
+  mission, reload and reused slots, preference snapshots and bounds, weapons,
   durability, neutral/player filtering, sight checks, aggression, follow/stop,
   cinematic suspension and damage isolation.
+- `python3 port/tests/test_ally_ui.py`: production Game rules widgets and INI
+  save/load snippets, with value bounds, online/hack disablement, scrolling
+  and footer bounds at the launcher font size.
 - `python3 port/tests/test_campaign_items.py`: existing campaign regressions,
   including an added check that scripted Natalya ignores the companion.
 - `python3 port/tests/test_reinforcements.py`: body retention and optional
   reinforcements at NTSC/PAL timing. Linux requires pre-including the compiler's
   system `stddef.h` because the existing include shim masks glibc's partial
   includes; no game or test assertions were changed for that workaround.
+
+Android `assembleDebug testDebugUnitTest` passed (30 JVM tests, zero failures
+or errors). The debug APK signature verifies. Existing launcher UI checks pass.
 
 Headset play is still required: Dam start/reload and weapon choices; following
 through doors, stairs and narrow passages; Jungle with both Natalyas; Bunker II,
