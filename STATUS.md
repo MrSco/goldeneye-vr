@@ -3,21 +3,20 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current release:** v0.5.3 (versionCode 83, protocol 21), 2026-10-16.
-v0.4.16 through v0.5.2 can join; v0.4.15 and older can't. Building does not
-publish a GitHub release. No game data is shipped.
+**Current release:** v0.5.4 (versionCode 84, protocol 22), 2026-10-17.
+Protocol 22 is new: v0.5.3 and older can't join. Building does not publish a
+GitHub release. No game data is shipped.
 
-**Unreleased #189:** Horde in Archives, solo/1–4 humans, normal armed guards,
-endless paced waves, automatic resupply/weapon progression, revives, results
-and retry. This branch adds the optional #194 companion; protocol 22 requires
-all players to update. Native/synthetic checks
-and debug APK build pass; no headset acceptance yet. [Horde](docs/horde-mode.md).
-
-On main, unreleased (PR #196): Mods > Oddjob's hat. Throwing knives look like
-Nightfire's hat in the Original, Bean and GE-X hands, in flight and lying
-about; the hat is a launcher download from MrSco/goldeneye-vr-mods (each mod's
-own releases), not in the APK. Headset-accepted; GE-X's weapon panel unchecked.
-[Oddjob's hat](docs/oddjob-hat.md).
+v0.5.4: Horde in Archives (PR #191; points, Mystery Box, Wall Buys, PR #193),
+solo or 1-4 humans, revives, results and retry; the optional AI ally Natalya
+(#194; solo, co-op and Horde, host-owned, spawns clear of players, not in
+missions with their own Natalya); tracked remote heads and arms (PR #190);
+Application SpaceWarp, on by default while Bean is; 4x eye anti-aliasing by
+default (the launcher's 1.5x supersampling was tried and dropped); Bean draw
+join (PR #192); wrapped launcher tooltips; Oddjob's hat 1.1 (PR #196/#197,
+a Mods download). Headset: solo Horde, two-headset co-op with the ally at Dam,
+SpaceWarp feel at 120 Hz. [Horde](docs/horde-mode.md),
+[AI ally](docs/ai-ally.md), [v0.5.4](docs/releases/v0.5.4.md).
 
 v0.5.3 (PR #187, PR #188): optional ragdolls and dismemberment, off by
 default, on Play > Game rules (Damage needed / Chance sliders, Bodies stay in
@@ -81,10 +80,9 @@ is goldeneyevr.com, in its own repository.
 
 ## Outstanding issues / limits
 
-- #194: optional AI companion for solo, campaign co-op and PR #191 Horde on
-  feature/194-ai-ally. Host-owned, late join/takeover, no wave quota contribution.
-  Native controller/network/Horde checks pass; headset checks still owed.
-  [AI ally](docs/ai-ally.md).
+- v0.5.4 headset checks still owed: Horde co-op (revives, late join, host
+  loss), the ally in Horde and after host takeover, tracked arms on a second
+  headset, Mystery Box/Wall Buys with more than one player.
 
 - #164: v0.4.22 fixes the logged vacant-body blocker; broader co-op mission
   starts and reloads remain to be confirmed. Keep the issue open for now.
