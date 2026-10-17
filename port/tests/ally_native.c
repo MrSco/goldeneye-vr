@@ -9,6 +9,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 int VrAlly, VrAllyWeapon, VrAllyAggression, VrAllyHealth, VrAllyDamage, VrAllyInvincible;
 s32 g_StageNum, g_ClockTimer;
@@ -25,7 +26,9 @@ static s32 online, campaign, players, locked, failspawn, spawns, gives, walks, a
 static s32 hosting, pve, downed[4], spectating[4], hordeRunning, defeated, announcements;
 static f32 walkTarget;
 static s32 weapon, target, identity = 5000;
-static f32 hitScale;
+static f32 hitScale, spawnAngle;
+static coord3d spawnAt;
+static s32 blockedSpots, lines;
 
 bool netIsActive(void) { return online; }
 bool netIsHost(void) { return hosting; }
@@ -58,6 +61,7 @@ bool chrIsDead(ChrRecord *chr) { return chr->actiontype == ACT_DIE || chr->actio
 PropRecord *chrSpawnAtCoord(s32 body, s32 head, coord3d *pos, StandTile *stan, f32 angle, AIRecord *ai, s32 flags) {
     assert(body == BODY_Natalya_Jungle_Fatigues && head == HEAD_Natalya_Jungle_Fatigues);
     assert(stan == &tile && ai == NULL && (u32)flags == (0x10 | GEVR_ALLY_SPAWN_FLAG));
+    spawnAt = *pos; spawnAngle = angle;
     spawns++;
     if (failspawn) return NULL;
     guards[0].chrnum = identity++;
@@ -66,6 +70,18 @@ PropRecord *chrSpawnAtCoord(s32 body, s32 head, coord3d *pos, StandTile *stan, f
     props[0].chr = &guards[0]; props[0].pos = *pos; props[0].pos.z += 60;
     props[0].stan = stan; props[0].type = PROP_TYPE_CHR;
     return &props[0];
+}
+/* The spawn spot's checks: a clear line from the player, then a clear volume;
+ * blockedSpots fails that many volume tests first (walls, crates, guards). */
+s32 stanTestLineUnobstructed(StandTile **t, f32 x, f32 z, f32 dx, f32 dz, int types, f32 h, f32 a, f32 b, f32 c) {
+    assert(*t == &tile); lines++; return TRUE;
+}
+s32 stanTestVolume(StandTile **t, f32 x, f32 z, f32 radius, s32 types, f32 a, f32 b) {
+    assert(*t == &tile && (types & CDTYPE_PLAYERS) && (types & CDTYPE_CHRS));
+    return blockedSpots > 0 ? (blockedSpots--, 0) : -1;
+}
+static f32 flatDistance(const coord3d *a, const coord3d *b) {
+    f32 x = a->x - b->x, z = a->z - b->z; return sqrtf(x*x + z*z);
 }
 PropRecord *chrGiveWeapon(ChrRecord *chr, s32 model, ITEM_IDS item, s32 flags) {
     assert(flags == (netHordeActive() ? PROPFLAG_AIUNDROPPABLE : 0));
@@ -90,7 +106,7 @@ static void reset(void) {
     g_ChrSlots = guards; g_CurrentPlayer = &player; player.prop = &bond;
     bond.stan = &tile; bond.type = PROP_TYPE_VIEWER;
     g_StageNum = LEVELID_DAM; g_ClockTimer = 15; g_CameraMode = CAMERAMODE_FP;
-    online = campaign = locked = failspawn = spawns = gives = walks = attacks = hits = 0;
+    online = campaign = locked = failspawn = spawns = gives = walks = attacks = hits = blockedSpots = lines = 0;
     players = los = 1; VrAlly = 1; VrAllyWeapon = 0; VrAllyAggression = 1;
     hosting=hordeRunning=1; pve=defeated=announcements=0;
     VrAllyHealth = VrAllyDamage = 100; VrAllyInvincible = 0;
@@ -205,7 +221,24 @@ int main(void) {
     defeated=1; think(); assert(guards[0].actiontype==ACT_STAND);
     gevrAllyTick(); assert(spawns==1);
     defeated=0; gevrAllyReset(); gevrAllyTick(); assert(spawns==2); // retry creates a new companion
+    /* Never on a player (user, 2026-10-17: at Dam's co-op start she spawned
+     * inside a teammate, who couldn't move until she died). A teammate on the
+     * first spot moves her on, blocked spots are skipped, nowhere clear waits. */
+    reset(); online=1; pve=1; players=2; gevrAllyReset();
+    teammate=(struct player){0}; teammateProp=(PropRecord){0};
+    teammate.prop=&teammateProp; teammateProp.stan=&tile; teammateProp.pos.z=150;
+    g_playerPointers[1]=&teammate;
+    gevrAllyTick(); assert(spawns==1);
+    assert(flatDistance(&spawnAt,&bond.pos)>=100 && flatDistance(&spawnAt,&teammateProp.pos)>=100);
+    assert(flatDistance(&spawnAt,&bond.pos)<=260 && lines>=2);
+    /* she faces the player she joins */
+    assert(fabsf(spawnAngle-(atan2f(bond.pos.x-spawnAt.x,bond.pos.z-spawnAt.z)+(spawnAngle>3.1415927f?6.2831853f:0)))<0.01f);
+    reset(); blockedSpots=3; gevrAllyTick(); assert(spawns==1 && spawnAt.x>100 && spawnAt.z<-100);
+    reset(); blockedSpots=24; gevrAllyTick(); assert(spawns==0); /* every spot blocked: wait */
+    for (int i=0; i<4; i++) gevrAllyTick(); assert(spawns==0);
+    gevrAllyTick(); assert(spawns==1 && flatDistance(&spawnAt,&bond.pos)>=100);
+
     inherited.weapon=99; assert(!gevrAllyStateValid(&inherited));
-    puts("PASS: solo/co-op/Horde companion, human party following, authority, takeover, retry, configuration and damage isolation");
+    puts("PASS: solo/co-op/Horde companion, spawn clear of every player, human party following, authority, takeover, retry, configuration and damage isolation");
     return 0;
 }

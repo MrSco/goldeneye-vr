@@ -14,6 +14,8 @@
 #include "gevr_romlayout.h"
 #include "net_coop.h"
 #include "net_horde.h"
+#include "stan.h"
+#include <math.h>
 
 extern bool netIsActive(void);
 extern bool netIsHost(void);
@@ -194,9 +196,54 @@ static s32 gevrAllyMission(void)
     }
 }
 
+/* Within a metre of a player (any slot, local or remote), on that floor. */
+static s32 gevrAllyNearPlayer(const coord3d *pos)
+{
+    for (s32 i = 0; i < getPlayerCount(); ++i) {
+        struct player *pl = g_playerPointers[i];
+        if (!pl || !pl->prop) continue;
+        f32 x = pl->prop->pos.x - pos->x, y = pl->prop->pos.y - pos->y, z = pl->prop->pos.z - pos->z;
+        if (x*x + z*z < 100.0f*100.0f && y > -200.0f && y < 200.0f) return TRUE;
+    }
+    return FALSE;
+}
+
+/* Where she appears: a ring around the player she follows, reached in a
+ * straight line, clear of walls, objects and characters, and a metre from
+ * every player. GoldenEye's own spawn check (chrAdjustPosForSpawn) skips the
+ * current player's body and only steps 60 units, so spawning "at Bond" put
+ * her inside a player at Dam's co-op start, who couldn't move until she died. */
+static s32 gevrAllySpawnSpot(const PropRecord *bond, coord3d *spot, StandTile **stan, f32 *angle)
+{
+    static const f32 radii[] = { 150.0f, 250.0f, 110.0f };
+    for (s32 r = 0; r < (s32)(sizeof(radii) / sizeof(radii[0])); ++r) {
+        for (s32 i = 0; i < 8; ++i) {
+            f32 a = i * 0.7853982f;
+            coord3d test = bond->pos;
+            StandTile *tile = bond->stan;
+            test.x += sinf(a) * radii[r];
+            test.z += cosf(a) * radii[r];
+            if (!stanTestLineUnobstructed(&tile, bond->pos.x, bond->pos.z, test.x, test.z,
+                                          CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER, 0.0f, 1.0f, 0.0f, 1.0f)
+                || stanTestVolume(&tile, test.x, test.z, 30.0f,
+                                  CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PLAYERS | CDTYPE_CHRS | CDTYPE_PATHBLOCKER,
+                                  0.0f, 1.0f) >= 0
+                || gevrAllyNearPlayer(&test)) continue;
+            *spot = test;
+            *stan = tile;
+            *angle = a < 3.1415927f ? a + 3.1415927f : a - 3.1415927f; /* facing the player */
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
 void gevrAllyTick(void)
 {
     PropRecord *bond, *prop;
+    coord3d spot;
+    StandTile *stan;
+    f32 angle;
     s32 player;
     if (!s_enabled || s_spawned || !gevrAllyAuthority() || !gevrAllyMission()
         || g_ClockTimer <= 0 || !gevrAllyPlaying()) return;
@@ -204,10 +251,11 @@ void gevrAllyTick(void)
     if (player < 0) return;
     bond = g_playerPointers[player]->prop;
     if (s_wait > 0) { s_wait -= g_ClockTimer; return; }
-    /* The spawn routine searches around Bond and checks floor and blockers.
-     * Allow on-screen placement, otherwise small starting rooms never fit. */
+    /* No clear spot yet (a crowded start room): wait and try again rather
+     * than spawn on someone. Allow on-screen placement: she joins in view. */
+    if (!gevrAllySpawnSpot(bond, &spot, &stan, &angle)) { s_wait = 60; return; }
     prop = chrSpawnAtCoord(BODY_Natalya_Jungle_Fatigues, HEAD_Natalya_Jungle_Fatigues,
-                          &bond->pos, bond->stan, 0.0f, NULL, 0x10 | GEVR_ALLY_SPAWN_FLAG);
+                          &spot, stan, angle, NULL, 0x10 | GEVR_ALLY_SPAWN_FLAG);
     if (prop == NULL) { s_wait = 60; return; }
     s_ally = prop->chr;
     s_identity = s_ally->chrnum; /* allocated identity, never a mission ID */
