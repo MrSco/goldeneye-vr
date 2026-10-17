@@ -150,7 +150,7 @@ static struct {
 	float held[7];
 	float gex[7];
 	float prop[5];
-	float height;      /* the crown's height, times: the capture gives no true height (X is fixed by the round band, Y is not); 0.55 makes the crown a bowler's, 0.6 as tall as it is wide; it stays flat-topped */
+	float height;      /* the crown's height, times: the capture gives no true height (X is fixed by the round band, Y is not); 0.55 undoes the capture's vertical stretch, by eye, until the converter takes it */
 	long stamp;
 	int frames;
 } s_tune = { { 133.0f, 0, 0, 0, 0, 0, 0 }, { 15.0f, 0, 0, 0, 0, 0, 0 }, { 200.0f, 0, 0, 0, 0 }, 0.55f, -1, 0 };
