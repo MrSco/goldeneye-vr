@@ -30,9 +30,9 @@
  *
  * files/gevr_oddjobhat.txt tunes it live (re-read when it changes):
  *   held <brim radius> <dx> <dy> <dz> <yaw> <pitch> <roll>
- *   gex  <brim radius> <dx> <dy> <dz> <yaw> <pitch> <roll>
+ *   gex  <brim radius cm> <dx> <dy> <dz> <yaw> <pitch> <roll>
  *   prop <brim radius> <dx> <dy> <dz> <pitch>
- *   height <times>   (the crown's height, 0.75 by default)
+ *   height <times>   (the crown's height, 0.55 by default)
  * in model units and degrees; held and gex turn about the fist (yaw about
  * the knife's axis, pitch across the hand, roll about the forearm).
  */
@@ -96,6 +96,9 @@ static const float s_forearm[3] = { 0.016f, 0.205f, 0.979f };
 static const float s_knife[3] = { -0.003f, 0.933f, 0.360f };
 
 /* GoldenEye X's hand model: the right wrist's matrix, its palm along it (gun.c) */
+extern f32 D_800364CC;                               /* the level scale: view units a centimetre */
+extern f32 gevrGunSizeNow(s32 *setting, s32 *online);   /* bondview2.c: the guns' size */
+
 #define GEX_WRIST  2
 #define GEX_PALM_Z 50.0f
 
@@ -131,6 +134,7 @@ struct hatModel {
 	int gex;           /* GoldenEye X's knife: the fist is measured at its first draw */
 	int placed;        /* the fist below is known */
 	float fist[3], forearm[3], handle[3];   /* in the hat node's matrix space */
+	float camera;      /* GoldenEye X: view units a knife-matrix unit (its fit sizes the knife) */
 	float origin[3];   /* the model's origin in that space (props) */
 	Vtx *vtx;
 	Gfx *gdl;
@@ -146,10 +150,10 @@ static struct {
 	float held[7];
 	float gex[7];
 	float prop[5];
-	float height;      /* the crown's height, times: the capture gives no true height (X is fixed by the round band, Y is not); 0.75 is by eye, a real bowler would be about 0.6 */
+	float height;      /* the crown's height, times: the capture gives no true height (X is fixed by the round band, Y is not); 0.55 makes the crown a bowler's, 0.6 as tall as it is wide; it stays flat-topped */
 	long stamp;
 	int frames;
-} s_tune = { { 133.0f, 0, 0, 0, 0, 0, 0 }, { 176.0f, 0, 0, 0, 0, 0, 0 }, { 200.0f, 0, 0, 0, 0 }, 0.75f, -1, 0 };
+} s_tune = { { 133.0f, 0, 0, 0, 0, 0, 0 }, { 15.0f, 0, 0, 0, 0, 0, 0 }, { 200.0f, 0, 0, 0, 0 }, 0.55f, -1, 0 };
 
 static u32 rd32(const u8 *p) { u32 v; memcpy(&v, p, 4); return v; }
 static float rdf(const u8 *p) { float v; memcpy(&v, p, 4); return v; }
@@ -418,9 +422,12 @@ static int gexMeasure(struct hatModel *m, struct Model *model)
 	}
 	m->handle[0] = k[0][1] >= 0 ? 1.0f : -1.0f;   /* camera y is up */
 	m->handle[1] = m->handle[2] = 0;
+	/* sized in centimetres: the knife matrix's view units a unit */
+	m->camera = sqrtf(k[0][0] * k[0][0] + k[0][1] * k[0][1] + k[0][2] * k[0][2]);
+	if (!(m->camera > 1e-9f)) return 0;
 	m->placed = 1;
-	hatLog("oddjob hat: GoldenEye X fist %.1f %.1f %.1f, forearm %.2f %.2f %.2f, blade %+.0f x",
-	             m->fist[0], m->fist[1], m->fist[2], m->forearm[0], m->forearm[1], m->forearm[2], m->handle[0]);
+	hatLog("oddjob hat: GoldenEye X fist %.1f %.1f %.1f, forearm %.2f %.2f %.2f, blade %+.0f x, %.4f view units a unit",
+	             m->fist[0], m->fist[1], m->fist[2], m->forearm[0], m->forearm[1], m->forearm[2], m->handle[0], m->camera);
 	return 1;
 }
 
@@ -476,7 +483,13 @@ static void place(struct hatModel *m, Vtx *vtx)
 	const float rad = (float)M_PI / 180.0f;
 	const float *tune = kind != HAT_HELD ? s_tune.prop : m->gex ? s_tune.gex : s_tune.held;
 	float ge[3][3], nf[3][3], turn[3][3];
-	const float scale = tune[0] / s_hat.radius;
+	/* GoldenEye X's brim radius is in centimetres at the guns' size (bondview2.c:
+	 * view units a centimetre are the level scale); the others in model units */
+	float scale = tune[0] / s_hat.radius;
+	if (kind == HAT_HELD && m->gex) {
+		s32 setting, online;
+		scale = tune[0] * D_800364CC * gevrGunSizeNow(&setting, &online) / m->camera / s_hat.radius;
+	}
 	if (kind == HAT_HELD) {
 		frame(ge, m->forearm, m->handle);
 		frame(nf, s_hat.forearm, s_hat.up);
