@@ -16,8 +16,10 @@ a second time in another pose, off screen; that copy is skipped). They are
 found by their textures unless --calls names them.
 
 3DReaperDX unprojected X with the window's 4:3 aspect while the game drew
-16:9 (the hat band is round only with X x 4/3), so X is scaled back. Its
-view space is Direct3D's (+Z forward); the output is OpenGL's (-Z forward).
+16:9 (the hat band is round only with X x 4/3), so X is scaled back. Nothing
+in the capture fixes the height, which comes out stretched (a top hat's
+crown); Y x 0.55 was settled by eye in the headset (--height to change it).
+Its view space is Direct3D's (+Z forward); the output is OpenGL's (-Z forward).
 
 Writes:
   oddjob_hat.bin   the hat: textures, triangles (lit into vertex colours),
@@ -35,10 +37,11 @@ import numpy as np
 from PIL import Image
 
 ASPECT_FIX = 4.0 / 3.0
+HEIGHT_FIX = 0.55   # the capture's vertical stretch, by eye in the headset (2026-10-17)
 HAT_TEX = ("755bdc3e", "c7ceefc1")   # crown, band
 ARM_TEX = "5f54cbc7"
 LIGHT = np.array([0.35, 1.0, 0.55])
-MAGIC = b"GEVRHAT1"
+MAGIC = b"GEVRHAT2"   # 2: the height is fixed here (1: the game squashed it)
 
 
 def read_dump(path):
@@ -122,7 +125,10 @@ def hat_frame(v, hat_idx):
     """Origin the brim's centre, +Y the crown, unit the dump's."""
     p = v[hat_idx]
     centre = p.mean(0)
-    axis = np.linalg.svd(p - centre)[2][0]
+    # the crown's axis: of the hat's principal axes, the one nearest the
+    # camera's up (the hat is held upright; squashed, its longest is the brim)
+    axes = np.linalg.svd(p - centre)[2]
+    axis = axes[np.argmax(np.abs(axes[:, 1]))]
     if axis[1] < 0:
         axis = -axis
     t = (p - centre) @ axis
@@ -177,13 +183,17 @@ def vertex_light(p, faces):
     return {i: shade[tuple(np.round(p[i], 4))] for t in faces for i, _ in t}
 
 
-def write_bin(out, dumpdir, v, uv, origin, basis, radius, parts, fist, fore, up):
+def write_bin(out, dumpdir, v, uv, origin, basis, radius, parts, fist, fore, up, height):
     texnames, corners = [], []
     allfaces = [t for _, faces in parts for t in faces]
     idx = sorted({i for t in allfaces for i, _ in t})
     local = np.zeros_like(v)
     local[idx] = (v[idx] - origin) @ basis.T
-    light = vertex_light(local, allfaces)
+    light = vertex_light(local, [t for _, faces in parts for t in faces])
+    # the capture's stretch: the crown's height (hat-local y), the fist's too;
+    # lit and gripped as captured, so the hat sits in the hand as it was tested
+    local[idx, 1] *= height
+    fist = fist * [1.0, height, 1.0]
     for tex, faces in parts:
         texnames.append(tex)
         for t in faces:
@@ -208,7 +218,7 @@ def write_obj(out, dumpdir, v, uv, objects):
     base = os.path.splitext(os.path.basename(out))[0]
     with open(out, "w") as o, open(os.path.splitext(out)[0] + ".mtl", "w") as m:
         o.write("# Oddjob's hat view model (007 Nightfire, GameCube) from a 3DReaperDX capture\n")
-        o.write("# game camera at the origin looking down -Z; X scaled by 4/3 (capture aspect)\n")
+        o.write("# game camera at the origin looking down -Z; X x 4/3 (capture aspect), Y x 0.55 (capture stretch)\n")
         o.write("mtllib %s.mtl\n" % base)
         vb = tb = 0
         for name, tex, faces in objects:
@@ -235,6 +245,7 @@ def main():
     ap.add_argument("frame", help="3DReaperDX frame .obj (its .mtl and .dds beside it)")
     ap.add_argument("outdir")
     ap.add_argument("--calls", help="crown,band,arms draw call numbers, e.g. 538,539,540")
+    ap.add_argument("--height", type=float, default=HEIGHT_FIX, help="Y scale for the capture's stretch (%(default)s)")
     args = ap.parse_args()
     v, uv, calls = read_dump(args.frame)
     names = ["DrawCall_" + n for n in args.calls.split(",")] if args.calls else None
@@ -246,8 +257,8 @@ def main():
     os.makedirs(args.outdir, exist_ok=True)
     dumpdir = os.path.dirname(os.path.abspath(args.frame))
     tris = write_bin(os.path.join(args.outdir, "oddjob_hat.bin"), dumpdir, v, uv, origin, basis, radius,
-                     [(crown["tex"], crown["faces"]), (band["tex"], band["faces"])], fist, fore, up)
-    write_obj(os.path.join(args.outdir, "oddjob_hat.obj"), dumpdir, v, uv,
+                     [(crown["tex"], crown["faces"]), (band["tex"], band["faces"])], fist, fore, up, args.height)
+    write_obj(os.path.join(args.outdir, "oddjob_hat.obj"), dumpdir, v * [1.0, args.height, 1.0], uv,
               [("Hat", crown["tex"], crown["faces"]), ("HatBand", band["tex"], band["faces"]),
                ("ArmLeft", arms["tex"], left), ("ArmRight", arms["tex"], right)])
     print("%s %s %s: hat %d triangles, brim radius %.3f, arms %d + %d triangles"
