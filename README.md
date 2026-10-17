@@ -308,9 +308,9 @@ that are off by default:
 - **Per-gun recoil**: each gun kicks with Perfect Dark VR's recoil.
 
 **Game rules...** on the **Play** tab includes an optional [AI ally](docs/ai-ally.md)
-for solo GoldenEye: a separate Natalya companion with weapon, aggression, damage,
-health and invincibility choices. Enable it before starting a mission; changes
-apply next mission. It also works with Fast reinforcements.
+for solo GoldenEye, campaign co-op and Horde: one extra Natalya companion with
+weapon, aggression, damage, health and invincibility choices. The host chooses;
+changes apply next mission or Horde retry. It also works with Fast reinforcements.
 
 Other optional rules, off by default:
 mines stick to guards (solo), bodies stay (the newest 12, 24 or 48, solo), and
@@ -390,7 +390,7 @@ Then press **Start Hosting**, and **Launch** once everyone connected shows **Rea
 Ammo arrives during 15-second breaks; the Klobb and KF7 unlock as you progress.
 Revive downed teammates by standing beside them. Everyone down ends the run; open
 the pause menu for results and **Retry Horde**. You can launch alone. This build
-uses protocol 22, so every headset must update. See [Horde mode](docs/horde-mode.md)
+uses protocol 23 with the optional AI ally, so every headset must update. See [Horde mode](docs/horde-mode.md)
 for the first playable scope and pending headset checks.
 
 **Join a game.** Press **Multiplayer...** and choose the **Join** tab. Pick a public internet game

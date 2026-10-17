@@ -12,6 +12,8 @@ action = (ROOT / "src/game/chraction.c").read_text(encoding="utf-8")
 chr_source = (ROOT / "src/game/chr.c").read_text(encoding="utf-8")
 ai = (ROOT / "src/game/chrai.c").read_text(encoding="utf-8")
 fixture = (ROOT / "port/tests/coop_spawns_native.c").read_text(encoding="utf-8")
+ally = (ROOT / "src/game/gevr_ally.c").read_text()
+ally_net = (ROOT / "port/src/net/net_ally.c").read_text()
 
 types = re.search(r"#define COOP_MAX_SLOTS \d+", coop)[0] + "\n"
 for member, last in (("    NetChrState st;\n    u64 sent_us;", "CoopSent"),
@@ -37,7 +39,10 @@ parts = {
     "NETWORK": "\n\n".join(block(coop, name) for name in functions),
     "LOOKUPS": "\n\n".join((block(chr_source, "ChrRecord* chrFindByLiteralId("),
                               block(action, "s32 chrResolveId("), block(action, "ChrRecord *chrFindById("),
-                              block(action, "s32 gevrFastReinforcements("))),
+                              block(action, "s32 gevrFastReinforcements("),
+                              block(ally, "s32 gevrAllyStateValid("),
+                              block(ally_net, "void netAllyWriteState("),
+                              block(ally_net, "int netAllyReadState("))),
     "AI_EXISTENCE": block(ai, "case AI_IFChrDoesNotExist:\n                {"),
     "AI_CLONE": block(ai, "case AI_TRYCloningChr:\n                {"),
 }

@@ -169,7 +169,7 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; Bodies kept on the floor: 0 = they fade as in the original game, or 12, 24, 48.\n");
     fprintf(f, "BodiesStay=%d\n", VrBodiesStay);
     fprintf(f, "; 1 = alerted guards can call multiple reinforcements (solo, default off; any body count).\n");
-    fprintf(f, "; Solo GoldenEye AI ally; changes apply next mission.\n");
+    fprintf(f, "; GoldenEye solo/co-op/Horde AI ally; host chooses, next mission or retry.\n");
     fprintf(f, "Ally=%d\nAllyWeapon=%d\nAllyAggression=%d\nAllyHealth=%d\nAllyDamage=%d\nAllyInvincible=%d\n",
             VrAlly != 0, VrAllyWeapon, VrAllyAggression, VrAllyHealth, VrAllyDamage, VrAllyInvincible != 0);
     fprintf(f, "FastReinforcements=%d\n", VrFastReinforcements ? 1 : 0);

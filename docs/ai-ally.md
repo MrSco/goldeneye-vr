@@ -1,61 +1,93 @@
-# Single-player AI ally (#194)
+# AI ally: solo, campaign co-op and Horde (#194)
 
-In Play > Game rules, enable **AI ally (Natalya)** before starting a mission.
-Off by default. Applies to the twenty original GoldenEye solo missions, in VR
-or flat presentation. Online sessions, split-screen, title/ending stages and
-the optional hack campaigns ignore it. It works alongside Fast reinforcements.
+Enable **AI ally (Natalya)** in Play > Game rules before starting. The same
+preference also appears in Multiplayer > Host > Match for Co-op and Horde;
+weapon and durability choices are on Game rules. Off by default. One companion
+joins the whole party, including solo Horde from PR #191. Supported in the
+original GoldenEye campaign, in VR or flat presentation. Deathmatch, offline
+split-screen, title/ending stages and hack campaigns ignore it.
+
+The host alone chooses settings and runs the companion. Clients display the
+normal replicated NPC; their saved preferences cannot spawn or tune one.
+Settings are captured on mission load or Horde retry. Changes made during play
+apply to the next load. A new host inherits the current run's companion and
+settings, including the fact that she has already spawned if her body is gone.
 
 Choose PP7 (default), silenced PP7, DD44, KF7, D5K, ZMG, AR33, RC-P90,
-shotgun or automatic shotgun. Aggression controls engagement distance:
-cautious only engages alerted enemies within 600 game units; normal engages
-within 1200, aggressive within 1800. She returns to Bond when more than 1000
-units away. Damage is 25–400%; health is 25–1000% (100% = 40 NPC damage units).
-Invincibility uses the game's NPC invincibility flag. Settings are captured on
-mission load; changing them during play takes effect on the next mission.
+shotgun or automatic shotgun. Cautious aggression engages alerted enemies within
+600 game units; normal engages within 1200, aggressive within 1800. She follows
+the nearest living teammate, excluding downed players, disconnected slots and
+spectators, and returns when more than 1000 units away. A downed host does not
+stop her following a living teammate. Damage is 25–400%; health is 25–1000%
+(100% = 40 NPC damage units). Invincibility uses the native NPC flag.
 
-The companion follows using the game's NPC pathfinder and opens doors through
-the normal movement code. She targets visible, armed guards, avoids civilians,
-surrendered guards, other allies and named friendly story characters. Her shots
-cannot hurt Bond or friendly NPCs. Bond can hurt her unless invincibility is on.
-She spawns once after the intro, retries if the starting position is obstructed
-or there are too few free character slots, and does not respawn after death.
+She uses NPC paths, doors, collision, animation and shooting. Her shots cannot
+hurt players or friendly NPCs. Players can hurt her unless invincibility is on,
+as with the original campaign ally. She spawns once after the intro, retries
+an obstructed/full spawn, and does not respawn at wave breaks or after death.
+A mission reload or Horde retry creates a new companion. She pauses during
+scripted cinematics and stops firing immediately when Horde ends.
 
-This is an additional NPC. Jungle, Bunker II, Train and Control retain their
-own Natalya and objectives; the companion does not replace her or satisfy an
-escort objective. No stage flags, mission character IDs or imported action
-blocks are used. The new character uses the game's allocated ID and stage
-pool. Stage reload clears the pointer and configuration; an identity check
-prevents a recycled corpse slot from being mistaken for the companion.
+## Stages with an existing Natalya
 
-Implementation: `src/game/gevr_ally.c`, reset from `initguards.c`, spawn from
-`chrpropTick`, controller called in place of script AI for this NPC only.
-Normal NPC action/animation, collision, shooting and damage code still runs.
-The NPC damage multiplier is scoped to her hits. Jungle's existing ally scan
-excludes the companion. No network protocol changes.
+Jungle keeps its original scripted Natalya: with the option on, there are two
+Natalyas. The additional companion and the mission NPC ignore one another as
+targets. Only the additional companion gets these weapon/durability settings.
+Bunker II, Train and Control likewise retain their own Natalya and objectives.
+The companion does not substitute for an escort objective. No mission character
+IDs, objective bits or imported ROM action blocks are used.
 
-## Validation
+## Co-op and Horde synchronization
 
-- `python3 port/tests/test_ally.py`: runs the production controller against a
-  synthetic stage. Covers solo/campaign/camera gating, retries, one spawn per
-  mission, reload and reused slots, preference snapshots and bounds, weapons,
-  durability, neutral/player filtering, sight checks, aggression, follow/stop,
-  cinematic suspension and damage isolation.
-- `python3 port/tests/test_ally_ui.py`: production Game rules widgets and INI
-  save/load snippets, with value bounds, online/hack disablement, scrolling
-  and footer bounds at the launcher font size.
-- `python3 port/tests/test_campaign_items.py`: existing campaign regressions,
-  including an added check that scripted Natalya ignores the companion.
-- `python3 port/tests/test_reinforcements.py`: body retention and optional
-  reinforcements at NTSC/PAL timing. Linux requires pre-including the compiler's
-  system `stddef.h` because the existing include shim masks glibc's partial
-  includes; no game or test assertions were changed for that workaround.
+The controller is in `src/game/gevr_ally.c`, reset from `initguards.c`, spawned
+from `chrpropTick`, and called in place of script AI for this NPC only. It uses
+the NPC pathfinder without the enemy crowd limit, so Fast reinforcements cannot
+block following. The new NPC uses an allocated ID and checks it before reusing
+its pointer, preventing a recycled corpse slot from becoming a companion.
 
-Android `assembleDebug testDebugUnitTest` passed (30 JVM tests, zero failures
-or errors). The debug APK signature verifies. Existing launcher UI checks pass.
+The normal reliable NPC spawn/roster records mark the companion and carry its
+host configuration atomically, so a client elected before the first periodic
+AI snapshot can still restore health, invincibility and damage correctly.
+`port/src/net/net_ally.c` also sends reliable epoch/revision snapshots for the
+configuration and spawn lifecycle, including when the companion's body is gone.
+Late joins receive the same settings; malformed, stale and previous-run snapshots
+are rejected. Repeated roster records preserve the actor rather than duplicate it.
 
-Headset play is still required: Dam start/reload and weapon choices; following
-through doors, stairs and narrow passages; Jungle with both Natalyas; Bunker II,
-Train, Control, Facility/Archives civilians; Fast reinforcements with retained
-bodies; damage/invincibility, death, mission endings and performance. No ROM or
-Quest is available in the cloud environment. Do not treat synthetic tests as
-mission-completion or headset confirmation.
+Horde assigns the companion a reserved network generation while leaving its
+enemy ID zero. She never contributes to enemy quotas, kills, outstanding wave
+counts, human player scaling or revive eligibility. All humans down still ends
+the run even if the companion is alive/invincible. Her Horde gun is undroppable,
+and retry resets the companion with the run. Enemy generation allocation skips
+the reserved identity.
+
+The combined branch incorporates PR #191 locally. Protocol **23** adds companion
+spawn configuration/lifecycle messages on top of Horde's protocol 22. Every
+headset must use the combined build; protocol 21/22 builds cannot join it. No
+lobby-service deployment or release publication is part of this change.
+
+## Validation and remaining playtests
+
+- `python3 port/tests/test_ally.py`: production controller, solo/co-op/Horde
+  authority, nearest living teammate, downed/spectating host, settings, takeover,
+  no replacement life, retry, target filtering, following and damage isolation.
+- `python3 port/tests/test_ally_network.py`: production transport, host settings,
+  late join, lifecycle, takeover revisions and malformed/stale/epoch rejection.
+- `python3 port/tests/test_coop_spawns.py`: real spawn/roster packets, companion
+  configuration on three clients with different slot maps, late join, duplicates,
+  Horde identity isolation and existing 40-guard reinforcement replication.
+- `python3 port/tests/test_horde.py`: director/runtime/network, 45 simulated
+  minutes with bounded/recycled actors, companion exclusion from wave accounting,
+  takeover quota reconciliation and all-down defeat while an ally exists.
+- `python3 port/tests/test_ally_ui.py` and `test_launcher_ui.py`: production
+  settings round trip/bounds, host/client/deathmatch/hack restrictions and layout.
+- Existing campaign item, co-op start/intro/debrief/item and reinforcement checks.
+  Linux uses a temporary system-header compiler wrapper for the existing shims.
+- Android build/JVM command: `gradle --init-script /workspace/.gevr/android-init.gradle
+  --no-daemon --max-workers=4 --console=plain assembleDebug testDebugUnitTest`.
+
+Quest play is still required: two/four headsets, client guns/appearance, late
+join before and after her death, host loss, downed host following, all-down
+Horde defeat and retry, weapon choices and durability, Jungle with both Natalyas,
+Bunker II/Train/Control scripts, civilians, doors/stairs/narrow passages and
+sustained Horde performance. No ROM or Quest is attached to this environment;
+synthetic checks do not establish headset behavior or mission completion.

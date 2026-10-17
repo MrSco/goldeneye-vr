@@ -20,6 +20,7 @@
 #include "net_game.h"
 #include "net_coop.h"
 #include "net_horde.h"
+#include "gevr_ally.h"
 
 extern s32 netGetLocalSlot(void);
 extern int netMpPlayerCount(int fallback);
@@ -58,6 +59,8 @@ unsigned gevrHordeGuardId(const ChrRecord *chr)
 void gevrHordeSetGuardId(ChrRecord *chr,unsigned id)
 {
     if (!netHordeActive() || !chr || !g_ChrSlots || chr<g_ChrSlots || chr>=g_ChrSlots+g_NumChrSlots) return;
+    /* Companion generation is networked but never belongs to a wave. */
+    if (id == GEVR_ALLY_HORDE_ID) id = 0;
     s32 slot=chr-g_ChrSlots;
     if (slot<HORDE_GUARD_SLOTS) {
         s_id[slot]=id;s_counted[slot]=0;s_dead_ticks[slot]=0;s_stall_ticks[slot]=0;
@@ -142,6 +145,7 @@ void gevrHordeDefeat(void)
     s_state.phase=HORDE_DEFEAT;s_state.revision++;
     for (s32 i=0;i<g_NumChrSlots && i<HORDE_GUARD_SLOTS;i++) if(s_id[i] && g_ChrSlots[i].model)
         chrStopFiring(&g_ChrSlots[i]);
+    gevrAllyStop(); /* defeat pauses action ticks; clear companion fire now */
     netHordeSend(-1);
 }
 void gevrHordeRevived(void)
@@ -233,7 +237,7 @@ static s32 hordeSpawn(void)
         }
         chr->alertness=255;chr->grenadeprob=0;chr->aireturnlist=GAILIST_PERSISTENTLY_CHASE_AND_ATTACK_BOND;
         gevrHordeSetGuardId(chr,s_state.next_id++);
-        if (!s_state.next_id) s_state.next_id=1;
+        if (!s_state.next_id || s_state.next_id==GEVR_ALLY_HORDE_ID) s_state.next_id=1;
         gevrCoopChrSpawned(chr,ai,0); /* announce only the fully configured guard */
         return TRUE;
     }

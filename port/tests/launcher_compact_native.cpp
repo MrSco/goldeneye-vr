@@ -6,6 +6,7 @@
 #include <cstring>
 static ImVec4 gold(1, .84f, .47f, 1);
 static int VrMpScenario, VrMpLength, VrMpHealth=5, VrMpDual, VrMpLoadouts, VrMpNextRound;
+static int VrAlly;
 static int VrMpMode, VrMpBotMode, VrMpBotCount=7, VrMpBotDifficulty=5, VrMpFriendlyFire;
 static int VrMpStage=34,VrMpMaxPlayers=8,VrMpVisibility=1,VrMpWeaponSet=4,VrMpCustom[4];
 static int VrMovementSpeed, VrMpMovementSpeed, VrSmoothTurnSpeed=120;
