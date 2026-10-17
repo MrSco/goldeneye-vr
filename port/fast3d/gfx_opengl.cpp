@@ -8,6 +8,7 @@
 #include <map>
 #include <unordered_map>
 #include <vector>
+#include <string>
 
 #include <SDL.h>
 
@@ -3444,6 +3445,220 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
     gfx_opengl_set_scissor(savedScissor[0], savedScissor[1], savedScissor[2], savedScissor[3]);
     glBindVertexArray((GLuint)prevVao);
     s_uniCacheValid = false;
+}
+
+/*
+ * Application SpaceWarp (vr_openxr.cpp vr_spacewarp_begin): the kept eye pass
+ * once more into the runtime's motion-vector and depth images, with one small
+ * program and no textures, blending or program switches: for each pixel, where
+ * it was on the frame shown before (this frame's NDC less the previous one's),
+ * and its depth (near 0.1 m, far infinite). Positions as the eye pass makes
+ * them: back to the game frame's camera space, then through this frame's and
+ * the previous frame's world, hand and body moves. Not the screen-locked
+ * draws, decals, blended or skinned draws, menus or lines.
+ */
+struct GevrMotionProgram {
+    GLuint id;
+    GLint cur, prev, headP, offL, offR, units, mp;
+};
+static GevrMotionProgram s_motionPrg[2];   // [0] the vertex ring, [1] static meshes
+static int s_motionState;                  // 0 not built, 1 ready, -1 failed
+extern "C" int VrShowStats;                // vr_input.cpp: the stats readout is on
+
+static GLuint gevr_motion_shader(GLenum type, const char* src)
+{
+    GLuint s = glCreateShader(type);
+    glShaderSource(s, 1, &src, NULL);
+    glCompileShader(s);
+    GLint ok = 0;
+    glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        char log[1024] = "";
+        glGetShaderInfoLog(s, sizeof(log), NULL, log);
+        vr_log("spacewarp: motion shader failed: %s", log);
+        glDeleteShader(s);
+        return 0;
+    }
+    return s;
+}
+
+static bool gevr_motion_programs(void)
+{
+    if (s_motionState) return s_motionState > 0;
+    s_motionState = -1;
+    static const char* body =
+        "uniform mat4 uCurVP;\n"
+        "uniform mat4 uPrevVP;\n"
+        "uniform vec2 uHeadP;\n"
+        "uniform vec4 uEyeOffsetLeft;\n"
+        "uniform vec4 uEyeOffsetRight;\n"
+        "uniform float uUnitsPerMetre;\n"
+        "out highp vec4 vCur;\n"
+        "out highp vec4 vPrev;\n"
+        "flat out float vKeep;\n"
+        "void main() {\n"
+        "  vec4 p = POSITION;\n"
+        "  float wm1 = abs(p.w - 1.0);\n"
+        "  vKeep = (wm1 == 0.0 || wm1 == 7.0 || wm1 == 8.0 || wm1 == 9.0) ? 0.0 : 1.0;\n"
+        "  vec4 c = vec4(p.x / uHeadP.x, p.y / uHeadP.y, -p.w, 1.0);\n"
+        "  vec4 cur = uCurVP * c;\n"
+        "  vec4 prev = uPrevVP * c;\n"
+        "  vec4 off = gl_ViewID_OVR == 0u ? uEyeOffsetLeft : uEyeOffsetRight;\n"
+        "  cur.x -= off.x + off.y * cur.w; cur.y -= off.w * cur.w;\n"
+        "  prev.x -= off.x + off.y * prev.w; prev.y -= off.w * prev.w;\n"
+        "  vCur = cur; vPrev = prev;\n"
+        "  float metres = max(cur.w / uUnitsPerMetre, 0.0001);\n"
+        "  gl_Position = vec4(cur.xy, (1.0 - 0.2 / metres) * cur.w, cur.w);\n"
+        "}\n";
+    static const char* fs =
+        "#version 300 es\n"
+        "precision highp float;\n"
+        "in highp vec4 vCur;\n"
+        "in highp vec4 vPrev;\n"
+        "flat in float vKeep;\n"
+        "layout(location = 0) out vec4 outMotion;\n"
+        "void main() {\n"
+        "  if (vKeep < 0.5) discard;\n"
+        "  outMotion = vec4(vCur.xyz / vCur.w - vPrev.xyz / vPrev.w, 0.0);\n"
+        "}\n";
+    for (int mesh = 0; mesh < 2; mesh++) {
+        std::string vs = "#version 300 es\n#extension GL_OVR_multiview2 : require\nlayout(num_views = 2) in;\n";
+        vs += mesh ? "layout(location = 0) in vec3 aMeshPos;\nuniform mat4 uMeshMP;\n" : "layout(location = 0) in vec4 aVtxPos;\n";
+        std::string src = body;
+        src.replace(src.find("POSITION"), 8, mesh ? "uMeshMP * vec4(aMeshPos, 1.0)" : "aVtxPos");
+        vs += src;
+        GLuint v = gevr_motion_shader(GL_VERTEX_SHADER, vs.c_str());
+        GLuint f = gevr_motion_shader(GL_FRAGMENT_SHADER, fs);
+        if (!v || !f) return false;
+        GLuint prg = glCreateProgram();
+        glAttachShader(prg, v);
+        glAttachShader(prg, f);
+        glLinkProgram(prg);
+        glDeleteShader(v);
+        glDeleteShader(f);
+        GLint ok = 0;
+        glGetProgramiv(prg, GL_LINK_STATUS, &ok);
+        if (!ok) {
+            char log[1024] = "";
+            glGetProgramInfoLog(prg, sizeof(log), NULL, log);
+            vr_log("spacewarp: motion program failed: %s", log);
+            glDeleteProgram(prg);
+            return false;
+        }
+        GevrMotionProgram& m = s_motionPrg[mesh];
+        m.id = prg;
+        m.cur = glGetUniformLocation(prg, "uCurVP");
+        m.prev = glGetUniformLocation(prg, "uPrevVP");
+        m.headP = glGetUniformLocation(prg, "uHeadP");
+        m.offL = glGetUniformLocation(prg, "uEyeOffsetLeft");
+        m.offR = glGetUniformLocation(prg, "uEyeOffsetRight");
+        m.units = glGetUniformLocation(prg, "uUnitsPerMetre");
+        m.mp = glGetUniformLocation(prg, "uMeshMP");
+    }
+    s_motionState = 1;
+    return true;
+}
+
+/* cur/prev: the world's, the left and right hands' and the body's moves (as gfx_vr_eye_replay's). */
+void gfx_vr_motion_pass(const float* const cur[4], const float* const prev[4], float unitsPerMetre)
+{
+    gevr_mesh_settle();
+    if (!s_eyeReady || unitsPerMetre <= 0.0f || !gevr_motion_programs()) {
+        return;
+    }
+    float C[4][16], P[4][16];
+    for (int i = 0; i < 4; i++) {
+        gevr_eye_proj_times(cur[i], C[i]);
+        gevr_eye_proj_times(prev[i], P[i]);
+    }
+    GLint prevVao = 0, depthFunc = GL_LEQUAL;
+    GLboolean depthMask = GL_TRUE;
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVao);
+    glGetIntegerv(GL_DEPTH_FUNC, &depthFunc);
+    glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
+    const GLboolean blendOn = glIsEnabled(GL_BLEND), cullOn = glIsEnabled(GL_CULL_FACE);
+    const GLboolean offsetOn = glIsEnabled(GL_POLYGON_OFFSET_FILL), stencilOn = glIsEnabled(GL_STENCIL_TEST);
+    const GLboolean depthOn = glIsEnabled(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glDisable(GL_STENCIL_TEST);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(GL_TRUE);
+    gevr_mesh_clip(false);
+    for (int k = 0; k < 2; k++) {
+        const GevrMotionProgram& m = s_motionPrg[k];
+        glUseProgram(m.id);
+        glUniform2f(m.headP, s_eyeHeadP[0], s_eyeHeadP[1]);
+        glUniform4fv(m.offL, 1, &s_eye_offsets[0]);
+        glUniform4fv(m.offR, 1, &s_eye_offsets[4]);
+        glUniform1f(m.units, unitsPerMetre);
+    }
+    int bound = -1, hand = -3;
+    GLuint vao = 0;
+    GLsizei stride = -1;
+    uint32_t drawn = 0, skipped = 0;
+    for (const GevrEyeDraw& d : s_eyeDraws) {
+        const GevrEyeMesh* mesh = d.mesh ? &s_eyeMeshes[d.mesh - 1] : NULL;
+        if (d.lineMode || d.isMenu || d.decalZ || d.decalDepth || d.alpha[0] || (mesh && mesh->params.skinned)) {
+            skipped++;
+            continue;
+        }
+        const GLuint want = mesh ? mesh->vao : opengl_vao;
+        if (want != vao) {
+            glBindVertexArray(want);
+            if (!mesh) glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+            vao = want;
+            stride = -1;
+        }
+        s_drawElements = mesh != NULL;
+        const int prg = mesh ? 1 : 0;
+        if (prg != bound) {
+            glUseProgram(s_motionPrg[prg].id);
+            bound = prg;
+            hand = -3;
+        }
+        if (d.hand != hand) {
+            glUniformMatrix4fv(s_motionPrg[prg].cur, 1, GL_FALSE, C[d.hand + 1]);
+            glUniformMatrix4fv(s_motionPrg[prg].prev, 1, GL_FALSE, P[d.hand + 1]);
+            hand = d.hand;
+        }
+        if (mesh) {
+            glUniformMatrix4fv(s_motionPrg[1].mp, 1, GL_FALSE, mesh->params.mp);
+        } else {
+            const GLsizei s = (GLsizei)(d.prg->num_floats * sizeof(float));
+            if (s != stride) {
+                glEnableVertexAttribArray(0);
+                glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, s, (void*)0);
+                stride = s;
+            }
+        }
+        gevr_draw_range(d.first, d.count);
+        drawn++;
+    }
+    s_drawElements = false;
+    // the ring's attribute layout back as fast3d's current program has it
+    glBindVertexArray(opengl_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+    if (s_curPrg) gfx_opengl_vertex_array_set_attribs(s_curPrg);
+    glBindVertexArray((GLuint)prevVao);
+    glUseProgram(s_curPrg ? s_curPrg->opengl_program_id : 0);
+    if (blendOn) glEnable(GL_BLEND);
+    if (cullOn) glEnable(GL_CULL_FACE);
+    if (offsetOn) glEnable(GL_POLYGON_OFFSET_FILL);
+    if (stencilOn) glEnable(GL_STENCIL_TEST);
+    if (!depthOn) glDisable(GL_DEPTH_TEST);
+    glDepthFunc((GLenum)depthFunc);
+    glDepthMask(depthMask);
+    s_uniCacheValid = false;
+    static uint32_t frames, sumDrawn, sumSkipped;
+    frames++; sumDrawn += drawn; sumSkipped += skipped;
+    if (frames >= 60) {
+        if (VrShowStats || gevrFrameTimingTracing())
+            vr_log("spacewarp: motion pass %u draws, %u skipped per frame", sumDrawn / frames, sumSkipped / frames);
+        frames = sumDrawn = sumSkipped = 0;
+    }
 }
 
 /*

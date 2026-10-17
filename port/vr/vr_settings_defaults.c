@@ -121,6 +121,9 @@ float VrComfortVignette = 0.0f;
 int VrNoKnockback = 1;
 int VrNoHitstun = 0;
 int VrDamageFlash = 1;
+/* Application SpaceWarp: the runtime makes every other displayed frame from
+ * motion vectors and depth (vr_openxr.cpp). Off by default while tried out. */
+int VrSpaceWarp = 0;
 #ifdef ANDROID
 int VrRefreshRate = 0;     /* Auto: no app preference; runtime / external profile manages the rate. */
 #else
