@@ -2,6 +2,7 @@
 #include "gevr_romcheck.h"
 #include "gevr_romlayout.h"
 #include "gevr_bean.h"
+#include "gevr_oddjobhat.h"
 /*
  * GoldenEye VR launcher, inside VR.
  *
@@ -905,6 +906,7 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
         ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthStretch, 1.0f);
         ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthStretch, 1.2f);
         for (const ModPack &p : packs) {
+            if (p.id == "oddjob-hat") continue;   // a mod, not a look: the row above Done
             ImGui::PushID(p.id.c_str());
             const bool bean = p.id == "ge007-bean";
             const bool installed = p.state == "installed";
@@ -1073,6 +1075,39 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     if (ImGui::Checkbox("Blood patch (by Wreck)", &blood)) VrBloodPatch = blood ? 1 : 0;
     if (ImGui::IsItemHovered())
         gevrTooltip("Shot guards spray the red blood sparks Rare left in the game,\ninstead of smoke and sparks.");
+    // Oddjob's hat shares the row: a mod pack (ModManager "oddjob-hat") the
+    // player downloads here, then turns on and off.
+    for (const ModPack &p : packs) {
+        if (p.id != "oddjob-hat") continue;
+        ImGui::PushID("oddjob-hat");
+        ImGui::SameLine();
+        const bool busy = p.state == "downloading" || p.state == "installing";
+        if (busy) {
+            ImGui::TextColored(gold, "Oddjob's hat %d%%", p.progress < 0 ? 0 : p.progress);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Cancel")) gevrJavaCommand("modsCommand", "cancel");
+        } else if (p.state == "installed" || gevrHatAvailable()) {
+            bool hat = VrOddjobHat != 0;
+            if (ImGui::Checkbox("Oddjob's hat", &hat)) VrOddjobHat = hat ? 1 : 0;
+            if (ImGui::IsItemHovered())
+                gevrTooltip("Throwing knives are Oddjob's hat (007 Nightfire): in your hand,\nin flight and lying about. Only the look changes.");
+            if (!p.update.empty()) {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Update")) gevrJavaCommand("modsCommand", "install:oddjob-hat");
+            }
+            if (p.state == "installed") {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Remove")) gevrJavaCommand("modsCommand", "remove:oddjob-hat");
+            }
+        } else {
+            if (ImGui::SmallButton(p.state == "error" ? "Retry Oddjob's hat" : "Get Oddjob's hat"))
+                gevrJavaCommand("modsCommand", "install:oddjob-hat");
+            if (ImGui::IsItemHovered())
+                gevrTooltip(p.state == "error" ? "%s" : "Throwing knives become Oddjob's hat (007 Nightfire).\nA small download.",
+                                  p.message.c_str());
+        }
+        ImGui::PopID();
+    }
     if (row == 0.0f)
         ImGui::SameLine();
     if (ImGui::Button("Done", ImVec2(-1, 0))) {

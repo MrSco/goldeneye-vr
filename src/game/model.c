@@ -7,6 +7,7 @@
 #ifdef GEVR
 #include "gevr_hand_reload.h"
 #include "gevr_bean.h"
+#include "gevr_oddjobhat.h"
 #endif
 #include "../rmon.h" /*<PR/rmon.h>*/
 #include "bondview.h"
@@ -4304,12 +4305,15 @@ void modelRenderNodeGundl(ModelRenderData* renderdata, Model* model, ModelNode* 
 {
     ModelRoData_DisplayListRecord* rodata = &arg1->Data->DisplayList;
 #ifdef GEVR
-    s32 shownType = gevrBeanShownModelType(arg1, rodata->ModelType);
+    /* Mods: Oddjob's hat draws in the knife's nodes, ahead of Bean (gevr_oddjobhat.c) */
+    void *hatGdl = NULL;
+    const s32 hat = gevrHatNodeGdl(arg1, model, &hatGdl);
+    s32 shownType = hat ? rodata->ModelType : gevrBeanShownModelType(arg1, rodata->ModelType);
     /* a Bean list keeps the replaced list's render mode (G_GEVR_NODE_STATE) */
-    s32 nodeType = gevrBeanNodeModeType(arg1, shownType);
-    Gfx *shownPrimary = rodata->Primary;
+    s32 nodeType = hat ? shownType : gevrBeanNodeModeType(arg1, shownType);
+    Gfx *shownPrimary = hat ? (Gfx *)hatGdl : rodata->Primary;
     /* Pose ordinary replacements once; transparent-only glass is handled below. */
-    if (renderdata->unk18 == 0 && (renderdata->flags & 1))
+    if (!hat && renderdata->unk18 == 0 && (renderdata->flags & 1))
         shownPrimary = (Gfx *)gevrBeanRenderGdl(arg1, rodata->Primary, model);
 #else
     Gfx *shownPrimary = rodata->Primary;
@@ -4348,12 +4352,13 @@ void modelRenderNodeGundl(ModelRenderData* renderdata, Model* model, ModelNode* 
 #ifdef GEVR
             {
                 /* a fading chr's Bean part: see G_GEVR_BEAN_FADE (drawjointlist) */
-                const s32 fade = (shownPrimary != rodata->Primary && renderdata->PropType == PROP_TYPE_EXPLOSION + 1)
+                const s32 bean = !hat && shownPrimary != rodata->Primary;
+                const s32 fade = (bean && renderdata->PropType == PROP_TYPE_EXPLOSION + 1)
                     ? (s32)(renderdata->envcolour.word & 0xff) : 255;
                 if (fade < 255) renderdata->gdl = gevrBeanFadeMark(renderdata->gdl, fade);
                 if (nodeType != shownType) renderdata->gdl = gevrBeanNodeMark(renderdata->gdl, 1);
-                const s32 pass = shownPrimary != rodata->Primary ? gevrBeanPassSplit(arg1, model, renderdata->flags) : 0;
-                if (shownPrimary != rodata->Primary) gevrBeanNoteOpaque(model);
+                const s32 pass = bean ? gevrBeanPassSplit(arg1, model, renderdata->flags) : 0;
+                if (bean) gevrBeanNoteOpaque(model);
                 if (pass) renderdata->gdl = gevrBeanPassMark(renderdata->gdl, pass);
                 gSPDisplayList(renderdata->gdl++, shownPrimary);
                 if (pass) renderdata->gdl = gevrBeanPassMark(renderdata->gdl, 0);
@@ -4372,7 +4377,7 @@ void modelRenderNodeGundl(ModelRenderData* renderdata, Model* model, ModelNode* 
         }
 
 #ifdef GEVR
-        Gfx *beanTransparent = (Gfx *)gevrBeanTransparentGdl(arg1, rodata->Primary, model, renderdata->flags);
+        Gfx *beanTransparent = hat ? NULL : (Gfx *)gevrBeanTransparentGdl(arg1, rodata->Primary, model, renderdata->flags);
         if (beanTransparent)
         {
             const s32 pass = gevrBeanPassSplit(arg1, model, renderdata->flags);

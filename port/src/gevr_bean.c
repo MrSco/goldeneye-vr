@@ -23,6 +23,7 @@
 #include "gevr_bean_int.h"
 #include "gevr_skin_mesh.h"
 #include "gevr_bean_room_state.h"
+#include "gevr_oddjobhat.h"
 
 extern int VrBeanModels;
 extern int VrGexGuns;
@@ -255,7 +256,8 @@ static int beanLiveScreen(void *node);
  * xblaMeshRenderNode(), gevr_bean_screens.inc.h). */
 static struct beanSwap *activeSwap(void *node)
 {
-    struct beanSwap *s = gevrBeanIsEnabled() ? swapOf(node) : NULL;
+    /* Mods: Oddjob's hat keeps the throwing knife's models native (gevr_oddjobhat.c) */
+    struct beanSwap *s = gevrBeanIsEnabled() && !gevrHatOwnsNode(node) ? swapOf(node) : NULL;
     return s && !(s->watchArm && VrGexGuns) && !beanLiveScreen(node) ? s : NULL;
 }
 
