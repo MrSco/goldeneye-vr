@@ -13,6 +13,8 @@ void netHordeRetry(void);
 void netHordeAdmitPlayers(void);
 void netHordeTick(void);
 void netHordeReceive(struct netbuf *b);
+void netHordeReceiveClient(int slot, struct netbuf *b);
+void netHordeRequestAction(unsigned action, unsigned item);
 void netHordeSend(int slot); /* -1 broadcasts, otherwise late-join snapshot */
 void gevrHordePrepareSetup(void);
 int gevrHordeSkipProp(int type);
@@ -22,6 +24,9 @@ void gevrHordeDefeat(void);
 void gevrHordeRevived(void);
 int gevrHordeDefeated(void);
 void gevrHordeBecameHost(void);
+void gevrHordeNotifyGuardHit(struct ChrRecord *chr, int attacker, int hitpart);
+int gevrHordeOnUse(void);
+int gevrHordeHandleAction(int slot, unsigned action, unsigned item);
 uint64_t gevrHordeGuardToken(const struct ChrRecord *chr);
 int gevrHordeTokenCurrent(uint64_t token);
 unsigned gevrHordeGuardId(const struct ChrRecord *chr);

@@ -11840,8 +11840,10 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     if (moveData.btap)
     {
 #ifdef GEVR
-        /* Dam speedboat: B boards at the jetty and steps off at the island. */
-        if (gevrDamBoatOnB())
+        /* Dam speedboat: B boards at the jetty and steps off at the island;
+         * Horde: B rolls/claims the Mystery Box or purchases a Wall Buy. */
+        extern int gevrHordeOnUse(void);
+        if (gevrDamBoatOnB() || gevrHordeOnUse())
         {
         }
         else
@@ -17635,9 +17637,12 @@ static s32 gevrGripGestureTry(s32 ctrl)
     {
         p[i] = at[i] - back[i] * GEVR_GESTURE_FINGERS_CM * cm;
     }
-    if (gevrDamBoatTryHand(p))
     {
-        return TRUE;
+        extern int gevrHordeOnUse(void);
+        if (gevrDamBoatTryHand(p) || gevrHordeOnUse())
+        {
+            return TRUE;
+        }
     }
     {
         /* tuning, one line a press: where the hand is and what is nearest it */
