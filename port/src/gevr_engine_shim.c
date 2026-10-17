@@ -371,6 +371,7 @@ static s32 gevrPipelineSkip;     /* the last early tick drew nothing: wait as be
 static u64 gevrVrLastBeginUs;    /* when the last xrWaitFrame returned */
 static u64 gevrEarlyTickUs;      /* when the early tick began */
 static u32 gevrEarlyTicks, gevrEarlyUnused, gevrLateTicks; /* PORT probe, per second */
+static u32 gevrRetraceSlots = 1;   /* 1/60 s slots the last retrace covered (gevrSchedBlockedRecv) */
 
 static int gevrPipelineEnabled(void)
 {
@@ -633,10 +634,12 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 	 * the game was set and never run -- opening the watch started the pause
 	 * track with the level track still at full volume under it, and closing
 	 * it left the pause track playing. One tick per retrace, which is what
-	 * FADE_FRAMERATE counts.
+	 * FADE_FRAMERATE counts - per 1/60 s slot the last retrace covered.
 	 */
     const uint64_t fadeStart=gevrFrameTimingNow();
-	musicFadeTick();
+	for (u32 slot = 0; slot < gevrRetraceSlots; slot++) {
+		musicFadeTick();
+	}
     if(fadeStart) gevrFrameTimingOutside(GEVR_TIME_AUDIO,gevrFrameTimingNow()-fadeStart);
 
 #ifdef GEVR
@@ -644,11 +647,15 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 	 * The retrace's audio frame, mixed here between XR frames: after the loop
 	 * below it ran inside the next game frame and took 0.25-0.45 ms of its
 	 * 8.3 ms budget at 120 Hz (every other retrace mixes two retraces' worth).
+	 * One per slot the last retrace covered: a frame mixes at most about one
+	 * frame's samples, so at SpaceWarp's 45 retraces a second the queue ran dry.
 	 */
 	{
         extern void gevrAudioFrame(void);
         const uint64_t audioStart=gevrFrameTimingNow();
-        gevrAudioFrame();
+		for (u32 slot = 0; slot < gevrRetraceSlots; slot++) {
+			gevrAudioFrame();
+		}
         if(audioStart) gevrFrameTimingOutside(GEVR_TIME_AUDIO,gevrFrameTimingNow()-audioStart);
 		gevrPumpStage = 7;
 	}
@@ -735,27 +742,42 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 		if (nextRetraceUs == 0 || now > nextRetraceUs + 100000) {
 			nextRetraceUs = now;
 		}
-		nextRetraceUs += 16667;
+		/*
+		 * The 1/60 s slots this retrace covers. Under SpaceWarp the runtime runs
+		 * the game at half the display rate: 45 frames a second at 90 Hz, 36 at
+		 * 72, so one slot per retrace ran the game at 75% or 60% speed (v0.5.4,
+		 * a Quest 3S player's "slow motion"). A retrace that lands after the next
+		 * slot was due covers that one too, and the game's clock (osGetCount,
+		 * libultra.c) advances by both: the game steps 1, 1, 2 frames at 45 Hz, as
+		 * the N64 stepped its own frame rate (frametiming.c waitForNextFrame).
+		 */
+		u32 slots = 1;
+		while (slots < 4 && now + 2000 >= nextRetraceUs + 16667ULL * slots) {
+			slots++;
+		}
+		nextRetraceUs += 16667ULL * slots;
+		gevrRetraceSlots = slots;
 
 		{
 			extern u32 gevrRetraceClockFrames;
 			extern u64 gevrRetraceClockUs;
-			gevrRetraceClockFrames++;
+			gevrRetraceClockFrames += slots;
 			gevrRetraceClockUs = now;
 		}
 
 		{
 			/* PORT probe: measured pacing */
-			static u64 sStatUs; static u32 sRetraces;
+			static u64 sStatUs; static u32 sRetraces, sSlots;
 			sRetraces++;
+			sSlots += slots;
 			if (sStatUs == 0) sStatUs = now;
 			if (now - sStatUs >= 1000000) {
 				/* diagnostics only: Show stats or a profile trace */
 				if (VrShowStats || gevrFrameTimingTracing())
-				sysLogPrintf(LOG_NOTE, "pump: %u retraces, %u xr frames (%u redrawn) in %llu ms; early ticks %u unused %u late %u, other display time %u",
-					sRetraces, gevrXrFramesBegun, gevrRedraws, (unsigned long long)((now - sStatUs) / 1000),
+				sysLogPrintf(LOG_NOTE, "pump: %u retraces (%u game frames), %u xr frames (%u redrawn) in %llu ms; early ticks %u unused %u late %u, other display time %u",
+					sRetraces, sSlots, gevrXrFramesBegun, gevrRedraws, (unsigned long long)((now - sStatUs) / 1000),
 					gevrEarlyTicks, gevrEarlyUnused, gevrLateTicks, vr_early_poses_missed());
-				sStatUs = now; sRetraces = 0; gevrXrFramesBegun = 0; gevrRedraws = 0;
+				sStatUs = now; sRetraces = 0; sSlots = 0; gevrXrFramesBegun = 0; gevrRedraws = 0;
 				gevrEarlyTicks = gevrEarlyUnused = gevrLateTicks = 0;
 			}
 		}
