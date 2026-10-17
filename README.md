@@ -307,7 +307,7 @@ that are off by default:
   including when dual-wielding.
 - **Per-gun recoil**: each gun kicks with Perfect Dark VR's recoil.
 
-**Game rules...** on the **Play** tab includes an optional [AI ally](docs/ai-ally.md)
+**Game rules...** on the **Play** tab opens an optional [AI ally](docs/ai-ally.md) page
 for solo GoldenEye, campaign co-op and Horde: one extra Natalya companion with
 weapon, aggression, damage, health and invincibility choices. The host chooses;
 changes apply next mission or Horde retry. It also works with Fast reinforcements.
