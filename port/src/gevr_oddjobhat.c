@@ -153,7 +153,7 @@ static struct {
 	float height;      /* the crown's height, times: the capture gives no true height (X is fixed by the round band, Y is not); 0.55 undoes the capture's vertical stretch, by eye, until the converter takes it */
 	long stamp;
 	int frames;
-} s_tune = { { 133.0f, 0, 0, 0, 0, 0, 0 }, { 15.0f, 0, 0, 0, 0, 0, 0 }, { 200.0f, 0, 0, 0, 0 }, 0.55f, -1, 0 };
+} s_tune = { { 133.0f, 0, 0, 0, 0, 0, 0 }, { 11.3f, 0, 0, 0, 0, 0, 0 }, { 200.0f, 0, 0, 0, 0 }, 0.55f, -1, 0 };
 
 static u32 rd32(const u8 *p) { u32 v; memcpy(&v, p, 4); return v; }
 static float rdf(const u8 *p) { float v; memcpy(&v, p, 4); return v; }
@@ -652,9 +652,14 @@ int gevrHatNodeGdl(struct ModelNode *node, struct Model *model, void **gdl)
 	if (!m->built) return 0;
 	m->used = ++s_clock;
 	if (!m->drawn) {
+		float view = 0;
 		m->drawn = 1;
-		hatLog("oddjob hat: drawn for model %p (header %p, kind %d%s)", (void *)model, (void *)model->obj, m->kind,
-		       m->gex ? ", GoldenEye X" : "");
+		if (model->render_pos && model->obj->numMatrices > m->matrix) {
+			const float (*r)[4] = model->render_pos[m->matrix].pos.m;
+			view = sqrtf(r[0][0] * r[0][0] + r[0][1] * r[0][1] + r[0][2] * r[0][2]);
+		}
+		hatLog("oddjob hat: drawn for model %p (header %p, kind %d%s), %.4f view units a unit, %.3f a cm",
+		       (void *)model, (void *)model->obj, m->kind, m->gex ? ", GoldenEye X" : "", view, D_800364CC);
 	}
 	*gdl = node == m->hatNode ? (void *)m->gdl : NULL;
 	return 1;
