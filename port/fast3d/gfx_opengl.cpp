@@ -3030,6 +3030,8 @@ struct GevrEyeDraw {
 };
 
 static std::vector<GevrEyeDraw> s_eyeDraws;
+static uint32_t s_eyeKept, s_eyeMerged;   // gevr_eye_keep: per second, Show stats / profile traces
+extern "C" int VrShowStats;                 // vr_input.cpp: the stats readout is on
 struct GevrEyeMesh {
     GLuint vao;
     struct GfxMeshDrawParams params;
@@ -3061,6 +3063,12 @@ void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* p
         }
     } else {
         s_eyeReady = s_eyeRec && !s_eyeDraws.empty();
+        static uint32_t records;
+        if (++records >= 72) {
+            if (VrShowStats || gevrFrameTimingTracing())
+                vr_log("eye-merge: %u draws kept, %u joined to the one before", s_eyeKept, s_eyeMerged);
+            records = s_eyeKept = s_eyeMerged = 0;
+        }
         s_eyeRec = false;
         s_eyePresent = false;
         for (struct ShaderProgram* p : s_eyePresentationPrograms) {
@@ -3097,6 +3105,51 @@ void gfx_vr_eye_record_only(bool on)
     s_eyeRecordOnly = on;
 }
 
+/*
+ * Two draws in a row with the same captured state over contiguous vertices
+ * are one draw: the replay issues it once (each draw call costs the driver its
+ * state validation, and the replay runs twice a game frame at 120 Hz).
+ * Primitive order is kept, so blending and depth resolve as before. On Dam
+ * while turning, 15-20% of the eye pass's draws were static-mesh pieces of
+ * one buffer whose parameters differed only in their culling bounds, which
+ * the replay never reads (culling happened at the record). Not the decal
+ * passes (stencil bands, per draw), a cutout program's opaque-depth pass
+ * (colour then depth, per draw), skinned meshes or lines.
+ */
+static bool gevr_eye_draw_joins(const GevrEyeDraw& a, const GevrEyeDraw& b)
+{
+    if (a.lineMode || b.lineMode || a.first + a.count != b.first || a.prg != b.prg
+        || a.prg->opaque_depth_pass_location >= 0
+        || a.decalZ || b.decalZ || a.decalDepth || b.decalDepth
+        || a.gunDecal != b.gunDecal || a.decalPull != b.decalPull
+        || a.isMenu != b.isMenu || a.hand != b.hand || a.zmode != b.zmode
+        || a.tex[0] != b.tex[0] || a.tex[1] != b.tex[1]
+        || a.linear[0] != b.linear[0] || a.linear[1] != b.linear[1]
+        || a.alpha[0] != b.alpha[0] || a.alpha[1] != b.alpha[1]
+        || memcmp(a.depth, b.depth, sizeof(a.depth)) != 0
+        || memcmp(a.viewport, b.viewport, sizeof(a.viewport)) != 0
+        || memcmp(a.scissor, b.scissor, sizeof(a.scissor)) != 0) {
+        return false;
+    }
+    if (!a.mesh && !b.mesh) {
+        return true;   // the vertex ring
+    }
+    if (!a.mesh || !b.mesh) {
+        return false;
+    }
+    const GevrEyeMesh& ma = s_eyeMeshes[a.mesh - 1];
+    const GevrEyeMesh& mb = s_eyeMeshes[b.mesh - 1];
+    if (ma.vao != mb.vao || ma.params.skinned || mb.params.skinned) {
+        return false;
+    }
+    // everything but the bounds (lo, hi), up to the skin palette
+    const size_t lo = offsetof(GfxMeshDrawParams, lo), past = offsetof(GfxMeshDrawParams, cull);
+    const size_t end = offsetof(GfxMeshDrawParams, palette);
+    const char* pa = (const char*)&ma.params;
+    const char* pb = (const char*)&mb.params;
+    return memcmp(pa, pb, lo) == 0 && memcmp(pa + past, pb + past, end - past) == 0;
+}
+
 static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode)
 {
     // not the HUD captures, which draw into their own targets
@@ -3125,6 +3178,22 @@ static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode)
     memcpy(d.viewport, s_curViewport, sizeof(d.viewport));
     memcpy(d.scissor, s_curScissor, sizeof(d.scissor));
     d.mesh = s_eyeKeepMesh;
+    ++s_eyeKept;
+    if (!s_eyeDraws.empty() && gevr_eye_draw_joins(s_eyeDraws.back(), d)) {
+        GevrEyeDraw& prev = s_eyeDraws.back();
+        prev.count += d.count;
+        if (d.mesh) {
+            GfxMeshDrawParams& joined = s_eyeMeshes[prev.mesh - 1].params;
+            const GfxMeshDrawParams& piece = s_eyeMeshes[d.mesh - 1].params;
+            for (int k = 0; k < 3; k++) {
+                joined.lo[k] = std::min(joined.lo[k], piece.lo[k]);
+                joined.hi[k] = std::max(joined.hi[k], piece.hi[k]);
+            }
+            if (s_eyeMeshes.size() == d.mesh) s_eyeMeshes.pop_back();
+        }
+        ++s_eyeMerged;
+        return;
+    }
     s_eyeDraws.push_back(d);
 }
 
