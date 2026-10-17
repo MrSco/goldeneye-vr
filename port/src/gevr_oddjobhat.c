@@ -32,7 +32,7 @@
  *   held <brim radius> <dx> <dy> <dz> <yaw> <pitch> <roll>
  *   gex  <brim radius> <dx> <dy> <dz> <yaw> <pitch> <roll>
  *   prop <brim radius> <dx> <dy> <dz> <pitch>
- *   height <times>   (the crown's height, 0.55 by default)
+ *   height <times>   (the crown's height, 1 by default)
  * in model units and degrees; held and gex turn about the fist (yaw about
  * the knife's axis, pitch across the hand, roll about the forearm).
  */
@@ -109,6 +109,7 @@ struct hatCorner {
 
 static struct {
 	int ok;
+	float stretch;     /* the file's crown height to draw: 1 when the converter fixed it (GEVRHAT2) */
 	float radius;
 	float fist[3], forearm[3], up[3];
 	int ntex;
@@ -148,10 +149,10 @@ static struct {
 	float held[7];
 	float gex[7];
 	float prop[5];
-	float height;      /* the crown's height, times: the capture gives no true height (X is fixed by the round band, Y is not); 0.55 undoes the capture's vertical stretch, by eye, until the converter takes it */
+	float height;      /* the crown's height, times (on top of the file's own fix) */
 	long stamp;
 	int frames;
-} s_tune = { { 133.0f, 0, 0, 0, 0, 0, 0 }, { 133.0f, 0, 0, 0, 0, 0, 0 }, { 200.0f, 0, 0, 0, 0 }, 0.55f, -1, 0 };
+} s_tune = { { 133.0f, 0, 0, 0, 0, 0, 0 }, { 133.0f, 0, 0, 0, 0, 0, 0 }, { 200.0f, 0, 0, 0, 0 }, 1.0f, -1, 0 };
 
 static u32 rd32(const u8 *p) { u32 v; memcpy(&v, p, 4); return v; }
 static float rdf(const u8 *p) { float v; memcpy(&v, p, 4); return v; }
@@ -189,7 +190,10 @@ static void hatLoad(void)
 	fclose(f);
 	p = data;
 	end = data + size;
-	if (memcmp(p, "GEVRHAT1", 8) != 0) goto bad;
+	/* GEVRHAT1 (the 1.0 pack) still has the capture's stretched height */
+	if (memcmp(p, "GEVRHAT2", 8) == 0) s_hat.stretch = 1.0f;
+	else if (memcmp(p, "GEVRHAT1", 8) == 0) s_hat.stretch = 0.55f;
+	else goto bad;
 	p += 8;
 	s_hat.radius = rdf(p);
 	for (int k = 0; k < 3; k++) {
@@ -493,8 +497,9 @@ static void place(struct hatModel *m, Vtx *vtx)
 	for (int i = 0; i < s_hat.ntri * 3; i++) {
 		const struct hatCorner *c = &s_hat.corners[i];
 		/* the crown's height: hat-local y, the fist's too */
-		const float p[3] = { c->p[0], c->p[1] * s_tune.height, c->p[2] };
-		const float fist[3] = { s_hat.fist[0], s_hat.fist[1] * s_tune.height, s_hat.fist[2] };
+		const float h = s_tune.height * s_hat.stretch;
+		const float p[3] = { c->p[0], c->p[1] * h, c->p[2] };
+		const float fist[3] = { s_hat.fist[0], s_hat.fist[1] * h, s_hat.fist[2] };
 		float q[3], r[3], out[3];
 		if (kind == HAT_HELD) {
 			/* Oddjob's fist frame -> turn -> the knife hand's fist frame */
