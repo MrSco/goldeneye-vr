@@ -85,6 +85,7 @@ radius is 200 units.
 - 3DReaperDX unprojected X with the window's 4:3 aspect while the game drew
   16:9, so the hat band is round only after X is scaled by 4/3. Y comes from
   the game's projection.
+- Nothing in the capture fixes the height (see `height` below).
 - Every scene draw call appears twice, once per eye of Dolphin's
   side-by-side view. The arms appear once more, in a second pose, off
   screen.
@@ -100,10 +101,14 @@ units and degrees:
 held <brim radius> <dx> <dy> <dz> <yaw> <pitch> <roll>
 gex  <brim radius> <dx> <dy> <dz> <yaw> <pitch> <roll>
 prop <brim radius> <dx> <dy> <dz> <pitch>
+height <times>
 ```
 
 Defaults: held 133 (about 3.3 of Bond's hand widths, a 30 cm bowler), gex
-176 (GE-X units are 0.085 cm), prop 200.
+176 (GE-X units are 0.085 cm), prop 200, height 0.75. The capture fixes
+the hat's width against its depth (the band is round) but not its height:
+as captured the crown is a top hat's, 1.2 times as tall as it is wide. The
+game draws it at 0.75 of that, by eye; a real bowler would be about 0.6.
 
 Held and gex rotations turn about the fist: yaw about the knife's axis (180 moves the
 hat to the other side of the hand), pitch across the hand, roll about the

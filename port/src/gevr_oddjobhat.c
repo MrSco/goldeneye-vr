@@ -32,6 +32,7 @@
  *   held <brim radius> <dx> <dy> <dz> <yaw> <pitch> <roll>
  *   gex  <brim radius> <dx> <dy> <dz> <yaw> <pitch> <roll>
  *   prop <brim radius> <dx> <dy> <dz> <pitch>
+ *   height <times>   (the crown's height, 0.75 by default)
  * in model units and degrees; held and gex turn about the fist (yaw about
  * the knife's axis, pitch across the hand, roll about the forearm).
  */
@@ -49,6 +50,9 @@
 
 #include "system.h"
 #include "gevr_oddjobhat.h"
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
 #include "gevr_gexmodel.h"
 #include "gevr_gexweapon.h"
 
@@ -58,9 +62,20 @@
 #define HAT_DIR ""
 #endif
 static const char *const s_files[] = {
+	HAT_DIR "mods/oddjob_hat.bin",                       /* a hand-made one wins, for testing */
 	HAT_DIR "texture-packs/oddjob-hat/oddjob_hat.bin",   /* the launcher's download */
-	HAT_DIR "mods/oddjob_hat.bin",                       /* a hand-made one */
 };
+
+/* the game's log is private on a release build; logcat (GEVR-Hat) is not */
+#define hatLog(...) do { \
+	sysLogPrintf(LOG_NOTE, __VA_ARGS__); \
+	HAT_LOGCAT(__VA_ARGS__); \
+} while (0)
+#ifdef __ANDROID__
+#define HAT_LOGCAT(...) __android_log_print(ANDROID_LOG_INFO, "GEVR-Hat", __VA_ARGS__)
+#else
+#define HAT_LOGCAT(...) ((void)0)
+#endif
 #define HAT_TUNE HAT_DIR "gevr_oddjobhat.txt"
 
 enum { HAT_HELD, HAT_THROWN, HAT_PICKUP, HAT_KINDS };
@@ -68,6 +83,10 @@ enum { HAT_HELD, HAT_THROWN, HAT_PICKUP, HAT_KINDS };
 #define HAT_MAX_TEX    4
 #define HAT_MAX_NODES  64
 #define HAT_THROWN_MAX 64
+/* a model loaded into several headers is several registrations: the held
+ * knife goes into each hand's copy (gun.c copy_of_body_obj_header), and
+ * GoldenEye X's weapon panel loads its own */
+#define HAT_MAX_REGS   16
 
 /* GthrowknifeZ's fist, measured on the cartridge's model (tools/gevr_model_export.py),
  * in its group's space: the centre of the fist on the knife's axis, the
@@ -101,6 +120,9 @@ static u16 s_standin[HAT_MAX_TEX][16 * 16] __attribute__((aligned(8)));
 
 struct hatModel {
 	struct ModelFileHeader *header;
+	int kind;
+	int drawn;         /* logged its first draw */
+	unsigned used;     /* when last drawn, to reuse the oldest */
 	ModelNode *nodes[HAT_MAX_NODES];
 	u8 knife[HAT_MAX_NODES];
 	int nnodes;
@@ -115,7 +137,8 @@ struct hatModel {
 	int built;
 };
 
-static struct hatModel s_models[HAT_KINDS];
+static struct hatModel s_models[HAT_MAX_REGS];
+static unsigned s_clock;
 static struct Model *s_thrown[HAT_THROWN_MAX];
 static int s_nthrown;
 
@@ -123,9 +146,10 @@ static struct {
 	float held[7];
 	float gex[7];
 	float prop[5];
+	float height;      /* the crown's height, times: the capture gives no true height (X is fixed by the round band, Y is not); 0.75 is by eye, a real bowler would be about 0.6 */
 	long stamp;
 	int frames;
-} s_tune = { { 133.0f, 0, 0, 0, 0, 0, 0 }, { 176.0f, 0, 0, 0, 0, 0, 0 }, { 200.0f, 0, 0, 0, 0 }, -1, 0 };
+} s_tune = { { 133.0f, 0, 0, 0, 0, 0, 0 }, { 176.0f, 0, 0, 0, 0, 0, 0 }, { 200.0f, 0, 0, 0, 0 }, 0.75f, -1, 0 };
 
 static u32 rd32(const u8 *p) { u32 v; memcpy(&v, p, 4); return v; }
 static float rdf(const u8 *p) { float v; memcpy(&v, p, 4); return v; }
@@ -203,7 +227,7 @@ static void hatLoad(void)
 	}
 	free(data);
 	s_hat.ok = 1;
-	sysLogPrintf(LOG_NOTE, "oddjob hat: %s: %d triangles, %d pictures", path, s_hat.ntri, s_hat.ntex);
+	hatLog("oddjob hat: %s: %d triangles, %d pictures", path, s_hat.ntri, s_hat.ntex);
 	return;
 bad:
 	for (int t = 0; t < HAT_MAX_TEX; t++) {
@@ -269,24 +293,34 @@ static void collect(struct hatModel *m, ModelNode *n, int depth)
 
 void gevrHatModelLoaded(struct ModelFileHeader *header, const char *name)
 {
-	int kind, found = 0, want;
-	struct hatModel *m;
+	int kind, found = 0, want, counts = 0;
+	char list[160] = "";
+	struct hatModel *m = NULL;
 	const GexWeaponDef *gex = NULL;
 	if (!header || !name) return;
+	for (int r = 0; r < HAT_MAX_REGS; r++)
+		if (s_models[r].header == header) {
+			m = &s_models[r];
+			m->header = NULL;   /* the header holds another load now */
+		}
 	if (strcmp(name, "GthrowknifeZ") == 0) kind = HAT_HELD;
 	else if (strcmp(name, "PchrknifeZ") == 0) kind = HAT_THROWN;
 	else if (strcmp(name, "PchrthrowknifeZ") == 0) kind = HAT_PICKUP;
-	else {
-		for (int k = 0; k < HAT_KINDS; k++)
-			if (s_models[k].header == header) s_models[k].header = NULL;   /* the slot holds another model now */
-		return;
+	else return;
+	if (!m) {
+		/* a free registration, else the one drawn longest ago */
+		for (int r = 0; r < HAT_MAX_REGS && !m; r++)
+			if (!s_models[r].header) m = &s_models[r];
+		for (int r = 0; r < HAT_MAX_REGS; r++)
+			if (!m || s_models[r].used < m->used) m = &s_models[r];
 	}
-	m = &s_models[kind];
 	memset(m->nodes, 0, sizeof(m->nodes));
 	memset(m->knife, 0, sizeof(m->knife));
-	m->header = NULL;
+	m->kind = kind;
 	m->nnodes = 0;
 	m->hatNode = NULL;
+	m->drawn = 0;
+	m->used = s_clock;
 	m->gex = kind == HAT_HELD && gevrGexPendingFile != NULL;
 	m->placed = 0;
 	if (m->gex) gex = gevrGexWeaponGet(ITEM_THROWKNIFE);
@@ -298,16 +332,18 @@ void gevrHatModelLoaded(struct ModelFileHeader *header, const char *name)
 	for (int i = 0; i < m->nnodes; i++) {
 		int n = m->nodes[i]->Data->DisplayList.numVertices;
 		float o[3];
-		if (m->gex) m->knife[i] = nodeMatrix(m->nodes[i], o) >= gex->gunMatrix;
+		int mtx = nodeMatrix(m->nodes[i], o);
+		if (m->gex) m->knife[i] = mtx >= gex->gunMatrix;
 		else if (kind == HAT_HELD) m->knife[i] = n == 149 || n == 126 || n == 60;
 		else m->knife[i] = n == 39 && m->nnodes == 1;
 		if (m->knife[i] && !m->hatNode) m->hatNode = m->nodes[i];
 		found += m->knife[i];
+		if (counts < (int)sizeof(list) - 16)
+			counts += snprintf(list + counts, sizeof(list) - counts, " %d@%d%s", n, mtx, m->knife[i] ? "*" : "");
 	}
 	want = m->gex ? found : kind == HAT_HELD ? 3 : 1;
 	if (!found || found != want) {
-		sysLogPrintf(LOG_WARNING, "oddjob hat: %s is not a model the hat was fitted to (%d of its %d lists)",
-		             name, found, m->nnodes);
+		hatLog("oddjob hat: %s%s is not a model the hat was fitted to (lists:%s)", name, m->gex ? " (GoldenEye X)" : "", list);
 		return;
 	}
 	m->origin[0] = m->origin[1] = m->origin[2] = 0;
@@ -324,8 +360,8 @@ void gevrHatModelLoaded(struct ModelFileHeader *header, const char *name)
 	m->header = header;
 	m->built = 0;
 	if (kind == HAT_THROWN) s_nthrown = 0;   /* a new level's instances */
-	sysLogPrintf(LOG_NOTE, "oddjob hat: %s%s: %d knife lists of %d, matrix %d", name, m->gex ? " (GoldenEye X)" : "",
-	             found, m->nnodes, m->matrix);
+	hatLog("oddjob hat: %s%s in header %p: lists (vertices@matrix, * the knife's):%s; hat on matrix %d", name,
+	       m->gex ? " (GoldenEye X)" : "", (void *)header, list, m->matrix);
 	if (VrOddjobHat) hatLoad();   /* before the first draw, so Bean stands aside from the start */
 }
 
@@ -334,6 +370,7 @@ void gevrHatThrown(struct Model *model)
 	if (!model) return;
 	s_thrown[s_nthrown % HAT_THROWN_MAX] = model;
 	s_nthrown++;
+	hatLog("oddjob hat: thrown knife %d, model %p, header %p", s_nthrown, (void *)model, (void *)model->obj);
 }
 
 static int isThrown(struct Model *model)
@@ -380,7 +417,7 @@ static int gexMeasure(struct hatModel *m, struct Model *model)
 	m->handle[0] = k[0][1] >= 0 ? 1.0f : -1.0f;   /* camera y is up */
 	m->handle[1] = m->handle[2] = 0;
 	m->placed = 1;
-	sysLogPrintf(LOG_NOTE, "oddjob hat: GoldenEye X fist %.1f %.1f %.1f, forearm %.2f %.2f %.2f, blade %+.0f x",
+	hatLog("oddjob hat: GoldenEye X fist %.1f %.1f %.1f, forearm %.2f %.2f %.2f, blade %+.0f x",
 	             m->fist[0], m->fist[1], m->fist[2], m->forearm[0], m->forearm[1], m->forearm[2], m->handle[0]);
 	return 1;
 }
@@ -431,9 +468,9 @@ static s16 clampS16(float v)
 }
 
 /* the hat's corners in the hat node's matrix space */
-static void place(int kind, Vtx *vtx)
+static void place(struct hatModel *m, Vtx *vtx)
 {
-	struct hatModel *m = &s_models[kind];
+	const int kind = m->kind;
 	const float rad = (float)M_PI / 180.0f;
 	const float *tune = kind != HAT_HELD ? s_tune.prop : m->gex ? s_tune.gex : s_tune.held;
 	float ge[3][3], nf[3][3], turn[3][3];
@@ -447,18 +484,21 @@ static void place(int kind, Vtx *vtx)
 	}
 	for (int i = 0; i < s_hat.ntri * 3; i++) {
 		const struct hatCorner *c = &s_hat.corners[i];
+		/* the crown's height: hat-local y, the fist's too */
+		const float p[3] = { c->p[0], c->p[1] * s_tune.height, c->p[2] };
+		const float fist[3] = { s_hat.fist[0], s_hat.fist[1] * s_tune.height, s_hat.fist[2] };
 		float q[3], r[3], out[3];
 		if (kind == HAT_HELD) {
 			/* Oddjob's fist frame -> turn -> the knife hand's fist frame */
 			for (int a = 0; a < 3; a++) {
 				q[a] = 0;
-				for (int k = 0; k < 3; k++) q[a] += nf[a][k] * (c->p[k] - s_hat.fist[k]) * scale;
+				for (int k = 0; k < 3; k++) q[a] += nf[a][k] * (p[k] - fist[k]) * scale;
 			}
 			for (int a = 0; a < 3; a++) r[a] = turn[a][0] * q[0] + turn[a][1] * q[1] + turn[a][2] * q[2];
 			for (int k = 0; k < 3; k++)
 				out[k] = m->fist[k] + tune[1 + k] + ge[0][k] * r[0] + ge[1][k] * r[1] + ge[2][k] * r[2];
 		} else {
-			for (int k = 0; k < 3; k++) q[k] = c->p[k] * scale;
+			for (int k = 0; k < 3; k++) q[k] = p[k] * scale;
 			for (int k = 0; k < 3; k++)
 				out[k] = m->origin[k] + tune[1 + k] + turn[k][0] * q[0] + turn[k][1] * q[1] + turn[k][2] * q[2];
 		}
@@ -473,9 +513,8 @@ static int texMask(int n)
 	return m;
 }
 
-static void build(int kind)
+static void build(struct hatModel *m)
 {
-	struct hatModel *m = &s_models[kind];
 	const int nv = s_hat.ntri * 3;
 	Gfx *g;
 	if (!m->vtx) {
@@ -484,7 +523,7 @@ static void build(int kind)
 		m->gdl = calloc((size_t)(s_hat.ntex * 16 + s_hat.ntri * 2 + 16), sizeof(Gfx));
 		if (!m->vtx || !m->gdl) return;
 	}
-	place(kind, m->vtx);
+	place(m, m->vtx);
 	g = m->gdl;
 	gSPMatrix(g++, (void *)(uintptr_t)(0x03000000u + m->matrix * sizeof(Mtx)), G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
 	gDPPipeSync(g++);
@@ -560,24 +599,25 @@ static void tuneCheck(void)
 		float *h = s_tune.held, *x = s_tune.gex, *p = s_tune.prop;
 		if (sscanf(line, "held %f %f %f %f %f %f %f", &h[0], &h[1], &h[2], &h[3], &h[4], &h[5], &h[6]) >= 1) continue;
 		if (sscanf(line, "gex %f %f %f %f %f %f %f", &x[0], &x[1], &x[2], &x[3], &x[4], &x[5], &x[6]) >= 1) continue;
+		if (sscanf(line, "height %f", &s_tune.height) == 1) continue;
 		sscanf(line, "prop %f %f %f %f %f", &p[0], &p[1], &p[2], &p[3], &p[4]);
 	}
 	if (f) fclose(f);
-	sysLogPrintf(LOG_NOTE, "oddjob hat: held %.1f %.1f %.1f %.1f %.1f %.1f %.1f gex %.1f %.1f %.1f %.1f %.1f %.1f %.1f"
+	hatLog("oddjob hat: height %.2f held %.1f %.1f %.1f %.1f %.1f %.1f %.1f gex %.1f %.1f %.1f %.1f %.1f %.1f %.1f"
 	             " prop %.1f %.1f %.1f %.1f %.1f",
-	             s_tune.held[0], s_tune.held[1], s_tune.held[2], s_tune.held[3], s_tune.held[4], s_tune.held[5], s_tune.held[6],
+	             s_tune.height, s_tune.held[0], s_tune.held[1], s_tune.held[2], s_tune.held[3], s_tune.held[4], s_tune.held[5], s_tune.held[6],
 	             s_tune.gex[0], s_tune.gex[1], s_tune.gex[2], s_tune.gex[3], s_tune.gex[4], s_tune.gex[5], s_tune.gex[6],
 	             s_tune.prop[0], s_tune.prop[1], s_tune.prop[2], s_tune.prop[3], s_tune.prop[4]);
-	for (int k = 0; k < HAT_KINDS; k++)
-		if (s_models[k].built) place(k, s_models[k].vtx);
+	for (int r = 0; r < HAT_MAX_REGS; r++)
+		if (s_models[r].built) place(&s_models[r], s_models[r].vtx);
 }
 
 static struct hatModel *ownerOf(struct Model *model)
 {
 	if (!VrOddjobHat || !model || !model->obj) return NULL;
-	for (int k = 0; k < HAT_KINDS; k++)
-		if (s_models[k].header && s_models[k].header == model->obj)
-			return k == HAT_THROWN && !isThrown(model) ? NULL : &s_models[k];
+	for (int r = 0; r < HAT_MAX_REGS; r++)
+		if (s_models[r].header && s_models[r].header == model->obj)
+			return s_models[r].kind == HAT_THROWN && !isThrown(model) ? NULL : &s_models[r];
 	return NULL;
 }
 
@@ -593,8 +633,14 @@ int gevrHatNodeGdl(struct ModelNode *node, struct Model *model, void **gdl)
 	if (!s_hat.ok) return 0;
 	tuneCheck();
 	if (!m->placed && !(m->gex && gexMeasure(m, model))) return 0;
-	if (!m->built) build((int)(m - s_models));
+	if (!m->built) build(m);
 	if (!m->built) return 0;
+	m->used = ++s_clock;
+	if (!m->drawn) {
+		m->drawn = 1;
+		hatLog("oddjob hat: drawn for model %p (header %p, kind %d%s)", (void *)model, (void *)model->obj, m->kind,
+		       m->gex ? ", GoldenEye X" : "");
+	}
 	*gdl = node == m->hatNode ? (void *)m->gdl : NULL;
 	return 1;
 }
@@ -603,9 +649,9 @@ int gevrHatOwnsNode(const void *node)
 {
 	if (!VrOddjobHat || !s_hat.ok || !node) return 0;
 	/* not the thrown kind: a hunting knife shares its lists and keeps Bean's */
-	for (int k = 0; k < HAT_KINDS; k++) {
-		const struct hatModel *m = &s_models[k];
-		if (k == HAT_THROWN || !m->header) continue;
+	for (int r = 0; r < HAT_MAX_REGS; r++) {
+		const struct hatModel *m = &s_models[r];
+		if (m->kind == HAT_THROWN || !m->header) continue;
 		for (int i = 0; i < m->nnodes; i++)
 			if (m->nodes[i] == node && m->knife[i]) return 1;
 	}
