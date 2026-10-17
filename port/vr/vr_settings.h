@@ -116,6 +116,8 @@ extern int VrAimSteady;         // gun-hand steadying: 0 off, 1 low, 2 high (iss
 extern int VrTouchModel;        // watch Controls page: 0 the headset's controllers, 1..4 Quest 1, 2, Touch Plus, Pro
 extern int VrShowStats;         // troubleshooting readout in game
 extern int VrSpaceWarp;         // Application SpaceWarp: half-rate rendering, frames made between
+extern int VrEyeMsaa;           // eye images' anti-aliasing: 1 off, 2 or 4 samples (live)
+extern float VrRenderScale;     // eye images' size over the recommendation at VR start; 0 = Video.VRRenderScale
 extern unsigned long long VrCheatMask; // launcher cheats: bit n = CHEAT_IDS n
 extern int VrGunSizeCheat;      // VR fun cheat: 0 normal, 1 tiny, 2 big guns
 extern int VrUnlockAll;         // every mission, 007 mode and every cheat unlocked (issue #54)

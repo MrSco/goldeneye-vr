@@ -3528,7 +3528,7 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
  * frame's camera space, then through the frame's world, hand and body moves.
  *
  * A mesh draw that matches one of the previous frame's (same buffer, index
- * range, hand and order) moves from that draw's own placement: its matrix, and
+ * range and hand, shown nearest where it would be had it not moved) moves from that draw's own placement: its matrix, and
  * a skinned body's bone palette, shown through the previous frame's moves, so a
  * walking guard, an opening door or a swung gun carries its own motion. Others
  * (new this frame, the vertex ring) move with the head, hands and stick only.
@@ -3554,7 +3554,7 @@ struct GevrMotionRecord {
     GLuint vao;
     GLint first;
     GLsizei count;
-    uint32_t occurrence;
+    float view[3];                         // its origin as shown that frame (view units)
     int8_t hand;
     bool skinned;
     uint32_t palette;                      // index in s_motionPalettes, skinned only
@@ -3563,7 +3563,9 @@ struct GevrMotionRecord {
 };
 static std::vector<GevrMotionRecord> s_motionRecords[2];
 static std::vector<GevrSkinPalette> s_motionPalettes[2];
-static std::unordered_map<uint64_t, uint32_t> s_motionIndex;   // the previous frame's records
+// the previous frame's records by buffer, index range and hand: guards of one
+// model share all three, so a draw takes the nearest of them (gevr_motion_find)
+static std::unordered_map<uint64_t, std::vector<uint32_t>> s_motionIndex;
 static int s_motionFrame;                  // which of the two holds this frame's
 static bool s_motionHavePrev;
 static float s_motionPrevC[4][16];         // the previous frame's moves, projected
@@ -3732,6 +3734,42 @@ void gfx_vr_motion_forget(void)
     s_motionHavePrev = false;
 }
 
+/* A mesh's origin through its placement and a frame's move: (x/P00, y/P11, -w)
+ * of its game-camera clip position, then the move (column-major). */
+static void gevr_motion_origin(const float* move, const float mp[16], float out[3])
+{
+    const float c[4] = { mp[12] / s_eyeHeadP[0], mp[13] / s_eyeHeadP[1], -mp[15], 1.0f };
+    for (int r = 0; r < 3; r++)
+        out[r] = move[r] * c[0] + move[4 + r] * c[1] + move[8 + r] * c[2] + move[12 + r] * c[3];
+}
+
+/* The previous frame's draw of this one: of the same buffer, index range and
+ * hand, the untaken one whose origin was shown nearest to where this draw's
+ * would have been if it had not moved (prev: the head and hand move alone),
+ * within half a metre. Draw order changes as things come into view, and guards
+ * of one model share their buffers: matching by order gave a body another
+ * guard's last pose, and the runtime smeared it between frames. */
+static const GevrMotionRecord* gevr_motion_find(const std::vector<GevrMotionRecord>& before, std::vector<uint8_t>& taken,
+                                                uint64_t key, const float* prev, const float mp[16], float limit)
+{
+    auto it = s_motionIndex.find(key);
+    if (it == s_motionIndex.end()) return NULL;
+    float still[3];
+    gevr_motion_origin(prev, mp, still);
+    int best = -1;
+    float bestD = limit * limit;
+    for (uint32_t i : it->second) {
+        if (taken[i]) continue;
+        const float* v = before[i].view;
+        const float dx = v[0] - still[0], dy = v[1] - still[1], dz = v[2] - still[2];
+        const float dd = dx * dx + dy * dy + dz * dz;
+        if (dd < bestD) { bestD = dd; best = (int)i; }
+    }
+    if (best < 0) return NULL;
+    taken[best] = 1;
+    return &before[best];
+}
+
 /* cur: the world's, the left and right hands' and the body's moves this frame
  * (gfx_vr_eye_replay's). prev: the same to the previous frame, from this frame's
  * placement (head, hands and stick only). havePrev: that frame was shown just
@@ -3755,7 +3793,7 @@ void gfx_vr_motion_pass(const float* const cur[4], const float* const prev[4], b
     const std::vector<GevrSkinPalette>& beforePalettes = s_motionPalettes[s_motionFrame ^ 1];
     records.clear();
     palettes.clear();
-    std::unordered_map<uint64_t, uint32_t> seen;
+    std::vector<uint8_t> taken(before.size(), 0);
 
     GLint prevVao = 0, depthFunc = GL_LEQUAL;
     GLboolean depthMask = GL_TRUE;
@@ -3821,24 +3859,21 @@ void gfx_vr_motion_pass(const float* const cur[4], const float* const prev[4], b
         // this draw's previous placement, if the previous frame drew it
         const GevrMotionRecord* was = NULL;
         if (mesh) {
-            const uint64_t base = gevr_motion_key(want, d.first, d.count, 0);
-            const uint32_t occurrence = seen[base]++;
+            const uint64_t key = gevr_motion_key(want, d.first, d.count, (uint32_t)(d.hand + 1));
             if (matchPrev) {
-                auto it = s_motionIndex.find(gevr_motion_key(want, d.first, d.count, occurrence));
-                if (it != s_motionIndex.end()) {
-                    const GevrMotionRecord& r = before[it->second];
-                    if (r.vao == want && r.first == d.first && r.count == d.count && r.occurrence == occurrence
-                        && r.hand == d.hand && r.skinned == skin) {
-                        was = &r;
-                        matched++;
-                    }
+                const GevrMotionRecord* r = gevr_motion_find(before, taken, key, prev[d.hand + 1], mesh->params.mp,
+                                                             0.5f * unitsPerMetre);
+                if (r && r->skinned == skin) {
+                    was = r;
+                    matched++;
                 }
             }
             GevrMotionRecord rec;
-            rec.vao = want; rec.first = d.first; rec.count = d.count; rec.occurrence = occurrence;
+            rec.vao = want; rec.first = d.first; rec.count = d.count;
             rec.hand = d.hand; rec.skinned = skin; rec.palette = 0;
             memcpy(rec.mp, mesh->params.mp, sizeof(rec.mp));
             memcpy(rec.valid, mesh->params.palette.valid, sizeof(rec.valid));
+            gevr_motion_origin(cur[d.hand + 1], mesh->params.mp, rec.view);
             if (skin) {
                 rec.palette = (uint32_t)palettes.size();
                 palettes.push_back(mesh->params.palette);
@@ -3909,7 +3944,7 @@ void gfx_vr_motion_pass(const float* const cur[4], const float* const prev[4], b
     s_motionIndex.clear();
     for (uint32_t i = 0; i < records.size(); i++) {
         const GevrMotionRecord& r = records[i];
-        s_motionIndex[gevr_motion_key(r.vao, r.first, r.count, r.occurrence)] = i;
+        s_motionIndex[gevr_motion_key(r.vao, r.first, r.count, (uint32_t)(r.hand + 1))].push_back(i);
     }
     memcpy(s_motionPrevC, C, sizeof(s_motionPrevC));
     s_motionHavePrev = true;

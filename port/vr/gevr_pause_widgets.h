@@ -2,6 +2,7 @@
 #define GEVR_PAUSE_WIDGETS_H
 #include "gevr_pause_menu.h"
 #include "imgui/imgui.h"
+#include "gevr_tooltip.h"
 #include <cstring>
 #include <cstdio>
 #include <initializer_list>
@@ -156,7 +157,7 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
             for(int i=0;i<model.count;i++) {
                 const auto&p=model.players[i];ImGui::TableNextRow(0,40);
                 ImGui::TableNextColumn();ImGui::Text("%.14s%s",p.name,p.host?" *":"");
-                if(ImGui::IsItemHovered())ImGui::SetTooltip("%s%s",p.name,p.host?" (Host)":"");
+                if(ImGui::IsItemHovered())gevrTooltip("%s%s",p.name,p.host?" (Host)":"");
                 ImGui::TableNextColumn();ImGui::TextUnformatted(p.character);
                 if(model.coop) {ImGui::TableNextColumn();ImGui::TextColored(p.down?bad:good,"%s",p.down?"Down / revive":"Active");ImGui::TableNextColumn();ImGui::Text("%d",p.ping);}
                 else {
@@ -174,7 +175,7 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
                             ui.kickSlot=p.slot;snprintf(ui.kickName,sizeof(ui.kickName),"%s",p.name);
                         }
                         ImGui::EndDisabled();
-                        if(!p.canKick && !p.bot && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))ImGui::SetTooltip("This player needs the updated build for host removal.");
+                        if(!p.canKick && !p.bot && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))gevrTooltip("This player needs the updated build for host removal.");
                     }
                     ImGui::PopID();
                 }
