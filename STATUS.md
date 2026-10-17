@@ -3,9 +3,21 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current release:** v0.5.5 (versionCode 85, protocol 22), 2026-10-17.
-v0.5.4 can join; v0.5.3 and older can't. Building does not publish a
-GitHub release. No game data is shipped.
+**Current release:** v0.5.6 (versionCode 86, protocol 22), 2026-10-17.
+v0.5.4 and v0.5.5 can join; v0.5.3 and older can't. Building does not
+publish a GitHub release. No game data is shipped.
+
+v0.5.6 (PR #199): SpaceWarp ran the game at 75% speed at 90 Hz and 60% at
+72 Hz (half-rate frames, one 1/60 s step each); a late retrace now covers
+every slot it spans, audio too. On battery Quest caps the CPU at the
+governor's level and the GPU at 545 MHz, which SpaceWarp's light load kept
+low: the game asks for sustained-high CPU at start (ini CpuLevel). Bean's
+pictures are mipmapped (the sparkling pines), cutouts take
+alpha-to-coverage, and Anti-aliasing is Off or 2x (2x default; 4x looked
+the same and cost the battery GPU). Headset: Quest 3 on battery at 59-60
+fps through the Dam tunnel; 90/120 Hz game speed counted. Not checked: a
+Quest 3S, 72 Hz. Ask "plugged in or on battery?" for any stutter report.
+quest_profile.py --cold measures first views. [v0.5.6](docs/releases/v0.5.6.md).
 
 v0.5.4: Horde in Archives (PR #191; points, Mystery Box, Wall Buys, PR #193),
 solo or 1-4 humans, revives, results and retry; the optional AI ally Natalya
