@@ -186,6 +186,11 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; 1 = Application SpaceWarp: the game renders at half the display rate and the\n");
     fprintf(f, "; headset makes the frames between from motion vectors (takes effect on start).\n");
     fprintf(f, "SpaceWarp=%d\n", VrSpaceWarp ? 1 : 0);
+    fprintf(f, "; Anti-aliasing of the eye images: 1 = off, 2 or 4 samples per pixel.\n");
+    fprintf(f, "EyeMsaa=%d\n", VrEyeMsaa);
+    fprintf(f, "; The eye images' size over the headset's recommendation (from the next start;\n");
+    fprintf(f, "; multiplies an external resolution profile). 0 = the game config's VRRenderScale.\n");
+    fprintf(f, "RenderScale=%.2f\n", VrRenderScale);
     fprintf(f, "Cheats=%llx\n", (unsigned long long)VrCheatMask);
     fprintf(f, "GunSizeCheat=%d\n", VrGunSizeCheat);
     fprintf(f, "; 1 = every mission at every difficulty, 007 mode and every cheat unlocked.\n");
@@ -691,6 +696,8 @@ extern "C" void vrSettingsLoad(void)
                 VrBodiesStay = ival >= 48 ? 48 : ival >= 24 ? 24 : ival >= 12 ? 12 : 0;
             else if (strcmp(key, "ShowStats") == 0) VrShowStats = (ival != 0);
             else if (strcmp(key, "SpaceWarp") == 0) VrSpaceWarp = (ival != 0);
+            else if (strcmp(key, "EyeMsaa") == 0) VrEyeMsaa = ival >= 4 ? 4 : ival >= 2 ? 2 : 1;
+            else if (strcmp(key, "RenderScale") == 0) VrRenderScale = ival < 1 ? 0.0f : ival > 2 ? 2.0f : (float)ival;
             else if (strcmp(key, "GunSizeCheat") == 0) VrGunSizeCheat = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             else if (strcmp(key, "UnlockAll") == 0) VrUnlockAll = ival != 0;
             else if (strcmp(key, "HideArms") == 0) VrHideArms = (ival != 0);
@@ -781,6 +788,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "GunOffX") == 0) { gunOff[0] = fval; gunOffRead = true; }
             else if (strcmp(key, "GunOffY") == 0) { gunOff[1] = fval; gunOffRead = true; }
             else if (strcmp(key, "GunOffZ") == 0) { gunOff[2] = fval; gunOffRead = true; }
+            else if (strcmp(key, "RenderScale") == 0) VrRenderScale = fval < 0.5f ? 0.0f : fval > 2.0f ? 2.0f : fval;
             else if (strcmp(key, "ScreenDistance") == 0) {
                 if (fval < VR_SCREEN_DISTANCE_MIN) fval = VR_SCREEN_DISTANCE_MIN;
                 if (fval > VR_SCREEN_DISTANCE_MAX) fval = VR_SCREEN_DISTANCE_MAX;

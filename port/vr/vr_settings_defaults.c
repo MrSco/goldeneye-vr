@@ -125,6 +125,12 @@ int VrDamageFlash = 1;
 /* Application SpaceWarp: the runtime makes every other displayed frame from
  * motion vectors and depth (vr_openxr.cpp). Off by default while tried out. */
 int VrSpaceWarp = 0;
+/* The launcher's Anti-aliasing: samples per pixel of the eye images (1 off,
+ * 2, 4), switched live (vr_openxr.cpp vr_attach_eye_fbo). */
+int VrEyeMsaa = 1;
+/* The launcher's Resolution: the eye images' size over the headset's
+ * recommendation, used as VR starts; 0 = the game's Video.VRRenderScale. */
+float VrRenderScale = 0.0f;
 #ifdef ANDROID
 int VrRefreshRate = 0;     /* Auto: no app preference; runtime / external profile manages the rate. */
 #else

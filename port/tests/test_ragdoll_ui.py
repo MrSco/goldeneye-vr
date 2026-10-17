@@ -19,6 +19,7 @@ def page(name):
 
 fixture = r'''
 #include "imgui/imgui_internal.h"
+#include "gevr_tooltip.h"
 #include <cassert>
 #include <cstdio>
 static int VrRagdolls,VrDismemberment,VrBodiesStay,VrMinesStickToGuards,VrFastReinforcements,VrDismemberChance=40;

@@ -4,6 +4,7 @@
 #include "net_rules.h"
 #include <cstdlib>
 #include <cstring>
+#include <vector>
 static ImVec4 gold(1, .84f, .47f, 1);
 static int VrMpScenario, VrMpLength, VrMpHealth=5, VrMpDual, VrMpLoadouts, VrMpNextRound;
 static int VrMpMode, VrMpBotMode, VrMpBotCount=7, VrMpBotDifficulty=5, VrMpFriendlyFire;
@@ -67,11 +68,34 @@ static void gevrTeamChoiceRow(const char*) {
     namedCombo("##fixtureTeam",3,netTeamName,&team);
 }
 static void gevrMatchLiveOptions();
+/* the Screen tab: the virtual screen, the display rate, SpaceWarp, anti-aliasing and resolution */
+static ImVec4 bad(1, .4f, .4f, 1);
+static int VrScreenCurved, VrScreenPassthrough, VrSpaceWarp, VrRefreshRate=120, VrEyeMsaa=1;
+static float VrScreenFov=60, VrScreenDistance=3, VrRenderScale;
+static bool beanOn;
+#define VR_SCREEN_DISTANCE_MIN 1.0f
+#define VR_SCREEN_DISTANCE_MAX 10.0f
+#define VR_SCREEN_FOV_MIN 25.0f
+#define VR_SCREEN_FOV_MAX 120.0f
+static int vr_screen_curve_supported(){return 1;}
+static int vr_passthrough_supported(){return 1;}
+static int vr_spacewarp_supported(){return 1;}
+static int vr_eye_msaa_supported(){return 1;}
+static float vr_render_scale(){return 1.0f;}
+static void vr_screen_resize(float,float){}
+static bool gevrBeanIsEnabled(){return beanOn;}
+static int vr_get_supported_refresh_rates(int *rates,int capacity){
+    static const int all[]={72,80,90,120};
+    if(rates)for(int i=0;i<4&&i<capacity;i++)rates[i]=all[i];
+    return 4;
+}
 /* INSERT_OPTIONS */
 static void comfort()
 /* INSERT_COMFORT */
 static void coop()
 /* INSERT_COOP */
+static void screen()
+/* INSERT_SCREEN */
 static void check(bool yes,const char *msg){if(!yes){std::fprintf(stderr,"FAIL: %s\n",msg);std::exit(1);}}
 static void layout(int page) {
     for(int pass=0;pass<3;pass++) {
@@ -82,14 +106,14 @@ static void layout(int page) {
         ImGui::Separator();ImGui::Button("ROM: ok",ImVec2(-1,0));ImGui::Separator();
         if(page==0 || page==3) {ImGui::TextUnformatted("ONLINE MULTIPLAYER");}
         gevrLauncherBeginBody("body");
-        if(page!=1) {ImGui::Dummy(ImVec2(0,ImGui::GetFrameHeight()*2));}
+        if(page!=1) {ImGui::Dummy(ImVec2(0,ImGui::GetFrameHeight()*(page==4?1:2)));}
         config.mode=VrMpMode;config.scenario=VrMpScenario;
         for(int i=0;i<8;i++) {
             lobby.slots[i].connected=i<netGetMaxPlayers();lobby.slots[i].is_bot=i%2;
             lobby.slots[i].chr_id=i;std::snprintf(lobby.slots[i].name,GEVR_MAX_NAME_LEN,"abcdefghijklmnopqrstuvwx");
         }
         stageComboWidth=-1;
-        if(page==0)gevrMatchOptions();else if(page==1)comfort();else if(page==2)coop();
+        if(page==0)gevrMatchOptions();else if(page==1)comfort();else if(page==2)coop();else if(page==4)screen();
         else gevrHostLobbyOptions(gold,true,"TBGKYV43");
         if(pass==2) {
             auto *w=ImGui::GetCurrentWindow();
@@ -148,6 +172,32 @@ int main() {
     online=host=1;
     for(VrMpMode=0;VrMpMode<2;VrMpMode++)for(VrMpScenario=0;VrMpScenario<10;VrMpScenario++)
         for(int set: {4,NET_WEAPON_SET_CUSTOM}) {VrMpWeaponSet=set;layout(3);}
+    // the Screen tab with every row it can show: Bean's 90 Hz warning, the
+    // resolution's "next start" note, each anti-aliasing and resolution choice
+    for(beanOn=false;;beanOn=true) {
+        for(VrSpaceWarp=0;VrSpaceWarp<2;VrSpaceWarp++)for(int s:{1,2,4})for(float r:{0.0f,1.25f,1.5f}) {
+            VrEyeMsaa=s;VrRenderScale=r;layout(4);
+        }
+        if(beanOn)break;
+    }
+    // a long tooltip wraps and stays on the screen, wherever it is hovered
+    for(float x:{20.0f,640.0f,1260.0f}) {
+        io.AddMousePosEvent(x,480);
+        for(int pass=0;pass<3;pass++) {
+            ImGui::NewFrame();
+            gevrTooltip("Supersampling: the game draws each eye at this multiple of the size the headset recommends "
+                        "and the headset scales it down, which is sharper. 1.5x draws 2.25 times the pixels, at that "
+                        "GPU cost. It multiplies a Quest Games Optimizer or SideQuest resolution. Takes effect the "
+                        "next time the game starts.");
+            ImGui::EndFrame();
+        }
+        ImGuiWindow *tip=nullptr;
+        for(ImGuiWindow *w:ImGui::GetCurrentContext()->Windows)
+            if(w->Flags&ImGuiWindowFlags_Tooltip)tip=w;
+        check(tip!=nullptr,"the tooltip is drawn");
+        check(tip->Pos.x>=0 && tip->Pos.x+tip->Size.x<=1280,"a long tooltip fits the launcher's width");
+        check(tip->Pos.y>=0 && tip->Pos.y+tip->Size.y<=960,"a long tooltip fits the launcher's height");
+    }
     ImGui::DestroyContext();
-    std::puts("PASS: production Match/co-op/Comfort and eight-player Lobby fit at Quest font size, including teams, custom weapons and maximum names; solo/host Reset and client restrictions");
+    std::puts("PASS: production Match/co-op/Comfort/Screen and eight-player Lobby fit at Quest font size, including teams, custom weapons and maximum names; solo/host Reset and client restrictions; long tooltips wrap on screen");
 }
