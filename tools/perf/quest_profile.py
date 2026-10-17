@@ -27,7 +27,7 @@ import time
 FILES = '/sdcard/Android/data/com.gevr.port/files'
 PACKAGE = 'com.gevr.port'
 LAUNCH_CHECK = 'LaunchCheckControllerRequiredDialogActivity'
-MARKERS = ['gevr_fakegrip.txt','gevr_scopedump','gevr_scope.pam', 'gevr_body_batch.txt','gevr_rigid_min.txt','gevr_room_draws.txt', 'gevr_pipeline.txt', 'gevr_spacewarp.txt', 'gevr_bean_nodemode.txt', 'gevr_input.txt', 'gevr_level.txt', 'gevr_warp.txt', 'gevr_cheat.txt',
+MARKERS = ['gevr_fakegrip.txt','gevr_scopedump','gevr_scope.pam', 'gevr_body_batch.txt','gevr_rigid_min.txt','gevr_room_draws.txt', 'gevr_pipeline.txt', 'gevr_spacewarp.txt', 'gevr_cpulevel.txt', 'gevr_bean_nodemode.txt', 'gevr_input.txt', 'gevr_level.txt', 'gevr_warp.txt', 'gevr_cheat.txt',
            'gevr_profile.txt', 'gevr_profile.txt.status']
 PROTECTED = ['data/goldeneye-vr.ini', 'eeprom.bin', *MARKERS]
 WARMUP, MEASURE = 15, 60
@@ -248,6 +248,8 @@ def start(args, config, folder):
     put('gevr_room_draws.txt',str(args.room_draws))
     put('gevr_pipeline.txt',str(args.pipeline))
     put('gevr_spacewarp.txt', str(args.spacewarp))
+    if args.cpu_level is not None:
+        put('gevr_cpulevel.txt', str(args.cpu_level))
     put('gevr_bean_nodemode.txt',str(args.node_mode))
     launch()
     applied=recent()
@@ -377,7 +379,7 @@ def run(args, out):
     push_back(out / 'backup/eeprom.bin', f'{FILES}/eeprom.bin')
     info = {'apk': str(args.apk.resolve()), 'sha256': hashlib.sha256(args.apk.read_bytes()).hexdigest(),
             'hz': args.hz, 'detail': args.detail, 'showstats': args.showstats, 'runs': args.runs,
-            'pad': args.pad, 'scope_probe': args.scope_probe, 'body_batch': args.body_batch, 'rigid_min': args.rigid_min, 'room_draws': args.room_draws, 'pipeline': args.pipeline, 'spacewarp': args.spacewarp, 'node_mode': args.node_mode, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'xbla': args.xbla, 'msaa': args.msaa, 'cold': args.cold, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
+            'pad': args.pad, 'scope_probe': args.scope_probe, 'body_batch': args.body_batch, 'rigid_min': args.rigid_min, 'room_draws': args.room_draws, 'pipeline': args.pipeline, 'spacewarp': args.spacewarp, 'node_mode': args.node_mode, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'xbla': args.xbla, 'msaa': args.msaa, 'cpu_level': args.cpu_level, 'cold': args.cold, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
     log = (folder / 'device.log').open('wb')
     logger = subprocess.Popen(['adb', 'logcat', '-T', '1', '-v', 'threadtime'], stdout=log, stderr=log)
     try:
@@ -479,6 +481,9 @@ if __name__ == '__main__':
     parser.add_argument('--showstats', type=int, choices=[0, 1], default=0)
     parser.add_argument('--xbla', type=int, choices=[0, 1], help="XBLA rooms/skies (XblaVisualsMode); default keeps the user's setting")
     parser.add_argument('--msaa', type=int, choices=[1, 2, 4], help="eye anti-aliasing samples (EyeMsaa); default keeps the user's setting")
+    parser.add_argument('--cpu-level', type=int, choices=[-1, 0, 1, 2],
+                        help='CPU performance level asked at session start (files/gevr_cpulevel.txt); '
+                             "-1 none; default keeps the game's CpuLevel")
     parser.add_argument('--texture-pack', help="'none' or a pack folder; default keeps the user's setting")
     parser.add_argument('--scope-probe',action='store_true',
                         help='equip sniper and use an explicit synthetic grip for unattended real scope rendering')

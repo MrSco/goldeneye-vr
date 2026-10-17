@@ -138,6 +138,12 @@ int VrResetRenderScale = 0;
  * 2, 4), switched live (vr_openxr.cpp vr_attach_eye_fbo). 4x by default: the
  * Quest's most, with no cost the user could see (2026-10-17). */
 int VrEyeMsaa = 4;
+/* The CPU performance level asked of the headset as each session begins
+ * (XR_EXT_performance_settings): -1 none, 0 power savings, 1 sustained low,
+ * 2 sustained high. Unplugged, Quest caps the CPU at the level its governor
+ * picks from the game's load, which SpaceWarp keeps low; sustained high lifts
+ * that cap from 1.38-1.65 to 1.92 GHz (2026-10-17). Plugged in, no change. */
+int VrCpuLevel = 2;
 #ifdef ANDROID
 int VrRefreshRate = 0;     /* Auto: no app preference; runtime / external profile manages the rate. */
 #else
