@@ -172,6 +172,8 @@ extern "C" void vr_shutdown();
 
 /* INSERT_REFRESH */
 /* INSERT_RESOURCES */
+static void vr_spacewarp_create(void) {}   /* SpaceWarp: off in this harness */
+static void vr_spacewarp_destroy(void) {}
 /* INSERT_LIFECYCLE */
 
 static void clean() {

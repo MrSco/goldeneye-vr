@@ -24,7 +24,7 @@ import time
 FILES = '/sdcard/Android/data/com.gevr.port/files'
 PACKAGE = 'com.gevr.port'
 LAUNCH_CHECK = 'LaunchCheckControllerRequiredDialogActivity'
-MARKERS = ['gevr_fakegrip.txt','gevr_scopedump','gevr_scope.pam', 'gevr_body_batch.txt','gevr_rigid_min.txt','gevr_room_draws.txt', 'gevr_pipeline.txt', 'gevr_bean_nodemode.txt', 'gevr_input.txt', 'gevr_level.txt', 'gevr_warp.txt', 'gevr_cheat.txt',
+MARKERS = ['gevr_fakegrip.txt','gevr_scopedump','gevr_scope.pam', 'gevr_body_batch.txt','gevr_rigid_min.txt','gevr_room_draws.txt', 'gevr_pipeline.txt', 'gevr_spacewarp.txt', 'gevr_bean_nodemode.txt', 'gevr_input.txt', 'gevr_level.txt', 'gevr_warp.txt', 'gevr_cheat.txt',
            'gevr_profile.txt', 'gevr_profile.txt.status']
 PROTECTED = ['data/goldeneye-vr.ini', 'eeprom.bin', *MARKERS]
 WARMUP, MEASURE = 15, 60
@@ -259,7 +259,7 @@ def run(args, out):
     push_back(out / 'backup/eeprom.bin', f'{FILES}/eeprom.bin')
     info = {'apk': str(args.apk.resolve()), 'sha256': hashlib.sha256(args.apk.read_bytes()).hexdigest(),
             'hz': args.hz, 'detail': args.detail, 'showstats': args.showstats, 'runs': args.runs,
-            'pad': args.pad, 'scope_probe': args.scope_probe, 'body_batch': args.body_batch, 'rigid_min': args.rigid_min, 'room_draws': args.room_draws, 'pipeline': args.pipeline, 'node_mode': args.node_mode, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'xbla': args.xbla, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
+            'pad': args.pad, 'scope_probe': args.scope_probe, 'body_batch': args.body_batch, 'rigid_min': args.rigid_min, 'room_draws': args.room_draws, 'pipeline': args.pipeline, 'spacewarp': args.spacewarp, 'node_mode': args.node_mode, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'xbla': args.xbla, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
     log = (folder / 'device.log').open('wb')
     logger = subprocess.Popen(['adb', 'logcat', '-T', '1', '-v', 'threadtime'], stdout=log, stderr=log)
     try:
@@ -268,6 +268,7 @@ def run(args, out):
         put('gevr_rigid_min.txt',str(args.rigid_min))
         put('gevr_room_draws.txt',str(args.room_draws))
         put('gevr_pipeline.txt',str(args.pipeline))
+        put('gevr_spacewarp.txt', str(args.spacewarp))
         put('gevr_bean_nodemode.txt',str(args.node_mode))
         launch()
         applied=recent()
@@ -278,6 +279,9 @@ def run(args, out):
         if expected not in applied or (rooms and f'gevr bean room-draws: {args.room_draws}' not in applied) or \
                 f'gevr pipeline: {args.pipeline}' not in applied:
             raise Unavailable('Renderer did not acknowledge requested diagnostic controls')
+        log = adb('logcat', '-d', '-s', 'GoldenEye-VR:*', check=False)
+        if f'gevr spacewarp: wanted={args.spacewarp}' not in log or (args.spacewarp and 'SpaceWarp: on' not in log):
+            raise Unavailable('SpaceWarp was requested but not turned on')
         if args.body_batch and 'gevr bean body-batch:' not in applied:
             raise Unavailable('Whole-character batching was requested but never applied')
         if args.scope_probe:
@@ -389,6 +393,8 @@ if __name__ == '__main__':
     parser.add_argument('--texture-pack', help="'none' or a pack folder; default keeps the user's setting")
     parser.add_argument('--scope-probe',action='store_true',
                         help='equip sniper and use an explicit synthetic grip for unattended real scope rendering')
+    parser.add_argument('--spacewarp', type=int, choices=[0, 1], default=0,
+                        help='1 turns on Application SpaceWarp (files/gevr_spacewarp.txt)')
     parser.add_argument('--pipeline', type=int, choices=[0, 1, 2], default=2,
                         help='0 ticks the game inside its XR frame (the old order), 1 ticks it early but draws its '
                              'eye pass inside the frame, 2 (the game default) also replays the eye pass')
