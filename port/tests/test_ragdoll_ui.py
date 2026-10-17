@@ -19,11 +19,14 @@ def page(name):
 
 fixture = r'''
 #include "imgui/imgui_internal.h"
-#include "gevr_tooltip.h"
+#include "gevr_launcher_ui.h"
 #include <cassert>
 #include <cstdio>
 static int VrRagdolls,VrDismemberment,VrBodiesStay,VrMinesStickToGuards,VrFastReinforcements,VrDismemberChance=40;
 static float VrDismemberDamage=1.0f;
+/* #194's companion rows on the same page (test_ally_ui covers them; drawn off here) */
+static int VrAlly,VrAllyWeapon,VrAllyAggression=1,VrAllyHealth=100,VrAllyDamage=100,VrAllyInvincible,VrCampaign;
+static bool netModePve(int mode){return mode==1||mode==2;}
 static bool rulesPage,online;
 static ImVec4 gold(1,.8f,.3f,1);
 enum { NET_MODE_COOP=1,NET_COOP_FAST_REINFORCEMENTS=1,CFG_FAST_REINFORCEMENTS=1 };
