@@ -69,6 +69,11 @@ is goldeneyevr.com, in its own repository.
 
 ## Outstanding issues / limits
 
+- #194: configurable solo AI companion implemented on feature/194-ai-ally,
+  off by default in Play > Game rules. Native controller/campaign checks pass;
+  headset mission, pathfinding and Fast reinforcements checks still owed.
+  [AI ally](docs/ai-ally.md).
+
 - #164: v0.4.22 fixes the logged vacant-body blocker; broader co-op mission
   starts and reloads remain to be confirmed. Keep the issue open for now.
 - #161–#163: fixes released in v0.4.16; issues closed at v0.4.18 on the

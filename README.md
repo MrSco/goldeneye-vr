@@ -307,7 +307,12 @@ that are off by default:
   including when dual-wielding.
 - **Per-gun recoil**: each gun kicks with Perfect Dark VR's recoil.
 
-**Game rules...** on the **Play** tab offers three options, off by default:
+**Game rules...** on the **Play** tab includes an optional [AI ally](docs/ai-ally.md)
+for solo GoldenEye: a separate Natalya companion with weapon, aggression, damage,
+health and invincibility choices. Enable it before starting a mission; changes
+apply next mission. It also works with Fast reinforcements.
+
+Other optional rules, off by default:
 mines stick to guards (solo), bodies stay (the newest 12, 24 or 48, solo), and
 **Fast reinforcements**. Fast reinforcements increases difficulty by letting
 alerted guards call more reinforcements while earlier ones are still alive. It

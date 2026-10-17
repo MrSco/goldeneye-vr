@@ -29,6 +29,8 @@ static PropRecord handprops[2];
 static Model models[2];
 static WeaponStats stats;
 static int created, jumped, overflow;
+static ChrRecord *companion;
+s32 gevrAllyIs(ChrRecord *chr) { return chr == companion; }
 static s32 Offset;
 static AIRecord *AiListp;
 s32 get_cur_playernum(void) { return current; }
@@ -152,6 +154,7 @@ static void natalya(void) {
     assert(!sub_GAME_7F033B38(self,3000) && self->chrpreset1==-1);
     guards[5].model=&models[5]; bodies[5].type=PROP_TYPE_CHR;
     assert(sub_GAME_7F033B38(self,3000) && self->chrpreset1==5);
+    companion=&guards[5]; assert(!sub_GAME_7F033B38(self,3000)); companion=NULL;
     guards[5].actiontype=ACT_DEAD; assert(!sub_GAME_7F033B38(self,3000));
     guards[5].actiontype=ACT_DIE; assert(!sub_GAME_7F033B38(self,3000));
     guards[5].actiontype=ACT_STAND; tiles[5].room=2; assert(!sub_GAME_7F033B38(self,3000));
