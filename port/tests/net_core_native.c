@@ -24,6 +24,7 @@ int VrMpMovementSpeed;
 int VrMpBotMode,VrMpBotCount=3,VrMpBotDifficulty=2;
 int VrHostEqualization=1,VrHostLatencyCapMs=50;
 int VrCoopFastReinforcements;
+int VrHordeFriendlyFire;
 unsigned VrMpFavStages,VrMpFavSets;
 char VrPlayerName[16]="Test";
 static uint64_t clock_us=10000000;
@@ -83,6 +84,30 @@ static void fixture(int scenario) {
     netClearVotes(-1); /* match the real session start: no ballots cast yet */
     memset(g_playerPointers,0,sizeof(g_playerPointers));memset(s_client_peers,0,sizeof(s_client_peers));
     for(int i=0;i<4;i++) {s_lobby_state.slots[i].connected=1;s_lobby_state.slots[i].ready=1;s_lobby_state.slots[i].loaded=1;}
+}
+EXPORT int test_core_horde_lobby(void) {
+    fixture(NET_SCENARIO_4V4);
+    for(int i=1;i<GEVR_MAX_PLAYERS;i++)s_lobby_state.slots[i].connected=0;
+    NetMatchConfig c=s_lobby_state.config;
+    c.mode=NET_MODE_HORDE;c.stage=NET_HORDE_STAGE;c.difficulty=0;c.max_players=4;
+    c.bot_mode=NET_BOT_OFF;c.fun_flags=0;c.friendly_fire=0;
+    netLobbySetConfig(&c);
+    CHECK(s_lobby_state.config.mode==NET_MODE_HORDE && netGetMaxPlayers()==4);
+    CHECK(netTeamRosterReady() && netLobbyCanLaunch()); /* a solo Horde can launch */
+    netLatchRoundSettings();
+    CHECK(s_round.config.scenario==SCENARIO_NORMAL && !s_round.config.loadouts && !s_round.config.game_length);
+    CHECK(!netDamageAllowed(0,1));
+    s_state=NET_STATE_INGAME;s_round_reset_loading=true;s_phase=NET_PHASE_WARMUP;
+    netReadyProgress();
+    CHECK(!s_round_reset_loading && s_phase==NET_PHASE_IN_PROGRESS);
+    CHECK(!netHostCanStartRound()); /* no deathmatch warmup/reset action */
+    int stage=VrMpStage,max=VrMpMaxPlayers,bots=VrMpBotMode;
+    VrMpStage=34;VrMpMaxPlayers=8;VrMpBotMode=NET_BOT_FILL;
+    gevrNetConfigSet(CFG_FRIENDLY_FIRE,1);
+    CHECK(netDamageAllowed(0,1) && VrHordeFriendlyFire==1);
+    CHECK(VrMpStage==34 && VrMpMaxPlayers==8 && VrMpBotMode==NET_BOT_FILL);
+    VrMpStage=stage;VrMpMaxPlayers=max;VrMpBotMode=bots;
+    return 0;
 }
 EXPORT int test_core_teams(void) {
     fixture(5);
