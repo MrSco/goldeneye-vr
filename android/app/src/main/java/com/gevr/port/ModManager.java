@@ -66,6 +66,12 @@ final class ModManager {
         // tagPrefix and with '-' read as '.', is the version; its file is the
         // asset named assetPrefix...assetSuffix.
         final String repo, tagPrefix, assetPrefix, assetSuffix;
+        // What the zip must hold: the files ending so, at least least of them.
+        // A mod (not a texture pack) shares its repository's releases with
+        // other mods, so its newest release is its newest tag, not "latest".
+        String[] files = { ".png" };
+        int least = 100;
+        boolean mod;
         volatile Build latest;
 
         Pack(String id, String title, String by, String site, String version, String url, long size,
@@ -79,6 +85,17 @@ final class ModManager {
             this.tagPrefix = tagPrefix;
             this.assetPrefix = assetPrefix;
             this.assetSuffix = assetSuffix;
+        }
+
+        /** A mod's files from GoldenEye VR's mods repository (its release tags tagPrefix + version). */
+        static Pack mod(String id, String title, String by, String version, String url, long size,
+                        String repo, String tagPrefix, String assetPrefix, String assetSuffix, String... files) {
+            Pack p = new Pack(id, title, by, "github.com/" + repo, version, url, size, repo, tagPrefix,
+                    assetPrefix, assetSuffix);
+            p.files = files;
+            p.least = files.length;
+            p.mod = true;
+            return p;
         }
 
         /** A pack read from the player's own copy of a game: nothing to download or follow. */
@@ -121,6 +138,11 @@ final class ModManager {
                 "MrSco/GoldenEye-007-HD", "ai-", "ge007-hd-ai-", "-gliden64-png.zip"),
         new Pack("ge007-bean", "GoldenEye 007 XBLA / Project Bean", "Rare / 4J Studios, Project Bean",
                 "your own copy of the game"),
+        // Mods: Oddjob's hat for the throwing knife (port/src/gevr_oddjobhat.c,
+        // tools/gevr_oddjob_hat.py), from 007 Nightfire's GameCube release
+        Pack.mod("oddjob-hat", "Oddjob's hat", "Eurocom / EA (007 Nightfire), GoldenEye VR", "1.0",
+                "https://github.com/MrSco/goldeneye-vr-mods/releases/download/oddjob-hat-1.0/oddjob-hat-1.0.zip",
+                16616L, "MrSco/goldeneye-vr-mods", "oddjob-hat-", "oddjob-hat-", ".zip", "oddjob_hat.bin"),
     };
 
     // Per-pack states the launcher shows (vr_launcher.cpp keeps the same names).
@@ -363,11 +385,11 @@ final class ModManager {
             busyState = INSTALLING;
             progress = 0;
             deleteTree(tmp);
-            int n = ModArchive.unpack(zip, tmp, percent -> {
+            int n = ModArchive.unpack(zip, tmp, p.files, p.least, percent -> {
                 if (cancelled) throw new IOException("cancelled");
                 progress = percent;
             });
-            if (n < 100) throw new IOException("the download holds " + n + " textures, not a texture pack");
+            if (n < p.least) throw new IOException("the download holds " + n + " files, not the pack");
             try (OutputStream o = new FileOutputStream(new File(tmp, MARKER))) {
                 o.write((b.version + "\n").getBytes("UTF-8"));
             }
@@ -378,7 +400,7 @@ final class ModManager {
                 throw new IOException("could not finish installing");
             }
             deleteTree(backup);
-            Log.i(TAG, "installed " + p.id + " " + b.version + ": " + n + " textures");
+            Log.i(TAG, "installed " + p.id + " " + b.version + ": " + n + " files");
         } finally {
             zip.delete();
             deleteTree(tmp);
@@ -423,7 +445,19 @@ final class ModManager {
         for (Pack p : PACKS) {
             if (p.repo == null) continue;
             try {
-                JSONObject o = new JSONObject(httpGet("https://api.github.com/repos/" + p.repo + "/releases/latest"));
+                JSONObject o = null;
+                if (p.mod) {
+                    // the mods repository's newest release of this mod (newest first)
+                    JSONArray all = new JSONArray(httpGet("https://api.github.com/repos/" + p.repo + "/releases?per_page=50"));
+                    for (int i = 0; i < all.length() && o == null; i++) {
+                        JSONObject r = all.getJSONObject(i);
+                        if (!r.optBoolean("draft") && !r.optBoolean("prerelease")
+                                && r.optString("tag_name", "").startsWith(p.tagPrefix)) o = r;
+                    }
+                    if (o == null) throw new IOException("no release of it yet");
+                } else {
+                    o = new JSONObject(httpGet("https://api.github.com/repos/" + p.repo + "/releases/latest"));
+                }
                 String tag = o.optString("tag_name", "");
                 if (tag.startsWith(p.tagPrefix)) tag = tag.substring(p.tagPrefix.length());
                 String version = tag.replace('-', '.');

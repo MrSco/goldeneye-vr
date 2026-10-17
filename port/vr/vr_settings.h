@@ -36,6 +36,9 @@ extern int VrBeanFillTextures;
 /* Mods: Wreck's blood patch - a guard's hit puffs are the red sparks Rare left
  * in the game (chr.c chrCreateHitPuffs). Saved as BloodPatch. */
 extern int VrBloodPatch;
+/* Mods: Oddjob's hat in place of the throwing knife, from the player's own
+ * Nightfire capture (port/src/gevr_oddjobhat.c). Saved as OddjobHat. */
+extern int VrOddjobHat;
 extern int VrRagdolls;
 extern int VrDismemberment;
 extern float VrDismemberDamage;
