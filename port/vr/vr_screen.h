@@ -39,6 +39,7 @@ void vr_pointer_draw(void);
 int vr_screen_curve_supported(void);
 /* Whether Meta passthrough is available (Quest). */
 int vr_passthrough_supported(void);
+int vr_spacewarp_supported(void);   /* vr_openxr.cpp: Application SpaceWarp is available */
 
 /* Tunables, metres and degrees; saved in goldeneye-vr.ini. */
 extern float VrScreenDistance;

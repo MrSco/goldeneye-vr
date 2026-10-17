@@ -183,6 +183,9 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; 3 = Touch Plus (Quest 3 and 3S), 4 = Touch Pro.\n");
     fprintf(f, "TouchControllers=%d\n", VrTouchModel);
     fprintf(f, "ShowStats=%d\n", VrShowStats ? 1 : 0);
+    fprintf(f, "; 1 = Application SpaceWarp: the game renders at half the display rate and the\n");
+    fprintf(f, "; headset makes the frames between from motion vectors (takes effect on start).\n");
+    fprintf(f, "SpaceWarp=%d\n", VrSpaceWarp ? 1 : 0);
     fprintf(f, "Cheats=%llx\n", (unsigned long long)VrCheatMask);
     fprintf(f, "GunSizeCheat=%d\n", VrGunSizeCheat);
     fprintf(f, "; 1 = every mission at every difficulty, 007 mode and every cheat unlocked.\n");
@@ -687,6 +690,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "BodiesStay") == 0)
                 VrBodiesStay = ival >= 48 ? 48 : ival >= 24 ? 24 : ival >= 12 ? 12 : 0;
             else if (strcmp(key, "ShowStats") == 0) VrShowStats = (ival != 0);
+            else if (strcmp(key, "SpaceWarp") == 0) VrSpaceWarp = (ival != 0);
             else if (strcmp(key, "GunSizeCheat") == 0) VrGunSizeCheat = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             else if (strcmp(key, "UnlockAll") == 0) VrUnlockAll = ival != 0;
             else if (strcmp(key, "HideArms") == 0) VrHideArms = (ival != 0);
