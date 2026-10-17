@@ -2018,7 +2018,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                                     vrSettingsSave();
                                 }
                                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                                    ImGui::SetTooltip("One companion for the party, from the next mission or Horde retry. Weapon, aggression and durability: Play > Game rules.");
+                                    gevrTooltip("One companion for the party, from the next mission or Horde retry. Weapon, aggression and durability: Play > Game rules.");
                                 ImGui::EndDisabled();
                                 ImGui::TableNextColumn();
                                 ImGui::TextColored(gold, "LIVE SETTINGS");
@@ -3180,7 +3180,7 @@ extern "C" void gevrLauncherRun(void)
                     "PP7\0Silenced PP7\0DD44\0KF7 Soviet\0D5K Deutsche\0ZMG\0AR33\0RC-P90\0Shotgun\0Automatic shotgun\0")) vrSettingsSave();
             if (ImGui::Combo("Aggression", &VrAllyAggression, "Cautious\0Normal\0Aggressive\0")) vrSettingsSave();
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("Cautious: engage alerted enemies nearby. Normal/aggressive: engage enemies within a wider range. Always stay close to Bond.");
+                gevrTooltip("Cautious: engage alerted enemies nearby. Normal/aggressive: engage enemies within a wider range. Always stay close to Bond.");
             if (ImGui::SliderInt("Ally damage", &VrAllyDamage, 25, 400, "%d%%")) vrSettingsSave();
             bool immortal = VrAllyInvincible != 0;
             if (ImGui::Checkbox("Invincible ally", &immortal)) {
