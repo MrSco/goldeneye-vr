@@ -43,6 +43,9 @@ void alloc_false_GUARDdata_to_exec_global_action(void)
     g_ActiveChrs = NULL;
     g_ActiveChrsCount = 0;
 
+#ifdef GEVR
+    { extern int netHordeActive(void); if (netHordeActive()) return; }
+#endif
     if (!g_CurrentSetup.ailists) { return; }
 
     count = 0;

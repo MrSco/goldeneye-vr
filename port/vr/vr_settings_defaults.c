@@ -46,6 +46,7 @@ char VrPlayerName[16]     = "";     /* multiplayer name; the launcher makes one 
 int VrMpStage = 27, VrMpWeaponSet = 4, VrMpChr = 0, VrMpVisibility = 0;
 int VrMpVoiceMode = 0;
 int VrMpFriendlyFire = 1;
+int VrHordeFriendlyFire = 0; /* independent Horde preference */
 int VrHostEqualization = 1, VrHostLatencyCapMs = 50;
 int VrMpFunFlags = 0, VrMpGunSize = 0;
 int VrMpMaxPlayers = 4;

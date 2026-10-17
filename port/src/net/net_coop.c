@@ -25,6 +25,7 @@
  */
 #include "net_core.h"   /* first, as in net_core.c: <stdbool.h> before the game's headers */
 #include "net_coop.h"
+#include "net_horde.h"
 #include "net_protocol.h"
 #include "net_voice.h"
 #include "net/netbuf.h"
@@ -94,6 +95,7 @@ static bool coopTeammateUp(int i);
 /* Drop-in and a host change (below, "Drop-in, drop-out and a host change") */
 #define COOP_BACKGROUND_MAX 64
 typedef struct {
+    u64 generation;
     s16 ailist;            /* its AI list's id, -1 none */
     u16 aioffset;
     s16 aireturnlist;
@@ -179,6 +181,7 @@ static void coopCollect(ChrRecord *chr, s32 slot, NetChrState *st, CoopSent *pre
     Model *model = chr->model;
     memset(st, 0, sizeof(*st));
     st->slot = (u16)slot;
+    st->generation = gevrHordeGuardToken(chr);
     st->actiontype = (u8)chr->actiontype;
     st->pos = chr->prop->pos;
     st->ground = chr->ground;
@@ -380,6 +383,7 @@ void gevrCoopChrSpawned(ChrRecord *chr, AIRecord *ailist, s32 spawnflags)
     s32 slot = coopSlotOf(chr);
 
     if (!netCoopActive() || slot < 0 || slot >= COOP_MAX_SLOTS) return;
+    if (netHordeActive() && !gevrHordeGuardId(chr)) return; /* caller has not finished setup */
     s_spawned[slot] = true;   /* not the setup's: a joiner's roster has it */
     s_spawn_flags[slot] = spawnflags;
     if (!netIsHost() || !chr->prop || !chr->model) return;
@@ -402,7 +406,7 @@ void gevrCoopChrIdentityChanged(ChrRecord *chr)
 /* chr.c chrTick on the host: a guard about to be freed (CHRHIDDEN_REMOVE) */
 void gevrCoopChrRemoved(ChrRecord *chr)
 {
-    u8 raw[16];
+    u8 raw[24];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
     s32 slot = coopSlotOf(chr);
 
@@ -415,6 +419,7 @@ void gevrCoopChrRemoved(ChrRecord *chr)
     netbufWriteU8(&buf, NET_MSG_CHR_REMOVE);
     netbufWriteU8(&buf, (uint8_t)netGetLocalSlot());
     netbufWriteU16(&buf, (u16)slot);
+    netbufWriteU64(&buf, gevrHordeGuardToken(chr));
     netbufWriteU8(&buf, 0);   /* not a roster's */
     netCoopBroadcast(buf.data, buf.wp, true);
 }
@@ -564,6 +569,7 @@ s32 gevrCoopGuardHitElsewhere(ChrRecord *chr, s32 hitpart, coord3d *vector, s32 
         netbufWriteU8(&buf, NET_MSG_COOP_HIT);
         netbufWriteU8(&buf, (uint8_t)shooter);
         netbufWriteU16(&buf, (u16)netCoopHostSlotOf(slot));
+        netbufWriteU64(&buf, gevrHordeGuardToken(chr));
         netbufWriteU8(&buf, (u8)hitpart);
         netbufWriteU8(&buf, (u8)weaponid);
         netbufWriteCoord(&buf, vector);
@@ -591,6 +597,7 @@ s32 g_gevrCoopApplyingHit = FALSE;
 static void coopApplyHit(int shooter, struct netbuf *b)
 {
     u16 slot = netbufReadU16(b);
+    u64 generation = netbufReadU64(b);
     u8 hitpart = netbufReadU8(b);
     u8 weapon = netbufReadU8(b);
     coord3d vector;
@@ -598,7 +605,7 @@ static void coopApplyHit(int shooter, struct netbuf *b)
     if (b->error || netbufReadLeft(b) || shooter < 0 || shooter >= 4 || !g_playerPointers[shooter] ||
         slot >= g_NumChrSlots || weapon >= ITEM_IDS_MAX || !isfinite(vector.x) || !isfinite(vector.y) || !isfinite(vector.z)) return;
     ChrRecord *chr = &g_ChrSlots[slot];
-    if (!coopChrLive(chr)) return;
+    if (!coopChrLive(chr) || generation != gevrHordeGuardToken(chr)) return;
     s32 prev = get_cur_playernum();
     set_cur_player(shooter);
     g_gevrCoopApplyingHit = TRUE;
@@ -656,6 +663,7 @@ void netCoopStageLoaded(void)
     coopReviveReset();
     coopDropInReset();
     coopCinemaReset();
+    gevrHordeStageLoaded();
     s_last_send_us = 0;
     g_gevrCoopGuardTick = FALSE;
     g_gevrCoopApplyingHit = FALSE;
@@ -678,6 +686,8 @@ static void coopReceiveStates(struct netbuf *b)
         NetChrState st;
         if (!netbufReadChrState(b, &st)) return;
         if (st.slot >= COOP_MAX_SLOTS) continue;
+        if (netHordeActive() && (!gevrHordeTokenCurrent(st.generation)
+            || st.generation != gevrHordeGuardToken(coopLocalChr(st.slot)))) continue;
         CoopPuppet *p = &s_puppet[st.slot];
         if (p->valid && (int32_t)(seq - p->seq) < 0) continue;   /* an older packet */
         p->st = st;
@@ -691,6 +701,7 @@ static void coopReceiveStates(struct netbuf *b)
 typedef struct {
     u16 hostslot;
     s16 chrnum;
+    u64 generation;
     s8 body, head;
     u32 flags;
     s32 listid;
@@ -710,12 +721,15 @@ static int coopMakeSpawn(const CoopSpawn *sp)
     u16 hostslot = sp->hostslot;
     ChrRecord *existing = coopLocalChr(hostslot);
     if (existing && coopChrLive(existing) && !(existing->hidden & CHRHIDDEN_REMOVE) &&
-        existing->bodynum == sp->body && existing->headnum == sp->head) {
+        existing->bodynum == sp->body && existing->headnum == sp->head
+        && gevrHordeGuardToken(existing) == sp->generation) {
         existing->chrnum = sp->chrnum;   /* already here: the setup's, or made before */
         return 1;
     }
     /* chrAllocate takes the first free slot unchecked (chr.c): none, no call.
      * A roster's removals free theirs at the guards' next chrTick. */
+    /* Horde reuses slots; a stale guard there gives way. Campaign co-op keeps its behaviour. */
+    if (netHordeActive() && existing && coopChrLive(existing)) existing->hidden |= CHRHIDDEN_REMOVE;
     if (chrGetNumFree() < 1) return 0;
     coord3d at = sp->pos, pos = sp->pos;
     f32 y;
@@ -730,6 +744,7 @@ static int coopMakeSpawn(const CoopSpawn *sp)
     prop->chr->headnum = sp->head;
     prop->chr->bodynum = sp->body;
     prop->chr->chrnum = sp->chrnum;
+    gevrHordeSetGuardId(prop->chr, (u32)sp->generation);
     s32 local = coopSlotOf(prop->chr);
     if (local >= 0 && local < COOP_MAX_SLOTS) {
         s_spawned[local] = true;
@@ -778,6 +793,7 @@ static void coopReceiveSpawn(struct netbuf *b)
     CoopSpawn sp;
     sp.hostslot = netbufReadU16(b);
     sp.chrnum = netbufReadS16(b);
+    sp.generation = netbufReadU64(b);
     sp.body = netbufReadS8(b);
     sp.head = netbufReadS8(b);
     sp.flags = netbufReadU32(b);
@@ -787,6 +803,7 @@ static void coopReceiveSpawn(struct netbuf *b)
     if (s_await_remap) return;   /* its roster, after the remap, has it */
     if (b->error || netbufReadLeft(b) || sp.hostslot >= COOP_MAX_SLOTS || !isfinite(sp.pos.x) || !isfinite(sp.pos.y) ||
         !isfinite(sp.pos.z) || !isfinite(sp.angle) || !g_ChrSlots) return;
+    if (netHordeActive() && !gevrHordeTokenCurrent(sp.generation)) return;
     coopForgetPendingSpawn(sp.hostslot);
     int made = coopMakeSpawn(&sp);
     if (made == 0 && s_pending_spawns < COOP_PENDING_SPAWNS) {
@@ -805,12 +822,22 @@ static void coopReceiveSpawn(struct netbuf *b)
 static void coopReceiveRemove(struct netbuf *b)
 {
     u16 hostslot = netbufReadU16(b);
+    u64 generation = netbufReadU64(b);
     u8 roster = netbufReadU8(b);
     if (s_await_remap || b->error || netbufReadLeft(b) || hostslot >= COOP_MAX_SLOTS || roster > 1) return;
     s32 local = s_local_of[hostslot];
-    if (roster && (local != hostslot || s_spawned[local])) return;
+    if (roster && (local < 0 || local >= COOP_MAX_SLOTS || local != hostslot || s_spawned[local])) return;
     ChrRecord *chr = coopLocalChr(hostslot);
-    coopForgetPendingSpawn(hostslot);
+    if (netHordeActive()) {
+        if (!gevrHordeTokenCurrent(generation)) return;
+        /* A removed guard may still be waiting for a free client slot.
+         * Cancel only that generation, preserving a newer queued spawn. */
+        for (int i=0;i<s_pending_spawns;i++) if (s_pending_spawn[i].hostslot==hostslot
+            && s_pending_spawn[i].generation==generation) {
+            s_pending_spawn[i--]=s_pending_spawn[--s_pending_spawns];
+        }
+        if (chr && generation!=gevrHordeGuardToken(chr)) return;
+    } else coopForgetPendingSpawn(hostslot);
     if (chr && coopChrLive(chr)) chr->hidden |= CHRHIDDEN_REMOVE;   /* freed at its next chrTick */
     s_puppet[hostslot].valid = false;
     s_ai[hostslot].valid = false;
@@ -825,7 +852,7 @@ static void coopSyncHand(ChrRecord *chr, s32 hand, u8 want, bool dying)
     if (have == want) return;
     if (!want) {
         /* gone on the host: dropped as the guard fell, or put away */
-        if (dying) {
+        if (dying && !netHordeActive()) {
             /* chrTick's objDrop needs a projectile before it can detach the gun (#114). */
             propobjSetDropped(chr->weapons_held[hand], DROPTYPE_DEFAULT);
             chr->hidden |= CHRHIDDEN_DROP_HELD_ITEMS;
@@ -835,7 +862,7 @@ static void coopSyncHand(ChrRecord *chr, s32 hand, u8 want, bool dying)
     }
     if (chr->weapons_held[hand] && chr->weapons_held[hand]->obj) objFreePermanently(chr->weapons_held[hand]->obj, 1);
     s32 model = (s32)getPropForHeldItem((ITEM_IDS)want);
-    if (model >= 0) chrGiveWeapon(chr, model, (ITEM_IDS)want, hand == GUNLEFT ? PROPFLAG_WEAPON_LEFTHANDED : 0);
+    if (model >= 0) chrGiveWeapon(chr, model, (ITEM_IDS)want, (hand == GUNLEFT ? PROPFLAG_WEAPON_LEFTHANDED : 0) | (netHordeActive() ? PROPFLAG_AIUNDROPPABLE : 0));
 }
 
 /*
@@ -1525,6 +1552,7 @@ static void coopShowLocal(int top, const char *text)
 
 static void coopAnnounceDowned(int slot, bool down)
 {
+    if (!down && netIsHost()) gevrHordeRevived();
     char msg[64];
     const char *name = netGetSlotName(slot);
     snprintf(msg, sizeof(msg), down ? "%s IS DOWN" : "%s IS BACK UP", name && name[0] ? name : "A TEAMMATE");
@@ -1576,6 +1604,12 @@ static bool coopBeside(struct player *a, struct player *b)
     dx = a->prop->pos.x - b->prop->pos.x;
     dy = a->prop->pos.y - b->prop->pos.y;
     dz = a->prop->pos.z - b->prop->pos.z;
+    if (netHordeActive()) {
+        StandTile *tile=a->prop->stan;
+        if (!tile || dy*dy>80.0f*80.0f) return false;
+        if (!stanTestLineUnobstructed(&tile,a->prop->pos.x,a->prop->pos.z,b->prop->pos.x,b->prop->pos.z,
+            CDTYPE_OBJS|CDTYPE_DOORS|CDTYPE_PATHBLOCKER|CDTYPE_AIOPAQUE,80,80,0,1) || tile!=b->prop->stan) return false;
+    }
     return dx * dx + dz * dz < COOP_REVIVE_RANGE * COOP_REVIVE_RANGE && dy * dy < 150.0f * 150.0f;
 }
 
@@ -1597,7 +1631,7 @@ void netCoopReviveTick(void)
     struct player *pl = me >= 0 && me < 4 ? g_playerPointers[me] : NULL;
     u64 now = sysGetMicroseconds();
 
-    if (!netCoopActive()) return;
+    if (!netCoopActive() || gevrHordeDefeated()) return;
     coopRecordSetup();
     if (gevrCoopPuppets()) {
         coopRetrySpawns();
@@ -1624,6 +1658,7 @@ void netCoopReviveTick(void)
         } else if (now - s_revive_since_us >= COOP_REVIVE_US) {
             pl->bondhealth = COOP_REVIVED_HEALTH;
             coopSetLocalDowned(false);
+            gevrHordeRevived();
             coopShowLocal(1, "REVIVED");
         }
     } else {
@@ -1665,7 +1700,7 @@ void netCoopReviveTick(void)
  * slots are not the old host's: a returning player first gets the remap.
  */
 #define COOP_AI_INTERVAL_US 2000000ull       /* the guards' AI state, every two seconds */
-#define COOP_AI_RECORD_BYTES 32
+#define COOP_AI_RECORD_BYTES 40
 #define COOP_AI_PER_PACKET 32
 #define COOP_ROSTER_DELAY_US 1500000ull      /* after its STAGE_READY: it has ticked by then */
 #define COOP_PLACE_AFTER_US 15000000ull      /* a mission older than this: a joiner starts beside a teammate */
@@ -1704,6 +1739,7 @@ static void coopWriteSpawn(struct netbuf *buf, ChrRecord *chr, s32 slot, AIRecor
     coopHeader(buf, NET_MSG_CHR_SPAWN);
     netbufWriteU16(buf, (u16)slot);
     netbufWriteS16(buf, chr->chrnum);
+    netbufWriteU64(buf, gevrHordeGuardToken(chr));
     netbufWriteS8(buf, chr->bodynum);
     netbufWriteS8(buf, chr->headnum);
     netbufWriteU32(buf, (u32)spawnflags);
@@ -1716,6 +1752,7 @@ static void coopWriteRemove(struct netbuf *buf, s32 slot)
 {
     coopHeader(buf, NET_MSG_CHR_REMOVE);
     netbufWriteU16(buf, (u16)slot);
+    netbufWriteU64(buf, 0);
     netbufWriteU8(buf, 1);    /* a roster's: a setup guard gone on the host */
 }
 
@@ -1773,7 +1810,7 @@ static void coopSendRoster(int slot)
             spawns++;
         }
     }
-    if (s_roster_join[slot] && sysGetMicroseconds() - s_stage_loaded_us > COOP_PLACE_AFTER_US) {
+    if (s_roster_join[slot] && !netSlotIsSpectator(slot) && sysGetMicroseconds() - s_stage_loaded_us > COOP_PLACE_AFTER_US) {
         int beside = coopBesideWhom(slot);
         if (beside >= 0) {
             coopHeader(&buf, NET_MSG_COOP_JOIN);
@@ -1818,6 +1855,7 @@ static void coopHostDropIn(u64 now)
                 netbufWriteU8(&buf, 0);   /* the count, filled in below */
             }
             netbufWriteU16(&buf, id);
+            netbufWriteU64(&buf, gevrHordeGuardToken(chr));
             netbufWriteS16(&buf, chr->ailist ? (s16)chraiGetAIListID(chr->ailist, &global) : -1);
             netbufWriteU16(&buf, chr->aioffset);
             netbufWriteS16(&buf, chr->aireturnlist);
@@ -1854,6 +1892,7 @@ static void coopReceiveAi(struct netbuf *b)
     for (int i = 0; i < count; i++) {
         CoopAi a;
         u16 id = netbufReadU16(b);
+        a.generation = netbufReadU64(b);
         a.ailist = netbufReadS16(b);
         a.aioffset = netbufReadU16(b);
         a.aireturnlist = netbufReadS16(b);
@@ -1882,6 +1921,7 @@ static void coopReceiveAi(struct netbuf *b)
 
 static void coopApplyAi(ChrRecord *chr, const CoopAi *a)
 {
+    if (netHordeActive() && a->generation != gevrHordeGuardToken(chr)) return;
     AIRecord *list = a->ailist >= 0 ? ailistFindById(a->ailist) : NULL;
     if (list) {
         chr->ailist = list;

@@ -13,6 +13,15 @@ This is an experimental native Quest multiplayer mode. It uses ENet and borrows 
 - The host picks the stage (the game's eleven, plus Statue and Cradle from the ROM's cut multiplayer setups, #95), the player count, a character and the weapons (the game's own multiplayer weapon sets, Slappers only to Golden Gun). The LAN list on the Join tab shows each game's stage, weapons and players.
 - A match supports up to eight player slots (protocol 16, issue #88). The host picks the count, two to eight, on any stage: the launcher's **Players** beside the stage, or the **PLAYERS** row of the in-match lobby page (default four, saved as `MpMaxPlayers`). It travels in the match config (`max_players`); a team scenario takes its own size instead. The count cannot drop below the connected players or a connected slot; in a match a new count applies from the next load. The host launcher requires at least two players, all ready, before launch.
 
+## Horde (unreleased)
+
+Mode **Horde** plays endless Archives waves with regular armed guards, solo or
+with up to four humans. Preparation breaks resupply ammunition and unlock guns.
+Everyone down ends the run; the host can retry from the pause menu. Protocol 22
+requires this build on every headset. See [Horde mode](docs/horde-mode.md) for
+implementation details and remaining hardware acceptance. Older protocol notes
+below describe prior releases.
+
 ## Co-op campaign
 
 Choose **Co-op mission** in the launcher for up to four players. Each player
