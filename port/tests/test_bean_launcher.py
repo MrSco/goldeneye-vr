@@ -23,6 +23,8 @@ static char g_ActiveExtTexPack[256]={};
 static bool enabled=false,have=true,installed=true;
 static int VrGexGuns=1; static int VrCampaign=0; /* GoldenEye; hack campaigns grey out Bean and GE-X */
 static int VrBeanFillTextures=1, VrBloodPatch=0;
+static int VrOddjobHat=0;          /* Mods: Oddjob's hat (PR #196), drawn when its pack is listed */
+static int gevrHatAvailable() {return 1;}
 #define GEVR_CAMPAIGN_GE 0
 static std::vector<std::string> commands;
 static ImVec2 bean,hd,original,chooseBean;
