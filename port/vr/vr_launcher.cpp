@@ -2018,7 +2018,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                                     vrSettingsSave();
                                 }
                                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                                    gevrTooltip("One companion for the party, from the next mission or Horde retry. Weapon, aggression and durability: Play > Game rules.");
+                                    gevrTooltip("One companion for the party, from the next mission or Horde retry. Weapon, aggression and durability: Play > Game rules > AI ally.");
                                 ImGui::EndDisabled();
                                 ImGui::TableNextColumn();
                                 ImGui::TextColored(gold, "LIVE SETTINGS");
@@ -2778,7 +2778,7 @@ extern "C" void gevrLauncherRun(void)
     bool reportPage = false;
     bool reportCrash = false;
     bool cheatPage = false, modsPage = false, mpPage = false, hapticsPage = false, throwingPage = false;
-    bool gesturesPage = false, rulesPage = false;
+    bool gesturesPage = false, rulesPage = false, allyPage = false;
     Uint32 lastReportPoll = 0;
     while (!start) {
         // SDL's native thread may reach the launcher before MainActivity has
@@ -3156,17 +3156,10 @@ extern "C" void gevrLauncherRun(void)
                 vrSettingsSave();
                 gesturesPage = false;
             }
-        } else if (rulesPage) {
-            // Game rules GEVR PC changed (vr450.2, its CORPSEKEEP); off keeps
-            // the original game's rule. Single player.
-            ImGui::TextColored(gold, "GAME RULES");
-            // Keep Done and START reachable when companion controls expand the page.
-            const float rulesFooter = gevrLauncherFooterHeight() + ImGui::GetFrameHeightWithSpacing()
-                                    + ImGui::GetStyle().ItemSpacing.y * 2;
-            ImGui::BeginChild("game-rules", ImVec2(0, std::fmax(1.0f, ImGui::GetContentRegionAvail().y - rulesFooter)), false);
-            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-            ImGui::TextWrapped("Off keeps the original rules. Mines are a solo option; with ragdolls on, bodies stay in every mode. Fast reinforcements also works in co-op, controlled by the host.");
-            ImGui::PopStyleColor();
+        } else if (allyPage) {
+            // #194: Natalya as a companion (src/game/gevr_ally.c), opened from
+            // Game rules. The host's choice in co-op and Horde.
+            ImGui::TextColored(gold, "AI ALLY (NATALYA)");
             const bool allyPve = !netIsActive() || netModePve(netGetMatchConfig()->mode);
             ImGui::BeginDisabled(VrCampaign != 0 || !allyPve || (netIsActive() && !netIsHost()));
             bool ally = VrAlly != 0;
@@ -3174,25 +3167,43 @@ extern "C" void gevrLauncherRun(void)
                 VrAlly = ally ? 1 : 0;
                 vrSettingsSave();
             }
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
             ImGui::TextWrapped("GoldenEye solo, campaign co-op and Horde: one companion for the party. The host chooses; changes apply next mission or Horde retry. Not in missions with their own Natalya.");
+            ImGui::PopStyleColor();
+            ImGui::Spacing();
             ImGui::BeginDisabled(!ally);
-            if (ImGui::Combo("Ally weapon", &VrAllyWeapon,
+            if (ImGui::Combo("Weapon", &VrAllyWeapon,
                     "PP7\0Silenced PP7\0DD44\0KF7 Soviet\0D5K Deutsche\0ZMG\0AR33\0RC-P90\0Shotgun\0Automatic shotgun\0")) vrSettingsSave();
             if (ImGui::Combo("Aggression", &VrAllyAggression, "Cautious\0Normal\0Aggressive\0")) vrSettingsSave();
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 gevrTooltip("Cautious: engage alerted enemies nearby. Normal/aggressive: engage enemies within a wider range. Always stay close to Bond.");
-            if (ImGui::SliderInt("Ally damage", &VrAllyDamage, 25, 400, "%d%%")) vrSettingsSave();
+            if (ImGui::SliderInt("Damage", &VrAllyDamage, 25, 400, "%d%%")) vrSettingsSave();
             bool immortal = VrAllyInvincible != 0;
-            if (ImGui::Checkbox("Invincible ally", &immortal)) {
+            if (ImGui::Checkbox("Invincible", &immortal)) {
                 VrAllyInvincible = immortal ? 1 : 0;
                 vrSettingsSave();
             }
             ImGui::BeginDisabled(immortal);
-            if (ImGui::SliderInt("Ally health", &VrAllyHealth, 25, 1000, "%d%%")) vrSettingsSave();
+            if (ImGui::SliderInt("Health", &VrAllyHealth, 25, 1000, "%d%%")) vrSettingsSave();
             ImGui::EndDisabled();
             ImGui::EndDisabled();
             ImGui::EndDisabled();
             ImGui::Spacing();
+            ImGui::Separator();
+            if (ImGui::Button("Done", ImVec2(-1, 0))) {
+                vrSettingsSave();
+                allyPage = false;
+            }
+        } else if (rulesPage) {
+            // Game rules GEVR PC changed (vr450.2, its CORPSEKEEP); off keeps
+            // the original game's rule. Single player.
+            ImGui::TextColored(gold, "GAME RULES");
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            ImGui::TextWrapped("Off keeps the original rules. Mines are a solo option; with ragdolls on, bodies stay in every mode. Fast reinforcements also works in co-op, controlled by the host.");
+            ImGui::PopStyleColor();
+            // #194's companion has its own page: on this one it made the page scroll
+            if (ImGui::Button(VrAlly ? "AI ally (Natalya)... (on)" : "AI ally (Natalya)..."))
+                allyPage = true;
             bool stick = VrMinesStickToGuards != 0;
             if (ImGui::Checkbox("Mines stick to guards", &stick)) {
                 VrMinesStickToGuards = stick ? 1 : 0;
@@ -3261,7 +3272,6 @@ extern "C" void gevrLauncherRun(void)
             }
             ImGui::EndDisabled();
             ImGui::TextWrapped("Harder: alerted guards can call more reinforcements while earlier ones are still alive. Works with any body count; co-op follows the host.");
-            ImGui::EndChild();
             ImGui::Spacing();
             ImGui::Separator();
             if (ImGui::Button("Original rules")) {
