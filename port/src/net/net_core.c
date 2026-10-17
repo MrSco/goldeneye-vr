@@ -3320,7 +3320,12 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             break;
         }
         case NET_MSG_HORDE_STATE:
-            if (!netIsHost() && peer == s_server_peer && s_state == NET_STATE_INGAME && netHordeActive()) netHordeReceive(&buf);
+            if (s_state != NET_STATE_INGAME || !netHordeActive()) break;
+            if (!netIsHost()) {
+                if (peer == s_server_peer) netHordeReceive(&buf);
+            } else if (slot_id < 4 && s_client_peers[slot_id] == peer && (int)(intptr_t)peer->data - 1 == slot_id) {
+                netHordeReceiveClient(slot_id, &buf);
+            }
             break;
         case NET_MSG_COOP_MENU:
             /* the party's menus: the host's screen (net_coop_menu.c) */
