@@ -349,6 +349,9 @@ struct ShaderProgram {
     GLint noise_scale_location;
     GLint three_point_filter_locations[2];
     GLint opaque_depth_pass_location;
+    // a cutout's MSAA coverage (texture edge, gevr_edge_coverage): the bound target's
+    // samples when the program was loaded, and uEdgeA2C's location and value last set
+    GLint edge_samples, edge_a2c_location, edge_a2c_set;
 
 
     GLint eyeOffsetLeftLocation;
@@ -1083,6 +1086,18 @@ static void gfx_opengl_load_shader(struct ShaderProgram* new_prg) {
     glUseProgram(new_prg->opengl_program_id);
     gfx_opengl_vertex_array_set_attribs(new_prg);
     gfx_opengl_set_uniforms(new_prg);
+    if (new_prg->edge_a2c_location >= 0) {
+        // the bound target's samples: the eye images under Anti-aliasing, 1 for the
+        // HUD captures and other single-sample targets
+        GLint samples = 1;
+        glGetIntegerv(GL_SAMPLES, &samples);
+        new_prg->edge_samples = samples > 1 ? samples : 1;
+        static bool logged;
+        if (new_prg->edge_samples > 1 && !logged) {
+            logged = true;
+            vr_log("gfx: cutout edges take %d-sample alpha-to-coverage", (int)new_prg->edge_samples);
+        }
+    }
     if (new_prg->is_mesh) {
         s_meshUniforms.erase(new_prg);   // gevr_mesh_bind writes them again
     }
@@ -1505,6 +1520,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     // Fragment shader
 
     fs_len += sprintf(fs_buf + fs_len, "#version %s\n", gl_glsl_version_str);
+    const bool edgeCoverage = cc_features.opt_texture_edge && cc_features.opt_alpha;
 
     if (gl_es) {
         append_line(fs_buf, &fs_len, "precision highp float;");
@@ -1560,6 +1576,9 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     append_line(fs_buf, &fs_len, "uniform float noise_scale;");
     if (cc_features.opt_alpha) {
         append_line(fs_buf, &fs_len, "uniform int uOpaqueDepthPass;");
+    }
+    if (edgeCoverage) {
+        append_line(fs_buf, &fs_len, "uniform int uEdgeA2C;");
     }
     if (use_multiview) {
         // GoldenEye (issue #72): files/gevr_zdebug.txt mode 1 tints draws by depth state
@@ -1693,8 +1712,17 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         }
     }
 
-    if (cc_features.opt_texture_edge && cc_features.opt_alpha) {
-        append_line(fs_buf, &fs_len, "    if (texel.a > 0.19) texel.a = 1.0; else discard;");
+    if (edgeCoverage) {
+        // A cutout (leaves, fences, grates) keeps alpha above 0.19. Plain MSAA only
+        // smooths triangle edges, so under Anti-aliasing (uEdgeA2C, gevr_edge_coverage)
+        // the edge in the texture becomes coverage: alpha sharpened to about a pixel
+        // of its slope, half coverage at the cut, through alpha-to-coverage. Writing
+        // gl_SampleMask instead dropped the whole draw on Quest 3's multiview MSAA.
+        append_line(fs_buf, &fs_len, "    if (uEdgeA2C != 0) {");
+        append_line(fs_buf, &fs_len,
+                    "        texel.a = clamp((texel.a - 0.19) / max(fwidth(texel.a), 0.0001) + 0.5, 0.0, 1.0);");
+        append_line(fs_buf, &fs_len, "        if (texel.a <= 0.0) discard;");
+        append_line(fs_buf, &fs_len, "    } else if (texel.a > 0.19) texel.a = 1.0; else discard;");
     }
 
     if (cc_features.opt_alpha && cc_features.opt_noise) {
@@ -1908,6 +1936,9 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     prg->noise_scale_location = glGetUniformLocation(shader_program, "noise_scale");
     prg->opaque_depth_pass_location = cc_features.opt_alpha
             ? glGetUniformLocation(shader_program, "uOpaqueDepthPass") : -1;
+    prg->edge_a2c_location = edgeCoverage ? glGetUniformLocation(shader_program, "uEdgeA2C") : -1;
+    prg->edge_samples = 1;
+    prg->edge_a2c_set = 0;   // a new program's uniforms are 0
     prg->three_point_filter_locations[0] = glGetUniformLocation(shader_program,
                                                                 "three_point_filter0");
     prg->three_point_filter_locations[1] = glGetUniformLocation(shader_program,
@@ -2855,10 +2886,34 @@ static void gevr_draw_range(GLint first, GLsizei count)
     }
 }
 
+/*
+ * A cutout program (texture edge) drawing unblended into a multisampled target
+ * turns its alpha edge into coverage: GL_SAMPLE_ALPHA_TO_COVERAGE for this draw
+ * only, and the program's uEdgeA2C so it writes the sharpened edge alpha. Off
+ * again as the draw ends, so nothing else (menus, blits, the hub) draws with it.
+ */
+struct GevrEdgeCoverage {
+    bool on = false;
+    GevrEdgeCoverage() {
+        struct ShaderProgram* p = s_curPrg;
+        if (p == NULL || p->edge_a2c_location < 0) return;
+        on = p->edge_samples > 1 && !s_alphaArgs[0];
+        if (p->edge_a2c_set != (GLint)on) {
+            glUniform1i(p->edge_a2c_location, on ? 1 : 0);
+            p->edge_a2c_set = on ? 1 : 0;
+        }
+        if (on) glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+    }
+    ~GevrEdgeCoverage() {
+        if (on) glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+    }
+};
+
 static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalDepth, float decalPull, bool lineMode)
 {
     GevrCpuSection timing(GEVR_TIME_DRAW_ISSUE);
     if (lineMode) { gevr_draw_world_lines(first,count); return; }
+    GevrEdgeCoverage coverage;
     if (decalZ && decalDepth) {
         /*
          * A room's decals (bg.c VR_ROOM_DL_*): one pass at the game's depth
