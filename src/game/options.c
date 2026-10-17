@@ -4019,7 +4019,7 @@ static void gevrVrValueText(s32 row, char *buf)
         }
         else if (row == GEVR_VR_HAT && !gevrHatAvailable())
         {
-            sprintf(buf, "%s", "NEEDS FILE");   /* tools/gevr_oddjob_hat.py makes it */
+            sprintf(buf, "%s", "GET IN MODS");   /* the launcher's Mods page downloads it */
         }
         else if (row == GEVR_VR_BEANFILL && !gevrTexpackFillAvailable())
         {

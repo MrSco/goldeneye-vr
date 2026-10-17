@@ -4,8 +4,8 @@
 #include <PR/ultratypes.h>
 
 /* Mods: Oddjob's hat in place of the throwing knife (held, thrown and lying
- * about), from files/mods/oddjob_hat.bin, which the player makes from their
- * own 007 Nightfire capture (tools/gevr_oddjob_hat.py). Nothing of it ships.
+ * about), in the cartridge's, Bean's or GoldenEye X's hand. The launcher's
+ * Mods page downloads it (the oddjob-hat pack); it is not in the APK.
  * Cosmetic and local to each headset. docs/oddjob-hat.md. */
 
 #ifdef __cplusplus
