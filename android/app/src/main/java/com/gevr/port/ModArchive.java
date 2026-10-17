@@ -8,7 +8,13 @@ import java.util.zip.*;
 final class ModArchive {
     interface Progress { void entry(int percent) throws IOException; }
 
+    /** A texture pack: its PNGs, at least 100 of them. */
     static int unpack(File zip, File dir, Progress progress) throws IOException {
+        return unpack(zip, dir, new String[] { ".png" }, 100, progress);
+    }
+
+    /** The entries whose names end in one of kinds (lower case), at least least of them. */
+    static int unpack(File zip, File dir, String[] kinds, int least, Progress progress) throws IOException {
         String base = dir.getCanonicalPath() + File.separator;
         Set<String> paths = new HashSet<>();
         long extracted = 0;
@@ -20,8 +26,9 @@ final class ModArchive {
                 ZipEntry entry = entries.nextElement();
                 progress.entry(Math.min(99, ++seen * 100 / Math.max(1, z.size())));
                 String name = entry.getName();
-                boolean png = name.toLowerCase(Locale.ROOT).endsWith(".png");
-                if (entry.isDirectory() || !png) continue;
+                boolean wanted = false;
+                for (String kind : kinds) wanted |= name.toLowerCase(Locale.ROOT).endsWith(kind);
+                if (entry.isDirectory() || !wanted) continue;
                 File file = new File(dir, name);
                 String path = file.getCanonicalPath();
                 if (!path.startsWith(base) || !paths.add(path)) throw new IOException("bad or duplicate path: " + name);
@@ -44,7 +51,7 @@ final class ModArchive {
                 textures++;
             }
         }
-        if (textures < 100) throw new IOException("download is missing pack textures");
+        if (textures < least) throw new IOException("download is missing pack files");
         return textures;
     }
 }

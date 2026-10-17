@@ -5,8 +5,17 @@ Throwing knives look like Oddjob's hat: in Bond's hand, while they fly
 pickups and the network still treat them as throwing knives. Each headset
 keeps its own setting.
 
-The hat is from 007 Nightfire (GameCube), so nothing of it is in this
-repository or the APK. Players make the file from their own capture.
+The hat is 007 Nightfire's (GameCube). It is not in the APK: the launcher's
+Mods page downloads it as the `oddjob-hat` pack ("Get Oddjob's hat", on the
+blood patch's row) from GoldenEye VR's mods repository
+(github.com/MrSco/goldeneye-vr-mods, release `oddjob-hat-<version>`, asset
+`oddjob-hat-<version>.zip` holding `oddjob_hat.bin`) into
+`files/texture-packs/oddjob-hat/`. Then the row is a checkbox (plus Remove,
+and Update when the repository has a newer `oddjob-hat-` release). The watch's
+VR settings, Mods and fun > Oddjob's hat, turns it on and off in game. The ini
+key is `OddjobHat`, on by default; it does nothing until the pack is there.
+
+## Making the pack
 
 1. Capture a frame in Dolphin with 3DReaperDX while Oddjob's hat is in view.
    You get `frame_*.obj`, its `.mtl` and the `.dds` textures.
@@ -15,11 +24,13 @@ repository or the APK. Players make the file from their own capture.
    the crown, band and arms draw calls if that fails. It writes
    `oddjob_hat.bin` for the game, plus `oddjob_hat.obj` (the hat and both
    arms) for Blender.
-3. Run `adb push build/oddjob_hat/oddjob_hat.bin /sdcard/Android/data/com.gevr.port/files/mods/oddjob_hat.bin`.
-4. Turn it on and off with launcher Mods > "Oddjob's hat" (next to the blood
-   patch) or the watch's VR settings, Mods and fun > Oddjob's hat. The ini key
-   is `OddjobHat`. It is on by default, but has no effect until the file is
-   present.
+3. Zip `oddjob_hat.bin` as `oddjob-hat-<version>.zip`, publish it as release
+   `oddjob-hat-<version>` in the mods repository, and update the `oddjob-hat`
+   entry in `ModManager.java` (version, URL, exact size). A newer release
+   reaches installed apps as an Update without an app release.
+
+For testing, `files/mods/oddjob_hat.bin` (adb push) is read when no pack is
+installed.
 
 ## How it works
 
@@ -28,14 +39,26 @@ does, and it runs ahead of Bean.
 
 | Model | Nodes | Drawn as |
 |---|---|---|
-| `GthrowknifeZ` (held) | blade, guard and handle (149, 126 and 60 vertices) | the hat, in the blade's node; Bond's hand and sleeves stay |
+| `GthrowknifeZ` (held) | blade, guard and handle (149, 126 and 60 vertices) | the hat, in the blade's node; the hand's lists stay with whoever draws them |
+| `GthrowknifeZ` (GoldenEye X) | every list on the knife's matrix (33, `KNIFE_DEF`) | the hat on that matrix, at GE-X's hand's palm |
 | `PchrknifeZ` (thrown) | the knife (39 vertices) | the hat, only for instances that `generate_player_thrown_knife` registered, so hunting knives stay knives |
 | `PchrthrowknifeZ` (pickup) | the knife (39 vertices) | the hat |
 
 The models are found by their vertex counts. If another ROM's model doesn't
-match, the hat isn't drawn and the log names the file. While the hat is on,
-Bean leaves these models alone (`activeSwap`), so Bond's N64 hand holds it
-even with XBLA visuals.
+match, the hat isn't drawn and the log names the file. Only the knife's lists
+are the hat's, so each look keeps its own hand:
+
+- Original: Bond's N64 hand and sleeves.
+- Bean: Bean puts its knife on a knife list and its glove on the hand's list
+  (`applyMesh`); the hat takes the knife lists (`activeSwap` stands aside for
+  them) and the glove stays. Dab's Mod draws the XBLA knife's hand where
+  GoldenEye has it, so the N64 fist fits.
+- GoldenEye X: the converted file is Perfect Dark's combat knife alone; GE-X's
+  hand is its own model on the gun's matrices. The hat hangs on the knife's
+  matrix, so it follows the knife's fit and GoldenEye's swing and throw. Its
+  fist is measured on the first frame it is drawn in: the right wrist's
+  matrix (2) with the palm 50 units along it, and the hand's forearm, in the
+  knife's matrix space, with the blade's end that points up as the handle.
 
 The lists keep the node's render mode: types 3 and 4 give texel times shade
 when the shade alpha is full. That means the hat is fogged and depth-tested
@@ -75,9 +98,13 @@ units and degrees:
 
 ```
 held <brim radius> <dx> <dy> <dz> <yaw> <pitch> <roll>
+gex  <brim radius> <dx> <dy> <dz> <yaw> <pitch> <roll>
 prop <brim radius> <dx> <dy> <dz> <pitch>
 ```
 
-Held rotations turn about the fist: yaw about the knife's axis (180 moves the
+Defaults: held 133 (about 3.3 of Bond's hand widths, a 30 cm bowler), gex
+176 (GE-X units are 0.085 cm), prop 200.
+
+Held and gex rotations turn about the fist: yaw about the knife's axis (180 moves the
 hat to the other side of the hand), pitch across the hand, roll about the
 forearm.
