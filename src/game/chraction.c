@@ -2717,6 +2717,13 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
             if (!cheatIsActive(76))
 #    endif
                 self->damage += damageToCause;
+#ifdef GEVR
+            if (isPlayer && damageToCause > 0.0f)
+            {
+                extern void gevrHordeNotifyGuardHit(ChrRecord *chr, int attacker, int hitpart);
+                gevrHordeNotifyGuardHit(self, get_cur_playernum(), hitpart);
+            }
+#endif
 
             if (self->damage < 0.0f)
             {
