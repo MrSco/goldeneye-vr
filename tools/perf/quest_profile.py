@@ -199,7 +199,7 @@ def read_status():
     return adb('shell', 'cat', f'{FILES}/gevr_profile.txt.status', check=False)
 
 
-def validate(path, hz, status):
+def validate(path, hz, status, spacewarp=0):
     with path.open() as f:
         metadata = f.readline()
         rows = list(csv.DictReader(f))
@@ -216,7 +216,9 @@ def validate(path, hz, status):
     if any(int(r['errors']) for r in valid):
         raise Unavailable('Nested timing attribution errors; trace cannot support optimization')
     periods = [int(r['period_ns']) for r in valid]
-    if abs(sum(periods) / len(periods) - 1e9 / hz) > 10000:
+    # SpaceWarp: the runtime runs the app at half the display rate and makes the frames between.
+    app_hz = hz / 2 if spacewarp else hz
+    if abs(sum(periods) / len(periods) - 1e9 / app_hz) > 10000:
         raise Unavailable('Runtime did not honor the requested display rate')
     inputs = {(int(r['input_buttons'], 16), int(r['input_turn'])) for r in valid}
     missing = [p[5] for p in PHASES if (p[1], p[2]) not in inputs]
@@ -365,7 +367,7 @@ def run(args, out):
             adb('pull', remote + '.gpu.csv', str(folder / f'{label}.gpu.csv'))
             (folder / f'{label}.events.json').write_text(json.dumps(events, indent=2))
             adb('shell', 'rm', '-f', remote, remote + '.gpu.csv')   # pulled; never leave traces behind
-            rows = validate(folder / f'{label}.csv', args.hz, status)
+            rows = validate(folder / f'{label}.csv', args.hz, status, args.spacewarp)
             info['traces'].append({'label': label, 'status': status, 'valid_rows': rows})
             print(label, 'validated', rows, 'active frames', flush=True)
     finally:
