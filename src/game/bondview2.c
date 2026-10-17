@@ -17638,8 +17638,8 @@ static s32 gevrGripGestureTry(s32 ctrl)
         p[i] = at[i] - back[i] * GEVR_GESTURE_FINGERS_CM * cm;
     }
     {
-        extern int gevrHordeOnUse(void);
-        if (gevrDamBoatTryHand(p) || gevrHordeOnUse())
+        extern int gevrHordeOnGrip(const f32 hand[3]);
+        if (gevrDamBoatTryHand(p) || gevrHordeOnGrip(p))
         {
             return TRUE;
         }
