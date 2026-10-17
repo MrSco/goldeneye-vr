@@ -1,5 +1,8 @@
 #include <stdio.h>
 #include <ultra64.h>
+#ifdef GEVR
+#include "net_horde.h"
+#endif
 #include <memp.h>
 #include <bondconstants.h>
 #include <boss.h>
@@ -1110,6 +1113,8 @@ void bondviewLoadSetupIntroSection(void)
     g_CurrentPlayer->field_3B8.f[2] = (g_CurrentPlayer->field_488.pos.f[2] / FIELD_3B8_FACTOR);
 
 #ifdef GEVR
+    if (netHordeActive()) bondviewSetCameraMode(CAMERAMODE_FP);
+    else
     if (gevrCoopActive())
     {
         /*

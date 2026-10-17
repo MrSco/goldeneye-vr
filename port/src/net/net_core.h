@@ -82,6 +82,7 @@ const char *netGetSlotAppVersion(int slot); /* NULL or empty if not announced */
 uint8_t netGetLobbyStage(void);
 uint8_t netGetLobbyWeaponSet(void);
 uint32_t netGetRandomSeed(void);
+uint32_t netGetWorldEpoch(void);
 
 /* Lobby Operations */
 void netLobbySetReady(bool ready);

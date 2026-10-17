@@ -953,6 +953,8 @@ void bossReturnTitleStage(void) {
      * The mission's end goes to the host instead, which ends it on every
      * headset (gevrCoopMissionEndLocal) and takes the party to its debrief.
      */
+    { extern int netHordeActive(void); extern void gevrHordeDefeat(void);
+      if (netHordeActive()) {gevrHordeDefeat();return;} }
     if (netCoopActive())
     {
         netCoopMissionEnded(objectiveIsAllComplete() != 0 && !g_isBondKIA ? NET_COOP_RESULT_COMPLETE : NET_COOP_RESULT_FAILED);
