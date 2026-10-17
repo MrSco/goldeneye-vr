@@ -41,6 +41,7 @@ void gevrCoopChrSpawned(ChrRecord *chr, AIRecord *ai, s32 flags) {
     if (online) { assert(hosting && pve && gevrAllyIs(chr)); announcements++; }
 }
 void chrSetFiring(ChrRecord *chr, s32 hand, s32 firing) { assert(!firing); }
+void chrlvMergeKneelToStand(ChrRecord *chr, f32 blend) { chr->actiontype=ACT_STAND; }
 int gevrRomCampaign(void) { return campaign; }
 s32 getPlayerCount(void) { return players; }
 s32 lvlGetControlsLockedFlag(void) { return locked; }
@@ -191,8 +192,11 @@ int main(void) {
     gevrAllyApplyState(&inherited); gevrAllyAttach(adopted,GEVR_ALLY_SPAWN_FLAG);
     assert(gevrAllyIs(adopted) && adopted->maxdamage==100 && adopted->damage==12
            && (adopted->chrflags & CHRFLAG_INVINCIBLE));
-    hosting=1; gevrAllyTick(); assert(spawns==0);
+    hosting=1; adopted->actiontype=ACT_ARGH; gevrAllyBecameHost();
+    assert(adopted->actiontype==ACT_STAND && adopted->damage==12);
+    gevrAllyTick(); assert(spawns==0);
     gevrAllyHitGuard(adopted,enemy(1,300),&direction,weapon); assert(hitScale==2);
+    adopted->actiontype=ACT_DIE; gevrAllyBecameHost(); assert(adopted->actiontype==ACT_DIE);
     adopted->model=NULL; gevrAllyTick(); assert(spawns==0); // dead stays dead on takeover
     reset(); online=1; pve=2; hordeRunning=0; gevrAllyReset(); gevrAllyTick(); assert(spawns==0);
     hordeRunning=1; gevrAllyTick(); assert(spawns==1 && announcements==1);

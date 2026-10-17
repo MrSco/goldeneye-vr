@@ -47,7 +47,9 @@ its pointer, preventing a recycled corpse slot from becoming a companion.
 
 The normal reliable NPC spawn/roster records mark the companion and carry its
 host configuration atomically, so a client elected before the first periodic
-AI snapshot can still restore health, invincibility and damage correctly.
+AI snapshot can still restore health, invincibility and damage correctly. On takeover her action
+starts afresh, preserving health, instead of running unreplicated puppet path
+or attack internals.
 `port/src/net/net_ally.c` also sends reliable epoch/revision snapshots for the
 configuration and spawn lifecycle, including when the companion's body is gone.
 Late joins receive the same settings; malformed, stale and previous-run snapshots

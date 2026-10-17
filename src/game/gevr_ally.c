@@ -124,6 +124,17 @@ static void gevrAllyConfigure(ChrRecord *chr)
     chr->flags2 |= FLAGS2_DONT_POINT_AT_BOND;
 }
 
+void gevrAllyBecameHost(void)
+{
+    if (!gevrAllyIs(s_ally) || chrIsDead(s_ally) || !s_configKnown) return;
+    /* Puppets carry animation/action tags, not the NPC action union's path
+     * and attack internals. Start a fresh action without changing health. */
+    chrlvMergeKneelToStand(s_ally, 0.0f);
+    gevrAllyConfigure(s_ally);
+    s_think = s_wait = 0;
+    s_target = -1;
+}
+
 void gevrAllyAttach(ChrRecord *chr, u32 flags)
 {
     if (!(flags & GEVR_ALLY_SPAWN_FLAG) || !chr || !chr->model || chr->chrnum < 0
