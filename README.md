@@ -311,6 +311,7 @@ that are off by default:
 for solo GoldenEye, campaign co-op and Horde: one extra Natalya companion with
 weapon, aggression, damage, health and invincibility choices. The host chooses;
 changes apply next mission or Horde retry. It also works with Fast reinforcements.
+Missions with their own Natalya (Bunker II, Train, Jungle, Control) keep only her.
 
 Other optional rules, off by default:
 mines stick to guards (solo), bodies stay (the newest 12, 24 or 48, solo), and
@@ -386,12 +387,13 @@ It's still experimental: expect rough edges, and please report what you find.
 
 Then press **Start Hosting**, and **Launch** once everyone connected shows **Ready**. You can launch alone. In Deathmatch, the host can explore in warmup without running the round clock or score. When a guest has loaded the map, the stage and equipment reset and the timed round begins together. If the last guest leaves, the host returns to warmup.
 
-**Horde (unreleased).** Clear increasingly large waves of regular GoldenEye guards in Archives.
-Ammo arrives during 15-second breaks; the Klobb and KF7 unlock as you progress.
+**Horde.** Clear increasingly large waves of regular GoldenEye guards in Archives,
+with 15-second breaks between them. Hits and kills earn points (more for headshots):
+spend them at the **Mystery Box** for a random weapon or at **Wall Buys** for a
+weapon, its ammo at half price, or body armour (grip or press B at a station).
 Revive downed teammates by standing beside them. Everyone down ends the run; open
-the pause menu for results and **Retry Horde**. You can launch alone. This build
-uses protocol 22 with the optional AI ally, so every headset must update. See [Horde mode](docs/horde-mode.md)
-for the first playable scope and pending headset checks.
+the pause menu for results and **Retry Horde**. You can launch alone. Every player
+needs v0.5.4 or later (protocol 22). See [Horde mode](docs/horde-mode.md).
 
 **Join a game.** Press **Multiplayer...** and choose the **Join** tab. Pick a public internet game
 (**Public**), enter a code (**Private**), or select a game discovered on your Wi-Fi (**LAN**).
@@ -462,6 +464,14 @@ or selection fails. Expand it to change files.
 New Quest settings default to Auto; existing saved choices remain selected. The launcher
 offers the rates supported by your headset, including 80 Hz where available. Explicit
 choices request a rate; **Show stats** reports the rate actually in use.
+
+**SpaceWarp.** Beside **Display rate** on the **Screen** tab. The game draws half the
+frames and the headset makes the ones between from motion and depth, so Bean holds
+120 Hz while turning, with a little more latency. On by default while Bean is on;
+tick or untick it to choose for yourself.
+
+**Anti-aliasing.** **Off**, **2x** or **4x** (the default) on the **Screen** tab smooths
+jagged edges and changes right away. 4x is the most the Quest supports.
 
 **Render resolution.** Quest uses the render dimensions recommended by its OpenXR runtime
 when the app starts. These can differ from the panel's physical resolution. The
