@@ -7,6 +7,12 @@ logs are in docs/archive/; feature investigations keep their own notes.
 v0.4.16 through v0.5.2 can join; v0.4.15 and older can't. Building does not
 publish a GitHub release. No game data is shipped.
 
+On main, unreleased (PR #196): Mods > Oddjob's hat. Throwing knives look like
+Nightfire's hat in the Original, Bean and GE-X hands, in flight and lying
+about; the hat is a launcher download from MrSco/goldeneye-vr-mods (each mod's
+own releases), not in the APK. Headset-accepted; GE-X's weapon panel unchecked.
+[Oddjob's hat](docs/oddjob-hat.md).
+
 v0.5.3 (PR #187, PR #188): optional ragdolls and dismemberment, off by
 default, on Play > Game rules (Damage needed / Chance sliders, Bodies stay in
 every mode). Cosmetic, local to each headset; tuning, cut rules, caps and level
