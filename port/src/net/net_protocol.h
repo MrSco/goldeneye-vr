@@ -9,9 +9,10 @@
 #include "net/netbuf.h"
 #include "net_rules.h"
 #include "net_match.h"
+#include "gevr_avatar_math.h"
 
 #define GEVR_NET_MAGIC           0x47455652  /* "GEVR" */
-#define GEVR_NET_VERSION         21  /* 21: host movement speed; 20: v0.4.14, the hit immunity rule's bits (NET_FUN_HIT_IMMUNITY, NET_FUN_HIT_EVERY), which v0.4.11-v0.4.13 refuse, and soft collision; 19: the No radar match rule (NET_FUN_NO_RADAR), which v0.4.11 rejects, and bots (the match config's bot fields, the lobby slot's is_bot); 18: v0.4.6, a match config may name Statue (22) and Cradle (41), which v0.4.5 rejects; 17: v0.4.0, the released form of 16 (16 named only unreleased test builds, whose packet layout changed under it); 16: eight player slots and the host's player count; co-op mode (mode, difficulty in the match config; guard, mission, menu and revive messages); 15: clock synchronization, timestamped shots, epoch/life IDs; 14: next-round fun settings; 13: team voice routing; 12: friendly fire and authoritative ammo transforms; 11: voice modes, pending/active teams, elimination, ping; 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
+#define GEVR_NET_VERSION         22  /* 22: Horde and guard generations, tracked head/both wrists and torso yaw for multiplayer IK, the synchronized PvE companion (all peers must update); 21: host movement speed; 20: v0.4.14, the hit immunity rule's bits (NET_FUN_HIT_IMMUNITY, NET_FUN_HIT_EVERY), which v0.4.11-v0.4.13 refuse, and soft collision; 19: the No radar match rule (NET_FUN_NO_RADAR), which v0.4.11 rejects, and bots (the match config's bot fields, the lobby slot's is_bot); 18: v0.4.6, a match config may name Statue (22) and Cradle (41), which v0.4.5 rejects; 17: v0.4.0, the released form of 16 (16 named only unreleased test builds, whose packet layout changed under it); 16: eight player slots and the host's player count; co-op mode (mode, difficulty in the match config; guard, mission, menu and revive messages); 15: clock synchronization, timestamped shots, epoch/life IDs; 14: next-round fun settings; 13: team voice routing; 12: friendly fire and authoritative ammo transforms; 11: voice modes, pending/active teams, elimination, ping; 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
 #define GEVR_DEFAULT_PORT        27007
 #define GEVR_DISCOVERY_PORT      27008
 #define GEVR_MAX_PLAYERS         8   /* protocol 16; every slot is a game player number (src/bondconstants.h MAX_PLAYER_COUNT) */
@@ -103,6 +104,8 @@ typedef enum {
     /* Additive on protocol 18: an older build ignores the type and still joins. */
     NET_MSG_COOP_GRANT = 51,    /* Host -> all: a mission gadget every player now carries (s32 ITEM_IDS) */
     NET_MSG_COOP_TANK = 52,     /* Driver -> host -> all: the tank's pose (NET_COOP_TANK_*, position, hull and turret angles) */
+    NET_MSG_HORDE_STATE = 53,   /* Host -> all: wave director snapshot */
+    NET_MSG_COOP_ALLY = 54,     /* Host -> all: companion preferences and lifecycle, with epoch/revision */
 } NetMsgType;
 
 #define NET_DISCONNECT_KICKED 0x47454b49u
@@ -144,10 +147,11 @@ enum {
 };
 #define NET_COOP_TANK_BYTES 25  /* u8 flags, f32 x y z, hull yaw, turret yaw, turret pitch */
 #define NET_CHR_NO_ANIM 0xFFFF
-#define NET_CHR_STATE_BYTES 44
-#define NET_CHR_STATES_PER_PACKET 24
+#define NET_CHR_STATE_BYTES 52
+#define NET_CHR_STATES_PER_PACKET 20
 typedef struct {
     u16 slot;
+    u64 generation;             /* Horde spawn identity, zero for campaign guards */
     u8 flags;                   /* NET_CHR_* */
     u8 actiontype;              /* ACT_TYPE */
     coord3d pos;                /* prop->pos */
@@ -162,7 +166,7 @@ typedef struct {
     u8 damage;                  /* damage / maxdamage, x 100 (0 unhurt .. 100 dead) */
 } NetChrState;
 static inline void netbufWriteChrState(struct netbuf *b, const NetChrState *c) {
-    netbufWriteU16(b,c->slot);netbufWriteU8(b,c->flags);netbufWriteU8(b,c->actiontype);
+    netbufWriteU16(b,c->slot);netbufWriteU64(b,c->generation);netbufWriteU8(b,c->flags);netbufWriteU8(b,c->actiontype);
     netbufWriteCoord(b,&c->pos);netbufWriteF32(b,c->ground);
     netbufWriteU16(b,c->yaw);netbufWriteU16(b,c->anim);
     netbufWriteF32(b,c->frame);netbufWriteF32(b,c->speed);
@@ -170,7 +174,7 @@ static inline void netbufWriteChrState(struct netbuf *b, const NetChrState *c) {
     netbufWriteU8(b,c->weapon[0]);netbufWriteU8(b,c->weapon[1]);netbufWriteU8(b,c->fade);netbufWriteU8(b,c->damage);
 }
 static inline int netbufReadChrState(struct netbuf *b, NetChrState *c) {
-    c->slot=netbufReadU16(b);c->flags=netbufReadU8(b);c->actiontype=netbufReadU8(b);
+    c->slot=netbufReadU16(b);c->generation=netbufReadU64(b);c->flags=netbufReadU8(b);c->actiontype=netbufReadU8(b);
     netbufReadCoord(b,&c->pos);c->ground=netbufReadF32(b);
     c->yaw=netbufReadU16(b);c->anim=netbufReadU16(b);
     c->frame=netbufReadF32(b);c->speed=netbufReadF32(b);
@@ -306,7 +310,13 @@ static inline int netbufReadAmmoState(struct netbuf *b, NetAmmoState *s) {
 }
 
 static inline int netMatchConfigValid(const NetMatchConfig *c) {
-    if (!c || c->mode > NET_MODE_COOP || c->movement_speed >= NET_MOVE_COUNT) return 0;
+    if (!c || c->mode > NET_MODE_HORDE || c->movement_speed >= NET_MOVE_COUNT) return 0;
+    if (c->mode == NET_MODE_HORDE) {
+        return c->stage == NET_HORDE_STAGE && c->difficulty == 0 && c->bot_mode == NET_BOT_OFF
+            && c->voice_mode <= NET_VOICE_COUCH && c->friendly_fire <= 1
+            && c->gun_size <= NET_GUN_BIG && !(c->fun_flags & ~NET_FUN_MASK)
+            && c->max_players == NET_COOP_MAX_PLAYERS;
+    }
     if (c->mode == NET_MODE_COOP) {
         /* the deathmatch fields ride along unused; the mission and difficulty decide */
         if (!netCoopStageValid(c->stage) || c->difficulty >= NET_DIFFICULTY_COUNT ||
@@ -330,6 +340,7 @@ static inline int netMatchConfigValid(const NetMatchConfig *c) {
 static inline int netConfigMaxPlayers(const NetMatchConfig *c) {
     if (!c) return 0;
     /* a co-op party is the campaign's four, whatever the deathmatch fields say (#94) */
+    if (c->mode == NET_MODE_HORDE) return c->stage == NET_HORDE_STAGE ? NET_COOP_MAX_PLAYERS : 0;
     if (c->mode == NET_MODE_COOP) return netCoopStageValid(c->stage) ? NET_COOP_MAX_PLAYERS : 0;
     return netScenarioHasTeams(c->scenario) ? netTeamRequiredPlayers(c->scenario) : c->max_players;
 }
@@ -412,6 +423,7 @@ struct netplayermove {
     f32 health;         /* bondhealth, 0..1 */
     f32 armour;         /* bondarmour, 0..1 */
     u8  dead;           /* bonddead */
+    GevrAvatarPose avatar; /* always serialized, flags=0 for flat players/bots */
 };
 
 /* Serialization for netplayermove */
@@ -438,6 +450,13 @@ static inline u32 netbufWritePlayerMove(struct netbuf *buf, const struct netplay
     netbufWriteF32(buf, m->health);
     netbufWriteF32(buf, m->armour);
     netbufWriteU8(buf, m->dead);
+    netbufWriteU8(buf, m->avatar.flags);
+    netbufWriteF32(buf, m->avatar.body_yaw);
+    for (int j=0;j<3;j++) {
+        const GevrTrackedPose *p=j?&m->avatar.hand[j-1]:&m->avatar.head;
+        for(int k=0;k<3;k++)netbufWriteF32(buf,p->pos[k]);
+        for(int k=0;k<4;k++)netbufWriteF32(buf,p->q[k]);
+    }
     return buf->error;
 }
 
@@ -464,6 +483,14 @@ static inline u32 netbufReadPlayerMove(struct netbuf *buf, struct netplayermove 
     m->health = netbufReadF32(buf);
     m->armour = netbufReadF32(buf);
     m->dead = netbufReadU8(buf);
+    m->avatar.flags=netbufReadU8(buf);
+    m->avatar.body_yaw=netbufReadF32(buf);
+    for(int j=0;j<3;j++) {
+        GevrTrackedPose *p=j?&m->avatar.hand[j-1]:&m->avatar.head;
+        for(int k=0;k<3;k++)p->pos[k]=netbufReadF32(buf);
+        for(int k=0;k<4;k++)p->q[k]=netbufReadF32(buf);
+    }
+    if(!buf->error && !gevrPoseValidate(&m->avatar))buf->error=1;
     return buf->error;
 }
 

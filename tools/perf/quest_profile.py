@@ -24,7 +24,7 @@ import time
 FILES = '/sdcard/Android/data/com.gevr.port/files'
 PACKAGE = 'com.gevr.port'
 LAUNCH_CHECK = 'LaunchCheckControllerRequiredDialogActivity'
-MARKERS = ['gevr_fakegrip.txt','gevr_scopedump','gevr_scope.pam', 'gevr_body_batch.txt','gevr_rigid_min.txt','gevr_room_draws.txt', 'gevr_pipeline.txt', 'gevr_bean_nodemode.txt', 'gevr_input.txt', 'gevr_level.txt', 'gevr_warp.txt', 'gevr_cheat.txt',
+MARKERS = ['gevr_fakegrip.txt','gevr_scopedump','gevr_scope.pam', 'gevr_body_batch.txt','gevr_rigid_min.txt','gevr_room_draws.txt', 'gevr_pipeline.txt', 'gevr_spacewarp.txt', 'gevr_bean_nodemode.txt', 'gevr_input.txt', 'gevr_level.txt', 'gevr_warp.txt', 'gevr_cheat.txt',
            'gevr_profile.txt', 'gevr_profile.txt.status']
 PROTECTED = ['data/goldeneye-vr.ini', 'eeprom.bin', *MARKERS]
 WARMUP, MEASURE = 15, 60
@@ -171,6 +171,12 @@ def launch():
     if not adb('shell', 'pidof', PACKAGE, check=False):
         raise Unavailable('App exited during startup')
     # Launcher START, then title/menu A presses. Level hook selects Dam at mission select.
+    # A headset waking from the desk can take a while to give the session focus;
+    # START sent before it is dropped and the launcher never boots the game.
+    focus_deadline = time.monotonic() + 30
+    while time.monotonic() < focus_deadline and 'Session state changed: 5' not in recent():
+        wake()
+        time.sleep(1)
     put('gevr_level.txt', 'dam 0')
     press('1000', wait=4)
     for _ in range(16):
@@ -193,7 +199,7 @@ def read_status():
     return adb('shell', 'cat', f'{FILES}/gevr_profile.txt.status', check=False)
 
 
-def validate(path, hz, status):
+def validate(path, hz, status, spacewarp=0):
     with path.open() as f:
         metadata = f.readline()
         rows = list(csv.DictReader(f))
@@ -210,7 +216,9 @@ def validate(path, hz, status):
     if any(int(r['errors']) for r in valid):
         raise Unavailable('Nested timing attribution errors; trace cannot support optimization')
     periods = [int(r['period_ns']) for r in valid]
-    if abs(sum(periods) / len(periods) - 1e9 / hz) > 10000:
+    # SpaceWarp: the runtime runs the app at half the display rate and makes the frames between.
+    app_hz = hz / 2 if spacewarp else hz
+    if abs(sum(periods) / len(periods) - 1e9 / app_hz) > 10000:
         raise Unavailable('Runtime did not honor the requested display rate')
     inputs = {(int(r['input_buttons'], 16), int(r['input_turn'])) for r in valid}
     missing = [p[5] for p in PHASES if (p[1], p[2]) not in inputs]
@@ -259,7 +267,7 @@ def run(args, out):
     push_back(out / 'backup/eeprom.bin', f'{FILES}/eeprom.bin')
     info = {'apk': str(args.apk.resolve()), 'sha256': hashlib.sha256(args.apk.read_bytes()).hexdigest(),
             'hz': args.hz, 'detail': args.detail, 'showstats': args.showstats, 'runs': args.runs,
-            'pad': args.pad, 'scope_probe': args.scope_probe, 'body_batch': args.body_batch, 'rigid_min': args.rigid_min, 'room_draws': args.room_draws, 'pipeline': args.pipeline, 'node_mode': args.node_mode, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'xbla': args.xbla, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
+            'pad': args.pad, 'scope_probe': args.scope_probe, 'body_batch': args.body_batch, 'rigid_min': args.rigid_min, 'room_draws': args.room_draws, 'pipeline': args.pipeline, 'spacewarp': args.spacewarp, 'node_mode': args.node_mode, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'xbla': args.xbla, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
     log = (folder / 'device.log').open('wb')
     logger = subprocess.Popen(['adb', 'logcat', '-T', '1', '-v', 'threadtime'], stdout=log, stderr=log)
     try:
@@ -268,6 +276,7 @@ def run(args, out):
         put('gevr_rigid_min.txt',str(args.rigid_min))
         put('gevr_room_draws.txt',str(args.room_draws))
         put('gevr_pipeline.txt',str(args.pipeline))
+        put('gevr_spacewarp.txt', str(args.spacewarp))
         put('gevr_bean_nodemode.txt',str(args.node_mode))
         launch()
         applied=recent()
@@ -278,6 +287,10 @@ def run(args, out):
         if expected not in applied or (rooms and f'gevr bean room-draws: {args.room_draws}' not in applied) or \
                 f'gevr pipeline: {args.pipeline}' not in applied:
             raise Unavailable('Renderer did not acknowledge requested diagnostic controls')
+        swlog = adb('logcat', '-d', '-s', 'GoldenEye-VR:*', check=False)
+        # a build without SpaceWarp says nothing about it; one with it must say what it did
+        if args.spacewarp and (f'gevr spacewarp: wanted=1' not in swlog or 'SpaceWarp: on' not in swlog):
+            raise Unavailable('SpaceWarp was requested but not turned on')
         if args.body_batch and 'gevr bean body-batch:' not in applied:
             raise Unavailable('Whole-character batching was requested but never applied')
         if args.scope_probe:
@@ -318,7 +331,7 @@ def run(args, out):
                     time.sleep(.1)
                 # A user build only lets the shell sample a profileable app by package.
                 sampler = subprocess.Popen(['adb', 'shell', 'simpleperf', 'record', '--app', PACKAGE,
-                                            '-e', 'cpu-clock', '-f', '2000', '--call-graph', 'fp',
+                                            '-e', 'cpu-clock', '-f', '2000', '--call-graph', 'fp', '--clockid', 'monotonic',
                                             '--duration', str(MEASURE), '-o', '/data/local/tmp/gevr-perf.data'],
                                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             for offset, mask, turn, ms, warp, phase in PHASES:
@@ -355,7 +368,7 @@ def run(args, out):
             adb('pull', remote + '.gpu.csv', str(folder / f'{label}.gpu.csv'))
             (folder / f'{label}.events.json').write_text(json.dumps(events, indent=2))
             adb('shell', 'rm', '-f', remote, remote + '.gpu.csv')   # pulled; never leave traces behind
-            rows = validate(folder / f'{label}.csv', args.hz, status)
+            rows = validate(folder / f'{label}.csv', args.hz, status, args.spacewarp)
             info['traces'].append({'label': label, 'status': status, 'valid_rows': rows})
             print(label, 'validated', rows, 'active frames', flush=True)
     finally:
@@ -389,6 +402,8 @@ if __name__ == '__main__':
     parser.add_argument('--texture-pack', help="'none' or a pack folder; default keeps the user's setting")
     parser.add_argument('--scope-probe',action='store_true',
                         help='equip sniper and use an explicit synthetic grip for unattended real scope rendering')
+    parser.add_argument('--spacewarp', type=int, choices=[0, 1], default=0,
+                        help='1 turns on Application SpaceWarp (files/gevr_spacewarp.txt)')
     parser.add_argument('--pipeline', type=int, choices=[0, 1, 2], default=2,
                         help='0 ticks the game inside its XR frame (the old order), 1 ticks it early but draws its '
                              'eye pass inside the frame, 2 (the game default) also replays the eye pass')

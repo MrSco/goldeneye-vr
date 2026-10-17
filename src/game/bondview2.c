@@ -11840,8 +11840,10 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     if (moveData.btap)
     {
 #ifdef GEVR
-        /* Dam speedboat: B boards at the jetty and steps off at the island. */
-        if (gevrDamBoatOnB())
+        /* Dam speedboat: B boards at the jetty and steps off at the island;
+         * Horde: B rolls/claims the Mystery Box or purchases a Wall Buy. */
+        extern int gevrHordeOnUse(void);
+        if (gevrDamBoatOnB() || gevrHordeOnUse())
         {
         }
         else
@@ -17635,9 +17637,12 @@ static s32 gevrGripGestureTry(s32 ctrl)
     {
         p[i] = at[i] - back[i] * GEVR_GESTURE_FINGERS_CM * cm;
     }
-    if (gevrDamBoatTryHand(p))
     {
-        return TRUE;
+        extern int gevrHordeOnGrip(const f32 hand[3]);
+        if (gevrDamBoatTryHand(p) || gevrHordeOnGrip(p))
+        {
+            return TRUE;
+        }
     }
     {
         /* tuning, one line a press: where the hand is and what is nearest it */
@@ -21286,6 +21291,50 @@ void hudmsgBottomShow(char *mess)
     }
 }
 
+#endif
+
+#ifdef GEVR
+/* A bottom message whose text changes while it shows (the Horde countdown):
+ * rewrite it in place and hold it up, rather than queueing a copy each second,
+ * which would back the queue up behind the clock. */
+static s32 s_gevrLiveRow = -1;
+static char s_gevrLiveText[sizeof(stringbuffer_lowerleft[0])];
+void gevrHudmsgBottomLive(char *mess)
+{
+    s32 row = s_gevrLiveRow;
+    if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+    {
+        return;
+    }
+    if (getPlayerCount() != 1)
+    {
+        HUDMESSAGEBOTTOM(mess); /* one row per player, rewritten in place */
+        return;
+    }
+    if (row >= 0 && display_statusbar > 0
+        && (row - status_bar_text_buffer_index + 5) % 5 < display_statusbar
+        && strcmp(stringbuffer_lowerleft[row], s_gevrLiveText) == 0)
+    {
+        strncpy(stringbuffer_lowerleft[row], mess, sizeof(stringbuffer_lowerleft[row]) - 1);
+        stringbuffer_lowerleft[row][sizeof(stringbuffer_lowerleft[row]) - 1] = 0;
+        strcpy(s_gevrLiveText, stringbuffer_lowerleft[row]);
+        /* alone on screen: keep it up; behind others: let the queue move */
+        if (row == status_bar_text_buffer_index && display_statusbar == 1
+            && g_CurrentPlayer->bondmesscnt < BONDVIEW_INTRO_CAMERA_BONDMESSCNT_C)
+        {
+            g_CurrentPlayer->bondmesscnt = BONDVIEW_INTRO_CAMERA_BONDMESSCNT_C;
+        }
+        return;
+    }
+    if (display_statusbar >= 5)
+    {
+        return;
+    }
+    row = (status_bar_text_buffer_index + display_statusbar) % 5;
+    HUDMESSAGEBOTTOM(mess);
+    s_gevrLiveRow = row;
+    strcpy(s_gevrLiveText, stringbuffer_lowerleft[row]);
+}
 #endif
 
 

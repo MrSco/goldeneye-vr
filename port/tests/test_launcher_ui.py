@@ -39,16 +39,22 @@ end=opening+1;depth=1
 while depth:
     depth+=(launcher[end]=='{')-(launcher[end]=='}');end+=1
 comfort=launcher[opening:end]
-start=launcher.index('if (VrMpMode == NET_MODE_COOP) {',launcher.index('if (ImGui::BeginTabItem("Match"))'))
+start=launcher.index('if (netModePve(VrMpMode)) {',launcher.index('if (ImGui::BeginTabItem("Match"))'))
 opening=launcher.index('{',start);end=opening+1;depth=1
 while depth:
     depth+=(launcher[end]=='{')-(launcher[end]=='}');end+=1
 coop=launcher[opening:end]
+start=launcher.index('ImGui::TextColored(gold, "SCREEN");')
+opening=launcher.rfind('[&]() {',0,start)+len('[&]() ')
+end=opening+1;depth=1
+while depth:
+    depth+=(launcher[end]=='{')-(launcher[end]=='}');end+=1
+screen=launcher[opening:end]
 fixture=(root/'port/tests/launcher_compact_native.cpp').read_text(encoding='utf-8')
 generated.write_text(fixture.replace('/* INSERT_OPTIONS */','\n'.join(function(signature) for signature in
     ('static void gevrMatchOptions(bool', 'static void gevrMovementSpeedOptions(bool', 'static void gevrMatchLiveOptions() {',
      'static void gevrLobbyRoster(const', 'static const char *playerCountName(', 'static void gevrHostLobbyOptions(')))
-    .replace('/* INSERT_COMFORT */',comfort).replace('/* INSERT_COOP */',coop),encoding='utf-8')
+    .replace('/* INSERT_COMFORT */',comfort).replace('/* INSERT_COOP */',coop).replace('/* INSERT_SCREEN */',screen),encoding='utf-8')
 obj=Path(tempfile.gettempdir())/'gevr-launcher-net-match.o'
 subprocess.run([shutil.which('gcc') or 'gcc','-O2','-D_LANGUAGE_C','-Wno-builtin-declaration-mismatch','-I.','-Iport/include','-Iinclude','-Isrc',
                 '-c','port/src/net/net_match.c','-o',str(obj)],cwd=root,check=True)

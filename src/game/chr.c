@@ -32,6 +32,7 @@
 #include "net_coop.h"
 #include "gevr_romlayout.h"
 #include "gevr_ragdoll.h"
+#include "gevr_avatar.h"
 #endif
 #include "propobj.h"
 #include "stan.h"
@@ -2738,6 +2739,7 @@ after_position_update:
 
         subcalcmatrices(&renderdata, model);
 #ifdef GEVR
+        gevrAvatarApply(chr, &renderdata);
         gevrRagdollCapture(chr);
 #endif
 
@@ -3628,7 +3630,7 @@ after_opcode:
  * assert(hits && hits->HasHits());
  * #endif
  */
-void chrTestHit(PropRecord *prop, ShotData *shotdata)
+static void chrTestHitAnimated(PropRecord *prop, ShotData *shotdata)
 {
     ChrRecord *chr;
     Model *model;
@@ -3761,6 +3763,21 @@ void chrTestHit(PropRecord *prop, ShotData *shotdata)
     }
 }
 
+
+/* IK is presentation only: hit tests use the original animated body pose. */
+void chrTestHit(PropRecord *prop, ShotData *shotdata)
+{
+#ifdef GEVR
+    Model *model = prop->chr->model;
+    RenderPosView *posed = model ? model->render_pos : NULL;
+    RenderPosView *base = model ? gevrAvatarCollisionPose(model) : NULL;
+    if (base) model->render_pos = base;
+#endif
+    chrTestHitAnimated(prop, shotdata);
+#ifdef GEVR
+    if (base) model->render_pos = posed;
+#endif
+}
 
 /**
  * Address: 7F022980

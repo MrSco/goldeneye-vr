@@ -46,6 +46,7 @@ char VrPlayerName[16]     = "";     /* multiplayer name; the launcher makes one 
 int VrMpStage = 27, VrMpWeaponSet = 4, VrMpChr = 0, VrMpVisibility = 0;
 int VrMpVoiceMode = 0;
 int VrMpFriendlyFire = 1;
+int VrHordeFriendlyFire = 0; /* independent Horde preference */
 int VrHostEqualization = 1, VrHostLatencyCapMs = 50;
 int VrMpFunFlags = 0, VrMpGunSize = 0;
 int VrMpMaxPlayers = 4;
@@ -89,6 +90,8 @@ int VrPerWeaponRecoil = 0;
 /* Game rules GEVR PC changed; off keeps the original game's rule. */
 int VrMinesStickToGuards = 0; /* thrown mines stick to guards (vr450.2) */
 int VrBodiesStay = 0;         /* keep this many bodies (0, 12, 24 or 48) instead of fading them */
+int VrAlly = 0, VrAllyWeapon = 0, VrAllyAggression = 1;
+int VrAllyHealth = 100, VrAllyDamage = 100, VrAllyInvincible = 0;
 int VrFastReinforcements = 0; /* independent difficulty option; normal reinforcement timing by default */
 int VrCoopFastReinforcements = 0; /* host-controlled co-op rule; clients follow the session, not their own preference */
 
@@ -123,6 +126,18 @@ float VrComfortVignette = 0.0f;
 int VrNoKnockback = 1;
 int VrNoHitstun = 0;
 int VrDamageFlash = 1;
+/* Application SpaceWarp: the runtime makes every other displayed frame from
+ * motion vectors and depth (vr_openxr.cpp). 1 on, 0 off, -1 (the default) on
+ * while Bean is: the user's 2026-10-17 feel test, Bean holds 120 Hz with it. */
+int VrSpaceWarp = -1;
+/* The 2026-10-17 test build's launcher Resolution (goldeneye-vr.ini
+ * RenderScale) was saved into the game config's Video.VRRenderScale; its key,
+ * still in that build's ini, puts the scale back to 1 once (vr_openxr.cpp). */
+int VrResetRenderScale = 0;
+/* The launcher's Anti-aliasing: samples per pixel of the eye images (1 off,
+ * 2, 4), switched live (vr_openxr.cpp vr_attach_eye_fbo). 4x by default: the
+ * Quest's most, with no cost the user could see (2026-10-17). */
+int VrEyeMsaa = 4;
 #ifdef ANDROID
 int VrRefreshRate = 0;     /* Auto: no app preference; runtime / external profile manages the rate. */
 #else

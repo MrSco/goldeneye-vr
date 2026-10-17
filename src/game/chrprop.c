@@ -2985,6 +2985,9 @@ void chrpropTick(void)
     s32 pad;
     ObjectRecord *setupobj;
 
+#ifdef GEVR
+    { extern void gevrAllyTick(void); gevrAllyTick(); }
+#endif
     // Advance AI states e.g. attacking, walking, dying, etc...
 #ifdef GEVR
     /* co-op (#94): a client's background AI is the host's to run */

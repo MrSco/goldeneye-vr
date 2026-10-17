@@ -7,6 +7,9 @@
   ---------------------------------------------------------------------*/
 
 #include <ultra64.h>
+#ifdef GEVR
+#include "gevr_avatar.h"
+#endif
 #include <math.h>
 #include <PR/libaudio.h>
 #include <assets/oddtextures.h>
@@ -12523,7 +12526,12 @@ void chrRenderHeldWeapon(void *renderContext, GUNHAND hand, Gfx **gdl)
 
                 renderData.basemtx = modelFindNodeMtx(chrModel, heldModel->attachedto_objinst, 0);
 
-                if (hand == GUNLEFT) 
+                int physicalLeft = hand == GUNLEFT;
+#ifdef GEVR
+                ModelNode *trackedHand = gevrAvatarWeaponHand(chr, hand, &physicalLeft);
+                if (trackedHand) renderData.basemtx = modelFindNodeMtx(chrModel, trackedHand, 0);
+#endif
+                if (physicalLeft)
                 {
                     matrix_4x4_set_rotation_around_z(3.1415927f, &rotationMtx);
                     matrix_4x4_multiply_in_place(renderData.basemtx, &rotationMtx);
