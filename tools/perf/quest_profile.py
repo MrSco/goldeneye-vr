@@ -171,6 +171,12 @@ def launch():
     if not adb('shell', 'pidof', PACKAGE, check=False):
         raise Unavailable('App exited during startup')
     # Launcher START, then title/menu A presses. Level hook selects Dam at mission select.
+    # A headset waking from the desk can take a while to give the session focus;
+    # START sent before it is dropped and the launcher never boots the game.
+    focus_deadline = time.monotonic() + 30
+    while time.monotonic() < focus_deadline and 'Session state changed: 5' not in recent():
+        wake()
+        time.sleep(1)
     put('gevr_level.txt', 'dam 0')
     press('1000', wait=4)
     for _ in range(16):
@@ -279,8 +285,8 @@ def run(args, out):
         if expected not in applied or (rooms and f'gevr bean room-draws: {args.room_draws}' not in applied) or \
                 f'gevr pipeline: {args.pipeline}' not in applied:
             raise Unavailable('Renderer did not acknowledge requested diagnostic controls')
-        log = adb('logcat', '-d', '-s', 'GoldenEye-VR:*', check=False)
-        if f'gevr spacewarp: wanted={args.spacewarp}' not in log or (args.spacewarp and 'SpaceWarp: on' not in log):
+        swlog = adb('logcat', '-d', '-s', 'GoldenEye-VR:*', check=False)
+        if f'gevr spacewarp: wanted={args.spacewarp}' not in swlog or (args.spacewarp and 'SpaceWarp: on' not in swlog):
             raise Unavailable('SpaceWarp was requested but not turned on')
         if args.body_batch and 'gevr bean body-batch:' not in applied:
             raise Unavailable('Whole-character batching was requested but never applied')
