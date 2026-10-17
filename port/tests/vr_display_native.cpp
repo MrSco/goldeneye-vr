@@ -133,7 +133,7 @@ auto glFramebufferTextureMultiviewOVR = attachMultiview;
 auto pfnFramebufferTextureMultisampleMultiviewOVR = attachMultisample;
 uint32_t gfx_msaa_level = 1;
 int VrEyeMsaa = 1;          /* the launcher's Anti-aliasing: off */
-float VrRenderScale = 0.0f; /* the launcher's Resolution: the config's scale */
+int VrResetRenderScale = 0; /* no test build's RenderScale key */
 void gfx_opengl_connect_multiview_fbo(GLuint, uint32_t, uint32_t) {}
 int64_t vr_pick_swapchain_format() { return 1; }
 std::vector<const char *> vr_enumerate_extensions() { return {"graphics", "android"}; }
