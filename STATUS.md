@@ -7,6 +7,11 @@ logs are in docs/archive/; feature investigations keep their own notes.
 v0.4.16 through v0.5.2 can join; v0.4.15 and older can't. Building does not
 publish a GitHub release. No game data is shipped.
 
+**Unreleased #189:** Horde in Archives, solo/1–4 humans, normal armed guards,
+endless paced waves, automatic resupply/weapon progression, revives, results
+and retry. Protocol 22 requires all players to update. Native/synthetic checks
+and debug APK build pass; no headset acceptance yet. [Horde](docs/horde-mode.md).
+
 v0.5.3 (PR #187, PR #188): optional ragdolls and dismemberment, off by
 default, on Play > Game rules (Damage needed / Chance sliders, Bodies stay in
 every mode). Cosmetic, local to each headset; tuning, cut rules, caps and level

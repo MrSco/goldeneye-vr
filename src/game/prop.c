@@ -1,4 +1,5 @@
 #ifdef GEVR
+#include "net_horde.h"
 #include "system.h"
 #include "net_objects.h"
 #endif
@@ -1502,6 +1503,9 @@ void proplvreset2(enum LEVELID stageId)
             }
         }
 
+#ifdef GEVR
+        gevrHordePrepareSetup();
+#endif
         // PD rejoins here
 
         if (withchrs)
@@ -1541,6 +1545,13 @@ void proplvreset2(enum LEVELID stageId)
             numAnimatedObjects += load_proptype(PROPDEF_AIRCRAFT);
         }
 
+#ifdef GEVR
+        if (netHordeActive()) {
+            alloc_init_GUARDdata_entries(HORDE_GUARD_SLOTS - 10);
+            numAnimatedObjects += HORDE_GUARD_SLOTS;
+            numObjects += HORDE_GUARD_SLOTS * 2;
+        }
+#endif
         modelmgrAllocateModelSlots(numObjects);
         modelmgrAllocateAnimModelSlots(numAnimatedObjects);
 
@@ -1586,6 +1597,12 @@ void proplvreset2(enum LEVELID stageId)
 
             while ((i1 = phead->type) != PROPDEF_END)
             {
+#ifdef GEVR
+                if (gevrHordeSkipProp(phead->type)) {
+                    phead=(PropDefHeaderRecord *)((u32 *)phead+sizepropdef(phead));
+                    pdefIndex++; continue;
+                }
+#endif
                 switch (phead->type)
                 {
                     case PROPDEF_GUARD_ATTRIBUTE:
@@ -1618,6 +1635,9 @@ void proplvreset2(enum LEVELID stageId)
                         if (withobjs && (!(((struct DoorRecord *) phead)->flags2 & flags)))
                         {
                             setupDoor(stageId, (struct DoorRecord *) phead, pdefIndex);
+#ifdef GEVR
+                            if (netHordeActive()) ((struct DoorRecord *)phead)->keyflags=0;
+#endif
                         }
                         break;
                     case PROPDEF_DOOR_SCALE:

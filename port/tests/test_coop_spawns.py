@@ -30,7 +30,7 @@ functions = (
     "void gevrCoopChrSpawned(", "void gevrCoopChrIdentityChanged(",
     "int netCoopHostSlotOf(", "static ChrRecord *coopLocalChr(", "static void coopReceiveStates(",
     "static int coopMakeSpawn(", "static void coopForgetPendingSpawn(", "static void coopRetrySpawns(",
-    "static void coopReceiveSpawn(", "void netCoopHostTick(", "void netCoopPuppetTick(",
+    "static void coopReceiveSpawn(", "static void coopReceiveRemove(", "void netCoopHostTick(", "void netCoopPuppetTick(",
 )
 parts = {
     "TYPES": types,
