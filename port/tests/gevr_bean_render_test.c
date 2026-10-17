@@ -49,6 +49,7 @@ int gevrHatOwnsNode(const void *node) { (void)node; return 0; }
 int gevrHatNodeGdl(struct ModelNode *node, struct Model *model, void **gdl) { (void)node; (void)model; (void)gdl; return 0; }
 
 #include "gevr_bean_pose_test.inc.h"
+#include "gevr_bean_plane_test.inc.h"
 #include <gevr_bean_hit_test.inc.h>
 #include <gevr_bean_material_paths_test.inc.h>
 
@@ -239,6 +240,7 @@ int main(void)
     materialPathChecks();
     hitChecks();
     poseChecks();
+    planeChecks();
     /* Level reset drops wounds before their instance records leave the pool. */
     Model wounded = {0};
     s_wounds[0].model = &wounded;

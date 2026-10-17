@@ -26,6 +26,10 @@ static PropRecord props[HORDE_GUARD_SLOTS],player_prop;
 static struct player local;
 struct player *g_playerPointers[MAX_PLAYER_COUNT],*g_CurrentPlayer=&local;
 static StandTile tile;
+static int path_clear, door_opens, ammo_full;
+static int supply_amount[AMMOTYPE_MAX];
+static DoorRecord test_door;static PropRecord door_prop;
+static int door_blocking;
 static int announced, supplies, armed, host=1,free_override=-1, allyStops;
 void gevrAllyStop(void) { allyStops++; }
 int netHordeActive(void) {return 1;}
@@ -42,23 +46,41 @@ void set_cur_player(s32 slot) {assert(slot==0);}
 static int owned_items[ITEM_IDS_MAX];
 int bondinvHasInvItem(ITEM_IDS item) {return item>0 && item<ITEM_IDS_MAX && owned_items[item];}
 int bondinvAddInvItem(ITEM_IDS item) {if(item>0 && item<ITEM_IDS_MAX)owned_items[item]=1;return 1;}
-void give_cur_player_ammo(s32 ammo,s32 count) {(void)ammo;assert(count>0);supplies++;}
+s32 currentPlayerGetAmmoCount(AMMOTYPE ammo) {(void)ammo;return ammo_full?999:0;}
+s32 get_max_ammo_for_type(s32 ammo) {(void)ammo;return 999;}
+void give_cur_player_ammo(s32 ammo,s32 count) {assert(ammo>0 && ammo<AMMOTYPE_MAX && count>0);supplies++;supply_amount[ammo]+=count;}
 void hudmsgTopShow(char *text) {(void)text;}
 static int shown,live_shown;
 void hudmsgBottomShow(char *text) {(void)text;shown++;}
 void gevrHudmsgBottomLive(char *text) {(void)text;live_shown++;}
 /* station markers: uncollectable objects, counted and placed */
-static ObjectRecord markers[32];static PropRecord marker_props[32];static Model marker_models[32];
+static ObjectRecord markers[128];static PropRecord marker_props[128];static Model marker_models[128];
 static int marker_count, marker_rooms;
 ObjectRecord *create_new_item_instance_of_model(PROP model,s32 item) {
-    (void)model;(void)item;assert(marker_count<32);
+    (void)model;(void)item;assert(marker_count<128);
     ObjectRecord *o=&markers[marker_count];memset(o,0,sizeof(*o));
     o->prop=&marker_props[marker_count];o->model=&marker_models[marker_count];o->model->scale=1;
     marker_count++;return o;
 }
 void setupUpdateObjectRoomPosition(ObjectRecord *obj) {(void)obj;marker_rooms++;}
-void chrpropActivate(PropRecord *p) {(void)p;}
+static int marker_activations[128];
+void chrpropActivate(PropRecord *p) {int i=p-marker_props;assert(i>=0 && i<128);assert(!marker_activations[i]++);}
 void chrpropEnable(PropRecord *p) {(void)p;}
+void chrpropDisable(PropRecord *p) {(void)p;}
+WeaponStats *get_ptr_item_statistics(ITEM_IDS item) {
+    static WeaponStats stats;stats.AmmoType=AMMO_9MM;stats.MagSize=7;
+    if(item==ITEM_SKORPION){stats.AmmoType=AMMO_9MM_2;stats.MagSize=20;}
+    if(item==ITEM_AK47){stats.AmmoType=AMMO_RIFLE;stats.MagSize=30;}
+    if(item==ITEM_SHOTGUN){stats.AmmoType=AMMO_SHOTGUN;stats.MagSize=5;}
+    if(item==ITEM_RUGER){stats.AmmoType=AMMO_MAGNUM;stats.MagSize=6;}
+    if(item==ITEM_ROCKETLAUNCH){stats.AmmoType=AMMO_ROCKETS;stats.MagSize=1;}
+    return &stats;
+}
+int gevrCoopGuardTarget(ChrRecord *chr) {(void)chr;return 0;}
+PropRecord *sub_GAME_7F0B1410(StandTile *t,f32 x,f32 z,f32 xx,f32 zz,s32 mask)
+{(void)t;(void)x;(void)z;(void)xx;(void)zz;(void)mask;return door_blocking?&door_prop:NULL;}
+void doorsChooseSwingDirection(PropRecord *p,DoorRecord *d) {(void)p;(void)d;}
+void doorActivate(DoorRecord *d,DOORSTATE state) {assert(state==DOORSTATE_OPENING);d->openstate=state;door_opens++;}
 void modelSetScale(Model *m,f32 s) {m->scale=s;}
 void matrix_4x4_set_position_and_rotation_around_y(f32 *pos,f32 a,Mtxf *m) {(void)a;memset(m,0,sizeof(*m));m->m[3][0]=pos[0];m->m[3][1]=pos[1];m->m[3][2]=pos[2];}
 void matrix_scalar_multiply(f32 s,f32 *m) {(void)s;(void)m;}
@@ -76,7 +98,7 @@ s32 chrGetNumFree(void) {
 }
 waypoint *chrlvStanPathRelated(coord3d *p,StandTile *t) {(void)p;(void)t;return (waypoint *)1;}
 s32 waypointFindRoute(waypoint *a,waypoint *b,waypoint **route,s32 length) {(void)a;(void)b;(void)route;(void)length;return 2;}
-s32 stanTestLineUnobstructed(StandTile **stan,f32 x,f32 z,f32 nx,f32 nz,int mask,f32 ymin,f32 ymax,f32 a,f32 b) {(void)stan;(void)x;(void)z;(void)nx;(void)nz;(void)mask;(void)ymin;(void)ymax;(void)a;(void)b;return FALSE;}
+s32 stanTestLineUnobstructed(StandTile **stan,f32 x,f32 z,f32 nx,f32 nz,int mask,f32 ymin,f32 ymax,f32 a,f32 b) {(void)stan;(void)x;(void)z;(void)nx;(void)nz;(void)mask;(void)ymin;(void)ymax;(void)a;(void)b;return path_clear;}
 PropRecord *chrGiveWeapon(ChrRecord *chr,s32 model,ITEM_IDS item,s32 flags) {
     (void)model;(void)item;assert(flags&PROPFLAG_AIUNDROPPABLE);armed++;return chr->prop;
 }
@@ -109,7 +131,7 @@ int main(void)
     gevrHordeStageLoaded();
     assert(gevrHordeState()->credits[0]==HORDE_START_CREDITS);
     for(int i=0;i<60;i++)gevrHordeTick(15);
-    assert(announced==1 && supplies==3 && gevrHordeState()->remaining==5);
+    assert(announced==1 && supplies==0 && gevrHordeState()->remaining==5);
     /* the preparation countdown updates each second; the wave is announced once */
     assert(live_shown>=2 && shown==1);
     /* the box and six wall buys stand in the world and cannot be picked up */
@@ -132,6 +154,31 @@ int main(void)
     actors[0].actiontype=ACT_DIE;gevrHordeTick(1);gevrHordeTick(1);
     assert(gevrHordeState()->kills==1 && gevrHordeState()->alive==5);
     assert(gevrHordeState()->credits[0]==HORDE_START_CREDITS+HORDE_HIT_CREDITS+HORDE_HEADSHOT_CREDITS);
+    /* One crate per actual death, including repeated lethal notifications.
+     * Despawns give none. Pickup is shared, proximity checked and idempotent. */
+    HordeState loot=*gevrHordeState();
+    assert(loot.ammo[0].id==gevrHordeGuardId(&actors[0]));
+    assert(loot.ammo[0].ticks>0 && !loot.ammo[1].id);
+    assert(!gevrHordeHandleAction(0,HORDE_ACT_AMMO_PICKUP,loot.ammo[0].id));
+    player_prop.pos=(coord3d){.x=loot.ammo[0].pos[0],.y=loot.ammo[0].pos[1]+160,.z=loot.ammo[0].pos[2]};
+    assert(!gevrHordeHandleAction(0,HORDE_ACT_AMMO_PICKUP,loot.ammo[0].id)); /* closed door */
+    path_clear=1;
+    assert(gevrHordeHandleAction(0,HORDE_ACT_AMMO_PICKUP,loot.ammo[0].id));
+    assert(!gevrHordeHandleAction(0,HORDE_ACT_AMMO_PICKUP,loot.ammo[0].id));
+    assert(gevrHordeState()->ammo_grants[0]==1);
+    owned_items[ITEM_WPPK]=1;
+    player_prop.pos=(coord3d){0};path_clear=0;
+    gevrHordeTick(1);assert(supplies==1);
+    gevrHordeTick(1);assert(supplies==1 && supply_amount[AMMO_9MM]==16); /* snapshot grant applied once */
+    /* Horde requests nearby route-blocking doors without re-triggering one
+     * already opening, and never opens a distant door. */
+    door_prop.type=PROP_TYPE_DOOR;door_prop.door=&test_door;
+    door_prop.pos=actors[1].prop->pos;test_door.frac=1;test_door.openPosition=0;
+    door_blocking=1;
+    for(int i=0;i<61;i++)gevrHordeTick(1);
+    assert(door_opens>=1);int opened=door_opens;
+    for(int i=0;i<61;i++)gevrHordeTick(1);
+    assert(door_opens==opened);door_blocking=0;
     /* Walk to pad 2 (Wall Buy) and buy Klobb (500 pts), then walk to pad 1 (Mystery Box). */
     player_prop.pos.x=4000;
     assert(gevrHordeOnUse() && gevrHordeState()->grant_seq[0]==1);
@@ -144,7 +191,10 @@ int main(void)
     assert(announced==7 && gevrHordeState()->alive==5);
     for(int i=0;i<HORDE_GUARD_SLOTS;i++)if(actors[i].model)actors[i].actiontype=ACT_DEAD;
     gevrHordeTick(1);assert(gevrHordeState()->phase==HORDE_INTERMISSION && gevrHordeState()->completed==1);
-    assert(supplies==7);
+    assert(supplies==2); /* enemy pickup plus one magazine on buying a new weapon; no wave refill */
+    int ammo_before=supplies;
+    for(int i=0;i<30;i++)gevrHordeTick(1);
+    assert(supplies==ammo_before); /* no intermission resupply */
     /* Mystery Box roll and claim at pad 1 once player has >= 950 pts. */
     HordeState rich=*gevrHordeState();rich.revision++;rich.credits[0]=2000;
     gevrHordeApplyState(&rich);
@@ -159,6 +209,7 @@ int main(void)
     assert(!memcmp(&ended,gevrHordeState(),sizeof(ended)));
     /* Synthetic 45-minute run: repeated deaths/replacement must recycle the
      * same actor storage and keep every live wave under its concurrent cap. */
+    int previous_markers=marker_count;
     memset(actors,0,sizeof(actors));gevrHordeStageLoaded();
     for(int frame=0;frame<45*60*4;frame++) {
         gevrHordeTick(15);
@@ -174,6 +225,8 @@ int main(void)
     }
     assert(gevrHordeState()->completed>30 && gevrHordeState()->kills>1000 && gevrHordeState()->credits[0]>20000
         && gevrHordeState()->credits[0]<(HORDE_START_CREDITS+gevrHordeState()->kills*HORDE_KILL_CREDITS));
+    assert(marker_count-previous_markers<=7+HORDE_AMMO_DROPS); /* fixed object pool over 45 minutes */
+    for(unsigned i=0;i<HORDE_AMMO_DROPS;i++) assert(gevrHordeState()->ammo[i].ticks<=HORDE_AMMO_LIFETIME);
     /* A friendly companion has a network identity but no wave identity. It
      * cannot increase quotas/kills, keep a wave alive or survive all-down defeat. */
     memset(actors,0,sizeof(actors));gevrHordeStageLoaded();
@@ -184,6 +237,24 @@ int main(void)
     actors[63].actiontype=ACT_DEAD;gevrHordeTick(15);
     assert(!gevrHordeState()->kills && !gevrHordeState()->alive);
     actors[63].actiontype=ACT_STAND;gevrHordeDefeat();assert(gevrHordeDefeated() && allyStops==2);
-    puts("PASS: production Horde setup, safe pads, armed spawn publication, hit/headshot points, Mystery Box, Wall Buys, slot pressure, takeover reconciliation, death idempotency, despawn replacement, resupply, defeat and the companion kept out of wave accounting");
+    /* Owned ammo pools grant once even with multiple guns sharing them.
+     * Explosive ammo arrives once per four shared crates, not per kill. */
+    owned_items[ITEM_WPPK]=owned_items[ITEM_TT33]=owned_items[ITEM_AK47]=owned_items[ITEM_SHOTGUN]=1;
+    owned_items[ITEM_RUGER]=owned_items[ITEM_ROCKETLAUNCH]=1;
+    int before_ammo[AMMOTYPE_MAX];memcpy(before_ammo,supply_amount,sizeof(before_ammo));
+    HordeState ammo_state=*gevrHordeState();ammo_state.revision++;ammo_state.ammo_grants[0]=4;
+    gevrHordeApplyState(&ammo_state);gevrHordeTick(1);
+    assert(supply_amount[AMMO_9MM]-before_ammo[AMMO_9MM]==64);
+    assert(supply_amount[AMMO_RIFLE]-before_ammo[AMMO_RIFLE]==48);
+    assert(supply_amount[AMMO_SHOTGUN]-before_ammo[AMMO_SHOTGUN]==16);
+    assert(supply_amount[AMMO_MAGNUM]-before_ammo[AMMO_MAGNUM]==12);
+    assert(supply_amount[AMMO_ROCKETS]-before_ammo[AMMO_ROCKETS]==1);
+    /* Full players leave crates for teammates. */
+    ammo_state=*gevrHordeState();ammo_state.revision++;ammo_state.phase=HORDE_PREPARE;
+    ammo_state.ammo[0]=(HordeAmmoDrop){99999,100,{player_prop.pos.x,0,player_prop.pos.z}};
+    gevrHordeApplyState(&ammo_state);ammo_full=1;path_clear=1;
+    gevrHordeTick(1);assert(gevrHordeState()->ammo[0].id==99999);
+    ammo_full=0;gevrHordeTick(1);assert(!gevrHordeState()->ammo[0].id);
+    puts("PASS: production Horde setup, safe pads, armed spawn publication, hit/headshot points, Mystery Box, Wall Buys, slot pressure, takeover reconciliation, death idempotency, despawn replacement, bounded shared ammo drops, doorway recovery, defeat and the companion kept out of wave accounting");
     puts("PASS: 45 simulated minutes of wave progression with bounded/recycled actors");
 }

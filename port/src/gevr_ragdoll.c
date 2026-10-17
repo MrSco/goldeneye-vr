@@ -797,9 +797,6 @@ void gevrRagdollTick(int ticks60)
         return;
     }
     if(!rdStart())return;
-    /* Culled with the game's tick-time view, as chrTick culls guards; the
-     * extra eye and barrel passes draw the same set */
-    for(int i=0;i<RD_BODIES;i++)if(s_bodies[i].used)s_bodies[i].onscreen=rdOnScreen(&s_bodies[i]);
     if(ticks60<=0)return;
     float dt=fminf(ticks60/60.0f,0.1f);
     int limit=VrBodiesStay>0?VrBodiesStay:RD_BODIES;
@@ -983,6 +980,8 @@ Gfx *gevrRagdollRender(Gfx *gdl)
     sub_GAME_7F073FC8(0); /* the native upright shadow does not follow a falling rig */
     for(int i=0;i<RD_BODIES;i++) {
         RdBody *b=&s_bodies[i]; if(!b->used)continue;
+        /* Rooms and camera are now those of the view being drawn. */
+        b->onscreen=rdOnScreen(b);
         if(!b->onscreen)continue;
         b->model.render_pos=dynAllocate(b->matrices*sizeof(RenderPosView));
         if(!b->model.render_pos)continue;

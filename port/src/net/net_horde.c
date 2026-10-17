@@ -3,12 +3,13 @@
 #include "net_horde.h"
 #include "game/gevr_ally.h"
 #include "system.h"
+#include <math.h>
 
 void netHordeSend(int slot)
 {
     if (!netHordeActive() || !netIsHost()) return;
     const HordeState *s = gevrHordeState();
-    unsigned char raw[128];
+    unsigned char raw[1024];
     struct netbuf b = { .data = raw, .size = sizeof(raw) };
     netbufStartWrite(&b);
     netbufWriteU32(&b, GEVR_NET_MAGIC); netbufWriteU16(&b, GEVR_NET_VERSION);
@@ -23,6 +24,11 @@ void netHordeSend(int slot)
     netbufWriteU8(&b,s->box_state); netbufWriteU8(&b,s->box_spot);
     netbufWriteU8(&b,s->box_buyer); netbufWriteU8(&b,s->box_weapon); netbufWriteU8(&b,s->box_uses);
     for (unsigned i=0;i<4;i++) { netbufWriteU8(&b,s->grant_kind[i]); netbufWriteU8(&b,s->grant_item[i]); }
+    for (unsigned i=0;i<4;i++) { netbufWriteU32(&b,s->ammo_grants[i]); netbufWriteU32(&b,s->wall_owned[i]); }
+    for (unsigned i=0;i<HORDE_AMMO_DROPS;i++) {
+        netbufWriteU32(&b,s->ammo[i].id); netbufWriteU32(&b,s->ammo[i].ticks);
+        for (unsigned k=0;k<3;k++) netbufWriteF32(&b,s->ammo[i].pos[k]);
+    }
     netbufWriteU8(&b,s->phase); netbufWriteU8(&b,s->players);
     if (slot < 0) netCoopBroadcast(b.data,b.wp,1);
     else netCoopSendTo(slot,b.data,b.wp);
@@ -40,6 +46,19 @@ void netHordeReceive(struct netbuf *b)
     s.box_state=netbufReadU8(b); s.box_spot=netbufReadU8(b);
     s.box_buyer=netbufReadU8(b); s.box_weapon=netbufReadU8(b); s.box_uses=netbufReadU8(b);
     for (unsigned i=0;i<4;i++) { s.grant_kind[i]=netbufReadU8(b); s.grant_item[i]=netbufReadU8(b); }
+    for (unsigned i=0;i<4;i++) {
+        s.ammo_grants[i]=netbufReadU32(b);s.wall_owned[i]=netbufReadU32(b);
+        if (s.wall_owned[i]&~31u) return;
+    }
+    for (unsigned i=0;i<HORDE_AMMO_DROPS;i++) {
+        s.ammo[i].id=netbufReadU32(b); s.ammo[i].ticks=netbufReadU32(b);
+        for (unsigned k=0;k<3;k++) {
+            s.ammo[i].pos[k]=netbufReadF32(b);
+            if (!isfinite(s.ammo[i].pos[k]) || fabsf(s.ammo[i].pos[k])>1000000.0f) return;
+        }
+        if (s.ammo[i].ticks>HORDE_AMMO_LIFETIME || (s.ammo[i].id && !s.ammo[i].ticks)) return;
+        for (unsigned j=0;j<i;j++) if (s.ammo[i].id && s.ammo[i].id==s.ammo[j].id) return;
+    }
     s.phase=netbufReadU8(b); s.players=netbufReadU8(b);
     if (b->error || netbufReadLeft(b) || epoch!=netGetWorldEpoch() || !hordeStateValid(&s)) return;
     gevrHordeApplyState(&s);
@@ -58,7 +77,7 @@ void netHordeRequestAction(unsigned action, unsigned item)
     netbufWriteU32(&b, GEVR_NET_MAGIC); netbufWriteU16(&b, GEVR_NET_VERSION);
     netbufWriteU8(&b, NET_MSG_HORDE_STATE); netbufWriteU8(&b, netGetLocalSlot());
     netbufWriteU32(&b, netGetWorldEpoch());
-    netbufWriteU8(&b, (uint8_t)action); netbufWriteU8(&b, (uint8_t)item);
+    netbufWriteU8(&b, (uint8_t)action); netbufWriteU32(&b, item);
     netCoopBroadcast(b.data, b.wp, 1);
 }
 
@@ -66,7 +85,8 @@ void netHordeReceiveClient(int slot, struct netbuf *b)
 {
     if (!netHordeRunning() || !netIsHost() || slot < 0 || slot >= 4) return;
     uint32_t epoch = netbufReadU32(b);
-    uint8_t action = netbufReadU8(b), item = netbufReadU8(b);
+    uint8_t action = netbufReadU8(b);
+    uint32_t item = netbufReadU32(b);
     if (b->error || netbufReadLeft(b) || epoch != netGetWorldEpoch()) return;
     if (gevrHordeHandleAction(slot, action, item)) netHordeSend(-1);
 }
