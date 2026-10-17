@@ -17,7 +17,7 @@ This is an experimental native Quest multiplayer mode. It uses ENet and borrows 
 
 Mode **Horde** plays endless Archives waves with regular armed guards, solo or
 with up to four humans. Preparation breaks resupply ammunition and unlock guns.
-Everyone down ends the run; the host can retry from the pause menu. Protocol 22
+Everyone down ends the run; the host can retry from the pause menu. An optional AI ally joins the party (Play > Game rules). Protocol 23
 requires this build on every headset. See [Horde mode](docs/horde-mode.md) for
 implementation details and remaining hardware acceptance. Older protocol notes
 below describe prior releases.

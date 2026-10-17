@@ -169,6 +169,9 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; Bodies kept on the floor: 0 = they fade as in the original game, or 12, 24, 48.\n");
     fprintf(f, "BodiesStay=%d\n", VrBodiesStay);
     fprintf(f, "; 1 = alerted guards can call multiple reinforcements (solo, default off; any body count).\n");
+    fprintf(f, "; GoldenEye solo/co-op/Horde AI ally; host chooses, next mission or retry.\n");
+    fprintf(f, "Ally=%d\nAllyWeapon=%d\nAllyAggression=%d\nAllyHealth=%d\nAllyDamage=%d\nAllyInvincible=%d\n",
+            VrAlly != 0, VrAllyWeapon, VrAllyAggression, VrAllyHealth, VrAllyDamage, VrAllyInvincible != 0);
     fprintf(f, "FastReinforcements=%d\n", VrFastReinforcements ? 1 : 0);
     fprintf(f, "; Host's co-op Fast reinforcements preference, independent of solo; default off.\n");
     fprintf(f, "CoopFastReinforcements=%d\n", VrCoopFastReinforcements ? 1 : 0);
@@ -689,6 +692,12 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "BodySlotSize") == 0) VrBodySlotSize = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             else if (strcmp(key, "PerWeaponRecoil") == 0) VrPerWeaponRecoil = ival != 0;
             else if (strcmp(key, "MinesStickToGuards") == 0) VrMinesStickToGuards = ival != 0;
+            else if (strcmp(key, "Ally") == 0) VrAlly = ival != 0;
+            else if (strcmp(key, "AllyWeapon") == 0) VrAllyWeapon = ival < 0 ? 0 : ival > 9 ? 9 : ival;
+            else if (strcmp(key, "AllyAggression") == 0) VrAllyAggression = ival < 0 ? 0 : ival > 2 ? 2 : ival;
+            else if (strcmp(key, "AllyHealth") == 0) VrAllyHealth = ival < 25 ? 25 : ival > 1000 ? 1000 : ival;
+            else if (strcmp(key, "AllyDamage") == 0) VrAllyDamage = ival < 25 ? 25 : ival > 400 ? 400 : ival;
+            else if (strcmp(key, "AllyInvincible") == 0) VrAllyInvincible = ival != 0;
             else if (strcmp(key, "FastReinforcements") == 0) VrFastReinforcements = ival != 0;
             else if (strcmp(key, "CoopFastReinforcements") == 0) VrCoopFastReinforcements = ival != 0;
             else if (strcmp(key, "BodiesStay") == 0)

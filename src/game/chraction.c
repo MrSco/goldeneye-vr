@@ -5,6 +5,7 @@
 #include <ultra64.h>
 #ifdef GEVR
 #include "gevr_ragdoll.h"
+#include "gevr_ally.h"
 #endif
 #include <bondaicommands.h>
 #include <bondgame.h>
@@ -2611,6 +2612,9 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
         s32   playerNum;
 
         damageToCause = gunItemGetDestructionAmount(weaponid);
+#ifdef GEVR
+        damageToCause *= gevrAllyDamageScale();
+#endif
 
 #ifdef GEVR
         if (isPlayer && (gevrSoloRules()))
@@ -6654,6 +6658,10 @@ void chrlvUpdateShotbondsum(ChrRecord *self, s32 *arg1, s32 *arg2, ITEM_IDS item
     s32 padding; // unused
     s32 phi_v1;
 
+#ifdef GEVR
+    /* An ally's stray fire must never enter Bond's probabilistic damage path. */
+    if (gevrAllyIs(self)) { *arg1 = *arg2 = 0; return; }
+#endif
     player_prop = getCurrentPlayerProp();
     self_prop = self->prop;
 
@@ -7163,7 +7171,11 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
                                 {
                                     if ((self->chrflags & CHRFLAG_CAN_SHOOT_CHRS) != 0)
                                     {
+#ifdef GEVR
+                                        gevrAllyHitGuard(self, stanSavedColl_posData->chr, &sp220, chrlvWeaponNumber(prop_selfchr));
+#else
                                         handles_shot_actors(stanSavedColl_posData->chr, 0xF, &sp220, chrlvWeaponNumber(prop_selfchr), 0);
+#endif
                                     }
                                 }
                                 else if ((stanSavedColl_posData->type == PROP_TYPE_OBJ) || (stanSavedColl_posData->type == PROP_TYPE_WEAPON))
@@ -9710,6 +9722,9 @@ void chrlvActionTick(ChrRecord *self)
         if (((s32)self->sleep < 0) || (self->chrflags & CHRFLAG_00040000))
         {
             self->sleep = 0;
+#ifdef GEVR
+            if (!gevrAllyThink(self))
+#endif
             ai(self, PROP_TYPE_CHR);
 
             switch (self->actiontype)
@@ -10838,7 +10853,7 @@ bool sub_GAME_7F033B38(ChrRecord *self, f32 distance)
             /* VR keeps Bond's body in the character pool during gameplay.
              * Natalya's enemy scan must not choose that body (or a teammate)
              * as its guard preset and wait forever in the attack list (#163). */
-            && chr->prop && chr->prop->type != PROP_TYPE_VIEWER
+            && chr->prop && chr->prop->type != PROP_TYPE_VIEWER && !gevrAllyIs(chr)
 #endif
             )
         {

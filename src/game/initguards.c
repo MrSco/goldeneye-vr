@@ -36,6 +36,7 @@ void alloc_init_GUARDdata_entries(s32 count)
         /* chraction.c: the kept bodies were the last stage's */
         extern void gevrBodiesReset(void);
         gevrBodiesReset();
+        { extern void gevrAllyReset(void); gevrAllyReset(); }
     }
 #endif
 

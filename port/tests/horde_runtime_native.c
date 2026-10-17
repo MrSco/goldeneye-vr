@@ -13,6 +13,7 @@
 #include "game/loadobjectmodel.h"
 #include "game/stan.h"
 #include "net_horde.h"
+#include "game/gevr_ally.h"
 #include <assert.h>
 #include <string.h>
 
@@ -25,7 +26,8 @@ static PropRecord props[HORDE_GUARD_SLOTS],player_prop;
 static struct player local;
 struct player *g_playerPointers[MAX_PLAYER_COUNT],*g_CurrentPlayer=&local;
 static StandTile tile;
-static int announced, supplies, armed, host=1,free_override=-1;
+static int announced, supplies, armed, host=1,free_override=-1, allyStops;
+void gevrAllyStop(void) { allyStops++; }
 int netHordeActive(void) {return 1;}
 int netHordeRunning(void) {return 1;}
 s32 netIsHost(void) {return host;}
@@ -172,6 +174,16 @@ int main(void)
     }
     assert(gevrHordeState()->completed>30 && gevrHordeState()->kills>1000 && gevrHordeState()->credits[0]>20000
         && gevrHordeState()->credits[0]<(HORDE_START_CREDITS+gevrHordeState()->kills*HORDE_KILL_CREDITS));
-    puts("PASS: production Horde setup, safe pads, armed spawn publication, hit/headshot points, Mystery Box, Wall Buys, slot pressure, takeover reconciliation, death idempotency, despawn replacement, resupply and defeat");
+    /* A friendly companion has a network identity but no wave identity. It
+     * cannot increase quotas/kills, keep a wave alive or survive all-down defeat. */
+    memset(actors,0,sizeof(actors));gevrHordeStageLoaded();
+    actors[63].model=&models[63];actors[63].prop=&props[63];actors[63].actiontype=ACT_STAND;
+    gevrHordeSetGuardId(&actors[63],GEVR_ALLY_HORDE_ID);
+    assert(!gevrHordeGuardId(&actors[63]));
+    gevrHordeBecameHost();assert(gevrHordeState()->alive==0 && gevrHordeState()->next_id==1);
+    actors[63].actiontype=ACT_DEAD;gevrHordeTick(15);
+    assert(!gevrHordeState()->kills && !gevrHordeState()->alive);
+    actors[63].actiontype=ACT_STAND;gevrHordeDefeat();assert(gevrHordeDefeated() && allyStops==2);
+    puts("PASS: production Horde setup, safe pads, armed spawn publication, hit/headshot points, Mystery Box, Wall Buys, slot pressure, takeover reconciliation, death idempotency, despawn replacement, resupply, defeat and the companion kept out of wave accounting");
     puts("PASS: 45 simulated minutes of wave progression with bounded/recycled actors");
 }

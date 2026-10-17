@@ -42,7 +42,8 @@ guard loadout once the basic loop is enjoyable.
 
 - One arena: Archives. Original GoldenEye ROM first; other campaigns require
   separate arena profiles and validation.
-- Solo or up to four human players, no friendly AI, friendly fire off by default.
+- Solo or up to four human players, friendly fire off by default. Optional friendly
+  AI was added by #194; see [AI ally](ai-ally.md).
 - Regular armed guards using existing GoldenEye movement and combat AI.
 - A common starting pistol and limited ammo; fixed resupply points and guaranteed
   ammo between waves. Do not depend on random drops for a viable run.

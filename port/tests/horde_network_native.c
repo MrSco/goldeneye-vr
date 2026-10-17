@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <string.h>
 
+s32 gevrAllyIs(struct ChrRecord *chr) { return FALSE; }
 static HordeState state;
 static uint32_t epoch=7;
 static bool hosting=true;

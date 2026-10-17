@@ -39,7 +39,7 @@ end=opening+1;depth=1
 while depth:
     depth+=(launcher[end]=='{')-(launcher[end]=='}');end+=1
 comfort=launcher[opening:end]
-start=launcher.index('if (VrMpMode == NET_MODE_COOP) {',launcher.index('if (ImGui::BeginTabItem("Match"))'))
+start=launcher.index('if (netModePve(VrMpMode)) {',launcher.index('if (ImGui::BeginTabItem("Match"))'))
 opening=launcher.index('{',start);end=opening+1;depth=1
 while depth:
     depth+=(launcher[end]=='{')-(launcher[end]=='}');end+=1

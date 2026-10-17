@@ -53,8 +53,10 @@ difficulty. The launcher disables multiplayer for other campaigns.
 - A solo host's pause menu freezes gameplay. With teammates, gameplay continues
   while a player has their menu open. Defeat freezes gameplay for everyone.
 
-All participants must use this build: protocol **22** changes guard packet
-layouts and excludes protocol 21 and older builds. The app release number has
+All participants must use this build: protocol **22** includes guard generations and
+the optional AI ally, excluding protocol 21 and older builds. The companion
+follows the party without counting as a wave enemy or a human survivor; see
+[AI ally](ai-ally.md). The app release number has
 not been bumped or published by this change.
 
 ## Implementation
