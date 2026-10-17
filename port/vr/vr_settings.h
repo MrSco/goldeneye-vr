@@ -123,7 +123,8 @@ extern int VrTouchModel;        // watch Controls page: 0 the headset's controll
 extern int VrShowStats;         // troubleshooting readout in game
 extern int VrSpaceWarp;         // Application SpaceWarp: 1 on, 0 off, -1 on while Bean is
 extern int VrResetRenderScale;  // the test build's RenderScale key was read: scale back to 1
-extern int VrEyeMsaa;           // eye images' anti-aliasing: 1 off, 2 or 4 samples (live)
+extern int VrEyeMsaa;           // eye images' anti-aliasing: 1 off, 2 samples (live)
+extern int VrCpuLevel;          // CPU performance level asked at session start: -1 none, 0..2
 extern unsigned long long VrCheatMask; // launcher cheats: bit n = CHEAT_IDS n
 extern int VrGunSizeCheat;      // VR fun cheat: 0 normal, 1 tiny, 2 big guns
 extern int VrUnlockAll;         // every mission, 007 mode and every cheat unlocked (issue #54)

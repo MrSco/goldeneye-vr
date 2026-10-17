@@ -3650,14 +3650,16 @@ extern "C" void gevrLauncherRun(void)
             // Anti-aliasing: the eye images multisampled (vr_attach_eye_fbo), live. No
             // supersampling choice: 1.5x slowed Bean at 120 Hz with SpaceWarp and the
             // user saw little gain (2026-10-17); Video.VRRenderScale still sets it.
+            // No 4x: it looked the same as 2x and cost Bean's eye pass 1.2 ms more,
+            // which on battery dropped the game to 47-52 fps (2026-10-17).
             {
-                static const int samples[] = {1, 2, 4};
-                static const char *const sampleNames[] = {"Off", "2x", "4x"};
-                int sample = VrEyeMsaa >= 4 ? 2 : VrEyeMsaa >= 2 ? 1 : 0;
+                static const int samples[] = {1, 2};
+                static const char *const sampleNames[] = {"Off", "2x"};
+                int sample = VrEyeMsaa >= 2 ? 1 : 0;
                 ImGui::BeginDisabled(!vr_eye_msaa_supported());
-                if (gevrRadioRow("Anti-aliasing", sampleNames, 3, &sample,
+                if (gevrRadioRow("Anti-aliasing", sampleNames, 2, &sample,
                                  "Smooths jagged edges (multisample anti-aliasing). Changes right away. "
-                                 "Higher costs more GPU time.")) {
+                                 "Higher costs more GPU time, which the headset has less of on battery.")) {
                     VrEyeMsaa = samples[sample];
                     vrSettingsSave();
                 }

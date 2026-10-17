@@ -103,4 +103,47 @@ with tempfile.TemporaryDirectory() as temp:
     for phase in APP_MS:
         point, lo, hi = same[phase]['median']
         assert lo <= 0 <= hi and abs(point) < .02, (phase, same[phase])
-print('PASS: analyzer phases, transition/detail exclusion, waits, missed frames, contact, GPU, sections, metrics, bootstrap')
+
+def write_cold(folder):
+    """A --cold run at 60 Hz app frames (SpaceWarp): route pads 285 and 32, cold then warm.
+    The cold tunnel segment's first frames compile a shader for 30 ms and miss two refreshes."""
+    import quest_profile
+    segments = quest_profile.cold_segments([285, 32])
+    folder.mkdir()
+    (folder / 'build.json').write_text(json.dumps({'hz': HZ, 'detail': 0, 'showstats': 0, 'sha256': 'x',
+                                                   'cold_segments': segments}))
+    period = 2 * PERIOD
+    lines = ['# gevr-profile-v2 label=c rows=1 overflow=0 detail=0', ','.join(COLUMNS)]
+    gpu = ['# gpu async arrival-time samples; overflow=0', 'ready_ns,kind,gpu_ns']
+    display = 10**9
+    i = 0
+    for pad, turn, name in segments:
+        for k in range(60 * 7):
+            # the warp lands before the turn: the first half second still has no turn
+            row = dict.fromkeys(COLUMNS, 0)
+            hitch = name == 'cold-285' and k == 5
+            app = 30.0 if hitch else 6.0
+            display += period * (3 if hitch else 1)
+            start = 10**12 + i * period
+            row.update(start_time_ns=start, submit_time_ns=start + int(app * 1e6), display_ns=display, period_ns=period,
+                       kind=1, camera_valid=1, input_buttons='0', input_turn=turn if k >= 30 else 0,
+                       shader_compile_ns=int(24e6) if hitch else 0, texture_upload_ns=int(1e6) if hitch else 0,
+                       upload_bytes=4096 if hitch else 0, draws=300)
+            lines.append(','.join(str(row[c]) for c in COLUMNS))
+            i += 1
+    (folder / 'c-1.csv').write_text('\n'.join(lines) + '\n')
+    (folder / 'c-1.gpu.csv').write_text('\n'.join(gpu) + '\n')
+
+
+with tempfile.TemporaryDirectory() as temp:
+    write_cold(Path(temp) / 'cold')
+    with redirect_stdout(io.StringIO()):
+        c = analyze.cold_summary([Path(temp) / 'cold'])
+    seg = c['segments']
+    assert set(seg) == {'cold-285', 'cold-32', 'warm-285', 'warm-32'}, seg.keys()
+    # the hitch before the turn started belongs to the segment whose warp caused it
+    assert seg['cold-285']['missed'] == [2] and seg['cold-285']['over'] == 1, seg['cold-285']
+    assert abs(seg['cold-285']['shader_compile'] - 24) < 1e-6 and abs(seg['cold-285']['app_max'] - 30) < 1e-6
+    assert all(seg[n]['missed'] == [0] and seg[n]['over'] == 0 for n in ('cold-32', 'warm-285', 'warm-32'))
+    assert len(c['worst']) == 1 and c['worst'][0][1] == 'cold-285'
+print('PASS: analyzer phases, transition/detail exclusion, waits, missed frames, contact, GPU, sections, metrics, bootstrap, cold route')
