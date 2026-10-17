@@ -326,14 +326,15 @@ void gevrHatModelLoaded(struct ModelFileHeader *header, const char *name)
 	if (m->gex) gex = gevrGexWeaponGet(ITEM_THROWKNIFE);
 	if (m->gex && !gex) return;
 	collect(m, header->RootNode, 0);
-	/* the knife's nodes: GoldenEye X's are those on the knife's matrix; the
-	 * cartridge's held knife's blade, guard and handle by their vertex
-	 * counts; a prop is the knife alone. Another ROM's model is left be. */
+	/* the knife's nodes: GoldenEye X's file is the knife alone (one list,
+	 * 347 vertices, loading the blade's matrix itself; its hand is another
+	 * model); the cartridge's held knife's blade, guard and handle by their
+	 * vertex counts; a prop is the knife alone. Another ROM's model is left be. */
 	for (int i = 0; i < m->nnodes; i++) {
 		int n = m->nodes[i]->Data->DisplayList.numVertices;
 		float o[3];
 		int mtx = nodeMatrix(m->nodes[i], o);
-		if (m->gex) m->knife[i] = mtx >= gex->gunMatrix;
+		if (m->gex) m->knife[i] = 1;
 		else if (kind == HAT_HELD) m->knife[i] = n == 149 || n == 126 || n == 60;
 		else m->knife[i] = n == 39 && m->nnodes == 1;
 		if (m->knife[i] && !m->hatNode) m->hatNode = m->nodes[i];
@@ -347,7 +348,8 @@ void gevrHatModelLoaded(struct ModelFileHeader *header, const char *name)
 		return;
 	}
 	m->origin[0] = m->origin[1] = m->origin[2] = 0;
-	m->matrix = nodeMatrix(m->hatNode, m->origin);
+	/* GoldenEye X's hat hangs on the blade's matrix, not its list's group's */
+	m->matrix = m->gex ? gex->gunMatrix : nodeMatrix(m->hatNode, m->origin);
 	if (m->matrix < 0) return;
 	if (kind == HAT_HELD && !m->gex) {
 		for (int k = 0; k < 3; k++) {
@@ -355,8 +357,8 @@ void gevrHatModelLoaded(struct ModelFileHeader *header, const char *name)
 			m->forearm[k] = s_forearm[k];
 			m->handle[k] = s_knife[k];
 		}
-		m->placed = 1;
 	}
+	m->placed = !m->gex;   /* GoldenEye X's fist is measured at its first draw */
 	m->header = header;
 	m->built = 0;
 	if (kind == HAT_THROWN) s_nthrown = 0;   /* a new level's instances */

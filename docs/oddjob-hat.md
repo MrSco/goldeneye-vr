@@ -40,7 +40,7 @@ does, and it runs ahead of Bean.
 | Model | Nodes | Drawn as |
 |---|---|---|
 | `GthrowknifeZ` (held) | blade, guard and handle (149, 126 and 60 vertices) | the hat, in the blade's node; the hand's lists stay with whoever draws them |
-| `GthrowknifeZ` (GoldenEye X) | every list on the knife's matrix (33, `KNIFE_DEF`) | the hat on that matrix, at GE-X's hand's palm |
+| `GthrowknifeZ` (GoldenEye X) | its one list (347 vertices: the file is the knife alone) | the hat on the blade's matrix (33, `KNIFE_DEF`), at GE-X's hand's palm |
 | `PchrknifeZ` (thrown) | the knife (39 vertices) | the hat, only for instances that `generate_player_thrown_knife` registered, so hunting knives stay knives |
 | `PchrthrowknifeZ` (pickup) | the knife (39 vertices) | the hat |
 
