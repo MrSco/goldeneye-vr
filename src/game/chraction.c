@@ -6618,6 +6618,7 @@ f32 chrlvGetAimLimitAngle(f32 sqdist)
  * line (bondview2.c record_damage_kills): shots in aim, shots out of it, shots
  * held off while the last hit's flash runs, and the hit chance they added.
  */
+#define gevrGuardViewToWorld() (g_gevrCoopGuardViewToWorld ? g_gevrCoopGuardViewToWorld : currentPlayerGetViewToWorldMtxf())
 static s32 s_gevrShotsAimed, s_gevrShotsOff, s_gevrShotsHeld;
 static f32 s_gevrShotChance;
 
@@ -6630,6 +6631,9 @@ void gevrGuardFireTake(s32 *aimed, s32 *off, s32 *held, f32 *chance)
     s_gevrShotsAimed = s_gevrShotsOff = s_gevrShotsHeld = 0;
     s_gevrShotChance = 0.0f;
 }
+#else
+#define gevrCoopGuardDamageBlocked bondviewGetIfCurrentPlayerDamageShowTime
+#define gevrGuardViewToWorld currentPlayerGetViewToWorldMtxf
 #endif
 
 /**
@@ -6696,13 +6700,13 @@ void chrlvUpdateShotbondsum(ChrRecord *self, s32 *arg1, s32 *arg2, ITEM_IDS item
     {
         s_gevrShotsOff++;
     }
-    else if (bondviewGetIfCurrentPlayerDamageShowTime() != 0)
+    else if (gevrCoopGuardDamageBlocked() != 0)
     {
         s_gevrShotsHeld++;
     }
 #endif
 
-    if ((bondviewGetIfCurrentPlayerDamageShowTime() == 0) && (phi_v1 != 0))
+    if ((gevrCoopGuardDamageBlocked() == 0) && (phi_v1 != 0))
     {
         temp_f0_3 = sqrtf(dxdydz_square);
 
@@ -6818,7 +6822,7 @@ s32 sub_GAME_7F02D630(ChrRecord *self, GUNHAND hand, coord3d *arg2)
                 arg2->f[1] = spB8[1];
                 arg2->f[2] = spB8[2];
 
-                matrix_4x4_multiply_homogeneous(currentPlayerGetViewToWorldMtxf(), temp_a0, &sp74);
+                matrix_4x4_multiply_homogeneous(gevrGuardViewToWorld(), temp_a0, &sp74);
                 mtx4TransformVecInPlace(&sp74, arg2);
 
                 ret = 1;
@@ -6826,7 +6830,7 @@ s32 sub_GAME_7F02D630(ChrRecord *self, GUNHAND hand, coord3d *arg2)
             else if (weapon_prop_model->obj->Switches[1])
             {
                 temp_a0_2 = modelFindNodeMtx(weapon_prop_model, weapon_prop_model->obj->Switches[1], 0);
-                matrix_4x4_multiply_homogeneous(currentPlayerGetViewToWorldMtxf(), temp_a0_2, &sp68);
+                matrix_4x4_multiply_homogeneous(gevrGuardViewToWorld(), temp_a0_2, &sp68);
 
                 arg2->f[0] = sp68.m[3][0];
                 arg2->f[1] = sp68.m[3][1];

@@ -32,6 +32,10 @@ int gevrCoopHostGuards(void);               /* the co-op host: it runs the guard
 void netCoopPuppetTick(struct ChrRecord *chr, int tickamount);    /* chr.c chrTick, a client's guard */
 int gevrCoopGuardTarget(struct ChrRecord *chr);                   /* the host: the player a guard acts on */
 void gevrCoopGuardProvoked(struct ChrRecord *chr, int player);
+/* Cached guard matrices belong to the observing view, even while firing as
+ * a remote target. NULL outside that firing call. */
+extern void *g_gevrCoopGuardViewToWorld;
+int gevrCoopGuardDamageBlocked(void);
 extern int g_gevrCoopGuardTick;             /* the host is running a guard as its target player */
 int gevrCoopForwardGuardDamage(float damage, float vx, float vz); /* bondview2.c record_damage_kills */
 int gevrCoopGuardHitElsewhere(struct ChrRecord *chr, int hitpart, struct coord3d *vector, int weaponid);   /* 2 reported */

@@ -6,7 +6,13 @@
 enum { HORDE_PREPARE, HORDE_WAVE, HORDE_INTERMISSION, HORDE_DEFEAT };
 enum { HORDE_BOX_IDLE, HORDE_BOX_ROLLING, HORDE_BOX_READY, HORDE_BOX_MOVING };
 enum { HORDE_GRANT_NONE, HORDE_GRANT_BOX_WEAPON, HORDE_GRANT_WALL_WEAPON, HORDE_GRANT_WALL_AMMO, HORDE_GRANT_ARMOR };
-enum { HORDE_ACT_BOX, HORDE_ACT_WALL_BUY, HORDE_ACT_WALL_AMMO };
+enum { HORDE_ACT_BOX, HORDE_ACT_WALL_BUY, HORDE_ACT_WALL_AMMO, HORDE_ACT_AMMO_PICKUP };
+#define HORDE_AMMO_DROPS 24
+#define HORDE_AMMO_LIFETIME (60 * 60)
+typedef struct {
+    uint32_t id, ticks;
+    float pos[3];
+} HordeAmmoDrop;
 #define HORDE_GUARD_SLOTS 64
 #define HORDE_MAX_QUOTA 240
 #define HORDE_BREAK_TICKS (15 * 60)
@@ -26,6 +32,8 @@ typedef struct {
     uint32_t revision, wave, completed, remaining, alive, kills, revives;
     uint32_t timer, spawn_timer, next_id, rng, elapsed;
     uint32_t credits[4], grant_seq[4], box_timer;
+    uint32_t ammo_grants[4], wall_owned[4];
+    HordeAmmoDrop ammo[HORDE_AMMO_DROPS];
     uint8_t phase, players, box_state, box_spot, box_buyer, box_weapon, box_uses;
     uint8_t grant_kind[4], grant_item[4];
     uint8_t reserved[1]; /* identical layout even under the game's packed AI headers */
@@ -134,10 +142,12 @@ static inline int hordeUseBox(HordeState *s, unsigned slot) {
     return 0;
 }
 static inline int hordeBuyWall(HordeState *s, unsigned slot, unsigned wall_idx, int ammo_only) {
-    if (s->phase == HORDE_DEFEAT || slot >= 4 || wall_idx >= HORDE_WALL_COUNT) return 0;
+    if (s->phase == HORDE_DEFEAT || slot >= 4 || wall_idx >= HORDE_WALL_COUNT || ammo_only) return 0;
+    if (wall_idx<5 && (s->wall_owned[slot] & (1u<<wall_idx))) return 0;
     uint32_t cost = hordeWallCost(wall_idx, ammo_only);
     if (!cost || s->credits[slot] < cost) return 0;
     s->credits[slot] -= cost;
+    if (wall_idx<5) s->wall_owned[slot] |= 1u<<wall_idx;
     s->grant_seq[slot]++;
     s->grant_item[slot] = (uint8_t)wall_idx;
     s->grant_kind[slot] = wall_idx == 5 ? HORDE_GRANT_ARMOR

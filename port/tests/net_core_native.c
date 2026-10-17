@@ -3,7 +3,11 @@
 #undef s_host /* Winsock's in_addr byte-field macro */
 static void fixtureDamage(uint8_t,uint8_t,uint8_t,float,float,float);
 #include "../src/net/net_core.c"
+#ifdef _WIN32
 #define EXPORT __declspec(dllexport)
+#else
+#define EXPORT __attribute__((visibility("default")))
+#endif
 #define CHECK(x) do { if (!(x)) return __LINE__; } while (0)
 struct player_data g_playerPlayerData[MAX_PLAYER_COUNT];
 s32 g_gameOverFlag, D_80048394;
@@ -65,6 +69,12 @@ static int launcher_stops,launcher_restarts;
 void enet_peer_disconnect(ENetPeer *peer,uint32_t reason) { disconnected_peer=peer;disconnect_reason=reason; }
 void netCoopSlotLeft(int slot) { (void)slot; }
 void netCoopMenuReset(void) {}
+static HordeState fixture_horde;
+static int coop_joins, horde_snapshots;
+const HordeState *gevrHordeState(void) { return &fixture_horde; }
+void netCoopPlayerJoined(int slot, int returning) { (void)slot; (void)returning; coop_joins++; }
+void netHordeSend(int slot) { (void)slot; horde_snapshots++; }
+void randomSetSeed(u32 seed) { (void)seed; }
 void netSpectatorReset(void) {}
 void netPlayersTickedReset(void) {}
 void netVoiceReset(void) { voice_resets++; }
@@ -107,6 +117,79 @@ EXPORT int test_core_horde_lobby(void) {
     CHECK(netDamageAllowed(0,1) && VrHordeFriendlyFire==1);
     CHECK(VrMpStage==34 && VrMpMaxPlayers==8 && VrMpBotMode==NET_BOT_FILL);
     VrMpStage=stage;VrMpMaxPlayers=max;VrMpBotMode=bots;
+    return 0;
+}
+static void fixtureStageReady(ENetPeer *peer, size_t size) {
+    u8 raw[16]; struct netbuf buf={.data=raw,.size=sizeof(raw)};
+    netbufStartWrite(&buf);
+    netbufWriteF32(&buf,100); netbufWriteF32(&buf,200);
+    netbufWriteF32(&buf,300); netbufWriteF32(&buf,90);
+    netbufStartReadData(&buf,raw,sizeof(raw));
+    netReceiveStageReady(peer,&buf,size); /* packet header already consumed */
+}
+EXPORT int test_core_horde_admission(void) {
+    for (int host_first=0;host_first<2;host_first++) {
+        fixture(SCENARIO_NORMAL);
+        for (int i=2;i<GEVR_MAX_PLAYERS;i++) s_lobby_state.slots[i].connected=0;
+        s_lobby_state.config.mode=NET_MODE_HORDE;
+        s_lobby_state.config.stage=NET_HORDE_STAGE;
+        memset(s_slot_grace_us,0,sizeof(s_slot_grace_us));
+        ENetPeer peer={0}; peer.data=(void *)(intptr_t)2; s_client_peers[1]=&peer;
+        fixture_horde.phase=HORDE_DEFEAT; /* a previous run, before host map load */
+        coop_joins=horde_snapshots=0;
+        CHECK(netLobbyHostLaunchMatch());
+        CHECK(s_phase==NET_PHASE_IN_PROGRESS && !netHordeRunning());
+        CHECK(!netJoinStartsSpectating());
+        if (host_first) { hordeInit(&fixture_horde,123); netStageLoaded(); }
+        fixtureStageReady(&peer,23);
+        CHECK(!s_lobby_state.slots[1].loaded && !netHordeRunning());
+        fixtureStageReady(&peer,24);
+        CHECK(s_lobby_state.slots[1].loaded && !netSlotIsSpectator(1));
+        CHECK(coop_joins==1 && horde_snapshots==1);
+        if (!host_first) {
+            CHECK(!netHordeRunning());
+            hordeInit(&fixture_horde,123); netStageLoaded();
+        }
+        CHECK(netHordeRunning() && netMpPlayerCount(1)==2 && netSlotOccupied(1));
+        for (unsigned ticks=0;ticks<HORDE_BREAK_TICKS;ticks+=15)
+            hordeAdvance(&fixture_horde,15,netMpPlayerCount(1));
+        CHECK(fixture_horde.phase==HORDE_WAVE && fixture_horde.remaining==hordeQuota(1,2));
+        fixtureStageReady(&peer,24); /* duplicate ack during combat cannot demote */
+        CHECK(!netSlotIsSpectator(1) && coop_joins==1);
+
+        /* A true combat arrival waits without freezing the wave. */
+        CHECK(netJoinStartsSpectating());
+        s_lobby_state.slots[1].spectator=netJoinStartsSpectating();
+        s_lobby_state.slots[1].loaded=0;
+        CHECK(netHordeRunning());
+        fixtureStageReady(&peer,24);
+        CHECK(netSlotIsSpectator(1) && netMpPlayerCount(1)==1);
+        fixture_horde.phase=HORDE_INTERMISSION;
+        netHordeAdmitPlayers();
+        CHECK(!netSlotIsSpectator(1) && netMpPlayerCount(1)==2);
+
+        /* Finishing the load after the break starts admits immediately. */
+        s_lobby_state.slots[1].spectator=1; s_lobby_state.slots[1].loaded=0;
+        fixtureStageReady(&peer,24);
+        CHECK(!netSlotIsSpectator(1));
+        CHECK(!netJoinStartsSpectating());
+        fixture_horde.phase=HORDE_DEFEAT;
+        CHECK(netJoinStartsSpectating());
+        /* Migration return keeps the slot's active status. */
+        s_lobby_state.slots[1].loaded=0; s_slot_grace_us[1]=clock_us;
+        fixtureStageReady(&peer,24);
+        CHECK(!netSlotIsSpectator(1) && !s_slot_grace_us[1]);
+
+        s_round.config.mode=NET_MODE_DEATHMATCH;
+        s_lobby_state.slots[1].loaded=0;
+        fixtureStageReady(&peer,24);
+        CHECK(netSlotIsSpectator(1));
+        s_round.config.mode=NET_MODE_COOP;
+        CHECK(!netJoinStartsSpectating());
+        s_lobby_state.slots[1].spectator=0; s_lobby_state.slots[1].loaded=0;
+        fixtureStageReady(&peer,24);
+        CHECK(!netSlotIsSpectator(1));
+    }
     return 0;
 }
 EXPORT int test_core_teams(void) {

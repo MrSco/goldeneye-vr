@@ -56,6 +56,7 @@ def build_core():
     keep.update({"netInvalidateHitSlot","netClearHostHits","netSetHostEqualization","netGetHostEqualization","netHostBaseDelayMs","netGetSlotHostDelayMs","netHostEqualizationText","netTransitionRoundPhase","netBroadcastRoundPhase","netObserveHitMove","netHitReportAllowed","netProcessHitReport","netExecuteHostHit","netQueueHostHit","netDrainHostHits","netSlotOccupied","netSendHitReport"})
     keep.update({"netStartPad","netStartPadShare","netBroadcastVotes","netClearVotes","netTeamScore","netGetSlotTeam","netSetSlotTeam","netVoiceModeForPair"})
     keep.update({"netConfigSlots","netLobbyMinPlayers", "netCoopSession", "gevrCoopFastReinforcements"})
+    keep.update({"netJoinStartsSpectating", "netReceiveStageReady", "netLobbyHostLaunchMatch", "netSendMatchStartTo", "netHordeActive", "netHordeRunning", "netAllPlayersLoaded", "netHordeAdmitPlayers", "netMpPlayerCount", "netGetPlayingCount"})
     keep.update({"netReceiveLobbyReady","netHostCanStartRound","netBeginRoundReset","netBroadcastRoundPhase"})
     keep.update({"netLobbySlotConnected","netWarmupSettingsChanged","netTryHostStartRequest","netHostRoundTick","netHostReturnToLobby","netStageLoaded","netWarmupSecondsLeft","netHostStartRequested","netHostRequestVotes","netRoundNoticeText","netBroadcastRoundNotice","netReceiveRoundNotice","netGetVote","netResolveVotes","netTallyBallot","netRotationPick","netBallotSize","netHostKickPlayer","netHostDropSlot","netClientKickDisconnected","netBroadcastAllVotes"})
     keep.update({"netHostCanKickPlayer","netReceiveClientCaps","netSendClientCaps","netHostRemoveOldForNoRadar"})
@@ -75,6 +76,7 @@ def build_core():
     fixture=(ROOT/"port/tests/net_core_native.c").read_text(encoding="utf-8").replace('../src/net/net_core.c',subset.as_posix())
     generated=NATIVE/"net_core_native.c";generated.write_text(fixture,encoding="utf-8")
     args=[shutil.which("gcc") or "gcc","-shared","-O2","-fms-extensions","-Wno-builtin-declaration-mismatch"]
+    if os.name != "nt": args += ["-fPIC"]
     args += ["-D"+v for v in ("GEVR=1","PLATFORM_64BIT=1","_LANGUAGE_C=1","VERSION=2","VERSION_US=1","LANG_US=1")]
     args += ["-I"+str(ROOT/v) for v in (".","port/include","include","src","src/game","port/src","port/src/net")]
     args += [str(generated),str(ROOT/"port/src/net/netbuf.c"),str(ROOT/"port/src/gevr_avatar_math.c"),str(ROOT/"port/src/net/net_match.c"),"-o",str(NATIVE/"net_core_native.dll")]
@@ -307,6 +309,7 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_in_game_ready_packets_and_start(self): self.assertEqual(self.core.test_core_menu_ready(),0)
     def test_coop_ignores_team_scenario_for_ready(self): self.assertEqual(self.core.test_core_coop_team_scenario_ready(),0)
     def test_horde_solo_launch_and_coop_rules(self): self.assertEqual(self.core.test_core_horde_lobby(),0)
+    def test_horde_initial_party_and_late_admission(self): self.assertEqual(self.core.test_core_horde_admission(),0)
     def test_coop_guard_drops_detach_and_activate(self): self.assertEqual(self.coop_drops.test_coop_guard_drops(),0)
     def test_coop_guard_hand_removal_and_replacement(self): self.assertEqual(self.coop_drops.test_coop_guard_hand_changes(),0)
     def test_coop_guard_pickups_remain_individual(self): self.assertEqual(self.coop_drops.test_coop_guard_pickups_are_local(),0)

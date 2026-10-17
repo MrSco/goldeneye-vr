@@ -23,6 +23,8 @@ static int active=1,ready=1,tracked[2]={1,1};
 static int focused=1,aiming;
 static uint64_t now=1000000;
 static coord3d eye;
+static struct player remote;
+struct player *g_playerPointers[MAX_PLAYER_COUNT];
 int g_gevrStereo=1,VrLeftHandedMode;
 s32 g_gevrExtraPass;
 int gevrVrReady(void) {return ready;}
@@ -83,13 +85,16 @@ static void fixture(Model *m,ModelFileHeader *header,ChrRecord *chr,PropRecord *
         else {ModelNode *n=nodes[parent[j]].Child;while(n->Next)n=n->Next;n->Next=&nodes[j];}
     }
     prop->type=PROP_TYPE_VIEWER;prop->chr=chr;prop->pos.y=100;chr->prop=prop;chr->model=m;
+    remote.field_488.collision_position=prop->pos;g_playerPointers[1]=&remote;
     data->basemtx=&view;modelUpdateMatrices(data,m);
     memset(&received,0,sizeof(received));received.flags=7;received.head.q[1]=1; /* neutral camera faces +Z */
     for(int role=0;role<2;role++) {received.hand[role].q[3]=1;received.hand[role].pos[0]=role?-35:35;received.hand[role].pos[1]=-10;received.hand[role].pos[2]=30;}
 }
-static void rig(float scale,int lefty,float yaw) {
+static void rig(float scale,int lefty,float yaw,float height) {
     Model m={0};ModelFileHeader header={0};ChrRecord chr={0};PropRecord prop={0};ModelRenderData data={0};
     fixture(&m,&header,&chr,&prop,&data,scale);
+    for(int role=0;role<2;role++)received.hand[role].pos[1]=height;
+    prop.pos.y-=70; /* native animated pelvis, below the movement eye */
     if(lefty) {
         received.flags|=GEVR_POSE_LEFT_HANDED;
         GevrTrackedPose tmp=received.hand[0];received.hand[0]=received.hand[1];received.hand[1]=tmp;
@@ -129,7 +134,7 @@ static void rig(float scale,int lefty,float yaw) {
         near(length(sh.m[3],el.m[3]),30);near(length(el.m[3],wr.m[3]),25);
         float grip[3][3];gevrPoseQuatMatrix(received.hand[role].q,grip);
         for(int k=0;k<3;k++) {
-            near(wr.m[3][k],prop.pos.f[k]+received.head.pos[k]+received.hand[role].pos[k]+grip[1][k]*4);
+            near(wr.m[3][k],remote.field_488.collision_position.f[k]+received.head.pos[k]+received.hand[role].pos[k]+grip[1][k]*4);
             near(wr.m[0][k],grip[1][k]*(side==0?-1:1));near(wr.m[2][k],-grip[2][k]);
         }
         int physicalLeft=-1;assert(gevrAvatarWeaponHand(&chr,role,&physicalLeft)==&nodes[8+side]);assert(physicalLeft==(side==0));
@@ -157,4 +162,4 @@ static void capture(void) {
     float grip[3][3];gevrPoseQuatMatrix(p.hand[0].q,grip);near(-grip[1][0],1);near(-grip[1][1],0);near(-grip[1][2],0);
     aiming=0;focused=0;gevrAvatarCapture(&p,&pl);assert(!p.flags);focused=1;clearFrame();
 }
-int main(void) {rig(1,0,0);rig(.2f,0,0);rig(1,1,0);rig(1,0,90);rig(.2f,1,350);capture();puts("avatar: production rig builders, both wrists, left-handed attachments, scale, collision pose and capture passed");return 0;}
+int main(void) {rig(1,0,0,-10);rig(.2f,0,0,-40);rig(1,1,0,20);rig(1,0,90,-10);rig(.2f,1,350,20);capture();puts("avatar: production rig builders, both wrists, left-handed attachments, scale, collision pose and capture passed");return 0;}

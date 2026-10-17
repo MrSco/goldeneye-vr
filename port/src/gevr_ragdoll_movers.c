@@ -164,6 +164,7 @@ void rdMoversUpdate(float dt,RdBody *bodies,int count)
     /* Only nearby solid props need Jolt bodies. Settled corpses and detached
      * pieces participate in selection too, so their supports persist. */
     for(PropRecord *p=chrpropGetActiveTail();p;p=p->prev) {
+        if (p->type!=PROP_TYPE_DOOR && p->type!=PROP_TYPE_OBJ) continue;
         Mtxf pose;float half[3],q[4];
         if(!npositions)break;
         int close=0;

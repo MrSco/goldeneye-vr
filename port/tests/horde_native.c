@@ -46,7 +46,8 @@ int main(void)
     assert(!hordeUseBox(&econ,0));
     assert(hordeBuyWall(&econ,0,0,0) && econ.credits[0]==170 && econ.grant_seq[0]==1 && econ.grant_kind[0]==HORDE_GRANT_WALL_WEAPON);
     hordeAddCredits(&econ,0,300);
-    assert(hordeBuyWall(&econ,0,0,1) && econ.credits[0]==220 && econ.grant_seq[0]==2 && econ.grant_kind[0]==HORDE_GRANT_WALL_AMMO);
+    assert(!hordeBuyWall(&econ,0,0,1) && econ.credits[0]==470 && econ.grant_seq[0]==1);
+    assert(!hordeBuyWall(&econ,0,0,0)); /* repeat weapon purchase cannot refill */
     /* Roll and claim Mystery Box. */
     hordeAddCredits(&econ,0,1000);
     uint32_t before=econ.credits[0];
@@ -55,7 +56,7 @@ int main(void)
     for(unsigned i=0;i<12;i++)hordeAdvance(&econ,15,1);
     assert(econ.box_state==HORDE_BOX_READY && !hordeUseBox(&econ,1));
     uint8_t rolled=econ.box_weapon;
-    assert(hordeUseBox(&econ,0)==2 && econ.box_state==HORDE_BOX_IDLE && econ.grant_seq[0]==3);
+    assert(hordeUseBox(&econ,0)==2 && econ.box_state==HORDE_BOX_IDLE && econ.grant_seq[0]==2);
     assert(econ.grant_kind[0]==HORDE_GRANT_BOX_WEAPON && econ.grant_item[0]==rolled);
     /* Force Teddy Bear relocation on 10th use: refunds 950 pts and moves box_spot. */
     econ.box_uses=9;econ.credits[1]=HORDE_BOX_COST;

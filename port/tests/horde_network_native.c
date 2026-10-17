@@ -2,13 +2,14 @@
 #include "net_horde.h"
 #include <assert.h>
 #include <string.h>
+#include <math.h>
 
 s32 gevrAllyIs(struct ChrRecord *chr) { return FALSE; }
 static HordeState state;
 static uint32_t epoch=7;
 static bool hosting=true;
-static unsigned char packet[128];
-static unsigned bytes,applied;
+static unsigned char packet[1024];
+static unsigned bytes,applied,observed_item;
 void sysLogPrintf(int level,const char *format,...) {(void)level;(void)format;}
 bool netIsHost(void) {return hosting;}
 int netGetLocalSlot(void) {return 0;}
@@ -20,6 +21,7 @@ const HordeState *gevrHordeState(void) {return &state;}
 void gevrHordeApplyState(const HordeState *s) {state=*s;applied++;}
 unsigned gevrHordeGuardId(const struct ChrRecord *chr) {return chr?123:0;}
 int gevrHordeHandleAction(int slot, unsigned action, unsigned item) {
+    observed_item=item;
     if (action == HORDE_ACT_BOX) return hordeUseBox(&state, (unsigned)slot) != 0;
     if (action == HORDE_ACT_WALL_BUY || action == HORDE_ACT_WALL_AMMO)
         return hordeBuyWall(&state, (unsigned)slot, item, action == HORDE_ACT_WALL_AMMO);
@@ -50,6 +52,8 @@ int main(void)
     hordeSpawned(&state);
     hordeAddCredits(&state,1,600);
     assert(hordeUseBox(&state,1)==1);
+    state.ammo_grants[2]=17;state.wall_owned[3]=31;
+    for(unsigned i=0;i<HORDE_AMMO_DROPS;i++)state.ammo[i]=(HordeAmmoDrop){1000+i,1200,{i*10.0f,-20.0f,3.0f}};
     HordeState saved=state;
     netHordeSend(-1);memset(&state,0,sizeof(state));hosting=false;receive();
     assert(applied==1 && !memcmp(&state,&saved,sizeof(state)));
@@ -59,6 +63,9 @@ int main(void)
     assert(state.credits[0]==0 && state.grant_seq[0]==1 && state.grant_kind[0]==HORDE_GRANT_WALL_WEAPON);
     saved=state;memset(&state,0,sizeof(state));hosting=false;receive();
     assert(applied==2 && !memcmp(&state,&saved,sizeof(state)));
+    hosting=false;netHordeRequestAction(HORDE_ACT_AMMO_PICKUP,0x12345678u);
+    hosting=true;receive_client(0);assert(observed_item==0x12345678u);
+    netHordeSend(-1);hosting=false;
     /* A migrated host can continue the same seeded director. */
     HordeState adopted=state;
     assert(hordeRandom(&adopted)==hordeRandom(&saved));
@@ -66,6 +73,11 @@ int main(void)
     bytes--;receive();assert(applied==2);bytes++;
     packet[bytes++]=0;receive();assert(applied==2);bytes--;
     packet[bytes-2]=99;receive();assert(applied==2);
+    /* Reject malformed loot while preserving the last accepted snapshot. */
+    HordeState valid=state;
+    state.ammo[0].pos[0]=NAN;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
+    state.ammo[1].id=state.ammo[0].id;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
+    state.wall_owned[0]=32;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
     assert(gevrHordeGuardToken((struct ChrRecord *)1)==(((uint64_t)7<<32)|123));
     assert(gevrHordeTokenCurrent(((uint64_t)7<<32)|123));
     assert(!gevrHordeTokenCurrent(((uint64_t)6<<32)|123));
