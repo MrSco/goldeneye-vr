@@ -140,9 +140,9 @@ final class ModManager {
                 "your own copy of the game"),
         // Mods: Oddjob's hat for the throwing knife (port/src/gevr_oddjobhat.c,
         // tools/gevr_oddjob_hat.py), from 007 Nightfire's GameCube release
-        Pack.mod("oddjob-hat", "Oddjob's hat", "Eurocom / EA (007 Nightfire), GoldenEye VR", "1.0",
-                "https://github.com/MrSco/goldeneye-vr-mods/releases/download/oddjob-hat-1.0/oddjob-hat-1.0.zip",
-                16616L, "MrSco/goldeneye-vr-mods", "oddjob-hat-", "oddjob-hat-", ".zip", "oddjob_hat.bin"),
+        Pack.mod("oddjob-hat", "Oddjob's hat", "Eurocom / EA (007 Nightfire), GoldenEye VR", "1.1",
+                "https://github.com/MrSco/goldeneye-vr-mods/releases/download/oddjob-hat-1.1/oddjob-hat-1.1.zip",
+                16626L, "MrSco/goldeneye-vr-mods", "oddjob-hat-", "oddjob-hat-", ".zip", "oddjob_hat.bin"),
     };
 
     // Per-pack states the launcher shows (vr_launcher.cpp keeps the same names).

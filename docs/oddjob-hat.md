@@ -23,7 +23,8 @@ key is `OddjobHat`, on by default; it does nothing until the pack is there.
    script finds the view model by its textures; `--calls 538,539,540` names
    the crown, band and arms draw calls if that fails. It writes
    `oddjob_hat.bin` for the game, plus `oddjob_hat.obj` (the hat and both
-   arms) for Blender.
+   arms, both fixes applied) for Blender. Pack 1.1 is this capture at the
+   default `--height 0.55`.
 3. Zip `oddjob_hat.bin` as `oddjob-hat-<version>.zip`, publish it as release
    `oddjob-hat-<version>` in the mods repository, and update the `oddjob-hat`
    entry in `ModManager.java` (version, URL, exact size). A newer release
@@ -85,7 +86,12 @@ radius is 200 units.
 - 3DReaperDX unprojected X with the window's 4:3 aspect while the game drew
   16:9, so the hat band is round only after X is scaled by 4/3. Y comes from
   the game's projection.
-- Nothing in the capture fixes the height (see `height` below).
+- Nothing in the capture fixes the height: as captured the crown is a top
+  hat's, 1.2 times as tall as it is wide, though the shape is right. The
+  converter scales the hat's height by 0.55 (`--height`), settled by eye in
+  the headset, after measuring Oddjob's grip on the capture as it is, and
+  writes `GEVRHAT2`. A 1.0 pack's `GEVRHAT1` file still has the stretch, and
+  the game draws it at 0.55 high.
 - Every scene draw call appears twice, once per eye of Dolphin's
   side-by-side view. The arms appear once more, in a second pose, off
   screen.
@@ -108,13 +114,8 @@ Defaults: held 133 (about 3.3 of Bond's hand widths), gex 133 (the knife
 matrix's units: it measured 0.0170 view units a unit in the hand on the Dam,
 so about 11 cm, which matched the cartridge hat in the headset; GE-X's own
 0.085 cm units, 176, drew it a third bigger. Model units also fit GE-X's
-weapon panel, drawn at about 1 view unit a unit), prop 200, height 0.55 (the capture's
-vertical stretch undone). The capture fixes
-the hat's width against its depth (the band is round) but not its height:
-as captured the crown is a top hat's, 1.2 times as tall as it is wide. The
-shape is right; the height is the capture's stretch. The game draws it at
-0.55 of that, by eye, until a value confirmed in the headset moves into the
-converter (and a new pack release).
+weapon panel, drawn at about 1 view unit a unit), prop 200, height 1 (on
+top of the file's own fix, above).
 
 Held and gex rotations turn about the fist: yaw about the knife's axis (180 moves the
 hat to the other side of the hand), pitch across the hand, roll about the
