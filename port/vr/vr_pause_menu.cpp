@@ -65,8 +65,10 @@ extern "C" void gevrNativePauseRender(void) {
         snprintf(view.session,sizeof(view.session),"Horde: Archives");
         gevrHordeText(view.status,sizeof(view.status));
         const HordeState *s=gevrHordeState();
-        snprintf(view.hordeStats,sizeof(view.hordeStats),"Waves cleared: %u   Time: %u:%02u   Kills: %u   Revives: %u",
-            s->completed,s->elapsed/3600,(s->elapsed/60)%60,s->kills,s->revives);
+        int me=netGetLocalSlot();
+        uint32_t pts=(me>=0 && me<4)?s->credits[me]:s->credits[0];
+        snprintf(view.hordeStats,sizeof(view.hordeStats),"Points: %u   Waves: %u   Time: %u:%02u   Kills: %u   Revives: %u",
+            pts,s->completed,s->elapsed/3600,(s->elapsed/60)%60,s->kills,s->revives);
     }
     if(!view.coop && !view.countdown) {
         int seconds=netWarmupSecondsLeft();

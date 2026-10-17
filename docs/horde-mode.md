@@ -13,20 +13,35 @@ Horde currently uses the original GoldenEye campaign Archives map, on Agent
 difficulty. The launcher disables multiplayer for other campaigns.
 
 - Friendly fire defaults off and has its own saved Horde preference.
-- Start with a PP7. Preparation and each wave break last 15 seconds.
+- Start with a PP7 and **500 points (credits)**. Preparation and each wave break last 15 seconds.
 - Eliminate the whole wave, including enemies still queued to spawn, to advance.
-- Ammo is supplied automatically during each break. The Klobb becomes available
-  after clearing wave 2, and the KF7 after wave 4. These are shared progression
-  thresholds; each active player's inventory and ammunition are their own.
-- Guards start with DD44s, use Klobbs from wave 3 and KF7s from wave 6. Enemy
-  numbers and cadence increase; movement, health and damage use normal Agent
-  rules. Guards' guns stay with their bodies so dropped weapons cannot accumulate.
+- **Call of Duty Point System (per-player credits):**
+  - **Non-lethal hit:** `+10 PTS`
+  - **Standard body/limb kill:** `+60 PTS`
+  - **Critical headshot kill (`HIT_HEAD`):** `+100 PTS`
+- **Call of Duty Mystery Box (`950 PTS`):**
+  - Located at one of four candidate box pads in the arena. Stand near the box and press **B / Reload-Activate** or **VR Grip Use** to spend `950 PTS`.
+  - Cycles through 12 GoldenEye weapons (Cougar Magnum, ZMG 9mm, Phantom, RC-P90, Auto Shotgun, Sniper Rifle, Silver PP7, Gold PP7, Moonraker Laser, Golden Gun, Grenade Launcher, Rocket Launcher) for 3 seconds, then presents the rolled weapon for 8 seconds for the buyer to claim.
+  - **Teddy Bear relocation:** After 4+ uses at a location, rolls have a 20% chance (guaranteed by the 10th use) to trigger a Teddy Bear relocation, refunding `950 PTS` to the buyer and moving the Mystery Box to another room's box location.
+- **Wall Buys & Ammo Refills:**
+  - Six stations distributed around the arena allow purchasing reliable weapons or full Body Armor directly:
+    - **Klobb:** `500 PTS` (Ammo refill: `250 PTS`)
+    - **Shotgun:** `750 PTS` (Ammo refill: `375 PTS`)
+    - **KF7 Soviet:** `1200 PTS` (Ammo refill: `600 PTS`)
+    - **D5K Deutsche:** `1400 PTS` (Ammo refill: `700 PTS`)
+    - **AR33 Assault Rifle:** `1800 PTS` (Ammo refill: `900 PTS`)
+    - **Body Armor:** `1500 PTS`
+  - Baseline ammo is also topped up during each 15-second intermission break, while all new weapon unlocks come from Wall Buys or the Mystery Box.
+- **Guard Health & Weapon Progression:**
+  - Guard health (`chr->maxdamage`) scales by `+15%` per wave from `100%` on Wave 1 up to `400%` on Wave 21+.
+  - Guard loadouts progress across waves from DD44 Dostovei (Waves 1–2) to Klobb (Waves 3–4), D5K Deutsche (Waves 5–6), KF7 Soviet (Waves 7–9), AR33 (Waves 10–12) and RC-P90 (Waves 13+). Guards' guns stay with their bodies so dropped weapons cannot accumulate.
 - Stand beside a downed teammate for three seconds to revive them at half
   health. Horde checks intervening scenery/doors and floor height. Everyone
   down ends the run; a solo down ends it immediately.
-- A HUD message announces each wave with its enemy count and the defeat,
-  once each; during a break the countdown stays on screen until it ends.
-  The pause menu shows cleared waves, time, total kills and revives. Once the
+- A HUD message announces each wave with its enemy count, player points and defeat;
+  during a break the countdown stays on screen until it ends, and standing near
+  the Mystery Box or a Wall Buy displays a live interaction prompt.
+  The pause menu shows points, cleared waves, time, total kills and revives. Once the
   run ends, the host can select **Retry Horde**. **Leave party** returns to the
   launcher. Campaign saves, completion times and unlocks are not awarded.
 - A late join watches until the next wave break. The wave's player scaling is
