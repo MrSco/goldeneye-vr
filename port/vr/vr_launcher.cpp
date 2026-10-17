@@ -3095,6 +3095,10 @@ extern "C" void gevrLauncherRun(void)
             // Game rules GEVR PC changed (vr450.2, its CORPSEKEEP); off keeps
             // the original game's rule. Single player.
             ImGui::TextColored(gold, "GAME RULES");
+            // Keep Done and START reachable when companion controls expand the page.
+            const float rulesFooter = gevrLauncherFooterHeight() + ImGui::GetFrameHeightWithSpacing()
+                                    + ImGui::GetStyle().ItemSpacing.y * 2;
+            ImGui::BeginChild("game-rules", ImVec2(0, std::fmax(1.0f, ImGui::GetContentRegionAvail().y - rulesFooter)), false);
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
             ImGui::TextWrapped("Off keeps the original rules. Mines are a solo option; with ragdolls on, bodies stay in every mode. Fast reinforcements also works in co-op, controlled by the host.");
             ImGui::PopStyleColor();
@@ -3191,6 +3195,7 @@ extern "C" void gevrLauncherRun(void)
             }
             ImGui::EndDisabled();
             ImGui::TextWrapped("Harder: alerted guards can call more reinforcements while earlier ones are still alive. Works with any body count; co-op follows the host.");
+            ImGui::EndChild();
             ImGui::Spacing();
             ImGui::Separator();
             if (ImGui::Button("Original rules")) {
