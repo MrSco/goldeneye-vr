@@ -181,8 +181,9 @@ static inline void hordeEnemyKilled(HordeState *s, int killed, unsigned killer_s
     } else if (s->remaining < HORDE_MAX_QUOTA) s->remaining++;
     s->revision++;
 }
+/* a death no player is known to have caused: counted, paid to nobody */
 static inline void hordeEnemyGone(HordeState *s, int killed) {
-    hordeEnemyKilled(s, killed, 0, 0);
+    hordeEnemyKilled(s, killed, 4, 0);
 }
 static inline int hordeStateValid(const HordeState *s) {
     for (unsigned i = 0; i < 4; i++)
