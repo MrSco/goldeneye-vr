@@ -247,6 +247,9 @@ def build_line_renderer():
     source=(ROOT/"port/fast3d/gfx_opengl.cpp").read_text(encoding="utf-8")
     start=source.index("static void gevr_draw_world_lines(")
     end=source.index("static void gevr_issue_draw(",start)
+    # a cutout's MSAA coverage (GevrEdgeCoverage) sits before the draw and needs the program state
+    cover=source.find("struct GevrEdgeCoverage",start,end)
+    if cover>=0: end=source.rindex("/*",start,cover)
     fixture=(ROOT/"port/tests/line_renderer_native.cpp").read_text(encoding="utf-8").replace("/* INSERT_LINE_RENDERER */",source[start:end])
     path=NATIVE/"line_renderer_native.cpp";path.write_text(fixture,encoding="utf-8")
     out=NATIVE/"line_renderer_native.dll"
