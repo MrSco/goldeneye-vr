@@ -9,7 +9,8 @@ publish a GitHub release. No game data is shipped.
 
 **Unreleased #189:** Horde in Archives, solo/1–4 humans, normal armed guards,
 endless paced waves, automatic resupply/weapon progression, revives, results
-and retry. Protocol 22 requires all players to update. Native/synthetic checks
+and retry. This branch adds the optional #194 companion; protocol 22 requires
+all players to update. Native/synthetic checks
 and debug APK build pass; no headset acceptance yet. [Horde](docs/horde-mode.md).
 
 On main, unreleased (PR #196): Mods > Oddjob's hat. Throwing knives look like
@@ -79,6 +80,11 @@ is goldeneyevr.com, in its own repository.
   Mute via launcher, watch or Menu + right B. See MULTIPLAYER.md.
 
 ## Outstanding issues / limits
+
+- #194: optional AI companion for solo, campaign co-op and PR #191 Horde on
+  feature/194-ai-ally. Host-owned, late join/takeover, no wave quota contribution.
+  Native controller/network/Horde checks pass; headset checks still owed.
+  [AI ally](docs/ai-ally.md).
 
 - #164: v0.4.22 fixes the logged vacant-body blocker; broader co-op mission
   starts and reloads remain to be confirmed. Keep the issue open for now.

@@ -7,6 +7,7 @@
 #include <vector>
 static ImVec4 gold(1, .84f, .47f, 1);
 static int VrMpScenario, VrMpLength, VrMpHealth=5, VrMpDual, VrMpLoadouts, VrMpNextRound;
+static int VrAlly, VrHordeFriendlyFire;
 static int VrMpMode, VrMpBotMode, VrMpBotCount=7, VrMpBotDifficulty=5, VrMpFriendlyFire;
 static int VrMpStage=34,VrMpMaxPlayers=8,VrMpVisibility=1,VrMpWeaponSet=4,VrMpCustom[4];
 static int VrMovementSpeed, VrMpMovementSpeed, VrSmoothTurnSpeed=120;
@@ -18,7 +19,7 @@ static int turn, online, host;
 enum {SCENARIO_YOLT=1, SCENARIO_TLD=2, SCENARIO_MWTGG=3, CFG_MOVEMENT_SPEED};
 #define GEVR_MAX_PLAYERS 8
 #define GEVR_MAX_NAME_LEN 25
-#define GEVR_NET_VERSION 21
+#define GEVR_NET_VERSION 23
 #define NET_COOP_MAX_PLAYERS 4
 #define SMOOTHTURN_MIN 45
 #define SMOOTHTURN_MAX 240
@@ -31,7 +32,7 @@ struct NetMsgLobbyState {
 static NetMsgLobbyState lobby;
 static FixtureConfig &config=lobby.config;
 static const NetMsgLobbyState *netGetLobbyState(){return &lobby;}
-static int netGetConnectedPlayerCount(){return VrMpMode==NET_MODE_COOP?4:8;}
+static int netGetConnectedPlayerCount(){return netModePve(VrMpMode)?4:8;}
 static int netGetMaxPlayers(){return netGetConnectedPlayerCount();}
 static int netGetHostSlot(){return 0;}
 static const char *netGetSlotAppVersion(int){return "0.4.16";}
@@ -120,7 +121,7 @@ static void layout(int page) {
             if(w->DC.CursorMaxPos.y>w->ClipRect.Max.y) std::fprintf(stderr,"page=%d scenario=%d bots=%d content=%f limit=%f\n",page,VrMpScenario,VrMpBotMode,w->DC.CursorMaxPos.y,w->ClipRect.Max.y);
             check(w->DC.CursorMaxPos.y<=w->ClipRect.Max.y,"production tab fits vertically without scrolling");
             check(w->DC.CursorMaxPos.x<=w->ClipRect.Max.x,"production tab fits horizontally");
-            if(page==3 && VrMpMode!=NET_MODE_COOP) {
+            if(page==3 && !netModePve(VrMpMode)) {
                 check(stageComboWidth>0,"the host's stage chooser is drawn");
                 for(int i=0;i<netStageCount();i++) {
                     const float need=ImGui::CalcTextSize(netStageName(i)).x+ImGui::GetFrameHeight()
@@ -167,10 +168,11 @@ int main() {
             for(VrMpBotMode=0;VrMpBotMode<3;VrMpBotMode++)layout(0);
         for(turn=0;turn<4;turn++)layout(1);
         VrMpMode=NET_MODE_COOP;layout(2);
+        VrMpMode=NET_MODE_HORDE;layout(2);
         resetCheck(false);resetCheck(true);
     }
     online=host=1;
-    for(VrMpMode=0;VrMpMode<2;VrMpMode++)for(VrMpScenario=0;VrMpScenario<10;VrMpScenario++)
+    for(VrMpMode=0;VrMpMode<3;VrMpMode++)for(VrMpScenario=0;VrMpScenario<10;VrMpScenario++)
         for(int set: {4,NET_WEAPON_SET_CUSTOM}) {VrMpWeaponSet=set;layout(3);}
     // the Screen tab with every row it can show: Bean's 90 Hz warning,
     // SpaceWarp on and off, each anti-aliasing choice

@@ -2012,6 +2012,13 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                                 }
                                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) gevrTooltip("Harder: guards can call more reinforcements while earlier ones are alive. Changes apply immediately.");
                                 }
+                                bool ally = VrAlly != 0;
+                                if (ImGui::Checkbox("AI ally (Natalya)", &ally)) {
+                                    VrAlly = ally ? 1 : 0;
+                                    vrSettingsSave();
+                                }
+                                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                                    ImGui::SetTooltip("One companion for the party, from the next mission or Horde retry. Weapon, aggression and durability: Play > Game rules.");
                                 ImGui::EndDisabled();
                                 ImGui::TableNextColumn();
                                 ImGui::TextColored(gold, "LIVE SETTINGS");
@@ -3153,9 +3160,39 @@ extern "C" void gevrLauncherRun(void)
             // Game rules GEVR PC changed (vr450.2, its CORPSEKEEP); off keeps
             // the original game's rule. Single player.
             ImGui::TextColored(gold, "GAME RULES");
+            // Keep Done and START reachable when companion controls expand the page.
+            const float rulesFooter = gevrLauncherFooterHeight() + ImGui::GetFrameHeightWithSpacing()
+                                    + ImGui::GetStyle().ItemSpacing.y * 2;
+            ImGui::BeginChild("game-rules", ImVec2(0, std::fmax(1.0f, ImGui::GetContentRegionAvail().y - rulesFooter)), false);
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
             ImGui::TextWrapped("Off keeps the original rules. Mines are a solo option; with ragdolls on, bodies stay in every mode. Fast reinforcements also works in co-op, controlled by the host.");
             ImGui::PopStyleColor();
+            const bool allyPve = !netIsActive() || netModePve(netGetMatchConfig()->mode);
+            ImGui::BeginDisabled(VrCampaign != 0 || !allyPve || (netIsActive() && !netIsHost()));
+            bool ally = VrAlly != 0;
+            if (ImGui::Checkbox("AI ally (Natalya)", &ally)) {
+                VrAlly = ally ? 1 : 0;
+                vrSettingsSave();
+            }
+            ImGui::TextWrapped("GoldenEye solo, campaign co-op and Horde: one companion for the party. The host chooses; changes apply next mission or Horde retry. Story characters keep their own roles.");
+            ImGui::BeginDisabled(!ally);
+            if (ImGui::Combo("Ally weapon", &VrAllyWeapon,
+                    "PP7\0Silenced PP7\0DD44\0KF7 Soviet\0D5K Deutsche\0ZMG\0AR33\0RC-P90\0Shotgun\0Automatic shotgun\0")) vrSettingsSave();
+            if (ImGui::Combo("Aggression", &VrAllyAggression, "Cautious\0Normal\0Aggressive\0")) vrSettingsSave();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Cautious: engage alerted enemies nearby. Normal/aggressive: engage enemies within a wider range. Always stay close to Bond.");
+            if (ImGui::SliderInt("Ally damage", &VrAllyDamage, 25, 400, "%d%%")) vrSettingsSave();
+            bool immortal = VrAllyInvincible != 0;
+            if (ImGui::Checkbox("Invincible ally", &immortal)) {
+                VrAllyInvincible = immortal ? 1 : 0;
+                vrSettingsSave();
+            }
+            ImGui::BeginDisabled(immortal);
+            if (ImGui::SliderInt("Ally health", &VrAllyHealth, 25, 1000, "%d%%")) vrSettingsSave();
+            ImGui::EndDisabled();
+            ImGui::EndDisabled();
+            ImGui::EndDisabled();
+            ImGui::Spacing();
             bool stick = VrMinesStickToGuards != 0;
             if (ImGui::Checkbox("Mines stick to guards", &stick)) {
                 VrMinesStickToGuards = stick ? 1 : 0;
@@ -3224,9 +3261,11 @@ extern "C" void gevrLauncherRun(void)
             }
             ImGui::EndDisabled();
             ImGui::TextWrapped("Harder: alerted guards can call more reinforcements while earlier ones are still alive. Works with any body count; co-op follows the host.");
+            ImGui::EndChild();
             ImGui::Spacing();
             ImGui::Separator();
             if (ImGui::Button("Original rules")) {
+                VrAlly = 0;
                 VrMinesStickToGuards = 0;
                 VrBodiesStay = 0;
                 VrRagdolls = VrDismemberment = 0;
@@ -3361,7 +3400,7 @@ extern "C" void gevrLauncherRun(void)
             snprintf(label, sizeof(label), n ? "Cheats... (%d on)" : "Cheats...", n);
             if (ImGui::Button(label)) cheatPage = true;
             ImGui::SameLine();
-            const int rules = (VrMinesStickToGuards ? 1 : 0) + (VrBodiesStay ? 1 : 0) + (VrFastReinforcements ? 1 : 0) + (VrRagdolls ? 1 : 0) + (VrRagdolls && VrDismemberment ? 1 : 0);
+            const int rules = (VrAlly ? 1 : 0) + (VrMinesStickToGuards ? 1 : 0) + (VrBodiesStay ? 1 : 0) + (VrFastReinforcements ? 1 : 0) + (VrRagdolls ? 1 : 0) + (VrRagdolls && VrDismemberment ? 1 : 0);
             snprintf(label, sizeof(label), rules ? "Game rules... (%d changed)" : "Game rules...", rules);
             if (ImGui::Button(label)) rulesPage = true;
             ImGui::Spacing();

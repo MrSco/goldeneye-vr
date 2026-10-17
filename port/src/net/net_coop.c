@@ -25,6 +25,8 @@
  */
 #include "net_core.h"   /* first, as in net_core.c: <stdbool.h> before the game's headers */
 #include "net_coop.h"
+#include "net_ally.h"
+#include "game/gevr_ally.h"
 #include "net_horde.h"
 #include "net_protocol.h"
 #include "net_voice.h"
@@ -335,6 +337,7 @@ void netCoopHostTick(void)
     int count = 0;
 
     if (!netCoopActive() || !netIsHost()) return;
+    netAllyHostTick();
     coopHostMission(now);
     coopHostDropIn(now);
     coopCinemaHostTick(now);
@@ -378,18 +381,21 @@ void netCoopHostTick(void)
 /* chraction.c chrSpawnAtCoord on the host: a guard its AI spawned */
 void gevrCoopChrSpawned(ChrRecord *chr, AIRecord *ailist, s32 spawnflags)
 {
-    u8 raw[48];
+    u8 raw[64];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
     s32 slot = coopSlotOf(chr);
 
     if (!netCoopActive() || slot < 0 || slot >= COOP_MAX_SLOTS) return;
-    if (netHordeActive() && !gevrHordeGuardId(chr)) return; /* caller has not finished setup */
+    if ((u32)spawnflags & GEVR_ALLY_SPAWN_FLAG) {
+        if (!gevrAllyIs(chr)) return; /* constructor has not finished */
+    } else if (netHordeActive() && !gevrHordeGuardId(chr)) return; /* caller has not finished setup */
     s_spawned[slot] = true;   /* not the setup's: a joiner's roster has it */
     s_spawn_flags[slot] = spawnflags;
     if (!netIsHost() || !chr->prop || !chr->model) return;
     coopWriteSpawn(&buf, chr, slot, ailist, spawnflags);
     s_sent[slot].sent = false;
     netCoopBroadcast(buf.data, buf.wp, true);
+    if ((u32)spawnflags & GEVR_ALLY_SPAWN_FLAG) netAllySend(-1);
     COOP_LOG("spawn tx: slot %d chrnum %d body %d head %d", slot, chr->chrnum, chr->bodynum, chr->headnum);
 }
 
@@ -649,6 +655,7 @@ int netCoopHostSlotOf(int localslot)
 
 void netCoopStageLoaded(void)
 {
+    netAllyReset();
     memset(s_puppet, 0, sizeof(s_puppet));
     memset(s_sent, 0, sizeof(s_sent));
     memset(s_target, 0, sizeof(s_target));
@@ -724,6 +731,7 @@ static int coopMakeSpawn(const CoopSpawn *sp)
         existing->bodynum == sp->body && existing->headnum == sp->head
         && gevrHordeGuardToken(existing) == sp->generation) {
         existing->chrnum = sp->chrnum;   /* already here: the setup's, or made before */
+        gevrAllyAttach(existing, sp->flags);
         return 1;
     }
     /* chrAllocate takes the first free slot unchecked (chr.c): none, no call.
@@ -745,6 +753,7 @@ static int coopMakeSpawn(const CoopSpawn *sp)
     prop->chr->bodynum = sp->body;
     prop->chr->chrnum = sp->chrnum;
     gevrHordeSetGuardId(prop->chr, (u32)sp->generation);
+    gevrAllyAttach(prop->chr, sp->flags);
     s32 local = coopSlotOf(prop->chr);
     if (local >= 0 && local < COOP_MAX_SLOTS) {
         s_spawned[local] = true;
@@ -800,10 +809,15 @@ static void coopReceiveSpawn(struct netbuf *b)
     sp.listid = netbufReadS32(b);
     netbufReadCoord(b, &sp.pos);
     sp.angle = netbufReadF32(b);
+    GevrAllyState ally;
+    bool is_ally = (sp.flags & GEVR_ALLY_SPAWN_FLAG) != 0;
+    if (is_ally && (!netAllyReadState(b, &ally) || !ally.spawned || ally.identity != sp.chrnum
+        || sp.body != BODY_Natalya_Jungle_Fatigues || sp.head != HEAD_Natalya_Jungle_Fatigues)) return;
     if (s_await_remap) return;   /* its roster, after the remap, has it */
     if (b->error || netbufReadLeft(b) || sp.hostslot >= COOP_MAX_SLOTS || !isfinite(sp.pos.x) || !isfinite(sp.pos.y) ||
         !isfinite(sp.pos.z) || !isfinite(sp.angle) || !g_ChrSlots) return;
     if (netHordeActive() && !gevrHordeTokenCurrent(sp.generation)) return;
+    if (is_ally) gevrAllyApplyState(&ally);
     coopForgetPendingSpawn(sp.hostslot);
     int made = coopMakeSpawn(&sp);
     if (made == 0 && s_pending_spawns < COOP_PENDING_SPAWNS) {
@@ -1746,6 +1760,11 @@ static void coopWriteSpawn(struct netbuf *buf, ChrRecord *chr, s32 slot, AIRecor
     netbufWriteS32(buf, listid);
     netbufWriteCoord(buf, &chr->prop->pos);
     netbufWriteF32(buf, getsubroty(chr->model));
+    if ((u32)spawnflags & GEVR_ALLY_SPAWN_FLAG) {
+        GevrAllyState ally;
+        gevrAllyGetState(&ally);
+        netAllyWriteState(buf, &ally);
+    }
 }
 
 static void coopWriteRemove(struct netbuf *buf, s32 slot)
@@ -1819,6 +1838,7 @@ static void coopSendRoster(int slot)
             netCoopSendTo(slot, buf.data, buf.wp);
         }
     }
+    netAllySend(slot);
     COOP_LOG("roster to slot %d: %d gone, %d spawned%s", slot, removes, spawns, s_roster_remap[slot] ? ", with the remap" : "");
 }
 
@@ -1999,6 +2019,7 @@ void netCoopBecameHost(void)
         s_target[i].player = -1;
         s_target[i].until60 = 0;
     }
+    gevrAllyBecameHost();
     s_mission_check_us = s_mission_sent_us = 0;
     s_ai_sent_us = 0;
     s_await_remap = false;
@@ -2083,6 +2104,7 @@ void netCoopReceive(int type, int slot, int from_host, struct netbuf *b)
 {
     if (!netCoopActive() || !netPlayersWereTicked()) return;
     switch (type) {
+        case NET_MSG_COOP_ALLY: if (from_host && !netIsHost()) netAllyReceive(b); break;
         case NET_MSG_COOP_MISSION: if (from_host && !netIsHost()) coopReceiveMission(b); break;
         case NET_MSG_COOP_TEXT: if (from_host && !netIsHost()) coopReceiveText(b); break;
         case NET_MSG_COOP_GRANT: if (from_host && !netIsHost()) coopReceiveGrant(b); break;
