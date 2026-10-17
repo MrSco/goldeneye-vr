@@ -135,7 +135,8 @@ int VrSpaceWarp = -1;
  * still in that build's ini, puts the scale back to 1 once (vr_openxr.cpp). */
 int VrResetRenderScale = 0;
 /* The launcher's Anti-aliasing: samples per pixel of the eye images (1 off,
- * 2, 4), switched live (vr_openxr.cpp vr_attach_eye_fbo). 2x by default: on
+ * 2), switched live (vr_openxr.cpp vr_attach_eye_fbo). 2x by default, and no
+ * 4x any more: on
  * battery Quest caps the GPU, and 4x took the eye pass from 3.0 to 4.2 ms
  * with Bean for edges that look the same as 2x once Bean's pictures are
  * mipmapped and cutouts take alpha-to-coverage (2026-10-17). */

@@ -177,7 +177,7 @@ int main() {
     // the Screen tab with every row it can show: Bean's 90 Hz warning,
     // SpaceWarp on and off, each anti-aliasing choice
     for(beanOn=false;;beanOn=true) {
-        for(VrSpaceWarp=-1;VrSpaceWarp<2;VrSpaceWarp++)for(int s:{1,2,4}) {
+        for(VrSpaceWarp=-1;VrSpaceWarp<2;VrSpaceWarp++)for(int s:{1,2}) {
             VrEyeMsaa=s;layout(4);
         }
         if(beanOn)break;
