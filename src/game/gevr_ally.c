@@ -180,15 +180,16 @@ void gevrAllyApplyState(const GevrAllyState *state)
     if (gevrAllyIs(s_ally)) gevrAllyConfigure(s_ally);
 }
 
+/* Not where the mission has its own Natalya (Bunker II, Train, Jungle,
+ * Control): two Natalyas made no sense (user, 2026-10-17). */
 static s32 gevrAllyMission(void)
 {
     switch (g_StageNum) {
     case LEVELID_DAM: case LEVELID_FACILITY: case LEVELID_RUNWAY:
     case LEVELID_SURFACE: case LEVELID_BUNKER1: case LEVELID_SILO:
-    case LEVELID_FRIGATE: case LEVELID_SURFACE2: case LEVELID_BUNKER2:
+    case LEVELID_FRIGATE: case LEVELID_SURFACE2:
     case LEVELID_STATUE: case LEVELID_ARCHIVES: case LEVELID_STREETS:
-    case LEVELID_DEPOT: case LEVELID_TRAIN: case LEVELID_JUNGLE:
-    case LEVELID_CONTROL: case LEVELID_CAVERNS: case LEVELID_CRADLE:
+    case LEVELID_DEPOT: case LEVELID_CAVERNS: case LEVELID_CRADLE:
     case LEVELID_AZTEC: case LEVELID_EGYPT:
         return TRUE;
     default:

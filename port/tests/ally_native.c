@@ -129,6 +129,10 @@ int main(void) {
     reset(); campaign = 1; gevrAllyTick(); assert(spawns == 0);
     reset(); g_StageNum = LEVELID_TITLE; gevrAllyTick(); assert(spawns == 0);
     reset(); g_StageNum = LEVELID_CUBA; gevrAllyTick(); assert(spawns == 0);
+    /* missions with their own Natalya keep only her */
+    const s32 ownNatalya[] = { LEVELID_BUNKER2, LEVELID_TRAIN, LEVELID_JUNGLE, LEVELID_CONTROL };
+    for (unsigned i=0; i<4; i++) { reset(); g_StageNum = ownNatalya[i]; for (int t=0; t<5; t++) gevrAllyTick(); assert(spawns == 0); }
+    reset(); g_StageNum = LEVELID_CAVERNS; gevrAllyTick(); assert(spawns == 1);
     reset(); g_CameraMode = CAMERAMODE_INTRO; gevrAllyTick(); assert(spawns == 0);
     reset(); locked = 1; gevrAllyTick(); assert(spawns == 0);
     reset(); g_ClockTimer = 0; gevrAllyTick(); assert(spawns == 0);

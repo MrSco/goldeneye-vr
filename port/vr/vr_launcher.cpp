@@ -3174,7 +3174,7 @@ extern "C" void gevrLauncherRun(void)
                 VrAlly = ally ? 1 : 0;
                 vrSettingsSave();
             }
-            ImGui::TextWrapped("GoldenEye solo, campaign co-op and Horde: one companion for the party. The host chooses; changes apply next mission or Horde retry. Story characters keep their own roles.");
+            ImGui::TextWrapped("GoldenEye solo, campaign co-op and Horde: one companion for the party. The host chooses; changes apply next mission or Horde retry. Not in missions with their own Natalya.");
             ImGui::BeginDisabled(!ally);
             if (ImGui::Combo("Ally weapon", &VrAllyWeapon,
                     "PP7\0Silenced PP7\0DD44\0KF7 Soviet\0D5K Deutsche\0ZMG\0AR33\0RC-P90\0Shotgun\0Automatic shotgun\0")) vrSettingsSave();
