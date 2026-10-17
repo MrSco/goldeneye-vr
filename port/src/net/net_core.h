@@ -82,6 +82,7 @@ const char *netGetSlotAppVersion(int slot); /* NULL or empty if not announced */
 uint8_t netGetLobbyStage(void);
 uint8_t netGetLobbyWeaponSet(void);
 uint32_t netGetRandomSeed(void);
+uint32_t netGetWorldEpoch(void);
 
 /* Lobby Operations */
 void netLobbySetReady(bool ready);
@@ -118,6 +119,7 @@ void netSendFireEvent(uint8_t weapon_id);
 /* Remote State Retrieval */
 const struct netplayermove *netGetRemotePlayerMove(int slot_id);
 const NetMsgPlayerState *netGetRemotePlayerState(int slot_id);
+int netGetAvatarPose(int slot, GevrAvatarPose *pose, float weight[3]);
 bool netIsRemotePlayerActive(int slot_id);
 int netLastAttacker(int slot);   /* the last slot whose damage this headset applied to slot's player, or slot itself */
 int netGetRemoteAim(int slot_id, int hand, coord3d *origin, coord3d *dir);   /* 1 with the owner's world-space barrel */

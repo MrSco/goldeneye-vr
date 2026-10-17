@@ -1,5 +1,8 @@
 #include "net_core.h"
 #include "net_coop.h"
+#include "game/gevr_ally.h"
+#include "net_ally.h"
+#include "net_horde.h"
 #include "net_protocol.h"
 #include "game/chr.h"
 #include "game/chraction.h"
@@ -21,6 +24,7 @@ typedef struct {
     coord3d positions[SLOTS];
     f32 yaw[SLOTS];
     u8 guns[SLOTS][2];
+    u32 generation[SLOTS];
     CoopSent sent[COOP_MAX_SLOTS];
     CoopPuppet puppet[COOP_MAX_SLOTS];
     s16 local_of[COOP_MAX_SLOTS], host_of[COOP_MAX_SLOTS];
@@ -30,6 +34,8 @@ typedef struct {
     CoopSpawn pending[COOP_PENDING_SPAWNS];
     int pending_count, allocations;
     bool await_remap;
+    ChrRecord *ally;
+    GevrAllyState ally_state;
     u64 last_send;
     u32 sequence;
 } World;
@@ -53,6 +59,7 @@ s32 g_NumChrSlots=SLOTS, g_ActiveChrsCount, g_GlobalTimer, g_ClockTimer;
 struct player *g_CurrentPlayer;
 int VrFastReinforcements;
 static bool host_fast;
+static bool horde;
 static u64 now=1000000;
 static ModelAnimation animation;
 static StandTile tile;
@@ -63,12 +70,30 @@ void sysLogPrintf(int level,const char *format,...) {}
 bool netIsActive(void) { return true; }
 bool netIsHost(void) { return world==&worlds[0]; }
 int netCoopActive(void) { return 1; }
+int netHordeActive(void) { return horde; }
+unsigned gevrHordeGuardId(const ChrRecord *chr) { return chr ? world->generation[chr-g_ChrSlots] : 0; }
+uint64_t gevrHordeGuardToken(const ChrRecord *chr) {
+    unsigned id=horde?(gevrAllyIs((ChrRecord *)chr)?GEVR_ALLY_HORDE_ID:gevrHordeGuardId(chr)):0;
+    return id ? ((uint64_t)7<<32)|id : 0;
+}
+int gevrHordeTokenCurrent(uint64_t token) { return (token>>32)==7 && (u32)token; }
+void gevrHordeSetGuardId(ChrRecord *chr,unsigned id) { world->generation[chr-g_ChrSlots]=id==GEVR_ALLY_HORDE_ID?0:id; }
 int gevrCoopHostGuards(void) { return netIsHost(); }
 int gevrCoopFastReinforcements(void) { return host_fast; }
 int netGetLocalSlot(void) { return (int)(world-worlds); }
 s32 getPlayerCount(void) { return 4; }
 s32 gevrBodyRetireForAi(ChrRecord *chr) { return FALSE; } /* online corpses use ordinary cleanup */
 u64 sysGetMicroseconds(void) { return now; }
+void netAllyHostTick(void) {}
+void netAllySend(int slot) {}
+s32 gevrAllyIs(ChrRecord *chr) { return chr && chr==world->ally && chr->model && chr->chrnum==world->ally_state.identity; }
+void gevrAllyGetState(GevrAllyState *state) { *state=world->ally_state; }
+void gevrAllyApplyState(const GevrAllyState *state) { assert(gevrAllyStateValid(state)); world->ally_state=*state; }
+void gevrAllyAttach(ChrRecord *chr, u32 flags) {
+    if (!(flags & GEVR_ALLY_SPAWN_FLAG)) return;
+    world->ally=chr; chr->maxdamage=40.0f*world->ally_state.health*.01f;
+    if(world->ally_state.invincible)chr->chrflags|=CHRFLAG_INVINCIBLE;
+}
 static void coopHostMission(u64 t) {}
 static void coopHostDropIn(u64 t) {}
 static void coopCinemaHostTick(u64 t) {}
@@ -78,6 +103,7 @@ static int model_slot(Model *model) { return (int)(model-world->models); }
 static ChrRecord *make_chr(int slot,int id)
 {
     ChrRecord *chr=&world->slots[slot];memset(chr,0,sizeof(*chr));
+    world->generation[slot]=0;
     chr->chrnum=id;chr->model=&world->models[slot];chr->prop=&world->props[slot];
     chr->prop->chr=chr;chr->prop->type=PROP_TYPE_CHR;chr->prop->stan=&tile;
     chr->bodynum=1;chr->headnum=2;chr->fadealpha=255;chr->maxdamage=100;
@@ -87,6 +113,7 @@ static ChrRecord *make_chr(int slot,int id)
 static void reset_world(int index,int parent_slot)
 {
     select_world(index);memset(world,0,sizeof(*world));
+    world->ally_state=(GevrAllyState){0,0,1,100,100,0,0,-1};
     for(int i=0;i<COOP_MAX_SLOTS;i++)s_local_of[i]=s_host_of[i]=-1;
     ChrRecord *parent=make_chr(parent_slot,5);parent->chrflags=CHRFLAG_CLONE;
     s_local_of[0]=parent_slot;s_host_of[parent_slot]=0;
@@ -189,6 +216,66 @@ static void compare(int client)
         assert(world->guns[chr-g_ChrSlots][0]==worlds[0].guns[h][0]);
     }
 }
+static void horde_generations(void)
+{
+    reset_world(0,0);reset_world(1,0);horde=true;
+    select_world(0);packet_count=0;
+    ChrRecord *first=make_chr(1,5001);gevrHordeSetGuardId(first,1);
+    gevrCoopChrSpawned(first,NULL,0);now+=2000000;netCoopHostTick();
+    receive_all(1);
+    int oldstate=-1;
+    for(int i=0;i<packet_count;i++)if(packets[i].data[6]==NET_MSG_CHR_STATE)oldstate=i;
+    assert(oldstate>=0);
+    u8 stale[1100];u32 stale_size=packets[oldstate].size;
+    memcpy(stale,packets[oldstate].data,stale_size);
+    select_world(0);packet_count=0;
+    ChrRecord *second=make_chr(1,5002);gevrHordeSetGuardId(second,2);
+    gevrCoopChrSpawned(second,NULL,0);now+=2000000;netCoopHostTick();
+    receive_all(1);
+    ChrRecord *replacement=coopLocalChr(1);
+    assert(replacement && gevrHordeGuardId(replacement)==2 && replacement->chrnum==5002);
+    struct netbuf b;netbufStartReadData(&b,stale,stale_size);b.rp=8;
+    coopReceiveStates(&b);
+    assert(!b.error && s_puppet[1].st.generation==(((u64)7<<32)|2));
+    /* Repeated reliable roster records preserve the replacement identity. */
+    int allocations=world->allocations;receive_all(1);
+    assert(world->allocations==allocations && gevrHordeGuardId(coopLocalChr(1))==2);
+    /* Removal cancels a new generation queued behind an older local body. */
+    for(int i=0;i<SLOTS;i++)if(!g_ChrSlots[i].model)make_chr(i,20000+i);
+    select_world(0);packet_count=0;
+    second=make_chr(1,5003);gevrHordeSetGuardId(second,3);gevrCoopChrSpawned(second,NULL,0);
+    receive_all(1);assert(s_pending_spawns==1);
+    u8 removed[16];struct netbuf out={.data=removed,.size=sizeof(removed)};
+    netbufStartWrite(&out);netbufWriteU16(&out,1);netbufWriteU64(&out,((u64)7<<32)|3);netbufWriteU8(&out,0);
+    netbufStartReadData(&b,removed,out.wp);coopReceiveRemove(&b);
+    assert(!b.error && s_pending_spawns==0 && gevrHordeGuardId(coopLocalChr(1))==2);
+    horde=false;
+    puts("PASS: Horde slot reuse rejects delayed states, duplicate roster spawns and removed pending generations");
+}
+static void companion_packets(void)
+{
+    for(int mode=0;mode<2;mode++) {
+        horde=mode;
+        for(int c=0;c<4;c++)reset_world(c,c*3);
+        select_world(0);packet_count=0;
+        ChrRecord *ally=make_chr(1,6001);ally->bodynum=BODY_Natalya_Jungle_Fatigues;
+        ally->headnum=HEAD_Natalya_Jungle_Fatigues;
+        world->ally=ally;world->ally_state=(GevrAllyState){1,7,2,250,200,1,1,6001};
+        gevrCoopChrSpawned(ally,NULL,GEVR_ALLY_SPAWN_FLAG|0x10);
+        assert(packet_count==1 && packets[0].size==57 && packets[0].reliable);
+        for(int c=1;c<4;c++) {
+            receive_all(c);
+            ChrRecord *copy=coopLocalChr(1);
+            assert(copy && gevrAllyIs(copy) && copy->maxdamage==100 && (copy->chrflags&CHRFLAG_INVINCIBLE));
+            assert(world->ally_state.damage==200 && world->ally_state.weapon==7 && world->allocations==1);
+            assert(gevrHordeGuardId(copy)==0); // companion never belongs to a wave
+            receive_all(c);assert(world->allocations==1);
+        }
+        reset_world(3,9);receive_all(3);assert(gevrAllyIs(coopLocalChr(1)) && world->allocations==1);
+    }
+    horde=false;
+    puts("PASS: campaign/Horde companion spawn packets include host settings atomically; three client slot maps, late join, duplicate roster and wave identity isolation");
+}
 int main(void)
 {
     reset_world(0,0);reset_world(1,0);reset_world(2,7);reset_world(3,3);
@@ -215,5 +302,7 @@ int main(void)
     now+=2000000;netCoopHostTick();receive_all(3);compare(3);
     receive_all(3);compare(3); /* repeated roster/identity records never duplicate guards */
     puts("PASS: 40 host AI reinforcements on three clients, final IDs, distinct slot maps, reliable spawns, deferred burst, state/animation/damage, late join and duplicate roster");
+    horde_generations();
+    companion_packets();
     return 0;
 }

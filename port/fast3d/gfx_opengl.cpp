@@ -8,6 +8,7 @@
 #include <map>
 #include <unordered_map>
 #include <vector>
+#include <string>
 
 #include <SDL.h>
 
@@ -376,6 +377,7 @@ struct ShaderProgram {
     uint64_t shader_id0;
     uint32_t shader_id1;
     bool opt_fog, opt_grayscale, is_mesh;
+    float motion_cut;   // SpaceWarp: the alpha a cutout discards below, 0 for none (gfx_vr_motion_pass)
     GLint meshTintLocation, meshLitLocation, meshAmbientLocation, meshLightDirLocation, meshLightColorLocation,
         meshNumLightsLocation, meshFogLocation, meshFogParamsLocation, meshValidLocation;
     // each array element on its own: the compiler keeps only those the shader uses
@@ -1857,6 +1859,8 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     prg->opt_fog = cc_features.opt_fog;
     prg->opt_grayscale = cc_features.opt_grayscale;
     prg->is_mesh = s_buildMesh;
+    prg->motion_cut = !cc_features.opt_alpha || !cc_features.used_textures[0] ? 0.0f
+        : cc_features.opt_texture_edge ? 0.1901f : cc_features.opt_alpha_threshold ? 8.0f / 256.0f : 0.0f;
     prg->meshNormalTexLocation=s_buildMesh ? glGetUniformLocation(shader_program,"uNormalTex1") : -1;
     prg->meshWoundCountLocation=s_buildMesh ? glGetUniformLocation(shader_program,"uWoundCount") : -1;
     prg->meshWoundLocation=s_buildMesh ? glGetUniformLocation(shader_program,"uWound") : -1;
@@ -3030,6 +3034,8 @@ struct GevrEyeDraw {
 };
 
 static std::vector<GevrEyeDraw> s_eyeDraws;
+static uint32_t s_eyeKept, s_eyeMerged;   // gevr_eye_keep: per second, Show stats / profile traces
+extern "C" int VrShowStats;                 // vr_input.cpp: the stats readout is on
 struct GevrEyeMesh {
     GLuint vao;
     struct GfxMeshDrawParams params;
@@ -3061,6 +3067,12 @@ void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* p
         }
     } else {
         s_eyeReady = s_eyeRec && !s_eyeDraws.empty();
+        static uint32_t records;
+        if (++records >= 72) {
+            if (VrShowStats || gevrFrameTimingTracing())
+                vr_log("eye-merge: %u draws kept, %u joined to the one before", s_eyeKept, s_eyeMerged);
+            records = s_eyeKept = s_eyeMerged = 0;
+        }
         s_eyeRec = false;
         s_eyePresent = false;
         for (struct ShaderProgram* p : s_eyePresentationPrograms) {
@@ -3097,6 +3109,51 @@ void gfx_vr_eye_record_only(bool on)
     s_eyeRecordOnly = on;
 }
 
+/*
+ * Two draws in a row with the same captured state over contiguous vertices
+ * are one draw: the replay issues it once (each draw call costs the driver its
+ * state validation, and the replay runs twice a game frame at 120 Hz).
+ * Primitive order is kept, so blending and depth resolve as before. On Dam
+ * while turning, 15-20% of the eye pass's draws were static-mesh pieces of
+ * one buffer whose parameters differed only in their culling bounds, which
+ * the replay never reads (culling happened at the record). Not the decal
+ * passes (stencil bands, per draw), a cutout program's opaque-depth pass
+ * (colour then depth, per draw), skinned meshes or lines.
+ */
+static bool gevr_eye_draw_joins(const GevrEyeDraw& a, const GevrEyeDraw& b)
+{
+    if (a.lineMode || b.lineMode || a.first + a.count != b.first || a.prg != b.prg
+        || a.prg->opaque_depth_pass_location >= 0
+        || a.decalZ || b.decalZ || a.decalDepth || b.decalDepth
+        || a.gunDecal != b.gunDecal || a.decalPull != b.decalPull
+        || a.isMenu != b.isMenu || a.hand != b.hand || a.zmode != b.zmode
+        || a.tex[0] != b.tex[0] || a.tex[1] != b.tex[1]
+        || a.linear[0] != b.linear[0] || a.linear[1] != b.linear[1]
+        || a.alpha[0] != b.alpha[0] || a.alpha[1] != b.alpha[1]
+        || memcmp(a.depth, b.depth, sizeof(a.depth)) != 0
+        || memcmp(a.viewport, b.viewport, sizeof(a.viewport)) != 0
+        || memcmp(a.scissor, b.scissor, sizeof(a.scissor)) != 0) {
+        return false;
+    }
+    if (!a.mesh && !b.mesh) {
+        return true;   // the vertex ring
+    }
+    if (!a.mesh || !b.mesh) {
+        return false;
+    }
+    const GevrEyeMesh& ma = s_eyeMeshes[a.mesh - 1];
+    const GevrEyeMesh& mb = s_eyeMeshes[b.mesh - 1];
+    if (ma.vao != mb.vao || ma.params.skinned || mb.params.skinned) {
+        return false;
+    }
+    // everything but the bounds (lo, hi), up to the skin palette
+    const size_t lo = offsetof(GfxMeshDrawParams, lo), past = offsetof(GfxMeshDrawParams, cull);
+    const size_t end = offsetof(GfxMeshDrawParams, palette);
+    const char* pa = (const char*)&ma.params;
+    const char* pb = (const char*)&mb.params;
+    return memcmp(pa, pb, lo) == 0 && memcmp(pa + past, pb + past, end - past) == 0;
+}
+
 static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode)
 {
     // not the HUD captures, which draw into their own targets
@@ -3125,6 +3182,22 @@ static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode)
     memcpy(d.viewport, s_curViewport, sizeof(d.viewport));
     memcpy(d.scissor, s_curScissor, sizeof(d.scissor));
     d.mesh = s_eyeKeepMesh;
+    ++s_eyeKept;
+    if (!s_eyeDraws.empty() && gevr_eye_draw_joins(s_eyeDraws.back(), d)) {
+        GevrEyeDraw& prev = s_eyeDraws.back();
+        prev.count += d.count;
+        if (d.mesh) {
+            GfxMeshDrawParams& joined = s_eyeMeshes[prev.mesh - 1].params;
+            const GfxMeshDrawParams& piece = s_eyeMeshes[d.mesh - 1].params;
+            for (int k = 0; k < 3; k++) {
+                joined.lo[k] = std::min(joined.lo[k], piece.lo[k]);
+                joined.hi[k] = std::max(joined.hi[k], piece.hi[k]);
+            }
+            if (s_eyeMeshes.size() == d.mesh) s_eyeMeshes.pop_back();
+        }
+        ++s_eyeMerged;
+        return;
+    }
     s_eyeDraws.push_back(d);
 }
 
@@ -3444,6 +3517,467 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
     gfx_opengl_set_scissor(savedScissor[0], savedScissor[1], savedScissor[2], savedScissor[3]);
     glBindVertexArray((GLuint)prevVao);
     s_uniCacheValid = false;
+}
+
+/*
+ * Application SpaceWarp (vr_openxr.cpp vr_spacewarp_begin): the kept eye pass
+ * once more into the runtime's motion-vector and depth images, with small
+ * programs and no blending: for each pixel, where it was on the frame shown
+ * before (this frame's NDC less the previous one's), and its depth (near
+ * 0.1 m, far infinite). Positions as the eye pass makes them: back to the game
+ * frame's camera space, then through the frame's world, hand and body moves.
+ *
+ * A mesh draw that matches one of the previous frame's (same buffer, index
+ * range and hand, shown nearest where it would be had it not moved) moves from that draw's own placement: its matrix, and
+ * a skinned body's bone palette, shown through the previous frame's moves, so a
+ * walking guard, an opening door or a swung gun carries its own motion. Others
+ * (new this frame, the vertex ring) move with the head, hands and stick only.
+ * A cutout (alpha-tested texture) discards as its own program does. Decals
+ * lie on their surface and take its motion (drawn onto it, depth kept). A
+ * blended draw (smoke, explosions, flashes, glass) writes where its texture is
+ * at least half opaque, or wholly when untextured, so a moving effect carries
+ * its own motion rather than the wall's behind it. Line mode draws the faces
+ * its lines lie on. Not the screen-locked HUD and menus: they follow the head,
+ * which the runtime's frames between cannot show from the eye image.
+ */
+enum { GEVR_MOTION_RING, GEVR_MOTION_MESH, GEVR_MOTION_SKIN, GEVR_MOTION_KINDS };
+struct GevrMotionProgram {
+    GLuint id;
+    GLint cur, prev, headP, offL, offR, units, mp, prevMP, valid, prevValid, tex, cut, meshTex, meshTexRot;
+};
+static GevrMotionProgram s_motionPrg[GEVR_MOTION_KINDS][2];   // [kind][cutout]
+static int s_motionState;                  // 0 not built, 1 ready, -1 failed
+static GLuint s_motionPalette[2];          // UBOs: this frame's and the previous frame's bones
+extern "C" int VrShowStats;                // vr_input.cpp: the stats readout is on
+
+struct GevrMotionRecord {
+    GLuint vao;
+    GLint first;
+    GLsizei count;
+    float view[3];                         // its origin as shown that frame (view units)
+    int8_t hand;
+    bool skinned;
+    uint32_t palette;                      // index in s_motionPalettes, skinned only
+    float mp[16];
+    uint32_t valid[2];
+};
+static std::vector<GevrMotionRecord> s_motionRecords[2];
+static std::vector<GevrSkinPalette> s_motionPalettes[2];
+// the previous frame's records by buffer, index range and hand: guards of one
+// model share all three, so a draw takes the nearest of them (gevr_motion_find)
+static std::unordered_map<uint64_t, std::vector<uint32_t>> s_motionIndex;
+static int s_motionFrame;                  // which of the two holds this frame's
+static bool s_motionHavePrev;
+static float s_motionPrevC[4][16];         // the previous frame's moves, projected
+
+static uint64_t gevr_motion_key(GLuint vao, GLint first, GLsizei count, uint32_t occurrence)
+{
+    uint64_t h = 1469598103934665603ull;
+    const uint64_t parts[4] = { vao, (uint64_t)(uint32_t)first, (uint64_t)(uint32_t)count, occurrence };
+    for (uint64_t v : parts) { h ^= v; h *= 1099511628211ull; }
+    return h;
+}
+
+static GLuint gevr_motion_shader(GLenum type, const char* src)
+{
+    GLuint s = glCreateShader(type);
+    glShaderSource(s, 1, &src, NULL);
+    glCompileShader(s);
+    GLint ok = 0;
+    glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        char log[1024] = "";
+        glGetShaderInfoLog(s, sizeof(log), NULL, log);
+        vr_log("spacewarp: motion shader failed: %s", log);
+        glDeleteShader(s);
+        return 0;
+    }
+    return s;
+}
+
+static GLuint gevr_motion_link(int kind, bool cutout)
+{
+    std::string vs = "#version 300 es\n#extension GL_OVR_multiview2 : require\nlayout(num_views = 2) in;\n"
+        "uniform mat4 uCurVP;\nuniform mat4 uPrevVP;\nuniform vec2 uHeadP;\n"
+        "uniform vec4 uEyeOffsetLeft;\nuniform vec4 uEyeOffsetRight;\nuniform float uUnitsPerMetre;\n"
+        "out highp vec4 vCur;\nout highp vec4 vPrev;\nflat out float vKeep;\n";
+    if (kind == GEVR_MOTION_RING) {
+        vs += "layout(location = 0) in vec4 aVtxPos;\n";
+        if (cutout) vs += "layout(location = 1) in vec2 aTexCoord0;\n";
+    } else {
+        vs += "layout(location = 0) in vec3 aMeshPos;\nuniform mat4 uMeshMP;\nuniform mat4 uPrevMP;\n";
+        if (cutout) vs += "layout(location = 1) in vec2 aMeshST;\nuniform vec4 uMeshTex0;\nuniform vec2 uMeshTexRot0;\n";
+    }
+    if (kind == GEVR_MOTION_SKIN) {
+        // as the mesh programs skin (gfx_opengl_create_and_load_new_shader), once with each palette
+        vs += "layout(location = 3) in vec4 aSkinWeight;\nlayout(location = 4) in vec4 aSkinBone;\n"
+              "layout(location = 5) in vec3 aSkinP0;\nlayout(location = 6) in vec3 aSkinP1;\n"
+              "layout(location = 7) in vec3 aSkinP2;\nlayout(location = 8) in vec3 aSkinP3;\n"
+              "layout(std140) uniform MotionSkin { vec4 uSkinRows[192]; };\n"
+              "layout(std140) uniform MotionPrevSkin { vec4 uPrevSkinRows[192]; };\n"
+              "uniform uvec2 uSkinValid;\nuniform uvec2 uPrevSkinValid;\n"
+              "void addCur(int b, float w, vec3 p, inout vec3 pos, inout float total) {\n"
+              "  if (w == 0.0 || (uSkinValid[b / 32] & (1u << uint(b % 32))) == 0u) return;\n"
+              "  pos += w * vec3(dot(uSkinRows[b*3], vec4(p,1.0)), dot(uSkinRows[b*3+1], vec4(p,1.0)), dot(uSkinRows[b*3+2], vec4(p,1.0)));\n"
+              "  total += w;\n}\n"
+              "void addPrev(int b, float w, vec3 p, inout vec3 pos, inout float total) {\n"
+              "  if (w == 0.0 || (uPrevSkinValid[b / 32] & (1u << uint(b % 32))) == 0u) return;\n"
+              "  pos += w * vec3(dot(uPrevSkinRows[b*3], vec4(p,1.0)), dot(uPrevSkinRows[b*3+1], vec4(p,1.0)), dot(uPrevSkinRows[b*3+2], vec4(p,1.0)));\n"
+              "  total += w;\n}\n"
+              "vec3 skinned(vec3 s, float total) {\n"
+              "  if (total <= 0.0) return aMeshPos;\n"
+              "  vec3 p = s / total;\n"
+              "  return trunc(clamp(p + sign(p) * 0.5, -32768.0, 32767.0));\n}\n";
+    }
+    if (cutout) vs += "out vec2 vTex;\n";
+    vs += "void main() {\n";
+    if (kind == GEVR_MOTION_RING) {
+        vs += "  vec4 pc = aVtxPos, pp = aVtxPos;\n";
+    } else if (kind == GEVR_MOTION_MESH) {
+        vs += "  vec4 pc = uMeshMP * vec4(aMeshPos, 1.0), pp = uPrevMP * vec4(aMeshPos, 1.0);\n";
+    } else {
+        vs += "  vec3 sc = vec3(0.0), sp = vec3(0.0); float tc = 0.0, tp = 0.0;\n";
+        for (int k = 0; k < 4; k++) {
+            char line[256];
+            snprintf(line, sizeof(line), "  addCur(int(aSkinBone[%d]), aSkinWeight[%d], aSkinP%d, sc, tc);\n"
+                                         "  addPrev(int(aSkinBone[%d]), aSkinWeight[%d], aSkinP%d, sp, tp);\n", k, k, k, k, k, k);
+            vs += line;
+        }
+        vs += "  vec4 pc = uMeshMP * vec4(skinned(sc, tc), 1.0), pp = uPrevMP * vec4(skinned(sp, tp), 1.0);\n";
+    }
+    vs += "  float wm1 = abs(pc.w - 1.0);\n"
+          "  vKeep = (wm1 == 0.0 || wm1 == 7.0 || wm1 == 8.0 || wm1 == 9.0) ? 0.0 : 1.0;\n"
+          "  vec4 cur = uCurVP * vec4(pc.x / uHeadP.x, pc.y / uHeadP.y, -pc.w, 1.0);\n"
+          "  vec4 prev = uPrevVP * vec4(pp.x / uHeadP.x, pp.y / uHeadP.y, -pp.w, 1.0);\n"
+          "  vec4 off = gl_ViewID_OVR == 0u ? uEyeOffsetLeft : uEyeOffsetRight;\n"
+          "  cur.x -= off.x + off.y * cur.w; cur.y -= off.w * cur.w;\n"
+          "  prev.x -= off.x + off.y * prev.w; prev.y -= off.w * prev.w;\n"
+          "  vCur = cur; vPrev = prev;\n"
+          "  float metres = max(cur.w / uUnitsPerMetre, 0.0001);\n"
+          "  gl_Position = vec4(cur.xy, (1.0 - 0.2 / metres) * cur.w, cur.w);\n";
+    if (cutout && kind == GEVR_MOTION_RING) vs += "  vTex = aTexCoord0;\n";
+    if (cutout && kind != GEVR_MOTION_RING)
+        vs += "  vec2 st = aMeshST * uMeshTex0.xy; vec2 r = uMeshTexRot0; if (dot(r, r) == 0.0) r = vec2(1.0, 0.0);\n"
+              "  vTex = vec2(r.x * st.x - r.y * st.y, r.y * st.x + r.x * st.y) + uMeshTex0.zw;\n";
+    vs += "}\n";
+
+    std::string fs = "#version 300 es\nprecision highp float;\nin highp vec4 vCur;\nin highp vec4 vPrev;\nflat in float vKeep;\n"
+                     "layout(location = 0) out vec4 outMotion;\n";
+    if (cutout) fs += "in vec2 vTex;\nuniform sampler2D uTexCut;\nuniform float uAlphaCut;\n";
+    fs += "void main() {\n  if (vKeep < 0.5) discard;\n";
+    if (cutout) fs += "  if (texture(uTexCut, vTex).a < uAlphaCut) discard;\n";
+    fs += "  outMotion = vec4(vCur.xyz / vCur.w - vPrev.xyz / vPrev.w, 0.0);\n}\n";
+
+    GLuint v = gevr_motion_shader(GL_VERTEX_SHADER, vs.c_str());
+    GLuint f = gevr_motion_shader(GL_FRAGMENT_SHADER, fs.c_str());
+    if (!v || !f) return 0;
+    GLuint prg = glCreateProgram();
+    glAttachShader(prg, v);
+    glAttachShader(prg, f);
+    glLinkProgram(prg);
+    glDeleteShader(v);
+    glDeleteShader(f);
+    GLint ok = 0;
+    glGetProgramiv(prg, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char log[1024] = "";
+        glGetProgramInfoLog(prg, sizeof(log), NULL, log);
+        vr_log("spacewarp: motion program failed: %s", log);
+        glDeleteProgram(prg);
+        return 0;
+    }
+    return prg;
+}
+
+static bool gevr_motion_programs(void)
+{
+    if (s_motionState) return s_motionState > 0;
+    s_motionState = -1;
+    for (int kind = 0; kind < GEVR_MOTION_KINDS; kind++) {
+        for (int cutout = 0; cutout < 2; cutout++) {
+            const GLuint prg = gevr_motion_link(kind, cutout != 0);
+            if (!prg) return false;
+            GevrMotionProgram& m = s_motionPrg[kind][cutout];
+            m.id = prg;
+            m.cur = glGetUniformLocation(prg, "uCurVP");
+            m.prev = glGetUniformLocation(prg, "uPrevVP");
+            m.headP = glGetUniformLocation(prg, "uHeadP");
+            m.offL = glGetUniformLocation(prg, "uEyeOffsetLeft");
+            m.offR = glGetUniformLocation(prg, "uEyeOffsetRight");
+            m.units = glGetUniformLocation(prg, "uUnitsPerMetre");
+            m.mp = glGetUniformLocation(prg, "uMeshMP");
+            m.prevMP = glGetUniformLocation(prg, "uPrevMP");
+            m.valid = glGetUniformLocation(prg, "uSkinValid");
+            m.prevValid = glGetUniformLocation(prg, "uPrevSkinValid");
+            m.tex = glGetUniformLocation(prg, "uTexCut");
+            m.cut = glGetUniformLocation(prg, "uAlphaCut");
+            m.meshTex = glGetUniformLocation(prg, "uMeshTex0");
+            m.meshTexRot = glGetUniformLocation(prg, "uMeshTexRot0");
+            if (kind == GEVR_MOTION_SKIN) {
+                glUniformBlockBinding(prg, glGetUniformBlockIndex(prg, "MotionSkin"), 2);
+                glUniformBlockBinding(prg, glGetUniformBlockIndex(prg, "MotionPrevSkin"), 3);
+            }
+            if (m.tex >= 0) {
+                glUseProgram(prg);
+                glUniform1i(m.tex, 0);
+            }
+        }
+    }
+    glGenBuffers(2, s_motionPalette);
+    s_motionState = 1;
+    return true;
+}
+
+/* A frame shown without a motion pass: the next one has no previous placements. */
+void gfx_vr_motion_forget(void)
+{
+    s_motionHavePrev = false;
+}
+
+/* A mesh's origin through its placement and a frame's move: (x/P00, y/P11, -w)
+ * of its game-camera clip position, then the move (column-major). */
+static void gevr_motion_origin(const float* move, const float mp[16], float out[3])
+{
+    const float c[4] = { mp[12] / s_eyeHeadP[0], mp[13] / s_eyeHeadP[1], -mp[15], 1.0f };
+    for (int r = 0; r < 3; r++)
+        out[r] = move[r] * c[0] + move[4 + r] * c[1] + move[8 + r] * c[2] + move[12 + r] * c[3];
+}
+
+/* The previous frame's draw of this one: of the same buffer, index range and
+ * hand, the untaken one whose origin was shown nearest to where this draw's
+ * would have been if it had not moved (prev: the head and hand move alone),
+ * within half a metre. Draw order changes as things come into view, and guards
+ * of one model share their buffers: matching by order gave a body another
+ * guard's last pose, and the runtime smeared it between frames. */
+static const GevrMotionRecord* gevr_motion_find(const std::vector<GevrMotionRecord>& before, std::vector<uint8_t>& taken,
+                                                uint64_t key, const float* prev, const float mp[16], float limit)
+{
+    auto it = s_motionIndex.find(key);
+    if (it == s_motionIndex.end()) return NULL;
+    float still[3];
+    gevr_motion_origin(prev, mp, still);
+    int best = -1;
+    float bestD = limit * limit;
+    for (uint32_t i : it->second) {
+        if (taken[i]) continue;
+        const float* v = before[i].view;
+        const float dx = v[0] - still[0], dy = v[1] - still[1], dz = v[2] - still[2];
+        const float dd = dx * dx + dy * dy + dz * dz;
+        if (dd < bestD) { bestD = dd; best = (int)i; }
+    }
+    if (best < 0) return NULL;
+    taken[best] = 1;
+    return &before[best];
+}
+
+/* cur: the world's, the left and right hands' and the body's moves this frame
+ * (gfx_vr_eye_replay's). prev: the same to the previous frame, from this frame's
+ * placement (head, hands and stick only). havePrev: that frame was shown just
+ * before this one, so its own draws' placements can be used. */
+void gfx_vr_motion_pass(const float* const cur[4], const float* const prev[4], bool havePrev, float unitsPerMetre)
+{
+    gevr_mesh_settle();
+    if (!s_eyeReady || unitsPerMetre <= 0.0f || !gevr_motion_programs()) {
+        s_motionHavePrev = false;
+        return;
+    }
+    float C[4][16], P[4][16];
+    for (int i = 0; i < 4; i++) {
+        gevr_eye_proj_times(cur[i], C[i]);
+        gevr_eye_proj_times(prev[i], P[i]);
+    }
+    const bool matchPrev = havePrev && s_motionHavePrev;
+    std::vector<GevrMotionRecord>& records = s_motionRecords[s_motionFrame];
+    std::vector<GevrSkinPalette>& palettes = s_motionPalettes[s_motionFrame];
+    const std::vector<GevrMotionRecord>& before = s_motionRecords[s_motionFrame ^ 1];
+    const std::vector<GevrSkinPalette>& beforePalettes = s_motionPalettes[s_motionFrame ^ 1];
+    records.clear();
+    palettes.clear();
+    std::vector<uint8_t> taken(before.size(), 0);
+
+    GLint prevVao = 0, depthFunc = GL_LEQUAL;
+    GLboolean depthMask = GL_TRUE;
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVao);
+    glGetIntegerv(GL_DEPTH_FUNC, &depthFunc);
+    glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
+    const GLboolean blendOn = glIsEnabled(GL_BLEND), cullOn = glIsEnabled(GL_CULL_FACE);
+    const GLboolean offsetOn = glIsEnabled(GL_POLYGON_OFFSET_FILL), stencilOn = glIsEnabled(GL_STENCIL_TEST);
+    const GLboolean depthOn = glIsEnabled(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glDisable(GL_STENCIL_TEST);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(GL_TRUE);
+    gevr_mesh_clip(false);
+    glActiveTexture(GL_TEXTURE0);
+    for (int k = 0; k < GEVR_MOTION_KINDS; k++) {
+        for (int c = 0; c < 2; c++) {
+            const GevrMotionProgram& m = s_motionPrg[k][c];
+            glUseProgram(m.id);
+            glUniform2f(m.headP, s_eyeHeadP[0], s_eyeHeadP[1]);
+            glUniform4fv(m.offL, 1, &s_eye_offsets[0]);
+            glUniform4fv(m.offR, 1, &s_eye_offsets[4]);
+            glUniform1f(m.units, unitsPerMetre);
+        }
+    }
+    glBindBufferBase(GL_UNIFORM_BUFFER, 2, s_motionPalette[0]);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 3, s_motionPalette[1]);
+
+    const GevrMotionProgram* bound = NULL;
+    GLuint vao = 0, tex = 0;
+    GLsizei stride = -1;
+    bool texCoords = false;
+    bool onSurface = false;
+    uint32_t drawn = 0, skipped = 0, matched = 0;
+    for (const GevrEyeDraw& d : s_eyeDraws) {
+        const GevrEyeMesh* mesh = d.mesh ? &s_eyeMeshes[d.mesh - 1] : NULL;
+        if (d.isMenu) {
+            skipped++;
+            continue;
+        }
+        const bool skin = mesh && mesh->params.skinned;
+        const int kind = !mesh ? GEVR_MOTION_RING : skin ? GEVR_MOTION_SKIN : GEVR_MOTION_MESH;
+        // blended: where at least half opaque (its texture), or wholly when untextured
+        const float cut = d.alpha[0] ? (d.prg->used_textures[0] ? std::max(0.5f, d.prg->motion_cut) : 0.0f)
+                                     : d.prg->motion_cut;
+        const bool cutout = cut > 0.0f;
+        const GevrMotionProgram& m = s_motionPrg[kind][cutout ? 1 : 0];
+        const GLuint want = mesh ? mesh->vao : opengl_vao;
+        if (want != vao) {
+            glBindVertexArray(want);
+            if (!mesh) glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+            vao = want;
+            stride = -1;
+        }
+        s_drawElements = mesh != NULL;
+        if (&m != bound) {
+            glUseProgram(m.id);
+            bound = &m;
+        }
+        // this draw's previous placement, if the previous frame drew it
+        const GevrMotionRecord* was = NULL;
+        if (mesh) {
+            const uint64_t key = gevr_motion_key(want, d.first, d.count, (uint32_t)(d.hand + 1));
+            if (matchPrev) {
+                const GevrMotionRecord* r = gevr_motion_find(before, taken, key, prev[d.hand + 1], mesh->params.mp,
+                                                             0.5f * unitsPerMetre);
+                if (r && r->skinned == skin) {
+                    was = r;
+                    matched++;
+                }
+            }
+            GevrMotionRecord rec;
+            rec.vao = want; rec.first = d.first; rec.count = d.count;
+            rec.hand = d.hand; rec.skinned = skin; rec.palette = 0;
+            memcpy(rec.mp, mesh->params.mp, sizeof(rec.mp));
+            memcpy(rec.valid, mesh->params.palette.valid, sizeof(rec.valid));
+            gevr_motion_origin(cur[d.hand + 1], mesh->params.mp, rec.view);
+            if (skin) {
+                rec.palette = (uint32_t)palettes.size();
+                palettes.push_back(mesh->params.palette);
+            }
+            records.push_back(rec);
+            glUniformMatrix4fv(m.mp, 1, GL_FALSE, mesh->params.mp);
+            glUniformMatrix4fv(m.prevMP, 1, GL_FALSE, was ? was->mp : mesh->params.mp);
+            if (skin) {
+                const GevrSkinPalette& pal = mesh->params.palette;
+                const GevrSkinPalette& old = was ? beforePalettes[was->palette] : pal;
+                glBindBuffer(GL_UNIFORM_BUFFER, s_motionPalette[0]);
+                glBufferData(GL_UNIFORM_BUFFER, sizeof(pal.rows), pal.rows, GL_STREAM_DRAW);
+                glBindBuffer(GL_UNIFORM_BUFFER, s_motionPalette[1]);
+                glBufferData(GL_UNIFORM_BUFFER, sizeof(old.rows), old.rows, GL_STREAM_DRAW);
+                glUniform2uiv(m.valid, 1, pal.valid);
+                glUniform2uiv(m.prevValid, 1, old.valid);
+            }
+            if (cutout) {
+                glUniform4fv(m.meshTex, 1, mesh->params.tex[0]);
+                const float* r = mesh->params.tex_rotation[0];
+                glUniform2f(m.meshTexRot, r[0] == 0 && r[1] == 0 ? 1 : r[0], r[1]);
+            }
+        } else {
+            const GLsizei s = (GLsizei)(d.prg->num_floats * sizeof(float));
+            if (s != stride || cutout != texCoords) {
+                glEnableVertexAttribArray(0);
+                glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, s, (void*)0);
+                if (cutout) {
+                    // the first texture's coordinates follow the position (gfx_opengl_vertex_array_set_attribs)
+                    glEnableVertexAttribArray(1);
+                    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, s, (void*)(4 * sizeof(float)));
+                }
+                stride = s;
+                texCoords = cutout;
+            }
+        }
+        glUniformMatrix4fv(m.cur, 1, GL_FALSE, C[d.hand + 1]);
+        glUniformMatrix4fv(m.prev, 1, GL_FALSE, was ? s_motionPrevC[d.hand + 1] : P[d.hand + 1]);
+        if (cutout) {
+            if (d.tex[0] != tex) {
+                glBindTexture(GL_TEXTURE_2D, d.tex[0]);
+                tex = d.tex[0];
+            }
+            glUniform1f(m.cut, cut);
+        }
+        // decals: onto their surface (the eye pass's pull toward the eye), its depth kept
+        const bool decal = d.decalZ || d.decalDepth;
+        if (decal != onSurface) {
+            if (decal) {
+                glEnable(GL_POLYGON_OFFSET_FILL);
+                glPolygonOffset(-2.0f, -2.0f);
+                glDepthMask(GL_FALSE);
+            } else {
+                glDisable(GL_POLYGON_OFFSET_FILL);
+                glDepthMask(GL_TRUE);
+            }
+            onSurface = decal;
+        }
+        gevr_draw_range(d.first, d.count);
+        drawn++;
+    }
+
+    if (onSurface) {
+        glDisable(GL_POLYGON_OFFSET_FILL);
+        glDepthMask(GL_TRUE);
+    }
+    // what the next frame's motion measures from
+    s_motionIndex.clear();
+    for (uint32_t i = 0; i < records.size(); i++) {
+        const GevrMotionRecord& r = records[i];
+        s_motionIndex[gevr_motion_key(r.vao, r.first, r.count, (uint32_t)(r.hand + 1))].push_back(i);
+    }
+    memcpy(s_motionPrevC, C, sizeof(s_motionPrevC));
+    s_motionHavePrev = true;
+    s_motionFrame ^= 1;
+
+    s_drawElements = false;
+    // the ring's attribute layout, textures and program back as fast3d has them
+    glBindVertexArray(opengl_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+    if (s_curPrg) gfx_opengl_vertex_array_set_attribs(s_curPrg);
+    glBindVertexArray((GLuint)prevVao);
+    for (int t = 0; t < 2; t++) {
+        glActiveTexture(GL_TEXTURE0 + t);
+        glBindTexture(GL_TEXTURE_2D, s_boundTex[t]);
+    }
+    glActiveTexture(GL_TEXTURE0 + s_activeTexUnit);
+    glUseProgram(s_curPrg ? s_curPrg->opengl_program_id : 0);
+    if (blendOn) glEnable(GL_BLEND);
+    if (cullOn) glEnable(GL_CULL_FACE);
+    if (offsetOn) glEnable(GL_POLYGON_OFFSET_FILL);
+    if (stencilOn) glEnable(GL_STENCIL_TEST);
+    if (!depthOn) glDisable(GL_DEPTH_TEST);
+    glDepthFunc((GLenum)depthFunc);
+    glDepthMask(depthMask);
+    s_uniCacheValid = false;
+    static uint32_t frames, sumDrawn, sumSkipped, sumMatched;
+    frames++; sumDrawn += drawn; sumSkipped += skipped; sumMatched += matched;
+    if (frames >= 60) {
+        if (VrShowStats || gevrFrameTimingTracing())
+            vr_log("spacewarp: motion pass %u draws (%u moved from their own last placement), %u skipped per frame",
+                   sumDrawn / frames, sumMatched / frames, sumSkipped / frames);
+        frames = sumDrawn = sumSkipped = sumMatched = 0;
+    }
 }
 
 /*

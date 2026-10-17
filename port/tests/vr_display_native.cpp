@@ -132,6 +132,8 @@ void attachMultisample(GLenum, GLenum, GLuint, GLint, GLsizei, GLint, GLsizei) {
 auto glFramebufferTextureMultiviewOVR = attachMultiview;
 auto pfnFramebufferTextureMultisampleMultiviewOVR = attachMultisample;
 uint32_t gfx_msaa_level = 1;
+int VrEyeMsaa = 1;          /* the launcher's Anti-aliasing: off */
+int VrResetRenderScale = 0; /* no test build's RenderScale key */
 void gfx_opengl_connect_multiview_fbo(GLuint, uint32_t, uint32_t) {}
 int64_t vr_pick_swapchain_format() { return 1; }
 std::vector<const char *> vr_enumerate_extensions() { return {"graphics", "android"}; }
@@ -172,6 +174,8 @@ extern "C" void vr_shutdown();
 
 /* INSERT_REFRESH */
 /* INSERT_RESOURCES */
+static void vr_spacewarp_create(void) {}   /* SpaceWarp: off in this harness */
+static void vr_spacewarp_destroy(void) {}
 /* INSERT_LIFECYCLE */
 
 static void clean() {

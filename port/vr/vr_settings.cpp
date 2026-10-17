@@ -169,6 +169,9 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; Bodies kept on the floor: 0 = they fade as in the original game, or 12, 24, 48.\n");
     fprintf(f, "BodiesStay=%d\n", VrBodiesStay);
     fprintf(f, "; 1 = alerted guards can call multiple reinforcements (solo, default off; any body count).\n");
+    fprintf(f, "; GoldenEye solo/co-op/Horde AI ally; host chooses, next mission or retry.\n");
+    fprintf(f, "Ally=%d\nAllyWeapon=%d\nAllyAggression=%d\nAllyHealth=%d\nAllyDamage=%d\nAllyInvincible=%d\n",
+            VrAlly != 0, VrAllyWeapon, VrAllyAggression, VrAllyHealth, VrAllyDamage, VrAllyInvincible != 0);
     fprintf(f, "FastReinforcements=%d\n", VrFastReinforcements ? 1 : 0);
     fprintf(f, "; Host's co-op Fast reinforcements preference, independent of solo; default off.\n");
     fprintf(f, "CoopFastReinforcements=%d\n", VrCoopFastReinforcements ? 1 : 0);
@@ -183,6 +186,11 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; 3 = Touch Plus (Quest 3 and 3S), 4 = Touch Pro.\n");
     fprintf(f, "TouchControllers=%d\n", VrTouchModel);
     fprintf(f, "ShowStats=%d\n", VrShowStats ? 1 : 0);
+    fprintf(f, "; 1 = Application SpaceWarp: the game renders at half the display rate and the\n");
+    fprintf(f, "; headset makes the frames between from motion vectors. 0 = off, -1 = on with Bean.\n");
+    fprintf(f, "SpaceWarp=%d\n", VrSpaceWarp < 0 ? -1 : VrSpaceWarp ? 1 : 0);
+    fprintf(f, "; Anti-aliasing of the eye images: 1 = off, 2 or 4 samples per pixel.\n");
+    fprintf(f, "EyeMsaa=%d\n", VrEyeMsaa);
     fprintf(f, "Cheats=%llx\n", (unsigned long long)VrCheatMask);
     fprintf(f, "GunSizeCheat=%d\n", VrGunSizeCheat);
     fprintf(f, "; 1 = every mission at every difficulty, 007 mode and every cheat unlocked.\n");
@@ -231,6 +239,7 @@ extern "C" void vrSettingsSave(void)
             VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound);
     fprintf(f, "MpVoiceMode=%d\n", VrMpVoiceMode);
     fprintf(f, "MpFriendlyFire=%d\n", VrMpFriendlyFire);
+    fprintf(f, "HordeFriendlyFire=%d\n", VrHordeFriendlyFire);
     fprintf(f, "HostEqualization=%d\nHostLatencyCapMs=%d\n", VrHostEqualization, VrHostLatencyCapMs);
     fprintf(f, "MpFunFlags=%d\nMpGunSize=%d\nMpMaxPlayers=%d\n", VrMpFunFlags, VrMpGunSize, VrMpMaxPlayers);
     fprintf(f, "MpBotMode=%d\nMpBotCount=%d\nMpBotDifficulty=%d\n", VrMpBotMode, VrMpBotCount, VrMpBotDifficulty);
@@ -246,7 +255,7 @@ extern "C" void vrSettingsSave(void)
     for (int i = 0; i < 4; i++) fprintf(f, "MpCustom%d=%d\n", i + 1, VrMpCustom[i]);
     for (int i = 0; i < 4; i++) fprintf(f, "MpLoadout%d=%d\n", i + 1, VrMpLoadout[i]);
     fprintf(f, "MpFavStages=%u\nMpFavSets=%u\n", VrMpFavStages, VrMpFavSets);
-    fprintf(f, "; Co-op: MpMode 1, the mission's level id and the difficulty (0 Agent .. 3 007).\n");
+    fprintf(f, "; MpMode 2 = Horde (Archives). Co-op: MpMode 1, the mission's level id and the difficulty (0 Agent .. 3 007).\n");
     fprintf(f, "MpMode=%d\nMpMission=%d\nMpDifficulty=%d\n", VrMpMode, VrMpMission, VrMpDifficulty);
     fprintf(f, "; The virtual screen: metres in front of you, and the degrees of view it spans.\n");
     fprintf(f, "; Hold both grips and use the right stick while the screen is up to change them.\n");
@@ -683,11 +692,20 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "BodySlotSize") == 0) VrBodySlotSize = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             else if (strcmp(key, "PerWeaponRecoil") == 0) VrPerWeaponRecoil = ival != 0;
             else if (strcmp(key, "MinesStickToGuards") == 0) VrMinesStickToGuards = ival != 0;
+            else if (strcmp(key, "Ally") == 0) VrAlly = ival != 0;
+            else if (strcmp(key, "AllyWeapon") == 0) VrAllyWeapon = ival < 0 ? 0 : ival > 9 ? 9 : ival;
+            else if (strcmp(key, "AllyAggression") == 0) VrAllyAggression = ival < 0 ? 0 : ival > 2 ? 2 : ival;
+            else if (strcmp(key, "AllyHealth") == 0) VrAllyHealth = ival < 25 ? 25 : ival > 1000 ? 1000 : ival;
+            else if (strcmp(key, "AllyDamage") == 0) VrAllyDamage = ival < 25 ? 25 : ival > 400 ? 400 : ival;
+            else if (strcmp(key, "AllyInvincible") == 0) VrAllyInvincible = ival != 0;
             else if (strcmp(key, "FastReinforcements") == 0) VrFastReinforcements = ival != 0;
             else if (strcmp(key, "CoopFastReinforcements") == 0) VrCoopFastReinforcements = ival != 0;
             else if (strcmp(key, "BodiesStay") == 0)
                 VrBodiesStay = ival >= 48 ? 48 : ival >= 24 ? 24 : ival >= 12 ? 12 : 0;
             else if (strcmp(key, "ShowStats") == 0) VrShowStats = (ival != 0);
+            else if (strcmp(key, "SpaceWarp") == 0) VrSpaceWarp = ival < 0 ? -1 : ival != 0;
+            else if (strcmp(key, "EyeMsaa") == 0) VrEyeMsaa = ival >= 4 ? 4 : ival >= 2 ? 2 : 1;
+            else if (strcmp(key, "RenderScale") == 0) VrResetRenderScale = 1;
             else if (strcmp(key, "GunSizeCheat") == 0) VrGunSizeCheat = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             else if (strcmp(key, "UnlockAll") == 0) VrUnlockAll = ival != 0;
             else if (strcmp(key, "HideArms") == 0) VrHideArms = (ival != 0);
@@ -710,6 +728,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "HostEqualization") == 0) VrHostEqualization = ival != 0;
             else if (strcmp(key, "HostLatencyCapMs") == 0) VrHostLatencyCapMs = ival < 0 ? 0 : ival > 80 ? 80 : ival;
             else if (strcmp(key, "MpFriendlyFire") == 0) VrMpFriendlyFire = ival != 0;
+            else if (strcmp(key, "HordeFriendlyFire") == 0) VrHordeFriendlyFire = ival != 0;
             else if (strcmp(key, "MpFunFlags") == 0) VrMpFunFlags = ival >= 0 && !(ival & ~NET_FUN_MASK) ? ival : 0;
             else if (strcmp(key, "MpGunSize") == 0) VrMpGunSize = ival >= 0 && ival <= 2 ? ival : 0;
             else if (strcmp(key, "MpMaxPlayers") == 0) VrMpMaxPlayers = ival >= 2 && ival <= 8 ? ival : 4;
@@ -729,7 +748,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MpNextRound") == 0) VrMpNextRound = ival;
             else if (strcmp(key, "MpFavStages") == 0) VrMpFavStages = (unsigned)ival;
             else if (strcmp(key, "MpFavSets") == 0) VrMpFavSets = (unsigned)ival;
-            else if (strcmp(key, "MpMode") == 0) VrMpMode = ival == 1 ? 1 : 0;
+            else if (strcmp(key, "MpMode") == 0) VrMpMode = ival >= 0 && ival <= 2 ? ival : 0;
             else if (strcmp(key, "MpMission") == 0) VrMpMission = ival;
             else if (strcmp(key, "MpDifficulty") == 0) VrMpDifficulty = ival >= 0 && ival <= 3 ? ival : 0;
             else if (strncmp(key, "MpCustom", 8) == 0 && key[8] >= '1' && key[8] <= '4') VrMpCustom[key[8] - '1'] = ival;
@@ -778,6 +797,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "GunOffX") == 0) { gunOff[0] = fval; gunOffRead = true; }
             else if (strcmp(key, "GunOffY") == 0) { gunOff[1] = fval; gunOffRead = true; }
             else if (strcmp(key, "GunOffZ") == 0) { gunOff[2] = fval; gunOffRead = true; }
+            else if (strcmp(key, "RenderScale") == 0) VrResetRenderScale = 1;
             else if (strcmp(key, "ScreenDistance") == 0) {
                 if (fval < VR_SCREEN_DISTANCE_MIN) fval = VR_SCREEN_DISTANCE_MIN;
                 if (fval > VR_SCREEN_DISTANCE_MAX) fval = VR_SCREEN_DISTANCE_MAX;

@@ -33,7 +33,7 @@ def build():
     args = [shutil.which("gcc") or "gcc", "-shared", "-O2", "-fms-extensions", "-Wno-builtin-declaration-mismatch"]
     args += ["-D"+v for v in ("GEVR=1", "PLATFORM_64BIT=1", "GEVR_STEAMAUDIO=1", "_LANGUAGE_C=1", "VERSION=2", "VERSION_US=1", "LANG_US=1")]
     args += ["-I"+v for v in (".", "port/include", "include", "src", "port/src", "port/external/steamaudio/include")]
-    args += ["port/tests/multiplayer_native.c", "port/src/net/netbuf.c", "port/src/net/net_spatial.c", "port/src/net/net_match.c", str(NATIVE/"phonon.lib"), "-o", str(NATIVE/"multiplayer_native.dll")]
+    args += ["port/tests/multiplayer_native.c", "port/src/net/netbuf.c", "port/src/gevr_avatar_math.c", "port/src/net/net_spatial.c", "port/src/net/net_match.c", str(NATIVE/"phonon.lib"), "-o", str(NATIVE/"multiplayer_native.dll")]
     result = subprocess.run(args, cwd=ROOT, capture_output=True, text=True)
     if result.returncode: raise RuntimeError(result.stderr)
     global DLL_DIRECTORY
@@ -77,7 +77,7 @@ def build_core():
     args=[shutil.which("gcc") or "gcc","-shared","-O2","-fms-extensions","-Wno-builtin-declaration-mismatch"]
     args += ["-D"+v for v in ("GEVR=1","PLATFORM_64BIT=1","_LANGUAGE_C=1","VERSION=2","VERSION_US=1","LANG_US=1")]
     args += ["-I"+str(ROOT/v) for v in (".","port/include","include","src","src/game","port/src","port/src/net")]
-    args += [str(generated),str(ROOT/"port/src/net/netbuf.c"),str(ROOT/"port/src/net/net_match.c"),"-o",str(NATIVE/"net_core_native.dll")]
+    args += [str(generated),str(ROOT/"port/src/net/netbuf.c"),str(ROOT/"port/src/gevr_avatar_math.c"),str(ROOT/"port/src/net/net_match.c"),"-o",str(NATIVE/"net_core_native.dll")]
     result=subprocess.run(args,cwd=ROOT,capture_output=True,text=True)
     if result.returncode: raise RuntimeError(result.stderr)
     return C.CDLL(str(NATIVE/"net_core_native.dll"))
@@ -303,9 +303,11 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_launch_consent_and_scenario_transition(self): self.assertEqual(self.core.test_core_launch_consent(),0)
     def test_in_game_ready_packets_and_start(self): self.assertEqual(self.core.test_core_menu_ready(),0)
     def test_coop_ignores_team_scenario_for_ready(self): self.assertEqual(self.core.test_core_coop_team_scenario_ready(),0)
+    def test_horde_solo_launch_and_coop_rules(self): self.assertEqual(self.core.test_core_horde_lobby(),0)
     def test_coop_guard_drops_detach_and_activate(self): self.assertEqual(self.coop_drops.test_coop_guard_drops(),0)
     def test_coop_guard_hand_removal_and_replacement(self): self.assertEqual(self.coop_drops.test_coop_guard_hand_changes(),0)
     def test_coop_guard_pickups_remain_individual(self): self.assertEqual(self.coop_drops.test_coop_guard_pickups_are_local(),0)
+    def test_horde_guard_weapons_do_not_accumulate(self): self.assertEqual(self.coop_drops.test_horde_guard_guns_are_bounded(),0)
     def test_solo_warmup_pending_options_restart(self): self.assertEqual(self.core.test_core_solo_restart(),0)
     def test_connected_roster_and_spectator_load_ack(self): self.assertEqual(self.core.test_core_connected_roster(),0)
     def test_first_and_next_round_warmup_timers(self): self.assertEqual(self.core.test_core_warmup_lifecycle(),0)

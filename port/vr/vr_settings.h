@@ -54,6 +54,7 @@ extern char VrPlayerName[16];  // multiplayer name, up to 15 characters (launche
 extern int VrMpStage, VrMpWeaponSet, VrMpChr, VrMpVisibility;
 extern int VrMpVoiceMode;
 extern int VrMpFriendlyFire;
+extern int VrHordeFriendlyFire;
 extern int VrHostEqualization, VrHostLatencyCapMs;
 extern int VrMpFunFlags, VrMpGunSize;
 extern int VrMpMaxPlayers; // the host's player count, 2..8 on any stage
@@ -106,6 +107,9 @@ extern float VrBodySlotFit[GEVR_BODY_SLOTS][3];
 extern int VrPerWeaponRecoil;   // PD VR's per-weapon recoil table
 extern int VrMinesStickToGuards; // thrown mines stick to guards (GEVR PC vr450.2)
 extern int VrBodiesStay;        // bodies kept: 0 (original fade), 12, 24 or 48
+// GoldenEye solo/PvE host companion; next mission or Horde retry. Weapon 0..9,
+// aggression 0 cautious / 1 normal / 2 aggressive; health/damage in percent.
+extern int VrAlly, VrAllyWeapon, VrAllyAggression, VrAllyHealth, VrAllyDamage, VrAllyInvincible;
 extern int VrFastReinforcements; // solo difficulty preference; off by default
 extern int VrCoopFastReinforcements; // host's co-op preference; off by default, separate from solo
 extern bool VrTwoHandAim;       // two-handed weapons aim along the line between both controllers
@@ -117,6 +121,9 @@ extern int VrSwapJoysticks;
 extern int VrAimSteady;         // gun-hand steadying: 0 off, 1 low, 2 high (issue #7)
 extern int VrTouchModel;        // watch Controls page: 0 the headset's controllers, 1..4 Quest 1, 2, Touch Plus, Pro
 extern int VrShowStats;         // troubleshooting readout in game
+extern int VrSpaceWarp;         // Application SpaceWarp: 1 on, 0 off, -1 on while Bean is
+extern int VrResetRenderScale;  // the test build's RenderScale key was read: scale back to 1
+extern int VrEyeMsaa;           // eye images' anti-aliasing: 1 off, 2 or 4 samples (live)
 extern unsigned long long VrCheatMask; // launcher cheats: bit n = CHEAT_IDS n
 extern int VrGunSizeCheat;      // VR fun cheat: 0 normal, 1 tiny, 2 big guns
 extern int VrUnlockAll;         // every mission, 007 mode and every cheat unlocked (issue #54)

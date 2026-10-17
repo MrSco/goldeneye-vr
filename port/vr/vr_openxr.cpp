@@ -74,6 +74,7 @@
 #include "gevr_render_size.h"
 #include "gevr_locomotion.h"
 #include "gevr_camera_collision.h"
+#include "gevr_bean_control.h"
 #include "gevr_frame_timing.h"
 #include "gevr_xr_metrics.h"
 #include "gevr_hud_bounds.h"
@@ -158,6 +159,8 @@ int VrSmallH = 0;
 int32_t g_internalRenderWidth  = 0;
 int32_t g_internalRenderHeight = 0;
 float RENDER_SCALE = 1.0f;
+extern "C" int VrEyeMsaa;          // vr_settings: the launcher's Anti-aliasing (EyeMsaa)
+extern "C" int VrResetRenderScale; // vr_settings: the test build's RenderScale key was read
 static uint32_t g_systemMaxRenderWidth = 0, g_systemMaxRenderHeight = 0;
 
 // The runtime's name for the headset ("Oculus Quest2", "Meta Quest 3", ...):
@@ -406,6 +409,11 @@ static bool g_cylinderSupported = false;
 // GoldenEye: the room's passthrough feed behind the virtual screen
 // (VrScreenPassthrough). Cleared again if creating it fails.
 static bool g_passthroughSupported = false;
+// Application SpaceWarp (XR_FB_space_warp): the runtime synthesizes every
+// other displayed frame from the app's motion vectors and depth, so the app
+// renders at half the display rate (vr_spacewarp_*, below).
+static bool g_spaceWarpSupported = false;
+static uint32_t g_spaceWarpWidth = 0, g_spaceWarpHeight = 0;   // recommended motion-vector size
 static XrPassthroughFB g_passthrough = XR_NULL_HANDLE;
 static XrPassthroughLayerFB g_passthroughLayer = XR_NULL_HANDLE;
 static bool g_passthroughRunning = false;
@@ -566,6 +574,7 @@ static std::vector<const char*> vr_enumerate_extensions()
     g_cylinderSupported = false;
     g_colorSpaceExtSupported = false;
     g_passthroughSupported = false;
+    g_spaceWarpSupported = false;
 
     uint32_t extensionCount = 0;
     XrResult result = xrEnumerateInstanceExtensionProperties(nullptr, 0, &extensionCount, nullptr);
@@ -635,6 +644,13 @@ static std::vector<const char*> vr_enumerate_extensions()
         }
     }
 
+    for (const auto& ext : extensionProperties) {
+        if (std::strcmp(ext.extensionName, XR_FB_SPACE_WARP_EXTENSION_NAME) == 0) {
+            enabledExts.push_back(XR_FB_SPACE_WARP_EXTENSION_NAME);
+            g_spaceWarpSupported = true;
+            LOGI("Extension enabled: %s", XR_FB_SPACE_WARP_EXTENSION_NAME);
+        }
+    }
     return enabledExts;
 }
 
@@ -720,10 +736,17 @@ static bool vr_get_system()
 
     // --- Retrieve HMD model ---
     XrSystemProperties sysProps{XR_TYPE_SYSTEM_PROPERTIES};
+    XrSystemSpaceWarpPropertiesFB spaceWarpProps{XR_TYPE_SYSTEM_SPACE_WARP_PROPERTIES_FB};
+    if (g_spaceWarpSupported) sysProps.next = &spaceWarpProps;
     XrResult propResult = xrGetSystemProperties(g_vrState.instance, g_vrState.systemId, &sysProps);
     if (XR_SUCCEEDED(propResult)) {
         g_systemMaxRenderWidth = sysProps.graphicsProperties.maxSwapchainImageWidth;
         g_systemMaxRenderHeight = sysProps.graphicsProperties.maxSwapchainImageHeight;
+        if (g_spaceWarpSupported) {
+            g_spaceWarpWidth = spaceWarpProps.recommendedMotionVectorImageRectWidth;
+            g_spaceWarpHeight = spaceWarpProps.recommendedMotionVectorImageRectHeight;
+            LOGI("SpaceWarp: recommended motion vectors %u x %u", g_spaceWarpWidth, g_spaceWarpHeight);
+        }
         LOGI("HMD model: %s (vendorId=%u)", sysProps.systemName, sysProps.vendorId);
         snprintf(g_hmdName, sizeof(g_hmdName), "%s", sysProps.systemName);
         LOGI("Max swapchain: %u x %u, max layers: %u",
@@ -835,6 +858,12 @@ extern "C" bool vr_configure_resolution() {
         recommendedWidth = std::max(recommendedWidth, valid ? view.recommendedImageRectWidth : 1832u);
         recommendedHeight = std::max(recommendedHeight, valid ? view.recommendedImageRectHeight : 1920u);
         if (!valid) LOGE("HMD eye %u invalid recommendation; using 1832 x 1920 fallback", eye);
+    }
+    // The 2026-10-17 test build's launcher Resolution was saved into
+    // Video.VRRenderScale; that option is gone, so its ini key resets it once.
+    if (VrResetRenderScale) {
+        VrResetRenderScale = 0;
+        RENDER_SCALE = 1.0f;
     }
     const GevrRenderSize size = gevrQuestRenderSize(recommendedWidth, recommendedHeight, RENDER_SCALE,
                                                   g_maxRenderWidth, g_maxRenderHeight);
@@ -1410,6 +1439,172 @@ static bool vr_load_swapchain_images(XrSwapchain swapchain, Images &images)
     }
     images.resize(count);
     return true;
+}
+
+
+/*
+ * Application SpaceWarp. A game frame's eye pass is drawn once more, cheaply
+ * (gfx_opengl.cpp gfx_vr_motion_pass: one program, no textures), into these
+ * motion-vector and depth images at the runtime's recommended size, and they
+ * go with the projection layer; the runtime then runs the app at half the
+ * display rate and makes the frames between. That removes the redraw replay,
+ * which at 120 Hz drew every game frame's draws a second time. The launcher's
+ * Display page toggle (goldeneye-vr.ini SpaceWarp) or files/gevr_spacewarp.txt turns it on.
+ */
+static XrSwapchain g_swMotionSwapchain = XR_NULL_HANDLE, g_swDepthSwapchain = XR_NULL_HANDLE;
+#ifdef ANDROID
+static std::vector<XrSwapchainImageOpenGLESKHR> g_swMotionImages, g_swDepthImages;
+#else
+static std::vector<XrSwapchainImageOpenGLKHR> g_swMotionImages, g_swDepthImages;
+#endif
+static GLuint g_swFbo = 0;
+static bool g_swOn = false;        // swapchains made: the setting and the runtime allow it
+static bool g_swFrameReady = false; // this frame's motion vectors were drawn: chain them
+static bool g_swFboChecked = false;
+static int g_swOverride = -1;      // files/gevr_spacewarp.txt (profiling): 0 off, 1 on, -1 the setting
+static bool g_swMadeTried = false; // the images were made, or failed, this session
+extern "C" int VrSpaceWarp;        // vr_settings: goldeneye-vr.ini SpaceWarp (1, 0, -1 with Bean)
+extern "C" int gevrBeanIsEnabled(void);
+
+static int vr_spacewarp_override(void)
+{
+    int value = -1;
+    if (FILE *control = gevrBeanControlOpen("gevr_spacewarp.txt")) {
+        int v = 0;
+        if (fscanf(control, "%d", &v) == 1) value = v != 0;
+        fclose(control);
+    }
+    return value;
+}
+
+/* The setting: on or off as chosen, or (-1, the default) on while Bean is,
+ * which needs it to hold 120 Hz while turning. Read every frame, so turning
+ * Bean on or off in game takes SpaceWarp with it. */
+extern "C" int vr_spacewarp_setting_on(void)
+{
+    return VrSpaceWarp >= 0 ? VrSpaceWarp != 0 : gevrBeanIsEnabled() != 0;
+}
+
+static bool vr_spacewarp_wanted(void)
+{
+    return g_swOverride >= 0 ? g_swOverride != 0 : vr_spacewarp_setting_on() != 0;
+}
+
+static void vr_spacewarp_destroy(void)
+{
+    if (g_swFbo) { glDeleteFramebuffers(1, &g_swFbo); g_swFbo = 0; }
+    if (g_swMotionSwapchain != XR_NULL_HANDLE) { xrDestroySwapchain(g_swMotionSwapchain); g_swMotionSwapchain = XR_NULL_HANDLE; }
+    if (g_swDepthSwapchain != XR_NULL_HANDLE) { xrDestroySwapchain(g_swDepthSwapchain); g_swDepthSwapchain = XR_NULL_HANDLE; }
+    g_swMotionImages.clear();
+    g_swDepthImages.clear();
+    g_swOn = g_swFrameReady = g_swFboChecked = false;
+}
+
+static void vr_spacewarp_make(void)
+{
+    g_swMadeTried = true;
+    if (!g_spaceWarpSupported || !use_multiview || g_spaceWarpWidth < 16 || g_spaceWarpHeight < 16) return;
+    XrSwapchainCreateInfo info{ XR_TYPE_SWAPCHAIN_CREATE_INFO };
+    info.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
+    info.format = GL_RGBA16F;
+    info.sampleCount = 1;
+    info.width = g_spaceWarpWidth;
+    info.height = g_spaceWarpHeight;
+    info.faceCount = 1;
+    info.arraySize = 2;
+    info.mipCount = 1;
+    if (XR_FAILED(xrCreateSwapchain(g_vrState.session, &info, &g_swMotionSwapchain))
+        || !vr_load_swapchain_images(g_swMotionSwapchain, g_swMotionImages)) {
+        LOGE("SpaceWarp: motion-vector swapchain failed");
+        vr_spacewarp_destroy();
+        return;
+    }
+    info.usageFlags = XR_SWAPCHAIN_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
+    info.format = GL_DEPTH24_STENCIL8;
+    if (XR_FAILED(xrCreateSwapchain(g_vrState.session, &info, &g_swDepthSwapchain))
+        || !vr_load_swapchain_images(g_swDepthSwapchain, g_swDepthImages)) {
+        LOGE("SpaceWarp: depth swapchain failed");
+        vr_spacewarp_destroy();
+        return;
+    }
+    glGenFramebuffers(1, &g_swFbo);
+    g_swOn = g_swFbo != 0;
+    LOGI("SpaceWarp: on (%u x %u, %zu/%zu images)", g_spaceWarpWidth, g_spaceWarpHeight,
+         g_swMotionImages.size(), g_swDepthImages.size());
+}
+
+/* Session start: the file switch is read once; the images are made the first
+ * time a game frame wants them, so the launcher's toggle takes effect in the
+ * next level without a restart. */
+static void vr_spacewarp_create(void)
+{
+    g_swOverride = vr_spacewarp_override();
+    g_swMadeTried = false;
+    const bool wanted = vr_spacewarp_wanted();
+    LOGI("gevr spacewarp: wanted=%d supported=%d size=%ux%u multiview=%d", wanted ? 1 : 0,
+         g_spaceWarpSupported ? 1 : 0, g_spaceWarpWidth, g_spaceWarpHeight, use_multiview ? 1 : 0);
+    if (wanted) vr_spacewarp_make();
+}
+
+/* vr_launcher.cpp: the toggle is offered where the runtime has the extension. */
+extern "C" int vr_spacewarp_supported(void)
+{
+    return g_spaceWarpSupported && use_multiview && g_spaceWarpWidth >= 16 && g_spaceWarpHeight >= 16;
+}
+
+/* gfx_pc.cpp, after a game frame's eye replay: bind and clear this frame's
+ * motion-vector and depth images. 0: SpaceWarp is off, or no stereo game frame. */
+extern "C" int vr_spacewarp_begin(void)
+{
+    if (!vr_spacewarp_wanted() || !g_frameStarted || !g_frameState.shouldRender) return 0;
+    if (!g_swOn && !g_swMadeTried) vr_spacewarp_make();
+    if (!g_swOn) return 0;
+    uint32_t mv = 0, depth = 0;
+    XrSwapchainImageAcquireInfo acquire{ XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+    XrSwapchainImageWaitInfo wait{ XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+    wait.timeout = XR_INFINITE_DURATION;
+    if (XR_FAILED(xrAcquireSwapchainImage(g_swMotionSwapchain, &acquire, &mv))) return 0;
+    if (XR_FAILED(xrWaitSwapchainImage(g_swMotionSwapchain, &wait))) return 0;
+    if (XR_FAILED(xrAcquireSwapchainImage(g_swDepthSwapchain, &acquire, &depth))) {
+        XrSwapchainImageReleaseInfo release{ XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+        xrReleaseSwapchainImage(g_swMotionSwapchain, &release);
+        return 0;
+    }
+    xrWaitSwapchainImage(g_swDepthSwapchain, &wait);
+    glBindFramebuffer(GL_FRAMEBUFFER, g_swFbo);
+    glFramebufferTextureMultiviewOVR(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, g_swMotionImages[mv].image, 0, 0, 2);
+    glFramebufferTextureMultiviewOVR(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, g_swDepthImages[depth].image, 0, 0, 2);
+    if (!g_swFboChecked) {
+        g_swFboChecked = true;
+        const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        LOGI("SpaceWarp: framebuffer status 0x%x", status);
+        if (status != GL_FRAMEBUFFER_COMPLETE) {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            XrSwapchainImageReleaseInfo release{ XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+            xrReleaseSwapchainImage(g_swMotionSwapchain, &release);
+            xrReleaseSwapchainImage(g_swDepthSwapchain, &release);
+            vr_spacewarp_destroy();
+            return 0;
+        }
+    }
+    glViewport(0, 0, (GLsizei)g_spaceWarpWidth, (GLsizei)g_spaceWarpHeight);
+    glDisable(GL_SCISSOR_TEST);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glDepthMask(GL_TRUE);
+    glStencilMask(0xff);
+    const GLfloat zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    glClearBufferfv(GL_COLOR, 0, zero);
+    glClearBufferfi(GL_DEPTH_STENCIL, 0, 1.0f, 0);
+    return 1;
+}
+
+extern "C" void vr_spacewarp_end(void)
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    XrSwapchainImageReleaseInfo release{ XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+    xrReleaseSwapchainImage(g_swMotionSwapchain, &release);
+    xrReleaseSwapchainImage(g_swDepthSwapchain, &release);
+    g_swFrameReady = true;
 }
 
 static bool vr_create_menu_swapchain()
@@ -3167,6 +3362,96 @@ extern "C" int gevrVrRedrawHandDelta(int hand, float out[16])
     return 1;
 }
 
+/*
+ * SpaceWarp's motion vectors: where each pixel of this frame's eye image was
+ * on the frame shown before it. The same deltas as the replay's (above), to
+ * the previous frame's presented camera, views and newest hand poses, which
+ * gevrVrMotionRemember keeps after each eye image. 0: no previous frame just
+ * before this one (the motion vector is then zero).
+ */
+static GevrPresentationCamera s_prevPresentedCamera;
+static std::array<XrView, 2> s_prevFrameViews;
+static bool s_prevValid, s_prevCameraValid, s_prevHandValid[2];
+static float s_prevHandP[2][3], s_prevHandQ[2][4];
+static XrTime s_prevDisplayTime;
+
+static bool vr_motion_prev_usable(void)
+{
+    if (!s_prevValid || !g_haveRecordedViews || !g_frameStarted || vr_world_scale <= 0.0f) return false;
+    const XrTime gap = g_frameState.predictedDisplayTime - s_prevDisplayTime;
+    const XrTime period = g_frameState.predictedDisplayPeriod > 0 ? g_frameState.predictedDisplayPeriod : 8333333;
+    return gap > 0 && gap <= period * 5 / 2;
+}
+
+extern "C" int gevrVrMotionPrevDelta(float out[16])
+{
+    if (!vr_motion_prev_usable()) return 0;
+    if (s_haveRecordedCamera && s_prevCameraValid
+        && vr_locomotion_camera(s_recordedCamera, s_recordedCeilingDrop, s_recordedLocomotion, g_recordedViews)) {
+        float recorded[16], previous[16];
+        gevrCameraDelta(&s_recordedCamera, &s_recordedPresentation, vr_world_scale / 100.0f, recorded);
+        gevrCameraDelta(&s_recordedPresentation, &s_prevPresentedCamera, vr_world_scale / 100.0f, previous);
+        gevrMat4Multiply(previous, recorded, out);
+        return 1;
+    }
+    const XrView* o = g_recordedViews.data();
+    const XrView* n = s_prevFrameViews.data();
+    float Ro[9], Rn[9];
+    vr_quat_to_mat3(o[0].pose.orientation, Ro);
+    vr_quat_to_mat3(n[0].pose.orientation, Rn);
+    const float d[3] = {
+        (o[0].pose.position.x + o[1].pose.position.x - n[0].pose.position.x - n[1].pose.position.x) * 0.5f,
+        (o[0].pose.position.y + o[1].pose.position.y - n[0].pose.position.y - n[1].pose.position.y) * 0.5f,
+        (o[0].pose.position.z + o[1].pose.position.z - n[0].pose.position.z - n[1].pose.position.z) * 0.5f };
+    for (int r = 0; r < 3; r++) {
+        for (int c = 0; c < 3; c++)
+            out[c * 4 + r] = Rn[0 * 3 + r] * Ro[0 * 3 + c] + Rn[1 * 3 + r] * Ro[1 * 3 + c] + Rn[2 * 3 + r] * Ro[2 * 3 + c];
+        out[12 + r] = (Rn[0 * 3 + r] * d[0] + Rn[1 * 3 + r] * d[1] + Rn[2 * 3 + r] * d[2]) * vr_world_scale;
+        out[r * 4 + 3] = 0.0f;
+    }
+    out[15] = 1.0f;
+    return 1;
+}
+
+/* gevrVrRedrawHandDelta to the previous frame's newest hand pose. */
+extern "C" int gevrVrMotionPrevHandDelta(int hand, float out[16])
+{
+    float po[3], qo[4];
+    if (hand < 0 || hand > 1 || !vr_motion_prev_usable() || !s_prevHandValid[hand]
+        || !gevrVrGripPoseCamera(hand, po, qo)) {
+        return 0;
+    }
+    const float* pn = s_prevHandP[hand];
+    const float* qn = s_prevHandQ[hand];
+    float Ro[9], Rn[9], R[9];
+    vr_quat_to_mat3(XrQuaternionf{qo[0], qo[1], qo[2], qo[3]}, Ro);
+    vr_quat_to_mat3(XrQuaternionf{qn[0], qn[1], qn[2], qn[3]}, Rn);
+    for (int r = 0; r < 3; r++)
+        for (int c = 0; c < 3; c++)
+            R[r * 3 + c] = Rn[r * 3 + 0] * Ro[c * 3 + 0] + Rn[r * 3 + 1] * Ro[c * 3 + 1] + Rn[r * 3 + 2] * Ro[c * 3 + 2];
+    for (int r = 0; r < 3; r++) {
+        for (int c = 0; c < 3; c++) out[c * 4 + r] = R[r * 3 + c];
+        out[12 + r] = (pn[r] - (R[r * 3 + 0] * po[0] + R[r * 3 + 1] * po[1] + R[r * 3 + 2] * po[2])) * vr_world_scale;
+        out[r * 4 + 3] = 0.0f;
+    }
+    out[15] = 1.0f;
+    return 1;
+}
+
+/* gfx_pc.cpp, after each eye image (fresh or redrawn): what the next frame's
+ * motion vectors measure from. */
+extern "C" void gevrVrMotionRemember(void)
+{
+    if (!g_frameStarted) return;
+    s_prevFrameViews = g_frameViews;
+    s_prevPresentedCamera = s_presentedCamera;
+    s_prevCameraValid = s_locomotion.count && s_lastPresentationTime == g_frameState.predictedDisplayTime;
+    for (int h = 0; h < 2; h++)
+        s_prevHandValid[h] = gevrVrGripPoseSteady(h, s_prevHandP[h], s_prevHandQ[h]) != 0;
+    s_prevDisplayTime = g_frameState.predictedDisplayTime;
+    s_prevValid = true;
+}
+
 /* The stored scope axes include two-hand aim. Move that frame by the same
  * absolute controller delta as the retained gun/sight vertices; the stored
  * camera-relative origin alone would lock the lens to the headset on redraws. */
@@ -3251,6 +3536,10 @@ extern "C" float gevrVrAspect(void) { return XrAspect; }
 // Game units per metre: scales the eye separation (vr_get_eye_view_offset).
 extern "C" void gevrVrSetWorldScale(float unitsPerMetre) { vr_world_scale = unitsPerMetre; }
 
+/* vr_launcher.cpp: Anti-aliasing is offered where the driver can multisample
+ * the multiview eye images. */
+extern "C" int vr_eye_msaa_supported(void) { return use_multiview && pfnFramebufferTextureMultisampleMultiviewOVR != nullptr; }
+
 // ============================================================================
 // FBOs - Render Targets
 // ============================================================================
@@ -3259,12 +3548,12 @@ static bool vr_ensure_swapchain_images();
 
 static bool vr_attach_eye_fbo(GLuint colorTexture, bool validate)
 {
-    if (gfx_msaa_level > 1 && pfnFramebufferTextureMultisampleMultiviewOVR) {
+    // the launcher's Anti-aliasing, or the game's Video.MSAA; read every frame
+    GLsizei samples = (GLsizei)std::max<uint32_t>((uint32_t)VrEyeMsaa, gfx_msaa_level);
 #ifdef ANDROID
-        const GLsizei samples = std::min(gfx_msaa_level, 4u);
-#else
-        const GLsizei samples = gfx_msaa_level;
+    samples = std::min<GLsizei>(samples, 4);
 #endif
+    if (samples > 1 && pfnFramebufferTextureMultisampleMultiviewOVR) {
         pfnFramebufferTextureMultisampleMultiviewOVR(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
                                                     colorTexture, 0, samples, 0, 2);
         pfnFramebufferTextureMultisampleMultiviewOVR(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
@@ -3929,6 +4218,26 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         };
     }
 
+    // SpaceWarp: the motion vectors and depth drawn for this frame's eye image
+    // (identity app-space delta: the motion vectors carry the stick's moves).
+    XrCompositionLayerSpaceWarpInfoFB spaceWarp[2];
+    if (g_swFrameReady && g_swOn && is_mv) {
+        for (int eye = 0; eye < 2; ++eye) {
+            spaceWarp[eye] = { XR_TYPE_COMPOSITION_LAYER_SPACE_WARP_INFO_FB };
+            spaceWarp[eye].motionVectorSubImage.swapchain = g_swMotionSwapchain;
+            spaceWarp[eye].motionVectorSubImage.imageArrayIndex = eye;
+            spaceWarp[eye].motionVectorSubImage.imageRect = { {0, 0}, {(int32_t)g_spaceWarpWidth, (int32_t)g_spaceWarpHeight} };
+            spaceWarp[eye].depthSubImage = spaceWarp[eye].motionVectorSubImage;
+            spaceWarp[eye].depthSubImage.swapchain = g_swDepthSwapchain;
+            spaceWarp[eye].appSpaceDeltaPose = { {0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 0.0f} };
+            spaceWarp[eye].minDepth = 0.0f;
+            spaceWarp[eye].maxDepth = 1.0f;
+            spaceWarp[eye].nearZ = 0.1f;
+            spaceWarp[eye].farZ = INFINITY;
+            projViews[eye].next = &spaceWarp[eye];
+        }
+    }
+    g_swFrameReady = false;
     XrCompositionLayerProjection layer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
     layer.space = g_vrState.playSpace;
     layer.viewCount = 2;
@@ -4471,6 +4780,7 @@ extern "C" bool openxr_initialize_vr(JavaVM* vm, jobject activity, ANativeWindow
     if (!vr_create_view_space()) return false;
     if (!vr_create_swapchains()) return false;
     if (!vr_create_eye_fbos()) return false;
+    vr_spacewarp_create();
 
     // Swapchain dedicated to the menu quad panel
     if (!vr_create_menu_swapchain()) {
@@ -4505,6 +4815,7 @@ static bool openxrInitializeVRwindowsInternal(void) {
     if (!vr_create_view_space())            return false;
     if (!vr_create_swapchains())           return false;
     if (!vr_create_eye_fbos())              return false;
+    vr_spacewarp_create();
 
     // Swapchain dedicated to the menu quad panel
     if (!vr_create_menu_swapchain()) {
@@ -5200,6 +5511,7 @@ extern "C" void vr_shutdown()
     }
     g_swapchainImageAcquired = false;
 
+    vr_spacewarp_destroy();
     // Destroy both handles: [1] only exists when multiview is off, and is XR_NULL_HANDLE
     // otherwise. Only [0] is ever enumerated, so only its image cache needs clearing.
     for (int eye = 0; eye < 2; eye++) {

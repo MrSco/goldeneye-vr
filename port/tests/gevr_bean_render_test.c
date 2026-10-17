@@ -44,6 +44,9 @@ void gevrBeanWorldReset(void) {}
 void *gevrBeanWorldRoom(void *g, int r, int *replaced) { (void)r; *replaced = 0; return g; }
 void *gevrBeanWorldSky(void *g, int *drew) { *drew = 0; return g; }
 int gevrBeanWorldAuthoredView(void) { return 0; }
+/* Oddjob's hat (PR #196): off, so the knife draws as Bean's */
+int gevrHatOwnsNode(const void *node) { (void)node; return 0; }
+int gevrHatNodeGdl(struct ModelNode *node, struct Model *model, void **gdl) { (void)node; (void)model; (void)gdl; return 0; }
 
 #include "gevr_bean_pose_test.inc.h"
 #include <gevr_bean_hit_test.inc.h>

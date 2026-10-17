@@ -13,6 +13,15 @@ This is an experimental native Quest multiplayer mode. It uses ENet and borrows 
 - The host picks the stage (the game's eleven, plus Statue and Cradle from the ROM's cut multiplayer setups, #95), the player count, a character and the weapons (the game's own multiplayer weapon sets, Slappers only to Golden Gun). The LAN list on the Join tab shows each game's stage, weapons and players.
 - A match supports up to eight player slots (protocol 16, issue #88). The host picks the count, two to eight, on any stage: the launcher's **Players** beside the stage, or the **PLAYERS** row of the in-match lobby page (default four, saved as `MpMaxPlayers`). It travels in the match config (`max_players`); a team scenario takes its own size instead. The count cannot drop below the connected players or a connected slot; in a match a new count applies from the next load. The host launcher requires at least two players, all ready, before launch.
 
+## Horde (unreleased)
+
+Mode **Horde** plays endless Archives waves with regular armed guards, solo or
+with up to four humans. Preparation breaks resupply ammunition and unlock guns.
+Everyone down ends the run; the host can retry from the pause menu. An optional AI ally joins the party (Play > Game rules). Protocol 23
+requires this build on every headset. See [Horde mode](docs/horde-mode.md) for
+implementation details and remaining hardware acceptance. Older protocol notes
+below describe prior releases.
+
 ## Co-op campaign
 
 Choose **Co-op mission** in the launcher for up to four players. Each player
@@ -157,3 +166,11 @@ Allow microphone access when hosting or joining to talk. Denying it leaves voice
    Then with two headsets: the client sees the bots move smoothly and fire. Shots and kills land both ways, and the scores agree. A client joining a full game mid-round replaces the lowest-scoring bot at once. A client joining the warmup takes a bot's slot, and the bot comes back when the client leaves. When the host quits, the client takes the match over with the bots (`... bot(s) adopted`).
 
 The mode still needs a two-headset playtest of steps 8 and 9. Also test two separate home networks, a phone hotspot, a four-player and an eight-player game with mixed LAN and internet joins, private code visibility, and reconnecting after a disconnect. Confirm that damage and respawn state agree on all headsets after several kills.
+
+## Tracked head and arm poses
+
+Protocol 22 adds remote headset rotation and both controller poses, including
+the empty offhand. Living VR avatars use two-bone arm IK and an independent
+torso heading; guns follow their wrists, including left-handed mode. Bots
+and players without tracking keep their animations. All players need an
+updated build. See [behavior, validation and limits](docs/multiplayer-ik.md).

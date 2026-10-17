@@ -843,7 +843,7 @@ static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool r
         ImGui::EndCombo();
     }
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Campaign. Goldfinger 64 and Tomorrow Never Dies sit beside GoldenEye (docs/rom-hacks.md).");
+        gevrTooltip("Campaign. Goldfinger 64 and Tomorrow Never Dies sit beside GoldenEye (docs/rom-hacks.md).");
     ImGui::SameLine();
     ImGui::SetCursorPosY(rowY);
     ImGui::BeginDisabled(!ready);
@@ -926,9 +926,9 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
             }
             ImGui::EndDisabled();
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                if (bean) ImGui::SetTooltip("%s\nby %s\nFrom your own copy of the game\nIn game: VR options, or hold one grip + right-stick click for 1 second",
+                if (bean) gevrTooltip("%s\nby %s\nFrom your own copy of the game\nIn game: VR options, or hold one grip + right-stick click for 1 second",
                                             p.title.c_str(), p.by.c_str());
-                else ImGui::SetTooltip("%s\nby %s\n%s\nVersion %s", p.title.c_str(), p.by.c_str(), p.site.c_str(), p.version.c_str());
+                else gevrTooltip("%s\nby %s\n%s\nVersion %s", p.title.c_str(), p.by.c_str(), p.site.c_str(), p.version.c_str());
             }
             ImGui::TextDisabled("%s", bean ? "Meshes + textures" : "Textures");
             ImGui::TableNextColumn();
@@ -996,7 +996,7 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
         if (ImGui::Checkbox(label, &on)) VrBeanFillTextures = on ? 1 : 0;
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip(fill ? "Pictures the XBLA release left as the cartridge's (the stage pictures and the like)\ncome from the %s pack."
+            gevrTooltip(fill ? "Pictures the XBLA release left as the cartridge's (the stage pictures and the like)\ncome from the %s pack."
                                    : "Install the HD or HD + AI pack above to fill the pictures\nthe XBLA release left as the cartridge's.", fill);
     }
     else if (!gevrBeanIsAvailable())
@@ -1074,7 +1074,7 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     bool blood = VrBloodPatch != 0;
     if (ImGui::Checkbox("Blood patch (by Wreck)", &blood)) VrBloodPatch = blood ? 1 : 0;
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Shot guards spray the red blood sparks Rare left in the game,\ninstead of smoke and sparks.");
+        gevrTooltip("Shot guards spray the red blood sparks Rare left in the game,\ninstead of smoke and sparks.");
     // Oddjob's hat shares the row: a mod pack (ModManager "oddjob-hat") the
     // player downloads here, then turns on and off.
     for (const ModPack &p : packs) {
@@ -1090,7 +1090,7 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
             bool hat = VrOddjobHat != 0;
             if (ImGui::Checkbox("Oddjob's hat", &hat)) VrOddjobHat = hat ? 1 : 0;
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Throwing knives are Oddjob's hat (007 Nightfire): in your hand,\nin flight and lying about. Only the look changes.");
+                gevrTooltip("Throwing knives are Oddjob's hat (007 Nightfire): in your hand,\nin flight and lying about. Only the look changes.");
             if (!p.update.empty()) {
                 ImGui::SameLine();
                 if (ImGui::SmallButton("Update")) gevrJavaCommand("modsCommand", "install:oddjob-hat");
@@ -1103,7 +1103,7 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
             if (ImGui::SmallButton(p.state == "error" ? "Retry Oddjob's hat" : "Get Oddjob's hat"))
                 gevrJavaCommand("modsCommand", "install:oddjob-hat");
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(p.state == "error" ? "%s" : "Throwing knives become Oddjob's hat (007 Nightfire).\nA small download.",
+                gevrTooltip(p.state == "error" ? "%s" : "Throwing knives become Oddjob's hat (007 Nightfire).\nA small download.",
                                   p.message.c_str());
         }
         ImGui::PopID();
@@ -1180,6 +1180,7 @@ static const char *stageNameById(int levelId) { return netStageName(netStageInde
 // 0x80 | where the party is (its menus or a mission's level id), and its
 // difficulty in the weapons' place (net_core.c netGetLobbyStage).
 static std::string listedGameLabel(int stage, int weapons) {
+    if (stage == NET_LOBBY_HORDE_STAGE) return "Horde: Archives";
     if (stage & NET_LOBBY_COOP_STAGE) {
         const uint8_t where = (uint8_t)(stage & 0x7F);
         if (where == NET_COOP_FRONT_STAGE)
@@ -1223,6 +1224,13 @@ static NetMatchConfig gevrLauncherConfig() {
     c.bot_mode = (uint8_t)clampi(VrMpBotMode, NET_BOT_MODE_COUNT, NET_BOT_OFF);
     c.bot_count = (uint8_t)(VrMpBotCount >= 1 && VrMpBotCount < GEVR_MAX_PLAYERS ? VrMpBotCount : 3);
     c.bot_difficulty = (uint8_t)clampi(VrMpBotDifficulty, NET_BOT_DIFF_COUNT, NET_BOT_NORMAL);
+    if (VrMpMode == NET_MODE_HORDE) {
+        c.mode=NET_MODE_HORDE;c.stage=NET_HORDE_STAGE;c.difficulty=0;
+        c.friendly_fire=VrHordeFriendlyFire!=0;
+        c.max_players=NET_COOP_MAX_PLAYERS;c.bot_mode=NET_BOT_OFF;
+        c.scenario=0;c.game_length=0;c.loadouts=0;c.dual_wield=NET_DUAL_DOUBLES;
+        return c;
+    }
     if (VrMpMode == NET_MODE_COOP) {
         // the solo campaign for the party: it starts in the game's menus, where the
         // host picks each mission and difficulty; four players at most (the deathmatch
@@ -1239,7 +1247,7 @@ static NetMatchConfig gevrLauncherConfig() {
 
 // Co-op carries the host's deathmatch scenario along unused: never teams.
 static bool gevrConfigHasTeams(int mode, int scenario) {
-    return mode != NET_MODE_COOP && netScenarioHasTeams(scenario);
+    return mode == NET_MODE_DEATHMATCH && netScenarioHasTeams(scenario);
 }
 static bool gevrLobbyHasTeams(const NetMatchConfig *c) { return gevrConfigHasTeams(c->mode, c->scenario); }
 
@@ -1270,8 +1278,9 @@ static void gevrHostChoiceChanged() {
     netLobbySetConfig(&c);
     const NetMatchConfig *accepted = netGetMatchConfig();
     VrMpMode = accepted->mode;
-    if (accepted->mode != NET_MODE_COOP)
+    if (accepted->mode == NET_MODE_DEATHMATCH)
         VrMpStage = accepted->stage;
+    if (accepted->mode != NET_MODE_HORDE) {
     VrMpScenario = accepted->scenario;
     VrMpWeaponSet = accepted->weapon_set;
     VrMpLength = accepted->game_length;
@@ -1279,18 +1288,22 @@ static void gevrHostChoiceChanged() {
     VrMpDual = accepted->dual_wield;
     VrMpLoadouts = accepted->loadouts;
     VrMpNextRound = accepted->next_round;
+    }
     VrMpVoiceMode = accepted->voice_mode;
-    VrMpFriendlyFire = accepted->friendly_fire;
+    if (accepted->mode == NET_MODE_HORDE) VrHordeFriendlyFire = accepted->friendly_fire;
+    else VrMpFriendlyFire = accepted->friendly_fire;
     VrMpFunFlags = accepted->fun_flags & NET_FUN_MASK;
     if (accepted->mode == NET_MODE_COOP)
         VrCoopFastReinforcements = (accepted->fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0;
     VrMpGunSize = accepted->gun_size;
     VrMpMovementSpeed = accepted->movement_speed;
-    if (accepted->mode != NET_MODE_COOP) // co-op's four is not the deathmatch count
+    if (accepted->mode == NET_MODE_DEATHMATCH) // co-op's four is not the deathmatch count
         VrMpMaxPlayers = accepted->max_players;
+    if (accepted->mode != NET_MODE_HORDE) {
     VrMpBotMode = accepted->bot_mode;
     VrMpBotCount = accepted->bot_count;
     VrMpBotDifficulty = accepted->bot_difficulty;
+    }
     for (int k = 0; k < 4; k++)
         VrMpCustom[k] = accepted->custom_set[k];
     vrSettingsSave();
@@ -1381,14 +1394,14 @@ static void gevrMatchOptions(bool favorites = false) {
         ImGui::SameLine();
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
         changed |= namedCombo("##dual", 3, netDualWieldName, &VrMpDual);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", VrMpDual == NET_DUAL_DOUBLES ? "a second copy of your gun makes a pair"
+        if (ImGui::IsItemHovered()) gevrTooltip("%s", VrMpDual == NET_DUAL_DOUBLES ? "a second copy of your gun makes a pair"
                             : VrMpDual == NET_DUAL_ANY   ? "hold X for the left hand's panel"
                                                          : "");
         ImGui::Text("Next round:");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
         changed |= namedCombo("##nextround", 3, netNextRoundName, &VrMpNextRound);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", VrMpNextRound == NET_NEXT_SHUFFLE    ? "a random favorite map and set"
+        if (ImGui::IsItemHovered()) gevrTooltip("%s", VrMpNextRound == NET_NEXT_SHUFFLE    ? "a random favorite map and set"
                                   : VrMpNextRound == NET_NEXT_PLAYLIST ? "your favorites in order"
                                                                        : "the players vote in the pause menu");
         ImGui::Spacing();
@@ -1397,11 +1410,11 @@ static void gevrMatchOptions(bool favorites = false) {
             VrMpLoadouts = loadouts ? 1 : 0;
             changed = true;
         }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Players spawn with their own four selected guns.");
+        if (ImGui::IsItemHovered()) gevrTooltip("Players spawn with their own four selected guns.");
         ImGui::TableNextColumn();
         ImGui::TextColored(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "BOTS AND LIVE SETTINGS");
         // Bots: player slots the host runs (gevr_bot.c); they change between rounds only
-        if (VrMpMode != NET_MODE_COOP) {
+        if (VrMpMode == NET_MODE_DEATHMATCH) {
             ImGui::BeginDisabled(netIsActive() && !gevrNetBotRowsEditable());
             ImGui::Text("Bots:");
             ImGui::SameLine();
@@ -1415,7 +1428,7 @@ static void gevrMatchOptions(bool favorites = false) {
                     VrMpBotCount = count + 1;
                     changed = true;
                 }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Number of bots");
+                if (ImGui::IsItemHovered()) gevrTooltip("Number of bots");
             }
             if (VrMpBotMode != NET_BOT_OFF) {
                 ImGui::Text("Bot difficulty:");
@@ -1470,7 +1483,7 @@ static void gevrMovementSpeedOptions(bool hostPage) {
         }
     }
     ImGui::EndDisabled();
-    if (hovered) ImGui::SetTooltip("%s", online || hostPage
+    if (hovered) gevrTooltip("%s", online || hostPage
         ? "100% is the default. Reset restores it for everyone. Host changes apply immediately. Room-scale walking keeps its normal speed."
         : "Solo stick movement, 100% is normal. Room-scale walking keeps its normal speed.");
 }
@@ -1480,7 +1493,7 @@ static void gevrMatchLiveOptions() {
     ImGui::BeginDisabled(netIsActive() && !netIsHost());
     unsigned cap; bool equalized = netGetHostEqualization(&cap) != 0;
     if (ImGui::Checkbox("Host hit equalization", &equalized)) netSetHostEqualization(equalized, cap);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delay host hits to balance latency with guests.");
+    if (ImGui::IsItemHovered()) gevrTooltip("Delay host hits to balance latency with guests.");
     int limit = (int)cap;
     ImGui::TextUnformatted("Host delay cap (ms)");
     ImGui::SameLine();
@@ -1488,8 +1501,8 @@ static void gevrMatchLiveOptions() {
     if (ImGui::SliderInt("##HostDelayCap", &limit, 0, 80)) netSetHostEqualization(equalized, (unsigned)limit);
     ImGui::EndDisabled();
     char delays[128]; netHostEqualizationText(delays, sizeof(delays));
-    if (delays[0] && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", delays);
-    if (VrMpMode != NET_MODE_COOP && netScenarioHasTeams(VrMpScenario)) {
+    if (delays[0] && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) gevrTooltip("%s", delays);
+    if (VrMpMode == NET_MODE_DEATHMATCH && netScenarioHasTeams(VrMpScenario)) {
         bool ff = VrMpFriendlyFire != 0;
         if (ImGui::Checkbox("Friendly fire", &ff)) {
             VrMpFriendlyFire = ff;
@@ -1564,10 +1577,10 @@ static void gevrLobbyRoster(const ImVec4 &gold, bool showCount = true) {
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(slot.name);
             if (ImGui::IsItemHovered() && slot.is_bot)
-                ImGui::SetTooltip("%s\nA bot the host runs (%s)\nSlot: %d", slot.name,
+                gevrTooltip("%s\nA bot the host runs (%s)\nSlot: %d", slot.name,
                                   netBotDifficultyName(lobby->config.bot_difficulty), i + 1);
             else if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("%s\nBuild: %s\nProtocol: %d\nSlot: %d\nPing is the round trip to the current host.",
+                gevrTooltip("%s\nBuild: %s\nProtocol: %d\nSlot: %d\nPing is the round trip to the current host.",
                                   slot.name, netGetSlotAppVersion(i), GEVR_NET_VERSION, i + 1);
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(netCharacterName(slot.chr_id));
@@ -1587,7 +1600,7 @@ static void gevrLobbyRoster(const ImVec4 &gold, bool showCount = true) {
                     }
                     ImGui::EndDisabled();
                     if (!supported && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                        ImGui::SetTooltip("This player needs the updated build for host removal.");
+                        gevrTooltip("This player needs the updated build for host removal.");
                 }
                 ImGui::PopID();
             }
@@ -1646,10 +1659,12 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
             if (ImGui::RadioButton("Private game", VrMpVisibility == 1)) { VrMpVisibility=1;vrSettingsSave(); }
         }
         ImGui::TextUnformatted("Mode:");ImGui::SameLine();
-        if (ImGui::RadioButton("Deathmatch", VrMpMode != NET_MODE_COOP)) { VrMpMode=NET_MODE_DEATHMATCH;gevrHostChoiceChanged(); }
+        if (ImGui::RadioButton("Deathmatch", VrMpMode == NET_MODE_DEATHMATCH)) { VrMpMode=NET_MODE_DEATHMATCH;gevrHostChoiceChanged(); }
         ImGui::SameLine();
         if (ImGui::RadioButton("Co-op", VrMpMode == NET_MODE_COOP)) { VrMpMode=NET_MODE_COOP;gevrHostChoiceChanged(); }
-        if (VrMpMode != NET_MODE_COOP) {
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Horde", VrMpMode == NET_MODE_HORDE)) { VrMpMode=NET_MODE_HORDE;gevrHostChoiceChanged(); }
+        if (VrMpMode == NET_MODE_DEATHMATCH) {
             int stage=netStageIndexOf((uint8_t)VrMpStage);if (stage<0)stage=9;
             ImGui::TextUnformatted("Stage:");ImGui::SameLine();
             const bool teams=netScenarioHasTeams(VrMpScenario);
@@ -1662,19 +1677,22 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
             ImGui::SameLine();
             if (teams) {
                 ImGui::TextDisabled("Players: %d",netTeamRequiredPlayers(VrMpScenario));
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("The team scenario sets the player count.");
+                if (ImGui::IsItemHovered()) gevrTooltip("The team scenario sets the player count.");
             } else {
                 ImGui::TextUnformatted("Players:");ImGui::SameLine();ImGui::SetNextItemWidth(playersWidth);
                 int count=VrMpMaxPlayers-2;const int minimum=hosting?netLobbyMinPlayers():2;
                 if (gevrNamedCombo("##playerscombo",GEVR_MAX_PLAYERS-1,playerCountName,&count,false,
                                   [&](int n){return n+2<minimum;})) { VrMpMaxPlayers=count+2;gevrHostChoiceChanged(); }
             }
+        } else if (VrMpMode == NET_MODE_HORDE) {
+            ImGui::TextDisabled("Archives: solo or up to 4 players");
+            ImGui::TextWrapped("Endless waves of armed guards. Resupply between waves. Everyone down ends the run.");
         } else {
             ImGui::TextDisabled("Campaign: up to %d players",NET_COOP_MAX_PLAYERS);
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Each player picks a folder. The host picks missions. Players can join or leave any time.");
+            if (ImGui::IsItemHovered()) gevrTooltip("Each player picks a folder. The host picks missions. Players can join or leave any time.");
         }
         ImGui::TableNextColumn();
-        if (VrMpMode != NET_MODE_COOP) {
+        if (VrMpMode == NET_MODE_DEATHMATCH) {
             if (VrMpScenario == SCENARIO_MWTGG) ImGui::TextDisabled("Weapons: Golden Gun");
             else {
                 ImGui::TextUnformatted("Weapons:");ImGui::SameLine();
@@ -1707,7 +1725,7 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
         gevrTeamChoiceRow("##hostteam");
         gevrLobbyRoster(gold,false);
         if (gevrLobbyHasTeams(netGetMatchConfig()) && !netTeamRosterReady()) {
-            if (ImGui::IsItemHovered())ImGui::SetTooltip("Complete teams before countdown; warmup remains available.");
+            if (ImGui::IsItemHovered())gevrTooltip("Complete teams before countdown; warmup remains available.");
         }
     }
 }
@@ -1973,24 +1991,34 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                         ImGui::EndTabItem();
                     }
                     if (ImGui::BeginTabItem("Match")) {
-                        if (VrMpMode == NET_MODE_COOP) {
+                        if (netModePve(VrMpMode)) {
                             if (ImGui::BeginTable("coop-match-columns", 2, ImGuiTableFlags_SizingStretchSame)) {
                                 ImGui::TableNextColumn();
-                                ImGui::TextColored(gold, "MISSION RULES");
+                                ImGui::TextColored(gold, VrMpMode == NET_MODE_HORDE ? "HORDE RULES" : "MISSION RULES");
                                 // co-op: the mission and difficulty decide the rest (Lobby tab)
                                 ImGui::BeginDisabled(netIsActive() && !netIsHost());
-                                bool ff = VrMpFriendlyFire != 0;
+                                bool ff = (VrMpMode == NET_MODE_HORDE ? VrHordeFriendlyFire : VrMpFriendlyFire) != 0;
                                 if (ImGui::Checkbox("Friendly fire", &ff)) {
-                                    VrMpFriendlyFire = ff;
+                                    if (VrMpMode == NET_MODE_HORDE) VrHordeFriendlyFire = ff;
+                                    else VrMpFriendlyFire = ff;
                                     gevrHostChoiceChanged();
                                 }
+                                if (VrMpMode == NET_MODE_COOP) {
                                 bool fast = netIsActive() ? (netGetMatchConfig()->fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0
                                                     : VrCoopFastReinforcements != 0;
                                 if (ImGui::Checkbox("Fast reinforcements", &fast)) {
                                     VrCoopFastReinforcements = fast ? 1 : 0;
                                     gevrHostChoiceChanged();
                                 }
-                                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Harder: guards can call more reinforcements while earlier ones are alive. Changes apply immediately.");
+                                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) gevrTooltip("Harder: guards can call more reinforcements while earlier ones are alive. Changes apply immediately.");
+                                }
+                                bool ally = VrAlly != 0;
+                                if (ImGui::Checkbox("AI ally (Natalya)", &ally)) {
+                                    VrAlly = ally ? 1 : 0;
+                                    vrSettingsSave();
+                                }
+                                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                                    gevrTooltip("One companion for the party, from the next mission or Horde retry. Weapon, aggression and durability: Play > Game rules.");
                                 ImGui::EndDisabled();
                                 ImGui::TableNextColumn();
                                 ImGui::TextColored(gold, "LIVE SETTINGS");
@@ -2045,7 +2073,9 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                             ImGui::TextUnformatted("Connecting to host...");
                         else if (connected) {
                             const NetMatchConfig *cfg = netGetMatchConfig();
-                            if (cfg->mode == NET_MODE_COOP) {
+                            if (cfg->mode == NET_MODE_HORDE) {
+                                ImGui::TextDisabled("Horde: Archives, endless armed guard waves");
+                            } else if (cfg->mode == NET_MODE_COOP) {
                                 ImGui::Text("Co-op campaign: the host picks the missions");
                                 ImGui::TextDisabled("Fast reinforcements: %s (host chooses)",
                                     cfg->fun_flags & NET_COOP_FAST_REINFORCEMENTS ? "On" : "Off");
@@ -2109,7 +2139,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                                             ("join|" + game.code + "|" + std::to_string(GEVR_NET_VERSION)).c_str());
                                     }
                                     if (ImGui::IsItemHovered()) {
-                                        ImGui::SetTooltip(
+                                        gevrTooltip(
                                             "Game: %s\nRoom Code: %s\nPhase: %s\nPlayers: %d/%d\nProtocol: %d",
                                             game.name.c_str(), game.code.c_str(), game.phase.c_str(), game.players,
                                             game.maxPlayers, GEVR_NET_VERSION);
@@ -2988,7 +3018,7 @@ extern "C" void gevrLauncherRun(void)
                 vrSettingsSave();
             }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Scales throw speed with physical swing speed.\n1.0x = natural realism, higher = longer throws.");
+                gevrTooltip("Scales throw speed with physical swing speed.\n1.0x = natural realism, higher = longer throws.");
             }
 
             ImGui::Spacing();
@@ -2998,7 +3028,7 @@ extern "C" void gevrLauncherRun(void)
                 vrSettingsSave();
             }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Vertical pitch trim: adjust upward (+) or downward (-) if throws fly too low/high.");
+                gevrTooltip("Vertical pitch trim: adjust upward (+) or downward (-) if throws fly too low/high.");
             }
 
             ImGui::Spacing();
@@ -3010,7 +3040,7 @@ extern "C" void gevrLauncherRun(void)
                 vrSettingsSave();
             }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Blends overhand throw direction toward where you are looking (0%% = pure hand, 100%% = max gaze pull).\n"
+                gevrTooltip("Blends overhand throw direction toward where you are looking (0%% = pure hand, 100%% = max gaze pull).\n"
                                   "Underhand rolls, bowling, and throws behind your back remain 100%% pure hand physics.");
             }
 
@@ -3040,7 +3070,7 @@ extern "C" void gevrLauncherRun(void)
                     *v = on ? 1 : 0;
                     vrSettingsSave();
                 }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+                if (ImGui::IsItemHovered()) gevrTooltip("%s", tip);
             };
             ImGui::TextColored(gold, "GRIP GESTURES (stereo)");
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
@@ -3089,7 +3119,7 @@ extern "C" void gevrLauncherRun(void)
                     VrBodySlotSize = i;
                     vrSettingsSave();
                 }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("How far from a slot your hand still reaches it.");
+                if (ImGui::IsItemHovered()) gevrTooltip("How far from a slot your hand still reaches it.");
             }
             ImGui::SameLine();
             toggle("Show", &VrBodySlotShow,
@@ -3130,16 +3160,46 @@ extern "C" void gevrLauncherRun(void)
             // Game rules GEVR PC changed (vr450.2, its CORPSEKEEP); off keeps
             // the original game's rule. Single player.
             ImGui::TextColored(gold, "GAME RULES");
+            // Keep Done and START reachable when companion controls expand the page.
+            const float rulesFooter = gevrLauncherFooterHeight() + ImGui::GetFrameHeightWithSpacing()
+                                    + ImGui::GetStyle().ItemSpacing.y * 2;
+            ImGui::BeginChild("game-rules", ImVec2(0, std::fmax(1.0f, ImGui::GetContentRegionAvail().y - rulesFooter)), false);
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
             ImGui::TextWrapped("Off keeps the original rules. Mines are a solo option; with ragdolls on, bodies stay in every mode. Fast reinforcements also works in co-op, controlled by the host.");
             ImGui::PopStyleColor();
+            const bool allyPve = !netIsActive() || netModePve(netGetMatchConfig()->mode);
+            ImGui::BeginDisabled(VrCampaign != 0 || !allyPve || (netIsActive() && !netIsHost()));
+            bool ally = VrAlly != 0;
+            if (ImGui::Checkbox("AI ally (Natalya)", &ally)) {
+                VrAlly = ally ? 1 : 0;
+                vrSettingsSave();
+            }
+            ImGui::TextWrapped("GoldenEye solo, campaign co-op and Horde: one companion for the party. The host chooses; changes apply next mission or Horde retry. Not in missions with their own Natalya.");
+            ImGui::BeginDisabled(!ally);
+            if (ImGui::Combo("Ally weapon", &VrAllyWeapon,
+                    "PP7\0Silenced PP7\0DD44\0KF7 Soviet\0D5K Deutsche\0ZMG\0AR33\0RC-P90\0Shotgun\0Automatic shotgun\0")) vrSettingsSave();
+            if (ImGui::Combo("Aggression", &VrAllyAggression, "Cautious\0Normal\0Aggressive\0")) vrSettingsSave();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                gevrTooltip("Cautious: engage alerted enemies nearby. Normal/aggressive: engage enemies within a wider range. Always stay close to Bond.");
+            if (ImGui::SliderInt("Ally damage", &VrAllyDamage, 25, 400, "%d%%")) vrSettingsSave();
+            bool immortal = VrAllyInvincible != 0;
+            if (ImGui::Checkbox("Invincible ally", &immortal)) {
+                VrAllyInvincible = immortal ? 1 : 0;
+                vrSettingsSave();
+            }
+            ImGui::BeginDisabled(immortal);
+            if (ImGui::SliderInt("Ally health", &VrAllyHealth, 25, 1000, "%d%%")) vrSettingsSave();
+            ImGui::EndDisabled();
+            ImGui::EndDisabled();
+            ImGui::EndDisabled();
+            ImGui::Spacing();
             bool stick = VrMinesStickToGuards != 0;
             if (ImGui::Checkbox("Mines stick to guards", &stick)) {
                 VrMinesStickToGuards = stick ? 1 : 0;
                 vrSettingsSave();
             }
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("A thrown mine that hits a guard sticks to him and goes where he goes.");
+                gevrTooltip("A thrown mine that hits a guard sticks to him and goes where he goes.");
             // Perfect Dark CE's ragdolls (docs/ragdolls.md): cosmetic, each
             // headset simulates its own
             bool ragdolls = VrRagdolls != 0;
@@ -3148,7 +3208,7 @@ extern "C" void gevrLauncherRun(void)
                 vrSettingsSave();
             }
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Bodies fall with physics. Each headset simulates its own.");
+                gevrTooltip("Bodies fall with physics. Each headset simulates its own.");
             ImGui::SameLine();
             ImGui::BeginDisabled(!ragdolls);
             bool limbs = VrDismemberment != 0;
@@ -3157,7 +3217,7 @@ extern "C" void gevrLauncherRun(void)
                 vrSettingsSave();
             }
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("Strong guns, shotgun blasts and explosions can take off limbs and heads.");
+                gevrTooltip("Strong guns, shotgun blasts and explosions can take off limbs and heads.");
             ImGui::EndDisabled();
             // Perfect Dark CE's two dismemberment settings
             ImGui::BeginDisabled(!ragdolls || !VrDismemberment);
@@ -3166,13 +3226,13 @@ extern "C" void gevrLauncherRun(void)
             if (ImGui::SliderFloat("##DismemberDamage", &VrDismemberDamage, 0.5f, 10.0f, "Damage needed %.1f"))
                 vrSettingsSave();
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("A shot cuts only with weapons this strong: PP7 and KF7 1.0, golden gun 100.");
+                gevrTooltip("A shot cuts only with weapons this strong: PP7 and KF7 1.0, golden gun 100.");
             ImGui::SameLine();
             ImGui::SetNextItemWidth(half);
             if (ImGui::SliderInt("##DismemberChance", &VrDismemberChance, 0, 100, "Chance %d%%"))
                 vrSettingsSave();
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("How often a strong enough shot, volley or blast takes something off.");
+                gevrTooltip("How often a strong enough shot, volley or blast takes something off.");
             ImGui::EndDisabled();
             ImGui::Spacing();
             ImGui::TextUnformatted("Bodies stay");
@@ -3201,9 +3261,11 @@ extern "C" void gevrLauncherRun(void)
             }
             ImGui::EndDisabled();
             ImGui::TextWrapped("Harder: alerted guards can call more reinforcements while earlier ones are still alive. Works with any body count; co-op follows the host.");
+            ImGui::EndChild();
             ImGui::Spacing();
             ImGui::Separator();
             if (ImGui::Button("Original rules")) {
+                VrAlly = 0;
                 VrMinesStickToGuards = 0;
                 VrBodiesStay = 0;
                 VrRagdolls = VrDismemberment = 0;
@@ -3298,7 +3360,7 @@ extern "C" void gevrLauncherRun(void)
                     vrSettingsSave();
                 }
                 if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Every mission at every difficulty, 007 mode, and every cheat\n"
+                    gevrTooltip("Every mission at every difficulty, 007 mode, and every cheat\n"
                                       "in the game's own Cheat Options. Your save files are left as\n"
                                       "they are; missions you finish still count as usual.");
                 }
@@ -3338,7 +3400,7 @@ extern "C" void gevrLauncherRun(void)
             snprintf(label, sizeof(label), n ? "Cheats... (%d on)" : "Cheats...", n);
             if (ImGui::Button(label)) cheatPage = true;
             ImGui::SameLine();
-            const int rules = (VrMinesStickToGuards ? 1 : 0) + (VrBodiesStay ? 1 : 0) + (VrFastReinforcements ? 1 : 0) + (VrRagdolls ? 1 : 0) + (VrRagdolls && VrDismemberment ? 1 : 0);
+            const int rules = (VrAlly ? 1 : 0) + (VrMinesStickToGuards ? 1 : 0) + (VrBodiesStay ? 1 : 0) + (VrFastReinforcements ? 1 : 0) + (VrRagdolls ? 1 : 0) + (VrRagdolls && VrDismemberment ? 1 : 0);
             snprintf(label, sizeof(label), rules ? "Game rules... (%d changed)" : "Game rules...", rules);
             if (ImGui::Button(label)) rulesPage = true;
             ImGui::Spacing();
@@ -3374,14 +3436,14 @@ extern "C" void gevrLauncherRun(void)
                     vrSettingsSave();
                 }
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Stereo: keep moving while holding the aim trigger.\nClick the left stick to crouch.");
+                    gevrTooltip("Stereo: keep moving while holding the aim trigger.\nClick the left stick to crouch.");
                 bool sight = VrAimSight != 0;
                 if (ImGui::Checkbox("Aim: crosshair", &sight)) {
                     VrAimSight = sight ? 1 : 0;
                     vrSettingsSave();
                 }
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Stereo: show the crosshair (and the scope's sight)\nwhile holding a grip to aim.");
+                    gevrTooltip("Stereo: show the crosshair (and the scope's sight)\nwhile holding a grip to aim.");
                 ImGui::Spacing();
                 ImGui::TextColored(gold, "AIM STEADYING (stereo)");
                 int steady = VrAimSteady < 0 ? 0 : VrAimSteady > 2 ? 2 : VrAimSteady;
@@ -3400,19 +3462,19 @@ extern "C" void gevrLauncherRun(void)
                 if (ImGui::Button(VrGunFitArmed ? "Gun fit: on" : "Gun fit..."))
                     VrGunFitArmed = !VrGunFitArmed;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("In the next level, with a gun in hand (stereo): the sticks move\n"
+                    gevrTooltip("In the next level, with a gun in hand (stereo): the sticks move\n"
                                       "the gun on your hand. With a gadget in hand they move, turn\n"
                                       "(hold the right grip) and size the gadget. A saves, B undoes.\n"
                                       "In single player, Menu + A starts and ends it during play.");
                 ImGui::SameLine();
                 if (ImGui::Button("Gestures...")) gesturesPage = true;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Grip gestures (holster, use, pickup, mine re-grab),\nbody slots, hand reload and per-gun recoil.");
+                    gevrTooltip("Grip gestures (holster, use, pickup, mine re-grab),\nbody slots, hand reload and per-gun recoil.");
                 char throwLabel[64];
                 snprintf(throwLabel, sizeof(throwLabel), "Motion Throwing%s...", VrMotionThrowing ? "" : " (Off)");
                 if (ImGui::Button(throwLabel)) throwingPage = true;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Configure motion throwing, throw strength, pitch trim, and gaze assist.");
+                    gevrTooltip("Configure motion throwing, throw strength, pitch trim, and gaze assist.");
                 ImGui::TableNextColumn();
                 ImGui::TextColored(gold, "FEEDBACK");
                 if (ImGui::Button("Haptics...")) hapticsPage = true;
@@ -3518,7 +3580,7 @@ extern "C" void gevrLauncherRun(void)
             }
             ImGui::EndDisabled();
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("Show your room behind the 2D screen instead of black.");
+                gevrTooltip("Show your room behind the 2D screen instead of black.");
             float size = VrScreenFov, dist = VrScreenDistance;
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
             if (ImGui::SliderFloat("Size", &size, VR_SCREEN_FOV_MIN, VR_SCREEN_FOV_MAX, "%.0f deg")) {
@@ -3532,15 +3594,31 @@ extern "C" void gevrLauncherRun(void)
             }
             ImGui::Spacing();
             ImGui::TextColored(gold, "DISPLAY RATE");
+            // Application SpaceWarp (vr_openxr.cpp): on the heading's line too, so the
+            // page does not grow. It takes effect from the next level on.
+            {
+                ImGui::SameLine();
+                bool spaceWarp = vr_spacewarp_setting_on() != 0;
+                ImGui::BeginDisabled(!vr_spacewarp_supported());
+                if (ImGui::Checkbox("SpaceWarp", &spaceWarp)) {
+                    VrSpaceWarp = spaceWarp ? 1 : 0;
+                    vrSettingsSave();
+                }
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    gevrTooltip("The game draws half the frames and the headset makes the ones "
+                                      "between from motion and depth: Bean holds 120 Hz while turning, with a little "
+                                      "more latency. Text locked to your view can shimmer. On by default with Bean.");
+            }
             // XBLA / Bean's frames take longer than 120 Hz's 8.3 ms when turning
             // in open levels (Dam on Quest 3: 197 missed frames in three
             // minutes of turning at 120 Hz, 17 at 90). A warning on the
             // heading's line, as long as it fits: the page must not grow or scroll.
-            if (gevrBeanIsEnabled() && VrRefreshRate > 90) {
+            if (gevrBeanIsEnabled() && VrRefreshRate > 90 && !vr_spacewarp_setting_on()) {
                 const char *why = "XBLA / Bean's models and textures can take longer than a 120 Hz frame "
                                   "while turning in open levels, which stutters. 90 Hz holds nearly every frame.";
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("%s", why);
+                    gevrTooltip("%s", why);
                 const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
                 const float from = ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x;
                 const char *warn = from + ImGui::CalcTextSize("90 Hz advised for Bean").x <= right
@@ -3549,7 +3627,7 @@ extern "C" void gevrLauncherRun(void)
                     ImGui::SameLine();
                     ImGui::TextColored(bad, "%s", warn);
                     if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("%s", why);
+                        gevrTooltip("%s", why);
                 }
             }
             std::vector<int> rates(vr_get_supported_refresh_rates(nullptr, 0));
@@ -3558,6 +3636,22 @@ extern "C" void gevrLauncherRun(void)
             gevrDisplayRateControls(&VrRefreshRate, rates.data(), count);
             if (VrRefreshRate != prevRate) {
                 vrSettingsSave();
+            }
+            // Anti-aliasing: the eye images multisampled (vr_attach_eye_fbo), live. No
+            // supersampling choice: 1.5x slowed Bean at 120 Hz with SpaceWarp and the
+            // user saw little gain (2026-10-17); Video.VRRenderScale still sets it.
+            {
+                static const int samples[] = {1, 2, 4};
+                static const char *const sampleNames[] = {"Off", "2x", "4x"};
+                int sample = VrEyeMsaa >= 4 ? 2 : VrEyeMsaa >= 2 ? 1 : 0;
+                ImGui::BeginDisabled(!vr_eye_msaa_supported());
+                if (gevrRadioRow("Anti-aliasing", sampleNames, 3, &sample,
+                                 "Smooths jagged edges (multisample anti-aliasing). Changes right away. "
+                                 "Higher costs more GPU time.")) {
+                    VrEyeMsaa = samples[sample];
+                    vrSettingsSave();
+                }
+                ImGui::EndDisabled();
             }
         });
         ImGui::Separator();

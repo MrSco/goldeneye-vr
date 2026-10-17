@@ -2,6 +2,7 @@
 #define GEVR_PAUSE_WIDGETS_H
 #include "gevr_pause_menu.h"
 #include "imgui/imgui.h"
+#include "gevr_tooltip.h"
 #include <cstring>
 #include <cstdio>
 #include <initializer_list>
@@ -14,13 +15,14 @@ struct GevrPausePlayerView {
     bool host=false,ready=false,down=false,loaded=true,spectator=false,canKick=false,bot=false;
 };
 struct GevrPauseView {
+    bool horde=false,hordeDefeated=false;
     bool coop=false,host=false,canStart=false,canReturn=false,localReady=false,soloWarmup=false;
     bool startRequested=false,rosterReady=false,voting=false,warmup=true;
     int count=0,capacity=8,countdown=0;
     GevrPauseGaugeVertex gauges[92]{};
     GevrPauseRadarView radar{};
     GevrPausePlayerView players[8];
-    char session[160]="", status[128]="";
+    char session[160]="", status[128]="", hordeStats[160]="";
 };
 struct GevrPauseUi {
     int tab=0;
@@ -28,7 +30,7 @@ struct GevrPauseUi {
     int kickSlot=-1;
     char kickName[64]="";
 };
-enum { GEVR_PAUSE_NONE,GEVR_PAUSE_RESUME,GEVR_PAUSE_LEAVE,GEVR_PAUSE_ABORT,GEVR_PAUSE_REQUEST_VOTES,GEVR_PAUSE_KICK_BASE=100 };
+enum { GEVR_PAUSE_NONE,GEVR_PAUSE_RESUME,GEVR_PAUSE_LEAVE,GEVR_PAUSE_ABORT,GEVR_PAUSE_REQUEST_VOTES,GEVR_PAUSE_HORDE_RETRY,GEVR_PAUSE_KICK_BASE=100 };
 inline void gevrPauseRadarWidget(const GevrPauseRadarView& radar) {
     if(!radar.visible)return;
     auto* draw=ImGui::GetWindowDrawList();const ImVec2 origin=ImGui::GetWindowPos();
@@ -110,8 +112,13 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
         if(selected)ImGui::PopStyleColor();
     }
     if(ui.tab==GEVR_PAUSE_MATCH) {
+        if(model.horde) {
+            ImGui::SetCursorPos(ImVec2(18,590));ImGui::TextColored(gold,"%s",model.hordeStats);
+            ImGui::SetCursorPos(ImVec2(18,652));
+            ImGui::TextWrapped("%s",model.hordeDefeated?"Everyone is down. The host can retry, or leave to choose another mode.":"Clear every guard to finish the wave. Ammo is supplied between waves. Stay beside a downed teammate to revive them.");
+        }
         if(model.coop) {
-            ImGui::SetCursorPos(ImVec2(18,206));ImGui::TextColored(gold,"CO-OP MISSION");
+            ImGui::SetCursorPos(ImVec2(18,206));ImGui::TextColored(gold,model.horde?"HORDE":"CO-OP MISSION");
             ImGui::SameLine();ImGui::TextUnformatted(model.session);
         } else {
             GevrPauseField field;
@@ -150,7 +157,7 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
             for(int i=0;i<model.count;i++) {
                 const auto&p=model.players[i];ImGui::TableNextRow(0,40);
                 ImGui::TableNextColumn();ImGui::Text("%.14s%s",p.name,p.host?" *":"");
-                if(ImGui::IsItemHovered())ImGui::SetTooltip("%s%s",p.name,p.host?" (Host)":"");
+                if(ImGui::IsItemHovered())gevrTooltip("%s%s",p.name,p.host?" (Host)":"");
                 ImGui::TableNextColumn();ImGui::TextUnformatted(p.character);
                 if(model.coop) {ImGui::TableNextColumn();ImGui::TextColored(p.down?bad:good,"%s",p.down?"Down / revive":"Active");ImGui::TableNextColumn();ImGui::Text("%d",p.ping);}
                 else {
@@ -168,7 +175,7 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
                             ui.kickSlot=p.slot;snprintf(ui.kickName,sizeof(ui.kickName),"%s",p.name);
                         }
                         ImGui::EndDisabled();
-                        if(!p.canKick && !p.bot && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))ImGui::SetTooltip("This player needs the updated build for host removal.");
+                        if(!p.canKick && !p.bot && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))gevrTooltip("This player needs the updated build for host removal.");
                     }
                     ImGui::PopID();
                 }
@@ -211,6 +218,11 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
         }
         ImGui::SetCursorPos(ImVec2(600,886));ImGui::BeginDisabled(!model.canReturn);
         if(ImGui::Button(model.countdown>0 || model.startRequested?"Cancel start":"Return to lobby",ImVec2(330,52)))gevrPauseAction("RETURN TO LOBBY");ImGui::EndDisabled();
+    } else if(model.horde && model.host) {
+        ImGui::SetCursorPos(ImVec2(600,886));
+        ImGui::BeginDisabled(!model.hordeDefeated);
+        if(ImGui::Button("Retry Horde",ImVec2(330,52)))action=GEVR_PAUSE_HORDE_RETRY;
+        ImGui::EndDisabled();
     } else if(model.host) {ImGui::SetCursorPos(ImVec2(600,886));if(ImGui::Button("End mission...",ImVec2(330,52))) {ui.confirmAbort=true;ImGui::OpenPopup("End mission?");}}
     ImGui::SetCursorPos(ImVec2(948,886));ImGui::PushStyleColor(ImGuiCol_Text,bad);
     if(ImGui::Button(model.coop?"Leave party...":"Leave match...",ImVec2(314,52))) {ui.confirmLeave=true;ImGui::OpenPopup("Leave session?");}
