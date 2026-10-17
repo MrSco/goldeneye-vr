@@ -13,6 +13,7 @@ static int saves, configChanges;
 static bool rulesPage=true;
 static ImVec2 allyButton, doneButton;
 static float doneBottom, scrollMax;
+static bool netModePve(int mode) { return mode==1 || mode==2; }
 enum { NET_MODE_COOP=1, NET_COOP_FAST_REINFORCEMENTS=1, CFG_FAST_REINFORCEMENTS=1 };
 static struct { int mode=NET_MODE_COOP, fun_flags=0; } config;
 static bool netIsActive() { return online; }
@@ -78,9 +79,12 @@ int main() {
     setup(800,600,2.2f);
     assert(scrollMax>0); // content scrolls while Done remains visible
     click(allyButton); assert(VrAlly==1 && saves==1);
-    online=true; click(allyButton); assert(VrAlly==1 && saves==1);
-    online=false; VrCampaign=1; click(allyButton); assert(VrAlly==1 && saves==1);
-    VrCampaign=0; click(doneButton); assert(!rulesPage && saves==2 && configChanges==0);
+    online=true; host=false; click(allyButton); assert(VrAlly==1 && saves==1);
+    host=true; config.mode=0; click(allyButton); assert(VrAlly==1 && saves==1);
+    config.mode=NET_MODE_COOP; click(allyButton); assert(VrAlly==0 && saves==2);
+    click(allyButton); assert(VrAlly==1 && saves==3);
+    online=false; VrCampaign=1; click(allyButton); assert(VrAlly==1 && saves==3);
+    VrCampaign=0; click(doneButton); assert(!rulesPage && saves==4 && configChanges==0);
     ImGui::DestroyContext();
     rulesPage=true; setup(1280,720,2.2f); assert(scrollMax>0);
     click(doneButton); assert(!rulesPage);

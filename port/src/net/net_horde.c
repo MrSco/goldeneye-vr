@@ -1,6 +1,7 @@
 #include "net_core.h"
 #include "net_coop.h"
 #include "net_horde.h"
+#include "game/gevr_ally.h"
 #include "system.h"
 
 void netHordeSend(int slot)
@@ -44,7 +45,7 @@ void netHordeTick(void)
 }
 
 uint64_t gevrHordeGuardToken(const struct ChrRecord *chr) {
-    unsigned id=gevrHordeGuardId(chr);
+    unsigned id=netHordeActive() && gevrAllyIs((struct ChrRecord *)chr) ? GEVR_ALLY_HORDE_ID : gevrHordeGuardId(chr);
     return id ? ((uint64_t)netGetWorldEpoch()<<32)|id : 0;
 }
 int gevrHordeTokenCurrent(uint64_t token) {

@@ -9,7 +9,8 @@ publish a GitHub release. No game data is shipped.
 
 **Unreleased #189:** Horde in Archives, solo/1–4 humans, normal armed guards,
 endless paced waves, automatic resupply/weapon progression, revives, results
-and retry. Protocol 22 requires all players to update. Native/synthetic checks
+and retry. This branch adds the optional #194 companion; protocol 23 requires
+all players to update. Native/synthetic checks
 and debug APK build pass; no headset acceptance yet. [Horde](docs/horde-mode.md).
 
 v0.5.3 (PR #187, PR #188): optional ragdolls and dismemberment, off by
@@ -74,9 +75,9 @@ is goldeneyevr.com, in its own repository.
 
 ## Outstanding issues / limits
 
-- #194: configurable solo AI companion implemented on feature/194-ai-ally,
-  off by default in Play > Game rules. Native controller/campaign checks pass;
-  headset mission, pathfinding and Fast reinforcements checks still owed.
+- #194: optional AI companion for solo, campaign co-op and PR #191 Horde on
+  feature/194-ai-ally. Host-owned, late join/takeover, no wave quota contribution.
+  Native controller/network/Horde checks pass; headset checks still owed.
   [AI ally](docs/ai-ally.md).
 
 - #164: v0.4.22 fixes the logged vacant-body blocker; broader co-op mission

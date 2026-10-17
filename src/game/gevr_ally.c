@@ -12,8 +12,14 @@
 #include "lv.h"
 #include "bondview.h"
 #include "gevr_romlayout.h"
+#include "net_coop.h"
+#include "net_horde.h"
 
 extern bool netIsActive(void);
+extern bool netIsHost(void);
+extern int netGetLocalSlot(void);
+extern int netPlayerIsSpectator(int slot);
+extern int netLobbySlotConnected(int slot);
 extern s32 g_StageNum, g_ClockTimer;
 extern int VrAlly, VrAllyWeapon, VrAllyAggression, VrAllyHealth, VrAllyDamage, VrAllyInvincible;
 extern PropRecord *chrSpawnAtCoord(s32 body, s32 head, coord3d *pos, StandTile *tile,
@@ -23,7 +29,7 @@ extern s32 chrIsNotDeadOrShot(ChrRecord *chr);
 
 static ChrRecord *s_ally;
 static s32 s_identity, s_spawned, s_wait, s_think, s_target;
-static s32 s_enabled, s_weapon, s_aggression, s_health, s_invincible;
+static s32 s_enabled, s_weapon, s_aggression, s_health, s_invincible, s_configKnown;
 static f32 s_damage, s_shotScale = 1.0f;
 
 static const struct { s32 item, model; } s_weapons[] = {
@@ -46,7 +52,9 @@ void gevrAllyReset(void)
     s_spawned = s_wait = s_think = 0;
     s_target = -1;
     s_shotScale = 1.0f;
-    s_enabled = VrAlly != 0;
+    /* Clients must never substitute their saved preferences for the host's. */
+    s_enabled = VrAlly != 0 && (!netIsActive() || netIsHost());
+    s_configKnown = !netIsActive() || netIsHost();
     s_weapon = gevrAllyClamp(VrAllyWeapon, 0, 9);
     s_aggression = gevrAllyClamp(VrAllyAggression, 0, 2);
     s_health = gevrAllyClamp(VrAllyHealth, 25, 1000);
@@ -60,9 +68,103 @@ s32 gevrAllyIs(ChrRecord *chr)
     return chr != NULL && chr == s_ally && chr->model != NULL && chr->chrnum == s_identity;
 }
 
-static s32 gevrAllySolo(void)
+void gevrAllyStop(void)
 {
-    return !netIsActive() && getPlayerCount() == 1 && gevrRomCampaign() == 0;
+    if (!gevrAllyIs(s_ally)) return;
+    chrSetFiring(s_ally, GUNRIGHT, FALSE);
+    chrSetFiring(s_ally, GUNLEFT, FALSE);
+    check_set_actor_standing_still(s_ally, 0, 0);
+}
+
+static s32 gevrAllyAuthority(void)
+{
+    return gevrRomCampaign() == 0 && (netIsActive() ? gevrCoopHostGuards() : getPlayerCount() == 1);
+}
+
+static s32 gevrAllyPlayerUp(s32 slot)
+{
+    struct player *pl = slot >= 0 && slot < MAX_PLAYER_COUNT ? g_playerPointers[slot] : NULL;
+    return pl && pl->prop && pl->prop->stan && !pl->bonddead
+        && (!netIsActive() || (netLobbySlotConnected(slot) && !netPlayerIsSpectator(slot) && !gevrCoopDowned(slot)));
+}
+
+/* Prefer the nearest living teammate, never a downed/spectating host. */
+static s32 gevrAllyPlayer(const PropRecord *near)
+{
+    s32 best = -1;
+    f32 bestd = 3.4e38f;
+    for (s32 i = 0; i < getPlayerCount(); ++i) {
+        if (!gevrAllyPlayerUp(i)) continue;
+        PropRecord *p = g_playerPointers[i]->prop;
+        f32 x = near ? near->pos.x - p->pos.x : 0;
+        f32 y = near ? near->pos.y - p->pos.y : 0;
+        f32 z = near ? near->pos.z - p->pos.z : 0;
+        f32 d = x*x + y*y*4 + z*z;
+        if (d < bestd) { best = i; bestd = d; }
+    }
+    return best;
+}
+
+static s32 gevrAllyPlaying(void)
+{
+    return !lvlGetControlsLockedFlag() && (g_CameraMode == CAMERAMODE_FP
+        || (netIsActive() && (g_CameraMode == CAMERAMODE_NONE
+            || g_CameraMode == CAMERAMODE_DEATH_CAM_SP || g_CameraMode == CAMERAMODE_DEATH_CAM_MP)))
+        && (!netHordeActive() || (netHordeRunning() && !gevrHordeDefeated()));
+}
+
+static void gevrAllyConfigure(ChrRecord *chr)
+{
+    if (!s_configKnown) return;
+    chr->chrflags |= CHRFLAG_CAN_SHOOT_CHRS | CHRFLAG_NO_AUTOAIM;
+    if (s_invincible) chr->chrflags |= CHRFLAG_INVINCIBLE;
+    else chr->chrflags &= ~CHRFLAG_INVINCIBLE;
+    chr->maxdamage = 40.0f * s_health * 0.01f;
+    chr->accuracyrating = 20;
+    chr->flags2 |= FLAGS2_DONT_POINT_AT_BOND;
+}
+
+void gevrAllyAttach(ChrRecord *chr, u32 flags)
+{
+    if (!(flags & GEVR_ALLY_SPAWN_FLAG) || !chr || !chr->model || chr->chrnum < 0
+        || chr->bodynum != BODY_Natalya_Jungle_Fatigues || chr->headnum != HEAD_Natalya_Jungle_Fatigues) return;
+    s_ally = chr;
+    s_identity = chr->chrnum;
+    s_spawned = TRUE;
+    gevrAllyConfigure(chr);
+}
+
+void gevrAllyGetState(GevrAllyState *state)
+{
+    *state = (GevrAllyState){s_enabled, s_weapon, s_aggression, s_health,
+        (s32)(s_damage * 100.0f + 0.5f), s_invincible, s_spawned, s_identity};
+}
+
+s32 gevrAllyStateValid(const GevrAllyState *state)
+{
+    return state && (state->enabled == 0 || state->enabled == 1)
+        && state->weapon >= 0 && state->weapon <= 9
+        && state->aggression >= 0 && state->aggression <= 2
+        && state->health >= 25 && state->health <= 1000
+        && state->damage >= 25 && state->damage <= 400
+        && (state->invincible == 0 || state->invincible == 1)
+        && (state->spawned == 0 || state->spawned == 1)
+        && state->identity >= -1 && state->identity <= 32767
+        && (state->spawned ? state->enabled && state->identity >= 0 : state->identity == -1);
+}
+
+void gevrAllyApplyState(const GevrAllyState *state)
+{
+    if (!gevrAllyStateValid(state)) return;
+    s_enabled = state->enabled; s_weapon = state->weapon; s_aggression = state->aggression;
+    s_configKnown = TRUE;
+    s_health = state->health; s_damage = state->damage * 0.01f; s_invincible = state->invincible;
+    s_spawned = state->spawned;
+    /* The controller pointer arrives with the normal NPC spawn/roster. Keep
+     * the lifecycle even when the body has gone, so takeover cannot revive it. */
+    if (s_ally && s_identity != state->identity) s_ally = NULL;
+    s_identity = state->identity;
+    if (gevrAllyIs(s_ally)) gevrAllyConfigure(s_ally);
 }
 
 static s32 gevrAllyMission(void)
@@ -84,27 +186,26 @@ static s32 gevrAllyMission(void)
 void gevrAllyTick(void)
 {
     PropRecord *bond, *prop;
-    if (!s_enabled || s_spawned || !gevrAllySolo() || !gevrAllyMission()
-        || g_ClockTimer <= 0 || g_CameraMode != CAMERAMODE_FP
-        || lvlGetControlsLockedFlag() || g_CurrentPlayer == NULL
-        || g_CurrentPlayer->bonddead) return;
-    bond = g_CurrentPlayer->prop;
-    if (bond == NULL || bond->stan == NULL) return;
+    s32 player;
+    if (!s_enabled || s_spawned || !gevrAllyAuthority() || !gevrAllyMission()
+        || g_ClockTimer <= 0 || !gevrAllyPlaying()) return;
+    player = gevrAllyPlayer(NULL);
+    if (player < 0) return;
+    bond = g_playerPointers[player]->prop;
     if (s_wait > 0) { s_wait -= g_ClockTimer; return; }
     /* The spawn routine searches around Bond and checks floor and blockers.
      * Allow on-screen placement, otherwise small starting rooms never fit. */
     prop = chrSpawnAtCoord(BODY_Natalya_Jungle_Fatigues, HEAD_Natalya_Jungle_Fatigues,
-                          &bond->pos, bond->stan, 0.0f, NULL, 0x10);
+                          &bond->pos, bond->stan, 0.0f, NULL, 0x10 | GEVR_ALLY_SPAWN_FLAG);
     if (prop == NULL) { s_wait = 60; return; }
     s_ally = prop->chr;
     s_identity = s_ally->chrnum; /* allocated identity, never a mission ID */
     s_spawned = TRUE;
-    s_ally->chrflags |= CHRFLAG_CAN_SHOOT_CHRS | CHRFLAG_NO_AUTOAIM;
-    if (s_invincible) s_ally->chrflags |= CHRFLAG_INVINCIBLE;
-    s_ally->maxdamage = 40.0f * s_health * 0.01f;
-    s_ally->accuracyrating = 20;
-    s_ally->flags2 |= FLAGS2_DONT_POINT_AT_BOND;
-    chrGiveWeapon(s_ally, s_weapons[s_weapon].model, s_weapons[s_weapon].item, 0);
+    gevrAllyConfigure(s_ally);
+    chrGiveWeapon(s_ally, s_weapons[s_weapon].model, s_weapons[s_weapon].item,
+                  netHordeActive() ? PROPFLAG_AIUNDROPPABLE : 0);
+    /* Announce only after role, durability and weapon are configured. */
+    gevrCoopChrSpawned(s_ally, NULL, 0x10 | GEVR_ALLY_SPAWN_FLAG);
 }
 
 static f32 gevrAllyDistanceSq(const PropRecord *a, const PropRecord *b)
@@ -141,15 +242,15 @@ s32 gevrAllyThink(ChrRecord *chr)
     ChrRecord *target = NULL;
     PropRecord *bond;
     f32 best, distance;
-    s32 i;
+    s32 i, player;
     if (!gevrAllyIs(chr)) return FALSE;
     if (chrIsDead(chr) || !chrIsNotDeadOrShot(chr)) return TRUE;
-    if (!gevrAllySolo() || g_CameraMode != CAMERAMODE_FP || lvlGetControlsLockedFlag() || !g_CurrentPlayer
-        || g_CurrentPlayer->bonddead || !g_CurrentPlayer->prop) {
+    player = gevrAllyPlayer(chr->prop);
+    if (!s_configKnown || !gevrAllyAuthority() || !gevrAllyPlaying() || player < 0) {
         check_set_actor_standing_still(chr, 0, 0);
         return TRUE;
     }
-    bond = g_CurrentPlayer->prop;
+    bond = g_playerPointers[player]->prop;
     if (!bond->stan) return TRUE;
     s_think -= g_ClockTimer;
     if (s_think > 0) return TRUE;
