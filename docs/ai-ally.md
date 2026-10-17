@@ -30,12 +30,10 @@ scripted cinematics and stops firing immediately when Horde ends.
 
 ## Stages with an existing Natalya
 
-Jungle keeps its original scripted Natalya: with the option on, there are two
-Natalyas. The additional companion and the mission NPC ignore one another as
-targets. Only the additional companion gets these weapon/durability settings.
-Bunker II, Train and Control likewise retain their own Natalya and objectives.
-The companion does not substitute for an escort objective. No mission character
-IDs, objective bits or imported ROM action blocks are used.
+Bunker II, Train, Jungle and Control have their own scripted Natalya, so the
+companion stays out of them: two Natalyas made no sense. Those missions play as
+the original. No mission character IDs, objective bits or imported ROM action
+blocks are used.
 
 ## Co-op and Horde synchronization
 
@@ -89,7 +87,7 @@ join. No lobby-service deployment is needed.
 
 Quest play is still required: two/four headsets, client guns/appearance, late
 join before and after her death, host loss, downed host following, all-down
-Horde defeat and retry, weapon choices and durability, Jungle with both Natalyas,
+Horde defeat and retry, weapon choices and durability, no companion in Jungle,
 Bunker II/Train/Control scripts, civilians, doors/stairs/narrow passages and
 sustained Horde performance. No ROM or Quest is attached to this environment;
 synthetic checks do not establish headset behavior or mission completion.
