@@ -44,7 +44,10 @@ body retention rules apply.
 - Physics advances once with the game clock, at up to 60 steps per second.
   Pause and additional camera passes cannot advance it or duplicate deaths.
   World rendering builds fresh matrices per view before native float-to-packed
-  conversion. Mesh storage is retired three frames after eviction.
+  conversion. Visibility is evaluated against that render view's camera and
+  rooms, so simulation/extra trace cameras cannot hide a visible corpse.
+  Captured native actors continue their death/cleanup clocks without rebuilding
+  redundant native pose, attachment and hit-list data. Mesh storage is retired three frames after eviction.
 - Native STAN floors provide collision for the whole stage. Loaded native
   room display lists add only triangles that don't face up (walls, overhangs,
   ceilings), at most four rooms a tick, with the correct room offset and level

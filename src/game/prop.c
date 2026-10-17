@@ -1549,7 +1549,7 @@ void proplvreset2(enum LEVELID stageId)
         if (netHordeActive()) {
             alloc_init_GUARDdata_entries(HORDE_GUARD_SLOTS - 10);
             numAnimatedObjects += HORDE_GUARD_SLOTS;
-            numObjects += HORDE_GUARD_SLOTS * 2;
+            numObjects += HORDE_GUARD_SLOTS * 2 + HORDE_AMMO_DROPS + 7;
         }
 #endif
         modelmgrAllocateModelSlots(numObjects);

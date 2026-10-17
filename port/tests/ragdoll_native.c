@@ -256,7 +256,7 @@ static void portChecks(void)
     unsigned serialBefore=newest()->serial;
     Gfx *g=calloc(16384,sizeof(Gfx));
     roomsShown=0;gevrRagdollTick(0);drawn=0;gevrRagdollRender(g);assert(drawn==0);frameFree();
-    roomsShown=1;gevrRagdollTick(0);drawn=0;gevrRagdollRender(g);assert(drawn>=1);frameFree();free(g);
+    roomsShown=1;drawn=0;gevrRagdollRender(g);assert(drawn>=1);frameFree();free(g);
     /* CE's blasts: a guard killed by one is thrown up and away; bodies
      * already down within reach lose up to two joints to it */
     sourceChr.actiontype=ACT_STAND;gevrRagdollNeedsPose(&sourceChr);

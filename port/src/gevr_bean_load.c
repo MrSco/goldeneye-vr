@@ -1048,10 +1048,42 @@ static int levelAlpha(const struct levelDecals *l, int i)
 	return tex >= 0 && tex < MAX_TEX && l->texAlpha[tex];
 }
 
-/* Another picture, or the same one painted much darker or lighter by its vertices */
+/* Coincident, equally wound faces can sample the same image differently.
+ * Match spatial corners before comparing UVs/tints: adjacent triangles and
+ * authored front/back sheets must keep their ordinary depth modes. A single
+ * integer UV translation repeats the same image; different repeat counts or
+ * rotations do not, even when every corner differs by an integer. */
+static int levelCoincidentPaintDiffers(const struct levelDecals *l, int i, int o)
+{
+    const struct gevrBeanTri *a = &l->mesh->tris[i], *b = &l->mesh->tris[o];
+    int match[3];
+    if (levelDot(l->nrm[i], l->nrm[o]) < LDECAL_COS) return 0;
+    for (int v = 0; v < 3; v++) {
+        match[v] = -1;
+        for (int w = 0; w < 3; w++)
+            if (a->p[v * 3] == b->p[w * 3] && a->p[v * 3 + 1] == b->p[w * 3 + 1]
+                    && a->p[v * 3 + 2] == b->p[w * 3 + 2]) {
+                match[v] = w;
+                break;
+            }
+        if (match[v] < 0) return 0;
+    }
+    for (int k = 0; a->tex >= 0 && k < 2; k++) {
+        const float delta = a->uv[k] - b->uv[match[0] * 2 + k];
+        if (fabsf(delta - roundf(delta)) > 0.0001f) return 1;
+        for (int v = 1; v < 3; v++)
+            if (fabsf(a->uv[v * 2 + k] - b->uv[match[v] * 2 + k] - delta) > 0.0001f) return 1;
+    }
+    for (int v = 0; v < 3; v++)
+        if (memcmp(a->rgba + v * 4, b->rgba + match[v] * 4, 4)) return 1;
+    return 0;
+}
+
+/* Another picture, a shade change, or a different painting of the same face. */
 static int levelOther(const struct levelDecals *l, int i, int o)
 {
-	return l->mesh->tris[o].tex != l->mesh->tris[i].tex || fabsf(l->shade[i] - l->shade[o]) > LDECAL_SHADE_APART;
+	return l->mesh->tris[o].tex != l->mesh->tris[i].tex || fabsf(l->shade[i] - l->shade[o]) > LDECAL_SHADE_APART
+        || levelCoincidentPaintDiffers(l, i, o);
 }
 
 /* markCandidate(MARKFILTER_DECAL) */

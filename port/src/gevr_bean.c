@@ -2471,8 +2471,13 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 				for (ModelNode *up = dls[i].node->Parent; up; up = up->Parent)
 					if (nodeOp(up) == MODELNODE_OPCODE_LOD && up->Data->LOD.MinDistance > 0)
 						far = 1;
-				if ((fit && !far && nodeMatrix(dls[i].node) == nodeMatrix(header->RootNode) && best < 0) ||
-				    (!fit && dls[i].span > bestSpan)) {
+                /* Prefer a fitted root body. Flying props can instead put
+                 * their hull on a non-root matrix after the rotor lists. */
+                int rootMatrix=nodeMatrix(header->RootNode);
+                int haveRoot=best>=0 && nodeMatrix(dls[best].node)==rootMatrix;
+                if ((fit && !far && nodeMatrix(dls[i].node)==rootMatrix && !haveRoot) ||
+                    (!fit && dls[i].span>bestSpan) ||
+                    (kind==BEAN_PROP && !haveRoot && !far && !dls[i].simple && dls[i].span>bestSpan)) {
 					bestSpan = dls[i].span;
 					best = i;
 				}
@@ -2620,6 +2625,17 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 							registerPrimary(dls[i].node, s_blank, 1);
 						continue;
 					}
+                    /* Alternate distance lists for the same body matrix must
+                     * carry the replacement too. Otherwise a plane's hull
+                     * vanishes at its LOD boundary while the rotors remain. */
+                    int bodyLod=0;
+                    for (ModelNode *up=dls[i].node->Parent;up;up=up->Parent)
+                        if (nodeOp(up)==MODELNODE_OPCODE_LOD && up->Data->LOD.MinDistance>0) bodyLod=1;
+                    if (kind==BEAN_PROP && mainEmitted && bodyLod
+                        && nodeMatrix(dls[i].node)==nodeMatrix(dls[best].node)) {
+                        registerPrimary(dls[i].node,gdl,0);
+                        continue;
+                    }
 					if (kind == BEAN_PROP && g >= 0 && g != binding.base) {
 						binding.target = g;
 						void *partGdl = NULL, *partVtx = NULL;
