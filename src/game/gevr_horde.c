@@ -20,6 +20,7 @@
 #include "net_game.h"
 #include "net_coop.h"
 #include "net_horde.h"
+#include "system.h"
 
 extern s32 netGetLocalSlot(void);
 extern int netMpPlayerCount(int fallback);
@@ -30,6 +31,13 @@ extern s32 netIsHost(void);
 extern unsigned netGetRandomSeed(void);
 extern AIRecord *ailistFindById(s32 id);
 extern void gevrHudmsgBottomLive(char *mess);
+extern ObjectRecord *create_new_item_instance_of_model(PROP modelnum, s32 weaponid);
+extern void setupUpdateObjectRoomPosition(ObjectRecord *obj);
+extern void chrpropActivate(PropRecord *prop);
+extern void chrpropEnable(PropRecord *prop);
+extern void modelSetScale(Model *model, f32 scale);
+extern void matrix_4x4_set_position_and_rotation_around_y(f32 *position, f32 angle, Mtxf *matrix);
+extern void matrix_scalar_multiply(f32 scalar, f32 *matrix);
 extern PropRecord *chrSpawnAtCoord(s32 body,s32 head,coord3d *pos,StandTile *stan,f32 angle,AIRecord *ai,s32 flags);
 
 #define HORDE_INTERACT_RANGE 220.0f
@@ -73,7 +81,17 @@ static s32 s_pads[128], s_pad_count, s_body;
 static s32 s_box_pads[HORDE_BOX_SPOTS], s_wall_pads[HORDE_WALL_COUNT];
 static uint32_t s_applied_grant[4];
 static unsigned s_resupplied, s_shown_phase, s_shown_wave, s_shown_secs;
-static unsigned s_shown_box_state, s_shown_box_weapon, s_shown_prompt;
+static char s_prompt[100];
+static s32 s_prompt_ticks;
+/* The stations in the world, so players can find them: an uncollectable
+ * model on each pad, placed on every headset (the pads come from the setup,
+ * the box's spot from the snapshot). The box is an ammo crate that follows
+ * its relocations; each wall buy is its gun, larger and turning; armour a vest. */
+static ObjectRecord *s_box_marker, *s_wall_marker[HORDE_WALL_COUNT];
+static s32 s_markers_placed, s_marker_spot;
+static f32 s_marker_yaw;
+static const s32 s_wall_models[HORDE_WALL_COUNT] = {
+    PROP_CHRSKORPION, PROP_CHRSHOTGUN, PROP_CHRKALASH, PROP_CHRMP5K, PROP_CHRM16, PROP_BODYARMOUR };
 static struct {
     SetupIntroSpawn spawn;
     struct SetupIntroItem item;
@@ -100,7 +118,7 @@ void gevrHordeSetGuardId(ChrRecord *chr,unsigned id)
     s32 slot=chr-g_ChrSlots;
     if (slot<HORDE_GUARD_SLOTS) {
         s_id[slot]=id;s_counted[slot]=0;s_dead_ticks[slot]=0;s_stall_ticks[slot]=0;
-        s_last_attacker[slot]=0;s_last_hitpart[slot]=0;
+        s_last_attacker[slot]=-1;s_last_hitpart[slot]=0;
         if (chr->prop) s_last_pos[slot]=chr->prop->pos;
     }
 }
@@ -179,11 +197,13 @@ void gevrHordeStageLoaded(void)
     hordeInit(&s_state,netGetRandomSeed());
     memset(s_id,0,sizeof(s_id));memset(s_counted,0,sizeof(s_counted));
     memset(s_dead_ticks,0,sizeof(s_dead_ticks));
-    memset(s_last_attacker,0,sizeof(s_last_attacker));
+    memset(s_last_attacker,0xff,sizeof(s_last_attacker));   /* -1: no player hit it */
     memset(s_last_hitpart,0,sizeof(s_last_hitpart));
     memset(s_applied_grant,0,sizeof(s_applied_grant));
     s_resupplied=~0u;s_shown_phase=~0u;s_shown_wave=~0u;s_shown_secs=~0u;
-    s_shown_box_state=~0u;s_shown_box_weapon=~0u;s_shown_prompt=0;
+    s_prompt[0]=0;s_prompt_ticks=0;
+    s_box_marker=NULL;memset(s_wall_marker,0,sizeof(s_wall_marker));   /* the stage's objects went with it */
+    s_markers_placed=FALSE;s_marker_spot=-1;s_marker_yaw=0.0f;
 }
 void gevrHordeApplyState(const HordeState *state)
 {
@@ -235,28 +255,34 @@ void gevrHordeNotifyGuardHit(ChrRecord *chr, int attacker, int hitpart)
     if (!netHordeActive() || !netIsHost() || s_state.phase==HORDE_DEFEAT || !chr || !g_ChrSlots) return;
     s32 slot=chr-g_ChrSlots;
     if (slot<0 || slot>=g_NumChrSlots || slot>=HORDE_GUARD_SLOTS || !s_id[slot] || s_counted[slot]) return;
-    unsigned who=(attacker>=0 && attacker<4)?(unsigned)attacker:0;
-    s_last_attacker[slot]=(s32)who;
+    /* Only a known player's hit pays; anything else credits nobody (not slot 0, the host). */
+    unsigned who=(attacker>=0 && attacker<4)?(unsigned)attacker:4;
+    s_last_attacker[slot]=who<4?(s32)who:-1;
     s_last_hitpart[slot]=hitpart;
-    s32 lethal=(chr->maxdamage>0.0f && chr->damage>chr->maxdamage)
+    s32 lethal=(chr->maxdamage>0.0f && chr->damage>=chr->maxdamage)
         || chr->actiontype==ACT_DIE || chr->actiontype==ACT_DEAD;
     if (lethal) {
         s_counted[slot]=TRUE;
         hordeEnemyKilled(&s_state,TRUE,who,hitpart==HIT_HEAD);
         netHordeSend(-1);
-    } else {
+    } else if (who<4) {
         hordeRewardHit(&s_state,who);
     }
+}
+
+static s32 hordeNearPadAt(const f32 pos[3], s32 pad_id, f32 radius)
+{
+    if (!g_CurrentSetup.pads || pad_id<0) return FALSE;
+    coord3d *at=&g_CurrentSetup.pads[pad_id].pos;
+    f32 dx=pos[0]-at->x, dy=pos[1]-at->y, dz=pos[2]-at->z;
+    return dx*dx+dz*dz<=radius*radius && dy*dy<=150.0f*150.0f;
 }
 
 static s32 hordeNearPad(s32 slot, s32 pad_id, f32 radius)
 {
     if (slot<0 || slot>=4 || !g_playerPointers[slot] || !g_playerPointers[slot]->prop) return FALSE;
-    if (gevrCoopDowned(slot) || !g_CurrentSetup.pads || pad_id<0) return FALSE;
-    coord3d *pos=&g_playerPointers[slot]->prop->pos;
-    coord3d *at=&g_CurrentSetup.pads[pad_id].pos;
-    f32 dx=pos->x-at->x, dy=pos->y-at->y, dz=pos->z-at->z;
-    return dx*dx+dz*dz<=radius*radius && dy*dy<=150.0f*150.0f;
+    if (gevrCoopDowned(slot)) return FALSE;
+    return hordeNearPadAt(g_playerPointers[slot]->prop->pos.f,pad_id,radius);
 }
 
 int gevrHordeHandleAction(int slot, unsigned action, unsigned item)
@@ -274,13 +300,19 @@ int gevrHordeHandleAction(int slot, unsigned action, unsigned item)
     return 0;
 }
 
-int gevrHordeOnUse(void)
+/* B: the player standing at a station. The grip: the hand reaching it, so a
+ * grip meant for a holster, a pickup or a door beside one buys nothing. */
+#define HORDE_HAND_RANGE 110.0f
+static int hordeUse(const f32 *hand)
 {
     if (!netHordeRunning()) return 0;
     s32 me=netGetLocalSlot(), prev=get_cur_playernum();
-    if (me<0 || me>=4 || !g_playerPointers[me] || netPlayerIsSpectator(me) || gevrCoopDowned(me)) return 0;
+    if (me<0 || me>=4 || !g_playerPointers[me] || !g_playerPointers[me]->prop
+        || netPlayerIsSpectator(me) || gevrCoopDowned(me)) return 0;
+    const f32 *at=hand?hand:g_playerPointers[me]->prop->pos.f;
+    const f32 range=hand?HORDE_HAND_RANGE:HORDE_INTERACT_RANGE;
     s32 box_pad=s_box_pads[s_state.box_spot%HORDE_BOX_SPOTS];
-    if (hordeNearPad(me,box_pad,HORDE_INTERACT_RANGE)) {
+    if (hordeNearPadAt(at,box_pad,range)) {
         if (s_state.box_state==HORDE_BOX_IDLE) {
             if (s_state.credits[me]<HORDE_BOX_COST) {
                 set_cur_player(me);hudmsgBottomShow("NEED 950 PTS FOR MYSTERY BOX");set_cur_player(prev);
@@ -295,7 +327,7 @@ int gevrHordeOnUse(void)
         }
         return 0;
     }
-    for (unsigned w=0;w<HORDE_WALL_COUNT;w++) if (hordeNearPad(me,s_wall_pads[w],HORDE_INTERACT_RANGE)) {
+    for (unsigned w=0;w<HORDE_WALL_COUNT;w++) if (hordeNearPadAt(at,s_wall_pads[w],range)) {
         set_cur_player(me);
         s32 owned=w<5 && bondinvHasInvItem(s_wall_items[w].item);
         if (w==5 && g_playerPointers[me]->bondarmour>=1.0f) {
@@ -311,6 +343,9 @@ int gevrHordeOnUse(void)
     }
     return 0;
 }
+
+int gevrHordeOnUse(void) { return hordeUse(NULL); }
+int gevrHordeOnGrip(const f32 hand[3]) { return hordeUse(hand); }
 
 static void hordeApplyLocalGrant(s32 me)
 {
@@ -435,11 +470,19 @@ static void hordeRecoverGuard(s32 slot,s32 ticks)
     } else chr->hidden|=CHRHIDDEN_REMOVE;
 }
 
-static void hordeUpdateStationPrompt(s32 me)
+/* The station the player stands at, on the live bottom line (refreshed so it
+ * stays up). During a break the countdown rides on the same line, rather
+ * than the two rewriting one live row in turn. 1 while a prompt shows. */
+static s32 hordeUpdateStationPrompt(s32 me, s32 ticks, unsigned breakSecs)
 {
-    if (me<0 || me>=4 || !g_playerPointers[me] || netPlayerIsSpectator(me) || gevrCoopDowned(me)) return;
-    char prompt[100];
+    if (me<0 || me>=4 || !g_playerPointers[me] || netPlayerIsSpectator(me) || gevrCoopDowned(me)) {
+        s_prompt[0]=0;
+        return FALSE;
+    }
+    char prompt[100], line[100];
+    prompt[0]=0;
     s32 box_pad=s_box_pads[s_state.box_spot%HORDE_BOX_SPOTS];
+    s32 prev=get_cur_playernum();
     if (hordeNearPad(me,box_pad,HORDE_INTERACT_RANGE)) {
         const char *wname=s_box_pool[s_state.box_weapon%HORDE_BOX_POOL_SIZE].name;
         if (s_state.box_state==HORDE_BOX_IDLE)
@@ -451,31 +494,91 @@ static void hordeUpdateStationPrompt(s32 me)
                 ?"TAKE %s (%us) - PRESS B/GRIP":"MYSTERY BOX: %s (%us)",wname,(s_state.box_timer+59)/60);
         else
             snprintf(prompt,sizeof(prompt),"TEDDY BEAR! BOX MOVING - 950 PTS REFUNDED");
-        unsigned key=0x100u|(s_state.box_state<<4)|s_state.box_weapon|((s_state.box_timer+59)/60<<8);
-        if (s_shown_prompt!=key) {
-            s32 prev=get_cur_playernum();
-            set_cur_player(me);gevrHudmsgBottomLive(prompt);set_cur_player(prev);
-            s_shown_prompt=key;
+    } else {
+        for (unsigned w=0;w<HORDE_WALL_COUNT;w++) if (hordeNearPad(me,s_wall_pads[w],HORDE_INTERACT_RANGE)) {
+            set_cur_player(me);
+            s32 owned=w<5 && bondinvHasInvItem(s_wall_items[w].item);
+            set_cur_player(prev);
+            snprintf(prompt,sizeof(prompt),owned?"AMMO REFILL: %s [%u PTS] (%u PTS) - PRESS B/GRIP"
+                :"WALL BUY: %s [%u PTS] (%u PTS) - PRESS B/GRIP",
+                s_wall_items[w].name,hordeWallCost(w,owned),s_state.credits[me]);
+            break;
         }
-        return;
     }
-    for (unsigned w=0;w<HORDE_WALL_COUNT;w++) if (hordeNearPad(me,s_wall_pads[w],HORDE_INTERACT_RANGE)) {
-        s32 prev=get_cur_playernum();
-        set_cur_player(me);
-        s32 owned=w<5 && bondinvHasInvItem(s_wall_items[w].item);
-        uint32_t cost=hordeWallCost(w,owned);
-        snprintf(prompt,sizeof(prompt),owned?"AMMO REFILL: %s [%u PTS] (%u PTS) - PRESS B/GRIP"
-            :"WALL BUY: %s [%u PTS] (%u PTS) - PRESS B/GRIP",
-            s_wall_items[w].name,cost,s_state.credits[me]);
-        unsigned key=0x200u|(w<<2)|(owned?1u:0u);
-        if (s_shown_prompt!=key) {
-            gevrHudmsgBottomLive(prompt);
-            s_shown_prompt=key;
+    if (!prompt[0]) {
+        s_prompt[0]=0;
+        return FALSE;
+    }
+    if (breakSecs) snprintf(line,sizeof(line),"%s - WAVE IN %u",prompt,breakSecs);
+    else snprintf(line,sizeof(line),"%s",prompt);
+    s_prompt_ticks-=ticks;
+    if (strcmp(line,s_prompt) || s_prompt_ticks<=0) {
+        snprintf(s_prompt,sizeof(s_prompt),"%s",line);
+        s_prompt_ticks=30;
+        set_cur_player(me);gevrHudmsgBottomLive(s_prompt);set_cur_player(prev);
+    }
+    return TRUE;
+}
+
+/* An uncollectable model standing on a station's pad. */
+static ObjectRecord *hordeMarkerCreate(s32 model, s32 item, f32 scale)
+{
+    ObjectRecord *obj=create_new_item_instance_of_model(model,item);
+    if (!obj || !obj->prop || !obj->model) return NULL;
+    obj->flags|=PROPFLAG_UNCOLLECTABLE|PROPFLAG_INVINCIBLE;
+    if (scale!=1.0f) modelSetScale(obj->model,obj->model->scale*scale);
+    return obj;
+}
+
+static void hordeMarkerPlace(ObjectRecord *obj, s32 pad_id, f32 lift, f32 yaw, s32 rooms)
+{
+    if (!obj || !obj->prop || !obj->model || !g_CurrentSetup.pads || pad_id<0) return;
+    PadRecord *pad=&g_CurrentSetup.pads[pad_id];
+    coord3d pos=obj->prop->pos;   /* turning in place: where it stands already */
+    if (rooms) {
+        coord3d probe=pad->pos;
+        f32 floor=pad->pos.y;
+        pos=pad->pos;
+        if (stanFindTileBelowPos(&probe,NULL,&floor)) pos.y=floor;
+        pos.y+=lift;
+    }
+    matrix_4x4_set_position_and_rotation_around_y(pos.f,yaw,&obj->mtx);
+    matrix_scalar_multiply(obj->model->scale,obj->mtx.m[0]);
+    obj->runtime_pos=pos;
+    obj->prop->pos=pos;
+    if (rooms) {
+        if (pad->stan) obj->prop->stan=pad->stan;
+        setupUpdateObjectRoomPosition(obj);
+    }
+}
+
+static void hordeUpdateMarkers(s32 ticks)
+{
+    if (!s_pad_count || !g_CurrentSetup.pads) return;
+    if (!s_markers_placed) {
+        s_markers_placed=TRUE;
+        s_box_marker=hordeMarkerCreate(PROP_AMMO_CRATE5,ITEM_UNARMED,1.0f);
+        for (unsigned w=0;w<HORDE_WALL_COUNT;w++)
+            s_wall_marker[w]=hordeMarkerCreate(s_wall_models[w],s_wall_items[w].item,w<5?2.5f:1.5f);
+        for (unsigned w=0;w<HORDE_WALL_COUNT;w++) if (s_wall_marker[w]) {
+            hordeMarkerPlace(s_wall_marker[w],s_wall_pads[w],60.0f,0.0f,TRUE);
+            chrpropActivate(s_wall_marker[w]->prop);chrpropEnable(s_wall_marker[w]->prop);
         }
-        set_cur_player(prev);
-        return;
+        if (s_box_marker) {
+            chrpropActivate(s_box_marker->prop);chrpropEnable(s_box_marker->prop);
+        }
+        sysLogPrintf(LOG_NOTE,"horde: station markers placed (box %s, wall buys at pads %d %d %d %d %d %d)",
+            s_box_marker?"yes":"no",s_wall_pads[0],s_wall_pads[1],s_wall_pads[2],s_wall_pads[3],s_wall_pads[4],s_wall_pads[5]);
     }
-    s_shown_prompt=0;
+    if (s_box_marker && s_marker_spot!=(s32)s_state.box_spot) {
+        s_marker_spot=s_state.box_spot;
+        hordeMarkerPlace(s_box_marker,s_box_pads[s_marker_spot%HORDE_BOX_SPOTS],0.0f,0.0f,TRUE);
+    }
+    /* the wall guns turn slowly where they stand, to catch the eye */
+    s_marker_yaw+=0.02f*(f32)(ticks>0?ticks:0);
+    if (s_marker_yaw>6.2831855f) s_marker_yaw-=6.2831855f;
+    for (unsigned w=0;w<5;w++) if (s_wall_marker[w])
+        hordeMarkerPlace(s_wall_marker[w],s_wall_pads[w],60.0f,s_marker_yaw,FALSE);
 }
 
 void gevrHordeTick(int ticks)
@@ -516,15 +619,19 @@ void gevrHordeTick(int ticks)
      * message every second sat mid-view in VR all game. */
     s32 counting=s_state.phase==HORDE_PREPARE || s_state.phase==HORDE_INTERMISSION;
     unsigned secs=counting?(s_state.timer+59)/60:0;
+    hordeUpdateMarkers(ticks);
+    /* A station's prompt owns the live line (with the countdown on it). */
+    s32 prompting=hordeUpdateStationPrompt(me,ticks,counting?secs:0);
     if (s_shown_phase!=s_state.phase || s_shown_wave!=s_state.wave || (counting && s_shown_secs!=secs)) {
         s32 prev=get_cur_playernum();
         char text[100];gevrHordeText(text,sizeof(text));
-        if (me>=0 && me<4 && g_playerPointers[me]) {
+        if (me>=0 && me<4 && g_playerPointers[me] && !(counting && prompting)) {
             set_cur_player(me);
             if (counting) gevrHudmsgBottomLive(text); else hudmsgBottomShow(text);
             set_cur_player(prev);
         }
         s_shown_phase=s_state.phase;s_shown_wave=s_state.wave;s_shown_secs=secs;
     }
-    hordeUpdateStationPrompt(me);
+    /* leaving a station mid-break: the countdown comes back at once */
+    if (counting && prompting) s_shown_secs=~0u;
 }
