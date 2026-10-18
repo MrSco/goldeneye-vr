@@ -95,6 +95,15 @@ static inline unsigned hordeEnemyKind(uint32_t wave, uint32_t serial, unsigned s
     return HORDE_ENEMY_GUARD;
 }
 /* Health in percent of the body's own, on top of the wave's scaling. */
+/* Whether an enemy's death drops an ammo crate (user, 2026-10-18: every
+ * enemy dropping one was too many): one in three, by its id, so every
+ * headset agrees; bosses always. A crate holds twice the old amounts. */
+#define HORDE_AMMO_DROP_EVERY 3u
+static inline int hordeDropsAmmo(uint32_t id, int boss) {
+    if (boss) return 1;
+    return ((id * 2654435761u) >> 16) % HORDE_AMMO_DROP_EVERY == 0;
+}
+
 static inline unsigned hordeEnemyKindHealthPercent(unsigned kind, unsigned players) {
     switch (kind) {
     case HORDE_ENEMY_ARMORED: return 175;

@@ -110,6 +110,9 @@ static ObjectRecord *s_ammo_marker[HORDE_AMMO_DROPS];
 static s32 s_pickup_ticks;
 static f32 s_speed[HORDE_GUARD_SLOTS];   /* a guard's run-speed factor (host) */
 static s32 s_doors_opened;
+#define HORDE_HELD_DOORS 96
+static DoorRecord *s_held_doors[HORDE_HELD_DOORS];
+static s32 s_held_count, s_hold_ticks;
 /* The laser's own stats, restored outside Horde (it gets a finite pool there). */
 static s32 s_laser_saved, s_laser_ammo, s_laser_mag;
 static char s_prompt[100];
@@ -295,7 +298,7 @@ void gevrHordeStageLoaded(void)
     hordeInitAt(&s_state,netGetRandomSeed(),netHordeActive()?netHordeStartWave():1);
     for (unsigned p=0;p<4;p++) s_state.guns[p][0]=ITEM_WPPK;   /* the intro's PP7 */
     memset(s_speed,0,sizeof(s_speed));
-    s_doors_opened=FALSE;
+    s_doors_opened=FALSE;s_held_count=0;s_hold_ticks=0;
     memset(s_id,0,sizeof(s_id));memset(s_counted,0,sizeof(s_counted));
     memset(s_dead_ticks,0,sizeof(s_dead_ticks));
     memset(s_last_attacker,0xff,sizeof(s_last_attacker));   /* -1: no player hit it */
@@ -519,6 +522,8 @@ static void hordeApplyLocalGrant(s32 me)
     set_cur_player(prev);
 }
 
+static s32 hordeIsBossBody(s32 body);
+
 /* One shared crate per genuine death. Old loot expires and slots are reused;
  * neither retained corpses nor repeated kill reports create more objects. */
 static void hordeDropAmmo(s32 slot)
@@ -526,6 +531,8 @@ static void hordeDropAmmo(s32 slot)
     ChrRecord *chr=&g_ChrSlots[slot];
     if (s_dropped[slot] || !chr->prop || !chr->model) return;
     s_dropped[slot]=TRUE;
+    if (!hordeDropsAmmo((uint32_t)s_id[slot],hordeIsBossBody(chr->bodynum)
+        && hordeWaveKind(s_state.wave)==HORDE_WAVE_BOSS)) return;
     unsigned best=0;
     for (unsigned i=0;i<HORDE_AMMO_DROPS;i++) {
         if (!s_state.ammo[i].id) {best=i;break;}
@@ -546,21 +553,22 @@ static void hordeApplyAmmo(s32 me)
     if (!count) return;
     s_applied_ammo[me]=s_state.ammo_grants[me];
     /* Owned weapons share their ammo pool. Each crate gives each owned pool
-     * once: 16 pistol/SMG, 12 rifle, 4 shells, 3 magnum. Special rounds
-     * arrive once per four crates so explosive multi-kills cannot refill
-     * one rocket/grenade for every enemy in the blast. */
+     * once: 32 pistol/SMG, 24 rifle, 8 shells, 6 magnum (one death in three
+     * drops one, hordeDropsAmmo). Special rounds arrive once per two crates
+     * so explosive multi-kills cannot refill one rocket/grenade for every
+     * enemy in the blast. */
     s32 prev=get_cur_playernum();set_cur_player(me);
     s32 amounts[AMMOTYPE_MAX]={0};
     for (s32 item=ITEM_WPPK;item<ITEM_IDS_MAX;item++) if (bondinvHasInvItem(item)) {
         WeaponStats *stats=get_ptr_item_statistics(item);
         s32 ammo=stats?stats->AmmoType:AMMO_NONE;
         if (ammo<=AMMO_NONE || ammo>=AMMOTYPE_MAX) continue;
-        s32 amount=(ammo==AMMO_9MM || ammo==AMMO_9MM_2)?16:ammo==AMMO_RIFLE?12:
-            ammo==AMMO_SHOTGUN?4:ammo==AMMO_MAGNUM?3:item==ITEM_LASER?HORDE_LASER_CRATE:1;
+        s32 amount=(ammo==AMMO_9MM || ammo==AMMO_9MM_2)?32:ammo==AMMO_RIFLE?24:
+            ammo==AMMO_SHOTGUN?8:ammo==AMMO_MAGNUM?6:item==ITEM_LASER?HORDE_LASER_CRATE:1;
         amounts[ammo]=amount;
     }
     for (s32 ammo=1;ammo<AMMOTYPE_MAX;ammo++) if (amounts[ammo]) {
-        uint32_t rounds=amounts[ammo]>1?count:s_state.ammo_grants[me]/4-previous/4;
+        uint32_t rounds=amounts[ammo]>1?count:s_state.ammo_grants[me]/2-previous/2;
         if (rounds) hordeGiveAmmo(ammo,amounts[ammo]*(s32)(rounds>1024?1024:rounds));
     }
     hudmsgTopShow("ENEMY AMMO COLLECTED");set_cur_player(prev);
@@ -602,31 +610,57 @@ f32 gevrHordeAiAccuracy(f32 difficulty)
     return (f32)hordeAiAccuracyPercent(s_state.wave)*0.01f;
 }
 
+/* A door open at once, as the AI's DoorOpenInstant has it (chrai.c). */
+static void hordeDoorOpenNow(DoorRecord *door)
+{
+    door->speed=0;
+    door->openPosition=door->maxFrac;
+    door->openedTime=g_GlobalTimer;
+    door->openstate=DOORSTATE_STATIONARY;
+    door->flags|=PROPFLAG_DOOR_KEEPOPEN;
+    doorUpdateBbox(door);
+    doorActivatePortal(door);
+    door7F053B10(door);
+}
+
 /* Every door open and held open (user: guards got stuck on them). A door the
  * level never lets open (locked for good, padlocked) stays shut: it may
- * close off space the level has not built. Every headset does the same. */
+ * close off space the level has not built. Every headset does the same, so
+ * nothing is sent: a door message starts a door moving (doorStartOpen),
+ * which clears its keep-open flag, and it then shut itself on its timer
+ * (user, 2026-10-18: Archives doors still opened and closed). No one can
+ * work a held door (PROPFLAG_CANNOT_ACTIVATE, chrprop.c), and hordeHoldDoors
+ * opens again any the game moves. */
 static void hordeOpenDoors(void)
 {
     s_doors_opened=TRUE;
-    s32 opened=0;
+    s_held_count=0;
     for (PropDefHeaderRecord *p=g_CurrentSetup.propDefs;p && p->type!=PROPDEF_END;
          p=(PropDefHeaderRecord *)((u32 *)p+sizepropdef(p))) {
         if (p->type!=PROPDEF_DOOR) continue;
         DoorRecord *door=(DoorRecord *)p;
         if (!door->prop || (door->flags & PROPFLAG_CANNOT_ACTIVATE) || !doorIsPadlockFree(door)
             || door->maxFrac<=0.0f) continue;
-        door->speed=0;
-        door->openPosition=door->maxFrac;
-        door->openedTime=g_GlobalTimer;
-        door->openstate=DOORSTATE_STATIONARY;
-        door->flags|=PROPFLAG_DOOR_KEEPOPEN;
-        doorUpdateBbox(door);
-        doorActivatePortal(door);
-        door7F053B10(door);
-        if (netIsHost()) netSendHostDoorState((ObjectRecord *)door,DOORSTATE_OPENING);
-        opened++;
+        hordeDoorOpenNow(door);
+        door->flags|=PROPFLAG_CANNOT_ACTIVATE;
+        if (s_held_count<HORDE_HELD_DOORS) s_held_doors[s_held_count++]=door;
     }
-    sysLogPrintf(LOG_NOTE,"horde: %d doors held open",opened);
+    sysLogPrintf(LOG_NOTE,"horde: %d doors held open",s_held_count);
+}
+
+static void hordeHoldDoors(s32 ticks)
+{
+    if ((s_hold_ticks-=ticks)>0) return;
+    s_hold_ticks=15;
+    s32 moved=0;
+    for (s32 i=0;i<s_held_count;i++) {
+        DoorRecord *door=s_held_doors[i];
+        if (door->openstate==DOORSTATE_STATIONARY && door->openPosition>=door->maxFrac
+            && (door->flags & PROPFLAG_DOOR_KEEPOPEN)) continue;
+        hordeDoorOpenNow(door);
+        moved++;
+    }
+    if (moved) sysLogPrintf(LOG_NOTE,"horde: %d held doors opened again",moved);
 }
 
 static s32 hordeSpawn(void)
@@ -854,18 +888,6 @@ static void hordeUpdateMarkers(s32 ticks)
         hordeMarkerPlace(s_wall_marker[w],s_wall_pads[w],60.0f,s_marker_yaw,FALSE);
 }
 
-static s32 hordeNeedsAmmo(s32 me)
-{
-    s32 prev=get_cur_playernum(),needs=FALSE;set_cur_player(me);
-    for (s32 item=ITEM_WPPK;item<ITEM_IDS_MAX && !needs;item++) if (bondinvHasInvItem(item)) {
-        WeaponStats *stats=get_ptr_item_statistics(item);
-        s32 ammo=stats?stats->AmmoType:AMMO_NONE;
-        if (ammo>AMMO_NONE && ammo<AMMOTYPE_MAX)
-            needs=currentPlayerGetAmmoCount(ammo)<get_max_ammo_for_type(ammo);
-    }
-    set_cur_player(prev);return needs;
-}
-
 static void hordeUpdateAmmo(s32 ticks,s32 me)
 {
     s_pickup_ticks-=ticks;
@@ -878,7 +900,9 @@ static void hordeUpdateAmmo(s32 ticks,s32 me)
         }
         if (!obj) {
             obj=s_ammo_marker[i]=hordeMarkerCreate(PROP_AMMO_CRATE5,ITEM_UNARMED,0.6f);
-            if (obj) chrpropActivate(obj->prop);
+            /* walked over, not into: without its collision the host's reach
+             * line (gevrHordeHandleAction) no longer stops at the crate */
+            if (obj) {obj->flags&=~PROPFLAG_00000100;chrpropActivate(obj->prop);}
         }
         if (obj && s_ammo_marker_id[i]!=drop->id) {
             memcpy(obj->prop->pos.f,drop->pos,sizeof(drop->pos));obj->runtime_pos=obj->prop->pos;
@@ -893,7 +917,7 @@ static void hordeUpdateAmmo(s32 ticks,s32 me)
             || netPlayerIsSpectator(me) || gevrCoopDowned(me) || s_state.phase==HORDE_DEFEAT) continue;
         coord3d *at=&g_playerPointers[me]->prop->pos;
         f32 dx=at->x-drop->pos[0],dy=at->y-drop->pos[1],dz=at->z-drop->pos[2];
-        if (dx*dx+dz*dz<=90.0f*90.0f && dy>=-20.0f && dy<=210.0f && hordeNeedsAmmo(me)) {
+        if (dx*dx+dz*dz<=90.0f*90.0f && dy>=-20.0f && dy<=210.0f) {
             s_pickup_ticks=15;netHordeRequestAction(HORDE_ACT_AMMO_PICKUP,drop->id);
         }
     }
@@ -903,6 +927,7 @@ void gevrHordeTick(int ticks)
 {
     if (!netHordeRunning()) return;
     if (!s_doors_opened) hordeOpenDoors();
+    hordeHoldDoors(ticks);
     if (ticks<0) ticks=0;
     if (ticks>15) ticks=15;
     if (netIsHost() && ticks>0 && s_state.phase!=HORDE_DEFEAT) {

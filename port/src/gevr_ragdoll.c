@@ -18,6 +18,19 @@
 #include "random.h"
 
 extern int VrRagdolls, VrDismemberment, VrBodiesStay, VrDismemberChance;
+extern int netHordeActive(void);
+
+/* Bodies kept: Bodies stay, at most RD_BODIES; a Horde run at most a dozen
+ * (user, 2026-10-18: "massive slowdowns as bodies pile up" after three
+ * waves, 22 ragdolls down with Bodies stay at 48). */
+#define RD_HORDE_BODIES 12
+static int rdBodyLimit(void)
+{
+    int limit=VrBodiesStay>0?VrBodiesStay:RD_BODIES;
+    if(limit>RD_BODIES)limit=RD_BODIES;
+    if(netHordeActive() && limit>RD_HORDE_BODIES)limit=RD_HORDE_BODIES;
+    return limit;
+}
 extern float VrDismemberDamage;
 extern ModelRenderData D_8002CCBC;
 extern s32 g_gevrExtraPass;
@@ -685,8 +698,7 @@ void gevrRagdollCapture(ChrRecord *chr)
     RdSeen *seen=rdSeen(chr,0);
     if(seen)seen->attempted=1;
     if(!rdStart())return;
-    int limit=VrBodiesStay>0 ? VrBodiesStay : RD_BODIES;
-    if(limit>RD_BODIES)limit=RD_BODIES;
+    int limit=rdBodyLimit();
     int count=0; RdBody *slot=NULL,*oldest=NULL;
     for(int i=0;i<RD_BODIES;i++) {
         RdBody *b=&s_bodies[i];
@@ -799,8 +811,7 @@ void gevrRagdollTick(int ticks60)
     if(!rdStart())return;
     if(ticks60<=0)return;
     float dt=fminf(ticks60/60.0f,0.1f);
-    int limit=VrBodiesStay>0?VrBodiesStay:RD_BODIES;
-    if(limit>RD_BODIES)limit=RD_BODIES;
+    int limit=rdBodyLimit();
     for(;;) {
         RdBody *old=NULL; int count=0;
         for(int i=0;i<RD_BODIES;i++)if(s_bodies[i].used) {

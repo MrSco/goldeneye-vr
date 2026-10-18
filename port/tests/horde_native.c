@@ -121,5 +121,10 @@ int main(void)
     assert(hordeTakeGun(&guns,0,200,0)==0 && !hordeGunOwned(&guns,0,200));   /* out of range */
     assert(hordeStateValid(&guns));
     puts("PASS: Horde two-gun limit");
+    /* One death in three drops a crate, every boss does */
+    unsigned drops=0;
+    for (uint32_t id=1;id<=3000;id++) { drops+=hordeDropsAmmo(id,0)!=0; assert(hordeDropsAmmo(id,1)); }
+    assert(drops>800 && drops<1200);
+    puts("PASS: Horde ammo drop rate");
     return 0;
 }
