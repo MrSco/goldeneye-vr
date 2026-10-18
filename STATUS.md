@@ -3,9 +3,17 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current release:** v0.5.7 (versionCode 87, protocol 23), 2026-10-18.
-Everyone in a lobby needs v0.5.7; v0.5.6 and older can't join. Building does
+**Current release:** v0.5.8 (versionCode 88, protocol 23), 2026-10-18.
+v0.5.7 and v0.5.8 play together; v0.5.6 and older can't join. Building does
 not publish a GitHub release. No game data is shipped.
+
+v0.5.8 (PR #205): Quit from the Meta menu ends the process in
+MainActivity.onDestroy after its own teardown, instead of SDLActivity's join
+on a game thread that never returns on Android (every quit had ended in a
+ten-second destroyTimeout; a Library launch in that window gave report
+37093815's ANR). Headset: quit, quit + immediate reopen, hold-Menu relaunch;
+exit-info shows SIGNALED status 9. [v0.5.8](docs/releases/v0.5.8.md),
+[crash 37093815](docs/crash-37093815-quit-anr.md).
 
 v0.5.7 (PR #201, PR #204 and the playtest fixes on their branch): Horde maps
 Bunker I/II, Control and Facility and a starting wave (host's Horde rules),
