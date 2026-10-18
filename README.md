@@ -445,8 +445,10 @@ While you spectate, the gun hand's **A** follows the next player and **B** the p
 In co-op, stand beside a downed teammate for 3 seconds to revive them.
 
 **Voice chat.** Allow microphone access to talk. Everyone can hear each other in the lobby;
-in a match, voices get quieter with distance and come from the speaker's direction, like the
-game's own sounds. Mute with **Mute microphone** in the launcher, **MIC** on the pause menu's
+in a match, voices come from the speaker's direction, like the game's own sounds. Teammates
+are always at full volume: your team in team battles, and everyone in Horde and co-op. The
+host's **Voice mode** applies to free-for-all opponents: **Proximity** gets quieter with
+distance, **Couch** stays at full volume. Mute with **Mute microphone** in the launcher, **MIC** on the pause menu's
 **Audio** tab, or **Menu + B**. Your mute choice is saved.
 If you deny microphone access, you can still hear other players.
 

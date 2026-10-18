@@ -11,7 +11,9 @@ deployed, or installed on a headset.
   3,000 horizontal game units, 36.7% at 4,000, 21.25% at 4,500, and 10%
   from 6,000 onward, with a cubic falloff.
   Couch uses full distance gain in FFA. In team battles, teammates always
-  use Couch gain and opponents always use Proximity gain. The player's voice slider applies afterward.
+  use Couch gain and opponents always use Proximity gain. In Horde and co-op
+  every player is a teammate, so all use Couch gain. The host's mode only
+  reaches FFA opponents, and the launcher greys it out elsewhere. The player's voice slider applies afterward.
   Walls, radar visibility, and dot colors do not enter this calculation.
 - Both modes use Steam Audio 4.8.1's default HRTF and bilinear interpolation.
   The listener basis comes from the existing head/body camera orientation,

@@ -215,6 +215,22 @@ EXPORT int test_core_teams(void) {
     voice_resets=0;netHostRoundEnded();if(!netVoiceSameGroup(0,1) || voice_resets!=GEVR_MAX_PLAYERS) return 10;
     return 0;
 }
+/* Teammates are always heard at full gain: in Horde and co-op everyone is one,
+ * so the host's Proximity choice only reaches free-for-all opponents. */
+EXPORT int test_core_pve_voice_teammates(void) {
+    fixture(SCENARIO_NORMAL);netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_IN_PROGRESS;
+    CHECK(netVoiceModeForPair(0,1)==NET_VOICE_PROXIMITY);
+    s_round.config.voice_mode=NET_VOICE_COUCH;CHECK(netVoiceModeForPair(0,1)==NET_VOICE_COUCH);
+    const uint8_t modes[2]={NET_MODE_HORDE,NET_MODE_COOP};
+    for(int m=0;m<2;m++) {
+        fixture(NET_SCENARIO_4V4);   /* a deathmatch team scenario riding along */
+        s_lobby_state.config.mode=modes[m];
+        netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_IN_PROGRESS;
+        CHECK(s_round.config.voice_mode==NET_VOICE_PROXIMITY);
+        for(int i=1;i<4;i++) CHECK(netVoiceSameGroup(0,i) && netVoiceModeForPair(0,i)==NET_VOICE_COUCH);
+    }
+    return 0;
+}
 EXPORT int test_core_live_voice(void) {
     fixture(0);netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_IN_PROGRESS;
     NetMatchConfig c=s_lobby_state.config;c.voice_mode=1;c.stage=31;netLobbySetConfig(&c);

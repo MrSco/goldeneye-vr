@@ -2284,6 +2284,9 @@ int netVoiceModeForPair(int a, int b) {
     if (a < 0 || b < 0 || a >= GEVR_MAX_PLAYERS || b >= GEVR_MAX_PLAYERS) return NET_VOICE_PROXIMITY;
     if (s_phase != NET_PHASE_IN_PROGRESS || s_match_ended ||
         netVoiceSlotSpectating(a) || netVoiceSlotSpectating(b)) return NET_VOICE_COUCH;
+    /* Horde and co-op: everyone is a teammate, and teammates are always heard
+     * at full gain, as in team battles. The host's mode is for opponents. */
+    if (netModePve(s_round.config.mode)) return NET_VOICE_COUCH;
     return netVoicePairMode(s_round.config.scenario, s_round.config.voice_mode, s_round.team[a], s_round.team[b]);
 }
 int netVoiceSameGroup(int a, int b) {

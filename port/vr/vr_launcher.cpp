@@ -1968,7 +1968,12 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
         ImGui::SameLine();
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
         int voiceMode = netIsActive() ? netGetMatchConfig()->voice_mode : VrMpVoiceMode;
-        ImGui::BeginDisabled(netIsActive() ? !netIsHost() : subTab != 0);
+        // Teammates are always full volume, so the mode only matters for
+        // free-for-all opponents: Horde, co-op and team battles ignore it.
+        const int voiceGameMode = netIsActive() ? netGetMatchConfig()->mode : VrMpMode;
+        const bool voiceTeams = netIsActive() ? gevrLobbyHasTeams(netGetMatchConfig()) : gevrConfigHasTeams(VrMpMode, VrMpScenario);
+        const bool voiceAllTeammates = netModePve(voiceGameMode);
+        ImGui::BeginDisabled((netIsActive() ? !netIsHost() : subTab != 0) || voiceTeams || voiceAllTeammates);
         if (namedCombo("##mpvoicemode", 2, netVoiceModeName, &voiceMode)) {
             VrMpVoiceMode = voiceMode;
             if (netIsHost())
@@ -1978,10 +1983,12 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
-        ImGui::TextDisabled("%s", netIsActive() && !netIsHost() ? "Host chooses"
-                                                                : "Proximity: 10% floor / Couch: full volume");
+        ImGui::TextDisabled("%s", voiceAllTeammates ? "Not used: teammates are always full volume"
+                                  : voiceTeams ? "Not used in teams"
+                                  : netIsActive() && !netIsHost() ? "Host chooses"
+                                  : "Proximity: 10% floor / Couch: full volume");
 
-        if (netIsActive() ? gevrLobbyHasTeams(netGetMatchConfig()) : gevrConfigHasTeams(VrMpMode, VrMpScenario)) {
+        if (voiceTeams) {
             ImGui::TextDisabled("Teams: teammates full volume; opponents proximity.");
         }
     };

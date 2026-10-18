@@ -325,6 +325,7 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_line_edges_and_vertex_ring_offset(self): self.assertEqual(self.lib.test_line_indices(),0)
     def test_gauge_clearance_and_symmetry(self): self.assertEqual(self.lib.test_gauge_geometry(),0)
     def test_host_pending_and_active_teams(self): self.assertEqual(self.core.test_core_teams(),0)
+    def test_pve_teammates_voice_full_volume(self): self.assertEqual(self.core.test_core_pve_voice_teammates(),0)
     def test_closing_door_escape_preserves_entry_collision(self): self.assertEqual(self.lib.test_door_escape(),0)
     def test_combat_allocator_canaries_and_merge(self): self.assertEqual(self.allocator.test_vtxstore(),0)
     def test_inventory_reset_and_respawn_bounds(self): self.assertEqual(self.inventory.test_inventory_bounds(),0)
