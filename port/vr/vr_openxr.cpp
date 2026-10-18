@@ -3586,14 +3586,28 @@ extern "C" int vr_eye_msaa_supported(void) { return use_multiview && pfnFramebuf
 
 static bool vr_ensure_swapchain_images();
 
-static bool vr_attach_eye_fbo(GLuint colorTexture, bool validate)
+/* The eye images' samples: the launcher's Anti-aliasing, or the game's
+ * Video.MSAA; read every frame. 1 when the runtime has no multisampled
+ * multiview, which then renders single-sampled. */
+static GLsizei vr_eye_samples(void)
 {
-    // the launcher's Anti-aliasing, or the game's Video.MSAA; read every frame
     GLsizei samples = (GLsizei)std::max<uint32_t>((uint32_t)VrEyeMsaa, gfx_msaa_level);
 #ifdef ANDROID
     samples = std::min<GLsizei>(samples, 4);
 #endif
-    if (samples > 1 && pfnFramebufferTextureMultisampleMultiviewOVR) {
+    return samples > 1 && pfnFramebufferTextureMultisampleMultiviewOVR ? samples : 1;
+}
+
+/* gfx_pc.cpp gfx_run: a multisampled eye image must be drawn in one pass */
+extern "C" int vr_eye_multisampled(void)
+{
+    return vr_eye_samples() > 1;
+}
+
+static bool vr_attach_eye_fbo(GLuint colorTexture, bool validate)
+{
+    const GLsizei samples = vr_eye_samples();
+    if (samples > 1) {
         pfnFramebufferTextureMultisampleMultiviewOVR(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
                                                     colorTexture, 0, samples, 0, 2);
         pfnFramebufferTextureMultisampleMultiviewOVR(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,

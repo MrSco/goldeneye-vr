@@ -196,6 +196,7 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
 extern "C" int gevrVrFrameDeferred(void);         // gevr_engine_shim.c: the early tick's frame not begun
 extern "C" int gevrVrBeginDeferredFrame(void);    // ... begin it now; 1 if it did
 extern "C" void vr_relocate_on_begin(void);       // vr_openxr.cpp: the replay corrects the early poses
+extern "C" int vr_eye_multisampled(void);         // vr_openxr.cpp: the eye images are multisampled
 static int gevr_vr_replay_frame(bool fresh);
 extern "C" int gevrVrRedrawDelta(float out[16]);   // vr_openxr.cpp
 extern "C" int gevrVrRedrawHandDelta(int hand, float out[16]);
@@ -5831,9 +5832,19 @@ extern "C" void gfx_run(Gfx* commands) {
         // frame between game frames - the same draws, with the head, hands and
         // body corrected to the frame's own poses. The XR frame then holds only
         // the replay (about a redraw's 3 ms) instead of the whole display list.
+        //
+        // A multisampled eye image takes this way too when its frame was not
+        // deferred. Drawn straight in (the display list switching targets for
+        // its HUD captures meanwhile), the multisampled-render-to-texture image
+        // reached the compositor holding only its first fill, the fog colour:
+        // Facility's green frames (2026-10-17, Quest 3: every directly drawn
+        // frame at gevr_pipeline.txt 1; the intro's stereo part and frames that
+        // missed the early tick at the default). Single-sampled, or replayed
+        // in one pass as here, every frame was whole.
         const float* eyeProj = &g_viProjectionMatrixF[0][0];
         const bool eyeInvertY = gfx_rapi->get_clip_parameters().invert_y;
-        if (!screenRendered && gevrVrFrameDeferred() && !(VrPauseHub && VrIsPaused) &&
+        const bool eyeDeferred = gevrVrFrameDeferred() != 0;
+        if (!screenRendered && (eyeDeferred || vr_eye_multisampled()) && !(VrPauseHub && VrIsPaused) &&
 #ifdef ANDROID
             !gevrNativePauseOpen() &&
 #endif
@@ -5855,7 +5866,7 @@ extern "C" void gfx_run(Gfx* commands) {
             gevrVrMarkEyesRendered(1);
             s_gevrLastVignette = gevrStereoVignette();
 
-            vr_relocate_on_begin();
+            if (eyeDeferred) vr_relocate_on_begin();   // a frame already begun keeps its poses
             const int began = gevrVrBeginDeferredFrame();
             const uint64_t freshSpan = began ? gevrFrameTimingEnter(GEVR_TIME_FRESH) : 0;
             if (!gevr_vr_replay_frame(true) && vr_begin_eye_render()) {
