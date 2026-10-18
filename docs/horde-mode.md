@@ -9,12 +9,29 @@ The wave structure is the Zombies reference; enemy behavior stays GoldenEye's.
 Choose **Multiplayer → Host → Lobby → Mode: Horde**, then **Start Hosting** and
 **Launch**. You can launch alone, or with up to four humans. LAN/direct-IP
 hosting uses the existing transport; an internet lobby is optional for LAN play.
-Horde currently uses the original GoldenEye campaign Archives map, on Agent
-difficulty. The launcher disables multiplayer for other campaigns.
+The host picks the map (Archives, Bunker I, Bunker II, Control or Facility, from
+the original GoldenEye campaign) and the starting wave (1-50) in the Horde
+rules column; Agent difficulty. A later start brings the points the skipped
+waves would have paid (500 + 400 per skipped wave). The launcher disables
+multiplayer for other campaigns.
 
 - Friendly fire defaults off and has its own saved Horde preference.
 - Start with a PP7, 42 starting rounds and **500 points (credits)**. Preparation and each wave break last 15 seconds.
 - Eliminate the whole wave, including enemies still queued to spawn, to advance.
+- Every door the level lets open is open and stays open; locked and padlocked
+  doors stay shut. Wall buys and the box stand clear of doors.
+- **Special rounds:** waves 5, 15, 25... are an **Oddjob swarm** (half again as
+  many, small, fast, weak, pistols); waves 10, 20... are **boss rounds** (one
+  to three of Jaws, Xenia, Oddjob, Trevelyan and Ourumov, ten times a guard's
+  health and more per player, AR33 or RC-P90).
+- **Enemy kinds:** from wave 4 about a quarter are armoured Janus marines
+  (175% health), from wave 8 about a fifth Janus special forces (150%); both
+  carry the next gun up. Guards run 2% faster each wave (up to 140%) and their
+  accuracy starts at 1.0 and climbs 2% a wave.
+- **Two guns:** you carry two (the PP7 is the first). A third gun from a wall
+  buy or the box replaces the one in your hand, or the older one; the prompt
+  says which (`... FOR PP7`). The Moonraker Laser has a 20-shot pool (two on
+  pickup, ten more per crate).
 - **Call of Duty Point System (per-player credits):**
   - **Non-lethal hit:** `+10 PTS`
   - **Standard body/limb kill:** `+60 PTS`
@@ -27,7 +44,7 @@ difficulty. The launcher disables multiplayer for other campaigns.
 - **Wall Buys:** Six stations sell weapons or full Body Armor: Klobb
   `500 PTS`, Shotgun `750 PTS`, KF7 Soviet `1200 PTS`, D5K Deutsche
   `1400 PTS`, AR33 Assault Rifle `1800 PTS`, and Body Armor `1500 PTS`.
-  A newly acquired gun comes with one magazine. Owned weapons cannot be
+  A newly acquired gun comes with one magazine, added to any rounds you hold. Owned weapons cannot be
   repurchased for ammo, and rolling an owned Mystery Box gun gives no ammo.
 - **Enemy ammo drops:** Each actual enemy death drops one shared crate. Walk
   over it to collect ammo for each ammo pool used by your owned weapons, once
@@ -73,7 +90,9 @@ not been bumped or published by this change.
 `src/game/gevr_horde.c` records Archives' existing guard pads and the most common
 guard body from the player's ROM. It replaces the intro inventory/camera setup,
 skips mission actors/objectives and disables background mission AI. Doors,
-scenery and navigation remain; doors' key requirements are cleared.
+scenery and navigation remain; doors' key requirements are cleared, and on the
+first tick every door that can open is opened and held open (`hordeOpenDoors`).
+Stations skip pads within 320 units of a door.
 
 Wave guards use the existing persistent chase-and-attack AI. Spawn candidates
 must be away from every living player, outside direct sight on the same height,
@@ -134,5 +153,5 @@ measure headset performance or establish that every Archives route feels good.
 Before merging/releasing, play solo and two/four headsets: check starts, doors,
 stairways, spawn visibility, both players' gun damage, revives, join/admission,
 host loss in each phase, defeat/retry, and at least 45 minutes of combat on
-Quest 2/3 with optional HD/Bean/ragdoll settings. The shop, team currency,
-special waves and additional arenas from the design remain future milestones.
+Quest 2/3 with optional HD/Bean/ragdoll settings. The shop and team
+currency from the design remain future milestones.
