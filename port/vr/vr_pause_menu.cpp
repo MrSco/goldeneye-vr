@@ -62,7 +62,7 @@ extern "C" void gevrNativePauseRender(void) {
     snprintf(view.session,sizeof(view.session),"%s",view.coop?netCoopStageName(bossGetStageNum()):netStageName(netStageIndexOf((uint8_t)netGetLobbyStage())));
     snprintf(view.status,sizeof(view.status),"%s",view.coop?netDifficultyName(netGetMatchConfig()->difficulty):view.countdown>0?"Match is starting":netGetPhase()==NET_PHASE_IN_PROGRESS?"Match continues while this menu is open":"Warmup / next round");
     if(view.horde) {
-        snprintf(view.session,sizeof(view.session),"Horde: Archives");
+        snprintf(view.session,sizeof(view.session),"Horde: %s",netCoopStageName((uint8_t)bossGetStageNum()));
         gevrHordeText(view.status,sizeof(view.status));
         const HordeState *s=gevrHordeState();
         int me=netGetLocalSlot();

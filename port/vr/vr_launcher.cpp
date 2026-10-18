@@ -802,8 +802,8 @@ struct ModPack {
 /*
  * The main page's START row, with the campaign beside it rather than above:
  * the page is laid out to its last pixel and must not scroll, so choosing
- * Goldfinger 64 or Tomorrow Never Dies costs no height. A hack whose ROM is
- * not installed is listed but disabled; the last two entries open the file
+ * a hack campaign costs no height. A hack whose ROM is
+ * not installed is listed but disabled; the last three entries open the file
  * picker for it.
  */
 enum {
@@ -812,21 +812,22 @@ enum {
     GEVR_START_ROW_CAMPAIGN,    // *campaign changed
     GEVR_START_ROW_PICK_GF,
     GEVR_START_ROW_PICK_TND,
+    GEVR_START_ROW_PICK_MIRROR,
 };
 
-static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool ready, bool focus)
+static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool mirrorGood, bool ready, bool focus)
 {
-    static const char *const names[] = { "GoldenEye", "Goldfinger 64", "Tomorrow Never Dies" };
-    const bool installed[] = { true, gfGood, tndGood };
+    static const char *const names[] = { "GoldenEye", "Goldfinger 64", "Tomorrow Never Dies", "Mirror Mode (Wreck)" };
+    const bool installed[] = { true, gfGood, tndGood, mirrorGood };
     const float startH = ImGui::GetFrameHeight() * 1.6f;
     const float rowY = ImGui::GetCursorPosY();
     int action = GEVR_START_ROW_NONE;
-    const int shown = *campaign >= 0 && *campaign < 3 ? *campaign : 0;
+    const int shown = *campaign >= 0 && *campaign < GEVR_CAMPAIGN_COUNT ? *campaign : 0;
 
     ImGui::SetCursorPosY(rowY + (startH - ImGui::GetFrameHeight()) * 0.5f);
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.38f);
     if (ImGui::BeginCombo("##campaign", names[shown])) {
-        for (int c = 0; c < 3; c++) {
+        for (int c = 0; c < GEVR_CAMPAIGN_COUNT; c++) {
             char label[64];
 
             snprintf(label, sizeof(label), installed[c] ? "%s" : "%s (not installed)", names[c]);
@@ -840,10 +841,11 @@ static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool r
         ImGui::Separator();
         if (ImGui::Selectable("Add Goldfinger 64 ROM...")) action = GEVR_START_ROW_PICK_GF;
         if (ImGui::Selectable("Add Tomorrow Never Dies ROM...")) action = GEVR_START_ROW_PICK_TND;
+        if (ImGui::Selectable("Add Mirror Mode ROM...")) action = GEVR_START_ROW_PICK_MIRROR;
         ImGui::EndCombo();
     }
     if (ImGui::IsItemHovered())
-        gevrTooltip("Campaign. Goldfinger 64 and Tomorrow Never Dies sit beside GoldenEye (docs/rom-hacks.md).");
+        gevrTooltip("Choose GoldenEye, Goldfinger 64, Tomorrow Never Dies or Wreck's Mirror Mode. Add a patched ROM with this menu.");
     ImGui::SameLine();
     ImGui::SetCursorPosY(rowY);
     ImGui::BeginDisabled(!ready);
@@ -919,7 +921,8 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             // Bean's meshes are GoldenEye's models remade: off in a hack campaign
-            ImGui::BeginDisabled(!usable || (bean && VrCampaign != GEVR_CAMPAIGN_GE));
+            // but Mirror Mode, which keeps GoldenEye's (and Bean flips them with it)
+            ImGui::BeginDisabled(!usable || (bean && !gevrCampaignRetailArt(VrCampaign)));
             if (ImGui::RadioButton(title, active)) {
                 snprintf(g_ActiveExtTexPack, 256, "%s", p.id.c_str());
                 gevrBeanSetEnabled(bean);
@@ -979,7 +982,7 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     if (!beanListed && gevrBeanIsAvailable() && ImGui::RadioButton("XBLA / Bean (local files)", gevrBeanIsEnabled())) {
         gevrBeanSetEnabled(1);
     }
-    if (VrCampaign != GEVR_CAMPAIGN_GE && gevrBeanIsAvailable())
+    if (!gevrCampaignRetailArt(VrCampaign) && gevrBeanIsAvailable())
         ImGui::TextWrapped("XBLA / Bean is off while the Goldfinger 64 or Tomorrow Never Dies campaign is chosen.");
     else if (gevrBeanIsEnabled()) {
         // How to toggle Bean in game is the Bean row's tooltip: with the HD fill
@@ -1054,7 +1057,7 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     }
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
     ImGui::TextWrapped("%s", !s_gexMessage.empty() ? s_gexMessage.c_str()
-                       : VrCampaign != GEVR_CAMPAIGN_GE ? "Off while the Goldfinger 64 or Tomorrow Never Dies campaign is chosen."
+                       : VrCampaign != GEVR_CAMPAIGN_GE ? "Off while a hack campaign is chosen."
                        : s_gexRom ? "Uses your GoldenEye X ROM (data/gex.z64)."
                                   : "Needs your own GoldenEye X ROM: Perfect Dark 1.1 with the GE-X 6a patch.");
     ImGui::PopStyleColor();
@@ -1180,7 +1183,9 @@ static const char *stageNameById(int levelId) { return netStageName(netStageInde
 // 0x80 | where the party is (its menus or a mission's level id), and its
 // difficulty in the weapons' place (net_core.c netGetLobbyStage).
 static std::string listedGameLabel(int stage, int weapons) {
-    if (stage == NET_LOBBY_HORDE_STAGE) return "Horde: Archives";
+    // Horde lists its map in the weapons' place (net_core.c netGetLobbyWeaponSet)
+    if (stage == NET_LOBBY_HORDE_STAGE)
+        return netHordeStageValid((unsigned)weapons) ? std::string("Horde: ") + netCoopStageName((uint8_t)weapons) : "Horde";
     if (stage & NET_LOBBY_COOP_STAGE) {
         const uint8_t where = (uint8_t)(stage & 0x7F);
         if (where == NET_COOP_FRONT_STAGE)
@@ -1225,7 +1230,9 @@ static NetMatchConfig gevrLauncherConfig() {
     c.bot_count = (uint8_t)(VrMpBotCount >= 1 && VrMpBotCount < GEVR_MAX_PLAYERS ? VrMpBotCount : 3);
     c.bot_difficulty = (uint8_t)clampi(VrMpBotDifficulty, NET_BOT_DIFF_COUNT, NET_BOT_NORMAL);
     if (VrMpMode == NET_MODE_HORDE) {
-        c.mode=NET_MODE_HORDE;c.stage=NET_HORDE_STAGE;c.difficulty=0;
+        c.mode=NET_MODE_HORDE;c.difficulty=0;
+        c.stage=(uint8_t)(netHordeStageValid((unsigned)VrHordeStage)?VrHordeStage:NET_HORDE_STAGE);
+        c.horde_start_wave=(uint8_t)(VrHordeStartWave<1?1:VrHordeStartWave>NET_HORDE_MAX_START_WAVE?NET_HORDE_MAX_START_WAVE:VrHordeStartWave);
         c.friendly_fire=VrHordeFriendlyFire!=0;
         c.max_players=NET_COOP_MAX_PLAYERS;c.bot_mode=NET_BOT_OFF;
         c.scenario=0;c.game_length=0;c.loadouts=0;c.dual_wield=NET_DUAL_DOUBLES;
@@ -1290,7 +1297,11 @@ static void gevrHostChoiceChanged() {
     VrMpNextRound = accepted->next_round;
     }
     VrMpVoiceMode = accepted->voice_mode;
-    if (accepted->mode == NET_MODE_HORDE) VrHordeFriendlyFire = accepted->friendly_fire;
+    if (accepted->mode == NET_MODE_HORDE) {
+        VrHordeFriendlyFire = accepted->friendly_fire;
+        VrHordeStage = accepted->stage;
+        VrHordeStartWave = accepted->horde_start_wave;
+    }
     else VrMpFriendlyFire = accepted->friendly_fire;
     VrMpFunFlags = accepted->fun_flags & NET_FUN_MASK;
     if (accepted->mode == NET_MODE_COOP)
@@ -1685,8 +1696,8 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
                                   [&](int n){return n+2<minimum;})) { VrMpMaxPlayers=count+2;gevrHostChoiceChanged(); }
             }
         } else if (VrMpMode == NET_MODE_HORDE) {
-            ImGui::TextDisabled("Archives: solo or up to 4 players");
-            ImGui::TextWrapped("Endless waves of armed guards. Resupply between waves. Everyone down ends the run.");
+            ImGui::TextDisabled("%s: solo or up to 4 players",netCoopStageName((uint8_t)VrHordeStage));
+            ImGui::TextWrapped("Endless waves of armed guards, with Oddjob swarms and bosses. Ammo drops from enemies. Everyone down ends the run.");
         } else {
             ImGui::TextDisabled("Campaign: up to %d players",NET_COOP_MAX_PLAYERS);
             if (ImGui::IsItemHovered()) gevrTooltip("Each player picks a folder. The host picks missions. Players can join or leave any time.");
@@ -2003,6 +2014,25 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                                     else VrMpFriendlyFire = ff;
                                     gevrHostChoiceChanged();
                                 }
+                                if (VrMpMode == NET_MODE_HORDE) {
+                                    // the map and the first wave (user, 2026-10-17); a change
+                                    // reaches the next launch or retry
+                                    static const int maps[] = { 24, 9, 27, 23, 34 };
+                                    static const char *names[] = { "Archives", "Bunker I", "Bunker II", "Control", "Facility" };
+                                    int pick = 0;
+                                    for (int i = 0; i < 5; i++) if (maps[i] == VrHordeStage) pick = i;
+                                    ImGui::TextUnformatted("Map:");ImGui::SameLine();ImGui::SetNextItemWidth(-1);
+                                    if (ImGui::Combo("##hordemap", &pick, names, 5)) {
+                                        VrHordeStage = maps[pick];
+                                        gevrHostChoiceChanged();
+                                    }
+                                    ImGui::TextUnformatted("Start at wave:");ImGui::SameLine();ImGui::SetNextItemWidth(-1);
+                                    if (ImGui::SliderInt("##hordewave", &VrHordeStartWave, 1, NET_HORDE_MAX_START_WAVE, "%d")) {
+                                        gevrHostChoiceChanged();
+                                    }
+                                    if (ImGui::IsItemHovered())
+                                        gevrTooltip("Later waves start with the points the skipped waves would have paid.");
+                                }
                                 if (VrMpMode == NET_MODE_COOP) {
                                 bool fast = netIsActive() ? (netGetMatchConfig()->fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0
                                                     : VrCoopFastReinforcements != 0;
@@ -2074,7 +2104,8 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                         else if (connected) {
                             const NetMatchConfig *cfg = netGetMatchConfig();
                             if (cfg->mode == NET_MODE_HORDE) {
-                                ImGui::TextDisabled("Horde: Archives, endless armed guard waves");
+                                ImGui::TextDisabled("Horde: %s, starting at wave %d",netCoopStageName(cfg->stage),
+                                                    cfg->horde_start_wave ? cfg->horde_start_wave : 1);
                             } else if (cfg->mode == NET_MODE_COOP) {
                                 ImGui::Text("Co-op campaign: the host picks the missions");
                                 ImGui::TextDisabled("Fast reinforcements: %s (host chooses)",
@@ -2672,10 +2703,10 @@ extern "C" void gevrLauncherRun(void)
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    std::string active, message, gfNote, tndNote, campaignFail;
+    std::string active, message, gfNote, tndNote, mirrorNote, campaignFail;
     std::string footerNote;    // the line under START (gevrLauncherStartRow), this frame
     bool footerBad = false;
-    bool gfGood = false, tndGood = false;   // the hack ROMs' header checks, refreshed about once a second
+    bool gfGood = false, tndGood = false, mirrorGood = false;   // the hack ROMs' header checks, refreshed about once a second
     Uint32 hackCheckMs = 0;
     {
         // gevr_romload.c leaves this when a chosen campaign did not load
@@ -3326,7 +3357,7 @@ extern "C" void gevrLauncherRun(void)
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
             // a hack campaign skips this list (front.c gevrApplyLauncherCheats)
             const bool hackCampaign = VrCampaign != GEVR_CAMPAIGN_GE;
-            ImGui::TextWrapped(hackCampaign ? "Off with Goldfinger 64 or TND chosen: use the game's own Cheat Options."
+            ImGui::TextWrapped(hackCampaign ? "Off with a hack campaign chosen: use the game's own Cheat Options."
                                             : "On from the next mission. * stops missions saving, as in the original game.");
             ImGui::PopStyleColor();
             if (ImGui::BeginTable("cheats", 3, ImGuiTableFlags_SizingStretchSame)) {
@@ -3737,6 +3768,15 @@ extern "C" void gevrLauncherRun(void)
                     gevrRomCampaignSet(VrCampaign);
                     vrSettingsSave();
                 }
+                if (adoptHackFile("picked-mirror.z64", GEVR_ROM_MIRROR_FILE, "mirror",
+                                  "Mirror Mode ROM chosen (by Wreck).",
+                                  "That is not Wreck's Mirror Mode (August 2017).",
+                                  mirrorNote)) {
+                    VrCampaign = GEVR_CAMPAIGN_MIRROR;
+                    gevrRomCampaignSet(VrCampaign);
+                    vrSettingsSave();
+                }
+                mirrorGood = hackHeaderOk(dataDir() + "/" + GEVR_ROM_MIRROR_FILE, "mirror");
                 gfGood = hackHeaderOk(dataDir() + "/" + GEVR_ROM_GF_FILE, "gf64");
                 tndGood = hackHeaderOk(dataDir() + "/" + GEVR_ROM_TND_FILE, "tnd64");
                 if (VrCampaign == GEVR_CAMPAIGN_GF64 && !gfGood) {
@@ -3749,13 +3789,19 @@ extern "C" void gevrLauncherRun(void)
                     gevrRomCampaignSet(VrCampaign);
                     vrSettingsSave();
                     if (tndNote.empty()) tndNote = "Tomorrow Never Dies is not installed. This start uses GoldenEye.";
+                } else if (VrCampaign == GEVR_CAMPAIGN_MIRROR && !mirrorGood) {
+                    VrCampaign = GEVR_CAMPAIGN_GE;
+                    gevrRomCampaignSet(VrCampaign);
+                    vrSettingsSave();
+                    if (mirrorNote.empty()) mirrorNote = "Mirror Mode is not installed. This start uses GoldenEye.";
                 }
             }
         }
         const bool campaignReady = VrCampaign == GEVR_CAMPAIGN_GE
             || (VrCampaign == GEVR_CAMPAIGN_GF64 && gfGood)
-            || (VrCampaign == GEVR_CAMPAIGN_TND64 && tndGood);
-        switch (gevrLauncherStartRow(&VrCampaign, gfGood, tndGood,
+            || (VrCampaign == GEVR_CAMPAIGN_TND64 && tndGood)
+            || (VrCampaign == GEVR_CAMPAIGN_MIRROR && mirrorGood);
+        switch (gevrLauncherStartRow(&VrCampaign, gfGood, tndGood, mirrorGood,
                                      !active.empty() && activeInfo.good && campaignReady, focusStart)) {
         case GEVR_START_ROW_START:
             start = true;
@@ -3765,6 +3811,7 @@ extern "C" void gevrLauncherRun(void)
             vrSettingsSave();
             gfNote.clear();
             tndNote.clear();
+            mirrorNote.clear();
             campaignFail.clear();
             break;
         case GEVR_START_ROW_PICK_GF:
@@ -3775,6 +3822,10 @@ extern "C" void gevrLauncherRun(void)
             tndNote = gevrOpenPicker("openTndPicker") ? "Pick the Tomorrow Never Dies ROM in the window that opened."
                                                       : "Could not open the file picker.";
             break;
+        case GEVR_START_ROW_PICK_MIRROR:
+            mirrorNote = gevrOpenPicker("openMirrorPicker") ? "Pick Wreck's Mirror Mode ROM in the window that opened."
+                                                            : "Could not open the file picker.";
+            break;
         }
         if (s_injectStart && !active.empty() && activeInfo.good && campaignReady) {
             start = true;
@@ -3783,8 +3834,9 @@ extern "C" void gevrLauncherRun(void)
         focusStart = false;
         // the line under START: a campaign's news if there is any, its terms if
         // a hack is chosen, the hint otherwise (one line, so the page keeps its height)
-        footerNote = !campaignFail.empty() ? campaignFail : !gfNote.empty() ? gfNote : !tndNote.empty() ? tndNote
+        footerNote = !campaignFail.empty() ? campaignFail : !gfNote.empty() ? gfNote : !tndNote.empty() ? tndNote : !mirrorNote.empty() ? mirrorNote
                    : VrCampaign == GEVR_CAMPAIGN_GE ? std::string()
+                   : VrCampaign == GEVR_CAMPAIGN_MIRROR ? "Solo, with its own save. Online play and GoldenEye X are off."
                    : "Solo, with its own save. Online play, GoldenEye X, Bean and HD packs are off.";
         footerBad = !campaignFail.empty();
         }   // cheatPage

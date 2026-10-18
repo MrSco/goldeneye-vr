@@ -170,6 +170,11 @@ static const char *const gevrTndNames[] = {
 	"data/" GEVR_ROM_TND_FILE,
 };
 
+static const char *const gevrMirrorNames[] = {
+	GEVR_ROM_MIRROR_FILE,
+	"data/" GEVR_ROM_MIRROR_FILE,
+};
+
 static void *gevrLoadNamed(const char *const *names, u32 count, u32 *size)
 {
 	u32 i;
@@ -194,7 +199,7 @@ s32 romdataInit(void)
 		return 0;
 	}
 
-	if (VrCampaign < GEVR_CAMPAIGN_GE || VrCampaign > GEVR_CAMPAIGN_TND64) {
+	if (VrCampaign < GEVR_CAMPAIGN_GE || VrCampaign >= GEVR_CAMPAIGN_COUNT) {
 		VrCampaign = GEVR_CAMPAIGN_GE;
 	}
 	gevrRomCampaignSet(VrCampaign);
@@ -202,11 +207,22 @@ s32 romdataInit(void)
 	gevrRomSetImageBankBytes(0);
 
 	if (gevrRomIsVariant()) {
-		const char *const *names = gevrRomCampaign() == GEVR_CAMPAIGN_GF64
-				? gevrGoldfingerNames : gevrTndNames;
-		u32 nameCount = gevrRomCampaign() == GEVR_CAMPAIGN_GF64
-				? (u32)(sizeof(gevrGoldfingerNames) / sizeof(gevrGoldfingerNames[0]))
-				: (u32)(sizeof(gevrTndNames) / sizeof(gevrTndNames[0]));
+		const char *const *names;
+		u32 nameCount;
+		switch (gevrRomCampaign()) {
+		case GEVR_CAMPAIGN_GF64:
+			names = gevrGoldfingerNames;
+			nameCount = sizeof(gevrGoldfingerNames) / sizeof(gevrGoldfingerNames[0]);
+			break;
+		case GEVR_CAMPAIGN_TND64:
+			names = gevrTndNames;
+			nameCount = sizeof(gevrTndNames) / sizeof(gevrTndNames[0]);
+			break;
+		default: /* GEVR_CAMPAIGN_MIRROR */
+			names = gevrMirrorNames;
+			nameCount = sizeof(gevrMirrorNames) / sizeof(gevrMirrorNames[0]);
+			break;
+		}
 		const struct gevrRomLayout *want = gevrRomActiveLayout();
 
 		data = gevrLoadNamed(names, nameCount, &size);

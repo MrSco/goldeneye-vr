@@ -434,6 +434,17 @@ void gevrCoopChrRemoved(ChrRecord *chr)
 
 typedef struct { s8 player; s32 until60; } CoopTarget;
 static CoopTarget s_target[COOP_MAX_SLOTS];
+void *g_gevrCoopGuardViewToWorld;
+
+/* Remote copies do not render damage flashes, so their initial timer can
+ * remain zero forever. Their owner applies the normal hit immunity. */
+int gevrCoopGuardDamageBlocked(void)
+{
+    if (g_gevrCoopGuardTick && netCoopActive() && netIsHost()
+        && get_cur_playernum() != netGetLocalSlot()) return FALSE;
+    return bondviewGetIfCurrentPlayerDamageShowTime();
+}
+
 s32 g_gevrCoopGuardTick = FALSE;   /* the host is running a guard's AI or fire as its target */
 
 static int coopPlayerTargetable(int i)
@@ -753,6 +764,7 @@ static int coopMakeSpawn(const CoopSpawn *sp)
     prop->chr->bodynum = sp->body;
     prop->chr->chrnum = sp->chrnum;
     gevrHordeSetGuardId(prop->chr, (u32)sp->generation);
+    gevrHordeDecorateGuard(prop->chr, sp->body);
     gevrAllyAttach(prop->chr, sp->flags);
     s32 local = coopSlotOf(prop->chr);
     if (local >= 0 && local < COOP_MAX_SLOTS) {

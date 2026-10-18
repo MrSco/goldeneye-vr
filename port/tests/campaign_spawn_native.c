@@ -86,6 +86,31 @@ int getRotationalDirectionBetween(f32, f32, f32, f32);
 /* INSERT_POLYGON */
 
 /* INSERT_GEOMETRY */
+/* INSERT_GROUND */
+/* stan.c stanFindGroundAtCyl's centre test over the fixture's tiles in a row
+ * (it has no room bounds table): the highest floor under the point, below it. */
+static u8 fixtureTileSizes[] = {0x20,0x20,0x20,0x20,0x28,0x30,0x38,0x40,0x48,0x50,0x58,0x00};
+static StandTile *fixtureFirstTile;
+StandTile *stanFindGroundAtCyl(coord3d *pos, f32 radius, u8 *rooms, StandTile *prefer, f32 *groundy, s32 *incentre)
+{
+    StandTile *best = NULL;
+    f32 besty = -3.4028235e38f;
+    f32 sx = pos->x * level_scale, sz = pos->z * level_scale;
+    (void)radius; (void)rooms; (void)prefer;
+    for (StandTile *tile = fixtureFirstTile; tile && tile < stanTileEnd && *(u32 *)tile != 0;
+         tile = (StandTile *)((u8 *)tile + fixtureTileSizes[(tile->tail.half >> 12) & 0xf]))
+    {
+        s32 n = (tile->tail.half >> 12) & 0xf;
+        if (n < 3 || stanTileHasZeroArea(tile) || !gevrStanPointInTile(tile, n, sx, sz)) continue;
+        f32 y = gevrStanFloorAt(tile, n, pos->x, pos->z);
+        if (y < pos->y && y > besty) { besty = y; best = tile; }
+    }
+    if (groundy) *groundy = best ? besty : -3.4028235e38f;
+    if (incentre) *incentre = best != NULL;
+    return best;
+}
+/* gevrSpawnSafeSpot's pads in the room: the fixture has none */
+stagesetup g_CurrentSetup;
 /* INSERT_AI_SIZE */
 s32 auditCollectedOpcode(void) { return AI_IFBondCollectedObject; }
 
@@ -111,6 +136,7 @@ void auditGeometry(void *buffer, float scale, size_t size)
     level_scale = scale;
     inv_level_scale = 1.0f / scale;
     standTileStart = (StandTile *)((u8 *)prefix->firstroom - 128);
+    fixtureFirstTile = prefix->firstroom;
     stanTileEnd = (StandTile *)((u8 *)buffer + size - 8);
 }
 void auditObstacle(int on, float x, float z, float radius)

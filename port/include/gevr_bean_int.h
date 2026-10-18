@@ -86,6 +86,7 @@ struct gevrBeanMesh {
 	char boneName[64][64];
 	uint8_t boneSk[64];
 	int tricaps;
+	int mirrorPieces;   /* Mirror Mode turned its pieces over in place (gevr_mirror.c) */
 };
 
 struct gevrEmitVert {

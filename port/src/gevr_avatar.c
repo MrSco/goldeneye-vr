@@ -163,7 +163,7 @@ void gevrAvatarJointOffset(Model *model,ModelNode *node) {
 void gevrAvatarApply(ChrRecord *chr,ModelRenderData *data) {
     if(!chr || !chr->prop || chr->prop->type!=PROP_TYPE_VIEWER || !chr->model)return;
     int slot=getPlayerPointerIndex(chr->prop);
-    if(slot<0 || slot>=GEVR_MAX_PLAYERS)return;
+    if(slot<0 || slot>=GEVR_MAX_PLAYERS || !g_playerPointers[slot])return;
     s_collision[slot].model=NULL;
     /* Extra passes only place bodies for shot traces; skip the extra matrix
      * builds and dyn memory there (up to ~15 passes a frame with eight players). */
@@ -213,7 +213,10 @@ void gevrAvatarApply(ChrRecord *chr,ModelRenderData *data) {
         float a[3],b[3],s[3],target[3],pole[3],ep[3],wp[3],fore[3];
         for(int k=0;k<3;k++) {
             s[k]=sm.m[3][k]+shift[k];a[k]=em.m[3][k]-sm.m[3][k];b[k]=wm.m[3][k]-em.m[3][k];
-            target[k]=chr->prop->pos.f[k]+pose.head.pos[k]+pose.hand[role].pos[k];
+            /* chrTick temporarily places the viewer prop at its animated
+             * pelvis. Movement packets and head offsets use the eye position. */
+            target[k]=g_playerPointers[slot]->field_488.collision_position.f[k]
+                +pose.head.pos[k]+pose.hand[role].pos[k];
             pole[k]=level[0][k]*(side==0?-.6f:.6f)+level[2][k]*.3f;
         }
         pole[1]-=.6f;

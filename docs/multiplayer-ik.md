@@ -27,7 +27,7 @@ foregrip or implement finger tracking.
 
 ## Transport and loss of tracking
 
-Protocol **22** adds three position/quaternion pairs, a torso heading and validity
+Protocol **23** retains three position/quaternion pairs, a torso heading and validity
 bits to the existing movement packet. All players in a match need this build.
 The complete packet including its transport header is 253 bytes and fits the
 existing 256-byte send buffer. Existing shot rays and combat messages are kept.
@@ -55,6 +55,11 @@ existing 256-byte send buffer. Existing shot rays and combat messages are kept.
 nodes by joint ID: left shoulder/elbow/wrist 4/6/8, right 5/7/9 and head 3.
 It checks those chains and falls back if the rig differs. It uses the existing
 body pose to measure arm lengths and preserves the head's bind orientation.
+
+Wrist targets use the player's stable collision/eye position. During `chrTick`,
+the viewer prop temporarily holds the animated pelvis position; using that prop
+as the eye anchor lowered hands by the eye-to-pelvis distance, including overhead
+poses. Regression poses cover stomach, chest and above-head heights.
 
 The adapter runs after the ordinary character animation and before guns and
 hats are attached. A temporary base build establishes torso heading; a further

@@ -160,6 +160,11 @@ public class MainActivity extends SDLActivity {
         openPicker("picked-tnd.z64");
     }
 
+    /** Wreck's Mirror Mode, kept beside the original cartridge as data/mirror.z64. */
+    public void openMirrorPicker() {
+        openPicker("picked-mirror.z64");
+    }
+
     private void openPicker(String target) {
         pickTarget = target;
         openDocument(REQUEST_PICK_ROM);

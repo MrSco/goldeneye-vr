@@ -196,6 +196,7 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
 extern "C" int gevrVrFrameDeferred(void);         // gevr_engine_shim.c: the early tick's frame not begun
 extern "C" int gevrVrBeginDeferredFrame(void);    // ... begin it now; 1 if it did
 extern "C" void vr_relocate_on_begin(void);       // vr_openxr.cpp: the replay corrects the early poses
+extern "C" int vr_eye_multisampled(void);         // vr_openxr.cpp: the eye images are multisampled
 static int gevr_vr_replay_frame(bool fresh);
 extern "C" int gevrVrRedrawDelta(float out[16]);   // vr_openxr.cpp
 extern "C" int gevrVrRedrawHandDelta(int hand, float out[16]);
@@ -1717,12 +1718,13 @@ extern "C" const char *fsFullPath(const char *relPath);
 static std::atomic<int> s_tpUserOff{0};
 static bool s_tpIndexed = false;
 extern "C" int gevrTexpackState(void) {
-    if (gevrRomIsVariant()) return -1;  /* a hack campaign: no pack, as Dab's Mod */
+    /* a hack campaign: no pack, as Dab's Mod; Mirror Mode keeps GoldenEye's pictures */
+    if (!gevrRomRetailArt()) return -1;
     if (g_ActiveExtTexPack[0] == '\0' && !gevrBeanIsEnabled()) return -1;
     return s_tpUserOff ? 0 : 1;
 }
 extern "C" int gevrTexpackToggle(void) {
-    if (gevrRomIsVariant()) return -1;
+    if (!gevrRomRetailArt()) return -1;
     if (g_ActiveExtTexPack[0] == '\0' && !gevrBeanIsEnabled()) return -1;
     return (s_tpUserOff ^= 1) ? 0 : 1;
 }
@@ -1740,13 +1742,16 @@ extern "C" void gevrTexpackStartEarly(void) {
      * textures by content, so they would only replace the ones the hack kept
      * from GoldenEye. Dab's Mod turns its HD assets off on hack stages too.
      * The launcher's choice, as the ROM layer has not bound a campaign yet.
+     * Mirror Mode keeps GoldenEye's pictures: the ones it turned over no longer
+     * match their pack images and stay its own.
      */
     s_tpFillOnly = false;
-    if (VrCampaign == 0 && g_ActiveExtTexPack[0] != '\0' && strcmp(g_ActiveExtTexPack, "ge007-bean") != 0) {
+    const bool retailArt = gevrCampaignRetailArt(VrCampaign);
+    if (retailArt && g_ActiveExtTexPack[0] != '\0' && strcmp(g_ActiveExtTexPack, "ge007-bean") != 0) {
         char rel[320];
         snprintf(rel, sizeof(rel), "$S/texture-packs/%s", g_ActiveExtTexPack);
         normal = fsFullPath(rel);
-    } else if (VrCampaign == 0 && (g_ActiveExtTexPack[0] != '\0' || gevrBeanIsEnabled())) {
+    } else if (retailArt && (g_ActiveExtTexPack[0] != '\0' || gevrBeanIsEnabled())) {
         /* Bean's look: an installed HD pack, to fill its gaps (tp_find, BeanFillTextures) */
         for (const char *pack : { "ge007-hd-ai", "ge007-hd" }) {
             char rel[320];
@@ -5831,11 +5836,27 @@ extern "C" void gfx_run(Gfx* commands) {
         // frame between game frames - the same draws, with the head, hands and
         // body corrected to the frame's own poses. The XR frame then holds only
         // the replay (about a redraw's 3 ms) instead of the whole display list.
+        //
+        // A multisampled eye image takes this way too when its frame was not
+        // deferred. Drawn straight in (the display list switching targets for
+        // its HUD captures meanwhile), the multisampled-render-to-texture image
+        // reached the compositor holding only its first fill, the fog colour:
+        // Facility's green frames (2026-10-17, Quest 3: every directly drawn
+        // frame at gevr_pipeline.txt 1; the intro's stereo part and frames that
+        // missed the early tick at the default). Single-sampled, or replayed
+        // in one pass as here, every frame was whole.
+        //
+        // The native pause menu is on the virtual screen's quad, not in the eye
+        // image, so a multisampled eye image behind it is replayed too: drawn
+        // straight in, the dimmed world behind the menu flickered and flashed
+        // (user, Horde, 2026-10-18).
         const float* eyeProj = &g_viProjectionMatrixF[0][0];
         const bool eyeInvertY = gfx_rapi->get_clip_parameters().invert_y;
-        if (!screenRendered && gevrVrFrameDeferred() && !(VrPauseHub && VrIsPaused) &&
+        const bool eyeDeferred = gevrVrFrameDeferred() != 0;
+        const bool eyeMultisampled = vr_eye_multisampled() != 0;
+        if (!screenRendered && (eyeDeferred || eyeMultisampled) && !(VrPauseHub && VrIsPaused) &&
 #ifdef ANDROID
-            !gevrNativePauseOpen() &&
+            (!gevrNativePauseOpen() || eyeMultisampled) &&
 #endif
             gfx_vr_eye_record_possible(eyeProj, eyeInvertY)) {
             gfx_vr_eye_record_only(true);
@@ -5855,7 +5876,7 @@ extern "C" void gfx_run(Gfx* commands) {
             gevrVrMarkEyesRendered(1);
             s_gevrLastVignette = gevrStereoVignette();
 
-            vr_relocate_on_begin();
+            if (eyeDeferred) vr_relocate_on_begin();   // a frame already begun keeps its poses
             const int began = gevrVrBeginDeferredFrame();
             const uint64_t freshSpan = began ? gevrFrameTimingEnter(GEVR_TIME_FRESH) : 0;
             if (!gevr_vr_replay_frame(true) && vr_begin_eye_render()) {

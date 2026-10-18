@@ -78,6 +78,7 @@ uint64_t gevrHordeGuardToken(const ChrRecord *chr) {
 }
 int gevrHordeTokenCurrent(uint64_t token) { return (token>>32)==7 && (u32)token; }
 void gevrHordeSetGuardId(ChrRecord *chr,unsigned id) { world->generation[chr-g_ChrSlots]=id==GEVR_ALLY_HORDE_ID?0:id; }
+void gevrHordeDecorateGuard(ChrRecord *chr,s32 body) {(void)chr;(void)body;}
 int gevrCoopHostGuards(void) { return netIsHost(); }
 int gevrCoopFastReinforcements(void) { return host_fast; }
 int netGetLocalSlot(void) { return (int)(world-worlds); }

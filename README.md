@@ -199,6 +199,17 @@ Coming from v0.1.12 or older, or if you'd rather not update in the headset: inst
 the same way as the first time. Your ROM and settings stay where they are.
 **Don't uninstall first:** uninstalling deletes the app's folder, ROM included.
 
+## Mirrored missions (optional)
+
+Wreck's **Mirror Mode** is available as a separate solo campaign. Apply the
+August 2017 [Mirror Mode patch](https://n64vault.com/ge-levels:mirror-mode) to your
+own GoldenEye 007 (USA) ROM, then choose **Add Mirror Mode ROM...** in the
+campaign dropdown beside **START**. Select **Mirror Mode (Wreck)** there to play.
+Your original ROM stays installed, and Mirror Mode has its own progress save.
+Online play and GoldenEye X are off for this campaign; Bean and HD packs work,
+flipped with it.
+See [optional campaigns](docs/rom-hacks.md) for preparation and supported versions.
+
 ## 🧩 GoldenEye X (optional, WIP)
 
 GoldenEye X is a ROM hack of Perfect Dark. This port can read its models and animations

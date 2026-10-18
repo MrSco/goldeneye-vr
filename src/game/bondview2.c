@@ -371,11 +371,63 @@ static f32 s_gevrPhysicalStep[3];
 
 /* bondview2.c walk path, just before the body's move this tick. */
 /*
+ * The current player stood at (pos->x, pos->z) on stan, its eye over that
+ * floor, every position the walk carries on from moved together, as a
+ * respawn moves it (mp_respawn_handler_internal): the collision and the eye
+ * (change_player_pos_to_target), the stand height, the previous position,
+ * the rooms. The facing is kept.
+ */
+void bondviewUpdatePlayerRoom(struct player *player);
+
+static void gevrPlaceCurrentPlayer(const coord3d *pos, StandTile *stan)
+{
+    PropRecord *prop = g_CurrentPlayer->prop;
+    f32 floor = bondviewYPositionRelated(stan, pos->x, pos->z);
+    f32 angle = g_CurrentPlayer->vv_theta * (M_TAU_F / 360.0f);
+    coord3d at;
+
+    at.x = pos->x;
+    at.y = g_CurrentPlayer->eyeheight + floor;
+    at.z = pos->z;
+    g_CurrentPlayer->field_70 = floor;
+    g_CurrentPlayer->stanHeight = floor;
+#if defined(VERSION_EU)
+    g_CurrentPlayer->field_6C = (f32) (floor / 0.2004f);
+#else
+    g_CurrentPlayer->field_6C = (f32) (floor / 0.17000002f);
+#endif
+    change_player_pos_to_target(&g_CurrentPlayer->field_488, &at, stan);
+    g_CurrentPlayer->field_488.theta_transform.x = -sinf(angle);
+    g_CurrentPlayer->field_488.theta_transform.y = 0.0f;
+    g_CurrentPlayer->field_488.theta_transform.z = cosf(angle);
+    prop->pos = g_CurrentPlayer->bondprevpos = at;
+    prop->stan = stan;
+    if (prop->chr != NULL)
+    {
+        prop->chr->ground = floor;   /* chrDetectRooms boxes the body from it */
+    }
+#if defined(VERSION_EU)
+    g_CurrentPlayer->field_3B8.x = (f32) (g_CurrentPlayer->field_488.pos.x / 0.118799984f);
+    g_CurrentPlayer->field_3B8.y = (f32) (g_CurrentPlayer->field_488.pos.y / 0.118799984f);
+    g_CurrentPlayer->field_3B8.z = (f32) (g_CurrentPlayer->field_488.pos.z / 0.118799984f);
+#else
+    g_CurrentPlayer->field_3B8.x = (f32) (g_CurrentPlayer->field_488.pos.x / 0.100000024f);
+    g_CurrentPlayer->field_3B8.y = (f32) (g_CurrentPlayer->field_488.pos.y / 0.100000024f);
+    g_CurrentPlayer->field_3B8.z = (f32) (g_CurrentPlayer->field_488.pos.z / 0.100000024f);
+#endif
+    bondviewUpdatePlayerRoom(g_CurrentPlayer);
+    gevrNotifyTeleport();
+}
+
+/*
  * Co-op (#94): a player joining a mission under way starts beside a
- * teammate, not at the mission's start (net_coop.c, the host's word). It is
- * placed as chrai.c AI_TRYTeleportingChrToPad places a chr: a clear spot a
- * step from the teammate (chrAdjustPosForSpawn), its tile, the collision
- * position the movement code carries on from.
+ * teammate, not at the mission's start (net_coop.c, the host's word): a
+ * clear spot on the floor the teammate really stands on (found afresh, not
+ * the copy's tile), or by a pad in the teammate's room
+ * (bondview_r.c gevrSpawnSafeSpot), never in a player or an object.
+ * User report 2026-10-18 (v0.5.6): a joiner on Facility, the host in the
+ * last room, started outside the level, walked through a wall into that
+ * room and stuck in it; resetting did not free them.
  */
 s32 gevrCoopPlaceBeside(s32 target)
 {
@@ -385,53 +437,37 @@ s32 gevrCoopPlaceBeside(s32 target)
     coord3d pos;
     StandTile *stan;
     f32 facing;
-    coord3d reserved[4];
+    coord3d reserved[MAX_PLAYER_COUNT];
     s32 count = 0, i;
-    extern s32 gevrCoopFindSpawnSpot(coord3d *, StandTile **, f32, const coord3d *, s32);
+    extern s32 gevrSpawnSafeSpot(coord3d *, StandTile **, f32, const coord3d *, s32);
 
     if (chr == NULL || them == NULL || them == g_CurrentPlayer || them->prop == NULL)
     {
         return FALSE;
     }
     pos = them->prop->pos;
+    /* gevrSpawnSafeSpot finds the floor under them itself; this tile is a hint */
     stan = them->prop->stan;
-    if (stan == NULL)
-    {
-        coord3d probe = pos;
-        f32 y;
-
-        probe.y += 50.0f;
-        stan = stanFindTileBelowPos(&probe, NULL, &y);
-        if (stan == NULL)
-        {
-            return FALSE;
-        }
-    }
     facing = them->vv_theta * (M_TAU_F / 360.0f) + M_PI_F;   /* behind them first, then round */
     if (facing >= M_TAU_F)
     {
         facing -= M_TAU_F;
     }
     sub_GAME_7F03D058(prop, FALSE);
-    for (i = 0; i < 4; i++)
+    for (i = 0; i < MAX_PLAYER_COUNT; i++)
     {
         struct player *other = g_playerPointers[i];
         if (other && other != g_CurrentPlayer && other->prop && !other->bonddead)
             reserved[count++] = other->prop->pos;
     }
-    if (!gevrCoopFindSpawnSpot(&pos, &stan, facing, reserved, count))
+    if (!gevrSpawnSafeSpot(&pos, &stan, facing, reserved, count))
     {
         sub_GAME_7F03D058(prop, TRUE);
         return FALSE;
     }
-    prop->pos = pos;
-    prop->stan = stan;
-    g_CurrentPlayer->field_488.collision_position.x = pos.x;
-    g_CurrentPlayer->field_488.collision_position.y = pos.y;
-    g_CurrentPlayer->field_488.collision_position.z = pos.z;
-    g_CurrentPlayer->field_488.current_tile_ptr = stan;
-    chrDetectRooms(chr);
-    gevrNotifyTeleport();
+    gevrPlaceCurrentPlayer(&pos, stan);
+    sysLogPrintf(LOG_NOTE, "coop: placed beside slot %d at (%.0f %.0f %.0f), room %d", target,
+                 prop->pos.x, prop->pos.y, prop->pos.z, stan->room);
     sub_GAME_7F03D058(prop, TRUE);
     return TRUE;
 }
@@ -14948,7 +14984,13 @@ void bondviewMovePlayerUpdateViewport(s8 stick_x, s8 stick_y, u16 buttons)
     watch_time_0 += jpD_800484D0;
 #else
     // VERSION_US
-    watch_time_0 += speedgraphframes;
+#ifdef GEVR
+    /* Wreck's Mirror Mode reverses the watch clock (ROM 0xBBF14). */
+    if (gevrRomCampaign() == GEVR_CAMPAIGN_MIRROR)
+        watch_time_0 -= speedgraphframes;
+    else
+#endif
+        watch_time_0 += speedgraphframes;
 #endif
 
     if (stop_time_flag != 0)
@@ -16072,6 +16114,43 @@ static void mp_respawn_handler_internal(s32 forced_pad, f32 forced_theta)
     start_pos.x = g_Startpad[var_v1]->pos.x;
     start_pos.z = g_Startpad[var_v1]->pos.z;
     start_stan = g_Startpad[var_v1]->stan;
+
+#ifdef GEVR
+    /*
+     * Never in another player or an object, never off the floor (user,
+     * 2026-10-18, every mode): a clear spot at the pad, or near it, or by
+     * another pad in its room (bondview_r.c gevrSpawnSafeSpot). The owner's
+     * headset decides; a copy follows its owner's position.
+     */
+    if (getPlayerCount() >= 2 && start_stan != NULL)
+    {
+        extern s32 gevrSpawnSafeSpot(coord3d *, StandTile **, f32, const coord3d *, s32);
+        coord3d reserved[MAX_PLAYER_COUNT];
+        coord3d spot = g_Startpad[var_v1]->pos;
+        StandTile *tile = start_stan;
+        s32 count = 0;
+        s32 i;
+
+        for (i = 0; i < MAX_PLAYER_COUNT; i++)
+        {
+            struct player *other = g_playerPointers[i];
+
+            if (other != NULL && other != g_CurrentPlayer && other->prop != NULL && !other->bonddead)
+            {
+                reserved[count++] = other->prop->pos;
+            }
+        }
+        sub_GAME_7F03D058(g_CurrentPlayer->prop, FALSE);
+        if (gevrSpawnSafeSpot(&spot, &tile, atan2f(g_Startpad[var_v1]->look.x, g_Startpad[var_v1]->look.z),
+                              reserved, count))
+        {
+            start_pos.x = spot.x;
+            start_pos.z = spot.z;
+            start_stan = tile;
+        }
+        sub_GAME_7F03D058(g_CurrentPlayer->prop, TRUE);
+    }
+#endif
 
     stan_height = bondviewYPositionRelated(start_stan, start_pos.x, start_pos.z);
 
