@@ -31,6 +31,10 @@ uint64_t gevrHordeGuardToken(const struct ChrRecord *chr);
 int gevrHordeTokenCurrent(uint64_t token);
 unsigned gevrHordeGuardId(const struct ChrRecord *chr);
 void gevrHordeSetGuardId(struct ChrRecord *chr, unsigned id);
+/* The kind's look and run speed from the body the host chose (every headset). */
+void gevrHordeDecorateGuard(struct ChrRecord *chr, int body);
+/* The lobby's Start at wave, 1 normally (net_core.c). */
+unsigned netHordeStartWave(void);
 const HordeState *gevrHordeState(void);
 void gevrHordeApplyState(const HordeState *state);
 void gevrHordeText(char *text, unsigned size);

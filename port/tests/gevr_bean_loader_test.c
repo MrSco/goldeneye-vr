@@ -3,6 +3,7 @@
 #include "../src/gevr_bean_tex.c"
 #include <assert.h>
 void videoFreeCachedTexture(const void *addr) { (void)addr; }
+#include "gevr_bean_decal_test.inc.h"
 
 static void put32(uint8_t *p, uint32_t v)
 {
@@ -148,6 +149,7 @@ int main(void)
 	assert(!gevrBeanTexDecode(&image, 0, "authored:bad-table", &width, &height, &alpha));
 	gevrBeanTexReset();
 	free(mesh.tris);
+    levelSameTextureDecalChecks();
     puts("Bean vertex layout and palette checks passed");
     return 0;
 }

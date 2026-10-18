@@ -29,6 +29,7 @@ parts = {
                 'extern "C" int vr_get_supported_refresh_rates(int *rates, int capacity)',
                 "static void vr_request_refresh_rate(void)"],
     "RESOURCES": ["static bool vr_create_swapchains()", "static bool vr_ensure_swapchain_images()",
+                  "static GLsizei vr_eye_samples(void)",
                   "static bool vr_attach_eye_fbo(GLuint colorTexture, bool validate)", "static bool vr_create_eye_fbos()",
                   "static void vr_destroy_menu_swapchains()"],
     "LIFECYCLE": ['extern "C" bool openxr_initialize_vr(JavaVM* vm, jobject activity, ANativeWindow* window)',
@@ -76,6 +77,14 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
                         str(root / "port/vr/vr_settings.cpp"), str(defaults), str(registry),
                         "-o", str(exe)], check=True)
         ini = temp / "goldeneye-vr.ini"
+        ini.unlink(missing_ok=True)
+        for campaign in range(4):
+            subprocess.run([str(exe), "campaign_write", str(campaign)], cwd=temp, check=True)
+            subprocess.run([str(exe), "campaign_read", str(campaign)], cwd=temp, check=True)
+        print("PASS: four campaign selections survive independent save/load processes")
+        for invalid in (-1, 4, 99):
+            ini.write_text(f"Campaign={invalid}\n", encoding="utf-8")
+            subprocess.run([str(exe), "campaign_read", "0"], cwd=temp, check=True)
         ini.unlink(missing_ok=True)
         subprocess.run([str(exe)], cwd=temp, check=True, stdout=subprocess.DEVNULL)
         subprocess.run([str(exe), "speed_read", "100", "100"], cwd=temp, check=True)

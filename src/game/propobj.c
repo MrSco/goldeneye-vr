@@ -3475,6 +3475,18 @@ void propExplode(PropRecord *prop, s32 /* enum EXPLOSION_DEF */ explosionType)
 #endif
             explosionCreate(0, &pos, stan, (s16) explosionType, 0, playernum, parent->rooms, 1);
         }
+#ifdef GEVR
+        /* Runway report (2026-10-17): autoguns still firing after a timed
+         * mine. Where a stuck explosive goes off, against what carries it. */
+        if (parent->type == PROP_TYPE_OBJ && parent->obj)
+        {
+            f32 dx = pos.x - parent->pos.x, dy = pos.y - parent->pos.y, dz = pos.z - parent->pos.z;
+
+            sysLogPrintf(LOG_NOTE, "mine: blast %d on object type %d (onscreen %d) at (%.0f %.0f %.0f), %.0f from it",
+                explosionType, parent->obj->type, (prop->flags & PROPFLAG_ONSCREEN) != 0,
+                pos.x, pos.y, pos.z, sqrtf(dx * dx + dy * dy + dz * dz));
+        }
+#endif
     }
     else
     {
@@ -6797,6 +6809,20 @@ s32 objTick(struct PropRecord *prop)
 							autogun->unkD4 += var_f2_7;
 							if (autogun->unkD4 >= 1.0f)
 							{
+#ifdef GEVR
+								/* Runway report (2026-10-17): a gun already hit still hurting Bond */
+								if (obj->flags & PROPFLAG_NO_AMMO)
+								{
+									static s32 s_gevrAutogunHurtLog;
+
+									if (g_GlobalTimer - s_gevrAutogunHurtLog >= 60 || g_GlobalTimer < s_gevrAutogunHurtLog)
+									{
+										s_gevrAutogunHurtLog = g_GlobalTimer;
+										sysLogPrintf(LOG_NOTE, "autogun: pad %d, hit before (%.0f/%.0f level %d), hurts player %d",
+											autogun->padID, obj->maxdamage, (f32) obj->damage, objGetDestroyedLevel(obj), get_cur_playernum());
+									}
+								}
+#endif
 								bondviewCallRecordDamageKills((gunItemGetDestructionAmount(14) * 0.125f) * g_AutogunDamageScalar, autogun->unk90, -1, 1);
 								autogun->unkD4 = 0.0f;
 								if (bondviewGetIfCurrentPlayerDamageShowTime() != 0)
@@ -9690,6 +9716,12 @@ apply_damage:
         {
             obj->flags |= PROPFLAG_IS_DRONE_GUN;
         }
+#ifdef GEVR
+        /* Runway report (2026-10-17): each hit on an autogun, and its state */
+        sysLogPrintf(LOG_NOTE, "autogun: pad %d hit %.2f by item %d player %d: %.0f/%.0f level %d %s",
+            ((AutogunRecord *) obj)->padID, damage, (s32) itemnum, playernum, obj->maxdamage, (f32) obj->damage,
+            objGetDestroyedLevel(obj), (obj->flags & PROPFLAG_IS_DRONE_GUN) ? "off" : "live");
+#endif
     }
     else if (obj->type == PROPDEF_CCTV)
     {

@@ -243,6 +243,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "MpVoiceMode=%d\n", VrMpVoiceMode);
     fprintf(f, "MpFriendlyFire=%d\n", VrMpFriendlyFire);
     fprintf(f, "HordeFriendlyFire=%d\n", VrHordeFriendlyFire);
+    fprintf(f, "HordeStage=%d\n", VrHordeStage);
+    fprintf(f, "HordeStartWave=%d\n", VrHordeStartWave);
     fprintf(f, "HostEqualization=%d\nHostLatencyCapMs=%d\n", VrHostEqualization, VrHostLatencyCapMs);
     fprintf(f, "MpFunFlags=%d\nMpGunSize=%d\nMpMaxPlayers=%d\n", VrMpFunFlags, VrMpGunSize, VrMpMaxPlayers);
     fprintf(f, "MpBotMode=%d\nMpBotCount=%d\nMpBotDifficulty=%d\n", VrMpBotMode, VrMpBotCount, VrMpBotDifficulty);
@@ -251,8 +253,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; 1 = GoldenEye X's first-person guns from data/gex.z64 (experimental, docs/gex-weapons.md).\n");
     /* a hack campaign turns the models off for its run only (gevr_romload.c) */
     fprintf(f, "GexGuns=%d\n", (VrGexGuns || gevrGexCampaignOff) ? 1 : 0);
-    fprintf(f, "; Campaign at Start: 0 GoldenEye, 1 Goldfinger 64, 2 Tomorrow Never Dies.\n");
-    fprintf(f, "; The three ROMs stay installed together (docs/rom-hacks.md).\n");
+    fprintf(f, "; Campaign at Start: 0 GoldenEye, 1 Goldfinger 64, 2 Tomorrow Never Dies, 3 Mirror Mode.\n");
+    fprintf(f, "; The four ROMs stay installed together (docs/rom-hacks.md).\n");
     fprintf(f, "Campaign=%d\n", VrCampaign);
     fprintf(f, "; 1 = in the headset GoldenEye X's arms are every arm, the left wearing the watch; 0 = the watch arm.\n");
     for (int i = 0; i < 4; i++) fprintf(f, "MpCustom%d=%d\n", i + 1, VrMpCustom[i]);
@@ -733,6 +735,8 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "HostLatencyCapMs") == 0) VrHostLatencyCapMs = ival < 0 ? 0 : ival > 80 ? 80 : ival;
             else if (strcmp(key, "MpFriendlyFire") == 0) VrMpFriendlyFire = ival != 0;
             else if (strcmp(key, "HordeFriendlyFire") == 0) VrHordeFriendlyFire = ival != 0;
+            else if (strcmp(key, "HordeStage") == 0) VrHordeStage = (ival == 24 || ival == 9 || ival == 27 || ival == 23 || ival == 34) ? ival : 24;   // net_match.h netHordeStageValid
+            else if (strcmp(key, "HordeStartWave") == 0) VrHordeStartWave = ival < 1 ? 1 : ival > 50 ? 50 : ival;
             else if (strcmp(key, "MpFunFlags") == 0) VrMpFunFlags = ival >= 0 && !(ival & ~NET_FUN_MASK) ? ival : 0;
             else if (strcmp(key, "MpGunSize") == 0) VrMpGunSize = ival >= 0 && ival <= 2 ? ival : 0;
             else if (strcmp(key, "MpMaxPlayers") == 0) VrMpMaxPlayers = ival >= 2 && ival <= 8 ? ival : 4;
@@ -741,7 +745,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MpBotDifficulty") == 0) VrMpBotDifficulty = ival >= 0 && ival <= 5 ? ival : 2;
             else if (strcmp(key, "DetailedGuns") == 0) VrDetailedGuns = ival != 0;
             else if (strcmp(key, "GexGuns") == 0) VrGexGuns = ival != 0;
-            else if (strcmp(key, "Campaign") == 0) VrCampaign = ival >= 0 && ival <= 2 ? ival : 0;
+            else if (strcmp(key, "Campaign") == 0) VrCampaign = ival >= 0 && ival < GEVR_CAMPAIGN_COUNT ? ival : 0;
             /* GexArms (before one toggle): on by default, nothing without the guns; GexGuns decides */
             else if (strcmp(key, "MpVoiceMode") == 0) VrMpVoiceMode = ival == 1 ? 1 : 0;
             else if (strcmp(key, "MpScenario") == 0) VrMpScenario = ival;

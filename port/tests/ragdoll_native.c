@@ -13,6 +13,8 @@
 #include "gevr_ragdoll.c"
 
 int VrRagdolls, VrDismemberment, VrBodiesStay, VrDismemberChance=40;
+static int hordeOn;
+int netHordeActive(void) { return hordeOn; }
 float VrDismemberDamage=2.0f; /* CE's defaults: the cut-rule checks are CE's */
 s32 lvlGetCurrentStageToLoad(void) { return LEVELID_DAM; }
 static float weaponDamage=1;
@@ -256,7 +258,7 @@ static void portChecks(void)
     unsigned serialBefore=newest()->serial;
     Gfx *g=calloc(16384,sizeof(Gfx));
     roomsShown=0;gevrRagdollTick(0);drawn=0;gevrRagdollRender(g);assert(drawn==0);frameFree();
-    roomsShown=1;gevrRagdollTick(0);drawn=0;gevrRagdollRender(g);assert(drawn>=1);frameFree();free(g);
+    roomsShown=1;drawn=0;gevrRagdollRender(g);assert(drawn>=1);frameFree();free(g);
     /* CE's blasts: a guard killed by one is thrown up and away; bodies
      * already down within reach lose up to two joints to it */
     sourceChr.actiontype=ACT_STAND;gevrRagdollNeedsPose(&sourceChr);
@@ -373,6 +375,10 @@ int main(void)
         VrBodiesStay=48;
         gevrRagdollReset();assert(countBodies()==0 && !pdphysIsReady());
     }
+    /* Horde keeps a dozen whatever Bodies stay says */
+    playerCount=1;hordeOn=1;
+    for(int i=0;i<20;i++) { capture(0);assert(countBodies()==(i<RD_HORDE_BODIES?i+1:RD_HORDE_BODIES)); }
+    hordeOn=0;gevrRagdollReset();assert(countBodies()==0);
     playerCount=1;capture(0);
     RdBody *b=newest();
     collisionChecks();

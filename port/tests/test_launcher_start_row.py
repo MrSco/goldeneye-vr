@@ -20,6 +20,7 @@ row = source[start:end]
 
 fixture = r'''
 #include "gevr_launcher_ui.h"
+#include "gevr_romlayout.h"
 #include "imgui/imgui_internal.h"
 #include <cassert>
 #include <cstdio>
@@ -46,7 +47,7 @@ static void frame(int extraLines, bool openCombo)
     ImGui::Separator();
     for (int i = 0; i < extraLines; i++) ImGui::TextUnformatted("CAMPAIGN");
     if (openCombo) ImGui::OpenPopupEx(ImHashStr("##ComboPopup", 0, ImGui::GetID("##campaign")));  /* BeginCombo's own id */
-    gevrLauncherStartRow(&campaign, true, false, true, false);
+    gevrLauncherStartRow(&campaign, true, false, true, true, false);
     startRect = ImRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
     gevrLauncherStatus("Goldfinger 64 did not load, so GoldenEye started instead. A long note is cut to one line.");
     pageBottom = ImGui::GetItemRectMax().y;
@@ -82,6 +83,13 @@ int main()
     frame(5, false);
     frame(5, false);
     assert(pageBottom > windowBottom + 0.5f || win->ScrollMax.y > 0.5f);
+
+    /* The longest campaign label fits beside START at Quest font size. */
+    campaign = GEVR_CAMPAIGN_MIRROR;
+    frame(0, false);
+    frame(0, false);
+    assert(pageBottom <= windowBottom + 0.5f);
+    assert(win->ScrollMax.y <= 0.5f);
 
     /* the dropdown opens on START's row */
     frame(0, true);

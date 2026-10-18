@@ -800,7 +800,14 @@ uint8_t netGetLobbyStage(void) {
 
 uint8_t netGetLobbyWeaponSet(void) {
     const NetMatchConfig *c = netListedConfig();
-    return c->mode == NET_MODE_COOP ? c->difficulty : c->weapon_set;
+    /* co-op lists its difficulty here, Horde its map (vr_launcher.cpp listedGameLabel) */
+    return c->mode == NET_MODE_COOP ? c->difficulty : c->mode == NET_MODE_HORDE ? c->stage : c->weapon_set;
+}
+
+/* gevr_horde.c: the run's first wave, from the latched round's config. */
+unsigned netHordeStartWave(void) {
+    unsigned wave = s_round.config.horde_start_wave;
+    return wave >= 1 && wave <= NET_HORDE_MAX_START_WAVE ? wave : 1;
 }
 
 int netGetConnectedPlayerCount(void) {
@@ -2002,6 +2009,17 @@ int netHordeActive(void) {
     return (s_state==NET_STATE_INGAME || s_state==NET_STATE_MIGRATING)
         && s_round.config.mode==NET_MODE_HORDE;
 }
+/* Network IN_PROGRESS includes Horde's map load and preparation. Only a
+ * join during combat (or defeat) waits for a break. Before the host loads,
+ * the director may still contain the previous run's final state. */
+static bool netJoinStartsSpectating(void) {
+    if (s_state != NET_STATE_INGAME || s_phase != NET_PHASE_IN_PROGRESS || s_round.config.mode == NET_MODE_COOP) return false;
+    if (s_round.config.mode == NET_MODE_HORDE) {
+        unsigned phase = gevrHordeState()->phase;
+        return s_lobby_state.slots[s_host_slot].loaded && (phase == HORDE_WAVE || phase == HORDE_DEFEAT);
+    }
+    return true;
+}
 /* A late joiner spectates until the next break; its load must not pause the waves. */
 static bool netAllPlayersLoaded(void) {
     for (int i = 0; i < s_max_players; i++)
@@ -2914,6 +2932,49 @@ static int netJoinSlot(int previous, const char *clean, bool *replacing_bot, uin
     return bot;
 }
 
+static void netReceiveStageReady(ENetPeer *peer, struct netbuf *buf, size_t size) {
+    if (!netIsHost() || s_state != NET_STATE_INGAME) return;
+    int slot = ((int)(intptr_t)peer->data - 1);
+    if (slot < 0 || slot >= s_max_players || s_client_peers[slot] != peer ||
+        !s_lobby_state.slots[slot].connected || size != 24) return;
+    float x = netbufReadF32(buf), y = netbufReadF32(buf);
+    float z = netbufReadF32(buf), yaw = netbufReadF32(buf);
+    if (buf->error) return;
+    bool was_ready = s_lobby_state.slots[slot].loaded != 0;
+    /* back after a host change: still standing where it was, not respawned */
+    bool returning = s_slot_grace_us[slot] != 0;
+    s_slot_grace_us[slot] = 0;
+    if (!was_ready && !returning) {
+        if (s_round.config.mode == NET_MODE_HORDE) {
+            /* Keep the launching party active regardless of load order. A
+             * combat join already became a spectator in HELLO; if its load
+             * finishes during a break, admit it now instead of a wave later. */
+            if (!netJoinStartsSpectating()) s_lobby_state.slots[slot].spectator = 0;
+        } else if (netJoinStartsSpectating()) {
+            s_lobby_state.slots[slot].spectator = 1;
+        }
+        if (s_lobby_state.slots[slot].spectator) netVoiceForgetSlot((uint8_t)slot);
+    }
+    if (!was_ready && g_playerPointers[slot] && g_playerPointers[slot]->prop) {
+        struct player *pl = g_playerPointers[slot];
+        pl->prop->pos.x = x;
+        pl->prop->pos.y = y;
+        pl->prop->pos.z = z;
+        pl->pos = pl->prop->pos;
+        pl->vv_theta = yaw;
+    }
+    if (s_phase == NET_PHASE_IN_PROGRESS) {
+        netSendMatchSnapshot(peer);
+        netSendWorldSnapshot(peer);
+        netSendAmmoState(peer);
+    }
+    s_lobby_state.slots[slot].loaded = 1;
+    netBroadcastLobbyState();
+    netReadyProgress();
+    /* co-op: its guards and where to start (a mission under way), or the new host's slots */
+    if (!was_ready || returning) { netCoopPlayerJoined(slot, returning); netHordeSend(slot); }
+}
+
 static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
     if (size < 8) return;
     
@@ -2992,9 +3053,9 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 s_lobby_state.slots[assigned].eliminated = 0;
                 s_lobby_state.slots[assigned].ping_ms = NET_PING_UNKNOWN;
                 s_round.team[assigned] = bot_team;
-                /* a deathmatch's late joiner watches until the next round; a co-op one, or one taking a bot's place, drops in (#94) */
-                s_lobby_state.slots[assigned].spectator = s_state == NET_STATE_INGAME && s_phase == NET_PHASE_IN_PROGRESS &&
-                    s_round.config.mode != NET_MODE_COOP && !replacing_bot;
+                /* Horde admits arrivals during preparation/breaks; campaign
+                 * and players taking a bot's place can always drop in. */
+                s_lobby_state.slots[assigned].spectator = netJoinStartsSpectating() && !replacing_bot;
                 /* a bot's place in a loaded stage keeps its body until the next load */
                 if (!replacing_bot || s_state != NET_STATE_INGAME) s_round.character[assigned] = requested_chr;
                 memset(s_round.loadout[assigned], 0, 4);
@@ -3191,42 +3252,9 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             }
             break;
         }
-        case NET_MSG_STAGE_READY: {
-            if (!netIsHost() || s_state != NET_STATE_INGAME) break;
-            int slot = ((int)(intptr_t)peer->data - 1);
-            if (slot < 0 || slot >= s_max_players || s_client_peers[slot] != peer ||
-                !s_lobby_state.slots[slot].connected || size != 24) break;
-            float x = netbufReadF32(&buf), y = netbufReadF32(&buf);
-            float z = netbufReadF32(&buf), yaw = netbufReadF32(&buf);
-            if (buf.error) break;
-            bool was_ready = s_lobby_state.slots[slot].loaded != 0;
-            /* back after a host change: still standing where it was, not respawned */
-            bool returning = s_slot_grace_us[slot] != 0;
-            s_slot_grace_us[slot] = 0;
-            if (!was_ready && !returning && s_phase == NET_PHASE_IN_PROGRESS && s_round.config.mode != NET_MODE_COOP) {
-                s_lobby_state.slots[slot].spectator = 1;
-                netVoiceForgetSlot((uint8_t)slot);
-            }
-            if (!was_ready && g_playerPointers[slot] && g_playerPointers[slot]->prop) {
-                struct player *pl = g_playerPointers[slot];
-                pl->prop->pos.x = x;
-                pl->prop->pos.y = y;
-                pl->prop->pos.z = z;
-                pl->pos = pl->prop->pos;
-                pl->vv_theta = yaw;
-            }
-            if (s_phase == NET_PHASE_IN_PROGRESS) {
-                netSendMatchSnapshot(peer);
-                netSendWorldSnapshot(peer);
-                netSendAmmoState(peer);
-            }
-            s_lobby_state.slots[slot].loaded = 1;
-            netBroadcastLobbyState();
-            netReadyProgress();
-            /* co-op: its guards and where to start (a mission under way), or the new host's slots */
-            if (!was_ready || returning) { netCoopPlayerJoined(slot, returning); netHordeSend(slot); }
+        case NET_MSG_STAGE_READY:
+            netReceiveStageReady(peer, &buf, size);
             break;
-        }
         case NET_MSG_ROUND_RESET: {
             if (netIsHost() || peer != s_server_peer || s_state != NET_STATE_INGAME) break;
             NetRoundSettings round;

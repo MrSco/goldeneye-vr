@@ -1,8 +1,10 @@
 """Compile and run Horde's production director rules without a ROM or headset."""
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import tempfile
+import test_multiplayer
 
 ROOT = Path(__file__).resolve().parents[2]
 with tempfile.TemporaryDirectory(prefix="gevr-horde-") as temp:
@@ -11,6 +13,16 @@ with tempfile.TemporaryDirectory(prefix="gevr-horde-") as temp:
                     "-I" + str(ROOT / "port/src/net"), str(ROOT / "port/tests/horde_native.c"),
                     "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True)
+    # Exercise the production launch/load handler without Steam Audio or a ROM.
+    test_multiplayer.NATIVE = Path(temp)
+    core = test_multiplayer.build_core()
+    result = core.test_core_horde_admission()
+    if os.name == "nt":
+        import _ctypes
+        _ctypes.FreeLibrary(core._handle)  # release before removing the temp DLL
+    if result:
+        raise AssertionError(f"Horde admission failed at net_core_native.c:{result}")
+    print("Horde initial-party and late-admission checks passed")
     exe = Path(temp) / "horde-runtime"
     runtime_args = [shutil.which("gcc") or "gcc", "-std=c11", "-O2", "-fms-extensions"]
     runtime_args += ["-D" + v for v in ("GEVR=1", "PLATFORM_64BIT=1", "_LANGUAGE_C=1",

@@ -3,6 +3,8 @@
 #include "../src/gevr_bean.c"
 #include "../src/gevr_static_mesh_build.inc.h"
 int gevrRomIsVariant(void) { return 0; } /* GoldenEye: no hack campaign */
+int gevrRomCampaign(void) { return GEVR_CAMPAIGN_GE; }
+#include "../src/gevr_mirror.c"
 #include <assert.h>
 
 void sysLogPrintf(s32 level, const char *fmt, ...) { (void)level; (void)fmt; }
@@ -49,6 +51,7 @@ int gevrHatOwnsNode(const void *node) { (void)node; return 0; }
 int gevrHatNodeGdl(struct ModelNode *node, struct Model *model, void **gdl) { (void)node; (void)model; (void)gdl; return 0; }
 
 #include "gevr_bean_pose_test.inc.h"
+#include "gevr_bean_plane_test.inc.h"
 #include <gevr_bean_hit_test.inc.h>
 #include <gevr_bean_material_paths_test.inc.h>
 
@@ -239,6 +242,7 @@ int main(void)
     materialPathChecks();
     hitChecks();
     poseChecks();
+    planeChecks();
     /* Level reset drops wounds before their instance records leave the pool. */
     Model wounded = {0};
     s_wounds[0].model = &wounded;

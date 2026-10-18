@@ -428,6 +428,28 @@ static s32 gevrCoopSpawnPath(const coord3d *origin, const coord3d *candidate, St
     return clear;
 }
 
+/*
+ * The floor really under (x, z), at or below y, from every room. A tile a
+ * caller carries (another player's copy, a walk across a portal) need not be
+ * the one the point stands on, and a player put on the wrong one stands
+ * outside the level and walks through walls (user report, 2026-10-18: a
+ * co-op joiner on Facility started outside the bounds, walked through a
+ * wall into the host's room and stuck in it). NULL when the point is over
+ * no floor at all.
+ */
+static StandTile *gevrSpawnGround(f32 x, f32 y, f32 z, StandTile *prefer, f32 *floor)
+{
+    coord3d probe;
+    s32 incentre = FALSE;
+    StandTile *tile;
+
+    probe.x = x;
+    probe.y = y;
+    probe.z = z;
+    tile = stanFindGroundAtCyl(&probe, 0.0f, NULL, prefer, floor, &incentre);
+    return tile != NULL && incentre ? tile : NULL;
+}
+
 /* Shared by mission starts and late joins/revives. Search near the intended
  * entrance, testing the whole player cylinder and the path to it, rather
  * than accepting a floor point inside scenery (#164). Reservations keep
@@ -436,11 +458,22 @@ s32 gevrCoopFindSpawnSpot(coord3d *pos, StandTile **stan, f32 facing,
         const coord3d *reserved, s32 count)
 {
     const coord3d origin = *pos;
-    const f32 base = stanGetPositionYValue(*stan, origin.x, origin.z);
+    f32 base = stanGetPositionYValue(*stan, origin.x, origin.z);
     s32 ring, k, i;
 
-    /* Slot zero keeps the pad only when its cylinder is actually clear. */
-    for (ring = count == 0 ? 0 : 1; ring <= 6; ring++)
+    {
+        /* start from the floor the point is really on */
+        f32 floor;
+        StandTile *ground = gevrSpawnGround(origin.x, origin.y + 10.0f, origin.z, *stan, &floor);
+
+        if (ground != NULL)
+        {
+            *stan = ground;
+            base = floor;
+        }
+    }
+    /* The spot itself first; a reservation within reach rules it out. */
+    for (ring = 0; ring <= 6; ring++)
     {
         for (k = 0; k < (ring == 0 ? 1 : 16); k++)
         {
@@ -459,6 +492,14 @@ s32 gevrCoopFindSpawnSpot(coord3d *pos, StandTile **stan, f32 facing,
                 || !gevrCoopSpawnPath(&origin, &candidate, &tile)
                 || tile == NULL
                 || fabsf(stanGetPositionYValue(tile, candidate.x, candidate.z) - base) > 30.0f) continue;
+            {
+                /* inside the level: a floor found there, at the walk's height */
+                f32 floor;
+                StandTile *ground = gevrSpawnGround(candidate.x, base + 60.0f, candidate.z, tile, &floor);
+
+                if (ground == NULL || fabsf(floor - base) > 30.0f) continue;
+                tile = ground;
+            }
             if (!gevrCoopSpawnClear(&candidate, tile)) continue;
             /* Reject a cylinder straddling a ledge or a steep floor step. */
             for (i = 0; i < 8; i++)
@@ -479,6 +520,96 @@ s32 gevrCoopFindSpawnSpot(coord3d *pos, StandTile **stan, f32 facing,
     return FALSE;
 }
 
+/*
+ * Every player spawn (a mission start, a co-op joiner, a multiplayer
+ * respawn) ends here (user, 2026-10-18: no mode may put a player outside the
+ * level, in another player or in an object). A clear spot near *pos; failing
+ * that, near the setup's pads in the same room, nearest first (a co-op
+ * joiner's teammate may stand where no start pad is, Facility's last room).
+ * FALSE leaves *pos and *stan as they were.
+ */
+s32 gevrSpawnSafeSpot(coord3d *pos, StandTile **stan, f32 facing, const coord3d *reserved, s32 count)
+{
+    coord3d spot = *pos;
+    StandTile *tile = *stan;
+    s32 room;
+    s32 tried[16];
+    s32 ntried = 0;
+    s32 npads = 0;
+    s32 i;
+
+    if (tile == NULL)
+    {
+        f32 floor;
+        tile = gevrSpawnGround(pos->x, pos->y + 10.0f, pos->z, NULL, &floor);
+        if (tile == NULL)
+        {
+            return FALSE;
+        }
+    }
+    if (gevrCoopFindSpawnSpot(&spot, &tile, facing, reserved, count))
+    {
+        *pos = spot;
+        *stan = tile;
+        return TRUE;
+    }
+    room = tile->room;
+    if (g_CurrentSetup.pads != NULL)
+    {
+        while (g_CurrentSetup.pads[npads].plink)
+        {
+            npads++;
+        }
+    }
+    while (ntried < (s32)ARRAYCOUNT(tried))
+    {
+        s32 best = -1;
+        f32 bestdist = 0.0f;
+
+        for (i = 0; i < npads; i++)
+        {
+            PadRecord *pad = &g_CurrentSetup.pads[i];
+            f32 dx, dz, d;
+            s32 j;
+
+            if (pad->stan == NULL || pad->stan->room != room)
+            {
+                continue;
+            }
+            for (j = 0; j < ntried && tried[j] != i; j++);
+            if (j != ntried)
+            {
+                continue;
+            }
+            dx = pad->pos.x - pos->x;
+            dz = pad->pos.z - pos->z;
+            d = dx * dx + dz * dz;
+            if (best < 0 || d < bestdist)
+            {
+                best = i;
+                bestdist = d;
+            }
+        }
+        if (best < 0)
+        {
+            break;
+        }
+        tried[ntried++] = best;
+        spot = g_CurrentSetup.pads[best].pos;
+        tile = g_CurrentSetup.pads[best].stan;
+        if (gevrCoopFindSpawnSpot(&spot, &tile, facing, reserved, count))
+        {
+            sysLogPrintf(LOG_NOTE, "spawn: nothing clear at (%.0f %.0f %.0f); pad %d in room %d instead",
+                         pos->x, pos->y, pos->z, best, room);
+            *pos = spot;
+            *stan = tile;
+            return TRUE;
+        }
+    }
+    sysLogPrintf(LOG_ERROR, "spawn: no clear spot near (%.0f %.0f %.0f) or in room %d", pos->x, pos->y, pos->z, room);
+    return FALSE;
+}
+
 static void gevrCoopStartSpot(coord3d *pos, StandTile **stan, PadRecord *pad, s32 slot)
 {
     coord3d reserved[4];
@@ -490,7 +621,7 @@ static void gevrCoopStartSpot(coord3d *pos, StandTile **stan, PadRecord *pad, s3
         coord3d candidate = pad->pos;
         StandTile *tile = pad->stan;
         f32 facing = atan2f(pad->look.x, pad->look.z) + M_PI_F;
-        if (!gevrCoopFindSpawnSpot(&candidate, &tile, facing, reserved, i))
+        if (!gevrSpawnSafeSpot(&candidate, &tile, facing, reserved, i))
             sysLogPrintf(LOG_ERROR, "coop: no clear start for slot %d near entrance", i);
         reserved[i] = candidate;
         if (i == slot) { *pos = candidate; *stan = tile; }
@@ -1038,6 +1169,21 @@ void bondviewLoadSetupIntroSection(void)
             if (share > 0)
             {
                 gevrSpreadStartPad(&start_pos, &start_stan, share, get_cur_playernum());
+            }
+            if (start_stan != NULL)
+            {
+                /* on the floor and clear of objects, as every spawn (gevrSpawnSafeSpot) */
+                coord3d spot = start_pos;
+                StandTile *tile = start_stan;
+
+                spot.y = g_Startpad[rand_pad_index]->pos.y;
+                if (gevrSpawnSafeSpot(&spot, &tile, atan2f(g_Startpad[rand_pad_index]->look.x,
+                                      g_Startpad[rand_pad_index]->look.z), NULL, 0))
+                {
+                    start_pos.f[0] = spot.x;
+                    start_pos.f[2] = spot.z;
+                    start_stan = tile;
+                }
             }
         }
 #endif

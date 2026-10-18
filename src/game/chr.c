@@ -2683,7 +2683,10 @@ after_position_update:
     }
 
 #ifdef GEVR
-    if (gevrRagdollNeedsPose(chr)) headSwitchVisible = 1;
+    /* The snapshot draws independently. Retained native actors still need
+     * death/cleanup ticks, but no second pose, attachment or hit-list build. */
+    if (gevrRagdollSuppress(chr)) headSwitchVisible = 0;
+    else if (gevrRagdollNeedsPose(chr)) headSwitchVisible = 1;
 #endif
     if (headSwitchVisible)
     {
@@ -3013,10 +3016,12 @@ after_position_update:
         if (gevrTarget >= 0)
         {
             gevrPrevPlayer = get_cur_playernum();
+            g_gevrCoopGuardViewToWorld = currentPlayerGetViewToWorldMtxf();
             set_cur_player(gevrTarget);
             g_gevrCoopGuardTick = TRUE;
             chrlvTriggerFireWeapon(chr);
             g_gevrCoopGuardTick = FALSE;
+            g_gevrCoopGuardViewToWorld = NULL;
             set_cur_player(gevrPrevPlayer);
         }
         else if (!gevrStill && !gevrPuppet)

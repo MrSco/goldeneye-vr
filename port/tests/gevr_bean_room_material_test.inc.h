@@ -36,5 +36,26 @@ static void roomMaterialChecks(void)
     }
     assert(cycle && modes == 3 && cut == 1 && xlu == 1);
     free(dl); free(raw);
+    /* The merged float-world path must put an opaque same-image paint layer
+     * after its base and retain decal depth despite material/spatial batching. */
+    m.worldVertices = m.spatialSort = 1;
+    for (int i = 0; i < 6; i++) {
+        v[i].tex=0; v[i].alpha=255; v[i].cut=0;
+        v[i].decal=i<3;
+        v[i].uv[0]=i<3 ? .25f : 0;
+    }
+    assert(gevrBeanEmitList(&m,v,6,0,0,0,1,&dl,&raw));
+    const GevrWorldVertex *world=raw;
+    assert(world[0].tc[0]==0 && world[3].tc[0]>0);
+    modes=0;
+    for (Gfx *g=dl;(g->words.w0>>24)!=(G_ENDDL&255);g++) {
+        if ((g->words.w0>>24)!=G_GEVR_ROOM_STATE) continue;
+        uint32_t mode=gevrBeanRoomMode(g->words.w1,0);
+        assert((mode & Z_UPD) && (mode & Z_CMP));
+        assert((mode & ZMODE_DEC)==(modes ? ZMODE_DEC : ZMODE_OPA));
+        modes++;
+    }
+    assert(modes==2);
+    free(dl); free(raw);
     puts("Room materials: base before paint, cutout/translucent decals, fog preserves depth and alpha passed");
 }

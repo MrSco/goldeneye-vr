@@ -20,6 +20,7 @@
 #include "dyn.h"
 #include "gevr_bean.h"
 #include "gevr_romlayout.h"
+#include "gevr_mirror.h"
 #include "gevr_bean_int.h"
 #include "gevr_skin_mesh.h"
 #include "gevr_bean_room_state.h"
@@ -2471,8 +2472,13 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 				for (ModelNode *up = dls[i].node->Parent; up; up = up->Parent)
 					if (nodeOp(up) == MODELNODE_OPCODE_LOD && up->Data->LOD.MinDistance > 0)
 						far = 1;
-				if ((fit && !far && nodeMatrix(dls[i].node) == nodeMatrix(header->RootNode) && best < 0) ||
-				    (!fit && dls[i].span > bestSpan)) {
+                /* Prefer a fitted root body. Flying props can instead put
+                 * their hull on a non-root matrix after the rotor lists. */
+                int rootMatrix=nodeMatrix(header->RootNode);
+                int haveRoot=best>=0 && nodeMatrix(dls[best].node)==rootMatrix;
+                if ((fit && !far && nodeMatrix(dls[i].node)==rootMatrix && !haveRoot) ||
+                    (!fit && dls[i].span>bestSpan) ||
+                    (kind==BEAN_PROP && !haveRoot && !far && !dls[i].simple && dls[i].span>bestSpan)) {
 					bestSpan = dls[i].span;
 					best = i;
 				}
@@ -2620,6 +2626,17 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 							registerPrimary(dls[i].node, s_blank, 1);
 						continue;
 					}
+                    /* Alternate distance lists for the same body matrix must
+                     * carry the replacement too. Otherwise a plane's hull
+                     * vanishes at its LOD boundary while the rotors remain. */
+                    int bodyLod=0;
+                    for (ModelNode *up=dls[i].node->Parent;up;up=up->Parent)
+                        if (nodeOp(up)==MODELNODE_OPCODE_LOD && up->Data->LOD.MinDistance>0) bodyLod=1;
+                    if (kind==BEAN_PROP && mainEmitted && bodyLod
+                        && nodeMatrix(dls[i].node)==nodeMatrix(dls[best].node)) {
+                        registerPrimary(dls[i].node,gdl,0);
+                        continue;
+                    }
 					if (kind == BEAN_PROP && g >= 0 && g != binding.base) {
 						binding.target = g;
 						void *partGdl = NULL, *partVtx = NULL;
@@ -2755,9 +2772,26 @@ void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
 	struct gevrBeanMesh *mesh;
 	if (header) gevrBeanForgetModel(header);
 	/* Register while disabled too, so switching on works for loaded models. */
-	/* Not in a hack campaign: its models sit under GoldenEye's names but are its own. */
-	if (!header || !name || !gevrBeanIsAvailable() || gevrRomIsVariant()) {
+	/* Not in a hack campaign: its models sit under GoldenEye's names but are its own.
+	 * Mirror Mode's are GoldenEye's, some flipped (below). */
+	if (!header || !name || !gevrBeanIsAvailable() || !gevrRomRetailArt()) {
 		return;
+	}
+	const struct beanFit *fit = fitForName(name);
+	struct beanFit flipped;
+	if (gevrRomMirrored() && gevrMirrorBeanFlips(name)) {
+		/* Wreck flipped this model in its own x: so is the release's, on the
+		 * fit's first axis (fitMirrors then winds it the other way). With no
+		 * fit its own flipped model stays. */
+		if (!fit) {
+			GEVR_BEAN_LOG("gevr bean: %s: Mirror Mode's own (no fit to flip)", name);
+			return;
+		}
+		flipped = *fit;
+		flipped.sign[0] = -flipped.sign[0];
+		flipped.bc[0] = -flipped.bc[0];
+		flipped.nc[0] = -flipped.nc[0];
+		fit = &flipped;
 	}
 	if (strcmp(name, "PwalletbondZ") == 0) {
 		folderRepaint(header);
@@ -2775,8 +2809,13 @@ void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
 		GEVR_BEAN_LOG("gevr bean: %s: native fallback, CAFF not decoded (%s)", name, path);
 		return;
 	}
+	if (gevrRomMirrored() && gevrMirrorBeanInPlace(name) && !mesh->mirrorPieces) {
+		/* along the release's axis that becomes the model's x */
+		gevrBeanMeshMirrorPieces(mesh, fit ? fit->perm[0] : 0);
+		mesh->mirrorPieces = 1;
+	}
 	int before = s_nswap;
-	applyMesh(header, mesh, kind, fitForName(name));
+	applyMesh(header, mesh, kind, fit);
 	GEVR_BEAN_LOG("gevr bean: %s -> %s: %d draw nodes, %d triangles, %d textures",
 	             name, source, s_nswap - before, mesh->ntris, mesh->ntex);
 	/* Once the bounded cache is full, this load is temporary. Its display
@@ -2824,7 +2863,7 @@ static int s_rareLogoTried;
  * gold picture is an environment map, as the cartridge's chrome is. */
 void *gevrBeanRareLogoGdl(const float lo[3], const float hi[3], const void **picture)
 {
-    if (!gevrBeanIsEnabled() || !gevrBeanIsAvailable() || gevrRomIsVariant()) return NULL;
+    if (!gevrBeanIsEnabled() || !gevrBeanIsAvailable() || !gevrRomRetailArt()) return NULL;
     if (!s_rareLogoTried) {
         char path[192];
         struct gevrBeanMesh *mesh = NULL;
@@ -2864,8 +2903,10 @@ void *gevrBeanRareLogoGdl(const float lo[3], const float hi[3], const void **pic
             Vtx *dst = &verts[i];
             memset(dst, 0, sizeof(*dst));
             for (int k = 0; k < 3; k++) {
-                dst->n.ob[k] = posClamp((p[k] - (mlo[k] + mhi[k]) / 2) * scale + (lo[k] + hi[k]) / 2);
-                dst->n.n[k] = len > 1e-6f ? (s8)(n[k] * 127.0f / len) : 0;
+                /* Mirror Mode's logo is turned over in x (its own segment): so is the release's */
+                const float side = k == 0 && gevrRomMirrored() ? -1.0f : 1.0f;
+                dst->n.ob[k] = posClamp(side * (p[k] - (mlo[k] + mhi[k]) / 2) * scale + (lo[k] + hi[k]) / 2);
+                dst->n.n[k] = len > 1e-6f ? (s8)(side * n[k] * 127.0f / len) : 0;
             }
             dst->n.a = 255;
         }
@@ -2876,7 +2917,10 @@ void *gevrBeanRareLogoGdl(const float lo[3], const float hi[3], const void **pic
             int take = triangles - t;
             if (take > 5) take = 5;
             gSPVertex(g++, osVirtualToPhysical(&verts[t * 3]), take * 3, 0);
-            for (int j = 0; j < take; j++) gSP1Triangle(g++, j * 3, j * 3 + 1, j * 3 + 2, 0);
+            for (int j = 0; j < take; j++) {
+                const int second = gevrRomMirrored() ? 2 : 1;   /* turned over, it winds the other way */
+                gSP1Triangle(g++, j * 3, j * 3 + second, j * 3 + 3 - second, 0);
+            }
             t += take;
         }
         gSPClearGeometryMode(g++, G_ZBUFFER);
@@ -2945,7 +2989,7 @@ int gevrBeanIsEnabled(void)
 	if (s_available < 0) {
 		gevrBeanInit();
 	}
-	return s_want && s_available == 1 && !gevrRomIsVariant();
+	return s_want && s_available == 1 && gevrRomRetailArt();
 }
 
 void gevrBeanSetEnabled(int on)
