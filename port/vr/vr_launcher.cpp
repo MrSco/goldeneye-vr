@@ -1983,14 +1983,10 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
-        ImGui::TextDisabled("%s", voiceAllTeammates ? "Not used: teammates are always full volume"
-                                  : voiceTeams ? "Not used in teams"
+        ImGui::TextDisabled("%s", voiceAllTeammates ? "Not used: everyone is a teammate, full volume"
+                                  : voiceTeams ? "Not used: teammates full volume, opponents proximity"
                                   : netIsActive() && !netIsHost() ? "Host chooses"
                                   : "Proximity: 10% floor / Couch: full volume");
-
-        if (voiceTeams) {
-            ImGui::TextDisabled("Teams: teammates full volume; opponents proximity.");
-        }
     };
     ImGui::TextColored(gold, "ONLINE MULTIPLAYER");
     gevrLauncherBeginBody("##mpbody");

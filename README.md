@@ -448,8 +448,8 @@ In co-op, stand beside a downed teammate for 3 seconds to revive them.
 in a match, voices come from the speaker's direction, like the game's own sounds. Teammates
 are always at full volume: your team in team battles, and everyone in Horde and co-op. The
 host's **Voice mode** applies to free-for-all opponents: **Proximity** gets quieter with
-distance, **Couch** stays at full volume. Mute with **Mute microphone** in the launcher, **MIC** on the pause menu's
-**Audio** tab, or **Menu + B**. Your mute choice is saved.
+distance, **Couch** stays at full volume. Mute with **Mute microphone** in the launcher,
+**MIC** on the pause menu's **Audio** tab, or **Menu + B**. Your mute choice is saved.
 If you deny microphone access, you can still hear other players.
 
 **Over the internet.** No IP addresses and no router setup: headsets connect directly when they can,

@@ -223,7 +223,7 @@ EXPORT int test_core_pve_voice_teammates(void) {
     s_round.config.voice_mode=NET_VOICE_COUCH;CHECK(netVoiceModeForPair(0,1)==NET_VOICE_COUCH);
     const uint8_t modes[2]={NET_MODE_HORDE,NET_MODE_COOP};
     for(int m=0;m<2;m++) {
-        fixture(NET_SCENARIO_4V4);   /* a deathmatch team scenario riding along */
+        fixture(NET_SCENARIO_4V4);   /* teams in the lobby; the PvE latch drops them, the mode decides */
         s_lobby_state.config.mode=modes[m];
         netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_IN_PROGRESS;
         CHECK(s_round.config.voice_mode==NET_VOICE_PROXIMITY);
