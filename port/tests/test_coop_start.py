@@ -32,7 +32,8 @@ def build_library(folder, source_ref=None, player_source_ref=None):
         view = subprocess.check_output(['git', 'show', source_ref + ':src/game/bondview_r.c'],
                                        cwd=ROOT, text=True)
     solver = '\n'.join(block(view, n) for n in ('static s32 gevrCoopSpawnClear(',
-        'static s32 gevrCoopSpawnPath(', 's32 gevrCoopFindSpawnSpot(') if n in view)
+        'static s32 gevrCoopSpawnPath(', 'static StandTile *gevrSpawnGround(',
+        's32 gevrCoopFindSpawnSpot(', 's32 gevrSpawnSafeSpot(') if n in view)
     fixture = (ROOT / 'port/tests/campaign_spawn_native.c').read_text()
     player_props = (ROOT / 'src/game/chrprop.c').read_text()
     player_view = (ROOT / 'src/game/bondview2.c').read_text()
@@ -42,6 +43,9 @@ def build_library(folder, source_ref=None, player_source_ref=None):
     fixture = fixture.replace('/* INSERT_PLAYER_FILTER */', block(player_props, 's32 propIsOfCdType('))
     fixture = fixture.replace('/* INSERT_PLAYER_BOUNDS */', block(player_view, 'void bondviewGetPropHeightRelatedValues('))
     fixture = fixture.replace('/* INSERT_PLAYER_RULE */', block(stan, 'static s32 gevrNetInsidePlayerProp('))
+    ground = '\n'.join(block(stan, n) for n in ('bool stanTileHasZeroArea(',
+        'static bool gevrStanPointInTile(', 'static f32 gevrStanFloorAt('))
+    fixture = fixture.replace('/* INSERT_GROUND */', ground)
     fixture = fixture.replace('/* INSERT_GEOMETRY */', geometry).replace('/* INSERT_SOLVER */', solver)
     fixture = fixture.replace('/* INSERT_START */',block(view,'static void gevrCoopStartSpot('))
     fixture = fixture.replace('/* INSERT_AI_SIZE */',
@@ -228,9 +232,19 @@ def main():
                 outcomes[slot]=result
             assert all((a[0]-b[0])**2+(a[1]-b[1])**2>=65**2
                        for i,a in outcomes.items() for j,b in outcomes.items() if i!=j)
+            # Never off the floor (user report 2026-10-18: a Facility joiner
+            # placed outside the level). A spot over no floor, with a tile
+            # from elsewhere: either nothing, or a spot the corridor holds.
+            lib.gevrSpawnSafeSpot.argtypes = lib.gevrCoopFindSpawnSpot.argtypes
+            for x in (120, 300, -200):
+                pos, tile = Pos(x,170,0), C.c_void_p(start)
+                if lib.gevrSpawnSafeSpot(C.byref(pos), C.byref(tile), 0, None, 0):
+                    assert abs(pos.x) <= 35 and abs(pos.z) <= 400, 'spawn off the floor'
+                else:
+                    assert pos.x == x and tile.value == start
         finally:
             unload(lib)
-    print('PASS: vacant/poisoned player slot filtering, occupied/full-party soft collision, offline solidity, production scenery collision, height filtering, player 1 clearance, object interiors/escape, four reservations, narrow corridor, load order, safe failure')
+    print('PASS: vacant/poisoned player slot filtering, occupied/full-party soft collision, offline solidity, production scenery collision, height filtering, player 1 clearance, object interiors/escape, four reservations, narrow corridor, load order, safe failure, never off the floor')
 
 if __name__ == '__main__':
     main()
