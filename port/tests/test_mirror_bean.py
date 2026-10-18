@@ -64,6 +64,10 @@ int main(void)
     assert(gevrMirrorPropFlipped("Pdesk1Z") && gevrMirrorPropFlipped("PcarbmwZ") && gevrMirrorPropFlipped("Pammo_crate1Z"));
     assert(!gevrMirrorPropFlipped("CdjbondZ") && !gevrMirrorPropFlipped("Gak47Z") && !gevrMirrorPropFlipped("Pak47magZ"));
     assert(!gevrMirrorPropFlipped(NULL) && !gevrMirrorPropFlipped("Pdesk1"));
+    /* Bean keeps its own front end: the legal page and the logos, whose text stays GoldenEye's */
+    assert(gevrMirrorPropFlipped("PlegalpageZ") && !gevrMirrorBeanFlips("PlegalpageZ"));
+    assert(!gevrMirrorBeanFlips("PnintendologoZ") && !gevrMirrorBeanFlips("PgoldeneyelogoZ"));
+    assert(gevrMirrorBeanFlips("Pdesk1Z") && !gevrMirrorBeanFlips("CdjbondZ"));
     assert(gevrMirrorImageFlipped(2585) && gevrMirrorImageFlipped(2695));   /* Dam's stage picture, "where" */
     assert(!gevrMirrorImageFlipped(2236) && !gevrMirrorImageFlipped(2231)); /* the sight, the 9mm icon */
 
