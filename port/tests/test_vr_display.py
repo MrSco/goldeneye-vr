@@ -77,6 +77,14 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
                         "-o", str(exe)], check=True)
         ini = temp / "goldeneye-vr.ini"
         ini.unlink(missing_ok=True)
+        for campaign in range(4):
+            subprocess.run([str(exe), "campaign_write", str(campaign)], cwd=temp, check=True)
+            subprocess.run([str(exe), "campaign_read", str(campaign)], cwd=temp, check=True)
+        print("PASS: four campaign selections survive independent save/load processes")
+        for invalid in (-1, 4, 99):
+            ini.write_text(f"Campaign={invalid}\n", encoding="utf-8")
+            subprocess.run([str(exe), "campaign_read", "0"], cwd=temp, check=True)
+        ini.unlink(missing_ok=True)
         subprocess.run([str(exe)], cwd=temp, check=True, stdout=subprocess.DEVNULL)
         subprocess.run([str(exe), "speed_read", "100", "100"], cwd=temp, check=True)
         for solo in range(50, 201, 25):

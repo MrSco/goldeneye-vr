@@ -1,5 +1,5 @@
 /*
- * Bind a Goldfinger 64 or Tomorrow Never Dies cartridge into the engine
+ * Bind a supported hack cartridge into the engine
  * tables. Retail US keeps the generated manifest; this runs only after
  * gevrRomLayoutMatchHeader has accepted the file.
  */
@@ -211,7 +211,7 @@ int gevrRomRebindVariantFiles(void)
 }
 
 /*
- * Lamps: both hacks' check_if_imageID_is_light (7F0BB630) returns bit 23 of
+ * Lamps: the hacks' check_if_imageID_is_light (7F0BB630) returns bit 23 of
  * the image's 4-byte row instead of GoldenEye's list of ten ids, so a
  * GoldenEye lamp number no longer darkens the hack's room and its own lamps
  * break (Goldfinger flags 121, 1211, 1345, 1823, 2004, 2056, 3406, 3729).

@@ -14948,7 +14948,13 @@ void bondviewMovePlayerUpdateViewport(s8 stick_x, s8 stick_y, u16 buttons)
     watch_time_0 += jpD_800484D0;
 #else
     // VERSION_US
-    watch_time_0 += speedgraphframes;
+#ifdef GEVR
+    /* Wreck's Mirror Mode reverses the watch clock (ROM 0xBBF14). */
+    if (gevrRomCampaign() == GEVR_CAMPAIGN_MIRROR)
+        watch_time_0 -= speedgraphframes;
+    else
+#endif
+        watch_time_0 += speedgraphframes;
 #endif
 
     if (stop_time_flag != 0)
