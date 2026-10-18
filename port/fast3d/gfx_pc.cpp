@@ -5841,12 +5841,18 @@ extern "C" void gfx_run(Gfx* commands) {
         // frame at gevr_pipeline.txt 1; the intro's stereo part and frames that
         // missed the early tick at the default). Single-sampled, or replayed
         // in one pass as here, every frame was whole.
+        //
+        // The native pause menu is on the virtual screen's quad, not in the eye
+        // image, so a multisampled eye image behind it is replayed too: drawn
+        // straight in, the dimmed world behind the menu flickered and flashed
+        // (user, Horde, 2026-10-18).
         const float* eyeProj = &g_viProjectionMatrixF[0][0];
         const bool eyeInvertY = gfx_rapi->get_clip_parameters().invert_y;
         const bool eyeDeferred = gevrVrFrameDeferred() != 0;
-        if (!screenRendered && (eyeDeferred || vr_eye_multisampled()) && !(VrPauseHub && VrIsPaused) &&
+        const bool eyeMultisampled = vr_eye_multisampled() != 0;
+        if (!screenRendered && (eyeDeferred || eyeMultisampled) && !(VrPauseHub && VrIsPaused) &&
 #ifdef ANDROID
-            !gevrNativePauseOpen() &&
+            (!gevrNativePauseOpen() || eyeMultisampled) &&
 #endif
             gfx_vr_eye_record_possible(eyeProj, eyeInvertY)) {
             gfx_vr_eye_record_only(true);
