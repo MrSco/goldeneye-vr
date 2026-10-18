@@ -3,21 +3,33 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current release:** v0.5.6 (versionCode 86, protocol 22), 2026-10-17.
-v0.5.4 and v0.5.5 can join; v0.5.3 and older can't. Building does not
-publish a GitHub release. No game data is shipped.
+**Current release:** v0.5.7 (versionCode 87, protocol 23), 2026-10-18.
+Everyone in a lobby needs v0.5.7; v0.5.6 and older can't join. Building does
+not publish a GitHub release. No game data is shipped.
 
-v0.5.6 (PR #199): SpaceWarp ran the game at 75% speed at 90 Hz and 60% at
-72 Hz (half-rate frames, one 1/60 s step each); a late retrace now covers
-every slot it spans, audio too. On battery Quest caps the CPU at the
-governor's level and the GPU at 545 MHz, which SpaceWarp's light load kept
-low: the game asks for sustained-high CPU at start (ini CpuLevel). Bean's
-pictures are mipmapped (the sparkling pines), cutouts take
-alpha-to-coverage, and Anti-aliasing is Off or 2x (2x default; 4x looked
-the same and cost the battery GPU). Headset: Quest 3 on battery at 59-60
-fps through the Dam tunnel; 90/120 Hz game speed counted. Not checked: a
-Quest 3S, 72 Hz. Ask "plugged in or on battery?" for any stutter report.
-quest_profile.py --cold measures first views. [v0.5.6](docs/releases/v0.5.6.md).
+v0.5.7 (PR #201, PR #204 and the playtest fixes on their branch): Horde maps
+Bunker I/II, Control and Facility and a starting wave (host's Horde rules),
+Oddjob swarm (5, 15...) and boss rounds (10, 20...), armoured and Janus
+enemies, faster and more accurate guards, two guns, a finite laser; every
+openable door held open and unusable (a door start clears KEEPOPEN, so they
+are re-opened if moved), stations clear of doors, one crate per three deaths
+(no collision, taken at full ammo), 12 ragdolls at most in Horde. Facility's
+green flashes: a multisampled eye drawn straight in reached the compositor
+holding only its fog fill; every multisampled frame, the pause menu's too,
+takes the one-pass replay ([facility-fog-flash](docs/facility-fog-flash.md)).
+SpaceWarp: decals keep their surface's motion. Spawns everywhere go through
+gevrSpawnSafeSpot (floor found from all rooms, clear of players/objects, a
+pad in the room as fallback). Mirror Mode (Wreck) as campaign 3 with Bean and
+HD packs flipped to match (gevr_mirror.c; lists from tools/gevr_mirror_lists.py).
+Headset: Archives Horde and pause, Facility, posters, Mirror Mode with and
+without Bean. Not played: the new Horde maps and rounds, two-headset Horde, a
+Facility co-op join. [v0.5.7](docs/releases/v0.5.7.md),
+[Mirror Mode](docs/mirror-mode.md), [Horde](docs/horde-mode.md).
+
+v0.5.6 (PR #199): SpaceWarp slow motion below 120 Hz fixed, sustained-high
+CPU on battery (ini CpuLevel), Bean pictures mipmapped, cutouts with
+alpha-to-coverage, Anti-aliasing Off/2x. Ask "plugged in or on battery?" for
+any stutter report. [v0.5.6](docs/releases/v0.5.6.md).
 
 v0.5.4: Horde in Archives (PR #191; points, Mystery Box, Wall Buys, PR #193),
 solo or 1-4 humans, revives, results and retry; the optional AI ally Natalya
@@ -32,27 +44,13 @@ SpaceWarp feel at 120 Hz. [Horde](docs/horde-mode.md),
 settings moved to their own page, so Game rules no longer scrolls
 ([v0.5.5](docs/releases/v0.5.5.md)).
 
-v0.5.3 (PR #187, PR #188): optional ragdolls and dismemberment, off by
-default, on Play > Game rules (Damage needed / Chance sliders, Bodies stay in
-every mode). Cosmetic, local to each headset; tuning, cut rules, caps and level
-collision ported from Perfect Dark CE (Bean caps use CE's rule on Bean's skin);
-shot bodies bleed. GE-X rocket launcher: far-side decals culled, 1 cm decal
-band for hand-held models, its own rocket in the tube. Headset-accepted on Dam;
-Quest frame time with many bodies and two-headset play still unverified.
+v0.5.3 (PR #187, #188): optional ragdolls/dismemberment (Game rules, local
+to each headset, ported from Perfect Dark CE), GE-X rocket launcher decals.
 [Ragdolls](docs/ragdolls.md), [v0.5.3](docs/releases/v0.5.3.md).
 
-v0.5.0 (PR #180, PR #183): XBLA at 120 Hz on Quest 3 (early game tick before
-the XR wait, eye pass drawn by the redraw replay; 4-8 missed frames a minute on
-Dam, all in full-speed turns), Bean parity from Dab's Mod (node mode, body
-fade, scorched props, wounds, reflections, GoldenEye's water motion, hidden
-backdrop rooms, release boot logos, HD fill), #181 misses fly past Bond,
-Wreck's blood patch (Mods, off by default), guard tower stairs camera, Goldfinger
-title cast crash da10370a. v0.5.1: wounds on Bean heads (head box hits snap to
-the head, 40-unit radius), blood patch on its own Mods row above Done.
-v0.5.2 (PR #184, PR #185): Bean wound crashes 53f092b3/71b515e8 (shared head
-nodes), the Dam speedboat on the water, driven by the move stick in VR and 2D,
-stopped by the docks, grip on and off. [v0.5.0](docs/releases/v0.5.0.md),
-[v0.5.1](docs/releases/v0.5.1.md), [v0.5.2](docs/releases/v0.5.2.md),
+v0.5.0-v0.5.2 (PR #180, #183-#185): XBLA at 120 Hz on Quest 3 (early tick,
+replayed eye pass), Bean parity from Dab's Mod, Wreck's blood patch, wounds on
+Bean heads, the Dam speedboat on the water. [v0.5.0](docs/releases/v0.5.0.md),
 [performance](docs/bean-performance-improvements.md),
 [Bean backlog](docs/bean-parity-backlog.md).
 
@@ -64,13 +62,8 @@ and alarms. Headset checks covered Bean grips, gun fits and low doorways.
 [PR #172](docs/pr172-handoff.md), [Bean](docs/project-bean.md),
 [campaigns](docs/rom-hacks.md), [v0.4.20](docs/releases/v0.4.20.md).
 
-Movement speed: 50%-200%, 100% default, separate solo and host settings;
-host changes apply to the whole session, bots included. Room-scale walking
-is unchanged. Native checks pass; two-headset checks pending. Details:
-[movement speed](docs/player-movement-speed.md). Launcher Match and Comfort
-use two columns, and the eight-player lobby fits without scrolling. Chest
-and Belt defaults use saved Quest fits at 170 cm; custom fits stay intact.
-See [body slots](docs/body-slots.md).
+Movement speed 50%-200% (solo and host settings; two-headset checks pending,
+[movement speed](docs/player-movement-speed.md)); [body slots](docs/body-slots.md).
 
 ## What it is and what works
 
@@ -97,6 +90,11 @@ is goldeneyevr.com, in its own repository.
 - v0.5.4 headset checks still owed: Horde co-op (revives, late join, host
   loss), the ally in Horde and after host takeover, tracked arms on a second
   headset, Mystery Box/Wall Buys with more than one player.
+- v0.5.7 checks owed: Bunker/Control/Facility Horde, swarm and boss rounds,
+  two-headset Horde on this build, a co-op join on Facility. Runway autoguns
+  still firing after a timed mine (report): propobj.c logs `autogun:` and
+  `mine: blast` lines; get a log from the moment. Facility fog-coloured edge
+  wedges remain (also with AA off).
 
 - #164: v0.4.22 fixes the logged vacant-body blocker; broader co-op mission
   starts and reloads remain to be confirmed. Keep the issue open for now.
