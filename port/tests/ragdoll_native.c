@@ -13,6 +13,8 @@
 #include "gevr_ragdoll.c"
 
 int VrRagdolls, VrDismemberment, VrBodiesStay, VrDismemberChance=40;
+static int hordeOn;
+int netHordeActive(void) { return hordeOn; }
 float VrDismemberDamage=2.0f; /* CE's defaults: the cut-rule checks are CE's */
 s32 lvlGetCurrentStageToLoad(void) { return LEVELID_DAM; }
 static float weaponDamage=1;
@@ -373,6 +375,10 @@ int main(void)
         VrBodiesStay=48;
         gevrRagdollReset();assert(countBodies()==0 && !pdphysIsReady());
     }
+    /* Horde keeps a dozen whatever Bodies stay says */
+    playerCount=1;hordeOn=1;
+    for(int i=0;i<20;i++) { capture(0);assert(countBodies()==(i<RD_HORDE_BODIES?i+1:RD_HORDE_BODIES)); }
+    hordeOn=0;gevrRagdollReset();assert(countBodies()==0);
     playerCount=1;capture(0);
     RdBody *b=newest();
     collisionChecks();

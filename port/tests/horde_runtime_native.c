@@ -168,7 +168,8 @@ int main(void)
     actors[0].actiontype=ACT_DIE;gevrHordeTick(1);gevrHordeTick(1);
     assert(gevrHordeState()->kills==1 && gevrHordeState()->alive==5);
     assert(gevrHordeState()->credits[0]==HORDE_START_CREDITS+HORDE_HIT_CREDITS+HORDE_HEADSHOT_CREDITS);
-    /* One crate per actual death, including repeated lethal notifications.
+    /* One crate per dropping death (this guard's id is one of the one in
+     * three, hordeDropsAmmo), once for repeated lethal notifications.
      * Despawns give none. Pickup is shared, proximity checked and idempotent. */
     HordeState loot=*gevrHordeState();
     assert(loot.ammo[0].id==gevrHordeGuardId(&actors[0]));
@@ -183,7 +184,7 @@ int main(void)
     owned_items[ITEM_WPPK]=1;
     player_prop.pos=(coord3d){0};path_clear=0;
     gevrHordeTick(1);assert(supplies==1);
-    gevrHordeTick(1);assert(supplies==1 && supply_amount[AMMO_9MM]==16); /* snapshot grant applied once */
+    gevrHordeTick(1);assert(supplies==1 && supply_amount[AMMO_9MM]==32); /* snapshot grant applied once */
     /* Horde requests nearby route-blocking doors without re-triggering one
      * already opening, and never opens a distant door. */
     door_prop.type=PROP_TYPE_DOOR;door_prop.door=&test_door;
@@ -252,23 +253,23 @@ int main(void)
     assert(!gevrHordeState()->kills && !gevrHordeState()->alive);
     actors[63].actiontype=ACT_STAND;gevrHordeDefeat();assert(gevrHordeDefeated() && allyStops==2);
     /* Owned ammo pools grant once even with multiple guns sharing them.
-     * Explosive ammo arrives once per four shared crates, not per kill. */
+     * Explosive ammo arrives once per two shared crates, not per kill. */
     owned_items[ITEM_WPPK]=owned_items[ITEM_TT33]=owned_items[ITEM_AK47]=owned_items[ITEM_SHOTGUN]=1;
     owned_items[ITEM_RUGER]=owned_items[ITEM_ROCKETLAUNCH]=1;
     int before_ammo[AMMOTYPE_MAX];memcpy(before_ammo,supply_amount,sizeof(before_ammo));
     HordeState ammo_state=*gevrHordeState();ammo_state.revision++;ammo_state.ammo_grants[0]=4;
     gevrHordeApplyState(&ammo_state);gevrHordeTick(1);
-    assert(supply_amount[AMMO_9MM]-before_ammo[AMMO_9MM]==64);
-    assert(supply_amount[AMMO_RIFLE]-before_ammo[AMMO_RIFLE]==48);
-    assert(supply_amount[AMMO_SHOTGUN]-before_ammo[AMMO_SHOTGUN]==16);
-    assert(supply_amount[AMMO_MAGNUM]-before_ammo[AMMO_MAGNUM]==12);
-    assert(supply_amount[AMMO_ROCKETS]-before_ammo[AMMO_ROCKETS]==1);
+    assert(supply_amount[AMMO_9MM]-before_ammo[AMMO_9MM]==128);
+    assert(supply_amount[AMMO_RIFLE]-before_ammo[AMMO_RIFLE]==96);
+    assert(supply_amount[AMMO_SHOTGUN]-before_ammo[AMMO_SHOTGUN]==32);
+    assert(supply_amount[AMMO_MAGNUM]-before_ammo[AMMO_MAGNUM]==24);
+    assert(supply_amount[AMMO_ROCKETS]-before_ammo[AMMO_ROCKETS]==2);
     /* Full players leave crates for teammates. */
     ammo_state=*gevrHordeState();ammo_state.revision++;ammo_state.phase=HORDE_PREPARE;
     ammo_state.ammo[0]=(HordeAmmoDrop){99999,100,{player_prop.pos.x,0,player_prop.pos.z}};
     gevrHordeApplyState(&ammo_state);ammo_full=1;path_clear=1;
-    gevrHordeTick(1);assert(gevrHordeState()->ammo[0].id==99999);
-    ammo_full=0;gevrHordeTick(1);assert(!gevrHordeState()->ammo[0].id);
+    gevrHordeTick(1);assert(!gevrHordeState()->ammo[0].id);   /* taken at full ammo too */
+    ammo_full=0;
     puts("PASS: production Horde setup, safe pads, armed spawn publication, hit/headshot points, Mystery Box, Wall Buys, slot pressure, takeover reconciliation, death idempotency, despawn replacement, bounded shared ammo drops, doorway recovery, defeat and the companion kept out of wave accounting");
     puts("PASS: 45 simulated minutes of wave progression with bounded/recycled actors");
 }
