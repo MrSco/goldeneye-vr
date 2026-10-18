@@ -96,7 +96,7 @@ def main():
             "-include", "stdarg.h", "-DPLATFORM_64BIT=1", "-D_LANGUAGE_C", "-DGEVR", "-DVERSION_US",
             *["-I" + str(ROOT / p) for p in (".", "include", "src", "src/game", "port/include")],
             str(ROOT / "port/tests/gevr_bean_images_test.c"),
-            *[str(ROOT / "port/src" / (p + ".c")) for p in ("gevr_bean_images", "gevr_bean_tex", "gevr_bean_logic")],
+            *[str(ROOT / "port/src" / (p + ".c")) for p in ("gevr_bean_images", "gevr_bean_tex", "gevr_bean_logic", "gevr_mirror")],
             "-lm", "-o", str(exe)], check=True)
         run = subprocess.run([str(exe), "in.bin", "out.bin"], cwd=temp, capture_output=True, text=True, check=True)
         data = (temp / "out.bin").read_bytes()

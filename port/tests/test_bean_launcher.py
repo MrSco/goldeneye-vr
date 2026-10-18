@@ -26,6 +26,9 @@ static int VrBeanFillTextures=1, VrBloodPatch=0;
 static int VrOddjobHat=0;          /* Mods: Oddjob's hat (PR #196), drawn when its pack is listed */
 static int gevrHatAvailable() {return 1;}
 #define GEVR_CAMPAIGN_GE 0
+#define GEVR_CAMPAIGN_MIRROR 3
+#define GEVR_CAMPAIGN_COUNT 4
+static int gevrCampaignRetailArt(int c){return c==GEVR_CAMPAIGN_GE||c==GEVR_CAMPAIGN_MIRROR;}
 static std::vector<std::string> commands;
 static ImVec2 bean,hd,original,chooseBean;
 int gevrBeanIsEnabled(){return enabled&&have;}

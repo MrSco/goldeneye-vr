@@ -22,6 +22,7 @@ void videoFreeCachedTexture(const void *addr) { (void)addr; }
 int gevrBeanIsAvailable(void) { return 1; }
 int gevrBeanIsEnabled(void) { return 1; }
 int gevrRomIsVariant(void) { return 0; }
+int gevrRomCampaign(void) { return 0; }   /* GoldenEye */
 
 void sysLogPrintf(s32 level, const char *fmt, ...)
 {
