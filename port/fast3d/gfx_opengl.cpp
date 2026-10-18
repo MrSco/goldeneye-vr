@@ -3588,7 +3588,12 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
  * walking guard, an opening door or a swung gun carries its own motion. Others
  * (new this frame, the vertex ring) move with the head, hands and stick only.
  * A cutout (alpha-tested texture) discards as its own program does. Decals
- * lie on their surface and take its motion (drawn onto it, depth kept). A
+ * are not drawn: each lies on a surface drawn here, and its pixels keep that
+ * surface's motion and depth, a moving object's included. Drawn with their
+ * own motion they skewed off their walls whenever the two came by different
+ * ways - a wall matched to its last placement, a poster moved with the head
+ * and stick alone - worse the nearer the wall (user, 2026-10-18: Archives'
+ * posters and signs, SpaceWarp on only). A
  * blended draw (smoke, explosions, flashes, glass) writes where its texture is
  * at least half opaque, or wholly when untextured, so a moving effect carries
  * its own motion rather than the wall's behind it. Line mode draws the faces
@@ -3805,7 +3810,8 @@ static void gevr_motion_origin(const float* move, const float mp[16], float out[
  * of one model share their buffers: matching by order gave a body another
  * guard's last pose, and the runtime smeared it between frames. */
 static const GevrMotionRecord* gevr_motion_find(const std::vector<GevrMotionRecord>& before, std::vector<uint8_t>& taken,
-                                                uint64_t key, const float* prev, const float mp[16], float limit)
+                                                uint64_t key, const float* prev, const float mp[16], float limit,
+                                                float* gap)
 {
     auto it = s_motionIndex.find(key);
     if (it == s_motionIndex.end()) return NULL;
@@ -3822,6 +3828,7 @@ static const GevrMotionRecord* gevr_motion_find(const std::vector<GevrMotionReco
     }
     if (best < 0) return NULL;
     taken[best] = 1;
+    *gap = sqrtf(bestD);
     return &before[best];
 }
 
@@ -3884,11 +3891,14 @@ void gfx_vr_motion_pass(const float* const cur[4], const float* const prev[4], b
     GLuint vao = 0, tex = 0;
     GLsizei stride = -1;
     bool texCoords = false;
-    bool onSurface = false;
     uint32_t drawn = 0, skipped = 0, matched = 0;
+    // a matched still draw's last placement against the head-and-stick estimate (view units)
+    static float gapSum, gapMax;
+    static uint32_t gapCount;
     for (const GevrEyeDraw& d : s_eyeDraws) {
         const GevrEyeMesh* mesh = d.mesh ? &s_eyeMeshes[d.mesh - 1] : NULL;
-        if (d.isMenu) {
+        // decals keep the motion of the surface they lie on (see above)
+        if (d.isMenu || d.decalZ || d.decalDepth) {
             skipped++;
             continue;
         }
@@ -3916,11 +3926,17 @@ void gfx_vr_motion_pass(const float* const cur[4], const float* const prev[4], b
         if (mesh) {
             const uint64_t key = gevr_motion_key(want, d.first, d.count, (uint32_t)(d.hand + 1));
             if (matchPrev) {
+                float gap = 0.0f;
                 const GevrMotionRecord* r = gevr_motion_find(before, taken, key, prev[d.hand + 1], mesh->params.mp,
-                                                             0.5f * unitsPerMetre);
+                                                             0.5f * unitsPerMetre, &gap);
                 if (r && r->skinned == skin) {
                     was = r;
                     matched++;
+                    if (d.hand < 0 && !skin) {
+                        gapSum += gap;
+                        gapMax = std::max(gapMax, gap);
+                        gapCount++;
+                    }
                 }
             }
             GevrMotionRecord rec;
@@ -3974,27 +3990,10 @@ void gfx_vr_motion_pass(const float* const cur[4], const float* const prev[4], b
             }
             glUniform1f(m.cut, cut);
         }
-        // decals: onto their surface (the eye pass's pull toward the eye), its depth kept
-        const bool decal = d.decalZ || d.decalDepth;
-        if (decal != onSurface) {
-            if (decal) {
-                glEnable(GL_POLYGON_OFFSET_FILL);
-                glPolygonOffset(-2.0f, -2.0f);
-                glDepthMask(GL_FALSE);
-            } else {
-                glDisable(GL_POLYGON_OFFSET_FILL);
-                glDepthMask(GL_TRUE);
-            }
-            onSurface = decal;
-        }
         gevr_draw_range(d.first, d.count);
         drawn++;
     }
 
-    if (onSurface) {
-        glDisable(GL_POLYGON_OFFSET_FILL);
-        glDepthMask(GL_TRUE);
-    }
     // what the next frame's motion measures from
     s_motionIndex.clear();
     for (uint32_t i = 0; i < records.size(); i++) {
@@ -4031,6 +4030,14 @@ void gfx_vr_motion_pass(const float* const cur[4], const float* const prev[4], b
         if (VrShowStats || gevrFrameTimingTracing())
             vr_log("spacewarp: motion pass %u draws (%u moved from their own last placement), %u skipped per frame",
                    sumDrawn / frames, sumMatched / frames, sumSkipped / frames);
+        /* A still mesh moved from its own last placement and the head-and-stick
+         * estimate the unmatched draws take should agree; how far they don't,
+         * the skew those draws get against their neighbours (2026-10-18). */
+        if (gapCount)
+            vr_log("spacewarp: matched world draws vs head-and-stick move: mean %.1f cm, max %.1f cm (%u)",
+                   gapSum / gapCount / unitsPerMetre * 100.0f, gapMax / unitsPerMetre * 100.0f, gapCount);
+        gapSum = gapMax = 0.0f;
+        gapCount = 0;
         frames = sumDrawn = sumSkipped = sumMatched = 0;
     }
 }
