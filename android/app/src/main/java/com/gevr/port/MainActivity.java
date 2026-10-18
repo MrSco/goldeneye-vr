@@ -400,7 +400,15 @@ public class MainActivity extends SDLActivity {
         if (lobbies != null) lobbies.shutdown();
         nativeAudioPause();
         nativeDestroy();
-        super.onDestroy();
+        // Not super.onDestroy(): SDLActivity's waits on the game thread, which
+        // never returns on Android (SDL_QUIT is ignored there), so a quit held
+        // this thread until the system's ten-second destroy timeout killed the
+        // process. A launch from the Library in those seconds waited on the
+        // stuck process, and its input timeout became an ANR blamed on the next
+        // one (report 37093815). SIGKILL is not a crash to CrashExitPolicy, and
+        // the foreground marker was cleared above.
+        Log.i(TAG, "MainActivity onDestroy: ending the process");
+        android.os.Process.killProcess(android.os.Process.myPid());
     }
 
     private static final int VOICE_PERMISSION_REQUEST = 4137;
