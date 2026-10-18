@@ -64,9 +64,9 @@ int main(void)
     assert(gevrMirrorPropFlipped("Pdesk1Z") && gevrMirrorPropFlipped("PcarbmwZ") && gevrMirrorPropFlipped("Pammo_crate1Z"));
     assert(!gevrMirrorPropFlipped("CdjbondZ") && !gevrMirrorPropFlipped("Gak47Z") && !gevrMirrorPropFlipped("Pak47magZ"));
     assert(!gevrMirrorPropFlipped(NULL) && !gevrMirrorPropFlipped("Pdesk1"));
-    /* Bean keeps its own front end: the legal page and the logos, whose text stays GoldenEye's */
-    assert(gevrMirrorPropFlipped("PlegalpageZ") && !gevrMirrorBeanFlips("PlegalpageZ"));
-    assert(!gevrMirrorBeanFlips("PnintendologoZ") && !gevrMirrorBeanFlips("PgoldeneyelogoZ"));
+    /* the legal page: its pictures turned over in place; the logos whole */
+    assert(gevrMirrorPropFlipped("PlegalpageZ") && !gevrMirrorBeanFlips("PlegalpageZ") && gevrMirrorBeanInPlace("PlegalpageZ"));
+    assert(gevrMirrorBeanFlips("PnintendologoZ") && !gevrMirrorBeanInPlace("PnintendologoZ"));
     assert(gevrMirrorBeanFlips("Pdesk1Z") && !gevrMirrorBeanFlips("CdjbondZ"));
     assert(gevrMirrorImageFlipped(2585) && gevrMirrorImageFlipped(2695));   /* Dam's stage picture, "where" */
     assert(!gevrMirrorImageFlipped(2236) && !gevrMirrorImageFlipped(2231)); /* the sight, the 9mm icon */
@@ -119,6 +119,45 @@ int main(void)
         fitPoint(&flipped, s, b);
         assert(fabsf(b[0] + a[0]) < 1e-3f && fabsf(b[1] - a[1]) < 1e-3f && fabsf(b[2] - a[2]) < 1e-3f);
         assert(fitMirrors(&flipped) != fitMirrors(&fits[f]));
+    }
+
+    /* the legal page's pieces: two quads apart, each turned over about its own middle */
+    {
+        struct gevrBeanTri q[4];
+        memset(q, 0, sizeof(q));
+        const float quads[2][4][2] = { { { 0, 0 }, { 4, 0 }, { 4, 2 }, { 0, 2 } }, { { 10, 0 }, { 16, 0 }, { 16, 3 }, { 10, 3 } } };
+        for (int k = 0; k < 2; k++) {
+            const int order[2][3] = { { 0, 1, 2 }, { 0, 2, 3 } };
+            for (int t = 0; t < 2; t++) {
+                for (int c = 0; c < 3; c++) {
+                    q[k * 2 + t].p[c * 3] = quads[k][order[t][c]][0];
+                    q[k * 2 + t].p[c * 3 + 1] = quads[k][order[t][c]][1];
+                    q[k * 2 + t].uv[c * 2] = quads[k][order[t][c]][0] == quads[k][0][0] ? 0.0f : 1.0f;
+                }
+            }
+        }
+        struct gevrBeanMesh page;
+        memset(&page, 0, sizeof(page));
+        page.tris = q; page.ntris = 4;
+        float n0[3];
+        cross(q[0].p, n0);
+        gevrBeanMeshMirrorPieces(&page, 0);
+        float lo[2] = { 1e9f, 1e9f }, hi[2] = { -1e9f, -1e9f };
+        for (int t = 0; t < 4; t++)
+            for (int c = 0; c < 3; c++) {
+                const float x = q[t].p[c * 3];
+                if (x < lo[t / 2]) lo[t / 2] = x;
+                if (x > hi[t / 2]) hi[t / 2] = x;
+            }
+        assert(lo[0] == 0 && hi[0] == 4 && lo[1] == 10 && hi[1] == 16);   /* each where it was */
+        for (int t = 0; t < 4; t++)
+            for (int c = 0; c < 3; c++) {
+                const float x = q[t].p[c * 3], left = t < 2 ? 0.0f : 10.0f;
+                assert(q[t].uv[c * 2] == (x == left ? 1.0f : 0.0f));   /* the picture turned over */
+            }
+        float n1[3];
+        cross(q[0].p, n1);
+        assert(n1[2] * n0[2] > 0);   /* still facing out */
     }
 
     /* a turned-over picture */

@@ -21,16 +21,22 @@ struct gevrBeanMesh;
 int gevrRomMirrored(void);
 /* Mirror Mode flipped this object model (a file name, "Pdesk1Z") in its own x */
 int gevrMirrorPropFlipped(const char *name);
-/* Bean flips its own of this model too: one Wreck flipped, but not the front
- * end's (the legal page, the Nintendo and GoldenEye logos), whose text and
- * layout stay GoldenEye's - flipped, the logos sat on the copyright lines
- * (user, 2026-10-18) */
+/* Bean flips its own of this model too: one Wreck flipped, but not the legal
+ * page (gevrMirrorBeanInPlace) */
 int gevrMirrorBeanFlips(const char *name);
+/* The legal page: Wreck turned each picture over where it stands (the 007
+ * logo, the seals, the rating, the signatures), the page's layout and text
+ * GoldenEye's. Flipped whole, its pictures sat on the copyright lines; not
+ * flipped, they read the wrong way round (user screenshots, 2026-10-18). */
+int gevrMirrorBeanInPlace(const char *name);
 /* Mirror Mode changed this image (GoldenEye's image id) */
 int gevrMirrorImageFlipped(int image);
 /* x to -x for every triangle, its normals, bones and binds; each triangle's
  * last two corners swap so it still faces out */
 void gevrBeanMeshMirrorX(struct gevrBeanMesh *mesh);
+/* each separate piece (triangles joined by shared corners) turned over along
+ * axis (0..2) about its own middle, so it stays where it was */
+void gevrBeanMeshMirrorPieces(struct gevrBeanMesh *mesh, int axis);
 /* a picture's columns reversed (rgba, w x h) */
 void gevrMirrorRgbaX(unsigned char *rgba, int w, int h);
 
