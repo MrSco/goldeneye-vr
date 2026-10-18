@@ -21,6 +21,11 @@ struct gevrBeanMesh;
 int gevrRomMirrored(void);
 /* Mirror Mode flipped this object model (a file name, "Pdesk1Z") in its own x */
 int gevrMirrorPropFlipped(const char *name);
+/* Bean flips its own of this model too: one Wreck flipped, but not the front
+ * end's (the legal page, the Nintendo and GoldenEye logos), whose text and
+ * layout stay GoldenEye's - flipped, the logos sat on the copyright lines
+ * (user, 2026-10-18) */
+int gevrMirrorBeanFlips(const char *name);
 /* Mirror Mode changed this image (GoldenEye's image id) */
 int gevrMirrorImageFlipped(int image);
 /* x to -x for every triangle, its normals, bones and binds; each triangle's

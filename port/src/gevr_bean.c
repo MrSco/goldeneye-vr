@@ -2779,7 +2779,7 @@ void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
 	}
 	const struct beanFit *fit = fitForName(name);
 	struct beanFit flipped;
-	if (gevrRomMirrored() && gevrMirrorPropFlipped(name)) {
+	if (gevrRomMirrored() && gevrMirrorBeanFlips(name)) {
 		/* Wreck flipped this model in its own x: so is the release's, on the
 		 * fit's first axis (fitMirrors then winds it the other way). With no
 		 * fit its own flipped model stays. */
@@ -2898,10 +2898,8 @@ void *gevrBeanRareLogoGdl(const float lo[3], const float hi[3], const void **pic
             Vtx *dst = &verts[i];
             memset(dst, 0, sizeof(*dst));
             for (int k = 0; k < 3; k++) {
-                /* Mirror Mode's logo is flipped in x (its own segment): so is the release's */
-                const float side = k == 0 && gevrRomMirrored() ? -1.0f : 1.0f;
-                dst->n.ob[k] = posClamp(side * (p[k] - (mlo[k] + mhi[k]) / 2) * scale + (lo[k] + hi[k]) / 2);
-                dst->n.n[k] = len > 1e-6f ? (s8)(side * n[k] * 127.0f / len) : 0;
+                dst->n.ob[k] = posClamp((p[k] - (mlo[k] + mhi[k]) / 2) * scale + (lo[k] + hi[k]) / 2);
+                dst->n.n[k] = len > 1e-6f ? (s8)(n[k] * 127.0f / len) : 0;
             }
             dst->n.a = 255;
         }
@@ -2912,10 +2910,7 @@ void *gevrBeanRareLogoGdl(const float lo[3], const float hi[3], const void **pic
             int take = triangles - t;
             if (take > 5) take = 5;
             gSPVertex(g++, osVirtualToPhysical(&verts[t * 3]), take * 3, 0);
-            for (int j = 0; j < take; j++) {
-                const int second = gevrRomMirrored() ? 2 : 1;   /* the flipped logo winds the other way */
-                gSP1Triangle(g++, j * 3, j * 3 + second, j * 3 + 3 - second, 0);
-            }
+            for (int j = 0; j < take; j++) gSP1Triangle(g++, j * 3, j * 3 + 1, j * 3 + 2, 0);
             t += take;
         }
         gSPClearGeometryMode(g++, G_ZBUFFER);

@@ -37,6 +37,20 @@ int gevrMirrorPropFlipped(const char *name)
 	return 0;
 }
 
+int gevrMirrorBeanFlips(const char *name)
+{
+	static const char *const frontEnd[] = { "PlegalpageZ", "PnintendologoZ", "PgoldeneyelogoZ" };
+	if (!gevrMirrorPropFlipped(name)) {
+		return 0;
+	}
+	for (unsigned i = 0; i < sizeof(frontEnd) / sizeof(frontEnd[0]); i++) {
+		if (!strcmp(name, frontEnd[i])) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
 int gevrMirrorImageFlipped(int image)
 {
 	for (unsigned i = 0; i < sizeof(s_images) / sizeof(s_images[0]); i++) {
