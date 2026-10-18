@@ -28,6 +28,7 @@
 #include "gevr_bean.h"
 #include "gevr_bean_int.h"
 #include "gevr_romlayout.h"
+#include "gevr_mirror.h"
 
 enum { WHOLE, UL, UR, LL, LR };
 
@@ -367,7 +368,7 @@ void gevrBeanImageLoaded(int image, const void *data, int width, int height, int
 	}
 	/* whatever was painted at this address belonged to a texture that has gone */
 	gevrBeanRepaintUnbind(data);
-	if (image < 0 || image >= IMAGE_IDS || !gevrBeanIsAvailable() || gevrRomIsVariant()) {
+	if (image < 0 || image >= IMAGE_IDS || !gevrBeanIsAvailable() || !gevrRomRetailArt()) {
 		return;
 	}
 	if (!built) {
@@ -384,6 +385,9 @@ void gevrBeanImageLoaded(int image, const void *data, int width, int height, int
 		GEVR_BEAN_LOG("gevr bean images: no %s for image %d", row->picture, image);
 		return;
 	}
+	/* Mirror Mode turned this picture over (the stage pictures): so is the release's */
+	if (gevrRomMirrored() && gevrMirrorImageFlipped(image))
+		gevrMirrorRgbaX(rgba, w, h);
     if (!gevrBeanRepaintBind(GEVR_PAINT_IMAGE, data, rgba, w, h)) {
         GEVR_BEAN_LOG("gevr bean images: repaint capacity exhausted at image %d (%s)", image, row->picture);
     } else if (!reported[r]) {

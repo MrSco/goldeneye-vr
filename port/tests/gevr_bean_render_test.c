@@ -3,6 +3,8 @@
 #include "../src/gevr_bean.c"
 #include "../src/gevr_static_mesh_build.inc.h"
 int gevrRomIsVariant(void) { return 0; } /* GoldenEye: no hack campaign */
+int gevrRomCampaign(void) { return GEVR_CAMPAIGN_GE; }
+#include "../src/gevr_mirror.c"
 #include <assert.h>
 
 void sysLogPrintf(s32 level, const char *fmt, ...) { (void)level; (void)fmt; }

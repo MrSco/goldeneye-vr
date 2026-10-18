@@ -206,7 +206,8 @@ August 2017 [Mirror Mode patch](https://n64vault.com/ge-levels:mirror-mode) to y
 own GoldenEye 007 (USA) ROM, then choose **Add Mirror Mode ROM...** in the
 campaign dropdown beside **START**. Select **Mirror Mode (Wreck)** there to play.
 Your original ROM stays installed, and Mirror Mode has its own progress save.
-Online play, GoldenEye X, Bean and HD packs are off for this campaign.
+Online play and GoldenEye X are off for this campaign; Bean and HD packs work,
+flipped with it.
 See [optional campaigns](docs/rom-hacks.md) for preparation and supported versions.
 
 ## 🧩 GoldenEye X (optional, WIP)

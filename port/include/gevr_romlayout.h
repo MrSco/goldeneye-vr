@@ -133,6 +133,17 @@ struct gevrRomFileRow {
 void gevrRomCampaignSet(int campaign);
 int gevrRomCampaign(void);
 int gevrRomIsVariant(void);
+/* GoldenEye's own models and pictures: retail, or Mirror Mode's (flipped,
+ * gevr_mirror.h). Bean and HD packs need them; Goldfinger's and TND's are
+ * their own under GoldenEye's names. */
+static inline int gevrCampaignRetailArt(int campaign)
+{
+	return campaign == GEVR_CAMPAIGN_GE || campaign == GEVR_CAMPAIGN_MIRROR;
+}
+static inline int gevrRomRetailArt(void)
+{
+	return gevrCampaignRetailArt(gevrRomCampaign());
+}
 /*
  * The hack's own animation_table_ptrs1[] and ptrs2[] (initanitable.c), read
  * from its data segment by gevrRomApplyVariant: where in its animation segment
