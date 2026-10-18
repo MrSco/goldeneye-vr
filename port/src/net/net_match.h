@@ -28,7 +28,13 @@ int netStageIndexOf(uint8_t level_id);      /* -1 unknown */
  * solo difficulty (DIFFICULTY_AGENT .. DIFFICULTY_007).
  */
 enum { NET_MODE_DEATHMATCH = 0, NET_MODE_COOP = 1, NET_MODE_HORDE = 2 };
-#define NET_HORDE_STAGE 24 /* Archives */
+#define NET_HORDE_STAGE 24 /* Archives, the default */
+/* Horde's maps (user, 2026-10-17: Bunker, Control, Facility): campaign
+ * stages whose setups give the guard pads, stations and start. */
+static inline int netHordeStageValid(unsigned stage) {
+    return stage == 24 || stage == 9 || stage == 27 || stage == 23 || stage == 34;
+}
+#define NET_HORDE_MAX_START_WAVE 50 /* horde_rules.h HORDE_MAX_START_WAVE */
 #define NET_LOBBY_HORDE_STAGE 0x7f /* distinct from campaign stage-byte encoding */
 #define NET_COOP_MAX_PLAYERS 4
 static inline int netModePve(int mode) { return mode == NET_MODE_COOP || mode == NET_MODE_HORDE; }

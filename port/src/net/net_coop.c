@@ -764,6 +764,7 @@ static int coopMakeSpawn(const CoopSpawn *sp)
     prop->chr->bodynum = sp->body;
     prop->chr->chrnum = sp->chrnum;
     gevrHordeSetGuardId(prop->chr, (u32)sp->generation);
+    gevrHordeDecorateGuard(prop->chr, sp->body);
     gevrAllyAttach(prop->chr, sp->flags);
     s32 local = coopSlotOf(prop->chr);
     if (local >= 0 && local < COOP_MAX_SLOTS) {

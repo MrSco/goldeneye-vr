@@ -24,7 +24,11 @@ void netHordeSend(int slot)
     netbufWriteU8(&b,s->box_state); netbufWriteU8(&b,s->box_spot);
     netbufWriteU8(&b,s->box_buyer); netbufWriteU8(&b,s->box_weapon); netbufWriteU8(&b,s->box_uses);
     for (unsigned i=0;i<4;i++) { netbufWriteU8(&b,s->grant_kind[i]); netbufWriteU8(&b,s->grant_item[i]); }
-    for (unsigned i=0;i<4;i++) { netbufWriteU32(&b,s->ammo_grants[i]); netbufWriteU32(&b,s->wall_owned[i]); }
+    for (unsigned i=0;i<4;i++) {
+        netbufWriteU32(&b,s->ammo_grants[i]);
+        for (unsigned g=0;g<HORDE_GUN_SLOTS;g++) netbufWriteU8(&b,s->guns[i][g]);
+        netbufWriteU8(&b,s->grant_replace[i]);
+    }
     for (unsigned i=0;i<HORDE_AMMO_DROPS;i++) {
         netbufWriteU32(&b,s->ammo[i].id); netbufWriteU32(&b,s->ammo[i].ticks);
         for (unsigned k=0;k<3;k++) netbufWriteF32(&b,s->ammo[i].pos[k]);
@@ -47,8 +51,9 @@ void netHordeReceive(struct netbuf *b)
     s.box_buyer=netbufReadU8(b); s.box_weapon=netbufReadU8(b); s.box_uses=netbufReadU8(b);
     for (unsigned i=0;i<4;i++) { s.grant_kind[i]=netbufReadU8(b); s.grant_item[i]=netbufReadU8(b); }
     for (unsigned i=0;i<4;i++) {
-        s.ammo_grants[i]=netbufReadU32(b);s.wall_owned[i]=netbufReadU32(b);
-        if (s.wall_owned[i]&~31u) return;
+        s.ammo_grants[i]=netbufReadU32(b);
+        for (unsigned g=0;g<HORDE_GUN_SLOTS;g++) s.guns[i][g]=netbufReadU8(b);
+        s.grant_replace[i]=netbufReadU8(b);
     }
     for (unsigned i=0;i<HORDE_AMMO_DROPS;i++) {
         s.ammo[i].id=netbufReadU32(b); s.ammo[i].ticks=netbufReadU32(b);

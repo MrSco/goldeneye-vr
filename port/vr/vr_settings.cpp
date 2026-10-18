@@ -243,6 +243,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "MpVoiceMode=%d\n", VrMpVoiceMode);
     fprintf(f, "MpFriendlyFire=%d\n", VrMpFriendlyFire);
     fprintf(f, "HordeFriendlyFire=%d\n", VrHordeFriendlyFire);
+    fprintf(f, "HordeStage=%d\n", VrHordeStage);
+    fprintf(f, "HordeStartWave=%d\n", VrHordeStartWave);
     fprintf(f, "HostEqualization=%d\nHostLatencyCapMs=%d\n", VrHostEqualization, VrHostLatencyCapMs);
     fprintf(f, "MpFunFlags=%d\nMpGunSize=%d\nMpMaxPlayers=%d\n", VrMpFunFlags, VrMpGunSize, VrMpMaxPlayers);
     fprintf(f, "MpBotMode=%d\nMpBotCount=%d\nMpBotDifficulty=%d\n", VrMpBotMode, VrMpBotCount, VrMpBotDifficulty);
@@ -733,6 +735,8 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "HostLatencyCapMs") == 0) VrHostLatencyCapMs = ival < 0 ? 0 : ival > 80 ? 80 : ival;
             else if (strcmp(key, "MpFriendlyFire") == 0) VrMpFriendlyFire = ival != 0;
             else if (strcmp(key, "HordeFriendlyFire") == 0) VrHordeFriendlyFire = ival != 0;
+            else if (strcmp(key, "HordeStage") == 0) VrHordeStage = (ival == 24 || ival == 9 || ival == 27 || ival == 23 || ival == 34) ? ival : 24;   // net_match.h netHordeStageValid
+            else if (strcmp(key, "HordeStartWave") == 0) VrHordeStartWave = ival < 1 ? 1 : ival > 50 ? 50 : ival;
             else if (strcmp(key, "MpFunFlags") == 0) VrMpFunFlags = ival >= 0 && !(ival & ~NET_FUN_MASK) ? ival : 0;
             else if (strcmp(key, "MpGunSize") == 0) VrMpGunSize = ival >= 0 && ival <= 2 ? ival : 0;
             else if (strcmp(key, "MpMaxPlayers") == 0) VrMpMaxPlayers = ival >= 2 && ival <= 8 ? ival : 4;

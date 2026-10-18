@@ -88,6 +88,20 @@ StandTile *stanFindTileBelowPos(coord3d *pos,u8 *rooms,f32 *y) {(void)rooms;*y=p
 void sysLogPrintf(s32 level,const char *fmt,...) {(void)level;(void)fmt;}
 void netHordeSend(int slot) {(void)slot;}
 void netHordeAdmitPlayers(void) {}
+/* 2026-10-17: held-open doors, the two-gun list, additive ammo, the start wave */
+s32 g_GlobalTimer;
+unsigned netHordeStartWave(void) {return 1;}
+bool doorIsPadlockFree(DoorRecord *d) {(void)d;return 1;}
+void doorUpdateBbox(DoorRecord *d) {(void)d;}
+void doorActivatePortal(DoorRecord *d) {(void)d;}
+void door7F053B10(DoorRecord *d) {(void)d;}
+void netSendHostDoorState(ObjectRecord *d,s32 state) {(void)d;(void)state;}
+s32 check_cur_player_ammo_amount_in_inventory(AMMOTYPE ammo) {(void)ammo;return 0;}
+InvItem *bondinvGetDualWeapon(ITEM_IDS right,ITEM_IDS left) {(void)right;(void)left;return NULL;}
+void bondinvRemoveItem(InvItem *item) {(void)item;}
+void bondinvRemoveItemByID(ITEM_IDS item) {if(item>0 && item<ITEM_IDS_MAX)owned_items[item]=0;}
+ITEM_IDS getCurrentPlayerWeaponId(GUNHAND hand) {(void)hand;return ITEM_WPPK;}
+void gunRequestHandWeaponChange(enum GUNHAND hand,s32 next,s32 dir) {(void)hand;(void)next;(void)dir;}
 void netHordeRequestAction(unsigned action,unsigned item) {gevrHordeHandleAction(0,action,item);}
 void chrStopFiring(ChrRecord *chr) {(void)chr;}
 AIRecord *ailistFindById(s32 id) {(void)id;static AIRecord list;return &list;}
