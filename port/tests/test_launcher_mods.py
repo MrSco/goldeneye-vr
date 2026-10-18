@@ -10,6 +10,7 @@ split_start = source.index('static std::vector<std::string> gevrSplit(')
 split_end = source.index('// Issue #25: the Mods page.', split_start)
 fixture = r'''
 #include "gevr_launcher_ui.h"
+#include "gevr_romlayout.h"
 #include "imgui/imgui_internal.h"
 #include <cstdio>
 #include <cstring>
@@ -22,7 +23,6 @@ static int VrGexGuns=1, bean; static int VrCampaign=0; /* GoldenEye; hack campai
 static int VrBeanFillTextures=1, VrBloodPatch=0;   /* Mods: Bean HD fill, Wreck's blood patch */
 static int VrOddjobHat=0;          /* Mods: Oddjob's hat (PR #196), drawn when its pack is listed */
 static int gevrHatAvailable() {return 1;}
-#define GEVR_CAMPAIGN_GE 0
 static bool available;
 static std::string raw;
 static unsigned clockMs;
@@ -72,6 +72,6 @@ int main(){
 with tempfile.TemporaryDirectory(prefix='gevr-mods-ui-') as d:
     generated=Path(d)/'mods.cpp';out=Path(d)/'mods.exe'
     generated.write_text(fixture.replace('/* PRODUCTION */',source[split_start:split_end]+page))
-    subprocess.run([shutil.which('g++') or 'g++','-std=c++17','-O2','-Iport/vr',str(generated),
+    subprocess.run([shutil.which('g++') or 'g++','-std=c++17','-O2','-Iport/vr','-Iport/include',str(generated),
         *['port/vr/imgui/'+f for f in ('imgui.cpp','imgui_draw.cpp','imgui_tables.cpp','imgui_widgets.cpp')],'-o',str(out)],cwd=root,check=True)
     subprocess.run([str(out)],cwd=root,check=True)

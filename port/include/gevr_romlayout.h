@@ -2,13 +2,15 @@
 #define GEVR_ROMLAYOUT_H
 
 /*
- * Measured layouts for Goldfinger 64 1.0 and Tomorrow Never Dies 64
- * Expanded 06-22. The numbers come from perfect-dark-dabs-mod's g_Layouts
- * (port/src/geconvert.c), MIT License, Copyright (c) 2022 Ryan Dwyer,
- * measurements by Dab. This header does not pull that converter in.
+ * Measured layouts for Goldfinger 64 1.0, Tomorrow Never Dies 64
+ * Expanded 06-22 and Wreck's Mirror Mode (August 2017). The GF64/TND64
+ * numbers come from perfect-dark-dabs-mod's g_Layouts (port/src/geconvert.c),
+ * MIT License, Copyright (c) 2022 Ryan Dwyer, measurements by Dab. Mirror
+ * Mode was measured from Wreck's patch; see docs/mirror-mode.md. This header
+ * does not pull that converter in.
  *
- * Retail ge.z64 stays where it is. The two hacks live beside it
- * (goldfinger64.z64, tnd64.z64). The launcher campaign picks which file
+ * Retail ge.z64 stays where it is. The hacks live beside it
+ * (goldfinger64.z64, tnd64.z64, mirror.z64). The launcher campaign picks which file
  * romdataInit binds.
  */
 
@@ -26,9 +28,12 @@ extern "C" {
 #define GEVR_CAMPAIGN_GE   0
 #define GEVR_CAMPAIGN_GF64 1
 #define GEVR_CAMPAIGN_TND64 2
+#define GEVR_CAMPAIGN_MIRROR 3
+#define GEVR_CAMPAIGN_COUNT 4
 
 #define GEVR_ROM_GF_FILE  "goldfinger64.z64"
 #define GEVR_ROM_TND_FILE "tnd64.z64"
+#define GEVR_ROM_MIRROR_FILE "mirror.z64"
 /* Written when a chosen campaign did not load; the launcher shows it and deletes it. */
 #define GEVR_CAMPAIGN_FAILED_FILE "gevr_campaign_failed.txt"
 

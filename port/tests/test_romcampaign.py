@@ -270,11 +270,45 @@ def tnd(exe):
           "and its Rare logo is read where it moved it" % (tables[5], anim[0]))
 
 
+def mirror(exe):
+    """Optional check against the player's complete patched ROM; no assets are shipped."""
+    path = os.environ["GEVR_MIRROR_ROM"]
+    rom = Path(path).read_bytes()
+    out = subprocess.run([str(exe), path, "3"], capture_output=True, text=True, check=True).stdout
+    got = {}
+    for line in out.splitlines():
+        row = line.split()
+        got.setdefault(row[0], []).append(row[1:])
+    assert got.get("match") == [["yes"]] and got.get("apply") == [["1"]], out
+    assert got.get("rebind") == [["1"]], out
+    expected = expect(rom, dict(images=2698, imagerows=(0x80049300, 2698),
+                               chrs=(0x8003DE10, 80), props=(0x8003A228, 340),
+                               blast=0x8003B224, pieces=[]))
+    assert got["images"] == [["2698"]] and got["props"] == [["340"]]
+    files = {int(r[0]): (r[1], int(r[2]), int(r[3])) for r in got.get("file", [])}
+    assert files == expected["files"], "Mirror resource table differs from its ROM"
+    for label in ("chr", "prop"):
+        actual = {int(r[0]): r[1:] for r in got[label]}
+        assert actual == {i: [str(v) for v in row] for i, row in enumerate(expected[label])}, label
+    for row, want, names in zip(got["level"], expected["levels"], expected["levelnames"]):
+        assert int(row[0]) == want[0] and tuple(row[1:3]) == names
+        assert all(close(a, b) for a, b in zip(row[3:], want[3:]))
+    anim = got.get("anim", [["0", "1"]])[0]
+    assert int(anim[0]) >= 170 and int(anim[1]) == 0, "Mirror animation rebuild: " + str(anim)
+    assert got["rarelogo"] == [[str(0x29E550)]]
+    print("PASS: Mirror ROM binder, resource table, models, levels, relocated animations and Rare logo")
+
+
 def main():
     path = os.environ.get("GEVR_GF64_ROM")
     exe = None
-    if os.environ.get("GEVR_TND64_ROM"):
+    if os.environ.get("GEVR_MIRROR_ROM"):
         exe = build()
+        mirror(exe)
+    else:
+        print("SKIP: set GEVR_MIRROR_ROM to Wreck's August 2017 Mirror Mode .z64 for the real-ROM binder check")
+    if os.environ.get("GEVR_TND64_ROM"):
+        exe = exe or build()
         tnd(exe)
     if not path or not Path(path).is_file():
         print("SKIP: set GEVR_GF64_ROM to a Goldfinger 64 1.0 .z64 to run the binder on it")
