@@ -1,6 +1,9 @@
 /*
  * Wreck's Mirror Mode for Bean (XBLA) and HD packs: see gevr_mirror.h.
  */
+#include <math.h>
+#include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "gevr_mirror.h"
@@ -37,18 +40,14 @@ int gevrMirrorPropFlipped(const char *name)
 	return 0;
 }
 
+int gevrMirrorBeanInPlace(const char *name)
+{
+	return name && !strcmp(name, "PlegalpageZ");
+}
+
 int gevrMirrorBeanFlips(const char *name)
 {
-	static const char *const frontEnd[] = { "PlegalpageZ", "PnintendologoZ", "PgoldeneyelogoZ" };
-	if (!gevrMirrorPropFlipped(name)) {
-		return 0;
-	}
-	for (unsigned i = 0; i < sizeof(frontEnd) / sizeof(frontEnd[0]); i++) {
-		if (!strcmp(name, frontEnd[i])) {
-			return 0;
-		}
-	}
-	return 1;
+	return gevrMirrorPropFlipped(name) && !gevrMirrorBeanInPlace(name);
 }
 
 int gevrMirrorImageFlipped(int image)
@@ -68,6 +67,108 @@ static void swapBytes(unsigned char *a, unsigned char *b, int n)
 		a[i] = b[i];
 		b[i] = t;
 	}
+}
+
+/* a triangle turned over along axis: a to twice - a */
+static void flipTri(struct gevrBeanMesh *mesh, int i, int axis, float twice)
+{
+	struct gevrBeanTri *t = &mesh->tris[i];
+	for (int c = 0; c < 3; c++) {
+		t->p[c * 3 + axis] = twice - t->p[c * 3 + axis];
+		t->n[c * 3 + axis] = -t->n[c * 3 + axis];
+	}
+	swapBytes((unsigned char *)&t->p[3], (unsigned char *)&t->p[6], 3 * sizeof(float));
+	swapBytes((unsigned char *)&t->n[3], (unsigned char *)&t->n[6], 3 * sizeof(float));
+	swapBytes((unsigned char *)&t->uv[2], (unsigned char *)&t->uv[4], 2 * sizeof(float));
+	swapBytes(&t->bone[4], &t->bone[8], 4);
+	swapBytes(&t->weight[4], &t->weight[8], 4);
+	swapBytes(&t->rgba[4], &t->rgba[8], 4);
+	if (mesh->triSrc) {
+		uint32_t v = mesh->triSrc[i].vi[1];
+		mesh->triSrc[i].vi[1] = mesh->triSrc[i].vi[2];
+		mesh->triSrc[i].vi[2] = v;
+	}
+}
+
+struct mirrorCorner {
+	int32_t key[3];
+	int tri;
+};
+
+static int cornerCmp(const void *a, const void *b)
+{
+	const struct mirrorCorner *x = a, *y = b;
+	for (int k = 0; k < 3; k++) {
+		if (x->key[k] != y->key[k]) {
+			return x->key[k] < y->key[k] ? -1 : 1;
+		}
+	}
+	return 0;
+}
+
+static int findRoot(int *parent, int i)
+{
+	while (parent[i] != i) {
+		parent[i] = parent[parent[i]];
+		i = parent[i];
+	}
+	return i;
+}
+
+void gevrBeanMeshMirrorPieces(struct gevrBeanMesh *mesh, int axis)
+{
+	if (!mesh || mesh->ntris <= 0 || axis < 0 || axis > 2) {
+		return;
+	}
+	const int n = mesh->ntris;
+	struct mirrorCorner *corners = malloc((size_t)n * 3 * sizeof(*corners));
+	int *parent = malloc((size_t)n * sizeof(int));
+	float *lo = malloc((size_t)n * sizeof(float)), *hi = malloc((size_t)n * sizeof(float));
+	if (!corners || !parent || !lo || !hi) {
+		free(corners);
+		free(parent);
+		free(lo);
+		free(hi);
+		return;
+	}
+	/* pieces: triangles that share a corner */
+	for (int i = 0; i < n; i++) {
+		parent[i] = i;
+		lo[i] = 1e30f;
+		hi[i] = -1e30f;
+		for (int c = 0; c < 3; c++) {
+			for (int k = 0; k < 3; k++) {
+				corners[i * 3 + c].key[k] = (int32_t)lroundf(mesh->tris[i].p[c * 3 + k] * 64.0f);
+			}
+			corners[i * 3 + c].tri = i;
+		}
+	}
+	qsort(corners, (size_t)n * 3, sizeof(*corners), cornerCmp);
+	for (int i = 1; i < n * 3; i++) {
+		if (!cornerCmp(&corners[i - 1], &corners[i])) {
+			int a = findRoot(parent, corners[i - 1].tri), b = findRoot(parent, corners[i].tri);
+			if (a != b) {
+				parent[a] = b;
+			}
+		}
+	}
+	/* each piece's extent along the axis, then each turned over about its middle */
+	for (int i = 0; i < n; i++) {
+		int r = findRoot(parent, i);
+		for (int c = 0; c < 3; c++) {
+			float v = mesh->tris[i].p[c * 3 + axis];
+			if (v < lo[r]) lo[r] = v;
+			if (v > hi[r]) hi[r] = v;
+		}
+	}
+	for (int i = 0; i < n; i++) {
+		int r = findRoot(parent, i);
+		flipTri(mesh, i, axis, lo[r] + hi[r]);
+	}
+	free(corners);
+	free(parent);
+	free(lo);
+	free(hi);
 }
 
 void gevrBeanMeshMirrorX(struct gevrBeanMesh *mesh)
