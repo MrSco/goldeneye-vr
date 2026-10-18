@@ -1718,12 +1718,13 @@ extern "C" const char *fsFullPath(const char *relPath);
 static std::atomic<int> s_tpUserOff{0};
 static bool s_tpIndexed = false;
 extern "C" int gevrTexpackState(void) {
-    if (gevrRomIsVariant()) return -1;  /* a hack campaign: no pack, as Dab's Mod */
+    /* a hack campaign: no pack, as Dab's Mod; Mirror Mode keeps GoldenEye's pictures */
+    if (!gevrRomRetailArt()) return -1;
     if (g_ActiveExtTexPack[0] == '\0' && !gevrBeanIsEnabled()) return -1;
     return s_tpUserOff ? 0 : 1;
 }
 extern "C" int gevrTexpackToggle(void) {
-    if (gevrRomIsVariant()) return -1;
+    if (!gevrRomRetailArt()) return -1;
     if (g_ActiveExtTexPack[0] == '\0' && !gevrBeanIsEnabled()) return -1;
     return (s_tpUserOff ^= 1) ? 0 : 1;
 }
@@ -1741,13 +1742,16 @@ extern "C" void gevrTexpackStartEarly(void) {
      * textures by content, so they would only replace the ones the hack kept
      * from GoldenEye. Dab's Mod turns its HD assets off on hack stages too.
      * The launcher's choice, as the ROM layer has not bound a campaign yet.
+     * Mirror Mode keeps GoldenEye's pictures: the ones it turned over no longer
+     * match their pack images and stay its own.
      */
     s_tpFillOnly = false;
-    if (VrCampaign == 0 && g_ActiveExtTexPack[0] != '\0' && strcmp(g_ActiveExtTexPack, "ge007-bean") != 0) {
+    const bool retailArt = gevrCampaignRetailArt(VrCampaign);
+    if (retailArt && g_ActiveExtTexPack[0] != '\0' && strcmp(g_ActiveExtTexPack, "ge007-bean") != 0) {
         char rel[320];
         snprintf(rel, sizeof(rel), "$S/texture-packs/%s", g_ActiveExtTexPack);
         normal = fsFullPath(rel);
-    } else if (VrCampaign == 0 && (g_ActiveExtTexPack[0] != '\0' || gevrBeanIsEnabled())) {
+    } else if (retailArt && (g_ActiveExtTexPack[0] != '\0' || gevrBeanIsEnabled())) {
         /* Bean's look: an installed HD pack, to fill its gaps (tp_find, BeanFillTextures) */
         for (const char *pack : { "ge007-hd-ai", "ge007-hd" }) {
             char rel[320];

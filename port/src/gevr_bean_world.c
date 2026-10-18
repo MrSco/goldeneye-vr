@@ -16,6 +16,7 @@
 #include "gevr_bean_log.h"
 #include "gevr_bean_control.h"
 #include "gevr_bean_fog.h"
+#include "gevr_mirror.h"
 
 #include <ultra64.h>
 #include <PR/gbi.h>
@@ -700,6 +701,10 @@ static int buildStage(int stage)
 		GEVR_BEAN_LOG("gevr bean: no HD rooms for stage %d (%s)\n", stage, st->bg);
 		return 0;
 	}
+	/* Mirror Mode's level is GoldenEye's about x = 0: so are the release's rooms,
+	 * before they are matched to the cartridge's room triangles */
+	if (gevrRomMirrored())
+		gevrBeanMeshMirrorX(mesh);
 	mesh->roomMaterial = 1;
     mesh->worldVertices = 1;
     /* The world's triangles a run (a draw). 4096: at the Dam's start, 24 fewer
@@ -943,6 +948,9 @@ static int buildSky(int stage)
 		GEVR_BEAN_LOG("gevr bean: no HD sky %s\n", name);
 		return 0;
 	}
+	/* its horizon with the level's, in Mirror Mode */
+	if (gevrRomMirrored())
+		gevrBeanMeshMirrorX(mesh);
 	for (int i = 0; i < mesh->ntris; i++) {
 		for (int c = 0; c < 3; c++) {
 			float x = mesh->tris[i].p[c * 3];

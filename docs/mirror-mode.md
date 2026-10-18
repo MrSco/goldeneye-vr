@@ -21,8 +21,20 @@ Missing or rejected campaign data falls back to GoldenEye.
 This integration uses the patch's own mirrored backgrounds, collision, setups,
 object models, textures and animations. It also reproduces its backwards watch
 clock. Like the other hack campaigns, this runs solo with online/co-op/bots,
-GE-X, Bean, HD packs and the launcher's cheat list disabled. Existing preferences
-are retained. Wreck's N64 multiplayer changes are not part of the VR network
+GE-X and the launcher's cheat list disabled. Existing preferences are retained.
+
+Bean (XBLA) and HD packs stay available, because Mirror Mode keeps GoldenEye's
+own models and pictures under their names. Wreck flipped each level about
+x = 0 and 140 object models in their own x; characters, hats and guns are
+left alone, and doors mirror at run time (`DOORFLAG_FLIP`). Bean follows him
+(`port/src/gevr_mirror.c`): its rooms and sky dome are mirrored before they are
+matched to the cartridge's room triangles, a flipped model's fit takes its x
+negated (and its triangles wound the other way), its Rare logo is flipped, and
+the pictures he turned over (the stage pictures) are turned over too. A flipped
+model with no fit keeps Wreck's own. HD packs match pictures by content, so the
+ones he changed keep his. `tools/gevr_mirror_lists.py` lists what he changed
+(`port/src/gevr_mirror_lists.inc.h`, names and numbers only) from the retail and
+Mirror Mode cartridges. Wreck's N64 multiplayer changes are not part of the VR network
 protocol; the game's own cheat menu remains available.
 
 ## Layout measurements

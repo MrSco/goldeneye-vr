@@ -921,7 +921,8 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             // Bean's meshes are GoldenEye's models remade: off in a hack campaign
-            ImGui::BeginDisabled(!usable || (bean && VrCampaign != GEVR_CAMPAIGN_GE));
+            // but Mirror Mode, which keeps GoldenEye's (and Bean flips them with it)
+            ImGui::BeginDisabled(!usable || (bean && !gevrCampaignRetailArt(VrCampaign)));
             if (ImGui::RadioButton(title, active)) {
                 snprintf(g_ActiveExtTexPack, 256, "%s", p.id.c_str());
                 gevrBeanSetEnabled(bean);
@@ -981,7 +982,7 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     if (!beanListed && gevrBeanIsAvailable() && ImGui::RadioButton("XBLA / Bean (local files)", gevrBeanIsEnabled())) {
         gevrBeanSetEnabled(1);
     }
-    if (VrCampaign != GEVR_CAMPAIGN_GE && gevrBeanIsAvailable())
+    if (!gevrCampaignRetailArt(VrCampaign) && gevrBeanIsAvailable())
         ImGui::TextWrapped("XBLA / Bean is off while the Goldfinger 64 or Tomorrow Never Dies campaign is chosen.");
     else if (gevrBeanIsEnabled()) {
         // How to toggle Bean in game is the Bean row's tooltip: with the HD fill
@@ -3835,6 +3836,7 @@ extern "C" void gevrLauncherRun(void)
         // a hack is chosen, the hint otherwise (one line, so the page keeps its height)
         footerNote = !campaignFail.empty() ? campaignFail : !gfNote.empty() ? gfNote : !tndNote.empty() ? tndNote : !mirrorNote.empty() ? mirrorNote
                    : VrCampaign == GEVR_CAMPAIGN_GE ? std::string()
+                   : VrCampaign == GEVR_CAMPAIGN_MIRROR ? "Solo, with its own save. Online play and GoldenEye X are off."
                    : "Solo, with its own save. Online play, GoldenEye X, Bean and HD packs are off.";
         footerBad = !campaignFail.empty();
         }   // cheatPage
