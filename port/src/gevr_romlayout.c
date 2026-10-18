@@ -1,10 +1,11 @@
 /*
- * Measured ROM layouts for Goldfinger 64 1.0 and Tomorrow Never Dies 64
- * Expanded 06-22.
+ * Measured ROM layouts for Goldfinger 64 1.0, Tomorrow Never Dies 64
+ * Expanded 06-22 and Wreck's Mirror Mode (August 2017).
  *
  * Rows are the g_Layouts table from perfect-dark-dabs-mod
  * (port/src/geconvert.c). MIT License, Copyright (c) 2022 Ryan Dwyer.
- * Measurements by Dab. This file does not include that converter.
+ * Measurements by Dab. Mirror Mode was measured from Wreck's xdelta patch
+ * (docs/mirror-mode.md). This file does not include that converter.
  */
 
 #include "gevr_romlayout.h"
@@ -12,7 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define GEVR_LAYOUT_COUNT 3
+#define GEVR_LAYOUT_COUNT GEVR_CAMPAIGN_COUNT
 #define GEVR_AI_OPS 253
 
 static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
@@ -136,6 +137,43 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		{ 11, 12 },
 		0x297930,
 	},
+	/* Wreck's GE_MirrorMode_patch.xdelta, 2017-08-12. Same US engine tables,
+	 * 4-byte image rows; animation records shrink by 16 bytes, moving the
+	 * logo, gunbarrel, fonts and audio banks. Measurements: docs/mirror-mode.md. */
+	{
+		"Mirror Mode (Wreck)", "mirror", "GOLDENEYE", "NGEE",
+		{ 0x94, 0xbd, 0x9a, 0x93, 0x4f, 0x82, 0x1a, 0xc8 },
+		0xc00000, 1,
+		0x80049300, 0x8eda20, 2698, 4, 0x7fffff,
+		0x8003de10, 80,
+		{ { 0 } },
+		{
+			{ 0x2e63e0, 0x24b0 }, { 0x2e8890, 0x3540 },
+			{ 0x3b4440, 0x43a0 }, { 0x3b87e0, 0x60fa0 }, { 0x419780, 0x1eed0 },
+			{ 0x2ebdd0, 0x5bc0 }, { 0x2f1990, 0xc2ab0 },
+			{ 0x2a4d40, 107890 },
+		},
+		{ { 23, 75 }, { 5, 78 }, { 24, 76 }, { 22, 74 }, { 25, 77 }, { 5, 78 }, { 5, 78 }, { 5, 78 }, { 5, 78 } },
+		{
+			-1, -1, 186, 209, 191, 204, 205, 193, 184, 195, 189, 206, 194, 188, 197, 192,
+			207, 210, 190, 208, 191, 191, 187, -1, 185, 211, 196, 201, 200, 199, -1, -1,
+		},
+		0x28e980, 0x29d150, 0xac8,
+		0, 0, 0, 0,
+		0, 0, 0,
+		0x8003a228, 340, 0x8003b224,
+		0,
+		0x8003e464, 42, 28,
+		5, 78,
+		{ { 0 } },
+		21, 13,
+		{ 39, 55 },
+		/* & 1; Ruger and Silver PP7; the bomb case; AMMO_KNIFE; the sniper rifle */
+		1, { 18, 20 }, 33, 10, 17,
+		0,
+		{ 18, 19 },
+		0x29e550,
+	},
 };
 
 /* First field of g_GeAiCommands in perfect-dark-dabs-mod port/include/geaitable.h.
@@ -202,7 +240,7 @@ static const char *dataString(const uint8_t *data, uint32_t dataLen, uint32_t pt
 
 void gevrRomCampaignSet(int campaign)
 {
-	if (campaign < GEVR_CAMPAIGN_GE || campaign > GEVR_CAMPAIGN_TND64) {
+	if (campaign < GEVR_CAMPAIGN_GE || campaign >= GEVR_CAMPAIGN_COUNT) {
 		campaign = GEVR_CAMPAIGN_GE;
 	}
 	g_Campaign = campaign;

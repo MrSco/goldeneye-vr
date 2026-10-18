@@ -95,6 +95,22 @@ def test_headers(lib):
     assert lib.gevrRomIsVariant() == 0
     assert tag_of(lib, lib.gevrRomActiveLayout()) == "ge"
 
+    mirror, mirror_size = header(b"GOLDENEYE", b"NGEE",
+                                 [0x94, 0xbd, 0x9a, 0x93, 0x4f, 0x82, 0x1a, 0xc8], 0xC00000)
+    assert tag_of(lib, lib.gevrRomLayoutMatchHeader(mirror, mirror_size)) == "mirror"
+    assert not lib.gevrRomLayoutMatchHeader(mirror, 0x1000000)
+    damaged = bytearray(mirror)
+    damaged[0x10] ^= 1
+    assert not lib.gevrRomLayoutMatchHeader(bytes(damaged), mirror_size)
+    lib.gevrRomCampaignSet(3)
+    assert lib.gevrRomCampaign() == 3 and lib.gevrRomIsVariant() == 1
+    assert tag_of(lib, lib.gevrRomActiveLayout()) == "mirror"
+    assert lib.gevrRomMissionLimit() == 20
+    assert lib.gevrRomCreditsAfter() == lib.gevrRomAdvanceBelow() == 0
+    for invalid in (-1, 4, 99):
+        lib.gevrRomCampaignSet(invalid)
+        assert lib.gevrRomCampaign() == 0
+
     gf, gf_size = header(b"GOLDFINGER", b"NGFE",
                          [0xb2, 0x24, 0x27, 0x48, 0xff, 0xbd, 0x61, 0xda], 0x1800000)
     assert tag_of(lib, lib.gevrRomLayoutMatchHeader(gf, gf_size)) == "gf64"

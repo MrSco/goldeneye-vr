@@ -78,8 +78,8 @@ static void load_stage(void)
 }
 int main(void)
 {
-    const int campaigns[] = {GEVR_CAMPAIGN_GE, GEVR_CAMPAIGN_GF64, GEVR_CAMPAIGN_TND64};
-    for (int campaign = 0; campaign < 3; campaign++)
+    const int campaigns[] = {GEVR_CAMPAIGN_GE, GEVR_CAMPAIGN_GF64, GEVR_CAMPAIGN_TND64, GEVR_CAMPAIGN_MIRROR};
+    for (int campaign = 0; campaign < (int)(sizeof(campaigns) / sizeof(campaigns[0])); campaign++)
     {
         gevrRomCampaignSet(campaigns[campaign]);
         for (players = 1; players <= 8; players += 7)
