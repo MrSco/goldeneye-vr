@@ -227,6 +227,15 @@ int main(int argc, char **argv) {
         assert(VrWatchFaceStatus == GEVR_WATCH_FACE_ONLY && !VrWatchGesturePause);
         return 0;
     }
+    if (argc > 1 && std::strcmp(argv[1], "campaign_write") == 0) {
+        VrCampaign = std::atoi(argv[2]);
+        vrSettingsSave();
+        return 0;
+    }
+    if (argc > 1 && std::strcmp(argv[1], "campaign_read") == 0) {
+        assert(VrCampaign == std::atoi(argv[2]));
+        return 0;
+    }
     if (argc == 1) {
         assert(VrFastReinforcements == 0);
         assert(VrCoopFastReinforcements == 0);

@@ -251,8 +251,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; 1 = GoldenEye X's first-person guns from data/gex.z64 (experimental, docs/gex-weapons.md).\n");
     /* a hack campaign turns the models off for its run only (gevr_romload.c) */
     fprintf(f, "GexGuns=%d\n", (VrGexGuns || gevrGexCampaignOff) ? 1 : 0);
-    fprintf(f, "; Campaign at Start: 0 GoldenEye, 1 Goldfinger 64, 2 Tomorrow Never Dies.\n");
-    fprintf(f, "; The three ROMs stay installed together (docs/rom-hacks.md).\n");
+    fprintf(f, "; Campaign at Start: 0 GoldenEye, 1 Goldfinger 64, 2 Tomorrow Never Dies, 3 Mirror Mode.\n");
+    fprintf(f, "; The four ROMs stay installed together (docs/rom-hacks.md).\n");
     fprintf(f, "Campaign=%d\n", VrCampaign);
     fprintf(f, "; 1 = in the headset GoldenEye X's arms are every arm, the left wearing the watch; 0 = the watch arm.\n");
     for (int i = 0; i < 4; i++) fprintf(f, "MpCustom%d=%d\n", i + 1, VrMpCustom[i]);
@@ -741,7 +741,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MpBotDifficulty") == 0) VrMpBotDifficulty = ival >= 0 && ival <= 5 ? ival : 2;
             else if (strcmp(key, "DetailedGuns") == 0) VrDetailedGuns = ival != 0;
             else if (strcmp(key, "GexGuns") == 0) VrGexGuns = ival != 0;
-            else if (strcmp(key, "Campaign") == 0) VrCampaign = ival >= 0 && ival <= 2 ? ival : 0;
+            else if (strcmp(key, "Campaign") == 0) VrCampaign = ival >= 0 && ival < GEVR_CAMPAIGN_COUNT ? ival : 0;
             /* GexArms (before one toggle): on by default, nothing without the guns; GexGuns decides */
             else if (strcmp(key, "MpVoiceMode") == 0) VrMpVoiceMode = ival == 1 ? 1 : 0;
             else if (strcmp(key, "MpScenario") == 0) VrMpScenario = ival;
