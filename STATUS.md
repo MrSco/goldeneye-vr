@@ -3,9 +3,16 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current release:** v0.5.8 (versionCode 88, protocol 23), 2026-10-18.
-v0.5.7 and v0.5.8 play together; v0.5.6 and older can't join. Building does
+**Current release:** v0.5.9 (versionCode 89, protocol 23), 2026-10-18.
+v0.5.7 to v0.5.9 play together; v0.5.6 and older can't join. Building does
 not publish a GitHub release. No game data is shipped.
+
+v0.5.9 (PR #206): teammates are always heard at full gain, so Horde and
+co-op (everyone a teammate) use Couch gain whatever the host's Voice mode
+(netVoiceModeForPair); the mode only reaches FFA opponents, and the launcher
+greys it out in Horde, co-op and team battles. Gain is per listener, so
+older peers keep the old rule until they update. Headset-accepted on the PR
+build. [v0.5.9](docs/releases/v0.5.9.md).
 
 v0.5.8 (PR #205): Quit from the Meta menu ends the process in
 MainActivity.onDestroy after its own teardown, instead of SDLActivity's join
