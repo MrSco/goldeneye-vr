@@ -47,6 +47,8 @@ int VrMpStage = 27, VrMpWeaponSet = 4, VrMpChr = 0, VrMpVisibility = 0;
 int VrMpVoiceMode = 0;
 int VrMpFriendlyFire = 1;
 int VrHordeFriendlyFire = 0; /* independent Horde preference */
+int VrHordeStage = 24;        /* Horde's map, a LEVELID (net_match.h netHordeStageValid) */
+int VrHordeStartWave = 1;     /* Horde's first wave, 1..50 */
 int VrHostEqualization = 1, VrHostLatencyCapMs = 50;
 int VrMpFunFlags = 0, VrMpGunSize = 0;
 int VrMpMaxPlayers = 4;

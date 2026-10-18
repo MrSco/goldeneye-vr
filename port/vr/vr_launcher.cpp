@@ -1180,7 +1180,9 @@ static const char *stageNameById(int levelId) { return netStageName(netStageInde
 // 0x80 | where the party is (its menus or a mission's level id), and its
 // difficulty in the weapons' place (net_core.c netGetLobbyStage).
 static std::string listedGameLabel(int stage, int weapons) {
-    if (stage == NET_LOBBY_HORDE_STAGE) return "Horde: Archives";
+    // Horde lists its map in the weapons' place (net_core.c netGetLobbyWeaponSet)
+    if (stage == NET_LOBBY_HORDE_STAGE)
+        return netHordeStageValid((unsigned)weapons) ? std::string("Horde: ") + netCoopStageName((uint8_t)weapons) : "Horde";
     if (stage & NET_LOBBY_COOP_STAGE) {
         const uint8_t where = (uint8_t)(stage & 0x7F);
         if (where == NET_COOP_FRONT_STAGE)
@@ -1225,7 +1227,9 @@ static NetMatchConfig gevrLauncherConfig() {
     c.bot_count = (uint8_t)(VrMpBotCount >= 1 && VrMpBotCount < GEVR_MAX_PLAYERS ? VrMpBotCount : 3);
     c.bot_difficulty = (uint8_t)clampi(VrMpBotDifficulty, NET_BOT_DIFF_COUNT, NET_BOT_NORMAL);
     if (VrMpMode == NET_MODE_HORDE) {
-        c.mode=NET_MODE_HORDE;c.stage=NET_HORDE_STAGE;c.difficulty=0;
+        c.mode=NET_MODE_HORDE;c.difficulty=0;
+        c.stage=(uint8_t)(netHordeStageValid((unsigned)VrHordeStage)?VrHordeStage:NET_HORDE_STAGE);
+        c.horde_start_wave=(uint8_t)(VrHordeStartWave<1?1:VrHordeStartWave>NET_HORDE_MAX_START_WAVE?NET_HORDE_MAX_START_WAVE:VrHordeStartWave);
         c.friendly_fire=VrHordeFriendlyFire!=0;
         c.max_players=NET_COOP_MAX_PLAYERS;c.bot_mode=NET_BOT_OFF;
         c.scenario=0;c.game_length=0;c.loadouts=0;c.dual_wield=NET_DUAL_DOUBLES;
@@ -1290,7 +1294,11 @@ static void gevrHostChoiceChanged() {
     VrMpNextRound = accepted->next_round;
     }
     VrMpVoiceMode = accepted->voice_mode;
-    if (accepted->mode == NET_MODE_HORDE) VrHordeFriendlyFire = accepted->friendly_fire;
+    if (accepted->mode == NET_MODE_HORDE) {
+        VrHordeFriendlyFire = accepted->friendly_fire;
+        VrHordeStage = accepted->stage;
+        VrHordeStartWave = accepted->horde_start_wave;
+    }
     else VrMpFriendlyFire = accepted->friendly_fire;
     VrMpFunFlags = accepted->fun_flags & NET_FUN_MASK;
     if (accepted->mode == NET_MODE_COOP)
@@ -1685,8 +1693,8 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
                                   [&](int n){return n+2<minimum;})) { VrMpMaxPlayers=count+2;gevrHostChoiceChanged(); }
             }
         } else if (VrMpMode == NET_MODE_HORDE) {
-            ImGui::TextDisabled("Archives: solo or up to 4 players");
-            ImGui::TextWrapped("Endless waves of armed guards. Resupply between waves. Everyone down ends the run.");
+            ImGui::TextDisabled("%s: solo or up to 4 players",netCoopStageName((uint8_t)VrHordeStage));
+            ImGui::TextWrapped("Endless waves of armed guards, with Oddjob swarms and bosses. Ammo drops from enemies. Everyone down ends the run.");
         } else {
             ImGui::TextDisabled("Campaign: up to %d players",NET_COOP_MAX_PLAYERS);
             if (ImGui::IsItemHovered()) gevrTooltip("Each player picks a folder. The host picks missions. Players can join or leave any time.");
@@ -2003,6 +2011,25 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                                     else VrMpFriendlyFire = ff;
                                     gevrHostChoiceChanged();
                                 }
+                                if (VrMpMode == NET_MODE_HORDE) {
+                                    // the map and the first wave (user, 2026-10-17); a change
+                                    // reaches the next launch or retry
+                                    static const int maps[] = { 24, 9, 27, 23, 34 };
+                                    static const char *names[] = { "Archives", "Bunker I", "Bunker II", "Control", "Facility" };
+                                    int pick = 0;
+                                    for (int i = 0; i < 5; i++) if (maps[i] == VrHordeStage) pick = i;
+                                    ImGui::TextUnformatted("Map:");ImGui::SameLine();ImGui::SetNextItemWidth(-1);
+                                    if (ImGui::Combo("##hordemap", &pick, names, 5)) {
+                                        VrHordeStage = maps[pick];
+                                        gevrHostChoiceChanged();
+                                    }
+                                    ImGui::TextUnformatted("Start at wave:");ImGui::SameLine();ImGui::SetNextItemWidth(-1);
+                                    if (ImGui::SliderInt("##hordewave", &VrHordeStartWave, 1, NET_HORDE_MAX_START_WAVE, "%d")) {
+                                        gevrHostChoiceChanged();
+                                    }
+                                    if (ImGui::IsItemHovered())
+                                        gevrTooltip("Later waves start with the points the skipped waves would have paid.");
+                                }
                                 if (VrMpMode == NET_MODE_COOP) {
                                 bool fast = netIsActive() ? (netGetMatchConfig()->fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0
                                                     : VrCoopFastReinforcements != 0;
@@ -2074,7 +2101,8 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                         else if (connected) {
                             const NetMatchConfig *cfg = netGetMatchConfig();
                             if (cfg->mode == NET_MODE_HORDE) {
-                                ImGui::TextDisabled("Horde: Archives, endless armed guard waves");
+                                ImGui::TextDisabled("Horde: %s, starting at wave %d",netCoopStageName(cfg->stage),
+                                                    cfg->horde_start_wave ? cfg->horde_start_wave : 1);
                             } else if (cfg->mode == NET_MODE_COOP) {
                                 ImGui::Text("Co-op campaign: the host picks the missions");
                                 ImGui::TextDisabled("Fast reinforcements: %s (host chooses)",

@@ -22,9 +22,9 @@ void gevrHordeApplyState(const HordeState *s) {state=*s;applied++;}
 unsigned gevrHordeGuardId(const struct ChrRecord *chr) {return chr?123:0;}
 int gevrHordeHandleAction(int slot, unsigned action, unsigned item) {
     observed_item=item;
-    if (action == HORDE_ACT_BOX) return hordeUseBox(&state, (unsigned)slot) != 0;
+    if (action == HORDE_ACT_BOX) return hordeUseBox(&state, (unsigned)slot, 20, 0) != 0;
     if (action == HORDE_ACT_WALL_BUY || action == HORDE_ACT_WALL_AMMO)
-        return hordeBuyWall(&state, (unsigned)slot, item, action == HORDE_ACT_WALL_AMMO);
+        return hordeBuyWall(&state, (unsigned)slot, item & 255, action == HORDE_ACT_WALL_AMMO, 10, 0);
     return 0;
 }
 void netCoopBroadcast(const unsigned char *p,unsigned size,int reliable) {
@@ -51,8 +51,8 @@ int main(void)
     for(int i=0;i<60;i++)hordeAdvance(&state,15,2);
     hordeSpawned(&state);
     hordeAddCredits(&state,1,600);
-    assert(hordeUseBox(&state,1)==1);
-    state.ammo_grants[2]=17;state.wall_owned[3]=31;
+    assert(hordeUseBox(&state,1,20,0)==1);
+    state.ammo_grants[2]=17;state.guns[3][0]=2;state.guns[3][1]=33;state.grant_replace[1]=10;
     for(unsigned i=0;i<HORDE_AMMO_DROPS;i++)state.ammo[i]=(HordeAmmoDrop){1000+i,1200,{i*10.0f,-20.0f,3.0f}};
     HordeState saved=state;
     netHordeSend(-1);memset(&state,0,sizeof(state));hosting=false;receive();
@@ -77,14 +77,20 @@ int main(void)
     HordeState valid=state;
     state.ammo[0].pos[0]=NAN;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
     state.ammo[1].id=state.ammo[0].id;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
-    state.wall_owned[0]=32;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
+    state.guns[0][1]=200;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
     assert(gevrHordeGuardToken((struct ChrRecord *)1)==(((uint64_t)7<<32)|123));
     assert(gevrHordeTokenCurrent(((uint64_t)7<<32)|123));
     assert(!gevrHordeTokenCurrent(((uint64_t)6<<32)|123));
     assert(!gevrHordeTokenCurrent((uint64_t)7<<32));
-    NetMatchConfig c={0};c.mode=NET_MODE_HORDE;c.stage=NET_HORDE_STAGE;c.max_players=4;
+    NetMatchConfig c={0};c.mode=NET_MODE_HORDE;c.stage=NET_HORDE_STAGE;c.max_players=4;c.horde_start_wave=1;
     assert(netMatchConfigValid(&c) && netConfigMaxPlayers(&c)==4);
-    c.stage=27;assert(!netMatchConfigValid(&c));c.stage=NET_HORDE_STAGE;
+    /* Horde's maps: Archives, Bunker I/II, Control, Facility, and no others */
+    const unsigned maps[]={24,9,27,23,34};
+    for(unsigned i=0;i<5;i++){c.stage=maps[i];assert(netMatchConfigValid(&c) && netConfigMaxPlayers(&c)==4);}
+    c.stage=26;assert(!netMatchConfigValid(&c) && netConfigMaxPlayers(&c)==0);c.stage=NET_HORDE_STAGE;
+    c.horde_start_wave=0;assert(!netMatchConfigValid(&c));
+    c.horde_start_wave=NET_HORDE_MAX_START_WAVE+1;assert(!netMatchConfigValid(&c));
+    c.horde_start_wave=NET_HORDE_MAX_START_WAVE;assert(netMatchConfigValid(&c));c.horde_start_wave=1;
     c.bot_mode=NET_BOT_FILL;assert(!netMatchConfigValid(&c));
     NetChrState actor={0},copy;actor.generation=((uint64_t)7<<32)|123;
     unsigned char raw[NET_CHR_STATE_BYTES];struct netbuf b={.data=raw,.size=sizeof(raw)};

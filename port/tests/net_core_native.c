@@ -99,7 +99,7 @@ EXPORT int test_core_horde_lobby(void) {
     fixture(NET_SCENARIO_4V4);
     for(int i=1;i<GEVR_MAX_PLAYERS;i++)s_lobby_state.slots[i].connected=0;
     NetMatchConfig c=s_lobby_state.config;
-    c.mode=NET_MODE_HORDE;c.stage=NET_HORDE_STAGE;c.difficulty=0;c.max_players=4;
+    c.mode=NET_MODE_HORDE;c.stage=NET_HORDE_STAGE;c.difficulty=0;c.max_players=4;c.horde_start_wave=1;
     c.bot_mode=NET_BOT_OFF;c.fun_flags=0;c.friendly_fire=0;
     netLobbySetConfig(&c);
     CHECK(s_lobby_state.config.mode==NET_MODE_HORDE && netGetMaxPlayers()==4);
@@ -133,6 +133,7 @@ EXPORT int test_core_horde_admission(void) {
         for (int i=2;i<GEVR_MAX_PLAYERS;i++) s_lobby_state.slots[i].connected=0;
         s_lobby_state.config.mode=NET_MODE_HORDE;
         s_lobby_state.config.stage=NET_HORDE_STAGE;
+        s_lobby_state.config.horde_start_wave=1;
         memset(s_slot_grace_us,0,sizeof(s_slot_grace_us));
         ENetPeer peer={0}; peer.data=(void *)(intptr_t)2; s_client_peers[1]=&peer;
         fixture_horde.phase=HORDE_DEFEAT; /* a previous run, before host map load */
@@ -952,11 +953,11 @@ EXPORT int test_core_eight_slots(void) {
     g_playerPlayerData[7].kill_counts[0]=2;g_playerPlayerData[4].kill_counts[5]=1;
     CHECK(netTeamScore(NET_TEAM_BLUE)==1 && netTeamScore(NET_TEAM_RED)==0);
 
-    /* the late-join snapshot: 79 + 49N + 4N^2 bytes (two match configs with co-op's mode and difficulty and the bots), past the old 512 */
+    /* the late-join snapshot: 81 + 49N + 4N^2 bytes (two match configs with co-op's mode and difficulty, the bots and Horde's start wave), past the old 512 */
     s_lobby_state.slots[7].eliminated=1;s_lobby_state.slots[7].ping_ms=77;g_playerPlayerData[7].order_out_in_yolt=GEVR_MAX_PLAYERS;
     g_playerPlayerData[6].kill_counts[7]=5;g_playerPlayerData[7].gevr_score_bank=9;
     sent_size=0;netSendMatchSnapshot(NULL);
-    CHECK(sent_size==79+49*GEVR_MAX_PLAYERS+4*GEVR_MAX_PLAYERS*GEVR_MAX_PLAYERS && sent_size>512);
+    CHECK(sent_size==81+49*GEVR_MAX_PLAYERS+4*GEVR_MAX_PLAYERS*GEVR_MAX_PLAYERS && sent_size>512);
     struct netbuf b;NetRoundSettings r;NetMatchConfig pending;
     netbufStartReadData(&b,sent_data,sent_size);
     netbufReadU32(&b);netbufReadU16(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU32(&b);

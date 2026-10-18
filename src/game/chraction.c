@@ -11,6 +11,13 @@
 #include <bondgame.h>
 #include <bondconstants.h>
 #include "chraction.h"
+#ifdef GEVR
+/* gevr_horde.c: a Horde guard's run speed grows with the waves (user, 2026-10-17) */
+extern f32 gevrHordeGuardSpeed(const ChrRecord *chr);
+#define GEVR_HORDE_RUN(speed) ((speed) * gevrHordeGuardSpeed(self))
+#else
+#define GEVR_HORDE_RUN(speed) (speed)
+#endif
 #include <limits.h>
 #include <math.h>
 #include <music.h>
@@ -9452,11 +9459,11 @@ void chrlvTravelTick(ChrRecord *self, coord3d *arg1, StandTile *arg2, struct way
             }
             else if (self->chrflags & CHRFLAG_INCREASE_RUNNING_SPEED)
             {
-                modelSetAnimSpeed(self->model, 0.65f, 0.0f);
+                modelSetAnimSpeed(self->model, GEVR_HORDE_RUN(0.65f), 0.0f);
             }
             else
             {
-                modelSetAnimSpeed(self->model, 0.5f, 0.0f);
+                modelSetAnimSpeed(self->model, GEVR_HORDE_RUN(0.5f), 0.0f);
             }
         }
         else if (self->act_gopos.unk59 == 1)
@@ -9467,7 +9474,7 @@ void chrlvTravelTick(ChrRecord *self, coord3d *arg1, StandTile *arg2, struct way
             }
             else
             {
-                modelSetAnimSpeed(self->model, 0.5f, 0.0f);
+                modelSetAnimSpeed(self->model, GEVR_HORDE_RUN(0.5f), 0.0f);
             }
         }
     }

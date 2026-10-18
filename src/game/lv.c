@@ -1759,6 +1759,12 @@ void lvlManageMpGame(void)
     {
         sub_GAME_7F09BBBC();
         lvlSetMultipliersForDifficulty();
+#ifdef GEVR
+        {
+            extern f32 gevrHordeAiAccuracy(f32 difficulty);   /* gevr_horde.c */
+            g_AiAccuracyModifier = gevrHordeAiAccuracy(g_AiAccuracyModifier);
+        }
+#endif
         updateRoomStatusFlags();
         sub_GAME_7F092E50();
         skyTick();

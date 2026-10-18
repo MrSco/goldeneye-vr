@@ -55,6 +55,8 @@ extern int VrMpStage, VrMpWeaponSet, VrMpChr, VrMpVisibility;
 extern int VrMpVoiceMode;
 extern int VrMpFriendlyFire;
 extern int VrHordeFriendlyFire;
+extern int VrHordeStage;
+extern int VrHordeStartWave;
 extern int VrHostEqualization, VrHostLatencyCapMs;
 extern int VrMpFunFlags, VrMpGunSize;
 extern int VrMpMaxPlayers; // the host's player count, 2..8 on any stage

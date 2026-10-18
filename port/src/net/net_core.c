@@ -800,7 +800,14 @@ uint8_t netGetLobbyStage(void) {
 
 uint8_t netGetLobbyWeaponSet(void) {
     const NetMatchConfig *c = netListedConfig();
-    return c->mode == NET_MODE_COOP ? c->difficulty : c->weapon_set;
+    /* co-op lists its difficulty here, Horde its map (vr_launcher.cpp listedGameLabel) */
+    return c->mode == NET_MODE_COOP ? c->difficulty : c->mode == NET_MODE_HORDE ? c->stage : c->weapon_set;
+}
+
+/* gevr_horde.c: the run's first wave, from the latched round's config. */
+unsigned netHordeStartWave(void) {
+    unsigned wave = s_round.config.horde_start_wave;
+    return wave >= 1 && wave <= NET_HORDE_MAX_START_WAVE ? wave : 1;
 }
 
 int netGetConnectedPlayerCount(void) {
