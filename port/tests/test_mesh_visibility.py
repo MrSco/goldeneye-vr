@@ -14,6 +14,7 @@ fixture=r'''
 static struct {float MP_matrix[4][4];} rsp;
 static float vr_clip_margin_x_const,vr_clip_margin_x_w,vr_clip_margin_y_w;
 static float s_gevrPresentA[4][4],s_gevrPresentB[4]; static bool s_gevrPresentReady;
+static struct {bool on; float mx,mxw,my,myw,near_w,far;} s_gevrSlack; static bool gVrFlatPass;
 #define GEVR_FAR_DEPTH_SCALE .3f
 static bool scopeSees,inverted,called;
 static GfxClipParameters clip() {return {false,inverted};}

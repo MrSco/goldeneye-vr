@@ -108,8 +108,11 @@ is goldeneyevr.com, in its own repository.
 - v0.5.7 checks owed: Bunker/Control/Facility Horde, swarm and boss rounds,
   two-headset Horde on this build, a co-op join on Facility. Runway autoguns
   still firing after a timed mine (report): propobj.c logs `autogun:` and
-  `mine: blast` lines; get a log from the moment. Facility fog-coloured edge
-  wedges remain (also with AA off).
+  `mine: blast` lines; get a log from the moment. Facility on XBLA still
+  flickered for a player after v0.5.7 (any AA, SpaceWarp or refresh rate; HD +
+  AI fine): kept chunks are now culled with slack for the replays' motion and
+  again per draw. Needs a headset check, A/B with `gevr_cull_slack.txt` 0
+  ([facility-fog-flash](docs/facility-fog-flash.md)).
 
 - #164: v0.4.22 fixes the logged vacant-body blocker; broader co-op mission
   starts and reloads remain to be confirmed. Keep the issue open for now.

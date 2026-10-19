@@ -93,6 +93,9 @@ static void gevr_issue_draw(GLint first,GLsizei count,bool,bool,float,bool){
 }
 /* INSERT_BINDINGS */
 static void gevr_mesh_settle(void) {}   /* gfx_opengl.cpp: no mesh run is left bound here */
+/* gfx_opengl.cpp: every kept chunk in view here (test_mesh_replay_cull.py covers the cull) */
+static uint32_t s_eyeMeshCulled;
+static bool gevr_eye_mesh_visible(const GfxMeshDrawParams*,const float*) {return true;}
 /* INSERT_REPLAY */
 int main(){
     ShaderProgram a,b;a.opengl_program_id=1;b.opengl_program_id=2;

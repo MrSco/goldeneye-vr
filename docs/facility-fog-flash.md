@@ -57,14 +57,43 @@ Tested on the headset, driven over adb: pipeline 1, the default, and the default
 with SpaceWarp off. At a CPU level of 0 with turning and walking, 127 frames
 missed the early tick, and none flashed full-screen.
 
-## Not fixed: edge wedges
+## Edge wedges (2026-10-19)
 
 Rarer, smaller fog-colour wedges grow in from the view's edge for a frame or
 two during fast turns (frames 717 and 1168 in the player's video). They occur
 on replayed frames. With identical 40 s driven runs they appear as often before
-the fix (2) as after (1), and still with eye MSAA off. The likely cause is
-record-time chunk culling (`gevr_mesh_run_visible`) against a replay that turns
-past its margins. Needs its own investigation.
+the fix above (2) as after (1), and still with eye MSAA off. After v0.5.7 the
+player still saw flicker on XBLA Facility with every combination of SpaceWarp,
+anti-aliasing and refresh rate, and none with the HD + AI textures.
+
+**Likely cause: chunks culled once, at the record, for cameras the replays
+leave.** Bean's opaque world is one mesh drawn by spatial chunk
+(`gevr_bean_world.c`, `s_opaque`), and `gevr_mesh_run_visible` drops a chunk
+whose box is outside the game frame's camera and its presentation. The kept
+pass is then drawn again by every replay until the next game frame, each from a
+newer head pose. A chunk just past an edge, or close beside the head, comes
+into view on a fast turn or step and is not in the kept draws. The fog fill
+shows in its place. GoldenEye's own rooms (the HD + AI textures) cull whole
+triangles against the same cameras. They are large and few, and the game
+probably holds its frame rate better there, so a replay rarely turns far from
+its record.
+
+**Fix:** the record keeps what a camera moved by up to the replays' recent
+departure could see. Each replay measures how far its camera is from the kept
+pass's presented one (`gevr_mesh_slack_measure`: turn and step, falling by half
+in about half a second). The next record culls with that departure plus half,
+never under a floor of 5 degrees and 10 cm (`gevr_mesh_slack_begin`,
+`gevrMeshBoundsVisibleSlack`). The draws then cull the kept chunks against their
+own camera (`gfx_opengl.cpp gevr_eye_mesh_visible`: the replay's reprojection,
+or the fresh draw's presentation), so the GPU draws no more than before. Only
+the record's CPU sees the extra chunks. Show stats logs `mesh-cull: ...
+replays' departure` and `eye-merge: ... chunks left out when drawn`.
+
+`files/gevr_cull_slack.txt` (read every few seconds): `0` goes back to the old record
+cull for A/B; `<degrees> <cm>` sets the floor (up to 30 and 100).
+
+Not yet checked on the headset. Tests: `port/tests/test_mesh_replay_cull.py`
+(the slack, the departure and the replay's matrix against the shader's).
 
 ## Re-testing
 

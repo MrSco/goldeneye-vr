@@ -57,7 +57,7 @@ static int s_eyeHand=-1, boundProgram=1;
 static float s_eyeProj[16], s_eyeHeadP[2], s_eyePresentationVP[16];
 static std::vector<ShaderProgram*> s_eyePresentationPrograms;
 static std::vector<int> s_eyeDraws;
-static uint32_t s_eyeKept, s_eyeMerged;
+static uint32_t s_eyeKept, s_eyeMerged, s_eyeMeshCulled;
 static int VrShowStats;
 static void vr_log(const char*, ...) {}
 struct GevrEyeMesh { int vao; };   /* gfx_opengl.cpp: a static mesh draw kept for the redraw */

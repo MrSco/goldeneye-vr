@@ -3090,6 +3090,7 @@ struct GevrEyeDraw {
 
 static std::vector<GevrEyeDraw> s_eyeDraws;
 static uint32_t s_eyeKept, s_eyeMerged;   // gevr_eye_keep: per second, Show stats / profile traces
+static uint32_t s_eyeMeshCulled;          // gevr_eye_mesh_visible: kept chunks a draw left out
 extern "C" int VrShowStats;                 // vr_input.cpp: the stats readout is on
 struct GevrEyeMesh {
     GLuint vao;
@@ -3125,8 +3126,9 @@ void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* p
         static uint32_t records;
         if (++records >= 72) {
             if (VrShowStats || gevrFrameTimingTracing())
-                vr_log("eye-merge: %u draws kept, %u joined to the one before", s_eyeKept, s_eyeMerged);
-            records = s_eyeKept = s_eyeMerged = 0;
+                vr_log("eye-merge: %u draws kept, %u joined to the one before, %u chunks left out when drawn",
+                       s_eyeKept, s_eyeMerged, s_eyeMeshCulled);
+            records = s_eyeKept = s_eyeMerged = s_eyeMeshCulled = 0;
         }
         s_eyeRec = false;
         s_eyePresent = false;
@@ -3275,6 +3277,32 @@ static void gevr_eye_proj_times(const float* delta, float M[16])
             M[c * 4 + r] = v;
         }
     }
+}
+
+/*
+ * A kept world chunk against the camera it is drawn from now: reprojVP the
+ * uReproj branch's matrix, or NULL for the record's own MP. The record keeps
+ * chunks its replays' cameras may turn or step to (gfx_pc.cpp
+ * gevr_mesh_slack_begin), more than any one of them sees; each draw leaves
+ * the rest out. The margins are gfx_pc.cpp vr_set_cull_offsets', from the
+ * eye offsets this draw's shader has.
+ */
+static bool gevr_eye_mesh_visible(const struct GfxMeshDrawParams* p, const float* reprojVP)
+{
+    if (!p->has_bounds || p->skinned) {
+        return true;
+    }
+    float moved[16];
+    const float* mp = p->mp;
+    if (reprojVP != NULL) {
+        gevrMeshReprojectMP(reprojVP, s_eyeHeadP[0], s_eyeHeadP[1], p->mp, moved);
+        mp = moved;
+    }
+    const float* o = s_eye_offsets;
+    const float mx = std::max(fabsf(o[0]), fabsf(o[4]));
+    const float mxw = std::max(std::max(fabsf(o[1]), fabsf(o[5])), std::max(fabsf(o[2]), fabsf(o[6])));
+    const float myw = std::max(fabsf(o[3]), fabsf(o[7]));
+    return gevrMeshBoundsVisible(p->lo, p->hi, mp, mx, mxw, myw, GEVR_FAR_DEPTH_SCALE);
 }
 
 /*
@@ -3470,6 +3498,11 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
     int replayFilter[2] = { -1, -1 };
     GevrReplayBindings bindings;
     for (const GevrEyeDraw& d : s_eyeDraws) {
+        // before any state: a draw left out leaves the GL state as the last one issued
+        if (d.mesh && d.prg->reprojLocation >= 0 && !gevr_eye_mesh_visible(&s_eyeMeshes[d.mesh - 1].params, Ms[d.hand + 1])) {
+            ++s_eyeMeshCulled;
+            continue;
+        }
         gevr_replay_vao(bindings, d.mesh ? s_eyeMeshes[d.mesh - 1].vao : opengl_vao, d.mesh != 0);
         if (last == NULL || d.prg != bound) {
             if (last != NULL || d.prg != bound) {
@@ -4272,7 +4305,11 @@ static bool gfx_opengl_draw_mesh(void** gpu, const void* vertices, uint32_t num_
     if (!kept) gevr_mesh_clip(true);
     if (!kept || s_meshLazyCull != p->cull) gevr_mesh_cull(p->cull);
     gevr_scope_keep_mesh(g->vao, (GLint)first, (GLsizei)count, p);
-    if (!gevr_eye_draw_deferred()) {   // else the replay draws it in its XR frame
+    // a kept eye pass drawn now: only what this camera sees of what it keeps
+    const bool present = s_eyePresent && s_eyeHand < 0 && !gVrFlatPass && mp->reprojLocation >= 0;
+    if (!gevr_eye_draw_deferred() && (!s_eyeRec || !use_multiview || gVrFlatPass ||
+                                      gevr_eye_mesh_visible(p, present ? s_eyePresentationVP : NULL))) {
+        // else the replay draws it in its XR frame, or this camera cannot see it
         s_drawElements = true;
         s_issueGunDecal = gevrGunDl;
         gevr_issue_draw((GLint)first, (GLsizei)count, s_decalZ, gevrRoomDl && s_isDecal, 0.0f, false);

@@ -4480,6 +4480,108 @@ static uint32_t s_gevrMeshCulled, s_gevrMeshCulledTris;
 static std::vector<GevrStaticMesh*> s_gevrMeshLive;
 static std::vector<void*> s_gevrMeshDead;
 static uint32_t s_gevrMeshDraws, s_gevrMeshTris, s_gevrMeshFallbacks;   // logged with the gfx: line
+
+/*
+ * Facility's fog-coloured wedges (docs/facility-fog-flash.md): a kept eye pass
+ * is drawn again by each replay until the next game frame, from that replay's
+ * newer head pose, but its chunks were culled once, at the record, against
+ * the game frame's camera and its presentation. A chunk just past an edge, or
+ * beside the head, came into view on a fast turn or step and was not there:
+ * the fog colour showed in its place, wedges growing in from the view's edge.
+ * Bean's opaque world is one mesh culled by chunk, so the XBLA rooms showed it
+ * and GoldenEye's own triangles did not.
+ *
+ * So the record keeps what a camera moved by up to the replays' recent
+ * departure from the kept pass (turn and step, half again, never under a
+ * floor) could see, and each replay culls the kept chunks against its own
+ * camera (gfx_opengl.cpp gevr_eye_mesh_visible): the GPU draws no more.
+ * files/gevr_cull_slack.txt: 0 is the old record cull; "<deg> <cm>" the floor.
+ */
+static float s_gevrKeptPresent[16];                 // the kept pass's presentation (identity without)
+static float s_gevrReplayTurn, s_gevrReplayStep;    // the replays' recent departure: radians, view units
+static bool s_gevrSlackOn = true;
+static float s_gevrSlackFloorDeg = 5.0f, s_gevrSlackFloorCm = 10.0f;
+static struct {
+    bool on;
+    float mx, mxw, my, myw, near_w, far;   // gevrMeshBoundsVisibleSlack's margins
+} s_gevrSlack;
+
+static void gevr_mesh_slack_poll(void) {
+    bool on = true;
+    float deg = 5.0f, cm = 10.0f;
+    FILE* f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_cull_slack.txt", "r");
+    if (f != nullptr) {
+        float a = 0.0f, b = 0.0f;
+        const int n = fscanf(f, "%f %f", &a, &b);
+        fclose(f);
+        if (n >= 1 && a <= 0.0f) on = false;
+        else if (n == 2 && a > 0.0f && a <= 30.0f && b >= 0.0f && b <= 100.0f) { deg = a; cm = b; }
+    }
+    if (on != s_gevrSlackOn || deg != s_gevrSlackFloorDeg || cm != s_gevrSlackFloorCm) {
+        sysLogPrintf(LOG_NOTE, on ? "mesh: cull slack floor %.1f deg %.0f cm" : "mesh: cull slack off (gevr_cull_slack.txt)",
+                     deg, cm);
+    }
+    s_gevrSlackOn = on;
+    s_gevrSlackFloorDeg = deg;
+    s_gevrSlackFloorCm = cm;
+}
+
+/* gfx_run, as an eye pass starts keeping its draws (presented: with this
+ * presentation delta); gevr_mesh_slack_end as it stops. */
+static void gevr_mesh_slack_begin(bool presented) {
+    static const float identity[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+    memcpy(s_gevrKeptPresent, presented ? s_gevrPresentationDelta : identity, sizeof(s_gevrKeptPresent));
+    const float* P = &g_viProjectionMatrixF[0][0];
+    s_gevrSlack.on = s_gevrSlackOn && vr_is_initialized() && vr_world_scale > 0.0f && P[0] > 1e-6f && P[5] > 1e-6f;
+    if (!s_gevrSlack.on) {
+        return;
+    }
+    const float deg = 3.14159265f / 180.0f;
+    const float turn = std::min(std::max(1.5f * s_gevrReplayTurn, s_gevrSlackFloorDeg * deg), 30.0f * deg);
+    const float step = std::min(std::max(1.5f * s_gevrReplayStep, s_gevrSlackFloorCm * 0.01f * vr_world_scale),
+                                vr_world_scale);
+    // The eyes' edges as tangents, turned out by `turn` (a roll carries the
+    // other axis's edge across too), as slopes in clip units (x / w).
+    const float ex = (1.0f + vr_clip_margin_x_w) / P[0], ey = (1.0f + vr_clip_margin_y_w) / P[5];
+    const float limit = 85.0f * deg;
+    const float sx = tanf(std::min(atanf(ex + ey * sinf(turn)) + turn, limit)) * P[0];
+    const float sy = tanf(std::min(atanf(ey + ex * sinf(turn)) + turn, limit)) * P[5];
+    s_gevrSlack.mxw = sx - 1.0f;
+    s_gevrSlack.myw = sy - 1.0f;
+    // A step t moves clip x by P00 t (and P20 t), w by t, z by P22 t.
+    s_gevrSlack.mx = vr_clip_margin_x_const + (P[0] + fabsf(P[8]) + sx) * step;
+    s_gevrSlack.my = (P[5] + fabsf(P[9]) + sy) * step;
+    s_gevrSlack.near_w = step;
+    s_gevrSlack.far = step * (1.0f + GEVR_FAR_DEPTH_SCALE * fabsf(P[10]));
+}
+
+static void gevr_mesh_slack_end(void) {
+    s_gevrSlack.on = false;
+}
+
+/* gevr_vr_replay_frame: how far this replay's camera is from the kept pass's
+ * presented one, delta * kept^-1 (both rigid), folded into the recent most. */
+static void gevr_mesh_slack_measure(const float* delta) {
+    const float* K = s_gevrKeptPresent;
+    float R[9], t[3];
+    for (int r = 0; r < 3; r++) {
+        for (int c = 0; c < 3; c++) {
+            R[r * 3 + c] = delta[r] * K[c] + delta[4 + r] * K[4 + c] + delta[8 + r] * K[8 + c];
+        }
+    }
+    for (int r = 0; r < 3; r++) {
+        t[r] = delta[12 + r] - (R[r * 3] * K[12] + R[r * 3 + 1] * K[13] + R[r * 3 + 2] * K[14]);
+    }
+    const float turn = acosf(std::min(1.0f, std::max(-1.0f, (R[0] + R[4] + R[8] - 1.0f) * 0.5f)));
+    const float step = sqrtf(t[0] * t[0] + t[1] * t[1] + t[2] * t[2]);
+    if (!std::isfinite(turn) || !std::isfinite(step)) {
+        return;
+    }
+    // a third to half a second to fall by half, at 120-72 replays a second
+    s_gevrReplayTurn = std::max(turn, s_gevrReplayTurn * 0.98f);
+    s_gevrReplayStep = std::max(step, s_gevrReplayStep * 0.98f);
+}
+
 extern "C" void gfx_static_mesh_release(GevrStaticMesh* m) {
     if (m == nullptr) {
         return;
@@ -4513,6 +4615,7 @@ static void gevr_mesh_frame(void) {
             s_gevrMeshOn = on;
             sysLogPrintf(LOG_NOTE, "mesh: static meshes %s", on ? "on" : "off (gevr_nomesh.txt)");
         }
+        gevr_mesh_slack_poll();
     }
     if (!s_gevrMeshLive.empty() && (!s_gevrMeshOn || !gevrBeanIsEnabled())) {
         for (GevrStaticMesh* m : s_gevrMeshLive) {
@@ -4675,16 +4778,22 @@ static bool gevr_mesh_run_visible(const GevrStaticMeshRun* run)
 {
     float mp[16];
     memcpy(mp, rsp.MP_matrix, sizeof(mp));
-    if (gevrMeshBoundsVisible(run->lo, run->hi, mp, vr_clip_margin_x_const,
-                             vr_clip_margin_x_w, vr_clip_margin_y_w, GEVR_FAR_DEPTH_SCALE)) return true;
+    // a kept eye pass: what its replays' cameras may see too (gevr_mesh_slack_begin)
+    const bool slack = s_gevrSlack.on && !gVrFlatPass;
+    auto visible = [&](const float* m) {
+        return slack ? gevrMeshBoundsVisibleSlack(run->lo, run->hi, m, s_gevrSlack.mx, s_gevrSlack.mxw, s_gevrSlack.my,
+                                                  s_gevrSlack.myw, s_gevrSlack.near_w, GEVR_FAR_DEPTH_SCALE, s_gevrSlack.far)
+                     : gevrMeshBoundsVisible(run->lo, run->hi, m, vr_clip_margin_x_const,
+                                             vr_clip_margin_x_w, vr_clip_margin_y_w, GEVR_FAR_DEPTH_SCALE);
+    };
+    if (visible(mp)) return true;
     if (s_gevrPresentReady) {
         float presented[16];
         for (int c = 0; c < 4; c++)
             for (int r = 0; r < 4; r++)
                 presented[c*4+r] = s_gevrPresentA[r][0]*mp[c*4] + s_gevrPresentA[r][1]*mp[c*4+1] +
                                    s_gevrPresentA[r][3]*mp[c*4+3] + (c == 3 ? s_gevrPresentB[r] : 0);
-        if (gevrMeshBoundsVisible(run->lo, run->hi, presented, vr_clip_margin_x_const,
-                                 vr_clip_margin_x_w, vr_clip_margin_y_w, GEVR_FAR_DEPTH_SCALE)) return true;
+        if (visible(presented)) return true;
     }
     if (gfx_rapi->get_clip_parameters().invert_y)
         for (int c = 0; c < 4; c++) mp[c*4+1] = -mp[c*4+1];
@@ -5788,7 +5897,9 @@ extern "C" void gfx_run(Gfx* commands) {
                     vr_log("bean-paint: folder %u font %u images %u bound, %u renderer hits %u uploads", repaint[0], repaint[1], repaint[2], s_beanPaintHits, s_beanPaintUploads);
                     vr_log("skin: %u draws, %u tris on GPU, %u CPU poses%s", s_gevrSkinDraws,
                            s_gevrSkinTris, s_gevrSkinPoses, s_gevrSkinOn ? "" : " (gevr_noskin.txt)");
-                    vr_log("mesh-cull: %u chunks, %u tris rejected", s_gevrMeshCulled, s_gevrMeshCulledTris);
+                    vr_log("mesh-cull: %u chunks, %u tris rejected; replays' departure %.1f deg %.1f cm",
+                           s_gevrMeshCulled, s_gevrMeshCulledTris, s_gevrReplayTurn * (180.0f / 3.14159265f),
+                           vr_world_scale > 0.0f ? s_gevrReplayStep * 100.0f / vr_world_scale : 0.0f);
                     }
                     s_beanPaintHits = s_beanPaintUploads = 0;
                     s_gevrSkinDraws = s_gevrSkinTris = s_gevrSkinPoses = 0;
@@ -5864,6 +5975,7 @@ extern "C" void gfx_run(Gfx* commands) {
             s_gevrPresentationHand = -1;
             s_gevrPresentationOn = gevrVrPresentationDelta(s_gevrPresentationDelta) != 0;
             gevr_presentation_prepare(s_gevrPresentationOn);
+            gevr_mesh_slack_begin(s_gevrPresentationOn);
             ++gevr_perf_passes;
             gevr_perf_present_passes += s_gevrPresentationOn ? 1 : 0;
             gfx_vr_eye_record(true, eyeProj, eyeInvertY, s_gevrPresentationOn ? s_gevrPresentationDelta : nullptr);
@@ -5871,6 +5983,7 @@ extern "C" void gfx_run(Gfx* commands) {
             gfx_flush();
             gfx_vr_eye_record(false, nullptr, false, nullptr);
             gfx_vr_eye_record_only(false);
+            gevr_mesh_slack_end();
             s_gevrPresentationOn = false;
             gevr_presentation_prepare(false);
             gevrVrMarkEyesRendered(1);
@@ -5920,6 +6033,7 @@ extern "C" void gfx_run(Gfx* commands) {
                 s_gevrPresentationHand = -1;
                 s_gevrPresentationOn = gevrVrPresentationDelta(s_gevrPresentationDelta) != 0;
                 gevr_presentation_prepare(s_gevrPresentationOn);
+                gevr_mesh_slack_begin(s_gevrPresentationOn);
                 ++gevr_perf_passes;
                 gevr_perf_present_passes += s_gevrPresentationOn ? 1 : 0;
                 gfx_vr_eye_record(true, &g_viProjectionMatrixF[0][0], gfx_rapi->get_clip_parameters().invert_y,
@@ -5927,6 +6041,7 @@ extern "C" void gfx_run(Gfx* commands) {
                 run_display_list();
                 gfx_flush();
                 gfx_vr_eye_record(false, nullptr, false, nullptr);
+                gevr_mesh_slack_end();
                 s_gevrPresentationOn = false;
                 gevr_presentation_prepare(false);
                 gevrVrMarkEyesRendered(1);
@@ -6021,6 +6136,8 @@ static int gevr_vr_replay_frame(bool fresh) {
         if (!fresh) return 0;
         static const float identity[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
         memcpy(delta, identity, sizeof(delta));
+    } else {
+        gevr_mesh_slack_measure(delta);
     }
     if (!vr_begin_eye_render()) {
         return 0;
