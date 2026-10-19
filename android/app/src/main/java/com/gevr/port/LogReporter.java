@@ -5,6 +5,7 @@ import android.app.ApplicationExitInfo;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Build;
+import android.provider.Settings;
 import android.util.Base64;
 import android.util.Log;
 
@@ -93,6 +94,8 @@ final class LogReporter {
         // one followed by an exit record already has its non-crash reason.
         // A marker from before the current boot belongs to a previous boot that
         // was terminated by shutdown/reboot (report 73a899cd), not a game crash.
+        // A Lepton container restart keeps the host's clocks, so only the boot
+        // count shows it (report 79a638bb).
         long previousRun = prefs.getLong("foreground_run", 0);
         long currentElapsed = android.os.SystemClock.elapsedRealtime();
         long bootAt = System.currentTimeMillis() - currentElapsed;
@@ -100,7 +103,8 @@ final class LogReporter {
         long previousElapsed = prefs.getLong("foreground_elapsed", 0);
         boolean rebooted = previousRun < bootAt
                 || (previousBoot != 0 && Math.abs(bootAt - previousBoot) > 5000)
-                || (previousElapsed != 0 && currentElapsed < previousElapsed);
+                || (previousElapsed != 0 && currentElapsed < previousElapsed)
+                || CrashExitPolicy.bootCountChanged(prefs.getInt("foreground_boot_count", -1), bootCount());
         if (crash == null && !rebooted
                 && CrashExitPolicy.unexpectedExit(previousRun, installTime, offered, lastExit, bootAt)
                 && prefs.getInt("run_pid", 0) != android.os.Process.myPid()) {
@@ -117,7 +121,15 @@ final class LogReporter {
         prefs.edit().putLong("foreground_run", active ? now : 0)
                 .putLong("foreground_boot", active ? (now - elapsed) : 0)
                 .putLong("foreground_elapsed", active ? elapsed : 0)
+                .putInt("foreground_boot_count", active ? bootCount() : -1)
                 .putInt("run_pid", android.os.Process.myPid()).commit();
+    }
+
+    /** Android's boot count, or -1 when the system does not keep one. */
+    private int bootCount() {
+        try {
+            return Settings.Global.getInt(context.getContentResolver(), Settings.Global.BOOT_COUNT, -1);
+        } catch (Exception e) { return -1; }
     }
 
     String status() { return state; }

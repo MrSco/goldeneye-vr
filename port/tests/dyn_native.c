@@ -96,11 +96,13 @@ static int guardsIntact(void)
 static int observedLists(void)
 {
     /* The two possible lengths from each report's saved final pointer:
-     * 4bde84c2, followed by 76717e5d. Exercise every length in both halves. */
-    const size_t usedLengths[] = {347904, 204544, 349184, 205824};
+     * 4bde84c2, followed by 76717e5d, then Silo's logged length from 3706d27a.
+     * Exercise every length in both halves. */
+    const size_t usedLengths[] = {347904, 204544, 349184, 205824, 541920};
+    const int usedStages[] = {LEVELID_FACILITY, LEVELID_FACILITY, LEVELID_FACILITY, LEVELID_FACILITY, LEVELID_SILO};
     for (size_t scenario = 0; scenario < sizeof(usedLengths) / sizeof(usedLengths[0]); scenario++)
     {
-        init(1, LEVELID_FACILITY, "70", "50");
+        init(1, usedStages[scenario], "70", "50");
         for (int half = 0; half < 2; half++)
         {
             const size_t used = usedLengths[scenario];
@@ -124,26 +126,26 @@ static int budgetsAndReloads(void)
     for (int n = 1; n <= MAX_PLAYER_COUNT; n++)
     {
         init(n, LEVELID_FACILITY, "70", "50");
-        CHECK(g_GfxBuffers[1] - g_GfxBuffers[0] == 512 * 1024);
+        CHECK(g_GfxBuffers[1] - g_GfxBuffers[0] == 1024 * 1024);
         CHECK(g_VtxBuffers[1] - g_VtxBuffers[0] == 256 * 1024);
-        CHECK(g_GfxBuffers[2] - g_GfxBuffers[1] == 512 * 1024);
+        CHECK(g_GfxBuffers[2] - g_GfxBuffers[1] == 1024 * 1024);
         CHECK(g_VtxBuffers[2] - g_VtxBuffers[1] == 256 * 1024);
     }
-    init(8, LEVELID_FACILITY, "400", "300");
-    CHECK(g_GfxBuffers[1] - g_GfxBuffers[0] == 800 * 1024);
+    init(8, LEVELID_FACILITY, "600", "300");
+    CHECK(g_GfxBuffers[1] - g_GfxBuffers[0] == 1200 * 1024);
     CHECK(g_VtxBuffers[1] - g_VtxBuffers[0] == 600 * 1024);
     /* An identical reload must not double the eight-player budget again. */
-    init(8, LEVELID_FACILITY, "400", "300");
+    init(8, LEVELID_FACILITY, "600", "300");
     CHECK(g_VtxBuffers[1] - g_VtxBuffers[0] == 600 * 1024);
     init(1, LEVELID_TITLE, "80", "20");
     CHECK(g_GfxActiveBufferIndex == 0);
     CHECK(g_GfxMemPos == g_VtxBuffers[0]);
     CHECK(!g_GfxRequestedDisplayList);
     /* Tokenless initialization preserves a larger stored/default budget. */
-    g_GfxSizesByPlayerCount[0] = 400 * 1024;
+    g_GfxSizesByPlayerCount[0] = 600 * 1024;
     g_VtxSizesByPlayerCount[0] = 300 * 1024;
     init(1, LEVELID_TITLE, NULL, NULL);
-    CHECK(g_GfxBuffers[1] - g_GfxBuffers[0] == 800 * 1024);
+    CHECK(g_GfxBuffers[1] - g_GfxBuffers[0] == 1200 * 1024);
     CHECK(g_VtxBuffers[1] - g_VtxBuffers[0] == 300 * 1024);
     CHECK(guardsIntact());
     return 0;
@@ -232,7 +234,7 @@ static int completedLists(void)
         FATAL(dynGetFreeGfx2((Gfx *)((uintptr_t)base - sizeof(Gfx))), "invalid master display list");
         FATAL(dynGetFreeGfx2((Gfx *)((uintptr_t)base + 1)), "invalid master display list");
         FATAL(dynGetFreeGfx2(NULL), "invalid master display list");
-        CHECK(strstr(fatalMessage, "capacity 524288 bytes"));
+        CHECK(strstr(fatalMessage, "capacity 1048576 bytes"));
         CHECK(g_GfxActiveBufferIndex == half);
         CHECK(g_GfxMemPos == g_VtxBuffers[half]);
         CHECK(g_GfxRequestedDisplayList);
@@ -248,7 +250,7 @@ static int peakLogging(void)
     dynAllocate(16);
     dynGetFreeGfx2(base + 1);
     CHECK(logCount == 1);
-    CHECK(strstr(lastLog, "stage 34 peak gfx 16/524288 bytes, aux 16/262144 bytes"));
+    CHECK(strstr(lastLog, "stage 34 peak gfx 16/1048576 bytes, aux 16/262144 bytes"));
     dynGetFreeGfx2(base + 1);
     CHECK(logCount == 1);
     dynAllocate(16);
@@ -267,12 +269,12 @@ static int peakLogging(void)
     dynAllocate(16);
     dynGetFreeGfx2(base + 2);
     CHECK(warningCount == 1);
-    dynGetFreeGfx2(base + 26215); /* crosses 80% gfx independently of aux */
+    dynGetFreeGfx2(base + 52429); /* crosses 80% gfx independently of aux */
     CHECK(warningCount == 2);
     init(1, LEVELID_TITLE, "80", "20");
     base = dynGetMasterDisplayList();
     dynGetFreeGfx2(base + 1);
-    CHECK(strstr(lastLog, "stage 90 peak gfx 16/524288 bytes, aux 0/262144 bytes"));
+    CHECK(strstr(lastLog, "stage 90 peak gfx 16/1048576 bytes, aux 0/262144 bytes"));
     CHECK(warningCount == 0);
     return 0;
 }

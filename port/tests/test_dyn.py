@@ -1,4 +1,4 @@
-"""Run the production frame-pool regression harness for crash report 4bde84c2."""
+"""Run the production frame-pool regression harness for crash reports 4bde84c2 and 3706d27a."""
 from pathlib import Path
 import shutil
 import subprocess
