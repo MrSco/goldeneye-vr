@@ -57,6 +57,19 @@ public class CrashExitPolicyTest {
         assertTrue(CrashExitPolicy.unexpectedExit(markerAt, INSTALL, 0, 0, bootAt));
         assertFalse(CrashExitPolicy.unexpectedExit(markerAt, INSTALL, 0, 0, markerAt + 1_000));
     }
+    @Test public void leptonContainerRestartIsARebootByBootCount() {
+        // Report 79a638bb: marker 11:12:17Z, container rebooted at 11:24:32Z with
+        // elapsedRealtime at 9,417 s, so the boot time it gives (08:47:35Z) is
+        // before the marker and the clock checks call the run unexpected.
+        long markerAt = 1792408337000L;
+        long bootAt = 1792399655000L;
+        assertTrue(CrashExitPolicy.unexpectedExit(markerAt, markerAt - 4_000, 0, 0, bootAt));
+        assertTrue(CrashExitPolicy.bootCountChanged(7, 8));
+        assertFalse(CrashExitPolicy.bootCountChanged(8, 8));
+        // A marker from an older build, or a system without a count, has no say.
+        assertFalse(CrashExitPolicy.bootCountChanged(-1, 8));
+        assertFalse(CrashExitPolicy.bootCountChanged(7, -1));
+    }
     @Test public void preferNativeCrashWithTombstoneOverSignalNotification() {
         // Report 05ffc73d: crash-native(5) at 00:11:09Z followed by signaled(2) at 00:11:10Z.
         long tNative = 1791331869000L;

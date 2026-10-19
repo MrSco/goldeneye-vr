@@ -44,6 +44,17 @@ final class CrashExitPolicy {
         return unexpectedExit(markerAt, installAt, offeredAt, lastExitAt, 0);
     }
 
+    /**
+     * Whether Android booted again since the foreground marker. A Valve Lepton
+     * container restart keeps the host's clocks, so the boot time and uptime
+     * checks miss it: report 79a638bb's container finished booting with
+     * elapsedRealtime at 2.6 hours, after the marker. Android's boot count still
+     * moves. -1 is a count the system did not keep or the marker did not store.
+     */
+    static boolean bootCountChanged(int markerBootCount, int currentBootCount) {
+        return markerBootCount >= 0 && currentBootCount >= 0 && markerBootCount != currentBootCount;
+    }
+
     static int crashPriority(int reason) {
         if (reason == 4 || reason == 5 || reason == 6) return 2; // crash, crash-native, anr (has trace)
         if (reason == 2) return 1; // signaled

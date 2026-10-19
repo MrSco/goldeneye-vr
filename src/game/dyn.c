@@ -51,7 +51,7 @@ s32 D_800482E0 = 0;
 s32 g_GfxSizesByPlayerCount[MAX_PLAYER_COUNT] = {0x10000, 0x18000, 0x20000, 0x28000, 0x28000, 0x28000, 0x28000, 0x28000};
 s32 g_VtxSizesByPlayerCount[MAX_PLAYER_COUNT] = {0x10000, 0x18000, 0x20000, 0x28000, 0x30000, 0x38000, 0x40000, 0x48000};
 
-#define GEVR_DYN_GFX_MIN (512 * 1024)
+#define GEVR_DYN_GFX_MIN (1024 * 1024)
 #define GEVR_DYN_VTX_MIN (256 * 1024)
 #define GEVR_DYN_LOG_INTERVAL_US 5000000ULL
 static s32 s_dynStage;
@@ -190,6 +190,10 @@ void dynInitMemory(void) {
      * 199.75 KiB of commands. Retained bodies, detailed guns and the watch add
      * work beyond the cartridge budgets. Give both pools headroom, without
      * reducing any larger stage/player budget or compounding it on a reload.
+     *
+     * Report 3706d27a then exhausted the 512 KiB minimum in Silo with Project
+     * Bean on and 24 retained bodies: 440 KiB on its first frame, 541,920
+     * bytes when it failed. The command minimum is now 1 MiB per half.
      */
     {
         s64 scaled = (s64)g_GfxSizesByPlayerCount[playerCount - 1] * ((s32)sizeof(Gfx) / 8);
