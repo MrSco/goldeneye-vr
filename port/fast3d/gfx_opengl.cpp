@@ -3902,10 +3902,19 @@ void gfx_vr_motion_pass(const float* const cur[4], const float* const prev[4], b
             skipped++;
             continue;
         }
+        // Blended draws give the runtime what they give the eye's depth: none
+        // when they leave depth alone (glass: what shows through keeps its own
+        // motion; written, SpaceWarp dragged it with the pane - a blurred
+        // double image through Facility's windows), and with Z_UPD only their
+        // fully opaque fragments (the eye pass's depth-only redraw keeps 0.99).
+        if (d.alpha[0] && !d.depth[1]) {
+            skipped++;
+            continue;
+        }
         const bool skin = mesh && mesh->params.skinned;
         const int kind = !mesh ? GEVR_MOTION_RING : skin ? GEVR_MOTION_SKIN : GEVR_MOTION_MESH;
-        // blended: where at least half opaque (its texture), or wholly when untextured
-        const float cut = d.alpha[0] ? (d.prg->used_textures[0] ? std::max(0.5f, d.prg->motion_cut) : 0.0f)
+        // blended: where fully opaque (its texture), or wholly when untextured
+        const float cut = d.alpha[0] ? (d.prg->used_textures[0] ? std::max(0.99f, d.prg->motion_cut) : 0.0f)
                                      : d.prg->motion_cut;
         const bool cutout = cut > 0.0f;
         const GevrMotionProgram& m = s_motionPrg[kind][cutout ? 1 : 0];

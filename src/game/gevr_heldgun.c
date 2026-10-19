@@ -93,8 +93,11 @@ static HeldGunInst s_bodyinst[HG_BODY];
 
 /*
  * Guards' instances, by chr: the least recently posed is reused, so a pool
- * this size outlasts every guard drawn in one frame. gevr_cheat.txt
- * "hqguards" (bondview2.c) flips guards back to the game's models to compare.
+ * this size outlasts every guard drawn in one frame. Only a pose takes a slot
+ * (gevrHeldGunCompute): Facility rebuilds more guards' draw lists in a frame
+ * than there are slots, and when each took one they evicted guards already
+ * drawn. gevr_cheat.txt "hqguards" (bondview2.c) flips guards back to the
+ * game's models to compare.
  */
 #define HG_GUARDS 48
 s32 g_gevrHeldGunGuards = TRUE;
@@ -526,7 +529,8 @@ static s32 gevrHeldGunFit(HeldGunFile *f, Model *pchr)
 
 /* ------------------------------------------------------------- per frame */
 
-static HeldGunInst *gevrHeldGunInstFor(ChrRecord *chr, GUNHAND hand)
+/* create: a guard without a slot takes one (a pose); else only its own is found */
+static HeldGunInst *gevrHeldGunInstFor(ChrRecord *chr, GUNHAND hand, s32 create)
 {
     s32 slot;
 
@@ -534,6 +538,7 @@ static HeldGunInst *gevrHeldGunInstFor(ChrRecord *chr, GUNHAND hand)
         && hand >= 0 && hand <= 1)
     {
         s32 oldest = 0;
+        s32 h;
 
         for (slot = 0; slot < HG_GUARDS; slot++)
         {
@@ -547,7 +552,32 @@ static HeldGunInst *gevrHeldGunInstFor(ChrRecord *chr, GUNHAND hand)
                 oldest = slot;
             }
         }
+        if (!create)
+        {
+            return NULL;
+        }
         slot = oldest;
+        /*
+         * The slot's guard may have drawn already this frame: its opaque
+         * pass's list holds the pose, which its alpha pass, the slot gone,
+         * would not convert. Read as fixed point while still floats, the
+         * gun's triangles spanned thousands of units through the eye:
+         * Facility's one-frame fog and black wedges (2026-10-19).
+         */
+        for (h = 0; h < 2; h++)
+        {
+            HeldGunInst *old = &s_guardinst[slot][h];
+
+            if (old->pending && old->file != NULL)
+            {
+                bondviewTransformManyPosToViewMatrix(old->model.render_pos, old->file->header.numMatrices);
+
+                if (old->rocketon)
+                {
+                    bondviewTransformManyPosToViewMatrix(old->rocket.render_pos, old->rocket.obj->numMatrices);
+                }
+            }
+        }
         s_guardchr[slot] = chr;
         s_guardused[slot] = sysGetMicroseconds();
         s_guardinst[slot][0].file = s_guardinst[slot][1].file = NULL;
@@ -575,7 +605,7 @@ static HeldGunInst *gevrHeldGunInstFor(ChrRecord *chr, GUNHAND hand)
 /* chrRenderHeldWeapon, as it rebuilds the chr's draw list: nothing drawn yet for this hand */
 void gevrHeldGunBegin(ChrRecord *chr, GUNHAND hand)
 {
-    HeldGunInst *inst = gevrHeldGunInstFor(chr, hand);
+    HeldGunInst *inst = gevrHeldGunInstFor(chr, hand, FALSE);
 
     if (inst != NULL)
     {
@@ -589,7 +619,7 @@ void gevrHeldGunBegin(ChrRecord *chr, GUNHAND hand)
  */
 s32 gevrHeldGunCompute(ChrRecord *chr, PropRecord *weapon, GUNHAND hand, Mtxf *base, Model *pchr)
 {
-    HeldGunInst *inst = gevrHeldGunInstFor(chr, hand);
+    HeldGunInst *inst = gevrHeldGunInstFor(chr, hand, TRUE);
     HeldGunFile *f;
     ModelFileHeader *h;
     s32 item, slot;
@@ -787,7 +817,7 @@ Gfx *gevrHeldGunDraw(ChrRecord *chr, ModelRenderData *body, Gfx *gdl, s32 withal
 
     for (hand = 0; hand < 2; hand++)
     {
-        HeldGunInst *inst = gevrHeldGunInstFor(chr, hand);
+        HeldGunInst *inst = gevrHeldGunInstFor(chr, hand, FALSE);
         ModelRenderData rd;
 
         if (inst == NULL || !inst->pending || inst->chr != chr || inst->file == NULL)
