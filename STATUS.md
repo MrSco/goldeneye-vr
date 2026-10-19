@@ -3,9 +3,21 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current release:** v0.5.9 (versionCode 89, protocol 23), 2026-10-18.
-v0.5.7 to v0.5.9 play together; v0.5.6 and older can't join. Building does
+**Current release:** v0.5.10 (versionCode 90, protocol 23), 2026-10-19.
+v0.5.7 to v0.5.10 play together; v0.5.6 and older can't join. Building does
 not publish a GitHub release. No game data is shipped.
+
+v0.5.10 (PR #208, PR #209): Facility's one-frame fog/black wedges with Bean
+were guards' detailed guns (gevr_heldgun.c) drawn under float matrices read
+as fixed point: every rebuilt guard took one of 48 slots, so a guard evicted
+between its opaque draw and its alpha pass kept an unconverted pose. Only a
+pose takes a slot now, and an evicted pending pose is converted first.
+SpaceWarp's motion pass leaves out blended draws that write no depth (glass
+no longer drags what is behind it) and cuts blended Z_UPD draws at 0.99.
+GEVR_DYN_GFX_MIN 1 MiB (Silo crash 3706d27a); a Lepton container restart is
+not a crash (79a638bb). Headset: 10 min Facility, 0 broken frames (~18
+before), glass clean with SpaceWarp. [v0.5.10](docs/releases/v0.5.10.md),
+[facility-fog-flash](docs/facility-fog-flash.md).
 
 v0.5.9 (PR #206): teammates are always heard at full gain, so Horde and
 co-op (everyone a teammate) use Couch gain whatever the host's Voice mode
@@ -108,8 +120,7 @@ is goldeneyevr.com, in its own repository.
 - v0.5.7 checks owed: Bunker/Control/Facility Horde, swarm and boss rounds,
   two-headset Horde on this build, a co-op join on Facility. Runway autoguns
   still firing after a timed mine (report): propobj.c logs `autogun:` and
-  `mine: blast` lines; get a log from the moment. Facility fog-coloured edge
-  wedges remain (also with AA off).
+  `mine: blast` lines; get a log from the moment.
 
 - #164: v0.4.22 fixes the logged vacant-body blocker; broader co-op mission
   starts and reloads remain to be confirmed. Keep the issue open for now.

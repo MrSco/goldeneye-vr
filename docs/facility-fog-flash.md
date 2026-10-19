@@ -57,14 +57,30 @@ Tested on the headset, driven over adb: pipeline 1, the default, and the default
 with SpaceWarp off. At a CPU level of 0 with turning and walking, 127 frames
 missed the early tick, and none flashed full-screen.
 
-## Not fixed: edge wedges
+## Edge wedges: fixed in v0.5.10
 
-Rarer, smaller fog-colour wedges grow in from the view's edge for a frame or
-two during fast turns (frames 717 and 1168 in the player's video). They occur
-on replayed frames. With identical 40 s driven runs they appear as often before
-the fix (2) as after (1), and still with eye MSAA off. The likely cause is
-record-time chunk culling (`gevr_mesh_run_visible`) against a replay that turns
-past its margins. Needs its own investigation.
+Rarer, smaller fog-colour (or black) wedges over the close-up floor for one
+frame. They were not chunk culling (PR #207's theory, closed): a probe never
+found a visible chunk dropped at record time.
+
+They were guards' detailed guns (`gevr_heldgun.c`, first-person G models such
+as Gak47Z) drawn under matrices still in floats. A held gun is posed into a
+float `Mtxf` and converted to fixed point only in the guard's alpha pass
+(`chr.c`). Every guard whose draw list was rebuilt took one of the 48 LRU
+slots, and Facility rebuilds more than 48, so a guard could lose its slot
+between its opaque draw and its alpha pass. Its recorded draw then read float
+bits as s15.16 (entries near +-16000, `[3][3]` 0): triangles thousands of
+units across the eye, about 17 runs a frame, crossing the view now and then.
+Only a pose (`gevrHeldGunCompute`) takes a slot now, and an evicted slot's
+pending pose is converted first. 10 minutes of driven Facility: 0 broken
+frames, about 18 before.
+
+How it was found: an eye probe (thumbnails of our own eye image, a frame
+unlike both neighbours), a twin render (the same kept draws never drew
+differently, so it was deterministic), kept draws of confirmed frames redrawn
+inside RenderDoc in-app captures, RenderDoc for Meta Quest's Python API to
+bisect the frame to the painting draw, then logs naming the model and its
+caller. The probes are kept outside the repo (build/dev-scripts).
 
 ## Re-testing
 
