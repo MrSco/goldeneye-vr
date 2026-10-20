@@ -634,6 +634,13 @@ static uint32_t frame_count;
  * buffer takes each batch as a plain memcpy. It is split in three per-frame
  * segments; a fence closes each segment and is waited on only before that
  * segment is written again, two frames later.
+ *
+ * The eyes are redrawn from a game frame's kept draws until the next one is
+ * ready, so a frame must fit its segment: one that spilled into the next
+ * left the frame after it to wrap onto vertices still being redrawn. At 4 MB
+ * Jungle's start with Bean (some 50,000 vertices of foliage a frame) did, and
+ * the stereo view showed a band of wild triangles over the canopy, never the
+ * 2D one (2026-10-19). 16 MB holds it several times over.
  */
 #define GEVR_PM_SEGMENTS 3
 static uint8_t *s_pmPtr;
@@ -2742,6 +2749,10 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
         }
         GLsizeiptr off = (s_pmOff + stride - 1) / stride * stride;
         if (off + bytes > (GLsizeiptr)(s_pmSeg + 1) * s_pmSegSize) {
+            static unsigned s_spills;
+            if (!(s_spills++ & (s_spills - 1)))   /* the 1st, 2nd, 4th... */
+                sysLogPrintf(LOG_WARNING, "vertex-ring: a frame outgrew its %d MB segment (%u so far): "
+                             "its redraws may show stale vertices", (int)(s_pmSegSize >> 20), s_spills);
             gevr_pm_next_segment();   /* a frame too big for one segment: take the next */
             off = (s_pmOff + stride - 1) / stride * stride;
         }
@@ -4591,13 +4602,13 @@ static void gfx_opengl_init(void) {
         typedef void (*PFN_BufferStorageEXT)(GLenum, GLsizeiptr, const void *, GLbitfield);
         PFN_BufferStorageEXT bufferStorage = (PFN_BufferStorageEXT)SDL_GL_GetProcAddress("glBufferStorageEXT");
         const GLbitfield flags = GL_MAP_WRITE_BIT | 0x0040 /* PERSISTENT */ | 0x0080 /* COHERENT */;
-        const GLsizeiptr segment = 4 << 20;
+        const GLsizeiptr segment = 16 << 20;
         if (gl_es && bufferStorage != NULL && glMapBufferRange != NULL && glFenceSync != NULL) {
             bufferStorage(GL_ARRAY_BUFFER, segment * GEVR_PM_SEGMENTS, NULL, flags);
             s_pmPtr = (uint8_t *)glMapBufferRange(GL_ARRAY_BUFFER, 0, segment * GEVR_PM_SEGMENTS, flags);
             s_pmSegSize = segment;
         }
-        sysLogPrintf(LOG_NOTE, "GL: persistent vertex buffer %s", s_pmPtr ? "on (3 x 4 MB)" : "off (glBufferData per draw)");
+        sysLogPrintf(LOG_NOTE, "GL: persistent vertex buffer %s", s_pmPtr ? "on (3 x 16 MB)" : "off (glBufferData per draw)");
     }
 
     if (gl_core_profile || gl_es) {
