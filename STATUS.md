@@ -3,9 +3,24 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current release:** v0.5.10 (versionCode 90, protocol 23), 2026-10-19.
-v0.5.7 to v0.5.10 play together; v0.5.6 and older can't join. Building does
+**Current release:** v0.5.11 (versionCode 91, protocol 23), 2026-10-19.
+v0.5.7 to v0.5.11 play together; v0.5.6 and older can't join. Building does
 not publish a GitHub release. No game data is shipped.
+
+v0.5.11 (PR #210): the XBLA Community Edition from the player's own
+CommunityEditionUpdaterV6.zip, Dab's Mod's way: the import keeps the 145 files
+the patch reads; **CE...** on the Bean row applies files.diff (vendored
+HDiffPatch) into ge007-bean/ce/files, read first while the **CE** box (ini
+BeanCommunityEdition) is ticked; CE fog distances and colours built in (Dab's
+values). Copies imported earlier must be imported again. Fixes found testing
+it: the vertex ring's per-frame segments 4 -> 16 MB (Jungle frames 5.0-5.6 MB
+spilled, and the eye redraw read overwritten vertices: a band over the
+canopy); prop part bones bind only to groups with a list (Runway's plane and
+gun lost their bodies to the list-less root); a head's LOD alternatives all
+carry it (Bond headless in Frigate's intro); block-sized pictures capped at
+the tile mask (Frigate water speckles); SpaceWarp row on the watch. Headset:
+all checked. [v0.5.11](docs/releases/v0.5.11.md),
+[Community Edition](docs/bean-community-edition.md).
 
 v0.5.10 (PR #208, PR #209): Facility's one-frame fog/black wedges with Bean
 were guards' detailed guns (gevr_heldgun.c) drawn under float matrices read
@@ -18,16 +33,6 @@ GEVR_DYN_GFX_MIN 1 MiB (Silo crash 3706d27a); a Lepton container restart is
 not a crash (79a638bb). Headset: 10 min Facility, 0 broken frames (~18
 before), glass clean with SpaceWarp. [v0.5.10](docs/releases/v0.5.10.md),
 [facility-fog-flash](docs/facility-fog-flash.md).
-
-In progress (branch feature/bean-community-edition, not committed): the XBLA
-Community Edition from the player's own CommunityEditionUpdaterV6.zip, Dab's
-Mod's way. The import keeps the 145 files the patch reads (about 140 MB);
-**CE...** on the Bean row applies files.diff (vendored HDiffPatch) into
-ge007-bean/ce/files, which the Bean loaders read first while the **CE** box
-(ini BeanCommunityEdition) is ticked. CE fog distances and colours are built in (Dab's values). Copies
-imported earlier must be imported again. PC: applies in 5 s, refuses a
-modified copy; suite green. Headset (2026-10-19): re-import, CE..., CE content
-in game all work. [Community Edition](docs/bean-community-edition.md).
 
 v0.5.9 (PR #206): teammates are always heard at full gain, so Horde and
 co-op (everyone a teammate) use Couch gain whatever the host's Voice mode
