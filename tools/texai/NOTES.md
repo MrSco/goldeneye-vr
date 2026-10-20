@@ -114,7 +114,9 @@ intermissionfb and GhostlyDark)?
     put the far edge (a photo's white frame) next to the join, and the seam
     fix blended it in: a bright crease across every photo.
   - `tilegroups.py find build/texai-rom2` finds them by their shared edges and
-    writes `tilegroups.json`, which batch.py skips.
+    writes `tilegroups.json`, which batch.py skips. ROM textures are paired
+    by image number. Textures only a headset dump has (the Dam photo) are
+    paired by their edge texels, within one level.
   - `make` upscales each group whole and cuts it back into tiles. `seams`
     measures the joins (portraits 0.0; the old photos 17-84 grey levels).
     `sheet` puts before and after side by side.
