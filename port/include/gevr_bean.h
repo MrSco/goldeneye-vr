@@ -14,6 +14,8 @@ typedef struct GevrBeanCuts {
     /* A hole's rim in the skin, posed in matrix's space: the piece it is on
      * and the piece across the cut (optional) */
     void (*cap)(const struct Model *model, int matrix, const s16 (*rim)[2][3], int nedges, int piece, int other);
+    /* The body's own number, never another's (optional) */
+    unsigned (*body)(const struct Model *model);
 } GevrBeanCuts;
 void gevrBeanSetCuts(const GevrBeanCuts *cuts);
 struct fontchar;

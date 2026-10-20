@@ -89,6 +89,24 @@ With that, every Bean prop is retained in both modes (rigid_min 0):
 | Jungle 2D turret spot | 118.8 (min 115) | 121 (min 120) |
 | Facility / Dam / Frigate VR start + pad 20 | 120 | 120 |
 
+## Dead guards in pieces
+
+The user's next spot (`at -668 363 -4969 188.9`) still fell 20-30 fps in VR,
+only while a shot-off guard lay in view; 2D and whole bodies were fine. A
+dismembered Bean body skipped the GPU skin: every frame gevrBeanRenderGdl
+posed all its vertices on the CPU (CPU vertices 16K -> 30K, gevrBeanRenderGdl
+12% of the profile, gfx_sp_vertex + tri1 18%), in both eye passes' worth of
+CPU draws.
+
+The CPU pose only gives each triangle one piece and carries its influences
+across the cut into that piece's frame at the bind pose (s_cuts.remap). That
+depends on the body and its cuts, not the frame, so it is now made once per
+body and cut set into a skin of its own, and the skin shader draws it with a
+palette as a whole body; only the cut rims are posed on the CPU, for the caps
+(gevr_bean_pose.inc.h beanCutGpuDraw). Moving and settled pieces held 120 in
+VR with ten bodies down, several cut ("skin: ... 0 CPU poses"). Cut bodies
+still draw without wounds, as before.
+
 ## What is left
 
 Re-check Jungle in 2D where the user saw 109 on b863d0bd (spot unknown; mark it

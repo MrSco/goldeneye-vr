@@ -28,6 +28,7 @@ Gfx *gevrRagdollRender(Gfx *gdl);
 /* Bean's cut triangles are posed on the CPU. Map cross-cut influences into
  * their triangle's chosen piece at the captured pose, so skin cannot stretch. */
 int gevrRagdollModelCut(const struct Model *model);
+unsigned gevrRagdollModelBody(const struct Model *model);
 int gevrRagdollPiece(const struct Model *model, int matrix);
 int gevrRagdollRemap(const struct Model *model, int owner, int matrix, float p[3], float n[3]);
 void gevrRagdollBeanCap(const struct Model *model, int matrix, const s16 (*rim)[2][3], int nedges, int piece, int other);
