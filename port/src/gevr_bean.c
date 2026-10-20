@@ -1008,8 +1008,8 @@ static Gfx *wrapEmitted(ModelNode *n, Gfx *gdl)
          * fallback. Their vertex buffers live until the level reset. */
         if (!s_emittedSkin && s_nrigidMeshes < MAX_ALLOC && retainedRigidList(gdl)) {
             GevrStaticMesh *mesh = gevrStaticMeshBuild(gdl);
-            /* Small props share CPU batches across instances. An individual
-             * indexed draw costs more than packing their few vertices. */
+            /* gevr_rigid_min.txt <N>: props under N triangles take the CPU
+             * path again (the A/B switch; 0 retains every prop) */
             if(mesh && s_registrationKind==BEAN_PROP && mesh->numIndices<(uint32_t)s_rigidMinimum*3) {
                 gevrStaticMeshFree(mesh);mesh=NULL;
             }
@@ -2242,9 +2242,14 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 	}
     s_registrationKind=kind;
     FILE *minimum=gevrBeanControlOpen("gevr_rigid_min.txt");
-    s_rigidMinimum=256;
+    /* Every prop is retained: Jungle's ~100 small palms and plants posed on
+     * the CPU were half its record (DRAW/TICK 7.3 -> 3.7 ms in 2D at the first
+     * drone gun), and once static meshes took a vertex shader without the
+     * skin code (gfx_opengl.cpp s_buildStatic) they cost the GPU no more than
+     * the CPU's batches: VR start view 100 -> 120 (2026-10-20). */
+    s_rigidMinimum=0;
     if(minimum) {
-        int value=256;
+        int value=0;
         if(fscanf(minimum,"%d",&value)==1 && value>=0 && value<=1000000)s_rigidMinimum=value;
         fclose(minimum);
     }
@@ -2977,6 +2982,7 @@ void *gevrBeanRareLogoGdl(const float lo[3], const float hi[3], const void **pic
 void gevrBeanReset(void)
 {
 	beanFrameReset();
+	beanCutReset();
 	memset(s_wounds, 0, sizeof(s_wounds));
 	s_woundUse = 0;
 	for (int i = 0; i < s_nrigidMeshes; i++) gevrStaticMeshFree(s_rigidMeshes[i]);

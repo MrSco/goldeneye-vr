@@ -44,9 +44,70 @@ pad 20 match.
   its order can't change; a matrix select in every mesh vertex shader also
   cost ~3 ms of GPU, so a separate instanced program variant is needed.
 
+## 2D too (user, 2026-10-20)
+
+"In jungle the slowdown happens even in 2d mode": 2D (PlayMode=0) has no eye
+replays, and it dropped screen frames at the start view too (112 xr/s, min
+109; DRAW/TICK 8.3 ms; GPU idle at 3.6 ms), so the cost is the display-list
+record of the foliage, not stereo. In the 2D profile gfx_sp_tri1 was 29% of
+the render thread, 16 points of it the per-vertex emission: tile lookups,
+divisions by 255 and the combiner-input switch, all the same for a
+triangle's three vertices. They are now worked out once a triangle, with
+bit-identical output (gevr_input_source; inputs whose value depends on the
+case before them keep the old switch).
+
+2D start view 112 -> 120.5 xr/s (min 120), DRAW/TICK 8.28 -> 7.38 ms; pad 60
+120 either way. VR unchanged at ~108 (start) and ~102 (pad 60 still).
+rigid_min 0 re-measured on main with the decal-band LRZ fix: still 92 fps at
+the start (GPU 9.0 ms, DRAW/TICK 10.3), so the CPU path stays.
+
+## 2D at the first drone gun (user, 2026-10-20)
+
+The user still dropped to ~96 in 2D standing at the first drone gun with guards
+firing. Their spot, logged with the new gevr_cheat.txt `where` word and stood on
+again with gevr_warp.txt `at -726 436 -4765 274.0`: 2D 118.8 xr/s (min 115),
+DRAW/TICK 7.3 ms, 46K CPU vertices, GPU 3.1 ms. The props on the CPU are the
+cost; as GPU meshes (rigid_min 0) the same spot is a locked 121 at DRAW/TICK
+3.75 ms. Facility and Dam in 2D: no change. That first went in for the screen
+only (b863d0bd), because of stereo's GPU cost below.
+
+Why not in stereo at first: with rigid_min 0 the foliage cost the eye pass
+1.4 ms more GPU (6.8 vs 5.4 ms at the start view) for the same pixels. Not the
+uniform uploads, the far clip distance or alpha-to-coverage: it was the mesh
+vertex shader. Its skin, light, tint and wound code ran for every vertex of
+every static mesh (rooms and props, which use none of it), in every bin and
+both views. A probe build without that code took the start view to a locked
+120 (eye 6.78 -> 4.20 ms). Static meshes now take a variant without it
+(gfx_opengl.cpp s_buildStatic, static_program_pool); skins keep the full one.
+
+With that, every Bean prop is retained in both modes (rigid_min 0):
+
+| xr frames/s | before | after |
+|---|---|---|
+| Jungle VR start view | 100 | 120.7 (min 120) |
+| Jungle VR turret spot | 102 | 121 (min 120) |
+| Jungle 2D turret spot | 118.8 (min 115) | 121 (min 120) |
+| Facility / Dam / Frigate VR start + pad 20 | 120 | 120 |
+
+## Dead guards in pieces
+
+The user's next spot (`at -668 363 -4969 188.9`) still fell 20-30 fps in VR,
+only while a shot-off guard lay in view; 2D and whole bodies were fine. A
+dismembered Bean body skipped the GPU skin: every frame gevrBeanRenderGdl
+posed all its vertices on the CPU (CPU vertices 16K -> 30K, gevrBeanRenderGdl
+12% of the profile, gfx_sp_vertex + tri1 18%), in both eye passes' worth of
+CPU draws.
+
+The CPU pose only gives each triangle one piece and carries its influences
+across the cut into that piece's frame at the bind pose (s_cuts.remap). That
+depends on the body and its cuts, not the frame, so it is now made once per
+body and cut set into a skin of its own, and the skin shader draws it with a
+palette as a whole body; only the cut rims are posed on the CPU, for the caps
+(gevr_bean_pose.inc.h beanCutGpuDraw). Moving and settled pieces held 120 in
+VR with ten bodies down, several cut ("skin: ... 0 CPU poses"). Cut bodies
+still draw without wounds, as before.
+
 ## What is left
 
-The start view is CPU-bound in the record (gfx_sp_tri1 25% and gfx_sp_vertex
-12% of the render thread on 17K foliage triangles). Levers: a gfx_sp_tri1
-fast path for triangles under unchanged state, or the mesh path at CPU-path
-GPU cost (then rigid_min 0 wins everywhere).
+Re-check Jungle in 2D where the user saw 109 on b863d0bd (spot unknown; mark it
+with gevr_cheat.txt `where`).

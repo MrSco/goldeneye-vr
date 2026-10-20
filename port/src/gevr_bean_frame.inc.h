@@ -8,11 +8,13 @@ struct beanFrameChunk {
 };
 static struct beanFrameChunk *s_frameChunks[2];
 static int s_frameIndex;
+static unsigned s_frameCount; /* frames begun, for storage lists may still read */
 
 void gevrBeanBeginFrame(void)
 {
 	s_nopaqueModels = 0;
 	s_frameIndex ^= 1;
+	s_frameCount++;
 	for (struct beanFrameChunk *c = s_frameChunks[s_frameIndex]; c; c = c->next)
 		c->used = 0;
 }

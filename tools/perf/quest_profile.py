@@ -475,7 +475,7 @@ if __name__ == '__main__':
                              'traced from its first level frames, cold pass then warm (analyze.py cold)')
     parser.add_argument('--room-draws',type=int,choices=[0,1],default=1,help='0 disables opaque world batching (the game default is on)')
     parser.add_argument('--body-batch',type=int,choices=[0,1],default=1,help='0 disables whole-character batching (the game default is on)')
-    parser.add_argument('--rigid-min',type=int,default=256,help='minimum triangles for a retained prop; 0 retains all')
+    parser.add_argument('--rigid-min',type=int,default=0,help='minimum triangles for a retained prop; 0 retains all (the game default)')
     parser.add_argument('--runs', type=int, default=3)
     parser.add_argument('--detail', type=int, choices=[0, 1], default=0)
     parser.add_argument('--showstats', type=int, choices=[0, 1], default=0)

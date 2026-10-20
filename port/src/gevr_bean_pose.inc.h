@@ -42,6 +42,232 @@ void *gevrBeanWholeJointGdl(ModelHitEntry *entry,ModelHitEntry *first)
     return gevrBeanWholeModelGdl(entry->model);
 }
 
+/* A cut body's skin on the GPU. The CPU pose below gives each triangle one
+ * piece and carries its influences across the cut into that piece's frame at
+ * the body's bind pose (s_cuts.remap). Those choices depend only on the body
+ * and its cuts, so they are made once, into a skin of its own: each influence
+ * on a plain matrix, its position and normal already carried over. A frame
+ * then sets the palette, as for a whole body, and poses only the cut rims for
+ * the caps. Posed on the CPU every frame, dismembered guards in view cost
+ * 20-30 fps in VR (user, 2026-10-20, Jungle). A kept skin a list of the last
+ * frames may still read is not given to another (the frame arena keeps two). */
+#define BEAN_CUT_KEPT 16
+struct beanCutKept {
+	const struct beanSkin *skin;
+	unsigned body, used;
+	int cuts, anchor, back;
+	int nbones, bones[GEVR_SKIN_BONES]; /* the palette's matrices */
+	int *tripiece, *triother;
+	GevrStaticMesh *mesh; /* skin->mesh's indices and runs, over the carried vertices */
+};
+static struct beanCutKept s_cutKept[BEAN_CUT_KEPT];
+
+static void beanCutForget(struct beanCutKept *k)
+{
+	if (k->mesh) {
+		gfx_static_mesh_release(k->mesh);
+		free((void *)k->mesh->vertices);
+		free(k->mesh);
+	}
+	free(k->tripiece);
+	memset(k, 0, sizeof(*k));
+}
+
+static void beanCutReset(void)
+{
+	for (int i = 0; i < BEAN_CUT_KEPT; i++)
+		beanCutForget(&s_cutKept[i]);
+}
+
+/* An empty slot, else the oldest no list of the last frames reads */
+static struct beanCutKept *beanCutSlot(void)
+{
+	struct beanCutKept *best = NULL;
+	for (int i = 0; i < BEAN_CUT_KEPT; i++) {
+		struct beanCutKept *k = &s_cutKept[i];
+		if (!k->mesh)
+			return k;
+		if (s_frameCount - k->used >= 3 && (!best || k->used < best->used))
+			best = k;
+	}
+	if (best)
+		beanCutForget(best);
+	return best;
+}
+
+static int beanCutBone(struct beanCutKept *k, int matrix)
+{
+	for (int b = 0; b < k->nbones; b++)
+		if (k->bones[b] == matrix)
+			return b;
+	if (k->nbones == GEVR_SKIN_BONES)
+		return -1;
+	k->bones[k->nbones] = matrix;
+	return k->nbones++;
+}
+
+static struct beanCutKept *beanCutBuild(struct beanSkin *skin, Model *model, unsigned body, int cuts,
+                                        int anchorIndex, int backIndex, ModelNode *neck)
+{
+	if (!beanSkinMesh(skin))
+		return NULL;
+	struct beanCutKept *k = beanCutSlot();
+	if (!k)
+		return NULL;
+	const int count = model->obj->numMatrices;
+	GevrStaticMesh *m = malloc(sizeof(*m));
+	GevrSkinVertex *v = calloc(skin->nverts, sizeof(*v));
+	int *tripiece = malloc((size_t)(skin->nverts / 3 + 1) * sizeof(int) * 2);
+	if (!m || !v || !tripiece)
+		goto fail;
+	int *triother = tripiece + skin->nverts / 3 + 1;
+	int owner = anchorIndex;
+	for (int i = 0; i < skin->nverts; i++) {
+		/* as the CPU pose: one piece for the whole triangle */
+		if (i % 3 == 0) {
+			int matrices[12], pieces[12], scores[12] = {0}, n = 0, best = 0;
+			for (int c = i; c < i + 3 && c < skin->nverts; c++) for (int w = 0; w < 4; w++) {
+				int matrix = skin->verts[c].matrix[w];
+				if (matrix == -2) matrix = anchorIndex;
+				if (matrix == -3) matrix = backIndex >= 0 ? backIndex : anchorIndex;
+				if (!skin->verts[c].weight[w] || matrix < 0 || matrix >= count) continue;
+				int piece = s_cuts.piece(model, matrix), at;
+				for (at = 0; at < n && pieces[at] != piece; at++) {}
+				if (at == n) { matrices[n] = matrix; pieces[n++] = piece; }
+				scores[at] += skin->verts[c].weight[w];
+				if (scores[at] > scores[best]) best = at;
+			}
+			owner = n ? matrices[best] : anchorIndex;
+			int second = -1;
+			for (int at = 0; at < n; at++)
+				if (at != best && (second < 0 || scores[at] > scores[second])) second = at;
+			tripiece[i / 3] = n ? pieces[best] : s_cuts.piece(model, anchorIndex);
+			triother[i / 3] = second >= 0 ? pieces[second] : -1;
+		}
+		const struct beanSkinVert *src = &skin->verts[i];
+		memcpy(v[i].vtx, &skin->vtx[i], sizeof(Vtx));
+		v[i].tint = src->tint;
+		for (int w = 0; w < 4; w++) {
+			int matrix = src->matrix[w], back = matrix == -3;
+			if (matrix == -2)
+				matrix = anchorIndex;
+			if (back)
+				matrix = backIndex >= 0 ? backIndex : anchorIndex;
+			if (!src->weight[w] || matrix < 0 || matrix >= count)
+				continue;
+			float p[3], n[3];
+			for (int c = 0; c < 3; c++)
+				p[c] = src->p[w][c] + (back && neck ? neck->Data->Group.Origin.f[c] : 0);
+			memcpy(n, src->n[w], sizeof(n));
+			const int bone = beanCutBone(k, s_cuts.remap(model, owner, matrix, p, n));
+			if (bone < 0)
+				goto fail;
+			memcpy(v[i].p[w], p, sizeof(p));
+			memcpy(v[i].n[w], n, sizeof(n));
+			v[i].bone[w] = bone;
+			v[i].weight[w] = src->weight[w];
+		}
+	}
+	*m = *skin->mesh;
+	m->gpu = NULL;
+	m->vertices = v;
+	k->skin = skin;
+	k->body = body;
+	k->cuts = cuts;
+	k->anchor = anchorIndex;
+	k->back = backIndex;
+	k->tripiece = tripiece;
+	k->triother = triother;
+	k->mesh = m;
+	return k;
+fail:
+	free(m);
+	free(v);
+	free(tripiece);
+	memset(k, 0, sizeof(*k));
+	return NULL;
+}
+
+/* The cut rims for the caps, posed from the palette: only their vertices */
+static void beanCutCaps(const struct beanCutKept *k, Model *model, struct beanSkin *skin, const GevrSkinDraw *draw)
+{
+	if (!s_cuts.cap)
+		return;
+	const struct beanCapCache *cache = beanCapLoops(skin, k->cuts, k->tripiece, k->triother);
+	if (!cache || !cache->nloops)
+		return;
+	Vtx *posed = beanFrameAllocate((size_t)skin->nverts * sizeof(Vtx));
+	if (!posed)
+		return;
+	const GevrSkinVertex *verts = k->mesh->vertices;
+	for (int l = 0; l < cache->nloops; l++) {
+		const struct beanCapLoop *loop = &cache->loops[l];
+		for (int e = 0; e < loop->nedges; e++) for (int s = 0; s < 2; s++) {
+			const GevrSkinVertex *sv = &verts[cache->edges[loop->first + e][s]];
+			float p[3] = {0}, total = 0;
+			for (int w = 0; w < 4; w++) {
+				if (!sv->weight[w])
+					continue;
+				const float *r = draw->palette.rows[sv->bone[w]];
+				for (int c = 0; c < 3; c++)
+					p[c] += sv->weight[w] * (r[c * 4] * sv->p[w][0] + r[c * 4 + 1] * sv->p[w][1] +
+					                         r[c * 4 + 2] * sv->p[w][2] + r[c * 4 + 3]);
+				total += sv->weight[w];
+			}
+			for (int c = 0; c < 3; c++)
+				posed[cache->edges[loop->first + e][s]].v.ob[c] = posClamp(total > 0 ? p[c] / total : 0);
+		}
+	}
+	beanSkinCaps(model, skin, k->anchor, posed, k->tripiece, k->triother);
+}
+
+static Gfx *beanCutGpuDraw(struct beanSkin *skin, Model *model, int cuts, int anchorIndex, int backIndex,
+                           ModelNode *neck, const float inverse[9])
+{
+	const unsigned body = s_cuts.body ? s_cuts.body(model) : 0;
+	struct beanCutKept *k = NULL;
+	if (!body)
+		return NULL;
+	for (int i = 0; i < BEAN_CUT_KEPT && !k; i++)
+		if (s_cutKept[i].mesh && s_cutKept[i].body == body && s_cutKept[i].skin == skin &&
+		    s_cutKept[i].cuts == cuts && s_cutKept[i].anchor == anchorIndex && s_cutKept[i].back == backIndex)
+			k = &s_cutKept[i];
+	if (!k)
+		k = beanCutBuild(skin, model, body, cuts, anchorIndex, backIndex, neck);
+	GevrSkinDraw *draw = k ? beanFrameAllocate(sizeof(*draw)) : NULL;
+	Gfx *commands = draw ? beanFrameAllocate(3 * sizeof(Gfx)) : NULL;
+	if (!commands)
+		return NULL;
+	k->used = s_frameCount;
+	memset(draw, 0, sizeof(*draw));
+	draw->mesh = k->mesh;
+	draw->authoredColor = 1;
+	draw->bindVertices = skin->vtx;
+	draw->pose = beanSkinPose;
+	const float (*anchor)[4] = model->render_pos[anchorIndex].pos.m;
+	for (int b = 0; b < k->nbones; b++) {
+		const float (*m)[4] = model->render_pos[k->bones[b]].pos.m;
+		float origin[3];
+		for (int c = 0; c < 3; c++)
+			origin[c] = m[3][c] - anchor[3][c];
+		for (int c = 0; c < 3; c++) {
+			float *r = &draw->palette.rows[b][c * 4];
+			for (int j = 0; j < 3; j++)
+				r[j] = inverse[c * 3] * m[j][0] + inverse[c * 3 + 1] * m[j][1] + inverse[c * 3 + 2] * m[j][2];
+			r[3] = inverse[c * 3] * origin[0] + inverse[c * 3 + 1] * origin[1] + inverse[c * 3 + 2] * origin[2];
+		}
+		draw->palette.valid[b / 32] |= 1u << (b % 32);
+	}
+	/* no wounds, as on the CPU pose: the cut moved the skin under them */
+	beanCutCaps(k, model, skin, draw);
+	gSPMatrix(commands, (void *)(uintptr_t)(0x03000000u + anchorIndex * sizeof(Mtx)),
+	          G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
+	commands[1].words.w0 = (uintptr_t)G_GEVR_SKIN << 24;
+	commands[1].words.w1 = (uintptr_t)draw;
+	gSPBranchList(commands + 2, skin->gdl);
+	return commands;
+}
+
 void *gevrBeanRenderGdl(void *node, void *current, Model *model)
 {
 	struct beanSwap *swap = activeSwap(node);
@@ -79,7 +305,8 @@ void *gevrBeanRenderGdl(void *node, void *current, Model *model)
 	if (!beanInverse3(linear, inverse))
 		return current;
 	const int cut = s_cuts.active && s_cuts.active(model);
-	Gfx *gpu = cut ? NULL : beanSkinGpuDraw(skin, model, anchorIndex, backIndex, neck, inverse);
+	Gfx *gpu = cut ? beanCutGpuDraw(skin, model, s_cuts.active(model), anchorIndex, backIndex, neck, inverse)
+	              : beanSkinGpuDraw(skin, model, anchorIndex, backIndex, neck, inverse);
 	if (gpu)
 		return gpu;
 	Vtx *vertices = beanFrameAllocate((size_t)skin->nverts * sizeof(Vtx));

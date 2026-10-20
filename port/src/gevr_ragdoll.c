@@ -467,7 +467,7 @@ static int rdStart(void)
     if(pdphysIsReady())return 1;
     if(s_failed || !VrRagdolls || lvlGetCurrentStageToLoad()==LEVELID_TITLE)return 0;
     if(!pdphysInit(rdLog)) { s_failed=1; return 0; }
-    const GevrBeanCuts cuts={gevrRagdollModelCut,gevrRagdollPiece,gevrRagdollRemap,gevrRagdollBeanCap};
+    const GevrBeanCuts cuts={gevrRagdollModelCut,gevrRagdollPiece,gevrRagdollRemap,gevrRagdollBeanCap,gevrRagdollModelBody};
     gevrBeanSetCuts(&cuts);
     rdWorldInit();
     return 1;
@@ -959,6 +959,7 @@ static RdBody *rdModel(const Model *model)
     return NULL;
 }
 int gevrRagdollModelCut(const Model *model) { RdBody *b=rdModel(model); return b ? (int)b->cuts : 0; }
+unsigned gevrRagdollModelBody(const Model *model) { RdBody *b=rdModel(model); return b ? b->serial : 0; }
 /* Bean's skin found a hole's rim (gevr_bean_caps.inc.h): drawn after the body */
 void gevrRagdollBeanCap(const Model *model,int matrix,const s16 (*rim)[2][3],int nedges,int piece,int other)
 {
