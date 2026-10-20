@@ -4,6 +4,7 @@
 #include <bondtypes.h>
 #include "gevr_bean.h"
 #include "gevr_bean_int.h"
+#include "gevr_bean_ce.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,6 +32,11 @@ static void loadFont(struct beanFont *f, int gothic) {
     unsigned length = 0, glyphs, pointers, count;
     long size;
     f->tried = 1;
+    const char *ce = gevrBeanCeRoot();  /* the Community Edition first (gevr_bean_ce.c) */
+    if (ce) {
+        snprintf(path, sizeof(path), "%s/misc/%s/default.dt", ce, gothic ? "doc0" : "alps3");
+        file = fopen(path, "rb");
+    }
     for (unsigned i=0; i<sizeof(roots)/sizeof(roots[0]) && !file; i++) {
         snprintf(path, sizeof(path), "%s/misc/%s/default.dt", roots[i], gothic ? "doc0" : "alps3");
         file = fopen(path, "rb");

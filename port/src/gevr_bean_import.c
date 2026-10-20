@@ -24,6 +24,9 @@
  * Only Bean's own files are taken (gevrBeanImportWanted()): the meshes the
  * loaders draw, the two font atlases and the release's pictures. The
  * collision meshes (<name>_hits) stay behind, as in DAB: the game has its own.
+ * So do the files the Community Edition updater patches from (145, about
+ * 140MB, gevr_bean_ce_refs.inc.h), so it can be applied later without the
+ * copy, which is not kept (gevr_bean_ce.c).
  */
 #define _POSIX_C_SOURCE 200809L
 #define _FILE_OFFSET_BITS 64
@@ -76,6 +79,8 @@ struct job {
 	int lo, hi;           // the phase's share of the bar
 	int pkgMode;          // the archive holds the package, not the files
 	uint32_t pkgIndex;
+	const char *only;     // gevrBeanImportZipEntry(): the one entry wanted, by its path's end
+	const char *onlyPath; // and where it goes
 	char scratch[IMPORT_MAXPATH];
 };
 
@@ -153,12 +158,23 @@ static int segment(const char *s, size_t n, int dots)
 	return 1;
 }
 
+// what the Community Edition updater patches from (gevr_bean_ce.c), relative to files/
+static const char *const s_ceRefs[] = {
+#include "gevr_bean_ce_refs.inc.h"
+};
+
 // rel starts with files/
 static int wantedRel(const char *rel)
 {
 	static const char *const kinds[] = { "background", "char", "gun", "head", "prop", "skydome" };
 	const char *p;
 	const char *slash;
+
+	for (size_t k = 0; k < sizeof(s_ceRefs) / sizeof(s_ceRefs[0]); k++) {
+		if (!strcmp(rel + 6, s_ceRefs[k])) {
+			return 1;
+		}
+	}
 
 	// files/new/<kind>/<name>/default.bin: what gevr_bean.c and gevr_bean_world.c load
 	if (!strncmp(rel, "files/new/", 10)) {
@@ -1283,6 +1299,31 @@ static int zipExtract(struct job *j, FILE *fp, uint64_t size, const struct zipen
 	return !j->failed;
 }
 
+// whether name ends in tail at a folder boundary, either separator, any case
+static int zipNameEnds(const char *name, const char *tail)
+{
+	const size_t n = strlen(name);
+	const size_t t = strlen(tail);
+
+	if (t > n || (t < n && name[n - t - 1] != '/' && name[n - t - 1] != '\\')) {
+		return 0;
+	}
+
+	for (size_t i = 0; i < t; i++) {
+		char a = name[n - t + i];
+		char b = tail[i];
+
+		a = a == '\\' ? '/' : (a >= 'A' && a <= 'Z' ? a + 32 : a);
+		b = b >= 'A' && b <= 'Z' ? b + 32 : b;
+
+		if (a != b) {
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
 static int zipRun(struct job *j, FILE *fp)
 {
 	uint8_t *tail = NULL;
@@ -1378,6 +1419,22 @@ static int zipRun(struct job *j, FILE *fp)
 		}
 
 		numParsed++;
+	}
+
+	if (j->only) {
+		for (uint32_t i = 0; i < numParsed; i++) {
+			if (zipNameEnds(entries[i].name, j->only)) {
+				if (roomFor(j, entries[i].usize)) {
+					phase(j, entries[i].csize, 0, 100);
+					zipExtract(j, fp, size, &entries[i], j->onlyPath, IMPORT_MAX_FILE, 0);
+				}
+
+				goto done;
+			}
+		}
+
+		fail(j, "That zip has no %s.", j->only);
+		goto done;
 	}
 
 	if (wantedBytes == 0) {
@@ -1476,6 +1533,46 @@ int gevrBeanImportStream(FILE *src, const char *dest, char *msg, size_t msgLen)
 	s_percent = 100;
 
 	return j.failed ? -1 : j.written;
+}
+
+int gevrBeanImportZipEntry(FILE *src, const char *tail, const char *path, char *msg, size_t msgLen)
+{
+	char dir[IMPORT_MAXPATH];
+	char *slash;
+	struct job j;
+	uint8_t magic[4] = { 0 };
+
+	snprintf(dir, sizeof(dir), "%s", path);
+	slash = strrchr(dir, '/');
+
+	if (slash) {
+		*slash = '\0';
+	}
+
+	memset(&j, 0, sizeof(j));
+	j.dest = dir;
+	j.msg = msg;
+	j.msgLen = msgLen;
+	j.only = tail;
+	j.onlyPath = path;
+	msg[0] = '\0';
+	s_cancel = 0;
+	s_percent = 0;
+
+	if (!src) {
+		fail(&j, "Could not open that file.");
+		return -1;
+	}
+
+	if (fread(magic, 1, sizeof(magic), src) != sizeof(magic) || memcmp(magic, "PK\x03\x04", 4)) {
+		fail(&j, "That is not a zip.");
+	} else {
+		zipRun(&j, src);
+	}
+
+	fclose(src);
+
+	return j.failed ? -1 : 0;
 }
 
 #ifdef __ANDROID__

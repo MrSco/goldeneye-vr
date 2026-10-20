@@ -19,6 +19,16 @@ not a crash (79a638bb). Headset: 10 min Facility, 0 broken frames (~18
 before), glass clean with SpaceWarp. [v0.5.10](docs/releases/v0.5.10.md),
 [facility-fog-flash](docs/facility-fog-flash.md).
 
+In progress (branch feature/bean-community-edition, not committed): the XBLA
+Community Edition from the player's own CommunityEditionUpdaterV6.zip, Dab's
+Mod's way. The import keeps the 145 files the patch reads (about 140 MB);
+**CE...** on the Bean row applies files.diff (vendored HDiffPatch) into
+ge007-bean/ce/files, which the Bean loaders read first while the **CE** box
+(ini BeanCommunityEdition) is ticked. Not applied: the xex fog table. Copies
+imported earlier must be imported again. PC: applies in 5 s, refuses a
+modified copy; suite green. Headset (2026-10-19): re-import, CE..., CE content
+in game all work. [Community Edition](docs/bean-community-edition.md).
+
 v0.5.9 (PR #206): teammates are always heard at full gain, so Horde and
 co-op (everyone a teammate) use Couch gain whatever the host's Voice mode
 (netVoiceModeForPair); the mode only reaches FFA opponents, and the launcher

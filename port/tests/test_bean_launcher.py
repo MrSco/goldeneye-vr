@@ -9,6 +9,7 @@ source = (ROOT / "port/vr/vr_launcher.cpp").read_text()
 start = source.index("static std::vector<std::string> gevrSplit(")
 end = source.index("// Names: printable ASCII", start)
 page = source[start:end].replace("ImGui::RadioButton(", "radio(").replace("ImGui::Button(label)", "download(label)")
+page = page.replace('ImGui::SmallButton("CE...")', "cePick()").replace('ImGui::Checkbox("CE", &ce)', "ceBox(&ce)")
 fixture = r'''
 #include "gevr_launcher_ui.h"
 #include "imgui/imgui_internal.h"
@@ -23,6 +24,8 @@ static char g_ActiveExtTexPack[256]={};
 static bool enabled=false,have=true,installed=true;
 static int VrGexGuns=1; static int VrCampaign=0; /* GoldenEye; hack campaigns grey out Bean and GE-X */
 static int VrBeanFillTextures=1, VrBloodPatch=0;
+static int VrBeanCommunityEdition=1, ceApplied=0;
+int gevrBeanCeApplied(){return ceApplied;}
 static int VrOddjobHat=0;          /* Mods: Oddjob's hat (PR #196), drawn when its pack is listed */
 static int gevrHatAvailable() {return 1;}
 #define GEVR_CAMPAIGN_GE 0
@@ -30,7 +33,7 @@ static int gevrHatAvailable() {return 1;}
 #define GEVR_CAMPAIGN_COUNT 4
 static int gevrCampaignRetailArt(int c){return c==GEVR_CAMPAIGN_GE||c==GEVR_CAMPAIGN_MIRROR;}
 static std::vector<std::string> commands;
-static ImVec2 bean,hd,original,chooseBean;
+static ImVec2 bean,hd,original,chooseBean,ceButton,ceCheck;
 int gevrBeanIsEnabled(){return enabled&&have;}
 int gevrBeanIsAvailable(){return have;}
 void gevrBeanInit(){}
@@ -59,6 +62,16 @@ bool radio(const char* label,bool selected){
  if(!strcmp(label,"Original"))original=point;
  return clicked;
 }
+bool cePick(){
+ bool clicked=ImGui::SmallButton("CE...");
+ ceButton=(ImGui::GetItemRectMin()+ImGui::GetItemRectMax())*.5f;
+ return clicked;
+}
+bool ceBox(bool* on){
+ bool clicked=ImGui::Checkbox("CE",on);
+ ceCheck=(ImGui::GetItemRectMin()+ImGui::GetItemRectMax())*.5f;
+ return clicked;
+}
 bool download(const char* label){
  bool clicked=ImGui::Button(label);
  if(strstr(label,"copy"))chooseBean=(ImGui::GetItemRectMin()+ImGui::GetItemRectMax())*.5f;
@@ -85,10 +98,14 @@ int main(){
  click(bean);assert(enabled && !strcmp(g_ActiveExtTexPack,"ge007-bean") && VrGexGuns==1);
  click(hd);assert(!enabled && !strcmp(g_ActiveExtTexPack,"ge007-hd-ai"));
  click(bean);click(original);assert(!enabled && !*g_ActiveExtTexPack);
+ /* the Community Edition: its updater is picked, never downloaded; once applied it is a switch */
+ assert(ceButton.x>0 && ceButton.x<1280);click(ceButton);assert(commands.back()=="openCePicker");
+ ceApplied=1;frame();frame();assert(ceCheck.x>0 && ceCheck.x<1280);
+ click(ceCheck);assert(VrBeanCommunityEdition==0);click(ceCheck);assert(VrBeanCommunityEdition==1);
  installed=false;have=false;frame();click(chooseBean);
  assert(commands.back()=="openXblaPicker"); /* never a download: the player's own copy */
  for(const std::string& c:commands)assert(c!="install:ge007-bean");
- ImGui::DestroyContext();puts("PASS: Mods offers Bean from the player's own copy, exclusive selection and preserves GE-X choice at Quest font scale");
+ ImGui::DestroyContext();puts("PASS: Mods offers Bean from the player's own copy, the Community Edition from its own updater, exclusive selection and preserves GE-X choice at Quest font scale");
 }
 '''.replace("/* PAGE */", page)
 with tempfile.TemporaryDirectory(prefix="gevr-bean-launcher-") as temp:

@@ -53,3 +53,5 @@ int main(int argc, char **argv) {
     puts("Bean font atlas crop, bounds, toggling and glyph checks passed");
     (void)argv;
 }
+/* no Community Edition overlay in these fixtures (gevr_bean_ce.c) */
+const char *gevrBeanCeRoot(void) { return 0; }

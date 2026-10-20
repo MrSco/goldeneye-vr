@@ -22,6 +22,7 @@
 #include "gevr_romlayout.h"
 #include "gevr_mirror.h"
 #include "gevr_bean_int.h"
+#include "gevr_bean_ce.h"
 #include "gevr_skin_mesh.h"
 #include "gevr_bean_room_state.h"
 #include "gevr_oddjobhat.h"
@@ -415,6 +416,14 @@ static int openRel(const char *rel, char *out, int outlen)
 static int findFile(const char *source, char *out, int outlen)
 {
 	char rel[192];
+	const char *ce = gevrBeanCeRoot();
+	// the Community Edition's overlay first (gevr_bean_ce.c)
+	if (ce) {
+		snprintf(rel, sizeof(rel), "%s/%s/default.bin", ce, source);
+		if (openRel(rel, out, outlen)) {
+			return 1;
+		}
+	}
 	for (int i = 0; i < (int)(sizeof(s_roots) / sizeof(s_roots[0])); i++) {
 		const char *root = s_roots[i];
 		size_t n = strlen(root);

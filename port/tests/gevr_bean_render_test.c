@@ -252,3 +252,5 @@ int main(void)
     puts("Bean UV, vertex alpha and same-level toggle checks passed");
     return 0;
 }
+/* no Community Edition overlay in these fixtures (gevr_bean_ce.c) */
+const char *gevrBeanCeRoot(void) { return 0; }

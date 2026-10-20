@@ -150,6 +150,7 @@ final class ModManager {
     static final String DOWNLOADING = "downloading";
     static final String INSTALLING = "installing";
     static final String IMPORTING = "importing";
+    static final String PATCHING = "patching";   // the Community Edition over Bean (applyCe)
     static final String INSTALLED = "installed";
     static final String ERROR = "error";
 
@@ -330,6 +331,32 @@ final class ModManager {
         busyState = IMPORTING;
         busyId = p.id;
         worker.execute(() -> run(p, () -> importFrom(p, uri)));
+    }
+
+    private static native String nativeBeanCeApply(int fd, String beanDir);
+
+    /**
+     * The Community Edition updater the player picked (MainActivity.openCePicker):
+     * applied to the imported Bean copy, into its ce/ folder (port/src/gevr_bean_ce.c).
+     */
+    synchronized void applyCe(Uri uri) {
+        final Pack p = find("ge007-bean");
+        if (p == null || !installed(p) || busyId != null) return;
+        errorId = null;
+        cancelled = false;
+        progress = -1;
+        busyState = PATCHING;
+        busyId = p.id;
+        worker.execute(() -> run(p, () -> {
+            String failure;
+            try (ParcelFileDescriptor fd = app.getContentResolver().openFileDescriptor(uri, "r")) {
+                if (fd == null) throw new IOException("could not open that file");
+                // the native side reads and closes it (fdopen)
+                failure = nativeBeanCeApply(fd.detachFd(), new File(root(), p.id).getAbsolutePath());
+            }
+            if (!failure.isEmpty()) throw new IOException(failure);
+            Log.i(TAG, "applied the Community Edition to " + p.id);
+        }));
     }
 
     private void importFrom(Pack p, Uri uri) throws Exception {
