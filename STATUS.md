@@ -24,7 +24,7 @@ Community Edition from the player's own CommunityEditionUpdaterV6.zip, Dab's
 Mod's way. The import keeps the 145 files the patch reads (about 140 MB);
 **CE...** on the Bean row applies files.diff (vendored HDiffPatch) into
 ge007-bean/ce/files, which the Bean loaders read first while the **CE** box
-(ini BeanCommunityEdition) is ticked. Not applied: the xex fog table. Copies
+(ini BeanCommunityEdition) is ticked. CE fog distances are built in; its 4 fog colours are not. Copies
 imported earlier must be imported again. PC: applies in 5 s, refuses a
 modified copy; suite green. Headset (2026-10-19): re-import, CE..., CE content
 in game all work. [Community Edition](docs/bean-community-edition.md).

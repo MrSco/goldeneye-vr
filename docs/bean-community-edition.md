@@ -60,8 +60,13 @@ from the Mods page, and the Community Edition's content showed in game.
 - Dab's Mod reads only the overlay's art (`ceArtFiles`), because it rebuilt
   the Community Edition's fixes into its own source. The port has not, so it
   reads the whole overlay.
-- The executable's patch (`xex.diff`) is not applied. Dab's Mod takes the
-  levels' fog table from it; the import keeps no `default.xex`, so the port's
-  fog stays as it is.
+- The executable's patch (`xex.diff`) is not applied; the import keeps no
+  `default.xex`. Its only use in Dab's Mod is the levels' fog. The Community
+  Edition's fog distances (Statue 5000, Archives, Train and Jungle 4500,
+  Temple 22500, Surface 2 6500) are built in already (`gevr_bean_fog.h`, from
+  Dab's Mod) and are used while the overlay is read, since
+  `communityEdition()` follows it. What is missing is its new fog colours for
+  Statue, Jungle, Temple and Cradle. Bean's fog is a colour blend only and
+  culls nothing, so neither changes what is drawn or the frame rate.
 - Dab's Mod finds the zip in `added-content/`. Here the player picks it on the
   Mods page.

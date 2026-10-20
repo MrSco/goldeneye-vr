@@ -18,8 +18,10 @@
  * the Bean loaders read it first (gevrBeanCeRoot()); the rest stay as they
  * are. Two differences from Dab's Mod: the whole overlay is read, not only its
  * art, since the port has not rebuilt the Community Edition's fixes into its
- * own source as Dab's Mod has; and the executable's patch (its fog table) is
- * not applied, since the import keeps no default.xex.
+ * own source as Dab's Mod has; and the executable's patch is not applied,
+ * since the import keeps no default.xex. Its fog distances are built in
+ * (gevr_bean_fog.h, used while communityEdition() sees the overlay); only its
+ * new fog colours for four levels are missing.
  *
  * The patch checks its own checksums of every file it reads, which is the
  * updater's own rule: it applies to an unmodified "Fyodorovna" release and to
