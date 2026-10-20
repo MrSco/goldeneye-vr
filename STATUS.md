@@ -3,9 +3,23 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current release:** v0.5.12 (versionCode 92, protocol 23), 2026-10-20.
-v0.5.7 to v0.5.12 play together; v0.5.6 and older can't join. Building does
+**Current release:** v0.5.13 (versionCode 93, protocol 23), 2026-10-20.
+v0.5.7 to v0.5.13 play together; v0.5.6 and older can't join. Building does
 not publish a GitHub release. No game data is shipped.
+
+v0.5.13 (PR #217, #216): co-op mission world from the host. NET_MSG_COOP_CLOCK
+(countdown value/running/mission hide bits 1|2|16, gas, blast sequence; 4/s
+while changing, 2 s idle) and NET_MSG_COOP_SCRIPT (list ID + offset into the
+receiver's own setup AI list, whitelisted context-free ops replayed through
+ai() on a scratch chr; durable ones kept in a 512-entry last-execution history
+for late joiners and host changes). Glass break object event + glass in the
+world snapshot; host world blasts carry explosion flag 4 (no grenade
+consumed, created as owner -1, client replays suppress their own blast).
+Additive on protocol 23. Not played on two headsets: #216 stays open until a
+player confirms Control glass, Train escape and a midway join. Limits: blast
+sequence around the host only; vehicles/aircraft still local; late joiners
+see past destruction replayed. [v0.5.13](docs/releases/v0.5.13.md),
+[#216 audit](docs/issue-216-coop-world.md).
 
 v0.5.12 (PR #212, #213, #214): Bean frame rate in VR. Only rooms whose Bean
 geometry reaches 50+ units past their box are drawn past the portals, and
