@@ -61,6 +61,23 @@ case before them keep the old switch).
 rigid_min 0 re-measured on main with the decal-band LRZ fix: still 92 fps at
 the start (GPU 9.0 ms, DRAW/TICK 10.3), so the CPU path stays.
 
+## 2D at the first drone gun (user, 2026-10-20)
+
+The user still dropped to ~96 in 2D standing at the first drone gun with guards
+firing. Their spot, logged with the new gevr_cheat.txt `where` word and stood on
+again with gevr_warp.txt `at -726 436 -4765 274.0`: 2D 118.8 xr/s (min 115),
+DRAW/TICK 7.3 ms, 46K CPU vertices, GPU 3.1 ms. The props on the CPU are the
+cost; as GPU meshes (rigid_min 0) the same spot is a locked 121 at DRAW/TICK
+3.75 ms. So on the screen (PlayMode 0, read as a level loads) every Bean prop
+is now a GPU mesh; stereo keeps rigid_min 256. Facility and Dam in 2D: no change.
+
+Why not in stereo too: with rigid_min 0 the foliage costs the eye pass 1.4 ms
+more GPU (6.8 vs 5.4 ms at the start view; 0.8 ms more at EyeMsaa 1) for the
+same pixels (screenshots match), and VR's start view drops to ~92-98. Ruled out:
+uniform uploads (re-uploading every mesh uniform every replay draw changed
+nothing), the far clip distance, alpha-to-coverage (blended draws never take it).
+It needs a GPU capture (RenderDoc for Meta Quest, launched from its UI).
+
 ## What is left
 
 VR's start view misses on its fresh frames: the early tick (game tick +

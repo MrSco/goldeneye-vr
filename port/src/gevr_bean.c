@@ -2242,9 +2242,18 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 	}
     s_registrationKind=kind;
     FILE *minimum=gevrBeanControlOpen("gevr_rigid_min.txt");
-    s_rigidMinimum=256;
+    /* Small props share CPU batches in stereo, where the replay draws each
+     * retained run twice a game frame: Jungle's ~100 palms and plants as GPU
+     * meshes cost the eye pass 1.4 ms more and its start view went 106 -> 98.
+     * On the screen there is no replay and the GPU has room (4 ms), and the
+     * same props on the CPU were half the record: at the first drone gun
+     * DRAW/TICK 7.3 -> 3.7 ms and 115-119 -> a locked 120 (2026-10-20). The
+     * mode is read as the level loads; a switch mid-level keeps it. */
+    extern int VrPlayMode;
+    const int fallback = VrPlayMode == 0 ? 0 : 256;
+    s_rigidMinimum=fallback;
     if(minimum) {
-        int value=256;
+        int value=fallback;
         if(fscanf(minimum,"%d",&value)==1 && value>=0 && value<=1000000)s_rigidMinimum=value;
         fclose(minimum);
     }
