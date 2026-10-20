@@ -2923,6 +2923,67 @@ static struct {
 
 static void gevr_bean_transform(int t, float matrix[6]);
 
+/* k / 255.0f for every byte, as gfx_sp_tri1 divided them per vertex */
+static const struct By255 {
+    float v[256];
+    By255() { for (int k = 0; k < 256; k++) v[k] = k / 255.0f; }
+    float operator[](int k) const { return v[k]; }
+} s_by255;
+
+enum { GEVR_INPUT_CONST, GEVR_INPUT_SHADE, GEVR_INPUT_SHADE_ALPHA, GEVR_INPUT_LOD, GEVR_INPUT_SLOW };
+/*
+ * What one combiner input reads, for gfx_sp_tri1's per-triangle setup: a
+ * constant (out), the vertex's shade, its shade alpha, or the LOD guess. k is
+ * 0 for the colour (out's three values), 1 for the alpha (out[0]). An input
+ * that would read the scratch colour another case left behind is SLOW, and
+ * the triangle takes the per-vertex switch, which does just that.
+ */
+static int gevr_input_source(int mux, int k, float out[3])
+{
+    float v = 0.0f;
+    switch (mux) {
+        // Note: CCMUX constants and ACMUX constants used here have same value, which is why this works
+        // (except LOD fraction).
+        case G_CCMUX_PRIMITIVE:
+            if (k == 0) { out[0] = s_by255[rdp.prim_color.r]; out[1] = s_by255[rdp.prim_color.g]; out[2] = s_by255[rdp.prim_color.b]; return GEVR_INPUT_CONST; }
+            v = s_by255[rdp.prim_color.a];
+            break;
+        case G_CCMUX_SHADE:
+            return GEVR_INPUT_SHADE;
+        case G_CCMUX_SHADE_ALPHA:
+            if (k != 0) return GEVR_INPUT_SLOW;
+            return GEVR_INPUT_SHADE_ALPHA;
+        case G_CCMUX_ENVIRONMENT:
+            if (k == 0) { out[0] = s_by255[rdp.env_color.r]; out[1] = s_by255[rdp.env_color.g]; out[2] = s_by255[rdp.env_color.b]; return GEVR_INPUT_CONST; }
+            v = s_by255[rdp.env_color.a];
+            break;
+        case G_CCMUX_PRIMITIVE_ALPHA:
+            if (k != 0) return GEVR_INPUT_SLOW;
+            v = s_by255[rdp.prim_color.a];
+            break;
+        case G_CCMUX_ENV_ALPHA:
+            if (k != 0) return GEVR_INPUT_SLOW;
+            v = s_by255[rdp.env_color.a];
+            break;
+        case G_CCMUX_PRIM_LOD_FRAC:
+            if (k != 0) return GEVR_INPUT_SLOW;
+            v = s_by255[rdp.prim_lod_fraction];
+            break;
+        case G_CCMUX_LOD_FRACTION:
+            if (rdp.other_mode_h & G_TL_LOD) return GEVR_INPUT_LOD;
+            v = 1.0f;   // 255 / 255
+            break;
+        case G_ACMUX_PRIM_LOD_FRAC:
+            if (k == 0) return GEVR_INPUT_SLOW;
+            v = s_by255[rdp.prim_lod_fraction];
+            break;
+        default:
+            break;   // zero
+    }
+    out[0] = out[1] = out[2] = v;
+    return GEVR_INPUT_CONST;
+}
+
 static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bool is_rect) {
     GevrProfileSection profile(GEVR_TIME_CLIP);
     if (gevrMenuTrace) ++gevrMenuTriangles;
@@ -3290,6 +3351,51 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
 
     float beanMotion[2][6];
     for (int t = 0; t < 2; t++) gevr_bean_transform(t, beanMotion[t]);
+    /*
+     * What is the same for the triangle's three vertices, worked out once:
+     * Jungle's Bean foliage sends 17K triangles a frame down this path, and
+     * the per-vertex tile lookups, divisions and combiner-input switch were
+     * a sixth of the render thread. The arithmetic is the same: the tile
+     * shift and the /32 are powers of two, the /255s come from a table of
+     * the same quotients, and an input whose value would depend on the input
+     * before it takes the old switch (gevr_input_source).
+     */
+    struct { float scale[2], origin[2], size[2]; } uvTile[2];
+    const bool uvHalf = !is_rect && !(rdp.other_mode_h & G_TP_PERSP);
+    const bool uvCentre = !is_rect && (rdp.other_mode_h & (3U << G_MDSFT_TEXTFILT)) != G_TF_POINT;
+    for (int t = 0; t < 2; t++) {
+        if (!used_textures[t]) {
+            continue;
+        }
+        // TODO: fix this; for now just ignore smaller mips
+        const auto& tile = rdp.texture_tile[rdp.first_tile_index + gfx_lod_tile_offset(t)];
+        const int shift[2] = { tile.shifts, tile.shiftt };
+        for (int a = 0; a < 2; a++) {
+            float k = 1.0f / 32.0f;
+            if (shift[a] != 0) {
+                k = shift[a] <= 10 ? k / (float)(1 << shift[a]) : k * (float)(1 << (16 - shift[a]));
+            }
+            uvTile[t].scale[a] = k;
+        }
+        uvTile[t].origin[0] = tile.uls / 4.0f;
+        uvTile[t].origin[1] = tile.ult / 4.0f;
+        /* Rectangles normalise against the loaded block, triangles against
+         * the SETTILESIZE window. When import_texture has resized a tile to
+         * its block (padded rows, a window larger or negative), the upload
+         * is the block, so triangles must use it too. */
+        uvTile[t].size[0] = (float)((is_rect || tex_from_block[t]) ? tex_width[t] : tex_width2[t]);
+        uvTile[t].size[1] = (float)((is_rect || tex_from_block[t]) ? tex_height[t] : tex_height2[t]);
+    }
+    const float fogRgb[3] = { rdp.fog_color.r / 255.0f, rdp.fog_color.g / 255.0f, rdp.fog_color.b / 255.0f };
+    uint8_t inputKind[GFX_MESH_MAX_INPUTS][2];
+    float inputValue[GFX_MESH_MAX_INPUTS][2][3];
+    bool inputsFast = num_inputs <= GFX_MESH_MAX_INPUTS;
+    for (int j = 0; j < num_inputs && inputsFast; j++) {
+        for (int k = 0; k < 1 + (use_alpha ? 1 : 0); k++) {
+            inputKind[j][k] = gevr_input_source(comb->shader_input_mapping[k][j], k, inputValue[j][k]);
+            if (inputKind[j][k] == GEVR_INPUT_SLOW) inputsFast = false;
+        }
+    }
     for (int i = 0; i < 3; i++) {
         float x = v_arr[i]->x, y = v_arr[i]->y, z = v_arr[i]->z, w = v_arr[i]->w;
         if (gevrBackFace) {
@@ -3314,54 +3420,18 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
             if (!used_textures[t]) {
                 continue;
             }
-
-            // TODO: fix this; for now just ignore smaller mips
-            const uint32_t tile = gfx_lod_tile_offset(t);
-
-            float u = v_arr[i]->u / 32.0f;
-            float v = v_arr[i]->v / 32.0f;
-
-            int shifts = rdp.texture_tile[rdp.first_tile_index + tile].shifts;
-            int shiftt = rdp.texture_tile[rdp.first_tile_index + tile].shiftt;
-            if (shifts != 0) {
-                if (shifts <= 10) {
-                    u /= 1 << shifts;
-                } else {
-                    u *= 1 << (16 - shifts);
-                }
+            float u = v_arr[i]->u * uvTile[t].scale[0] - uvTile[t].origin[0];
+            float v = v_arr[i]->v * uvTile[t].scale[1] - uvTile[t].origin[1];
+            if (uvHalf) {
+                u *= 0.5f;
+                v *= 0.5f;
             }
-            if (shiftt != 0) {
-                if (shiftt <= 10) {
-                    v /= 1 << shiftt;
-                } else {
-                    v *= 1 << (16 - shiftt);
-                }
+            if (uvCentre) {
+                // Linear filter adds 0.5f to the coordinates
+                u += 0.5f;
+                v += 0.5f;
             }
-
-            u -= rdp.texture_tile[rdp.first_tile_index + tile].uls / 4.0f;
-            v -= rdp.texture_tile[rdp.first_tile_index + tile].ult / 4.0f;
-
-            if (!is_rect) {
-                if (!(rdp.other_mode_h & G_TP_PERSP)) {
-                    u *= 0.5f;
-                    v *= 0.5f;
-                }
-
-                if ((rdp.other_mode_h & (3U << G_MDSFT_TEXTFILT)) != G_TF_POINT) {
-                    // Linear filter adds 0.5f to the coordinates
-                    u += 0.5f;
-                    v += 0.5f;
-                }
-            }
-
-			/* Rectangles normalise against the loaded block, triangles against
-			 * the SETTILESIZE window. When import_texture has resized a tile to
-			 * its block (padded rows, a window larger or negative), the upload
-			 * is the block, so triangles must use it too. */
-			uint32_t tex_w = (is_rect || tex_from_block[t]) ? tex_width[t] : tex_width2[t];
-			uint32_t tex_h = (is_rect || tex_from_block[t]) ? tex_height[t] : tex_height2[t];
-
-			float un = u / tex_w, vn = v / tex_h;
+            float un = u / uvTile[t].size[0], vn = v / uvTile[t].size[1];
             if(t==1 && s_beanNormalTex1) {
                 buf_vbo[buf_vbo_len++]=v_arr[i]->normal_uv[0];
                 buf_vbo[buf_vbo_len++]=v_arr[i]->normal_uv[1];
@@ -3372,10 +3442,10 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
         }
 
         if (use_fog) {
-            buf_vbo[buf_vbo_len++] = rdp.fog_color.r / 255.0f;
-            buf_vbo[buf_vbo_len++] = rdp.fog_color.g / 255.0f;
-            buf_vbo[buf_vbo_len++] = rdp.fog_color.b / 255.0f;
-            buf_vbo[buf_vbo_len++] = v_arr[i]->fog / 255.0f; // fog factor
+            buf_vbo[buf_vbo_len++] = fogRgb[0];
+            buf_vbo[buf_vbo_len++] = fogRgb[1];
+            buf_vbo[buf_vbo_len++] = fogRgb[2];
+            buf_vbo[buf_vbo_len++] = s_by255[v_arr[i]->fog]; // fog factor
         }
 
         if (use_grayscale) {
@@ -3383,6 +3453,45 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
             buf_vbo[buf_vbo_len++] = rdp.grayscale_color.g / 255.0f;
             buf_vbo[buf_vbo_len++] = rdp.grayscale_color.b / 255.0f;
             buf_vbo[buf_vbo_len++] = rdp.grayscale_color.a / 255.0f; // lerp interpolation factor (not alpha)
+        }
+
+        if (inputsFast) {
+            const struct RGBA& shade = v_arr[i]->color;
+            for (int j = 0; j < num_inputs; j++) {
+                for (int k = 0; k < 1 + (use_alpha ? 1 : 0); k++) {
+                    const float* c = inputValue[j][k];
+                    float lod[3];
+                    float vtx[3];
+                    switch (inputKind[j][k]) {
+                        case GEVR_INPUT_SHADE:
+                            vtx[0] = s_by255[shade.r]; vtx[1] = s_by255[shade.g]; vtx[2] = s_by255[shade.b];
+                            c = k == 0 ? vtx : (vtx[0] = s_by255[shade.a], vtx);
+                            break;
+                        case GEVR_INPUT_SHADE_ALPHA:
+                            vtx[0] = vtx[1] = vtx[2] = s_by255[shade.a];
+                            c = vtx;
+                            break;
+                        case GEVR_INPUT_LOD: {
+                            // HACK: very roughly eyeballed based on the carpets in Defection
+                            // this is actually supposed to be calculated per pixel
+                            const float distance_frac = std::max(0.f, std::min(w / 1024.f, 1.f));
+                            lod[0] = lod[1] = lod[2] = s_by255[(uint8_t)((0.7f + distance_frac * 0.3f) * 255.f)];
+                            c = lod;
+                            break;
+                        }
+                        default:
+                            break;
+                    }
+                    if (k == 0) {
+                        buf_vbo[buf_vbo_len++] = c[0];
+                        buf_vbo[buf_vbo_len++] = c[1];
+                        buf_vbo[buf_vbo_len++] = c[2];
+                    } else {
+                        buf_vbo[buf_vbo_len++] = c[0];
+                    }
+                }
+            }
+            continue;
         }
 
         for (int j = 0; j < num_inputs; j++) {

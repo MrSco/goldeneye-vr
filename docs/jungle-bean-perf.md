@@ -44,9 +44,29 @@ pad 20 match.
   its order can't change; a matrix select in every mesh vertex shader also
   cost ~3 ms of GPU, so a separate instanced program variant is needed.
 
+## 2D too (user, 2026-10-20)
+
+"In jungle the slowdown happens even in 2d mode": 2D (PlayMode=0) has no eye
+replays, and it dropped screen frames at the start view too (112 xr/s, min
+109; DRAW/TICK 8.3 ms; GPU idle at 3.6 ms), so the cost is the display-list
+record of the foliage, not stereo. In the 2D profile gfx_sp_tri1 was 29% of
+the render thread, 16 points of it the per-vertex emission: tile lookups,
+divisions by 255 and the combiner-input switch, all the same for a
+triangle's three vertices. They are now worked out once a triangle, with
+bit-identical output (gevr_input_source; inputs whose value depends on the
+case before them keep the old switch).
+
+2D start view 112 -> 120.5 xr/s (min 120), DRAW/TICK 8.28 -> 7.38 ms; pad 60
+120 either way. VR unchanged at ~108 (start) and ~102 (pad 60 still).
+rigid_min 0 re-measured on main with the decal-band LRZ fix: still 92 fps at
+the start (GPU 9.0 ms, DRAW/TICK 10.3), so the CPU path stays.
+
 ## What is left
 
-The start view is CPU-bound in the record (gfx_sp_tri1 25% and gfx_sp_vertex
-12% of the render thread on 17K foliage triangles). Levers: a gfx_sp_tri1
-fast path for triangles under unchanged state, or the mesh path at CPU-path
-GPU cost (then rigid_min 0 wins everywhere).
+VR's start view misses on its fresh frames: the early tick (game tick +
+record) takes ~8 ms before a ~2 ms replay, against an 8.33 ms slot. The
+record has to lose about 1.5 ms more: gfx_sp_tri1 is still 21% of the VR
+render thread (half of it the float stores of ~80 floats a triangle) and
+gfx_sp_vertex 13% (clip tests and the presentation transform, spread thin).
+The other lever is the mesh path at CPU-path cost per draw: today 270 small
+mesh draws cost more CPU and GPU than the same triangles batched on the CPU.
