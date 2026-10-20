@@ -3893,6 +3893,8 @@ extern float VrScreenDistance, VrScreenFov;
 extern int VrScreenCurved, VrScreenPassthrough;
 extern void vr_screen_resize(float dist, float fov);   /* port/vr/vr_screen.h */
 extern int VrRefreshRate;                              /* 0: the headset's own */
+extern int VrSpaceWarp;                                /* 1, 0, or -1: on while Bean is */
+extern int vr_spacewarp_supported(void), vr_spacewarp_setting_on(void);   /* vr_openxr.cpp */
 extern int vr_get_supported_refresh_rates(int *rates, int capacity);   /* vr_openxr.cpp */
 extern void vr_apply_refresh_rate(void);
 extern int vr_screen_curve_supported(void);
@@ -3917,7 +3919,7 @@ enum {
     GEVR_VR_REFRESH, GEVR_VR_WATCHFACE, GEVR_VR_STATS, GEVR_VR_SCREENSIZE, GEVR_VR_SCREENDIST, GEVR_VR_CURVED, GEVR_VR_PASSTHROUGH,
     GEVR_VR_MINESTICK, GEVR_VR_BODIES, GEVR_VR_FASTREINF,
     GEVR_VR_GEXGUNS, GEVR_VR_GUNSIZE, GEVR_VR_BEAN, GEVR_VR_BEANFILL, GEVR_VR_BLOOD, GEVR_VR_HAT,
-    GEVR_VR_MOVESPEED,
+    GEVR_VR_MOVESPEED, GEVR_VR_SPACEWARP,
     GEVR_VR_ROWS
 };
 
@@ -3930,7 +3932,7 @@ static const char *s_gevrVrLabels[GEVR_VR_ROWS] = {
     "Refresh", "Watch face", "Show stats", "Screen size", "Screen dist", "Curved", "Passthrough",
     "Mines stick", "Bodies stay", "Fast reinforcements",
     "GoldenEye X", "Gun size", "Project Bean", "Bean HD fill", "Blood patch", "Oddjob's hat",
-    "Movement speed",
+    "Movement speed", "SpaceWarp",
 };
 
 /* the sections, as the launcher groups them */
@@ -3939,7 +3941,7 @@ static const s32 s_gevrVrControls[] = { GEVR_VR_LEFTY, GEVR_VR_SWAP, GEVR_VR_NOL
 static const s32 s_gevrVrGestures[] = { GEVR_VR_WATCHPAUSE, GEVR_VR_BODYSLOTS, GEVR_VR_SLOTSIZE, GEVR_VR_HOLSTER, GEVR_VR_RELOAD,
                                          GEVR_VR_GRIPUSE, GEVR_VR_PICKUP, GEVR_VR_MINEGRAB };
 static const s32 s_gevrVrWeapons[] = { GEVR_VR_RECOIL, GEVR_VR_THROW, GEVR_VR_THROWPOWER, GEVR_VR_THROWPITCH, GEVR_VR_THROWGAZE };
-static const s32 s_gevrVrDisplay[] = { GEVR_VR_REFRESH, GEVR_VR_WATCHFACE, GEVR_VR_STATS, GEVR_VR_SCREENSIZE, GEVR_VR_SCREENDIST, GEVR_VR_CURVED, GEVR_VR_PASSTHROUGH };
+static const s32 s_gevrVrDisplay[] = { GEVR_VR_REFRESH, GEVR_VR_SPACEWARP, GEVR_VR_WATCHFACE, GEVR_VR_STATS, GEVR_VR_SCREENSIZE, GEVR_VR_SCREENDIST, GEVR_VR_CURVED, GEVR_VR_PASSTHROUGH };
 static const s32 s_gevrVrRules[] = { GEVR_VR_MINESTICK, GEVR_VR_BODIES, GEVR_VR_FASTREINF };
 static const s32 s_gevrVrMods[] = { GEVR_VR_BEAN, GEVR_VR_BEANFILL, GEVR_VR_GEXGUNS, GEVR_VR_GUNSIZE, GEVR_VR_BLOOD, GEVR_VR_HAT };
 
@@ -4049,6 +4051,9 @@ static void gevrVrValueText(s32 row, char *buf)
     {
         case GEVR_VR_BEAN:
             sprintf(buf, "%s", !gevrBeanIsAvailable() ? "NEEDS FILES" : gevrBeanIsEnabled() ? "ON" : "OFF");
+            break;
+        case GEVR_VR_SPACEWARP:
+            sprintf(buf, "%s", !vr_spacewarp_supported() ? "N/A" : vr_spacewarp_setting_on() ? "ON" : "OFF");
             break;
         case GEVR_VR_MOVESPEED:
             if (!netIsActive() && VrMovementSpeed == NET_MOVE_NORMAL) sprintf(buf, "100%% DEFAULT");
@@ -4163,6 +4168,13 @@ static void gevrVrStep(s32 row, s32 dir)
     if (row == GEVR_VR_BEAN)
     {
         if (gevrBeanIsAvailable()) gevrBeanSetEnabled(dir == 2 ? !gevrBeanIsEnabled() : dir > 0);
+        return;
+    }
+    /* Application SpaceWarp, as the launcher's checkbox sets it: read every
+     * frame (vr_openxr.cpp), so it takes effect at once */
+    if (row == GEVR_VR_SPACEWARP)
+    {
+        if (vr_spacewarp_supported()) VrSpaceWarp = (dir == 2 ? !vr_spacewarp_setting_on() : dir > 0) ? 1 : 0;
         return;
     }
     if (row == GEVR_VR_FASTREINF && netIsActive())
