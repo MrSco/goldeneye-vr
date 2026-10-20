@@ -1897,6 +1897,12 @@ static void gevr_texpack_frame(void) {
 }
 #endif
 
+/* A block-sized picture's width and height cut to its tile's masks (import_texture). */
+static void gevr_cap_to_mask(uint8_t masks, uint8_t maskt, uint32_t& w, uint32_t& h) {
+    if (masks != 0 && masks < 16 && (1u << masks) < w) w = 1u << masks;
+    if (maskt != 0 && maskt < 16 && (1u << maskt) < h) h = 1u << maskt;
+}
+
 static void import_texture(int i, int tile, bool is_rect) {
     LoadedTexture& loaded_texture = rdp.loaded_texture[rdp.texture_tile[tile].tmem];
     const uint8_t fmt = rdp.texture_tile[tile].fmt;
@@ -1990,6 +1996,16 @@ static void import_texture(int i, int tile, bool is_rect) {
                 case G_IM_SIZ_16b: bw = line / 2; break;
                 default:           bw = line / 2; bh /= 2; break; /* 32b: TMEM halves */
             }
+            /* Nor past its tile's mask: the RDP wraps every coordinate at
+             * 2^mask texels, so nothing past that row or column is ever
+             * sampled. A block load can hold more than the picture - the
+             * sky's water is a 32x32 CI8 with its mip levels and palette in
+             * one 1456-byte block, 45 rows of 32 bytes - and those extra rows
+             * were uploaded and wrapped into, mips, palette and the next
+             * texture read as colour indices into stale TLUT entries: a band
+             * of speckles across Frigate's water and garbage in Jungle's
+             * clouds, changing colour from run to run (2026-10-19). */
+            gevr_cap_to_mask(t.masks, t.maskt, bw, bh);
             /* Also the other way round: a block load whose rows are wider
              * than the window, because TMEM pads every row to 8 bytes. The
              * UVs above divide by the padded width, so uploading only the
@@ -3180,6 +3196,8 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
                     break;
             }
             tex_width[i] = line_size;
+            /* a block-sized picture is uploaded no bigger than its masks (import_texture) */
+            if (rdp.texture_tile[tile].from_block) gevr_cap_to_mask(rdp.texture_tile[tile].masks, rdp.texture_tile[tile].maskt, tex_width[i], tex_height[i]);
 
             tex_width2[i] = (rdp.texture_tile[tile].lrs - rdp.texture_tile[tile].uls + 4) / 4;
             tex_height2[i] = (rdp.texture_tile[tile].lrt - rdp.texture_tile[tile].ult + 4) / 4;
