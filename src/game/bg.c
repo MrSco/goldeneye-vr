@@ -461,6 +461,8 @@ static u8 s_gevrRoomN64[MAXROOMCOUNT];
 static u8 s_gevrPortalN64[PORTMAX];
 static s32 s_gevrHitN64;         /* the last far test had a point inside the N64 far */
 static s32 s_gevrPathN64 = 1;    /* the room being added was reached inside it */
+/* drawn only for its Bean geometry (gevrAddBeanRooms), not reached by the portal walk */
+static u8 s_gevrBeanOnlyRoom[MAXROOMCOUNT];
 
 s32 gevrRoomIsRenderedN64(s32 roomID)
 {
@@ -2454,6 +2456,22 @@ s32 getMaxNumRooms(void)
  */
 u8 getROOMID_isRendered(s32 roomID)
 {
+#ifdef GEVR
+    /*
+     * A room the Bean pass adds draws its Bean geometry (the part outside its
+     * box) and nothing else: its props, guards, impacts and the game's other
+     * "is this room drawn" questions answer as the portal walk does, as
+     * without Bean. The portal walk had found the room's own volume hidden,
+     * and the props stand in it. Frigate's hull rooms reach 200-550 units
+     * below their boxes, so from the decks every room under them was "drawn"
+     * with what stands in it, through the hull: ~245 draws a frame where ~155
+     * are seen, and 105-117 fps in the headset.
+     */
+    if (roomID >= 0 && roomID < MAXROOMCOUNT && s_gevrBeanOnlyRoom[roomID])
+    {
+        return 0;
+    }
+#endif
     return g_BgRoomInfo[roomID].room_rendered;
 }
 
@@ -4844,6 +4862,7 @@ static void gevrAddBeanRooms(void)
         if (on)
         {
             s_gevrPathN64 = 0;
+            s_gevrBeanOnlyRoom[room] = 1;
             sub_GAME_7F0B39BC(room, 1, &g_CurrentPlayer->screensize, 0);
         }
     }
@@ -4877,6 +4896,7 @@ void bgDetermineVisibleRooms(void)
         g_BgRoomInfo[i].room_loaded_mask = 0;
 #ifdef GEVR
         s_gevrRoomN64[i] = 0;
+        s_gevrBeanOnlyRoom[i] = 0;
 #endif
     }
 
