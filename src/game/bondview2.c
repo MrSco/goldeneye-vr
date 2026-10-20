@@ -836,6 +836,17 @@ static void gevrCheatProbe(s32 inlevel)
             sysLogPrintf(LOG_NOTE, "cheathook: blast %.0f: %d objects", (double) r, gevrBlastObjects(r));
             continue;
         }
+        /* "kill<R>": every guard within R units of Bond (600 if none) dies as a
+         * blast would kill him (chrlvExplosionDamage), to pile up bodies -
+         * ragdolls, with BodiesStay - for a test script */
+        if (strncasecmp(word, "kill", 4) == 0)
+        {
+            extern s32 gevrKillGuards(f32 radius);
+            const f32 r = word[4] ? (f32) atoi(word + 4) : 600.0f;
+
+            sysLogPrintf(LOG_NOTE, "cheathook: kill %.0f: %d guards", (double) r, gevrKillGuards(r));
+            continue;
+        }
         /* "wound<R>": every guard within R units of Bond (600 if none) takes a
          * bullet's bruise on the chest (chrCreateBloodStain), as a shot's
          * would, without aiming from the PC; "woundhead<R>" on the head */
@@ -970,6 +981,36 @@ static ModelNode *gevrWoundChest(ModelNode *node, s32 part)
         }
     }
     return NULL;
+}
+
+/* "kill<R>" (gevrCheatProbe): every live guard within radius of Bond dies */
+s32 gevrKillGuards(f32 radius)
+{
+    extern s32 chrlvExplosionDamage(ChrRecord *self, coord3d *arg1, f32 damage, s32 arg3);
+    s32 i, n = 0;
+
+    for (i = 0; i < g_NumChrSlots; i++)
+    {
+        ChrRecord *chr = &g_ChrSlots[i];
+
+        if (chr->model == NULL || chr->prop == NULL || chr->prop->type != PROP_TYPE_CHR ||
+            chr->actiontype == ACT_DIE || chr->actiontype == ACT_DEAD)
+        {
+            continue;
+        }
+        {
+            const f32 dx = chr->prop->pos.x - g_CurrentPlayer->prop->pos.x;
+            const f32 dz = chr->prop->pos.z - g_CurrentPlayer->prop->pos.z;
+
+            if (dx * dx + dz * dz >= radius * radius)
+            {
+                continue;
+            }
+        }
+        chrlvExplosionDamage(chr, &g_CurrentPlayer->prop->pos, 100.0f, 0);
+        n++;
+    }
+    return n;
 }
 
 s32 gevrWoundGuards(f32 radius, s32 part)
