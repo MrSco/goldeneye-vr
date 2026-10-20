@@ -68,22 +68,28 @@ firing. Their spot, logged with the new gevr_cheat.txt `where` word and stood on
 again with gevr_warp.txt `at -726 436 -4765 274.0`: 2D 118.8 xr/s (min 115),
 DRAW/TICK 7.3 ms, 46K CPU vertices, GPU 3.1 ms. The props on the CPU are the
 cost; as GPU meshes (rigid_min 0) the same spot is a locked 121 at DRAW/TICK
-3.75 ms. So on the screen (PlayMode 0, read as a level loads) every Bean prop
-is now a GPU mesh; stereo keeps rigid_min 256. Facility and Dam in 2D: no change.
+3.75 ms. Facility and Dam in 2D: no change. That first went in for the screen
+only (b863d0bd), because of stereo's GPU cost below.
 
-Why not in stereo too: with rigid_min 0 the foliage costs the eye pass 1.4 ms
-more GPU (6.8 vs 5.4 ms at the start view; 0.8 ms more at EyeMsaa 1) for the
-same pixels (screenshots match), and VR's start view drops to ~92-98. Ruled out:
-uniform uploads (re-uploading every mesh uniform every replay draw changed
-nothing), the far clip distance, alpha-to-coverage (blended draws never take it).
-It needs a GPU capture (RenderDoc for Meta Quest, launched from its UI).
+Why not in stereo at first: with rigid_min 0 the foliage cost the eye pass
+1.4 ms more GPU (6.8 vs 5.4 ms at the start view) for the same pixels. Not the
+uniform uploads, the far clip distance or alpha-to-coverage: it was the mesh
+vertex shader. Its skin, light, tint and wound code ran for every vertex of
+every static mesh (rooms and props, which use none of it), in every bin and
+both views. A probe build without that code took the start view to a locked
+120 (eye 6.78 -> 4.20 ms). Static meshes now take a variant without it
+(gfx_opengl.cpp s_buildStatic, static_program_pool); skins keep the full one.
+
+With that, every Bean prop is retained in both modes (rigid_min 0):
+
+| xr frames/s | before | after |
+|---|---|---|
+| Jungle VR start view | 100 | 120.7 (min 120) |
+| Jungle VR turret spot | 102 | 121 (min 120) |
+| Jungle 2D turret spot | 118.8 (min 115) | 121 (min 120) |
+| Facility / Dam / Frigate VR start + pad 20 | 120 | 120 |
 
 ## What is left
 
-VR's start view misses on its fresh frames: the early tick (game tick +
-record) takes ~8 ms before a ~2 ms replay, against an 8.33 ms slot. The
-record has to lose about 1.5 ms more: gfx_sp_tri1 is still 21% of the VR
-render thread (half of it the float stores of ~80 floats a triangle) and
-gfx_sp_vertex 13% (clip tests and the presentation transform, spread thin).
-The other lever is the mesh path at CPU-path cost per draw: today 270 small
-mesh draws cost more CPU and GPU than the same triangles batched on the CPU.
+Re-check Jungle in 2D where the user saw 109 on b863d0bd (spot unknown; mark it
+with gevr_cheat.txt `where`).

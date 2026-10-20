@@ -1008,8 +1008,8 @@ static Gfx *wrapEmitted(ModelNode *n, Gfx *gdl)
          * fallback. Their vertex buffers live until the level reset. */
         if (!s_emittedSkin && s_nrigidMeshes < MAX_ALLOC && retainedRigidList(gdl)) {
             GevrStaticMesh *mesh = gevrStaticMeshBuild(gdl);
-            /* Small props share CPU batches across instances. An individual
-             * indexed draw costs more than packing their few vertices. */
+            /* gevr_rigid_min.txt <N>: props under N triangles take the CPU
+             * path again (the A/B switch; 0 retains every prop) */
             if(mesh && s_registrationKind==BEAN_PROP && mesh->numIndices<(uint32_t)s_rigidMinimum*3) {
                 gevrStaticMeshFree(mesh);mesh=NULL;
             }
@@ -2242,18 +2242,14 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 	}
     s_registrationKind=kind;
     FILE *minimum=gevrBeanControlOpen("gevr_rigid_min.txt");
-    /* Small props share CPU batches in stereo, where the replay draws each
-     * retained run twice a game frame: Jungle's ~100 palms and plants as GPU
-     * meshes cost the eye pass 1.4 ms more and its start view went 106 -> 98.
-     * On the screen there is no replay and the GPU has room (4 ms), and the
-     * same props on the CPU were half the record: at the first drone gun
-     * DRAW/TICK 7.3 -> 3.7 ms and 115-119 -> a locked 120 (2026-10-20). The
-     * mode is read as the level loads; a switch mid-level keeps it. */
-    extern int VrPlayMode;
-    const int fallback = VrPlayMode == 0 ? 0 : 256;
-    s_rigidMinimum=fallback;
+    /* Every prop is retained: Jungle's ~100 small palms and plants posed on
+     * the CPU were half its record (DRAW/TICK 7.3 -> 3.7 ms in 2D at the first
+     * drone gun), and once static meshes took a vertex shader without the
+     * skin code (gfx_opengl.cpp s_buildStatic) they cost the GPU no more than
+     * the CPU's batches: VR start view 100 -> 120 (2026-10-20). */
+    s_rigidMinimum=0;
     if(minimum) {
-        int value=fallback;
+        int value=0;
         if(fscanf(minimum,"%d",&value)==1 && value>=0 && value<=1000000)s_rigidMinimum=value;
         fclose(minimum);
     }
