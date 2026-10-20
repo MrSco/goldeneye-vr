@@ -31,7 +31,11 @@ static void planeChecks(void)
     struct beanSwap *near=swapOf(&hullDl),*far=swapOf(&farDl);
     assert(near && near->ours!=s_blank);
     assert(far && far->ours!=s_blank);
-    assert(((Gfx *)far->ours)[1].words.w1==((Gfx *)near->ours)[1].words.w1);
+    /* the same Bean list, behind each node's own G_GEVR_MESH header when retained */
+    const Gfx *farDraw=(const Gfx *)((Gfx *)far->ours)[1].words.w1,*nearDraw=(const Gfx *)((Gfx *)near->ours)[1].words.w1;
+    if((farDraw[0].words.w0>>24)==G_GEVR_MESH)farDraw=(const Gfx *)farDraw[1].words.w1;
+    if((nearDraw[0].words.w0>>24)==G_GEVR_MESH)nearDraw=(const Gfx *)nearDraw[1].words.w1;
+    assert(farDraw==nearDraw);
     assert(!swapOf(&rotorDl)); /* no replacement rotor geometry: keep native propellers */
     gevrBeanForgetModel(&header);
     puts("PASS: articulated prop hull uses its body matrix and survives distant LOD, native propellers retained");
