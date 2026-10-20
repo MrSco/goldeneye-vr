@@ -49,7 +49,7 @@ static int fpGunFile(const char *source)
 		"ppk", "ppksilenced", "tt33", "skorpion", "ak47", "uzi", "mp5k", "mp5ksilenced", "spectre", "m16",
 		"fnp90", "shotgun", "automaticshotgun", "sniperrifle", "ruger", "goldengun", "laser", "grenadelauncher",
 		"rocketlauncher", "knife", "throwingknife", "grenade", "timedmine", "proximitymine", "remotemine",
-		"goldppk", "silverPPK",
+		"goldppk", "silverppk",
 	};
 	for (unsigned i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
 		char folder[48];
@@ -78,7 +78,7 @@ static const struct beanMetal s_metals[] = {
 	{ "/gun/goldengun/", 0xfff0c86eu, { 1.25f, 1.05f, 0.45f } },
 	{ "/prop/chrgolden/", 0xfff0c86eu, { 1.25f, 1.05f, 0.45f } },
 	{ "/gun/goldppk/", 0xfff0c86eu, { 1.25f, 1.05f, 0.45f } },
-	{ "/gun/silverPPK/", 0xffd8d8d8u, { 1.0f, 1.0f, 1.0f } },
+	{ "/gun/silverppk/", 0xffd8d8d8u, { 1.0f, 1.0f, 1.0f } },
 };
 
 static const struct beanMetal *beanMetalOf(const char *source)
@@ -1719,7 +1719,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	triggerCuffs = strstr(source, "/gun/trigger/") != NULL || strstr(source, "\\gun\\trigger\\") != NULL;
 	const int fpCards = fpGunFile(source);
 	const struct beanMetal *metal = original ? NULL : beanMetalOf(source);
-	const int roundLauncher = !original && strstr(source, "/gun/rocketlauncher/") != NULL;
+	const int roundLauncher = !original && (strstr(source, "/gun/rocketlauncher/") != NULL ||
+	                                        strstr(source, "\\gun\\rocketlauncher\\") != NULL);
 	pal[0] = 0;
 	end = slen >= 8 ? be32(stream + 4) : 0;
 	if (end > slen) {

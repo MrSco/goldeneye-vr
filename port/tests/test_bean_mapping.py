@@ -114,6 +114,10 @@ def main():
     if len(sys.argv) != 3:
         raise SystemExit(__doc__)
     rom, assets = load_rom(sys.argv[1]), Path(sys.argv[2]).resolve()
+    # gevr_bean_tex.c keys a model's pictures by "<path>:<n>" in 160 characters:
+    # a longer path cuts every key to one, and all of them share one picture
+    assert len(str(assets / "new/char/suitlfhand/default.bin:11")) < 160, \
+        "files path too long for the texture cache keys; use a shorter one"
     mappings = re.findall(r'\{ "([^"]+)", (\w+), "([^"]+)" \}',
                           (ROOT / "port/include/gevr_bean_files.h").read_text())
     assert len({m[0] for m in mappings}) == len(mappings), "duplicate native file"
