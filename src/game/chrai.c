@@ -960,6 +960,9 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
              * GE uses long Switch/case while PD uses Bool functions and tests
              * for TRUE/FALSE if(funcpointer[ai]) break;
              */
+#ifdef GEVR
+            gevrCoopScriptEffect(AiListp, Offset);
+#endif
             switch ((AiListp + Offset)->cmd)
             {
                 // unfortunately we cannot use the cmdbuilder in matching rom as the ordering is not sequential

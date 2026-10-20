@@ -62,6 +62,8 @@ void netCoopBecameHost(void);               /* netHostTakeOver: the AI resumes h
 /* Doors the host's guards, scripts and timers move or lock (net_core.c) */
 void netSendHostDoorState(struct ObjectRecord *door, int state);   /* propobj.c doorActivate */
 void netSendHostDoorLock(struct ObjectRecord *door);               /* chrai.c AI_DoorSetLock / UnsetLock */
+void netSendHostGlassBreak(struct ObjectRecord *obj);              /* propobj.c: the host shattered a setup pane */
+void gevrCoopScriptEffect(struct AIRecord *list, int offset);      /* chrai.c: a shared effect from a local mission list */
 
 /* The mission: the host's, shown everywhere (objective_status.c, chrai.c, gunfire.c) */
 int gevrCoopHostObjectiveStatus(int objective);   /* a teammate's headset: the host's status */

@@ -41,6 +41,7 @@
 #include "game/objecthandler.h"
 #include "game/player.h"
 #include "game/stan.h"
+#include "aicommands2.h"
 
 #define COOP_LOG(...) sysLogPrintf(LOG_NOTE, "coop: " __VA_ARGS__)
 
@@ -57,6 +58,8 @@ extern void sub_GAME_7F02BFE4(ChrRecord *self, s32 hand, s32 firing);   /* a gua
 extern void chrpropActivateThisFrame(PropRecord *prop);
 extern void chrpropEnable(PropRecord *prop);
 extern AIRecord *ailistFindById(s32 ID);
+extern s32 chraiitemsize(u8 *list, s32 offset);
+extern void ai(PropDefHeaderRecord *entity, PROP_TYPE type);
 extern void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 playerid, s32 affects_armor);
 /* The game's bool is s32 (bondtypes.h); this file, after <stdbool.h>, would
  * see a one-byte one, so these are declared here as the game defines them. */
@@ -80,6 +83,10 @@ extern void projectileFree(struct Projectile *projectile);
 
 static void coopHostMission(u64 now);
 static void coopMissionReset(void);
+static void coopHostClock(u64 now);
+static void coopClockReset(void);
+static void coopScriptReset(void);
+static void coopSendScriptSnapshot(int slot);
 static bool s_downed[4];                  /* revive: each player down, not dead (every headset's view) */
 static int s_host_sees_me_down = -1;      /* a teammate's headset: the host's last word on its player, -1 none */
 static u64 s_down_sent_us;
@@ -339,6 +346,7 @@ void netCoopHostTick(void)
     if (!netCoopActive() || !netIsHost()) return;
     netAllyHostTick();
     coopHostMission(now);
+    coopHostClock(now);
     coopHostDropIn(now);
     coopCinemaHostTick(now);
     if (!g_ChrSlots || now - s_last_send_us < COOP_SEND_INTERVAL_US) return;
@@ -678,6 +686,8 @@ void netCoopStageLoaded(void)
     }
     memset(s_guard_explosive, 0, sizeof(s_guard_explosive));
     coopMissionReset();
+    coopClockReset();
+    coopScriptReset();
     coopReviveReset();
     coopDropInReset();
     coopCinemaReset();
@@ -1143,6 +1153,231 @@ static void coopReceiveMission(struct netbuf *b)
     }
     memset(s_host_status, 0, sizeof(s_host_status));
     memcpy(s_host_status, statuses, count);
+}
+
+/* ---- Shared effects from the mission's scripts (#216) ---- */
+
+/* Only context-free effects are replayed. Branches, spawning, guard AI,
+ * player inventory/control and vehicle AI remain with their existing owners.
+ * The wire names an instruction in our own loaded mission, never bytecode
+ * supplied by another headset. */
+static int coopScriptAllowed(u8 op)
+{
+    switch (op) {
+        case AI_DestroyObject:
+        case AI_MoveObject:
+        case AI_SetObjectFlags:
+        case AI_UnsetObjectFlags:
+        case AI_SetObjectFlags2:
+        case AI_UnsetObjectFlags2:
+        case AI_TvChangeScreenBank:
+        case AI_SwitchSky:
+        case AI_ObjectRocketLaunch:
+        case AI_SfxPlay:
+        case AI_SfxStopChannel:
+        case AI_SfxSetChannelVolume:
+        case AI_SfxFadeChannelVolume:
+        case AI_SfxEmitFromObject:
+        case AI_SfxEmitFromPad:
+        case AI_MusicPlaySlot:
+        case AI_MusicStopSlot:
+            return 1;
+        default: return 0;
+    }
+}
+
+static int coopScriptPersistent(u8 op)
+{
+    return coopScriptAllowed(op) && op != AI_SfxPlay && op != AI_SfxStopChannel &&
+        op != AI_SfxSetChannelVolume && op != AI_SfxFadeChannelVolume && op != AI_SfxEmitFromObject &&
+        op != AI_SfxEmitFromPad && op != AI_MusicPlaySlot && op != AI_MusicStopSlot;
+}
+
+#define COOP_SCRIPT_HISTORY_MAX 512
+typedef struct { u16 list, offset; } CoopScriptRef;
+static CoopScriptRef s_script_history[COOP_SCRIPT_HISTORY_MAX];
+static int s_script_count;
+
+static void coopScriptReset(void) { s_script_count = 0; }
+
+static void coopRememberScript(u16 list, u16 offset)
+{
+    int at;
+    for (at = 0; at < s_script_count; at++)
+        if (s_script_history[at].list == list && s_script_history[at].offset == offset) break;
+    /* Keep the last execution of each idempotent instruction, in order.
+     * A rejoining player reconstructs flags, moves, monitors and destruction. */
+    if (at == s_script_count && s_script_count < COOP_SCRIPT_HISTORY_MAX) s_script_count++;
+    else if (at == COOP_SCRIPT_HISTORY_MAX) {
+        at = 0;
+        COOP_LOG("script snapshot history full; discarding the oldest effect");
+    }
+    memmove(&s_script_history[at], &s_script_history[at + 1],
+        (size_t)(s_script_count - at - 1) * sizeof(s_script_history[0]));
+    s_script_history[s_script_count - 1] = (CoopScriptRef){list, offset};
+}
+
+static void coopWriteScript(struct netbuf *b, u16 list, u16 offset)
+{
+    coopHeader(b, NET_MSG_COOP_SCRIPT);
+    netbufWriteU8(b, netGetActiveMatchConfig()->stage);
+    netbufWriteU32(b, netGetWorldEpoch());
+    netbufWriteU16(b, list);
+    netbufWriteU16(b, offset);
+}
+
+void gevrCoopScriptEffect(AIRecord *list, int offset)
+{
+    u8 raw[24];
+    struct netbuf b = { .data = raw, .size = sizeof(raw) };
+    if (!gevrCoopHostGuards() || !list || offset < 0 || offset > 65535 ||
+        !coopScriptAllowed(list[offset].cmd) || !g_CurrentSetup.ailists) return;
+    for (int i = 0; g_CurrentSetup.ailists[i].ailist; i++) {
+        AIListRecord *entry = &g_CurrentSetup.ailists[i];
+        if (entry->ailist != list || entry->ID < 0 || entry->ID > 65535) continue;
+        coopWriteScript(&b, (u16)entry->ID, (u16)offset);
+        netCoopBroadcast(b.data, b.wp, true);
+        if (coopScriptPersistent(list[offset].cmd)) coopRememberScript((u16)entry->ID, (u16)offset);
+        return;
+    }
+}
+
+static AIRecord *coopScriptInstruction(u16 id, u16 offset)
+{
+    if (!g_CurrentSetup.ailists) return NULL;
+    for (int i = 0; g_CurrentSetup.ailists[i].ailist; i++) {
+        AIRecord *list = g_CurrentSetup.ailists[i].ailist;
+        if (g_CurrentSetup.ailists[i].ID != id) continue;
+        for (int at = 0; at <= offset;) {
+            if (at == offset) return coopScriptAllowed(list[at].cmd) ? list + at : NULL;
+            if (list[at].cmd == AI_EndList) return NULL;
+            int size = chraiitemsize((u8 *)list, at);
+            if (size < 1 || size > offset - at) return NULL;
+            at += size;
+        }
+    }
+    return NULL;
+}
+
+static void coopReceiveScript(struct netbuf *b)
+{
+    u8 stage = netbufReadU8(b);
+    u32 epoch = netbufReadU32(b);
+    u16 list = netbufReadU16(b), offset = netbufReadU16(b);
+    if (b->error || netbufReadLeft(b) || stage != netGetActiveMatchConfig()->stage || epoch != netGetWorldEpoch()) return;
+    AIRecord *command = coopScriptInstruction(list, offset);
+    if (!command) return;
+    int size = chraiitemsize((u8 *)command, 0);
+    u8 effect[8] = {0};
+    ChrRecord scratch = {0};
+    if (size < 1 || size >= (int)sizeof(effect)) return;
+    memcpy(effect, command, (size_t)size);
+    effect[size] = AI_EndList;
+    scratch.ailist = (AIRecord *)effect;
+    /* Run exactly one existing effect handler, with no branch or actor AI.
+     * It cannot change a real character's instruction pointer. */
+    ai((PropDefHeaderRecord *)&scratch, PROP_TYPE_CHR);
+    if (coopScriptPersistent(command->cmd)) coopRememberScript(list, offset);
+}
+
+static void coopSendScriptSnapshot(int slot)
+{
+    for (int i = 0; i < s_script_count; i++) {
+        u8 raw[24];
+        struct netbuf b = { .data = raw, .size = sizeof(raw) };
+        coopWriteScript(&b, s_script_history[i].list, s_script_history[i].offset);
+        netCoopSendTo(slot, b.data, b.wp);
+    }
+}
+
+/* ---- Mission countdown, gas and the scripted blasts (#216) ---- */
+
+extern s32 clock_drawn_flag, clock_enable;
+extern f32 clock_time;
+extern s32 g_SurroundBondWithExplosionsFlag, g_SurroundBondWithExplosionsTicks;
+extern f32 toxic_gas_sound_timer, gasTimeToFullOpacity;
+extern s32 activate_gas_sound_timer;
+extern u32 gasDoesDamageFlag;
+extern coord3d gasLeakSource;
+/* The mission's show/hide, plastique and cinema bits. Pause/watch/damage
+ * visibility belongs to this headset and must survive the host's updates. */
+#define COOP_CLOCK_HIDE_MASK (1 | 2 | 16)
+#define COOP_CLOCK_MAX_TICKS (65535 * 60)
+static u64 s_clock_check_us, s_clock_sent_us;
+static f32 s_clock_time_sent;
+static u8 s_clock_hide_sent, s_clock_running_sent, s_clock_blasts_sent;
+
+static void coopClockReset(void)
+{
+    s_clock_check_us = s_clock_sent_us = 0;
+    s_clock_time_sent = 0.0f;
+    s_clock_hide_sent = s_clock_running_sent = s_clock_blasts_sent = 0;
+}
+
+static void coopHostClock(u64 now)
+{
+    u8 hide = clock_drawn_flag & COOP_CLOCK_HIDE_MASK;
+    u8 running = clock_enable != 0, blasts = g_SurroundBondWithExplosionsFlag != 0;
+    s32 delay = blasts && g_SurroundBondWithExplosionsTicks > g_GlobalTimer ?
+        g_SurroundBondWithExplosionsTicks - g_GlobalTimer : 0;
+    u8 raw[64];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    if (now - s_clock_check_us < COOP_MISSION_CHECK_US) return;
+    s_clock_check_us = now;
+    if (s_clock_sent_us && hide == s_clock_hide_sent && running == s_clock_running_sent &&
+        blasts == s_clock_blasts_sent && clock_time == s_clock_time_sent && !blasts &&
+        !activate_gas_sound_timer && toxic_gas_sound_timer <= 0.0f &&
+        now - s_clock_sent_us < COOP_MISSION_REFRESH_US) return;
+    coopHeader(&buf, NET_MSG_COOP_CLOCK);
+    netbufWriteU8(&buf, netGetActiveMatchConfig()->stage);
+    netbufWriteU32(&buf, netGetWorldEpoch());
+    netbufWriteF32(&buf, clock_time);
+    netbufWriteU8(&buf, hide);
+    netbufWriteU8(&buf, running);
+    netbufWriteU8(&buf, blasts);
+    netbufWriteS32(&buf, delay);
+    netbufWriteF32(&buf, toxic_gas_sound_timer);
+    netbufWriteF32(&buf, gasTimeToFullOpacity);
+    netbufWriteCoord(&buf, &gasLeakSource);
+    netbufWriteU8(&buf, activate_gas_sound_timer != 0);
+    netbufWriteU8(&buf, gasDoesDamageFlag != 0);
+    netCoopBroadcast(buf.data, buf.wp, true);
+    s_clock_time_sent = clock_time;
+    s_clock_hide_sent = hide;
+    s_clock_running_sent = running;
+    s_clock_blasts_sent = blasts;
+    s_clock_sent_us = now;
+}
+
+static void coopReceiveClock(struct netbuf *b)
+{
+    u8 stage = netbufReadU8(b);
+    u32 epoch = netbufReadU32(b);
+    f32 time = netbufReadF32(b);
+    u8 hide = netbufReadU8(b), running = netbufReadU8(b), blasts = netbufReadU8(b);
+    s32 delay = netbufReadS32(b);
+    f32 gas = netbufReadF32(b), gasfull = netbufReadF32(b);
+    coord3d source;
+    netbufReadCoord(b, &source);
+    u8 gasactive = netbufReadU8(b), gasdamage = netbufReadU8(b);
+    if (b->error || netbufReadLeft(b) || stage != netGetActiveMatchConfig()->stage ||
+        epoch != netGetWorldEpoch() || !isfinite(time) || fabsf(time) > COOP_CLOCK_MAX_TICKS ||
+        (hide & ~COOP_CLOCK_HIDE_MASK) || running > 1 || blasts > 1 || delay < 0 || delay > COOP_CLOCK_MAX_TICKS ||
+        !isfinite(gas) || !isfinite(gasfull) || gas < 0.0f || gasfull < 0.0f || gasfull > COOP_CLOCK_MAX_TICKS ||
+        gas > gasfull || (gasactive && gasfull <= 0.0f) || gasactive > 1 || gasdamage > 1 ||
+        !isfinite(source.x) || !isfinite(source.y) || !isfinite(source.z)) return;
+    clock_time = time;
+    clock_enable = running;
+    clock_drawn_flag = (clock_drawn_flag & ~COOP_CLOCK_HIDE_MASK) | hide;
+    /* Clients retain the sequence for a host change, but only the host
+     * creates its explosions (bondviewPlayerTickExplode). */
+    g_SurroundBondWithExplosionsFlag = blasts;
+    g_SurroundBondWithExplosionsTicks = g_GlobalTimer + delay;
+    toxic_gas_sound_timer = gas;
+    gasTimeToFullOpacity = gasfull;
+    gasLeakSource = source;
+    activate_gas_sound_timer = gasactive;
+    gasDoesDamageFlag = gasdamage;
 }
 
 /*
@@ -1797,6 +2032,7 @@ void netCoopPlayerJoined(int slot, int returning)
     s_roster_join[slot] = !returning;
     for (int i = 0; i < COOP_MAX_SLOTS; i++) s_sent[i].sent = false;   /* every guard's state, at once */
     s_mission_check_us = s_mission_sent_us = 0;
+    coopClockReset();
     s_ai_sent_us = 0;
     COOP_LOG("slot %d %s: roster in %.1f s", slot, returning ? "is back" : "joined", COOP_ROSTER_DELAY_US / 1000000.0);
 }
@@ -1815,6 +2051,8 @@ static void coopSendRoster(int slot)
     u8 raw[64];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
     int removes = 0, spawns = 0;
+
+    coopSendScriptSnapshot(slot);
 
     if (s_roster_remap[slot]) {
         u8 big[16 + COOP_MAX_SLOTS * 4];
@@ -2033,6 +2271,7 @@ void netCoopBecameHost(void)
     }
     gevrAllyBecameHost();
     s_mission_check_us = s_mission_sent_us = 0;
+    coopClockReset();
     s_ai_sent_us = 0;
     s_await_remap = false;
     s_remap_valid = true;
@@ -2118,6 +2357,8 @@ void netCoopReceive(int type, int slot, int from_host, struct netbuf *b)
     switch (type) {
         case NET_MSG_COOP_ALLY: if (from_host && !netIsHost()) netAllyReceive(b); break;
         case NET_MSG_COOP_MISSION: if (from_host && !netIsHost()) coopReceiveMission(b); break;
+        case NET_MSG_COOP_CLOCK: if (from_host && !netIsHost()) coopReceiveClock(b); break;
+        case NET_MSG_COOP_SCRIPT: if (from_host && !netIsHost()) coopReceiveScript(b); break;
         case NET_MSG_COOP_TEXT: if (from_host && !netIsHost()) coopReceiveText(b); break;
         case NET_MSG_COOP_GRANT: if (from_host && !netIsHost()) coopReceiveGrant(b); break;
         case NET_MSG_COOP_EVENT: if (netIsHost()) coopReceiveEvent(slot, b); break;

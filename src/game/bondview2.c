@@ -12971,6 +12971,13 @@ void bondviewPlayerTickDamageAndHealth(void)
 */
 void bondviewPlayerTickExplode(void)
 {
+    s32 explosionPlayer = 0;
+#ifdef GEVR
+    /* The host runs the script and sends each real blast. A client must
+     * not create another sequence, even after receiving the trigger. */
+    if (gevrCoopPuppets()) return;
+    if (gevrCoopHostGuards()) explosionPlayer = -1;
+#endif
     g_PlayerTickExplodeCreatePosition++;
 
     if (g_SurroundBondWithExplosionsFlag
@@ -12993,7 +13000,7 @@ void bondviewPlayerTickExplode(void)
 
         pos.y += 200.0f * RANDOMGETNEXT_F32() - 100.0f;
 
-        explosionCreate(0, &pos, g_CurrentPlayer->prop->stan, EXPLOSION_DEF_PLAYER, 0, 0, g_CurrentPlayer->prop->rooms, 0);
+        explosionCreate(0, &pos, g_CurrentPlayer->prop->stan, EXPLOSION_DEF_PLAYER, 0, explosionPlayer, g_CurrentPlayer->prop->rooms, 0);
 
         g_SurroundBondWithExplosionsTicks = (randomGetNext() % (u32)PLAYER_TICKEXPLODE_FACTOR) + g_GlobalTimer + PLAYER_TICKEXPLODE_FACTOR;
     }

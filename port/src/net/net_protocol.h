@@ -106,6 +106,9 @@ typedef enum {
     NET_MSG_COOP_TANK = 52,     /* Driver -> host -> all: the tank's pose (NET_COOP_TANK_*, position, hull and turret angles) */
     NET_MSG_HORDE_STATE = 53,   /* Host -> all: wave director snapshot */
     NET_MSG_COOP_ALLY = 54,     /* Host -> all: companion preferences and lifecycle, with epoch/revision */
+    /* Additive on protocol 23: older builds ignore the clock and glass-break action. */
+    NET_MSG_COOP_CLOCK = 55,    /* Host -> all: mission countdown and scripted blast sequence, with world epoch */
+    NET_MSG_COOP_SCRIPT = 56,   /* Host -> all: one allowed world effect, referenced in the local mission's AI lists */
 } NetMsgType;
 
 #define NET_DISCONNECT_KICKED 0x47454b49u
@@ -231,6 +234,7 @@ enum {
     NET_OBJECT_DOOR = 2,        /* value: the door's new DOORSTATE */
     NET_OBJECT_SPECIAL_TAKEN = 3, /* value: the item (the Golden Gun, the flag) the player now holds; index unused */
     NET_OBJECT_DOOR_LOCK = 4,   /* co-op, host -> all: value: the door's keyflags, as a mission script set them */
+    NET_OBJECT_GLASS_BREAK = 5, /* co-op, host -> all: a setup glass pane shattered; value unused */
 };
 
 /* The ballots of NET_MSG_VOTE / NET_MSG_VOTES */
