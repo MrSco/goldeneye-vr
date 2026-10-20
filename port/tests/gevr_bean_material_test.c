@@ -385,7 +385,7 @@ int main(int argc, char **argv)
          * their metal's colour and, in the hand, their map as a reflection;
          * the glove (512x511) keeps its own. Silver stays grey. */
         static const struct { const char *file; int gold; } metals[] = {
-            {"gun/goldengun", 1}, {"gun/goldppk", 1}, {"gun/silverPPK", 0},
+            {"gun/goldengun", 1}, {"gun/goldppk", 1}, {"gun/silverppk", 0},
         };
         for (unsigned g = 0; g < sizeof(metals) / sizeof(metals[0]); g++) {
             struct gevrBeanMesh *m = load(argv[1], metals[g].file);

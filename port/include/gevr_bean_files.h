@@ -6,7 +6,11 @@
  * kept its arm in the watch. Other absent catalog entries have no matching
  * release source. */
 /* Complete, case-sensitive native file-to-Bean mapping. Character aliases
- * follow DAB gebeanchrtable.h; port/licenses/dabs-mod.txt. */
+ * follow DAB gebeanchrtable.h; port/licenses/dabs-mod.txt. Sources are
+ * spelled as the release's new/ folders, all lower case: DAB's ICBM,
+ * consolesevGEa and silverPPK are its original/ spelling, which only opens
+ * where case is ignored (the Quest's shared storage, Windows), not on a
+ * case-sensitive disk (test_bean_mapping.py checks every component). */
  { "CcamguardZ", BEAN_CHR, "new/char/camguard" },
  { "CgreyguardZ", BEAN_CHR, "new/char/greyguard" },
  { "ColiveguardZ", BEAN_CHR, "new/char/oliveguard" },
@@ -133,7 +137,7 @@
  { "GrugerZ", BEAN_GUN, "new/gun/ruger" },
  { "GsafecrackercaseZ", BEAN_GUN, "new/gun/safecracker" },
  { "GshotgunZ", BEAN_GUN, "new/gun/shotgun" },
- { "GsilverwppkZ", BEAN_GUN, "new/gun/silverPPK" },
+ { "GsilverwppkZ", BEAN_GUN, "new/gun/silverppk" },
  { "GskorpionZ", BEAN_GUN, "new/gun/skorpion" },
  { "GsniperrifleZ", BEAN_GUN, "new/gun/sniperrifle" },
  { "GspectreZ", BEAN_GUN, "new/gun/spectre" },
@@ -150,8 +154,8 @@
  { "GweaponcaseZ", BEAN_GUN, "new/gun/weaponcase" },
  { "GwppkZ", BEAN_GUN, "new/gun/ppk" },
  { "GwppksilZ", BEAN_GUN, "new/gun/ppksilenced" },
- { "PICBMZ", BEAN_PROP, "new/prop/ICBM" },
- { "PICBM_noseZ", BEAN_PROP, "new/prop/ICBMnose" },
+ { "PICBMZ", BEAN_PROP, "new/prop/icbm" },
+ { "PICBM_noseZ", BEAN_PROP, "new/prop/icbmnose" },
  { "Pak47magZ", BEAN_PROP, "new/prop/ak47mag" },
  { "Palarm1Z", BEAN_PROP, "new/prop/alarm1" },
  { "Palarm2Z", BEAN_PROP, "new/prop/alarm2" },
@@ -260,8 +264,8 @@
  { "Pconsole_sev2bZ", BEAN_PROP, "new/prop/consolesev2b" },
  { "Pconsole_sev2cZ", BEAN_PROP, "new/prop/consolesev2c" },
  { "Pconsole_sev2dZ", BEAN_PROP, "new/prop/consolesev2d" },
- { "Pconsole_sev_GEaZ", BEAN_PROP, "new/prop/consolesevGEa" },
- { "Pconsole_sev_GEbZ", BEAN_PROP, "new/prop/consolesevGEb" },
+ { "Pconsole_sev_GEaZ", BEAN_PROP, "new/prop/consolesevgea" },
+ { "Pconsole_sev_GEbZ", BEAN_PROP, "new/prop/consolesevgeb" },
  { "Pconsole_sevaZ", BEAN_PROP, "new/prop/consoleseva" },
  { "Pconsole_sevbZ", BEAN_PROP, "new/prop/consolesevb" },
  { "Pconsole_sevcZ", BEAN_PROP, "new/prop/consolesevc" },
