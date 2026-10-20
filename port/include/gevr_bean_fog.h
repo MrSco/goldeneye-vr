@@ -22,10 +22,15 @@ static inline int gevrBeanFogRange(int stage, float height, int community, float
             float t=(9161-height)/(9161-2782);
             *end+=65000*fminf(1,fmaxf(0,t));
         }
+        /* The Community Edition (gevr_bean_ce.c): its table's distances and,
+         * with its domes, its colours (DAB gebeanstage.c fogTableLoad(), read off
+         * its patched default.xex); Surface 2's is its sf2 dome's horizon
+         * (DAB gebeansky.c ceHorizons[]). */
         if(community) {
             switch(stage) {
-            case 22:*end=5000;break; case 24:case 25:case 37:*end=4500;break;
-            case 38:*end=22500;break; case 43:*end=6500;c=0x575f5d;break;
+            case 22:*end=5000;c=0x090708;break; case 24:case 25:*end=4500;break;
+            case 37:*end=4500;c=0x797c79;break; case 38:*end=22500;c=0x103060;break;
+            case 41:c=0x6e8196;break; case 43:*end=6500;c=0x575f5d;break;
             }
         }
         rgb[0]=(uint8_t)(c>>16);rgb[1]=(uint8_t)(c>>8);rgb[2]=(uint8_t)c;
