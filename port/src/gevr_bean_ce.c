@@ -55,11 +55,20 @@ extern int VrBeanCommunityEdition;
 
 #define CE_MAXPATH 1024
 
+/* The marker's state, looked up once: Bean's fog asks for the overlay on every
+ * room and prop list it draws (gevr_bean_world.c communityEdition()), and a
+ * stat() each time was an eighth of the render thread in Jungle. Only
+ * gevrBeanCeApply() writes or removes the marker, and it forgets this. */
+static int s_applied = -1;
+
 int gevrBeanCeApplied(void)
 {
 	struct stat st;
 
-	return stat(CE_GAME_DIR "/" CE_MARKER, &st) == 0;
+	if (s_applied < 0) {
+		s_applied = stat(CE_GAME_DIR "/" CE_MARKER, &st) == 0;
+	}
+	return s_applied;
 }
 
 const char *gevrBeanCeRoot(void)
@@ -132,7 +141,17 @@ static void noteRef(const char *name, void *arg)
 	}
 }
 
+static int applyUpdate(FILE *zip, const char *beanDir, char *msg, size_t msgLen);
+
 int gevrBeanCeApply(FILE *zip, const char *beanDir, char *msg, size_t msgLen)
+{
+	const int written = applyUpdate(zip, beanDir, msg, msgLen);
+
+	s_applied = -1;   // the marker was removed, and maybe written again
+	return written;
+}
+
+static int applyUpdate(FILE *zip, const char *beanDir, char *msg, size_t msgLen)
 {
 	char dir[CE_MAXPATH];
 	char diff[CE_MAXPATH];
