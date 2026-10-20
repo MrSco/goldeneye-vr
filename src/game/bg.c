@@ -4777,6 +4777,34 @@ void *sub_GAME_7F0B8A24(s32 *pc)
 extern int gevrBeanIsEnabled(void);
 extern int gevrBeanWorldRoomBounds(int room, float lo[3], float hi[3]);
 
+/*
+ * Only a room whose Bean geometry reaches well past its own box: the portal
+ * walk already decides the rest, as it does without Bean. The test is a box
+ * in the view, not a line of sight, so a room that only fits its box was
+ * drawn through every wall with its guards and props. Facility's rooms
+ * reach at most 48 units past theirs, and there it took ~460 draws and
+ * 155K triangles a frame where the portal walk needs ~120 and 30K (the
+ * headset fell from 120 to ~95 fps); Silo, Caverns and Archives the same.
+ * Dam's reach 5,700 to 8,200. A cut at 200 ran no faster than this one on
+ * any stage, so the lowest that clears Facility's 48 stays.
+ */
+#define GEVR_BEAN_ROOM_OVERHANG 50.0f
+
+static s32 gevrBeanRoomOverhangs(const coord3d *nativeMin, const coord3d *nativeMax, const float lo[3], const float hi[3])
+{
+    s32 k;
+
+    for (k = 0; k < 3; k++)
+    {
+        if (nativeMin->f[k] - lo[k] >= GEVR_BEAN_ROOM_OVERHANG || hi[k] - nativeMax->f[k] >= GEVR_BEAN_ROOM_OVERHANG)
+        {
+            return TRUE;
+        }
+    }
+
+    return FALSE;
+}
+
 static void gevrAddBeanRooms(void)
 {
     s32 room;
@@ -4800,6 +4828,10 @@ static void gevrAddBeanRooms(void)
 
         nativeMin = info->minbounds;
         nativeMax = info->maxbounds;
+        if (!gevrBeanRoomOverhangs(&nativeMin, &nativeMax, lo, hi))
+        {
+            continue;
+        }
         for (k = 0; k < 3; k++)
         {
             info->minbounds.f[k] = lo[k] < nativeMin.f[k] ? lo[k] : nativeMin.f[k];
