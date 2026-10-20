@@ -406,7 +406,10 @@ struct Framebuffer {
 static std::map<pair<uint64_t, uint32_t>, struct ShaderProgram> shader_program_pool;
 // GoldenEye: the static-mesh variants, by the same key; one that failed is kept with program 0
 static std::map<pair<uint64_t, uint32_t>, struct ShaderProgram> mesh_program_pool;
+// ... and the static variants a mesh without bones draws with (gevr_mesh_program)
+static std::map<pair<uint64_t, uint32_t>, struct ShaderProgram> static_program_pool;
 static bool s_buildMesh;          // gfx_opengl_create_and_load_new_shader makes a mesh variant
+static bool s_buildStatic;        // ... without the skin, light, tint and wound code
 static bool s_meshClipDistance;   // GL_EXT_clip_cull_distance: the CPU's far reject under depth clamp
 static bool s_meshBroken;         // a mesh variant failed: the CPU draws the meshes
 static GLuint s_skinPaletteBuffer; // one transient UBO; redraw uploads its saved palette
@@ -1447,7 +1450,18 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     }
 
     append_line(vs_buf, &vs_len, "void main() {");
-    if (s_buildMesh) {
+    if (s_buildMesh && s_buildStatic) {
+        /*
+         * A static mesh (Bean rooms and props) has no bones, lights, tint or
+         * wounds: gfx_pc.cpp gevr_mesh_draw_run sets those for skins only. The
+         * code for them still ran for every vertex, in every bin and both
+         * views: with Jungle's ~100 palms and plants as meshes it cost the
+         * eye pass 2.6 ms (6.78 -> 4.20 ms at the start view, 91 -> 120 fps).
+         */
+        append_line(vs_buf, &vs_len, "    vec3 meshPos = aMeshPos, meshNormal = vec3(0.0); float total = 0.0;");
+        append_line(vs_buf, &vs_len, "    vec4 meshColor = aMeshColor;");
+    }
+    if (s_buildMesh && !s_buildStatic) {
         append_line(vs_buf, &vs_len, "    vec3 meshPos = aMeshPos, meshNormal = vec3(0.0), skinnedPos = vec3(0.0); float total = 0.0;");
         append_line(vs_buf, &vs_len, "    vec4 meshColor = aMeshColor;");
         for (int i = 0; i < 4; i++)
@@ -1474,6 +1488,8 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         append_line(vs_buf, &vs_len, "        float r = floor(uWound[i].w / 256.0); float s = uWound[i].w - r * 256.0;");
         append_line(vs_buf, &vs_len, "        float f = r > 0.0 ? 1.0 - dot(d, d) / (r * r) : 0.0; if (f > 0.0) clean *= 1.0 - s / 255.0 * f; }");
         append_line(vs_buf, &vs_len, "      float s = 1.0 - clean; meshColor.a = min(meshColor.a, 1.0 - s); meshColor.rgb = mix(meshColor.rgb, vec3(1.0), s); }");
+    }
+    if (s_buildMesh) {
         append_line(vs_buf, &vs_len, "    vec4 aVtxPos = uMeshMP * vec4(meshPos, 1.0);");
         if (cc_features.opt_fog) {
             append_line(vs_buf, &vs_len, "    float fw = abs(aVtxPos.w) < 0.001 ? 0.001 : aVtxPos.w;");
@@ -1866,7 +1882,8 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
 
     size_t cnt = 0;
 
-    struct ShaderProgram* prg = &(s_buildMesh ? mesh_program_pool : shader_program_pool)[make_pair(shader_id0, shader_id1)];
+    struct ShaderProgram* prg = &(s_buildMesh ? (s_buildStatic ? static_program_pool : mesh_program_pool)
+                                  : shader_program_pool)[make_pair(shader_id0, shader_id1)];
     prg->attrib_locations[cnt] = glGetAttribLocation(shader_program, "aVtxPos");
     prg->attrib_sizes[cnt] = 4;
     ++cnt;
@@ -2022,6 +2039,12 @@ static void gfx_opengl_clear_shaders(void) {
         }
     }
     mesh_program_pool.clear();
+    for (auto& pair : static_program_pool) {
+        if (pair.second.opengl_program_id != 0) {
+            glDeleteProgram(pair.second.opengl_program_id);
+        }
+    }
+    static_program_pool.clear();
     s_meshUniforms.clear();
     s_meshDrawUniforms.clear();
 
@@ -4237,18 +4260,21 @@ extern "C" void gfx_opengl_mesh_settle(void)
     gevr_mesh_settle();
 }
 
-static struct ShaderProgram* gevr_mesh_program(struct ShaderProgram* base)
+static struct ShaderProgram* gevr_mesh_program(struct ShaderProgram* base, bool skinned)
 {
     const pair<uint64_t, uint32_t> key = make_pair(base->shader_id0, base->shader_id1);
-    auto it = mesh_program_pool.find(key);
-    if (it != mesh_program_pool.end()) {
+    auto& pool = skinned ? mesh_program_pool : static_program_pool;
+    auto it = pool.find(key);
+    if (it != pool.end()) {
         return it->second.opengl_program_id != 0 ? &it->second : NULL;
     }
     s_buildMesh = true;
+    s_buildStatic = !skinned;
     struct ShaderProgram* mp = gfx_opengl_create_and_load_new_shader(base->shader_id0, base->shader_id1);
     s_buildMesh = false;
+    s_buildStatic = false;
     if (mp == NULL) {
-        mesh_program_pool[key].opengl_program_id = 0;   // not again
+        pool[key].opengl_program_id = 0;   // not again
         s_meshBroken = true;
         sysLogPrintf(LOG_WARNING, "mesh: no static-mesh shader for %llx/%x; the CPU draws the meshes",
                      (unsigned long long)base->shader_id0, base->shader_id1);
@@ -4275,12 +4301,13 @@ static bool gfx_opengl_draw_mesh(void** gpu, const void* vertices, uint32_t num_
         gevr_mesh_settle();
         return false;
     }
-    if (mesh_program_pool.find(make_pair(base->shader_id0, base->shader_id1)) == mesh_program_pool.end()) {
+    auto& pool = p->skinned ? mesh_program_pool : static_program_pool;
+    if (pool.find(make_pair(base->shader_id0, base->shader_id1)) == pool.end()) {
         gevr_mesh_settle();   // building one binds it
     }
     const unsigned made = s_meshGpuMade;
     GevrMeshGpu* g = gevr_mesh_gpu(gpu, vertices, num_vertices, indices, num_indices, p->skinned, p->world_vertices);
-    struct ShaderProgram* mp = gevr_mesh_program(base);
+    struct ShaderProgram* mp = gevr_mesh_program(base, p->skinned);
     if (mp == NULL) {
         if (s_meshLazyBase != NULL) gevr_mesh_settle();   // a program known broken: nothing was built
         else gevr_mesh_rebind(base);   // building it bound it
