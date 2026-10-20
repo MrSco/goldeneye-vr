@@ -29,11 +29,11 @@ python3 tools/audit_coop_mission_effects.py /path/to/007/assets/obseg/setup
 | Facility | flags: 3, monitor: 28, audio: 5, music: 1 |
 | Runway | move: 1, flags: 2, audio: 1, music: 1, vehicle AI (local): 2 |
 | Surface 1 | flags: 3, monitor: 1, audio: 6, music: 1 |
-| Bunker 1 | countdown: 1, flags: 1, monitor: 42, blast sequence: 1, audio: 25, music: 1 |
+| Bunker 1 | flags: 1, audio: 1, music: 2 |
 | Silo | countdown: 4, destroy: 1, flags: 1, blast sequence: 1, music: 1 |
 | Frigate | destroy: 3, flags: 3, audio: 9, vehicle AI (local): 1 |
 | Surface 2 | countdown: 1, destroy: 7, flags: 7, monitor: 1, audio: 7, music: 1, vehicle AI (local): 2 |
-| Bunker 2 | flags: 1, audio: 1, music: 2 |
+| Bunker 2 | countdown: 1, flags: 1, monitor: 42, blast sequence: 1, audio: 25, music: 1 |
 | Statue | countdown: 2, destroy: 7, move: 11, flags: 8, audio: 1, music: 1, vehicle AI (local): 1 |
 | Archives | music: 1 |
 | Streets | countdown: 4, destroy: 1, move: 2, flags: 1, music: 1, vehicle AI (local): 2 |
@@ -128,10 +128,10 @@ slot 0 and a migrated/nonzero host, then join/rejoin midway:
 2. Train: countdown appears and hides on both; all tagged train objects and
    explosion visuals change once during escape, without consuming a nearby
    host-thrown grenade.
-3. Silo and Bunker 1: countdown expiry and repeated blasts; Statue/Streets,
+3. Silo and Bunker 2: countdown expiry and repeated blasts; Statue/Streets,
    Cradle and Aztec: the other countdown start/stop paths.
 4. Surface 2/Jungle/Frigate: scripted demolition and flag-controlled objects.
-   Statue/Runway/Cradle: moved objective objects. Dam/Facility/Bunker 1/Surface
+   Statue/Runway/Cradle: moved objective objects. Dam/Facility/Bunker 2/Surface
    1/Aztec: changed monitor banks.
 5. Egypt: non-damaging gas/fog; Facility gas objects: source/fog progression and
    local damage. Train/Aztec: the instant sky/fog change.

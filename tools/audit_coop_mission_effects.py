@@ -10,8 +10,8 @@ import re
 
 MISSIONS = {
     'Dam': 'UsetupdamZ.c', 'Facility': 'UsetuparkZ.c', 'Runway': 'UsetuprunZ.c',
-    'Surface 1': 'UsetupsevxZ.c', 'Bunker 1': 'UsetupsevbZ.c', 'Silo': 'u/UsetupsiloZ.c',
-    'Frigate': 'u/UsetupdestZ.c', 'Surface 2': 'UsetupsevxbZ.c', 'Bunker 2': 'UsetupsevbunkerZ.c',
+    'Surface 1': 'UsetupsevxZ.c', 'Bunker 1': 'UsetupsevbunkerZ.c', 'Silo': 'u/UsetupsiloZ.c',
+    'Frigate': 'u/UsetupdestZ.c', 'Surface 2': 'UsetupsevxbZ.c', 'Bunker 2': 'UsetupsevbZ.c',
     'Statue': 'u/UsetupstatueZ.c', 'Archives': 'UsetuparchZ.c', 'Streets': 'UsetuppeteZ.c',
     'Depot': 'UsetupdepoZ.c', 'Train': 'u/UsetuptraZ.c', 'Jungle': 'u/UsetupjunZ.c',
     'Control': 'UsetupcontrolZ.c', 'Caverns': 'UsetupcaveZ.c', 'Cradle': 'u/UsetupcradZ.c',
