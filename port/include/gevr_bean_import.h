@@ -19,6 +19,13 @@ extern "C" {
  */
 int gevrBeanImportStream(FILE *src, const char *dest, char *msg, size_t msgLen);
 
+/*
+ * One entry of a zip, the first whose path ends in tail (at a folder, either
+ * separator, any case), written to path. src is read and closed. 0 when it
+ * was, else -1 with the reason in msg. Progress and cancel are the import's.
+ */
+int gevrBeanImportZipEntry(FILE *src, const char *tail, const char *path, char *msg, size_t msgLen);
+
 /* The running import's progress, 0..100, for another thread to draw. */
 int gevrBeanImportPercent(void);
 

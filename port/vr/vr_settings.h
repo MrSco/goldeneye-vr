@@ -33,6 +33,9 @@ extern int VrBeanModels;
 /* With Bean on, the pictures Bean leaves at the cartridge's come from the HD + AI
  * (or HD) pack when one is installed. Saved as BeanFillTextures. */
 extern int VrBeanFillTextures;
+/* With Bean on, the Community Edition's files are read before the release's, once
+ * the player has applied its updater (gevr_bean_ce.c). Saved as BeanCommunityEdition. */
+extern int VrBeanCommunityEdition;
 /* Mods: Wreck's blood patch - a guard's hit puffs are the red sparks Rare left
  * in the game (chr.c chrCreateHitPuffs). Saved as BloodPatch. */
 extern int VrBloodPatch;

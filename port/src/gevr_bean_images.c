@@ -27,6 +27,7 @@
 
 #include "gevr_bean.h"
 #include "gevr_bean_int.h"
+#include "gevr_bean_ce.h"
 #include "gevr_romlayout.h"
 #include "gevr_mirror.h"
 
@@ -259,6 +260,11 @@ static const u8 *picture(const char *name, int *w, int *h)
 	free(lastRgba);
 	lastRgba = NULL;
 	lastName[0] = 0;
+	// the Community Edition first (gevr_bean_ce.c)
+	if (gevrBeanCeRoot()) {
+		snprintf(path, sizeof(path), "%s/texture/%s/default.rba", gevrBeanCeRoot(), name);
+		f = fopen(path, "rb");
+	}
 	for (size_t i = 0; i < sizeof(roots) / sizeof(roots[0]) && !f; i++) {
 		snprintf(path, sizeof(path), "%s/texture/%s/default.rba", roots[i], name);
 		f = fopen(path, "rb");

@@ -21,6 +21,8 @@ using Uint32 = unsigned;
 static char g_ActiveExtTexPack[256];
 static int VrGexGuns=1, bean; static int VrCampaign=0; /* GoldenEye; hack campaigns grey out Bean and GE-X */
 static int VrBeanFillTextures=1, VrBloodPatch=0;   /* Mods: Bean HD fill, Wreck's blood patch */
+static int VrBeanCommunityEdition=1, ceApplied;    /* Bean: the Community Edition (gevr_bean_ce.c) */
+static int gevrBeanCeApplied() {return ceApplied;}
 static int VrOddjobHat=0;          /* Mods: Oddjob's hat (PR #196), drawn when its pack is listed */
 static int gevrHatAvailable() {return 1;}
 static bool available;
@@ -44,7 +46,8 @@ int main(){
     io.DeltaTime=1.f/72;io.IniFilename=nullptr;io.LogFilename=nullptr;
     io.FontGlobalScale=2.2f;ImGui::GetStyle().ScaleAllSizes(2.2f);
     unsigned char *pixels;int w,h;io.Fonts->GetTexDataAsRGBA32(&pixels,&w,&h);
-    for(const char* state : {"none","installed","downloading","installing","importing","error"})
+    for(const char* state : {"none","installed","downloading","installing","importing","patching","error"})
+for(ceApplied=0;ceApplied<2;ceApplied++)
     for(int update=0;update<2;update++)for(bean=0;bean<2;bean++){
         available=bean;raw.clear();
         for(const char *id : {"ge007-hd","ge007-hd-ai","ge007-bean"})
@@ -61,12 +64,12 @@ int main(){
             ImGui::TextDisabled("Point and pull the trigger, or use the stick and A.");
             auto *win=ImGui::GetCurrentWindow();
             if(pass==2 && (win->DC.CursorMaxPos.y>win->ClipRect.Max.y || win->DC.CursorMaxPos.x>win->ClipRect.Max.x)){
-                std::fprintf(stderr,"Mods overflow: %s update%d bean%d extent %.1f %.1f limit %.1f %.1f\n",state,update,bean,win->DC.CursorMaxPos.x,win->DC.CursorMaxPos.y,win->ClipRect.Max.x,win->ClipRect.Max.y);return 1;
+                std::fprintf(stderr,"Mods overflow: %s update%d bean%d ce%d extent %.1f %.1f limit %.1f %.1f\n",state,update,bean,ceApplied,win->DC.CursorMaxPos.x,win->DC.CursorMaxPos.y,win->ClipRect.Max.x,win->ClipRect.Max.y);return 1;
             }
             ImGui::End();ImGui::Render();
         }
     }
-    ImGui::DestroyContext();puts("PASS: production Mods page, including Bean, progress, errors and updates, and the hint under it fit at Quest font size without scrolling");
+    ImGui::DestroyContext();puts("PASS: production Mods page, including Bean and its Community Edition, progress, errors and updates, and the hint under it fit at Quest font size without scrolling");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='gevr-mods-ui-') as d:

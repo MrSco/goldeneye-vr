@@ -100,7 +100,10 @@ void gfx_texture_cache_clear(){clears++;}
 void sysLogPrintf(int,const char*,...){}
 #define LOG_NOTE 0
 void tick(){ /* MODE */ }
-enum {GEVR_VR_BEAN};
+enum {GEVR_VR_BEAN, GEVR_VR_SPACEWARP};   /* the watch rows the spliced range names */
+static int VrSpaceWarp = -1;
+int vr_spacewarp_supported(void){return 1;}
+int vr_spacewarp_setting_on(void){return VrSpaceWarp != 0;}
 void watchStep(int dir){int row=GEVR_VR_BEAN; /* STEP */ }
 void watchValue(char* buf){switch(GEVR_VR_BEAN){ /* VALUE */ }}
 static int loads=0;static void* gevrGexPendingFile=nullptr;

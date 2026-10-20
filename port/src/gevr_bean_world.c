@@ -17,6 +17,7 @@
 #include "gevr_bean_control.h"
 #include "gevr_bean_fog.h"
 #include "gevr_mirror.h"
+#include "gevr_bean_ce.h"
 
 #include <ultra64.h>
 #include <PR/gbi.h>
@@ -109,6 +110,7 @@ static int s_skyStage = -9999;
 static int s_skyTried;
 static int s_skyOk;
 static int s_ce = -1;
+static int s_ceOverlay = -1;  // whether s_ce was looked up with the overlay read
 
 static const char *const s_roots[] = {
     "../texture-packs/ge007-bean/files",
@@ -194,6 +196,14 @@ static int openRel(const char *rel, char *out, int outlen)
 static int findFile(const char *source, char *out, int outlen)
 {
 	char rel[192];
+	const char *ce = gevrBeanCeRoot();
+	// the Community Edition's overlay first (gevr_bean_ce.c)
+	if (ce) {
+		snprintf(rel, sizeof(rel), "%s/%s/default.bin", ce, source);
+		if (openRel(rel, out, outlen)) {
+			return 1;
+		}
+	}
 	for (int i = 0; i < (int)(sizeof(s_roots) / sizeof(s_roots[0])); i++) {
 		const char *root = s_roots[i];
 		size_t n = strlen(root);
@@ -214,7 +224,9 @@ static int findFile(const char *source, char *out, int outlen)
 static int communityEdition(void)
 {
 	char path[192];
-	if (s_ce < 0) {
+	const int overlay = gevrBeanCeRoot() != NULL;
+	if (s_ce < 0 || s_ceOverlay != overlay) {
+		s_ceOverlay = overlay;
 		s_ce = findFile("new/skydome/sf2", path, sizeof(path));
 	}
 	return s_ce;

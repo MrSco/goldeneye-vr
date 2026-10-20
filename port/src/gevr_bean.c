@@ -22,6 +22,7 @@
 #include "gevr_romlayout.h"
 #include "gevr_mirror.h"
 #include "gevr_bean_int.h"
+#include "gevr_bean_ce.h"
 #include "gevr_skin_mesh.h"
 #include "gevr_bean_room_state.h"
 #include "gevr_oddjobhat.h"
@@ -415,6 +416,14 @@ static int openRel(const char *rel, char *out, int outlen)
 static int findFile(const char *source, char *out, int outlen)
 {
 	char rel[192];
+	const char *ce = gevrBeanCeRoot();
+	// the Community Edition's overlay first (gevr_bean_ce.c)
+	if (ce) {
+		snprintf(rel, sizeof(rel), "%s/%s/default.bin", ce, source);
+		if (openRel(rel, out, outlen)) {
+			return 1;
+		}
+	}
 	for (int i = 0; i < (int)(sizeof(s_roots) / sizeof(s_roots[0])); i++) {
 		const char *root = s_roots[i];
 		size_t n = strlen(root);
@@ -1382,8 +1391,19 @@ static int rigidTriangleGroup(const struct gevrBeanTri *t, const struct beanRigi
 	}
 	return winner;
 }
+/* Whether group g holds one of the model's display lists: only such a group
+ * draws the triangles bound to it (DAB gebeanListPositionNode()). */
+static int groupHasList(const struct beanDl *dls, int nd, int g)
+{
+	for (int i = 0; i < nd; i++)
+		if (dls[i].grp == g)
+			return 1;
+	return 0;
+}
+
 static void rigidBindings(const struct gevrBeanMesh *mesh, const struct beanFit *fit,
-                          const struct beanGrp *groups, int count, int base, struct beanRigidBinding *binding)
+                          const struct beanGrp *groups, int count, int base, struct beanRigidBinding *binding,
+                          const struct beanDl *dls, int nd)
 {
 	binding->base = base;
 	binding->groups = groups;
@@ -1401,7 +1421,11 @@ static void rigidBindings(const struct gevrBeanMesh *mesh, const struct beanFit 
 			at[k] = (mesh->boneBind[b][fit->perm[k]] * fit->sign[k] - fit->bc[k]) * fit->scale + fit->nc[k] +
 			        groups[base].o[k];
 		for (int g = 0; g < count; g++) {
-			if (g == base || nodeMatrix(groups[g].node) == nodeMatrix(groups[base].node))
+			/* a group with no list of its own draws nothing: Runway's plane and
+			 * gun gave their bodies to the model's root (no list, the body's
+			 * place, another matrix) and showed only the propeller and the
+			 * barrel (2026-10-19). DAB binds to the lists' position nodes. */
+			if (g == base || nodeMatrix(groups[g].node) == nodeMatrix(groups[base].node) || !groupHasList(dls, nd, g))
 				continue;
 			float dx = at[0] - groups[g].o[0], dy = at[1] - groups[g].o[1], dz = at[2] - groups[g].o[2];
 			float distance = dx * dx + dy * dy + dz * dz;
@@ -2491,7 +2515,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 			best = 0;
 		if (best >= 0) {
 			struct beanRigidBinding binding;
-			rigidBindings(mesh, fit, grp, ng, dls[best].grp, &binding);
+			rigidBindings(mesh, fit, grp, ng, dls[best].grp, &binding, dls, nd);
 			binding.target = binding.base;
 			void *gdl = NULL, *vtx = NULL;
 			/* Bean's gun is GoldenEye's model at 4.7 times in GoldenEye's frame
@@ -2626,6 +2650,23 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 							registerPrimary(dls[i].node, s_blank, 1);
 						continue;
 					}
+                    /* A head's distance alternatives carry it too. Bond's suit
+                     * head (CheadbrosnansuitZ) has a near and a far list, each
+                     * under an LOD node, and the head went on the larger one
+                     * only: close up, in Frigate's intro, the game drew the
+                     * other, blanked, under a body that leaves its own head to
+                     * the head model - Bond had none (2026-10-19). The head's
+                     * skin goes with it, to pose it on whichever list draws. */
+                    int headLod=0;
+                    for (ModelNode *up=dls[i].node->Parent;up;up=up->Parent)
+                        if (nodeOp(up)==MODELNODE_OPCODE_LOD) headLod=1;
+                    if ((kind==BEAN_HEAD || kind==BEAN_HEADBODY) && mainEmitted && headLod) {
+                        struct beanSwap *head=swapOf(dls[best].node);
+                        s_emittedSkin=head ? head->skin : NULL;
+                        registerPrimary(dls[i].node,gdl,0);
+                        s_emittedSkin=NULL;
+                        continue;
+                    }
                     /* Alternate distance lists for the same body matrix must
                      * carry the replacement too. Otherwise a plane's hull
                      * vanishes at its LOD boundary while the rotors remain. */

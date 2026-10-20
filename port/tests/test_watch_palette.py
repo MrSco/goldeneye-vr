@@ -41,7 +41,12 @@ int main(void) {
   assert(fabsf((reach*.25f*fog[0]+fog[1])/255-1)<1e-5f);
  }
  float reach; assert(gevrBeanFogRange(22,9161,1,&reach,rgb)&&reach==5000);
- assert(rgb[0]==0&&rgb[1]==0&&rgb[2]==8);
+ assert(rgb[0]==0x09&&rgb[1]==0x07&&rgb[2]==0x08); /* the Community Edition's colours */
+ assert(gevrBeanFogRange(22,9161,0,&reach,rgb)&&reach==3500&&rgb[0]==0&&rgb[1]==0&&rgb[2]==8);
+ assert(gevrBeanFogRange(37,9161,1,&reach,rgb)&&reach==4500&&rgb[0]==0x79&&rgb[1]==0x7c&&rgb[2]==0x79);
+ assert(gevrBeanFogRange(38,9161,1,&reach,rgb)&&reach==22500&&rgb[0]==0x10&&rgb[1]==0x30&&rgb[2]==0x60);
+ assert(gevrBeanFogRange(41,9161,1,&reach,rgb)&&reach==30000&&rgb[0]==0x6e&&rgb[1]==0x81&&rgb[2]==0x96);
+ assert(gevrBeanFogRange(24,9161,1,&reach,rgb)&&reach==4500&&rgb[0]==0&&rgb[1]==0&&rgb[2]==0);
  assert(gevrBeanFogRange(43,9161,1,&reach,rgb)&&reach==6500);
  assert(rgb[0]==0x57&&rgb[1]==0x5f&&rgb[2]==0x5d);
  const u8 gas[3]={70,180,30};

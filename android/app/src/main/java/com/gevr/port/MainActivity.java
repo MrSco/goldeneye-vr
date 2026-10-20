@@ -133,6 +133,7 @@ public class MainActivity extends SDLActivity {
     // --- ROM file picker (called from the in-VR launcher, port/vr/vr_launcher.cpp) ---
     private static final int REQUEST_PICK_ROM = 0x6e;
     private static final int REQUEST_PICK_XBLA = 0x71;
+    private static final int REQUEST_PICK_CE = 0x72;
 
     /** What happened to the last pick, for the launcher to show; it reads and clears it. */
     public static volatile String pickResult = null;
@@ -179,6 +180,14 @@ public class MainActivity extends SDLActivity {
         openDocument(REQUEST_PICK_XBLA);
     }
 
+    /**
+     * The Mods page's CE...: the GoldenEye XBLA Community Edition updater zip,
+     * applied to the imported Bean copy (ModManager.applyCe).
+     */
+    public void openCePicker() {
+        openDocument(REQUEST_PICK_CE);
+    }
+
     private void openDocument(int request) {
         runOnUiThread(() -> {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
@@ -212,6 +221,13 @@ public class MainActivity extends SDLActivity {
             // the Mods page shows the import's progress; no pick, nothing to do
             if (resultCode == RESULT_OK && data != null && data.getData() != null && mods != null) {
                 mods.importOwn("ge007-bean", data.getData());
+            }
+            comeBackToVr();
+            return;
+        }
+        if (requestCode == REQUEST_PICK_CE) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null && mods != null) {
+                mods.applyCe(data.getData());
             }
             comeBackToVr();
             return;

@@ -803,3 +803,5 @@ int main(int argc, char **argv)
 	free(native);
 	return 0;
 }
+/* no Community Edition overlay in these fixtures (gevr_bean_ce.c) */
+const char *gevrBeanCeRoot(void) { return 0; }

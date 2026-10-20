@@ -2,6 +2,7 @@
 #include "gevr_romcheck.h"
 #include "gevr_romlayout.h"
 #include "gevr_bean.h"
+#include "gevr_bean_ce.h"
 #include "gevr_oddjobhat.h"
 /*
  * GoldenEye VR launcher, inside VR.
@@ -912,7 +913,7 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
             ImGui::PushID(p.id.c_str());
             const bool bean = p.id == "ge007-bean";
             const bool installed = p.state == "installed";
-            const bool busy = p.state == "downloading" || p.state == "installing" || p.state == "importing";
+            const bool busy = p.state == "downloading" || p.state == "installing" || p.state == "importing" || p.state == "patching";
             const bool localBean = bean && gevrBeanIsAvailable();
             const bool usable = installed || localBean;
             const bool active = bean ? gevrBeanIsEnabled() : !gevrBeanIsEnabled() && p.id == g_ActiveExtTexPack;
@@ -936,7 +937,8 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
             ImGui::TextDisabled("%s", bean ? "Meshes + textures" : "Textures");
             ImGui::TableNextColumn();
             if (busy) {
-                const char *verb = p.state == "downloading" ? "Downloading" : p.state == "importing" ? "Importing" : "Unpacking";
+                const char *verb = p.state == "downloading" ? "Downloading" : p.state == "importing" ? "Importing"
+                                   : p.state == "patching" ? "Applying CE" : "Unpacking";
                 if (p.progress >= 0) ImGui::TextColored(gold, "%s %d%%", verb, p.progress);
                 else ImGui::TextColored(gold, "%s...", verb);
             } else {
@@ -953,7 +955,8 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
             }
             ImGui::TableNextColumn();
             if (busy) {
-                if (ImGui::Button("Cancel")) gevrJavaCommand("modsCommand", "cancel");
+                // the Community Edition's patch runs to its end once started
+                if (p.state != "patching" && ImGui::Button("Cancel")) gevrJavaCommand("modsCommand", "cancel");
             } else if (bean && !installed) {
                 // Never downloaded: the player picks their own copy of the
                 // release and ModManager imports Bean's files from it
@@ -973,6 +976,22 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
                     if (p.id == g_ActiveExtTexPack) g_ActiveExtTexPack[0] = '\0';
                     vrSettingsSave();
                     gevrJavaCommand("modsCommand", ("remove:" + p.id).c_str());
+                }
+                // The Community Edition over the imported copy (port/src/gevr_bean_ce.c):
+                // the player picks its updater zip once, then switches it here
+                if (bean) {
+                    ImGui::SameLine();
+                    if (gevrBeanCeApplied()) {
+                        bool ce = VrBeanCommunityEdition != 0;
+                        if (ImGui::Checkbox("CE", &ce)) VrBeanCommunityEdition = ce ? 1 : 0;
+                        if (ImGui::IsItemHovered())
+                            gevrTooltip("GoldenEye XBLA Community Edition: new skies, Frigate's water,\nprops and fixes over your copy. From the next level you start.");
+                    } else {
+                        if (ImGui::SmallButton("CE..."))
+                            beanMessage = gevrOpenPicker("openCePicker") ? "" : "Could not open the file picker.";
+                        if (ImGui::IsItemHovered())
+                            gevrTooltip("Apply the GoldenEye XBLA Community Edition to your copy:\nchoose its updater, CommunityEditionUpdaterV6.zip.");
+                    }
                 }
             }
             ImGui::PopID();

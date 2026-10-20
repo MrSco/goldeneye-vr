@@ -104,6 +104,9 @@ int VrBeanModels = 1;
 /* Bean's look: the pictures the release leaves at the cartridge's (the stage
  * pictures and the like) from the HD + AI or HD pack, when one is installed. */
 int VrBeanFillTextures = 1;
+/* Bean: the Community Edition over the player's copy, once its updater is
+ * applied (gevr_bean_ce.c). */
+int VrBeanCommunityEdition = 1;
 /* Mods: Wreck's blood patch, off as the cartridge ships. */
 int VrBloodPatch = 0;
 /* Mods: Oddjob's hat, on when its file is there (gevr_oddjobhat.c) */
