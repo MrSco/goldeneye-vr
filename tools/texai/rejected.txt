@@ -78,3 +78,6 @@ B20FC6F0  Bunker plan quarter (6113B32E's group); whole plan from SeedVR2 or ESR
 EB663D8A  Bunker plan quarter (6113B32E's group); whole plan from SeedVR2 or ESRGAN: invented text, blobbed lines
 15CAE5E0  Bunker plan quarter (6113B32E's group); whole plan from SeedVR2 or ESRGAN: invented text, blobbed lines
 0CC7413E  Train briefing photo, lower half (0CC6CA1D's pair); whole photo still gets invented streaks
+4E30C2CB  Aztec light panel half (0D3E1168's pair); its lettering is invented by the AI either way
+82B8F030  Depot helicopter blueprint quarter (80226D12's group); its caption is invented by the AI either way
+FE724821  Depot helicopter blueprint quarter (80226D12's group); its caption is invented by the AI either way

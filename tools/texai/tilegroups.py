@@ -20,7 +20,8 @@ across every briefing photo (2026-10-19).
 
 find: neighbours are textures at most NEAR image numbers apart, of one format,
 where one's edge row or column is exactly the other's opposite edge (and not a
-flat one). A group is laid out from those shared edges and kept only if every
+flat one); a texture only the dumps have is matched by its edges' texels, in
+its own level. A group is laid out from those shared edges and kept only if every
 tile gets one place and the tiles cover a rectangle, agreeing where they
 overlap. Where a headset dump shows a tile repeating along the axis the group
 is tiled on, the group is left to batch.py (Silo's 64x64 pair: its own wrap
@@ -115,13 +116,42 @@ def shared(e1, e2):
     return np.array_equal(e1, e2) and len(np.unique(e1.reshape(-1, e1.shape[-1]), axis=0)) >= 3
 
 
+def default_dumps():
+    import glob
+    return sorted(glob.glob(os.path.join('build', 'texture-dump-*', 'texture-dump'))
+                  + glob.glob(os.path.join('build', 'texture-dump-*')))
+
+
+def dump_rows(dirs, skip):
+    """the dumps' textures not in skip (one row each, from the first dump with its file)"""
+    import batch
+    rows = {}
+    for d in dirs:
+        if os.path.exists(os.path.join(d, 'index.tsv')):
+            for r in batch.read_index(d):
+                if r['name'] not in skip and r['name'] not in rows and os.path.exists(os.path.join(d, r['name'])):
+                    rows[r['name']] = dict(r, num=None, src=d)
+    return sorted(rows.values(), key=lambda r: r['name'])
+
+
+def source(name, index_dir, dumps):
+    """a tile's native texels: the ROM index's file, else a dump's"""
+    for d in [index_dir] + list(dumps):
+        p = os.path.join(d, name)
+        if os.path.exists(p):
+            return p
+    raise FileNotFoundError(name)
+
+
 def find(a):
     rows = read_rom_index(a.index_dir)
+    for r in rows:
+        r['src'] = a.index_dir
     px = {}
 
     def tex(r):
         if r['name'] not in px:
-            px[r['name']] = np.asarray(Image.open(os.path.join(a.index_dir, r['name'])).convert('RGBA'))
+            px[r['name']] = np.asarray(Image.open(os.path.join(r['src'], r['name'])).convert('RGBA'))
         return px[r['name']]
 
     # (a, b, dx, dy): b sits at a's place + (dx, dy), one texel row or column shared
@@ -144,7 +174,35 @@ def find(a):
                 if shared(A[:, 0], B[:, -1]):
                     links.append((ra['name'], rb['name'], 1 - rb['w'], 0))
 
+    # Textures only a headset dump has (the Dam photo, ones drawn from outside
+    # the texture table) have no image number: matched by their edges' texels
+    # instead, within one level, leaving out any with a pixel-identical copy
+    # (palette variants, which share every edge)
+    import hashlib
+    dumped = dump_rows(a.dumps, {r['name'] for r in rows})
+    whole, starts = {}, {}
+    for r in dumped:
+        whole.setdefault(hashlib.md5(tex(r).tobytes()).hexdigest(), []).append(r['name'])
+    alone = {v[0] for v in whole.values() if len(v) == 1}
+    dumped = [r for r in dumped if r['name'] in alone]
+    for r in dumped:
+        T, k = tex(r), (r['fmt'], r['siz'], r['stage'])
+        starts.setdefault(k + ('top', r['w'], T[0].tobytes()), []).append(r)
+        starts.setdefault(k + ('left', r['h'], T[:, 0].tobytes()), []).append(r)
+    for ra in dumped:
+        A, k = tex(ra), (ra['fmt'], ra['siz'], ra['stage'])
+        for rb in starts.get(k + ('top', ra['w'], A[-1].tobytes()), ()):
+            if rb is not ra and shared(A[-1], tex(rb)[0]):
+                links.append((ra['name'], rb['name'], 0, ra['h'] - 1))
+        for rb in starts.get(k + ('left', ra['h'], A[:, -1].tobytes()), ()):
+            if rb is not ra and shared(A[:, -1], tex(rb)[:, 0]):
+                links.append((ra['name'], rb['name'], ra['w'] - 1, 0))
+    rows += dumped
+
     by = {r['name']: r for r in rows}
+
+    def order(n):
+        return (by[n]['num'] if by[n]['num'] is not None else 1 << 30, n)
     adj = {}
     for na, nb, dx, dy in links:
         adj.setdefault(na, []).append((nb, dx, dy))
@@ -152,7 +210,8 @@ def find(a):
     wraps = dumped_wraps(a.dumps)
     labels = image_names(a.images) if a.images and os.path.exists(a.images) else []
     groups, done = [], set()
-    for start in sorted(adj, key=lambda n: by[n]['num']):
+    extra = 10000   # ids for groups without image numbers
+    for start in sorted(adj, key=order):
         if start in done:
             continue
         pos, todo, bad = {start: (0, 0)}, [start], None
@@ -166,11 +225,16 @@ def find(a):
                 elif pos[m] != p:
                     bad = 'two places for %s' % m
         done |= set(pos)
-        nums = sorted(by[n]['num'] for n in pos)
-        what = '%d-%d' % (nums[0], nums[-1])
+        nums = sorted(by[n]['num'] for n in pos if by[n]['num'] is not None)
+        if nums:
+            gid, what = nums[0], '%d-%d' % (nums[0], nums[-1])
+        else:
+            import batch
+            gid, extra = extra, extra + 1
+            what = '%d (%s, %s)' % (gid, batch.level_folder(by[start]['stage']), start[10:18])
         x0, y0 = min(p[0] for p in pos.values()), min(p[1] for p in pos.values())
         tiles = [dict(name=n, num=by[n]['num'], x=pos[n][0] - x0, y=pos[n][1] - y0, w=by[n]['w'], h=by[n]['h'])
-                 for n in sorted(pos, key=lambda n: by[n]['num'])]
+                 for n in sorted(pos, key=order)]
         W, H = max(t['x'] + t['w'] for t in tiles), max(t['y'] + t['h'] for t in tiles)
         if not bad and len({(t['x'], t['y']) for t in tiles}) < len(tiles):
             bad = 'two tiles in one place'
@@ -196,11 +260,11 @@ def find(a):
         wrap = [not tiled[ax] and all(wraps.get(t['name'], repeats(by[t['name']]))[ax] for t in tiles)
                 for ax in (0, 1)]
         label = ''
-        if labels:
+        if labels and nums:
             names = [labels[n] for n in nums if n < len(labels)]
             label = os.path.commonprefix(names).rstrip('_') or '/'.join(names)
         f0 = by[start]
-        groups.append(dict(id=nums[0], label=label, fmt=f0['fmt'], siz=f0['siz'], size=[W, H], wrap=wrap,
+        groups.append(dict(id=gid, label=label, fmt=f0['fmt'], siz=f0['siz'], size=[W, H], wrap=wrap,
                            dumped=len(known), tiles=tiles))
         print('%s %-12s %d tiles -> %dx%d, wrap s/t=%d/%d, %d/%d dumped'
               % (what, label, len(tiles), W, H, wrap[0], wrap[1], len(known), len(tiles)))
@@ -285,11 +349,11 @@ def seams(a):
     return 0
 
 
-def composite(index_dir, g):
+def composite(index_dir, dumps, g):
     W, H = g['size']
     comp = Image.new('RGBA', (W, H))
     for t in g['tiles']:
-        comp.paste(Image.open(os.path.join(index_dir, t['name'])).convert('RGBA'), (t['x'], t['y']))
+        comp.paste(Image.open(source(t['name'], index_dir, dumps)).convert('RGBA'), (t['x'], t['y']))
     return comp
 
 
@@ -317,7 +381,7 @@ def make(a):
             print('%s: skipped, %s is in rejected.txt (--include-rejected makes it)' % (what, nrej[0]))
             continue
         name = 'group_%d.png' % g['id']
-        img = composite(a.index_dir, g)
+        img = composite(a.index_dir, a.dumps, g)
         img.save(os.path.join(comp_dir, name))
         W, H = g['size']
         r = dict(name=name, w=W, h=H, fmt=g['fmt'], siz=g['siz'], cms=0, cmt=0,
@@ -414,6 +478,7 @@ def main():
     p.add_argument('--work', default=os.path.join('build', 'texai-tiles'))
     p.add_argument('--tool', default='auto', choices=('auto', 'seedvr2', 'esrgan', 'esrgan-seedvr2'))
     p.add_argument('--include-rejected', action='store_true')
+    p.add_argument('--dumps', nargs='*', default=None, help="where dump-only tiles' texels are (as find's)")
     p.add_argument('--preview', action='store_true', help='make the composites, write nothing to the fork')
     p = sub.add_parser('sheet')
     p.add_argument('fork_dir')
@@ -421,11 +486,9 @@ def main():
     p.add_argument('--before')
     p.add_argument('--group', type=int, nargs='*')
     a = ap.parse_args()
+    if getattr(a, 'dumps', 0) is None:
+        a.dumps = default_dumps()
     if a.cmd == 'find':
-        if a.dumps is None:
-            import glob
-            a.dumps = sorted(glob.glob(os.path.join('build', 'texture-dump-*', 'texture-dump'))
-                             + glob.glob(os.path.join('build', 'texture-dump-*')))
         return find(a)
     return dict(seams=seams, make=make, sheet=sheet)[a.cmd](a)
 
