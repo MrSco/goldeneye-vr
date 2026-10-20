@@ -72,3 +72,9 @@ A2B6E7DB  Silo console, fake text or eyes in the screen
 061EE845  dial panel, contour swirls invented
 EB5E0862  dial panel, contour swirls invented
 49CB30EE  flat grey strip (Dam), nothing to upscale; SeedVR2 invents crosshatch on these
+# 2026-10-19 tilegroups.py: a group's tiles are AI together or not at all; a
+# native tile next to AI ones (rejected above) left a seam
+B20FC6F0  Bunker plan quarter (6113B32E's group); whole plan from SeedVR2 or ESRGAN: invented text, blobbed lines
+EB663D8A  Bunker plan quarter (6113B32E's group); whole plan from SeedVR2 or ESRGAN: invented text, blobbed lines
+15CAE5E0  Bunker plan quarter (6113B32E's group); whole plan from SeedVR2 or ESRGAN: invented text, blobbed lines
+0CC7413E  Train briefing photo, lower half (0CC6CA1D's pair); whole photo still gets invented streaks

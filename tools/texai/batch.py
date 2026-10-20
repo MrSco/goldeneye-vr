@@ -8,8 +8,9 @@ gevr_packdump) into AI-upscaled pack textures in the texture pack fork.
 
 For each texture in <dump_dir>/index.tsv:
   - skipped when its name is already anywhere in <fork_dir>/GOLDENEYE (the
-    authors' textures always win), or when either side is under --min texels
-    (flat colours and ramps gain nothing);
+    authors' textures always win), when either side is under --min texels
+    (flat colours and ramps gain nothing), or when it is one tile of a bigger
+    image (tilegroups.json: tilegroups.py upscales those whole);
   - upscaled by a local ComfyUI (comfy.py), padded by its own wrap flags;
   - post-processed by texai.py (4x4-texel colour lock, wrapped-axis seams,
     cut-out alpha) and written as <fork_dir>/GOLDENEYE/AI/<level>/<name>.
@@ -31,6 +32,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import comfy  # noqa: E402
 import texai  # noqa: E402
+import tilegroups  # noqa: E402
 
 # LEVELID values (src/bondconstants.h enum LEVELID) -> the fork's folder names
 LEVELS = {
@@ -223,6 +225,41 @@ def keep_grey(path, orig):
     Image.fromarray(np.clip(im, 0, 255).round().astype(np.uint8), 'RGBA').save(path)
 
 
+_ai_runs = 0
+
+
+def ai_one(dump_dir, r, img, m, work, tool_arg='auto'):
+    """One texture through ComfyUI and texai's post step: (the finished
+    *_soft.png, its stats, the tool kept). Grainy art under --tool auto gets
+    both tools: Real-ESRGAN only where it is clearly more faithful."""
+    global _ai_runs
+    tex = r['name'][:-4]
+    tool = pick_tool(tool_arg, r, img)
+    ans_path = os.path.join(work, 'answer', r['name'])
+    os.makedirs(os.path.dirname(ans_path), exist_ok=True)
+    both = tool == 'esrgan' and tool_arg == 'auto' and r['fmt'] not in (FMT_IA, FMT_RGBA)
+    made = {}
+    for t in (('esrgan', 'seedvr2') if both else (tool,)):
+        _ai_runs += 1
+        if _ai_runs % 15 == 0:
+            comfy.free()   # VRAM creeps up over a batch until jobs spill and crawl
+        answer = upscale(t, comfy.native_input(dump_dir, tex, m))
+        path = ans_path if t == tool else ans_path[:-4] + '_' + t + '.png'
+        comfy.framed(answer, m).save(path)
+        if m['alpha'] and 'alpha_answer' not in m:
+            alpha_answer(dump_dir, tex, m, work, r['name'])
+        base = os.path.join(work, 'final', tex + ('' if t == tool else '_' + t))
+        s = texai.post_one(dump_dir, path, tex, m, base)
+        if r['fmt'] in (FMT_IA, FMT_I):
+            keep_grey(base + '_soft.png', img)
+        made[t] = (base + '_soft.png', s, texai.native_psnr(base + '_soft.png', img))
+    if both:
+        gain = made['esrgan'][2] - made['seedvr2'][2]
+        tool = 'esrgan' if gain >= ESRGAN_MARGIN else 'seedvr2'
+    final, s, _ = made[tool]
+    return final, s, tool
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('dump_dir')
@@ -237,7 +274,8 @@ def main():
 
     rows = read_index(a.dump_dir)
     have = fork_names(a.fork_dir)
-    rej = rejected()
+    # reviewed out, or one tile of a bigger image (tilegroups.py makes those whole)
+    rej = rejected() | tilegroups.member_crcs()
     todo = [r for r in rows if r['name'] not in have and min(r['w'], r['h']) >= a.min
             and r['name'].split('#')[1].upper() not in rej
             and (a.stage is None or r['stage'] == a.stage)]
@@ -268,12 +306,10 @@ def main():
 
     todo.sort(key=lambda r: sibling_key(r) or ('', r['name']))   # a group's first gets the AI, the rest follow
     done = 0
-    ai_runs = 0
     t0 = time.time()
     for r in todo:
         if a.limit and done >= a.limit:
             break
-        tex = r['name'][:-4]
         out_name = wild.get(r['name'], r['name'])
         if out_name in have:
             continue   # another variant made the wildcard already
@@ -283,8 +319,6 @@ def main():
             continue
         img = Image.open(os.path.join(a.dump_dir, r['name'])).convert('RGBA')
         m = manifest_entry(r, img)
-        ans_path = os.path.join(a.work, 'answer', r['name'])
-        tool = pick_tool(a.tool, r, img)
         src = next((s for s in siblings.get(sibling_key(r), ()) if s is not r and hd_of(s)), None)
         if src is not None:
             os.makedirs(dst_dir, exist_ok=True)
@@ -296,28 +330,8 @@ def main():
             done += 1
             print('%d/%d %s %dx%d from palette sibling %s' % (done, len(todo), out_name, r['w'], r['h'], src['name']))
             continue
-        # grainy art gets both: Real-ESRGAN only where it is clearly more faithful
-        both = tool == 'esrgan' and a.tool == 'auto' and r['fmt'] not in (FMT_IA, FMT_RGBA)
         try:
-            made = {}
-            for t in (('esrgan', 'seedvr2') if both else (tool,)):
-                ai_runs += 1
-                if ai_runs % 15 == 0:
-                    comfy.free()   # VRAM creeps up over a batch until jobs spill and crawl
-                answer = upscale(t, comfy.native_input(a.dump_dir, tex, m))
-                path = ans_path if t == tool else ans_path[:-4] + '_' + t + '.png'
-                comfy.framed(answer, m).save(path)
-                if m['alpha'] and 'alpha_answer' not in m:
-                    alpha_answer(a.dump_dir, tex, m, a.work, r['name'])
-                base = os.path.join(a.work, 'final', tex + ('' if t == tool else '_' + t))
-                s = texai.post_one(a.dump_dir, path, tex, m, base)
-                if r['fmt'] in (FMT_IA, FMT_I):
-                    keep_grey(base + '_soft.png', img)
-                made[t] = (base + '_soft.png', s, texai.native_psnr(base + '_soft.png', img))
-            if both:
-                gain = made['esrgan'][2] - made['seedvr2'][2]
-                tool = 'esrgan' if gain >= ESRGAN_MARGIN else 'seedvr2'
-            final, s, _ = made[tool]
+            final, s, tool = ai_one(a.dump_dir, r, img, m, a.work, a.tool)
         except Exception as e:   # one bad texture must not stop an overnight run
             print('%s: %s: %s' % (r['name'], type(e).__name__, e))
             continue

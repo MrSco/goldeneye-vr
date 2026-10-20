@@ -106,6 +106,18 @@ intermissionfb and GhostlyDark)?
      zip to a release on MrSco/GoldenEye-007-HD.
   3. Add a `ModManager.PACKS` entry with the asset URL and its exact byte
      size (the download is checked against it).
+- **Tiled images (`tilegroups.py`, 2026-10-19).** Rare cuts big images into
+  tiles that share their edge texels: the briefing photos (two 128x64
+  halves), Aztec's 128x47 murals, Statue's 128x9 strips, the Bunker plan's
+  65x65 quarters.
+  - batch.py upscaled each tile alone, padded by its guessed wrap flags. That
+    put the far edge (a photo's white frame) next to the join, and the seam
+    fix blended it in: a bright crease across every photo.
+  - `tilegroups.py find build/texai-rom2` finds them by their shared edges and
+    writes `tilegroups.json`, which batch.py skips.
+  - `make` upscales each group whole and cuts it back into tiles. `seams`
+    measures the joins (portraits 0.0; the old photos 17-84 grey levels).
+    `sheet` puts before and after side by side.
 - **Review.** `python tools/texai/review.py build/texai-rom <fork>` writes
   pages to `build/texai-batch/review_NN.png`, worst drift first.
   - SeedVR2 does well on materials, props, signs and decals.
