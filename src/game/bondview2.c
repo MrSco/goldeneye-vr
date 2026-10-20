@@ -780,6 +780,17 @@ static void gevrCheatProbe(s32 inlevel)
             gevrRestartToLauncher();
             return;
         }
+        /* "where": log where Bond stands and faces, as a gevr_warp.txt "at" line
+         * that puts a test script back on the spot (gevrWarpProbe) */
+        if (strcasecmp(word, "where") == 0)
+        {
+            const coord3d *p = &g_CurrentPlayer->prop->pos;
+
+            sysLogPrintf(LOG_NOTE, "cheathook: where: at %.0f %.0f %.0f %.1f (room %d)", p->x, p->y, p->z,
+                         g_CurrentPlayer->vv_theta,
+                         g_CurrentPlayer->prop->stan != NULL ? (s32) g_CurrentPlayer->prop->stan->room : -1);
+            continue;
+        }
         /* "give<N>": put item N (ITEM_IDS) in the inventory, e.g. give40 = camera */
         if (strncasecmp(word, "give", 4) == 0)
         {
@@ -884,7 +895,8 @@ static void gevrCheatProbe(s32 inlevel)
  * that pad (bound pads as 10000+), facing its look direction, the way the AI's
  * teleport-to-pad command moves him (chrai.c AI_TRYTeleportingChrToPad).
  * "sevdish" picks a spot looking at Surface's radar dish (gevrWarpNearDish).
- * Deleted once read.
+ * "at <x> <y> <z> <degrees>" stands him on that spot facing that way, as the
+ * gevr_cheat.txt "where" word logs it. Deleted once read.
  */
 extern s32 sizepropdef(PropDefHeaderRecord *pdef);   /* loadobjectmodel.c */
 
@@ -901,7 +913,7 @@ static PadRecord *gevrWarpPad(s32 padnum)
  * pickups and guards, which stand on open floor - an object's own pad drops
  * Bond inside it. Returns the pad, or -1; *dish is where to face.
  * "near <model> <reach>" does the same for the first object drawn with that
- * model (bondconstants.h PROP_*: 336 the gate switch, 104 a window), from
+ * model (bondconstants.h PROP_*: 336 the gate switch, 104 a window, 299 a drone gun), from
  * about reach units away, to look at it from a test script.
  */
 static s32 gevrWarpIsObject(s32 type)
@@ -1070,7 +1082,7 @@ static s32 gevrWarpNearDish(coord3d *dish, s32 model, f32 reach)
         ObjectRecord *obj = (ObjectRecord *) def;
 
         if ((model < 0 ? def->type == PROPDEF_PROP && (obj->obj == PROP_SEVDISH || obj->obj == PROP_SATDISH)
-                       : gevrWarpIsObject(def->type) && obj->obj == model) && obj->pad >= 0)
+                       : (gevrWarpIsObject(def->type) || def->type == PROPDEF_AUTOGUN) && obj->obj == model) && obj->pad >= 0)
         {
             PadRecord *pad = gevrWarpPad(obj->pad);
 
@@ -1173,6 +1185,7 @@ static void gevrWarpProbe(s32 inlevel)
     s32 facedish = FALSE;
     s32 model = -1;
     f32 reach = 0.0f;
+    f32 at = 0.0f;   /* "at x y z degrees": the facing a "where" line logged */
 
     if (!inlevel || g_CurrentPlayer == NULL || g_CurrentPlayer->prop == NULL || (++tick % 30) != 0)
     {
@@ -1196,6 +1209,10 @@ static void gevrWarpProbe(s32 inlevel)
     {
         model = -1;
     }
+    if (strcmp(word, "at") == 0 && fscanf(fp, "%f %f %f %f", &dish.x, &dish.y, &dish.z, &at) != 4)
+    {
+        word[0] = 0;
+    }
     fclose(fp);
     unlink(path);
     if (strcmp(word, "sevdish") == 0)
@@ -1213,6 +1230,24 @@ static void gevrWarpProbe(s32 inlevel)
         padnum = gevrWarpNearDish(&dish, model, reach);
         facedish = TRUE;
     }
+    else if (strcmp(word, "at") == 0)
+    {
+        /* the floor tile under the spot: walked to from the nearest pad's on its level */
+        s32 p;
+        f32 bestd = 1e30f;
+
+        for (p = 0; p < 4000 && g_CurrentSetup.pads != NULL && g_CurrentSetup.pads[p].plink != NULL; p++)
+        {
+            PadRecord *cand = &g_CurrentSetup.pads[p];
+            f32 dx = cand->pos.x - dish.x, dz = cand->pos.z - dish.z;
+
+            if (cand->stan != NULL && fabsf(cand->pos.y - dish.y) < 300.0f && dx * dx + dz * dz < bestd)
+            {
+                bestd = dx * dx + dz * dz;
+                padnum = p;
+            }
+        }
+    }
     else if (sscanf(word, "%d", &padnum) != 1)
     {
         padnum = -1;
@@ -1226,6 +1261,12 @@ static void gevrWarpProbe(s32 inlevel)
     pos = pad->pos;
     stan = pad->stan;
     facing = atan2f(pad->look.x, pad->look.z);
+    if (strcmp(word, "at") == 0 && stan != NULL)
+    {
+        walkTilesBetweenPoints_NoCallback(&stan, pos.x, pos.z, dish.x, dish.z);
+        pos = dish;
+        facing = at * (M_PI_F / 180.0f);
+    }
     if (facedish)
     {
         facing = atan2f(dish.x - pos.x, dish.z - pos.z);
