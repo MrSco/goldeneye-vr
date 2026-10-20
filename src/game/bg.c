@@ -461,6 +461,8 @@ static u8 s_gevrRoomN64[MAXROOMCOUNT];
 static u8 s_gevrPortalN64[PORTMAX];
 static s32 s_gevrHitN64;         /* the last far test had a point inside the N64 far */
 static s32 s_gevrPathN64 = 1;    /* the room being added was reached inside it */
+/* drawn only for its Bean geometry (gevrAddBeanRooms), not reached by the portal walk */
+static u8 s_gevrBeanOnlyRoom[MAXROOMCOUNT];
 
 s32 gevrRoomIsRenderedN64(s32 roomID)
 {
@@ -2454,6 +2456,22 @@ s32 getMaxNumRooms(void)
  */
 u8 getROOMID_isRendered(s32 roomID)
 {
+#ifdef GEVR
+    /*
+     * A room the Bean pass adds draws its Bean geometry (the part outside its
+     * box) and nothing else: its props, guards, impacts and the game's other
+     * "is this room drawn" questions answer as the portal walk does, as
+     * without Bean. The portal walk had found the room's own volume hidden,
+     * and the props stand in it. Frigate's hull rooms reach 200-550 units
+     * below their boxes, so from the decks every room under them was "drawn"
+     * with what stands in it, through the hull: ~245 draws a frame where ~155
+     * are seen, and 105-117 fps in the headset.
+     */
+    if (roomID >= 0 && roomID < MAXROOMCOUNT && s_gevrBeanOnlyRoom[roomID])
+    {
+        return 0;
+    }
+#endif
     return g_BgRoomInfo[roomID].room_rendered;
 }
 
@@ -4777,6 +4795,34 @@ void *sub_GAME_7F0B8A24(s32 *pc)
 extern int gevrBeanIsEnabled(void);
 extern int gevrBeanWorldRoomBounds(int room, float lo[3], float hi[3]);
 
+/*
+ * Only a room whose Bean geometry reaches well past its own box: the portal
+ * walk already decides the rest, as it does without Bean. The test is a box
+ * in the view, not a line of sight, so a room that only fits its box was
+ * drawn through every wall with its guards and props. Facility's rooms
+ * reach at most 48 units past theirs, and there it took ~460 draws and
+ * 155K triangles a frame where the portal walk needs ~120 and 30K (the
+ * headset fell from 120 to ~95 fps); Silo, Caverns and Archives the same.
+ * Dam's reach 5,700 to 8,200. A cut at 200 ran no faster than this one on
+ * any stage, so the lowest that clears Facility's 48 stays.
+ */
+#define GEVR_BEAN_ROOM_OVERHANG 50.0f
+
+static s32 gevrBeanRoomOverhangs(const coord3d *nativeMin, const coord3d *nativeMax, const float lo[3], const float hi[3])
+{
+    s32 k;
+
+    for (k = 0; k < 3; k++)
+    {
+        if (nativeMin->f[k] - lo[k] >= GEVR_BEAN_ROOM_OVERHANG || hi[k] - nativeMax->f[k] >= GEVR_BEAN_ROOM_OVERHANG)
+        {
+            return TRUE;
+        }
+    }
+
+    return FALSE;
+}
+
 static void gevrAddBeanRooms(void)
 {
     s32 room;
@@ -4800,6 +4846,10 @@ static void gevrAddBeanRooms(void)
 
         nativeMin = info->minbounds;
         nativeMax = info->maxbounds;
+        if (!gevrBeanRoomOverhangs(&nativeMin, &nativeMax, lo, hi))
+        {
+            continue;
+        }
         for (k = 0; k < 3; k++)
         {
             info->minbounds.f[k] = lo[k] < nativeMin.f[k] ? lo[k] : nativeMin.f[k];
@@ -4812,6 +4862,7 @@ static void gevrAddBeanRooms(void)
         if (on)
         {
             s_gevrPathN64 = 0;
+            s_gevrBeanOnlyRoom[room] = 1;
             sub_GAME_7F0B39BC(room, 1, &g_CurrentPlayer->screensize, 0);
         }
     }
@@ -4845,6 +4896,7 @@ void bgDetermineVisibleRooms(void)
         g_BgRoomInfo[i].room_loaded_mask = 0;
 #ifdef GEVR
         s_gevrRoomN64[i] = 0;
+        s_gevrBeanOnlyRoom[i] = 0;
 #endif
     }
 

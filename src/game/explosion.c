@@ -2508,6 +2508,9 @@ Gfx *explosionRenderBulletImpactOnProp(Gfx *gdl, PropRecord *arg1, s32 arg2)
 
     gSPClearGeometryMode(gdl++, G_CULL_BOTH);
     gDPSetColorDither(gdl++, G_CD_NOISE);
+#ifdef GEVR
+    gDPNoOpTag(gdl++, 0x56610000);   /* VR_IMPACT_DL_BEGIN: these decals keep the stencil band */
+#endif
 
     for (i = 0; i < BULLET_IMPACT_BUFFER_LEN; i++)
     {
@@ -2569,6 +2572,9 @@ Gfx *explosionRenderBulletImpactOnProp(Gfx *gdl, PropRecord *arg1, s32 arg2)
         sp4C->unk02 &= ~(1 << arg2);
     }
 
+#ifdef GEVR
+    gDPNoOpTag(gdl++, 0x56610001);   /* VR_IMPACT_DL_END */
+#endif
     gDPSetColorDither(gdl++, G_CD_BAYER);
 
     return gdl;

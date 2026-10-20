@@ -542,7 +542,25 @@ bool gevrRoomDl;
  * part of GE-X's rocket launcher show through it (user, 2026-10-16). */
 bool gevrGunDl;
 #define GEVR_GUN_DECAL_CM 1.0f
+/*
+ * The game's bullet impacts (gfx_pc.cpp VR_IMPACT_DL_*, explosion.c). Only
+ * their decals and a hand-held gun's take the band; any other decal (a
+ * model's labels and stencils, Bean's or GoldenEye's) lies on its own
+ * surface and takes the plain offset, as room decals do and as Dab's Mod
+ * draws Bean's. The band's GL_GEQUAL and GL_ALWAYS passes turn the Adreno's
+ * low-resolution depth (LRZ) off for the rest of the eye pass, so one band
+ * decal made every later draw shade its hidden pixels: Frigate's Bean props
+ * put 1-8 in every view, and the eye pass took ~3.5 ms instead of ~2.6
+ * (105-115 fps at the dock and pad 60 at 120 Hz; 119 without them).
+ */
+bool gevrImpactDl;
 static bool s_issueGunDecal;   /* the draw being issued is one of them */
+/* Read when drawing: fast3d sets the depth mode (s_decalZ) only when it
+ * changes, and the tags flush a decal batch, as for gevrRoomDl. */
+static inline bool gevr_band_decal(void)
+{
+    return s_decalZ && (gevrImpactDl || gevrGunDl);
+}
 
 static bool s_alphaArgs[2];
 /*
@@ -2852,7 +2870,7 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
     s_uniCacheValid = use_multiview;   /* without multiview the eye uniforms are never cached */
 
     s_issueGunDecal = gevrGunDl;
-    gevr_issue_draw(first, (GLsizei)(3 * buf_vbo_num_tris), s_decalZ, gevrRoomDl && s_isDecal, 0.0f, lineMode);
+    gevr_issue_draw(first, (GLsizei)(3 * buf_vbo_num_tris), gevr_band_decal(), gevrRoomDl && s_isDecal, 0.0f, lineMode);
 }
 
 /* the draw itself, with the decal band (the eye pass, and its redraw: issue #53) */
@@ -3239,7 +3257,7 @@ static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode)
     d.zmode = s_depthZmode;
     d.alpha[0] = s_alphaArgs[0];
     d.alpha[1] = s_alphaArgs[1];
-    d.decalZ = s_decalZ;   // a room's decals take the reach pass, the game's own the band
+    d.decalZ = gevr_band_decal();   // a room's decals take the reach pass, impacts and guns the band
     d.gunDecal = gevrGunDl;  // a hand-held model's decals take the narrow band
     d.decalDepth = gevrRoomDl && s_isDecal;
     d.decalPull = 0.0f;
@@ -4295,7 +4313,7 @@ static bool gfx_opengl_draw_mesh(void** gpu, const void* vertices, uint32_t num_
     if (!gevr_eye_draw_deferred()) {   // else the replay draws it in its XR frame
         s_drawElements = true;
         s_issueGunDecal = gevrGunDl;
-        gevr_issue_draw((GLint)first, (GLsizei)count, s_decalZ, gevrRoomDl && s_isDecal, 0.0f, false);
+        gevr_issue_draw((GLint)first, (GLsizei)count, gevr_band_decal(), gevrRoomDl && s_isDecal, 0.0f, false);
         s_drawElements = false;
     }
     if (s_eyeRec) {
