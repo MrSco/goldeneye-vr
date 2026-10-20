@@ -276,7 +276,7 @@ explosionCreate(PropRecord *arg0, struct coord3d *target_pos, StandTile *target_
      * hits). The local player's are sent; one caused here by another player's
      * copy - its grenade's fuse, its rocket's impact, its mine - is dropped,
      * and the owner's arrives instead, where and when it really happened.
-     * Bullet puffs (no damage) and world explosions stay local.
+     * Bullet puffs (no damage) stay local; the co-op host sends world blasts.
      */
     /*
      * Co-op (#94): a guard's grenade or rocket goes off on the host, the only
@@ -284,8 +284,19 @@ explosionCreate(PropRecord *arg0, struct coord3d *target_pos, StandTile *target_
      * host reports its hits on players (explosionInflictDamage). Every other
      * headset is sent it to see, as the host's, which hurts no player there.
      */
+    /* Script effects are replayed on clients to update the source object.
+     * Their damaging blasts arrive separately from the host, exactly once. */
+    if (sp44->damage > 0.0f && !g_gevrNetExplosionRx && player < 0 && gevrCoopPuppets())
+    {
+#if defined(VERSION_JP) || defined(VERSION_EU)
+        return 0;
+#else
+        return;
+#endif
+    }
     if (sp44->damage > 0.0f && !g_gevrNetExplosionRx &&
-        (gevrCoopGuardExplosive(arg0 != NULL ? arg0->obj : g_gevrExplodingObj) || gevrCoopGuardBlastNow()))
+        (gevrCoopGuardExplosive(arg0 != NULL ? arg0->obj : g_gevrExplodingObj) || gevrCoopGuardBlastNow() ||
+         (player < 0 && gevrCoopHostGuards())))
     {
         extern void netSendExplosion(s32 type, const coord3d *pos, const u8 *rooms, s32 ground, s32 flag8);
 
@@ -474,7 +485,7 @@ static s32 gevrIsExplosiveItem(s32 item)
  * flying, settled or stuck - goes, so nothing is left lying past its
  * explosion to be set off again here.
  */
-void gevrNetExplosionReceive(s32 slot, s32 type, coord3d *pos, u8 room, s32 ground, s32 flag8)
+void gevrNetExplosionReceive(s32 slot, s32 type, coord3d *pos, u8 room, s32 ground, s32 flag8, s32 world)
 {
     struct player *pl;
     StandTile *tile;
@@ -495,7 +506,7 @@ void gevrNetExplosionReceive(s32 slot, s32 type, coord3d *pos, u8 room, s32 grou
         return;
     }
 
-    for (prop = chrpropGetActiveTail(); prop != NULL; prop = prop->prev)
+    for (prop = world ? NULL : chrpropGetActiveTail(); prop != NULL; prop = prop->prev)
     {
         WeaponObjRecord *wobj;
         f32 dx, dy, dz, d2;
@@ -549,7 +560,7 @@ void gevrNetExplosionReceive(s32 slot, s32 type, coord3d *pos, u8 room, s32 grou
     rooms[1] = 0xff;
 
     g_gevrNetExplosionRx = TRUE;
-    explosionCreate(NULL, pos, tile, (s16) type, ground, slot, rooms, flag8);
+    explosionCreate(NULL, pos, tile, (s16) type, ground, world ? -1 : slot, rooms, flag8);
     g_gevrNetExplosionRx = FALSE;
 }
 #endif

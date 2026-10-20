@@ -1232,6 +1232,8 @@ static bool netSnapshotObjectType(int type) {
         case PROPDEF_COLLECTABLE:
         case PROPDEF_AMMO:
         case PROPDEF_ARMOUR:
+        case PROPDEF_GLASS:
+        case PROPDEF_TINTED_GLASS:
             return true;
         default: return false;
     }
@@ -1376,6 +1378,12 @@ void netSendHostDoorState(ObjectRecord *door, s32 state) {
 void netSendHostDoorLock(ObjectRecord *door) {
     if (!netIsHost() || !netCoopActive() || !netPlayersWereTicked() || !door || door->type != PROPDEF_DOOR) return;
     netSendObjectEvent(s_local_slot, door, NET_OBJECT_DOOR_LOCK, (int8_t)(uint8_t)((DoorRecord *)door)->keyflags);
+}
+
+void netSendHostGlassBreak(ObjectRecord *obj) {
+    if (!netCoopActive() || !netIsHost() || !obj || (obj->state & PROPSTATE_DESTROYED) ||
+        (obj->type != PROPDEF_GLASS && obj->type != PROPDEF_TINTED_GLASS)) return;
+    netSendObjectEvent(s_local_slot, obj, NET_OBJECT_GLASS_BREAK, 0);
 }
 
 /* chrprop.c: the local player now holds the flag or the Golden Gun, from the
@@ -2801,7 +2809,8 @@ void netSendExplosionAs(s32 owner, s32 type, const coord3d *pos, const u8 *rooms
     netbufWriteU8(&buf, (uint8_t)slot);
     netbufWriteU8(&buf, (uint8_t)type);
     netbufWriteU8(&buf, rooms ? rooms[0] : 0xff);
-    netbufWriteU8(&buf, (uint8_t)((ground ? 1 : 0) | (flag8 ? 2 : 0)));
+    netbufWriteU8(&buf, (uint8_t)((ground ? 1 : 0) | (flag8 ? 2 : 0) |
+        (owner < 0 && netCoopActive() && netIsHost() ? 4 : 0)));
     netbufWriteCoord(&buf, pos);
     netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
     NET_LOG("explosion tx: type %d at %.0f,%.0f,%.0f", (int)type, pos->x, pos->y, pos->z);
@@ -3375,6 +3384,8 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
         case NET_MSG_COOP_JOIN:
         case NET_MSG_COOP_CINEMA:
         case NET_MSG_COOP_ALLY:
+        case NET_MSG_COOP_CLOCK:
+        case NET_MSG_COOP_SCRIPT:
             if (netIsHost() || peer != s_server_peer || s_state != NET_STATE_INGAME) break;
             netCoopReceive(msg_type, slot_id, 1, &buf);
             break;
@@ -3536,6 +3547,8 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 const u32 mask = RUNTIMEBITFLAG_REMOVE | RUNTIMEBITFLAG_DESTROYED |
                                  RUNTIMEBITFLAG_BEENOPENED;
                 obj->runtime_bitflags = (obj->runtime_bitflags & ~mask) | (runtime & mask);
+                if ((type == PROPDEF_GLASS || type == PROPDEF_TINTED_GLASS) && (runtime & RUNTIMEBITFLAG_REMOVE))
+                    obj->state |= PROPSTATE_DESTROYED; /* join mid-shatter: remove without replaying the shards */
                 if (enabled) chrpropEnable(obj->prop);
                 else chrpropDisable(obj->prop);
                 obj->prop->timetoregen = (s32)regen;
@@ -3633,7 +3646,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
         }
         case NET_MSG_EXPLOSION: {
             if (netSlotIsSpectator(slot_id)) break;
-            extern void gevrNetExplosionReceive(s32 slot, s32 type, coord3d *pos, u8 room, s32 ground, s32 flag8);
+            extern void gevrNetExplosionReceive(s32 slot, s32 type, coord3d *pos, u8 room, s32 ground, s32 flag8, s32 world);
             int slot = slot_id;
             uint8_t type = netbufReadU8(&buf);
             uint8_t room = netbufReadU8(&buf);
@@ -3641,13 +3654,14 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             coord3d pos;
             netbufReadCoord(&buf, &pos);
             if (buf.error || netbufReadLeft(&buf) != 0 || !netAcceptPlayerEvent(peer, slot) ||
-                !netCoordFinite(&pos)) break;
+                !netCoordFinite(&pos) || (flags & ~7) ||
+                ((flags & 4) && (netIsHost() || slot != s_host_slot || !netCoopActive()))) break;
             if (netIsHost()) {
                 netBroadcastPacket(data, size, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, peer);
             }
             if (netPlayersWereTicked()) {
                 NET_LOG("explosion rx: slot %d type %d at %.0f,%.0f,%.0f", slot, type, pos.x, pos.y, pos.z);
-                gevrNetExplosionReceive(slot, type, &pos, room, (flags & 1) != 0, (flags & 2) != 0);
+                gevrNetExplosionReceive(slot, type, &pos, room, (flags & 1) != 0, (flags & 2) != 0, (flags & 4) != 0);
             }
             break;
         }
@@ -3661,6 +3675,8 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             int8_t value = netbufReadS8(&buf);
             if (buf.error || netbufReadLeft(&buf) != 0 || !netAcceptPlayerEvent(peer, slot) ||
                 !g_CurrentSetup.propDefs) break;
+            /* A client cannot break glass on behalf of the host. */
+            if (action == NET_OBJECT_GLASS_BREAK && (netIsHost() || slot != s_host_slot || !netCoopActive())) break;
             if (netIsHost()) {
                 netBroadcastPacket(data, size, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, peer);
             }
@@ -3690,6 +3706,11 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 } else {
                     /* freed for good there (objFree in propPickupByPlayer) */
                     objFreePermanently(obj, TRUE);
+                }
+            } else if (action == NET_OBJECT_GLASS_BREAK) {
+                if ((type == PROPDEF_GLASS || type == PROPDEF_TINTED_GLASS) && !(obj->state & PROPSTATE_DESTROYED)) {
+                    extern void sub_GAME_7F04DCB4(ObjectRecord *obj);
+                    sub_GAME_7F04DCB4(obj);
                 }
             } else if (action == NET_OBJECT_DOOR_LOCK) {
                 /* co-op: the host's script locked or unlocked it */

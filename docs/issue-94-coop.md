@@ -236,9 +236,10 @@ the solo fuse on a thrown mine. Protocol 18 is unchanged.
   through the host's camera, their own player standing; every other
   player's copy is out of the shot except the host's, who is Bond. Bond's
   cinema animations reach the others only as the host's moving copy; script
-  music plays on the host only.
+  music is now relayed with the world effects (see [#216](issue-216-coop-world.md)).
 - Pickups from dead guards are per headset (each player can take the gun).
 - Shooting a gun out of a guard's hand, or its held grenade, does nothing
   (the hit is the host's to apply, and that path skips it).
-- After a host change, a script's world changes other than doors, text,
-  stage flags and the alarm (objects moved, gas) stay as each headset had them.
+- Scripted destruction, movement, flags, monitors, gas and sound now have
+  shared effect/state paths; see the [20-mission audit](issue-216-coop-world.md)
+  for remaining vehicle, physics and late-join audiovisual limits.

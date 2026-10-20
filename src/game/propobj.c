@@ -9295,6 +9295,10 @@ void sub_GAME_7F04DCB4(ObjectRecord* obj)
     PropRecord* prop;
     struct ModelRoData_BoundingBoxRecord *bbox;
 
+#ifdef GEVR
+    netSendHostGlassBreak(obj);
+#endif
+
     prop = obj->prop;
     bbox = chrobjGetBboxFromObjectRecord(obj);
     explosionClearBulletImpactRoomByFlag(prop, FALSE);
