@@ -2635,6 +2635,23 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 							registerPrimary(dls[i].node, s_blank, 1);
 						continue;
 					}
+                    /* A head's distance alternatives carry it too. Bond's suit
+                     * head (CheadbrosnansuitZ) has a near and a far list, each
+                     * under an LOD node, and the head went on the larger one
+                     * only: close up, in Frigate's intro, the game drew the
+                     * other, blanked, under a body that leaves its own head to
+                     * the head model - Bond had none (2026-10-19). The head's
+                     * skin goes with it, to pose it on whichever list draws. */
+                    int headLod=0;
+                    for (ModelNode *up=dls[i].node->Parent;up;up=up->Parent)
+                        if (nodeOp(up)==MODELNODE_OPCODE_LOD) headLod=1;
+                    if ((kind==BEAN_HEAD || kind==BEAN_HEADBODY) && mainEmitted && headLod) {
+                        struct beanSwap *head=swapOf(dls[best].node);
+                        s_emittedSkin=head ? head->skin : NULL;
+                        registerPrimary(dls[i].node,gdl,0);
+                        s_emittedSkin=NULL;
+                        continue;
+                    }
                     /* Alternate distance lists for the same body matrix must
                      * carry the replacement too. Otherwise a plane's hull
                      * vanishes at its LOD boundary while the rotors remain. */
