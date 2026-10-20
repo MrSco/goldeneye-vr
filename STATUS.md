@@ -3,9 +3,22 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current release:** v0.5.11 (versionCode 91, protocol 23), 2026-10-19.
-v0.5.7 to v0.5.11 play together; v0.5.6 and older can't join. Building does
+**Current release:** v0.5.12 (versionCode 92, protocol 23), 2026-10-20.
+v0.5.7 to v0.5.12 play together; v0.5.6 and older can't join. Building does
 not publish a GitHub release. No game data is shipped.
+
+v0.5.12 (PR #212, #213, #214): Bean frame rate in VR. Only rooms whose Bean
+geometry reaches 50+ units past their box are drawn past the portals, and
+such a room draws that geometry alone (Facility route 2,334 drops -> 8).
+The decal stencil band is kept to impacts and hand-held guns (it killed
+Adreno LRZ). Every Bean prop is a GPU mesh (rigid_min 0) on a static
+vertex-shader variant. gfx_sp_tri1 works out per-vertex constants once per
+triangle. Cut ragdoll skins are built once per body and cut set, and
+skinned on the GPU (gevr_bean_pose.inc.h beanCutGpuDraw). Jungle VR start
+100 -> 120, drone gun 102 -> 120, cut bodies 20-30 fps drop -> none. Test
+hooks: gevr_cheat.txt where/kill<R>, gevr_warp.txt at/near. Open: #215
+(mission not saved after HD -> Bean, a player report; check cheats first).
+[v0.5.12](docs/releases/v0.5.12.md), [Jungle notes](docs/jungle-bean-perf.md).
 
 v0.5.11 (PR #210): the XBLA Community Edition from the player's own
 CommunityEditionUpdaterV6.zip, Dab's Mod's way: the import keeps the 145 files
