@@ -4556,11 +4556,25 @@ static void gevr_mesh_frame(void) {
  * and each combiner input, byte by byte either a colour byte of the vertex or
  * a constant. false for what the shader does not do: the LOD fraction by w.
  */
+/* A picture's motion only changes between game ticks, never inside a list:
+ * kept for the record (run_display_list) per tile and picture, as gfx_sp_tri1
+ * asks for it on every triangle. Two Bean lookups a triangle were 4% of the
+ * render thread under Jungle's foliage (17K CPU triangles a frame). */
+static uint32_t s_beanTransformPass = 1;
 static void gevr_bean_transform(int t, float matrix[6])
 {
+    static struct { uint32_t pass; const void* addr; float m[6]; } cache[2];
     const auto& tile = rdp.texture_tile[rdp.first_tile_index + gfx_lod_tile_offset(t)];
-    if (!gevrBeanWaterTransform(rdp.loaded_texture[tile.tmem].addr, t, matrix))
-        gevrBeanTextureTransform(rdp.loaded_texture[tile.tmem].addr, g_GlobalTimer / 60.0f, matrix);
+    const void* addr = rdp.loaded_texture[tile.tmem].addr;
+    if (cache[t].pass == s_beanTransformPass && cache[t].addr == addr) {
+        memcpy(matrix, cache[t].m, sizeof(cache[t].m));
+        return;
+    }
+    if (!gevrBeanWaterTransform(addr, t, matrix))
+        gevrBeanTextureTransform(addr, g_GlobalTimer / 60.0f, matrix);
+    cache[t].pass = s_beanTransformPass;
+    cache[t].addr = addr;
+    memcpy(cache[t].m, matrix, sizeof(cache[t].m));
 }
 
 static bool gevr_mesh_params(struct GfxMeshDrawParams* p) {
@@ -5782,6 +5796,7 @@ extern "C" void gfx_run(Gfx* commands) {
         apply_offsets(screenMode ? noOffsets : offsets);
 
         auto run_display_list = [&]() {
+            ++s_beanTransformPass;   // gevr_bean_transform: a new tick's motion
             gfx_sp_reset();
             buf_vbo_len = buf_vbo_num_tris = 0;
             fbActive = 0;
