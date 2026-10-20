@@ -162,6 +162,11 @@ extern void gfx_vr_hud_capture_end_P(void);
 // (0x565Fxxxx is VR_HAND_DRAW, gunfire.c gevrHandTag, matched by prefix.)
 #define VR_ROOM_DL_BEGIN 0x56600000
 #define VR_ROOM_DL_END   0x56600001
+// GoldenEye: the game's bullet impacts (explosion.c explosionRenderBulletImpactOnProp).
+// Only their decals (and a hand-held gun's) take the stencil band: an impact
+// quad must not hang over an edge. A model's decals lie on its own surface.
+#define VR_IMPACT_DL_BEGIN 0x56610000
+#define VR_IMPACT_DL_END   0x56610001
 extern void gfx_vr_hud_capture_begin_H(void);
 extern void gfx_vr_hud_capture_end_H(void);
 

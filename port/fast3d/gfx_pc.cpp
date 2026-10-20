@@ -4968,6 +4968,15 @@ static void gfx_run_dl(Gfx* cmd) {
                         break;
                     }
 
+                    case VR_IMPACT_DL_BEGIN:   // explosion.c: the bullet impacts, the band's decals
+                    case VR_IMPACT_DL_END: {
+                        extern bool gevrImpactDl;   // gfx_opengl.cpp
+                        extern bool gfx_opengl_batch_is_decal(void);
+                        if (gfx_opengl_batch_is_decal()) GEVR_FLUSH_BECAUSE(GEVR_FLUSH_ROOM);
+                        gevrImpactDl = tag_w1 == VR_IMPACT_DL_BEGIN;
+                        break;
+                    }
+
                     case VR_SCOPE_REC_BEGIN:   // issue #40, lv.c lvlRender
                         gfx_flush();
                         gfx_vr_scope_record(true, gfx_rapi->get_clip_parameters().invert_y);
