@@ -67,13 +67,30 @@ A broad, flat grey polygon covers part of the pad near the yellow H, while
 the background pines show the same purple spikes as Surface. The Bunker
 variant and screenshot build were not specified.
 
-The pine loader changes apply to the Bunker backgrounds too. The helipad
-patch is not a confirmed fix in this PR: no helipad-specific material,
-room-visibility or decal-depth change has been made. Investigate overlapping
-room faces, material selection and room visibility rather than treating the
-grey area as another pine UV defect. The older material census records
-coincident-face candidates in both Bunker backgrounds (37 groups in Bunker,
-18 in Bunker 2), without locating them on the helipad or proving a defect.
+Following the renderer upstream found an exact prior report in DAB's
+`gebean.c` `gebeanLevelTriangles()` and `gebeanstage.c` at `aae28c8`: Bunker's
+helipad has 107 shader-only white triangles (vertex shader 0x3958), which
+sampled a corner of the preceding concrete picture and drew a flat grey band
+over the textured pad. Our loader lacked both its material-ownership tracking
+and its handling of these plain faces.
+
+Track whether record 0x2d set a material since the last vertex-shader record
+0x02. On background draws, tag no-UV stride-16/20 draws without their own
+material, and position-only stride-12 draws. Instanced pines are excluded.
+After the existing decal classifier has identified the underlying surface,
+omit a plain overlay only when all its vertex colours are opaque white and
+it is a decal. Other plain faces remain, rendered with their vertex colours
+without inheriting an unrelated texture. Textured pad geometry, materials
+explicitly set by their draw, and the earlier Facility decal classifier are
+preserved. No room visibility or native collision change is needed.
+
+`test_bean_helipad.py` constructs real CAFF containers with a decoded opaque
+texture, a textured pad and the shader/material transition. The pre-fix
+loader fails because the white overlay remains; the repair passes nine
+cases covering stride 12/16/20, colour and fading, isolated surfaces,
+explicit materials and ordinary UV-bearing faces. These are authored data,
+not copies of the game's helipad; the source match and executed loader
+regression support this repair, with headset confirmation still outstanding.
 
 Check the pad from the rear doorway and while stepping outside, standing
 still and moving, with Bean CE on/off and Original. Record whether the patch
@@ -93,6 +110,8 @@ from the earlier transient held-gun wedges described in
   dispatch, weighted support/part ownership, plane LODs and
   propellers, native aiming/hit walkers, room mapping and the Facility decal
   regressions. Also exercised under ASan/UBSan.
+- `test_bean_helipad.py` checks the shader-only overlay and eight preservation
+  cases through the full CAFF loader, also under ASan/UBSan.
 - Node-state, US/EU joint walkers, camera culling and Mirror Mode checks pass.
 - Android `assembleDebug testDebugUnitTest`: build succeeds, 31 JVM tests pass;
   `apksigner verify` succeeds. Version/protocol unchanged.

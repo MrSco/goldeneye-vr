@@ -24,7 +24,7 @@ struct beanDraw {
 	uint8_t maskslot;
     uint32_t reflectSpot,reflectLand; uint8_t reflectAmount[4],reflectionDiffuse,reflectionAlphaBase; uint32_t reflectionColour;
 	int16_t inst;
-	uint8_t blend, alpha, alphatest, terrainBlend, tree;
+	uint8_t blend, alpha, alphatest, terrainBlend, tree, ownmat;
 	uint8_t pal[GEVR_BEAN_MAXPAL];
 	uint8_t numpal;
 	uint32_t colour;
@@ -1379,6 +1379,30 @@ done:
 	free(l.item);
 }
 
+/* DAB gebeanLevelTriangles()/gebeanstage.c (aae28c8): a draw without UVs
+ * or a material since its vertex shader was set has no picture of its own.
+ * Bunker's helipad has 107 white triangles shaded entirely by that shader.
+ * Sampling the preceding draw's picture at (0,0) painted a flat grey band
+ * over the textured pad. Drop these white overlays only after identifying
+ * their underlying surface; other plain faces retain their vertex colours. */
+static void fixPlainLevelFaces(struct gevrBeanMesh *mesh)
+{
+	int kept = 0;
+	for (int i = 0; i < mesh->ntris; i++) {
+		struct gevrBeanTri *t = &mesh->tris[i];
+		if (t->flags & GEVR_BEAN_F_PLAIN) {
+			int white = 1;
+			for (int k = 0; k < 12; k++) white &= t->rgba[k] == 255;
+			if (white && (t->flags & GEVR_BEAN_F_DECAL)) continue;
+			t->tex = -1;
+			t->reflection = NULL;
+		}
+		if (kept != i) mesh->tris[kept] = *t;
+		kept++;
+	}
+	mesh->ntris = kept;
+}
+
 static int notePass(uint8_t **pass, int *cap, int index, uint8_t value)
 {
 	if (index >= *cap) {
@@ -1608,6 +1632,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	int numremap = 0;
 	uint8_t numpal = 1, passblend = 0, blend = 0, alphatest = 0;
 	uint8_t alpha = 0xff;
+	uint8_t ownmat = 0;
 	uint32_t colour = 0xffffffu;
 	int16_t inst = -1;
 	uint32_t secend = 0;
@@ -1814,6 +1839,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		} else if (type == 0x2e && sz >= 12) {
 			vb = be32(stream + pc + 8);
 		} else if (type == 0x02) {
+			ownmat = 0;
 			vs = sz >= 8 ? be32(stream + pc + 4) : 0;
 		} else if (type == 0x1a && sz >= 8) {
 			passblend = (be32(stream + pc + 4) & 0xff) == 2;
@@ -1825,6 +1851,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		} else if (type == 0x0c && sz >= 12 && be32(stream + pc + 4) == 0x60) {
 			alphatest = be32(stream + pc + 8) != 0;
 		} else if (type == 0x2d && sz >= 20) {
+			ownmat = 1;
 			tex = materialTex(&caff, stream, pc, sz, slen, texfile, ntex);
             tex = surfaceTex(&caff, stream, pc, sz, texfile, ntex, source, tex);
 			matpc = pc;
@@ -1936,6 +1963,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 						d->cuff = sections[section - 3];
 				}
 				d->vs = vs;
+				d->ownmat = ownmat;
 				d->vb = vb;
 				d->tex = tex;
                 d->reflectionDiffuse=reflectForm==4 ? 2 : reflectForm==3;
@@ -2108,6 +2136,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 			continue;
 		}
 		int isTree = d->tree && (vbrec.stride == 20 || vbrec.stride == 28);
+		int plain = levelFade && ((!d->ownmat && !isTree &&
+			(vbrec.stride == 16 || (vbrec.stride == 20 && !vbrec.uv20))) || vbrec.stride == 12);
 		struct beantree tree;
 		if (isTree) beanTreeMeasure(gpu, &vbrec, &tree);
 		for (int i = 0; i < nibs; i++) {
@@ -2224,6 +2254,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 						d->pal, d->numpal, boneSk, muzzle, slideb)) {
 					break;
 				}
+				if (plain) mesh->tris[mesh->ntris - 1].flags |= GEVR_BEAN_F_PLAIN;
 				/* DAB fpDrawIsCard(): piece 0 is the flash; and beanGunExtent()
 				 * leaves the HD gun's small pictures (64x64 and under) out with
 				 * the hand's, which takes every flash card - the rocket
@@ -2286,12 +2317,12 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		}
 		free(tris);
 	}
-	if (levelFade)
-		clampLevelCutouts(mesh, texAlpha);
-	if (levelFade)
+	if (levelFade) {
 		markLevelDecals(mesh, triPass, passCap < mesh->ntris ? passCap : mesh->ntris, texAlpha,
 		                levelDecalScale(source));
-	else if (rigidDecals)
+		fixPlainLevelFaces(mesh);
+		clampLevelCutouts(mesh, texAlpha);
+	} else if (rigidDecals)
 		markRigidDecals(mesh, texAlpha);
 	free(triPass);
 	free(draws);

@@ -14,6 +14,7 @@
 #define GEVR_BEAN_F_NECK  4
 #define GEVR_BEAN_F_DECAL 8
 #define GEVR_BEAN_F_ROUND 16   /* the rocket launcher's round in its tube (DAB fpRound) */
+#define GEVR_BEAN_F_PLAIN 32   /* level shader-only draw, no authored picture/UV */
 
 struct gevrBeanTri {
 	float p[9];
