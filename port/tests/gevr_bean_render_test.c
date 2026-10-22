@@ -56,9 +56,12 @@ int gevrHatNodeGdl(struct ModelNode *node, struct Model *model, void **gdl) { (v
 #include <gevr_bean_material_paths_test.inc.h>
 
 #include "gevr_bean_room_material_test.inc.h"
+#include "gevr_bean_surface_test.inc.h"
 
 int main(void)
 {
+    surfaceChecks();
+    rigidSupportChecks();
     struct gevrBeanMesh mesh = {0};
     uint16_t pixels[256] = {0};
     mesh.ntex = 1; mesh.standin[0] = pixels; mesh.texW[0] = 128; mesh.texH[0] = 64;

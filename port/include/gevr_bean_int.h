@@ -74,6 +74,9 @@ struct gevrBeanMesh {
 	int texW[256];
 	int texH[256];
 	int texCut[256];
+	/* Clamp selected axes to one shared repeat, never rebase each triangle. */
+	uint8_t texClamp[256]; /* bit 0 U, bit 1 V */
+	float texClampBase[256][2];
 	int ntex;
 	float uvscale;
 	int triggerCuffs;

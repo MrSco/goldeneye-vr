@@ -10,8 +10,11 @@ static void put32(uint8_t *p, uint32_t v)
     p[0] = v >> 24; p[1] = v >> 16; p[2] = v >> 8; p[3] = v;
 }
 
+#include "gevr_bean_tree_test.inc.h"
+
 int main(void)
 {
+    treeChecks();
     /* A header without its section table must be rejected, even when the
      * counts and section-data fields happen to fit in the file. */
     uint8_t bad[0x68] = {0};

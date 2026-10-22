@@ -24,7 +24,7 @@ struct beanDraw {
 	uint8_t maskslot;
     uint32_t reflectSpot,reflectLand; uint8_t reflectAmount[4],reflectionDiffuse,reflectionAlphaBase; uint32_t reflectionColour;
 	int16_t inst;
-	uint8_t blend, alpha, alphatest, terrainBlend;
+	uint8_t blend, alpha, alphatest, terrainBlend, tree;
 	uint8_t pal[GEVR_BEAN_MAXPAL];
 	uint8_t numpal;
 	uint32_t colour;
@@ -303,6 +303,43 @@ static int readVtx(const uint8_t *gpu, const struct beanVb *vb, uint32_t i, floa
 		v->uv[1] = (int16_t)be16(p + k + 6) / uvscale;
 	}
 	return 1;
+}
+
+#include "gevr_bean_tree.inc.h"
+
+/* A tree's first copy has no instance record. Mark every draw of a buffer
+ * that is instanced elsewhere; other stride-20/28 layouts keep their UVs. */
+static void markTreeBuffers(struct beanDraw *draws, int count)
+{
+	for (int i = 0; i < count; i++)
+		if (draws[i].inst >= 0 && !draws[i].tree)
+			for (int j = 0; j < count; j++)
+				if (draws[j].vb == draws[i].vb)
+					draws[j].tree = 1;
+}
+
+/* DAB gebeanstage.c clampCutouts: a forest wall repeats horizontally but
+ * spans one picture vertically. Wrapping V samples snow at its clear top. */
+static void clampLevelCutouts(struct gevrBeanMesh *mesh, const uint8_t *texAlpha)
+{
+	float lo[MAX_TEX], hi[MAX_TEX];
+	for (int i = 0; i < MAX_TEX; i++) { lo[i] = 1e30f; hi[i] = -1e30f; }
+	for (int i = 0; i < mesh->ntris; i++) {
+		const struct gevrBeanTri *t = &mesh->tris[i];
+		if (t->tex < 0 || t->tex >= mesh->ntex) continue;
+		for (int c = 0; c < 3; c++) {
+			float v = t->uv[c * 2 + 1];
+			if (v < lo[t->tex]) lo[t->tex] = v;
+			if (v > hi[t->tex]) hi[t->tex] = v;
+		}
+	}
+	for (int tex = 0; tex < mesh->ntex; tex++) {
+		float base = floorf(lo[tex] + 1.0f / 32.0f);
+		if (texAlpha[tex] && lo[tex] <= hi[tex] && hi[tex] <= base + 1 + 1.0f / 32.0f) {
+			mesh->texClamp[tex] |= 2;
+			mesh->texClampBase[tex][1] = base;
+		}
+	}
 }
 
 static void applyInst(float *p, const float *m)
@@ -2032,6 +2069,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	fixPlaceholders(mesh, draws, ndraws, source);
 	textureAlphaFlags(mesh, texAlpha, texSoft);
     if (levelFade) markLevelBlendShaders(mesh, draws, ndraws, ibs, nibs, data, dlen, gpu, glen, uv20);
+	if (levelFade) markTreeBuffers(draws, ndraws);
 	/* A prop's draws are kept for GoldenEye's monitor screens (DAB gebean.c
 	 * beanFindScreens() and its users, in gevr_bean.c), and which of them and
 	 * which buffer vertices each triangle came from. */
@@ -2069,6 +2107,9 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		if (!readVb(data, dlen, gpu, glen, d->vb, uv20, &vbrec)) {
 			continue;
 		}
+		int isTree = d->tree && (vbrec.stride == 20 || vbrec.stride == 28);
+		struct beantree tree;
+		if (isTree) beanTreeMeasure(gpu, &vbrec, &tree);
 		for (int i = 0; i < nibs; i++) {
 			if (ibs[i].obj == d->ib) {
 				ib = &ibs[i];
@@ -2104,7 +2145,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 			struct beanVtx corner[3];
 			int ok = 1;
 			for (int k = 0; k < 3; k++) {
-				if (!readVtx(gpu, &vbrec, tris[t * 3 + k], uvscale, numbones > 0, &corner[k])) {
+				if (!(isTree ? readTreeVtx(gpu, &vbrec, tris[t * 3 + k], &corner[k])
+				             : readVtx(gpu, &vbrec, tris[t * 3 + k], uvscale, numbones > 0, &corner[k]))) {
 					ok = 0;
 					break;
 				}
@@ -2129,12 +2171,14 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 					| ((((corner[k].argb >> 16) & 255) * ((cr >> 16) & 255) / 255) << 16)
 					| ((((corner[k].argb >> 8) & 255) * ((cr >> 8) & 255) / 255) << 8)
 					| ((corner[k].argb & 255) * (cr & 255) / 255));
-				if (d->inst >= 0 && d->inst < ninst) {
-					applyInst(corner[k].pos, insts[d->inst]);
-					applyInstN(corner[k].nrm, insts[d->inst]);
-				}
 			}
 			if (ok) {
+				if (isTree) beanTreeUvs(gpu, &vbrec, &tree, &tris[t * 3], corner);
+				if (d->inst >= 0 && d->inst < ninst)
+					for (int k = 0; k < 3; k++) {
+						applyInst(corner[k].pos, insts[d->inst]);
+						applyInstN(corner[k].nrm, insts[d->inst]);
+					}
 				int texi = decalpic ? otherTex : baseTex;
 				int picAlpha = texi >= 0 && texi < MAX_TEX && texAlpha[texi];
 				int picSoft = texi >= 0 && texi < MAX_TEX && texSoft[texi];
@@ -2242,6 +2286,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		}
 		free(tris);
 	}
+	if (levelFade)
+		clampLevelCutouts(mesh, texAlpha);
 	if (levelFade)
 		markLevelDecals(mesh, triPass, passCap < mesh->ntris ? passCap : mesh->ntris, texAlpha,
 		                levelDecalScale(source));

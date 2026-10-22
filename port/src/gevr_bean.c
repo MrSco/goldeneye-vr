@@ -668,6 +668,8 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 		int tex = base->tex;
 		int logicalW = 32, logicalH = 32;
 		int maskS, maskT;
+		int clampS = tex >= 0 && tex < mesh->ntex && (mesh->texClamp[tex] & 1);
+		int clampT = tex >= 0 && tex < mesh->ntex && (mesh->texClamp[tex] & 2);
 		while (end < ntri && vertKey(&v[order[end] * 3]) == key && v[order[end]*3].reflection==base->reflection &&
             v[order[end]*3].reflectionDiffuse==base->reflectionDiffuse &&
             v[order[end]*3].reflectionColour==base->reflectionColour &&
@@ -700,14 +702,16 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 				16, 16, 0, G_TX_WRAP, G_TX_WRAP, 4, 4, G_TX_NOLOD, G_TX_NOLOD);
 			gDPSetTile(g++, G_IM_FMT_RGBA, G_IM_SIZ_16b,
 				(((logicalW) * 2) + 7) >> 3, 0, G_TX_RENDERTILE, 0,
-				G_TX_WRAP, maskT, G_TX_NOLOD, G_TX_WRAP, maskS, G_TX_NOLOD);
+				clampT ? G_TX_CLAMP : G_TX_WRAP, maskT, G_TX_NOLOD,
+				clampS ? G_TX_CLAMP : G_TX_WRAP, maskS, G_TX_NOLOD);
 			gDPSetTileSize(g++, G_TX_RENDERTILE, 0, 0,
 				(logicalW - 1) << G_TEXTURE_IMAGE_FRAC, (logicalH - 1) << G_TEXTURE_IMAGE_FRAC);
             /* DAB xblaMeshSetMaterial: tile 1 the same picture, for the nodes'
              * G_CC_TRILERP (fast3d's LOD fraction is 1 without G_TL_LOD) */
             gDPSetTile(g++, G_IM_FMT_RGBA, G_IM_SIZ_16b,
                 (((logicalW) * 2) + 7) >> 3, 0, G_TX_RENDERTILE + 1, 0,
-                G_TX_WRAP, maskT, G_TX_NOLOD, G_TX_WRAP, maskS, G_TX_NOLOD);
+                clampT ? G_TX_CLAMP : G_TX_WRAP, maskT, G_TX_NOLOD,
+                clampS ? G_TX_CLAMP : G_TX_WRAP, maskS, G_TX_NOLOD);
             gDPSetTileSize(g++, G_TX_RENDERTILE + 1, 0, 0,
                 (logicalW - 1) << G_TEXTURE_IMAGE_FRAC, (logicalH - 1) << G_TEXTURE_IMAGE_FRAC);
 		} else {
@@ -808,8 +812,8 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 					/* Rebase the whole triangle together. Per-corner wrapping
 					 * collapses 0..1 edges and tears triangles crossing a seam. */
 					const struct gevrEmitVert *anchor = &v[order[batch + t] * 3];
-					su -= floorf(anchor->uv[0]);
-					sv -= floorf(-anchor->uv[1]);
+					su -= clampS ? mesh->texClampBase[tex][0] : floorf(anchor->uv[0]);
+					sv += clampT ? mesh->texClampBase[tex][1] + 1.0f : -floorf(-anchor->uv[1]);
 					dst->v.ob[0] = posClamp(src->p[0]);
 					dst->v.ob[1] = posClamp(src->p[1]);
 					dst->v.ob[2] = posClamp(src->p[2]);
@@ -1788,7 +1792,11 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 	struct gevrEmitVert *ev = NULL;
 	int any = 0;
 	dlVerts(host, &hv, &hc, &ht, &hp);
-	if (!hv || hc <= 0) {
+	/* A fitted Bean part already has its vertices, scale and local origin.
+	 * Its native node can be only a carrier (no native vertices/list). The
+	 * Runway guard keeps bones off listless groups, but rejecting such a
+	 * carrier here still dropped its support/body while other parts drew. */
+	if (!fit && (!hv || hc <= 0)) {
 		return 0;
 	}
 	for (int k = 0; k < 3; k++) {
@@ -1812,7 +1820,7 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 	if (!any) {
 		return 0;
 	}
-	for (int i = 0; i < hc; i++) {
+	for (int i = 0; !fit && i < hc; i++) {
 		for (int k = 0; k < 3; k++) {
 			float c = hv[i].coord.AsArray[k];
 			if (c < hmin[k]) hmin[k] = c;
