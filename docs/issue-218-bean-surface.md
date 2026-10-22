@@ -60,6 +60,27 @@ not a dump of `PsevdishZ`. Check both Surface missions with CE enabled and
 disabled, including dish support alignment and yaw/tilt while moving through
 its LOD distances.
 
+## Additional report: Bunker rear helipad
+
+A subsequent screenshot looks through Bunker's rear exit onto the helipad.
+A broad, flat grey polygon covers part of the pad near the yellow H, while
+the background pines show the same purple spikes as Surface. The Bunker
+variant and screenshot build were not specified.
+
+The pine loader changes apply to the Bunker backgrounds too. The helipad
+patch is not a confirmed fix in this PR: no helipad-specific material,
+room-visibility or decal-depth change has been made. Investigate overlapping
+room faces, material selection and room visibility rather than treating the
+grey area as another pine UV defect. The older material census records
+coincident-face candidates in both Bunker backgrounds (37 groups in Bunker,
+18 in Bunker 2), without locating them on the helipad or proving a defect.
+
+Check the pad from the rear doorway and while stepping outside, standing
+still and moving, with Bean CE on/off and Original. Record whether the patch
+persists or appears only on individual frames. This also distinguishes it
+from the earlier transient held-gun wedges described in
+[Facility fog flashes](facility-fog-flash.md).
+
 ## Validation
 
 - `test_bean_surface.py` sends authored CAFF files through the full production
