@@ -1,4 +1,7 @@
 #include <ultra64.h>
+#ifdef GEVR
+#include "net_match.h"
+#endif
 
 #include <bondtypes.h>
 #include <bondconstants.h>
@@ -451,8 +454,8 @@ void fogLoadLevelEnvironment(s32 level_id, s32 arg1)
     num_players = getPlayerCount();
 
 #ifdef GEVR
-    /* an online co-op mission has the solo mission's fog (#94) */
-    if (num_players == 1 || gevrCoopActive())
+    /* Co-op and campaign-only arenas use the mission's sky and fog. */
+    if (num_players == 1 || gevrCoopActive() || !netStageHasMpSetup((unsigned)level_id))
 #else
     if (num_players == 1)
 #endif

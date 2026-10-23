@@ -71,7 +71,7 @@ Also:
   Nothing of theirs ships with the app. New pack releases show up on the Mods page as updates.
 
   In game, hold **Menu** until the return-to-launcher prompt shows, then press **X** to switch the HD textures off and back on to compare.
-- **Multiplayer** (experimental): deathmatch for up to eight players, with **bots** to fill the empty slots or to play against on your own, endless Horde waves in Archives for one to four, or the campaign in co-op for up to four, each in their own headset, over the internet or your Wi-Fi: browse public games or share a private code. See [Multiplayer](#-multiplayer-experimental).
+- **Multiplayer** (experimental): deathmatch for up to eight players, with **bots** to fill the empty slots or to play against on your own, endless Horde waves on any map for one to four, or the campaign in co-op for up to four, each in their own headset, over the internet or your Wi-Fi: browse public games or share a private code. See [Multiplayer](#-multiplayer-experimental).
 - **Optional ragdolls and limb dismemberment** (experimental): Ragdolls and Dismemberment on Play -> Game rules. Off by default; works in every mode, with the body count set to fade, 12, 24 or 48. Physics and cuts are local to each headset. See [setup, limits and testing](docs/ragdolls.md).
 - **3D sound**: gunfire, explosions, doors and the game's other sounds come from where they happen, through the same Steam Audio 3D audio as voice chat. A fight in the next room sounds like it's round the corner, not through the wall.
 - **GoldenEye X** (optional, WIP): models and animations for every GoldenEye weapon and item, with magazines, single rounds
@@ -379,13 +379,13 @@ to read your wrist without opening the pause menu; the Menu button still pauses.
 
 ## 🌐 Multiplayer (experimental)
 
-Host a deathmatch alone or play with up to eight players, each in their own headset, on the game's multiplayer stages. Or play the campaign together: up to four players in co-op, the host picking the missions.
+Host a deathmatch alone or play with up to eight players, each in their own headset, on any of the 26 campaign maps and multiplayer arenas. Or play the campaign together: up to four players in co-op, the host picking the missions.
 It's still experimental: expect rough edges, and please report what you find.
 
 **Everyone needs the same version of GoldenEye VR**, and each player their own ROM.
 
 **Host a game.** In the launcher press **Multiplayer...**, stay on the **Host** tab, and pick (across its **Lobby**, **Match**, **Fun** and **Player** tabs):
-- the **Mode**: **Deathmatch**, **Horde** for endless armed guard waves in Archives (solo or up to four), or **Co-op mission** for the campaign (each player picks their own save folder, then the host picks missions, difficulty and briefings for everyone).
+- the **Mode**: **Deathmatch**, **Horde** for endless armed guard waves on any map (solo or up to four), or **Co-op mission** for the campaign (each player picks their own save folder, then the host picks missions, difficulty and briefings for everyone).
 - **Public game** to appear in the internet browser, or **Private game** to share a join code.
 - for Deathmatch, a **stage** and how many **players** it takes, from 2 to 8 on any stage.
 - your **character** (on the **Player** tab).
@@ -398,13 +398,14 @@ It's still experimental: expect rough edges, and please report what you find.
 
 Then press **Start Hosting**, and **Launch** once everyone connected shows **Ready**. You can launch alone. In Deathmatch, the host can explore in warmup without running the round clock or score. When a guest has loaded the map, the stage and equipment reset and the timed round begins together. If the last guest leaves, the host returns to warmup.
 
-**Horde.** Clear increasingly large waves of regular GoldenEye guards in Archives,
+**Horde.** Pick any campaign map or multiplayer arena under **Host > Match > Map**,
+including Statue. Clear increasingly large waves of regular GoldenEye guards,
 with 15-second breaks between them. Hits and kills earn points (more for headshots):
 spend them at the **Mystery Box** for a random weapon or at **Wall Buys** for a
 weapon, its ammo at half price, or body armour (grip or press B at a station).
 Revive downed teammates by standing beside them. Everyone down ends the run; open
 the pause menu for results and **Retry Horde**. You can launch alone. Every player
-needs v0.5.4 or later (protocol 22). See [Horde mode](docs/horde-mode.md).
+needs this build (protocol 24). See [Horde mode](docs/horde-mode.md).
 
 **Join a game.** Press **Multiplayer...** and choose the **Join** tab. Pick a public internet game
 (**Public**), enter a code (**Private**), or select a game discovered on your Wi-Fi (**LAN**).

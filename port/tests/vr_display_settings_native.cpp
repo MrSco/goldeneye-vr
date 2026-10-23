@@ -37,7 +37,9 @@ void vrSettingsLoad();
 void vrSettingsSave();
 }
 char g_ActiveExtTexPack[256] = {};
+#ifdef _WIN32
 unsigned int arc4random_uniform(unsigned int) { return 1; }
+#endif
 /* FIT_SNAPSHOT */
 
 static void newFamilyFits(float base, bool check) {
@@ -62,6 +64,15 @@ int main(int argc, char **argv) {
         VrBodiesStay = std::atoi(argv[3]);
         VrCoopFastReinforcements = std::atoi(argv[4]);
         vrSettingsSave();
+        return 0;
+    }
+    if (argc > 1 && std::strcmp(argv[1], "horde_write") == 0) {
+        VrHordeStage = std::atoi(argv[2]);
+        vrSettingsSave();
+        return 0;
+    }
+    if (argc > 1 && std::strcmp(argv[1], "horde_read") == 0) {
+        assert(VrHordeStage == std::atoi(argv[2]));
         return 0;
     }
     if (argc > 1 && std::strcmp(argv[1], "rules_read") == 0) {

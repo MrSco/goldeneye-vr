@@ -25,6 +25,7 @@
 #include "gevr_scope.h"
 #include "vr_screen.h"
 #include "vr_haptics.h"
+#include "../src/net/net_match.h"
 #include "../src/net/net_rules.h" /* NET_FUN_MASK: the deathmatch fun rules */
 
 extern "C" float inputRumbleGetStrength(int playernum);
@@ -738,7 +739,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "HostLatencyCapMs") == 0) VrHostLatencyCapMs = ival < 0 ? 0 : ival > 80 ? 80 : ival;
             else if (strcmp(key, "MpFriendlyFire") == 0) VrMpFriendlyFire = ival != 0;
             else if (strcmp(key, "HordeFriendlyFire") == 0) VrHordeFriendlyFire = ival != 0;
-            else if (strcmp(key, "HordeStage") == 0) VrHordeStage = (ival == 24 || ival == 9 || ival == 27 || ival == 23 || ival == 34) ? ival : 24;   // net_match.h netHordeStageValid
+            else if (strcmp(key, "HordeStage") == 0) VrHordeStage = netHordeStageValid((unsigned)ival) ? ival : NET_HORDE_STAGE;
             else if (strcmp(key, "HordeStartWave") == 0) VrHordeStartWave = ival < 1 ? 1 : ival > 50 ? 50 : ival;
             else if (strcmp(key, "MpFunFlags") == 0) VrMpFunFlags = ival >= 0 && !(ival & ~NET_FUN_MASK) ? ival : 0;
             else if (strcmp(key, "MpGunSize") == 0) VrMpGunSize = ival >= 0 && ival <= 2 ? ival : 0;

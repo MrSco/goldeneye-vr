@@ -27,9 +27,33 @@ with tempfile.TemporaryDirectory(prefix="gevr-horde-") as temp:
     runtime_args = [shutil.which("gcc") or "gcc", "-std=c11", "-O2", "-fms-extensions"]
     runtime_args += ["-D" + v for v in ("GEVR=1", "PLATFORM_64BIT=1", "_LANGUAGE_C=1",
                                        "VERSION=2", "VERSION_US=1", "LANG_US=1")]
-    runtime_args += ["-I" + str(ROOT / p) for p in (".", "port/include", "include", "src", "src/game", "port/src/net")]
+    runtime_args += ["-I" + str(ROOT / p) for p in (".", "port/include", "include", "src", "src/game", "port/src", "port/src/net")]
     result = subprocess.run(runtime_args + [str(ROOT / "port/tests/horde_runtime_native.c"),
-                            str(ROOT / "src/game/gevr_horde.c"), "-lm", "-o", str(exe)], capture_output=True, text=True)
+                            str(ROOT / "src/game/gevr_horde.c"), str(ROOT / "src/game/gevr_arena.c"),
+                            str(ROOT / "port/src/net/net_match.c"), "-lm", "-o", str(exe)], capture_output=True, text=True)
+    if result.returncode:
+        raise RuntimeError(result.stderr)
+    subprocess.run([str(exe)], check=True)
+    # Exercise the actual engine hooks without linking the ROM-dependent engine.
+    def function(path, signature):
+        source = (ROOT / path).read_text()
+        start = source.index(signature)
+        end = source.index("{", start) + 1
+        depth = 1
+        while depth:
+            depth += (source[end] == "{") - (source[end] == "}")
+            end += 1
+        return source[start:end]
+    hooks = "\n".join((
+        function("src/game/bondview2.c", "static s32 gevrHordeGripWorld("),
+        function("src/game/propobj.c", "void doorSetOpenState(DoorRecord *door, s32 newstate)"),
+        function("src/game/chr.c", "void chrSetHiddenToRandom("),
+        function("src/game/chraction.c", "void chrlvTriggerFireWeapon("),
+    ))
+    (Path(temp) / "horde_controls_production.h").write_text(hooks)
+    exe = Path(temp) / "horde-controls"
+    result = subprocess.run(runtime_args + ["-I" + temp, str(ROOT / "port/tests/horde_controls_native.c"),
+                                           "-lm", "-o", str(exe)], capture_output=True, text=True)
     if result.returncode:
         raise RuntimeError(result.stderr)
     subprocess.run([str(exe)], check=True)

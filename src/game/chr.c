@@ -30,6 +30,7 @@
 #include "player.h"
 #ifdef GEVR
 #include "net_coop.h"
+#include "net_horde.h"
 #include "gevr_romlayout.h"
 #include "gevr_ragdoll.h"
 #include "gevr_avatar.h"
@@ -1889,6 +1890,9 @@ void chrUpdateAimProperties( ChrRecord *self)
  */
 void chrSetHiddenToRandom(ChrRecord *self)
 {
+#ifdef GEVR
+    if (gevrHordeBossNoStun(self)) return;
+#endif
     ChrRecord *temp_a0;
     u32 rand;
 
