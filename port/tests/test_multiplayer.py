@@ -75,8 +75,8 @@ def build_core():
     subset=NATIVE/"net_core_test_subset.inc";subset.write_text(source,encoding="utf-8")
     fixture=(ROOT/"port/tests/net_core_native.c").read_text(encoding="utf-8").replace('../src/net/net_core.c',subset.as_posix())
     generated=NATIVE/"net_core_native.c";generated.write_text(fixture,encoding="utf-8")
-    args=[shutil.which("gcc") or "gcc","-shared","-O2","-fms-extensions","-Wno-builtin-declaration-mismatch"]
-    if os.name != "nt": args += ["-fPIC"]
+    args=[shutil.which("gcc") or "gcc","-std=c11","-shared","-O2","-fms-extensions","-Wno-builtin-declaration-mismatch"]
+    if os.name != "nt": args += ["-fPIC", "-D__ANDROID__"]  # target ABI excludes N64 bcopy/bzero declarations
     args += ["-D"+v for v in ("GEVR=1","PLATFORM_64BIT=1","_LANGUAGE_C=1","VERSION=2","VERSION_US=1","LANG_US=1")]
     args += ["-I"+str(ROOT/v) for v in (".","port/include","include","src","src/game","port/src","port/src/net")]
     args += [str(generated),str(ROOT/"port/src/net/netbuf.c"),str(ROOT/"port/src/gevr_avatar_math.c"),str(ROOT/"port/src/net/net_match.c"),"-o",str(NATIVE/"net_core_native.dll")]

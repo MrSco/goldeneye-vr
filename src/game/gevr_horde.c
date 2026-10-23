@@ -1,4 +1,4 @@
-/* Endless Archives waves, using the game's ordinary armed guard AI. */
+/* Endless waves on any gameplay map, using the game's ordinary armed guard AI. */
 #include <ultra64.h>
 #include <bondtypes.h>
 #include <bondconstants.h>
@@ -22,6 +22,8 @@
 #include "net_horde.h"
 #include "system.h"
 #include "gevr_ally.h"
+#include "gevr_arena.h"
+#include "gevr_bot.h"
 #include "propobj.h"
 #include "lv.h"
 
@@ -110,6 +112,9 @@ static ObjectRecord *s_ammo_marker[HORDE_AMMO_DROPS];
 static s32 s_pickup_ticks;
 static f32 s_speed[HORDE_GUARD_SLOTS];   /* a guard's run-speed factor (host) */
 static s32 s_doors_opened;
+static s32 s_start_pad, s_spawn_failures;
+static void hordeOpenDoors(void);
+static void hordeFinalizePads(void);
 #define HORDE_HELD_DOORS 96
 static DoorRecord *s_held_doors[HORDE_HELD_DOORS];
 static s32 s_held_count, s_hold_ticks;
@@ -185,59 +190,29 @@ void gevrHordeSetGuardId(ChrRecord *chr,unsigned id)
     }
 }
 
-/* Record the ROM's existing guard pads before suppressing mission entities.
- * The most common guard body avoids spawning Archives' story characters. */
-void gevrHordePrepareSetup(void)
+static void hordeStationPads(void)
 {
-    s_pad_count=0; s_body=0;
-    if (!netHordeActive()) return;
-    s32 pads=0, bodies[128]={0}, most=0;
-    if (g_CurrentSetup.pads) while (g_CurrentSetup.pads[pads].plink) pads++;
-    for (PropDefHeaderRecord *p=g_CurrentSetup.propDefs;p && p->type!=PROPDEF_END;
-         p=(PropDefHeaderRecord *)((u32 *)p+sizepropdef(p))) {
-        if (p->type==PROPDEF_GUARD) {
-            GuardRecord *guard=(GuardRecord *)p;
-            s32 pad=guard->PadID;
-            if (pad>=0 && pad<pads && g_CurrentSetup.pads[pad].stan && s_pad_count<128) {
-                s32 duplicate=FALSE;
-                for (s32 i=0;i<s_pad_count;i++) if (s_pads[i]==pad) duplicate=TRUE;
-                if (!duplicate) s_pads[s_pad_count++]=pad;
-            }
-            if (guard->BodyID<128 && ++bodies[guard->BodyID]>most) {
-                s_body=guard->BodyID; most=bodies[s_body];
-            }
-        }
-    }
-    /* Preserve the campaign's starting pad, but none of its inventory/cameras. */
-    s32 start=s_pad_count?s_pads[0]:0;
-    const unsigned sizes[INTROTYPE_MAX]={sizeof(SetupIntroSpawn),sizeof(struct SetupIntroItem),
-        sizeof(struct SetupIntroAmmo),sizeof(struct SetupIntroSwirl),sizeof(struct SetupIntroAnim),
-        sizeof(struct SetupIntroCuff),sizeof(SetupIntroCamera),sizeof(struct SetupIntroWatch),
-        sizeof(struct SetupIntroCredits),sizeof(SetupIntroEmpty)};
-    SetupIntroEmpty *intro=(SetupIntroEmpty *)g_CurrentSetup.intro;
-    for (s32 i=0;intro && i<128 && intro->type>=0 && intro->type<INTROTYPE_END;i++) {
-        if (intro->type==INTROTYPE_SPAWN) {
-            s32 index=((SetupIntroSpawn *)intro)->index;
-            if (index>=0 && index<pads) {start=index;break;}
-        }
-        intro=(SetupIntroEmpty *)((u8 *)intro+sizes[intro->type]);
-    }
     /* Distribute Mystery Box relocation spots and Wall Buy stations across
      * non-spawn pads so rooms around the arena host distinct stations. A
      * station by a door took the B/grip meant for the door (user, 2026-10-17:
      * Archives' body armour in front of a door, the KF7 over the
      * interrogation room's), so pads near any door are left to the guards. */
     coord3d doors[64];
-    s32 ndoors=0;
+    s32 ndoors=0, pads=0;
+    if (g_CurrentSetup.pads) while (g_CurrentSetup.pads[pads].plink) pads++;
     for (PropDefHeaderRecord *p=g_CurrentSetup.propDefs;p && p->type!=PROPDEF_END && ndoors<64;
          p=(PropDefHeaderRecord *)((u32 *)p+sizepropdef(p))) {
         s32 pad=p->type==PROPDEF_DOOR?((ObjectRecord *)p)->pad:-1;
         if (pad<0) continue;
         if (isNotBoundPad(pad)) { if (pad<pads) doors[ndoors++]=g_CurrentSetup.pads[pad].pos; }
-        else doors[ndoors++]=((PadRecord *)&g_CurrentSetup.boundpads[getBoundPadNum(pad)])->pos;
+        else if (g_CurrentSetup.boundpads) {
+            s32 bound=0;while (g_CurrentSetup.boundpads[bound].plink) bound++;
+            if (getBoundPadNum(pad)<bound) doors[ndoors++]=g_CurrentSetup.boundpads[getBoundPadNum(pad)].pos;
+        }
     }
     s32 open[128], nopen=0;
-    for (s32 i=1;i<s_pad_count;i++) {
+    for (s32 i=0;i<s_pad_count;i++) {
+        if (s_pads[i]==s_start_pad) continue;
         coord3d *at=&g_CurrentSetup.pads[s_pads[i]].pos;
         s32 clear=TRUE;
         for (s32 d=0;d<ndoors && clear;d++) {
@@ -246,9 +221,10 @@ void gevrHordePrepareSetup(void)
         }
         if (clear) open[nopen++]=s_pads[i];
     }
-    if (nopen<(s32)(HORDE_BOX_SPOTS+HORDE_WALL_COUNT)) {   /* too few: any pad but the start */
+    if (!nopen) {   /* tiny arenas can share stations, but only on reachable pads */
         nopen=0;
-        for (s32 i=s_pad_count>1?1:0;i<s_pad_count;i++) open[nopen++]=s_pads[i];
+        for (s32 i=0;i<s_pad_count;i++) if (s_pads[i]!=s_start_pad) open[nopen++]=s_pads[i];
+        if (!nopen) open[nopen++]=s_start_pad;
     }
     s32 pool=nopen>0?nopen:1;
     for (unsigned b=0;b<HORDE_BOX_SPOTS;b++)
@@ -258,23 +234,62 @@ void gevrHordePrepareSetup(void)
         if (nopen>1 && open[idx%pool]==s_box_pads[0]) idx++;
         s_wall_pads[w]=nopen?open[idx%pool]:0;
     }
+}
+
+/* Record the ROM's existing guard pads before suppressing mission entities.
+ * The most common guard body avoids spawning Archives' story characters. */
+void gevrHordePrepareSetup(void)
+{
+    s_pad_count=0; s_body=BODY_Russian_Soldier;
+    if (!netHordeActive()) return;
+    s32 pads=0, bodies[128]={0}, most=0;
+    if (g_CurrentSetup.pads) while (g_CurrentSetup.pads[pads].plink) pads++;
+    for (PropDefHeaderRecord *p=g_CurrentSetup.propDefs;p && p->type!=PROPDEF_END;
+         p=(PropDefHeaderRecord *)((u32 *)p+sizepropdef(p))) {
+        if (p->type==PROPDEF_GUARD) {
+            GuardRecord *guard=(GuardRecord *)p;
+            if (guard->BodyID<128 && ++bodies[guard->BodyID]>most) {
+                s_body=guard->BodyID; most=bodies[s_body];
+            }
+        }
+    }
+    s_pad_count=gevrArenaPads(s_pads,128);
+    /* Preserve the setup's starting pad, but none of its inventory/cameras. */
+    s32 start=s_pad_count?s_pads[0]:0;
+    const unsigned sizes[INTROTYPE_MAX]={sizeof(SetupIntroSpawn),sizeof(struct SetupIntroItem),
+        sizeof(struct SetupIntroAmmo),sizeof(struct SetupIntroSwirl),sizeof(struct SetupIntroAnim),
+        sizeof(struct SetupIntroCuff),sizeof(SetupIntroCamera),sizeof(struct SetupIntroWatch),
+        sizeof(struct SetupIntroCredits),sizeof(SetupIntroEmpty)};
+    SetupIntroEmpty *intro=(SetupIntroEmpty *)g_CurrentSetup.intro;
+    for (s32 i=0;intro && i<128 && intro->type>=0 && intro->type<INTROTYPE_END;i++) {
+        if (intro->type==INTROTYPE_SPAWN) {
+            s32 index=((SetupIntroSpawn *)intro)->index;
+            if (index>=0 && index<pads && g_CurrentSetup.pads[index].stan) {start=index;break;}
+        }
+        intro=(SetupIntroEmpty *)((u8 *)intro+sizes[intro->type]);
+    }
+    s_start_pad=start;
     memset(&s_intro,0,sizeof(s_intro));
     s_intro.spawn.type=INTROTYPE_SPAWN;s_intro.spawn.index=start;
     s_intro.item.type=INTROTYPE_ITEM;s_intro.item.item_right=ITEM_WPPK;
     s_intro.ammo.type=INTROTYPE_AMMO;s_intro.ammo.ammo_type=AMMO_9MM;s_intro.ammo.ammo_amount=42;
     s_intro.end.type=INTROTYPE_END;
     g_CurrentSetup.intro=(void *)&s_intro;
+    hordeStationPads();
 }
 
 int gevrHordeSkipProp(int type)
 {
     if (!netHordeActive()) return FALSE;
+    if (type>=PROPDEF_OBJECTIVE_START && type<=PROPDEF_WATCH_MENU_OBJECTIVE_TEXT) return TRUE;
     switch (type) {
     case PROPDEF_GUARD:case PROPDEF_GUARD_ATTRIBUTE:case PROPDEF_KEY:case PROPDEF_HAT:
     case PROPDEF_COLLECTABLE:case PROPDEF_WATCH_MENU_OBJECTIVE_TEXT:case PROPDEF_CAMERAPOS:
     case PROPDEF_OBJECTIVE_START:case PROPDEF_OBJECTIVE_ENTER_ROOM:
     case PROPDEF_OBJECTIVE_DEPOSIT_OBJECT_IN_ROOM:case PROPDEF_OBJECTIVE_PHOTOGRAPH:
     case PROPDEF_CCTV:case PROPDEF_AUTOGUN:case PROPDEF_VEHICHLE:case PROPDEF_AIRCRAFT:
+    case PROPDEF_LINK:case PROPDEF_SWITCH:case PROPDEF_SAFE_ITEM:case PROPDEF_LOCK_DOOR:
+    case PROPDEF_RENAME:case PROPDEF_TAG:
     case PROPDEF_TANK:case PROPDEF_GAS_RELEASING:return TRUE;
     default:return FALSE;
     }
@@ -298,7 +313,7 @@ void gevrHordeStageLoaded(void)
     hordeInitAt(&s_state,netGetRandomSeed(),netHordeActive()?netHordeStartWave():1);
     for (unsigned p=0;p<4;p++) s_state.guns[p][0]=ITEM_WPPK;   /* the intro's PP7 */
     memset(s_speed,0,sizeof(s_speed));
-    s_doors_opened=FALSE;s_held_count=0;s_hold_ticks=0;
+    s_doors_opened=FALSE;s_held_count=0;s_hold_ticks=0;s_spawn_failures=0;
     memset(s_id,0,sizeof(s_id));memset(s_counted,0,sizeof(s_counted));
     memset(s_dead_ticks,0,sizeof(s_dead_ticks));
     memset(s_last_attacker,0xff,sizeof(s_last_attacker));   /* -1: no player hit it */
@@ -311,6 +326,12 @@ void gevrHordeStageLoaded(void)
     s_prompt[0]=0;s_prompt_ticks=0;
     s_box_marker=NULL;memset(s_wall_marker,0,sizeof(s_wall_marker));   /* the stage's objects went with it */
     s_markers_placed=FALSE;s_marker_spot=-1;s_marker_yaw=0.0f;
+    if (netHordeActive()) {
+        gevrBotNavForget();
+        hordeOpenDoors();
+        hordeFinalizePads();
+        hordeStationPads();
+    }
 }
 void gevrHordeApplyState(const HordeState *state)
 {
@@ -648,6 +669,26 @@ static void hordeOpenDoors(void)
     sysLogPrintf(LOG_NOTE,"horde: %d doors held open",s_held_count);
 }
 
+/* Filter using native guard paths AND live floor collision, so locked-off
+ * campaign rooms and disconnected MP floors cannot hold shops or wave spawns.
+ * This runs once during stage load, before late-join world snapshots arrive. */
+static void hordeFinalizePads(void)
+{
+    if (!g_CurrentSetup.pads) return;
+    PadRecord *start=&g_CurrentSetup.pads[s_start_pad];
+    waypoint *from=chrlvStanPathRelated(&start->pos,start->stan);
+    s32 count=0;
+    for (s32 i=0;i<s_pad_count;i++) {
+        PadRecord *pad=&g_CurrentSetup.pads[s_pads[i]];
+        waypoint *to=chrlvStanPathRelated(&pad->pos,pad->stan), *route[MAX_CHRWAYPOINTS];
+        if (from && to && (from==to || waypointFindRoute(from,to,route,MAX_CHRWAYPOINTS)>=2)
+            && gevrBotNavCanReach(start->stan,&start->pos,pad->stan,&pad->pos))
+            s_pads[count++]=s_pads[i];
+    }
+    s_pad_count=count;
+    sysLogPrintf(LOG_NOTE,"horde: %d reachable spawn/station pads",s_pad_count);
+}
+
 static void hordeHoldDoors(s32 ticks)
 {
     if ((s_hold_ticks-=ticks)>0) return;
@@ -678,7 +719,10 @@ static s32 hordeSpawn(void)
             /* Leave space around every player, including on adjacent floors. */
             if (dx*dx+dz*dz<900.0f*900.0f && dy*dy<300.0f*300.0f) safe=FALSE;
             StandTile *tile=g_playerPointers[p]->prop->stan;
-            if (tile && dy*dy<150.0f*150.0f && stanTestLineUnobstructed(&tile,pos->x,pos->z,pad->pos.x,pad->pos.z,
+            /* Open arenas (Runway/Cradle) may have no hidden pad at all.
+             * After five seconds of blocked attempts allow a visible spawn,
+             * still outside the hard player exclusion radius and on a route. */
+            if (s_spawn_failures<10 && tile && dy*dy<150.0f*150.0f && stanTestLineUnobstructed(&tile,pos->x,pos->z,pad->pos.x,pad->pos.z,
                 CDTYPE_OBJS|CDTYPE_DOORS|CDTYPE_PATHBLOCKER|CDTYPE_AIOPAQUE,140,140,0,1) && tile==pad->stan) safe=FALSE;
             /* Route searches are the expensive part: skip them once the pad is ruled out or proven. */
             if (!safe || reachable) continue;
@@ -954,9 +998,15 @@ void gevrHordeTick(int ticks)
         }
         s32 changed=hordeAdvance(&s_state,ticks,netMpPlayerCount(1));
         if (changed && s_state.phase==HORDE_INTERMISSION) netHordeAdmitPlayers();
+        if (s_state.phase!=HORDE_WAVE) s_spawn_failures=0;
         if (hordeCanSpawn(&s_state)) {
-            if (hordeSpawn()) hordeSpawned(&s_state);
-            else s_state.spawn_timer=30;
+            if (hordeSpawn()) {
+                hordeSpawned(&s_state);
+                if (s_spawn_failures<10) s_spawn_failures=0;
+            } else {
+                if (s_spawn_failures<10) s_spawn_failures++;
+                s_state.spawn_timer=30;
+            }
         }
         if (revision!=s_state.revision) netHordeSend(-1);
     }

@@ -61,6 +61,10 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
     subprocess.run([shutil.which("gcc") or "cc", "-std=c11", "-O2", "-D_LANGUAGE_C",
                     "-I" + str(root), "-I" + str(root / "include"), "-I" + str(root / "src"), "-I" + str(root / "port/include"),
                     "-c", str(root / "port/src/gevr_gexweapon.c"), "-o", str(registry)], check=True)
+    maps = temp / "net_match.o"
+    subprocess.run([shutil.which("gcc") or "cc", "-std=c11", "-O2", "-fms-extensions", "-D_LANGUAGE_C",
+                    "-I" + str(root), "-I" + str(root / "include"), "-I" + str(root / "src"), "-I" + str(root / "port/include"),
+                    "-c", str(root / "port/src/net/net_match.c"), "-o", str(maps)], check=True)
     for android in (False, True):
         exe = temp / ("settings-quest.exe" if android else "settings-desktop.exe")
         # Defaults are production C, including C99 designated initializers.
@@ -74,10 +78,19 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
                         "-I" + str(root / "include"), "-I" + str(root / "port/vr"),
                         "-I" + str(root / "port/include"),
                         "-I" + str(root / "port/src/net"), str(settings_fixture),
-                        str(root / "port/vr/vr_settings.cpp"), str(defaults), str(registry),
+                        str(root / "port/vr/vr_settings.cpp"), str(defaults), str(registry), str(maps),
                         "-o", str(exe)], check=True)
         ini = temp / "goldeneye-vr.ini"
         ini.unlink(missing_ok=True)
+        for stage in (9, 20, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+                      33, 34, 35, 36, 37, 38, 39, 41, 43, 45, 46, 48, 50):
+            subprocess.run([str(exe), "horde_write", str(stage)], cwd=temp, check=True)
+            subprocess.run([str(exe), "horde_read", str(stage)], cwd=temp, check=True)
+        for invalid in (-1, 0, 40, 54, 90, 127, 255, 280):
+            ini.write_text(f"HordeStage={invalid}\n")
+            subprocess.run([str(exe), "horde_read", "24"], cwd=temp, check=True)
+        ini.unlink(missing_ok=True)
+        print("PASS: all 26 Horde map choices persist; invalid IDs fall back to Archives")
         for campaign in range(4):
             subprocess.run([str(exe), "campaign_write", str(campaign)], cwd=temp, check=True)
             subprocess.run([str(exe), "campaign_read", str(campaign)], cwd=temp, check=True)

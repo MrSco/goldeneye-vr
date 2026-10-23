@@ -9,9 +9,8 @@ The wave structure is the Zombies reference; enemy behavior stays GoldenEye's.
 Choose **Multiplayer → Host → Lobby → Mode: Horde**, then **Start Hosting** and
 **Launch**. You can launch alone, or with up to four humans. LAN/direct-IP
 hosting uses the existing transport; an internet lobby is optional for LAN play.
-The host picks the map (Archives, Bunker I, Bunker II, Control or Facility, from
-the original GoldenEye campaign) and the starting wave (1-50) in the Horde
-rules column; Agent difficulty. A later start brings the points the skipped
+The host picks any of the 26 original GoldenEye campaign maps and multiplayer
+arenas, including Statue, and the starting wave (1-50) in the Horde rules column; Agent difficulty. A later start brings the points the skipped
 waves would have paid (500 + 400 per skipped wave). The launcher disables
 multiplayer for other campaigns.
 
@@ -79,24 +78,37 @@ multiplayer for other campaigns.
 - A solo host's pause menu freezes gameplay. With teammates, gameplay continues
   while a player has their menu open. Defeat freezes gameplay for everyone.
 
-All participants must use this build: protocol **23** includes shared ammo drops, guard generations and
-the optional AI ally, excluding protocol 22 and older builds. The companion
+All participants must use this build: protocol **24** enables the full map catalogue in Horde and Deathmatch. Older
+builds reject the new map choices. Shared ammo drops, guard generations and
+the optional AI ally remain supported. The companion
 follows the party without counting as a wave enemy or a human survivor; see
 [AI ally](ai-ally.md). The app release number has
 not been bumped or published by this change.
 
 ## Implementation
 
-`src/game/gevr_horde.c` records Archives' existing guard pads and the most common
-guard body from the player's ROM. It replaces the intro inventory/camera setup,
-skips mission actors/objectives and disables background mission AI. Doors,
-scenery and navigation remain; doors' key requirements are cleared, and on the
-first tick every door that can open is opened and held open (`hordeOpenDoors`).
-Stations skip pads within 320 units of a door.
+`src/game/gevr_arena.c` and `gevr_horde.c` derive the arena from the player's ROM.
+Campaign maps use their existing guard pads, navigation and common guard body.
+Multiplayer-only maps load their retail multiplayer setup and gain native guard
+waypoints/groups from floor tiles, linked through shared edge midpoints. Those
+maps use Russian soldiers for ordinary waves. The intro inventory/cameras,
+mission actors/objectives and background mission AI are replaced or suppressed.
+Doors' key requirements are cleared; doors that can open are opened and held
+open during stage load. Spawn and station candidates must connect to the start
+through both guard navigation and floor collision, including closed doors and
+path blockers. This filtering runs before world snapshots so late joiners derive
+the same stations. Stations prefer pads at least 320 units from a door.
+
+The launcher, saved settings, validation and map labels share the 26-entry
+catalogue in `net_match.c`. Protocol 24 separates it from older builds' smaller
+map lists. See [all-map support](issue-219-all-maps.md) for the map checklist and
+validation limits.
 
 Wave guards use the existing persistent chase-and-attack AI. Spawn candidates
 must be away from every living player, outside direct sight on the same height,
-and connected to a player's navigation waypoint. Native spawn collision checks
+and connected to a player's navigation waypoint. If no hidden spawn succeeds
+for five seconds (for example on an open outdoor map), visible spawns are
+allowed for that wave while keeping the player exclusion distance. Native spawn collision checks
 still apply. Failed spawns retry without spending the wave quota. Guards request nearby blocking doors once a second. Guards stalled
 out of sight get a path retry after six seconds and a replacement after
 eighteen seconds without a kill reward.
@@ -149,7 +161,7 @@ joins by protocol, so this first playable mode needs no service deployment.
   pointer-conversion warnings and `libm`; production/test sources were retained.
 
 No ROM or Quest is attached to this environment. This synthetic run does not
-measure headset performance or establish that every Archives route feels good.
+measure headset performance or establish that every map route feels good.
 Before merging/releasing, play solo and two/four headsets: check starts, doors,
 stairways, spawn visibility, both players' gun damage, revives, join/admission,
 host loss in each phase, defeat/retry, and at least 45 minutes of combat on

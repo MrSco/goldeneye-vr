@@ -16,8 +16,25 @@
 #include "game/gevr_ally.h"
 #include <assert.h>
 #include <string.h>
+#include <stdlib.h>
+#include "gevr_bot.h"
+#include "gevr_arena.h"
 
 struct stagesetup g_CurrentSetup;
+/* The arena adapter is linked too; these campaign fixtures already have paths. */
+struct { s32 stanfile; StandTile *ptr_firstroom; } *stan_prefix;
+StandTile *standTileStart;
+u8 list_of_tilesizes[16];
+void getTileMidPoint(StandTile *t,coord3d *p) {(void)t;*p=(coord3d){0};}
+void getTileEdgePoints(StandTile *t,s32 e,coord3d *a,coord3d *b) {(void)t;(void)e;*a=*b=(coord3d){0};}
+void *mempAllocBytesInBank(u32 size,u8 bank) {(void)bank;return calloc(1,size);}
+void sysFatalError(const char *fmt,...) {(void)fmt;abort();}
+s32 gevrMpRules(void) {return 0;}
+void gevrBotNavForget(void) {}
+static f32 unreachable_x=-1;
+s32 gevrBotNavCanReach(StandTile *a,const coord3d *from,StandTile *b,const coord3d *to)
+{(void)a;(void)from;(void)b;return to->x!=unreachable_x;}
+
 static ChrRecord actors[HORDE_GUARD_SLOTS];
 ChrRecord *g_ChrSlots=actors;
 s32 g_NumChrSlots=HORDE_GUARD_SLOTS;
@@ -270,6 +287,33 @@ int main(void)
     gevrHordeApplyState(&ammo_state);ammo_full=1;path_clear=1;
     gevrHordeTick(1);assert(!gevrHordeState()->ammo[0].id);   /* taken at full ammo too */
     ammo_full=0;
+    /* A multiplayer-only setup has no guards: navigation pads still seed
+     * waves and stations. A disconnected pad cannot hold either. */
+    struct {PropDefHeaderRecord end;} empty={{.type=PROPDEF_END}};
+    waypoint ways[4]={0};s32 neighbours[]={-1};
+    for(int i=0;i<3;i++){ways[i].padID=i;ways[i].neighbours=neighbours;}ways[3].padID=-1;
+    g_CurrentSetup.propDefs=(void *)&empty;g_CurrentSetup.pathwaypoints=ways;
+    g_CurrentSetup.intro=(void *)original;unreachable_x=4000;
+    memset(actors,0,sizeof(actors));memset(&player_prop.pos,0,sizeof(player_prop.pos));
+    int first_marker=marker_count, before_spawn=announced;path_clear=0;
+    gevrHordePrepareSetup();gevrHordeStageLoaded();
+    for(int i=0;i<80;i++)gevrHordeTick(15);
+    assert(announced>before_spawn);
+    for(int i=first_marker;i<marker_count;i++)assert(markers[i].prop->pos.x!=4000);
+    for(int i=0;i<HORDE_GUARD_SLOTS;i++)if(actors[i].model) {
+        assert(actors[i].prop->pos.x==2000 && actors[i].bodynum==BODY_Russian_Soldier);
+    }
+    /* Open maps cannot wait forever for cover that does not exist. The
+     * first attempts stay hidden; eventual visible spawns keep the distance rule. */
+    memset(actors,0,sizeof(actors));gevrHordeStageLoaded();path_clear=1;
+    before_spawn=announced;
+    for(int i=0;i<60+16;i++)gevrHordeTick(15);
+    assert(announced==before_spawn);
+    for(int i=0;i<16;i++)gevrHordeTick(15);
+    assert(announced>before_spawn);
+    for(int i=0;i<HORDE_GUARD_SLOTS;i++)if(actors[i].model)assert(actors[i].prop->pos.x==2000);
+    for(int type=PROPDEF_OBJECTIVE_START;type<=PROPDEF_WATCH_MENU_OBJECTIVE_TEXT;type++)assert(gevrHordeSkipProp(type));
+    assert(gevrHordeSkipProp(PROPDEF_LOCK_DOOR) && gevrHordeSkipProp(PROPDEF_SAFE_ITEM));
     puts("PASS: production Horde setup, safe pads, armed spawn publication, hit/headshot points, Mystery Box, Wall Buys, slot pressure, takeover reconciliation, death idempotency, despawn replacement, bounded shared ammo drops, doorway recovery, defeat and the companion kept out of wave accounting");
     puts("PASS: 45 simulated minutes of wave progression with bounded/recycled actors");
 }
