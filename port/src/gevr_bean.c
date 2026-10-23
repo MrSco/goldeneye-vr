@@ -716,6 +716,7 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
                 (logicalW - 1) << G_TEXTURE_IMAGE_FRAC, (logicalH - 1) << G_TEXTURE_IMAGE_FRAC);
 		} else {
 			tex = -1;
+			clampS = clampT = 0;
 			gSPTexture(g++, 0, 0, 0, G_TX_RENDERTILE, G_OFF);
 		}
         uint32_t ownMode;
@@ -743,11 +744,17 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
                         (edge2 & ~ZMODE_DEC) | ZMODE_DEC, mesh->roomMaterial);
                 else ownMode = beanRenderMode(&g, edge, edge2, mesh->roomMaterial);
                 nodeFlags = GEVR_NODE_SPAN | GEVR_NODE_CUT | (tex >= 0 ? GEVR_NODE_COMBINE : 0);
-				gDPSetCombineMode(g++, G_CC_MODULATEIA, G_CC_PASS2);
+				if (tex < 0) {
+					gDPSetCombineMode(g++, G_CC_SHADE, G_CC_PASS2);
+				} else {
+					gDPSetCombineMode(g++, G_CC_MODULATEIA, G_CC_PASS2);
+				}
 			} else if (base->decal && zbuf) {
 				ownMode = beanRenderMode(&g, G_RM_AA_ZB_OPA_DECAL | Z_UPD, G_RM_AA_ZB_OPA_DECAL2, mesh->roomMaterial);
                 nodeFlags = GEVR_NODE_SPAN | (tex >= 0 ? GEVR_NODE_COMBINE : 0);
-				if (dim) {
+				if (tex < 0) {
+					gDPSetCombineMode(g++, G_CC_SHADE, G_CC_PASS2);
+				} else if (dim) {
 					gDPSetCombineMode(g++, G_CC_MODULATEI_PRIM, G_CC_PASS2);
 				} else {
 					gDPSetCombineMode(g++, G_CC_MODULATEI, G_CC_PASS2);
