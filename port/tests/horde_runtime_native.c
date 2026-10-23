@@ -337,7 +337,7 @@ int main(void)
     assert(announced>before_spawn);
     for(int i=0;i<HORDE_GUARD_SLOTS;i++)if(actors[i].model)assert(actors[i].prop->pos.x==2000);
     for(int type=PROPDEF_OBJECTIVE_START;type<=PROPDEF_WATCH_MENU_OBJECTIVE_TEXT;type++)assert(gevrHordeSkipProp(type));
-    assert(gevrHordeSkipProp(PROPDEF_LOCK_DOOR) && gevrHordeSkipProp(PROPDEF_SAFE_ITEM));
+    assert(!gevrHordeSkipProp(PROPDEF_LOCK_DOOR) && gevrHordeSkipProp(PROPDEF_SAFE_ITEM)); /* padlocked doors stay shut */
     /* Feedback regressions use distinct station pads, as on a full map. */
     marker_count=0;memset(marker_activations,0,sizeof(marker_activations));
     memset(actors,0,sizeof(actors));memset(owned_items,0,sizeof(owned_items));
