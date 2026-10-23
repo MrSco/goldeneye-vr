@@ -15,12 +15,14 @@
 extern "C" {
 #endif
 
-/* Stages, in the launcher's order: name, LEVELID, the players the map takes */
+/* All gameplay stages, in stable launcher/favourites order: name and LEVELID. */
 typedef struct { const char *name; uint8_t level_id; } NetMatchStage;
 int netStageCount(void);
 const NetMatchStage *netStage(int idx);
 const char *netStageName(int idx);
 int netStageIndexOf(uint8_t level_id);      /* -1 unknown */
+int netStageHasMpSetup(unsigned level_id); /* a retail Ump_setup file exists */
+int netStageUsesMpSetup(unsigned level_id, int mode);
 
 /*
  * The match's mode (NetMatchConfig.mode). Co-op plays a solo mission, the
@@ -29,11 +31,10 @@ int netStageIndexOf(uint8_t level_id);      /* -1 unknown */
  */
 enum { NET_MODE_DEATHMATCH = 0, NET_MODE_COOP = 1, NET_MODE_HORDE = 2 };
 #define NET_HORDE_STAGE 24 /* Archives, the default */
-/* Horde's maps (user, 2026-10-17: Bunker, Control, Facility): campaign
- * stages whose setups give the guard pads, stations and start. */
-static inline int netHordeStageValid(unsigned stage) {
-    return stage == 24 || stage == 9 || stage == 27 || stage == 23 || stage == 34;
-}
+/* Every gameplay stage: the same catalogue as Deathmatch. Horde uses a
+ * mission's guard paths, or builds paths for multiplayer-only arenas. */
+int netHordeStageValid(unsigned stage);
+const char *netHordeStageName(unsigned stage);
 #define NET_HORDE_MAX_START_WAVE 50 /* horde_rules.h HORDE_MAX_START_WAVE */
 #define NET_LOBBY_HORDE_STAGE 0x7f /* distinct from campaign stage-byte encoding */
 #define NET_COOP_MAX_PLAYERS 4
