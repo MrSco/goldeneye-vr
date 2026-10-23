@@ -13762,6 +13762,11 @@ void doorFinishClose(DoorRecord* door)
  */
 void doorSetOpenState(DoorRecord *door, s32 newstate)
 {
+#ifdef GEVR
+    /* Reject before doorStartClose/Open clears KEEP_OPEN and plays sound. */
+    extern int gevrHordeDoorHeldOpen(const DoorRecord *door);
+    if (gevrHordeDoorHeldOpen(door)) return;
+#endif
     if (newstate == DOORSTATE_OPENING)
     {
         if (door->openstate == DOORSTATE_STATIONARY || door->openstate == DOORSTATE_WAITING)

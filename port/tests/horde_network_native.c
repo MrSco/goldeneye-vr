@@ -54,6 +54,9 @@ int main(void)
     assert(hordeUseBox(&state,1,20,0)==1);
     state.ammo_grants[2]=17;state.guns[3][0]=2;state.guns[3][1]=33;state.grant_replace[1]=10;
     for(unsigned i=0;i<HORDE_AMMO_DROPS;i++)state.ammo[i]=(HordeAmmoDrop){1000+i,1200,{i*10.0f,-20.0f,3.0f}};
+    state.instakill_ticks=1700;state.max_ammo_seq=3;state.power_seq=7;state.power_kind=HORDE_POWER_INSTAKILL;
+    state.explosives[2][0]=19;state.explosives[3][1]=31;
+    for (unsigned i=0;i<HORDE_POWER_DROPS;i++)state.powers[i]=(HordePowerDrop){2000+i,3500,{i*13.0f,1,3},i%HORDE_POWER_COUNT};
     HordeState saved=state;
     netHordeSend(-1);memset(&state,0,sizeof(state));hosting=false;receive();
     assert(applied==1 && !memcmp(&state,&saved,sizeof(state)));
@@ -78,6 +81,10 @@ int main(void)
     state.ammo[0].pos[0]=NAN;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
     state.ammo[1].id=state.ammo[0].id;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
     state.guns[0][1]=200;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
+    state.powers[0].pos[2]=INFINITY;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
+    state.powers[1].id=state.powers[0].id;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
+    state.powers[0].kind=HORDE_POWER_COUNT;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
+    state.instakill_ticks=HORDE_INSTAKILL_TICKS+1;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
     assert(gevrHordeGuardToken((struct ChrRecord *)1)==(((uint64_t)7<<32)|123));
     assert(gevrHordeTokenCurrent(((uint64_t)7<<32)|123));
     assert(!gevrHordeTokenCurrent(((uint64_t)6<<32)|123));

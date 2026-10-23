@@ -93,7 +93,7 @@ int main(void)
     }
     assert(armored>100 && armored<300 && janus>100 && janus<300);
     assert(hordeEnemySpeedPercent(1,HORDE_ENEMY_GUARD)==100 && hordeEnemySpeedPercent(60,HORDE_ENEMY_GUARD)==140
-        && hordeEnemySpeedPercent(5,HORDE_ENEMY_SWARM)>150 && hordeEnemySpeedPercent(30,HORDE_ENEMY_BOSS)<=110);
+        && hordeEnemySpeedPercent(5,HORDE_ENEMY_SWARM)>=280 && hordeEnemySpeedPercent(30,HORDE_ENEMY_BOSS)<=110);
     assert(hordeEnemyKindHealthPercent(HORDE_ENEMY_BOSS,1)>=1000 && hordeEnemyKindHealthPercent(HORDE_ENEMY_SWARM,1)<100);
     HordeState late;hordeInitAt(&late,5,20);
     assert(hordeStateValid(&late) && late.wave==19 && late.completed==19 && late.credits[0]==hordeStartCredits(20));
@@ -120,7 +120,29 @@ int main(void)
     assert(hordeBuyWall(&guns,0,5,0,0,0) && guns.grant_kind[0]==HORDE_GRANT_ARMOR && guns.grant_replace[0]==0);
     assert(hordeTakeGun(&guns,0,200,0)==0 && !hordeGunOwned(&guns,0,200));   /* out of range */
     assert(hordeStateValid(&guns));
-    puts("PASS: Horde two-gun limit");
+    uint8_t carried[HORDE_GUN_SLOTS];memcpy(carried,guns.guns[0],sizeof(carried));
+    assert(hordeBuyWall(&guns,0,6,0,0,0) && hordeBuyWall(&guns,0,7,0,0,0));
+    assert(!memcmp(carried,guns.guns[0],sizeof(carried)) && !guns.grant_replace[0]);
+    assert(guns.explosives[0][0]==1 && guns.explosives[0][1]==1);
+    puts("PASS: Horde two-gun limit and separate explosive purchases");
+    HordeHold hold={0};
+    assert(!hordeHoldTick(&hold,1,1,1,0));
+    for(unsigned t=0;t<89;t++) assert(!hordeHoldTick(&hold,1,0,1,1));
+    assert(hordeHoldTick(&hold,1,0,1,1));
+    for(unsigned t=0;t<300;t++) assert(!hordeHoldTick(&hold,1,0,1,1));
+    hordeHoldTick(&hold,0,0,0,0);hordeHoldTick(&hold,1,1,1,0);
+    hordeHoldTick(&hold,1,0,1,45); /* lag is clamped */
+    hordeHoldTick(&hold,2,0,1,15); /* moving to another station cancels */
+    for(unsigned t=0;t<100;t++) assert(!hordeHoldTick(&hold,1,0,1,15));
+    hordeHoldTick(&hold,0,0,0,0);hordeHoldTick(&hold,0,1,1,0);
+    for(unsigned t=0;t<100;t++) assert(!hordeHoldTick(&hold,1,0,1,15)); /* holding while approaching */
+    hordeHoldTick(&hold,0,0,0,0);hordeHoldTick(&hold,1,1,1,0);
+    for(unsigned t=0;t<100;t++) assert(!hordeHoldTick(&hold,1,0,1,0)); /* paused */
+    puts("PASS: 1.5-second holds, release latch, target changes and pause");
+    HordeState powers;hordeInit(&powers,3);powers.instakill_ticks=HORDE_INSTAKILL_TICKS;
+    assert(hordeStateValid(&powers));hordeAdvance(&powers,0,1);assert(powers.instakill_ticks==HORDE_INSTAKILL_TICKS);
+    for(unsigned t=0;t<120;t++) hordeAdvance(&powers,15,1);
+    assert(!powers.instakill_ticks);powers.instakill_ticks=HORDE_INSTAKILL_TICKS+1;assert(!hordeStateValid(&powers));
     /* One death in three drops a crate, every boss does */
     unsigned drops=0;
     for (uint32_t id=1;id<=3000;id++) { drops+=hordeDropsAmmo(id,0)!=0; assert(hordeDropsAmmo(id,1)); }

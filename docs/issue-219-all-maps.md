@@ -5,7 +5,7 @@ all 26 existing GoldenEye gameplay maps. Archives remains the saved-setting
 fallback for Horde. Every map name is available in the browser and pause UI,
 including multiplayer-only maps which are not co-op missions.
 
-Protocol **24** is required on every headset: earlier versions reject the new
+Protocol **25** is required on every headset: earlier versions reject the new
 stage set. Original Deathmatch indices 0–12 are preserved for favourites and
 ballots; campaign-only stages are appended. Co-op retains its 20 mission list.
 

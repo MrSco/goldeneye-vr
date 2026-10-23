@@ -22,7 +22,10 @@ multiplayer for other campaigns.
 - **Special rounds:** waves 5, 15, 25... are an **Oddjob swarm** (half again as
   many, small, fast, weak, pistols); waves 10, 20... are **boss rounds** (one
   to three of Jaws, Xenia, Oddjob, Trevelyan and Ourumov, ten times a guard's
-  health and more per player, AR33 or RC-P90).
+  health and more per player, AR33 or RC-P90). Bosses take damage without
+  hit stun or flinching; lethal hits still kill them. Xenia carries a grenade
+  launcher and switches to an AR33 at close range or near obstructing scenery.
+  Swarm Oddjobs run at 288% normal guard speed on wave 5, rising to 320%.
 - **Enemy kinds:** from wave 4 about a quarter are armoured Janus marines
   (175% health), from wave 8 about a fifth Janus special forces (150%); both
   carry the next gun up. Guards run 2% faster each wave (up to 140%) and their
@@ -37,18 +40,34 @@ multiplayer for other campaigns.
   - **Critical headshot kill (`HIT_HEAD`):** `+100 PTS`
   - A kill no player is known to have caused (no player hit the guard) pays nobody.
 - **Call of Duty Mystery Box (`950 PTS`):**
-  - Located at one of four candidate box pads in the arena, shown by an ammo crate that moves with it. Stand near the crate and press **B / Reload-Activate**, or reach a hand to it and press **Grip**, to spend `950 PTS`. A grip away from a station (a holster, a pickup, a door) buys nothing.
+  - Located at one of four candidate box pads in the arena, shown by an ammo crate that moves with it. Stand near the crate and hold **B / Reload-Activate** for **1.5 seconds**, or reach a hand to it and hold **Grip** for **1.5 seconds**, to spend `950 PTS`. A grip away from a station (a holster, a pickup, a door) buys nothing.
+  - Claiming a rolled weapon, wall guns, armour and explosive buys use the
+    same hold. A tap still reloads. Each hold buys once and requires release;
+    leaving the station, losing tracking, opening a menu or being downed cancels it.
   - Cycles through 12 GoldenEye weapons (Cougar Magnum, ZMG 9mm, Phantom, RC-P90, Auto Shotgun, Sniper Rifle, Silver PP7, Gold PP7, Moonraker Laser, Golden Gun, Grenade Launcher, Rocket Launcher) for 3 seconds, then presents the rolled weapon for 8 seconds for the buyer to claim.
   - **Teddy Bear relocation:** After 4+ uses at a location, rolls have a 20% chance (guaranteed by the 10th use) to trigger a Teddy Bear relocation, refunding `950 PTS` to the buyer and moving the Mystery Box to another room's box location.
-- **Wall Buys:** Six stations sell weapons or full Body Armor: Klobb
+- **Wall Buys:** Eight stations sell weapons, full Body Armor or explosives: Klobb
   `500 PTS`, Shotgun `750 PTS`, KF7 Soviet `1200 PTS`, D5K Deutsche
-  `1400 PTS`, AR33 Assault Rifle `1800 PTS`, and Body Armor `1500 PTS`.
+  `1400 PTS`, AR33 Assault Rifle `1800 PTS`, Body Armor `1500 PTS`,
+  two grenades `500 PTS`, and two proximity mines `750 PTS`.
+  Grenades and mines are consumables outside the two-gun limit; buying them
+  leaves both guns equipped/carried. Full explosive pools cannot be bought locally.
+  Armour stays at 1500 pending full-lobby balance feedback.
   A newly acquired gun comes with one magazine, added to any rounds you hold. Owned weapons cannot be
   repurchased for ammo, and rolling an owned Mystery Box gun gives no ammo.
-- **Enemy ammo drops:** Each actual enemy death drops one shared crate. Walk
+- **Ourumov's briefcase:** Each Ourumov boss death drops one shared briefcase,
+  expiring after 60 gameplay seconds. The host rolls a team-wide **Nuke**
+  (kills current wave enemies; queued spawns remain), **Max Ammo** (fills each
+  player's owned reserve ammo pools, including carried explosives), or
+  **30 seconds of Insta-Kill** (positive player hits kill wave enemies,
+  including bosses). A second Insta-Kill refreshes the timer. Pickup checks
+  distance, floor and intervening scenery; only one player can claim it.
+  At most four briefcases exist, with old drops replaced when necessary.
+- **Enemy ammo drops:** One in three actual enemy deaths drops a shared crate;
+  bosses always drop one. Walk
   over it to collect ammo for each ammo pool used by your owned weapons, once
-  per pool: 16 pistol/SMG rounds, 12 rifle rounds, 4 shells or 3 magnum rounds.
-  Special ammo grants one round per four crates collected. A crate goes to
+  per pool: 32 pistol/SMG rounds, 24 rifle rounds, 8 shells or 6 magnum rounds.
+  Special ammo grants one round per two crates collected. A crate goes to
   one player; both players cannot claim it. The host validates distance,
   doors and floor connectivity. At most 24 crates exist, expiring after 60
   gameplay seconds; old crates give way to new ones. There is no automatic
@@ -78,8 +97,9 @@ multiplayer for other campaigns.
 - A solo host's pause menu freezes gameplay. With teammates, gameplay continues
   while a player has their menu open. Defeat freezes gameplay for everyone.
 
-All participants must use this build: protocol **24** enables the full map catalogue in Horde and Deathmatch. Older
-builds reject the new map choices. Shared ammo drops, guard generations and
+All participants must use this build: protocol **25** adds briefcase powers and
+consumable grants to Horde snapshots, alongside the full map catalogue in Horde
+and Deathmatch. Older builds are incompatible. Shared ammo drops, guard generations and
 the optional AI ally remain supported. The companion
 follows the party without counting as a wave enemy or a human survivor; see
 [AI ally](ai-ally.md). The app release number has
@@ -94,13 +114,16 @@ waypoints/groups from floor tiles, linked through shared edge midpoints. Those
 maps use Russian soldiers for ordinary waves. The intro inventory/cameras,
 mission actors/objectives and background mission AI are replaced or suppressed.
 Doors' key requirements are cleared; doors that can open are opened and held
-open during stage load. Spawn and station candidates must connect to the start
+open during stage load. Held doors reject normal movement requests before
+those requests clear the keep-open flag or play sounds. This fixes Horde's
+repeated-close loop; the similar campaign report still needs a reproducible
+location/build. Facility doors that leave dead ends are unchanged. Spawn and station candidates must connect to the start
 through both guard navigation and floor collision, including closed doors and
 path blockers. This filtering runs before world snapshots so late joiners derive
 the same stations. Stations prefer pads at least 320 units from a door.
 
 The launcher, saved settings, validation and map labels share the 26-entry
-catalogue in `net_match.c`. Protocol 24 separates it from older builds' smaller
+catalogue in `net_match.c`. Protocol 25 separates it from older builds' smaller
 map lists. See [all-map support](issue-219-all-maps.md) for the map checklist and
 validation limits.
 
@@ -143,12 +166,16 @@ joins by protocol, so this first playable mode needs no service deployment.
 
 ## Validation
 
-- Android `assembleDebug` and 30 JVM unit tests passed during implementation.
+- Android `assembleDebug` and 31 JVM unit tests passed during implementation.
 - `python3 port/tests/test_horde.py`: production director, production adapter
   against a synthetic map/world, 45 simulated minutes, slot exhaustion,
   repeated death accounting, despawn replacement, safe pads, finalized armed
   spawns, ammo drops/defeat, snapshots, malformed/old-epoch rejection, guard
-  identities, seeded continuation and mode validation.
+  identities, seeded continuation and mode validation. Feedback regressions
+  cover 90-tick B/grip holds and cancellation, separate explosive counters,
+  boss identification, Xenia's near/blocked/clear fallback, Ourumov's once-only
+  drop and all three powers. Extracted production engine hooks verify scaled
+  camera-to-world grip conversion, boss flinch suppression and held-door sounds.
 - `python3 port/tests/test_coop_spawns.py`: existing 40-guard reinforcement burst
   across three clients, plus Horde slot reuse, stale state rejection, duplicate
   roster handling and cancelled pending generations.
@@ -165,5 +192,6 @@ measure headset performance or establish that every map route feels good.
 Before merging/releasing, play solo and two/four headsets: check starts, doors,
 stairways, spawn visibility, both players' gun damage, revives, join/admission,
 host loss in each phase, defeat/retry, and at least 45 minutes of combat on
-Quest 2/3 with optional HD/Bean/ragdoll settings. The shop and team
-currency from the design remain future milestones.
+Quest 2/3 with optional HD/Bean/ragdoll settings. In particular, tune swarm
+speed, explosive prices and armour with a full lobby, and verify Xenia's
+projectiles in tight rooms. Shared team currency remains a future milestone.

@@ -6,6 +6,7 @@
 #ifdef GEVR
 #include "gevr_ragdoll.h"
 #include "gevr_ally.h"
+#include "net_horde.h"
 #endif
 #include <bondaicommands.h>
 #include <bondgame.h>
@@ -2110,6 +2111,9 @@ void triggered_on_shot_hit(ChrRecord *self, coord3d *arg1, f32 arg2, s32 req_ani
     struct StruckAnim *struck_ani; // 100
     s32 i;
 
+#ifdef GEVR
+    if (gevrHordeBossNoStun(self)) return;
+#endif
     flag9c = 1;
     prop = self->prop;
     model = self->model;
@@ -2723,6 +2727,10 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
         }
         else
         {
+#ifdef GEVR
+            if (isPlayer && damageToCause>0.0f && gevrHordeInstaKill(self))
+                damageToCause=fmaxf(damageToCause,self->maxdamage-self->damage);
+#endif
             self->chrflags |= CHRFLAG_WAS_DAMAGED;
 #    ifdef XBLA
             if (!cheatIsActive(76))
@@ -2747,6 +2755,9 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
             }
         }
 
+#ifdef GEVR
+        if (gevrHordeBossNoStun(self)) return TRUE;
+#endif
         if (hitpart != HIT_HAT)
         {
             // Cancel current animation and prepare for argh
@@ -7085,7 +7096,13 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
                     }
                     else if (chrlvWeaponNumber(prop_selfchr) == ITEM_GRENADELAUNCH)
                     {
-                        if (((dx * dx) + (dy * dy) + (dz * dz)) > 160000.0f)
+                        if (((dx * dx) + (dy * dy) + (dz * dz)) >
+#ifdef GEVR
+                            (gevrHordeBossNoStun(self) ? 640000.0f : 160000.0f)
+#else
+                            160000.0f
+#endif
+                            )
                         {
                             sp128 = (struct WeaponObjRecord *)create_new_item_instance_of_model(PROP_CHRGRENADEROUND, 0x57);
                             if (sp128 != NULL)
@@ -7258,6 +7275,12 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
 void chrlvTriggerFireWeapon(ChrRecord *self)
 {
     self->hidden &= ~CHRHIDDEN_FIRE_TRACER;
+#ifdef GEVR
+    if (!gevrHordeXeniaWeapon(self)) {
+        self->hidden &= ~(CHRHIDDEN_FIRE_WEAPON_RIGHT | CHRHIDDEN_FIRE_WEAPON_LEFT);
+        return;
+    }
+#endif
 
     if (self->hidden & CHRHIDDEN_FIRE_WEAPON_RIGHT)
     {

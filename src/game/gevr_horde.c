@@ -31,6 +31,7 @@ extern s32 netGetLocalSlot(void);
 extern int netMpPlayerCount(int fallback);
 extern s32 chrGetNumFree(void);
 extern void chrStopFiring(ChrRecord *chr);
+extern void triggered_on_shot_hit(ChrRecord *chr,coord3d *impact,f32 angle,s32 part,ITEM_IDS item);
 extern waypoint *chrlvStanPathRelated(coord3d *pos, StandTile *stan);
 extern s32 netIsHost(void);
 extern unsigned netGetRandomSeed(void);
@@ -85,6 +86,8 @@ static const HordeWeaponDef s_wall_items[HORDE_WALL_COUNT] = {
     { ITEM_MP5K,     AMMO_9MM, "D5K DEUTSCHE" },
     { ITEM_M16,      AMMO_RIFLE, "AR33 ASSAULT RIFLE" },
     { ITEM_TOKEN,    AMMO_NONE, "BODY ARMOR" },
+    { ITEM_GRENADE, AMMO_GRENADE, "2 GRENADES" },
+    { ITEM_PROXIMITYMINE, AMMO_PROXMINE, "2 PROXIMITY MINES" },
 };
 
 /* Bodies by enemy kind (user, 2026-10-17): Janus marines in armour, Janus
@@ -99,6 +102,11 @@ static const s32 s_boss_bodies[]={BODY_Jaws,BODY_Xenia,BODY_Oddjob,BODY_Trevelya
 
 static HordeState s_state;
 static unsigned s_id[HORDE_GUARD_SLOTS];
+static uint8_t s_boss[HORDE_GUARD_SLOTS];
+static HordeHold s_purchase_hold[3]; /* B/Y together, left grip, right grip */
+static uint32_t s_applied_explosives[4][2], s_applied_max_ammo, s_applied_power;
+static ObjectRecord *s_power_marker[HORDE_POWER_DROPS];
+static uint32_t s_power_marker_id[HORDE_POWER_DROPS];
 static s32 s_counted[HORDE_GUARD_SLOTS], s_dead_ticks[HORDE_GUARD_SLOTS], s_dropped[HORDE_GUARD_SLOTS];
 static s32 s_last_attacker[HORDE_GUARD_SLOTS], s_last_hitpart[HORDE_GUARD_SLOTS];
 static coord3d s_last_pos[HORDE_GUARD_SLOTS];
@@ -130,7 +138,7 @@ static ObjectRecord *s_box_marker, *s_wall_marker[HORDE_WALL_COUNT];
 static s32 s_markers_placed, s_marker_spot;
 static f32 s_marker_yaw;
 static const s32 s_wall_models[HORDE_WALL_COUNT] = {
-    PROP_CHRSKORPION, PROP_CHRSHOTGUN, PROP_CHRKALASH, PROP_CHRMP5K, PROP_CHRM16, PROP_BODYARMOUR };
+    PROP_CHRSKORPION, PROP_CHRSHOTGUN, PROP_CHRKALASH, PROP_CHRMP5K, PROP_CHRM16, PROP_BODYARMOUR, PROP_CHRGRENADE, PROP_CHRPROXIMITYMINE };
 static struct {
     SetupIntroSpawn spawn;
     struct SetupIntroItem item;
@@ -184,6 +192,7 @@ void gevrHordeSetGuardId(ChrRecord *chr,unsigned id)
     if (id == GEVR_ALLY_HORDE_ID) id = 0;
     s32 slot=chr-g_ChrSlots;
     if (slot<HORDE_GUARD_SLOTS) {
+        s_boss[slot]=0;
         s_id[slot]=id;s_counted[slot]=0;s_dropped[slot]=0;s_dead_ticks[slot]=0;s_stall_ticks[slot]=0;s_door_ticks[slot]=0;
         s_last_attacker[slot]=-1;s_last_hitpart[slot]=0;
         if (chr->prop) s_last_pos[slot]=chr->prop->pos;
@@ -312,7 +321,10 @@ void gevrHordeStageLoaded(void)
     hordeLaserStats(netHordeActive());
     hordeInitAt(&s_state,netGetRandomSeed(),netHordeActive()?netHordeStartWave():1);
     for (unsigned p=0;p<4;p++) s_state.guns[p][0]=ITEM_WPPK;   /* the intro's PP7 */
-    memset(s_speed,0,sizeof(s_speed));
+    memset(s_speed,0,sizeof(s_speed));memset(s_boss,0,sizeof(s_boss));
+    memset(s_purchase_hold,0,sizeof(s_purchase_hold));
+    memset(s_applied_explosives,0,sizeof(s_applied_explosives));s_applied_max_ammo=s_applied_power=0;
+    memset(s_power_marker,0,sizeof(s_power_marker));memset(s_power_marker_id,0,sizeof(s_power_marker_id));
     s_doors_opened=FALSE;s_held_count=0;s_hold_ticks=0;s_spawn_failures=0;
     memset(s_id,0,sizeof(s_id));memset(s_counted,0,sizeof(s_counted));
     memset(s_dead_ticks,0,sizeof(s_dead_ticks));
@@ -400,6 +412,16 @@ void gevrHordeNotifyGuardHit(ChrRecord *chr, int attacker, int hitpart)
     }
 }
 
+int gevrHordeBossNoStun(const ChrRecord *chr)
+{
+    unsigned id=gevrHordeGuardId(chr);
+    return id && s_boss[chr-g_ChrSlots] && chr->damage<chr->maxdamage;
+}
+int gevrHordeInstaKill(const ChrRecord *chr)
+{
+    return netIsHost() && s_state.instakill_ticks && gevrHordeGuardId(chr) && s_state.phase!=HORDE_DEFEAT;
+}
+
 static s32 hordeNearPadAt(const f32 pos[3], s32 pad_id, f32 radius)
 {
     if (!g_CurrentSetup.pads || pad_id<0) return FALSE;
@@ -415,15 +437,38 @@ static s32 hordeNearPad(s32 slot, s32 pad_id, f32 radius)
     return hordeNearPadAt(g_playerPointers[slot]->prop->pos.f,pad_id,radius);
 }
 
+static void hordePower(unsigned kind, s32 collector)
+{
+    s_state.power_kind=kind;s_state.power_seq++;s_state.revision++;
+    if (kind==HORDE_POWER_MAX_AMMO) s_state.max_ammo_seq++;
+    else if (kind==HORDE_POWER_INSTAKILL) s_state.instakill_ticks=HORDE_INSTAKILL_TICKS;
+    else if (kind==HORDE_POWER_NUKE) {
+        coord3d impact={0};
+        for (s32 i=0;i<g_NumChrSlots && i<HORDE_GUARD_SLOTS;i++) {
+            ChrRecord *chr=&g_ChrSlots[i];
+            if (!s_id[i] || !chr->model || !chr->prop || s_counted[i]
+                || chr->actiontype==ACT_DIE || chr->actiontype==ACT_DEAD) continue;
+            chr->damage=chr->maxdamage;
+            gevrHordeNotifyGuardHit(chr,collector,HIT_CHEST);
+            triggered_on_shot_hit(chr,&impact,0,HIT_CHEST,ITEM_GRENADE);
+        }
+    }
+}
+
 int gevrHordeHandleAction(int slot, unsigned action, unsigned item)
 {
     if (!netHordeRunning() || !netIsHost() || slot<0 || slot>=4 || gevrCoopDowned(slot)) return 0;
-    if (netPlayerIsSpectator(slot) || !netLobbySlotConnected(slot)) return 0;
-    if (action==HORDE_ACT_AMMO_PICKUP) {
+    if (s_state.phase==HORDE_DEFEAT || netPlayerIsSpectator(slot) || !netLobbySlotConnected(slot)) return 0;
+    if (action==HORDE_ACT_AMMO_PICKUP || action==HORDE_ACT_POWER_PICKUP) {
         PropRecord *player=g_playerPointers[slot]?g_playerPointers[slot]->prop:NULL;
         if (!player) return 0;
-        for (unsigned i=0;i<HORDE_AMMO_DROPS;i++) {
-            HordeAmmoDrop *drop=&s_state.ammo[i];
+        unsigned power=action==HORDE_ACT_POWER_PICKUP;
+        for (unsigned i=0;i<(power?HORDE_POWER_DROPS:HORDE_AMMO_DROPS);i++) {
+            /* Both records start with id, lifetime and position. Copy to avoid aliasing. */
+            HordeAmmoDrop entry;
+            if (power) memcpy(&entry,&s_state.powers[i],sizeof(entry));
+            else entry=s_state.ammo[i];
+            HordeAmmoDrop *drop=&entry;
             if (!item || drop->id!=item) continue;
             f32 dx=player->pos.x-drop->pos[0],dy=player->pos.y-drop->pos[1],dz=player->pos.z-drop->pos[2];
             StandTile *tile=player->stan;
@@ -433,8 +478,14 @@ int gevrHordeHandleAction(int slot, unsigned action, unsigned item)
             if (dx*dx+dz*dz>110.0f*110.0f || dy < -30.0f || dy>220.0f || !tile
                 || !stanTestLineUnobstructed(&tile,player->pos.x,player->pos.z,drop->pos[0],drop->pos[2],
                     CDTYPE_OBJS|CDTYPE_DOORS|CDTYPE_PATHBLOCKER,40,40,0,1) || !drop_tile || tile!=drop_tile) return 0;
-            drop->id=0;drop->ticks=0;
-            s_state.ammo_grants[slot]++;s_state.revision++;
+            if (power) {
+                unsigned kind=s_state.powers[i].kind;
+                s_state.powers[i].id=s_state.powers[i].ticks=0;
+                hordePower(kind,slot);
+            } else {
+                s_state.ammo[i].id=s_state.ammo[i].ticks=0;
+                s_state.ammo_grants[slot]++;s_state.revision++;
+            }
             return 1;
         }
         return 0;
@@ -449,6 +500,7 @@ int gevrHordeHandleAction(int slot, unsigned action, unsigned item)
     }
     if ((action==HORDE_ACT_WALL_BUY || action==HORDE_ACT_WALL_AMMO) && item<HORDE_WALL_COUNT) {
         if (!hordeNearPad(slot,s_wall_pads[item],HORDE_INTERACT_RANGE*1.25f)) return 0;
+        if (item==5 && g_playerPointers[slot]->bondarmour>=1.0f) return 0;
         return hordeBuyWall(&s_state,(unsigned)slot,item,action==HORDE_ACT_WALL_AMMO,
             item<5?(unsigned)s_wall_items[item].item:0,replace);
     }
@@ -488,6 +540,9 @@ static int hordeUse(const f32 *hand)
         if (w==5 && g_playerPointers[me]->bondarmour>=1.0f) {
             hudmsgBottomShow("BODY ARMOR ALREADY FULL");set_cur_player(prev);return 1;
         }
+        if (w>=6 && check_cur_player_ammo_amount_in_inventory(s_wall_items[w].ammo)>=get_max_ammo_for_type(s_wall_items[w].ammo)) {
+            hudmsgBottomShow("EXPLOSIVES ALREADY FULL");set_cur_player(prev);return 1;
+        }
         if (owned) {
             hudmsgBottomShow("AMMO DROPS FROM ENEMIES");set_cur_player(prev);return 1;
         }
@@ -502,8 +557,46 @@ static int hordeUse(const f32 *hand)
     return 0;
 }
 
-int gevrHordeOnUse(void) { return hordeUse(NULL); }
-int gevrHordeOnGrip(const f32 hand[3]) { return hordeUse(hand); }
+/* Include box spot, phase and weapon in the key: a roll/relocation cannot
+ * turn one continuous hold into a second transaction. */
+static unsigned hordeHoldTarget(const f32 *hand)
+{
+    s32 me=netGetLocalSlot();
+    if (!netHordeRunning() || s_state.phase==HORDE_DEFEAT || me<0 || me>=4
+        || !g_playerPointers[me] || !g_playerPointers[me]->prop || netPlayerIsSpectator(me)
+        || gevrCoopDowned(me) || g_playerPointers[me]->bonddead
+        || g_playerPointers[me]->watch_animation_state || g_playerPointers[me]->mpmenuon) return 0;
+    const f32 *at=hand?hand:g_playerPointers[me]->prop->pos.f;
+    f32 range=hand?HORDE_HAND_RANGE:HORDE_INTERACT_RANGE;
+    if (hordeNearPadAt(at,s_box_pads[s_state.box_spot%HORDE_BOX_SPOTS],range)) {
+        if (s_state.box_state==HORDE_BOX_IDLE || (s_state.box_state==HORDE_BOX_READY && s_state.box_buyer==(unsigned)me))
+            return 256+s_state.box_spot*64+s_state.box_state*16+s_state.box_weapon;
+        return 0;
+    }
+    for (unsigned w=0;w<HORDE_WALL_COUNT;w++) if (hordeNearPadAt(at,s_wall_pads[w],range)) return w+1;
+    return 0;
+}
+void gevrHordeHoldInput(int channel, int pressed, int held, const float *hand, unsigned ticks)
+{
+    if (channel<0 || channel>=3) return;
+    unsigned target=hordeHoldTarget(hand);
+    if (hordeHoldTick(&s_purchase_hold[channel],target,pressed,held,ticks)) {
+        hordeUse(hand);
+        /* Two controls completing together still authorize only one buy. */
+        for (unsigned i=0;i<3;i++) s_purchase_hold[i].target=0;
+    }
+}
+int gevrHordeOnUse(void)
+{
+    if (get_cur_playernum()!=netGetLocalSlot()) return 0;
+    gevrHordeHoldInput(0,1,1,NULL,0);
+    return 0; /* a tap keeps the ordinary reload/activation path */
+}
+int gevrHordeOnGrip(int ctrl, const f32 hand[3])
+{
+    if (ctrl<0 || ctrl>1 || !hordeHoldTarget(hand)) return 0;
+    gevrHordeHoldInput(ctrl+1,1,1,hand,0);return 1;
+}
 
 static void hordeApplyLocalGrant(s32 me)
 {
@@ -543,6 +636,38 @@ static void hordeApplyLocalGrant(s32 me)
     set_cur_player(prev);
 }
 
+static void hordeApplySupplies(s32 me)
+{
+    if (me<0 || me>=4 || !g_playerPointers[me]) return;
+    s32 prev=get_cur_playernum();set_cur_player(me);
+    for (unsigned k=0;k<2;k++) {
+        uint32_t count=s_state.explosives[me][k]-s_applied_explosives[me][k];
+        s_applied_explosives[me][k]=s_state.explosives[me][k];
+        if (!count) continue;
+        bondinvAddInvItem(s_wall_items[6+k].item);
+        hordeGiveAmmo(s_wall_items[6+k].ammo,2*(s32)(count>100?100:count));
+        hudmsgTopShow(k?"PURCHASED PROXIMITY MINES":"PURCHASED GRENADES");
+    }
+    if (s_state.max_ammo_seq!=s_applied_max_ammo) {
+        s_applied_max_ammo=s_state.max_ammo_seq;
+        s32 filled[AMMOTYPE_MAX]={0};
+        for (s32 item=ITEM_WPPK;item<ITEM_IDS_MAX;item++) if (bondinvHasInvItem(item)) {
+            WeaponStats *stats=get_ptr_item_statistics(item);
+            s32 ammo=stats?stats->AmmoType:AMMO_NONE;
+            if (ammo>AMMO_NONE && ammo<AMMOTYPE_MAX && !filled[ammo]) {
+                give_cur_player_ammo(ammo,get_max_ammo_for_type(ammo));filled[ammo]=1;
+            }
+        }
+    }
+    if (s_state.power_seq!=s_applied_power) {
+        static char *messages[]={"NUKE!", "MAX AMMO!", "INSTA-KILL! 30 SECONDS"};
+        s_applied_power=s_state.power_seq;
+        if (s_state.power_kind!=HORDE_POWER_INSTAKILL || s_state.instakill_ticks)
+            hudmsgTopShow(messages[s_state.power_kind%HORDE_POWER_COUNT]);
+    }
+    set_cur_player(prev);
+}
+
 static s32 hordeIsBossBody(s32 body);
 
 /* One shared crate per genuine death. Old loot expires and slots are reused;
@@ -552,6 +677,18 @@ static void hordeDropAmmo(s32 slot)
     ChrRecord *chr=&g_ChrSlots[slot];
     if (s_dropped[slot] || !chr->prop || !chr->model) return;
     s_dropped[slot]=TRUE;
+    if (s_boss[slot] && chr->bodynum==BODY_Ourumov) {
+        unsigned best=0;
+        for (unsigned i=0;i<HORDE_POWER_DROPS;i++) {
+            if (!s_state.powers[i].id) {best=i;break;}
+            if (s_state.powers[i].ticks<s_state.powers[best].ticks) best=i;
+        }
+        HordePowerDrop *power=&s_state.powers[best];
+        power->id=s_id[slot];power->ticks=HORDE_AMMO_LIFETIME;
+        power->kind=hordeRandom(&s_state)%HORDE_POWER_COUNT;
+        memcpy(power->pos,chr->prop->pos.f,sizeof(power->pos));power->pos[1]=chr->ground+8;
+        s_state.revision++;
+    }
     if (!hordeDropsAmmo((uint32_t)s_id[slot],hordeIsBossBody(chr->bodynum)
         && hordeWaveKind(s_state.wave)==HORDE_WAVE_BOSS)) return;
     unsigned best=0;
@@ -611,7 +748,10 @@ void gevrHordeDecorateGuard(ChrRecord *chr, s32 body)
     unsigned wavekind=hordeWaveKind(s_state.wave);
     unsigned kind=wavekind==HORDE_WAVE_SWARM && body==BODY_Oddjob?HORDE_ENEMY_SWARM
         :wavekind==HORDE_WAVE_BOSS && hordeIsBossBody(body)?HORDE_ENEMY_BOSS:HORDE_ENEMY_GUARD;
-    if (slot<HORDE_GUARD_SLOTS) s_speed[slot]=(f32)hordeEnemySpeedPercent(s_state.wave,kind)*0.01f;
+    if (slot<HORDE_GUARD_SLOTS) {
+        s_speed[slot]=(f32)hordeEnemySpeedPercent(s_state.wave,kind)*0.01f;
+        s_boss[slot]=kind==HORDE_ENEMY_BOSS;
+    }
     if (kind==HORDE_ENEMY_SWARM && chr->model) modelSetScale(chr->model,chr->model->scale*HORDE_SWARM_SCALE);
 }
 
@@ -629,6 +769,43 @@ f32 gevrHordeAiAccuracy(f32 difficulty)
 {
     if (!netHordeActive()) return difficulty;
     return (f32)hordeAiAccuracyPercent(s_state.wave)*0.01f;
+}
+
+int gevrHordeXeniaWeapon(ChrRecord *chr)
+{
+    if (!netIsHost() || !gevrHordeGuardId(chr) || !s_boss[chr-g_ChrSlots] || chr->bodynum!=BODY_Xenia
+        || !chr->prop || chr->actiontype==ACT_DIE || chr->actiontype==ACT_DEAD) return 1;
+    s32 target=gevrCoopGuardTarget(chr);
+    if (target<0 || target>=4 || !g_playerPointers[target] || !g_playerPointers[target]->prop) return 1;
+    PropRecord *held=chrGetEquippedWeaponProp(chr,GUNRIGHT);
+    if (!held || !held->weapon) return 1;
+    coord3d from=chr->prop->pos, to=g_playerPointers[target]->prop->pos;
+    f32 dx=to.x-from.x,dz=to.z-from.z,dy=to.y-from.y,dist=sqrtf(dx*dx+dz*dz);
+    f32 minimum=held->weapon->weaponnum==ITEM_GRENADELAUNCH?800.0f:1000.0f;
+    s32 safe=dist>minimum && dy*dy<400.0f*400.0f;
+    /* Check a wide corridor through the first 10m of the shot. A clear target
+     * ray alone permits a grenade to clip the nearby doorway/wall. */
+    if (safe) for (s32 side=-1;side<=1 && safe;side++) {
+        f32 offset=side*100.0f, x=from.x-dz/dist*offset,z=from.z+dx/dist*offset;
+        f32 reach=dist<1000.0f?dist:1000.0f;
+        StandTile *tile=chr->prop->stan;
+        safe=tile && stanTestLineUnobstructed(&tile,from.x,from.z,x,z,
+            CDTYPE_OBJS|CDTYPE_DOORS|CDTYPE_PATHBLOCKER,100,100,0,1);
+        if (safe) safe=stanTestLineUnobstructed(&tile,x,z,x+dx/dist*reach,z+dz/dist*reach,
+            CDTYPE_OBJS|CDTYPE_DOORS|CDTYPE_PATHBLOCKER,100,100,0,1);
+    }
+    s32 want=safe?ITEM_GRENADELAUNCH:ITEM_M16;
+    if (held->weapon->weaponnum==want) return 1;
+    objFreePermanently(held->obj,TRUE);
+    chrGiveWeapon(chr,safe?PROP_CHRGRENADELAUNCH:PROP_CHRM16,want,PROPFLAG_AIUNDROPPABLE);
+    return 0; /* let the new held model acquire its matrices before firing */
+}
+
+int gevrHordeDoorHeldOpen(const DoorRecord *door)
+{
+    if (!netHordeActive()) return 0;
+    for (s32 i=0;i<s_held_count;i++) if (s_held_doors[i]==door) return 1;
+    return 0;
 }
 
 /* A door open at once, as the AI's DoorOpenInstant has it (chrai.c). */
@@ -753,6 +930,7 @@ static s32 hordeSpawn(void)
         if (kind==HORDE_ENEMY_BOSS) tier=4+(s_state.next_id&1);   /* AR33 / RC-P90 */
         if (kind==HORDE_ENEMY_SWARM) tier=0;                      /* a pistol each */
         s32 weapon=tier_weapons[tier%6], model=tier_models[tier%6];
+        if (kind==HORDE_ENEMY_BOSS && body==BODY_Xenia) {weapon=ITEM_GRENADELAUNCH;model=PROP_CHRGRENADELAUNCH;}
         /* Ammo crates are separate from guns; keep wave weapons out of the economy. */
         if (!chrGiveWeapon(chr,model,weapon,PROPFLAG_AIUNDROPPABLE)) {
             chr->hidden|=CHRHIDDEN_REMOVE;return FALSE;
@@ -829,7 +1007,7 @@ static s32 hordeUpdateStationPrompt(s32 me, s32 ticks, unsigned breakSecs)
     if (hordeNearPad(me,box_pad,HORDE_INTERACT_RANGE)) {
         const char *wname=s_box_pool[s_state.box_weapon%HORDE_BOX_POOL_SIZE].name;
         if (s_state.box_state==HORDE_BOX_IDLE)
-            snprintf(prompt,sizeof(prompt),"MYSTERY BOX [950 PTS] (%u PTS) - PRESS B/GRIP",s_state.credits[me]);
+            snprintf(prompt,sizeof(prompt),"MYSTERY BOX [950 PTS] (%u PTS) - HOLD B/GRIP 1.5s",s_state.credits[me]);
         else if (s_state.box_state==HORDE_BOX_ROLLING)
             snprintf(prompt,sizeof(prompt),"MYSTERY BOX ROLLING: %s...",wname);
         else if (s_state.box_state==HORDE_BOX_READY) {
@@ -838,9 +1016,9 @@ static s32 hordeUpdateStationPrompt(s32 me, s32 ticks, unsigned breakSecs)
             if (s_state.box_buyer!=(unsigned)me)
                 snprintf(prompt,sizeof(prompt),"MYSTERY BOX: %s (%us)",wname,(s_state.box_timer+59)/60);
             else if (gone)
-                snprintf(prompt,sizeof(prompt),"TAKE %s FOR %s (%us) - PRESS B/GRIP",wname,hordeGunName(gone),
+                snprintf(prompt,sizeof(prompt),"TAKE %s FOR %s (%us) - HOLD B/GRIP 1.5s",wname,hordeGunName(gone),
                     (s_state.box_timer+59)/60);
-            else snprintf(prompt,sizeof(prompt),"TAKE %s (%us) - PRESS B/GRIP",wname,(s_state.box_timer+59)/60);
+            else snprintf(prompt,sizeof(prompt),"TAKE %s (%us) - HOLD B/GRIP 1.5s",wname,(s_state.box_timer+59)/60);
         }
         else
             snprintf(prompt,sizeof(prompt),"TEDDY BEAR! BOX MOVING - 950 PTS REFUNDED");
@@ -849,9 +1027,9 @@ static s32 hordeUpdateStationPrompt(s32 me, s32 ticks, unsigned breakSecs)
             s32 owned=w<5 && hordeGunOwned(&s_state,(unsigned)me,(unsigned)s_wall_items[w].item);
             unsigned gone=w<5 && !owned?hordeReplaceChoice(me):0;
             if (owned) snprintf(prompt,sizeof(prompt),"%s OWNED - AMMO DROPS FROM ENEMIES",s_wall_items[w].name);
-            else if (gone) snprintf(prompt,sizeof(prompt),"WALL BUY: %s FOR %s [%u PTS] (%u PTS) - PRESS B/GRIP",
+            else if (gone) snprintf(prompt,sizeof(prompt),"WALL BUY: %s FOR %s [%u PTS] (%u PTS) - HOLD B/GRIP 1.5s",
                 s_wall_items[w].name,hordeGunName(gone),hordeWallCost(w,FALSE),s_state.credits[me]);
-            else snprintf(prompt,sizeof(prompt),"WALL BUY: %s [%u PTS] (%u PTS) - PRESS B/GRIP",
+            else snprintf(prompt,sizeof(prompt),"WALL BUY: %s [%u PTS] (%u PTS) - HOLD B/GRIP 1.5s",
                 s_wall_items[w].name,hordeWallCost(w,FALSE),s_state.credits[me]);
             break;
         }
@@ -859,6 +1037,9 @@ static s32 hordeUpdateStationPrompt(s32 me, s32 ticks, unsigned breakSecs)
     if (!prompt[0]) {
         s_prompt[0]=0;
         return FALSE;
+    }
+    for (unsigned i=0;i<3;i++) if (s_purchase_hold[i].target && s_purchase_hold[i].ticks) {
+        snprintf(prompt,sizeof(prompt),"HOLD TO BUY: %u%%",s_purchase_hold[i].ticks*100/HORDE_HOLD_TICKS);break;
     }
     if (breakSecs) snprintf(line,sizeof(line),"%s - WAVE IN %u",prompt,breakSecs);
     else snprintf(line,sizeof(line),"%s",prompt);
@@ -918,8 +1099,8 @@ static void hordeUpdateMarkers(s32 ticks)
         if (s_box_marker) {
             chrpropActivate(s_box_marker->prop);chrpropEnable(s_box_marker->prop);
         }
-        sysLogPrintf(LOG_NOTE,"horde: station markers placed (box %s, wall buys at pads %d %d %d %d %d %d)",
-            s_box_marker?"yes":"no",s_wall_pads[0],s_wall_pads[1],s_wall_pads[2],s_wall_pads[3],s_wall_pads[4],s_wall_pads[5]);
+        sysLogPrintf(LOG_NOTE,"horde: station markers placed (box %s, %u wall buys)",
+            s_box_marker?"yes":"no",HORDE_WALL_COUNT);
     }
     if (s_box_marker && s_marker_spot!=(s32)s_state.box_spot) {
         s_marker_spot=s_state.box_spot;
@@ -935,41 +1116,49 @@ static void hordeUpdateMarkers(s32 ticks)
 static void hordeUpdateAmmo(s32 ticks,s32 me)
 {
     s_pickup_ticks-=ticks;
-    for (unsigned i=0;i<HORDE_AMMO_DROPS;i++) {
-        HordeAmmoDrop *drop=&s_state.ammo[i];
-        ObjectRecord *obj=s_ammo_marker[i];
+    for (unsigned n=0;n<HORDE_AMMO_DROPS+HORDE_POWER_DROPS;n++) {
+        unsigned power=n>=HORDE_AMMO_DROPS, i=power?n-HORDE_AMMO_DROPS:n;
+        HordeAmmoDrop entry;
+        if (power) memcpy(&entry,&s_state.powers[i],sizeof(entry));else entry=s_state.ammo[i];
+        HordeAmmoDrop *drop=&entry;
+        ObjectRecord **marker=power?&s_power_marker[i]:&s_ammo_marker[i];
+        uint32_t *marker_id=power?&s_power_marker_id[i]:&s_ammo_marker_id[i];
+        ObjectRecord *obj=*marker;
         if (!drop->id) {
-            if (obj && s_ammo_marker_id[i]) chrpropDisable(obj->prop);
-            s_ammo_marker_id[i]=0;continue;
+            if (obj && (*marker_id)) chrpropDisable(obj->prop);
+            (*marker_id)=0;continue;
         }
         if (!obj) {
-            obj=s_ammo_marker[i]=hordeMarkerCreate(PROP_AMMO_CRATE5,ITEM_UNARMED,0.6f);
+            obj=*marker=hordeMarkerCreate(power?PROP_CHRBRIEFCASE:PROP_AMMO_CRATE5,ITEM_UNARMED,power?1.5f:0.6f);
             /* walked over, not into: without its collision the host's reach
              * line (gevrHordeHandleAction) no longer stops at the crate */
             if (obj) {obj->flags&=~PROPFLAG_00000100;chrpropActivate(obj->prop);}
         }
-        if (obj && s_ammo_marker_id[i]!=drop->id) {
+        if (obj && (*marker_id)!=drop->id) {
             memcpy(obj->prop->pos.f,drop->pos,sizeof(drop->pos));obj->runtime_pos=obj->prop->pos;
             matrix_4x4_set_position_and_rotation_around_y(drop->pos,0,&obj->mtx);
             matrix_scalar_multiply(obj->model->scale,obj->mtx.m[0]);
             coord3d probe=obj->prop->pos;f32 floor=probe.y;
             obj->prop->stan=stanFindTileBelowPos(&probe,NULL,&floor);
             setupUpdateObjectRoomPosition(obj);chrpropEnable(obj->prop);
-            s_ammo_marker_id[i]=drop->id;
+            (*marker_id)=drop->id;
         }
         if (s_pickup_ticks>0 || me<0 || me>=4 || !g_playerPointers[me] || !g_playerPointers[me]->prop
             || netPlayerIsSpectator(me) || gevrCoopDowned(me) || s_state.phase==HORDE_DEFEAT) continue;
         coord3d *at=&g_playerPointers[me]->prop->pos;
         f32 dx=at->x-drop->pos[0],dy=at->y-drop->pos[1],dz=at->z-drop->pos[2];
         if (dx*dx+dz*dz<=90.0f*90.0f && dy>=-20.0f && dy<=210.0f) {
-            s_pickup_ticks=15;netHordeRequestAction(HORDE_ACT_AMMO_PICKUP,drop->id);
+            s_pickup_ticks=15;netHordeRequestAction(power?HORDE_ACT_POWER_PICKUP:HORDE_ACT_AMMO_PICKUP,drop->id);
         }
     }
 }
 
 void gevrHordeTick(int ticks)
 {
-    if (!netHordeRunning()) return;
+    if (!netHordeRunning() || ticks<=0 || s_state.phase==HORDE_DEFEAT) {
+        for (unsigned i=0;i<3;i++) {s_purchase_hold[i].target=0;s_purchase_hold[i].ticks=0;}
+        if (!netHordeRunning()) return;
+    }
     if (!s_doors_opened) hordeOpenDoors();
     hordeHoldDoors(ticks);
     if (ticks<0) ticks=0;
@@ -996,6 +1185,11 @@ void gevrHordeTick(int ticks)
                 s_state.ammo[i].id=0;s_state.ammo[i].ticks=0;s_state.revision++;
             } else s_state.ammo[i].ticks-=ticks;
         }
+        for (unsigned i=0;i<HORDE_POWER_DROPS;i++) if (s_state.powers[i].id) {
+            if (s_state.powers[i].ticks<=(unsigned)ticks) {
+                s_state.powers[i].id=s_state.powers[i].ticks=0;s_state.revision++;
+            } else s_state.powers[i].ticks-=ticks;
+        }
         s32 changed=hordeAdvance(&s_state,ticks,netMpPlayerCount(1));
         if (changed && s_state.phase==HORDE_INTERMISSION) netHordeAdmitPlayers();
         if (s_state.phase!=HORDE_WAVE) s_spawn_failures=0;
@@ -1013,6 +1207,7 @@ void gevrHordeTick(int ticks)
     s32 me=netGetLocalSlot();
     hordeApplyLocalGrant(me);
     hordeApplyAmmo(me);
+    hordeApplySupplies(me);
     hordeUpdateAmmo(ticks,me);
     /* Announce each wave and the defeat once, and keep a break's countdown
      * on screen while it runs; the pause menu keeps the running stats. A wave

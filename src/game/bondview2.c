@@ -1,6 +1,8 @@
 #ifdef GEVR
 #include "net_game.h"
 #include "net_coop.h"
+#include "net_horde.h"
+static int s_gevrHordeBHeld;
 #include "gevr_hud_geometry.h"
 #include "gevr_reload_input.h"
 #include "gevr_hand_reload.h"
@@ -11942,6 +11944,9 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     }
 
 #ifdef GEVR
+    if (!netIsActive() || get_cur_playernum()==netGetLocalSlot())
+        s_gevrHordeBHeld=!lvlGetControlsLockedFlag() && disablePlayerActionsWhenPausedOrInMpMenu()
+            && (gevrVrReloadHeldMask() || (buttons & B_BUTTON));
     /* OR of B/Y loses a second press while the other is held. Feed each new
      * VR press through the same activation/tank path, only for the local slot. */
     if (!netIsActive() || get_cur_playernum() == netGetLocalSlot()) {
@@ -11959,7 +11964,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     {
 #ifdef GEVR
         /* Dam speedboat: B boards at the jetty and steps off at the island;
-         * Horde: B rolls/claims the Mystery Box or purchases a Wall Buy. */
+         * Horde: B starts a purchase hold; a quick tap still reloads. */
         extern int gevrHordeOnUse(void);
         if (gevrDamBoatOnB() || gevrHordeOnUse())
         {
@@ -17568,6 +17573,7 @@ void gevrGripGestureInput(s32 ctrl, s32 pressed, s32 held)
         extern void gevrBodySlotGripLetGo(int ctrl);   /* gevr_bodyslots.c */
 
         s_gevrGripGesture[ctrl] = 0;
+        gevrHordeHoldInput(ctrl+1,0,0,NULL,0);
         gevrBodySlotGripLetGo(ctrl);
         return;
     }
@@ -17747,6 +17753,16 @@ static void gevrGripEquip(s32 hand, s32 item)
     }
 }
 
+/* Grip axes use scaled camera coordinates; shop pads use world coordinates. */
+static s32 gevrHordeGripWorld(const f32 p[3], coord3d *world)
+{
+    Mtxf *v2w=currentPlayerGetViewToWorldMtxf();
+    if (!v2w || D_800364CC<=1e-6f) return FALSE;
+    for (s32 i=0;i<3;i++) world->f[i]=p[i]/D_800364CC;
+    mtx4TransformVecInPlace(v2w,world);
+    return TRUE;
+}
+
 static s32 gevrGripGestureTry(s32 ctrl)
 {
     extern s32 trigger_haptic_vibration_c(int hand_index, float amplitude, float duration);
@@ -17806,8 +17822,8 @@ static s32 gevrGripGestureTry(s32 ctrl)
         p[i] = at[i] - back[i] * GEVR_GESTURE_FINGERS_CM * cm;
     }
     {
-        extern int gevrHordeOnGrip(const f32 hand[3]);
-        if (gevrDamBoatTryHand(p) || gevrHordeOnGrip(p))
+        coord3d world;
+        if (gevrDamBoatTryHand(p) || (gevrHordeGripWorld(p,&world) && gevrHordeOnGrip(ctrl,world.f)))
         {
             return TRUE;
         }
@@ -17952,6 +17968,7 @@ void gevrGripGestureTick(void)
     s32 ctrl;
 
     gevrGestureTuneRead();
+    gevrHordeHoldInput(0,0,s_gevrHordeBHeld,NULL,g_ClockTimer>0?(unsigned)g_ClockTimer:0);
     {
         extern void gevrBodySlotsTick(void);   /* gevr_bodyslots.c: which slot each hand is in */
 
@@ -17962,6 +17979,18 @@ void gevrGripGestureTick(void)
         if (s_gevrGripGesture[ctrl] == 1)
         {
             s_gevrGripGesture[ctrl] = gevrGripGestureTry(ctrl) ? 2 : 3;
+        }
+        else if (s_gevrGripGesture[ctrl] == 2)
+        {
+            f32 at[3],right[3],up[3],back[3],p[3];
+            f32 cm=GEVR_UNITS_PER_METRE*D_800364CC/100.0f;
+            if (gevrGripAxesRaw(ctrl,at,right,up,back)) {
+                for (s32 i=0;i<3;i++) p[i]=at[i]-back[i]*GEVR_GESTURE_FINGERS_CM*cm;
+                coord3d world;
+                if (gevrHordeGripWorld(p,&world))
+                    gevrHordeHoldInput(ctrl+1,0,1,world.f,g_ClockTimer>0?(unsigned)g_ClockTimer:0);
+                else gevrHordeHoldInput(ctrl+1,0,0,NULL,0);
+            } else gevrHordeHoldInput(ctrl+1,0,0,NULL,0);
         }
     }
 }
