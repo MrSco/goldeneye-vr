@@ -115,11 +115,18 @@ static void arenaBuildGuardPaths(void)
     s32 ti = 0;
     for (StandTile *t = stan_prefix->ptr_firstroom; *(u32 *)t;
          t = (void *)((u8 *)t + list_of_tilesizes[arenaSides(t)])) tiles[ti++] = t;
+    /* A tile has a neighbour slot per side plus the -1 end; a malformed stan
+     * linking one tile more often than it has sides must not overrun it. */
+    s32 *counts = arenaAlloc((nt + ns) * sizeof(*counts));
     s32 edges = 0;
     for (s32 i = 0; i < nt; i++) for (s32 e = 0; e < arenaSides(tiles[i]); e++) {
         s32 j = arenaTileIndex(tiles, nt, arenaLink(tiles[i], e));
-        if (j > i && arenaReverseLink(tiles[i], tiles[j])) edges++;
+        if (j > i && arenaReverseLink(tiles[i], tiles[j])
+            && counts[i] < arenaSides(tiles[i]) && counts[j] < arenaSides(tiles[j])) {
+            counts[i]++; counts[j]++; edges++;
+        }
     }
+    memset(counts, 0, nt * sizeof(*counts));
     s32 oldpads = arenaPadCount(), nodes = nt + edges;
     /* Pads >= 10000 are the engine's bound-pad encoding. */
     if (oldpads + nodes >= 10000) sysFatalError("arena: guard path exceeds ordinary pad IDs");
@@ -129,7 +136,6 @@ static void arenaBuildGuardPaths(void)
     waygroup *groups = arenaAlloc((nodes + 1) * sizeof(*groups));
     s32 *members = arenaAlloc(nodes * 2 * sizeof(*members));
     s32 *links = arenaAlloc((ns + nt + edges * 3) * sizeof(*links));
-    s32 *counts = arenaAlloc(nodes * sizeof(*counts));
     s32 offset = 0;
     for (s32 i = 0; i < nodes; i++) {
         ways[i].padID = oldpads + i;
@@ -150,7 +156,8 @@ static void arenaBuildGuardPaths(void)
     s32 next = nt;
     for (s32 i = 0; i < nt; i++) for (s32 e = 0; e < arenaSides(tiles[i]); e++) {
         s32 j = arenaTileIndex(tiles, nt, arenaLink(tiles[i], e));
-        if (j <= i || !arenaReverseLink(tiles[i], tiles[j])) continue;
+        if (j <= i || !arenaReverseLink(tiles[i], tiles[j])
+            || counts[i] >= arenaSides(tiles[i]) || counts[j] >= arenaSides(tiles[j])) continue;
         coord3d a, b;
         getTileEdgePoints(tiles[i], e, &a, &b);
         PadRecord *pad = &pads[oldpads + next];
