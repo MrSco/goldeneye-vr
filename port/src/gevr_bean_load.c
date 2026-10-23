@@ -24,7 +24,7 @@ struct beanDraw {
 	uint8_t maskslot;
     uint32_t reflectSpot,reflectLand; uint8_t reflectAmount[4],reflectionDiffuse,reflectionAlphaBase; uint32_t reflectionColour;
 	int16_t inst;
-	uint8_t blend, alpha, alphatest, terrainBlend;
+	uint8_t blend, alpha, alphatest, terrainBlend, tree, ownmat;
 	uint8_t pal[GEVR_BEAN_MAXPAL];
 	uint8_t numpal;
 	uint32_t colour;
@@ -303,6 +303,43 @@ static int readVtx(const uint8_t *gpu, const struct beanVb *vb, uint32_t i, floa
 		v->uv[1] = (int16_t)be16(p + k + 6) / uvscale;
 	}
 	return 1;
+}
+
+#include "gevr_bean_tree.inc.h"
+
+/* A tree's first copy has no instance record. Mark every draw of a buffer
+ * that is instanced elsewhere; other stride-20/28 layouts keep their UVs. */
+static void markTreeBuffers(struct beanDraw *draws, int count)
+{
+	for (int i = 0; i < count; i++)
+		if (draws[i].inst >= 0 && !draws[i].tree)
+			for (int j = 0; j < count; j++)
+				if (draws[j].vb == draws[i].vb)
+					draws[j].tree = 1;
+}
+
+/* DAB gebeanstage.c clampCutouts: a forest wall repeats horizontally but
+ * spans one picture vertically. Wrapping V samples snow at its clear top. */
+static void clampLevelCutouts(struct gevrBeanMesh *mesh, const uint8_t *texAlpha)
+{
+	float lo[MAX_TEX], hi[MAX_TEX];
+	for (int i = 0; i < MAX_TEX; i++) { lo[i] = 1e30f; hi[i] = -1e30f; }
+	for (int i = 0; i < mesh->ntris; i++) {
+		const struct gevrBeanTri *t = &mesh->tris[i];
+		if (t->tex < 0 || t->tex >= mesh->ntex) continue;
+		for (int c = 0; c < 3; c++) {
+			float v = t->uv[c * 2 + 1];
+			if (v < lo[t->tex]) lo[t->tex] = v;
+			if (v > hi[t->tex]) hi[t->tex] = v;
+		}
+	}
+	for (int tex = 0; tex < mesh->ntex; tex++) {
+		float base = floorf(lo[tex] + 1.0f / 32.0f);
+		if (texAlpha[tex] && lo[tex] <= hi[tex] && hi[tex] <= base + 1 + 1.0f / 32.0f) {
+			mesh->texClamp[tex] |= 2;
+			mesh->texClampBase[tex][1] = base;
+		}
+	}
 }
 
 static void applyInst(float *p, const float *m)
@@ -1342,6 +1379,30 @@ done:
 	free(l.item);
 }
 
+/* DAB gebeanLevelTriangles()/gebeanstage.c (aae28c8): a draw without UVs
+ * or a material since its vertex shader was set has no picture of its own.
+ * Bunker's helipad has 107 white triangles shaded entirely by that shader.
+ * Sampling the preceding draw's picture at (0,0) painted a flat grey band
+ * over the textured pad. Drop these white overlays only after identifying
+ * their underlying surface; other plain faces retain their vertex colours. */
+static void fixPlainLevelFaces(struct gevrBeanMesh *mesh)
+{
+	int kept = 0;
+	for (int i = 0; i < mesh->ntris; i++) {
+		struct gevrBeanTri *t = &mesh->tris[i];
+		if (t->flags & GEVR_BEAN_F_PLAIN) {
+			int white = 1;
+			for (int k = 0; k < 12; k++) white &= t->rgba[k] == 255;
+			if (white && (t->flags & GEVR_BEAN_F_DECAL)) continue;
+			t->tex = -1;
+			t->reflection = NULL;
+		}
+		if (kept != i) mesh->tris[kept] = *t;
+		kept++;
+	}
+	mesh->ntris = kept;
+}
+
 static int notePass(uint8_t **pass, int *cap, int index, uint8_t value)
 {
 	if (index >= *cap) {
@@ -1571,6 +1632,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	int numremap = 0;
 	uint8_t numpal = 1, passblend = 0, blend = 0, alphatest = 0;
 	uint8_t alpha = 0xff;
+	uint8_t ownmat = 0;
 	uint32_t colour = 0xffffffu;
 	int16_t inst = -1;
 	uint32_t secend = 0;
@@ -1777,6 +1839,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		} else if (type == 0x2e && sz >= 12) {
 			vb = be32(stream + pc + 8);
 		} else if (type == 0x02) {
+			ownmat = 0;
 			vs = sz >= 8 ? be32(stream + pc + 4) : 0;
 		} else if (type == 0x1a && sz >= 8) {
 			passblend = (be32(stream + pc + 4) & 0xff) == 2;
@@ -1788,6 +1851,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		} else if (type == 0x0c && sz >= 12 && be32(stream + pc + 4) == 0x60) {
 			alphatest = be32(stream + pc + 8) != 0;
 		} else if (type == 0x2d && sz >= 20) {
+			ownmat = 1;
 			tex = materialTex(&caff, stream, pc, sz, slen, texfile, ntex);
             tex = surfaceTex(&caff, stream, pc, sz, texfile, ntex, source, tex);
 			matpc = pc;
@@ -1899,6 +1963,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 						d->cuff = sections[section - 3];
 				}
 				d->vs = vs;
+				d->ownmat = ownmat;
 				d->vb = vb;
 				d->tex = tex;
                 d->reflectionDiffuse=reflectForm==4 ? 2 : reflectForm==3;
@@ -2032,6 +2097,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	fixPlaceholders(mesh, draws, ndraws, source);
 	textureAlphaFlags(mesh, texAlpha, texSoft);
     if (levelFade) markLevelBlendShaders(mesh, draws, ndraws, ibs, nibs, data, dlen, gpu, glen, uv20);
+	if (levelFade) markTreeBuffers(draws, ndraws);
 	/* A prop's draws are kept for GoldenEye's monitor screens (DAB gebean.c
 	 * beanFindScreens() and its users, in gevr_bean.c), and which of them and
 	 * which buffer vertices each triangle came from. */
@@ -2069,6 +2135,11 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		if (!readVb(data, dlen, gpu, glen, d->vb, uv20, &vbrec)) {
 			continue;
 		}
+		int isTree = d->tree && (vbrec.stride == 20 || vbrec.stride == 28);
+		int plain = levelFade && ((!d->ownmat && !isTree &&
+			(vbrec.stride == 16 || (vbrec.stride == 20 && !vbrec.uv20))) || vbrec.stride == 12);
+		struct beantree tree;
+		if (isTree) beanTreeMeasure(gpu, &vbrec, &tree);
 		for (int i = 0; i < nibs; i++) {
 			if (ibs[i].obj == d->ib) {
 				ib = &ibs[i];
@@ -2104,7 +2175,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 			struct beanVtx corner[3];
 			int ok = 1;
 			for (int k = 0; k < 3; k++) {
-				if (!readVtx(gpu, &vbrec, tris[t * 3 + k], uvscale, numbones > 0, &corner[k])) {
+				if (!(isTree ? readTreeVtx(gpu, &vbrec, tris[t * 3 + k], &corner[k])
+				             : readVtx(gpu, &vbrec, tris[t * 3 + k], uvscale, numbones > 0, &corner[k]))) {
 					ok = 0;
 					break;
 				}
@@ -2129,12 +2201,14 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 					| ((((corner[k].argb >> 16) & 255) * ((cr >> 16) & 255) / 255) << 16)
 					| ((((corner[k].argb >> 8) & 255) * ((cr >> 8) & 255) / 255) << 8)
 					| ((corner[k].argb & 255) * (cr & 255) / 255));
-				if (d->inst >= 0 && d->inst < ninst) {
-					applyInst(corner[k].pos, insts[d->inst]);
-					applyInstN(corner[k].nrm, insts[d->inst]);
-				}
 			}
 			if (ok) {
+				if (isTree) beanTreeUvs(gpu, &vbrec, &tree, &tris[t * 3], corner);
+				if (d->inst >= 0 && d->inst < ninst)
+					for (int k = 0; k < 3; k++) {
+						applyInst(corner[k].pos, insts[d->inst]);
+						applyInstN(corner[k].nrm, insts[d->inst]);
+					}
 				int texi = decalpic ? otherTex : baseTex;
 				int picAlpha = texi >= 0 && texi < MAX_TEX && texAlpha[texi];
 				int picSoft = texi >= 0 && texi < MAX_TEX && texSoft[texi];
@@ -2180,6 +2254,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 						d->pal, d->numpal, boneSk, muzzle, slideb)) {
 					break;
 				}
+				if (plain) mesh->tris[mesh->ntris - 1].flags |= GEVR_BEAN_F_PLAIN;
 				/* DAB fpDrawIsCard(): piece 0 is the flash; and beanGunExtent()
 				 * leaves the HD gun's small pictures (64x64 and under) out with
 				 * the hand's, which takes every flash card - the rocket
@@ -2242,10 +2317,12 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		}
 		free(tris);
 	}
-	if (levelFade)
+	if (levelFade) {
 		markLevelDecals(mesh, triPass, passCap < mesh->ntris ? passCap : mesh->ntris, texAlpha,
 		                levelDecalScale(source));
-	else if (rigidDecals)
+		fixPlainLevelFaces(mesh);
+		clampLevelCutouts(mesh, texAlpha);
+	} else if (rigidDecals)
 		markRigidDecals(mesh, texAlpha);
 	free(triPass);
 	free(draws);

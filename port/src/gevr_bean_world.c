@@ -935,6 +935,8 @@ static void clearSky(void)
 	s_skyOk = 0;
 }
 
+#include "gevr_bean_sky.inc.h"
+
 static int buildSky(int stage)
 {
 	const struct beanStage *st;
@@ -979,6 +981,7 @@ static int buildSky(int stage)
 		return 0;
 	}
 	mesh->roomMaterial=2; /* sky: retain cleared fog */
+	beanSkyMaterials(mesh);
 	k = SKY_EXTENT / extent;
 	ev = malloc((size_t)mesh->ntris * 3 * sizeof(*ev));
 	if (!ev) {
