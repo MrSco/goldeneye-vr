@@ -26,7 +26,8 @@ def function(source, signature):
 
 
 poll_start = input_source.index("    if (idx == localSlot) {\n        const unsigned held")
-movement_start = view.index("#ifdef GEVR\n    /* OR of B/Y")
+# The block opens with the Horde purchase-hold latch, then the B/Y edges.
+movement_start = view.rindex("#ifdef GEVR\n", 0, view.index("    /* OR of B/Y"))
 action_start = level.index("#ifdef GEVR\n            /* Drain even")
 fixtures = {
     "mp_presentation": {
