@@ -677,12 +677,11 @@ static void gevrMusicAllocSequenceBuffers(void)
     }
     s_musicSeqCapacity = 0;
     for (i = 0; i < NUM_MUSIC_TRACKS; i++) {
-        u32 size = g_musicDataTable->seqArray[i].uncompressed_len;
+        u32 size = ALIGN16_a(g_musicDataTable->seqArray[i].uncompressed_len);
         if (size > s_musicSeqCapacity) {
             s_musicSeqCapacity = size;
         }
     }
-    s_musicSeqCapacity = ALIGN16_a(s_musicSeqCapacity);
     g_musicXTrack1SeqData = alHeapAlloc(&g_musicHeap, 1, s_musicSeqCapacity);
     g_musicXTrack2SeqData = alHeapAlloc(&g_musicHeap, 1, s_musicSeqCapacity);
     g_musicXTrack3SeqData = alHeapAlloc(&g_musicHeap, 1, s_musicSeqCapacity);
@@ -712,10 +711,12 @@ static void gevrMusicLoadSequence(s32 track, u8 *dst)
     }
     /* ROM bytes are already resident. Decode directly from them, with an
      * output limit, instead of staging an aligned compressed copy at the
-     * unchecked end of a retail-sized buffer. */
+     * unchecked end of a retail-sized buffer. Goldfinger 64 and TND64 pad
+     * many sequences to 16 bytes past their table length (GF64 track 2:
+     * 6804 -> 6816), which the retail decoder wrote into its slack. */
     result = gevrInflate1172(entry->address, entry->len, dst,
-                            entry->uncompressed_len, &written);
-    if (result != 0 || written != entry->uncompressed_len) {
+                            ALIGN16_a(entry->uncompressed_len), &written);
+    if (result != 0 || written < entry->uncompressed_len) {
         sysFatalError("music: cannot decompress sequence %d (%u packed, %u expected, %u written, error %d)",
                       track, entry->len, entry->uncompressed_len, written, result);
     }

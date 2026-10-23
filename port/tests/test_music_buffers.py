@@ -20,14 +20,18 @@ def main():
     with tempfile.TemporaryDirectory(prefix="gevr-music-buffers-") as temp:
         directory = Path(temp)
         sizes = (128, 1999, 2000, 2001, 3999, 4000, 4001, 6344, 6345,
-                 12000, 32769, 65535)
+                 12000, 32769, 6804, 65535)
+        # Goldfinger 64 / TND64 sequences decode to their table length
+        # rounded up to 16 bytes (GF64 track 2: 6804 -> 6816).
+        padded = {6804}
         bank = bytearray()
         metadata = [str(len(sizes))]
         for i, size in enumerate(sizes):
             # A stored block is larger than its output and exercises the old
             # staging copy extending beyond the uncompressed data.
             codec = zlib.compressobj(0 if i == 9 else 6, zlib.DEFLATED, -15)
-            packed = b"\x11\x72" + codec.compress(bytes([i]) * size) + codec.flush()
+            body = bytes([i]) * ((size + 15) & ~15 if size in padded else size)
+            packed = b"\x11\x72" + codec.compress(body) + codec.flush()
             bank.extend(packed)
             metadata.append(f"{size} {len(packed)}")
         (directory / "bank.bin").write_bytes(bank)
