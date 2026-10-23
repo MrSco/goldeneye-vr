@@ -12,6 +12,7 @@
 #include <macro.h>
 #ifdef GEVR
 #include "system.h"
+#include "gevr_romcheck.h"
 #include "libultra/audio/cseqp.h"
 #endif
 
@@ -651,12 +652,74 @@ extern u8 *_instrumentstblSegmentRomStart;
 extern u8 *_instrumentsctlSegmentRomStart;
 extern u8 *_instrumentsctlSegmentRomEnd;
 extern u8 *_musicsampletblSegmentRomStart;
+extern u8 *_musicsampletblSegmentRomEnd;
 #else
 extern u32 _sfxtblSegmentRomStart;
 extern u32 _sfxctlSegmentRomStart;
 extern u32 _instrumentstblSegmentRomStart;
 extern u32 _instrumentsctlSegmentRomStart;
 extern u32 _musicsampletblSegmentRomStart;
+#endif
+
+#ifdef GEVR
+static u32 s_musicSeqCapacity;
+
+/* Any of the three players can receive a campaign's replacement sequences.
+ * The retail 6344/2000/4000-byte buffers are not limits on those files. In
+ * crash 0a705c81 sequence bytes overwrote the ALSave allocated just after
+ * them. Give each player its own buffer sized from the active music bank. */
+static void gevrMusicAllocSequenceBuffers(void)
+{
+    u32 i;
+
+    if (g_musicDataTable->seqCount < NUM_MUSIC_TRACKS) {
+        sysFatalError("music: bank has only %u sequences", g_musicDataTable->seqCount);
+    }
+    s_musicSeqCapacity = 0;
+    for (i = 0; i < NUM_MUSIC_TRACKS; i++) {
+        u32 size = g_musicDataTable->seqArray[i].uncompressed_len;
+        if (size > s_musicSeqCapacity) {
+            s_musicSeqCapacity = size;
+        }
+    }
+    s_musicSeqCapacity = ALIGN16_a(s_musicSeqCapacity);
+    g_musicXTrack1SeqData = alHeapAlloc(&g_musicHeap, 1, s_musicSeqCapacity);
+    g_musicXTrack2SeqData = alHeapAlloc(&g_musicHeap, 1, s_musicSeqCapacity);
+    g_musicXTrack3SeqData = alHeapAlloc(&g_musicHeap, 1, s_musicSeqCapacity);
+    if (!s_musicSeqCapacity || !g_musicXTrack1SeqData ||
+        !g_musicXTrack2SeqData || !g_musicXTrack3SeqData) {
+        sysFatalError("music: cannot allocate three %u byte sequence buffers", s_musicSeqCapacity);
+    }
+}
+
+static void gevrMusicLoadSequence(s32 track, u8 *dst)
+{
+    RareALSeqData *entry;
+    uintptr_t start = (uintptr_t)_musicsampletblSegmentRomStart;
+    uintptr_t end = (uintptr_t)_musicsampletblSegmentRomEnd;
+    uintptr_t address;
+    u32 written;
+    int result;
+
+    if (track < 0 || track >= NUM_MUSIC_TRACKS || track >= g_musicDataTable->seqCount) {
+        sysFatalError("music: invalid sequence %d", track);
+    }
+    entry = &g_musicDataTable->seqArray[track];
+    address = (uintptr_t)entry->address;
+    if (address < start || address > end || entry->len > end - address ||
+        entry->uncompressed_len > s_musicSeqCapacity) {
+        sysFatalError("music: sequence %d outside its bank or buffer", track);
+    }
+    /* ROM bytes are already resident. Decode directly from them, with an
+     * output limit, instead of staging an aligned compressed copy at the
+     * unchecked end of a retail-sized buffer. */
+    result = gevrInflate1172(entry->address, entry->len, dst,
+                            entry->uncompressed_len, &written);
+    if (result != 0 || written != entry->uncompressed_len) {
+        sysFatalError("music: cannot decompress sequence %d (%u packed, %u expected, %u written, error %d)",
+                      track, entry->len, entry->uncompressed_len, written, result);
+    }
+}
 #endif
 
 /**
@@ -812,6 +875,9 @@ void musicSeqPlayerInit(void)
     musicSeqFileNew(g_musicDataTable, (u8*)&_musicsampletblSegmentRomStart);
 #endif
     
+#ifdef GEVR
+    gevrMusicAllocSequenceBuffers();
+#else
     size = TRACK_1_DATA_SEQ_SIZE_BYTES;
     g_musicXTrack1SeqData = alHeapAlloc(&g_musicHeap, 1, size);
 
@@ -819,6 +885,8 @@ void musicSeqPlayerInit(void)
     g_musicXTrack2SeqData = alHeapAlloc(&g_musicHeap, 1, size);
     
     g_musicXTrack3SeqData = (u8*)g_musicXTrack2SeqData + TRACK_2_DATA_SEQ_SIZE_BYTES;
+
+#endif
 
     // This 'for' loops seems to load track offsets, and lengths one time at init.
     // devkit example does this on demand.
@@ -918,12 +986,15 @@ void musicSeqPlayerInit(void)
  */
 void musicTrack1Play(s32 track)
 {
+#ifndef GEVR
     u32 trackSizeBytes;
     struct music_struct_b thing;
     u8 *temp_a0;
     void *romAddress;
     u32 t3;
     u8 hlist[HUFT_SCRATCH_BYTES];
+
+#endif
 
     if (g_sndBootswitchSound)
     {
@@ -944,6 +1015,9 @@ void musicTrack1Play(s32 track)
     }
 #endif
 
+#ifdef GEVR
+    gevrMusicLoadSequence(track, g_musicXTrack1SeqData);
+#else
     romAddress = g_musicDataTable->seqArray[g_musicXTrack1CurrentTrackNum].address;
 
     if (romAddress < (void*)ROM_MUSIC_START_OFFSET)
@@ -957,14 +1031,12 @@ void musicTrack1Play(s32 track)
     t3 = ALIGN16_a(g_musicTrackLength[g_musicXTrack1CurrentTrackNum]) + ALIGN16_a(NUM_MUSIC_TRACKS);
     trackSizeBytes = ALIGN16_a(g_musicTrackCompressedLength[g_musicXTrack1CurrentTrackNum]);
     thing.seqData = g_musicXTrack1SeqData;
-    #ifdef GEVR
-    temp_a0 = (u8 *)(((uintptr_t)thing.seqData + t3) - trackSizeBytes);
-#else
     temp_a0 = (u8*)((t3 + (s32)thing.seqData) - trackSizeBytes);
-#endif
 
     romCopy(temp_a0, romAddress, trackSizeBytes);
     decompressdata(temp_a0, thing.seqData, (struct huft *)hlist);
+
+#endif
 
     alCSeqNew(&g_musicXTrack1Seq, g_musicXTrack1SeqData);
     alCSPSetSeq(g_musicXTrack1SeqPlayer, &g_musicXTrack1Seq);
@@ -1117,12 +1189,15 @@ void musicTrack1FadeIn(f32 fadeTime, u16 volume)
  */
 void musicTrack2Play(s32 track)
 {
+#ifndef GEVR
     u32 trackSizeBytes;
     struct music_struct_b thing;
     u8 *temp_a0;
     void *romAddress;
     u32 t3;
     u8 hlist[HUFT_SCRATCH_BYTES];
+
+#endif
 
     if (g_sndBootswitchSound)
     {
@@ -1143,6 +1218,9 @@ void musicTrack2Play(s32 track)
     }
 #endif
 
+#ifdef GEVR
+    gevrMusicLoadSequence(track, g_musicXTrack2SeqData);
+#else
     romAddress = g_musicDataTable->seqArray[g_musicXTrack2CurrentTrackNum].address;
 
     if (romAddress < (void*)ROM_MUSIC_START_OFFSET)
@@ -1156,14 +1234,12 @@ void musicTrack2Play(s32 track)
     t3 = ALIGN16_a(g_musicTrackLength[g_musicXTrack2CurrentTrackNum]) + ALIGN16_a(NUM_MUSIC_TRACKS);
     trackSizeBytes = ALIGN16_a(g_musicTrackCompressedLength[g_musicXTrack2CurrentTrackNum]);
     thing.seqData = g_musicXTrack2SeqData;
-    #ifdef GEVR
-    temp_a0 = (u8 *)(((uintptr_t)thing.seqData + t3) - trackSizeBytes);
-#else
     temp_a0 = (u8*)((t3 + (s32)thing.seqData) - trackSizeBytes);
-#endif
 
     romCopy(temp_a0, romAddress, trackSizeBytes);
     decompressdata(temp_a0, thing.seqData, (struct huft *)hlist);
+
+#endif
 
     alCSeqNew(&g_musicXTrack2Seq, g_musicXTrack2SeqData);
     alCSPSetSeq(g_musicXTrack2SeqPlayer, &g_musicXTrack2Seq);
@@ -1316,12 +1392,15 @@ void musicTrack2FadeIn(f32 fadeTime, u16 volume)
  */
 void musicTrack3Play(s32 track)
 {
+#ifndef GEVR
     u32 trackSizeBytes;
     struct music_struct_b thing;
     u8 *temp_a0;
     void *romAddress;
     u32 t3;
     u8 hlist[HUFT_SCRATCH_BYTES];
+
+#endif
 
     if (g_sndBootswitchSound)
     {
@@ -1342,6 +1421,9 @@ void musicTrack3Play(s32 track)
     }
 #endif
 
+#ifdef GEVR
+    gevrMusicLoadSequence(track, g_musicXTrack3SeqData);
+#else
     romAddress = g_musicDataTable->seqArray[g_musicXTrack3CurrentTrackNum].address;
 
     if (romAddress < (void*)ROM_MUSIC_START_OFFSET)
@@ -1355,14 +1437,12 @@ void musicTrack3Play(s32 track)
     t3 = ALIGN16_a(g_musicTrackLength[g_musicXTrack3CurrentTrackNum]) + ALIGN16_a(NUM_MUSIC_TRACKS);
     trackSizeBytes = ALIGN16_a(g_musicTrackCompressedLength[g_musicXTrack3CurrentTrackNum]);
     thing.seqData = g_musicXTrack3SeqData;
-    #ifdef GEVR
-    temp_a0 = (u8 *)(((uintptr_t)thing.seqData + t3) - trackSizeBytes);
-#else
     temp_a0 = (u8*)((t3 + (s32)thing.seqData) - trackSizeBytes);
-#endif
 
     romCopy(temp_a0, romAddress, trackSizeBytes);
     decompressdata(temp_a0, thing.seqData, (struct huft *)hlist);
+
+#endif
 
     alCSeqNew(&g_musicXTrack3Seq, g_musicXTrack3SeqData);
     alCSPSetSeq(g_musicXTrack3SeqPlayer, &g_musicXTrack3Seq);
