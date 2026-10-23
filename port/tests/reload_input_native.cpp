@@ -53,7 +53,7 @@ void poll() {
 }
 void move(int legacyTap = 0, bool tankConsumes = false) {
     struct { int btap; } moveData = {legacyTap};
-    const unsigned buttons = pad.button;
+    [[maybe_unused]] const unsigned buttons = pad.button; // test_v043 splices the Horde B latch, which reads it
     /* INSERT_MOVEMENT */
     g_CurrentPlayer->field_D0 = moveData.btap && !tankConsumes;
 }
