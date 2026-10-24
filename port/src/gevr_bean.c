@@ -2983,6 +2983,7 @@ void gevrBeanReset(void)
 {
 	beanFrameReset();
 	beanCutReset();
+	beanCapReset();
 	memset(s_wounds, 0, sizeof(s_wounds));
 	s_woundUse = 0;
 	for (int i = 0; i < s_nrigidMeshes; i++) gevrStaticMeshFree(s_rigidMeshes[i]);
