@@ -50,6 +50,11 @@ static const int *beanSkinWeld(struct beanSkin *skin)
 		}
 	}
 	free(table);
+	/* The weld belongs to this level just like the skin it indexes. */
+	if (!keepAlloc(weld)) {
+		free(weld);
+		return NULL;
+	}
 	skin->weld = weld;
 	return weld;
 }
@@ -64,6 +69,16 @@ struct beanCapCache {
 };
 static struct beanCapCache s_capCache[32];
 static int s_capNext;
+
+/* Skin addresses can be reused by the next level. Never retain their border
+ * indices after the level's allocation arena has been freed. */
+static void beanCapReset(void)
+{
+	for (int i = 0; i < (int)(sizeof(s_capCache) / sizeof(*s_capCache)); i++)
+		free(s_capCache[i].edges);
+	memset(s_capCache, 0, sizeof(s_capCache));
+	s_capNext = 0;
+}
 
 struct beanCapEdge { int a, b, va, vb, piece, other; };
 static int beanCapEdgeCmp(const void *x, const void *y)

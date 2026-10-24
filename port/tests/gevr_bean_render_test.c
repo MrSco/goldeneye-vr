@@ -250,6 +250,25 @@ int main(void)
     Model wounded = {0};
     s_wounds[0].model = &wounded;
     s_wounds[0].serial = s_woundUse = 1;
+    /* A new level may reuse a skin address with fewer/different triangles.
+     * The old cut border must not supply indices into the replacement skin. */
+    struct beanSkinVert resetVerts[6] = {0};
+    for (int i = 0; i < 6; i++) {
+        resetVerts[i].weight[0] = 255;
+        resetVerts[i].p[0][0] = (float)i;
+    }
+    struct beanSkin resetSkin = {.verts = resetVerts, .nverts = 6};
+    int resetPieces[2] = {0, 0}, resetOthers[2] = {-1, 1};
+    const struct beanCapCache *beforeReset = beanCapLoops(&resetSkin, 4, resetPieces, resetOthers);
+    assert(beforeReset && beforeReset->nloops == 1);
+    assert(beforeReset->edges[0][0] >= 3);
+    gevrBeanReset();
+    /* Simulate allocator address reuse deterministically, without depending
+     * on malloc returning the same address on the host platform. */
+    resetSkin.weld = NULL;
+    resetSkin.nverts = 3;
+    const struct beanCapCache *afterReset = beanCapLoops(&resetSkin, 4, resetPieces, resetOthers);
+    assert(afterReset && afterReset->nloops == 0);
     gevrBeanReset();
     assert(!s_wounds[0].model && !s_wounds[0].serial && !s_woundUse);
     puts("Bean UV, vertex alpha and same-level toggle checks passed");
