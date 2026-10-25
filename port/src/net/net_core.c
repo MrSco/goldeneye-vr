@@ -1024,8 +1024,8 @@ static bool netRoundMatchesLoadedMap(int engineStage) {
 }
 
 int gevrNetExpandedMap(void) {
-    return netIsActive() && s_round.config.mode == NET_MODE_DEATHMATCH &&
-        netStageExpanded(s_round.config.stage);
+    return (s_state == NET_STATE_INGAME || s_state == NET_STATE_MIGRATING) &&
+        s_round.config.mode == NET_MODE_DEATHMATCH && netStageExpanded(s_round.config.stage);
 }
 
 bool netTakeRoundReset(void) {

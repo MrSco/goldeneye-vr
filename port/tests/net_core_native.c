@@ -1177,6 +1177,9 @@ EXPORT int test_core_expanded_maps(void) {
     s_state=NET_STATE_INGAME; s_local_slot=0;
     CHECK(gevrNetExpandedMap() && netRoundLoadStage()==34);
     netStageLoaded(); CHECK(netRoundMatchesLoadedMap(34));
+    s_state=NET_STATE_HOSTING_LOBBY; CHECK(!gevrNetExpandedMap());
+    s_state=NET_STATE_OFFLINE; CHECK(!gevrNetExpandedMap());
+    s_state=NET_STATE_INGAME;
     s_round.config.stage=34;
     CHECK(!gevrNetExpandedMap() && netRoundLoadStage()==34 && !netRoundMatchesLoadedMap(34));
     netStageLoaded(); CHECK(netRoundMatchesLoadedMap(34));
