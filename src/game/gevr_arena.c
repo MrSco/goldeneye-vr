@@ -14,6 +14,9 @@
 #include "net_game.h"
 #include "net_horde.h"
 #include "system.h"
+#include "boss.h"
+#include "bondview.h"
+#include "net_core.h"
 
 struct ArenaStanPrefix { s32 stanfile; StandTile *ptr_firstroom; };
 extern struct ArenaStanPrefix *stan_prefix;
@@ -22,7 +25,7 @@ extern void getTileMidPoint(StandTile *tile, coord3d *out);
 extern void getTileEdgePoints(StandTile *tile, s32 side, coord3d *a, coord3d *b);
 
 static PropDefHeaderRecord *s_added_props;
-static s32 s_campaign_deathmatch;
+static s32 s_campaign_deathmatch, s_solo_arena, s_stage, s_out_ticks;
 static u32 s_level_keys;
 
 static void *arenaAlloc(size_t size)
@@ -302,10 +305,79 @@ s32 gevrArenaSkipProp(PropDefHeaderRecord *prop)
     }
 }
 
+/* What the mission's scripts did and an arena does not run (user, 2026-10-24,
+ * from a v0.5.14 Deathmatch test). Records are the solo setup's command
+ * indices (goldeneye-decomp Usetup*Z.c). Doors only an outro or a wall
+ * console opens, onto space the level never built or a dead end, stay shut;
+ * Dam's truck gates, worked from consoles in the mission, stand open. */
+static const struct ArenaDoorHold { s16 stage, record; u8 open; } s_door_holds[] = {
+    { LEVELID_DAM, 267, 1 }, { LEVELID_DAM, 268, 1 },          /* truck gates, an airlock pair */
+    { LEVELID_SURFACE2, 78, 0 },                               /* outro: tunnel to locked blast doors */
+    { LEVELID_BUNKER1, 116, 0 },                               /* outro */
+    { LEVELID_SILO, 116, 0 }, { LEVELID_SILO, 117, 0 },        /* outro lift */
+    { LEVELID_DEPOT, 184, 0 }, { LEVELID_DEPOT, 185, 0 },      /* outro: train's outer doors */
+    { LEVELID_JUNGLE, 565, 0 }, { LEVELID_JUNGLE, 566, 0 },    /* outro lift */
+    { LEVELID_CONTROL, 174, 0 }, { LEVELID_CONTROL, 175, 0 },  /* outro lift */
+    { LEVELID_TRAIN, 347, 0 },                                 /* last carriage, past roller 356 */
+};
+
+/* Called before setupDoor, whose doorInit opens a KEEPOPEN door at once. */
+void gevrArenaDoorRules(s32 stage, s32 record, DoorRecord *door)
+{
+    if (!s_solo_arena) return;
+    for (u32 i = 0; i < sizeof(s_door_holds) / sizeof(*s_door_holds); i++) {
+        if (s_door_holds[i].stage != stage || s_door_holds[i].record != record) continue;
+        door->flags |= PROPFLAG_CANNOT_ACTIVATE;
+        if (s_door_holds[i].open) {
+            door->flags |= PROPFLAG_DOOR_KEEPOPEN;
+            door->flags2 &= ~PROPFLAG2_40000000; /* the airlock: opening one shuts its partner */
+        } else {
+            door->flags &= ~PROPFLAG_DOOR_KEEPOPEN;
+        }
+    }
+}
+
+/* The rooms a player can stand in (user, 2026-10-24: Train's tracks run on
+ * for a long way). Train: the carriages are rooms 1-52, the track and
+ * ballast 53-57. Three seconds outside is a death of the player's own. */
+static const struct ArenaBounds { s16 stage; u8 first, last; } s_bounds[] = {
+    { LEVELID_TRAIN, 1, 52 },
+};
+#define ARENA_OUT_TICKS 180
+
+void gevrArenaTick(s32 ticks)
+{
+    if (!s_campaign_deathmatch || ticks <= 0 || bossGetStageNum() != s_stage) return;
+    const struct ArenaBounds *bounds = NULL;
+    for (u32 i = 0; i < sizeof(s_bounds) / sizeof(*s_bounds); i++)
+        if (s_bounds[i].stage == s_stage) bounds = &s_bounds[i];
+    const s32 me = netIsActive() ? netGetLocalSlot() : 0;
+    struct player *pl = bounds && me >= 0 && me < getPlayerCount() ? g_playerPointers[me] : NULL;
+    if (!pl || !pl->prop || !pl->prop->stan || pl->bonddead || netPlayerIsSpectator(me)) {
+        s_out_ticks = 0;
+        return;
+    }
+    const u8 room = pl->prop->stan->room;
+    if (room >= bounds->first && room <= bounds->last) {
+        s_out_ticks = 0;
+        return;
+    }
+    if ((s_out_ticks += ticks) < ARENA_OUT_TICKS) return;
+    s_out_ticks = 0;
+    sysLogPrintf(LOG_NOTE, "arena: player %d out of bounds in room %d", me, room);
+    const s32 prev = get_cur_playernum();
+    set_cur_player(me);
+    record_damage_kills(100.0f, 0, 0, -1, TRUE); /* no attacker: counted as the player's own */
+    set_cur_player(prev);
+}
+
 void gevrArenaPrepareSetup(s32 stage)
 {
     s_added_props = NULL;
     s_campaign_deathmatch = gevrArenaCampaignDeathmatch(stage);
+    s_solo_arena = s_campaign_deathmatch || (netHordeActive() && !netStageUsesMpSetup((unsigned)stage, NET_MODE_HORDE));
+    s_stage = stage;
+    s_out_ticks = 0;
     s_level_keys = 0;
     if (!netHordeActive() && !s_campaign_deathmatch) return;
     arenaLevelKeys();

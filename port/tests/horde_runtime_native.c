@@ -69,6 +69,11 @@ unsigned netGetRandomSeed(void) {return 123;}
 int netMpPlayerCount(int fallback) {return 1;}
 int netLobbySlotConnected(int slot) {return slot==0;}
 int netPlayerIsSpectator(int slot) {return 0;}
+/* gevr_arena.c gevrArenaTick (campaign Deathmatch only, never reached here) */
+s32 bossGetStageNum(void) {return -1;}
+s32 getPlayerCount(void) {return 1;}
+int netIsActive(void) {return 1;}
+void record_damage_kills(f32 d,f32 x,f32 z,s32 p,s32 a) {(void)d;(void)x;(void)z;(void)p;(void)a;assert(0);}
 int gevrCoopDowned(int slot) {return 0;}
 s32 get_cur_playernum(void) {return 0;}
 void set_cur_player(s32 slot) {assert(slot==0);}

@@ -218,7 +218,29 @@ static void check_rules(void)
         for (int i = 0; i < 8; i++) assert(starts[i].index == 0);
         clear_allocations();
     }
-    puts("PASS: arena key rule, fall-away locks, safes and floor-standing spawns (Dab's Mod)");
+    /* Per-map holds where the mission's scripts are not run: Dam's truck
+     * gates stand open (no airlock), Surface 2's outro door stays shut. */
+    g_CurrentSetup = (struct stagesetup){.pads = pads, .propDefs = (void *)stream};
+    gevrArenaPrepareSetup(LEVELID_DAM);
+    DoorRecord gate = {.flags2 = PROPFLAG2_40000000}, other = {0};
+    gevrArenaDoorRules(LEVELID_DAM, 268, &gate);
+    gevrArenaDoorRules(LEVELID_DAM, 1, &other);
+    assert((gate.flags & PROPFLAG_DOOR_KEEPOPEN) && (gate.flags & PROPFLAG_CANNOT_ACTIVATE));
+    assert(!(gate.flags2 & PROPFLAG2_40000000) && !other.flags);
+    clear_allocations();
+    g_CurrentSetup = (struct stagesetup){.pads = pads, .propDefs = (void *)stream};
+    gevrArenaPrepareSetup(LEVELID_SURFACE2);
+    DoorRecord outro = {.flags = PROPFLAG_DOOR_KEEPOPEN};
+    gevrArenaDoorRules(LEVELID_SURFACE2, 78, &outro);
+    assert(outro.flags == PROPFLAG_CANNOT_ACTIVATE);
+    clear_allocations();
+    mode = NET_MODE_COOP; /* the mission itself keeps its scripts and its doors */
+    g_CurrentSetup = (struct stagesetup){.pads = pads, .propDefs = (void *)stream};
+    gevrArenaPrepareSetup(LEVELID_SURFACE2);
+    DoorRecord mission = {0};
+    gevrArenaDoorRules(LEVELID_SURFACE2, 78, &mission);
+    assert(!mission.flags);
+    puts("PASS: arena key rule, fall-away locks, safes, floor-standing spawns (Dab's Mod) and per-map door holds");
 }
 
 int main(void) { setvbuf(stdout, NULL, _IONBF, 0); check_graph(); check_campaign(); check_rules(); }

@@ -1638,6 +1638,9 @@ void proplvreset2(enum LEVELID stageId)
                     case PROPDEF_DOOR:
                         if (withobjs && (!(((struct DoorRecord *) phead)->flags2 & flags)))
                         {
+#ifdef GEVR
+                            gevrArenaDoorRules(stageId, pdefIndex, (struct DoorRecord *) phead);
+#endif
                             setupDoor(stageId, (struct DoorRecord *) phead, pdefIndex);
 #ifdef GEVR
                             if ((netHordeActive() || gevrArenaCampaignDeathmatch(stageId)) &&
