@@ -269,6 +269,15 @@ int main(void)
     resetSkin.nverts = 3;
     const struct beanCapCache *afterReset = beanCapLoops(&resetSkin, 4, resetPieces, resetOthers);
     assert(afterReset && afterReset->nloops == 0);
+    /* Without a reset too: an entry is for the skin at its own size. */
+    resetSkin.weld = NULL;
+    resetSkin.nverts = 6;
+    const struct beanCapCache *grown = beanCapLoops(&resetSkin, 4, resetPieces, resetOthers);
+    assert(grown && grown->nloops == 1 && grown->edges[0][0] >= 3);
+    resetSkin.weld = NULL;
+    resetSkin.nverts = 3;
+    const struct beanCapCache *shrunk = beanCapLoops(&resetSkin, 4, resetPieces, resetOthers);
+    assert(shrunk && shrunk != grown && shrunk->nloops == 0);
     gevrBeanReset();
     assert(!s_wounds[0].model && !s_wounds[0].serial && !s_woundUse);
     puts("Bean UV, vertex alpha and same-level toggle checks passed");
