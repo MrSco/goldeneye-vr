@@ -41,7 +41,18 @@ extern int VrGexGuns;
 #define MAX_OPAQUE_MODELS 1024
 static const void *s_opaqueModels[MAX_OPAQUE_MODELS];
 static int s_nopaqueModels;
+static void beanGunCollect(void);
 #include "gevr_bean_frame.inc.h"
+
+/* First-person file buffers are reused at weapon switches and respawns.
+ * Each load owns its replacements until no registry entry refers to it,
+ * then the last two frame lists must finish before that storage is freed. */
+struct beanGunGroup {
+	struct beanGunGroup *next;
+	unsigned retiredFrame;
+	int references, retired;
+};
+static struct beanGunGroup *s_gunGroups, *s_registrationGroup;
 
 static Gfx s_blank[1];
 static int s_blankReady;
@@ -80,10 +91,12 @@ static struct beanSkin *s_emittedSkin;
 static ModelFileHeader *s_registrationOwner;
 static int s_registrationWatchArm;
 static GevrStaticMesh *s_rigidMeshes[MAX_ALLOC];
+static struct beanGunGroup *s_rigidGroups[MAX_ALLOC];
 static int s_nrigidMeshes;
 static int s_registrationKind, s_rigidMinimum=256;
 struct beanSwap {
 	ModelFileHeader *owner;
+	struct beanGunGroup *group;
 	void *node;
 	void *original;
 	void *ours;
@@ -113,6 +126,7 @@ static int s_nswap;
 /* Node selection is repeated for each body part and pass. */
 static uint16_t s_swapIndex[MAX_SWAP * 2];
 static void *s_alloc[MAX_ALLOC];
+static struct beanGunGroup *s_allocGroups[MAX_ALLOC];
 static int s_nalloc;
 
 struct beanCache {
@@ -189,9 +203,12 @@ static int keepAlloc(void *p)
 		GEVR_BEAN_LOG("gevr bean: allocation table full\n");
 		return 0;
 	}
+	s_allocGroups[s_nalloc] = s_registrationGroup;
 	s_alloc[s_nalloc++] = p;
 	return 1;
 }
+
+#include "gevr_bean_gun_lifetime.inc.h"
 
 static unsigned swapBucket(const void *node)
 {
@@ -233,6 +250,8 @@ static void swapAdd(void *node, void *original, void *ours, int origType)
 		return;
 	}
 	s_swap[s_nswap].owner = s_registrationOwner;
+	s_swap[s_nswap].group = s_registrationGroup;
+	if (s_registrationGroup) s_registrationGroup->references++;
 	s_swap[s_nswap].node = node;
 	s_swap[s_nswap].original = original;
 	s_swap[s_nswap].ours = ours ? ours : s_blank;
@@ -1016,7 +1035,8 @@ static Gfx *wrapEmitted(ModelNode *n, Gfx *gdl)
 {
 	{
         /* Rigid props, guns and gloves retain their material commands and CPU
-         * fallback. Their vertex buffers live until the level reset. */
+         * fallback. Gun storage retires after reload; other storage lasts
+         * until the level reset. */
         if (!s_emittedSkin && s_nrigidMeshes < MAX_ALLOC && retainedRigidList(gdl)) {
             GevrStaticMesh *mesh = gevrStaticMeshBuild(gdl);
             /* gevr_rigid_min.txt <N>: props under N triangles take the CPU
@@ -1026,6 +1046,7 @@ static Gfx *wrapEmitted(ModelNode *n, Gfx *gdl)
             }
             Gfx *gpu = mesh ? malloc(2 * sizeof(Gfx)) : NULL;
             if (gpu && keepAlloc(gpu)) {
+                s_rigidGroups[s_nrigidMeshes] = s_registrationGroup;
                 s_rigidMeshes[s_nrigidMeshes++] = mesh;
                 gpu[0].words.w0 = (uintptr_t)G_GEVR_MESH << 24;
                 gpu[0].words.w1 = (uintptr_t)mesh;
@@ -2770,6 +2791,8 @@ void gevrBeanForgetModel(struct ModelFileHeader *header)
 	for (int i = 0; i < s_nswap; i++)
 		if (s_swap[i].owner != header)
 			s_swap[kept++] = s_swap[i];
+		else
+			beanGunUnref(s_swap[i].group);
 	s_nswap = kept;
 	swapIndexRebuild();
 	beanScreenInfoForget(header, 0, 0);
@@ -2785,6 +2808,8 @@ void gevrBeanForgetModelStorage(const void *base, u32 size)
 		uintptr_t node = (uintptr_t)s_swap[i].node;
 		if (node < start || node - start >= size)
 			s_swap[kept++] = s_swap[i];
+		else
+			beanGunUnref(s_swap[i].group);
 	}
 	s_nswap = kept;
 	swapIndexRebuild();
@@ -2876,11 +2901,22 @@ void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
 		mesh->mirrorPieces = 1;
 	}
 	int before = s_nswap;
-	applyMesh(header, mesh, kind, fit);
+	struct beanGunGroup *group = NULL;
+	if (kind == BEAN_GUN) group = calloc(1, sizeof(*group));
+	if (kind != BEAN_GUN || group) {
+		if (group) {
+			group->next = s_gunGroups;
+			s_gunGroups = group;
+		}
+		s_registrationGroup = group;
+		applyMesh(header, mesh, kind, fit);
+		s_registrationGroup = NULL;
+		if (group && !group->references) beanGunRetire(group);
+	}
 	GEVR_BEAN_LOG("gevr bean: %s -> %s: %d draw nodes, %d triangles, %d textures",
 	             name, source, s_nswap - before, mesh->ntris, mesh->ntex);
 	/* Once the bounded cache is full, this load is temporary. Its display
-	 * lists and decoded textures have their own lifetime until level reset. */
+	 * lists and decoded textures have separate ownership. */
 	int cached = 0;
 	for (int i = 0; i < s_ncache; i++) {
 		if (s_cache[i].mesh == mesh) cached = 1;
@@ -3011,6 +3047,7 @@ void gevrBeanReset(void)
 		s_alloc[i] = NULL;
 	}
 	s_nalloc = 0;
+	beanGunReset();
 	s_rareLogo = NULL;   /* its list and picture went with the level */
 	memset(s_deformed, 0, sizeof(s_deformed));
 	s_rareLogoTried = 0;
