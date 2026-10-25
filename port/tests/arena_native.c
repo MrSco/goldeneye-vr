@@ -18,7 +18,7 @@ static int mode;
 int netHordeActive(void) { return mode == NET_MODE_HORDE; }
 s32 gevrMpRules(void) { return mode == NET_MODE_DEATHMATCH; }
 void sysLogPrintf(s32 level, const char *fmt, ...) { (void)level; (void)fmt; }
-void sysFatalError(const char *fmt, ...) { (void)fmt; abort(); }
+void sysFatalError(const char *fmt, ...) { fprintf(stderr, "fatal: %s\n", fmt); abort(); }
 void osSyncPrintf(const char *fmt, ...) { (void)fmt; }
 u32 randomGetNext(void) { return 42; }
 s32 sizepropdef(PropDefHeaderRecord *p) { return gevrSetupPropWords(p->type); }
@@ -47,6 +47,19 @@ void getTileEdgePoints(StandTile *tile, s32 e, coord3d *a, coord3d *b) {
     s32 next = (e + 1) % 3;
     *a = (coord3d){.x = tile->points[e].x, .y = tile->points[e].y, .z = tile->points[e].z};
     *b = (coord3d){.x = tile->points[next].x, .y = tile->points[next].y, .z = tile->points[next].z};
+}
+/* stan.c returns the tile plane's height; these fixture tiles are flat. A
+ * bare StandTile (no sides) has no point storage behind it. */
+f32 stanGetPositionYValue(StandTile *tile, f32 x, f32 z) {
+    (void)x; (void)z;
+    return (tile->tail.half >> 12) & 15 ? tile->points[0].y : 0.0f;
+}
+/* loadobjectmodel.c's own walk */
+ObjectRecord *setupGetPtrToCommandByIndex(s32 index) {
+    PropDefHeaderRecord *p = g_CurrentSetup.propDefs;
+    for (s32 i = 0; index >= 0 && p && p->type != PROPDEF_END; i++, p = (void *)((u32 *)p + sizepropdef(p)))
+        if (i == index) return (ObjectRecord *)p;
+    return NULL;
 }
 static s32 blocking, observed_closed_doors;
 s32 stanTestLineUnobstructed(StandTile **t, f32 x, f32 z, f32 xx, f32 zz, s32 mask,
@@ -163,4 +176,49 @@ static void check_campaign(void)
     puts("PASS: all campaign maps select the correct setup; campaign Deathmatch generates distinct spawns, selected-set pickups, armour and Flag Tag; co-op unchanged");
 }
 
-int main(void) { check_graph(); check_campaign(); }
+/* Dab's Mod GoldenEye Arenas rules (geconvert.c): the level's own keys open
+ * the doors they open, locks stay only on fall-away doors, safes are kept and
+ * spawns stand on their floor. */
+static void check_rules(void)
+{
+    static const u8 types[] = { PROPDEF_KEY, PROPDEF_DOOR, PROPDEF_DOOR, PROPDEF_DOOR, PROPDEF_DOOR,
+                                PROPDEF_LOCK_DOOR, PROPDEF_LOCK_DOOR, PROPDEF_SAFE, PROPDEF_END };
+    _Alignas(8) u8 stream[4096] = {0};
+    size_t at[9], used = 0;
+    for (int i = 0; i < 9; i++) {
+        at[i] = used;
+        ((PropDefHeaderRecord *)(stream + used))->type = types[i];
+        used += (size_t)gevrSetupPropWords(types[i]) * 4;
+        assert(used < sizeof(stream));
+    }
+    ((KeyRecord *)(stream + at[0]))->keyflags = 0x1;
+    ((DoorRecord *)(stream + at[1]))->keyflags = 0x1;     /* the level's key opens it */
+    ((DoorRecord *)(stream + at[2]))->keyflags = 0x80;    /* no key of the level: Runway's chemical plant */
+    ((DoorRecord *)(stream + at[3]))->doorType = DOORTYPE_FALLAWAY; /* Surface's vent hatch */
+    ((LockDoorRecord *)(stream + at[5]))->Index1 = 3 - 5; /* on the fall-away door */
+    ((LockDoorRecord *)(stream + at[6]))->Index1 = 4 - 6; /* on an ordinary door */
+    PadRecord pads[3] = {0}; StandTile tile = {0};
+    for (int i = 0; i < 2; i++) { pads[i].plink = "pad"; pads[i].stan = &tile; pads[i].pos.x = i * 1000; }
+    pads[1].pos.y = 345; /* Train's trackside pads, behind the crates */
+    mode = NET_MODE_DEATHMATCH;
+    for (int map = 0; map < netStageCount(); map++) {
+        unsigned stage = netStage(map)->level_id;
+        if (netStageHasMpSetup(stage)) continue;
+        g_CurrentSetup = (struct stagesetup){.pads = pads, .propDefs = (void *)stream};
+        gevrArenaPrepareSetup(stage);
+        assert(gevrArenaDoorKeyOpens(0x1) && !gevrArenaDoorKeyOpens(0x80) && !gevrArenaDoorKeyOpens(0x81));
+        assert(!gevrArenaDoorKeyOpens(0));
+        PropDefHeaderRecord *p = g_CurrentSetup.propDefs;
+        for (int i = 0; i < 8; i++, p = (void *)((u32 *)p + sizepropdef(p))) {
+            assert(p->type == types[i]);
+            const s32 skipped = gevrArenaSkipProp(p);
+            assert(skipped == (i == 0 || i == 6));
+        }
+        SetupIntroSpawn *starts = (void *)g_CurrentSetup.intro;
+        for (int i = 0; i < 8; i++) assert(starts[i].index == 0);
+        clear_allocations();
+    }
+    puts("PASS: arena key rule, fall-away locks, safes and floor-standing spawns (Dab's Mod)");
+}
+
+int main(void) { setvbuf(stdout, NULL, _IONBF, 0); check_graph(); check_campaign(); check_rules(); }

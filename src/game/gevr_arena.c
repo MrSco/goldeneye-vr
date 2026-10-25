@@ -23,6 +23,7 @@ extern void getTileEdgePoints(StandTile *tile, s32 side, coord3d *a, coord3d *b)
 
 static PropDefHeaderRecord *s_added_props;
 static s32 s_campaign_deathmatch;
+static u32 s_level_keys;
 
 static void *arenaAlloc(size_t size)
 {
@@ -43,9 +44,19 @@ static s32 arenaPadCount(void)
     return count;
 }
 
+/* DAB geconvert.c flooredPads (5262): a pad stands on its floor, -30..+60
+ * from the tile under it. Train's trackside pads sit 345-370 above the
+ * ballast, behind the crates (Dab's netplay.md). */
+static s32 arenaPadOnFloor(PadRecord *pad)
+{
+    f32 dy = pad->pos.y - stanGetPositionYValue(pad->stan, pad->pos.x, pad->pos.z);
+    return dy >= -30.0f && dy <= 60.0f;
+}
+
 static void arenaAddPad(s32 *out, s32 *count, s32 capacity, s32 pad, s32 pads)
 {
     if (*count >= capacity || pad < 0 || pad >= pads || !g_CurrentSetup.pads[pad].stan) return;
+    if (!arenaPadOnFloor(&g_CurrentSetup.pads[pad])) return;
     for (s32 i = 0; i < *count; i++) if (out[i] == pad) return;
     out[(*count)++] = pad;
 }
@@ -245,12 +256,48 @@ static void arenaDeathmatchSetup(void)
     g_CurrentSetup.propDefs = (void *)defs;
 }
 
+/* DAB geconvert.c setupKeyFlags (4753): the keys the level's own setup
+ * holds. A door those open is one the player gets through once the key is
+ * found, and an arena has no keys, so it opens for everyone; a door no key of
+ * the level opens stays shut, as GoldenEye keeps it (Runway's chemical plant
+ * doors, Depot's upper doors, most of Train's). */
+static void arenaLevelKeys(void)
+{
+    s_level_keys = 0;
+    for (PropDefHeaderRecord *p = g_CurrentSetup.propDefs; p && p->type != PROPDEF_END;
+         p = (void *)((u32 *)p + sizepropdef(p)))
+        if (p->type == PROPDEF_KEY) s_level_keys |= ((KeyRecord *)p)->keyflags;
+}
+
+s32 gevrArenaDoorKeyOpens(u32 keyflags)
+{
+    return keyflags && (keyflags & s_level_keys) == keyflags;
+}
+
+/* DAB geconvert.c lockOnFallawayCarried (4785): a fall-away door free of
+ * locks falls away at once, so its locks stay (Surface's vent hatches, Train's
+ * floor panel); a lock on any other door is left out, as Dab's arenas do. */
+static s32 arenaLockOnFallaway(PropDefHeaderRecord *prop)
+{
+    s32 index = 0;
+    for (PropDefHeaderRecord *p = g_CurrentSetup.propDefs; p && p != prop; index++) {
+        if (p->type == PROPDEF_END) return FALSE;
+        p = (void *)((u32 *)p + sizepropdef(p));
+    }
+    DoorRecord *door = (DoorRecord *)setupGetPtrToCommandByIndex(index + ((LockDoorRecord *)prop)->Index1);
+    return door && door->type == PROPDEF_DOOR && door->doorType == DOORTYPE_FALLAWAY;
+}
+
 s32 gevrArenaSkipProp(PropDefHeaderRecord *prop)
 {
     if (!s_campaign_deathmatch || !s_added_props || (uintptr_t)prop >= (uintptr_t)s_added_props) return FALSE;
     switch (prop->type) {
     case PROPDEF_DOOR: case PROPDEF_DOOR_SCALE: case PROPDEF_PROP:
     case PROPDEF_GLASS: case PROPDEF_TINTED_GLASS: return FALSE;
+    /* DAB g_Carry (geconvert.c 4604): a safe is scenery; its door hangs on it
+     * (Depot's floating safe door) */
+    case PROPDEF_SAFE: return FALSE;
+    case PROPDEF_LOCK_DOOR: return !arenaLockOnFallaway(prop);
     default: return TRUE; /* campaign actors, inventory, objectives and script links */
     }
 }
@@ -259,7 +306,9 @@ void gevrArenaPrepareSetup(s32 stage)
 {
     s_added_props = NULL;
     s_campaign_deathmatch = gevrArenaCampaignDeathmatch(stage);
+    s_level_keys = 0;
     if (!netHordeActive() && !s_campaign_deathmatch) return;
+    arenaLevelKeys();
     if (netHordeActive()) arenaBuildGuardPaths();
     if (s_campaign_deathmatch) arenaDeathmatchSetup();
     /* Global guard AI lists remain available; mission/background scripts cannot
