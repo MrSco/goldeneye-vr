@@ -58,6 +58,7 @@ def main():
             source.write_text(fixture.replace("/* PRODUCTION AND EXISTING ENGINE STUBS */", prefix))
             result = subprocess.run([
                 shutil.which("gcc") or "cc", "-std=c11", "-O1", "-g",
+                "-U_FORTIFY_SOURCE",  # the repo's include/limits.h trips glibc's fortified MB_LEN_MAX check
                 "-include", "stdarg.h", "-include", "stddef.h", "-include", "limits.h",
                 "-fms-extensions", "-fno-strict-aliasing", "-Wno-incompatible-pointer-types",
                 "-ffunction-sections", "-fdata-sections", "-fsanitize=address,undefined",
