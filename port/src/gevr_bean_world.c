@@ -128,7 +128,11 @@ struct beanStage {
 	const char *skyRelease;
 };
 
-/* DAB fitted scales in GoldenEye file units (no Perfect Dark recentering). */
+/* DAB fitted scales in GoldenEye file units (no Perfect Dark recentering).
+ * skyRelease: DAB gebeansky.c releaseSkyNames. The release's skies are one
+ * picture, Surface's daylit placeholder; it fits only Surface, Dam and
+ * Runway, and every other level keeps GoldenEye's sky (a tester on Surface 2,
+ * 2026-10-24: "a mixture of night and day"). */
 static const struct beanStage s_stages[] = {
     {LEVELID_ARCHIVES, "archives", 1.072400836f, "archives", NULL},
     {LEVELID_CONTROL, "control", 1.616580623f, "control", NULL},
@@ -137,22 +141,22 @@ static const struct beanStage s_stages[] = {
     {LEVELID_BASEMENT, "library", 0.573907333f, "library", NULL},
     {LEVELID_STACK, "library", 0.573907333f, "library", NULL},
     {LEVELID_LIBRARY, "library", 0.573907333f, "library", NULL},
-    {LEVELID_CAVERNS, "cavern", 0.501072787f, "caves", "caverns"},
+    {LEVELID_CAVERNS, "cavern", 0.501072787f, "caves", NULL},
     {LEVELID_CRADLE, "cradle", 1.828668257f, "cradle", NULL},
-    {LEVELID_EGYPT, "temple", 0.921010121f, "temple", "egyptian"},
+    {LEVELID_EGYPT, "temple", 0.921010121f, "temple", NULL},
     {LEVELID_DAM, "dam", 4.280101153f, "dam", "dam"},
     {LEVELID_DEPOT, "depot", 0.805820509f, "depot", NULL},
-    {LEVELID_FRIGATE, "frigate", 0.821433927f, "frigate", "frigate"},
-    {LEVELID_TEMPLE, "multitemple", 3.119410587f, "multitemple", "temple"},
+    {LEVELID_FRIGATE, "frigate", 0.821433927f, "frigate", NULL},
+    {LEVELID_TEMPLE, "multitemple", 3.119410587f, "multitemple", NULL},
     {LEVELID_JUNGLE, "jungle", 0.706146978f, NULL, NULL},
     {LEVELID_CAVES, "caves", 0.715800060f, "caves", NULL},
     {LEVELID_STREETS, "streets", 1.239411313f, "streets", NULL},
-    {LEVELID_COMPLEX, "complex", 0.401740938f, "complex", "complex"},
+    {LEVELID_COMPLEX, "complex", 0.401740938f, "complex", NULL},
     {LEVELID_RUNWAY, "runway", 0.508383572f, "runway", "runway"},
-    {LEVELID_BUNKER1, "bunker", 0.429214082f, "bunker", "bunker"},
-    {LEVELID_BUNKER2, "bunker2", 0.429214887f, "bunker2", "bunker2"},
+    {LEVELID_BUNKER1, "bunker", 0.429214082f, "bunker", NULL},
+    {LEVELID_BUNKER2, "bunker2", 0.429214887f, "bunker2", NULL},
     {LEVELID_SURFACE, "surface", 0.497385395f, "sf1", "surface"},
-    {LEVELID_SURFACE2, "surface", 0.497385395f, "sf2", "surface2"},
+    {LEVELID_SURFACE2, "surface", 0.497385395f, "sf2", NULL},
     {LEVELID_SILO, "silo", 0.615140709f, "silo", NULL},
     {LEVELID_STATUE, "statuepark", 0.007471857f, "statuepark", NULL},
     {LEVELID_TRAIN, "train", 1.300371514f, "train", NULL}};
