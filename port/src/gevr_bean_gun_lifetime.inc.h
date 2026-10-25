@@ -36,8 +36,12 @@ static void beanGunCollect(void)
 		s_nrigidMeshes = kept;
 		kept = 0;
 		for (int i = 0; i < s_nalloc; i++) {
-			if (s_allocGroups[i] == group) free(s_alloc[i]);
-			else {
+			if (s_allocGroups[i] == group) {
+				/* registerPrimary matches a later list by address against these */
+				if (s_alloc[i] == (void *)s_lastEmit) s_lastEmit = NULL;
+				if (s_alloc[i] == s_lastEmitVtx) s_lastEmitVtx = NULL;
+				free(s_alloc[i]);
+			} else {
 				s_alloc[kept] = s_alloc[i];
 				s_allocGroups[kept++] = s_allocGroups[i];
 			}
@@ -57,4 +61,6 @@ static void beanGunReset(void)
 		s_gunGroups = next;
 	}
 	s_registrationGroup = NULL;
+	s_lastEmit = NULL;
+	s_lastEmitVtx = NULL;
 }
