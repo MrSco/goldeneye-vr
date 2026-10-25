@@ -10,13 +10,29 @@
  * split screen). A map with fewer start pads than players stands the extra
  * ones beside a pad (bondview_r.c gevrSpreadStartPad). Statue and Cradle
  * (#95) are the ROM's own MP setups (Ump_setupstatueZ, Ump_setupcradZ),
- * eight pads each, cut from the game's menu; they stay last, as favorites
- * and ballots are list positions. */
+ * eight pads each, cut from the game's menu. Preserve these thirteen indices:
+ * favorites and ballots are list positions. Expanded variants are appended. */
 static const NetMatchStage s_stages[] = {
-    { "Facility",  34 }, { "Complex",   31 }, { "Temple",    38 }, { "Stack",    46 },
-    { "Caverns",   39 }, { "Library",   48 }, { "Basement",  45 }, { "Caves",    50 },
-    { "Egypt",     32 }, { "Bunker II", 27 }, { "Archives",  24 }, { "Statue",    22 },
-    { "Cradle",    41 },
+    { "Facility", 34, 34 },
+    { "Complex", 31, 31 },
+    { "Temple", 38, 38 },
+    { "Stack", 46, 46 },
+    { "Caverns", 39, 39 },
+    { "Library", 48, 48 },
+    { "Basement", 45, 45 },
+    { "Caves", 50, 50 },
+    { "Egypt", 32, 32 },
+    { "Bunker II", 27, 27 },
+    { "Archives", 24, 24 },
+    { "Statue", 22, 22 },
+    { "Cradle", 41, 41 },
+    { "Facility (Expanded)", 100, 34 },
+    { "Bunker II (Expanded)", 101, 27 },
+    { "Archives (Expanded)", 102, 24 },
+    { "Caverns (Expanded)", 103, 39 },
+    { "Egypt (Expanded)", 104, 32 },
+    { "Statue (Expanded)", 105, 22 },
+    { "Cradle (Expanded)", 106, 41 },
 };
 
 /* The twenty missions (front.c mission_folder_setup_entries), the ROM's LEVELID values */
@@ -98,6 +114,13 @@ static const NetMatchItem s_items[] = {
 };
 
 #define COUNT(a) ((int)(sizeof(a) / sizeof((a)[0])))
+_Static_assert(COUNT(s_stages) <= NET_MAP_CAPACITY, "map ballot/favorite capacity");
+
+int netStageEngineLevel(int map) {
+    for (int i = 0; i < COUNT(s_stages); i++)
+        if (s_stages[i].level_id == map) return s_stages[i].engine_level;
+    return map; /* campaign/menu IDs outside the deathmatch table */
+}
 
 int netStageCount(void) { return COUNT(s_stages); }
 const NetMatchStage *netStage(int idx) { return idx >= 0 && idx < COUNT(s_stages) ? &s_stages[idx] : &s_stages[0]; }

@@ -15,8 +15,18 @@
 extern "C" {
 #endif
 
-/* Stages, in the launcher's order: name, LEVELID, the players the map takes */
-typedef struct { const char *name; uint8_t level_id; } NetMatchStage;
+/* Map IDs on the wire/preferences. Expanded layouts are not engine LEVELIDs.
+ * Keep below the lobby's 0x7f Horde marker and 0x80 co-op encoding. */
+#define NET_STAGE_FACILITY_EXPANDED 100
+#define NET_STAGE_EXPANDED_FIRST 100
+#define NET_STAGE_EXPANDED_LAST 106
+#define NET_MAP_CAPACITY 32
+int netStageEngineLevel(int map);
+static inline int netStageExpanded(int map) {
+    return map >= NET_STAGE_EXPANDED_FIRST && map <= NET_STAGE_EXPANDED_LAST;
+}
+/* level_id is the stable map ID, engine_level the underlying world. */
+typedef struct { const char *name; uint8_t level_id, engine_level; } NetMatchStage;
 int netStageCount(void);
 const NetMatchStage *netStage(int idx);
 const char *netStageName(int idx);
@@ -29,8 +39,7 @@ int netStageIndexOf(uint8_t level_id);      /* -1 unknown */
  */
 enum { NET_MODE_DEATHMATCH = 0, NET_MODE_COOP = 1, NET_MODE_HORDE = 2 };
 #define NET_HORDE_STAGE 24 /* Archives, the default */
-/* Horde's maps (user, 2026-10-17: Bunker, Control, Facility): campaign
- * stages whose setups give the guard pads, stations and start. */
+/* Horde already uses campaign setups; its existing maps keep their IDs. */
 static inline int netHordeStageValid(unsigned stage) {
     return stage == 24 || stage == 9 || stage == 27 || stage == 23 || stage == 34;
 }

@@ -4,14 +4,28 @@ This is an experimental native Quest multiplayer mode. It uses ENet and borrows 
 
 ## Network setup
 
-- Use the same APK version on every headset. The current game and discovery protocol version is `18` (v0.4.6: a match may be on Statue or Cradle, which v0.4.5 rejects; `17` was v0.4.0 to v0.4.5, `16` only unreleased test builds); the lobby service lists and joins only games on the same protocol, so an earlier release or test build cannot join a v0.4.6 game.
+- Use the same APK version on every headset. The current game and discovery protocol version is `24`: expanded campaign layouts have separate map IDs, so protocol 23 and earlier builds cannot join these games.
 - The host listens for ENet game traffic on UDP `27007`.
 - LAN discovery broadcasts on UDP `27008`. If discovery does not work on the Wi-Fi network, connect to the host's local IP directly.
 - Internet games use the lobby service at `lobbies.goldeneyevr.com` for discovery and ICE signaling. Native libjuice carries ENet datagrams directly where possible and through Cloudflare TURN when needed, so players do not configure router forwarding. The host can have a mix of LAN and internet players in the same lobby of up to eight.
 - TURN is a fallback, not a gate. A headset publishes its session once STUN has found its public address; a relay candidate is added when the lobby service issues credentials (UDP 3478, with UDP 443 as a second server for networks that block 3478). If the relay is refused or unreachable, the join still goes ahead and only fails against peers that hole punching cannot reach (symmetric or carrier-grade NAT, typically phone hotspots). The log line `net: ice <id>: no relay candidate` records a direct-only session. "No internet path found" means STUN itself failed.
 - Internet hosting requires the lobby Worker in [goldeneyevr.com `services/lobbies`](https://github.com/MrSco/goldeneyevr.com/tree/main/services/lobbies); the Cloudflare TURN key is optional and capped per month there. If the Worker is unavailable, LAN and direct IP still work.
-- The host picks the stage (the game's eleven, plus Statue and Cradle from the ROM's cut multiplayer setups, #95), the player count, a character and the weapons (the game's own multiplayer weapon sets, Slappers only to Golden Gun). The LAN list on the Join tab shows each game's stage, weapons and players.
+- The host picks the stage (the original thirteen, plus seven separate expanded campaign layouts), the player count, a character and the weapons (the game's own multiplayer weapon sets, Slappers only to Golden Gun). The LAN list on the Join tab shows each game's stage, weapons and players.
 - A match supports up to eight player slots (protocol 16, issue #88). The host picks the count, two to eight, on any stage: the launcher's **Players** beside the stage, or the **PLAYERS** row of the in-match lobby page (default four, saved as `MpMaxPlayers`). It travels in the match config (`max_players`); a team scenario takes its own size instead. The count cannot drop below the connected players or a connected slot; in a match a new count applies from the next load. The host launcher requires at least two players, all ready, before launch.
+
+## Expanded campaign layouts
+
+The map list appends **Facility (Expanded)**, **Bunker II (Expanded)**,
+**Archives (Expanded)**, **Caverns (Expanded)**, **Egypt (Expanded)**,
+**Statue (Expanded)** and **Cradle (Expanded)**. Original entries keep their
+existing setups. The expanded entries use campaign scenery and doors, remove
+mission entities/scripts, unlock usable doors, and distribute deathmatch starts
+and weapon-set pickups across campaign floor pads. Statue and Cradle differ
+mainly in scenery and gate access, rather than adding a larger background.
+
+Horde already uses the full campaign setups for its five existing maps. There
+are no duplicate expanded Horde entries. See
+[implementation and remaining headset checks](docs/expanded-deathmatch-maps.md).
 
 ## Horde (unreleased)
 

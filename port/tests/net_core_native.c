@@ -1140,3 +1140,54 @@ EXPORT int test_core_bot_owner(void) {
     s_state=NET_STATE_HOSTING_LOBBY;VrMpBotMode=0;netSetHostEqualization(1,50);
     return 0;
 }
+
+EXPORT int test_core_expanded_maps(void) {
+    fixture(0);
+    const int index = netStageIndexOf(NET_STAGE_FACILITY_EXPANDED);
+    CHECK(index == 13 && netStageCount() == 20 && netStageIndexOf(34) == 0);
+    CHECK(netStageIndexOf(22) == 11 && netStageIndexOf(41) == 12);
+    CHECK(!strcmp(netStageName(index), "Facility (Expanded)"));
+    NetMatchConfig c=s_lobby_state.config;
+    const int levels[]={34,27,24,39,32,22,41};
+    for(int i=0;i<7;i++) {
+        int id=NET_STAGE_EXPANDED_FIRST+i;
+        c.stage=id; CHECK(netMatchConfigValid(&c));
+        CHECK(netStageIndexOf(id)==13+i && netStageEngineLevel(id)==levels[i]);
+        CHECK(netStageIndexOf(levels[i])<13);
+        CHECK(netRotationPick(NET_BALLOT_STAGE,0,1u<<(13+i),NET_NEXT_PLAYLIST)==13+i);
+        s_vote[NET_BALLOT_STAGE][0]=13+i; CHECK(netTallyBallot(NET_BALLOT_STAGE)==13+i);
+        c.mode=NET_MODE_HORDE; CHECK(!netMatchConfigValid(&c));
+        c.mode=NET_MODE_DEATHMATCH;
+    }
+    c.stage=NET_STAGE_FACILITY_EXPANDED; CHECK(netMatchConfigValid(&c));
+    for(int players=2;players<=8;players++) { c.max_players=players; CHECK(netMatchConfigValid(&c)); }
+    unsigned char raw[512]; struct netbuf b; NetMatchConfig received={0};
+    b=(struct netbuf){.data=raw,.size=sizeof(raw)}; netbufStartWrite(&b); netbufWriteMatchConfig(&b,&c);
+    CHECK(!b.error); unsigned size=b.wp;
+    netbufStartReadData(&b,raw,size); netbufReadMatchConfig(&b,&received);
+    CHECK(!b.error && !netbufReadLeft(&b) && received.stage==NET_STAGE_FACILITY_EXPANDED);
+    c.mode=NET_MODE_COOP; CHECK(!netMatchConfigValid(&c));
+    c.mode=NET_MODE_HORDE; CHECK(!netMatchConfigValid(&c));
+    c.mode=NET_MODE_DEATHMATCH; c.stage=107; CHECK(!netMatchConfigValid(&c));
+    const int hordeMaps[]={24,9,27,23,34};
+    NetMatchConfig horde=c;horde.mode=NET_MODE_HORDE;horde.difficulty=0;
+    horde.horde_start_wave=1;horde.bot_mode=NET_BOT_OFF;horde.max_players=4;
+    for(int i=0;i<5;i++) { horde.stage=hordeMaps[i];CHECK(netMatchConfigValid(&horde)); }
+    c.stage=NET_STAGE_FACILITY_EXPANDED; netLobbySetConfig(&c); netLatchRoundSettings();
+    s_state=NET_STATE_INGAME; s_local_slot=0;
+    CHECK(gevrNetExpandedMap() && netRoundLoadStage()==34);
+    netStageLoaded(); CHECK(netRoundMatchesLoadedMap(34));
+    s_state=NET_STATE_HOSTING_LOBBY; CHECK(!gevrNetExpandedMap());
+    s_state=NET_STATE_OFFLINE; CHECK(!gevrNetExpandedMap());
+    s_state=NET_STATE_INGAME;
+    s_round.config.stage=34;
+    CHECK(!gevrNetExpandedMap() && netRoundLoadStage()==34 && !netRoundMatchesLoadedMap(34));
+    netStageLoaded(); CHECK(netRoundMatchesLoadedMap(34));
+    s_round.config.stage=NET_STAGE_FACILITY_EXPANDED;
+    CHECK(!netRoundMatchesLoadedMap(34)); /* physical Facility loaded, wrong layout */
+    CHECK(netRotationPick(NET_BALLOT_STAGE,0,1u<<index,NET_NEXT_PLAYLIST)==index);
+    s_round.config.mode=NET_MODE_COOP; s_round.config.stage=NET_COOP_FRONT_STAGE;
+    CHECK(!gevrNetExpandedMap() && netRoundLoadStage()==LEVELID_TITLE);
+    s_round.config.stage=34; CHECK(!gevrNetExpandedMap() && netRoundLoadStage()==34);
+    return 0;
+}

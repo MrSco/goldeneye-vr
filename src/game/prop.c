@@ -1,5 +1,7 @@
 #ifdef GEVR
 #include "net_horde.h"
+#include "net_game.h"
+#include "gevr_expanded.h"
 #include "system.h"
 #include "net_objects.h"
 #endif
@@ -1319,7 +1321,7 @@ void proplvreset2(enum LEVELID stageId)
          * by adding "mp_" after the "U" e.g. "Ump_setuparchZ"
          */
 #ifdef GEVR
-        if (gevrMpRules())
+        if (gevrMpRules() && !gevrNetExpandedMap())
 #else
         if (getPlayerCount() >= 2)
 #endif
@@ -1504,6 +1506,7 @@ void proplvreset2(enum LEVELID stageId)
         }
 
 #ifdef GEVR
+        if (gevrNetExpandedMap()) gevrExpandedPrepareSetup();
         gevrHordePrepareSetup();
 #endif
         // PD rejoins here
