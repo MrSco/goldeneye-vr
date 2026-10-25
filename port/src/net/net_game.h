@@ -14,6 +14,7 @@ int gevrNetConfigGet(int field);
 /* Online in a co-op mission: where retail reads two or more players as a
  * deathmatch, the game asks this and plays the solo mission's rules. */
 int gevrCoopActive(void);
+int gevrNetExpandedMap(void); /* active deathmatch uses an expanded campaign setup */
 int gevrCoopFastReinforcements(void); /* active host rule; independent of this headset's solo preference */
 void gevrNetConfigSet(int field, int value);
 int gevrNetSlotChr(int slot);

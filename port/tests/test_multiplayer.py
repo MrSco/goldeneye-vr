@@ -50,11 +50,16 @@ def build_core():
     # Leave production types, state, and tested functions intact. Replace only
     # unrelated game/world function bodies: the headless fixture has no renderer.
     source=(ROOT/"port/src/net/net_core.c").read_text(encoding="utf-8")
+    # glibc's legacy bcopy/bcmp/bzero declarations conflict with N64 headers.
+    # The core only needs strcasecmp; use its unchanged libc implementation.
+    if os.name != "nt":
+        source=source.replace("#include <strings.h>", "int strcasecmp(const char *, const char *);")
     masked=re.sub(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'',lambda m:"".join("\n" if c=="\n" else " " for c in m.group()),source,flags=re.S)
     keep={"netResetLobbyState","netIsHost","netGetState","netGetConnectedPlayerCount","netGetMaxPlayers","netPlayerInRound","netVoiceSameGroup","netVoiceModeForPair","netTeamRosterReady","netGetSlotTeam","netGetSlotPing","netSlotIsSpectator","netVoiceSlotSpectating","netTeamScore","netSetSlotTeam","netLobbySetConfig","netLobbySetReady","netHostRoundEnded","netStageEligible","netLatchRoundSettings","netValidConfig","netWriteRoundSettings","netReadRoundSettings","netSendMatchSnapshot","netHostLost","netForgetPlayerScore","netClearVotes","netBroadcastBuf","netBroadcastPacket","netBroadcastLobbyState","netCancelRound","netSendCountdown"}
     keep.update({"netLobbyCanLaunch","netRoundRosterReady","netLocalReady","gevrNetSetReady","netActiveFunFlags","netActiveLineMode","netActiveGunSize","netActiveMovementSpeed","gevrNetConfigGet","gevrNetConfigSet","netScheduleRound","netAllLoaded","netReadyProgress","netHostStartRoundNow","netHostContinue","netIsActive","netDamageAllowed","netApplyAmmoPacket","netObjectByIndex","netSnapshotObjectType","netSendAmmoState"})
     keep.update({"netInvalidateHitSlot","netClearHostHits","netSetHostEqualization","netGetHostEqualization","netHostBaseDelayMs","netGetSlotHostDelayMs","netHostEqualizationText","netTransitionRoundPhase","netBroadcastRoundPhase","netObserveHitMove","netHitReportAllowed","netProcessHitReport","netExecuteHostHit","netQueueHostHit","netDrainHostHits","netSlotOccupied","netSendHitReport"})
     keep.update({"netStartPad","netStartPadShare","netBroadcastVotes","netClearVotes","netTeamScore","netGetSlotTeam","netSetSlotTeam","netVoiceModeForPair"})
+    keep.update({"netRoundLoadStage", "gevrNetExpandedMap", "netRoundMatchesLoadedMap"})
     keep.update({"netConfigSlots","netLobbyMinPlayers", "netCoopSession", "gevrCoopFastReinforcements"})
     keep.update({"netJoinStartsSpectating", "netReceiveStageReady", "netLobbyHostLaunchMatch", "netSendMatchStartTo", "netHordeActive", "netHordeRunning", "netAllPlayersLoaded", "netHordeAdmitPlayers", "netMpPlayerCount", "netGetPlayingCount"})
     keep.update({"netReceiveLobbyReady","netHostCanStartRound","netBeginRoundReset","netBroadcastRoundPhase"})
@@ -75,7 +80,7 @@ def build_core():
     subset=NATIVE/"net_core_test_subset.inc";subset.write_text(source,encoding="utf-8")
     fixture=(ROOT/"port/tests/net_core_native.c").read_text(encoding="utf-8").replace('../src/net/net_core.c',subset.as_posix())
     generated=NATIVE/"net_core_native.c";generated.write_text(fixture,encoding="utf-8")
-    args=[shutil.which("gcc") or "gcc","-shared","-O2","-fms-extensions","-Wno-builtin-declaration-mismatch"]
+    args=[shutil.which("gcc") or "gcc","-std=c11","-shared","-O2","-fms-extensions","-Wno-builtin-declaration-mismatch"]
     if os.name != "nt": args += ["-fPIC"]
     args += ["-D"+v for v in ("GEVR=1","PLATFORM_64BIT=1","_LANGUAGE_C=1","VERSION=2","VERSION_US=1","LANG_US=1")]
     args += ["-I"+str(ROOT/v) for v in (".","port/include","include","src","src/game","port/src","port/src/net")]

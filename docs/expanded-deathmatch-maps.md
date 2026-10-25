@@ -1,87 +1,112 @@
-# Expanded campaign layouts for deathmatch: investigation
+# Expanded campaign layouts
 
-Investigated 2026-10-24. This is a feasibility report; no gameplay changes have
-been made or verified on a headset.
+PR implementation, 2026-10-25. Native checks pass; APK/headset acceptance is
+still required. This adds layouts only for existing campaign-derived arenas,
+not all twenty missions as new arenas.
 
-## Answer to the suggestion
+## Map choices
 
-Deathmatch currently uses the original multiplayer setups. Selecting Facility
-does **not** select the single-player setup or automatically open its laboratory
-and bottling/tank areas. Separate original and expanded entries are a feasible
-direction, with Facility as the first candidate. Access to every requested area
-still needs a ROM/setup inspection and an in-game traversal check.
+Original deathmatch entries retain their map IDs, order and multiplayer setups.
+Seven appended entries use distinct IDs, so lobbies, favorites, voting, rotation,
+late joins and host migration can distinguish layouts of the same engine level.
 
-Suggested player-facing names: **Facility** and **Facility (Expanded)**.
-“Expanded” describes a deathmatch adaptation without suggesting that selecting
-it starts the single-player mission.
+| Additional choice | Map ID | Engine LEVELID | Campaign / MP door records |
+| --- | --- | --- | --- |
+| Facility (Expanded) | 100 | 34 | 46 / 29 |
+| Bunker II (Expanded) | 101 | 27 | 38 / 36 |
+| Archives (Expanded) | 102 | 24 | 35 / 10 |
+| Caverns (Expanded) | 103 | 39 | 25 / 17 |
+| Egypt (Expanded) | 104 | 32 | 25 / 6 |
+| Statue (Expanded) | 105 | 22 | 2 / 2 |
+| Cradle (Expanded) | 106 | 41 | 5 / 5 |
 
-## What the code establishes
+Counts are from the public `n64decomp/007` setup records, commit
+`c4356466796c697dfd298010b9bed261f9ed8c6a`. Door counts show setup differences,
+not a measurement of playable area. Statue's MP gates have key flags absent in
+the campaign setup; Cradle also has a locked MP door and different scenery.
+Those two variants mainly restore gate access/scenery rather than adding
+background geometry. The other five have substantially different door setups.
+Multiplayer-only arenas have no solo counterpart, so receive no duplicate entry.
 
-- `port/src/net/net_match.c`, `s_stages`: deathmatch offers 13 entries,
-  including Facility (LEVELID 34), Bunker II, Archives and Caverns. There are
-  no expanded variants. Statue and Cradle use the ROM's cut multiplayer setups.
-- `src/game/prop.c`, `proplvreset2`: when `gevrMpRules()` is true, the loader
-  inserts `mp_` into the setup filename. Facility therefore loads
-  `Ump_setuparkZ` rather than `UsetuparkZ`.
-- `src/game/player.c`, `gevrMpRules`: multiplayer rules apply with two or more
-  players outside the co-op/PvE rules path. Replacing this predicate to obtain
-  a campaign setup would also change other gameplay behavior; setup selection
-  needs its own decision.
-- `src/game/bg.c`, `levelinfotable`: Facility has one background/standing-tile
-  resource pair (`bg/bg_ark_all_p.seg`, `Tbg_ark_all_p_stanZ`). The setup loader
-  separately selects campaign or multiplayer props. The code therefore supports
-  reusing existing world resources rather than importing a new map, but does
-  not prove which specific doors/blockers need changes.
-- `src/game/gevr_horde.c`, `gevrHordePrepareSetup`/`gevrHordeSkipProp`, and
-  `src/game/prop.c` already demonstrate adapting campaign setups: replacing the
-  intro, filtering mission entities and clearing door key flags for Horde.
-  These are useful patterns, not a ready-made deathmatch conversion. Padlocks,
-  script-controlled doors and other blockers still need individual review.
-- `src/game/bondview_r.c`, `gevrAddOnlineStartPads`: existing extra-player
-  support adds starts at suitable ammo spots. It does not distribute a complete
-  set of deathmatch spawns and pickups across newly opened campaign rooms.
-- `port/src/net/net_protocol.h`, `NetMatchConfig.stage`, and
-  `port/src/net/net_match.c`, `netStageIndexOf`: a match identifies its map by
-  LEVELID. Two rows with LEVELID 34 would be indistinguishable on the network
-  and lookup would always find the first row. A distinct layout identity is
-  required, together with validation and protocol compatibility updates.
-- Favorites and ballots use stage-list positions. New entries should be
-  appended, preserving existing indices; lobby names, voting, rotation and
-  saved preferences must carry the chosen variant consistently.
+## Horde audit
 
-## Recommended implementation scope
+Horde already loads the campaign setups for Archives, Bunker I, Bunker II,
+Control and Facility: `netCoopActive()` includes Horde, `gevrMpRules()` is false,
+and `proplvreset2` loads `Usetup*Z` rather than `Ump_setup*Z`. The loader clears
+campaign door key flags; the director opens and holds usable doors. The public
+setups for these five contain no padlock-link records. No distinct smaller
+Horde setup was found, so no duplicate expanded Horde entries are added.
+Existing Horde map choices and gameplay remain intact. Physical traversal of
+its laboratory/tank routes is still a headset acceptance check, not established
+by the absence of a smaller setup.
 
-Start with Facility only. Preserve the existing Facility entry and append an
-expanded variant, identified separately from its underlying engine LEVELID.
-Keep deathmatch rules and explicitly select or construct the expanded setup.
+## Implementation
 
-Inspect the campaign and multiplayer setup records before choosing between a
-campaign-derived setup and targeted changes to the multiplayer setup. Retain
-the necessary doors, glass and scenery; remove guards, mission AI, objectives,
-cutscenes, mission exits and mission-only hazards/interactions. Make routes
-through the laboratory and tank areas usable without mission progression.
-Provide deliberate deathmatch spawn, weapon, ammo and armour placements across
-the expanded layout, retaining selected weapon-set behavior.
+- `net_match.c` separates stable map identity from engine LEVELID. Protocol 24
+  prevents earlier peers from misinterpreting IDs 100–106. Existing indices and
+  saved favorites remain valid.
+- `net_core.c` maps the selected arena to its engine level when launching or
+  resetting, and remembers loaded map identity when reconnecting. Original and
+  expanded Facility cannot reuse each other's loaded world just because both
+  have engine LEVELID 34.
+- `prop.c` selects the campaign setup only for an expanded deathmatch. Weapon
+  sets, scoring, scenarios and respawning retain multiplayer rules.
+- `gevr_expanded.c` composes a fresh setup stream. It retains scenery, monitors,
+  glass, doors and door-scale commands. Guards, objectives, mission AI,
+  cinematics, mission equipment, alarms, gas triggers and mission links are
+  excluded. Relative door links are cleared before command indices change;
+  usable door leaves can be operated independently without keys or script locks.
+- Eight starts, eight weapon/ammo stations, two armour pickups and the Living
+  Daylights token use the original multiplayer record formats. Weapon slots
+  retain the selected weapon set, including custom sets and scenario overrides;
+  each ammo crate follows its gun for `lastmpweaponnum` resolution.
+- Placements use deterministic farthest-point sampling of floor-checked campaign
+  navigation/guard pads, falling back to ordinary pads on sparse maps. Starts
+  and pickups use distinct locations while candidates remain. Physical props
+  have not loaded at sampling time: headset checks must catch scenery blocking
+  placements and adjust the selection policy if needed.
 
-Review Bunker II, Archives and Caverns individually afterward. Their shared
-campaign origins do not establish that the same conversion will work for each.
+## Validation
 
-## Acceptance checks before claiming full access
+Run the synthetic setup and production network checks:
 
-1. Traverse both directions between Facility's original arena, laboratory and
-   tank/bottling areas without keys, guards or mission scripts.
-2. Verify doors, switches, padlocks, collision and room visibility on host and
-   client, including after a late join and after respawning.
-3. Verify 2–8 players spawn on valid floors and respawn throughout the layout;
-   weapon sets and pickups work in the additional rooms.
-4. Verify deathmatch scenarios and bots in the added rooms, with no mission
-   completion/failure or cutscene triggers ending or interrupting the match.
-5. Verify the two variants survive lobby selection, joining, voting, favorites
-   and rotation as distinct choices; incompatible builds cannot misload them.
-6. Compare the original Facility against its current behavior and measure
-   headset performance in the expanded layout.
+```sh
+python port/tests/test_expanded_maps.py
+```
 
-No ROM image was present in the workspace, so this investigation could not
-compare the actual setup records or verify physical access in-game. Source
-inspection establishes the current selection behavior and the integration
-requirements, not a playable expanded map.
+Optionally clone `https://github.com/n64decomp/007` outside the project and run
+all seven public setup-record checks with sanitizers:
+
+```sh
+GEVR_TEST_SANITIZE=1 GEVR_DECOMP_ROOT=/path/to/007 python port/tests/test_expanded_maps.py
+```
+
+The optional reader treats source as numeric data, reconstructs setup records,
+and runs the production ROM converter and arena composer. No ROM or setup assets
+are bundled with the tests. Floor/collision queries are stubs in these native
+fixtures; these checks establish stream integrity, not physical traversability.
+AddressSanitizer and UndefinedBehaviorSanitizer pass, including deliberately
+unaligned source records and deterministic reloads.
+
+Network tests cover all seven IDs, original indices, packet config roundtrips,
+2–8 player validation, voting, rotation, engine mapping, and reconnecting across
+layout changes. Existing Horde admission, player-count, eight-slot, late-join,
+bot-roster/join and migration checks also pass in the production core fixture.
+The full Horde test script encounters existing missing inventory declarations
+in `gevr_horde.c` on this GCC toolchain; that runtime suite is not claimed passed.
+No Android SDK/NDK or ROM/headset was available for an APK or live match test.
+
+## Headset acceptance before release
+
+- Traverse each additional route in both directions without mission progression;
+  start with Facility's laboratory and bottling/tank areas.
+- Check doors, visibility, scenery collision and placements on host/client,
+  after respawning and after a late join. Some campaign doors are intentionally
+  immobile; this change does not invent movement for a zero-travel door.
+- Exercise 2–8 players, bots, weapon sets, armour and every deathmatch scenario,
+  especially the Living Daylights token and Golden Gun scenario.
+- Verify original/expanded switching through voting, favorites, rotation and
+  host migration, and verify original map behavior is unchanged.
+- Traverse Horde's existing campaign maps to confirm no remaining access gap
+  warrants a genuinely distinct expanded option.
+- Measure Quest performance with the additional scenery visible.
