@@ -181,22 +181,12 @@ static void gevrStackDumpHandler(int sig)
 	gevrWatchdogStackReady = 1;
 }
 
-/* A stack describes the earlier stall. Recheck progress after logging and
- * focus checks before sending SIGSEGV. */
-static int gevrWatchdogCanAbort(u32 stalledFrame)
-{
-	return gevrWatchdogStackReady && !gevrWatchdogFrameWait &&
-		gevrVrSessionFocused() && !g_gevrAppBackgrounded &&
-		__atomic_load_n(&os_scheduler.frameCount, __ATOMIC_RELAXED) == stalledFrame;
-}
-
 static void *gevrWatchdog(void *arg)
 {
 	u32 last = 0, stalled = 0, reported = 0;
 	(void)arg;
 	for (;;) {
 		sysSleep(10000000); /* 1 s in 100 ns units */
-		u32 frameCount = __atomic_load_n(&os_scheduler.frameCount, __ATOMIC_RELAXED);
 		/*
 		 * Arm only once the game is well into its frame loop: the first frames
 		 * can legitimately wait several seconds for the runtime (the loading
@@ -204,12 +194,12 @@ static void *gevrWatchdog(void *arg)
 		 * earlier version of this killed the app on the user's own launch.
 		 */
 		if (last == 0) {
-			if (frameCount >= 30) {
-				last = frameCount;
+			if (os_scheduler.frameCount >= 30) {
+				last = os_scheduler.frameCount;
 			}
 			continue;
 		}
-		if (frameCount == last) {
+		if (os_scheduler.frameCount == last) {
 			stalled++;
 			if (stalled >= 5 && !reported) {
 				reported = 1;
@@ -235,10 +225,9 @@ static void *gevrWatchdog(void *arg)
 				return NULL;
 			}
 			/* The dump has had time to run. A paused or sleeping headset is not a hang. */
-			if (stalled >= 8 && gevrWatchdogCanAbort(last)) {
+			if (stalled >= 8 && gevrWatchdogStackReady && !gevrWatchdogFrameWait &&
+				!g_gevrAppBackgrounded && gevrVrSessionFocused()) {
 				sysLogPrintf(LOG_ERROR, "watchdog: hung for %u s outside the frame wait; aborting for a crash report", stalled);
-				/* A stall may recover while this log is being written. */
-				if (!gevrWatchdogCanAbort(last)) continue;
 				pthread_kill(gevrGameThread, SIGSEGV);
 				return NULL;
 			}
@@ -247,7 +236,7 @@ static void *gevrWatchdog(void *arg)
 			reported = 0;
 			gevrWatchdogStackReady = 0;
 			gevrWatchdogFrameWait = 0;
-			last = frameCount;
+			last = os_scheduler.frameCount;
 		}
 	}
 }
@@ -795,7 +784,7 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 	}
 
 	gevrPumpStage = 6;
-	__atomic_add_fetch(&os_scheduler.frameCount, 1, __ATOMIC_RELAXED);
+	os_scheduler.frameCount++;
 
 	if (msg) {
 		*msg = (OSMesg)&os_scheduler.retraceMsg;
