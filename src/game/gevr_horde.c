@@ -822,7 +822,8 @@ static void hordeDoorOpenNow(DoorRecord *door)
 }
 
 /* Every door open and held open (user: guards got stuck on them). A door the
- * level never lets open (locked for good, padlocked) stays shut: it may
+ * level never lets open (locked for good, padlocked, or a key lock no key of
+ * the level opens: gevrArenaDoorKeyOpens) stays shut: it may
  * close off space the level has not built. Every headset does the same, so
  * nothing is sent: a door message starts a door moving (doorStartOpen),
  * which clears its keep-open flag, and it then shut itself on its timer
@@ -838,7 +839,7 @@ static void hordeOpenDoors(void)
         if (p->type!=PROPDEF_DOOR) continue;
         DoorRecord *door=(DoorRecord *)p;
         if (!door->prop || (door->flags & PROPFLAG_CANNOT_ACTIVATE) || !doorIsPadlockFree(door)
-            || door->maxFrac<=0.0f) continue;
+            || door->keyflags || door->maxFrac<=0.0f) continue;
         hordeDoorOpenNow(door);
         door->flags|=PROPFLAG_CANNOT_ACTIVATE;
         if (s_held_count<HORDE_HELD_DOORS) s_held_doors[s_held_count++]=door;
