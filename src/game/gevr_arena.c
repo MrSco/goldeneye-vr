@@ -56,10 +56,29 @@ static s32 arenaPadOnFloor(PadRecord *pad)
     return dy >= -30.0f && dy <= 60.0f;
 }
 
+/* The rooms a player can stand in (user, 2026-10-24: Train's tracks run on
+ * for a long way). Train: the carriages are rooms 1-51; 52 is the broken
+ * carriage behind held door 347, the track and ballast 53-57. Spawns and
+ * pickups stay inside (rc6: a spawn on the track, dead three seconds later),
+ * and three seconds outside is a death of the player's own (gevrArenaTick). */
+static const struct ArenaBounds { s16 stage; u8 first, last; } s_bounds[] = {
+    { LEVELID_TRAIN, 1, 51 },
+};
+
+static const struct ArenaBounds *arenaBounds(void)
+{
+    for (u32 i = 0; s_solo_arena && i < sizeof(s_bounds) / sizeof(*s_bounds); i++)
+        if (s_bounds[i].stage == s_stage) return &s_bounds[i];
+    return NULL;
+}
+
 static void arenaAddPad(s32 *out, s32 *count, s32 capacity, s32 pad, s32 pads)
 {
     if (*count >= capacity || pad < 0 || pad >= pads || !g_CurrentSetup.pads[pad].stan) return;
     if (!arenaPadOnFloor(&g_CurrentSetup.pads[pad])) return;
+    const struct ArenaBounds *bounds = arenaBounds();
+    const u8 room = g_CurrentSetup.pads[pad].stan->room;
+    if (bounds && (room < bounds->first || room > bounds->last)) return;
     for (s32 i = 0; i < *count; i++) if (out[i] == pad) return;
     out[(*count)++] = pad;
 }
@@ -309,16 +328,20 @@ s32 gevrArenaSkipProp(PropDefHeaderRecord *prop)
  * from a v0.5.14 Deathmatch test). Records are the solo setup's command
  * indices (goldeneye-decomp Usetup*Z.c). Doors only an outro or a wall
  * console opens, onto space the level never built or a dead end, stay shut;
- * Dam's truck gates, worked from consoles in the mission, stand open. */
-static const struct ArenaDoorHold { s16 stage, record; u8 open; } s_door_holds[] = {
-    { LEVELID_DAM, 267, 1 }, { LEVELID_DAM, 268, 1 },          /* truck gates, an airlock pair */
-    { LEVELID_SURFACE2, 78, 0 },                               /* outro: tunnel to locked blast doors */
-    { LEVELID_BUNKER1, 116, 0 },                               /* outro */
-    { LEVELID_SILO, 116, 0 }, { LEVELID_SILO, 117, 0 },        /* outro lift */
-    { LEVELID_DEPOT, 184, 0 }, { LEVELID_DEPOT, 185, 0 },      /* outro: train's outer doors */
-    { LEVELID_JUNGLE, 565, 0 }, { LEVELID_JUNGLE, 566, 0 },    /* outro lift */
-    { LEVELID_CONTROL, 174, 0 }, { LEVELID_CONTROL, 175, 0 },  /* outro lift */
-    { LEVELID_TRAIN, 347, 0 },                                 /* last carriage, past roller 356 */
+ * Dam's truck gates, worked from consoles in the mission, stand open. A
+ * one-way door into a room with no other way out works both ways (user,
+ * 2026-10-25, rc6: locked in Train's last carriage). */
+enum { ARENA_SHUT, ARENA_OPEN, ARENA_BOTH_WAYS };
+static const struct ArenaDoorHold { s16 stage, record; u8 hold; } s_door_holds[] = {
+    { LEVELID_DAM, 267, ARENA_OPEN }, { LEVELID_DAM, 268, ARENA_OPEN }, /* truck gates, an airlock pair */
+    { LEVELID_SURFACE2, 78, ARENA_SHUT },                      /* outro: tunnel to locked blast doors */
+    { LEVELID_BUNKER1, 116, ARENA_SHUT },                      /* outro */
+    { LEVELID_SILO, 116, ARENA_SHUT }, { LEVELID_SILO, 117, ARENA_SHUT },       /* outro lift */
+    { LEVELID_DEPOT, 184, ARENA_SHUT }, { LEVELID_DEPOT, 185, ARENA_SHUT },     /* outro: train's outer doors */
+    { LEVELID_JUNGLE, 565, ARENA_SHUT }, { LEVELID_JUNGLE, 566, ARENA_SHUT },   /* outro lift */
+    { LEVELID_CONTROL, 174, ARENA_SHUT }, { LEVELID_CONTROL, 175, ARENA_SHUT }, /* outro lift */
+    { LEVELID_TRAIN, 346, ARENA_BOTH_WAYS },                   /* into the last carriage (Xenia, Trevelyan) */
+    { LEVELID_TRAIN, 347, ARENA_SHUT },                        /* on to the broken carriage, past roller 356 */
 };
 
 /* Called before setupDoor, whose doorInit opens a KEEPOPEN door at once. */
@@ -327,8 +350,12 @@ void gevrArenaDoorRules(s32 stage, s32 record, DoorRecord *door)
     if (!s_solo_arena) return;
     for (u32 i = 0; i < sizeof(s_door_holds) / sizeof(*s_door_holds); i++) {
         if (s_door_holds[i].stage != stage || s_door_holds[i].record != record) continue;
+        if (s_door_holds[i].hold == ARENA_BOTH_WAYS) {
+            door->flags2 &= ~(PROPFLAG2_08000000 | PROPFLAG2_10000000); /* one-way locks, front and back */
+            continue;
+        }
         door->flags |= PROPFLAG_CANNOT_ACTIVATE;
-        if (s_door_holds[i].open) {
+        if (s_door_holds[i].hold == ARENA_OPEN) {
             door->flags |= PROPFLAG_DOOR_KEEPOPEN;
             door->flags2 &= ~PROPFLAG2_40000000; /* the airlock: opening one shuts its partner */
         } else {
@@ -337,20 +364,12 @@ void gevrArenaDoorRules(s32 stage, s32 record, DoorRecord *door)
     }
 }
 
-/* The rooms a player can stand in (user, 2026-10-24: Train's tracks run on
- * for a long way). Train: the carriages are rooms 1-52, the track and
- * ballast 53-57. Three seconds outside is a death of the player's own. */
-static const struct ArenaBounds { s16 stage; u8 first, last; } s_bounds[] = {
-    { LEVELID_TRAIN, 1, 52 },
-};
 #define ARENA_OUT_TICKS 180
 
 void gevrArenaTick(s32 ticks)
 {
     if (!s_campaign_deathmatch || ticks <= 0 || bossGetStageNum() != s_stage) return;
-    const struct ArenaBounds *bounds = NULL;
-    for (u32 i = 0; i < sizeof(s_bounds) / sizeof(*s_bounds); i++)
-        if (s_bounds[i].stage == s_stage) bounds = &s_bounds[i];
+    const struct ArenaBounds *bounds = arenaBounds();
     const s32 me = netIsActive() ? netGetLocalSlot() : 0;
     struct player *pl = bounds && me >= 0 && me < getPlayerCount() ? g_playerPointers[me] : NULL;
     if (!pl || !pl->prop || !pl->prop->stan || pl->bonddead || netPlayerIsSpectator(me)) {

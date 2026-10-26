@@ -125,7 +125,7 @@ static void check_graph(void)
 
 static void check_campaign(void)
 {
-    PadRecord pads[33] = {0}; waypoint ways[33] = {0}; StandTile tile = {0};
+    PadRecord pads[33] = {0}; waypoint ways[33] = {0}; StandTile tile = {.room = 1}; /* inside Train's carriages */
     for (int i = 0; i < 32; i++) {
         pads[i].plink = "pad"; pads[i].stan = &tile; pads[i].pos.x = i * 1000;
         pads[i].up.y = pads[i].look.z = 1; ways[i].padID = i;
@@ -197,7 +197,7 @@ static void check_rules(void)
     ((DoorRecord *)(stream + at[3]))->doorType = DOORTYPE_FALLAWAY; /* Surface's vent hatch */
     ((LockDoorRecord *)(stream + at[5]))->Index1 = 3 - 5; /* on the fall-away door */
     ((LockDoorRecord *)(stream + at[6]))->Index1 = 4 - 6; /* on an ordinary door */
-    PadRecord pads[3] = {0}; StandTile tile = {0};
+    PadRecord pads[3] = {0}; StandTile tile = {.room = 1};
     for (int i = 0; i < 2; i++) { pads[i].plink = "pad"; pads[i].stan = &tile; pads[i].pos.x = i * 1000; }
     pads[1].pos.y = 345; /* Train's trackside pads, behind the crates */
     mode = NET_MODE_DEATHMATCH;
@@ -233,6 +233,25 @@ static void check_rules(void)
     DoorRecord outro = {.flags = PROPFLAG_DOOR_KEEPOPEN};
     gevrArenaDoorRules(LEVELID_SURFACE2, 78, &outro);
     assert(outro.flags == PROPFLAG_CANNOT_ACTIVATE);
+    clear_allocations();
+    /* Train: the last carriage's one-way door works both ways (rc6: locked
+     * in), the broken carriage past it stays shut, and spawns stay off the
+     * track (rooms 53-57) and out of the broken carriage (52). */
+    g_CurrentSetup = (struct stagesetup){.pads = pads, .propDefs = (void *)stream};
+    gevrArenaPrepareSetup(LEVELID_TRAIN);
+    DoorRecord last = {.flags2 = PROPFLAG2_08000000 | PROPFLAG2_40000000}, broken = {0};
+    gevrArenaDoorRules(LEVELID_TRAIN, 346, &last);
+    gevrArenaDoorRules(LEVELID_TRAIN, 347, &broken);
+    assert(last.flags2 == PROPFLAG2_40000000 && !(last.flags & PROPFLAG_CANNOT_ACTIVATE));
+    assert(broken.flags & PROPFLAG_CANNOT_ACTIVATE);
+    clear_allocations();
+    StandTile track = {.room = 53}, carriage = {.room = 52};
+    pads[1].stan = &track; pads[1].pos.y = 0;
+    PadRecord three[4] = {pads[0], pads[1], {.plink = "pad", .stan = &carriage}, {0}};
+    g_CurrentSetup = (struct stagesetup){.pads = three, .propDefs = (void *)stream};
+    gevrArenaPrepareSetup(LEVELID_TRAIN);
+    s32 candidates[8];
+    assert(gevrArenaPads(candidates, 8) == 1 && candidates[0] == 0);
     clear_allocations();
     mode = NET_MODE_COOP; /* the mission itself keeps its scripts and its doors */
     g_CurrentSetup = (struct stagesetup){.pads = pads, .propDefs = (void *)stream};
