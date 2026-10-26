@@ -33,6 +33,7 @@ static int rdBodyLimit(void)
 }
 extern float VrDismemberDamage;
 extern ModelRenderData D_8002CCBC;
+extern void lerp_rgba_s32_with_rgba_f32(rgba_s32 *dest, s32 enable, rgba_f32 *src); /* propobj.c */
 extern s32 g_gevrExtraPass;
 
 static RdBody s_bodies[RD_BODIES];
