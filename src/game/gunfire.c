@@ -8567,8 +8567,12 @@ static Gfx *gevrDrawSight3D(Gfx *gdl, s32 hand, s32 scope)
  * game's Zurich Bold on a dim panel. Drawn in the world pass with the depth
  * test (lv.c), so a wall that hides a player hides the name. The letters face
  * the eye, as the 3D sight does; up close a font pixel is 0.7 cm of world, and
- * far off never under ~0.07 degrees, so a name stays readable across a map.
+ * far off never under ~0.07 degrees, so a name stays readable to the end of
+ * its range. Past 25 m no name: on the big campaign maps a tag gave a player
+ * away, and was aimed at, from much further than the body could be made out
+ * (Cradle, 2026-10-26).
  */
+#define GEVR_NAME_TAG_RANGE 2500.0f   /* world units are centimetres */
 /*
  * A name on its panel, facing the eye, the panel's foot at the view-space
  * point v; k view units a font pixel; the panel's colour (RGBA). The name
@@ -8752,6 +8756,10 @@ static Gfx *gevrDrawNameTag(Gfx *gdl, const char *name, coord3d at, s32 speaking
         return gdl;   /* behind the eye */
     }
     dist = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z) / D_800364CC;
+    if (dist > GEVR_NAME_TAG_RANGE)
+    {
+        return gdl;
+    }
     k = dist * 0.0012f;
     if (k < 0.7f)
     {
