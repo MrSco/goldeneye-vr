@@ -41,8 +41,12 @@ static void surfaceChecks(void)
     GevrStaticMesh *retained=gevrStaticMeshBuild(dl);
     assert(retained); gevrStaticMeshFree(retained);
     free(dl); free(raw);
-    /* Retail caps with authored texture alpha use it without a second fade. */
-    mesh.texCut[1]=1; beanSkyMaterials(&mesh);
+    /* Retail caps with authored texture alpha stay the alpha-tested cut-out
+     * they load as: no blend, no second fade (test.7: a white rim band). */
+    mesh.texCut[1]=1; tri[1].alpha=255; tri[1].alphatest=1;
+    memset(tri[1].rgba,255,sizeof(tri[1].rgba));
+    beanSkyMaterials(&mesh);
+    assert(tri[1].alpha==255 && tri[1].alphatest==1);
     for(int c=0;c<3;c++) assert(tri[1].rgba[c*4+3]==255);
 
     /* A forest wall repeats U, clamps V and shares one V origin even when
