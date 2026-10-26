@@ -1007,7 +1007,15 @@ Gfx *gevrRagdollRender(Gfx *gdl)
         render.gdl=gdl; render.flags=3;
         render.PropType=b->alpha<255?8:7;
         render.envcolour.word=0x5a000000u|(b->alpha<255?(u8)b->alpha:0);
-        render.fogcolour=b->shade;
+        /* Fogged as the living guard was (chr.c): the root's depth through the
+         * game's prop fog. Unfogged, a body shot in fog showed its textures the
+         * moment it fell (Surface 2, 2026-10-26). */
+        rgba_f32 fog;
+        const s32 fogged=gevrFogDepthColor(-b->model.render_pos[0].pos.m[3][2],&fog);
+        if(!fogged)continue;
+        rgba_s32 shade={.r=b->shade.r,.g=b->shade.g,.b=b->shade.b,.a=b->shade.a};
+        lerp_rgba_s32_with_rgba_f32(&shade,fogged,&fog);
+        render.fogcolour.word=((u32)shade.r<<24)|((u32)shade.g<<16)|((u32)shade.b<<8)|(u32)shade.a;
         subdraw(&render,&b->model);
         gdl=rdDrawCaps(b,render.gdl);
         bondviewTransformManyPosToViewMatrix(b->model.render_pos,b->matrices);

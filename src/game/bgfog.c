@@ -706,6 +706,73 @@ NearFogRecord *fogGetNearFogValuesP(void)
 /**
  * Address 0x7F0BB3A4.
 */
+#ifdef GEVR
+/*
+ * The game's prop fog for anything zDepth world units in front of the eye: 0
+ * lost in the fog, 1 fogged toward color, 2 clear. Props take it through
+ * fogGetPropDistColor and ragdolls (gevr_ragdoll.c) directly, so a guard's
+ * body is fogged alike standing and fallen.
+ */
+s32 gevrFogDepthColor(f32 zDepth, rgba_f32 *color)
+{
+    if (g_FogSkyIsEnabled == 0)
+    {
+        return 2; // No fog, props cannot be obscured by fog
+    }
+
+    if (zDepth < 0.0f)
+    {
+        return 2; // Prop is behind the camera
+    }
+
+    float line[2]; u8 rgb[3];
+    if (gevrBeanRoomFog(line,rgb)) {
+        /*
+         * The rooms' line is for clip w, world x the level's visibility scale
+         * (the s32 matrices carry it; GoldenEye's own prop fog divides its
+         * range by it above). zDepth is world: without the scale, props on
+         * Dam and both Surfaces (visibility 0.2) were fogged five times as
+         * near as the walls - flat grey guards, doors and helicopters whose
+         * textures came in only a few metres off (Surface 2, 2026-10-26).
+         */
+        for(int i=0;i<3;i++) color->rgba[i]=rgb[i]/255.0f;
+        color->rgba[3]=fminf(1.0f,fmaxf(0.0f,(zDepth*bgGetLevelVisibilityScale()*line[0]+line[1])/255.0f));
+        return color->rgba[3]>0 ? 1:2;
+    }
+    color->rgba[0] = (f32) g_CurrentEnvironment.Red / 255.0f;
+    color->rgba[1] = (f32) g_CurrentEnvironment.Green / 255.0f;
+    color->rgba[2] = (f32) g_CurrentEnvironment.Blue / 255.0f;
+    color->rgba[3] = (g_CurFogDetails.far_fog_dist_scaled / zDepth) + g_CurFogDetails.near_fog_dist_scaled;
+
+    if (color->rgba[3] < 0.0f)
+    {
+        return 2; // Prop has no fog effect coloring applied to it
+    }
+
+    if (color->rgba[3] > 1.0f)
+    {
+        /*
+         * Issue #39: past the fog but within the rooms' extended reach (bg.h
+         * GEVR_FAR_EXTEND), drawn fully fogged as the room geometry out there
+         * is, rather than dropped - the radar dish on Surface popped in after
+         * its building.
+         */
+        if (zDepth < g_CurFogDetails.scaled_far_fog_dist * GEVR_FAR_EXTEND)
+        {
+            color->rgba[3] = 1.0f;
+            return 1;
+        }
+        return 0; // Prop is completely obscured by fog (don't render)
+    }
+
+    return 1; // Fog color will be applied to prop
+}
+
+s32 fogGetPropDistColor(PropRecord *prop, rgba_f32 *color)
+{
+    return gevrFogDepthColor(prop->zDepth, color);
+}
+#else
 s32 fogGetPropDistColor(PropRecord *prop, rgba_f32 *color)
 {
     if (g_FogSkyIsEnabled == 0)
@@ -718,14 +785,6 @@ s32 fogGetPropDistColor(PropRecord *prop, rgba_f32 *color)
         return 2; // Prop is behind the camera
     }
 
-#ifdef GEVR
-    float line[2]; u8 rgb[3];
-    if (gevrBeanRoomFog(line,rgb)) {
-        for(int i=0;i<3;i++) color->rgba[i]=rgb[i]/255.0f;
-        color->rgba[3]=fminf(1.0f,fmaxf(0.0f,(prop->zDepth*line[0]+line[1])/255.0f));
-        return color->rgba[3]>0 ? 1:2;
-    }
-#endif
     color->rgba[0] = (f32) g_CurrentEnvironment.Red / 255.0f;
     color->rgba[1] = (f32) g_CurrentEnvironment.Green / 255.0f;
     color->rgba[2] = (f32) g_CurrentEnvironment.Blue / 255.0f;
@@ -738,24 +797,12 @@ s32 fogGetPropDistColor(PropRecord *prop, rgba_f32 *color)
 
     if (color->rgba[3] > 1.0f)
     {
-#ifdef GEVR
-        /*
-         * Issue #39: past the fog but within the rooms' extended reach (bg.h
-         * GEVR_FAR_EXTEND), drawn fully fogged as the room geometry out there
-         * is, rather than dropped - the radar dish on Surface popped in after
-         * its building.
-         */
-        if (prop->zDepth < g_CurFogDetails.scaled_far_fog_dist * GEVR_FAR_EXTEND)
-        {
-            color->rgba[3] = 1.0f;
-            return 1;
-        }
-#endif
         return 0; // Prop is completely obscured by fog (don't render)
     }
 
     return 1; // Fog color will be applied to prop
 }
+#endif
 
 #ifdef GEVR
 /* Share the game's gas/sky transition with HD room and object fog. */
