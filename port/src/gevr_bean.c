@@ -2537,13 +2537,17 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 				for (ModelNode *up = dls[i].node->Parent; up; up = up->Parent)
 					if (nodeOp(up) == MODELNODE_OPCODE_LOD && up->Data->LOD.MinDistance > 0)
 						far = 1;
-                /* Prefer a fitted root body. Flying props can instead put
-                 * their hull on a non-root matrix after the rotor lists. */
+                /* Prefer a fitted root body. With no list on the root, the
+                 * fit is the first near list's (DAB gebean.c
+                 * gebeanRigidPrimaryList; gevr_bean_fits.h): Surface's dish
+                 * fitted to its truss drew 3927 too high on the dish's own
+                 * matrix when the widest list was taken (#218). The Runway
+                 * plane, helicopter and guns bind as before (ROM models). */
                 int rootMatrix=nodeMatrix(header->RootNode);
                 int haveRoot=best>=0 && nodeMatrix(dls[best].node)==rootMatrix;
                 if ((fit && !far && nodeMatrix(dls[i].node)==rootMatrix && !haveRoot) ||
                     (!fit && dls[i].span>bestSpan) ||
-                    (kind==BEAN_PROP && !haveRoot && !far && !dls[i].simple && dls[i].span>bestSpan)) {
+                    (kind==BEAN_PROP && fit && best<0 && !far && !dls[i].simple)) {
 					bestSpan = dls[i].span;
 					best = i;
 				}
@@ -2556,6 +2560,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 			best = 0;
 		if (best >= 0) {
 			struct beanRigidBinding binding;
+			int partDone[MAX_GRP] = {0}; /* a part's triangles go on one list of its matrix */
 			rigidBindings(mesh, fit, grp, ng, dls[best].grp, &binding, dls, nd);
 			binding.target = binding.base;
 			void *gdl = NULL, *vtx = NULL;
@@ -2719,6 +2724,10 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
                         registerPrimary(dls[i].node,gdl,0);
                         continue;
                     }
+					if (kind == BEAN_PROP && g >= 0 && g != binding.base && partDone[g]) {
+						registerPrimary(dls[i].node, s_blank, 1);
+						continue;
+					}
 					if (kind == BEAN_PROP && g >= 0 && g != binding.base) {
 						binding.target = g;
 						void *partGdl = NULL, *partVtx = NULL;
@@ -2727,6 +2736,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 							keepAlloc(partGdl);
 							keepAlloc(partVtx);
 							registerPrimary(dls[i].node, partGdl, 0);
+							partDone[g] = 1;
 						} else if (!dls[i].simple && !underJoint)
 							registerPrimary(dls[i].node, s_blank, 1);
 						continue;

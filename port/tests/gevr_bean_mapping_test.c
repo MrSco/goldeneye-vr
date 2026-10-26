@@ -797,6 +797,20 @@ int main(int argc, char **argv)
 		for (int t = 0; t < mesh->ntris; t++)
 			for (int k = 0; k < 3; k++) assert(mesh->tris[t].rgba[k * 4 + 3] == 255);
 	}
+	/* Surface's dish (#218): fitted to its truss (matrix 1, no root list),
+	 * the truss on matrix 1 and the dish once on matrix 2, its switch list
+	 * blank - not all of it 3927 too high on the dish's matrix, twice */
+	if (!strcmp(argv[2], "PsevdishZ")) {
+		int onMatrix[3] = {0};
+		for (int i = 0; i < s_nswap; i++)
+			if (s_swap[i].ours != s_blank) {
+				int m = nodeMatrix(s_swap[i].node);
+				assert(m >= 0 && m < 3);
+				onMatrix[m]++;
+			}
+		printf("DISH lists on matrices 0/1/2: %d %d %d\n", onMatrix[0], onMatrix[1], onMatrix[2]);
+		assert(onMatrix[0] == 0 && onMatrix[1] == 1 && onMatrix[2] == 1);
+	}
 	combinedBodyCheck(&header,mesh,kind,fitForName(argv[2]));
 	gevrBeanMeshFree(mesh);
 	gevrBeanReset();
