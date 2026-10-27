@@ -4678,6 +4678,24 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
 
 #ifdef GEVR
             Gfx *beanTransparent = (Gfx *)gevrBeanTransparentGdl(node, shownGdl, model, renderdata->flags);
+            /* a destroyed prop as the opaque pass drew it: Bean's scorched copy,
+             * else the game's own wreck with its own translucent part - never a
+             * clean Bean list over it (the opaque pass notes no Bean list when it
+             * drew the game's) */
+            if (vtxstoreIsWreckCopy(rwdata->DisplayListCollisions.Vertices))
+            {
+                Gfx *scorched = (Gfx *)gevrBeanScorchedGdl(node, rodata->DisplayListCollisions.Vertices,
+                    rwdata->DisplayListCollisions.Vertices, rodata->DisplayListCollisions.numVertices);
+
+                if (beanTransparent)
+                {
+                    beanTransparent = scorched;
+                }
+                if (!scorched)
+                {
+                    shownType = rodata->DisplayListCollisions.ModelType;
+                }
+            }
             if (beanTransparent)
             {
                 const s32 pass = gevrBeanPassSplit(node, model, renderdata->flags);
