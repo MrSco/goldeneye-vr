@@ -2934,33 +2934,6 @@ void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
 	if (!cached) gevrBeanMeshFree(mesh);
 }
 
-/* objDeform's vertex copies: a destroyed prop's, for gevrBeanScorchedGdl. A
- * node's own copy alone says nothing: chr.c gives chr parts theirs too, and a
- * scorched list is a per-frame copy drawn on the CPU. */
-#define MAX_DEFORMED 64
-static const void *s_deformed[MAX_DEFORMED];
-static int s_deformedNext;
-
-void gevrBeanMarkDeformed(const void *vertices)
-{
-    gevrBeanForgetDeformed(vertices);
-    s_deformed[s_deformedNext] = vertices;
-    s_deformedNext = (s_deformedNext + 1) % MAX_DEFORMED;
-}
-
-void gevrBeanForgetDeformed(const void *vertices)
-{
-    for (int i = 0; vertices && i < MAX_DEFORMED; i++)
-        if (s_deformed[i] == vertices) s_deformed[i] = NULL;
-}
-
-int gevrBeanIsDeformed(const void *vertices)
-{
-    for (int i = 0; vertices && i < MAX_DEFORMED; i++)
-        if (s_deformed[i] == vertices) return 1;
-    return 0;
-}
-
 static Gfx *s_rareLogo;
 static const void *s_rareLogoPicture;
 static int s_rareLogoTried;
@@ -3059,7 +3032,6 @@ void gevrBeanReset(void)
 	s_nalloc = 0;
 	beanGunReset();
 	s_rareLogo = NULL;   /* its list and picture went with the level */
-	memset(s_deformed, 0, sizeof(s_deformed));
 	s_rareLogoTried = 0;
 	s_nswap = 0;
 	memset(s_swapIndex, 0, sizeof(s_swapIndex));

@@ -7,6 +7,7 @@
 #ifdef GEVR
 #include "gevr_hand_reload.h"
 #include "gevr_bean.h"
+#include "vtxstore.h"
 #include "gevr_oddjobhat.h"
 #endif
 #include "../rmon.h" /*<PR/rmon.h>*/
@@ -4570,11 +4571,22 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
             s32 nodeType = gevrBeanNodeModeType(node, shownType);
             /* objDeform's own blackened, crumpled vertex copy (a destroyed prop) */
             if (shownGdl && shownGdl != rwdata->DisplayListCollisions.gdl &&
-                rwdata->DisplayListCollisions.Vertices != rodata->DisplayListCollisions.Vertices &&
-                gevrBeanIsDeformed(rwdata->DisplayListCollisions.Vertices))
+                vtxstoreIsWreckCopy(rwdata->DisplayListCollisions.Vertices))
             {
-                shownGdl = (Gfx *)gevrBeanScorchedGdl(node, shownGdl, rodata->DisplayListCollisions.Vertices,
+                Gfx *scorched = (Gfx *)gevrBeanScorchedGdl(node, rodata->DisplayListCollisions.Vertices,
                     rwdata->DisplayListCollisions.Vertices, rodata->DisplayListCollisions.numVertices);
+
+                if (scorched)
+                {
+                    shownGdl = scorched;
+                }
+                else
+                {
+                    /* no HD wreck to make: the game's own, never the HD prop whole */
+                    shownGdl = rwdata->DisplayListCollisions.gdl;
+                    shownType = rodata->DisplayListCollisions.ModelType;
+                    nodeType = shownType;
+                }
             }
 #else
             Gfx *shownGdl = rwdata->DisplayListCollisions.gdl;

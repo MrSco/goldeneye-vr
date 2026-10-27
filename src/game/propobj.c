@@ -8125,15 +8125,20 @@ void objDeform(ObjectRecord *obj, E_EXPLOSIONTYPE explosiontype)
         }
         
         *vtxslot = newverts;
-#ifdef GEVR
-        {
-            extern void gevrBeanMarkDeformed(const void *vertices);
-            gevrBeanMarkDeformed(newverts);   /* Bean's list follows it (gevrBeanScorchedGdl) */
-        }
-#endif
     }
     else
     {
+#ifdef GEVR
+        /*
+         * A wreck shot again is crumpled further in a new copy. With no room
+         * for it the cartridge freed the wreck and drew the prop whole again,
+         * squashed, in every mode: it stays as it is instead.
+         */
+        if ((*vtxslot) != rodata->Vertices)
+        {
+            return;
+        }
+#endif
         if ((*vtxslot) != rodata->Vertices)
         {
             sub_GAME_7F09C044(*vtxslot);

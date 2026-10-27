@@ -104,6 +104,24 @@ void sub_GAME_7F09B820(void)
         }
     }
 
+#ifdef GEVR
+    /*
+     * The object store (type 0xB0B) holds objDeform's crumpled, blackened copy
+     * of a destroyed prop. The cartridge sized it for its RAM: 500 vertices
+     * with two or more players and on Streets and Depot, 1500 otherwise. A prop
+     * that did not fit was drawn whole again, only squashed. Co-op, arenas and
+     * Horde bring the campaign's props with several players, and seven of them
+     * are over 500 (ROM census): the Tiger, 743, stood whole on Statue once
+     * its fireball cleared (2026-10-27). The Frigate helicopter, 1624, did not
+     * fit even solo. Every mode gets three times the cartridge's largest
+     * store: the biggest prop twice over, as a wreck shot again is copied into
+     * a new block before its old one is freed, with the cartridge's ratio of
+     * descriptors to vertices.
+     */
+    dword_CODE_bss_8007A0D8 = 0x5DC * 3;
+    dword_CODE_bss_8007A0DC = 0x28 * 3;
+#endif
+
     /* These descriptors contain two pointers: 20 bytes on N64, 32 on
      * ARM64. Reserving the cartridge size corrupts the next stage allocation. */
     tmp = sizeof(struct unk_09B7A0_struct_parent);
@@ -386,13 +404,6 @@ void sub_GAME_7F09C044(Vertex* arg0) {
     s32 stop;
     s32 var_v1;
 
-#ifdef GEVR
-    {
-        extern void gevrBeanForgetDeformed(const void *vertices);
-        gevrBeanForgetDeformed(arg0);   /* no longer a destroyed prop's (objDeform) */
-    }
-#endif
-
     if ((arg0 >= dword_CODE_bss_8007A0E0) &&
         (arg0 <= dword_CODE_bss_8007A0E0 + (dword_CODE_bss_8007A0D0 - 1))) {
         var_a3 = dword_CODE_bss_8007A0E8;
@@ -456,3 +467,19 @@ void sub_GAME_7F09C044(Vertex* arg0) {
         }
     }
 }
+
+
+#ifdef GEVR
+/*
+ * Whether vertices are a destroyed prop's wreck: objDeform's store holds
+ * nothing else (chr parts copy into the 0xCCCC store). Bean draws its HD
+ * wreck from this (model.c).
+ */
+s32 vtxstoreIsWreckCopy(const void *vertices)
+{
+    const Vertex *v = vertices;
+
+    return dword_CODE_bss_8007A0E4 != NULL && v >= dword_CODE_bss_8007A0E4 &&
+           v < dword_CODE_bss_8007A0E4 + dword_CODE_bss_8007A0D8;
+}
+#endif

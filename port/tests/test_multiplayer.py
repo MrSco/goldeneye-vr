@@ -328,6 +328,7 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_pve_teammates_voice_full_volume(self): self.assertEqual(self.core.test_core_pve_voice_teammates(),0)
     def test_closing_door_escape_preserves_entry_collision(self): self.assertEqual(self.lib.test_door_escape(),0)
     def test_combat_allocator_canaries_and_merge(self): self.assertEqual(self.allocator.test_vtxstore(),0)
+    def test_wreck_store_holds_largest_prop_shot_again(self): self.assertEqual(self.allocator.test_wreck_store(),0)
     def test_inventory_reset_and_respawn_bounds(self): self.assertEqual(self.inventory.test_inventory_bounds(),0)
     def test_ammo_spawn_reset_and_late_join_transforms(self): self.assertEqual(self.objects.test_ammo_lifecycle(),0)
     def test_ammo_protocol_and_invalid_transforms(self): self.assertEqual(self.lib.test_ammo_protocol(),0)
