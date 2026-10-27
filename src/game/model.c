@@ -4580,9 +4580,11 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
                 {
                     shownGdl = scorched;
                 }
-                else
+                else if (!gevrBeanDrawsElsewhere(node))
                 {
-                    /* no HD wreck to make: the game's own, never the HD prop whole */
+                    /* no HD wreck to make: the game's own, never the HD prop whole.
+                     * Not for a part Bean draws in another node's list (the CCTV
+                     * mount): the game's wreck would lie over the whole Bean prop. */
                     shownGdl = rwdata->DisplayListCollisions.gdl;
                     shownType = rodata->DisplayListCollisions.ModelType;
                     nodeType = shownType;
@@ -4682,7 +4684,7 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
              * else the game's own wreck with its own translucent part - never a
              * clean Bean list over it (the opaque pass notes no Bean list when it
              * drew the game's) */
-            if (vtxstoreIsWreckCopy(rwdata->DisplayListCollisions.Vertices))
+            if (vtxstoreIsWreckCopy(rwdata->DisplayListCollisions.Vertices) && !gevrBeanDrawsElsewhere(node))
             {
                 Gfx *scorched = (Gfx *)gevrBeanScorchedGdl(node, rodata->DisplayListCollisions.Vertices,
                     rwdata->DisplayListCollisions.Vertices, rodata->DisplayListCollisions.numVertices);

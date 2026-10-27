@@ -180,6 +180,19 @@ static void materialPathChecks(void)
                     assert(wrecked ? pane == 1 && !bean : !pane && !game);
             }
         }
+        /* a part Bean draws in another node's list (the CCTV mount) keeps its
+         * blank: the game's wreck would lie over the whole Bean prop */
+        s_nswap = 0; swapIndexRebuild();
+        swapAdd(&node, native, NULL, 4);
+        s_wreckCopy = wreck;
+        gevrBeanBeginFrame();
+        for (int flags = 1; flags <= 2; flags++) {
+            ModelRenderData r = {0}; r.gdl = output; r.flags = flags;
+            modelRenderNodeDl(&r, &model, &node);
+            for (Gfx *g = output; g < r.gdl; g++)
+                if ((g->words.w0 >> 24) == (G_DL & 255))
+                    assert(g->words.w1 != (uintptr_t)native && g->words.w1 != (uintptr_t)glass);
+        }
         s_wreckCopy = NULL;
         collisionRw.Vertices = NULL;
         s_nswap = 0; swapIndexRebuild();

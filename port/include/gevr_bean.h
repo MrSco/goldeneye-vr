@@ -98,6 +98,8 @@ void *gevrBeanFadeMark(void *gdl, int alpha);
 /* A destroyed prop's Bean list (objDeform's blackened, crumpled vertex copy): a frame copy
  * that follows it, or NULL when there is none to make (the caller draws the game's wreck). */
 void *gevrBeanScorchedGdl(void *node, const void *stockVertices, const void *nowVertices, int count);
+/* The node's Bean part is drawn in another node's list (it shows Bean's blank). */
+int gevrBeanDrawsElsewhere(void *node);
 void *gevrBeanRenderGdl(void *node, void *current, struct Model *model);
 void *gevrBeanWholeModelGdl(struct Model *model);
 struct ModelHitEntry;

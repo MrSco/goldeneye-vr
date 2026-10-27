@@ -390,6 +390,12 @@ static int opaqueDrawn(const void *model)
  * clean copy lay over a destroyed prop's scorched one (Dam's drums) and every
  * such prop was drawn twice. One with translucent batches is split over the
  * passes (gevrBeanPassSplit). */
+int gevrBeanDrawsElsewhere(void *node)
+{
+    struct beanSwap *s = activeSwap(node);
+    return s && s->ours == s_blank;
+}
+
 void *gevrBeanTransparentGdl(void *node, void *current, struct Model *model, int flags)
 {
     struct beanSwap *s = activeSwap(node);
