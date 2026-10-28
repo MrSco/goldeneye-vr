@@ -454,8 +454,8 @@ void fogLoadLevelEnvironment(s32 level_id, s32 arg1)
     num_players = getPlayerCount();
 
 #ifdef GEVR
-    /* Co-op and campaign-only arenas use the mission's sky and fog. */
-    if (num_players == 1 || gevrCoopActive() || !netStageHasMpSetup((unsigned)level_id))
+    /* Co-op, campaign-only arenas and "(Full)" maps use the mission's sky and fog. */
+    if (num_players == 1 || gevrCoopActive() || !netStageHasMpSetup((unsigned)level_id) || netRoundFullMap())
 #else
     if (num_players == 1)
 #endif

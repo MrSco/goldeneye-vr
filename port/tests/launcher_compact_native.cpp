@@ -12,7 +12,8 @@ static int VrMpMode, VrMpBotMode, VrMpBotCount=7, VrMpBotDifficulty=5, VrMpFrien
 static int VrMpStage=34,VrMpMaxPlayers=8,VrMpVisibility=1,VrMpWeaponSet=4,VrMpCustom[4];
 static int VrMovementSpeed, VrMpMovementSpeed, VrSmoothTurnSpeed=120;
 static int VrNoKnockback=1, VrNoHitstun=1, VrDamageFlash=1, VrCoopFastReinforcements;
-static unsigned VrMpFavStages, VrMpFavSets;
+static unsigned long long VrMpFavStages;
+static unsigned VrMpFavSets;
 static float VrUseSnapTurn, VrComfortVignette=.5f, vignette=.5f;
 static bool vignetteOn=true;
 static int turn, online, host;
@@ -53,7 +54,7 @@ static void gevrNetConfigSet(int,int value){if(host)config.movement_speed=VrMpMo
 static int netGetHostEqualization(unsigned *cap){*cap=50;return 1;}
 static void netSetHostEqualization(bool,unsigned){}
 static void netHostEqualizationText(char *out,size_t n){std::snprintf(out,n,"Host delay: 50 ms");}
-static bool favoriteRow(const char*,int,const char*(*)(int),unsigned*,int){return false;}
+template <typename Mask> static bool favoriteRow(const char*,int,const char*(*)(int),Mask*,int){return false;}
 static const char* gevrBotCountName(int n){static const char*names[]={"1","2","3","4","5","6","7"};return names[n];}
 /* the host's stage chooser as drawn: every stage's name must fit it (user: "Caverns" was cut off) */
 static float stageComboWidth=-1;

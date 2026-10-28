@@ -23,7 +23,13 @@ static const NetMatchStage s_stages[] = {
     { "Silo",      20 }, { "Frigate",   26 }, { "Surface II",43 }, { "Streets",   29 },
     { "Depot",     30 }, { "Train",     25 }, { "Jungle",    37 }, { "Control",   23 },
     { "Aztec",     28 },
+    /* Append: the campaign levels whole of the multiplayer maps above (Horde lists none) */
+    { "Facility (Full)",  34 | NET_STAGE_FULL }, { "Caverns (Full)", 39 | NET_STAGE_FULL },
+    { "Egypt (Full)",     32 | NET_STAGE_FULL }, { "Bunker II (Full)", 27 | NET_STAGE_FULL },
+    { "Archives (Full)",  24 | NET_STAGE_FULL }, { "Statue (Full)",  22 | NET_STAGE_FULL },
+    { "Cradle (Full)",    41 | NET_STAGE_FULL },
 };
+#define HORDE_STAGES 26
 
 /* The twenty missions (front.c mission_folder_setup_entries), the ROM's LEVELID values */
 static const NetCoopMission s_coop_missions[] = {
@@ -104,7 +110,7 @@ static const NetMatchItem s_items[] = {
 };
 
 #define COUNT(a) ((int)(sizeof(a) / sizeof((a)[0])))
-_Static_assert(COUNT(s_stages) <= 32, "stage favourites and ballots hold 32 maps");
+_Static_assert(COUNT(s_stages) <= 64, "stage favourites and ballots hold 64 maps");
 
 int netStageCount(void) { return COUNT(s_stages); }
 const NetMatchStage *netStage(int idx) { return idx >= 0 && idx < COUNT(s_stages) ? &s_stages[idx] : &s_stages[0]; }
@@ -113,6 +119,12 @@ int netStageIndexOf(uint8_t level_id) {
     for (int i = 0; i < COUNT(s_stages); i++)
         if (s_stages[i].level_id == level_id) return i;
     return -1;
+}
+int netStageIsFull(unsigned code) {
+    return code <= UINT8_MAX && (code & NET_STAGE_FULL) && netStageIndexOf((uint8_t)code) >= HORDE_STAGES;
+}
+unsigned netStageLevelId(unsigned code) {
+    return netStageIsFull(code) ? code & ~(unsigned)NET_STAGE_FULL : code;
 }
 
 int netStageHasMpSetup(unsigned level_id) {
@@ -124,8 +136,10 @@ int netStageUsesMpSetup(unsigned level_id, int mode) {
     return mode == NET_MODE_DEATHMATCH ||
         (mode == NET_MODE_HORDE && netCoopMissionIndexOf((uint8_t)level_id) < 0);
 }
+int netHordeStageCount(void) { return HORDE_STAGES; }
 int netHordeStageValid(unsigned stage) {
-    return stage <= UINT8_MAX && netStageIndexOf((uint8_t)stage) >= 0;
+    int idx = stage <= UINT8_MAX ? netStageIndexOf((uint8_t)stage) : -1;
+    return idx >= 0 && idx < HORDE_STAGES;
 }
 const char *netHordeStageName(unsigned stage) {
     return netHordeStageValid(stage) ? netStageName(netStageIndexOf((uint8_t)stage)) : "";

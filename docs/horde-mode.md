@@ -122,9 +122,11 @@ through both guard navigation and floor collision, including closed doors and
 path blockers. This filtering runs before world snapshots so late joiners derive
 the same stations. Stations prefer pads at least 320 units from a door.
 
-The launcher, saved settings, validation and map labels share the 26-entry
-catalogue in `net_match.c`. Protocol 25 separates it from older builds' smaller
-map lists. See [all-map support](issue-219-all-maps.md) for the map checklist and
+The launcher, saved settings, validation and map labels share the catalogue in
+`net_match.c`: Horde lists its first 26 entries, and Deathmatch also lists the
+seven "(Full)" campaign levels of the multiplayer maps that have a mission
+(stage code `LEVELID | NET_STAGE_FULL`). Protocol 25 separates it from older
+builds' smaller map lists. See [all-map support](issue-219-all-maps.md) for the map checklist and
 validation limits.
 
 Wave guards use the existing persistent chase-and-attack AI. Spawn candidates

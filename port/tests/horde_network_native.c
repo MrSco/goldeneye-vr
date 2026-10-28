@@ -93,8 +93,12 @@ int main(void)
     assert(netMatchConfigValid(&c) && netConfigMaxPlayers(&c)==4);
     /* Every mission and arena, including Statue and MP-only Complex. The
      * wire round trip must preserve IDs and reject menus/unknown stages. */
-    assert(netStageCount()==26);
-    for(int i=0;i<netStageCount();i++) {
+    assert(netHordeStageCount()==26 && netStageCount()==33);
+    for(int i=netHordeStageCount();i<netStageCount();i++) { /* "(Full)": Deathmatch's alone */
+        c.stage=netStage(i)->level_id;
+        assert(!netMatchConfigValid(&c) && !netHordeStageValid(c.stage) && netStageIndexOf(c.stage)==i);
+    }
+    for(int i=0;i<netHordeStageCount();i++) {
         c.stage=netStage(i)->level_id;
         assert(netMatchConfigValid(&c) && netConfigMaxPlayers(&c)==4);
         assert(*netHordeStageName(c.stage));

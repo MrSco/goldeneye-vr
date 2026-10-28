@@ -1321,7 +1321,7 @@ void proplvreset2(enum LEVELID stageId)
          * by adding "mp_" after the "U" e.g. "Ump_setuparchZ"
          */
 #ifdef GEVR
-        if ((gevrMpRules() && netStageUsesMpSetup(stageId, NET_MODE_DEATHMATCH)) ||
+        if ((gevrMpRules() && netStageUsesMpSetup(stageId, NET_MODE_DEATHMATCH) && !netRoundFullMap()) ||
             (netHordeActive() && netStageUsesMpSetup(stageId, NET_MODE_HORDE)))
 #else
         if (getPlayerCount() >= 2)

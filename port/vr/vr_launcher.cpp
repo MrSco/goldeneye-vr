@@ -1379,17 +1379,18 @@ static void loadoutRows(const char *idprefix) {
 }
 
 // A row of favorite toggles over a bitmask: the shuffle and the playlist draw from them.
-static bool favoriteRow(const char *label, int count, const char *(*name)(int), unsigned *mask, int perRow) {
+template <typename Mask>
+static bool favoriteRow(const char *label, int count, const char *(*name)(int), Mask *mask, int perRow) {
     bool changed = false;
     ImGui::TextUnformatted(label);
-    for (int i = 0; i < count; i++) {
+    for (int i = 0; i < count && i < (int)(8 * sizeof(Mask)); i++) {
         bool on = ((*mask >> i) & 1u) != 0;
         if (i % perRow != 0)
             ImGui::SameLine();
         char id[48];
         snprintf(id, sizeof(id), "%s##%s%d", name(i), label, i);
         if (ImGui::Checkbox(id, &on)) {
-            *mask = on ? (*mask | (1u << i)) : (*mask & ~(1u << i));
+            *mask = on ? (*mask | (Mask(1) << i)) : (*mask & ~(Mask(1) << i));
             changed = true;
         }
     }
@@ -1696,7 +1697,7 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
         if (ImGui::RadioButton("Horde", VrMpMode == NET_MODE_HORDE)) { VrMpMode=NET_MODE_HORDE;gevrHostChoiceChanged(); }
         if (VrMpMode == NET_MODE_DEATHMATCH) {
             int stage=netStageIndexOf((uint8_t)VrMpStage);if (stage<0)stage=9;
-            ImGui::TextUnformatted("Stage:");ImGui::SameLine();
+            // no "Stage:" label: "Bunker II (Full)" needs the room beside the players
             const bool teams=netScenarioHasTeams(VrMpScenario);
             const float playersWidth=ImGui::CalcTextSize("8").x + ImGui::GetFrameHeight()
                 + ImGui::GetStyle().FramePadding.x*2.0f;
@@ -1704,6 +1705,7 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
                 : ImGui::CalcTextSize("Players:").x+playersWidth+ImGui::GetStyle().ItemSpacing.x;
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x-reserve-ImGui::GetStyle().ItemSpacing.x);
             if (namedCombo("##stagecombo",netStageCount(),netStageName,&stage)) { VrMpStage=netStage(stage)->level_id;gevrHostChoiceChanged(); }
+            if (ImGui::IsItemHovered()) gevrTooltip("Stage. \"(Full)\" is the whole mission level, not the multiplayer map.");
             ImGui::SameLine();
             if (teams) {
                 ImGui::TextDisabled("Players: %d",netTeamRequiredPlayers(VrMpScenario));
@@ -2042,7 +2044,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                                     int pick = netStageIndexOf((uint8_t)VrHordeStage);
                                     if (pick < 0) pick = netStageIndexOf(NET_HORDE_STAGE);
                                     ImGui::TextUnformatted("Map:");ImGui::SameLine();ImGui::SetNextItemWidth(-1);
-                                    if (namedCombo("##hordemap", netStageCount(), netStageName, &pick)) {
+                                    if (namedCombo("##hordemap", netHordeStageCount(), netStageName, &pick)) {
                                         VrHordeStage = netStage(pick)->level_id;
                                         gevrHostChoiceChanged();
                                     }

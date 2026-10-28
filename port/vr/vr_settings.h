@@ -72,7 +72,8 @@ extern int VrMpCustom[4];       // the host's custom set
 // Co-op (NET_MODE_COOP): the mode, the mission's LEVELID and the solo difficulty (0..3).
 extern int VrMpMode, VrMpMission, VrMpDifficulty;
 extern int VrMpLoadout[4];      // this player's spawn guns
-extern unsigned VrMpFavStages, VrMpFavSets;
+extern unsigned long long VrMpFavStages;
+extern unsigned VrMpFavSets;
 // GoldenEye comfort vignette strength while moving in stereo, 0 = off .. 1.
 extern float VrComfortVignette;
 // Being hit in stereo (issue #95). VrNoKnockback: 1 = a hit doesn't push you

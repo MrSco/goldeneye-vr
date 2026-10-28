@@ -37,7 +37,8 @@ static void *arenaAlloc(size_t size)
 
 s32 gevrArenaCampaignDeathmatch(s32 stage)
 {
-    return gevrMpRules() && netHordeStageValid((unsigned)stage) && !netStageHasMpSetup((unsigned)stage);
+    return gevrMpRules() && netHordeStageValid((unsigned)stage) &&
+        (!netStageHasMpSetup((unsigned)stage) || netRoundFullMap());
 }
 
 static s32 arenaPadCount(void)
@@ -330,7 +331,9 @@ s32 gevrArenaSkipProp(PropDefHeaderRecord *prop)
  * console opens, onto space the level never built or a dead end, stay shut;
  * Dam's truck gates, worked from consoles in the mission, stand open. A
  * one-way door into a room with no other way out works both ways (user,
- * 2026-10-25, rc6: locked in Train's last carriage). */
+ * 2026-10-25, rc6: locked in Train's last carriage); in Deathmatch every
+ * one-way door does (2026-10-27: the "(Full)" maps add Facility's four and
+ * Bunker II's fourteen to Bunker I's, Silo's, Train's and Egypt's). */
 enum { ARENA_SHUT, ARENA_OPEN, ARENA_BOTH_WAYS };
 static const struct ArenaDoorHold { s16 stage, record; u8 hold; } s_door_holds[] = {
     { LEVELID_DAM, 267, ARENA_OPEN }, { LEVELID_DAM, 268, ARENA_OPEN }, /* truck gates, an airlock pair */
@@ -348,6 +351,7 @@ static const struct ArenaDoorHold { s16 stage, record; u8 hold; } s_door_holds[]
 void gevrArenaDoorRules(s32 stage, s32 record, DoorRecord *door)
 {
     if (!s_solo_arena) return;
+    if (s_campaign_deathmatch) door->flags2 &= ~(PROPFLAG2_08000000 | PROPFLAG2_10000000);
     for (u32 i = 0; i < sizeof(s_door_holds) / sizeof(*s_door_holds); i++) {
         if (s_door_holds[i].stage != stage || s_door_holds[i].record != record) continue;
         if (s_door_holds[i].hold == ARENA_BOTH_WAYS) {

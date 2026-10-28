@@ -32,6 +32,7 @@ void getTileEdgePoints(StandTile *t,s32 e,coord3d *a,coord3d *b) {(void)t;(void)
 void *mempAllocBytesInBank(u32 size,u8 bank) {(void)bank;return calloc(1,size);}
 void sysFatalError(const char *fmt,...) {(void)fmt;abort();}
 s32 gevrMpRules(void) {return 0;}
+int netRoundFullMap(void) {return 0;}
 void gevrBotNavForget(void) {}
 static f32 unreachable_x=-1;
 s32 gevrBotNavCanReach(StandTile *a,const coord3d *from,StandTile *b,const coord3d *to)

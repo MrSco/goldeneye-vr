@@ -262,7 +262,7 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; 1 = in the headset GoldenEye X's arms are every arm, the left wearing the watch; 0 = the watch arm.\n");
     for (int i = 0; i < 4; i++) fprintf(f, "MpCustom%d=%d\n", i + 1, VrMpCustom[i]);
     for (int i = 0; i < 4; i++) fprintf(f, "MpLoadout%d=%d\n", i + 1, VrMpLoadout[i]);
-    fprintf(f, "MpFavStages=%u\nMpFavSets=%u\n", VrMpFavStages, VrMpFavSets);
+    fprintf(f, "MpFavStages=%llu\nMpFavSets=%u\n", VrMpFavStages, VrMpFavSets);
     fprintf(f, "; MpMode 2 = Horde (Archives). Co-op: MpMode 1, the mission's level id and the difficulty (0 Agent .. 3 007).\n");
     fprintf(f, "MpMode=%d\nMpMission=%d\nMpDifficulty=%d\n", VrMpMode, VrMpMission, VrMpDifficulty);
     fprintf(f, "; The virtual screen: metres in front of you, and the degrees of view it spans.\n");
@@ -758,7 +758,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MpDual") == 0) VrMpDual = ival;
             else if (strcmp(key, "MpLoadouts") == 0) VrMpLoadouts = ival != 0;
             else if (strcmp(key, "MpNextRound") == 0) VrMpNextRound = ival;
-            else if (strcmp(key, "MpFavStages") == 0) VrMpFavStages = (unsigned)ival;
+            else if (strcmp(key, "MpFavStages") == 0) VrMpFavStages = strtoull(eq + 1, NULL, 10); /* past 32 bits */
             else if (strcmp(key, "MpFavSets") == 0) VrMpFavSets = (unsigned)ival;
             else if (strcmp(key, "MpMode") == 0) VrMpMode = ival >= 0 && ival <= 2 ? ival : 0;
             else if (strcmp(key, "MpMission") == 0) VrMpMission = ival;

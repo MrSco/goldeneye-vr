@@ -14,8 +14,9 @@
 #include "net_match.h"
 
 struct stagesetup g_CurrentSetup;
-static int mode;
+static int mode, full;
 int netHordeActive(void) { return mode == NET_MODE_HORDE; }
+int netRoundFullMap(void) { return mode == NET_MODE_DEATHMATCH && full; }
 s32 gevrMpRules(void) { return mode == NET_MODE_DEATHMATCH; }
 void sysLogPrintf(s32 level, const char *fmt, ...) { (void)level; (void)fmt; }
 void sysFatalError(const char *fmt, ...) { fprintf(stderr, "fatal: %s\n", fmt); abort(); }
@@ -146,8 +147,17 @@ static void check_campaign(void)
         gevrArenaPrepareSetup(stage);
         assert(g_CurrentSetup.propDefs == (void *)original && g_CurrentSetup.intro == (void *)&intro && g_CurrentSetup.ailists == &ai);
         mode = NET_MODE_DEATHMATCH;
-        if (netStageHasMpSetup(stage)) continue; /* existing MP setups are preserved */
+        if (netStageHasMpSetup(stage)) {
+            /* the multiplayer map keeps its retail setup; its "(Full)" entry is the mission's */
+            const int code = netStageIndexOf((u8)(stage | NET_STAGE_FULL));
+            assert(code >= netHordeStageCount() && netStageLevelId(netStage(code)->level_id) == stage);
+            full = 0;
+            gevrArenaPrepareSetup(stage);
+            assert(!gevrArenaCampaignDeathmatch(stage) && g_CurrentSetup.propDefs == (void *)original);
+            full = 1;
+        }
         gevrArenaPrepareSetup(stage);
+        assert(gevrArenaCampaignDeathmatch(stage));
         assert(g_CurrentSetup.pathwaypoints == ways && !g_CurrentSetup.ailists);
         assert(!memcmp(g_CurrentSetup.propDefs, original, sizeof(original) - sizeof(PropDefHeaderRecord)));
         SetupIntroSpawn *starts = (void *)g_CurrentSetup.intro;
@@ -170,10 +180,20 @@ static void check_campaign(void)
         }
         assert(guns == 16 && ammo == 16 && armour == 2 && token == 1 && command == 37);
         clear_allocations();
+        full = 0;
     }
     /* Preserve the original favourites and voting indices. */
     assert(netStageIndexOf(34) == 0 && netStageIndexOf(22) == 11 && netStageIndexOf(41) == 12);
-    puts("PASS: all campaign maps select the correct setup; campaign Deathmatch generates distinct spawns, selected-set pickups, armour and Flag Tag; co-op unchanged");
+    assert(netStageIndexOf(28) == 25 && netStageCount() == 33 && netHordeStageCount() == 26);
+    /* every "(Full)" entry names a multiplayer map's mission; the menus' 90 is no stage code */
+    for (int i = netHordeStageCount(); i < netStageCount(); i++) {
+        const unsigned code = netStage(i)->level_id, level = netStageLevelId(code);
+        assert(netStageIsFull(code) && level != code && netStageHasMpSetup(level) && netCoopMissionIndexOf((u8)level) >= 0);
+        assert(!netHordeStageValid(code) && strstr(netStageName(i), " (Full)"));
+    }
+    for (int i = 0; i < netHordeStageCount(); i++) assert(!netStageIsFull(netStage(i)->level_id));
+    assert(!netStageIsFull(90) && netStageLevelId(90) == 90);
+    puts("PASS: all campaign maps select the correct setup; campaign Deathmatch generates distinct spawns, selected-set pickups, armour and Flag Tag; \"(Full)\" maps load the mission; co-op unchanged");
 }
 
 /* Dab's Mod GoldenEye Arenas rules (geconvert.c): the level's own keys open
@@ -201,7 +221,7 @@ static void check_rules(void)
     for (int i = 0; i < 2; i++) { pads[i].plink = "pad"; pads[i].stan = &tile; pads[i].pos.x = i * 1000; }
     pads[1].pos.y = 345; /* Train's trackside pads, behind the crates */
     mode = NET_MODE_DEATHMATCH;
-    for (int map = 0; map < netStageCount(); map++) {
+    for (int map = 0; map < netHordeStageCount(); map++) { /* LEVELIDs: the "(Full)" codes are checked above */
         unsigned stage = netStage(map)->level_id;
         if (netStageHasMpSetup(stage)) continue;
         g_CurrentSetup = (struct stagesetup){.pads = pads, .propDefs = (void *)stream};
@@ -245,6 +265,21 @@ static void check_rules(void)
     assert(last.flags2 == PROPFLAG2_40000000 && !(last.flags & PROPFLAG_CANNOT_ACTIVATE));
     assert(broken.flags & PROPFLAG_CANNOT_ACTIVATE);
     clear_allocations();
+    /* every one-way door of a Deathmatch arena works both ways (Facility (Full)'s gas plant,
+     * Bunker II (Full)'s cell block); Horde's stays one-way, held open by Horde itself */
+    for (int horde = 0; horde < 2; horde++) {
+        mode = horde ? NET_MODE_HORDE : NET_MODE_DEATHMATCH; full = !horde;
+        g_CurrentSetup = (struct stagesetup){.pads = pads, .propDefs = (void *)stream};
+        gevrArenaPrepareSetup(LEVELID_FACILITY);
+        DoorRecord front = {.flags2 = PROPFLAG2_08000000}, back = {.flags2 = PROPFLAG2_10000000 | PROPFLAG2_20000000};
+        gevrArenaDoorRules(LEVELID_FACILITY, 63, &front);
+        gevrArenaDoorRules(LEVELID_BUNKER2, 80, &back);
+        assert(horde ? front.flags2 == PROPFLAG2_08000000 : !front.flags2);
+        assert(back.flags2 == (horde ? PROPFLAG2_10000000 | PROPFLAG2_20000000 : PROPFLAG2_20000000));
+        assert(!front.flags && !back.flags);
+        clear_allocations();
+    }
+    mode = NET_MODE_DEATHMATCH; full = 0;
     StandTile track = {.room = 53}, carriage = {.room = 52};
     pads[1].stan = &track; pads[1].pos.y = 0;
     PadRecord three[4] = {pads[0], pads[1], {.plink = "pad", .stan = &carriage}, {0}};

@@ -15,14 +15,23 @@
 extern "C" {
 #endif
 
-/* All gameplay stages, in stable launcher/favourites order: name and LEVELID. */
+/* All gameplay stages, in stable launcher/favourites order: name and LEVELID.
+ * A map with a retail multiplayer setup is listed twice: as the multiplayer
+ * map, and its campaign level whole as "(Full)", whose stage code is the
+ * LEVELID | NET_STAGE_FULL (tester, 2026-10-27: Facility and Archives
+ * stayed shut in Deathmatch while Horde had them open). */
+#define NET_STAGE_FULL 0x40 /* every LEVELID the list names is below it */
 typedef struct { const char *name; uint8_t level_id; } NetMatchStage;
 int netStageCount(void);
 const NetMatchStage *netStage(int idx);
 const char *netStageName(int idx);
 int netStageIndexOf(uint8_t level_id);      /* -1 unknown */
+int netStageIsFull(unsigned code);          /* a listed "(Full)" stage code */
+unsigned netStageLevelId(unsigned code);    /* the LEVELID a stage code loads */
 int netStageHasMpSetup(unsigned level_id); /* a retail Ump_setup file exists */
 int netStageUsesMpSetup(unsigned level_id, int mode);
+/* net_core.c: the Deathmatch round being played is a "(Full)" stage */
+int netRoundFullMap(void);
 
 /*
  * The match's mode (NetMatchConfig.mode). Co-op plays a solo mission, the
@@ -31,8 +40,10 @@ int netStageUsesMpSetup(unsigned level_id, int mode);
  */
 enum { NET_MODE_DEATHMATCH = 0, NET_MODE_COOP = 1, NET_MODE_HORDE = 2 };
 #define NET_HORDE_STAGE 24 /* Archives, the default */
-/* Every gameplay stage: the same catalogue as Deathmatch. Horde uses a
+/* Every gameplay stage: the same catalogue as Deathmatch, less the "(Full)"
+ * entries (Horde plays a campaign level whole already). Horde uses a
  * mission's guard paths, or builds paths for multiplayer-only arenas. */
+int netHordeStageCount(void);   /* the list's first entries */
 int netHordeStageValid(unsigned stage);
 const char *netHordeStageName(unsigned stage);
 #define NET_HORDE_MAX_START_WAVE 50 /* horde_rules.h HORDE_MAX_START_WAVE */

@@ -220,7 +220,8 @@ extern int VrMpVoiceMode, VrMpFriendlyFire, VrMpFunFlags, VrMpGunSize, VrMpMaxPl
 extern int VrMpBotMode, VrMpBotCount, VrMpBotDifficulty;
 extern int VrCoopFastReinforcements;
 extern int VrHordeFriendlyFire;
-extern unsigned VrMpFavStages, VrMpFavSets;
+extern unsigned long long VrMpFavStages;
+extern unsigned VrMpFavSets;
 extern void vrSettingsSave(void);
 
 static void netInvalidateHitSlot(int slot)
@@ -1015,7 +1016,12 @@ bool netSlotOccupied(int slot) {
 /* The stage a round reset loads: the config's, the party's menus being the title stage (co-op, #94) */
 int netRoundLoadStage(void) {
     if (s_round.config.mode == NET_MODE_COOP && s_round.config.stage == NET_COOP_FRONT_STAGE) return LEVELID_TITLE;
+    if (s_round.config.mode == NET_MODE_DEATHMATCH) return (int)netStageLevelId(s_round.config.stage);
     return s_round.config.stage;
+}
+
+int netRoundFullMap(void) {
+    return netIsActive() && s_round.config.mode == NET_MODE_DEATHMATCH && netStageIsFull(s_round.config.stage);
 }
 
 bool netTakeRoundReset(void) {
@@ -2225,7 +2231,7 @@ void netApplyMatchConfig(void) {
     s_max_players = cap;
     s_lobby_max_players = (uint8_t)cap;
     selected_num_players = cap;   /* a slot for every player who may join */
-    g_StageNum = c->stage;
+    g_StageNum = (s32)netStageLevelId(c->stage);
     init_mp_options_for_scenario(selected_num_players);
     reset_mp_options_for_scenario((MPSCENARIOS)netGameScenario(c->scenario < netScenarioCount() ? c->scenario : 0));
     if (c->scenario == SCENARIO_YOLT) {
@@ -3255,7 +3261,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                  * is the load's end (STAGE_READY, then the snapshots) - unless
                  * the map changed meanwhile, which is a reload. */
                 s_rejoining = false;
-                if ((int)s_round.config.stage == (int)bossGetStageNum()) {
+                if (netRoundLoadStage() == (int)bossGetStageNum()) {
                     netStageLoaded();
                     s_stage_fade_in = false;
                 } else {
@@ -3838,10 +3844,10 @@ void netSetLocalVote(int kind, int idx) {
 
 /* The most voted choice on a ballot, the lowest slot's on a tie; -1 without a vote */
 static int netTallyBallot(int kind) {
-    int count[32] = { 0 };
+    int count[64] = { 0 };
     int best = -1;
     int n = netBallotSize(kind);
-    if (n > 32) n = 32;
+    if (n > 64) n = 64;
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
         int v = s_vote[kind][i];
         if (v >= 0 && v < n && s_lobby_state.slots[i].connected &&
@@ -3857,12 +3863,13 @@ static int netTallyBallot(int kind) {
 /* The host, as the next round is decided: the ballots go into the config
  * (a map the party fits; no weapon vote in the Golden Gun scenario, whose
  * set is fixed), then the votes are cleared everywhere. */
-static int netRotationPick(int kind, int current, unsigned favorites, int mode) {
-    int choices[32], count = 0, n = netBallotSize(kind);
+static int netRotationPick(int kind, int current, unsigned long long favorites, int mode) {
+    int choices[64], count = 0, n = netBallotSize(kind);
+    if (n > 64) n = 64;
     for (int pass = 0; pass < 2 && count == 0; pass++) {
         for (int i = 0; i < n; i++) {
             if (kind == NET_BALLOT_STAGE && !netStageEligible(i)) continue;
-            if (pass == 0 && favorites && !(favorites & (1u << i))) continue;
+            if (pass == 0 && favorites && !(favorites & (1ull << i))) continue;
             choices[count++] = i;
         }
     }
