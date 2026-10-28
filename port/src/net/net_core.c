@@ -197,6 +197,7 @@ static bool s_remote_active[GEVR_MAX_PLAYERS];
 static GevrPoseHistory s_avatar_history[GEVR_MAX_PLAYERS];
 static bool s_waiting_for_match_snapshot = false;
 static bool s_stage_ready_sent = false;
+static int s_loaded_map = -1; /* the round's stage code as loaded: Facility and Facility (Full) share a LEVELID (PR #224) */
 static uint64_t s_last_stage_ready_us = 0;
 
 /* Current Lobby State */
@@ -1020,8 +1021,14 @@ int netRoundLoadStage(void) {
     return s_round.config.stage;
 }
 
+/* only a match loading or loaded: a lobby keeps the last round's config (PR #224) */
 int netRoundFullMap(void) {
-    return netIsActive() && s_round.config.mode == NET_MODE_DEATHMATCH && netStageIsFull(s_round.config.stage);
+    return (s_state == NET_STATE_INGAME || s_state == NET_STATE_MIGRATING) &&
+        s_round.config.mode == NET_MODE_DEATHMATCH && netStageIsFull(s_round.config.stage);
+}
+
+static bool netRoundMatchesLoadedMap(int engineStage) {
+    return s_loaded_map == s_round.config.stage && netRoundLoadStage() == engineStage;
 }
 
 bool netTakeRoundReset(void) {
@@ -1849,6 +1856,7 @@ void netStageLoaded(void) {
     /* Spectators must acknowledge their load too: otherwise they block the
      * next round forever and never receive their in-progress snapshot. */
     if (s_state != NET_STATE_INGAME || s_local_slot < 0) return;
+    s_loaded_map = s_round.config.stage;
     s_stage_fade_in = true;
     s_lobby_state.slots[s_local_slot].loaded = 1;
     if (!netIsHost()) {
@@ -3261,7 +3269,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                  * is the load's end (STAGE_READY, then the snapshots) - unless
                  * the map changed meanwhile, which is a reload. */
                 s_rejoining = false;
-                if (netRoundLoadStage() == (int)bossGetStageNum()) {
+                if (netRoundMatchesLoadedMap(bossGetStageNum())) {
                     netStageLoaded();
                     s_stage_fade_in = false;
                 } else {

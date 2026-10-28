@@ -1158,8 +1158,18 @@ EXPORT int test_core_full_maps(void) {
     CHECK(netRoundLoadStage() == LEVELID_TITLE && !netRoundFullMap());
     s_round.config.mode = NET_MODE_COOP; s_round.config.stage = 34;
     CHECK(netRoundLoadStage() == 34 && !netRoundFullMap());
-    s_state = NET_STATE_OFFLINE; s_round.config.mode = NET_MODE_DEATHMATCH; s_round.config.stage = netStage(full)->level_id;
-    CHECK(!netRoundFullMap());
+    s_round.config.mode = NET_MODE_DEATHMATCH; s_round.config.stage = netStage(full)->level_id;
+    s_state = NET_STATE_MIGRATING; CHECK(netRoundFullMap());
+    s_state = NET_STATE_HOSTING_LOBBY; CHECK(!netRoundFullMap()); /* the last round's config, kept */
+    s_state = NET_STATE_OFFLINE; CHECK(!netRoundFullMap());
+    /* PR #224: a rejoin reuses the loaded world only for the same layout,
+     * Facility and Facility (Full) both being LEVELID 34 */
+    fixture(0); s_state = NET_STATE_INGAME; s_local_slot = 0;
+    s_round.config.mode = NET_MODE_DEATHMATCH; s_round.config.stage = 34;
+    netStageLoaded(); CHECK(netRoundMatchesLoadedMap(34) && !netRoundMatchesLoadedMap(39));
+    s_round.config.stage = netStage(full)->level_id;
+    CHECK(netRoundLoadStage() == 34 && !netRoundMatchesLoadedMap(34));
+    netStageLoaded(); CHECK(netRoundMatchesLoadedMap(34));
     /* the favourites past bit 31: the playlist steps to them, the shuffle picks only them */
     unsigned long long fav = (1ull << full) | (1ull << last);
     CHECK(netRotationPick(NET_BALLOT_STAGE, full, fav, NET_NEXT_PLAYLIST) == last);
