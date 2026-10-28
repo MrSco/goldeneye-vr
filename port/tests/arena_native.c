@@ -297,4 +297,69 @@ static void check_rules(void)
     puts("PASS: arena key rule, fall-away locks, safes, floor-standing spawns (Dab's Mod) and per-map door holds");
 }
 
-int main(void) { setvbuf(stdout, NULL, _IONBF, 0); check_graph(); check_campaign(); check_rules(); }
+/* gevr_setup.c's ROM hooks: a retail cartridge (PR #224's stubs) */
+int gevrRomItemHost(int item) { return item; }
+int gevrRomIsVariant(void) { return 0; }
+int gevrRomAiHooks(void) { return 0; }
+uint32_t gevrRomAiPrepare(uint8_t *code, uint32_t len, int drop) { (void)code; (void)drop; return len; }
+
+/* PR #224's reference check: a campaign setup out of the public decomp
+ * (full_map_records.py), through the game's converter, into a "(Full)"
+ * Deathmatch arena. Floors are stubs (every pad stands on its tile). */
+static int check_records(const char *path, s32 stage)
+{
+    static u8 data[262144];
+    FILE *f = fopen(path, "rb"); assert(f);
+    size_t size = fread(data, 1, sizeof(data), f); fclose(f);
+    assert(size < sizeof(data) && gevrConvertSetup(data, size, sizeof(data)));
+    struct stagesetup *file = (void *)data;
+    static StandTile floor = {.room = 1};
+    g_CurrentSetup = (struct stagesetup){0};
+    g_CurrentSetup.propDefs = (void *)(data + (uintptr_t)file->propDefs);
+    g_CurrentSetup.intro = (void *)(data + (uintptr_t)file->intro);
+    g_CurrentSetup.pads = (void *)(data + (uintptr_t)file->pads);
+    s32 pads = 0;
+    for (PadRecord *p = g_CurrentSetup.pads; p->plink; p++, pads++) {
+        p->plink = (char *)data + (uintptr_t)p->plink; p->stan = &floor; p->pos.y = 0;
+    }
+    PropDefHeaderRecord *mission = g_CurrentSetup.propDefs;
+    mode = NET_MODE_DEATHMATCH; full = 1;
+    gevrArenaPrepareSetup(stage);
+    assert(gevrArenaCampaignDeathmatch(stage) && !g_CurrentSetup.ailists);
+    SetupIntroSpawn *starts = (void *)g_CurrentSetup.intro;
+    for (int i = 0; i < 8; i++) {
+        assert(starts[i].type == INTROTYPE_SPAWN && starts[i].index >= 0 && starts[i].index < pads);
+        for (int j = 0; j < i; j++) assert(pads < 8 || starts[i].index != starts[j].index);
+    }
+    int guns = 0, ammo = 0, armour = 0, token = 0, doors = 0, kept = 0, skipped = 0, index = 0;
+    for (PropDefHeaderRecord *p = g_CurrentSetup.propDefs; p->type != PROPDEF_END;
+         p = (void *)((u32 *)p + sizepropdef(p)), index++) {
+        if (gevrArenaSkipProp(p)) { skipped++; assert(p->type != PROPDEF_DOOR && p->type != PROPDEF_PROP); continue; }
+        kept++;
+        if (p->type == PROPDEF_DOOR) {
+            DoorRecord door; memcpy(&door, p, sizeof(door));
+            gevrArenaDoorRules(stage, index, &door);
+            assert(!(door.flags2 & (PROPFLAG2_08000000 | PROPFLAG2_10000000))); /* no one-way door */
+            doors++;
+        }
+        if (p->type == PROPDEF_COLLECTABLE) {
+            WeaponObjRecord gun; memcpy(&gun, p, sizeof(gun));
+            if (gun.weaponnum == ITEM_TOKEN) token++; else if ((u8)gun.weaponnum >= 0xf0) guns++;
+        }
+        if (p->type == PROPDEF_AMMO) ammo++;
+        if (p->type == PROPDEF_ARMOUR) armour++;
+        assert(p->type != PROPDEF_GUARD && p->type != PROPDEF_KEY && p->type != PROPDEF_OBJECTIVE_START);
+    }
+    assert(g_CurrentSetup.propDefs != mission && guns == 16 && ammo == 16 && armour == 2 && token == 1 && doors > 0);
+    printf("PASS: %s: %d pads, %d doors, %d records kept, %d mission records left out, 8 starts, 16 weapon and ammo stations\n",
+           path, pads, doors, kept, skipped);
+    clear_allocations(); full = 0;
+    return 0;
+}
+
+int main(int argc, char **argv)
+{
+    setvbuf(stdout, NULL, _IONBF, 0);
+    if (argc == 3) return check_records(argv[1], atoi(argv[2]));
+    check_graph(); check_campaign(); check_rules();
+}

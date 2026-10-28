@@ -89,7 +89,10 @@ s32 gevrArenaPads(s32 *out, s32 capacity)
     s32 count = 0, pads = arenaPadCount();
     for (PropDefHeaderRecord *p = g_CurrentSetup.propDefs; p && p->type != PROPDEF_END;
          p = (void *)((u32 *)p + sizepropdef(p))) {
-        if (p->type == PROPDEF_GUARD) arenaAddPad(out, &count, capacity, ((GuardRecord *)p)->PadID, pads);
+        if (p->type == PROPDEF_GUARD) {
+            GuardRecord guard; memcpy(&guard, p, sizeof(guard)); /* word-aligned stream */
+            arenaAddPad(out, &count, capacity, guard.PadID, pads);
+        }
     }
     /* Keep guard pads first. Sample paths across the entire map, rather than
      * filling the bounded list with the first corridor of a large mission. */
@@ -100,9 +103,10 @@ s32 gevrArenaPads(s32 *out, s32 capacity)
     if (slots > nw) slots = nw;
     for (s32 i = 0; i < slots; i++)
         arenaAddPad(out, &count, capacity, ways[(i * nw) / slots].padID, pads);
-    if (!count) {
-        for (s32 i = 0; i < pads; i++) arenaAddPad(out, &count, capacity, i, pads);
-    }
+    /* Deathmatch's eight starts want eight places: a level with fewer guard and
+     * path pads than that tops up from its other floor pads (Horde: only none) */
+    const s32 want = s_campaign_deathmatch ? 8 : 1;
+    for (s32 i = 0; count < want && i < pads; i++) arenaAddPad(out, &count, capacity, i, pads);
     return count;
 }
 
@@ -258,24 +262,32 @@ static void arenaDeathmatchSetup(void)
     if (original) memcpy(defs, g_CurrentSetup.propDefs, original);
     u8 *cursor = defs + original;
     s_added_props = (void *)cursor;
+    /* The stream is only word-aligned and these records hold pointers: each is
+     * built aligned and copied in (PR #224; UBSan over the decomp's setups). */
     for (s32 i = 0; i < 16; i++) {
-        WeaponObjRecord *gun = (void *)cursor; cursor += sizeof(*gun);
-        arenaObject((ObjectRecord *)gun, PROPDEF_COLLECTABLE, PROP_CHRWPPK, picks[i % np]);
-        gun->weaponnum = (s8)(0xf0 + i % 8); /* retail selected-weapon-set slots */
-        MultiAmmoCrateRecord *ammo = (void *)cursor; cursor += sizeof(*ammo);
-        arenaObject((ObjectRecord *)ammo, PROPDEF_AMMO, PROP_AMMO_CRATE5, picks[(i + 16) % np]);
-        for (s32 a = 0; a < AMMOTYPE_GLOBAL_MAX; a++) ammo->slots[a].modelnum = 0xffff;
+        WeaponObjRecord gun = {0};
+        arenaObject((ObjectRecord *)&gun, PROPDEF_COLLECTABLE, PROP_CHRWPPK, picks[i % np]);
+        gun.weaponnum = (s8)(0xf0 + i % 8); /* retail selected-weapon-set slots */
+        memcpy(cursor, &gun, sizeof(gun)); cursor += sizeof(gun);
+        MultiAmmoCrateRecord ammo = {0};
+        arenaObject((ObjectRecord *)&ammo, PROPDEF_AMMO, PROP_AMMO_CRATE5, picks[(i + 16) % np]);
+        for (s32 a = 0; a < AMMOTYPE_GLOBAL_MAX; a++) ammo.slots[a].modelnum = 0xffff;
+        memcpy(cursor, &ammo, sizeof(ammo)); cursor += sizeof(ammo);
     }
     for (s32 i = 0; i < 2; i++) {
-        BodyArmourRecord *armour = (void *)cursor; cursor += sizeof(*armour);
-        arenaObject((ObjectRecord *)armour, PROPDEF_ARMOUR, PROP_BODYARMOUR, picks[(i + 24) % np]);
+        BodyArmourRecord armour = {0};
+        arenaObject((ObjectRecord *)&armour, PROPDEF_ARMOUR, PROP_BODYARMOUR, picks[(i + 24) % np]);
         /* prop.c converts the cartridge's fixed-point word at load. */
-        u32 amount = 65535; memcpy(&armour->initialamount, &amount, sizeof(amount));
+        u32 amount = 65535; memcpy(&armour.initialamount, &amount, sizeof(amount));
+        memcpy(cursor, &armour, sizeof(armour)); cursor += sizeof(armour);
     }
-    WeaponObjRecord *token = (void *)cursor; cursor += sizeof(*token);
-    arenaObject((ObjectRecord *)token, PROPDEF_COLLECTABLE, PROP_CHRBRIEFCASE, picks[(np - 1)]);
-    token->weaponnum = ITEM_TOKEN; /* weaponAssignToHome loads it only for Flag Tag */
-    ((PropDefHeaderRecord *)cursor)->type = PROPDEF_END;
+    WeaponObjRecord token = {0};
+    arenaObject((ObjectRecord *)&token, PROPDEF_COLLECTABLE, PROP_CHRBRIEFCASE, picks[(np - 1)]);
+    token.weaponnum = ITEM_TOKEN; /* weaponAssignToHome loads it only for Flag Tag */
+    memcpy(cursor, &token, sizeof(token)); cursor += sizeof(token);
+    PropDefHeaderRecord last = {0};
+    last.type = PROPDEF_END;
+    memcpy(cursor, &last, sizeof(last));
     g_CurrentSetup.propDefs = (void *)defs;
 }
 
@@ -289,7 +301,10 @@ static void arenaLevelKeys(void)
     s_level_keys = 0;
     for (PropDefHeaderRecord *p = g_CurrentSetup.propDefs; p && p->type != PROPDEF_END;
          p = (void *)((u32 *)p + sizepropdef(p)))
-        if (p->type == PROPDEF_KEY) s_level_keys |= ((KeyRecord *)p)->keyflags;
+        if (p->type == PROPDEF_KEY) {
+            KeyRecord key; memcpy(&key, p, sizeof(key));
+            s_level_keys |= key.keyflags;
+        }
 }
 
 s32 gevrArenaDoorKeyOpens(u32 keyflags)
@@ -307,8 +322,11 @@ static s32 arenaLockOnFallaway(PropDefHeaderRecord *prop)
         if (p->type == PROPDEF_END) return FALSE;
         p = (void *)((u32 *)p + sizepropdef(p));
     }
-    DoorRecord *door = (DoorRecord *)setupGetPtrToCommandByIndex(index + ((LockDoorRecord *)prop)->Index1);
-    return door && door->type == PROPDEF_DOOR && door->doorType == DOORTYPE_FALLAWAY;
+    LockDoorRecord lock; memcpy(&lock, prop, sizeof(lock));
+    void *target = setupGetPtrToCommandByIndex(index + lock.Index1);
+    if (!target || ((PropDefHeaderRecord *)target)->type != PROPDEF_DOOR) return FALSE;
+    DoorRecord door; memcpy(&door, target, sizeof(door));
+    return door.doorType == DOORTYPE_FALLAWAY;
 }
 
 s32 gevrArenaSkipProp(PropDefHeaderRecord *prop)
