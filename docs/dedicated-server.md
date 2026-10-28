@@ -146,10 +146,20 @@ about 100 in the Worker.
    - Today anyone can name a lobby "Official"; the key is what tells a real
      server apart.
    - Deploying needs the user's OK.
-8. **Server settings.** A server `.ini` with the existing `VrMp*` keys:
-   stage rotation and favourites, scenario, bots, player count, name and
-   visibility, plus port and key.
-9. **Packaging.**
+8. **Server settings.**
+   - The launcher's match options, the same `NetMatchConfig` the host
+     already sends, start each match.
+   - A server `.ini` holds the operator's limits (port range, concurrent
+     matches, key) and the defaults for a match started without options.
+9. **Server manager and on-demand matches.**
+    - A Worker queue for "start a match": the launcher's options go in,
+      and a free server's manager takes the request.
+    - The manager starts a process with those options, the process opens
+      its lobby, and the launcher joins it by code.
+    - A "Host on a dedicated server" choice in the Host tab.
+10. **Content hashes.** The session hash in HELLO and the stage hash in
+    STAGE_READY, each part named on refusal (decision 4).
+11. **Packaging.**
    - aarch64 and x86-64 tarballs on the release, a systemd unit and a short
      operator guide.
    - The operator supplies their own `ge.z64` (`gevr_romload.c` 77-104);
@@ -163,8 +173,8 @@ about 100 in the Worker.
 | --- | --- | --- |
 | P0 spike | headless target links, runs a solo bot match under WSL; ticks per second and CPU logged | me, no headset |
 | P1 | host without a slot, world pass, server `.ini`; Quest joins by direct IP | the user's Quest + WSL or the VM |
-| P2 | C lobby client, Worker dedicated listings, "Dedicated" label in the launcher | Quest via the public list |
-| P3 | release packaging, the Oracle VM, the per-release regression run, operator docs | release recipe |
+| P2 | C lobby client, Worker keyed listings, server manager and on-demand matches, "Host on a dedicated server" in the launcher, content hashes | Quest via the public list |
+| P3 | release packaging, the Oracle VM in Ashburn, the per-release regression run, operator docs | release recipe |
 
 ## Hosting
 
@@ -187,22 +197,74 @@ about 100 in the Worker.
   instead of a lasting free tier. Cloudflare Workers cannot run a UDP game
   server.
 
-## Open questions
+## Decisions (user, 2026-10-28)
 
-1. **Who controls a server's match?**
-   - Proposal: the server's `.ini` sets the rotation, and the existing
-     ballots let players vote.
-   - Nobody gets host powers.
-   - The results screen's 30 s auto-continue keeps it going.
-2. **Server keys.**
-   - Only the official server, or keys issued to community operators too?
-3. **Regions.**
-   - Oracle's free tier lives in one home region.
-4. **Content check.**
-   - HELLO carries no ROM hash today (`net_core.c` 3035); the ROM is
-     checked by header only.
-   - A server makes a mismatch more costly, so should HELLO carry a hash of
-     the gameplay data?
+1. **Matches start on demand, with the launcher's options.**
+   - In the launcher's Host tab, "Host on a dedicated server" sends the
+     player's options to the Worker. An idle server process takes them and
+     opens a lobby, and the player joins it like any other.
+   - A running match keeps the settings it started with. After that, the
+     existing ballots and rotation choose the next map.
+   - Each machine runs a small **server manager** that starts one game
+     process per match, each on its own UDP port. A process exits after a
+     few minutes with nobody in it.
+   - The machine itself stays up. Booting a VM per match takes minutes and
+     gains nothing inside a fixed free allowance.
+   - The number of matches a machine takes at once comes from the P0 CPU
+     measurement.
+   - Dab's lobby daemon can create a dedicated room over HTTP but has no
+     spawner (`tools/pdlobbyd`), so the manager is new code. It is small: a
+     loop that polls the Worker and starts processes.
+2. **Community servers too.**
+   - The server code and binaries are published.
+   - Each operator gets a key. The Worker stores hashed keys and lists a
+     server only with a valid one.
+   - Keys are added with `wrangler` until volume calls for more.
+3. **US east coast.**
+   - The Oracle tenancy's home region is Ashburn (`us-ashburn-1`). It is
+     chosen at sign-up and cannot be changed.
+4. **Content check, Dab's way** (`dabs-mod/port/src/net/nethash.c`).
+   - **Session hash, in HELLO.** It covers what decides the simulation: the
+     ROM's gameplay data and the converter and import versions.
+   - It never covers textures, Bean visuals, GE-X models, music or text:
+     nothing that only changes what a player sees or hears.
+   - **Stage hash, in STAGE_READY.** It covers every setup, pad, tile and BG
+     file the stage loaded, plus the seed.
+   - Each part is hashed separately, so a refusal names the part that
+     differs.
+   - This also protects player-hosted games.
+
+## Netcode model: ours and Dab's
+
+The two were written separately:
+
+- **Ours** began 2026-09-27. The plan was to port Perfect Dark's `port-net`
+  (server simulation). Within the first day the work moved to
+  "each headset simulates, the owner is authoritative for its own player",
+  and testing kept it. It is about 11.5k lines in `port/src/net`.
+- **Dab's** began 2026-10-04, a week later. It was written from scratch,
+  Quake 3 style: only the host simulates, and clients send commands, show
+  delta-coded snapshots, predict their own player and get lag-compensated
+  hits. It is about 53k lines with a CI gate per feature.
+
+| | Ours | Dab's |
+| --- | --- | --- |
+| World consistency | each headset's copy can drift; many past bugs were drift (dead copies, double kills, ammo crates, double explosions, dropped guns still not mirrored) | one simulation, nothing to drift |
+| Bandwidth | about 6 Mbit/s from the host at 8 players, roughly 100 KB/s per client | gated at 32 KB/s per client, 12 players tested |
+| Headset CPU | every headset runs a view pass for every player (up to 14 at 8 players) | clients show snapshots; only the host simulates |
+| Own body in VR | never corrected, because the owner decides | predicted; a misprediction moves the player's view, which hurts most in VR |
+| Cheating | the owner decides its own hits and deaths | host-validated |
+| Dedicated server | one more simulating peer (this plan) | natural: the server is the simulation |
+
+Dab's design is the stronger one for consistency, bandwidth, headset CPU and
+player count. Ours has one real VR advantage, and it already plays 8-player
+matches that testers checked.
+
+Switching would not be a copy: Dab's Mod runs GoldenEye inside the Perfect
+Dark engine, so its snapshots serialize PD's structures, and ours would be
+re-ported onto the GoldenEye decomp. It is a rewrite of online play, not a
+step in this plan. A dedicated server would be the natural place to start
+that move, because the server already runs the whole simulation.
 
 ## Risks
 
