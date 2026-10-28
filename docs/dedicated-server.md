@@ -174,7 +174,8 @@ about 100 in the Worker.
 | P0 spike | headless target links, runs a solo bot match under WSL; ticks per second and CPU logged | me, no headset |
 | P1 | host without a slot, world pass, server `.ini`; Quest joins by direct IP | the user's Quest + WSL or the VM |
 | P2 | C lobby client, Worker keyed listings, server manager and on-demand matches, "Host on a dedicated server" in the launcher, content hashes | Quest via the public list |
-| P3 | release packaging, the Oracle VM in Ashburn, the per-release regression run, operator docs | release recipe |
+| P3 | release packaging, the Oracle VM in Ashburn, the per-release regression run (H6), operator docs | release recipe |
+| H1-H5 | the hybrid netcode steps, one protocol bump and one two-headset round each | gates (H6) + two headsets |
 
 ## Hosting
 
@@ -262,9 +263,76 @@ matches that testers checked.
 
 Switching would not be a copy: Dab's Mod runs GoldenEye inside the Perfect
 Dark engine, so its snapshots serialize PD's structures, and ours would be
-re-ported onto the GoldenEye decomp. It is a rewrite of online play, not a
-step in this plan. A dedicated server would be the natural place to start
-that move, because the server already runs the whole simulation.
+re-ported onto the GoldenEye decomp. A whole switch would be a rewrite of online play, so it is not part of this
+plan. The hybrid below takes most of Dab's benefits and keeps ours.
+
+## Hybrid netcode (after the server)
+
+The rule: each headset owns its own player (position, head, hands, gun), and
+the host owns everything else. On a dedicated server the server is that
+host. In a player-hosted game it is the host headset, as today. Each step is
+its own protocol bump and needs a two-headset round. The steps go in one at
+a time, never as one switch.
+
+**H1. The host owns the world.**
+- Doors, glass, pickups, dropped guns, explosives and projectiles, bots and
+  guards are simulated by the host only; the others show its state.
+- Today this is piecemeal:
+  - co-op and Horde guards (`net_coop.c`, `gevr_horde.c`);
+  - ammo crates, every 50 ms (`net_core.c` 4438);
+  - the late-join snapshots (1191-1523);
+  - object events from whichever headset acted.
+- Fixes the drift still open: dropped guns not mirrored, double explosions
+  of shot explosives, mines tripped by objects.
+
+**H2. Snapshots instead of relaying every player state.**
+- Port Dab's delta snapshots (`netsnap.c`): one packet per client per tick,
+  coded against the last snapshot that client acknowledged, with a
+  per-client byte budget.
+- Players' poses ride inside them, still as their owners sent them.
+- Today the host forwards each player's state at about 90 Hz, about
+  100 KB/s per client at 8 players. Dab's gate is 32 KB/s per client.
+- This also covers "batch the relayed player states", which is on
+  MULTIPLAYER.md's not-done list.
+
+**H3. Other players' passes only when needed.**
+- Once the world is the host's, a headset no longer needs every other
+  player's full view pass (`lv.c` gevrViewPass) to tick props for that
+  player's camera. A copy needs a pass only for its own shots, or a shot can
+  arrive as an event with its impact.
+- This is the biggest headset frame-time win at 8 players: up to 14 passes
+  a frame today.
+- Not yet checked: what the pass still does for drawing (body placement,
+  on-screen lists).
+
+**H4. Host-checked hits and host scores.**
+- The shooter still decides what it hit, so the shooter's view keeps
+  counting.
+- The host keeps a short history of player positions and rewinds the target
+  to the shot's time to reject an impossible hit, as Dab's lag compensation
+  does (`netlagcomp.c`). Today's check covers only epoch, life and time
+  (`net_core.c` 2620-2702).
+- The host holds the scores, and every headset shows its table, as Dab's
+  kill tables do.
+
+**H5. Movement checks, not corrections.**
+- The host rejects impossible speed, teleports and wall passes in a player's
+  reports, and flags or kicks the player.
+- It never predicts and snaps a player back, because a moved view is what
+  hurts in a headset.
+
+**H6. Test gates.**
+- Automated matches between the headless server and simulated clients,
+  modelled on Dab's `nettwelvetest.sh`.
+- Checks: scores agree everywhere, bytes per client stay within budget, the
+  results screen continues, nothing crashes.
+- Built as soon as P1 runs a match, and run once per release from P3 on.
+  It guards parity for the server and for every hybrid step, so it comes
+  before H1.
+
+**What the hybrid does not get:** cheat-proof player movement (H5 catches
+the obvious cases) and one simulation of players' bodies. Both would need
+Dab's prediction model, which moves the player's view when it is wrong.
 
 ## Risks
 
