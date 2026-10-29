@@ -38,6 +38,7 @@ extern void sysLogPrintf(s32 level, const char *fmt, ...);
 extern PadRecord *g_Startpad[];
 extern s32 startpadcount;
 extern bool netSlotOccupied(int slot);
+extern int netPlayerIsSpectator(int slot);   /* a spectator (a dedicated server's seat): nobody to fight or step round */
 extern int bondinvHasInvItem(ITEM_IDS item);
 extern s32 get_ammo_count_for_weapon(ITEM_IDS weapon);
 extern s32 currentPlayerEquipWeaponWrapper(GUNHAND hand, s32 next_weapon);
@@ -382,7 +383,7 @@ static s32 gevrBotFoe(s32 slot, s32 other)
 {
     struct player *op;
 
-    if (other < 0 || other >= MAX_PLAYER_COUNT || other == slot || !netSlotOccupied(other) || !gevrNetBotFoes(slot, other))
+    if (other < 0 || other >= MAX_PLAYER_COUNT || other == slot || !netSlotOccupied(other) || netPlayerIsSpectator(other) || !gevrNetBotFoes(slot, other))
     {
         return FALSE;
     }
@@ -1104,7 +1105,7 @@ static void gevrBotAvoidPlayers(s32 slot, struct player *pl, GevrBot *bot, OSCon
         f32 ahead;
         f32 across;
 
-        if (i == slot || op == NULL || op->prop == NULL || op->bonddead || !netSlotOccupied(i))
+        if (i == slot || op == NULL || op->prop == NULL || op->bonddead || !netSlotOccupied(i) || netPlayerIsSpectator(i))
         {
             continue;
         }

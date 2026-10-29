@@ -5,18 +5,25 @@
  * player picks a game and presses Start Hosting, then Launch. Here the same
  * calls are made from goldeneye-vr.ini with nobody pressing anything:
  *
- *   gevr-server [--basedir DIR] [--port N] [--seconds N]
+ *   gevr-server [--basedir DIR] [--port N] [--seconds N] [--bots-only]
+ *   gevr-server --connect HOST[:PORT] [--seconds N]
  *
  * The data folder holds ge.z64 and goldeneye-vr.ini, as on the headset. The
  * match is the ini's Host page: stage, scenario, weapons, bots and so on.
  *
- * Phase P0: the server still takes slot 0 as a player who never moves.
+ * The server's own seat is a spectator for good (net_core.c netDedicatedSeat).
+ * A round starts 5 s after a player has loaded in, or at once with
+ * --bots-only (test runs with nobody to join).
+ *
+ * --connect joins a server instead, as a player who stands still: a headless
+ * client for testing joins, late joins and rounds from this machine.
  */
 
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <execinfo.h>
 #include <fenv.h>
 #include <signal.h>
@@ -64,6 +71,51 @@ static void serverFpeHandler(int sig)
 	_exit(1);
 }
 
+/*
+ * --connect: what the launcher does for a player who joins (vr_launcher.cpp
+ * gevrMultiplayerPage): connect, wait in the lobby until the host's match is
+ * under way, then load it with the host's config.
+ */
+static void serverJoin(const char *target, int port)
+{
+	char host[128];
+	const char *colon;
+	long long deadline = serverNowNs() + 30000000000ll;
+
+	if (target == NULL || !*target) {
+		sysFatalError("client: --connect needs HOST or HOST:PORT");
+	}
+	snprintf(host, sizeof(host), "%s", target);
+	colon = strrchr(host, ':');
+	if (colon) {
+		port = atoi(colon + 1);
+		host[colon - host] = '\0';
+	}
+	netLobbySetCharacter((uint8_t)VrMpChr);
+	if (!netConnect(host, (uint16_t)port)) {
+		sysFatalError("client: could not connect to %s:%d", host, port);
+	}
+	sysLogPrintf(LOG_NOTE, "client: joining %s:%d", host, port);
+	while (netIsActive() && netGetState() != NET_STATE_INGAME) {
+		struct timespec ts = { 0, 10000000 };
+
+		netPoll();
+		nanosleep(&ts, NULL);
+		if (serverNowNs() > deadline) {
+			sysFatalError("client: no match from %s:%d within 30 s (state %d)", host, port, (int)netGetState());
+		}
+	}
+	if (!netIsActive()) {
+		sysFatalError("client: the server turned us away");
+	}
+	netApplyMatchConfig();
+	if (netGetMatchConfig()->mode != NET_MODE_COOP) {
+		bossSetLoadedStage(g_StageNum);
+	}
+	netLobbySetReady(true);   /* as a player ticks Ready: the host's round start waits for it */
+	sysLogPrintf(LOG_NOTE, "client: in the match as slot %d, stage %d", netGetLocalSlot(), netGetMatchConfig()->stage);
+}
+
 void gevrLauncherRun(void)
 {
 	const int port = sysArgGetInt("--port", GEVR_DEFAULT_PORT);
@@ -78,6 +130,14 @@ void gevrLauncherRun(void)
 	/* The headset's first frame loads goldeneye-vr.ini (gevr_engine_shim.c gevrVrFrameBegin). */
 	gevrVrPumpBegin();
 	gevrVrPumpEnd();
+
+	if (seconds > 0) {
+		s_stopAtNs = serverNowNs() + seconds * 1000000000ll;
+	}
+	if (sysArgCheck("--connect")) {
+		serverJoin(sysArgGetString("--connect"), port);
+		return;
+	}
 
 	netSetDedicated(true);
 	if (!netHostStart((uint16_t)port)) {
@@ -105,9 +165,6 @@ void gevrLauncherRun(void)
 		bossSetLoadedStage(g_StageNum);
 	}
 
-	if (seconds > 0) {
-		s_stopAtNs = serverNowNs() + seconds * 1000000000ll;
-	}
 	sysLogPrintf(LOG_NOTE, "server: hosting on UDP %d, stage %d, %d bots%s", port,
 			netGetMatchConfig()->stage, netGetMatchConfig()->bot_mode ? netGetMatchConfig()->bot_count : 0,
 			seconds > 0 ? " (timed run)" : "");
@@ -126,17 +183,23 @@ void gevrLobbyGameTick(void)
 	const long long now = serverNowNs();
 
 	/*
-	 * P0: nobody presses Start Round, so the server does after 5 s of warmup,
-	 * as the host's row in the pause menu does (mpmenu.c rowStartStep).
+	 * Nobody presses Start Round on a server, so it does, as the host's row
+	 * in the pause menu does (mpmenu.c rowStartStep): 5 s into a warmup with
+	 * a player in it (or --bots-only). The host's own checks then wait for
+	 * everyone to load and the teams to be whole.
 	 */
-	if (netGetPhase() == NET_PHASE_WARMUP && netHostCanStartRound()) {
+	if (netIsDedicated() && netGetPhase() == NET_PHASE_WARMUP && netHostCanStartRound() && !netHostStartRequested()
+	    && (netGetHumanPlayerCount() > 0 || sysArgCheck("--bots-only"))) {
 		if (warmupNs == 0) {
 			warmupNs = now;
-		} else if (warmupNs > 0 && now - warmupNs >= 5000000000ll) {
-			sysLogPrintf(LOG_NOTE, "server: starting the round");
+		} else if (now - warmupNs >= 5000000000ll) {
+			sysLogPrintf(LOG_NOTE, "server: starting the round (%d players, %d connected)",
+					netGetHumanPlayerCount(), netGetConnectedPlayerCount());
 			netHostStartRoundNow();
-			warmupNs = -1;
+			warmupNs = 0;
 		}
+	} else {
+		warmupNs = 0;
 	}
 
 	if (lastNs == 0) {

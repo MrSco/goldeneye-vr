@@ -646,6 +646,14 @@ void netShutdown(void) {
     NET_LOG("Network subsystem shutdown.");
 }
 
+/* A dedicated server (port/server): nobody plays at this machine. The game asks
+ * at run time, so the headset runs the same code (docs/dedicated-server.md).
+ * Its seat, slot 0, is a spectator for good: in no round, never shot, never a
+ * bot's target, following whoever is alive, so its view pass still runs the
+ * world's once-a-frame work (lv.c) where the players are. */
+static bool s_dedicated;
+static bool netDedicatedSeat(int slot) { return s_dedicated && slot == s_local_slot && slot >= 0; }
+
 bool netHostStart(uint16_t port) {
     if (!s_initialized && !netInit()) return false;
     netDisconnect();
@@ -678,7 +686,12 @@ bool netHostStart(uint16_t port) {
     s_lobby_state.slots[0].chr_id = 0; /* James Bond */
     netCleanName(s_lobby_state.slots[0].name, VrPlayerName, VrPlayerName + strlen(VrPlayerName));
     strncpy(s_slot_app_version[0], s_local_app_version, sizeof(s_slot_app_version[0]) - 1);
-    
+    if (s_dedicated) {
+        static const char server_name[] = "Server";
+        s_lobby_state.slots[0].spectator = 1;
+        netCleanName(s_lobby_state.slots[0].name, server_name, server_name + sizeof(server_name) - 1);
+    }
+
     player_char[0] = 0;
     
     NET_LOG("Multiplayer server hosted on port %d", address.port);
@@ -780,9 +793,6 @@ bool netIsHost(void) {
     return s_state == NET_STATE_HOSTING_LOBBY || (s_state == NET_STATE_INGAME && s_local_slot == s_host_slot);
 }
 
-/* A dedicated server (port/server): nobody plays at this machine. The game asks
- * at run time, so the headset runs the same code (docs/dedicated-server.md). */
-static bool s_dedicated;
 void netSetDedicated(bool dedicated) { s_dedicated = dedicated; }
 bool netIsDedicated(void) { return s_dedicated; }
 
@@ -851,7 +861,7 @@ static int netActingSlot(void) {
 int netGetHumanPlayerCount(void) {
     int count = 0;
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++)
-        if (s_lobby_state.slots[i].connected && !s_lobby_state.slots[i].is_bot) count++;
+        if (s_lobby_state.slots[i].connected && !s_lobby_state.slots[i].is_bot && !netDedicatedSeat(i)) count++;
     return count;
 }
 
@@ -1702,7 +1712,7 @@ static void netBeginRoundReset(bool start) {
     s_warmup_end_us = 0;
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
         if (s_lobby_state.slots[i].connected) s_lobby_state.slots[i].loaded = 0;
-        s_lobby_state.slots[i].spectator = 0;
+        s_lobby_state.slots[i].spectator = netDedicatedSeat(i);
         s_lobby_state.slots[i].eliminated = 0;
         s_remote_active[i] = false;
         netVoiceForgetSlot((uint8_t)i);
@@ -1798,7 +1808,8 @@ static bool netWarmupSettingsChanged(void) {
     active.voice_mode = pending.voice_mode = 0;
     active.friendly_fire = pending.friendly_fire = 0;
     if (memcmp(&active, &pending, sizeof(active))) return true;
-    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) if (netLobbySlotConnected(i)) {
+    /* a dedicated server's seat spectates every round: no change to load for */
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) if (netLobbySlotConnected(i) && !netDedicatedSeat(i)) {
         if (s_lobby_state.slots[i].spectator || s_round.team[i] != s_lobby_state.slots[i].team ||
             s_round.character[i] != s_lobby_state.slots[i].chr_id ||
             (pending.loadouts && memcmp(s_round.loadout[i], s_lobby_state.slots[i].loadout, 4))) return true;
@@ -2117,7 +2128,7 @@ void netHordeRetry(void) {
 void netHordeAdmitPlayers(void) {
     if (!netIsHost() || !netHordeActive()) return;
     for (int i=0;i<NET_COOP_MAX_PLAYERS;i++) if(s_lobby_state.slots[i].connected && s_lobby_state.slots[i].loaded) {
-        if (s_lobby_state.slots[i].spectator) {
+        if (s_lobby_state.slots[i].spectator && !netDedicatedSeat(i)) {
             s_lobby_state.slots[i].spectator=0;
             netCoopPlayerJoined(i,0);
         }
@@ -2346,7 +2357,8 @@ int gevrSpectating(void) { return netLocalIsSpectator() && get_cur_playernum() =
 int netTeamRosterReady(void) {
     if (netModePve(s_lobby_state.config.mode)) return 1;
     uint8_t connected[GEVR_MAX_PLAYERS], team[GEVR_MAX_PLAYERS];
-    for (int i=0;i<GEVR_MAX_PLAYERS;i++) { connected[i]=s_lobby_state.slots[i].connected; team[i]=s_lobby_state.slots[i].team; }
+    /* a dedicated server's seat plays on no team */
+    for (int i=0;i<GEVR_MAX_PLAYERS;i++) { connected[i]=s_lobby_state.slots[i].connected && !netDedicatedSeat(i); team[i]=s_lobby_state.slots[i].team; }
     return netTeamRosterComplete(s_lobby_state.config.scenario, GEVR_MAX_PLAYERS, connected, team);
 }
 int netGetSlotTeam(int slot) { return slot >= 0 && slot < GEVR_MAX_PLAYERS ? s_lobby_state.slots[slot].team : NET_TEAM_NONE; }
