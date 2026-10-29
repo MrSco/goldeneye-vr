@@ -106,8 +106,8 @@ Without `--public` the lobby is private; its code is in the log.
 
 Without a key the server is listed like any headset's game: the lobby
 service ends it after two hours, and the bridge registers it again under a
-new code. With a server key from the GoldenEye VR team (ask on the Discord),
-it is listed as a dedicated server:
+new code. With a server key from the GoldenEye VR project, it is listed as a
+dedicated server:
 
 - it stays listed for as long as it runs;
 - it keeps the same code every time it registers, so a private server's code

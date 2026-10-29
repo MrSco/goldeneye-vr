@@ -377,8 +377,9 @@ beside it, unpublished, for reading crash addresses. Builds need glibc 2.39+
 
 **Still to do for a self-hosting release:**
 - a run on real ARM hardware (the Oracle VM);
-- the Worker's keyed `dedicated` listings, exempt from the two-hour lifespan
-  so a private code stays the same (deploying needs the user's OK);
+- the Worker's keyed `dedicated` listings, exempt from the idle and lifetime
+  limits, with a code kept per key and name: written and tested
+  (goldeneyevr.com 78360bb, bridge `--key-file`), not deployed yet;
 - attaching the tarballs to the release (`gh release upload`) at the release.
 
 ## Phases
