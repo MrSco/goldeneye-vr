@@ -70,6 +70,10 @@ extern "C" void gevrNativePauseRender(void) {
         snprintf(view.hordeStats,sizeof(view.hordeStats),"Points: %u   Waves: %u   Time: %u:%02u   Kills: %u   Revives: %u",
             pts,s->completed,s->elapsed/3600,(s->elapsed/60)%60,s->kills,s->revives);
     }
+    if(!view.coop && !view.horde && netGetPhase()==NET_PHASE_IN_PROGRESS) {
+        const int left=gevrPauseMatchClock(view.clock,sizeof(view.clock));
+        view.clockEnding=left>=0&&left<=60;
+    }
     if(!view.coop && !view.countdown) {
         int seconds=netWarmupSecondsLeft();
         if(view.startRequested)snprintf(view.status,sizeof(view.status),"Waiting for ready / loading players");

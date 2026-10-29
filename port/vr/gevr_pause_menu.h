@@ -35,6 +35,9 @@ void gevrPauseAction(const char *label);
 void gevrPauseLocalGauges(GevrPauseGaugeVertex vertices[92]);
 void gevrPauseLocalRadar(GevrPauseRadarView *radar);
 void gevrPausePlayerStats(int slot, int *points, int *kills, int *losses);
+/* "7:42 left" in a timed match (returns the seconds left), "3:18 played" in
+ * any other (returns -1). */
+int gevrPauseMatchClock(char *text, unsigned size);
 int gevrPauseObjective(int index, char *text, unsigned size);
 void gevrFeedPauseInput(int opening);
 #ifdef __cplusplus

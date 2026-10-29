@@ -2885,4 +2885,21 @@ void gevrPausePlayerStats(int slot,int*points,int*kills,int*losses)
         *losses+=g_playerPlayerData[i].kill_counts[slot];
     }
 }
+/* The pause menu's match clock: time left in a timed match (lv.c warns at one
+ * minute and ends it at g_MpTime), time played in any other. Both count in
+ * frames from the round's start, the host's clock on every headset. */
+int gevrPauseMatchClock(char*text,unsigned size)
+{
+    extern s32 D_80048394,g_MpTime;
+#if defined(VERSION_EU)
+    const s32 rate=50;
+#else
+    const s32 rate=60;
+#endif
+    s32 frames=g_MpTime>0?g_MpTime-D_80048394:D_80048394;
+    if(frames<0)frames=0;
+    const s32 seconds=(frames+(g_MpTime>0?rate-1:0))/rate;   /* time left rounds up: 0:00 is the end */
+    snprintf(text,size,g_MpTime>0?"%d:%02d left":"%d:%02d played",seconds/60,seconds%60);
+    return g_MpTime>0?seconds:-1;
+}
 #endif

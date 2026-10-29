@@ -23,6 +23,8 @@ struct GevrPauseView {
     GevrPauseRadarView radar{};
     GevrPausePlayerView players[8];
     char session[160]="", status[128]="", hordeStats[160]="";
+    char clock[32]="";   /* time left or played, while a round runs; empty otherwise */
+    bool clockEnding=false;   /* the last minute of a timed match */
 };
 struct GevrPauseUi {
     int tab=0;
@@ -101,6 +103,11 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
     gevrPauseGaugeWidget(model.gauges);
     gevrPauseGaugeWidget(model.gauges+46);
     ImGui::SetCursorPos(ImVec2(742,22));ImGui::TextColored(gold,"%s",model.session);
+    /* the match clock at the right of the map's name */
+    if(model.clock[0]) {
+        ImGui::SetCursorPos(ImVec2(1262-ImGui::CalcTextSize(model.clock).x,22));
+        ImGui::TextColored(model.clockEnding?bad:ImVec4(1,1,1,1),"%s",model.clock);
+    }
     ImGui::SetCursorPos(ImVec2(742,60));ImGui::TextDisabled("%s",model.status);
     ImGui::SetCursorPos(ImVec2(18,98));ImGui::Separator();
     const char*names[]={"Match","Rules","Player","Audio"};
