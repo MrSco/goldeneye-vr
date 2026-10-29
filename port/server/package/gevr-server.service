@@ -1,0 +1,31 @@
+# GoldenEye VR dedicated server (docs/dedicated-server-operators.md).
+#
+# /opt/gevr-server holds the release (gevr-server, gevr_lobby_bridge.py);
+# /var/lib/gevr-server holds ge.z64 and goldeneye-vr.ini, owned by the gevr
+# user. Change the name, the listing or the ports with
+#   sudo systemctl edit gevr-server
+# and an ExecStart= line of your own (an empty ExecStart= first clears this one).
+
+[Unit]
+Description=GoldenEye VR dedicated server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=gevr
+Group=gevr
+WorkingDirectory=/var/lib/gevr-server
+ExecStart=/usr/bin/python3 /opt/gevr-server/gevr_lobby_bridge.py --public --restart -- /opt/gevr-server/gevr-server --name "GEVR Server" --port 27007 --ice-ports 27010-27049
+# Stop: the bridge stops the server, which tells its players, and removes the lobby.
+KillSignal=SIGTERM
+TimeoutStopSec=20
+Restart=always
+RestartSec=10
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/gevr-server
+
+[Install]
+WantedBy=multi-user.target

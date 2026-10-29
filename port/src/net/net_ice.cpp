@@ -45,6 +45,7 @@ std::mutex g_mutex;
 std::array<std::unique_ptr<Peer>, kMaxInternetPeers> g_peers;
 std::deque<Incoming> g_incoming;
 bool g_hosting = false;
+uint16_t g_portFirst = 0, g_portLast = 0;   // netIceSetPortRange; 0, 0: any
 
 Peer *findPeer(const char *id) {
     for (auto &peer : g_peers) if (peer && peer->id == id) return peer.get();
@@ -128,6 +129,8 @@ bool createPeer(Peer *peer, const char *offer) {
     config.cb_gathering_done = onGathered;
     config.cb_recv = onReceive;
     config.user_ptr = peer;
+    config.local_port_range_begin = g_portFirst;
+    config.local_port_range_end = g_portLast;
     peer->agent = juice_create(&config);
     if (!peer->agent) return false;
     if (offer && juice_set_remote_description(peer->agent, offer) != JUICE_ERR_SUCCESS) return false;
@@ -277,6 +280,11 @@ extern "C" void netIceStop(void) {
 }
 
 extern "C" int netIceMaxPeers(void) { return kMaxInternetPeers; }
+
+extern "C" void netIceSetPortRange(unsigned short first, unsigned short last) {
+    g_portFirst = first <= last ? first : 0;
+    g_portLast = first <= last ? last : 0;
+}
 
 extern "C" int netIcePeerCount(void) {
     int count = 0;

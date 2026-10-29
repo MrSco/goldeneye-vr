@@ -3,11 +3,17 @@
 # target in CMakeLists.txt. Shown on the in-VR launcher (port/vr/vr_launcher.cpp)
 # so the build on the headset can be told at a glance.
 #   cmake -DSRC_DIR=<repo> -DOUT=<file.c> -P buildid.cmake
+# GEVR_BUILD_HASH and GEVR_BUILD_BRANCH in the environment stand in for git
+# where it cannot read the checkout (a WSL build of a Windows worktree:
+# tools/gevr_package_server.sh).
 find_package(Git QUIET)
 set(HASH "nogit")
 set(DIRTY "")
 set(BRANCH "")
-if(GIT_FOUND)
+if(DEFINED ENV{GEVR_BUILD_HASH})
+  set(HASH "$ENV{GEVR_BUILD_HASH}")
+  set(BRANCH "$ENV{GEVR_BUILD_BRANCH}")
+elseif(GIT_FOUND)
   execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --short HEAD
                   WORKING_DIRECTORY "${SRC_DIR}" OUTPUT_VARIABLE HASH
                   OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET RESULT_VARIABLE rc)

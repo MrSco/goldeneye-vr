@@ -132,10 +132,41 @@ static void serverJoin(const char *target, int port)
 	sysLogPrintf(LOG_NOTE, "client: in the match as slot %d, stage %d", netGetLocalSlot(), netGetMatchConfig()->stage);
 }
 
+/* --list: the values goldeneye-vr.ini's match keys take, from the game's own
+ * lists (net_match.c), for operators (docs/dedicated-server-operators.md). */
+static void serverList(void)
+{
+	int i;
+
+	printf("Deathmatch match settings in goldeneye-vr.ini (MpMode=0):\n\nMpStage=\n");
+	for (i = 0; i < netStageCount(); i++)
+		printf("  %3d  %s\n", netStage(i)->level_id, netStageName(i));
+	printf("\nMpScenario=\n");
+	for (i = 0; i < netScenarioCount(); i++) printf("  %3d  %s\n", i, netScenarioName(i));
+	printf("\nMpWeaponSet=\n");
+	for (i = 0; i < netWeaponSetCount(); i++) printf("  %3d  %s\n", i, netWeaponSetName(i));
+	printf("\nMpLength=\n");
+	for (i = 0; i < 7; i++) printf("  %3d  %s\n", i, netGameLengthName(i));
+	printf("\nMpHealth=\n");
+	for (i = 0; i < netHealthCount(); i++) printf("  %3d  %s\n", i, netHealthName(i));
+	printf("\nMpBotMode=\n");
+	for (i = 0; i < NET_BOT_MODE_COUNT; i++) printf("  %3d  %s\n", i, netBotModeName(i));
+	printf("\nMpBotCount=  1-%d (with MpBotMode=2)\n\nMpBotDifficulty=\n", GEVR_MAX_PLAYERS - 1);
+	for (i = 0; i < NET_BOT_DIFF_COUNT; i++) printf("  %3d  %s\n", i, netBotDifficultyName(i));
+	printf("\nMpNextRound=\n");
+	for (i = 0; i < 3; i++) printf("  %3d  %s\n", i, netNextRoundName(i));
+	printf("\nMpMaxPlayers=  2-%d, the server's own seat included\n", GEVR_MAX_PLAYERS);
+}
+
 void gevrLauncherRun(void)
 {
 	const int port = sysArgGetInt("--port", GEVR_DEFAULT_PORT);
 	const int seconds = sysArgGetInt("--seconds", 0);
+
+	if (sysArgCheck("--list")) {
+		serverList();
+		exit(0);
+	}
 
 	/* GEVR_FPE=1: stop at the first NaN or division by zero, with a backtrace
 	 * (addr2line -f -e gevr-server <+offsets>). Found the libultra cosf alias. */
@@ -144,8 +175,21 @@ void gevrLauncherRun(void)
 		feenableexcept(FE_INVALID | FE_DIVBYZERO);
 	}
 	/* The headset's first frame loads goldeneye-vr.ini (gevr_engine_shim.c gevrVrFrameBegin). */
+	const bool firstRun = access("goldeneye-vr.ini", F_OK) != 0;
 	gevrVrPumpBegin();
 	gevrVrPumpEnd();
+	if (firstRun && !sysArgCheck("--connect")) {
+		/* no settings yet: a server's match, not the headset's defaults (four
+		 * players, no bots), written out for the operator to change */
+		extern int VrMpStage, VrMpMaxPlayers, VrMpBotMode;
+		extern void vrSettingsSave(void);
+
+		VrMpStage = 34;   /* Facility */
+		VrMpMaxPlayers = GEVR_MAX_PLAYERS;
+		VrMpBotMode = NET_BOT_FILL;
+		vrSettingsSave();
+		sysLogPrintf(LOG_NOTE, "server: wrote goldeneye-vr.ini: Facility, %d players, bots fill (gevr-server --list)", GEVR_MAX_PLAYERS);
+	}
 
 	if (seconds > 0) {
 		s_stopAtNs = serverNowNs() + seconds * 1000000000ll;
@@ -153,6 +197,15 @@ void gevrLauncherRun(void)
 	if (sysArgCheck("--connect")) {
 		serverJoin(sysArgGetString("--connect"), port);
 		return;
+	}
+	{
+		/* co-op's missions are picked in the game's menus by the host, whom a
+		 * server does not have; Horde has not been tried on one */
+		extern int VrMpMode;
+
+		if (VrMpMode != NET_MODE_DEATHMATCH) {
+			sysFatalError("server: goldeneye-vr.ini has MpMode=%d; a dedicated server hosts Deathmatch (MpMode=0) only", VrMpMode);
+		}
 	}
 
 	netSetDedicated(true);

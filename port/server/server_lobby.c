@@ -8,7 +8,7 @@
  * ERROR events. Here the same lines go over two pipes to
  * tools/gevr_lobby_bridge.py, so the server needs no HTTPS of its own:
  *
- *   gevr-server --lobby-fd IN,OUT [--lobby-public]
+ *   gevr-server --lobby-fd IN,OUT [--lobby-public] [--ice-ports FIRST-LAST]
  *
  * Joiners reach the server through ICE (net_ice.cpp), as they reach a headset
  * host: their offer comes in as HOST_PEER, the answer goes back.
@@ -131,6 +131,18 @@ bool serverLobbyStart(const char *fds, const char *name, bool visibleToAll)
 	fcntl(s_in, F_SETFL, fcntl(s_in, F_GETFL) | O_NONBLOCK);
 	s_public = visibleToAll;
 	snprintf(s_name, sizeof(s_name), "%s", name);
+	{
+		/* each joiner's ICE session on a port from a range the firewall opens
+		 * (docs/dedicated-server-operators.md), not any port at all */
+		unsigned first = 27010, last = 27049;
+
+		if (sysArgCheck("--ice-ports") && sscanf(sysArgGetString("--ice-ports"), "%u-%u", &first, &last) != 2) {
+			first = 27010;
+			last = 27049;
+		}
+		netIceSetPortRange((unsigned short)first, (unsigned short)last);
+		sysLogPrintf(LOG_NOTE, "lobby: internet joins on UDP %u-%u", first, last);
+	}
 	netIceStartHost();
 	lobbyCreate();
 	sysLogPrintf(LOG_NOTE, "lobby: registering a %s lobby through the bridge", s_public ? "public" : "private");
