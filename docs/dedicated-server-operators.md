@@ -211,10 +211,13 @@ On any Linux with cmake, ninja, git and zlib's headers (Ubuntu:
 `sudo apt install cmake ninja-build git zlib1g-dev python3`):
 
 ```sh
-git clone https://github.com/MrSco/goldeneye-vr.git
+git clone --branch claude/dedicated-server-scope https://github.com/MrSco/goldeneye-vr.git
 cd goldeneye-vr
 sh tools/gevr_build_server.sh
 ```
+
+(The server is on that branch until it reaches `main`; the VERSION file in a
+download names the commit it was built from.)
 
 The server is then `~/gevr-server-build/gevr-server`. The script uses the
 system's clang if there is one, and otherwise unpacks Ubuntu's clang 18 into
