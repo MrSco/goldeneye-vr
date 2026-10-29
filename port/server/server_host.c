@@ -5,7 +5,7 @@
  * player picks a game and presses Start Hosting, then Launch. Here the same
  * calls are made from goldeneye-vr.ini with nobody pressing anything:
  *
- *   gevr-server [--basedir DIR] [--port N] [--seconds N] [--bots-only]
+ *   gevr-server [--basedir DIR] [--port N] [--name NAME] [--beacon-to IP] [--seconds N] [--bots-only]
  *   gevr-server --connect HOST[:PORT] [--seconds N]
  *
  * The data folder holds ge.z64 and goldeneye-vr.ini, as on the headset. The
@@ -37,6 +37,7 @@
 #include "net_core.h"
 #include "net_match.h"
 #include "net_game.h"
+#include "net_discovery.h"
 #include "game/player.h"
 #include "game/gevr_bot.h"
 
@@ -60,6 +61,14 @@ static double serverCpuSeconds(void)
 	struct rusage ru;
 	getrusage(RUSAGE_SELF, &ru);
 	return ru.ru_utime.tv_sec + ru.ru_stime.tv_sec + (ru.ru_utime.tv_usec + ru.ru_stime.tv_usec) / 1e6;
+}
+
+/* SIGTERM (systemctl stop, kill) or SIGINT (Ctrl+C): stop at the next game frame */
+static volatile sig_atomic_t s_stopSignal;
+
+static void serverStopHandler(int sig)
+{
+	s_stopSignal = sig;
 }
 
 static void serverFpeHandler(int sig)
@@ -143,7 +152,20 @@ void gevrLauncherRun(void)
 	if (!netHostStart((uint16_t)port)) {
 		sysFatalError("server: could not open UDP port %d", port);
 	}
-	netSetGameName("Dedicated server");
+	{
+		/* the game's name in the LAN and internet lists (15 characters at most) */
+		const char *name = sysArgCheck("--name") ? sysArgGetString("--name") : "GEVR Server";
+
+		netSetGameName(name);
+		/* on the LAN as a headset host is (vr_launcher.cpp Start Hosting); a
+		 * server in WSL2 also sends each beacon to Windows (--beacon-to), for
+		 * tools/gevr_udp_relay.py to put on the LAN */
+		netDiscoveryInit();
+		netDiscoveryStartBroadcasting(name, (uint16_t)port);
+		if (sysArgCheck("--beacon-to")) {
+			netDiscoveryAlsoSendTo(sysArgGetString("--beacon-to"));
+		}
+	}
 	netLobbySetCharacter((uint8_t)VrMpChr);
 	{
 		uint8_t items[4];
@@ -177,22 +199,23 @@ void gevrLauncherRun(void)
  */
 void gevrLobbyGameTick(void)
 {
-	static long long lastNs, warmupNs;
+	static long long lastNs, warmupNs, emptyNs;
 	static double lastCpu;
 	static u32 lastFrames;
 	const long long now = serverNowNs();
+	const bool botsOnly = sysArgCheck("--bots-only");
 
 	/*
 	 * Nobody presses Start Round on a server, so it does, as the host's row
-	 * in the pause menu does (mpmenu.c rowStartStep): 5 s into a warmup with
-	 * a player in it (or --bots-only). The host's own checks then wait for
-	 * everyone to load and the teams to be whole.
+	 * in the pause menu does (mpmenu.c rowStartStep): 10 s into a warmup with
+	 * a player in it (or --bots-only), players playing meanwhile. The host's
+	 * own checks then wait for everyone to load and the teams to be whole.
 	 */
 	if (netIsDedicated() && netGetPhase() == NET_PHASE_WARMUP && netHostCanStartRound() && !netHostStartRequested()
-	    && (netGetHumanPlayerCount() > 0 || sysArgCheck("--bots-only"))) {
+	    && (netGetHumanPlayerCount() > 0 || botsOnly)) {
 		if (warmupNs == 0) {
 			warmupNs = now;
-		} else if (now - warmupNs >= 5000000000ll) {
+		} else if (now - warmupNs >= 10000000000ll) {
 			sysLogPrintf(LOG_NOTE, "server: starting the round (%d players, %d connected)",
 					netGetHumanPlayerCount(), netGetConnectedPlayerCount());
 			netHostStartRoundNow();
@@ -200,6 +223,24 @@ void gevrLobbyGameTick(void)
 		}
 	} else {
 		warmupNs = 0;
+	}
+
+	/*
+	 * The last player gone, a round of bots alone goes back to warmup: the
+	 * next to join plays at once instead of spectating it to its end (a
+	 * headset that joined a bots' round was carried round as a spectator,
+	 * 2026-10-29).
+	 */
+	if (netIsDedicated() && !botsOnly && netGetPhase() == NET_PHASE_IN_PROGRESS && netGetHumanPlayerCount() == 0) {
+		if (emptyNs == 0) {
+			emptyNs = now;
+		} else if (now - emptyNs >= 3000000000ll) {
+			sysLogPrintf(LOG_NOTE, "server: nobody left in the round: back to warmup");
+			netHostRestartWarmup();
+			emptyNs = 0;
+		}
+	} else {
+		emptyNs = 0;
 	}
 
 	if (lastNs == 0) {
@@ -240,6 +281,22 @@ void gevrLobbyGameTick(void)
 
 	if (s_stopAtNs && now >= s_stopAtNs) {
 		sysLogPrintf(LOG_NOTE, "server: timed run over");
+		exit(0);
+	}
+	{
+		/* from the first game frame: something in the start-up after the
+		 * launcher (not SDL, told to leave signals alone) sets them back */
+		static bool handlers;
+
+		if (!handlers) {
+			handlers = true;
+			signal(SIGTERM, serverStopHandler);
+			signal(SIGINT, serverStopHandler);
+		}
+	}
+	if (s_stopSignal) {
+		sysLogPrintf(LOG_NOTE, "server: stopping (signal %d)", (int)s_stopSignal);
+		netDisconnect();   /* players see the host leave at once, not after a timeout */
 		exit(0);
 	}
 }

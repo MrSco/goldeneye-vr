@@ -68,6 +68,7 @@ void netHostRoundEnded(void);
 void netHostContinue(void);
 void netHostReturnToLobby(void);
 void netHostStartRoundNow(void);
+void netHostRestartWarmup(void);   /* host: this map again, in warmup (a dedicated server left empty) */
 int netCountdownSecondsLeft(void);
 void netHostRequestVotes(void);
 int netHostStartRequested(void);

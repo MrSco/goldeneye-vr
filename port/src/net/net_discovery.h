@@ -32,6 +32,7 @@ void netDiscoveryUpdate(uint32_t current_time_ms);
 /* Host beacon control */
 void netDiscoveryStartBroadcasting(const char *server_name, uint16_t game_port);
 void netDiscoveryStopBroadcasting(void);
+void netDiscoveryAlsoSendTo(const char *ip);   /* each beacon to this address too (a server in WSL2) */
 
 /* Client LAN list query */
 int netDiscoveryGetServerCount(void);

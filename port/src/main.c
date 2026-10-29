@@ -334,6 +334,9 @@ int main(int argc, const char **argv)
     /* No window and no sound card: SDL's dummy drivers stand in for both. */
     SDL_setenv("SDL_VIDEODRIVER", "dummy", 1);
     SDL_setenv("SDL_AUDIODRIVER", "dummy", 1);
+    /* SDL would turn SIGTERM/SIGINT into a quit event nothing reads; the server
+     * stops on them itself (port/server/server_host.c) */
+    SDL_setenv("SDL_NO_SIGNAL_HANDLERS", "1", 1);
 #endif
 
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "Starting initialization sequence");
