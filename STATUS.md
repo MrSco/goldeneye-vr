@@ -196,8 +196,10 @@ is goldeneyevr.com, in its own repository.
   and open; game timers use CLOCK_MONOTONIC. Dedicated server before a
   self-hosting release: aarch64 build, packaging + systemd unit + operator
   guide, content hashes, Worker keyed listings (deploy needs an OK).
-- After test.16 (on the batch branch, not yet in a build; a test.16
-  tester's report): Bean's sky dome is drawn at infinity in stereo (at half
+- In v0.5.14-test.17 (pre-release 2026-10-29, tag on ee7f9dbe; a test.16
+  tester's report): the server's one-command setup (tools/gevr-server-setup.sh
+  and .ps1, merged from claude/dedicated-server-scope; the server downloads
+  link opus in: test.16's needed libopus0) and the ROM check on join; Bean's sky dome is drawn at infinity in stereo (at half
   the far plane its cloud cap was a disc overhead that followed the player,
   Surface 1/2; test.7's "near white band" was the same); the CCTV, whose
   crumpled mount Bean draws in its lens's list, now shows the crumpled,
