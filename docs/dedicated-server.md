@@ -164,7 +164,8 @@ about 100 in the Worker.
       its lobby, and the launcher joins it by code.
     - A "Host on a dedicated server" choice in the Host tab.
 10. **Content hashes.** The session hash in HELLO and the stage hash in
-    STAGE_READY, each part named on refusal (decision 4).
+    STAGE_READY, each part named on refusal (decision 4). Done as the ROM
+    part in HELLO; the stage hash is not needed here (P3 progress).
 11. **Packaging.**
    - aarch64 and x86-64 tarballs on the release, a systemd unit and a short
      operator guide.
@@ -332,6 +333,56 @@ second throughout. Highest CPU so far 3.9% of a core.
    one door 50 times in 14 minutes. A bot held by an open leaf now steps off
    it, to the side away from the leaf, keeping its route, and never presses
    B on it (`gevr_bot.c` `gevrBotOpenLeafSide`).
+
+The server shipped as experimental in v0.5.14-test.16 (source only).
+
+## P3 progress (2026-10-29): self-hosting
+
+**Content check (decision 4).** Each machine hashes its cartridge (FNV-1a
+64 over the ROM's bytes, `gevr_romload.c` `gevrRomContentHash`), before
+`romdataInit` too, since joins start in the launcher. A joiner sends it at
+the end of HELLO as a named part (`net_protocol.h` `NET_CONTENT_*`); a host
+whose part differs disconnects it with `NET_DISCONNECT_CONTENT | part`, and
+the launcher shows "Cannot join: this game's GoldenEye ROM is not the same
+as yours." It is additive on protocol 25: an older joiner sends no block and
+is let in, and an older host reads past it.
+
+Dab's stage hash is left out on purpose. His maps-only mods load stage files
+from outside the ROM; here every setup, pad, tile and BG file comes from the
+ROM, so the same ROM and the same build load the same stage. The part list
+can grow if something outside the ROM ever decides the simulation.
+
+**ARM64.** `tools/gevr_build_server.sh --aarch64` cross-builds on x86-64
+Ubuntu 24.04 with Ubuntu's arm64 cross libraries, lld and binutils, unpacked
+without root; zlib is built from source for the target. Under qemu the ARM64
+server plays at 60 game frames a second (about 35% of a core, emulated),
+hashes the ROM exactly as x86-64 does, and an x86-64 client joins it and
+plays. Not yet run on real ARM hardware.
+
+**Packages.** `tools/gevr_package_server.sh VERSION` makes
+`gevr-server-VERSION-linux-{x86_64,aarch64}.tar.gz`, about 3 MB each: the
+server without debug info, the lobby bridge, a systemd unit
+(`port/server/package/gevr-server.service`), the operator guide
+(`docs/dedicated-server-operators.md`) and the licence. The debug info stays
+beside it, unpublished, for reading crash addresses. Builds need glibc 2.39+
+(Ubuntu 24.04, Debian 13); older systems build from source.
+
+**Operators.**
+- Internet joins use UDP 27010-27049 (`--ice-ports`), so a firewall or an
+  Oracle security list can open a known range.
+- `gevr-server --list` prints the values the ini's match lines take.
+- A first run writes a server's match (Facility, 8 players, bots fill).
+- Modes other than Deathmatch stop with a reason: co-op needs a host in the
+  menus, and Horde has not been tried on a server.
+
+**Still to do for a self-hosting release:**
+- a run on real ARM hardware (the Oracle VM);
+- ~~the Worker's keyed `dedicated` listings~~: deployed 2026-10-29
+  (goldeneyevr.com 78360bb, version 7be0118d; bridge `--key-file`). The
+  first key, `mrsco-home`, is in WSL's `~/gevr-server-data/server.key`;
+  the live service listed that server as dedicated under the same code
+  across restarts;
+- attaching the tarballs to the release (`gh release upload`) at the release.
 
 ## Phases
 

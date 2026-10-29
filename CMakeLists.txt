@@ -197,7 +197,17 @@ if(GEVR_HEADLESS)
     GIT_TAG release-2.32.8
     GIT_SHALLOW TRUE)
   FetchContent_MakeAvailable(SDL2)
-  find_package(ZLIB REQUIRED)
+  find_package(ZLIB QUIET)
+  if(NOT ZLIB_FOUND)
+    # none for the target (an aarch64 build from x86-64, tools/gevr_build_server.sh
+    # --aarch64): zlib's own source, linked in
+    FetchContent_Declare(zlib
+      URL https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz
+      URL_HASH SHA256=9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23)
+    FetchContent_MakeAvailable(zlib)
+    target_include_directories(zlibstatic INTERFACE "${zlib_SOURCE_DIR}" "${zlib_BINARY_DIR}")
+    add_library(ZLIB::ZLIB ALIAS zlibstatic)
+  endif()
   list(APPEND LIBS SDL2::SDL2-static)
 else()
   find_package(SDL2 QUIET)
@@ -387,6 +397,12 @@ set_source_files_properties(${SRC_HDP} PROPERTIES
 )
 
 include(FetchContent)
+if(GEVR_HEADLESS)
+  # The server is one file: opus inside it, not a libopus.so.0 a clean Linux
+  # lacks (libjuice's BUILD_SHARED_LIBS option, ON, made it shared from the
+  # second configure on; the test.16 downloads needed libopus0 installed).
+  set(BUILD_SHARED_LIBS OFF CACHE BOOL "Static libraries in the server" FORCE)
+endif()
 set(OPUS_BUILD_TESTING OFF CACHE BOOL "Do not build Opus tests" FORCE)
 set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "Do not build Opus tools" FORCE)
 set(OPUS_INSTALL OFF CACHE BOOL "Do not install Opus" FORCE)

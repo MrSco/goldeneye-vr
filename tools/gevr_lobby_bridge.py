@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Put a dedicated server in the internet lobby (docs/dedicated-server.md, P2).
 
-    tools/gevr_lobby_bridge.py [--public] [--restart] -- SERVER [SERVER ARGS...]
+    tools/gevr_lobby_bridge.py [--public] [--restart] [--key-file FILE] -- SERVER [SERVER ARGS...]
 
 Starts the server with --lobby-fd and does for it what the headset's
 LobbyClient.java does for the launcher: registers the lobby at
@@ -13,6 +13,12 @@ bridge trade the same one-line messages the launcher and LobbyClient do
 The lobby is private (join by code) unless --public: the code is in the log.
 --restart starts the server again whenever it ends (a match over, a crash),
 as a fresh lobby. SIGTERM or Ctrl+C stops the server and removes the lobby.
+
+--key-file FILE (or GEVR_SERVER_KEY) holds a server key from the lobby
+service: the lobby is then listed as a dedicated server, never times out
+while the server runs, and keeps the same code each time it registers.
+Without one it is an ordinary lobby, ended after two hours (and registered
+again, under a new code).
 
 Python 3.8+, standard library only.
 """
@@ -80,8 +86,9 @@ def http(method, url, data=None, token=""):
 class Lobby:
     """LobbyClient.java's host side, driven by the server's commands."""
 
-    def __init__(self, send):
+    def __init__(self, send, key=""):
         self.send = send   # an event line to the server
+        self.key = key     # the server key ("": an ordinary lobby)
         self.forget()
 
     def forget(self):
@@ -134,13 +141,22 @@ class Lobby:
     def register(self):
         if self.pending is None:
             return
-        result = http("POST", BASE, self.pending)
+        try:
+            result = http("POST", BASE, self.pending, self.key)
+        except HttpError as e:
+            if e.status != 403:
+                raise
+            # not retried: the operator fixes the key (or leaves it out)
+            log("the lobby service refused the server key (%s); not registering" % e)
+            self.pending = None
+            self.send("ERROR|" + clean("Lobby service: %s" % e))
+            return
         self.code, self.token = result["code"], result["ownerToken"]
         visibility = self.pending["visibility"]
         self.pending = None
         self.next_heartbeat = self.next_requests = 0
         self.seen.clear()
-        log("lobby %s registered (%s)" % (self.code, visibility))
+        log("lobby %s registered (%s%s)" % (self.code, visibility, ", dedicated" if self.key else ""))
         self.send("CREATED|%s|%s" % (self.code, self.token))
 
     def lost(self, e):
@@ -221,7 +237,7 @@ class Lobby:
         self.forget()
 
 
-def run_server(argv, public, stopping):
+def run_server(argv, public, stopping, key):
     """One server process in one lobby, until it ends or we are told to stop."""
     to_server_r, to_server_w = os.pipe()
     from_server_r, from_server_w = os.pipe()
@@ -245,7 +261,7 @@ def run_server(argv, public, stopping):
         lines.put(None)
 
     threading.Thread(target=reader, daemon=True).start()
-    lobby = Lobby(send)
+    lobby = Lobby(send, key)
     next_poll = 0.0
     ended = False
     while not ended:
@@ -282,6 +298,16 @@ def main():
         sys.exit(__doc__)
     public = "--public" in options
     restart = "--restart" in options
+    key = os.environ.get("GEVR_SERVER_KEY", "").strip()
+    if "--key-file" in options:
+        at = options.index("--key-file") + 1
+        if at >= len(options):
+            sys.exit("--key-file needs a file")
+        try:
+            with open(options[at], encoding="utf-8") as f:
+                key = f.read().strip()
+        except OSError as e:
+            sys.exit("cannot read the server key: %s" % e)
 
     stopping = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -289,7 +315,7 @@ def main():
 
     while True:
         started = time.monotonic()
-        code = run_server(server_argv, public, stopping)
+        code = run_server(server_argv, public, stopping, key)
         log("server exited (%d)" % code)
         if stopping.is_set() or not restart:
             return code

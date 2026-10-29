@@ -19,6 +19,9 @@ void netIceStop(void);
 int netIcePeerCount(void);
 int netIceMaxPeers(void);     /* the host's internet peers: every client slot */
 void netIceForgetPeer(const char *virtual_ip);
+/* The local UDP ports ICE may use (0, 0: any). A dedicated server keeps them
+ * to a range its firewall opens (port/server/server_lobby.c). */
+void netIceSetPortRange(unsigned short first, unsigned short last);
 
 #ifdef __cplusplus
 }

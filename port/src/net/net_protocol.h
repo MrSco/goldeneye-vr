@@ -112,6 +112,18 @@ typedef enum {
 } NetMsgType;
 
 #define NET_DISCONNECT_KICKED 0x47454b49u
+
+/*
+ * The content check (docs/dedicated-server.md, decision 4). HELLO ends with
+ * the slot byte (0xFF: none), then u8 n and n x (u8 part, u32 low, u32 high):
+ * what decides the simulation, each part hashed apart so a refusal can name
+ * the one that differs. A host turns a joiner whose part differs away with
+ * NET_DISCONNECT_CONTENT | part. Additive on protocol 25: an older joiner
+ * sends no block and is let in, an older host reads past it.
+ */
+#define NET_CONTENT_ROM 1u              /* the cartridge's bytes (gevr_romload.c) */
+#define NET_CONTENT_MAX_PARTS 8
+#define NET_DISCONNECT_CONTENT 0x47454300u   /* | part */
 #define NET_CLIENT_CAP_KICK 1u
 /* The guest reads NET_FUN_NO_RADAR (protocol 19 has it). A guest that says otherwise
  * is removed while the rule is pending or live (net_core.c netHostRemoveOldForNoRadar). */

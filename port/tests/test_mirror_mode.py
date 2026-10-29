@@ -49,6 +49,9 @@ static std::string dataDir() { return "."; }
 static void vr_log(const char*, ...) {}
 static u8 *g_RomFile;
 static u32 g_RomFileSize;
+using u64 = unsigned long long;   /* the content hash (net_core.c join check) is not under test here */
+static u64 s_RomContentHash;
+static void gevrRomHashContent(const u8 *, u32) {}
 static int VrCampaign, VrGexGuns, bankCalls, applyCalls, retailBinds;
 static bool bindOk;
 static void *fsFileLoad(const char *name, u32 *size) {

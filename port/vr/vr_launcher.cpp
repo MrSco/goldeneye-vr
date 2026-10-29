@@ -1856,6 +1856,10 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
         hostJoinIds.clear();
         clientJoinId.clear();
     };
+    if (const char *refusal = netTakeJoinRefusal()) {
+        onlineMessage = refusal;   // a different ROM from the host's (net_core.c NET_CONTENT_*)
+        disconnect();
+    }
     if (netIsActive() && !netIsHost() && netGetState() == NET_STATE_INGAME) {
         if (!romReady) {
             onlineMessage = "Cannot join match: no valid GoldenEye ROM loaded.";
