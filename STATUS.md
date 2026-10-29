@@ -188,6 +188,14 @@ is goldeneyevr.com, in its own repository.
   idle-kicked; a late joiner who takes a bot's place plays at once (its
   load made it spectate anyway); the spectator label shows in VR; bots
   step out of a swinging door that opened onto them.
+- In v0.5.14-test.16 (pre-release 2026-10-29): the dedicated server merged
+  in as experimental (docs/dedicated-server.md; Linux x86-64, build from
+  source, no download). Fixes: bots no longer see or route through a closed
+  door they lean on (test.15's door escape applied to every line test);
+  bots held by an open door's leaf step off it instead of swinging it shut
+  and open; game timers use CLOCK_MONOTONIC. Dedicated server before a
+  self-hosting release: aarch64 build, packaging + systemd unit + operator
+  guide, content hashes, Worker keyed listings (deploy needs an OK).
 - Two-headset checks still owed from #95 (closed): Statue/Cradle online,
   remote ledges and guns.
 - #30: intermittent colored water lines; no confirmed fix. #85: Egypt
