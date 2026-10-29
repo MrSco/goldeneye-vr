@@ -63,11 +63,16 @@ ObjectRecord *setupGetPtrToCommandByIndex(s32 index) {
     return NULL;
 }
 static s32 blocking, observed_closed_doors;
+/* stan.c: the prop a line test hit; a door here, as the game records it
+ * (gevr_botnav.c tells a prop from the edge of the floor by it) */
+PropRecord *stanSavedColl_posData;
+static PropRecord closed_door;
 s32 stanTestLineUnobstructed(StandTile **t, f32 x, f32 z, f32 xx, f32 zz, s32 mask,
                              f32 ymax, f32 ymin, f32 a, f32 b) {
     (void)t;(void)x;(void)z;(void)xx;(void)zz;(void)ymax;(void)ymin;(void)a;(void)b;
     if (mask & CDTYPE_CLOSEDDOORS) observed_closed_doors++;
-    return !(blocking && (mask & CDTYPE_CLOSEDDOORS));
+    stanSavedColl_posData = blocking && (mask & CDTYPE_CLOSEDDOORS) ? &closed_door : NULL;
+    return stanSavedColl_posData == NULL;
 }
 s32 walkTilesBetweenPoints_NoCallback(StandTile **t, f32 x, f32 z, f32 xx, f32 zz) {
     (void)t;(void)x;(void)z;(void)xx;(void)zz;return 1;
