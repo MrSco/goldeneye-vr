@@ -89,6 +89,7 @@ static void fixture(int scenario) {
     s_lobby_state.config.scenario=scenario; s_lobby_state.config.stage=34;
     s_lobby_state.config.voice_mode=NET_VOICE_PROXIMITY; s_phase=NET_PHASE_WAITING;
     s_server_peer=NULL;s_host=NULL;s_match_ended=false;s_next_round_at_us=0;s_countdown_end_us=0;voice_resets=0;
+    s_dedicated=false;
     s_round_reset_loading=false;s_waiting_for_match_snapshot=false;
     s_round_reset_pending=s_start_after_load=s_stage_ready_sent=false;s_results_deadline_us=0;
     clock_us=10000000;
@@ -553,6 +554,25 @@ EXPORT int test_core_connected_roster(void) {
     CHECK(sent_size==24 && sent_data[6]==NET_MSG_STAGE_READY && sent_data[7]==6);
     CHECK(s_lobby_state.slots[6].spectator && !s_remote_active[6]);
     s_host=NULL;
+    return 0;
+}
+/* A dedicated server (port/server): its seat is no player, and the warmup
+ * clock running out starts a round only with a person in it, never bots alone. */
+EXPORT int test_core_dedicated_warmup(void) {
+    fixture(0);netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_WARMUP;
+    for(int i=1;i<4;i++)s_lobby_state.slots[i].is_bot=1;
+    CHECK(netGetHumanPlayerCount()==1);
+    s_dedicated=true;
+    CHECK(netGetHumanPlayerCount()==0 && netDedicatedSeat(0) && !netDedicatedSeat(1));
+    for(int i=0;i<4;i++)s_lobby_state.slots[i].loaded=1;
+    netHostRoundTick(clock_us);CHECK(s_warmup_end_us);
+    clock_us=s_warmup_end_us;netHostRoundTick(clock_us);
+    CHECK(!s_start_requested && !s_next_round_at_us && !s_round_reset_loading);
+    s_lobby_state.slots[2].is_bot=0;
+    CHECK(netGetHumanPlayerCount()==1);
+    /* requested, and (everyone ready) acted on in the same tick */
+    netHostRoundTick(clock_us);CHECK(s_start_requested || s_next_round_at_us || s_round_reset_loading);
+    s_dedicated=false;
     return 0;
 }
 EXPORT int test_core_warmup_lifecycle(void) {
