@@ -4106,8 +4106,10 @@ static void netSilenceTick(uint64_t now) {
 static void netRoundTick(void) {
     if (s_state == NET_STATE_INGAME) {
         uint64_t now = sysGetMicroseconds();
-        /* co-op (#94): the party's menus are no place to idle out (a teammate follows the host's, input-less) */
-        if (s_last_local_activity_us == 0 || (netCoopSession() && bossGetStageNum() == LEVELID_TITLE))
+        /* co-op (#94): the party's menus are no place to idle out (a teammate follows the host's, input-less);
+         * nor a late joiner watching the round out (kicked after 5 min of spectating, 2026-10-29) */
+        if (s_last_local_activity_us == 0 || (netCoopSession() && bossGetStageNum() == LEVELID_TITLE)
+            || netLocalIsSpectator())
             s_last_local_activity_us = now;
         uint64_t idle_us = now - s_last_local_activity_us;
         if (idle_us >= 270ULL * 1000000ULL && idle_us < 300ULL * 1000000ULL) {

@@ -20375,7 +20375,13 @@ Gfx *maybe_mp_interface(Gfx *gdl)
         gdl = gevrBodySlotsDraw(gdl);
     }
 #endif
+#ifdef GEVR
+    /* A spectator is a camera on someone else: no hands, guns or watch arm of
+     * its own (a late joiner saw its own watch arm, and no right hand, 2026-10-29) */
+    if (!(netIsActive() && g_CurrentPlayer->mpmenuon) && !gevrSpectating()) gunRenderFirstPersonGunModels(&gdl);
+#else
     if (!(netIsActive() && g_CurrentPlayer->mpmenuon)) gunRenderFirstPersonGunModels(&gdl);
+#endif
 #ifdef GEVR
     if (g_gevrStereo)
     {
