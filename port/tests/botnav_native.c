@@ -52,17 +52,25 @@ static s32 slab(f32 start, f32 delta, f32 lo, f32 hi, f32 *enter, f32 *leave) {
     return *enter <= *leave;
 }
 
+/* stan.c: the prop the last line test hit, NULL when it hit floor's edge or nothing */
+PropRecord *stanSavedColl_posData;
+
 s32 stanTestLineUnobstructed(StandTile **tile, f32 sx, f32 sz, f32 dx, f32 dz,
                             s32 cdtypes, f32 height, f32 bottom, f32 endheight, f32 endbottom) {
     f32 enter = 0, leave = 1;
     coord3d mid;
     (void)endheight; (void)endbottom;
+    stanSavedColl_posData = NULL;
     if (!walkTilesBetweenPoints_NoCallback(tile, sx, sz, dx, dz)) return FALSE;
     getTileMidPoint(*tile, &mid);
     if (!s_block_enabled || !propIsOfCdType(&s_prop, cdtypes)
         || s_top <= mid.y + bottom || mid.y + height <= s_bottom) return TRUE;
-    return !(slab(sx, dx - sx, s_minx, s_maxx, &enter, &leave)
-             && slab(sz, dz - sz, s_minz, s_maxz, &enter, &leave));
+    if (slab(sx, dx - sx, s_minx, s_maxx, &enter, &leave)
+        && slab(sz, dz - sz, s_minz, s_maxz, &enter, &leave)) {
+        stanSavedColl_posData = &s_prop;
+        return FALSE;
+    }
+    return TRUE;
 }
 
 static void glass(f32 minx, f32 maxx, f32 z) {
@@ -153,6 +161,14 @@ EXPORT int test_botnav(void) {
     stripTile(50)->points[0].link = 0; stripTile(49)->points[2].link = 0;
     s_builtfor = NULL;
     CHECK(!gevrBotNavPlan(&route, stripTile(0), &from, stripTile(99), &goal) && route.count == 0);
+    /* Linked floor the 2D walk cannot cross (Bunker II's stair risers): the
+     * links decide, only a prop blocks a leg; shortcuts still stop at it. */
+    strip(10);
+    goal.z = 950;
+    s_walk_limit = 10;
+    CHECK(gevrBotNavPlan(&route, stripTile(0), &from, stripTile(9), &goal) && route.count == 18 && !route.glass);
+    CHECK(gevrBotNavNext(&route, &from, stripTile(0), &aim) && route.next == 0 && aim.z == 100);
+    s_walk_limit = 1e9f;
     navFree();
     return 0;
 }
@@ -165,7 +181,7 @@ EXPORT int test_botnav_glass(void) {
     room(); glass(0, 200, 100);
     CHECK(propIsOfCdType(&s_prop, CDTYPE_PATHBLOCKER));
     CHECK(!propIsOfCdType(&s_prop, CDTYPE_PATHBLOCKER | CDTYPE_AIOPAQUE));
-    CHECK(gevrBotNavPlan(&route, stripTile(0), &from, stripTile(6), &goal));
+    CHECK(gevrBotNavPlan(&route, stripTile(0), &from, stripTile(6), &goal) && !route.glass);
     detour = FALSE;
     for (s32 i = 0; i < route.count; i++) if (route.points[i].x > 200) detour = TRUE;
     CHECK(detour);
@@ -222,13 +238,24 @@ EXPORT int test_botnav_glass(void) {
     route.points[0] = (coord3d){ 50, 0, 85 }; route.points[1] = goal;
     CHECK(!gevrBotNavNext(&route, &from, stripTile(0), &aim) && route.next == 0);
 
-    /* Glass cutting the first/last tile also blocks the actual endpoints. */
+    /* Glass cutting the first/last tile also blocks the actual endpoints:
+     * with no way round, the route goes through it (the bot shoots it). */
     strip(3); glass(0, 100, 80);
-    CHECK(!gevrBotNavPlan(&route, stripTile(0), &from, stripTile(2), &goal));
+    CHECK(gevrBotNavPlan(&route, stripTile(0), &from, stripTile(2), &goal) && route.glass);
     glass(0, 100, 220);
-    CHECK(!gevrBotNavPlan(&route, stripTile(0), &from, stripTile(2), &goal));
+    CHECK(gevrBotNavPlan(&route, stripTile(0), &from, stripTile(2), &goal) && route.glass);
     goal.z = 90; glass(0, 100, 80);
-    CHECK(!gevrBotNavPlan(&route, stripTile(0), &from, stripTile(0), &goal));
+    CHECK(gevrBotNavPlan(&route, stripTile(0), &from, stripTile(0), &goal) && route.glass);
+    /* a route through glass walks up to the pane rather than dropping the route */
+    CHECK(gevrBotNavNext(&route, &from, stripTile(0), &aim) && aim.z == 90);
+
+    /* The main floor area: the largest a player walks without passing glass. */
+    strip(5); glass(0, 100, 300);   /* across the side between tiles 2 and 3 */
+    CHECK(gevrBotNavMainArea(stripTile(0)) && gevrBotNavMainArea(stripTile(2)));
+    CHECK(!gevrBotNavMainArea(stripTile(3)) && !gevrBotNavMainArea(stripTile(4)));
+    s_block_enabled = FALSE;
+    s_builtfor = NULL;   /* worked out again with the graph: one area now */
+    CHECK(gevrBotNavMainArea(stripTile(4)));
 
     /* Floor-relative body height: overhead/below-floor glass does not block. */
     goal.z = 250; glass(0, 100, 100);
@@ -244,7 +271,7 @@ EXPORT int test_botnav_glass(void) {
     s_bottom = 0; s_top = 200;
     CHECK(gevrBotNavPlan(&route, stripTile(0), &from, stripTile(2), &goal));
     s_bottom = 300; s_top = 500;
-    CHECK(!gevrBotNavPlan(&route, stripTile(0), &from, stripTile(2), &goal));
+    CHECK(gevrBotNavPlan(&route, stripTile(0), &from, stripTile(2), &goal) && route.glass);
 
     /* Doors keep their floor routes; bots open them in gevr_bot.c. */
     s_prop.type = PROP_TYPE_DOOR;

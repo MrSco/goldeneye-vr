@@ -179,6 +179,7 @@ typedef struct GevrBot {
     s32 fleettl60;          /* Flag Tag: until it picks a new place to run to */
     s32 lastseenanytarget60;    /* PD's: the last tick a foe was in sight */
     s32 reloadwait60;       /* since its last B for a reload */
+    PropRecord *glass;      /* the pane it last shot at (gevrBotBreakGlass), for the log */
 } GevrBot;
 
 static GevrBot s_bots[MAX_PLAYER_COUNT];
@@ -966,6 +967,53 @@ static void gevrBotOpenDoors(s32 slot, struct player *pl, GevrBot *bot, const co
     sysLogPrintf(1, "bots: slot %d opens the door at %.0f,%.0f,%.0f", slot, doorprop->pos.x, doorprop->pos.y, doorprop->pos.z);
 }
 
+/*
+ * On a route through glass (gevrBotNavPlan: no other way), the pane between
+ * the bot and its next point is shot out, as a player shut in there does:
+ * stand, face it, aim at its middle and fire. Broken glass no longer blocks
+ * (the next plan goes round nothing). TRUE while it is at it.
+ */
+static s32 gevrBotBreakGlass(s32 slot, struct player *pl, GevrBot *bot, const coord3d *aim, OSContPad *pad)
+{
+    struct hand *hand = &pl->hands[GUNRIGHT];
+    PropRecord *glass;
+    f32 dx;
+    f32 dz;
+    f32 flat;
+    f32 off;
+
+    if (!bot->route.glass)
+    {
+        return FALSE;
+    }
+    glass = sub_GAME_7F0B1410(pl->prop->stan, pl->prop->pos.x, pl->prop->pos.z, aim->x, aim->z, CDTYPE_PATHBLOCKER);
+    if (glass == NULL || glass->type != PROP_TYPE_OBJ || glass->obj == NULL || !(glass->obj->flags & PROPFLAG_00000800))
+    {
+        return FALSE;
+    }
+    dx = glass->pos.x - pl->prop->pos.x;
+    dz = glass->pos.z - pl->prop->pos.z;
+    flat = sqrtf(dx * dx + dz * dz);
+    if (flat > 300.0f)
+    {
+        return FALSE;   /* walk up to it first */
+    }
+    off = gevrBotTurnTo(bot, gevrBotHeading(&pl->prop->pos, &glass->pos), BOT_TURN_PER_TICK * 2.0f);
+    /* the game's atan2f runs 0..2 pi (math_atan2f.c): glass below is near 360, not below 0 */
+    bot->verta = gevrBotWrap(atan2f(glass->pos.y - pl->prop->pos.y, flat > 1.0f ? flat : 1.0f) * (180.0f / M_PI_F));
+    if (off < 10.0f && off > -10.0f && hand->weapon_action_state < GUN_ANIM_STATE_RELOAD_START
+        && (hand->weaponnum <= ITEM_KNIFE ? flat < 120.0f : hand->weapon_ammo_in_magazine > 0))
+    {
+        pad->button |= Z_TRIG;
+    }
+    if (glass != bot->glass)
+    {
+        bot->glass = glass;
+        sysLogPrintf(1, "bots: slot %d shoots the glass at %.0f,%.0f,%.0f in its way", slot, glass->pos.x, glass->pos.y, glass->pos.z);
+    }
+    return TRUE;
+}
+
 /* Walk the route toward a goal, turning to face along it unless told where to look */
 static void gevrBotWalkRoute(s32 slot, struct player *pl, GevrBot *bot, OSContPad *pad, s32 face)
 {
@@ -974,6 +1022,10 @@ static void gevrBotWalkRoute(s32 slot, struct player *pl, GevrBot *bot, OSContPa
     if (!gevrBotNavNext(&bot->route, &pl->prop->pos, pl->prop->stan, &aim))
     {
         bot->route.count = 0;
+        return;
+    }
+    if (gevrBotBreakGlass(slot, pl, bot, &aim, pad))
+    {
         return;
     }
     gevrBotOpenDoors(slot, pl, bot, &aim);
@@ -1221,6 +1273,12 @@ static void gevrBotThink(s32 slot, struct player *pl, GevrBot *bot, OSContPad *p
                 if (gevrBotNavPlan(&bot->route, pl->prop->stan, &pl->prop->pos, op->prop->stan, &op->prop->pos))
                 {
                     bot->routeticks = 0;
+                }
+                else
+                {
+                    /* no floor to it from here (a lift, or the search's budget):
+                     * roam meanwhile, not stand still all match */
+                    gevrBotPickRoam(pl, bot);
                 }
             }
             else

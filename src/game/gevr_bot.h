@@ -15,11 +15,13 @@ typedef struct GevrBotRoute {
     s32 count;              /* 0: none */
     s32 next;               /* the point being walked to */
     StandTile *goaltile;    /* the tile it was planned to */
+    s32 glass;              /* through glass: only glass connects them; the bot shoots it */
 } GevrBotRoute;
 
-/* Plans a route from the tile under from to the goal on goaltile. FALSE when
- * no floor connects them without crossing a path blocker such as glass
- * (or the search ran out of its budget). Doors may be opened on the way. */
+/* Plans a route from the tile under from to the goal on goaltile, around path
+ * blockers such as glass, else through them (route->glass). FALSE when no
+ * floor connects them (or the search ran out of its budget). Doors may be
+ * opened on the way. */
 s32 gevrBotNavPlan(GevrBotRoute *route, StandTile *fromtile, const coord3d *from,
                    StandTile *goaltile, const coord3d *goal);
 
@@ -34,5 +36,9 @@ void gevrBotNavForget(void);
 
 /* The floor tile under a point, from a nearby known tile */
 StandTile *gevrBotNavTileAt(const coord3d *pos, StandTile *near);
+
+/* Whether a tile is in the stage's main floor area, the largest a player
+ * walks without passing glass (worked out once a stage, glass whole) */
+s32 gevrBotNavMainArea(StandTile *tile);
 
 #endif
