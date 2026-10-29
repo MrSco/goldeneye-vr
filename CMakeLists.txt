@@ -397,6 +397,12 @@ set_source_files_properties(${SRC_HDP} PROPERTIES
 )
 
 include(FetchContent)
+if(GEVR_HEADLESS)
+  # The server is one file: opus inside it, not a libopus.so.0 a clean Linux
+  # lacks (libjuice's BUILD_SHARED_LIBS option, ON, made it shared from the
+  # second configure on; the test.16 downloads needed libopus0 installed).
+  set(BUILD_SHARED_LIBS OFF CACHE BOOL "Static libraries in the server" FORCE)
+endif()
 set(OPUS_BUILD_TESTING OFF CACHE BOOL "Do not build Opus tests" FORCE)
 set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "Do not build Opus tools" FORCE)
 set(OPUS_INSTALL OFF CACHE BOOL "Do not install Opus" FORCE)
