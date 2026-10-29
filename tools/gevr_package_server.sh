@@ -34,23 +34,27 @@ for ARCH in $ARCHES; do
 	if [ "$ARCH" = "$NATIVE" ]; then
 		BUILD=$HOME/gevr-server-build
 		sh "$SRC/tools/gevr_build_server.sh" "$BUILD"
+		OBJCOPY=objcopy
 	else
 		BUILD=$HOME/gevr-server-build-aarch64
 		sh "$SRC/tools/gevr_build_server.sh" --aarch64 "$BUILD"
+		# the build machine's binutils don't read ARM64; the cross ones do
+		X=$HOME/gevr-arm64/root
+		OBJCOPY="env LD_LIBRARY_PATH=$X/usr/lib/x86_64-linux-gnu $X/usr/bin/aarch64-linux-gnu-objcopy"
 	fi
 	NAME=gevr-server-$VERSION-linux-$ARCH
 	D=$OUT/$NAME
 	rm -rf "$D"
 	mkdir -p "$D"
-	# objcopy's generic ELF handling strips an ARM64 binary on x86-64 too
-	objcopy --only-keep-debug "$BUILD/gevr-server" "$OUT/$NAME.debug"
-	objcopy --strip-debug --add-gnu-debuglink="$OUT/$NAME.debug" "$BUILD/gevr-server" "$D/gevr-server"
+	$OBJCOPY --only-keep-debug "$BUILD/gevr-server" "$OUT/$NAME.debug"
+	$OBJCOPY --strip-debug --add-gnu-debuglink="$OUT/$NAME.debug" "$BUILD/gevr-server" "$D/gevr-server"
 	chmod 755 "$D/gevr-server"
 	cp "$SRC/tools/gevr_lobby_bridge.py" "$SRC/port/server/package/gevr-server.service" "$D/"
 	chmod 755 "$D/gevr_lobby_bridge.py"
 	cp "$SRC/docs/dedicated-server-operators.md" "$D/README.md"
 	cp "$SRC/LICENSE" "$D/LICENSE"
 	printf '%s %s (%s)\n' "$VERSION" "$GEVR_BUILD_HASH" "$ARCH" > "$D/VERSION"
+	chmod 644 "$D/README.md" "$D/LICENSE" "$D/gevr-server.service" "$D/VERSION"   # copies from a Windows drive come out executable
 	tar -C "$OUT" -czf "$OUT/$NAME.tar.gz" "$NAME"
 	rm -rf "$D"
 done

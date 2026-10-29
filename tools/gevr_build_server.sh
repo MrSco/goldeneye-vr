@@ -9,8 +9,9 @@
 #
 # On an ARM64 machine (an Oracle A1, a Raspberry Pi) the plain build makes an
 # ARM64 server. --aarch64 makes one on x86-64 Ubuntu 24.04 instead (how the
-# release's is built): Ubuntu's arm64 cross libraries and lld are unpacked into
-# ~/gevr-arm64 the same way, and zlib is built from its source. Its
+# release's is built): Ubuntu's arm64 cross libraries, lld and binutils (for
+# tools/gevr_package_server.sh) are unpacked into ~/gevr-arm64 the same way,
+# and zlib is built from its source. Its
 # usr/bin/qemu-aarch64-static runs the result for a test:
 #   ~/gevr-arm64/root/usr/bin/qemu-aarch64-static -L ~/gevr-arm64/root/usr/aarch64-linux-gnu gevr-server ...
 set -e
@@ -50,11 +51,13 @@ fi
 CROSS=
 if [ $ARCH = aarch64 ]; then
 	X=$HOME/gevr-arm64/root
-	if [ ! -d "$X/usr/aarch64-linux-gnu/lib" ] || [ ! -x "$X/usr/lib/llvm-18/bin/ld.lld" ]; then
+	if [ ! -d "$X/usr/aarch64-linux-gnu/lib" ] || [ ! -x "$X/usr/lib/llvm-18/bin/ld.lld" ] \
+		|| [ ! -x "$X/usr/bin/aarch64-linux-gnu-objcopy" ]; then
 		mkdir -p "$HOME/gevr-arm64/debs"
 		(cd "$HOME/gevr-arm64/debs" && apt-get download libc6-dev-arm64-cross libc6-arm64-cross \
 			linux-libc-dev-arm64-cross libgcc-13-dev-arm64-cross libgcc-s1-arm64-cross \
-			libstdc++-13-dev-arm64-cross libstdc++6-arm64-cross lld-18 qemu-user-static)
+			libstdc++-13-dev-arm64-cross libstdc++6-arm64-cross lld-18 qemu-user-static \
+			binutils-aarch64-linux-gnu)
 		for d in "$HOME"/gevr-arm64/debs/*.deb; do dpkg -x "$d" "$X"; done
 	fi
 	# clang for the target, its flags in two wrappers as CMake runs them (lld

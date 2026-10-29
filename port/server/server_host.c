@@ -255,9 +255,18 @@ void gevrLauncherRun(void)
 		atexit(serverLobbyStop);
 	}
 
-	sysLogPrintf(LOG_NOTE, "server: hosting on UDP %d, stage %d, %d bots%s", port,
-			netGetMatchConfig()->stage, netGetMatchConfig()->bot_mode ? netGetMatchConfig()->bot_count : 0,
-			seconds > 0 ? " (timed run)" : "");
+	{
+		const NetMatchConfig *c = netGetMatchConfig();
+		char bots[32];
+
+		if (c->bot_mode == NET_BOT_FILL) {
+			snprintf(bots, sizeof(bots), "bots fill %d places", c->max_players - 1);
+		} else {
+			snprintf(bots, sizeof(bots), "%d bots", c->bot_mode == NET_BOT_FIXED ? c->bot_count : 0);
+		}
+		sysLogPrintf(LOG_NOTE, "server: hosting on UDP %d, stage %d, %s%s", port, c->stage, bots,
+				seconds > 0 ? " (timed run)" : "");
+	}
 }
 
 /*
