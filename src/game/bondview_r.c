@@ -19,6 +19,7 @@
 #include "game/player.h"
 #include "game/ramromreplay.h"
 #include "game/stan.h"
+#include "game/gevr_bot.h"
 #ifdef GEVR
 #include <stdlib.h>
 #include <string.h>
@@ -642,6 +643,13 @@ static void gevrAddOnlineStartPads(void)
     {
         return;
     }
+    /* the floor graph (gevrBotNavMainArea) of this stage: the last one's can
+     * sit at the same address, and boss.c forgets it only after the load.
+     * Once a load: this runs for each player, the first one first. */
+    if (get_cur_playernum() == 0)
+    {
+        gevrBotNavForget();
+    }
     if (startpadcount + need > GEVR_START_PADS_MAX)
     {
         need = GEVR_START_PADS_MAX - startpadcount;
@@ -687,8 +695,10 @@ static void gevrAddOnlineStartPads(void)
 
                 if (d < nearest) nearest = d;
             }
-            /* the farthest; a tie keeps the earlier record, the same on every headset */
-            if (nearest <= bestdist || !gevrAmmoSpawnSpot(pad, lift, &pos, &stan))
+            /* the farthest; a tie keeps the earlier record, the same on every headset.
+             * On the main floor: not shut in behind glass, as Stack's and
+             * Library's farthest crate is, in a glass case (gevr_botnav.c). */
+            if (nearest <= bestdist || !gevrAmmoSpawnSpot(pad, lift, &pos, &stan) || !gevrBotNavMainArea(stan))
             {
                 continue;
             }
@@ -716,10 +726,11 @@ static void gevrAddOnlineStartPads(void)
     {
         sysLogPrintf(LOG_NOTE, "spawn: %d players, %d start pads; %d more at ammo spots",
                      getPlayerCount(), original, startpadcount - original);
-        for (i = original; i < startpadcount; i++)
+        for (i = 0; i < startpadcount; i++)
         {
-            sysLogPrintf(LOG_NOTE, "spawn: start pad %d at %.0f %.0f %.0f", i,
-                         g_Startpad[i]->pos.x, g_Startpad[i]->pos.y, g_Startpad[i]->pos.z);
+            sysLogPrintf(LOG_NOTE, "spawn: start pad %d at %.0f %.0f %.0f room %d", i,
+                         g_Startpad[i]->pos.x, g_Startpad[i]->pos.y, g_Startpad[i]->pos.z,
+                         g_Startpad[i]->stan ? g_Startpad[i]->stan->room : -1);
         }
     }
 }

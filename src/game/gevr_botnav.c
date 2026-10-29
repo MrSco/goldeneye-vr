@@ -57,6 +57,8 @@ static StandTile *s_builtfor;   /* the stage's first tile when built */
 /* the A* state, reused between searches by stamp */
 static f32 *s_cost;
 static s32 *s_from;             /* the edge that reached the tile */
+static s32 *s_area;             /* gevrBotNavMainArea: the glass-free area of each tile */
+static s32 s_mainarea = -1;     /* the largest; -1 not worked out for this graph */
 static u32 *s_seen;             /* the search that touched it */
 static u8 *s_closed;
 static u32 s_search;
@@ -115,11 +117,38 @@ static s32 navWalkClear(StandTile *tile, const coord3d *from, const coord3d *to)
     return navWalkClearTypes(tile, from, to, CDTYPE_PATHBLOCKER);
 }
 
+/*
+ * A search leg: across one tile, between its middle (or the bot, or the goal)
+ * and a side it is linked through. The link already says the floor goes on,
+ * so only a prop (glass) blocks it. The line test's own floor walk is 2D and
+ * fails on tiles with next to no area seen from above (stair risers, slopes'
+ * thin strips): Bunker II's stairs read as walls, and a bot spawned on its
+ * first start pad had no route anywhere and stood there all match
+ * (dedicated server P0, 2026-10-28). A shortcut over several tiles
+ * (gevrBotNavNext) still takes the walls into account.
+ */
+static s32 s_navglass;   /* a route through glass: the links alone (gevrBotNavPlan) */
+
+static s32 navLegClearTypes(StandTile *tile, const coord3d *from, const coord3d *to, s32 types)
+{
+    if (tile == NULL)
+    {
+        return FALSE;
+    }
+    return s_navglass || navWalkClearTypes(tile, from, to, types) || stanSavedColl_posData == NULL;
+}
+
+static s32 navLegClear(StandTile *tile, const coord3d *from, const coord3d *to)
+{
+    return navLegClearTypes(tile, from, to, CDTYPE_PATHBLOCKER);
+}
+
 static void navFree(void)
 {
-    free(s_tiles); free(s_edges); free(s_cost); free(s_from); free(s_seen); free(s_closed); free(s_open);
-    s_tiles = NULL; s_edges = NULL; s_cost = NULL; s_from = NULL; s_seen = NULL; s_closed = NULL; s_open = NULL;
+    free(s_tiles); free(s_edges); free(s_cost); free(s_from); free(s_seen); free(s_closed); free(s_open); free(s_area);
+    s_tiles = NULL; s_edges = NULL; s_cost = NULL; s_from = NULL; s_seen = NULL; s_closed = NULL; s_open = NULL; s_area = NULL;
     s_tilecount = s_edgecount = s_opencap = 0;
+    s_mainarea = -1;
     s_builtfor = NULL;
 }
 
@@ -263,6 +292,32 @@ static NavOpen navPop(void)
 }
 
 static s32 navPlan(GevrBotRoute *route, StandTile *fromtile, const coord3d *from,
+                   StandTile *goaltile, const coord3d *goal, s32 types);
+
+/*
+ * A route around glass first. When glass is the only way (Caverns' first
+ * start pad looks out through two panes and has no other way out), a route
+ * through it: the bot shoots the pane in its way (gevr_bot.c), as a player
+ * there has to.
+ */
+s32 gevrBotNavPlan(GevrBotRoute *route, StandTile *fromtile, const coord3d *from,
+                   StandTile *goaltile, const coord3d *goal)
+{
+    s32 found;
+
+    route->glass = FALSE;
+    if (navPlan(route, fromtile, from, goaltile, goal, CDTYPE_PATHBLOCKER))
+    {
+        return TRUE;
+    }
+    s_navglass = TRUE;
+    found = navPlan(route, fromtile, from, goaltile, goal, CDTYPE_PATHBLOCKER);
+    s_navglass = FALSE;
+    route->glass = found;
+    return found;
+}
+
+static s32 navPlan(GevrBotRoute *route, StandTile *fromtile, const coord3d *from,
                    StandTile *goaltile, const coord3d *goal, s32 types)
 {
     s32 start;
@@ -309,7 +364,7 @@ static s32 navPlan(GevrBotRoute *route, StandTile *fromtile, const coord3d *from
         expanded++;
         if (i == end)
         {
-            if (i == start && !navWalkClearTypes(fromtile, from, goal, types))
+            if (i == start && !navLegClearTypes(fromtile, from, goal, types))
             {
                 break;
             }
@@ -327,8 +382,8 @@ static s32 navPlan(GevrBotRoute *route, StandTile *fromtile, const coord3d *from
             {
                 continue;
             }
-            if (!navWalkClearTypes(s_tiles[i].tile, entry, &s_edges[e].portal, types)
-                || !navWalkClearTypes(s_tiles[to].tile, &s_edges[e].portal, exit, types))
+            if (!navLegClearTypes(s_tiles[i].tile, entry, &s_edges[e].portal, types)
+                || !navLegClearTypes(s_tiles[to].tile, &s_edges[e].portal, exit, types))
             {
                 continue;
             }
@@ -384,14 +439,9 @@ static s32 navPlan(GevrBotRoute *route, StandTile *fromtile, const coord3d *from
     return TRUE;
 }
 
-s32 gevrBotNavPlan(GevrBotRoute *route, StandTile *fromtile, const coord3d *from,
-                   StandTile *goaltile, const coord3d *goal)
-{
-    return navPlan(route, fromtile, from, goaltile, goal, CDTYPE_PATHBLOCKER);
-}
-
 /* Horde opens traversable doors before this query. A door still closed is
- * a permanent boundary of the arena, just like glass or disconnected floors. */
+ * a permanent boundary of the arena, just like glass or disconnected floors:
+ * no route through glass here (gevrBotNavPlan's second try). */
 s32 gevrBotNavCanReach(StandTile *fromtile, const coord3d *from, StandTile *goaltile, const coord3d *goal)
 {
     GevrBotRoute route;
@@ -415,15 +465,18 @@ s32 gevrBotNavNext(GevrBotRoute *route, const coord3d *pos, StandTile *tile, coo
     {
         return FALSE;
     }
+    /* The legs as the search checked them (navLegClear): glass, not the 2D
+     * floor walk, which fails on stairs; a route through glass ignores it. */
+    s_navglass = route->glass;
     /* Nearby points are reached only on this side of any glass. */
     while (route->next < route->count && navFlatDist(pos, &route->points[route->next]) < 40.0f
-           && navWalkClear(tile, pos, &route->points[route->next]))
+           && navLegClear(tile, pos, &route->points[route->next]))
     {
         /* Near a corner, finish approaching this point if skipping it would
          * put glass across the next leg. Replan if it is actually reached
          * and the next leg has become blocked. */
         if (route->next + 1 < route->count && navFlatDist(pos, &route->points[route->next]) > 1.0f
-            && !navWalkClear(tile, pos, &route->points[route->next + 1]))
+            && !navLegClear(tile, pos, &route->points[route->next + 1]))
         {
             break;
         }
@@ -431,15 +484,18 @@ s32 gevrBotNavNext(GevrBotRoute *route, const coord3d *pos, StandTile *tile, coo
     }
     if (route->next >= route->count)
     {
+        s_navglass = FALSE;
         return FALSE;
     }
     /* An obstacle added since planning, or a bot displaced off its route:
      * let the caller replan instead of walking into the same pane forever. */
-    if (!navWalkClear(tile, pos, &route->points[route->next]))
+    if (!navLegClear(tile, pos, &route->points[route->next]))
     {
+        s_navglass = FALSE;
         route->count = 0;
         return FALSE;
     }
+    s_navglass = FALSE;
     /* Cut corners only when both floor and path blockers allow the shortcut. */
     best = route->next;
     for (k = route->next + 1; tile != NULL && k < route->count && k <= route->next + 4; k++)
@@ -453,6 +509,87 @@ s32 gevrBotNavNext(GevrBotRoute *route, const coord3d *pos, StandTile *tile, coo
     route->next = best;
     *aim = route->points[best];
     return TRUE;
+}
+
+/*
+ * Whether a tile is in the stage's main floor area: the largest stretch of
+ * linked floor a player walks without passing glass. Worked out once a graph,
+ * at the first question, before any pane is broken, so it is the same on
+ * every headset. The online start pads added at ammo spots use it (bondview_r.c
+ * gevrAddOnlineStartPads): Stack's and Library's farthest ammo crate sat in a
+ * four-tile case walled with glass, and the player who started there was shut
+ * in (dedicated server P0, 2026-10-28).
+ */
+s32 gevrBotNavMainArea(StandTile *tile)
+{
+    s32 index;
+
+    if (tile == NULL || !navBuild() || (index = navIndexOf(tile)) < 0)
+    {
+        return FALSE;
+    }
+    if (s_mainarea < 0)
+    {
+        s32 *stack = malloc(s_tilecount * sizeof(*stack));
+        s32 areas = 0;
+        s32 best = 0;
+        s32 i;
+
+        if (s_area == NULL)
+        {
+            s_area = malloc(s_tilecount * sizeof(*s_area));
+        }
+        if (stack == NULL || s_area == NULL)
+        {
+            free(stack);
+            return TRUE;   /* no memory to tell: let every spot through, as before */
+        }
+        for (i = 0; i < s_tilecount; i++)
+        {
+            s_area[i] = -1;
+        }
+        for (i = 0; i < s_tilecount; i++)
+        {
+            s32 top = 0;
+            s32 size = 0;
+
+            if (s_area[i] >= 0)
+            {
+                continue;
+            }
+            s_area[i] = areas;
+            stack[top++] = i;
+            while (top > 0)
+            {
+                s32 t = stack[--top];
+                s32 e;
+
+                size++;
+                for (e = s_tiles[t].first; e < s_tiles[t].first + s_tiles[t].count; e++)
+                {
+                    s32 to = s_edges[e].to;
+
+                    if (s_area[to] >= 0
+                        || !navLegClear(s_tiles[t].tile, &s_tiles[t].mid, &s_edges[e].portal)
+                        || !navLegClear(s_tiles[to].tile, &s_edges[e].portal, &s_tiles[to].mid))
+                    {
+                        continue;
+                    }
+                    s_area[to] = areas;
+                    stack[top++] = to;
+                }
+            }
+            if (size > best)
+            {
+                best = size;
+                s_mainarea = areas;
+            }
+            areas++;
+        }
+        free(stack);
+        sysLogPrintf(1, "bots: %d floor areas between glass; the main one %d of %d tiles", areas, best, s_tilecount);
+    }
+    return s_area[index] == s_mainarea;
 }
 
 StandTile *gevrBotNavTileAt(const coord3d *pos, StandTile *near)
