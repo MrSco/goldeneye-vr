@@ -183,6 +183,11 @@ is goldeneyevr.com, in its own repository.
   walk stairs, shoot glass when it is the only way out (Caverns' pad 6) and
   roam when nothing is reachable; 8-player extra spawns stay out of glass
   cases (Stack, Library). Headset check owed: "First to N" with bots.
+- In v0.5.14-test.15 (pre-release 2026-10-29; found in headset tests of
+  the dedicated server): spectators draw no hands and are not
+  idle-kicked; a late joiner who takes a bot's place plays at once (its
+  load made it spectate anyway); the spectator label shows in VR; bots
+  step out of a swinging door that opened onto them.
 - Two-headset checks still owed from #95 (closed): Statue/Cradle online,
   remote ledges and guns.
 - #30: intermittent colored water lines; no confirmed fix. #85: Egypt
