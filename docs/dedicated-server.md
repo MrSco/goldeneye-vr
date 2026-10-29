@@ -228,24 +228,40 @@ should take well under 10% of one core, so 2 OCPUs are not the limit:
 outbound data and players are. Network relay to real clients is not in
 these numbers; P1 measures it.
 
-**Longer runs.**
+**Found and fixed (2026-10-28).** Longer runs and every map turned up four
+bugs in code the headset shares. Each is fixed for both builds:
 
-- An 8-minute "No limit" match on Facility (server + 7 bots) held 60 frames
-  a second at 3-7% of a core, then the idle kick sent the server's own seat
-  "to the launcher" after 5 minutes (work item 3 already lists it).
-- A "First to 5" match froze when the limit was reached and never reached
-  the results. `lv.c` 1583-1620 waits for every dying player to finish
-  their death animation and blood, but those are stepped in
-  `maybe_mp_interface` (`bondview2.c` 20435-20525), the HUD draw, which only
-  the drawn pass runs. The last victim was a bot, whose pass is never
-  drawn, so it stayed "dying" for ever. The same code runs on a headset
-  host, so a kill-limit match whose last kill is on a bot (or on another
-  player's copy) probably hangs there too. Not yet checked on a headset.
+1. **Kill-limit matches never ended** when the last victim was a bot or
+   another headset's player. `lv.c` waits for every dying player's blood,
+   fall and fade, but those step in the HUD draw (`bondview2.c`
+   `maybe_mp_interface`), and online only the local view is drawn. A
+   "First to 5" match froze before the results. The music check next to it
+   already skipped the other players for this reason; `gevrDeathPlaysHere`
+   now covers the kill limit, YOLT's "fully dead" count and the music.
+   After the fix, matches end, the results show for 30 s, and the next map
+   loads.
+2. **Bots treated stairs as walls.** A bot's route search checks each leg
+   with the game's 2D floor walk, which fails on tiles with next to no area
+   from above (stair risers). Bunker II's floor split into three, and a bot
+   on its first start pad had no route anywhere, so it stood there all
+   match. Linked floor now blocks only for a prop (glass); shortcuts over
+   several tiles still respect walls.
+3. **Glass.** Stack and Library's farthest ammo crate, used as an extra
+   start pad in 8-player games, sits in a four-tile glass case, so the
+   player who started there was shut in. Extra pads now go only on the main
+   floor area (the largest a player walks without passing glass). Caverns'
+   own start pad 6 looks out through two panes with no other way out: bots
+   there now route through the glass and shoot it out, as a player does,
+   and a bot with no route at all roams instead of standing still.
+4. **The game clock read the time of day.** `sysGetMicroseconds` used
+   `gettimeofday`, so a wall-clock step (NTP, WSL syncing with Windows) aged
+   every timer at once. The server's seat was kicked as idle for 5 minutes
+   in the first second of a match. It is now `CLOCK_MONOTONIC`. Separately,
+   the idle kick skips a dedicated server (`netIsDedicated`), whose seat
+   nobody holds.
 
-**Seen, not yet checked:** on Bunker II, which has 5 start pads, 3 of 8
-players spawn "at ammo spots", and one bot stood at (0, 522, -2383) for the
-whole run, off its pad and never moving. That spawn code is shared with the
-headset, so an 8-player Bunker II game there probably does the same.
+After the fixes, all 13 maps ran 8-player bot matches with every bot
+moving, no failed routes, and kills on every map.
 
 ## Phases
 
