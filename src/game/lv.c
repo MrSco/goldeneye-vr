@@ -1406,6 +1406,24 @@ void lvlSetMultipliersForDifficulty(void)
     }
 }
 
+#ifdef GEVR
+/*
+ * Whether player i's death plays out here. A death's blood drip, fall and
+ * fade (redbloodfinished, deathanimfinished, colourfadetimemax60) are stepped
+ * in its HUD (bondview2.c maybe_mp_interface), and online only the local
+ * view is drawn (lvlRender). The other players' copies and the host's bots
+ * never finish theirs on this machine; their deaths play on their owners'
+ * headsets. A check that waits on them waits for ever: a "First to N" match
+ * whose last kill was on a bot or another headset froze before the results
+ * (dedicated server P0, 2026-10-28), and the level music stayed out.
+ */
+static s32 gevrDeathPlaysHere(s32 i)
+{
+    extern int netGetLocalSlot(void);
+
+    return !netIsActive() || i == netGetLocalSlot();
+}
+#endif
 
 /**
  * Multiplayer method. Manages a lot of stuff.
@@ -1503,13 +1521,8 @@ void lvlManageMpGame(void)
             for (i=0; i<getPlayerCount(); i++)
             {
 #ifdef GEVR
-                /* Online the other players' copies run no blood drip on this
-                 * headset (only the local view is drawn), so their
-                 * redbloodfinished never comes: with anyone else dead too,
-                 * the level music stayed out after the sting. */
-                extern int netGetLocalSlot(void);
-
-                if (netIsActive() && i != netGetLocalSlot())
+                /* the other players' blood drips never finish here */
+                if (!gevrDeathPlaysHere(i))
                 {
                     continue;
                 }
@@ -1594,7 +1607,11 @@ void lvlManageMpGame(void)
 
             for (i = 0; i < var_player_count1; i++)
             {
-                if (g_playerPointers[i]->bonddead != FALSE &&
+                if (
+#ifdef GEVR
+                    gevrDeathPlaysHere(i) &&
+#endif
+                    g_playerPointers[i]->bonddead != FALSE &&
                     (g_playerPointers[i]->redbloodfinished == FALSE || g_playerPointers[i]->deathanimfinished == FALSE || g_playerPointers[i]->colourfadetimemax60 >= 0.0f))
                 {
                     mp_player_currently_in_dying_animation++;
@@ -1667,9 +1684,13 @@ void lvlManageMpGame(void)
 
                     killed_total++;
 
-                    if (g_playerPointers[i]->redbloodfinished
+                    if (
+#ifdef GEVR
+                        !gevrDeathPlaysHere(i) ||   /* out: its fall plays on its owner's headset */
+#endif
+                        (g_playerPointers[i]->redbloodfinished
                         && g_playerPointers[i]->deathanimfinished
-                        && g_playerPointers[i]->colourfadetimemax60 < 0.0f)
+                        && g_playerPointers[i]->colourfadetimemax60 < 0.0f))
                     {
                         fully_dead_total++;
                     }
