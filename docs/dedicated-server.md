@@ -323,6 +323,14 @@ second throughout. Highest CPU so far 3.9% of a core.
    with nobody on it started a bots-only round every few minutes, then went
    back to warmup, reloading the map each time. A dedicated server's warmup
    clock now waits for a person.
+3. **Bots pinned by an open door's leaf swung it back and forth.** From
+   inside a doorway, a bot pressed on the hinge end of the open leaf. Its
+   stuck handler pressed B, which shut the door on it; its door opener
+   opened the closing door again; and each swing nudged the bot enough to
+   restart its stuck count, so it never reached the sidestep. One bot opened
+   one door 50 times in 14 minutes. A bot held by an open leaf now steps off
+   it, to the side away from the leaf, keeping its route, and never presses
+   B on it (`gevr_bot.c` `gevrBotOpenLeafSide`).
 
 ## Phases
 
