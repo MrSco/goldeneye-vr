@@ -28,11 +28,14 @@ extern bool netIsActive(void);
 extern bool netSlotOccupied(int slot);
 extern void chrpropGetCollisionBounds(PropRecord *prop, f32 *collision_radius, f32 *height, f32 *arg3);
 
-/* A closing or late-arriving door can overlap the local player. Allow
- * moves that reduce that existing overlap while retaining entry collision. */
+/* A closing or late-arriving door can overlap a player this machine moves:
+ * its own, and the host's bots. Allow moves that reduce that existing overlap
+ * while retaining entry collision. The bots were left out: a swinging door a
+ * bot opened swung onto it, and it stood inside the open leaf, refused every
+ * move, until it was shot (Facility, dedicated server, 2026-10-29). */
 static s32 gevrNetInsideDoorProp(PropRecord *prop, rect4f *polygon, s32 edges, f32 x, f32 z) {
-    extern int netGetLocalSlot(void);
-    if (!netIsActive() || get_cur_playernum() != netGetLocalSlot() ||
+    extern int gevrNetOwnsSlot(int slot);
+    if (!netIsActive() || !gevrNetOwnsSlot(get_cur_playernum()) ||
         prop->type != PROP_TYPE_DOOR || !g_CurrentPlayer || !g_CurrentPlayer->prop) return 0;
     return gevrDoorEscape((const float *)polygon, edges, g_CurrentPlayer->field_488.collision_radius,
         g_CurrentPlayer->field_488.collision_position.x, g_CurrentPlayer->field_488.collision_position.z, x, z);
