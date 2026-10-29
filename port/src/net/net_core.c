@@ -65,6 +65,7 @@ static ENetHost *s_host = NULL;
 static ENetPeer *s_server_peer = NULL; /* Used when we are a client */
 static ENetPeer *s_client_peers[GEVR_MAX_PLAYERS]; /* Host peer-to-slot map. */
 static bool s_client_can_be_kicked[GEVR_MAX_PLAYERS];
+static bool s_join_took_bot[GEVR_MAX_PLAYERS];   /* this join took a bot's place: it plays at once */
 static uint8_t s_client_caps[GEVR_MAX_PLAYERS];        /* NET_CLIENT_CAP_*, as the guest last said */
 static bool s_client_caps_known[GEVR_MAX_PLAYERS];     /* ... and whether it has said */
 static ENetVirtualSendCallback s_virtual_send = NULL;
@@ -3054,9 +3055,13 @@ static void netReceiveStageReady(ENetPeer *peer, struct netbuf *buf, size_t size
              * combat join already became a spectator in HELLO; if its load
              * finishes during a break, admit it now instead of a wave later. */
             if (!netJoinStartsSpectating()) s_lobby_state.slots[slot].spectator = 0;
-        } else if (netJoinStartsSpectating()) {
+        } else if (netJoinStartsSpectating() && !s_join_took_bot[slot]) {
+            /* not one who took a bot's place: HELLO let them drop in, and this
+             * load made them spectate the round out anyway (a headset on a
+             * dedicated server, 2026-10-29) */
             s_lobby_state.slots[slot].spectator = 1;
         }
+        s_join_took_bot[slot] = false;
         if (s_lobby_state.slots[slot].spectator) netVoiceForgetSlot((uint8_t)slot);
     }
     if (!was_ready && g_playerPointers[slot] && g_playerPointers[slot]->prop) {
@@ -3160,6 +3165,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 /* Horde admits arrivals during preparation/breaks; campaign
                  * and players taking a bot's place can always drop in. */
                 s_lobby_state.slots[assigned].spectator = netJoinStartsSpectating() && !replacing_bot;
+                s_join_took_bot[assigned] = replacing_bot;
                 /* a bot's place in a loaded stage keeps its body until the next load */
                 if (!replacing_bot || s_state != NET_STATE_INGAME) s_round.character[assigned] = requested_chr;
                 memset(s_round.loadout[assigned], 0, 4);
