@@ -814,8 +814,9 @@ int main(int argc, char **argv)
 	/* A prop whose crumpled list (objDeform's, the first collision list) Bean
 	 * draws in another: that list follows every list it draws for, and takes
 	 * the crumpling where its vertices lie on the crumpled one. The CCTV
-	 * (v0.5.14-test.16): Bean's camera is in its lens's list; the mount
-	 * crumples and the camera, nearest its own body, stays. */
+	 * (v0.5.14-test.16): Bean's camera is in its body's list; the mount
+	 * crumples and the camera, nearest its own body, stays. Not its lens's
+	 * list, under the switch the broken glass turns off (test.17). */
 	for (int i = 0; i < s_nswap; i++) {
 		struct beanSwap *host = &s_swap[i];
 		Vertex *hv;
@@ -834,8 +835,10 @@ int main(int argc, char **argv)
 		printf("WRECKGUEST %s %d of %d vertices follow the crumpled list, %d lists followed\n",
 		       argv[2], onCrumpled, host->emittedVerts, host->nwreckSources);
 		fflush(stdout);
+		/* the CCTV's camera on its body's list, not the lens's: the broken
+		 * glass switches the lens off (v0.5.14-test.17) */
 		if (!strcmp(argv[2], "PcctvZ"))
-			assert(onCrumpled > 0 && onCrumpled < host->emittedVerts / 2);
+			assert(onCrumpled > 0 && onCrumpled < host->emittedVerts / 2 && !listToggled(&header, host->node));
 	}
 	combinedBodyCheck(&header,mesh,kind,fitForName(argv[2]));
 	gevrBeanMeshFree(mesh);

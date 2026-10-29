@@ -1588,6 +1588,15 @@ static int listToggled(const ModelFileHeader *header, const ModelNode *node)
 	return 0;
 }
 
+/* Whether group g has a list no switch hides (a prop part's place: see its use) */
+static int groupHasUntoggledList(const ModelFileHeader *header, const struct beanDl *dls, int nd, int g)
+{
+	for (int i = 0; i < nd; i++)
+		if (dls[i].grp == g && !dls[i].simple && !listToggled(header, dls[i].node))
+			return 1;
+	return 0;
+}
+
 /* A first-person gun's hand and sleeve: GoldenEye shows and hides Switches
  * 8-13 and 35 together (gun.c sub_GAME_7F05E978). The watch inventory and the
  * guns guards hold (gevr_heldgun.c) draw the gun bare. */
@@ -2808,6 +2817,15 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
                         continue;
                     }
 					if (kind == BEAN_PROP && g >= 0 && g != binding.base && partDone[g]) {
+						registerPrimary(dls[i].node, s_blank, 1);
+						continue;
+					}
+					/* A part goes on a list of its matrix the game never hides:
+					 * the first was a CCTV's lens, under the switch its broken
+					 * glass turns off (propobj.c objBreakCCTVGlass), and the whole
+					 * Bean camera went with the glass (v0.5.14-test.17 tester) */
+					if (kind == BEAN_PROP && g >= 0 && g != binding.base && listToggled(header, dls[i].node) &&
+					    groupHasUntoggledList(header, dls, nd, g)) {
 						registerPrimary(dls[i].node, s_blank, 1);
 						continue;
 					}
