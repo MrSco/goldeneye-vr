@@ -1118,12 +1118,20 @@ void *gevrBeanWorldSky(void *gdl, int *drew)
 	if (!(scale > 0.0f)) {
 		scale = 1.0f;
 	}
+	/* The dome sits at half the far plane: on Surface (far 2500, 20 units a
+	 * metre) 60 m off, where the eyes' separation (the shader's constant clip
+	 * x shift) put its cloud cap in a disc overhead that followed the player
+	 * (v0.5.14-test.16 tester). Scaled whole, x, y, z and w alike, it projects
+	 * to the same place with that shift SKY_AT_INFINITY times smaller: as far
+	 * as a sky is, and out of reach of the late head-position correction too. */
+#define SKY_AT_INFINITY 1024.0f
 	for (int i = 0; i < 3; i++) {
 		for (int j = 0; j < 3; j++) {
-			mf.m[i][j] *= scale;
+			mf.m[i][j] *= scale * SKY_AT_INFINITY;
 		}
 		mf.m[3][i] = 0.0f;
 	}
+	mf.m[3][3] *= SKY_AT_INFINITY;
 	matrix_4x4_f32_to_s32(mf.m, packed->m);
 	g = gdl;
 	gSPMatrix(g++, osVirtualToPhysical(currentPlayerGetProjectionMatrix()),
