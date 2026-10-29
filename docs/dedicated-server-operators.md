@@ -102,6 +102,34 @@ ExecStart=/usr/bin/python3 /opt/gevr-server/gevr_lobby_bridge.py --restart -- /o
 
 Without `--public` the lobby is private; its code is in the log.
 
+## A server key
+
+Without a key the server is listed like any headset's game: the lobby
+service ends it after two hours, and the bridge registers it again under a
+new code. With a server key from the GoldenEye VR team (ask on the Discord),
+it is listed as a dedicated server:
+
+- it stays listed for as long as it runs;
+- it keeps the same code every time it registers, so a private server's code
+  can be shared once and keeps working;
+- players can tell it from a game that only calls itself "Official".
+
+Keep the key in a file only the service reads, and pass it to the bridge:
+
+```sh
+sudo -u gevr sh -c 'umask 077; cat > /var/lib/gevr-server/server.key'   # paste the key, then Ctrl+D
+```
+
+```ini
+[Service]
+ExecStart=
+ExecStart=/usr/bin/python3 /opt/gevr-server/gevr_lobby_bridge.py --public --restart --key-file /var/lib/gevr-server/server.key -- /opt/gevr-server/gevr-server --name "My Server" --port 27007 --ice-ports 27010-27049
+```
+
+The code belongs to the key and the server's `--name`: two servers on one key
+need different names. A key the lobby service doesn't know is refused, and
+the log says so (`the lobby service refused the server key`).
+
 ## Ports
 
 | Port | For |
@@ -146,6 +174,7 @@ The lobby bridge (`gevr_lobby_bridge.py [options] -- SERVER [SERVER OPTIONS]`):
 | --- | --- |
 | `--public` | List the server on everyone's public list (otherwise private, by code) |
 | `--restart` | Start the server again whenever it ends |
+| `--key-file FILE` | A server key (A server key, above); `GEVR_SERVER_KEY` in the environment works too |
 
 Without the bridge, `gevr-server` alone still takes joins by IP and from the
 LAN list.
@@ -170,9 +199,9 @@ between rounds), phase 2 a round in progress. A joining player shows as
   own data folder, `--port` and `--ice-ports` range, and its own service.
 - **An empty server waits in warmup**, bots playing, and starts a round 10
   seconds after someone joins.
-- **The lobby can expire.** The lobby service ends a lobby after two hours;
-  the bridge registers a new one at once, but a private lobby's code then
-  changes (it is in the log).
+- **Without a key the lobby expires.** The lobby service ends it after two
+  hours; the bridge registers a new one at once, but a private lobby's code
+  then changes (it is in the log). A server key avoids both.
 - **Updating**: stop the service, unpack the new release over
   `/opt/gevr-server`, start it again. Your data folder is kept.
 
