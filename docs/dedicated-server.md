@@ -175,7 +175,10 @@ about 100 in the Worker.
 | P1 | host without a slot, world pass, server `.ini`; Quest joins by direct IP | the user's Quest + WSL or the VM |
 | P2 | C lobby client, Worker keyed listings, server manager and on-demand matches, "Host on a dedicated server" in the launcher, content hashes | Quest via the public list |
 | P3 | release packaging, the Oracle VM in Ashburn, the per-release regression run (H6), operator docs | release recipe |
-| H1-H5 | the hybrid netcode steps, one protocol bump and one two-headset round each | gates (H6) + two headsets |
+| H1-H5 | the hybrid netcode steps, a two-headset round each | gates (H6) + two headsets |
+
+The whole feature set (server and hybrid) ships with one protocol bump, at
+its release (user, 2026-10-28).
 
 ## Hosting
 
@@ -270,9 +273,9 @@ plan. The hybrid below takes most of Dab's benefits and keeps ours.
 
 The rule: each headset owns its own player (position, head, hands, gun), and
 the host owns everything else. On a dedicated server the server is that
-host. In a player-hosted game it is the host headset, as today. Each step is
-its own protocol bump and needs a two-headset round. The steps go in one at
-a time, never as one switch.
+host. In a player-hosted game it is the host headset, as today. Each step
+gets its own two-headset round and goes in one at a time, never as one
+switch. The protocol is bumped once for the whole feature set.
 
 **H1. The host owns the world.**
 - Doors, glass, pickups, dropped guns, explosives and projectiles, bots and
