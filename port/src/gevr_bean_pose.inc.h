@@ -764,6 +764,32 @@ void *gevrBeanScorchedGdl(void *node, struct Model *model)
 			}
 		}
 	}
+	/* What the cartridge draws of a wreck is its crumpled list alone: the
+	 * destroyed mode (model.c, PropType 9 with the destroyed level's alpha)
+	 * cuts every pixel whose shade alpha the fog has taken, and only
+	 * objDeform's copy carries alpha of its own. A CCTV's head and lens went
+	 * with the shot and its blackened mount stayed; Bean drew the whole
+	 * camera black (v0.5.14-test.17 tester, Surface 2). Each emitted triangle
+	 * has its own three vertices: one that mostly follows a list the game did
+	 * not crumple is folded to a point. A prop of one list is all crumpled. */
+	if (nsources > 1) {
+		for (int t = 0; t + 2 < n; t += 3) {
+			int kept = 0;
+			for (int k = 0; k < 3; k++)
+				kept += was[sc->source[t + k]] != now[sc->source[t + k]];
+			if (kept >= 2)
+				continue;
+			if (swap->emittedWorld) {
+				GevrWorldVertex *v = (GevrWorldVertex *)vertices + t;
+				memcpy(v[1].p, v[0].p, sizeof(v[0].p));
+				memcpy(v[2].p, v[0].p, sizeof(v[0].p));
+			} else {
+				Vtx *v = (Vtx *)vertices + t;
+				memcpy(v[1].v.ob, v[0].v.ob, sizeof(v[0].v.ob));
+				memcpy(v[2].v.ob, v[0].v.ob, sizeof(v[0].v.ob));
+			}
+		}
+	}
 	/* the list again, its vertex loads pointed at the copy and without the
 	 * G_GEVR_MESH header that would draw the shared buffers */
 	Gfx *list = commands + 3;
