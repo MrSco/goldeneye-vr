@@ -932,7 +932,8 @@ static PadRecord *gevrWarpPad(s32 padnum)
 static s32 gevrWarpIsObject(s32 type)
 {
     return type == PROPDEF_PROP || type == PROPDEF_MONITOR || type == PROPDEF_MULTI_MONITOR ||
-           type == PROPDEF_GLASS || type == PROPDEF_TINTED_GLASS || type == PROPDEF_DOOR;
+           type == PROPDEF_GLASS || type == PROPDEF_TINTED_GLASS || type == PROPDEF_DOOR ||
+           type == PROPDEF_CCTV;   /* "near 24" and "blast": Surface 2's cameras */
 }
 
 /* "blast<R>" (gevrCheatProbe): every setup object within radius of Bond takes the
