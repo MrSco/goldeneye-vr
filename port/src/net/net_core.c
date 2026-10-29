@@ -4130,8 +4130,10 @@ static void netHostRoundTick(uint64_t now) {
     }
     if (s_match_ended && s_results_deadline_us && now >= s_results_deadline_us) netHostContinue();
     if (s_phase == NET_PHASE_WARMUP && !s_round_reset_loading) netReadyProgress();
+    /* the warmup clock runs out into a round: never for a dedicated server
+     * with only bots on it (it reloaded the map into empty rounds) */
     if (s_phase == NET_PHASE_WARMUP && s_warmup_end_us && now >= s_warmup_end_us &&
-        !s_next_round_at_us && netGetConnectedPlayerCount() >= 2) {
+        !s_next_round_at_us && netGetConnectedPlayerCount() >= 2 && (!s_dedicated || netGetHumanPlayerCount() > 0)) {
         s_start_requested = true;
         s_vote_requested = s_lobby_state.config.next_round == NET_NEXT_VOTE;
     }
