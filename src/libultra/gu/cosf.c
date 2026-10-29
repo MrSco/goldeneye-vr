@@ -30,8 +30,16 @@
  * ====================================================================
  */
 
+/*
+ * GEVR: no aliases. The constants below are big-endian {hi, lo} words, so
+ * __cosf is wrong on little-endian hosts; cosf must stay the C library's.
+ * NDK 25's clang 14 ignored these pragmas (libgevr.so imports cosf@LIBC);
+ * clang 15 and later honour them.
+ */
+#ifndef GEVR
 #pragma weak fcos = __cosf
 #pragma weak cosf = __cosf
+#endif
 #define	fcos __cosf
 
 /* coefficients for polynomial approximation of cos on +/- pi/2 */

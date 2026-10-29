@@ -104,6 +104,13 @@ extern void bossEntry(void);
 #include <EGL/egl.h>
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  "GoldenEye-VR", __VA_ARGS__)
+#elif defined(GEVR_HEADLESS)
+/* The dedicated server (port/server): the Android boot below, logged to stdout. */
+#include <SDL.h>
+#define ANDROID_LOG_INFO 4
+#define ANDROID_LOG_ERROR 6
+#define __android_log_print(prio, tag, ...) (printf("%s: ", tag), printf(__VA_ARGS__), printf("\n"))
+#define LOGI(...) printf(__VA_ARGS__)
 #else
 #define LOGI(...) printf(__VA_ARGS__)
 
@@ -113,7 +120,7 @@ extern void bossEntry(void);
 
 extern void vrShowWaitingWindow(const char *bmpPath);
 
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_HEADLESS)
 u32 g_OsMemSize = 0;
 s32 g_OsMemSizeMb = 16;
 u8 g_Is4Mb = 0;
@@ -310,12 +317,24 @@ const char* sysGetDataPath(void) {
 
 int pd_main(int argc, const char **argv)
 #else
+/* The dedicated server: the data folder is the working directory, or --basedir. */
+const char* sysGetDataPath(void) {
+    static char path[512];
+    if (!path[0] && !getcwd(path, sizeof(path))) strcpy(path, ".");
+    return path;
+}
+
 int main(int argc, const char **argv)
 #endif
 {
 
 
     sysInitArgs(argc, argv);
+#ifdef GEVR_HEADLESS
+    /* No window and no sound card: SDL's dummy drivers stand in for both. */
+    SDL_setenv("SDL_VIDEODRIVER", "dummy", 1);
+    SDL_setenv("SDL_AUDIODRIVER", "dummy", 1);
+#endif
 
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "Starting initialization sequence");
 
@@ -350,7 +369,7 @@ int main(int argc, const char **argv)
      */
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "audioInit starting");
     audioInit();
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_HEADLESS)
     /*
      * The in-VR launcher (port/vr/vr_launcher.cpp): ROM, stereo or screen,
      * turning and comfort, then Start - before the ROM is loaded, so a ROM

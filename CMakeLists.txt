@@ -5,9 +5,12 @@ project(gevr C CXX)
 
 # The application targets Meta Quest. Native regression tests use their own
 # compiler commands in port/tests and do not need a desktop game target.
-if(NOT ANDROID)
+# GEVR_HEADLESS builds the dedicated server instead (docs/dedicated-server.md):
+# the same game sources on Linux, with no headset, window, sound or input.
+option(GEVR_HEADLESS "Build the dedicated server (Linux, no headset)" OFF)
+if(NOT ANDROID AND NOT GEVR_HEADLESS)
   message(FATAL_ERROR
-    "GoldenEye VR targets Android/Meta Quest only. Build through android/gradlew.bat assembleRelease (or assembleDebug).")
+    "GoldenEye VR targets Android/Meta Quest only. Build through android/gradlew.bat assembleRelease (or assembleDebug), or configure with -DGEVR_HEADLESS=ON for the dedicated server.")
 endif()
 
 include(TargetArch)
@@ -51,7 +54,11 @@ endif()
 
 message(STATUS "Target arch: ${TARGET_ARCH}")
 
-set(TARGET_OS "android")
+if(GEVR_HEADLESS)
+  set(TARGET_OS "linux")
+else()
+  set(TARGET_OS "android")
+endif()
 
 set(TARGET_PLATFORM "${TARGET_ARCH}-${TARGET_OS}")
 message(STATUS "Target platform: ${TARGET_PLATFORM}")
@@ -111,11 +118,25 @@ if(TARGET_IS_64BIT)
   add_definitions(-DPLATFORM_64BIT=1)
 endif()
 
-add_definitions(
-  -DANDROID=1
-  -DXR_USE_PLATFORM_ANDROID=1
-  -DXR_USE_GRAPHICS_API_OPENGL_ES=1
-)
+if(GEVR_HEADLESS)
+  # _GNU_SOURCE: glibc hides the POSIX and BSD names bionic always shows
+  add_definitions(-DGEVR_HEADLESS=1 -D_GNU_SOURCE)
+  # The Quest builds with NDK 25's clang 14, where these are warnings; newer
+  # clang makes them errors. Same code, same rules.
+  add_compile_options(
+    $<$<COMPILE_LANGUAGE:C>:-Wno-error=implicit-function-declaration>
+    $<$<COMPILE_LANGUAGE:C>:-Wno-error=int-conversion>
+    $<$<COMPILE_LANGUAGE:C>:-Wno-error=incompatible-function-pointer-types>
+    $<$<COMPILE_LANGUAGE:C>:-Wno-error=implicit-int>
+    -Wno-error=incompatible-pointer-types
+  )
+else()
+  add_definitions(
+    -DANDROID=1
+    -DXR_USE_PLATFORM_ANDROID=1
+    -DXR_USE_GRAPHICS_API_OPENGL_ES=1
+  )
+endif()
 
 # Compiler options
 add_compile_options(
@@ -163,14 +184,33 @@ set(GEVR_INCLUDES
 set(LIBS )
 
 # SDL2 & ZLib
-find_package(SDL2 QUIET)
-find_package(ZLIB QUIET)
+if(GEVR_HEADLESS)
+  # A static SDL with its dummy video and audio drivers: the game's own input,
+  # audio and system layers compile unchanged and see no devices.
+  set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+  set(SDL_STATIC ON CACHE BOOL "" FORCE)
+  set(SDL_TEST OFF CACHE BOOL "" FORCE)
+  set(SDL_STATIC_PIC ON CACHE BOOL "" FORCE)
+  include(FetchContent)
+  FetchContent_Declare(SDL2
+    GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+    GIT_TAG release-2.32.8
+    GIT_SHALLOW TRUE)
+  FetchContent_MakeAvailable(SDL2)
+  find_package(ZLIB REQUIRED)
+  list(APPEND LIBS SDL2::SDL2-static)
+else()
+  find_package(SDL2 QUIET)
+  find_package(ZLIB QUIET)
+endif()
 
-if(NOT SDL2_FOUND OR NOT ZLIB_FOUND)
+if(NOT GEVR_HEADLESS AND (NOT SDL2_FOUND OR NOT ZLIB_FOUND))
   include(cmake/android.cmake)
 endif()
 
-if(TARGET SDL2::SDL2)
+if(GEVR_HEADLESS)
+  # SDL2::SDL2-static above
+elseif(TARGET SDL2::SDL2)
   list(APPEND LIBS SDL2::SDL2)
 elseif(SDL2_LIBRARY)
   include_directories(SYSTEM "${SDL2_INCLUDE_DIR}")
@@ -184,16 +224,18 @@ elseif(ZLIB_LIBRARY)
   list(APPEND LIBS "${ZLIB_LIBRARY}")
 endif()
 
-# Graphics
-list(APPEND LIBS GLESv3 EGL log android)
+if(NOT GEVR_HEADLESS)
+  # Graphics
+  list(APPEND LIBS GLESv3 EGL log android)
 
-# OpenXR Loader
-message(STATUS "OpenXR: Using bundled Quest Android loader")
-add_library(openxr_loader SHARED IMPORTED)
-set_target_properties(openxr_loader PROPERTIES
-  IMPORTED_LOCATION
-  ${CMAKE_SOURCE_DIR}/OpenXR/Libs/Android/arm64-v8a/Release/libopenxr_loader.so
-)
+  # OpenXR Loader
+  message(STATUS "OpenXR: Using bundled Quest Android loader")
+  add_library(openxr_loader SHARED IMPORTED)
+  set_target_properties(openxr_loader PROPERTIES
+    IMPORTED_LOCATION
+    ${CMAKE_SOURCE_DIR}/OpenXR/Libs/Android/arm64-v8a/Release/libopenxr_loader.so
+  )
+endif()
 
 # Source files
 # gevr_frame_timing.c / gevr_gpu_timer.cpp: per-XR CPU and asynchronous GPU diagnostics
@@ -214,6 +256,21 @@ list(FILTER SRC_PORT EXCLUDE REGEX "port/src/(romdata|mod)\.c$")
 # src/game/gevr_ally.c added 2026-10-17 (refresh the game source glob).
 file(GLOB_RECURSE SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/*.cpp")
 list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/(external|tests)/.*")
+# port/server: the dedicated server's main and the headset, renderer and
+# launcher entry points it answers in their place (GEVR_HEADLESS only).
+list(FILTER SRC_PORT EXCLUDE REGEX "port/server/.*")
+list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/server/.*")
+if(GEVR_HEADLESS)
+  # Kept from port/vr: the settings (goldeneye-vr.ini), the log and miniz.
+  # Everything that draws, reads the headset or runs the launcher is left out;
+  # port/src/main.c boots the server as it boots the headset.
+  list(FILTER SRC_PORT EXCLUDE REGEX "port/fast3d/.*")
+  list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/fast3d/.*")
+  list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/vr/.*")
+  list(APPEND SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/vr/vr_settings.cpp")
+  file(GLOB SRC_SERVER CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/port/server/*.c" "${CMAKE_SOURCE_DIR}/port/server/*.cpp")
+  list(APPEND SRC_PORT ${SRC_SERVER})
+endif()
 
 # Dab's Fast3D build restores inlining locally; keep the original game's
 # no-inlining/aliasing/arithmetic flags and floating-point semantics intact.
@@ -367,6 +424,17 @@ add_custom_target(gevr_buildid
   BYPRODUCTS "${GEVR_BUILDID_C}"
   VERBATIM)
 list(APPEND SRC "${GEVR_BUILDID_C}")
+
+if(GEVR_HEADLESS)
+  # The dedicated server: one executable, no Steam Audio (net_spatial.c falls
+  # back without it) and no OpenXR loader.
+  add_executable(gevr-server ${SRC})
+  add_dependencies(gevr-server gevr_buildid)
+  target_include_directories(gevr-server PRIVATE ${GEVR_INCLUDES})
+  target_compile_options(gevr-server PRIVATE -include "${CMAKE_BINARY_DIR}/port/include/versioninfo.h")
+  target_link_libraries(gevr-server ${LIBS} juice-static opus gevr_physics m pthread dl)
+  return()
+endif()
 
 # Output target
 add_library(gevr SHARED ${SRC})

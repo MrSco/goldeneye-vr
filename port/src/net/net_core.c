@@ -1957,6 +1957,57 @@ const NetMatchConfig *netGetMatchConfig(void) {
     return &s_lobby_state.config;
 }
 
+static int netClampChoice(int v, int n, int dflt) { return v >= 0 && v < n ? v : dflt; }
+
+/* The host's match config from the saved choices (goldeneye-vr.ini), clamped
+ * to the lists: the launcher's Host page and the dedicated server both start
+ * their games from it. */
+NetMatchConfig netMatchConfigFromSettings(void) {
+    extern int VrMpMode, VrHordeStage, VrHordeStartWave;
+    NetMatchConfig c;
+    memset(&c, 0, sizeof(c));
+    c.stage = (uint8_t)(netStageIndexOf((uint8_t)VrMpStage) >= 0 ? VrMpStage : 27);
+    c.scenario = (uint8_t)netClampChoice(VrMpScenario, netScenarioCount(), 0);
+    c.weapon_set = (uint8_t)netClampChoice(VrMpWeaponSet, netWeaponSetCount(), 4);
+    c.game_length = (uint8_t)netClampChoice(VrMpLength, 7, 2);
+    c.health = (uint8_t)netClampChoice(VrMpHealth, netHealthCount(), 5);
+    c.dual_wield = (uint8_t)netClampChoice(VrMpDual, 3, 0);
+    c.loadouts = VrMpLoadouts ? 1 : 0;
+    c.next_round = (uint8_t)netClampChoice(VrMpNextRound, 3, 0);
+    c.friendly_fire = VrMpFriendlyFire != 0;
+    c.voice_mode = (uint8_t)netClampChoice(VrMpVoiceMode, 2, 0);
+    c.fun_flags = (uint8_t)(VrMpFunFlags & NET_FUN_MASK);
+    c.gun_size = (uint8_t)netClampChoice(VrMpGunSize, 3, 0);
+    c.movement_speed = (uint8_t)netClampChoice(VrMpMovementSpeed, NET_MOVE_COUNT, NET_MOVE_NORMAL);
+    for (int i = 0; i < 4; i++)
+        c.custom_set[i] = (uint8_t)(netItemIndexOf(VrMpCustom[i]) >= 0 ? VrMpCustom[i] : netItem(0)->item);
+    c.max_players = (uint8_t)(VrMpMaxPlayers >= 2 && VrMpMaxPlayers <= GEVR_MAX_PLAYERS ? VrMpMaxPlayers : 4);
+    c.bot_mode = (uint8_t)netClampChoice(VrMpBotMode, NET_BOT_MODE_COUNT, NET_BOT_OFF);
+    c.bot_count = (uint8_t)(VrMpBotCount >= 1 && VrMpBotCount < GEVR_MAX_PLAYERS ? VrMpBotCount : 3);
+    c.bot_difficulty = (uint8_t)netClampChoice(VrMpBotDifficulty, NET_BOT_DIFF_COUNT, NET_BOT_NORMAL);
+    if (VrMpMode == NET_MODE_HORDE) {
+        c.mode=NET_MODE_HORDE;c.difficulty=0;
+        c.stage=(uint8_t)(netHordeStageValid((unsigned)VrHordeStage)?VrHordeStage:NET_HORDE_STAGE);
+        c.horde_start_wave=(uint8_t)(VrHordeStartWave<1?1:VrHordeStartWave>NET_HORDE_MAX_START_WAVE?NET_HORDE_MAX_START_WAVE:VrHordeStartWave);
+        c.friendly_fire=VrHordeFriendlyFire!=0;
+        c.max_players=NET_COOP_MAX_PLAYERS;c.bot_mode=NET_BOT_OFF;
+        c.scenario=0;c.game_length=0;c.loadouts=0;c.dual_wield=NET_DUAL_DOUBLES;
+        return c;
+    }
+    if (VrMpMode == NET_MODE_COOP) {
+        /* the solo campaign for the party: it starts in the game's menus, where the
+         * host picks each mission and difficulty; four players at most (the deathmatch
+         * fields ride along unused) */
+        c.mode = NET_MODE_COOP;
+        if (VrCoopFastReinforcements) c.fun_flags |= NET_COOP_FAST_REINFORCEMENTS;
+        c.stage = NET_COOP_FRONT_STAGE;
+        c.difficulty = 0;
+        c.max_players = NET_COOP_MAX_PLAYERS;
+        return c;
+    }
+    return c;
+}
+
 /* The host's settings (the launcher's pages, the game's lobby page): kept
  * in the lobby state and told to everyone; they take effect at the next load. */
 void netLobbySetConfig(const NetMatchConfig *config) {

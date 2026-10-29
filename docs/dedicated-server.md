@@ -1,7 +1,8 @@
 # Dedicated servers (scoping)
 
-Status: design only, nothing built (2026-10-28). Line references are to the
-v0.5.14 batch branch (`claude/batch-release-agent-test-4c94dd`, 57f9445e).
+Status: P0 done (2026-10-28): the headless build runs 8-player bot matches
+under WSL; see "P0 results" below. Line references are to the v0.5.14 batch
+branch (`claude/batch-release-agent-test-4c94dd`, 57f9445e).
 
 ## Goal
 
@@ -103,6 +104,9 @@ about 100 in the Worker.
      `bossEntry`.
    - Today's `gevrSchedBlockedRecv` (`gevr_engine_shim.c` 571) paces on
      `xrWaitFrame`. Headless, it waits in ENet like Dab's.
+   - P0: `main.c` itself boots the server (no new `main`), and the frame
+     wait is a plain 60 Hz sleep. Waiting in ENet instead, so a packet wakes
+     the server at once, is for P1.
 3. **Host without a slot** (`net_core.c`).
    - `netHostStart` seats the host in slot 0 as Bond (667-680).
    - `netIsHost` compares the local slot with the host slot (780).
@@ -166,6 +170,82 @@ about 100 in the Worker.
      nothing from the ROM ships.
    - The server needs no Bean, GE-X or mod files: they change only how
      things look. Hack campaigns are already refused online.
+
+## P0 results (2026-10-28)
+
+**Build.** `cmake -G Ninja -DGEVR_HEADLESS=ON` on Linux builds `gevr-server`,
+one 30 MB executable, from the APK's own source globs.
+
+- Kept: all of `src/`, `port/src` (with `main.c` and its boot sequence),
+  `port/src/net`, and from `port/vr` only `vr_settings.cpp`,
+  `vr_settings_defaults.c`, `vr_log.c` and miniz.
+- New: `port/server/server_headset.c` answers the headset, renderer and
+  window calls (a null window manager, as Dab's), and its frame wait is a
+  60 Hz clock. `port/server/server_host.c` stands in for the launcher: it
+  hosts and launches the ini's Host page.
+- SDL 2.32.8 is built static and runs its dummy video and audio drivers, so
+  `input.c`, `audio.c` and `system.c` compile unchanged. The game mixes its
+  sound as on the headset, so parity includes the audio code.
+- The Host page's settings-to-config code moved from `vr_launcher.cpp` to
+  `net_core.c` `netMatchConfigFromSettings`, which the launcher and the
+  server both call.
+- Compiler: clang 18, from Ubuntu's packages unpacked into the home folder
+  (no root needed). The Quest uses NDK 25's clang 14, so the server build
+  keeps clang 14's warnings-not-errors (implicit declarations, int
+  conversions). gcc cannot build the game: `CPPLib.h` relies on clang's
+  lenient token pasting.
+
+**What differed on Linux.** Three things, each fixed for both builds:
+
+- libultra's `cosf.c`/`sinf.c` alias `cosf`/`sinf` to SGI's code, whose
+  constants are big-endian word pairs. Clang 14 ignored the pragma (the
+  Quest's `libgevr.so` imports `cosf@LIBC`); clang 18 honours it, and every
+  position became NaN. The aliases are now off under `GEVR`, so the Quest
+  build is unchanged. Found with `GEVR_FPE=1` (trap the first NaN).
+- `include/stddef.h` and `stdarg.h` had include guards that swallowed
+  glibc's second `__need_*` includes.
+- glibc declares `bcopy`/`bcmp`/`bzero`, and in C++ `sprintf` as noexcept,
+  which `PR/os.h` redeclared; its `math.h` does not bring in `FLT_MAX`.
+
+**Runs** (i9-12900K under WSL; `--seconds N` ends a timed run, every 10 s
+the server logs frames, CPU, players and each player's kills and distance):
+
+| Match | Game frames/s | CPU (one core) | Memory |
+| --- | --- | --- | --- |
+| Facility, server + 3 bots | 60.0 | 2.1-2.5% | 33 MB |
+| Facility, server + 7 bots | 60.0 | 3.3-3.5% | 33 MB |
+| Complex, server + 7 bots | 60.0 | 2.9-3.2% | 33 MB |
+| Caverns, server + 7 bots | 60.0 | 2.9-3.2% | 33 MB |
+| Bunker II, server + 7 bots | 60.0 | 3.3-4.0% | 33 MB |
+
+Bots travel, open doors and score in every run. The server still takes slot
+0 as a player who stands still (P1 removes it), and it presses Start Round
+after 5 s of warmup, since nobody else can.
+
+**What this means for hosting.** An Ampere A1 core is slower than this one,
+perhaps half as fast for this kind of code. Even so, an 8-player match
+should take well under 10% of one core, so 2 OCPUs are not the limit:
+outbound data and players are. Network relay to real clients is not in
+these numbers; P1 measures it.
+
+**Longer runs.**
+
+- An 8-minute "No limit" match on Facility (server + 7 bots) held 60 frames
+  a second at 3-7% of a core, then the idle kick sent the server's own seat
+  "to the launcher" after 5 minutes (work item 3 already lists it).
+- A "First to 5" match froze when the limit was reached and never reached
+  the results. `lv.c` 1583-1620 waits for every dying player to finish
+  their death animation and blood, but those are stepped in
+  `maybe_mp_interface` (`bondview2.c` 20435-20525), the HUD draw, which only
+  the drawn pass runs. The last victim was a bot, whose pass is never
+  drawn, so it stayed "dying" for ever. The same code runs on a headset
+  host, so a kill-limit match whose last kill is on a bot (or on another
+  player's copy) probably hangs there too. Not yet checked on a headset.
+
+**Seen, not yet checked:** on Bunker II, which has 5 start pads, 3 of 8
+players spawn "at ammo spots", and one bot stood at (0, 522, -2383) for the
+whole run, off its pad and never moving. That spawn code is shared with the
+headset, so an 8-player Bunker II game there probably does the same.
 
 ## Phases
 

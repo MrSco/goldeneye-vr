@@ -95,6 +95,7 @@ int netLobbyCanLaunch(void);
 /* The match config (net_protocol.h NetMatchConfig) */
 const NetMatchConfig *netGetMatchConfig(void);
 const NetMatchConfig *netGetActiveMatchConfig(void);
+NetMatchConfig netMatchConfigFromSettings(void);   /* the host's saved choices: launcher and dedicated server */
 void netLobbySetConfig(const NetMatchConfig *config);   /* host: kept and told to everyone */
 void netApplyMatchConfig(void);             /* every headset, before each stage load */
 int netGetPlayingCount(void);               /* connected and not spectating */
