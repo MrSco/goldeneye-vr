@@ -7,7 +7,8 @@
 # Builds the server for this machine and, on x86-64, for ARM64 too
 # (tools/gevr_build_server.sh --aarch64), then packs each as
 # gevr-server-VERSION-linux-ARCH.tar.gz: the server without its debug info,
-# the lobby bridge, the systemd unit, the operator guide and the licence. The
+# the lobby bridge, the setup script, the systemd unit, the operator guide
+# and the licence. The
 # debug info stays beside it as gevr-server-VERSION-linux-ARCH.debug, for
 # reading a crash's addresses (keep it with the release's symbols; it is not
 # published). No game data goes in: the operator supplies ge.z64.
@@ -49,8 +50,8 @@ for ARCH in $ARCHES; do
 	$OBJCOPY --only-keep-debug "$BUILD/gevr-server" "$OUT/$NAME.debug"
 	$OBJCOPY --strip-debug --add-gnu-debuglink="$OUT/$NAME.debug" "$BUILD/gevr-server" "$D/gevr-server"
 	chmod 755 "$D/gevr-server"
-	cp "$SRC/tools/gevr_lobby_bridge.py" "$SRC/port/server/package/gevr-server.service" "$D/"
-	chmod 755 "$D/gevr_lobby_bridge.py"
+	cp "$SRC/tools/gevr_lobby_bridge.py" "$SRC/tools/gevr-server-setup.sh" "$SRC/port/server/package/gevr-server.service" "$D/"
+	chmod 755 "$D/gevr_lobby_bridge.py" "$D/gevr-server-setup.sh"
 	cp "$SRC/docs/dedicated-server-operators.md" "$D/README.md"
 	cp "$SRC/LICENSE" "$D/LICENSE"
 	printf '%s %s (%s)\n' "$VERSION" "$GEVR_BUILD_HASH" "$ARCH" > "$D/VERSION"
