@@ -96,12 +96,10 @@ void *gevrBeanShownGdl(void *node, void *current);
 /* One G_GEVR_BEAN_FADE command at gdl (alpha 0-255, 255 ends the fade); returns the next. */
 void *gevrBeanFadeMark(void *gdl, int alpha);
 /* A destroyed prop's Bean list (objDeform's blackened, crumpled vertex copy): a frame copy
- * that follows it, or shown when there is none to make. */
-void *gevrBeanScorchedGdl(void *node, void *shown, const void *stockVertices, const void *nowVertices, int count);
-/* objDeform's vertex copy (propobj.c), until the vertex store frees it (vtxstore.c) */
-void gevrBeanMarkDeformed(const void *vertices);
-void gevrBeanForgetDeformed(const void *vertices);
-int gevrBeanIsDeformed(const void *vertices);
+ * that follows it, or NULL when there is none to make (the caller draws the game's wreck). */
+void *gevrBeanScorchedGdl(void *node, const void *stockVertices, const void *nowVertices, int count);
+/* The node's Bean part is drawn in another node's list (it shows Bean's blank). */
+int gevrBeanDrawsElsewhere(void *node);
 void *gevrBeanRenderGdl(void *node, void *current, struct Model *model);
 void *gevrBeanWholeModelGdl(struct Model *model);
 struct ModelHitEntry;

@@ -4,21 +4,23 @@ This is an experimental native Quest multiplayer mode. It uses ENet and borrows 
 
 ## Network setup
 
-- Use the same APK version on every headset. The current game and discovery protocol version is `18` (v0.4.6: a match may be on Statue or Cradle, which v0.4.5 rejects; `17` was v0.4.0 to v0.4.5, `16` only unreleased test builds); the lobby service lists and joins only games on the same protocol, so an earlier release or test build cannot join a v0.4.6 game.
+- Use the same APK version on every headset. The current game and discovery protocol is **24** (all 26 maps in Horde and Deathmatch, #219). Earlier builds cannot join; LAN discovery and the internet lobby list filter by protocol.
 - The host listens for ENet game traffic on UDP `27007`.
 - LAN discovery broadcasts on UDP `27008`. If discovery does not work on the Wi-Fi network, connect to the host's local IP directly.
 - Internet games use the lobby service at `lobbies.goldeneyevr.com` for discovery and ICE signaling. Native libjuice carries ENet datagrams directly where possible and through Cloudflare TURN when needed, so players do not configure router forwarding. The host can have a mix of LAN and internet players in the same lobby of up to eight.
 - TURN is a fallback, not a gate. A headset publishes its session once STUN has found its public address; a relay candidate is added when the lobby service issues credentials (UDP 3478, with UDP 443 as a second server for networks that block 3478). If the relay is refused or unreachable, the join still goes ahead and only fails against peers that hole punching cannot reach (symmetric or carrier-grade NAT, typically phone hotspots). The log line `net: ice <id>: no relay candidate` records a direct-only session. "No internet path found" means STUN itself failed.
 - Internet hosting requires the lobby Worker in [goldeneyevr.com `services/lobbies`](https://github.com/MrSco/goldeneyevr.com/tree/main/services/lobbies); the Cloudflare TURN key is optional and capped per month there. If the Worker is unavailable, LAN and direct IP still work.
-- The host picks the stage (the game's eleven, plus Statue and Cradle from the ROM's cut multiplayer setups, #95), the player count, a character and the weapons (the game's own multiplayer weapon sets, Slappers only to Golden Gun). The LAN list on the Join tab shows each game's stage, weapons and players.
+- The host picks the stage (all 26 campaign maps and multiplayer arenas, including Statue and Cradle, and in Deathmatch the whole mission level of Facility, Caverns, Egypt, Bunker II, Archives, Statue and Cradle as "(Full)"; see [Full Deathmatch maps](docs/full-deathmatch-maps.md)), the player count, a character and the weapons (the game's own multiplayer weapon sets, Slappers only to Golden Gun). The LAN list on the Join tab shows each game's stage, weapons and players.
 - A match supports up to eight player slots (protocol 16, issue #88). The host picks the count, two to eight, on any stage: the launcher's **Players** beside the stage, or the **PLAYERS** row of the in-match lobby page (default four, saved as `MpMaxPlayers`). It travels in the match config (`max_players`); a team scenario takes its own size instead. The count cannot drop below the connected players or a connected slot; in a match a new count applies from the next load. The host launcher requires at least two players, all ready, before launch.
 
 ## Horde (unreleased)
 
-Mode **Horde** plays endless Archives waves with regular armed guards, solo or
+Mode **Horde** lets the host pick any of the 26 campaign maps and multiplayer
+arenas under **Host > Match > Map**, including Statue. Play endless waves with
+regular armed guards, solo or
 with up to four humans. Hits and kills earn points for the Mystery Box and Wall Buys.
 Everyone down ends the run; the host can retry from the pause menu. An optional AI ally joins the party (Play > Game rules > AI ally). Enemy ammo drops replace
-wave/shop refills. Protocol 23 requires an updated build on every headset.
+wave/shop refills. Protocol 24 requires an updated build on every headset.
 See [Horde mode](docs/horde-mode.md) for
 implementation details and remaining hardware acceptance. Older protocol notes
 below describe prior releases.

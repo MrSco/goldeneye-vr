@@ -107,10 +107,14 @@ static f32 navDist(const coord3d *a, const coord3d *b)
  * panes). Check the standing body's height above the floor, without the
  * AI-opaque sight filter. Doors remain traversable: the bot opens them.
  * Query live collision so broken glass becomes traversable on the next plan. */
-static s32 navWalkClear(StandTile *tile, const coord3d *from, const coord3d *to)
+static s32 navWalkClearTypes(StandTile *tile, const coord3d *from, const coord3d *to, s32 types)
 {
     return tile != NULL && stanTestLineUnobstructed(&tile, from->x, from->z, to->x, to->z,
-                                                   CDTYPE_PATHBLOCKER, 150.0f, 30.0f, 0.0f, 1.0f);
+                                                   types, 150.0f, 30.0f, 0.0f, 1.0f);
+}
+static s32 navWalkClear(StandTile *tile, const coord3d *from, const coord3d *to)
+{
+    return navWalkClearTypes(tile, from, to, CDTYPE_PATHBLOCKER);
 }
 
 /*
@@ -125,13 +129,18 @@ static s32 navWalkClear(StandTile *tile, const coord3d *from, const coord3d *to)
  */
 static s32 s_navglass;   /* a route through glass: the links alone (gevrBotNavPlan) */
 
-static s32 navLegClear(StandTile *tile, const coord3d *from, const coord3d *to)
+static s32 navLegClearTypes(StandTile *tile, const coord3d *from, const coord3d *to, s32 types)
 {
     if (tile == NULL)
     {
         return FALSE;
     }
-    return s_navglass || navWalkClear(tile, from, to) || stanSavedColl_posData == NULL;
+    return s_navglass || navWalkClearTypes(tile, from, to, types) || stanSavedColl_posData == NULL;
+}
+
+static s32 navLegClear(StandTile *tile, const coord3d *from, const coord3d *to)
+{
+    return navLegClearTypes(tile, from, to, CDTYPE_PATHBLOCKER);
 }
 
 static void navFree(void)
@@ -283,7 +292,7 @@ static NavOpen navPop(void)
 }
 
 static s32 navPlan(GevrBotRoute *route, StandTile *fromtile, const coord3d *from,
-                   StandTile *goaltile, const coord3d *goal);
+                   StandTile *goaltile, const coord3d *goal, s32 types);
 
 /*
  * A route around glass first. When glass is the only way (Caverns' first
@@ -297,19 +306,19 @@ s32 gevrBotNavPlan(GevrBotRoute *route, StandTile *fromtile, const coord3d *from
     s32 found;
 
     route->glass = FALSE;
-    if (navPlan(route, fromtile, from, goaltile, goal))
+    if (navPlan(route, fromtile, from, goaltile, goal, CDTYPE_PATHBLOCKER))
     {
         return TRUE;
     }
     s_navglass = TRUE;
-    found = navPlan(route, fromtile, from, goaltile, goal);
+    found = navPlan(route, fromtile, from, goaltile, goal, CDTYPE_PATHBLOCKER);
     s_navglass = FALSE;
     route->glass = found;
     return found;
 }
 
 static s32 navPlan(GevrBotRoute *route, StandTile *fromtile, const coord3d *from,
-                   StandTile *goaltile, const coord3d *goal)
+                   StandTile *goaltile, const coord3d *goal, s32 types)
 {
     s32 start;
     s32 end;
@@ -355,7 +364,7 @@ static s32 navPlan(GevrBotRoute *route, StandTile *fromtile, const coord3d *from
         expanded++;
         if (i == end)
         {
-            if (i == start && !navLegClear(fromtile, from, goal))
+            if (i == start && !navLegClearTypes(fromtile, from, goal, types))
             {
                 break;
             }
@@ -373,8 +382,8 @@ static s32 navPlan(GevrBotRoute *route, StandTile *fromtile, const coord3d *from
             {
                 continue;
             }
-            if (!navLegClear(s_tiles[i].tile, entry, &s_edges[e].portal)
-                || !navLegClear(s_tiles[to].tile, &s_edges[e].portal, exit))
+            if (!navLegClearTypes(s_tiles[i].tile, entry, &s_edges[e].portal, types)
+                || !navLegClearTypes(s_tiles[to].tile, &s_edges[e].portal, exit, types))
             {
                 continue;
             }
@@ -428,6 +437,15 @@ static s32 navPlan(GevrBotRoute *route, StandTile *fromtile, const coord3d *from
         route->count = count * 2;
     }
     return TRUE;
+}
+
+/* Horde opens traversable doors before this query. A door still closed is
+ * a permanent boundary of the arena, just like glass or disconnected floors:
+ * no route through glass here (gevrBotNavPlan's second try). */
+s32 gevrBotNavCanReach(StandTile *fromtile, const coord3d *from, StandTile *goaltile, const coord3d *goal)
+{
+    GevrBotRoute route;
+    return navPlan(&route, fromtile, from, goaltile, goal, CDTYPE_PATHBLOCKER | CDTYPE_CLOSEDDOORS);
 }
 
 static f32 navFlatDist(const coord3d *a, const coord3d *b)

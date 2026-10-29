@@ -73,7 +73,8 @@ extern void netSetLocalVote(int kind, int idx);
 extern int netGetVote(int kind, int slot);
 extern void netLobbySetCharacter(u8 chr_id);
 extern void netLobbySetLoadout(const u8 items[4]);
-extern unsigned VrMpFavStages, VrMpFavSets;
+extern unsigned long long VrMpFavStages;
+extern unsigned VrMpFavSets;
 extern s32 g_gameOverFlag;
 enum { NET_SCENARIO_YOLT = 1, NET_SCENARIO_TLD = 2, NET_SCENARIO_MWTGG = 3 };
 enum { NET_WEAPON_SET_CUSTOM_ROW = 14, NET_NEXT_VOTE_ROW = 0 };
@@ -342,13 +343,13 @@ static s32 lobbyFavSet(void)
 static void rowFavMapValue(char *b, s32 n)
 {
     s32 i = lobbyFavStage();
-    snprintf(b, n, "%s %s", netStageName(i), i >= 0 && ((VrMpFavStages >> i) & 1u) ? "YES" : "NO");
+    snprintf(b, n, "%s %s", netStageName(i), i >= 0 && ((VrMpFavStages >> i) & 1ull) ? "YES" : "NO");
 }
 static void rowFavMapStep(s32 dir)
 {
     s32 i = lobbyFavStage();
     if (i < 0) return;
-    VrMpFavStages ^= 1u << i;
+    VrMpFavStages ^= 1ull << i;
     vrSettingsSave();
 }
 static void rowFavSetValue(char *b, s32 n)

@@ -614,22 +614,22 @@ static struct beanScorch *beanScorchMap(struct beanSwap *swap, const Vertex *sto
 	return sc;
 }
 
-void *gevrBeanScorchedGdl(void *node, void *shown, const void *stockVertices, const void *nowVertices, int count)
+void *gevrBeanScorchedGdl(void *node, const void *stockVertices, const void *nowVertices, int count)
 {
 	struct beanSwap *swap = activeSwap(node);
 	const Vertex *was = stockVertices, *now = nowVertices;
 	if (!gevrBeanIsEnabled() || !swap || swap->skin || !swap->emitted || swap->deferredMatrix ||
 	    !was || !now || was == now || count <= 0 || swap->emittedVerts <= 0)
-		return shown;
+		return NULL;
 	struct beanScorch *sc = beanScorchMap(swap, was, count);
 	if (!sc)
-		return shown;
+		return NULL;
 	const int n = swap->emittedVerts;
 	const size_t vsize = swap->emittedWorld ? sizeof(GevrWorldVertex) : sizeof(Vtx);
 	uint8_t *vertices = beanFrameAllocate((size_t)n * vsize);
 	Gfx *commands = beanFrameAllocate((size_t)(swap->emittedCommands + 3) * sizeof(Gfx));
 	if (!vertices || !commands)
-		return shown;
+		return NULL;
 	memcpy(vertices, swap->emittedVtx, (size_t)n * vsize);
 	for (int i = 0; i < n; i++) {
 		float colour[3] = {0, 0, 0}, offset[3] = {0, 0, 0};

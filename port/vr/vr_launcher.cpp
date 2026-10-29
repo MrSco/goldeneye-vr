@@ -1204,7 +1204,7 @@ static const char *stageNameById(int levelId) { return netStageName(netStageInde
 static std::string listedGameLabel(int stage, int weapons) {
     // Horde lists its map in the weapons' place (net_core.c netGetLobbyWeaponSet)
     if (stage == NET_LOBBY_HORDE_STAGE)
-        return netHordeStageValid((unsigned)weapons) ? std::string("Horde: ") + netCoopStageName((uint8_t)weapons) : "Horde";
+        return netHordeStageValid((unsigned)weapons) ? std::string("Horde: ") + netHordeStageName((unsigned)weapons) : "Horde";
     if (stage & NET_LOBBY_COOP_STAGE) {
         const uint8_t where = (uint8_t)(stage & 0x7F);
         if (where == NET_COOP_FRONT_STAGE)
@@ -1336,17 +1336,18 @@ static void loadoutRows(const char *idprefix) {
 }
 
 // A row of favorite toggles over a bitmask: the shuffle and the playlist draw from them.
-static bool favoriteRow(const char *label, int count, const char *(*name)(int), unsigned *mask, int perRow) {
+template <typename Mask>
+static bool favoriteRow(const char *label, int count, const char *(*name)(int), Mask *mask, int perRow) {
     bool changed = false;
     ImGui::TextUnformatted(label);
-    for (int i = 0; i < count; i++) {
+    for (int i = 0; i < count && i < (int)(8 * sizeof(Mask)); i++) {
         bool on = ((*mask >> i) & 1u) != 0;
         if (i % perRow != 0)
             ImGui::SameLine();
         char id[48];
         snprintf(id, sizeof(id), "%s##%s%d", name(i), label, i);
         if (ImGui::Checkbox(id, &on)) {
-            *mask = on ? (*mask | (1u << i)) : (*mask & ~(1u << i));
+            *mask = on ? (*mask | (Mask(1) << i)) : (*mask & ~(Mask(1) << i));
             changed = true;
         }
     }
@@ -1653,7 +1654,7 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
         if (ImGui::RadioButton("Horde", VrMpMode == NET_MODE_HORDE)) { VrMpMode=NET_MODE_HORDE;gevrHostChoiceChanged(); }
         if (VrMpMode == NET_MODE_DEATHMATCH) {
             int stage=netStageIndexOf((uint8_t)VrMpStage);if (stage<0)stage=9;
-            ImGui::TextUnformatted("Stage:");ImGui::SameLine();
+            // no "Stage:" label: "Bunker II (Full)" needs the room beside the players
             const bool teams=netScenarioHasTeams(VrMpScenario);
             const float playersWidth=ImGui::CalcTextSize("8").x + ImGui::GetFrameHeight()
                 + ImGui::GetStyle().FramePadding.x*2.0f;
@@ -1661,6 +1662,7 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
                 : ImGui::CalcTextSize("Players:").x+playersWidth+ImGui::GetStyle().ItemSpacing.x;
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x-reserve-ImGui::GetStyle().ItemSpacing.x);
             if (namedCombo("##stagecombo",netStageCount(),netStageName,&stage)) { VrMpStage=netStage(stage)->level_id;gevrHostChoiceChanged(); }
+            if (ImGui::IsItemHovered()) gevrTooltip("Stage. \"(Full)\" is the whole mission level, not the multiplayer map.");
             ImGui::SameLine();
             if (teams) {
                 ImGui::TextDisabled("Players: %d",netTeamRequiredPlayers(VrMpScenario));
@@ -1672,7 +1674,7 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
                                   [&](int n){return n+2<minimum;})) { VrMpMaxPlayers=count+2;gevrHostChoiceChanged(); }
             }
         } else if (VrMpMode == NET_MODE_HORDE) {
-            ImGui::TextDisabled("%s: solo or up to 4 players",netCoopStageName((uint8_t)VrHordeStage));
+            ImGui::TextDisabled("%s: solo or up to 4 players",netHordeStageName((unsigned)VrHordeStage));
             ImGui::TextWrapped("Endless waves of armed guards, with Oddjob swarms and bosses. Ammo drops from enemies. Everyone down ends the run.");
         } else {
             ImGui::TextDisabled("Campaign: up to %d players",NET_COOP_MAX_PLAYERS);
@@ -1996,13 +1998,11 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                                 if (VrMpMode == NET_MODE_HORDE) {
                                     // the map and the first wave (user, 2026-10-17); a change
                                     // reaches the next launch or retry
-                                    static const int maps[] = { 24, 9, 27, 23, 34 };
-                                    static const char *names[] = { "Archives", "Bunker I", "Bunker II", "Control", "Facility" };
-                                    int pick = 0;
-                                    for (int i = 0; i < 5; i++) if (maps[i] == VrHordeStage) pick = i;
+                                    int pick = netStageIndexOf((uint8_t)VrHordeStage);
+                                    if (pick < 0) pick = netStageIndexOf(NET_HORDE_STAGE);
                                     ImGui::TextUnformatted("Map:");ImGui::SameLine();ImGui::SetNextItemWidth(-1);
-                                    if (ImGui::Combo("##hordemap", &pick, names, 5)) {
-                                        VrHordeStage = maps[pick];
+                                    if (namedCombo("##hordemap", netHordeStageCount(), netStageName, &pick)) {
+                                        VrHordeStage = netStage(pick)->level_id;
                                         gevrHostChoiceChanged();
                                     }
                                     ImGui::TextUnformatted("Start at wave:");ImGui::SameLine();ImGui::SetNextItemWidth(-1);
@@ -2083,7 +2083,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                         else if (connected) {
                             const NetMatchConfig *cfg = netGetMatchConfig();
                             if (cfg->mode == NET_MODE_HORDE) {
-                                ImGui::TextDisabled("Horde: %s, starting at wave %d",netCoopStageName(cfg->stage),
+                                ImGui::TextDisabled("Horde: %s, starting at wave %d",netHordeStageName(cfg->stage),
                                                     cfg->horde_start_wave ? cfg->horde_start_wave : 1);
                             } else if (cfg->mode == NET_MODE_COOP) {
                                 ImGui::Text("Co-op campaign: the host picks the missions");

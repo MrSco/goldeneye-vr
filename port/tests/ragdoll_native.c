@@ -63,6 +63,9 @@ f32 getjointsize(Model *model,ModelNode *node) { (void)model;(void)node; return 
 int gevrBeanDrawsModel(const void *header) { (void)header; return beanDraws; }
 void subcalcmatrices(ModelRenderData *pose,Model *model) { (void)pose; (void)model; assert(!"fixture must supply a pose"); }
 void sub_GAME_7F073FC8(s32 alpha) { (void)alpha; }
+/* gevrRagdollRender fogs a body as bgfog.c fogs a prop: no fog in these scenes */
+s32 gevrFogDepthColor(f32 zDepth, rgba_f32 *color) { (void)zDepth; (void)color; return 2; }
+void lerp_rgba_s32_with_rgba_f32(rgba_s32 *dest, s32 enable, rgba_f32 *src) { (void)dest; (void)enable; (void)src; }
 void modelApplyDistanceRelations(Model *m,ModelNode *n) { (void)m;(void)n; }
 void modelApplyToggleRelations(Model *m,ModelNode *n) { (void)m;(void)n; }
 void modelApplyReorderRelations(Model *m,ModelNode *n) { (void)m;(void)n; }

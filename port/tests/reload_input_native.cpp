@@ -33,6 +33,7 @@ int netGetLocalSlot() { return localSlot; }
 int get_cur_playernum() { return slot; }
 int lvlGetControlsLockedFlag() { return locked; }
 int disablePlayerActionsWhenPausedOrInMpMenu() { return !pauseOpen; }
+int s_gevrHordeBHeld;
 int getCurrentPlayerWeaponId(int h) { return g_CurrentPlayer->hands[h].weapon; }
 int get_ammo_type_for_weapon(int weapon) { return weapon; }
 int bond_pressed_reload_activate() { return g_CurrentPlayer->field_D0; }
@@ -52,6 +53,7 @@ void poll() {
 }
 void move(int legacyTap = 0, bool tankConsumes = false) {
     struct { int btap; } moveData = {legacyTap};
+    [[maybe_unused]] const unsigned buttons = pad.button; // test_v043 splices the Horde B latch, which reads it
     /* INSERT_MOVEMENT */
     g_CurrentPlayer->field_D0 = moveData.btap && !tankConsumes;
 }

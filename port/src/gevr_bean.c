@@ -41,7 +41,18 @@ extern int VrGexGuns;
 #define MAX_OPAQUE_MODELS 1024
 static const void *s_opaqueModels[MAX_OPAQUE_MODELS];
 static int s_nopaqueModels;
+static void beanGunCollect(void);
 #include "gevr_bean_frame.inc.h"
+
+/* First-person file buffers are reused at weapon switches and respawns.
+ * Each load owns its replacements until no registry entry refers to it,
+ * then the last two frame lists must finish before that storage is freed. */
+struct beanGunGroup {
+	struct beanGunGroup *next;
+	unsigned retiredFrame;
+	int references, retired;
+};
+static struct beanGunGroup *s_gunGroups, *s_registrationGroup;
 
 static Gfx s_blank[1];
 static int s_blankReady;
@@ -80,10 +91,12 @@ static struct beanSkin *s_emittedSkin;
 static ModelFileHeader *s_registrationOwner;
 static int s_registrationWatchArm;
 static GevrStaticMesh *s_rigidMeshes[MAX_ALLOC];
+static struct beanGunGroup *s_rigidGroups[MAX_ALLOC];
 static int s_nrigidMeshes;
 static int s_registrationKind, s_rigidMinimum=256;
 struct beanSwap {
 	ModelFileHeader *owner;
+	struct beanGunGroup *group;
 	void *node;
 	void *original;
 	void *ours;
@@ -113,6 +126,7 @@ static int s_nswap;
 /* Node selection is repeated for each body part and pass. */
 static uint16_t s_swapIndex[MAX_SWAP * 2];
 static void *s_alloc[MAX_ALLOC];
+static struct beanGunGroup *s_allocGroups[MAX_ALLOC];
 static int s_nalloc;
 
 struct beanCache {
@@ -189,9 +203,12 @@ static int keepAlloc(void *p)
 		GEVR_BEAN_LOG("gevr bean: allocation table full\n");
 		return 0;
 	}
+	s_allocGroups[s_nalloc] = s_registrationGroup;
 	s_alloc[s_nalloc++] = p;
 	return 1;
 }
+
+#include "gevr_bean_gun_lifetime.inc.h"
 
 static unsigned swapBucket(const void *node)
 {
@@ -233,6 +250,8 @@ static void swapAdd(void *node, void *original, void *ours, int origType)
 		return;
 	}
 	s_swap[s_nswap].owner = s_registrationOwner;
+	s_swap[s_nswap].group = s_registrationGroup;
+	if (s_registrationGroup) s_registrationGroup->references++;
 	s_swap[s_nswap].node = node;
 	s_swap[s_nswap].original = original;
 	s_swap[s_nswap].ours = ours ? ours : s_blank;
@@ -371,6 +390,12 @@ static int opaqueDrawn(const void *model)
  * clean copy lay over a destroyed prop's scorched one (Dam's drums) and every
  * such prop was drawn twice. One with translucent batches is split over the
  * passes (gevrBeanPassSplit). */
+int gevrBeanDrawsElsewhere(void *node)
+{
+    struct beanSwap *s = activeSwap(node);
+    return s && s->ours == s_blank;
+}
+
 void *gevrBeanTransparentGdl(void *node, void *current, struct Model *model, int flags)
 {
     struct beanSwap *s = activeSwap(node);
@@ -668,6 +693,8 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 		int tex = base->tex;
 		int logicalW = 32, logicalH = 32;
 		int maskS, maskT;
+		int clampS = tex >= 0 && tex < mesh->ntex && (mesh->texClamp[tex] & 1);
+		int clampT = tex >= 0 && tex < mesh->ntex && (mesh->texClamp[tex] & 2);
 		while (end < ntri && vertKey(&v[order[end] * 3]) == key && v[order[end]*3].reflection==base->reflection &&
             v[order[end]*3].reflectionDiffuse==base->reflectionDiffuse &&
             v[order[end]*3].reflectionColour==base->reflectionColour &&
@@ -700,18 +727,21 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 				16, 16, 0, G_TX_WRAP, G_TX_WRAP, 4, 4, G_TX_NOLOD, G_TX_NOLOD);
 			gDPSetTile(g++, G_IM_FMT_RGBA, G_IM_SIZ_16b,
 				(((logicalW) * 2) + 7) >> 3, 0, G_TX_RENDERTILE, 0,
-				G_TX_WRAP, maskT, G_TX_NOLOD, G_TX_WRAP, maskS, G_TX_NOLOD);
+				clampT ? G_TX_CLAMP : G_TX_WRAP, maskT, G_TX_NOLOD,
+				clampS ? G_TX_CLAMP : G_TX_WRAP, maskS, G_TX_NOLOD);
 			gDPSetTileSize(g++, G_TX_RENDERTILE, 0, 0,
 				(logicalW - 1) << G_TEXTURE_IMAGE_FRAC, (logicalH - 1) << G_TEXTURE_IMAGE_FRAC);
             /* DAB xblaMeshSetMaterial: tile 1 the same picture, for the nodes'
              * G_CC_TRILERP (fast3d's LOD fraction is 1 without G_TL_LOD) */
             gDPSetTile(g++, G_IM_FMT_RGBA, G_IM_SIZ_16b,
                 (((logicalW) * 2) + 7) >> 3, 0, G_TX_RENDERTILE + 1, 0,
-                G_TX_WRAP, maskT, G_TX_NOLOD, G_TX_WRAP, maskS, G_TX_NOLOD);
+                clampT ? G_TX_CLAMP : G_TX_WRAP, maskT, G_TX_NOLOD,
+                clampS ? G_TX_CLAMP : G_TX_WRAP, maskS, G_TX_NOLOD);
             gDPSetTileSize(g++, G_TX_RENDERTILE + 1, 0, 0,
                 (logicalW - 1) << G_TEXTURE_IMAGE_FRAC, (logicalH - 1) << G_TEXTURE_IMAGE_FRAC);
 		} else {
 			tex = -1;
+			clampS = clampT = 0;
 			gSPTexture(g++, 0, 0, 0, G_TX_RENDERTILE, G_OFF);
 		}
         uint32_t ownMode;
@@ -739,11 +769,17 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
                         (edge2 & ~ZMODE_DEC) | ZMODE_DEC, mesh->roomMaterial);
                 else ownMode = beanRenderMode(&g, edge, edge2, mesh->roomMaterial);
                 nodeFlags = GEVR_NODE_SPAN | GEVR_NODE_CUT | (tex >= 0 ? GEVR_NODE_COMBINE : 0);
-				gDPSetCombineMode(g++, G_CC_MODULATEIA, G_CC_PASS2);
+				if (tex < 0) {
+					gDPSetCombineMode(g++, G_CC_SHADE, G_CC_PASS2);
+				} else {
+					gDPSetCombineMode(g++, G_CC_MODULATEIA, G_CC_PASS2);
+				}
 			} else if (base->decal && zbuf) {
 				ownMode = beanRenderMode(&g, G_RM_AA_ZB_OPA_DECAL | Z_UPD, G_RM_AA_ZB_OPA_DECAL2, mesh->roomMaterial);
                 nodeFlags = GEVR_NODE_SPAN | (tex >= 0 ? GEVR_NODE_COMBINE : 0);
-				if (dim) {
+				if (tex < 0) {
+					gDPSetCombineMode(g++, G_CC_SHADE, G_CC_PASS2);
+				} else if (dim) {
 					gDPSetCombineMode(g++, G_CC_MODULATEI_PRIM, G_CC_PASS2);
 				} else {
 					gDPSetCombineMode(g++, G_CC_MODULATEI, G_CC_PASS2);
@@ -808,8 +844,8 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 					/* Rebase the whole triangle together. Per-corner wrapping
 					 * collapses 0..1 edges and tears triangles crossing a seam. */
 					const struct gevrEmitVert *anchor = &v[order[batch + t] * 3];
-					su -= floorf(anchor->uv[0]);
-					sv -= floorf(-anchor->uv[1]);
+					su -= clampS ? mesh->texClampBase[tex][0] : floorf(anchor->uv[0]);
+					sv += clampT ? mesh->texClampBase[tex][1] + 1.0f : -floorf(-anchor->uv[1]);
 					dst->v.ob[0] = posClamp(src->p[0]);
 					dst->v.ob[1] = posClamp(src->p[1]);
 					dst->v.ob[2] = posClamp(src->p[2]);
@@ -1005,7 +1041,8 @@ static Gfx *wrapEmitted(ModelNode *n, Gfx *gdl)
 {
 	{
         /* Rigid props, guns and gloves retain their material commands and CPU
-         * fallback. Their vertex buffers live until the level reset. */
+         * fallback. Gun storage retires after reload; other storage lasts
+         * until the level reset. */
         if (!s_emittedSkin && s_nrigidMeshes < MAX_ALLOC && retainedRigidList(gdl)) {
             GevrStaticMesh *mesh = gevrStaticMeshBuild(gdl);
             /* gevr_rigid_min.txt <N>: props under N triangles take the CPU
@@ -1015,6 +1052,7 @@ static Gfx *wrapEmitted(ModelNode *n, Gfx *gdl)
             }
             Gfx *gpu = mesh ? malloc(2 * sizeof(Gfx)) : NULL;
             if (gpu && keepAlloc(gpu)) {
+                s_rigidGroups[s_nrigidMeshes] = s_registrationGroup;
                 s_rigidMeshes[s_nrigidMeshes++] = mesh;
                 gpu[0].words.w0 = (uintptr_t)G_GEVR_MESH << 24;
                 gpu[0].words.w1 = (uintptr_t)mesh;
@@ -1788,7 +1826,11 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 	struct gevrEmitVert *ev = NULL;
 	int any = 0;
 	dlVerts(host, &hv, &hc, &ht, &hp);
-	if (!hv || hc <= 0) {
+	/* A fitted Bean part already has its vertices, scale and local origin.
+	 * Its native node can be only a carrier (no native vertices/list). The
+	 * Runway guard keeps bones off listless groups, but rejecting such a
+	 * carrier here still dropped its support/body while other parts drew. */
+	if (!fit && (!hv || hc <= 0)) {
 		return 0;
 	}
 	for (int k = 0; k < 3; k++) {
@@ -1812,7 +1854,7 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 	if (!any) {
 		return 0;
 	}
-	for (int i = 0; i < hc; i++) {
+	for (int i = 0; !fit && i < hc; i++) {
 		for (int k = 0; k < 3; k++) {
 			float c = hv[i].coord.AsArray[k];
 			if (c < hmin[k]) hmin[k] = c;
@@ -2501,13 +2543,17 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 				for (ModelNode *up = dls[i].node->Parent; up; up = up->Parent)
 					if (nodeOp(up) == MODELNODE_OPCODE_LOD && up->Data->LOD.MinDistance > 0)
 						far = 1;
-                /* Prefer a fitted root body. Flying props can instead put
-                 * their hull on a non-root matrix after the rotor lists. */
+                /* Prefer a fitted root body. With no list on the root, the
+                 * fit is the first near list's (DAB gebean.c
+                 * gebeanRigidPrimaryList; gevr_bean_fits.h): Surface's dish
+                 * fitted to its truss drew 3927 too high on the dish's own
+                 * matrix when the widest list was taken (#218). The Runway
+                 * plane, helicopter and guns bind as before (ROM models). */
                 int rootMatrix=nodeMatrix(header->RootNode);
                 int haveRoot=best>=0 && nodeMatrix(dls[best].node)==rootMatrix;
                 if ((fit && !far && nodeMatrix(dls[i].node)==rootMatrix && !haveRoot) ||
                     (!fit && dls[i].span>bestSpan) ||
-                    (kind==BEAN_PROP && !haveRoot && !far && !dls[i].simple && dls[i].span>bestSpan)) {
+                    (kind==BEAN_PROP && fit && best<0 && !far && !dls[i].simple)) {
 					bestSpan = dls[i].span;
 					best = i;
 				}
@@ -2520,6 +2566,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 			best = 0;
 		if (best >= 0) {
 			struct beanRigidBinding binding;
+			int partDone[MAX_GRP] = {0}; /* a part's triangles go on one list of its matrix */
 			rigidBindings(mesh, fit, grp, ng, dls[best].grp, &binding, dls, nd);
 			binding.target = binding.base;
 			void *gdl = NULL, *vtx = NULL;
@@ -2683,6 +2730,10 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
                         registerPrimary(dls[i].node,gdl,0);
                         continue;
                     }
+					if (kind == BEAN_PROP && g >= 0 && g != binding.base && partDone[g]) {
+						registerPrimary(dls[i].node, s_blank, 1);
+						continue;
+					}
 					if (kind == BEAN_PROP && g >= 0 && g != binding.base) {
 						binding.target = g;
 						void *partGdl = NULL, *partVtx = NULL;
@@ -2691,6 +2742,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 							keepAlloc(partGdl);
 							keepAlloc(partVtx);
 							registerPrimary(dls[i].node, partGdl, 0);
+							partDone[g] = 1;
 						} else if (!dls[i].simple && !underJoint)
 							registerPrimary(dls[i].node, s_blank, 1);
 						continue;
@@ -2755,6 +2807,8 @@ void gevrBeanForgetModel(struct ModelFileHeader *header)
 	for (int i = 0; i < s_nswap; i++)
 		if (s_swap[i].owner != header)
 			s_swap[kept++] = s_swap[i];
+		else
+			beanGunUnref(s_swap[i].group);
 	s_nswap = kept;
 	swapIndexRebuild();
 	beanScreenInfoForget(header, 0, 0);
@@ -2770,6 +2824,8 @@ void gevrBeanForgetModelStorage(const void *base, u32 size)
 		uintptr_t node = (uintptr_t)s_swap[i].node;
 		if (node < start || node - start >= size)
 			s_swap[kept++] = s_swap[i];
+		else
+			beanGunUnref(s_swap[i].group);
 	}
 	s_nswap = kept;
 	swapIndexRebuild();
@@ -2861,43 +2917,27 @@ void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
 		mesh->mirrorPieces = 1;
 	}
 	int before = s_nswap;
-	applyMesh(header, mesh, kind, fit);
+	struct beanGunGroup *group = NULL;
+	if (kind == BEAN_GUN) group = calloc(1, sizeof(*group));
+	if (kind != BEAN_GUN || group) {
+		if (group) {
+			group->next = s_gunGroups;
+			s_gunGroups = group;
+		}
+		s_registrationGroup = group;
+		applyMesh(header, mesh, kind, fit);
+		s_registrationGroup = NULL;
+		if (group && !group->references) beanGunRetire(group);
+	}
 	GEVR_BEAN_LOG("gevr bean: %s -> %s: %d draw nodes, %d triangles, %d textures",
 	             name, source, s_nswap - before, mesh->ntris, mesh->ntex);
 	/* Once the bounded cache is full, this load is temporary. Its display
-	 * lists and decoded textures have their own lifetime until level reset. */
+	 * lists and decoded textures have separate ownership. */
 	int cached = 0;
 	for (int i = 0; i < s_ncache; i++) {
 		if (s_cache[i].mesh == mesh) cached = 1;
 	}
 	if (!cached) gevrBeanMeshFree(mesh);
-}
-
-/* objDeform's vertex copies: a destroyed prop's, for gevrBeanScorchedGdl. A
- * node's own copy alone says nothing: chr.c gives chr parts theirs too, and a
- * scorched list is a per-frame copy drawn on the CPU. */
-#define MAX_DEFORMED 64
-static const void *s_deformed[MAX_DEFORMED];
-static int s_deformedNext;
-
-void gevrBeanMarkDeformed(const void *vertices)
-{
-    gevrBeanForgetDeformed(vertices);
-    s_deformed[s_deformedNext] = vertices;
-    s_deformedNext = (s_deformedNext + 1) % MAX_DEFORMED;
-}
-
-void gevrBeanForgetDeformed(const void *vertices)
-{
-    for (int i = 0; vertices && i < MAX_DEFORMED; i++)
-        if (s_deformed[i] == vertices) s_deformed[i] = NULL;
-}
-
-int gevrBeanIsDeformed(const void *vertices)
-{
-    for (int i = 0; vertices && i < MAX_DEFORMED; i++)
-        if (s_deformed[i] == vertices) return 1;
-    return 0;
 }
 
 static Gfx *s_rareLogo;
@@ -2983,6 +3023,7 @@ void gevrBeanReset(void)
 {
 	beanFrameReset();
 	beanCutReset();
+	beanCapReset();
 	memset(s_wounds, 0, sizeof(s_wounds));
 	s_woundUse = 0;
 	for (int i = 0; i < s_nrigidMeshes; i++) gevrStaticMeshFree(s_rigidMeshes[i]);
@@ -2995,8 +3036,8 @@ void gevrBeanReset(void)
 		s_alloc[i] = NULL;
 	}
 	s_nalloc = 0;
+	beanGunReset();
 	s_rareLogo = NULL;   /* its list and picture went with the level */
-	memset(s_deformed, 0, sizeof(s_deformed));
 	s_rareLogoTried = 0;
 	s_nswap = 0;
 	memset(s_swapIndex, 0, sizeof(s_swapIndex));

@@ -25,6 +25,9 @@ typedef struct GevrBotRoute {
 s32 gevrBotNavPlan(GevrBotRoute *route, StandTile *fromtile, const coord3d *from,
                    StandTile *goaltile, const coord3d *goal);
 
+/* Connected without crossing a closed door or path blocker (Horde arenas). */
+s32 gevrBotNavCanReach(StandTile *fromtile, const coord3d *from, StandTile *goaltile, const coord3d *goal);
+
 /* Where to head for now along the route, from pos on tile: the farthest of the
  * next points a straight walk reaches without crossing a path blocker.
  * FALSE at the end, with no route, or when a blocker requires replanning. */

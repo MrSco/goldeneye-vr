@@ -15,6 +15,7 @@ void gevrBeanBeginFrame(void)
 	s_nopaqueModels = 0;
 	s_frameIndex ^= 1;
 	s_frameCount++;
+	beanGunCollect();
 	for (struct beanFrameChunk *c = s_frameChunks[s_frameIndex]; c; c = c->next)
 		c->used = 0;
 }

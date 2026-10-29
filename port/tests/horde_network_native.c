@@ -54,6 +54,9 @@ int main(void)
     assert(hordeUseBox(&state,1,20,0)==1);
     state.ammo_grants[2]=17;state.guns[3][0]=2;state.guns[3][1]=33;state.grant_replace[1]=10;
     for(unsigned i=0;i<HORDE_AMMO_DROPS;i++)state.ammo[i]=(HordeAmmoDrop){1000+i,1200,{i*10.0f,-20.0f,3.0f}};
+    state.instakill_ticks=1700;state.max_ammo_seq=3;state.power_seq=7;state.power_kind=HORDE_POWER_INSTAKILL;
+    state.explosives[2][0]=19;state.explosives[3][1]=31;
+    for (unsigned i=0;i<HORDE_POWER_DROPS;i++)state.powers[i]=(HordePowerDrop){2000+i,3500,{i*13.0f,1,3},i%HORDE_POWER_COUNT};
     HordeState saved=state;
     netHordeSend(-1);memset(&state,0,sizeof(state));hosting=false;receive();
     assert(applied==1 && !memcmp(&state,&saved,sizeof(state)));
@@ -78,16 +81,38 @@ int main(void)
     state.ammo[0].pos[0]=NAN;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
     state.ammo[1].id=state.ammo[0].id;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
     state.guns[0][1]=200;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
+    state.powers[0].pos[2]=INFINITY;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
+    state.powers[1].id=state.powers[0].id;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
+    state.powers[0].kind=HORDE_POWER_COUNT;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
+    state.instakill_ticks=HORDE_INSTAKILL_TICKS+1;hosting=true;netHordeSend(-1);hosting=false;receive();assert(applied==2);state=valid;
     assert(gevrHordeGuardToken((struct ChrRecord *)1)==(((uint64_t)7<<32)|123));
     assert(gevrHordeTokenCurrent(((uint64_t)7<<32)|123));
     assert(!gevrHordeTokenCurrent(((uint64_t)6<<32)|123));
     assert(!gevrHordeTokenCurrent((uint64_t)7<<32));
     NetMatchConfig c={0};c.mode=NET_MODE_HORDE;c.stage=NET_HORDE_STAGE;c.max_players=4;c.horde_start_wave=1;
     assert(netMatchConfigValid(&c) && netConfigMaxPlayers(&c)==4);
-    /* Horde's maps: Archives, Bunker I/II, Control, Facility, and no others */
-    const unsigned maps[]={24,9,27,23,34};
-    for(unsigned i=0;i<5;i++){c.stage=maps[i];assert(netMatchConfigValid(&c) && netConfigMaxPlayers(&c)==4);}
-    c.stage=26;assert(!netMatchConfigValid(&c) && netConfigMaxPlayers(&c)==0);c.stage=NET_HORDE_STAGE;
+    /* Every mission and arena, including Statue and MP-only Complex. The
+     * wire round trip must preserve IDs and reject menus/unknown stages. */
+    assert(netHordeStageCount()==26 && netStageCount()==33);
+    for(int i=netHordeStageCount();i<netStageCount();i++) { /* "(Full)": Deathmatch's alone */
+        c.stage=netStage(i)->level_id;
+        assert(!netMatchConfigValid(&c) && !netHordeStageValid(c.stage) && netStageIndexOf(c.stage)==i);
+    }
+    for(int i=0;i<netHordeStageCount();i++) {
+        c.stage=netStage(i)->level_id;
+        assert(netMatchConfigValid(&c) && netConfigMaxPlayers(&c)==4);
+        assert(*netHordeStageName(c.stage));
+        unsigned char config_raw[64];struct netbuf config_buf={.data=config_raw,.size=sizeof(config_raw)};
+        NetMatchConfig decoded;
+        netbufStartWrite(&config_buf);netbufWriteMatchConfig(&config_buf,&c);
+        unsigned written=config_buf.wp;netbufStartReadData(&config_buf,config_raw,written);
+        assert(!netbufReadMatchConfig(&config_buf,&decoded) && !netbufReadLeft(&config_buf) && netMatchConfigValid(&decoded));
+        assert(decoded.stage==c.stage && decoded.mode==NET_MODE_HORDE);
+    }
+    for(int i=0;i<netCoopMissionCount();i++)assert(netHordeStageValid(netCoopMission(i)->level_id));
+    const unsigned invalid[]={0,21,40,54,90,127,255,256+24,(unsigned)-1};
+    for(unsigned i=0;i<sizeof(invalid)/sizeof(invalid[0]);i++)assert(!netHordeStageValid(invalid[i]));
+    c.stage=90;assert(!netMatchConfigValid(&c) && netConfigMaxPlayers(&c)==0);c.stage=NET_HORDE_STAGE;
     c.horde_start_wave=0;assert(!netMatchConfigValid(&c));
     c.horde_start_wave=NET_HORDE_MAX_START_WAVE+1;assert(!netMatchConfigValid(&c));
     c.horde_start_wave=NET_HORDE_MAX_START_WAVE;assert(netMatchConfigValid(&c));c.horde_start_wave=1;

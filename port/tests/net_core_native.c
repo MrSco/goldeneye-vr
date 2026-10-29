@@ -29,7 +29,8 @@ int VrMpBotMode,VrMpBotCount=3,VrMpBotDifficulty=2;
 int VrHostEqualization=1,VrHostLatencyCapMs=50;
 int VrCoopFastReinforcements;
 int VrHordeFriendlyFire;
-unsigned VrMpFavStages,VrMpFavSets;
+unsigned long long VrMpFavStages;
+unsigned VrMpFavSets;
 char VrPlayerName[16]="Test";
 static uint64_t clock_us=10000000;
 static int voice_resets;
@@ -1138,5 +1139,42 @@ EXPORT int test_core_bot_owner(void) {
     s_server_peer=NULL;s_local_slot=0;s_client_peers[1]=NULL;fixture_cur=-1;
     memset(g_playerPointers,0,sizeof(g_playerPointers));
     s_state=NET_STATE_HOSTING_LOBBY;VrMpBotMode=0;netSetHostEqualization(1,50);
+    return 0;
+}
+
+/* A "(Full)" stage (tester, 2026-10-27): the round loads the mission's LEVELID
+ * and says so; the rotation and favourites reach the list's last entries. */
+EXPORT int test_core_full_maps(void) {
+    const int full = netStageIndexOf(34 | NET_STAGE_FULL), last = netStageCount() - 1;
+    CHECK(full >= 26 && last >= 32 && netStageEligible(last));
+    int old_state = s_state;
+    s_state = NET_STATE_INGAME;
+    s_round.config.mode = NET_MODE_DEATHMATCH;
+    s_round.config.stage = 34;
+    CHECK(netRoundLoadStage() == 34 && !netRoundFullMap());
+    s_round.config.stage = netStage(full)->level_id;
+    CHECK(netRoundLoadStage() == 34 && netRoundFullMap());
+    s_round.config.mode = NET_MODE_COOP; s_round.config.stage = NET_COOP_FRONT_STAGE; /* 90 has the bit */
+    CHECK(netRoundLoadStage() == LEVELID_TITLE && !netRoundFullMap());
+    s_round.config.mode = NET_MODE_COOP; s_round.config.stage = 34;
+    CHECK(netRoundLoadStage() == 34 && !netRoundFullMap());
+    s_round.config.mode = NET_MODE_DEATHMATCH; s_round.config.stage = netStage(full)->level_id;
+    s_state = NET_STATE_MIGRATING; CHECK(netRoundFullMap());
+    s_state = NET_STATE_HOSTING_LOBBY; CHECK(!netRoundFullMap()); /* the last round's config, kept */
+    s_state = NET_STATE_OFFLINE; CHECK(!netRoundFullMap());
+    /* PR #224: a rejoin reuses the loaded world only for the same layout,
+     * Facility and Facility (Full) both being LEVELID 34 */
+    fixture(0); s_state = NET_STATE_INGAME; s_local_slot = 0;
+    s_round.config.mode = NET_MODE_DEATHMATCH; s_round.config.stage = 34;
+    netStageLoaded(); CHECK(netRoundMatchesLoadedMap(34) && !netRoundMatchesLoadedMap(39));
+    s_round.config.stage = netStage(full)->level_id;
+    CHECK(netRoundLoadStage() == 34 && !netRoundMatchesLoadedMap(34));
+    netStageLoaded(); CHECK(netRoundMatchesLoadedMap(34));
+    /* the favourites past bit 31: the playlist steps to them, the shuffle picks only them */
+    unsigned long long fav = (1ull << full) | (1ull << last);
+    CHECK(netRotationPick(NET_BALLOT_STAGE, full, fav, NET_NEXT_PLAYLIST) == last);
+    CHECK(netRotationPick(NET_BALLOT_STAGE, last, fav, NET_NEXT_PLAYLIST) == full);
+    for (int i = 0; i < 16; i++) CHECK(netRotationPick(NET_BALLOT_STAGE, full, fav, NET_NEXT_SHUFFLE) == last);
+    s_state = old_state; s_round.config.stage = 34;
     return 0;
 }

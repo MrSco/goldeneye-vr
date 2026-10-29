@@ -50,6 +50,11 @@ static const int *beanSkinWeld(struct beanSkin *skin)
 		}
 	}
 	free(table);
+	/* The weld belongs to this level just like the skin it indexes. */
+	if (!keepAlloc(weld)) {
+		free(weld);
+		return NULL;
+	}
 	skin->weld = weld;
 	return weld;
 }
@@ -59,11 +64,22 @@ struct beanCapLoop { int piece, other, first, nedges; };
 struct beanCapCache {
 	const struct beanSkin *skin;
 	int cuts, nloops;
+	int nverts; /* the skin's size when built: its edges index that many vertices */
 	struct beanCapLoop loops[BEAN_CAP_LOOPS];
 	int (*edges)[2]; /* skin vertex indices on the loop's own side */
 };
 static struct beanCapCache s_capCache[32];
 static int s_capNext;
+
+/* Skin addresses can be reused by the next level. Never retain their border
+ * indices after the level's allocation arena has been freed. */
+static void beanCapReset(void)
+{
+	for (int i = 0; i < (int)(sizeof(s_capCache) / sizeof(*s_capCache)); i++)
+		free(s_capCache[i].edges);
+	memset(s_capCache, 0, sizeof(s_capCache));
+	s_capNext = 0;
+}
 
 struct beanCapEdge { int a, b, va, vb, piece, other; };
 static int beanCapEdgeCmp(const void *x, const void *y)
@@ -75,7 +91,10 @@ static int beanCapEdgeCmp(const void *x, const void *y)
 static const struct beanCapCache *beanCapLoops(struct beanSkin *skin, int cuts, const int *tripiece, const int *triother)
 {
 	for (int i = 0; i < (int)(sizeof(s_capCache) / sizeof(*s_capCache)); i++)
-		if (s_capCache[i].skin == skin && s_capCache[i].cuts == cuts)
+		/* beanCutCaps writes posed[edge] for the skin as it is now: an entry
+		 * for a reused address with another vertex count overran that frame
+		 * buffer into a ragdoll's heap list (crash 72eaa2c0, v0.5.13) */
+		if (s_capCache[i].skin == skin && s_capCache[i].cuts == cuts && s_capCache[i].nverts == skin->nverts)
 			return &s_capCache[i];
 	const int *weld = beanSkinWeld(skin);
 	const int ntri = skin->nverts / 3;
@@ -129,6 +148,7 @@ static const struct beanCapCache *beanCapLoops(struct beanSkin *skin, int cuts, 
 	free(cache->edges);
 	memset(cache, 0, sizeof(*cache));
 	cache->skin = skin;
+	cache->nverts = skin->nverts;
 	cache->cuts = cuts;
 	cache->edges = malloc((size_t)(nborder > 0 ? nborder : 1) * sizeof(*cache->edges));
 	int stored = 0;

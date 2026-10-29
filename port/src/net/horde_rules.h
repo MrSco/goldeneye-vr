@@ -5,8 +5,8 @@
 #include <stdio.h>
 enum { HORDE_PREPARE, HORDE_WAVE, HORDE_INTERMISSION, HORDE_DEFEAT };
 enum { HORDE_BOX_IDLE, HORDE_BOX_ROLLING, HORDE_BOX_READY, HORDE_BOX_MOVING };
-enum { HORDE_GRANT_NONE, HORDE_GRANT_BOX_WEAPON, HORDE_GRANT_WALL_WEAPON, HORDE_GRANT_WALL_AMMO, HORDE_GRANT_ARMOR };
-enum { HORDE_ACT_BOX, HORDE_ACT_WALL_BUY, HORDE_ACT_WALL_AMMO, HORDE_ACT_AMMO_PICKUP };
+enum { HORDE_GRANT_NONE, HORDE_GRANT_BOX_WEAPON, HORDE_GRANT_WALL_WEAPON, HORDE_GRANT_WALL_AMMO, HORDE_GRANT_ARMOR, HORDE_GRANT_EXPLOSIVE };
+enum { HORDE_ACT_BOX, HORDE_ACT_WALL_BUY, HORDE_ACT_WALL_AMMO, HORDE_ACT_AMMO_PICKUP, HORDE_ACT_POWER_PICKUP };
 #define HORDE_AMMO_DROPS 24
 #define HORDE_AMMO_LIFETIME (60 * 60)
 typedef struct {
@@ -27,7 +27,28 @@ typedef struct {
 #define HORDE_BOX_ROLL_TICKS (3 * 60)
 #define HORDE_BOX_CLAIM_TICKS (8 * 60)
 #define HORDE_BOX_MOVE_TICKS (3 * 60)
-#define HORDE_WALL_COUNT 6u
+#define HORDE_WALL_COUNT 8u
+#define HORDE_POWER_DROPS 4
+#define HORDE_INSTAKILL_TICKS (30 * 60)
+enum { HORDE_POWER_NUKE, HORDE_POWER_MAX_AMMO, HORDE_POWER_INSTAKILL, HORDE_POWER_COUNT };
+typedef struct {
+    uint32_t id, ticks;
+    float pos[3];
+    uint32_t kind;
+} HordePowerDrop;
+#define HORDE_HOLD_TICKS 90u
+/* A fresh press starts one hold. Losing the target cancels until release. */
+typedef struct { unsigned target, ticks, down; } HordeHold;
+static inline int hordeHoldTick(HordeHold *h, unsigned target, int pressed, int held, unsigned ticks) {
+    if (!held) { *h=(HordeHold){0}; return 0; }
+    if (pressed && !h->down) { h->down=1; h->target=target; h->ticks=0; return 0; }
+    if (!h->down) { h->down=1; return 0; }
+    if (!target || target!=h->target) { h->target=0; return 0; }
+    if (ticks>15) ticks=15;
+    h->ticks+=ticks;
+    if (h->ticks<HORDE_HOLD_TICKS) return 0;
+    h->target=0; return 1;
+}
 #define HORDE_GUN_SLOTS 2u
 #define HORDE_ITEM_LIMIT 128u   /* item IDs a gun slot may hold */
 typedef struct {
@@ -36,6 +57,9 @@ typedef struct {
     uint32_t credits[4], grant_seq[4], box_timer;
     uint32_t ammo_grants[4];
     HordeAmmoDrop ammo[HORDE_AMMO_DROPS];
+    HordePowerDrop powers[HORDE_POWER_DROPS];
+    uint32_t instakill_ticks, max_ammo_seq, power_seq, power_kind;
+    uint32_t explosives[4][2]; /* cumulative buys survive dropped/coalesced snapshots */
     uint8_t phase, players, box_state, box_spot, box_buyer, box_weapon, box_uses;
     uint8_t grant_kind[4], grant_item[4];
     /* Two guns a player (the starting PP7 one of them), oldest first, as item
@@ -117,7 +141,7 @@ static inline unsigned hordeEnemyKindHealthPercent(unsigned kind, unsigned playe
 static inline unsigned hordeEnemySpeedPercent(uint32_t wave, unsigned kind) {
     unsigned climb = wave > 21 ? 20 : wave ? wave - 1 : 0;
     unsigned pct = 100 + 2 * climb;   /* 100% on wave 1, 140% from wave 21 */
-    if (kind == HORDE_ENEMY_SWARM) pct += 60;
+    if (kind == HORDE_ENEMY_SWARM) pct += 180; /* 288% at wave 5, up to 320% */
     if (kind == HORDE_ENEMY_BOSS) pct = pct > 110 ? 110 : pct;
     return pct;
 }
@@ -140,7 +164,7 @@ static inline uint32_t hordeStartCredits(uint32_t start_wave) {
     return HORDE_START_CREDITS + 400u * skipped;
 }
 static inline uint32_t hordeWallCost(unsigned wall_idx, int ammo_only) {
-    static const uint32_t costs[HORDE_WALL_COUNT] = { 500, 750, 1200, 1400, 1800, 1500 };
+    static const uint32_t costs[HORDE_WALL_COUNT] = { 500, 750, 1200, 1400, 1800, 1500, 500, 750 };
     if (wall_idx >= HORDE_WALL_COUNT) return 0;
     return (ammo_only && wall_idx < 5) ? costs[wall_idx] / 2 : costs[wall_idx];
 }
@@ -253,7 +277,8 @@ static inline int hordeBuyWall(HordeState *s, unsigned slot, unsigned wall_idx, 
     s->grant_seq[slot]++;
     s->grant_item[slot] = (uint8_t)wall_idx;
     s->grant_kind[slot] = wall_idx == 5 ? HORDE_GRANT_ARMOR
-        : (ammo_only ? HORDE_GRANT_WALL_AMMO : HORDE_GRANT_WALL_WEAPON);
+        : wall_idx >= 6 ? HORDE_GRANT_EXPLOSIVE : HORDE_GRANT_WALL_WEAPON;
+    if (wall_idx >= 6) s->explosives[slot][wall_idx-6]++;
     s->revision++;
     return 1;
 }
@@ -263,6 +288,10 @@ static inline int hordeAdvance(HordeState *s, unsigned ticks, unsigned players) 
     if (ticks > 15) ticks = 15; /* no burst after suspend/loading */
     if (UINT32_MAX - s->elapsed >= ticks) s->elapsed += ticks;
     hordeTickBox(s, ticks);
+    if (s->instakill_ticks) {
+        s->instakill_ticks=s->instakill_ticks>ticks?s->instakill_ticks-ticks:0;
+        if (!s->instakill_ticks) s->revision++;
+    }
     if (s->phase == HORDE_WAVE) {
         s->spawn_timer = s->spawn_timer > ticks ? s->spawn_timer - ticks : 0;
         if (s->remaining || s->alive) return 0;
@@ -308,9 +337,20 @@ static inline void hordeEnemyGone(HordeState *s, int killed) {
 }
 static inline int hordeStateValid(const HordeState *s) {
     for (unsigned i = 0; i < 4; i++) {
-        if (s->credits[i] > HORDE_MAX_CREDITS || s->grant_kind[i] > HORDE_GRANT_ARMOR
+        if (s->credits[i] > HORDE_MAX_CREDITS || s->grant_kind[i] > HORDE_GRANT_EXPLOSIVE
             || s->grant_replace[i] >= HORDE_ITEM_LIMIT) return 0;
+        unsigned kind=s->grant_kind[i],item=s->grant_item[i];
+        if ((kind==HORDE_GRANT_BOX_WEAPON && item>=HORDE_BOX_POOL_SIZE)
+            || ((kind==HORDE_GRANT_WALL_WEAPON || kind==HORDE_GRANT_WALL_AMMO) && item>=5)
+            || (kind==HORDE_GRANT_ARMOR && item!=5)
+            || (kind==HORDE_GRANT_EXPLOSIVE && (item<6 || item>=HORDE_WALL_COUNT))) return 0;
         for (unsigned g = 0; g < HORDE_GUN_SLOTS; g++) if (s->guns[i][g] >= HORDE_ITEM_LIMIT) return 0;
+    }
+    if (s->instakill_ticks>HORDE_INSTAKILL_TICKS || s->power_kind>=HORDE_POWER_COUNT) return 0;
+    for (unsigned i=0;i<HORDE_POWER_DROPS;i++) {
+        if (s->powers[i].kind>=HORDE_POWER_COUNT || s->powers[i].ticks>HORDE_AMMO_LIFETIME
+            || (s->powers[i].id && !s->powers[i].ticks)) return 0;
+        for (unsigned j=0;j<i;j++) if (s->powers[i].id && s->powers[i].id==s->powers[j].id) return 0;
     }
     return s->phase <= HORDE_DEFEAT && s->players <= 4
         && s->remaining <= HORDE_MAX_QUOTA && s->alive <= HORDE_MAX_ALIVE

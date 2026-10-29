@@ -56,9 +56,12 @@ int gevrHatNodeGdl(struct ModelNode *node, struct Model *model, void **gdl) { (v
 #include <gevr_bean_material_paths_test.inc.h>
 
 #include "gevr_bean_room_material_test.inc.h"
+#include "gevr_bean_surface_test.inc.h"
 
 int main(void)
 {
+    surfaceChecks();
+    rigidSupportChecks();
     struct gevrBeanMesh mesh = {0};
     uint16_t pixels[256] = {0};
     mesh.ntex = 1; mesh.standin[0] = pixels; mesh.texW[0] = 128; mesh.texH[0] = 64;
@@ -247,6 +250,34 @@ int main(void)
     Model wounded = {0};
     s_wounds[0].model = &wounded;
     s_wounds[0].serial = s_woundUse = 1;
+    /* A new level may reuse a skin address with fewer/different triangles.
+     * The old cut border must not supply indices into the replacement skin. */
+    struct beanSkinVert resetVerts[6] = {0};
+    for (int i = 0; i < 6; i++) {
+        resetVerts[i].weight[0] = 255;
+        resetVerts[i].p[0][0] = (float)i;
+    }
+    struct beanSkin resetSkin = {.verts = resetVerts, .nverts = 6};
+    int resetPieces[2] = {0, 0}, resetOthers[2] = {-1, 1};
+    const struct beanCapCache *beforeReset = beanCapLoops(&resetSkin, 4, resetPieces, resetOthers);
+    assert(beforeReset && beforeReset->nloops == 1);
+    assert(beforeReset->edges[0][0] >= 3);
+    gevrBeanReset();
+    /* Simulate allocator address reuse deterministically, without depending
+     * on malloc returning the same address on the host platform. */
+    resetSkin.weld = NULL;
+    resetSkin.nverts = 3;
+    const struct beanCapCache *afterReset = beanCapLoops(&resetSkin, 4, resetPieces, resetOthers);
+    assert(afterReset && afterReset->nloops == 0);
+    /* Without a reset too: an entry is for the skin at its own size. */
+    resetSkin.weld = NULL;
+    resetSkin.nverts = 6;
+    const struct beanCapCache *grown = beanCapLoops(&resetSkin, 4, resetPieces, resetOthers);
+    assert(grown && grown->nloops == 1 && grown->edges[0][0] >= 3);
+    resetSkin.weld = NULL;
+    resetSkin.nverts = 3;
+    const struct beanCapCache *shrunk = beanCapLoops(&resetSkin, 4, resetPieces, resetOthers);
+    assert(shrunk && shrunk != grown && shrunk->nloops == 0);
     gevrBeanReset();
     assert(!s_wounds[0].model && !s_wounds[0].serial && !s_woundUse);
     puts("Bean UV, vertex alpha and same-level toggle checks passed");

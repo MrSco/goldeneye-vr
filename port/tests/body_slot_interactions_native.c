@@ -28,7 +28,17 @@ typedef float f32;
 #define BT_DWELL 0
 #define GEVR_GRIP_PEND_POLLS 30
 #define GEVR_THROW_BUFFER_SIZE 6
-struct coord3d { float x, y, z; };
+typedef struct coord3d { union { struct { float x, y, z; }; float f[3]; }; } coord3d;
+#define GEVR_UNITS_PER_METRE 100.0f
+#define GEVR_GESTURE_FINGERS_CM 6.0f
+static float D_800364CC = 1.0f;
+static int g_ClockTimer = 1;
+static int s_gevrHordeBHeld, hordeHolds; /* gevrGripGestureTick feeds every tick to the Horde purchase hold */
+void gevrHordeHoldInput(int channel, int pressed, int held, const float *hand, unsigned ticks)
+{ (void)channel; (void)pressed; (void)held; (void)hand; (void)ticks; hordeHolds++; }
+static int gevrGripAxesRaw(int ctrl, float at[3], float right[3], float up[3], float back[3])
+{ (void)ctrl; (void)at; (void)right; (void)up; (void)back; return 0; }
+static int gevrHordeGripWorld(const float p[3], coord3d *world) { (void)p; (void)world; return 0; }
 struct hand { int weapon_ammo_in_magazine, weapon_action_state, item; };
 struct Player { int bonddead, watch_animation_state, mpmenuon; struct hand hands[2]; } player;
 static struct Player *g_CurrentPlayer = &player;

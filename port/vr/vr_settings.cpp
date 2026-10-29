@@ -25,6 +25,7 @@
 #include "gevr_scope.h"
 #include "vr_screen.h"
 #include "vr_haptics.h"
+#include "../src/net/net_match.h"
 #include "../src/net/net_rules.h" /* NET_FUN_MASK: the deathmatch fun rules */
 
 extern "C" float inputRumbleGetStrength(int playernum);
@@ -261,7 +262,7 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; 1 = in the headset GoldenEye X's arms are every arm, the left wearing the watch; 0 = the watch arm.\n");
     for (int i = 0; i < 4; i++) fprintf(f, "MpCustom%d=%d\n", i + 1, VrMpCustom[i]);
     for (int i = 0; i < 4; i++) fprintf(f, "MpLoadout%d=%d\n", i + 1, VrMpLoadout[i]);
-    fprintf(f, "MpFavStages=%u\nMpFavSets=%u\n", VrMpFavStages, VrMpFavSets);
+    fprintf(f, "MpFavStages=%llu\nMpFavSets=%u\n", VrMpFavStages, VrMpFavSets);
     fprintf(f, "; MpMode 2 = Horde (Archives). Co-op: MpMode 1, the mission's level id and the difficulty (0 Agent .. 3 007).\n");
     fprintf(f, "MpMode=%d\nMpMission=%d\nMpDifficulty=%d\n", VrMpMode, VrMpMission, VrMpDifficulty);
     fprintf(f, "; The virtual screen: metres in front of you, and the degrees of view it spans.\n");
@@ -738,7 +739,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "HostLatencyCapMs") == 0) VrHostLatencyCapMs = ival < 0 ? 0 : ival > 80 ? 80 : ival;
             else if (strcmp(key, "MpFriendlyFire") == 0) VrMpFriendlyFire = ival != 0;
             else if (strcmp(key, "HordeFriendlyFire") == 0) VrHordeFriendlyFire = ival != 0;
-            else if (strcmp(key, "HordeStage") == 0) VrHordeStage = (ival == 24 || ival == 9 || ival == 27 || ival == 23 || ival == 34) ? ival : 24;   // net_match.h netHordeStageValid
+            else if (strcmp(key, "HordeStage") == 0) VrHordeStage = netHordeStageValid((unsigned)ival) ? ival : NET_HORDE_STAGE;
             else if (strcmp(key, "HordeStartWave") == 0) VrHordeStartWave = ival < 1 ? 1 : ival > 50 ? 50 : ival;
             else if (strcmp(key, "MpFunFlags") == 0) VrMpFunFlags = ival >= 0 && !(ival & ~NET_FUN_MASK) ? ival : 0;
             else if (strcmp(key, "MpGunSize") == 0) VrMpGunSize = ival >= 0 && ival <= 2 ? ival : 0;
@@ -757,7 +758,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MpDual") == 0) VrMpDual = ival;
             else if (strcmp(key, "MpLoadouts") == 0) VrMpLoadouts = ival != 0;
             else if (strcmp(key, "MpNextRound") == 0) VrMpNextRound = ival;
-            else if (strcmp(key, "MpFavStages") == 0) VrMpFavStages = (unsigned)ival;
+            else if (strcmp(key, "MpFavStages") == 0) VrMpFavStages = strtoull(eq + 1, NULL, 10); /* past 32 bits */
             else if (strcmp(key, "MpFavSets") == 0) VrMpFavSets = (unsigned)ival;
             else if (strcmp(key, "MpMode") == 0) VrMpMode = ival >= 0 && ival <= 2 ? ival : 0;
             else if (strcmp(key, "MpMission") == 0) VrMpMission = ival;

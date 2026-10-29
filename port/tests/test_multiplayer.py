@@ -59,7 +59,7 @@ def build_core():
     keep.update({"netJoinStartsSpectating", "netReceiveStageReady", "netLobbyHostLaunchMatch", "netSendMatchStartTo", "netHordeActive", "netHordeRunning", "netAllPlayersLoaded", "netHordeAdmitPlayers", "netMpPlayerCount", "netGetPlayingCount"})
     keep.update({"netReceiveLobbyReady","netHostCanStartRound","netBeginRoundReset","netBroadcastRoundPhase"})
     keep.update({"netLobbySlotConnected","netWarmupSettingsChanged","netTryHostStartRequest","netHostRoundTick","netHostReturnToLobby","netStageLoaded","netWarmupSecondsLeft","netHostStartRequested","netHostRequestVotes","netRoundNoticeText","netBroadcastRoundNotice","netReceiveRoundNotice","netGetVote","netResolveVotes","netTallyBallot","netRotationPick","netBallotSize","netHostKickPlayer","netHostDropSlot","netClientKickDisconnected","netBroadcastAllVotes"})
-    keep.update({"netHostCanKickPlayer","netReceiveClientCaps","netSendClientCaps","netHostRemoveOldForNoRadar"})
+    keep.update({"netHostCanKickPlayer","netReceiveClientCaps","netSendClientCaps","netHostRemoveOldForNoRadar","netRoundLoadStage","netRoundFullMap","netRoundMatchesLoadedMap"})
     keep.update({"netSlotOwned","gevrNetOwnsSlot","netActingSlot","netSendHitReportAs","netSendOwnedMove","netIsRemotePlayerActive","netRemoteTrigger","netSlotIsBot","netGetHumanPlayerCount","netReleaseBotSlot","netAddBot","netUpdateBots","netBotPoints","netBotToReplace","netJoinSlot","gevrNetSlotIsBot","gevrNetBotRowsEditable"})
     keep.update({"netMapShotTime","netResetCombatEpoch","netWriteCombatIdentity","netReadCombatIdentity","netImportCombatIdentity","netSendClockTo","netClockTick","netReceiveClock","netExplosiveWeapon","netAcceptHit","netReceiveHitReport","netBeginLocalShot","netEndLocalShot","netMakeLocalHit","netNextLife","netAcceptRespawn","netSendRespawnEvent","netSendLocalPlayerMove","netLocalIsSpectator","netReceiveDamageEvent","netReceiveRespawn","netCombatClocksReady"})
     replacements=[]
@@ -75,8 +75,8 @@ def build_core():
     subset=NATIVE/"net_core_test_subset.inc";subset.write_text(source,encoding="utf-8")
     fixture=(ROOT/"port/tests/net_core_native.c").read_text(encoding="utf-8").replace('../src/net/net_core.c',subset.as_posix())
     generated=NATIVE/"net_core_native.c";generated.write_text(fixture,encoding="utf-8")
-    args=[shutil.which("gcc") or "gcc","-shared","-O2","-fms-extensions","-Wno-builtin-declaration-mismatch"]
-    if os.name != "nt": args += ["-fPIC"]
+    args=[shutil.which("gcc") or "gcc","-std=c11","-shared","-O2","-fms-extensions","-Wno-builtin-declaration-mismatch"]
+    if os.name != "nt": args += ["-fPIC", "-D__ANDROID__"]  # target ABI excludes N64 bcopy/bzero declarations
     args += ["-D"+v for v in ("GEVR=1","PLATFORM_64BIT=1","_LANGUAGE_C=1","VERSION=2","VERSION_US=1","LANG_US=1")]
     args += ["-I"+str(ROOT/v) for v in (".","port/include","include","src","src/game","port/src","port/src/net")]
     args += [str(generated),str(ROOT/"port/src/net/netbuf.c"),str(ROOT/"port/src/gevr_avatar_math.c"),str(ROOT/"port/src/net/net_match.c"),"-o",str(NATIVE/"net_core_native.dll")]
@@ -328,6 +328,7 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_pve_teammates_voice_full_volume(self): self.assertEqual(self.core.test_core_pve_voice_teammates(),0)
     def test_closing_door_escape_preserves_entry_collision(self): self.assertEqual(self.lib.test_door_escape(),0)
     def test_combat_allocator_canaries_and_merge(self): self.assertEqual(self.allocator.test_vtxstore(),0)
+    def test_wreck_store_holds_largest_prop_shot_again(self): self.assertEqual(self.allocator.test_wreck_store(),0)
     def test_inventory_reset_and_respawn_bounds(self): self.assertEqual(self.inventory.test_inventory_bounds(),0)
     def test_ammo_spawn_reset_and_late_join_transforms(self): self.assertEqual(self.objects.test_ammo_lifecycle(),0)
     def test_ammo_protocol_and_invalid_transforms(self): self.assertEqual(self.lib.test_ammo_protocol(),0)
@@ -345,6 +346,7 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_bot_roster(self): self.assertEqual(self.core.test_core_bot_roster(),0)
     def test_bot_join_and_election(self): self.assertEqual(self.core.test_core_bot_join(),0)
     def test_bot_owner(self): self.assertEqual(self.core.test_core_bot_owner(),0)
+    def test_full_maps(self): self.assertEqual(self.core.test_core_full_maps(),0)
     def test_bot_floor_routes(self): self.assertEqual(self.botnav.test_botnav(),0)
     def test_bot_glass_routes(self): self.assertEqual(self.botnav.test_botnav_glass(),0)
     def test_sound_through_portals(self): self.assertEqual(self.sndpath.test_sndpath(),0)

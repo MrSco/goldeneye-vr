@@ -4,6 +4,9 @@ void modelApplyRenderModeType2(ModelRenderData *r) { (void)r; }
 void modelApplyRenderModeType3(ModelRenderData *r, bool p) { (void)r; (void)p; }
 void modelApplyRenderModeType4(ModelRenderData *r, bool p) { (void)r; (void)p; }
 void modelApplyCullMode(ModelRenderData *r) { (void)r; }
+/* vtxstore.c: objDeform's wreck copies (one at most here) */
+static const void *s_wreckCopy;
+s32 vtxstoreIsWreckCopy(const void *vertices) { return vertices && vertices == s_wreckCopy; }
 /* PRODUCTION MODEL DISPATCH */
 static void materialPathChecks(void)
 {
@@ -137,5 +140,62 @@ static void materialPathChecks(void)
         s_nswap = 0; swapIndexRebuild();
         model.obj = NULL; model.datas = NULL;
         puts("Bean monitor screens: a programme's list is the game's while its monitor is drawn");
+    }
+
+    /* A destroyed prop (objDeform's copy in the vertex store) whose Bean list
+     * cannot follow it - here nothing was emitted to copy: the game's own
+     * wreck, never the Bean prop whole (Statue's helicopter, 2026-10-27). The
+     * opaque then the translucent pass in one frame: the second draws the
+     * game's translucent part, not a clean Bean list over the wreck (the Dam
+     * drums of 2026-10-14 again). */
+    {
+        Vertex wreck[1] = {0};
+        Gfx glass[1];
+        gSPEndDisplayList(native); gSPEndDisplayList(glass);
+        node.Opcode = MODELNODE_OPCODE_DLCOLLISION;
+        memset(&ro, 0, sizeof(ro));
+        ro.DisplayListCollisions.Primary = native;
+        ro.DisplayListCollisions.Secondary = glass;
+        ro.DisplayListCollisions.ModelType = 4;
+        ro.DisplayListCollisions.numVertices = 1;
+        collisionRw.gdl = native;
+        collisionRw.Vertices = wreck;
+        swapAdd(&node, native, secondary, 4);
+        for (int wrecked = 0; wrecked < 2; wrecked++) {
+            s_wreckCopy = wrecked ? wreck : NULL;
+            gevrBeanBeginFrame();
+            for (int flags = 1; flags <= 2; flags++) {
+                ModelRenderData r = {0}; r.gdl = output; r.flags = flags;
+                modelRenderNodeDl(&r, &model, &node);
+                int bean = 0, game = 0, pane = 0;
+                for (Gfx *g = output; g < r.gdl; g++)
+                    if ((g->words.w0 >> 24) == (G_DL & 255)) {
+                        bean += g->words.w1 == (uintptr_t)secondary;
+                        game += g->words.w1 == (uintptr_t)native;
+                        pane += g->words.w1 == (uintptr_t)glass;
+                    }
+                if (flags == 1)
+                    assert(wrecked ? game == 1 && !bean : bean == 1 && !game);
+                else   /* whole, Bean's list (drawn once, in the opaque pass) owns the glass */
+                    assert(wrecked ? pane == 1 && !bean : !pane && !game);
+            }
+        }
+        /* a part Bean draws in another node's list (the CCTV mount) keeps its
+         * blank: the game's wreck would lie over the whole Bean prop */
+        s_nswap = 0; swapIndexRebuild();
+        swapAdd(&node, native, NULL, 4);
+        s_wreckCopy = wreck;
+        gevrBeanBeginFrame();
+        for (int flags = 1; flags <= 2; flags++) {
+            ModelRenderData r = {0}; r.gdl = output; r.flags = flags;
+            modelRenderNodeDl(&r, &model, &node);
+            for (Gfx *g = output; g < r.gdl; g++)
+                if ((g->words.w0 >> 24) == (G_DL & 255))
+                    assert(g->words.w1 != (uintptr_t)native && g->words.w1 != (uintptr_t)glass);
+        }
+        s_wreckCopy = NULL;
+        collisionRw.Vertices = NULL;
+        s_nswap = 0; swapIndexRebuild();
+        puts("Bean wrecks: a destroyed prop with no Bean copy draws the game's wreck");
     }
 }

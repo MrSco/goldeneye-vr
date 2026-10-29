@@ -142,6 +142,8 @@ static int bodySlots, bodyBusy[2], bodyQuiet[2];
 static GevrBodyDefer bodyBelt[2];
 int gevrBodySlotsOn(void) { return bodySlots; }
 void gevrBodySlotGripLetGo(int ctrl) { (void)ctrl; }
+void gevrHordeHoldInput(int channel, int pressed, int held, const float *hand, unsigned ticks)
+{ (void)channel; (void)pressed; (void)held; (void)hand; (void)ticks; }
 int gevrBodySlotBeltWait(int ctrl, int entered, int inside, int gripped)
 {
     if (!bodySlots) { memset(&bodyBelt[ctrl], 0, sizeof(bodyBelt[ctrl])); return -1; }

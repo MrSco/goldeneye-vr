@@ -67,7 +67,7 @@ static void capChecks(void)
     for (int i = 0; i < 8; i++) triother[i] = -1;
     cache = beanCapLoops(&half, 0x8, tripiece, triother);
     assert(cache && cache->nloops == 0);
-    free(skin.weld); free(half.weld);
+    /* Welds are owned by the level allocation arena. */
 }
 
 static void poseChecks(void)

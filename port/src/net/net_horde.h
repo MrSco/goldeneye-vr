@@ -6,6 +6,7 @@
 extern "C" {
 #endif
 struct ChrRecord;
+struct DoorRecord;
 struct netbuf;
 int netHordeActive(void);
 int netHordeRunning(void); /* loaded, all players ready, not migrating */
@@ -26,6 +27,12 @@ int gevrHordeDefeated(void);
 void gevrHordeBecameHost(void);
 void gevrHordeNotifyGuardHit(struct ChrRecord *chr, int attacker, int hitpart);
 int gevrHordeOnUse(void);
+int gevrHordeOnGrip(int ctrl, const float hand[3]);
+void gevrHordeHoldInput(int channel, int pressed, int held, const float *hand, unsigned ticks);
+int gevrHordeBossNoStun(const struct ChrRecord *chr);
+int gevrHordeInstaKill(const struct ChrRecord *chr);
+int gevrHordeDoorHeldOpen(const struct DoorRecord *door);
+int gevrHordeXeniaWeapon(struct ChrRecord *chr);
 int gevrHordeHandleAction(int slot, unsigned action, unsigned item);
 uint64_t gevrHordeGuardToken(const struct ChrRecord *chr);
 int gevrHordeTokenCurrent(uint64_t token);

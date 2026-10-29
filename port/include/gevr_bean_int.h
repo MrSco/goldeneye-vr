@@ -14,6 +14,7 @@
 #define GEVR_BEAN_F_NECK  4
 #define GEVR_BEAN_F_DECAL 8
 #define GEVR_BEAN_F_ROUND 16   /* the rocket launcher's round in its tube (DAB fpRound) */
+#define GEVR_BEAN_F_PLAIN 32   /* level shader-only draw, no authored picture/UV */
 
 struct gevrBeanTri {
 	float p[9];
@@ -74,6 +75,9 @@ struct gevrBeanMesh {
 	int texW[256];
 	int texH[256];
 	int texCut[256];
+	/* Clamp selected axes to one shared repeat, never rebase each triangle. */
+	uint8_t texClamp[256]; /* bit 0 U, bit 1 V */
+	float texClampBase[256][2];
 	int ntex;
 	float uvscale;
 	int triggerCuffs;

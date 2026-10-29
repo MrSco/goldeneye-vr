@@ -1,5 +1,6 @@
 #ifdef GEVR
 #include "net_horde.h"
+#include "net_match.h"
 #include "system.h"
 #include "net_objects.h"
 #endif
@@ -32,6 +33,7 @@
 #include "model.h"
 #ifdef GEVR
 #include "gevr_dam_boat.h"
+#include "gevr_arena.h"
 #endif
 #include "token.h"
 
@@ -1319,7 +1321,8 @@ void proplvreset2(enum LEVELID stageId)
          * by adding "mp_" after the "U" e.g. "Ump_setuparchZ"
          */
 #ifdef GEVR
-        if (gevrMpRules())
+        if ((gevrMpRules() && netStageUsesMpSetup(stageId, NET_MODE_DEATHMATCH) && !netRoundFullMap()) ||
+            (netHordeActive() && netStageUsesMpSetup(stageId, NET_MODE_HORDE)))
 #else
         if (getPlayerCount() >= 2)
 #endif
@@ -1338,14 +1341,14 @@ void proplvreset2(enum LEVELID stageId)
          * The setup file stores every internal reference as a byte offset from the start of the file,
          * so rebase them all onto the RAM copy at local_stage.
          */
-        g_CurrentSetup.pathwaypoints = (void *) ((uintptr_t) local_stage + (uintptr_t) local_stage->pathwaypoints);
-        g_CurrentSetup.waypointgroups = (void *) ((uintptr_t) local_stage + (uintptr_t) local_stage->waypointgroups);
-        g_CurrentSetup.intro = (void *) ((uintptr_t) local_stage + (uintptr_t) local_stage->intro);
-        g_CurrentSetup.propDefs = (void *) ((uintptr_t) local_stage + (uintptr_t) local_stage->propDefs);
-        g_CurrentSetup.patrolpaths = (void *) ((uintptr_t) local_stage + (uintptr_t) local_stage->patrolpaths);
-        g_CurrentSetup.ailists = (void *) ((uintptr_t) local_stage + (uintptr_t) local_stage->ailists);
-        g_CurrentSetup.pads = (void *) ((uintptr_t) local_stage + (uintptr_t) local_stage->pads);
-        g_CurrentSetup.boundpads = (void *) ((uintptr_t) local_stage + (uintptr_t) local_stage->boundpads);
+        g_CurrentSetup.pathwaypoints = local_stage->pathwaypoints ? (void *) ((uintptr_t) local_stage + (uintptr_t) local_stage->pathwaypoints) : NULL;
+        g_CurrentSetup.waypointgroups = local_stage->waypointgroups ? (void *) ((uintptr_t) local_stage + (uintptr_t) local_stage->waypointgroups) : NULL;
+        g_CurrentSetup.intro = local_stage->intro ? (void *) ((uintptr_t) local_stage + (uintptr_t) local_stage->intro) : NULL;
+        g_CurrentSetup.propDefs = local_stage->propDefs ? (void *) ((uintptr_t) local_stage + (uintptr_t) local_stage->propDefs) : NULL;
+        g_CurrentSetup.patrolpaths = local_stage->patrolpaths ? (void *) ((uintptr_t) local_stage + (uintptr_t) local_stage->patrolpaths) : NULL;
+        g_CurrentSetup.ailists = local_stage->ailists ? (void *) ((uintptr_t) local_stage + (uintptr_t) local_stage->ailists) : NULL;
+        g_CurrentSetup.pads = local_stage->pads ? (void *) ((uintptr_t) local_stage + (uintptr_t) local_stage->pads) : NULL;
+        g_CurrentSetup.boundpads = local_stage->boundpads ? (void *) ((uintptr_t) local_stage + (uintptr_t) local_stage->boundpads) : NULL;
 
         // Pad names and bound names are optional. An offset of 0 means absent.
         if (local_stage->padnames != 0)
@@ -1504,6 +1507,7 @@ void proplvreset2(enum LEVELID stageId)
         }
 
 #ifdef GEVR
+        gevrArenaPrepareSetup(stageId);
         gevrHordePrepareSetup();
 #endif
         // PD rejoins here
@@ -1598,7 +1602,7 @@ void proplvreset2(enum LEVELID stageId)
             while ((i1 = phead->type) != PROPDEF_END)
             {
 #ifdef GEVR
-                if (gevrHordeSkipProp(phead->type)) {
+                if (gevrHordeSkipProp(phead->type) || gevrArenaSkipProp(phead)) {
                     phead=(PropDefHeaderRecord *)((u32 *)phead+sizepropdef(phead));
                     pdefIndex++; continue;
                 }
@@ -1634,9 +1638,14 @@ void proplvreset2(enum LEVELID stageId)
                     case PROPDEF_DOOR:
                         if (withobjs && (!(((struct DoorRecord *) phead)->flags2 & flags)))
                         {
+#ifdef GEVR
+                            gevrArenaDoorRules(stageId, pdefIndex, (struct DoorRecord *) phead);
+#endif
                             setupDoor(stageId, (struct DoorRecord *) phead, pdefIndex);
 #ifdef GEVR
-                            if (netHordeActive()) ((struct DoorRecord *)phead)->keyflags=0;
+                            if ((netHordeActive() || gevrArenaCampaignDeathmatch(stageId)) &&
+                                gevrArenaDoorKeyOpens(((struct DoorRecord *)phead)->keyflags))
+                                ((struct DoorRecord *)phead)->keyflags=0;
 #endif
                         }
                         break;
@@ -1961,6 +1970,12 @@ void proplvreset2(enum LEVELID stageId)
 
             while (phead->type != PROPDEF_END)
             {
+#ifdef GEVR
+                if (gevrHordeSkipProp(phead->type) || gevrArenaSkipProp(phead)) {
+                    phead=(PropDefHeaderRecord *)((u32 *)phead+sizepropdef(phead));
+                    pdefIndex++; continue;
+                }
+#endif
                 switch (phead->type)
                 {
                     case PROPDEF_PROP:

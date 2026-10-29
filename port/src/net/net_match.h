@@ -15,12 +15,23 @@
 extern "C" {
 #endif
 
-/* Stages, in the launcher's order: name, LEVELID, the players the map takes */
+/* All gameplay stages, in stable launcher/favourites order: name and LEVELID.
+ * A map with a retail multiplayer setup is listed twice: as the multiplayer
+ * map, and its campaign level whole as "(Full)", whose stage code is the
+ * LEVELID | NET_STAGE_FULL (tester, 2026-10-27: Facility and Archives
+ * stayed shut in Deathmatch while Horde had them open). */
+#define NET_STAGE_FULL 0x40 /* every LEVELID the list names is below it */
 typedef struct { const char *name; uint8_t level_id; } NetMatchStage;
 int netStageCount(void);
 const NetMatchStage *netStage(int idx);
 const char *netStageName(int idx);
 int netStageIndexOf(uint8_t level_id);      /* -1 unknown */
+int netStageIsFull(unsigned code);          /* a listed "(Full)" stage code */
+unsigned netStageLevelId(unsigned code);    /* the LEVELID a stage code loads */
+int netStageHasMpSetup(unsigned level_id); /* a retail Ump_setup file exists */
+int netStageUsesMpSetup(unsigned level_id, int mode);
+/* net_core.c: the Deathmatch round being played is a "(Full)" stage */
+int netRoundFullMap(void);
 
 /*
  * The match's mode (NetMatchConfig.mode). Co-op plays a solo mission, the
@@ -29,11 +40,12 @@ int netStageIndexOf(uint8_t level_id);      /* -1 unknown */
  */
 enum { NET_MODE_DEATHMATCH = 0, NET_MODE_COOP = 1, NET_MODE_HORDE = 2 };
 #define NET_HORDE_STAGE 24 /* Archives, the default */
-/* Horde's maps (user, 2026-10-17: Bunker, Control, Facility): campaign
- * stages whose setups give the guard pads, stations and start. */
-static inline int netHordeStageValid(unsigned stage) {
-    return stage == 24 || stage == 9 || stage == 27 || stage == 23 || stage == 34;
-}
+/* Every gameplay stage: the same catalogue as Deathmatch, less the "(Full)"
+ * entries (Horde plays a campaign level whole already). Horde uses a
+ * mission's guard paths, or builds paths for multiplayer-only arenas. */
+int netHordeStageCount(void);   /* the list's first entries */
+int netHordeStageValid(unsigned stage);
+const char *netHordeStageName(unsigned stage);
 #define NET_HORDE_MAX_START_WAVE 50 /* horde_rules.h HORDE_MAX_START_WAVE */
 #define NET_LOBBY_HORDE_STAGE 0x7f /* distinct from campaign stage-byte encoding */
 #define NET_COOP_MAX_PLAYERS 4

@@ -1484,6 +1484,7 @@ void lvlManageMpGame(void)
     gevrVrStatsSimulation((unsigned)g_ClockTimer);
     gevrRagdollTick(g_ClockTimer);
     { extern void gevrHordeTick(int ticks); gevrHordeTick(g_ClockTimer); }
+    { extern void gevrArenaTick(s32 ticks); gevrArenaTick(g_ClockTimer); }
 #endif
     if ((g_CurrentStageToLoad != LEVELID_TITLE) && (D_80048394 == 0) && (g_ClockTimer > 0))
     {

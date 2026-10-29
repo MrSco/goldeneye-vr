@@ -33,6 +33,14 @@ void netHordeSend(int slot)
         netbufWriteU32(&b,s->ammo[i].id); netbufWriteU32(&b,s->ammo[i].ticks);
         for (unsigned k=0;k<3;k++) netbufWriteF32(&b,s->ammo[i].pos[k]);
     }
+    netbufWriteU32(&b,s->instakill_ticks); netbufWriteU32(&b,s->max_ammo_seq);
+    netbufWriteU32(&b,s->power_seq); netbufWriteU32(&b,s->power_kind);
+    for (unsigned i=0;i<4;i++) for (unsigned k=0;k<2;k++) netbufWriteU32(&b,s->explosives[i][k]);
+    for (unsigned i=0;i<HORDE_POWER_DROPS;i++) {
+        netbufWriteU32(&b,s->powers[i].id); netbufWriteU32(&b,s->powers[i].ticks);
+        for (unsigned k=0;k<3;k++) netbufWriteF32(&b,s->powers[i].pos[k]);
+        netbufWriteU32(&b,s->powers[i].kind);
+    }
     netbufWriteU8(&b,s->phase); netbufWriteU8(&b,s->players);
     if (slot < 0) netCoopBroadcast(b.data,b.wp,1);
     else netCoopSendTo(slot,b.data,b.wp);
@@ -63,6 +71,17 @@ void netHordeReceive(struct netbuf *b)
         }
         if (s.ammo[i].ticks>HORDE_AMMO_LIFETIME || (s.ammo[i].id && !s.ammo[i].ticks)) return;
         for (unsigned j=0;j<i;j++) if (s.ammo[i].id && s.ammo[i].id==s.ammo[j].id) return;
+    }
+    s.instakill_ticks=netbufReadU32(b); s.max_ammo_seq=netbufReadU32(b);
+    s.power_seq=netbufReadU32(b); s.power_kind=netbufReadU32(b);
+    for (unsigned i=0;i<4;i++) for (unsigned k=0;k<2;k++) s.explosives[i][k]=netbufReadU32(b);
+    for (unsigned i=0;i<HORDE_POWER_DROPS;i++) {
+        s.powers[i].id=netbufReadU32(b); s.powers[i].ticks=netbufReadU32(b);
+        for (unsigned k=0;k<3;k++) {
+            s.powers[i].pos[k]=netbufReadF32(b);
+            if (!isfinite(s.powers[i].pos[k]) || fabsf(s.powers[i].pos[k])>1000000.0f) return;
+        }
+        s.powers[i].kind=netbufReadU32(b);
     }
     s.phase=netbufReadU8(b); s.players=netbufReadU8(b);
     if (b->error || netbufReadLeft(b) || epoch!=netGetWorldEpoch() || !hordeStateValid(&s)) return;

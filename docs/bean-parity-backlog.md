@@ -62,9 +62,8 @@ ships. References are Dab's unless marked GE (the decomp).
 
 ## Levels (DAB `gebeanstage.c` build passes)
 
-- Release sky only on Surface, Dam and Runway (`gebeansky.c` `releaseSkyNames`);
-  we put the sunset dome on Caverns, Egyptian, Frigate, Temple, Complex, the
-  Bunkers and Surface 2. Sky cap fade and fill (`skyCapFade`).
+- Sky fill under the dome's lowest ring (`gebeansky.c`). The release-sky table
+  (`releaseSkyNames`) and the cap fade (`skyCapFade`, PR #221) are ported.
 - Hidden native rooms (c94a8ff: Dam's intro boulder and its N64 water) still
   stop shots; Dab's `prop.c` and `collision.c` skip `gebeanStageRoomHidden` rooms.
 - Keep GoldenEye's translucent room leaves the Bean room lacks, water first
