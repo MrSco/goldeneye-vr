@@ -58,6 +58,8 @@ void gevrAmmoApplyTransform(ObjectRecord *obj,const coord3d *p,const coord3d *ru
 }
 void sysLogPrintf(s32 level,const char *fmt,...) { (void)level;(void)fmt; }
 u64 sysGetMicroseconds(void) { return clock_us; }
+static u64 fixture_rom_hash = 0x1122334455667788ull;
+u64 gevrRomContentHash(void) { return fixture_rom_hash; }
 void vrSettingsSave(void) {}
 void netVoiceForgetSlot(uint8_t slot) { (void)slot;voice_resets++; }
 void netCoopHostLost(int oldhost,int elected) { (void)oldhost;(void)elected; }
@@ -558,6 +560,33 @@ EXPORT int test_core_connected_roster(void) {
 }
 /* A dedicated server (port/server): its seat is no player, and the warmup
  * clock running out starts a round only with a person in it, never bots alone. */
+/* The content check: a joiner whose ROM differs is named and turned away; an
+ * older joiner (no block) or an unknown part (0) is let in. */
+EXPORT int test_core_content_check(void) {
+    u8 raw[32];
+    struct netbuf w = { .data = raw, .size = sizeof(raw) }, r;
+    netbufStartWrite(&w);netContentWrite(&w);
+    CHECK(!w.error && w.wp == 10);
+    netbufStartReadData(&r, raw, w.wp);CHECK(netContentDiffers(&r) == 0);
+    fixture_rom_hash ^= 1;
+    netbufStartReadData(&r, raw, w.wp);CHECK(netContentDiffers(&r) == NET_CONTENT_ROM);
+    CHECK(strstr(netContentPartName(NET_CONTENT_ROM), "ROM") != NULL);
+    netbufStartReadData(&r, raw, 0);CHECK(netContentDiffers(&r) == 0);   /* an older joiner */
+    u64 host = fixture_rom_hash;fixture_rom_hash = 0;
+    netbufStartReadData(&r, raw, w.wp);CHECK(netContentDiffers(&r) == 0);   /* this host has no ROM hash */
+    fixture_rom_hash = host;
+    netbufStartWrite(&w);fixture_rom_hash = 0;netContentWrite(&w);fixture_rom_hash = host;
+    netbufStartReadData(&r, raw, w.wp);CHECK(netContentDiffers(&r) == 0);   /* the joiner has none */
+    fixture_rom_hash = 0x1122334455667788ull;
+    /* refused: the client is offline and the launcher gets the reason once */
+    fixture(0);s_local_slot = 2;s_host_slot = 0;s_state = NET_STATE_CONNECTING;s_server_peer = &hit_peers[0];
+    CHECK(!netClientContentRefused(&hit_peers[0], NET_DISCONNECT_KICKED));
+    CHECK(netClientContentRefused(&hit_peers[0], NET_DISCONNECT_CONTENT | NET_CONTENT_ROM));
+    CHECK(s_state == NET_STATE_OFFLINE && !s_server_peer);
+    const char *why = netTakeJoinRefusal();
+    CHECK(why && strstr(why, "ROM") && !netTakeJoinRefusal());
+    return 0;
+}
 EXPORT int test_core_dedicated_warmup(void) {
     fixture(0);netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_WARMUP;
     for(int i=1;i<4;i++)s_lobby_state.slots[i].is_bot=1;

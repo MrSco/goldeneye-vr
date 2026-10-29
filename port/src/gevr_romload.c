@@ -64,6 +64,27 @@ extern s32 file_entry_max;   /* rows the compiler actually built */
 u8 *g_RomFile = NULL;
 u32 g_RomFileSize = 0;
 
+/*
+ * The loaded cartridge's bytes as one number (FNV-1a, 64-bit), taken as it is
+ * loaded: a multiplayer join compares it with the host's (net_core.c
+ * NET_CONTENT_ROM), since every setup, pad, tile and model the simulation
+ * reads comes from here, and a patched or different dump that still passes
+ * gevrRomValidate would play a different game.
+ */
+static u64 s_RomContentHash;
+
+static void gevrRomHashContent(const u8 *rom, u32 size)
+{
+	u64 h = 0xcbf29ce484222325ull;
+
+	for (u32 i = 0; i < size; i++) {
+		h = (h ^ rom[i]) * 0x100000001b3ull;
+	}
+	s_RomContentHash = h;
+	sysLogPrintf(LOG_NOTE, "rom: content %016llx", (unsigned long long)h);
+}
+
+
 #define GEVR_ROM_SIZE   12582912          /* 12 MiB, every retail GoldenEye cart */
 #define GEVR_ROM_TITLE  "GOLDENEYE"       /* header name at 0x20                 */
 #define GEVR_ROM_ID     "NGEE"            /* cartridge id at 0x3B, NTSC-U        */
@@ -80,6 +101,30 @@ static const char *const gevrRomNames[] = {
 	"007 - GoldenEye.z64",
 	"GoldenEye 007 (U) [!].z64",
 };
+
+/*
+ * Asked for before the game has loaded the cartridge too: multiplayer joins
+ * and hosts start in the launcher (vr_launcher.cpp, port/server), ahead of
+ * romdataInit. Then the file romdataInit will load is read and hashed once.
+ * 0 when there is none (the join check skips an unknown part).
+ */
+u64 gevrRomContentHash(void)
+{
+	u32 size = 0;
+	void *data = NULL;
+
+	if (s_RomContentHash) {
+		return s_RomContentHash;
+	}
+	for (u32 i = 0; i < sizeof(gevrRomNames) / sizeof(gevrRomNames[0]) && !data; i++) {
+		data = fsFileLoad(gevrRomNames[i], &size);
+	}
+	if (data && gevrRomNormaliseOrder((u8 *)data, size)) {
+		gevrRomHashContent((const u8 *)data, size);
+	}
+	free(data);
+	return s_RomContentHash;
+}
 
 static s32 gevrRomValidate(const u8 *rom, u32 size)
 {
@@ -231,6 +276,7 @@ s32 romdataInit(void)
 
 			g_RomFile = (u8 *)data;
 			g_RomFileSize = size;
+			gevrRomHashContent((const u8 *)data, size);
 			if (got == want && gevrRomApplyVariant((const u8 *)data, size)) {
 				/*
 				 * GoldenEye X's models replace GoldenEye's guns by item and
@@ -302,6 +348,7 @@ s32 romdataInit(void)
 
 	g_RomFile = (u8 *)data;
 	g_RomFileSize = size;
+	gevrRomHashContent((const u8 *)data, size);
 
 	gevrRomBindFileTable();
 	gevrRomBindSegments();

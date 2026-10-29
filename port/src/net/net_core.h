@@ -82,6 +82,7 @@ const NetMsgLobbyState *netGetLobbyState(void);
 const char *netGetSlotName(int slot);   /* NULL for an empty slot */
 void netSetLocalAppVersion(const char *version);
 const char *netGetSlotAppVersion(int slot); /* NULL or empty if not announced */
+const char *netTakeJoinRefusal(void);   /* why the host turned this join away (the content check), once; else NULL */
 uint8_t netGetLobbyStage(void);
 uint8_t netGetLobbyWeaponSet(void);
 uint32_t netGetRandomSeed(void);

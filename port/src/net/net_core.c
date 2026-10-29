@@ -1107,6 +1107,62 @@ const char *netGetSlotAppVersion(int slot) {
     return s_slot_app_version[slot];
 }
 
+/* The content check (net_protocol.h NET_CONTENT_*): this machine's parts. */
+static uint64_t netContentPart(uint32_t part) {
+    extern u64 gevrRomContentHash(void);   /* gevr_romload.c */
+    return part == NET_CONTENT_ROM ? gevrRomContentHash() : 0;
+}
+
+static const char *netContentPartName(uint32_t part) {
+    return part == NET_CONTENT_ROM ? "GoldenEye ROM" : "game content";
+}
+
+static void netContentWrite(struct netbuf *buf) {
+    const uint64_t rom = netContentPart(NET_CONTENT_ROM);
+    netbufWriteU8(buf, 1);
+    netbufWriteU8(buf, NET_CONTENT_ROM);
+    netbufWriteU32(buf, (uint32_t)rom);
+    netbufWriteU32(buf, (uint32_t)(rom >> 32));
+}
+
+/* A joiner's parts against this host's: the first that differs, or 0. A part
+ * either side does not know (0: an older build, nothing loaded) is not held
+ * against it. */
+static uint32_t netContentDiffers(struct netbuf *buf) {
+    if (netbufReadLeft(buf) < 1) return 0;
+    int n = netbufReadU8(buf);
+    for (int i = 0; i < n && i < NET_CONTENT_MAX_PARTS && netbufReadLeft(buf) >= 9; i++) {
+        const uint32_t part = netbufReadU8(buf);
+        uint64_t theirs = netbufReadU32(buf);
+        theirs |= (uint64_t)netbufReadU32(buf) << 32;
+        const uint64_t ours = netContentPart(part);
+        if (!buf->error && part && theirs && ours && theirs != ours) return part;
+    }
+    return 0;
+}
+
+/* A join this host refused for its content: the launcher shows why. */
+static char s_join_refusal[128];
+
+static bool netClientContentRefused(ENetPeer *peer, uint32_t reason) {
+    if (!peer || netIsHost() || peer != s_server_peer || (reason & 0xFFFFFF00u) != NET_DISCONNECT_CONTENT) return false;
+    snprintf(s_join_refusal, sizeof(s_join_refusal),
+             "Cannot join: this game's %s is not the same as yours.", netContentPartName(reason & 0xFFu));
+    NET_ERR("%s", s_join_refusal);
+    s_server_peer = NULL;
+    s_state = NET_STATE_OFFLINE;
+    netVoiceReset();
+    return true;
+}
+
+const char *netTakeJoinRefusal(void) {
+    static char taken[sizeof(s_join_refusal)];
+    if (!s_join_refusal[0]) return NULL;
+    memcpy(taken, s_join_refusal, sizeof(taken));
+    s_join_refusal[0] = '\0';
+    return taken;
+}
+
 static void netSendLocalAppVersion(ENetPeer *target_peer) {
     if (!s_local_app_version[0]) return;
     u8 raw[64];
@@ -3123,11 +3179,18 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             uint8_t requested_chr = netbufReadU8(&buf);
             if (buf.error) break;
             if (requested_chr >= netCharacterCount()) requested_chr = 0;
+            char clean[GEVR_MAX_NAME_LEN];
+            netCleanName(clean, name, name_end);
+            int previous = netbufReadLeft(&buf) >= 1 ? netbufReadU8(&buf) : 0xFF;
+            const uint32_t differs = netContentDiffers(&buf);
+            if (differs) {
+                NET_ERR("Turning %s away: its %s differs from this host's", clean, netContentPartName(differs));
+                enet_peer_disconnect(peer, NET_DISCONNECT_CONTENT | differs);
+                break;
+            }
 
             /* The same name back on a new connection: the earlier one is dead
              * (a crash, a quit without a goodbye) and its slot is theirs again. */
-            char clean[GEVR_MAX_NAME_LEN];
-            netCleanName(clean, name, name_end);
             for (int i = 0; i < s_max_players; i++) {
                 if (s_lobby_state.slots[i].connected && s_client_peers[i] && s_client_peers[i] != peer &&
                     strcasecmp(s_lobby_state.slots[i].name, clean) == 0) {
@@ -3136,7 +3199,6 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 }
             }
 
-            int previous = netbufReadLeft(&buf) >= 1 ? netbufReadU8(&buf) : 0xFF;
             bool replacing_bot = false;
             uint8_t bot_team = NET_TEAM_NONE;
             int assigned = netJoinSlot(previous, clean, &replacing_bot, &bot_team);
@@ -4561,7 +4623,7 @@ void netPoll(void) {
                 enet_peer_timeout(event.peer, 32, 3000, 6000);
                 if (!netIsHost()) {
                     /* Connected as client -> send hello */
-                    u8 raw[64];
+                    u8 raw[96];
                     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
                     netbufStartWrite(&buf);
                     netbufWriteU32(&buf, GEVR_NET_MAGIC);
@@ -4575,7 +4637,9 @@ void netPoll(void) {
                         netbufWriteU8(&buf, (uint8_t)s_local_slot);
                     } else {
                         netbufWriteU8(&buf, s_preferred_chr_id);
+                        netbufWriteU8(&buf, 0xFF);   /* no slot kept: the content block follows */
                     }
+                    netContentWrite(&buf);
 
                     ENetPacket *packet = enet_packet_create(buf.data, buf.wp, ENET_PACKET_FLAG_RELIABLE);
                     enet_peer_send(event.peer, NET_CHAN_RELIABLE, packet);
@@ -4599,6 +4663,8 @@ void netPoll(void) {
                         netHostDropSlot(slot, NULL);
                 } else if (netClientKickDisconnected(event.peer, event.data)) {
                     return;
+                } else if (netClientContentRefused(event.peer, event.data)) {
+                    /* the launcher shows why (netTakeJoinRefusal) */
                 } else if (s_state == NET_STATE_INGAME && event.peer == s_server_peer) {
                     netHostLost(event.peer);
                 } else if (s_state == NET_STATE_MIGRATING) {
