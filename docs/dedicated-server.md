@@ -297,8 +297,9 @@ SERVER ARGS` is LobbyClient's host side in Python (standard library): it
 starts the server, registers the lobby, heartbeats it, and removes it on
 exit; `--restart` runs the next server when one ends. No Worker change is
 needed for this. The lobby is private unless `--public` (its code is in the
-log). Registration, heartbeats and the private code work; a headset join
-by code is still to be tried.
+log). Tested 2026-10-29: the Quest joined the WSL server by its private
+code over ICE (the server behind WSL's NAT and the home router), took a
+bot's place and played.
 
 **Regression run.** `tools/gevr_server_test.sh ROM` (Linux or WSL, about
 3 minutes): a server and two headless `--connect` clients play a bot round.
