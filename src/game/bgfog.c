@@ -300,13 +300,38 @@ f32 fogGetScaledFarFogIntensitySquared(void)
 /*
  * GEVR PC's VISFAR (GETV_VR_VISFAR=1, "MaxVisRange vs FarFog"): the far edge
  * of the level's fog, which propobj.c uses as the range small props stay
- * visible to (see gevrFogPropVisRange).
+ * visible to (see gevrFogPropVisRange). In prop depth units: FarFog over the
+ * level's visibility scale, as scaled_far_fog_dist is. Kept raw, it was a
+ * fifth of the fog on Dam and both Surfaces (scale 0.2): Surface 2's cabins
+ * stood without their doors and cameras, which faded in close up
+ * (v0.5.14-test.17 tester).
  */
 static f32 s_gevrFarFog;
 
 f32 gevrFogPropVisRange(f32 maxvisrange)
 {
-    return s_gevrFarFog > maxvisrange ? s_gevrFarFog : maxvisrange;
+    f32 edge = s_gevrFarFog;
+    float line[2];
+    u8 rgb[3];
+
+    /*
+     * Bean draws the rooms to its own fog: props go where that is full, as
+     * the walls do (gevrFogDepthColor's line, for world depth), never past
+     * the far plane.
+     */
+    if (gevrBeanRoomFog(line, rgb) && line[0] > 0.0f)
+    {
+        f32 zrange[2];
+        const f32 scale = bgGetLevelVisibilityScale();
+
+        edge = (255.0f - line[1]) / (line[0] * scale);
+        viGetZRange(zrange);
+        if (edge > zrange[1] / scale)
+        {
+            edge = zrange[1] / scale;
+        }
+    }
+    return edge > maxvisrange ? edge : maxvisrange;
 }
 #endif
 
@@ -330,12 +355,12 @@ void fogLoadCurrentEnvironment(EnvironmentRecord *arg0)
 #endif
 
     viSetZRange(arg0->Visibility.BlendMultiplier, arg0->Visibility.FarFog);
-#ifdef GEVR
-    s_gevrFarFog = (f32)arg0->Visibility.FarFog;
-#endif
     viGetZRange(&zrange);
 
     temp_f0 = bgGetLevelVisibilityScale();
+#ifdef GEVR
+    s_gevrFarFog = (f32)arg0->Visibility.FarFog / temp_f0;
+#endif
     zrange[0] /= temp_f0;
     zrange[1] /= temp_f0;
 

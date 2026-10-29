@@ -13909,8 +13909,8 @@ s32 getPropCombinedRoomsBBox2D(PropRecord *prop, bbox2d *bbox)
  * counts as (d - start) * 100 / size, and they vanish at MaxVisRange - on the
  * Dam a wall switch such as the gate button went at about 10 m. At the N64's
  * 240 lines it was a few pixels by then; in the headset it pops in. Ported
- * from GEVR PC (GETV_VR_VISFAR=1): the cut-off is the far fog instead
- * (bgfog.c gevrFogPropVisRange), 15000 against 4444 on the Dam.
+ * from GEVR PC (GETV_VR_VISFAR=1): the cut-off is the fog's far edge instead
+ * (bgfog.c gevrFogPropVisRange; Bean's own fog when it draws the rooms).
  */
 extern f32 gevrFogPropVisRange(f32 maxvisrange);
 #endif
@@ -13935,14 +13935,29 @@ f32 chrobjFogVisRangeRelated(PropRecord *prop, f32 size)
 #ifdef GEVR
         {
             f32 maxvis = gevrFogPropVisRange(nfd->MaxVisRange);
+            /* the level's own fade, over its own width, at the end of the
+             * range: from NearFog to the fog's far edge, a door stood half
+             * see-through across the whole of Surface 2 */
+            f32 width = nfd->MaxVisRange - nfd->NearFog;
+            f32 start;
+
+            if (width < 1.0f)
+            {
+                width = 1.0f;
+            }
+            start = maxvis - width;
+            if (start < nfd->NearFog)
+            {
+                start = nfd->NearFog;
+            }
 
             if (maxvis <= temp_f12)
             {
                 ret = 0.0f;
             }
-            else if (nfd->NearFog < temp_f12)
+            else if (start < temp_f12)
             {
-                ret = (maxvis - temp_f12) / (maxvis - nfd->NearFog);
+                ret = (maxvis - temp_f12) / (maxvis - start);
             }
         }
 #else
