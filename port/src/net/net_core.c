@@ -1777,15 +1777,22 @@ void netHostReturnToLobby(void) {
     netBeginRoundReset(false);
 }
 
+/* Reload this map into a warmup with the host's pending choices: no second
+ * player or complete team roster needed, and joinable after the load. A
+ * dedicated server does this when its last player leaves (port/server), so
+ * the next one to join plays at once instead of spectating the bots' round. */
+void netHostRestartWarmup(void) {
+    if (!netHostCanStartRound()) return;
+    s_rotate_next = false;
+    netClearVotes(-1);
+    netLatchRoundSettings();
+    netBeginRoundReset(false);
+}
+
 void netHostStartRoundNow(void) {
     if (!netHostCanStartRound()) return;
     if (netGetConnectedPlayerCount() == 1) {
-        /* Apply the host's pending choices without needing a second player or
-         * a complete team roster. Stay joinable in warmup after this load. */
-        s_rotate_next = false;
-        netClearVotes(-1);
-        netLatchRoundSettings();
-        netBeginRoundReset(false);
+        netHostRestartWarmup();
         return;
     }
     s_results_deadline_us = 0;
@@ -2545,7 +2552,9 @@ int netLobbyCanLaunch(void) {
     if (!netIsHost()) return 0;
     int connected = 0;
     for (int i=0;i<GEVR_MAX_PLAYERS;i++) if (s_lobby_state.slots[i].connected) {
-        if (i >= s_max_players || (i != s_host_slot && !s_lobby_state.slots[i].ready && !s_lobby_state.slots[i].is_bot)) return 0;
+        /* a dedicated server has no host to wait for players' Ready: in its
+         * warmup they are playing already, and the round starts by itself */
+        if (i >= s_max_players || (i != s_host_slot && !s_lobby_state.slots[i].ready && !s_lobby_state.slots[i].is_bot && !s_dedicated)) return 0;
         connected++;
     }
     return connected > 0;
@@ -4176,8 +4185,10 @@ static void netRoundTick(void) {
     if (s_state == NET_STATE_INGAME) {
         uint64_t now = sysGetMicroseconds();
         /* co-op (#94): the party's menus are no place to idle out (a teammate follows the host's, input-less);
-         * nor a dedicated server, whose seat nobody holds */
-        if (s_last_local_activity_us == 0 || (netCoopSession() && bossGetStageNum() == LEVELID_TITLE) || s_dedicated)
+         * nor a dedicated server, whose seat nobody holds; nor a late joiner watching
+         * the round out (kicked after 5 min of spectating, 2026-10-29) */
+        if (s_last_local_activity_us == 0 || (netCoopSession() && bossGetStageNum() == LEVELID_TITLE) || s_dedicated
+            || netLocalIsSpectator())
             s_last_local_activity_us = now;
         uint64_t idle_us = now - s_last_local_activity_us;
         if (idle_us >= 270ULL * 1000000ULL && idle_us < 300ULL * 1000000ULL) {
