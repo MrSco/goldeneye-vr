@@ -16820,13 +16820,32 @@ static Gfx *gevrDrawSpectatorLabel(Gfx *gdl)
     s32 x, y, w, h;
     if (!gevrSpectating()) return gdl;
     const char *name = netGetSlotName(netSpectatorTarget());
-    snprintf(label, sizeof(label), name ? "SPECTATING %s   A:NEXT B:PREV" : "SPECTATING - WAITING FOR A PLAYER", name ? name : "");
+    snprintf(label, sizeof(label), name ? "SPECTATING %s\nYOU PLAY NEXT ROUND   A:NEXT B:PREV"
+                                        : "SPECTATING - WAITING FOR A PLAYER\nYOU PLAY NEXT ROUND", name ? name : "");
     gdl = microcode_constructor(gdl);
     textMeasure(&h, &w, label, ptrFontBankGothicChars, ptrFontBankGothic, 0);
     x = viGetViewLeft() + (viGetViewWidth() - w) / 2;
-    y = viGetViewTop() + 20;
+    if (g_gevrStereo)
+    {
+        /* The flat place, 20 lines from the top, is along the top edge of the
+         * lenses and off the HUD panel: a late joiner never saw it (headset,
+         * 2026-10-29). On the head-locked panel, above the middle and clear
+         * of the top message (55%, hudmsgTopRender), as the stats are. */
+        y = viGetViewTop() + (viGetViewHeight() * 30) / 100;
+        gDPNoOpTag(gdl++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
+        gdl = microcode_constructor_related_to_menus(gdl, x - 4, y - 2, x + w + 4, y + h + 2, 0x000000A0);
+    }
+    else
+    {
+        y = viGetViewTop() + 20;
+    }
     gdl = textRender(gdl, &x, &y, label, ptrFontBankGothicChars, ptrFontBankGothic, 0xa0ffa0ff, viGetX(), viGetY(), 0, 0);
-    return combiner_bayer_lod_perspective(gdl);
+    gdl = combiner_bayer_lod_perspective(gdl);
+    if (g_gevrStereo)
+    {
+        gDPNoOpTag(gdl++, 0x56570001); /* VR_HUD_CAPTURE_END_H */
+    }
+    return gdl;
 }
 
 /* an item's name from the watch, its first line, for the fit readouts */
