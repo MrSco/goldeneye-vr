@@ -95,9 +95,12 @@ int gevrBeanRoomFog(float line[2], uint8_t rgb[3]);
 void *gevrBeanShownGdl(void *node, void *current);
 /* One G_GEVR_BEAN_FADE command at gdl (alpha 0-255, 255 ends the fade); returns the next. */
 void *gevrBeanFadeMark(void *gdl, int alpha);
+/* Whether the node's Bean list shows a destroyed prop: 1 its own vertices are objDeform's
+ * wreck copy, 2 those of the list whose part Bean draws in it (the CCTV's mount), 0 neither. */
+int gevrBeanWreck(void *node, struct Model *model);
 /* A destroyed prop's Bean list (objDeform's blackened, crumpled vertex copy): a frame copy
  * that follows it, or NULL when there is none to make (the caller draws the game's wreck). */
-void *gevrBeanScorchedGdl(void *node, const void *stockVertices, const void *nowVertices, int count);
+void *gevrBeanScorchedGdl(void *node, struct Model *model);
 /* The node's Bean part is drawn in another node's list (it shows Bean's blank). */
 int gevrBeanDrawsElsewhere(void *node);
 void *gevrBeanRenderGdl(void *node, void *current, struct Model *model);

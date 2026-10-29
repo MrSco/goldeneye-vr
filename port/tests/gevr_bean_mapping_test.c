@@ -811,6 +811,32 @@ int main(int argc, char **argv)
 		printf("DISH lists on matrices 0/1/2: %d %d %d\n", onMatrix[0], onMatrix[1], onMatrix[2]);
 		assert(onMatrix[0] == 0 && onMatrix[1] == 1 && onMatrix[2] == 1);
 	}
+	/* A prop whose crumpled list (objDeform's, the first collision list) Bean
+	 * draws in another: that list follows every list it draws for, and takes
+	 * the crumpling where its vertices lie on the crumpled one. The CCTV
+	 * (v0.5.14-test.16): Bean's camera is in its lens's list; the mount
+	 * crumples and the camera, nearest its own body, stays. */
+	for (int i = 0; i < s_nswap; i++) {
+		struct beanSwap *host = &s_swap[i];
+		Vertex *hv;
+		int hc, type;
+		Gfx *list;
+		if (!host->wreckGuest)
+			continue;
+		assert(host->wreckGuest->ours == s_blank && host->wreckGuest->node == firstCollisionList(&header));
+		assert(host->nwreckSources >= 2 && host->wreckSources[0].node == host->wreckGuest->node);
+		dlVerts(host->node, &hv, &hc, &type, &list);
+		struct beanScorch *sc = beanScorchMap(host, hc > 0 ? hv : NULL, hc);
+		assert(sc);
+		int onCrumpled = 0;
+		for (int v = 0; v < host->emittedVerts; v++)
+			onCrumpled += sc->source[v] == 0;
+		printf("WRECKGUEST %s %d of %d vertices follow the crumpled list, %d lists followed\n",
+		       argv[2], onCrumpled, host->emittedVerts, host->nwreckSources);
+		fflush(stdout);
+		if (!strcmp(argv[2], "PcctvZ"))
+			assert(onCrumpled > 0 && onCrumpled < host->emittedVerts / 2);
+	}
 	combinedBodyCheck(&header,mesh,kind,fitForName(argv[2]));
 	gevrBeanMeshFree(mesh);
 	gevrBeanReset();

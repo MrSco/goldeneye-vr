@@ -111,11 +111,26 @@ struct beanSwap {
 	void *emittedVtx;
 	int emittedVerts, emittedCommands, emittedWorld;
 	struct beanScorch *scorch;
+	/* objDeform crumples only a prop's first collision list (propobj.c
+	 * sub_GAME_7F04B478). Where Bean draws that list's part in this one (the
+	 * CCTV's mount, in the list of the camera's lens), its swap, and the
+	 * stock lists this list's vertices follow: its own and the ones it draws
+	 * for (the mount, the camera's body), each moved by the two lists' rest
+	 * offsets into this list's space (DAB xblaMeshBruiseNodes). */
+	struct beanSwap *wreckGuest;
+	struct beanWreckSource *wreckSources;
+	int nwreckSources;
 	float box[2][3];   /* the emitted list's bounds, in the node's space */
 	int hasBox;
 	int opaqueOnly;    /* the emitted list has no translucent batch (gevrBeanTransparentGdl) */
 };
 struct beanScorch;
+/* A stock list a destroyed prop's Bean list follows, and where its vertices
+ * sit in that list's space */
+struct beanWreckSource {
+	ModelNode *node;
+	float shift[3];
+};
 /* The rigid list gevrBeanEmitList made last: registerPrimary keeps it with its swap. */
 static Gfx *s_lastEmit;
 static void *s_lastEmitVtx;
@@ -264,6 +279,9 @@ static void swapAdd(void *node, void *original, void *ours, int origType)
 	s_swap[s_nswap].emittedVtx = NULL;
 	s_swap[s_nswap].emittedVerts = s_swap[s_nswap].emittedCommands = s_swap[s_nswap].emittedWorld = 0;
 	s_swap[s_nswap].scorch = NULL;
+	s_swap[s_nswap].wreckGuest = NULL;
+	s_swap[s_nswap].wreckSources = NULL;
+	s_swap[s_nswap].nwreckSources = 0;
     s_emittedSkin = NULL;
 	swapIndexAdd(s_nswap);
 	s_nswap++;
@@ -2267,6 +2285,65 @@ static void buildRot(const struct gevrBeanMesh *mesh, const struct beanGrp *grp,
 	memcpy(R[GEVR_BEAN_SK_POS], R[GEVR_BEAN_SK_BASE], sizeof(R[0]));
 }
 
+/* The list objDeform crumples: the first collision list in the tree
+ * (propobj.c sub_GAME_7F04B478, the same walk) */
+static ModelNode *firstCollisionList(ModelFileHeader *header)
+{
+	ModelNode *node = header->RootNode;
+	for (int walked = 0; node && walked < 4096; walked++) {
+		if (nodeOp(node) == MODELNODE_OPCODE_DLCOLLISION)
+			return node;
+		if (node->Child) {
+			node = node->Child;
+			continue;
+		}
+		while (node && !node->Next)
+			node = node->Parent;
+		node = node ? node->Next : NULL;
+	}
+	return NULL;
+}
+
+/* A prop whose crumpled list Bean draws in its other lists (it shows the
+ * blank): each of those takes it as its wreck guest, and follows its own stock
+ * list and every blank one (beanScorchMap), their vertices moved by the lists'
+ * rest offsets into its space. A Bean vertex follows the nearest stock
+ * surface, so the CCTV's mount takes the crumpling and its camera, nearest
+ * the camera's own list, stays as the game's does. */
+static void beanWreckGuests(ModelFileHeader *header, const struct beanGrp *grp, const struct beanDl *dls, int nd)
+{
+	ModelNode *first = firstCollisionList(header);
+	struct beanSwap *guest = first ? swapOf(first) : NULL;
+	if (!guest || guest->ours != s_blank)
+		return;
+	for (int i = 0; i < nd; i++) {
+		struct beanSwap *s = swapOf(dls[i].node);
+		if (!s || s == guest || !s->emitted || s->wreckSources)
+			continue;
+		struct beanWreckSource *sources = malloc((size_t)nd * sizeof(*sources));
+		int n = 0;
+		if (!sources || !keepAlloc(sources)) {
+			free(sources);
+			return;
+		}
+		/* the crumpled list first, then the others, to beanScorchMap's 64 */
+		for (int pass = 0; pass < 2; pass++)
+		for (int j = 0; j < nd && n < 64; j++) {
+			struct beanSwap *other = swapOf(dls[j].node);
+			if ((dls[j].node == first) != !pass || (j != i && (!other || other->ours != s_blank)))
+				continue;
+			sources[n].node = dls[j].node;
+			for (int k = 0; k < 3; k++)
+				sources[n].shift[k] = (dls[j].grp >= 0 ? grp[dls[j].grp].o[k] : 0.0f) -
+				                      (dls[i].grp >= 0 ? grp[dls[i].grp].o[k] : 0.0f);
+			n++;
+		}
+		s->wreckGuest = guest;
+		s->wreckSources = sources;
+		s->nwreckSources = n;
+	}
+}
+
 static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, int kind,
                       const struct beanFit *fit)
 {
@@ -2782,6 +2859,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 			if (kind == BEAN_PROP) {
 				s_screenBuild = NULL;
 				beanScreensFinish(&screens, header, dls[best].node, fit, mainEmitted);
+				beanWreckGuests(header, grp, dls, nd);
 			}
 			s_flashMesh = NULL;
 			s_flashDraws = 0;

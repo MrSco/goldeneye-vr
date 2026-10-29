@@ -416,7 +416,30 @@ struct beanScorch {
 	int nverts;
 	uint16_t (*ref)[3];
 	float (*w)[3];
+	uint16_t *source;   /* whose triangle each vertex follows (beanScorchSources) */
 };
+
+/* The stock lists a Bean list follows: its own, or those beanWreckGuests gave it */
+static int beanScorchSources(const struct beanSwap *swap, struct beanWreckSource *own,
+                             const struct beanWreckSource **out)
+{
+	if (swap->nwreckSources > 0) {
+		*out = swap->wreckSources;
+		return swap->nwreckSources;
+	}
+	memset(own, 0, sizeof(*own));
+	own->node = swap->node;
+	*out = own;
+	return 1;
+}
+
+/* A stock vertex, moved into the drawing list's space */
+static void beanScorchCorner(const Vertex *v, const float *shift, float p[3])
+{
+	p[0] = v->coord.x + shift[0];
+	p[1] = v->coord.y + shift[1];
+	p[2] = v->coord.z + shift[2];
+}
 
 static void beanScorchPosition(const struct beanSwap *swap, int i, float p[3])
 {
@@ -547,7 +570,11 @@ static float beanScorchClosest(const float p[3], const float a[3], const float b
 static struct beanScorch *beanScorchMap(struct beanSwap *swap, const Vertex *stock, int count)
 {
 	struct beanScorch *sc = swap->scorch;
-	if (sc && sc->stock == stock && sc->nverts == swap->emittedVerts)
+	struct beanWreckSource one;
+	const struct beanWreckSource *sources;
+	const int nsources = beanScorchSources(swap, &one, &sources);
+	const void *key = nsources > 1 ? (const void *)sources : (const void *)stock;
+	if (sc && sc->stock == key && sc->nverts == swap->emittedVerts)
 		return sc;
 	if (!sc) {
 		sc = calloc(1, sizeof(*sc));
@@ -555,35 +582,59 @@ static struct beanScorch *beanScorchMap(struct beanSwap *swap, const Vertex *sto
 		swap->scorch = sc;
 	}
 	int n = swap->emittedVerts;
+	/* every list's triangles (beanWreckGuests): each Bean vertex follows the
+	 * nearest of all of them, the crumpled one's where two lie together */
+	uint16_t (*tris[64])[3];
+	Vertex *from[64];
+	int ntris[64], total = 0;
+	for (int l = 0; l < nsources && l < 64; l++) {
+		int vc, type;
+		Gfx *list;
+		dlVerts(sources[l].node, &from[l], &vc, &type, &list);
+		tris[l] = NULL;
+		ntris[l] = from[l] ? beanScorchTriangles(sources[l].node, vc, &tris[l]) : 0;
+		total += ntris[l];
+	}
 	uint16_t (*ref)[3] = malloc((size_t)n * sizeof(*ref));
 	float (*w)[3] = malloc((size_t)n * sizeof(*w));
-	if (!ref || !w || !keepAlloc(ref) || !keepAlloc(w)) { free(ref); free(w); sc->stock = NULL; return NULL; }
-	uint16_t (*tris)[3] = NULL;
-	const int ntris = beanScorchTriangles(swap->node, count, &tris);
-	for (int i = 0; i < n && ntris > 0; i++) {
+	uint16_t *source = calloc((size_t)n, sizeof(*source));
+	if (!ref || !w || !source || (total <= 0 && (!stock || nsources > 1)) ||
+	    !keepAlloc(ref) || !keepAlloc(w) || !keepAlloc(source)) {
+		free(ref); free(w); free(source);
+		for (int l = 0; l < nsources && l < 64; l++)
+			free(tris[l]);
+		sc->stock = NULL;
+		return NULL;
+	}
+	ModelNode *crumpled = swap->wreckGuest ? swap->wreckGuest->node : NULL;
+	for (int i = 0; i < n && total > 0; i++) {
 		float p[3], best = 1e30f, bw[3] = {1, 0, 0};
-		int bt = 0;
+		int bt = 0, bl = 0;
 		beanScorchPosition(swap, i, p);
-		for (int t = 0; t < ntris; t++) {
-			float a[3] = {stock[tris[t][0]].coord.x, stock[tris[t][0]].coord.y, stock[tris[t][0]].coord.z};
-			float b[3] = {stock[tris[t][1]].coord.x, stock[tris[t][1]].coord.y, stock[tris[t][1]].coord.z};
-			float c[3] = {stock[tris[t][2]].coord.x, stock[tris[t][2]].coord.y, stock[tris[t][2]].coord.z};
-			float w[3];
-			const float d = beanScorchClosest(p, a, b, c, w);
-			if (d < best) {
-				best = d;
-				bt = t;
-				memcpy(bw, w, sizeof(bw));
+		for (int l = 0; l < nsources && l < 64; l++)
+			for (int t = 0; t < ntris[l]; t++) {
+				float a[3], b[3], c[3], wt[3];
+				beanScorchCorner(&from[l][tris[l][t][0]], sources[l].shift, a);
+				beanScorchCorner(&from[l][tris[l][t][1]], sources[l].shift, b);
+				beanScorchCorner(&from[l][tris[l][t][2]], sources[l].shift, c);
+				const float d = beanScorchClosest(p, a, b, c, wt);
+				if (d < best || (sources[l].node == crumpled && d <= best + 1.0f)) {
+					best = d;
+					bt = t;
+					bl = l;
+					memcpy(bw, wt, sizeof(bw));
+				}
 			}
-		}
 		for (int k = 0; k < 3; k++) {
-			ref[i][k] = tris[bt][k];
+			ref[i][k] = tris[bl][bt][k];
 			w[i][k] = bw[k];
 		}
+		source[i] = (uint16_t)bl;
 	}
-	free(tris);
+	for (int l = 0; l < nsources && l < 64; l++)
+		free(tris[l]);
 	/* no triangles to follow (a list this walk cannot read): the three nearest vertices */
-	for (int i = 0; i < n && ntris <= 0; i++) {
+	for (int i = 0; i < n && total <= 0 && stock; i++) {
 		float p[3], best[3] = {1e30f, 1e30f, 1e30f};
 		int bi[3] = {0, 0, 0};
 		beanScorchPosition(swap, i, p);
@@ -607,21 +658,76 @@ static struct beanScorch *beanScorchMap(struct beanSwap *swap, const Vertex *sto
 		for (int k = 0; k < 3; k++)
 			w[i][k] = total > 0 ? w[i][k] / total : (k == 0);
 	}
-	sc->stock = stock;
+	sc->stock = key;
 	sc->nverts = n;
 	sc->ref = ref;
 	sc->w = w;
+	sc->source = source;
 	return sc;
 }
 
-void *gevrBeanScorchedGdl(void *node, const void *stockVertices, const void *nowVertices, int count)
+s32 vtxstoreIsWreckCopy(const void *vertices);
+
+/* A collision list's stock vertices, the ones drawn now (objDeform's copy
+ * once destroyed) and their count; 0 for any other node */
+static int beanWreckList(ModelNode *node, Model *model, const Vertex **was, const Vertex **now)
+{
+	if (!node || !node->Data || nodeOp(node) != MODELNODE_OPCODE_DLCOLLISION || !model)
+		return 0;
+	*was = node->Data->DisplayListCollisions.Vertices;
+	*now = modelGetNodeRwData(model, node)->DisplayListCollisions.Vertices;
+	return *was && *now ? node->Data->DisplayListCollisions.numVertices : 0;
+}
+
+int gevrBeanWreck(void *node, struct Model *model)
 {
 	struct beanSwap *swap = activeSwap(node);
-	const Vertex *was = stockVertices, *now = nowVertices;
+	const Vertex *was, *now;
+	int wreck = 0;
+	if (!gevrBeanIsEnabled() || !swap)
+		return 0;
+	if (nodeOp(node) == MODELNODE_OPCODE_DLCOLLISION && model &&
+	    vtxstoreIsWreckCopy(modelGetNodeRwData(model, node)->DisplayListCollisions.Vertices))
+		wreck |= 1;
+	if (swap->wreckGuest && beanWreckList(swap->wreckGuest->node, model, &was, &now) > 0 &&
+	    vtxstoreIsWreckCopy(now))
+		wreck |= 2;
+	return wreck;
+}
+
+void *gevrBeanScorchedGdl(void *node, struct Model *model)
+{
+	struct beanSwap *swap = activeSwap(node);
 	if (!gevrBeanIsEnabled() || !swap || swap->skin || !swap->emitted || swap->deferredMatrix ||
-	    !was || !now || was == now || count <= 0 || swap->emittedVerts <= 0)
+	    swap->emittedVerts <= 0)
 		return NULL;
-	struct beanScorch *sc = beanScorchMap(swap, was, count);
+	/* each list followed, as it was and as it is drawn: objDeform's copy once
+	 * destroyed, else its stock vertices (nothing moved) */
+	struct beanWreckSource one;
+	const struct beanWreckSource *sources;
+	const int nsources = beanScorchSources(swap, &one, &sources);
+	const Vertex *was[64], *now[64];
+	int wrecked = 0;
+	for (int l = 0; l < nsources && l < 64; l++) {
+		was[l] = now[l] = NULL;
+		if (beanWreckList(sources[l].node, model, &was[l], &now[l]) <= 0 || !vtxstoreIsWreckCopy(now[l])) {
+			int vc, type;
+			Gfx *list;
+			Vertex *stock;
+			dlVerts(sources[l].node, &stock, &vc, &type, &list);
+			was[l] = now[l] = stock;
+		}
+		wrecked |= was[l] != now[l];
+	}
+	if (!wrecked)
+		return NULL;
+	const Vertex *own = NULL;
+	int count = 0;
+	if (nodeOp(node) == MODELNODE_OPCODE_DLCOLLISION && node && ((ModelNode *)node)->Data) {
+		own = ((ModelNode *)node)->Data->DisplayListCollisions.Vertices;
+		count = ((ModelNode *)node)->Data->DisplayListCollisions.numVertices;
+	}
+	struct beanScorch *sc = beanScorchMap(swap, own, count);
 	if (!sc)
 		return NULL;
 	const int n = swap->emittedVerts;
@@ -633,8 +739,9 @@ void *gevrBeanScorchedGdl(void *node, const void *stockVertices, const void *now
 	memcpy(vertices, swap->emittedVtx, (size_t)n * vsize);
 	for (int i = 0; i < n; i++) {
 		float colour[3] = {0, 0, 0}, offset[3] = {0, 0, 0};
+		const int l = sc->source[i];
 		for (int k = 0; k < 3; k++) {
-			const Vertex *a = &was[sc->ref[i][k]], *b = &now[sc->ref[i][k]];
+			const Vertex *a = &was[l][sc->ref[i][k]], *b = &now[l][sc->ref[i][k]];
 			const float wk = sc->w[i][k];
 			const u8 wa[3] = {a->r, a->g, a->b}, nb[3] = {b->r, b->g, b->b};
 			for (int c = 0; c < 3; c++)

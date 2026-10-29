@@ -4569,18 +4569,19 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
             s32 shownType = gevrBeanShownModelType(node, rodata->DisplayListCollisions.ModelType);
             /* a Bean list keeps the replaced list's render mode (G_GEVR_NODE_STATE) */
             s32 nodeType = gevrBeanNodeModeType(node, shownType);
-            /* objDeform's own blackened, crumpled vertex copy (a destroyed prop) */
-            if (shownGdl && shownGdl != rwdata->DisplayListCollisions.gdl &&
-                vtxstoreIsWreckCopy(rwdata->DisplayListCollisions.Vertices))
+            /* objDeform's own blackened, crumpled vertex copy (a destroyed prop):
+             * this list's (1), or that of a list whose part Bean draws here (2) */
+            const s32 wreck = shownGdl && shownGdl != rwdata->DisplayListCollisions.gdl ? gevrBeanWreck(node, model) : 0;
+            if (wreck)
             {
-                Gfx *scorched = (Gfx *)gevrBeanScorchedGdl(node, rodata->DisplayListCollisions.Vertices,
-                    rwdata->DisplayListCollisions.Vertices, rodata->DisplayListCollisions.numVertices);
+                Gfx *scorched = (Gfx *)gevrBeanScorchedGdl(node, model);
 
                 if (scorched)
                 {
                     shownGdl = scorched;
                 }
-                else if (!gevrBeanDrawsElsewhere(node))
+                else if ((wreck & 1) && vtxstoreIsWreckCopy(rwdata->DisplayListCollisions.Vertices) &&
+                         !gevrBeanDrawsElsewhere(node))
                 {
                     /* no HD wreck to make: the game's own, never the HD prop whole.
                      * Not for a part Bean draws in another node's list (the CCTV
@@ -4684,16 +4685,18 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
              * else the game's own wreck with its own translucent part - never a
              * clean Bean list over it (the opaque pass notes no Bean list when it
              * drew the game's) */
-            if (vtxstoreIsWreckCopy(rwdata->DisplayListCollisions.Vertices) && !gevrBeanDrawsElsewhere(node))
+            const s32 wreck = gevrBeanWreck(node, model);
+            if (wreck && !gevrBeanDrawsElsewhere(node))
             {
-                Gfx *scorched = (Gfx *)gevrBeanScorchedGdl(node, rodata->DisplayListCollisions.Vertices,
-                    rwdata->DisplayListCollisions.Vertices, rodata->DisplayListCollisions.numVertices);
+                Gfx *scorched = (Gfx *)gevrBeanScorchedGdl(node, model);
 
-                if (beanTransparent)
+                /* the guest's wreck with no copy to make leaves the clean list,
+                 * as the opaque pass drew it */
+                if (beanTransparent && (scorched || (wreck & 1)))
                 {
                     beanTransparent = scorched;
                 }
-                if (!scorched)
+                if (!scorched && (wreck & 1))
                 {
                     shownType = rodata->DisplayListCollisions.ModelType;
                 }

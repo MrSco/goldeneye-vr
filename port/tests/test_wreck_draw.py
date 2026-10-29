@@ -29,6 +29,8 @@ class WreckDraw(unittest.TestCase):
     def test_bean_wreck_falls_back_to_the_game_wreck(self):
         node = function("src/game/model.c", "void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *node)")
         self.assertIn("vtxstoreIsWreckCopy(rwdata->DisplayListCollisions.Vertices)", node)
+        # the list Bean draws a crumpled part in (the CCTV's mount) asks too
+        self.assertEqual(node.count("gevrBeanWreck(node, model)"), 2)
         fallback = node[node.index("if (scorched)"):node.index("#else")]
         self.assertIn("shownGdl = rwdata->DisplayListCollisions.gdl;", fallback)
         self.assertIn("shownType = rodata->DisplayListCollisions.ModelType;", fallback)
@@ -37,7 +39,7 @@ class WreckDraw(unittest.TestCase):
     def test_scorched_list_never_returns_the_whole_prop(self):
         scorched = function("port/src/gevr_bean_pose.inc.h", "void *gevrBeanScorchedGdl(")
         self.assertNotIn("shown", scorched)
-        self.assertEqual(re.findall(r"return (\w+);", scorched), ["NULL", "NULL", "NULL", "list", "head"])
+        self.assertEqual(re.findall(r"return (\w+);", scorched), ["NULL", "NULL", "NULL", "NULL", "list", "head"])
 
     def test_no_bounded_list_of_wrecks(self):
         bean = (root / "port/src/gevr_bean.c").read_text(encoding="utf-8")

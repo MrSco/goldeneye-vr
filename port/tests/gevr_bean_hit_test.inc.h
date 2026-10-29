@@ -5,14 +5,16 @@
 
 static Vertex *expectedHitVertices;
 static ModelRwData_DisplayList_CollisionRecord collisionRw;
+/* a second list's own data (a wreck guest, gevr_bean_material_paths_test.inc.h) */
+static ModelNode *guestRwNode;
+static ModelRwData_DisplayList_CollisionRecord guestRw;
 static int hitTriangles;
 
 /* model.c's own signatures: gevr_bean_wounds.inc.h declares them */
 union ModelRwData *modelGetNodeRwData(Model *model, ModelNode *node)
 {
 	(void)model;
-	(void)node;
-	return (union ModelRwData *)&collisionRw;
+	return (union ModelRwData *)(node && node == guestRwNode ? &guestRw : &collisionRw);
 }
 s32 modelFindNodeMtxIndex(ModelNode *node, s32 unused)
 {

@@ -198,4 +198,71 @@ static void materialPathChecks(void)
         s_nswap = 0; swapIndexRebuild();
         puts("Bean wrecks: a destroyed prop with no Bean copy draws the game's wreck");
     }
+    /* The CCTV (v0.5.14-test.16): objDeform crumples its mount, the first
+     * collision list, which Bean draws in the camera's list. The camera's list
+     * shows the crumpling where its vertices lie on the mount (100 below, by
+     * the two lists' rest offsets) and stays as it is on the camera. */
+    {
+        union ModelRoData hostRo = {0}, guestRo = {0};
+        ModelNode host = {0}, guest = {0};
+        Vertex hostStock[3] = {{{0, 0, 0}}, {{10, 0, 0}}, {{0, 10, 0}}};
+        Vertex guestStock[3] = {{{0, 0, 0}}, {{10, 0, 0}}, {{0, 10, 0}}}, guestWreck[3];
+        Gfx hostList[3], guestList[3], emitted[2], unused[1];
+        Vtx bean[2] = {{{{1, 1, 0}, 0, {0, 0}, {200, 200, 200, 255}}},
+                       {{{1, 1, -100}, 0, {0, 0}, {200, 200, 200, 255}}}};
+        Gfx *lists[2] = {hostList, guestList};
+        for (int l = 0; l < 2; l++) {
+            lists[l][0].words.w0 = ((uintptr_t)(G_VTX & 255) << 24) | (3 * sizeof(Vertex));
+            lists[l][0].words.w1 = (uintptr_t)SPSEGMENT_MODEL_VTX << 24;
+            lists[l][1].words.w0 = (uintptr_t)(G_TRI1 & 255) << 24;
+            lists[l][1].words.w1 = (0u << 16) | (10u << 8) | 20u;
+            gSPEndDisplayList(&lists[l][2]);
+        }
+        gSPEndDisplayList(unused);
+        for (int i = 0; i < 3; i++) {
+            hostStock[i].r = hostStock[i].g = hostStock[i].b = 200;
+            guestStock[i].r = guestStock[i].g = guestStock[i].b = 200;
+            guestWreck[i] = guestStock[i];
+            guestWreck[i].coord.y += 30;   /* pressed and pushed about */
+            guestWreck[i].r = guestWreck[i].g = guestWreck[i].b = 0;   /* blackened */
+        }
+        host.Opcode = guest.Opcode = MODELNODE_OPCODE_DLCOLLISION;
+        host.Data = &hostRo; guest.Data = &guestRo;
+        hostRo.DisplayListCollisions.Primary = hostList;
+        hostRo.DisplayListCollisions.Vertices = hostStock;
+        hostRo.DisplayListCollisions.numVertices = 3;
+        guestRo.DisplayListCollisions.Primary = guestList;
+        guestRo.DisplayListCollisions.Vertices = guestStock;
+        guestRo.DisplayListCollisions.numVertices = 3;
+        emitted[0].words.w0 = ((uintptr_t)(G_VTX & 255) << 24) | (2 * sizeof(Vtx));
+        emitted[0].words.w1 = (uintptr_t)bean;
+        gSPEndDisplayList(&emitted[1]);
+        swapAdd(&guest, guestList, NULL, 1);
+        swapAdd(&host, hostList, unused, 1);
+        struct beanSwap *hs = swapOf(&host);
+        hs->emitted = emitted; hs->emittedVtx = bean; hs->emittedVerts = 2; hs->emittedCommands = 2;
+        struct beanWreckSource sources[2] = {{&guest, {0, 0, -100}}, {&host, {0, 0, 0}}};
+        hs->wreckGuest = swapOf(&guest);
+        hs->wreckSources = sources;
+        hs->nwreckSources = 2;
+        guestRwNode = &guest;
+        collisionRw.Vertices = hostStock;
+        guestRw.Vertices = guestStock;
+        assert(gevrBeanWreck(&host, &model) == 0 && !gevrBeanScorchedGdl(&host, &model));
+        guestRw.Vertices = guestWreck;
+        s_wreckCopy = guestWreck;
+        assert(gevrBeanWreck(&host, &model) == 2 && gevrBeanWreck(&guest, &model) == 1);
+        gevrBeanBeginFrame();
+        Gfx *copy = gevrBeanScorchedGdl(&host, &model);
+        assert(copy && copy[0].words.w1 != (uintptr_t)bean);
+        const Vtx *drawn = (const Vtx *)copy[0].words.w1;
+        assert(drawn[0].v.ob[1] == 1 && drawn[0].v.cn[0] == 200);   /* the camera: as it was */
+        assert(drawn[1].v.ob[1] == 31 && drawn[1].v.cn[0] == 0);    /* the mount: crumpled, black */
+        s_wreckCopy = NULL;
+        guestRwNode = NULL;
+        collisionRw.Vertices = NULL;
+        guestRw.Vertices = NULL;
+        s_nswap = 0; swapIndexRebuild();
+        puts("Bean wrecks: a list Bean draws in another shows its crumpling there (the CCTV mount)");
+    }
 }
