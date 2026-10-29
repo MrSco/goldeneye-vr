@@ -377,9 +377,11 @@ beside it, unpublished, for reading crash addresses. Builds need glibc 2.39+
 
 **Still to do for a self-hosting release:**
 - a run on real ARM hardware (the Oracle VM);
-- the Worker's keyed `dedicated` listings, exempt from the idle and lifetime
-  limits, with a code kept per key and name: written and tested
-  (goldeneyevr.com 78360bb, bridge `--key-file`), not deployed yet;
+- ~~the Worker's keyed `dedicated` listings~~: deployed 2026-10-29
+  (goldeneyevr.com 78360bb, version 7be0118d; bridge `--key-file`). The
+  first key, `mrsco-home`, is in WSL's `~/gevr-server-data/server.key`;
+  the live service listed that server as dedicated under the same code
+  across restarts;
 - attaching the tarballs to the release (`gh release upload`) at the release.
 
 ## Phases
