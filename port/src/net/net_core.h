@@ -47,6 +47,8 @@ void netDisconnect(void);
 NetState netGetState(void);
 bool netIsActive(void);
 bool netIsHost(void);
+bool netIsDedicated(void);              /* a dedicated server: nobody plays here */
+void netSetDedicated(bool dedicated);   /* port/server, at start */
 int netGetLocalSlot(void);
 int netGetHostSlot(void);
 int netGetConnectedPlayerCount(void);

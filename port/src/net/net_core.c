@@ -778,6 +778,12 @@ bool netIsHost(void) {
     return s_state == NET_STATE_HOSTING_LOBBY || (s_state == NET_STATE_INGAME && s_local_slot == s_host_slot);
 }
 
+/* A dedicated server (port/server): nobody plays at this machine. The game asks
+ * at run time, so the headset runs the same code (docs/dedicated-server.md). */
+static bool s_dedicated;
+void netSetDedicated(bool dedicated) { s_dedicated = dedicated; }
+bool netIsDedicated(void) { return s_dedicated; }
+
 int netGetLocalSlot(void) {
     return s_local_slot;
 }
@@ -4142,8 +4148,9 @@ static void netSilenceTick(uint64_t now) {
 static void netRoundTick(void) {
     if (s_state == NET_STATE_INGAME) {
         uint64_t now = sysGetMicroseconds();
-        /* co-op (#94): the party's menus are no place to idle out (a teammate follows the host's, input-less) */
-        if (s_last_local_activity_us == 0 || (netCoopSession() && bossGetStageNum() == LEVELID_TITLE))
+        /* co-op (#94): the party's menus are no place to idle out (a teammate follows the host's, input-less);
+         * nor a dedicated server, whose seat nobody holds */
+        if (s_last_local_activity_us == 0 || (netCoopSession() && bossGetStageNum() == LEVELID_TITLE) || s_dedicated)
             s_last_local_activity_us = now;
         uint64_t idle_us = now - s_last_local_activity_us;
         if (idle_us >= 270ULL * 1000000ULL && idle_us < 300ULL * 1000000ULL) {

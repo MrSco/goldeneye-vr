@@ -31,6 +31,7 @@
 #include "net_match.h"
 #include "net_game.h"
 #include "game/player.h"
+#include "game/gevr_bot.h"
 
 extern int VrMpChr, VrMpLoadout[4];
 extern s32 g_StageNum;
@@ -78,6 +79,7 @@ void gevrLauncherRun(void)
 	gevrVrPumpBegin();
 	gevrVrPumpEnd();
 
+	netSetDedicated(true);
 	if (!netHostStart((uint16_t)port)) {
 		sysFatalError("server: could not open UDP port %d", port);
 	}
@@ -151,12 +153,22 @@ void gevrLobbyGameTick(void)
 				netGetConnectedPlayerCount(), (int)netGetPhase(), ru.ru_maxrss / 1024);
 		for (int i = 0; i < netGetConnectedPlayerCount() && i < MAX_PLAYER_COUNT; i++) {
 			const struct player *pl = g_playerPointers[i];
-			sysLogPrintf(LOG_NOTE, "server:   player %d: %d kills, %.0f travelled, at %.0f %.0f %.0f; dead %d blood %d anim %d fade %.1f",
+			s32 route = -1;   /* GEVR_NAVPROBE=1: a bot route from here to the next player (2: through glass) */
+
+			if (getenv("GEVR_NAVPROBE") && pl && pl->prop && pl->prop->stan) {
+				const struct player *o = g_playerPointers[(i + 1) % netGetConnectedPlayerCount()];
+				GevrBotRoute r;
+
+				if (o && o->prop && o->prop->stan) {
+					route = gevrBotNavPlan(&r, pl->prop->stan, &pl->prop->pos, o->prop->stan, &o->prop->pos);
+					route += route && r.glass;
+				}
+			}
+			sysLogPrintf(LOG_NOTE, "server:   player %d: %d kills, %.0f travelled, at %.0f %.0f %.0f room %d%s; route %d",
 					i, g_playerPlayerData[i].kill_count, g_playerPlayerData[i].distance_traveled,
 					pl && pl->prop ? pl->prop->pos.x : 0.f, pl && pl->prop ? pl->prop->pos.y : 0.f,
-					pl && pl->prop ? pl->prop->pos.z : 0.f, pl ? pl->bonddead : -1,
-					pl ? pl->redbloodfinished : -1, pl ? pl->deathanimfinished : -1,
-					pl ? pl->colourfadetimemax60 : 0.f);
+					pl && pl->prop ? pl->prop->pos.z : 0.f, pl && pl->prop && pl->prop->stan ? pl->prop->stan->room : -1,
+					pl && pl->bonddead ? ", dead" : "", route);
 		}
 		lastNs = now;
 		lastCpu = cpu;
