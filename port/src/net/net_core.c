@@ -647,6 +647,14 @@ void netShutdown(void) {
     NET_LOG("Network subsystem shutdown.");
 }
 
+/* A dedicated server (port/server): nobody plays at this machine. The game asks
+ * at run time, so the headset runs the same code (docs/dedicated-server.md).
+ * Its seat, slot 0, is a spectator for good: in no round, never shot, never a
+ * bot's target, following whoever is alive, so its view pass still runs the
+ * world's once-a-frame work (lv.c) where the players are. */
+static bool s_dedicated;
+static bool netDedicatedSeat(int slot) { return s_dedicated && slot == s_local_slot && slot >= 0; }
+
 bool netHostStart(uint16_t port) {
     if (!s_initialized && !netInit()) return false;
     netDisconnect();
@@ -679,7 +687,12 @@ bool netHostStart(uint16_t port) {
     s_lobby_state.slots[0].chr_id = 0; /* James Bond */
     netCleanName(s_lobby_state.slots[0].name, VrPlayerName, VrPlayerName + strlen(VrPlayerName));
     strncpy(s_slot_app_version[0], s_local_app_version, sizeof(s_slot_app_version[0]) - 1);
-    
+    if (s_dedicated) {
+        static const char server_name[] = "Server";
+        s_lobby_state.slots[0].spectator = 1;
+        netCleanName(s_lobby_state.slots[0].name, server_name, server_name + sizeof(server_name) - 1);
+    }
+
     player_char[0] = 0;
     
     NET_LOG("Multiplayer server hosted on port %d", address.port);
@@ -781,6 +794,9 @@ bool netIsHost(void) {
     return s_state == NET_STATE_HOSTING_LOBBY || (s_state == NET_STATE_INGAME && s_local_slot == s_host_slot);
 }
 
+void netSetDedicated(bool dedicated) { s_dedicated = dedicated; }
+bool netIsDedicated(void) { return s_dedicated; }
+
 int netGetLocalSlot(void) {
     return s_local_slot;
 }
@@ -846,7 +862,7 @@ static int netActingSlot(void) {
 int netGetHumanPlayerCount(void) {
     int count = 0;
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++)
-        if (s_lobby_state.slots[i].connected && !s_lobby_state.slots[i].is_bot) count++;
+        if (s_lobby_state.slots[i].connected && !s_lobby_state.slots[i].is_bot && !netDedicatedSeat(i)) count++;
     return count;
 }
 
@@ -1697,7 +1713,7 @@ static void netBeginRoundReset(bool start) {
     s_warmup_end_us = 0;
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
         if (s_lobby_state.slots[i].connected) s_lobby_state.slots[i].loaded = 0;
-        s_lobby_state.slots[i].spectator = 0;
+        s_lobby_state.slots[i].spectator = netDedicatedSeat(i);
         s_lobby_state.slots[i].eliminated = 0;
         s_remote_active[i] = false;
         netVoiceForgetSlot((uint8_t)i);
@@ -1762,15 +1778,22 @@ void netHostReturnToLobby(void) {
     netBeginRoundReset(false);
 }
 
+/* Reload this map into a warmup with the host's pending choices: no second
+ * player or complete team roster needed, and joinable after the load. A
+ * dedicated server does this when its last player leaves (port/server), so
+ * the next one to join plays at once instead of spectating the bots' round. */
+void netHostRestartWarmup(void) {
+    if (!netHostCanStartRound()) return;
+    s_rotate_next = false;
+    netClearVotes(-1);
+    netLatchRoundSettings();
+    netBeginRoundReset(false);
+}
+
 void netHostStartRoundNow(void) {
     if (!netHostCanStartRound()) return;
     if (netGetConnectedPlayerCount() == 1) {
-        /* Apply the host's pending choices without needing a second player or
-         * a complete team roster. Stay joinable in warmup after this load. */
-        s_rotate_next = false;
-        netClearVotes(-1);
-        netLatchRoundSettings();
-        netBeginRoundReset(false);
+        netHostRestartWarmup();
         return;
     }
     s_results_deadline_us = 0;
@@ -1793,7 +1816,8 @@ static bool netWarmupSettingsChanged(void) {
     active.voice_mode = pending.voice_mode = 0;
     active.friendly_fire = pending.friendly_fire = 0;
     if (memcmp(&active, &pending, sizeof(active))) return true;
-    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) if (netLobbySlotConnected(i)) {
+    /* a dedicated server's seat spectates every round: no change to load for */
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) if (netLobbySlotConnected(i) && !netDedicatedSeat(i)) {
         if (s_lobby_state.slots[i].spectator || s_round.team[i] != s_lobby_state.slots[i].team ||
             s_round.character[i] != s_lobby_state.slots[i].chr_id ||
             (pending.loadouts && memcmp(s_round.loadout[i], s_lobby_state.slots[i].loadout, 4))) return true;
@@ -1972,6 +1996,57 @@ const NetMatchConfig *netGetMatchConfig(void) {
     return &s_lobby_state.config;
 }
 
+static int netClampChoice(int v, int n, int dflt) { return v >= 0 && v < n ? v : dflt; }
+
+/* The host's match config from the saved choices (goldeneye-vr.ini), clamped
+ * to the lists: the launcher's Host page and the dedicated server both start
+ * their games from it. */
+NetMatchConfig netMatchConfigFromSettings(void) {
+    extern int VrMpMode, VrHordeStage, VrHordeStartWave;
+    NetMatchConfig c;
+    memset(&c, 0, sizeof(c));
+    c.stage = (uint8_t)(netStageIndexOf((uint8_t)VrMpStage) >= 0 ? VrMpStage : 27);
+    c.scenario = (uint8_t)netClampChoice(VrMpScenario, netScenarioCount(), 0);
+    c.weapon_set = (uint8_t)netClampChoice(VrMpWeaponSet, netWeaponSetCount(), 4);
+    c.game_length = (uint8_t)netClampChoice(VrMpLength, 7, 2);
+    c.health = (uint8_t)netClampChoice(VrMpHealth, netHealthCount(), 5);
+    c.dual_wield = (uint8_t)netClampChoice(VrMpDual, 3, 0);
+    c.loadouts = VrMpLoadouts ? 1 : 0;
+    c.next_round = (uint8_t)netClampChoice(VrMpNextRound, 3, 0);
+    c.friendly_fire = VrMpFriendlyFire != 0;
+    c.voice_mode = (uint8_t)netClampChoice(VrMpVoiceMode, 2, 0);
+    c.fun_flags = (uint8_t)(VrMpFunFlags & NET_FUN_MASK);
+    c.gun_size = (uint8_t)netClampChoice(VrMpGunSize, 3, 0);
+    c.movement_speed = (uint8_t)netClampChoice(VrMpMovementSpeed, NET_MOVE_COUNT, NET_MOVE_NORMAL);
+    for (int i = 0; i < 4; i++)
+        c.custom_set[i] = (uint8_t)(netItemIndexOf(VrMpCustom[i]) >= 0 ? VrMpCustom[i] : netItem(0)->item);
+    c.max_players = (uint8_t)(VrMpMaxPlayers >= 2 && VrMpMaxPlayers <= GEVR_MAX_PLAYERS ? VrMpMaxPlayers : 4);
+    c.bot_mode = (uint8_t)netClampChoice(VrMpBotMode, NET_BOT_MODE_COUNT, NET_BOT_OFF);
+    c.bot_count = (uint8_t)(VrMpBotCount >= 1 && VrMpBotCount < GEVR_MAX_PLAYERS ? VrMpBotCount : 3);
+    c.bot_difficulty = (uint8_t)netClampChoice(VrMpBotDifficulty, NET_BOT_DIFF_COUNT, NET_BOT_NORMAL);
+    if (VrMpMode == NET_MODE_HORDE) {
+        c.mode=NET_MODE_HORDE;c.difficulty=0;
+        c.stage=(uint8_t)(netHordeStageValid((unsigned)VrHordeStage)?VrHordeStage:NET_HORDE_STAGE);
+        c.horde_start_wave=(uint8_t)(VrHordeStartWave<1?1:VrHordeStartWave>NET_HORDE_MAX_START_WAVE?NET_HORDE_MAX_START_WAVE:VrHordeStartWave);
+        c.friendly_fire=VrHordeFriendlyFire!=0;
+        c.max_players=NET_COOP_MAX_PLAYERS;c.bot_mode=NET_BOT_OFF;
+        c.scenario=0;c.game_length=0;c.loadouts=0;c.dual_wield=NET_DUAL_DOUBLES;
+        return c;
+    }
+    if (VrMpMode == NET_MODE_COOP) {
+        /* the solo campaign for the party: it starts in the game's menus, where the
+         * host picks each mission and difficulty; four players at most (the deathmatch
+         * fields ride along unused) */
+        c.mode = NET_MODE_COOP;
+        if (VrCoopFastReinforcements) c.fun_flags |= NET_COOP_FAST_REINFORCEMENTS;
+        c.stage = NET_COOP_FRONT_STAGE;
+        c.difficulty = 0;
+        c.max_players = NET_COOP_MAX_PLAYERS;
+        return c;
+    }
+    return c;
+}
+
 /* The host's settings (the launcher's pages, the game's lobby page): kept
  * in the lobby state and told to everyone; they take effect at the next load. */
 void netLobbySetConfig(const NetMatchConfig *config) {
@@ -2061,7 +2136,7 @@ void netHordeRetry(void) {
 void netHordeAdmitPlayers(void) {
     if (!netIsHost() || !netHordeActive()) return;
     for (int i=0;i<NET_COOP_MAX_PLAYERS;i++) if(s_lobby_state.slots[i].connected && s_lobby_state.slots[i].loaded) {
-        if (s_lobby_state.slots[i].spectator) {
+        if (s_lobby_state.slots[i].spectator && !netDedicatedSeat(i)) {
             s_lobby_state.slots[i].spectator=0;
             netCoopPlayerJoined(i,0);
         }
@@ -2290,7 +2365,8 @@ int gevrSpectating(void) { return netLocalIsSpectator() && get_cur_playernum() =
 int netTeamRosterReady(void) {
     if (netModePve(s_lobby_state.config.mode)) return 1;
     uint8_t connected[GEVR_MAX_PLAYERS], team[GEVR_MAX_PLAYERS];
-    for (int i=0;i<GEVR_MAX_PLAYERS;i++) { connected[i]=s_lobby_state.slots[i].connected; team[i]=s_lobby_state.slots[i].team; }
+    /* a dedicated server's seat plays on no team */
+    for (int i=0;i<GEVR_MAX_PLAYERS;i++) { connected[i]=s_lobby_state.slots[i].connected && !netDedicatedSeat(i); team[i]=s_lobby_state.slots[i].team; }
     return netTeamRosterComplete(s_lobby_state.config.scenario, GEVR_MAX_PLAYERS, connected, team);
 }
 int netGetSlotTeam(int slot) { return slot >= 0 && slot < GEVR_MAX_PLAYERS ? s_lobby_state.slots[slot].team : NET_TEAM_NONE; }
@@ -2477,7 +2553,9 @@ int netLobbyCanLaunch(void) {
     if (!netIsHost()) return 0;
     int connected = 0;
     for (int i=0;i<GEVR_MAX_PLAYERS;i++) if (s_lobby_state.slots[i].connected) {
-        if (i >= s_max_players || (i != s_host_slot && !s_lobby_state.slots[i].ready && !s_lobby_state.slots[i].is_bot)) return 0;
+        /* a dedicated server has no host to wait for players' Ready: in its
+         * warmup they are playing already, and the round starts by itself */
+        if (i >= s_max_players || (i != s_host_slot && !s_lobby_state.slots[i].ready && !s_lobby_state.slots[i].is_bot && !s_dedicated)) return 0;
         connected++;
     }
     return connected > 0;
@@ -4052,8 +4130,10 @@ static void netHostRoundTick(uint64_t now) {
     }
     if (s_match_ended && s_results_deadline_us && now >= s_results_deadline_us) netHostContinue();
     if (s_phase == NET_PHASE_WARMUP && !s_round_reset_loading) netReadyProgress();
+    /* the warmup clock runs out into a round: never for a dedicated server
+     * with only bots on it (it reloaded the map into empty rounds) */
     if (s_phase == NET_PHASE_WARMUP && s_warmup_end_us && now >= s_warmup_end_us &&
-        !s_next_round_at_us && netGetConnectedPlayerCount() >= 2) {
+        !s_next_round_at_us && netGetConnectedPlayerCount() >= 2 && (!s_dedicated || netGetHumanPlayerCount() > 0)) {
         s_start_requested = true;
         s_vote_requested = s_lobby_state.config.next_round == NET_NEXT_VOTE;
     }
@@ -4113,8 +4193,9 @@ static void netRoundTick(void) {
     if (s_state == NET_STATE_INGAME) {
         uint64_t now = sysGetMicroseconds();
         /* co-op (#94): the party's menus are no place to idle out (a teammate follows the host's, input-less);
-         * nor a late joiner watching the round out (kicked after 5 min of spectating, 2026-10-29) */
-        if (s_last_local_activity_us == 0 || (netCoopSession() && bossGetStageNum() == LEVELID_TITLE)
+         * nor a dedicated server, whose seat nobody holds; nor a late joiner watching
+         * the round out (kicked after 5 min of spectating, 2026-10-29) */
+        if (s_last_local_activity_us == 0 || (netCoopSession() && bossGetStageNum() == LEVELID_TITLE) || s_dedicated
             || netLocalIsSpectator())
             s_last_local_activity_us = now;
         uint64_t idle_us = now - s_last_local_activity_us;

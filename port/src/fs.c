@@ -117,8 +117,9 @@ s32 fsInit(void)
 	// get path to base dir and expand it if needed
 	const char *path = sysArgGetString("--basedir");
 	if (!path) {
-#ifdef ANDROID
-		// On Android, we're already in the data directory, so use current directory
+#if defined(ANDROID) || defined(GEVR_HEADLESS)
+		// On Android, we're already in the data directory, so use current directory;
+		// the dedicated server runs in its data folder too (port/server/server_host.c)
 		path = ".";
 #else
 		// check if there's a `data` directory in working directory or homeDir, otherwise default to exe directory
@@ -168,6 +169,8 @@ s32 fsInit(void)
 #ifdef ANDROID
 			// On Android, use the home directory directly (not the data subfolder)
 			path = "$H";
+#elif defined(GEVR_HEADLESS)
+			path = ".";
 #elif defined(PLATFORM_LINUX) || defined(PLATFORM_OSX)
 			// check if there's a config in the working directory, otherwise default to homeDir
 			if (fsFileSize("./" CONFIG_FNAME) >= 0) {

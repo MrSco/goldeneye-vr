@@ -2,6 +2,9 @@
 #define _MATH_EXT_H_
 
 #include_next <math.h>
+#ifdef GEVR_HEADLESS
+#include <float.h> /* FLT_MAX: bionic's math.h brings it in, glibc's does not */
+#endif
 
 /* Some useful constants */
 #ifndef M_E

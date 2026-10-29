@@ -47,6 +47,8 @@ void netDisconnect(void);
 NetState netGetState(void);
 bool netIsActive(void);
 bool netIsHost(void);
+bool netIsDedicated(void);              /* a dedicated server: nobody plays here */
+void netSetDedicated(bool dedicated);   /* port/server, at start */
 int netGetLocalSlot(void);
 int netGetHostSlot(void);
 int netGetConnectedPlayerCount(void);
@@ -66,6 +68,7 @@ void netHostRoundEnded(void);
 void netHostContinue(void);
 void netHostReturnToLobby(void);
 void netHostStartRoundNow(void);
+void netHostRestartWarmup(void);   /* host: this map again, in warmup (a dedicated server left empty) */
 int netCountdownSecondsLeft(void);
 void netHostRequestVotes(void);
 int netHostStartRequested(void);
@@ -95,6 +98,7 @@ int netLobbyCanLaunch(void);
 /* The match config (net_protocol.h NetMatchConfig) */
 const NetMatchConfig *netGetMatchConfig(void);
 const NetMatchConfig *netGetActiveMatchConfig(void);
+NetMatchConfig netMatchConfigFromSettings(void);   /* the host's saved choices: launcher and dedicated server */
 void netLobbySetConfig(const NetMatchConfig *config);   /* host: kept and told to everyone */
 void netApplyMatchConfig(void);             /* every headset, before each stage load */
 int netGetPlayingCount(void);               /* connected and not spectating */

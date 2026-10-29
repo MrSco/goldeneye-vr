@@ -996,7 +996,7 @@ extern void		osAckRamromWrite(void);
 
 /* byte string operations */
 
-#if !defined(__ANDROID__)
+#if !defined(__ANDROID__) && !defined(GEVR_HEADLESS) /* the C library declares them */
 extern void     bcopy(const void *, void *, int);
 extern int      bcmp(const void *, const void *, int);
 extern void     bzero(void *, int);
@@ -1011,7 +1011,11 @@ extern u32 		osGetMemSize(void);
 
 /* Printf */
 
+#ifdef GEVR_HEADLESS
+#include <stdio.h> /* glibc's C++ declaration is noexcept: take it, not a second one */
+#else
 extern int		sprintf(char *s, const char *fmt, ...);
+#endif
 extern void		osSyncPrintf(const char *fmt, ...);
 extern void		osAsyncPrintf(const char *fmt, ...);
 extern int		osSyncGetChars(char *buf);

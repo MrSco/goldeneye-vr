@@ -128,6 +128,17 @@ void netDiscoveryStopBroadcasting(void) {
     s_broadcasting = false;
 }
 
+/* Each beacon to this address as well (a dedicated server in WSL2, whose
+ * broadcasts stay inside WSL: tools/gevr_udp_relay.py puts them on the LAN). */
+static struct sockaddr_in s_also_to;
+void netDiscoveryAlsoSendTo(const char *ip) {
+    memset(&s_also_to, 0, sizeof(s_also_to));
+    if (ip && inet_pton(AF_INET, ip, &s_also_to.sin_addr) == 1) {
+        s_also_to.sin_family = AF_INET;
+        s_also_to.sin_port = htons(GEVR_DISCOVERY_PORT);
+    }
+}
+
 void netDiscoveryUpdate(uint32_t current_time_ms) {
     if (s_disc_socket == INVALID_SOCKET) return;
     
@@ -156,6 +167,10 @@ void netDiscoveryUpdate(uint32_t current_time_ms) {
         
         sendto(s_disc_socket, (const char *)&beacon, sizeof(beacon), 0,
                (struct sockaddr *)&broadcast_addr, sizeof(broadcast_addr));
+        if (s_also_to.sin_family == AF_INET) {
+            sendto(s_disc_socket, (const char *)&beacon, sizeof(beacon), 0,
+                   (struct sockaddr *)&s_also_to, sizeof(s_also_to));
+        }
     }
     
     /* 2. Receive incoming beacons */

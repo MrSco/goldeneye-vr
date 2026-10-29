@@ -1150,7 +1150,7 @@ static s32 gevrAwardPickInt(s32 numplayers, const s32 *first, s32 sign)
         s32 value = *(const s32 *)((const u8 *)first + slot * sizeof(struct AwardMetrics));
         s32 held = best < 0 ? 0 : *(const s32 *)((const u8 *)first + best * sizeof(struct AwardMetrics));
 
-        if (netSlotOccupied(slot) && (best < 0 || (sign > 0 ? value > held : value < held))) best = slot;
+        if (netSlotOccupied(slot) && !netPlayerIsSpectator(slot) && (best < 0 || (sign > 0 ? value > held : value < held))) best = slot;
     }
     return best < 0 ? 0 : best;
 }
@@ -1165,7 +1165,7 @@ static s32 gevrAwardPickFloat(s32 numplayers, const f32 *first, s32 sign)
         f32 value = *(const f32 *)((const u8 *)first + slot * sizeof(struct AwardMetrics));
         f32 held = best < 0 ? 0 : *(const f32 *)((const u8 *)first + best * sizeof(struct AwardMetrics));
 
-        if (netSlotOccupied(slot) && (best < 0 || (sign > 0 ? value > held : value < held))) best = slot;
+        if (netSlotOccupied(slot) && !netPlayerIsSpectator(slot) && (best < 0 || (sign > 0 ? value > held : value < held))) best = slot;
     }
     return best < 0 ? 0 : best;
 }

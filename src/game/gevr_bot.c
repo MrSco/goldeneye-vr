@@ -38,6 +38,7 @@ extern void sysLogPrintf(s32 level, const char *fmt, ...);
 extern PadRecord *g_Startpad[];
 extern s32 startpadcount;
 extern bool netSlotOccupied(int slot);
+extern int netPlayerIsSpectator(int slot);   /* a spectator (a dedicated server's seat): nobody to fight or step round */
 extern int bondinvHasInvItem(ITEM_IDS item);
 extern s32 get_ammo_count_for_weapon(ITEM_IDS weapon);
 extern s32 currentPlayerEquipWeaponWrapper(GUNHAND hand, s32 next_weapon);
@@ -52,6 +53,7 @@ extern MPSCENARIOS get_scenario(void);
 extern bool bondinvIsAliveWithFlag(void);
 extern s32 stanTestLineUnobstructed(StandTile **pTile, f32 p_x, f32 p_z, f32 dest_x, f32 dest_z, s32 cdtypes,
                                     f32 unkHeight, f32 unkA, f32 unkB, f32 unkC);
+extern void chraiGetCollisionBounds(PropRecord *prop, struct rect4f **polygon, s32 *edges, f32 *arg3, f32 *arg4);
 
 /*
  * Perfect Dark's simulant difficulties (bot.c g_BotDifficulties), NTSC
@@ -334,9 +336,56 @@ static s32 gevrBotPickRoam(struct player *pl, GevrBot *bot)
 }
 
 /*
+ * The side of an open door's leaf its last moves ran into (bondview2.c
+ * gevrBotNoteBlockingDoor), as a sidestep: 0 left, 1 right (the
+ * gevrBotUnstick convention). -1 when it is not held by an open leaf.
+ */
+static s32 gevrBotOpenLeafSide(s32 slot, struct player *pl, GevrBot *bot)
+{
+    PropRecord *doorprop = s_blockdoor[slot];
+    DoorRecord *door;
+    struct rect4f *polygon = NULL;
+    s32 edges = 0;
+    f32 unused1;
+    f32 unused2;
+    f32 cx = 0.0f;
+    f32 cz = 0.0f;
+    f32 rad = bot->theta * (M_PI_F / 180.0f);
+    s32 i;
+
+    if (doorprop == NULL || (u32)g_GlobalTimer - s_blockdoorframe[slot] >= 30 || doorprop->type != PROP_TYPE_DOOR
+        || (door = doorprop->door) == NULL || doorIsClosed(door) || door->openstate == DOORSTATE_CLOSING)
+    {
+        return -1;
+    }
+    chraiGetCollisionBounds(doorprop, &polygon, &edges, &unused1, &unused2);
+    if (polygon == NULL || edges <= 0)
+    {
+        return -1;
+    }
+    for (i = 0; i < edges; i++)
+    {
+        cx += polygon->points[i].f[0];
+        cz += polygon->points[i].f[1];
+    }
+    cx = cx / edges - pl->prop->pos.x;
+    cz = cz / edges - pl->prop->pos.z;
+    /* as gevrBotAvoidPlayers: away from it */
+    return cx * -cosf(rad) + cz * -sinf(rad) > 0.0f ? 0 : 1;
+}
+
+/*
  * Not getting anywhere while walking: something B opens (one press: a
  * second toggles a door shut again), else a sidestep and a new route. The
  * doors on its route a bot opens itself (gevrBotOpenDoors).
+ *
+ * Held by an open door's leaf, it steps off the leaf instead, at once and
+ * keeping its route: B shut the door on it, gevrBotOpenDoors opened the
+ * closing door again, and the leaf swung back into it, each swing nudging it
+ * enough to start its stuck count again, so it never got to the sidestep
+ * (Facility, dedicated server, 2026-10-29: one bot opened one door 50 times
+ * in 14 minutes, pressed against the hinge end of the open leaf from inside
+ * the doorway, where gevrBotCloseDoorInWay does not shut it).
  */
 static void gevrBotUnstick(s32 slot, struct player *pl, GevrBot *bot, OSContPad *pad)
 {
@@ -362,6 +411,27 @@ static void gevrBotUnstick(s32 slot, struct player *pl, GevrBot *bot, OSContPad 
         return;
     }
     bot->stillticks += g_ClockTimer < 4 ? g_ClockTimer : 4;   /* a long frame (a stage's load) is not a stuck spell */
+    if (bot->stillticks >= 20)
+    {
+        s32 side = gevrBotOpenLeafSide(slot, pl, bot);
+
+        /* no B (it shuts the door on the bot); gevrBotCloseDoorInWay has
+         * 10 ticks to shut a leaf it may, to open it again the other way */
+        if (side >= 0 && bot->stillticks < 30)
+        {
+            return;
+        }
+        if (side >= 0)
+        {
+            sysLogPrintf(1, "bots: slot %d steps off an open door's leaf at %.0f,%.0f,%.0f",
+                         slot, pl->prop->pos.x, pl->prop->pos.y, pl->prop->pos.z);
+            bot->stillticks = 0;
+            bot->unstickticks = 30;
+            bot->unstickdir = side;
+            s_blockdoor[slot] = NULL;
+            return;
+        }
+    }
     if (bot->stillticks >= 20 && bot->stillticks < 30)
     {
         pad->button |= B_BUTTON;
@@ -382,7 +452,7 @@ static s32 gevrBotFoe(s32 slot, s32 other)
 {
     struct player *op;
 
-    if (other < 0 || other >= MAX_PLAYER_COUNT || other == slot || !netSlotOccupied(other) || !gevrNetBotFoes(slot, other))
+    if (other < 0 || other >= MAX_PLAYER_COUNT || other == slot || !netSlotOccupied(other) || netPlayerIsSpectator(other) || !gevrNetBotFoes(slot, other))
     {
         return FALSE;
     }
@@ -1104,7 +1174,7 @@ static void gevrBotAvoidPlayers(s32 slot, struct player *pl, GevrBot *bot, OSCon
         f32 ahead;
         f32 across;
 
-        if (i == slot || op == NULL || op->prop == NULL || op->bonddead || !netSlotOccupied(i))
+        if (i == slot || op == NULL || op->prop == NULL || op->bonddead || !netSlotOccupied(i) || netPlayerIsSpectator(i))
         {
             continue;
         }

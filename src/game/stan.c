@@ -32,10 +32,18 @@ extern void chrpropGetCollisionBounds(PropRecord *prop, f32 *collision_radius, f
  * its own, and the host's bots. Allow moves that reduce that existing overlap
  * while retaining entry collision. The bots were left out: a swinging door a
  * bot opened swung onto it, and it stood inside the open leaf, refused every
- * move, until it was shot (Facility, dedicated server, 2026-10-29). */
+ * move, until it was shot (Facility, dedicated server, 2026-10-29).
+ *
+ * Only the player's own move (bondviewTryMoveToStan sets
+ * g_gevrPlayerMoveTest): every other line test made while a player is
+ * current, from where that player stands - a bot's sight of a foe
+ * (gevr_bot.c), its route legs (gevr_botnav.c), the look-ahead - skipped a
+ * closed door the player leant on, and the bots saw, aimed and ran at
+ * players through it (3 minutes of bots: ~1100 such tests, ~460 moves). */
 static s32 gevrNetInsideDoorProp(PropRecord *prop, rect4f *polygon, s32 edges, f32 x, f32 z) {
     extern int gevrNetOwnsSlot(int slot);
-    if (!netIsActive() || !gevrNetOwnsSlot(get_cur_playernum()) ||
+    extern s32 g_gevrPlayerMoveTest;
+    if (!g_gevrPlayerMoveTest || !netIsActive() || !gevrNetOwnsSlot(get_cur_playernum()) ||
         prop->type != PROP_TYPE_DOOR || !g_CurrentPlayer || !g_CurrentPlayer->prop) return 0;
     return gevrDoorEscape((const float *)polygon, edges, g_CurrentPlayer->field_488.collision_radius,
         g_CurrentPlayer->field_488.collision_position.x, g_CurrentPlayer->field_488.collision_position.z, x, z);

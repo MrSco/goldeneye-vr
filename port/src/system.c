@@ -184,11 +184,18 @@ s32 sysArgGetInt(const char *arg, s32 defval)
     return defval;
 }
 
+/*
+ * The monotonic clock, not the time of day: every user times something within
+ * this run (net timeouts, the idle kick, the results deadline, shot ages). A
+ * wall clock set forward (NTP, WSL syncing with Windows) aged them all at
+ * once: the dedicated server's seat was kicked as idle for 5 minutes in the
+ * first second of a match (P0, 2026-10-28).
+ */
 u64 sysGetMicroseconds(void)
 {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return ((u64)tv.tv_sec * USEC_IN_SEC + (u64)tv.tv_usec) - startTick;
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ((u64)ts.tv_sec * USEC_IN_SEC + (u64)ts.tv_nsec / 1000) - startTick;
 }
 
 s32 sysLogIsOpen(void)
