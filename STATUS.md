@@ -176,6 +176,13 @@ is goldeneyevr.com, in its own repository.
   and upload before relay batching/culling. Remote hands do not animate.
 - Bots: untested on two headsets (client view, mid-round replace, adoption);
   bots may stall at closed doors. MULTIPLAYER.md has the test script.
+- On the v0.5.14 batch after test.13, not in a build yet (found by the
+  dedicated server's bot runs, branch claude/dedicated-server-scope):
+  kill-limit and YOLT ends no longer wait on deaths drawn on other headsets
+  (a bot or remote last victim froze the match before the results); bots
+  walk stairs, shoot glass when it is the only way out (Caverns' pad 6) and
+  roam when nothing is reachable; 8-player extra spawns stay out of glass
+  cases (Stack, Library). Headset check owed: "First to N" with bots.
 - Two-headset checks still owed from #95 (closed): Statue/Cradle online,
   remote ledges and guns.
 - #30: intermittent colored water lines; no confirmed fix. #85: Egypt
