@@ -6,7 +6,11 @@
  * calls are made from goldeneye-vr.ini with nobody pressing anything:
  *
  *   gevr-server [--basedir DIR] [--port N] [--name NAME] [--beacon-to IP] [--seconds N] [--bots-only]
+ *               [--lobby-fd IN,OUT [--lobby-public]]
  *   gevr-server --connect HOST[:PORT] [--seconds N]
+ *
+ * --lobby-fd is for tools/gevr_lobby_bridge.py, which starts the server and
+ * puts it in the internet lobby (server_lobby.c).
  *
  * The data folder holds ge.z64 and goldeneye-vr.ini, as on the headset. The
  * match is the ini's Host page: stage, scenario, weapons, bots and so on.
@@ -46,6 +50,9 @@ extern s32 g_StageNum;
 extern u32 gevrRetraceClockFrames;   /* gevr_engine_shim.c: game frames handed out */
 int gevrVrPumpBegin(void);
 void gevrVrPumpEnd(void);
+bool serverLobbyStart(const char *fds, const char *name, bool visibleToAll);   /* server_lobby.c */
+void serverLobbyTick(void);
+void serverLobbyStop(void);
 
 static long long s_stopAtNs;   /* --seconds: exit after this long (measurement runs) */
 
@@ -187,6 +194,14 @@ void gevrLauncherRun(void)
 		bossSetLoadedStage(g_StageNum);
 	}
 
+	/* the internet lobby, through tools/gevr_lobby_bridge.py (server_lobby.c) */
+	if (sysArgCheck("--lobby-fd")) {
+		if (!serverLobbyStart(sysArgGetString("--lobby-fd"), netGetGameName(), sysArgCheck("--lobby-public"))) {
+			sysFatalError("server: --lobby-fd wants IN,OUT (the bridge's pipes)");
+		}
+		atexit(serverLobbyStop);
+	}
+
 	sysLogPrintf(LOG_NOTE, "server: hosting on UDP %d, stage %d, %d bots%s", port,
 			netGetMatchConfig()->stage, netGetMatchConfig()->bot_mode ? netGetMatchConfig()->bot_count : 0,
 			seconds > 0 ? " (timed run)" : "");
@@ -279,6 +294,7 @@ void gevrLobbyGameTick(void)
 		lastFrames = gevrRetraceClockFrames;
 	}
 
+	serverLobbyTick();
 	if (s_stopAtNs && now >= s_stopAtNs) {
 		sysLogPrintf(LOG_NOTE, "server: timed run over");
 		exit(0);
