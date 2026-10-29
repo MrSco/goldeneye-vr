@@ -196,6 +196,13 @@ is goldeneyevr.com, in its own repository.
   and open; game timers use CLOCK_MONOTONIC. Dedicated server before a
   self-hosting release: aarch64 build, packaging + systemd unit + operator
   guide, content hashes, Worker keyed listings (deploy needs an OK).
+- After test.16 (on the batch branch, not yet in a build; a test.16
+  tester's report): Bean's sky dome is drawn at infinity in stereo (at half
+  the far plane its cloud cap was a disc overhead that followed the player,
+  Surface 1/2; test.7's "near white band" was the same); the CCTV, whose
+  crumpled mount Bean draws in its lens's list, now shows the crumpled,
+  blackened mount (the only such prop of the 456). Headset check owed: the
+  Surface skies with Bean and CE, a shot camera in Surface 2.
 - Two-headset checks still owed from #95 (closed): Statue/Cradle online,
   remote ledges and guns.
 - #30: intermittent colored water lines; no confirmed fix. #85: Egypt
