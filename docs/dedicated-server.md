@@ -133,10 +133,12 @@ about 100 in the Worker.
    - The server relays voice frames without decoding them.
    - The HMD and hand reads in `net_player_sync.c` 651-690 apply only to a
      local player, so they never run.
-6. **Lobby client in C.**
+6. **Lobby client.**
    - The headset's lobby client is Java (`LobbyClient.java`, 393 lines over
-     HttpURLConnection). The server needs a C version with libcurl, about
-     400-600 lines.
+     HttpURLConnection). Done instead of a C version with libcurl: the server
+     trades the launcher's lobby lines over two pipes
+     (`port/server/server_lobby.c`), and `tools/gevr_lobby_bridge.py` does
+     LobbyClient's HTTPS. See P1 results.
    - Joining stays ICE, so clients change nowhere but the listing:
      - libjuice offers the server's public address as a host candidate;
      - a server behind a home router also works through STUN/TURN, without
@@ -262,6 +264,65 @@ bugs in code the headset shares. Each is fixed for both builds:
 
 After the fixes, all 13 maps ran 8-player bot matches with every bot
 moving, no failed routes, and kills on every map.
+
+## P1 results (2026-10-29)
+
+**The server's seat.** The server keeps slot 0 as a permanent spectator
+named "Server" (`net_core.c` `netDedicatedSeat`); its view pass follows a
+live player, so the once-a-frame world work still runs. It is left out of
+the human count, the round roster, the warmup settings check and the idle
+kick. Rounds start by themselves (`server_host.c`): 10 s into a warmup with
+a player in it, and a round everyone has left goes back to warmup after 3 s
+(`netHostRestartWarmup`), so the next player plays at once.
+
+**Headset tests** (Quest 3 against the server in WSL, through
+`tools/gevr_udp_relay.py`, which forwards the game port and the LAN beacons
+from Windows):
+
+- Joined by direct IP, and from the LAN list (the server beacons as a
+  headset host does; `--beacon-to` reaches Windows from WSL2).
+- Played Facility deathmatch against 6 bots, several rounds.
+- Found and fixed on the way (all in code the headset shares, so all on
+  the v0.5.14 batch, test.14 and test.15):
+  - a spectator's camera stuck in a wall, its arms and watch drawn, and
+    its label drawn off the top of the view;
+  - a late joiner taking a bot's place spectated until the next round;
+  - bots stood inside a door that swung onto them, reopening it in a loop.
+
+**The internet lobby.** `gevr-server --lobby-fd IN,OUT [--lobby-public]`
+trades the launcher's lobby lines (create, refresh, phase, answer /
+CREATED, LOBBY_LOST, HOST_PEER) over two pipes, and answers ICE joins as a
+headset host does. `tools/gevr_lobby_bridge.py [--public] [--restart] --
+SERVER ARGS` is LobbyClient's host side in Python (standard library): it
+starts the server, registers the lobby, heartbeats it, and removes it on
+exit; `--restart` runs the next server when one ends. No Worker change is
+needed for this. The lobby is private unless `--public` (its code is in the
+log). Registration, heartbeats and the private code work; a headset join
+by code is still to be tried.
+
+**Regression run.** `tools/gevr_server_test.sh ROM` (Linux or WSL, about
+3 minutes): a server and two headless `--connect` clients play a bot round.
+It checks clean exits, both clients taking a bot's place, the round
+starting and running, the late joiner playing rather than spectating,
+kills, the return to warmup once the players leave, and 60 game frames a
+second throughout. Highest CPU so far 3.9% of a core.
+
+**Found and fixed (2026-10-29).**
+
+1. **Bots saw and routed through closed doors.** The door escape (a player
+   inside a door's leaf may move out of it) was given to the bots in
+   test.15, but it applied to every line test made while that bot was the
+   current player, not only its own move: its sight of a foe
+   (`gevr_bot.c`), its route legs (`gevr_botnav.c`) and the look-ahead. A
+   bot leaning on a closed door had the door skipped in all of them. Over
+   3 minutes of bots: about 1,100 such tests, against about 460 real moves.
+   The escape is now only for the player's own move, as the object escape
+   already was (`g_gevrPlayerMoveTest`).
+2. **An empty server loaded empty rounds.** The warmup clock running out
+   starts a round once two slots are connected, and bots count, so a server
+   with nobody on it started a bots-only round every few minutes, then went
+   back to warmup, reloading the map each time. A dedicated server's warmup
+   clock now waits for a person.
 
 ## Phases
 
