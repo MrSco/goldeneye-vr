@@ -331,9 +331,10 @@ int main(int argc, const char **argv)
 
     sysInitArgs(argc, argv);
 #ifdef GEVR_HEADLESS
-    /* No window and no sound card: SDL's dummy drivers stand in for both. */
+    /* No window and no sound card: SDL's dummy drivers stand in for both.
+     * SDL_AUDIODRIVER=disk set outside records a client's sound to a file. */
     SDL_setenv("SDL_VIDEODRIVER", "dummy", 1);
-    SDL_setenv("SDL_AUDIODRIVER", "dummy", 1);
+    SDL_setenv("SDL_AUDIODRIVER", "dummy", 0);
     /* SDL would turn SIGTERM/SIGINT into a quit event nothing reads; the server
      * stops on them itself (port/server/server_host.c) */
     SDL_setenv("SDL_NO_SIGNAL_HANDLERS", "1", 1);
