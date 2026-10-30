@@ -218,6 +218,12 @@ is goldeneyevr.com, in its own repository.
   aisle); audio not fixed: the audio queue log line counts clipped dry-mix
   samples (suspect: netSpatialSample's pan up to 1.7x / HRTF over unity).
   Reporter to test test.18.
+- In v0.5.14-test.19 (pre-release 2026-10-29, tag on 04d0a16a; servers from
+  that commit, gate 12/12 on Facility (Full)): #226's locked door was the
+  bottling room's decoder door (lock 8, which only the mission's script takes
+  off). Arenas now open what a level's keys or scripts unlock
+  (gevr_arena.c arenaScriptUnlocks: AI_DoorUnsetLock by tag; Facility 1,
+  Control 6, Train 11 doors). Reporter asked to test on #226. #226 audio open.
 - Two-headset checks still owed from #95 (closed): Statue/Cradle online,
   remote ledges and guns.
 - #30: intermittent colored water lines; no confirmed fix. #85: Egypt
