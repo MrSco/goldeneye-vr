@@ -13,6 +13,9 @@
 # reading a crash's addresses (keep it with the release's symbols; it is not
 # published). No game data goes in: the operator supplies ge.z64.
 #
+# GEVR_SERVER_BUILD and GEVR_SERVER_BUILD_ARM name other build folders (a
+# folder's CMake cache keeps the checkout it was configured for).
+#
 # The build is labelled with this checkout's commit; where git cannot read it
 # (a Windows worktree from WSL), set GEVR_BUILD_HASH (and GEVR_BUILD_BRANCH).
 set -e
@@ -33,11 +36,11 @@ mkdir -p "$OUT"
 
 for ARCH in $ARCHES; do
 	if [ "$ARCH" = "$NATIVE" ]; then
-		BUILD=$HOME/gevr-server-build
+		BUILD=${GEVR_SERVER_BUILD:-$HOME/gevr-server-build}
 		sh "$SRC/tools/gevr_build_server.sh" "$BUILD"
 		OBJCOPY=objcopy
 	else
-		BUILD=$HOME/gevr-server-build-aarch64
+		BUILD=${GEVR_SERVER_BUILD_ARM:-$HOME/gevr-server-build-aarch64}
 		sh "$SRC/tools/gevr_build_server.sh" --aarch64 "$BUILD"
 		# the build machine's binutils don't read ARM64; the cross ones do
 		X=$HOME/gevr-arm64/root
