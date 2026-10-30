@@ -811,6 +811,21 @@ int main(int argc, char **argv)
 		printf("DISH lists on matrices 0/1/2: %d %d %d\n", onMatrix[0], onMatrix[1], onMatrix[2]);
 		assert(onMatrix[0] == 0 && onMatrix[1] == 1 && onMatrix[2] == 1);
 	}
+	/* The CCTV: Bean's mount (SKEL_TOP) on the mount's matrix, the crumpled
+	 * list, and its camera (SKEL_CAM) on the camera's body list - not the whole
+	 * camera on the camera's matrix, the bracket turning with it (2026-10-30).
+	 * Its mount is then its own wreck and needs no guest. */
+	if (!strcmp(argv[2], "PcctvZ")) {
+		int onMatrix[2] = {0};
+		for (int i = 0; i < s_nswap; i++)
+			if (s_swap[i].ours != s_blank) {
+				int m = nodeMatrix(s_swap[i].node);
+				assert(m >= 0 && m < 2 && !s_swap[i].wreckGuest && !listToggled(&header, s_swap[i].node));
+				onMatrix[m]++;
+			}
+		printf("CCTV lists on matrices 0/1: %d %d\n", onMatrix[0], onMatrix[1]);
+		assert(onMatrix[0] == 1 && onMatrix[1] == 1 && s_swap[0].node == firstCollisionList(&header));
+	}
 	/* A prop whose crumpled list (objDeform's, the first collision list) Bean
 	 * draws in another: that list follows every list it draws for, and takes
 	 * the crumpling where its vertices lie on the crumpled one. The CCTV
@@ -840,11 +855,6 @@ int main(int argc, char **argv)
 		printf("WRECKGUEST %s %d of %d vertices follow the crumpled list, %d lists followed, %d of %d triangles kept\n",
 		       argv[2], onCrumpled, host->emittedVerts, host->nwreckSources, kept, host->emittedVerts / 3);
 		fflush(stdout);
-		/* the CCTV's camera on its body's list, not the lens's: the broken
-		 * glass switches the lens off (v0.5.14-test.17) */
-		if (!strcmp(argv[2], "PcctvZ"))
-			assert(onCrumpled > 0 && onCrumpled < host->emittedVerts / 2 && kept > 0 && kept < host->emittedVerts / 6 &&
-			       !listToggled(&header, host->node));
 	}
 	combinedBodyCheck(&header,mesh,kind,fitForName(argv[2]));
 	gevrBeanMeshFree(mesh);

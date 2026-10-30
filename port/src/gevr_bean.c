@@ -1476,6 +1476,14 @@ static void rigidBindings(const struct gevrBeanMesh *mesh, const struct beanFit 
 		for (int k = 0; k < 3; k++)
 			at[k] = (mesh->boneBind[b][fit->perm[k]] * fit->sign[k] - fit->bc[k]) * fit->scale + fit->nc[k] +
 			        groups[base].o[k];
+		/* the base group is a place too: a bone on it stays. The CCTV's mount
+		 * (SKEL_TOP, on the base) took the camera's group 77 units off, the
+		 * nearest other one, and turned with the camera (2026-10-30). */
+		{
+			float dx = at[0] - groups[base].o[0], dy = at[1] - groups[base].o[1], dz = at[2] - groups[base].o[2];
+			if (dx * dx + dy * dy + dz * dz < best)
+				best = dx * dx + dy * dy + dz * dz;
+		}
 		for (int g = 0; g < count; g++) {
 			/* a group with no list of its own draws nothing: Runway's plane and
 			 * gun gave their bodies to the model's root (no list, the body's
