@@ -205,14 +205,19 @@ is goldeneyevr.com, in its own repository.
   crumpled mount Bean draws in its lens's list, now shows the crumpled,
   blackened mount (the only such prop of the 456). Headset: the Surface
   clouds confirmed by a tester.
-- After test.17 (batch branch, not in a build yet): the pause menu shows the
+- In v0.5.14-test.18 (pre-release 2026-10-29, tag on cfcfad14; servers built
+  from that commit, gate 12/12 on Facility and Facility (Full)): the pause menu shows the
   match clock (time left / played); small props fade at the fog's real edge
   (FarFog over the visibility scale, Bean's own fog with Bean: Surface 2's
   cabin doors and cameras popped in); a destroyed Bean CCTV matches the
   cartridge (only the crumpled mount stays; its camera now on the body's
   list, not the lens's, which the broken glass switches off). Headset: the
-  camera checked by the user (both modes, toggling). Open: #226 (Facility
-  (Full) spawn behind a door no key opens; invisible tanks; audio).
+  camera checked by the user (both modes, toggling). #226: Facility's
+  gas-releasing tanks/barrels load as plain props in arenas (they were left
+  out but their footprints stayed solid; start pad 127 is in the tanks'
+  aisle); audio not fixed: the audio queue log line counts clipped dry-mix
+  samples (suspect: netSpatialSample's pan up to 1.7x / HRTF over unity).
+  Reporter to test test.18.
 - Two-headset checks still owed from #95 (closed): Statue/Cradle online,
   remote ledges and guns.
 - #30: intermittent colored water lines; no confirmed fix. #85: Egypt
