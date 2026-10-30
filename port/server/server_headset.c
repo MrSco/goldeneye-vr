@@ -65,6 +65,8 @@ static long long serverNowNs(void)
 }
 
 #define SERVER_FRAME_NS 16666667ll   /* the game's 60 Hz retrace */
+#define SERVER_IDLE_FRAME_NS 200000000ll   /* 5 a second with nobody connected (server_host.c) */
+int gevrServerIdle(void);
 
 void vr_initialize(void) { }
 bool vr_is_initialized(void) { return true; }
@@ -82,7 +84,11 @@ bool vr_begin_frame_and_update_poses(void)
 	if (next == 0 || now - next > 100000000ll) {
 		next = now;   /* the first wait, or the game stalled: start the clock again */
 	}
-	next += SERVER_FRAME_NS;
+	if (gevrServerIdle()) {
+		next = now + SERVER_IDLE_FRAME_NS;   /* one game frame each wait, so the world barely moves */
+	} else {
+		next += SERVER_FRAME_NS;
+	}
 	if (next > now) {
 		struct timespec ts = { (time_t)(next / 1000000000ll), (long)(next % 1000000000ll) };
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, NULL);

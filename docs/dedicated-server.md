@@ -274,7 +274,11 @@ live player, so the once-a-frame world work still runs. It is left out of
 the human count, the round roster, the warmup settings check and the idle
 kick. Rounds start by themselves (`server_host.c`): 10 s into a warmup with
 a player in it, and a round everyone has left goes back to warmup after 3 s
-(`netHostRestartWarmup`), so the next player plays at once.
+(`netHostRestartWarmup`), so the next player plays at once. A warmup with
+nobody connected idles (2026-10-30, a tester: "a bot match running all the
+time even with nobody connected"): the bots stand still (`gevr_bot.c`) and
+the game runs 5 frames a second (`server_headset.c`), which still answers
+joins and the lobby; the first player to take a seat wakes it.
 
 **Headset tests** (Quest 3 against the server in WSL, through
 `tools/gevr_udp_relay.py`, which forwards the game port and the LAN beacons

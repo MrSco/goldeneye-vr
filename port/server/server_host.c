@@ -55,6 +55,9 @@ void serverLobbyTick(void);
 void serverLobbyStop(void);
 
 static long long s_stopAtNs;   /* --seconds: exit after this long (measurement runs) */
+static bool s_idle;            /* in warmup with nobody connected (gevrLobbyGameTick) */
+
+int gevrServerIdle(void) { return s_idle; }
 
 static long long serverNowNs(void)
 {
@@ -277,6 +280,7 @@ void gevrLauncherRun(void)
 void gevrLobbyGameTick(void)
 {
 	static long long lastNs, warmupNs, emptyNs;
+	static bool idleSeen;
 	static double lastCpu;
 	static u32 lastFrames;
 	const long long now = serverNowNs();
@@ -320,6 +324,23 @@ void gevrLobbyGameTick(void)
 		emptyNs = 0;
 	}
 
+	/*
+	 * Nobody connected: the server idles in warmup. Its bots stand still
+	 * (gevr_bot.c) and the game runs 5 frames a second (server_headset.c),
+	 * enough to answer a join and keep the lobby listing; the first player
+	 * to take a seat wakes it.
+	 */
+	{
+		const bool idle = netIsDedicated() && !botsOnly && netGetPhase() == NET_PHASE_WARMUP
+				&& netGetHumanPlayerCount() == 0;
+
+		if (idle != s_idle) {
+			sysLogPrintf(LOG_NOTE, idle ? "server: idle until a player joins" : "server: a player joined, waking");
+			s_idle = idle;
+		}
+		idleSeen |= idle;   /* the 10 s report below says so: its frame rate was the idle one */
+	}
+
 	if (lastNs == 0) {
 		lastNs = now;
 		lastCpu = serverCpuSeconds();
@@ -329,9 +350,11 @@ void gevrLobbyGameTick(void)
 		const double wall = (now - lastNs) / 1e9;
 		struct rusage ru;
 		getrusage(RUSAGE_SELF, &ru);
-		sysLogPrintf(LOG_NOTE, "server: %.1f game frames/s, CPU %.1f%% of a core, %d players, phase %d, rss %ld MB",
+		sysLogPrintf(LOG_NOTE, "server: %.1f game frames/s, CPU %.1f%% of a core, %d players, phase %d, rss %ld MB%s",
 				(gevrRetraceClockFrames - lastFrames) / wall, 100.0 * (cpu - lastCpu) / wall,
-				netGetConnectedPlayerCount(), (int)netGetPhase(), ru.ru_maxrss / 1024);
+				netGetConnectedPlayerCount(), (int)netGetPhase(), ru.ru_maxrss / 1024,
+				idleSeen ? ", idle" : "");
+		idleSeen = s_idle;
 		for (int i = 0; i < netGetConnectedPlayerCount() && i < MAX_PLAYER_COUNT; i++) {
 			const struct player *pl = g_playerPointers[i];
 			s32 route = -1;   /* GEVR_NAVPROBE=1: a bot route from here to the next player (2: through glass) */

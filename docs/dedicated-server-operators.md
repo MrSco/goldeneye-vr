@@ -97,8 +97,11 @@ server: 60.0 game frames/s, CPU 3.5% of a core, 8 players, phase 2, rss 34 MB
 60 game frames a second is full speed; much lower means the machine is too
 slow or too busy. Phase 1 is warmup (waiting for players, or between
 rounds), phase 2 a round in progress. A joining player shows as
-`net: NAME takes the place of BOT`. An empty server waits in warmup, bots
-playing, and starts a round 10 seconds after someone joins.
+`net: NAME takes the place of BOT`. An empty server idles in warmup: its
+bots stand still and the game runs 5 frames a second (the line ends in
+`, idle`), using almost no CPU. The first player to join wakes it
+(`server: a player joined, waking`), a round starts 10 seconds later, and
+once everyone has left it goes back to warmup and idles again.
 
 **Players must have the same ROM** as the server: a join from someone whose
 ROM differs is refused with "this game's GoldenEye ROM is not the same as

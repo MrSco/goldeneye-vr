@@ -57,14 +57,19 @@ check "the round ran (phase 2)" test "$(count 'phase 2' "$S")" -ge 1
 check "the late joiner played, did not spectate" bash -c "! grep -aq 'spectator: following' '$WORK/b/client.log'"
 check "kills were scored" test "$(count 'net: kill:' "$S")" -ge 3
 check "back to warmup once the players left" test "$(count 'nobody left in the round' "$S")" -ge 1
-frames=$(grep -a '^server: [0-9]' "$S" | sed 's/^server: \([0-9.]*\) game frames.*/\1/')
-check "60 game frames a second throughout" bash -c "echo '$frames' | awk 'NF && (\$1 < 58 || \$1 > 62) { bad = 1 } END { exit bad }'"
-cpu=$(grep -a '^server: [0-9]' "$S" | sed 's/.*CPU \([0-9.]*\)%.*/\1/' | sort -n | tail -1)
-echo "  info highest CPU ${cpu}% of a core, $(count 'net: kill:' "$S") kills, logs in $WORK"
+check "idle while empty, woke for the first player" test "$(count 'server: a player joined, waking' "$S")" -ge 1
+check "idle again once the players left" bash -c "grep -a 'server: idle until\|server: a player joined' '$S' | tail -1 | grep -q 'idle until'"
+idle=$(grep -a '^server: [0-9].*, idle$' "$S" | sed 's/^server: \([0-9.]*\) game frames.*/\1/' | sort -n | head -1)
+check "about 5 game frames a second while idle (${idle:-none})" bash -c "echo '$idle' | awk 'NF && \$1 >= 4 && \$1 <= 6 { ok = 1 } END { exit !ok }'"
+frames=$(grep -a '^server: [0-9]' "$S" | grep -av ', idle$' | sed 's/^server: \([0-9.]*\) game frames.*/\1/')
+check "60 game frames a second while awake" bash -c "echo '$frames' | awk 'NF && (\$1 < 58 || \$1 > 62) { bad = 1 } END { exit bad }'"
+cpu=$(grep -a '^server: [0-9]' "$S" | grep -av ', idle$' | sed 's/.*CPU \([0-9.]*\)%.*/\1/' | sort -n | tail -1)
+idlecpu=$(grep -a '^server: [0-9].*, idle$' "$S" | sed 's/.*CPU \([0-9.]*\)%.*/\1/' | sort -n | head -1)
+echo "  info highest CPU ${cpu}% of a core awake, ${idlecpu:-?}% idle, $(count 'net: kill:' "$S") kills, logs in $WORK"
 
 if [ ${#fails[@]} -gt 0 ]; then
 	echo "gevr_server_test: ${#fails[@]} failed"
 	exit 1
 fi
 echo "gevr_server_test: passed"
-rm -rf "$WORK"
+[ -n "$KEEP" ] || rm -rf "$WORK"   # KEEP=1 keeps the logs of a passing run

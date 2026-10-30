@@ -1397,7 +1397,15 @@ s32 gevrBotTickBegin(s32 slot)
     GevrBot *bot;
     OSContPad pad;
 
-    if (!gevrBotRuns(slot) || g_playerPointers[slot]->prop == NULL)
+#ifdef GEVR_HEADLESS
+    extern int gevrServerIdle(void);   /* server_host.c: nobody connected, the bots stand still */
+#endif
+
+    if (!gevrBotRuns(slot) || g_playerPointers[slot]->prop == NULL
+#ifdef GEVR_HEADLESS
+        || gevrServerIdle()
+#endif
+       )
     {
         if (slot >= 0 && slot < MAX_PLAYER_COUNT)
         {
