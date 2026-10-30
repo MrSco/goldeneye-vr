@@ -138,10 +138,13 @@ static void check_campaign(void)
     }
     ways[32].padID = -1;
     /* Raw packed command stream: never let a host struct add padding between commands. */
-    u8 original[sizeof(GuardRecord) + sizeof(ObjectRecord) + sizeof(PropDefHeaderRecord)] = {0};
+    u8 original[sizeof(GuardRecord) + 2 * sizeof(ObjectRecord) + sizeof(PropDefHeaderRecord)] = {0};
     GuardRecord guard = {.type = PROPDEF_GUARD, .PadID = 0}; memcpy(original, &guard, sizeof(guard));
     ObjectRecord scenery = {.type = PROPDEF_PROP, .pad = 1}; memcpy(original + sizeof(guard), &scenery, sizeof(scenery));
-    ((PropDefHeaderRecord *)(original + sizeof(guard) + sizeof(scenery)))->type = PROPDEF_END;
+    /* #226: Facility's bottling tanks, gas-releasing objects */
+    PropDefHeaderRecord *gas = (void *)(original + sizeof(guard) + sizeof(scenery));
+    ObjectRecord tank = {.type = PROPDEF_GAS_RELEASING, .pad = 2}; memcpy(gas, &tank, sizeof(tank));
+    ((PropDefHeaderRecord *)(original + sizeof(guard) + 2 * sizeof(scenery)))->type = PROPDEF_END;
     SetupIntroEmpty intro = {.type = INTROTYPE_END}; AIListRecord ai = {0};
     for (int m = 0; m < netCoopMissionCount(); m++) {
         unsigned stage = netCoopMission(m)->level_id;
@@ -149,8 +152,10 @@ static void check_campaign(void)
         assert(!netStageUsesMpSetup(stage, NET_MODE_COOP));
         mode = NET_MODE_COOP;
         g_CurrentSetup = (struct stagesetup){.pads = pads, .pathwaypoints = ways, .propDefs = (void *)original, .intro = (void *)&intro, .ailists = &ai};
+        gas->type = PROPDEF_GAS_RELEASING;
         gevrArenaPrepareSetup(stage);
         assert(g_CurrentSetup.propDefs == (void *)original && g_CurrentSetup.intro == (void *)&intro && g_CurrentSetup.ailists == &ai);
+        assert(gas->type == PROPDEF_GAS_RELEASING);   /* co-op plays the mission: its gas stays */
         mode = NET_MODE_DEATHMATCH;
         if (netStageHasMpSetup(stage)) {
             /* the multiplayer map keeps its retail setup; its "(Full)" entry is the mission's */
@@ -175,6 +180,7 @@ static void check_campaign(void)
              p = (void *)((u32 *)p + sizepropdef(p)), command++) {
             if (command == 0) { assert(gevrArenaSkipProp(p)); continue; }
             assert(!gevrArenaSkipProp(p));
+            if (command == 2) assert(p->type == PROPDEF_PROP);   /* the tank: scenery, no gas */
             if (p->type == PROPDEF_COLLECTABLE) {
                 WeaponObjRecord *gun = (void *)p;
                 if (gun->weaponnum == ITEM_TOKEN) { token++; assert(gun->obj == PROP_CHRBRIEFCASE); }
@@ -183,7 +189,7 @@ static void check_campaign(void)
             if (p->type == PROPDEF_AMMO) { assert(((u32 *)p)[0]); ammo++; }
             if (p->type == PROPDEF_ARMOUR) armour++;
         }
-        assert(guns == 16 && ammo == 16 && armour == 2 && token == 1 && command == 37);
+        assert(guns == 16 && ammo == 16 && armour == 2 && token == 1 && command == 38);
         clear_allocations();
         full = 0;
     }

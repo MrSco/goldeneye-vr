@@ -412,6 +412,19 @@ void gevrArenaTick(s32 ticks)
     set_cur_player(prev);
 }
 
+/* The level's gas-releasing objects (Facility's bottling tanks and gas barrels)
+ * are scenery in an arena. Dropped with the mission's other actors, the tanks
+ * left their footprints solid and nothing drawn there (#226: a Facility (Full)
+ * start among them, the player shut in); kept as they are, one shot would gas
+ * the map. As plain props, records of the same 32 words, they stand, block and
+ * break like any other. */
+static void arenaGasAsScenery(void)
+{
+    for (PropDefHeaderRecord *p = g_CurrentSetup.propDefs; p && p->type != PROPDEF_END;
+         p = (void *)((u32 *)p + sizepropdef(p)))
+        if (p->type == PROPDEF_GAS_RELEASING) p->type = PROPDEF_PROP;
+}
+
 void gevrArenaPrepareSetup(s32 stage)
 {
     s_added_props = NULL;
@@ -421,6 +434,7 @@ void gevrArenaPrepareSetup(s32 stage)
     s_out_ticks = 0;
     s_level_keys = 0;
     if (!netHordeActive() && !s_campaign_deathmatch) return;
+    if (s_solo_arena) arenaGasAsScenery();
     arenaLevelKeys();
     if (netHordeActive()) arenaBuildGuardPaths();
     if (s_campaign_deathmatch) arenaDeathmatchSetup();
