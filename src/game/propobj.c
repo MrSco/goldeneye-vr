@@ -7920,7 +7920,21 @@ Gfx *chrobjRenderProp(PropRecord *prop, Gfx *gdl, s32 arg2)
 
     mrData.fogcolour.word = (sp48.rgba[0] << 0x18) | (sp48.rgba[1] << 0x10) | (sp48.rgba[2] << 0x08) | (sp48.rgba[3] << 0x00);
 
+#ifdef GEVR
+    /* VR_FADE_DEPTH: fading at range, its solid pixels write depth
+     * (gfx_opengl.cpp gevrFadeDepthAlpha) - a CCTV's parts drew over each other */
+    if (objAlpha < 0xFF)
+    {
+        gDPNoOpTag(mrData.gdl++, 0x56620000 | (u8)objAlpha);
+    }
+#endif
     sub_GAME_7F04AC20(prop, &mrData, arg2);
+#ifdef GEVR
+    if (objAlpha < 0xFF)
+    {
+        gDPNoOpTag(mrData.gdl++, 0x56620000 | 0xFF);
+    }
+#endif
 
     return mrData.gdl;
 }

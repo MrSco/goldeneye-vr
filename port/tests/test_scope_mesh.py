@@ -46,6 +46,7 @@ static unsigned char *s_pmPtr; static bool gVrFlatPass,gForceFlatShaderForMenu,v
 static ShaderProgram *s_curPrg; static GLuint s_boundTex[2]; static bool current_textures_linear_filter[2];
 static bool s_depthArgs[4],s_alphaArgs[2]; static uint16_t s_depthZmode;
 static float s_drawDecalPull; static bool current_depth_mask,s_isDecal,s_decalZ,s_opaqueDepthWrite,s_uniCacheValid;
+static uint8_t gevrFadeDepthAlpha=255;   // gfx_opengl.cpp: VR_FADE_DEPTH
 static GLuint opengl_vao=7, opengl_vbo=8; static int s_activeTexUnit,gevrZDebugMode;
 static bool s_drawElements; static GLuint boundVao; static int cull; static GfxMeshDrawParams savedParams;
 struct Draw {GLuint vao; int first,count,cull; bool indexed; GfxMeshDrawParams params;};

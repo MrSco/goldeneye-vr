@@ -66,6 +66,7 @@ static bool s_beanRoomFogLinear;
  * env alpha, G_RM_AA_ZB_XLU_SURF2); Bean's set theirs, so the renderer applies
  * it: shade alpha scaled, blended without depth writes, on the CPU path. */
 static uint8_t s_beanFadeAlpha = 255;
+extern uint8_t gevrFadeDepthAlpha;   /* gfx_opengl.cpp: VR_FADE_DEPTH, the fading prop's fade */
 /* G_GEVR_NODE_STATE: a Bean model list under the state the game set for the
  * node it replaces (DAB xblaMeshApplyNodeMode, xblaMeshSetSpanMode). ON while
  * the game asks; a list SAVEs that state at its start, APPLYs it per batch
@@ -4991,6 +4992,13 @@ static void gfx_run_dl(Gfx* cmd) {
                     }
                     break;
                 }
+                if ((tag_w1 & 0xFFFF0000u) == 0x56620000u) {
+                    // VR_FADE_DEPTH (chr.c, propobj.c): the draws that follow are a
+                    // prop fading at range, the low byte its fade (255 ends it)
+                    gfx_flush();
+                    gevrFadeDepthAlpha = (uint8_t)(tag_w1 & 0xFF);
+                    break;
+                }
                 if ((tag_w1 & 0xFFFF0000u) == 0x565F0000u) {
                     // VR_HAND_DRAW (issue #53, gunfire.c gevrHandTag): the draws
                     // that follow controller (low bits - 1), the body (3,
@@ -5174,7 +5182,8 @@ static void gfx_run_dl(Gfx* cmd) {
                     if (gevrBeanWorldCullsBackFaces() && !(mode & (CVG_X_ALPHA | FORCE_BL))) rsp.geometry_mode |= G_CULL_BACK;
                 }
                 if (model && s_beanFadeAlpha < 255) {
-                    mode = G_RM_PASS | ((mode & Z_CMP) ? G_RM_AA_ZB_XLU_SURF2 : G_RM_XLU_SURF2);
+                    // as the game's own fading lists (model.c): solid pixels write depth
+                    mode = G_RM_PASS | ((mode & Z_CMP) ? G_RM_CUSTOM_AA_ZB_XLU_SURF2 : G_RM_XLU_SURF2);
                 }
                 gfx_sp_set_other_mode(3, 29, gevrBeanRoomMode(mode, rsp.geometry_mode & G_FOG));
                 break;
@@ -5505,6 +5514,7 @@ static void gfx_run_dl(Gfx* cmd) {
 
 static void gfx_sp_reset() {
     s_beanFadeAlpha = 255;
+    gevrFadeDepthAlpha = 255;
     s_beanNodeOn = s_beanNodeSaved = s_beanNodePrimTouched = s_beanModelCull = false;
     s_beanPass = 0;
     s_beanBatchXlu = s_beanPassSkip = false;

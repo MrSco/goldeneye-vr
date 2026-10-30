@@ -3240,6 +3240,14 @@ Gfx *chrRenderProp(PropRecord *prop, Gfx *gdl, s32 withalpha)
             }
 
             g_playerPerm->time_other_players_on_screen += 1;
+#ifdef GEVR
+            /* VR_FADE_DEPTH: fading at range, his solid pixels write depth
+             * (gfx_opengl.cpp gevrFadeDepthAlpha) */
+            if (chrfadealpha < 0xFF)
+            {
+                gDPNoOpTag(mrData.gdl++, 0x56620000 | (u8)chrfadealpha);
+            }
+#endif
             drawjointlist(&mrData, chr->field_20);
 #ifdef GEVR
             {
@@ -3250,6 +3258,10 @@ Gfx *chrRenderProp(PropRecord *prop, Gfx *gdl, s32 withalpha)
             }
             /* mines stuck to him */
             mrData.gdl = gevrChrEmbeddedRender(chr, &mrData, chrfadealpha, withalpha);
+            if (chrfadealpha < 0xFF)
+            {
+                gDPNoOpTag(mrData.gdl++, 0x56620000 | 0xFF);
+            }
 #endif
 
             gdl = mrData.gdl;

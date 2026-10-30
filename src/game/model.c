@@ -3730,7 +3730,13 @@ void modelApplyRenderModeType3(ModelRenderData *renderdata, bool isPrimary)
 
             if (renderdata->zbufferenabled)
             {
+#ifdef GEVR
+                /* fading at range (chrobjFogVisRangeRelated): its solid pixels
+                 * write depth, see VR_FADE_DEPTH (gfx_opengl.cpp) */
+                gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_CUSTOM_AA_ZB_XLU_SURF2);
+#else
                 gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_ZB_XLU_SURF2);
+#endif
             }
             else
             {
@@ -3910,7 +3916,13 @@ void modelApplyRenderModeType3(ModelRenderData *renderdata, bool isPrimary)
 
             if (renderdata->zbufferenabled)
             {
+#ifdef GEVR
+                /* fading at range (chrobjFogVisRangeRelated): its solid pixels
+                 * write depth, see VR_FADE_DEPTH (gfx_opengl.cpp) */
+                gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_CUSTOM_AA_ZB_XLU_SURF2);
+#else
                 gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_ZB_XLU_SURF2);
+#endif
             }
             else
             {
@@ -4038,7 +4050,13 @@ void modelApplyRenderModeType4(ModelRenderData *renderdata, bool isPrimary)
 
         if (renderdata->zbufferenabled)
         {
+#ifdef GEVR
+            /* fading at range (chrobjFogVisRangeRelated): its solid pixels
+             * write depth, see VR_FADE_DEPTH (gfx_opengl.cpp) */
+            gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_CUSTOM_AA_ZB_XLU_SURF2);
+#else
             gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_ZB_XLU_SURF2);
+#endif
         }
         else
         {
@@ -4221,7 +4239,13 @@ void modelApplyRenderModeType4(ModelRenderData *renderdata, bool isPrimary)
 
         if (renderdata->zbufferenabled)
         {
+#ifdef GEVR
+            /* fading at range (chrobjFogVisRangeRelated): its solid pixels
+             * write depth, see VR_FADE_DEPTH (gfx_opengl.cpp) */
+            gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_CUSTOM_AA_ZB_XLU_SURF2);
+#else
             gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_ZB_XLU_SURF2);
+#endif
         }
         else
         {
