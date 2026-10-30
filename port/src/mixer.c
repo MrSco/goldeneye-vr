@@ -158,6 +158,18 @@ static inline int16_t clamp16(int32_t v) {
  return (int16_t)v;
 }
 
+#ifdef GEVR
+/* Samples the sound effects' dry mix clipped (audio.c logs them with the
+ * queue): #226's distorted guns with the music down */
+uint32_t g_gevrMixClips;
+static inline int16_t clamp16Counted(int32_t v) {
+ if (v < -0x8000 || v > 0x7fff) {
+  g_gevrMixClips++;
+ }
+ return clamp16(v);
+}
+#endif
+
 static inline int32_t clamp32(int64_t v) {
  if (v < -0x7fffffff - 1) {
  return -0x7fffffff - 1;
@@ -758,11 +770,11 @@ void aEnvMixerImpl(uint8_t flags, ENVMIX_STATE state) {
      netSpatialSample((unsigned)g_gevrSndSpatialSlot,
                       (float)(((int32_t)sample * ((gain_dry_l + gain_dry_r) >> 1)) >> 15),
                       g_gevrSndSpatialDir, g_gevrSndSpatialPositioned, &l, &r);
-     dry[0][i] = clamp16(dry[0][i] + (int32_t)l);
-     dry[1][i] = clamp16(dry[1][i] + (int32_t)r);
+     dry[0][i] = clamp16Counted(dry[0][i] + (int32_t)l);
+     dry[1][i] = clamp16Counted(dry[1][i] + (int32_t)r);
     } else {
-     dry[0][i] = clamp16(dry[0][i] + (((int32_t)sample * gain_dry_l) >> 15));
-     dry[1][i] = clamp16(dry[1][i] + (((int32_t)sample * gain_dry_r) >> 15));
+     dry[0][i] = clamp16Counted(dry[0][i] + (((int32_t)sample * gain_dry_l) >> 15));
+     dry[1][i] = clamp16Counted(dry[1][i] + (((int32_t)sample * gain_dry_r) >> 15));
     }
     /* getv always writes wet when A_AUX was set at INIT; env.c passes
      * A_AUX on CONTINUE too, but keep wet alive from saved wetamt. */

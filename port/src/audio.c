@@ -148,7 +148,10 @@ void audioEndFrame(void)
         lastSubmit = now;
         if (!lastReport) lastReport = now;
         if (now - lastReport >= 2000000) {
-            sysLogPrintf(LOG_NOTE, "audio queue: frames=%u..%u empty=%u dropped=%u maxgap=%u us", minQueued, maxQueued, empty, dropped, maxGap);
+            extern u32 g_gevrMixClips;   /* mixer.c: dry-mix samples clipped */
+            sysLogPrintf(LOG_NOTE, "audio queue: frames=%u..%u empty=%u dropped=%u maxgap=%u us clipped=%u",
+                         minQueued, maxQueued, empty, dropped, maxGap, g_gevrMixClips);
+            g_gevrMixClips = 0;
             lastReport = now;
             empty = dropped = maxQueued = maxGap = 0;
             minQueued = ~0u;
