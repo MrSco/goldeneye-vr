@@ -72,4 +72,4 @@ if [ ${#fails[@]} -gt 0 ]; then
 	exit 1
 fi
 echo "gevr_server_test: passed"
-[ -n "$KEEP" ] || rm -rf "$WORK"   # KEEP=1 keeps the logs of a passing run
+[ -n "${KEEP:-}" ] || rm -rf "$WORK"   # KEEP=1 keeps the logs of a passing run
