@@ -203,8 +203,16 @@ is goldeneyevr.com, in its own repository.
   the far plane its cloud cap was a disc overhead that followed the player,
   Surface 1/2; test.7's "near white band" was the same); the CCTV, whose
   crumpled mount Bean draws in its lens's list, now shows the crumpled,
-  blackened mount (the only such prop of the 456). Headset check owed: the
-  Surface skies with Bean and CE, a shot camera in Surface 2.
+  blackened mount (the only such prop of the 456). Headset: the Surface
+  clouds confirmed by a tester.
+- After test.17 (batch branch, not in a build yet): the pause menu shows the
+  match clock (time left / played); small props fade at the fog's real edge
+  (FarFog over the visibility scale, Bean's own fog with Bean: Surface 2's
+  cabin doors and cameras popped in); a destroyed Bean CCTV matches the
+  cartridge (only the crumpled mount stays; its camera now on the body's
+  list, not the lens's, which the broken glass switches off). Headset: the
+  camera checked by the user (both modes, toggling). Open: #226 (Facility
+  (Full) spawn behind a door no key opens; invisible tanks; audio).
 - Two-headset checks still owed from #95 (closed): Statue/Cradle online,
   remote ledges and guns.
 - #30: intermittent colored water lines; no confirmed fix. #85: Egypt
