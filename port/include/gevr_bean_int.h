@@ -80,6 +80,7 @@ struct gevrBeanMesh {
 	float texClampBase[256][2];
 	int ntex;
 	float uvscale;
+	int shadows;   /* a level's cast shadows drawn see-through (gevr_bean_load.c markLevelShadows) */
 	int triggerCuffs;
 	int nativeChrome;
 	int roomMaterial;

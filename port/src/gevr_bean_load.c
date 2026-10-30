@@ -1403,6 +1403,39 @@ static void fixPlainLevelFaces(struct gevrBeanMesh *mesh)
 	mesh->ntris = kept;
 }
 
+/* DAB gebeanstage.c markShadows(): a cast shadow is a decal whose corners
+ * are all opaque black. Rare's release lays the thing's own picture flat under
+ * it in black - the cell bars on Bunker's corridor floor, Archives' ceiling
+ * fan - and draws it solid, a hard black cut-out; so is a black decal in the
+ * blended pass whose picture has no alpha of its own (Bunker II's pillar
+ * shadow, a solid black strip). GoldenEye's are see-through darkenings of the
+ * floor: such a decal is drawn half through, in the translucent pass. Before
+ * fixPlainLevelFaces(), while pass[] still follows the triangles. */
+#define LEVEL_SHADOW_ALPHA 0x80
+static int markLevelShadows(struct gevrBeanMesh *mesh, const uint8_t *pass, int npass,
+                            const uint8_t *texAlpha, const uint8_t *texSoft)
+{
+	int marked = 0;
+	for (int i = 0; i < mesh->ntris; i++) {
+		struct gevrBeanTri *t = &mesh->tris[i];
+		const int tex = t->tex >= 0 && t->tex < MAX_TEX ? t->tex : -1;
+		const int blend = i < npass && (pass[i] & LDECAL_PASS_BLEND);
+		int black = 1;
+		if (!(t->flags & GEVR_BEAN_F_DECAL) || (!blend && (tex < 0 || !texAlpha[tex] || texSoft[tex])))
+			continue;
+		for (int k = 0; k < 3; k++)
+			black &= !t->rgba[k * 4] && !t->rgba[k * 4 + 1] && !t->rgba[k * 4 + 2] && t->rgba[k * 4 + 3] >= 0xf0;
+		if (!black)
+			continue;
+		for (int k = 0; k < 3; k++)
+			t->rgba[k * 4 + 3] = LEVEL_SHADOW_ALPHA;
+		t->alpha = 254;   /* the translucent pass (gevrBeanEmitList) */
+		t->alphatest = 0;
+		marked++;
+	}
+	return marked;
+}
+
 static int notePass(uint8_t **pass, int *cap, int index, uint8_t value)
 {
 	if (index >= *cap) {
@@ -2320,6 +2353,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	if (levelFade) {
 		markLevelDecals(mesh, triPass, passCap < mesh->ntris ? passCap : mesh->ntris, texAlpha,
 		                levelDecalScale(source));
+		mesh->shadows = markLevelShadows(mesh, triPass, passCap < mesh->ntris ? passCap : mesh->ntris,
+		                                 texAlpha, texSoft);
 		fixPlainLevelFaces(mesh);
 		clampLevelCutouts(mesh, texAlpha);
 	} else if (rigidDecals)
