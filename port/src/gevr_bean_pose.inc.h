@@ -51,7 +51,11 @@ void *gevrBeanWholeJointGdl(ModelHitEntry *entry,ModelHitEntry *first)
  * the caps. Posed on the CPU every frame, dismembered guards in view cost
  * 20-30 fps in VR (user, 2026-10-20, Jungle). A kept skin a list of the last
  * frames may still read is not given to another (the frame arena keeps two). */
-#define BEAN_CUT_KEPT 16
+/* Every cut skin a full pile shows: Bodies stay keeps up to 48 ragdolls (RD_BODIES),
+ * a Bean guard a skin or two each. At 16 the rest were posed on the CPU every
+ * frame - half the game thread at a pile of dismembered bodies (Bunker II,
+ * 2026-10-30). A slot's mesh is made only when a cut body is drawn. */
+#define BEAN_CUT_KEPT 128
 struct beanCutKept {
 	const struct beanSkin *skin;
 	unsigned body, used;

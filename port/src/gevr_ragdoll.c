@@ -954,10 +954,25 @@ void gevrRagdollVolley(int begin)
     }
 }
 
+/* A body's own model (&s_bodies[i].model): its slot by address. Bean asks for
+ * every vertex of every cut body, and a search of all the slots each time was
+ * 13% of the game thread at a pile of bodies (Bunker II, 2026-10-30). */
 static RdBody *rdModel(const Model *model)
 {
-    for(int i=0;i<RD_BODIES;i++)if(s_bodies[i].used && &s_bodies[i].model==model)return &s_bodies[i];
-    return NULL;
+    const uintptr_t first=(uintptr_t)&s_bodies[0].model, at=(uintptr_t)model-first;
+    if((uintptr_t)model<first || at%sizeof(RdBody) || at/sizeof(RdBody)>=RD_BODIES)return NULL;
+    RdBody *b=&s_bodies[at/sizeof(RdBody)];
+    return b->used ? b : NULL;
+}
+/* rdPiece of each matrix's owner, kept until the body or its cuts change: it
+ * walks the parts up, and was asked for each influence of each vertex */
+static const u8 *rdPieces(RdBody *b)
+{
+    if(b->pieceSerial!=b->serial || b->pieceCuts!=b->cuts) {
+        for(int m=0;m<b->matrices;m++)b->piece[m]=(u8)rdPiece(b,b->owner[m]);
+        b->pieceSerial=b->serial; b->pieceCuts=b->cuts;
+    }
+    return b->piece;
 }
 int gevrRagdollModelCut(const Model *model) { RdBody *b=rdModel(model); return b ? (int)b->cuts : 0; }
 unsigned gevrRagdollModelBody(const Model *model) { RdBody *b=rdModel(model); return b ? b->serial : 0; }
@@ -972,13 +987,14 @@ void gevrRagdollBeanCap(const Model *model,int matrix,const s16 (*rim)[2][3],int
 int gevrRagdollPiece(const Model *model,int matrix)
 {
     RdBody *b=rdModel(model);
-    return b && matrix>=0 && matrix<b->matrices ? rdPiece(b,b->owner[matrix]) : 0;
+    return b && matrix>=0 && matrix<b->matrices ? rdPieces(b)[matrix] : 0;
 }
 int gevrRagdollRemap(const Model *model,int owner,int matrix,float p[3],float n[3])
 {
     RdBody *b=rdModel(model);
     if(!b || !b->cuts || owner<0 || owner>=b->matrices || matrix<0 || matrix>=b->matrices)return matrix;
-    if(rdPiece(b,b->owner[owner])==rdPiece(b,b->owner[matrix]))return matrix;
+    const u8 *piece=rdPieces(b);
+    if(piece[owner]==piece[matrix])return matrix;
     Mtxf inv,map;
     if(!rdInverse(&b->bind[owner],&inv))return matrix;
     rdMul(&b->bind[matrix],&inv,&map);

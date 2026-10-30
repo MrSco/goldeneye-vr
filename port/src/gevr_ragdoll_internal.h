@@ -85,6 +85,9 @@ typedef struct RdBody {
     struct { int matrix, nedges, piece, other; const s16 (*rim)[2][3]; } bean[RD_MAXCAPS];
     int nbean;
     Mtxf bind[RD_MATRICES], offset[RD_MATRICES];
+    /* rdPiece of each matrix's owner, for these cuts (gevrRagdollPiece, Remap) */
+    unsigned pieceSerial, pieceCuts;
+    u8 piece[RD_MATRICES];
     Mtxf joints[RD_PARTS], initial[RD_PARTS];
     coord3d origin;
     u8 rooms[16];
