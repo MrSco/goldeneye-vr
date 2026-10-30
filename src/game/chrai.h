@@ -167,7 +167,9 @@ Rotate Image:
  * stock pool): its Cartel alone places 1158 props. Room for both campaigns.
  */
 #define MAX_PROPS 1600
-#define PTR_LIST_OBJECT_LOOKUP_INDICES_LEN 512
+/* roomGetProps' list: one entry a prop, and the -1 after (512 on the N64, which a
+ * Goldfinger 64 level's crowded rooms can pass) */
+#define PTR_LIST_OBJECT_LOOKUP_INDICES_LEN (MAX_PROPS + 1)
 #define BSS_8007161C_LEN 256
 #define BSS_8007161C_DATA_LEN 16
 #define MAX_WEAPON_SLOTS 30
