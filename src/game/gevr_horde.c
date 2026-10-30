@@ -822,8 +822,8 @@ static void hordeDoorOpenNow(DoorRecord *door)
 }
 
 /* Every door open and held open (user: guards got stuck on them). A door the
- * level never lets open (locked for good, padlocked, or a key lock no key of
- * the level opens: gevrArenaDoorKeyOpens) stays shut: it may
+ * level never lets open (locked for good, padlocked, or a key lock no key or
+ * script of the level opens: gevrArenaDoorKeyOpens) stays shut: it may
  * close off space the level has not built. Every headset does the same, so
  * nothing is sent: a door message starts a door moving (doorStartOpen),
  * which clears its keep-open flag, and it then shut itself on its timer

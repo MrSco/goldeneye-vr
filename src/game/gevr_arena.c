@@ -307,9 +307,46 @@ static void arenaLevelKeys(void)
         }
 }
 
-s32 gevrArenaDoorKeyOpens(u32 keyflags)
+/* The locks the mission's scripts take off doors (chrai.c AI_DoorUnsetLock),
+ * by the door's setup record: an arena runs no scripts, so these open from the
+ * start as the keys' do. #226: Facility's bottling room, unlocked with the
+ * door decoder (lock 8, tag 0x26), stayed shut, a start inside. Control's six
+ * and Train's carriages are the others; doors the levels hold shut keep their
+ * holds (s_door_holds). */
+extern s32 chraiitemsize(u8 *AIList, s32 offset);   /* chrai.c */
+static struct ArenaUnlock { s32 record; u32 bits; } s_unlocks[48];
+static s32 s_nunlocks;
+
+static void arenaScriptUnlocks(void)
 {
-    return keyflags && (keyflags & s_level_keys) == keyflags;
+    s_nunlocks = 0;
+    for (AIListRecord *list = g_CurrentSetup.ailists; list && list->ailist; list++) {
+        u8 *ai = (u8 *)list->ailist;
+        for (s32 at = 0, steps = 0; ai[at] != AI_EndList && steps < 8192; steps++) {
+            if (ai[at] == AI_DoorUnsetLock && s_nunlocks < (s32)(sizeof(s_unlocks) / sizeof(*s_unlocks))) {
+                /* the door its tag names: the tag's record plus its offset */
+                s32 index = 0;
+                for (PropDefHeaderRecord *p = g_CurrentSetup.propDefs; p && p->type != PROPDEF_END;
+                     p = (void *)((u32 *)p + sizepropdef(p)), index++) {
+                    if (p->type != PROPDEF_TAG) continue;
+                    TagObjectRecord tag; memcpy(&tag, p, sizeof(tag));
+                    if (tag.ID != ai[at + 1]) continue;
+                    s_unlocks[s_nunlocks].record = index + tag.OffsetToObj;
+                    s_unlocks[s_nunlocks++].bits = ai[at + 2];
+                    break;
+                }
+            }
+            at += chraiitemsize(ai, at);
+        }
+    }
+}
+
+s32 gevrArenaDoorKeyOpens(s32 record, u32 keyflags)
+{
+    u32 opened = s_level_keys;
+    for (s32 i = 0; i < s_nunlocks; i++)
+        if (s_unlocks[i].record == record) opened |= s_unlocks[i].bits;
+    return keyflags && (keyflags & opened) == keyflags;
 }
 
 /* DAB geconvert.c lockOnFallawayCarried (4785): a fall-away door free of
@@ -433,9 +470,11 @@ void gevrArenaPrepareSetup(s32 stage)
     s_stage = stage;
     s_out_ticks = 0;
     s_level_keys = 0;
+    s_nunlocks = 0;
     if (!netHordeActive() && !s_campaign_deathmatch) return;
     if (s_solo_arena) arenaGasAsScenery();
     arenaLevelKeys();
+    arenaScriptUnlocks();   /* before the scripts go, below */
     if (netHordeActive()) arenaBuildGuardPaths();
     if (s_campaign_deathmatch) arenaDeathmatchSetup();
     /* Global guard AI lists remain available; mission/background scripts cannot

@@ -427,3 +427,5 @@ int main(void)
     puts("PASS: production Horde setup, safe pads, armed spawn publication, hit/headshot points, Mystery Box, Wall Buys, slot pressure, takeover reconciliation, death idempotency, despawn replacement, bounded shared ammo drops, doorway recovery, defeat and the companion kept out of wave accounting");
     puts("PASS: 45 simulated minutes of wave progression with bounded/recycled actors");
 }
+/* chrai.c's record walker (gevr_arena.c's script unlocks; Horde fixtures hold no lists) */
+s32 chraiitemsize(u8 *AIList, s32 offset) { (void)AIList; (void)offset; return 1; }

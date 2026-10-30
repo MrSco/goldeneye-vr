@@ -210,13 +210,18 @@ static void check_campaign(void)
 /* Dab's Mod GoldenEye Arenas rules (geconvert.c): the level's own keys open
  * the doors they open, locks stay only on fall-away doors, safes are kept and
  * spawns stand on their floor. */
+s32 chraiitemsize(u8 *AIList, s32 offset)
+{
+    return AIList[offset] == AI_DoorUnsetLock ? 3 : 1;   /* AI_DoorUnsetLock_LENGTH */
+}
+
 static void check_rules(void)
 {
     static const u8 types[] = { PROPDEF_KEY, PROPDEF_DOOR, PROPDEF_DOOR, PROPDEF_DOOR, PROPDEF_DOOR,
-                                PROPDEF_LOCK_DOOR, PROPDEF_LOCK_DOOR, PROPDEF_SAFE, PROPDEF_END };
+                                PROPDEF_LOCK_DOOR, PROPDEF_LOCK_DOOR, PROPDEF_SAFE, PROPDEF_TAG, PROPDEF_END };
     _Alignas(8) u8 stream[4096] = {0};
-    size_t at[9], used = 0;
-    for (int i = 0; i < 9; i++) {
+    size_t at[10], used = 0;
+    for (int i = 0; i < 10; i++) {
         at[i] = used;
         ((PropDefHeaderRecord *)(stream + used))->type = types[i];
         used += (size_t)gevrSetupPropWords(types[i]) * 4;
@@ -228,6 +233,13 @@ static void check_rules(void)
     ((DoorRecord *)(stream + at[3]))->doorType = DOORTYPE_FALLAWAY; /* Surface's vent hatch */
     ((LockDoorRecord *)(stream + at[5]))->Index1 = 3 - 5; /* on the fall-away door */
     ((LockDoorRecord *)(stream + at[6]))->Index1 = 4 - 6; /* on an ordinary door */
+    /* #226: Facility's bottling room door, lock 8, which no key opens and the
+     * mission's script unlocks (tag 0x26, the door decoder) */
+    ((DoorRecord *)(stream + at[4]))->keyflags = 0x8;
+    ((TagObjectRecord *)(stream + at[8]))->ID = 0x26;
+    ((TagObjectRecord *)(stream + at[8]))->OffsetToObj = 4 - 8;
+    static u8 script[] = { AI_DoorUnsetLock, 0x26, 0x08, AI_EndList };
+    AIListRecord lists[2] = { { (AIRecord *)script, 0x401 }, { NULL, 0 } };
     PadRecord pads[3] = {0}; StandTile tile = {.room = 1};
     for (int i = 0; i < 2; i++) { pads[i].plink = "pad"; pads[i].stan = &tile; pads[i].pos.x = i * 1000; }
     pads[1].pos.y = 345; /* Train's trackside pads, behind the crates */
@@ -235,10 +247,12 @@ static void check_rules(void)
     for (int map = 0; map < netHordeStageCount(); map++) { /* LEVELIDs: the "(Full)" codes are checked above */
         unsigned stage = netStage(map)->level_id;
         if (netStageHasMpSetup(stage)) continue;
-        g_CurrentSetup = (struct stagesetup){.pads = pads, .propDefs = (void *)stream};
+        g_CurrentSetup = (struct stagesetup){.pads = pads, .propDefs = (void *)stream, .ailists = lists};
         gevrArenaPrepareSetup(stage);
-        assert(gevrArenaDoorKeyOpens(0x1) && !gevrArenaDoorKeyOpens(0x80) && !gevrArenaDoorKeyOpens(0x81));
-        assert(!gevrArenaDoorKeyOpens(0));
+        assert(gevrArenaDoorKeyOpens(1, 0x1) && !gevrArenaDoorKeyOpens(2, 0x80) && !gevrArenaDoorKeyOpens(2, 0x81));
+        assert(!gevrArenaDoorKeyOpens(1, 0));
+        /* a script's unlock opens its own door only */
+        assert(gevrArenaDoorKeyOpens(4, 0x8) && !gevrArenaDoorKeyOpens(2, 0x8) && !gevrArenaDoorKeyOpens(4, 0x88));
         PropDefHeaderRecord *p = g_CurrentSetup.propDefs;
         for (int i = 0; i < 8; i++, p = (void *)((u32 *)p + sizepropdef(p))) {
             assert(p->type == types[i]);

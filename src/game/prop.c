@@ -1644,7 +1644,7 @@ void proplvreset2(enum LEVELID stageId)
                             setupDoor(stageId, (struct DoorRecord *) phead, pdefIndex);
 #ifdef GEVR
                             if ((netHordeActive() || gevrArenaCampaignDeathmatch(stageId)) &&
-                                gevrArenaDoorKeyOpens(((struct DoorRecord *)phead)->keyflags))
+                                gevrArenaDoorKeyOpens(pdefIndex, ((struct DoorRecord *)phead)->keyflags))
                                 ((struct DoorRecord *)phead)->keyflags=0;
 #endif
                         }
