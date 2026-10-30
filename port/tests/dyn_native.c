@@ -127,9 +127,9 @@ static int budgetsAndReloads(void)
     {
         init(n, LEVELID_FACILITY, "70", "50");
         CHECK(g_GfxBuffers[1] - g_GfxBuffers[0] == 1024 * 1024);
-        CHECK(g_VtxBuffers[1] - g_VtxBuffers[0] == 256 * 1024);
+        CHECK(g_VtxBuffers[1] - g_VtxBuffers[0] == 512 * 1024);
         CHECK(g_GfxBuffers[2] - g_GfxBuffers[1] == 1024 * 1024);
-        CHECK(g_VtxBuffers[2] - g_VtxBuffers[1] == 256 * 1024);
+        CHECK(g_VtxBuffers[2] - g_VtxBuffers[1] == 512 * 1024);
     }
     init(8, LEVELID_FACILITY, "600", "300");
     CHECK(g_GfxBuffers[1] - g_GfxBuffers[0] == 1200 * 1024);
@@ -143,10 +143,10 @@ static int budgetsAndReloads(void)
     CHECK(!g_GfxRequestedDisplayList);
     /* Tokenless initialization preserves a larger stored/default budget. */
     g_GfxSizesByPlayerCount[0] = 600 * 1024;
-    g_VtxSizesByPlayerCount[0] = 300 * 1024;
+    g_VtxSizesByPlayerCount[0] = 640 * 1024;
     init(1, LEVELID_TITLE, NULL, NULL);
     CHECK(g_GfxBuffers[1] - g_GfxBuffers[0] == 1200 * 1024);
-    CHECK(g_VtxBuffers[1] - g_VtxBuffers[0] == 300 * 1024);
+    CHECK(g_VtxBuffers[1] - g_VtxBuffers[0] == 640 * 1024);
     CHECK(guardsIntact());
     return 0;
 }
@@ -206,7 +206,7 @@ static int exactCapacityAndFailures(void)
         FATAL(dynAllocateLights(1), "lights exhausted");
         CHECK(g_GfxMemPos == end);
         CHECK(strstr(fatalMessage, "stage 34 buffer 0"));
-        CHECK(strstr(fatalMessage, "262144/262144"));
+        CHECK(strstr(fatalMessage, "524288/524288"));
         CHECK(guardsIntact());
     }
     init(1, LEVELID_FACILITY, "70", "50");
@@ -250,7 +250,7 @@ static int peakLogging(void)
     dynAllocate(16);
     dynGetFreeGfx2(base + 1);
     CHECK(logCount == 1);
-    CHECK(strstr(lastLog, "stage 34 peak gfx 16/1048576 bytes, aux 16/262144 bytes"));
+    CHECK(strstr(lastLog, "stage 34 peak gfx 16/1048576 bytes, aux 16/524288 bytes"));
     dynGetFreeGfx2(base + 1);
     CHECK(logCount == 1);
     dynAllocate(16);
@@ -259,11 +259,11 @@ static int peakLogging(void)
     clockUs += 5000000;
     dynGetFreeGfx2(base + 2);
     CHECK(logCount == 2);
-    CHECK(strstr(lastLog, "aux 32/262144 bytes"));
+    CHECK(strstr(lastLog, "aux 32/524288 bytes"));
     clockUs += 10000000;
     dynGetFreeGfx2(base + 2);
     CHECK(logCount == 2); /* unchanged peaks stay quiet */
-    dynAllocate(210000);
+    dynAllocate(420000);
     dynGetFreeGfx2(base + 2);
     CHECK(warningCount == 1);
     dynAllocate(16);
@@ -274,7 +274,7 @@ static int peakLogging(void)
     init(1, LEVELID_TITLE, "80", "20");
     base = dynGetMasterDisplayList();
     dynGetFreeGfx2(base + 1);
-    CHECK(strstr(lastLog, "stage 90 peak gfx 16/1048576 bytes, aux 0/262144 bytes"));
+    CHECK(strstr(lastLog, "stage 90 peak gfx 16/1048576 bytes, aux 0/524288 bytes"));
     CHECK(warningCount == 0);
     return 0;
 }

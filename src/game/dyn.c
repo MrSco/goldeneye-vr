@@ -52,7 +52,10 @@ s32 g_GfxSizesByPlayerCount[MAX_PLAYER_COUNT] = {0x10000, 0x18000, 0x20000, 0x28
 s32 g_VtxSizesByPlayerCount[MAX_PLAYER_COUNT] = {0x10000, 0x18000, 0x20000, 0x28000, 0x30000, 0x38000, 0x40000, 0x48000};
 
 #define GEVR_DYN_GFX_MIN (1024 * 1024)
-#define GEVR_DYN_VTX_MIN (256 * 1024)
+/* The aux half holds each drawn ragdoll's matrices every view pass
+ * (gevrRagdollRender: ~3 KB a body). A pile of 40-48 kept bodies being shot
+ * took Bunker II from 210 to 260 KB and past 256 KB (2026-10-30). */
+#define GEVR_DYN_VTX_MIN (512 * 1024)
 #define GEVR_DYN_LOG_INTERVAL_US 5000000ULL
 static s32 s_dynStage;
 static size_t s_dynGfxCapacity, s_dynVtxCapacity;
