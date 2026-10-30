@@ -770,14 +770,16 @@ void *gevrBeanScorchedGdl(void *node, struct Model *model)
 	 * objDeform's copy carries alpha of its own. A CCTV's head and lens went
 	 * with the shot and its blackened mount stayed; Bean drew the whole
 	 * camera black (v0.5.14-test.17 tester, Surface 2). Each emitted triangle
-	 * has its own three vertices: one that mostly follows a list the game did
-	 * not crumple is folded to a point. A prop of one list is all crumpled. */
+	 * has its own three vertices: one with a corner on a list the game did not
+	 * crumple is folded to a point. Kept with two corners on the mount, a
+	 * slab of the camera's casing stood off the wreck (test.17 tester's
+	 * screenshot). A prop of one list is all crumpled. */
 	if (nsources > 1) {
 		for (int t = 0; t + 2 < n; t += 3) {
 			int kept = 0;
 			for (int k = 0; k < 3; k++)
 				kept += was[sc->source[t + k]] != now[sc->source[t + k]];
-			if (kept >= 2)
+			if (kept == 3)
 				continue;
 			if (swap->emittedWorld) {
 				GevrWorldVertex *v = (GevrWorldVertex *)vertices + t;

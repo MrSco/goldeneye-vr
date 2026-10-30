@@ -832,11 +832,11 @@ int main(int argc, char **argv)
 		int onCrumpled = 0;
 		for (int v = 0; v < host->emittedVerts; v++)
 			onCrumpled += sc->source[v] == 0;
-		/* the triangles a wreck keeps: those mostly on the crumpled list
+		/* the triangles a wreck keeps: those wholly on the crumpled list
 		 * (gevrBeanScorchedGdl folds the rest, as the cartridge cuts them) */
 		int kept = 0;
 		for (int t = 0; t + 2 < host->emittedVerts; t += 3)
-			kept += (sc->source[t] == 0) + (sc->source[t + 1] == 0) + (sc->source[t + 2] == 0) >= 2;
+			kept += (sc->source[t] == 0) + (sc->source[t + 1] == 0) + (sc->source[t + 2] == 0) == 3;
 		printf("WRECKGUEST %s %d of %d vertices follow the crumpled list, %d lists followed, %d of %d triangles kept\n",
 		       argv[2], onCrumpled, host->emittedVerts, host->nwreckSources, kept, host->emittedVerts / 3);
 		fflush(stdout);
