@@ -3090,6 +3090,22 @@ static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalD
         return;
     }
 
+    if (gevrFadeDepthAlpha < 255 && s_opaqueDepthWrite && s_curPrg && s_curPrg->opaque_depth_pass_location >= 0) {
+        /*
+         * A model fading at range (VR_FADE_DEPTH): its solid pixels' depth
+         * first, then its colour where it is the nearest surface. One draw
+         * holds a whole CCTV, whose faces blended in list order without it:
+         * a far side over the near one, and its top came and went as you
+         * walked up (Bunker II, user 2026-10-30). Same program and vertices,
+         * so the colour pass meets the depth it wrote (LEQUAL).
+         */
+        gevr_opaque_depth_after_blend(first, count);
+        glDepthFunc(GL_LEQUAL);
+        gevr_draw_range(first, count);
+        glDepthFunc(s_depthArgs[3] ? GL_LEQUAL : GL_LESS);   /* as set_depth_mode left it */
+        return;
+    }
+
     gevr_draw_range(first, count);
     gevr_opaque_depth_after_blend(first, count);
 
