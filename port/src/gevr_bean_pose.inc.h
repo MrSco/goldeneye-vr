@@ -695,6 +695,22 @@ int gevrBeanWreck(void *node, struct Model *model)
 	return wreck;
 }
 
+/* A destroyed prop's list that Bean draws clean: one whose vertices follow no
+ * crumpled list (neither its own wreck nor a guest's). The cartridge draws a
+ * destroyed prop's lists but the crumpled one as nothing - Bunker II's ceiling
+ * guns leave only debris and the CCTV its bracket - while Bean's stood whole
+ * and darkened (2026-10-30, a tester and the user's screenshots). */
+static ModelNode *firstCollisionList(ModelFileHeader *header);
+int gevrBeanWreckHides(void *node, struct Model *model)
+{
+	struct beanSwap *swap = activeSwap(node);
+	if (!gevrBeanIsEnabled() || !swap || swap->skin || !model || !model->obj || gevrBeanWreck(node, model))
+		return 0;
+	ModelNode *first = firstCollisionList(model->obj);
+	return first && first != node && first->Data &&
+	       vtxstoreIsWreckCopy(modelGetNodeRwData(model, first)->DisplayListCollisions.Vertices);
+}
+
 void *gevrBeanScorchedGdl(void *node, struct Model *model)
 {
 	struct beanSwap *swap = activeSwap(node);

@@ -4591,6 +4591,10 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
                     nodeType = shownType;
                 }
             }
+            else if (shownGdl && shownGdl != rwdata->DisplayListCollisions.gdl && gevrBeanWreckHides(node, model))
+            {
+                shownGdl = NULL;   /* a destroyed prop's uncrumpled list: nothing, as the cartridge's */
+            }
 #else
             Gfx *shownGdl = rwdata->DisplayListCollisions.gdl;
             s32 shownType = rodata->DisplayListCollisions.ModelType;
@@ -4700,6 +4704,10 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
                 {
                     shownType = rodata->DisplayListCollisions.ModelType;
                 }
+            }
+            else if (beanTransparent && gevrBeanWreckHides(node, model))
+            {
+                beanTransparent = NULL;   /* as the opaque pass: nothing */
             }
             if (beanTransparent)
             {

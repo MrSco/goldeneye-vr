@@ -268,11 +268,49 @@ static void materialPathChecks(void)
         /* the mount's: crumpled and black, its shape kept */
         assert(drawn[3].v.ob[1] == 31 && drawn[3].v.cn[0] == 0);
         assert(drawn[4].v.ob[0] == 3 && drawn[5].v.ob[1] == 33);
+        /* A list that follows no crumpled one (Bunker II's ceiling gun's barrel):
+         * the cartridge draws a destroyed prop's other lists as nothing, so Bean's
+         * draws nothing too, in either pass; whole while the prop is. */
+        {
+            ModelNode gun = {0};
+            union ModelRoData gunRo = {0};
+            ModelFileHeader header = {0};
+            Gfx gunList[1], gunBean[1], output[32];
+            gSPEndDisplayList(gunList);
+            gSPEndDisplayList(gunBean);
+            gun.Opcode = MODELNODE_OPCODE_DLCOLLISION;
+            gun.Data = &gunRo;
+            gunRo.DisplayListCollisions.Primary = gunList;
+            gunRo.DisplayListCollisions.ModelType = 1;
+            header.RootNode = &guest;   /* the crumpled list comes first */
+            guest.Next = &host;
+            host.Next = &gun;
+            swapAdd(&gun, gunList, gunBean, 1);
+            model.obj = &header;
+            collisionRw.gdl = gunList;
+            assert(gevrBeanWreckHides(&gun, &model) && !gevrBeanWreckHides(&host, &model) &&
+                   !gevrBeanWreckHides(&guest, &model));
+            for (int wrecked = 1; wrecked >= 0; wrecked--) {
+                ModelRenderData r = {0};
+                int drew = 0;
+                s_wreckCopy = wrecked ? guestWreck : NULL;
+                r.gdl = output;
+                r.flags = 1;
+                modelRenderNodeDl(&r, &model, &gun);
+                for (Gfx *g = output; g < r.gdl; g++)
+                    drew |= (g->words.w0 >> 24) == (G_DL & 255) && g->words.w1 == (uintptr_t)gunBean;
+                assert(drew == !wrecked && gevrBeanWreckHides(&gun, &model) == wrecked);
+            }
+            model.obj = NULL;
+            collisionRw.gdl = NULL;
+            guest.Next = host.Next = NULL;
+        }
         s_wreckCopy = NULL;
         guestRwNode = NULL;
         collisionRw.Vertices = NULL;
         guestRw.Vertices = NULL;
         s_nswap = 0; swapIndexRebuild();
         puts("Bean wrecks: a list Bean draws in another shows its crumpling there (the CCTV mount)");
+        puts("Bean wrecks: a destroyed prop's lists that follow no crumpled one draw nothing (ceiling guns)");
     }
 }

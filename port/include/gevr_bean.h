@@ -101,6 +101,9 @@ int gevrBeanWreck(void *node, struct Model *model);
 /* A destroyed prop's Bean list (objDeform's blackened, crumpled vertex copy): a frame copy
  * that follows it, or NULL when there is none to make (the caller draws the game's wreck). */
 void *gevrBeanScorchedGdl(void *node, struct Model *model);
+/* A destroyed prop's Bean list that follows no crumpled list: drawn as nothing, as the
+ * cartridge draws its lists but the crumpled one (Bunker II's ceiling guns). */
+int gevrBeanWreckHides(void *node, struct Model *model);
 /* The node's Bean part is drawn in another node's list (it shows Bean's blank). */
 int gevrBeanDrawsElsewhere(void *node);
 void *gevrBeanRenderGdl(void *node, void *current, struct Model *model);
