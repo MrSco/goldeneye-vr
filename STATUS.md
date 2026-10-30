@@ -224,6 +224,15 @@ is goldeneyevr.com, in its own repository.
   off). Arenas now open what a level's keys or scripts unlock
   (gevr_arena.c arenaScriptUnlocks: AI_DoorUnsetLock by tag; Facility 1,
   Control 6, Train 11 doors). Reporter asked to test on #226. #226 audio open.
+- In v0.5.14-test.20 (pre-release 2026-10-30, tag on 7d4691d2; servers from
+  that commit, gate 15/15): PR #227 merged as-is (roomGetProps one pass, list
+  bounded) plus PTR_LIST_OBJECT_LOOKUP_INDICES_LEN = MAX_PROPS + 1; an empty
+  dedicated server idles (bots still, 5 frames/s, 0.5% CPU) and wakes on a
+  join. #226 audio measured off-headset (SDL_AUDIODRIVER=disk on a headless
+  client with Linux Steam Audio, laser match): no clipping, cut-off clicks or
+  HRTF aliasing; the user heard the recording clean; reporter asked for
+  details. Prop fade (test.18) still not seen in a headset. Main untouched;
+  #216/#218/#219/#226 and PRs #220-#225/#227 commented, not closed.
 - Two-headset checks still owed from #95 (closed): Statue/Cradle online,
   remote ledges and guns.
 - #30: intermittent colored water lines; no confirmed fix. #85: Egypt
