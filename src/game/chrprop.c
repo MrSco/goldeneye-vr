@@ -4282,6 +4282,12 @@ void roomGetProps(s32 *rooms)
     s32 room;
     s32 i;
     s32 j;
+#ifdef GEVR
+    /* A mark per propnum replaces the "already in the list" scan, which made each call
+     * quadratic in the props of the rooms. The list and its order are unchanged. */
+    static u8 seen[MAX_PROPS];
+    s16 *ptr;
+#endif
 
     room = *rooms;
 
@@ -4301,6 +4307,14 @@ void roomGetProps(s32 *rooms)
 
                 if (propnum >= 0)
                 {
+#ifdef GEVR
+                    /* The list holds PTR_LIST_OBJECT_LOOKUP_INDICES_LEN entries with its -1; past that,
+                     * props are left out rather than written over the memory that follows it. */
+                    if (propnum < MAX_PROPS && !seen[propnum]
+                        && writeptr < ptr_list_object_lookup_indices + PTR_LIST_OBJECT_LOOKUP_INDICES_LEN - 1)
+                    {
+                        seen[propnum] = 1;
+#else
                     // Check if it's in the list already
                     s16 *ptr = ptr_list_object_lookup_indices;
 
@@ -4312,6 +4326,7 @@ void roomGetProps(s32 *rooms)
 
                     if (ptr == writeptr)
                     {
+#endif
                         // Prop is not in the list, so insert it
                         *writeptr = propnum;
                         writeptr++;
@@ -4325,6 +4340,13 @@ void roomGetProps(s32 *rooms)
         rooms++;
         room = *rooms;
     }
+
+#ifdef GEVR
+    for (ptr = ptr_list_object_lookup_indices; ptr < writeptr; ptr++)
+    {
+        seen[*ptr] = 0;
+    }
+#endif
 
     *writeptr = -1;
     writeptr++;
