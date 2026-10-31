@@ -271,6 +271,12 @@ is goldeneyevr.com, in its own repository.
   level also draws solid, every decal of it one neutral grey <= 64) go
   see-through like the black ones. Bunker II's cell bars (grey 59) and a
   Cradle grille (grey 4); no other level changes. Bars checked by the user.
+- In v0.5.14-test.25 (pre-release 2026-10-31, protocol 25 kept): a door volume
+  with no floor tile gets no portal instead of crashing the level load
+  (sub_GAME_7F00324C read the room through the null tile; report 48253132 on
+  v0.5.13, level unknown). The load logs "door bound pad N has no floor tile".
+  Reports now land as issues in the private MrSco/goldeneye-vr-reports, decoded
+  by its Digest workflow; each build's symbols zip goes to its "symbols" release.
 - Two-headset checks still owed from #95 (closed): Statue/Cradle online,
   remote ledges and guns.
 - #30: intermittent colored water lines; no confirmed fix. #85: Egypt
