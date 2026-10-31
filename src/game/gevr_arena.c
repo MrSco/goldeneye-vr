@@ -49,11 +49,15 @@ static s32 arenaPadCount(void)
 }
 
 /* DAB geconvert.c flooredPads (5262): a pad stands on its floor, -30..+60
- * from the tile under it. Train's trackside pads sit 345-370 above the
- * ballast, behind the crates (Dab's netplay.md). */
+ * from the tile under it, in the setup's own units. Train's trackside pads
+ * sit 345-370 above the ballast, behind the crates (Dab's netplay.md). Pads
+ * and tiles here are in world units, the setup's over the level scale:
+ * compared raw, Cradle's pads (29 setup units up, 123 world) all failed but
+ * two, and Cradle (Full) started all eight players on one platform (#228). */
+extern f32 level_scale;   /* stan.c */
 static s32 arenaPadOnFloor(PadRecord *pad)
 {
-    f32 dy = pad->pos.y - stanGetPositionYValue(pad->stan, pad->pos.x, pad->pos.z);
+    f32 dy = (pad->pos.y - stanGetPositionYValue(pad->stan, pad->pos.x, pad->pos.z)) * level_scale;
     return dy >= -30.0f && dy <= 60.0f;
 }
 
@@ -244,6 +248,9 @@ static void arenaDeathmatchSetup(void)
         }
         picks[n] = chosen;
     }
+    sysLogPrintf(LOG_NOTE, "arena: %d spawn candidates, starts at pads %d %d %d %d %d %d %d %d", count,
+                 picks[0], picks[1 % np], picks[2 % np], picks[3 % np], picks[4 % np], picks[5 % np], picks[6 % np],
+                 picks[7 % np]);
     struct ArenaIntro { SetupIntroSpawn spawn[8]; struct SetupIntroItem item; SetupIntroEmpty end; };
     struct ArenaIntro *intro = arenaAlloc(sizeof(*intro));
     for (s32 i = 0; i < 8; i++) {

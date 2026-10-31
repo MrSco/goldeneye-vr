@@ -51,6 +51,7 @@ void getTileEdgePoints(StandTile *tile, s32 e, coord3d *a, coord3d *b) {
 }
 /* stan.c returns the tile plane's height; these fixture tiles are flat. A
  * bare StandTile (no sides) has no point storage behind it. */
+f32 level_scale = 1.0f;   /* stan.c: setup units are world units here */
 f32 stanGetPositionYValue(StandTile *tile, f32 x, f32 z) {
     (void)x; (void)z;
     return (tile->tail.half >> 12) & 15 ? tile->points[0].y : 0.0f;

@@ -26,6 +26,7 @@ struct { s32 stanfile; StandTile *ptr_firstroom; } *stan_prefix;
 StandTile *standTileStart;
 u8 list_of_tilesizes[16];
 void getTileMidPoint(StandTile *t,coord3d *p) {(void)t;*p=(coord3d){0};}
+f32 level_scale = 1.0f;   /* stan.c: setup units are world units here */
 f32 stanGetPositionYValue(StandTile *t,f32 x,f32 z) {(void)t;(void)x;(void)z;return 0;}
 ObjectRecord *setupGetPtrToCommandByIndex(s32 index) {(void)index;return NULL;}
 void getTileEdgePoints(StandTile *t,s32 e,coord3d *a,coord3d *b) {(void)t;(void)e;*a=*b=(coord3d){0};}
