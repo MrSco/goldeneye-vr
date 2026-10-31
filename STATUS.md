@@ -266,6 +266,11 @@ is goldeneyevr.com, in its own repository.
   The empty gun hand (unarmed, or a watch item's hand away from the watch)
   takes the off hand's fingers mirrored, on its own Gun-fitted wrist.
   Headset: both hands checked by the user, 2026-10-31.
+- In v0.5.14-test.24 (pre-release 2026-10-31, protocol 25 kept): Bean cast
+  shadows Rare drew in dark grey (markLevelShadows: a cut-out picture the
+  level also draws solid, every decal of it one neutral grey <= 64) go
+  see-through like the black ones. Bunker II's cell bars (grey 59) and a
+  Cradle grille (grey 4); no other level changes. Bars checked by the user.
 - Two-headset checks still owed from #95 (closed): Statue/Cradle online,
   remote ledges and guns.
 - #30: intermittent colored water lines; no confirmed fix. #85: Egypt
