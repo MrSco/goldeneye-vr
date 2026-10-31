@@ -1410,23 +1410,58 @@ static void fixPlainLevelFaces(struct gevrBeanMesh *mesh)
  * blended pass whose picture has no alpha of its own (Bunker II's pillar
  * shadow, a solid black strip). GoldenEye's are see-through darkenings of the
  * floor: such a decal is drawn half through, in the translucent pass. Before
- * fixPlainLevelFaces(), while pass[] still follows the triangles. */
+ * fixPlainLevelFaces(), while pass[] still follows the triangles.
+ *
+ * Rare drew a few such cut-outs in a dark grey instead of black: Bunker II's
+ * cell bars lie on the corridor floor in their own rusty picture at grey 59,
+ * a dim copy of the bars rather than their shadow (user, 2026-10-31), and a
+ * Cradle grille's at grey 4. So a cut-out picture the level also draws as
+ * solid faces (the thing casting it), every decal of which has its corners in
+ * one and the same neutral grey no lighter than LEVEL_SHADOW_GREY, is a
+ * shadow too. Over all the release's levels these are the only two. */
 #define LEVEL_SHADOW_ALPHA 0x80
+#define LEVEL_SHADOW_GREY 64
 static int markLevelShadows(struct gevrBeanMesh *mesh, const uint8_t *pass, int npass,
                             const uint8_t *texAlpha, const uint8_t *texSoft)
 {
 	int marked = 0;
+	/* per picture: drawn as solid faces; its decals' one grey (-1 none yet, -2 not one) */
+	uint8_t solid[MAX_TEX] = {0};
+	int16_t grey[MAX_TEX];
+	for (int g = 0; g < MAX_TEX; g++)
+		grey[g] = -1;
+	for (int i = 0; i < mesh->ntris; i++) {
+		const struct gevrBeanTri *t = &mesh->tris[i];
+		if (t->tex < 0 || t->tex >= MAX_TEX)
+			continue;
+		if (!(t->flags & GEVR_BEAN_F_DECAL)) {
+			solid[t->tex] = 1;
+			continue;
+		}
+		int one = 1;
+		for (int k = 0; k < 3; k++) {
+			const uint8_t *c = &t->rgba[k * 4];
+			one &= c[0] == t->rgba[0] && c[1] == t->rgba[0] && c[2] == t->rgba[0] && c[3] >= 0xf0;
+		}
+		if (!one || (grey[t->tex] >= 0 && grey[t->tex] != t->rgba[0]))
+			grey[t->tex] = -2;
+		else if (grey[t->tex] == -1)
+			grey[t->tex] = t->rgba[0];
+	}
 	for (int i = 0; i < mesh->ntris; i++) {
 		struct gevrBeanTri *t = &mesh->tris[i];
 		const int tex = t->tex >= 0 && t->tex < MAX_TEX ? t->tex : -1;
 		const int blend = i < npass && (pass[i] & LDECAL_PASS_BLEND);
+		const int cutout = tex >= 0 && texAlpha[tex] && !texSoft[tex];
 		int black = 1;
-		if (!(t->flags & GEVR_BEAN_F_DECAL) || (!blend && (tex < 0 || !texAlpha[tex] || texSoft[tex])))
+		if (!(t->flags & GEVR_BEAN_F_DECAL) || (!blend && !cutout))
 			continue;
 		for (int k = 0; k < 3; k++)
 			black &= !t->rgba[k * 4] && !t->rgba[k * 4 + 1] && !t->rgba[k * 4 + 2] && t->rgba[k * 4 + 3] >= 0xf0;
-		if (!black)
+		if (!black && !(cutout && solid[tex] && grey[tex] >= 0 && grey[tex] <= LEVEL_SHADOW_GREY))
 			continue;
+		for (int k = 0; k < 3; k++)
+			t->rgba[k * 4] = t->rgba[k * 4 + 1] = t->rgba[k * 4 + 2] = 0;
 		for (int k = 0; k < 3; k++)
 			t->rgba[k * 4 + 3] = LEVEL_SHADOW_ALPHA;
 		t->alpha = 254;   /* the translucent pass (gevrBeanEmitList) */
