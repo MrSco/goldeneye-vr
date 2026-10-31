@@ -251,8 +251,12 @@ is goldeneyevr.com, in its own repository.
   everyone on one platform. arenaPadOnFloor compared world units against
   Dab's -30..+60 setup-unit window; now scaled by level_scale. Cradle 2 ->
   122 spawn candidates, Egypt 6 -> 127; checked on the headless server.
-  #228's crash not reproduced (likely test.21's aux buffer fix); #228
-  commented, open. Not headset-checked.
+  #228's crash (report 77652fd0, test.20): alSynAllocVoice wrote through a
+  NULL __allocParam (SGI's one unchecked call) when the music stole a voice
+  with the synthesizer's 128 updates spent; now no voice for that note.
+  Headless stdout line-buffered (a split stats line failed the server gate).
+  Tag on 039deddc; gates 15/15 on Facility (Full) and Cradle (Full); suite
+  passes. #228 open. Not headset-checked.
 - Two-headset checks still owed from #95 (closed): Statue/Cradle online,
   remote ledges and guns.
 - #30: intermittent colored water lines; no confirmed fix. #85: Egypt
