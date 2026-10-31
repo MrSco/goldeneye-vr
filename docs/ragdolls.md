@@ -18,12 +18,15 @@ for living actors.
 | Off (fade) | Fade between four and 5.5 seconds after capture |
 | 12 | Keep the newest 12 |
 | 24 | Keep the newest 24 |
-| 48 | Keep the newest 48 |
 
 A body's detached limbs belong to that body and leave with it. Reducing the
 count removes the oldest bodies first. With retention off, simultaneous fading
-bodies use the same 48-slot pool. When ragdolls are off, the existing animated
+bodies use the same 24-slot pool. When ragdolls are off, the existing animated
 body retention rules apply.
+
+48 was an option until v0.5.14: a pile of 41 dismembered Bean ragdolls in view
+held the Quest 3 GPU near its limit (89-109 fps of 120, where 25 held 120;
+Bunker II, measured with `tools/perf/pile_drive.py`). A saved 48 now keeps 24.
 
 ## Integration
 

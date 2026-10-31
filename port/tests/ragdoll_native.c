@@ -354,10 +354,10 @@ int main(void)
     guardLiftChecks();
     portChecks();VrDismemberment=VrRagdolls=0;fflush(stdout);
     assert(!gevrRagdollNeedsPose(&sourceChr));assert(!pdphysIsReady());
-    VrRagdolls=1;VrBodiesStay=48;
+    VrRagdolls=1;VrBodiesStay=RD_BODIES;
     for(int mode=1;mode<=8;mode*=2) {
         playerCount=mode;
-        for(int i=0;i<50;i++) { capture(mode>1);assert(countBodies()==(i<48?i+1:48)); }
+        for(int i=0;i<RD_BODIES+2;i++) { capture(mode>1);assert(countBodies()==(i<RD_BODIES?i+1:RD_BODIES)); }
         for(int tick=0;tick<120;tick++) { g_GlobalTimer++;gevrRagdollTick(1); }
         for(int i=0;i<RD_BODIES;i++)for(int part=0;part<s_bodies[i].count;part++) {
             float p[3];pdphysRagdollGetPartPos(s_bodies[i].handle,part,p);
@@ -372,10 +372,10 @@ int main(void)
         for(int i=0;i<10;i++)gevrRagdollTick(0);
         assert(b->age==age && !memcmp(&b->joints[0],&pose,sizeof(pose)));
         gevrRagdollForgetChr(&sourceChr); /* network actor slot freed/reused */
-        assert(countBodies()==48);
+        assert(countBodies()==RD_BODIES);
         VrBodiesStay=12;gevrRagdollTick(1);assert(countBodies()==12);
-        VrBodiesStay=24;for(int i=0;i<20;i++)capture(mode>1);assert(countBodies()==24);
-        VrBodiesStay=48;
+        VrBodiesStay=48;for(int i=0;i<20;i++)capture(mode>1);assert(countBodies()==RD_BODIES); /* an old 48: the cap */
+        VrBodiesStay=RD_BODIES;
         gevrRagdollReset();assert(countBodies()==0 && !pdphysIsReady());
     }
     /* Horde keeps a dozen whatever Bodies stay says */
@@ -409,6 +409,6 @@ int main(void)
     assert(!pdphysIsReady() && !gevrRagdollSuppress(&sourceChr));
     for(int i=0;i<3;i++)gevrRagdollTick(0);
     assert(!s_garbage);free(sourceModel.datas);for(int i=0;i<2;i++)free(floorStorage[i]);frameFree();
-    puts("PASS: real Jolt; 1/2/4/8-player deaths; 12/24/48 bodies; pause, duplicate views, actor reuse, private heads/vertices, cuts, affine remap, draw, fade and teardown");
+    puts("PASS: real Jolt; 1/2/4/8-player deaths; 12/24 bodies (an old 48 capped); pause, duplicate views, actor reuse, private heads/vertices, cuts, affine remap, draw, fade and teardown");
     return 0;
 }

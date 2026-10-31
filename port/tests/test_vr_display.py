@@ -110,10 +110,13 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
             subprocess.run([str(exe), "speed_read", str(expected), "75"], cwd=temp, check=True)
         print("PASS: solo and host movement speed defaults, independent round trips and clamping")
         for fast in (0, 1):
-            for bodies in (0, 12, 24, 48):
+            for bodies in (0, 12, 24):
                 for coop in (0, 1):
                     subprocess.run([str(exe), "rules_write", str(fast), str(bodies), str(coop)], cwd=temp, check=True)
                     subprocess.run([str(exe), "rules_read", str(fast), str(bodies), str(coop)], cwd=temp, check=True)
+            # 48 was an option until 2026-10-30: a saved 48 keeps 24
+            subprocess.run([str(exe), "rules_write", str(fast), "48", "0"], cwd=temp, check=True)
+            subprocess.run([str(exe), "rules_read", str(fast), "24", "0"], cwd=temp, check=True)
         ini.unlink(missing_ok=True)
         ini.write_text("[VR]\nRefreshRate=120\n", encoding="utf-8")
         subprocess.run([str(exe)], cwd=temp, check=True, stdout=subprocess.DEVNULL)

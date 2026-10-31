@@ -709,7 +709,9 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "FastReinforcements") == 0) VrFastReinforcements = ival != 0;
             else if (strcmp(key, "CoopFastReinforcements") == 0) VrCoopFastReinforcements = ival != 0;
             else if (strcmp(key, "BodiesStay") == 0)
-                VrBodiesStay = ival >= 48 ? 48 : ival >= 24 ? 24 : ival >= 12 ? 12 : 0;
+                /* 48 was an option until a pile of 41 Bean ragdolls held the GPU
+                 * near its limit (2026-10-30): a saved 48 keeps 24 */
+                VrBodiesStay = ival >= 24 ? 24 : ival >= 12 ? 12 : 0;
             else if (strcmp(key, "ShowStats") == 0) VrShowStats = (ival != 0);
             else if (strcmp(key, "SpaceWarp") == 0) VrSpaceWarp = ival < 0 ? -1 : ival != 0;
             else if (strcmp(key, "EyeMsaa") == 0) VrEyeMsaa = ival >= 2 ? 2 : 1;   // a saved 4x is 2x now

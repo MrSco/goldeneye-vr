@@ -671,7 +671,7 @@ struct Ragdoll {
 	std::vector<OverlapPair> overlapPairs;       // parts that overlapped at death, collision off until they come apart
 };
 
-constexpr int kMaxRagdolls = 48; // GEVR: the largest Bodies stay setting
+constexpr int kMaxRagdolls = 24; // GEVR: the largest Bodies stay setting
 Ragdoll g_Ragdolls[kMaxRagdolls];
 
 static bool ragdollLive(int handle)

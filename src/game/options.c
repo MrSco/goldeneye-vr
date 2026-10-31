@@ -4160,7 +4160,7 @@ static s32 gevrVrClampStep(s32 value, s32 dir, s32 lo, s32 hi)
 static void gevrVrStep(s32 row, s32 dir)
 {
     static const f32 snaps[] = { 0.0f, 30.0f, 45.0f, 90.0f };
-    static const s32 bodies[] = { 0, 12, 24, 48 };
+    static const s32 bodies[] = { 0, 12, 24 };
     s32 *toggle = gevrVrToggle(row);
     s32 i;
     s32 steps;
@@ -4271,10 +4271,10 @@ static void gevrVrStep(s32 row, s32 dir)
                              VrScreenFov);
             break;
         case GEVR_VR_BODIES:
-            for (i = 0; i < 3 && bodies[i] < VrBodiesStay; i++)
+            for (i = 0; i < 2 && bodies[i] < VrBodiesStay; i++)
             {
             }
-            VrBodiesStay = bodies[gevrVrClampStep(i, dir, 0, 3)];
+            VrBodiesStay = bodies[gevrVrClampStep(i, dir, 0, 2)];
             break;
         case GEVR_VR_GUNSIZE:
             VrGunSizeCheat = gevrVrClampStep(VrGunSizeCheat, dir, 0, 2);

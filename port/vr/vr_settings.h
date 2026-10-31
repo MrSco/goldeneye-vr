@@ -112,7 +112,7 @@ extern int VrBodySlots, VrBodySlotShow, VrBodySlotSize;
 extern float VrBodySlotFit[GEVR_BODY_SLOTS][3];
 extern int VrPerWeaponRecoil;   // PD VR's per-weapon recoil table
 extern int VrMinesStickToGuards; // thrown mines stick to guards (GEVR PC vr450.2)
-extern int VrBodiesStay;        // bodies kept: 0 (original fade), 12, 24 or 48
+extern int VrBodiesStay;        // bodies kept: 0 (original fade), 12 or 24
 // GoldenEye solo/PvE host companion; next mission or Horde retry. Weapon 0..9,
 // aggression 0 cautious / 1 normal / 2 aggressive; health/damage in percent.
 extern int VrAlly, VrAllyWeapon, VrAllyAggression, VrAllyHealth, VrAllyDamage, VrAllyInvincible;

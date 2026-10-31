@@ -152,16 +152,16 @@ static void movingCollisionChecks(void)
     /* The configured maximum rides together, including multi-tick frames. */
     moverInit(0,(struct bbox){.xmin=-180,.xmax=180,.ymin=-10,.ymax=0,.zmin=-180,.zmax=180});
     moverPlatform.runtime_pos.y=200;
-    for(int i=0;i<48;i++)moverSphere(b+i,(i%8-3.5f)*30,210,(i/8-2.5f)*30,1);
-    moverSteps(b,48,200,dt);
+    for(int i=0;i<RD_BODIES;i++)moverSphere(b+i,(i%8-3.5f)*30,210,(i/8-2.5f)*30,1);
+    moverSteps(b,RD_BODIES,200,dt);
     for(int leg=0;leg<3;leg++)for(int tick=0;tick<30;tick++) {
         float step=leg==2?6:2,frameDt=leg==2?0.1f:1.0f/30;
         moverPlatform.runtime_pos.y+=leg==1?-step:step;
-        moverSteps(b,48,1,frameDt);
-        for(int i=0;i<48;i++){moverPosition(b+i,0,p);assert(fabsf(p[1]-moverPlatform.runtime_pos.y-10)<3);}
+        moverSteps(b,RD_BODIES,1,frameDt);
+        for(int i=0;i<RD_BODIES;i++){moverPosition(b+i,0,p);assert(fabsf(p[1]-moverPlatform.runtime_pos.y-10)<3);}
     }
-    moverFree(b,48);free(b);pdphysShutdown();
-    puts("PASS: sliding/clipped/hinged doors, reflected scale, lift ascent/descent/horizontal/stops, sleeping riders, detached pieces, pause, support removal, room filtering and 48 riders at 60/30/10 Hz");
+    moverFree(b,RD_BODIES);free(b);pdphysShutdown();
+    printf("PASS: sliding/clipped/hinged doors, reflected scale, lift ascent/descent/horizontal/stops, sleeping riders, detached pieces, pause, support removal, room filtering and %d riders at 60/30/10 Hz\n",RD_BODIES);
 }
 
 static void guardLiftChecks(void)

@@ -5362,7 +5362,7 @@ void chrlvTickSurrender(ChrRecord *self)
 #ifdef GEVR
 /*
  * Bodies stay (launcher Play > Game rules..., VrBodiesStay; GEVR PC's
- * CORPSEKEEP, vr441): in single player the newest 12, 24 or 48 bodies stay
+ * CORPSEKEEP, vr441): in single player the newest 12 or 24 bodies stay
  * on the floor instead of fading once their death is over (the AI's RemoveMe,
  * chrlvActorFadeAway). A dead guard takes no shots (chrTestHit returns on
  * ACT_DEAD). A visible body still builds field_20, and drawjointlist draws
@@ -5377,7 +5377,9 @@ void chrlvTickSurrender(ChrRecord *self)
 extern int VrBodiesStay;
 extern int VrFastReinforcements;
 extern bool netIsActive(void);
-#define GEVR_BODIES_MAX 48
+/* 48 until a pile of 41 Bean ragdolls held the Quest GPU near its limit
+ * (89-109 fps of 120; 120 up to about 25 - Bunker II, 2026-10-30) */
+#define GEVR_BODIES_MAX 24
 #define GEVR_BODY_SLOT_RESERVE 4
 static ChrRecord *s_gevrBodies[GEVR_BODIES_MAX];   /* kept, oldest first */
 static s32 s_gevrBodyAge[GEVR_BODIES_MAX];       /* original fade clock, not visible alpha */

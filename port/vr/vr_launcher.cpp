@@ -3267,8 +3267,6 @@ extern "C" void gevrLauncherRun(void)
             ImGui::RadioButton("12##bodies", &VrBodiesStay, 12);
             ImGui::SameLine();
             ImGui::RadioButton("24##bodies", &VrBodiesStay, 24);
-            ImGui::SameLine();
-            ImGui::RadioButton("48##bodies", &VrBodiesStay, 48);
             if (VrBodiesStay != prevBodies) vrSettingsSave();
             ImGui::TextWrapped("The newest bodies stay on the floor, with their cut limbs; the oldest goes when a new guard needs its place.");
             ImGui::Spacing();

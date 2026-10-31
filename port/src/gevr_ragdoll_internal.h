@@ -9,7 +9,7 @@
 #include <string.h>
 #include "pdphysics.h"
 
-#define RD_BODIES 48
+#define RD_BODIES 24   /* Bodies stay's largest setting (chraction.c GEVR_BODIES_MAX) */
 #define RD_PARTS PDPHYS_MAX_RAGDOLL_PARTS
 #define RD_MATRICES 96
 #define RD_NODES 512
