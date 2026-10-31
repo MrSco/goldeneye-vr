@@ -838,6 +838,19 @@ static void gevrCheatProbe(s32 inlevel)
             sysLogPrintf(LOG_NOTE, "cheathook: blast %.0f: %d objects", (double) r, gevrBlastObjects(r));
             continue;
         }
+        /* "spawn<N>": N guards (6 if none) standing in rows in front of Bond, a
+         * guard of the level's body and head, so kill<R> leaves the pile where
+         * he looks */
+        if (strncasecmp(word, "spawn", 5) == 0)
+        {
+            extern s32 gevrSpawnGuards(s32 count);
+            extern s32 chrGetNumFree(void);
+            const s32 count = word[5] ? atoi(word + 5) : 6;
+            const s32 made = gevrSpawnGuards(count);
+
+            sysLogPrintf(LOG_NOTE, "cheathook: spawn %d: %d guards (%d slots free)", count, made, chrGetNumFree());
+            continue;
+        }
         /* "kill<R>": every guard within R units of Bond (600 if none) dies as a
          * blast would kill him (chrlvExplosionDamage), to pile up bodies -
          * ragdolls, with BodiesStay - for a test script */
@@ -1012,6 +1025,44 @@ s32 gevrKillGuards(f32 radius)
         }
         chrlvExplosionDamage(chr, &g_CurrentPlayer->prop->pos, 100.0f, 0);
         n++;
+    }
+    return n;
+}
+
+s32 gevrSpawnGuards(s32 count)
+{
+    extern PropRecord *chrSpawnAtCoord(s32 bodynum, s32 headnum, coord3d *pos, StandTile *stan, f32 angle,
+                                       AIRecord *ailist, s32 spawnflags);
+    const ChrRecord *like = NULL;
+    PropRecord *bond = g_CurrentPlayer->prop;
+    const f32 facing = g_CurrentPlayer->vv_theta * (M_PI_F / 180.0f);
+    s32 i, n = 0;
+
+    for (i = 0; i < g_NumChrSlots && like == NULL; i++)
+    {
+        if (g_ChrSlots[i].model != NULL && g_ChrSlots[i].prop != NULL && g_ChrSlots[i].prop->type == PROP_TYPE_CHR)
+        {
+            like = &g_ChrSlots[i];
+        }
+    }
+    if (like == NULL || bond->stan == NULL)
+    {
+        return 0;
+    }
+    for (i = 0; i < count; i++)
+    {
+        /* three abreast, 1.5 m on and a row every 60 units, facing Bond */
+        const f32 ahead = 150.0f + (f32) (i / 3) * 60.0f, side = (f32) (i % 3 - 1) * 60.0f;
+        coord3d pos = bond->pos;
+        StandTile *stan = bond->stan;
+
+        pos.x += sinf(facing) * ahead + cosf(facing) * side;
+        pos.z += cosf(facing) * ahead - sinf(facing) * side;
+        if (walkTilesBetweenPoints_NoCallback(&stan, bond->pos.x, bond->pos.z, pos.x, pos.z) && stan != NULL &&
+            chrSpawnAtCoord(like->bodynum, like->headnum, &pos, stan, facing + M_PI_F, NULL, 0x10) != NULL)   /* 0x10: in view, as the ally's (gevr_ally.c) */
+        {
+            n++;
+        }
     }
     return n;
 }
