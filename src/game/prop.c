@@ -927,6 +927,20 @@ void sub_GAME_7F00324C(struct BoundPadRecord *arg0, s32 *arg1, s32 *arg2, struct
     sub_GAME_7F001BD4(arg0, &center);
     sp2C = (StandTile *)arg0->stan;
 
+#ifdef GEVR
+    /* A door volume that found no floor tile at load has no room on either
+     * side. The N64 read the room from address 3 and went on with junk; here
+     * that read faults during the level load (report 48253132, v0.5.13). */
+    if (sp2C == NULL)
+    {
+        sysLogPrintf(LOG_NOTE, "setup: door bound pad %d has no floor tile - no portal",
+                (s32)(arg0 - g_CurrentSetup.boundpads));
+        *arg1 = -1;
+        *arg2 = -1;
+        return;
+    }
+#endif
+
     if (walkTilesBetweenPoints_NoCallback(&sp2C, arg0->pos.f[0], arg0->pos.f[2], center.f[0], center.f[2]) == 0)
     {
         sp2C = (StandTile *)arg0->stan;
