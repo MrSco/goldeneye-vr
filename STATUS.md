@@ -246,6 +246,13 @@ is goldeneyevr.com, in its own repository.
   unattended with tools/perf/pile_drive.py (gevr_cheat.txt spawn<N>): Bunker
   II, 41 killed, 24 kept, 120 fps every second. All headset-checked by the
   user except the 24 cap (measured by script).
+- In v0.5.14-test.22 (pre-release 2026-10-30, protocol 25 kept; don't mix
+  with test.21 in a "(Full)" or Horde match): #228, Cradle (Full) started
+  everyone on one platform. arenaPadOnFloor compared world units against
+  Dab's -30..+60 setup-unit window; now scaled by level_scale. Cradle 2 ->
+  122 spawn candidates, Egypt 6 -> 127; checked on the headless server.
+  #228's crash not reproduced (likely test.21's aux buffer fix); #228
+  commented, open. Not headset-checked.
 - Two-headset checks still owed from #95 (closed): Statue/Cradle online,
   remote ledges and guns.
 - #30: intermittent colored water lines; no confirmed fix. #85: Egypt
