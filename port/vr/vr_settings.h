@@ -167,8 +167,8 @@ extern float VrGexKf7MagOff[3], VrGexPp7MagOff[3]; // held magazine only: cm rig
 extern float VrGexKf7WellOff[3], VrGexPp7WellOff[3]; // well target only: cm right, up, back on gun
 extern float VrArmElbowTuck;    // 0..1, how tightly the elbow is pinned toward the body
 extern float VrArmBodyFollow;   // how fast the smoothed torso yaw chases the head (spin comfort)
-extern int   VrFistClench;      // close the off-hand while the left grip is squeezed
-extern float VrFistClenchAmt;   // runtime 0..1 clench amount (not persisted)
+extern int   VrFistClench;      // a free or unarmed GE-X hand closes while its grip is squeezed (gun.c)
+extern float VrFistClenchAmt;   // runtime 0..1 clench amount of the off hand (not persisted)
 #ifndef GEVR_MAX_WEAPONS
 #define GEVR_MAX_WEAPONS 64
 #endif

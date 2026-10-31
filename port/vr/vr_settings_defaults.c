@@ -253,7 +253,7 @@ float VrScopeFit[2][4][4] = {
 };
 float VrArmElbowTuck  = 0.0f;  /* 0..1, how tightly the elbow is pinned to the body */
 float VrArmBodyFollow = 0.02f; /* how fast the smoothed torso yaw chases the head (PD VR's VrBodyYaw; body slots) */
-int   VrFistClench    = 0;     /* close the off hand while the left grip is squeezed */
+int   VrFistClench    = 1;     /* a free or unarmed GE-X hand closes while its grip is squeezed (PD VR's) */
 /*
  * Muzzle / barrel tip trim in cm, set with Gun fit's barrel tip mode (X):
  * cm right (side), up, forward along the gun from the default barrel tip.
