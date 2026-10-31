@@ -331,6 +331,10 @@ int main(int argc, const char **argv)
 
     sysInitArgs(argc, argv);
 #ifdef GEVR_HEADLESS
+    /* A line at a time: a log file holds stdout and the unbuffered stderr, and a
+     * warning landed inside a buffered line (a server stats line lost its
+     * ", idle" and failed gevr_server_test's 60 frames/s check). */
+    setvbuf(stdout, NULL, _IOLBF, 0);
     /* No window and no sound card: SDL's dummy drivers stand in for both.
      * SDL_AUDIODRIVER=disk set outside records a client's sound to a file. */
     SDL_setenv("SDL_VIDEODRIVER", "dummy", 1);
