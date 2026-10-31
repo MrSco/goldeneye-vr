@@ -57,13 +57,29 @@ s32 alSynAllocVoice(ALSynth *drvr, ALVoice *voice, ALVoiceConfig *vc)
             
         if (stolen) {
                 
+#ifdef GEVR
+            /*
+             * SGI never checked this update (the stop below is checked):
+             * with all 128 spent it wrote through NULL (crash 77652fd0: an
+             * eight-player Cradle (Full) match, the music stealing a voice for
+             * a note at the moment the player died). Without an update
+             * the stolen voice can't be ramped down: leave it playing and
+             * give this note no voice, as when none can be stolen.
+             */
+            update = __allocParam();
+            if (update == 0) {
+                return 0;
+            }
+#endif
             pvoice->offset = 512;
             pvoice->vvoice->pvoice = 0; /* zero stolen voice */
                 
             /*
              * ramp down stolen voice
              */
+#ifndef GEVR
             update = __allocParam();
+#endif
             update->delta      = drvr->paramSamples;
             update->type       = AL_FILTER_SET_VOLUME;
             update->data.i     = 0;
