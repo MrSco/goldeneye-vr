@@ -142,13 +142,20 @@ fields (KF7 13, -23, -27; PP7 8, -19, -26).
   existing target. The off trigger sets the entrance at the preview magazine's
   tip. An already rendered GE-X magazine hand consumes the off-hand render slot
   so the legacy arm is not added over it.
-- Arms (MODS "Its arms, wearing the watch (VR, WIP)", ini GexArms):
+- Arms (launcher "GE-X guns, hands and watch", ini GexGuns, in the headset):
   GE-X's own arms are every arm in the headset, as GE-X made them, and
   GoldenEye's watch is drawn at its own size or larger (ini GexWatch) at
   the end of the left sleeve - never smaller, for the status on its face.
   The pause's own watch arm (bondview2.c bondviewRenderWatch) keeps its
   watch and GE-X's arm is drawn under it. The rejected alternative, the
   watch arm's sleeve on GE-X's hands, is parked on claude/gex-watch-sleeves.
+- Fist clench (ini GexFistClench, default 1), ported from Perfect Dark VR's
+  FistClench (bondgun.c VrFistClenchAmt): the empty off hand and the unarmed
+  hand at rest close while their grip is held, eased 0.35 a 60 Hz frame.
+  PD VR plays 1002; in GE-X's ROM 1002 is a chop with straight fingers, and
+  1055 holds both hands shut (joints 3-16 right, 19-32 left, constant over
+  its frames), so the fingers below the wrist turn toward 1055's frame 0
+  (gun.c gevrGexClenchPart). Not the pause watch arm, gadget hands or 2D.
 - `GexWeaponDef` centralizes models, parts, animations, render matrix indices,
   texture mappings, muzzle origins and magazine alignment. The PP7 installed
   magazine is matrix 38 / animation joint 41, held is matrix 42 / joint 40;

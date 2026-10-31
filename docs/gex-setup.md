@@ -171,8 +171,8 @@ The ROM title alone does not guarantee the right revision.
    **GoldenEye X ROM chosen.** The app stores the file as
    `Android/data/com.gevr.port/files/data/gex.z64` and keeps the main game's
    ROM separately. Do not use the Play page's main **Choose ROM file...**.
-5. Enable **Its guns (WIP)**, **Its arms, wearing the watch (VR, WIP)**,
-   or both. Start a mission and equip a supported gun to check the replacement.
+5. Enable **GE-X guns, hands and watch**. Start a mission and equip a
+   supported gun to check the replacement.
 
 For manual transfer, copy the verified `gex.z64` to the app-created data
 folder above. With ADB, the destination is:
@@ -258,7 +258,9 @@ seven await headset fitting and acceptance; see the [current handoff](gex-contin
 
 GE-X arms retain GoldenEye's live wrist status and pause watch. The watch
 stays at least its original visible size so its face remains readable.
-Toggles and fits are saved in `data/goldeneye-vr.ini` (`GexGuns`, `GexArms`,
+A free off hand, and an unarmed hand, close into a fist while you squeeze
+that controller's grip, as in Perfect Dark VR (`GexFistClench=0` keeps them open).
+Toggles and fits are saved in `data/goldeneye-vr.ini` (`GexGuns`, `GexFistClench`,
 `GexReloadGrab`, `ReloadBelt`, `GexHeldMag`, `GexWatch`, `GexForeHold`,
 `GexPP7GunOff`, `GexPP7Grab`, `GexPP7Support`, `GexPP7SupportRot`, `GexPP7MagOff`, `GexKF7MagOff`,
 `GexPP7WellOff`, `GexKF7WellOff` and

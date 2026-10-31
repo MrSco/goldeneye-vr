@@ -257,6 +257,12 @@ is goldeneyevr.com, in its own repository.
   Headless stdout line-buffered (a split stats line failed the server gate).
   Tag on 039deddc; gates 15/15 on Facility (Full) and Cradle (Full); suite
   passes. #228 open. Not headset-checked.
+- After test.22, unreleased: GE-X fist clench, Perfect Dark VR's FistClench
+  ported (gun.c gevrGexClenchPart). The free off hand and the unarmed hand
+  at rest close while their grip is held. The fingers come from GE-X's 1055,
+  because GE-X's 1002 is a chop. Ini key renamed GexFistClench, default 1,
+  since every old ini saved FistClench=0. Own view only, no protocol change.
+  Not headset-checked.
 - Two-headset checks still owed from #95 (closed): Statue/Cradle online,
   remote ledges and guns.
 - #30: intermittent colored water lines; no confirmed fix. #85: Egypt
