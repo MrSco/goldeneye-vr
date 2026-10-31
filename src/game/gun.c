@@ -2758,21 +2758,19 @@ static void gevrGexClenchTick(void)
 }
 
 /* the empty off hand's fingers by the clench: its rig's rest walked again with
- * the fist in, each finger on m's wrist as the cache puts them; not round a
- * held magazine */
+ * the fist in, each finger on m's wrist as the cache puts them (a held
+ * magazine's hand is the gun's, gevrGexOffHandConsumed) */
 static Mtxf s_gevrGexClenchPose[64];
 
 static void gevrGexOffClench(Mtxf *m)
 {
-    extern s32 gevrGexHeldPalm(f32 out[3]);   /* bondview2.c */
     ModelFileHeader *hdr = s_gevrGexOffHdr;
     Mtxf ident, inv, rel;
-    f32 at[3];
     s32 j;
 
     gevrGexClenchTick();
     if (VrFistClenchAmt <= 0.02f || hdr == NULL || s_gevrGexOffStale || hdr->RootNode != s_gevrGexOffFrom
-        || hdr->numMatrices > 64 || gevrGexHeldPalm(at))
+        || hdr->numMatrices > 64)
     {
         return;
     }
