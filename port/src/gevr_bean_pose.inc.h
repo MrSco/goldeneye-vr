@@ -71,6 +71,8 @@ static void beanCutForget(struct beanCutKept *k)
 	if (k->mesh) {
 		gfx_static_mesh_release(k->mesh);
 		free((void *)k->mesh->vertices);
+		free((void *)k->mesh->gpuVertices);
+		free((void *)k->mesh->gpuIndices);
 		free(k->mesh);
 	}
 	free(k->tripiece);
@@ -175,6 +177,10 @@ static struct beanCutKept *beanCutBuild(struct beanSkin *skin, Model *model, uns
 	*m = *skin->mesh;
 	m->gpu = NULL;
 	m->vertices = v;
+	m->gpuVertices = NULL;   /* the body's own, shared as the whole skin's */
+	m->gpuIndices = NULL;
+	m->numGpuVertices = 0;
+	beanSkinShare(m);
 	k->skin = skin;
 	k->body = body;
 	k->cuts = cuts;

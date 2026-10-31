@@ -42,6 +42,12 @@ typedef struct GevrStaticMesh {
     const GevrStaticMeshRun *runs;
     uint32_t numRuns;
     void *gpu;                 /* the renderer's buffers, made when first drawn */
+    /* Optional, for the buffers only: each distinct vertex once and indices
+     * into them (numIndices of them). A Bean skin repeats every shared corner
+     * per triangle, the layout its CPU pose and the list's loads keep. */
+    const void *gpuVertices;
+    uint32_t numGpuVertices;
+    const uint32_t *gpuIndices;
 } GevrStaticMesh;
 
 #ifdef __cplusplus

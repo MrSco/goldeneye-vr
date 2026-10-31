@@ -4932,7 +4932,10 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, 
     memcpy(params.hi, run->hi, sizeof(params.hi));
     gfx_flush();   // what came before draws first
     const bool made = m->gpu == nullptr;
-    if (!gfx_rapi->draw_mesh(&m->gpu, m->vertices, m->numVertices, m->indices, m->numIndices,
+    const bool shared = m->gpuVertices != nullptr;   // each distinct vertex once (Bean skins)
+    if (!gfx_rapi->draw_mesh(&m->gpu, shared ? m->gpuVertices : m->vertices,
+                             shared ? m->numGpuVertices : m->numVertices,
+                             shared ? m->gpuIndices : m->indices, m->numIndices,
                              run->firstIndex, run->indexCount, &params)) {
         s_gevrMeshFallbacks++;
         return false;

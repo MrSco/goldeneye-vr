@@ -1,11 +1,70 @@
 /* GPU skinning follows DAB's xblaMeshGpuPalette design. The fitted native-rig
  * influences are already in bone-local space; keep those unchanged in a VBO. */
+
+/*
+ * Each distinct vertex once in the GPU buffers (m->gpuVertices, gpuIndices).
+ * A Bean skin's triangles each carry their own three corners - the CPU pose's
+ * and the list's layout - so the skinning vertex shader ran three times a
+ * triangle, in every bin: a pile of 40 bodies held the GPU at 98% and the
+ * headset at 53 fps of 120 (Bunker II, 2026-10-30). Equal vertices are equal
+ * byte for byte (calloc'd, every field set from one source vertex). The
+ * caller owns the two arrays; 0 when there is nothing to share or no memory.
+ */
+static int beanSkinShare(GevrStaticMesh *m)
+{
+    const GevrSkinVertex *v = m->vertices;
+    const uint32_t n = m->numVertices;
+    uint32_t size = 16, unique = 0;
+    while (size < n * 2)
+        size <<= 1;
+    uint32_t *table = calloc(size, sizeof(*table));   /* unique index + 1 */
+    uint32_t *remap = malloc((size_t)n * sizeof(*remap));
+    GevrSkinVertex *out = malloc((size_t)n * sizeof(*out));
+    uint32_t *indices = malloc((size_t)m->numIndices * sizeof(*indices));
+    if (!table || !remap || !out || !indices || !n)
+        goto fail;
+    for (uint32_t i = 0; i < n; i++) {
+        const uint8_t *bytes = (const uint8_t *)&v[i];
+        uint32_t h = 2166136261u;
+        for (size_t k = 0; k < sizeof(*v); k++)
+            h = (h ^ bytes[k]) * 16777619u;
+        for (uint32_t s = h & (size - 1);; s = (s + 1) & (size - 1)) {
+            if (!table[s]) {
+                out[unique] = v[i];
+                table[s] = ++unique;
+                remap[i] = unique - 1;
+                break;
+            }
+            if (!memcmp(&out[table[s] - 1], &v[i], sizeof(*v))) {
+                remap[i] = table[s] - 1;
+                break;
+            }
+        }
+    }
+    if (unique == n)
+        goto fail;
+    for (uint32_t i = 0; i < m->numIndices; i++)
+        indices[i] = remap[m->indices[i]];
+    free(table);
+    free(remap);
+    m->gpuVertices = out;
+    m->numGpuVertices = unique;
+    m->gpuIndices = indices;
+    return 1;
+fail:
+    free(table);
+    free(remap);
+    free(out);
+    free(indices);
+    return 0;
+}
+
 static int beanSkinMesh(struct beanSkin *skin)
 {
     if (skin->meshTried)
         return skin->mesh != NULL;
     skin->meshTried = 1;
-    if (s_nalloc > MAX_ALLOC - 4 || s_nskinMeshes >= MAX_ALLOC)
+    if (s_nalloc > MAX_ALLOC - 6 || s_nskinMeshes >= MAX_ALLOC)
         return 0;
     GevrStaticMesh *m = calloc(1, sizeof(*m));
     GevrSkinVertex *v = calloc(skin->nverts, sizeof(*v));
@@ -83,6 +142,12 @@ static int beanSkinMesh(struct beanSkin *skin)
     m->numIndices = nindices;
     m->runs = runs;
     m->numRuns = nruns;
+    if (beanSkinShare(m)) {
+        keepAlloc((void *)m->gpuVertices);
+        keepAlloc((void *)m->gpuIndices);
+        GEVR_BEAN_LOG("bean skin: %u vertices, %u distinct on the GPU", (unsigned)m->numVertices,
+                      (unsigned)m->numGpuVertices);
+    }
     keepAlloc(m);
     keepAlloc(v);
     keepAlloc(indices);
