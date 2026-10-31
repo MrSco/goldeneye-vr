@@ -155,7 +155,10 @@ fields (KF7 13, -23, -27; PP7 8, -19, -26).
   PD VR plays 1002; in GE-X's ROM 1002 is a chop with straight fingers, and
   1055 holds both hands shut (joints 3-16 right, 19-32 left, constant over
   its frames), so the fingers below the wrist turn toward 1055's frame 0
-  (gun.c gevrGexClenchPart). Not the pause watch arm, gadget hands or 2D.
+  (gun.c gevrGexClenchPart). The empty gun hand (unarmed, or a watch item's
+  hand away from the watch) wears the off hand's fingers and fist mirrored
+  on its own fitted wrist (gevrGexEmptyGunHand; joints 2-16 and 18-32 are
+  mirror images). Not the pause watch arm, gadget hands or 2D.
 - `GexWeaponDef` centralizes models, parts, animations, render matrix indices,
   texture mappings, muzzle origins and magazine alignment. The PP7 installed
   magazine is matrix 38 / animation joint 41, held is matrix 42 / joint 40;

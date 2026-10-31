@@ -262,7 +262,9 @@ is goldeneyevr.com, in its own repository.
   at rest close while their grip is held. The fingers come from GE-X's 1055,
   because GE-X's 1002 is a chop. Ini key renamed GexFistClench, default 1,
   since every old ini saved FistClench=0. Own view only, no protocol change.
-  Headset: the off hand closes and opens on its grip (user, 2026-10-31).
+  The empty gun hand (unarmed, or a watch item's hand away from the watch)
+  takes the off hand's fingers mirrored, on its own Gun-fitted wrist.
+  Headset: both hands checked by the user, 2026-10-31.
 - Two-headset checks still owed from #95 (closed): Statue/Cradle online,
   remote ledges and guns.
 - #30: intermittent colored water lines; no confirmed fix. #85: Egypt
