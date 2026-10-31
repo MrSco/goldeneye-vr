@@ -84,6 +84,7 @@ static f32 s_gevrGexWellAt[3],s_gevrGexHeldAt[3];
 static Mtxf s_gevrGexOffR2, s_gevrGexOffChain[33], s_gevrGexOffEmpty[33];
 static ModelNode *s_gevrGexOffFrom;
 static s32 s_gevrGexOffStale;
+static ModelFileHeader *s_gevrGexOffHdr;
 static Mtxf offController;
 static f32 offPalm[3];
 static f32 s_gevrGexForeAt[3];
@@ -824,7 +825,9 @@ production=[function(math,s) for s in ("void matrix_4x4_multiply(","void matrix_
     "void matrix_4x4_set_rotation_around_xyz(")]
 screen_hand=gun[gun.index("static const Mtxf s_gevrGexPp7RestGun"):]
 screen_hand=screen_hand[:screen_hand.index("/* gunfire.c: this hand's rig takes")]
-production.extend(function(gun,s) for s in ("static void gevrGexAnimPart(","static void gevrGexPoseWalk(","static void gevrGexShowMagazines("))
+clench=gun[gun.index("#define GEVR_GEX_FIST_ANIM"):gun.index("/* each joint from its parent")]
+production.extend([function(gun,"static void gevrGexAnimPart("), clench])
+production.extend(function(gun,s) for s in ("static void gevrGexPoseWalk(","static void gevrGexShowMagazines("))
 production.append("static void gevrGexRigidInverse(const Mtxf *g, Mtxf *inv);\nstatic void gevrGexMtxPoint(const Mtxf *m, const f32 local[3], f32 out[3]);\n" + screen_hand)
 production.extend(function(gun,s) for s in ("static void gevrGexScreenAnchor(ModelFileHeader *hdr, Mtxf *anchor)\n{","static void gevrGexShowChamber("))
 production.extend(function(gun,s) for s in ("static void gevrGexRigidInverse(const Mtxf *g, Mtxf *inv)\n{", "static void gevrGexPoseMechanism(", "static void gevrGexPoseReady("))
