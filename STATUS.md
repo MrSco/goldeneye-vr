@@ -257,7 +257,8 @@ is goldeneyevr.com, in its own repository.
   Headless stdout line-buffered (a split stats line failed the server gate).
   Tag on 039deddc; gates 15/15 on Facility (Full) and Cradle (Full); suite
   passes. #228 open. Not headset-checked.
-- After test.22, unreleased: GE-X fist clench, Perfect Dark VR's FistClench
+- In v0.5.14-test.23 (pre-release 2026-10-31, protocol 25 kept: test.22 and
+  test.23 play together in every mode): GE-X fist clench, Perfect Dark VR's FistClench
   ported (gun.c gevrGexClenchPart). The free off hand and the unarmed hand
   at rest close while their grip is held. The fingers come from GE-X's 1055,
   because GE-X's 1002 is a chop. Ini key renamed GexFistClench, default 1,
