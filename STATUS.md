@@ -233,6 +233,19 @@ is goldeneyevr.com, in its own repository.
   HRTF aliasing; the user heard the recording clean; reporter asked for
   details. Prop fade (test.18) still not seen in a headset. Main untouched;
   #216/#218/#219/#226 and PRs #220-#225/#227 commented, not closed.
+- In v0.5.14-test.21 (pre-release 2026-10-30, protocol 25 kept: test.20 and
+  test.21 play together): Bunker II tester/user round. Bean ceiling guns
+  vanish when destroyed (gevrBeanWreckHides), Bean level cast shadows
+  see-through (DAB markShadows), Bean CCTV bracket stays on the base group.
+  Props/guards/bodies fading at range (PropType 5/8, VR_FADE_DEPTH) draw
+  depth first, then colour at LEQUAL: legs no longer vanish in front of a
+  pile, the CCTV keeps its front and top. Body piles: cut Bean skins stay on
+  the GPU (BEAN_CUT_KEPT 128), rdModel by address, cached pieces; Bean skins
+  upload each distinct vertex once (41322 -> 8882); aux frame buffer 512 KiB
+  (abort shooting a pile); Bodies stay max 24 (a saved 48 loads 24). Measured
+  unattended with tools/perf/pile_drive.py (gevr_cheat.txt spawn<N>): Bunker
+  II, 41 killed, 24 kept, 120 fps every second. All headset-checked by the
+  user except the 24 cap (measured by script).
 - Two-headset checks still owed from #95 (closed): Statue/Cradle online,
   remote ledges and guns.
 - #30: intermittent colored water lines; no confirmed fix. #85: Egypt
