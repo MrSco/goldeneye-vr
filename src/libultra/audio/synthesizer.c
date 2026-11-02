@@ -34,6 +34,11 @@ extern u32 client_num, client_cnt, client_max, client_min;
 static s32 __nextSampleTime(ALSynth *drvr, ALPlayer **client);
 static s32 _timeToSamplesNoRound(ALSynth *ALSynth, s32 micros);
 
+#ifdef GEVR
+/* Updates free now, the fewest since the last report and the ones refused */
+static u32 gevrParamFree, gevrParamLow, gevrParamFailed;
+#endif
+
 /***********************************************************************
  * Synthesis driver public interfaces
  ***********************************************************************/
@@ -135,6 +140,10 @@ void alSynNew(ALSynth *drvr, ALSynConfig *c)
         paramPtr->next = drvr->paramList;
         drvr->paramList = paramPtr;
     }
+#ifdef GEVR
+    gevrParamFree = gevrParamLow = c->maxUpdates;
+    gevrParamFailed = 0;
+#endif
     
     drvr->heap = hp;
 }
@@ -250,6 +259,13 @@ ALParam *__allocParam()
         update = drvr->paramList;
         drvr->paramList = drvr->paramList->next;
         update->next = 0;
+#ifdef GEVR
+        if (--gevrParamFree < gevrParamLow) {
+            gevrParamLow = gevrParamFree;
+        }
+    } else {
+        gevrParamFailed++;
+#endif
     }
     return update;
 }
@@ -259,7 +275,68 @@ void __freeParam(ALParam *param)
     ALSynth *drvr = &alGlobals->drvr;
     param->next = drvr->paramList;
     drvr->paramList = param;
+#ifdef GEVR
+    gevrParamFree++;
+#endif
 }
+
+#ifdef GEVR
+/*
+ * Issue #229: the sound turns bit-crushed and echoes until a restart. Every
+ * volume, pitch, stop and free of a voice takes an update from one pool of
+ * maxUpdates (0x80) until the voice's envmixer applies it; with none left
+ * they are dropped and a voice can be left playing (crash 77652fd0 found the
+ * pool empty). audio.c logs these with its queue every 2 s:
+ * - the updates free now, the fewest since the last call, and the ones refused;
+ * - the voices playing, and those no sound owns any more (an orphan: its
+ *   ALVoice was freed or given another voice, but it was never stopped);
+ * - the most updates waiting on one voice (one stuck at the head holds back
+ *   the rest).
+ */
+void gevrSynStats(u32 *freeNow, u32 *lowest, u32 *failed, u32 *voices, u32 *orphans, u32 *longest)
+{
+    ALSynth *drvr;
+    ALLink *lists[3];
+    ALLink *dl;
+    ALParam *p;
+    u32 n = 0, orph = 0, most = 0, q;
+    s32 i;
+
+    *freeNow = gevrParamFree;
+    *lowest = gevrParamLow;
+    *failed = gevrParamFailed;
+    gevrParamLow = gevrParamFree;
+    gevrParamFailed = 0;
+    *voices = *orphans = *longest = 0;
+    if (alGlobals == 0) {
+        return;
+    }
+    drvr = &alGlobals->drvr;
+    lists[0] = drvr->pAllocList.next;
+    lists[1] = drvr->pLameList.next;
+    lists[2] = drvr->pFreeList.next;
+    for (i = 0; i < 3; i++) {
+        for (dl = lists[i]; dl != 0; dl = dl->next) {
+            PVoice *pv = (PVoice *)dl;
+            if (i == 0) {
+                n++;
+                if (pv->offset == 0 && (pv->vvoice == 0 || pv->vvoice->pvoice != pv)) {
+                    orph++;
+                }
+            }
+            for (q = 0, p = pv->envmixer.ctrlList; p != 0 && q < 1000; p = p->next) {
+                q++;
+            }
+            if (q > most) {
+                most = q;
+            }
+        }
+    }
+    *voices = n;
+    *orphans = orph;
+    *longest = most;
+}
+#endif
 
 void _collectPVoices(ALSynth *drvr) 
 {
