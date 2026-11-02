@@ -210,6 +210,14 @@ is goldeneyevr.com, in its own repository.
   headless bot match: never below 72 free, nothing refused, no orphans.
   Reporter asked for a launcher report while it happens. Published as
   pre-release v0.5.15-test.1 (2026-11-02, vc 96, protocol 25 kept, APK only).
+- Bean, Archives' bulletin board (user's screenshot, 2026-11-02): its papers
+  showed through the cork in a fighting grain. The release draws a blended
+  cork on the wall after three blended papers and shows the board bare; here
+  both were decals pulled the same reach. A blended face wholly under later
+  opaque blended faces is now left out (DAB's painted; the loader logs the
+  count per level). Archives' count and the board unchecked in a headset.
+  v0.5.15-test.2 (vc 97, protocol 25 kept, APK only) carries it with
+  test.1's #229 logging; branch claude/trusting-mccarthy-6rlocr.
 - Crash reports land as issues in the private MrSco/goldeneye-vr-reports,
   decoded by its Digest workflow; each build's symbols zip goes to its
   "symbols" release.
