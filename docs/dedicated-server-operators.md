@@ -25,7 +25,7 @@ answers.
 Open **PowerShell** (Start, type `PowerShell`, Enter) and paste:
 
 ```powershell
-irm https://raw.githubusercontent.com/MrSco/goldeneye-vr/claude/dedicated-server-scope/tools/gevr-server-setup.ps1 | iex
+irm https://raw.githubusercontent.com/MrSco/goldeneye-vr/main/tools/gevr-server-setup.ps1 | iex
 ```
 
 It sets up WSL (Windows' built-in Linux) if your PC doesn't have it. That
@@ -42,7 +42,7 @@ Ubuntu 24.04 or Debian 13 (or newer), 64-bit. Copy your ROM to the machine
 first (for example `scp ge.z64 ubuntu@your-server:` from your PC), then:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/MrSco/goldeneye-vr/claude/dedicated-server-scope/tools/gevr-server-setup.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/MrSco/goldeneye-vr/main/tools/gevr-server-setup.sh | sudo bash
 ```
 
 The server starts with the machine and restarts if it stops.
@@ -220,7 +220,7 @@ On any Linux with cmake, ninja, git and zlib's headers (Ubuntu:
 `sudo apt install cmake ninja-build git zlib1g-dev python3`):
 
 ```sh
-git clone --branch claude/dedicated-server-scope https://github.com/MrSco/goldeneye-vr.git
+git clone https://github.com/MrSco/goldeneye-vr.git
 cd goldeneye-vr
 sh tools/gevr_build_server.sh
 ```

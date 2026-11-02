@@ -3,9 +3,28 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current release:** v0.5.13 (versionCode 93, protocol 23), 2026-10-20.
-v0.5.7 to v0.5.13 play together; v0.5.6 and older can't join. Building does
-not publish a GitHub release. No game data is shipped.
+**Current release:** v0.5.14 (versionCode 95, protocol 25), 2026-11-01.
+Test builds from v0.5.14-test.22 play with it; v0.5.13 and older can't join.
+Building does not publish a GitHub release. No game data is shipped.
+
+v0.5.14 (PRs #220-#225, #227; pre-releases test.7 to test.25 from the batch
+branch): all 26 maps in Horde and Deathmatch; "(Full)" campaign Deathmatch
+maps (stage code LEVELID|NET_STAGE_FULL 0x40, [full maps](docs/full-deathmatch-maps.md));
+arena doors per Dab's rules plus doors the level's keys or scripts unlock
+(arenaScriptUnlocks), gas props as scenery, arenaPadOnFloor in setup units
+(#228); bots on stairs, through glass, roaming, blind to closed doors, off
+door leaves; kill-limit/YOLT ends (gevrDeathPlaysHere); late-join and
+spectator fixes; pause-menu match clock; ROM hash in HELLO; wrecks never
+draw whole (objDeform store 4500/120). Dedicated server, experimental
+(headless build of the game, [operators](docs/dedicated-server-operators.md),
+one-line setup from main, x86-64 and ARM64 tarballs per release). Bean:
+release sky only on Surface/Dam/Runway, sky dome at infinity, fog in world
+units, props fade at FarFog, CCTV wreck/bracket, see-through cast shadows
+(black and grey <= 64), cut caps. Bodies stay max 24 with pile work on the
+GPU; GE-X fist clench (GexFistClench). Crashes 0a705c81, 6acb6d38, 72eaa2c0,
+77652fd0, 48253132 fixed; CLOCK_MONOTONIC timers; the watchdog logs a
+`memory (...)` line each minute and at a stall (report 4616972e, cause
+unproven). [v0.5.14](docs/releases/v0.5.14.md).
 
 v0.5.13 (PR #217, #216): co-op mission world from the host. NET_MSG_COOP_CLOCK
 (countdown value/running/mission hide bits 1|2|16, gas, blast sequence; 4/s
@@ -176,107 +195,14 @@ is goldeneyevr.com, in its own repository.
   and upload before relay batching/culling. Remote hands do not animate.
 - Bots: untested on two headsets (client view, mid-round replace, adoption);
   bots may stall at closed doors. MULTIPLAYER.md has the test script.
-- In v0.5.14-test.14 (pre-release 2026-10-29; found by the dedicated
-  server's bot runs, branch claude/dedicated-server-scope):
-  kill-limit and YOLT ends no longer wait on deaths drawn on other headsets
-  (a bot or remote last victim froze the match before the results); bots
-  walk stairs, shoot glass when it is the only way out (Caverns' pad 6) and
-  roam when nothing is reachable; 8-player extra spawns stay out of glass
-  cases (Stack, Library). Headset check owed: "First to N" with bots.
-- In v0.5.14-test.15 (pre-release 2026-10-29; found in headset tests of
-  the dedicated server): spectators draw no hands and are not
-  idle-kicked; a late joiner who takes a bot's place plays at once (its
-  load made it spectate anyway); the spectator label shows in VR; bots
-  step out of a swinging door that opened onto them.
-- In v0.5.14-test.16 (pre-release 2026-10-29): the dedicated server merged
-  in as experimental (docs/dedicated-server.md; Linux x86-64, build from
-  source, no download). Fixes: bots no longer see or route through a closed
-  door they lean on (test.15's door escape applied to every line test);
-  bots held by an open door's leaf step off it instead of swinging it shut
-  and open; game timers use CLOCK_MONOTONIC. Dedicated server before a
-  self-hosting release: aarch64 build, packaging + systemd unit + operator
-  guide, content hashes, Worker keyed listings (deploy needs an OK).
-- In v0.5.14-test.17 (pre-release 2026-10-29, tag on ee7f9dbe; a test.16
-  tester's report): the server's one-command setup (tools/gevr-server-setup.sh
-  and .ps1, merged from claude/dedicated-server-scope; the server downloads
-  link opus in: test.16's needed libopus0) and the ROM check on join; Bean's sky dome is drawn at infinity in stereo (at half
-  the far plane its cloud cap was a disc overhead that followed the player,
-  Surface 1/2; test.7's "near white band" was the same); the CCTV, whose
-  crumpled mount Bean draws in its lens's list, now shows the crumpled,
-  blackened mount (the only such prop of the 456). Headset: the Surface
-  clouds confirmed by a tester.
-- In v0.5.14-test.18 (pre-release 2026-10-29, tag on cfcfad14; servers built
-  from that commit, gate 12/12 on Facility and Facility (Full)): the pause menu shows the
-  match clock (time left / played); small props fade at the fog's real edge
-  (FarFog over the visibility scale, Bean's own fog with Bean: Surface 2's
-  cabin doors and cameras popped in); a destroyed Bean CCTV matches the
-  cartridge (only the crumpled mount stays; its camera now on the body's
-  list, not the lens's, which the broken glass switches off). Headset: the
-  camera checked by the user (both modes, toggling). #226: Facility's
-  gas-releasing tanks/barrels load as plain props in arenas (they were left
-  out but their footprints stayed solid; start pad 127 is in the tanks'
-  aisle); audio not fixed: the audio queue log line counts clipped dry-mix
-  samples (suspect: netSpatialSample's pan up to 1.7x / HRTF over unity).
-  Reporter to test test.18.
-- In v0.5.14-test.19 (pre-release 2026-10-29, tag on 04d0a16a; servers from
-  that commit, gate 12/12 on Facility (Full)): #226's locked door was the
-  bottling room's decoder door (lock 8, which only the mission's script takes
-  off). Arenas now open what a level's keys or scripts unlock
-  (gevr_arena.c arenaScriptUnlocks: AI_DoorUnsetLock by tag; Facility 1,
-  Control 6, Train 11 doors). Reporter asked to test on #226. #226 audio open.
-- In v0.5.14-test.20 (pre-release 2026-10-30, tag on 7d4691d2; servers from
-  that commit, gate 15/15): PR #227 merged as-is (roomGetProps one pass, list
-  bounded) plus PTR_LIST_OBJECT_LOOKUP_INDICES_LEN = MAX_PROPS + 1; an empty
-  dedicated server idles (bots still, 5 frames/s, 0.5% CPU) and wakes on a
-  join. #226 audio measured off-headset (SDL_AUDIODRIVER=disk on a headless
-  client with Linux Steam Audio, laser match): no clipping, cut-off clicks or
-  HRTF aliasing; the user heard the recording clean; reporter asked for
-  details. Prop fade (test.18) still not seen in a headset. Main untouched;
-  #216/#218/#219/#226 and PRs #220-#225/#227 commented, not closed.
-- In v0.5.14-test.21 (pre-release 2026-10-30, protocol 25 kept: test.20 and
-  test.21 play together): Bunker II tester/user round. Bean ceiling guns
-  vanish when destroyed (gevrBeanWreckHides), Bean level cast shadows
-  see-through (DAB markShadows), Bean CCTV bracket stays on the base group.
-  Props/guards/bodies fading at range (PropType 5/8, VR_FADE_DEPTH) draw
-  depth first, then colour at LEQUAL: legs no longer vanish in front of a
-  pile, the CCTV keeps its front and top. Body piles: cut Bean skins stay on
-  the GPU (BEAN_CUT_KEPT 128), rdModel by address, cached pieces; Bean skins
-  upload each distinct vertex once (41322 -> 8882); aux frame buffer 512 KiB
-  (abort shooting a pile); Bodies stay max 24 (a saved 48 loads 24). Measured
-  unattended with tools/perf/pile_drive.py (gevr_cheat.txt spawn<N>): Bunker
-  II, 41 killed, 24 kept, 120 fps every second. All headset-checked by the
-  user except the 24 cap (measured by script).
-- In v0.5.14-test.22 (pre-release 2026-10-30, protocol 25 kept; don't mix
-  with test.21 in a "(Full)" or Horde match): #228, Cradle (Full) started
-  everyone on one platform. arenaPadOnFloor compared world units against
-  Dab's -30..+60 setup-unit window; now scaled by level_scale. Cradle 2 ->
-  122 spawn candidates, Egypt 6 -> 127; checked on the headless server.
-  #228's crash (report 77652fd0, test.20): alSynAllocVoice wrote through a
-  NULL __allocParam (SGI's one unchecked call) when the music stole a voice
-  with the synthesizer's 128 updates spent; now no voice for that note.
-  Headless stdout line-buffered (a split stats line failed the server gate).
-  Tag on 039deddc; gates 15/15 on Facility (Full) and Cradle (Full); suite
-  passes. #228 open. Not headset-checked.
-- In v0.5.14-test.23 (pre-release 2026-10-31, protocol 25 kept: test.22 and
-  test.23 play together in every mode): GE-X fist clench, Perfect Dark VR's FistClench
-  ported (gun.c gevrGexClenchPart). The free off hand and the unarmed hand
-  at rest close while their grip is held. The fingers come from GE-X's 1055,
-  because GE-X's 1002 is a chop. Ini key renamed GexFistClench, default 1,
-  since every old ini saved FistClench=0. Own view only, no protocol change.
-  The empty gun hand (unarmed, or a watch item's hand away from the watch)
-  takes the off hand's fingers mirrored, on its own Gun-fitted wrist.
-  Headset: both hands checked by the user, 2026-10-31.
-- In v0.5.14-test.24 (pre-release 2026-10-31, protocol 25 kept): Bean cast
-  shadows Rare drew in dark grey (markLevelShadows: a cut-out picture the
-  level also draws solid, every decal of it one neutral grey <= 64) go
-  see-through like the black ones. Bunker II's cell bars (grey 59) and a
-  Cradle grille (grey 4); no other level changes. Bars checked by the user.
-- In v0.5.14-test.25 (pre-release 2026-10-31, protocol 25 kept): a door volume
-  with no floor tile gets no portal instead of crashing the level load
-  (sub_GAME_7F00324C read the room through the null tile; report 48253132 on
-  v0.5.13, level unknown). The load logs "door bound pad N has no floor tile".
-  Reports now land as issues in the private MrSco/goldeneye-vr-reports, decoded
-  by its Digest workflow; each build's symbols zip goes to its "symbols" release.
+- v0.5.14 checks owed: "First to N" with bots in a headset; the fog-edge
+  prop fade seen in a headset; #228 Cradle (Full) by its reporter; #226 sound
+  (nothing measured, reporter asked for details); a dedicated server on real
+  ARM and the Windows setup run by a player. Open: Surface I sky judder with
+  Bean, Frigate engine-room judder.
+- Crash reports land as issues in the private MrSco/goldeneye-vr-reports,
+  decoded by its Digest workflow; each build's symbols zip goes to its
+  "symbols" release.
 - Two-headset checks still owed from #95 (closed): Statue/Cradle online,
   remote ledges and guns.
 - #30: intermittent colored water lines; no confirmed fix. #85: Egypt

@@ -2,7 +2,7 @@
 #
 # In PowerShell (Start > type PowerShell > Enter), paste:
 #
-#   irm https://raw.githubusercontent.com/MrSco/goldeneye-vr/claude/dedicated-server-scope/tools/gevr-server-setup.ps1 | iex
+#   irm https://raw.githubusercontent.com/MrSco/goldeneye-vr/main/tools/gevr-server-setup.ps1 | iex
 #
 # It installs WSL if this PC doesn't have it (that needs one restart; the setup
 # carries on by itself afterwards), gives the server a Linux of its own
@@ -26,7 +26,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$Base = 'https://raw.githubusercontent.com/MrSco/goldeneye-vr/claude/dedicated-server-scope/tools'
+$Base = 'https://raw.githubusercontent.com/MrSco/goldeneye-vr/main/tools'
 $Ubuntu = 'https://cloud-images.ubuntu.com/wsl/releases/24.04/current'
 $TaskName = 'GoldenEye VR server'
 $Home_ = Join-Path $env:LOCALAPPDATA 'GoldenEyeVR-Server'

@@ -1,7 +1,7 @@
 #!/bin/bash
 # GoldenEye VR dedicated server: install, set up and start, in one go.
 #
-#   curl -fsSL https://raw.githubusercontent.com/MrSco/goldeneye-vr/claude/dedicated-server-scope/tools/gevr-server-setup.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/MrSco/goldeneye-vr/main/tools/gevr-server-setup.sh | sudo bash
 #
 # or, from a downloaded copy or an unpacked server download:
 #
