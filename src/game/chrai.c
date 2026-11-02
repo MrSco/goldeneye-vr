@@ -889,6 +889,48 @@ extern s32             dword_CODE_bss_80079A14;
 extern bool            g_isBondKIA;
 // end forward
 
+#ifdef GEVR
+#include "system.h"
+/*
+ * A mission script's spawn (AI_TRYSpawningChrAtPad), made or refused, in the
+ * log. Some characters come from one try only: Statue's Natalya appears at
+ * the helicopter from a single try after Trevelyan runs, and a refused try is
+ * never repeated (report bbb4b1ab, "Natalya does not spawn at helicopter").
+ * The original refuses with fewer than 3 character slots free or no clear
+ * floor at the pad. Spawners that retry every frame log a refusal once until
+ * something spawns.
+ */
+static void gevrScriptSpawnLog(s32 body, s32 pad, s32 ailistid, s32 made)
+{
+    extern s32 chrGetNumFree(void);
+    static s32 refused[8];
+    static s32 refusedCount;
+    s32 key = (body << 24) ^ (pad << 12) ^ ailistid;
+    s32 i;
+
+    if (made)
+    {
+        refusedCount = 0;
+    }
+    else
+    {
+        for (i = 0; i < refusedCount; i++)
+        {
+            if (refused[i] == key)
+            {
+                return;
+            }
+        }
+        if (refusedCount < 8)
+        {
+            refused[refusedCount++] = key;
+        }
+    }
+    sysLogPrintf(made ? LOG_NOTE : LOG_WARNING, "script spawn: body %d at pad 0x%x, ai list 0x%04x %s (%d character slots free)",
+                 body, pad, ailistid, made ? "made" : "refused", chrGetNumFree());
+}
+#endif
+
 /**
  Execute AI List from Character, Stage, Vehichle(truck) or Aircraft(heli)
  Note: GE has little error checking (eg, using a chr action on aircraft) - this was fixed in PD
@@ -3559,10 +3601,16 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
     #endif
                     if (chrSpawnAtPad(ChrEntityp, ai->BODY_NUM, ai->HEAD_NUM, pad, ailist, flags))
                     {
+#ifdef GEVR
+                        gevrScriptSpawnLog(ai->BODY_NUM, pad, ailistid, TRUE);
+#endif
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
                     }
                     else
                     {
+#ifdef GEVR
+                        gevrScriptSpawnLog(ai->BODY_NUM, pad, ailistid, FALSE);
+#endif
                         Offset += sizeof(AiTRYSpawningChrAtPadRecord);
                     }
                     break;
