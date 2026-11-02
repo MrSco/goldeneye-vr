@@ -454,14 +454,39 @@ static inline void osEeepromLoad(const char *fname)
 	}
 }
 
+/*
+ * Written to a new file that then replaces the old one. A save the player
+ * copied onto the headset (from a PC or another app) belongs to whoever
+ * copied it: the game could read it but not write it, so no mission was ever
+ * recorded (report 32aa670c, "Permission denied"). The folder is the game's
+ * own, so replacing the file is allowed, and a write cut short no longer
+ * leaves half a save.
+ */
 static inline void osEeepromSave(const char *fname)
 {
-	FILE* fp = fsFileOpenWrite(fname);
+	char path[FS_MAXPATH + 1], tmp[FS_MAXPATH + 8];
+	FILE *fp;
+
+	strncpy(path, fsFullPath(fname), FS_MAXPATH);
+	path[FS_MAXPATH] = '\0';
+	snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+	fp = fopen(tmp, "wb");
+	if (fp) {
+		s32 ok = fwrite(eeprom, 1, EEPROM_SIZE, fp) == EEPROM_SIZE;
+		ok = fclose(fp) == 0 && ok;
+		if (ok && rename(tmp, path) == 0) {
+			return;
+		}
+		sysLogPrintf(LOG_WARNING, "could not replace EEPROM `%s`: %s", path, strerror(errno));
+		remove(tmp);
+	}
+	/* in place, as before */
+	fp = fopen(path, "wb");
 	if (fp) {
 		fwrite(eeprom, 1, EEPROM_SIZE, fp);
-		fsFileFree(fp);
+		fclose(fp);
 	} else {
-		sysLogPrintf(LOG_ERROR, "could not save EEPROM to `%s`: %s", fsFullPath(fname), strerror(errno));
+		sysLogPrintf(LOG_ERROR, "could not save EEPROM to `%s`: %s", path, strerror(errno));
 	}
 }
 
