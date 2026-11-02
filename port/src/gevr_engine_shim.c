@@ -181,12 +181,94 @@ static void gevrStackDumpHandler(int sig)
 	gevrWatchdogStackReady = 1;
 }
 
+/*
+ * Memory beside a stall (report 4616972e, v0.5.13, Quest 2): the whole game
+ * crawled for a minute and a half, its own stack dump a line a second, and the
+ * report held no number to say whether the headset was out of memory. One line:
+ * this process's resident, peak and swapped size, the system's available memory
+ * and free swap, major page faults (pages read back from storage) for the
+ * process and the game thread, the game thread's run state (D = waiting on
+ * storage) and the kernel's memory pressure where it is readable. Logged once
+ * a minute while frames run, and at each stall.
+ */
+#include <sys/syscall.h>
+static pid_t gevrGameTid;
+static long gevrProcKb(const char *path, const char *key)
+{
+	char line[256];
+	long kb = -1;
+	size_t n = strlen(key);
+	FILE *f = fopen(path, "r");
+	if (!f) return -1;
+	while (fgets(line, sizeof(line), f)) {
+		if (strncmp(line, key, n) == 0) {
+			kb = strtol(line + n, NULL, 10);
+			break;
+		}
+	}
+	fclose(f);
+	return kb;
+}
+/* Fields 3 (state) and 12 (major faults) of a /proc stat line. */
+static void gevrProcStat(const char *path, char *state, unsigned long *majflt)
+{
+	char buf[512];
+	const char *p;
+	size_t len;
+	FILE *f = fopen(path, "r");
+	*state = '?';
+	*majflt = 0;
+	if (!f) return;
+	len = fread(buf, 1, sizeof(buf) - 1, f);
+	fclose(f);
+	buf[len] = '\0';
+	p = strrchr(buf, ')'); /* the thread name may hold spaces */
+	if (p) sscanf(p + 1, " %c %*d %*d %*d %*d %*d %*u %*u %*u %lu", state, majflt);
+}
+static void gevrLogMemory(s32 level, const char *why)
+{
+	char path[64], line[160], procState, state;
+	unsigned long procMaj, threadMaj;
+	float some = -1.0f, full = -1.0f;
+	long rss = gevrProcKb("/proc/self/status", "VmRSS:");
+	long hwm = gevrProcKb("/proc/self/status", "VmHWM:");
+	long swapped = gevrProcKb("/proc/self/status", "VmSwap:");
+	long avail = gevrProcKb("/proc/meminfo", "MemAvailable:");
+	long swapFree = gevrProcKb("/proc/meminfo", "SwapFree:");
+	long swapTotal = gevrProcKb("/proc/meminfo", "SwapTotal:");
+	FILE *f = fopen("/proc/pressure/memory", "r");
+	if (f) {
+		while (fgets(line, sizeof(line), f)) {
+			if (strncmp(line, "some avg10=", 11) == 0) some = strtof(line + 11, NULL);
+			else if (strncmp(line, "full avg10=", 11) == 0) full = strtof(line + 11, NULL);
+		}
+		fclose(f);
+	}
+	gevrProcStat("/proc/self/stat", &procState, &procMaj);
+	snprintf(path, sizeof(path), "/proc/self/task/%d/stat", (int)gevrGameTid);
+	gevrProcStat(path, &state, &threadMaj);
+#define GEVR_MB(kb) ((kb) < 0 ? -1L : (kb) / 1024)
+	sysLogPrintf(level, "memory (%s): rss %ld MB, peak %ld MB, swapped %ld MB; system available %ld MB, swap free %ld of %ld MB; "
+			"major faults %lu (game thread %lu, state %c); pressure 10 s some %.1f%% full %.1f%%",
+			why, GEVR_MB(rss), GEVR_MB(hwm), GEVR_MB(swapped), GEVR_MB(avail), GEVR_MB(swapFree), GEVR_MB(swapTotal),
+			procMaj, threadMaj, state, some, full);
+#undef GEVR_MB
+}
+
 static void *gevrWatchdog(void *arg)
 {
-	u32 last = 0, stalled = 0, reported = 0;
+	u32 last = 0, stalled = 0, reported = 0, memTick = 0, memFrame = 0;
 	(void)arg;
 	for (;;) {
 		sysSleep(10000000); /* 1 s in 100 ns units */
+		if (++memTick >= 60) {
+			memTick = 0;
+			/* not while paused: a headset asleep overnight would log a line a minute */
+			if (os_scheduler.frameCount != memFrame) {
+				memFrame = os_scheduler.frameCount;
+				gevrLogMemory(LOG_NOTE, "minute");
+			}
+		}
 		/*
 		 * Arm only once the game is well into its frame loop: the first frames
 		 * can legitimately wait several seconds for the runtime (the loading
@@ -208,6 +290,7 @@ static void *gevrWatchdog(void *arg)
 				sysLogPrintf(LOG_ERROR, "watchdog: no retrace for %u s (pump stage %u, entries %u, xr loops %u, frame open %d, xr begun %d, background %d, focused %d)",
 						stalled, gevrPumpStage, gevrPumpEntries, gevrPumpLoops, gevrFrameOpen, gevrVrFrameBegun,
 						g_gevrAppBackgrounded, gevrVrSessionFocused());
+				gevrLogMemory(LOG_ERROR, "stall");
 				/* where the game thread is (a paused headset shows the frame wait, a hang its cause) */
 				{
 					static int installed;
@@ -228,6 +311,7 @@ static void *gevrWatchdog(void *arg)
 			if (stalled >= 8 && gevrWatchdogStackReady && !gevrWatchdogFrameWait &&
 				!g_gevrAppBackgrounded && gevrVrSessionFocused()) {
 				sysLogPrintf(LOG_ERROR, "watchdog: hung for %u s outside the frame wait; aborting for a crash report", stalled);
+				gevrLogMemory(LOG_ERROR, "abort");
 				pthread_kill(gevrGameThread, SIGSEGV);
 				return NULL;
 			}
@@ -252,6 +336,7 @@ static void gevrSchedEnsureInit(void)
 	{
 		pthread_t t;
 		gevrGameThread = pthread_self();
+		gevrGameTid = (pid_t)syscall(SYS_gettid);
 		if (pthread_create(&t, NULL, gevrWatchdog, NULL) == 0) {
 			pthread_detach(t);
 		}
