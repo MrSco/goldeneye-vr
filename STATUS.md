@@ -208,7 +208,8 @@ is goldeneyevr.com, in its own repository.
   `audio queue` line: updates free (low, refused), voices, orphans (playing,
   owned by no sound) and the longest update queue on one voice. A 5-minute
   headless bot match: never below 72 free, nothing refused, no orphans.
-  Reporter asked for a launcher report while it happens.
+  Reporter asked for a launcher report while it happens. Published as
+  pre-release v0.5.15-test.1 (2026-11-02, vc 96, protocol 25 kept, APK only).
 - Crash reports land as issues in the private MrSco/goldeneye-vr-reports,
   decoded by its Digest workflow; each build's symbols zip goes to its
   "symbols" release.
