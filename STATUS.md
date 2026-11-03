@@ -218,6 +218,12 @@ is goldeneyevr.com, in its own repository.
   count per level). Archives' count and the board unchecked in a headset.
   v0.5.15-test.2 (vc 97, protocol 25 kept, APK only) carries it with
   test.1's #229 logging; branch claude/trusting-mccarthy-6rlocr.
+- Crash 8e53cb27 (v0.5.15-test.1, Quest 3, GE-X arms, bug just loaded):
+  null def in gevrGexOffClench. The off hand's cache keeps the gun hand's
+  header; a GoldenEye-only item in that buffer can reuse the root address,
+  so the clench walked a rig with no GE-X definition. It now skips (as
+  gevrGexOffCache does). Not reproduced in a headset. v0.5.15-test.3 (vc 98,
+  protocol 25 kept, APK only), branch prerelease/v0.5.15.
 - Crash reports land as issues in the private MrSco/goldeneye-vr-reports,
   decoded by its Digest workflow; each build's symbols zip goes to its
   "symbols" release.
