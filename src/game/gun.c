@@ -2634,7 +2634,7 @@ static void gevrGexOffCache(ModelFileHeader *gunhdr)
     Mtxf ident, inv;
     s32 j;
 
-    if ((gunhdr->RootNode == s_gevrGexOffFrom && !s_gevrGexOffStale)
+    if (def == NULL || (gunhdr->RootNode == s_gevrGexOffFrom && !s_gevrGexOffStale)
         || gunhdr->numMatrices <= GEVR_GEX_LHAND_LAST || gunhdr->numMatrices > 64)
     {
         return;
@@ -2765,6 +2765,7 @@ static Mtxf s_gevrGexClenchPose[64];
 static void gevrGexOffClench(Mtxf *m, f32 amt)
 {
     ModelFileHeader *hdr = s_gevrGexOffHdr;
+    const GexWeaponDef *def;
     Mtxf ident, inv, rel;
     s32 j;
 
@@ -2774,11 +2775,20 @@ static void gevrGexOffClench(Mtxf *m, f32 amt)
     {
         return;
     }
+    /* the cache keeps the rig's matrices, not its model: a GoldenEye-only item
+     * loaded into the same hand's buffer (not stale, so the off hand does not
+     * blink) can put its root at the same address, and has no GE-X rest
+     * animation to walk (report 8e53cb27: holding the bug) */
+    def = gevrGexForHeader(hdr);
+    if (def == NULL)
+    {
+        return;
+    }
     matrix_4x4_set_identity(&ident);
     s_gevrGexClench.first = GEVR_GEX_LHAND_WRIST + 1;
     s_gevrGexClench.last = GEVR_GEX_LHAND_LAST;
     s_gevrGexClench.amt = amt;
-    gevrGexPoseWalk(hdr, &ident, gevrGexRestAnim(gevrGexForHeader(hdr)), 0.0f, s_gevrGexClenchPose);
+    gevrGexPoseWalk(hdr, &ident, gevrGexRestAnim(def), 0.0f, s_gevrGexClenchPose);
     s_gevrGexClench.amt = 0.0f;
     gevrGexRigidInverse(&s_gevrGexClenchPose[GEVR_GEX_LHAND_WRIST], &inv);
     for (j = GEVR_GEX_LHAND_WRIST + 1; j <= GEVR_GEX_LHAND_LAST; j++)
