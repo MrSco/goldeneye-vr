@@ -280,6 +280,8 @@ extern void gevrCycleHandWeapon(s32 hand, s32 dir);
 #define GEVR_WEAPON_PANEL_HOLD_MS 350
 extern void gevrRestartToLauncher(void);   /* vr_launcher.cpp */
 extern void gevrLobbySessionStopped(void); /* vr_launcher.cpp: leave the online game */
+extern const char *gevrFriendsPromptLine(void); /* vr_friends.cpp: an invite waits */
+extern int gevrFriendsAcceptInvite(void);         /* vr_friends.cpp: keep it for the launcher */
 extern bool netIsActive(void);
 extern s32 gevrDualWielding(void);
 extern int VrMotionThrowing;
@@ -1699,13 +1701,21 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // off, or on again, for the session (gfx_pc.cpp gevrTexpackToggle).
         {
             static u32 downat = 0, startuntil = 0;
-            static bool consumed = false, aWas = true, bWas = true, xWas = true;
+            static bool consumed = false, aWas = true, bWas = true, xWas = true, yWas = true;
             const u32 t = SDL_GetTicks();
             const bool held = get_button_state(0, "menu");
             s_menuHeld = held;
             if (gevrReturnPrompt) {
                 const bool a = get_button_state(1, "a"), b = get_button_state(1, "b");
-                const bool x = get_button_state(0, "x");
+                const bool x = get_button_state(0, "x"), y = get_button_state(0, "y");
+                /* Y: a friend's invite (bondview2.c shows whose); the launcher joins it */
+                if (y && !yWas && gevrFriendsPromptLine() && gevrFriendsAcceptInvite()) {
+                    LOGI("input: menu hold -> join a friend's invite\n");
+                    if (netIsActive()) {
+                        gevrLobbySessionStopped();
+                    }
+                    gevrRestartToLauncher();
+                }
                 if (a && !aWas) {
                     LOGI("input: menu hold -> back to the launcher\n");
                     if (netIsActive()) {
@@ -1726,6 +1736,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 aWas = a;
                 bWas = b;
                 xWas = x;
+                yWas = y;
                 downat = 0;
             } else if (held) {
                 if (!downat) {
@@ -1847,7 +1858,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         if (get_button_state(0, "x") && !gevrSwallowX) npad->button |= A_BUTTON;
         /* the off hand's upper button is B, unless Menu is held on the other
          * hand: left-handed, that is the microphone chord's B */
-        if (get_button_state(0, "y") && !(VrLeftHandedMode && s_menuHeld)) npad->button |= B_BUTTON;
+        if (get_button_state(0, "y") && !(VrLeftHandedMode && s_menuHeld) && !(gevrReturnPrompt && gevrFriendsPromptLine()))
+            npad->button |= B_BUTTON;
         // Logical dominant/off-hand buttons cycle only that hand. Grip reverses;
         // holding opens that hand's selector. get_button_state handles handedness.
         {

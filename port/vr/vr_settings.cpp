@@ -244,6 +244,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "MpScenario=%d\nMpLength=%d\nMpHealth=%d\nMpDual=%d\nMpLoadouts=%d\nMpNextRound=%d\n",
             VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound);
     fprintf(f, "MpVoiceMode=%d\n", VrMpVoiceMode);
+    fprintf(f, "FriendsShowDetail=%d\nFriendsAppearOffline=%d\nFriendsRestoreNoted=%d\n",
+            VrFriendsShowDetail, VrFriendsAppearOffline, VrFriendsRestoreNoted);
     fprintf(f, "MpFriendlyFire=%d\n", VrMpFriendlyFire);
     fprintf(f, "HordeFriendlyFire=%d\n", VrHordeFriendlyFire);
     fprintf(f, "HordeStage=%d\n", VrHordeStage);
@@ -735,7 +737,10 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MpStage") == 0) VrMpStage = ival;
             else if (strcmp(key, "MpWeaponSet") == 0) VrMpWeaponSet = ival;
             else if (strcmp(key, "MpChr") == 0) VrMpChr = ival;
-            else if (strcmp(key, "MpVisibility") == 0) VrMpVisibility = ival != 0;
+            else if (strcmp(key, "MpVisibility") == 0) VrMpVisibility = ival < 0 ? 0 : ival > 2 ? 2 : ival;
+            else if (strcmp(key, "FriendsShowDetail") == 0) VrFriendsShowDetail = ival != 0;
+            else if (strcmp(key, "FriendsAppearOffline") == 0) VrFriendsAppearOffline = ival != 0;
+            else if (strcmp(key, "FriendsRestoreNoted") == 0) VrFriendsRestoreNoted = ival != 0;
             else if (strcmp(key, "HostEqualization") == 0) VrHostEqualization = ival != 0;
             else if (strcmp(key, "HostLatencyCapMs") == 0) VrHostLatencyCapMs = ival < 0 ? 0 : ival > 80 ? 80 : ival;
             else if (strcmp(key, "MpFriendlyFire") == 0) VrMpFriendlyFire = ival != 0;

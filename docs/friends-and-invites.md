@@ -1,6 +1,9 @@
 # Friends, presence and invites
 
-Status: design, 2026-11-04. Branch `claude/friends-invites`. Nothing built yet.
+Status: phases 1 and 2 built, 2026-11-04, not yet tested on a headset. Game:
+branch `claude/friends-invites`. Worker: goldeneyevr.com branch
+`claude/friends-invites` (`services/lobbies/src/social.ts`). Discord (phases 3
+and 4) not started.
 
 ## Goal
 
@@ -20,6 +23,12 @@ Decisions so far (user, 2026-11-04):
 - Meta's Platform SDK (Group Presence, invite panel, friends) is not used: it
   needs a store entitlement for every player and a reviewed Data Use Checkup,
   and would register the port with Meta. See "Not used" below.
+- A friend in a **public or friends-only** lobby has a **Join** button; a
+  private lobby needs an invite (its code never reaches friends' presence).
+- Hosts get a third visibility, **Friends**: unlisted, offered to the host's
+  friends on their Friends page.
+- The restore code is on the Profile tab, with a one-time nudge once the
+  player has a friend to lose, not at first launch.
 
 ## What exists to build on
 
@@ -41,18 +50,24 @@ Decisions so far (user, 2026-11-04):
 
 ## Identity
 
-- On first launch the game makes a **player ID** (16 random bytes, hex) and a
-  **secret** (32 random bytes). Both go in the save folder, next to the
-  settings. The Worker keeps the ID and a hash of the secret, as it does for
-  lobby owner tokens.
+- The first time the app runs with a name, `FriendsClient` registers: the
+  Worker makes a **player ID** (16 random bytes, hex), a **secret** (32 random
+  bytes) and a **restore code**, and keeps hashes of the secret and the
+  restore code, as it does for lobby owner tokens. The client saves them in
+  `data/gevr_player.json` (not the ini, so a profile restore cannot mix them
+  up), written to a new file and renamed over the old one.
 - Each player gets a **friend code**, 6 characters from the lobby alphabet,
   shown as `GE-7K3QX2` style with the prefix. Different length from lobby
   codes, so the two are never confused.
 - The display name is the existing player name; the friend code is shown
   beside it wherever a name could be confused or faked.
-- **Losing the ID** (reinstall, new headset): the Profile page offers a
-  restore code (ID + secret, base32) to write down, and Discord linking (phase
-  3) restores it by signing in.
+- **Losing the ID** (reinstall, new headset): the **restore code**, 16
+  characters shown as `ABCD-EFGH-JKLM-NPQR`, with the friend code brings it
+  back (`POST /v1/players/restore`). That issues a new secret, which signs the
+  old headset out (it shows "Signed out" and offers restore or a new code).
+  The restore code itself does not change. Guesses: 10 an hour per address,
+  10 a day per friend code. Discord linking (phase 3) will restore by signing
+  in.
 - Dedicated servers get no player ID and never appear as players.
 
 ## Friends
@@ -67,7 +82,7 @@ Decisions so far (user, 2026-11-04):
 ## Presence
 
 One request every 30 s while the app runs (launcher or game), sent by
-`LobbyClient` on its worker thread:
+`FriendsClient` on its own worker thread:
 
 `POST /v1/me/presence` with `{state, detail, lobby}` returns friends' presence,
 pending friend requests and pending invites in one answer. One call carries
@@ -92,47 +107,71 @@ it grows, presence moves to its own Durable Object class, sharded by player ID.
   online match whose lobby is open.
 - **Receive in the launcher:** a banner "Natty invites you to Facility co-op
   (2/4)" with **Join** and **Ignore**. Join uses the normal join-by-code path.
-- **Receive in a mission:** a bottom HUD message (never on the wrist) for a
-  few seconds, then the invite waits in the friends list. Accepting opens the
-  existing back-to-the-launcher prompt with the invite named ("This mission
-  will not be saved"). A yes writes the lobby code to a pending-join file, and
-  the restarted launcher reads it, deletes it and joins.
+- **Receive in a mission:** the invite shows low in the view for 8 seconds
+  ("NATTY INVITES YOU TO NATTY'S GAME (2/4) / HOLD MENU TO ANSWER"), never on
+  the wrist. Holding Menu opens the back-to-the-launcher prompt, which then
+  adds "Y: JOIN NATTY'S GAME". Y writes the lobby code and the time to
+  `data/gevr_pending_join.txt` and restarts; the launcher reads and deletes
+  it, and joins if it is under 5 minutes old. In an online match the watch's
+  Friends tab lists the invites with Join, and online friends with Invite.
 - An invite carries the lobby code and lives 10 minutes or until the lobby
   closes. Private lobbies work: the code is the key, as with join by code.
 - Limits: 10 invites a minute per player, one pending invite per friend.
 
-## Worker API (all under `/v1/me`, `Authorization: Bearer <id>.<secret>`)
+## Worker API
+
+`/v1/me` requests carry `Authorization: Bearer <id>.<secret>`. The
+goldeneyevr.com repo's `services/lobbies/README.md` has the full table.
 
 | Method | Path | Does |
 |---|---|---|
-| POST | `/v1/players` | register: returns ID, secret, friend code |
-| POST | `/v1/me/presence` | heartbeat; returns friends, requests, invites |
-| POST | `/v1/me/friends` | `{code}`: send a request |
+| POST | `/v1/players` | `{name}`: register; returns ID, secret, friend code, restore code |
+| POST | `/v1/players/restore` | `{friendCode, restoreCode}`: a new secret |
+| POST | `/v1/me/presence` | `{state, detail, lobby, version, name}`; returns friends, requests, sent, invites, blocked |
+| POST | `/v1/me/friends` | `{code}`: send a request (accepts theirs if they asked first) |
 | PUT | `/v1/me/friends/<id>` | `{accept: true\|false}` |
-| DELETE | `/v1/me/friends/<id>` | remove |
-| POST | `/v1/me/blocks` | `{id}`: block |
-| POST | `/v1/me/invites` | `{to, lobby}`: invite (lobby must exist and be open) |
+| DELETE | `/v1/me/friends/<id>` | remove, cancel or decline |
+| POST, DELETE | `/v1/me/blocks`, `/v1/me/blocks/<id>` | block (ends the friendship), unblock |
+| POST | `/v1/me/invites` | `{to, lobby}`: invite (lobby must exist, be open and not full) |
 | DELETE | `/v1/me/invites/<id>` | ignore or cancel |
-| PUT | `/v1/me/settings` | `{showDetail, appearOffline}` |
-| POST | `/v1/me/restore` | prove a restore code; returns a new secret |
+| PUT | `/v1/me/settings` | `{showDetail, appearOffline, name}` |
 
-Tables (new, same Durable Object at first): `players(id, secret_hash,
-friend_code, name, created, last_seen, state, detail, lobby, show_detail,
-appear_offline, discord_id)`, `friends(a, b, status, created)` with `a < b`,
-`blocks(owner, blocked)`, `invites(id, from_id, to_id, lobby, expires)`.
-
-Rate limits reuse the `limits` table. Names are checked as lobby names are.
+Tables, in the same Durable Object: `players`, `friends(a, b, status,
+from_id, created)` with `a < b`, `blocks(owner, blocked)`, `invites(id,
+from_id, to_id, lobby, created, expires)`. Rate limits reuse the `limits`
+table, keyed by player ID; the per-address write limit (40 a minute) still
+applies. Friends receive a lobby code only for a public or friends-only lobby
+that is open and not full. Lobby visibility `friends` is counted as private in
+the stats and the activity page.
 
 ## Client
 
-- `LobbyClient` grows `presence|...`, `friend-add|code`, `friend-answer|id|0/1`,
-  `invite|id`, ... commands and `FRIENDS|...`, `INVITE|...` events, in the
-  existing text protocol.
-- Launcher: a **Friends** page (list with state and detail, Add by code, your
-  own code, requests, blocked) and an invite banner on every page.
-- Game: the presence state and detail come from the running stage and mode;
-  the watch gets a Friends page (room screen, not the wrist) with Invite and
-  Accept.
+- `FriendsClient.java` (beside `LobbyClient`, its own thread and queue;
+  `friendsCommand` / `friendsEvent` on `MainActivity`). Commands:
+  `presence|state|lobby|version|name|detail`, `settings|showDetail|offline`,
+  `add|code`, `answer|id|1/0`, `remove|id`, `block|id`, `unblock|id`,
+  `invite|id|lobby`, `drop|inviteId`, `restore|friendCode|restoreCode`,
+  `reset`, `refresh`. Events: `ME|status|friendCode|restoreCode|detail|offline`,
+  a `FRIENDS_BEGIN` ... `FRIENDS_END` snapshot (`FRIEND`, `REQUEST`, `SENT`,
+  `INVITE`, `BLOCKED` lines), `INVITED|id`, `NOTICE|text`, `ERROR|text`.
+  Presence posts every 30 s, sooner (5 s apart at most) when the state or
+  lobby changes, and stops a minute after the native side's last presence
+  line, so a sleeping headset goes offline.
+- `port/vr/vr_friends.cpp`: composes the presence line once a second from the
+  launcher or the game (`gevrLobbyGameTick`), sends it on change and every
+  20 s, keeps the model, queues invites until a lobby has a code, and keeps
+  the pending join. Command logging stops at the verb: no restore code in a
+  debug report.
+- Launcher: **Friends...** beside Multiplayer (shows new requests and invites,
+  or friends online). Tabs Friends, Requests, Add, Profile (restore code,
+  Show what I'm playing, Appear offline, restore, blocked players). The newest
+  invite shows as a banner on every other page. Join and hosting for an
+  invite go through the Multiplayer page, which takes them on its next frame.
+- Game: the menu-hold prompt (`bondview2.c gevrDrawReturnPrompt`, `input.c`)
+  and the watch's Friends tab in online matches (`gevr_pause_widgets.h`). A
+  solo mission has no watch Friends page; the prompt answers invites there.
+- Settings in `goldeneye-vr.ini`: `MpVisibility` 0/1/2 (public, private,
+  friends), `FriendsShowDetail`, `FriendsAppearOffline`, `FriendsRestoreNoted`.
 
 ## Discord (phases 3 and 4)
 
@@ -164,11 +203,13 @@ Sideloaded builds only get these for the developer's own organisation.
 
 ## Phases
 
-1. **Friends and presence:** registration, friend codes, requests, block,
-   presence and its settings, the launcher Friends page. Worker + client +
-   launcher; tests in the Worker's `test/` and a launcher layout test.
-2. **Invites:** send and receive in the launcher, the in-mission notice and
-   the pending-join restart, the watch Friends page.
+1. **Friends and presence** (built): registration, friend codes, requests,
+   block, presence and its settings, the launcher Friends page. Tests: the
+   Worker's `test/social.test.mjs`, `FriendsClientTest`, and the launcher and
+   pause layout tests (the Friends visibility radio, the watch's fifth tab).
+2. **Invites** (built): send and receive in the launcher, the in-mission
+   notice and the pending-join restart, the watch Friends tab (online
+   matches).
 3. **Discord link:** SDK, sign-in, Discord friends, Rich Presence.
 4. **Discord invites and join links:** the join page and app link.
 
@@ -177,8 +218,7 @@ network protocol; the Worker API is versioned under `/v1`.
 
 ## Open questions
 
-- Restore code UX: shown once at first launch, or only on the Profile page?
-- Should a host's lobby be listed as "friends only" (visible to friends,
-  hidden from the public list)? Cheap to add with presence.
 - Quest browser and Android app links for `goldeneyevr.com/join/<code>`: to
   test on a headset before phase 4.
+- Spamming wrong restore codes locks a friend code's restore for a day (the
+  per-code limit). Acceptable for now; revisit if it is abused.

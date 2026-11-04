@@ -343,7 +343,7 @@ final class LobbyClient {
         return true;
     }
 
-    private static final class HttpException extends Exception {
+    static final class HttpException extends Exception {
         final int status;
         HttpException(int status, String message) {
             super(message);
@@ -360,7 +360,8 @@ final class LobbyClient {
     private static String encode(String value) { return Base64.encodeToString(value.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP | Base64.URL_SAFE); }
     private static String decode(String value) { return new String(Base64.decode(value, Base64.NO_WRAP | Base64.URL_SAFE), StandardCharsets.UTF_8); }
 
-    private static JSONObject http(String method, String path, JSONObject data, String token) throws Exception {
+    // Also FriendsClient's (FriendsClient.Http).
+    static JSONObject http(String method, String path, JSONObject data, String token) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(path).openConnection();
         connection.setRequestMethod(method);
         connection.setConnectTimeout(5000);

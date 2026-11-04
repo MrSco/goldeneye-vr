@@ -65,6 +65,7 @@ public class MainActivity extends SDLActivity {
         }
         mods = new ModManager(this, version);
         lobbies = new LobbyClient();
+        friends = new FriendsClient(new File(dataDir, "gevr_player.json"));
         reporter = new LogReporter(this);
 
         Log.i(TAG, "Starting GEVR VR mode");
@@ -89,6 +90,7 @@ public class MainActivity extends SDLActivity {
     // --- Mods page (texture packs from their authors' sites), driven by the in-VR launcher ---
     private ModManager mods;
     private LobbyClient lobbies;
+    private FriendsClient friends;
     private LogReporter reporter;
 
     public String reportStatus() { return reporter != null ? reporter.status() : "idle"; }
@@ -96,6 +98,10 @@ public class MainActivity extends SDLActivity {
 
     public String lobbyEvent() { return lobbies != null ? lobbies.event() : ""; }
     public void lobbyCommand(String cmd) { if (lobbies != null) lobbies.command(cmd); }
+
+    // Friends, presence and invites (port/vr/vr_friends.cpp; see FriendsClient).
+    public String friendsEvent() { return friends != null ? friends.event() : ""; }
+    public void friendsCommand(String cmd) { if (friends != null) friends.command(cmd); }
 
     /** One tab-separated line per pack for port/vr/vr_launcher.cpp; see ModManager.status. */
     public String modsStatus() {
@@ -414,6 +420,7 @@ public class MainActivity extends SDLActivity {
         Log.i(TAG, "MainActivity onDestroy");
         if (reporter != null) reporter.foreground(false);
         if (lobbies != null) lobbies.shutdown();
+        if (friends != null) friends.shutdown();
         nativeAudioPause();
         nativeDestroy();
         // Not super.onDestroy(): SDLActivity's waits on the game thread, which

@@ -20329,26 +20329,44 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 Gfx *gevrDrawReturnPrompt(Gfx *gdl)
 {
     extern int gevrTexpackState(void);   /* gfx_pc.cpp: 1 on, 0 off, -1 no pack */
-    static char text[160];
+    extern const char *gevrFriendsNotice(void);       /* vr_friends.cpp: a new invite */
+    extern const char *gevrFriendsPromptLine(void);   /* vr_friends.cpp: "Y: JOIN ...'S GAME" */
+    static char text[256];
     s32 x, y, w = 0, h = 0;
     s32 pack;
+    const char *invite = gevrFriendsPromptLine();
+    const char *notice = gevrFriendsNotice();
 
     if (!gevrReturnPrompt)
     {
-        return gdl;
+        if (!notice)
+        {
+            return gdl;
+        }
+        /* a friend's invite, low in the view for a few seconds (never on the wrist) */
+        snprintf(text, sizeof(text), "%s\n", notice);
     }
-    /* with a texture pack in use, X switches it (input.c) */
-    pack = gevrTexpackState();
-    strcpy(text, "BACK TO THE LAUNCHER?\n\nA: YES      B: NO\n\nTHIS MISSION WILL NOT BE SAVED");
-    if (pack >= 0)
+    else
     {
-        strcat(text, pack ? "\n\nX: HD TEXTURES OFF" : "\n\nX: HD TEXTURES ON");
+        /* with a texture pack in use, X switches it (input.c) */
+        pack = gevrTexpackState();
+        strcpy(text, "BACK TO THE LAUNCHER?\n\nA: YES      B: NO\n\nTHIS MISSION WILL NOT BE SAVED");
+        if (pack >= 0)
+        {
+            strcat(text, pack ? "\n\nX: HD TEXTURES OFF" : "\n\nX: HD TEXTURES ON");
+        }
+        if (invite)
+        {
+            /* input.c: the restarted launcher joins the friend's lobby */
+            strcat(text, "\n\n");
+            strncat(text, invite, sizeof(text) - strlen(text) - 2);
+        }
+        strcat(text, "\n");   /* textMeasure counts a line at each break: the last line too */
     }
-    strcat(text, "\n");   /* textMeasure counts a line at each break: the last line too */
     gdl = microcode_constructor(gdl);
     textMeasure(&h, &w, (char *) text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
     x = viGetViewLeft() + (viGetViewWidth() - w) / 2;
-    y = viGetViewTop() + (viGetViewHeight() * 40) / 100;
+    y = viGetViewTop() + (viGetViewHeight() * (gevrReturnPrompt ? 40 : 72)) / 100;
     if (g_gevrStereo)
     {
         gDPNoOpTag(gdl++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */

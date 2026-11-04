@@ -11,6 +11,11 @@
 #include "net_game.h"
 #include "net_coop.h"
 #include "net_horde.h"
+#include "net_protocol.h"
+#include "vr_friends.h"
+#include <algorithm>
+#include <string>
+#include <vector>
 extern "C" { void gevrLobbySessionStopped(void);void gevrRestartToLauncher(void);int bossGetStageNum(void); }
 namespace {
 ImGuiContext* context=nullptr;
@@ -18,6 +23,32 @@ GLuint texture=0,framebuffer=0,icon=0;
 Uint64 last=0;
 bool wasOpen=false;
 GevrPauseUi ui;
+// the Friends tab's rows, by the ids they stand for
+std::vector<std::string> friendIds,inviteIds;
+void fillFriends(GevrPauseView&view) {
+    const GevrFriendsModel&fm=gevrFriends();
+    const char*lobby=netGetLobbyCode();
+    const bool open=lobby[0]&&netGetLivePlayerCount()<netGetMaxPlayers();
+    friendIds.clear();inviteIds.clear();
+    const Uint32 now=SDL_GetTicks();
+    for(const GevrFriendInvite&x:fm.invites) {
+        if(view.inviteCount>=3||(Sint32)(x.expiresAtMs-now)<=0)continue;
+        auto&v=view.invites[view.inviteCount++];inviteIds.push_back(x.id);
+        snprintf(v.text,sizeof(v.text),"%s invites you to %s (%d/%d)",x.name.c_str(),x.lobbyName.c_str(),x.players,x.maxPlayers);
+        v.canJoin=x.lobbyVersion==GEVR_NET_VERSION&&x.lobby!=lobby;
+    }
+    for(const GevrFriend&f:fm.friends) {
+        if(view.friendCount>=10||f.state=="offline")continue;
+        auto&v=view.friends[view.friendCount++];friendIds.push_back(f.id);
+        snprintf(v.name,sizeof(v.name),"%s",f.name.c_str());
+        snprintf(v.status,sizeof(v.status),"%s",f.detail.empty()?(f.state=="match"?"In an online match":f.state=="lobby"?"In a lobby":f.state=="solo"?"Playing solo":"In the launcher"):f.detail.c_str());
+        v.canInvite=open&&f.version==GEVR_NET_VERSION&&f.lobby!=lobby;
+        v.invited=std::find(fm.invited.begin(),fm.invited.end(),f.id)!=fm.invited.end();
+    }
+    snprintf(view.friendsNote,sizeof(view.friendsNote),"%s",fm.status!="ready"?"Friends are not available yet."
+        :!lobby[0]?"This match has no internet lobby to invite into.":!open?"This match is full."
+        :fm.friends.empty()?"Add friends on the launcher's Friends page.":view.friendCount?"Invited friends join this match's lobby.":"No friends online.");
+}
 void initialize() {
     context=ImGui::CreateContext();auto&io=ImGui::GetIO();io.IniFilename=nullptr;
     io.ConfigFlags|=ImGuiConfigFlags_NavEnableGamepad;io.BackendFlags|=ImGuiBackendFlags_HasGamepad;
@@ -79,6 +110,7 @@ extern "C" void gevrNativePauseRender(void) {
         if(view.startRequested)snprintf(view.status,sizeof(view.status),"Waiting for ready / loading players");
         else if(seconds>0)snprintf(view.status,sizeof(view.status),"Warmup %d:%02d - host can start early",seconds/60,seconds%60);
     }
+    fillFriends(view);
     gevrPauseLocalGauges(view.gauges);
     gevrPauseLocalRadar(&view.radar);
     const NetMsgLobbyState*lobby=netGetLobbyState();
@@ -110,5 +142,10 @@ extern "C" void gevrNativePauseRender(void) {
     if(action==GEVR_PAUSE_ABORT&&netIsHost()&&netCoopActive()){gevrNativePauseResume();netCoopMissionEnded(NET_COOP_RESULT_ABORTED);}
     if(action==GEVR_PAUSE_REQUEST_VOTES)netHostRequestVotes();
     if(action>=GEVR_PAUSE_KICK_BASE && action<GEVR_PAUSE_KICK_BASE+8)netHostKickPlayer(action-GEVR_PAUSE_KICK_BASE);
+    if(action>=GEVR_PAUSE_INVITE_BASE && action<GEVR_PAUSE_INVITE_BASE+(int)friendIds.size())gevrFriendsInvite(friendIds[action-GEVR_PAUSE_INVITE_BASE]);
+    if(action>=GEVR_PAUSE_JOIN_INVITE_BASE && action<GEVR_PAUSE_JOIN_INVITE_BASE+(int)inviteIds.size() &&
+       gevrFriendsAcceptInviteId(inviteIds[action-GEVR_PAUSE_JOIN_INVITE_BASE])) {
+        gevrNativePauseResume();gevrLobbySessionStopped();gevrRestartToLauncher();
+    }
 }
 #endif

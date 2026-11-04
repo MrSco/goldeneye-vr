@@ -39,6 +39,7 @@
 #include <cstring>
 #include <string>
 #include <utility>
+#include <algorithm>
 #include <vector>
 #include <dirent.h>
 #include <sys/stat.h>
@@ -56,6 +57,7 @@
 #include "vr_screen.h"
 #include "vr_settings.h"
 #include "vr_haptics.h"
+#include "vr_friends.h"
 
 extern "C" {
 int gevrVrPumpBegin(void);            // port/src/gevr_engine_shim.c
@@ -1162,9 +1164,17 @@ static std::string gevrLobbyName()
     return name;
 }
 
+// The lobby service's visibility: the host page's choice, or private for a
+// lobby the Friends page started to invite into (VrMpVisibility stays as chosen).
+static const char *gevrVisibilityName(int visibility)
+{
+    return visibility == 2 ? "friends" : visibility == 1 ? "private" : "public";
+}
+static const char *s_hostVisibility = nullptr;
+
 static std::string gevrLobbyCreateCommand(const std::string &name, int stage, int set, int max)
 {
-    return std::string("create|") + (VrMpVisibility ? "private" : "public") + "|" + name + "|" +
+    return std::string("create|") + (s_hostVisibility ? s_hostVisibility : gevrVisibilityName(VrMpVisibility)) + "|" + name + "|" +
         std::to_string(GEVR_NET_VERSION) + "|" + std::to_string(stage) + "|" +
         std::to_string(set) + "|" + std::to_string(max);
 }
@@ -1638,13 +1648,19 @@ static bool gevrLauncherHostIdleTick(uint64_t nowMs, bool hosting, bool act)
     return false;
 }
 
-static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::string &code) {
+// visibility: the lobby's own when it differs from the setting (one hosted to invite into)
+static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::string &code, const char *visibility = nullptr) {
     if (ImGui::BeginTable("host-lobby-options", 2, ImGuiTableFlags_SizingStretchSame)) {
         ImGui::TableNextColumn();
         if (!hosting) {
-            if (ImGui::RadioButton("Public game", VrMpVisibility == 0)) { VrMpVisibility=0;vrSettingsSave(); }
+            if (ImGui::RadioButton("Public", VrMpVisibility == 0)) { VrMpVisibility=0;vrSettingsSave(); }
+            if (ImGui::IsItemHovered()) gevrTooltip("Listed for everyone under Join > Public.");
             ImGui::SameLine();
-            if (ImGui::RadioButton("Private game", VrMpVisibility == 1)) { VrMpVisibility=1;vrSettingsSave(); }
+            if (ImGui::RadioButton("Friends", VrMpVisibility == 2)) { VrMpVisibility=2;vrSettingsSave(); }
+            if (ImGui::IsItemHovered()) gevrTooltip("Not listed. Your friends can join from their Friends page; anyone else needs the code.");
+            ImGui::SameLine();
+            if (ImGui::RadioButton("Private", VrMpVisibility == 1)) { VrMpVisibility=1;vrSettingsSave(); }
+            if (ImGui::IsItemHovered()) gevrTooltip("Not listed. Players join with the code or an invite.");
         }
         ImGui::TextUnformatted("Mode:");ImGui::SameLine();
         if (ImGui::RadioButton("Deathmatch", VrMpMode == NET_MODE_DEATHMATCH)) { VrMpMode=NET_MODE_DEATHMATCH;gevrHostChoiceChanged(); }
@@ -1704,7 +1720,8 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
         }
         if (hosting) {
             if (!code.empty()) {
-                ImGui::TextColored(gold,"%s: %s",VrMpVisibility?"PRIVATE":"PUBLIC",code.c_str());ImGui::SameLine();
+                const char *shown=visibility?visibility:VrMpVisibility==2?"friends":VrMpVisibility?"private":"public";
+                ImGui::TextColored(gold,"%s: %s",!strcmp(shown,"friends")?"FRIENDS":!strcmp(shown,"private")?"PRIVATE":"PUBLIC",code.c_str());ImGui::SameLine();
             }
             ImGui::TextColored(gold,"PLAYERS (%d/%d)",netGetConnectedPlayerCount(),netGetMaxPlayers());
         }
@@ -1717,6 +1734,303 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
             if (ImGui::IsItemHovered())gevrTooltip("Complete teams before countdown; warmup remains available.");
         }
     }
+}
+
+// Friends (docs/friends-and-invites.md, vr_friends.cpp). Joining and the lobby
+// hosted to invite into go through the Multiplayer page: wantMp opens it.
+// 16 characters as written down: ABCD-EFGH-JKLM-NPQR
+static std::string gevrRestoreCodeText(const std::string &code)
+{
+    std::string out;
+    for (size_t i = 0; i < code.size(); i++) {
+        if (i && i % 4 == 0) out += '-';
+        out += code[i];
+    }
+    return out;
+}
+
+static const char *gevrFriendStateText(const GevrFriend &f)
+{
+    if (f.state == "lobby") return "In a lobby";
+    if (f.state == "match") return "In an online match";
+    if (f.state == "solo") return "Playing solo";
+    if (f.state == "launcher") return "In the launcher";
+    return "Offline";
+}
+
+static int friendCodeFilter(ImGuiInputTextCallbackData *data)
+{
+    ImWchar c = data->EventChar;
+    if (c >= 'a' && c <= 'z') c = (ImWchar)(c - 'a' + 'A');
+    data->EventChar = c;
+    return (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' ? 0 : 1;
+}
+
+static void gevrFriendInviteRow(const GevrFriendInvite &invite, bool canJoin, const ImVec4 &gold)
+{
+    ImGui::PushID(invite.id.c_str());
+    ImGui::TextColored(gold, "%s", invite.name.c_str());
+    ImGui::SameLine();
+    if (invite.maxPlayers > 0)
+        ImGui::Text("invites you to %s (%d/%d)", invite.lobbyName.c_str(), invite.players, invite.maxPlayers);
+    else
+        ImGui::Text("invites you to %s", invite.lobbyName.c_str());
+    ImGui::SameLine();
+    const bool sameVersion = invite.lobbyVersion == GEVR_NET_VERSION;
+    ImGui::BeginDisabled(!canJoin || !sameVersion);
+    if (ImGui::SmallButton("Join")) gevrFriendsAnswerInvite(invite, true);
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        gevrTooltip("%s", !sameVersion ? "Their game runs a different version of GoldenEye VR."
+                          : !canJoin ? "Leave your lobby, and choose the GoldenEye ROM, to join." : "Join their lobby.");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Ignore")) gevrFriendsAnswerInvite(invite, false);
+    ImGui::PopID();
+}
+
+// The newest invite, on every launcher page but the Friends page itself.
+static void gevrFriendsInviteBanner(bool canJoin, const ImVec4 &gold)
+{
+    const GevrFriendsModel &m = gevrFriends();
+    if (m.invites.empty()) return;
+    gevrFriendInviteRow(m.invites.front(), canJoin, gold);
+    ImGui::Separator();
+}
+
+static void gevrFriendsPage(bool &open, bool &wantMp, bool canPlayOnline, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad)
+{
+    const GevrFriendsModel &m = gevrFriends();
+    static char addCode[16] = "";
+    static char restoreFriend[16] = "", restoreCode[24] = "";
+    static bool showRestore = false;
+    static std::string confirmId, confirmName;
+    static int confirmKind = 0;   // 1 remove, 2 block
+    const bool canJoin = canPlayOnline && !netIsActive();
+
+    ImGui::TextColored(gold, "FRIENDS");
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s  %s", VrPlayerName, m.status == "ready" ? gevrFriendCodeText(m.friendCode).c_str() : "");
+    gevrLauncherBeginBody("##friendsbody");
+    if (m.status == "signed_out") {
+        ImGui::TextColored(bad, "Signed out");
+        ImGui::TextWrapped("Your friend code %s was restored on another headset, which signed this one out. "
+                           "Restore it here with its restore code (Profile), or start again with a new friend code.",
+                           gevrFriendCodeText(m.friendCode).c_str());
+        if (ImGui::Button("Start with a new friend code")) {
+            gevrFriendsSend("reset");
+            VrFriendsRestoreNoted = 0;
+            vrSettingsSave();
+        }
+        ImGui::Separator();
+    } else if (m.status != "ready") {
+        ImGui::TextDisabled("Getting your friend code from the lobby service...");
+    }
+    // The nudge (user, 2026-11-04): once there is a friend to lose, not at first launch.
+    if (m.status == "ready" && !VrFriendsRestoreNoted && !m.friends.empty()) {
+        ImGui::TextColored(gold, "Write down your restore code");
+        ImGui::TextWrapped("A reinstall or a new headset gives you a new friend code. Your restore code brings this one, "
+                           "and your friends, back: %s", gevrRestoreCodeText(m.restoreCode).c_str());
+        if (ImGui::SmallButton("I wrote it down")) {
+            VrFriendsRestoreNoted = 1;
+            vrSettingsSave();
+        }
+        ImGui::Separator();
+    }
+    if (ImGui::BeginTabBar("##friendtabs")) {
+        int online = 0;
+        for (const GevrFriend &f : m.friends) online += f.state != "offline";
+        char title[64];
+        snprintf(title, sizeof(title), "Friends (%d online)###friendlist", online);
+        if (ImGui::BeginTabItem(title)) {
+            for (const GevrFriendInvite &invite : m.invites) gevrFriendInviteRow(invite, canJoin, gold);
+            if (!m.invites.empty()) ImGui::Separator();
+            if (m.friends.empty() && m.loaded)
+                ImGui::TextWrapped("No friends yet. Give a friend your code, %s, or add theirs under Add.",
+                                   gevrFriendCodeText(m.friendCode).c_str());
+            else if (m.friends.empty())
+                ImGui::TextDisabled("Loading your friends...");
+            const char *lobby = netIsActive() ? netGetLobbyCode() : "";
+            if (ImGui::BeginTable("friends", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+                for (const GevrFriend &f : m.friends) {
+                    ImGui::PushID(f.id.c_str());
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    if (f.state == "offline") ImGui::TextDisabled("%s", f.name.c_str());
+                    else ImGui::TextColored(good, "%s", f.name.c_str());
+                    if (ImGui::IsItemHovered()) gevrTooltip("%s", gevrFriendCodeText(f.code).c_str());
+                    ImGui::TableNextColumn();
+                    if (f.detail.empty()) ImGui::TextDisabled("%s", gevrFriendStateText(f));
+                    else ImGui::TextDisabled("%s: %s", gevrFriendStateText(f), f.detail.c_str());
+                    ImGui::TableNextColumn();
+                    const bool sameVersion = f.version == GEVR_NET_VERSION;
+                    if (!f.lobby.empty() && f.lobby != lobby) {
+                        const bool ok = canJoin && f.lobbyVersion == GEVR_NET_VERSION;
+                        ImGui::BeginDisabled(!ok);
+                        char join[32];
+                        snprintf(join, sizeof(join), "Join %d/%d", f.players, f.maxPlayers);
+                        if (ImGui::SmallButton(join)) gevrFriendsJoin(f.lobby);
+                        ImGui::EndDisabled();
+                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                            gevrTooltip("%s", f.lobbyVersion != GEVR_NET_VERSION ? "Their game runs a different version of GoldenEye VR."
+                                              : !canJoin ? "Leave your lobby, and choose the GoldenEye ROM, to join." : "Join their lobby.");
+                        ImGui::SameLine();
+                    }
+                    if (f.state != "offline") {
+                        const bool invited = std::find(m.invited.begin(), m.invited.end(), f.id) != m.invited.end();
+                        ImGui::BeginDisabled(!canPlayOnline || !sameVersion || invited || (lobby[0] && f.lobby == lobby));
+                        if (ImGui::SmallButton(invited ? "Invited" : "Invite")) {
+                            gevrFriendsInvite(f.id);
+                            if (!netIsActive()) { wantMp = true; open = false; }   // to host the lobby first
+                        }
+                        ImGui::EndDisabled();
+                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                            gevrTooltip("%s", !sameVersion ? "They run a different version of GoldenEye VR."
+                                              : !canPlayOnline ? "Choose the GoldenEye ROM to play online."
+                                              : lobby[0] ? "Invite them into your lobby."
+                                              : "Starts a private lobby and invites them into it.");
+                        ImGui::SameLine();
+                    }
+                    if (ImGui::SmallButton("...")) ImGui::OpenPopup("friendmenu");
+                    if (ImGui::BeginPopup("friendmenu")) {
+                        ImGui::TextDisabled("%s  %s", f.name.c_str(), gevrFriendCodeText(f.code).c_str());
+                        if (ImGui::Selectable("Remove friend")) { confirmId = f.id; confirmName = f.name; confirmKind = 1; }
+                        if (ImGui::Selectable("Block")) { confirmId = f.id; confirmName = f.name; confirmKind = 2; }
+                        ImGui::EndPopup();
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+            ImGui::EndTabItem();
+        }
+        snprintf(title, sizeof(title), m.requests.empty() ? "Requests###friendreq" : "Requests (%d)###friendreq", (int)m.requests.size());
+        if (ImGui::BeginTabItem(title)) {
+            if (m.requests.empty() && m.sent.empty()) ImGui::TextDisabled("No friend requests.");
+            for (const GevrFriendPerson &p : m.requests) {
+                ImGui::PushID(p.id.c_str());
+                ImGui::TextColored(gold, "%s", p.name.c_str());
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s wants to be friends", gevrFriendCodeText(p.code).c_str());
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Accept")) gevrFriendsSend("answer|" + p.id + "|1");
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Decline")) gevrFriendsSend("answer|" + p.id + "|0");
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Block")) { confirmId = p.id; confirmName = p.name; confirmKind = 2; }
+                ImGui::PopID();
+            }
+            if (!m.sent.empty()) {
+                ImGui::Spacing();
+                ImGui::TextColored(gold, "SENT");
+            }
+            for (const GevrFriendPerson &p : m.sent) {
+                ImGui::PushID(p.id.c_str());
+                ImGui::Text("%s", p.name.c_str());
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s, waiting", gevrFriendCodeText(p.code).c_str());
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Cancel")) gevrFriendsSend("remove|" + p.id);
+                ImGui::PopID();
+            }
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Add")) {
+            ImGui::TextWrapped("Your friend code is %s. Give it to a friend, or type theirs here:", gevrFriendCodeText(m.friendCode).c_str());
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8);
+            ImGui::InputTextWithHint("##addcode", "GE-XXXXXX", addCode, sizeof(addCode), ImGuiInputTextFlags_CallbackCharFilter, friendCodeFilter);
+            ImGui::SameLine();
+            ImGui::BeginDisabled(m.status != "ready" || strlen(addCode) < 6);
+            if (ImGui::Button("Send friend request")) {
+                gevrFriendsSend(std::string("add|") + addCode);
+                addCode[0] = '\0';
+            }
+            ImGui::EndDisabled();
+            ImGui::TextDisabled("They see your request on their Friends page and accept it.");
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Profile")) {
+            ImGui::Text("Name: %s", VrPlayerName);
+            ImGui::SameLine();
+            ImGui::TextDisabled("(change it on the Multiplayer page, Player tab)");
+            ImGui::Text("Friend code: %s", gevrFriendCodeText(m.friendCode).c_str());
+            ImGui::Text("Restore code: %s", showRestore ? gevrRestoreCodeText(m.restoreCode).c_str() : "****-****-****-****");
+            ImGui::SameLine();
+            if (ImGui::SmallButton(showRestore ? "Hide" : "Show")) showRestore = !showRestore;
+            if (ImGui::IsItemHovered())
+                gevrTooltip("With your friend code, it brings your friends back after a reinstall or on a new headset. Keep it to yourself.");
+            bool detail = VrFriendsShowDetail != 0, hidden = VrFriendsAppearOffline != 0;
+            bool changed = false;
+            if (ImGui::Checkbox("Show what I'm playing", &detail)) { VrFriendsShowDetail = detail; changed = true; }
+            if (ImGui::IsItemHovered()) gevrTooltip("Friends see the mission or map, the mode and the players, not just \"Playing\".");
+            ImGui::SameLine();
+            if (ImGui::Checkbox("Appear offline", &hidden)) { VrFriendsAppearOffline = hidden; changed = true; }
+            if (ImGui::IsItemHovered()) gevrTooltip("Friends see you as offline. You still get requests and invites.");
+            if (changed) {
+                vrSettingsSave();
+                gevrFriendsSend(std::string("settings|") + (VrFriendsShowDetail ? "1" : "0") + "|" + (VrFriendsAppearOffline ? "1" : "0"));
+            }
+            ImGui::Spacing();
+            ImGui::TextColored(gold, "RESTORE A FRIEND CODE");
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7);
+            ImGui::InputTextWithHint("##restorefriend", "GE-XXXXXX", restoreFriend, sizeof(restoreFriend), ImGuiInputTextFlags_CallbackCharFilter, friendCodeFilter);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 11);
+            ImGui::InputTextWithHint("##restorecode", "restore code", restoreCode, sizeof(restoreCode), ImGuiInputTextFlags_CallbackCharFilter, friendCodeFilter);
+            ImGui::SameLine();
+            ImGui::BeginDisabled(strlen(restoreFriend) < 6 || strlen(restoreCode) < 16);
+            if (ImGui::Button("Restore")) {
+                gevrFriendsSend(std::string("restore|") + restoreFriend + "|" + restoreCode);
+                restoreFriend[0] = restoreCode[0] = '\0';
+                VrFriendsRestoreNoted = 1;   // they had it written down
+                vrSettingsSave();
+            }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                gevrTooltip("Replaces this headset's friend code with the restored one, and signs the other headset out.");
+            if (!m.blocked.empty()) {
+                ImGui::Spacing();
+                ImGui::TextColored(gold, "BLOCKED");
+                for (const GevrFriendPerson &p : m.blocked) {
+                    ImGui::PushID(p.id.c_str());
+                    ImGui::Text("%s", p.name.c_str());
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("%s", gevrFriendCodeText(p.code).c_str());
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Unblock")) gevrFriendsSend("unblock|" + p.id);
+                    ImGui::PopID();
+                }
+            }
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+    if (confirmKind && !ImGui::IsPopupOpen("Friend?")) ImGui::OpenPopup("Friend?");
+    if (ImGui::BeginPopupModal("Friend?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text(confirmKind == 2 ? "Block %s? They can't send you requests or invites." : "Remove %s from your friends?", confirmName.c_str());
+        if (ImGui::Button("Cancel")) { confirmKind = 0; ImGui::CloseCurrentPopup(); }
+        ImGui::SameLine();
+        if (ImGui::Button(confirmKind == 2 ? "Block" : "Remove")) {
+            gevrFriendsSend((confirmKind == 2 ? "block|" : "remove|") + confirmId);
+            confirmKind = 0;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::EndChild();
+    ImGui::Separator();
+    const bool fresh = !m.message.empty() && SDL_GetTicks() - m.messageMs < 10000;
+    gevrLauncherStatus(fresh ? m.message.c_str()
+                       : !canPlayOnline ? "Online play needs the GoldenEye ROM (not a hack campaign)."
+                       : "Invite starts a private lobby when you are not in one.");
+    const float h = ImGui::GetFrameHeight() * 1.5f;
+    if (ImGui::Button("Refresh", ImVec2(0, h))) gevrFriendsSend("refresh");
+    ImGui::SameLine();
+    if (netIsActive()) {
+        if (ImGui::Button("Multiplayer...", ImVec2(0, h))) { wantMp = true; open = false; }
+        ImGui::SameLine();
+    }
+    if (ImGui::Button("Back", ImVec2(0, h))) open = false;
+    if (gevrFriendsJoinPending()) { wantMp = true; open = false; }
 }
 
 void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad) {
@@ -1789,6 +2103,29 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
             listLoading = false;
             onlineMessage = f[1];
         }
+    }
+    // From the Friends page: a friend's lobby or an invite's, joined by its code
+    // as the Private tab does; or a private lobby to invite friends into.
+    static bool selectJoin = false, selectHost = false;
+    bool hostForInvite = false;
+    if (gevrFriendsJoinPending()) {
+        const std::string code = gevrFriendsTakeJoin();
+        if (netIsActive()) {
+            onlineMessage = netIsHost() ? "Stop hosting before joining a friend's game." : "Disconnect before joining a friend's game.";
+        } else if (!romReady) {
+            onlineMessage = "Choose a GoldenEye ROM before joining a friend's game.";
+        } else {
+            gevrJavaCommand("requestVoicePermission", "");
+            netIceStop();
+            clientJoinId.clear();
+            onlineMessage = "Joining your friend's game...";
+            gevrJavaCommand("lobbyCommand", ("join|" + code + "|" + std::to_string(GEVR_NET_VERSION)).c_str());
+            selectJoin = true;
+        }
+    }
+    if (gevrFriendsTakeHostRequest() && !netIsActive() && clientJoinId.empty()) {
+        hostForInvite = true;
+        selectHost = true;
     }
     char iceSdp[JUICE_MAX_SDP_STRING_LEN];
     if (!clientJoinId.empty() && netIceTakeDescription(clientJoinId.c_str(), iceSdp, sizeof(iceSdp)))
@@ -1973,8 +2310,10 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
     ImGui::TextColored(gold, "ONLINE MULTIPLAYER");
     gevrLauncherBeginBody("##mpbody");
     if (ImGui::BeginTabBar("##mprole")) {
+        const bool selectRole[2] = {selectHost, selectJoin};
+        selectHost = selectJoin = false;
         for (int role = 0; role < 2; role++) {
-            if (!ImGui::BeginTabItem(role == 0 ? "Host" : "Join"))
+            if (!ImGui::BeginTabItem(role == 0 ? "Host" : "Join", nullptr, selectRole[role] ? ImGuiTabItemFlags_SetSelected : 0))
                 continue;
             subTab = role;
             if (role == 0) {
@@ -1983,7 +2322,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                 else if (ImGui::BeginTabBar("##hostpages")) {
                     if (ImGui::BeginTabItem("Lobby")) {
                         const bool hosting = netIsHost();
-                        gevrHostLobbyOptions(gold, hosting, hostedCode);
+                        gevrHostLobbyOptions(gold, hosting, hostedCode, s_hostVisibility);
                         ImGui::EndTabItem();
                     }
                     if (ImGui::BeginTabItem("Match")) {
@@ -2299,8 +2638,12 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
     } else if (!clientJoinId.empty()) {
         if (ImGui::Button("Cancel Join", ImVec2(0, h))) { disconnect(); onlineMessage.clear(); }
         ImGui::SameLine();
-    } else if (subTab == 0) {
-        if (ImGui::Button("Start Hosting", ImVec2(0, h))) {
+    } else if (subTab == 0 || hostForInvite) {
+        // A lobby hosted to invite friends into is private unless friends-only was chosen.
+        if (hostForInvite)
+            s_hostVisibility = VrMpVisibility == 0 ? "private" : nullptr;
+        if (ImGui::Button("Start Hosting", ImVec2(0, h)) || hostForInvite) {
+            if (!hostForInvite) s_hostVisibility = nullptr;
             // the game's name in the LAN and internet lists: the host's
             const std::string gameName = gevrLobbyName();
             if (netHostStart(GEVR_DEFAULT_PORT)) {
@@ -2348,6 +2691,7 @@ extern "C" void gevrLobbyGameTick(void)
     s_launcherHostFrame = 0;   // in a match: the launcher's idle clock starts again on return
     if (now - lastTick < 250) return;
     lastTick = now;
+    gevrFriendsTick(1);   // presence from the running game, and invites to announce
 
     // Host migration (net_core.c netHostLost): elected, this headset serves
     // the same match. The ICE transport first when there is an internet lobby
@@ -2792,7 +3136,7 @@ extern "C" void gevrLauncherRun(void)
     bool reportPage = false;
     bool reportCrash = false;
     bool cheatPage = false, modsPage = false, mpPage = false, hapticsPage = false, throwingPage = false;
-    bool gesturesPage = false, rulesPage = false, allyPage = false;
+    bool gesturesPage = false, rulesPage = false, allyPage = false, friendsPage = false;
     Uint32 lastReportPoll = 0;
     while (!start) {
         // SDL's native thread may reach the launcher before MainActivity has
@@ -2834,6 +3178,7 @@ extern "C" void gevrLauncherRun(void)
             turn = VrUseSnapTurn >= 80.0f ? 3 : VrUseSnapTurn >= 40.0f ? 2 : VrUseSnapTurn > 0.0f ? 1 : 0;
             vignetteOn = VrComfortVignette > 0.0f;
             if (vignetteOn) vignette = VrComfortVignette;
+            gevrFriendsLoadPendingJoin();   // an invite accepted in a mission, before the restart
         }
 
         Uint32 now = SDL_GetTicks();
@@ -2998,6 +3343,17 @@ extern "C" void gevrLauncherRun(void)
         ImGui::Separator();
 
         s_launcherFrame++;   // the host's idle clock (gevrMultiplayerPage) sees frames it missed
+        // Friends: presence and the list, every frame (vr_friends.cpp sends at most once a second).
+        gevrFriendsTick(0);
+        const bool onlineGame = romReady && VrCampaign == GEVR_CAMPAIGN_GE;
+        if (gevrFriendsJoinPending() && !mpPage && !onlineGame) {
+            vr_log("launcher: friend's lobby %s not joined: no GoldenEye ROM in use", gevrFriendsTakeJoin().c_str());
+        } else if (gevrFriendsJoinPending() && !mpPage) {
+            // a friend's lobby, an invite, or one accepted in a mission: the Multiplayer page joins it
+            friendsPage = cheatPage = modsPage = hapticsPage = throwingPage = gesturesPage = rulesPage = allyPage = false;
+            mpPage = true;
+        }
+        if (!friendsPage && !reportPage) gevrFriendsInviteBanner(onlineGame && !netIsActive(), gold);
         // GoldenEye cheats (issue #1's idea: the tiny guns as a cheat): their
         // own page. Ticked cheats are switched on as each mission starts, the
         // way the game's own cheat menu does (front.c init_menu0B_runstage).
@@ -3007,6 +3363,10 @@ extern "C" void gevrLauncherRun(void)
             gevrHapticsPage(hapticsPage, gold, good, bad);
         } else if (mpPage) {
             gevrMultiplayerPage(mpPage, start, romReady, gold, good, bad);
+        } else if (friendsPage) {
+            bool wantMp = false;
+            gevrFriendsPage(friendsPage, wantMp, onlineGame, gold, good, bad);
+            if (wantMp) mpPage = true;
         } else if (modsPage) {
             gevrModsPage(modsPage, now, gold, good, bad);
         } else if (throwingPage) {
@@ -3412,6 +3772,18 @@ extern "C" void gevrLauncherRun(void)
             ImGui::BeginDisabled(VrCampaign != GEVR_CAMPAIGN_GE);
             if (ImGui::Button("Multiplayer...")) mpPage = true;
             ImGui::EndDisabled();
+            ImGui::SameLine();
+            {
+                const GevrFriendsModel &fm = gevrFriends();
+                int online = 0;
+                for (const GevrFriend &f : fm.friends) online += f.state != "offline";
+                const int waiting = (int)(fm.requests.size() + fm.invites.size());
+                char friendsLabel[64];
+                if (waiting) snprintf(friendsLabel, sizeof(friendsLabel), "Friends... (%d new)###friends", waiting);
+                else if (online) snprintf(friendsLabel, sizeof(friendsLabel), "Friends... (%d online)###friends", online);
+                else snprintf(friendsLabel, sizeof(friendsLabel), "Friends...###friends");
+                if (ImGui::Button(friendsLabel)) friendsPage = true;
+            }
             ImGui::Spacing();
             ImGui::TextColored(gold, "MODS & CHEATS");
             if (ImGui::Button(gevrBeanIsEnabled() ? "Mods... (Bean on)" : g_ActiveExtTexPack[0] && strcmp(g_ActiveExtTexPack, "ge007-bean") != 0 ? "Mods... (HD textures on)" : "Mods..."))

@@ -14,6 +14,15 @@ struct GevrPausePlayerView {
     int slot=-1,points=0,kills=0,losses=0,ping=0;
     bool host=false,ready=false,down=false,loaded=true,spectator=false,canKick=false,bot=false;
 };
+// Friends tab (vr_friends.cpp fills it): online friends to invite, invites to take.
+struct GevrPauseFriendView {
+    char name[40]="", status[96]="";
+    bool canInvite=false,invited=false;
+};
+struct GevrPauseInviteView {
+    char text[128]="";
+    bool canJoin=false;
+};
 struct GevrPauseView {
     bool horde=false,hordeDefeated=false;
     bool coop=false,host=false,canStart=false,canReturn=false,localReady=false,soloWarmup=false;
@@ -25,6 +34,10 @@ struct GevrPauseView {
     char session[160]="", status[128]="", hordeStats[160]="";
     char clock[32]="";   /* time left or played, while a round runs; empty otherwise */
     bool clockEnding=false;   /* the last minute of a timed match */
+    GevrPauseFriendView friends[10];
+    GevrPauseInviteView invites[3];
+    int friendCount=0,inviteCount=0;
+    char friendsNote[128]="";
 };
 struct GevrPauseUi {
     int tab=0;
@@ -32,7 +45,8 @@ struct GevrPauseUi {
     int kickSlot=-1;
     char kickName[64]="";
 };
-enum { GEVR_PAUSE_NONE,GEVR_PAUSE_RESUME,GEVR_PAUSE_LEAVE,GEVR_PAUSE_ABORT,GEVR_PAUSE_REQUEST_VOTES,GEVR_PAUSE_HORDE_RETRY,GEVR_PAUSE_KICK_BASE=100 };
+enum { GEVR_PAUSE_NONE,GEVR_PAUSE_RESUME,GEVR_PAUSE_LEAVE,GEVR_PAUSE_ABORT,GEVR_PAUSE_REQUEST_VOTES,GEVR_PAUSE_HORDE_RETRY,GEVR_PAUSE_KICK_BASE=100,
+       GEVR_PAUSE_INVITE_BASE=200,GEVR_PAUSE_JOIN_INVITE_BASE=300 };
 inline void gevrPauseRadarWidget(const GevrPauseRadarView& radar) {
     if(!radar.visible)return;
     auto* draw=ImGui::GetWindowDrawList();const ImVec2 origin=ImGui::GetWindowPos();
@@ -110,8 +124,8 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
     }
     ImGui::SetCursorPos(ImVec2(742,60));ImGui::TextDisabled("%s",model.status);
     ImGui::SetCursorPos(ImVec2(18,98));ImGui::Separator();
-    const char*names[]={"Match","Rules","Player","Audio"};
-    for(int i=0;i<4;i++) {
+    const char*names[]={"Match","Rules","Player","Audio","Friends"};
+    for(int i=0;i<5;i++) {
         const bool selected=ui.tab==i;
         ImGui::SetCursorPos(ImVec2(18+i*198,122));
         if(selected)ImGui::PushStyleColor(ImGuiCol_Button,ImGui::GetStyleColorVec4(ImGuiCol_TabSelected));
@@ -201,6 +215,26 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
             if(!shown)ImGui::TextDisabled("No mission objectives available.");
             ImGui::EndChild();
         }
+    } else if(ui.tab==GEVR_PAUSE_FRIENDS) {
+        /* invites into this match's lobby; an invite taken leaves for the launcher, which joins it */
+        float y=200;
+        for(int i=0;i<model.inviteCount;i++) {
+            ImGui::PushID(1000+i);
+            ImGui::SetCursorPos(ImVec2(18,y+8));ImGui::TextColored(gold,"%s",model.invites[i].text);
+            ImGui::SetCursorPos(ImVec2(1042,y));ImGui::BeginDisabled(!model.invites[i].canJoin);
+            if(ImGui::Button("Join",ImVec2(220,48)))action=GEVR_PAUSE_JOIN_INVITE_BASE+i;
+            ImGui::EndDisabled();ImGui::PopID();y+=60;
+        }
+        if(model.inviteCount){ImGui::SetCursorPos(ImVec2(18,y));ImGui::Separator();y+=16;}
+        for(int i=0;i<model.friendCount&&y<800;i++) {
+            ImGui::PushID(i);
+            ImGui::SetCursorPos(ImVec2(18,y+8));ImGui::TextColored(good,"%s",model.friends[i].name);
+            ImGui::SetCursorPos(ImVec2(300,y+8));ImGui::TextDisabled("%s",model.friends[i].status);
+            ImGui::SetCursorPos(ImVec2(1042,y));ImGui::BeginDisabled(!model.friends[i].canInvite||model.friends[i].invited);
+            if(ImGui::Button(model.friends[i].invited?"Invited":"Invite",ImVec2(220,48)))action=GEVR_PAUSE_INVITE_BASE+i;
+            ImGui::EndDisabled();ImGui::PopID();y+=60;
+        }
+        ImGui::SetCursorPos(ImVec2(18,816));ImGui::TextDisabled("%s",model.friendsNote);
     } else {
         GevrPauseField field;
         const bool audio=ui.tab==GEVR_PAUSE_AUDIO;
