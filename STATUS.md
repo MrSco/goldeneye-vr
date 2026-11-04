@@ -200,6 +200,36 @@ is goldeneyevr.com, in its own repository.
   (nothing measured, reporter asked for details); a dedicated server on real
   ARM and the Windows setup run by a player. Open: Surface I sky judder with
   Bean, Frigate engine-room judder.
+- #229 (v0.5.14, Quest 3): the sound turns bit-crushed with an echo every
+  second, from the start or after a while, and stays until a restart (likely
+  #226's fuzz too). Suspect: the synthesizer's 128-update pool running dry
+  (crash 77652fd0 found it empty; since 0f2751cf the game plays on and stops
+  and fades get dropped). Branch claude/audio-update-pool-229 adds to the 2 s
+  `audio queue` line: updates free (low, refused), voices, orphans (playing,
+  owned by no sound) and the longest update queue on one voice. A 5-minute
+  headless bot match: never below 72 free, nothing refused, no orphans.
+  Reporter asked for a launcher report while it happens. Published as
+  pre-release v0.5.15-test.1 (2026-11-02, vc 96, protocol 25 kept, APK only).
+- Bean, Archives' bulletin board (user's screenshot, 2026-11-02): its papers
+  showed through the cork in a fighting grain. The release draws a blended
+  cork on the wall after three blended papers and shows the board bare; here
+  both were decals pulled the same reach. A blended face wholly under later
+  opaque blended faces is now left out (DAB's painted; the loader logs the
+  count per level). Archives' count and the board unchecked in a headset.
+  v0.5.15-test.2 (vc 97, protocol 25 kept, APK only) carries it with
+  test.1's #229 logging; branch claude/trusting-mccarthy-6rlocr.
+- Crash 8e53cb27 (v0.5.15-test.1, Quest 3, GE-X arms, bug just loaded):
+  null def in gevrGexOffClench. The off hand's cache keeps the gun hand's
+  header; a GoldenEye-only item in that buffer can reuse the root address,
+  so the clench walked a rig with no GE-X definition. It now skips (as
+  gevrGexOffCache does). Not reproduced in a headset. v0.5.15-test.3 (vc 98,
+  protocol 25 kept, APK only), branch prerelease/v0.5.15.
+- Crashes a8d242cd + 42ed2cf1 (one Statue Horde match vs Oddjobs, host on
+  test.3, client on v0.5.14): Horde's markers (box, wall buys, ammo crates,
+  briefcases; up to 37) took GoldenEye's 30 weapon slots, and weaponCreate
+  freed the oldest when full, under Horde's pointer. They now have their own
+  records (propobj.c gevrCreateItemInstanceIn); guards' guns get all 30
+  slots back. v0.5.15-test.4 (vc 99, protocol 25 kept, APK only).
 - Crash reports land as issues in the private MrSco/goldeneye-vr-reports,
   decoded by its Digest workflow; each build's symbols zip goes to its
   "symbols" release.

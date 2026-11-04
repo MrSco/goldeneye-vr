@@ -66,3 +66,92 @@ static void levelSameTextureDecalChecks(void)
     assert(!(tris[0].flags & GEVR_BEAN_F_DECAL) && !(tris[1].flags & GEVR_BEAN_F_DECAL));
     puts("Bean coincident same-image UV/tint layers use decal depth; equivalent, adjacent and opposite faces are preserved");
 }
+
+/* Archives' bulletin board (DAB markDecals() painted): a blended cork drawn,
+ * corner for corner on its wall, after blended papers lying on it. The
+ * release's blended pass writes no depth and shows the board bare; kept,
+ * the papers fought the cork as two decals pulled the same reach. */
+static void levelPaintTri(struct gevrBeanTri *t, const float *p, int tex)
+{
+    memset(t,0,sizeof(*t));
+    memcpy(t->p,p,9*sizeof(float));
+    memset(t->rgba,255,sizeof(t->rgba));
+    t->tex=(int16_t)tex; t->alpha=255;
+}
+
+static int levelPaintRun(struct gevrBeanTri *tris, int n, const uint8_t *pass, const uint8_t *texAlpha, int *painted)
+{
+    struct gevrBeanMesh mesh = {.tris=tris,.ntris=n,.ntex=3};
+    markLevelDecals(&mesh,pass,n,texAlpha,1);
+    *painted=fixPlainLevelFaces(&mesh);
+    return mesh.ntris;
+}
+
+static void levelPaintedChecks(void)
+{
+    static const float wallA[9] = {0,0,0, 100,0,0, 100,100,0};
+    static const float wallB[9] = {0,0,0, 100,100,0, 0,100,0};
+    static const float paper[9] = {20,20,0.25f, 60,20,0.25f, 20,60,0.25f};
+    struct gevrBeanTri tris[5];
+    uint8_t texAlpha[MAX_TEX] = {0};
+    int painted;
+    /* wall (opaque), paper (blended), then the cork twin of the wall (blended) */
+    uint8_t pass[5] = {0, 0, LDECAL_PASS_BLEND, LDECAL_PASS_BLEND, LDECAL_PASS_BLEND};
+#define BOARD() do { levelPaintTri(&tris[0],wallA,0); levelPaintTri(&tris[1],wallB,0); \
+        levelPaintTri(&tris[2],paper,1); levelPaintTri(&tris[3],wallA,2); levelPaintTri(&tris[4],wallB,2); } while (0)
+
+    BOARD();
+    assert(levelPaintRun(tris,5,pass,texAlpha,&painted)==4 && painted==1);
+    for (int i=0;i<4;i++) assert(tris[i].tex!=1);
+    /* the cork still lies on its wall as a decal */
+    assert((tris[2].flags & GEVR_BEAN_F_DECAL) && (tris[3].flags & GEVR_BEAN_F_DECAL));
+    assert(!(tris[0].flags & GEVR_BEAN_F_DECAL) && !(tris[1].flags & GEVR_BEAN_F_DECAL));
+
+    /* A cork with alpha in its picture shows the paper through it. */
+    BOARD(); texAlpha[2]=1;
+    assert(levelPaintRun(tris,5,pass,texAlpha,&painted)==5 && painted==0);
+    texAlpha[2]=0;
+
+    /* ... or with alpha in one of its vertices. */
+    BOARD(); tris[3].rgba[7]=200;
+    assert(levelPaintRun(tris,5,pass,texAlpha,&painted)==5 && painted==0);
+
+    /* A black cover is a cast shadow, drawn see-through (markLevelShadows()). */
+    BOARD();
+    for (int t=3;t<5;t++) for (int v=0;v<3;v++) memset(tris[t].rgba+v*4,0,3);
+    assert(levelPaintRun(tris,5,pass,texAlpha,&painted)==5 && painted==0);
+
+    /* An opaque-pass paper is under no blended paint. */
+    BOARD(); pass[2]=0;
+    assert(levelPaintRun(tris,5,pass,texAlpha,&painted)==5 && painted==0);
+    pass[2]=LDECAL_PASS_BLEND;
+
+    /* A cover drawn in the opaque pass (a twin) comes before the blended paper. */
+    BOARD(); pass[3]=pass[4]=LDECAL_PASS_BLEND|LDECAL_PASS_TWIN;
+    assert(levelPaintRun(tris,5,pass,texAlpha,&painted)==5 && painted==0);
+    pass[3]=pass[4]=LDECAL_PASS_BLEND;
+
+    /* Drawn after the cork, the paper is painted on it. */
+    BOARD();
+    { struct gevrBeanTri p=tris[2]; tris[2]=tris[3]; tris[3]=tris[4]; tris[4]=p; }
+    assert(levelPaintRun(tris,5,pass,texAlpha,&painted)==5 && painted==0);
+
+    /* A paper hanging off the cork's edge onto the bare wall stays. */
+    {
+        static const float corkA[9] = {0,0,0, 50,0,0, 50,100,0};
+        static const float corkB[9] = {0,0,0, 50,100,0, 0,100,0};
+        static const float over[9] = {20,20,0.25f, 80,20,0.25f, 20,60,0.25f};
+        BOARD(); levelPaintTri(&tris[2],over,1); levelPaintTri(&tris[3],corkA,2); levelPaintTri(&tris[4],corkB,2);
+        assert(levelPaintRun(tris,5,pass,texAlpha,&painted)==5 && painted==0);
+    }
+
+    /* A cork facing away from the paper (the wall's back) hides nothing. */
+    BOARD();
+    for (int t=3;t<5;t++) {
+        float c[3]; memcpy(c,tris[t].p+3,sizeof(c));
+        memcpy(tris[t].p+3,tris[t].p+6,sizeof(c)); memcpy(tris[t].p+6,c,sizeof(c));
+    }
+    assert(levelPaintRun(tris,5,pass,texAlpha,&painted)==5 && painted==0);
+#undef BOARD
+    puts("Bean blended faces a later opaque blended face paints over wholly are left out (Archives' bulletin board)");
+}

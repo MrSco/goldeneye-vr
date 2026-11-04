@@ -900,8 +900,8 @@ done:
  * in its converted level, Bean units times the stage row's scale
  * (gebeanstagetable.h), so its distances are divided by that scale here.
  * Not ported: markBacked(), markFights() and markOverlaps() (no face here is
- * drawn culled, so DAB's triCulled() is false) and the blended faces a later
- * blended one paints over, which DAB leaves out. */
+ * drawn culled, so DAB's triCulled() is false). The blended faces a later
+ * blended one paints over, which DAB leaves out, are levelPainted(). */
 #define LDECAL_DIST 1.0f
 #define LDECAL_COS 0.999f
 #define LDECAL_CELL 64.0f
@@ -1141,19 +1141,15 @@ static int levelCandidate(const struct levelDecals *l, int i, const float *ni, i
 	return 1;
 }
 
-/* decalCovered(): its middle, and its corners and the middles of its edges
- * pulled a tenth of the way in, each on a triangle of another picture */
-static int levelCovered(struct levelDecals *l, int i)
+/* markPointsOn(..., all): triangle i's middle, and its corners and the
+ * middles of its edges pulled a tenth of the way in, each within reach of a
+ * triangle o that on(l, i, o) accepts */
+static int levelPointsOn(const struct levelDecals *l, int i, int (*on)(const struct levelDecals *, int, int))
 {
 	const float *p = l->mesh->tris[i].p;
 	float pts[7][3], mid[3];
 	uint32_t key[7];
 	uint8_t hit[7] = { 0 }, done[7] = { 0 };
-	if (l->full[i] >= 0)
-		return l->full[i];
-	l->full[i] = 0;
-	if (l->nrm[i][3] <= 0)
-		return 0;
 	for (int j = 0; j < 3; j++)
 		mid[j] = (p[j] + p[3 + j] + p[6 + j]) / 3.0f;
 	memcpy(pts[0], mid, sizeof(mid));
@@ -1180,7 +1176,7 @@ static int levelCovered(struct levelDecals *l, int i)
 			}
 		for (int e = l->head[key[k]]; e >= 0 && left > 0; e = l->next[e]) {
 			const int o = l->item[e];
-			if (!levelCandidate(l, i, l->nrm[i], o))
+			if (!on(l, i, o))
 				continue;
 			for (int m = k; m < 7; m++)
 				if (key[m] == key[k] && !hit[m] && levelTriDist(l, pts[m], o) <= l->dist * l->dist) {
@@ -1191,7 +1187,23 @@ static int levelCovered(struct levelDecals *l, int i)
 		if (left > 0)
 			return 0;
 	}
-	return l->full[i] = 1;
+	return 1;
+}
+
+static int levelCoveredBy(const struct levelDecals *l, int i, int o)
+{
+	return levelCandidate(l, i, l->nrm[i], o);
+}
+
+/* decalCovered(): every point on a triangle of another picture */
+static int levelCovered(struct levelDecals *l, int i)
+{
+	if (l->full[i] >= 0)
+		return l->full[i];
+	l->full[i] = 0;
+	if (l->nrm[i][3] <= 0)
+		return 0;
+	return l->full[i] = (int8_t)levelPointsOn(l, i, levelCoveredBy);
 }
 
 /* decalLater(): the blended pass is drawn after the opaque one, a twin with
@@ -1200,6 +1212,46 @@ static int levelLater(const struct levelDecals *l, int i, int o)
 {
 	const int tpass = levelBlend(l, i) && !levelTwin(l, i), upass = levelBlend(l, o) && !levelTwin(l, o);
 	return tpass != upass ? tpass > upass : i > o;
+}
+
+/* A blended face o drawn after the blended face i, in its plane and facing
+ * its way, that leaves nothing of i showing where it lies: no alpha in its
+ * picture or its vertices. Not a plain face (no picture of its own:
+ * fixPlainLevelFaces() may drop it) and not an all-black one (a cast shadow,
+ * drawn see-through: markLevelShadows()). */
+static int levelPainter(const struct levelDecals *l, int i, int o)
+{
+	const struct gevrBeanTri *u = &l->mesh->tris[o];
+	int black = 1;
+	if (!levelBlend(l, o) || !levelLater(l, o, i) || levelAlpha(l, o) || (u->flags & GEVR_BEAN_F_PLAIN) ||
+	    levelDot(l->nrm[i], l->nrm[o]) < LDECAL_COS || !levelCandidate(l, i, l->nrm[i], o))
+		return 0;
+	for (int k = 0; k < 3; k++) {
+		if (u->rgba[k * 4 + 3] != 255)
+			return 0;
+		black &= !u->rgba[k * 4] && !u->rgba[k * 4 + 1] && !u->rgba[k * 4 + 2];
+	}
+	return !black;
+}
+
+/* DAB decalPick()/markDecals() (painted, left out of the level): the
+ * release's blended pass writes no depth, so of two blended faces in one
+ * plane the later paints over the earlier, and a blended face wholly under
+ * later ones with no alpha anywhere is never seen. Archives' bulletin board
+ * is a blended cork, at its wall's depth to the bit, drawn after three
+ * blended papers, and the release shows the board bare (DAB, F3
+ * 20261001-043410). Here the papers and the cork were both decals, pulled
+ * off the wall by the same reach, and the papers fought the cork in a grain
+ * that came and went as you moved (user, Archives, 2026-11-02). DAB asks of
+ * the first painter its pick meets whether the face lies wholly on other
+ * pictures; here each of decalCovered()'s seven points must lie on a
+ * painter, whatever order the grid walks them in, so a face that is only
+ * partly painted over stays. */
+static int levelPainted(const struct levelDecals *l, int i)
+{
+	if (!levelBlend(l, i) || l->nrm[i][3] <= 0)
+		return 0;
+	return levelPointsOn(l, i, levelPainter);
 }
 
 /* decalPick(): the face triangle i is drawn as the decal of, or -1 */
@@ -1365,8 +1417,9 @@ static void markLevelDecals(struct gevrBeanMesh *mesh, const uint8_t *pass, int 
 	}
 	/* A twin stays marked: it is drawn blended over its own draw */
 	for (int i = 0; i < n; i++)
-		mesh->tris[i].flags = (uint8_t)((mesh->tris[i].flags & ~GEVR_BEAN_F_DECAL) |
-		                                (l.decal[i] || levelTwin(&l, i) ? GEVR_BEAN_F_DECAL : 0));
+		mesh->tris[i].flags = (uint8_t)((mesh->tris[i].flags & ~(GEVR_BEAN_F_DECAL | GEVR_BEAN_F_PAINTED)) |
+		                                (l.decal[i] || levelTwin(&l, i) ? GEVR_BEAN_F_DECAL : 0) |
+		                                (levelPainted(&l, i) ? GEVR_BEAN_F_PAINTED : 0));
 done:
 	free(bystrip);
 	free(l.nrm);
@@ -1384,12 +1437,19 @@ done:
  * Bunker's helipad has 107 white triangles shaded entirely by that shader.
  * Sampling the preceding draw's picture at (0,0) painted a flat grey band
  * over the textured pad. Drop these white overlays only after identifying
- * their underlying surface; other plain faces retain their vertex colours. */
-static void fixPlainLevelFaces(struct gevrBeanMesh *mesh)
+ * their underlying surface; other plain faces retain their vertex colours.
+ * The blended faces a later blended one paints over (levelPainted()) go too;
+ * their count is returned. After markLevelShadows(), which reads pass[] by
+ * the triangles' indices. */
+static int fixPlainLevelFaces(struct gevrBeanMesh *mesh)
 {
-	int kept = 0;
+	int kept = 0, painted = 0;
 	for (int i = 0; i < mesh->ntris; i++) {
 		struct gevrBeanTri *t = &mesh->tris[i];
+		if (t->flags & GEVR_BEAN_F_PAINTED) {
+			painted++;
+			continue;
+		}
 		if (t->flags & GEVR_BEAN_F_PLAIN) {
 			int white = 1;
 			for (int k = 0; k < 12; k++) white &= t->rgba[k] == 255;
@@ -1401,6 +1461,7 @@ static void fixPlainLevelFaces(struct gevrBeanMesh *mesh)
 		kept++;
 	}
 	mesh->ntris = kept;
+	return painted;
 }
 
 /* DAB gebeanstage.c markShadows(): a cast shadow is a decal whose corners
@@ -2390,7 +2451,10 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		                levelDecalScale(source));
 		mesh->shadows = markLevelShadows(mesh, triPass, passCap < mesh->ntris ? passCap : mesh->ntris,
 		                                 texAlpha, texSoft);
-		fixPlainLevelFaces(mesh);
+		const int painted = fixPlainLevelFaces(mesh);
+		if (painted)
+			GEVR_BEAN_LOG("gevr bean: %s: %d blended triangles a later blended one paints over left out\n",
+			              source, painted);
 		clampLevelCutouts(mesh, texAlpha);
 	} else if (rigidDecals)
 		markRigidDecals(mesh, texAlpha);

@@ -153,6 +153,7 @@ int main(void)
 	gevrBeanTexReset();
 	free(mesh.tris);
     levelSameTextureDecalChecks();
+    levelPaintedChecks();
     puts("Bean vertex layout and palette checks passed");
     return 0;
 }

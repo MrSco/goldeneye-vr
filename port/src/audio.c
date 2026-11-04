@@ -149,8 +149,14 @@ void audioEndFrame(void)
         if (!lastReport) lastReport = now;
         if (now - lastReport >= 2000000) {
             extern u32 g_gevrMixClips;   /* mixer.c: dry-mix samples clipped */
-            sysLogPrintf(LOG_NOTE, "audio queue: frames=%u..%u empty=%u dropped=%u maxgap=%u us clipped=%u",
-                         minQueued, maxQueued, empty, dropped, maxGap, g_gevrMixClips);
+            /* synthesizer.c: the update pool and voices (#229) */
+            extern void gevrSynStats(u32 *, u32 *, u32 *, u32 *, u32 *, u32 *);
+            u32 updFree, updLow, updFailed, voices, orphans, longest;
+            gevrSynStats(&updFree, &updLow, &updFailed, &voices, &orphans, &longest);
+            sysLogPrintf(LOG_NOTE, "audio queue: frames=%u..%u empty=%u dropped=%u maxgap=%u us clipped=%u"
+                         " updates=%u free (low %u, refused %u) voices=%u orphans=%u longest queue=%u",
+                         minQueued, maxQueued, empty, dropped, maxGap, g_gevrMixClips,
+                         updFree, updLow, updFailed, voices, orphans, longest);
             g_gevrMixClips = 0;
             lastReport = now;
             empty = dropped = maxQueued = maxGap = 0;
