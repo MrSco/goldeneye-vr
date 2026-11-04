@@ -28,8 +28,8 @@ android {
         applicationId "com.gevr.port"
         minSdk 24
         targetSdk 34
-        versionCode 103
-        versionName "0.5.15-test.8"
+        versionCode 104
+        versionName "0.5.15-test.9"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 

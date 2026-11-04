@@ -249,6 +249,10 @@ is goldeneyevr.com, in its own repository.
   on by default), your name and status at the top of the panel, ten renames
   a day; the in-game panel's text boxes get the headset keyboard.
   v0.5.15-test.8 (vc 103).
+- Discord invites both ways (Rich Presence join secret, Invite from Discord,
+  invites received, Join from Discord's app) and goldeneyevr.com/join links
+  (goldeneyevr://join/CODE). Link Discord confirmed on the user's Quest once
+  its Discord app was current. v0.5.15-test.9 (vc 104).
 - Crash reports land as issues in the private MrSco/goldeneye-vr-reports,
   decoded by its Digest workflow; each build's symbols zip goes to its
   "symbols" release.
