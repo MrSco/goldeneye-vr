@@ -58,7 +58,8 @@ extern char VrPlayerName[16];  // multiplayer name, up to 15 characters (launche
 extern int VrMpStage, VrMpWeaponSet, VrMpChr, VrMpVisibility;
 // Friends page (vr_friends.cpp): what friends see, and whether the restore code was noted.
 extern int VrFriendsShowDetail, VrFriendsAppearOffline, VrFriendsRestoreNoted;
-extern int VrFriendsSidebar;   // the launcher's friends sidebar open (1) or folded to a strip (0)
+extern int VrFriendsSidebar;
+extern int VrFriendsSearchable;   // "Show me in search": others find this player by name   // the launcher's friends sidebar open (1) or folded to a strip (0)
 extern int VrMpVoiceMode;
 extern int VrMpFriendlyFire;
 extern int VrHordeFriendlyFire;

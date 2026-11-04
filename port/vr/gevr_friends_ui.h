@@ -15,7 +15,7 @@
 
 extern "C" void vrSettingsSave(void);
 extern char VrPlayerName[16];
-extern int VrFriendsShowDetail, VrFriendsAppearOffline, VrFriendsRestoreNoted, VrFriendsSidebar;
+extern int VrFriendsShowDetail, VrFriendsAppearOffline, VrFriendsRestoreNoted, VrFriendsSidebar, VrFriendsSearchable;
 
 // Every ImGui surface (the launcher, the hold-Menu panel, the online pause) is
 // 1280 x 960 with the Friends side panel to its right, open or folded to a
@@ -31,6 +31,9 @@ struct GevrFriendsUiState {
     bool showRestore = false;
     std::string confirmId, confirmName;
     int confirmKind = 0;   // 1 remove, 2 block, 3 unlink Discord
+    bool editingName = false;
+    char name[16] = "";
+    char search[33] = "";
 };
 
 // What the place it is drawn in allows.
@@ -42,6 +45,7 @@ struct GevrFriendsUiContext {
     const char *lobby = "";        // this headset's lobby code, or ""
     int netVersion = 0;            // GEVR_NET_VERSION
     const char *message = "";      // the last notice or error, while it is fresh
+    bool canRename = true;         // not while in an online game, whose players know you by it
 };
 
 inline const char *gevrFriendStateText(const GevrFriend &f) {
@@ -62,6 +66,11 @@ inline std::string gevrRestoreCodeText(const std::string &code) {
     return out;
 }
 
+// A player name: printable ASCII without '|', as the Multiplayer page's name box.
+inline int gevrPlayerNameFilter(ImGuiInputTextCallbackData *data) {
+    return data->EventChar < 0x20 || data->EventChar > 0x7e || data->EventChar == '|';
+}
+
 inline int gevrFriendCodeFilter(ImGuiInputTextCallbackData *data) {
     ImWchar c = data->EventChar;
     if (c >= 'a' && c <= 'z') c = (ImWchar)(c - 'a' + 'A');
@@ -72,11 +81,11 @@ inline int gevrFriendCodeFilter(ImGuiInputTextCallbackData *data) {
 // A row of small buttons that wraps to the next line when the next would not fit.
 struct GevrButtonRow {
     float right;
-    bool first = true;
-    GevrButtonRow() : right(ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x) {}
+    bool first = true, afterItem = false;   // afterItem: the first button may join the line before it
+    explicit GevrButtonRow(bool after = false) : right(ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x), afterItem(after) {}
     bool button(const char *label, bool enabled = true, const char *tip = nullptr) {
         const float w = ImGui::CalcTextSize(label, nullptr, true).x + ImGui::GetStyle().FramePadding.x * 2;
-        if (!first && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + w <= right) ImGui::SameLine();
+        if ((!first || afterItem) && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + w <= right) ImGui::SameLine();
         first = false;
         ImGui::BeginDisabled(!enabled);
         const bool clicked = ImGui::SmallButton(label);
@@ -104,8 +113,39 @@ inline void gevrFriendsSidebar(GevrFriendsUiState &ui, const GevrFriendsUiContex
                                const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad) {
     const GevrFriendsModel &m = gevrFriends();
     ImGui::BeginChild("##friends-scroll", ImVec2(0, 0), ImGuiChildFlags_None);
-    if (m.status == "ready")
-        ImGui::TextDisabled("You: %s  %s", VrPlayerName, gevrFriendCodeText(m.friendCode).c_str());
+    // You (user, 2026-11-04: the name lives here, as on Steam): name, code, status.
+    if (ui.editingName) {
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8);
+        if (!ImGui::IsAnyItemActive()) ImGui::SetKeyboardFocusHere();
+        const bool done = ImGui::InputText("##my-name", ui.name, sizeof(ui.name),
+                                           ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackCharFilter, gevrPlayerNameFilter);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Save") || done) { gevrFriendsSetName(ui.name); ui.editingName = false; }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Cancel")) ui.editingName = false;
+    } else {
+        ImGui::TextColored(good, "%s", VrPlayerName);
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!ctx.canRename);
+        if (ImGui::SmallButton("Edit##name")) { snprintf(ui.name, sizeof(ui.name), "%s", VrPlayerName); ui.editingName = true; }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            gevrTooltip("%s", ctx.canRename ? "Your name: friends, lobbies and matches show it. Ten changes a day."
+                                            : "Leave the online game to change your name.");
+    }
+    if (m.status == "ready") ImGui::TextDisabled("%s", gevrFriendCodeText(m.friendCode).c_str());
+    if (m.status == "ready") {
+        ImGui::SameLine();
+        static const char *const kStatus[] = {"Online", "Appear offline"};
+        int status = VrFriendsAppearOffline ? 1 : 0;
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7.5f);
+        if (ImGui::Combo("##my-status", &status, kStatus, 2)) {
+            VrFriendsAppearOffline = status;
+            vrSettingsSave();
+            gevrFriendsSendSettings();
+        }
+        if (ImGui::IsItemHovered()) gevrTooltip("Appear offline: friends see you as offline. You still get requests and invites.");
+    }
     if (m.status == "signed_out") {
         ImGui::TextColored(bad, "Signed out");
         ImGui::TextWrapped("%s was restored on another headset. Restore it below, or start again with a new code.",
@@ -224,8 +264,40 @@ inline void gevrFriendsSidebar(GevrFriendsUiState &ui, const GevrFriendsUiContex
     }
     ImGui::Separator();
 
-    if (ImGui::CollapsingHeader("Add a friend")) {
-        ImGui::TextWrapped("Your code is %s. Give it to a friend, or type theirs:", gevrFriendCodeText(m.friendCode).c_str());
+    if (ImGui::CollapsingHeader("Find a friend", m.friends.empty() ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9);
+        const bool go = ImGui::InputTextWithHint("##search", "name", ui.search, sizeof(ui.search),
+                                                 ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackCharFilter, gevrPlayerNameFilter);
+        ImGui::SameLine();
+        ImGui::BeginDisabled(m.status != "ready" || strlen(ui.search) < 3 || m.searching);
+        if (ImGui::SmallButton("Search") || (go && strlen(ui.search) >= 3 && m.status == "ready"))
+            gevrFriendsSend(std::string("search|") + ui.search);
+        ImGui::EndDisabled();
+        if (m.searching) ImGui::TextDisabled("Searching...");
+        else if (!m.searchQuery.empty() && m.search.empty()) ImGui::TextDisabled("Nobody called \"%s\" shows in search.", m.searchQuery.c_str());
+        for (const GevrFriendSearchResult &r : m.search) {
+            ImGui::PushID(r.id.c_str());
+            ImGui::TextUnformatted(r.name.c_str());
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", gevrFriendCodeText(r.code).c_str());
+            GevrButtonRow row(true);   // beside them when it fits, else under them
+            if (r.relation == "none") {
+                if (row.button("Add")) {
+                    gevrFriendsSend("add|" + r.code);
+                    gevrFriendsSend("search|" + m.searchQuery);   // the row then says Request sent
+                }
+            } else if (r.relation == "request") {
+                if (row.button("Accept")) {
+                    gevrFriendsSend("answer|" + r.id + "|1");
+                    gevrFriendsSend("search|" + m.searchQuery);
+                }
+            } else {
+                row.button(r.relation == "friends" ? "Friends" : "Request sent", false);
+            }
+            ImGui::PopID();
+        }
+        ImGui::Spacing();
+        ImGui::TextWrapped("Or by friend code (yours is %s):", gevrFriendCodeText(m.friendCode).c_str());
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.5f);
         ImGui::InputTextWithHint("##add-code", "GE-XXXXXX", ui.addCode, sizeof(ui.addCode),
                                  ImGuiInputTextFlags_CallbackCharFilter, gevrFriendCodeFilter);
@@ -257,14 +329,14 @@ inline void gevrFriendsSidebar(GevrFriendsUiState &ui, const GevrFriendsUiContex
         }
     }
     if (ImGui::CollapsingHeader("Privacy and restore code")) {
-        bool detail = VrFriendsShowDetail != 0, hidden = VrFriendsAppearOffline != 0, changed = false;
+        bool detail = VrFriendsShowDetail != 0, findable = VrFriendsSearchable != 0, changed = false;
         if (ImGui::Checkbox("Show what I'm playing", &detail)) { VrFriendsShowDetail = detail; changed = true; }
         if (ImGui::IsItemHovered()) gevrTooltip("Friends see the mission or map, the mode and the players.");
-        if (ImGui::Checkbox("Appear offline", &hidden)) { VrFriendsAppearOffline = hidden; changed = true; }
-        if (ImGui::IsItemHovered()) gevrTooltip("Friends see you as offline. You still get requests and invites.");
+        if (ImGui::Checkbox("Show me in search", &findable)) { VrFriendsSearchable = findable; changed = true; }
+        if (ImGui::IsItemHovered()) gevrTooltip("Others can find you by name (never whether you are online). Off: only your friend code adds you.");
         if (changed) {
             vrSettingsSave();
-            gevrFriendsSend(std::string("settings|") + (VrFriendsShowDetail ? "1" : "0") + "|" + (VrFriendsAppearOffline ? "1" : "0"));
+            gevrFriendsSendSettings();
         }
         ImGui::Text("Restore code: %s", ui.showRestore ? gevrRestoreCodeText(m.restoreCode).c_str() : "****-****-****-****");
         ImGui::SameLine();

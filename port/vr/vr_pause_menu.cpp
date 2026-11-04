@@ -28,6 +28,8 @@ int gevrVrRowRead(int section,int index,const char**label,char*value,int size);v
 int lvlGetSelectedDifficulty(void);
 }
 extern int VrCampaign;
+// vr_launcher.cpp: the headset keyboard for text boxes, as in the launcher
+void gevrTextInputBegin();void gevrTextInputFeed(ImGuiIO&);void gevrTextInputShow(const ImGuiIO&);void gevrTextInputEnd();
 namespace {
 ImGuiContext* context=nullptr;
 GLuint texture=0,framebuffer=0,icon=0;
@@ -48,6 +50,7 @@ void drawFriends() {
     ctx.inviteHint=!netIsActive()?"Invite from a lobby: host one on the launcher's Multiplayer page."
         :!lobby[0]?"This game has no internet lobby to invite into.":!open?"This match is full.":"Invite them into this match.";
     ctx.lobby=lobby;ctx.netVersion=GEVR_NET_VERSION;ctx.message=gevrFriendsFreshMessage();
+    ctx.canRename=!netIsActive();
     gevrFriendsSidePanel(friendsUi,ctx,ImVec4(.88f,.69f,.25f,1),ImVec4(.5f,.9f,.5f,1),ImVec4(.95f,.5f,.4f,1));
 }
 // A join asked for in the sidebar: confirmed, it leaves for the launcher, which joins.
@@ -113,7 +116,7 @@ extern "C" void gevrNativePauseRender(void) {
     const bool open=gevrNativePauseOpen()!=0;
     vr_screen_set_overlay(open);
     if(!open){
-        if(wasOpen)vr_screen_set_width_scale(1.0f);   /* the game's own screen is 4:3 */
+        if(wasOpen){vr_screen_set_width_scale(1.0f);gevrTextInputEnd();}   /* the game's own screen is 4:3 */
         wasOpen=false;return;
     }
     const bool panel=gevrPanelIsOpen()!=0;
@@ -131,7 +134,8 @@ extern "C" void gevrNativePauseRender(void) {
     vr_screen_set_width_scale((float)canvasW/(float)kGevrSurfaceW);
     io.DeltaTime=last?fmaxf(.001f,fminf(.1f,(float)(now-last)/SDL_GetPerformanceFrequency())):1.f/72;last=now;
     vr_screen_set_visible(1);
-    if(!wasOpen || panel!=wasPanel){ui=GevrPauseUi();panelUi=GevrPanelUi();if(!wasOpen)vr_screen_recenter();io.ClearInputKeys();}
+    if(!wasOpen || panel!=wasPanel){ui=GevrPauseUi();panelUi=GevrPanelUi();if(!wasOpen){vr_screen_recenter();gevrTextInputBegin();}io.ClearInputKeys();}
+    gevrTextInputFeed(io);
     gevrFeedPauseInput(!wasOpen || panel!=wasPanel);wasOpen=true;wasPanel=panel;
     ImGui_ImplOpenGL3_NewFrame();ImGui::NewFrame();
     const bool popupWasOpen=ImGui::IsPopupOpen(nullptr,ImGuiPopupFlags_AnyPopupId|ImGuiPopupFlags_AnyPopupLevel);
@@ -188,7 +192,7 @@ extern "C" void gevrNativePauseRender(void) {
         ImGui::GetForegroundDrawList()->AddCircleFilled(io.MousePos,8,IM_COL32(255,214,120,255));
         ImGui::GetForegroundDrawList()->AddCircle(io.MousePos,11,IM_COL32(255,255,255,255));
     }
-    ImGui::Render();glBindFramebuffer(GL_FRAMEBUFFER,framebuffer);glViewport(0,0,canvasW,kGevrSurfaceH);glDisable(GL_SCISSOR_TEST);
+    ImGui::Render();gevrTextInputShow(io);glBindFramebuffer(GL_FRAMEBUFFER,framebuffer);glViewport(0,0,canvasW,kGevrSurfaceH);glDisable(GL_SCISSOR_TEST);
     glClearColor(.06f,.06f,.06f,1);glClear(GL_COLOR_BUFFER_BIT);ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
     vr_screen_present_tex2d(texture,canvasW,kGevrSurfaceH);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER,(GLuint)drawFbo);glBindFramebuffer(GL_READ_FRAMEBUFFER,(GLuint)readFbo);

@@ -80,9 +80,29 @@ Decisions so far (user, 2026-11-04):
   by signing in.
 - Dedicated servers get no player ID and never appear as players.
 
+## Names and search
+
+Decided with the user, 2026-11-04:
+
+- **Display names, not unique** (as on Steam): the existing player name, 1-15
+  printable characters. Edited at the top of the Friends panel (beside the
+  friend code and an Online / Appear offline status), or on the Multiplayer
+  page; not while in an online game. The lobby service keeps at most **ten
+  renames a day** per player, so a name cannot churn to pass for someone else;
+  a rename it keeps back says so once.
+- **Search by name** ("Find a friend"): 3+ characters, any case, part of the
+  name; up to 20 results, exact names first, then the most recently seen.
+  Each result shows the name and friend code (names repeat) and Add, Accept,
+  Request sent or Friends. Never whether someone is online. Players blocked
+  either way are left out. 30 searches a minute per player.
+- **Show me in search**, under Privacy, **on by default**: off, only a friend
+  code finds you. `POST /v1/me/search {q}`; `searchable` in the settings and
+  the players table (`FriendsSearchable` in the ini).
+
 ## Friends
 
-- Add by friend code. The other player sees a request and accepts or declines.
+- Add by name search or friend code. The other player sees a request and
+  accepts or declines.
 - Remove a friend, block a player (blocked players cannot send requests or
   invites and do not see your presence). Limits: 200 friends, 50 pending
   requests, 20 requests sent a day.

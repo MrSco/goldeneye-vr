@@ -14,7 +14,7 @@ static void check(bool ok, const char *message) { if (!ok) { fprintf(stderr, "FA
 
 // vr_friends.cpp and the settings, faked
 char VrPlayerName[16] = "Agent 007 VRXYZ";
-int VrFriendsShowDetail = 1, VrFriendsAppearOffline = 0, VrFriendsRestoreNoted = 0, VrFriendsSidebar = 1;
+int VrFriendsShowDetail = 1, VrFriendsAppearOffline = 0, VrFriendsRestoreNoted = 0, VrFriendsSidebar = 1, VrFriendsSearchable = 1;
 extern "C" void vrSettingsSave(void) {}
 static GevrFriendsModel model;
 static std::vector<std::string> sent;
@@ -25,6 +25,8 @@ void gevrFriendsInvite(const std::string &id) { invited = id; }
 void gevrFriendsJoin(const std::string &code) { joined = code; }
 void gevrFriendsAnswerInvite(const GevrFriendInvite &invite, bool join) { if (join) joined = invite.lobby; }
 std::string gevrFriendCodeText(const std::string &code) { return "GE-" + code; }
+void gevrFriendsSendSettings(void) {}
+void gevrFriendsSetName(const char *) {}
 static int discordState = GEVR_DISCORD_CONNECTED;
 int gevrDiscordState(void) { return discordState; }
 const char *gevrDiscordName(void) { return "A very long Discord display name"; }
@@ -78,6 +80,10 @@ int main() {
         if (i < 6) { f.lobby = "LOBBY00" + std::to_string(i); f.players = 3; f.maxPlayers = 8; f.lobbyVersion = 25; }
         model.friends.push_back(f);
     }
+    model.searchQuery = "Natalya";
+    for (int i = 0; i < 20; i++) model.search.push_back({"s" + std::to_string(i), "Natalya Simonov" + std::to_string(i % 10), "SSSSSS",
+                                                         i % 4 == 0 ? "none" : i % 4 == 1 ? "sent" : i % 4 == 2 ? "request" : "friends"});
+    model.friends.clear();   // no friends yet: Find a friend opens by itself, and is measured
     ctx.canJoin = ctx.canInvite = true; ctx.netVersion = 25; ctx.lobby = "";
     ctx.message = "That player is not taking friend requests";
 

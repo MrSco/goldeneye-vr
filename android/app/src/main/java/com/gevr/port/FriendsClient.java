@@ -52,7 +52,8 @@ final class FriendsClient {
     private String discordRefresh = "", discordName = "";
     private String state = "launcher", lobby = "", name = "", detail = "";
     private int version;
-    private boolean showDetail = true, appearOffline;
+    private boolean showDetail = true, appearOffline, searchable = true;
+    private String refusedName = "";   // a rename the Worker kept back (ten a day), said once
     private boolean settingsDirty;
     private long lastKeepalive, lastSent, nextPresence, nextRegister;
     private String lastError = "";
@@ -113,12 +114,31 @@ final class FriendsClient {
                 break;
             }
             case "settings":
-                if (f.length != 3) return;
+                // settings|showDetail|appearOffline[|searchable]
+                if (f.length != 3 && f.length != 4) return;
                 showDetail = "1".equals(f[1]);
                 appearOffline = "1".equals(f[2]);
+                if (f.length == 4) searchable = "1".equals(f[3]);
                 settingsDirty = true;
                 if ("ready".equals(status)) putSettings();
                 break;
+            case "search": {
+                // search|text: players by name (vr_friends.cpp shows SEARCH lines between BEGIN and END)
+                if (f.length != 2 || !ready()) return;
+                emit("SEARCH_BEGIN|" + clean(f[1]));
+                try {
+                    JSONArray results = http.call("POST", BASE + "/me/search", new JSONObject().put("q", f[1]), token())
+                            .optJSONArray("results");
+                    for (int i = 0; results != null && i < results.length(); i++) {
+                        JSONObject x = results.getJSONObject(i);
+                        emit("SEARCH|" + x.getString("id") + "|" + clean(x.getString("name")) + "|" + x.getString("code") + "|"
+                                + x.optString("relation", "none"));
+                    }
+                } finally {
+                    emit("SEARCH_END");
+                }
+                break;
+            }
             case "refresh":
                 nextPresence = Math.max(now, lastSent + 1000);
                 break;
@@ -311,7 +331,8 @@ final class FriendsClient {
     }
 
     private void putSettings() throws Exception {
-        http.call("PUT", BASE + "/me/settings", new JSONObject().put("showDetail", showDetail).put("appearOffline", appearOffline), token());
+        http.call("PUT", BASE + "/me/settings", new JSONObject().put("showDetail", showDetail).put("appearOffline", appearOffline)
+                .put("searchable", searchable), token());
         settingsDirty = false;
         emitMe();
     }
@@ -328,6 +349,13 @@ final class FriendsClient {
         if (me != null) {
             showDetail = settingsDirty ? showDetail : me.optBoolean("showDetail", showDetail);
             appearOffline = settingsDirty ? appearOffline : me.optBoolean("appearOffline", appearOffline);
+            searchable = settingsDirty ? searchable : me.optBoolean("searchable", searchable);
+            // the Worker keeps a name back after ten renames in a day
+            String kept = me.optString("name", name);
+            if (!kept.equals(name) && !name.equals(refusedName)) {
+                refusedName = name;
+                emit("NOTICE|Names can change ten times a day; friends still see " + clean(kept));
+            }
         }
         emitMe();
         emit("FRIENDS_BEGIN");
@@ -361,7 +389,8 @@ final class FriendsClient {
     }
 
     private void emitMe() {
-        emit("ME|" + status + "|" + friendCode + "|" + restoreCode + "|" + (showDetail ? 1 : 0) + "|" + (appearOffline ? 1 : 0));
+        emit("ME|" + status + "|" + friendCode + "|" + restoreCode + "|" + (showDetail ? 1 : 0) + "|" + (appearOffline ? 1 : 0)
+                + "|" + (searchable ? 1 : 0));
     }
 
     private void error(String message) {

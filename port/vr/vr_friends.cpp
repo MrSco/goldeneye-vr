@@ -29,6 +29,7 @@ int gevrVrSessionRunning(void);   /* vr_openxr.cpp */
 int bossGetStageNum(void);        /* boss.c */
 int lvlGetSelectedDifficulty(void);   /* lv.c (a DIFFICULTY) */
 void vrEnsurePlayerName(void);        /* vr_settings.cpp */
+void vrSettingsSave(void);
 }
 
 namespace {
@@ -136,6 +137,7 @@ void handle(const std::vector<std::string> &f, bool inGame) {
         s_model.restoreCode = f[3];
         s_model.showDetail = f[4] == "1";
         s_model.appearOffline = f[5] == "1";
+        if (f.size() >= 7) s_model.searchable = f[6] == "1";
         s_staging.status = s_model.status;
     } else if (kind == "FRIENDS_BEGIN") {
         s_staging = GevrFriendsModel();
@@ -164,6 +166,10 @@ void handle(const std::vector<std::string> &f, bool inGame) {
         s_staging.showDetail = s_model.showDetail;
         s_staging.appearOffline = s_model.appearOffline;
         s_staging.invited = s_model.invited;
+        s_staging.searchable = s_model.searchable;
+        s_staging.searchQuery = s_model.searchQuery;
+        s_staging.search = s_model.search;
+        s_staging.searching = s_model.searching;
         s_staging.message = s_model.message;
         s_staging.messageMs = s_model.messageMs;
         s_staging.loaded = true;
@@ -183,6 +189,14 @@ void handle(const std::vector<std::string> &f, bool inGame) {
             s_model.invited.push_back(f[1]);
         for (const GevrFriend &x : s_model.friends)
             if (x.id == f[1]) setMessage("Invited " + x.name);
+    } else if (kind == "SEARCH_BEGIN") {
+        s_model.searchQuery = f.size() >= 2 ? f[1] : "";
+        s_model.search.clear();
+        s_model.searching = true;
+    } else if (kind == "SEARCH" && f.size() >= 5) {
+        s_model.search.push_back({f[1], f[2], f[3], f[4]});
+    } else if (kind == "SEARCH_END") {
+        s_model.searching = false;
     } else if (kind == "DISCORD" && f.size() >= 3) {
         gevrDiscordOnLinked(f[1] == "linked", f[2]);
     } else if (kind == "DISCORD_TOKEN" && f.size() >= 2 && !f[1].empty()) {
@@ -276,6 +290,25 @@ bool gevrFriendsTakeHostRequest(void) {
 }
 
 void gevrFriendsJoin(const std::string &lobbyCode) { s_joinCode = lobbyCode; }
+
+void gevrFriendsSendSettings(void) {
+    gevrFriendsSend(std::string("settings|") + (VrFriendsShowDetail ? "1" : "0") + "|" + (VrFriendsAppearOffline ? "1" : "0") +
+                    "|" + (VrFriendsSearchable ? "1" : "0"));
+}
+
+void gevrFriendsSetName(const char *name) {
+    // what the Multiplayer page's name box allows: printable ASCII, no '|', no spaces at the ends
+    std::string tidy;
+    for (const char *c = name; *c && tidy.size() < sizeof(VrPlayerName) - 1; c++)
+        if (*c >= 0x20 && *c <= 0x7e && *c != '|') tidy.push_back(*c);
+    while (!tidy.empty() && tidy.back() == ' ') tidy.pop_back();
+    const size_t start = tidy.find_first_not_of(' ');
+    tidy = start == std::string::npos ? "" : tidy.substr(start);
+    if (tidy.empty() || tidy == VrPlayerName) return;
+    snprintf(VrPlayerName, sizeof(VrPlayerName), "%s", tidy.c_str());
+    vrSettingsSave();   // the presence line carries it to the lobby service within a second
+    vr_log("friends: name changed");
+}
 bool gevrFriendsJoinPending(void) { return !s_joinCode.empty(); }
 std::string gevrFriendsTakeJoin(void) {
     std::string code;
@@ -325,7 +358,7 @@ extern "C" void gevrFriendsTick(int inGame) {
     vrEnsurePlayerName();   // the friends list needs a name before the Multiplayer page made one
     if (!settingsSent) {
         settingsSent = true;
-        gevrFriendsSend(std::string("settings|") + (VrFriendsShowDetail ? "1" : "0") + "|" + (VrFriendsAppearOffline ? "1" : "0"));
+        gevrFriendsSendSettings();
     }
     const std::string line = presenceLine(inGame != 0);
     if (line != lastLine || now - lastSent >= 20000 || !lastSent) {

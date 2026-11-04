@@ -246,7 +246,7 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "MpVoiceMode=%d\n", VrMpVoiceMode);
     fprintf(f, "FriendsShowDetail=%d\nFriendsAppearOffline=%d\nFriendsRestoreNoted=%d\n",
             VrFriendsShowDetail, VrFriendsAppearOffline, VrFriendsRestoreNoted);
-    fprintf(f, "FriendsSidebar=%d\n", VrFriendsSidebar);
+    fprintf(f, "FriendsSidebar=%d\nFriendsSearchable=%d\n", VrFriendsSidebar, VrFriendsSearchable);
     fprintf(f, "MpFriendlyFire=%d\n", VrMpFriendlyFire);
     fprintf(f, "HordeFriendlyFire=%d\n", VrHordeFriendlyFire);
     fprintf(f, "HordeStage=%d\n", VrHordeStage);
@@ -743,6 +743,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "FriendsAppearOffline") == 0) VrFriendsAppearOffline = ival != 0;
             else if (strcmp(key, "FriendsRestoreNoted") == 0) VrFriendsRestoreNoted = ival != 0;
             else if (strcmp(key, "FriendsSidebar") == 0) VrFriendsSidebar = ival != 0;
+            else if (strcmp(key, "FriendsSearchable") == 0) VrFriendsSearchable = ival != 0;
             else if (strcmp(key, "HostEqualization") == 0) VrHostEqualization = ival != 0;
             else if (strcmp(key, "HostLatencyCapMs") == 0) VrHostLatencyCapMs = ival < 0 ? 0 : ival > 80 ? 80 : ival;
             else if (strcmp(key, "MpFriendlyFire") == 0) VrMpFriendlyFire = ival != 0;

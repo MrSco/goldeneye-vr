@@ -1759,6 +1759,7 @@ static void gevrFriendsSidebarWindow(bool onlineGame, const ImVec4 &gold, const 
     ctx.lobby = lobby;
     ctx.netVersion = GEVR_NET_VERSION;
     ctx.message = gevrFriendsFreshMessage();
+    ctx.canRename = !netIsActive();   // as the Multiplayer page's name box
     gevrFriendsSidePanel(ui, ctx, gold, good, bad);
 }
 
@@ -2723,6 +2724,25 @@ void showKeyboard(const ImGuiIO &io)
 }
 
 }  // namespace
+
+// The same keyboard for the in-game surface (vr_pause_menu.cpp): the Friends
+// panel's name, search and code boxes. Begin when it opens, End when it closes.
+void gevrTextInputBegin()
+{
+    if (!s_kbdLock) s_kbdLock = SDL_CreateMutex();
+    SDL_StopTextInput();
+    SDL_AddEventWatch(keyboardWatch, nullptr);
+}
+void gevrTextInputFeed(ImGuiIO &io) { feedKeyboard(io); }
+void gevrTextInputShow(const ImGuiIO &io) { showKeyboard(io); }
+void gevrTextInputEnd()
+{
+    SDL_DelEventWatch(keyboardWatch, nullptr);
+    SDL_StopTextInput();
+    if (s_kbdLock) SDL_LockMutex(s_kbdLock);
+    s_kbdQueue.clear();
+    if (s_kbdLock) SDL_UnlockMutex(s_kbdLock);
+}
 
 extern "C" void gevrLauncherRun(void)
 {

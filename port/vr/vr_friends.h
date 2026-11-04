@@ -30,6 +30,9 @@ struct GevrFriend {
 struct GevrFriendPerson {
     std::string id, name, code;
 };
+struct GevrFriendSearchResult {
+    std::string id, name, code, relation;   // relation: none, sent, request, friends
+};
 struct GevrFriendInvite {
     std::string id, from, name, code, lobby, lobbyName;
     int stage = 0, players = 0, maxPlayers = 0, lobbyVersion = 0;
@@ -40,6 +43,11 @@ struct GevrFriendsModel {
     std::string status = "none", friendCode, restoreCode;
     bool showDetail = true, appearOffline = false;
     bool loaded = false;   // a presence answer has arrived since the start
+    bool searchable = true;
+    // name search: the last query, its results, and whether it is still running
+    std::string searchQuery;
+    std::vector<GevrFriendSearchResult> search;
+    bool searching = false;
     std::vector<GevrFriend> friends;
     std::vector<GevrFriendPerson> requests, sent, blocked;
     std::vector<GevrFriendInvite> invites;
@@ -69,6 +77,11 @@ bool gevrFriendsSavePendingJoin(const std::string &lobbyCode);
 void gevrFriendsLoadPendingJoin(void);
 /* The last notice or error while it is fresh (10 s), or "". */
 const char *gevrFriendsFreshMessage(void);
+/* The privacy settings (VrFriendsShowDetail, VrFriendsAppearOffline,
+ * VrFriendsSearchable) to the lobby service. */
+void gevrFriendsSendSettings(void);
+/* A new player name from the Friends panel: tidied, saved, and sent with the next presence. */
+void gevrFriendsSetName(const char *name);
 /* "GE-7K3QX2" */
 std::string gevrFriendCodeText(const std::string &code);
 #endif

@@ -90,7 +90,7 @@ public class FriendsClientTest {
     }
 
     @Test public void nothingIsSentBeforeTheGameSaysWhoItIs() throws Exception {
-        assertEquals(List.of("ME|none|||1|0"), drain());
+        assertEquals(List.of("ME|none|||1|0|1"), drain());
         poll();
         assertTrue(calls.isEmpty());
     }
@@ -114,7 +114,7 @@ public class FriendsClientTest {
         assertEquals("Deathmatch, Facility, 1/4", presence.body.getString("detail"));
 
         List<String> events = drain();
-        assertTrue(events.contains("ME|ready|7K3QX2|ABCDEFGHJKLMNPQR|1|0"));
+        assertTrue(events.contains("ME|ready|7K3QX2|ABCDEFGHJKLMNPQR|1|0|1"));
         int begin = events.indexOf("FRIENDS_BEGIN");
         assertEquals("FRIEND|f1|Nat ty|AAAAAA|lobby|25|ABCDEFGH|2|4|25|0|Co-op, lobby, 2/4", events.get(begin + 1));
         assertEquals("REQUEST|r1|Boris|BBBBBB", events.get(begin + 2));
@@ -133,13 +133,13 @@ public class FriendsClientTest {
         executor = Executors.newSingleThreadScheduledExecutor();
         client = new FriendsClient(file, this::fake, executor);
         settle();
-        assertEquals("ME|ready|7K3QX2|ABCDEFGHJKLMNPQR|1|0", drain().get(0));
+        assertEquals("ME|ready|7K3QX2|ABCDEFGHJKLMNPQR|1|0|1", drain().get(0));
         answers.put("POST /me/presence", new LobbyClient.HttpException(401, "Unknown player"));
         command("presence|launcher||25|Bond|");
         poll();
         assertEquals(1, calls.size());
         assertEquals("/me/presence", calls.get(0).path);
-        assertTrue(drain().contains("ME|signed_out|7K3QX2|ABCDEFGHJKLMNPQR|1|0"));
+        assertTrue(drain().contains("ME|signed_out|7K3QX2|ABCDEFGHJKLMNPQR|1|0|1"));
         set("nextPresence", 0L);
         poll();
         assertEquals(1, calls.size());
@@ -171,6 +171,18 @@ public class FriendsClientTest {
         assertTrue(events.contains("INVITED|f1"));
     }
 
+    @Test public void searchListsResultsBetweenBeginAndEnd() throws Exception {
+        command("presence|launcher||25|Bond|");
+        poll();
+        drain();
+        answers.put("POST /me/search", new JSONObject("{\"results\":[{\"id\":\"x1\",\"name\":\"Xenia|O\",\"code\":\"XXXXXX\",\"relation\":\"sent\"}]}"));
+        command("search|xenia");
+        assertEquals("xenia", calls.get(calls.size() - 1).body.getString("q"));
+        assertEquals(List.of("SEARCH_BEGIN|xenia", "SEARCH|x1|Xenia O|XXXXXX|sent", "SEARCH_END"), drain());
+        command("settings|1|0|0");
+        assertFalse(calls.get(calls.size() - 1).body.getBoolean("searchable"));
+    }
+
     @Test public void anErrorIsReportedOnceAndNotRepeated() throws Exception {
         command("presence|launcher||25|Bond|");
         poll();
@@ -199,7 +211,7 @@ public class FriendsClientTest {
         List<String> events = drain();
         assertTrue(events.contains("DISCORD|linked|Alpha"));
         assertTrue(events.contains("DISCORD_TOKEN|acc"));
-        assertTrue(events.contains("ME|ready|DDDDDD||1|0"));
+        assertTrue(events.contains("ME|ready|DDDDDD||1|0|1"));
 
         answers.put("POST /discord/refresh", new LobbyClient.HttpException(401, "Discord sign-in expired; link again"));
         command("discord-refresh");
@@ -219,9 +231,9 @@ public class FriendsClientTest {
         JSONObject saved = new JSONObject(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
         assertEquals("ffffffffffffffffffffffffffffffff", saved.getString("id"));
         assertEquals("WXYZWXYZWXYZWXYZ", saved.getString("restoreCode"));
-        assertTrue(drain().contains("ME|ready|QQQQQQ|WXYZWXYZWXYZWXYZ|1|0"));
+        assertTrue(drain().contains("ME|ready|QQQQQQ|WXYZWXYZWXYZWXYZ|1|0|1"));
         command("reset");
         assertFalse(file.exists());
-        assertTrue(drain().contains("ME|none|||1|0"));
+        assertTrue(drain().contains("ME|none|||1|0|1"));
     }
 }
