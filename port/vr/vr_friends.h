@@ -14,10 +14,6 @@ extern "C" {
 void gevrFriendsTick(int inGame);
 /* A new invite's line for the bottom of the view in a mission, for a few seconds; NULL otherwise. */
 const char *gevrFriendsNotice(void);
-/* The menu-hold prompt's extra line while an invite waits ("Y: JOIN NATTY'S GAME"), or NULL. */
-const char *gevrFriendsPromptLine(void);
-/* Y on that prompt: saves the invite's lobby for the restarted launcher. 1 when there was one. */
-int gevrFriendsAcceptInvite(void);
 
 #ifdef __cplusplus
 }
@@ -58,15 +54,20 @@ void gevrFriendsSend(const std::string &command);
  * Multiplayer page takes gevrFriendsTakeHostRequest). */
 void gevrFriendsInvite(const std::string &friendId);
 bool gevrFriendsTakeHostRequest(void);
+bool gevrFriendsHostRequested(void);
 /* A lobby to join from the friends page or an invite; the Multiplayer page takes it. */
 void gevrFriendsJoin(const std::string &lobbyCode);
 std::string gevrFriendsTakeJoin(void);
 bool gevrFriendsJoinPending(void);
 void gevrFriendsAnswerInvite(const GevrFriendInvite &invite, bool join);
-/* The watch's Join (an online match): as gevrFriendsAcceptInvite, for one invite. */
-bool gevrFriendsAcceptInviteId(const std::string &id);
-/* The launcher's start: an invite accepted in a mission (gevrFriendsAcceptInvite). */
+/* In a mission (the in-game panel): the lobby asked for (gevrFriendsJoin), kept in
+ * data/gevr_pending_join.txt for the launcher the app restarts into. */
+const std::string &gevrFriendsJoinCode(void);
+bool gevrFriendsSavePendingJoin(const std::string &lobbyCode);
+/* The launcher's start: a join saved in a mission. */
 void gevrFriendsLoadPendingJoin(void);
+/* The last notice or error while it is fresh (10 s), or "". */
+const char *gevrFriendsFreshMessage(void);
 /* "GE-7K3QX2" */
 std::string gevrFriendCodeText(const std::string &code);
 #endif

@@ -17219,12 +17219,10 @@ static Gfx *gevrDrawMuzzleMarker(Gfx *gdl)
 
 #ifdef GEVR
 /*
- * Issue #16: holding the menu button in a level asks whether to go back to the
- * launcher (port/src/input.c). Drawn like the stats readout, in the middle of
- * the view (the head-locked HUD panel in stereo), at the end of every frame
- * (lv.c lvlRender): menus, the watch and play alike.
+ * Issue #16's prompt (hold Menu: back to the launcher?) is now the in-game
+ * panel (port/vr/vr_pause_menu.cpp). What stays here is a friend's invite,
+ * shown low in the view for a few seconds (gevrDrawReturnPrompt).
  */
-extern int gevrReturnPrompt;
 
 /*
  * Issue #10: the weapon panel. Holding the weapon button (A) shows the watch's
@@ -20328,45 +20326,22 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 
 Gfx *gevrDrawReturnPrompt(Gfx *gdl)
 {
-    extern int gevrTexpackState(void);   /* gfx_pc.cpp: 1 on, 0 off, -1 no pack */
-    extern const char *gevrFriendsNotice(void);       /* vr_friends.cpp: a new invite */
-    extern const char *gevrFriendsPromptLine(void);   /* vr_friends.cpp: "Y: JOIN ...'S GAME" */
+    extern const char *gevrFriendsNotice(void);   /* vr_friends.cpp: a new invite */
     static char text[256];
     s32 x, y, w = 0, h = 0;
-    s32 pack;
-    const char *invite = gevrFriendsPromptLine();
     const char *notice = gevrFriendsNotice();
 
-    if (!gevrReturnPrompt)
+    if (!notice)
     {
-        if (!notice)
-        {
-            return gdl;
-        }
-        /* a friend's invite, low in the view for a few seconds (never on the wrist) */
-        snprintf(text, sizeof(text), "%s\n", notice);
+        return gdl;
     }
-    else
-    {
-        /* with a texture pack in use, X switches it (input.c) */
-        pack = gevrTexpackState();
-        strcpy(text, "BACK TO THE LAUNCHER?\n\nA: YES      B: NO\n\nTHIS MISSION WILL NOT BE SAVED");
-        if (pack >= 0)
-        {
-            strcat(text, pack ? "\n\nX: HD TEXTURES OFF" : "\n\nX: HD TEXTURES ON");
-        }
-        if (invite)
-        {
-            /* input.c: the restarted launcher joins the friend's lobby */
-            strcat(text, "\n\n");
-            strncat(text, invite, sizeof(text) - strlen(text) - 2);
-        }
-        strcat(text, "\n");   /* textMeasure counts a line at each break: the last line too */
-    }
+    /* a friend's invite, low in the view for a few seconds (never on the wrist);
+     * textMeasure counts a line at each break, the last line too */
+    snprintf(text, sizeof(text), "%s\n", notice);
     gdl = microcode_constructor(gdl);
     textMeasure(&h, &w, (char *) text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
     x = viGetViewLeft() + (viGetViewWidth() - w) / 2;
-    y = viGetViewTop() + (viGetViewHeight() * (gevrReturnPrompt ? 40 : 72)) / 100;
+    y = viGetViewTop() + (viGetViewHeight() * 72) / 100;
     if (g_gevrStereo)
     {
         gDPNoOpTag(gdl++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */

@@ -70,7 +70,7 @@ Also:
 
   Nothing of theirs ships with the app. New pack releases show up on the Mods page as updates.
 
-  In game, hold **Menu** until the return-to-launcher prompt shows, then press **X** to switch the HD textures off and back on to compare.
+  In game, hold **Menu** to open the in-game panel, then use **HD textures off** and **on** to compare.
 - **Multiplayer** (experimental): deathmatch for up to eight players, with **bots** to fill the empty slots or to play against on your own, endless Horde waves on any map for one to four, or the campaign in co-op for up to four, each in their own headset, over the internet or your Wi-Fi: browse public games or share a private code. See [Multiplayer](#-multiplayer-experimental).
 - **Optional ragdolls and limb dismemberment** (experimental): Ragdolls and Dismemberment on Play -> Game rules. Off by default; works in every mode, with the body count set to fade, 12, 24 or 48. Physics and cuts are local to each headset. See [setup, limits and testing](docs/ragdolls.md).
 - **3D sound**: gunfire, explosions, doors and the game's other sounds come from where they happen, through the same Steam Audio 3D audio as voice chat. A fight in the next room sounds like it's round the corner, not through the wall.
@@ -235,7 +235,7 @@ from [Wreck's N64 Vault page](https://n64vault.com/pd-multi-levels:goldeneye-x).
    **Choose ROM...** and select the patched file. Look for **GoldenEye X ROM chosen.**
    The app stores it as `Android/data/com.gevr.port/files/data/gex.z64`.
 4. Tick **Its guns, items, hands and watch arm**. It's off by default. During a mission
-   you can switch it under the watch's **VR settings → Mods and fun → GoldenEye X**.
+   you can switch it in the in-game panel (hold **Menu**): **VR settings → Mods and fun → GoldenEye X**.
 
 On the virtual screen, GE-X's own fire and reload animations play. To reload by hand in
 stereo VR, also turn on **Hand reload (WIP)** in **Controls → Gestures...**. It needs
@@ -334,7 +334,10 @@ Keeping bodies alone preserves the original reinforcement behavior across all
 levels; 48 bodies no longer causes the reported enemy surge. See
 [body retention and reinforcements](docs/body-retention-reinforcements.md).
 
-**VR settings**, at the bottom of the watch's Game Options page, changes settings
+Hold **Menu** for a moment, in a mission or online, to open the **in-game panel** on the
+room screen (a solo mission pauses under it; tap Menu or press B to close it). It has
+**Back to launcher**, **HD textures** on/off with a texture pack, your **Friends** (see
+[Friends and invites](docs/friends-and-invites.md)), and the **VR settings**, which change settings
 mid-mission in seven sections: **Comfort**, **Controls**, **Gestures**, **Weapons**,
 **Display**, **Game rules**, and **Mods and fun**. These include left-handed mode,
 stick swapping, gun fit, watch and grip gestures, reloads, recoil, motion throwing,
@@ -343,7 +346,7 @@ Refresh** requests the supported rate immediately. Texture-pack selection and pl
 mode stay outside these sections; switch play mode by holding the right stick click.
 
 The watch's **Control** page shows your Touch controllers (Quest 1, Quest 2, Touch Plus or
-Touch Pro, picked from the headset; **VR settings → Controls → Controllers** picks them by
+Touch Pro, picked from the headset; the panel's **VR settings → Controls → Controllers** picks them by
 hand), each above a list of what its controls do in your play mode and handedness. A
 control you press lights up on the model and in the list. See
 [docs/touch-controllers.md](docs/touch-controllers.md).
@@ -372,7 +375,7 @@ to read your wrist without opening the pause menu; the Menu button still pauses.
 | **Hold both grips and use the right stick** | Up/down: nearer/farther. Left/right: smaller/bigger |
 | **Left stick click** | Crouch (toggle) |
 | **Both stick clicks** | Recenter the view and the screen |
-| **☰ Menu** | Pause; hold it (1.5 s) to go back to the launcher |
+| **☰ Menu** | Pause; hold it (1.5 s) for the in-game panel: back to the launcher, VR settings, Friends |
 | **Hold left stick click** (1 s) | Bring the screen back in front of you |
 | **Hold right stick click** (1 s) | Switch to stereo VR |
 | **Grips** (in Bond's watch) | Turn the watch pages |

@@ -27,8 +27,17 @@ Decisions so far (user, 2026-11-04):
   private lobby needs an invite (its code never reaches friends' presence).
 - Hosts get a third visibility, **Friends**: unlisted, offered to the host's
   friends on their Friends page.
-- The restore code is on the Profile tab, with a one-time nudge once the
-  player has a friend to lose, not at first launch.
+- The restore code is under the sidebar's "Privacy and restore code", with a
+  one-time nudge once the player has a friend to lose, not at first launch.
+- Friends is a **sidebar** to the right of the launcher, open from the start
+  and foldable to a strip (user, 2026-11-04), not a page behind a button.
+- In game, **holding Menu opens an in-game panel** in solo play and online
+  alike: what the old back-to-the-launcher prompt offered, the VR settings
+  that were on the watch (moved off it), and the same Friends sidebar (user,
+  2026-11-04).
+- **No limit a stranger can trigger may lock a player out.** Limits are keyed
+  on the actor (address or player), never on the target or the whole service
+  (user, 2026-11-04: restore-code guessing had locked a code for a day).
 
 ## What exists to build on
 
@@ -65,9 +74,10 @@ Decisions so far (user, 2026-11-04):
   characters shown as `ABCD-EFGH-JKLM-NPQR`, with the friend code brings it
   back (`POST /v1/players/restore`). That issues a new secret, which signs the
   old headset out (it shows "Signed out" and offers restore or a new code).
-  The restore code itself does not change. Guesses: 10 an hour per address,
-  10 a day per friend code. Discord linking (phase 3) will restore by signing
-  in.
+  The restore code itself does not change. Guesses: 10 an hour and 30 a day
+  per address, never per friend code; at 80 bits, a million addresses would
+  need about 5 x 10^13 years per code. Discord linking (phase 3) will restore
+  by signing in.
 - Dedicated servers get no player ID and never appear as players.
 
 ## Friends
@@ -105,18 +115,25 @@ it grows, presence moves to its own Durable Object class, sharded by player ID.
   private lobby first (current host settings) and invites into it. From inside
   a mission, the watch's friends page can invite only when the player is in an
   online match whose lobby is open.
-- **Receive in the launcher:** a banner "Natty invites you to Facility co-op
-  (2/4)" with **Join** and **Ignore**. Join uses the normal join-by-code path.
+- **Receive in the launcher:** at the top of the Friends sidebar, "Natty
+  invites you to Natty's game (2/4)" with **Join** and **Ignore** (above the
+  page instead while the sidebar is folded). Join uses the normal
+  join-by-code path.
 - **Receive in a mission:** the invite shows low in the view for 8 seconds
   ("NATTY INVITES YOU TO NATTY'S GAME (2/4) / HOLD MENU TO ANSWER"), never on
-  the wrist. Holding Menu opens the back-to-the-launcher prompt, which then
-  adds "Y: JOIN NATTY'S GAME". Y writes the lobby code and the time to
-  `data/gevr_pending_join.txt` and restarts; the launcher reads and deletes
-  it, and joins if it is under 5 minutes old. In an online match the watch's
-  Friends tab lists the invites with Join, and online friends with Invite.
+  the wrist. Holding Menu opens the in-game panel, whose Friends sidebar has
+  the invite with Join. Join asks to leave the mission (it is not saved),
+  writes the lobby code and the time to `data/gevr_pending_join.txt` and
+  restarts; the launcher reads and deletes it, and joins if it is under 5
+  minutes old. A friend's own Join works the same way. The online pause's
+  Friends tab shows the same sidebar.
 - An invite carries the lobby code and lives 10 minutes or until the lobby
   closes. Private lobbies work: the code is the key, as with join by code.
 - Limits: 10 invites a minute per player, one pending invite per friend.
+- Requests: 20 sent a day per player; 50 waiting per player, a new one
+  dropping the oldest rather than being refused (a spammer cannot crowd out
+  real friends); **Decline all** clears them (`DELETE /v1/me/requests`).
+  Registration: 5 an hour and 20 a day per address, no service-wide cap.
 
 ## Worker API
 
@@ -162,16 +179,29 @@ the stats and the activity page.
   20 s, keeps the model, queues invites until a lobby has a code, and keeps
   the pending join. Command logging stops at the verb: no restore code in a
   debug report.
-- Launcher: **Friends...** beside Multiplayer (shows new requests and invites,
-  or friends online). Tabs Friends, Requests, Add, Profile (restore code,
-  Show what I'm playing, Appear offline, restore, blocked players). The newest
-  invite shows as a banner on every other page. Join and hosting for an
-  invite go through the Multiplayer page, which takes them on its next frame.
-- Game: the menu-hold prompt (`bondview2.c gevrDrawReturnPrompt`, `input.c`)
-  and the watch's Friends tab in online matches (`gevr_pause_widgets.h`). A
-  solo mission has no watch Friends page; the prompt answers invites there.
+- `port/vr/gevr_friends_ui.h`: the Friends sidebar, one widget for the
+  launcher and the game (invites, requests with Decline all, friends online
+  then a folded Offline list, Join / Invite / Remove / Block, Add a friend,
+  Privacy and restore code, Blocked).
+- Launcher: the sidebar is its own window right of the launcher's 1280
+  pixels; the canvas and the screen quad grow by its width
+  (`vr_screen_set_width_scale`), so no launcher page gets narrower. Open
+  (500 px) or folded to a 76 px strip (`FriendsSidebar` in the ini). Join and
+  hosting for an invite go through the Multiplayer page.
+- Game: holding Menu 1.5 s opens the in-game panel (`gevr_panel_ui.h`, drawn
+  by `vr_pause_menu.cpp` on the online pause's surface; `input.c` counts it
+  as the native pause, so the game gets no input and fire waits for a trigger
+  release after it closes). Left: the VR settings, a tab per section, from
+  `options.c`'s rows (`gevrVrSectionCount`, `gevrVrRowRead`, `gevrVrRowStep`);
+  the watch no longer has its VR settings page. Right: the Friends sidebar.
+  Footer: Resume, HD textures on/off, Back to launcher (focused, so hold Menu
+  then A still goes back). A solo mission pauses: the panel sends START to
+  open the watch under it (not in a cutscene) and again to close it. Menu+A
+  (gun fit) and Menu+B (microphone) still fire before the 1.5 s. B, Resume or
+  a Menu tap closes the panel.
 - Settings in `goldeneye-vr.ini`: `MpVisibility` 0/1/2 (public, private,
-  friends), `FriendsShowDetail`, `FriendsAppearOffline`, `FriendsRestoreNoted`.
+  friends), `FriendsShowDetail`, `FriendsAppearOffline`, `FriendsRestoreNoted`,
+  `FriendsSidebar`.
 
 ## Discord (phases 3 and 4)
 
@@ -205,11 +235,11 @@ Sideloaded builds only get these for the developer's own organisation.
 
 1. **Friends and presence** (built): registration, friend codes, requests,
    block, presence and its settings, the launcher Friends page. Tests: the
-   Worker's `test/social.test.mjs`, `FriendsClientTest`, and the launcher and
-   pause layout tests (the Friends visibility radio, the watch's fifth tab).
+   Worker's `test/social.test.mjs`, `FriendsClientTest`, `test_friends_ui.py`
+   (the sidebar and the in-game panel at headset font size), and the launcher
+   and pause layout tests.
 2. **Invites** (built): send and receive in the launcher, the in-mission
-   notice and the pending-join restart, the watch Friends tab (online
-   matches).
+   notice, the in-game panel and the pending-join restart.
 3. **Discord link:** SDK, sign-in, Discord friends, Rich Presence.
 4. **Discord invites and join links:** the join page and app link.
 
@@ -220,5 +250,3 @@ network protocol; the Worker API is versioned under `/v1`.
 
 - Quest browser and Android app links for `goldeneyevr.com/join/<code>`: to
   test on a headset before phase 4.
-- Spamming wrong restore codes locks a friend code's restore for a day (the
-  per-code limit). Acceptable for now; revisit if it is abused.

@@ -182,7 +182,7 @@ def build_fixture(name, source=None, source_ref=None):
         fixture=fixture.replace('/* INSERT_DEPLETION */',body[:-1])
         inp=(ROOT/'port/src/input.c').read_text(encoding='utf8')
         start=inp.index('        {',inp.index('// Logical dominant/off-hand buttons'))
-        end=inp.index('        if (gevrReturnPrompt)',start)
+        end=inp.index('        if (fitting) npad->button &= ~(A_BUTTON',start)
         fixture=fixture.replace('/* INSERT_CYCLING_INPUT */',inp[start:end])
     elif name == "fun_native":
         def function(path, signature):

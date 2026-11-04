@@ -235,8 +235,6 @@ void gfx_static_mesh_release(GevrStaticMesh *mesh) { (void)mesh; }
 int gevrTexpackState(void) { return -1; }
 /* Friends (port/vr/vr_friends.cpp): a server has no player of its own. */
 const char *gevrFriendsNotice(void) { return 0; }
-const char *gevrFriendsPromptLine(void) { return 0; }
-int gevrFriendsAcceptInvite(void) { return 0; }
 int gevrTexpackToggle(void) { return -1; }
 int gevrTexpackFillAvailable(void) { return 0; }
 int gevrTexpackWarmDl(const void *dl, const void *seg5) { (void)dl; (void)seg5; return 0; }

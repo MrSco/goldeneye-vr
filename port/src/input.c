@@ -255,7 +255,13 @@ static GevrReloadInput s_gevrReloadInput;
 int gevrVrReloadPressedMask(void) { return s_gevrReloadInput.pending; }
 int gevrVrReloadHeldMask(void) { return s_gevrReloadInput.held; }
 int gevrVrTakeReloadMask(void) { return gevrReloadInputTake(&s_gevrReloadInput); }
-int gevrReturnPrompt;       /* menu held: "back to the launcher?" is up (bondview2.c draws it) */
+/* Menu held 1.5 s: the in-game panel (port/vr/vr_pause_menu.cpp), counted as
+ * the native pause so the game gets no input under it. */
+int s_gevrPanel;
+static int s_gevrPanelPaused;   /* it opened the watch to pause a solo mission */
+static u32 s_gevrStartUntil;    /* a START pulse until then (a Menu tap, or the panel's pause) */
+int gevrPanelIsOpen(void) { return s_gevrPanel; }
+void gevrPanelClose(void) { s_gevrPanel = 0; }
 extern int gevrTexpackToggle(void);        /* gfx_pc.cpp: 1 on now, 0 off now, -1 no pack */
 extern int gevrTexpackState(void);         /* gfx_pc.cpp: 1 on, 0 off, -1 no pack */
 s32 gevrTexpackToggleMsg;                  /* bondview2.c says it in a level: 2 off, 3 on */
@@ -280,8 +286,6 @@ extern void gevrCycleHandWeapon(s32 hand, s32 dir);
 #define GEVR_WEAPON_PANEL_HOLD_MS 350
 extern void gevrRestartToLauncher(void);   /* vr_launcher.cpp */
 extern void gevrLobbySessionStopped(void); /* vr_launcher.cpp: leave the online game */
-extern const char *gevrFriendsPromptLine(void); /* vr_friends.cpp: an invite waits */
-extern int gevrFriendsAcceptInvite(void);         /* vr_friends.cpp: keep it for the launcher */
 extern bool netIsActive(void);
 extern s32 gevrDualWielding(void);
 extern int VrMotionThrowing;
@@ -1694,50 +1698,34 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         if (get_button_state(1, "a")) npad->button |= A_BUTTON;
         if (get_button_state(1, "b")) npad->button |= B_BUTTON;
         // Menu button (issue #16): a tap is START, sent on release, and a 1.5 s
-        // hold asks whether to go back to the launcher (A yes, B no; bondview2.c
-        // gevrDrawReturnPrompt) - in play, on the watch and in the menus alike.
-        // The app restarts into it, so the mission in progress is lost.
-        // With a texture pack in use the prompt also offers X: switch the pack
-        // off, or on again, for the session (gfx_pc.cpp gevrTexpackToggle).
+        // hold opens the in-game panel (vr_pause_menu.cpp: back to the launcher,
+        // HD textures, the VR settings and Friends) - in play, on the watch and
+        // in the menus alike. In a solo mission it opens the watch under the
+        // panel too, so the game pauses as the watch pauses it, and closes it
+        // again with the panel. The chords below fire first and take the hold.
         {
-            static u32 downat = 0, startuntil = 0;
-            static bool consumed = false, aWas = true, bWas = true, xWas = true, yWas = true;
+            static u32 downat = 0;
+            static bool consumed = false;
+            static int panelWas = 0;
             const u32 t = SDL_GetTicks();
             const bool held = get_button_state(0, "menu");
             s_menuHeld = held;
-            if (gevrReturnPrompt) {
-                const bool a = get_button_state(1, "a"), b = get_button_state(1, "b");
-                const bool x = get_button_state(0, "x"), y = get_button_state(0, "y");
-                /* Y: a friend's invite (bondview2.c shows whose); the launcher joins it */
-                if (y && !yWas && gevrFriendsPromptLine() && gevrFriendsAcceptInvite()) {
-                    LOGI("input: menu hold -> join a friend's invite\n");
-                    if (netIsActive()) {
-                        gevrLobbySessionStopped();
+            if (panelWas && !s_gevrPanel && s_gevrPanelPaused) {
+                s_gevrPanelPaused = 0;
+                if (paused) s_gevrStartUntil = t + 100;   /* the watch it opened closes */
+            }
+            panelWas = s_gevrPanel;
+            if (s_gevrPanel) {
+                /* B, Resume, or a Menu tap closes it; the hold that opened it does not */
+                if (held) {
+                    if (!downat) {
+                        downat = t ? t : 1;
+                        consumed = false;
                     }
-                    gevrRestartToLauncher();
+                } else {
+                    if (downat && !consumed) s_gevrPanel = 0;
+                    downat = 0;
                 }
-                if (a && !aWas) {
-                    LOGI("input: menu hold -> back to the launcher\n");
-                    if (netIsActive()) {
-                        gevrLobbySessionStopped();   /* the goodbye: the host frees the slot at once */
-                    }
-                    gevrRestartToLauncher();
-                }
-                if (b && !bWas) {
-                    LOGI("input: menu hold -> cancelled\n");
-                    gevrReturnPrompt = 0;
-                }
-                if (x && !xWas && gevrTexpackState() >= 0) {
-                    gevrTexpackToggleMsg = gevrTexpackToggle() + 2;
-                    gevrReturnPrompt = 0;
-                    gevrSwallowX = true;
-                    LOGI("input: menu hold -> texture pack %s\n", gevrTexpackToggleMsg == 3 ? "on" : "off");
-                }
-                aWas = a;
-                bWas = b;
-                xWas = x;
-                yWas = y;
-                downat = 0;
             } else if (held) {
                 if (!downat) {
                     downat = t ? t : 1;
@@ -1780,15 +1768,19 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 }
                 if (!consumed && t - downat >= 1500) {
                     consumed = true;
-                    gevrReturnPrompt = 1;
-                    aWas = bWas = xWas = true;   /* a button already down does not answer */
-                    LOGI("input: menu hold -> return prompt\n");
+                    s_gevrPanel = 1;
+                    /* not in a cutscene, where START would skip it */
+                    if (!netIsActive() && !paused && bossGetStageNum() != LEVELID_TITLE && !lvlGetControlsLockedFlag()) {
+                        s_gevrPanelPaused = 1;
+                        s_gevrStartUntil = t + 100;
+                    }
+                    LOGI("input: menu hold -> panel%s\n", s_gevrPanelPaused ? " (mission paused)" : "");
                 }
             } else {
-                if (downat && !consumed) startuntil = t + 100;
+                if (downat && !consumed) s_gevrStartUntil = t + 100;
                 downat = 0;
             }
-            if (t < startuntil) npad->button |= START_BUTTON;
+            if (t < s_gevrStartUntil) npad->button |= START_BUTTON;
         }
         const bool rightGrip = get_button_state(1, "grip");
         const bool leftGrip = get_button_state(0, "grip");
@@ -1843,7 +1835,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         {
             static bool slotA, slotX;
             const bool a = get_button_state(1, "a"), x = get_button_state(0, "x");
-            if (stereoplay && !fitting && !gevrReturnPrompt && !gevrWeaponPanelOpen) {
+            if (stereoplay && !fitting && !gevrWeaponPanelOpen) {
                 if (a && !slotA && !gevrSwallowA && gevrBodySlotButton(1)) gevrSwallowA = true;
                 if (x && !slotX && !gevrSwallowX && gevrBodySlotButton(0)) gevrSwallowX = true;
             }
@@ -1858,8 +1850,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         if (get_button_state(0, "x") && !gevrSwallowX) npad->button |= A_BUTTON;
         /* the off hand's upper button is B, unless Menu is held on the other
          * hand: left-handed, that is the microphone chord's B */
-        if (get_button_state(0, "y") && !(VrLeftHandedMode && s_menuHeld) && !(gevrReturnPrompt && gevrFriendsPromptLine()))
-            npad->button |= B_BUTTON;
+        if (get_button_state(0, "y") && !(VrLeftHandedMode && s_menuHeld)) npad->button |= B_BUTTON;
         // Logical dominant/off-hand buttons cycle only that hand. Grip reverses;
         // holding opens that hand's selector. get_button_state handles handedness.
         {
@@ -1868,7 +1859,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             static bool aback = false, xback = false;
             const u32 t = SDL_GetTicks();
             if (gevrSwallowA && !get_button_state(1, "a")) gevrSwallowA = false;
-            if (stereoplay && !gevrReturnPrompt && !fitting && !gevrSpectating()) {
+            if (stereoplay && !fitting && !gevrSpectating()) {
                 const bool a = !gevrSwallowA && get_button_state(1, "a");
                 const bool x = !gevrSwallowX && get_button_state(0, "x");
                 if (x && !xdown) {
@@ -1949,9 +1940,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 gevrWeaponPanelOpen = 0;
             }
         }
-        if (gevrReturnPrompt) npad->button &= ~(A_BUTTON | B_BUTTON | START_BUTTON);
         if (fitting) npad->button &= ~(A_BUTTON | B_BUTTON | R_TRIG);   /* gun fit keeps them (the right grip rolls the grip hand) */
-        reloadGameplay = !menu && !fitting && !gevrReturnPrompt && !gevrWeaponPanelOpen
+        reloadGameplay = !menu && !fitting && !gevrWeaponPanelOpen
             && !lvlGetControlsLockedFlag();
         const bool lclick = get_button_state(0, "thumbstick_click");
         const bool rclick = get_button_state(1, "thumbstick_click");
@@ -3178,10 +3168,12 @@ int gevrMpMenuOpen(void)
 
 #ifdef ANDROID
 int gevrNativePauseOpen(void) {
+    if(s_gevrPanel)return 1;   /* the in-game panel, solo or online */
     int slot=netIsActive()?netGetLocalSlot():-1;
     return bossGetStageNum()!=90 && slot>=0 && slot<INPUT_MAX_SLOT_PADS && g_playerPointers[slot] && g_playerPointers[slot]->mpmenuon;
 }
 void gevrNativePauseResume(void) {
+    s_gevrPanel=0;
     int slot=netIsActive()?netGetLocalSlot():-1;
     if(slot>=0 && slot<INPUT_MAX_SLOT_PADS && g_playerPointers[slot])g_playerPointers[slot]->mpmenuon=0;
 }

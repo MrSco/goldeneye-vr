@@ -113,7 +113,7 @@ fields (KF7 13, -23, -27; PP7 8, -19, -26).
   Supported GE-X weapon textures are paired with GoldenEye's own ids where the
   pixels match, so the HD packs apply (gevr_gexweapon.c).
 - Supported guns (launcher MODS "Its guns (WIP)", ini GexGuns, off by
-  default; also the watch's VR settings, from the next weapon drawn). On
+  default; also the in-game panel's VR settings, from the next weapon drawn). On
   the screen it fires and reloads with GE-X's animations; its hands are
   the hand model on the gun's skeleton, as PD draws them.
 - In the headset there is no reload animation (hand reload): the off hand

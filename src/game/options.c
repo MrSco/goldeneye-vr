@@ -40,20 +40,14 @@ static Gfx *gevrDrawMicOption(Gfx *gdl, s32 y);
 /* Row pitch while the Microphone row shares the eight toggles' space. */
 #define GEVR_MIC_YINC (YINC - 2)
 /*
- * VR settings (GEVR PC vr453 continues Game Options past ratio with its VR
- * rows; PD VR has a Virtual Reality page in its pause options). One "VR
- * settings" row after ratio, or after Microphone in a network game, opens the
- * rows on this page in place of the retail ones (gevrDrawVrPage).
+ * The VR settings moved off the watch to the in-game panel (hold Menu,
+ * port/vr/vr_pause_menu.cpp; user, 2026-11-04), which reads the rows below
+ * through gevrVrSectionCount and its neighbours. Game Options is the retail
+ * page again, plus the Microphone row in a network game.
  */
-#define GEVR_VR_ROW (netIsActive() ? GAME_OPTIONS_INDEX_MIC + 1 : GAME_OPTIONS_INDEX_MIC)
-/* Row pitch with the extra rows: nine rows solo, ten in a network game. */
-#define GEVR_OPTIONS_YINC (netIsActive() ? (YINC - 3) : GEVR_MIC_YINC)
-static s32 s_gevrVrPage = 0;    /* the Game Options page shows the VR settings */
-static s32 s_gevrVrIndex = 0;   /* the highlighted VR row */
-static s32 s_gevrVrSection = -1; /* the open section, or -1 for the sections' list */
-static void gevrVrPageNavigation(void);
-static Gfx *gevrDrawVrPage(Gfx *gdl);
-static Gfx *gevrDrawVrRow(Gfx *gdl, s32 y);
+#define GEVR_LAST_OPTION (netIsActive() ? GAME_OPTIONS_INDEX_MIC : GAME_OPTIONS_INDEX_RATIO)
+/* Row pitch: the retail eight rows, nine with Microphone. */
+#define GEVR_OPTIONS_YINC (netIsActive() ? GEVR_MIC_YINC : YINC)
 #endif
 
 #define WATCH_BACKGROUND_VERTEX_COUNT 30
@@ -347,9 +341,6 @@ void init_watch_at_start_of_stage(int stage)
     watch_screen_index = WATCH_INDEX_MISSION_STATUS;
     controller_options_index = CONTROLLER_OPTIONS_INDEX_STYLE;
     game_options_index = GAME_OPTIONS_INDEX_MUSIC;
-#ifdef GEVR
-    s_gevrVrPage = 0;
-#endif
     mission_brief_index = BRIEF_INDEX_OBJECTIVES;
     D_800409A4 = 0;
     watch_item_is_actively_selected = 0;
@@ -1035,7 +1026,7 @@ void sub_GAME_7F0A5998(void)
 
     if (aux >=
 #ifdef GEVR
-        GEVR_VR_ROW + 1
+        GEVR_LAST_OPTION + 1
 #else
         10
 #endif
@@ -1049,7 +1040,7 @@ void sub_GAME_7F0A5998(void)
     {
         game_options_index =
 #ifdef GEVR
-            GEVR_VR_ROW;
+            GEVR_LAST_OPTION;
 #else
             GAME_OPTIONS_INDEX_RATIO;
 #endif
@@ -1062,7 +1053,7 @@ void game_options_music_volume_navigation(void)
     if (joyGetButtonsPressedThisFrame(PLAYER_1, U_CBUTTONS|U_JPAD) || sub_GAME_7F0A5088())
     {
 #ifdef GEVR
-        game_options_index = GEVR_VR_ROW;   /* up from the top wraps to the last row */
+        game_options_index = GEVR_LAST_OPTION;   /* up from the top wraps to the last row */
 #else
         game_options_index = GAME_OPTIONS_INDEX_RATIO;
 #endif
@@ -1556,9 +1547,6 @@ void sub_GAME_7F0A69A8(void)
     }
     reset_watch_item_is_actively_selected();
     watch_screen_index = WATCH_INDEX_MISSION_STATUS;
-#ifdef GEVR
-    s_gevrVrPage = 0;   /* the watch opens on its retail pages */
-#endif
     mission_brief_index = BRIEF_INDEX_OBJECTIVES;
     D_800409C8 = 0.999f;
     D_800409CC = 0.9999f;
@@ -1712,14 +1700,6 @@ void sub_GAME_7F0A6A80(void)
             break;
 
         case WATCH_INDEX_GAME_OPTIONS:
-#ifdef GEVR
-            if (s_gevrVrPage)
-            {
-                /* its own rows; left/right change values, so no page turning */
-                gevrVrPageNavigation();
-                break;
-            }
-#endif
             switch (game_options_index)
             {
                 case GAME_OPTIONS_INDEX_MUSIC:
@@ -1745,25 +1725,8 @@ void sub_GAME_7F0A6A80(void)
                     sub_GAME_7F0A5998();
                     gevrMicOptionInput();
                     break;
-                default:
-                    /* the VR settings row in a network game */
-                    sub_GAME_7F0A5998();
-                    break;
 #endif
             }
-#ifdef GEVR
-            /* A (or fire) on the VR settings row opens its page */
-            if (game_options_index == GEVR_VR_ROW && watch_item_is_actively_selected)
-            {
-                reset_watch_item_is_actively_selected();
-                s_gevrVrPage = 1;
-                s_gevrVrIndex = 0;
-                s_gevrVrSection = -1;
-                disable_watch_stick_y_nav_ready();
-                set_controlstick_lr_disabled();
-                break;
-            }
-#endif
             watch_screen3_navigation();
             break;
 
@@ -3962,9 +3925,6 @@ static const struct
 };
 #define GEVR_VR_SECTIONS ((s32) ARRAYCOUNT(s_gevrVrSections))
 
-/* Rows on screen at once; the list scrolls to keep the highlight in view. */
-#define GEVR_VR_VISIBLE 11
-#define GEVR_VR_PITCH   (YINC - 2)
 
 static s32 *gevrVrToggle(s32 row)
 {
@@ -4285,152 +4245,54 @@ static void gevrVrStep(s32 row, s32 dir)
     }
 }
 
-/* the rows on the page now: the sections' or the open section's, and Back last */
-static s32 gevrVrCount(void)
+/* The in-game panel's VR tab (port/vr/vr_pause_menu.cpp): the sections and their rows. */
+s32 gevrVrSectionCount(void)
 {
-    return (s_gevrVrSection < 0 ? GEVR_VR_SECTIONS : s_gevrVrSections[s_gevrVrSection].count) + 1;
+    return GEVR_VR_SECTIONS;
 }
 
-static void gevrVrPageNavigation(void)
+const char *gevrVrSectionName(s32 section)
 {
-    const s32 count = gevrVrCount();
-    const s32 back = count - 1;
-    s32 dir = 0;
-
-    if (joyGetButtonsPressedThisFrame(PLAYER_1, U_JPAD) || sub_GAME_7F0A5088())
-    {
-        s_gevrVrIndex = s_gevrVrIndex > 0 ? s_gevrVrIndex - 1 : count - 1;
-        disable_watch_stick_y_nav_ready();
-    }
-    else if (joyGetButtonsPressedThisFrame(PLAYER_1, D_JPAD) || sub_GAME_7F0A50C4())
-    {
-        s_gevrVrIndex = s_gevrVrIndex < count - 1 ? s_gevrVrIndex + 1 : 0;
-        disable_watch_stick_y_nav_ready();
-    }
-
-    if (joyGetButtonsPressedThisFrame(PLAYER_1, L_JPAD) || sub_GAME_7F0A4FB0())
-    {
-        dir = -1;
-    }
-    else if (joyGetButtonsPressedThisFrame(PLAYER_1, R_JPAD) || sub_GAME_7F0A4FEC())
-    {
-        dir = 1;
-    }
-
-    /* A or fire, through watch_play_beep_sound's selection flag */
-    if (watch_item_is_actively_selected)
-    {
-        reset_watch_item_is_actively_selected();
-        if (s_gevrVrIndex == back)
-        {
-            if (s_gevrVrSection >= 0)
-            {
-                /* back to the sections, on the one just left */
-                s_gevrVrIndex = s_gevrVrSection;
-                s_gevrVrSection = -1;
-            }
-            else
-            {
-                s_gevrVrPage = 0;
-                game_options_index = GEVR_VR_ROW;
-            }
-            disable_watch_stick_y_nav_ready();
-            set_controlstick_lr_disabled();
-            return;
-        }
-        if (s_gevrVrSection < 0)
-        {
-            s_gevrVrSection = s_gevrVrIndex;
-            s_gevrVrIndex = 0;
-            disable_watch_stick_y_nav_ready();
-            set_controlstick_lr_disabled();
-            return;
-        }
-        dir = 2;
-    }
-
-    if (dir != 0 && s_gevrVrSection >= 0 && s_gevrVrIndex != back)
-    {
-        gevrVrStep(s_gevrVrSections[s_gevrVrSection].rows[s_gevrVrIndex], dir);
-        set_controlstick_lr_disabled();
-        sndPlaySfx(g_musicSfxBufferPtr, OPTION_CHOOSE_SFX, NULL);
-        vrSettingsSave();
-    }
+    return section >= 0 && section < GEVR_VR_SECTIONS ? s_gevrVrSections[section].name : "";
 }
 
-/* The row on Game Options that opens the page: drawn like the Microphone row's label. */
-static Gfx *gevrDrawVrRow(Gfx *gdl, s32 y)
+s32 gevrVrRowCount(s32 section)
 {
-    s32 selected = game_options_index == GEVR_VR_ROW;
-
-    gdl = draw_options_labels(gdl, XOFFSET_1, y, "VR settings", selected ? 0xA0FFA0F0 : 0xFF00B0, 0, -1, 0, 0, 0x3000B0, 0);
-    gdl = draw_options_labels(gdl, 0xFA, y, ">>", selected ? 0xA0FFA0F0 : 0x00800080, 0, -1, 1, 0, 0x3000B0, 0);
-
-    return gdl;
+    return section >= 0 && section < GEVR_VR_SECTIONS ? s_gevrVrSections[section].count : 0;
 }
 
-static Gfx *gevrDrawVrPage(Gfx *gdl)
+/* A row's label and its value as the watch showed it ("ON", "45 DEG", ...). */
+s32 gevrVrRowRead(s32 section, s32 index, const char **label, char *value, s32 size)
 {
-    char value[24];
-    const s32 count = gevrVrCount();
-    const char *label;
-    s32 first;
-    s32 last;
+    char text[64];
+    s32 row;
     s32 i;
-    s32 y;
-    s32 lit;
 
-    gdl = microcode_constructor(gdl);
-    gdl = draw_options_labels(gdl, XOFFSET_1, YOFFSET_8, s_gevrVrSection < 0 ? "VR SETTINGS" : (char *) s_gevrVrSections[s_gevrVrSection].title,
-                              0xA0FFA0F0, 0, -1, 0, 0, 0x3000B0, 0);
+    if (index < 0 || index >= gevrVrRowCount(section))
+    {
+        return 0;
+    }
+    row = s_gevrVrSections[section].rows[index];
+    text[0] = '\0';
+    gevrVrValueText(row, text);
+    *label = s_gevrVrLabels[row];
+    for (i = 0; i + 1 < size && text[i] != '\0'; i++)
+    {
+        value[i] = text[i];
+    }
+    value[i] = '\0';
+    return 1;
+}
 
-    first = s_gevrVrIndex - (GEVR_VR_VISIBLE - 1);
-    if (first > count - GEVR_VR_VISIBLE)
+/* dir: -1 left, +1 right, 2 next value (wrapping). Saved at once, as on the watch. */
+void gevrVrRowStep(s32 section, s32 index, s32 dir)
+{
+    if (index < 0 || index >= gevrVrRowCount(section))
     {
-        first = count - GEVR_VR_VISIBLE;
+        return;
     }
-    if (first < 0)
-    {
-        first = 0;
-    }
-    last = first + GEVR_VR_VISIBLE < count ? first + GEVR_VR_VISIBLE : count;
-
-    for (i = first, y = YOFFSET_8 + GEVR_VR_PITCH + 4; i < last; i++, y += GEVR_VR_PITCH)
-    {
-        lit = i == s_gevrVrIndex;
-        value[0] = '\0';
-        if (i == count - 1)
-        {
-            label = "Back";
-        }
-        else if (s_gevrVrSection < 0)
-        {
-            label = s_gevrVrSections[i].name;
-            sprintf(value, "%s", ">>");
-        }
-        else
-        {
-            label = s_gevrVrLabels[s_gevrVrSections[s_gevrVrSection].rows[i]];
-            gevrVrValueText(s_gevrVrSections[s_gevrVrSection].rows[i], value);
-        }
-        gdl = draw_options_labels(gdl, XOFFSET_1, y, (char *) label, lit ? 0xA0FFA0F0 : 0xFF00B0, 0, -1, 0, 0, 0x3000B0, 0);
-        if (value[0] != '\0')
-        {
-            gdl = draw_options_labels(gdl, 0xD7, y, value, lit ? 0xA0FFA0F0 : 0x00FF00B0, 0, -1, 1, 0, 0x3000B0, 0);
-        }
-    }
-
-    /* more rows above or below */
-    if (first > 0)
-    {
-        gdl = draw_options_labels(gdl, 0x10E, YOFFSET_8, "^", 0x00800080, 0, -1, 1, 0, 0x3000B0, 0);
-    }
-    if (last < count)
-    {
-        gdl = draw_options_labels(gdl, 0x10E, y - GEVR_VR_PITCH, "v", 0x00800080, 0, -1, 1, 0, 0x3000B0, 0);
-    }
-
-    return gdl;
+    gevrVrStep(s_gevrVrSections[section].rows[index], dir);
+    vrSettingsSave();
 }
 #endif
 
@@ -4592,8 +4454,8 @@ Gfx *draw_toggle_options(Gfx *gdl)
     s32 yinc = YINC;
 
 #ifdef GEVR
-    /* The VR settings row, and in a multiplayer game the Microphone row
-     * (gevrDrawMicOption), share the eight rows' space. */
+    /* In a multiplayer game the Microphone row (gevrDrawMicOption) shares
+     * the eight rows' space. */
     yinc = GEVR_OPTIONS_YINC;
 #endif
 
@@ -4638,13 +4500,6 @@ Gfx *draw_watch_game_options_page(Gfx *gdl, Mtx *param_2) {
     struct fontchar *pFontChars;
 
     gdl = draw_background_health_and_armor(gdl, param_2, 0);
-
-#ifdef GEVR
-    if (s_gevrVrPage && check_watch_page_transistion_running() != 1)
-    {
-        return gevrDrawVrPage(gdl);
-    }
-#endif
 
     if (check_watch_page_transistion_running() != 1)
     {
@@ -4714,7 +4569,6 @@ Gfx *draw_watch_game_options_page(Gfx *gdl, Mtx *param_2) {
         {
             gdl = gevrDrawMicOption(gdl, YOFFSET_1 + 8 * GEVR_OPTIONS_YINC);
         }
-        gdl = gevrDrawVrRow(gdl, YOFFSET_1 + (GEVR_VR_ROW - GAME_OPTIONS_INDEX_LOOK_UPDOWN) * GEVR_OPTIONS_YINC);
 #endif
     }
 

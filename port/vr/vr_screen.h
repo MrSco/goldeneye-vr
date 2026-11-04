@@ -26,6 +26,9 @@ void vr_screen_recenter(void);
 void vr_screen_set_visible(int visible);
 /* In-game pause: place this quad over the stereo scene, not behind it. */
 void vr_screen_set_overlay(int overlay);
+/* The launcher's friends sidebar widens its canvas past 4:3: the screen grows by
+ * the same factor, so the launcher keeps its size (1 = the size the settings give). */
+void vr_screen_set_width_scale(float scale);
 
 /* Both grips held: the screen follows the hands (0 releases it). */
 void vr_screen_grab(int active);

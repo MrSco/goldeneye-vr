@@ -41,7 +41,6 @@ bool s_hostRequest = false;
 std::string s_joinCode;
 std::string s_notice;                     // in-mission notice, game font
 uint32_t s_noticeUntil = 0;
-std::string s_promptLine;
 std::string s_lastLobby;                  // the lobby the "invited" marks are for
 
 std::string javaString(const char *method) {
@@ -252,6 +251,8 @@ void gevrFriendsInvite(const std::string &friendId) {
     setMessage("Starting a private lobby to invite into...");
 }
 
+bool gevrFriendsHostRequested(void) { return s_hostRequest; }
+
 bool gevrFriendsTakeHostRequest(void) {
     const bool want = s_hostRequest;
     s_hostRequest = false;
@@ -326,47 +327,25 @@ extern "C" void gevrFriendsTick(int inGame) {
         s_inviteQueue.clear();
     }
     if (!netIsActive() && !s_hostRequest) s_inviteQueue.clear();   // the hosting never started
-    // the menu-hold prompt's line: the newest invite still open
-    s_promptLine.clear();
-    if (inGame) {
-        for (const GevrFriendInvite &invite : s_model.invites) {
-            if (invite.lobbyVersion != GEVR_NET_VERSION || (int32_t)(invite.expiresAtMs - now) <= 0) continue;
-            s_promptLine = hudText("Y: join " + invite.name + "'s game");
-            break;
-        }
-    }
 }
 
 extern "C" const char *gevrFriendsNotice(void) {
     return !s_notice.empty() && (int32_t)(s_noticeUntil - SDL_GetTicks()) > 0 ? s_notice.c_str() : nullptr;
 }
 
-extern "C" const char *gevrFriendsPromptLine(void) { return s_promptLine.empty() ? nullptr : s_promptLine.c_str(); }
+const char *gevrFriendsFreshMessage(void) {
+    return !s_model.message.empty() && SDL_GetTicks() - s_model.messageMs < 10000 ? s_model.message.c_str() : "";
+}
 
-// Keeps the invite's lobby for the launcher the app restarts into (gevrFriendsLoadPendingJoin).
-static bool acceptInvite(const GevrFriendInvite &invite) {
+const std::string &gevrFriendsJoinCode(void) { return s_joinCode; }
+
+bool gevrFriendsSavePendingJoin(const std::string &lobbyCode) {
     FILE *f = fopen(pendingJoinPath().c_str(), "w");
     if (!f) return false;
-    fprintf(f, "%s %lld\n", invite.lobby.c_str(), (long long)time(nullptr));
+    fprintf(f, "%s %lld\n", lobbyCode.c_str(), (long long)time(nullptr));
     fclose(f);
-    vr_log("friends: accepted %s's invite to %s; back to the launcher", invite.name.c_str(), invite.lobby.c_str());
-    gevrFriendsSend("drop|" + invite.id);
+    vr_log("friends: joining lobby %s from a mission; back to the launcher", lobbyCode.c_str());
+    s_joinCode.clear();
     return true;
-}
-
-static bool inviteOpen(const GevrFriendInvite &invite, uint32_t now) {
-    return invite.lobbyVersion == GEVR_NET_VERSION && (int32_t)(invite.expiresAtMs - now) > 0;
-}
-
-bool gevrFriendsAcceptInviteId(const std::string &id) {
-    for (const GevrFriendInvite &invite : s_model.invites)
-        if (invite.id == id && inviteOpen(invite, SDL_GetTicks())) return acceptInvite(invite);
-    return false;
-}
-
-extern "C" int gevrFriendsAcceptInvite(void) {
-    for (const GevrFriendInvite &invite : s_model.invites)
-        if (inviteOpen(invite, SDL_GetTicks())) return acceptInvite(invite) ? 1 : 0;
-    return 0;
 }
 #endif

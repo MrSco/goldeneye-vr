@@ -1,6 +1,10 @@
-/* In-match ImGui surface. Reuses the launcher's style, input and XR quad. */
+/* In-match ImGui surface. Reuses the launcher's style, input and XR quad.
+ * Two windows share it: the online pause (tap Menu in an online match) and
+ * the in-game panel (hold Menu, solo or online: gevr_panel_ui.h). */
 #ifdef ANDROID
 #include "gevr_pause_widgets.h"
+#include "gevr_panel_ui.h"
+#include "gevr_friends_ui.h"
 #include "imgui/imgui_impl_opengl3.h"
 #include "vr_screen.h"
 #include "vr_log.h"
@@ -11,43 +15,58 @@
 #include "net_game.h"
 #include "net_coop.h"
 #include "net_horde.h"
-#include "net_protocol.h"
-#include "vr_friends.h"
-#include <algorithm>
-#include <string>
-#include <vector>
-extern "C" { void gevrLobbySessionStopped(void);void gevrRestartToLauncher(void);int bossGetStageNum(void); }
+extern "C" {
+void gevrLobbySessionStopped(void);void gevrRestartToLauncher(void);int bossGetStageNum(void);
+int gevrPanelIsOpen(void);                       /* input.c: hold Menu */
+int gevrTexpackState(void);int gevrTexpackToggle(void);   /* gfx_pc.cpp */
+extern int gevrTexpackToggleMsg;                 /* input.c: bondview2.c says it in play */
+/* options.c: the VR settings the watch used to show */
+int gevrVrSectionCount(void);const char*gevrVrSectionName(int section);int gevrVrRowCount(int section);
+int gevrVrRowRead(int section,int index,const char**label,char*value,int size);void gevrVrRowStep(int section,int index,int dir);
+int lvlGetSelectedDifficulty(void);
+}
+extern int VrCampaign;
 namespace {
 ImGuiContext* context=nullptr;
 GLuint texture=0,framebuffer=0,icon=0;
 Uint64 last=0;
-bool wasOpen=false;
+bool wasOpen=false,wasPanel=false;
 GevrPauseUi ui;
-// the Friends tab's rows, by the ids they stand for
-std::vector<std::string> friendIds,inviteIds;
-void fillFriends(GevrPauseView&view) {
-    const GevrFriendsModel&fm=gevrFriends();
-    const char*lobby=netGetLobbyCode();
+GevrPanelUi panelUi;
+GevrFriendsUiState friendsUi;
+// The Friends sidebar here: joining leaves the mission (the launcher joins), and
+// inviting needs this match's lobby to be open.
+void drawFriends() {
+    const char*lobby=netIsActive()?netGetLobbyCode():"";
     const bool open=lobby[0]&&netGetLivePlayerCount()<netGetMaxPlayers();
-    friendIds.clear();inviteIds.clear();
-    const Uint32 now=SDL_GetTicks();
-    for(const GevrFriendInvite&x:fm.invites) {
-        if(view.inviteCount>=3||(Sint32)(x.expiresAtMs-now)<=0)continue;
-        auto&v=view.invites[view.inviteCount++];inviteIds.push_back(x.id);
-        snprintf(v.text,sizeof(v.text),"%s invites you to %s (%d/%d)",x.name.c_str(),x.lobbyName.c_str(),x.players,x.maxPlayers);
-        v.canJoin=x.lobbyVersion==GEVR_NET_VERSION&&x.lobby!=lobby;
+    GevrFriendsUiContext ctx;
+    ctx.canJoin=VrCampaign==0;   /* GEVR_CAMPAIGN_GE: online play is GoldenEye's */
+    ctx.joinHint="Online play needs the GoldenEye campaign.";
+    ctx.canInvite=open;
+    ctx.inviteHint=!netIsActive()?"Invite from a lobby: host one on the launcher's Multiplayer page."
+        :!lobby[0]?"This game has no internet lobby to invite into.":!open?"This match is full.":"Invite them into this match.";
+    ctx.lobby=lobby;ctx.netVersion=GEVR_NET_VERSION;ctx.message=gevrFriendsFreshMessage();
+    gevrFriendsSidebar(friendsUi,ctx,ImVec4(.88f,.69f,.25f,1),ImVec4(.5f,.9f,.5f,1),ImVec4(.95f,.5f,.4f,1));
+}
+// A join asked for in the sidebar: confirmed, it leaves for the launcher, which joins.
+bool confirmJoin() {
+    if(!gevrFriendsJoinPending())return false;
+    if(!ImGui::IsPopupOpen("Join friend?"))ImGui::OpenPopup("Join friend?");
+    bool leave=false;
+    if(ImGui::BeginPopupModal("Join friend?",nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted(netIsActive()?"Leave this match for your friend's lobby?":"Leave this mission for your friend's lobby?");
+        if(!netIsActive())ImGui::TextDisabled("This mission will not be saved.");
+        if(ImGui::Button("Cancel",ImVec2(220,52))){gevrFriendsTakeJoin();ImGui::CloseCurrentPopup();}
+        ImGui::SameLine();
+        if(ImGui::Button("Join",ImVec2(220,52))){leave=gevrFriendsSavePendingJoin(gevrFriendsJoinCode());ImGui::CloseCurrentPopup();}
+        ImGui::EndPopup();
     }
-    for(const GevrFriend&f:fm.friends) {
-        if(view.friendCount>=10||f.state=="offline")continue;
-        auto&v=view.friends[view.friendCount++];friendIds.push_back(f.id);
-        snprintf(v.name,sizeof(v.name),"%s",f.name.c_str());
-        snprintf(v.status,sizeof(v.status),"%s",f.detail.empty()?(f.state=="match"?"In an online match":f.state=="lobby"?"In a lobby":f.state=="solo"?"Playing solo":"In the launcher"):f.detail.c_str());
-        v.canInvite=open&&f.version==GEVR_NET_VERSION&&f.lobby!=lobby;
-        v.invited=std::find(fm.invited.begin(),fm.invited.end(),f.id)!=fm.invited.end();
-    }
-    snprintf(view.friendsNote,sizeof(view.friendsNote),"%s",fm.status!="ready"?"Friends are not available yet."
-        :!lobby[0]?"This match has no internet lobby to invite into.":!open?"This match is full."
-        :fm.friends.empty()?"Add friends on the launcher's Friends page.":view.friendCount?"Invited friends join this match's lobby.":"No friends online.");
+    return leave;
+}
+void leaveToLauncher() {
+    gevrNativePauseResume();
+    if(netIsActive())gevrLobbySessionStopped();   /* the goodbye: the host frees the slot at once */
+    gevrRestartToLauncher();
 }
 void initialize() {
     context=ImGui::CreateContext();auto&io=ImGui::GetIO();io.IniFilename=nullptr;
@@ -66,11 +85,28 @@ void initialize() {
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
     }SDL_RWclose(rw);}
 }
+// The in-game panel's frame. Returns a GEVR_PANEL_ action.
+int panelFrame() {
+    GevrPanelView v;
+    v.online=netIsActive();v.texpack=gevrTexpackState();
+    v.sectionCount=gevrVrSectionCount;v.sectionName=gevrVrSectionName;v.rowCount=gevrVrRowCount;
+    v.rowRead=gevrVrRowRead;v.rowStep=gevrVrRowStep;v.drawFriends=drawFriends;
+    const int stage=bossGetStageNum();
+    if(v.online)snprintf(v.session,sizeof(v.session),"%s",netCoopActive()?netCoopStageName((uint8_t)stage):netStageName(netStageIndexOf((uint8_t)netGetLobbyStage())));
+    else if(stage==90)snprintf(v.session,sizeof(v.session),"In the menus");   /* LEVELID_TITLE */
+    else {
+        const char*mission=netCoopStageName((uint8_t)stage);
+        if(VrCampaign==0&&mission&&mission[0])snprintf(v.session,sizeof(v.session),"%s, %s",mission,netDifficultyName(lvlGetSelectedDifficulty()));
+    }
+    snprintf(v.note,sizeof(v.note),"%s",v.online?"Leaving disconnects you from this match.":stage==90?"":"Going back to the launcher does not save this mission.");
+    return gevrDrawPanelWindow(v,panelUi,(ImTextureID)(intptr_t)icon);
+}
 }
 extern "C" void gevrNativePauseRender(void) {
     const bool open=gevrNativePauseOpen()!=0;
     vr_screen_set_overlay(open);
     if(!open){wasOpen=false;return;}
+    const bool panel=gevrPanelIsOpen()!=0;
     GLint drawFbo,readFbo,viewport[4],scissor[4],boundTexture;GLfloat clear[4];
     const bool scissorOn=glIsEnabled(GL_SCISSOR_TEST);
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING,&drawFbo);glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING,&readFbo);
@@ -81,9 +117,17 @@ extern "C" void gevrNativePauseRender(void) {
     auto&io=ImGui::GetIO();const Uint64 now=SDL_GetPerformanceCounter();
     io.DeltaTime=last?fmaxf(.001f,fminf(.1f,(float)(now-last)/SDL_GetPerformanceFrequency())):1.f/72;last=now;
     vr_screen_set_visible(1);
-    if(!wasOpen){ui=GevrPauseUi();vr_screen_recenter();io.ClearInputKeys();}
-    gevrFeedPauseInput(!wasOpen);wasOpen=true;
+    if(!wasOpen || panel!=wasPanel){ui=GevrPauseUi();panelUi=GevrPanelUi();if(!wasOpen)vr_screen_recenter();io.ClearInputKeys();}
+    gevrFeedPauseInput(!wasOpen || panel!=wasPanel);wasOpen=true;wasPanel=panel;
     ImGui_ImplOpenGL3_NewFrame();ImGui::NewFrame();
+    const bool popupWasOpen=ImGui::IsPopupOpen(nullptr,ImGuiPopupFlags_AnyPopupId|ImGuiPopupFlags_AnyPopupLevel);
+    int action=GEVR_PAUSE_NONE,panelAction=GEVR_PANEL_NONE;
+    bool joinFriend=false;
+    if(panel) {
+        panelAction=panelFrame();
+        joinFriend=confirmJoin();
+        if(!popupWasOpen&&ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight))panelAction=GEVR_PANEL_RESUME;
+    } else {
     GevrPauseView view;view.horde=netHordeActive()!=0;view.hordeDefeated=gevrHordeDefeated()!=0;view.coop=netCoopActive()!=0;view.host=netIsHost();view.capacity=view.coop?4:netGetMaxPlayers();
     view.canStart=!view.coop&&gevrPauseActionAvailable("START MATCH");
     view.soloWarmup=!view.coop&&netGetConnectedPlayerCount()==1;
@@ -110,7 +154,7 @@ extern "C" void gevrNativePauseRender(void) {
         if(view.startRequested)snprintf(view.status,sizeof(view.status),"Waiting for ready / loading players");
         else if(seconds>0)snprintf(view.status,sizeof(view.status),"Warmup %d:%02d - host can start early",seconds/60,seconds%60);
     }
-    fillFriends(view);
+    view.drawFriends=drawFriends;
     gevrPauseLocalGauges(view.gauges);
     gevrPauseLocalRadar(&view.radar);
     const NetMsgLobbyState*lobby=netGetLobbyState();
@@ -121,9 +165,10 @@ extern "C" void gevrNativePauseRender(void) {
         p.ready=lobby->slots[slot].ready!=0;p.down=view.coop&&gevrCoopDowned(slot);p.ping=netGetSlotPing(slot);
         if(!view.coop)gevrPausePlayerStats(slot,&p.points,&p.kills,&p.losses);
     }
-    const bool popupWasOpen=ImGui::IsPopupOpen(nullptr,ImGuiPopupFlags_AnyPopupId|ImGuiPopupFlags_AnyPopupLevel);
-    int action=gevrDrawPauseWindow(view,ui,(ImTextureID)(intptr_t)icon);
+    action=gevrDrawPauseWindow(view,ui,(ImTextureID)(intptr_t)icon);
+    joinFriend=confirmJoin();
     if(!popupWasOpen&&ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight))action=GEVR_PAUSE_RESUME;
+    }
     if(io.MousePos.x>=0&&io.MousePos.y>=0) {
         ImGui::GetForegroundDrawList()->AddCircleFilled(io.MousePos,8,IM_COL32(255,214,120,255));
         ImGui::GetForegroundDrawList()->AddCircle(io.MousePos,11,IM_COL32(255,255,255,255));
@@ -136,16 +181,18 @@ extern "C" void gevrNativePauseRender(void) {
     if(scissorOn)glEnable(GL_SCISSOR_TEST);else glDisable(GL_SCISSOR_TEST);
     glClearColor(clear[0],clear[1],clear[2],clear[3]);glBindTexture(GL_TEXTURE_2D,(GLuint)boundTexture);
     vr_pointer_draw();ImGui::SetCurrentContext(previous);
+    if(joinFriend){leaveToLauncher();return;}
+    if(panelAction==GEVR_PANEL_RESUME)gevrNativePauseResume();
+    if(panelAction==GEVR_PANEL_LAUNCHER){vr_log("panel: back to the launcher");leaveToLauncher();return;}
+    if(panelAction==GEVR_PANEL_TEXPACK && gevrTexpackState()>=0){
+        gevrTexpackToggleMsg=gevrTexpackToggle()+2;   /* 2 off, 3 on */
+        vr_log("panel: texture pack %s",gevrTexpackToggleMsg==3?"on":"off");
+    }
     if(action==GEVR_PAUSE_HORDE_RETRY){gevrNativePauseResume();netHordeRetry();}
     if(action==GEVR_PAUSE_RESUME)gevrNativePauseResume();
-    if(action==GEVR_PAUSE_LEAVE){gevrNativePauseResume();gevrLobbySessionStopped();gevrRestartToLauncher();}
+    if(action==GEVR_PAUSE_LEAVE)leaveToLauncher();
     if(action==GEVR_PAUSE_ABORT&&netIsHost()&&netCoopActive()){gevrNativePauseResume();netCoopMissionEnded(NET_COOP_RESULT_ABORTED);}
     if(action==GEVR_PAUSE_REQUEST_VOTES)netHostRequestVotes();
     if(action>=GEVR_PAUSE_KICK_BASE && action<GEVR_PAUSE_KICK_BASE+8)netHostKickPlayer(action-GEVR_PAUSE_KICK_BASE);
-    if(action>=GEVR_PAUSE_INVITE_BASE && action<GEVR_PAUSE_INVITE_BASE+(int)friendIds.size())gevrFriendsInvite(friendIds[action-GEVR_PAUSE_INVITE_BASE]);
-    if(action>=GEVR_PAUSE_JOIN_INVITE_BASE && action<GEVR_PAUSE_JOIN_INVITE_BASE+(int)inviteIds.size() &&
-       gevrFriendsAcceptInviteId(inviteIds[action-GEVR_PAUSE_JOIN_INVITE_BASE])) {
-        gevrNativePauseResume();gevrLobbySessionStopped();gevrRestartToLauncher();
-    }
 }
 #endif

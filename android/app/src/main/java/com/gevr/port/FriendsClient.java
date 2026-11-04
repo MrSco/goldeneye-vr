@@ -137,6 +137,11 @@ final class FriendsClient {
                 http.call("DELETE", BASE + "/me/friends/" + f[1], null, token());
                 soon();
                 break;
+            case "decline-all":
+                if (!ready()) return;
+                http.call("DELETE", BASE + "/me/requests", null, token());
+                soon();
+                break;
             case "block":
                 if (f.length != 2 || !ready()) return;
                 http.call("POST", BASE + "/me/blocks", new JSONObject().put("id", f[1]), token());

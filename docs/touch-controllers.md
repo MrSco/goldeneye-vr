@@ -19,8 +19,8 @@ your hands, each over a list of its controls:
   `port/src/input.c`. In stereo the off hand's trigger reads **Fire** while that
   hand holds something, **-** while it's empty (it does nothing then), and
   **Detonate** while GoldenEye X's remote mines are out. The grips follow
-  the VR settings too, and change as soon as you return from the watch's
-  VR page:
+  the VR settings too, and change as soon as you close the in-game
+  panel (hold Menu):
 
   | Grip | Line |
   |---|---|
@@ -39,7 +39,7 @@ your hands, each over a list of its controls:
   Plus (Quest 3 and 3S) or Touch Pro. The runtime's headset name decides, then
   Android's model; the controllers' interaction profile overrides both when it
   names them. To pick a set by hand, use **VR settings → Controls →
-  Controllers** on the watch, or `TouchControllers=` in `goldeneye-vr.ini`:
+  Controllers** in the in-game panel (hold Menu), or `TouchControllers=` in `goldeneye-vr.ini`:
   0 Auto, 1 Quest, 2 Quest 2, 3 Touch Plus, 4 Touch Pro. The log line
   `touch: drawing ... controllers` shows the choice.
 - As the N64 controller did, the pair spins and tilts with the stick while the

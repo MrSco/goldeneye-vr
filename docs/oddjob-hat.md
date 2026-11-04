@@ -11,8 +11,8 @@ blood patch's row) from GoldenEye VR's mods repository
 (github.com/MrSco/goldeneye-vr-mods, release `oddjob-hat-<version>`, asset
 `oddjob-hat-<version>.zip` holding `oddjob_hat.bin`) into
 `files/texture-packs/oddjob-hat/`. Then the row is a checkbox (plus Remove,
-and Update when the repository has a newer `oddjob-hat-` release). The watch's
-VR settings, Mods and fun > Oddjob's hat, turns it on and off in game. The ini
+and Update when the repository has a newer `oddjob-hat-` release). The in-game
+panel's VR settings (hold Menu), Mods and fun > Oddjob's hat, turns it on and off in game. The ini
 key is `OddjobHat`, on by default; it does nothing until the pack is there.
 
 ## Making the pack

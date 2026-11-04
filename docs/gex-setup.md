@@ -201,7 +201,7 @@ swaps hands and face buttons as described in the [README controls](../README.md#
 button reloads still work here.
 
 **Stereo VR:** enable **Hand reload (WIP)** under **Controls → Gestures...**,
-or **watch → Game Options → VR settings → Weapons → Reload WIP**. With it
+or the in-game panel's (hold Menu) **VR settings → Weapons → Reload WIP**. With it
 on, guns no longer auto-reload. For a supported GE-X magazine-fed gun:
 
 1. With one gun, put the off hand at its magazine, squeeze grip and pull down.
@@ -265,7 +265,7 @@ Toggles and fits are saved in `data/goldeneye-vr.ini` (`GexGuns`, `GexFistClench
 `GexPP7GunOff`, `GexPP7Grab`, `GexPP7Support`, `GexPP7SupportRot`, `GexPP7MagOff`, `GexKF7MagOff`,
 `GexPP7WellOff`, `GexKF7WellOff` and
 the GE-X gun/grip/scope fits). They can be changed from the launcher or
-the watch's VR settings where offered.
+the in-game panel's VR settings (hold Menu) where offered.
 
 PP7's two-hand support pose stays fixed to the pistol, like the original GE
 pistol grip. Turning the off controller does not pivot the supporting hand.

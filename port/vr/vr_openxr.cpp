@@ -2191,6 +2191,17 @@ static float vr_screen_width(void)
     return 2.0f * VrScreenDistance * tanf(VrScreenFov * 0.5f * 3.14159265f / 180.0f);
 }
 
+// The launcher's sidebar (vr_screen_set_width_scale): the quad shown and pointed
+// at is this much wider than the settings say, around the same centre. The
+// grab keeps working in the settings' own width.
+static float g_screenWidthScale = 1.0f;
+static float vr_screen_shown_width(void) { return vr_screen_width() * g_screenWidthScale; }
+static float vr_screen_shown_angle(void) { return VrScreenFov * g_screenWidthScale * 3.14159265f / 180.0f; }
+extern "C" void vr_screen_set_width_scale(float scale)
+{
+    g_screenWidthScale = scale < 1.0f ? 1.0f : scale > 2.0f ? 2.0f : scale;
+}
+
 static void vr_screen_head(float out[3])
 {
     const XrPosef& l = g_frameViews[0].pose;
@@ -2346,7 +2357,7 @@ static bool vr_screen_hit(int hand, float *u, float *v, float o[3])
         const float t = (-B + sqrtf(disc)) / (2.0f * A);
         if (t <= 0.0f) { g_ptrMissReason[hand] = 3; return false; }
         const float hx = lo[0] + ld[0] * t, hy = lo[1] + ld[1] * t, hz = lo[2] + ld[2] * t;
-        const float angle = VrScreenFov * 3.14159265f / 180.0f;
+        const float angle = vr_screen_shown_angle();
         const float height = r * angle / aspect;
         *u = 0.5f + vr_atan2f(hx, -hz) / angle;
         *v = 0.5f - hy / height;
@@ -2360,7 +2371,7 @@ static bool vr_screen_hit(int hand, float *u, float *v, float o[3])
         const float hx = o[0] + dir[0] * t - g_screenPose.position.x;
         const float hy = o[1] + dir[1] * t - g_screenPose.position.y;
         const float hz = o[2] + dir[2] * t - g_screenPose.position.z;
-        const float width = vr_screen_width();
+        const float width = vr_screen_shown_width();
         const float lx = hx * cy - hz * sy;             // along the quad's +X
         *u = 0.5f + lx / width;
         *v = 0.5f - hy / (width / aspect);
@@ -2382,7 +2393,7 @@ static void vr_screen_uv_to_world(float u, float v, float out[3])
     float bx, by, bz;           // origin of that frame
     if (VrScreenCurved && g_cylinderSupported) {
         const float r = VrScreenDistance;
-        const float angle = VrScreenFov * 3.14159265f / 180.0f;
+        const float angle = vr_screen_shown_angle();
         const float th = (u - 0.5f) * angle;
         lx = r * sinf(th);
         ly = (0.5f - v) * r * angle / aspect;
@@ -2391,7 +2402,7 @@ static void vr_screen_uv_to_world(float u, float v, float out[3])
         by = g_screenPose.position.y;
         bz = g_screenPose.position.z + cy * r;
     } else {
-        const float width = vr_screen_width();
+        const float width = vr_screen_shown_width();
         lx = (u - 0.5f) * width;
         ly = (0.5f - v) * width / aspect;
         lz = 0.0f;
@@ -4587,7 +4598,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         screenLayer.subImage.imageRect.offset = {0, 0};
         screenLayer.subImage.imageRect.extent = {(int32_t)g_screenW, (int32_t)g_screenH};
         screenLayer.pose = g_screenPose;
-        const float width = vr_screen_width();
+        const float width = vr_screen_shown_width();
         screenLayer.size = { width, width * (float)g_screenH / (float)g_screenW };
 
         if (screenCurved) {
@@ -4610,7 +4621,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
                 screenCyl.pose.position.z += cz;
             }
             screenCyl.radius       = VrScreenDistance;
-            screenCyl.centralAngle = VrScreenFov * 3.14159265f / 180.0f;
+            screenCyl.centralAngle = vr_screen_shown_angle();
             screenCyl.aspectRatio  = (float)g_screenW / (float)g_screenH;
         }
     }
