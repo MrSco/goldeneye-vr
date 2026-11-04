@@ -66,6 +66,7 @@ public class MainActivity extends SDLActivity {
         mods = new ModManager(this, version);
         lobbies = new LobbyClient();
         friends = new FriendsClient(new File(dataDir, "gevr_player.json"));
+        takeJoinLink(getIntent());
         // Discord's Social SDK (port/vr/vr_discord.cpp), when this build has it: its sign-in
         // and connection run against this activity.
         try {
@@ -111,6 +112,33 @@ public class MainActivity extends SDLActivity {
     public void lobbyCommand(String cmd) { if (lobbies != null) lobbies.command(cmd); }
 
     // Friends, presence and invites (port/vr/vr_friends.cpp; see FriendsClient).
+    /**
+     * A goldeneyevr://join/CODE link (the goldeneyevr.com/join page's "Open in GoldenEye VR"):
+     * kept in data/gevr_pending_join.txt, which the launcher reads and joins (vr_friends.cpp
+     * gevrFriendsLoadPendingJoin), the way an invite accepted in a mission is.
+     */
+    private void takeJoinLink(Intent intent) {
+        Uri data = intent == null ? null : intent.getData();
+        if (data == null || !"goldeneyevr".equals(data.getScheme()) || !"join".equals(data.getHost())) return;
+        String code = data.getLastPathSegment();
+        if (code == null) return;
+        code = code.trim().toUpperCase(java.util.Locale.ROOT);
+        if (!code.matches("[A-Z2-9]{8}")) return;
+        File file = new File(new File(getExternalFilesDir(null), "data"), "gevr_pending_join.txt");
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(file)) {
+            out.write((code + " " + (System.currentTimeMillis() / 1000) + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            Log.i(TAG, "Join link for lobby " + code);
+        } catch (java.io.IOException e) {
+            Log.w(TAG, "Could not keep the join link", e);
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        takeJoinLink(intent);   // the app was already running: the launcher picks it up within a second
+    }
+
     public String friendsEvent() { return friends != null ? friends.event() : ""; }
     public void friendsCommand(String cmd) { if (friends != null) friends.command(cmd); }
 

@@ -1172,6 +1172,10 @@ static const char *gevrVisibilityName(int visibility)
     return visibility == 2 ? "friends" : visibility == 1 ? "private" : "public";
 }
 static const char *s_hostVisibility = nullptr;
+extern "C" const char *gevrHostedLobbyVisibility(void)
+{
+    return !netIsHost() ? "" : s_hostVisibility ? s_hostVisibility : gevrVisibilityName(VrMpVisibility);
+}
 
 static std::string gevrLobbyCreateCommand(const std::string &name, int stage, int set, int max)
 {

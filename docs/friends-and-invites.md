@@ -1,9 +1,9 @@
 # Friends, presence and invites
 
-Status (2026-11-04): phases 1 and 2 in pre-releases v0.5.15-test.5/6 (branch
-`prerelease/v0.5.15`); phase 3 (Link Discord) built for test.7, its sign-in not
-yet tried on a headset; phase 4 not started. Worker: goldeneyevr.com branch
-`claude/friends-invites` (`services/lobbies/src/social.ts`), deployed.
+Status (2026-11-04): all four phases built, in pre-releases v0.5.15-test.5 to
+test.9 (branch `prerelease/v0.5.15`). Link Discord works on the user's Quest
+(test.8, after updating the Quest's Discord app). Worker:
+`services/lobbies/src/social.ts` on goldeneyevr.com `main`, deployed.
 
 ## Goal
 
@@ -264,13 +264,33 @@ user's Discord developer account); OAuth2 redirect
   "Deathmatch, Statue (Full), 3/8") with a party size; the party ID is a hash,
   never a private lobby's code. Cleared while appearing offline. On mobile
   Discord only publishes presence for linked accounts.
-- **Invites through Discord:** to friends not in the game, with a join link
-  `https://goldeneyevr.com/join/<code>`. The page opens the game into that
-  lobby if it is installed (Android app link, needs `assetlinks.json` on
-  goldeneyevr.com; Quest browser support to check), else shows the code and
-  the download.
-- Needs: a Discord application (client ID from the user), the join URL set in
-  its General settings, and Android as a supported platform.
+- **An old Discord app on the Quest** (found 2026-11-04): with the Discord app
+  installed, the SDK signs in through it, and an outdated build answered
+  "Invalid scope: openid" (the same request works on the web). The current
+  one from the Meta Quest store works. The panel says so under Link Discord
+  and when a sign-in fails.
+- **Discord invites (phase 4, built, test.9):** in a lobby, the Rich Presence
+  carries a party (size, a hashed ID) and the join secret `gevr1:<lobby code>`,
+  supported platform Android. Party privacy Public for a lobby this headset
+  hosts as public or friends-only, so Discord friends may join from Discord;
+  Private otherwise (invite only). The Friends panel's Discord section lists
+  Discord friends (online first, 40 shown) with **Invite**
+  (`Client::SendActivityInvite`); with no lobby, the launcher hosts a private
+  one first, as the panel's own Invite does, and the invites go out once its
+  secret is in the presence. Invites received
+  (`SetActivityInviteCreatedCallback`) show at the top of the panel with Join
+  (`AcceptActivityInvite`) and Ignore, and as a notice in a mission; Join from
+  Discord's own app arrives through `SetActivityJoinCallback`. A secret that
+  is not `gevr1:` and a valid code is refused. The join goes through the
+  ordinary join by code (in a mission, the panel asks first).
+- **Join links (phase 4, built):** `goldeneyevr.com/join?c=<code>` (the site's
+  `join.html` and `join.js`) shows the code, how to join by hand and an
+  **Open in GoldenEye VR** button to `goldeneyevr://join/<code>`, which the
+  app takes (MainActivity `takeJoinLink`, an intent filter on MainActivity)
+  into `data/gevr_pending_join.txt` for the launcher (checked every second
+  while it runs). The Friends panel shows a lobby's link to pass on. A custom
+  scheme, not an Android app link: no `assetlinks.json` to verify, and a
+  browser just shows the page when the game is not installed.
 - Not used: Discord's provisional accounts. They would keep the friends list
   on Discord's side; ours stays the source of truth.
 
@@ -293,12 +313,13 @@ Sideloaded builds only get these for the developer's own organisation.
 3. **Discord link** (built, test.7): SDK, sign-in, Discord friends, Rich
    Presence. Worker tests: `test/discord.test.mjs` (Discord's API faked);
    `FriendsClientTest.discordLink...`.
-4. **Discord invites and join links:** the join page and app link.
+4. **Discord invites and join links** (built, test.9): Discord invites both
+   ways, Join from Discord, the join page and the `goldeneyevr://` link.
 
 Phases 1 and 2 ship without Discord. Protocol: none of this touches the game's
 network protocol; the Worker API is versioned under `/v1`.
 
 ## Open questions
 
-- Quest browser and Android app links for `goldeneyevr.com/join/<code>`: to
-  test on a headset before phase 4.
+- Does the Quest browser hand `goldeneyevr://join/...` to the app? Only a
+  headset can tell; joining by hand from the page works either way.

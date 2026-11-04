@@ -12,6 +12,8 @@ extern "C" {
 
 /* Every launcher frame (inGame 0) and every game tick (inGame 1, gevrLobbyGameTick). */
 void gevrFriendsTick(int inGame);
+/* vr_launcher.cpp: the hosted lobby's visibility ("public", "private", "friends"), or "" when not hosting. */
+const char *gevrHostedLobbyVisibility(void);
 /* A new invite's line for the bottom of the view in a mission, for a few seconds; NULL otherwise. */
 const char *gevrFriendsNotice(void);
 
@@ -63,6 +65,10 @@ void gevrFriendsSend(const std::string &command);
  * Multiplayer page takes gevrFriendsTakeHostRequest). */
 void gevrFriendsInvite(const std::string &friendId);
 bool gevrFriendsTakeHostRequest(void);
+/* A lobby for an invite: true when there is one or the launcher will host one. */
+bool gevrFriendsRequestLobby(void);
+/* A notice for the panels' status line, and the bottom of the view in a mission. */
+void gevrFriendsMessage(const std::string &text);
 bool gevrFriendsHostRequested(void);
 /* A lobby to join from the friends page or an invite; the Multiplayer page takes it. */
 void gevrFriendsJoin(const std::string &lobbyCode);

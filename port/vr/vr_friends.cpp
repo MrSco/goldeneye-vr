@@ -207,7 +207,8 @@ void handle(const std::vector<std::string> &f, bool inGame) {
 }
 
 // What this headset is doing, as last composed (Discord's Rich Presence shows it too).
-struct Presence { std::string state, detail, lobby; int players = 0, max = 0; } s_presence;
+struct Presence { std::string state, detail, lobby; int players = 0, max = 0; bool joinable = false; } s_presence;
+bool s_inGame = false;
 
 // The line FriendsClient posts: what this headset is doing.
 std::string presenceLine(bool inGame) {
@@ -245,8 +246,10 @@ std::string presenceLine(bool inGame) {
     const char *lobby = online ? netGetLobbyCode() : "";
     s_presence.state = state;
     s_presence.detail = detail;
-    // Discord's party id only groups players; it is not the lobby code, which a private lobby keeps to itself
-    s_presence.lobby = lobby[0] ? std::to_string(std::hash<std::string>()(std::string("gevr:") + lobby)) : "";
+    s_presence.lobby = lobby;   // Discord's join secret (vr_discord.cpp hides it in a hash for the party id)
+    // Discord friends may join a public or friends-only lobby this headset hosts; the rest go by invite
+    const char *visibility = online && netIsHost() ? gevrHostedLobbyVisibility() : "";
+    s_presence.joinable = strcmp(visibility, "public") == 0 || strcmp(visibility, "friends") == 0;
     return std::string("presence|") + state + "|" + field(lobby) + "|" + std::to_string(GEVR_NET_VERSION) + "|" +
            field(VrPlayerName) + "|" + field(detail);
 }
@@ -282,6 +285,21 @@ void gevrFriendsInvite(const std::string &friendId) {
 }
 
 bool gevrFriendsHostRequested(void) { return s_hostRequest; }
+
+bool gevrFriendsRequestLobby(void) {
+    if (netIsActive()) return netGetLobbyCode()[0] != '\0';
+    if (s_inGame) return false;   // a mission has no lobby to host
+    s_hostRequest = true;         // the Multiplayer page hosts a private one (gevrFriendsTakeHostRequest)
+    return true;
+}
+
+void gevrFriendsMessage(const std::string &text) {
+    setMessage(text);
+    if (s_inGame) {   // in a mission, low in the view as an invite is
+        s_notice = hudText(text);
+        s_noticeUntil = SDL_GetTicks() + kNoticeMs;
+    }
+}
 
 bool gevrFriendsTakeHostRequest(void) {
     const bool want = s_hostRequest;
@@ -343,6 +361,7 @@ extern "C" void gevrFriendsTick(int inGame) {
     static std::string lastLine;
     static bool settingsSent = false;
     const uint32_t now = SDL_GetTicks();
+    s_inGame = inGame != 0;
     gevrDiscordTick();   // the SDK's callbacks, every frame it is given
     // a few times a second: each look crosses into Java
     if (now - lastDrain < 200 && lastDrain) return;
@@ -367,7 +386,9 @@ extern "C" void gevrFriendsTick(int inGame) {
         javaCommand(line);
     }
     gevrDiscordPresence(s_presence.state, s_presence.detail, s_presence.players, s_presence.max, s_presence.lobby,
-                        VrFriendsAppearOffline != 0);
+                        s_presence.joinable, VrFriendsAppearOffline != 0);
+    // a goldeneyevr.com/join link opened while the launcher runs (MainActivity writes the pending join)
+    if (!inGame) gevrFriendsLoadPendingJoin();
     // The lobby the queued invites wait for, and the marks for the last one.
     const std::string lobby = netIsActive() ? netGetLobbyCode() : "";
     if (lobby != s_lastLobby) {

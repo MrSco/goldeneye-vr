@@ -140,6 +140,14 @@
                 <category android:name="com.oculus.intent.category.VR" />
             </intent-filter>
 
+            <!-- goldeneyevr://join/CODE (goldeneyevr.com/join): join that lobby (MainActivity.takeJoinLink) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="goldeneyevr" android:host="join" />
+            </intent-filter>
+
             <!-- Focus-aware VR (Meta specific) -->
             <meta-data
                 android:name="com.oculus.vr.focusaware"

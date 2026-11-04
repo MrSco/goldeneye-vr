@@ -32,6 +32,12 @@ int gevrDiscordState(void) { return discordState; }
 const char *gevrDiscordName(void) { return "A very long Discord display name"; }
 void gevrDiscordLink(void) {}
 void gevrDiscordUnlink(void) {}
+static std::vector<GevrDiscordFriend> discordFriends;
+static std::vector<GevrDiscordInvite> discordInvites;
+const std::vector<GevrDiscordFriend> &gevrDiscordFriends(void) { return discordFriends; }
+const std::vector<GevrDiscordInvite> &gevrDiscordInvites(void) { return discordInvites; }
+void gevrDiscordInvite(uint64_t) {}
+void gevrDiscordAnswer(int, bool) {}
 
 // options.c's rows, faked: seven sections, the longest values the watch shows
 static int steps[8][8];
@@ -84,6 +90,8 @@ int main() {
     for (int i = 0; i < 20; i++) model.search.push_back({"s" + std::to_string(i), "Natalya Simonov" + std::to_string(i % 10), "SSSSSS",
                                                          i % 4 == 0 ? "none" : i % 4 == 1 ? "sent" : i % 4 == 2 ? "request" : "friends"});
     model.friends.clear();   // no friends yet: Find a friend opens by itself, and is measured
+    for (int i = 0; i < 3; i++) discordInvites.push_back({i + 1, "A Discord display name that is long"});
+    for (int i = 0; i < 40; i++) discordFriends.push_back({100u + i, "Discord friend with a long name " + std::to_string(i), i < 10, i == 3});
     ctx.canJoin = ctx.canInvite = true; ctx.netVersion = 25; ctx.lobby = "";
     ctx.message = "That player is not taking friend requests";
 

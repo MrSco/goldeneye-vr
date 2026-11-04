@@ -169,11 +169,24 @@ inline void gevrFriendsSidebar(GevrFriendsUiState &ui, const GevrFriendsUiContex
             vrSettingsSave();
         }
     }
+    // a link to pass on anywhere (Discord chat, a message): goldeneyevr.com/join opens the game into this lobby
+    if (ctx.lobby[0]) ImGui::TextDisabled("Share: goldeneyevr.com/join?c=%s", ctx.lobby);
     if (ctx.message[0]) ImGui::TextWrapped("%s", ctx.message);
     ImGui::Separator();
 
     for (const GevrFriendInvite &invite : m.invites) gevrFriendsInviteCard(invite, ctx, gold);
-    if (!m.invites.empty()) ImGui::Separator();
+    // invites from Discord friends (vr_discord.cpp): Join asks Discord for the lobby
+    for (const GevrDiscordInvite &invite : gevrDiscordInvites()) {
+        ImGui::PushID(invite.key);
+        ImGui::PushStyleColor(ImGuiCol_Text, gold);
+        ImGui::TextWrapped("%s invites you on Discord", invite.name.c_str());   // Discord names run to 32 characters
+        ImGui::PopStyleColor();
+        GevrButtonRow row;
+        if (row.button("Join", ctx.canJoin, ctx.canJoin ? "Join their lobby." : ctx.joinHint)) gevrDiscordAnswer(invite.key, true);
+        if (row.button("Ignore")) gevrDiscordAnswer(invite.key, false);
+        ImGui::PopID();
+    }
+    if (!m.invites.empty() || !gevrDiscordInvites().empty()) ImGui::Separator();
 
     if (!m.requests.empty()) {
         ImGui::TextColored(gold, "FRIEND REQUESTS");
@@ -316,7 +329,8 @@ inline void gevrFriendsSidebar(GevrFriendsUiState &ui, const GevrFriendsUiContex
             ImGui::TextWrapped("Link Discord: your Discord friends who play GoldenEye VR show up here, Discord shows "
                                "what you are playing, and signing in on a new headset brings your friends back.");
             if (ImGui::SmallButton("Link Discord")) gevrDiscordLink();
-            if (ImGui::IsItemHovered()) gevrTooltip("Opens Discord's sign-in in the browser; come back here when it is done.");
+            if (ImGui::IsItemHovered()) gevrTooltip("Opens Discord's sign-in; come back here when it is done.");
+            ImGui::TextDisabled("With the Discord app on the headset, it needs the Meta Quest store's current one.");
         } else if (discord == GEVR_DISCORD_SIGNING_IN) {
             ImGui::TextWrapped("Finish signing in to Discord in the browser, then come back here.");
             if (ImGui::SmallButton("Try again")) gevrDiscordLink();
@@ -326,6 +340,25 @@ inline void gevrFriendsSidebar(GevrFriendsUiState &ui, const GevrFriendsUiContex
             ImGui::SameLine();
             ImGui::TextDisabled("%s", discord == GEVR_DISCORD_CONNECTED ? "(connected)" : "(connecting...)");
             if (ImGui::SmallButton("Unlink Discord")) { ui.confirmId.clear(); ui.confirmName = "Discord"; ui.confirmKind = 3; }
+            // Invite from Discord: any Discord friend, game or not; online ones first
+            const std::vector<GevrDiscordFriend> &dfriends = gevrDiscordFriends();
+            if (discord == GEVR_DISCORD_CONNECTED && !dfriends.empty()) {
+                ImGui::Spacing();
+                ImGui::TextColored(gold, "INVITE FROM DISCORD");
+                int shown = 0;
+                for (const GevrDiscordFriend &f : dfriends) {
+                    if (++shown > 40) break;
+                    ImGui::PushID((int)(f.id & 0x7fffffff));
+                    if (!f.online) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                    ImGui::TextWrapped("%s", f.name.c_str());
+                    if (!f.online) ImGui::PopStyleColor();
+                    GevrButtonRow row(true);
+                    if (row.button(f.invited ? "Invited" : "Invite", ctx.canInvite && !f.invited,
+                                   ctx.canInvite ? "Sends a Discord invite into your lobby." : ctx.inviteHint))
+                        gevrDiscordInvite(f.id);
+                    ImGui::PopID();
+                }
+            }
         }
     }
     if (ImGui::CollapsingHeader("Privacy and restore code")) {
