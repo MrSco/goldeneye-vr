@@ -14,7 +14,15 @@
 
 extern "C" void vrSettingsSave(void);
 extern char VrPlayerName[16];
-extern int VrFriendsShowDetail, VrFriendsAppearOffline, VrFriendsRestoreNoted;
+extern int VrFriendsShowDetail, VrFriendsAppearOffline, VrFriendsRestoreNoted, VrFriendsSidebar;
+
+// Every ImGui surface (the launcher, the hold-Menu panel, the online pause) is
+// 1280 x 960 with the Friends side panel to its right, open or folded to a
+// strip (VrFriendsSidebar, one setting for all three). The canvas grows by the
+// panel's width and the screen quad with it (vr_screen_set_width_scale), so the
+// surface itself never gets narrower.
+const int kGevrSurfaceW = 1280, kGevrSurfaceH = 960, kGevrSidebarW = 500, kGevrSidebarFoldedW = 76;
+inline int gevrSurfaceCanvasW() { return kGevrSurfaceW + (VrFriendsSidebar ? kGevrSidebarW : kGevrSidebarFoldedW); }
 
 struct GevrFriendsUiState {
     char addCode[16] = "";
@@ -284,5 +292,38 @@ inline void gevrFriendsSidebar(GevrFriendsUiState &ui, const GevrFriendsUiContex
         ImGui::EndPopup();
     }
     ImGui::EndChild();
+}
+// The side panel itself: its own window right of the surface. Folded, a strip
+// with the word down it and what is waiting; open, the sidebar under a FRIENDS
+// heading with >> to fold it.
+inline void gevrFriendsSidePanel(GevrFriendsUiState &ui, const GevrFriendsUiContext &ctx,
+                                 const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad) {
+    const GevrFriendsModel &m = gevrFriends();
+    const float width = (float)(gevrSurfaceCanvasW() - kGevrSurfaceW);
+    ImGui::SetNextWindowPos(ImVec2((float)kGevrSurfaceW, 0));
+    ImGui::SetNextWindowSize(ImVec2(width, (float)kGevrSurfaceH));
+    ImGui::SetNextWindowBgAlpha(1.0f);
+    ImGui::Begin("##friends-sidebar", nullptr,
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar);
+    int online = 0;
+    for (const GevrFriend &f : m.friends) online += f.state != "offline";
+    const int waiting = (int)(m.requests.size() + m.invites.size());
+    if (!VrFriendsSidebar) {
+        char label[64];
+        snprintf(label, sizeof(label), "<\n\nF\nR\nI\nE\nN\nD\nS\n\n%d%s###friends-unfold", waiting ? waiting : online, waiting ? "\nNEW" : "");
+        if (waiting) ImGui::PushStyleColor(ImGuiCol_Text, gold);
+        if (ImGui::Button(label, ImVec2(-1, -1))) { VrFriendsSidebar = 1; vrSettingsSave(); }
+        if (waiting) ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered()) gevrTooltip("Friends: %d online, %d new", online, waiting);
+        ImGui::End();
+        return;
+    }
+    ImGui::TextColored(gold, "FRIENDS");
+    ImGui::SameLine(width - ImGui::CalcTextSize(">>").x - ImGui::GetStyle().FramePadding.x * 2 - ImGui::GetStyle().WindowPadding.x);
+    if (ImGui::SmallButton(">>")) { VrFriendsSidebar = 0; vrSettingsSave(); }
+    if (ImGui::IsItemHovered()) gevrTooltip("Fold the friends list to the side.");
+    gevrFriendsSidebar(ui, ctx, gold, good, bad);
+    ImGui::End();
 }
 #endif

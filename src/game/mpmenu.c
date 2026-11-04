@@ -2854,15 +2854,9 @@ s32 checkGamePaused(void)
 }
 
 #ifdef GEVR
-void gevrPauseLocalGauges(GevrPauseGaugeVertex vertices[92])
+static void gevrPauseGaugesOf(f32 health,f32 armour,GevrPauseGaugeVertex vertices[92])
 {
-    int slot=netGetLocalSlot();
     struct damage_display_val gauges[92];
-    f32 health=0,armour=0;
-    if(slot>=0 && slot<MAX_PLAYER_COUNT && g_playerPointers[slot]) {
-        health=g_playerPointers[slot]->bondhealth;
-        armour=g_playerPointers[slot]->bondarmour;
-    }
     /* Reuse the original pause/watch arcs, including shading and fill. */
     hudMakeDamageSegments(gauges,46,-1,health);
     hudMakeDamageSegments(gauges+46,46,1,armour);
@@ -2875,6 +2869,16 @@ void gevrPauseLocalGauges(GevrPauseGaugeVertex vertices[92])
         vertices[i].a=gauges[i].colour.a;
     }
 }
+void gevrPauseLocalGauges(GevrPauseGaugeVertex vertices[92])
+{
+    int slot=netGetLocalSlot();
+    f32 health=0,armour=0;
+    if(slot>=0 && slot<MAX_PLAYER_COUNT && g_playerPointers[slot]) {
+        health=g_playerPointers[slot]->bondhealth;
+        armour=g_playerPointers[slot]->bondarmour;
+    }
+    gevrPauseGaugesOf(health,armour,vertices);
+}
 void gevrPausePlayerStats(int slot,int*points,int*kills,int*losses)
 {
     *points=*kills=*losses=0;
@@ -2884,6 +2888,18 @@ void gevrPausePlayerStats(int slot,int*points,int*kills,int*losses)
         if(i!=slot)*kills+=g_playerPlayerData[slot].kill_counts[i];
         *losses+=g_playerPlayerData[i].kill_counts[slot];
     }
+}
+/* The in-game panel's arcs (hold Menu, vr_pause_menu.cpp): this headset's
+ * player online, player 1 in solo play; empty in the menus. */
+void gevrPanelGauges(GevrPauseGaugeVertex vertices[92])
+{
+    struct player *pl=netIsActive()?NULL:g_playerPointers[0];
+    if(netIsActive()) {
+        gevrPauseLocalGauges(vertices);
+        return;
+    }
+    gevrPauseGaugesOf(pl && bossGetStageNum()!=LEVELID_TITLE?pl->bondhealth:0,
+                      pl && bossGetStageNum()!=LEVELID_TITLE?pl->bondarmour:0,vertices);
 }
 /* The pause menu's match clock: time left in a timed match (lv.c warns at one
  * minute and ends it at g_MpTime), time played in any other. Both count in

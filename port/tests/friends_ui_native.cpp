@@ -14,7 +14,7 @@ static void check(bool ok, const char *message) { if (!ok) { fprintf(stderr, "FA
 
 // vr_friends.cpp and the settings, faked
 char VrPlayerName[16] = "Agent 007 VRXYZ";
-int VrFriendsShowDetail = 1, VrFriendsAppearOffline = 0, VrFriendsRestoreNoted = 0;
+int VrFriendsShowDetail = 1, VrFriendsAppearOffline = 0, VrFriendsRestoreNoted = 0, VrFriendsSidebar = 1;
 extern "C" void vrSettingsSave(void) {}
 static GevrFriendsModel model;
 static std::vector<std::string> sent;
@@ -40,14 +40,14 @@ static void rowStep(int s, int i, int dir) { steps[s][i] += dir; }
 
 static GevrFriendsUiState ui;
 static GevrFriendsUiContext ctx;
-static void drawSidebar() {
-    gevrFriendsSidebar(ui, ctx, ImVec4(1, .8f, .3f, 1), ImVec4(.5f, .9f, .5f, 1), ImVec4(1, .5f, .4f, 1));
+static void drawSidePanel() {
+    gevrFriendsSidePanel(ui, ctx, ImVec4(1, .8f, .3f, 1), ImVec4(.5f, .9f, .5f, 1), ImVec4(1, .5f, .4f, 1));
 }
 
 static float widestItem(ImGuiWindow *w) {
     float right = 0;
     for (ImGuiWindow *x : ImGui::GetCurrentContext()->Windows)
-        if (x == w || x->ParentWindow == w || (x->ParentWindow && x->ParentWindow->ParentWindow == w))
+        if (x->Active && (x == w || x->ParentWindow == w || (x->ParentWindow && x->ParentWindow->ParentWindow == w)))
             right = std::max(right, x->ContentSize.x + x->WindowPadding.x * 2);
     return right;
 }
@@ -76,35 +76,42 @@ int main() {
     ctx.canJoin = ctx.canInvite = true; ctx.netVersion = 25; ctx.lobby = "";
     ctx.message = "That player is not taking friend requests";
 
-    // The launcher's sidebar: 500 pixels beside the 1280.
-    auto sidebarFrame = [&]() {
+    // The side panel, as every surface draws it: open, then folded to a strip.
+    auto sideFrame = [&]() {
+        io.DisplaySize = ImVec2((float)gevrSurfaceCanvasW(), 960);
         io.MousePos = ImVec2(-FLT_MAX, -FLT_MAX);
         ImGui::NewFrame();
-        ImGui::SetNextWindowPos(ImVec2(1280, 0)); ImGui::SetNextWindowSize(ImVec2(500, 960));
-        ImGui::Begin("##friends-sidebar", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar);
-        drawSidebar();
-        ImGui::End();
+        drawSidePanel();
         ImGui::Render();
     };
-    sidebarFrame(); sidebarFrame();
+    sideFrame(); sideFrame();
     ImGuiWindow *sidebar = ImGui::FindWindowByName("##friends-sidebar");
-    check(sidebar && widestItem(sidebar) <= 500 + 1, "every friend, invite and request row fits the launcher's 500-pixel sidebar");
+    check(gevrSurfaceCanvasW() == 1780, "open, the canvas is the 1280 surface plus 500");
+    check(sidebar && sidebar->Pos.x == 1280 && sidebar->Size.x == 500, "the side panel sits right of the 1280 surface");
+    check(widestItem(sidebar) <= 500 + 1, "every friend, invite and request row fits the 500-pixel side panel");
+    VrFriendsSidebar = 0;
+    sideFrame(); sideFrame();
+    check(gevrSurfaceCanvasW() == 1356 && sidebar->Size.x == 76, "folded, the side panel is a 76-pixel strip");
+    check(widestItem(sidebar) <= 76 + 1, "the folded strip's label fits it");
+    VrFriendsSidebar = 1;
 
     // An invite's Join joins its lobby.
     gevrFriendsAnswerInvite(model.invites[0], true);
     check(joined == "ABCDEFGH", "an invite's Join joins its lobby");
 
-    // The in-game panel: settings on the left, the sidebar on the right, footer on the canvas.
-    io.DisplaySize = ImVec2(1280, 960);
+    // The in-game panel: the shared header, the VR settings across the surface, the footer.
+    io.DisplaySize = ImVec2((float)gevrSurfaceCanvasW(), 960);
     GevrPanelView v; GevrPanelUi pui;
     v.sectionCount = sectionCount; v.sectionName = sectionName; v.rowCount = rowCount; v.rowRead = rowRead; v.rowStep = rowStep;
-    v.drawFriends = drawSidebar; v.texpack = 1;
-    snprintf(v.session, sizeof(v.session), "Bunker II, 00 Agent");
+    v.texpack = 1;
+    snprintf(v.session, sizeof(v.session), "Bunker II");
+    snprintf(v.status, sizeof(v.status), "00 Agent");
     snprintf(v.note, sizeof(v.note), "Going back to the launcher does not save this mission.");
     int action = 0;
     auto panelFrame = [&]() {
         ImGui::NewFrame();
         action = gevrDrawPanelWindow(v, pui);
+        drawSidePanel();
         ImGui::Render();
     };
     panelFrame(); panelFrame();
@@ -114,13 +121,14 @@ int main() {
     check(rows != nullptr, "a section's rows are drawn");
     check(rows->ContentSize.y <= rows->Size.y, "a section's eight rows fit without scrolling");
     check(rows->ContentSize.x + rows->WindowPadding.x * 2 <= rows->Size.x + 1, "labels and < VALUE > fit the settings column");
-    ImGuiWindow *friendsCol = nullptr, *panel = ImGui::FindWindowByName("##gevr-panel");
-    for (ImGuiWindow *x : ImGui::GetCurrentContext()->Windows)
-        if (strstr(x->Name, "##panel-friends") && x->ParentWindow == panel) friendsCol = x;
-    check(friendsCol != nullptr, "the panel draws the friends column");
-    check(friendsCol->Pos.x + friendsCol->Size.x <= 1280, "the friends column stays on the panel");
-    check(widestItem(friendsCol) <= friendsCol->Size.x + 1, "the sidebar fits the panel's narrower friends column");
+    ImGuiWindow *panel = ImGui::FindWindowByName("##gevr-panel");
+    ImGuiTabBar *tabs = nullptr;
+    for (int t = 0; t < ImGui::GetCurrentContext()->TabBars.GetMapSize(); t++)
+        if (ImGuiTabBar *bar = ImGui::GetCurrentContext()->TabBars.TryGetMapData(t)) tabs = bar;
+    check(tabs && tabs->Tabs.Size == 7, "the seven VR sections are tabs");
+    check(tabs->WidthAllTabsIdeal <= tabs->BarRect.GetWidth() + 1, "all seven section tabs fit without scrolling or shrinking");
+    check(ImGui::FindWindowByName("##friends-sidebar")->Pos.x == 1280, "the panel has the same Friends side panel as the launcher");
     check(panel->ContentSize.y + panel->WindowPadding.y <= 960, "the footer (Resume, HD textures, Back to launcher) stays on the canvas");
     ImGui::DestroyContext();
-    puts("PASS: friends sidebar fits the launcher's 500 pixels and the panel's column; the in-game panel's VR settings and footer fit at Quest font size");
+    puts("PASS: the Friends side panel fits open (500) and folded (76) beside the 1280 surface; the in-game panel's tabs, VR settings and footer fit at Quest font size");
 }

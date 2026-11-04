@@ -1,6 +1,8 @@
-/* In-match ImGui surface. Reuses the launcher's style, input and XR quad.
- * Two windows share it: the online pause (tap Menu in an online match) and
- * the in-game panel (hold Menu, solo or online: gevr_panel_ui.h). */
+/* In-game ImGui surface. Reuses the launcher's style, input and XR quad, and
+ * its layout: a 1280 x 960 window with the Friends side panel to its right
+ * (gevr_friends_ui.h gevrFriendsSidePanel, the launcher's own). Two windows
+ * share it: the online pause (tap Menu in an online match) and the in-game
+ * panel (hold Menu, solo or online: gevr_panel_ui.h). */
 #ifdef ANDROID
 #include "gevr_pause_widgets.h"
 #include "gevr_panel_ui.h"
@@ -34,8 +36,8 @@ bool wasOpen=false,wasPanel=false;
 GevrPauseUi ui;
 GevrPanelUi panelUi;
 GevrFriendsUiState friendsUi;
-// The Friends sidebar here: joining leaves the mission (the launcher joins), and
-// inviting needs this match's lobby to be open.
+// The Friends side panel here: joining leaves the mission (the launcher joins),
+// and inviting needs this match's lobby to be open.
 void drawFriends() {
     const char*lobby=netIsActive()?netGetLobbyCode():"";
     const bool open=lobby[0]&&netGetLivePlayerCount()<netGetMaxPlayers();
@@ -46,7 +48,7 @@ void drawFriends() {
     ctx.inviteHint=!netIsActive()?"Invite from a lobby: host one on the launcher's Multiplayer page."
         :!lobby[0]?"This game has no internet lobby to invite into.":!open?"This match is full.":"Invite them into this match.";
     ctx.lobby=lobby;ctx.netVersion=GEVR_NET_VERSION;ctx.message=gevrFriendsFreshMessage();
-    gevrFriendsSidebar(friendsUi,ctx,ImVec4(.88f,.69f,.25f,1),ImVec4(.5f,.9f,.5f,1),ImVec4(.95f,.5f,.4f,1));
+    gevrFriendsSidePanel(friendsUi,ctx,ImVec4(.88f,.69f,.25f,1),ImVec4(.5f,.9f,.5f,1),ImVec4(.95f,.5f,.4f,1));
 }
 // A join asked for in the sidebar: confirmed, it leaves for the launcher, which joins.
 bool confirmJoin() {
@@ -71,11 +73,11 @@ void leaveToLauncher() {
 void initialize() {
     context=ImGui::CreateContext();auto&io=ImGui::GetIO();io.IniFilename=nullptr;
     io.ConfigFlags|=ImGuiConfigFlags_NavEnableGamepad;io.BackendFlags|=ImGuiBackendFlags_HasGamepad;
-    io.DisplaySize=ImVec2(1280,960);io.FontGlobalScale=2.2f;
+    io.DisplaySize=ImVec2((float)gevrSurfaceCanvasW(),(float)kGevrSurfaceH);io.FontGlobalScale=2.2f;
     ImGui::StyleColorsDark();ImGui::GetStyle().ScaleAllSizes(2.2f);ImGui::GetStyle().WindowRounding=0;
     ImGui_ImplOpenGL3_Init("#version 300 es");
     glGenTextures(1,&texture);glBindTexture(GL_TEXTURE_2D,texture);
-    glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,1280,960,0,GL_RGBA,GL_UNSIGNED_BYTE,nullptr);
+    glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,kGevrSurfaceW+kGevrSidebarW,kGevrSurfaceH,0,GL_RGBA,GL_UNSIGNED_BYTE,nullptr);
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
     glGenFramebuffers(1,&framebuffer);glBindFramebuffer(GL_FRAMEBUFFER,framebuffer);
     glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,texture,0);
@@ -90,13 +92,18 @@ int panelFrame() {
     GevrPanelView v;
     v.online=netIsActive();v.texpack=gevrTexpackState();
     v.sectionCount=gevrVrSectionCount;v.sectionName=gevrVrSectionName;v.rowCount=gevrVrRowCount;
-    v.rowRead=gevrVrRowRead;v.rowStep=gevrVrRowStep;v.drawFriends=drawFriends;
+    v.rowRead=gevrVrRowRead;v.rowStep=gevrVrRowStep;
+    gevrPanelGauges(v.gauges);   /* the online pause's health and armour, solo too */
+    gevrPauseLocalRadar(&v.radar);
     const int stage=bossGetStageNum();
-    if(v.online)snprintf(v.session,sizeof(v.session),"%s",netCoopActive()?netCoopStageName((uint8_t)stage):netStageName(netStageIndexOf((uint8_t)netGetLobbyStage())));
-    else if(stage==90)snprintf(v.session,sizeof(v.session),"In the menus");   /* LEVELID_TITLE */
+    if(v.online) {
+        snprintf(v.session,sizeof(v.session),"%s",netCoopActive()?netCoopStageName((uint8_t)stage):netStageName(netStageIndexOf((uint8_t)netGetLobbyStage())));
+        snprintf(v.status,sizeof(v.status),"%s",netCoopActive()?netDifficultyName(netGetMatchConfig()->difficulty):"Match continues while this menu is open");
+    } else if(stage==90)snprintf(v.session,sizeof(v.session),"In the menus");   /* LEVELID_TITLE */
     else {
         const char*mission=netCoopStageName((uint8_t)stage);
-        if(VrCampaign==0&&mission&&mission[0])snprintf(v.session,sizeof(v.session),"%s, %s",mission,netDifficultyName(lvlGetSelectedDifficulty()));
+        if(VrCampaign==0&&mission&&mission[0])snprintf(v.session,sizeof(v.session),"%s",mission);
+        snprintf(v.status,sizeof(v.status),"%s",netDifficultyName(lvlGetSelectedDifficulty()));
     }
     snprintf(v.note,sizeof(v.note),"%s",v.online?"Leaving disconnects you from this match.":stage==90?"":"Going back to the launcher does not save this mission.");
     return gevrDrawPanelWindow(v,panelUi,(ImTextureID)(intptr_t)icon);
@@ -105,7 +112,10 @@ int panelFrame() {
 extern "C" void gevrNativePauseRender(void) {
     const bool open=gevrNativePauseOpen()!=0;
     vr_screen_set_overlay(open);
-    if(!open){wasOpen=false;return;}
+    if(!open){
+        if(wasOpen)vr_screen_set_width_scale(1.0f);   /* the game's own screen is 4:3 */
+        wasOpen=false;return;
+    }
     const bool panel=gevrPanelIsOpen()!=0;
     GLint drawFbo,readFbo,viewport[4],scissor[4],boundTexture;GLfloat clear[4];
     const bool scissorOn=glIsEnabled(GL_SCISSOR_TEST);
@@ -115,6 +125,10 @@ extern "C" void gevrNativePauseRender(void) {
     ImGuiContext*previous=ImGui::GetCurrentContext();
     if(!context)initialize();else ImGui::SetCurrentContext(context);
     auto&io=ImGui::GetIO();const Uint64 now=SDL_GetPerformanceCounter();
+    /* the surface and the Friends side panel, open or folded */
+    const int canvasW=gevrSurfaceCanvasW();
+    io.DisplaySize=ImVec2((float)canvasW,(float)kGevrSurfaceH);
+    vr_screen_set_width_scale((float)canvasW/(float)kGevrSurfaceW);
     io.DeltaTime=last?fmaxf(.001f,fminf(.1f,(float)(now-last)/SDL_GetPerformanceFrequency())):1.f/72;last=now;
     vr_screen_set_visible(1);
     if(!wasOpen || panel!=wasPanel){ui=GevrPauseUi();panelUi=GevrPanelUi();if(!wasOpen)vr_screen_recenter();io.ClearInputKeys();}
@@ -125,6 +139,7 @@ extern "C" void gevrNativePauseRender(void) {
     bool joinFriend=false;
     if(panel) {
         panelAction=panelFrame();
+        drawFriends();
         joinFriend=confirmJoin();
         if(!popupWasOpen&&ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight))panelAction=GEVR_PANEL_RESUME;
     } else {
@@ -154,7 +169,6 @@ extern "C" void gevrNativePauseRender(void) {
         if(view.startRequested)snprintf(view.status,sizeof(view.status),"Waiting for ready / loading players");
         else if(seconds>0)snprintf(view.status,sizeof(view.status),"Warmup %d:%02d - host can start early",seconds/60,seconds%60);
     }
-    view.drawFriends=drawFriends;
     gevrPauseLocalGauges(view.gauges);
     gevrPauseLocalRadar(&view.radar);
     const NetMsgLobbyState*lobby=netGetLobbyState();
@@ -166,6 +180,7 @@ extern "C" void gevrNativePauseRender(void) {
         if(!view.coop)gevrPausePlayerStats(slot,&p.points,&p.kills,&p.losses);
     }
     action=gevrDrawPauseWindow(view,ui,(ImTextureID)(intptr_t)icon);
+    drawFriends();
     joinFriend=confirmJoin();
     if(!popupWasOpen&&ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight))action=GEVR_PAUSE_RESUME;
     }
@@ -173,9 +188,9 @@ extern "C" void gevrNativePauseRender(void) {
         ImGui::GetForegroundDrawList()->AddCircleFilled(io.MousePos,8,IM_COL32(255,214,120,255));
         ImGui::GetForegroundDrawList()->AddCircle(io.MousePos,11,IM_COL32(255,255,255,255));
     }
-    ImGui::Render();glBindFramebuffer(GL_FRAMEBUFFER,framebuffer);glViewport(0,0,1280,960);glDisable(GL_SCISSOR_TEST);
+    ImGui::Render();glBindFramebuffer(GL_FRAMEBUFFER,framebuffer);glViewport(0,0,canvasW,kGevrSurfaceH);glDisable(GL_SCISSOR_TEST);
     glClearColor(.06f,.06f,.06f,1);glClear(GL_COLOR_BUFFER_BIT);ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-    vr_screen_present_tex2d(texture,1280,960);
+    vr_screen_present_tex2d(texture,canvasW,kGevrSurfaceH);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER,(GLuint)drawFbo);glBindFramebuffer(GL_READ_FRAMEBUFFER,(GLuint)readFbo);
     glViewport(viewport[0],viewport[1],viewport[2],viewport[3]);glScissor(scissor[0],scissor[1],scissor[2],scissor[3]);
     if(scissorOn)glEnable(GL_SCISSOR_TEST);else glDisable(GL_SCISSOR_TEST);

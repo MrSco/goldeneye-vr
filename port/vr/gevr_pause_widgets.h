@@ -25,8 +25,6 @@ struct GevrPauseView {
     char session[160]="", status[128]="", hordeStats[160]="";
     char clock[32]="";   /* time left or played, while a round runs; empty otherwise */
     bool clockEnding=false;   /* the last minute of a timed match */
-    /* the Friends tab: gevr_friends_ui.h's sidebar, drawn by vr_pause_menu.cpp (none in tests) */
-    void (*drawFriends)(void)=nullptr;
 };
 struct GevrPauseUi {
     int tab=0;
@@ -93,27 +91,35 @@ inline void gevrPauseFieldWidget(const GevrPauseField& f,float x,float y,float w
     }
     ImGui::EndDisabled();ImGui::PopID();
 }
+// The header both in-game windows share (the online pause, the hold-Menu
+// panel): icon and name, radar, health and armour arcs, where you are, a
+// clock, a status line, then the divider at y 98.
+inline void gevrPauseHeader(ImTextureID icon,const GevrPauseRadarView& radar,const GevrPauseGaugeVertex* gauges,
+                            const char* session,const char* status,const char* clock="",bool clockEnding=false) {
+    const ImVec4 gold(.88f,.69f,.25f,1),bad(.95f,.5f,.4f,1);
+    if(icon){ImGui::SetCursorPos(ImVec2(18,18));ImGui::Image(icon,ImVec2(64,64));}
+    ImGui::SetCursorPos(ImVec2(100,32));ImGui::TextColored(ImVec4(1,.84f,.47f,1),"GOLDENEYE VR");
+    gevrPauseRadarWidget(radar);
+    gevrPauseGaugeWidget(gauges);
+    gevrPauseGaugeWidget(gauges+46);
+    ImGui::SetCursorPos(ImVec2(742,22));ImGui::TextColored(gold,"%s",session);
+    /* the match clock at the right of the map's name */
+    if(clock[0]) {
+        ImGui::SetCursorPos(ImVec2(1262-ImGui::CalcTextSize(clock).x,22));
+        ImGui::TextColored(clockEnding?bad:ImVec4(1,1,1,1),"%s",clock);
+    }
+    ImGui::SetCursorPos(ImVec2(742,60));ImGui::TextDisabled("%s",status);
+    ImGui::SetCursorPos(ImVec2(18,98));ImGui::Separator();
+}
 inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImTextureID icon=0) {
     int action=GEVR_PAUSE_NONE;
     const ImVec4 gold(.88f,.69f,.25f,1),good(.5f,.9f,.5f,1),bad(.95f,.5f,.4f,1);
     ImGui::SetNextWindowPos(ImVec2(0,0));ImGui::SetNextWindowSize(ImVec2(1280,960));
     ImGui::SetNextWindowBgAlpha(1.0f);
     ImGui::Begin("##match-window",nullptr,ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoCollapse|ImGuiWindowFlags_NoSavedSettings|ImGuiWindowFlags_NoScrollbar);
-    if(icon){ImGui::SetCursorPos(ImVec2(18,18));ImGui::Image(icon,ImVec2(64,64));}
-    ImGui::SetCursorPos(ImVec2(100,32));ImGui::TextColored(ImVec4(1,.84f,.47f,1),"GOLDENEYE VR");
-    gevrPauseRadarWidget(model.radar);
-    gevrPauseGaugeWidget(model.gauges);
-    gevrPauseGaugeWidget(model.gauges+46);
-    ImGui::SetCursorPos(ImVec2(742,22));ImGui::TextColored(gold,"%s",model.session);
-    /* the match clock at the right of the map's name */
-    if(model.clock[0]) {
-        ImGui::SetCursorPos(ImVec2(1262-ImGui::CalcTextSize(model.clock).x,22));
-        ImGui::TextColored(model.clockEnding?bad:ImVec4(1,1,1,1),"%s",model.clock);
-    }
-    ImGui::SetCursorPos(ImVec2(742,60));ImGui::TextDisabled("%s",model.status);
-    ImGui::SetCursorPos(ImVec2(18,98));ImGui::Separator();
-    const char*names[]={"Match","Rules","Player","Audio","Friends"};
-    for(int i=0;i<5;i++) {
+    gevrPauseHeader(icon,model.radar,model.gauges,model.session,model.status,model.clock,model.clockEnding);
+    const char*names[]={"Match","Rules","Player","Audio"};
+    for(int i=0;i<4;i++) {
         const bool selected=ui.tab==i;
         ImGui::SetCursorPos(ImVec2(18+i*198,122));
         if(selected)ImGui::PushStyleColor(ImGuiCol_Button,ImGui::GetStyleColorVec4(ImGuiCol_TabSelected));
@@ -203,11 +209,6 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
             if(!shown)ImGui::TextDisabled("No mission objectives available.");
             ImGui::EndChild();
         }
-    } else if(ui.tab==GEVR_PAUSE_FRIENDS) {
-        ImGui::SetCursorPos(ImVec2(18,190));
-        ImGui::BeginChild("##pause-friends",ImVec2(1244,660));
-        if(model.drawFriends)model.drawFriends();
-        ImGui::EndChild();
     } else {
         GevrPauseField field;
         const bool audio=ui.tab==GEVR_PAUSE_AUDIO;

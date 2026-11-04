@@ -121,12 +121,12 @@ it grows, presence moves to its own Durable Object class, sharded by player ID.
   join-by-code path.
 - **Receive in a mission:** the invite shows low in the view for 8 seconds
   ("NATTY INVITES YOU TO NATTY'S GAME (2/4) / HOLD MENU TO ANSWER"), never on
-  the wrist. Holding Menu opens the in-game panel, whose Friends sidebar has
-  the invite with Join. Join asks to leave the mission (it is not saved),
+  the wrist. Holding Menu opens the in-game panel, whose Friends side panel
+  has the invite with Join. Join asks to leave the mission (it is not saved),
   writes the lobby code and the time to `data/gevr_pending_join.txt` and
   restarts; the launcher reads and deletes it, and joins if it is under 5
-  minutes old. A friend's own Join works the same way. The online pause's
-  Friends tab shows the same sidebar.
+  minutes old. A friend's own Join works the same way. The online pause has
+  the same side panel.
 - An invite carries the lobby code and lives 10 minutes or until the lobby
   closes. Private lobbies work: the code is the key, as with join by code.
 - Limits: 10 invites a minute per player, one pending invite per friend.
@@ -183,17 +183,22 @@ the stats and the activity page.
   launcher and the game (invites, requests with Decline all, friends online
   then a folded Offline list, Join / Invite / Remove / Block, Add a friend,
   Privacy and restore code, Blocked).
-- Launcher: the sidebar is its own window right of the launcher's 1280
-  pixels; the canvas and the screen quad grow by its width
-  (`vr_screen_set_width_scale`), so no launcher page gets narrower. Open
-  (500 px) or folded to a 76 px strip (`FriendsSidebar` in the ini). Join and
-  hosting for an invite go through the Multiplayer page.
+- One layout for every ImGui surface (user, 2026-11-04: standardize): the
+  launcher, the in-game panel and the online pause are each a 1280 x 960
+  window with the Friends **side panel** to its right
+  (`gevrFriendsSidePanel`, its own window), open (500 px) or folded to a 76 px
+  strip, one `FriendsSidebar` setting for all three. The canvas
+  (`gevrSurfaceCanvasW`) and the screen quad grow by its width
+  (`vr_screen_set_width_scale`), so no surface gets narrower. In the
+  launcher, Join and hosting for an invite go through the Multiplayer page.
 - Game: holding Menu 1.5 s opens the in-game panel (`gevr_panel_ui.h`, drawn
   by `vr_pause_menu.cpp` on the online pause's surface; `input.c` counts it
   as the native pause, so the game gets no input and fire waits for a trigger
-  release after it closes). Left: the VR settings, a tab per section, from
-  `options.c`'s rows (`gevrVrSectionCount`, `gevrVrRowRead`, `gevrVrRowStep`);
-  the watch no longer has its VR settings page. Right: the Friends sidebar.
+  release after it closes). Its header is the online pause's
+  (`gevrPauseHeader`: health and armour arcs, solo too via `gevrPanelGauges`;
+  radar online). Below it the VR settings, a tab per section across the full
+  width, from `options.c`'s rows (`gevrVrSectionCount`, `gevrVrRowRead`,
+  `gevrVrRowStep`); the watch no longer has its VR settings page.
   Footer: Resume, HD textures on/off, Back to launcher (focused, so hold Menu
   then A still goes back). A solo mission pauses: the panel sends START to
   open the watch under it (not in a cutscene) and again to close it. Menu+A

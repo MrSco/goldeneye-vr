@@ -3,7 +3,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-enum { GEVR_PAUSE_MATCH, GEVR_PAUSE_RULES, GEVR_PAUSE_PLAYER, GEVR_PAUSE_AUDIO, GEVR_PAUSE_FRIENDS };
+enum { GEVR_PAUSE_MATCH, GEVR_PAUSE_RULES, GEVR_PAUSE_PLAYER, GEVR_PAUSE_AUDIO };
 enum { GEVR_PAUSE_STEP, GEVR_PAUSE_CHOICE, GEVR_PAUSE_TOGGLE, GEVR_PAUSE_SLIDER };
 typedef struct {
     int id, kind, editable, selected, count;
@@ -33,6 +33,7 @@ void gevrPauseVolume(int id, int percent);
 int gevrPauseActionAvailable(const char *label);
 void gevrPauseAction(const char *label);
 void gevrPauseLocalGauges(GevrPauseGaugeVertex vertices[92]);
+void gevrPanelGauges(GevrPauseGaugeVertex vertices[92]);   /* the in-game panel: solo too */
 void gevrPauseLocalRadar(GevrPauseRadarView *radar);
 void gevrPausePlayerStats(int slot, int *points, int *kills, int *losses);
 /* "7:42 left" in a timed match (returns the seconds left), "3:18 played" in

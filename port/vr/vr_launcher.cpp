@@ -1743,37 +1743,9 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
 // canvas and the screen quad grow by its width (vr_screen_set_width_scale), so
 // no launcher page gets narrower. Joining and the lobby hosted for an invite go
 // through the Multiplayer page (gevrLauncherRun opens it).
-const int kSidebarW = 500, kSidebarFoldedW = 76;
-static int gevrLauncherCanvasW() { return kTexW + (VrFriendsSidebar ? kSidebarW : kSidebarFoldedW); }
-
 static void gevrFriendsSidebarWindow(bool onlineGame, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad)
 {
     static GevrFriendsUiState ui;
-    const GevrFriendsModel &m = gevrFriends();
-    const float width = (float)(gevrLauncherCanvasW() - kTexW);
-    ImGui::SetNextWindowPos(ImVec2((float)kTexW, 0));
-    ImGui::SetNextWindowSize(ImVec2(width, (float)kTexH));
-    ImGui::Begin("##friends-sidebar", nullptr,
-                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar);
-    int online = 0;
-    for (const GevrFriend &f : m.friends) online += f.state != "offline";
-    const int waiting = (int)(m.requests.size() + m.invites.size());
-    if (!VrFriendsSidebar) {
-        // folded: the word down the strip, and what is waiting
-        char label[64];
-        snprintf(label, sizeof(label), "<\n\nF\nR\nI\nE\nN\nD\nS\n\n%d%s###friends-unfold", waiting ? waiting : online, waiting ? "\nNEW" : "");
-        if (waiting) ImGui::PushStyleColor(ImGuiCol_Text, gold);
-        if (ImGui::Button(label, ImVec2(-1, -1))) { VrFriendsSidebar = 1; vrSettingsSave(); }
-        if (waiting) ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered()) gevrTooltip("Friends: %d online, %d new", online, waiting);
-        ImGui::End();
-        return;
-    }
-    ImGui::TextColored(gold, "FRIENDS");
-    ImGui::SameLine(width - ImGui::CalcTextSize(">>").x - ImGui::GetStyle().FramePadding.x * 2 - ImGui::GetStyle().WindowPadding.x);
-    if (ImGui::SmallButton(">>")) { VrFriendsSidebar = 0; vrSettingsSave(); }
-    if (ImGui::IsItemHovered()) gevrTooltip("Fold the friends list to the side.");
     const char *lobby = netIsActive() ? netGetLobbyCode() : "";
     GevrFriendsUiContext ctx;
     ctx.canJoin = onlineGame && !netIsActive();
@@ -1787,8 +1759,7 @@ static void gevrFriendsSidebarWindow(bool onlineGame, const ImVec4 &gold, const 
     ctx.lobby = lobby;
     ctx.netVersion = GEVR_NET_VERSION;
     ctx.message = gevrFriendsFreshMessage();
-    gevrFriendsSidebar(ui, ctx, gold, good, bad);
-    ImGui::End();
+    gevrFriendsSidePanel(ui, ctx, gold, good, bad);
 }
 
 // The newest invite, above the launcher's page while the sidebar is folded.
@@ -2793,7 +2764,7 @@ extern "C" void gevrLauncherRun(void)
     GLuint tex = 0, fbo = 0;
     glGenTextures(1, &tex);
     glBindTexture(GL_TEXTURE_2D, tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kTexW + kSidebarW, kTexH, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kTexW + kGevrSidebarW, kTexH, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glGenFramebuffers(1, &fbo);
@@ -3003,7 +2974,7 @@ extern "C" void gevrLauncherRun(void)
         }
 
         // the launcher's 1280 pixels, and the friends sidebar beyond them
-        const int canvasW = gevrLauncherCanvasW();
+        const int canvasW = gevrSurfaceCanvasW();
         io.DisplaySize = ImVec2((float)canvasW, (float)kTexH);
         vr_screen_set_width_scale((float)canvasW / (float)kTexW);
         ImGui_ImplOpenGL3_NewFrame();
