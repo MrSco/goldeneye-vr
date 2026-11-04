@@ -230,6 +230,13 @@ is goldeneyevr.com, in its own repository.
   freed the oldest when full, under Horde's pointer. They now have their own
   records (propobj.c gevrCreateItemInstanceIn); guards' guns get all 30
   slots back. v0.5.15-test.4 (vc 99, protocol 25 kept, APK only).
+- Friends, presence and invites ([design](docs/friends-and-invites.md)):
+  device identity and friend codes on the lobby Worker (goldeneyevr.com
+  branch claude/friends-invites, src/social.ts, deployed 2026-11-04), a
+  Friends sidebar right of the launcher, a Friends lobby visibility, and
+  holding Menu now opens an in-game panel (back to launcher, HD textures,
+  the VR settings moved off the watch, Friends). Protocol 25 kept: no game
+  network change. v0.5.15-test.5 (vc 100, APK only).
 - Crash reports land as issues in the private MrSco/goldeneye-vr-reports,
   decoded by its Digest workflow; each build's symbols zip goes to its
   "symbols" release.
