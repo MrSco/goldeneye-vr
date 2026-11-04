@@ -224,6 +224,12 @@ is goldeneyevr.com, in its own repository.
   so the clench walked a rig with no GE-X definition. It now skips (as
   gevrGexOffCache does). Not reproduced in a headset. v0.5.15-test.3 (vc 98,
   protocol 25 kept, APK only), branch prerelease/v0.5.15.
+- Crashes a8d242cd + 42ed2cf1 (one Statue Horde match vs Oddjobs, host on
+  test.3, client on v0.5.14): Horde's markers (box, wall buys, ammo crates,
+  briefcases; up to 37) took GoldenEye's 30 weapon slots, and weaponCreate
+  freed the oldest when full, under Horde's pointer. They now have their own
+  records (propobj.c gevrCreateItemInstanceIn); guards' guns get all 30
+  slots back. v0.5.15-test.4 (vc 99, protocol 25 kept, APK only).
 - Crash reports land as issues in the private MrSco/goldeneye-vr-reports,
   decoded by its Digest workflow; each build's symbols zip goes to its
   "symbols" release.
