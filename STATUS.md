@@ -237,6 +237,10 @@ is goldeneyevr.com, in its own repository.
   holding Menu now opens an in-game panel (back to launcher, HD textures,
   the VR settings moved off the watch, Friends). Protocol 25 kept: no game
   network change. v0.5.15-test.5 (vc 100, APK only).
+- One layout for the launcher, the in-game panel and the online pause: a
+  1280 surface with the Friends side panel (open or folded) to its right;
+  the in-game panel takes the online pause's header (health and armour, solo
+  too) and its settings tabs no longer scroll. v0.5.15-test.6 (vc 101).
 - Crash reports land as issues in the private MrSco/goldeneye-vr-reports,
   decoded by its Digest workflow; each build's symbols zip goes to its
   "symbols" release.
