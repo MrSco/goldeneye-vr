@@ -245,6 +245,10 @@ is goldeneyevr.com, in its own repository.
   (build/discord/, not in the repo), sign-in exchanged by the Worker with the
   secret, Discord friends who both linked, Rich Presence. v0.5.15-test.7
   (vc 102); the headset sign-in is the open question.
+- Friends: search by name (display names stay non-unique; Show me in search,
+  on by default), your name and status at the top of the panel, ten renames
+  a day; the in-game panel's text boxes get the headset keyboard.
+  v0.5.15-test.8 (vc 103).
 - Crash reports land as issues in the private MrSco/goldeneye-vr-reports,
   decoded by its Digest workflow; each build's symbols zip goes to its
   "symbols" release.
