@@ -241,6 +241,10 @@ is goldeneyevr.com, in its own repository.
   1280 surface with the Friends side panel (open or folded) to its right;
   the in-game panel takes the online pause's header (health and armour, solo
   too) and its settings tabs no longer scroll. v0.5.15-test.6 (vc 101).
+- Link Discord (phase 3): Social SDK 1.10 in builds that have its library
+  (build/discord/, not in the repo), sign-in exchanged by the Worker with the
+  secret, Discord friends who both linked, Rich Presence. v0.5.15-test.7
+  (vc 102); the headset sign-in is the open question.
 - Crash reports land as issues in the private MrSco/goldeneye-vr-reports,
   decoded by its Digest workflow; each build's symbols zip goes to its
   "symbols" release.
