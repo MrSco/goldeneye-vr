@@ -37,7 +37,7 @@ extern s32 netIsHost(void);
 extern unsigned netGetRandomSeed(void);
 extern AIRecord *ailistFindById(s32 id);
 extern void gevrHudmsgBottomLive(char *mess);
-extern ObjectRecord *create_new_item_instance_of_model(PROP modelnum, s32 weaponid);
+extern ObjectRecord *gevrCreateItemInstanceIn(WeaponObjRecord *obj, PROP modelnum, s32 weaponid);
 extern void setupUpdateObjectRoomPosition(ObjectRecord *obj);
 extern void chrpropActivate(PropRecord *prop);
 extern void chrpropEnable(PropRecord *prop);
@@ -135,6 +135,9 @@ static s32 s_prompt_ticks;
  * the box's spot from the snapshot). The box is an ammo crate that follows
  * its relocations; each wall buy is its gun, larger and turning; armour a vest. */
 static ObjectRecord *s_box_marker, *s_wall_marker[HORDE_WALL_COUNT];
+/* every marker's own record, outside the game's 30 weapon slots (propobj.c
+ * gevrCreateItemInstanceIn): box, wall buys, ammo drops, power drops */
+static WeaponObjRecord s_marker_rec[1+HORDE_WALL_COUNT+HORDE_AMMO_DROPS+HORDE_POWER_DROPS];
 static s32 s_markers_placed, s_marker_spot;
 static f32 s_marker_yaw;
 static const s32 s_wall_models[HORDE_WALL_COUNT] = {
@@ -1053,10 +1056,11 @@ static s32 hordeUpdateStationPrompt(s32 me, s32 ticks, unsigned breakSecs)
     return TRUE;
 }
 
-/* An uncollectable model standing on a station's pad. */
-static ObjectRecord *hordeMarkerCreate(s32 model, s32 item, f32 scale)
+/* An uncollectable model standing on a station's pad, in its own record rec */
+static ObjectRecord *hordeMarkerCreate(unsigned rec, s32 model, s32 item, f32 scale)
 {
-    ObjectRecord *obj=create_new_item_instance_of_model(model,item);
+    ObjectRecord *obj=rec<sizeof(s_marker_rec)/sizeof(s_marker_rec[0])
+        ?gevrCreateItemInstanceIn(&s_marker_rec[rec],model,item):NULL;
     if (!obj || !obj->prop || !obj->model) return NULL;
     obj->flags|=PROPFLAG_UNCOLLECTABLE|PROPFLAG_INVINCIBLE;
     if (scale!=1.0f) modelSetScale(obj->model,obj->model->scale*scale);
@@ -1090,9 +1094,9 @@ static void hordeUpdateMarkers(s32 ticks)
     if (!s_pad_count || !g_CurrentSetup.pads) return;
     if (!s_markers_placed) {
         s_markers_placed=TRUE;
-        s_box_marker=hordeMarkerCreate(PROP_AMMO_CRATE5,ITEM_UNARMED,1.0f);
+        s_box_marker=hordeMarkerCreate(0,PROP_AMMO_CRATE5,ITEM_UNARMED,1.0f);
         for (unsigned w=0;w<HORDE_WALL_COUNT;w++)
-            s_wall_marker[w]=hordeMarkerCreate(s_wall_models[w],s_wall_items[w].item,w<5?2.5f:1.5f);
+            s_wall_marker[w]=hordeMarkerCreate(1+w,s_wall_models[w],s_wall_items[w].item,w<5?2.5f:1.5f);
         for (unsigned w=0;w<HORDE_WALL_COUNT;w++) if (s_wall_marker[w]) {
             hordeMarkerPlace(s_wall_marker[w],s_wall_pads[w],60.0f,0.0f,TRUE);
             chrpropActivate(s_wall_marker[w]->prop);chrpropEnable(s_wall_marker[w]->prop);
@@ -1125,12 +1129,15 @@ static void hordeUpdateAmmo(s32 ticks,s32 me)
         ObjectRecord **marker=power?&s_power_marker[i]:&s_ammo_marker[i];
         uint32_t *marker_id=power?&s_power_marker_id[i]:&s_ammo_marker_id[i];
         ObjectRecord *obj=*marker;
+        if (obj && !obj->prop) {   /* freed under us all the same: make it again */
+            obj=*marker=NULL;(*marker_id)=0;
+        }
         if (!drop->id) {
             if (obj && (*marker_id)) chrpropDisable(obj->prop);
             (*marker_id)=0;continue;
         }
         if (!obj) {
-            obj=*marker=hordeMarkerCreate(power?PROP_CHRBRIEFCASE:PROP_AMMO_CRATE5,ITEM_UNARMED,power?1.5f:0.6f);
+            obj=*marker=hordeMarkerCreate(1+HORDE_WALL_COUNT+n,power?PROP_CHRBRIEFCASE:PROP_AMMO_CRATE5,ITEM_UNARMED,power?1.5f:0.6f);
             /* walked over, not into: without its collision the host's reach
              * line (gevrHordeHandleAction) no longer stops at the crate */
             if (obj) {obj->flags&=~PROPFLAG_00000100;chrpropActivate(obj->prop);}

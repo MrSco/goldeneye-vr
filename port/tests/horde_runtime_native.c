@@ -92,8 +92,8 @@ void gevrHudmsgBottomLive(char *text) {(void)text;live_shown++;}
 /* station markers: uncollectable objects, counted and placed */
 static ObjectRecord markers[128];static PropRecord marker_props[128];static Model marker_models[128];
 static int marker_count, marker_rooms;
-ObjectRecord *create_new_item_instance_of_model(PROP model,s32 item) {
-    (void)model;(void)item;assert(marker_count<128);
+ObjectRecord *gevrCreateItemInstanceIn(WeaponObjRecord *rec,PROP model,s32 item) {
+    assert(rec);(void)model;(void)item;assert(marker_count<128);
     ObjectRecord *o=&markers[marker_count];memset(o,0,sizeof(*o));
     o->prop=&marker_props[marker_count];o->model=&marker_models[marker_count];o->model->scale=1;
     marker_count++;return o;
@@ -102,7 +102,7 @@ void setupUpdateObjectRoomPosition(ObjectRecord *obj) {(void)obj;marker_rooms++;
 static int marker_activations[128];
 void chrpropActivate(PropRecord *p) {int i=p-marker_props;assert(i>=0 && i<128);assert(!marker_activations[i]++);}
 void chrpropEnable(PropRecord *p) {(void)p;}
-void chrpropDisable(PropRecord *p) {(void)p;}
+void chrpropDisable(PropRecord *p) {assert(p);}
 WeaponStats *get_ptr_item_statistics(ITEM_IDS item) {
     static WeaponStats stats;stats.AmmoType=AMMO_9MM;stats.MagSize=7;
     if(item==ITEM_SKORPION){stats.AmmoType=AMMO_9MM_2;stats.MagSize=20;}
@@ -320,6 +320,21 @@ int main(void)
     gevrHordeApplyState(&ammo_state);ammo_full=1;path_clear=1;
     gevrHordeTick(1);assert(!gevrHordeState()->ammo[0].id);   /* taken at full ammo too */
     ammo_full=0;
+    /* A marker freed under Horde (the game's weapon-slot recycler did, reports
+     * a8d242cd and 42ed2cf1): never touched again, and made anew for a drop. */
+    ammo_state=*gevrHordeState();ammo_state.revision++;ammo_state.phase=HORDE_PREPARE;
+    ammo_state.ammo[0]=(HordeAmmoDrop){99998,100,{player_prop.pos.x+5000,0,player_prop.pos.z}};
+    gevrHordeApplyState(&ammo_state);gevrHordeTick(1);
+    for(int i=0;i<marker_count;i++)markers[i].prop=NULL;
+    ammo_state=*gevrHordeState();ammo_state.revision++;ammo_state.ammo[0].id=0;
+    gevrHordeApplyState(&ammo_state);gevrHordeTick(1);
+    int freed_markers=marker_count;
+    ammo_state=*gevrHordeState();ammo_state.revision++;
+    ammo_state.ammo[0]=(HordeAmmoDrop){99997,100,{player_prop.pos.x+5000,0,player_prop.pos.z}};
+    gevrHordeApplyState(&ammo_state);gevrHordeTick(1);
+    assert(marker_count==freed_markers+1);
+    ammo_state=*gevrHordeState();ammo_state.revision++;ammo_state.ammo[0].id=0;
+    gevrHordeApplyState(&ammo_state);gevrHordeTick(1);
     /* A multiplayer-only setup has no guards: navigation pads still seed
      * waves and stations. A disconnected pad cannot hold either. */
     struct {PropDefHeaderRecord end;} empty={{.type=PROPDEF_END}};

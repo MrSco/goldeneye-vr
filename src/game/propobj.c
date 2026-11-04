@@ -12401,6 +12401,48 @@ ObjectRecord *create_new_item_instance_of_model(PROP modelnum, s32 weaponid)
     return (ObjectRecord *)obj;
 }
 
+/*
+ * GEVR: create_new_item_instance_of_model into a record the caller owns, not
+ * one of the 30 g_WeaponSlots. weaponCreate frees the oldest idle slot when
+ * the pool is full, so an object meant to stay (Horde's station and drop
+ * markers) must not live there: a busy fight recycled one and its owner
+ * dereferenced the freed prop (reports a8d242cd, 42ed2cf1). The record is
+ * made like a setup pickup, which also lives outside the pool.
+ */
+ObjectRecord *gevrCreateItemInstanceIn(WeaponObjRecord *obj, PROP modelnum, s32 weaponid)
+{
+    ModelFileHeader *modeldef = PitemZ_entries[modelnum].header;
+    PropRecord *prop;
+    Model *model;
+
+    if (obj == NULL)
+    {
+        return NULL;
+    }
+    modelLoad(modelnum);
+    prop = chrpropAllocate();
+    model = modelmgrInstantiateModel(modeldef);
+    if (prop != NULL && model != NULL)
+    {
+        WeaponObjRecord tmp = blank_08_object_preset_1;
+
+        *obj = tmp;
+        obj->weaponnum = weaponid;
+        obj->obj = modelnum;
+        complete_object_data_block_return_position_entry(obj, modeldef, prop, model);
+        return (ObjectRecord *)obj;
+    }
+    if (model != NULL)
+    {
+        clear_model_obj(model);
+    }
+    if (prop != NULL)
+    {
+        chrpropFree(prop);
+    }
+    return NULL;
+}
+
 
 /**
  * Set removed flag on hand
