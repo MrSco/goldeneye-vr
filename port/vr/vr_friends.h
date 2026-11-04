@@ -25,6 +25,7 @@ const char *gevrFriendsNotice(void);
 struct GevrFriend {
     std::string id, name, code, state, lobby, detail;
     int version = 0, players = 0, maxPlayers = 0, lobbyVersion = 0;
+    bool discord = false;   // friends through Discord (both linked), not by code
 };
 struct GevrFriendPerson {
     std::string id, name, code;

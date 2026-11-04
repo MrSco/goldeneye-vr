@@ -116,7 +116,7 @@ public class FriendsClientTest {
         List<String> events = drain();
         assertTrue(events.contains("ME|ready|7K3QX2|ABCDEFGHJKLMNPQR|1|0"));
         int begin = events.indexOf("FRIENDS_BEGIN");
-        assertEquals("FRIEND|f1|Nat ty|AAAAAA|lobby|25|ABCDEFGH|2|4|25|Co-op, lobby, 2/4", events.get(begin + 1));
+        assertEquals("FRIEND|f1|Nat ty|AAAAAA|lobby|25|ABCDEFGH|2|4|25|0|Co-op, lobby, 2/4", events.get(begin + 1));
         assertEquals("REQUEST|r1|Boris|BBBBBB", events.get(begin + 2));
         assertEquals("INVITE|i1|f1|Natty|AAAAAA|ABCDEFGH|33|2|4|25|600|Natty's game", events.get(begin + 3));
         assertEquals("FRIENDS_END", events.get(events.size() - 1));
@@ -178,6 +178,34 @@ public class FriendsClientTest {
         answers.put("POST /me/friends", new LobbyClient.HttpException(404, "No player has that friend code"));
         command("add|ZZZZZZ");
         assertEquals(List.of("ERROR|No player has that friend code"), drain());
+    }
+
+    @Test public void discordLinkKeepsTheRefreshTokenAndAdoptsALinkedPlayer() throws Exception {
+        command("presence|launcher||25|Bond|");
+        poll();
+        drain();
+        calls.clear();
+        answers.put("POST /discord/link", new JSONObject().put("accessToken", "acc").put("refreshToken", "ref")
+                .put("discordName", "Alpha").put("identity", new JSONObject().put("id", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")
+                        .put("secret", "ef".repeat(32)).put("friendCode", "DDDDDD").put("name", "Bond")));
+        command("discord-link|the-code|the-verifier|discord-1567606949862711468:/authorize/callback");
+        Call link = calls.get(0);
+        assertEquals("/discord/link", link.path);
+        assertEquals(ID + "." + SECRET, link.token);
+        assertEquals("the-verifier", link.body.getString("codeVerifier"));
+        JSONObject saved = new JSONObject(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
+        assertEquals("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", saved.getString("id"));
+        assertEquals("ref", saved.getString("discordRefresh"));
+        List<String> events = drain();
+        assertTrue(events.contains("DISCORD|linked|Alpha"));
+        assertTrue(events.contains("DISCORD_TOKEN|acc"));
+        assertTrue(events.contains("ME|ready|DDDDDD||1|0"));
+
+        answers.put("POST /discord/refresh", new LobbyClient.HttpException(401, "Discord sign-in expired; link again"));
+        command("discord-refresh");
+        assertTrue(drain().contains("DISCORD|unlinked|"));
+        command("discord-friends|123456789012345678");   // no link any more: nothing sent
+        assertEquals("/discord/refresh", calls.get(calls.size() - 1).path);
     }
 
     @Test public void restoreReplacesTheIdentityAndResetForgetsIt() throws Exception {

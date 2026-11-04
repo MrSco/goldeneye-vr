@@ -1,9 +1,9 @@
 # Friends, presence and invites
 
-Status: phases 1 and 2 built, 2026-11-04, not yet tested on a headset. Game:
-branch `claude/friends-invites`. Worker: goldeneyevr.com branch
-`claude/friends-invites` (`services/lobbies/src/social.ts`). Discord (phases 3
-and 4) not started.
+Status (2026-11-04): phases 1 and 2 in pre-releases v0.5.15-test.5/6 (branch
+`prerelease/v0.5.15`); phase 3 (Link Discord) built for test.7, its sign-in not
+yet tried on a headset; phase 4 not started. Worker: goldeneyevr.com branch
+`claude/friends-invites` (`services/lobbies/src/social.ts`), deployed.
 
 ## Goal
 
@@ -210,15 +210,40 @@ the stats and the activity page.
 
 ## Discord (phases 3 and 4)
 
-Discord Social SDK, Android build, behind a launcher **Link Discord** button.
+Discord Social SDK 1.10, Android build, behind **Link Discord** in the Friends
+side panel. Application ID 1567606949862711468 (the GoldenEye VR app on the
+user's Discord developer account); OAuth2 redirect
+`discord-1567606949862711468:/authorize/callback`; **Public Client off**.
 
-- **Link:** the SDK's OAuth flow in the headset browser. The Worker stores the
-  Discord user ID against the player ID (verified from the token server-side),
-  so signing in on another headset restores the same player.
-- **Discord friends:** the SDK's relationship list, matched against linked
-  players, joins our friends list.
-- **Rich Presence:** "Facility co-op lobby, 2/4" in Discord. On mobile
-  platforms Discord only publishes presence for linked accounts.
+- **Building:** the SDK is not in the repository. Its Android library
+  (`discord_partner_sdk.aar`, from the developer portal's Social SDK
+  Downloads, inside the C++ zip at `lib/release/`) goes in `build/discord/`
+  (gitignored), or `gevr.discordSdk=<path>` in `android/local.properties`.
+  `android/app/build.gradle` then adds it (with `androidx.browser` 1.8 for the
+  sign-in, prefab on) and passes `-DGEVR_DISCORD=ON`, which links its prefab
+  package. Without it the game builds without Discord: `vr_discord.cpp`'s
+  stubs, no Discord section in the panel. With it the APK grows about 9 MB
+  (arm64 only). Its voice service and permissions are removed in the manifest.
+- **Link (phase 3, built):** `vr_discord.cpp` calls `Client::Authorize` with a
+  PKCE challenge (presence scopes); the browser comes back to the SDK's
+  AuthenticationActivity; the code and verifier go to the Worker
+  (`POST /v1/discord/link`), which exchanges them with the client secret
+  (Worker secret `DISCORD_CLIENT_SECRET`, var `DISCORD_CLIENT_ID`) and reads
+  the account (`/users/@me`). The Worker keeps the Discord user ID on the
+  player; FriendsClient keeps the refresh token in `gevr_player.json` and gets a
+  fresh access token each run (`POST /v1/discord/refresh`). A Discord account
+  already linked to another player brings that player back (new secret, the
+  other headset signed out), so signing in on a new headset restores your
+  friends. `DELETE /v1/me/discord` unlinks.
+- **Discord friends (built):** the SDK's relationships (type Friend) go to
+  `PUT /v1/me/discord/friends`. Two linked players become friends, marked
+  "Discord", only when **both** clients report each other (`discord_claims`),
+  so no client can claim a stranger; the friendship goes when either claim does
+  or either side unlinks.
+- **Rich Presence (built):** the presence state and detail ("In a lobby",
+  "Deathmatch, Statue (Full), 3/8") with a party size; the party ID is a hash,
+  never a private lobby's code. Cleared while appearing offline. On mobile
+  Discord only publishes presence for linked accounts.
 - **Invites through Discord:** to friends not in the game, with a join link
   `https://goldeneyevr.com/join/<code>`. The page opens the game into that
   lobby if it is installed (Android app link, needs `assetlinks.json` on
@@ -245,7 +270,9 @@ Sideloaded builds only get these for the developer's own organisation.
    and pause layout tests.
 2. **Invites** (built): send and receive in the launcher, the in-mission
    notice, the in-game panel and the pending-join restart.
-3. **Discord link:** SDK, sign-in, Discord friends, Rich Presence.
+3. **Discord link** (built, test.7): SDK, sign-in, Discord friends, Rich
+   Presence. Worker tests: `test/discord.test.mjs` (Discord's API faked);
+   `FriendsClientTest.discordLink...`.
 4. **Discord invites and join links:** the join page and app link.
 
 Phases 1 and 2 ship without Discord. Protocol: none of this touches the game's

@@ -25,6 +25,11 @@ void gevrFriendsInvite(const std::string &id) { invited = id; }
 void gevrFriendsJoin(const std::string &code) { joined = code; }
 void gevrFriendsAnswerInvite(const GevrFriendInvite &invite, bool join) { if (join) joined = invite.lobby; }
 std::string gevrFriendCodeText(const std::string &code) { return "GE-" + code; }
+static int discordState = GEVR_DISCORD_CONNECTED;
+int gevrDiscordState(void) { return discordState; }
+const char *gevrDiscordName(void) { return "A very long Discord display name"; }
+void gevrDiscordLink(void) {}
+void gevrDiscordUnlink(void) {}
 
 // options.c's rows, faked: seven sections, the longest values the watch shows
 static int steps[8][8];

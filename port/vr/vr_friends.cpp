@@ -9,12 +9,14 @@
 // The launcher's order: the campaign header first, the game's headers (net_*) after SDL.
 #include "gevr_romlayout.h"
 #include "vr_friends.h"
+#include "vr_discord.h"
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <functional>
 #include <SDL.h>
 #include <jni.h>
 #include "vr_settings.h"
@@ -138,10 +140,11 @@ void handle(const std::vector<std::string> &f, bool inGame) {
     } else if (kind == "FRIENDS_BEGIN") {
         s_staging = GevrFriendsModel();
         s_staging_open = true;
-    } else if (kind == "FRIEND" && f.size() >= 11 && s_staging_open) {
+    } else if (kind == "FRIEND" && f.size() >= 12 && s_staging_open) {
         GevrFriend x;
         x.id = f[1]; x.name = f[2]; x.code = f[3]; x.state = f[4]; x.version = num(f[5]);
-        x.lobby = f[6]; x.players = num(f[7]); x.maxPlayers = num(f[8]); x.lobbyVersion = num(f[9]); x.detail = f[10];
+        x.lobby = f[6]; x.players = num(f[7]); x.maxPlayers = num(f[8]); x.lobbyVersion = num(f[9]);
+        x.discord = f[10] == "1"; x.detail = f[11];
         s_staging.friends.push_back(x);
     } else if ((kind == "REQUEST" || kind == "SENT" || kind == "BLOCKED") && f.size() >= 4 && s_staging_open) {
         GevrFriendPerson p{f[1], f[2], f[3]};
@@ -180,16 +183,25 @@ void handle(const std::vector<std::string> &f, bool inGame) {
             s_model.invited.push_back(f[1]);
         for (const GevrFriend &x : s_model.friends)
             if (x.id == f[1]) setMessage("Invited " + x.name);
+    } else if (kind == "DISCORD" && f.size() >= 3) {
+        gevrDiscordOnLinked(f[1] == "linked", f[2]);
+    } else if (kind == "DISCORD_TOKEN" && f.size() >= 2 && !f[1].empty()) {
+        gevrDiscordOnToken(f[1]);
     } else if ((kind == "NOTICE" || kind == "ERROR") && f.size() >= 2) {
         setMessage(f[1]);
     }
 }
+
+// What this headset is doing, as last composed (Discord's Rich Presence shows it too).
+struct Presence { std::string state, detail, lobby; int players = 0, max = 0; } s_presence;
 
 // The line FriendsClient posts: what this headset is doing.
 std::string presenceLine(bool inGame) {
     const bool online = netIsActive();
     const char *state = inGame ? (online ? "match" : "solo") : (online ? "lobby" : "launcher");
     std::string detail;
+    s_presence.players = online ? netGetHumanPlayerCount() : 0;
+    s_presence.max = online ? netGetMaxPlayers() : 0;
     if (VrFriendsShowDetail) {
         char text[96] = "";
         if (online) {
@@ -217,6 +229,10 @@ std::string presenceLine(bool inGame) {
         detail = text;
     }
     const char *lobby = online ? netGetLobbyCode() : "";
+    s_presence.state = state;
+    s_presence.detail = detail;
+    // Discord's party id only groups players; it is not the lobby code, which a private lobby keeps to itself
+    s_presence.lobby = lobby[0] ? std::to_string(std::hash<std::string>()(std::string("gevr:") + lobby)) : "";
     return std::string("presence|") + state + "|" + field(lobby) + "|" + std::to_string(GEVR_NET_VERSION) + "|" +
            field(VrPlayerName) + "|" + field(detail);
 }
@@ -294,6 +310,7 @@ extern "C" void gevrFriendsTick(int inGame) {
     static std::string lastLine;
     static bool settingsSent = false;
     const uint32_t now = SDL_GetTicks();
+    gevrDiscordTick();   // the SDK's callbacks, every frame it is given
     // a few times a second: each look crosses into Java
     if (now - lastDrain < 200 && lastDrain) return;
     lastDrain = now;
@@ -316,6 +333,8 @@ extern "C" void gevrFriendsTick(int inGame) {
         lastSent = now;
         javaCommand(line);
     }
+    gevrDiscordPresence(s_presence.state, s_presence.detail, s_presence.players, s_presence.max, s_presence.lobby,
+                        VrFriendsAppearOffline != 0);
     // The lobby the queued invites wait for, and the marks for the last one.
     const std::string lobby = netIsActive() ? netGetLobbyCode() : "";
     if (lobby != s_lastLobby) {

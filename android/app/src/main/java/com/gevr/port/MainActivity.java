@@ -66,6 +66,17 @@ public class MainActivity extends SDLActivity {
         mods = new ModManager(this, version);
         lobbies = new LobbyClient();
         friends = new FriendsClient(new File(dataDir, "gevr_player.json"));
+        // Discord's Social SDK (port/vr/vr_discord.cpp), when this build has it: its sign-in
+        // and connection run against this activity.
+        try {
+            Class.forName("com.discord.socialsdk.DiscordSocialSdkInit")
+                    .getMethod("setEngineActivity", android.app.Activity.class).invoke(null, this);
+            Log.i(TAG, "Discord Social SDK ready");
+        } catch (ClassNotFoundException e) {
+            // a build without the SDK (no build/discord/discord_partner_sdk.aar)
+        } catch (Exception e) {
+            Log.w(TAG, "Discord Social SDK did not start", e);
+        }
         reporter = new LogReporter(this);
 
         Log.i(TAG, "Starting GEVR VR mode");

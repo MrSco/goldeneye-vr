@@ -462,6 +462,13 @@ set_target_properties(steamaudio PROPERTIES IMPORTED_LOCATION "${CMAKE_SOURCE_DI
 target_include_directories(gevr PRIVATE "${CMAKE_SOURCE_DIR}/port/external/steamaudio/include")
 target_compile_definitions(gevr PRIVATE GEVR_STEAMAUDIO=1)
 target_link_libraries(gevr ${LIBS} openxr_loader juice-static opus steamaudio gevr_physics)
+# Discord's Social SDK (port/vr/vr_discord.cpp), when android/app/build.gradle found it.
+option(GEVR_DISCORD "Link Discord's Social SDK (its prefab package)" OFF)
+if(GEVR_DISCORD)
+  find_package(discord_partner_sdk REQUIRED CONFIG)
+  target_link_libraries(gevr discord_partner_sdk::discord_partner_sdk)
+  target_compile_definitions(gevr PRIVATE GEVR_DISCORD=1)
+endif()
 target_link_options(gevr PRIVATE -Wl,--error-limit=0)
 
 # Alias for legacy Android loader references.

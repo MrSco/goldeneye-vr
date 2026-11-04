@@ -60,6 +60,13 @@
         "Install unknown apps" for this app.
     -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Discord's SDK asks for these for its voice chat, which the game does not use. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" tools:node="remove" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" tools:node="remove" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" tools:node="remove" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" tools:node="remove" />
+    <uses-permission android:name="android.permission.BLUETOOTH" tools:node="remove" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" tools:node="remove" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- OpenXR permissions (Meta Quest) -->
@@ -138,6 +145,25 @@
                 android:name="com.oculus.vr.focusaware"
                 android:value="true" />
         </activity>
+
+        <!--
+            Discord (port/vr/vr_discord.cpp, builds with its SDK): the browser's sign-in
+            returns to discord-<application id>:/authorize/callback, which the SDK's own
+            activity takes. In a build without the SDK nothing opens that link.
+        -->
+        <activity
+            android:name="com.discord.socialsdk.AuthenticationActivity"
+            android:exported="true"
+            tools:ignore="MissingClass">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="discord-1567606949862711468" />
+            </intent-filter>
+        </activity>
+        <!-- Discord voice is not used: its service and permissions stay out. -->
+        <service android:name="com.discord.socialsdk.ForegroundService" tools:node="remove" />
 
         <!--
             Issue #16: restarts the game into the launcher (RelaunchActivity.java).

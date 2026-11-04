@@ -48,6 +48,8 @@ final class FriendsClient {
     // none (registers once a name arrives), ready, signed_out (the secret was replaced by a restore elsewhere)
     private String status = "none";
     private String id = "", secret = "", friendCode = "", restoreCode = "";
+    // Discord (vr_discord.cpp): the link's refresh token and the account's name, kept with the player.
+    private String discordRefresh = "", discordName = "";
     private String state = "launcher", lobby = "", name = "", detail = "";
     private int version;
     private boolean showDetail = true, appearOffline;
@@ -180,9 +182,69 @@ final class FriendsClient {
                 nextPresence = 0;
                 break;
             }
+            case "discord-link": {
+                // discord-link|code|verifier|redirectUri: Client::Authorize's answer, exchanged by the Worker
+                if (f.length != 4) return;
+                JSONObject r = http.call("POST", BASE + "/discord/link", new JSONObject().put("code", f[1])
+                        .put("codeVerifier", f[2]).put("redirectUri", f[3]), ready() ? token() : "");
+                JSONObject identity = r.optJSONObject("identity");
+                if (identity != null) {
+                    // this Discord account was another player's: that player comes back, as with a restore code
+                    id = identity.getString("id");
+                    secret = identity.getString("secret");
+                    friendCode = identity.getString("friendCode");
+                    restoreCode = "";   // the one written down still works; this headset never saw it
+                    status = "ready";
+                    settingsDirty = true;
+                    emitMe();
+                    emit("NOTICE|Discord brought back GE-" + friendCode);
+                }
+                discordRefresh = r.optString("refreshToken");
+                discordName = clean(r.optString("discordName"));
+                save();
+                emit("DISCORD|linked|" + discordName);
+                emit("DISCORD_TOKEN|" + r.getString("accessToken"));
+                if (identity == null) emit("NOTICE|Discord linked as " + discordName);
+                nextPresence = 0;
+                break;
+            }
+            case "discord-refresh": {
+                if (discordRefresh.isEmpty()) return;
+                JSONObject r;
+                try {
+                    r = http.call("POST", BASE + "/discord/refresh", new JSONObject().put("refreshToken", discordRefresh), "");
+                } catch (LobbyClient.HttpException e) {
+                    if (e.status != 401) throw e;
+                    discordRefresh = "";   // Discord no longer takes it: link again
+                    save();
+                    emit("DISCORD|unlinked|");
+                    emit("NOTICE|Discord sign-in expired; link it again");
+                    return;
+                }
+                discordRefresh = r.optString("refreshToken", discordRefresh);
+                save();
+                emit("DISCORD_TOKEN|" + r.getString("accessToken"));
+                break;
+            }
+            case "discord-unlink":
+                if (ready()) http.call("DELETE", BASE + "/me/discord", null, token());
+                discordRefresh = discordName = "";
+                save();
+                emit("DISCORD|unlinked|");
+                soon();
+                break;
+            case "discord-friends": {
+                // discord-friends|id,id,...: the user's Discord friends, from the SDK
+                if (f.length != 2 || !ready() || discordRefresh.isEmpty()) return;
+                JSONArray ids = new JSONArray();
+                for (String x : f[1].split(",")) if (!x.isEmpty()) ids.put(x);
+                http.call("PUT", BASE + "/me/discord/friends", new JSONObject().put("ids", ids), token());
+                soon();
+                break;
+            }
             case "reset":
                 // Start over with a new friend code (after a sign-out, or by choice).
-                id = secret = friendCode = restoreCode = "";
+                id = secret = friendCode = restoreCode = discordRefresh = discordName = "";
                 status = "none";
                 nextRegister = 0;
                 if (file.exists() && !file.delete()) Log.w(TAG, "Could not delete " + file);
@@ -275,7 +337,7 @@ final class FriendsClient {
             emit("FRIEND|" + x.getString("id") + "|" + clean(x.getString("name")) + "|" + x.getString("code") + "|"
                     + x.getString("state") + "|" + x.optInt("version") + "|" + x.optString("lobby") + "|"
                     + x.optInt("players") + "|" + x.optInt("maxPlayers") + "|" + x.optInt("lobbyVersion") + "|"
-                    + clean(x.optString("detail")));
+                    + (x.optBoolean("discord") ? 1 : 0) + "|" + clean(x.optString("detail")));
         }
         people(r.optJSONArray("requests"), "REQUEST");
         people(r.optJSONArray("sent"), "SENT");
@@ -320,12 +382,15 @@ final class FriendsClient {
                 secret = x.getString("secret");
                 friendCode = x.getString("friendCode");
                 restoreCode = x.optString("restoreCode");
+                discordRefresh = x.optString("discordRefresh");
+                discordName = x.optString("discordName");
                 status = "ready";
             } catch (Exception e) {
                 Log.w(TAG, "Unreadable " + file + "; a new player will be registered", e);
             }
         }
         emitMe();
+        if (!discordRefresh.isEmpty()) emit("DISCORD|linked|" + discordName);   // vr_discord.cpp asks for a fresh token
     }
 
     /** A new file renamed over the old one, as the EEPROM is saved: a crash mid-write keeps the last good one. */
@@ -336,7 +401,8 @@ final class FriendsClient {
         String text;
         try {
             text = new JSONObject().put("id", id).put("secret", secret).put("friendCode", friendCode)
-                    .put("restoreCode", restoreCode).toString();
+                    .put("restoreCode", restoreCode).put("discordRefresh", discordRefresh)
+                    .put("discordName", discordName).toString();
         } catch (Exception e) { throw new IOException(e); }
         try (FileOutputStream out = new FileOutputStream(tmp)) {
             out.write(text.getBytes(StandardCharsets.UTF_8));

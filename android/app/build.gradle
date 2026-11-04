@@ -11,6 +11,15 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
+// Discord's Social SDK (port/vr/vr_discord.cpp) is not in the repository: its Android
+// library comes from the developer portal into build/discord/ (gitignored), or wherever
+// gevr.discordSdk in local.properties points. Without it the game builds without Discord.
+def localProperties = new Properties()
+if (rootProject.file("local.properties").exists()) localProperties.load(new FileInputStream(rootProject.file("local.properties")))
+def discordSdk = file(localProperties.getProperty("gevr.discordSdk", "${rootProject.projectDir}/../build/discord/discord_partner_sdk.aar"))
+def withDiscord = discordSdk.exists()
+logger.lifecycle("Discord Social SDK: " + (withDiscord ? discordSdk : "not found, building without Discord"))
+
 android {
     namespace 'com.gevr.port'
     compileSdk 34
@@ -33,7 +42,8 @@ android {
                 cppFlags "-std=c++20"
                 arguments "-DANDROID_STL=c++_shared",
                         "-DANDROID_PLATFORM=android-24",
-                        "-DTARGET_OS=android"
+                        "-DTARGET_OS=android",
+                        "-DGEVR_DISCORD=" + (withDiscord ? "ON" : "OFF")
             }
         }
     }
@@ -82,6 +92,10 @@ android {
         }
     }
 
+    buildFeatures {
+        prefab withDiscord   // the SDK's native library and headers, for CMake's find_package
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
@@ -109,6 +123,10 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.10.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    if (withDiscord) {
+        implementation files(discordSdk)
+        implementation 'androidx.browser:browser:1.8.0'   // the SDK's sign-in in the browser
+    }
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20240303'  // Real JSON parsing in local JVM tests
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'

@@ -7,6 +7,7 @@
 #include "imgui/imgui.h"
 #include "gevr_tooltip.h"
 #include "vr_friends.h"
+#include "vr_discord.h"
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -29,7 +30,7 @@ struct GevrFriendsUiState {
     char restoreFriend[16] = "", restoreCode[24] = "";
     bool showRestore = false;
     std::string confirmId, confirmName;
-    int confirmKind = 0;   // 1 remove, 2 block
+    int confirmKind = 0;   // 1 remove, 2 block, 3 unlink Discord
 };
 
 // What the place it is drawn in allows.
@@ -171,6 +172,11 @@ inline void gevrFriendsSidebar(GevrFriendsUiState &ui, const GevrFriendsUiContex
         if (f.state == "offline") ImGui::TextDisabled("%s", f.name.c_str());
         else ImGui::TextColored(good, "%s", f.name.c_str());
         if (ImGui::IsItemHovered()) gevrTooltip("%s", gevrFriendCodeText(f.code).c_str());
+        if (f.discord) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("Discord");
+            if (ImGui::IsItemHovered()) gevrTooltip("Friends on Discord; both of you linked Discord here.");
+        }
         if (f.state != "offline") {
             if (f.detail.empty()) ImGui::TextDisabled("%s", gevrFriendStateText(f));
             else {
@@ -231,6 +237,25 @@ inline void gevrFriendsSidebar(GevrFriendsUiState &ui, const GevrFriendsUiContex
         }
         ImGui::EndDisabled();
     }
+    // Discord (vr_discord.cpp): only in builds with its SDK.
+    const int discord = gevrDiscordState();
+    if (discord != GEVR_DISCORD_UNAVAILABLE && ImGui::CollapsingHeader("Discord")) {
+        if (discord == GEVR_DISCORD_UNLINKED) {
+            ImGui::TextWrapped("Link Discord: your Discord friends who play GoldenEye VR show up here, Discord shows "
+                               "what you are playing, and signing in on a new headset brings your friends back.");
+            if (ImGui::SmallButton("Link Discord")) gevrDiscordLink();
+            if (ImGui::IsItemHovered()) gevrTooltip("Opens Discord's sign-in in the browser; come back here when it is done.");
+        } else if (discord == GEVR_DISCORD_SIGNING_IN) {
+            ImGui::TextWrapped("Finish signing in to Discord in the browser, then come back here.");
+            if (ImGui::SmallButton("Try again")) gevrDiscordLink();
+        } else {
+            if (gevrDiscordName()[0]) ImGui::Text("Linked as %s", gevrDiscordName());
+            else ImGui::TextUnformatted("Linked");
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", discord == GEVR_DISCORD_CONNECTED ? "(connected)" : "(connecting...)");
+            if (ImGui::SmallButton("Unlink Discord")) { ui.confirmId.clear(); ui.confirmName = "Discord"; ui.confirmKind = 3; }
+        }
+    }
     if (ImGui::CollapsingHeader("Privacy and restore code")) {
         bool detail = VrFriendsShowDetail != 0, hidden = VrFriendsAppearOffline != 0, changed = false;
         if (ImGui::Checkbox("Show what I'm playing", &detail)) { VrFriendsShowDetail = detail; changed = true; }
@@ -280,12 +305,14 @@ inline void gevrFriendsSidebar(GevrFriendsUiState &ui, const GevrFriendsUiContex
     }
     if (ui.confirmKind && !ImGui::IsPopupOpen("Friend?")) ImGui::OpenPopup("Friend?");
     if (ImGui::BeginPopupModal("Friend?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        if (ui.confirmKind == 2) ImGui::Text("Block %s? They can't send you requests or invites.", ui.confirmName.c_str());
+        if (ui.confirmKind == 3) ImGui::TextUnformatted("Unlink Discord? Friends you have only through Discord leave the list.");
+        else if (ui.confirmKind == 2) ImGui::Text("Block %s? They can't send you requests or invites.", ui.confirmName.c_str());
         else ImGui::Text("Remove %s from your friends?", ui.confirmName.c_str());
         if (ImGui::Button("Cancel")) { ui.confirmKind = 0; ImGui::CloseCurrentPopup(); }
         ImGui::SameLine();
-        if (ImGui::Button(ui.confirmKind == 2 ? "Block" : "Remove")) {
-            gevrFriendsSend((ui.confirmKind == 2 ? "block|" : "remove|") + ui.confirmId);
+        if (ImGui::Button(ui.confirmKind == 3 ? "Unlink" : ui.confirmKind == 2 ? "Block" : "Remove")) {
+            if (ui.confirmKind == 3) gevrDiscordUnlink();
+            else gevrFriendsSend((ui.confirmKind == 2 ? "block|" : "remove|") + ui.confirmId);
             ui.confirmKind = 0;
             ImGui::CloseCurrentPopup();
         }
