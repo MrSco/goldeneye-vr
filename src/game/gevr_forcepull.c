@@ -287,15 +287,53 @@ static PropRecord *gevrPullDisarmable(PropRecord *chrprop, s32 h)
     return gun;
 }
 
-/* where a guard's gun is taken to be: his position at hand height (the held
- * gun's own matrices are drawn later than this tick), view space, hand units */
-static s32 gevrPullDisarmPoint(PropRecord *chrprop, f32 t[3])
+/*
+ * Where a guard's gun is: the held gun's own matrices, as the last frame drew
+ * it in his hand (propobj.c chrRenderHeldWeapon, instcalcmatrices), the same
+ * camera space as a floor gun's (headset, Dam: the old guess, his position
+ * plus 1.1 m, put the ring and the line well above his head). Not drawn last
+ * frame: his body's root at hip height, else his feet plus 1 m. View space,
+ * hand units.
+ */
+static s32 gevrPullDisarmPoint(PropRecord *chrprop, PropRecord *gun, f32 t[3])
 {
-    coord3d c;
+    ChrRecord *chr = chrprop->chr;
     f32 s = gevrPullViewScale();
+    coord3d c;
 
+    Mtxf *root = chr != NULL && chr->model != NULL ? (Mtxf *) chr->model->render_pos : NULL;
+
+    if ((gun->flags & PROPFLAG_ONSCREEN) && gun->obj != NULL && gun->obj->model != NULL
+        && gun->obj->model->render_pos != NULL)
+    {
+        Mtxf *m = (Mtxf *) gun->obj->model->render_pos;
+        f32 d[3];
+
+        t[0] = m->m[3][0] * s;
+        t[1] = m->m[3][1] * s;
+        t[2] = m->m[3][2] * s;
+        if (root == NULL)
+        {
+            return TRUE;
+        }
+        /* a gun last drawn frames ago keeps an old frame's matrices: within 1.5 m of his body, or his body */
+        d[0] = m->m[3][0] - root->m[3][0];
+        d[1] = m->m[3][1] - root->m[3][1];
+        d[2] = m->m[3][2] - root->m[3][2];
+        if ((d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) * s * s < 150.0f * gevrPullCm() * 150.0f * gevrPullCm())
+        {
+            return TRUE;
+        }
+    }
+    if (root != NULL)
+    {
+        t[0] = root->m[3][0] * s;
+        t[1] = root->m[3][1] * s;
+        t[2] = root->m[3][2] * s;
+        return TRUE;
+    }
     c.x = chrprop->pos.x;
-    c.y = chrprop->pos.y + 110.0f * GEVR_UNITS_PER_METRE / 100.0f;
+    c.y = (chr != NULL ? chr->ground : chrprop->pos.y) + 100.0f;
     c.z = chrprop->pos.z;
     mtx4TransformVecInPlace(camGetWorldToScreenMtxf(), &c);
     t[0] = c.x * s;
@@ -331,7 +369,7 @@ static PropRecord *gevrPullFind(const f32 p[3], const f32 f[3], f32 at[3])
             {
                 PropRecord *gun = gevrPullDisarmable(prop, h);
 
-                if (gun != NULL && gevrPullDisarmPoint(prop, t))
+                if (gun != NULL && gevrPullDisarmPoint(prop, gun, t))
                 {
                     score = gevrPullScore(p, f, t, cm, downcos);
                     if (score >= 0.0f && score < bestScore)

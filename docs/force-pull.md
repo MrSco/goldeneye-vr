@@ -129,8 +129,11 @@ game is running, and the protocol is still 25. The rest is in the build.
 - **Auto pickup off** applies to guns only (`gevrPullBlocksWalkOver` in
   `objTickPlayer`). Ammo, armour and keys are still picked up by walking
   over them, so a mission can't get stuck.
-- **Disarm:** the gun's point is the guard's position at about 1.1 m (his
-  held gun's matrices are drawn later than this tick). The squeeze calls
+- **Disarm:** the target is the gun in his hand, from the matrices the last
+  frame drew it with (`chrRenderHeldWeapon`), the same as a floor gun's. If
+  it wasn't drawn, or is more than 1.5 m from his body, it is his body's
+  root. (The first build guessed his position plus 1.1 m, which put the ring
+  and the line above his head on Dam.) The squeeze calls
   `propobjSetDropped(gun, DROPTYPE_DEFAULT)` and sets
   `CHRHIDDEN_DROP_HELD_ITEMS`, as `triggered_on_shot_hit` does when a hit
   makes a guard drop his guns. His next tick lets go, and the flight starts
