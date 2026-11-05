@@ -29,11 +29,6 @@ find = function(pack, "int find(")
 gfx = (ROOT / "port/fast3d/gfx_pc.cpp").read_text()
 tp_find = function(gfx, "static int tp_find(")
 mode = gfx[gfx.index("    const int bean = gevrBeanIsEnabled();"):gfx.index("    // tools/texai texture dump", gfx.index("    const int bean = gevrBeanIsEnabled();"))]
-options = (ROOT / "src/game/options.c").read_text()
-step = function(options, "static void gevrVrStep(")
-bean_step = step[step.index("    if (row == GEVR_VR_BEAN)"):step.index("    if (row == GEVR_VR_FASTREINF")]
-value = function(options, "static void gevrVrValueText(")
-bean_value = value[value.index("        case GEVR_VR_BEAN:"):value.index("        case GEVR_VR_MOVESPEED:")]
 bond = (ROOT / "src/game/bondview2.c").read_text()
 hud_start = bond.index("    if (", bond.index("/* VR_HUD_CAPTURE_BEGIN_H */", bond.index("Stereo: the health and armour arcs")))
 hud_end = bond.index("#ifdef GEVR\n    if (g_gevrStereo)", hud_start)
@@ -100,12 +95,6 @@ void gfx_texture_cache_clear(){clears++;}
 void sysLogPrintf(int,const char*,...){}
 #define LOG_NOTE 0
 void tick(){ /* MODE */ }
-enum {GEVR_VR_BEAN, GEVR_VR_SPACEWARP};   /* the watch rows the spliced range names */
-static int VrSpaceWarp = -1;
-int vr_spacewarp_supported(void){return 1;}
-int vr_spacewarp_setting_on(void){return VrSpaceWarp != 0;}
-void watchStep(int dir){int row=GEVR_VR_BEAN; /* STEP */ }
-void watchValue(char* buf){switch(GEVR_VR_BEAN){ /* VALUE */ }}
 static int loads=0;static void* gevrGexPendingFile=nullptr;
 void gevrBeanModelApply(void*,const char*){loads++;}
 void apply(){void* objheader=nullptr;const char* name="Gak47Z"; /* HOOK */ }
@@ -148,8 +137,7 @@ int main(int argc,char** argv){
     s_tpFillOnly=false;enabled=false;VrBeanFillTextures=1;tick();
     assert(tp_find(0x11111111,0,2)>=0);
     baseline=clears;
-    char value[64];available=false;watchStep(1);assert(!enabled);watchValue(value);assert(!strcmp(value,"NEEDS FILES"));
-    available=true;watchStep(1);assert(enabled);watchValue(value);assert(!strcmp(value,"ON"));watchStep(2);assert(!enabled);
+    /* the settings row's Bean toggle: port/tests/test_settings_table.py */
     apply();assert(loads==1);gevrGexPendingFile=&player;apply();assert(loads==1);
     grips[0]=true;shortcutTick(100,true);shortcutTick(1099,true);assert(!enabled);shortcutTick(1100,true);assert(enabled);
     shortcutTick(4000,true);assert(enabled);shortcutTick(4001,false);grips[1]=true;shortcutTick(5000,true);shortcutTick(7000,true);assert(enabled);
@@ -167,8 +155,7 @@ int main(int argc,char** argv){
     puts("PASS: Bean ownership, cache invalidation, watch/shortcut, GE-X priority and all hit comfort/HUD combinations");
 }
 '''
-for marker, source in {"INDEX": index, "FIND": find, "TPFIND": tp_find, "MODE": mode, "STEP": bean_step,
-                       "VALUE": bean_value, "HUD": hud, "DAMAGE": damage,
+for marker, source in {"INDEX": index, "FIND": find, "TPFIND": tp_find, "MODE": mode, "HUD": hud, "DAMAGE": damage,
                        "HEALTH": health, "UPDATE": update, "HOOK": hook, "SHORTCUT": shortcut}.items():
     fixture = fixture.replace(f"/* {marker} */", source)
 with tempfile.TemporaryDirectory(prefix="gevr-bean-modes-") as temp:

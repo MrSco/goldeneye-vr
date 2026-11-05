@@ -217,8 +217,8 @@ the stats and the activity page.
   release after it closes). Its header is the online pause's
   (`gevrPauseHeader`: health and armour arcs, solo too via `gevrPanelGauges`;
   radar online). Below it the VR settings, a tab per section across the full
-  width, from `options.c`'s rows (`gevrVrSectionCount`, `gevrVrRowRead`,
-  `gevrVrRowStep`); the watch no longer has its VR settings page.
+  width, from the settings table (`port/src/gevr_settings.c`, drawn as ImGui
+  controls by `gevr_settings_ui.h`); the watch no longer has its VR settings page.
   Footer: Resume, HD textures on/off, Back to launcher (focused, so hold Menu
   then A still goes back). A solo mission pauses: the panel sends START to
   open the watch under it (not in a cutscene) and again to close it. Menu+A

@@ -23,9 +23,6 @@ int gevrPanelIsOpen(void);                       /* input.c: hold Menu */
 int gevrTexpackState(void);int gevrTexpackToggle(void);   /* gfx_pc.cpp */
 void audioReset(void);                           /* audio.c: a new output stream (#229) */
 extern int gevrTexpackToggleMsg;                 /* input.c: bondview2.c says it in play */
-/* options.c: the VR settings the watch used to show */
-int gevrVrSectionCount(void);const char*gevrVrSectionName(int section);int gevrVrRowCount(int section);
-int gevrVrRowRead(int section,int index,const char**label,char*value,int size);void gevrVrRowStep(int section,int index,int dir);
 int lvlGetSelectedDifficulty(void);
 }
 extern int VrCampaign;
@@ -95,8 +92,7 @@ void initialize() {
 int panelFrame() {
     GevrPanelView v;
     v.online=netIsActive();v.texpack=gevrTexpackState();
-    v.sectionCount=gevrVrSectionCount;v.sectionName=gevrVrSectionName;v.rowCount=gevrVrRowCount;
-    v.rowRead=gevrVrRowRead;v.rowStep=gevrVrRowStep;
+    v.settings=gevrSettingsLive();   /* the settings table (gevr_settings.c) */
     gevrPanelGauges(v.gauges);   /* the online pause's health and armour, solo too */
     gevrPauseLocalRadar(&v.radar);
     const int stage=bossGetStageNum();

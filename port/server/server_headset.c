@@ -110,6 +110,7 @@ int vr_get_internal_render_width(void) { return g_internalRenderWidth; }
 int vr_get_internal_render_height(void) { return g_internalRenderHeight; }
 void vr_align_with_game_angle(float target_game_angle) { (void)target_game_angle; }
 int vr_passthrough_supported(void) { return 0; }
+int vr_eye_msaa_supported(void) { return 0; }   /* the settings table's anti-aliasing row (gevr_settings.c) */
 int vr_screen_curve_supported(void) { return 0; }
 void vr_screen_grab(int active) { (void)active; }
 void vr_screen_recenter(void) { }

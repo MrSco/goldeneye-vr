@@ -1,7 +1,7 @@
 // The Friends sidebar (gevr_friends_ui.h) and the in-game panel (gevr_panel_ui.h)
 // at the headset's font scale: nothing runs past its column, the panel's
 // footer stays on the canvas, and the buttons act. Fakes stand in for
-// vr_friends.cpp and options.c.
+// vr_friends.cpp and the settings table (gevr_settings.c).
 #include "gevr_friends_ui.h"
 #include "gevr_panel_ui.h"
 #include "imgui/imgui_internal.h"
@@ -39,17 +39,45 @@ const std::vector<GevrDiscordInvite> &gevrDiscordInvites(void) { return discordI
 void gevrDiscordInvite(uint64_t) {}
 void gevrDiscordAnswer(int, bool) {}
 
-// options.c's rows, faked: seven sections, the longest values the watch shows
-static int steps[8][8];
-static int sectionCount() { return 7; }
-static const char *sectionName(int s) { static const char *n[] = {"Comfort", "Controls", "Gestures", "Weapons", "Display", "Game rules", "Mods and fun"}; return n[s]; }
-static int rowCount(int s) { return s == 2 || s == 4 ? 8 : 7; }
-static int rowRead(int s, int i, const char **label, char *value, int size) {
-    *label = i == 0 ? "Fast reinforcements" : "Hand reload WIP";
-    snprintf(value, size, "%s", i == 1 ? "GET IN MODS" : i == 2 ? "NEEDS GE-X" : "PER GUN");
-    return i < rowCount(s);
+// The settings table, faked: seven sections, the fullest (Display, every row
+// shown) at thirteen, with the longest labels and values the table has
+struct FakeRow { const char *label; int kind; int positions; const char *value; const char *blocked; };
+static const FakeRow fullest[] = {
+    {"Refresh", GEVR_SET_CHOICE, 4, "120 Hz", nullptr},
+    {"SpaceWarp", GEVR_SET_TOGGLE, 2, "On (auto)", nullptr},
+    {"Anti-aliasing", GEVR_SET_CHOICE, 2, "2x", "Not on this headset"},
+    {"Watch face", GEVR_SET_CHOICE, 3, "Only", nullptr},
+    {"Show stats", GEVR_SET_TOGGLE, 2, "Off", nullptr},
+    {"Screen size", GEVR_SET_RANGE, 18, "110%", nullptr},
+    {"Screen dist", GEVR_SET_RANGE, 29, "8.00 m", nullptr},
+    {"Curved", GEVR_SET_TOGGLE, 2, "On", nullptr},
+    {"Passthrough", GEVR_SET_TOGGLE, 2, "On", nullptr},
+    {"Fast reinforcements", GEVR_SET_TOGGLE, 2, "Host: on", "Host's choice"},
+    {"  Distance", GEVR_SET_RANGE, 25, "300 cm", nullptr},
+    {"  Height", GEVR_SET_RANGE, 25, "-40 cm", nullptr},
+    {"  Shoulder", GEVR_SET_RANGE, 33, "-80 cm", nullptr},
+};
+static const int fullestCount = sizeof(fullest) / sizeof(fullest[0]);
+static int fakeIndex[GEVR_SEC_COUNT * 16];
+static const FakeRow &fakeRow(int id) { return fullest[(id % 16) % fullestCount]; }
+static int fakeSectionCount() { return GEVR_SEC_COUNT; }
+static const char *fakeSectionName(int s) { static const char *n[] = {"Comfort", "Controls", "Gestures", "Weapons", "Display", "Game rules", "Mods and fun"}; return n[s]; }
+static int fakeSectionRows(int s, unsigned, int *ids, int max) {
+    const int n = s == GEVR_SEC_DISPLAY ? fullestCount : s == GEVR_SEC_GESTURES ? 12 : 7;
+    for (int i = 0; i < n && i < max; i++) ids[i] = s * 16 + i;
+    return n;
 }
-static void rowStep(int s, int i, int dir) { steps[s][i] += dir; }
+static int fakeInfo(int id, GevrSettingInfo *out) {
+    out->label = fakeRow(id).label; out->tooltip = "A tooltip"; out->kind = fakeRow(id).kind;
+    out->section = id / 16; out->where = GEVR_SET_BOTH;
+    return 1;
+}
+static int fakePositions(int id) { return fakeRow(id).positions; }
+static int fakeIndexOf(int id) { return fakeIndex[id]; }
+static int fakeDefault(int id) { return fakeRow(id).kind == GEVR_SET_RANGE ? 0 : -1; }
+static void fakeSet(int id, int index) { fakeIndex[id] = index; }
+static void fakeText(int id, int, char *buf, int size) { snprintf(buf, size, "%s", fakeRow(id).value); }
+static const char *fakeBlocked(int id) { return fakeRow(id).blocked; }
 
 static GevrFriendsUiState ui;
 static GevrFriendsUiContext ctx;
@@ -121,7 +149,9 @@ int main() {
     // The in-game panel: the shared header, the VR settings across the surface, the footer.
     io.DisplaySize = ImVec2((float)gevrSurfaceCanvasW(), 960);
     GevrPanelView v; GevrPanelUi pui;
-    v.sectionCount = sectionCount; v.sectionName = sectionName; v.rowCount = rowCount; v.rowRead = rowRead; v.rowStep = rowStep;
+    v.settings.sectionCount = fakeSectionCount; v.settings.sectionName = fakeSectionName; v.settings.sectionRows = fakeSectionRows;
+    v.settings.info = fakeInfo; v.settings.positions = fakePositions; v.settings.index = fakeIndexOf;
+    v.settings.defaultIndex = fakeDefault; v.settings.set = fakeSet; v.settings.text = fakeText; v.settings.blocked = fakeBlocked;
     v.texpack = 1;
     snprintf(v.session, sizeof(v.session), "Bunker II");
     snprintf(v.status, sizeof(v.status), "00 Agent");
@@ -133,13 +163,27 @@ int main() {
         drawSidePanel();
         ImGui::Render();
     };
-    panelFrame(); panelFrame();
-    ImGuiWindow *rows = nullptr;
-    for (ImGuiWindow *x : ImGui::GetCurrentContext()->Windows)
-        if (strstr(x->Name, "##panel-rows") && x->Active) rows = x;
-    check(rows != nullptr, "a section's rows are drawn");
-    check(rows->ContentSize.y <= rows->Size.y, "a section's eight rows fit without scrolling");
-    check(rows->ContentSize.x + rows->WindowPadding.x * 2 <= rows->Size.x + 1, "labels and < VALUE > fit the settings column");
+    // Every tab, the fullest (Display, thirteen rows) among them: no scrolling,
+    // and no label running into its control.
+    for (int s = 0; s < GEVR_SEC_COUNT; s++) {
+        pui.openSection = s;
+        panelFrame(); panelFrame();
+        ImGuiWindow *rows = nullptr;
+        for (ImGuiWindow *x : ImGui::GetCurrentContext()->Windows)
+            if (strstr(x->Name, "##panel-rows") && x->Active && x->LastFrameActive == ImGui::GetFrameCount()) rows = x;
+        check(rows != nullptr, "a section's rows are drawn");
+        check(rows->ContentSize.y <= rows->Size.y, "a section's rows, thirteen at the fullest, fit without scrolling");
+        check(rows->ContentSize.x + rows->WindowPadding.x * 2 <= rows->Size.x + 1, "labels and controls fit the settings width");
+        int ids[48];
+        const int n = fakeSectionRows(s, GEVR_SET_INGAME, ids, 48);
+        const int columns = n > GEVR_SETTINGS_ONE_COLUMN ? 2 : 1;
+        const float half = (rows->Size.x - rows->WindowPadding.x * 2 - (columns > 1 ? ImGui::GetStyle().ItemSpacing.x * 4 : 0)) / columns;
+        const float labelW = half * (columns > 1 ? 0.44f : 0.40f);
+        for (int i = 0; i < n; i++) {
+            GevrSettingInfo info{}; fakeInfo(ids[i], &info);
+            check(ImGui::CalcTextSize(info.label).x + ImGui::GetStyle().CellPadding.x * 2 <= labelW, "every label fits its column");
+        }
+    }
     ImGuiWindow *panel = ImGui::FindWindowByName("##gevr-panel");
     ImGuiTabBar *tabs = nullptr;
     for (int t = 0; t < ImGui::GetCurrentContext()->TabBars.GetMapSize(); t++)

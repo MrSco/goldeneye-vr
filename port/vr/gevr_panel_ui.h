@@ -1,13 +1,14 @@
 // The in-game panel (hold Menu 1.5 s; port/src/input.c, vr_pause_menu.cpp):
 // what the old "back to the launcher?" prompt offered and the VR settings
-// that were on the watch (src/game/options.c's rows), in solo play and online
-// alike. It shares the online pause's header (gevrPauseHeader: health and
+// (the settings table, port/src/gevr_settings.c, drawn by gevr_settings_ui.h
+// as the launcher's controls), in solo play and online alike. It shares the online pause's header (gevrPauseHeader: health and
 // armour, radar online) and surface, and the Friends side panel to its right
 // (gevr_friends_ui.h), drawn by vr_pause_menu.cpp like the launcher's.
 // No engine pointers, XR or GL state: the layout test draws it with fakes.
 #ifndef GEVR_PANEL_UI_H
 #define GEVR_PANEL_UI_H
 #include "gevr_pause_widgets.h"
+#include "gevr_settings_ui.h"
 
 struct GevrPanelView {
     char session[128] = "";      // the mission or match
@@ -17,39 +18,13 @@ struct GevrPanelView {
     int texpack = -1;            // 1 HD textures on, 0 off, -1 no pack
     GevrPauseGaugeVertex gauges[92]{};
     GevrPauseRadarView radar{};
-    // the VR settings (options.c gevrVrSectionCount and its neighbours)
-    int (*sectionCount)(void) = nullptr;
-    const char *(*sectionName)(int) = nullptr;
-    int (*rowCount)(int) = nullptr;
-    int (*rowRead)(int, int, const char **, char *, int) = nullptr;
-    void (*rowStep)(int, int, int) = nullptr;
+    GevrSettingsApi settings;    // the VR settings: the table, or a test's rows
 };
 struct GevrPanelUi {
     bool focusLauncher = true;   // hold Menu then A still goes back to the launcher
+    int openSection = -1;        // >= 0: bring that tab up on the next frame (the layout test's)
 };
 enum { GEVR_PANEL_NONE, GEVR_PANEL_RESUME, GEVR_PANEL_LAUNCHER, GEVR_PANEL_TEXPACK, GEVR_PANEL_RESET_SOUND };
-
-// One VR setting: its label, then < VALUE > (the value steps forward, wrapping).
-inline void gevrPanelRow(const GevrPanelView &v, int section, int index, float valueWidth) {
-    const char *label = "";
-    char value[64] = "";
-    if (!v.rowRead || !v.rowRead(section, index, &label, value, sizeof(value))) return;
-    ImGui::PushID(index);
-    ImGui::TableNextRow();
-    ImGui::TableNextColumn();
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(label);
-    ImGui::TableNextColumn();
-    const float arrow = ImGui::GetFrameHeight();
-    if (ImGui::Button("<", ImVec2(arrow, 0))) v.rowStep(section, index, -1);
-    ImGui::SameLine(0, 4);
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(.88f, .69f, .25f, 1));
-    if (ImGui::Button(value, ImVec2(valueWidth, 0))) v.rowStep(section, index, 2);
-    ImGui::PopStyleColor();
-    ImGui::SameLine(0, 4);
-    if (ImGui::Button(">", ImVec2(arrow, 0))) v.rowStep(section, index, 1);
-    ImGui::PopID();
-}
 
 inline int gevrDrawPanelWindow(const GevrPanelView &v, GevrPanelUi &ui, ImTextureID icon = 0) {
     int action = GEVR_PANEL_NONE;
@@ -65,23 +40,19 @@ inline int gevrDrawPanelWindow(const GevrPanelView &v, GevrPanelUi &ui, ImTextur
     ImGui::SetCursorPos(ImVec2(18, 112));
     ImGui::BeginChild("##panel-settings", ImVec2(1244, 700));
     ImGui::TextColored(gold, "VR SETTINGS");
-    const int sections = v.sectionCount ? v.sectionCount() : 0;
+    const int sections = v.settings.sectionCount ? v.settings.sectionCount() : 0;
     if (ImGui::BeginTabBar("##panel-sections", ImGuiTabBarFlags_FittingPolicyResizeDown)) {
         for (int s = 0; s < sections; s++) {
-            if (!ImGui::BeginTabItem(v.sectionName(s))) continue;
-            ImGui::BeginChild("##panel-rows", ImVec2(0, 0));
-            if (ImGui::BeginTable("##panel-rowtable", 2, ImGuiTableFlags_SizingStretchProp)) {
-                ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthStretch);
-                ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthFixed, 460);
-                const int rows = v.rowCount ? v.rowCount(s) : 0;
-                for (int r = 0; r < rows; r++) gevrPanelRow(v, s, r, 460 - 2 * (ImGui::GetFrameHeight() + 4));
-                ImGui::EndTable();
-            }
+            const ImGuiTabItemFlags open = s == ui.openSection ? ImGuiTabItemFlags_SetSelected : 0;
+            if (!ImGui::BeginTabItem(v.settings.sectionName(s), nullptr, open)) continue;
+            ImGui::BeginChild("##panel-rows", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
+            gevrSettingsSection(v.settings, s, GEVR_SET_INGAME);
             ImGui::EndChild();
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
     }
+    ui.openSection = -1;
     ImGui::EndChild();
     if (v.note[0]) {
         ImGui::SetCursorPos(ImVec2(18, 822));
