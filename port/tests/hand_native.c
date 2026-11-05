@@ -492,6 +492,7 @@ static unsigned tickInput(int stereoplay, int fitting) {
 }
 EXPORT int test_hand_input(void) {
     reset(); inputTime = 1000;
+    reserve[ITEM_WPPK] = reserve[ITEM_AK47] = reserve[ITEM_GRENADE] = 10;   /* a tap skips empty guns (test_hand_cycle_ammo) */
     aDown = xDown = rightGrip = leftGrip = 0; tickInput(0, 0);
     aDown = 1; CHECK(!(tickInput(1, 0) & A_BUTTON));
     inputTime += 80; aDown = 0; CHECK(!(tickInput(1, 0) & A_BUTTON));
