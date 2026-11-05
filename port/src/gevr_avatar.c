@@ -253,3 +253,23 @@ ModelNode *gevrAvatarWeaponHand(ChrRecord *chr,int hand,int *physicalLeft) {
     *physicalLeft=(hand==GUNLEFT)^((pose.flags&GEVR_POSE_LEFT_HANDED)?1:0);
     return nodes[*physicalLeft?8:9];
 }
+
+/*
+ * gevr_forcepull.c online: where another player's hand is in the world, for
+ * a gun flying to it (docs/force-pull.md "Online"). hand is a weapon role
+ * (GUNRIGHT, GUNLEFT). The tracked palm as gevrAvatarApply reaches for it;
+ * a flat player, a bot or an untracked hand: the chest below the eye.
+ */
+int gevrNetRemoteHandWorld(int slot,int hand,float out[3]) {
+    if(slot<0 || slot>=GEVR_MAX_PLAYERS || hand<0 || hand>1 || !g_playerPointers[slot] || !g_playerPointers[slot]->prop)return 0;
+    struct player *p=g_playerPointers[slot];
+    GevrAvatarPose pose;float weight[3];
+    if(netGetAvatarPose(slot,&pose,weight) && weight[hand+1]>0) {
+        float grip[3][3];gevrPoseQuatMatrix(pose.hand[hand].q,grip);
+        for(int k=0;k<3;k++)out[k]=p->field_488.collision_position.f[k]+pose.head.pos[k]+pose.hand[hand].pos[k]+grip[1][k]*4;
+        return 1;
+    }
+    for(int k=0;k<3;k++)out[k]=p->field_488.collision_position.f[k];
+    out[1]-=40;
+    return 1;
+}

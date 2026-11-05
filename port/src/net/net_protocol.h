@@ -10,9 +10,10 @@
 #include "net_rules.h"
 #include "net_match.h"
 #include "gevr_avatar_math.h"
+#include "gevr_pull.h"
 
 #define GEVR_NET_MAGIC           0x47455652  /* "GEVR" */
-#define GEVR_NET_VERSION         25  /* 25: Horde briefcase powers and consumable buys; 24: all gameplay maps in Horde and Deathmatch (older peers reject the expanded stage set); 23: bounded Horde ammo drops and pickup grants, the Horde map, starting wave and two-gun lists; 22: Horde and guard generations, tracked head/both wrists and torso yaw for multiplayer IK, the synchronized PvE companion (all peers must update); 21: host movement speed; 20: v0.4.14, the hit immunity rule's bits (NET_FUN_HIT_IMMUNITY, NET_FUN_HIT_EVERY), which v0.4.11-v0.4.13 refuse, and soft collision; 19: the No radar match rule (NET_FUN_NO_RADAR), which v0.4.11 rejects, and bots (the match config's bot fields, the lobby slot's is_bot); 18: v0.4.6, a match config may name Statue (22) and Cradle (41), which v0.4.5 rejects; 17: v0.4.0, the released form of 16 (16 named only unreleased test builds, whose packet layout changed under it); 16: eight player slots and the host's player count; co-op mode (mode, difficulty in the match config; guard, mission, menu and revive messages); 15: clock synchronization, timestamped shots, epoch/life IDs; 14: next-round fun settings; 13: team voice routing; 12: friendly fire and authoritative ammo transforms; 11: voice modes, pending/active teams, elimination, ping; 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
+#define GEVR_NET_VERSION         26  /* 26: force pull, catch and disarm (NET_MSG_FORCE_PULL); 25: Horde briefcase powers and consumable buys; 24: all gameplay maps in Horde and Deathmatch (older peers reject the expanded stage set); 23: bounded Horde ammo drops and pickup grants, the Horde map, starting wave and two-gun lists; 22: Horde and guard generations, tracked head/both wrists and torso yaw for multiplayer IK, the synchronized PvE companion (all peers must update); 21: host movement speed; 20: v0.4.14, the hit immunity rule's bits (NET_FUN_HIT_IMMUNITY, NET_FUN_HIT_EVERY), which v0.4.11-v0.4.13 refuse, and soft collision; 19: the No radar match rule (NET_FUN_NO_RADAR), which v0.4.11 rejects, and bots (the match config's bot fields, the lobby slot's is_bot); 18: v0.4.6, a match config may name Statue (22) and Cradle (41), which v0.4.5 rejects; 17: v0.4.0, the released form of 16 (16 named only unreleased test builds, whose packet layout changed under it); 16: eight player slots and the host's player count; co-op mode (mode, difficulty in the match config; guard, mission, menu and revive messages); 15: clock synchronization, timestamped shots, epoch/life IDs; 14: next-round fun settings; 13: team voice routing; 12: friendly fire and authoritative ammo transforms; 11: voice modes, pending/active teams, elimination, ping; 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
 #define GEVR_DEFAULT_PORT        27007
 #define GEVR_DISCOVERY_PORT      27008
 #define GEVR_MAX_PLAYERS         8   /* protocol 16; every slot is a game player number (src/bondconstants.h MAX_PLAYER_COUNT) */
@@ -109,6 +110,8 @@ typedef enum {
     /* Additive on protocol 23: older builds ignore the clock and glass-break action. */
     NET_MSG_COOP_CLOCK = 55,    /* Host -> all: mission countdown and scripted blast sequence, with world epoch */
     NET_MSG_COOP_SCRIPT = 56,   /* Host -> all: one allowed world effect, referenced in the local mission's AI lists */
+    /* Protocol 26 (docs/force-pull.md "Online") */
+    NET_MSG_FORCE_PULL = 57,    /* Puller -> host -> peers: a pull, catch or throw (NetForcePull); host -> claimant: refused */
 } NetMsgType;
 
 #define NET_DISCONNECT_KICKED 0x47454b49u
@@ -238,6 +241,41 @@ static inline int netbufReadClock(struct netbuf *b,NetClockExchange *c) {
     c->t0=netbufReadU64(b);c->t1=netbufReadU64(b);c->t2=netbufReadU64(b);
     return !b->error && c->reply<=1 && c->epoch && c->nonce && c->t0
         && (c->reply ? c->t1 && c->t2>=c->t1 : !c->t1 && !c->t2);
+}
+
+/*
+ * NET_MSG_FORCE_PULL (gevr_forcepull.c): phase is GEVR_PULL_NET_* (gevr_pull.h).
+ * index names a setup object (netObjectIndex below 0x8000), else
+ * GEVR_PULL_NET_NONE and the peers find their own copy of the dropped gun or
+ * grenade by item near pos. hand is the puller's controller (0 the off hand,
+ * 1 the gun hand). aux: DONE 1 absorbed, DISARM the guard's hand, REFUSED
+ * the claimant's slot. guard: DISARM the guard's host slot.
+ */
+#define NET_FORCE_PULL_BYTES 41
+typedef struct {
+    uint8_t phase, hand, type, item;   /* type: the object's PROPDEF type; item: its ITEM_IDS, 0xFF none */
+    uint16_t index, guard;
+    uint8_t aux;
+    coord3d pos, vel;                  /* world */
+    float dur;                         /* FLY: seconds */
+    int32_t timer;                     /* RELEASE: a grenade's fuse, -1 none */
+} NetForcePull;
+static inline void netbufWriteForcePull(struct netbuf *b, const NetForcePull *p) {
+    netbufWriteU8(b,p->phase);netbufWriteU8(b,p->hand);netbufWriteU8(b,p->type);netbufWriteU8(b,p->item);
+    netbufWriteU16(b,p->index);netbufWriteU16(b,p->guard);netbufWriteU8(b,p->aux);
+    netbufWriteCoord(b,&p->pos);netbufWriteCoord(b,&p->vel);netbufWriteF32(b,p->dur);netbufWriteU32(b,(uint32_t)p->timer);
+}
+static inline int netbufReadForcePull(struct netbuf *b, NetForcePull *p) {
+    p->phase=netbufReadU8(b);p->hand=netbufReadU8(b);p->type=netbufReadU8(b);p->item=netbufReadU8(b);
+    p->index=netbufReadU16(b);p->guard=netbufReadU16(b);p->aux=netbufReadU8(b);
+    netbufReadCoord(b,&p->pos);netbufReadCoord(b,&p->vel);p->dur=netbufReadF32(b);p->timer=(int32_t)netbufReadU32(b);
+    return !b->error && p->phase >= 1 && p->phase < GEVR_PULL_NET_PHASES && p->hand <= 1
+        && (p->item < ITEM_IDS_MAX || p->item == 0xFF)
+        && isfinite(p->pos.x) && isfinite(p->pos.y) && isfinite(p->pos.z) && fabsf(p->pos.x) < 1.0e6f
+        && fabsf(p->pos.y) < 1.0e6f && fabsf(p->pos.z) < 1.0e6f
+        && isfinite(p->vel.x) && isfinite(p->vel.y) && isfinite(p->vel.z) && fabsf(p->vel.x) < 1.0e5f
+        && fabsf(p->vel.y) < 1.0e5f && fabsf(p->vel.z) < 1.0e5f
+        && isfinite(p->dur) && p->dur >= 0.0f && p->dur <= 2.0f && p->timer >= -1 && p->timer < 100000;
 }
 
 /* NET_MSG_OBJECT_STATE actions */

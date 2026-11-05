@@ -46,7 +46,7 @@ EXPORT int test_protocol(void) {
     original.movement_speed=NET_MOVE_175;
     original.bot_mode=NET_BOT_FIXED;original.bot_count=5;original.bot_difficulty=NET_BOT_DARK;original.horde_start_wave=12;
     netbufStartWrite(&b); netbufWriteMatchConfig(&b,&original);
-    if (b.error || b.wp != 24 || GEVR_NET_VERSION != 25 || GEVR_MAX_PLAYERS != 8) return 1;
+    if (b.error || b.wp != 24 || GEVR_NET_VERSION != 26 || GEVR_MAX_PLAYERS != 8) return 1;
     netbufStartReadData(&b,raw,b.wp); netbufReadMatchConfig(&b,&received);
     if (b.error || netbufReadLeft(&b) || memcmp(&original,&received,sizeof(original))) return 2;
     for(int size=0;size<24;size++) {
@@ -54,6 +54,29 @@ EXPORT int test_protocol(void) {
     }
     netbufStartReadData(&b,raw,24); netbufReadMatchConfig(&b,&received);
     netbufStartWrite(&b); b.size=23; netbufWriteMatchConfig(&b,&original); if(!b.error) return 4;
+
+    /* protocol 26: a force pull step (gevr_forcepull.c), every field round trips, any cut is refused */
+    {
+        uint8_t fraw[64]; struct netbuf f={.data=fraw,.size=sizeof(fraw)};
+        NetForcePull fp={0},got={0};
+        fp.phase=GEVR_PULL_NET_RELEASE;fp.hand=1;fp.type=4;fp.item=ITEM_GRENADE;fp.index=GEVR_PULL_NET_NONE;
+        fp.guard=0x0123;fp.aux=2;fp.pos.x=-1200.5f;fp.pos.y=88.25f;fp.pos.z=4096.0f;
+        fp.vel.x=350.0f;fp.vel.y=-20.0f;fp.vel.z=0.5f;fp.dur=0.35f;fp.timer=97;
+        netbufStartWrite(&f); netbufWriteForcePull(&f,&fp);
+        if (f.error || f.wp != NET_FORCE_PULL_BYTES) return 5;
+        netbufStartReadData(&f,fraw,f.wp);
+        if (!netbufReadForcePull(&f,&got) || netbufReadLeft(&f) || memcmp(&fp,&got,sizeof(fp))) return 6;
+        for (int size=0;size<NET_FORCE_PULL_BYTES;size++) {
+            netbufStartReadData(&f,fraw,size); if (netbufReadForcePull(&f,&got)) return 7;
+        }
+        /* out of range: an unknown phase, a third hand, a non-finite point */
+        fp.phase=GEVR_PULL_NET_PHASES; netbufStartWrite(&f); netbufWriteForcePull(&f,&fp);
+        netbufStartReadData(&f,fraw,f.wp); if (netbufReadForcePull(&f,&got)) return 8;
+        fp.phase=GEVR_PULL_NET_FLY; fp.hand=2; netbufStartWrite(&f); netbufWriteForcePull(&f,&fp);
+        netbufStartReadData(&f,fraw,f.wp); if (netbufReadForcePull(&f,&got)) return 9;
+        fp.hand=0; fp.pos.y=INFINITY; netbufStartWrite(&f); netbufWriteForcePull(&f,&fp);
+        netbufStartReadData(&f,fraw,f.wp); if (netbufReadForcePull(&f,&got)) return 10;
+    }
     return 0;
 }
 EXPORT int test_spatial_init(void) { return netSpatialInit(); }

@@ -704,6 +704,22 @@ static ChrRecord *coopLocalChr(int hostslot)
     return local >= 0 && local < g_NumChrSlots ? &g_ChrSlots[local] : NULL;
 }
 
+/* gevr_forcepull.c, pull and disarm online: a guard's slot as the host
+ * numbers it (the same on every headset), and back to this headset's guard */
+int netCoopGuardHostSlot(struct ChrRecord *chr)
+{
+    if (!netCoopActive() || s_await_remap) return -1;
+    return netCoopHostSlotOf(coopSlotOf(chr));
+}
+
+struct ChrRecord *netCoopGuardOfHostSlot(int hostslot)
+{
+    ChrRecord *chr;
+    if (!netCoopActive() || s_await_remap) return NULL;
+    chr = coopLocalChr(hostslot);
+    return coopChrLive(chr) ? chr : NULL;
+}
+
 static void coopReceiveStates(struct netbuf *b)
 {
     u32 seq = netbufReadU32(b);

@@ -15,8 +15,16 @@
  * An airborne drop gives up its projectile to the pull. Walking over a
  * pulled prop doesn't collect it (objTickPlayer, gevrPullBlocksWalkOver).
  *
- * Arithmetic: port/src/gevr_pull.c (tested on its own). Single player for
- * now: online the pickup claim and the flight need the network's say.
+ * Arithmetic: port/src/gevr_pull.c (tested on its own).
+ *
+ * Online (protocol 26, net_core.c NET_MSG_FORCE_PULL): each step goes to the
+ * other headsets, which fly their own copy of the prop to this player's
+ * tracked hand (gevr_avatar.c gevrNetRemoteHandWorld), keep it there, let it
+ * go or take it away. A setup pickup is named by its index and the host
+ * refuses a second pull on it; a dropped gun or a grenade (the per-headset
+ * pools) by its item and where it is. A disarm asks the host's guard to let
+ * go. A caught grenade becomes the catcher's: its blast is sent by the
+ * catcher's headset (explosion.c), and the others' copies wait for it.
  */
 
 #include <ultra64.h>
@@ -62,6 +70,15 @@ extern s32 gevrPullCollect(PropRecord *prop);
 extern s32 gevrPullEquip(s32 ctrl, s32 item);
 extern s32 gevrWeaponOwned(s32 item);
 extern s32 g_gevrExtraPass;            /* lv.c: an extra view pass (gevrViewPass) */
+/* online (net_core.c, net_coop.c, gevr_avatar.c) */
+extern void netSendForcePull(s32 phase, s32 hand, ObjectRecord *obj, s32 type, s32 item, s32 aux, s32 guard,
+                             const f32 *pos, const f32 *vel, f32 dur, s32 timer);
+extern bool netSlotOccupied(int slot);
+extern int netHordeActive(void);
+extern int netCoopGuardHostSlot(ChrRecord *chr);
+extern ChrRecord *netCoopGuardOfHostSlot(int hostslot);
+extern int gevrNetRemoteHandWorld(int slot, int hand, float out[3]);
+extern void netSendObjectPickup(ObjectRecord *obj, s32 tickop);
 
 #define GEVR_UNITS_PER_METRE 100.0f
 #define GEVR_PULL_REACH_GRAB_CM 25.0f   /* Grip to hand's own reach (bondview2.c GEVR_GT_PICKUP): closer is a grab */
@@ -85,6 +102,25 @@ typedef struct
 } GevrPull;
 
 static GevrPull s_pull[2];
+
+/* Online: another player's pull as this headset shows it (its copy of the prop) */
+#define GEVR_PULL_REMOTE_MAX 16
+typedef struct
+{
+    PropRecord *prop;       /* NULL: a dropped gun not found yet (pending) */
+    ObjectRecord *obj;
+    u8 type;                /* the prop's type */
+    s32 used;
+    s32 slot, ctrl;         /* the puller and its controller (0 off hand, 1 gun hand) */
+    s32 objtype, item;      /* to find a pool copy by */
+    f32 at[3];              /* where the puller had it */
+    f32 from[3], t, dur;
+    s32 held;               /* kept in the hand: follows it */
+    f32 wait;               /* pending, or past the flight's end without a word */
+    u32 stamp;              /* g_GlobalTimer at the last word (the host's claims age out) */
+} GevrRemotePull;
+
+static GevrRemotePull s_remote[GEVR_PULL_REMOTE_MAX];
 static PropRecord *s_aim[2];      /* what each hand points at (highlight, line) */
 static f32 s_aimAt[2][3];         /* its point, view space, hand units */
 static f32 s_handAt[2][3];        /* the hand's touch point, view space, hand units */
@@ -109,9 +145,10 @@ static f32 gevrPullViewScale(void)
     return g_gevrStereo && D_800364CC > 1e-6f ? D_800364CC : 1.0f;
 }
 
+/* offline multi-player (no VR there): no pull. Online is synced (protocol 26). */
 static s32 gevrPullOnline(void)
 {
-    return netIsActive() || getPlayerCount() != 1;
+    return !netIsActive() && getPlayerCount() != 1;
 }
 
 static s32 gevrPullIsGun(s32 item)
@@ -152,7 +189,34 @@ s32 gevrPullBusy(PropRecord *prop)
             return TRUE;
         }
     }
+    for (i = 0; i < GEVR_PULL_REMOTE_MAX; i++)
+    {
+        if (s_remote[i].used && s_remote[i].prop == prop && prop != NULL)
+        {
+            return TRUE;
+        }
+    }
     return FALSE;
+}
+
+/* online: tell the others (net_core.c); offline nothing */
+static void gevrPullSend(s32 phase, s32 ctrl, ObjectRecord *obj, s32 objtype, s32 item, s32 aux, s32 guard,
+                         const f32 pos[3], const f32 vel[3], f32 dur, s32 timer)
+{
+    if (netIsActive())
+    {
+        netSendForcePull(phase, ctrl, obj, objtype, item, aux, guard, pos, vel, dur, timer);
+    }
+}
+
+static void gevrPullSendAt(s32 phase, s32 ctrl, PropRecord *prop, s32 item, s32 aux, const f32 vel[3], f32 dur, s32 timer)
+{
+    f32 pos[3];
+
+    pos[0] = prop->pos.x;
+    pos[1] = prop->pos.y;
+    pos[2] = prop->pos.z;
+    gevrPullSend(phase, ctrl, prop->obj, prop->obj->type, item, aux, -1, pos, vel, dur, timer);
 }
 
 /*
@@ -271,6 +335,10 @@ static PropRecord *gevrPullDisarmable(PropRecord *chrprop, s32 h)
         || !(chrprop->flags & PROPFLAG_ONSCREEN) || chr->actiontype == ACT_DIE || chr->actiontype == ACT_DEAD)
     {
         return NULL;
+    }
+    if (netIsActive() && (!gevrCoopActive() || netHordeActive() || netCoopGuardHostSlot(chr) < 0))
+    {
+        return NULL;   /* online: a co-op guard the host runs, asked by its slot */
     }
     gun = chr->weapons_held[h];
     if (gun == NULL || gun->type != PROP_TYPE_WEAPON || gun->obj == NULL || gun->obj->type != PROPDEF_COLLECTABLE
@@ -538,6 +606,7 @@ static void gevrPullLaunch(GevrPull *pl)
         obj->runtime_bitflags &= ~RUNTIMEBITFLAG_HASPROJECTILE;
         prop->flags &= ~PROPFLAG_00000008;
     }
+    gevrPullSend(GEVR_PULL_NET_FLY, (s32) (pl - s_pull), obj, obj->type, pl->item, 0, -1, pl->from, NULL, pl->dur, -1);
 }
 
 /*
@@ -579,9 +648,14 @@ s32 gevrPullTry(s32 ctrl)
         /* pull and disarm: the guard lets go as when a hit makes him drop his
          * guns (chraction.c triggered_on_shot_hit); his tick drops it
          * (chr.c objDrop) and the flight starts from where it is then */
+        ChrRecord *guard = prop->parent->chr;
+
         propobjSetDropped(prop, DROPTYPE_DEFAULT);
-        prop->parent->chr->hidden |= CHRHIDDEN_DROP_HELD_ITEMS;
+        guard->hidden |= CHRHIDDEN_DROP_HELD_ITEMS;
         pl->disarm = TRUE;
+        /* online: the host's guard lets go too (this one is its copy here) */
+        gevrPullSend(GEVR_PULL_NET_DISARM, ctrl, NULL, obj->type, pl->item, guard->weapons_held[GUNLEFT] == prop ? GUNLEFT : GUNRIGHT,
+                     netIsActive() ? netCoopGuardHostSlot(guard) : -1, NULL, NULL, 0.0f, -1);
     }
     else
     {
@@ -621,11 +695,10 @@ static void gevrPullEnd(s32 ctrl)
  * out of its collision as the owner). A grenade is the player's from then
  * on: its blast is credited to him.
  */
-static void gevrPullThrow(s32 ctrl, const f32 vel[3])
+/* a prop leaves a hand at vel (world units a second), owner's body out of its collision */
+static void gevrPullFling(PropRecord *prop, const f32 vel[3], PropRecord *owner)
 {
-    GevrPull *pl = &s_pull[ctrl];
-    PropRecord *prop = pl->prop;
-    ObjectRecord *obj = pl->obj;
+    ObjectRecord *obj = prop->obj;
 
     sub_GAME_7F03FDA8(prop);
     if ((obj->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE) && obj->projectile != NULL)
@@ -637,13 +710,33 @@ static void gevrPullThrow(s32 ctrl, const f32 vel[3])
         pr->speed.x = vel[0] / 60.0f;   /* units a second to a 60 Hz tick's */
         pr->speed.y = vel[1] / 60.0f;
         pr->speed.z = vel[2] / 60.0f;
-        pr->ownerprop = getCurrentPlayerProp();
+        pr->ownerprop = owner;
         matrix_4x4_set_identity(&pr->mtx);
     }
+}
+
+/* a grenade is now this slot's: its blast is sent by that slot's headset (explosion.c) */
+static void gevrPullOwnGrenade(ObjectRecord *obj, s32 slot)
+{
+    if (slot >= 0 && slot < MAX_PLAYER_COUNT)
+    {
+        obj->runtime_bitflags = (obj->runtime_bitflags & ~RUNTIMEBITFLAG_OWNER_ALL) | RUNTIME_OWNER_BITS(slot);
+    }
+}
+
+static void gevrPullThrow(s32 ctrl, const f32 vel[3])
+{
+    GevrPull *pl = &s_pull[ctrl];
+    PropRecord *prop = pl->prop;
+    ObjectRecord *obj = pl->obj;
+
+    gevrPullFling(prop, vel, getCurrentPlayerProp());
     if (pl->grenade)
     {
-        obj->runtime_bitflags = (obj->runtime_bitflags & ~RUNTIMEBITFLAG_OWNER_ALL) | RUNTIME_OWNER_BITS(get_cur_playernum());
+        gevrPullOwnGrenade(obj, get_cur_playernum());
     }
+    gevrPullSendAt(GEVR_PULL_NET_RELEASE, ctrl, prop, pl->item, 0, vel, 0.0f,
+                   pl->grenade ? ((WeaponObjRecord *) obj)->timer : -1);
     sysLogPrintf(LOG_NOTE, "stereo: pull (%s): %s item %d obj %d let go at %.0f %.0f %.0f /s",
                  ctrl ? "gun hand" : "off hand", pl->grenade ? "grenade" : "held", pl->item, obj->type, vel[0], vel[1], vel[2]);
     pl->prop = NULL;
@@ -664,6 +757,12 @@ static void gevrPullHold(s32 ctrl)
         pl->obj->runtime_bitflags &= ~RUNTIMEBITFLAG_HASPROJECTILE;
         pl->prop->flags &= ~PROPFLAG_00000008;
     }
+    if (pl->grenade)
+    {
+        /* caught: the catcher's, so a blast in the hand is his too (online his headset sends it) */
+        gevrPullOwnGrenade(pl->obj, get_cur_playernum());
+    }
+    gevrPullSendAt(GEVR_PULL_NET_HOLD, ctrl, pl->prop, pl->item, 0, NULL, 0.0f, -1);
     gevrPullHum(s_pull[1 - ctrl].prop != NULL && !s_pull[1 - ctrl].held);
 }
 
@@ -675,6 +774,8 @@ static void gevrPullArrive(s32 ctrl)
     s32 item = pl->item;
     s32 gun = item >= 0 && gevrPullIsGun(item);
     s32 hand = -1;
+    f32 at[3];
+    s32 objtype;
 
     gevrPullHaptic(ctrl, 0.8f, 0.08f);
     if (pl->grenade)
@@ -685,6 +786,10 @@ static void gevrPullArrive(s32 ctrl)
         return;
     }
     pl->prop = NULL;   /* no longer ours: walking over and the game's rules again */
+    at[0] = prop->pos.x;
+    at[1] = prop->pos.y;
+    at[2] = prop->pos.z;
+    objtype = pl->obj->type;
     if (gevrPullCollect(prop))
     {
         if (gun && !pl->released)
@@ -697,11 +802,25 @@ static void gevrPullArrive(s32 ctrl)
         }
         sysLogPrintf(LOG_NOTE, "stereo: pull (%s): caught item %d, %s", ctrl ? "gun hand" : "off hand", item,
                      hand < 0 ? "to the inventory" : hand == GUNRIGHT ? "in the gun hand" : "in the off hand");
+        /* after the pickup's own message (gevrHandPickup): a dropped gun's copies go too */
+        gevrPullSend(GEVR_PULL_NET_DONE, ctrl, pl->obj, objtype, item, 0, -1, at, NULL, 0.0f, -1);
     }
     else if (gun && gevrWeaponOwned(item))
     {
         /* full ammo or the pair carried: absorbed, the hand takes the copy carried */
-        pl->obj->runtime_bitflags |= RUNTIMEBITFLAG_REMOVE;
+        if (pl->obj->state & PROPSTATE_RESPAWN)
+        {
+            /* a deathmatch gun that comes back: taken as walking over takes one, its
+             * timer started here and (its own message) on the other headsets */
+            netSendObjectPickup(pl->obj, TICKOP_FREE);
+            gevrPullSendAt(GEVR_PULL_NET_DONE, ctrl, prop, item, 0, NULL, 0.0f, -1);
+            propExecuteTickOperation(prop, TICKOP_FREE);
+        }
+        else
+        {
+            gevrPullSendAt(GEVR_PULL_NET_DONE, ctrl, prop, item, 1, NULL, 0.0f, -1);
+            pl->obj->runtime_bitflags |= RUNTIMEBITFLAG_REMOVE;
+        }
         if (!pl->released)
         {
             hand = gevrPullEquip(ctrl, item);
@@ -789,6 +908,432 @@ static void gevrPullTrackHand(s32 ctrl, f32 dt)
     s_handWorldValid[ctrl] = TRUE;
 }
 
+/* ---- Online: the other players' pulls (net_core.c NET_MSG_FORCE_PULL) ---- */
+
+static void gevrPullRemoteClear(GevrRemotePull *r)
+{
+    memset(r, 0, sizeof(*r));
+}
+
+static GevrRemotePull *gevrPullRemoteOf(s32 slot, s32 ctrl, s32 make)
+{
+    GevrRemotePull *oldest = &s_remote[0];
+    s32 i;
+
+    for (i = 0; i < GEVR_PULL_REMOTE_MAX; i++)
+    {
+        if (s_remote[i].used && s_remote[i].slot == slot && s_remote[i].ctrl == ctrl)
+        {
+            return &s_remote[i];
+        }
+    }
+    if (!make)
+    {
+        return NULL;
+    }
+    for (i = 0; i < GEVR_PULL_REMOTE_MAX; i++)
+    {
+        if (!s_remote[i].used)
+        {
+            oldest = &s_remote[i];
+            break;
+        }
+        if ((s32) (s_remote[i].stamp - oldest->stamp) < 0)
+        {
+            oldest = &s_remote[i];
+        }
+    }
+    gevrPullRemoteClear(oldest);
+    oldest->used = TRUE;
+    oldest->slot = slot;
+    oldest->ctrl = ctrl;
+    oldest->stamp = g_GlobalTimer;
+    return oldest;
+}
+
+static s32 gevrPullRemoteAlive(const GevrRemotePull *r)
+{
+    PropRecord *prop = r->prop;
+
+    return prop != NULL && prop->type == r->type && prop->obj == r->obj && r->obj->prop == prop
+        && (prop->flags & PROPFLAG_ENABLED) && !(r->obj->runtime_bitflags & RUNTIMEBITFLAG_REMOVE);
+}
+
+/*
+ * This headset's copy of a dropped gun or a grenade the sender named by its
+ * item and where it had it: the nearest loose one within radius cm.
+ */
+static PropRecord *gevrPullNetFind(s32 objtype, s32 item, const f32 at[3], f32 radius)
+{
+    PropRecord *prop, *best = NULL;
+    f32 bestd = radius * radius;
+
+    for (prop = chrpropGetActiveTail(); prop != NULL; prop = prop->prev)
+    {
+        ObjectRecord *obj = prop->obj;
+        f32 dx, dy, dz, d2;
+
+        if ((prop->type != PROP_TYPE_WEAPON && prop->type != PROP_TYPE_OBJ) || obj == NULL || obj->prop != prop
+            || obj->type != objtype || prop->parent != NULL || !(prop->flags & PROPFLAG_ENABLED)
+            || (obj->runtime_bitflags & RUNTIMEBITFLAG_REMOVE) || gevrPullBusy(prop))
+        {
+            continue;
+        }
+        if (item >= 0 && (obj->type != PROPDEF_COLLECTABLE || ((WeaponObjRecord *) obj)->weaponnum != item))
+        {
+            continue;
+        }
+        dx = prop->pos.x - at[0];
+        dy = prop->pos.y - at[1];
+        dz = prop->pos.z - at[2];
+        d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 < bestd)
+        {
+            bestd = d2;
+            best = prop;
+        }
+    }
+    return best;
+}
+
+/* the prop is this remote pull's from here: it leaves the floor, a fall or this player's own pull */
+static void gevrPullRemoteTake(GevrRemotePull *r, PropRecord *prop)
+{
+    ObjectRecord *obj = prop->obj;
+    s32 i;
+
+    for (i = 0; i < 2; i++)
+    {
+        if (s_pull[i].prop == prop)
+        {
+            /* the host gave it to the other pull (its claim came first) */
+            sysLogPrintf(LOG_NOTE, "stereo: pull (%s): player %d's pull has it", i ? "gun hand" : "off hand", r->slot);
+            s_pull[i].prop = NULL;
+            gevrPullEnd(i);
+        }
+    }
+    r->prop = prop;
+    r->obj = obj;
+    r->type = prop->type;
+    r->from[0] = prop->pos.x;
+    r->from[1] = prop->pos.y;
+    r->from[2] = prop->pos.z;
+    r->t = 0.0f;
+    r->wait = 0.0f;
+    if ((obj->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE) && obj->projectile != NULL)
+    {
+        projectileFree(obj->projectile);
+        obj->projectile = NULL;
+        obj->runtime_bitflags &= ~RUNTIMEBITFLAG_HASPROJECTILE;
+        prop->flags &= ~PROPFLAG_00000008;
+    }
+}
+
+/* the remote pull is over without a catch: what it carried falls from where it is */
+static void gevrPullRemoteDrop(GevrRemotePull *r)
+{
+    static const f32 still[3] = { 0.0f, 0.0f, 0.0f };
+
+    if (gevrPullRemoteAlive(r))
+    {
+        gevrPullFling(r->prop, still, NULL);
+    }
+    gevrPullRemoteClear(r);
+}
+
+/* a guard lets go of the gun in his hand: the host's (a client asked), or its copy here */
+static void gevrPullNetDisarm(s32 guard, s32 hand, s32 item)
+{
+    ChrRecord *chr = guard >= 0 ? netCoopGuardOfHostSlot(guard) : NULL;
+    PropRecord *gun;
+
+    if (chr == NULL || hand < 0 || hand > 1 || netHordeActive() || chr->actiontype == ACT_DIE || chr->actiontype == ACT_DEAD)
+    {
+        return;
+    }
+    gun = chr->weapons_held[hand];
+    if (gun == NULL || gun->type != PROP_TYPE_WEAPON || gun->obj == NULL || gun->obj->type != PROPDEF_COLLECTABLE
+        || (gun->obj->flags & PROPFLAG_AIUNDROPPABLE)
+        || (item >= 0 && ((WeaponObjRecord *) gun->obj)->weaponnum != item))
+    {
+        return;
+    }
+    propobjSetDropped(gun, DROPTYPE_DEFAULT);
+    chr->hidden |= CHRHIDDEN_DROP_HELD_ITEMS;
+    sysLogPrintf(LOG_NOTE, "stereo: pull: guard %d lets go of item %d (a pull online)", guard, item);
+}
+
+/*
+ * The host, before it relays a FLY on a setup pickup: FALSE when this
+ * headset's own pull, or another player's, has it (the first claim wins;
+ * the claimant hears REFUSED). A claim with no word for ten seconds lapses.
+ */
+int gevrPullNetClaim(int slot, int ctrl, ObjectRecord *obj)
+{
+    PropRecord *prop = obj != NULL ? obj->prop : NULL;
+    s32 i;
+
+    if (prop == NULL || prop->obj != obj)
+    {
+        return TRUE;
+    }
+    for (i = 0; i < 2; i++)
+    {
+        if (s_pull[i].prop == prop)
+        {
+            return FALSE;
+        }
+    }
+    for (i = 0; i < GEVR_PULL_REMOTE_MAX; i++)
+    {
+        GevrRemotePull *r = &s_remote[i];
+
+        if (r->used && r->prop == prop && !(r->slot == slot && r->ctrl == ctrl)
+            && (u32) (g_GlobalTimer - r->stamp) < 600u)
+        {
+            return FALSE;
+        }
+    }
+    return TRUE;
+}
+
+/* The host refused this headset's pull: another's has it. It falls where it is. */
+void gevrPullNetRefused(int ctrl)
+{
+    static const f32 still[3] = { 0.0f, 0.0f, 0.0f };
+    GevrPull *pl;
+    s32 i, theirs = FALSE;
+
+    if (ctrl < 0 || ctrl > 1)
+    {
+        return;
+    }
+    pl = &s_pull[ctrl];
+    if (pl->prop == NULL || pl->held)
+    {
+        return;
+    }
+    sysLogPrintf(LOG_NOTE, "stereo: pull (%s): refused by the host, another player's pull has it", ctrl ? "gun hand" : "off hand");
+    for (i = 0; i < GEVR_PULL_REMOTE_MAX; i++)
+    {
+        theirs |= s_remote[i].used && s_remote[i].prop == pl->prop;
+    }
+    if (!theirs && gevrPullAlive(pl))
+    {
+        gevrPullFling(pl->prop, still, NULL);
+    }
+    pl->prop = NULL;
+    gevrPullEnd(ctrl);
+}
+
+/*
+ * A pull step from another player's headset (net_core.c, relayed by the host).
+ * obj: the setup object it names, NULL for a dropped gun or grenade, found
+ * here by objtype, item and pos.
+ */
+void gevrPullNetReceive(int slot, int phase, int ctrl, ObjectRecord *obj, int objtype, int item,
+                        int aux, int guard, const float *pos, const float *vel, float dur, int timer)
+{
+    GevrRemotePull *r;
+    PropRecord *prop = NULL;
+    f32 at[3];
+
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || ctrl < 0 || ctrl > 1 || pos == NULL || vel == NULL)
+    {
+        return;
+    }
+    if (phase == GEVR_PULL_NET_DISARM)
+    {
+        gevrPullNetDisarm(guard, aux, item);
+        return;
+    }
+    at[0] = pos[0]; at[1] = pos[1]; at[2] = pos[2];
+    if (obj != NULL && obj->prop != NULL && obj->prop->obj == obj && (obj->prop->flags & PROPFLAG_ENABLED)
+        && obj->prop->parent == NULL)
+    {
+        prop = obj->prop;
+    }
+    r = gevrPullRemoteOf(slot, ctrl, FALSE);
+    switch (phase)
+    {
+        case GEVR_PULL_NET_FLY:
+            if (r != NULL)
+            {
+                gevrPullRemoteClear(r);
+            }
+            if (obj != NULL && prop == NULL)
+            {
+                break;   /* a setup pickup gone here already: nothing to fly (never searched for by place) */
+            }
+            r = gevrPullRemoteOf(slot, ctrl, TRUE);
+            r->objtype = objtype;
+            r->item = item;
+            r->at[0] = at[0]; r->at[1] = at[1]; r->at[2] = at[2];
+            r->dur = dur > 0.05f ? dur : 0.35f;
+            if (prop == NULL && obj == NULL)
+            {
+                prop = gevrPullNetFind(objtype, item, at, 150.0f);
+            }
+            if (prop != NULL)
+            {
+                /* relayed, so the host gave it to them: this headset's own pull on it yields */
+                gevrPullRemoteTake(r, prop);
+            }
+            /* else pending: a disarm's drop may come a tick later (gevrPullRemoteTick) */
+            break;
+
+        case GEVR_PULL_NET_HOLD:
+            if (r == NULL || !gevrPullRemoteAlive(r))
+            {
+                if (prop == NULL && obj == NULL)
+                {
+                    prop = gevrPullNetFind(objtype, item, at, item == ITEM_GRENADE ? 400.0f : 150.0f);
+                }
+                if (prop == NULL)
+                {
+                    if (r != NULL)
+                    {
+                        gevrPullRemoteClear(r);
+                    }
+                    break;
+                }
+                r = gevrPullRemoteOf(slot, ctrl, TRUE);
+                r->objtype = objtype;
+                r->item = item;
+                gevrPullRemoteTake(r, prop);
+            }
+            r->held = TRUE;
+            r->stamp = g_GlobalTimer;
+            if (r->obj->type == PROPDEF_COLLECTABLE && ((WeaponObjRecord *) r->obj)->weaponnum == ITEM_GRENADE)
+            {
+                gevrPullOwnGrenade(r->obj, slot);   /* the catcher's headset sends its blast now */
+            }
+            break;
+
+        case GEVR_PULL_NET_RELEASE:
+            if (r != NULL && gevrPullRemoteAlive(r))
+            {
+                prop = r->prop;
+            }
+            else if (prop == NULL && obj == NULL)
+            {
+                prop = gevrPullNetFind(objtype, item, at, item == ITEM_GRENADE ? 400.0f : 150.0f);
+            }
+            if (r != NULL)
+            {
+                gevrPullRemoteClear(r);
+            }
+            if (prop != NULL)
+            {
+                struct player *by = g_playerPointers[slot];
+
+                gevrPullPlace(prop, at);
+                gevrPullFling(prop, vel, by != NULL ? by->prop : NULL);
+                if (prop->obj->type == PROPDEF_COLLECTABLE && ((WeaponObjRecord *) prop->obj)->weaponnum == ITEM_GRENADE)
+                {
+                    gevrPullOwnGrenade(prop->obj, slot);
+                    if (timer >= 0)
+                    {
+                        ((WeaponObjRecord *) prop->obj)->timer = timer;   /* the catcher's fuse */
+                    }
+                }
+            }
+            break;
+
+        case GEVR_PULL_NET_DONE:
+            if (r != NULL && gevrPullRemoteAlive(r))
+            {
+                prop = r->prop;
+            }
+            else if (prop == NULL && obj == NULL)
+            {
+                prop = gevrPullNetFind(objtype, item, at, 150.0f);
+            }
+            if (r != NULL)
+            {
+                gevrPullRemoteClear(r);
+            }
+            /* a dropped gun's copy, or one absorbed (nothing gained, gone there): gone here too.
+             * A collected setup pickup went with its own message (OBJECT_STATE). */
+            if (prop != NULL && (obj == NULL || aux == 1) && prop->obj != NULL
+                && !(prop->obj->runtime_bitflags & RUNTIMEBITFLAG_REMOVE))
+            {
+                objFreePermanently(prop->obj, TRUE);
+            }
+            break;
+
+        case GEVR_PULL_NET_CANCEL:
+            if (r != NULL)
+            {
+                gevrPullRemoteDrop(r);
+            }
+            break;
+    }
+}
+
+/* each tick: the other players' pulls fly to their tracked hands here */
+static void gevrPullRemoteTick(f32 dt)
+{
+    s32 i;
+
+    for (i = 0; i < GEVR_PULL_REMOTE_MAX; i++)
+    {
+        GevrRemotePull *r = &s_remote[i];
+        f32 to[3], w[3], up[3] = { 0.0f, 1.0f, 0.0f };
+
+        if (!r->used)
+        {
+            continue;
+        }
+        if (!netIsActive() || !netSlotOccupied(r->slot))
+        {
+            gevrPullRemoteDrop(r);   /* the puller left */
+            continue;
+        }
+        if (r->prop == NULL)
+        {
+            PropRecord *prop = gevrPullNetFind(r->objtype, r->item, r->at, 150.0f);
+
+            if (prop != NULL)
+            {
+                gevrPullRemoteTake(r, prop);
+            }
+            else if ((r->wait += dt) > 1.5f)
+            {
+                gevrPullRemoteClear(r);   /* no copy here (the guard's gun was gone already) */
+            }
+            continue;
+        }
+        if (!gevrPullRemoteAlive(r))
+        {
+            gevrPullRemoteClear(r);   /* collected (its OBJECT_STATE), exploded or freed */
+            continue;
+        }
+        if (!gevrNetRemoteHandWorld(r->slot, r->ctrl ? GUNRIGHT : GUNLEFT, to))
+        {
+            continue;
+        }
+        if (r->held)
+        {
+            gevrPullPlace(r->prop, to);
+            continue;
+        }
+        r->t += dt;
+        if (r->t >= r->dur)
+        {
+            /* in the hand, waiting for its word (DONE, HOLD, CANCEL) */
+            gevrPullPlace(r->prop, to);
+            if ((r->wait += dt) > 3.0f)
+            {
+                gevrPullRemoteDrop(r);
+            }
+            continue;
+        }
+        gevrPullFlight(r->from, to, up, GEVR_PULL_LIFT_CM * GEVR_UNITS_PER_METRE / 100.0f, r->t / r->dur, w);
+        gevrPullPlace(r->prop, w);
+    }
+}
+
 /*
  * lv.c via bondview2.c gevrGripGestureTick, each game tick after propsTick:
  * the hands' targets (highlight, line, a tick when one locks), the flights
@@ -800,6 +1345,7 @@ void gevrPullTick(void)
     s32 ctrl;
 
     s_glowPhase += dt;
+    gevrPullRemoteTick(dt);
     for (ctrl = 0; ctrl < 2; ctrl++)
     {
         if (s_instantAge[ctrl] > 0.0f && (s_instantAge[ctrl] -= dt) <= 0.0f)
@@ -839,6 +1385,7 @@ void gevrPullTick(void)
                 }
                 else
                 {
+                    gevrPullSend(GEVR_PULL_NET_CANCEL, ctrl, NULL, 0, pl->item, 0, -1, NULL, NULL, 0.0f, -1);
                     gevrPullEnd(ctrl);
                 }
                 continue;
@@ -863,9 +1410,10 @@ void gevrPullTick(void)
                     gevrPullLaunch(pl);
                     sysLogPrintf(LOG_NOTE, "stereo: pull (%s): disarmed, item %d on its way", ctrl ? "gun hand" : "off hand", pl->item);
                 }
-                else if ((pl->wait += dt) > 0.5f)
+                else if ((pl->wait += dt) > (netIsActive() ? 1.0f : 0.5f))
                 {
                     sysLogPrintf(LOG_NOTE, "stereo: pull (%s): the guard kept item %d", ctrl ? "gun hand" : "off hand", pl->item);
+                    gevrPullSend(GEVR_PULL_NET_CANCEL, ctrl, NULL, 0, pl->item, 0, -1, NULL, NULL, 0.0f, -1);
                     gevrPullEnd(ctrl);
                 }
                 continue;
@@ -941,6 +1489,7 @@ void gevrPullTick(void)
 void gevrPullReset(void)
 {
     memset(s_pull, 0, sizeof(s_pull));
+    memset(s_remote, 0, sizeof(s_remote));
     s_aim[0] = s_aim[1] = NULL;
     s_aimValid[0] = s_aimValid[1] = FALSE;
     s_watchGlow = 0.0f;

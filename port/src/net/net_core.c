@@ -2943,6 +2943,62 @@ void netSendProjectile(s32 kind, s32 hand, s32 item, const coord3d *pos, const c
     NET_LOG("projectile tx: kind %d item %d at %.0f,%.0f,%.0f", (int)kind, (int)item, pos->x, pos->y, pos->z);
 }
 
+/*
+ * gevr_forcepull.c: what the local player's pull, catch or throw does
+ * (NET_MSG_FORCE_PULL, docs/force-pull.md "Online"). A setup object goes by
+ * its index; a dropped gun or a grenade (the per-headset pools) by its item
+ * and where it is, each peer finding its own copy.
+ */
+void netSendForcePull(s32 phase, s32 hand, ObjectRecord *obj, s32 type, s32 item, s32 aux, s32 guard,
+                      const f32 *pos, const f32 *vel, f32 dur, s32 timer) {
+    int slot = netActingSlot();
+    if (s_state != NET_STATE_INGAME || slot < 0 || netLocalIsSpectator()) return;
+    NetForcePull fp = {0};
+    int index = netObjectIndex(obj);
+    fp.phase = (uint8_t)phase;
+    fp.hand = hand ? 1 : 0;
+    fp.type = (uint8_t)(obj ? obj->type : type);
+    fp.item = item >= 0 && item < ITEM_IDS_MAX ? (uint8_t)item : 0xFF;
+    fp.index = index >= 0 && index < 0x8000 ? (uint16_t)index : GEVR_PULL_NET_NONE;
+    fp.guard = guard >= 0 && guard < 0xFFFF ? (uint16_t)guard : GEVR_PULL_NET_NONE;
+    fp.aux = (uint8_t)aux;
+    if (pos) { fp.pos.x = pos[0]; fp.pos.y = pos[1]; fp.pos.z = pos[2]; }
+    if (vel) { fp.vel.x = vel[0]; fp.vel.y = vel[1]; fp.vel.z = vel[2]; }
+    fp.dur = isfinite(dur) && dur > 0.0f ? fminf(dur, 2.0f) : 0.0f;
+    fp.timer = timer < -1 ? -1 : timer;
+
+    u8 raw[64];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    netbufStartWrite(&buf);
+    netbufWriteU32(&buf, GEVR_NET_MAGIC);
+    netbufWriteU16(&buf, GEVR_NET_VERSION);
+    netbufWriteU8(&buf, NET_MSG_FORCE_PULL);
+    netbufWriteU8(&buf, (uint8_t)slot);
+    netbufWriteForcePull(&buf, &fp);
+    netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+    NET_LOG("pull tx: phase %d hand %d index 0x%04x type %d item %d aux %d", phase, fp.hand, fp.index, fp.type, fp.item, aux);
+}
+
+/* The host: a second claim on a pickup another pull has; only the claimant hears */
+static void netSendForcePullRefused(int claimant, const NetForcePull *claim) {
+    if (!netIsHost() || claimant < 0 || claimant >= GEVR_MAX_PLAYERS || !s_client_peers[claimant]) return;
+    NetForcePull fp = *claim;
+    fp.phase = GEVR_PULL_NET_REFUSED;
+    fp.aux = (uint8_t)claimant;
+    u8 raw[64];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    netbufStartWrite(&buf);
+    netbufWriteU32(&buf, GEVR_NET_MAGIC);
+    netbufWriteU16(&buf, GEVR_NET_VERSION);
+    netbufWriteU8(&buf, NET_MSG_FORCE_PULL);
+    netbufWriteU8(&buf, (uint8_t)(s_local_slot >= 0 ? s_local_slot : 0xFF));
+    netbufWriteForcePull(&buf, &fp);
+    if (buf.error) return;
+    ENetPacket *packet = enet_packet_create(raw, buf.wp, ENET_PACKET_FLAG_RELIABLE);
+    enet_peer_send(s_client_peers[claimant], NET_CHAN_RELIABLE, packet);
+    NET_LOG("pull refused: slot %d index 0x%04x", claimant, fp.index);
+}
+
 /* explosion.c explosionCreate: a damaging explosion an owned player caused
  * (the local player, or the host's bot); -1 is the world's, sent as the host's */
 void netSendExplosionAs(s32 owner, s32 type, const coord3d *pos, const u8 *rooms, s32 ground, s32 flag8) {
@@ -3884,6 +3940,41 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                     gevrNetDoorApply(obj->prop, by ? by->prop : NULL, value);
                 }
             }
+            break;
+        }
+        case NET_MSG_FORCE_PULL: {
+            extern int gevrPullNetClaim(int slot, int hand, ObjectRecord *obj);
+            extern void gevrPullNetRefused(int hand);
+            extern void gevrPullNetReceive(int slot, int phase, int hand, ObjectRecord *obj, int type, int item,
+                                           int aux, int guard, const float *pos, const float *vel, float dur, int timer);
+            NetForcePull fp;
+            if (!netbufReadForcePull(&buf, &fp) || netbufReadLeft(&buf) != 0) break;
+            if (fp.phase == GEVR_PULL_NET_REFUSED) {
+                if (!netIsHost() && peer == s_server_peer && fp.aux == s_local_slot && netPlayersWereTicked())
+                    gevrPullNetRefused(fp.hand);
+                break;
+            }
+            int slot = slot_id;
+            if (netSlotIsSpectator(slot) || !netAcceptPlayerEvent(peer, slot)) break;
+            ObjectRecord *obj = NULL;
+            if (fp.index != GEVR_PULL_NET_NONE) {
+                if (fp.index >= 0x8000 || !g_CurrentSetup.propDefs) break;
+                obj = netObjectByIndex(fp.index, fp.type);
+            }
+            /* The host settles two pulls on one pickup: the first claim has it */
+            if (netIsHost() && fp.phase == GEVR_PULL_NET_FLY && obj && netPlayersWereTicked()
+                && !gevrPullNetClaim(slot, fp.hand, obj)) {
+                netSendForcePullRefused(slot, &fp);
+                break;
+            }
+            if (netIsHost()) {
+                netBroadcastPacket(data, size, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, peer);
+            }
+            if (!netPlayersWereTicked()) break;
+            NET_LOG("pull rx: slot %d phase %d hand %d index 0x%04x item %d", slot, fp.phase, fp.hand, fp.index, fp.item);
+            f32 pos[3] = { fp.pos.x, fp.pos.y, fp.pos.z }, vel[3] = { fp.vel.x, fp.vel.y, fp.vel.z };
+            gevrPullNetReceive(slot, fp.phase, fp.hand, obj, fp.type, fp.item == 0xFF ? -1 : fp.item, fp.aux,
+                               fp.guard == GEVR_PULL_NET_NONE ? -1 : fp.guard, pos, vel, fp.dur, fp.timer);
             break;
         }
         case NET_MSG_FIRE_EVENT: {

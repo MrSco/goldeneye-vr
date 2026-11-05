@@ -85,7 +85,8 @@ The defaults follow GEVR PC:
 - Disarm and grenade catches are host-decided, like co-op guards. A client
   sends a request and the host drops the gun or hands over the grenade.
 - This is a protocol bump (25 to 26). It goes out with the v0.5.15 release
-  only, and test builds of this batch can't join v0.5.14.
+  only, and test builds of this batch can't join v0.5.14 headsets or
+  servers.
 
 ## Not changed
 
@@ -97,10 +98,9 @@ grip goes first: GE-X magazines and the belt, two-handed hold, the watch,
 body slots, a throwable's wind-up, the hip holster, mine re-grab, the 25 cm
 grab, grip use on doors, and the boat and Horde stations.
 
-## Built (2026-11-05), single player
+## Built (2026-11-05)
 
-Online is not built yet: every pull, catch and disarm is off while a network
-game is running, and the protocol is still 25. The rest is in the build.
+Single player first, then online (protocol 26, below).
 
 - **Pull:** `src/game/gevr_forcepull.c`, called from `bondview2.c`:
   - The pull is the last branch of `gevrGripGestureTry`, so every other grip
@@ -162,6 +162,44 @@ game is running, and the protocol is still 25. The rest is in the build.
   at the watch's size, and fades out as the face turns away from the eye.
   It is off with Pull visuals.
 
+## Built online (2026-11-05, protocol 26)
+
+Protocol 26 adds one message, `NET_MSG_FORCE_PULL` (`net_core.c`, read and
+checked as `NetForcePull` in `net_protocol.h`). It goes from the puller's
+headset to the host, which relays it to everyone else. Its phases are in
+`gevr_pull.h`:
+
+- **FLY:** a flight begins. Each other headset flies its own copy of the
+  prop to the puller's tracked palm (`gevr_avatar.c` `gevrNetRemoteHandWorld`,
+  from protocol 22's wrists; a flat player or bot: the chest). A setup
+  pickup is named by its index. A dropped gun or a grenade lives in each
+  headset's own pool, so it is named by item and position, and each peer
+  takes its nearest loose copy (1.5 m; a grenade 4 m).
+- **Claims:** for a setup pickup the host checks first. If its own pull or
+  another player's already has it, the host doesn't relay the FLY and sends
+  REFUSED to that player alone; their prop drops where it is. A headset that
+  gets the winner's FLY while its own pull has the prop lets it go.
+- **HOLD, RELEASE:** a caught grenade or refused item follows the puller's
+  palm on every headset, and is let go from the sent point at the sent speed.
+  A grenade becomes the catcher's at the catch on every headset (owner bits),
+  so the catcher's headset sends its blast (`explosion.c`) and the other
+  copies wait for it. The thrown grenade carries the catcher's fuse.
+- **DONE:** collected or absorbed. A collected setup pickup goes with its
+  own OBJECT_STATE pickup message, as walking over sends it. A dropped gun's
+  copies, and an absorbed pickup, are freed on the other headsets. An
+  absorbed deathmatch gun that respawns is taken as walking over takes one,
+  so its timer starts, instead of being deleted.
+- **CANCEL:** the flight was lost. The copies drop where they are.
+- **DISARM:** co-op only, not Horde. The guard is named by his host slot
+  (`net_coop.c` `netCoopGuardHostSlot`). The host's guard lets go, the copies
+  elsewhere do too, and the gun's FLY follows. A copy not found yet is
+  searched for each tick for 1.5 s. A player's wait for the guard is 1 s
+  online (0.5 s offline).
+- **Not covered:** co-op guards' own grenades exist only on the host, so
+  only the host can catch them. Bots are players, not guards, so they can't
+  be disarmed. Walking over a dropped gun is still not synced (as before);
+  only a pulled one is.
+
 ## Headset test sheet
 
 1. **Facility, a gun on the floor 2-3 m ahead.** Point the empty off hand at
@@ -190,6 +228,19 @@ game is running, and the protocol is still 25. The rest is in the build.
     pulses, then fades after the catch. Turn the wrist away and it goes.
 12. **Bean Facility frame time** with a target aimed at (the line and the
     rings are blended).
+
+### Online (two headsets, or a headset and a friend)
+
+13. **Others see it fly.** In a deathmatch, pull a floor gun: on the other
+    headset it flies to your hand and is gone from the floor.
+14. **Both pull one gun.** Squeeze at the same moment: one of you gets it;
+    the other's drops where it was.
+15. **A dropped gun.** Kill the other player and pull their dropped gun: it
+    flies on both headsets and is gone from both.
+16. **Grenade catch.** Catch the other player's grenade and throw it back:
+    they see it in your hand and flying back, and the kill is yours.
+17. **Co-op disarm**, as a client: the host sees the guard let go and the
+    gun fly to you.
 
 ## Risks to check in the headset
 

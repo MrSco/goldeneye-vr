@@ -47,6 +47,24 @@ void gevrPullFlight(const float from[3], const float to[3], const float up[3], f
  */
 int gevrPullChooseHand(int pulling, int pullingAllowed, int gunHandEmpty, int gunHandAllowed);
 
+/*
+ * Online (protocol 26, NET_MSG_FORCE_PULL): what a player's pull does, sent
+ * by that player's headset, relayed by the host; the host also refuses a
+ * second claim on the same pickup and runs a disarm's guard.
+ */
+enum
+{
+    GEVR_PULL_NET_FLY = 1,       /* a flight to the sender's hand begins */
+    GEVR_PULL_NET_HOLD = 2,      /* caught and kept in the hand (a grenade, a refused item) */
+    GEVR_PULL_NET_RELEASE = 3,   /* let go: from pos at vel; a grenade's fuse is timer, its owner the sender */
+    GEVR_PULL_NET_DONE = 4,      /* collected (aux 0) or absorbed (aux 1): gone */
+    GEVR_PULL_NET_CANCEL = 5,    /* the flight is lost: it stays where it is */
+    GEVR_PULL_NET_DISARM = 6,    /* the guard (host slot) lets go of the gun in his hand aux */
+    GEVR_PULL_NET_REFUSED = 7,   /* host -> the claimant aux: someone else's pull has it */
+    GEVR_PULL_NET_PHASES
+};
+#define GEVR_PULL_NET_NONE 0xFFFF   /* index or guard: none (a dropped gun has no shared index) */
+
 #ifdef __cplusplus
 }
 #endif

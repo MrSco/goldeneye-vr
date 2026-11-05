@@ -25,6 +25,8 @@ void netCoopStageLoaded(void);              /* netStageLoaded: a new mission's g
 void netCoopReceive(int type, int slot, int from_host, struct netbuf *b);
 void netCoopBroadcast(const unsigned char *data, unsigned int size, int reliable);   /* host: to all; client: to the host */
 int netCoopHostSlotOf(int localslot);       /* a client: this headset's guard slot -> the host's, -1 none */
+int netCoopGuardHostSlot(struct ChrRecord *chr);           /* a guard's host slot, -1 none (force pull's disarm) */
+struct ChrRecord *netCoopGuardOfHostSlot(int hostslot);    /* this headset's guard for a host slot, NULL none */
 
 /* The game */
 int gevrCoopPuppets(void);                  /* a co-op client: its guards are the host's puppets */
