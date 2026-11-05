@@ -129,9 +129,11 @@ Single player first, then online (protocol 26, below).
 - **Auto pickup off** applies to guns only (`gevrPullBlocksWalkOver` in
   `objTickPlayer`). Ammo, armour and keys are still picked up by walking
   over them, so a mission can't get stuck.
-- **Disarm:** the target is the gun in his hand, where the head's view last
-  drew it (`chrRenderHeldWeapon` notes it in world space as it draws, since
-  the extra view passes place guards again in other cameras' spaces). If it
+- **Disarm:** the target is the hand holding his gun, where the head's view
+  last drew it (`chrRenderHeldWeapon` notes the hand's matrix, `basemtx`, in
+  world space as it draws, since the extra view passes place guards again in
+  other cameras' spaces). The gun's own matrices are often not written yet at
+  that point (headset log: NaN and 1e38 values), so the hand stands for it. If it
   wasn't drawn in the last 10 ticks, the target is his feet plus 1 m. (The
   first build guessed his position plus 1.1 m, which put the ring and the
   line above his head on Dam.) The squeeze calls

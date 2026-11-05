@@ -390,6 +390,10 @@ void gevrPullNoteHeldGun(PropRecord *gun, const Mtxf *m, s32 drawn)
     c.x = m->m[3][0];
     c.y = m->m[3][1];
     c.z = m->m[3][2];
+    if (!isfinite(c.x) || !isfinite(c.y) || !isfinite(c.z) || fabsf(c.x) > 1.0e6f || fabsf(c.y) > 1.0e6f || fabsf(c.z) > 1.0e6f)
+    {
+        return;   /* not computed this frame */
+    }
     mtx4TransformVecInPlace(v2w, &c);
     for (i = 0; i < GEVR_PULL_HELD_NOTES; i++)
     {

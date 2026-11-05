@@ -12656,10 +12656,12 @@ void chrRenderHeldWeapon(void *renderContext, GUNHAND hand, Gfx **gdl)
                 instcalcmatrices(&renderData, heldModel);
 #ifdef GEVR
                 {
-                    /* gevr_forcepull.c: where the head's view drew it, for pull and disarm */
+                    /* gevr_forcepull.c: the hand holding it, for pull and disarm. Its own
+                     * mtxlist is often not written yet here (headset log: NaN, 1e38); the
+                     * hand's matrix (basemtx, the chr's, the left one turned) always is */
                     extern void gevrPullNoteHeldGun(PropRecord *gun, const Mtxf *m, s32 drawn);
 
-                    gevrPullNoteHeldGun(prop, (Mtxf *) renderData.mtxlist, gdl != NULL);
+                    gevrPullNoteHeldGun(prop, renderData.basemtx, gdl != NULL);
                 }
 #endif
 
