@@ -1,20 +1,8 @@
 #include "gevr_launcher_ui.h"
-#include "gevr_watch_status.h"
 #include "imgui/imgui_internal.h"
 #include <cstdio>
 #include <vector>
 #include <cstdlib>
-static ImVec4 gold(1,1,0,1);
-int VrLeftHandedMode,VrSwapJoysticks,VrAimNoLean,VrAimSight=1,VrAimSteady,VrGunFitArmed,VrMotionThrowing;
-int VrWatchFaceStatus=GEVR_WATCH_FACE_ON,VrWatchGesturePause=1;
-bool throwingPage,hapticsPage,gesturesPage;
-static ImRect watchControlsRect;
-extern "C" void vrSettingsSave(void) {}
-/* INSERT_CONTROLS */
-int VrGestureHolster=1,VrGestureGripUse=1,VrGesturePickup=1,VrGestureMineGrab=1,VrManualReloading,VrPerWeaponRecoil;
-int VrForcePull=1,VrPullDisarm=1,VrAutoPickup=1,VrPullVisuals=1;
-int VrBodySlots,VrBodySlotShow=1,VrBodySlotSize=1,VrGexGuns;
-/* INSERT_GESTURES */
 static int selected = 20, disabledRow = -1;
 static std::vector<std::pair<int, ImVec2>> visible;
 static ImVec2 combo;
@@ -87,8 +75,13 @@ static void reset() {
 }
 static GevrLauncherSession session;
 static bool romReady = false, romError = false, romOpen = false, debugClicked = false;
-static ImVec2 romHeader, debugButton, tabButtons[4];
-static int activeTab = -1, displayRate = 87;
+static ImVec2 romHeader, debugButton, tabButtons[GEVR_LTAB_COUNT], subButtons[4];
+static int activeTab = -1, activeSub = -1;
+static GevrLauncherTabs tabs;
+static ImVec2 tabCentre(ImGuiTabBar *b, int i) {
+    if (!b || i >= b->Tabs.Size) return ImVec2(-1000, -1000);
+    return ImVec2(b->BarRect.Min.x + b->Tabs[i].Offset + b->Tabs[i].Width * .5f, (b->BarRect.Min.y + b->BarRect.Max.y) * .5f);
+}
 static void settingsFrame() {
     ImGui::NewFrame();
     ImGui::SetNextWindowPos(ImVec2(0, 0));
@@ -103,32 +96,19 @@ static void settingsFrame() {
         ImGui::TextUnformatted("Choose a ROM or fix the selection error.");
         ImGui::EndChild();
     }
-    gevrLauncherBeginBody("settings-body");
-    const auto content = [](int tab) {
+    gevrLauncherTabRows(tabs, [&](int tab, int sub) {
         activeTab = tab;
-        if (tab == 1) {
-            gevrTestControls();
-            const auto *window=ImGui::GetCurrentWindow();
-            check(watchControlsRect.Min.x > window->Pos.x+window->Size.x*.45f,
-                  "watch options use the right controls column");
-            check(window->DC.CursorMaxPos.y <= window->ClipRect.Max.y,
-                  "both production controls columns fit without scrolling");
-            check(watchControlsRect.Max.x <= window->ClipRect.Max.x,
-                  "watch description wraps within its column");
-        } else if (tab == 3) {
-            const int rates[] = {72, 80, 90, 120};
-            gevrDisplayRateControls(&displayRate, rates, 4);
-            check(ImGui::GetItemRectMax().x <= ImGui::GetWindowPos().x + ImGui::GetWindowWidth(),
-                  "refresh options and unavailable saved rate fit the panel");
-        } else ImGui::TextUnformatted("Settings content");
-    };
-    gevrLauncherMainTabs([&] { content(0); }, [&] { content(1); }, [&] { content(2); },
-                         [&] { content(3); });
-    ImGuiTabBar *bar = ImGui::GetCurrentContext()->TabBars.GetByKey(ImGui::GetID("launcher-settings"));
-    if (bar) for (int i = 0; i < bar->Tabs.Size; ++i)
-        tabButtons[i] = ImVec2(bar->BarRect.Min.x + bar->Tabs[i].Offset + bar->Tabs[i].Width * .5f,
-                               (bar->BarRect.Min.y + bar->BarRect.Max.y) * .5f);
-    ImGui::EndChild();
+        activeSub = sub;
+        // inside a sub-tab the open bar is the sub-tab row
+        if (sub >= 0)
+            for (int i = 0; i < gevrLauncherSubCount(tab); i++)
+                subButtons[i] = tabCentre(ImGui::GetCurrentContext()->CurrentTabBar, i);
+        gevrLauncherBeginPage("settings-page", gevrLauncherFooterHeight());
+        ImGui::TextUnformatted("Settings content");
+        ImGui::EndChild();
+    });
+    for (int i = 0; i < GEVR_LTAB_COUNT; ++i)
+        tabButtons[i] = tabCentre(ImGui::GetCurrentContext()->TabBars.GetByKey(ImGui::GetID("launcher-tabs")), i);
     ImGui::Button("START", ImVec2(-1, ImGui::GetFrameHeight() * 1.6f));
     check(ImGui::GetItemRectMax().y <= ImGui::GetIO().DisplaySize.y - 4,
           "tabbed launcher keeps START visible");
@@ -168,48 +148,27 @@ static void settingsChecks() {
     check(!romOpen, "valid ROM can be manually collapsed");
     romError = true; settingsFrame(); check(romOpen, "selection error reopens a valid ROM section");
     romError = false; settingsFrame(); check(!romOpen, "cleared ROM error collapses the section");
-    for (int tab : {1, 2, 3, 0}) {
+    for (int tab : {2, 3, 4, 5, 6, 1, 0}) {
         settingsClick(tabButtons[tab]);
-        check(activeTab == tab, "each settings tab can be selected with the pointer");
+        check(activeTab == tab && tabs.top == tab, "each top tab can be selected with the pointer");
     }
-    check(displayRate == 87, "drawing rates preserves an unavailable saved preference");
+    settingsClick(tabButtons[GEVR_LTAB_CONTROLS]);
+    check(activeSub == GEVR_LSUB_HANDS, "Controls opens on Hands");
+    settingsClick(subButtons[GEVR_LSUB_THROWING]);
+    check(activeTab == GEVR_LTAB_CONTROLS && activeSub == GEVR_LSUB_THROWING, "a sub-tab can be selected with the pointer");
+    settingsClick(tabButtons[GEVR_LTAB_RULES]);
+    check(activeSub == GEVR_LSUB_GAME_RULES, "Rules keeps its own sub-tab");
+    settingsClick(tabButtons[GEVR_LTAB_CONTROLS]);
+    check(activeSub == GEVR_LSUB_THROWING, "Controls remembers its sub-tab");
+    tabs.open(GEVR_LTAB_RULES, GEVR_LSUB_CHEATS);
+    for (int i = 0; i < 4; i++) settingsFrame();   // a tab, then its sub-tab: a frame each
+    check(activeTab == GEVR_LTAB_RULES && activeSub == GEVR_LSUB_CHEATS, "the launcher can bring up a tab and sub-tab (a friend's invite)");
     session = GevrLauncherSession{};
     session.updateDebugCombo(true, true);
     check(!session.debugUnlocked, "returning to launcher relocks and requires a fresh combo");
     settingsFrame(); check(!settingsClick(debugButton), "new session debug button is disabled");
     session.updateDebugCombo(false, false); session.updateDebugCombo(true, true);
     check(session.debugUnlocked, "fresh combo unlocks the next launcher session");
-}
-/* The Gestures page, every section shown, fits under the launcher's header without scrolling. */
-static void gesturesChecks() {
-    reset();
-    ImGui::GetIO().DisplaySize = ImVec2(1280, 960);
-    ImGui::GetIO().FontGlobalScale = 2.2f;
-    ImGui::GetStyle().ScaleAllSizes(2.2f);
-    VrBodySlots = VrGexGuns = 1;
-    for (int pass = 0; pass < 3; pass++) {
-        ImGui::NewFrame();
-        ImGui::SetNextWindowPos(ImVec2(0, 0));
-        ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-        ImGui::Begin("Gestures", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings
-                     | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-        // vr_launcher.cpp's header: icon and title, the ROM header, two separators
-        ImGui::Dummy(ImVec2(0, ImGui::GetTextLineHeight() * 2.2f + ImGui::GetStyle().ItemSpacing.y));
-        ImGui::Separator();
-        ImGui::Button("ROM: ok###rom", ImVec2(-1, 0));
-        ImGui::Separator();
-        gesturesPage = true;
-        gevrTestGestures();
-        const auto *window = ImGui::GetCurrentWindow();
-        if (pass == 2) {
-            check(window->DC.CursorMaxPos.y <= window->Pos.y + window->Size.y - ImGui::GetStyle().WindowPadding.y,
-                  "the Gestures page fits without scrolling");
-            check(window->DC.CursorMaxPos.x <= window->Pos.x + window->Size.x,
-                  "the body slots row fits the page's width");
-        }
-        ImGui::End();
-        ImGui::Render();
-    }
 }
 int main() {
     ImGui::CreateContext();
@@ -289,8 +248,7 @@ int main() {
         ImGui::Render();
     }
     settingsChecks();
-    gesturesChecks();
     ImGui::DestroyContext();
     std::puts("PASS: launcher UI (combo clicks/navigation, pointer routing, footer bounds, settings tabs, "
-              "ROM collapse/error recovery, saved rates, debug combo and session reset, Gestures page fit)");
+              "ROM collapse/error recovery, the tab rows and sub-tabs, debug combo and session reset)");
 }

@@ -92,12 +92,8 @@ static int vr_get_supported_refresh_rates(int *rates,int capacity){
     return 4;
 }
 /* INSERT_OPTIONS */
-static void comfort()
-/* INSERT_COMFORT */
 static void coop()
 /* INSERT_COOP */
-static void screen()
-/* INSERT_SCREEN */
 static void check(bool yes,const char *msg){if(!yes){std::fprintf(stderr,"FAIL: %s\n",msg);std::exit(1);}}
 static void layout(int page) {
     for(int pass=0;pass<3;pass++) {
@@ -106,16 +102,17 @@ static void layout(int page) {
         ImGui::Begin("Launcher",nullptr,ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoSavedSettings);
         ImGui::Dummy(ImVec2(0,ImGui::GetTextLineHeight()*2.2f+ImGui::GetStyle().ItemSpacing.y));
         ImGui::Separator();ImGui::Button("ROM: ok",ImVec2(-1,0));ImGui::Separator();
-        if(page==0 || page==3) {ImGui::TextUnformatted("ONLINE MULTIPLAYER");}
+        // the launcher's top tab row (gevrLauncherTabRows) above the Multiplayer page
+        ImGui::Dummy(ImVec2(0,ImGui::GetFrameHeight()));
         gevrLauncherBeginBody("body");
-        if(page!=1) {ImGui::Dummy(ImVec2(0,ImGui::GetFrameHeight()*(page==4?1:2)));}
+        ImGui::Dummy(ImVec2(0,ImGui::GetFrameHeight()*2));
         config.mode=VrMpMode;config.scenario=VrMpScenario;
         for(int i=0;i<8;i++) {
             lobby.slots[i].connected=i<netGetMaxPlayers();lobby.slots[i].is_bot=i%2;
             lobby.slots[i].chr_id=i;std::snprintf(lobby.slots[i].name,GEVR_MAX_NAME_LEN,"abcdefghijklmnopqrstuvwx");
         }
         stageComboWidth=-1;
-        if(page==0)gevrMatchOptions();else if(page==1)comfort();else if(page==2)coop();else if(page==4)screen();
+        if(page==0)gevrMatchOptions();else if(page==2)coop();
         else gevrHostLobbyOptions(gold,true,"TBGKYV43");
         if(pass==2) {
             auto *w=ImGui::GetCurrentWindow();
@@ -167,7 +164,6 @@ int main() {
         VrMpMode=0;
         for(VrMpScenario=0;VrMpScenario<10;VrMpScenario++)
             for(VrMpBotMode=0;VrMpBotMode<3;VrMpBotMode++)layout(0);
-        for(turn=0;turn<4;turn++)layout(1);
         VrMpMode=NET_MODE_COOP;layout(2);
         VrMpMode=NET_MODE_HORDE;layout(2);
         resetCheck(false);resetCheck(true);
@@ -175,14 +171,6 @@ int main() {
     online=host=1;
     for(VrMpMode=0;VrMpMode<3;VrMpMode++)for(VrMpScenario=0;VrMpScenario<10;VrMpScenario++)
         for(int set: {4,NET_WEAPON_SET_CUSTOM}) {VrMpWeaponSet=set;layout(3);}
-    // the Screen tab with every row it can show: Bean's 90 Hz warning,
-    // SpaceWarp on and off, each anti-aliasing choice
-    for(beanOn=false;;beanOn=true) {
-        for(VrSpaceWarp=-1;VrSpaceWarp<2;VrSpaceWarp++)for(int s:{1,2}) {
-            VrEyeMsaa=s;layout(4);
-        }
-        if(beanOn)break;
-    }
     // a long tooltip wraps and stays on the screen, wherever it is hovered
     for(float x:{20.0f,640.0f,1260.0f}) {
         io.AddMousePosEvent(x,480);
@@ -202,5 +190,5 @@ int main() {
         check(tip->Pos.y>=0 && tip->Pos.y+tip->Size.y<=960,"a long tooltip fits the launcher's height");
     }
     ImGui::DestroyContext();
-    std::puts("PASS: production Match/co-op/Comfort/Screen and eight-player Lobby fit at Quest font size, including teams, custom weapons and maximum names; solo/host Reset and client restrictions; long tooltips wrap on screen");
+    std::puts("PASS: production Match/co-op and eight-player Lobby fit at Quest font size, including teams, custom weapons and maximum names; solo/host Reset and client restrictions; long tooltips wrap on screen");
 }

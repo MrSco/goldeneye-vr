@@ -3,56 +3,12 @@
  * that depend on another hide and block with it, online rows go to the host,
  * and a section's rows fit the in-game screen's two columns. */
 #include "gevr_settings.h"
-#include "net/net_core.h"
-#include "net/net_game.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "settings_table_stubs.h"
 
 static void check(int ok, const char *message) { if (!ok) { fprintf(stderr, "FAIL: %s\n", message); exit(1); } }
-
-float VrUseSnapTurn, VrComfortVignette, VrMotionThrowStrength = 1, VrMotionThrowPitch, VrMotionThrowGazeAssist = .5f;
-float VrDismemberDamage = 1, VrScreenDistance = 3, VrScreenFov = 60;
-int VrMovementSpeed, VrSmoothTurnSpeed = 120, VrWatchFaceStatus, VrAimSteady, VrTouchModel, VrAimNoLean, VrAimSight;
-int VrMotionThrowing, VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab;
-int VrForcePull, VrPullDisarm, VrAutoPickup, VrPullVisuals, VrBodySlots, VrBodySlotSize, VrWatchGesturePause;
-int VrManualReloading, VrPerWeaponRecoil, VrNoKnockback, VrNoHitstun, VrDamageFlash;
-int VrThirdPerson, VrThirdPersonDist = 150, VrThirdPersonHeight = 20, VrThirdPersonSide = 35;
-int VrLeftHandedMode, VrSwapJoysticks, VrGunFitArmed, VrShowStats, VrGunSizeCheat;
-int VrMinesStickToGuards, VrBodiesStay, VrFastReinforcements, VrRagdolls, VrDismemberment, VrDismemberChance = 40;
-int VrGexGuns, VrBeanFillTextures, VrBloodPatch, VrOddjobHat, VrEyeMsaa = 1;
-int VrScreenCurved, VrScreenPassthrough, VrRefreshRate, VrSpaceWarp = -1;
-static int s_bean, s_saves, s_net, s_host, s_coop, s_netSpeed, s_netFast, s_applied;
-int gevrHatAvailable(void) { return 1; }
-int gevrBeanIsAvailable(void) { return 1; }
-int gevrBeanIsEnabled(void) { return s_bean; }
-void gevrBeanSetEnabled(int on) { s_bean = on; }
-int gevrTexpackFillAvailable(void) { return 1; }
-void vr_screen_resize(float dist, float fov) { VrScreenDistance = dist; VrScreenFov = fov; }
-int vr_spacewarp_supported(void) { return 1; }
-int vr_spacewarp_setting_on(void) { return VrSpaceWarp < 0 ? VrRefreshRate == 120 : VrSpaceWarp; }
-int vr_get_supported_refresh_rates(int *rates, int capacity)
-{
-    static const int r[] = { 72, 90, 120 };
-    for (int i = 0; i < 3 && i < capacity; i++) rates[i] = r[i];
-    return 3;
-}
-void vr_apply_refresh_rate(void) { s_applied++; }
-int vr_screen_curve_supported(void) { return 1; }
-int vr_passthrough_supported(void) { return 1; }
-int vr_eye_msaa_supported(void) { return 0; }
-void vrSettingsSave(void) { s_saves++; }
-bool netIsActive(void) { return s_net; }
-bool netIsHost(void) { return s_host; }
-int netActiveMovementSpeed(void) { return s_netSpeed; }
-int gevrCoopActive(void) { return s_coop; }
-int gevrCoopFastReinforcements(void) { return s_netFast; }
-void gevrNetConfigSet(int field, int value)
-{
-    if (!s_host) return;
-    if (field == CFG_MOVEMENT_SPEED) s_netSpeed = value;
-    if (field == CFG_FAST_REINFORCEMENTS) s_netFast = value;
-}
 
 static int find(const char *label)
 {
@@ -69,7 +25,10 @@ static void text(int id, char *buf) { gevrSettingText(id, -1, buf, 64); }
 int main(void)
 {
     char t[64];
-    VrRagdolls = VrDismemberment = VrThirdPerson = 1;   /* every row shown */
+    /* every row shown and open: flat screen, third person, the ally, the switches others need */
+    VrRagdolls = VrDismemberment = VrThirdPerson = 1;
+    VrPlayMode = 0;
+    VrMotionThrowing = VrForcePull = VrBodySlots = VrAlly = 1;
 
     /* Every row: each position reads back as set, and Reset lands on the default. */
     for (int id = 0; id < gevrSettingCount(); id++) {
@@ -80,6 +39,8 @@ int main(void)
         const int n = gevrSettingPositions(id);
         check(n >= 2, "every row has at least two positions");
         if (info.kind == GEVR_SET_TOGGLE) check(n == 2, "a toggle has two positions");
+        check(info.launcherSection >= 0 && info.launcherSection < GEVR_LSEC_COUNT, "every row has a launcher place");
+        const int was = gevrSettingIndex(id);
         for (int i = 0; i < n; i++) {
             gevrSettingSet(id, i);
             if (gevrSettingIndex(id) != i) {
@@ -94,6 +55,7 @@ int main(void)
             gevrSettingSet(id, def);
             check(gevrSettingIndex(id) == def, "Reset lands on the default");
         }
+        gevrSettingSet(id, was);   /* as it was, so the rows after it stay open */
     }
     check(s_saves > 0, "setting a row saves goldeneye-vr.ini");
 
@@ -112,6 +74,10 @@ int main(void)
     gevrSettingSet(id, 2); text(id, t);
     check(VrUseSnapTurn == 45 && !strcmp(t, "Snap 45"), "turning snaps by 45");
     VrScreenDistance = 3;
+    id = find("Turn speed");
+    VrUseSnapTurn = 45;
+    check(gevrSettingBlocked(id) != NULL, "turn speed is smooth turning's");
+    VrUseSnapTurn = 0;
     id = find("Screen size");
     gevrSettingSet(id, gevrSettingPositions(id) - 1);
     check(VrScreenFov == 110 && VrScreenDistance == 3, "screen size resizes the screen, keeping its distance");
@@ -128,6 +94,53 @@ int main(void)
     gevrSettingSet(id, 2); text(id, t);
     check(!strcmp(t, "100% (default)") && VrMovementSpeed == 0, "movement speed 100% is the normal mode");
 
+    /* The launcher's places: Play holds the play mode, third person and stats;
+     * the watch face is on Hands; the ally has its own sub-tab; gun size is a cheat. */
+    {
+        static const char *const play[] = { "Play mode", "Third person", "  Distance", "  Height", "  Shoulder", "Show stats" };
+        int ids[48], n = gevrSettingSectionRows(GEVR_LSEC_PLAY, GEVR_SET_LAUNCHER, ids, 48);
+        check(n == 6, "Play: the play mode, third person and its camera, stats");
+        for (int i = 0; i < n; i++) {
+            GevrSettingInfo info;
+            gevrSettingInfo(ids[i], &info);
+            check(!strcmp(info.label, play[i]), "Play's rows in order");
+        }
+        GevrSettingInfo info;
+        gevrSettingInfo(find("Watch face"), &info);
+        check(info.launcherSection == GEVR_LSEC_HANDS && info.section == GEVR_SEC_DISPLAY, "watch face: Hands, in game Display");
+        gevrSettingInfo(find("Gun size"), &info);
+        check(info.launcherSection == GEVR_LSEC_CHEATS, "gun size is with the cheats");
+        check(gevrSettingSectionRows(GEVR_LSEC_ALLY, GEVR_SET_LAUNCHER, ids, 48) == 6, "the ally's six rows");
+        check(gevrSettingSectionRows(GEVR_LSEC_ALLY, GEVR_SET_INGAME, ids, 48) == 0, "an LSEC asked of the in-game screen is its own section number");
+        n = gevrSettingSectionRows(GEVR_SEC_RULES, GEVR_SET_INGAME, ids, 48);
+        for (int i = 0; i < n; i++) {
+            gevrSettingInfo(ids[i], &info);
+            check(info.launcherSection != GEVR_LSEC_ALLY, "the ally is the launcher's only");
+        }
+        check(gevrSettingSectionRows(GEVR_LSEC_MODS, GEVR_SET_LAUNCHER, ids, 48) == 0, "the launcher's Mods draws its own rows, with their packs");
+    }
+    VrPlayMode = 1;
+    check(gevrSettingBlocked(find("Third person")) != NULL && !gevrSettingShown(find("  Distance")),
+          "third person is the flat screen's");
+    VrPlayMode = 0;
+
+    /* The ally: GoldenEye, co-op or Horde, the host's; its parts need it on. */
+    VrAlly = 0;
+    check(gevrSettingBlocked(find("Weapon")) != NULL, "the ally's weapon needs the ally on");
+    VrAlly = 1; VrAllyInvincible = 1;
+    check(gevrSettingBlocked(find("Health")) != NULL && !gevrSettingBlocked(find("Damage")), "an invincible ally has no health to set");
+    VrAllyInvincible = 0;
+    VrCampaign = 1;
+    check(gevrSettingBlocked(find("AI ally")) != NULL, "the ally is GoldenEye's");
+    VrCampaign = 0;
+    s_net = 1; s_host = 1; s_coop = 0; s_horde = 0;
+    check(gevrSettingBlocked(find("AI ally")) != NULL, "no ally in a deathmatch");
+    s_horde = 1;
+    check(!gevrSettingBlocked(find("AI ally")), "the Horde host picks the ally");
+    s_host = 0;
+    check(gevrSettingBlocked(find("AI ally")) != NULL, "a joiner can't");
+    s_net = s_host = s_horde = 0;
+
     /* Hidden and blocked with the row they depend on. */
     int ids[48], before = gevrSettingSectionRows(GEVR_SEC_DISPLAY, GEVR_SET_INGAME, ids, 48);
     VrThirdPerson = 0;
@@ -141,6 +154,13 @@ int main(void)
     check(gevrSettingBlocked(find("Hand reload WIP")) != NULL, "hand reload needs GoldenEye X");
     VrBodySlots = 1;
     check(gevrSettingBlocked(find("Holster WIP")) != NULL, "body slots replace the hip holster");
+    VrBodySlots = 0;
+    check(gevrSettingBlocked(find("Show slots")) != NULL && gevrSettingBlocked(find("Slot size")) != NULL,
+          "the slots' size and display need body slots");
+    VrForcePull = 0;
+    check(gevrSettingBlocked(find("Pull disarm")) != NULL, "disarm needs force pull");
+    VrMotionThrowing = 0;
+    check(gevrSettingBlocked(find("Throw power")) != NULL, "throw power needs motion throw");
 
     /* Online: movement speed and fast reinforcements are the host's. */
     s_net = 1; s_host = 0; s_coop = 1; s_netSpeed = 4;
@@ -166,6 +186,9 @@ int main(void)
         check(n > 0 && n <= 14, "a section fills one or two columns of at most seven rows");
         check(gevrSettingSectionName(s) != NULL, "every section has a name");
     }
-    puts("PASS: settings table: every row round-trips, Reset, hidden and blocked rows, the host's online rules, each section fits two columns");
+    for (int s = 0; s < GEVR_LSEC_COUNT; s++)
+        check(gevrSettingSectionRows(s, GEVR_SET_LAUNCHER, ids, 48) <= 14, "a launcher place fills at most two columns of seven");
+    puts("PASS: settings table: every row round-trips, Reset, hidden and blocked rows, the host's online rules, "
+         "the launcher's places and the ally, each section fits two columns");
     return 0;
 }

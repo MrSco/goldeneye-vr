@@ -2150,6 +2150,8 @@ int netCoopActive(void) {
     return (netCoopSession() || netHordeActive()) && bossGetStageNum() != LEVELID_TITLE;
 }
 int gevrCoopActive(void) { return netCoopActive(); }
+int gevrNetConfigCoop(void) { return netGetMatchConfig()->mode == NET_MODE_COOP; }
+int gevrNetConfigPve(void) { return netModePve(netGetMatchConfig()->mode); }
 
 /* Co-op (#94): a number every headset shares for this mission (the launch's seed, the round's epoch): the intro's camera */
 unsigned int gevrCoopIntroSeed(void) {

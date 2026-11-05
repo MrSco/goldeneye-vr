@@ -15,6 +15,10 @@ int gevrNetConfigGet(int field);
  * deathmatch, the game asks this and plays the solo mission's rules. */
 int gevrCoopActive(void);
 int gevrCoopFastReinforcements(void); /* active host rule; independent of this headset's solo preference */
+/* The lobby's or match's mode, for the settings table (port/src/gevr_settings.c):
+ * co-op, or co-op and Horde. Unlike gevrCoopActive, true in the launcher's lobby. */
+int gevrNetConfigCoop(void);
+int gevrNetConfigPve(void);
 void gevrNetConfigSet(int field, int value);
 int gevrNetSlotChr(int slot);
 int gevrNetSlotIsBot(int slot);       /* the host runs this slot with AI input (gevr_bot.c) */

@@ -35,6 +35,21 @@ enum {
     GEVR_SEC_COUNT
 };
 
+/* The launcher's places for them: its tabs and sub-tabs (docs/launcher-unify.md) */
+enum {
+    GEVR_LSEC_PLAY,
+    GEVR_LSEC_HANDS,       /* Controls > Hands */
+    GEVR_LSEC_GESTURES,    /* Controls > Gestures */
+    GEVR_LSEC_THROWING,    /* Controls > Throwing */
+    GEVR_LSEC_COMFORT,
+    GEVR_LSEC_SCREEN,
+    GEVR_LSEC_RULES,       /* Rules > Game rules */
+    GEVR_LSEC_ALLY,        /* Rules > AI ally */
+    GEVR_LSEC_CHEATS,      /* Rules > Cheats */
+    GEVR_LSEC_MODS,
+    GEVR_LSEC_COUNT
+};
+
 /* Where a row shows */
 #define GEVR_SET_INGAME   1u   /* the in-game screen */
 #define GEVR_SET_LAUNCHER 2u   /* the launcher (phase 2) */
@@ -44,7 +59,8 @@ typedef struct GevrSettingInfo {
     const char *label;
     const char *tooltip;   /* may be NULL */
     int kind;              /* GEVR_SET_* */
-    int section;           /* GEVR_SEC_* */
+    int section;           /* GEVR_SEC_*: the in-game screen's tab */
+    int launcherSection;   /* GEVR_LSEC_*: the launcher's tab or sub-tab */
     unsigned where;        /* GEVR_SET_INGAME, GEVR_SET_LAUNCHER */
 } GevrSettingInfo;
 
@@ -68,7 +84,8 @@ const char *gevrSettingBlocked(int id);
 
 int gevrSettingSectionCount(void);
 const char *gevrSettingSectionName(int section);
-/* The section's rows shown now in `where`, in order: their ids into ids[max]. */
+/* The section's rows shown now in `where`, in order: their ids into ids[max].
+ * GEVR_SET_LAUNCHER takes a GEVR_LSEC_* section, GEVR_SET_INGAME a GEVR_SEC_*. */
 int gevrSettingSectionRows(int section, unsigned where, int *ids, int max);
 
 #ifdef __cplusplus

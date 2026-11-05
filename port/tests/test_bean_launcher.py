@@ -83,7 +83,7 @@ void frame(){
  ImGui::NewFrame();
  ImGui::SetNextWindowPos(ImVec2(0,0));ImGui::SetNextWindowSize(ImVec2(1280,1800));
  ImGui::Begin("Mods test",nullptr,ImGuiWindowFlags_NoSavedSettings|ImGuiWindowFlags_NoTitleBar);
- bool open=true;gevrModsPage(open,now+=300,ImVec4(1,1,0,1),ImVec4(0,1,0,1),ImVec4(1,0,0,1));
+ gevrModsPage(now+=300,ImVec4(1,1,0,1),ImVec4(0,1,0,1),ImVec4(1,0,0,1));
  ImGui::End();ImGui::Render();
 }
 void click(ImVec2 at){

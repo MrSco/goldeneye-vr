@@ -1,4 +1,5 @@
 #include "gevr_launcher_ui.h"
+#include "gevr_settings_ui.h"
 #include "gevr_romcheck.h"
 #include "gevr_romlayout.h"
 #include "gevr_bean.h"
@@ -574,13 +575,11 @@ static std::string gevrEncodeUrl64(const char *input)
     return out;
 }
 
-static void gevrHapticsPage(bool &open, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad)
+static void gevrHapticsPage(const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad)
 {
     static int activeTab = HAPTIC_CAT_PISTOLS;
 
-    ImGui::TextColored(gold, "HAPTIC FEEDBACK SETTINGS");
-    ImGui::TextDisabled("Tune vibration intensity (0-10) and pulse duration (ms) for each weapon and action. Feel real-time vibrations while testing.");
-    ImGui::Spacing();
+    ImGui::TextDisabled("Vibration strength (0-10) and length (ms) for each weapon and action; each change buzzes.");
 
     // Category Tabs (6 categories, keeping every category to <= 8 items so nothing is cut off)
     const char *catNames[] = {
@@ -705,11 +704,6 @@ static void gevrHapticsPage(bool &open, const ImVec4 &gold, const ImVec4 &good, 
     ImGui::SameLine();
     if (ImGui::Button("Reset All to Defaults")) {
         vrHapticsResetAll();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Back", ImVec2(-1, 0))) {
-        vrSettingsSave();
-        open = false;
     }
 }
 
@@ -863,7 +857,7 @@ static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool m
     return action;
 }
 
-static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad)
+static void gevrModsPage(Uint32 now, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad)
 {
     static std::vector<ModPack> packs;
     static Uint32 lastPoll = 0;
@@ -898,14 +892,11 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
         }
     }
 
-    ImGui::TextColored(gold, "MODS");
-    ImGui::TextDisabled("Choose a look for your next game.");
-    ImGui::Separator();
-
     if (ImGui::RadioButton("Original", !gevrBeanIsEnabled() && !g_ActiveExtTexPack[0])) {
         g_ActiveExtTexPack[0] = '\0';
         gevrBeanSetEnabled(0);
     }
+    if (ImGui::IsItemHovered()) gevrTooltip("The game's own look. The packs below change it from your next game.");
     bool beanListed = false;
     if (ImGui::BeginTable("##visual-packs", 3, ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("Look", ImGuiTableColumnFlags_WidthStretch, 1.4f);
@@ -932,29 +923,29 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
                 gevrBeanSetEnabled(bean);
             }
             ImGui::EndDisabled();
+            // one line a pack: under the tab rows and above START the tab does not scroll
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                if (bean) gevrTooltip("%s\nby %s\nFrom your own copy of the game\nIn game: VR options, or hold one grip + right-stick click for 1 second",
+                if (bean) gevrTooltip("%s: meshes + textures\nby %s\nFrom your own copy of the game\nIn game: VR options, or hold one grip + right-stick click for 1 second",
                                             p.title.c_str(), p.by.c_str());
-                else gevrTooltip("%s\nby %s\n%s\nVersion %s", p.title.c_str(), p.by.c_str(), p.site.c_str(), p.version.c_str());
+                else gevrTooltip("%s: textures\nby %s\n%s\nVersion %s", p.title.c_str(), p.by.c_str(), p.site.c_str(), p.version.c_str());
             }
-            ImGui::TextDisabled("%s", bean ? "Meshes + textures" : "Textures");
             ImGui::TableNextColumn();
+            const std::string &message = bean && p.message.empty() ? beanMessage : p.message;
             if (busy) {
                 const char *verb = p.state == "downloading" ? "Downloading" : p.state == "importing" ? "Importing"
                                    : p.state == "patching" ? "Applying CE" : "Unpacking";
                 if (p.progress >= 0) ImGui::TextColored(gold, "%s %d%%", verb, p.progress);
                 else ImGui::TextColored(gold, "%s...", verb);
-            } else {
-                ImGui::TextColored(p.state == "error" ? bad : usable ? good : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled),
-                                   "%s", active ? "Selected" : installed ? "Installed" : localBean ? "Local files"
-                                   : p.state == "error" ? (bean ? "Import failed" : "Download failed") : "Not installed");
-                if (!p.update.empty()) ImGui::TextDisabled("Update available");
-            }
-            const std::string &message = bean && p.message.empty() ? beanMessage : p.message;
-            if (!message.empty()) {
+            } else if (!message.empty()) {
+                // the failure in the status's place, cut to the column; hovering shows it whole
                 ImGui::PushStyleColor(ImGuiCol_Text, bad);
                 gevrLauncherStatus(message.c_str());
                 ImGui::PopStyleColor();
+            } else {
+                ImGui::TextColored(p.state == "error" ? bad : usable ? good : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled),
+                                   "%s%s", active ? "Selected" : installed ? "Installed" : localBean ? "Local files"
+                                   : p.state == "error" ? (bean ? "Import failed" : "Download failed") : "Not installed",
+                                   p.update.empty() ? "" : ", update");
             }
             ImGui::TableNextColumn();
             if (busy) {
@@ -1084,18 +1075,9 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
                                   : "Needs your own GoldenEye X ROM: Perfect Dark 1.1 with the GE-X 6a patch.");
     ImGui::PopStyleColor();
     if (gex && gevrBeanIsEnabled()) ImGui::TextDisabled("GE-X supplies first-person gear; Bean supplies the world.");
-    // Keep the exit in the same place in every download state, above the
-    // launcher's one-line hint, drawn under every page: placed at the very
-    // bottom, Done pushed the hint off the panel's edge. Wreck's blood patch
-    // (chr.c chrCreateHitPuffs) takes the row above it, in the space the page
-    // leaves there (user, 2026-10-14): a cosmetic table, so it goes with every
-    // look and campaign, and online each headset its own. Where the page
-    // leaves no such space (a download error with an update and no Bean), it
-    // shares Done's row instead.
-    const float tail = ImGui::GetFrameHeight() + ImGui::GetTextLineHeightWithSpacing();
-    const float row = ImGui::GetContentRegionAvail().y >= ImGui::GetFrameHeightWithSpacing() + tail
-                          ? ImGui::GetFrameHeightWithSpacing() : 0.0f;
-    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + std::fmax(0.0f, ImGui::GetContentRegionAvail().y - row - tail));
+    // Wreck's blood patch (chr.c chrCreateHitPuffs): a cosmetic table, so it goes
+    // with every look and campaign, and online each headset its own.
+    ImGui::Separator();
     bool blood = VrBloodPatch != 0;
     if (ImGui::Checkbox("Blood patch (by Wreck)", &blood)) VrBloodPatch = blood ? 1 : 0;
     if (ImGui::IsItemHovered())
@@ -1133,12 +1115,6 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
         }
         ImGui::PopID();
     }
-    if (row == 0.0f)
-        ImGui::SameLine();
-    if (ImGui::Button("Done", ImVec2(-1, 0))) {
-        vrSettingsSave();
-        open = false;
-    }
 }
 
 // Names: printable ASCII, which the game's font can draw over a player's head,
@@ -1146,6 +1122,96 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
 int nameCharFilter(ImGuiInputTextCallbackData *data)
 {
     return data->EventChar < 0x20 || data->EventChar > 0x7e || data->EventChar == '|';
+}
+
+// GoldenEye's cheats (issue #1's idea: the tiny guns as a cheat), Rules >
+// Cheats. Ticked cheats are switched on as each mission starts, the way the
+// game's own cheat menu does (front.c init_menu0B_runstage).
+static void gevrCheatsPage(const GevrSettingsApi &settings, const ImVec4 &gold)
+{
+    // excl: a cheat ticking this one unticks (2x and 10x Health both
+    // set the health ceiling; cheat.c applies only the first)
+    struct CheatRow { const char *name; int id; bool cosmetic; int excl; };
+    static const CheatRow fun[] = {
+        { "DK mode (big heads)", 12, true }, { "Paintball mode", 15, true }, { "Line mode", 7, true },
+        { "Tiny Bond", 14, false }, { "Turbo mode", 24, false }, { "Invisibility", 10, false },
+        { "Fast animation", 26, false }, { "Slow animation", 27, false }, { "Enemy rockets", 28, false },
+    };
+    // with the retail game's hidden cheats (#95): 2x/10x Health,
+    // 2x Armor, Max ammo, Extra weapons are in cheat.c but have no
+    // unlock in the game's Cheat Options
+    static const CheatRow health[] = {
+        { "Invincibility", 2, false }, { "2x Health", 8, false, 16 }, { "10x Health", 16, false, 8 },
+        { "2x Armor", 9, false }, { "Infinite ammo", 11, false }, { "Max ammo", 4, false },
+    };
+    static const CheatRow arms[] = {
+        { "All guns", 3, false }, { "Extra weapons", 13, false },
+        { "Golden Gun", 19, false }, { "Silver PP7", 20, false }, { "Gold PP7", 21, false },
+        { "Magnum", 17, false }, { "Laser", 18, false }, { "2x Rocket launcher", 29, false },
+        { "2x Grenade launcher", 30, false }, { "2x RC-P90", 31, false }, { "2x Throwing knife", 32, false },
+        { "2x Hunting knife", 33, false }, { "2x Laser", 34, false },
+    };
+    auto row = [](const CheatRow& c) {
+        bool on = (VrCheatMask >> c.id) & 1ULL;
+        char label[64];
+        snprintf(label, sizeof(label), "%s%s", c.name, c.cosmetic ? "" : " *");
+        if (ImGui::Checkbox(label, &on)) {
+            if (on) VrCheatMask |= 1ULL << c.id;
+            else VrCheatMask &= ~(1ULL << c.id);
+            if (on && c.excl) VrCheatMask &= ~(1ULL << c.excl);
+            vrSettingsSave();
+        }
+    };
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    // a hack campaign skips this list (front.c gevrApplyLauncherCheats)
+    const bool hackCampaign = VrCampaign != GEVR_CAMPAIGN_GE;
+    ImGui::TextWrapped(hackCampaign ? "Off with a hack campaign chosen: use the game's own Cheat Options."
+                                    : "On from the next mission. * stops missions saving, as in the original game.");
+    ImGui::PopStyleColor();
+    // three even columns of eleven, closer set than the other pages: under the
+    // two tab rows and above START the page does not scroll
+    const ImGuiStyle &style = ImGui::GetStyle();
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.FramePadding.x, style.FramePadding.y * 0.4f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(style.ItemSpacing.x, style.ItemSpacing.y * 0.3f));
+    if (ImGui::BeginTable("cheats", 3, ImGuiTableFlags_SizingStretchSame)) {
+        ImGui::TableNextColumn();
+        // the VR gun size, a settings row (gevr_settings.c)
+        gevrSettingsSection(settings, GEVR_LSEC_CHEATS, GEVR_SET_LAUNCHER);
+        ImGui::BeginDisabled(hackCampaign);
+        ImGui::TextColored(gold, "FUN");
+        for (int i = 0; i < 7; i++) row(fun[i]);
+        ImGui::EndDisabled();
+        if (ImGui::Button("All off")) {
+            VrCheatMask = 0;
+            VrGunSizeCheat = 0;
+            vrSettingsSave();
+        }
+        // Issue #54, as gepc-ref D257 Game.AllUnlocked: the game's own mission
+        // select and Cheat Options, fully open (port/src/main.c, front.c).
+        // Nothing is written to the saves.
+        bool unlock = VrUnlockAll != 0;
+        if (ImGui::Checkbox("Unlock all", &unlock)) {
+            VrUnlockAll = unlock ? 1 : 0;
+            vrSettingsSave();
+        }
+        if (ImGui::IsItemHovered()) {
+            gevrTooltip("Every mission at every difficulty, 007 mode, and every cheat\n"
+                        "in the game's own Cheat Options. Your save files are left as\n"
+                        "they are; missions you finish still count as usual.");
+        }
+        ImGui::BeginDisabled(hackCampaign);
+        ImGui::TableNextColumn();
+        for (int i = 7; i < 9; i++) row(fun[i]);
+        ImGui::TextColored(gold, "HEALTH & AMMO");
+        for (const CheatRow& c : health) row(c);
+        ImGui::TextColored(gold, "WEAPONS");
+        for (int i = 0; i < 2; i++) row(arms[i]);
+        ImGui::TableNextColumn();
+        for (int i = 2; i < (int)(sizeof(arms) / sizeof(arms[0])); i++) row(arms[i]);
+        ImGui::EndDisabled();
+        ImGui::EndTable();
+    }
+    ImGui::PopStyleVar(2);
 }
 
 extern "C" uint16_t get_mTrack2Vol(void);
@@ -1491,41 +1557,6 @@ static void gevrMovementSpeedOptions(bool hostPage) {
         : "Solo stick movement, 100% is normal. Room-scale walking keeps its normal speed.");
 }
 
-// Third person (issue #230, src/game/gevr_thirdperson.c): flat screen, solo.
-static void gevrThirdPersonSlider(const char *label, const char *id, int *value, int lo, int hi, int def) {
-    ImGui::TextUnformatted(label);
-    ImGui::SameLine();
-    const float resetWidth = ImGui::CalcTextSize("Reset").x + ImGui::GetStyle().FramePadding.x * 2;
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - resetWidth - ImGui::GetStyle().ItemSpacing.x);
-    ImGui::PushID(id);
-    ImGui::SliderInt("##v", value, lo, hi, *value == def ? "%d (default)" : "%d", ImGuiSliderFlags_AlwaysClamp);
-    if (ImGui::IsItemDeactivatedAfterEdit()) vrSettingsSave();
-    ImGui::SameLine();
-    if (ImGui::Button("Reset")) { *value = def; vrSettingsSave(); }
-    ImGui::PopID();
-}
-
-static void gevrThirdPersonOptions(bool flat) {
-    ImGui::BeginDisabled(!flat);
-    bool tp = VrThirdPerson != 0;
-    if (ImGui::Checkbox("Third person (flat screen, solo)", &tp)) {
-        VrThirdPerson = tp ? 1 : 0;
-        vrSettingsSave();
-    }
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        gevrTooltip("The camera follows behind Bond. Aiming (R), the watch and the tank\n"
-                    "go back to first person. Solo missions in the flat-screen mode only.\n"
-                    "Also on the watch: VR > Display > Third person.");
-    if (tp && flat) {
-        ImGui::Indent();
-        gevrThirdPersonSlider("Distance", "tpdist", &VrThirdPersonDist, THIRDPERSON_DIST_MIN, THIRDPERSON_DIST_MAX, 150);
-        gevrThirdPersonSlider("Height  ", "tpheight", &VrThirdPersonHeight, THIRDPERSON_HEIGHT_MIN, THIRDPERSON_HEIGHT_MAX, 20);
-        gevrThirdPersonSlider("Shoulder", "tpside", &VrThirdPersonSide, THIRDPERSON_SIDE_MIN, THIRDPERSON_SIDE_MAX, 35);
-        ImGui::Unindent();
-    }
-    ImGui::EndDisabled();
-}
-
 static void gevrMatchLiveOptions() {
     gevrMovementSpeedOptions(true);
     ImGui::BeginDisabled(netIsActive() && !netIsHost());
@@ -1667,6 +1698,9 @@ static void gevrLobbyRoster(const ImVec4 &gold, bool showCount = true) {
  */
 static uint64_t s_launcherHostActMs = 0;
 static uint64_t s_launcherFrame = 0;       // gevrLauncherRun: one per launcher frame
+// The START footer's height as drawn last frame (the update line and its note
+// can wrap): the open page takes the rest, so neither scrolls nor clips.
+static float s_launcherFooterH = 0.0f;
 static uint64_t s_launcherHostFrame = 0;   // the launcher frame the page last ran in, 0 never
 #define GEVR_LAUNCHER_HOST_IDLE_MS (10ull * 60 * 1000)
 
@@ -1834,7 +1868,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
     static uint32_t lastHeartbeatMs = 0;
 
     if (VrCampaign != GEVR_CAMPAIGN_GE && !netIsActive()) {
-        // the main page's button is off in a hack campaign; this covers a page left open
+        // the tab says why in a hack campaign; this covers one changed with the page open
         open = false;
         return;
     }
@@ -2089,7 +2123,6 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                                   : netIsActive() && !netIsHost() ? "Host chooses"
                                   : "Proximity: 10% floor / Couch: full volume");
     };
-    ImGui::TextColored(gold, "ONLINE MULTIPLAYER");
     gevrLauncherBeginBody("##mpbody");
     if (ImGui::BeginTabBar("##mprole")) {
         const bool selectRole[2] = {selectHost, selectJoin};
@@ -2910,9 +2943,6 @@ extern "C" void gevrLauncherRun(void)
     scan();
 
     bool settingsRead = false;
-    int mode = 1, turn = 0;
-    bool vignetteOn = false;
-    float vignette = 0.5f;
     bool focusStart = true;
     bool start = false;
     Uint32 last = SDL_GetTicks();
@@ -2936,8 +2966,7 @@ extern "C" void gevrLauncherRun(void)
     Uint32 lastUpdPoll = 0;
     bool reportPage = false;
     bool reportCrash = false;
-    bool cheatPage = false, modsPage = false, mpPage = false, hapticsPage = false, throwingPage = false;
-    bool gesturesPage = false, rulesPage = false, allyPage = false;
+    GevrLauncherTabs launcherTabs;   // Play, Multiplayer, Controls...: gevr_launcher_ui.h
     Uint32 lastReportPoll = 0;
     while (!start) {
         // SDL's native thread may reach the launcher before MainActivity has
@@ -2975,10 +3004,6 @@ extern "C" void gevrLauncherRun(void)
         // The pump's first begin loads goldeneye-vr.ini; take the choices then.
         if (!settingsRead) {
             settingsRead = true;
-            mode = VrPlayMode ? 1 : 0;
-            turn = VrUseSnapTurn >= 80.0f ? 3 : VrUseSnapTurn >= 40.0f ? 2 : VrUseSnapTurn > 0.0f ? 1 : 0;
-            vignetteOn = VrComfortVignette > 0.0f;
-            if (vignetteOn) vignette = VrComfortVignette;
             gevrFriendsLoadPendingJoin();   // an invite accepted in a mission, before the restart
         }
 
@@ -3151,761 +3176,14 @@ extern "C" void gevrLauncherRun(void)
         // Friends: presence and the list, every frame (vr_friends.cpp sends at most once a second).
         gevrFriendsTick(0);
         const bool onlineGame = romReady && VrCampaign == GEVR_CAMPAIGN_GE;
-        if (gevrFriendsJoinPending() && !mpPage && !onlineGame) {
+        if (gevrFriendsJoinPending() && launcherTabs.top != GEVR_LTAB_MULTIPLAYER && !onlineGame) {
             vr_log("launcher: friend's lobby %s not joined: no GoldenEye ROM in use", gevrFriendsTakeJoin().c_str());
-        } else if ((gevrFriendsJoinPending() || gevrFriendsHostRequested()) && !mpPage) {
+        } else if ((gevrFriendsJoinPending() || gevrFriendsHostRequested()) && launcherTabs.top != GEVR_LTAB_MULTIPLAYER) {
             // a friend's lobby, an invite, one joined from a mission, or a lobby
-            // to host for an invite: the Multiplayer page does it
-            cheatPage = modsPage = hapticsPage = throwingPage = gesturesPage = rulesPage = allyPage = false;
-            mpPage = true;
+            // to host for an invite: the Multiplayer tab does it
+            launcherTabs.open(GEVR_LTAB_MULTIPLAYER);
         }
         if (!reportPage) gevrFriendsInviteBanner(onlineGame && !netIsActive(), gold);
-        // GoldenEye cheats (issue #1's idea: the tiny guns as a cheat): their
-        // own page. Ticked cheats are switched on as each mission starts, the
-        // way the game's own cheat menu does (front.c init_menu0B_runstage).
-        if (reportPage) {
-            gevrReportPage(reportPage, reportCrash, gold, good, bad);
-        } else if (hapticsPage) {
-            gevrHapticsPage(hapticsPage, gold, good, bad);
-        } else if (mpPage) {
-            gevrMultiplayerPage(mpPage, start, romReady, gold, good, bad);
-        } else if (modsPage) {
-            gevrModsPage(modsPage, now, gold, good, bad);
-        } else if (throwingPage) {
-            ImGui::TextColored(gold, "MOTION THROWING SETTINGS");
-            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-            ImGui::TextWrapped("Hold Grip on throwables (grenades, knives, mines), swing arm, and release Grip to throw.\n"
-                               "Grip + Trigger cooks grenades. Releases instantly at 90%% grip squeeze.");
-            ImGui::PopStyleColor();
-            ImGui::Spacing();
-
-            bool motionThrow = VrMotionThrowing;
-            if (ImGui::Checkbox("Enable motion throwing", &motionThrow)) {
-                VrMotionThrowing = motionThrow;
-                vrSettingsSave();
-            }
-
-            ImGui::BeginDisabled(!VrMotionThrowing);
-
-            ImGui::Spacing();
-            ImGui::TextColored(gold, "THROW STRENGTH & VELOCITY");
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.70f);
-            if (ImGui::SliderFloat("##ThrowStrength", &VrMotionThrowStrength, 0.5f, 2.0f, "Strength %.2fx")) {
-                vrSettingsSave();
-            }
-            if (ImGui::IsItemHovered()) {
-                gevrTooltip("Scales throw speed with physical swing speed.\n1.0x = natural realism, higher = longer throws.");
-            }
-
-            ImGui::Spacing();
-            ImGui::TextColored(gold, "TRAJECTORY CALIBRATION");
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.70f);
-            if (ImGui::SliderFloat("##ThrowPitch", &VrMotionThrowPitch, -20.0f, 20.0f, "Pitch %+.0f°")) {
-                vrSettingsSave();
-            }
-            if (ImGui::IsItemHovered()) {
-                gevrTooltip("Vertical pitch trim: adjust upward (+) or downward (-) if throws fly too low/high.");
-            }
-
-            ImGui::Spacing();
-            ImGui::TextColored(gold, "GAZE ASSIST (overhand throws)");
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.70f);
-            float gazePct = VrMotionThrowGazeAssist * 100.0f;
-            if (ImGui::SliderFloat("##ThrowGaze", &gazePct, 0.0f, 100.0f, "Gaze %.0f%%")) {
-                VrMotionThrowGazeAssist = gazePct / 100.0f;
-                vrSettingsSave();
-            }
-            if (ImGui::IsItemHovered()) {
-                gevrTooltip("Blends overhand throw direction toward where you are looking (0%% = pure hand, 100%% = max gaze pull).\n"
-                                  "Underhand rolls, bowling, and throws behind your back remain 100%% pure hand physics.");
-            }
-
-            ImGui::EndDisabled();
-
-            ImGui::Spacing();
-            ImGui::Separator();
-            if (ImGui::Button("Reset to Defaults")) {
-                VrMotionThrowing = true;
-                VrMotionThrowStrength = 1.0f;
-                VrMotionThrowPitch = 0.0f;
-                VrMotionThrowGazeAssist = 0.50f;
-                vrSettingsSave();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Done", ImVec2(-1, 0))) {
-                vrSettingsSave();
-                throwingPage = false;
-            }
-        } else if (gesturesPage) {
-            // GEVR PC's grip gestures (its CONTROLS.md, vr450..vr453), Perfect
-            // Dark VR's hand reload and per-weapon recoil; also on the watch's
-            // VR settings page (options.c).
-            auto toggle = [](const char *label, int *v, const char *tip) {
-                bool on = *v != 0;
-                if (ImGui::Checkbox(label, &on)) {
-                    *v = on ? 1 : 0;
-                    vrSettingsSave();
-                }
-                if (ImGui::IsItemHovered()) gevrTooltip("%s", tip);
-            };
-            ImGui::TextColored(gold, "GRIP GESTURES (stereo)");
-            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-            ImGui::TextWrapped("Squeeze the grip with the hand in place. Anywhere else the grip aims as before.");
-            ImGui::PopStyleColor();
-            ImGui::BeginDisabled(VrBodySlots != 0);
-            toggle("Hip holster (WIP)", &VrGestureHolster,
-                   VrBodySlots ? "Body slots replace the hip holster while they are on."
-                               : "The hand at its own hip: holster what it holds.\nSqueeze there again to draw it.\n"
-                                 "A fresh grip press takes priority over the belt reload gesture.");
-            ImGui::EndDisabled();
-            int effectiveGripUse = (VrManualReloading && VrGexGuns) ? 1 : VrGestureGripUse;
-            ImGui::BeginDisabled(VrManualReloading && VrGexGuns);
-            toggle("Grip use", &effectiveGripUse,
-                   "The hand at a door, switch or console: squeeze to use.\n"
-                   "Required with hand reload: B/Y only eject magazines.");
-            ImGui::EndDisabled();
-            if (!(VrManualReloading && VrGexGuns) && VrGestureGripUse != effectiveGripUse) {
-                VrGestureGripUse = effectiveGripUse;
-                vrSettingsSave();
-            }
-            toggle("Grip to hand (WIP)", &VrGesturePickup,
-                   "The hand at a gun on the floor: that gun goes into that hand\n"
-                   "(picked up if the game would, else the one you carry).\n"
-                   "Walking over guns still picks them up (see Auto pickup).");
-            toggle("Force pull (WIP)", &VrForcePull,
-                   "Point an empty hand at a gun, ammo, armour or a key up to 3.5 m away\n"
-                   "(it lights up) and squeeze: it flies to you. Keep squeezing and a gun\n"
-                   "lands in that hand; let go on the way and it goes to the inventory.\n"
-                   "Also catches guns dropped by guards. Single player for now.");
-            ImGui::BeginDisabled(VrForcePull == 0);
-            ImGui::SameLine();
-            toggle("Disarm", &VrPullDisarm,
-                   "Pull a guard's gun out of his hand, as if it were shot out.\nNever another player's.");
-            ImGui::SameLine();
-            toggle("Pull visuals", &VrPullVisuals,
-                   "The halo on what a hand points at, and the line to it.\nThe buzz and the magnet hum stay.");
-            ImGui::EndDisabled();
-            toggle("Auto pickup", &VrAutoPickup,
-                   "Walking over a gun picks it up, as GoldenEye does.\n"
-                   "Off: guns stay on the floor until you grab or pull them.\nAmmo, armour and keys are still picked up.");
-            toggle("Mine re-grab", &VrGestureMineGrab,
-                   "The hand at your own stuck remote mine, or a proximity mine\nstill arming: take it back. Single player and co-op host.");
-            toggle("Watch gesture to pause", &VrWatchGesturePause,
-                   "Raise your left wrist to your face to open Bond's watch.\nThe Menu button pauses either way.");
-            ImGui::Spacing();
-            // the wheel's categories on the body (gevr_bodyslot.h); the wheel stays
-            ImGui::TextColored(gold, "BODY SLOTS (stereo)");
-            toggle("Body slots (WIP)", &VrBodySlots,
-                   "Weapons live on your body: pistols at each hip, rifles and SMGs over\n"
-                   "the gun hand's shoulder, heavy guns over the other, grenades and mines\n"
-                   "on the chest, gadgets at the front of the belt. Reach and squeeze the grip.\n"
-                   "While the hand is there, A/X or a sideways flick of its stick picks\n"
-                   "which one. Squeeze with the same weapon to put it away.\n"
-                   "The weapon wheel and A/X cycling still work. Gun fit's Slots mode\n"
-                   "moves the slots.");
-            ImGui::BeginDisabled(VrBodySlots == 0);
-            static const char *const slotSizes[] = { "Small", "Normal", "Large" };
-            for (int i = 0; i < 3; i++) {
-                ImGui::SameLine();
-                if (ImGui::RadioButton(slotSizes[i], VrBodySlotSize == i)) {
-                    VrBodySlotSize = i;
-                    vrSettingsSave();
-                }
-                if (ImGui::IsItemHovered()) gevrTooltip("How far from a slot your hand still reaches it.");
-            }
-            ImGui::SameLine();
-            toggle("Show", &VrBodySlotShow,
-                   "Draw what the hips, chest and belt hold when you look down.");
-            ImGui::EndDisabled();
-            ImGui::Spacing();
-            ImGui::TextColored(gold, "RELOAD & RECOIL (stereo)");
-            ImGui::BeginDisabled(VrGexGuns == 0);
-            toggle(VrGexGuns ? "Hand reload (WIP)" : "Hand reload (needs GoldenEye X)", &VrManualReloading,
-                   "Needs GoldenEye X's models (Mods). Bring the gun into your fitted belt zone to reload.\n"
-                   "Move 5 cm beyond the zone before another belt reload.\n"
-                   "When a magazine is missing, a grip at its belt point takes ammo before a holster.\n"
-                   "Magazine pulls and pistol/shotgun/dual-gun chest crosses also work.\n"
-                   "Auto-reload is off; switching weapons keeps their loaded rounds.\n"
-                   "B/Y eject magazines only; grip use is required for doors and switches.\n"
-                   "A ghost magazine marks the missing magazine; green rings mark pickup and insertion.");
-            ImGui::EndDisabled();
-            toggle("Per-gun recoil", &VrPerWeaponRecoil,
-                   "Each gun kicks with its own recoil (Perfect Dark VR's table)\ninstead of one kick for all.");
-            ImGui::Spacing();
-            ImGui::Separator();
-            if (ImGui::Button("Defaults")) {
-                VrGestureHolster = VrGestureGripUse = VrGestureMineGrab = 1;
-                VrGesturePickup = 1;
-                VrForcePull = VrPullDisarm = VrAutoPickup = VrPullVisuals = 1;
-                VrBodySlots = 0;
-                VrBodySlotShow = VrBodySlotSize = 1;
-                VrManualReloading = 0;
-                VrWatchGesturePause = 1;
-                VrPerWeaponRecoil = 0;
-                vrSettingsSave();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Done", ImVec2(-1, 0))) {
-                vrSettingsSave();
-                gesturesPage = false;
-            }
-        } else if (allyPage) {
-            // #194: Natalya as a companion (src/game/gevr_ally.c), opened from
-            // Game rules. The host's choice in co-op and Horde.
-            ImGui::TextColored(gold, "AI ALLY (NATALYA)");
-            const bool allyPve = !netIsActive() || netModePve(netGetMatchConfig()->mode);
-            ImGui::BeginDisabled(VrCampaign != 0 || !allyPve || (netIsActive() && !netIsHost()));
-            bool ally = VrAlly != 0;
-            if (ImGui::Checkbox("AI ally (Natalya)", &ally)) {
-                VrAlly = ally ? 1 : 0;
-                vrSettingsSave();
-            }
-            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-            ImGui::TextWrapped("GoldenEye solo, campaign co-op and Horde: one companion for the party. The host chooses; changes apply next mission or Horde retry. Not in missions with their own Natalya.");
-            ImGui::PopStyleColor();
-            ImGui::Spacing();
-            ImGui::BeginDisabled(!ally);
-            if (ImGui::Combo("Weapon", &VrAllyWeapon,
-                    "PP7\0Silenced PP7\0DD44\0KF7 Soviet\0D5K Deutsche\0ZMG\0AR33\0RC-P90\0Shotgun\0Automatic shotgun\0")) vrSettingsSave();
-            if (ImGui::Combo("Aggression", &VrAllyAggression, "Cautious\0Normal\0Aggressive\0")) vrSettingsSave();
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                gevrTooltip("Cautious: engage alerted enemies nearby. Normal/aggressive: engage enemies within a wider range. Always stay close to Bond.");
-            if (ImGui::SliderInt("Damage", &VrAllyDamage, 25, 400, "%d%%")) vrSettingsSave();
-            bool immortal = VrAllyInvincible != 0;
-            if (ImGui::Checkbox("Invincible", &immortal)) {
-                VrAllyInvincible = immortal ? 1 : 0;
-                vrSettingsSave();
-            }
-            ImGui::BeginDisabled(immortal);
-            if (ImGui::SliderInt("Health", &VrAllyHealth, 25, 1000, "%d%%")) vrSettingsSave();
-            ImGui::EndDisabled();
-            ImGui::EndDisabled();
-            ImGui::EndDisabled();
-            ImGui::Spacing();
-            ImGui::Separator();
-            if (ImGui::Button("Done", ImVec2(-1, 0))) {
-                vrSettingsSave();
-                allyPage = false;
-            }
-        } else if (rulesPage) {
-            // Game rules GEVR PC changed (vr450.2, its CORPSEKEEP); off keeps
-            // the original game's rule. Single player.
-            ImGui::TextColored(gold, "GAME RULES");
-            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-            ImGui::TextWrapped("Off keeps the original rules. Mines are a solo option; with ragdolls on, bodies stay in every mode. Fast reinforcements also works in co-op, controlled by the host.");
-            ImGui::PopStyleColor();
-            // #194's companion has its own page: on this one it made the page scroll
-            if (ImGui::Button(VrAlly ? "AI ally (Natalya)... (on)" : "AI ally (Natalya)..."))
-                allyPage = true;
-            bool stick = VrMinesStickToGuards != 0;
-            if (ImGui::Checkbox("Mines stick to guards", &stick)) {
-                VrMinesStickToGuards = stick ? 1 : 0;
-                vrSettingsSave();
-            }
-            if (ImGui::IsItemHovered())
-                gevrTooltip("A thrown mine that hits a guard sticks to him and goes where he goes.");
-            // Perfect Dark CE's ragdolls (docs/ragdolls.md): cosmetic, each
-            // headset simulates its own
-            bool ragdolls = VrRagdolls != 0;
-            if (ImGui::Checkbox("Ragdolls", &ragdolls)) {
-                VrRagdolls = ragdolls ? 1 : 0;
-                vrSettingsSave();
-            }
-            if (ImGui::IsItemHovered())
-                gevrTooltip("Bodies fall with physics. Each headset simulates its own.");
-            ImGui::SameLine();
-            ImGui::BeginDisabled(!ragdolls);
-            bool limbs = VrDismemberment != 0;
-            if (ImGui::Checkbox("Dismemberment", &limbs)) {
-                VrDismemberment = limbs ? 1 : 0;
-                vrSettingsSave();
-            }
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                gevrTooltip("Strong guns, shotgun blasts and explosions can take off limbs and heads.");
-            ImGui::EndDisabled();
-            // Perfect Dark CE's two dismemberment settings
-            ImGui::BeginDisabled(!ragdolls || !VrDismemberment);
-            const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
-            ImGui::SetNextItemWidth(half);
-            if (ImGui::SliderFloat("##DismemberDamage", &VrDismemberDamage, 0.5f, 10.0f, "Damage needed %.1f"))
-                vrSettingsSave();
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                gevrTooltip("A shot cuts only with weapons this strong: PP7 and KF7 1.0, golden gun 100.");
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(half);
-            if (ImGui::SliderInt("##DismemberChance", &VrDismemberChance, 0, 100, "Chance %d%%"))
-                vrSettingsSave();
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                gevrTooltip("How often a strong enough shot, volley or blast takes something off.");
-            ImGui::EndDisabled();
-            ImGui::Spacing();
-            ImGui::TextUnformatted("Bodies stay");
-            int prevBodies = VrBodiesStay;
-            ImGui::RadioButton("Off (fade)##bodies", &VrBodiesStay, 0);
-            ImGui::SameLine();
-            ImGui::RadioButton("12##bodies", &VrBodiesStay, 12);
-            ImGui::SameLine();
-            ImGui::RadioButton("24##bodies", &VrBodiesStay, 24);
-            if (VrBodiesStay != prevBodies) vrSettingsSave();
-            ImGui::TextWrapped("The newest bodies stay on the floor, with their cut limbs; the oldest goes when a new guard needs its place.");
-            ImGui::Spacing();
-            const bool online = netIsActive();
-            const bool coop = online && netGetMatchConfig()->mode == NET_MODE_COOP;
-            bool fast = online ? coop && (netGetMatchConfig()->fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0
-                               : VrFastReinforcements != 0;
-            ImGui::BeginDisabled(online && (!coop || !netIsHost()));
-            if (ImGui::Checkbox("Fast reinforcements", &fast)) {
-                if (online) gevrNetConfigSet(CFG_FAST_REINFORCEMENTS, fast ? 1 : 0);
-                else {
-                    VrFastReinforcements = fast ? 1 : 0;
-                    vrSettingsSave();
-                }
-            }
-            ImGui::EndDisabled();
-            ImGui::TextWrapped("Harder: alerted guards can call more reinforcements while earlier ones are still alive. Works with any body count; co-op follows the host.");
-            ImGui::Spacing();
-            ImGui::Separator();
-            if (ImGui::Button("Original rules")) {
-                VrAlly = 0;
-                VrMinesStickToGuards = 0;
-                VrBodiesStay = 0;
-                VrRagdolls = VrDismemberment = 0;
-                if (online) gevrNetConfigSet(CFG_FAST_REINFORCEMENTS, 0);
-                else VrFastReinforcements = 0;
-                vrSettingsSave();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Done", ImVec2(-1, 0))) {
-                vrSettingsSave();
-                rulesPage = false;
-            }
-        } else if (cheatPage) {
-            // excl: a cheat ticking this one unticks (2x and 10x Health both
-            // set the health ceiling; cheat.c applies only the first)
-            struct CheatRow { const char *name; int id; bool cosmetic; int excl; };
-            static const CheatRow fun[] = {
-                { "DK mode (big heads)", 12, true }, { "Paintball mode", 15, true }, { "Line mode", 7, true },
-                { "Tiny Bond", 14, false }, { "Turbo mode", 24, false }, { "Invisibility", 10, false },
-                { "Fast animation", 26, false }, { "Slow animation", 27, false }, { "Enemy rockets", 28, false },
-            };
-            // with the retail game's hidden cheats (#95): 2x/10x Health,
-            // 2x Armor, Max ammo, Extra weapons are in cheat.c but have no
-            // unlock in the game's Cheat Options
-            static const CheatRow health[] = {
-                { "Invincibility", 2, false }, { "2x Health", 8, false, 16 }, { "10x Health", 16, false, 8 },
-                { "2x Armor", 9, false }, { "Infinite ammo", 11, false }, { "Max ammo", 4, false },
-            };
-            static const CheatRow arms[] = {
-                { "All guns", 3, false }, { "Extra weapons", 13, false },
-                { "Golden Gun", 19, false }, { "Silver PP7", 20, false }, { "Gold PP7", 21, false },
-                { "Magnum", 17, false }, { "Laser", 18, false }, { "2x Rocket launcher", 29, false },
-                { "2x Grenade launcher", 30, false }, { "2x RC-P90", 31, false }, { "2x Throwing knife", 32, false },
-                { "2x Hunting knife", 33, false }, { "2x Laser", 34, false },
-            };
-            auto row = [](const CheatRow& c) {
-                bool on = (VrCheatMask >> c.id) & 1ULL;
-                char label[64];
-                snprintf(label, sizeof(label), "%s%s", c.name, c.cosmetic ? "" : " *");
-                if (ImGui::Checkbox(label, &on)) {
-                    if (on) VrCheatMask |= 1ULL << c.id;
-                    else VrCheatMask &= ~(1ULL << c.id);
-                    if (on && c.excl) VrCheatMask &= ~(1ULL << c.excl);
-                    vrSettingsSave();
-                }
-            };
-            ImGui::TextColored(gold, "CHEATS");
-            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-            // a hack campaign skips this list (front.c gevrApplyLauncherCheats)
-            const bool hackCampaign = VrCampaign != GEVR_CAMPAIGN_GE;
-            ImGui::TextWrapped(hackCampaign ? "Off with a hack campaign chosen: use the game's own Cheat Options."
-                                            : "On from the next mission. * stops missions saving, as in the original game.");
-            ImGui::PopStyleColor();
-            if (ImGui::BeginTable("cheats", 3, ImGuiTableFlags_SizingStretchSame)) {
-                ImGui::TableNextColumn();
-                ImGui::TextColored(gold, "VR");
-                int prevGunCheat = VrGunSizeCheat;
-                ImGui::RadioButton("Normal guns", &VrGunSizeCheat, 0);
-                ImGui::RadioButton("Tiny guns", &VrGunSizeCheat, 1);
-                ImGui::RadioButton("Big guns", &VrGunSizeCheat, 2);
-                if (VrGunSizeCheat != prevGunCheat) {
-                    vrSettingsSave();
-                }
-                // three even columns: the launcher page does not scroll
-                ImGui::BeginDisabled(hackCampaign);
-                ImGui::TextColored(gold, "FUN");
-                for (int i = 0; i < 7; i++) row(fun[i]);
-                ImGui::TableNextColumn();
-                for (int i = 7; i < 9; i++) row(fun[i]);
-                ImGui::TextColored(gold, "HEALTH & AMMO");
-                for (const CheatRow& c : health) row(c);
-                ImGui::TextColored(gold, "WEAPONS");
-                for (int i = 0; i < 2; i++) row(arms[i]);
-                ImGui::TableNextColumn();
-                for (int i = 2; i < (int)(sizeof(arms) / sizeof(arms[0])); i++) row(arms[i]);
-                ImGui::EndDisabled();
-                ImGui::EndTable();
-            }
-            if (ImGui::Button("All off")) {
-                VrCheatMask = 0;
-                VrGunSizeCheat = 0;
-                vrSettingsSave();
-            }
-            ImGui::SameLine();
-            // Issue #54, as gepc-ref D257 Game.AllUnlocked: the game's own mission
-            // select and Cheat Options, fully open (port/src/main.c, front.c).
-            // Nothing is written to the saves.
-            {
-                bool unlock = VrUnlockAll != 0;
-                if (ImGui::Checkbox("Unlock all missions and cheats", &unlock)) {
-                    VrUnlockAll = unlock ? 1 : 0;
-                    vrSettingsSave();
-                }
-                if (ImGui::IsItemHovered()) {
-                    gevrTooltip("Every mission at every difficulty, 007 mode, and every cheat\n"
-                                      "in the game's own Cheat Options. Your save files are left as\n"
-                                      "they are; missions you finish still count as usual.");
-                }
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Done", ImVec2(-1, 0))) {
-                vrSettingsSave();
-                cheatPage = false;
-            }
-        } else {
-        gevrLauncherBeginBody("main-options");
-        gevrLauncherMainTabs(
-        [&]() {
-            ImGui::TextColored(gold, "PLAY MODE");
-            if (ImGui::RadioButton("Stereo VR (3D play)", &mode, 1)) {
-                VrPlayMode = VR_PLAYMODE_STEREO;
-                vrSettingsSave();
-            }
-            if (ImGui::RadioButton("Flat screen", &mode, 0)) {
-                VrPlayMode = VR_PLAYMODE_SCREEN;
-                vrSettingsSave();
-            }
-            gevrThirdPersonOptions(mode == 0);
-            ImGui::Spacing();
-            // Online play, co-op and bots: GoldenEye only. A hack's levels and
-            // characters sit under GoldenEye's numbers and peers do not compare
-            // campaigns, so the two sides would load different games.
-            ImGui::BeginDisabled(VrCampaign != GEVR_CAMPAIGN_GE);
-            if (ImGui::Button("Multiplayer...")) mpPage = true;
-            ImGui::EndDisabled();
-            ImGui::Spacing();
-            ImGui::TextColored(gold, "MODS & CHEATS");
-            if (ImGui::Button(gevrBeanIsEnabled() ? "Mods... (Bean on)" : g_ActiveExtTexPack[0] && strcmp(g_ActiveExtTexPack, "ge007-bean") != 0 ? "Mods... (HD textures on)" : "Mods..."))
-                modsPage = true;
-            int n = (VrGunSizeCheat ? 1 : 0) + (VrUnlockAll ? 1 : 0);
-            for (int b = 0; b < 64 && VrCampaign == GEVR_CAMPAIGN_GE; b++) n += (int)((VrCheatMask >> b) & 1ULL);
-            char label[48];
-            snprintf(label, sizeof(label), n ? "Cheats... (%d on)" : "Cheats...", n);
-            if (ImGui::Button(label)) cheatPage = true;
-            ImGui::SameLine();
-            const int rules = (VrAlly ? 1 : 0) + (VrMinesStickToGuards ? 1 : 0) + (VrBodiesStay ? 1 : 0) + (VrFastReinforcements ? 1 : 0) + (VrRagdolls ? 1 : 0) + (VrRagdolls && VrDismemberment ? 1 : 0);
-            snprintf(label, sizeof(label), rules ? "Game rules... (%d changed)" : "Game rules...", rules);
-            if (ImGui::Button(label)) rulesPage = true;
-            ImGui::Spacing();
-            ImGui::TextColored(gold, "DIAGNOSTICS & UPDATES");
-            bool stats = VrShowStats != 0;
-            if (ImGui::Checkbox("Show stats", &stats)) {
-                VrShowStats = stats ? 1 : 0;
-                vrSettingsSave();
-            }
-            bool tests = upd.testBuilds;
-            if (ImGui::Checkbox("Offer test builds", &tests)) {
-                upd.testBuilds = tests;
-                gevrUpdaterCommand(tests ? "testbuilds:1" : "testbuilds:0");
-            }
-        },
-        [&]() {
-            if (ImGui::BeginTable("controls-columns", 2, ImGuiTableFlags_SizingStretchSame)) {
-                ImGui::TableNextColumn();
-                ImGui::TextColored(gold, "HANDS & STICKS");
-                bool lefty = VrLeftHandedMode != 0;
-                if (ImGui::Checkbox("Left-handed", &lefty)) {
-                    VrLeftHandedMode = lefty ? 1 : 0;
-                    vrSettingsSave();
-                }
-                bool swap = VrSwapJoysticks != 0;
-                if (ImGui::Checkbox("Swap sticks", &swap)) {
-                    VrSwapJoysticks = swap ? 1 : 0;
-                    vrSettingsSave();
-                }
-                bool nolean = VrAimNoLean != 0;
-                if (ImGui::Checkbox("Aim: no lean", &nolean)) {
-                    VrAimNoLean = nolean ? 1 : 0;
-                    vrSettingsSave();
-                }
-                if (ImGui::IsItemHovered())
-                    gevrTooltip("Stereo: keep moving while holding the aim trigger.\nClick the left stick to crouch.");
-                bool sight = VrAimSight != 0;
-                if (ImGui::Checkbox("Aim: crosshair", &sight)) {
-                    VrAimSight = sight ? 1 : 0;
-                    vrSettingsSave();
-                }
-                if (ImGui::IsItemHovered())
-                    gevrTooltip("Stereo: show the crosshair (and the scope's sight)\nwhile holding a grip to aim.");
-                ImGui::Spacing();
-                ImGui::TextColored(gold, "AIM STEADYING (stereo)");
-                int steady = VrAimSteady < 0 ? 0 : VrAimSteady > 2 ? 2 : VrAimSteady;
-                bool steadyChanged = false;
-                steadyChanged |= ImGui::RadioButton("Off##steady", &steady, 0);
-                ImGui::SameLine();
-                steadyChanged |= ImGui::RadioButton("Low##steady", &steady, 1);
-                ImGui::SameLine();
-                steadyChanged |= ImGui::RadioButton("High##steady", &steady, 2);
-                if (steadyChanged) {
-                    VrAimSteady = steady;
-                    vrSettingsSave();
-                }
-                ImGui::Spacing();
-                ImGui::TextColored(gold, "WEAPON CONTROLS (stereo)");
-                if (ImGui::Button(VrGunFitArmed ? "Gun fit: on" : "Gun fit..."))
-                    VrGunFitArmed = !VrGunFitArmed;
-                if (ImGui::IsItemHovered())
-                    gevrTooltip("In the next level, with a gun in hand (stereo): the sticks move\n"
-                                      "the gun on your hand. With a gadget in hand they move, turn\n"
-                                      "(hold the right grip) and size the gadget. A saves, B undoes.\n"
-                                      "In single player, Menu + A starts and ends it during play.");
-                ImGui::SameLine();
-                if (ImGui::Button("Gestures...")) gesturesPage = true;
-                if (ImGui::IsItemHovered())
-                    gevrTooltip("Grip gestures (holster, use, pickup, mine re-grab),\nbody slots, hand reload and per-gun recoil.");
-                char throwLabel[64];
-                snprintf(throwLabel, sizeof(throwLabel), "Motion Throwing%s...", VrMotionThrowing ? "" : " (Off)");
-                if (ImGui::Button(throwLabel)) throwingPage = true;
-                if (ImGui::IsItemHovered())
-                    gevrTooltip("Configure motion throwing, throw strength, pitch trim, and gaze assist.");
-                ImGui::TableNextColumn();
-                ImGui::TextColored(gold, "FEEDBACK");
-                if (ImGui::Button("Haptics...")) hapticsPage = true;
-                ImGui::Spacing();
-                ImGui::TextColored(gold, "WATCH (stereo)");
-                ImGui::TextUnformatted("Watch face status");
-                bool watchChanged = false;
-                watchChanged |= ImGui::RadioButton("Off##watch", &VrWatchFaceStatus, GEVR_WATCH_FACE_OFF);
-                ImGui::SameLine();
-                watchChanged |= ImGui::RadioButton("On##watch", &VrWatchFaceStatus, GEVR_WATCH_FACE_ON);
-                ImGui::SameLine();
-                watchChanged |= ImGui::RadioButton("Only##watch", &VrWatchFaceStatus, GEVR_WATCH_FACE_ONLY);
-                if (watchChanged) {
-                    vrSettingsSave();
-                }
-                ImGui::TextWrapped("On: wrist and normal displays. Only: wrist during play. "
-                                   "Holster the offhand to see the watch. Pause-menu status stays visible.");
-                ImGui::EndTable();
-            }
-        },
-        [&]() {
-            if (ImGui::BeginTable("comfort-columns", 2, ImGuiTableFlags_SizingStretchSame)) {
-                ImGui::TableNextColumn();
-                ImGui::TextColored(gold, "TURNING (stereo)");
-                static const float snaps[] = {0.0f, 30.0f, 45.0f, 90.0f};
-                bool turnChanged = false;
-                turnChanged |= ImGui::RadioButton("Smooth", &turn, 0);
-                ImGui::SameLine();
-                turnChanged |= ImGui::RadioButton("Snap 30", &turn, 1);
-                turnChanged |= ImGui::RadioButton("Snap 45", &turn, 2);
-                ImGui::SameLine();
-                turnChanged |= ImGui::RadioButton("Snap 90", &turn, 3);
-                if (turnChanged) {
-                    VrUseSnapTurn = snaps[turn < 0 ? 0 : turn > 3 ? 3 : turn];
-                    vrSettingsSave();
-                }
-                ImGui::BeginDisabled(turn != 0);
-                ImGui::TextUnformatted("Turn speed");
-                ImGui::SetNextItemWidth(-1.0f);
-                if (ImGui::SliderInt("##TurnSpeed", &VrSmoothTurnSpeed, SMOOTHTURN_MIN, SMOOTHTURN_MAX, "%d deg/s")) {
-                    // steps of 15, as the watch's VR settings page steps it
-                    VrSmoothTurnSpeed = (VrSmoothTurnSpeed + SMOOTHTURN_STEP / 2) / SMOOTHTURN_STEP * SMOOTHTURN_STEP;
-                    vrSettingsSave();
-                }
-                ImGui::EndDisabled();
-                ImGui::Spacing();
-                gevrMovementSpeedOptions(false);
-                ImGui::Spacing();
-                ImGui::TableNextColumn();
-                ImGui::TextColored(gold, "MOVEMENT COMFORT (stereo)");
-                if (ImGui::Checkbox("Darken edges when moving", &vignetteOn)) {
-                    VrComfortVignette = vignetteOn ? vignette : 0.0f;
-                    vrSettingsSave();
-                }
-                ImGui::BeginDisabled(!vignetteOn);
-                ImGui::TextUnformatted("Vignette strength");
-                ImGui::SetNextItemWidth(-1.0f);
-                if (ImGui::SliderFloat("##VignetteStrength", &vignette, 0.1f, 1.0f, "%.1f")) {
-                    VrComfortVignette = vignette;
-                    vrSettingsSave();
-                }
-                ImGui::EndDisabled();
-                // #95, from GE Plus's comfort options: the push of a hit, the
-                // trigger dropped while the hit shows, the red flash
-                ImGui::Spacing();
-                ImGui::TextColored(gold, "WHEN HIT (stereo)");
-                bool noPush = VrNoKnockback != 0, noStun = VrNoHitstun != 0, flash = VrDamageFlash != 0;
-                if (ImGui::Checkbox("No knockback", &noPush)) {
-                    VrNoKnockback = noPush ? 1 : 0;
-                    vrSettingsSave();
-                }
-                if (ImGui::Checkbox("Keep firing when hit", &noStun)) {
-                    VrNoHitstun = noStun ? 1 : 0;
-                    vrSettingsSave();
-                }
-                if (ImGui::Checkbox("Red flash when hit", &flash)) {
-                    VrDamageFlash = flash ? 1 : 0;
-                    vrSettingsSave();
-                }
-                ImGui::EndTable();
-            }
-        },
-        [&]() {
-            ImGui::TextColored(gold, "SCREEN");
-            ImGui::TextWrapped("Both grips grab the screen; right stick: distance / size. "
-                               "Hold the left stick click to recentre it.");
-            int curved = VrScreenCurved;
-            bool curvedChanged = false;
-            curvedChanged |= ImGui::RadioButton("Flat", &curved, 0);
-            ImGui::SameLine();
-            ImGui::BeginDisabled(!vr_screen_curve_supported());
-            curvedChanged |= ImGui::RadioButton("Curved", &curved, 1);
-            ImGui::EndDisabled();
-            if (curvedChanged) {
-                VrScreenCurved = curved;
-                vrSettingsSave();
-            }
-            bool pass = VrScreenPassthrough != 0;
-            ImGui::BeginDisabled(!vr_passthrough_supported());
-            if (ImGui::Checkbox("Passthrough background", &pass)) {
-                VrScreenPassthrough = pass ? 1 : 0;
-                vrSettingsSave();
-            }
-            ImGui::EndDisabled();
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                gevrTooltip("Show your room behind the 2D screen instead of black.");
-            float size = VrScreenFov, dist = VrScreenDistance;
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
-            if (ImGui::SliderFloat("Size", &size, VR_SCREEN_FOV_MIN, VR_SCREEN_FOV_MAX, "%.0f deg")) {
-                vr_screen_resize(VrScreenDistance, size);
-                vrSettingsSave();
-            }
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
-            if (ImGui::SliderFloat("Distance", &dist, VR_SCREEN_DISTANCE_MIN, VR_SCREEN_DISTANCE_MAX, "%.1f m")) {
-                vr_screen_resize(dist, VrScreenFov);
-                vrSettingsSave();
-            }
-            ImGui::Spacing();
-            ImGui::TextColored(gold, "DISPLAY RATE");
-            // Application SpaceWarp (vr_openxr.cpp): on the heading's line too, so the
-            // page does not grow. It takes effect from the next level on.
-            {
-                ImGui::SameLine();
-                bool spaceWarp = vr_spacewarp_setting_on() != 0;
-                ImGui::BeginDisabled(!vr_spacewarp_supported());
-                if (ImGui::Checkbox("SpaceWarp", &spaceWarp)) {
-                    VrSpaceWarp = spaceWarp ? 1 : 0;
-                    vrSettingsSave();
-                }
-                ImGui::EndDisabled();
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                    gevrTooltip("The game draws half the frames and the headset makes the ones "
-                                      "between from motion and depth: Bean holds 120 Hz while turning, with a little "
-                                      "more latency. Text locked to your view can shimmer. On by default with Bean at 120 Hz.");
-            }
-            // XBLA / Bean's frames take longer than 120 Hz's 8.3 ms when turning
-            // in open levels (Dam on Quest 3: 197 missed frames in three
-            // minutes of turning at 120 Hz, 17 at 90). A warning on the
-            // heading's line, as long as it fits: the page must not grow or scroll.
-            if (gevrBeanIsEnabled() && VrRefreshRate > 90 && !vr_spacewarp_setting_on()) {
-                const char *why = "XBLA / Bean's models and textures can take longer than a 120 Hz frame "
-                                  "while turning in open levels, which stutters. 90 Hz holds nearly every frame.";
-                if (ImGui::IsItemHovered())
-                    gevrTooltip("%s", why);
-                const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
-                const float from = ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x;
-                const char *warn = from + ImGui::CalcTextSize("90 Hz advised for Bean").x <= right
-                    ? "90 Hz advised for Bean" : "Bean: 90 Hz";
-                if (from + ImGui::CalcTextSize(warn).x <= right) {
-                    ImGui::SameLine();
-                    ImGui::TextColored(bad, "%s", warn);
-                    if (ImGui::IsItemHovered())
-                        gevrTooltip("%s", why);
-                }
-            }
-            std::vector<int> rates(vr_get_supported_refresh_rates(nullptr, 0));
-            const int count = vr_get_supported_refresh_rates(rates.data(), (int)rates.size());
-            const int prevRate = VrRefreshRate;
-            gevrDisplayRateControls(&VrRefreshRate, rates.data(), count);
-            if (VrRefreshRate != prevRate) {
-                vrSettingsSave();
-            }
-            // Anti-aliasing: the eye images multisampled (vr_attach_eye_fbo), live. No
-            // supersampling choice: 1.5x slowed Bean at 120 Hz with SpaceWarp and the
-            // user saw little gain (2026-10-17); Video.VRRenderScale still sets it.
-            // No 4x: it looked the same as 2x and cost Bean's eye pass 1.2 ms more,
-            // which on battery dropped the game to 47-52 fps (2026-10-17).
-            {
-                static const int samples[] = {1, 2};
-                static const char *const sampleNames[] = {"Off", "2x"};
-                int sample = VrEyeMsaa >= 2 ? 1 : 0;
-                ImGui::BeginDisabled(!vr_eye_msaa_supported());
-                if (gevrRadioRow("Anti-aliasing", sampleNames, 2, &sample,
-                                 "Smooths jagged edges (multisample anti-aliasing). Changes right away. "
-                                 "Higher costs more GPU time, which the headset has less of on battery.")) {
-                    VrEyeMsaa = samples[sample];
-                    vrSettingsSave();
-                }
-                ImGui::EndDisabled();
-            }
-        });
-        ImGui::Separator();
-        // Update line: only when there is something to say, so an
-        // up-to-date launcher looks as it always has.
-        bool updLine = upd.state == "available" || upd.state == "downloading"
-            || upd.state == "permission" || upd.state == "installing"
-            || upd.state == "error" || !upd.message.empty();
-        if (updLine) {
-            if (upd.state == "available") {
-                ImGui::TextColored(gold, "Update available: v%s", upd.offered.c_str());
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Update")) gevrUpdaterCommand("update");
-                if (!upd.message.empty()) {
-                    // wrapped: the row ends at the panel's edge
-                    ImGui::SameLine();
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-                    ImGui::TextWrapped("%s", upd.message.c_str());
-                    ImGui::PopStyleColor();
-                }
-            } else if (upd.state == "downloading") {
-                // Cancel on the left of every busy line: a prompt closed from the
-                // shell may never report back, and this is the way out of it.
-                if (ImGui::SmallButton("Cancel##update")) gevrUpdaterCommand("cancel");
-                ImGui::SameLine();
-                if (upd.progress >= 0) {
-                    ImGui::TextColored(gold, "Downloading v%s... %d%%", upd.offered.c_str(), upd.progress);
-                } else {
-                    ImGui::TextColored(gold, "Downloading v%s...", upd.offered.c_str());
-                }
-            } else if (upd.state == "permission" || upd.state == "installing") {
-                if (ImGui::SmallButton("Cancel##update")) gevrUpdaterCommand("cancel");
-                ImGui::SameLine();
-                ImGui::PushStyleColor(ImGuiCol_Text, gold);
-                ImGui::TextWrapped("%s", upd.message.c_str());
-                ImGui::PopStyleColor();
-            } else if (upd.state == "error") {
-                if (ImGui::SmallButton("Retry##update")) gevrUpdaterCommand("retry");
-                ImGui::SameLine();
-                ImGui::PushStyleColor(ImGuiCol_Text, bad);
-                ImGui::TextWrapped("%s", upd.message.c_str());
-                ImGui::PopStyleColor();
-            } else if (!upd.message.empty()) {
-                ImGui::PushStyleColor(ImGuiCol_Text, good);
-                ImGui::TextWrapped("%s", upd.message.c_str());   // "Updated to v0.1.13."
-                ImGui::PopStyleColor();
-            }
-        }
-        ImGui::EndChild();
-        ImGui::Separator();
         {
             // About once a second, not every frame: each check opens a 16-24 MB
             // file on the headset's shared storage. A pick lands as
@@ -3958,6 +3236,162 @@ extern "C" void gevrLauncherRun(void)
                 }
             }
         }
+        float footerTop = -1.0f;   // where the START footer starts, measured to the hint's end
+        if (reportPage) {
+            gevrReportPage(reportPage, reportCrash, gold, good, bad);
+        } else {
+        // The frame (docs/launcher-unify.md): the tab rows, the open page, and
+        // under it the update line, START and the campaign. Multiplayer draws
+        // its own buttons in START's place. Settings are the table's rows
+        // (port/src/gevr_settings.c), the in-game screen's too.
+        const bool updLine = upd.state == "available" || upd.state == "downloading"
+            || upd.state == "permission" || upd.state == "installing"
+            || upd.state == "error" || !upd.message.empty();
+        const float footerH = s_launcherFooterH > 0.0f ? s_launcherFooterH
+            : gevrLauncherFooterHeight() + (updLine ? ImGui::GetTextLineHeightWithSpacing() : 0.0f);
+        const GevrSettingsApi settings = gevrSettingsLive();
+        auto note = [](const char *text) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            ImGui::TextWrapped("%s", text);
+            ImGui::PopStyleColor();
+        };
+        gevrLauncherTabRows(launcherTabs, [&](int tab, int sub) {
+            if (tab == GEVR_LTAB_MULTIPLAYER) {
+                // Online play, co-op and bots: GoldenEye only. A hack's levels and
+                // characters sit under GoldenEye's numbers and peers do not compare
+                // campaigns, so the two sides would load different games.
+                if (VrCampaign != GEVR_CAMPAIGN_GE && !netIsActive()) {
+                    note("Online play, co-op and bots are GoldenEye's: choose GoldenEye beside START, on any other tab.");
+                    return;
+                }
+                bool open = true;
+                gevrMultiplayerPage(open, start, romReady, gold, good, bad);
+                if (!open) launcherTabs.open(GEVR_LTAB_PLAY);
+                return;
+            }
+            gevrLauncherBeginPage("launcher-page", footerH);
+            switch (tab) {
+            case GEVR_LTAB_PLAY: {
+                gevrSettingsSection(settings, GEVR_LSEC_PLAY, GEVR_SET_LAUNCHER);
+                ImGui::Spacing();
+                bool tests = upd.testBuilds;
+                if (ImGui::Checkbox("Offer test builds", &tests)) {
+                    upd.testBuilds = tests;
+                    gevrUpdaterCommand(tests ? "testbuilds:1" : "testbuilds:0");
+                }
+                if (ImGui::IsItemHovered()) gevrTooltip("Pre-release builds show up as updates too.");
+                break;
+            }
+            case GEVR_LTAB_CONTROLS:
+                if (sub == GEVR_LSUB_HANDS) {
+                    gevrSettingsSection(settings, GEVR_LSEC_HANDS, GEVR_SET_LAUNCHER);
+                    note("Gun fit: in the next level, with a gun in hand, the sticks move the gun on your hand; "
+                         "A saves, B undoes. In single player, Menu + A starts and ends it during play.");
+                } else if (sub == GEVR_LSUB_GESTURES) {
+                    // GEVR PC's grip gestures (its CONTROLS.md, vr450..vr453), Perfect Dark VR's hand reload
+                    note("Stereo. Squeeze the grip with the hand in place; anywhere else the grip aims as before.");
+                    gevrSettingsSection(settings, GEVR_LSEC_GESTURES, GEVR_SET_LAUNCHER);
+                } else if (sub == GEVR_LSUB_THROWING) {
+                    note("Hold Grip on grenades, knives and mines, swing your arm and let go to throw. "
+                         "Grip + Trigger cooks a grenade.");
+                    gevrSettingsSection(settings, GEVR_LSEC_THROWING, GEVR_SET_LAUNCHER);
+                } else {
+                    gevrHapticsPage(gold, good, bad);
+                }
+                break;
+            case GEVR_LTAB_COMFORT:
+                gevrSettingsSection(settings, GEVR_LSEC_COMFORT, GEVR_SET_LAUNCHER);
+                break;
+            case GEVR_LTAB_SCREEN:
+                note("Both grips grab the screen; the right stick sets its distance and size. "
+                     "Hold the left stick click to recentre it.");
+                gevrSettingsSection(settings, GEVR_LSEC_SCREEN, GEVR_SET_LAUNCHER);
+                // XBLA / Bean's frames take longer than 120 Hz's 8.3 ms when turning
+                // in open levels (Dam on Quest 3: 197 missed frames in three
+                // minutes of turning at 120 Hz, 17 at 90).
+                if (gevrBeanIsEnabled() && VrRefreshRate > 90 && !vr_spacewarp_setting_on()) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, bad);
+                    ImGui::TextWrapped("Bean can stutter at 120 Hz while turning in open levels: "
+                                       "90 Hz, or SpaceWarp, holds nearly every frame.");
+                    ImGui::PopStyleColor();
+                }
+                break;
+            case GEVR_LTAB_RULES:
+                if (sub == GEVR_LSUB_GAME_RULES) {
+                    // Game rules GEVR PC changed (vr450.2, its CORPSEKEEP); off keeps the original game's rule
+                    note("Off keeps the original rules. Mines are solo; with ragdolls on, bodies stay in every mode. "
+                         "Fast reinforcements works in co-op too, the host's.");
+                    gevrSettingsSection(settings, GEVR_LSEC_RULES, GEVR_SET_LAUNCHER);
+                    ImGui::Spacing();
+                    if (ImGui::Button("Original rules")) {
+                        VrAlly = 0;
+                        VrMinesStickToGuards = 0;
+                        VrBodiesStay = 0;
+                        VrRagdolls = VrDismemberment = 0;
+                        if (netIsActive()) gevrNetConfigSet(CFG_FAST_REINFORCEMENTS, 0);
+                        else VrFastReinforcements = 0;
+                        vrSettingsSave();
+                    }
+                } else if (sub == GEVR_LSUB_ALLY) {
+                    // #194: Natalya as a companion (src/game/gevr_ally.c). The host's choice in co-op and Horde.
+                    note("GoldenEye solo, campaign co-op and Horde: one companion for the party. The host chooses; "
+                         "changes apply from the next mission or Horde retry.");
+                    gevrSettingsSection(settings, GEVR_LSEC_ALLY, GEVR_SET_LAUNCHER);
+                } else {
+                    gevrCheatsPage(settings, gold);
+                }
+                break;
+            case GEVR_LTAB_MODS:
+                gevrModsPage(now, gold, good, bad);
+                break;
+            }
+            ImGui::EndChild();
+        });
+        if (launcherTabs.top != GEVR_LTAB_MULTIPLAYER) footerTop = ImGui::GetCursorPosY();
+        if (launcherTabs.top != GEVR_LTAB_MULTIPLAYER) {
+        ImGui::Separator();
+        // Update line: only when there is something to say, so an
+        // up-to-date launcher looks as it always has.
+        if (updLine) {
+            if (upd.state == "available") {
+                ImGui::TextColored(gold, "Update available: v%s", upd.offered.c_str());
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Update")) gevrUpdaterCommand("update");
+                if (!upd.message.empty()) {
+                    // wrapped: the row ends at the panel's edge
+                    ImGui::SameLine();
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                    ImGui::TextWrapped("%s", upd.message.c_str());
+                    ImGui::PopStyleColor();
+                }
+            } else if (upd.state == "downloading") {
+                // Cancel on the left of every busy line: a prompt closed from the
+                // shell may never report back, and this is the way out of it.
+                if (ImGui::SmallButton("Cancel##update")) gevrUpdaterCommand("cancel");
+                ImGui::SameLine();
+                if (upd.progress >= 0) {
+                    ImGui::TextColored(gold, "Downloading v%s... %d%%", upd.offered.c_str(), upd.progress);
+                } else {
+                    ImGui::TextColored(gold, "Downloading v%s...", upd.offered.c_str());
+                }
+            } else if (upd.state == "permission" || upd.state == "installing") {
+                if (ImGui::SmallButton("Cancel##update")) gevrUpdaterCommand("cancel");
+                ImGui::SameLine();
+                ImGui::PushStyleColor(ImGuiCol_Text, gold);
+                ImGui::TextWrapped("%s", upd.message.c_str());
+                ImGui::PopStyleColor();
+            } else if (upd.state == "error") {
+                if (ImGui::SmallButton("Retry##update")) gevrUpdaterCommand("retry");
+                ImGui::SameLine();
+                ImGui::PushStyleColor(ImGuiCol_Text, bad);
+                ImGui::TextWrapped("%s", upd.message.c_str());
+                ImGui::PopStyleColor();
+            } else if (!upd.message.empty()) {
+                ImGui::PushStyleColor(ImGuiCol_Text, good);
+                ImGui::TextWrapped("%s", upd.message.c_str());   // "Updated to v0.1.13."
+                ImGui::PopStyleColor();
+            }
+        }
         const bool campaignReady = VrCampaign == GEVR_CAMPAIGN_GE
             || (VrCampaign == GEVR_CAMPAIGN_GF64 && gfGood)
             || (VrCampaign == GEVR_CAMPAIGN_TND64 && tndGood)
@@ -4000,7 +3434,8 @@ extern "C" void gevrLauncherRun(void)
                    : VrCampaign == GEVR_CAMPAIGN_MIRROR ? "Solo, with its own save. Online play and GoldenEye X are off."
                    : "Solo, with its own save. Online play, GoldenEye X, Bean and HD packs are off.";
         footerBad = !campaignFail.empty();
-        }   // cheatPage
+        }   // the START footer
+        }   // reportPage
         if (footerNote.empty()) {
             ImGui::TextDisabled("Point and pull the trigger, or use the stick and A.");
         } else {
@@ -4009,6 +3444,7 @@ extern "C" void gevrLauncherRun(void)
             ImGui::PopStyleColor();
             footerNote.clear();
         }
+        if (footerTop >= 0.0f) s_launcherFooterH = ImGui::GetCursorPosY() - footerTop;
         ImGui::End();
         gevrFriendsSidebarWindow(onlineGame, gold, good, bad);
         ImGui::Render();
@@ -4035,10 +3471,6 @@ extern "C" void gevrLauncherRun(void)
     }
 
     vr_screen_set_width_scale(1.0f);   // the game's screen and the pause are 4:3 again
-    VrPlayMode = mode ? VR_PLAYMODE_STEREO : VR_PLAYMODE_SCREEN;
-    static const float snaps[] = {0.0f, 30.0f, 45.0f, 90.0f};
-    VrUseSnapTurn = snaps[turn < 0 ? 0 : turn > 3 ? 3 : turn];
-    VrComfortVignette = vignetteOn ? vignette : 0.0f;
     vrSettingsSave();
     vr_apply_refresh_rate();
     vr_log("launcher: start (%s, snap %.0f, vignette %.2f)", VrPlayMode ? "stereo" : "screen",

@@ -58,18 +58,22 @@ for(ceApplied=0;ceApplied<2;ceApplied++)
             ImGui::Begin("Launcher",nullptr,ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoSavedSettings);
             ImGui::Dummy(ImVec2(0,ImGui::GetTextLineHeight()*2.2f+ImGui::GetStyle().ItemSpacing.y));
             ImGui::Separator();ImGui::Button("ROM: ok",ImVec2(-1,0));ImGui::Separator();
-            bool open=true;clockMs+=300;
-            gevrModsPage(open,clockMs,ImVec4(1,.8f,.3f,1),ImVec4(.5f,1,.5f,1),ImVec4(1,.5f,.4f,1));
-            // the launcher's one-line hint, drawn under every page (vr_launcher.cpp)
-            ImGui::TextDisabled("Point and pull the trigger, or use the stick and A.");
+            clockMs+=300;
+            // the Mods tab (gevrLauncherTabRows): the top tab row, then the page above START's footer
+            ImGui::Dummy(ImVec2(0,ImGui::GetFrameHeight()));
+            gevrLauncherBeginPage("launcher-page",gevrLauncherFooterHeight());
+            gevrModsPage(clockMs,ImVec4(1,.8f,.3f,1),ImVec4(.5f,1,.5f,1),ImVec4(1,.5f,.4f,1));
             auto *win=ImGui::GetCurrentWindow();
-            if(pass==2 && (win->DC.CursorMaxPos.y>win->ClipRect.Max.y || win->DC.CursorMaxPos.x>win->ClipRect.Max.x)){
-                std::fprintf(stderr,"Mods overflow: %s update%d bean%d ce%d extent %.1f %.1f limit %.1f %.1f\n",state,update,bean,ceApplied,win->DC.CursorMaxPos.x,win->DC.CursorMaxPos.y,win->ClipRect.Max.x,win->ClipRect.Max.y);return 1;
+            const bool over=win->DC.CursorMaxPos.y>win->ClipRect.Max.y || win->DC.CursorMaxPos.x>win->ClipRect.Max.x;
+            const ImVec2 extent=win->DC.CursorMaxPos, limit=win->ClipRect.Max;
+            ImGui::EndChild();
+            if(pass==2 && over){
+                std::fprintf(stderr,"Mods overflow: %s update%d bean%d ce%d extent %.1f %.1f limit %.1f %.1f\n",state,update,bean,ceApplied,extent.x,extent.y,limit.x,limit.y);return 1;
             }
             ImGui::End();ImGui::Render();
         }
     }
-    ImGui::DestroyContext();puts("PASS: production Mods page, including Bean and its Community Edition, progress, errors and updates, and the hint under it fit at Quest font size without scrolling");
+    ImGui::DestroyContext();puts("PASS: production Mods tab, including Bean and its Community Edition, progress, errors and updates, fits above START at Quest font size without scrolling");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='gevr-mods-ui-') as d:

@@ -286,8 +286,13 @@ is goldeneyevr.com, in its own repository.
   Control's first minute on, at any rate (reports#13, 3c3033c3, bbe7be96).
   ShowStats also logs a per-second "loco: clamps ... resets ..." line.
 - v0.5.15-test.16 (vc 111, protocol 26): weapon-cycle tap skips empty guns
-  and keeps the out-of-ammo pick (ee729f9a). Launcher unification planned
-  in docs/launcher-unify.md, not started.
+  and keeps the out-of-ammo pick (ee729f9a).
+- Unreleased: launcher unification (docs/launcher-unify.md) phases 1-2. One
+  settings table (port/src/gevr_settings.c) drawn by the hold-Menu panel and
+  the launcher; the launcher's tabs Play, Multiplayer, Controls (Hands,
+  Gestures, Throwing, Haptics), Comfort, Screen, Rules (Game rules, AI ally,
+  Cheats), Mods, no Done buttons, no scrolling (test_launcher_frame.py).
+  Next: phase 3, Multiplayer in the frame.
 - Crash reports land as issues in the private MrSco/goldeneye-vr-reports,
   decoded by its Digest workflow; each build's symbols zip goes to its
   "symbols" release.

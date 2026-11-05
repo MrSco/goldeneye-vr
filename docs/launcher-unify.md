@@ -165,6 +165,50 @@ batch's branch.
    - Today's marker-cut fixtures in `test_launcher_ui`, `test_pause_ui` and
      `test_friends_ui` are rewritten against the frame.
 
+## Progress
+
+**Phase 1, done (7e3a9d7f).**
+
+- The table is `port/src/gevr_settings.c`, with its header `port/include/gevr_settings.h`.
+- `port/vr/gevr_settings_ui.h` draws it:
+  - a toggle is a checkbox;
+  - a choice is a dropdown;
+  - a range is a slider with Reset.
+- A section with more than seven rows takes two columns.
+- The hold-Menu panel draws the table, and `options.c`'s watch rows are gone.
+
+**Phase 2, done.**
+
+- **Launcher places.** Each row also has a launcher place (`GEVR_LSEC_*`). By default it
+  follows the row's section. A few rows move:
+  - Play holds the play mode, third person with its camera, and Show stats.
+  - The watch face goes on Hands.
+  - Gun size goes with the cheats.
+- **Launcher-only rows.** The play mode and the AI ally's six rows show only in the
+  launcher. Show slots is new and shows in both.
+- **Rows that depend on another** are greyed out, with the reason:
+  - turn speed under snap turning;
+  - the throw rows without motion throw;
+  - Pull disarm and Pull visuals without force pull;
+  - the slot rows without body slots;
+  - third person in stereo.
+- **Frame.** `gevrLauncherTabRows` in `gevr_launcher_ui.h` draws:
+  - Play, Multiplayer, Controls (Hands · Gestures · Throwing · Haptics), Comfort,
+    Screen, Rules (Game rules · AI ally · Cheats) and Mods;
+  - each page above a START footer measured every frame.
+- **Gone:** the Done buttons, and the launcher's own copies of the settings.
+- **Pages that keep their own drawing:**
+  - **Haptics:** its table scrolls inside its box.
+  - **Cheats:** set closer, to fit under two tab rows.
+  - **Mods:** its packs. Each pack now takes one line, with the error in the status's
+    place. Bean, GE-X, the blood patch and the hat stay with their packs here. In game
+    they are table rows.
+  - **Multiplayer:** unchanged inside its tab until phase 3, with its own Host/Join and
+    page rows.
+- **Fit test.** `port/tests/test_launcher_frame.py` draws every settings page at its
+  fullest against the real table. Every page must fit with no scrolling, and so must
+  the tab rows, the update line and START.
+
 ## Risks
 
 - **The watch's VR page** (`options.c`) has its own retail navigation. Phase 1 keeps its

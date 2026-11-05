@@ -45,6 +45,8 @@ extern float VrDismemberDamage;
 extern int VrGexGuns;
 extern int VrBeanFillTextures, VrBloodPatch, VrOddjobHat;
 extern int VrEyeMsaa;
+extern int VrPlayMode, VrBodySlotShow, VrCampaign;
+extern int VrAlly, VrAllyWeapon, VrAllyAggression, VrAllyHealth, VrAllyDamage, VrAllyInvincible;
 extern int gevrHatAvailable(void);
 extern int gevrBeanIsAvailable(void), gevrBeanIsEnabled(void);
 extern void gevrBeanSetEnabled(int on);
@@ -83,6 +85,7 @@ typedef struct Row {
     int kind;
     int section;
     unsigned where;
+    int lsection;                   /* the launcher's place + 1; 0: the section's (s_launcherOf) */
     /* the value: an int or a float */
     int *ivar;
     float *fvar;
@@ -123,8 +126,31 @@ static const char *blockedMsaa(void) { return vr_eye_msaa_supported() ? NULL : "
 static const char *blockedDismember(void) { return VrRagdolls ? NULL : "Needs ragdolls"; }
 static const char *blockedBean(void) { return gevrBeanIsAvailable() ? NULL : "Needs Bean's files"; }
 static const char *blockedSpaceWarp(void) { return vr_spacewarp_supported() ? NULL : "Not on this headset"; }
+static const char *blockedSlots(void) { return VrBodySlots ? NULL : "Needs body slots"; }
+static const char *blockedPull(void) { return VrForcePull ? NULL : "Needs force pull"; }
+static const char *blockedThrow(void) { return VrMotionThrowing ? NULL : "Needs motion throw"; }
+static const char *blockedTurnSpeed(void) { return VrUseSnapTurn > 0.0f ? "Smooth turning only" : NULL; }
+static const char *blockedThirdPerson(void) { return VrPlayMode ? "Flat screen only" : NULL; }
+/* The AI ally (#194, src/game/gevr_ally.c): GoldenEye solo, co-op and Horde, the host's */
+static const char *blockedAlly(void)
+{
+    if (VrCampaign != 0) return "GoldenEye only";
+    if (netIsActive() && !gevrNetConfigPve()) return "Co-op and Horde only";
+    if (netIsActive() && !netIsHost()) return "Host's choice";
+    return NULL;
+}
+static const char *blockedAllyPart(void)
+{
+    const char *why = blockedAlly();
+    return why ? why : VrAlly ? NULL : "Needs the ally on";
+}
+static const char *blockedAllyHealth(void)
+{
+    const char *why = blockedAllyPart();
+    return why ? why : VrAllyInvincible ? "Invincible" : NULL;
+}
 
-static int shownThirdPerson(void) { return VrThirdPerson != 0; }
+static int shownThirdPerson(void) { return VrThirdPerson != 0 && !VrPlayMode; }
 static int shownDismember(void) { return VrRagdolls && VrDismemberment; }
 
 static void setScreenFov(float v) { vr_screen_resize(VrScreenDistance, v); }
@@ -175,7 +201,7 @@ static const char *blockedMove(void) { return netIsActive() && !netIsHost() ? "H
 /* Fast reinforcements: a solo preference; in co-op the host's rule */
 static int fastGet(void)
 {
-    if (netIsActive()) return gevrCoopActive() && gevrCoopFastReinforcements() ? 1 : 0;
+    if (netIsActive()) return gevrNetConfigCoop() && gevrCoopFastReinforcements() ? 1 : 0;
     return VrFastReinforcements != 0;
 }
 static void fastSet(int i)
@@ -188,13 +214,13 @@ static void fastSet(int i)
 static int fastPositions(void) { return 2; }
 static void fastText(int i, char *b, int n)
 {
-    if (netIsActive()) snprintf(b, n, "%s", !gevrCoopActive() ? "N/A" : i ? "Host: on" : "Host: off");
+    if (netIsActive()) snprintf(b, n, "%s", !gevrNetConfigCoop() ? "N/A" : i ? "Host: on" : "Host: off");
     else snprintf(b, n, "%s", i ? "On" : "Off");
 }
 static const char *blockedFast(void)
 {
     if (!netIsActive()) return NULL;
-    if (!gevrCoopActive()) return "Co-op only";
+    if (!gevrNetConfigCoop()) return "Co-op only";
     return netIsHost() ? NULL : "Host's choice";
 }
 
@@ -254,6 +280,14 @@ static const int s_touch[] = { 0, 1, 2, 3, 4 };
 static const char *const s_touchNames[] = { "Auto", "Quest", "Quest 2", "Plus", "Pro" };
 static const int s_msaa[] = { 1, 2 };
 static const char *const s_msaaNames[] = { "Off", "2x" };
+static const int s_two[] = { 0, 1 };
+static const char *const s_playNames[] = { "Flat screen", "Stereo VR" };
+static const int s_ten[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
+static const char *const s_allyGunNames[] = { "PP7", "Silenced PP7", "DD44", "KF7 Soviet", "D5K Deutsche",
+                                              "ZMG", "AR33", "RC-P90", "Shotgun", "Automatic shotgun" };
+static const char *const s_allyMoodNames[] = { "Cautious", "Normal", "Aggressive" };
+
+#define L(x) ((x) + 1)   /* a row's launcher place, when not its section's */
 
 #define TOGGLE(sec, lab, var, tip) \
     { .label = lab, .tooltip = tip, .kind = GEVR_SET_TOGGLE, .section = sec, .where = GEVR_SET_BOTH, .ivar = &var, .def = NAN }
@@ -272,7 +306,8 @@ static const Row s_rows[] = {
            "Smooth turning, or snapping by a set angle."),
     { .label = "Turn speed", .tooltip = "Smooth turning's speed, degrees a second.", .kind = GEVR_SET_RANGE,
       .section = GEVR_SEC_COMFORT, .where = GEVR_SET_BOTH, .ivar = &VrSmoothTurnSpeed,
-      .lo = SMOOTHTURN_MIN, .hi = SMOOTHTURN_MAX, .step = SMOOTHTURN_STEP, .scale = 1, .fmt = "%.0f", .def = 120 },
+      .lo = SMOOTHTURN_MIN, .hi = SMOOTHTURN_MAX, .step = SMOOTHTURN_STEP, .scale = 1, .fmt = "%.0f", .def = 120,
+      .blocked = blockedTurnSpeed },
     { .label = "Vignette", .tooltip = "Darkens the edges of your view while you move or turn.", .kind = GEVR_SET_RANGE,
       .section = GEVR_SEC_COMFORT, .where = GEVR_SET_BOTH, .fvar = &VrComfortVignette,
       .lo = 0, .hi = 1, .step = 0.1f, .scale = 1, .fmt = "%.1f", .zero = "Off", .def = 0 },
@@ -292,7 +327,11 @@ static const Row s_rows[] = {
     /* Gestures */
     TOGGLE(GEVR_SEC_GESTURES, "Watch gesture", VrWatchGesturePause, "Raise your watch to open it."),
     TOGGLE(GEVR_SEC_GESTURES, "Body slots WIP", VrBodySlots, "Holsters on your body: reach and grip to draw or put away."),
-    CHOICE(GEVR_SEC_GESTURES, "Slot size", VrBodySlotSize, s_three, s_slotSizeNames, "How big the body slots are."),
+    { .label = "Slot size", .tooltip = "How far from a slot your hand still reaches it.", .kind = GEVR_SET_CHOICE,
+      .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrBodySlotSize, .ivalues = s_three,
+      .names = s_slotSizeNames, .count = 3, .def = NAN, .blocked = blockedSlots },
+    { .label = "Show slots", .tooltip = "Draw what the hips, chest and belt hold when you look down.", .kind = GEVR_SET_TOGGLE,
+      .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrBodySlotShow, .def = NAN, .blocked = blockedSlots },
     { .label = "Holster WIP", .tooltip = "Grip at your hip to holster or draw.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrGestureHolster, .def = NAN, .blocked = blockedHolster },
     { .label = "Hand reload WIP", .tooltip = "Reload by taking a magazine from your belt (GoldenEye X guns).", .kind = GEVR_SET_TOGGLE,
@@ -302,9 +341,13 @@ static const Row s_rows[] = {
     TOGGLE(GEVR_SEC_GESTURES, "Grip hand WIP", VrGesturePickup, "Grip near a gun or item to take it into that hand."),
     TOGGLE(GEVR_SEC_GESTURES, "Mine re-grab", VrGestureMineGrab, "Grip your own stuck mine to take it back."),
     TOGGLE(GEVR_SEC_GESTURES, "Force pull WIP", VrForcePull, "Point an empty hand at a gun or item and squeeze: it flies to you."),
-    TOGGLE(GEVR_SEC_GESTURES, "Pull disarm", VrPullDisarm, "Force pull can take a gun out of a guard's hand."),
+    { .label = "Pull disarm", .tooltip = "Force pull can take a gun out of a guard's hand. Never another player's.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrPullDisarm,
+      .def = NAN, .blocked = blockedPull },
     TOGGLE(GEVR_SEC_GESTURES, "Auto pickup", VrAutoPickup, "Walking over a gun picks it up. Off: grab or pull guns."),
-    TOGGLE(GEVR_SEC_GESTURES, "Pull visuals", VrPullVisuals, "The glow, ring and line on what force pull points at."),
+    { .label = "Pull visuals", .tooltip = "The glow, ring and line on what force pull points at. The buzz stays.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrPullVisuals,
+      .def = NAN, .blocked = blockedPull },
 
     /* Weapons */
     { .label = "Gun recoil", .tooltip = "Each gun's own kick, or one for all.", .kind = GEVR_SET_TOGGLE,
@@ -312,15 +355,18 @@ static const Row s_rows[] = {
     TOGGLE(GEVR_SEC_WEAPONS, "Motion throw", VrMotionThrowing, "Throw grenades and knives with your arm."),
     { .label = "Throw power", .tooltip = "How far a throw goes for your swing.", .kind = GEVR_SET_RANGE,
       .section = GEVR_SEC_WEAPONS, .where = GEVR_SET_BOTH, .fvar = &VrMotionThrowStrength,
-      .lo = 0.5f, .hi = 2.0f, .step = 0.1f, .scale = 1, .fmt = "%.1fx", .def = 1.0f },
+      .lo = 0.5f, .hi = 2.0f, .step = 0.1f, .scale = 1, .fmt = "%.1fx", .def = 1.0f, .blocked = blockedThrow },
     { .label = "Throw pitch", .tooltip = "Tilts every throw up or down, degrees.", .kind = GEVR_SET_RANGE,
       .section = GEVR_SEC_WEAPONS, .where = GEVR_SET_BOTH, .fvar = &VrMotionThrowPitch,
-      .lo = -20, .hi = 20, .step = 2, .scale = 1, .fmt = "%+.0f", .def = 0 },
+      .lo = -20, .hi = 20, .step = 2, .scale = 1, .fmt = "%+.0f", .def = 0, .blocked = blockedThrow },
     { .label = "Throw gaze", .tooltip = "How much throws bend toward where you look.", .kind = GEVR_SET_RANGE,
       .section = GEVR_SEC_WEAPONS, .where = GEVR_SET_BOTH, .fvar = &VrMotionThrowGazeAssist,
-      .lo = 0, .hi = 1, .step = 0.1f, .scale = 100, .fmt = "%.0f%%", .def = 0.5f },
+      .lo = 0, .hi = 1, .step = 0.1f, .scale = 100, .fmt = "%.0f%%", .def = 0.5f, .blocked = blockedThrow },
 
     /* Display */
+    { .label = "Play mode", .tooltip = "Stereo VR: you are Bond. Flat screen: the game on a big screen.", .kind = GEVR_SET_CHOICE,
+      .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_LAUNCHER, .ivar = &VrPlayMode,
+      .ivalues = s_two, .names = s_playNames, .count = 2, .def = NAN },
     CUSTOM(GEVR_SEC_DISPLAY, "Refresh", GEVR_SET_CHOICE, refreshPositions, refreshGet, refreshSet, refreshText, 0,
            "The headset's display rate. Auto leaves it to the headset."),
     { .label = "SpaceWarp", .tooltip = "Draws half the frames and has the headset make the rest. "
@@ -330,9 +376,9 @@ static const Row s_rows[] = {
     { .label = "Anti-aliasing", .tooltip = "Smooths jagged edges. Changes right away; costs GPU time, which is short on battery.",
       .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrEyeMsaa,
       .ivalues = s_msaa, .names = s_msaaNames, .count = 2, .def = NAN, .blocked = blockedMsaa },
-    CHOICE(GEVR_SEC_DISPLAY, "Watch face", VrWatchFaceStatus, s_three, s_watchNames,
-           "Health, armour and radar on your watch. Only: and nowhere else."),
-    TOGGLE(GEVR_SEC_DISPLAY, "Show stats", VrShowStats, "Frame rate and timing in the corner, and in the log."),
+    { .label = "Watch face", .tooltip = "Health, armour and radar on your watch. Only: and nowhere else.", .kind = GEVR_SET_CHOICE,
+      .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_HANDS), .where = GEVR_SET_BOTH, .ivar = &VrWatchFaceStatus,
+      .ivalues = s_three, .names = s_watchNames, .count = 3, .def = NAN },
     { .label = "Screen size", .tooltip = "The flat screen's size, degrees across.", .kind = GEVR_SET_RANGE,
       .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .fvar = &VrScreenFov,
       .lo = SCREEN_FOV_MIN, .hi = SCREEN_FOV_MAX, .step = 5, .scale = 1, .fmt = "%.0f", .def = NAN, .fset = setScreenFov },
@@ -343,17 +389,21 @@ static const Row s_rows[] = {
       .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrScreenCurved, .def = NAN, .blocked = blockedCurved },
     { .label = "Passthrough", .tooltip = "Your room around the flat screen.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrScreenPassthrough, .def = NAN, .blocked = blockedPassthrough },
-    TOGGLE(GEVR_SEC_DISPLAY, "Third person", VrThirdPerson,
-           "The camera follows behind Bond in the flat screen, solo. Aiming, the watch and the tank go back to first person."),
+    { .label = "Third person", .tooltip = "The camera follows behind Bond in the flat screen, solo. "
+                                          "Aiming, the watch and the tank go back to first person.", .kind = GEVR_SET_TOGGLE,
+      .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_BOTH, .ivar = &VrThirdPerson,
+      .def = NAN, .blocked = blockedThirdPerson },
     { .label = "  Distance", .tooltip = "Third person: how far behind Bond, cm.", .kind = GEVR_SET_RANGE,
-      .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrThirdPersonDist,
+      .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_BOTH, .ivar = &VrThirdPersonDist,
       .lo = THIRDPERSON_DIST_MIN, .hi = THIRDPERSON_DIST_MAX, .step = 10, .scale = 1, .fmt = "%.0f", .def = 150, .shown = shownThirdPerson },
     { .label = "  Height", .tooltip = "Third person: how far above his eyes, cm.", .kind = GEVR_SET_RANGE,
-      .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrThirdPersonHeight,
+      .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_BOTH, .ivar = &VrThirdPersonHeight,
       .lo = THIRDPERSON_HEIGHT_MIN, .hi = THIRDPERSON_HEIGHT_MAX, .step = 5, .scale = 1, .fmt = "%.0f", .def = 20, .shown = shownThirdPerson },
     { .label = "  Shoulder", .tooltip = "Third person: how far to his right, cm.", .kind = GEVR_SET_RANGE,
-      .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrThirdPersonSide,
+      .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_BOTH, .ivar = &VrThirdPersonSide,
       .lo = THIRDPERSON_SIDE_MIN, .hi = THIRDPERSON_SIDE_MAX, .step = 5, .scale = 1, .fmt = "%.0f", .def = 35, .shown = shownThirdPerson },
+    { .label = "Show stats", .tooltip = "Frame rate and timing in the corner, and in the log.", .kind = GEVR_SET_TOGGLE,
+      .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_BOTH, .ivar = &VrShowStats, .def = NAN },
 
     /* Game rules */
     TOGGLE(GEVR_SEC_RULES, "Mines stick", VrMinesStickToGuards, "Thrown mines stick to guards (solo)."),
@@ -369,18 +419,43 @@ static const Row s_rows[] = {
     { .label = "  Chance", .tooltip = "How often such a hit takes a limb.", .kind = GEVR_SET_RANGE,
       .section = GEVR_SEC_RULES, .where = GEVR_SET_BOTH, .ivar = &VrDismemberChance,
       .lo = 0, .hi = 100, .step = 5, .scale = 1, .fmt = "%.0f%%", .def = 40, .shown = shownDismember },
+    { .label = "AI ally", .tooltip = "Natalya as a companion: GoldenEye solo, campaign co-op and Horde, one for the party. "
+                                     "The host chooses; it applies from the next mission. Not in missions with their own Natalya.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_RULES, .lsection = L(GEVR_LSEC_ALLY), .where = GEVR_SET_LAUNCHER,
+      .ivar = &VrAlly, .def = NAN, .blocked = blockedAlly },
+    { .label = "Weapon", .tooltip = "The ally's gun.", .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_RULES,
+      .lsection = L(GEVR_LSEC_ALLY), .where = GEVR_SET_LAUNCHER, .ivar = &VrAllyWeapon, .ivalues = s_ten,
+      .names = s_allyGunNames, .count = 10, .def = NAN, .blocked = blockedAllyPart },
+    { .label = "Aggression", .tooltip = "Cautious: engages alerted enemies nearby. Normal and aggressive: a wider range. "
+                                        "Always stays close to Bond.", .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_RULES,
+      .lsection = L(GEVR_LSEC_ALLY), .where = GEVR_SET_LAUNCHER, .ivar = &VrAllyAggression, .ivalues = s_three,
+      .names = s_allyMoodNames, .count = 3, .def = NAN, .blocked = blockedAllyPart },
+    { .label = "Damage", .tooltip = "How hard the ally's shots hit.", .kind = GEVR_SET_RANGE, .section = GEVR_SEC_RULES,
+      .lsection = L(GEVR_LSEC_ALLY), .where = GEVR_SET_LAUNCHER, .ivar = &VrAllyDamage,
+      .lo = 25, .hi = 400, .step = 25, .scale = 1, .fmt = "%.0f%%", .def = 100, .blocked = blockedAllyPart },
+    { .label = "Invincible", .tooltip = "Nothing hurts the ally.", .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_RULES,
+      .lsection = L(GEVR_LSEC_ALLY), .where = GEVR_SET_LAUNCHER, .ivar = &VrAllyInvincible, .def = NAN,
+      .blocked = blockedAllyPart },
+    { .label = "Health", .tooltip = "How much the ally can take.", .kind = GEVR_SET_RANGE, .section = GEVR_SEC_RULES,
+      .lsection = L(GEVR_LSEC_ALLY), .where = GEVR_SET_LAUNCHER, .ivar = &VrAllyHealth,
+      .lo = 25, .hi = 1000, .step = 25, .scale = 1, .fmt = "%.0f%%", .def = 100, .blocked = blockedAllyHealth },
 
     /* Mods and fun */
     { .label = "Project Bean", .tooltip = "The XBLA remaster's models and textures, from your own files.", .kind = GEVR_SET_TOGGLE,
-      .section = GEVR_SEC_MODS, .where = GEVR_SET_BOTH, .def = NAN, .blocked = blockedBean,
+      .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .def = NAN, .blocked = blockedBean,
       .cpositions = beanPositions, .cget = beanGet, .cset = beanSet, .ctext = beanText, .cdefault = -1 },
     { .label = "Bean HD fill", .tooltip = "Fills Bean's missing pictures from the HD pack.", .kind = GEVR_SET_TOGGLE,
-      .section = GEVR_SEC_MODS, .where = GEVR_SET_BOTH, .ivar = &VrBeanFillTextures, .def = NAN, .blocked = blockedBeanFill },
-    TOGGLE(GEVR_SEC_MODS, "GoldenEye X", VrGexGuns, "GoldenEye X's guns, hands and reloads."),
-    CHOICE(GEVR_SEC_MODS, "Gun size", VrGunSizeCheat, s_three, s_gunSizeNames, "Tiny or big guns, as the cheat."),
-    TOGGLE(GEVR_SEC_MODS, "Blood patch", VrBloodPatch, "More blood on hits."),
+      .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .ivar = &VrBeanFillTextures, .def = NAN, .blocked = blockedBeanFill },
+    /* the launcher's Mods tab draws these with their packs (vr_launcher.cpp gevrModsPage) */
+    { .label = "GoldenEye X", .tooltip = "GoldenEye X's guns, hands and reloads.", .kind = GEVR_SET_TOGGLE,
+      .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .ivar = &VrGexGuns, .def = NAN },
+    { .label = "Gun size", .tooltip = "Tiny or big guns, as the cheat.", .kind = GEVR_SET_CHOICE,
+      .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_CHEATS), .where = GEVR_SET_BOTH, .ivar = &VrGunSizeCheat,
+      .ivalues = s_three, .names = s_gunSizeNames, .count = 3, .def = NAN },
+    { .label = "Blood patch", .tooltip = "Shot guards spray the red blood sparks Rare left in the game (by Wreck).",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .ivar = &VrBloodPatch, .def = NAN },
     { .label = "Oddjob's hat", .tooltip = "Oddjob's hat in place of the throwing knife.", .kind = GEVR_SET_TOGGLE,
-      .section = GEVR_SEC_MODS, .where = GEVR_SET_BOTH, .ivar = &VrOddjobHat, .def = NAN, .blocked = blockedHat },
+      .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .ivar = &VrOddjobHat, .def = NAN, .blocked = blockedHat },
 };
 
 #define ROWS ((int)(sizeof(s_rows) / sizeof(s_rows[0])))
@@ -390,6 +465,13 @@ static const char *const s_sections[GEVR_SEC_COUNT] = {
 };
 
 static const Row *row(int id) { return id >= 0 && id < ROWS ? &s_rows[id] : NULL; }
+
+/* The launcher's place for a section's rows, where a row names none */
+static const int s_launcherOf[GEVR_SEC_COUNT] = {
+    GEVR_LSEC_COMFORT, GEVR_LSEC_HANDS, GEVR_LSEC_GESTURES, GEVR_LSEC_THROWING,
+    GEVR_LSEC_SCREEN, GEVR_LSEC_RULES, GEVR_LSEC_MODS,
+};
+static int launcherSection(const Row *r) { return r->lsection ? r->lsection - 1 : s_launcherOf[r->section]; }
 
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
@@ -412,6 +494,7 @@ int gevrSettingInfo(int id, GevrSettingInfo *out)
     out->tooltip = r->tooltip;
     out->kind = r->kind;
     out->section = r->section;
+    out->launcherSection = launcherSection(r);
     out->where = r->where;
     return 1;
 }
@@ -548,7 +631,8 @@ int gevrSettingSectionRows(int section, unsigned where, int *ids, int max)
 {
     int n = 0, id;
     for (id = 0; id < ROWS; id++) {
-        if (s_rows[id].section != section || !(s_rows[id].where & where) || !gevrSettingShown(id)) continue;
+        const int place = where == GEVR_SET_LAUNCHER ? launcherSection(&s_rows[id]) : s_rows[id].section;
+        if (place != section || !(s_rows[id].where & where) || !gevrSettingShown(id)) continue;
         if (ids && n < max) ids[n] = id;
         n++;
     }

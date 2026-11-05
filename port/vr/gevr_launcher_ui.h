@@ -46,63 +46,68 @@ inline bool gevrLauncherRomHeader(GevrLauncherSession &session, bool ready, bool
     session.romNeedsAttention = attention;
     return ImGui::CollapsingHeader(label);
 }
-template <class Play, class Controls, class Comfort, class Screen>
-inline void gevrLauncherMainTabs(Play play, Controls controls, Comfort comfort, Screen screen) {
-    if (ImGui::BeginTabBar("launcher-settings")) {
-        if (ImGui::BeginTabItem("Play")) { play(); ImGui::EndTabItem(); }
-        if (ImGui::BeginTabItem("Controls")) { controls(); ImGui::EndTabItem(); }
-        if (ImGui::BeginTabItem("Comfort")) { comfort(); ImGui::EndTabItem(); }
-        if (ImGui::BeginTabItem("Screen")) { screen(); ImGui::EndTabItem(); }
+/*
+ * The launcher's tabs (docs/launcher-unify.md): a top row, and under it a
+ * second row where a tab has sub-tabs. No Done buttons and no pages behind
+ * buttons: every page is a tab or a sub-tab, and none scrolls.
+ */
+enum { GEVR_LTAB_PLAY, GEVR_LTAB_MULTIPLAYER, GEVR_LTAB_CONTROLS, GEVR_LTAB_COMFORT, GEVR_LTAB_SCREEN,
+       GEVR_LTAB_RULES, GEVR_LTAB_MODS, GEVR_LTAB_COUNT };
+enum { GEVR_LSUB_HANDS, GEVR_LSUB_GESTURES, GEVR_LSUB_THROWING, GEVR_LSUB_HAPTICS };   // Controls'
+enum { GEVR_LSUB_GAME_RULES, GEVR_LSUB_ALLY, GEVR_LSUB_CHEATS };                       // Rules'
+struct GevrLauncherTabs {
+    int top = GEVR_LTAB_PLAY;          // the tab drawn last frame
+    int sub[GEVR_LTAB_COUNT] = {};     // each tab's sub-tab drawn last
+    int openTop = -1, openSub = -1;    // brought up over the next frames
+    int openFrames = 0;
+    // ImGui selects a tab a frame after asking, and only then draws its
+    // sub-tab row: the ask stands until both are up, a few frames at most
+    void open(int tab, int subTab = -1) { openTop = tab; openSub = subTab; openFrames = 4; }
+};
+inline const char *gevrLauncherTabName(int tab) {
+    static const char *const names[GEVR_LTAB_COUNT] = { "Play", "Multiplayer", "Controls", "Comfort", "Screen", "Rules", "Mods" };
+    return tab >= 0 && tab < GEVR_LTAB_COUNT ? names[tab] : "";
+}
+inline int gevrLauncherSubCount(int tab) {
+    return tab == GEVR_LTAB_CONTROLS ? 4 : tab == GEVR_LTAB_RULES ? 3 : 0;
+}
+inline const char *gevrLauncherSubName(int tab, int sub) {
+    static const char *const controls[] = { "Hands", "Gestures", "Throwing", "Haptics" };
+    static const char *const rules[] = { "Game rules", "AI ally", "Cheats" };
+    if (sub < 0 || sub >= gevrLauncherSubCount(tab)) return "";
+    return tab == GEVR_LTAB_CONTROLS ? controls[sub] : rules[sub];
+}
+// The two tab rows; page(tab, sub) draws the open one (sub -1 where it has none).
+template <class Page>
+inline void gevrLauncherTabRows(GevrLauncherTabs &tabs, Page page) {
+    if (ImGui::BeginTabBar("launcher-tabs", ImGuiTabBarFlags_FittingPolicyResizeDown)) {
+        for (int t = 0; t < GEVR_LTAB_COUNT; t++) {
+            const ImGuiTabItemFlags open = t == tabs.openTop ? ImGuiTabItemFlags_SetSelected : 0;
+            if (!ImGui::BeginTabItem(gevrLauncherTabName(t), nullptr, open)) continue;
+            tabs.top = t;
+            const int subs = gevrLauncherSubCount(t);
+            if (subs == 0) {
+                page(t, -1);
+            } else {
+                ImGui::PushID(t);   // each tab's sub-tabs keep their own choice
+                if (ImGui::BeginTabBar("launcher-subtabs", ImGuiTabBarFlags_FittingPolicyResizeDown)) {
+                    for (int s = 0; s < subs; s++) {
+                        const ImGuiTabItemFlags pick = t == tabs.openTop && s == tabs.openSub ? ImGuiTabItemFlags_SetSelected : 0;
+                        if (!ImGui::BeginTabItem(gevrLauncherSubName(t, s), nullptr, pick)) continue;
+                        tabs.sub[t] = s;
+                        page(t, s);
+                        ImGui::EndTabItem();
+                    }
+                    ImGui::EndTabBar();
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndTabItem();
+        }
         ImGui::EndTabBar();
     }
-}
-// Draw only changes the preference when a radio is activated. Rates come from
-// the current session, so a saved preference may temporarily be unavailable.
-inline void gevrDisplayRateControls(int *preference, const int *rates, int count) {
-    const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
-    ImGui::RadioButton("Auto##display-rate", preference, 0);
-    if (ImGui::IsItemHovered())
-        gevrTooltip("Use the headset's refresh setting, including external profiles.");
-    bool available = *preference == 0;
-    for (int i = 0; i < count; ++i) {
-        char label[48];
-        std::snprintf(label, sizeof(label), "%d Hz##display-rate", rates[i]);
-        char visible[24];
-        std::snprintf(visible, sizeof(visible), "%d Hz", rates[i]);
-        const float width = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x +
-                            ImGui::CalcTextSize(visible).x;
-        if (ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + width <= right)
-            ImGui::SameLine();
-        ImGui::RadioButton(label, preference, rates[i]);
-        available = available || *preference == rates[i];
-    }
-    // Auto may have been clicked after starting with an unavailable preference.
-    if (!available && *preference != 0)
-        ImGui::TextWrapped("Saved: %d Hz (unavailable on this headset).", *preference);
-}
-/* A label and its radio buttons on one line, a button moving down a line only
- * when it would run past the panel; hovering the label or a button shows tip. */
-inline bool gevrRadioRow(const char *label, const char *const *names, int count, int *selected, const char *tip) {
-    const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(label);
-    bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled), changed = false;
-    for (int i = 0; i < count; ++i) {
-        char id[64];
-        std::snprintf(id, sizeof(id), "%s##%s", names[i], label);
-        const float width = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x +
-                            ImGui::CalcTextSize(names[i]).x;
-        if (ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + width <= right)
-            ImGui::SameLine();
-        if (ImGui::RadioButton(id, *selected == i)) {
-            *selected = i;
-            changed = true;
-        }
-        hovered |= ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
-    }
-    if (hovered && tip)
-        gevrTooltip("%s", tip);
-    return changed;
+    const bool done = tabs.top == tabs.openTop && (tabs.openSub < 0 || tabs.sub[tabs.top] == tabs.openSub);
+    if (done || --tabs.openFrames <= 0) tabs.openTop = tabs.openSub = -1;
 }
 /* Only the combo's opening frame requests initial focus/scroll. ImGui's
  * navigation brings stick-selected rows into view; mouse hover never scrolls. */
@@ -161,5 +166,11 @@ inline void gevrLauncherBeginRomDetails() {
 }
 inline void gevrLauncherBeginBody(const char *id) {
     ImGui::BeginChild(id, ImVec2(0, std::fmax(1.0f, ImGui::GetContentRegionAvail().y - gevrLauncherFooterHeight())), false);
+}
+// A tab's page: the height above a footer of footerH, and no scrolling (the fit
+// tests draw every page at its fullest).
+inline void gevrLauncherBeginPage(const char *id, float footerH) {
+    ImGui::BeginChild(id, ImVec2(0, std::fmax(1.0f, ImGui::GetContentRegionAvail().y - footerH)), false,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 }
 #endif
