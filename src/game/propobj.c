@@ -6163,6 +6163,20 @@ s32 objTick(struct PropRecord *prop)
 	{
 		pad268 = (struct TintedGlassRecord *) prop->obj;
 		pad268->calculatedopacity = glassCalculateOpacity(&obj->runtime_pos, pad268->TintDist, pad268->CullDist, pad268->unk90);
+#ifdef GEVR
+		/*
+		 * Issue #231, Dab's Mod glassUpdatePortal(): Bean's pane draws at its
+		 * own material alpha at any distance, where GoldenEye's thickens to
+		 * opaque past CullDist and shuts the portal behind it. Control's
+		 * windows and the Dam tower's then showed rooms and guards popping in
+		 * and out as the head crossed that distance. With Bean on the pane
+		 * keeps its close-up opacity, which also keeps the portal open.
+		 */
+		if (gevrBeanIsEnabled())
+		{
+			pad268->calculatedopacity = (s32) (pad268->unk90 * 255.0f);
+		}
+#endif
 		if ((pad268->portalnum >= 0) && (playerCount == 1))
 		{
 			if (pad268->calculatedopacity == 0xFF)
@@ -6182,6 +6196,14 @@ s32 objTick(struct PropRecord *prop)
 		pad36C = (struct DoorRecord *) prop->obj;
 		var_s2_6 = 1;
 		pad36C->calculatedopacity = glassCalculateOpacity(&obj->runtime_pos, pad36C->TintDist, *((s32 *) (((u8 *) pad36C) + 0xC4)), 0.0f);
+#ifdef GEVR
+		/* Issue #231, Dab's Mod doorUpdatePortalIfWindowed(): with Bean a
+		 * door's window is the release's pane, see-through at any distance */
+		if (gevrBeanIsEnabled())
+		{
+			pad36C->calculatedopacity = 0;
+		}
+#endif
 		if (playerCount == 1)
 		{
 			if ((pad36C->calculatedopacity != 0xFF) || (pad36C->openPosition > 0.0f))
