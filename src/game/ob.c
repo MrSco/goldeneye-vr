@@ -28,6 +28,20 @@ extern void gevrReportUnboundFile(fileentry *entry, s32 index);
 //800888b0
 
  resource_lookup_data_entry resource_lookup_data_array[OBJ_INDEX_MAX];
+#ifdef GEVR
+/*
+ * The size fileSetSize recorded came from a load into the caller's own buffer
+ * (a gun buffer: the solo intro's Bond, a hand), not from this bank. It is the
+ * file after its display lists were rewritten; a bank load reusing it as the
+ * allocation has no room to rewrite them again (objecthandler_2.c
+ * sub_GAME_7F0762E0: the file plus its moved tail must fit). Third person
+ * loads Bond's head a second time the multiplayer way, and in Original mode
+ * his face drew from unrewritten lists, black and flickering ("no room to
+ * rewrite its display lists (file 8192 bytes, allocation 8880)", headset log
+ * 2026-11-05). Such a load takes the bank's room as a first load does.
+ */
+static u8 s_gevrSizeFromBuffer[OBJ_INDEX_MAX];
+#endif
 
 
 // data
@@ -333,6 +347,13 @@ void *fileIndexLoadToBank(s32 index, FILELOADMETHOD loadMethod, s32 size, u8 ban
 
     if (loadMethod == FILELOADMETHOD_EXTRAMEM || loadMethod == FILELOADMETHOD_DEFAULT || loadMethod == 2)
     {
+#ifdef GEVR
+        if (index > 0 && index < OBJ_INDEX_MAX && s_gevrSizeFromBuffer[index])
+        {
+            s_gevrSizeFromBuffer[index] = 0;
+            info->poolRemaining = 0;   /* a first load's room (above) */
+        }
+#endif
         // bytes = info->poolRemaining;
         if (info->poolRemaining == 0)
         { // verify pool remaining is 0
@@ -458,6 +479,12 @@ void fileSetSize(s32 filenum, u8* ptr, u32 size, s32 reallocate)
 {
     resource_lookup_data_array[filenum].poolRemaining = size;
     resource_lookup_data_array[filenum].rom_remaining = size;
+#ifdef GEVR
+    if (filenum > 0 && filenum < OBJ_INDEX_MAX)
+    {
+        s_gevrSizeFromBuffer[filenum] = reallocate == 0;
+    }
+#endif
     if (reallocate != 0)
     {
         mempAddEntryOfSizeToBank(ptr, resource_lookup_data_array[filenum].poolRemaining, MEMPOOL_STAGE);
