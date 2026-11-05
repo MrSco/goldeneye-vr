@@ -175,6 +175,113 @@ static double signedVolume(float (*p)[3], int n)
 	return v / 6;
 }
 
+/* Every near list of GoldenEye's model, in its rest space: the box a fitted
+ * prop's Bean mesh is to fill. */
+static void nativeBox(const ModelNode *n, float lo[3], float hi[3])
+{
+	for (; n; n = n->Next) {
+		int op = nodeOp(n), far = 0;
+		for (const ModelNode *up = n->Parent; up; up = up->Parent)
+			far |= nodeOp(up) == MODELNODE_OPCODE_LOD && up->Data && up->Data->LOD.MinDistance > 0;
+		if ((op == MODELNODE_OPCODE_DL || op == MODELNODE_OPCODE_DLCOLLISION) && n->Data && !far) {
+			Vertex *v;
+			int vc, type;
+			Gfx *primary;
+			float rest[3];
+			dlVerts((ModelNode *)n, &v, &vc, &type, &primary);
+			restOf(n, rest);
+			for (int j = 0; v && j < vc; j++)
+				for (int k = 0; k < 3; k++) {
+					float c = v[j].coord.AsArray[k] + rest[k];
+					lo[k] = c < lo[k] ? c : lo[k];
+					hi[k] = c > hi[k] ? c : hi[k];
+				}
+		}
+		const ModelNode *child = n->Child;
+		if (!child && op == MODELNODE_OPCODE_HEADER && n->Data)
+			child = n->Data->Header.FirstGroupNode;
+		if (!child && op == MODELNODE_OPCODE_GROUP && n->Data)
+			child = n->Data->Group.ChildGroupNode;
+		nativeBox(child, lo, hi);
+	}
+}
+
+/* GoldenEye's lists of a model still drawn as they are: no list of the
+ * release's took their place and none was blanked */
+static int nativeKept(const ModelNode *n, int *joint, int *simple)
+{
+	int count = 0;
+	for (; n; n = n->Next) {
+		int op = nodeOp(n);
+		if ((op == MODELNODE_OPCODE_DL || op == MODELNODE_OPCODE_DLCOLLISION) && n->Data && !swapOf((void *)n)) {
+			Vertex *v;
+			int vc, type, j = 0, sm = 0;
+			Gfx *primary;
+			dlVerts((ModelNode *)n, &v, &vc, &type, &primary);
+			for (const ModelNode *up = n->Parent; up; up = up->Parent) {
+				sm |= nodeOp(up) == MODELNODE_OPCODE_GROUPSIMPLE;
+				j |= nodeOp(up) == MODELNODE_OPCODE_GROUP && up->Data && up->Data->Group.JointID;
+			}
+			if (v && vc > 0) {
+				count++;
+				*joint += j;
+				*simple += sm;
+			}
+		}
+		const ModelNode *child = n->Child;
+		if (!child && op == MODELNODE_OPCODE_HEADER && n->Data)
+			child = n->Data->Header.FirstGroupNode;
+		if (!child && op == MODELNODE_OPCODE_GROUP && n->Data)
+			child = n->Data->Group.ChildGroupNode;
+		count += nativeKept(child, joint, simple);
+	}
+	return count;
+}
+
+/* A fitted prop stands where GoldenEye's model does: the fit is in its first
+ * list's matrix space (gevr_bean_fits.h), wherever the body is laid. The
+ * Streets jeep's first list is a wheel: laid on the body's root list as if
+ * that were the fit's frame, the HD jeep stood 512 up and 1100 off, over
+ * GoldenEye's wheels (2026-11-05). */
+static void checkPropPlace(ModelFileHeader *h, int kind, const struct beanFit *fit, const char *name)
+{
+	float blo[3] = {1e30f, 1e30f, 1e30f}, bhi[3] = {-1e30f, -1e30f, -1e30f};
+	float nlo[3] = {1e30f, 1e30f, 1e30f}, nhi[3] = {-1e30f, -1e30f, -1e30f};
+	float off = 0, size = 0;
+	int nb = 0;
+	if (!fit || kind != BEAN_PROP)
+		return;
+	for (int i = 0; i < s_nswap; i++) {
+		float (*v)[3];
+		int n;
+		if (s_swap[i].ours == s_blank)
+			continue;
+		n = swapVerts(&s_swap[i], &v);
+		for (int j = 0; j < n; j++)
+			for (int k = 0; k < 3; k++) {
+				blo[k] = v[j][k] < blo[k] ? v[j][k] : blo[k];
+				bhi[k] = v[j][k] > bhi[k] ? v[j][k] : bhi[k];
+			}
+		nb += n;
+		free(v);
+	}
+	nativeBox(h->RootNode, nlo, nhi);
+	if (!nb || nlo[0] > nhi[0])
+		return;
+	for (int k = 0; k < 3; k++) {
+		float d = (blo[k] + bhi[k] - nlo[k] - nhi[k]) * 0.5f, e = nhi[k] - nlo[k];
+		off += d * d;
+		size = e > size ? e : size;
+	}
+	off = sqrtf(off);
+	printf("PROPPLACE %s off %.0f size %.0f\n", name, off, size);
+	{
+		int joint = 0, simple = 0, kept = nativeKept(h->RootNode, &joint, &simple);
+		if (kept)
+			printf("PROPKEPT %s %d native lists (%d under joints, %d held)\n", name, kept, joint, simple);
+	}
+}
+
 /* Rigid replacements against the cartridge: Bean's first-person gun is
  * GoldenEye's model at 4.7 times in GoldenEye's frame (DAB gebean.c:775), it
  * hangs on an untoggled list (gebean.c:12966), the glove goes with GoldenEye's
@@ -640,6 +747,7 @@ int main(int argc, char **argv)
 		}
 	}
     checkRigid(&header, mesh, kind, fitForName(argv[2]), argv[2]);
+    checkPropPlace(&header, kind, fitForName(argv[2]), argv[2]);
     /* DAB fpRound: only the rocket launcher has a build for an empty tube,
      * on the same list, smaller by its round */
     assert(gevrBeanHasRound(&header) == !strcmp(argv[2], "GrocketlaunchZ"));

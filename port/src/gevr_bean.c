@@ -1425,7 +1425,7 @@ static void fillEmit(const struct gevrBeanTri *t, int texCut, struct gevrEmitVer
 }
 
 struct beanRigidBinding {
-	int group[64], base, target;
+	int group[64], base, target, frame;
 	const struct beanGrp *groups;
 	float pivot[MAX_GRP][3];
 };
@@ -1458,10 +1458,11 @@ static int groupHasList(const struct beanDl *dls, int nd, int g)
 }
 
 static void rigidBindings(const struct gevrBeanMesh *mesh, const struct beanFit *fit,
-                          const struct beanGrp *groups, int count, int base, struct beanRigidBinding *binding,
-                          const struct beanDl *dls, int nd)
+                          const struct beanGrp *groups, int count, int base, int frame,
+                          struct beanRigidBinding *binding, const struct beanDl *dls, int nd)
 {
 	binding->base = base;
+	binding->frame = frame >= 0 ? frame : base;
 	binding->groups = groups;
 	for (int g = 0; g < count; g++)
 		memcpy(binding->pivot[g], groups[g].o, sizeof(binding->pivot[g]));
@@ -1475,7 +1476,7 @@ static void rigidBindings(const struct gevrBeanMesh *mesh, const struct beanFit 
 		float at[3], best = 10000.0f;
 		for (int k = 0; k < 3; k++)
 			at[k] = (mesh->boneBind[b][fit->perm[k]] * fit->sign[k] - fit->bc[k]) * fit->scale + fit->nc[k] +
-			        groups[base].o[k];
+			        groups[binding->frame].o[k];
 		/* the base group is a place too: a bone on it stays. The CCTV's mount
 		 * (SKEL_TOP, on the base) took the camera's group 77 units off, the
 		 * nearest other one, and turned with the camera (2026-10-30). */
@@ -1527,7 +1528,7 @@ static void rigidBindings(const struct gevrBeanMesh *mesh, const struct beanFit 
 		int target = -1;
 		for (int k = 0; k < 3; k++)
 			at[k] = (mesh->boneBind[b][fit->perm[k]] * fit->sign[k] - fit->bc[k]) * fit->scale + fit->nc[k] +
-			        groups[base].o[k];
+			        groups[binding->frame].o[k];
 		for (int g = 0; g < count; g++) {
 			if (taken[g] || nodeOp(groups[g].node) != MODELNODE_OPCODE_GROUPSIMPLE)
 				continue;
@@ -1936,7 +1937,7 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 				if (!fit)
 					p[k] = (t->p[c * 3 + k] - bc[k]) * scale + hc_[k];
 				if (fit && binding && binding->base >= 0 && binding->target >= 0)
-					p[k] += binding->groups[binding->base].o[k] - binding->pivot[binding->target][k];
+					p[k] += binding->groups[binding->frame].o[k] - binding->pivot[binding->target][k];
 				if (rest)
 					p[k] -= rest[k];
 				nr[k] = fit ? t->n[c * 3 + fit->perm[k]] * fit->sign[k] : t->n[c * 3 + k];
@@ -2361,6 +2362,57 @@ static void beanWreckGuests(ModelFileHeader *header, const struct beanGrp *grp, 
 	}
 }
 
+/* The first list of a model in its tree's order (DAB walks a model's lists
+ * child first, then the next) */
+static ModelNode *firstTreeList(ModelNode *n, int depth)
+{
+	for (; n && depth < 64; n = n->Next) {
+		int op = nodeOp(n);
+		ModelNode *child = n->Child, *found;
+		if (op == MODELNODE_OPCODE_DL || op == MODELNODE_OPCODE_DLCOLLISION)
+			return n;
+		if (!child && op == MODELNODE_OPCODE_HEADER && n->Data)
+			child = n->Data->Header.FirstGroupNode;
+		if (!child && op == MODELNODE_OPCODE_GROUP && n->Data)
+			child = n->Data->Group.ChildGroupNode;
+		if ((found = firstTreeList(child, depth + 1)))
+			return found;
+	}
+	return NULL;
+}
+
+/*
+ * DAB gebeanRigidPrimaryList(): the list whose matrix a prop's fit is in - the
+ * model's first list, or a near list on its matrix when the first is a far
+ * level of detail. The body is laid on the root's list where there is one,
+ * and its vertices are moved from this list's place to that one's. The
+ * Streets jeep's first list is its front left wheel: fitted as if it were on
+ * the root, the HD jeep stood 512 up and 1100 off its place, over
+ * GoldenEye's wheels, and the articulated lorry and the Zil with it
+ * (2026-11-05).
+ */
+static int fitFrameList(ModelFileHeader *header, const struct beanDl *dls, int nd)
+{
+	ModelNode *first = firstTreeList(header->RootNode, 0);
+	int mtx0 = first ? nodeMatrix(first) : -1, firstIndex = -1;
+	for (int i = 0; i < nd; i++)
+		if (dls[i].node == first)
+			firstIndex = i;
+	if (firstIndex < 0 || dls[firstIndex].grp < 0)
+		return -1;
+	for (int i = 0; i < nd; i++) {
+		int far = 0;
+		if (nodeMatrix(dls[i].node) != mtx0 || dls[i].grp < 0)
+			continue;
+		for (ModelNode *up = dls[i].node->Parent; up; up = up->Parent)
+			if (nodeOp(up) == MODELNODE_OPCODE_LOD && up->Data->LOD.MinDistance > 0)
+				far = 1;
+		if (!far)
+			return i;
+	}
+	return firstIndex;
+}
+
 static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, int kind,
                       const struct beanFit *fit)
 {
@@ -2661,7 +2713,10 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 		if (best >= 0) {
 			struct beanRigidBinding binding;
 			int partDone[MAX_GRP] = {0}; /* a part's triangles go on one list of its matrix */
-			rigidBindings(mesh, fit, grp, ng, dls[best].grp, &binding, dls, nd);
+			/* a prop's fit is in its first list's matrix space, wherever its
+			 * body is laid (gevr_bean_fits.h, DAB gebeanRigidPrimaryList()) */
+			const int frame = kind == BEAN_PROP && fit ? fitFrameList(header, dls, nd) : -1;
+			rigidBindings(mesh, fit, grp, ng, dls[best].grp, frame >= 0 ? dls[frame].grp : -1, &binding, dls, nd);
 			binding.target = binding.base;
 			void *gdl = NULL, *vtx = NULL;
 			/* Bean's gun is GoldenEye's model at 4.7 times in GoldenEye's frame
@@ -2679,7 +2734,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 			 * GoldenEye's monitor screens (gevr_bean_screens.inc.h) */
 			struct beanScreenBuild screens;
 			if (kind == BEAN_PROP) {
-				beanScreensBuild(&screens, header, mesh, fit, &binding, dls[best].node);
+				beanScreensBuild(&screens, header, mesh, fit, &binding, dls[frame >= 0 ? frame : best].node);
 				s_screenBuild = &screens;
 			}
 			/* DAB gebeanBuildRigid(): a gun's painted muzzle flash; a prop has
@@ -2846,8 +2901,14 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 							keepAlloc(partVtx);
 							registerPrimary(dls[i].node, partGdl, 0);
 							partDone[g] = 1;
-						} else if (!dls[i].simple && !underJoint)
+						} else if (!dls[i].simple && (!underJoint || fit)) {
+							/* DAB gebeanRigidPrimaryList(): every other list of a
+							 * fitted prop is hidden. The jeep's, the lorry's and
+							 * the Zil's wheels are lists under joints, and their
+							 * N64 wheels drew beside Bean's, whose wheels are the
+							 * body's (2026-11-05). */
 							registerPrimary(dls[i].node, s_blank, 1);
+						}
 						continue;
 					}
 					if (gunPartList(&parts, header, &dls[i])) {

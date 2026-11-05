@@ -110,6 +110,31 @@ def check_screens(results):
     print(f"Monitor screens: {len(seen)} props checked against DAB's counts")
 
 
+# A fitted prop stands where GoldenEye's model does, and none of GoldenEye's
+# lists under a joint is left drawing beside it. The fit is in the model's
+# first list's matrix space: the Streets jeep's first list is its front left
+# wheel, and laid on the root's list as if that were the frame the HD jeep, the
+# articulated lorry and the Zil stood 512 up and 700-1600 off their places,
+# with GoldenEye's own wheels still drawn on the road (2026-11-05). The Hind's
+# rotors and gun are held lists, outside this; hats and
+# the rocket differ in shape from GoldenEye's (up to 28% of their size off).
+def check_placement(results):
+    placed, kept = {}, {}
+    for line in results:
+        for m in re.finditer(r"PROPPLACE (\w+) off (\d+) size (\d+)", line):
+            placed[m.group(1)] = (int(m.group(2)), int(m.group(3)))
+        for m in re.finditer(r"PROPKEPT (\w+) (\d+) native lists \((\d+) under joints, (\d+) held", line):
+            kept[m.group(1)] = int(m.group(3)) - int(m.group(4))
+    assert len(placed) > 300, f"only {len(placed)} fitted props placed"
+    off = {name: o for name, (o, size) in placed.items() if o > 0.3 * size}
+    assert not off, f"fitted props off their place: {off}"
+    for name in ("PjeepZ", "ParticZ", "PcarzilZ"):
+        assert placed[name][0] < 0.02 * placed[name][1], f"{name}: {placed[name]}"
+    joint = {name: n for name, n in kept.items() if n > 0}
+    assert not joint, f"GoldenEye's jointed lists drawn beside Bean's: {joint}"
+    print(f"Prop placement: {len(placed)} fitted props within 30% of GoldenEye's box, no jointed native lists")
+
+
 def main():
     if len(sys.argv) != 3:
         raise SystemExit(__doc__)
@@ -203,6 +228,7 @@ def main():
         raise SystemExit("Failed mapping: " + ", ".join(failures))
     check_screens(results)
     check_flash(results)
+    check_placement(results)
 
 
 if __name__ == "__main__":
