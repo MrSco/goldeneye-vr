@@ -150,7 +150,9 @@ int VrThirdPersonHeight = 20;
 int VrThirdPersonSide = 35;
 /* Application SpaceWarp: the runtime makes every other displayed frame from
  * motion vectors and depth (vr_openxr.cpp). 1 on, 0 off, -1 (the default) on
- * while Bean is: the user's 2026-10-17 feel test, Bean holds 120 Hz with it. */
+ * while Bean is and the display runs at 120 Hz: the user's 2026-10-17 feel
+ * test, Bean holds 120 Hz with it; at 90 Hz or less walking judders (user,
+ * 2026-11-05, vr_spacewarp_setting_on). */
 int VrSpaceWarp = -1;
 /* The 2026-10-17 test build's launcher Resolution (goldeneye-vr.ini
  * RenderScale) was saved into the game config's Video.VRRenderScale; its key,

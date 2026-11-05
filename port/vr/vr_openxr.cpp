@@ -1517,12 +1517,38 @@ static int vr_spacewarp_override(void)
     return value;
 }
 
+/* The display's rate as the runtime runs it, asked at most once a second
+ * (vr_spacewarp_setting_on reads it every frame); 0 when unknown. */
+static float vr_spacewarp_display_hz(void)
+{
+    static float hz = 0.0f;
+    static auto last = std::chrono::steady_clock::time_point();
+    const auto now = std::chrono::steady_clock::now();
+    if (!g_refreshRateSupported || g_vrState.session == XR_NULL_HANDLE) return 0.0f;
+    if (hz > 0.0f && now - last < std::chrono::seconds(1)) return hz;
+    last = now;
+    PFN_xrVoidFunction proc = nullptr;
+    float actual = 0.0f;
+    if (XR_SUCCEEDED(xrGetInstanceProcAddr(g_vrState.instance, "xrGetDisplayRefreshRateFB", &proc)) && proc
+        && XR_SUCCEEDED(reinterpret_cast<PFN_xrGetDisplayRefreshRateFB>(proc)(g_vrState.session, &actual))
+        && std::isfinite(actual) && actual > 0.0f) {
+        hz = actual;
+    }
+    return hz;
+}
+
 /* The setting: on or off as chosen, or (-1, the default) on while Bean is,
- * which needs it to hold 120 Hz while turning. Read every frame, so turning
- * Bean on or off in game takes SpaceWarp with it. */
+ * which needs it to hold 120 Hz while turning, and only at 120 Hz (user,
+ * 2026-11-05). SpaceWarp draws at half the display rate and the game ticks
+ * at 60 Hz: at 120 Hz each drawn frame is one tick, but at 90 Hz the pump
+ * steps 1, 1, 2 ticks a frame and nothing eases Bond between them, so stick
+ * walking judders at a 15 Hz beat under a smooth head (crash report
+ * c4cc34bf, Control at 90 Hz: "feels like it's skipping frames"). Read
+ * every frame, so turning Bean on or off in game takes SpaceWarp with it. */
 extern "C" int vr_spacewarp_setting_on(void)
 {
-    return VrSpaceWarp >= 0 ? VrSpaceWarp != 0 : gevrBeanIsEnabled() != 0;
+    if (VrSpaceWarp >= 0) return VrSpaceWarp != 0;
+    return gevrBeanIsEnabled() != 0 && vr_spacewarp_display_hz() > 115.0f;
 }
 
 static bool vr_spacewarp_wanted(void)

@@ -3810,7 +3810,7 @@ extern "C" void gevrLauncherRun(void)
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                     gevrTooltip("The game draws half the frames and the headset makes the ones "
                                       "between from motion and depth: Bean holds 120 Hz while turning, with a little "
-                                      "more latency. Text locked to your view can shimmer. On by default with Bean.");
+                                      "more latency. Text locked to your view can shimmer. On by default with Bean at 120 Hz.");
             }
             // XBLA / Bean's frames take longer than 120 Hz's 8.3 ms when turning
             // in open levels (Dam on Quest 3: 197 missed frames in three
