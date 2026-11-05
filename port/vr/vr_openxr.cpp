@@ -3132,6 +3132,8 @@ static void vr_stats_game_frame(void)
     s_statGame++;
 }
 
+extern "C" void sysLogPrintf(int level, const char *fmt, ...);   // system.c: the game's log
+
 static void vr_stats_xr_frame(void)
 {
     const auto now = std::chrono::steady_clock::now();
@@ -3198,6 +3200,12 @@ static void vr_stats_xr_frame(void)
              (int)g_internalRenderWidth, (int)g_internalRenderHeight, screen, timingText, gevrPerfText());
     if (VrShowStats) {
         LOGI("cadence: %s", s_statText);
+        /* also in the game's log, which a player's report carries (its logcat
+         * starts at the relaunch): why walking lost its smoothing */
+        sysLogPrintf(0, "loco: clamps %u (early %u late %u stale %u), resets %u, most %s %u",
+            s_statClamps, s_locomotionStats.clamps[GEVR_LOCO_CLAMP_EARLY],
+            s_locomotionStats.clamps[GEVR_LOCO_CLAMP_LATE], s_locomotionStats.clamps[GEVR_LOCO_CLAMP_STALE],
+            resets, gevrLocomotionResetName(topReset), s_locomotionStats.resets[topReset]);
         char sample[1024];
         gevrFrameTimingFormatSample(&timing.gapFrame, sample, sizeof(sample));
         LOGI("xr-gap: max_ms=%.3f %s", timing.worstGap / 1e6, sample);

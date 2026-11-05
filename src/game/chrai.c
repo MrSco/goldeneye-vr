@@ -4269,16 +4269,18 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                             chr->chrflags   = chr->chrflags | CHRFLAG_INIT;
                             setsubroty(chr->model, FacingDirection);
                             setsuboffset(chr->model, &pos);
-#ifdef GEVR
-                            {
-                                /* gepc-ref D243 M-190: tell the cutscene camera a shot change warped a chr. */
-                                extern void gevrNotifyTeleport(void);
-                                gevrNotifyTeleport();
-                            }
-#endif
                             chrDetectRooms(chr);
                             if (chr->prop == g_CurrentPlayer->prop)
                             {
+#ifdef GEVR
+                                /* gepc-ref D243 M-190: a shot change warped Bond; the
+                                 * cutscene look-at re-seeds. Only Bond: a guard sent to a
+                                 * pad also wiped the player's VR walk smoothing, so every
+                                 * level script that moves guards juddered walking and
+                                 * turning (report 3c3033c3, Control, 120 Hz). */
+                                extern void gevrNotifyTeleport(void);
+                                gevrNotifyTeleport();
+#endif
                                 g_CurrentPlayer->field_488.collision_position.x = pos.x;
                                 g_CurrentPlayer->field_488.collision_position.y = pos.y;
                                 g_CurrentPlayer->field_488.collision_position.z = pos.z;
