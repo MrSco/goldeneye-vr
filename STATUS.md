@@ -253,6 +253,11 @@ is goldeneyevr.com, in its own repository.
   invites received, Join from Discord's app) and goldeneyevr.com/join links
   (goldeneyevr://join/CODE). Link Discord confirmed on the user's Quest once
   its Discord app was current. v0.5.15-test.9 (vc 104).
+- #229 bit-crushed echo until a restart: Perfect Dark VR has it too (its #139;
+  same audio.c); there Quest's recording captured clean sound and ending a
+  recording cured it, so Android's resampling of the 22050 Hz stream is the
+  suspect. Device now opened at 48000 Hz with the resampling in the game,
+  plus Reset sound in the hold-Menu panel. v0.5.15-test.10 (vc 105).
 - Crash reports land as issues in the private MrSco/goldeneye-vr-reports,
   decoded by its Digest workflow; each build's symbols zip goes to its
   "symbols" release.
