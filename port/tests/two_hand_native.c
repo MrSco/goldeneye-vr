@@ -95,7 +95,8 @@ s32 gevrStereoTwoHandGun(void);
 /* DEFINITIONS */
 /* PRODUCTION */
 
-static void tick(void) { frame++; gevrStereoTwoHandUpdate(); }
+/* gunfire.c, each tick: the Unarmed model's item (the rifle butt or the fist), then the hold */
+static void tick(void) { frame++; gevrUnarmedModelUpdate(); gevrStereoTwoHandUpdate(); }
 static void near(float actual, float expected) { assert(fabsf(actual - expected) < 0.0001f); }
 static void release(void)
 {
@@ -221,6 +222,25 @@ static void testSlot(int gun, int leftHanded, int weapon)
     player.hands[1-gun].weaponnum = ITEM_WPPK;
     tick(); assert(!gevrStereoTwoHandGrip()); /* two equipped guns */
 }
+/* The rifle butt (the fist slot naming the sniper rifle, the off hand free) is
+ * held like a rifle and is no bare hand; bare fists stay one (bondview2.c
+ * gevrStereoHandClub, gevrTwoHandBare). */
+static void testClubHold(void)
+{
+    g_gevrStereo = 1;
+    setup(GUNRIGHT, 0, ITEM_FIST);
+    tick();
+    assert(player.cur_item_weapon_getname == ITEM_SNIPERRIFLE);
+    assert(gevrStereoHandClub(GUNRIGHT) && !gevrTwoHandBare(GUNRIGHT) && gevrTwoHandBare(GUNLEFT));
+    assert(gevrTwoHandGunCandidate() == GUNRIGHT);
+    hold(GUNRIGHT);
+    release();
+    haveSniper = 0;
+    tick();
+    assert(player.cur_item_weapon_getname == ITEM_FIST);
+    assert(!gevrStereoHandClub(GUNRIGHT) && gevrTwoHandBare(GUNRIGHT));
+    assert(gevrTwoHandGunCandidate() == -1);
+}
 static void testClub(void)
 {
     setup(GUNLEFT, 0, ITEM_ROCKETLAUNCH);
@@ -326,6 +346,7 @@ int main(void)
         assert(sightGuard(commands,1-gun)==commands+1 && aimQueries==2);
     }
     testClub();
+    testClubHold();
     setup(GUNLEFT, 1, ITEM_WPPK);
     pose[gevrPhysHand(GUNLEFT)][0] = 0.04f;
     pose[gevrPhysHand(GUNLEFT)][2] = 0;
