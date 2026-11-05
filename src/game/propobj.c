@@ -12654,6 +12654,14 @@ void chrRenderHeldWeapon(void *renderContext, GUNHAND hand, Gfx **gdl)
 
                 renderData.mtxlist = dynAllocate(heldModel->obj->numMatrices * sizeof(Mtxf));
                 instcalcmatrices(&renderData, heldModel);
+#ifdef GEVR
+                {
+                    /* gevr_forcepull.c: where the head's view drew it, for pull and disarm */
+                    extern void gevrPullNoteHeldGun(PropRecord *gun, const Mtxf *m, s32 drawn);
+
+                    gevrPullNoteHeldGun(prop, (Mtxf *) renderData.mtxlist, gdl != NULL);
+                }
+#endif
 
                 if (gdl != NULL) 
                 {

@@ -61,6 +61,7 @@ extern s32 gevrPullHandRay(s32 ctrl, f32 p[3], f32 f[3]);
 extern s32 gevrPullCollect(PropRecord *prop);
 extern s32 gevrPullEquip(s32 ctrl, s32 item);
 extern s32 gevrWeaponOwned(s32 item);
+extern s32 g_gevrExtraPass;            /* lv.c: an extra view pass (gevrViewPass) */
 
 #define GEVR_UNITS_PER_METRE 100.0f
 #define GEVR_PULL_REACH_GRAB_CM 25.0f   /* Grip to hand's own reach (bondview2.c GEVR_GT_PICKUP): closer is a grab */
@@ -288,53 +289,90 @@ static PropRecord *gevrPullDisarmable(PropRecord *chrprop, s32 h)
 }
 
 /*
- * Where a guard's gun is: the held gun's own matrices, as the last frame drew
- * it in his hand (propobj.c chrRenderHeldWeapon, instcalcmatrices), the same
- * camera space as a floor gun's (headset, Dam: the old guess, his position
- * plus 1.1 m, put the ring and the line well above his head). Not drawn last
- * frame: his body's root at hip height, else his feet plus 1 m. View space,
- * hand units.
+ * Where the head's view last drew each gun in a hand (propobj.c
+ * chrRenderHeldWeapon), in the world. Its matrices are camera space, and the
+ * extra view passes (lv.c gevrViewPass: a hand firing outside the head's
+ * view, the copies online) place guards and their guns again in other
+ * cameras' spaces, so the camera space is turned into the world as it is
+ * drawn, under the camera it was drawn with.
+ */
+#define GEVR_PULL_HELD_NOTES 16
+
+static struct
+{
+    PropRecord *gun;
+    f32 w[3];
+    s32 at;                /* g_GlobalTimer when drawn */
+} s_heldNote[GEVR_PULL_HELD_NOTES];
+static s32 s_heldNoteNext;
+
+void gevrPullNoteHeldGun(PropRecord *gun, const Mtxf *m, s32 drawn)
+{
+    Mtxf *v2w;
+    coord3d c;
+    s32 i, slot = -1;
+
+    if (!drawn || gun == NULL || m == NULL || g_gevrExtraPass || !g_gevrStereo
+        || (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+        || (v2w = currentPlayerGetViewToWorldMtxf()) == NULL)
+    {
+        return;
+    }
+    c.x = m->m[3][0];
+    c.y = m->m[3][1];
+    c.z = m->m[3][2];
+    mtx4TransformVecInPlace(v2w, &c);
+    for (i = 0; i < GEVR_PULL_HELD_NOTES; i++)
+    {
+        if (s_heldNote[i].gun == gun)
+        {
+            slot = i;
+            break;
+        }
+    }
+    if (slot < 0)
+    {
+        slot = s_heldNoteNext++ % GEVR_PULL_HELD_NOTES;
+    }
+    s_heldNote[slot].gun = gun;
+    s_heldNote[slot].w[0] = c.x;
+    s_heldNote[slot].w[1] = c.y;
+    s_heldNote[slot].w[2] = c.z;
+    s_heldNote[slot].at = g_GlobalTimer;
+}
+
+/*
+ * Where a guard's gun is, view space, hand units: where the head's view drew
+ * it in his hand within the last few ticks (headset, Dam: the first guess,
+ * his position plus 1.1 m, put the ring and the line well above his head).
+ * Not drawn lately: his feet plus 1 m.
  */
 static s32 gevrPullDisarmPoint(PropRecord *chrprop, PropRecord *gun, f32 t[3])
 {
     ChrRecord *chr = chrprop->chr;
     f32 s = gevrPullViewScale();
     coord3d c;
+    s32 i;
 
-    Mtxf *root = chr != NULL && chr->model != NULL ? (Mtxf *) chr->model->render_pos : NULL;
-
-    if ((gun->flags & PROPFLAG_ONSCREEN) && gun->obj != NULL && gun->obj->model != NULL
-        && gun->obj->model->render_pos != NULL)
-    {
-        Mtxf *m = (Mtxf *) gun->obj->model->render_pos;
-        f32 d[3];
-
-        t[0] = m->m[3][0] * s;
-        t[1] = m->m[3][1] * s;
-        t[2] = m->m[3][2] * s;
-        if (root == NULL)
-        {
-            return TRUE;
-        }
-        /* a gun last drawn frames ago keeps an old frame's matrices: within 1.5 m of his body, or his body */
-        d[0] = m->m[3][0] - root->m[3][0];
-        d[1] = m->m[3][1] - root->m[3][1];
-        d[2] = m->m[3][2] - root->m[3][2];
-        if ((d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) * s * s < 150.0f * gevrPullCm() * 150.0f * gevrPullCm())
-        {
-            return TRUE;
-        }
-    }
-    if (root != NULL)
-    {
-        t[0] = root->m[3][0] * s;
-        t[1] = root->m[3][1] * s;
-        t[2] = root->m[3][2] * s;
-        return TRUE;
-    }
     c.x = chrprop->pos.x;
     c.y = (chr != NULL ? chr->ground : chrprop->pos.y) + 100.0f;
     c.z = chrprop->pos.z;
+    for (i = 0; i < GEVR_PULL_HELD_NOTES; i++)
+    {
+        if (s_heldNote[i].gun == gun && (u32) (g_GlobalTimer - s_heldNote[i].at) < 10u)
+        {
+            f32 dx = s_heldNote[i].w[0] - chrprop->pos.x, dz = s_heldNote[i].w[2] - chrprop->pos.z;
+
+            /* in his hand, not a stale note for a prop reused since */
+            if (dx * dx + dz * dz < 150.0f * 150.0f)
+            {
+                c.x = s_heldNote[i].w[0];
+                c.y = s_heldNote[i].w[1];
+                c.z = s_heldNote[i].w[2];
+            }
+            break;
+        }
+    }
     mtx4TransformVecInPlace(camGetWorldToScreenMtxf(), &c);
     t[0] = c.x * s;
     t[1] = c.y * s;
@@ -906,6 +944,7 @@ void gevrPullReset(void)
     s_aim[0] = s_aim[1] = NULL;
     s_aimValid[0] = s_aimValid[1] = FALSE;
     s_watchGlow = 0.0f;
+    memset(s_heldNote, 0, sizeof(s_heldNote));
     s_hum = NULL;
     s_handWorldValid[0] = s_handWorldValid[1] = FALSE;
 }
