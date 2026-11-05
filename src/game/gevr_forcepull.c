@@ -53,6 +53,7 @@ extern bool objCanPickupFromSafe(ObjectRecord *obj);
 extern void sub_GAME_7F0402B4(PropRecord *prop, rgba_u8 *color);
 extern void projectileFree(Projectile *projectile);
 extern Gfx *gevrDrawInteractionRing(Gfx *gdl, const f32 at[3], f32 radius, u32 rgba);
+extern s32 gevrStereoWatchFace(f32 o[3], f32 n[3], f32 *cm);   /* bondview2.c */
 /* bondview2.c */
 extern s32 gevrPullInPlay(void);
 extern s32 gevrPullHandFree(s32 ctrl);
@@ -91,6 +92,7 @@ static ALSoundState *s_hum;
 static f32 s_instantAge[2];       /* gunfire.c g_gevrSwitchInstant: cleared if no switch came of it */
 extern s32 g_gevrSwitchInstant[2];
 static f32 s_glowPhase;
+static f32 s_watchGlow;           /* 0..1: the watch face lit while a pull is on its way */
 static f32 s_handWorld[2][3];     /* each hand's touch point in the world, this tick */
 static f32 s_handVel[2][3];       /* and its speed, world units a second */
 static s32 s_handWorldValid[2];
@@ -734,6 +736,13 @@ void gevrPullTick(void)
     {
         s_glowPhase = 0.0f;
     }
+    {
+        /* the watch glows while either pull flies or waits on a guard (GEVR PC vr457) */
+        s32 on = (s_pull[0].prop != NULL && !s_pull[0].held) || (s_pull[1].prop != NULL && !s_pull[1].held);
+
+        s_watchGlow += on ? dt / 0.08f : -dt / 0.30f;
+        s_watchGlow = s_watchGlow < 0.0f ? 0.0f : s_watchGlow > 1.0f ? 1.0f : s_watchGlow;
+    }
     for (ctrl = 0; ctrl < 2; ctrl++)
     {
         GevrPull *pl = &s_pull[ctrl];
@@ -858,6 +867,7 @@ void gevrPullReset(void)
     memset(s_pull, 0, sizeof(s_pull));
     s_aim[0] = s_aim[1] = NULL;
     s_aimValid[0] = s_aimValid[1] = FALSE;
+    s_watchGlow = 0.0f;
     s_hum = NULL;
     s_handWorldValid[0] = s_handWorldValid[1] = FALSE;
 }
@@ -952,10 +962,107 @@ static Gfx *gevrPullDrawLine(Gfx *gdl, const f32 a[3], const f32 b[3], u32 rgb)
     return gdl;
 }
 
+#define GEVR_PULL_GLOW_SEGS 12
+
+/*
+ * The watch glow: a gold disc lying on the left watch face, brightest at the
+ * centre, with a soft rim past the dial's edge, pulsing with the hum. It has
+ * no depth test (as the ring and the line), so it fades out as the face turns
+ * away from the eye rather than showing through the wrist.
+ */
+static Gfx *gevrPullDrawWatchGlow(Gfx *gdl)
+{
+    Mtxf mf;
+    Mtx *mv;
+    Vtx *v;
+    f32 o[3], n[3], a[3], b[3], cm, dist, facing, k, scale, r1, r2;
+    u32 core, rim;
+    s32 i;
+
+    if (s_watchGlow <= 0.01f || g_CurrentPlayer == NULL || g_CurrentPlayer->watch_animation_state
+        || !gevrStereoWatchFace(o, n, &cm) || cm < 1e-6f)
+    {
+        return gdl;
+    }
+    dist = sqrtf(o[0] * o[0] + o[1] * o[1] + o[2] * o[2]);
+    facing = dist > 1e-6f ? -(n[0] * o[0] + n[1] * o[1] + n[2] * o[2]) / dist : 0.0f;
+    facing = (facing - 0.05f) * 4.0f;
+    if (facing <= 0.0f)
+    {
+        return gdl;
+    }
+    facing = facing > 1.0f ? 1.0f : facing;
+    k = s_watchGlow * facing * (0.75f + 0.25f * sinf(s_glowPhase * 6.2831853f * 5.0f));
+    core = (u32) (0xD0 * k);
+    rim = (u32) (0x80 * k);
+
+    /* two axes on the face: across the view's up, or its right if the face looks up */
+    a[0] = n[2]; a[1] = 0.0f; a[2] = -n[0];
+    if (a[0] * a[0] + a[2] * a[2] < 1e-4f)
+    {
+        a[0] = 0.0f; a[1] = -n[2]; a[2] = n[1];
+    }
+    k = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+    a[0] /= k; a[1] /= k; a[2] /= k;
+    b[0] = n[1] * a[2] - n[2] * a[1];
+    b[1] = n[2] * a[0] - n[0] * a[2];
+    b[2] = n[0] * a[1] - n[1] * a[0];
+
+    mv = dynAllocateMatrix();
+    v = dynAllocateVertices(1 + GEVR_PULL_GLOW_SEGS * 2);
+    if (mv == NULL || v == NULL)
+    {
+        return gdl;
+    }
+    scale = cm / gevrPullCm();   /* mm at the watch's size (the tiny/big guns cheat) */
+    r1 = 20.0f * scale;          /* the dial's edge (bondview2.c GEVR_WATCH_EDGE_CM) */
+    r2 = 32.0f * scale;
+    gevrPullVtx(&v[0], 0.0f, 0.0f, 0.0f, 0xFFF0B000 | core);
+    for (i = 0; i < GEVR_PULL_GLOW_SEGS; i++)
+    {
+        f32 t = i * (6.2831853f / GEVR_PULL_GLOW_SEGS);
+        f32 c = cosf(t), s = sinf(t);
+
+        gevrPullVtx(&v[1 + i], (a[0] * c + b[0] * s) * r1, (a[1] * c + b[1] * s) * r1, (a[2] * c + b[2] * s) * r1,
+                    0xFFE69A00 | rim);
+        gevrPullVtx(&v[1 + GEVR_PULL_GLOW_SEGS + i], (a[0] * c + b[0] * s) * r2, (a[1] * c + b[1] * s) * r2,
+                    (a[2] * c + b[2] * s) * r2, 0xFFE69A00);
+    }
+    matrix_4x4_set_identity(&mf);
+    mf.m[0][0] = mf.m[1][1] = mf.m[2][2] = 0.1f * D_800364CC;
+    /* a few mm off the face, clear of the hands and the readout */
+    mf.m[3][0] = o[0] + n[0] * 0.3f * cm;
+    mf.m[3][1] = o[1] + n[1] * 0.3f * cm;
+    mf.m[3][2] = o[2] + n[2] * 0.3f * cm;
+    guMtxF2L(mf.m, mv);
+    gSPMatrix(gdl++, osVirtualToPhysical((void *) currentPlayerGetProjectionMatrix()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+    gSPMatrix(gdl++, osVirtualToPhysical(mv), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    gDPPipeSync(gdl++);
+    gSPClearGeometryMode(gdl++, G_ZBUFFER | G_LIGHTING | G_FOG | G_CULL_BOTH | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
+    gSPSetGeometryMode(gdl++, G_SHADE | G_SHADING_SMOOTH);
+    gDPSetCycleType(gdl++, G_CYC_1CYCLE);
+    gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+    gSPTexture(gdl++, 0, 0, 0, G_TX_RENDERTILE, G_OFF);
+    gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
+    gSPVertex(gdl++, osVirtualToPhysical(v), 1 + GEVR_PULL_GLOW_SEGS * 2, 0);
+    for (i = 0; i < GEVR_PULL_GLOW_SEGS; i++)
+    {
+        s32 j = (i + 1) % GEVR_PULL_GLOW_SEGS;
+
+        gSP1Triangle(gdl++, 0, 1 + i, 1 + j, 0);
+        gSP2Triangles(gdl++, 1 + i, 1 + GEVR_PULL_GLOW_SEGS + i, 1 + GEVR_PULL_GLOW_SEGS + j, 0,
+                      1 + i, 1 + GEVR_PULL_GLOW_SEGS + j, 1 + j, 0);
+    }
+    gDPPipeSync(gdl++);
+    gSPSetGeometryMode(gdl++, G_ZBUFFER);
+    return gdl;
+}
+
 /*
  * bondview2.c, beside the body slots' labels: each hand's target ring and
- * line while it points, the line to a gun on its way. Pull visuals off draws
- * nothing (the haptics and the hum stay).
+ * line while it points, the line to a gun on its way, and the watch glow
+ * while one flies. Pull visuals off draws nothing (the haptics and the hum
+ * stay).
  */
 Gfx *gevrPullDraw(Gfx *gdl)
 {
@@ -996,5 +1103,5 @@ Gfx *gevrPullDraw(Gfx *gdl)
             gdl = gevrPullDrawLine(gdl, s_handAt[ctrl], at, 0xFFE69A00);
         }
     }
-    return gdl;
+    return gevrPullDrawWatchGlow(gdl);
 }

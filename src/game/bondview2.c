@@ -3305,6 +3305,20 @@ s32 gevrStereoWatchPoint(f32 out[3])
     return TRUE;
 }
 
+/* gevr_forcepull.c, the watch glow while a pull flies (GEVR PC vr457): the
+ * face's centre and the way out of it, view space, and a cm at the watch's size */
+s32 gevrStereoWatchFace(f32 o[3], f32 n[3], f32 *cm)
+{
+    f32 x[3], z[3];
+
+    if (!gevrWatchFaceFrame(o, x, n, z))
+    {
+        return FALSE;
+    }
+    *cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f * gevrGunSizeFactor();
+    return TRUE;
+}
+
 /*
  * Issue #31 (user): the watch laser and the detonator fire only with the gun
  * hand at the watch, as Bond's right hand presses it in their viewmodels.

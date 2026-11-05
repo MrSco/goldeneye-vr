@@ -152,7 +152,11 @@ game is running, and the protocol is still 25. The rest is in the build.
   launcher's Gestures page and the pause panel's VR tab.
 - **Tuning:** the numbers are the 350 cm range, the 15° cone (25° pointing
   down), the 0.30-0.40 s flight and the 20 cm lift (`gevr_pull.h`).
-- **Not built:** the watch glow.
+- **Watch glow:** a gold disc on the left watch face, pulsing, while a
+  pull flies or waits on a guard, and fading over 0.3 s after the catch. It
+  sits on the face's tracked frame (`gevrStereoWatchFace` in `bondview2.c`),
+  at the watch's size, and fades out as the face turns away from the eye.
+  It is off with Pull visuals.
 
 ## Headset test sheet
 
@@ -178,7 +182,9 @@ game is running, and the protocol is still 25. The rest is in the build.
    still collect.
 10. **No pull should steal the grip** from the two-handed hold, the reload
     belt, body slots, the holster or doors.
-11. **Bean Facility frame time** with a target aimed at (the line and the
+11. **Watch glow:** during any pull, the left watch face glows gold and
+    pulses, then fades after the catch. Turn the wrist away and it goes.
+12. **Bean Facility frame time** with a target aimed at (the line and the
     rings are blended).
 
 ## Risks to check in the headset
