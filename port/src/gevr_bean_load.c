@@ -1464,6 +1464,163 @@ static int fixPlainLevelFaces(struct gevrBeanMesh *mesh)
 	return painted;
 }
 
+/* A picture the level lays only as decals, each a whole copy of it (a poster,
+ * a sign), but some of whose faces Rare left with every corner on one point
+ * of it: drawn, such a face is a flat patch of one colour. Three posters on
+ * the Streets wall at x 1750 (the propaganda poster and two newspapers) drew
+ * as red and blue-grey cards (user, 2026-11-05); over all the release's levels
+ * they are the only such faces. Each takes the picture as a whole copy on a
+ * wall lays it - which way up, which way round, the same repeat - stretched
+ * over its own face's extent. */
+#define POSTER_FLAT_UV 0.005f
+static float posterUvArea(const float *uv)
+{
+	return fabsf((uv[2] - uv[0]) * (uv[5] - uv[1]) - (uv[4] - uv[0]) * (uv[3] - uv[1])) * 0.5f;
+}
+static void posterUvSpan(const float *uv, float span[2])
+{
+	for (int k = 0; k < 2; k++) {
+		float lo = fminf(uv[k], fminf(uv[2 + k], uv[4 + k])), hi = fmaxf(uv[k], fmaxf(uv[2 + k], uv[4 + k]));
+		span[k] = hi - lo;
+	}
+}
+static int posterFlat(const struct gevrBeanTri *t)
+{
+	float n[3], span[2];
+	posterUvSpan(t->uv, span);
+	return triNormalArea(t->p, n) > 50.0f && posterUvArea(t->uv) < POSTER_FLAT_UV && (span[0] < 0.1f || span[1] < 0.1f);
+}
+static int posterWhole(const struct gevrBeanTri *t)
+{
+	float span[2];
+	posterUvSpan(t->uv, span);
+	return span[0] > 0.9f && span[1] > 0.9f;
+}
+/* A point's place on a wall: across it (to the right seen from its front) and down it */
+static void posterWallPlace(const float *n, const float *p, float *across, float *down)
+{
+	float right[3] = { n[2], 0.0f, -n[0] }, len = sqrtf(n[0] * n[0] + n[2] * n[2]);
+	*across = (p[0] * right[0] + p[2] * right[2]) / len;
+	*down = -p[1];
+}
+/* The faces of picture t on face i's plane and within a poster's reach of it */
+static int posterSame(const struct gevrBeanMesh *mesh, int i, int o, int flat)
+{
+	const struct gevrBeanTri *a = &mesh->tris[i], *b = &mesh->tris[o];
+	float na[3], nb[3], d = 0.0f, gap = 0.0f;
+	if (b->tex != a->tex || !(b->flags & GEVR_BEAN_F_DECAL) || posterFlat(b) != flat)
+		return 0;
+	triNormalArea(a->p, na);
+	triNormalArea(b->p, nb);
+	for (int k = 0; k < 3; k++) {
+		d += (b->p[k] - a->p[k]) * na[k];
+		gap += ((b->p[k] + b->p[3 + k] + b->p[6 + k]) - (a->p[k] + a->p[3 + k] + a->p[6 + k])) *
+		       ((b->p[k] + b->p[3 + k] + b->p[6 + k]) - (a->p[k] + a->p[3 + k] + a->p[6 + k])) / 9.0f;
+	}
+	return na[0] * nb[0] + na[1] * nb[1] + na[2] * nb[2] > 0.99f && fabsf(d) < 1.0f && gap < 80.0f * 80.0f;
+}
+/* The box on its wall of face i's copy: [across lo, down lo, across hi, down hi] */
+static void posterBox(const struct gevrBeanMesh *mesh, int i, int flat, float box[4])
+{
+	float n[3];
+	triNormalArea(mesh->tris[i].p, n);
+	box[0] = box[1] = 1e30f;
+	box[2] = box[3] = -1e30f;
+	for (int o = 0; o < mesh->ntris; o++) {
+		if (o != i && !posterSame(mesh, i, o, flat))
+			continue;
+		for (int c = 0; c < 3; c++) {
+			float x, y;
+			posterWallPlace(n, &mesh->tris[o].p[c * 3], &x, &y);
+			box[0] = fminf(box[0], x);
+			box[1] = fminf(box[1], y);
+			box[2] = fmaxf(box[2], x);
+			box[3] = fmaxf(box[3], y);
+		}
+	}
+}
+static int fixFlatPosters(struct gevrBeanMesh *mesh)
+{
+	int fixed = 0;
+	for (int t = 0; t < mesh->ntex; t++) {
+		int n = 0, decals = 0, whole = 0, flat = 0, donor = -1;
+		for (int i = 0; i < mesh->ntris; i++) {
+			const struct gevrBeanTri *tri = &mesh->tris[i];
+			float nrm[3];
+			if (tri->tex != t)
+				continue;
+			n++;
+			decals += (tri->flags & GEVR_BEAN_F_DECAL) != 0;
+			if (posterFlat(tri)) {
+				flat++;
+				continue;
+			}
+			whole += posterWhole(tri);
+			triNormalArea(tri->p, nrm);
+			if (donor < 0 && posterWhole(tri) && (tri->flags & GEVR_BEAN_F_DECAL) && fabsf(nrm[1]) < 0.1f)
+				donor = i;
+		}
+		if (!flat || decals != n || donor < 0 || whole * 4 < (n - flat) * 3)
+			continue;
+		/* the donor copy's picture as a function of its place on its wall */
+		const struct gevrBeanTri *d = &mesh->tris[donor];
+		float dn[3], dx[3], dy[3], dbox[4], m[2][3];
+		triNormalArea(d->p, dn);
+		for (int c = 0; c < 3; c++)
+			posterWallPlace(dn, &d->p[c * 3], &dx[c], &dy[c]);
+		const float det = (dx[1] - dx[0]) * (dy[2] - dy[0]) - (dx[2] - dx[0]) * (dy[1] - dy[0]);
+		if (fabsf(det) < 1e-3f)
+			continue;
+		for (int k = 0; k < 2; k++) {
+			const float du1 = d->uv[2 + k] - d->uv[k], du2 = d->uv[4 + k] - d->uv[k];
+			m[k][1] = (du1 * (dy[2] - dy[0]) - du2 * (dy[1] - dy[0])) / det;
+			m[k][2] = (du2 * (dx[1] - dx[0]) - du1 * (dx[2] - dx[0])) / det;
+			m[k][0] = d->uv[k] - m[k][1] * dx[0] - m[k][2] * dy[0];
+		}
+		posterBox(mesh, donor, 0, dbox);
+		float (*uvs)[6] = calloc((size_t)mesh->ntris, sizeof(*uvs));
+		uint8_t *redo = calloc((size_t)mesh->ntris, 1);
+		if (!uvs || !redo) {
+			free(uvs);
+			free(redo);
+			return fixed;
+		}
+		/* every face's new place in the picture first: a face set right
+		 * would leave its partner's box */
+		for (int i = 0; i < mesh->ntris; i++) {
+			const struct gevrBeanTri *tri = &mesh->tris[i];
+			float nrm[3], box[4];
+			if (tri->tex != t || !posterFlat(tri))
+				continue;
+			triNormalArea(tri->p, nrm);
+			if (fabsf(nrm[1]) >= 0.1f)
+				continue;
+			posterBox(mesh, i, 1, box);
+			if (!(box[2] - box[0] > 1.0f && box[3] - box[1] > 1.0f))
+				continue;
+			float uv[6];
+			for (int c = 0; c < 3; c++) {
+				float x, y;
+				posterWallPlace(nrm, &tri->p[c * 3], &x, &y);
+				x = dbox[0] + (x - box[0]) / (box[2] - box[0]) * (dbox[2] - dbox[0]);
+				y = dbox[1] + (y - box[1]) / (box[3] - box[1]) * (dbox[3] - dbox[1]);
+				for (int k = 0; k < 2; k++)
+					uv[c * 2 + k] = m[k][0] + m[k][1] * x + m[k][2] * y;
+			}
+			memcpy(uvs[i], uv, sizeof(uv));
+			redo[i] = 1;
+		}
+		for (int i = 0; i < mesh->ntris; i++)
+			if (redo[i]) {
+				memcpy(mesh->tris[i].uv, uvs[i], sizeof(uvs[i]));
+				fixed++;
+			}
+		free(uvs);
+		free(redo);
+	}
+	return fixed;
+}
+
 /* DAB gebeanstage.c markShadows(): a cast shadow is a decal whose corners
  * are all opaque black. Rare's release lays the thing's own picture flat under
  * it in black - the cell bars on Bunker's corridor floor, Archives' ceiling
@@ -2451,6 +2608,9 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		                levelDecalScale(source));
 		mesh->shadows = markLevelShadows(mesh, triPass, passCap < mesh->ntris ? passCap : mesh->ntris,
 		                                 texAlpha, texSoft);
+		const int posters = fixFlatPosters(mesh);
+		if (posters)
+			GEVR_BEAN_LOG("gevr bean: %s: %d poster faces flat on one point of their picture laid whole\n", source, posters);
 		const int painted = fixPlainLevelFaces(mesh);
 		if (painted)
 			GEVR_BEAN_LOG("gevr bean: %s: %d blended triangles a later blended one paints over left out\n",
