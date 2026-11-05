@@ -39,6 +39,7 @@
 #include "gevr_bean_int.h"
 #include "gevr_bean_room_scale.inc.h"
 #include "gevr_static_mesh.h"
+#include "gevr_bean_holes.inc.h"
 
 #define MAX_ROOMS 160
 #define SKY_EXTENT 30000.0f
@@ -721,6 +722,13 @@ static int buildStage(int stage)
 	 * before they are matched to the cartridge's room triangles */
 	if (gevrRomMirrored())
 		gevrBeanMeshMirrorX(mesh);
+	{
+		int faded, strips;
+		beanCloseLevelHoles(mesh, st->scale, &faded, &strips);
+		if (faded || strips)
+			GEVR_BEAN_LOG("gevr bean: %s holes: %d faded faces made solid, %d strips to a wall's foot\n",
+			              st->bg, faded, strips);
+	}
 	mesh->roomMaterial = 1;
     mesh->worldVertices = 1;
     /* The world's triangles a run (a draw). 4096: at the Dam's start, 24 fewer
