@@ -273,6 +273,10 @@ is goldeneyevr.com, in its own repository.
   drops its address's stale upload (flat crosshair grid). Two-headset play
   of the force pull sync and the guard shots is still owed. Library (512?)
   and Caves (2048?) Bean UV scales measured, not checked against the N64.
+- v0.5.15-test.13 (vc 108, protocol 26): Bond's face in third person,
+  Original mode (a bank reload after a gun-buffer load reused the trimmed
+  size: no room to rewrite the head's display lists; ob.c). DK Mode needs
+  no change: the player's body takes chrHandleJointPositioned as any chr.
 - Crash reports land as issues in the private MrSco/goldeneye-vr-reports,
   decoded by its Digest workflow; each build's symbols zip goes to its
   "symbols" release.
