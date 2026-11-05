@@ -8522,6 +8522,10 @@ static Gfx *gevrDrawSight3D(Gfx *gdl, s32 hand, s32 scope)
     {
         return gdl;
     }
+    if (getCurrentPlayerWeaponId(hand) == ITEM_UNARMED || getCurrentPlayerWeaponId(hand) == ITEM_FIST)
+    {
+        return gdl;   /* an empty hand, fists or none: no sight (user; the trigger still punches) */
+    }
 
     if (scope)
     {
