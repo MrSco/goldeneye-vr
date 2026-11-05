@@ -76,6 +76,8 @@ int gevrNetOwnsSlot(int slot) { return slot == local; }
 bool netSlotOccupied(int slot) { return slot >= 0 && slot < MAX_PLAYER_COUNT; }
 s32 gevrCoopGuardExplosive(ObjectRecord *obj) { (void)obj; return guard_explosive; }
 s32 gevrCoopGuardBlastNow(void) { return guard_blast; }
+int gevrCoopGuardCopy(ObjectRecord *obj) { (void)obj; return 0; }
+void gevrCoopGuardCopyBlast(const coord3d *pos) { (void)pos; }
 void sysLogPrintf(s32 level, const char *fmt, ...) { (void)level; (void)fmt; }
 static void capture(const void *data, unsigned size) { assert(size <= sizeof(packet)); memcpy(packet, data, size); packet_size = size; sends++; }
 void netCoopBroadcast(const u8 *data, u32 size, int reliable) { assert(reliable); capture(data, size); }

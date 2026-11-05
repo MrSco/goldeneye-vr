@@ -286,6 +286,16 @@ explosionCreate(PropRecord *arg0, struct coord3d *target_pos, StandTile *target_
      */
     /* Script effects are replayed on clients to update the source object.
      * Their damaging blasts arrive separately from the host, exactly once. */
+    /* protocol 26: a client's copy of a host guard's grenade or rocket (net_coop.c) goes
+     * off by its fuse or impact here too; the host's blast arrives instead */
+    if (!g_gevrNetExplosionRx && gevrCoopGuardCopy(arg0 != NULL ? arg0->obj : g_gevrExplodingObj))
+    {
+#if defined(VERSION_JP) || defined(VERSION_EU)
+        return 0;
+#else
+        return;
+#endif
+    }
     if (sp44->damage > 0.0f && !g_gevrNetExplosionRx && player < 0 && gevrCoopPuppets())
     {
 #if defined(VERSION_JP) || defined(VERSION_EU)
@@ -506,6 +516,10 @@ void gevrNetExplosionReceive(s32 slot, s32 type, coord3d *pos, u8 room, s32 grou
         return;
     }
 
+    if (world)
+    {
+        gevrCoopGuardCopyBlast(pos);   /* the host's guard's: this headset's copy of it goes (net_coop.c) */
+    }
     for (prop = world ? NULL : chrpropGetActiveTail(); prop != NULL; prop = prop->prev)
     {
         WeaponObjRecord *wobj;

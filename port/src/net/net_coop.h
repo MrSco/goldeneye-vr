@@ -47,6 +47,9 @@ void gevrCoopChrRemoved(struct ChrRecord *chr);   /* chr.c chrTick, CHRHIDDEN_RE
 void gevrCoopGuardLaunched(struct ObjectRecord *obj);   /* chraction.c: a guard's grenade or rocket, on the host */
 int gevrCoopGuardExplosive(struct ObjectRecord *obj);   /* explosion.c explosionCreate: one of those, going off */
 int gevrCoopGuardBlastNow(void);            /* explosion.c: the host is running a guard: its blast is the world's */
+int gevrCoopGuardCopy(struct ObjectRecord *obj);        /* explosion.c: a client's copy of a guard's explosive (no blast of its own) */
+void gevrCoopGuardCopyBlast(const struct coord3d *pos); /* explosion.c: the host's blast takes the copy nearest it */
+void gevrCoopGuardForget(struct ObjectRecord *obj);     /* gevr_forcepull.c: caught by a player, no guard's any more */
 
 /* Revive: down, not dead, until a teammate stands beside you (net_coop.c) */
 int gevrCoopDowned(int player);             /* the player is down */

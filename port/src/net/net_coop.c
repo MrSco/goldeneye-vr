@@ -41,6 +41,8 @@
 #include "game/objecthandler.h"
 #include "game/player.h"
 #include "game/stan.h"
+#include "music.h"   /* g_musicSfxBufferPtr: a guard's rocket copy's launch (coopReceiveShot) */
+#include "snd.h"
 #include "aicommands2.h"
 
 #define COOP_LOG(...) sysLogPrintf(LOG_NOTE, "coop: " __VA_ARGS__)
@@ -72,6 +74,9 @@ extern void chrlvMergeKneelToStand(ChrRecord *self, f32 mergetime);
 extern bool netSlotOccupied(int slot);
 extern s32 chrGetNumFree(void);
 extern bool netSlotIsSpectator(int slot);
+extern ObjectRecord *create_new_item_instance_of_model(PROP modelnum, s32 weaponid);   /* propobj.c */
+extern void gunInitProjectileObject(ObjectRecord *obj, coord3d *pos, StandTile *stan, Mtxf *matrix, coord3d *velocity,
+                                    Mtxf *arg5, PropRecord *owner);                    /* gun.c */
 extern s32 getPlayerCount(void);
 extern int bondinvAddInvItem(int item);
 extern ObjectRecord *objFindByTagId(s32 TagID);
@@ -100,6 +105,7 @@ static void coopHeader(struct netbuf *b, u8 type);
 static void coopSendEvent(u8 kind, s32 a, s32 b2, int nargs);
 static void coopWriteSpawn(struct netbuf *buf, ChrRecord *chr, s32 slot, AIRecord *ailist, s32 spawnflags);
 static bool coopTeammateUp(int i);
+static void coopHostGuardShots(void);
 
 /* Drop-in and a host change (below, "Drop-in, drop-out and a host change") */
 #define COOP_BACKGROUND_MAX 64
@@ -344,6 +350,7 @@ void netCoopHostTick(void)
     int count = 0;
 
     if (!netCoopActive() || !netIsHost()) return;
+    coopHostGuardShots();
     netAllyHostTick();
     coopHostMission(now);
     coopHostClock(now);
@@ -504,6 +511,7 @@ void gevrCoopGuardProvoked(ChrRecord *chr, s32 player)
  */
 #define COOP_GUARD_EXPLOSIVES 32
 static ObjectRecord *s_guard_explosive[COOP_GUARD_EXPLOSIVES];
+static u8 s_guard_explosive_sent[COOP_GUARD_EXPLOSIVES];   /* its flight went to the clients (coopHostGuardShots) */
 static u32 s_guard_explosive_next;
 
 void gevrCoopGuardLaunched(ObjectRecord *obj)
@@ -511,7 +519,9 @@ void gevrCoopGuardLaunched(ObjectRecord *obj)
     if (!obj || !netCoopActive() || !netIsHost()) return;
     for (int i = 0; i < COOP_GUARD_EXPLOSIVES; i++)
         if (s_guard_explosive[i] == obj) return;
-    s_guard_explosive[s_guard_explosive_next++ % COOP_GUARD_EXPLOSIVES] = obj;
+    u32 at = s_guard_explosive_next++ % COOP_GUARD_EXPLOSIVES;
+    s_guard_explosive[at] = obj;
+    s_guard_explosive_sent[at] = 0;
 }
 
 /*
@@ -536,6 +546,169 @@ s32 gevrCoopGuardExplosive(ObjectRecord *obj)
         }
     }
     return FALSE;
+}
+
+/*
+ * Protocol 26 (docs/force-pull.md "Guards' grenades online"): the guards'
+ * grenades, rockets and launcher rounds fly on the clients too. Before, they
+ * existed only on the host and a client saw just the blast. The host sends
+ * each once it is airborne (a thrown grenade gets its flight on the guard's
+ * next tick, objDrop); a client flies a copy that never goes off by itself
+ * (explosion.c asks gevrCoopGuardCopy): the host's blast arrives instead and
+ * takes the copy away (gevrCoopGuardCopyBlast). A player who catches one
+ * (gevr_forcepull.c) makes it theirs on every headset: it is forgotten here
+ * (gevrCoopGuardForget) and its blast is the catcher's.
+ */
+#define COOP_SHOT_BYTES 130   /* model 2, item 1, droptype 1, guard 2, fuse 4, flags 4, three points 36, two floats 8, two 3x3 72 */
+#define COOP_GUARD_COPIES 32
+static ObjectRecord *s_guard_copy[COOP_GUARD_COPIES];
+static u32 s_guard_copy_next;
+
+static int coopLiveObject(ObjectRecord *obj)
+{
+    return obj && obj->prop && obj->prop->obj == obj && !(obj->runtime_bitflags & RUNTIMEBITFLAG_REMOVE);
+}
+
+static void coopWriteMtx3(struct netbuf *b, const Mtxf *m, f32 scale)
+{
+    for (int r = 0; r < 3; r++)
+        for (int c = 0; c < 3; c++) netbufWriteF32(b, m->m[r][c] / scale);
+}
+
+static int coopReadMtx3(struct netbuf *b, Mtxf *m)
+{
+    int ok = 1;
+    matrix_4x4_set_identity(m);
+    for (int r = 0; r < 3; r++)
+        for (int c = 0; c < 3; c++) {
+            m->m[r][c] = netbufReadF32(b);
+            ok = ok && isfinite(m->m[r][c]) && fabsf(m->m[r][c]) < 100.0f;
+        }
+    return ok;
+}
+
+/* The host, each poll: the guards' explosives that took flight since */
+static void coopHostGuardShots(void)
+{
+    for (int i = 0; i < COOP_GUARD_EXPLOSIVES; i++) {
+        ObjectRecord *obj = s_guard_explosive[i];
+        if (!obj || s_guard_explosive_sent[i]) continue;
+        if (!coopLiveObject(obj)) continue;
+        if (!(obj->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE) || !obj->projectile || obj->prop->parent) continue;
+        Projectile *pr = obj->projectile;
+        f32 scale = obj->model && obj->model->scale > 1e-6f ? obj->model->scale : 1.0f;
+        PropRecord *owner = pr->ownerprop;
+        s32 guard = owner && owner->type == PROP_TYPE_CHR && owner->chr ? netCoopHostSlotOf(coopSlotOf(owner->chr)) : -1;
+        u8 raw[16 + COOP_SHOT_BYTES];
+        struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+        s_guard_explosive_sent[i] = 1;
+        coopHeader(&buf, NET_MSG_COOP_SHOT);
+        netbufWriteU16(&buf, (u16)obj->obj);
+        netbufWriteU8(&buf, (u8)((WeaponObjRecord *)obj)->weaponnum);
+        netbufWriteU8(&buf, (u8)pr->droptype);
+        netbufWriteU16(&buf, guard >= 0 ? (u16)guard : 0xFFFF);
+        netbufWriteU32(&buf, (uint32_t)((WeaponObjRecord *)obj)->timer);
+        netbufWriteU32(&buf, pr->flags);
+        netbufWriteCoord(&buf, &obj->prop->pos);
+        netbufWriteCoord(&buf, &pr->speed);
+        netbufWriteCoord(&buf, &pr->unk10);
+        netbufWriteF32(&buf, pr->unkB0);
+        netbufWriteF32(&buf, pr->unkB4);
+        coopWriteMtx3(&buf, &obj->mtx, scale);
+        coopWriteMtx3(&buf, &pr->mtx, 1.0f);
+        if (buf.error) continue;
+        netCoopBroadcast(buf.data, buf.wp, true);
+    }
+}
+
+/* A client: the host's guard's explosive, flying here as a copy */
+static void coopReceiveShot(struct netbuf *b)
+{
+    u16 model = netbufReadU16(b);
+    u8 item = netbufReadU8(b);
+    u8 droptype = netbufReadU8(b);
+    u16 guard = netbufReadU16(b);
+    s32 timer = (s32)netbufReadU32(b);
+    u32 flags = netbufReadU32(b);
+    coord3d pos, speed, accel;
+    netbufReadCoord(b, &pos);
+    netbufReadCoord(b, &speed);
+    netbufReadCoord(b, &accel);
+    f32 b0 = netbufReadF32(b), b4 = netbufReadF32(b);
+    Mtxf orient, spin;
+    int ok = coopReadMtx3(b, &orient);
+    ok = coopReadMtx3(b, &spin) && ok;
+    if (b->error || netbufReadLeft(b) != 0 || !ok || item >= ITEM_IDS_MAX || model >= PROP_MAX) return;
+    const coord3d *v[3] = { &pos, &speed, &accel };
+    for (int i = 0; i < 3; i++)
+        if (!isfinite(v[i]->x) || !isfinite(v[i]->y) || !isfinite(v[i]->z) || fabsf(v[i]->x) > 1.0e6f
+            || fabsf(v[i]->y) > 1.0e6f || fabsf(v[i]->z) > 1.0e6f) return;
+    if (!isfinite(b0) || !isfinite(b4)) return;
+
+    struct player *me = g_playerPointers[netGetLocalSlot() >= 0 ? netGetLocalSlot() : 0];
+    StandTile *stan = stanFindTileBelowPos(&pos, NULL, NULL);
+    if (!stan && me && me->prop) stan = me->prop->stan;
+    if (!stan) return;
+    WeaponObjRecord *w = (WeaponObjRecord *)create_new_item_instance_of_model((PROP)model, item);
+    if (!w) return;
+    ChrRecord *by = guard != 0xFFFF ? netCoopGuardOfHostSlot(guard) : NULL;
+    w->timer = timer;
+    gunInitProjectileObject((ObjectRecord *)w, &pos, stan, &orient, &speed, &spin, by ? by->prop : NULL);
+    if ((w->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE) && w->projectile) {
+        Projectile *pr = w->projectile;
+        pr->flags = flags;
+        pr->unk10 = accel;
+        pr->unkB0 = b0;
+        pr->unkB4 = b4;
+        pr->droptype = (DROPTYPE)droptype;
+        if (model == PROP_CHRROCKET && pr->sounds[0] == NULL)
+            sndPlaySfx((struct ALBankAlt_s *)g_musicSfxBufferPtr, ROCKET_LAUNCH_SFX, (ALSoundState *)&pr->sounds[0]);   /* as chraction.c */
+    }
+    s_guard_copy[s_guard_copy_next++ % COOP_GUARD_COPIES] = (ObjectRecord *)w;
+}
+
+/* explosion.c explosionCreate: a client's copy of a guard's explosive goes off by itself: no */
+int gevrCoopGuardCopy(struct ObjectRecord *obj)
+{
+    if (!obj || netIsHost()) return FALSE;
+    for (int i = 0; i < COOP_GUARD_COPIES; i++) {
+        if (s_guard_copy[i] == obj) {
+            s_guard_copy[i] = NULL;   /* it is removed with its fuse or impact (propobj.c) */
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+/* explosion.c gevrNetExplosionReceive, the host's world blast: the copy nearest it goes */
+void gevrCoopGuardCopyBlast(const struct coord3d *pos)
+{
+    int best = -1;
+    f32 bestd = 300.0f * 300.0f;
+    if (!pos || netIsHost()) return;
+    for (int i = 0; i < COOP_GUARD_COPIES; i++) {
+        ObjectRecord *obj = s_guard_copy[i];
+        if (!obj) continue;
+        if (!coopLiveObject(obj)) { s_guard_copy[i] = NULL; continue; }
+        f32 dx = obj->prop->pos.x - pos->x, dy = obj->prop->pos.y - pos->y, dz = obj->prop->pos.z - pos->z;
+        f32 d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 < bestd) { bestd = d2; best = i; }
+    }
+    if (best >= 0) {
+        ObjectRecord *obj = s_guard_copy[best];
+        s_guard_copy[best] = NULL;
+        objFreePermanently(obj, TRUE);
+    }
+}
+
+/* gevr_forcepull.c: a player caught it: no guard's any more, here or on the host */
+void gevrCoopGuardForget(struct ObjectRecord *obj)
+{
+    if (!obj) return;
+    for (int i = 0; i < COOP_GUARD_EXPLOSIVES; i++)
+        if (s_guard_explosive[i] == obj) s_guard_explosive[i] = NULL;
+    for (int i = 0; i < COOP_GUARD_COPIES; i++)
+        if (s_guard_copy[i] == obj) s_guard_copy[i] = NULL;
 }
 
 /* ---- Damage between guards and players ---- */
@@ -685,6 +858,8 @@ void netCoopStageLoaded(void)
         s_target[i].player = -1;
     }
     memset(s_guard_explosive, 0, sizeof(s_guard_explosive));
+    memset(s_guard_explosive_sent, 0, sizeof(s_guard_explosive_sent));
+    memset(s_guard_copy, 0, sizeof(s_guard_copy));
     coopMissionReset();
     coopClockReset();
     coopScriptReset();
@@ -2375,6 +2550,7 @@ void netCoopReceive(int type, int slot, int from_host, struct netbuf *b)
         case NET_MSG_COOP_MISSION: if (from_host && !netIsHost()) coopReceiveMission(b); break;
         case NET_MSG_COOP_CLOCK: if (from_host && !netIsHost()) coopReceiveClock(b); break;
         case NET_MSG_COOP_SCRIPT: if (from_host && !netIsHost()) coopReceiveScript(b); break;
+        case NET_MSG_COOP_SHOT: if (from_host && !netIsHost()) coopReceiveShot(b); break;
         case NET_MSG_COOP_TEXT: if (from_host && !netIsHost()) coopReceiveText(b); break;
         case NET_MSG_COOP_GRANT: if (from_host && !netIsHost()) coopReceiveGrant(b); break;
         case NET_MSG_COOP_EVENT: if (netIsHost()) coopReceiveEvent(slot, b); break;

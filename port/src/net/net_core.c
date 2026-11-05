@@ -3602,6 +3602,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
         case NET_MSG_COOP_ALLY:
         case NET_MSG_COOP_CLOCK:
         case NET_MSG_COOP_SCRIPT:
+        case NET_MSG_COOP_SHOT:
             if (netIsHost() || peer != s_server_peer || s_state != NET_STATE_INGAME) break;
             netCoopReceive(msg_type, slot_id, 1, &buf);
             break;

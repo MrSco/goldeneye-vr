@@ -195,10 +195,21 @@ headset to the host, which relays it to everyone else. Its phases are in
   elsewhere do too, and the gun's FLY follows. A copy not found yet is
   searched for each tick for 1.5 s. A player's wait for the guard is 1 s
   online (0.5 s offline).
-- **Not covered:** co-op guards' own grenades exist only on the host, so
-  only the host can catch them. Bots are players, not guards, so they can't
-  be disarmed. Walking over a dropped gun is still not synced (as before);
-  only a pulled one is.
+- **Guards' grenades, rockets and launcher rounds** (co-op and Horde,
+  `NET_MSG_COOP_SHOT`): until now they existed only on the host, so a client
+  saw just the blast. The host now sends each one once it is airborne (a
+  thrown grenade gets its flight on the guard's next tick). The message
+  carries the model, item, fuse, the projectile's flags, position, speed,
+  rocket thrust, orientation and spin, and the guard's host slot so it
+  ignores him. Clients fly a copy that never goes off on its own
+  (`explosion.c` asks `gevrCoopGuardCopy`). The host's blast arrives
+  instead and removes the nearest copy. A client can catch a guard's
+  grenade copy: HOLD makes the host's real grenade follow that player's hand
+  and become theirs, and it stops counting as a guard's on every headset
+  (`gevrCoopGuardForget`). The catcher's headset then sends its blast.
+- **Not covered:** bots are players, not guards, so they can't be disarmed.
+  Walking over a dropped gun is still not synced (as before); only a pulled
+  one is.
 
 ## Headset test sheet
 
@@ -241,6 +252,9 @@ headset to the host, which relays it to everyone else. Its phases are in
     they see it in your hand and flying back, and the kill is yours.
 17. **Co-op disarm**, as a client: the host sees the guard let go and the
     gun fly to you.
+18. **Co-op guard grenades and rockets, as a client** (Surface, Bunker,
+    Silo): you see them fly now, not just the blast. Catch a guard's grenade
+    and throw it back: the host sees it in your hand, and the blast is yours.
 
 ## Risks to check in the headset
 

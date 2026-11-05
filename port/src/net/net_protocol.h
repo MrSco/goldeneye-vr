@@ -112,6 +112,7 @@ typedef enum {
     NET_MSG_COOP_SCRIPT = 56,   /* Host -> all: one allowed world effect, referenced in the local mission's AI lists */
     /* Protocol 26 (docs/force-pull.md "Online") */
     NET_MSG_FORCE_PULL = 57,    /* Puller -> host -> peers: a pull, catch or throw (NetForcePull); host -> claimant: refused */
+    NET_MSG_COOP_SHOT = 58,     /* Host -> all: a guard's grenade, rocket or launcher round in flight; clients fly a copy */
 } NetMsgType;
 
 #define NET_DISCONNECT_KICKED 0x47454b49u

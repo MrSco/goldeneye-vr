@@ -99,6 +99,7 @@ static void coopHostMission(u64 t) {}
 static void coopHostDropIn(u64 t) {}
 static void coopCinemaHostTick(u64 t) {}
 static void coopHostClock(u64 t) {}
+static void coopHostGuardShots(void) {}
 
 static void select_world(int index) { world=&worlds[index];g_ChrSlots=world->slots; }
 static int model_slot(Model *model) { return (int)(model-world->models); }

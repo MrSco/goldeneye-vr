@@ -79,6 +79,7 @@ extern int netCoopGuardHostSlot(ChrRecord *chr);
 extern ChrRecord *netCoopGuardOfHostSlot(int hostslot);
 extern int gevrNetRemoteHandWorld(int slot, int hand, float out[3]);
 extern void netSendObjectPickup(ObjectRecord *obj, s32 tickop);
+extern void gevrCoopGuardForget(ObjectRecord *obj);   /* net_coop.c: a guard's grenade, caught: a player's now */
 
 #define GEVR_UNITS_PER_METRE 100.0f
 #define GEVR_PULL_REACH_GRAB_CM 25.0f   /* Grip to hand's own reach (bondview2.c GEVR_GT_PICKUP): closer is a grab */
@@ -761,6 +762,7 @@ static void gevrPullHold(s32 ctrl)
     {
         /* caught: the catcher's, so a blast in the hand is his too (online his headset sends it) */
         gevrPullOwnGrenade(pl->obj, get_cur_playernum());
+        gevrCoopGuardForget(pl->obj);
     }
     gevrPullSendAt(GEVR_PULL_NET_HOLD, ctrl, pl->prop, pl->item, 0, NULL, 0.0f, -1);
     gevrPullHum(s_pull[1 - ctrl].prop != NULL && !s_pull[1 - ctrl].held);
@@ -1207,6 +1209,7 @@ void gevrPullNetReceive(int slot, int phase, int ctrl, ObjectRecord *obj, int ob
             if (r->obj->type == PROPDEF_COLLECTABLE && ((WeaponObjRecord *) r->obj)->weaponnum == ITEM_GRENADE)
             {
                 gevrPullOwnGrenade(r->obj, slot);   /* the catcher's headset sends its blast now */
+                gevrCoopGuardForget(r->obj);        /* a host guard's (or a client's copy of one): no more */
             }
             break;
 
