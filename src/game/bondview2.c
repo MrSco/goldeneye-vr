@@ -3454,6 +3454,28 @@ s32 gevrStereoTwoHandItem(s32 item)
     }
 }
 
+/*
+ * GoldenEye's rifle-butt melee: carrying the sniper rifle, the fist slot
+ * swings its butt (gunfire.c gevrUnarmedModelItem, the same test as the gun's
+ * own pose; Goldfinger's ROM names its own item). A rifle, not a bare hand
+ * (user): it is held two-handed, supports no other gun and pulls nothing.
+ */
+s32 gevrStereoHandClub(s32 hand)
+{
+    extern int gevrRomButtMelee(void);
+
+    return g_CurrentPlayer != NULL && (hand == GUNRIGHT || hand == GUNLEFT)
+        && getCurrentPlayerWeaponId(hand) == ITEM_FIST && g_CurrentPlayer->cur_item_weapon_getname == gevrRomButtMelee();
+}
+
+/* the hand holds nothing, or bare fists (not the rifle butt) */
+static s32 gevrTwoHandBare(s32 hand)
+{
+    s32 item = getCurrentPlayerWeaponId(hand);
+
+    return (item == ITEM_UNARMED || item == ITEM_FIST) && !gevrStereoHandClub(hand);
+}
+
 /* Only a bare opposite hand can support a gun. Controller roles are logical,
  * so vr_input.cpp's handedness mapping also covers an off-hand gun. */
 static s32 gevrTwoHandGunCandidate(void)
@@ -3461,8 +3483,8 @@ static s32 gevrTwoHandGunCandidate(void)
     s32 right = getCurrentPlayerWeaponId(GUNRIGHT);
     s32 left = getCurrentPlayerWeaponId(GUNLEFT);
 
-    if (gevrStereoTwoHandItem(right) && (left == ITEM_UNARMED || left == ITEM_FIST)) return GUNRIGHT;
-    if (gevrStereoTwoHandItem(left) && (right == ITEM_UNARMED || right == ITEM_FIST)) return GUNLEFT;
+    if ((gevrStereoTwoHandItem(right) || gevrStereoHandClub(GUNRIGHT)) && gevrTwoHandBare(GUNLEFT)) return GUNRIGHT;
+    if ((gevrStereoTwoHandItem(left) || gevrStereoHandClub(GUNLEFT)) && gevrTwoHandBare(GUNRIGHT)) return GUNLEFT;
     return -1;
 }
 
@@ -3646,7 +3668,7 @@ s32 gevrStereoTwoHandUpdate(void)
     s_gripWas[1] = get_button_state(1, "grip");
     s32 pistolSupport = gevrGexPistolSupportAllowed();
 
-    if (!g_gevrStereo || gun < 0 || !gevrStereoTwoHandItem(item)
+    if (!g_gevrStereo || gun < 0 || !(gevrStereoTwoHandItem(item) || gevrStereoHandClub(s_gevrTwoHandGun))
         || g_CurrentPlayer->bonddead || g_CurrentPlayer->watch_animation_state != 0
         || g_CurrentPlayer->hands[s_gevrTwoHandGun].field_87F == 0)
     {
@@ -3705,7 +3727,7 @@ s32 gevrStereoTwoHandUpdate(void)
         sysLogPrintf(LOG_NOTE, "stereo: two-handed hold %s (item %d, off hand %.1f cm from the barrel%s)",
                      s_gevrTwoHand ? "on" : "off", item, dist, s_gevrTwoHand ? "" : why);
     }
-    else if (press && !s_gevrTwoHand && gevrStereoTwoHandItem(item))
+    else if (press && !s_gevrTwoHand && (gevrStereoTwoHandItem(item) || gevrStereoHandClub(s_gevrTwoHandGun)))
     {
         sysLogPrintf(LOG_NOTE, "stereo: two-handed hold not taken (item %d, off hand %.1f cm from the barrel%s)",
                      item, dist, claimed ? ", reloading" : "");
@@ -18131,11 +18153,18 @@ s32 gevrPullInPlay(void)
         && !(netIsActive() && get_cur_playernum() != netGetLocalSlot());
 }
 
-/* an empty hand for the pull and a held item: nothing in it, the fists, or a watch item
- * (the watch laser and the rest fire from the watch: the gun hand is free, user) */
+/* an empty hand for the pull and a held item: nothing in it, bare fists, or a watch item
+ * (the watch laser and the rest fire from the watch: the gun hand is free, user). The
+ * rifle butt (gevrStereoHandClub) is a held rifle: it pulls nothing (user). */
 static s32 gevrPullItemEmpty(s32 item)
 {
-    return item == ITEM_FIST || item == ITEM_UNARMED || gevrStereoWatchItem(item);
+    extern int gevrRomButtMelee(void);
+
+    if (item == ITEM_FIST)
+    {
+        return g_CurrentPlayer == NULL || g_CurrentPlayer->cur_item_weapon_getname != gevrRomButtMelee();
+    }
+    return item == ITEM_UNARMED || gevrStereoWatchItem(item);
 }
 
 s32 gevrPullHandFree(s32 ctrl)
@@ -20214,7 +20243,7 @@ s32 gevrBodyTwoHandNear(void)
     {
         return TRUE;
     }
-    return !gevrDualWielding() && gevrStereoTwoHandItem(getCurrentPlayerWeaponId(GUNRIGHT))
+    return !gevrDualWielding() && (gevrStereoTwoHandItem(getCurrentPlayerWeaponId(GUNRIGHT)) || gevrStereoHandClub(GUNRIGHT))
         && gevrTwoHandBarrel(opos, snap, &dist, FALSE) && dist < GEVR_TWOHAND_PRESS_CM * 1.5f;
 }
 
