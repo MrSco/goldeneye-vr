@@ -2,6 +2,7 @@
  * presentation snapshots, not actors: all modes use the same local settings,
  * and respawns, AI removal and network authority never depend on physics. */
 #include "gevr_ragdoll_internal.h"
+#include <string.h>
 #include "model.h"
 #include "chr.h"
 #include "player.h"
@@ -33,6 +34,8 @@ static int rdBodyLimit(void)
 }
 extern float VrDismemberDamage;
 extern ModelRenderData D_8002CCBC;
+extern f32 chrobjFogVisRangeRelated(PropRecord *prop, f32 size); /* propobj.c */
+extern f32 getinstsize(Model *model);                             /* model.c */
 extern void lerp_rgba_s32_with_rgba_f32(rgba_s32 *dest, s32 enable, rgba_f32 *src); /* propobj.c */
 extern s32 g_gevrExtraPass;
 
@@ -1022,19 +1025,37 @@ Gfx *gevrRagdollRender(Gfx *gdl)
         b->nbean=0; /* this view's Bean rims arrive during subdraw */
         ModelRenderData render=D_8002CCBC;
         render.gdl=gdl; render.flags=3;
-        render.PropType=b->alpha<255?8:7;
-        render.envcolour.word=0x5a000000u|(b->alpha<255?(u8)b->alpha:0);
         /* Fogged as the living guard was (chr.c): the root's depth through the
          * game's prop fog. Unfogged, a body shot in fog showed its textures the
          * moment it fell (Surface 2, 2026-10-26). */
+        const f32 depth=-b->model.render_pos[0].pos.m[3][2];   /* the chr's zDepth (sub_GAME_7F06C768) */
         rgba_f32 fog;
-        const s32 fogged=gevrFogDepthColor(-b->model.render_pos[0].pos.m[3][2],&fog);
+        const s32 fogged=gevrFogDepthColor(depth,&fog);
         if(!fogged)continue;
+        /* And faded by distance as he was (chrRenderProp's chrobjFogVisRangeRelated,
+         * which reads only the prop's zDepth): a guard faint in the distance came
+         * in solid the moment he fell (player report, Jungle and Surface 2). The
+         * corpse's own fade (b->alpha) on top. */
+        PropRecord at; memset(&at,0,sizeof(at)); at.zDepth=depth;
+        const f32 range=chrobjFogVisRangeRelated(&at,getinstsize(&b->model));
+        const s32 alpha=(s32)(range*b->alpha);
+        if(alpha<=0)continue;
+        render.PropType=alpha<255?8:7;
+        render.envcolour.word=0x5a000000u|(alpha<255?(u8)alpha:0);
         rgba_s32 shade={.r=b->shade.r,.g=b->shade.g,.b=b->shade.b,.a=b->shade.a};
         lerp_rgba_s32_with_rgba_f32(&shade,fogged,&fog);
         render.fogcolour.word=((u32)shade.r<<24)|((u32)shade.g<<16)|((u32)shade.b<<8)|(u32)shade.a;
+        /* VR_FADE_DEPTH as chrRenderProp: fading, his solid pixels write depth */
+        if(alpha<255)gDPNoOpTag(render.gdl++,0x56620000u|(u8)alpha);
         subdraw(&render,&b->model);
-        gdl=rdDrawCaps(b,render.gdl);
+        if(alpha<255)gDPNoOpTag(render.gdl++,0x56620000u|0xFFu);
+        {
+            /* the cut caps fade with the body (gevr_ragdoll_mesh.c reads b->alpha) */
+            const f32 own=b->alpha;
+            b->alpha=(f32)alpha;
+            gdl=rdDrawCaps(b,render.gdl);
+            b->alpha=own;
+        }
         bondviewTransformManyPosToViewMatrix(b->model.render_pos,b->matrices);
     }
     return gdl;
