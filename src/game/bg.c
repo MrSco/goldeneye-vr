@@ -1247,6 +1247,16 @@ void bgRoomVisibilityRelated(void)
 
     pos = bondviewGetCurrentPlayersPosition();
     pos3 = bondviewGetCurrentPlayersPosition3();
+#ifdef GEVR
+    /* Third person: walk the portals from the feet out to the camera, not to
+     * the eye, so the room the camera stands in is the one drawn first. */
+    {
+        extern s32 gevrTpCameraPos(coord3d *out);
+        static coord3d tpcam;
+
+        if (gevrTpCameraPos(&tpcam)) pos = &tpcam;
+    }
+#endif
 
     // FAKE
     if (1) {}

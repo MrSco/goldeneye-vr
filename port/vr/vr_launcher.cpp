@@ -1491,6 +1491,41 @@ static void gevrMovementSpeedOptions(bool hostPage) {
         : "Solo stick movement, 100% is normal. Room-scale walking keeps its normal speed.");
 }
 
+// Third person (issue #230, src/game/gevr_thirdperson.c): flat screen, solo.
+static void gevrThirdPersonSlider(const char *label, const char *id, int *value, int lo, int hi, int def) {
+    ImGui::TextUnformatted(label);
+    ImGui::SameLine();
+    const float resetWidth = ImGui::CalcTextSize("Reset").x + ImGui::GetStyle().FramePadding.x * 2;
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - resetWidth - ImGui::GetStyle().ItemSpacing.x);
+    ImGui::PushID(id);
+    ImGui::SliderInt("##v", value, lo, hi, *value == def ? "%d (default)" : "%d", ImGuiSliderFlags_AlwaysClamp);
+    if (ImGui::IsItemDeactivatedAfterEdit()) vrSettingsSave();
+    ImGui::SameLine();
+    if (ImGui::Button("Reset")) { *value = def; vrSettingsSave(); }
+    ImGui::PopID();
+}
+
+static void gevrThirdPersonOptions(bool flat) {
+    ImGui::BeginDisabled(!flat);
+    bool tp = VrThirdPerson != 0;
+    if (ImGui::Checkbox("Third person (flat screen, solo)", &tp)) {
+        VrThirdPerson = tp ? 1 : 0;
+        vrSettingsSave();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        gevrTooltip("The camera follows behind Bond. Aiming (R), the watch and the tank\n"
+                    "go back to first person. Solo missions in the flat-screen mode only.\n"
+                    "Also on the watch: VR > Display > Third person.");
+    if (tp && flat) {
+        ImGui::Indent();
+        gevrThirdPersonSlider("Distance", "tpdist", &VrThirdPersonDist, THIRDPERSON_DIST_MIN, THIRDPERSON_DIST_MAX, 150);
+        gevrThirdPersonSlider("Height  ", "tpheight", &VrThirdPersonHeight, THIRDPERSON_HEIGHT_MIN, THIRDPERSON_HEIGHT_MAX, 20);
+        gevrThirdPersonSlider("Shoulder", "tpside", &VrThirdPersonSide, THIRDPERSON_SIDE_MIN, THIRDPERSON_SIDE_MAX, 35);
+        ImGui::Unindent();
+    }
+    ImGui::EndDisabled();
+}
+
 static void gevrMatchLiveOptions() {
     gevrMovementSpeedOptions(true);
     ImGui::BeginDisabled(netIsActive() && !netIsHost());
@@ -3549,6 +3584,7 @@ extern "C" void gevrLauncherRun(void)
                 VrPlayMode = VR_PLAYMODE_SCREEN;
                 vrSettingsSave();
             }
+            gevrThirdPersonOptions(mode == 0);
             ImGui::Spacing();
             // Online play, co-op and bots: GoldenEye only. A hack's levels and
             // characters sit under GoldenEye's numbers and peers do not compare

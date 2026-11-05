@@ -85,6 +85,15 @@ extern float VrComfortVignette;
 // (the default). VrNoHitstun: 1 = the trigger still fires while the hit
 // shows. VrDamageFlash: 0 = no red flash.
 extern int VrNoKnockback, VrNoHitstun, VrDamageFlash;
+// Third person in the flat-screen mode (issue #230): on/off, and the camera's
+// offset from the eye in world units: back, up, right shoulder.
+extern int VrThirdPerson, VrThirdPersonDist, VrThirdPersonHeight, VrThirdPersonSide;
+#define THIRDPERSON_DIST_MIN 60
+#define THIRDPERSON_DIST_MAX 300
+#define THIRDPERSON_HEIGHT_MIN -40
+#define THIRDPERSON_HEIGHT_MAX 80
+#define THIRDPERSON_SIDE_MIN -80
+#define THIRDPERSON_SIDE_MAX 80
 // Preferred display refresh rate in Hz; 0 = Auto (no app preference).
 extern int VrRefreshRate;
 

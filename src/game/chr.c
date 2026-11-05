@@ -3789,9 +3789,16 @@ static void chrTestHitAnimated(PropRecord *prop, ShotData *shotdata)
 void chrTestHit(PropRecord *prop, ShotData *shotdata)
 {
 #ifdef GEVR
+    extern f32 gevrTpShotMinDepth(void);
     Model *model = prop->chr->model;
-    RenderPosView *posed = model ? model->render_pos : NULL;
-    RenderPosView *base = model ? gevrAvatarCollisionPose(model) : NULL;
+    RenderPosView *posed;
+    RenderPosView *base;
+
+    /* third person: the shot leaves the camera, and whoever stands between
+     * the camera and Bond is behind Bond's gun (gevr_thirdperson.c) */
+    if (prop->zDepth < gevrTpShotMinDepth()) return;
+    posed = model ? model->render_pos : NULL;
+    base = model ? gevrAvatarCollisionPose(model) : NULL;
     if (base) model->render_pos = base;
 #endif
     chrTestHitAnimated(prop, shotdata);

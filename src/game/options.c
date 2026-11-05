@@ -3845,6 +3845,7 @@ extern int VrWatchGesturePause;
 extern int VrManualReloading;
 extern int VrPerWeaponRecoil;
 extern int VrNoKnockback, VrNoHitstun, VrDamageFlash;
+extern int VrThirdPerson;   /* flat-screen third person (#230) */
 extern int VrLeftHandedMode, VrSwapJoysticks, VrGunFitArmed, VrShowStats, VrGunSizeCheat;
 extern int VrMinesStickToGuards, VrBodiesStay, VrFastReinforcements;
 extern int VrGexGuns;
@@ -3884,7 +3885,7 @@ enum {
     GEVR_VR_REFRESH, GEVR_VR_WATCHFACE, GEVR_VR_STATS, GEVR_VR_SCREENSIZE, GEVR_VR_SCREENDIST, GEVR_VR_CURVED, GEVR_VR_PASSTHROUGH,
     GEVR_VR_MINESTICK, GEVR_VR_BODIES, GEVR_VR_FASTREINF,
     GEVR_VR_GEXGUNS, GEVR_VR_GUNSIZE, GEVR_VR_BEAN, GEVR_VR_BEANFILL, GEVR_VR_BLOOD, GEVR_VR_HAT,
-    GEVR_VR_MOVESPEED, GEVR_VR_SPACEWARP,
+    GEVR_VR_MOVESPEED, GEVR_VR_SPACEWARP, GEVR_VR_THIRDPERSON,
     GEVR_VR_ROWS
 };
 
@@ -3898,7 +3899,7 @@ static const char *s_gevrVrLabels[GEVR_VR_ROWS] = {
     "Refresh", "Watch face", "Show stats", "Screen size", "Screen dist", "Curved", "Passthrough",
     "Mines stick", "Bodies stay", "Fast reinforcements",
     "GoldenEye X", "Gun size", "Project Bean", "Bean HD fill", "Blood patch", "Oddjob's hat",
-    "Movement speed", "SpaceWarp",
+    "Movement speed", "SpaceWarp", "Third person",
 };
 
 /* the sections, as the launcher groups them */
@@ -3908,7 +3909,7 @@ static const s32 s_gevrVrGestures[] = { GEVR_VR_WATCHPAUSE, GEVR_VR_BODYSLOTS, G
                                          GEVR_VR_GRIPUSE, GEVR_VR_PICKUP, GEVR_VR_MINEGRAB,
                                          GEVR_VR_PULL, GEVR_VR_DISARM, GEVR_VR_AUTOPICKUP, GEVR_VR_PULLVISUALS };
 static const s32 s_gevrVrWeapons[] = { GEVR_VR_RECOIL, GEVR_VR_THROW, GEVR_VR_THROWPOWER, GEVR_VR_THROWPITCH, GEVR_VR_THROWGAZE };
-static const s32 s_gevrVrDisplay[] = { GEVR_VR_REFRESH, GEVR_VR_SPACEWARP, GEVR_VR_WATCHFACE, GEVR_VR_STATS, GEVR_VR_SCREENSIZE, GEVR_VR_SCREENDIST, GEVR_VR_CURVED, GEVR_VR_PASSTHROUGH };
+static const s32 s_gevrVrDisplay[] = { GEVR_VR_REFRESH, GEVR_VR_SPACEWARP, GEVR_VR_WATCHFACE, GEVR_VR_STATS, GEVR_VR_SCREENSIZE, GEVR_VR_SCREENDIST, GEVR_VR_CURVED, GEVR_VR_PASSTHROUGH, GEVR_VR_THIRDPERSON };
 static const s32 s_gevrVrRules[] = { GEVR_VR_MINESTICK, GEVR_VR_BODIES, GEVR_VR_FASTREINF };
 static const s32 s_gevrVrMods[] = { GEVR_VR_BEAN, GEVR_VR_BEANFILL, GEVR_VR_GEXGUNS, GEVR_VR_GUNSIZE, GEVR_VR_BLOOD, GEVR_VR_HAT };
 
@@ -3956,6 +3957,7 @@ static s32 *gevrVrToggle(s32 row)
         case GEVR_VR_RECOIL:      return &VrPerWeaponRecoil;
         case GEVR_VR_THROW:       return &VrMotionThrowing;
         case GEVR_VR_STATS:       return &VrShowStats;
+        case GEVR_VR_THIRDPERSON: return &VrThirdPerson;   /* flat screen (gevr_thirdperson.c) */
         case GEVR_VR_CURVED:      return &VrScreenCurved;
         case GEVR_VR_PASSTHROUGH: return &VrScreenPassthrough;
         case GEVR_VR_MINESTICK:   return &VrMinesStickToGuards;

@@ -266,6 +266,13 @@ extern void vr_screen_recenter(void);
 extern float gevrVrTurnAxis(void);       /* input.c: right stick X, dead-zoned */
 extern s32 gevrVrTakeRecenter(void);     /* input.c: both stick clicks */
 extern void gevrVrSnapshotCameraPose(void); /* vr_openxr.cpp */
+/* gevr_thirdperson.c: third person in the flat-screen mode (#230) */
+extern void gevrTpCamera(coord3d *campos, const coord3d *look, const coord3d *up);
+extern void gevrTpCameraModeChanging(s32 mode);
+extern s32 gevrTpDrawsOwnBody(s32 playernum);
+extern s32 gevrTpPlayerHasBody(void);
+extern s32 gevrTpHidesGun(void);
+extern s32 g_gevrTpBodyBuild;
 extern void gevrVrHeadPosCm(float out[3]);   /* vr_openxr.cpp */
 extern int gevrVrGripPose(int hand, float pos[3], float quat[4]); /* vr_input.cpp */
 /* the same, as it was when this frame's camera pose was taken */
@@ -6518,7 +6525,7 @@ void solo_char_load(void)
             item = starting_weapon[GUNRIGHT];
         }
 
-        if (getPlayerCount() == 1)
+        if (getPlayerCount() == 1 && !g_gevrTpBodyBuild)
         {
             remove_item_in_hand(GUNLEFT);
             remove_item_in_hand(GUNRIGHT);
@@ -6608,7 +6615,7 @@ void solo_char_load(void)
 
         if (prop >= 0)
         {
-            if (getPlayerCount() == 1)
+            if (getPlayerCount() == 1 && !g_gevrTpBodyBuild)
             {
                 helditemdst  = weaponbuf0 + cursor;
                 /*
@@ -6863,6 +6870,7 @@ void bondviewSetCameraMode(s32 arg0)
     s32 padding2;
 
     sysLogPrintf(LOG_NOTE, "intro-mode: %d -> %d timer=%.1f cam=%p replay=%d record=%d", g_CameraMode, arg0, (double)camera_transition_timer, (void *)ptr_random06cam_entry, get_is_ramrom_flag(), get_recording_ramrom_flag());
+    gevrTpCameraModeChanging(arg0);   /* the game's own body handling, ours out of the way */
     g_CameraMode = arg0;
     g_CameraAfterCinema = 0;
 
@@ -15549,6 +15557,10 @@ Gfx *bondviewRenderDebugBondView(Gfx *gdl)
     /* Apply after crouch/rise/menu offsets, in both flat and stereo play. */
     gevrGameCameraCeiling(&cam_pos);
     s_gevrEyeWorld = cam_pos;   /* gevrEyePosition: where the frame is seen from */
+    /* Third person (flat screen, gevr_thirdperson.c): the camera alone moves
+     * back; the eye stays where the walk, the aim and the rooms measure from. */
+    if (!g_gevrStereo && g_CurrentPlayer->cameramode != 1)
+        gevrTpCamera(&cam_pos, &cam_look, &cam_up);
     if (g_gevrStereo && !s_gevrCopyTrace &&
         (!netIsActive() || get_cur_playernum() == netGetLocalSlot()))
         gevrVrCameraWorld(cam_pos.f, cam_look.f, cam_up.f);
@@ -20565,7 +20577,15 @@ Gfx *maybe_mp_interface(Gfx *gdl)
 #ifdef GEVR
     /* A spectator is a camera on someone else: no hands, guns or watch arm of
      * its own (a late joiner saw its own watch arm, and no right hand, 2026-10-29) */
-    if (!(netIsActive() && g_CurrentPlayer->mpmenuon) && !gevrSpectating()) gunRenderFirstPersonGunModels(&gdl);
+    if (!(netIsActive() && g_CurrentPlayer->mpmenuon) && !gevrSpectating())
+    {
+        Gfx *beforegun = gdl;
+
+        gunRenderFirstPersonGunModels(&gdl);
+        /* Third person: the guns' matrices (muzzle, throw, casings) are still
+         * worked out; only what they drew is dropped. */
+        if (gevrTpHidesGun()) gdl = beforegun;
+    }
 #else
     if (!(netIsActive() && g_CurrentPlayer->mpmenuon)) gunRenderFirstPersonGunModels(&gdl);
 #endif
@@ -22363,6 +22383,11 @@ s32 playerTick(PropRecord *prop)
         goto clear_and_return;
     }
 
+#ifdef GEVR
+    /* third person (gevr_thirdperson.c): the player's own body, in its own pass */
+    if (!gevrTpDrawsOwnBody(index))
+#endif
+    {
     if (getPlayerCount() < 2)
     {
         goto clear_and_return;
@@ -22372,7 +22397,8 @@ s32 playerTick(PropRecord *prop)
     {
         goto clear_and_return;
     }
- 
+    }
+
 #ifdef GEVR
     if (netPlayerIsSpectator(index) || (gevrSpectating() && index == netSpectatorTarget() && !g_gevrExtraPass)
         || gevrCoopCinemaHides(index))   /* co-op (#94): out of a scripted cutscene's shot */

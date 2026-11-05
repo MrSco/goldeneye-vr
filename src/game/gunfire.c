@@ -365,6 +365,7 @@ void gunFireTankShell(s32 handnum)
  * and watch-lowering timings read it.
  */
 extern s32 g_gevrStereo;
+extern s32 gevrTpPlayerHasBody(void);   /* gevr_thirdperson.c */
 extern s32 gevrStereoMirrored(void);
 extern s32 gevrHandsMirrored(void);
 extern s32 gevrStereoItemShown(s32 item);
@@ -5272,7 +5273,11 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             g_CurrentPlayer->ammoheldarr[get_ammo_type_for_weapon(var_s1)] += handptr->weapon_ammo_in_magazine;
             handptr->weapon_ammo_in_magazine = 0;
 
+#ifdef GEVR
+            if (gevrTpPlayerHasBody())   /* or a third-person body */
+#else
             if (getPlayerCount() >= 2)
+#endif
             {
                 sub_GAME_7F09B368(hand);
             }
@@ -5389,7 +5394,11 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
 
         if (handptr->field_88C == 0)
         {
+#ifdef GEVR
+            if (gevrTpPlayerHasBody())   /* or a third-person body */
+#else
             if (getPlayerCount() >= 2)
+#endif
             {
                 sub_GAME_7F09B398(hand);
             }
@@ -5728,7 +5737,11 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
     {
         if ((handptr->field_88C == 0) && (var_s1 < 0x21))
         {
+#ifdef GEVR
+            if (gevrTpPlayerHasBody())   /* or a third-person body */
+#else
             if (getPlayerCount() >= 2)
+#endif
             {
                 sub_GAME_7F09B398(hand);
             }

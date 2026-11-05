@@ -294,6 +294,10 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; fires while the hit shows (no hitstun), 0 = no red flash.\n");
     fprintf(f, "NoKnockback=%d\nNoHitstun=%d\nDamageFlash=%d\n", VrNoKnockback ? 1 : 0, VrNoHitstun ? 1 : 0,
             VrDamageFlash ? 1 : 0);
+    fprintf(f, "; Flat screen: 1 = third person (the camera behind Bond). Its offset from\n");
+    fprintf(f, "; the eye in world units (about cm): back, up, right shoulder (- = left).\n");
+    fprintf(f, "ThirdPerson=%d\nThirdPersonDistance=%d\nThirdPersonHeight=%d\nThirdPersonSideways=%d\n",
+            VrThirdPerson ? 1 : 0, VrThirdPersonDist, VrThirdPersonHeight, VrThirdPersonSide);
 
     // --- VR hand placement (no menu UI; edit here) --------------------------------------------
     fprintf(f, "\n");
@@ -687,6 +691,13 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "NoKnockback") == 0) VrNoKnockback = (ival != 0);
             else if (strcmp(key, "NoHitstun") == 0) VrNoHitstun = (ival != 0);
             else if (strcmp(key, "DamageFlash") == 0) VrDamageFlash = (ival != 0);
+            else if (strcmp(key, "ThirdPerson") == 0) VrThirdPerson = (ival != 0);
+            else if (strcmp(key, "ThirdPersonDistance") == 0)
+                VrThirdPersonDist = ival < THIRDPERSON_DIST_MIN ? THIRDPERSON_DIST_MIN : ival > THIRDPERSON_DIST_MAX ? THIRDPERSON_DIST_MAX : ival;
+            else if (strcmp(key, "ThirdPersonHeight") == 0)
+                VrThirdPersonHeight = ival < THIRDPERSON_HEIGHT_MIN ? THIRDPERSON_HEIGHT_MIN : ival > THIRDPERSON_HEIGHT_MAX ? THIRDPERSON_HEIGHT_MAX : ival;
+            else if (strcmp(key, "ThirdPersonSideways") == 0)
+                VrThirdPersonSide = ival < THIRDPERSON_SIDE_MIN ? THIRDPERSON_SIDE_MIN : ival > THIRDPERSON_SIDE_MAX ? THIRDPERSON_SIDE_MAX : ival;
             else if (strcmp(key, "PauseHub") == 0) VrPauseHub = (ival != 0);
             else if (strcmp(key, "TwoHandedAiming") == 0) VrTwoHandAim = (ival != 0);
             else if (strcmp(key, "LeftHandedMode") == 0) VrLeftHandedMode = (ival != 0);

@@ -1934,6 +1934,7 @@ static s32 s_gevrGexPayloadOn[2];
 
 static void gevrGexRigidInverse(const Mtxf *g, Mtxf *inv);
 
+extern s32 gevrTpPlayerHasBody(void);   /* gevr_thirdperson.c */
 extern s32 gevrGexHeldRoundCount(void);   /* bondview2.c: rounds in the off hand's payload */
 
 void gevrGexMagazineFalls(s32 hand, s32 fromHand)
@@ -4475,7 +4476,11 @@ void currentPlayerUnEquipWeaponWrapper(enum GUNHAND hand, enum ITEM_IDS weapid)
         g_CurrentPlayer->hands[hand].previous_weapon = weapon_num;
     }
 
+#ifdef GEVR
+    if (gevrTpPlayerHasBody())   /* or a third-person body */
+#else
     if (getPlayerCount() >= 2)
+#endif
     {
         sub_GAME_7F09B368(hand);
     }

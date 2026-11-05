@@ -141,6 +141,13 @@ float VrComfortVignette = 0.0f;
 int VrNoKnockback = 1;
 int VrNoHitstun = 0;
 int VrDamageFlash = 1;
+/* Third person in the flat-screen mode (issue #230, gevr_thirdperson.c):
+ * off by default; the camera's offset from the eye in world units (about
+ * centimetres): back along the look, up, and to the right shoulder. */
+int VrThirdPerson = 0;
+int VrThirdPersonDist = 150;
+int VrThirdPersonHeight = 20;
+int VrThirdPersonSide = 35;
 /* Application SpaceWarp: the runtime makes every other displayed frame from
  * motion vectors and depth (vr_openxr.cpp). 1 on, 0 off, -1 (the default) on
  * while Bean is: the user's 2026-10-17 feel test, Bean holds 120 Hz with it. */

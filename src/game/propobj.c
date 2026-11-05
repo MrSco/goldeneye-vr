@@ -9837,6 +9837,13 @@ void sub_GAME_7F04E720(PropRecord *prop, struct ShotData *hitinfo)
 
     if (hit.hitpos.z);
 
+#ifdef GEVR
+    {
+        /* third person: objects between the camera and Bond (gevr_thirdperson.c) */
+        extern f32 gevrTpShotMinDepth(void);
+        if (prop->zDepth < gevrTpShotMinDepth()) return;
+    }
+#endif
     if (((obj->runtime_bitflags & RUNTIMEBITFLAG_00001000) == FALSE) && (prop->flags & PROPFLAG_ONSCREEN))
     {
         // Dummy goto is needed for matching.
