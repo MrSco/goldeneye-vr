@@ -285,6 +285,9 @@ is goldeneyevr.com, in its own repository.
   locomotion smoothing; it had dropped 3-4 smoothed frames a second from
   Control's first minute on, at any rate (reports#13, 3c3033c3, bbe7be96).
   ShowStats also logs a per-second "loco: clamps ... resets ..." line.
+- v0.5.15-test.16 (vc 111, protocol 26): weapon-cycle tap skips empty guns
+  and keeps the out-of-ammo pick (ee729f9a). Launcher unification planned
+  in docs/launcher-unify.md, not started.
 - Crash reports land as issues in the private MrSco/goldeneye-vr-reports,
   decoded by its Digest workflow; each build's symbols zip goes to its
   "symbols" release.
