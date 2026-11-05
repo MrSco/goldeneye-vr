@@ -2658,6 +2658,19 @@ void texLoad(uintptr_t *updateword, struct texpool *pool)
 
         texFreeBytesInBuffer(pool);
 #ifdef GEVR
+        {
+            /*
+             * The renderer keeps its uploads by address, format and size
+             * (gfx_pc.cpp gfx_texture_cache_lookup). This memory may have held
+             * another picture of the same shape - a previous stage's, or one
+             * this pool dropped - and its upload would be drawn for this one:
+             * the flat crosshair as a grey grid, until a restart (headset,
+             * 2026-11-05). Forget it; the game thread is the render thread.
+             */
+            extern void videoFreeCachedTexture(const void *texptr);
+
+            videoFreeCachedTexture(tex->data);
+        }
         /* Bean: the release's picture for this image, at the address it just loaded to */
         gevrBeanImageLoaded(gevrgex != NULL ? -1 : g_TexNumToLoad, tex->data, tex->width, tex->height, tex->depth);
 #endif
