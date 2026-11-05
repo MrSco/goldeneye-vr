@@ -7802,6 +7802,10 @@ void sub_GAME_7F04AC20(PropRecord *prop, ModelRenderData *mrData, s32 arg2)
  * Address 0x7F04B150.
 */
 
+#ifdef GEVR
+extern s32 g_gevrStereo;   /* bondview2.c */
+#endif
+
 Gfx *chrobjRenderProp(PropRecord *prop, Gfx *gdl, s32 arg2)
 {
     struct rgba_f32 spB0;
@@ -7927,9 +7931,28 @@ Gfx *chrobjRenderProp(PropRecord *prop, Gfx *gdl, s32 arg2)
     {
         gDPNoOpTag(mrData.gdl++, 0x56620000 | (u8)objAlpha);
     }
+    /*
+     * The tank Bond sits in goes with him, not with the world. Between game
+     * ticks the headset's camera is presented from the player's interpolated
+     * place and turn (vr_openxr.cpp vr_locomotion_camera), and the world's
+     * draws are moved to it; the tank's, laid at this tick's place, then stood
+     * off the camera riding it by a different part of a tick's travel each
+     * frame, and shook while driving (user, Streets, 2026-11-05). Tagged as
+     * the body (VR_HAND_DRAW 3, gevr_bodyslots.c) its draws stay on the game
+     * camera and turn only with the head between ticks.
+     */
+    s32 gevrRidden = g_gevrStereo && g_PlayerIsInTank == 1 && prop == g_PlayerTankProp;
+    if (gevrRidden)
+    {
+        gDPNoOpTag(mrData.gdl++, 0x565F0003);   /* VR_HAND_DRAW 3: the body */
+    }
 #endif
     sub_GAME_7F04AC20(prop, &mrData, arg2);
 #ifdef GEVR
+    if (gevrRidden)
+    {
+        gDPNoOpTag(mrData.gdl++, 0x565F0000);   /* the world again */
+    }
     if (objAlpha < 0xFF)
     {
         gDPNoOpTag(mrData.gdl++, 0x56620000 | 0xFF);
