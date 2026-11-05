@@ -258,6 +258,9 @@ is goldeneyevr.com, in its own repository.
   recording cured it, so Android's resampling of the 22050 Hz stream is the
   suspect. Device now opened at 48000 Hz with the resampling in the game,
   plus Reset sound in the hold-Menu panel. v0.5.15-test.10 (vc 105).
+- Force pull (docs/force-pull.md), single player, merged from its worktree
+  (8d5111b0); online sync waits for the headset feel check. v0.5.15-test.11
+  (vc 106).
 - Crash reports land as issues in the private MrSco/goldeneye-vr-reports,
   decoded by its Digest workflow; each build's symbols zip goes to its
   "symbols" release.
