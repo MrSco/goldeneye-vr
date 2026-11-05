@@ -2800,6 +2800,37 @@ static void gevrGexOffClench(Mtxf *m, f32 amt)
 }
 
 /*
+ * The gun hand's own fingers by its grip, when there is no empty off hand to
+ * copy (gevrGexEmptyGunHand): the off hand holds a gun (user: a pulled gun in
+ * the off hand left the empty gun hand open on its grip). As the off hand's
+ * clench (gevrGexOffClench), on the right hand's joints of its own rig.
+ */
+static void gevrGexOwnClench(ModelFileHeader *hdr, const GexWeaponDef *def, Mtxf *rwmtx)
+{
+    Mtxf ident, inv, rel;
+    s32 j;
+
+    gevrGexClenchTick();
+    if (s_gevrGexClenchGun <= 0.02f || hdr == NULL || def == NULL || hdr->numMatrices < GEVR_GEX_LHAND_FIRST
+        || hdr->numMatrices > 64)
+    {
+        return;
+    }
+    matrix_4x4_set_identity(&ident);
+    s_gevrGexClench.first = GEVR_GEX_RHAND_WRIST + 1;
+    s_gevrGexClench.last = GEVR_GEX_LHAND_FIRST - 1;
+    s_gevrGexClench.amt = s_gevrGexClenchGun;
+    gevrGexPoseWalk(hdr, &ident, gevrGexRestAnim(def), 0.0f, s_gevrGexClenchPose);
+    s_gevrGexClench.amt = 0.0f;
+    gevrGexRigidInverse(&s_gevrGexClenchPose[GEVR_GEX_RHAND_WRIST], &inv);
+    for (j = GEVR_GEX_RHAND_WRIST + 1; j < GEVR_GEX_LHAND_FIRST; j++)
+    {
+        matrix_4x4_multiply(&inv, &s_gevrGexClenchPose[j], &rel);
+        matrix_4x4_multiply(&rwmtx[GEVR_GEX_RHAND_WRIST], &rel, &rwmtx[j]);
+    }
+}
+
+/*
  * The empty gun hand (user: both hands alike): the empty off hand's fingers,
  * its fist by the gun hand's grip, on the gun hand's own wrist, where its
  * fit puts it (user: Gun fit moves it). Each finger takes its left twin's
@@ -2807,14 +2838,14 @@ static void gevrGexOffClench(Mtxf *m, f32 amt)
  * images (joints 2-16 and 18-32, read from the ROM), so the right hand's own
  * mesh draws it unmirrored. The watch stays on the off arm.
  */
-static void gevrGexEmptyGunHand(Mtxf *rwmtx)
+static s32 gevrGexEmptyGunHand(Mtxf *rwmtx)
 {
     Mtxf off[GEVR_GEX_LHAND_LAST + 1], inv, rel;
     s32 i, j;
 
     if (!gevrGexOffHandPose(off, GEVR_GEX_LHAND_LAST + 1))
     {
-        return;
+        return FALSE;   /* no empty off hand to copy (gevrGexOwnClench instead) */
     }
     gevrGexOffClench(off, s_gevrGexClenchGun);
     gevrGexScaledInverse(&off[GEVR_GEX_LHAND_WRIST], &inv);
@@ -2828,6 +2859,7 @@ static void gevrGexEmptyGunHand(Mtxf *rwmtx)
         }
         matrix_4x4_multiply(&rwmtx[GEVR_GEX_RHAND_WRIST], &rel, &rwmtx[j]);
     }
+    return TRUE;
 }
 
 /*
@@ -3396,7 +3428,26 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
         && gevrReloadSupportGun() == GUNRIGHT && !(netIsActive() && p != netGetLocalSlot())
         && (def->fireAnimAlt > 0 || (def->watch && !gevrStereoWatchGrip())))
     {
-        gevrGexEmptyGunHand(rwmtx);
+        if (!gevrGexEmptyGunHand(rwmtx))
+        {
+            gevrGexOwnClench(hdr, def, rwmtx);
+        }
+    }
+    else if (hand == GUNRIGHT && g_gevrStereo && gevrGexArmsOn() && !punching && phase < 0.0f
+             && hdr->numMatrices >= GEVR_GEX_LHAND_FIRST && hdr->numMatrices <= 64
+             && gevrReloadSupportGun() == GUNLEFT && !(netIsActive() && p != netGetLocalSlot())
+             && (def->fireAnimAlt > 0 || (def->watch && !gevrStereoWatchGrip()))
+             && gevrReloadPhase(GUNLEFT) < 0.0f && !gevrStereoTwoHandGrip())
+    {
+        /* the off hand holds a gun: no empty off hand to copy; the gun hand closes on its
+         * own, unless it is busy with the left gun (its magazine, a two-handed hold) */
+        f32 loff[3];
+        const s32 lmag = gevrGexMagState(GUNLEFT, loff);
+
+        if (lmag != GEVR_GEXMAG_GRIPPED && lmag != GEVR_GEXMAG_INHAND)
+        {
+            gevrGexOwnClench(hdr, def, rwmtx);
+        }
     }
 }
 
