@@ -3753,6 +3753,12 @@ s32 gevrStereoTwoHandGrip(void)
     return g_gevrStereo && s_gevrTwoHand;
 }
 
+/* chraction.c handles_shot_actors: the rifle butt held with both hands hits harder (user) */
+s32 gevrStereoClubTwoHanded(void)
+{
+    return gevrStereoTwoHandGrip() && gevrStereoHandClub(s_gevrTwoHandGun);
+}
+
 /*
  * Issue #55: chop with the free hand while the other holds a gun.
  *

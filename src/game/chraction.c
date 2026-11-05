@@ -2519,6 +2519,9 @@ coord3d D_80030A44 = {0, 0, 0};
 /**
  * Address 0x7F02727C.
 */
+#ifdef GEVR
+#define GEVR_CLUB_TWOHAND_DAMAGE 2.0f   /* the two-handed rifle butt's blow (gevrStereoClubTwoHanded) */
+#endif
 bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weaponid, bool isPlayer)
 {
 #ifdef GEVR
@@ -2625,6 +2628,22 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
         damageToCause = gunItemGetDestructionAmount(weaponid);
 #ifdef GEVR
         damageToCause *= gevrAllyDamageScale();
+        {
+            /*
+             * The rifle butt (Unarmed carrying the sniper rifle) held with both
+             * hands: twice the blow (user: one hand swings it, two hit harder).
+             * This headset's own player only, motion swing and trigger alike.
+             */
+            extern s32 gevrStereoClubTwoHanded(void);
+            extern bool netIsActive(void);
+            extern int netGetLocalSlot(void);
+
+            if (isPlayer && weaponid == ITEM_FIST && gevrStereoClubTwoHanded()
+                && (!netIsActive() || get_cur_playernum() == netGetLocalSlot()))
+            {
+                damageToCause *= GEVR_CLUB_TWOHAND_DAMAGE;
+            }
+        }
 #endif
 
 #ifdef GEVR
