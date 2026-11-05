@@ -277,6 +277,9 @@ is goldeneyevr.com, in its own repository.
   Original mode (a bank reload after a gun-buffer load reused the trimmed
   size: no room to rewrite the head's display lists; ob.c). DK Mode needs
   no change: the player's body takes chrHandleJointPositioned as any chr.
+- v0.5.15-test.14 (vc 109, protocol 26): SpaceWarp=-1 (default) on only
+  with Bean at 120 Hz; at 90 Hz it stepped the game 1,1,2 ticks a frame and
+  walking juddered (reports#12, c4cc34bf).
 - Crash reports land as issues in the private MrSco/goldeneye-vr-reports,
   decoded by its Digest workflow; each build's symbols zip goes to its
   "symbols" release.
