@@ -626,9 +626,24 @@ s32 gevrHeldGunCompute(ChrRecord *chr, PropRecord *weapon, GUNHAND hand, Mtxf *b
     Mtxf scaled, root, *mtx;
     union ModelRwData *rw;
     f32 size;
+    s32 fade = chr != NULL ? chr->fadealpha : 0;
 
+    /*
+     * The body's own fade, spawn and death and the distance (chr.c
+     * chrRenderProp): while the guard fades the G model, drawn solid
+     * (PropType 4), stood out ahead of him - a gun in the distance before its
+     * soldier (player report, Jungle). The Pchr gun stays in his draw list and
+     * fades with him and his hat, as Dab's Mod fades held guns with the body.
+     */
+    if (chr != NULL && chr->prop != NULL && chr->model != NULL && !(chr->chrflags & CHRFLAG_04000000))
+    {
+        extern f32 chrobjFogVisRangeRelated(PropRecord *prop, f32 size);
+        extern f32 getinstsize(Model *model);
+
+        fade = (s32) (chrobjFogVisRangeRelated(chr->prop, getinstsize(chr->model)) * (f32) fade);
+    }
     if (inst == NULL || !VrDetailedGuns || weapon == NULL || weapon->weapon == NULL || pchr == NULL
-        || chr->fadealpha < 0xff || g_gevrExtraPass)
+        || fade < 0xff || g_gevrExtraPass)
     {
         return FALSE;
     }
