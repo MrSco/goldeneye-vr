@@ -40,6 +40,9 @@
 #include "gevr_bean_room_scale.inc.h"
 #include "gevr_static_mesh.h"
 #include "gevr_bean_holes.inc.h"
+#include "gevr_bean_doors.inc.h"
+#include "chrai.h"
+#include "loadobjectmodel.h"
 
 #define MAX_ROOMS 160
 #define SKY_EXTENT 30000.0f
@@ -669,6 +672,87 @@ static void clearRooms(void)
 	s_ok = 0;
 }
 
+/* GoldenEye's doors as the setup places them, in world units: the bound
+ * pad's box and, for one that slides, its move fully open (door7F0526EC:
+ * (frac, unkac, unkb0) a unit of openPosition, maxFrac of them) */
+static int levelDoors(struct beanDoorIn **out)
+{
+	struct beanDoorIn *doors = NULL;
+	int n = 0, cap = 0;
+	*out = NULL;
+	if (!g_CurrentSetup.propDefs || !g_CurrentSetup.boundpads)
+		return 0;
+	for (PropDefHeaderRecord *p = g_CurrentSetup.propDefs; p->type != PROPDEF_END;
+	     p = (PropDefHeaderRecord *)((u32 *)p + sizepropdef(p))) {
+		DoorRecord *door = (DoorRecord *)p;
+		const BoundPadRecord *pad;
+		struct beanDoorIn *d;
+		if (p->type != PROPDEF_DOOR || !door->prop || door->pad < 0)
+			continue;
+		if (n == cap) {
+			int grown = cap ? cap * 2 : 64;
+			struct beanDoorIn *g = realloc(doors, (size_t)grown * sizeof(*g));
+			if (!g)
+				break;
+			doors = g;
+			cap = grown;
+		}
+		pad = &g_CurrentSetup.boundpads[door->pad];
+		d = &doors[n++];
+		memset(d, 0, sizeof(*d));
+		for (int k = 0; k < 3; k++) {
+			d->pos[k] = pad->pos.f[k];
+			d->up[k] = pad->up.f[k];
+			d->look[k] = pad->look.f[k];
+		}
+		d->lo[0] = pad->bbox.xmin;
+		d->hi[0] = pad->bbox.xmax;
+		d->lo[1] = pad->bbox.ymin;
+		d->hi[1] = pad->bbox.ymax;
+		d->lo[2] = pad->bbox.zmin;
+		d->hi[2] = pad->bbox.zmax;
+		if (door->doorType == DOORTYPE_SLIDING || door->doorType == DOORTYPE_FLEXI1 ||
+		    door->doorType == DOORTYPE_FLEXI2 || door->doorType == DOORTYPE_FLEXI3 ||
+		    door->doorType == DOORTYPE_VERTICAL) {
+			d->move[0] = door->frac * door->maxFrac;
+			d->move[1] = door->unkac * door->maxFrac;
+			d->move[2] = door->unkb0 * door->maxFrac;
+		}
+	}
+	*out = doors;
+	return n;
+}
+
+static void fitLevelOpenings(struct gevrBeanMesh *mesh, const struct beanStage *st)
+{
+	struct beanDoorIn *doors = NULL;
+	const int ndoors = levelDoors(&doors);
+	float (*ge)[3][3] = NULL;
+	int nge = 0;
+	if (ndoors > 0 && s_referenceCount > 0)
+		ge = malloc((size_t)s_referenceCount * sizeof(*ge));
+	for (int i = 0; ge && i < s_referenceCount; i++) {
+		if (!s_reference[i].opaque)
+			continue;
+		for (int v = 0; v < 3; v++)
+			for (int k = 0; k < 3; k++)
+				ge[nge][v][k] = s_reference[i].p[v][k] * room_data_float2;
+		nge++;
+	}
+	const struct beanDoorGe geTris = { (const float (*)[3][3])ge, nge };
+	const struct beanDoorResult r = beanFitDoorways(mesh, st->scale, doors, ndoors, &geTris);
+	if (r.doors)
+		GEVR_BEAN_LOG("gevr bean: %s doorways: %d doors, %d vertices pulled onto their edges, %d reveals, "
+		              "%d slot triangles over %d doors\n", st->bg, r.doors, r.moved, r.reveals, r.slotTris, r.slotDoors);
+	free(ge);
+	free(doors);
+	int faded, strips;
+	beanCloseLevelHoles(mesh, st->scale, &faded, &strips);
+	if (faded || strips)
+		GEVR_BEAN_LOG("gevr bean: %s holes: %d faded faces made solid, %d strips to a wall's foot\n",
+		              st->bg, faded, strips);
+}
+
 static int buildStage(int stage)
 {
 	const struct beanStage *st;
@@ -722,13 +806,6 @@ static int buildStage(int stage)
 	 * before they are matched to the cartridge's room triangles */
 	if (gevrRomMirrored())
 		gevrBeanMeshMirrorX(mesh);
-	{
-		int faded, strips;
-		beanCloseLevelHoles(mesh, st->scale, &faded, &strips);
-		if (faded || strips)
-			GEVR_BEAN_LOG("gevr bean: %s holes: %d faded faces made solid, %d strips to a wall's foot\n",
-			              st->bg, faded, strips);
-	}
 	mesh->roomMaterial = 1;
     mesh->worldVertices = 1;
     /* The world's triangles a run (a draw). 4096: at the Dam's start, 24 fewer
@@ -743,13 +820,16 @@ static int buildStage(int stage)
         }
         GEVR_BEAN_LOG("gevr bean controls: world_run=%d", worldRun);
     }
+	if (!roomReferenceBuild(nrooms))
+		GEVR_BEAN_LOG("gevr bean: no reference room triangles, using room boxes\n");
+	/* the doorways round GoldenEye's doors, then the holes left in the ground,
+	 * before the triangles are dealt to the rooms */
+	fitLevelOpenings(mesh, st);
 	assign = malloc((size_t)mesh->ntris * sizeof(int));
 	if (!assign) {
 		gevrBeanMeshFree(mesh);
 		return 0;
 	}
-	if (!roomReferenceBuild(nrooms))
-		GEVR_BEAN_LOG("gevr bean: no reference room triangles, using room boxes\n");
 	for (int i = 0; i < mesh->ntris; i++) {
 		const struct gevrBeanTri *t = &mesh->tris[i];
 		float c[3] = { 0, 0, 0 };
