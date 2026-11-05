@@ -48,6 +48,8 @@ moves.
 ### Which hand
 
 - Only an **empty** hand pulls (gun hand `ITEM_FIST`, off hand `ITEM_UNARMED`).
+  A watch item in the gun hand (the watch laser and the rest fire from the
+  watch) counts as empty, so that hand pulls, holds and takes a pulled gun.
 - A gun lands in the **pulling hand** when the game's rules allow it
   (`gevrHandItemAllowed`: the gun can go in the off hand, there is a copy for
   each hand, the MP dual-wield setting allows it). If not, it goes to the gun

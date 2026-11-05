@@ -18131,9 +18131,11 @@ s32 gevrPullInPlay(void)
         && !(netIsActive() && get_cur_playernum() != netGetLocalSlot());
 }
 
+/* an empty hand for the pull and a held item: nothing in it, the fists, or a watch item
+ * (the watch laser and the rest fire from the watch: the gun hand is free, user) */
 static s32 gevrPullItemEmpty(s32 item)
 {
-    return item == ITEM_FIST || item == ITEM_UNARMED;
+    return item == ITEM_FIST || item == ITEM_UNARMED || gevrStereoWatchItem(item);
 }
 
 s32 gevrPullHandFree(s32 ctrl)
