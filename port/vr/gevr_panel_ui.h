@@ -27,7 +27,7 @@ struct GevrPanelView {
 struct GevrPanelUi {
     bool focusLauncher = true;   // hold Menu then A still goes back to the launcher
 };
-enum { GEVR_PANEL_NONE, GEVR_PANEL_RESUME, GEVR_PANEL_LAUNCHER, GEVR_PANEL_TEXPACK };
+enum { GEVR_PANEL_NONE, GEVR_PANEL_RESUME, GEVR_PANEL_LAUNCHER, GEVR_PANEL_TEXPACK, GEVR_PANEL_RESET_SOUND };
 
 // One VR setting: its label, then < VALUE > (the value steps forward, wrapping).
 inline void gevrPanelRow(const GevrPanelView &v, int section, int index, float valueWidth) {
@@ -97,6 +97,10 @@ inline int gevrDrawPanelWindow(const GevrPanelView &v, GevrPanelUi &ui, ImTextur
         if (ImGui::Button(v.texpack ? "HD textures off" : "HD textures on", ImVec2(300, 52))) action = GEVR_PANEL_TEXPACK;
         if (ImGui::IsItemHovered()) gevrTooltip("Switches the texture pack for this session.");
     }
+    // #229: sound gone bit-crushed with an echo comes back with a new output stream
+    ImGui::SetCursorPos(ImVec2(600, 886));
+    if (ImGui::Button("Reset sound", ImVec2(330, 52))) action = GEVR_PANEL_RESET_SOUND;
+    if (ImGui::IsItemHovered()) gevrTooltip("If the sound turns crunchy or echoes, this restarts it.");
     ImGui::SetCursorPos(ImVec2(948, 886));
     ImGui::PushStyleColor(ImGuiCol_Text, bad);
     if (ImGui::Button(v.online ? "Leave to launcher" : "Back to launcher", ImVec2(314, 52))) action = GEVR_PANEL_LAUNCHER;

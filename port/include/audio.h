@@ -15,6 +15,8 @@ void audioPause(void);
 void audioResume(void);
 void audioShutdown(void);
 s32 audioIsPaused(void);
+/* A new output stream (the hold-Menu panel's Reset sound, #229). */
+void audioReset(void);
 #endif
 
 #endif

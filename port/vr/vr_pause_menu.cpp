@@ -21,6 +21,7 @@ extern "C" {
 void gevrLobbySessionStopped(void);void gevrRestartToLauncher(void);int bossGetStageNum(void);
 int gevrPanelIsOpen(void);                       /* input.c: hold Menu */
 int gevrTexpackState(void);int gevrTexpackToggle(void);   /* gfx_pc.cpp */
+void audioReset(void);                           /* audio.c: a new output stream (#229) */
 extern int gevrTexpackToggleMsg;                 /* input.c: bondview2.c says it in play */
 /* options.c: the VR settings the watch used to show */
 int gevrVrSectionCount(void);const char*gevrVrSectionName(int section);int gevrVrRowCount(int section);
@@ -203,6 +204,7 @@ extern "C" void gevrNativePauseRender(void) {
     if(joinFriend){leaveToLauncher();return;}
     if(panelAction==GEVR_PANEL_RESUME)gevrNativePauseResume();
     if(panelAction==GEVR_PANEL_LAUNCHER){vr_log("panel: back to the launcher");leaveToLauncher();return;}
+    if(panelAction==GEVR_PANEL_RESET_SOUND){audioReset();gevrFriendsMessage("Sound reset");vr_log("panel: sound reset");}
     if(panelAction==GEVR_PANEL_TEXPACK && gevrTexpackState()>=0){
         gevrTexpackToggleMsg=gevrTexpackToggle()+2;   /* 2 off, 3 on */
         vr_log("panel: texture pack %s",gevrTexpackToggleMsg==3?"on":"off");

@@ -17,7 +17,54 @@ static s32 bufferSize = 512;
 static s32 queueLimit = 8192;
 #ifdef GEVR
 static s32 sAudioPaused;
+/*
+ * #229/#226: sound going bit-crushed with an echo, until a restart, on Quest,
+ * in Perfect Dark VR too (its #139), which shares this output code. There
+ * the Quest's own screen recording captured the game's sound clean while the
+ * headset played it crunchy, and ending a recording (which rebuilds Android's
+ * audio output) cured it: the fault is past the game, in Android resampling
+ * the unusual 22050 Hz stream. So the device is opened at the Quest's own
+ * 48000 Hz and the game's 22050 Hz mix is resampled here (SDL_AudioStream),
+ * leaving Android nothing to convert; audioReset reopens the stream, as
+ * ending a recording did. Audio.OutputRate 22050 restores the old path.
+ */
+static s32 outputRate = 48000;
+static s32 sDeviceRate = 22050;
+static SDL_AudioStream *sConvert;
 #endif
+
+static s32 audioOpen(void)
+{
+	SDL_AudioSpec want, have;
+	SDL_zero(want);
+#ifdef GEVR
+	want.freq = outputRate > 0 ? outputRate : 22050; /* GE mixes at 22050 (OUTPUT_RATE) */
+#else
+	want.freq = 22020;
+#endif
+	want.format = AUDIO_S16SYS;
+	want.channels = 2;
+	want.samples = bufferSize;
+	want.callback = NULL;
+
+	dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
+	if (dev == 0) {
+		sysLogPrintf(LOG_ERROR, "SDL_OpenAudio error: %s", SDL_GetError());
+		return -1;
+	}
+#ifdef GEVR
+	sDeviceRate = have.freq;
+	if (sConvert) SDL_FreeAudioStream(sConvert);
+	sConvert = have.freq != 22050 ? SDL_NewAudioStream(AUDIO_S16SYS, 2, 22050, AUDIO_S16SYS, 2, have.freq) : NULL;
+	if (have.freq != 22050 && !sConvert) {
+		sysLogPrintf(LOG_ERROR, "audio: no 22050 to %d Hz converter: %s", have.freq, SDL_GetError());
+		sDeviceRate = 22050;
+	}
+	sysLogPrintf(LOG_NOTE, "audio: %s at %d Hz, the game's 22050 Hz mix %s", SDL_GetCurrentAudioDriver(),
+	             have.freq, sConvert ? "resampled here" : "as is");
+#endif
+	return 0;
+}
 
 s32 audioInit(void)
 {
@@ -26,23 +73,9 @@ s32 audioInit(void)
 		return -1;
 	}
 
-	SDL_AudioSpec want, have;
-	SDL_zero(want);
-	#ifdef GEVR
-    want.freq = 22050; /* matches GE's OUTPUT_RATE */
-#else
-    want.freq = 22020;
-#endif
-	want.format = AUDIO_S16SYS;
-	want.channels = 2;
-	want.samples = bufferSize;
-	want.callback = NULL;
-
 	nextBuf = NULL;
 
-	dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
-	if (dev == 0) {
-		sysLogPrintf(LOG_ERROR, "SDL_OpenAudio error: %s", SDL_GetError());
+	if (audioOpen() != 0) {
 		return -1;
 	}
 
@@ -55,6 +88,52 @@ s32 audioInit(void)
 }
 
 #ifdef GEVR
+/* The game's 22050 Hz stereo, to the device at its own rate. */
+static void audioQueue(const s16 *buf, u32 bytes)
+{
+	if (!sConvert) {
+		if (SDL_QueueAudio(dev, buf, bytes) != 0) {
+			sysLogPrintf(LOG_ERROR, "SDL_QueueAudio: %s", SDL_GetError());
+		}
+		return;
+	}
+	if (SDL_AudioStreamPut(sConvert, buf, (int)bytes) != 0) {
+		sysLogPrintf(LOG_ERROR, "SDL_AudioStreamPut: %s", SDL_GetError());
+		return;
+	}
+	static s16 out[16384];
+	int got;
+	while ((got = SDL_AudioStreamGet(sConvert, out, sizeof(out))) > 0) {
+		if (SDL_QueueAudio(dev, out, (Uint32)got) != 0) {
+			sysLogPrintf(LOG_ERROR, "SDL_QueueAudio: %s", SDL_GetError());
+			return;
+		}
+	}
+}
+
+/* "Reset sound" (the hold-Menu panel): a new output stream, as ending a Quest
+ * recording gave Perfect Dark VR's players (#229). */
+void audioReset(void)
+{
+	if (!dev) {
+		return;
+	}
+	SDL_ClearQueuedAudio(dev);
+	SDL_CloseAudioDevice(dev);
+	dev = 0;
+	nextBuf = NULL;
+	nextSize = 0;
+	if (audioOpen() != 0) {
+		return;
+	}
+	if (!sAudioPaused) {
+		SDL_PauseAudioDevice(dev, 0);
+	}
+	sysLogPrintf(LOG_NOTE, "audio: reset (the output stream was reopened)");
+}
+#endif
+
+#ifdef GEVR
 void audioPause(void)
 {
     netVoicePause();
@@ -65,6 +144,7 @@ void audioPause(void)
 	nextBuf = NULL;
 	nextSize = 0;
 	SDL_ClearQueuedAudio(dev);
+	if (sConvert) SDL_AudioStreamClear(sConvert);
 	SDL_PauseAudioDevice(dev, 1);
 	sysLogPrintf(LOG_NOTE, "audio: paused (queue cleared)");
 }
@@ -94,6 +174,8 @@ void audioShutdown(void)
 	SDL_PauseAudioDevice(dev, 1);
 	SDL_CloseAudioDevice(dev);
 	dev = 0;
+	if (sConvert) SDL_FreeAudioStream(sConvert);
+	sConvert = NULL;
 	sysLogPrintf(LOG_NOTE, "audio: shutdown");
 }
 
@@ -108,6 +190,13 @@ s32 audioGetBytesBuffered(void)
 #ifdef GEVR
 	if (!dev) {
 		return 0;
+	}
+#endif
+#ifdef GEVR
+	/* in the game's 22050 Hz stereo frames, which it sizes its audio frames by (osAiGetLength) */
+	if (sDeviceRate != 22050) {
+		const u64 frames = SDL_GetQueuedAudioSize(dev) / 4;
+		return (s32)(frames * 22050 / (u64)sDeviceRate) * 4;
 	}
 #endif
 	return SDL_GetQueuedAudioSize(dev);
@@ -171,9 +260,13 @@ void audioEndFrame(void)
                 netVoiceMix(mixed, nextSize / (sizeof(s16) * 2));
                 out = mixed;
             }
+#ifdef GEVR
+            audioQueue(out, nextSize);
+#else
 			if (SDL_QueueAudio(dev, out, nextSize) != 0) {
                 sysLogPrintf(LOG_ERROR, "SDL_QueueAudio: %s", SDL_GetError());
             }
+#endif
 #ifdef GEVR
             static s32 reportedPcm;
             if (!reportedPcm) {
@@ -199,14 +292,17 @@ void audioVoiceIdleTick(void)
     if (!dev || sAudioPaused || netGetState() == NET_STATE_INGAME ||
         netGetState() == NET_STATE_OFFLINE || netGetState() == NET_STATE_CONNECTING)
         return;
-    if (SDL_GetQueuedAudioSize(dev) >= 441u * sizeof(s16) * 2 * 3) return;
+    if ((u32)audioGetBytesBuffered() >= 441u * sizeof(s16) * 2 * 3) return;
     s16 voice[441 * 2] = {0};
     netVoiceMix(voice, 441);
-    SDL_QueueAudio(dev, voice, sizeof(voice));
+    audioQueue(voice, sizeof(voice));
 }
 
 PD_CONSTRUCTOR static void audioConfigInit(void)
 {
 	configRegisterInt("Audio.BufferSize", &bufferSize, 0, 1 * 1024 * 1024);
 	configRegisterInt("Audio.QueueLimit", &queueLimit, 0, 1 * 1024 * 1024);
+#ifdef GEVR
+	configRegisterInt("Audio.OutputRate", &outputRate, 0, 192000);
+#endif
 }
