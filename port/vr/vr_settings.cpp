@@ -424,6 +424,11 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; 1 = with GE-X's arms, a free or unarmed hand closes into a fist while you\n");
     fprintf(f, "; squeeze its grip, 0 = it stays open. (FistClench, before it did this, saved 0.)\n");
     fprintf(f, "GexFistClench=%d\n", VrFistClench);
+    fprintf(f, "\n");
+    fprintf(f, "; Milliseconds after a gun runs dry and switches itself during which the first\n");
+    fprintf(f, "; weapon-cycle tap keeps the gun it switched to instead of stepping past it.\n");
+    fprintf(f, "; 0 = off (every tap cycles).\n");
+    fprintf(f, "AutoSwitchKeepMs=%d\n", VrAutoSwitchKeepMs);
     vrHapticsSaveIni(f);
     fflush(f);
     fclose(f);
@@ -744,6 +749,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "HideArms") == 0) VrHideArms = (ival != 0);
             else if (strcmp(key, "MatchCharacterHeight") == 0) VrMatchCharacterHeight = (ival != 0);
             else if (strcmp(key, "GexFistClench") == 0) VrFistClench = ival != 0;
+            else if (strcmp(key, "AutoSwitchKeepMs") == 0) VrAutoSwitchKeepMs = ival < 0 ? 0 : ival > 5000 ? 5000 : ival;
             else if (strcmp(key, "PlayMode") == 0) VrPlayMode = ival != 0 ? VR_PLAYMODE_STEREO : VR_PLAYMODE_SCREEN;
             else if (strcmp(key, "XblaVisualsMode") == 0) VrBeanModels = ival != 0;
             else if (strcmp(key, "BeanFillTextures") == 0) VrBeanFillTextures = ival != 0;

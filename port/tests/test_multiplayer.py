@@ -295,6 +295,7 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_character_sleeve_selection(self): self.assertEqual(self.hands.test_character_sleeves(),0)
     def test_tap_hold_grip_and_menu_input_routing(self): self.assertEqual(self.hands.test_hand_input(),0)
     def test_independent_hand_lists_and_cycling(self): self.assertEqual(self.hands.test_hand_cycles(),0)
+    def test_cycle_skips_empty_guns_and_keeps_auto_pick(self): self.assertEqual(self.hands.test_hand_cycle_ammo(),0)
     def test_weapon_wheel_categories_and_stick(self): self.assertEqual(self.hands.test_weapon_wheel(),0)
     def test_mission_gadgets_in_both_body_slot_lists(self): self.assertEqual(self.hands.test_mission_gadget_slots(),0)
     def test_mission_gadgets_have_one_hand_owner(self): self.assertEqual(self.hands.test_mission_gadget_ownership(),0)

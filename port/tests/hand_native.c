@@ -56,6 +56,10 @@ ITEM_IDS getCurrentPlayerWeaponId(GUNHAND hand) { return player.hands[hand].weap
 ITEM_IDS get_item_in_hand_or_watch_menu(GUNHAND hand) { return getCurrentPlayerWeaponId(hand); }
 /* gun.c's GE-X remote mines: the hand stays on them while any are out */
 int VrGexGuns;
+/* bondview2.c gevrKeepAutoPick: the out-of-ammo pick's keep window on a test clock */
+int VrAutoSwitchKeepMs = 800;
+static u64 nowUs;
+u64 sysGetMicroseconds(void) { return nowUs; }
 static int minesOut;
 static int reloadCarriesRounds;
 s32 gevrReloadCarriesRounds(s32 hand) { return hand == GUNRIGHT && reloadCarriesRounds; }
@@ -92,6 +96,7 @@ static void reset(void) {
     memset(&player, 0, sizeof(player)); memset(&pair, 0, sizeof(pair));
     memset(owned, 0, sizeof(owned)); memset(reserve, 0, sizeof(reserve));
     gevrVrTriggerDown[0] = gevrVrTriggerDown[1] = 0;
+    s_gevrAutoPick[0] = s_gevrAutoPick[1] = -1; VrAutoSwitchKeepMs = 800; nowUs = 1000000;
     g_CurrentPlayer = &player; g_gevrStereo = 1; online = mode = spectator = remote = 0;
     player.ptr_hand_weapon_buffer[GUNLEFT] = (void *) 1;
     inventoryCount = 5;
@@ -105,6 +110,7 @@ static void reset(void) {
 }
 EXPORT int test_hand_cycles(void) {
     reset();
+    reserve[ITEM_WPPK] = reserve[ITEM_AK47] = reserve[ITEM_GRENADE] = 10;   /* a tap skips empty guns (test_hand_cycle_ammo) */
     int count = gevrWeaponPanelBuild(); CHECK(count == 5);
     for (int i = 0; i < count; i++) CHECK(s_gevrWpList[i].left == ITEM_UNARMED && s_gevrWpList[i].right != ITEM_UNARMED);
     count = gevrWeaponPanelBuildLeft(); CHECK(count == 4);
@@ -161,6 +167,56 @@ EXPORT int test_hand_cycles(void) {
     CHECK(!player.hands[GUNRIGHT].weapon_animation_trigger);
     remote = 0; spectator = 1; gevrCycleHandWeapon(GUNRIGHT, 1);
     CHECK(!player.hands[GUNRIGHT].weapon_animation_trigger);
+    return 0;
+}
+static void tickDepletion(GUNHAND hand);   /* below: gunfire.c's empty-gun branch */
+/* Jungle (tester, 2026-11-05): PP7 and rifle dry, two rounds for the launcher. */
+static void jungle(int held) {
+    const int items[] = { ITEM_FIST, ITEM_WPPK, ITEM_AK47, ITEM_GRENADELAUNCH, ITEM_CAMERA };
+    reset();
+    inventoryCount = 5;
+    for (int i = 0; i < inventoryCount; i++) { inventoryItems[i] = items[i]; owned[items[i]] = 1; }
+    reserve[ITEM_GRENADELAUNCH] = 2;
+    player.hands[GUNLEFT].weaponnum = ITEM_UNARMED;
+    player.hands[GUNRIGHT].weaponnum = held;
+}
+EXPORT int test_hand_cycle_ammo(void) {
+    // A tap steps over guns with nothing to fire, both ways; bare hands and gadgets stay.
+    jungle(ITEM_FIST);
+    gevrCycleHandWeapon(GUNRIGHT, 1); CHECK(gevrHandSelected(GUNRIGHT) == ITEM_GRENADELAUNCH);
+    settle(); gevrCycleHandWeapon(GUNRIGHT, -1); CHECK(gevrHandSelected(GUNRIGHT) == ITEM_FIST);
+    settle(); gevrCycleHandWeapon(GUNRIGHT, -1); CHECK(gevrHandSelected(GUNRIGHT) == ITEM_CAMERA);
+    // The gun in this hand still counts its own magazine.
+    jungle(ITEM_AK47); player.hands[GUNRIGHT].weapon_ammo_in_magazine = 5;
+    CHECK(!gevrCycleItemEmpty(GUNRIGHT, ITEM_AK47)); CHECK(gevrCycleItemEmpty(GUNRIGHT, ITEM_WPPK));
+    CHECK(gevrCycleItemEmpty(GUNLEFT, ITEM_AK47));
+    // The rifle runs dry: the switch picks the launcher, and a habitual tap while
+    // it comes up keeps it; the next tap cycles as usual.
+    jungle(ITEM_AK47); tickDepletion(GUNRIGHT);
+    CHECK(gevrHandSelected(GUNRIGHT) == ITEM_GRENADELAUNCH);
+    nowUs += 300000; gevrCycleHandWeapon(GUNRIGHT, 1);
+    CHECK(gevrHandSelected(GUNRIGHT) == ITEM_GRENADELAUNCH);
+    gevrCycleHandWeapon(GUNRIGHT, 1); CHECK(gevrHandSelected(GUNRIGHT) == ITEM_CAMERA);
+    // Late taps, a keep window of 0 and another selection in between all cycle.
+    jungle(ITEM_WPPK); tickDepletion(GUNRIGHT); CHECK(gevrHandSelected(GUNRIGHT) == ITEM_GRENADELAUNCH);
+    nowUs += 900000; gevrCycleHandWeapon(GUNRIGHT, 1); CHECK(gevrHandSelected(GUNRIGHT) == ITEM_CAMERA);
+    jungle(ITEM_AK47); VrAutoSwitchKeepMs = 0; tickDepletion(GUNRIGHT);
+    gevrCycleHandWeapon(GUNRIGHT, 1); CHECK(gevrHandSelected(GUNRIGHT) == ITEM_CAMERA);
+    jungle(ITEM_AK47); tickDepletion(GUNRIGHT);
+    gunRequestHandWeaponChange(GUNRIGHT, ITEM_FIST, 1);
+    gevrCycleHandWeapon(GUNRIGHT, 1); CHECK(gevrHandSelected(GUNRIGHT) == ITEM_GRENADELAUNCH);
+    // The left hand keeps its own pick; the right hand's tap is not swallowed by it.
+    jungle(ITEM_FIST); reserve[ITEM_SKORPION] = 20; owned[ITEM_SKORPION] = 1;
+    inventoryItems[4] = ITEM_SKORPION;   /* a one-handed gun with ammo for the left hand */
+    player.hands[GUNLEFT].weaponnum = ITEM_WPPK; tickDepletion(GUNLEFT);
+    int leftPick = gevrHandSelected(GUNLEFT);
+    CHECK(leftPick == ITEM_GRENADELAUNCH || leftPick == ITEM_SKORPION);
+    gevrCycleHandWeapon(GUNRIGHT, 1); CHECK(gevrHandSelected(GUNRIGHT) != ITEM_FIST);
+    gevrCycleHandWeapon(GUNLEFT, 1); CHECK(gevrHandSelected(GUNLEFT) == leftPick);
+    // Out of everything: bare hands, and the next tap cycles at once.
+    jungle(ITEM_AK47); reserve[ITEM_GRENADELAUNCH] = 0; tickDepletion(GUNRIGHT);
+    CHECK(gevrHandSelected(GUNRIGHT) == ITEM_FIST);
+    gevrCycleHandWeapon(GUNRIGHT, 1); CHECK(gevrHandSelected(GUNRIGHT) == ITEM_CAMERA);
     return 0;
 }
 EXPORT int test_mission_gadget_slots(void) {

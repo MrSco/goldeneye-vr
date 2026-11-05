@@ -17576,6 +17576,20 @@ static void gevrWeaponPanelEquip(s32 hand, const GevrWpEntry *e, s32 dir)
     gunRequestHandWeaponChange(hand, hand == GUNLEFT ? e->left : e->right, dir);
 }
 
+/*
+ * A gun with nothing to fire: no rounds in reserve (or in a stored magazine)
+ * and none in this hand's own magazine. The cycle tap steps over it (user,
+ * 2026-11-05: a tester's N64 habit of tapping to the gun with ammo kept
+ * landing on empty guns, which the out-of-ammo switch then left again).
+ * Fists, the holster, gadgets and the watch have no ammo type and stay.
+ */
+static s32 gevrCycleItemEmpty(s32 hand, s32 item)
+{
+    if (item == ITEM_UNARMED || item == ITEM_FIST || item >= ITEM_BOMBCASE) return FALSE;
+    if (get_ammo_type_for_weapon(item) == 0 || bondwalkItemHasAmmo(item)) return FALSE;
+    return !(item == getCurrentPlayerWeaponId(hand) && get_ammo_in_hands_magazine(hand) > 0);
+}
+
 static void gevrCycleHandWeaponInternal(s32 hand, s32 dir, s32 requireAmmo)
 {
     s32 count, current, idx = -1, i;
@@ -17598,14 +17612,45 @@ static void gevrCycleHandWeaponInternal(s32 hand, s32 dir, s32 requireAmmo)
         s32 item = hand == GUNLEFT ? s_gevrWpList[next].left : s_gevrWpList[next].right;
         if (requireAmmo && (item == ITEM_UNARMED || item == ITEM_FIST || item >= ITEM_BOMBCASE
             || !bondwalkItemHasAmmo(item))) continue;
+        if (!requireAmmo && gevrCycleItemEmpty(hand, item)) continue;
         gevrWeaponPanelEquip(hand, &s_gevrWpList[next], dir);
         return;
     }
     if (requireAmmo) gunRequestHandWeaponChange(hand, hand == GUNLEFT ? ITEM_UNARMED : ITEM_FIST, dir);
 }
 
+/*
+ * The out-of-ammo switch's pick (gevrAutoAdvanceHand) and when it was made.
+ * A tap counts from the queued gun, so a habitual tap while the empty gun is
+ * still going down stepped past the gun the game had just chosen (user,
+ * 2026-11-05: Jungle, PP7 and rifle dry, the launcher's pick skipped to
+ * Unarmed). The first cycle tap within AutoSwitchKeepMs keeps the pick
+ * instead; 0 turns it off. One tap at most, and only while that pick is
+ * still the hand's selection.
+ */
+static s32 s_gevrAutoPick[2] = { -1, -1 };
+static u64 s_gevrAutoPickUs[2];
+
+static s32 gevrKeepAutoPick(s32 hand)
+{
+    extern int VrAutoSwitchKeepMs;   /* goldeneye-vr.ini AutoSwitchKeepMs */
+    s32 pick;
+    u64 age;
+    if (hand != GUNRIGHT && hand != GUNLEFT) return FALSE;
+    pick = s_gevrAutoPick[hand];
+    s_gevrAutoPick[hand] = -1;
+    if (pick < 0 || VrAutoSwitchKeepMs <= 0 || !g_CurrentPlayer || gevrHandSelected(hand) != pick) return FALSE;
+    age = sysGetMicroseconds() - s_gevrAutoPickUs[hand];
+    sysLogPrintf(LOG_NOTE, "stereo: %s hand cycle tap %d ms after the out-of-ammo pick %d (%s): %s",
+                 hand == GUNLEFT ? "left" : "right", (s32) (age / 1000), pick,
+                 getCurrentPlayerWeaponId(hand) == pick ? "raised" : "switching",
+                 age < (u64) VrAutoSwitchKeepMs * 1000 ? "kept" : "cycles");
+    return age < (u64) VrAutoSwitchKeepMs * 1000;
+}
+
 void gevrCycleHandWeapon(s32 hand, s32 dir)
 {
+    if (gevrKeepAutoPick(hand)) return;
     gevrCycleHandWeaponInternal(hand, dir, FALSE);
 }
 
@@ -17638,6 +17683,12 @@ void gevrAutoAdvanceHand(s32 hand)
             gunRequestHandWeaponChange(hand, ITEM_TRIGGER, 1);
         else
             gevrCycleHandWeaponInternal(hand, 1, TRUE);
+    }
+    {
+        s32 pick = gevrHandSelected(hand);
+        /* a gun to keep (gevrKeepAutoPick); falling back to bare hands keeps nothing */
+        s_gevrAutoPick[hand] = pick != item && pick != ITEM_FIST && pick != ITEM_UNARMED ? pick : -1;
+        s_gevrAutoPickUs[hand] = sysGetMicroseconds();
     }
 }
 
