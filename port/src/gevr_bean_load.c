@@ -566,7 +566,14 @@ static int pushTri(struct gevrBeanMesh *mesh, const struct beanVtx *a, const str
 static float levelUv(const uint8_t *gpu, uint32_t len, const char *source)
 {
 	int n128 = 0, n256 = 0;
-	if (source && strstr(source, "silo")) {
+	/* Jungle too (player report: the ladder's right rail missing). Its shaders
+	 * carry no scale literal and 1024 was taken from the leaves' maximum, but
+	 * that spans cards a repeat over: every one of its 2748 whole-picture cards
+	 * spans 512, and the ladder at 1/512 covers its picture as the N64's does
+	 * (ROM room 35, texture 0x9AB: both rails, 14.6 rungs). At 1/1024 every
+	 * Jungle face showed half its picture. Dab's Mod reads it at 1024 too. */
+	if (source && (strstr(source, "silo")
+			|| strstr(source, "background/jungle/") || strstr(source, "background\\jungle\\"))) {
 		return 512.0f;
 	}
 	for (uint32_t at = 0; gpu && at + 4 <= len; at += 4) {
