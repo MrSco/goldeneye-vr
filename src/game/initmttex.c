@@ -19,11 +19,14 @@ void set_mt_tex_alloc(void)
          * Online every player's own character loads its textures here, up to
          * eight (#88; bots fill all eight), where the cartridge sized it for
          * four: the eighth player's skin, then bullet holes and the radar's
-         * backing, came out as garbage ("texLoad: pool ... full"). The stage
-         * bank has megabytes to spare online; give it twice the room.
+         * backing, came out as garbage ("texLoad: pool ... full"). Solo too
+         * since third person (#230): Bond's own body and head load here on
+         * top of the stage's, and on Dam the bullet holes (2168, 2170) and
+         * Bond's face came out as garbage (headset log, 2026-11-05). The
+         * stage bank has megabytes to spare (7 MB left after Dam's load);
+         * twice the room, offline as online.
          */
-        extern bool netIsActive(void);
-        s32 size = netIsActive() ? bytes * 2 : bytes;
+        s32 size = bytes * 2;
 
         texInitPool(&ptr_texture_alloc_start, mempAllocBytesInBank(size, MEMPOOL_STAGE), size);
         {
