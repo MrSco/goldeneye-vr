@@ -260,7 +260,19 @@ is goldeneyevr.com, in its own repository.
   plus Reset sound in the hold-Menu panel. v0.5.15-test.10 (vc 105).
 - Force pull (docs/force-pull.md), single player, merged from its worktree
   (8d5111b0); online sync waits for the headset feel check. v0.5.15-test.11
-  (vc 106).
+  (vc 106, installed only, not published).
+- v0.5.15-test.12 (vc 107, NETWORK PROTOCOL 26: test.12 joins only test.12,
+  not v0.5.14 or the public servers): force pull online (NET_MSG_FORCE_PULL,
+  host claims, pool props by item and place), the watch glow, disarm aim on
+  the guard's hand; co-op guards' grenades and rockets on the clients
+  (NET_MSG_COOP_SHOT, catchable); empty gun hand (clench, no sight, watch
+  item counts empty); the rifle butt held two-handed, double damage;
+  third person flat (#230 step 1); Streets jeep/lorry/Zil, posters, tank
+  shake; Jungle Bean UVs at 1/512 (ladder); guards' detailed guns and
+  ragdolls fade with the body; solo texture pool doubled; a decoded texture
+  drops its address's stale upload (flat crosshair grid). Two-headset play
+  of the force pull sync and the guard shots is still owed. Library (512?)
+  and Caves (2048?) Bean UV scales measured, not checked against the N64.
 - Crash reports land as issues in the private MrSco/goldeneye-vr-reports,
   decoded by its Digest workflow; each build's symbols zip goes to its
   "symbols" release.
