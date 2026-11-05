@@ -1,0 +1,1000 @@
+/*
+ * Force pull (docs/force-pull.md; launcher Gestures page, watch VR page; ini
+ * GestureForcePull): GEVR PC vr457's force pull. An empty hand pointed at
+ * something within 3.5 m, in line of sight, highlights it; squeezing the grip
+ * flies it to that hand. Still gripping when it arrives, a gun lands in the
+ * hand (the pulling one if the rules allow, else the empty gun hand), ready
+ * to fire; let go on the way and it goes to the inventory. Ammo, armour,
+ * keys and mission items are collected on the catch. A gun the game won't
+ * take (full ammo, the pair carried) is absorbed: it flies in, is gone, and
+ * the hand holds the copy carried.
+ *
+ * The real prop flies (its own model, whatever the art set): its position is
+ * set each tick here, after propsTick (lv.c, gevrGripGestureTick), its tile
+ * walked and its rooms re-registered as objTick does for a moving object.
+ * An airborne drop gives up its projectile to the pull. Walking over a
+ * pulled prop doesn't collect it (objTickPlayer, gevrPullBlocksWalkOver).
+ *
+ * Arithmetic: port/src/gevr_pull.c (tested on its own). Single player for
+ * now: online the pickup claim and the flight need the network's say.
+ */
+
+#include <ultra64.h>
+#include <stdio.h>
+#include <string.h>
+#include <math.h>
+#include <bondtypes.h>
+#include <bondconstants.h>
+#include <snd.h>
+#include <music.h>
+#include "system.h"
+#include "bondview.h"
+#include "matrixmath.h"
+#include "player.h"
+#include "lv.h"
+#include "net_game.h"
+#include "dyn.h"
+#include "model.h"
+#include "chrai.h"
+#include "stan.h"
+#include "propobj.h"
+#include "loadobjectmodel.h"
+#include "gevr_pull.h"
+
+extern int VrForcePull, VrPullDisarm, VrPullVisuals, VrAutoPickup;
+extern s32 g_gevrStereo;
+extern f32 D_800364CC;
+extern bool netIsActive(void);
+extern int netGetLocalSlot(void);
+extern s32 trigger_haptic_vibration_c(int hand_index, float amplitude, float duration);
+extern int vr_haptics_ready(void);
+extern s32 getCurrentPlayerWeaponId(s32 hand);
+extern bool objCanPickupFromSafe(ObjectRecord *obj);
+extern void sub_GAME_7F0402B4(PropRecord *prop, rgba_u8 *color);
+extern void projectileFree(Projectile *projectile);
+extern Gfx *gevrDrawInteractionRing(Gfx *gdl, const f32 at[3], f32 radius, u32 rgba);
+/* bondview2.c */
+extern s32 gevrPullInPlay(void);
+extern s32 gevrPullHandFree(s32 ctrl);
+extern s32 gevrPullHandRay(s32 ctrl, f32 p[3], f32 f[3]);
+extern s32 gevrPullCollect(PropRecord *prop);
+extern s32 gevrPullEquip(s32 ctrl, s32 item);
+extern s32 gevrWeaponOwned(s32 item);
+
+#define GEVR_UNITS_PER_METRE 100.0f
+#define GEVR_PULL_REACH_GRAB_CM 25.0f   /* Grip to hand's own reach (bondview2.c GEVR_GT_PICKUP): closer is a grab */
+
+typedef struct
+{
+    PropRecord *prop;       /* flying, or NULL */
+    ObjectRecord *obj;      /* the prop's object at launch (a freed prop gets another) */
+    u8 type;
+    s32 item;               /* weaponnum, or -1 */
+    f32 from[3];            /* world, at launch */
+    f32 t, dur;             /* seconds */
+    s32 released;           /* the grip let go on the way: the inventory */
+    s32 buzz;
+    s32 disarm;             /* still in a guard's hand: waiting for his tick to drop it */
+    f32 wait;               /* seconds waited for that */
+    f32 to[3];              /* world: the hand's point, last tracked */
+    s32 haveTo;
+    s32 held;               /* caught and kept: follows the hand until the grip lets go */
+    s32 grenade;            /* a live grenade (caught, never collected) */
+} GevrPull;
+
+static GevrPull s_pull[2];
+static PropRecord *s_aim[2];      /* what each hand points at (highlight, line) */
+static f32 s_aimAt[2][3];         /* its point, view space, hand units */
+static f32 s_handAt[2][3];        /* the hand's touch point, view space, hand units */
+static s32 s_aimValid[2];
+static ALSoundState *s_hum;
+static f32 s_instantAge[2];       /* gunfire.c g_gevrSwitchInstant: cleared if no switch came of it */
+extern s32 g_gevrSwitchInstant[2];
+static f32 s_glowPhase;
+static f32 s_handWorld[2][3];     /* each hand's touch point in the world, this tick */
+static f32 s_handVel[2][3];       /* and its speed, world units a second */
+static s32 s_handWorldValid[2];
+
+static f32 gevrPullCm(void)
+{
+    return GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+}
+
+/* the props' camera units to the hand's (chrprop.c gevrHandViewScale) */
+static f32 gevrPullViewScale(void)
+{
+    return g_gevrStereo && D_800364CC > 1e-6f ? D_800364CC : 1.0f;
+}
+
+static s32 gevrPullOnline(void)
+{
+    return netIsActive() || getPlayerCount() != 1;
+}
+
+static s32 gevrPullIsGun(s32 item)
+{
+    return (GEVR_ITEM_AS(item) >= ITEM_WPPK && GEVR_ITEM_AS(item) <= ITEM_ROCKETLAUNCH && GEVR_ITEM_AS(item) != ITEM_WATCHLASER)
+        || item == ITEM_KNIFE;
+}
+
+/* a grenade whose fuse is running, loose (thrown by a guard, a player, or lying there) */
+static s32 gevrPullLiveGrenade(ObjectRecord *obj)
+{
+    return obj != NULL && obj->type == PROPDEF_COLLECTABLE && ((WeaponObjRecord *) obj)->weaponnum == ITEM_GRENADE
+        && ((WeaponObjRecord *) obj)->timer >= 0;
+}
+
+static s32 gevrPullIsMine(s32 item)
+{
+    return item == ITEM_REMOTEMINE || item == ITEM_PROXIMITYMINE || item == ITEM_TIMEDMINE;
+}
+
+/* the prop is still the one launched (taken, freed and reused props are not) */
+static s32 gevrPullAlive(const GevrPull *pl)
+{
+    PropRecord *prop = pl->prop;
+
+    return prop != NULL && prop->type == pl->type && prop->obj == pl->obj && pl->obj->prop == prop
+        && (pl->disarm || (prop->flags & PROPFLAG_ENABLED)) && !(pl->obj->runtime_bitflags & RUNTIMEBITFLAG_REMOVE);
+}
+
+s32 gevrPullBusy(PropRecord *prop)
+{
+    s32 i;
+
+    for (i = 0; i < 2; i++)
+    {
+        if (s_pull[i].prop == prop && prop != NULL)
+        {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+/*
+ * propobj.c objTickPlayer: walking over doesn't collect a prop in flight to
+ * a hand, nor (Auto pickup off, GEVR PC) a gun at all: grab or pull it.
+ */
+s32 gevrPullBlocksWalkOver(PropRecord *prop)
+{
+    ObjectRecord *obj;
+
+    if (prop == NULL)
+    {
+        return FALSE;
+    }
+    if (gevrPullBusy(prop))
+    {
+        return TRUE;
+    }
+    if (VrAutoPickup || !g_gevrStereo || (netIsActive() && get_cur_playernum() != netGetLocalSlot()))
+    {
+        return FALSE;
+    }
+    obj = prop->obj;
+    return prop->type == PROP_TYPE_WEAPON && obj != NULL && obj->type == PROPDEF_COLLECTABLE
+        && gevrPullIsGun(((WeaponObjRecord *) obj)->weaponnum);
+}
+
+/*
+ * Whether a prop can be pulled: something walking over would collect (or a
+ * gun the game would refuse), loose (no guard's or player's, no hat), not
+ * in a safe, no mine and nothing live. Line of sight from the player's tile
+ * as walking over checks it (objTickPlayer: doors block, the walk must end
+ * on the prop's tile); a falling drop is let through once the walk is clear.
+ */
+static s32 gevrPullCandidate(PropRecord *prop)
+{
+    ObjectRecord *obj;
+    PropRecord *me = getCurrentPlayerProp();
+    StandTile *stan;
+
+    if (prop == NULL || !(prop->flags & PROPFLAG_ONSCREEN) || !(prop->flags & PROPFLAG_ENABLED)
+        || (prop->type != PROP_TYPE_WEAPON && prop->type != PROP_TYPE_OBJ) || prop->parent != NULL
+        || gevrPullBusy(prop) || me == NULL || me->stan == NULL || prop->stan == NULL)
+    {
+        return FALSE;
+    }
+    obj = prop->obj;
+    if (obj == NULL || obj->model == NULL || obj->model->render_pos == NULL
+        || !objIsCollectable((PropDefHeaderRecord *) obj) || obj->type == PROPDEF_HAT
+        || (obj->flags & (PROPFLAG_UNCOLLECTABLE | PROPFLAG_00080000))
+        || (obj->runtime_bitflags & (RUNTIMEBITFLAG_EMBEDDED | RUNTIMEBITFLAG_REMOVE))
+        || !objCanPickupFromSafe(obj))
+    {
+        return FALSE;
+    }
+    if (obj->type == PROPDEF_COLLECTABLE)
+    {
+        WeaponObjRecord *wep = (WeaponObjRecord *) obj;
+
+        if (gevrPullIsMine(wep->weaponnum) || wep->weaponnum == ITEM_ROCKETROUND
+            || wep->weaponnum == ITEM_GRENADEROUND || wep->weaponnum == ITEM_BOMBCASE
+            || wep->weaponnum == ITEM_BUG || wep->weaponnum == ITEM_MICROCAMERA || wep->weaponnum == ITEM_PLASTIQUE
+            || (wep->weaponnum == ITEM_GRENADE && wep->timer < 0 && (obj->runtime_bitflags & 4)))
+        {
+            return FALSE;   /* mines and the other explosives are not this pull's; a live grenade is caught */
+        }
+    }
+    if ((obj->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE) && obj->projectile != NULL
+        && (obj->projectile->flags & PROJECTILEFLAG_STICKY))
+    {
+        return FALSE;
+    }
+    stan = me->stan;
+    if (stanTestLineUnobstructed(&stan, me->pos.x, me->pos.z, prop->pos.x, prop->pos.z, CDTYPE_DOORS, 30.0f, 30.0f, 0.0f, 1.0f) == 0)
+    {
+        return FALSE;
+    }
+    if (stan != prop->stan && !((obj->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE) && obj->projectile != NULL
+                                && (obj->projectile->flags & PROJECTILEFLAG_AIRBORNE)))
+    {
+        return FALSE;
+    }
+    return TRUE;
+}
+
+/* the room's down in view space, for "pointing down" */
+static void gevrPullViewDown(f32 down[3])
+{
+    coord3d up = { 0.0f, 1.0f, 0.0f };
+    f32 len;
+
+    mtx4RotateVecInPlace(camGetWorldToScreenMtxf(), &up);
+    len = sqrtf(up.x * up.x + up.y * up.y + up.z * up.z);
+    if (len < 1e-6f)
+    {
+        down[0] = 0.0f; down[1] = -1.0f; down[2] = 0.0f;
+        return;
+    }
+    down[0] = -up.x / len;
+    down[1] = -up.y / len;
+    down[2] = -up.z / len;
+}
+
+/*
+ * Pull and disarm (VrPullDisarm, GEVR PC vr457): the gun in a living guard's
+ * hand h, one the AI may drop, in line of sight; the guard's own tile and
+ * position stand for the gun's (a held gun has neither).
+ */
+static PropRecord *gevrPullDisarmable(PropRecord *chrprop, s32 h)
+{
+    ChrRecord *chr = chrprop->chr;
+    PropRecord *gun, *me = getCurrentPlayerProp();
+    StandTile *stan;
+
+    if (!VrPullDisarm || chr == NULL || chrprop->stan == NULL || me == NULL || me->stan == NULL
+        || !(chrprop->flags & PROPFLAG_ONSCREEN) || chr->actiontype == ACT_DIE || chr->actiontype == ACT_DEAD)
+    {
+        return NULL;
+    }
+    gun = chr->weapons_held[h];
+    if (gun == NULL || gun->type != PROP_TYPE_WEAPON || gun->obj == NULL || gun->obj->type != PROPDEF_COLLECTABLE
+        || gun->parent != chrprop || (gun->obj->flags & PROPFLAG_AIUNDROPPABLE) || gevrPullBusy(gun)
+        || !gevrPullIsGun(((WeaponObjRecord *) gun->obj)->weaponnum))
+    {
+        return NULL;
+    }
+    stan = me->stan;
+    if (stanTestLineUnobstructed(&stan, me->pos.x, me->pos.z, chrprop->pos.x, chrprop->pos.z, CDTYPE_DOORS, 30.0f, 30.0f, 0.0f, 1.0f) == 0
+        || stan != chrprop->stan)
+    {
+        return NULL;
+    }
+    return gun;
+}
+
+/* where a guard's gun is taken to be: his position at hand height (the held
+ * gun's own matrices are drawn later than this tick), view space, hand units */
+static s32 gevrPullDisarmPoint(PropRecord *chrprop, f32 t[3])
+{
+    coord3d c;
+    f32 s = gevrPullViewScale();
+
+    c.x = chrprop->pos.x;
+    c.y = chrprop->pos.y + 110.0f * GEVR_UNITS_PER_METRE / 100.0f;
+    c.z = chrprop->pos.z;
+    mtx4TransformVecInPlace(camGetWorldToScreenMtxf(), &c);
+    t[0] = c.x * s;
+    t[1] = c.y * s;
+    t[2] = c.z * s;
+    return TRUE;
+}
+
+/* the best target along the hand's ray (view space, hand units), or NULL */
+static PropRecord *gevrPullFind(const f32 p[3], const f32 f[3], f32 at[3])
+{
+    PropRecord **ptr;
+    PropRecord *best = NULL;
+    f32 bestScore = 1e30f;
+    f32 s = gevrPullViewScale();
+    f32 cm = gevrPullCm();
+    f32 down[3], downcos;
+
+    gevrPullViewDown(down);
+    downcos = f[0] * down[0] + f[1] * down[1] + f[2] * down[2];
+    for (ptr = g_LastOnScreenProp - 1; ptr >= g_OnScreenPropList; ptr--)
+    {
+        PropRecord *prop = *ptr;
+        Mtxf *m;
+        f32 t[3], score, d2;
+
+        if (prop != NULL && prop->type == PROP_TYPE_CHR)
+        {
+            /* pull and disarm: the guns in a guard's hands */
+            s32 h;
+
+            for (h = 0; h < 2; h++)
+            {
+                PropRecord *gun = gevrPullDisarmable(prop, h);
+
+                if (gun != NULL && gevrPullDisarmPoint(prop, t))
+                {
+                    score = gevrPullScore(p, f, t, cm, downcos);
+                    if (score >= 0.0f && score < bestScore)
+                    {
+                        bestScore = score;
+                        best = gun;
+                        at[0] = t[0]; at[1] = t[1]; at[2] = t[2];
+                    }
+                }
+            }
+            continue;
+        }
+        if (!gevrPullCandidate(prop))
+        {
+            continue;
+        }
+        m = (Mtxf *) prop->obj->model->render_pos;
+        t[0] = m->m[3][0] * s;
+        t[1] = m->m[3][1] * s;
+        t[2] = m->m[3][2] * s;
+        d2 =(t[0] - p[0]) * (t[0] - p[0]) + (t[1] - p[1]) * (t[1] - p[1]) + (t[2] - p[2]) * (t[2] - p[2]);
+        if (d2 < GEVR_PULL_REACH_GRAB_CM * cm * GEVR_PULL_REACH_GRAB_CM * cm * 0.25f)
+        {
+            continue;   /* in the palm already: Grip to hand's */
+        }
+        score = gevrPullScore(p, f, t, cm, downcos);
+        if (score >= 0.0f && score < bestScore)
+        {
+            bestScore = score;
+            best = prop;
+            at[0] = t[0]; at[1] = t[1]; at[2] = t[2];
+        }
+    }
+    return best;
+}
+
+/* a hand point (view space, hand units) to the world */
+static s32 gevrPullToWorld(const f32 p[3], f32 w[3])
+{
+    Mtxf *v2w = currentPlayerGetViewToWorldMtxf();
+    coord3d c;
+    f32 s = gevrPullViewScale();
+
+    if (v2w == NULL)
+    {
+        return FALSE;
+    }
+    c.x = p[0] / s;
+    c.y = p[1] / s;
+    c.z = p[2] / s;
+    mtx4TransformVecInPlace(v2w, &c);
+    w[0] = c.x; w[1] = c.y; w[2] = c.z;
+    return TRUE;
+}
+
+/* the prop to world point w, as objTick moves an object (its tile, rooms, light) */
+static void gevrPullPlace(PropRecord *prop, const f32 w[3])
+{
+    ObjectRecord *obj = prop->obj;
+    StandTile *tile = prop->stan;
+
+    if (tile != NULL && walkTilesBetweenPoints_NoCallback(&tile, prop->pos.x, prop->pos.z, w[0], w[2]) == TRUE && tile != NULL)
+    {
+        prop->stan = tile;
+    }
+    else
+    {
+        coord3d c;
+        StandTile *below;
+
+        c.x = w[0]; c.y = w[1]; c.z = w[2];
+        below = stanFindTileBelowPos(&c, NULL, NULL);
+        if (below != NULL)
+        {
+            prop->stan = below;
+        }
+    }
+    obj->runtime_pos.x = prop->pos.x = w[0];
+    obj->runtime_pos.y = prop->pos.y = w[1];
+    obj->runtime_pos.z = prop->pos.z = w[2];
+    chrobjCollisionRelated(obj);
+    setupUpdateObjectRoomPosition(obj);
+    sub_GAME_7F0402B4(prop, &obj->nextcol);
+}
+
+static void gevrPullHaptic(s32 ctrl, f32 amp, f32 dur)
+{
+    if (vr_haptics_ready())
+    {
+        trigger_haptic_vibration_c(ctrl, amp, dur);
+    }
+}
+
+static void gevrPullHum(s32 on)
+{
+    if (on)
+    {
+        if (s_hum == NULL || sndGetPlayingState(s_hum) == 0)
+        {
+            sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, MAGNETIC_HUM_SFX, (ALSoundState *) &s_hum);
+        }
+    }
+    else if (s_hum != NULL)
+    {
+        if (sndGetPlayingState(s_hum) != 0)
+        {
+            sndDeactivate(s_hum);
+        }
+        s_hum = NULL;
+    }
+}
+
+/* the flight starts where the prop is; a falling drop gives its projectile up to it */
+static void gevrPullLaunch(GevrPull *pl)
+{
+    PropRecord *prop = pl->prop;
+    ObjectRecord *obj = pl->obj;
+
+    pl->from[0] = prop->pos.x;
+    pl->from[1] = prop->pos.y;
+    pl->from[2] = prop->pos.z;
+    pl->t = 0.0f;
+    pl->disarm = FALSE;
+    if ((obj->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE) && obj->projectile != NULL)
+    {
+        projectileFree(obj->projectile);
+        obj->projectile = NULL;
+        obj->runtime_bitflags &= ~RUNTIMEBITFLAG_HASPROJECTILE;
+        prop->flags &= ~PROPFLAG_00000008;
+    }
+}
+
+/*
+ * bondview2.c gevrGripGestureTry, its last branch: a fresh grip with an
+ * empty hand that nothing nearer claimed. Launches the pull.
+ */
+s32 gevrPullTry(s32 ctrl)
+{
+    GevrPull *pl;
+    PropRecord *prop;
+    ObjectRecord *obj;
+    f32 p[3], f[3], at[3], w[3];
+    f32 cm = gevrPullCm();
+    f32 d[3];
+
+    if (!VrForcePull || ctrl < 0 || ctrl > 1 || gevrPullOnline() || s_pull[ctrl].prop != NULL
+        || !gevrPullInPlay() || !gevrPullHandFree(ctrl) || !gevrPullHandRay(ctrl, p, f) || cm < 1e-6f)
+    {
+        return FALSE;
+    }
+    prop = gevrPullFind(p, f, at);
+    if (prop == NULL || !gevrPullToWorld(p, w))
+    {
+        sysLogPrintf(LOG_NOTE, "stereo: pull (%s): nothing pointed at", ctrl ? "gun hand" : "off hand");
+        return FALSE;
+    }
+    obj = prop->obj;
+    pl = &s_pull[ctrl];
+    memset(pl, 0, sizeof(*pl));
+    pl->prop = prop;
+    pl->obj = obj;
+    pl->type = prop->type;
+    pl->item = prop->type == PROP_TYPE_WEAPON && obj->type == PROPDEF_COLLECTABLE ? ((WeaponObjRecord *) obj)->weaponnum : -1;
+    pl->grenade = gevrPullLiveGrenade(obj);
+    d[0] = at[0] - p[0]; d[1] = at[1] - p[1]; d[2] = at[2] - p[2];
+    pl->dur = gevrPullDuration(sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) / cm);
+    if (prop->parent != NULL && prop->parent->type == PROP_TYPE_CHR && prop->parent->chr != NULL)
+    {
+        /* pull and disarm: the guard lets go as when a hit makes him drop his
+         * guns (chraction.c triggered_on_shot_hit); his tick drops it
+         * (chr.c objDrop) and the flight starts from where it is then */
+        propobjSetDropped(prop, DROPTYPE_DEFAULT);
+        prop->parent->chr->hidden |= CHRHIDDEN_DROP_HELD_ITEMS;
+        pl->disarm = TRUE;
+    }
+    else
+    {
+        gevrPullLaunch(pl);
+    }
+    s_aim[ctrl] = NULL;
+    gevrPullHum(TRUE);
+    gevrPullHaptic(ctrl, 0.5f, 0.05f);
+    sysLogPrintf(LOG_NOTE, "stereo: pull (%s): prop type %d obj %d item %d, %.0f cm, %.2f s",
+                 ctrl ? "gun hand" : "off hand", prop->type, obj->type, pl->item,
+                 sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) / cm, pl->dur);
+    return TRUE;
+}
+
+/* bondview2.c gevrGripGestureInput: the grip let go (a pull on the way goes to the inventory) */
+void gevrPullGripLetGo(s32 ctrl)
+{
+    if (ctrl >= 0 && ctrl < 2 && s_pull[ctrl].prop != NULL)
+    {
+        s_pull[ctrl].released = TRUE;
+    }
+}
+
+static void gevrPullEnd(s32 ctrl)
+{
+    s_pull[ctrl].prop = NULL;
+    if (s_pull[1 - ctrl].prop == NULL)
+    {
+        gevrPullHum(FALSE);
+    }
+}
+
+/*
+ * Let go of a held thing (a caught grenade, something the game refused):
+ * it leaves the hand at the hand's speed, as Bond's own throw, and falls
+ * onto whatever is below (projectile physics, the player's own body left
+ * out of its collision as the owner). A grenade is the player's from then
+ * on: its blast is credited to him.
+ */
+static void gevrPullThrow(s32 ctrl, const f32 vel[3])
+{
+    GevrPull *pl = &s_pull[ctrl];
+    PropRecord *prop = pl->prop;
+    ObjectRecord *obj = pl->obj;
+
+    sub_GAME_7F03FDA8(prop);
+    if ((obj->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE) && obj->projectile != NULL)
+    {
+        Projectile *pr = obj->projectile;
+
+        pr->obj = obj;
+        pr->flags |= PROJECTILEFLAG_AIRBORNE;
+        pr->speed.x = vel[0] / 60.0f;   /* units a second to a 60 Hz tick's */
+        pr->speed.y = vel[1] / 60.0f;
+        pr->speed.z = vel[2] / 60.0f;
+        pr->ownerprop = getCurrentPlayerProp();
+        matrix_4x4_set_identity(&pr->mtx);
+    }
+    if (pl->grenade)
+    {
+        obj->runtime_bitflags = (obj->runtime_bitflags & ~RUNTIMEBITFLAG_OWNER_ALL) | RUNTIME_OWNER_BITS(get_cur_playernum());
+    }
+    sysLogPrintf(LOG_NOTE, "stereo: pull (%s): %s item %d obj %d let go at %.0f %.0f %.0f /s",
+                 ctrl ? "gun hand" : "off hand", pl->grenade ? "grenade" : "held", pl->item, obj->type, vel[0], vel[1], vel[2]);
+    pl->prop = NULL;
+    gevrPullEnd(ctrl);
+}
+
+/* a caught thing the hand keeps (it follows the hand until the grip lets go) */
+static void gevrPullHold(s32 ctrl)
+{
+    GevrPull *pl = &s_pull[ctrl];
+
+    pl->held = TRUE;
+    pl->disarm = FALSE;
+    if ((pl->obj->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE) && pl->obj->projectile != NULL)
+    {
+        projectileFree(pl->obj->projectile);
+        pl->obj->projectile = NULL;
+        pl->obj->runtime_bitflags &= ~RUNTIMEBITFLAG_HASPROJECTILE;
+        pl->prop->flags &= ~PROPFLAG_00000008;
+    }
+    gevrPullHum(s_pull[1 - ctrl].prop != NULL && !s_pull[1 - ctrl].held);
+}
+
+/* the flight is over: catch it */
+static void gevrPullArrive(s32 ctrl)
+{
+    GevrPull *pl = &s_pull[ctrl];
+    PropRecord *prop = pl->prop;
+    s32 item = pl->item;
+    s32 gun = item >= 0 && gevrPullIsGun(item);
+    s32 hand = -1;
+
+    gevrPullHaptic(ctrl, 0.8f, 0.08f);
+    if (pl->grenade)
+    {
+        /* caught: the fuse runs on (propobj.c's weapon tick) */
+        gevrPullHold(ctrl);
+        sysLogPrintf(LOG_NOTE, "stereo: pull (%s): caught a live grenade", ctrl ? "gun hand" : "off hand");
+        return;
+    }
+    pl->prop = NULL;   /* no longer ours: walking over and the game's rules again */
+    if (gevrPullCollect(prop))
+    {
+        if (gun && !pl->released)
+        {
+            hand = gevrPullEquip(ctrl, item);
+        }
+        if (hand >= 0)
+        {
+            s_instantAge[hand] = 1.0f;
+        }
+        sysLogPrintf(LOG_NOTE, "stereo: pull (%s): caught item %d, %s", ctrl ? "gun hand" : "off hand", item,
+                     hand < 0 ? "to the inventory" : hand == GUNRIGHT ? "in the gun hand" : "in the off hand");
+    }
+    else if (gun && gevrWeaponOwned(item))
+    {
+        /* full ammo or the pair carried: absorbed, the hand takes the copy carried */
+        pl->obj->runtime_bitflags |= RUNTIMEBITFLAG_REMOVE;
+        if (!pl->released)
+        {
+            hand = gevrPullEquip(ctrl, item);
+        }
+        if (hand >= 0)
+        {
+            s_instantAge[hand] = 1.0f;
+        }
+        sysLogPrintf(LOG_NOTE, "stereo: pull (%s): item %d absorbed (nothing to gain), carried one %s",
+                     ctrl ? "gun hand" : "off hand", item, hand < 0 ? "stays put" : "to hand");
+    }
+    else
+    {
+        /* the game refuses it (full ammo or armour): a held item (GEVR PC vr457) */
+        pl->prop = prop;
+        gevrPullHold(ctrl);
+        sysLogPrintf(LOG_NOTE, "stereo: pull (%s): item %d obj %d refused by the game's rules, held",
+                     ctrl ? "gun hand" : "off hand", item, pl->obj->type);
+        return;
+    }
+    gevrPullEnd(ctrl);
+}
+
+/*
+ * bondview2.c, Grip to hand's own reach: a live grenade, or something the
+ * game refused to collect, taken into the hand as a held thing.
+ */
+s32 gevrPullGrab(s32 ctrl, PropRecord *prop)
+{
+    GevrPull *pl;
+    ObjectRecord *obj;
+
+    if (ctrl < 0 || ctrl > 1 || prop == NULL || s_pull[ctrl].prop != NULL || gevrPullOnline() || gevrPullBusy(prop)
+        || (prop->type != PROP_TYPE_WEAPON && prop->type != PROP_TYPE_OBJ) || prop->parent != NULL || prop->obj == NULL
+        || (prop->obj->runtime_bitflags & (RUNTIMEBITFLAG_EMBEDDED | RUNTIMEBITFLAG_REMOVE)))
+    {
+        return FALSE;
+    }
+    obj = prop->obj;
+    pl = &s_pull[ctrl];
+    memset(pl, 0, sizeof(*pl));
+    pl->prop = prop;
+    pl->obj = obj;
+    pl->type = prop->type;
+    pl->item = prop->type == PROP_TYPE_WEAPON && obj->type == PROPDEF_COLLECTABLE ? ((WeaponObjRecord *) obj)->weaponnum : -1;
+    pl->grenade = gevrPullLiveGrenade(obj);
+    if (pl->item >= 0 && gevrPullIsMine(pl->item))
+    {
+        memset(pl, 0, sizeof(*pl));
+        return FALSE;   /* mines are the re-grab's */
+    }
+    gevrPullHold(ctrl);
+    sysLogPrintf(LOG_NOTE, "stereo: grab (%s): %s item %d obj %d held", ctrl ? "gun hand" : "off hand",
+                 pl->grenade ? "live grenade" : "refused", pl->item, obj->type);
+    return TRUE;
+}
+
+/* the hand's world point and speed, each tick (a throw's speed) */
+static void gevrPullTrackHand(s32 ctrl, f32 dt)
+{
+    f32 p[3], f[3], w[3];
+    s32 k;
+
+    if (!gevrPullHandRay(ctrl, p, f) || !gevrPullToWorld(p, w))
+    {
+        s_handWorldValid[ctrl] = FALSE;
+        return;
+    }
+    if (s_handWorldValid[ctrl] && dt > 1e-4f)
+    {
+        for (k = 0; k < 3; k++)
+        {
+            /* eased over a few ticks: one tick's jitter is no throw */
+            s_handVel[ctrl][k] += ((w[k] - s_handWorld[ctrl][k]) / dt - s_handVel[ctrl][k]) * 0.5f;
+        }
+    }
+    else
+    {
+        s_handVel[ctrl][0] = s_handVel[ctrl][1] = s_handVel[ctrl][2] = 0.0f;
+    }
+    for (k = 0; k < 3; k++)
+    {
+        s_handWorld[ctrl][k] = w[k];
+    }
+    s_handWorldValid[ctrl] = TRUE;
+}
+
+/*
+ * lv.c via bondview2.c gevrGripGestureTick, each game tick after propsTick:
+ * the hands' targets (highlight, line, a tick when one locks), the flights
+ * and what the hands hold.
+ */
+void gevrPullTick(void)
+{
+    f32 dt = g_GlobalTimerDelta / 60.0f;
+    s32 ctrl;
+
+    s_glowPhase += dt;
+    for (ctrl = 0; ctrl < 2; ctrl++)
+    {
+        if (s_instantAge[ctrl] > 0.0f && (s_instantAge[ctrl] -= dt) <= 0.0f)
+        {
+            g_gevrSwitchInstant[ctrl] = 0;   /* indexed by hand */
+        }
+        gevrPullTrackHand(ctrl, dt);
+    }
+    if (s_glowPhase > 1000.0f)
+    {
+        s_glowPhase = 0.0f;
+    }
+    for (ctrl = 0; ctrl < 2; ctrl++)
+    {
+        GevrPull *pl = &s_pull[ctrl];
+        f32 p[3], f[3];
+
+        s_aimValid[ctrl] = FALSE;
+        if (pl->prop != NULL)
+        {
+            f32 w[3], up[3] = { 0.0f, 1.0f, 0.0f };
+
+            if (!gevrPullAlive(pl) || !gevrPullInPlay())
+            {
+                sysLogPrintf(LOG_NOTE, "stereo: pull (%s): %s", ctrl ? "gun hand" : "off hand",
+                             pl->held ? "held thing gone (taken, exploded or out of play)" : "lost on the way");
+                if (pl->held && gevrPullAlive(pl))
+                {
+                    gevrPullThrow(ctrl, s_handVel[ctrl]);   /* out of play: it drops */
+                }
+                else
+                {
+                    gevrPullEnd(ctrl);
+                }
+                continue;
+            }
+            if (pl->held)
+            {
+                if (pl->released)
+                {
+                    gevrPullThrow(ctrl, s_handVel[ctrl]);
+                }
+                else if (s_handWorldValid[ctrl])
+                {
+                    gevrPullPlace(pl->prop, s_handWorld[ctrl]);
+                }
+                continue;
+            }
+            if (pl->disarm)
+            {
+                /* the guard's tick lets go of it (chr.c CHRHIDDEN_DROP_HELD_ITEMS) */
+                if (pl->prop->parent == NULL)
+                {
+                    gevrPullLaunch(pl);
+                    sysLogPrintf(LOG_NOTE, "stereo: pull (%s): disarmed, item %d on its way", ctrl ? "gun hand" : "off hand", pl->item);
+                }
+                else if ((pl->wait += dt) > 0.5f)
+                {
+                    sysLogPrintf(LOG_NOTE, "stereo: pull (%s): the guard kept item %d", ctrl ? "gun hand" : "off hand", pl->item);
+                    gevrPullEnd(ctrl);
+                }
+                continue;
+            }
+            /* the hand moves: fly to where it is now; untracked, to where it last was */
+            if (s_handWorldValid[ctrl] && gevrPullHandRay(ctrl, p, f))
+            {
+                s_handAt[ctrl][0] = p[0]; s_handAt[ctrl][1] = p[1]; s_handAt[ctrl][2] = p[2];
+                pl->to[0] = s_handWorld[ctrl][0]; pl->to[1] = s_handWorld[ctrl][1]; pl->to[2] = s_handWorld[ctrl][2];
+                pl->haveTo = TRUE;
+            }
+            else if (!pl->haveTo)
+            {
+                pl->to[0] = pl->from[0]; pl->to[1] = pl->from[1]; pl->to[2] = pl->from[2];
+            }
+            pl->t += dt;
+            gevrPullFlight(pl->from, pl->to, up, GEVR_PULL_LIFT_CM * GEVR_UNITS_PER_METRE / 100.0f,
+                           pl->dur > 0.0f ? pl->t / pl->dur : 1.0f, w);
+            if (pl->grenade && pl->released && dt > 1e-4f)
+            {
+                /* a grenade let go on its way has no inventory to go to: it drops where it is, moving as it was */
+                f32 v[3];
+
+                v[0] = (w[0] - pl->prop->pos.x) / dt;
+                v[1] = (w[1] - pl->prop->pos.y) / dt;
+                v[2] = (w[2] - pl->prop->pos.z) / dt;
+                gevrPullThrow(ctrl, v);
+                continue;
+            }
+            gevrPullPlace(pl->prop, w);
+            if ((pl->buzz++ & 3) == 0)
+            {
+                gevrPullHaptic(ctrl, 0.15f, 0.03f);
+            }
+            if (pl->t >= pl->dur)
+            {
+                gevrPullArrive(ctrl);
+            }
+            continue;
+        }
+        if (!VrForcePull || gevrPullOnline() || !gevrPullInPlay() || !gevrPullHandFree(ctrl) || !gevrPullHandRay(ctrl, p, f))
+        {
+            s_aim[ctrl] = NULL;
+            continue;
+        }
+        {
+            f32 at[3];
+            PropRecord *aim = gevrPullFind(p, f, at);
+
+            if (aim != NULL && aim != s_aim[ctrl])
+            {
+                gevrPullHaptic(ctrl, 0.25f, 0.02f);   /* locked */
+            }
+            s_aim[ctrl] = aim;
+            if (aim != NULL)
+            {
+                s_aimAt[ctrl][0] = at[0]; s_aimAt[ctrl][1] = at[1]; s_aimAt[ctrl][2] = at[2];
+                s_handAt[ctrl][0] = p[0]; s_handAt[ctrl][1] = p[1]; s_handAt[ctrl][2] = p[2];
+                s_aimValid[ctrl] = TRUE;
+                if (VrPullVisuals)
+                {
+                    /* the glow: its light at full, gold, eased back by objTick when it's no longer aimed at */
+                    aim->obj->shadecol.r = 0xFF;
+                    aim->obj->shadecol.g = 0xE6;
+                    aim->obj->shadecol.b = 0x9A;
+                }
+            }
+        }
+    }
+}
+
+/* level start or exit: nothing in flight, nothing aimed at */
+void gevrPullReset(void)
+{
+    memset(s_pull, 0, sizeof(s_pull));
+    s_aim[0] = s_aim[1] = NULL;
+    s_aimValid[0] = s_aimValid[1] = FALSE;
+    s_hum = NULL;
+    s_handWorldValid[0] = s_handWorldValid[1] = FALSE;
+}
+
+static void gevrPullVtx(Vtx *v, f32 x, f32 y, f32 z, u32 rgba)
+{
+    v->v.ob[0] = (s16) x;
+    v->v.ob[1] = (s16) y;
+    v->v.ob[2] = (s16) z;
+    v->v.flag = 0;
+    v->v.tc[0] = v->v.tc[1] = 0;
+    v->v.cn[0] = rgba >> 24;
+    v->v.cn[1] = (rgba >> 16) & 0xff;
+    v->v.cn[2] = (rgba >> 8) & 0xff;
+    v->v.cn[3] = rgba & 0xff;
+}
+
+#define GEVR_PULL_LINE_SEGS 8
+
+/*
+ * The pull line, palm to target, as a strip facing the eye (the view's
+ * origin), widening with distance and brighter toward the target, in the
+ * interaction ring's units (gevr_bodyslots.c: vertices in mm about a point).
+ */
+static Gfx *gevrPullDrawLine(Gfx *gdl, const f32 a[3], const f32 b[3], u32 rgb)
+{
+    Mtxf mf;
+    Mtx *mv = dynAllocateMatrix();
+    Vtx *v = dynAllocateVertices((GEVR_PULL_LINE_SEGS + 1) * 2);
+    f32 cm = gevrPullCm();
+    f32 d[3], len;
+    s32 i;
+
+    if (mv == NULL || v == NULL || cm < 1e-6f)
+    {
+        return gdl;
+    }
+    d[0] = b[0] - a[0]; d[1] = b[1] - a[1]; d[2] = b[2] - a[2];
+    len = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    if (len < cm)
+    {
+        return gdl;
+    }
+    for (i = 0; i <= GEVR_PULL_LINE_SEGS; i++)
+    {
+        f32 u = (f32) i / GEVR_PULL_LINE_SEGS;
+        f32 q[3], side[3], sl, half;
+        u32 alpha = (u32) (0x30 + 0x90 * u);
+
+        q[0] = a[0] + d[0] * u; q[1] = a[1] + d[1] * u; q[2] = a[2] + d[2] * u;
+        /* across the line and the eye's ray to it */
+        side[0] = d[1] * q[2] - d[2] * q[1];
+        side[1] = d[2] * q[0] - d[0] * q[2];
+        side[2] = d[0] * q[1] - d[1] * q[0];
+        sl = sqrtf(side[0] * side[0] + side[1] * side[1] + side[2] * side[2]);
+        if (sl < 1e-6f)
+        {
+            side[0] = 1.0f; side[1] = 0.0f; side[2] = 0.0f;
+            sl = 1.0f;
+        }
+        half = 2.0f + 4.0f * u * len / (100.0f * cm);   /* mm: 2 at the palm, wider out there */
+        /* mm about a (10 a cm), the strip's two edges */
+        gevrPullVtx(&v[i * 2], (q[0] - a[0]) / cm * 10.0f + side[0] / sl * half, (q[1] - a[1]) / cm * 10.0f + side[1] / sl * half,
+                    (q[2] - a[2]) / cm * 10.0f + side[2] / sl * half, rgb | alpha);
+        gevrPullVtx(&v[i * 2 + 1], (q[0] - a[0]) / cm * 10.0f - side[0] / sl * half, (q[1] - a[1]) / cm * 10.0f - side[1] / sl * half,
+                    (q[2] - a[2]) / cm * 10.0f - side[2] / sl * half, rgb | alpha);
+    }
+    matrix_4x4_set_identity(&mf);
+    mf.m[0][0] = mf.m[1][1] = mf.m[2][2] = 0.1f * D_800364CC;
+    mf.m[3][0] = a[0];
+    mf.m[3][1] = a[1];
+    mf.m[3][2] = a[2];
+    guMtxF2L(mf.m, mv);
+    gSPMatrix(gdl++, osVirtualToPhysical((void *) currentPlayerGetProjectionMatrix()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+    gSPMatrix(gdl++, osVirtualToPhysical(mv), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    gDPPipeSync(gdl++);
+    gSPClearGeometryMode(gdl++, G_ZBUFFER | G_LIGHTING | G_FOG | G_CULL_BOTH | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
+    gSPSetGeometryMode(gdl++, G_SHADE | G_SHADING_SMOOTH);
+    gDPSetCycleType(gdl++, G_CYC_1CYCLE);
+    gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+    gSPTexture(gdl++, 0, 0, 0, G_TX_RENDERTILE, G_OFF);
+    gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
+    gSPVertex(gdl++, osVirtualToPhysical(v), (GEVR_PULL_LINE_SEGS + 1) * 2, 0);
+    for (i = 0; i < GEVR_PULL_LINE_SEGS; i++)
+    {
+        s32 o = i * 2;
+
+        gSP2Triangles(gdl++, o, o + 1, o + 2, 0, o + 1, o + 3, o + 2, 0);
+    }
+    gDPPipeSync(gdl++);
+    gSPSetGeometryMode(gdl++, G_ZBUFFER);
+    return gdl;
+}
+
+/*
+ * bondview2.c, beside the body slots' labels: each hand's target ring and
+ * line while it points, the line to a gun on its way. Pull visuals off draws
+ * nothing (the haptics and the hum stay).
+ */
+Gfx *gevrPullDraw(Gfx *gdl)
+{
+    s32 ctrl;
+    f32 s = gevrPullViewScale();
+
+    if (!g_gevrStereo || !VrPullVisuals || !VrForcePull)
+    {
+        return gdl;
+    }
+    for (ctrl = 0; ctrl < 2; ctrl++)
+    {
+        f32 at[3];
+        s32 show = FALSE;
+
+        if (s_pull[ctrl].prop != NULL && !s_pull[ctrl].disarm && !s_pull[ctrl].held && gevrPullAlive(&s_pull[ctrl]) && s_pull[ctrl].prop->obj->model->render_pos != NULL)
+        {
+            Mtxf *m = (Mtxf *) s_pull[ctrl].prop->obj->model->render_pos;
+
+            at[0] = m->m[3][0] * s; at[1] = m->m[3][1] * s; at[2] = m->m[3][2] * s;
+            show = (s_pull[ctrl].prop->flags & PROPFLAG_ONSCREEN) != 0;
+        }
+        else if (s_aimValid[ctrl] && s_aim[ctrl] != NULL)
+        {
+            at[0] = s_aimAt[ctrl][0]; at[1] = s_aimAt[ctrl][1]; at[2] = s_aimAt[ctrl][2];
+            show = TRUE;
+            {
+                /* a slow pulse on the target's halo */
+                f32 k = 0.5f + 0.5f * sinf(s_glowPhase * 6.2831853f * 1.5f);
+                u32 a = (u32) (0x60 + 0x60 * k);
+
+                gdl = gevrDrawInteractionRing(gdl, at, 7.0f, 0xFFE69A00 | a);
+                gdl = gevrDrawInteractionRing(gdl, at, 10.0f, 0xFFE69A00 | (a >> 2));
+            }
+        }
+        if (show)
+        {
+            gdl = gevrPullDrawLine(gdl, s_handAt[ctrl], at, 0xFFE69A00);
+        }
+    }
+    return gdl;
+}

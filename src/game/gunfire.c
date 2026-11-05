@@ -4329,6 +4329,12 @@ f32 gevrReloadPhase(GUNHAND hand)
 }
 #endif
 
+#ifdef GEVR
+/* force pull (bondview2.c gevrPullEquip): the caught gun is in the hand at once,
+ * the empty hand's lowering and the gun's raise skipped; cleared when it is up */
+s32 g_gevrSwitchInstant[2];
+#endif
+
 void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
 {
 #if defined(VERSION_US)
@@ -5253,7 +5259,11 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             }
         }
 
-        if (handptr->field_890 >= sp188)
+        if (handptr->field_890 >= sp188
+#ifdef GEVR
+            || g_gevrSwitchInstant[hand]
+#endif
+            )
         {
 #ifdef GEVR
             extern s32 gevrReloadStow(s32 hand, s32 item);
@@ -5300,7 +5310,11 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
 
     if ((handptr->weapon_action_state == GUN_ANIM_STATE_SWITCH_SWAP) || (handptr->weapon_action_state == GUN_ANIM_STATE_SWITCH_HOLD))
     {
-        if ((handptr->weapon_animation_trigger == 0) || (handptr->field_890 >= handptr->field_8B0))
+        if ((handptr->weapon_animation_trigger == 0) || (handptr->field_890 >= handptr->field_8B0)
+#ifdef GEVR
+            || g_gevrSwitchInstant[hand]
+#endif
+            )
         {
             if (handptr->weapon_action_state == GUN_ANIM_STATE_SWITCH_SWAP)
             {
@@ -5439,6 +5453,9 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
         }
 
         if ((handptr->field_890 >= sp178)
+#ifdef GEVR
+            || g_gevrSwitchInstant[hand]
+#endif
             || (get_ptr_weapon_model_header_line(var_s1) == NULL)
             || (bondwalkItemCheckBitflags(var_s1, WEAPONSTATBITFLAG_SHOW_FIRST_PERSON) == 0)
             || (bondwalkItemCheckBitflags(var_s1, WEAPONSTATBITFLAG_HIDE_FIRST_PERSON_HAND) != 0))
@@ -5446,6 +5463,9 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             handptr->weapon_action_state = GUN_ANIM_STATE_IDLE;
             handptr->field_890 = 0.0f;
             handptr->field_88C = 0;
+#ifdef GEVR
+            g_gevrSwitchInstant[hand] = 0;
+#endif
         }
         else
         {

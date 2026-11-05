@@ -3236,7 +3236,23 @@ extern "C" void gevrLauncherRun(void)
             toggle("Grip to hand (WIP)", &VrGesturePickup,
                    "The hand at a gun on the floor: that gun goes into that hand\n"
                    "(picked up if the game would, else the one you carry).\n"
-                   "Walking over guns still picks them up. Off by default.");
+                   "Walking over guns still picks them up (see Auto pickup).");
+            toggle("Force pull (WIP)", &VrForcePull,
+                   "Point an empty hand at a gun, ammo, armour or a key up to 3.5 m away\n"
+                   "(it lights up) and squeeze: it flies to you. Keep squeezing and a gun\n"
+                   "lands in that hand; let go on the way and it goes to the inventory.\n"
+                   "Also catches guns dropped by guards. Single player for now.");
+            ImGui::BeginDisabled(VrForcePull == 0);
+            ImGui::SameLine();
+            toggle("Disarm", &VrPullDisarm,
+                   "Pull a guard's gun out of his hand, as if it were shot out.\nNever another player's.");
+            ImGui::SameLine();
+            toggle("Pull visuals", &VrPullVisuals,
+                   "The halo on what a hand points at, and the line to it.\nThe buzz and the magnet hum stay.");
+            ImGui::EndDisabled();
+            toggle("Auto pickup", &VrAutoPickup,
+                   "Walking over a gun picks it up, as GoldenEye does.\n"
+                   "Off: guns stay on the floor until you grab or pull them.\nAmmo, armour and keys are still picked up.");
             toggle("Mine re-grab", &VrGestureMineGrab,
                    "The hand at your own stuck remote mine, or a proximity mine\nstill arming: take it back. Single player and co-op host.");
             toggle("Watch gesture to pause", &VrWatchGesturePause,
@@ -3284,7 +3300,8 @@ extern "C" void gevrLauncherRun(void)
             ImGui::Separator();
             if (ImGui::Button("Defaults")) {
                 VrGestureHolster = VrGestureGripUse = VrGestureMineGrab = 1;
-                VrGesturePickup = 0;
+                VrGesturePickup = 1;
+                VrForcePull = VrPullDisarm = VrAutoPickup = VrPullVisuals = 1;
                 VrBodySlots = 0;
                 VrBodySlotShow = VrBodySlotSize = 1;
                 VrManualReloading = 0;

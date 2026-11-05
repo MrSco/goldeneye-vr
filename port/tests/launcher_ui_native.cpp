@@ -11,7 +11,8 @@ bool throwingPage,hapticsPage,gesturesPage;
 static ImRect watchControlsRect;
 extern "C" void vrSettingsSave(void) {}
 /* INSERT_CONTROLS */
-int VrGestureHolster=1,VrGestureGripUse=1,VrGesturePickup,VrGestureMineGrab=1,VrManualReloading,VrPerWeaponRecoil;
+int VrGestureHolster=1,VrGestureGripUse=1,VrGesturePickup=1,VrGestureMineGrab=1,VrManualReloading,VrPerWeaponRecoil;
+int VrForcePull=1,VrPullDisarm=1,VrAutoPickup=1,VrPullVisuals=1;
 int VrBodySlots,VrBodySlotShow=1,VrBodySlotSize=1,VrGexGuns;
 /* INSERT_GESTURES */
 static int selected = 20, disabledRow = -1;

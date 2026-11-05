@@ -45,7 +45,9 @@ static struct Player *g_CurrentPlayer = &player;
 typedef struct { int slot, pick, gripHeld, quiet, n, choices[24], steps, throwReady, looking; float ms, lookMs, settledMs; GevrBodyStick stick; } GevrBodyHand;
 static GevrBodyHand s_bodyHand[2];
 static GevrBodyMru s_bodyMru[GEVR_BODY_SLOTS];
-static int s_bodyLive = 1, VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab;
+static int s_bodyLive = 1, VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab, VrForcePull;
+void gevrPullGripLetGo(int ctrl) { (void)ctrl; }   /* gevr_forcepull.c */
+void gevrPullTick(void) {}
 static int gevrGunFitActive, s_bodyWheelCtrl=-1, s_bodySticksCaptured;
 int VrMotionThrowing = 1, g_gevrStereo = 1;
 static int g_PlayerIsInTank, s_gevrGripGesture[2], s_gevrGripPendAge[2];

@@ -78,8 +78,16 @@ int VrMovementSpeed = 0, VrMpMovementSpeed = 0;
  * press aims as before (port/src/input.c gevrGripArbiter). */
 int VrGestureHolster  = 1;   /* grip at the hip holsters the gun, again draws it (vr451) */
 int VrGestureGripUse  = 1;   /* grip with the hand at a door or switch uses it (vr450, #90) */
-int VrGesturePickup   = 0;   /* Grip to hand: grip at a gun on the floor puts it in that hand (vr451); off by default (user) */
+int VrGesturePickup   = 1;   /* Grip to hand: grip at a gun on the floor puts it in that hand (vr451); on with force pull (GEVR PC's defaults, docs/force-pull.md) */
 int VrGestureMineGrab = 1;   /* grip at your own stuck mine takes it back (vr450.2) */
+/* Force pull (docs/force-pull.md, src/game/gevr_forcepull.c), GEVR PC vr457's
+ * defaults: an empty hand pointed at something out of reach and squeezed flies
+ * it to the hand; pull and disarm takes a guard's gun; Auto pickup off leaves
+ * guns walked over on the floor; Pull visuals draws the target halo and line. */
+int VrForcePull   = 1;
+int VrPullDisarm  = 1;
+int VrAutoPickup  = 1;
+int VrPullVisuals = 1;
 /* Body slots (port/include/gevr_bodyslot.h, src/game/gevr_bodyslots.c): the
  * wheel's categories on the body, pistols at the hips, long guns over the
  * shoulders, thrown on the chest, gadgets at the belt; off by default. */

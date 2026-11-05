@@ -73,6 +73,8 @@ void gevrStageGunsReset(void)
         gevrBodySlotsReset();
         extern void gevrReloadInventoryReset(void);
         gevrReloadInventoryReset();
+        extern void gevrPullReset(void);   /* gevr_forcepull.c: nothing in flight into a new stage */
+        gevrPullReset();
     }
 }
 

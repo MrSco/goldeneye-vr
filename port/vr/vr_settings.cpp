@@ -153,6 +153,11 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; at the hand, put a gun on the floor in that hand (grip to hand), take back your own mine.\n");
     fprintf(f, "GestureHolster=%d\nGestureGripUse=%d\nGestureGripToHand=%d\nGestureMineGrab=%d\n",
             VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab);
+    fprintf(f, "; Force pull (stereo), 1 = on: point an empty hand at something out of reach and squeeze.\n");
+    fprintf(f, "; PullDisarm: pull a guard's gun out of his hand. AutoPickup 0: walking over a gun leaves it.\n");
+    fprintf(f, "; PullVisuals: the target's halo and the pull line.\n");
+    fprintf(f, "GestureForcePull=%d\nPullDisarm=%d\nAutoPickup=%d\nPullVisuals=%d\n",
+            VrForcePull, VrPullDisarm, VrAutoPickup, VrPullVisuals);
     fprintf(f, "; Body slots (stereo), 1 = on: pistols at the hips, long guns over the shoulders,\n");
     fprintf(f, "; thrown on the chest, gadgets at the belt. Show: 1 = draw what they hold.\n");
     fprintf(f, "; Size: zones 0 small, 1 normal, 2 large.\n");
@@ -697,6 +702,10 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "GestureGripUse") == 0) VrGestureGripUse = ival != 0;
             else if (strcmp(key, "GestureGripToHand") == 0) VrGesturePickup = ival != 0;
             else if (strcmp(key, "GestureMineGrab") == 0) VrGestureMineGrab = ival != 0;
+            else if (strcmp(key, "GestureForcePull") == 0) VrForcePull = ival != 0;
+            else if (strcmp(key, "PullDisarm") == 0) VrPullDisarm = ival != 0;
+            else if (strcmp(key, "AutoPickup") == 0) VrAutoPickup = ival != 0;
+            else if (strcmp(key, "PullVisuals") == 0) VrPullVisuals = ival != 0;
             else if (strcmp(key, "BodySlots") == 0) VrBodySlots = ival != 0;
             else if (strcmp(key, "BodySlotShow") == 0) VrBodySlotShow = ival != 0;
             else if (strcmp(key, "BodySlotSize") == 0) VrBodySlotSize = ival < 0 ? 0 : ival > 2 ? 2 : ival;

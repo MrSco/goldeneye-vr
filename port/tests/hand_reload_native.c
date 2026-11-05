@@ -33,7 +33,7 @@ static int gex[2], buzzes, fills, tracked[2] = {1, 1};
 #define reserve player.ammoheldarr[1]
 static int online, playerSlot, localSlot;
 static int s_gevrGripGesture[2], gripHeld[2];
-static int s_gevrGripPendAge[2], VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab;
+static int s_gevrGripPendAge[2], VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab, VrForcePull;
 typedef struct { int MagSize, AmmoType; } WeaponStats;
 static WeaponStats stats = {30, 1};
 static WeaponStats *get_ptr_item_statistics(int item) { (void)item; return &stats; }
@@ -142,6 +142,7 @@ static int bodySlots, bodyBusy[2], bodyQuiet[2];
 static GevrBodyDefer bodyBelt[2];
 int gevrBodySlotsOn(void) { return bodySlots; }
 void gevrBodySlotGripLetGo(int ctrl) { (void)ctrl; }
+void gevrPullGripLetGo(int ctrl) { (void)ctrl; }   /* gevr_forcepull.c */
 void gevrHordeHoldInput(int channel, int pressed, int held, const float *hand, unsigned ticks)
 { (void)channel; (void)pressed; (void)held; (void)hand; (void)ticks; }
 int gevrBodySlotBeltWait(int ctrl, int entered, int inside, int gripped)

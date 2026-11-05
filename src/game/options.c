@@ -3839,6 +3839,7 @@ extern int VrAimSight;
 extern int VrMotionThrowing;
 extern float VrMotionThrowStrength, VrMotionThrowPitch, VrMotionThrowGazeAssist;
 extern int VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab;
+extern int VrForcePull, VrPullDisarm, VrAutoPickup, VrPullVisuals;
 extern int VrBodySlots, VrBodySlotSize;   /* body slots (gevr_bodyslots.c) */
 extern int VrWatchGesturePause;
 extern int VrManualReloading;
@@ -3877,6 +3878,7 @@ enum {
     GEVR_VR_TURN, GEVR_VR_TURNSPEED, GEVR_VR_VIGNETTE, GEVR_VR_NOPUSH, GEVR_VR_NOSTUN, GEVR_VR_FLASH,
     GEVR_VR_LEFTY, GEVR_VR_SWAP, GEVR_VR_NOLEAN, GEVR_VR_SIGHT, GEVR_VR_STEADY, GEVR_VR_GUNFIT, GEVR_VR_TOUCH,
     GEVR_VR_WATCHPAUSE, GEVR_VR_HOLSTER, GEVR_VR_GRIPUSE, GEVR_VR_PICKUP, GEVR_VR_MINEGRAB,
+    GEVR_VR_PULL, GEVR_VR_DISARM, GEVR_VR_AUTOPICKUP, GEVR_VR_PULLVISUALS,
     GEVR_VR_BODYSLOTS, GEVR_VR_SLOTSIZE,
     GEVR_VR_RELOAD, GEVR_VR_RECOIL, GEVR_VR_THROW, GEVR_VR_THROWPOWER, GEVR_VR_THROWPITCH, GEVR_VR_THROWGAZE,
     GEVR_VR_REFRESH, GEVR_VR_WATCHFACE, GEVR_VR_STATS, GEVR_VR_SCREENSIZE, GEVR_VR_SCREENDIST, GEVR_VR_CURVED, GEVR_VR_PASSTHROUGH,
@@ -3890,6 +3892,7 @@ static const char *s_gevrVrLabels[GEVR_VR_ROWS] = {
     "Turning", "Turn speed", "Vignette", "No knockback", "No hitstun", "Hit flash",
     "Left-handed", "Swap sticks", "Aim: no lean", "Aim: crosshair", "Aim steady", "Gun fit", "Controllers",
     "Watch gesture", "Holster WIP", "Grip use", "Grip hand WIP", "Mine re-grab",
+    "Force pull WIP", "Pull disarm", "Auto pickup", "Pull visuals",
     "Body slots WIP", "Slot size",
     "Hand reload WIP", "Gun recoil", "Motion throw", "Throw power", "Throw pitch", "Throw gaze",
     "Refresh", "Watch face", "Show stats", "Screen size", "Screen dist", "Curved", "Passthrough",
@@ -3902,7 +3905,8 @@ static const char *s_gevrVrLabels[GEVR_VR_ROWS] = {
 static const s32 s_gevrVrComfort[] = { GEVR_VR_MOVESPEED, GEVR_VR_TURN, GEVR_VR_TURNSPEED, GEVR_VR_VIGNETTE, GEVR_VR_NOPUSH, GEVR_VR_NOSTUN, GEVR_VR_FLASH };
 static const s32 s_gevrVrControls[] = { GEVR_VR_LEFTY, GEVR_VR_SWAP, GEVR_VR_NOLEAN, GEVR_VR_SIGHT, GEVR_VR_STEADY, GEVR_VR_GUNFIT, GEVR_VR_TOUCH };
 static const s32 s_gevrVrGestures[] = { GEVR_VR_WATCHPAUSE, GEVR_VR_BODYSLOTS, GEVR_VR_SLOTSIZE, GEVR_VR_HOLSTER, GEVR_VR_RELOAD,
-                                         GEVR_VR_GRIPUSE, GEVR_VR_PICKUP, GEVR_VR_MINEGRAB };
+                                         GEVR_VR_GRIPUSE, GEVR_VR_PICKUP, GEVR_VR_MINEGRAB,
+                                         GEVR_VR_PULL, GEVR_VR_DISARM, GEVR_VR_AUTOPICKUP, GEVR_VR_PULLVISUALS };
 static const s32 s_gevrVrWeapons[] = { GEVR_VR_RECOIL, GEVR_VR_THROW, GEVR_VR_THROWPOWER, GEVR_VR_THROWPITCH, GEVR_VR_THROWGAZE };
 static const s32 s_gevrVrDisplay[] = { GEVR_VR_REFRESH, GEVR_VR_SPACEWARP, GEVR_VR_WATCHFACE, GEVR_VR_STATS, GEVR_VR_SCREENSIZE, GEVR_VR_SCREENDIST, GEVR_VR_CURVED, GEVR_VR_PASSTHROUGH };
 static const s32 s_gevrVrRules[] = { GEVR_VR_MINESTICK, GEVR_VR_BODIES, GEVR_VR_FASTREINF };
@@ -3943,6 +3947,10 @@ static s32 *gevrVrToggle(s32 row)
         case GEVR_VR_GRIPUSE:     return &VrGestureGripUse;
         case GEVR_VR_PICKUP:      return &VrGesturePickup;
         case GEVR_VR_MINEGRAB:    return &VrGestureMineGrab;
+        case GEVR_VR_PULL:        return &VrForcePull;
+        case GEVR_VR_DISARM:      return &VrPullDisarm;
+        case GEVR_VR_AUTOPICKUP:  return &VrAutoPickup;
+        case GEVR_VR_PULLVISUALS: return &VrPullVisuals;
         case GEVR_VR_BODYSLOTS:   return &VrBodySlots;
         case GEVR_VR_RELOAD:      return &VrManualReloading;
         case GEVR_VR_RECOIL:      return &VrPerWeaponRecoil;

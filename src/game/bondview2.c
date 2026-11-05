@@ -17608,8 +17608,10 @@ void gevrAutoAdvanceHand(s32 hand)
  * tuning: "hipdrop hipside hipahead use pickup mine" (defaults below).
  */
 #include "gevr_grip_gesture.h"
+#include "gevr_pull.h"
 
 extern int VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab;
+extern int VrForcePull;   /* force pull (gevr_forcepull.c) */
 extern int VrBodySlots;   /* body slots replace the hip holster (gevr_bodyslots.c) */
 extern int VrMotionThrowing;
 extern s32 gevrIsThrowable(s32 item);   /* port/src/input.c */
@@ -17640,8 +17642,10 @@ void gevrGripGestureInput(s32 ctrl, s32 pressed, s32 held)
     if (!held)
     {
         extern void gevrBodySlotGripLetGo(int ctrl);   /* gevr_bodyslots.c */
+        extern void gevrPullGripLetGo(s32 ctrl);       /* gevr_forcepull.c: a pull on its way goes to the inventory */
 
         s_gevrGripGesture[ctrl] = 0;
+        gevrPullGripLetGo(ctrl);
         gevrHordeHoldInput(ctrl+1,0,0,NULL,0);
         gevrBodySlotGripLetGo(ctrl);
         return;
@@ -17650,7 +17654,7 @@ void gevrGripGestureInput(s32 ctrl, s32 pressed, s32 held)
     {
         extern int gevrBodySlotsOn(void);
 
-        s_gevrGripGesture[ctrl] = (VrGestureHolster || VrGestureGripUse || gevrHandReloadActive() || VrGesturePickup || VrGestureMineGrab
+        s_gevrGripGesture[ctrl] = (VrGestureHolster || VrGestureGripUse || gevrHandReloadActive() || VrGesturePickup || VrGestureMineGrab || VrForcePull
                                    || gevrBodySlotsOn()) ? 1 : 3;
         s_gevrGripPendAge[ctrl] = 0;
         sysLogPrintf(LOG_NOTE, "stereo: grip (%s) pressed%s", ctrl ? "gun hand" : "off hand",
@@ -17832,11 +17836,14 @@ static s32 gevrHordeGripWorld(const f32 p[3], coord3d *world)
     return TRUE;
 }
 
+s32 gevrPullHandFree(s32 ctrl);
+extern s32 gevrPullGrab(s32 ctrl, PropRecord *prop);   /* gevr_forcepull.c */
+
 static s32 gevrGripGestureTry(s32 ctrl)
 {
     extern s32 trigger_haptic_vibration_c(int hand_index, float amplitude, float duration);
     extern int vr_haptics_ready(void);
-    static const char *names[] = { "holster", "mine back", "to hand", "use" };
+    static const char *names[] = { "holster", "mine back", "to hand", "use", "force pull" };
     s32 hand = ctrl ? GUNRIGHT : GUNLEFT;
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
     f32 at[3], right[3], up[3], back[3], p[3];
@@ -17945,6 +17952,11 @@ static s32 gevrGripGestureTry(s32 ctrl)
             gevrGripEquip(hand, got);
             done = 2;
         }
+        else if (gevrPullHandFree(ctrl) && gevrPullGrab(ctrl, prop))
+        {
+            /* a live grenade, or something the game won't take: held (gevr_forcepull.c) */
+            done = 2;
+        }
         else
         {
             sysLogPrintf(LOG_NOTE, "stereo: grip pickup: %s %d refused by the game's pickup rules",
@@ -17983,6 +17995,16 @@ static s32 gevrGripGestureTry(s32 ctrl)
         }
     }
 
+    if (done < 0 && VrForcePull)
+    {
+        /* last: an empty hand pointed at something out of reach (gevr_forcepull.c) */
+        extern s32 gevrPullTry(s32 ctrl);
+
+        if (gevrPullTry(ctrl))
+        {
+            done = 4;
+        }
+    }
     if (done < 0)
     {
         /* tuning: a grip that took nothing, with something near the hand */
@@ -18043,6 +18065,12 @@ void gevrGripGestureTick(void)
 
         gevrBodySlotsTick();
     }
+    if (!netIsActive() || get_cur_playernum() == netGetLocalSlot())
+    {
+        extern void gevrPullTick(void);   /* gevr_forcepull.c: targets and flights */
+
+        gevrPullTick();
+    }
     for (ctrl = 0; ctrl < 2; ctrl++)
     {
         if (s_gevrGripGesture[ctrl] == 1)
@@ -18062,6 +18090,101 @@ void gevrGripGestureTick(void)
             } else gevrHordeHoldInput(ctrl+1,0,0,NULL,0);
         }
     }
+}
+
+/*
+ * Force pull's view of the hands (gevr_forcepull.c), with the grip gestures'
+ * own rules: in play as gevrGripGestureTry has it, a hand free when it holds
+ * nothing and no grip job claims it, its touch point and pointing ray.
+ */
+s32 gevrPullInPlay(void)
+{
+    return g_gevrStereo && g_CurrentPlayer != NULL && !g_CurrentPlayer->bonddead
+        && g_CurrentPlayer->watch_animation_state == 0 && !g_CurrentPlayer->mpmenuon
+        && g_PlayerIsInTank != 1 && !gevrSpectating() && !gevrCoopLocalDowned()
+        && !(netIsActive() && get_cur_playernum() != netGetLocalSlot());
+}
+
+static s32 gevrPullItemEmpty(s32 item)
+{
+    return item == ITEM_FIST || item == ITEM_UNARMED;
+}
+
+s32 gevrPullHandFree(s32 ctrl)
+{
+    extern s32 gevrGexClaimsOffHand(void);
+    extern int gevrBodySlotHoldsGrip(int ctrl);
+    s32 hand = ctrl ? GUNRIGHT : GUNLEFT;
+
+    if (ctrl < 0 || ctrl > 1 || !gevrPullItemEmpty(gevrHandSelected(hand)) || !gevrPullItemEmpty(getCurrentPlayerWeaponId(hand)))
+    {
+        return FALSE;
+    }
+    if ((ctrl == gevrStereoTwoHandSupportCtrl() && gevrStereoTwoHandGrip()) || (ctrl == 1 && gevrStereoWatchGrip())
+        || (ctrl == gevrReloadSupportGun() && gevrGexClaimsOffHand()) || gevrReloadBeltHover(ctrl) || gevrBodySlotHoldsGrip(ctrl))
+    {
+        return FALSE;
+    }
+    return TRUE;
+}
+
+s32 gevrPullHandRay(s32 ctrl, f32 p[3], f32 f[3])
+{
+    f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    f32 at[3], right[3], up[3], back[3];
+    s32 i;
+
+    if (cm < 1e-6f || !gevrGripAxesRaw(ctrl, at, right, up, back))
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        p[i] = at[i] - back[i] * GEVR_GESTURE_FINGERS_CM * cm;
+        f[i] = -back[i];   /* where a held gun's barrel would point */
+    }
+    return TRUE;
+}
+
+/* collected as Grip to hand collects (the walk-over auto-equip held back: the pull picks the hand) */
+s32 gevrPullCollect(PropRecord *prop)
+{
+    s32 got;
+
+    s_gevrGripGrabbing = TRUE;
+    got = gevrHandPickup(prop, FALSE);
+    s_gevrGripGrabbing = FALSE;
+    return got;
+}
+
+/*
+ * A caught gun to a hand (docs/force-pull.md "Which hand"): the pulling hand
+ * if the rules let it hold it, else the gun hand if empty, else none (it
+ * stays in the inventory). Switched at once: no lowering or raising
+ * (gunfire.c g_gevrSwitchInstant). Returns the hand, or -1.
+ */
+s32 gevrPullEquip(s32 ctrl, s32 item)
+{
+    extern s32 g_gevrSwitchInstant[2];
+    s32 hand = ctrl ? GUNRIGHT : GUNLEFT;
+    s32 pulling, chosen;
+
+    if (!((GEVR_ITEM_AS(item) >= ITEM_WPPK && GEVR_ITEM_AS(item) <= ITEM_ROCKETLAUNCH && GEVR_ITEM_AS(item) != ITEM_WATCHLASER) || item == ITEM_KNIFE)
+        || !gevrLeftHasGun(item))
+    {
+        return -1;
+    }
+    pulling = gevrHandItemAllowed(hand, item) && (hand != GUNLEFT || gevrLeftPanelAvailable());
+    chosen = gevrPullChooseHand(hand == GUNRIGHT ? 0 : 1, pulling,
+                                gevrPullItemEmpty(gevrHandSelected(GUNRIGHT)), gevrHandItemAllowed(GUNRIGHT, item));
+    if (chosen < 0)
+    {
+        return -1;
+    }
+    hand = chosen == 0 ? GUNRIGHT : GUNLEFT;
+    g_gevrSwitchInstant[hand] = 1;
+    gunRequestHandWeaponChange(hand, item, 1);
+    return hand;
 }
 
 /*
@@ -20671,8 +20794,10 @@ Gfx *maybe_mp_interface(Gfx *gdl)
     gdl = gevrDrawMuzzleMarker(gdl);
     {
         extern Gfx *gevrBodySlotsDrawLabels(Gfx *gdl);   /* gevr_bodyslots.c: what a reach takes */
+        extern Gfx *gevrPullDraw(Gfx *gdl);              /* gevr_forcepull.c: the pull's target and line */
 
         gdl = gevrBodySlotsDrawLabels(gdl);
+        gdl = gevrPullDraw(gdl);
     }
     /*
      * Stereo: the ammo count goes on a small panel at the right controller,
