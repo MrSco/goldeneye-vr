@@ -280,6 +280,11 @@ is goldeneyevr.com, in its own repository.
 - v0.5.15-test.14 (vc 109, protocol 26): SpaceWarp=-1 (default) on only
   with Bean at 120 Hz; at 90 Hz it stepped the game 1,1,2 ticks a frame and
   walking juddered (reports#12, c4cc34bf).
+- v0.5.15-test.15 (vc 110, protocol 26): a guard sent to a pad by a level
+  script (chrai.c AI_TRYTeleportingChrToPad) no longer resets Bond's VR
+  locomotion smoothing; it had dropped 3-4 smoothed frames a second from
+  Control's first minute on, at any rate (reports#13, 3c3033c3, bbe7be96).
+  ShowStats also logs a per-second "loco: clamps ... resets ..." line.
 - Crash reports land as issues in the private MrSco/goldeneye-vr-reports,
   decoded by its Digest workflow; each build's symbols zip goes to its
   "symbols" release.
