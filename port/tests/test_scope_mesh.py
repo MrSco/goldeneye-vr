@@ -5,7 +5,7 @@ The real shader projection also runs under GLES in test_skin_shader.py.
 from pathlib import Path
 import os, re, shutil, subprocess, tempfile
 ROOT = Path(__file__).resolve().parents[2]
-source = (ROOT / 'port/fast3d/gfx_opengl.cpp').read_text()
+source = (ROOT / 'port/fast3d/gfx_opengl.cpp').read_text(encoding='utf-8')
 def function(name):
     match = re.search(r'^[^\n]*\b' + re.escape(name) + r'\([^;{}]*\)\s*\{', source, re.M)
     assert match, name
