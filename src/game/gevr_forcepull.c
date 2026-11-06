@@ -96,7 +96,7 @@ extern void gevrCoopGuardForget(ObjectRecord *obj);   /* net_coop.c: a guard's g
 #define GEVR_PULL_YANK_CM_S   150.0f   /* or the hand pulled back from the target this fast */
 #define GEVR_PULL_HOMING_CM   30.0f    /* the flight follows the hand this far from where it flicked */
 #define GEVR_PULL_CATCH_CM    20.0f    /* the grip closed with it this near the hand: caught */
-#define GEVR_PULL_MISS_S      0.15f    /* past the flight's end, not caught: it falls */
+#define GEVR_PULL_MISS_S      0.45f    /* past the flight's end, not caught: it falls (a fresh squeeze needs the time) */
 
 typedef struct
 {
@@ -113,6 +113,7 @@ typedef struct
     f32 to[3];              /* world: where it flies, the hand's point within reach of aim */
     f32 aim[3];             /* world: the hand's point at the flick */
     f32 over;               /* seconds past the flight's end without a catch */
+    s32 opened;             /* the hand opened since the flick: a squeeze now catches */
     s32 held;               /* caught and kept: follows the hand until the grip lets go */
     s32 grenade;            /* a live grenade (caught, never collected) */
 } GevrPull;
@@ -442,6 +443,47 @@ void gevrPullNoteHeldGun(PropRecord *gun, const Mtxf *m, s32 drawn)
         return;   /* not computed this frame */
     }
     mtx4TransformVecInPlace(v2w, &c);
+    {
+        /*
+         * m is his hand's bone, so the ring sat on his hand and the gun's grip
+         * (headset, test.22). The gun's own middle: its bounding box's centre,
+         * hung from the hand as the held model is. Its model scale may or may
+         * not be in the bone's rows, so either reading is tried, and one that
+         * isn't a sensible gun's length from the hand leaves the hand's point.
+         */
+        extern struct ModelRoData_BoundingBoxRecord *chrobjGetBboxFromObjectRecord(ObjectRecord *obj);
+        ModelRoData_BoundingBoxRecord *bb = gun->obj != NULL ? chrobjGetBboxFromObjectRecord(gun->obj) : NULL;
+        const f32 scales[2] = { 1.0f, gun->obj != NULL && gun->obj->model != NULL ? gun->obj->model->scale : 1.0f };
+        s32 k, r;
+
+        for (k = 0; bb != NULL && k < 2; k++)
+        {
+            const f32 lc[3] = { 0.5f * (bb->Bounds.xmin + bb->Bounds.xmax) * scales[k],
+                                0.5f * (bb->Bounds.ymin + bb->Bounds.ymax) * scales[k],
+                                0.5f * (bb->Bounds.zmin + bb->Bounds.zmax) * scales[k] };
+            coord3d g;
+            f32 d2;
+
+            g.x = m->m[3][0]; g.y = m->m[3][1]; g.z = m->m[3][2];
+            for (r = 0; r < 3; r++)
+            {
+                g.x += lc[r] * m->m[r][0];
+                g.y += lc[r] * m->m[r][1];
+                g.z += lc[r] * m->m[r][2];
+            }
+            if (!isfinite(g.x) || !isfinite(g.y) || !isfinite(g.z))
+            {
+                continue;
+            }
+            mtx4TransformVecInPlace(v2w, &g);
+            d2 = (g.x - c.x) * (g.x - c.x) + (g.y - c.y) * (g.y - c.y) + (g.z - c.z) * (g.z - c.z);
+            if (d2 >= 4.0f * 4.0f && d2 <= 60.0f * 60.0f)   /* world cm: off the hand, within a rifle's half */
+            {
+                c = g;
+                break;
+            }
+        }
+    }
     for (i = 0; i < GEVR_PULL_HELD_NOTES; i++)
     {
         if (s_heldNote[i].gun == gun)
@@ -861,6 +903,10 @@ void gevrPullGripInput(s32 ctrl, s32 held)
     if (ctrl >= 0 && ctrl < 2)
     {
         s_gripHeld[ctrl] = held != 0;
+        if (!held && s_pull[ctrl].prop != NULL && !s_pull[ctrl].held)
+        {
+            s_pull[ctrl].opened = TRUE;
+        }
     }
 }
 
@@ -872,6 +918,10 @@ void gevrPullGripLetGo(s32 ctrl)
         return;
     }
     s_gripHeld[ctrl] = FALSE;
+    if (s_pull[ctrl].prop != NULL && !s_pull[ctrl].held)
+    {
+        s_pull[ctrl].opened = TRUE;   /* open to catch it */
+    }
     if (s_lock[ctrl] != NULL)
     {
         sysLogPrintf(LOG_NOTE, "stereo: pull (%s): let go before a flick, lock dropped", ctrl ? "gun hand" : "off hand");
@@ -1735,7 +1785,8 @@ void gevrPullTick(void)
             gevrPullFlight(pl->from, pl->to, up, GEVR_PULL_LIFT_CM * GEVR_UNITS_PER_METRE / 100.0f,
                            pl->dur > 0.0f ? pl->t / pl->dur : 1.0f, w);
             {
-                /* the catch: the grip closed with it at the hand, from halfway (Half-Life: Alyx) */
+                /* the catch: the hand opened after the flick and closed with it at the hand,
+                 * from halfway (user, test.22: keeping the flick's grip held caught it) */
                 f32 v[3], reach = GEVR_PULL_CATCH_CM * GEVR_UNITS_PER_METRE / 100.0f, d2 = 1e30f;
 
                 if (s_handWorldValid[ctrl])
@@ -1744,7 +1795,7 @@ void gevrPullTick(void)
                        + (w[1] - s_handWorld[ctrl][1]) * (w[1] - s_handWorld[ctrl][1])
                        + (w[2] - s_handWorld[ctrl][2]) * (w[2] - s_handWorld[ctrl][2]);
                 }
-                if (s_gripHeld[ctrl] && d2 <= reach * reach && pl->t >= 0.5f * pl->dur)
+                if (s_gripHeld[ctrl] && pl->opened && d2 <= reach * reach && pl->t >= 0.5f * pl->dur)
                 {
                     s_caughtAt[ctrl] = g_GlobalTimer;
                     gevrPullPlace(pl->prop, w);
@@ -1758,8 +1809,9 @@ void gevrPullTick(void)
                     v[1] = dt > 1e-4f ? (w[1] - pl->prop->pos.y) / dt : 0.0f;
                     v[2] = dt > 1e-4f ? (w[2] - pl->prop->pos.z) / dt : 0.0f;
                     gevrPullPlace(pl->prop, w);
-                    sysLogPrintf(LOG_NOTE, "stereo: pull (%s): missed (grip %s, %.0f cm from the hand), it falls",
+                    sysLogPrintf(LOG_NOTE, "stereo: pull (%s): missed (grip %s%s, %.0f cm from the hand), it falls",
                                  ctrl ? "gun hand" : "off hand", s_gripHeld[ctrl] ? "closed" : "open",
+                                 pl->opened ? "" : ", never opened after the flick",
                                  d2 < 1e29f ? sqrtf(d2) * 100.0f / GEVR_UNITS_PER_METRE : -1.0f);
                     gevrPullHaptic(ctrl, 0.2f, 0.03f);
                     gevrPullThrow(ctrl, v);
