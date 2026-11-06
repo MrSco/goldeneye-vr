@@ -418,7 +418,7 @@ static const Row s_rows[] = {
       .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrGestureGripUse, .def = NAN, .blocked = blockedGripUse },
     TOGGLE(GEVR_SEC_GESTURES, "Grip hand WIP", VrGesturePickup, "Grip near a gun or item to take it into that hand."),
     TOGGLE(GEVR_SEC_GESTURES, "Mine re-grab", VrGestureMineGrab, "Grip your own stuck mine to take it back."),
-    TOGGLE(GEVR_SEC_GESTURES, "Force pull WIP", VrForcePull, "Point an empty hand at a gun or item and squeeze: it flies to you."),
+    TOGGLE(GEVR_SEC_GESTURES, "Force pull WIP", VrForcePull, "Point an empty hand at a gun or item, squeeze to lock, flick to pull, and grip to catch it."),
     { .label = "Pull disarm", .tooltip = "Force pull can take a gun out of a guard's hand. Never another player's.",
       .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrPullDisarm,
       .def = NAN, .blocked = blockedPull },

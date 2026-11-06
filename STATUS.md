@@ -311,6 +311,13 @@ is goldeneyevr.com, in its own repository.
   Rules, Player and Audio tabs draw through the settings renderer, a tab row
   like the launcher's (244bd55a). For a two-headset round: the host's live
   rules, Fun and voice mode; the client's rows greyed "Host's choice".
+- Not in a build yet (branch t3/57502c2d, on test.20): force pull's line and
+  ring fade out near the eye (headset: an orange flash as a gun came past
+  the face), stickier targeting, then lock, flick, catch (owner 2026-11-06,
+  Half-Life: Alyx, flick always): the squeeze locks, a wrist flick or a yank
+  sends it, the grip closed at the hand catches it, an open hand lets it
+  fall (docs/force-pull.md). Compiles; headset feel check owed (flick
+  thresholds GEVR_PULL_FLICK_* in gevr_forcepull.c).
 - Launcher unification (docs/launcher-unify.md), all five phases, in test.17. One
   settings table (port/src/gevr_settings.c) drawn by the hold-Menu panel and
   the launcher; the launcher's tabs Play, Multiplayer, Controls (Hands,

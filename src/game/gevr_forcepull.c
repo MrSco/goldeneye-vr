@@ -84,6 +84,19 @@ extern void gevrCoopGuardForget(ObjectRecord *obj);   /* net_coop.c: a guard's g
 #define GEVR_UNITS_PER_METRE 100.0f
 #define GEVR_PULL_REACH_GRAB_CM 25.0f   /* Grip to hand's own reach (bondview2.c GEVR_GT_PICKUP): closer is a grab */
 
+/*
+ * Lock, flick, catch (owner, 2026-11-06: Half-Life: Alyx's gravity gloves,
+ * flick always, caught with the grip). The squeeze locks what is lit; a
+ * flick while still gripping sends it; the grip closed when it reaches the
+ * hand catches it, and an open hand lets it fall.
+ */
+#define GEVR_PULL_FLICK_RAD_S 3.5f     /* wrist flick: the pointing direction turning this fast (200 deg/s) */
+#define GEVR_PULL_FLICK_UP_S  2.0f     /* ... with its tip rising (unit vector a second) */
+#define GEVR_PULL_YANK_CM_S   150.0f   /* or the hand pulled back from the target this fast */
+#define GEVR_PULL_HOMING_CM   30.0f    /* the flight follows the hand this far from where it flicked */
+#define GEVR_PULL_CATCH_CM    20.0f    /* the grip closed with it this near the hand: caught */
+#define GEVR_PULL_MISS_S      0.15f    /* past the flight's end, not caught: it falls */
+
 typedef struct
 {
     PropRecord *prop;       /* flying, or NULL */
@@ -92,12 +105,13 @@ typedef struct
     s32 item;               /* weaponnum, or -1 */
     f32 from[3];            /* world, at launch */
     f32 t, dur;             /* seconds */
-    s32 released;           /* the grip let go on the way: the inventory */
+    s32 released;           /* a held thing: the grip let go (it is thrown) */
     s32 buzz;
     s32 disarm;             /* still in a guard's hand: waiting for his tick to drop it */
     f32 wait;               /* seconds waited for that */
-    f32 to[3];              /* world: the hand's point, last tracked */
-    s32 haveTo;
+    f32 to[3];              /* world: where it flies, the hand's point within reach of aim */
+    f32 aim[3];             /* world: the hand's point at the flick */
+    f32 over;               /* seconds past the flight's end without a catch */
     s32 held;               /* caught and kept: follows the hand until the grip lets go */
     s32 grenade;            /* a live grenade (caught, never collected) */
 } GevrPull;
@@ -128,6 +142,15 @@ static f32 s_handAt[2][3];        /* the hand's touch point, view space, hand un
 static s32 s_aimValid[2];
 static PropRecord *s_aimLast[2];  /* the last thing lit, kept a moment after the hand moves off */
 static f32 s_aimLastAge[2];       /* seconds since it was lit */
+static PropRecord *s_lock[2];     /* locked by the squeeze, waiting for the flick */
+static f32 s_lockAge[2];
+static s32 s_gripHeld[2];         /* the grip as the pad reads it (bondview2.c gevrGripGestureInput) */
+static f32 s_handFwd[2][3];       /* each hand's pointing direction in the world, this tick */
+static f32 s_handFwdPrev[2][3];   /* and last tick's */
+static s32 s_handFwdTicks[2];     /* ticks tracked in a row (a flick needs two) */
+static s32 s_caughtAt[2] = { -1000, -1000 };   /* g_GlobalTimer at the last catch */
+static f32 s_handRel[2][3];       /* the hand's point from the player's position (walking left out) */
+static f32 s_handRelVel[2][3];    /* and its speed, world units a second: the yank's */
 static ALSoundState *s_hum;
 static f32 s_instantAge[2];       /* gunfire.c g_gevrSwitchInstant: cleared if no switch came of it */
 extern s32 g_gevrSwitchInstant[2];
@@ -546,37 +569,46 @@ static PropRecord *gevrPullFind(const f32 p[3], const f32 f[3], f32 at[3], PropR
  * pulled, is in reach and within 35 degrees of the ray (the squeeze turns the
  * controller; the light is what the player aimed with).
  */
-static PropRecord *gevrPullRecent(s32 ctrl, const f32 p[3], const f32 f[3], f32 at[3])
+/* a target that can still be pulled, and its point (view space, hand units) */
+static s32 gevrPullPointOf(PropRecord *prop, f32 t[3])
 {
-    PropRecord *prop = s_aimLast[ctrl];
     f32 s = gevrPullViewScale();
-    f32 cm = gevrPullCm();
-    f32 t[3], d[3], dist;
-    s32 ok = FALSE;
+    s32 h;
 
-    if (prop == NULL || s_aimLastAge[ctrl] > GEVR_PULL_GRACE_S || cm < 1e-6f)
+    if (prop == NULL)
     {
-        return NULL;
+        return FALSE;
     }
     if (prop->parent != NULL && prop->parent->type == PROP_TYPE_CHR)
     {
-        s32 h;
-
-        for (h = 0; h < 2 && !ok; h++)
+        for (h = 0; h < 2; h++)
         {
-            ok = gevrPullDisarmable(prop->parent, h) == prop && gevrPullDisarmPoint(prop->parent, prop, t);
+            if (gevrPullDisarmable(prop->parent, h) == prop && gevrPullDisarmPoint(prop->parent, prop, t))
+            {
+                return TRUE;
+            }
         }
+        return FALSE;
     }
-    else if (gevrPullCandidate(prop))
+    if (gevrPullCandidate(prop))
     {
         Mtxf *m = (Mtxf *) prop->obj->model->render_pos;
 
         t[0] = m->m[3][0] * s;
         t[1] = m->m[3][1] * s;
         t[2] = m->m[3][2] * s;
-        ok = TRUE;
+        return TRUE;
     }
-    if (!ok)
+    return FALSE;
+}
+
+static PropRecord *gevrPullRecent(s32 ctrl, const f32 p[3], const f32 f[3], f32 at[3])
+{
+    PropRecord *prop = s_aimLast[ctrl];
+    f32 cm = gevrPullCm();
+    f32 t[3], d[3], dist;
+
+    if (prop == NULL || s_aimLastAge[ctrl] > GEVR_PULL_GRACE_S || cm < 1e-6f || !gevrPullPointOf(prop, t))
     {
         return NULL;
     }
@@ -676,6 +708,8 @@ static void gevrPullLaunch(GevrPull *pl)
     pl->from[1] = prop->pos.y;
     pl->from[2] = prop->pos.z;
     pl->t = 0.0f;
+    pl->over = 0.0f;
+    pl->to[0] = pl->aim[0]; pl->to[1] = pl->aim[1]; pl->to[2] = pl->aim[2];
     pl->disarm = FALSE;
     if ((obj->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE) && obj->projectile != NULL)
     {
@@ -687,45 +721,31 @@ static void gevrPullLaunch(GevrPull *pl)
     gevrPullSend(GEVR_PULL_NET_FLY, (s32) (pl - s_pull), obj, obj->type, pl->item, 0, -1, pl->from, NULL, pl->dur, -1);
 }
 
-/*
- * bondview2.c gevrGripGestureTry, its last branch: a fresh grip with an
- * empty hand that nothing nearer claimed. Launches the pull.
- */
-s32 gevrPullTry(s32 ctrl)
+/* the flick: the pull leaves for the hand (a guard's gun waits for his tick to drop it) */
+static void gevrPullStart(s32 ctrl, PropRecord *prop, const f32 p[3], const f32 at[3])
 {
-    GevrPull *pl;
-    PropRecord *prop;
-    ObjectRecord *obj;
-    f32 p[3], f[3], at[3], w[3];
+    GevrPull *pl = &s_pull[ctrl];
+    ObjectRecord *obj = prop->obj;
     f32 cm = gevrPullCm();
-    f32 d[3];
+    f32 d[3], dist;
 
-    if (!VrForcePull || ctrl < 0 || ctrl > 1 || gevrPullOnline() || s_pull[ctrl].prop != NULL
-        || !gevrPullInPlay() || !gevrPullHandFree(ctrl) || !gevrPullHandRay(ctrl, p, f) || cm < 1e-6f)
-    {
-        return FALSE;
-    }
-    prop = gevrPullFind(p, f, at, s_aim[ctrl]);
-    if (prop == NULL && (prop = gevrPullRecent(ctrl, p, f, at)) != NULL)
-    {
-        sysLogPrintf(LOG_NOTE, "stereo: pull (%s): off the ray at the squeeze, pulling what was lit %.2f s ago",
-                     ctrl ? "gun hand" : "off hand", s_aimLastAge[ctrl]);
-    }
-    if (prop == NULL || !gevrPullToWorld(p, w))
-    {
-        sysLogPrintf(LOG_NOTE, "stereo: pull (%s): nothing pointed at", ctrl ? "gun hand" : "off hand");
-        return FALSE;
-    }
-    obj = prop->obj;
-    pl = &s_pull[ctrl];
+    d[0] = at[0] - p[0]; d[1] = at[1] - p[1]; d[2] = at[2] - p[2];
+    dist = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) / cm;
     memset(pl, 0, sizeof(*pl));
     pl->prop = prop;
     pl->obj = obj;
     pl->type = prop->type;
     pl->item = prop->type == PROP_TYPE_WEAPON && obj->type == PROPDEF_COLLECTABLE ? ((WeaponObjRecord *) obj)->weaponnum : -1;
     pl->grenade = gevrPullLiveGrenade(obj);
-    d[0] = at[0] - p[0]; d[1] = at[1] - p[1]; d[2] = at[2] - p[2];
-    pl->dur = gevrPullDuration(sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) / cm);
+    pl->dur = gevrPullDuration(dist);
+    if (s_handWorldValid[ctrl])
+    {
+        pl->aim[0] = s_handWorld[ctrl][0]; pl->aim[1] = s_handWorld[ctrl][1]; pl->aim[2] = s_handWorld[ctrl][2];
+    }
+    else if (!gevrPullToWorld(p, pl->aim))
+    {
+        pl->aim[0] = prop->pos.x; pl->aim[1] = prop->pos.y; pl->aim[2] = prop->pos.z;
+    }
     if (prop->parent != NULL && prop->parent->type == PROP_TYPE_CHR && prop->parent->chr != NULL)
     {
         /* pull and disarm: the guard lets go as when a hit makes him drop his
@@ -746,18 +766,95 @@ s32 gevrPullTry(s32 ctrl)
     }
     s_aim[ctrl] = NULL;
     s_aimLast[ctrl] = NULL;
+    s_lock[ctrl] = NULL;
     gevrPullHum(TRUE);
     gevrPullHaptic(ctrl, 0.5f, 0.05f);
-    sysLogPrintf(LOG_NOTE, "stereo: pull (%s): prop type %d obj %d item %d, %.0f cm, %.2f s",
-                 ctrl ? "gun hand" : "off hand", prop->type, obj->type, pl->item,
-                 sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) / cm, pl->dur);
+    sysLogPrintf(LOG_NOTE, "stereo: pull (%s): flicked: prop type %d obj %d item %d, %.0f cm, %.2f s",
+                 ctrl ? "gun hand" : "off hand", prop->type, obj->type, pl->item, dist, pl->dur);
+}
+
+/*
+ * bondview2.c gevrGripGestureTry, its last branch: a fresh grip with an
+ * empty hand that nothing nearer claimed. Locks what is lit (or was, a
+ * moment ago); the flick sends it (gevrPullTick). A grip while one is on its
+ * way is the catch's (gevrPullTick reads the grip), so nothing else takes it.
+ */
+s32 gevrPullTry(s32 ctrl)
+{
+    PropRecord *prop;
+    f32 p[3], f[3], at[3];
+    f32 cm = gevrPullCm();
+
+    if (!VrForcePull || ctrl < 0 || ctrl > 1 || gevrPullOnline())
+    {
+        return FALSE;
+    }
+    if (s_pull[ctrl].prop != NULL)
+    {
+        return !s_pull[ctrl].held;
+    }
+    if (!gevrPullInPlay() || !gevrPullHandFree(ctrl) || !gevrPullHandRay(ctrl, p, f) || cm < 1e-6f)
+    {
+        return FALSE;
+    }
+    prop = gevrPullFind(p, f, at, s_aim[ctrl]);
+    if (prop == NULL && (prop = gevrPullRecent(ctrl, p, f, at)) != NULL)
+    {
+        sysLogPrintf(LOG_NOTE, "stereo: pull (%s): off the ray at the squeeze, locking what was lit %.2f s ago",
+                     ctrl ? "gun hand" : "off hand", s_aimLastAge[ctrl]);
+    }
+    if (prop == NULL)
+    {
+        sysLogPrintf(LOG_NOTE, "stereo: pull (%s): nothing pointed at", ctrl ? "gun hand" : "off hand");
+        return FALSE;
+    }
+    s_lock[ctrl] = prop;
+    s_lockAge[ctrl] = 0.0f;
+    s_aim[ctrl] = prop;
+    gevrPullHaptic(ctrl, 0.35f, 0.04f);
+    sysLogPrintf(LOG_NOTE, "stereo: pull (%s): locked prop type %d obj %d, %.0f cm: flick to pull",
+                 ctrl ? "gun hand" : "off hand", prop->type, prop->obj != NULL ? prop->obj->type : -1,
+                 sqrtf((at[0] - p[0]) * (at[0] - p[0]) + (at[1] - p[1]) * (at[1] - p[1]) + (at[2] - p[2]) * (at[2] - p[2])) / cm);
     return TRUE;
 }
 
-/* bondview2.c gevrGripGestureInput: the grip let go (a pull on the way goes to the inventory) */
+/*
+ * bondview2.c gevrGripGestureTry, before every other grip job: a press while
+ * a pull flies to this hand, or one that has just caught it, is the catch's
+ * (not a body slot's or the holster's).
+ */
+s32 gevrPullClaimsPress(s32 ctrl)
+{
+    if (ctrl < 0 || ctrl > 1)
+    {
+        return FALSE;
+    }
+    return (s_pull[ctrl].prop != NULL && !s_pull[ctrl].held) || (s32) (g_GlobalTimer - s_caughtAt[ctrl]) < 12;
+}
+
+/* port/src/input.c via bondview2.c gevrGripGestureInput: the grip, every pad read (the catch) */
+void gevrPullGripInput(s32 ctrl, s32 held)
+{
+    if (ctrl >= 0 && ctrl < 2)
+    {
+        s_gripHeld[ctrl] = held != 0;
+    }
+}
+
+/* bondview2.c gevrGripGestureInput: the grip let go: a lock ends, a held thing is thrown */
 void gevrPullGripLetGo(s32 ctrl)
 {
-    if (ctrl >= 0 && ctrl < 2 && s_pull[ctrl].prop != NULL)
+    if (ctrl < 0 || ctrl > 1)
+    {
+        return;
+    }
+    s_gripHeld[ctrl] = FALSE;
+    if (s_lock[ctrl] != NULL)
+    {
+        sysLogPrintf(LOG_NOTE, "stereo: pull (%s): let go before a flick, lock dropped", ctrl ? "gun hand" : "off hand");
+        s_lock[ctrl] = NULL;
+    }
+    if (s_pull[ctrl].prop != NULL && s_pull[ctrl].held)
     {
         s_pull[ctrl].released = TRUE;
     }
@@ -972,7 +1069,32 @@ static void gevrPullTrackHand(s32 ctrl, f32 dt)
     if (!gevrPullHandRay(ctrl, p, f) || !gevrPullToWorld(p, w))
     {
         s_handWorldValid[ctrl] = FALSE;
+        s_handFwdTicks[ctrl] = 0;
         return;
+    }
+    {
+        /* the pointing direction in the world (the head's turn left out): the flick's */
+        f32 tip[3], q[3], wt[3], len;
+        f32 cm = gevrPullCm();
+
+        for (k = 0; k < 3; k++)
+        {
+            tip[k] = p[k] + f[k] * 10.0f * cm;
+        }
+        if (gevrPullToWorld(tip, wt))
+        {
+            q[0] = wt[0] - w[0]; q[1] = wt[1] - w[1]; q[2] = wt[2] - w[2];
+            len = sqrtf(q[0] * q[0] + q[1] * q[1] + q[2] * q[2]);
+            if (len > 1e-6f)
+            {
+                for (k = 0; k < 3; k++)
+                {
+                    s_handFwdPrev[ctrl][k] = s_handFwd[ctrl][k];
+                    s_handFwd[ctrl][k] = q[k] / len;
+                }
+                s_handFwdTicks[ctrl]++;
+            }
+        }
     }
     if (s_handWorldValid[ctrl] && dt > 1e-4f)
     {
@@ -985,6 +1107,25 @@ static void gevrPullTrackHand(s32 ctrl, f32 dt)
     else
     {
         s_handVel[ctrl][0] = s_handVel[ctrl][1] = s_handVel[ctrl][2] = 0.0f;
+    }
+    {
+        PropRecord *me = getCurrentPlayerProp();
+
+        if (me != NULL)
+        {
+            f32 rel[3];
+
+            rel[0] = w[0] - me->pos.x;
+            rel[1] = w[1] - me->pos.y;
+            rel[2] = w[2] - me->pos.z;
+            for (k = 0; k < 3; k++)
+            {
+                s_handRelVel[ctrl][k] = s_handWorldValid[ctrl] && dt > 1e-4f
+                    ? s_handRelVel[ctrl][k] + ((rel[k] - s_handRel[ctrl][k]) / dt - s_handRelVel[ctrl][k]) * 0.5f
+                    : 0.0f;
+                s_handRel[ctrl][k] = rel[k];
+            }
+        }
     }
     for (k = 0; k < 3; k++)
     {
@@ -1421,6 +1562,50 @@ static void gevrPullRemoteTick(f32 dt)
 }
 
 /*
+ * The flick, while locked: the wrist snapping the pointing direction up
+ * (Half-Life: Alyx), or the hand yanked back from the target. World space,
+ * so turning the head is no flick; the yank is the hand's own motion, so
+ * walking backwards is none either.
+ */
+static s32 gevrPullFlicked(s32 ctrl, f32 dt, const f32 at[3])
+{
+    f32 *a = s_handFwdPrev[ctrl], *b = s_handFwd[ctrl];
+    f32 c, turn, rise;
+    f32 tw[3], d[3], dl;
+
+    if (dt < 1e-4f)
+    {
+        return FALSE;
+    }
+    if (s_handFwdTicks[ctrl] >= 2)
+    {
+        c = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        c = c > 1.0f ? 1.0f : c < -1.0f ? -1.0f : c;
+        turn = acosf(c) / dt;
+        rise = (b[1] - a[1]) / dt;
+        if (turn > GEVR_PULL_FLICK_RAD_S && rise > GEVR_PULL_FLICK_UP_S)
+        {
+            sysLogPrintf(LOG_NOTE, "stereo: pull (%s): wrist flick, %.1f rad/s, tip rising %.1f/s", ctrl ? "gun hand" : "off hand", turn, rise);
+            return TRUE;
+        }
+    }
+    if (s_handWorldValid[ctrl] && gevrPullToWorld(at, tw))
+    {
+        d[0] = s_handWorld[ctrl][0] - tw[0];
+        d[1] = s_handWorld[ctrl][1] - tw[1];
+        d[2] = s_handWorld[ctrl][2] - tw[2];
+        dl = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        if (dl > 1e-3f && (s_handRelVel[ctrl][0] * d[0] + s_handRelVel[ctrl][1] * d[1] + s_handRelVel[ctrl][2] * d[2]) / dl
+                              > GEVR_PULL_YANK_CM_S * GEVR_UNITS_PER_METRE / 100.0f)
+        {
+            sysLogPrintf(LOG_NOTE, "stereo: pull (%s): yanked back", ctrl ? "gun hand" : "off hand");
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+/*
  * lv.c via bondview2.c gevrGripGestureTick, each game tick after propsTick:
  * the hands' targets (highlight, line, a tick when one locks), the flights
  * and what the hands hold.
@@ -1504,39 +1689,100 @@ void gevrPullTick(void)
                 }
                 continue;
             }
-            /* the hand moves: fly to where it is now; untracked, to where it last was */
+            /* it flies to the hand, followed within reach of where the flick was;
+             * untracked, to where the hand last was */
             if (s_handWorldValid[ctrl] && gevrPullHandRay(ctrl, p, f))
             {
+                f32 o[3], ol, lim = GEVR_PULL_HOMING_CM * GEVR_UNITS_PER_METRE / 100.0f;
+                s32 k;
+
                 s_handAt[ctrl][0] = p[0]; s_handAt[ctrl][1] = p[1]; s_handAt[ctrl][2] = p[2];
-                pl->to[0] = s_handWorld[ctrl][0]; pl->to[1] = s_handWorld[ctrl][1]; pl->to[2] = s_handWorld[ctrl][2];
-                pl->haveTo = TRUE;
-            }
-            else if (!pl->haveTo)
-            {
-                pl->to[0] = pl->from[0]; pl->to[1] = pl->from[1]; pl->to[2] = pl->from[2];
+                for (k = 0; k < 3; k++)
+                {
+                    o[k] = s_handWorld[ctrl][k] - pl->aim[k];
+                }
+                ol = sqrtf(o[0] * o[0] + o[1] * o[1] + o[2] * o[2]);
+                for (k = 0; k < 3; k++)
+                {
+                    pl->to[k] = pl->aim[k] + (ol > lim ? o[k] * lim / ol : o[k]);
+                }
             }
             pl->t += dt;
             gevrPullFlight(pl->from, pl->to, up, GEVR_PULL_LIFT_CM * GEVR_UNITS_PER_METRE / 100.0f,
                            pl->dur > 0.0f ? pl->t / pl->dur : 1.0f, w);
-            if (pl->grenade && pl->released && dt > 1e-4f)
             {
-                /* a grenade let go on its way has no inventory to go to: it drops where it is, moving as it was */
-                f32 v[3];
+                /* the catch: the grip closed with it at the hand, from halfway (Half-Life: Alyx) */
+                f32 v[3], reach = GEVR_PULL_CATCH_CM * GEVR_UNITS_PER_METRE / 100.0f, d2 = 1e30f;
 
-                v[0] = (w[0] - pl->prop->pos.x) / dt;
-                v[1] = (w[1] - pl->prop->pos.y) / dt;
-                v[2] = (w[2] - pl->prop->pos.z) / dt;
-                gevrPullThrow(ctrl, v);
-                continue;
+                if (s_handWorldValid[ctrl])
+                {
+                    d2 = (w[0] - s_handWorld[ctrl][0]) * (w[0] - s_handWorld[ctrl][0])
+                       + (w[1] - s_handWorld[ctrl][1]) * (w[1] - s_handWorld[ctrl][1])
+                       + (w[2] - s_handWorld[ctrl][2]) * (w[2] - s_handWorld[ctrl][2]);
+                }
+                if (s_gripHeld[ctrl] && d2 <= reach * reach && pl->t >= 0.5f * pl->dur)
+                {
+                    s_caughtAt[ctrl] = g_GlobalTimer;
+                    gevrPullPlace(pl->prop, w);
+                    gevrPullArrive(ctrl);
+                    continue;
+                }
+                if (pl->t >= pl->dur && (pl->over += dt) > GEVR_PULL_MISS_S)
+                {
+                    /* not caught: it falls from where it is, moving as it was */
+                    v[0] = dt > 1e-4f ? (w[0] - pl->prop->pos.x) / dt : 0.0f;
+                    v[1] = dt > 1e-4f ? (w[1] - pl->prop->pos.y) / dt : 0.0f;
+                    v[2] = dt > 1e-4f ? (w[2] - pl->prop->pos.z) / dt : 0.0f;
+                    gevrPullPlace(pl->prop, w);
+                    sysLogPrintf(LOG_NOTE, "stereo: pull (%s): missed (grip %s, %.0f cm from the hand), it falls",
+                                 ctrl ? "gun hand" : "off hand", s_gripHeld[ctrl] ? "closed" : "open",
+                                 d2 < 1e29f ? sqrtf(d2) * 100.0f / GEVR_UNITS_PER_METRE : -1.0f);
+                    gevrPullHaptic(ctrl, 0.2f, 0.03f);
+                    gevrPullThrow(ctrl, v);
+                    continue;
+                }
             }
             gevrPullPlace(pl->prop, w);
-            if ((pl->buzz++ & 3) == 0)
+            if ((pl->buzz++ & 3) == 0 && pl->t < pl->dur)
             {
                 gevrPullHaptic(ctrl, 0.15f, 0.03f);
             }
-            if (pl->t >= pl->dur)
+            continue;
+        }
+        if (s_lock[ctrl] != NULL)
+        {
+            /* locked: it stays lit wherever the hand turns, until the flick or the grip lets go */
+            PropRecord *lock = s_lock[ctrl];
+            f32 at[3], cm = gevrPullCm(), reach = 1.2f * GEVR_PULL_RANGE_CM * cm;
+            s32 ok = VrForcePull && !gevrPullOnline() && gevrPullInPlay() && gevrPullHandFree(ctrl) && gevrPullHandRay(ctrl, p, f)
+                     && gevrPullPointOf(lock, at) && cm >= 1e-6f;
+
+            if (ok && (at[0] - p[0]) * (at[0] - p[0]) + (at[1] - p[1]) * (at[1] - p[1]) + (at[2] - p[2]) * (at[2] - p[2]) > reach * reach)
             {
-                gevrPullArrive(ctrl);
+                ok = FALSE;   /* a little past the pull's range: walked away from it */
+            }
+            if (!ok)
+            {
+                sysLogPrintf(LOG_NOTE, "stereo: pull (%s): lock lost (taken, out of sight or out of reach)", ctrl ? "gun hand" : "off hand");
+                s_lock[ctrl] = NULL;
+                s_aim[ctrl] = NULL;
+                gevrPullHaptic(ctrl, 0.15f, 0.02f);
+                continue;
+            }
+            s_lockAge[ctrl] += dt;
+            s_aim[ctrl] = lock;
+            s_aimAt[ctrl][0] = at[0]; s_aimAt[ctrl][1] = at[1]; s_aimAt[ctrl][2] = at[2];
+            s_handAt[ctrl][0] = p[0]; s_handAt[ctrl][1] = p[1]; s_handAt[ctrl][2] = p[2];
+            s_aimValid[ctrl] = TRUE;
+            if (VrPullVisuals)
+            {
+                lock->obj->shadecol.r = 0xFF;
+                lock->obj->shadecol.g = 0xE6;
+                lock->obj->shadecol.b = 0x9A;
+            }
+            if (s_lockAge[ctrl] > 0.05f && gevrPullFlicked(ctrl, dt, at))
+            {
+                gevrPullStart(ctrl, lock, p, at);
             }
             continue;
         }
@@ -1552,7 +1798,7 @@ void gevrPullTick(void)
 
             if (aim != NULL && aim != s_aim[ctrl])
             {
-                gevrPullHaptic(ctrl, 0.25f, 0.02f);   /* locked */
+                gevrPullHaptic(ctrl, 0.25f, 0.02f);   /* lit */
             }
             s_aim[ctrl] = aim;
             s_aimLastAge[ctrl] += dt;
@@ -1582,6 +1828,8 @@ void gevrPullReset(void)
     memset(s_remote, 0, sizeof(s_remote));
     s_aim[0] = s_aim[1] = NULL;
     s_aimLast[0] = s_aimLast[1] = NULL;
+    s_lock[0] = s_lock[1] = NULL;
+    s_handFwdTicks[0] = s_handFwdTicks[1] = 0;
     s_aimValid[0] = s_aimValid[1] = FALSE;
     s_watchGlow = 0.0f;
     memset(s_heldNote, 0, sizeof(s_heldNote));
@@ -1837,9 +2085,9 @@ Gfx *gevrPullDraw(Gfx *gdl)
             at[0] = s_aimAt[ctrl][0]; at[1] = s_aimAt[ctrl][1]; at[2] = s_aimAt[ctrl][2];
             show = TRUE;
             {
-                /* a slow pulse on the target's halo, gone near the eye */
-                f32 k = 0.5f + 0.5f * sinf(s_glowPhase * 6.2831853f * 1.5f);
-                u32 a = (u32) ((0x60 + 0x60 * k) * gevrPullNearFade(at));
+                /* a slow pulse on the target's halo, steady and bright once locked; gone near the eye */
+                f32 k = s_lock[ctrl] != NULL ? 1.0f : 0.5f + 0.5f * sinf(s_glowPhase * 6.2831853f * 1.5f);
+                u32 a = (u32) ((s_lock[ctrl] != NULL ? 0xF0 : 0x60 + 0x60 * k) * gevrPullNearFade(at));
 
                 gdl = gevrDrawInteractionRing(gdl, at, 7.0f, 0xFFE69A00 | a);
                 gdl = gevrDrawInteractionRing(gdl, at, 10.0f, 0xFFE69A00 | (a >> 2));

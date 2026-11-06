@@ -21,12 +21,25 @@ moves.
   watch's range) and in line of sight. Whatever is nearest the hand's
   pointing ray within a narrow cone (about 15°) is the target. Pointing down
   at small items searches a little wider (GEVR PC).
-- **Pull:** squeeze the grip (GEVR PC exactly, no flick). The target flies to
-  the hand in about **0.3-0.4 s** with a small upward arc, easing out at the
-  palm.
-- **Hold or let go:** still gripping when it arrives puts it in the hand.
-  Letting go mid-flight sends it to the inventory instead. Nothing is ever
-  dropped.
+- **Lock:** squeeze the grip. What is lit stays locked (a steady bright
+  ring) wherever the hand turns, until the flick or the grip lets go.
+  Letting go before the flick drops the lock. If the squeeze turned the
+  controller off the target, it locks what was lit in the last 0.25 s.
+- **Flick (always, owner 2026-11-06, Half-Life: Alyx):** still gripping,
+  snap the wrist up (the pointing direction turning faster than about
+  200 degrees a second with its tip rising) or yank the hand back from
+  the target (1.5 m/s, the hand's own motion, so walking is none). The
+  target then flies to the hand in about **0.3-0.4 s** with a small
+  upward arc, easing out at the palm. It follows the hand up to 30 cm from
+  where the flick was.
+- **Catch:** the grip closed with it within 20 cm of the hand, from
+  halfway through the flight, catches it. Keeping the grip held from the
+  flick counts, and so does squeezing again as it comes in. An open hand
+  when it gets there (0.15 s past the flight's end) misses: it falls
+  where it is. A press while a pull flies to that hand is always the
+  catch's, never a body slot's or the holster's.
+- **Superseded (2026-11-05 spec):** point and squeeze with no flick, and
+  letting go mid-flight sending it to the inventory.
 - **Arrival:** a gun is in the hand at once, with no draw (raise) animation,
   ready to fire. Ammo, armour, keys and mission items are collected with the
   game's pickup sound and text.

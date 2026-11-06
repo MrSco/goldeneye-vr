@@ -17747,14 +17747,17 @@ static s32 s_gevrHolsterItem[2] = { -1, -1 };   /* per hand: what the hip holds,
 
 void gevrGripGestureInput(s32 ctrl, s32 pressed, s32 held)
 {
+    extern void gevrPullGripInput(s32 ctrl, s32 held);   /* gevr_forcepull.c: the grip catches a pull */
+
     if (ctrl < 0 || ctrl > 1)
     {
         return;
     }
+    gevrPullGripInput(ctrl, held);
     if (!held)
     {
         extern void gevrBodySlotGripLetGo(int ctrl);   /* gevr_bodyslots.c */
-        extern void gevrPullGripLetGo(s32 ctrl);       /* gevr_forcepull.c: a pull on its way goes to the inventory */
+        extern void gevrPullGripLetGo(s32 ctrl);       /* gevr_forcepull.c: a lock ends, a held thing is thrown */
 
         s_gevrGripGesture[ctrl] = 0;
         gevrPullGripLetGo(ctrl);
@@ -17965,6 +17968,15 @@ static s32 gevrGripGestureTry(s32 ctrl)
     s32 i;
     extern s32 gevrGexClaimsOffHand(void);
 
+    {
+        extern s32 gevrPullClaimsPress(s32 ctrl);   /* gevr_forcepull.c: the catch of a pull */
+
+        if (gevrPullClaimsPress(ctrl))
+        {
+            sysLogPrintf(LOG_NOTE, "stereo: grip try (%s): the force pull's catch", ctrl ? "gun hand" : "off hand");
+            return TRUE;
+        }
+    }
     if (ctrl == gevrReloadSupportGun() && gevrGexClaimsOffHand())
     {
         return FALSE;   /* a GoldenEye X magazine: held, or taken at the belt (gevrHandReloadTick) */

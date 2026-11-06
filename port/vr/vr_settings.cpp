@@ -153,7 +153,7 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; at the hand, put a gun on the floor in that hand (grip to hand), take back your own mine.\n");
     fprintf(f, "GestureHolster=%d\nGestureGripUse=%d\nGestureGripToHand=%d\nGestureMineGrab=%d\n",
             VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab);
-    fprintf(f, "; Force pull (stereo), 1 = on: point an empty hand at something out of reach and squeeze.\n");
+    fprintf(f, "; Force pull (stereo), 1 = on: point an empty hand at something out of reach, squeeze to lock, flick to pull, grip to catch.\n");
     fprintf(f, "; PullDisarm: pull a guard's gun out of his hand. AutoPickup 0: walking over a gun leaves it.\n");
     fprintf(f, "; PullVisuals: the target's halo and the pull line.\n");
     // ForcePull, not test.11-16's GestureForcePull: every ini those builds wrote
