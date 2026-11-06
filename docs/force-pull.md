@@ -66,11 +66,12 @@ moves.
 
 ### Options (launcher Controls > Gestures and the watch VR page)
 
-The defaults follow GEVR PC:
+The defaults follow GEVR PC, except force pull itself, which is off until chosen
+(owner, 2026-11-05):
 
 | Option | Default |
 |---|---|
-| Force pull | on |
+| Force pull | off (GEVR PC: on) |
 | Pull and disarm | on |
 | Auto pickup | on (new: off means walking over a gun leaves it, so you grab or pull it) |
 | Grip to hand | on; WIP label dropped once headset-passed |
@@ -154,8 +155,10 @@ Single player first, then online (protocol 26, below).
   - A grenade let go of mid-flight drops where it is, moving as it was.
   - The 25 cm grab (Grip to hand) also takes a live grenade or a refused
     item into an empty hand.
-- **Settings:** `GestureForcePull`, `PullDisarm`, `AutoPickup` and
-  `PullVisuals` (all 1 by default). `GestureGripToHand` now also defaults
+- **Settings:** `ForcePull` (0 by default), `PullDisarm`, `AutoPickup` and
+  `PullVisuals` (1 by default). Builds test.11 to test.16 saved
+  `GestureForcePull`, always 1 unless changed; it is no longer read, so the
+  new default reaches those inis once. `GestureGripToHand` now also defaults
   to 1, but an ini that already saved 0 keeps it off. These are on the
   launcher's Gestures page and the pause panel's VR tab.
 - **Tuning:** the numbers are the 350 cm range, the 15° cone (25° pointing

@@ -80,11 +80,14 @@ int VrGestureHolster  = 1;   /* grip at the hip holsters the gun, again draws it
 int VrGestureGripUse  = 1;   /* grip with the hand at a door or switch uses it (vr450, #90) */
 int VrGesturePickup   = 1;   /* Grip to hand: grip at a gun on the floor puts it in that hand (vr451); on with force pull (GEVR PC's defaults, docs/force-pull.md) */
 int VrGestureMineGrab = 1;   /* grip at your own stuck mine takes it back (vr450.2) */
-/* Force pull (docs/force-pull.md, src/game/gevr_forcepull.c), GEVR PC vr457's
- * defaults: an empty hand pointed at something out of reach and squeezed flies
- * it to the hand; pull and disarm takes a guard's gun; Auto pickup off leaves
- * guns walked over on the floor; Pull visuals draws the target halo and line. */
-int VrForcePull   = 1;
+/* Force pull (docs/force-pull.md, src/game/gevr_forcepull.c): an empty hand
+ * pointed at something out of reach and squeezed flies it to the hand; pull
+ * and disarm takes a guard's gun; Auto pickup off leaves guns walked over on
+ * the floor; Pull visuals draws the target halo and line. Force pull itself is
+ * off until chosen (user, 2026-11-05; GEVR PC vr457 has it on): a squeeze at
+ * nothing in reach pulled what the hand pointed at. Its own disarm and
+ * visuals keep GEVR PC's on. */
+int VrForcePull   = 0;
 int VrPullDisarm  = 1;
 int VrAutoPickup  = 1;
 int VrPullVisuals = 1;
