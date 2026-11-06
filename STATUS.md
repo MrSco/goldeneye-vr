@@ -292,7 +292,7 @@ is goldeneyevr.com, in its own repository.
   whose matrices are gone (crash sig-e97854f4, 5a7bfc73). Headset checks owed.
 - Unreleased: force pull off by default, saved as ForcePull (the old
   GestureForcePull is not read, so test.11-16's saved "on" goes once).
-- Unreleased: launcher unification (docs/launcher-unify.md) phases 1-4. One
+- Unreleased: launcher unification (docs/launcher-unify.md), all five phases. One
   settings table (port/src/gevr_settings.c) drawn by the hold-Menu panel and
   the launcher; the launcher's tabs Play, Multiplayer, Controls (Hands,
   Gestures, Throwing, Haptics), Comfort, Screen, Rules (Game rules, AI ally,
@@ -300,8 +300,10 @@ is goldeneyevr.com, in its own repository.
   Multiplayer: Host (Lobby, Match, Fun), Join, Player, Audio, Favorites; the
   lobby runs every frame whichever tab is open; Fun and Audio are table rows.
   In game online, one screen: Match, Rules, Player, Audio and Settings (the
-  panel's sections); a tap of Menu opens Match, a hold Settings. Next: phase
-  5, the fit tests; the online tabs onto the table after a two-headset round.
+  panel's sections); a tap of Menu opens Match, a hold Settings. Fit tests:
+  test_launcher_frame (44 pages) and test_ingame_fit (28 sections), flat,
+  stereo, co-op host and joiner. Open: the online Match/Rules/Player/Audio
+  tabs onto the table after a two-headset round.
 - Crash reports land as issues in the private MrSco/goldeneye-vr-reports,
   decoded by its Digest workflow; each build's symbols zip goes to its
   "symbols" release.

@@ -251,6 +251,49 @@ batch's branch.
   - that each section fits the Settings tab with no scrolling;
   - Reset sound and HD textures on the Settings tab.
 
+**Phase 5, done.**
+
+The fit tests draw every page at its fullest, against the real table. The fullest
+state means:
+
+- ragdolls and dismemberment, body slots, the ally, motion throw, force pull and GE-X
+  all on;
+- an update offered;
+- Bean's 120 Hz warning showing.
+
+Each test runs in four states:
+
+- flat with third person;
+- stereo, where third person is greyed: "Flat screen only";
+- a co-op host;
+- a deathmatch joiner, whose rows are greyed with their reason, such as "Host's choice"
+  or "Host: 150%".
+
+| Test | What it draws |
+|---|---|
+| `test_launcher_frame.py` | Every launcher settings page, plus Multiplayer's Host > Fun and Audio, cut from `gevrMultiplayerPage` (44 pages) |
+| `test_ingame_fit.py` | Every section of the solo panel and of the online Settings tab (28) |
+
+Each test checks that:
+
+- no page or box scrolls;
+- each label fits its column;
+- each control, with its value or reason beside it, fits its column
+  (`port/tests/settings_fit.h`);
+- the tab rows fit without shrinking;
+- START, the update line and the hint stay on the canvas.
+
+Both tests fail when they should:
+
+- the old one-line Audio note, about 1,460 px on a 1,244 px page;
+- one column per section.
+
+Covered by their own tests:
+
+- Match and Lobby at 8 players (`launcher_compact_native.cpp`);
+- Mods in every download state (`test_launcher_mods.py`);
+- the online match tabs (`test_pause_ui`).
+
 ## Risks
 
 - **The watch's VR page** (`options.c`) has its own retail navigation. Phase 1 keeps its

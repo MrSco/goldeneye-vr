@@ -40,7 +40,15 @@ footer = ('        if (launcherTabs.top != GEVR_LTAB_MULTIPLAYER) footerTop = Im
           '        startBottom = ImGui::GetItemRectMax().y;\n        }\n')
 row = source[source.index('enum {\n    GEVR_START_ROW_NONE,'):source.index('static void gevrModsPage(')]
 cheats = function('static void gevrCheatsPage(')
+# Multiplayer's Audio and Host > Fun, as gevrMultiplayerPage draws them
+audio_at = source.index('    auto audioOptions = [&]() {')
+audio = source[audio_at:balanced(source, source.index('{', audio_at)) + 1]
+assert audio.endswith('};')
+fun_at = source.index('if (ImGui::BeginTabItem("Fun")) {')
+fun = source[source.index('{', fun_at) + 1:balanced(source, source.index('{', fun_at)) - 1]
+fun = fun.replace('ImGui::EndTabItem();', '')
 fixture = (root / 'port/tests/launcher_frame_native.cpp').read_text(encoding='utf-8')
+fixture = fixture.replace('/* AUDIO_OPTIONS */', audio).replace('/* FUN_PAGE */', fun)
 fixture = fixture.replace('/* CHEATS */', cheats).replace('/* START_ROW */', row).replace('/* FRAME */', page + '\n' + footer)
 with tempfile.TemporaryDirectory(prefix='gevr-launcher-frame-') as temp:
     temp = Path(temp)

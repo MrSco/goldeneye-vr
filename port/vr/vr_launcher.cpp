@@ -2071,13 +2071,15 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
         // free-for-all opponents: Horde, co-op and team battles ignore it.
         const int voiceGameMode = netIsActive() ? netGetMatchConfig()->mode : VrMpMode;
         const bool voiceTeams = netIsActive() ? gevrLobbyHasTeams(netGetMatchConfig()) : gevrConfigHasTeams(VrMpMode, VrMpScenario);
-        ImGui::TextDisabled("%s. %s", micMuted                   ? "Mic muted"
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::TextWrapped("%s. %s", micMuted                   ? "Mic muted"
                                   : !netVoiceHasPermission() ? "No mic access (listen only)"
                                   : netVoiceCaptureFailed()  ? "Mic unavailable (listen only)"
                                                              : "Mic active",
-                            netModePve(voiceGameMode) ? "Voice mode not used: everyone is a teammate, full volume."
-                            : voiceTeams ? "Voice mode not used: teammates full volume, opponents proximity."
-                            : "Proximity: 10% floor; couch: full volume.");
+                           netModePve(voiceGameMode) ? "Voice mode not used: everyone is a teammate, full volume."
+                           : voiceTeams ? "Voice mode not used: teammates full volume, opponents proximity."
+                           : "Proximity: 10% floor; couch: full volume.");
+        ImGui::PopStyleColor();
     };
     gevrLauncherBeginBody("##mpbody");
     switch (sub) {

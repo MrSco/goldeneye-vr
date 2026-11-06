@@ -13,6 +13,7 @@
 #include <cstring>
 #include <string>
 #include "settings_table_stubs.h"
+#include "settings_fit.h"
 
 static void check(bool ok, const char *what) {
     if (!ok) { std::fprintf(stderr, "FAIL: %s\n", what); std::exit(1); }
@@ -27,7 +28,38 @@ static int VrUnlockAll = 1;
 static int customPages;
 static void gevrHapticsPage(const ImVec4 &, const ImVec4 &, const ImVec4 &) { customPages++; }
 static void gevrModsPage(unsigned, const ImVec4 &, const ImVec4 &, const ImVec4 &) { customPages++; }
-static void gevrMultiplayerPage(int, bool &, bool, const ImVec4 &, const ImVec4 &, const ImVec4 &) { customPages++; }
+// Multiplayer: its Host > Fun and Audio pages, cut from gevrMultiplayerPage, in
+// its body (gevrLauncherBeginBody) above its status line and buttons
+struct NetMatchConfig { int mode, scenario; };
+static NetMatchConfig s_config;
+static const NetMatchConfig *netGetMatchConfig() { return &s_config; }
+static int VrMpMode, VrMpScenario, s_phase;
+enum { NET_PHASE_WARMUP, NET_PHASE_IN_PROGRESS };
+static int netGetPhase() { return s_phase; }
+static int netVoiceHasPermission() { return 1; }
+static int netVoiceCaptureFailed() { return 1; }   // the longest status
+static bool netModePve(int mode) { return mode == 1 || mode == 2; }
+static bool gevrConfigHasTeams(int, int scenario) { return scenario != 0; }
+static bool gevrLobbyHasTeams(const NetMatchConfig *c) { return gevrConfigHasTeams(c->mode, c->scenario); }
+static float mpBottom, mpLimit, mpRight, mpLimitX, mpButtons;
+static void gevrMultiplayerPage(int sub, bool &, bool, const ImVec4 &, const ImVec4 &, const ImVec4 &) {
+    customPages++;
+    /* AUDIO_OPTIONS */
+    gevrLauncherBeginBody("##mpbody");
+    if (sub == GEVR_LSUB_HOST) {
+        ImGui::Dummy(ImVec2(0, ImGui::GetFrameHeight()));   // Lobby, Match, Fun
+        /* FUN_PAGE */
+    } else if (sub == GEVR_LSUB_AUDIO) {
+        audioOptions();
+    }
+    ImGuiWindow *w = ImGui::GetCurrentWindow();
+    mpBottom = w->DC.CursorMaxPos.y; mpLimit = w->ClipRect.Max.y; mpRight = w->DC.CursorMaxPos.x; mpLimitX = w->ClipRect.Max.x;
+    ImGui::EndChild();
+    ImGui::Separator();
+    gevrLauncherStatus("Waiting for joined players to ready up.");
+    ImGui::Button("Launch", ImVec2(0, ImGui::GetFrameHeight() * 1.5f));
+    mpButtons = ImGui::GetItemRectMax().y;
+}
 
 /* CHEATS */
 /* START_ROW */
@@ -64,19 +96,7 @@ static void frame() {
     (void)start;
 }
 
-int main() {
-    ImGui::CreateContext();
-    auto &io = ImGui::GetIO();
-    io.IniFilename = nullptr; io.DisplaySize = ImVec2(1280, 960); io.DeltaTime = 1.f / 72; io.FontGlobalScale = 2.2f;
-    ImGui::StyleColorsDark(); ImGui::GetStyle().ScaleAllSizes(2.2f); ImGui::GetStyle().WindowRounding = 0;
-    unsigned char *px; int w, h; io.Fonts->GetTexDataAsRGBA32(&px, &w, &h);
-
-    // every row there is: flat screen with third person, ragdolls with
-    // dismemberment, body slots, the ally; an update to offer; Bean's 120 Hz warning
-    VrPlayMode = 0; VrThirdPerson = 1; VrRagdolls = VrDismemberment = 1; VrBodySlots = 1; VrAlly = 1;
-    VrMotionThrowing = VrForcePull = 1; s_bean = 1; VrRefreshRate = 120; VrSpaceWarp = 0;
-    upd.state = "available"; upd.offered = "0.5.15-test.99";
-    upd.message = "Notes: a long line about what the update brings, longer than the row it shares with Update.";
+static int sweep(const char *state) {
     const GevrSettingsApi api = gevrSettingsLive();
     int pages = 0;
     for (int tab = 0; tab < GEVR_LTAB_COUNT; tab++) {
@@ -87,11 +107,22 @@ int main() {
             check(launcherTabs.top == tab && (sub < 0 || launcherTabs.sub[tab] == sub), "each tab and sub-tab opens");
             check(startBottom <= 960 - 4 || tab == GEVR_LTAB_MULTIPLAYER, "START stays on the canvas");
             check(hintBottom <= 960 - 4, "the hint line stays on the canvas");
+            if (tab == GEVR_LTAB_MULTIPLAYER && (sub == GEVR_LSUB_HOST || sub == GEVR_LSUB_AUDIO)) {
+                char what[160];
+                std::snprintf(what, sizeof(what), "%s: Multiplayer > %s fits its body (content %.0f, body %.0f)", state,
+                              gevrLauncherSubName(tab, sub), mpBottom, mpLimit);
+                check(mpBottom <= mpLimit && mpRight <= mpLimitX + 1, what);
+                check(mpButtons <= 960 - 4, "Multiplayer's buttons stay on the canvas");
+                settingsFitControls(api, sub == GEVR_LSUB_HOST ? GEVR_LSEC_MP_FUN : GEVR_LSEC_MP_AUDIO, GEVR_SET_LAUNCHER,
+                              1280 - ImGui::GetStyle().WindowPadding.x * 2, state);
+                pages++;
+                continue;
+            }
             if (tab == GEVR_LTAB_MULTIPLAYER || (tab == GEVR_LTAB_CONTROLS && sub == GEVR_LSUB_HAPTICS) || tab == GEVR_LTAB_MODS)
-                continue;   // their own pages (layout_compact, the haptics box, the packs)
+                continue;   // their own pages (launcher_compact, the haptics box, test_launcher_mods)
             pages++;
             char what[160];
-            std::snprintf(what, sizeof(what), "%s%s%s fits without scrolling (content %.0f, page %.0f)", gevrLauncherTabName(tab),
+            std::snprintf(what, sizeof(what), "%s: %s%s%s fits without scrolling (content %.0f, page %.0f)", state, gevrLauncherTabName(tab),
                           sub >= 0 ? " > " : "", sub >= 0 ? gevrLauncherSubName(tab, sub) : "", pageBottom, pageLimit);
             check(pageTab == tab && pageSub == sub, "the page drawn is the tab's");
             // nor scrolls inside (v0.5.4 put the rules in a scrolling child that fit the page)
@@ -102,7 +133,7 @@ int main() {
                     check(false, "no part of a page scrolls");
                 }
             check(pageBottom <= pageLimit, what);
-            std::snprintf(what, sizeof(what), "%s%s%s fits the width", gevrLauncherTabName(tab), sub >= 0 ? " > " : "",
+            std::snprintf(what, sizeof(what), "%s: %s%s%s fits the width", state, gevrLauncherTabName(tab), sub >= 0 ? " > " : "",
                           sub >= 0 ? gevrLauncherSubName(tab, sub) : "");
             check(pageRight <= pageLimitX + 1, what);
             // the table's labels fit their column (gevrSettingsSection's split)
@@ -110,20 +141,37 @@ int main() {
                 { GEVR_LSEC_PLAY }, { -1 }, { GEVR_LSEC_HANDS, GEVR_LSEC_GESTURES, GEVR_LSEC_THROWING, -1 },
                 { GEVR_LSEC_COMFORT }, { GEVR_LSEC_SCREEN }, { GEVR_LSEC_RULES, GEVR_LSEC_ALLY, GEVR_LSEC_CHEATS }, { -1 } };
             const int section = lsec[tab][sub < 0 ? 0 : sub];
-            int ids[48];
-            const int n = gevrSettingSectionRows(section, GEVR_SET_LAUNCHER, ids, 48);
-            const int columns = n > GEVR_SETTINGS_ONE_COLUMN ? 2 : 1;
-            const float half = (pageWidth - (columns > 1 ? ImGui::GetStyle().ItemSpacing.x * 4 : 0)) / columns;
-            const float labelW = half * (columns > 1 ? 0.44f : 0.40f);
-            for (int i = 0; i < n; i++) {
-                GevrSettingInfo info{};
-                api.info(ids[i], &info);
-                std::snprintf(what, sizeof(what), "the label \"%s\" fits its column", info.label);
-                check(ImGui::CalcTextSize(info.label).x + ImGui::GetStyle().CellPadding.x * 2 <= labelW, what);
-            }
+            if (section >= 0 && section != GEVR_LSEC_CHEATS) settingsFitControls(api, section, GEVR_SET_LAUNCHER, pageWidth, state);
         }
     }
-    check(pages == 9, "every settings page was measured");
+    return pages;
+}
+
+int main() {
+    ImGui::CreateContext();
+    auto &io = ImGui::GetIO();
+    io.IniFilename = nullptr; io.DisplaySize = ImVec2(1280, 960); io.DeltaTime = 1.f / 72; io.FontGlobalScale = 2.2f;
+    ImGui::StyleColorsDark(); ImGui::GetStyle().ScaleAllSizes(2.2f); ImGui::GetStyle().WindowRounding = 0;
+    unsigned char *px; int w, h; io.Fonts->GetTexDataAsRGBA32(&px, &w, &h);
+
+    // every row there is: ragdolls with dismemberment, body slots, the ally,
+    // motion throw and force pull; an update to offer; Bean's 120 Hz warning
+    VrRagdolls = VrDismemberment = 1; VrBodySlots = 1; VrAlly = 1;
+    VrMotionThrowing = VrForcePull = 1; s_bean = 1; VrRefreshRate = 120; VrSpaceWarp = 0;
+    upd.state = "available"; upd.offered = "0.5.15-test.99";
+    upd.message = "Notes: a long line about what the update brings, longer than the row it shares with Update.";
+    int pages = 0;
+    // flat screen with third person's camera; stereo (third person greyed: "Flat screen only")
+    VrPlayMode = 0; VrThirdPerson = 1;
+    pages += sweep("flat, third person");
+    VrPlayMode = 1;
+    pages += sweep("stereo");
+    // online: a co-op host (the live rules), a deathmatch joiner (the host's, greyed with their reason)
+    VrPlayMode = 0; s_net = 1; s_host = 1; s_coop = 1; s_config.mode = 1; s_phase = NET_PHASE_IN_PROGRESS;
+    pages += sweep("co-op host");
+    s_host = 0; s_coop = 0; s_config.mode = 0; s_config.scenario = 1; s_netSpeed = 4;
+    pages += sweep("deathmatch joiner");
+    check(pages == 4 * 11, "every settings page and Multiplayer's Fun and Audio, in four states");
     // both tab rows fit without shrinking
     ImGuiContext &g = *ImGui::GetCurrentContext();
     int bars = 0;
@@ -134,5 +182,6 @@ int main() {
         }
     check(bars >= 3, "the top row and the Controls and Rules rows were drawn");
     ImGui::DestroyContext();
-    std::printf("PASS: launcher frame: %d settings pages, the tab rows, the update line and START fit at Quest font size\n", pages);
+    std::printf("PASS: launcher frame: %d pages (flat, stereo, co-op host, joiner), their controls and reasons, "
+                "the tab rows, the update line and START fit at Quest font size\n", pages);
 }
