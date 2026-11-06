@@ -321,6 +321,14 @@ is goldeneyevr.com, in its own repository.
   gevr_forcepull.c). Suite 103/103; dedicated server built from the tag
   passes tools/gevr_server_test.sh (bot match, late joiner, idle/wake); a
   pull through a dedicated server still needs two headsets.
+- Unreleased after test.21 (headset feedback, 2026-11-06; built, not
+  published): force pull aims along the arm, shoulder through hand, not
+  the barrel (2fcf0e7a); hip Holster and Grip hand toggles gone, the 25 cm
+  grab always on, Grip use shows on under hand reload (6204d57a); the GE-X
+  sniper butt held as a bat, one or two hands (08a419a3); disarmed guards
+  go for a gun or punch, PD's lost-gun AI (66d5a420); START shows the mods
+  and cheats (c1d09bac). Suite 104/104, server regression passes. Headset
+  checks owed: pull aim, the bat's look and two-hand grip, the guard punch.
 - Launcher unification (docs/launcher-unify.md), all five phases, in test.17. One
   settings table (port/src/gevr_settings.c) drawn by the hold-Menu panel and
   the launcher; the launcher's tabs Play, Multiplayer, Controls (Hands,
