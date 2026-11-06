@@ -287,12 +287,13 @@ is goldeneyevr.com, in its own repository.
   ShowStats also logs a per-second "loco: clamps ... resets ..." line.
 - v0.5.15-test.16 (vc 111, protocol 26): weapon-cycle tap skips empty guns
   and keeps the out-of-ammo pick (ee729f9a).
-- Unreleased: Bean tinted glass stays clear with its portal open (#231,
-  7ccf24e4, from Dab's Mod); the stereo crosshair skips on-screen objects
-  whose matrices are gone (crash sig-e97854f4, 5a7bfc73). Headset checks owed.
-- Unreleased: force pull off by default, saved as ForcePull (the old
+- v0.5.15-test.17 (vc 112, protocol 26): Bean tinted glass stays clear with
+  its portal open (#231, 7ccf24e4, from Dab's Mod); the stereo crosshair
+  skips on-screen objects whose matrices are gone (crash sig-e97854f4,
+  5a7bfc73); force pull off by default, saved as ForcePull (the old
   GestureForcePull is not read, so test.11-16's saved "on" goes once).
-- Unreleased: launcher unification (docs/launcher-unify.md), all five phases. One
+  Headset checks owed for all of it and for the launcher below.
+- Launcher unification (docs/launcher-unify.md), all five phases, in test.17. One
   settings table (port/src/gevr_settings.c) drawn by the hold-Menu panel and
   the launcher; the launcher's tabs Play, Multiplayer, Controls (Hands,
   Gestures, Throwing, Haptics), Comfort, Screen, Rules (Game rules, AI ally,
