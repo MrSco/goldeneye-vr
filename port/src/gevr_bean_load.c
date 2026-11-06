@@ -1546,6 +1546,139 @@ static void posterBox(const struct gevrBeanMesh *mesh, int i, int flat, float bo
 		}
 	}
 }
+/* Decals laid over decals on one wall: Streets' propaganda poster over a
+ * newspaper (players, test.17: "where they overlap they glitch out over each
+ * other"). An opaque or cut-out decal writes depth (gevr_bean.c's decal render
+ * modes, as Dab's Mod's materials do) and every decal stands the same distance
+ * off its wall (fillEmit), so where two overlap their depths tie and the pixels
+ * between them flicker. The N64 and the XBLA release draw the later one over
+ * the earlier; here each decal whose inside overlaps an earlier one on its
+ * plane stands DECAL_LAYER_LIFT further out than it, so it wins every pixel.
+ * Faces only touching (a poster's two halves) are not stacked. */
+#define DECAL_LAYER_LIFT 0.5f
+#define DECAL_LAYER_MAX 4
+static int decalStacks(const struct gevrBeanTri *t)
+{
+	return (t->flags & GEVR_BEAN_F_DECAL) && t->alpha == 255;
+}
+/* Whether two triangles on one plane (2D corners, x y pairs) overlap inside,
+ * by more than a sliver along every edge's normal */
+static int decalOverlap(const float *a, const float *b)
+{
+	const float *tri[2] = { a, b };
+	for (int s = 0; s < 2; s++)
+		for (int e = 0; e < 3; e++) {
+			const float *p = &tri[s][e * 2], *q = &tri[s][((e + 1) % 3) * 2];
+			const float ax = q[1] - p[1], ay = p[0] - q[0], len = sqrtf(ax * ax + ay * ay);
+			if (!(len > 0.0f))
+				return 0;
+			float lo[2] = { 1e30f, 1e30f }, hi[2] = { -1e30f, -1e30f };
+			for (int t = 0; t < 2; t++)
+				for (int c = 0; c < 3; c++) {
+					const float d = (tri[t][c * 2] * ax + tri[t][c * 2 + 1] * ay) / len;
+					lo[t] = fminf(lo[t], d);
+					hi[t] = fmaxf(hi[t], d);
+				}
+			if (hi[0] <= lo[1] + 0.05f || hi[1] <= lo[0] + 0.05f)
+				return 0;
+		}
+	return 1;
+}
+static int liftStackedDecals(struct gevrBeanMesh *mesh)
+{
+	int m = 0, lifted = 0;
+	for (int i = 0; i < mesh->ntris; i++)
+		m += decalStacks(&mesh->tris[i]);
+	if (m < 2)
+		return 0;
+	int *idx = malloc((size_t)m * sizeof(*idx));
+	uint8_t *layer = calloc((size_t)m, 1);
+	float (*nrm)[4] = malloc((size_t)m * sizeof(*nrm));   /* unit normal, distance from the origin */
+	float (*flat)[6] = malloc((size_t)m * sizeof(*flat));  /* corners on the plane's own axes */
+	float (*box)[6] = malloc((size_t)m * sizeof(*box));    /* min xyz, max xyz */
+	if (!idx || !layer || !nrm || !flat || !box) {
+		free(idx); free(layer); free(nrm); free(flat); free(box);
+		return 0;
+	}
+	m = 0;
+	for (int i = 0; i < mesh->ntris; i++)
+		if (decalStacks(&mesh->tris[i]))
+			idx[m++] = i;
+	for (int a = 0; a < m; a++) {
+		const float *p = mesh->tris[idx[a]].p;
+		float n[3], u[3], v[3];
+		triNormalArea(p, n);
+		/* the plane's axes: u across it, v = n x u */
+		const float ref[3] = { fabsf(n[1]) < 0.9f ? 0.0f : 1.0f, fabsf(n[1]) < 0.9f ? 1.0f : 0.0f, 0.0f };
+		u[0] = ref[1] * n[2] - ref[2] * n[1];
+		u[1] = ref[2] * n[0] - ref[0] * n[2];
+		u[2] = ref[0] * n[1] - ref[1] * n[0];
+		const float ul = sqrtf(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
+		for (int k = 0; k < 3; k++) u[k] = ul > 0.0f ? u[k] / ul : 0.0f;
+		v[0] = n[1] * u[2] - n[2] * u[1];
+		v[1] = n[2] * u[0] - n[0] * u[2];
+		v[2] = n[0] * u[1] - n[1] * u[0];
+		nrm[a][0] = n[0]; nrm[a][1] = n[1]; nrm[a][2] = n[2];
+		nrm[a][3] = n[0] * p[0] + n[1] * p[1] + n[2] * p[2];
+		for (int k = 0; k < 3; k++) { box[a][k] = 1e30f; box[a][3 + k] = -1e30f; }
+		for (int c = 0; c < 3; c++) {
+			const float *q = &p[c * 3];
+			flat[a][c * 2] = q[0] * u[0] + q[1] * u[1] + q[2] * u[2];
+			flat[a][c * 2 + 1] = q[0] * v[0] + q[1] * v[1] + q[2] * v[2];
+			for (int k = 0; k < 3; k++) {
+				box[a][k] = fminf(box[a][k], q[k]);
+				box[a][3 + k] = fmaxf(box[a][3 + k], q[k]);
+			}
+		}
+	}
+	/* in the level's order: a later decal over an earlier one stands above it */
+	for (int a = 1; a < m; a++)
+		for (int b = 0; b < a; b++) {
+			if (layer[a] > layer[b] || layer[b] >= DECAL_LAYER_MAX)
+				continue;
+			int apart = 0;
+			for (int k = 0; k < 3 && !apart; k++)
+				apart = box[a][k] > box[b][3 + k] + 0.5f || box[b][k] > box[a][3 + k] + 0.5f;
+			if (apart || nrm[a][0] * nrm[b][0] + nrm[a][1] * nrm[b][1] + nrm[a][2] * nrm[b][2] < 0.99f)
+				continue;
+			const float *q = mesh->tris[idx[b]].p;
+			const float off = nrm[a][0] * q[0] + nrm[a][1] * q[1] + nrm[a][2] * q[2] - nrm[a][3];
+			if (fabsf(off) > 0.5f)
+				continue;
+			/* b's corners on a's axes */
+			float bf[6];
+			const float *ap = mesh->tris[idx[a]].p;
+			float n[3] = { nrm[a][0], nrm[a][1], nrm[a][2] }, u[3], v[3];
+			const float ref[3] = { fabsf(n[1]) < 0.9f ? 0.0f : 1.0f, fabsf(n[1]) < 0.9f ? 1.0f : 0.0f, 0.0f };
+			u[0] = ref[1] * n[2] - ref[2] * n[1];
+			u[1] = ref[2] * n[0] - ref[0] * n[2];
+			u[2] = ref[0] * n[1] - ref[1] * n[0];
+			const float ul = sqrtf(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
+			for (int k = 0; k < 3; k++) u[k] = ul > 0.0f ? u[k] / ul : 0.0f;
+			v[0] = n[1] * u[2] - n[2] * u[1];
+			v[1] = n[2] * u[0] - n[0] * u[2];
+			v[2] = n[0] * u[1] - n[1] * u[0];
+			for (int c = 0; c < 3; c++) {
+				bf[c * 2] = q[c * 3] * u[0] + q[c * 3 + 1] * u[1] + q[c * 3 + 2] * u[2];
+				bf[c * 2 + 1] = q[c * 3] * v[0] + q[c * 3 + 1] * v[1] + q[c * 3 + 2] * v[2];
+			}
+			(void)ap;
+			if (decalOverlap(flat[a], bf))
+				layer[a] = (uint8_t)(layer[b] + 1);
+		}
+	for (int a = 0; a < m; a++) {
+		if (!layer[a])
+			continue;
+		struct gevrBeanTri *t = &mesh->tris[idx[a]];
+		for (int c = 0; c < 3; c++)
+			for (int k = 0; k < 3; k++)
+				t->p[c * 3 + k] += nrm[a][k] * DECAL_LAYER_LIFT * layer[a];
+		lifted++;
+	}
+	free(idx); free(layer); free(nrm); free(flat); free(box);
+	return lifted;
+}
+
 static int fixFlatPosters(struct gevrBeanMesh *mesh)
 {
 	int fixed = 0;
@@ -2618,6 +2751,9 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		const int posters = fixFlatPosters(mesh);
 		if (posters)
 			GEVR_BEAN_LOG("gevr bean: %s: %d poster faces flat on one point of their picture laid whole\n", source, posters);
+		const int stacked = liftStackedDecals(mesh);
+		if (stacked)
+			GEVR_BEAN_LOG("gevr bean: %s: %d decal faces over another decal lifted off it\n", source, stacked);
 		const int painted = fixPlainLevelFaces(mesh);
 		if (painted)
 			GEVR_BEAN_LOG("gevr bean: %s: %d blended triangles a later blended one paints over left out\n",

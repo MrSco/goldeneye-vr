@@ -12,11 +12,13 @@ static void put32(uint8_t *p, uint32_t v)
 
 #include "gevr_bean_tree_test.inc.h"
 #include "gevr_bean_poster_test.inc.h"
+#include "gevr_bean_stack_test.inc.h"
 
 int main(void)
 {
     treeChecks();
     posterChecks();
+    stackChecks();
     /* A header without its section table must be rejected, even when the
      * counts and section-data fields happen to fit in the file. */
     uint8_t bad[0x68] = {0};
