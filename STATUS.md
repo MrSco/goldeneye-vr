@@ -318,7 +318,9 @@ is goldeneyevr.com, in its own repository.
   flick or a yank sends it, the grip closed at the hand catches it, an open
   hand lets it fall (docs/force-pull.md). Force pull stays off by default.
   Headset feel check owed (flick thresholds GEVR_PULL_FLICK_* in
-  gevr_forcepull.c).
+  gevr_forcepull.c). Suite 103/103; dedicated server built from the tag
+  passes tools/gevr_server_test.sh (bot match, late joiner, idle/wake); a
+  pull through a dedicated server still needs two headsets.
 - Launcher unification (docs/launcher-unify.md), all five phases, in test.17. One
   settings table (port/src/gevr_settings.c) drawn by the hold-Menu panel and
   the launcher; the launcher's tabs Play, Multiplayer, Controls (Hands,
