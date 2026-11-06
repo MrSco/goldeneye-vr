@@ -82,3 +82,41 @@ int gevrPullChooseHand(int pulling, int pullingAllowed, int gunHandEmpty, int gu
     }
     return -1;
 }
+
+void gevrPullArmRay(const float p[3], const float f[3], const float down[3], float side, float cm, float out[3])
+{
+    float r[3], sh[3], a[3], len, rd, w;
+    int k;
+
+    /* the head's right, level: view +X with its down part taken out */
+    rd = down[0];
+    r[0] = 1.0f - rd * down[0];
+    r[1] = -rd * down[1];
+    r[2] = -rd * down[2];
+    len = sqrtf(r[0] * r[0] + r[1] * r[1] + r[2] * r[2]);
+    for (k = 0; k < 3; k++)
+    {
+        r[k] = len > 1e-6f ? r[k] / len : 0.0f;
+        sh[k] = (down[k] * GEVR_PULL_SHOULDER_DROP_CM + r[k] * side * GEVR_PULL_SHOULDER_SIDE_CM) * cm;
+        a[k] = p[k] - sh[k];
+    }
+    len = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+    w = cm > 0.0f ? (len / cm - GEVR_PULL_ARM_MIN_CM) / (GEVR_PULL_ARM_FULL_CM - GEVR_PULL_ARM_MIN_CM) : 0.0f;
+    if (w < 0.0f)
+    {
+        w = 0.0f;
+    }
+    if (w > 1.0f)
+    {
+        w = 1.0f;
+    }
+    for (k = 0; k < 3; k++)
+    {
+        out[k] = (len > 1e-6f ? a[k] / len : 0.0f) * w + f[k] * (1.0f - w);
+    }
+    len = sqrtf(out[0] * out[0] + out[1] * out[1] + out[2] * out[2]);
+    for (k = 0; k < 3; k++)
+    {
+        out[k] = len > 1e-6f ? out[k] / len : f[k];
+    }
+}

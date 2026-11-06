@@ -93,6 +93,41 @@ int main(void)
     CHECK(gevrPullChooseHand(0, 1, 1, 1) == 0);    /* gun hand pulls: gun hand */
     CHECK(gevrPullChooseHand(0, 0, 1, 0) == -1);
 
+    /* the arm's ray: shoulder to hand, whatever the wrist does */
+    {
+        const float down[3] = { 0.0f, -1.0f, 0.0f };
+        const float twist[3] = { 1.0f, 0.0f, 0.0f };   /* barrel turned right */
+        /* right hand straight out ahead of its shoulder (17 right, 18 down, 60 ahead) */
+        const float hand[3] = { 17.0f, -18.0f, -60.0f };
+        const float near_[3] = { 17.0f, -18.0f, -10.0f };
+        float a[3];
+
+        gevrPullArmRay(hand, twist, down, 1.0f, 1.0f, a);
+        CHECK(near(a[0], 0.0f, 1e-4f) && near(a[1], 0.0f, 1e-4f) && near(a[2], -1.0f, 1e-4f));
+        /* reaching down and ahead: the ray points down and ahead */
+        {
+            const float low[3] = { 17.0f, -78.0f, -60.0f };
+            gevrPullArmRay(low, twist, down, 1.0f, 1.0f, a);
+            CHECK(near(a[1], -0.7071f, 1e-3f) && near(a[2], -0.7071f, 1e-3f) && near(a[0], 0.0f, 1e-4f));
+        }
+        /* the left hand's shoulder is on the left */
+        {
+            const float left[3] = { -17.0f, -18.0f, -60.0f };
+            gevrPullArmRay(left, twist, down, -1.0f, 1.0f, a);
+            CHECK(near(a[0], 0.0f, 1e-4f) && near(a[2], -1.0f, 1e-4f));
+        }
+        /* a hand at the shoulder: the barrel's */
+        gevrPullArmRay(near_, twist, down, 1.0f, 1.0f, a);
+        CHECK(near(a[0], 1.0f, 1e-4f));
+        /* units: the same at 5 view units a cm */
+        {
+            const float h5[3] = { 85.0f, -90.0f, -300.0f };
+            const float down5[3] = { 0.0f, -1.0f, 0.0f };
+            gevrPullArmRay(h5, twist, down5, 1.0f, 5.0f, a);
+            CHECK(near(a[2], -1.0f, 1e-4f));
+        }
+    }
+
     if (s_fail)
     {
         printf("%d failed\n", s_fail);

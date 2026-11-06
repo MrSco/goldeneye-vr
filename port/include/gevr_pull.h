@@ -29,6 +29,22 @@ extern "C" {
  */
 float gevrPullScore(const float p[3], const float f[3], const float t[3], float cm, float downcos);
 
+/*
+ * The pointing ray (headset: aiming by the controller's barrel "depends on
+ * the wrist" and felt like pointing the back of the hand): from the shoulder
+ * through the hand, as a pointing arm aims, so the wrist's angle leaves it
+ * alone. The shoulder is guessed from the eye (the frame's origin): drop
+ * below it along unit down, and side across the head's right (+1 the right
+ * hand, -1 the left). A hand close to the shoulder gives no direction of its
+ * own: there the barrel f takes over, fully at GEVR_PULL_ARM_MIN_CM and not
+ * at all from GEVR_PULL_ARM_FULL_CM. out: unit.
+ */
+#define GEVR_PULL_SHOULDER_DROP_CM 18.0f
+#define GEVR_PULL_SHOULDER_SIDE_CM 17.0f
+#define GEVR_PULL_ARM_MIN_CM       15.0f
+#define GEVR_PULL_ARM_FULL_CM      35.0f
+void gevrPullArmRay(const float p[3], const float f[3], const float down[3], float side, float cm, float out[3]);
+
 /* The flight's length in seconds for a distance in cm: 0.30 s close, 0.40 s at full reach. */
 float gevrPullDuration(float distcm);
 

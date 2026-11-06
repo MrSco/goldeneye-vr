@@ -347,6 +347,27 @@ static void gevrPullViewDown(f32 down[3])
 }
 
 /*
+ * The ray that picks a target (view space, hand units): from the palm along
+ * the arm, shoulder through hand (gevrPullArmRay), not the controller's
+ * barrel: the barrel made the aim follow the wrist (headset, test.21). The
+ * flick still reads the barrel (gevrPullTrackHand): it is a turn of the wrist.
+ */
+static s32 gevrPullAimRay(s32 ctrl, f32 p[3], f32 f[3])
+{
+    extern int VrLeftHandedMode;
+    f32 barrel[3], down[3];
+    s32 phys = VrLeftHandedMode ? 1 - ctrl : ctrl;   /* 1 the right hand (vr_input.cpp gevrPhysHand) */
+
+    if (!gevrPullHandRay(ctrl, p, barrel))
+    {
+        return FALSE;
+    }
+    gevrPullViewDown(down);
+    gevrPullArmRay(p, barrel, down, phys == 1 ? 1.0f : -1.0f, gevrPullCm(), f);
+    return TRUE;
+}
+
+/*
  * Pull and disarm (VrPullDisarm, GEVR PC vr457): the gun in a living guard's
  * hand h, one the AI may drop, in line of sight; the guard's own tile and
  * position stand for the gun's (a held gun has neither).
@@ -793,7 +814,7 @@ s32 gevrPullTry(s32 ctrl)
     {
         return !s_pull[ctrl].held;
     }
-    if (!gevrPullInPlay() || !gevrPullHandFree(ctrl) || !gevrPullHandRay(ctrl, p, f) || cm < 1e-6f)
+    if (!gevrPullInPlay() || !gevrPullHandFree(ctrl) || !gevrPullAimRay(ctrl, p, f) || cm < 1e-6f)
     {
         return FALSE;
     }
@@ -1786,7 +1807,7 @@ void gevrPullTick(void)
             }
             continue;
         }
-        if (!VrForcePull || gevrPullOnline() || !gevrPullInPlay() || !gevrPullHandFree(ctrl) || !gevrPullHandRay(ctrl, p, f))
+        if (!VrForcePull || gevrPullOnline() || !gevrPullInPlay() || !gevrPullHandFree(ctrl) || !gevrPullAimRay(ctrl, p, f))
         {
             s_aim[ctrl] = NULL;
             s_aimLast[ctrl] = NULL;
