@@ -27,7 +27,7 @@ static int VrUnlockAll = 1;
 static int customPages;
 static void gevrHapticsPage(const ImVec4 &, const ImVec4 &, const ImVec4 &) { customPages++; }
 static void gevrModsPage(unsigned, const ImVec4 &, const ImVec4 &, const ImVec4 &) { customPages++; }
-static void gevrMultiplayerPage(bool &, bool &, bool, const ImVec4 &, const ImVec4 &, const ImVec4 &) { customPages++; }
+static void gevrMultiplayerPage(int, bool &, bool, const ImVec4 &, const ImVec4 &, const ImVec4 &) { customPages++; }
 
 /* CHEATS */
 /* START_ROW */

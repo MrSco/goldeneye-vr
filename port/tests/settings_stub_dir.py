@@ -17,7 +17,7 @@ def make(temp, root):
     cfg = game[game.index('enum { CFG_'):]
     cfg = cfg[:cfg.index('};') + 2]
     (net / 'net_game.h').write_text('#pragma once\n' + cfg + '\n#ifdef __cplusplus\nextern "C" {\n#endif\n'
-                                    'int gevrNetConfigCoop(void);\nint gevrNetConfigPve(void);\n'
+                                    'int gevrNetConfigCoop(void);\nint gevrNetConfigPve(void);\nint gevrNetConfigGet(int field);\n'
                                     'int gevrCoopFastReinforcements(void);\nvoid gevrNetConfigSet(int field, int value);\n'
                                     'int netActiveMovementSpeed(void);\n#ifdef __cplusplus\n}\n#endif\n')
     shutil.copy(root / 'port/src/net/net_rules.h', net / 'net_rules.h')

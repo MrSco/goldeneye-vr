@@ -287,12 +287,17 @@ is goldeneyevr.com, in its own repository.
   ShowStats also logs a per-second "loco: clamps ... resets ..." line.
 - v0.5.15-test.16 (vc 111, protocol 26): weapon-cycle tap skips empty guns
   and keeps the out-of-ammo pick (ee729f9a).
-- Unreleased: launcher unification (docs/launcher-unify.md) phases 1-2. One
+- Unreleased: Bean tinted glass stays clear with its portal open (#231,
+  7ccf24e4, from Dab's Mod); the stereo crosshair skips on-screen objects
+  whose matrices are gone (crash sig-e97854f4, 5a7bfc73). Headset checks owed.
+- Unreleased: launcher unification (docs/launcher-unify.md) phases 1-3. One
   settings table (port/src/gevr_settings.c) drawn by the hold-Menu panel and
   the launcher; the launcher's tabs Play, Multiplayer, Controls (Hands,
   Gestures, Throwing, Haptics), Comfort, Screen, Rules (Game rules, AI ally,
   Cheats), Mods, no Done buttons, no scrolling (test_launcher_frame.py).
-  Next: phase 3, Multiplayer in the frame.
+  Multiplayer: Host (Lobby, Match, Fun), Join, Player, Audio, Favorites; the
+  lobby runs every frame whichever tab is open; Fun and Audio are table rows.
+  Next: phase 4, one in-game screen (the online pause's tabs join the panel).
 - Crash reports land as issues in the private MrSco/goldeneye-vr-reports,
   decoded by its Digest workflow; each build's symbols zip goes to its
   "symbols" release.

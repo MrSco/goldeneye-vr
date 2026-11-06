@@ -47,6 +47,8 @@ enum {
     GEVR_LSEC_ALLY,        /* Rules > AI ally */
     GEVR_LSEC_CHEATS,      /* Rules > Cheats */
     GEVR_LSEC_MODS,
+    GEVR_LSEC_MP_FUN,      /* Multiplayer > Host > Fun: the host's, live online */
+    GEVR_LSEC_MP_AUDIO,    /* Multiplayer > Audio */
     GEVR_LSEC_COUNT
 };
 

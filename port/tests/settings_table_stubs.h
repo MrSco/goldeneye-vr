@@ -24,7 +24,11 @@ int VrGexGuns, VrBeanFillTextures, VrBloodPatch, VrOddjobHat, VrEyeMsaa = 1;
 int VrScreenCurved, VrScreenPassthrough, VrRefreshRate, VrSpaceWarp = -1;
 int VrPlayMode = 1, VrCampaign;
 int VrAlly, VrAllyWeapon, VrAllyAggression = 1, VrAllyHealth = 100, VrAllyDamage = 100, VrAllyInvincible;
+int VrMpFunFlags, VrMpGunSize, VrMpVoiceMode;
+float VrMusicVolume = 1, VrSfxVolume = 1, VrVoiceVolume = 1;
 static int s_bean, s_saves, s_net, s_host, s_coop, s_horde, s_netSpeed, s_netFast, s_applied;
+static int s_cfg[64], s_muted, s_sfxApplied;
+static unsigned short s_music = 32767;
 int gevrHatAvailable(void) { return 1; }
 int gevrBeanIsAvailable(void) { return 1; }
 int gevrBeanIsEnabled(void) { return s_bean; }
@@ -47,12 +51,22 @@ void vrSettingsSave(void) { s_saves++; }
 bool netIsActive(void) { return s_net; }
 bool netIsHost(void) { return s_host; }
 int netActiveMovementSpeed(void) { return s_netSpeed; }
+int gevrNetConfigGet(int field) { return field >= 0 && field < 64 ? s_cfg[field] : 0; }
+int netVoiceIsMuted(void) { return s_muted; }
+void netVoiceSetMuted(int muted) { s_muted = muted; }
+const char *netVoiceModeName(int mode) { return mode ? "Couch" : "Proximity"; }
+unsigned short get_mTrack2Vol(void) { return s_music; }
+void set_mTrack2Vol(unsigned short v) { s_music = v; }
+void musicTrack1ApplySeqpVol(unsigned short v) { (void)v; }
+void musicTrack3ApplySeqpVol(unsigned short v) { (void)v; }
+void gevrSndApplySfxVolume(unsigned short v) { s_sfxApplied = v; }
 int gevrNetConfigCoop(void) { return s_coop; }
 int gevrNetConfigPve(void) { return s_coop || s_horde; }
 int gevrCoopFastReinforcements(void) { return s_netFast; }
 void gevrNetConfigSet(int field, int value)
 {
     if (!s_host) return;
+    if (field >= 0 && field < 64) s_cfg[field] = value;
     if (field == CFG_MOVEMENT_SPEED) s_netSpeed = value;
     if (field == CFG_FAST_REINFORCEMENTS) s_netFast = value;
 }

@@ -209,6 +209,31 @@ batch's branch.
   fullest against the real table. Every page must fit with no scrolling, and so must
   the tab rows, the update line and START.
 
+**Phase 3, done.**
+
+- **Sub-tabs.** Multiplayer's second row is Host · Join · Player · Audio · Favorites.
+  - Host has a third row: Lobby · Match · Fun. This is the fallback the plan allowed.
+    The two-column lobby and match layout was not tried: the existing pages already fit
+    at 8 players (`launcher_compact_native.cpp`).
+  - Join has a third row: Public · Private · LAN · Direct IP.
+- **Footer.** It holds Launch, Ready, Stop Hosting, Disconnect, Cancel Join and Start
+  Hosting. Back is gone, so a host leaves with Stop Hosting.
+- **The lobby runs every launcher frame (`gevrMultiplayerTick`), whatever tab is open.**
+  The tab only draws (`gevrMultiplayerPage`). The tick covers:
+  - the lobby service's events;
+  - ICE;
+  - the host's heartbeat and the idle stop;
+  - a client's match starting.
+
+  Before, all of that ran only while the page was open, which tabs would have broken.
+- **Friends.** A friend's lobby or an invite brings up Join, or Host.
+- **Table rows.**
+  - Fun (DK mode, paintball, line mode, no radar, hit immunity, gun size) and Audio
+    (mute mic, music, sound effects, voices, voice mode) are table rows now.
+  - Fun and the voice mode are the host's: greyed for a joiner, live for the host.
+  - Match and Player keep their own drawing: stages, weapon sets and loadouts, teams, and
+    the name box.
+
 ## Risks
 
 - **The watch's VR page** (`options.c`) has its own retail navigation. Phase 1 keeps its

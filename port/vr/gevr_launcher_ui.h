@@ -53,6 +53,7 @@ inline bool gevrLauncherRomHeader(GevrLauncherSession &session, bool ready, bool
  */
 enum { GEVR_LTAB_PLAY, GEVR_LTAB_MULTIPLAYER, GEVR_LTAB_CONTROLS, GEVR_LTAB_COMFORT, GEVR_LTAB_SCREEN,
        GEVR_LTAB_RULES, GEVR_LTAB_MODS, GEVR_LTAB_COUNT };
+enum { GEVR_LSUB_HOST, GEVR_LSUB_JOIN, GEVR_LSUB_PLAYER, GEVR_LSUB_AUDIO, GEVR_LSUB_FAVORITES };  // Multiplayer's
 enum { GEVR_LSUB_HANDS, GEVR_LSUB_GESTURES, GEVR_LSUB_THROWING, GEVR_LSUB_HAPTICS };   // Controls'
 enum { GEVR_LSUB_GAME_RULES, GEVR_LSUB_ALLY, GEVR_LSUB_CHEATS };                       // Rules'
 struct GevrLauncherTabs {
@@ -69,13 +70,14 @@ inline const char *gevrLauncherTabName(int tab) {
     return tab >= 0 && tab < GEVR_LTAB_COUNT ? names[tab] : "";
 }
 inline int gevrLauncherSubCount(int tab) {
-    return tab == GEVR_LTAB_CONTROLS ? 4 : tab == GEVR_LTAB_RULES ? 3 : 0;
+    return tab == GEVR_LTAB_MULTIPLAYER ? 5 : tab == GEVR_LTAB_CONTROLS ? 4 : tab == GEVR_LTAB_RULES ? 3 : 0;
 }
 inline const char *gevrLauncherSubName(int tab, int sub) {
     static const char *const controls[] = { "Hands", "Gestures", "Throwing", "Haptics" };
     static const char *const rules[] = { "Game rules", "AI ally", "Cheats" };
+    static const char *const multiplayer[] = { "Host", "Join", "Player", "Audio", "Favorites" };
     if (sub < 0 || sub >= gevrLauncherSubCount(tab)) return "";
-    return tab == GEVR_LTAB_CONTROLS ? controls[sub] : rules[sub];
+    return tab == GEVR_LTAB_MULTIPLAYER ? multiplayer[sub] : tab == GEVR_LTAB_CONTROLS ? controls[sub] : rules[sub];
 }
 // The two tab rows; page(tab, sub) draws the open one (sub -1 where it has none).
 template <class Page>

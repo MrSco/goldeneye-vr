@@ -1520,14 +1520,6 @@ static void gevrMatchOptions(bool favorites = false) {
         gevrHostChoiceChanged();
 }
 
-static const char *gevrGunSizeName(int n) {
-    const char *names[] = {"Normal", "Tiny", "Big"};
-    return names[n];
-}
-static const char *gevrHitImmunityName(int n) {
-    const char *names[] = {"None", "Short", "GoldenEye"};
-    return names[n];
-}
 static void gevrMovementSpeedOptions(bool hostPage) {
     bool online = netIsActive();
     int mode = online ? netGetMatchConfig()->movement_speed
@@ -1580,47 +1572,6 @@ static void gevrMatchLiveOptions() {
     }
 }
 
-static void gevrFunOptions(bool hostPage) {
-    int flags = (netIsActive() ? netGetMatchConfig()->fun_flags : VrMpFunFlags) & NET_FUN_MASK;
-    int size = netIsActive() ? netGetMatchConfig()->gun_size : VrMpGunSize;
-    ImGui::TextDisabled(netIsActive() && netGetPhase() == NET_PHASE_IN_PROGRESS ? "Pending: applies next round"
-                                                                                : "Applies when the round loads");
-    ImGui::BeginDisabled(netIsActive() ? !netIsHost() : !hostPage);
-    const char *labels[] = {"DK mode", "Paintball", "Line mode", "No radar"};
-    const int bits[] = {NET_FUN_DK, NET_FUN_PAINTBALL, NET_FUN_LINE, NET_FUN_NO_RADAR};
-    bool changed = false;
-    for (int n = 0; n < 4; n++) {
-        bool on = (flags & bits[n]) != 0;
-        if (ImGui::Checkbox(labels[n], &on)) {
-            flags ^= bits[n];
-            changed = true;
-        }
-    }
-    /* a hit ignored for a while after the last: none (every hit counts, as in
-     * Perfect Dark), a quarter second, or GoldenEye's red-flash half second to a second */
-    ImGui::TextUnformatted("Hit immunity:");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9);
-    int immunity = netHitImmunity(flags);
-    if (namedCombo("##mphitimmunity", 3, gevrHitImmunityName, &immunity)) {
-        flags = netWithHitImmunity(flags, immunity);
-        changed = true;
-    }
-    ImGui::TextUnformatted("Gun size:");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9);
-    changed |= namedCombo("##mpgunsize", 3, gevrGunSizeName, &size);
-    ImGui::EndDisabled();
-    if (changed) {
-        VrMpFunFlags = flags;
-        VrMpGunSize = size;
-        if (netIsHost()) {
-            gevrNetConfigSet(CFG_FUN_FLAGS, flags);
-            gevrNetConfigSet(CFG_GUN_SIZE, size);
-        } else
-            vrSettingsSave();
-    }
-}
 static void gevrLobbyRoster(const ImVec4 &gold, bool showCount = true) {
     const NetMsgLobbyState *lobby = netGetLobbyState();
     static int kickSlot = -1;
@@ -1849,27 +1800,77 @@ static void gevrFriendsInviteBanner(bool canJoin, const ImVec4 &gold)
     ImGui::Separator();
 }
 
-void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad) {
-    static int subTab = 0;     // 0 = Host, 1 = Join
-    static int joinMethod = 0; // 0 = Public Internet, 1 = Private Code, 2 = LAN Games, 3 = Direct IP
-    static char directIp[64] = "192.168.1.";
-    static char privateCode[16] = "";
-    static std::string hostedCode;
-    static std::string onlineMessage;
-    static std::string clientJoinId;
-    static std::vector<std::string> hostJoinIds;
-    struct OnlineLobby {
-        std::string code, name, phase;
-        int stage, weapons, players, maxPlayers;
-    };
-    static std::vector<OnlineLobby> onlineLobbies;
-    static bool listLoading = false;
-    static uint32_t lastListMs = 0;
-    static uint32_t lastHeartbeatMs = 0;
+// The Multiplayer tab (docs/launcher-unify.md, phase 3). The lobby service's
+// events, the connections, the host's heartbeat and idle stop and a client's
+// match starting run every launcher frame, whichever tab is open
+// (gevrMultiplayerTick); the tab only draws (gevrMultiplayerPage).
+struct GevrOnlineLobby {
+    std::string code, name, phase;
+    int stage, weapons, players, maxPlayers;
+};
+static struct {
+    int joinMethod = 0;   // 0 = Public Internet, 1 = Private Code, 2 = LAN Games, 3 = Direct IP
+    char directIp[64] = "192.168.1.";
+    char privateCode[16] = "";
+    std::string hostedCode, onlineMessage, clientJoinId;
+    std::vector<std::string> hostJoinIds;
+    std::vector<GevrOnlineLobby> onlineLobbies;
+    bool listLoading = false;
+    uint32_t lastListMs = 0, lastHeartbeatMs = 0;
+    int sentSlot = -1;
+} s_mp;
 
+static void gevrMpDisconnect()
+{
+    gevrJavaCommand("lobbyCommand", "stop");
+    netDiscoveryStopBroadcasting();
+    netDisconnect();
+    netIceStop();
+    s_mp.hostedCode.clear();
+    s_mp.hostJoinIds.clear();
+    s_mp.clientJoinId.clear();
+}
+
+static void gevrMpStartHosting()
+{
+    auto &hostedCode = s_mp.hostedCode;
+    auto &hostJoinIds = s_mp.hostJoinIds;
+    auto &onlineMessage = s_mp.onlineMessage;
+    // the game's name in the LAN and internet lists: the host's
+    const std::string gameName = gevrLobbyName();
+    if (netHostStart(GEVR_DEFAULT_PORT)) {
+        netSetGameName(gameName.c_str()); // the clients keep it: the LAN beacon of a migrated host
+        g_joinedViaInternet = false;
+        gevrJavaCommand("requestVoicePermission", "");
+        netIceStartHost();
+        netDiscoveryInit();
+        netDiscoveryStartBroadcasting(gameName.c_str(), GEVR_DEFAULT_PORT);
+        netLobbySetCharacter((uint8_t)VrMpChr);
+        gevrSendLoadout();
+        {
+            const NetMatchConfig c = gevrLauncherConfig();
+            netLobbySetConfig(&c);
+        }
+        hostedCode.clear();
+        hostJoinIds.clear();
+        onlineMessage = "Registering online lobby...";
+        const std::string command =
+            gevrLobbyCreateCommand(gameName, netGetLobbyStage(), netGetLobbyWeaponSet(), netGetMaxPlayers());
+        gevrJavaCommand("lobbyCommand", command.c_str());
+    } else
+        onlineMessage = "Could not start the local game host";
+}
+
+void gevrMultiplayerTick(GevrLauncherTabs &tabs, bool &startMatch, bool romReady) {
+    auto &hostedCode = s_mp.hostedCode;
+    auto &onlineMessage = s_mp.onlineMessage;
+    auto &clientJoinId = s_mp.clientJoinId;
+    auto &hostJoinIds = s_mp.hostJoinIds;
+    auto &onlineLobbies = s_mp.onlineLobbies;
+    auto &listLoading = s_mp.listLoading;
+    auto &lastHeartbeatMs = s_mp.lastHeartbeatMs;
     if (VrCampaign != GEVR_CAMPAIGN_GE && !netIsActive()) {
-        // the tab says why in a hack campaign; this covers one changed with the page open
-        open = false;
+        // the tab says why in a hack campaign
         return;
     }
     vrEnsurePlayerName(); // here, not at launcher start: the settings load on the first frame
@@ -1921,9 +1922,8 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
         }
     }
     // From the Friends page: a friend's lobby or an invite's, joined by its code
-    // as the Private tab does; or a private lobby to invite friends into.
-    static bool selectJoin = false, selectHost = false;
-    bool hostForInvite = false;
+    // as the Private tab does; or a private lobby to invite friends into. Either
+    // brings up its Multiplayer page.
     if (gevrFriendsJoinPending()) {
         const std::string code = gevrFriendsTakeJoin();
         if (netIsActive()) {
@@ -1936,12 +1936,14 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
             clientJoinId.clear();
             onlineMessage = "Joining your friend's game...";
             gevrJavaCommand("lobbyCommand", ("join|" + code + "|" + std::to_string(GEVR_NET_VERSION)).c_str());
-            selectJoin = true;
+            tabs.open(GEVR_LTAB_MULTIPLAYER, GEVR_LSUB_JOIN);
         }
     }
     if (gevrFriendsTakeHostRequest() && !netIsActive() && clientJoinId.empty()) {
-        hostForInvite = true;
-        selectHost = true;
+        // a lobby hosted to invite friends into is private unless friends-only was chosen
+        s_hostVisibility = VrMpVisibility == 0 ? "private" : nullptr;
+        gevrMpStartHosting();
+        tabs.open(GEVR_LTAB_MULTIPLAYER, GEVR_LSUB_HOST);
     }
     char iceSdp[JUICE_MAX_SDP_STRING_LEN];
     if (!clientJoinId.empty() && netIceTakeDescription(clientJoinId.c_str(), iceSdp, sizeof(iceSdp)))
@@ -1999,16 +2001,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
             gevrJavaCommand("lobbyCommand", refresh.c_str());
         }
     }
-    /* defined before the in-game check: a client without a ROM leaves there */
-    auto disconnect = [&]() {
-        gevrJavaCommand("lobbyCommand", "stop");
-        netDiscoveryStopBroadcasting();
-        netDisconnect();
-        netIceStop();
-        hostedCode.clear();
-        hostJoinIds.clear();
-        clientJoinId.clear();
-    };
+    auto disconnect = [] { gevrMpDisconnect(); };
     if (const char *refusal = netTakeJoinRefusal()) {
         onlineMessage = refusal;   // a different ROM from the host's (net_core.c NET_CONTENT_*)
         disconnect();
@@ -2024,10 +2017,9 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
             if (netGetMatchConfig()->mode != NET_MODE_COOP)
                 bossSetLoadedStage(g_StageNum);
             startMatch = true;
-            open = false;
         }
     }
-    static int sentSlot = -1;
+    int &sentSlot = s_mp.sentSlot;
     if (!netIsActive())
         sentSlot = -1;
     if (netIsActive() && !netIsHost() && netGetLocalSlot() >= 0) {
@@ -2036,6 +2028,20 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
             gevrSendLoadout();
         }
     }
+}
+
+void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad) {
+    auto &joinMethod = s_mp.joinMethod;
+    auto &directIp = s_mp.directIp;
+    auto &privateCode = s_mp.privateCode;
+    auto &hostedCode = s_mp.hostedCode;
+    auto &onlineMessage = s_mp.onlineMessage;
+    auto &clientJoinId = s_mp.clientJoinId;
+    auto &hostJoinIds = s_mp.hostJoinIds;
+    auto &onlineLobbies = s_mp.onlineLobbies;
+    auto &listLoading = s_mp.listLoading;
+    auto &lastListMs = s_mp.lastListMs;
+    auto &lastHeartbeatMs = s_mp.lastHeartbeatMs;
     auto playerOptions = [&]() {
         ImGui::TextUnformatted("Your name:");
         ImGui::SameLine();
@@ -2057,345 +2063,285 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
         loadoutRows("mpplayer");
         gevrTeamChoiceRow("##playerteam");
     };
+    // the mic, the volumes and the voice mode: the settings table's rows (gevr_settings.c)
     auto audioOptions = [&]() {
-        bool micMuted = netVoiceIsMuted() != 0;
-        if (ImGui::Checkbox("Mute microphone", &micMuted))
-            netVoiceSetMuted(micMuted);
-        ImGui::TextDisabled("%s", micMuted                   ? "Mic muted"
-                                  : !netVoiceHasPermission() ? "No mic access (listen only)"
-                                  : netVoiceCaptureFailed()  ? "Mic unavailable (listen only)"
-                                                             : "Mic active");
-        // Persistent Audio Volume controls
-        int musicPct = (int)(((s32)get_mTrack2Vol() * 100 + 16383) / 32767);
-        int voicePct = (int)(VrVoiceVolume * 100.0f + 0.5f);
-        int sfxPct = (int)(VrSfxVolume * 100.0f + 0.5f);
-        ImGui::TextUnformatted("Music Vol:");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
-        if (ImGui::SliderInt("##mpmusicvol", &musicPct, 0, 100, "%d%%")) {
-            uint16_t vol = (uint16_t)((musicPct * 32767 + 50) / 100);
-            set_mTrack2Vol(vol);
-            musicTrack1ApplySeqpVol(vol);
-            musicTrack3ApplySeqpVol(vol);
-            VrMusicVolume = (float)musicPct / 100.0f;
-            vrSettingsSave();
-        }
-        ImGui::SameLine(0.0f, ImGui::GetFontSize() * 1.5f);
-        ImGui::TextUnformatted("SFX Vol:");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
-        if (ImGui::SliderInt("##mpsfxvol", &sfxPct, 0, 100, "%d%%")) {
-            VrSfxVolume = (float)sfxPct / 100.0f;
-            gevrSndApplySfxVolume((uint16_t)((sfxPct * 32767 + 50) / 100));
-            vrSettingsSave();
-        }
-        ImGui::SameLine(0.0f, ImGui::GetFontSize() * 1.5f);
-        ImGui::TextUnformatted("Voice Vol:");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
-        if (ImGui::SliderInt("##mpvoicevol", &voicePct, 0, 100, "%d%%")) {
-            VrVoiceVolume = (float)voicePct / 100.0f;
-            vrSettingsSave();
-        }
-        ImGui::Separator();
-
-        ImGui::TextUnformatted("Voice mode:");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
-        int voiceMode = netIsActive() ? netGetMatchConfig()->voice_mode : VrMpVoiceMode;
+        gevrSettingsSection(gevrSettingsLive(), GEVR_LSEC_MP_AUDIO, GEVR_SET_LAUNCHER);
+        const bool micMuted = netVoiceIsMuted() != 0;
         // Teammates are always full volume, so the mode only matters for
         // free-for-all opponents: Horde, co-op and team battles ignore it.
         const int voiceGameMode = netIsActive() ? netGetMatchConfig()->mode : VrMpMode;
         const bool voiceTeams = netIsActive() ? gevrLobbyHasTeams(netGetMatchConfig()) : gevrConfigHasTeams(VrMpMode, VrMpScenario);
-        const bool voiceAllTeammates = netModePve(voiceGameMode);
-        ImGui::BeginDisabled((netIsActive() ? !netIsHost() : subTab != 0) || voiceTeams || voiceAllTeammates);
-        if (namedCombo("##mpvoicemode", 2, netVoiceModeName, &voiceMode)) {
-            VrMpVoiceMode = voiceMode;
-            if (netIsHost())
-                gevrNetConfigSet(CFG_VOICE_MODE, voiceMode);
-            else
-                vrSettingsSave();
-        }
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", voiceAllTeammates ? "Not used: everyone is a teammate, full volume"
-                                  : voiceTeams ? "Not used: teammates full volume, opponents proximity"
-                                  : netIsActive() && !netIsHost() ? "Host chooses"
-                                  : "Proximity: 10% floor / Couch: full volume");
+        ImGui::TextDisabled("%s. %s", micMuted                   ? "Mic muted"
+                                  : !netVoiceHasPermission() ? "No mic access (listen only)"
+                                  : netVoiceCaptureFailed()  ? "Mic unavailable (listen only)"
+                                                             : "Mic active",
+                            netModePve(voiceGameMode) ? "Voice mode not used: everyone is a teammate, full volume."
+                            : voiceTeams ? "Voice mode not used: teammates full volume, opponents proximity."
+                            : "Proximity: 10% floor; couch: full volume.");
     };
     gevrLauncherBeginBody("##mpbody");
-    if (ImGui::BeginTabBar("##mprole")) {
-        const bool selectRole[2] = {selectHost, selectJoin};
-        selectHost = selectJoin = false;
-        for (int role = 0; role < 2; role++) {
-            if (!ImGui::BeginTabItem(role == 0 ? "Host" : "Join", nullptr, selectRole[role] ? ImGuiTabItemFlags_SetSelected : 0))
-                continue;
-            subTab = role;
-            if (role == 0) {
-                if (netIsActive() && !netIsHost())
-                    ImGui::TextWrapped("Disconnect before hosting another game.");
-                else if (ImGui::BeginTabBar("##hostpages")) {
-                    if (ImGui::BeginTabItem("Lobby")) {
-                        const bool hosting = netIsHost();
-                        gevrHostLobbyOptions(gold, hosting, hostedCode, s_hostVisibility);
-                        ImGui::EndTabItem();
-                    }
-                    if (ImGui::BeginTabItem("Match")) {
-                        if (netModePve(VrMpMode)) {
-                            if (ImGui::BeginTable("coop-match-columns", 2, ImGuiTableFlags_SizingStretchSame)) {
-                                ImGui::TableNextColumn();
-                                ImGui::TextColored(gold, VrMpMode == NET_MODE_HORDE ? "HORDE RULES" : "MISSION RULES");
-                                // co-op: the mission and difficulty decide the rest (Lobby tab)
-                                ImGui::BeginDisabled(netIsActive() && !netIsHost());
-                                bool ff = (VrMpMode == NET_MODE_HORDE ? VrHordeFriendlyFire : VrMpFriendlyFire) != 0;
-                                if (ImGui::Checkbox("Friendly fire", &ff)) {
-                                    if (VrMpMode == NET_MODE_HORDE) VrHordeFriendlyFire = ff;
-                                    else VrMpFriendlyFire = ff;
-                                    gevrHostChoiceChanged();
-                                }
-                                if (VrMpMode == NET_MODE_HORDE) {
-                                    // the map and the first wave (user, 2026-10-17); a change
-                                    // reaches the next launch or retry
-                                    int pick = netStageIndexOf((uint8_t)VrHordeStage);
-                                    if (pick < 0) pick = netStageIndexOf(NET_HORDE_STAGE);
-                                    ImGui::TextUnformatted("Map:");ImGui::SameLine();ImGui::SetNextItemWidth(-1);
-                                    if (namedCombo("##hordemap", netHordeStageCount(), netStageName, &pick)) {
-                                        VrHordeStage = netStage(pick)->level_id;
-                                        gevrHostChoiceChanged();
-                                    }
-                                    ImGui::TextUnformatted("Start at wave:");ImGui::SameLine();ImGui::SetNextItemWidth(-1);
-                                    if (ImGui::SliderInt("##hordewave", &VrHordeStartWave, 1, NET_HORDE_MAX_START_WAVE, "%d")) {
-                                        gevrHostChoiceChanged();
-                                    }
-                                    if (ImGui::IsItemHovered())
-                                        gevrTooltip("Later waves start with the points the skipped waves would have paid.");
-                                }
-                                if (VrMpMode == NET_MODE_COOP) {
-                                bool fast = netIsActive() ? (netGetMatchConfig()->fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0
-                                                    : VrCoopFastReinforcements != 0;
-                                if (ImGui::Checkbox("Fast reinforcements", &fast)) {
-                                    VrCoopFastReinforcements = fast ? 1 : 0;
-                                    gevrHostChoiceChanged();
-                                }
-                                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) gevrTooltip("Harder: guards can call more reinforcements while earlier ones are alive. Changes apply immediately.");
-                                }
-                                bool ally = VrAlly != 0;
-                                if (ImGui::Checkbox("AI ally (Natalya)", &ally)) {
-                                    VrAlly = ally ? 1 : 0;
-                                    vrSettingsSave();
-                                }
-                                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                                    gevrTooltip("One companion for the party, from the next mission or Horde retry. Weapon, aggression and durability: Play > Game rules > AI ally.");
-                                ImGui::EndDisabled();
-                                ImGui::TableNextColumn();
-                                ImGui::TextColored(gold, "LIVE SETTINGS");
-                                gevrMatchLiveOptions();
-                                ImGui::EndTable();
-                            }
-                        } else {
-                            gevrMatchOptions();
+    switch (sub) {
+    case GEVR_LSUB_HOST:
+        if (netIsActive() && !netIsHost())
+            ImGui::TextWrapped("Disconnect before hosting another game.");
+        else if (ImGui::BeginTabBar("##hostpages")) {
+            if (ImGui::BeginTabItem("Lobby")) {
+                const bool hosting = netIsHost();
+                gevrHostLobbyOptions(gold, hosting, hostedCode, s_hostVisibility);
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Match")) {
+                if (netModePve(VrMpMode)) {
+                    if (ImGui::BeginTable("coop-match-columns", 2, ImGuiTableFlags_SizingStretchSame)) {
+                        ImGui::TableNextColumn();
+                        ImGui::TextColored(gold, VrMpMode == NET_MODE_HORDE ? "HORDE RULES" : "MISSION RULES");
+                        // co-op: the mission and difficulty decide the rest (Lobby tab)
+                        ImGui::BeginDisabled(netIsActive() && !netIsHost());
+                        bool ff = (VrMpMode == NET_MODE_HORDE ? VrHordeFriendlyFire : VrMpFriendlyFire) != 0;
+                        if (ImGui::Checkbox("Friendly fire", &ff)) {
+                            if (VrMpMode == NET_MODE_HORDE) VrHordeFriendlyFire = ff;
+                            else VrMpFriendlyFire = ff;
+                            gevrHostChoiceChanged();
                         }
-                        ImGui::EndTabItem();
+                        if (VrMpMode == NET_MODE_HORDE) {
+                            // the map and the first wave (user, 2026-10-17); a change
+                            // reaches the next launch or retry
+                            int pick = netStageIndexOf((uint8_t)VrHordeStage);
+                            if (pick < 0) pick = netStageIndexOf(NET_HORDE_STAGE);
+                            ImGui::TextUnformatted("Map:");ImGui::SameLine();ImGui::SetNextItemWidth(-1);
+                            if (namedCombo("##hordemap", netHordeStageCount(), netStageName, &pick)) {
+                                VrHordeStage = netStage(pick)->level_id;
+                                gevrHostChoiceChanged();
+                            }
+                            ImGui::TextUnformatted("Start at wave:");ImGui::SameLine();ImGui::SetNextItemWidth(-1);
+                            if (ImGui::SliderInt("##hordewave", &VrHordeStartWave, 1, NET_HORDE_MAX_START_WAVE, "%d")) {
+                                gevrHostChoiceChanged();
+                            }
+                            if (ImGui::IsItemHovered())
+                                gevrTooltip("Later waves start with the points the skipped waves would have paid.");
+                        }
+                        if (VrMpMode == NET_MODE_COOP) {
+                        bool fast = netIsActive() ? (netGetMatchConfig()->fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0
+                                            : VrCoopFastReinforcements != 0;
+                        if (ImGui::Checkbox("Fast reinforcements", &fast)) {
+                            VrCoopFastReinforcements = fast ? 1 : 0;
+                            gevrHostChoiceChanged();
+                        }
+                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) gevrTooltip("Harder: guards can call more reinforcements while earlier ones are alive. Changes apply immediately.");
+                        }
+                        bool ally = VrAlly != 0;
+                        if (ImGui::Checkbox("AI ally (Natalya)", &ally)) {
+                            VrAlly = ally ? 1 : 0;
+                            vrSettingsSave();
+                        }
+                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                            gevrTooltip("One companion for the party, from the next mission or Horde retry. Weapon, aggression and durability: Play > Game rules > AI ally.");
+                        ImGui::EndDisabled();
+                        ImGui::TableNextColumn();
+                        ImGui::TextColored(gold, "LIVE SETTINGS");
+                        gevrMatchLiveOptions();
+                        ImGui::EndTable();
                     }
-                    if (ImGui::BeginTabItem("Fun")) {
-                        gevrFunOptions(true);
-                        ImGui::EndTabItem();
-                    }
-                    if (ImGui::BeginTabItem("Player")) {
-                        playerOptions();
-                        ImGui::EndTabItem();
-                    }
-                    if (ImGui::BeginTabItem("Audio")) {
-                        audioOptions();
-                        ImGui::EndTabItem();
-                    }
-                    if (ImGui::BeginTabItem("Favorites")) {
-                        gevrMatchOptions(true);
-                        ImGui::EndTabItem();
-                    }
-                    ImGui::EndTabBar();
+                } else {
+                    gevrMatchOptions();
                 }
-            } else {
-                const bool connected = netIsActive() && !netIsHost() && netGetState() != NET_STATE_CONNECTING;
-                if (ImGui::BeginTabBar("##joinpages")) {
-                    const char *titles[] = {connected ? "Lobby###publicpane" : "Public###publicpane",
-                                            "Private",
-                                            "LAN",
-                                            "Direct IP",
-                                            "Player",
-                                            "Audio"};
-                    for (int pane = 0; pane < 6; pane++) {
-                        if (!ImGui::BeginTabItem(titles[pane]))
-                            continue;
-                        joinMethod = pane;
-                        if (pane == 4)
-                            playerOptions();
-                        else if (pane == 5) {
-                            audioOptions();
-                            if (connected)
-                                gevrFunOptions(false);
-                        } else if (netIsHost())
-                            ImGui::TextWrapped("Stop hosting before joining another game.");
-                        else if (netGetState() == NET_STATE_CONNECTING)
-                            ImGui::TextUnformatted("Connecting to host...");
-                        else if (connected) {
-                            const NetMatchConfig *cfg = netGetMatchConfig();
-                            if (cfg->mode == NET_MODE_HORDE) {
-                                ImGui::TextDisabled("Horde: %s, starting at wave %d",netHordeStageName(cfg->stage),
-                                                    cfg->horde_start_wave ? cfg->horde_start_wave : 1);
-                            } else if (cfg->mode == NET_MODE_COOP) {
-                                ImGui::Text("Co-op campaign: the host picks the missions");
-                                ImGui::TextDisabled("Fast reinforcements: %s (host chooses)",
-                                    cfg->fun_flags & NET_COOP_FAST_REINFORCEMENTS ? "On" : "Off");
-                            } else
-                                ImGui::Text("%s / %s / %s", stageNameById(cfg->stage), netWeaponSetName(cfg->weapon_set),
-                                            netScenarioName(cfg->scenario));
-                            gevrTeamChoiceRow("##clientteam");
-                            gevrLobbyRoster(gold);
-                            ImGui::TextDisabled("Waiting for the host to launch.");
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Fun")) {
+                // the host's; online the match's, live (the settings table's rows)
+                ImGui::TextDisabled(netIsActive() && netGetPhase() == NET_PHASE_IN_PROGRESS
+                                        ? "Pending: applies next round" : "Applies when the round loads");
+                gevrSettingsSection(gevrSettingsLive(), GEVR_LSEC_MP_FUN, GEVR_SET_LAUNCHER);
+                ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
+        }
+        break;
+    case GEVR_LSUB_JOIN: {
+        const bool connected = netIsActive() && !netIsHost() && netGetState() != NET_STATE_CONNECTING;
+        if (ImGui::BeginTabBar("##joinpages")) {
+            const char *titles[] = {connected ? "Lobby###publicpane" : "Public###publicpane",
+                                    "Private",
+                                    "LAN",
+                                    "Direct IP"};
+            for (int pane = 0; pane < 4; pane++) {
+                if (!ImGui::BeginTabItem(titles[pane]))
+                    continue;
+                joinMethod = pane;
+                if (netIsHost())
+                    ImGui::TextWrapped("Stop hosting before joining another game.");
+                else if (netGetState() == NET_STATE_CONNECTING)
+                    ImGui::TextUnformatted("Connecting to host...");
+                else if (connected) {
+                    const NetMatchConfig *cfg = netGetMatchConfig();
+                    if (cfg->mode == NET_MODE_HORDE) {
+                        ImGui::TextDisabled("Horde: %s, starting at wave %d",netHordeStageName(cfg->stage),
+                                            cfg->horde_start_wave ? cfg->horde_start_wave : 1);
+                    } else if (cfg->mode == NET_MODE_COOP) {
+                        ImGui::Text("Co-op campaign: the host picks the missions");
+                        ImGui::TextDisabled("Fast reinforcements: %s (host chooses)",
+                            cfg->fun_flags & NET_COOP_FAST_REINFORCEMENTS ? "On" : "Off");
+                    } else
+                        ImGui::Text("%s / %s / %s", stageNameById(cfg->stage), netWeaponSetName(cfg->weapon_set),
+                                    netScenarioName(cfg->scenario));
+                    gevrTeamChoiceRow("##clientteam");
+                    gevrLobbyRoster(gold);
+                    ImGui::TextDisabled("Waiting for the host to launch.");
+                } else {
+                    const bool joiningOnline = !clientJoinId.empty();
+                    if (!clientJoinId.empty()) {
+                        if (ImGui::SmallButton("Cancel internet join")) {
+                            gevrJavaCommand("lobbyCommand", "stop");
+                            netIceStop();
+                            clientJoinId.clear();
+                            onlineMessage.clear();
+                        }
+                    }
+                    if (!onlineMessage.empty())
+                        ImGui::TextWrapped("%s", onlineMessage.c_str());
+
+                    if (joiningOnline)
+                        ImGui::BeginDisabled();
+
+                    // 1. Public Internet Games
+                    if (joinMethod == 0) {
+                        const uint32_t listNow = SDL_GetTicks();
+                        if (listNow - lastListMs > 8000 || lastListMs == 0) {
+                            lastListMs = listNow;
+                            listLoading = true;
+                            gevrJavaCommand("lobbyCommand",
+                                            ("list|" + std::to_string(GEVR_NET_VERSION)).c_str());
+                        }
+                        if (ImGui::SmallButton("Refresh list")) {
+                            listLoading = true;
+                            gevrJavaCommand("lobbyCommand",
+                                            ("list|" + std::to_string(GEVR_NET_VERSION)).c_str());
+                        }
+                        if (listLoading)
+                            ImGui::TextDisabled("Loading internet games...");
+                        else if (onlineLobbies.empty())
+                            ImGui::TextDisabled("No open internet games found.");
+                        for (const GevrOnlineLobby &game : onlineLobbies) {
+                            char label[180];
+                            snprintf(label, sizeof(label), "%s  -  %s  -  %d/%d players%s##online%s",
+                                     game.name.c_str(), listedGameLabel(game.stage, game.weapons).c_str(),
+                                     game.players, game.maxPlayers,
+                                     game.phase == "warmup"        ? " (warmup)"
+                                     : game.phase == "in_progress" ? " (in progress)"
+                                                                   : "",
+                                     game.code.c_str());
+                            if (ImGui::Button(label, ImVec2(-1, 0))) {
+                                gevrJavaCommand("requestVoicePermission", "");
+                                netDisconnect();
+                                netIceStop();
+                                clientJoinId.clear();
+                                onlineMessage = "Joining " + game.name + "...";
+                                gevrJavaCommand(
+                                    "lobbyCommand",
+                                    ("join|" + game.code + "|" + std::to_string(GEVR_NET_VERSION)).c_str());
+                            }
+                            if (ImGui::IsItemHovered()) {
+                                gevrTooltip(
+                                    "Game: %s\nRoom Code: %s\nPhase: %s\nPlayers: %d/%d\nProtocol: %d",
+                                    game.name.c_str(), game.code.c_str(), game.phase.c_str(), game.players,
+                                    game.maxPlayers, GEVR_NET_VERSION);
+                            }
+                        }
+                    }
+
+                    // 2. Private Room Code
+                    if (joinMethod == 1) {
+                        ImGui::Text("Enter host's private code:");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::InputText("##privatecode", privateCode, sizeof(privateCode));
+                        if (ImGui::Button("Join by code", ImVec2(-1, 0))) {
+                            gevrJavaCommand("requestVoicePermission", "");
+                            netDisconnect();
+                            netIceStop();
+                            clientJoinId.clear();
+                            onlineMessage = "Looking up private game...";
+                            gevrJavaCommand("lobbyCommand", ("join|" + std::string(privateCode) + "|" +
+                                                             std::to_string(GEVR_NET_VERSION))
+                                                                .c_str());
+                        }
+                    }
+
+                    // 3. LAN Games Discovered
+                    netDiscoveryInit();
+                    int count = netDiscoveryGetServerCount();
+                    char lanLabel[80];
+                    snprintf(lanLabel, sizeof(lanLabel), "LAN Games Discovered (%d)###acc_lan", count);
+                    if (joinMethod == 2) {
+                        if (count == 0) {
+                            ImGui::TextDisabled("Searching your Wi-Fi network for GoldenEye VR hosts...");
                         } else {
-                            const bool joiningOnline = !clientJoinId.empty();
-                            if (!clientJoinId.empty()) {
-                                if (ImGui::SmallButton("Cancel internet join")) {
-                                    gevrJavaCommand("lobbyCommand", "stop");
-                                    netIceStop();
-                                    clientJoinId.clear();
-                                    onlineMessage.clear();
-                                }
-                            }
-                            if (!onlineMessage.empty())
-                                ImGui::TextWrapped("%s", onlineMessage.c_str());
-
-                            if (joiningOnline)
-                                ImGui::BeginDisabled();
-
-                            // 1. Public Internet Games
-                            if (joinMethod == 0) {
-                                const uint32_t listNow = SDL_GetTicks();
-                                if (listNow - lastListMs > 8000 || lastListMs == 0) {
-                                    lastListMs = listNow;
-                                    listLoading = true;
-                                    gevrJavaCommand("lobbyCommand",
-                                                    ("list|" + std::to_string(GEVR_NET_VERSION)).c_str());
-                                }
-                                if (ImGui::SmallButton("Refresh list")) {
-                                    listLoading = true;
-                                    gevrJavaCommand("lobbyCommand",
-                                                    ("list|" + std::to_string(GEVR_NET_VERSION)).c_str());
-                                }
-                                if (listLoading)
-                                    ImGui::TextDisabled("Loading internet games...");
-                                else if (onlineLobbies.empty())
-                                    ImGui::TextDisabled("No open internet games found.");
-                                for (const OnlineLobby &game : onlineLobbies) {
-                                    char label[180];
-                                    snprintf(label, sizeof(label), "%s  -  %s  -  %d/%d players%s##online%s",
-                                             game.name.c_str(), listedGameLabel(game.stage, game.weapons).c_str(),
-                                             game.players, game.maxPlayers,
-                                             game.phase == "warmup"        ? " (warmup)"
-                                             : game.phase == "in_progress" ? " (in progress)"
-                                                                           : "",
-                                             game.code.c_str());
-                                    if (ImGui::Button(label, ImVec2(-1, 0))) {
-                                        gevrJavaCommand("requestVoicePermission", "");
-                                        netDisconnect();
-                                        netIceStop();
-                                        clientJoinId.clear();
-                                        onlineMessage = "Joining " + game.name + "...";
-                                        gevrJavaCommand(
-                                            "lobbyCommand",
-                                            ("join|" + game.code + "|" + std::to_string(GEVR_NET_VERSION)).c_str());
-                                    }
-                                    if (ImGui::IsItemHovered()) {
-                                        gevrTooltip(
-                                            "Game: %s\nRoom Code: %s\nPhase: %s\nPlayers: %d/%d\nProtocol: %d",
-                                            game.name.c_str(), game.code.c_str(), game.phase.c_str(), game.players,
-                                            game.maxPlayers, GEVR_NET_VERSION);
-                                    }
-                                }
-                            }
-
-                            // 2. Private Room Code
-                            if (joinMethod == 1) {
-                                ImGui::Text("Enter host's private code:");
-                                ImGui::SetNextItemWidth(-1);
-                                ImGui::InputText("##privatecode", privateCode, sizeof(privateCode));
-                                if (ImGui::Button("Join by code", ImVec2(-1, 0))) {
-                                    gevrJavaCommand("requestVoicePermission", "");
-                                    netDisconnect();
-                                    netIceStop();
-                                    clientJoinId.clear();
-                                    onlineMessage = "Looking up private game...";
-                                    gevrJavaCommand("lobbyCommand", ("join|" + std::string(privateCode) + "|" +
-                                                                     std::to_string(GEVR_NET_VERSION))
-                                                                        .c_str());
-                                }
-                            }
-
-                            // 3. LAN Games Discovered
-                            netDiscoveryInit();
-                            int count = netDiscoveryGetServerCount();
-                            char lanLabel[80];
-                            snprintf(lanLabel, sizeof(lanLabel), "LAN Games Discovered (%d)###acc_lan", count);
-                            if (joinMethod == 2) {
-                                if (count == 0) {
-                                    ImGui::TextDisabled("Searching your Wi-Fi network for GoldenEye VR hosts...");
-                                } else {
-                                    for (int i = 0; i < count; i++) {
-                                        const NetDiscoveredServer *srv = netDiscoveryGetServer(i);
-                                        const int cap = srv->max_players;
-                                        const bool full = !srv->joinable;
-                                        char label[160];
-                                        snprintf(label, sizeof(label), "%s  -  %s  -  %d/%d players%s##srv%d",
-                                                 srv->server_name,
-                                                 listedGameLabel(srv->stage_num, srv->weapon_set).c_str(),
-                                                 srv->player_count, cap,
-                                                 full                                  ? " (full)"
-                                                 : srv->phase == NET_PHASE_WARMUP      ? " (warmup)"
-                                                 : srv->phase == NET_PHASE_IN_PROGRESS ? " (in progress)"
-                                                                                       : "",
-                                                 i);
-                                        if (full)
-                                            ImGui::BeginDisabled();
-                                        if (ImGui::Button(label, ImVec2(-1, 0))) {
-                                            gevrJavaCommand("requestVoicePermission", "");
-                                            gevrJavaCommand("lobbyCommand", "stop");
-                                            netIceStop();
-                                            clientJoinId.clear();
-                                            g_joinedViaInternet = false;
-                                            netConnect(srv->host_ip, srv->port);
-                                        }
-                                        if (full)
-                                            ImGui::EndDisabled();
-                                    }
-                                }
-                            }
-
-                            // 4. Connect Directly via IP
-                            if (joinMethod == 3) {
-                                ImGui::Text("Enter host IP address:");
-                                ImGui::SetNextItemWidth(-1);
-                                ImGui::InputText("##directip", directIp, sizeof(directIp));
-                                if (ImGui::Button("Connect", ImVec2(-1, 0))) {
+                            for (int i = 0; i < count; i++) {
+                                const NetDiscoveredServer *srv = netDiscoveryGetServer(i);
+                                const int cap = srv->max_players;
+                                const bool full = !srv->joinable;
+                                char label[160];
+                                snprintf(label, sizeof(label), "%s  -  %s  -  %d/%d players%s##srv%d",
+                                         srv->server_name,
+                                         listedGameLabel(srv->stage_num, srv->weapon_set).c_str(),
+                                         srv->player_count, cap,
+                                         full                                  ? " (full)"
+                                         : srv->phase == NET_PHASE_WARMUP      ? " (warmup)"
+                                         : srv->phase == NET_PHASE_IN_PROGRESS ? " (in progress)"
+                                                                               : "",
+                                         i);
+                                if (full)
+                                    ImGui::BeginDisabled();
+                                if (ImGui::Button(label, ImVec2(-1, 0))) {
                                     gevrJavaCommand("requestVoicePermission", "");
                                     gevrJavaCommand("lobbyCommand", "stop");
                                     netIceStop();
                                     clientJoinId.clear();
                                     g_joinedViaInternet = false;
-                                    netConnect(directIp, GEVR_DEFAULT_PORT);
+                                    netConnect(srv->host_ip, srv->port);
                                 }
+                                if (full)
+                                    ImGui::EndDisabled();
                             }
-                            if (joiningOnline)
-                                ImGui::EndDisabled();
                         }
-                        ImGui::EndTabItem();
                     }
-                    ImGui::EndTabBar();
+
+                    // 4. Connect Directly via IP
+                    if (joinMethod == 3) {
+                        ImGui::Text("Enter host IP address:");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::InputText("##directip", directIp, sizeof(directIp));
+                        if (ImGui::Button("Connect", ImVec2(-1, 0))) {
+                            gevrJavaCommand("requestVoicePermission", "");
+                            gevrJavaCommand("lobbyCommand", "stop");
+                            netIceStop();
+                            clientJoinId.clear();
+                            g_joinedViaInternet = false;
+                            netConnect(directIp, GEVR_DEFAULT_PORT);
+                        }
+                    }
+                    if (joiningOnline)
+                        ImGui::EndDisabled();
                 }
+                ImGui::EndTabItem();
             }
-            ImGui::EndTabItem();
+            ImGui::EndTabBar();
         }
-        ImGui::EndTabBar();
+        break;
+    }
+    case GEVR_LSUB_PLAYER:
+        playerOptions();
+        break;
+    case GEVR_LSUB_AUDIO:
+        audioOptions();
+        if (netIsActive() && !netIsHost() && netGetState() != NET_STATE_CONNECTING) {
+            // the host's Fun, to read
+            ImGui::Separator();
+            gevrSettingsSection(gevrSettingsLive(), GEVR_LSEC_MP_FUN, GEVR_SET_LAUNCHER);
+        }
+        break;
+    default:
+        gevrMatchOptions(true);   // Favorites
+        break;
     }
     ImGui::EndChild();
     ImGui::Separator();
@@ -2422,7 +2368,6 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                 if (netGetMatchConfig()->mode != NET_MODE_COOP) // the boot loads it (above)
                     bossSetLoadedStage(g_StageNum);
                 startMatch = true;
-                open = false;
             }
         }
         ImGui::EndDisabled();
@@ -2448,47 +2393,17 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
             ImGui::SameLine();
         }
         if (ImGui::Button("Disconnect", ImVec2(0, h)))
-            disconnect();
+            gevrMpDisconnect();
         ImGui::SameLine();
     } else if (!clientJoinId.empty()) {
-        if (ImGui::Button("Cancel Join", ImVec2(0, h))) { disconnect(); onlineMessage.clear(); }
+        if (ImGui::Button("Cancel Join", ImVec2(0, h))) { gevrMpDisconnect(); onlineMessage.clear(); }
         ImGui::SameLine();
-    } else if (subTab == 0 || hostForInvite) {
-        // A lobby hosted to invite friends into is private unless friends-only was chosen.
-        if (hostForInvite)
-            s_hostVisibility = VrMpVisibility == 0 ? "private" : nullptr;
-        if (ImGui::Button("Start Hosting", ImVec2(0, h)) || hostForInvite) {
-            if (!hostForInvite) s_hostVisibility = nullptr;
-            // the game's name in the LAN and internet lists: the host's
-            const std::string gameName = gevrLobbyName();
-            if (netHostStart(GEVR_DEFAULT_PORT)) {
-                netSetGameName(gameName.c_str()); // the clients keep it: the LAN beacon of a migrated host
-                g_joinedViaInternet = false;
-                gevrJavaCommand("requestVoicePermission", "");
-                netIceStartHost();
-                netDiscoveryInit();
-                netDiscoveryStartBroadcasting(gameName.c_str(), GEVR_DEFAULT_PORT);
-                netLobbySetCharacter((uint8_t)VrMpChr);
-                gevrSendLoadout();
-                {
-                    const NetMatchConfig c = gevrLauncherConfig();
-                    netLobbySetConfig(&c);
-                }
-                hostedCode.clear();
-                hostJoinIds.clear();
-                onlineMessage = "Registering online lobby...";
-                const std::string command =
-                    gevrLobbyCreateCommand(gameName, netGetLobbyStage(), netGetLobbyWeaponSet(), netGetMaxPlayers());
-                gevrJavaCommand("lobbyCommand", command.c_str());
-            } else
-                onlineMessage = "Could not start the local game host";
+    } else if (sub != GEVR_LSUB_JOIN) {
+        if (ImGui::Button("Start Hosting", ImVec2(0, h))) {
+            s_hostVisibility = nullptr;
+            gevrMpStartHosting();
         }
         ImGui::SameLine();
-    }
-    if (ImGui::Button("Back", ImVec2(0, h))) {
-        if (netIsHost())
-            disconnect();
-        open = false;
     }
 }
 
@@ -3176,13 +3091,12 @@ extern "C" void gevrLauncherRun(void)
         // Friends: presence and the list, every frame (vr_friends.cpp sends at most once a second).
         gevrFriendsTick(0);
         const bool onlineGame = romReady && VrCampaign == GEVR_CAMPAIGN_GE;
-        if (gevrFriendsJoinPending() && launcherTabs.top != GEVR_LTAB_MULTIPLAYER && !onlineGame) {
+        if (gevrFriendsJoinPending() && !onlineGame) {
             vr_log("launcher: friend's lobby %s not joined: no GoldenEye ROM in use", gevrFriendsTakeJoin().c_str());
-        } else if ((gevrFriendsJoinPending() || gevrFriendsHostRequested()) && launcherTabs.top != GEVR_LTAB_MULTIPLAYER) {
-            // a friend's lobby, an invite, one joined from a mission, or a lobby
-            // to host for an invite: the Multiplayer tab does it
-            launcherTabs.open(GEVR_LTAB_MULTIPLAYER);
         }
+        // the lobby and its connections, whichever tab is open; a friend's lobby,
+        // an invite, or a lobby to host for an invite brings up Multiplayer
+        gevrMultiplayerTick(launcherTabs, start, romReady);
         if (!reportPage) gevrFriendsInviteBanner(onlineGame && !netIsActive(), gold);
         {
             // About once a second, not every frame: each check opens a 16-24 MB
@@ -3264,9 +3178,7 @@ extern "C" void gevrLauncherRun(void)
                     note("Online play, co-op and bots are GoldenEye's: choose GoldenEye beside START, on any other tab.");
                     return;
                 }
-                bool open = true;
-                gevrMultiplayerPage(open, start, romReady, gold, good, bad);
-                if (!open) launcherTabs.open(GEVR_LTAB_PLAY);
+                gevrMultiplayerPage(sub, start, romReady, gold, good, bad);
                 return;
             }
             gevrLauncherBeginPage("launcher-page", footerH);

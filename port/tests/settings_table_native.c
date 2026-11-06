@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "settings_table_stubs.h"
+#include "net/net_rules.h"
 
 static void check(int ok, const char *message) { if (!ok) { fprintf(stderr, "FAIL: %s\n", message); exit(1); } }
 
@@ -185,6 +186,42 @@ int main(void)
         const int n = gevrSettingSectionRows(s, GEVR_SET_INGAME, ids, 48);
         check(n > 0 && n <= 14, "a section fills one or two columns of at most seven rows");
         check(gevrSettingSectionName(s) != NULL, "every section has a name");
+    }
+    /* Multiplayer's Fun: the host's preference offline; online the match's, the host's only */
+    {
+        int ids[48];
+        check(gevrSettingSectionRows(GEVR_LSEC_MP_FUN, GEVR_SET_LAUNCHER, ids, 48) == 6, "Fun: four switches, hit immunity, gun size");
+        check(gevrSettingSectionRows(GEVR_LSEC_MP_AUDIO, GEVR_SET_LAUNCHER, ids, 48) == 5, "Audio: the mic, three volumes, the voice mode");
+        int dk = -1, immunity = -1, gun = -1, music = -1, sfx = -1;
+        for (int id = 0; id < gevrSettingCount(); id++) {
+            GevrSettingInfo info;
+            gevrSettingInfo(id, &info);
+            if (info.launcherSection == GEVR_LSEC_MP_FUN && !strcmp(info.label, "DK mode")) dk = id;
+            if (info.launcherSection == GEVR_LSEC_MP_FUN && !strcmp(info.label, "Hit immunity")) immunity = id;
+            if (info.launcherSection == GEVR_LSEC_MP_FUN && !strcmp(info.label, "Gun size")) gun = id;
+            if (!strcmp(info.label, "Music")) music = id;
+            if (!strcmp(info.label, "Sound effects")) sfx = id;
+        }
+        s_net = 0; VrMpFunFlags = 0;
+        gevrSettingSet(dk, 1);
+        check(VrMpFunFlags == NET_FUN_DK, "offline, DK mode is the host's saved preference");
+        gevrSettingSet(immunity, 0);
+        check(netHitImmunity(VrMpFunFlags) == 0 && (VrMpFunFlags & NET_FUN_DK), "hit immunity keeps the other switches");
+        s_net = 1; s_host = 0; s_cfg[CFG_FUN_FLAGS] = NET_FUN_PAINTBALL;
+        check(gevrSettingIndex(dk) == 0 && gevrSettingBlocked(dk) != NULL, "a joiner sees the match's switches, and can't change them");
+        gevrSettingSet(dk, 1);
+        check(s_cfg[CFG_FUN_FLAGS] == NET_FUN_PAINTBALL, "a joiner's set changes nothing");
+        s_host = 1;
+        gevrSettingSet(dk, 1);
+        check(s_cfg[CFG_FUN_FLAGS] == (NET_FUN_PAINTBALL | NET_FUN_DK), "the host's set goes to the match, live");
+        gevrSettingSet(gun, 2);
+        check(s_cfg[CFG_GUN_SIZE] == 2 && VrMpGunSize == 2, "the host's gun size goes to the match");
+        s_net = s_host = 0;
+        gevrSettingSet(music, 10);
+        check(s_music == (unsigned short)((50 * 32767 + 50) / 100) && VrMusicVolume == 0.5f && gevrSettingIndex(music) == 10,
+              "music at 50% sets the game's music volume");
+        gevrSettingSet(sfx, 10);
+        check(VrSfxVolume > 0.49f && VrSfxVolume < 0.51f && s_sfxApplied == (50 * 32767 + 50) / 100, "sound effects apply at once");
     }
     for (int s = 0; s < GEVR_LSEC_COUNT; s++)
         check(gevrSettingSectionRows(s, GEVR_SET_LAUNCHER, ids, 48) <= 14, "a launcher place fills at most two columns of seven");

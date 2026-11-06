@@ -47,6 +47,17 @@ extern int VrBeanFillTextures, VrBloodPatch, VrOddjobHat;
 extern int VrEyeMsaa;
 extern int VrPlayMode, VrBodySlotShow, VrCampaign;
 extern int VrAlly, VrAllyWeapon, VrAllyAggression, VrAllyHealth, VrAllyDamage, VrAllyInvincible;
+/* Multiplayer's Fun and Audio: the host's preferences offline, the match's online */
+extern int VrMpFunFlags, VrMpGunSize, VrMpVoiceMode;
+extern float VrMusicVolume, VrSfxVolume, VrVoiceVolume;
+extern int netVoiceIsMuted(void);
+extern void netVoiceSetMuted(int muted);
+extern const char *netVoiceModeName(int mode);
+extern unsigned short get_mTrack2Vol(void);
+extern void set_mTrack2Vol(unsigned short volume);
+extern void musicTrack1ApplySeqpVol(unsigned short volume);
+extern void musicTrack3ApplySeqpVol(unsigned short volume);
+extern void gevrSndApplySfxVolume(unsigned short volume);
 extern int gevrHatAvailable(void);
 extern int gevrBeanIsAvailable(void), gevrBeanIsEnabled(void);
 extern void gevrBeanSetEnabled(int on);
@@ -289,6 +300,73 @@ static const char *const s_allyMoodNames[] = { "Cautious", "Normal", "Aggressive
 
 #define L(x) ((x) + 1)   /* a row's launcher place, when not its section's */
 
+/* Fun (the host's; online the match's, live, and the host's only) */
+static const char *blockedHostRule(void) { return netIsActive() && !netIsHost() ? "Host's choice" : NULL; }
+static int funFlags(void) { return (netIsActive() ? gevrNetConfigGet(CFG_FUN_FLAGS) : VrMpFunFlags) & NET_FUN_MASK; }
+static void funSetFlags(int flags)
+{
+    VrMpFunFlags = flags;
+    if (netIsHost()) gevrNetConfigSet(CFG_FUN_FLAGS, flags);
+}
+#define FUN_BIT(name, bit) \
+    static int name##Get(void) { return (funFlags() & (bit)) != 0; } \
+    static void name##Set(int i) { const int f = funFlags(); funSetFlags(i ? (f | (bit)) : (f & ~(bit))); }
+FUN_BIT(funDk, NET_FUN_DK)
+FUN_BIT(funPaint, NET_FUN_PAINTBALL)
+FUN_BIT(funLine, NET_FUN_LINE)
+FUN_BIT(funRadar, NET_FUN_NO_RADAR)
+static int twoPositions(void) { return 2; }
+static int threePositions(void) { return 3; }
+static void onOffText(int i, char *b, int n) { snprintf(b, n, "%s", i ? "On" : "Off"); }
+/* a hit ignored for a while after the last: none (every hit counts, as in Perfect
+ * Dark), a quarter second, or GoldenEye's red-flash half second to a second */
+static int immunityGet(void) { return netHitImmunity(funFlags()); }
+static void immunitySet(int i) { funSetFlags(netWithHitImmunity(funFlags(), i)); }
+static void immunityText(int i, char *b, int n)
+{
+    static const char *const names[] = { "None", "Short", "GoldenEye" };
+    snprintf(b, n, "%s", names[i < 0 ? 0 : i > 2 ? 2 : i]);
+}
+static int mpGunGet(void) { return netIsActive() ? gevrNetConfigGet(CFG_GUN_SIZE) : VrMpGunSize; }
+static void mpGunSet(int i)
+{
+    VrMpGunSize = i;
+    if (netIsHost()) gevrNetConfigSet(CFG_GUN_SIZE, i);
+}
+static void mpGunText(int i, char *b, int n) { snprintf(b, n, "%s", s_gunSizeNames[i < 0 ? 0 : i > 2 ? 2 : i]); }
+
+/* Audio: the microphone, the volumes (5% steps), and the voice mode (the host's) */
+static int micGet(void) { return netVoiceIsMuted() != 0; }
+static void micSet(int i) { netVoiceSetMuted(i); }
+static int volumePositions(void) { return 21; }
+static int musicGet(void)
+{
+    const int pct = ((int)get_mTrack2Vol() * 100 + 16383) / 32767;
+    const int i = (pct + 2) / 5;
+    return i < 0 ? 0 : i > 20 ? 20 : i;
+}
+static void musicSet(int i)
+{
+    const unsigned short v = (unsigned short)((i * 5 * 32767 + 50) / 100);
+    set_mTrack2Vol(v);
+    musicTrack1ApplySeqpVol(v);
+    musicTrack3ApplySeqpVol(v);
+    VrMusicVolume = (float)(i * 5) / 100.0f;
+}
+static void percentText(int i, char *b, int n) { snprintf(b, n, "%d%%", i * 5); }
+static void setSfxVolume(float v)
+{
+    VrSfxVolume = v;
+    gevrSndApplySfxVolume((unsigned short)(((int)(v * 100.0f + 0.5f) * 32767 + 50) / 100));
+}
+static int voiceModeGet(void) { return (netIsActive() ? gevrNetConfigGet(CFG_VOICE_MODE) : VrMpVoiceMode) != 0; }
+static void voiceModeSet(int i)
+{
+    VrMpVoiceMode = i;
+    if (netIsHost()) gevrNetConfigSet(CFG_VOICE_MODE, i);
+}
+static void voiceModeText(int i, char *b, int n) { snprintf(b, n, "%s", netVoiceModeName(i)); }
+
 #define TOGGLE(sec, lab, var, tip) \
     { .label = lab, .tooltip = tip, .kind = GEVR_SET_TOGGLE, .section = sec, .where = GEVR_SET_BOTH, .ivar = &var, .def = NAN }
 #define CHOICE(sec, lab, var, vals, nm, tip) \
@@ -456,6 +534,45 @@ static const Row s_rows[] = {
       .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .ivar = &VrBloodPatch, .def = NAN },
     { .label = "Oddjob's hat", .tooltip = "Oddjob's hat in place of the throwing knife.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .ivar = &VrOddjobHat, .def = NAN, .blocked = blockedHat },
+
+    /* Multiplayer > Host > Fun: the host's, live online (applied when the round loads) */
+#define FUN(lab, get, set, tip) \
+    { .label = lab, .tooltip = tip, .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_RULES, .lsection = L(GEVR_LSEC_MP_FUN), \
+      .where = GEVR_SET_LAUNCHER, .def = NAN, .blocked = blockedHostRule, \
+      .cpositions = twoPositions, .cget = get, .cset = set, .ctext = onOffText, .cdefault = 0 }
+    FUN("DK mode", funDkGet, funDkSet, "Big heads, long arms."),
+    FUN("Paintball", funPaintGet, funPaintSet, "Shots leave paint."),
+    FUN("Line mode", funLineGet, funLineSet, "Bullets leave lines in the air."),
+    FUN("No radar", funRadarGet, funRadarSet, "No radar on anyone's watch or screen."),
+#undef FUN
+    { .label = "Hit immunity", .tooltip = "A hit is ignored for a while after the last: none, a quarter second, "
+                                          "or GoldenEye's half second to a second.", .kind = GEVR_SET_CHOICE,
+      .section = GEVR_SEC_RULES, .lsection = L(GEVR_LSEC_MP_FUN), .where = GEVR_SET_LAUNCHER, .def = NAN,
+      .blocked = blockedHostRule, .cpositions = threePositions, .cget = immunityGet, .cset = immunitySet,
+      .ctext = immunityText, .cdefault = 1 },
+    { .label = "Gun size", .tooltip = "Tiny or big guns for everyone in the match.", .kind = GEVR_SET_CHOICE,
+      .section = GEVR_SEC_RULES, .lsection = L(GEVR_LSEC_MP_FUN), .where = GEVR_SET_LAUNCHER, .def = NAN,
+      .blocked = blockedHostRule, .cpositions = threePositions, .cget = mpGunGet, .cset = mpGunSet,
+      .ctext = mpGunText, .cdefault = 0 },
+
+    /* Multiplayer > Audio */
+    { .label = "Mute mic", .tooltip = "Mute your microphone; you still hear the others.", .kind = GEVR_SET_TOGGLE,
+      .section = GEVR_SEC_RULES, .lsection = L(GEVR_LSEC_MP_AUDIO), .where = GEVR_SET_LAUNCHER, .def = NAN,
+      .cpositions = twoPositions, .cget = micGet, .cset = micSet, .ctext = onOffText, .cdefault = -1 },
+    { .label = "Music", .tooltip = "The music's volume.", .kind = GEVR_SET_RANGE, .section = GEVR_SEC_RULES,
+      .lsection = L(GEVR_LSEC_MP_AUDIO), .where = GEVR_SET_LAUNCHER, .def = NAN,
+      .cpositions = volumePositions, .cget = musicGet, .cset = musicSet, .ctext = percentText, .cdefault = 20 },
+    { .label = "Sound effects", .tooltip = "Guns, steps and everything else but music and voices.", .kind = GEVR_SET_RANGE,
+      .section = GEVR_SEC_RULES, .lsection = L(GEVR_LSEC_MP_AUDIO), .where = GEVR_SET_LAUNCHER, .fvar = &VrSfxVolume,
+      .lo = 0, .hi = 1, .step = 0.05f, .scale = 100, .fmt = "%.0f%%", .def = 1.0f, .fset = setSfxVolume },
+    { .label = "Voices", .tooltip = "The other players' voices.", .kind = GEVR_SET_RANGE, .section = GEVR_SEC_RULES,
+      .lsection = L(GEVR_LSEC_MP_AUDIO), .where = GEVR_SET_LAUNCHER, .fvar = &VrVoiceVolume,
+      .lo = 0, .hi = 1, .step = 0.05f, .scale = 100, .fmt = "%.0f%%", .def = 1.0f },
+    { .label = "Voice mode", .tooltip = "Proximity: opponents fade with distance, to 10%. Couch: everyone at full volume. "
+                                        "Teammates are always at full volume.", .kind = GEVR_SET_CHOICE,
+      .section = GEVR_SEC_RULES, .lsection = L(GEVR_LSEC_MP_AUDIO), .where = GEVR_SET_LAUNCHER, .def = NAN,
+      .blocked = blockedHostRule, .cpositions = twoPositions, .cget = voiceModeGet, .cset = voiceModeSet,
+      .ctext = voiceModeText, .cdefault = -1 },
 };
 
 #define ROWS ((int)(sizeof(s_rows) / sizeof(s_rows[0])))
