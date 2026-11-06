@@ -3468,6 +3468,22 @@ s32 gevrStereoHandClub(s32 hand)
         && getCurrentPlayerWeaponId(hand) == ITEM_FIST && g_CurrentPlayer->cur_item_weapon_getname == gevrRomButtMelee();
 }
 
+/*
+ * The rifle butt held as a bat (user, test.21): with GoldenEye X's arms the
+ * rifle turns about the hand, barrel through the fist and butt up (gun.c
+ * gevrGexBatPose); the other hand takes it anywhere along it and stays its
+ * own hand (gevrTwoHandBarrel, gevrTwoHandAim). Other art sets keep
+ * GoldenEye's butt-first pose: their hand is part of the rifle's model.
+ */
+s32 gevrGexBatEnd(s32 hand, f32 out[3]);   /* gun.c: the bat's butt as drawn */
+
+s32 gevrStereoClubBat(s32 hand)
+{
+    extern int VrGexGuns;   /* vr_settings_defaults.c */
+
+    return g_gevrStereo && VrGexGuns && gevrStereoHandClub(hand) && gevrGexHeld(hand);
+}
+
 /* the hand holds nothing, or bare fists (not the rifle butt) */
 static s32 gevrTwoHandBare(s32 hand)
 {
@@ -3509,6 +3525,8 @@ s32 gevrStereoTwoHandSupportCtrl(void)
  * point.
  */
 #define GEVR_TWOHAND_FORE 0.35f
+#define GEVR_TWOHAND_BAT_BELOW_CM 10.0f   /* the bat's handle below the fist (gun.c GEVR_GEX_BAT_HANDLE) */
+#define GEVR_TWOHAND_BAT_ABOVE_CM 45.0f   /* and the rifle above it, short of the butt */
 #define GEVR_TWOHAND_FORE_MIN 0.2f
 #define GEVR_TWOHAND_FORE_MAX 0.55f
 
@@ -3554,6 +3572,24 @@ static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm, s32 drawn)
     if (cm < 1e-6f || !gevrGripAxes(gunctrl, gpos, right, up, back) || !gevrGripAxesRaw(supportctrl, opos, ignore, ignore, ignore))
     {
         return FALSE;
+    }
+    if (gevrStereoClubBat(gun))
+    {
+        /* the bat: anywhere along it, the short end below the fist or the long one above */
+        for (i = 0; i < 3; i++)
+        {
+            d[i] = opos[i] - gpos[i];
+        }
+        t = d[0] * up[0] + d[1] * up[1] + d[2] * up[2];
+        if (t < -GEVR_TWOHAND_BAT_BELOW_CM * cm) t = -GEVR_TWOHAND_BAT_BELOW_CM * cm;
+        if (t > GEVR_TWOHAND_BAT_ABOVE_CM * cm) t = GEVR_TWOHAND_BAT_ABOVE_CM * cm;
+        for (i = 0; i < 3; i++)
+        {
+            snap[i] = gpos[i] + up[i] * t;
+            d[i] = opos[i] - snap[i];
+        }
+        *distcm = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) / cm;
+        return TRUE;
     }
     if (!drawn && gevrGexPistolPoint(TRUE, snap))
     {
@@ -3973,7 +4009,11 @@ void gevrHandChopTick(s32 ctrl)
         end[0] = at[0];
         end[1] = at[1];
         end[2] = at[2];
-        if (club)
+        if (club && gevrStereoClubBat(GUNRIGHT) && gevrGexBatEnd(GUNRIGHT, end))
+        {
+            /* the bat's butt as drawn (gun.c gevrGexBatPose) */
+        }
+        else if (club)
         {
             Mtxf *g = &g_CurrentPlayer->hands[GUNRIGHT].gunmtx_camspace;
 
@@ -4978,6 +5018,94 @@ Gfx *gevrRenderBeanGripArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
     return gevrWatchArmDraw(gdl, templ, drawn, TRUE);
 }
 
+/*
+ * The bat with both hands (gevrStereoClubBat): it runs through both fists. Its
+ * line is the one from this fist to the other, the right way up (the butt
+ * above the thumbs); hands close together give that line no direction of
+ * its own, so there both fists' own axes, averaged, set it. Eased in with
+ * the hold, as the rifles' aim is.
+ */
+#define GEVR_TWOHAND_BAT_LINE_MIN_CM 6.0f
+#define GEVR_TWOHAND_BAT_LINE_FULL_CM 16.0f
+static void gevrTwoHandBatAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3])
+{
+    f32 opos[3], oright[3], oup[3], oback[3], d[3], v[3], t[3], k[3];
+    f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    f32 sep, w, tl, s, c;
+    f32 *axes[3];
+    s32 i, a;
+
+    if (s_gevrTwoHandAmt <= 0.001f || cm < 1e-6f || !gevrGripAxesRaw(s_gevrTwoHandGun, opos, oright, oup, oback)
+        || up[0] * oup[0] + up[1] * oup[1] + up[2] * oup[2] < 0.2f)
+    {
+        return;   /* not held, or the other fist turned well away from it */
+    }
+    for (i = 0; i < 3; i++)
+    {
+        d[i] = opos[i] - pos[i];
+        t[i] = up[i] + oup[i];
+    }
+    sep = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    w = (sep / cm - GEVR_TWOHAND_BAT_LINE_MIN_CM) / (GEVR_TWOHAND_BAT_LINE_FULL_CM - GEVR_TWOHAND_BAT_LINE_MIN_CM);
+    if (w < 0.0f) w = 0.0f;
+    if (w > 1.0f) w = 1.0f;
+    if (sep > 1e-6f)
+    {
+        const f32 sign = d[0] * up[0] + d[1] * up[1] + d[2] * up[2] < 0.0f ? -1.0f : 1.0f;
+
+        tl = sqrtf(t[0] * t[0] + t[1] * t[1] + t[2] * t[2]);
+        for (i = 0; i < 3; i++)
+        {
+            t[i] = (tl > 1e-6f ? t[i] / tl : up[i]) * (1.0f - w) + sign * d[i] / sep * w;
+        }
+    }
+    for (i = 0; i < 3; i++)
+    {
+        v[i] = up[i];
+        t[i] = v[i] + (t[i] - v[i]) * s_gevrTwoHandAmt;
+    }
+    tl = sqrtf(t[0] * t[0] + t[1] * t[1] + t[2] * t[2]);
+    if (tl < 1e-4f)
+    {
+        return;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        t[i] /= tl;
+    }
+    /* the shortest arc from the fist's up to that line, for all three axes (Rodrigues), as below */
+    k[0] = v[1] * t[2] - v[2] * t[1];
+    k[1] = v[2] * t[0] - v[0] * t[2];
+    k[2] = v[0] * t[1] - v[1] * t[0];
+    s = sqrtf(k[0] * k[0] + k[1] * k[1] + k[2] * k[2]);
+    c = v[0] * t[0] + v[1] * t[1] + v[2] * t[2];
+    if (s < 1e-6f || c < 0.25f)
+    {
+        return;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        k[i] /= s;
+    }
+    axes[0] = right;
+    axes[1] = up;
+    axes[2] = back;
+    for (a = 0; a < 3; a++)
+    {
+        f32 *x = axes[a];
+        f32 kd = k[0] * x[0] + k[1] * x[1] + k[2] * x[2];
+        f32 kx[3];
+
+        kx[0] = k[1] * x[2] - k[2] * x[1];
+        kx[1] = k[2] * x[0] - k[0] * x[2];
+        kx[2] = k[0] * x[1] - k[1] * x[0];
+        for (i = 0; i < 3; i++)
+        {
+            x[i] = x[i] * c + kx[i] * s + k[i] * kd * (1.0f - c);
+        }
+    }
+}
+
 static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3])
 {
     f32 opos[3], ignore[3], d[3], v[3], t[3], k[3];
@@ -4998,6 +5126,11 @@ static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3
     {
         s_twoHandDirValid = 0;
         s_gevrTwoHandResetDir = FALSE;
+    }
+    if (gevrStereoClubBat(s_gevrTwoHandGun))
+    {
+        gevrTwoHandBatAim(pos, right, up, back);
+        return;
     }
     if (!s_gevrTwoHand && !s_twoHandDirValid)
     {

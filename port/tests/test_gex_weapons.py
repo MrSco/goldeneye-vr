@@ -116,6 +116,8 @@ static Gfx *gevrHandTag(Gfx *gdl, int ctrl) { (void)ctrl; return gdl; }
 static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *rd) { (void)rd; legacySupportDraws++; return gdl; }
 /* bondview2.c: Bean's holding arm, which never holds GoldenEye X's guns */
 static Gfx *gevrRenderBeanGripArm(Gfx *gdl, ModelRenderData *rd, s32 *drawn) { (void)rd; *drawn = 0; return gdl; }
+/* bondview2.c: the rifle butt held as a bat (none here) */
+static s32 gevrStereoClubBat(s32 hand) { (void)hand; return 0; }
 static s32 gevrGexMagazineFitting(void);
 static s32 gevrGexIsHandHeld(const GexWeaponDef *def);
 static void gevrGexHandFitTo(const GexWeaponDef *def, Mtxf *rwmtx, s32 numMatrices);
@@ -853,7 +855,7 @@ production.append('static void cycleFit(void) { const int gex=active!=NULL,scope
 fit=function(input_source,'if (gevrStereoTwoHandGrip() && gevrGexHeld(gevrStereoTwoHandGun()) && VrGexGuns)')
 production.append('static void fitSupport(float mx,float my,float ry,float rate,float dt) { '+fit+' }')
 fire=(ROOT/"src/game/gunfire.c").read_text(encoding="utf-8")
-legacy=function(fire,'if (gevrStereoTwoHandGrip() && !gevrGexSupportHandShown(gevrStereoTwoHandGun()))')
+legacy=function(fire,'if (gevrStereoTwoHandGrip() && !gevrGexSupportHandShown(gevrStereoTwoHandGun())\n')
 production.append('static void drawLegacySupport(Gfx *gdl) { ModelRenderData renderdata={0}; '+legacy+' }')
 with tempfile.TemporaryDirectory(prefix="gex-weapons-") as directory:
     temp=Path(directory); file=temp/"test.c"; exe=temp/"test.exe"

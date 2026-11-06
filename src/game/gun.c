@@ -2384,6 +2384,7 @@ static void gevrGexOffCache(ModelFileHeader *gunhdr);
 static s32 gevrGexOffHandPose(Mtxf *m, s32 n);
 extern s32 gevrStereoTwoHandGun(void);
 extern s32 gevrStereoTwoHandGrip(void);   /* bondview2.c */
+extern s32 gevrStereoClubBat(s32 hand);  /* bondview2.c: the rifle butt held as a bat */
 extern float VrGexWatch[4];   /* vr_settings_defaults.c: the watch's place and size (Gun fit) */
 extern float VrGexOffRot[3];  /* vr_settings_defaults.c: the empty off hand's turn (Gun fit) */
 
@@ -2403,7 +2404,7 @@ static s32 gevrGexArmsOn(void)
 /* The rig's support mesh follows its weapon, mirrored with an off-hand gun. */
 s32 gevrGexSupportHandShown(s32 hand)
 {
-    return gevrGexArmsOn() && gevrGexHeld(hand) && gevrStereoTwoHandGrip()
+    return gevrGexArmsOn() && gevrGexHeld(hand) && gevrStereoTwoHandGrip() && !gevrStereoClubBat(hand)
         && gevrStereoTwoHandGun() == hand;
 }
 
@@ -3081,6 +3082,106 @@ Gfx *gevrGexDrawPayload(Gfx *gdl, ModelRenderData *templ, GUNHAND hand)
     return renderdata.gdl;
 }
 
+/*
+ * The rifle butt as a bat (bondview2.c gevrStereoClubBat; user, test.21: "it
+ * still thinks arm and grip positions are like regular shooting"). The rifle
+ * starts as the sniper is held to shoot (gunfire.c drops GoldenEye's
+ * butt-first turn for it), so the hand is where it always is on the
+ * controller. Then only the rifle's joints turn, about the palm: its barrel
+ * runs down through the fist, held GEVR_GEX_BAT_HANDLE behind the muzzle, the
+ * butt up out of the thumb side, the scope away from the player, as a bat is
+ * held. The other hand takes it below or above (bondview2.c
+ * gevrTwoHandBarrel) and is drawn as itself, on its own controller.
+ */
+#define GEVR_GEX_BAT_HANDLE 130.0f    /* model units (0.085 cm each): about 11 cm */
+#define GEVR_GEX_BAT_LENGTH 1092.0f   /* muzzle to butt, GsniperrifleZ's 93 cm */
+static f32 s_gevrGexBatEnd[2][3];         /* the butt as drawn, per hand: the swing's end (bondview2.c) */
+static s32 s_gevrGexBatAt[2];             /* g_GlobalTimer when drawn, 0 never */
+
+static void gevrGexBatPose(ModelFileHeader *hdr, const GexWeaponDef *def, Mtxf *rwmtx, s32 hand)
+{
+    const f32 palmLocal[3] = { 0.0f, 0.0f, GEVR_GEX_PALM_Z };
+    const s32 n = hdr->numMatrices;
+    const Mtxf gun = rwmtx[def->gunMatrix];
+    f32 ex[3], ey[3], ez[3], palm[3], muzzle[3], h[3], len, unit;
+    s32 i, j, r;
+
+    if (n > 64 || n <= def->gunMatrix || n <= GEVR_GEX_RHAND_WRIST || (hand != GUNRIGHT && hand != GUNLEFT))
+    {
+        return;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        ex[i] = gun.m[0][i];
+        ey[i] = gun.m[1][i];
+        ez[i] = gun.m[2][i];
+    }
+    unit = sqrtf(ez[0] * ez[0] + ez[1] * ez[1] + ez[2] * ez[2]);   /* one model unit, drawn */
+    if (unit < 1e-9f)
+    {
+        return;
+    }
+    len = sqrtf(ex[0] * ex[0] + ex[1] * ex[1] + ex[2] * ex[2]);
+    for (i = 0; i < 3; i++) ex[i] = len > 1e-9f ? ex[i] / len : 0.0f;
+    len = sqrtf(ey[0] * ey[0] + ey[1] * ey[1] + ey[2] * ey[2]);
+    for (i = 0; i < 3; i++) ey[i] = len > 1e-9f ? ey[i] / len : 0.0f;
+    for (i = 0; i < 3; i++) ez[i] /= unit;
+    gevrGexMtxPoint(&rwmtx[GEVR_GEX_RHAND_WRIST], palmLocal, palm);
+    /* the muzzle: its flash's joint when the rig has one (the converter's last), else the def's */
+    if (hdr->Switches != NULL && hdr->numSwitches > 1 && hdr->Switches[1] != NULL)
+    {
+        for (i = 0; i < 3; i++) muzzle[i] = rwmtx[n - 1].m[3][i];
+    }
+    else
+    {
+        gevrGexMtxPoint(&gun, def->muzzle, muzzle);
+    }
+    for (i = 0; i < 3; i++)
+    {
+        h[i] = muzzle[i] - ez[i] * GEVR_GEX_BAT_HANDLE * unit;
+    }
+    /* the rifle's joints, the gun's and after: about the gun's own left, its
+     * forward to its down and its up to its forward, the handle onto the palm */
+    for (j = def->gunMatrix; j < n; j++)
+    {
+        for (r = 0; r < 4; r++)
+        {
+            f32 v[3], a, b, c;
+
+            for (i = 0; i < 3; i++) v[i] = r == 3 ? rwmtx[j].m[3][i] - h[i] : rwmtx[j].m[r][i];
+            a = v[0] * ex[0] + v[1] * ex[1] + v[2] * ex[2];
+            b = v[0] * ey[0] + v[1] * ey[1] + v[2] * ey[2];
+            c = v[0] * ez[0] + v[1] * ez[1] + v[2] * ez[2];
+            for (i = 0; i < 3; i++)
+            {
+                const f32 w = a * ex[i] + b * ez[i] - c * ey[i];
+
+                rwmtx[j].m[r][i] = r == 3 ? palm[i] + w : w;
+            }
+        }
+    }
+    /* the butt: up from the palm along the old barrel's back, now the gun's up */
+    for (i = 0; i < 3; i++)
+    {
+        s_gevrGexBatEnd[hand][i] = palm[i] + ey[i] * (GEVR_GEX_BAT_LENGTH - GEVR_GEX_BAT_HANDLE) * unit;
+    }
+    s_gevrGexBatAt[hand] = g_GlobalTimer ? g_GlobalTimer : 1;
+}
+
+/* bondview2.c gevrHandChopTick: the bat's butt as last drawn (camera space), within a few ticks */
+s32 gevrGexBatEnd(s32 hand, f32 out[3])
+{
+    if ((hand != GUNRIGHT && hand != GUNLEFT) || s_gevrGexBatAt[hand] == 0
+        || (u32) (g_GlobalTimer - s_gevrGexBatAt[hand]) > 4u)
+    {
+        return FALSE;
+    }
+    out[0] = s_gevrGexBatEnd[hand][0];
+    out[1] = s_gevrGexBatEnd[hand][1];
+    out[2] = s_gevrGexBatEnd[hand][2];
+    return TRUE;
+}
+
 void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND hand)
 {
     const GexWeaponDef *def = gevrGexWeaponForHand(hand);
@@ -3177,6 +3278,10 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
     if (hdr->numMatrices > def->gunMatrix && hdr->numMatrices <= 64 && (g_gevrStereo || def->fireAnimAlt <= 0))
     {
         gevrGexHandFitTo(def, rwmtx, hdr->numMatrices);   /* before the support point is taken from this hand */
+    }
+    if (g_gevrStereo && gevrStereoClubBat(hand))
+    {
+        gevrGexBatPose(hdr, def, rwmtx, hand);   /* the hand fitted, the rifle turned into a bat about it */
     }
     if (def->fireAnimAlt > 0 && g_CurrentPlayer != NULL && hdr->numMatrices > GEVR_GEX_RHAND_WRIST)
     {
@@ -3859,7 +3964,7 @@ Gfx *gevrGexDrawOffHand(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
     if (!gevrGexArmsOn() || !VrGexGuns || s_gevrGexOffFrom == NULL || g_CurrentPlayer == NULL
         || g_CurrentPlayer->bonddead || (left != ITEM_UNARMED && left != ITEM_SUIT_LF_HAND)
         || (gevrStereoWatchItem(get_item_in_hand_or_watch_menu(GUNRIGHT)) && !gevrGexHeld(GUNRIGHT))
-        || gevrStereoTwoHandGrip())
+        || (gevrStereoTwoHandGrip() && !gevrStereoClubBat(gevrStereoTwoHandGun())))
     {
         if (g_CurrentPlayer != NULL && g_CurrentPlayer->watch_animation_state != 0)
         {

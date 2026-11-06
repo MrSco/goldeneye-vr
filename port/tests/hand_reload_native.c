@@ -76,6 +76,8 @@ static int getCurrentPlayerWeaponId(int h) { return player.hands[h].weapon; }
 static int get_ammo_in_hands_weapon(int h) { (void)h; return reserve; }
 static int get_ammo_type_for_weapon(int item) { return item != ITEM_UNARMED; }
 static int gevrGexHeld(int hand) { return gex[hand]; }
+int gevrStereoClubBat(int hand) { (void)hand; return 0; }   /* bondview2.c: no bat here */
+int gevrGexBatEnd(int hand, float out[3]) { (void)hand; (void)out; return 0; }   /* gun.c */
 /* bondview2.c gevrFitLook(): Bean's models stay off here (GoldenEye's or GE-X's) */
 int gevrFitLook(int hand) { return gevrGexHeld(hand) ? 1 : 0; }
 const GexWeaponDef *gevrGexWeaponForHand(int hand)

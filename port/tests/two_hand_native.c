@@ -54,7 +54,8 @@ static int getCurrentPlayerWeaponId(int hand) { return player.hands[hand].weapon
 static int netIsActive(void) { return online; }
 static int get_cur_playernum(void) { return playerSlot; }
 static int netGetLocalSlot(void) { return localSlot; }
-static int gevrGexHeld(int hand) { (void)hand; return 0; }
+static int gexHeld[2];   /* the hand's gun is GoldenEye X's (gun.c) */
+static int gevrGexHeld(int hand) { return gexHeld[hand]; }
 static int gevrGexPistolSupportAllowed(void) { return 1; }
 static int gevrGexPistolPoint(int support, float out[3]) { (void)support; (void)out; return 0; }
 static int gevrGexForePoint(float out[3]) { memcpy(out,gexFore,sizeof(gexFore)); return gexForeValid; }
@@ -241,6 +242,45 @@ static void testClubHold(void)
     assert(!gevrStereoHandClub(GUNRIGHT) && gevrTwoHandBare(GUNRIGHT));
     assert(gevrTwoHandGunCandidate() == -1);
 }
+/* The rifle butt with GoldenEye X's arms is a bat (bondview2.c gevrStereoClubBat):
+ * the other hand takes it along the fist's up, not the barrel, and the two
+ * fists' line turns it (gevrTwoHandBarrel, gevrTwoHandBatAim). */
+static void testClubBat(void)
+{
+    float pos[3], r[3], u[3], b[3], opos[3], snap[3], dist;
+    const float m = GEVR_UNITS_PER_METRE;
+
+    g_gevrStereo = 1;
+    setup(GUNRIGHT, 0, ITEM_FIST);
+    tick();
+    assert(!gevrStereoClubBat(GUNRIGHT));   /* GoldenEye's own arms: the butt-first club */
+    VrGexGuns = 1; gexHeld[GUNRIGHT] = 1;
+    assert(gevrStereoClubBat(GUNRIGHT) && !gevrStereoClubBat(GUNLEFT));
+    /* the other hand 20 cm up the bat from the gun hand's fist */
+    assert(gevrGripAxesRaw(1, pos, r, u, b));
+    for (int i = 0; i < 3; i++) pose[gevrPhysHand(GUNRIGHT)][i] = (pos[i] + u[i] * 0.20f * m) / m;
+    assert(gevrTwoHandBarrel(opos, snap, &dist, 0) && dist < 0.5f);
+    hold(GUNRIGHT);
+    for (int i = 0; i < 30; i++) tick();
+    float u2[3], p2[3], r2[3], b2[3];
+    assert(gevrGripAxes(1, p2, r2, u2, b2));
+    near(u2[0] * u[0] + u2[1] * u[1] + u2[2] * u[2], 1.0f);   /* in line already: unturned */
+    /* the other hand 6 cm to the right: the bat leans that way */
+    for (int i = 0; i < 3; i++) pose[gevrPhysHand(GUNRIGHT)][i] += r[i] * 0.06f;
+    for (int i = 0; i < 30; i++) tick();
+    assert(gevrStereoTwoHandGrip());
+    assert(gevrGripAxes(1, p2, r2, u2, b2));
+    assert(u2[0] * r[0] + u2[1] * r[1] + u2[2] * r[2] > 0.2f);
+    near(p2[0], pos[0]); near(p2[1], pos[1]); near(p2[2], pos[2]);   /* still on the gun hand */
+    /* well off the bat (behind the fist) it is not taken */
+    release();
+    for (int i = 0; i < 3; i++) pose[gevrPhysHand(GUNRIGHT)][i] = (pos[i] + b[i] * 0.30f * m) / m;
+    grip[gevrPhysHand(1 - GUNRIGHT)] = 1; tick();
+    grip[gevrPhysHand(GUNRIGHT)] = 1; tick();
+    assert(!gevrStereoTwoHandGrip());
+    release();
+    VrGexGuns = 0; gexHeld[GUNRIGHT] = 0;
+}
 static void testClub(void)
 {
     setup(GUNLEFT, 0, ITEM_ROCKETLAUNCH);
@@ -347,6 +387,7 @@ int main(void)
     }
     testClub();
     testClubHold();
+    testClubBat();
     setup(GUNLEFT, 1, ITEM_WPPK);
     pose[gevrPhysHand(GUNLEFT)][0] = 0.04f;
     pose[gevrPhysHand(GUNLEFT)][2] = 0;

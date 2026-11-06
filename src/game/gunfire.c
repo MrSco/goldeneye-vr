@@ -778,7 +778,13 @@ void gunUpdateAndFire(GUNHAND handnum)
      * the controller and would otherwise drop it (the club stayed barrel first).
      */
     Mtxf gevrItemRot;
+    extern s32 gevrStereoClubBat(s32 hand);   /* bondview2.c: the rifle butt as a bat (gun.c gevrGexBatPose) */
     matrix_4x4_copy(&rotmtx, &gevrItemRot);
+    if (g_gevrStereo && gevrStereoClubBat(handnum))
+    {
+        /* held as the sniper is to shoot: GE-X turns the rifle about the hand itself */
+        matrix_4x4_set_identity(&gevrItemRot);
+    }
 #endif
 
     if (hand->field_92C != 0)
@@ -828,7 +834,7 @@ void gunUpdateAndFire(GUNHAND handnum)
              * second time); a trigger stab or throw keeps its animation. Nor
              * the taser's thrust, either model: the arm itself reaches (user) */
             if (hand->field_92C != 0 && !gevrStereoItemShown(item) && !gevrMotionThrowOwnsHand(handnum)
-                && GEVR_ITEM_AS(item) != ITEM_TASER)
+                && GEVR_ITEM_AS(item) != ITEM_TASER && !gevrStereoClubBat(handnum))
             {
                 /*
                  * The keyframe turn is in the model frame, which the flat
@@ -2847,7 +2853,10 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         extern s32 gevrStereoTwoHandGrip(void);
         extern s32 gevrGexSupportHandShown(s32 hand);   /* gun.c: the gun rig draws its support hand */
 
-        if (gevrStereoTwoHandGrip() && !gevrGexSupportHandShown(gevrStereoTwoHandGun()))
+        extern s32 gevrStereoClubBat(s32 hand);   /* bondview2.c: the other hand on the bat is its own */
+
+        if (gevrStereoTwoHandGrip() && !gevrGexSupportHandShown(gevrStereoTwoHandGun())
+            && !gevrStereoClubBat(gevrStereoTwoHandGun()))
         {
             /* Bean's own off hand holds (bondview2.c), else the taser's hand */
             extern Gfx *gevrRenderBeanGripArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn);
@@ -3146,7 +3155,9 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         /* #35: holding the gun, the hand was drawn before the guns, instead of the watch arm */
         extern s32 gevrStereoTwoHandGrip(void);
 
-        if (!gevrStereoTwoHandGrip())
+        extern s32 gevrStereoClubBat(s32 hand);   /* bondview2.c: on the bat the other hand is its own */
+
+        if (!gevrStereoTwoHandGrip() || gevrStereoClubBat(gevrStereoTwoHandGun()))
         {
             /* GoldenEye X's left arm with the watch (gun.c), else the watch arm */
             extern Gfx *gevrGexDrawOffHand(Gfx *gdl, ModelRenderData *templ, s32 *drawn);
