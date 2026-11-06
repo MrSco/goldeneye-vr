@@ -813,7 +813,8 @@ enum {
     GEVR_START_ROW_PICK_MIRROR,
 };
 
-static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool mirrorGood, bool ready, bool focus)
+static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool mirrorGood, bool ready, bool focus,
+                                const char *startLabel = "START")
 {
     static const char *const names[] = { "GoldenEye", "Goldfinger 64", "Tomorrow Never Dies", "Mirror Mode (Wreck)" };
     const bool installed[] = { true, gfGood, tndGood, mirrorGood };
@@ -847,7 +848,7 @@ static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool m
     ImGui::SameLine();
     ImGui::SetCursorPosY(rowY);
     ImGui::BeginDisabled(!ready);
-    if (ImGui::Button("START", ImVec2(-1, startH)))
+    if (ImGui::Button(startLabel, ImVec2(-1, startH)))
         action = GEVR_START_ROW_START;
     if (focus) {
         ImGui::SetItemDefaultFocus();
@@ -2733,6 +2734,30 @@ void gevrTextInputEnd()
     if (s_kbdLock) SDL_UnlockMutex(s_kbdLock);
 }
 
+/*
+ * What the game starts with, on START (user, test.21: the old first page's
+ * "Mods... (Bean on)" and "Cheats... (3 on)" showed it before launching; the
+ * tabbed launcher had lost it). Cheats count as the old page did: the gun
+ * size, Unlock all, and the ticked cheats with GoldenEye's campaign only.
+ */
+static void gevrLauncherLoadout(char *buf, size_t size)
+{
+    std::string parts;
+    int cheats = (VrGunSizeCheat ? 1 : 0) + (VrUnlockAll ? 1 : 0);
+
+    for (int b = 0; b < 64 && VrCampaign == GEVR_CAMPAIGN_GE; b++) cheats += (int)((VrCheatMask >> b) & 1ULL);
+    if (gevrBeanIsEnabled()) parts = "Bean";
+    else if (g_ActiveExtTexPack[0]) parts = "HD";
+    if (VrGexGuns) parts += parts.empty() ? "GE-X" : ", GE-X";
+    if (VrOddjobHat && gevrHatAvailable()) parts += parts.empty() ? "Oddjob's hat" : ", Oddjob's hat";
+    if (cheats) {
+        char n[32];
+        snprintf(n, sizeof(n), "%d cheat%s", cheats, cheats == 1 ? "" : "s");
+        parts += parts.empty() ? n : std::string(", ") + n;
+    }
+    snprintf(buf, size, parts.empty() ? "START###start" : "START  (%s)###start", parts.c_str());
+}
+
 extern "C" void gevrLauncherRun(void)
 {
     IMGUI_CHECKVERSION();
@@ -3310,8 +3335,10 @@ extern "C" void gevrLauncherRun(void)
             || (VrCampaign == GEVR_CAMPAIGN_GF64 && gfGood)
             || (VrCampaign == GEVR_CAMPAIGN_TND64 && tndGood)
             || (VrCampaign == GEVR_CAMPAIGN_MIRROR && mirrorGood);
+        char startLabel[160];
+        gevrLauncherLoadout(startLabel, sizeof(startLabel));   /* "START  (Bean, GE-X, 3 cheats)" */
         switch (gevrLauncherStartRow(&VrCampaign, gfGood, tndGood, mirrorGood,
-                                     !active.empty() && activeInfo.good && campaignReady, focusStart)) {
+                                     !active.empty() && activeInfo.good && campaignReady, focusStart, startLabel)) {
         case GEVR_START_ROW_START:
             start = true;
             break;
