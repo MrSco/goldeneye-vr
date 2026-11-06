@@ -143,6 +143,8 @@ static GevrBodyDefer bodyBelt[2];
 int gevrBodySlotsOn(void) { return bodySlots; }
 void gevrBodySlotGripLetGo(int ctrl) { (void)ctrl; }
 void gevrPullGripLetGo(int ctrl) { (void)ctrl; }   /* gevr_forcepull.c */
+void gevrPullGripInput(int ctrl, int held) { (void)ctrl; (void)held; }   /* gevr_forcepull.c: the catch's grip */
+int gevrPullClaimsPress(int ctrl) { (void)ctrl; return 0; }   /* gevr_forcepull.c: no pull in flight */
 void gevrHordeHoldInput(int channel, int pressed, int held, const float *hand, unsigned ticks)
 { (void)channel; (void)pressed; (void)held; (void)hand; (void)ticks; }
 int gevrBodySlotBeltWait(int ctrl, int entered, int inside, int gripped)

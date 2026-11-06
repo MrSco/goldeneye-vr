@@ -47,6 +47,8 @@ static GevrBodyHand s_bodyHand[2];
 static GevrBodyMru s_bodyMru[GEVR_BODY_SLOTS];
 static int s_bodyLive = 1, VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab, VrForcePull;
 void gevrPullGripLetGo(int ctrl) { (void)ctrl; }   /* gevr_forcepull.c */
+void gevrPullGripInput(int ctrl, int held) { (void)ctrl; (void)held; }   /* gevr_forcepull.c: the catch's grip */
+int gevrPullClaimsPress(int ctrl) { (void)ctrl; return 0; }   /* gevr_forcepull.c: no pull in flight */
 void gevrPullTick(void) {}
 static int gevrGunFitActive, s_bodyWheelCtrl=-1, s_bodySticksCaptured;
 int VrMotionThrowing = 1, g_gevrStereo = 1;
