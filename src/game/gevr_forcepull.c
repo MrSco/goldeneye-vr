@@ -446,41 +446,35 @@ void gevrPullNoteHeldGun(PropRecord *gun, const Mtxf *m, s32 drawn)
     {
         /*
          * m is his hand's bone, so the ring sat on his hand and the gun's grip
-         * (headset, test.22). The gun's own middle: its bounding box's centre,
-         * hung from the hand as the held model is. Its model scale may or may
-         * not be in the bone's rows, so either reading is tried, and one that
-         * isn't a sensible gun's length from the hand leaves the hand's point.
+         * (headset, test.22). The gun's own root, as a gun on the floor is lit
+         * (gevrPullPointOf): its model's origin is the gun's middle, hung from
+         * the hand by the root's offset. propobj.c chrRenderHeldWeapon has just
+         * worked it out (instcalcmatrices -> render_pos; the matrix list
+         * pointer it advanced is what read NaN before). Not sensible (not
+         * 2-60 cm from the hand): the hand, as before.
          */
-        extern struct ModelRoData_BoundingBoxRecord *chrobjGetBboxFromObjectRecord(ObjectRecord *obj);
-        ModelRoData_BoundingBoxRecord *bb = gun->obj != NULL ? chrobjGetBboxFromObjectRecord(gun->obj) : NULL;
-        const f32 scales[2] = { 1.0f, gun->obj != NULL && gun->obj->model != NULL ? gun->obj->model->scale : 1.0f };
-        s32 k, r;
+        Model *model = gun->obj != NULL ? gun->obj->model : NULL;
+        const Mtxf *root = model != NULL ? (const Mtxf *) model->render_pos : NULL;
 
-        for (k = 0; bb != NULL && k < 2; k++)
+        if (root != NULL && isfinite(root->m[3][0]) && isfinite(root->m[3][1]) && isfinite(root->m[3][2])
+            && fabsf(root->m[3][0]) < 1.0e6f && fabsf(root->m[3][1]) < 1.0e6f && fabsf(root->m[3][2]) < 1.0e6f)
         {
-            const f32 lc[3] = { 0.5f * (bb->Bounds.xmin + bb->Bounds.xmax) * scales[k],
-                                0.5f * (bb->Bounds.ymin + bb->Bounds.ymax) * scales[k],
-                                0.5f * (bb->Bounds.zmin + bb->Bounds.zmax) * scales[k] };
             coord3d g;
             f32 d2;
 
-            g.x = m->m[3][0]; g.y = m->m[3][1]; g.z = m->m[3][2];
-            for (r = 0; r < 3; r++)
-            {
-                g.x += lc[r] * m->m[r][0];
-                g.y += lc[r] * m->m[r][1];
-                g.z += lc[r] * m->m[r][2];
-            }
-            if (!isfinite(g.x) || !isfinite(g.y) || !isfinite(g.z))
-            {
-                continue;
-            }
+            g.x = root->m[3][0];
+            g.y = root->m[3][1];
+            g.z = root->m[3][2];
             mtx4TransformVecInPlace(v2w, &g);
             d2 = (g.x - c.x) * (g.x - c.x) + (g.y - c.y) * (g.y - c.y) + (g.z - c.z) * (g.z - c.z);
-            if (d2 >= 4.0f * 4.0f && d2 <= 60.0f * 60.0f)   /* world cm: off the hand, within a rifle's half */
+            if (d2 >= 2.0f * 2.0f && d2 <= 60.0f * 60.0f)   /* world cm */
             {
                 c = g;
-                break;
+            }
+            if ((g_GlobalTimer & 255) == 0)
+            {
+                sysLogPrintf(LOG_NOTE, "stereo: pull: held gun's middle %.0f cm from the hand%s", sqrtf(d2),
+                             d2 >= 2.0f * 2.0f && d2 <= 60.0f * 60.0f ? "" : " (not used)");
             }
         }
     }
