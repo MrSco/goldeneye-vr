@@ -36,12 +36,12 @@ moves.
   target then flies to the hand in about **0.3-0.4 s** with a small
   upward arc, easing out at the palm. It follows the hand up to 30 cm from
   where the flick was.
-- **Catch:** the grip closed with it within 20 cm of the hand, from
-  halfway through the flight, catches it. Keeping the grip held from the
-  flick counts, and so does squeezing again as it comes in. An open hand
-  when it gets there (0.15 s past the flight's end) misses: it falls
-  where it is. A press while a pull flies to that hand is always the
-  catch's, never a body slot's or the holster's.
+- **Catch:** open the hand after the flick, then close the grip with it
+  within 20 cm of the hand, from halfway through the flight. Keeping the
+  flick's grip held does not catch (owner, test.22; test.21 let it). It
+  waits at the hand 0.45 s past the flight's end for the squeeze, then
+  falls where it is. A press while a pull flies to that hand is always the
+  catch's, never a body slot's.
 - **Superseded (2026-11-05 spec):** point and squeeze with no flick, and
   letting go mid-flight sending it to the inventory.
 - **Arrival:** a gun is in the hand at once, with no draw (raise) animation,

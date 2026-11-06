@@ -10,9 +10,10 @@
  * where he runs and the punch's hit.
  *
  * GoldenEye has no punch or pick-up animation for guards. The punch is the
- * alarm press's reach (ANIM_extending_left_hand, frames 40-82 as
- * chrStartAlarmChooseAnimation plays it), landing at frame 64; at the gun he
- * stands a moment and it is in his hand, as chrai.c AI_ChrEquipObject does.
+ * grenade throw's overarm swing (ANIM_fire_throw_grenade from its wind-up,
+ * frame 84, as chrlvThrowGrenade starts it), landing at its release, frame
+ * 119; test.22's alarm-press reach looked like a button press (user). At the
+ * gun he stops and it is in his hand, as chrai.c AI_ChrEquipObject does.
  *
  * Solo and the co-op host (guards run there; chrlvActionTick runs as the
  * guard's target player). Online he only punches: a gun on the floor is each
@@ -51,8 +52,11 @@ extern s32 gevrAllyIs(ChrRecord *chr);
 #define GEVR_DISARMED_MAX        16
 #define GEVR_DISARMED_DROP_TICKS 30     /* the drop waits for his own tick (chr.c objDrop) */
 #define GEVR_DISARMED_REPLOT     30     /* a run's course is plotted again this often */
-#define GEVR_DISARMED_HIT_FRAME  64.0f  /* the reach at its furthest */
-#define GEVR_DISARMED_END_FRAME  82     /* the alarm press's end (chraction.c) */
+#define GEVR_DISARMED_START_FRAME 84    /* the throw's wind-up (chraction.c chrlvThrowGrenade) */
+#define GEVR_DISARMED_HIT_FRAME  119.0f /* the throw's release: the swing at its furthest */
+#define GEVR_DISARMED_END_FRAME  150    /* the arm back down, short of the throw's 193 */
+#define GEVR_DISARMED_PUNCH_SPEED 1.0f  /* a punch: quicker than a guard's throw (0.5-0.8) */
+#define GEVR_DISARMED_ARRIVED_CM 200.0f /* his run to the gun ended this near it: he is there */
 #define GEVR_DISARMED_PUNCH_ARC  0.7854f   /* 45 degrees either side of his facing */
 #define GEVR_DISARMED_STEP_CM    150.0f    /* a gun this far above or below his feet is on another floor */
 /* one punch: a PP7 shot's damage, scaled as a guard's shot is (chrlvUpdateShotbondsum) */
@@ -70,6 +74,7 @@ typedef struct
     void *punch;            /* the punch's animation, while it plays */
     s32 hit;                /* this punch has had its hit frame */
     s32 replot;
+    s32 ran;                /* a run to the gun was set off */
     s32 last;               /* the last action, for the log */
 } GevrDisarmed;
 
@@ -133,6 +138,7 @@ void gevrDisarmedMark(ChrRecord *chr)
     d->punch = NULL;
     d->hit = FALSE;
     d->replot = 0;
+    d->ran = FALSE;
     d->last = -1;
     sysLogPrintf(LOG_NOTE, "disarmed: guard %d lost his gun", chr->chrnum);
 }
@@ -363,8 +369,15 @@ s32 gevrDisarmedThink(ChrRecord *chr)
         if (d->gun == NULL)
         {
             d->gun = gevrDisarmedFindGun(d);
+            d->ran = FALSE;
         }
         gunCm = d->gun != NULL ? gevrDisarmedFlat(chr->prop, d->gun) : -1.0f;
+        if (d->ran && chr->actiontype != ACT_GOPOS && gunCm > GEVR_DISARM_TAKE_CM && gunCm <= GEVR_DISARMED_ARRIVED_CM)
+        {
+            /* his run ended beside it (the course stops short, or the gun is against a
+             * wall): there, not a new run on the spot each tick (user: he lingered over it) */
+            gunCm = GEVR_DISARM_TAKE_CM;
+        }
     }
 
     act = gevrDisarmStep(&d->st, g_ClockTimer, gunCm, playerCm, clear, front, striking);
@@ -387,9 +400,13 @@ s32 gevrDisarmedThink(ChrRecord *chr)
             break;
         case GEVR_DISARM_GO_GUN:
             gevrDisarmedRun(d, &d->gun->pos, d->gun->stan);
+            d->ran = TRUE;
             break;
         case GEVR_DISARM_AT_GUN:
-            gevrDisarmedFace(chr, 0);
+            if (chr->actiontype == ACT_GOPOS)
+            {
+                gevrDisarmedFace(chr, 0);   /* stop on it */
+            }
             break;
         case GEVR_DISARM_TAKE_GUN:
             if (gevrDisarmedTakeGun(d))
@@ -409,10 +426,10 @@ s32 gevrDisarmedThink(ChrRecord *chr)
             gevrDisarmedRun(d, &bond->pos, bond->stan);
             break;
         case GEVR_DISARM_STRIKE:
-            if (check_if_able_to_then_perform_animation(chr, ANIM_extending_left_hand, 40, GEVR_DISARMED_END_FRAME,
-                                                        (randomGetNext() & 1) ? ANIM_MIRROR : 0, 8))
+            if (check_if_able_to_then_perform_animation(chr, ANIM_fire_throw_grenade, GEVR_DISARMED_START_FRAME,
+                                                        GEVR_DISARMED_END_FRAME, (randomGetNext() & 1) ? ANIM_MIRROR : 0, 8))
             {
-                modelSetAnimSpeed(chr->model, 1.0f, 0.0f);   /* the alarm press's pace: a jab, not a reach */
+                modelSetAnimSpeed(chr->model, GEVR_DISARMED_PUNCH_SPEED, 0.0f);
                 d->punch = objecthandlerGetModelAnim(chr->model);
                 d->hit = FALSE;
             }

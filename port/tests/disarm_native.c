@@ -39,9 +39,9 @@ int main(void)
     /* stepping away from it starts the pause again */
     gevrDisarmInit(&s, 1);
     react(&s);
-    CHECK(gevrDisarmStep(&s, 10, 90.0f, 500.0f, 1, 1, 0) == GEVR_DISARM_AT_GUN);
+    CHECK(gevrDisarmStep(&s, GEVR_DISARM_TAKE_PAUSE / 2, 90.0f, 500.0f, 1, 1, 0) == GEVR_DISARM_AT_GUN);
     CHECK(gevrDisarmStep(&s, 1, 200.0f, 500.0f, 1, 1, 0) == GEVR_DISARM_GO_GUN);
-    CHECK(gevrDisarmStep(&s, 10, 90.0f, 500.0f, 1, 1, 0) == GEVR_DISARM_AT_GUN);
+    CHECK(gevrDisarmStep(&s, GEVR_DISARM_TAKE_PAUSE / 2, 90.0f, 500.0f, 1, 1, 0) == GEVR_DISARM_AT_GUN);
 
     /* not reached in time (PD 300 ticks): given up, fists */
     gevrDisarmInit(&s, 1);

@@ -18,7 +18,7 @@ extern "C" {
 #define GEVR_DISARM_REACT      20      /* the beat after losing it: he faces the player */
 #define GEVR_DISARM_FETCH_MAX  300     /* PD: the gun not reached in 300 ticks, he gives up on it */
 #define GEVR_DISARM_TAKE_CM    100.0f  /* PD if_distance_to_gun_lt(100) */
-#define GEVR_DISARM_TAKE_PAUSE 20      /* stood at the gun before it is in his hand */
+#define GEVR_DISARM_TAKE_PAUSE 8       /* stood at the gun before it is in his hand (20 lingered, user) */
 #define GEVR_DISARM_SCAN       60      /* in melee: a look for a gun once a second */
 #define GEVR_DISARM_STRIKE_CM  120.0f  /* PD hand combat: run in to 120 */
 #define GEVR_DISARM_REACH_CM   150.0f  /* the punch lands within this at its hit frame */
