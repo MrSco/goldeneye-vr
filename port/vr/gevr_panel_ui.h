@@ -1,4 +1,7 @@
-// The in-game panel (hold Menu 1.5 s; port/src/input.c, vr_pause_menu.cpp):
+// The in-game panel (hold Menu 1.5 s in solo play; port/src/input.c,
+// vr_pause_menu.cpp). Online the same hold opens the match screen on its
+// Settings tab (gevr_pause_widgets.h), whose sections are drawn the same way
+// (gevrSettingsTabs). The panel:
 // what the old "back to the launcher?" prompt offered and the VR settings
 // (the settings table, port/src/gevr_settings.c, drawn by gevr_settings_ui.h
 // as the launcher's controls), in solo play and online alike. It shares the online pause's header (gevrPauseHeader: health and
@@ -40,19 +43,7 @@ inline int gevrDrawPanelWindow(const GevrPanelView &v, GevrPanelUi &ui, ImTextur
     ImGui::SetCursorPos(ImVec2(18, 112));
     ImGui::BeginChild("##panel-settings", ImVec2(1244, 700));
     ImGui::TextColored(gold, "VR SETTINGS");
-    const int sections = v.settings.sectionCount ? v.settings.sectionCount() : 0;
-    if (ImGui::BeginTabBar("##panel-sections", ImGuiTabBarFlags_FittingPolicyResizeDown)) {
-        for (int s = 0; s < sections; s++) {
-            const ImGuiTabItemFlags open = s == ui.openSection ? ImGuiTabItemFlags_SetSelected : 0;
-            if (!ImGui::BeginTabItem(v.settings.sectionName(s), nullptr, open)) continue;
-            ImGui::BeginChild("##panel-rows", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
-            gevrSettingsSection(v.settings, s, GEVR_SET_INGAME);
-            ImGui::EndChild();
-            ImGui::EndTabItem();
-        }
-        ImGui::EndTabBar();
-    }
-    ui.openSection = -1;
+    gevrSettingsTabs(v.settings, ui.openSection);
     ImGui::EndChild();
     if (v.note[0]) {
         ImGui::SetCursorPos(ImVec2(18, 822));

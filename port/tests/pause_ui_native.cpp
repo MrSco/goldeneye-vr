@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
+#include <cstring>
 extern "C" void testPauseGauges(float health,float armour,int slot);
 extern "C" int testPauseGaugeVisibility(int open,int menu,int mode,int gameOver,int healthTime);
 static GevrPauseView view;
@@ -21,6 +22,19 @@ extern "C" void gevrPauseStep(int,int){changed++;}
 extern "C" void gevrPauseVolume(int,int){changed++;}
 extern "C" void gevrPauseAction(const char*){startCount++;}
 extern "C" int gevrPauseObjective(int i,char*b,unsigned size){if(i>1)return -1;snprintf(b,size,"%s",i?"Bungee jump from platform":"Neutralize all alarms");return i;}
+// The Settings tab's rows (the settings table's, faked): seven sections, the fullest thirteen
+static int fakeIndex[7*16];
+static int fakeSectionCount(){return 7;}
+static const char*fakeSectionName(int s){static const char*n[]={"Comfort","Controls","Gestures","Weapons","Display","Game rules","Mods and fun"};return n[s];}
+static int fakeSectionRows(int s,unsigned,int*ids,int max){const int n=s==4?13:7;for(int i=0;i<n&&i<max;i++)ids[i]=s*16+i;return n;}
+static int fakeInfo(int id,GevrSettingInfo*out){out->label=id%3?"Fast reinforcements":"Screen dist";out->tooltip=nullptr;
+    out->kind=id%3;out->section=id/16;out->launcherSection=0;out->where=GEVR_SET_BOTH;return 1;}
+static int fakePositions(int id){return id%3==2?29:id%3==1?3:2;}
+static int fakeIndexOf(int id){return fakeIndex[id];}
+static int fakeDefault(int id){return id%3==2?0:-1;}
+static void fakeSet(int id,int i){fakeIndex[id]=i;}
+static void fakeText(int id,int,char*b,int n){snprintf(b,n,"%s",id%3==2?"8.00 m":id%3==1?"Host: on":"On");}
+static const char*fakeBlocked(int){return nullptr;}
 static void frame(){ImGui::NewFrame();int a=gevrDrawPauseWindow(view,ui);if(a)action=a;ImGui::Render();}
 static void click(float x,float y){auto&io=ImGui::GetIO();io.AddMousePosEvent(x,y);frame();io.AddMouseButtonEvent(0,true);frame();io.AddMouseButtonEvent(0,false);frame();frame();}
 static void checkHeaderVitals() {
@@ -93,7 +107,7 @@ int main(){
     check(action==GEVR_PAUSE_REQUEST_VOTES,"host can request votes without opening players' menus");action=0;view.voting=false;
     for(bool coop:{false,true})for(float health:{0.f,.125f,.35f,.75f,1.f}) {
         view.coop=coop;testPauseGauges(health,1-health,coop?3:7);gevrPauseLocalGauges(view.gauges);
-        for(int tab=0;tab<4;tab++){ui.tab=tab;frame();frame();checkHeaderVitals();}
+        for(int tab=0;tab<5;tab++){ui.tab=tab;frame();frame();checkHeaderVitals();}
     }
     testPauseGauges(1,1,-1);gevrPauseLocalGauges(view.gauges);
     for(const auto& g:view.gauges)check(g.a==48,"absent local player produces original empty arcs");
@@ -104,6 +118,24 @@ int main(){
     click(400,230);frame();check(ImGui::IsPopupOpen(nullptr,ImGuiPopupFlags_AnyPopupId|ImGuiPopupFlags_AnyPopupLevel),"pointer opens actual dropdown");
     click(400,285);frame(); // select a visible named choice
     check(changed>1,"pointer chooses a named option");
+    // Settings (hold Menu online): the panel's sections, each fitting without scrolling, and Reset sound
+    view.settings.sectionCount=fakeSectionCount;view.settings.sectionName=fakeSectionName;view.settings.sectionRows=fakeSectionRows;
+    view.settings.info=fakeInfo;view.settings.positions=fakePositions;view.settings.index=fakeIndexOf;
+    view.settings.defaultIndex=fakeDefault;view.settings.set=fakeSet;view.settings.text=fakeText;view.settings.blocked=fakeBlocked;
+    view.texpack=1;
+    click(18+4*198+92,146);check(ui.tab==GEVR_PAUSE_SETTINGS,"direct Settings tab");
+    for(int s=0;s<7;s++) {
+        ui.openSection=s;frame();frame();
+        ImGuiWindow*rows=nullptr;
+        for(ImGuiWindow*x:ImGui::GetCurrentContext()->Windows)
+            if(strstr(x->Name,"##panel-rows")&&x->Active&&x->LastFrameActive==ImGui::GetFrameCount())rows=x;
+        check(rows!=nullptr,"each settings section is drawn on the Settings tab");
+        check(rows->ContentSize.y<=rows->Size.y,"a section's rows, thirteen at the fullest, fit the Settings tab without scrolling");
+        check(rows->ContentSize.x+rows->WindowPadding.x*2<=rows->Size.x+1,"the rows fit the Settings tab's width");
+        check(rows->Pos.y+rows->Size.y<=806,"the rows end above HD textures and Reset sound");
+    }
+    click(336+165,830);check(action==GEVR_PAUSE_RESET_SOUND,"Reset sound on the Settings tab");action=0;
+    click(18+150,830);check(action==GEVR_PAUSE_TEXPACK,"HD textures on the Settings tab");action=0;
     click(100,146);view.coop=true;view.count=4;frame();frame();table=ImGui::GetCurrentContext()->Tables.GetByKey(window->GetID("players"));
     check(table && table->CurrentRow==4 && table->ColumnsCount==4,"co-op party uses four rows and status columns");
     click(1100,912);check(action==0,"leave requires confirmation");frame();

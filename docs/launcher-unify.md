@@ -234,6 +234,23 @@ batch's branch.
   - Match and Player keep their own drawing: stages, weapon sets and loadouts, teams, and
     the name box.
 
+**Phase 4, done.**
+
+- **One screen online.** The match screen (`gevr_pause_widgets.h`) gains a **Settings**
+  tab: the panel's seven sections, drawn by the same `gevrSettingsTabs`, with HD
+  textures and Reset sound under them.
+  - A tap of Menu opens the screen on Match.
+  - A hold opens it on Settings. The separate panel no longer opens online.
+- **Solo is unchanged.** A tap opens GoldenEye's watch; a hold opens the panel, which is
+  the same sections with the solo footer.
+- **Not done: the online Match, Rules, Player and Audio tabs.** They still read
+  `mpmenu.c`'s field list: the live match's votes, map, weapon sets, custom slots, bots,
+  equalization and volumes. The launcher already has Fun and Audio as table rows; moving
+  the in-game tabs onto them waits for a two-headset round.
+- **Tests.** `test_pause_ui` checks:
+  - that each section fits the Settings tab with no scrolling;
+  - Reset sound and HD textures on the Settings tab.
+
 ## Risks
 
 - **The watch's VR page** (`options.c`) has its own retail navigation. Phase 1 keeps its

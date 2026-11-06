@@ -159,4 +159,24 @@ inline void gevrSettingsSection(const GevrSettingsApi &a, int section, unsigned 
     }
     ImGui::EndTable();
 }
+
+// The in-game sections as a tab row, each tab's rows under it in a box that
+// never scrolls: the solo panel's whole body, the online screen's Settings tab
+// (gevr_panel_ui.h, gevr_pause_widgets.h). openSection >= 0 brings that tab up
+// once (the layout tests).
+inline void gevrSettingsTabs(const GevrSettingsApi &a, int &openSection) {
+    const int sections = a.sectionCount ? a.sectionCount() : 0;
+    if (ImGui::BeginTabBar("##panel-sections", ImGuiTabBarFlags_FittingPolicyResizeDown)) {
+        for (int s = 0; s < sections; s++) {
+            const ImGuiTabItemFlags open = s == openSection ? ImGuiTabItemFlags_SetSelected : 0;
+            if (!ImGui::BeginTabItem(a.sectionName(s), nullptr, open)) continue;
+            ImGui::BeginChild("##panel-rows", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
+            gevrSettingsSection(a, s, GEVR_SET_INGAME);
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+    openSection = -1;
+}
 #endif

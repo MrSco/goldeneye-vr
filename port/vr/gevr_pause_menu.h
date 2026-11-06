@@ -3,7 +3,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-enum { GEVR_PAUSE_MATCH, GEVR_PAUSE_RULES, GEVR_PAUSE_PLAYER, GEVR_PAUSE_AUDIO };
+enum { GEVR_PAUSE_MATCH, GEVR_PAUSE_RULES, GEVR_PAUSE_PLAYER, GEVR_PAUSE_AUDIO, GEVR_PAUSE_SETTINGS };
 enum { GEVR_PAUSE_STEP, GEVR_PAUSE_CHOICE, GEVR_PAUSE_TOGGLE, GEVR_PAUSE_SLIDER };
 typedef struct {
     int id, kind, editable, selected, count;

@@ -3,6 +3,7 @@
 #include "gevr_pause_menu.h"
 #include "imgui/imgui.h"
 #include "gevr_tooltip.h"
+#include "gevr_settings_ui.h"
 #include <cstring>
 #include <cstdio>
 #include <initializer_list>
@@ -25,14 +26,18 @@ struct GevrPauseView {
     char session[160]="", status[128]="", hordeStats[160]="";
     char clock[32]="";   /* time left or played, while a round runs; empty otherwise */
     bool clockEnding=false;   /* the last minute of a timed match */
+    GevrSettingsApi settings;   /* the Settings tab: the settings table (gevr_settings.c), or a test's rows */
+    int texpack=-1;             /* the Settings tab's HD textures: 1 on, 0 off, -1 no pack */
 };
 struct GevrPauseUi {
     int tab=0;
+    int openSection=-1;   /* the Settings tab's section to bring up (the layout tests) */
     bool focusResume=true,confirmLeave=false,confirmAbort=false;
     int kickSlot=-1;
     char kickName[64]="";
 };
-enum { GEVR_PAUSE_NONE,GEVR_PAUSE_RESUME,GEVR_PAUSE_LEAVE,GEVR_PAUSE_ABORT,GEVR_PAUSE_REQUEST_VOTES,GEVR_PAUSE_HORDE_RETRY,GEVR_PAUSE_KICK_BASE=100 };
+enum { GEVR_PAUSE_NONE,GEVR_PAUSE_RESUME,GEVR_PAUSE_LEAVE,GEVR_PAUSE_ABORT,GEVR_PAUSE_REQUEST_VOTES,GEVR_PAUSE_HORDE_RETRY,
+       GEVR_PAUSE_TEXPACK,GEVR_PAUSE_RESET_SOUND,GEVR_PAUSE_KICK_BASE=100 };
 inline void gevrPauseRadarWidget(const GevrPauseRadarView& radar) {
     if(!radar.visible)return;
     auto* draw=ImGui::GetWindowDrawList();const ImVec2 origin=ImGui::GetWindowPos();
@@ -118,8 +123,9 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
     ImGui::SetNextWindowBgAlpha(1.0f);
     ImGui::Begin("##match-window",nullptr,ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoCollapse|ImGuiWindowFlags_NoSavedSettings|ImGuiWindowFlags_NoScrollbar);
     gevrPauseHeader(icon,model.radar,model.gauges,model.session,model.status,model.clock,model.clockEnding);
-    const char*names[]={"Match","Rules","Player","Audio"};
-    for(int i=0;i<4;i++) {
+    /* Settings: the hold-Menu panel's sections, online (docs/launcher-unify.md, phase 4) */
+    const char*names[]={"Match","Rules","Player","Audio","Settings"};
+    for(int i=0;i<5;i++) {
         const bool selected=ui.tab==i;
         ImGui::SetCursorPos(ImVec2(18+i*198,122));
         if(selected)ImGui::PushStyleColor(ImGuiCol_Button,ImGui::GetStyleColorVec4(ImGuiCol_TabSelected));
@@ -209,6 +215,20 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
             if(!shown)ImGui::TextDisabled("No mission objectives available.");
             ImGui::EndChild();
         }
+    } else if(ui.tab==GEVR_PAUSE_SETTINGS) {
+        ImGui::SetCursorPos(ImVec2(18,184));
+        ImGui::BeginChild("##pause-settings",ImVec2(1244,612),false,ImGuiWindowFlags_NoScrollbar);
+        gevrSettingsTabs(model.settings,ui.openSection);
+        ImGui::EndChild();
+        if(model.texpack>=0) {
+            ImGui::SetCursorPos(ImVec2(18,806));
+            if(ImGui::Button(model.texpack?"HD textures off":"HD textures on",ImVec2(300,48)))action=GEVR_PAUSE_TEXPACK;
+            if(ImGui::IsItemHovered())gevrTooltip("Switches the texture pack for this session.");
+        }
+        /* #229: sound gone bit-crushed with an echo comes back with a new output stream */
+        ImGui::SetCursorPos(ImVec2(336,806));
+        if(ImGui::Button("Reset sound",ImVec2(330,48)))action=GEVR_PAUSE_RESET_SOUND;
+        if(ImGui::IsItemHovered())gevrTooltip("If the sound turns crunchy or echoes, this restarts it.");
     } else {
         GevrPauseField field;
         const bool audio=ui.tab==GEVR_PAUSE_AUDIO;

@@ -1,8 +1,9 @@
 /* In-game ImGui surface. Reuses the launcher's style, input and XR quad, and
  * its layout: a 1280 x 960 window with the Friends side panel to its right
- * (gevr_friends_ui.h gevrFriendsSidePanel, the launcher's own). Two windows
- * share it: the online pause (tap Menu in an online match) and the in-game
- * panel (hold Menu, solo or online: gevr_panel_ui.h). */
+ * (gevr_friends_ui.h gevrFriendsSidePanel, the launcher's own). Online, one
+ * screen: the match's (gevr_pause_widgets.h), on Match for a tap of Menu and
+ * on Settings for a hold. Solo, a hold opens the panel (gevr_panel_ui.h),
+ * the same sections without the match's tabs; a tap opens GoldenEye's watch. */
 #ifdef ANDROID
 #include "gevr_pause_widgets.h"
 #include "gevr_panel_ui.h"
@@ -32,7 +33,7 @@ namespace {
 ImGuiContext* context=nullptr;
 GLuint texture=0,framebuffer=0,icon=0;
 Uint64 last=0;
-bool wasOpen=false,wasPanel=false;
+bool wasOpen=false,wasPanel=false,wasHold=false;
 GevrPauseUi ui;
 GevrPanelUi panelUi;
 GevrFriendsUiState friendsUi;
@@ -116,7 +117,9 @@ extern "C" void gevrNativePauseRender(void) {
         if(wasOpen){vr_screen_set_width_scale(1.0f);gevrTextInputEnd();}   /* the game's own screen is 4:3 */
         wasOpen=false;return;
     }
-    const bool panel=gevrPanelIsOpen()!=0;
+    /* hold Menu: solo, the panel; online, the match screen on its Settings tab (one screen) */
+    const bool hold=gevrPanelIsOpen()!=0;
+    const bool panel=hold&&!netIsActive();
     GLint drawFbo,readFbo,viewport[4],scissor[4],boundTexture;GLfloat clear[4];
     const bool scissorOn=glIsEnabled(GL_SCISSOR_TEST);
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING,&drawFbo);glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING,&readFbo);
@@ -131,9 +134,12 @@ extern "C" void gevrNativePauseRender(void) {
     vr_screen_set_width_scale((float)canvasW/(float)kGevrSurfaceW);
     io.DeltaTime=last?fmaxf(.001f,fminf(.1f,(float)(now-last)/SDL_GetPerformanceFrequency())):1.f/72;last=now;
     vr_screen_set_visible(1);
-    if(!wasOpen || panel!=wasPanel){ui=GevrPauseUi();panelUi=GevrPanelUi();if(!wasOpen){vr_screen_recenter();gevrTextInputBegin();}io.ClearInputKeys();}
+    if(!wasOpen || panel!=wasPanel || hold!=wasHold){
+        ui=GevrPauseUi();panelUi=GevrPanelUi();if(hold)ui.tab=GEVR_PAUSE_SETTINGS;
+        if(!wasOpen){vr_screen_recenter();gevrTextInputBegin();}io.ClearInputKeys();
+    }
     gevrTextInputFeed(io);
-    gevrFeedPauseInput(!wasOpen || panel!=wasPanel);wasOpen=true;wasPanel=panel;
+    gevrFeedPauseInput(!wasOpen || panel!=wasPanel || hold!=wasHold);wasOpen=true;wasPanel=panel;wasHold=hold;
     ImGui_ImplOpenGL3_NewFrame();ImGui::NewFrame();
     const bool popupWasOpen=ImGui::IsPopupOpen(nullptr,ImGuiPopupFlags_AnyPopupId|ImGuiPopupFlags_AnyPopupLevel);
     int action=GEVR_PAUSE_NONE,panelAction=GEVR_PANEL_NONE;
@@ -150,6 +156,7 @@ extern "C" void gevrNativePauseRender(void) {
     view.startRequested=netHostStartRequested()!=0;view.rosterReady=netRoundRosterReady()!=0;
     view.voting=gevrNetConfigGet(CFG_NEXT_ROUND)==NET_NEXT_VOTE;view.warmup=netGetPhase()==NET_PHASE_WARMUP;
     view.canReturn=!view.coop&&gevrPauseActionAvailable("RETURN TO LOBBY");view.countdown=netCountdownSecondsLeft();view.localReady=netLocalReady()!=0;
+    view.settings=gevrSettingsLive();view.texpack=gevrTexpackState();
     snprintf(view.session,sizeof(view.session),"%s",view.coop?netCoopStageName(bossGetStageNum()):netStageName(netStageIndexOf((uint8_t)netGetLobbyStage())));
     snprintf(view.status,sizeof(view.status),"%s",view.coop?netDifficultyName(netGetMatchConfig()->difficulty):view.countdown>0?"Match is starting":netGetPhase()==NET_PHASE_IN_PROGRESS?"Match continues while this menu is open":"Warmup / next round");
     if(view.horde) {
@@ -204,6 +211,11 @@ extern "C" void gevrNativePauseRender(void) {
     if(panelAction==GEVR_PANEL_TEXPACK && gevrTexpackState()>=0){
         gevrTexpackToggleMsg=gevrTexpackToggle()+2;   /* 2 off, 3 on */
         vr_log("panel: texture pack %s",gevrTexpackToggleMsg==3?"on":"off");
+    }
+    if(action==GEVR_PAUSE_RESET_SOUND){audioReset();gevrFriendsMessage("Sound reset");vr_log("pause: sound reset");}
+    if(action==GEVR_PAUSE_TEXPACK && gevrTexpackState()>=0){
+        gevrTexpackToggleMsg=gevrTexpackToggle()+2;   /* 2 off, 3 on */
+        vr_log("pause: texture pack %s",gevrTexpackToggleMsg==3?"on":"off");
     }
     if(action==GEVR_PAUSE_HORDE_RETRY){gevrNativePauseResume();netHordeRetry();}
     if(action==GEVR_PAUSE_RESUME)gevrNativePauseResume();
