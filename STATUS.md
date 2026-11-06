@@ -317,8 +317,9 @@ is goldeneyevr.com, in its own repository.
   In game online, one screen: Match, Rules, Player, Audio and Settings (the
   panel's sections); a tap of Menu opens Match, a hold Settings. Fit tests:
   test_launcher_frame (44 pages) and test_ingame_fit (28 sections), flat,
-  stereo, co-op host and joiner. Open: the online Match/Rules/Player/Audio
-  tabs onto the table after a two-headset round.
+  stereo, co-op host and joiner. After test.19 the online Match/Rules/
+  Player/Audio tabs draw through the same renderer (mpmenu.c's fields via
+  gevrPauseRowsApi; Fun and Audio the table's rows); a two-headset check is owed.
 - Crash reports land as issues in the private MrSco/goldeneye-vr-reports,
   decoded by its Digest workflow; each build's symbols zip goes to its
   "symbols" release.

@@ -31,6 +31,7 @@ struct GevrPauseView {
 };
 struct GevrPauseUi {
     int tab=0;
+    int shownTab=-1;      /* the tab the tab row shows; another tab asked for is brought up */
     int openSection=-1;   /* the Settings tab's section to bring up (the layout tests) */
     bool focusResume=true,confirmLeave=false,confirmAbort=false;
     int kickSlot=-1;
@@ -63,38 +64,136 @@ inline void gevrPauseGaugeWidget(const GevrPauseGaugeVertex* vertices) {
         for(unsigned index:{0u,1u,2u,1u,2u,3u})draw->PrimWriteIdx((ImDrawIdx)(base+i*2+index));
     }
 }
-inline void gevrPauseFieldWidget(const GevrPauseField& f,float x,float y,float width) {
-    ImGui::PushID(f.id);
-    ImGui::SetCursorPos(ImVec2(x,y+7));ImGui::TextUnformatted(f.label);
-    const float labelWidth=ImGui::CalcTextSize(f.label).x+18;
-    ImGui::SetCursorPos(ImVec2(x+labelWidth,y));ImGui::SetNextItemWidth(width-labelWidth);
-    ImGui::BeginDisabled(!f.editable);
-    const ImVec4 gold(.88f,.69f,.25f,1);
-    if(f.kind==GEVR_PAUSE_CHOICE) {
-        ImGui::PushStyleColor(ImGuiCol_Text,gold);
-        if(ImGui::BeginCombo("##value",f.value)) {
-            for(int i=0;i<f.count;i++) {
-                const bool chosen=i==f.selected;
-                if(ImGui::Selectable(gevrPauseChoice(f.id,i),chosen))gevrPauseSelect(f.id,i);
-                if(chosen)ImGui::SetItemDefaultFocus();
-            }
-            ImGui::EndCombo();
-        }
-        ImGui::PopStyleColor();
-    } else if(f.kind==GEVR_PAUSE_SLIDER) {
-        ImGui::PushStyleColor(ImGuiCol_Text,gold);
-        int value=f.selected;
-        if(ImGui::SliderInt("##volume",&value,0,100,"%d%%"))gevrPauseVolume(f.id,value);ImGui::PopStyleColor();
-    } else if(f.kind==GEVR_PAUSE_TOGGLE) {
-        ImGui::PushStyleColor(ImGuiCol_Text,gold);
-        bool on=f.selected!=0;
-        if(ImGui::Checkbox(f.value,&on))gevrPauseStep(f.id,on?1:-1);ImGui::PopStyleColor();
-    } else {
-        if(ImGui::Button("-",ImVec2(44,0)))gevrPauseStep(f.id,-1);
-        ImGui::SameLine();ImGui::TextColored(gold,"%s",f.value);
-        ImGui::SameLine();if(ImGui::Button("+",ImVec2(44,0)))gevrPauseStep(f.id,1);
+/*
+ * The online tabs' rows through the settings renderer (gevr_settings_ui.h), as
+ * the launcher and the Settings tab draw theirs (docs/launcher-unify.md):
+ * mpmenu.c's live match fields (gevrPauseReadField: the map, votes, rules,
+ * bots, your team and loadout) become dropdowns, checkboxes and sliders, one
+ * not yours to change greyed as the host's choice; their behaviour stays
+ * mpmenu.c's (gevrPauseSelect, gevrPauseStep, gevrPauseVolume). Rules' fun
+ * switches and the whole Audio tab are the settings table's own rows
+ * (GEVR_LSEC_MP_FUN, GEVR_LSEC_MP_AUDIO), the launcher's Multiplayer ones,
+ * which set the same host config; mpmenu.c's copies of them are left out.
+ */
+#define GEVR_PAUSE_TABLE_ID 1000       /* a table row here: 1000 + its id in the table */
+struct GevrPauseRowsState {
+    GevrSettingsApi table;             /* the settings table, or a test's rows */
+    GevrPauseField cache[64];          /* the tab's fields, read once a frame by sectionRows */
+    int cached=0;
+    char labels[256][64];              /* "NEXT ROUND READY" as "Next round ready", by id */
+};
+inline GevrPauseRowsState &gevrPauseRows() { static GevrPauseRowsState state; return state; }
+inline bool gevrPauseFunCopy(const GevrPauseField &f) {
+    /* mpmenu.c's fun switches (ids 200 on), but its movement speed: the table's are drawn */
+    static const char *const fun[]={"DK MODE","PAINTBALL","LINE MODE","NO RADAR","HIT IMMUNITY","GUN SIZE"};
+    if(f.id<200)return false;
+    for(const char*name:fun)if(!strcmp(f.label,name))return true;
+    return false;
+}
+inline const GevrPauseField *gevrPauseFieldOf(int id) {
+    GevrPauseRowsState &s=gevrPauseRows();
+    for(int i=0;i<s.cached;i++)if(s.cache[i].id==id)return &s.cache[i];
+    /* not on the tab read last (the Match tab's own places): look it up */
+    for(int tab=GEVR_PAUSE_MATCH;tab<=GEVR_PAUSE_AUDIO;tab++) {
+        GevrPauseField f;
+        for(int i=0;gevrPauseReadField(tab,i,&f);i++)
+            if(f.id==id && s.cached<64){s.cache[s.cached]=f;return &s.cache[s.cached++];}
     }
-    ImGui::EndDisabled();ImGui::PopID();
+    return nullptr;
+}
+inline int gevrPauseRowsCount(){return 4;}
+inline const char *gevrPauseRowsName(int tab){static const char*n[]={"Match","Rules","Player","Audio"};return tab>=0&&tab<4?n[tab]:"";}
+inline int gevrPauseRowsList(int tab,unsigned,int *ids,int max) {
+    GevrPauseRowsState &s=gevrPauseRows();
+    int n=0;
+    s.cached=0;
+    if(tab!=GEVR_PAUSE_AUDIO) {
+        GevrPauseField f;
+        for(int i=0;s.cached<64 && gevrPauseReadField(tab,i,&f);i++) {
+            s.cache[s.cached++]=f;
+            if(tab==GEVR_PAUSE_RULES && gevrPauseFunCopy(f))continue;
+            if(n<max)ids[n]=f.id;
+            n++;
+        }
+    }
+    const int section=tab==GEVR_PAUSE_RULES?GEVR_LSEC_MP_FUN:tab==GEVR_PAUSE_AUDIO?GEVR_LSEC_MP_AUDIO:-1;
+    if(section>=0 && s.table.sectionRows) {
+        int rows[32];
+        const int got=s.table.sectionRows(section,GEVR_SET_LAUNCHER,rows,32);
+        for(int i=0;i<got && i<32;i++){if(n<max)ids[n]=GEVR_PAUSE_TABLE_ID+rows[i];n++;}
+    }
+    return n;
+}
+inline int gevrPauseRowsInfo(int id,GevrSettingInfo *out) {
+    GevrPauseRowsState &s=gevrPauseRows();
+    if(id>=GEVR_PAUSE_TABLE_ID)return s.table.info?s.table.info(id-GEVR_PAUSE_TABLE_ID,out):0;
+    const GevrPauseField *f=gevrPauseFieldOf(id);
+    if(!f || id<0 || id>=256)return 0;
+    char *label=s.labels[id];
+    snprintf(label,64,"%s",f->label);
+    for(int i=1;label[i];i++)if(label[i]>='A'&&label[i]<='Z')label[i]=(char)(label[i]-'A'+'a');
+    out->label=label;out->tooltip=nullptr;
+    out->kind=f->kind==GEVR_PAUSE_TOGGLE?GEVR_SET_TOGGLE:f->kind==GEVR_PAUSE_CHOICE?GEVR_SET_CHOICE:GEVR_SET_RANGE;
+    out->section=out->launcherSection=0;out->where=GEVR_SET_INGAME;
+    return 1;
+}
+inline int gevrPauseRowsPositions(int id) {
+    if(id>=GEVR_PAUSE_TABLE_ID)return gevrPauseRows().table.positions(id-GEVR_PAUSE_TABLE_ID);
+    const GevrPauseField *f=gevrPauseFieldOf(id);
+    if(!f)return 0;
+    /* a stepper (no list of its own) is three: back, as it is, on */
+    return f->kind==GEVR_PAUSE_CHOICE?f->count:f->kind==GEVR_PAUSE_TOGGLE?2:f->kind==GEVR_PAUSE_SLIDER?21:3;
+}
+inline int gevrPauseRowsIndex(int id) {
+    if(id>=GEVR_PAUSE_TABLE_ID)return gevrPauseRows().table.index(id-GEVR_PAUSE_TABLE_ID);
+    const GevrPauseField *f=gevrPauseFieldOf(id);
+    if(!f)return 0;
+    return f->kind==GEVR_PAUSE_SLIDER?(f->selected+2)/5:f->kind==GEVR_PAUSE_STEP?1:f->selected;
+}
+inline int gevrPauseRowsDefault(int id) {
+    return id>=GEVR_PAUSE_TABLE_ID && gevrPauseRows().table.defaultIndex?gevrPauseRows().table.defaultIndex(id-GEVR_PAUSE_TABLE_ID):-1;
+}
+inline void gevrPauseRowsSet(int id,int index) {
+    if(id>=GEVR_PAUSE_TABLE_ID){gevrPauseRows().table.set(id-GEVR_PAUSE_TABLE_ID,index);return;}
+    const GevrPauseField *f=gevrPauseFieldOf(id);
+    if(!f)return;
+    if(f->kind==GEVR_PAUSE_CHOICE)gevrPauseSelect(id,index);
+    else if(f->kind==GEVR_PAUSE_SLIDER)gevrPauseVolume(id,index*5);
+    else if(f->kind==GEVR_PAUSE_TOGGLE){if((index!=0)!=(f->selected!=0))gevrPauseStep(id,index?1:-1);}
+    else if(index!=1)gevrPauseStep(id,index<1?-1:1);
+    gevrPauseRows().cached=0;   /* read again: a choice can change what the tab shows */
+}
+inline void gevrPauseRowsText(int id,int index,char *buf,int size) {
+    if(id>=GEVR_PAUSE_TABLE_ID){gevrPauseRows().table.text(id-GEVR_PAUSE_TABLE_ID,index,buf,size);return;}
+    const GevrPauseField *f=gevrPauseFieldOf(id);
+    if(!f){snprintf(buf,size,"%s","");return;}
+    if(f->kind==GEVR_PAUSE_CHOICE)snprintf(buf,size,"%s",gevrPauseChoice(id,index<0?f->selected:index));
+    else if(f->kind==GEVR_PAUSE_TOGGLE)snprintf(buf,size,"%s",(index<0?f->selected:index)?"On":"Off");
+    else if(f->kind==GEVR_PAUSE_SLIDER)snprintf(buf,size,"%d%%",(index<0?(f->selected+2)/5:index)*5);
+    else snprintf(buf,size,"%s",f->value);
+}
+inline const char *gevrPauseRowsBlocked(int id) {
+    if(id>=GEVR_PAUSE_TABLE_ID)return gevrPauseRows().table.blocked?gevrPauseRows().table.blocked(id-GEVR_PAUSE_TABLE_ID):nullptr;
+    const GevrPauseField *f=gevrPauseFieldOf(id);
+    return f && !f->editable?"Host's choice":nullptr;
+}
+inline GevrSettingsApi gevrPauseRowsApi(const GevrSettingsApi &table) {
+    gevrPauseRows().table=table;
+    GevrSettingsApi a;
+    a.sectionCount=gevrPauseRowsCount;a.sectionName=gevrPauseRowsName;a.sectionRows=gevrPauseRowsList;
+    a.info=gevrPauseRowsInfo;a.positions=gevrPauseRowsPositions;a.index=gevrPauseRowsIndex;
+    a.defaultIndex=gevrPauseRowsDefault;a.set=gevrPauseRowsSet;a.text=gevrPauseRowsText;a.blocked=gevrPauseRowsBlocked;
+    return a;
+}
+/* One field in its own place (the Match tab's map and votes): its label, then its control */
+inline void gevrPauseRowAt(const GevrSettingsApi &api,int id,float x,float y,float width) {
+    GevrSettingInfo info{};
+    if(!api.info(id,&info))return;
+    ImGui::SetCursorPos(ImVec2(x,y+7));ImGui::TextUnformatted(info.label);
+    if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)&&api.blocked(id))gevrTooltip("%s.",api.blocked(id));
+    const float labelWidth=ImGui::CalcTextSize(info.label).x+18;
+    ImGui::SetCursorPos(ImVec2(x+labelWidth,y));
+    gevrSettingControl(api,id,width-labelWidth);
 }
 // The header both in-game windows share (the online pause, the hold-Menu
 // panel): icon and name, radar, health and armour arcs, where you are, a
@@ -123,14 +222,18 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
     ImGui::SetNextWindowBgAlpha(1.0f);
     ImGui::Begin("##match-window",nullptr,ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoCollapse|ImGuiWindowFlags_NoSavedSettings|ImGuiWindowFlags_NoScrollbar);
     gevrPauseHeader(icon,model.radar,model.gauges,model.session,model.status,model.clock,model.clockEnding);
-    /* Settings: the hold-Menu panel's sections, online (docs/launcher-unify.md, phase 4) */
+    /* the tab row, as the launcher's and the panel's (Settings: the panel's sections, online) */
     const char*names[]={"Match","Rules","Player","Audio","Settings"};
-    for(int i=0;i<5;i++) {
-        const bool selected=ui.tab==i;
-        ImGui::SetCursorPos(ImVec2(18+i*198,122));
-        if(selected)ImGui::PushStyleColor(ImGuiCol_Button,ImGui::GetStyleColorVec4(ImGuiCol_TabSelected));
-        if(ImGui::Button(names[i],ImVec2(184,48)))ui.tab=i;
-        if(selected)ImGui::PopStyleColor();
+    const GevrSettingsApi rows=gevrPauseRowsApi(model.settings);
+    ImGui::SetCursorPos(ImVec2(18,112));
+    if(ImGui::BeginTabBar("##match-tabs",ImGuiTabBarFlags_FittingPolicyResizeDown)) {
+        const bool asked=ui.tab!=ui.shownTab;   /* a tab asked for (hold Menu: Settings) */
+        for(int i=0;i<5;i++) {
+            if(!ImGui::BeginTabItem(names[i],nullptr,asked&&ui.tab==i?ImGuiTabItemFlags_SetSelected:0))continue;
+            if(!asked||i==ui.tab){ui.tab=i;ui.shownTab=i;}
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
     }
     if(ui.tab==GEVR_PAUSE_MATCH) {
         if(model.horde) {
@@ -142,14 +245,17 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
             ImGui::SetCursorPos(ImVec2(18,206));ImGui::TextColored(gold,model.horde?"HORDE":"CO-OP MISSION");
             ImGui::SameLine();ImGui::TextUnformatted(model.session);
         } else {
-            GevrPauseField field;
-            for(int i=0;gevrPauseReadField(GEVR_PAUSE_MATCH,i,&field);i++) {
-                if(!strcmp(field.label,"MAP"))gevrPauseFieldWidget(field,18,206,398);
-                else if(!strcmp(field.label,"WEAPONS"))gevrPauseFieldWidget(field,440,206,398);
-                else if(!strcmp(field.label,"SCENARIO"))gevrPauseFieldWidget(field,862,206,398);
-                else if(!strcmp(field.label,"NEXT ROUND"))gevrPauseFieldWidget(field,742,716,518);
-                else if(!strcmp(field.label,"NEXT MAP"))gevrPauseFieldWidget(field,18,772,604);
-                else if(!strcmp(field.label,"NEXT WEAPONS"))gevrPauseFieldWidget(field,660,772,602);
+            int ids[16];
+            const int n=rows.sectionRows(GEVR_PAUSE_MATCH,GEVR_SET_INGAME,ids,16);
+            for(int i=0;i<n && i<16;i++) {
+                const GevrPauseField *field=gevrPauseFieldOf(ids[i]);
+                if(!field)continue;
+                if(!strcmp(field->label,"MAP"))gevrPauseRowAt(rows,ids[i],18,206,398);
+                else if(!strcmp(field->label,"WEAPONS"))gevrPauseRowAt(rows,ids[i],440,206,398);
+                else if(!strcmp(field->label,"SCENARIO"))gevrPauseRowAt(rows,ids[i],862,206,398);
+                else if(!strcmp(field->label,"NEXT ROUND"))gevrPauseRowAt(rows,ids[i],742,716,518);
+                else if(!strcmp(field->label,"NEXT MAP"))gevrPauseRowAt(rows,ids[i],18,772,604);
+                else if(!strcmp(field->label,"NEXT WEAPONS"))gevrPauseRowAt(rows,ids[i],660,772,602);
             }
             ImGui::SetCursorPos(ImVec2(18,722));ImGui::TextColored(gold,"NEXT ROUND");
             if(model.host && model.voting) {
@@ -230,16 +336,13 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
         if(ImGui::Button("Reset sound",ImVec2(330,48)))action=GEVR_PAUSE_RESET_SOUND;
         if(ImGui::IsItemHovered())gevrTooltip("If the sound turns crunchy or echoes, this restarts it.");
     } else {
-        GevrPauseField field;
-        const bool audio=ui.tab==GEVR_PAUSE_AUDIO;
-        int fields=0;while(gevrPauseReadField(ui.tab,fields,&field))fields++;
-        /* two columns at 76 apart; a full Rules tab (a custom set and bots) closes them up above the buttons */
-        const int rows=audio?fields:(fields+1)/2;
-        const int step=rows>8?(800-48-212)/(rows-1):76;
-        for(int i=0;gevrPauseReadField(ui.tab,i,&field);i++)
-            gevrPauseFieldWidget(field,audio?18:18+(i%2)*642,212+(audio?i:i/2)*step,audio?1100:602);
+        /* Rules, Player, Audio: the rows in one or two columns, as every settings page; none scrolls */
+        ImGui::SetCursorPos(ImVec2(18,184));
+        ImGui::BeginChild("##pause-rows",ImVec2(1244,620),false,ImGuiWindowFlags_NoScrollbar);
+        gevrSettingsSection(rows,ui.tab,GEVR_SET_INGAME);
+        ImGui::EndChild();
         ImGui::SetCursorPos(ImVec2(18,816));
-        if(212+(rows-1)*step+48<810) ImGui::TextDisabled("%s",ui.tab==GEVR_PAUSE_AUDIO?"Volumes and microphone are yours. The host chooses voice mode.":ui.tab==GEVR_PAUSE_RULES?"Movement speed applies immediately. Other round rules and fun options apply on the next load.":model.coop?"Your character and status. Teammates continue while this window is open.":"Your character, team and loadout. The match continues while this window is open.");
+        ImGui::TextDisabled("%s",ui.tab==GEVR_PAUSE_AUDIO?"Volumes and microphone are yours. The host chooses voice mode.":ui.tab==GEVR_PAUSE_RULES?"Movement speed applies immediately. Other round rules and fun options apply on the next load.":model.coop?"Your character and status. Teammates continue while this window is open.":"Your character, team and loadout. The match continues while this window is open.");
     }
     ImGui::SetCursorPos(ImVec2(18,864));ImGui::Separator();
     ImGui::SetCursorPos(ImVec2(18,886));

@@ -243,10 +243,20 @@ batch's branch.
   - A hold opens it on Settings. The separate panel no longer opens online.
 - **Solo is unchanged.** A tap opens GoldenEye's watch; a hold opens the panel, which is
   the same sections with the solo footer.
-- **Not done: the online Match, Rules, Player and Audio tabs.** They still read
-  `mpmenu.c`'s field list: the live match's votes, map, weapon sets, custom slots, bots,
-  equalization and volumes. The launcher already has Fun and Audio as table rows; moving
-  the in-game tabs onto them waits for a two-headset round.
+- **The online Match, Rules, Player and Audio tabs (after test.19).**
+  - They use the same tab row and renderer as the rest. An adapter in
+    `gevr_pause_widgets.h` (`gevrPauseRowsApi`) shows `mpmenu.c`'s live match fields as
+    table rows: dropdowns, checkboxes and sliders, with a field you can't change greyed
+    "Host's choice". What each field does is still `mpmenu.c`'s: votes, map, weapon
+    sets, custom slots, bots, equalization, team, character and loadout.
+  - Rules adds the table's Fun rows in place of `mpmenu.c`'s copies. Audio is the table's
+    Audio rows. They are the same rows as the launcher's Multiplayer > Host > Fun and
+    Audio, and set the same host config.
+  - Rules, Player and Audio draw in one or two columns in a box that doesn't scroll.
+  - Match keeps its scoreboard and objectives. Its map, weapon and vote fields use the
+    same control in their own places.
+  - A two-headset round is owed: as host and client, check the live rules and the
+    greyed "Host's choice".
 - **Tests.** `test_pause_ui` checks:
   - that each section fits the Settings tab with no scrolling;
   - Reset sound and HD textures on the Settings tab.
