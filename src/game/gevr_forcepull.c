@@ -517,7 +517,7 @@ s32 gevrPullLitModel(Model *model, u32 *rgb)
 
         if (lit != NULL && lit->parent != NULL && lit->obj != NULL && lit->obj->model == model && s_pull[ctrl].prop == NULL)
         {
-            *rgb = 0xFFE69A00u;   /* the floor glow's gold */
+            *rgb = 0xFFE69AA0u;   /* the floor glow's gold, blended in at 63% */
             return TRUE;
         }
     }

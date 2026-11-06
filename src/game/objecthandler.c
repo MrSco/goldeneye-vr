@@ -997,7 +997,8 @@ void drawjointlist(ModelRenderData *data, ModelHitEntry *entry)
              * does (its own shade, objRender); here it shares his (chr.c) */
             u32 lit;
 
-            data->fogcolour.word = gevrPullLitModel(entry->model, &lit) ? (lit & 0xFFFFFF00u) | (gevrFog & 0xFFu) : gevrFog;
+            /* the colour is blended in by its alpha (G_RM_FOG_PRIM_A): his own is near none */
+            data->fogcolour.word = gevrPullLitModel(entry->model, &lit) ? lit : gevrFog;
         }
 #endif
 
