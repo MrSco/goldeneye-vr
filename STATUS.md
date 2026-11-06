@@ -293,6 +293,12 @@ is goldeneyevr.com, in its own repository.
   5a7bfc73); force pull off by default, saved as ForcePull (the old
   GestureForcePull is not read, so test.11-16's saved "on" goes once).
   Headset checks owed for all of it and for the launcher below.
+- v0.5.15-test.18 (vc 113, protocol 26): Bean holes in a level's ground
+  closed at load (Statue's sky through the grass, d3aef604) and Bean
+  doorways fitted to GoldenEye's doors (Dab's Mod closeDoorGaps, reveals,
+  slots; Control's lift door, 57e51a62), from the texture thread's
+  t3/47dea5a9. Headset checks owed: Statue's hedge and fence, Control's
+  lift door, doorways on other levels.
 - Launcher unification (docs/launcher-unify.md), all five phases, in test.17. One
   settings table (port/src/gevr_settings.c) drawn by the hold-Menu panel and
   the launcher; the launcher's tabs Play, Multiplayer, Controls (Hands,
