@@ -1236,6 +1236,12 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
         }
         else if (((prop->type == PROP_TYPE_OBJ) || (prop->type == PROP_TYPE_WEAPON)) || (prop->type == PROP_TYPE_DOOR))
         {
+            /* still on last frame's on-screen list but its matrices are gone
+               (picked up, dropped, freed): crash sig-e97854f4 */
+            if (prop->obj == NULL || prop->obj->model == NULL || prop->obj->model->render_pos == NULL)
+            {
+                continue;
+            }
             sub_GAME_7F04E9BC(prop, &shotdata);
         }
     }
