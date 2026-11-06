@@ -20,7 +20,11 @@ moves.
 - **Target:** point an empty hand at something within **3.5 m** (the Magnet
   watch's range) and in line of sight. Whatever is nearest the hand's
   pointing ray within a narrow cone (about 15°) is the target. Pointing down
-  at small items searches a little wider (GEVR PC).
+  at small items searches a little wider (GEVR PC). The ray runs along the
+  arm, from a guessed shoulder (18 cm below the eye, 17 cm to that side)
+  through the hand, so the wrist's angle doesn't move it (test.22; test.21's
+  ray was the controller's barrel and followed the wrist). A hand within
+  about 35 cm of the shoulder blends back to the barrel.
 - **Lock:** squeeze the grip. What is lit stays locked (a steady bright
   ring) wherever the hand turns, until the flick or the grip lets go.
   Letting go before the flick drops the lock. If the squeeze turned the
@@ -43,7 +47,8 @@ moves.
 - **Arrival:** a gun is in the hand at once, with no draw (raise) animation,
   ready to fire. Ammo, armour, keys and mission items are collected with the
   game's pickup sound and text.
-- **Close grab:** the existing 25 cm Grip to hand stays. It also works on a
+- **Close grab:** the existing 25 cm Grip to hand stays, always on (test.22
+  dropped its toggle: force pull is the long-range grab). It also works on a
   gun still falling from a dying guard (mid-air catch).
 
 ### What can be pulled
@@ -87,7 +92,7 @@ The defaults follow GEVR PC, except force pull itself, which is off until chosen
 | Force pull | off (GEVR PC: on) |
 | Pull and disarm | on |
 | Auto pickup | on (new: off means walking over a gun leaves it, so you grab or pull it) |
-| Grip to hand | on; WIP label dropped once headset-passed |
+| Grip to hand | always on (no toggle since test.22) |
 | Pull visuals | on |
 
 ## Online
@@ -132,7 +137,8 @@ Single player first, then online (protocol 26, below).
   walked, and it re-registers its rooms as `objTick` does for a moving
   object. So it draws in its own art set (N64, HD, Bean or GE-X).
 - **Targeting:** only props on screen count, nearest to the hand's ray
-  (the barrel direction of a held gun).
+  (shoulder through hand, `gevrPullArmRay`; the flick still reads the
+  barrel, as it is a turn of the wrist).
 - **Line of sight:** walking over uses the same rule (`objTickPlayer`): the
   tile walk from the player must be clear of doors and end on the prop's
   tile. A drop still in the air only needs the clear walk.

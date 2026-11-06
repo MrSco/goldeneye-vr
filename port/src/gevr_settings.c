@@ -30,7 +30,7 @@ extern int VrTouchModel;
 extern int VrAimNoLean, VrAimSight;
 extern int VrMotionThrowing;
 extern float VrMotionThrowStrength, VrMotionThrowPitch, VrMotionThrowGazeAssist;
-extern int VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab;
+extern int VrGestureGripUse, VrGestureMineGrab;
 extern int VrForcePull, VrPullDisarm, VrAutoPickup, VrPullVisuals;
 extern int VrBodySlots, VrBodySlotSize;
 extern int VrWatchGesturePause;
@@ -113,6 +113,7 @@ typedef struct Row {
     /* a toggle's two names, when not Off/On */
     const char *off, *on;
     const char *(*blocked)(void);   /* why it can't change now */
+    int (*forced)(void);            /* a toggle shown on (and on in play) while this says 1 */
     int (*shown)(void);             /* hidden while this says 0 */
     void (*fset)(float v);          /* sets it instead of the variable */
     void (*after)(void);            /* applies it after setting */
@@ -131,8 +132,9 @@ static const char *blockedPassthrough(void) { return vr_passthrough_supported() 
 static const char *blockedReload(void) { return VrGexGuns ? NULL : "Needs GoldenEye X"; }
 static const char *blockedHat(void) { return gevrHatAvailable() ? NULL : "Get it in Mods"; }
 static const char *blockedBeanFill(void) { return gevrTexpackFillAvailable() ? NULL : "Needs an HD pack"; }
-static const char *blockedGripUse(void) { return VrManualReloading && VrGexGuns ? "Hand reload needs it" : NULL; }
-static const char *blockedHolster(void) { return VrBodySlots ? "Body slots replace it" : NULL; }
+/* hand reload takes B, so grip use stays on with it (bondview2.c gevrHandReloadActive): shown on, not the stored value (headset, test.21) */
+static int forcedGripUse(void) { return VrManualReloading && VrGexGuns; }
+static const char *blockedGripUse(void) { return forcedGripUse() ? "On for hand reload" : NULL; }
 static const char *blockedMsaa(void) { return vr_eye_msaa_supported() ? NULL : "Not on this headset"; }
 static const char *blockedDismember(void) { return VrRagdolls ? NULL : "Needs ragdolls"; }
 static const char *blockedBean(void) { return gevrBeanIsAvailable() ? NULL : "Needs Bean's files"; }
@@ -410,13 +412,11 @@ static const Row s_rows[] = {
       .names = s_slotSizeNames, .count = 3, .def = NAN, .blocked = blockedSlots },
     { .label = "Show slots", .tooltip = "Draw what the hips, chest and belt hold when you look down.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrBodySlotShow, .def = NAN, .blocked = blockedSlots },
-    { .label = "Holster WIP", .tooltip = "Grip at your hip to holster or draw.", .kind = GEVR_SET_TOGGLE,
-      .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrGestureHolster, .def = NAN, .blocked = blockedHolster },
     { .label = "Hand reload WIP", .tooltip = "Reload by taking a magazine from your belt (GoldenEye X guns).", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrManualReloading, .def = NAN, .blocked = blockedReload },
     { .label = "Grip use", .tooltip = "Grip doors, buttons and switches to use them.", .kind = GEVR_SET_TOGGLE,
-      .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrGestureGripUse, .def = NAN, .blocked = blockedGripUse },
-    TOGGLE(GEVR_SEC_GESTURES, "Grip hand WIP", VrGesturePickup, "Grip near a gun or item to take it into that hand."),
+      .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrGestureGripUse, .def = NAN, .blocked = blockedGripUse,
+      .forced = forcedGripUse },
     TOGGLE(GEVR_SEC_GESTURES, "Mine re-grab", VrGestureMineGrab, "Grip your own stuck mine to take it back."),
     TOGGLE(GEVR_SEC_GESTURES, "Force pull WIP", VrForcePull, "Point an empty hand at a gun or item, squeeze to lock, flick to pull, and grip to catch it."),
     { .label = "Pull disarm", .tooltip = "Force pull can take a gun out of a guard's hand. Never another player's.",
@@ -642,6 +642,7 @@ int gevrSettingIndex(int id)
     if (r->cget) return r->cget();
     switch (r->kind) {
         case GEVR_SET_TOGGLE:
+            if (r->forced && r->forced()) return 1;
             return r->ivar && *r->ivar ? 1 : 0;
         case GEVR_SET_CHOICE:
             /* the value it holds, else the first at or above it (options.c's walk), else the last */

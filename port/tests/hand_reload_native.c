@@ -33,7 +33,7 @@ static int gex[2], buzzes, fills, tracked[2] = {1, 1};
 #define reserve player.ammoheldarr[1]
 static int online, playerSlot, localSlot;
 static int s_gevrGripGesture[2], gripHeld[2];
-static int s_gevrGripPendAge[2], VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab, VrForcePull;
+static int s_gevrGripPendAge[2], VrGestureGripUse, VrGestureMineGrab, VrForcePull;
 typedef struct { int MagSize, AmmoType; } WeaponStats;
 static WeaponStats stats = {30, 1};
 static WeaponStats *get_ptr_item_statistics(int item) { (void)item; return &stats; }
@@ -768,11 +768,12 @@ static void reloadIndicators(void)
 static void requiredGripUse(void)
 {
     reset();
-    VrGestureHolster = VrGestureGripUse = VrGesturePickup = VrGestureMineGrab = 0;
+    VrGestureGripUse = VrGestureMineGrab = 0;
     gevrGripGestureInput(1, 1, 1); assert(s_gevrGripGesture[1] == 1);
     gevrGripGestureInput(1, 0, 0); assert(s_gevrGripGesture[1] == 0);
     VrManualReloading = 0;
-    gevrGripGestureInput(1, 1, 1); assert(s_gevrGripGesture[1] == 3);
+    /* grabbing within reach is always on (test.22): a press is still a gesture to decide */
+    gevrGripGestureInput(1, 1, 1); assert(s_gevrGripGesture[1] == 1);
     gevrGripGestureInput(1, 0, 0);
     VrManualReloading = 1;
 }

@@ -48,7 +48,7 @@
 #define GEVR_TOUCH_MIN_X      24
 
 extern int VrTouchModel, VrLeftHandedMode, VrSwapJoysticks, VrPlayMode, VrMotionThrowing;
-extern int VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab, VrBodySlots;
+extern int VrGestureGripUse;
 extern s32 gevrIsThrowable(s32 item);              /* port/src/input.c */
 extern const char *gevrHmdName(void);              /* vr_openxr.cpp */
 extern const char *gevrTouchProfileName(void);     /* vr_input.cpp */
@@ -525,7 +525,6 @@ static s32 gevrTouchRows(s32 phys, const GevrTouchPad *pad, GevrTouchRow rows[6]
     const s32 click = (pad->buttons & 8) != 0;
     const s32 throws = g_CurrentPlayer != NULL && VrMotionThrowing
         && gevrIsThrowable(getCurrentPlayerWeaponId(gun ? GUNRIGHT : GUNLEFT));
-    const s32 gestures = VrGestureHolster || VrGestureGripUse || VrGesturePickup || VrGestureMineGrab || VrBodySlots;
     s32 n = 0;
 
     rows[n].name = "Trigger";
@@ -546,7 +545,7 @@ static s32 gevrTouchRows(s32 phys, const GevrTouchPad *pad, GevrTouchRow rows[6]
     }
     else
     {
-        rows[n].action = gevrDualWielding() ? "Sight" : gestures ? "Grab" : "Hold gun";
+        rows[n].action = gevrDualWielding() ? "Sight" : "Grab";
     }
     rows[n++].lit = pad->grip >= 0.5f;
     rows[n].name = "Stick";

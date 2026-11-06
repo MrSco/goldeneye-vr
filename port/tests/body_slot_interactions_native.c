@@ -45,7 +45,7 @@ static struct Player *g_CurrentPlayer = &player;
 typedef struct { int slot, pick, gripHeld, quiet, n, choices[24], steps, throwReady, looking; float ms, lookMs, settledMs; GevrBodyStick stick; } GevrBodyHand;
 static GevrBodyHand s_bodyHand[2];
 static GevrBodyMru s_bodyMru[GEVR_BODY_SLOTS];
-static int s_bodyLive = 1, VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab, VrForcePull;
+static int s_bodyLive = 1, VrGestureGripUse, VrGestureMineGrab, VrForcePull;
 void gevrPullGripLetGo(int ctrl) { (void)ctrl; }   /* gevr_forcepull.c */
 void gevrPullGripInput(int ctrl, int held) { (void)ctrl; (void)held; }   /* gevr_forcepull.c: the catch's grip */
 int gevrPullClaimsPress(int ctrl) { (void)ctrl; return 0; }   /* gevr_forcepull.c: no pull in flight */
@@ -81,7 +81,6 @@ static void gevrBodyBuzz(int ctrl, int event) { (void)ctrl; (void)event; }
 static void gunRequestHandWeaponChange(int hand, int pick, int dir) { (void)hand; (void)dir; changes++; lastChoice = pick; }
 static int gevrBodyItemKept(int item) { (void)item; return 0; }
 static int gevrBodySlotForItem(int item, int hand) { (void)item; (void)hand; return 0; }
-static int gevrHandReloadActive(void) { return 0; }
 int gevrBodySlotsOn(void) { return s_bodyLive; }
 static void gevrGestureTuneRead(void) {}
 void gevrBodySlotsTick(void) {} /* Test positions and settled times are supplied explicitly. */

@@ -14,7 +14,7 @@ extern "C" {
 float VrUseSnapTurn, VrComfortVignette, VrMotionThrowStrength = 1, VrMotionThrowPitch, VrMotionThrowGazeAssist = .5f;
 float VrDismemberDamage = 1, VrScreenDistance = 3, VrScreenFov = 60;
 int VrMovementSpeed, VrSmoothTurnSpeed = 120, VrWatchFaceStatus, VrAimSteady, VrTouchModel, VrAimNoLean, VrAimSight;
-int VrMotionThrowing, VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab;
+int VrMotionThrowing, VrGestureGripUse, VrGestureMineGrab;
 int VrForcePull, VrPullDisarm, VrAutoPickup, VrPullVisuals, VrBodySlots, VrBodySlotSize, VrBodySlotShow = 1;
 int VrWatchGesturePause, VrManualReloading, VrPerWeaponRecoil, VrNoKnockback, VrNoHitstun, VrDamageFlash;
 int VrThirdPerson, VrThirdPersonDist = 150, VrThirdPersonHeight = 20, VrThirdPersonSide = 35;

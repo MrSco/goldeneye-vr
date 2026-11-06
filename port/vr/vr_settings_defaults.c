@@ -76,9 +76,7 @@ int VrMovementSpeed = 0, VrMpMovementSpeed = 0;
 /* GEVR PC's grip gestures (CONTROLS.md, vr450..vr453), one toggle each. A
  * gesture claims a fresh grip press only with the hand in its zone; any other
  * press aims as before (port/src/input.c gevrGripArbiter). */
-int VrGestureHolster  = 1;   /* grip at the hip holsters the gun, again draws it (vr451) */
 int VrGestureGripUse  = 1;   /* grip with the hand at a door or switch uses it (vr450, #90) */
-int VrGesturePickup   = 1;   /* Grip to hand: grip at a gun on the floor puts it in that hand (vr451); on with force pull (GEVR PC's defaults, docs/force-pull.md) */
 int VrGestureMineGrab = 1;   /* grip at your own stuck mine takes it back (vr450.2) */
 /* Force pull (docs/force-pull.md, src/game/gevr_forcepull.c): an empty hand
  * pointed at something out of reach and squeezed flies it to the hand; pull

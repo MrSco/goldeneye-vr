@@ -21,8 +21,8 @@ part that misbehaves can be reverted alone.
 
 Where to switch it: launcher Controls > Gestures... > BODY SLOTS (toggle,
 Small/Normal/Large reach, Show); in a mission, Menu > Game Options > VR
-settings > Gestures ("Body slots WIP", "Slot size"). The old hip holster is
-greyed out while body slots are on.
+settings > Gestures ("Body slots WIP", "Slot size"). The old hip holster
+gesture was removed in test.22: body slots replace it.
 
 ## How it works
 
@@ -367,8 +367,8 @@ Mixes and regressions:
     be blocked by the chair (use the wheel).
 17. Performance: Show stats, look down at the hips. DRAWS should rise by a
     handful only.
-18. Body slots off: the old hip holster, the wheel and belt reload work as
-    before.
+18. Body slots off: the wheel and belt reload work as before (the old hip
+    holster is gone since test.22).
 
 Online (two headsets, when convenient): Doubles keeps both hands matching;
 the CTF flag carrier is refused at every slot ("FLAG"); dead or spectating,

@@ -153,8 +153,16 @@ int main(void)
     check(gevrSettingBlocked(find("Dismemberment")) != NULL, "dismemberment needs ragdolls");
     VrGexGuns = 0;
     check(gevrSettingBlocked(find("Hand reload WIP")) != NULL, "hand reload needs GoldenEye X");
-    VrBodySlots = 1;
-    check(gevrSettingBlocked(find("Holster WIP")) != NULL, "body slots replace the hip holster");
+    /* hand reload holds grip use on: blocked, and shown on whatever the ini says */
+    VrGexGuns = 1;
+    VrManualReloading = 1;
+    VrGestureGripUse = 0;
+    check(gevrSettingBlocked(find("Grip use")) != NULL && gevrSettingIndex(find("Grip use")) == 1,
+          "grip use shows on while hand reload needs it");
+    VrManualReloading = 0;
+    check(gevrSettingBlocked(find("Grip use")) == NULL && gevrSettingIndex(find("Grip use")) == 0,
+          "grip use is its own again without hand reload");
+    VrGexGuns = 0;
     VrBodySlots = 0;
     check(gevrSettingBlocked(find("Show slots")) != NULL && gevrSettingBlocked(find("Slot size")) != NULL,
           "the slots' size and display need body slots");

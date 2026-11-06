@@ -71,7 +71,7 @@ production.append(function(read("src/game/gunfire.c"), "void sub_GAME_7F0649D8(e
     "sub_GAME_7F0649D8", "testTopUp", 1))
 production.extend(function(view, signature) for signature in (
     "static void gevrWorldToLocal(",
-    "static s32 gevrHandOnBody(", "static s32 gevrHipZone(",
+    "static s32 gevrHandOnBody(",
     "static s32 gevrReloadGun(", "s32 gevrReloadSupportGun(void)\n{", "static s32 gevrReloadMagazineFed(",
     "s32 gevrStereoReloadHandMatrix(Mtxf *out)\n{",
     "s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)\n{",

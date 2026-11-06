@@ -17722,7 +17722,7 @@ void gevrAutoAdvanceHand(s32 hand)
 #include "gevr_grip_gesture.h"
 #include "gevr_pull.h"
 
-extern int VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab;
+extern int VrGestureGripUse, VrGestureMineGrab;
 extern int VrForcePull;   /* force pull (gevr_forcepull.c) */
 extern int VrBodySlots;   /* body slots replace the hip holster (gevr_bodyslots.c) */
 extern int VrMotionThrowing;
@@ -17743,7 +17743,6 @@ static f32 s_gevrGestureTune[GEVR_GT_COUNT] = {
 static s32 s_gevrGripGesture[2];   /* per controller: 0 idle, 1 a press to decide, 2 taken until let go, 3 aims */
 static s32 s_gevrGripPendAge[2];
 #define GEVR_GRIP_PEND_POLLS 30   /* pad reads, about half a second */
-static s32 s_gevrHolsterItem[2] = { -1, -1 };   /* per hand: what the hip holds, -1 nothing */
 
 void gevrGripGestureInput(s32 ctrl, s32 pressed, s32 held)
 {
@@ -17767,13 +17766,10 @@ void gevrGripGestureInput(s32 ctrl, s32 pressed, s32 held)
     }
     if (pressed)
     {
-        extern int gevrBodySlotsOn(void);
-
-        s_gevrGripGesture[ctrl] = (VrGestureHolster || VrGestureGripUse || gevrHandReloadActive() || VrGesturePickup || VrGestureMineGrab || VrForcePull
-                                   || gevrBodySlotsOn()) ? 1 : 3;
+        /* grabbing within reach is always on (the Grip hand and hip Holster toggles went in test.22) */
+        s_gevrGripGesture[ctrl] = 1;
         s_gevrGripPendAge[ctrl] = 0;
-        sysLogPrintf(LOG_NOTE, "stereo: grip (%s) pressed%s", ctrl ? "gun hand" : "off hand",
-                     s_gevrGripGesture[ctrl] == 1 ? "" : ", every gesture off");
+        sysLogPrintf(LOG_NOTE, "stereo: grip (%s) pressed", ctrl ? "gun hand" : "off hand");
     }
     /* The pad is read every retrace, the game ticks once a game frame: in a
      * busy room three or four retraces (user: three polls let the gate switch's
@@ -17878,51 +17874,6 @@ static s32 gevrHandOnBody(s32 ctrl, const f32 at[3], f32 *dropOut, f32 *sideOut,
     return TRUE;
 }
 
-/* The hand at its own hip: below the eye, out to its side and not ahead. */
-static s32 gevrHipZone(s32 ctrl, const f32 at[3])
-{
-    f32 drop, side, ahead;
-
-    return gevrHandOnBody(ctrl, at, &drop, &side, &ahead)
-        && drop >= s_gevrGestureTune[GEVR_GT_HIPDROP] && side >= s_gevrGestureTune[GEVR_GT_HIPSIDE]
-        && ahead <= s_gevrGestureTune[GEVR_GT_HIPAHEAD];
-}
-
-/* the hand's item to the hip, or back out of it */
-static s32 gevrHolsterTry(s32 hand)
-{
-    s32 cur = gevrHandSelected(hand);
-    s32 empty = hand == GUNLEFT ? ITEM_UNARMED : ITEM_FIST;
-    s32 item;
-
-    if (hand == GUNLEFT && !gevrLeftPanelAvailable())
-    {
-        return FALSE;
-    }
-    if (getPlayerCount() >= 2 && get_scenario() == 2 && bondinvIsAliveWithFlag())
-    {
-        return FALSE;   /* the flag's carrier keeps it (gevrCycleHandWeaponInternal) */
-    }
-    if (cur != ITEM_FIST && cur != ITEM_UNARMED)
-    {
-        if (gevrStereoWatchItem(cur) || cur == ITEM_TANKSHELLS || cur == ITEM_TOKEN)
-        {
-            return FALSE;
-        }
-        s_gevrHolsterItem[hand] = cur;
-        gunRequestHandWeaponChange(hand, empty, 1);
-        return TRUE;
-    }
-    item = s_gevrHolsterItem[hand];
-    s_gevrHolsterItem[hand] = -1;
-    if (item < 0 || !gevrLeftHasGun(item) || !gevrHandItemAllowed(hand, item))
-    {
-        return FALSE;   /* nothing there, or no longer carried */
-    }
-    gunRequestHandWeaponChange(hand, item, 1);
-    return TRUE;
-}
-
 /* a gun just picked up goes into the hand that took it, where the rules allow */
 static void gevrGripEquip(s32 hand, s32 item)
 {
@@ -17958,7 +17909,7 @@ static s32 gevrGripGestureTry(s32 ctrl)
 {
     extern s32 trigger_haptic_vibration_c(int hand_index, float amplitude, float duration);
     extern int vr_haptics_ready(void);
-    static const char *names[] = { "holster", "mine back", "to hand", "use", "force pull" };
+    static const char *names[] = { "(none)", "mine back", "to hand", "use", "force pull" };
     s32 hand = ctrl ? GUNRIGHT : GUNLEFT;
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
     f32 at[3], right[3], up[3], back[3], p[3];
@@ -18043,11 +17994,7 @@ static s32 gevrGripGestureTry(s32 ctrl)
                      o ? o->flags : 0, o ? o->flags2 : 0, o ? o->runtime_bitflags : 0);
     }
 
-    if (VrGestureHolster && !VrBodySlots && gevrHipZone(ctrl, at) && gevrHolsterTry(hand))
-    {
-        done = 0;
-    }
-    else if (VrGestureMineGrab && (!netIsActive() || (gevrCoopActive() && gevrCoopIsHost()))
+    if (VrGestureMineGrab && (!netIsActive() || (gevrCoopActive() && gevrCoopIsHost()))
              && (prop = gevrHandFindProp(p, s_gevrGestureTune[GEVR_GT_MINE] * cm, GEVR_HAND_MINE)) != NULL)
     {
         s_gevrGripGrabbing = TRUE;
@@ -18057,7 +18004,7 @@ static s32 gevrGripGestureTry(s32 ctrl)
         }
         s_gevrGripGrabbing = FALSE;
     }
-    if (done < 0 && VrGesturePickup
+    if (done < 0
         && (prop = gevrHandFindProp(p, s_gevrGestureTune[GEVR_GT_PICKUP] * cm, GEVR_HAND_PICKUP)) != NULL)
     {
         s32 got = prop->type == PROP_TYPE_WEAPON && prop->weapon != NULL ? prop->weapon->weaponnum : -1;
@@ -20258,7 +20205,6 @@ s32 gevrBodyHandSelected(s32 hand)
 /* the old hip holster's memory, from a new stage (gevrBodySlotsReset) */
 void gevrHolsterReset(void)
 {
-    s_gevrHolsterItem[0] = s_gevrHolsterItem[1] = -1;
 }
 
 /* the wheel's list for a hand (items and names), leaving the wheel's own as it was */
