@@ -299,6 +299,14 @@ is goldeneyevr.com, in its own repository.
   slots; Control's lift door, 57e51a62), from the texture thread's
   t3/47dea5a9. Headset checks owed: Statue's hedge and fence, Control's
   lift door, doorways on other levels.
+- v0.5.15-test.19 (vc 114, protocol 26): a cycle tap reaches remote mines
+  again (the empty check counts the reserve, not the ROM's HAS_AMMO flag the
+  out-of-ammo switch reads; d4db025f; tester, test.17 Jungle); a Bean decal
+  over another on its wall stands 0.5 unit off it, so the later wins
+  (Streets' poster over a newspaper; 2-85 faces on 13 of 24 levels;
+  14d46207). Test fixes: ragdoll fixture stubs the distance fade, scope mesh
+  reads UTF-8 (4521aecf); the local runner sends six tests to WSL, so all
+  103 run. Headset checks owed: Jungle mines by tap, Streets' posters.
 - Launcher unification (docs/launcher-unify.md), all five phases, in test.17. One
   settings table (port/src/gevr_settings.c) drawn by the hold-Menu panel and
   the launcher; the launcher's tabs Play, Multiplayer, Controls (Hands,
