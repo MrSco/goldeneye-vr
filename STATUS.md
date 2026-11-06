@@ -307,6 +307,10 @@ is goldeneyevr.com, in its own repository.
   14d46207). Test fixes: ragdoll fixture stubs the distance fade, scope mesh
   reads UTF-8 (4521aecf); the local runner sends six tests to WSL, so all
   103 run. Headset checks owed: Jungle mines by tap, Streets' posters.
+- v0.5.15-test.20 (vc 115, protocol 26): the online match screen's Match,
+  Rules, Player and Audio tabs draw through the settings renderer, a tab row
+  like the launcher's (244bd55a). For a two-headset round: the host's live
+  rules, Fun and voice mode; the client's rows greyed "Host's choice".
 - Launcher unification (docs/launcher-unify.md), all five phases, in test.17. One
   settings table (port/src/gevr_settings.c) drawn by the hold-Menu panel and
   the launcher; the launcher's tabs Play, Multiplayer, Controls (Hands,
