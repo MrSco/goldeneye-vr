@@ -17582,11 +17582,18 @@ static void gevrWeaponPanelEquip(s32 hand, const GevrWpEntry *e, s32 dir)
  * 2026-11-05: a tester's N64 habit of tapping to the gun with ammo kept
  * landing on empty guns, which the out-of-ammo switch then left again).
  * Fists, the holster, gadgets and the watch have no ammo type and stay.
+ *
+ * The reserve is counted here, not only asked of bondwalkItemHasAmmo: that also
+ * wants the ROM's WEAPONSTATBITFLAG_HAS_AMMO, which marks what the out-of-ammo
+ * switch may pick and leaves out the remote mines, so a full belt of them read
+ * as empty and the tap never reached them (tester, test.17 Jungle: mines out of
+ * the cycle from the start, Unarmed stuck once the guns ran dry). bondwalkItemHasAmmo
+ * still adds the stored magazines and GE-X's mines still out to detonate.
  */
 static s32 gevrCycleItemEmpty(s32 hand, s32 item)
 {
     if (item == ITEM_UNARMED || item == ITEM_FIST || item >= ITEM_BOMBCASE) return FALSE;
-    if (get_ammo_type_for_weapon(item) == 0 || bondwalkItemHasAmmo(item)) return FALSE;
+    if (get_ammo_type_for_weapon(item) == 0 || get_ammo_count_for_weapon(item) > 0 || bondwalkItemHasAmmo(item)) return FALSE;
     return !(item == getCurrentPlayerWeaponId(hand) && get_ammo_in_hands_magazine(hand) > 0);
 }
 

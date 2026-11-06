@@ -74,7 +74,13 @@ s32 gevrGexWatchItem(s32 item) {
 s32 get_ammo_type_for_weapon(ITEM_IDS item) { return item > ITEM_KNIFE && item < ITEM_BOMBCASE && item != ITEM_TRIGGER ? item : 0; }
 s32 get_ammo_in_hands_magazine(GUNHAND hand) { return player.hands[hand].weapon_ammo_in_magazine; }
 s32 get_ammo_in_hands_weapon(GUNHAND hand) { return reserve[player.hands[hand].weaponnum]; }
-s32 bondwalkItemHasAmmo(ITEM_IDS item) { return item == ITEM_FIST || item == ITEM_KNIFE || reserve[item] > 0; }
+/* gun.c: the reserve; bondwalkItemHasAmmo also wants the ROM's WEAPONSTATBITFLAG_HAS_AMMO,
+ * which the remote mines lack (what the out-of-ammo switch may pick) */
+s32 get_ammo_count_for_weapon(ITEM_IDS item) { return reserve[item]; }
+s32 bondwalkItemHasAmmo(ITEM_IDS item) {
+    if (item == ITEM_REMOTEMINE) return 0;
+    return item == ITEM_FIST || item == ITEM_KNIFE || reserve[item] > 0;
+}
 s32 gevrMissionItemClaimed(s32 hand, s32 item);
 /* INSERT_HAND_REQUEST */
 /* INSERT_HAND_INVENTORY */
@@ -217,6 +223,18 @@ EXPORT int test_hand_cycle_ammo(void) {
     jungle(ITEM_AK47); reserve[ITEM_GRENADELAUNCH] = 0; tickDepletion(GUNRIGHT);
     CHECK(gevrHandSelected(GUNRIGHT) == ITEM_FIST);
     gevrCycleHandWeapon(GUNRIGHT, 1); CHECK(gevrHandSelected(GUNRIGHT) == ITEM_CAMERA);
+    // Remote mines (tester, test.17 Jungle): no HAS_AMMO flag, so the out-of-ammo
+    // switch passes them by, but a tap reaches them while any are left, from the
+    // level's start and from bare hands once the guns run dry.
+    jungle(ITEM_FIST); inventoryItems[4] = ITEM_REMOTEMINE; owned[ITEM_REMOTEMINE] = 1; reserve[ITEM_REMOTEMINE] = 5;
+    CHECK(!gevrCycleItemEmpty(GUNRIGHT, ITEM_REMOTEMINE));
+    gevrCycleHandWeapon(GUNRIGHT, 1); CHECK(gevrHandSelected(GUNRIGHT) == ITEM_GRENADELAUNCH);
+    settle(); gevrCycleHandWeapon(GUNRIGHT, 1); CHECK(gevrHandSelected(GUNRIGHT) == ITEM_REMOTEMINE);
+    jungle(ITEM_AK47); inventoryItems[4] = ITEM_REMOTEMINE; owned[ITEM_REMOTEMINE] = 1; reserve[ITEM_REMOTEMINE] = 5;
+    reserve[ITEM_GRENADELAUNCH] = 0; tickDepletion(GUNRIGHT);
+    CHECK(gevrHandSelected(GUNRIGHT) == ITEM_FIST);   /* the switch never picks a mine */
+    gevrCycleHandWeapon(GUNRIGHT, 1); CHECK(gevrHandSelected(GUNRIGHT) == ITEM_REMOTEMINE);
+    reserve[ITEM_REMOTEMINE] = 0; CHECK(gevrCycleItemEmpty(GUNRIGHT, ITEM_REMOTEMINE) || getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_REMOTEMINE);
     return 0;
 }
 EXPORT int test_mission_gadget_slots(void) {
