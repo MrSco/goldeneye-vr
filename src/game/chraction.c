@@ -15,6 +15,7 @@
 #ifdef GEVR
 /* gevr_horde.c: a Horde guard's run speed grows with the waves (user, 2026-10-17) */
 extern f32 gevrHordeGuardSpeed(const ChrRecord *chr);
+extern s32 gevrDisarmedThink(ChrRecord *chr);   /* gevr_disarmed.c */
 #define GEVR_HORDE_RUN(speed) ((speed) * gevrHordeGuardSpeed(self))
 #else
 #define GEVR_HORDE_RUN(speed) (speed)
@@ -9778,7 +9779,8 @@ void chrlvActionTick(ChrRecord *self)
         {
             self->sleep = 0;
 #ifdef GEVR
-            if (!gevrAllyThink(self))
+            /* a guard force pull disarmed goes for a gun or his fists (gevr_disarmed.c) */
+            if (!gevrAllyThink(self) && !gevrDisarmedThink(self))
 #endif
             ai(self, PROP_TYPE_CHR);
 

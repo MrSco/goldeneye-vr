@@ -266,6 +266,7 @@ list(FILTER SRC_PORT EXCLUDE REGEX "port/src/(romdata|mod)\.c$")
 # src/game/gevr_ally.c added 2026-10-17 (refresh the game source glob).
 # port/src/gevr_pull.c, src/game/gevr_forcepull.c added 2026-11-05 (force pull).
 # src/game/gevr_thirdperson.c added 2026-11-05 (third person, #230).
+# port/src/gevr_disarm.c, src/game/gevr_disarmed.c added 2026-11-06 (disarmed guards).
 # port/src/gevr_settings.c added 2026-11-05 (the settings table, docs/launcher-unify.md).
 file(GLOB_RECURSE SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/*.cpp")
 list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/(external|tests)/.*")

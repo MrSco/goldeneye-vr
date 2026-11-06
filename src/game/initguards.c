@@ -37,6 +37,7 @@ void alloc_init_GUARDdata_entries(s32 count)
         extern void gevrBodiesReset(void);
         gevrBodiesReset();
         { extern void gevrAllyReset(void); gevrAllyReset(); }
+        { extern void gevrDisarmedReset(void); gevrDisarmedReset(); }   /* last stage's disarmed guards */
     }
 #endif
 

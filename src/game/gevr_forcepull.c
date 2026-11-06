@@ -66,6 +66,7 @@ extern s32 gevrStereoWatchFace(f32 o[3], f32 n[3], f32 *cm);   /* bondview2.c */
 extern s32 gevrPullInPlay(void);
 extern s32 gevrPullHandFree(s32 ctrl);
 extern s32 gevrPullHandRay(s32 ctrl, f32 p[3], f32 f[3]);
+extern void gevrDisarmedMark(ChrRecord *chr);   /* gevr_disarmed.c */
 extern s32 gevrPullCollect(PropRecord *prop);
 extern s32 gevrPullEquip(s32 ctrl, s32 item);
 extern s32 gevrWeaponOwned(s32 item);
@@ -776,6 +777,7 @@ static void gevrPullStart(s32 ctrl, PropRecord *prop, const f32 p[3], const f32 
 
         propobjSetDropped(prop, DROPTYPE_DEFAULT);
         guard->hidden |= CHRHIDDEN_DROP_HELD_ITEMS;
+        gevrDisarmedMark(guard);   /* he goes for a gun or his fists (gevr_disarmed.c) */
         pl->disarm = TRUE;
         /* online: the host's guard lets go too (this one is its copy here) */
         gevrPullSend(GEVR_PULL_NET_DISARM, ctrl, NULL, obj->type, pl->item, guard->weapons_held[GUNLEFT] == prop ? GUNLEFT : GUNRIGHT,
@@ -1307,6 +1309,7 @@ static void gevrPullNetDisarm(s32 guard, s32 hand, s32 item)
     }
     propobjSetDropped(gun, DROPTYPE_DEFAULT);
     chr->hidden |= CHRHIDDEN_DROP_HELD_ITEMS;
+    gevrDisarmedMark(chr);
     sysLogPrintf(LOG_NOTE, "stereo: pull: guard %d lets go of item %d (a pull online)", guard, item);
 }
 

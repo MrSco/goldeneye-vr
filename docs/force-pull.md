@@ -188,6 +188,41 @@ Single player first, then online (protocol 26, below).
   at the watch's size, and fades out as the face turns away from the eye.
   It is off with Pull visuals.
 
+## After a disarm (test.22)
+
+Headset (test.21): a disarmed guard wandered. GoldenEye never leaves a living
+guard without a gun, so his AI list kept trying fire actions that need one
+and fell back to side-steps. Perfect Dark has the behaviour, and it is
+ported (PD `gailists.c` `func0007_alerted` and `func000f_hand_combat`;
+Dab's Mod adds nothing, its GoldenEye guards never punch):
+
+- **The beat:** for 20 ticks he turns to face you.
+- **A gun:** the nearest free gun within 15 m that he can see along the
+  floor (the walk-over tile rule, within 1.5 m of his floor), not in a pull's
+  flight and not another disarmed guard's. He runs to it; within 1 m he
+  stands for 20 ticks and it is in his hand (`chrai.c` `AI_ChrEquipObject`'s
+  steps). His own AI then takes over again, with a gun to fire. Not reached
+  in 300 ticks (PD's limit): he leaves that gun alone and uses his fists.
+- **Fists:** none to be had, he runs at you (PD: in to 120 cm), turns to
+  you and punches. GoldenEye has no guard punch, so the punch is the alarm
+  press's reach (`ANIM_extending_left_hand`, frames 40-82 at the alarm's
+  pace). At frame 64 it lands if you are still within 1.5 m, within 45
+  degrees of his facing and in sight: one PP7 shot's damage, scaled as a
+  guard's shot is (`g_AiDamageModifier`, the 007 damage setting). A punch
+  starts at most every 75 ticks. Once a second he looks for a gun again
+  and goes for one unless you are already in reach.
+- **Ends** when he holds a gun, dies or surrenders; with no living player to
+  fight his own AI runs.
+- **Online:** the co-op host runs it (as all guards); the punch's damage
+  reaches the target's headset as a guard's shot does. Online he only uses
+  his fists: a gun on the floor is each headset's own copy, and one taken on
+  the host would stay on the clients' floors.
+- **Code:** decisions in `port/src/gevr_disarm.c` (tested by
+  `port/tests/test_disarm.py`); the guard's side in
+  `src/game/gevr_disarmed.c`, run from `chraction.c` `chrlvActionTick`
+  beside the ally's think; marked at both disarm sites in
+  `gevr_forcepull.c`. Log lines start `disarmed:`.
+
 ## Built online (2026-11-05, protocol 26)
 
 Protocol 26 adds one message, `NET_MSG_FORCE_PULL` (`net_core.c`, read and
@@ -250,6 +285,7 @@ headset to the host, which relays it to everyone else. Its phases are in
 4. **Shoot a guard.** Point at his gun as it falls: it is caught in the air.
 5. **Disarm.** Point at a live guard's gun and squeeze: he lets go and it
    flies to you. Switch Disarm off on the Gestures page and he keeps it.
+   Afterwards he runs for a gun on the floor near him, or at you to punch.
 6. **Full ammo.** Pull a gun you are full on: it flies in, vanishes, and
    your own copy is in the hand.
 7. **Full armour.** Pull armour: it stays in the hand. Let go and it drops,
