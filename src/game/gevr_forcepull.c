@@ -126,6 +126,8 @@ static PropRecord *s_aim[2];      /* what each hand points at (highlight, line) 
 static f32 s_aimAt[2][3];         /* its point, view space, hand units */
 static f32 s_handAt[2][3];        /* the hand's touch point, view space, hand units */
 static s32 s_aimValid[2];
+static PropRecord *s_aimLast[2];  /* the last thing lit, kept a moment after the hand moves off */
+static f32 s_aimLastAge[2];       /* seconds since it was lit */
 static ALSoundState *s_hum;
 static f32 s_instantAge[2];       /* gunfire.c g_gevrSwitchInstant: cleared if no switch came of it */
 extern s32 g_gevrSwitchInstant[2];
@@ -453,8 +455,30 @@ static s32 gevrPullDisarmPoint(PropRecord *chrprop, PropRecord *gun, f32 t[3])
     return TRUE;
 }
 
-/* the best target along the hand's ray (view space, hand units), or NULL */
-static PropRecord *gevrPullFind(const f32 p[3], const f32 f[3], f32 at[3])
+/*
+ * A target already lit stays lit (headset: "finicky"): it keeps the down
+ * cone's 25 degrees instead of 15 and its score counts half, so a second
+ * item near the ray takes over only when the hand clearly moves to it.
+ */
+#define GEVR_PULL_STICKY_SCORE 0.5f
+/* squeezing the grip turns the controller a little: the squeeze pulls what was lit this long ago */
+#define GEVR_PULL_GRACE_S      0.25f
+
+static f32 gevrPullScoreFor(PropRecord *prop, PropRecord *prefer, const f32 p[3], const f32 f[3], const f32 t[3],
+                            f32 cm, f32 downcos)
+{
+    f32 score;
+
+    if (prop != prefer || prefer == NULL)
+    {
+        return gevrPullScore(p, f, t, cm, downcos);
+    }
+    score = gevrPullScore(p, f, t, cm, 1.0f);
+    return score >= 0.0f ? score * GEVR_PULL_STICKY_SCORE : score;
+}
+
+/* the best target along the hand's ray (view space, hand units), or NULL; prefer: the one lit now */
+static PropRecord *gevrPullFind(const f32 p[3], const f32 f[3], f32 at[3], PropRecord *prefer)
 {
     PropRecord **ptr;
     PropRecord *best = NULL;
@@ -482,7 +506,7 @@ static PropRecord *gevrPullFind(const f32 p[3], const f32 f[3], f32 at[3])
 
                 if (gun != NULL && gevrPullDisarmPoint(prop, gun, t))
                 {
-                    score = gevrPullScore(p, f, t, cm, downcos);
+                    score = gevrPullScoreFor(gun, prefer, p, f, t, cm, downcos);
                     if (score >= 0.0f && score < bestScore)
                     {
                         bestScore = score;
@@ -506,7 +530,7 @@ static PropRecord *gevrPullFind(const f32 p[3], const f32 f[3], f32 at[3])
         {
             continue;   /* in the palm already: Grip to hand's */
         }
-        score = gevrPullScore(p, f, t, cm, downcos);
+        score = gevrPullScoreFor(prop, prefer, p, f, t, cm, downcos);
         if (score >= 0.0f && score < bestScore)
         {
             bestScore = score;
@@ -515,6 +539,55 @@ static PropRecord *gevrPullFind(const f32 p[3], const f32 f[3], f32 at[3])
         }
     }
     return best;
+}
+
+/*
+ * The squeeze's grace: what the hand lit a moment ago, if it can still be
+ * pulled, is in reach and within 35 degrees of the ray (the squeeze turns the
+ * controller; the light is what the player aimed with).
+ */
+static PropRecord *gevrPullRecent(s32 ctrl, const f32 p[3], const f32 f[3], f32 at[3])
+{
+    PropRecord *prop = s_aimLast[ctrl];
+    f32 s = gevrPullViewScale();
+    f32 cm = gevrPullCm();
+    f32 t[3], d[3], dist;
+    s32 ok = FALSE;
+
+    if (prop == NULL || s_aimLastAge[ctrl] > GEVR_PULL_GRACE_S || cm < 1e-6f)
+    {
+        return NULL;
+    }
+    if (prop->parent != NULL && prop->parent->type == PROP_TYPE_CHR)
+    {
+        s32 h;
+
+        for (h = 0; h < 2 && !ok; h++)
+        {
+            ok = gevrPullDisarmable(prop->parent, h) == prop && gevrPullDisarmPoint(prop->parent, prop, t);
+        }
+    }
+    else if (gevrPullCandidate(prop))
+    {
+        Mtxf *m = (Mtxf *) prop->obj->model->render_pos;
+
+        t[0] = m->m[3][0] * s;
+        t[1] = m->m[3][1] * s;
+        t[2] = m->m[3][2] * s;
+        ok = TRUE;
+    }
+    if (!ok)
+    {
+        return NULL;
+    }
+    d[0] = t[0] - p[0]; d[1] = t[1] - p[1]; d[2] = t[2] - p[2];
+    dist = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    if (dist > GEVR_PULL_RANGE_CM * cm || dist < 1e-4f * cm || (d[0] * f[0] + d[1] * f[1] + d[2] * f[2]) / dist < 0.819f)
+    {
+        return NULL;
+    }
+    at[0] = t[0]; at[1] = t[1]; at[2] = t[2];
+    return prop;
 }
 
 /* a hand point (view space, hand units) to the world */
@@ -632,7 +705,12 @@ s32 gevrPullTry(s32 ctrl)
     {
         return FALSE;
     }
-    prop = gevrPullFind(p, f, at);
+    prop = gevrPullFind(p, f, at, s_aim[ctrl]);
+    if (prop == NULL && (prop = gevrPullRecent(ctrl, p, f, at)) != NULL)
+    {
+        sysLogPrintf(LOG_NOTE, "stereo: pull (%s): off the ray at the squeeze, pulling what was lit %.2f s ago",
+                     ctrl ? "gun hand" : "off hand", s_aimLastAge[ctrl]);
+    }
     if (prop == NULL || !gevrPullToWorld(p, w))
     {
         sysLogPrintf(LOG_NOTE, "stereo: pull (%s): nothing pointed at", ctrl ? "gun hand" : "off hand");
@@ -667,6 +745,7 @@ s32 gevrPullTry(s32 ctrl)
         gevrPullLaunch(pl);
     }
     s_aim[ctrl] = NULL;
+    s_aimLast[ctrl] = NULL;
     gevrPullHum(TRUE);
     gevrPullHaptic(ctrl, 0.5f, 0.05f);
     sysLogPrintf(LOG_NOTE, "stereo: pull (%s): prop type %d obj %d item %d, %.0f cm, %.2f s",
@@ -1464,19 +1543,23 @@ void gevrPullTick(void)
         if (!VrForcePull || gevrPullOnline() || !gevrPullInPlay() || !gevrPullHandFree(ctrl) || !gevrPullHandRay(ctrl, p, f))
         {
             s_aim[ctrl] = NULL;
+            s_aimLast[ctrl] = NULL;
             continue;
         }
         {
             f32 at[3];
-            PropRecord *aim = gevrPullFind(p, f, at);
+            PropRecord *aim = gevrPullFind(p, f, at, s_aim[ctrl]);
 
             if (aim != NULL && aim != s_aim[ctrl])
             {
                 gevrPullHaptic(ctrl, 0.25f, 0.02f);   /* locked */
             }
             s_aim[ctrl] = aim;
+            s_aimLastAge[ctrl] += dt;
             if (aim != NULL)
             {
+                s_aimLast[ctrl] = aim;
+                s_aimLastAge[ctrl] = 0.0f;
                 s_aimAt[ctrl][0] = at[0]; s_aimAt[ctrl][1] = at[1]; s_aimAt[ctrl][2] = at[2];
                 s_handAt[ctrl][0] = p[0]; s_handAt[ctrl][1] = p[1]; s_handAt[ctrl][2] = p[2];
                 s_aimValid[ctrl] = TRUE;
@@ -1498,6 +1581,7 @@ void gevrPullReset(void)
     memset(s_pull, 0, sizeof(s_pull));
     memset(s_remote, 0, sizeof(s_remote));
     s_aim[0] = s_aim[1] = NULL;
+    s_aimLast[0] = s_aimLast[1] = NULL;
     s_aimValid[0] = s_aimValid[1] = FALSE;
     s_watchGlow = 0.0f;
     memset(s_heldNote, 0, sizeof(s_heldNote));
@@ -1518,7 +1602,29 @@ static void gevrPullVtx(Vtx *v, f32 x, f32 y, f32 z, u32 rgba)
     v->v.cn[3] = rgba & 0xff;
 }
 
-#define GEVR_PULL_LINE_SEGS 8
+#define GEVR_PULL_LINE_SEGS 12   /* 26 vertices: one load (the ring uses 32) */
+
+/*
+ * The line and the ring have no depth test and a size in the world, so near
+ * the eye they fill the view (headset: an orange flash as a pulled gun came
+ * past the face). Gone within 25 cm of the eye, whole past 45 cm.
+ */
+#define GEVR_PULL_NEAR_HIDE_CM 25.0f
+#define GEVR_PULL_NEAR_FULL_CM 45.0f
+
+static f32 gevrPullNearFade(const f32 q[3])
+{
+    f32 cm = gevrPullCm();
+    f32 d, k;
+
+    if (cm < 1e-6f)
+    {
+        return 0.0f;
+    }
+    d = sqrtf(q[0] * q[0] + q[1] * q[1] + q[2] * q[2]) / cm;
+    k = (d - GEVR_PULL_NEAR_HIDE_CM) / (GEVR_PULL_NEAR_FULL_CM - GEVR_PULL_NEAR_HIDE_CM);
+    return k < 0.0f ? 0.0f : k > 1.0f ? 1.0f : k;
+}
 
 /*
  * The pull line, palm to target, as a strip facing the eye (the view's
@@ -1548,9 +1654,10 @@ static Gfx *gevrPullDrawLine(Gfx *gdl, const f32 a[3], const f32 b[3], u32 rgb)
     {
         f32 u = (f32) i / GEVR_PULL_LINE_SEGS;
         f32 q[3], side[3], sl, half;
-        u32 alpha = (u32) (0x30 + 0x90 * u);
+        u32 alpha;
 
         q[0] = a[0] + d[0] * u; q[1] = a[1] + d[1] * u; q[2] = a[2] + d[2] * u;
+        alpha = (u32) ((0x30 + 0x90 * u) * gevrPullNearFade(q));
         /* across the line and the eye's ray to it */
         side[0] = d[1] * q[2] - d[2] * q[1];
         side[1] = d[2] * q[0] - d[0] * q[2];
@@ -1711,11 +1818,18 @@ Gfx *gevrPullDraw(Gfx *gdl)
         f32 at[3];
         s32 show = FALSE;
 
-        if (s_pull[ctrl].prop != NULL && !s_pull[ctrl].disarm && !s_pull[ctrl].held && gevrPullAlive(&s_pull[ctrl]) && s_pull[ctrl].prop->obj->model->render_pos != NULL)
+        if (s_pull[ctrl].prop != NULL && !s_pull[ctrl].disarm && !s_pull[ctrl].held && gevrPullAlive(&s_pull[ctrl]))
         {
-            Mtxf *m = (Mtxf *) s_pull[ctrl].prop->obj->model->render_pos;
+            /* where this tick put it (gevrPullPlace), not its model's matrix:
+             * render_pos is only written when the model draws (the disarm
+             * point's NaN and 1e38 lesson), and a prop at the face may not */
+            coord3d c;
 
-            at[0] = m->m[3][0] * s; at[1] = m->m[3][1] * s; at[2] = m->m[3][2] * s;
+            c.x = s_pull[ctrl].prop->pos.x;
+            c.y = s_pull[ctrl].prop->pos.y;
+            c.z = s_pull[ctrl].prop->pos.z;
+            mtx4TransformVecInPlace(camGetWorldToScreenMtxf(), &c);
+            at[0] = c.x * s; at[1] = c.y * s; at[2] = c.z * s;
             show = (s_pull[ctrl].prop->flags & PROPFLAG_ONSCREEN) != 0;
         }
         else if (s_aimValid[ctrl] && s_aim[ctrl] != NULL)
@@ -1723,9 +1837,9 @@ Gfx *gevrPullDraw(Gfx *gdl)
             at[0] = s_aimAt[ctrl][0]; at[1] = s_aimAt[ctrl][1]; at[2] = s_aimAt[ctrl][2];
             show = TRUE;
             {
-                /* a slow pulse on the target's halo */
+                /* a slow pulse on the target's halo, gone near the eye */
                 f32 k = 0.5f + 0.5f * sinf(s_glowPhase * 6.2831853f * 1.5f);
-                u32 a = (u32) (0x60 + 0x60 * k);
+                u32 a = (u32) ((0x60 + 0x60 * k) * gevrPullNearFade(at));
 
                 gdl = gevrDrawInteractionRing(gdl, at, 7.0f, 0xFFE69A00 | a);
                 gdl = gevrDrawInteractionRing(gdl, at, 10.0f, 0xFFE69A00 | (a >> 2));
