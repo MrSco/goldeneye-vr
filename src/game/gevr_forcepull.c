@@ -498,6 +498,33 @@ void gevrPullNoteHeldGun(PropRecord *gun, const Mtxf *m, s32 drawn)
 }
 
 /*
+ * objecthandler.c drawjointlist: a gun in a guard's hand that a hand points
+ * at or has locked glows gold as one on the floor does (headset, test.22).
+ * A floor gun takes the gold as its own shade (shadecol); a held one is
+ * drawn in the guard's list under his shade, so its entry gets the gold.
+ */
+s32 gevrPullLitModel(Model *model, u32 *rgb)
+{
+    s32 ctrl;
+
+    if (model == NULL || !VrPullVisuals || !VrForcePull || !g_gevrStereo || g_gevrExtraPass)
+    {
+        return FALSE;
+    }
+    for (ctrl = 0; ctrl < 2; ctrl++)
+    {
+        PropRecord *lit = s_lock[ctrl] != NULL ? s_lock[ctrl] : s_aim[ctrl];
+
+        if (lit != NULL && lit->parent != NULL && lit->obj != NULL && lit->obj->model == model && s_pull[ctrl].prop == NULL)
+        {
+            *rgb = 0xFFE69A00u;   /* the floor glow's gold */
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+/*
  * Where a guard's gun is, view space, hand units: where the head's view drew
  * it in his hand within the last few ticks (headset, Dam: the first guess,
  * his position plus 1.1 m, put the ring and the line well above his head).

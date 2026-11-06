@@ -983,12 +983,23 @@ void drawjointlist(ModelRenderData *data, ModelHitEntry *entry)
 
 #ifdef GEVR
     ModelHitEntry *beanFirst=entry;
+    extern s32 gevrPullLitModel(Model *model, u32 *rgb);   /* gevr_forcepull.c: a held gun the pull has lit */
+    const u32 gevrFog = data->fogcolour.word;
 #endif
 
     while (entry != NULL)
     {
         root = entry->rootnode;
         node = root;
+#ifdef GEVR
+        {
+            /* a guard's gun the force pull points at glows gold, as one on the floor
+             * does (its own shade, objRender); here it shares his (chr.c) */
+            u32 lit;
+
+            data->fogcolour.word = gevrPullLitModel(entry->model, &lit) ? (lit & 0xFFFFFF00u) | (gevrFog & 0xFFu) : gevrFog;
+        }
+#endif
 
         if (entry->model->obj == NULL)
         {
@@ -1097,6 +1108,9 @@ void drawjointlist(ModelRenderData *data, ModelHitEntry *entry)
 
         entry = entry->next;
     }
+#ifdef GEVR
+    data->fogcolour.word = gevrFog;
+#endif
 }
 #endif
 
