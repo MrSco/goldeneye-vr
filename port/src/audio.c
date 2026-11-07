@@ -31,6 +31,7 @@ static s32 sAudioPaused;
 static s32 outputRate = 48000;
 static s32 sDeviceRate = 22050;
 static SDL_AudioStream *sConvert;
+static s32 sAudioStarted;   /* audioInit succeeded: Reset sound may reopen a closed device */
 #endif
 
 static s32 audioOpen(void)
@@ -57,8 +58,16 @@ static s32 audioOpen(void)
 	if (sConvert) SDL_FreeAudioStream(sConvert);
 	sConvert = have.freq != 22050 ? SDL_NewAudioStream(AUDIO_S16SYS, 2, 22050, AUDIO_S16SYS, 2, have.freq) : NULL;
 	if (have.freq != 22050 && !sConvert) {
-		sysLogPrintf(LOG_ERROR, "audio: no 22050 to %d Hz converter: %s", have.freq, SDL_GetError());
-		sDeviceRate = 22050;
+		/* the device holds its rate (no allowed changes): the raw 22050 Hz
+		 * mix on it would play ~2.2x fast, so open it at 22050 instead */
+		sysLogPrintf(LOG_ERROR, "audio: no 22050 to %d Hz converter: %s; reopening at 22050 Hz", have.freq, SDL_GetError());
+		SDL_CloseAudioDevice(dev);
+		dev = 0;
+		if (want.freq == 22050) {
+			return -1;
+		}
+		outputRate = 22050;
+		return audioOpen();
 	}
 	sysLogPrintf(LOG_NOTE, "audio: %s at %d Hz, the game's 22050 Hz mix %s", SDL_GetCurrentAudioDriver(),
 	             have.freq, sConvert ? "resampled here" : "as is");
@@ -81,6 +90,7 @@ s32 audioInit(void)
 
 #ifdef GEVR
 	sAudioPaused = 0;
+	sAudioStarted = 1;
 #endif
 	SDL_PauseAudioDevice(dev, 0);
 
@@ -115,16 +125,26 @@ static void audioQueue(const s16 *buf, u32 bytes)
  * recording gave Perfect Dark VR's players (#229). */
 void audioReset(void)
 {
-	if (!dev) {
+	if (!sAudioStarted) {
 		return;
 	}
-	SDL_ClearQueuedAudio(dev);
-	SDL_CloseAudioDevice(dev);
-	dev = 0;
+	if (dev) {   /* closed already when a reset before this one failed to reopen it */
+		SDL_ClearQueuedAudio(dev);
+		SDL_CloseAudioDevice(dev);
+		dev = 0;
+	}
 	nextBuf = NULL;
 	nextSize = 0;
 	if (audioOpen() != 0) {
-		return;
+		/* Android can refuse the output for a moment (a recording ending):
+		 * the old 22050 Hz path rather than silence; pressing again retries */
+		s32 rate = outputRate;
+		outputRate = 22050;
+		if (rate == 22050 || audioOpen() != 0) {
+			outputRate = rate;
+			sysLogPrintf(LOG_ERROR, "audio: reset could not reopen the output; press Reset sound again");
+			return;
+		}
 	}
 	if (!sAudioPaused) {
 		SDL_PauseAudioDevice(dev, 0);
