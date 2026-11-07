@@ -357,6 +357,13 @@ is goldeneyevr.com, in its own repository.
   GE-X manual reloading (off by default) the KF7 keeps its magazine, so the
   sniper is still skipped there: it would come up empty.
   Commented on #234, left open for the reporter. Symbols on the reports repo.
+- Unreleased on prerelease/v0.5.15 (after test.25): crash report ebcf7d40
+  (reports #15) fixed (401a54c9). Tomorrow Never Dies' last mission (6 iv,
+  stage 25) crashed on its first frame: the binder kept GoldenEye's
+  setup_text_pointers, so retail Train's setup loaded on TND's 4-tile floor
+  and the intro camera pad had no tile. The table is now the hack's (TND
+  changes 8 rows, Goldfinger none). test_romcampaign passes on GF64 and TND64;
+  the TND check fails without the fix. Not headset-checked. Needs a build.
 - Launcher unification (docs/launcher-unify.md), all five phases, in test.17. One
   settings table (port/src/gevr_settings.c) drawn by the hold-Menu panel and
   the launcher; the launcher's tabs Play, Multiplayer, Controls (Hands,
