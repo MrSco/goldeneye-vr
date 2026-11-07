@@ -32,6 +32,7 @@ uintptr_t osVirtualToPhysical(void *p){return (uintptr_t)p;}
 #define osSyncPrintf printf
 float getjointsize(Model *m,ModelNode *n){return 1;}
 void sub_GAME_7F074534(ModelRenderData *d,Model *m,ModelNode *n){nativeCalls++;}
+int gevrPullHeldGlow(Model *m,unsigned *fog){return 0;}
 '''
 main='''int main(void){
  ModelFileHeader header={0};

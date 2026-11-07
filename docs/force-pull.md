@@ -144,7 +144,14 @@ Single player first, then online (protocol 26, below).
   tile. A drop still in the air only needs the clear walk.
 - **Glow:** the target's light is set to full gold. It eases back on its own
   when the hand moves off. There is also a pulsing halo ring and a line from
-  the palm.
+  the palm. A gun in a guard's hand is not drawn as a prop: with detailed
+  guns on, `gevrHeldGunDraw` draws the first-person model in his hand under
+  his shade, and otherwise the Pchr model is in his joint list
+  (`drawjointlist`). Both ask `gevrPullHeldGlow` and draw the lit gun in gold
+  instead. The gold is blended in at least at alpha 0x90, because his shade's
+  alpha is his darkness (0x01 on the Dam's lit deck), and gold at that
+  doesn't show. The light read off the floor tile (`sub_GAME_7F0402B4`) is
+  not used for a held gun: it has no tile, and that read crashed.
 - **Instant equip:** `gunfire.c` `g_gevrSwitchInstant[hand]` skips the empty
   hand's lowering and the gun's raise. It clears when the gun is up, or
   after 1 s if no switch came of it.

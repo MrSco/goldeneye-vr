@@ -1172,58 +1172,6 @@ Gfx *gevrDrawInteractionRing(Gfx *gdl, const f32 at[3], f32 radius, u32 rgba)
     return gdl;
 }
 
-/*
- * A soft glow facing the eye at the view point at: rgba's colour and alpha at
- * the middle, fading to nothing at radius cm, drawn over what is there (no
- * depth test, as the ring). Force pull's target glow (gevr_forcepull.c): the
- * art sets' own shading never took a tint, the Bean release's least of all
- * (headset, test.22), so the glow is drawn, not shaded.
- */
-Gfx *gevrDrawInteractionHalo(Gfx *gdl, const f32 at[3], f32 radius, u32 rgba)
-{
-    Mtxf mf;
-    Mtx *mv = dynAllocateMatrix();
-    Vtx *v = dynAllocateVertices(25);
-    f32 outer = radius * 10.0f, mid = outer * 0.45f;
-    s32 i;
-
-    matrix_4x4_set_identity(&mf);
-    mf.m[0][0] = mf.m[1][1] = mf.m[2][2] = 0.1f * D_800364CC;
-    mf.m[3][0] = at[0];
-    mf.m[3][1] = at[1];
-    mf.m[3][2] = at[2];
-    guMtxF2L(mf.m, mv);
-    /* the middle, a ring at under half the radius still bright, the rim clear */
-    gevrBodyVtx(&v[0], 0, 0, rgba);
-    for (i = 0; i < 12; i++)
-    {
-        f32 a = i * (6.2831853f / 12.0f);
-
-        gevrBodyVtx(&v[1 + i], (s32) (cosf(a) * mid), (s32) (sinf(a) * mid), (rgba & 0xFFFFFF00u) | ((rgba & 0xFF) * 5 / 8));
-        gevrBodyVtx(&v[13 + i], (s32) (cosf(a) * outer), (s32) (sinf(a) * outer), rgba & 0xFFFFFF00u);
-    }
-    gSPMatrix(gdl++, osVirtualToPhysical((void *) currentPlayerGetProjectionMatrix()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
-    gSPMatrix(gdl++, osVirtualToPhysical(mv), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
-    gDPPipeSync(gdl++);
-    gSPClearGeometryMode(gdl++, G_ZBUFFER | G_LIGHTING | G_FOG | G_CULL_BOTH | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
-    gSPSetGeometryMode(gdl++, G_SHADE | G_SHADING_SMOOTH);
-    gDPSetCycleType(gdl++, G_CYC_1CYCLE);
-    gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
-    gSPTexture(gdl++, 0, 0, 0, G_TX_RENDERTILE, G_OFF);
-    gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
-    gSPVertex(gdl++, osVirtualToPhysical(v), 25, 0);
-    for (i = 0; i < 12; i++)
-    {
-        s32 o = 1 + i, n = 1 + (i + 1) % 12;
-
-        gSP1Triangle(gdl++, 0, o, n, 0);
-        gSP2Triangles(gdl++, o, o + 12, n, 0, o + 12, n + 12, n, 0);
-    }
-    gDPPipeSync(gdl++);
-    gSPSetGeometryMode(gdl++, G_ZBUFFER);
-    return gdl;
-}
-
 /* the label's text: what a grip takes, and which of how many */
 static void gevrBodyLabel(s32 ctrl, char *out, s32 size)
 {

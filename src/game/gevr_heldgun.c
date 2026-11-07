@@ -844,6 +844,19 @@ Gfx *gevrHeldGunDraw(ChrRecord *chr, ModelRenderData *body, Gfx *gdl, s32 withal
         rd.gdl = gdl;
         rd.PropType = PROP_TYPE_CHR + 1;            /* the first-person gun's render modes */
         rd.envcolour.word = body->fogcolour.word;   /* tinted with the body's shade */
+        {
+            /* the force pull's lit gun: gold, as on the floor (gevr_forcepull.c) */
+            extern s32 gevrPullHeldGlow(Model *model, u32 *fog);
+            PropRecord *gun = chrGetEquippedWeaponProp(chr, (GUNHAND) hand);
+            u32 glow;   /* gold, and the least it is blended in */
+
+            if (gun != NULL && gun->obj != NULL && gevrPullHeldGlow(gun->obj->model, &glow))
+            {
+                const u32 a = (body->fogcolour.word & 0xFFu) > (glow & 0xFFu) ? (body->fogcolour.word & 0xFFu) : (glow & 0xFFu);
+
+                rd.envcolour.word = (glow & 0xFFFFFF00u) | a;
+            }
+        }
         rd.zbufferenabled = TRUE;
 
         if (inst->envmap)

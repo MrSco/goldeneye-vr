@@ -983,12 +983,34 @@ void drawjointlist(ModelRenderData *data, ModelHitEntry *entry)
 
 #ifdef GEVR
     ModelHitEntry *beanFirst=entry;
+    /* force pull's lit gun in a guard's hand draws as it does on the floor (gevrPullHeldGlow) */
+    extern s32 gevrPullHeldGlow(Model *model, u32 *fog);
+    const s32 gevrPropType = data->PropType;
+    const u32 gevrFog = data->fogcolour.word, gevrEnv = data->envcolour.word;
 #endif
 
     while (entry != NULL)
     {
         root = entry->rootnode;
         node = root;
+#ifdef GEVR
+        {
+            u32 fog;
+
+            if (gevrPropType == 7 && gevrPullHeldGlow(entry->model, &fog))   /* solid; a fading guard keeps his fade */
+            {
+                data->PropType = 9;   /* a prop's, as propobj.c chrobjRenderProp draws one */
+                data->fogcolour.word = (fog & 0xFFFFFF00u) | ((gevrFog & 0xFFu) > (fog & 0xFFu) ? (gevrFog & 0xFFu) : (fog & 0xFFu));
+                data->envcolour.word = 0;
+            }
+            else
+            {
+                data->PropType = gevrPropType;
+                data->fogcolour.word = gevrFog;
+                data->envcolour.word = gevrEnv;
+            }
+        }
+#endif
 
         if (entry->model->obj == NULL)
         {
@@ -1097,6 +1119,11 @@ void drawjointlist(ModelRenderData *data, ModelHitEntry *entry)
 
         entry = entry->next;
     }
+#ifdef GEVR
+    data->PropType = gevrPropType;
+    data->fogcolour.word = gevrFog;
+    data->envcolour.word = gevrEnv;
+#endif
 }
 #endif
 

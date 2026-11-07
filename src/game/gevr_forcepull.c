@@ -61,7 +61,6 @@ extern bool objCanPickupFromSafe(ObjectRecord *obj);
 extern void sub_GAME_7F0402B4(PropRecord *prop, rgba_u8 *color);
 extern void projectileFree(Projectile *projectile);
 extern Gfx *gevrDrawInteractionRing(Gfx *gdl, const f32 at[3], f32 radius, u32 rgba);
-extern Gfx *gevrDrawInteractionHalo(Gfx *gdl, const f32 at[3], f32 radius, u32 rgba);   /* gevr_bodyslots.c */
 extern s32 gevrStereoWatchFace(f32 o[3], f32 n[3], f32 *cm);   /* bondview2.c */
 /* bondview2.c */
 extern s32 gevrPullInPlay(void);
@@ -97,7 +96,6 @@ extern void gevrCoopGuardForget(ObjectRecord *obj);   /* net_coop.c: a guard's g
 #define GEVR_PULL_YANK_CM_S   150.0f   /* or the hand pulled back from the target this fast */
 #define GEVR_PULL_HOMING_CM   30.0f    /* the flight follows the hand this far from where it flicked */
 #define GEVR_PULL_CATCH_CM    20.0f    /* the grip closed with it this near the hand: caught */
-#define GEVR_PULL_HALO_CM     26.0f    /* the target's glow, middle to rim: about a rifle's half */
 #define GEVR_PULL_MISS_S      0.45f    /* past the flight's end, not caught: it falls (a fresh squeeze needs the time) */
 
 typedef struct
@@ -497,6 +495,54 @@ void gevrPullNoteHeldGun(PropRecord *gun, const Mtxf *m, s32 drawn)
     s_heldNote[slot].w[1] = c.y;
     s_heldNote[slot].w[2] = c.z;
     s_heldNote[slot].at = g_GlobalTimer;
+}
+
+/*
+ * The gun in a guard's hand that a hand points at or has locked glows as it
+ * does on the floor (owner: "you had it glowing really good when the guns
+ * were on the ground"): its shade turned gold below, objRender's fog colour.
+ * Held, it is not drawn as a prop. gevr_heldgun.c gevrHeldGunDraw draws the
+ * detailed (first-person) model in his hand, tinted with his shade; the
+ * Pchr model, drawn in his joint list (objecthandler.c drawjointlist) when
+ * detailed guns are off or he fades, took his shade too. Each asks here and
+ * draws the gun with this colour instead. fog: the gold, and in its alpha the
+ * least it is blended in by (the caller keeps his shade's alpha when that is
+ * more). His alpha is his darkness, 0x01 on the Dam's lit deck (headset), and
+ * gold blended in at that did not show; at GEVR_PULL_HELD_GLOW_A it reads as
+ * clearly as a floor gun's. Not the light of the floor below it
+ * (sub_GAME_7F0402B4, as a pull's flight takes it): a held gun has no tile,
+ * and that read crashed (headset).
+ */
+#define GEVR_PULL_HELD_GLOW_A 0x90
+s32 gevrPullHeldGlow(Model *model, u32 *fog)
+{
+    static s32 s_seen, s_at;
+    s32 ctrl;
+
+    if (model == NULL || !VrPullVisuals || !VrForcePull || !g_gevrStereo)
+    {
+        return FALSE;
+    }
+    for (ctrl = 0; ctrl < 2; ctrl++)
+    {
+        PropRecord *lit = s_lock[ctrl] != NULL ? s_lock[ctrl] : s_aim[ctrl];
+
+        if (lit == NULL || lit->parent == NULL || lit->obj == NULL || lit->obj->model != model || s_pull[ctrl].prop != NULL)
+        {
+            continue;
+        }
+        *fog = ((u32) lit->obj->shadecol.r << 24) | ((u32) lit->obj->shadecol.g << 16) | ((u32) lit->obj->shadecol.b << 8)
+             | GEVR_PULL_HELD_GLOW_A;
+        s_seen++;
+        if ((s32) (g_GlobalTimer - s_at) > 120)
+        {
+            sysLogPrintf(LOG_NOTE, "stereo: pull: held glow drawn %d times (fog %08x)", s_seen, *fog);
+            s_seen = 0;
+            s_at = g_GlobalTimer;
+        }
+        return TRUE;
+    }
+    return FALSE;
 }
 
 /*
@@ -2161,10 +2207,6 @@ Gfx *gevrPullDraw(Gfx *gdl)
                 f32 k = s_lock[ctrl] != NULL ? 1.0f : 0.5f + 0.5f * sinf(s_glowPhase * 6.2831853f * 1.5f);
                 u32 a = (u32) ((s_lock[ctrl] != NULL ? 0xF0 : 0x60 + 0x60 * k) * gevrPullNearFade(at));
 
-                /* the target's glow, under its ring: the gun lit gold wherever it lies or
-                 * whoever holds it (its shading never took a tint, headset test.22) */
-                gdl = gevrDrawInteractionHalo(gdl, at, GEVR_PULL_HALO_CM,
-                                              0xFFD86000 | (u32) ((s_lock[ctrl] != NULL ? 0xB0 : 0x70 + 0x30 * k) * gevrPullNearFade(at)));
                 gdl = gevrDrawInteractionRing(gdl, at, 7.0f, 0xFFE69A00 | a);
                 gdl = gevrDrawInteractionRing(gdl, at, 10.0f, 0xFFE69A00 | (a >> 2));
             }
