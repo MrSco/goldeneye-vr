@@ -3102,7 +3102,7 @@ static void gevrGexBatPose(ModelFileHeader *hdr, const GexWeaponDef *def, Mtxf *
 {
     const f32 palmLocal[3] = { 0.0f, 0.0f, GEVR_GEX_PALM_Z };
     const s32 n = hdr->numMatrices;
-    const Mtxf gun = rwmtx[def->gunMatrix];
+    Mtxf gun;
     f32 ex[3], ey[3], ez[3], palm[3], muzzle[3], h[3], len, unit;
     s32 i, j, r;
 
@@ -3110,6 +3110,7 @@ static void gevrGexBatPose(ModelFileHeader *hdr, const GexWeaponDef *def, Mtxf *
     {
         return;
     }
+    gun = rwmtx[def->gunMatrix];   /* after the check: a mismatched def must not read past the list */
     for (i = 0; i < 3; i++)
     {
         ex[i] = gun.m[0][i];
