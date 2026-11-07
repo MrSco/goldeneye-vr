@@ -983,8 +983,8 @@ void drawjointlist(ModelRenderData *data, ModelHitEntry *entry)
 
 #ifdef GEVR
     ModelHitEntry *beanFirst=entry;
-    extern s32 gevrPullLitModel(Model *model, u32 *rgb);   /* gevr_forcepull.c: a held gun the pull has lit */
-    const u32 gevrFog = data->fogcolour.word;
+    extern Gfx *gevrPullTint(Gfx *gdl, Model *model, s32 on);   /* gevr_forcepull.c: the pull's lit gun */
+    s32 gevrTinted;
 #endif
 
     while (entry != NULL)
@@ -992,13 +992,11 @@ void drawjointlist(ModelRenderData *data, ModelHitEntry *entry)
         root = entry->rootnode;
         node = root;
 #ifdef GEVR
+        /* a guard's gun the force pull points at glows gold (gevrPullTint) */
+        gevrTinted = data->gdl != NULL && gevrPullTint(NULL, entry->model, 1) != NULL;
+        if (gevrTinted)
         {
-            /* a guard's gun the force pull points at glows gold, as one on the floor
-             * does (its own shade, objRender); here it shares his (chr.c) */
-            u32 lit;
-
-            /* the colour is blended in by its alpha (G_RM_FOG_PRIM_A): his own is near none */
-            data->fogcolour.word = gevrPullLitModel(entry->model, &lit) ? lit : gevrFog;
+            data->gdl = gevrPullTint(data->gdl, entry->model, 1);
         }
 #endif
 
@@ -1107,11 +1105,14 @@ void drawjointlist(ModelRenderData *data, ModelHitEntry *entry)
             while (node != NULL);
         }
 
+#ifdef GEVR
+        if (gevrTinted)
+        {
+            data->gdl = gevrPullTint(data->gdl, entry->model, 0);
+        }
+#endif
         entry = entry->next;
     }
-#ifdef GEVR
-    data->fogcolour.word = gevrFog;
-#endif
 }
 #endif
 

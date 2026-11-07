@@ -498,12 +498,26 @@ void gevrPullNoteHeldGun(PropRecord *gun, const Mtxf *m, s32 drawn)
 }
 
 /*
- * objecthandler.c drawjointlist: a gun in a guard's hand that a hand points
- * at or has locked glows gold as one on the floor does (headset, test.22).
- * A floor gun takes the gold as its own shade (shadecol); a held one is
- * drawn in the guard's list under his shade, so its entry gets the gold.
+ * The glow of what a hand points at or has locked (headset, test.22: no glow
+ * on a gun in a guard's hand, then none on the floor either, with Bean).
+ * The floor's glow was its shade turned gold (shadecol, below), which the
+ * Bean release's draws don't take, and a held gun shares the guard's shade.
+ * So the target's draw is tinted instead: the renderer's grayscale tint
+ * (G_SETGRAYSCALE_EXT, gfx_pc.cpp), its texels mixed toward gold at their
+ * own brightness, whatever the art set. objecthandler.c drawjointlist wraps
+ * a held gun's entry, propobj.c chrobjRenderProp a floor one's draw.
+ * gdl NULL: only whether model is lit (non-NULL when it is).
  */
-s32 gevrPullLitModel(Model *model, u32 *rgb)
+#ifndef G_SETGRAYSCALE_EXT
+#define G_SETGRAYSCALE_EXT 0x73   /* port/fast3d/gfx_pc.h */
+#endif
+#ifndef G_SETINTENSITY_EXT
+#define G_SETINTENSITY_EXT 0x75
+#endif
+#define GEVR_PULL_TINT_RGB  0xFFD24Cu   /* gold */
+#define GEVR_PULL_TINT_MIX  0x9C        /* 61% */
+
+static s32 gevrPullTinted(Model *model)
 {
     s32 ctrl;
 
@@ -515,13 +529,35 @@ s32 gevrPullLitModel(Model *model, u32 *rgb)
     {
         PropRecord *lit = s_lock[ctrl] != NULL ? s_lock[ctrl] : s_aim[ctrl];
 
-        if (lit != NULL && lit->parent != NULL && lit->obj != NULL && lit->obj->model == model && s_pull[ctrl].prop == NULL)
+        if (lit != NULL && lit->obj != NULL && lit->obj->model == model && s_pull[ctrl].prop == NULL)
         {
-            *rgb = 0xFFE69AA0u;   /* the floor glow's gold, blended in at 63% */
             return TRUE;
         }
     }
     return FALSE;
+}
+
+Gfx *gevrPullTint(Gfx *gdl, Model *model, s32 on)
+{
+    static Gfx s_probe;
+
+    if (on && !gevrPullTinted(model))
+    {
+        return NULL;
+    }
+    if (gdl == NULL)
+    {
+        return &s_probe;
+    }
+    if (on)
+    {
+        gdl->words.w0 = (uintptr_t) G_SETINTENSITY_EXT << 24;
+        gdl->words.w1 = (GEVR_PULL_TINT_RGB << 8) | GEVR_PULL_TINT_MIX;
+        gdl++;
+    }
+    gdl->words.w0 = (uintptr_t) G_SETGRAYSCALE_EXT << 24;
+    gdl->words.w1 = on ? 1 : 0;
+    return gdl + 1;
 }
 
 /*
