@@ -42,7 +42,8 @@ identity; offline Discord unlink undone; Discord stuck connecting after one
 failed refresh; Reset sound could leave silence; no resampler played 2.2x
 fast; hack setup names installed unchecked; a pull lost in flight hung in
 the air; GE-X bat pose read a matrix before its check; ammo<T> wrote past
-ammoheldarr. Open from it:
+ammoheldarr; Mods and Haptics tab changes were saved only by START. Suite
+104/104 and FriendsClientTest 11/11 after them; APK builds. Open from it:
 - Force pull online: the host settles only setup pickups. Pool guns and
   grenades are each headset's copy, and a grenade is owned at the catch
   before the host agrees: two players can keep one gun, or one grenade
