@@ -1770,6 +1770,14 @@ void gevrPullTick(void)
                 {
                     gevrPullThrow(ctrl, s_handVel[ctrl]);   /* out of play: it drops */
                 }
+                else if (gevrPullAlive(pl) && !pl->disarm)
+                {
+                    /* in flight: the flick took its projectile, so it would hang
+                     * where it is; it falls from there (RELEASE drops the copies) */
+                    const f32 still[3] = { 0.0f, 0.0f, 0.0f };
+
+                    gevrPullThrow(ctrl, still);
+                }
                 else
                 {
                     gevrPullSend(GEVR_PULL_NET_CANCEL, ctrl, NULL, 0, pl->item, 0, -1, NULL, NULL, 0.0f, -1);
