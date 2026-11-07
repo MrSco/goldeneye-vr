@@ -346,6 +346,12 @@ is goldeneyevr.com, in its own repository.
   the first release surface on the shot within 50 units; the hit is the
   game's (gevr_bean_shots.inc.h). Headset-checked by me: front and alley side.
   Suite 104/104. Symbols on the reports repo.
+- Unreleased on prerelease/v0.5.15 (after test.24): #234 fixed (33e9b48d).
+  The cycle tap skipped the sniper rifle on Dam: the guards' KF7 shares its
+  rifle ammo and its magazine held every round, reserve 0, so test.16's
+  empty-gun check called the sniper empty. This hand's magazine now counts
+  for any gun of the same ammo type (not under hand reload). test_multiplayer
+  86/86; the new case fails without the fix. Needs a test.25 build.
 - Launcher unification (docs/launcher-unify.md), all five phases, in test.17. One
   settings table (port/src/gevr_settings.c) drawn by the hold-Menu panel and
   the launcher; the launcher's tabs Play, Multiplayer, Controls (Hands,
