@@ -2392,11 +2392,19 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 				d->ownmat = ownmat;
 				d->vb = vb;
 				d->tex = tex;
-                d->reflectionDiffuse=reflectForm==4 ? 2 : reflectForm==3;
+                /* A see-through pane (the scratch form at below full alpha: the tower
+                 * window, glassware) draws no reflection, as in Dab's Mod (gebean.c: the
+                 * scratch map only marks glass, "the map itself is not drawn"). Its mostly
+                 * black map with a few lights, looked up per corner of a two-triangle pane,
+                 * slid bright streaks and wedges across the glass as the head moved
+                 * (#231, user: "the texture swap thing"). Opaque ones keep theirs. */
+                const int paneForm = reflectForm == 2 && alpha < 0xff ? 0 : reflectForm;
+                d->reflectionDiffuse=paneForm==4 ? 2 : paneForm==3;
                 d->reflectionColour=reflectionColour;d->reflectionAlphaBase=reflectionAlphaBase;
-                d->reflectSpot=reflectForm ? reflectSpot : ~0u;
-                d->reflectLand=reflectForm ? reflectLand : ~0u;
-                memcpy(d->reflectAmount,reflectAmount,4);
+                d->reflectSpot=paneForm ? reflectSpot : ~0u;
+                d->reflectLand=paneForm ? reflectLand : ~0u;
+                if (paneForm) memcpy(d->reflectAmount,reflectAmount,4);
+                else memset(d->reflectAmount,0,4);
                 d->masktex = masktex;
                 d->maskslot = maskslot;
                 d->matpc = matpc;
