@@ -17722,12 +17722,24 @@ static void gevrWeaponPanelEquip(s32 hand, const GevrWpEntry *e, s32 dir)
  * as empty and the tap never reached them (tester, test.17 Jungle: mines out of
  * the cycle from the start, Unarmed stuck once the guns ran dry). bondwalkItemHasAmmo
  * still adds the stored magazines and GE-X's mines still out to detonate.
+ *
+ * This hand's magazine counts for any gun sharing its ammo, not only for its
+ * own gun: the switch puts those rounds back in the pool
+ * (currentPlayerUnEquipWeaponWrapper) and the next gun loads from it, as on
+ * the N64. A KF7 holding all the rifle rounds left the reserve at 0, so the
+ * tap stepped over the sniper rifle (#234, Dam: the guards' KF7s and the
+ * sniper share rifle ammo). With hand reloading the magazine stays with its
+ * own gun (gevrReloadStow), so there it still counts for that gun alone.
  */
 static s32 gevrCycleItemEmpty(s32 hand, s32 item)
 {
+    s32 type, held;
     if (item == ITEM_UNARMED || item == ITEM_FIST || item >= ITEM_BOMBCASE) return FALSE;
-    if (get_ammo_type_for_weapon(item) == 0 || get_ammo_count_for_weapon(item) > 0 || bondwalkItemHasAmmo(item)) return FALSE;
-    return !(item == getCurrentPlayerWeaponId(hand) && get_ammo_in_hands_magazine(hand) > 0);
+    type = get_ammo_type_for_weapon(item);
+    if (type == 0 || get_ammo_count_for_weapon(item) > 0 || bondwalkItemHasAmmo(item)) return FALSE;
+    if (get_ammo_in_hands_magazine(hand) <= 0) return TRUE;
+    held = getCurrentPlayerWeaponId(hand);
+    return !(item == held || (get_ammo_type_for_weapon(held) == type && !gevrManualReloadOn(hand)));
 }
 
 static void gevrCycleHandWeaponInternal(s32 hand, s32 dir, s32 requireAmmo)

@@ -71,15 +71,21 @@ s32 gevrGexMinesHold(GUNHAND hand) {
 s32 gevrGexWatchItem(s32 item) {
     return VrGexGuns && (item == ITEM_WATCHLASER || (item >= ITEM_WATCHIDENTIFIER && item <= ITEM_WATCHMAGNETATTRACT));
 }
-s32 get_ammo_type_for_weapon(ITEM_IDS item) { return item > ITEM_KNIFE && item < ITEM_BOMBCASE && item != ITEM_TRIGGER ? item : 0; }
+/* each gun its own ammo type (its item number), except the sniper rifle, which
+ * shares the KF7's rifle rounds as in the ROM (#234, Dam) */
+s32 get_ammo_type_for_weapon(ITEM_IDS item) {
+    if (item == ITEM_SNIPERRIFLE) return ITEM_AK47;
+    return item > ITEM_KNIFE && item < ITEM_BOMBCASE && item != ITEM_TRIGGER ? item : 0;
+}
+static int ammoSlot(int item) { return get_ammo_type_for_weapon(item) ? get_ammo_type_for_weapon(item) : item; }
 s32 get_ammo_in_hands_magazine(GUNHAND hand) { return player.hands[hand].weapon_ammo_in_magazine; }
-s32 get_ammo_in_hands_weapon(GUNHAND hand) { return reserve[player.hands[hand].weaponnum]; }
+s32 get_ammo_in_hands_weapon(GUNHAND hand) { return reserve[ammoSlot(player.hands[hand].weaponnum)]; }
 /* gun.c: the reserve; bondwalkItemHasAmmo also wants the ROM's WEAPONSTATBITFLAG_HAS_AMMO,
  * which the remote mines lack (what the out-of-ammo switch may pick) */
-s32 get_ammo_count_for_weapon(ITEM_IDS item) { return reserve[item]; }
+s32 get_ammo_count_for_weapon(ITEM_IDS item) { return reserve[ammoSlot(item)]; }
 s32 bondwalkItemHasAmmo(ITEM_IDS item) {
     if (item == ITEM_REMOTEMINE) return 0;
-    return item == ITEM_FIST || item == ITEM_KNIFE || reserve[item] > 0;
+    return item == ITEM_FIST || item == ITEM_KNIFE || reserve[ammoSlot(item)] > 0;
 }
 s32 gevrMissionItemClaimed(s32 hand, s32 item);
 /* INSERT_HAND_REQUEST */
@@ -235,6 +241,18 @@ EXPORT int test_hand_cycle_ammo(void) {
     CHECK(gevrHandSelected(GUNRIGHT) == ITEM_FIST);   /* the switch never picks a mine */
     gevrCycleHandWeapon(GUNRIGHT, 1); CHECK(gevrHandSelected(GUNRIGHT) == ITEM_REMOTEMINE);
     reserve[ITEM_REMOTEMINE] = 0; CHECK(gevrCycleItemEmpty(GUNRIGHT, ITEM_REMOTEMINE) || getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_REMOTEMINE);
+    // Dam (#234): a guard's KF7 holds every rifle round in its magazine, the reserve
+    // is 0, and the sniper rifle shares that ammo. The switch puts the KF7's rounds
+    // back in the pool, so a tap reaches the sniper; with nothing loaded it does not.
+    jungle(ITEM_AK47); inventoryItems[4] = ITEM_SNIPERRIFLE; owned[ITEM_SNIPERRIFLE] = 1;
+    reserve[ITEM_GRENADELAUNCH] = 0; player.hands[GUNRIGHT].weapon_ammo_in_magazine = 18;
+    CHECK(!gevrCycleItemEmpty(GUNRIGHT, ITEM_SNIPERRIFLE));
+    CHECK(gevrCycleItemEmpty(GUNLEFT, ITEM_SNIPERRIFLE));   /* the other hand's switch frees nothing */
+    gevrCycleHandWeapon(GUNRIGHT, 1); CHECK(gevrHandSelected(GUNRIGHT) == ITEM_SNIPERRIFLE);
+    jungle(ITEM_AK47); inventoryItems[4] = ITEM_SNIPERRIFLE; owned[ITEM_SNIPERRIFLE] = 1;
+    reserve[ITEM_GRENADELAUNCH] = 0;
+    CHECK(gevrCycleItemEmpty(GUNRIGHT, ITEM_SNIPERRIFLE));
+    gevrCycleHandWeapon(GUNRIGHT, 1); CHECK(gevrHandSelected(GUNRIGHT) == ITEM_FIST);
     return 0;
 }
 EXPORT int test_mission_gadget_slots(void) {
