@@ -23,6 +23,8 @@ std::optional<discordpp::AuthorizationCodeVerifier> s_verifier;
 int s_state = GEVR_DISCORD_UNLINKED;
 bool s_linked = false;              // FriendsClient holds a refresh token
 bool s_refreshAsked = false;
+bool s_haveToken = false;           // a token arrived this run (a failed refresh is asked again)
+uint32_t s_refreshAskedMs = 0;
 bool s_friendsDirty = true;
 uint32_t s_friendsSentMs = 0;
 std::string s_name;
@@ -188,8 +190,11 @@ void gevrDiscordTick(void) {
     if (!s_client && !s_linked) return;   // nothing to run until a link or a sign-in
     ensureClient();
     discordpp::RunCallbacks();
-    if (s_linked && !s_refreshAsked) {
-        s_refreshAsked = true;            // a saved link: a fresh token for this run
+    // a saved link: a fresh token for this run; asked again each minute until one
+    // comes (offline at start, or the Worker or Discord briefly down)
+    if (s_linked && !s_haveToken && (!s_refreshAsked || SDL_GetTicks() - s_refreshAskedMs > 60u * 1000u)) {
+        s_refreshAsked = true;
+        s_refreshAskedMs = SDL_GetTicks();
         gevrFriendsSend("discord-refresh");
     }
     if (s_state == GEVR_DISCORD_CONNECTED &&
@@ -201,6 +206,7 @@ void gevrDiscordOnLinked(bool linked, const std::string &name) {
     if (!name.empty()) s_name = name;
     if (!linked) {
         if (s_client) s_client->Disconnect();
+        s_haveToken = false;
         s_state = GEVR_DISCORD_UNLINKED;
         s_name.clear();
     } else if (s_state == GEVR_DISCORD_UNLINKED) {
@@ -212,6 +218,7 @@ void gevrDiscordOnToken(const std::string &accessToken) {
     ensureClient();
     s_linked = true;
     s_refreshAsked = true;
+    s_haveToken = true;
     s_state = GEVR_DISCORD_CONNECTING;
     s_client->UpdateToken(discordpp::AuthorizationTokenType::Bearer, accessToken, [](discordpp::ClientResult result) {
         if (result.Successful()) s_client->Connect();
