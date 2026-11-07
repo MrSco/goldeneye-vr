@@ -62,6 +62,11 @@ def cstr(d, ptr):
     return d[o:d.index(b"\0", o)].decode("ascii")
 
 
+def setup_names(d):
+    """chraidata.c setup_text_pointers: each stage's setup file, "-" for none."""
+    return [cstr(d, word(d, 0x800374E4 + 4 * i)) or "-" for i in range(59)]
+
+
 def header(d, vram):
     skel, = struct.unpack_from(">I", d, vram - V + 4)
     nsw, nmtx, _, nrec, ntex = struct.unpack_from(">hhfhh", d, vram - V + 12)
@@ -174,6 +179,7 @@ def expect(rom, L):
     e["files"] = files
     e["levels"] = [struct.unpack_from(">IIIfff", d, 0x8004448C - V + 24 * i) for i in range(38)]
     e["levelnames"] = [(cstr(d, r[1]), cstr(d, r[2])) for r in e["levels"]]
+    e["setupnames"] = setup_names(d)
     fog, o = [], 0x24080
     while True:
         r = struct.unpack_from(FOG, d, o)
@@ -255,6 +261,11 @@ def tnd(exe):
     tables = got.get("animtables", [[]])[0]
     if len(tables) != 6 or tables[0] != tables[2] or tables[1] != tables[3] or int(tables[5]) == 0:
         bad.append("TND animation tables: %s" % tables)
+    # its last mission (stage 25, Train's slot) is UsetupcatZ on a 4-tile floor (report ebcf7d40)
+    names = setup_names(window(open(path, "rb").read(), dict(pieces=[])))
+    got_names = [r[1] for r in got.get("setupname", [])]
+    if got_names != names or names[25] != "UsetupcatZ":
+        bad.append("TND setup names: %s" % [(i, a, b) for i, (a, b) in enumerate(zip(got_names, names)) if a != b])
     anim = got.get("anim", [["0", "1"]])[0]
     if int(anim[1]) != 0 or int(anim[0]) < 170:
         bad.append("TND animation records: %s ok, %s bad; %s" % (anim[0], anim[1], got.get("animbad", [])[:5]))
@@ -293,6 +304,7 @@ def mirror(exe):
     for row, want, names in zip(got["level"], expected["levels"], expected["levelnames"]):
         assert int(row[0]) == want[0] and tuple(row[1:3]) == names
         assert all(close(a, b) for a, b in zip(row[3:], want[3:]))
+    assert [r[1] for r in got["setupname"]] == expected["setupnames"], "Mirror setup names"
     anim = got.get("anim", [["0", "1"]])[0]
     assert int(anim[0]) >= 170 and int(anim[1]) == 0, "Mirror animation rebuild: " + str(anim)
     assert got["rarelogo"] == [[str(0x29E550)]]
@@ -367,6 +379,7 @@ def main():
     for r, want, wn in zip(got["level"], e["levels"], e["levelnames"]):
         check(int(r[0]) == want[0] and (r[1], r[2]) == wn and all(close(a, b) for a, b in zip(r[3:], want[3:])),
               "level %s: %s != %s %s" % (r[0], r, wn, want[3:]))
+    check([r[1] for r in got.get("setupname", [])] == e["setupnames"], "setup names differ from the ROM's")
     fog = {int(r[0]): r[1:] for r in got["fog"]}
     for i, want in enumerate(e["fog"]):
         w = [want[0], want[1], want[2], want[3], want[6], want[7], want[9], want[10], want[11], want[12], want[13],

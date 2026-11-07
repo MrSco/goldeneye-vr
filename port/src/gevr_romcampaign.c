@@ -870,6 +870,8 @@ static uint32_t hackRows(uint32_t at, uint32_t row, uint32_t cap)
 
 #define GEVR_LEVELINFO_AT  0x8004448cu
 #define GEVR_LEVELINFO_ROWS 38
+#define GEVR_SETUPNAMES_AT   0x800374e4u   /* chraidata.c setup_text_pointers, by stage */
+#define GEVR_SETUPNAMES_ROWS 59
 #define GEVR_FOG_AT        0x80044e10u
 #define GEVR_FOG_ROW       92u
 #define GEVR_FOGLESS_ROW   56u
@@ -892,6 +894,7 @@ static uint32_t fieldBytes(const char *fields)
 
 struct gevrMusicRow { s16 stage_id, main_music, bg_sound, xtrack; }; /* music_0D2720.c's struct music_setup */
 extern struct levelentry levelinfotable[];
+extern char *setup_text_pointers[];
 extern EnvironmentRecord fog_tables[];
 extern EnvironmentFoglessRecord fog_tables2[];
 extern struct gevrMusicRow music_setup_entries[];
@@ -926,6 +929,29 @@ static void installLevelTables(void)
 		levelinfotable[i].levelscale = bef32(p + 12);
 		levelinfotable[i].visibility = bef32(p + 16);
 		levelinfotable[i].unknownfloat = bef32(p + 20);
+	}
+
+	/*
+	 * A stage's setup file goes with its BG: TND's last mission (stage 25,
+	 * Train's slot) is UsetupcatZ on its own 4-tile floor. Loading retail's
+	 * UsetuptraZ there left the intro camera's pad off the floor (report
+	 * ebcf7d40). A null row is the hack's own: the stage has no setup.
+	 */
+	for (i = 0; i < GEVR_SETUPNAMES_ROWS; i++) {
+		uint32_t ptr;
+
+		p = atVram(GEVR_SETUPNAMES_AT + 4u * i, 4);
+		if (!p) {
+			break;
+		}
+		ptr = be32at(p);
+		if (!ptr) {
+			setup_text_pointers[i] = NULL;
+		} else if (vramString(ptr)[0]) {
+			setup_text_pointers[i] = (char *)vramString(ptr);
+		} else {
+			sysLogPrintf(LOG_ERROR, "rom: stage %u setup name at 0x%08x not readable; left as GoldenEye's", i, ptr);
+		}
 	}
 
 	for (cap = 1; fog_tables[cap - 1].Id != 0 || cap == 1; cap++) {

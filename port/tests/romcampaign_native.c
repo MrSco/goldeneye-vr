@@ -69,6 +69,7 @@ static const s32 s_levelIds[38] = {
 	LEVELID_CAVES, LEVELID_EAR, LEVELID_LEE, LEVELID_LIP, LEVELID_CUBA, LEVELID_WAX, LEVELID_PAM, LEVELID_MAX,
 };
 struct levelentry levelinfotable[38];
+char *setup_text_pointers[59];
 /*
  * Shaped as the game's (bgfog.c, music_0D2720.c): rows, then the end row the
  * binder finds, then CANARY rows it must never touch.
@@ -252,6 +253,9 @@ int main(int argc, char **argv)
 		levelinfotable[i].bg_seg_filename = (void *)"retail";
 		levelinfotable[i].bg_stan_filename = (void *)"retail";
 	}
+	for (i = 0; i < 59; i++) {
+		setup_text_pointers[i] = "retail";
+	}
 	for (i = 0; i < 47; i++) {
 		fog_tables[i].Id = 1;
 	}
@@ -351,6 +355,9 @@ int main(int argc, char **argv)
 		printf("level %d %s %s %.6f %.6f %.6f\n", levelinfotable[i].levelID,
 				(const char *)levelinfotable[i].bg_seg_filename, (const char *)levelinfotable[i].bg_stan_filename,
 				levelinfotable[i].levelscale, levelinfotable[i].visibility, levelinfotable[i].unknownfloat);
+	}
+	for (i = 0; i < 59; i++) {
+		printf("setupname %d %s\n", i, setup_text_pointers[i] ? setup_text_pointers[i] : "-");
 	}
 	for (i = 0; i < 48; i++) {
 		const EnvironmentRecord *r = &fog_tables[i];
