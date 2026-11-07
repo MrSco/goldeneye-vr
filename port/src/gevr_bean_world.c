@@ -41,6 +41,8 @@
 #include "gevr_static_mesh.h"
 #include "gevr_bean_holes.inc.h"
 #include "gevr_bean_doors.inc.h"
+static int ensureStage(void);
+#include "gevr_bean_shots.inc.h"
 #include "chrai.h"
 #include "loadobjectmodel.h"
 
@@ -645,6 +647,7 @@ static Gfx *meshWrap(Gfx *list, GevrStaticMesh **mesh)
 static void clearRooms(void)
 {
     roomReferenceFree();
+    shotsFree();
     s_cullOutside = 0;
     gevrStaticMeshFree(s_opaqueMesh); free(s_opaqueWrap);
     free(s_opaque); free(s_opaqueVertices);
@@ -844,6 +847,7 @@ static int buildStage(int stage)
 		assign[i] = roomFor(c, nrooms);
 	}
 	markWater(mesh, fileScale);
+	shotsBuild(mesh, assign, st->scale);
 	for (int r = 0; r < nrooms; r++) {
 		int nopa = 0, nxlu = 0;
 		struct gevrEmitVert *opa = NULL, *xlu = NULL;

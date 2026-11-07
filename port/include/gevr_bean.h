@@ -38,6 +38,12 @@ void gevrBeanWorldBeginView(int authored);
 int gevrBeanWorldCullsBackFaces(void);
 int gevrBeanIsAvailable(void);
 int gevrBeanIsEnabled(void);
+/* the first of the release's level surfaces on a shot between near and far
+ * (world units), for its hole (gevr_bean_shots.inc.h; chrprop.c looks within
+ * GEVR_BEAN_HOLE_REACH of the game's hit: Streets' rebuilt fronts stand 13 off) */
+#define GEVR_BEAN_HOLE_REACH 50.0f
+int gevrBeanWorldShotSurface(const float from[3], const float dir[3], float near, float far,
+                             float hit[3], float normal[3]);
 void gevrBeanSetEnabled(int on);
 void gevrBeanToggle(void);
 

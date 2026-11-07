@@ -6,6 +6,7 @@
 #include "net_coop.h"
 #include "gevr_grip_gesture.h"
 #include "gevr_romlayout.h"
+#include "gevr_bean.h"
 #endif
 #include <ultra64.h>
 #ifdef GEVR
@@ -1635,6 +1636,44 @@ void chraiDefaultWeaponFireHandler(s32 hand)
             }
         }
     }
+
+#ifdef GEVR
+    /*
+     * The hole goes where the release's wall is drawn. With Project Bean on,
+     * a rebuilt wall can stand off the cartridge's one the shot hit: the
+     * front of Streets' first building past the car park stands 13 units in
+     * front of it, so the hole lay behind the wall drawn, past the decal
+     * band's reach, and none showed (user, 2026-11-07). The shot's hit is
+     * the game's; only the hole (and its spark) move, on to the first of the
+     * release's surfaces along the same shot within GEVR_BEAN_HOLE_REACH of
+     * it, as Dab's Mod's shots hit the release's rooms (wallhit.c).
+     */
+    if (gotbghit && gevrBeanIsEnabled())
+    {
+        float o[3] = { shotdata.gunpos.x, shotdata.gunpos.y, shotdata.gunpos.z };
+        float d[3] = { shotdata.dir.x, shotdata.dir.y, shotdata.dir.z };
+        float dl = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        float at, hit[3], n[3];
+
+        if (dl > 0.0f)
+        {
+            d[0] /= dl;
+            d[1] /= dl;
+            d[2] /= dl;
+            at = (visiblehitpos.x - o[0]) * d[0] + (visiblehitpos.y - o[1]) * d[1] + (visiblehitpos.z - o[2]) * d[2];
+
+            if (gevrBeanWorldShotSurface(o, d, at - GEVR_BEAN_HOLE_REACH, at + GEVR_BEAN_HOLE_REACH, hit, n))
+            {
+                visiblehitpos.x = hit[0];
+                visiblehitpos.y = hit[1];
+                visiblehitpos.z = hit[2];
+                bghit.normal.x = n[0];
+                bghit.normal.y = n[1];
+                bghit.normal.z = n[2];
+            }
+        }
+    }
+#endif
 
     if (gotbghit || hitbgstan)
     {
