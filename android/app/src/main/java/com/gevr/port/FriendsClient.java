@@ -56,6 +56,7 @@ final class FriendsClient {
     private String refusedName = "";   // a rename the Worker kept back (ten a day), said once
     private boolean settingsDirty;
     private long lastKeepalive, lastSent, nextPresence, nextRegister;
+    private long nextSettings;   // a failed settings PUT waits RETRY_MS, not the next poll
     private String lastError = "";
 
     FriendsClient(File file) {
@@ -247,10 +248,11 @@ final class FriendsClient {
                 break;
             }
             case "discord-unlink":
-                if (ready()) http.call("DELETE", BASE + "/me/discord", null, token());
+                // forget the link here first: offline, the DELETE fails and must not leave it saved
                 discordRefresh = discordName = "";
                 save();
                 emit("DISCORD|unlinked|");
+                if (ready()) http.call("DELETE", BASE + "/me/discord", null, token());
                 soon();
                 break;
             case "discord-friends": {
@@ -290,7 +292,10 @@ final class FriendsClient {
                 register();
             }
             if (!ready()) return;
-            if (settingsDirty) putSettings();
+            if (settingsDirty && now >= nextSettings) {
+                nextSettings = now + RETRY_MS;
+                putSettings();
+            }
             if (now >= nextPresence) presence(now);
             lastError = "";
         } catch (LobbyClient.HttpException e) {
@@ -325,7 +330,7 @@ final class FriendsClient {
         status = "ready";
         save();
         Log.i(TAG, "Registered as GE-" + friendCode);
-        settingsDirty = !showDetail || appearOffline;
+        settingsDirty = !showDetail || appearOffline || !searchable;
         nextPresence = 0;
         emitMe();
     }

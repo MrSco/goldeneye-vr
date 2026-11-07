@@ -220,6 +220,42 @@ public class FriendsClientTest {
         assertEquals("/discord/refresh", calls.get(calls.size() - 1).path);
     }
 
+    private long count(String method, String path) {
+        return calls.stream().filter(c -> c.method.equals(method) && c.path.equals(path)).count();
+    }
+
+    @Test public void aFailedSettingsSaveWaitsBeforeTryingAgain() throws Exception {
+        command("presence|launcher||25|Bond|");
+        poll();
+        answers.put("PUT /me/settings", new LobbyClient.HttpException(503, "Service unavailable"));
+        command("settings|1|1|1");   // fails at once
+        poll();                      // one retry
+        poll();                      // then nothing until a minute has passed
+        poll();
+        assertEquals(2, count("PUT", "/me/settings"));
+    }
+
+    @Test public void hiddenFromSearchBeforeRegisteringIsSentWithTheNewIdentity() throws Exception {
+        command("settings|1|0|0");   // not registered yet: kept for later
+        command("presence|launcher||25|Bond|");
+        poll();
+        Call put = calls.stream().filter(c -> c.path.equals("/me/settings")).findFirst().orElseThrow(AssertionError::new);
+        assertFalse(put.body.getBoolean("searchable"));
+    }
+
+    @Test public void unlinkingDiscordOfflineStillForgetsTheLink() throws Exception {
+        command("presence|launcher||25|Bond|");
+        poll();
+        set("discordRefresh", "ref");
+        set("discordName", "Alpha");
+        drain();
+        answers.put("DELETE /me/discord", new java.io.IOException("offline"));
+        command("discord-unlink");
+        assertTrue(drain().contains("DISCORD|unlinked|"));
+        JSONObject saved = new JSONObject(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
+        assertEquals("", saved.optString("discordRefresh", ""));
+    }
+
     @Test public void restoreReplacesTheIdentityAndResetForgetsIt() throws Exception {
         command("presence|launcher||25|Bond|");
         poll();
