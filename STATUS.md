@@ -339,6 +339,12 @@ is goldeneyevr.com, in its own repository.
   owner approved. Suite 104/104 (test_multiplayer.py builds with Windows
   gcc only, its __declspec exports; test_bean_mapping.py takes the ROM and
   build/xbla-files).
+- After test.23 (unreleased, branch t3/68b892cb): Bean bullet holes land on
+  the release's wall (0806f4cd). Streets' first building past the car park
+  stands ~13 units in front of the cartridge's wall the shot hits, so its
+  holes lay behind, past the 3-unit decal band. The hole and spark move to
+  the first release surface on the shot within 50 units; the hit is the
+  game's (gevr_bean_shots.inc.h). Headset-checked by me: front and alley side.
 - Launcher unification (docs/launcher-unify.md), all five phases, in test.17. One
   settings table (port/src/gevr_settings.c) drawn by the hold-Menu panel and
   the launcher; the launcher's tabs Play, Multiplayer, Controls (Hands,
