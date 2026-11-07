@@ -937,20 +937,33 @@ static void installLevelTables(void)
 	 * UsetuptraZ there left the intro camera's pad off the floor (report
 	 * ebcf7d40). A null row is the hack's own: the stage has no setup.
 	 */
+	/* Installed only when every row reads as a setup name (U...Z) or null,
+	 * so a hack laid out differently keeps GoldenEye's table whole instead
+	 * of losing stages' setups to stray words. */
 	for (i = 0; i < GEVR_SETUPNAMES_ROWS; i++) {
-		uint32_t ptr;
+		const char *name;
+		size_t len;
 
 		p = atVram(GEVR_SETUPNAMES_AT + 4u * i, 4);
 		if (!p) {
 			break;
 		}
-		ptr = be32at(p);
-		if (!ptr) {
-			setup_text_pointers[i] = NULL;
-		} else if (vramString(ptr)[0]) {
-			setup_text_pointers[i] = (char *)vramString(ptr);
-		} else {
-			sysLogPrintf(LOG_ERROR, "rom: stage %u setup name at 0x%08x not readable; left as GoldenEye's", i, ptr);
+		if (!be32at(p)) {
+			continue;
+		}
+		name = vramString(be32at(p));
+		len = strlen(name);
+		if (len < 3 || name[0] != 'U' || name[len - 1] != 'Z') {
+			break;
+		}
+	}
+	if (i < GEVR_SETUPNAMES_ROWS) {
+		sysLogPrintf(LOG_ERROR, "rom: setup name table row %u is not a setup name; left as GoldenEye's", i);
+	} else {
+		for (i = 0; i < GEVR_SETUPNAMES_ROWS; i++) {
+			uint32_t ptr = be32at(atVram(GEVR_SETUPNAMES_AT + 4u * i, 4));
+
+			setup_text_pointers[i] = ptr ? (char *)vramString(ptr) : NULL;
 		}
 	}
 
