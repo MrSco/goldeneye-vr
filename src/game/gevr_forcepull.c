@@ -61,6 +61,7 @@ extern bool objCanPickupFromSafe(ObjectRecord *obj);
 extern void sub_GAME_7F0402B4(PropRecord *prop, rgba_u8 *color);
 extern void projectileFree(Projectile *projectile);
 extern Gfx *gevrDrawInteractionRing(Gfx *gdl, const f32 at[3], f32 radius, u32 rgba);
+extern Gfx *gevrDrawInteractionHalo(Gfx *gdl, const f32 at[3], f32 radius, u32 rgba);   /* gevr_bodyslots.c */
 extern s32 gevrStereoWatchFace(f32 o[3], f32 n[3], f32 *cm);   /* bondview2.c */
 /* bondview2.c */
 extern s32 gevrPullInPlay(void);
@@ -96,6 +97,7 @@ extern void gevrCoopGuardForget(ObjectRecord *obj);   /* net_coop.c: a guard's g
 #define GEVR_PULL_YANK_CM_S   150.0f   /* or the hand pulled back from the target this fast */
 #define GEVR_PULL_HOMING_CM   30.0f    /* the flight follows the hand this far from where it flicked */
 #define GEVR_PULL_CATCH_CM    20.0f    /* the grip closed with it this near the hand: caught */
+#define GEVR_PULL_HALO_CM     26.0f    /* the target's glow, middle to rim: about a rifle's half */
 #define GEVR_PULL_MISS_S      0.45f    /* past the flight's end, not caught: it falls (a fresh squeeze needs the time) */
 
 typedef struct
@@ -495,69 +497,6 @@ void gevrPullNoteHeldGun(PropRecord *gun, const Mtxf *m, s32 drawn)
     s_heldNote[slot].w[1] = c.y;
     s_heldNote[slot].w[2] = c.z;
     s_heldNote[slot].at = g_GlobalTimer;
-}
-
-/*
- * The glow of what a hand points at or has locked (headset, test.22: no glow
- * on a gun in a guard's hand, then none on the floor either, with Bean).
- * The floor's glow was its shade turned gold (shadecol, below), which the
- * Bean release's draws don't take, and a held gun shares the guard's shade.
- * So the target's draw is tinted instead: the renderer's grayscale tint
- * (G_SETGRAYSCALE_EXT, gfx_pc.cpp), its texels mixed toward gold at their
- * own brightness, whatever the art set. objecthandler.c drawjointlist wraps
- * a held gun's entry, propobj.c chrobjRenderProp a floor one's draw.
- * gdl NULL: only whether model is lit (non-NULL when it is).
- */
-#ifndef G_SETGRAYSCALE_EXT
-#define G_SETGRAYSCALE_EXT 0x73   /* port/fast3d/gfx_pc.h */
-#endif
-#ifndef G_SETINTENSITY_EXT
-#define G_SETINTENSITY_EXT 0x75
-#endif
-#define GEVR_PULL_TINT_RGB  0xFFD24Cu   /* gold */
-#define GEVR_PULL_TINT_MIX  0x9C        /* 61% */
-
-static s32 gevrPullTinted(Model *model)
-{
-    s32 ctrl;
-
-    if (model == NULL || !VrPullVisuals || !VrForcePull || !g_gevrStereo || g_gevrExtraPass)
-    {
-        return FALSE;
-    }
-    for (ctrl = 0; ctrl < 2; ctrl++)
-    {
-        PropRecord *lit = s_lock[ctrl] != NULL ? s_lock[ctrl] : s_aim[ctrl];
-
-        if (lit != NULL && lit->obj != NULL && lit->obj->model == model && s_pull[ctrl].prop == NULL)
-        {
-            return TRUE;
-        }
-    }
-    return FALSE;
-}
-
-Gfx *gevrPullTint(Gfx *gdl, Model *model, s32 on)
-{
-    static Gfx s_probe;
-
-    if (on && !gevrPullTinted(model))
-    {
-        return NULL;
-    }
-    if (gdl == NULL)
-    {
-        return &s_probe;
-    }
-    if (on)
-    {
-        gdl->words.w0 = (uintptr_t) G_SETINTENSITY_EXT << 24;
-        gdl->words.w1 = (GEVR_PULL_TINT_RGB << 8) | GEVR_PULL_TINT_MIX;
-        gdl++;
-    }
-    gdl->words.w0 = (uintptr_t) G_SETGRAYSCALE_EXT << 24;
-    gdl->words.w1 = on ? 1 : 0;
-    return gdl + 1;
 }
 
 /*
@@ -2222,6 +2161,10 @@ Gfx *gevrPullDraw(Gfx *gdl)
                 f32 k = s_lock[ctrl] != NULL ? 1.0f : 0.5f + 0.5f * sinf(s_glowPhase * 6.2831853f * 1.5f);
                 u32 a = (u32) ((s_lock[ctrl] != NULL ? 0xF0 : 0x60 + 0x60 * k) * gevrPullNearFade(at));
 
+                /* the target's glow, under its ring: the gun lit gold wherever it lies or
+                 * whoever holds it (its shading never took a tint, headset test.22) */
+                gdl = gevrDrawInteractionHalo(gdl, at, GEVR_PULL_HALO_CM,
+                                              0xFFD86000 | (u32) ((s_lock[ctrl] != NULL ? 0xB0 : 0x70 + 0x30 * k) * gevrPullNearFade(at)));
                 gdl = gevrDrawInteractionRing(gdl, at, 7.0f, 0xFFE69A00 | a);
                 gdl = gevrDrawInteractionRing(gdl, at, 10.0f, 0xFFE69A00 | (a >> 2));
             }

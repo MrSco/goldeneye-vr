@@ -7968,23 +7968,8 @@ Gfx *chrobjRenderProp(PropRecord *prop, Gfx *gdl, s32 arg2)
     {
         gDPNoOpTag(mrData.gdl++, 0x565F0003);   /* VR_HAND_DRAW 3: the body */
     }
-    {
-        /* force pull's lit target glows gold (gevr_forcepull.c gevrPullTint) */
-        extern Gfx *gevrPullTint(Gfx *gdl, Model *model, s32 on);
-        if (obj->model != NULL && gevrPullTint(NULL, obj->model, 1) != NULL)
-        {
-            mrData.gdl = gevrPullTint(mrData.gdl, obj->model, 1);
-            sub_GAME_7F04AC20(prop, &mrData, arg2);
-            mrData.gdl = gevrPullTint(mrData.gdl, obj->model, 0);
-        }
-        else
-        {
-            sub_GAME_7F04AC20(prop, &mrData, arg2);
-        }
-    }
-#else
-    sub_GAME_7F04AC20(prop, &mrData, arg2);
 #endif
+    sub_GAME_7F04AC20(prop, &mrData, arg2);
 #ifdef GEVR
     if (gevrRidden)
     {

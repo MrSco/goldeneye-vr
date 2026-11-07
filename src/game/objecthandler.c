@@ -983,22 +983,12 @@ void drawjointlist(ModelRenderData *data, ModelHitEntry *entry)
 
 #ifdef GEVR
     ModelHitEntry *beanFirst=entry;
-    extern Gfx *gevrPullTint(Gfx *gdl, Model *model, s32 on);   /* gevr_forcepull.c: the pull's lit gun */
-    s32 gevrTinted;
 #endif
 
     while (entry != NULL)
     {
         root = entry->rootnode;
         node = root;
-#ifdef GEVR
-        /* a guard's gun the force pull points at glows gold (gevrPullTint) */
-        gevrTinted = data->gdl != NULL && gevrPullTint(NULL, entry->model, 1) != NULL;
-        if (gevrTinted)
-        {
-            data->gdl = gevrPullTint(data->gdl, entry->model, 1);
-        }
-#endif
 
         if (entry->model->obj == NULL)
         {
@@ -1105,12 +1095,6 @@ void drawjointlist(ModelRenderData *data, ModelHitEntry *entry)
             while (node != NULL);
         }
 
-#ifdef GEVR
-        if (gevrTinted)
-        {
-            data->gdl = gevrPullTint(data->gdl, entry->model, 0);
-        }
-#endif
         entry = entry->next;
     }
 }
