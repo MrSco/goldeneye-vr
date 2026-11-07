@@ -173,7 +173,7 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "PerWeaponRecoil=%d\n", VrPerWeaponRecoil);
     fprintf(f, "; Game rules (single player). 1 = thrown mines stick to guards.\n");
     fprintf(f, "MinesStickToGuards=%d\n", VrMinesStickToGuards);
-    fprintf(f, "; Bodies kept on the floor: 0 = they fade as in the original game, or 12, 24, 48.\n");
+    fprintf(f, "; Bodies kept on the floor: 0 = they fade as in the original game, or 12, 24.\n");
     fprintf(f, "BodiesStay=%d\n", VrBodiesStay);
     fprintf(f, "; 1 = alerted guards can call multiple reinforcements (solo, default off; any body count).\n");
     fprintf(f, "; GoldenEye solo/co-op/Horde AI ally; host chooses, next mission or retry.\n");

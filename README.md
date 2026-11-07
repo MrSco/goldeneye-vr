@@ -53,17 +53,18 @@
 | Real 3D first-person play. Look around with your head, lean and step with your body. | The whole game on a cinema-sized screen floating in front of you. |
 | Aim the gun with your **right hand**. Shots leave the muzzle and go where the barrel points. | **Flat or curved** screen, any size and distance. |
 | A 3D sight where your shot will land. Your ammo counter sits on the gun. | **Grab the screen** with both grips to move it anywhere. |
-| Your **left arm** is Bond's own suit sleeve with his watch, keeping mission time and showing live health, armor, and multiplayer radar. The launcher offers **Off / On / Only** for wrist status and a separate **watch gesture to pause** toggle. | The classic experience, with no motion at all. |
-| Gadgets are **in your hand**: mines, the covert modem, cameras and more, thrown from where you hold them. | |
+| Your **left arm** is Bond's own suit sleeve with his watch, keeping mission time and showing live health, armor, and multiplayer radar. The launcher offers **Off / On / Only** for wrist status and a separate **Watch gesture** toggle. | The classic experience, with no motion at all. |
+| Gadgets are **in your hand**: mines, the covert modem, cameras and more, thrown from where you hold them. | **Third person** (optional, solo): tick it on the launcher's **Play** tab and the camera follows behind Bond. Aiming, the watch and the tank go back to first person. |
 | The **sniper rifle's scope** shows the zoomed view in its lens, 4.4x up to 25x, with a red sight when you aim. The **Moonraker laser** has a 3x scope, and the **KF7** and **AR33** show a magnifier when you bring your eye to their sights. | |
-| **Melee with either hand**: swing your hand, a gun, the knife or the sniper rifle's butt at a guard. Sneak up on one and chop him. | |
+| **Melee with either hand**: swing your hand, a gun, the knife or the sniper rifle's butt at a guard. Sneak up on one and chop him. Hold the rifle butt with both hands and it hits twice as hard. | |
+| **Force pull** (optional, WIP): point an empty hand at a gun or item up to 3.5 m away, squeeze to lock it, flick to pull it in, and grip to catch it. Pull a gun out of a guard's hand, or catch a live grenade and throw it back. A disarmed guard runs for another gun, or comes at you with his fists. | |
 | The **watch laser** fires when you bring your gun hand to the watch and grip it, as Bond does in the original. | |
 | Hold any gun with **both hands**: put your left hand on it and squeeze the grip. A rifle then aims along the line between your hands. | |
 | Spent **shell casings** fly from the ejection port. | |
 | Smooth or snap turning, and an optional **comfort vignette** for motion sickness. | |
 
 Also:
-- An **in-VR launcher** with **Play**, **Controls**, **Comfort**, and **Screen** tabs: ROM check, display mode, screen shape and size, turning, comfort, **display rate** (Auto and the headset's supported rates), **aim steadying**, a **left-handed** mode, **swap sticks**, **gun fit** (set where the gun sits in your hand), an in-game **stats** readout for troubleshooting, and a **Cheats** page (the classic cheats, tiny or big guns, and **unlock all missions and cheats**).
+- An **in-VR launcher** with **Play**, **Multiplayer**, **Controls** (**Hands**, **Gestures**, **Throwing**, **Haptics**), **Comfort**, **Screen**, **Rules** (**Game rules**, **AI ally**, **Cheats**) and **Mods** tabs: ROM check, display mode, screen shape and size, turning, comfort, **display rate** (Auto and the headset's supported rates), **aim steadying**, a **left-handed** mode, **swap sticks**, **gun fit** (set where the gun sits in your hand), an in-game **stats** readout for troubleshooting, and **Cheats** (the classic cheats, tiny or big guns, and **unlock all missions and cheats**).
 - **HD textures**: the launcher's **Mods** page downloads a fan-made texture pack on request and installs it in the headset:
   - *GoldenEye 007 HD* by intermissionfb and GhostlyDark (evilgames.eu, 129 MB).
   - *GoldenEye 007 HD + AI* (251 MB), our [fork](https://github.com/MrSco/GoldenEye-007-HD). It adds AI upscales of the game's own textures for the ones the pack doesn't cover yet: guards, weapons, parts of levels.
@@ -71,8 +72,9 @@ Also:
   Nothing of theirs ships with the app. New pack releases show up on the Mods page as updates.
 
   In game, hold **Menu** to open the in-game panel, then use **HD textures off** and **on** to compare.
-- **Multiplayer** (experimental): deathmatch for up to eight players, with **bots** to fill the empty slots or to play against on your own, endless Horde waves on any map for one to four, or the campaign in co-op for up to four, each in their own headset, over the internet or your Wi-Fi: browse public games or share a private code. See [Multiplayer](#-multiplayer-experimental).
-- **Optional ragdolls and limb dismemberment** (experimental): Ragdolls and Dismemberment on Play -> Game rules. Off by default; works in every mode, with the body count set to fade, 12, 24 or 48. Physics and cuts are local to each headset. See [setup, limits and testing](docs/ragdolls.md).
+- **Multiplayer** (experimental): deathmatch for up to eight players, with **bots** to fill the empty slots or to play against on your own, endless Horde waves on any map for one to four, or the campaign in co-op for up to four, each in their own headset, over the internet or your Wi-Fi: browse public games, share a private code or invite your friends. See [Multiplayer](#-multiplayer-experimental).
+- **Friends and invites**: the **Friends** panel beside the launcher and the in-game panel shows which friends are online and what they're playing. Find friends by name or friend code, invite them into your lobby, or join theirs. **Link Discord** there to add your Discord friends, show what you're playing on Discord, and send and take invites through it. A lobby's `goldeneyevr.com/join` link shows its code and an **Open in GoldenEye VR** button. See [Friends and invites](docs/friends-and-invites.md).
+- **Optional ragdolls and limb dismemberment** (experimental): Ragdolls and Dismemberment on **Rules → Game rules**. Off by default; works in every mode, with the body count set to fade, 12 or 24. Physics and cuts are local to each headset. See [setup, limits and testing](docs/ragdolls.md).
 - **3D sound**: gunfire, explosions, doors and the game's other sounds come from where they happen, through the same Steam Audio 3D audio as voice chat. A fight in the next room sounds like it's round the corner, not through the wall.
 - **GoldenEye X** (optional, WIP): models and animations for every GoldenEye weapon and item, with magazines, single rounds
   and speedloaders reloaded by hand in VR, one-handed remote mines, and its arms wearing the watch, loaded from your own patched Perfect Dark ROM.
@@ -80,7 +82,7 @@ Also:
 - **Project Bean visuals** (optional, experimental): characters, weapons, props,
   rooms and skies downloaded from the launcher's Mods page or loaded from your
   own extracted Bean files. Select Bean alongside HD / AI; switch during play
-  through the watch VR options or one grip + right-stick click. GE-X keeps
+  in the in-game panel (hold **Menu**) or with one grip + right-stick click. GE-X keeps
   its first-person gear. See
   [Project Bean setup and checks](docs/project-bean.md).
 - **Updates in the headset**: the launcher offers each new release, no computer needed.
@@ -129,7 +131,7 @@ Put the ROM in the headset's **Download** folder:
 
 In the headset, open **Library**, change the filter to **Unknown Sources** (or use the shortcut
 SideQuest added), and start **GoldenEye VR**. The launcher opens and shows
-**"No GoldenEye ROM yet"**. That's expected.
+**"No ROM yet."** That's expected.
 
 ### 5. Choose your ROM, then play
 
@@ -191,8 +193,8 @@ USB-C cable (the charging cable works) and a Windows PC or Mac.
 ### Updating
 
 From v0.1.13 on, the launcher checks GitHub for a newer version each time it opens. When one
-is out, an **Update** button appears beside **Cheats...**. Press it and confirm in the window that
-opens. The first time, a settings window asks first: turn on **Allow from this source** and the
+is out, a line above **START** says **Update available** with an **Update** button. Press it and
+confirm in the window that opens. The first time, a settings window asks first: turn on **Allow from this source** and the
 game comes back by itself. Your ROM and settings stay.
 
 Coming from v0.1.12 or older, or if you'd rather not update in the headset: install the new APK
@@ -231,15 +233,15 @@ from [Wreck's N64 Vault page](https://n64vault.com/pd-multi-levels:goldeneye-x).
    [full preparation guide](docs/gex-setup.md) covers byte-order conversion, patching
    with a GUI or Python, and checking the result.
 2. Copy `gex.z64` into the Quest's **Download** folder using USB or SideQuest.
-3. Open the launcher's **Play → Mods...** page. Under **GOLDENEYE X**, press
+3. Open the launcher's **Mods** tab. Under **GOLDENEYE X**, press
    **Choose ROM...** and select the patched file. Look for **GoldenEye X ROM chosen.**
    The app stores it as `Android/data/com.gevr.port/files/data/gex.z64`.
-4. Tick **Its guns, items, hands and watch arm**. It's off by default. During a mission
+4. Tick **GE-X guns, hands and watch**. It's off by default. During a mission
    you can switch it in the in-game panel (hold **Menu**): **VR settings → Mods and fun → GoldenEye X**.
 
 On the virtual screen, GE-X's own fire and reload animations play. To reload by hand in
-stereo VR, also turn on **Hand reload (WIP)** in **Controls → Gestures...**. It needs
-GoldenEye X; until GE-X is on, it reads **Hand reload (needs GoldenEye X)**.
+stereo VR, also turn on **Hand reload WIP** on **Controls → Gestures**. It needs
+GoldenEye X; until GE-X is on, it's greyed out with **Needs GoldenEye X**.
 - **Magazine guns.** Pull the magazine with your off hand, grip a replacement at your
   belt, and seat it in the gun.
   - B/Y drops the magazine. A removed magazine keeps its rounds until you put it back or drop it.
@@ -263,11 +265,11 @@ See [reload and fit controls](docs/gex-setup.md#reload-and-fit-controls).
 - GE-X's left hand wears the detonator watch, which shows your health, armor and radar.
 
 Some mission-specific items may still need their fit adjusted in the headset
-(**Gun fit...**, below).
+(**Gun fit**, below).
 
 No Perfect Dark ROM, patched ROM or GE-X assets ship with the app. The app imports
 the file you prepare; it does not apply the patch for you. Use the Mods picker for
-GE-X and the Play page's **Choose ROM file...** for your GoldenEye ROM.
+GE-X and the ROM section's **Choose ROM file...** for your GoldenEye ROM.
 
 ## 🎮 Controls
 
@@ -280,11 +282,12 @@ GE-X and the Play page's **Choose ROM file...** for your GoldenEye ROM.
 | **Right grip** | Aim / zoom, and shows the 3D sight. Steadies a gun with a scope |
 | **Left grip** | Dual-wielding: shows the left gun's sight (blue) |
 | **Left hand on the gun** + **left grip** | Hold it with both hands |
-| **Hand at its own hip** + **grip** | Holster what that hand holds; squeeze there again to draw it (**Hip holster (WIP)**) |
+| **Hand at a body slot** + **grip** | With **Body slots WIP** on (off by default): take that slot's weapon. Pistols sit at the hips, rifles and heavy guns over the shoulders, thrown weapons on the chest, gadgets at the belt. See [body slots](docs/body-slots.md) |
 | **Hand at a door, switch or console** + **grip** | Use it, as B does |
-| **Hand at a gun on the floor** + **grip** | With **Grip to hand (WIP)** on (off by default): that gun goes into that hand. Walking over guns still picks them up |
+| **Hand at a gun on the floor** + **grip** | That gun goes into that hand, even one still falling from a guard. Walking over guns still picks them up, unless **Auto pickup** is off |
 | **Hand at your own stuck mine** + **grip** | Take it back (remote mines, and proximity mines still arming; single player and the co-op host) |
-| **Grip** a throwable, swing, **release** the grip | Throw it from your hand: throwing knives, grenades, mines (**Motion throwing**, on by default). The trigger cooks a grenade meanwhile |
+| **Point an empty hand** at a gun or item + **grip**, then **flick** | With **Force pull WIP** on (off by default): the grip locks it, a flick of the wrist or a pull of the hand back flies it over, and a fresh squeeze catches it. See [force pull](docs/force-pull.md) |
+| **Grip** a throwable, swing, **release** the grip | Throw it from your hand: throwing knives, grenades, mines (**Motion throw**, on by default). The trigger cooks a grenade meanwhile |
 | **Left stick** | Walk and strafe |
 | **Right stick** | Turn: smooth (with its speed) or snap, set in the launcher |
 | **Left stick click** | Crouch (toggle) |
@@ -298,47 +301,53 @@ GE-X and the Play page's **Choose ROM file...** for your GoldenEye ROM.
 | **Left grip** + **X** | Previous item for your left hand |
 | **Hold A** | Weapon wheel above your gun hand: push the other stick toward a category (pistols top, rifles upper right, heavy lower right, gadgets lower left, thrown upper left), pull a trigger to step through the guns in it (gun hand forward, other hand back), let go of A to equip (dual-wield pairs included) |
 | **Hold X** | Left-hand wheel: anything you carry for your left hand, guns, knives, grenades and mines included (not the watch laser, Detonator or tank shells). Point with the right stick, step with the triggers, let go to equip. In multiplayer, only when the host's **Dual wield** rule isn't Off |
-| **B** / **Y** | Action: doors and switches take priority; dual wielding, reload the gun in that button's hand. With one gun, either button reloads it (not with **Hand reload (WIP)** on) |
+| **B** / **Y** | Action: doors and switches take priority; dual wielding, reload the gun in that button's hand. With one gun, either button reloads it (not with **Hand reload WIP** on) |
 | **☰ Menu** (left controller) | Pause / Bond's watch (in multiplayer: the pause menu) |
 | **☰ Menu** + **A** | Gun fit on or off (single player) |
 | **☰ Menu** + **B** | Mute or unmute your microphone (multiplayer) |
-| **Hold ☰ Menu** (1.5 s) | Back to the launcher, to change settings or cheats (asks first: A yes, B no) |
-| **Raise left wrist to your face** | Open Bond's watch when **Watch gesture to pause** is enabled |
+| **Hold ☰ Menu** (1.5 s) | The in-game panel: VR settings, HD textures, **Reset sound**, Friends and **Back to launcher** (in multiplayer: the pause menu's **Settings** tab) |
+| **Raise left wrist to your face** | Open Bond's watch when **Watch gesture** is on |
 | **Both stick clicks** | Recenter the view |
 | **Hold right stick click** (1 s) | Switch to the virtual screen |
 
 Real-world movement works too: lean around corners, duck, and step. Ducking behind cover hides you from guards.
 Aiming with the grip stops you walking, unless **Aim: no lean** is on.
 
-**Gestures...** on the launcher's **Controls** tab turns each grip gesture on or off, and holds
-**Watch gesture to pause**. Anywhere else the grip aims as before. It also holds two options
-that are off by default:
-- **Hand reload (WIP)**: needs GoldenEye X. Guns stop reloading themselves, and B/Y stop
-  reloading. You reload by hand as described under [GoldenEye X](#-goldeneye-x-optional-wip),
-  including when dual-wielding.
-- **Per-gun recoil**: each gun kicks with Perfect Dark VR's recoil.
+A tap of **A** or **X** skips guns with no ammo left; the weapon wheel still lists them. Just
+after the game switches you off an empty gun, your first tap keeps the gun it picked.
 
-**Game rules...** on the **Play** tab opens an optional [AI ally](docs/ai-ally.md) page
+The launcher's **Controls → Gestures** tab turns grip gestures on or off: **Watch gesture**,
+**Body slots WIP**, **Grip use** (doors and switches), **Mine re-grab**, **Force pull WIP**
+(with **Pull disarm** and **Pull visuals**) and **Auto pickup**. Anywhere else the grip aims
+as before. The 25 cm grab of a gun on the floor is always on. **Hand reload WIP** is there
+too, off by default: it needs GoldenEye X. Guns stop reloading themselves, and B/Y stop
+reloading. You reload by hand as described under [GoldenEye X](#-goldeneye-x-optional-wip),
+including when dual-wielding.
+
+**Controls → Throwing** holds **Motion throw** with its power, pitch and gaze, and **Gun
+recoil**: **Per gun** gives each gun Perfect Dark VR's recoil.
+
+**Rules → AI ally** has an optional [AI ally](docs/ai-ally.md)
 for solo GoldenEye, campaign co-op and Horde: one extra Natalya companion with
 weapon, aggression, damage, health and invincibility choices. The host chooses;
 changes apply next mission or Horde retry. It also works with Fast reinforcements.
 Missions with their own Natalya (Bunker II, Train, Jungle, Control) keep only her.
 
-Other optional rules, off by default:
-mines stick to guards (solo), bodies stay (the newest 12, 24 or 48, solo), and
+**Rules → Game rules** has other optional rules, off by default:
+mines stick to guards (solo), bodies stay (the newest 12 or 24, solo), and
 **Fast reinforcements**. Fast reinforcements increases difficulty by letting
 alerted guards call more reinforcements while earlier ones are still alive. It
 works with any body count, including Off. In co-op, the host controls Fast
 reinforcements for the mission. Turn it off for normal spawning.
 Keeping bodies alone preserves the original reinforcement behavior across all
-levels; 48 bodies no longer causes the reported enemy surge. See
+levels and no longer causes the reported enemy surge. See
 [body retention and reinforcements](docs/body-retention-reinforcements.md).
 
 Hold **Menu** for a moment, in a mission or online, to open the **in-game panel** on the
 room screen (a solo mission pauses under it; tap Menu or press B to close it). It has
-**Back to launcher**, **HD textures** on/off with a texture pack, your **Friends** (see
+**Back to launcher**, **HD textures** on/off with a texture pack, **Reset sound**, your **Friends** (see
 [Friends and invites](docs/friends-and-invites.md)), and the **VR settings**, which change settings
-mid-mission in seven sections: **Comfort**, **Controls**, **Gestures**, **Weapons**,
+mid-mission in seven sections (online, the pause menu's **Settings** tab has the same): **Comfort**, **Controls**, **Gestures**, **Weapons**,
 **Display**, **Game rules**, and **Mods and fun**. These include left-handed mode,
 stick swapping, gun fit, watch and grip gestures, reloads, recoil, motion throwing,
 screen size/distance/curve/passthrough, stats, the GoldenEye X toggle and gun size. **Display →
@@ -354,11 +363,11 @@ control you press lights up on the model and in the list. See
 **Left-handed?** Tick **Left-handed** in the launcher. The gun goes in your left hand and the watch on your right wrist, and the sticks and face buttons swap sides. The **☰ Menu** button stays on the left controller: the right one is Meta's system button.
 To walk with the left stick anyway, tick **Swap sticks** as well.
 
-**Watch face status** is on the launcher's **Controls** tab: **Off** keeps the standard
+**Watch face** is on the launcher's **Controls → Hands** tab: **Off** keeps the standard
 displays, **On** (the default) shows both wrist and standard status, and **Only** shows
 wrist status during stereo gameplay. Holster the offhand to see the watch; its clock
 hands still show mission time. Pause-menu status stays visible in every setting,
-and virtual-screen mode keeps its standard displays. Disable **Watch gesture to pause** (under **Gestures...**)
+and virtual-screen mode keeps its standard displays. Turn off **Watch gesture** (on **Controls → Gestures**)
 to read your wrist without opening the pause menu; the Menu button still pauses.
 
 ### Virtual screen (flat play, menus and cutscenes)
@@ -387,14 +396,14 @@ It's still experimental: expect rough edges, and please report what you find.
 
 **Everyone needs the same version of GoldenEye VR**, and each player their own ROM.
 
-**Host a game.** In the launcher press **Multiplayer...**, stay on the **Host** tab, and pick (across its **Lobby**, **Match**, **Fun** and **Player** tabs):
+**Host a game.** In the launcher open the **Multiplayer** tab, stay on **Host**, and pick (across its **Lobby**, **Match** and **Fun** tabs, and the **Player** tab beside Host):
 - the **Mode**: **Deathmatch**, **Horde** for endless armed guard waves on any map (solo or up to four), or **Co-op mission** for the campaign (each player picks their own save folder, then the host picks missions, difficulty and briefings for everyone).
-- **Public game** to appear in the internet browser, or **Private game** to share a join code.
+- **Public** to appear in the internet browser, **Friends** to stay unlisted but show up on your friends' Friends panel, or **Private** to share a join code or invite.
 - for Deathmatch, a **stage** and how many **players** it takes, from 2 to 8 on any stage.
 - your **character** (on the **Player** tab).
 - the **weapons**: the game's own sets, from Slappers only to the Golden Gun, proximity mines included.
 - **bots**, to fill empty slots (see below).
-- the **Fun** tab's rules, among them **No radar** and **Hit immunity:**, which sets how long
+- the **Fun** tab's rules, among them **No radar** and **Hit immunity**, which sets how long
   a deathmatch hit is ignored after the last one: **Short** (the default, a quarter second, so a
   fast gun lands about four hits a second), **None** (every hit counts, as in Perfect Dark) or
   **GoldenEye** (the original half second to a second). Solo and co-op keep GoldenEye's rule.
@@ -408,11 +417,12 @@ spend them at the **Mystery Box** for a random weapon or at **Wall Buys** for a
 weapon, its ammo at half price, or body armour (grip or press B at a station).
 Revive downed teammates by standing beside them. Everyone down ends the run; open
 the pause menu for results and **Retry Horde**. You can launch alone. Every player
-needs this build (protocol 24). See [Horde mode](docs/horde-mode.md).
+needs the same version. See [Horde mode](docs/horde-mode.md).
 
-**Join a game.** Press **Multiplayer...** and choose the **Join** tab. Pick a public internet game
+**Join a game.** Open the **Multiplayer** tab and choose **Join**. Pick a public internet game
 (**Public**), enter a code (**Private**), or select a game discovered on your Wi-Fi (**LAN**).
-**Direct IP** remains available as a fallback. Then choose your character on the **Player** tab and
+**Direct IP** remains available as a fallback. A friend's game, or an invite, can be joined
+from the **Friends** panel. Then choose your character on the **Player** tab and
 tick **Ready**. Open spots can be joined during warmup or an active round. Joining a deathmatch round
 in progress, you watch until the next round starts, unless you take a bot's place; co-op joiners drop
 straight in. Reconnecting doesn't restore a previous score.
@@ -420,8 +430,8 @@ straight in. Reconnecting doesn't restore a previous score.
 **Bots.** In deathmatch, the host's **Match** tab has a **Bots:** setting: **Off**,
 **Fill empty slots**, or **Fixed count** with 1 to 7 bots, plus a **Bot difficulty:**
 from Perfect Dark's six levels (Meat, Easy, Normal, Hard, Perfect, Dark). The same
-settings are on the pause menu's **Rules** tab as **BOTS**, **BOT COUNT** and
-**BOT DIFFICULTY**. They can be changed in the lobby and in warmup, and apply from the next round.
+settings are on the pause menu's **Rules** tab as **Bots**, **Bot count** and
+**Bot difficulty**. They can be changed in the lobby and in warmup, and apply from the next round.
 - **Full players.** Bots score, can win, and play as GoldenEye's characters
   ("Natalya (Bot)"). They use Perfect Dark's simulant brain, so they hunt by line of
   sight, react after a moment, and aim worse when they've just spotted you.
@@ -434,12 +444,15 @@ settings are on the pause menu's **Rules** tab as **BOTS**, **BOT COUNT** and
 - **Host migration.** If the host leaves, the next host takes over the bots and the
   match goes on.
 
-**In a match.** **☰ Menu** (or the watch gesture) opens the pause menu, with **Match**,
-**Rules**, **Player** and **Audio** tabs. The match goes on while it's open.
+**In a match.** **☰ Menu** (or the watch gesture) opens the pause menu on its **Match** tab;
+holding Menu opens it on **Settings**. Its tabs are **Match** (scores, map and votes),
+**Rules** (the host's; a guest sees them greyed, **Host's choice**), **Player**, **Audio**
+and **Settings** (the in-game panel's VR settings, **HD textures** and **Reset sound**).
+The match goes on while it's open.
 - **Navigating.** Point and pull a trigger, or use either stick. A or X selects; B or Y
   goes back, and B resumes.
 - **Buttons:** **Ready up** / **Unready**, **Request votes**, **Return to lobby** and
-  **Leave match...**.
+  **Leave match...** (in co-op, **Leave party...**).
 - **Host only:** **Start match**, **Kick**, and in co-op **End mission...**.
 
 Online, players don't block each other: overlapping players are pushed gently apart and
@@ -448,12 +461,16 @@ slowed, so nobody can pin you in a corner. Walls and guards still stop you.
 While you spectate, the gun hand's **A** follows the next player and **B** the previous one.
 In co-op, stand beside a downed teammate for 3 seconds to revive them.
 
+**Force pull** works online too: the others see what you pull fly to your hand. Another player's gun can't be pulled from their hand.
+In co-op and Horde, guards' grenades and rockets fly on every headset, so you can catch a
+grenade and throw it back. In co-op, you can also disarm guards.
+
 **Voice chat.** Allow microphone access to talk. Everyone can hear each other in the lobby;
 in a match, voices come from the speaker's direction, like the game's own sounds. Teammates
 are always at full volume: your team in team battles, and everyone in Horde and co-op. The
 host's **Voice mode** applies to free-for-all opponents: **Proximity** gets quieter with
-distance, **Couch** stays at full volume. Mute with **Mute microphone** in the launcher,
-**MIC** on the pause menu's **Audio** tab, or **Menu + B**. Your mute choice is saved.
+distance, **Couch** stays at full volume. Mute with **Mute mic** on the launcher's
+**Multiplayer → Audio** tab or the pause menu's **Audio** tab, or with **Menu + B**. Your mute choice is saved.
 If you deny microphone access, you can still hear other players.
 
 **Over the internet.** No IP addresses and no router setup: headsets connect directly when they can,
@@ -461,7 +478,8 @@ and through a Cloudflare relay when they can't. The game list and private codes 
 service at [lobbies.goldeneyevr.com](https://lobbies.goldeneyevr.com/), which shows public activity and keeps a game's listing and connection details (including
 IP addresses) only while the game is open. Games on your Wi-Fi still work without it (UDP 27008).
 
-**Not there yet:** You don't see other players' hands move.
+Other players' heads and arms follow their headset and controllers. See
+[tracked avatars](docs/multiplayer-ik.md).
 
 In co-op, every headset sees the tank move on Runway and Streets. Its engine sound still
 plays only for the driver. The reported invisible Bunker ending cutscene remains under
@@ -477,18 +495,19 @@ computer while the headset is plugged in.
 The ROM section collapses after validation succeeds and opens when a ROM is missing
 or selection fails. Expand it to change files.
 
-**Display rate.** **Auto** leaves the refresh rate to the headset and external profiles.
+**Display rate.** **Refresh** on the **Screen** tab. **Auto** leaves the refresh rate to the headset and external profiles.
 New Quest settings default to Auto; existing saved choices remain selected. The launcher
 offers the rates supported by your headset, including 80 Hz where available. Explicit
 choices request a rate; **Show stats** reports the rate actually in use.
 
-**SpaceWarp.** Beside **Display rate** on the **Screen** tab. The game draws half the
+**SpaceWarp.** Beside **Refresh** on the **Screen** tab. The game draws half the
 frames and the headset makes the ones between from motion and depth, so Bean holds
-120 Hz while turning, with a little more latency. On by default while Bean is on;
-tick or untick it to choose for yourself.
+120 Hz while turning, with a little more latency. On by default only with Bean at
+120 Hz: at 90 Hz or less, walking judders with it.
+Tick or untick it to choose for yourself.
 
-**Anti-aliasing.** **Off**, **2x** or **4x** (the default) on the **Screen** tab smooths
-jagged edges and changes right away. 4x is the most the Quest supports.
+**Anti-aliasing.** **Off** or **2x** (the default) on the **Screen** tab smooths
+jagged edges and changes right away. It costs GPU time, which is short on battery.
 
 **Render resolution.** Quest uses the render dimensions recommended by its OpenXR runtime
 when the app starts. These can differ from the panel's physical resolution. The
@@ -500,7 +519,7 @@ actual eye-buffer size. Restart the app after changing an external resolution pr
 
 Actual QGO profile behavior is awaiting the [device comparison](docs/quest_display_validation.md).
 
-**Gun fit...** (in **Controls**) sets where the gun sits in your hand, in the headset.
+**Gun fit** (on **Controls → Hands**) sets where the gun sits in your hand, in the headset.
 Turn it on, start a mission in stereo with a gun, and move the gun with the sticks until its grip
 is in your hand. Hold the gun with both hands to fit the holding hand as well. **A** saves,
 **B** undoes back to the last save; the fit stays on for the next gun or gadget. In single
@@ -544,7 +563,7 @@ Or let SideQuest add GoldenEye VR to your main Library.
 </details>
 
 <details>
-<summary><b>"No GoldenEye ROM yet" after I copied it</b></summary>
+<summary><b>"No ROM yet" after I copied it</b></summary>
 
 - Easiest fix: copy the ROM to the headset's **Download** folder and use **Choose ROM file...**
   in the launcher.
@@ -562,7 +581,7 @@ Or let SideQuest add GoldenEye VR to your main Library.
 
 Use v0.4.7 or later (see [release notes](docs/releases/v0.4.7.md)).
 Prepare **GE-X 6a** from **Perfect Dark USA v1.1**, check its byte order and checksum,
-then import it through **Play → Mods... → GOLDENEYE X → Choose ROM...**. The
+then import it through **Mods → GOLDENEYE X → Choose ROM...**. The
 [setup guide](docs/gex-setup.md#troubleshooting) explains the error messages and restart steps.
 </details>
 
@@ -592,8 +611,15 @@ the release, then copy them back.
 <details>
 <summary><b>Moving around makes me queasy</b></summary>
 
-In the launcher, turn on **Comfort** (darkens the edges while you move) and try **Snap** turning.
-Or play on the virtual screen, which has no artificial motion at all.
+On the launcher's **Comfort** tab, raise **Vignette** (darkens the edges while you move) and try
+**Snap** turning. Or play on the virtual screen, which has no artificial motion at all.
+</details>
+
+<details>
+<summary><b>The sound turns crunchy or echoes</b></summary>
+
+Hold **Menu** for the in-game panel (online: the pause menu's **Settings** tab) and press
+**Reset sound**. It restarts the sound output without leaving the mission.
 </details>
 
 <details>

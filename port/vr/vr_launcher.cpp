@@ -2138,7 +2138,7 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                             vrSettingsSave();
                         }
                         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                            gevrTooltip("One companion for the party, from the next mission or Horde retry. Weapon, aggression and durability: Play > Game rules > AI ally.");
+                            gevrTooltip("One companion for the party, from the next mission or Horde retry. Weapon, aggression and durability: Rules > AI ally.");
                         ImGui::EndDisabled();
                         ImGui::TableNextColumn();
                         ImGui::TextColored(gold, "LIVE SETTINGS");

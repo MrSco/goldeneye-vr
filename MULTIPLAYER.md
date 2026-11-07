@@ -1,26 +1,27 @@
 # GoldenEye VR multiplayer
 
-This is an experimental native Quest multiplayer mode. It uses ENet and borrows command and serialization ideas from the Perfect Dark PC port. Each headset simulates the match locally; the host relays player state and resolves reported player damage. The launcher can browse public internet games or join an unlisted private game by code. LAN and direct IP remain available.
+This is an experimental native Quest multiplayer mode. It uses ENet and borrows command and serialization ideas from the Perfect Dark PC port. Each headset simulates the match locally; the host relays player state and resolves reported player damage. The launcher can browse public internet games, join an unlisted private game by code, or join a friend's game from the Friends panel ([friends and invites](docs/friends-and-invites.md)). LAN and direct IP remain available.
 
 ## Network setup
 
-- Use the same APK version on every headset. The current game and discovery protocol is **24** (all 26 maps in Horde and Deathmatch, #219). Earlier builds cannot join; LAN discovery and the internet lobby list filter by protocol.
+- Use the same APK version on every headset. The game and discovery protocol in this source is **26** (force pull, catch and disarm; 25 added Horde's briefcase powers, 24 all 26 maps in Horde and Deathmatch, #219). Earlier builds cannot join; LAN discovery and the internet lobby list filter by protocol.
+- The host's lobby is **Public** (listed for everyone under Join > Public), **Friends** (unlisted, offered to the host's friends on their Friends panel; anyone else needs the code) or **Private** (the code or an invite). The friends service and its invites do not touch the game protocol.
 - The host listens for ENet game traffic on UDP `27007`.
 - LAN discovery broadcasts on UDP `27008`. If discovery does not work on the Wi-Fi network, connect to the host's local IP directly.
 - Internet games use the lobby service at `lobbies.goldeneyevr.com` for discovery and ICE signaling. Native libjuice carries ENet datagrams directly where possible and through Cloudflare TURN when needed, so players do not configure router forwarding. The host can have a mix of LAN and internet players in the same lobby of up to eight.
 - TURN is a fallback, not a gate. A headset publishes its session once STUN has found its public address; a relay candidate is added when the lobby service issues credentials (UDP 3478, with UDP 443 as a second server for networks that block 3478). If the relay is refused or unreachable, the join still goes ahead and only fails against peers that hole punching cannot reach (symmetric or carrier-grade NAT, typically phone hotspots). The log line `net: ice <id>: no relay candidate` records a direct-only session. "No internet path found" means STUN itself failed.
 - Internet hosting requires the lobby Worker in [goldeneyevr.com `services/lobbies`](https://github.com/MrSco/goldeneyevr.com/tree/main/services/lobbies); the Cloudflare TURN key is optional and capped per month there. If the Worker is unavailable, LAN and direct IP still work.
 - The host picks the stage (all 26 campaign maps and multiplayer arenas, including Statue and Cradle, and in Deathmatch the whole mission level of Facility, Caverns, Egypt, Bunker II, Archives, Statue and Cradle as "(Full)"; see [Full Deathmatch maps](docs/full-deathmatch-maps.md)), the player count, a character and the weapons (the game's own multiplayer weapon sets, Slappers only to Golden Gun). The LAN list on the Join tab shows each game's stage, weapons and players.
-- A match supports up to eight player slots (protocol 16, issue #88). The host picks the count, two to eight, on any stage: the launcher's **Players** beside the stage, or the **PLAYERS** row of the in-match lobby page (default four, saved as `MpMaxPlayers`). It travels in the match config (`max_players`); a team scenario takes its own size instead. The count cannot drop below the connected players or a connected slot; in a match a new count applies from the next load. The host launcher requires at least two players, all ready, before launch.
+- A match supports up to eight player slots (protocol 16, issue #88). The host picks the count, two to eight, on any stage: the launcher's **Players** beside the stage, or the **Players** row on the pause screen's **Rules** tab (default four, saved as `MpMaxPlayers`). It travels in the match config (`max_players`); a team scenario takes its own size instead. The count cannot drop below the connected players or a connected slot; in a match a new count applies from the next load. The host launcher requires at least two players, all ready, before launch.
 
-## Horde (unreleased)
+## Horde
 
 Mode **Horde** lets the host pick any of the 26 campaign maps and multiplayer
 arenas under **Host > Match > Map**, including Statue. Play endless waves with
 regular armed guards, solo or
 with up to four humans. Hits and kills earn points for the Mystery Box and Wall Buys.
-Everyone down ends the run; the host can retry from the pause menu. An optional AI ally joins the party (Play > Game rules > AI ally). Enemy ammo drops replace
-wave/shop refills. Protocol 24 requires an updated build on every headset.
+Everyone down ends the run; the host can retry from the pause menu. An optional AI ally joins the party (Rules > AI ally). Enemy ammo drops replace
+wave/shop refills. Every headset needs the same build.
 See [Horde mode](docs/horde-mode.md) for
 implementation details and remaining hardware acceptance. Older protocol notes
 below describe prior releases.
@@ -61,6 +62,7 @@ ROM and the same APK version. See [GE-X setup](docs/gex-setup.md).
 - `NET_MSG_EXPLOSION` (protocol 7) sends a damaging explosion the player caused. Receivers create it where it happened, remove that player's nearest projectile, and damage objects; hits on players still come only from the owner's hit reports. Bullet puffs and world explosions stay local.
 - `NET_MSG_OBJECT_STATE` (protocol 7) sends a door the player used (its new state) or a pickup the player collected. Receivers animate the door or remove the pickup on the same regeneration timer.
 - `NET_MSG_VOIP_FRAME` carries sequenced 20 ms Opus voice frames on the unreliable voice channel. The host validates and relays client frames.
+- `NET_MSG_FORCE_PULL` (protocol 26) carries a force pull's phases (fly, hold, release, done, cancel, disarm) from the puller to the host, which settles claims on the same pickup and relays it. See [Force pull online](#force-pull-protocol-26).
 
 The host relays every player event to the other clients. `NET_MSG_FIRE_EVENT` and `NET_MSG_MATCH_END` are protocol scaffolding. Discovery uses a separate UDP beacon rather than these game messages.
 
@@ -76,7 +78,14 @@ Known limits of protocol 8: guns dropped by a dying player and picked up are not
 
 ## In-level lobby, voting, and host migration
 
-**In-level lobby.** The online pause menu includes an online-only `LOBBY` page right after `PAUSE`. It uses a unified scrolling row framework for audio controls, game ballots (NEXT MAP and NEXT WEAPONS), host match options (SCENARIO, LENGTH, HEALTH, DUAL WIELD, LOADOUTS, CUSTOM 1–4), player character selection (all 64 characters), personal spawn loadout (LOADOUT 1–4), favorite toggles (FAV MAP, FAV SET), and round actions (START MATCH, RETURN TO LOBBY). Host-only rows appear dimmed on clients. The results screen permits paging to `LOBBY` so all players can vote or configure their next round.
+**In-level lobby.** Online, a tap of Menu opens the pause screen (`port/vr/gevr_pause_widgets.h`) on its **Match** tab and a hold opens it on **Settings**; the match goes on underneath. Its tabs, drawn by the launcher's settings renderer from `mpmenu.c`'s live fields and the settings table (`port/src/gevr_settings.c`, [launcher-unify](docs/launcher-unify.md)):
+- **Match:** the scoreboard (with Kick for the host) or the co-op party and objectives; Map, Weapons and Scenario; the Next map and Next weapons ballots, and Request votes.
+- **Rules:** the host's match options (Players, Bots, Bot count, Bot difficulty, Length, Health, Dual wield, Loadouts, Custom 1–4 and the rest) and the Fun rows (DK mode, Paintball, Line mode, No radar, Hit immunity, Gun size). A client sees them greyed, "Host's choice".
+- **Player:** Next round ready, team, character (all 64), personal spawn loadout (Loadout 1–4), Fav map and Fav set.
+- **Audio:** Mute mic, Music, Sound effects, Voices, and the host's Voice mode.
+- **Settings:** the in-game panel's seven VR settings sections, HD textures and Reset sound.
+
+The footer has Resume; Ready up / Unready, or the host's start button (Request ready, Start match, Next warmup); Return to lobby (Cancel start during a countdown); and Leave match... (co-op: Retry Horde or End mission... for the host, and Leave party...).
 
 **Round transitions.** Settings edits made in the lobby take effect at the next match load; the active round stays frozen on its latched settings. Results screen: host A/START initiates a 20-second countdown; host B returns to an indefinite warmup lobby on the current map; after 30 seconds without host input, continue begins automatically. From warmup, START MATCH initiates a 10-second countdown. At countdown zero, ballots/rotations resolve, and the game reloads once directly into play.
 
@@ -127,9 +136,9 @@ Allow microphone access when hosting or joining to talk. Denying it leaves voice
 ## Two-headset test
 
 1. Install the same debug APK on both Quest headsets and connect them to the same LAN.
-2. On one headset open **ONLINE MULTIPLAYER** > **Host Game** and choose **START HOSTING LOBBY**.
-3. On the other choose **Join Game (LAN / Direct IP)**. Select the discovered host or enter its LAN IP and press **Connect**.
-4. Choose a character, check **I am Ready**, then on the host press **LAUNCH MULTIPLAYER MATCH!**.
+2. On one headset open the launcher's **Multiplayer** tab, stay on **Host** and press **Start Hosting**.
+3. On the other choose **Multiplayer** > **Join** > **LAN** (or **Direct IP**). Select the discovered host or enter its LAN IP and press **Connect**.
+4. Choose a character on the **Player** tab, tick **Ready**, then on the host press **Launch**.
 5. Check movement through doorways, weapon models, shooting in both directions, explosive damage, stereo view while the other player dies or uses the watch, and health and scores after a respawn.
 6. Check lobby voice, distance and direction in the match, both mute controls, and continued voice after a death. Repeat with microphone permission denied on one headset to check listen-only mode. The log shows `voice: microphone permission granted` and `voice: capture open, 16000 Hz 1 ch` when the microphone is live, or `voice: capture open failed` with SDL's reason.
 7. Protocol 7 checks, on both headsets:
@@ -151,7 +160,7 @@ Allow microphone access when hosting or joining to talk. Denying it leaves voice
    - Next map: pick a map on the NEXT MAP row on one headset, another on the other; the value shows each player's own pick with its count. After the results and the host's exit to the warmup, the reload is on the most voted map (host log `Next map: ...`), and the tie goes to the lowest slot.
     - Host migration: with two players in a match, the host quits through the pause menu. On the other headset the match continues: log `Host left: this headset (slot 1) takes the match over`, then `Hosting the match from slot 1`; alone, the warmup starts. With three players, the host quits: slot 1 hosts, slot 2 logs `Host left: slot 1 takes over; rejoining as slot 2`, `launcher: rejoining ...`, and the new host logs `... is back in slot 2 after the host change`; the match goes on with scores kept, and slot 2 stands where it stood. Repeat with the old host force-quit instead (about 6 s later the same happens). Repeat over the internet lobby (the new host logs `took the match over with the internet lobby`).
 9. Protocol 9 checks (the full punch list), on both headsets:
-   - In-level lobby: pause menu pages to `LOBBY`; rows scroll with right stick, options adjust, host-only rows are dimmed on clients.
+   - In-level lobby: the pause screen's **Rules** tab shows the match options; they change on the host and are greyed "Host's choice" on clients.
    - Ballots & Rotation: both map and weapon ballots are available; in shuffle/playlist modes, next map/set picks are generated from host favorites.
    - Results & Warmup: host pressing A on results triggers 20s countdown; B returns to warmup lobby; START MATCH triggers 10s countdown. The round reloads once directly into live play.
    - Spectators: a late joiner during live play spectates a living player; A/B buttons cycle between living players; spectator voice is heard only by other spectators.
@@ -177,3 +186,29 @@ the empty offhand. Living VR avatars use two-bone arm IK and an independent
 torso heading; guns follow their wrists, including left-handed mode. Bots
 and players without tracking keep their animations. All players need an
 updated build. See [behavior, validation and limits](docs/multiplayer-ik.md).
+
+## Force pull (protocol 26)
+
+Force pull (off by default, `ForcePull` in the ini) works in every online mode.
+`NET_MSG_FORCE_PULL` goes from the puller to the host, which relays it:
+
+- **Others see it fly.** Each headset flies its own copy of the prop to the
+  puller's tracked palm (a flat player's or a bot's chest). A setup pickup is
+  named by its index; a dropped gun or grenade by item and position.
+- **Claims.** Two pulls on one setup pickup resolve at the host: the first wins,
+  and the other player's pull is refused and drops where it is. Known gaps
+  (review, 2026-11-07): dropped guns, guards' guns and grenades (each
+  headset's own pool copy) are not settled at the host yet, and a refusal that
+  reaches a client after its catch (a round trip over ~0.2 s) comes too late,
+  so both players can keep the item or one grenade can blow twice.
+- **Catches.** A caught grenade follows the catcher's hand on every headset and
+  becomes theirs, so the blast and the kill are theirs.
+- **Disarm** is co-op only, not Horde, and decided by the host. A human
+  player's gun is never pulled; bots are players, so they can't be disarmed.
+- **Guards' grenades, rockets and launcher rounds** (co-op and Horde) now fly
+  on the clients as copies that wait for the host's blast; a client can catch
+  a guard's grenade.
+- A disarmed guard runs for another gun or punches, on the host. Online he only
+  punches: a gun on the floor is each headset's own copy.
+
+See [force pull](docs/force-pull.md) for the phases, the test sheet and limits.

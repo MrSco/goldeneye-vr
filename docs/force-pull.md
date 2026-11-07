@@ -211,9 +211,10 @@ Dab's Mod adds nothing, its GoldenEye guards never punch):
   steps). His own AI then takes over again, with a gun to fire. Not reached
   in 300 ticks (PD's limit): he leaves that gun alone and uses his fists.
 - **Fists:** none to be had, he runs at you (PD: in to 120 cm), turns to
-  you and punches. GoldenEye has no guard punch, so the punch is the alarm
-  press's reach (`ANIM_extending_left_hand`, frames 40-82 at the alarm's
-  pace). At frame 64 it lands if you are still within 1.5 m, within 45
+  you and punches. GoldenEye has no guard punch, so the punch is the grenade
+  throw's overarm swing from its wind-up (`ANIM_fire_throw_grenade`, frames
+  84-150, either side; test.23: the alarm press's reach read as a button
+  press). At the release, frame 119, it lands if you are still within 1.5 m, within 45
   degrees of his facing and in sight: one PP7 shot's damage, scaled as a
   guard's shot is (`g_AiDamageModifier`, the 007 damage setting). A punch
   starts at most every 75 ticks. Once a second he looks for a gun again
