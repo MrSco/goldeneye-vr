@@ -336,8 +336,9 @@ is goldeneyevr.com, in its own repository.
   (gevrHeldGunDraw), not the joint-list Pchr model the earlier tints hit,
   and gold is blended at alpha >= 0x90 (his shade's alpha is darkness, 0x01
   on Dam's deck). Glow verified on the headset by me (Dam, fake off hand);
-  owner approved. test_multiplayer.py's native build fails in WSL (bcopy
-  types in PR/os.h), not looked into.
+  owner approved. Suite 104/104 (test_multiplayer.py builds with Windows
+  gcc only, its __declspec exports; test_bean_mapping.py takes the ROM and
+  build/xbla-files).
 - Launcher unification (docs/launcher-unify.md), all five phases, in test.17. One
   settings table (port/src/gevr_settings.c) drawn by the hold-Menu panel and
   the launcher; the launcher's tabs Play, Multiplayer, Controls (Hands,
