@@ -636,6 +636,8 @@ static void gevrHapticsPage(const ImVec4 &gold, const ImVec4 &good, const ImVec4
             // Column 1: Intensity Stepper & Slider
             ImGui::TableNextColumn();
             bool changed = false;
+            bool save = false;      // a step or a slider let go: written now (no Back button saves the tab)
+            bool sliding = false;   // a slider held: written when it is let go, not every frame
             if (ImGui::Button("-##int", ImVec2(34, 0))) {
                 if (p->intensity > 0) {
                     p->intensity--;
@@ -647,6 +649,8 @@ static void gevrHapticsPage(const ImVec4 &gold, const ImVec4 &good, const ImVec4
             if (ImGui::SliderInt("##int_sl", &p->intensity, 0, 10, "%d")) {
                 changed = true;
             }
+            save |= ImGui::IsItemDeactivatedAfterEdit();
+            sliding |= ImGui::IsItemActive();
             ImGui::SameLine();
             if (ImGui::Button("+##int", ImVec2(34, 0))) {
                 if (p->intensity < 10) {
@@ -671,6 +675,8 @@ static void gevrHapticsPage(const ImVec4 &gold, const ImVec4 &good, const ImVec4
             if (ImGui::SliderInt("##dur_sl", &p->durationMs, 10, 500, "%d ms")) {
                 changed = true;
             }
+            save |= ImGui::IsItemDeactivatedAfterEdit();
+            sliding |= ImGui::IsItemActive();
             ImGui::SameLine();
             if (ImGui::Button("+##dur", ImVec2(34, 0))) {
                 if (p->durationMs < 500) {
@@ -683,6 +689,9 @@ static void gevrHapticsPage(const ImVec4 &gold, const ImVec4 &good, const ImVec4
             ImGui::TableNextColumn();
             if (ImGui::Button("Test", ImVec2(100, 0)) || changed) {
                 vrHapticsTriggerTest(p->id);
+            }
+            if (save || (changed && !sliding)) {
+                vrSettingsSave();
             }
 
             ImGui::PopID();
@@ -700,10 +709,12 @@ static void gevrHapticsPage(const ImVec4 &gold, const ImVec4 &good, const ImVec4
     // Footer actions
     if (ImGui::Button("Reset Category to Defaults")) {
         vrHapticsResetCategory((HapticCategory)activeTab);
+        vrSettingsSave();
     }
     ImGui::SameLine();
     if (ImGui::Button("Reset All to Defaults")) {
         vrHapticsResetAll();
+        vrSettingsSave();
     }
 }
 
@@ -922,6 +933,7 @@ static void gevrModsPage(Uint32 now, const ImVec4 &gold, const ImVec4 &good, con
             if (ImGui::RadioButton(title, active)) {
                 snprintf(g_ActiveExtTexPack, 256, "%s", p.id.c_str());
                 gevrBeanSetEnabled(bean);
+                vrSettingsSave();
             }
             ImGui::EndDisabled();
             // one line a pack: under the tab rows and above START the tab does not scroll
@@ -978,7 +990,7 @@ static void gevrModsPage(Uint32 now, const ImVec4 &gold, const ImVec4 &good, con
                     ImGui::SameLine();
                     if (gevrBeanCeApplied()) {
                         bool ce = VrBeanCommunityEdition != 0;
-                        if (ImGui::Checkbox("CE", &ce)) VrBeanCommunityEdition = ce ? 1 : 0;
+                        if (ImGui::Checkbox("CE", &ce)) { VrBeanCommunityEdition = ce ? 1 : 0; vrSettingsSave(); }
                         if (ImGui::IsItemHovered())
                             gevrTooltip("GoldenEye XBLA Community Edition: new skies, Frigate's water,\nprops and fixes over your copy. From the next level you start.");
                     } else {
@@ -995,6 +1007,7 @@ static void gevrModsPage(Uint32 now, const ImVec4 &gold, const ImVec4 &good, con
     }
     if (!beanListed && gevrBeanIsAvailable() && ImGui::RadioButton("XBLA / Bean (local files)", gevrBeanIsEnabled())) {
         gevrBeanSetEnabled(1);
+        vrSettingsSave();
     }
     if (!gevrCampaignRetailArt(VrCampaign) && gevrBeanIsAvailable())
         ImGui::TextWrapped("XBLA / Bean is off while the Goldfinger 64 or Tomorrow Never Dies campaign is chosen.");
@@ -1010,7 +1023,7 @@ static void gevrModsPage(Uint32 now, const ImVec4 &gold, const ImVec4 &good, con
         char label[96];
         snprintf(label, sizeof(label), "Fill Bean's gaps with %s textures", fill ? fill : "HD");
         ImGui::BeginDisabled(fill == nullptr);
-        if (ImGui::Checkbox(label, &on)) VrBeanFillTextures = on ? 1 : 0;
+        if (ImGui::Checkbox(label, &on)) { VrBeanFillTextures = on ? 1 : 0; vrSettingsSave(); }
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             gevrTooltip(fill ? "Pictures the XBLA release left as the cartridge's (the stage pictures and the like)\ncome from the %s pack."
@@ -1061,7 +1074,7 @@ static void gevrModsPage(Uint32 now, const ImVec4 &gold, const ImVec4 &good, con
     // Off for a Goldfinger 64 or Tomorrow Never Dies run (gevr_romload.c): its
     // models would replace the hack's guns and its textures share Goldfinger's ids.
     ImGui::BeginDisabled(VrCampaign != GEVR_CAMPAIGN_GE);
-    if (ImGui::Checkbox("GE-X guns, hands and watch", &gex)) VrGexGuns = gex ? 1 : 0;
+    if (ImGui::Checkbox("GE-X guns, hands and watch", &gex)) { VrGexGuns = gex ? 1 : 0; vrSettingsSave(); }
     ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::SmallButton(s_gexRom ? "Change ROM..." : "Choose ROM...")) {
@@ -1080,7 +1093,7 @@ static void gevrModsPage(Uint32 now, const ImVec4 &gold, const ImVec4 &good, con
     // with every look and campaign, and online each headset its own.
     ImGui::Separator();
     bool blood = VrBloodPatch != 0;
-    if (ImGui::Checkbox("Blood patch (by Wreck)", &blood)) VrBloodPatch = blood ? 1 : 0;
+    if (ImGui::Checkbox("Blood patch (by Wreck)", &blood)) { VrBloodPatch = blood ? 1 : 0; vrSettingsSave(); }
     if (ImGui::IsItemHovered())
         gevrTooltip("Shot guards spray the red blood sparks Rare left in the game,\ninstead of smoke and sparks.");
     // Oddjob's hat shares the row: a mod pack (ModManager "oddjob-hat") the
@@ -1096,7 +1109,7 @@ static void gevrModsPage(Uint32 now, const ImVec4 &gold, const ImVec4 &good, con
             if (ImGui::SmallButton("Cancel")) gevrJavaCommand("modsCommand", "cancel");
         } else if (p.state == "installed" || gevrHatAvailable()) {
             bool hat = VrOddjobHat != 0;
-            if (ImGui::Checkbox("Oddjob's hat", &hat)) VrOddjobHat = hat ? 1 : 0;
+            if (ImGui::Checkbox("Oddjob's hat", &hat)) { VrOddjobHat = hat ? 1 : 0; vrSettingsSave(); }
             if (ImGui::IsItemHovered())
                 gevrTooltip("Throwing knives are Oddjob's hat (007 Nightfire): in your hand,\nin flight and lying about. Only the look changes.");
             if (!p.update.empty()) {
