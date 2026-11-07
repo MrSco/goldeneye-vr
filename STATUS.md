@@ -321,14 +321,23 @@ is goldeneyevr.com, in its own repository.
   gevr_forcepull.c). Suite 103/103; dedicated server built from the tag
   passes tools/gevr_server_test.sh (bot match, late joiner, idle/wake); a
   pull through a dedicated server still needs two headsets.
-- Unreleased after test.21 (headset feedback, 2026-11-06; built, not
-  published): force pull aims along the arm, shoulder through hand, not
-  the barrel (2fcf0e7a); hip Holster and Grip hand toggles gone, the 25 cm
-  grab always on, Grip use shows on under hand reload (6204d57a); the GE-X
-  sniper butt held as a bat, one or two hands (08a419a3); disarmed guards
-  go for a gun or punch, PD's lost-gun AI (66d5a420); START shows the mods
-  and cheats (c1d09bac). Suite 104/104, server regression passes. Headset
-  checks owed: pull aim, the bat's look and two-hand grip, the guard punch.
+- v0.5.15-test.22 (vc 117, protocol 26; test.21 feedback, 2026-11-06):
+  force pull aims along the arm, shoulder through hand (2fcf0e7a); hip
+  Holster and Grip hand toggles gone, the 25 cm grab always on, Grip use
+  shows on under hand reload (6204d57a); GE-X sniper butt held as a bat
+  (08a419a3); disarmed guards go for a gun or punch, PD's lost-gun AI
+  (66d5a420); START shows the mods and cheats (c1d09bac).
+- v0.5.15-test.23 (vc 118, protocol 26; test.22 feedback, 2026-11-06/07):
+  a guard's gun is lit at its middle and the catch needs a fresh squeeze
+  (da9614ed); the disarmed punch is an overarm swing, no lingering at the
+  gun (9177d4fe); Bean see-through glass draws no reflection, as Dab's Mod
+  (96e17c9b, #231); a guard's gun glows gold when aimed at, as a floor gun
+  does (d6b8ea1b): guards hold the detailed first-person model
+  (gevrHeldGunDraw), not the joint-list Pchr model the earlier tints hit,
+  and gold is blended at alpha >= 0x90 (his shade's alpha is darkness, 0x01
+  on Dam's deck). Glow verified on the headset by me (Dam, fake off hand);
+  owner approved. test_multiplayer.py's native build fails in WSL (bcopy
+  types in PR/os.h), not looked into.
 - Launcher unification (docs/launcher-unify.md), all five phases, in test.17. One
   settings table (port/src/gevr_settings.c) drawn by the hold-Menu panel and
   the launcher; the launcher's tabs Play, Multiplayer, Controls (Hands,
