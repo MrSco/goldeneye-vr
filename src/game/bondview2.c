@@ -747,8 +747,12 @@ static s32 gevrWatchOpeningByGesture(s32 inlevel)
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <string.h>
 #include <strings.h>
 void cheatButtonHandleCheatsTurnedOn(CHEAT_ID cheat_id);
+static s32 gevrHandSelected(s32 hand);   /* below: the gun or item a hand is on or switching to */
+s32 check_cur_player_ammo_amount_in_inventory(AMMOTYPE ammotype);   /* gunfire.c */
+s32 get_ammo_type_for_weapon(ITEM_IDS weapon);                       /* gunfire.c */
 static void gevrCheatProbe(s32 inlevel)
 {
     static const struct { const char *name; s32 id; } names[] = {
@@ -881,6 +885,26 @@ static void gevrCheatProbe(s32 inlevel)
 
             sysLogPrintf(LOG_NOTE, "cheathook: wound%s %.0f: %d guards", head ? "head" : "", (double) r,
                          gevrWoundGuards(r, head ? 8 : 15));   /* HIT_HEAD, HIT_CHEST (bondaicommands.h) */
+            continue;
+        }
+        /* "ammo<T>_<N>": N rounds of ammo type T (AMMOTYPE) in the pool, e.g.
+         * ammo3_20 = 20 rifle rounds; the gun in hand loads from it as usual */
+        if (strncasecmp(word, "ammo", 4) == 0 && strchr(word, '_') != NULL)
+        {
+            id = atoi(word + 4);
+            give_cur_player_ammo(id, atoi(strchr(word, '_') + 1));
+            sysLogPrintf(LOG_NOTE, "cheathook: ammo type %d -> %d", id, check_cur_player_ammo_amount_in_inventory(id));
+            continue;
+        }
+        /* "cycle" / "cycleback": the gun hand's cycle tap (input.c), without a controller */
+        if (strcasecmp(word, "cycle") == 0 || strcasecmp(word, "cycleback") == 0)
+        {
+            s32 before = gevrHandSelected(GUNRIGHT);
+
+            gevrCycleHandWeapon(GUNRIGHT, word[5] ? -1 : 1);
+            sysLogPrintf(LOG_NOTE, "cheathook: %s %d -> %d (magazine %d, pool %d)", word, before,
+                         gevrHandSelected(GUNRIGHT), get_ammo_in_hands_magazine(GUNRIGHT),
+                         check_cur_player_ammo_amount_in_inventory(get_ammo_type_for_weapon(getCurrentPlayerWeaponId(GUNRIGHT))));
             continue;
         }
         /* "holdl<N>": the same in the off hand, e.g. holdl4 to dual-wield PP7s */

@@ -351,7 +351,11 @@ is goldeneyevr.com, in its own repository.
   rifle ammo and its magazine held every round, reserve 0, so test.16's
   empty-gun check called the sniper empty. This hand's magazine now counts
   for any gun of the same ammo type (not under hand reload). Suite 104/104;
-  the new hand_native case fails without the fix. Not headset-checked.
+  the new hand_native case fails without the fix. Headset-checked by me
+  (Dam, KF7 magazine 20 / pool 0: a tap lands on the sniper, which loads 8)
+  with the new gevr_cheat.txt words cycle/cycleback and ammo<T>_<N>. With
+  GE-X manual reloading (off by default) the KF7 keeps its magazine, so the
+  sniper is still skipped there: it would come up empty.
   Commented on #234, left open for the reporter. Symbols on the reports repo.
 - Launcher unification (docs/launcher-unify.md), all five phases, in test.17. One
   settings table (port/src/gevr_settings.c) drawn by the hold-Menu panel and
