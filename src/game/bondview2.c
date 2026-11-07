@@ -892,6 +892,11 @@ static void gevrCheatProbe(s32 inlevel)
         if (strncasecmp(word, "ammo", 4) == 0 && strchr(word, '_') != NULL)
         {
             id = atoi(word + 4);
+            if (id <= 0 || id >= AMMOTYPE_MAX)   /* ammoheldarr has 30 slots */
+            {
+                sysLogPrintf(LOG_ERROR, "cheathook: no ammo type %d", id);
+                continue;
+            }
             give_cur_player_ammo(id, atoi(strchr(word, '_') + 1));
             sysLogPrintf(LOG_NOTE, "cheathook: ammo type %d -> %d", id, check_cur_player_ammo_amount_in_inventory(id));
             continue;
