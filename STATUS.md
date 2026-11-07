@@ -6,8 +6,9 @@ in docs/archive/ (the per-build log to v0.5.15-test.26 is
 own notes. No game data is shipped; building publishes nothing.
 
 **Release:** v0.5.14 (versionCode 95, protocol 25), 2026-11-01.
-**Pre-release:** v0.5.15-test.26 (vc 121, protocol 26), 2026-11-07, branch
-`prerelease/v0.5.15`. Builds from test.12 on join only each other.
+**Pre-release:** v0.5.15-test.27 (vc 122, protocol 26), 2026-11-07, branch
+`prerelease/v0.5.15`, tag on 0e0e3ffb. Builds from test.12 on join only
+each other.
 
 ## v0.5.15 batch (unreleased)
 
@@ -36,7 +37,7 @@ own notes. No game data is shipped; building publishes nothing.
 - Test hooks: gevr_cheat.txt cycle/cycleback, ammo<T>_<N>. Suite 104/104 at
   test.23; symbols for each test build on the reports repo.
 
-**Code review, 2026-11-07** (fixes after test.26, not yet published):
+**Code review, 2026-11-07** (fixes published in test.27):
 friends settings retried every second offline; search opt-out lost on a new
 identity; offline Discord unlink undone; Discord stuck connecting after one
 failed refresh; Reset sound could leave silence; no resampler played 2.2x
