@@ -6,8 +6,8 @@ In v0.4.7, **Bodies stay** controls corpse visuals. It keeps the newest 12,
 guards can call additional reinforcements while earlier ones are still
 alive. It is off by default and works with every body count, including Off.
 
-Both settings are in **Play → Game rules...** and the watch's **VR
-settings → Game rules**. **Original rules** in the launcher turns both off.
+Both settings are in the launcher's **Rules → Game rules** and the in-game
+panel's (hold Menu) **VR settings → Game rules**. **Original rules** in the launcher turns both off.
 Mines and retained bodies apply to solo play. Fast reinforcements also
 works in co-op missions under the host's control; deathmatch and
 split-screen use the original rules. Only guards whose existing AI permits

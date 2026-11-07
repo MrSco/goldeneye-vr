@@ -2,7 +2,7 @@
 
 Experimental implementation on `feature/ragdolls-dismemberment`. Both options
 default to **off**: **Ragdolls** and **Dismemberment** on the launcher's
-**Play → Game rules…** page, beside **Bodies stay**. Settings persist as
+**Rules → Game rules** page, beside **Bodies stay**. Settings persist as
 `Ragdolls` and `Dismemberment` in `goldeneye-vr.ini`.
 
 Ragdolls work in solo, co-op and multiplayer, including bots, with native, HD

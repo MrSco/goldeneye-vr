@@ -19,9 +19,9 @@ part that misbehaves can be reverted alone.
                                  /   \
 ```
 
-Where to switch it: launcher Controls > Gestures... > BODY SLOTS (toggle,
-Small/Normal/Large reach, Show); in a mission, Menu > Game Options > VR
-settings > Gestures ("Body slots WIP", "Slot size"). The old hip holster
+Where to switch it: launcher Controls > Gestures > Body slots (toggle,
+Small/Normal/Large reach, Show); in a mission, the in-game panel (hold
+Menu) > VR settings > Gestures ("Body slots WIP", "Slot size"). The old hip holster
 gesture was removed in test.22: body slots replace it.
 
 ## How it works
@@ -306,7 +306,7 @@ Reload checks for the next headset round:
 
 ## Test sheet (one headset session)
 
-Setup: launcher > Controls > Gestures... > Body slots on, Normal. Then a
+Setup: launcher > Controls > Gestures > Body slots on, Normal. Then a
 solo mission with Cheats > All guns (or `files/gevr_cheat.txt` "allguns").
 
 Pistols at the hips:

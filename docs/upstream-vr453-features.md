@@ -9,14 +9,13 @@ misbehaves can be reverted alone.
 
 | Part | Where to switch it | Default |
 |---|---|---|
-| Smooth-turn speed, 45..240 deg/s | Launcher Comfort tab; watch VR page | 120 (as before) |
-| Watch "VR settings" page | Watch > Game Options, last row | n/a |
-| Hip holster (WIP) / grip use / mine re-grab | Controls > Gestures...; watch VR page | on |
-| Grip to hand (WIP; a gun on the floor into that hand) | Controls > Gestures...; watch VR page | off |
-| Hand reload (WIP) | Controls > Gestures...; watch VR page | off |
-| Per-gun recoil | Controls > Gestures...; watch VR page | off |
-| Mines stick to guards | Play > Game rules... | off |
-| Bodies stay 12/24/48 | Play > Game rules... | off |
+| Smooth-turn speed, 45..240 deg/s | Launcher Comfort tab; in-game panel | 120 (as before) |
+| In-game "VR settings" (was the watch's page; v0.5.15 moved it) | Hold Menu | n/a |
+| Grip use / mine re-grab (the hip holster and Grip to hand toggles went in v0.5.15: body slots and the 25 cm grab, always on, replace them) | Controls > Gestures; in-game panel | on |
+| Hand reload (WIP) | Controls > Gestures; in-game panel | off |
+| Per-gun recoil | Controls > Throwing (Gun recoil); in-game panel Weapons | off |
+| Mines stick to guards | Rules > Game rules | off |
+| Bodies stay 12/24/48 | Rules > Game rules | off |
 
 Not taken (desktop-only or already better here): monitor mirror, Flat/XR
 profiles, hand cubes, the tank auto-mount, crouch on the right stick while

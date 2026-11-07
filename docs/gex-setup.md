@@ -200,8 +200,8 @@ swaps hands and face buttons as described in the [README controls](../README.md#
 **Virtual screen:** supported guns use GE-X's fire and reload animations. Normal
 button reloads still work here.
 
-**Stereo VR:** enable **Hand reload (WIP)** under **Controls → Gestures...**,
-or the in-game panel's (hold Menu) **VR settings → Weapons → Reload WIP**. With it
+**Stereo VR:** enable **Hand reload WIP** under the launcher's **Controls → Gestures**,
+or the in-game panel's (hold Menu) **VR settings → Gestures → Hand reload WIP**. With it
 on, guns no longer auto-reload. For a supported GE-X magazine-fed gun:
 
 1. With one gun, put the off hand at its magazine, squeeze grip and pull down.

@@ -1,5 +1,10 @@
 # Launcher screens: one frame, one settings table (v0.5.15 batch)
 
+Status (2026-11-07): all five phases done, first in v0.5.15-test.17; the
+online Match/Rules/Player/Audio tabs moved onto the settings renderer in
+test.20. Owed: a two-headset round as host and client (live rules, Fun,
+voice mode; the client's rows greyed "Host's choice").
+
 Agreed with the owner on 2026-11-05:
 
 - **Full unification:** every setting is defined once and drawn by the launcher, the
