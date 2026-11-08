@@ -6,8 +6,8 @@ in docs/archive/ (the per-build log to v0.5.15-test.26 is
 own notes. No game data is shipped; building publishes nothing.
 
 **Release:** v0.5.14 (versionCode 95, protocol 25), 2026-11-01.
-**Pre-release:** v0.5.15-test.30 (vc 125, protocol 26), 2026-11-08, branch
-`prerelease/v0.5.15`, tag on b14ce263 (test.29 + no trigger melee in VR).
+**Pre-release:** v0.5.15-test.31 (vc 126, protocol 26), 2026-11-08, branch
+`prerelease/v0.5.15`, tag on d059d943 (test.30 + no falling into Cradle's pits).
 Builds from test.12 on join only each other.
 
 ## v0.5.15 batch (unreleased)
@@ -39,9 +39,11 @@ Builds from test.12 on join only each other.
   keep loco smoothing; crashes 8e53cb27, a8d242cd/42ed2cf1, sig-e97854f4,
   ebcf7d40 (hack campaigns load the hack's setup names). Arenas give no
   start or pickup to floor only glass leads to (Archives (Full)'s
-  courtyard; also Caverns, Dam, Aztec): gevr_arena.c arenaGlassFloors.
+  courtyard; also Caverns, Dam, Aztec): gevr_arena.c arenaGlassFloors. A
+  drop too tall to climb back into floor with no way up is a wall in arenas
+  (arenaPits; only Cradle's antenna platform and dish floor, #232).
 - Test hooks: gevr_cheat.txt cycle/cycleback, ammo<T>_<N>; gevr_fakegrip.txt's
-  9th field holds a grip. Suite 104/104 at test.30; symbols on the reports repo.
+  9th field holds a grip. Suite 104/104 at test.31; symbols on the reports repo.
 
 **Code review, 2026-11-07** (fixes published in test.27):
 friends settings retried every second offline; search opt-out lost on a new
@@ -101,7 +103,7 @@ and MULTIPLAYER.md describe it all.
 - Hand reload, body slots, game rules WIP. GE-X: KF7/arms only; with GE-X
   manual reloading a cycle tap still skips the sniper beside a KF7.
 - Dam speedboat: a full crossing still to play. Bean: no water shaders,
-  120 Hz misses in fast turns, Tower glass pops, simplified floors.
+  120 Hz misses in fast turns, simplified floors.
 - Crash reports: issues in private MrSco/goldeneye-vr-reports; each
   build's symbols zip goes to its "symbols" release.
 
