@@ -370,7 +370,7 @@ extern s32 gevrStereoMirrored(void);
 extern s32 gevrHandsMirrored(void);
 extern s32 gevrStereoItemShown(s32 item);
 extern s32 gevrGexHeld(s32 hand);     /* gun.c: this hand's model is GoldenEye X's */
-extern s32 gevrStereoClubBat(s32 hand);   /* bondview2.c: the rifle butt held as a bat (GE-X, headset) */
+extern int gevrNetSlotIsBot(int slot);    /* net_core.c: a host-run bot's slot */
 extern void gevrStereoItemPose(s32 item, Mtxf *m);
 extern s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out);
 extern s32 g_gevrStereo;
@@ -4548,11 +4548,13 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             (handptr->weapon_hold_time != 0)
             && (var_s1 != ITEM_UNARMED)
 #ifdef GEVR
-            /* the rifle butt as a bat in the headset swings by the player's own arm
-             * only (bondview2.c gevrHandChopTick): its trigger swing has no
-             * animation there (above, gevrStereoClubBat), so it only made the
-             * sound (user) */
-            && !(g_gevrStereo && gevrStereoClubBat(hand))
+            /* in the headset melee is the player's own arm only (bondview2.c
+             * gevrHandChopTick; user: "normalize it for vr to not have trigger do
+             * any melee weapon attacks"): no trigger punch, rifle butt (any model)
+             * or knife stab. Throwing knives keep the trigger (a thrown gesture is
+             * not accurate enough), and bots keep theirs (their pad presses it) */
+            && !(g_gevrStereo && (GEVR_ITEM_AS(var_s1) == ITEM_FIST || GEVR_ITEM_AS(var_s1) == ITEM_KNIFE)
+                 && !gevrNetSlotIsBot(get_cur_playernum()))
 #endif
             && (((bondwalkItemCheckBitflags(var_s1, WEAPONSTATBITFLAG_CLICKY) != 0)) || (handptr->weapon_ammo_in_magazine > 0))
 #if defined(VERSION_JP) || defined(VERSION_EU)

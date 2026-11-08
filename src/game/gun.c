@@ -3359,7 +3359,7 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
     else if (def->fireAnimAlt > 0 && g_CurrentPlayer != NULL && (hand == GUNRIGHT || hand == GUNLEFT))
     {
         /* the fist: the trigger's punch, as GE-X's (1001 or 1002), on GoldenEye's clock,
-         * on the screen and in the headset alike (user: the trigger animates it). The
+         * on the screen (in the headset the trigger punches no more: gunfire.c, user). The
          * trigger's fire clip had played it at a gun's pace. A gesture's swing never
          * sets these states: it is the player's own (bondview2.c gevrHandChopTick) */
         const s32 st = g_CurrentPlayer->hands[hand].weapon_action_state;
