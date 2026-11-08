@@ -458,9 +458,14 @@ static void check_pits(void)
         t[0]->points[1].link = 0x100 >> 3; t[2]->points[0].link = 0x80 >> 3;
         t[2]->points[1].link = 0x140 >> 3; t[3]->points[0].link = 0x100 >> 3;
         prefix.ptr_firstroom = t[0];
-        PadRecord pads[3] = {0};
-        pads[0].stan = t[0]; pads[1].stan = t[3];
-        for (int i = 0; i < 2; i++) { pads[i].plink = "pad"; getTileMidPoint(pads[i].stan, &pads[i].pos); }
+        /* an island the stan never joined (a lift's floor) keeps its pad */
+        StandTile *island = (void *)(floor + 0x180);
+        *(u32 *)island = 5; island->tail.half = 0x3012;
+        island->points[0].x = 2000; island->points[1].x = 2400; island->points[2].x = 2200;
+        island->points[2].z = 300;
+        PadRecord pads[4] = {0};
+        pads[0].stan = t[0]; pads[1].stan = t[3]; pads[2].stan = island;
+        for (int i = 0; i < 3; i++) { pads[i].plink = "pad"; getTileMidPoint(pads[i].stan, &pads[i].pos); }
         u32 stream[4] = {0};
         ((PropDefHeaderRecord *)stream)->type = PROPDEF_END;
         mode = NET_MODE_DEATHMATCH; full = 1;
@@ -468,7 +473,7 @@ static void check_pits(void)
         gevrArenaPrepareSetup(LEVELID_ARCHIVES);
         s32 candidates[8], n = gevrArenaPads(candidates, 8);
         const int sheer = depth > 175;
-        assert(n == (sheer ? 1 : 2) && candidates[0] == 0);
+        assert(n == (sheer ? 2 : 3) && candidates[0] == 0 && candidates[n - 1] == 2);
         assert(!t[0]->points[1].link == sheer && !t[2]->points[0].link == sheer);
         assert(t[2]->points[1].link && t[3]->points[0].link && t[0]->points[0].link && t[1]->points[0].link);
         clear_allocations();

@@ -322,11 +322,13 @@ static void arenaPits(void)
     for (StandTile *t = stan_prefix->ptr_firstroom; *(u32 *)t;
          t = (void *)((u8 *)t + list_of_tilesizes[arenaSides(t)])) nt++;
     StandTile **tiles = nt ? malloc(nt * sizeof(*tiles)) : NULL;
-    s32 *work = nt ? malloc(nt * 5 * sizeof(*work)) : NULL;
+    s32 *work = nt ? malloc(nt * 6 * sizeof(*work)) : NULL;
     if (!tiles || !work) { free(tiles); free(work); return; }
     /* region: floor joined by floor links, a drop's tiles by their own;
-     * reach: 1 when the floor region can walk to the largest floor */
+     * reach: 1 when the floor region can walk to the largest floor; fwd: 1
+     * when the largest floor can walk or fall to it */
     s32 *region = work, *wall = work + nt, *size = work + 2 * nt, *reach = work + 3 * nt, *mid = work + 4 * nt;
+    s32 *fwd = work + 5 * nt;
     const f32 climb = 175.0f * level_scale;   /* world units to the stan's */
     s32 ti = 0, nwalls = 0;
     for (StandTile *t = stan_prefix->ptr_firstroom; *(u32 *)t;
@@ -336,7 +338,7 @@ static void arenaPits(void)
             if (t->points[k].y < lo) lo = t->points[k].y;
             if (t->points[k].y > hi) hi = t->points[k].y;
         }
-        tiles[ti] = t; region[ti] = ti; size[ti] = 0; reach[ti] = 0;
+        tiles[ti] = t; region[ti] = ti; size[ti] = 0; reach[ti] = fwd[ti] = 0;
         wall[ti] = n >= 3 && arenaFloorArea2(t) <= 1 && hi - lo > climb;
         mid[ti] = (lo + hi) / 2;
         nwalls += wall[ti];
@@ -380,11 +382,37 @@ static void arenaPits(void)
             }
         }
     }
-    /* the pits: floor that is not the main floor's and cannot walk back to it,
-     * reached from floor that can (an island the stan never joined is left) */
+    /* and out from it: floor links, and drops from their top to their foot */
+    fwd[main] = 1;
+    for (s32 changed = 1; changed; ) {
+        changed = 0;
+        for (s32 i = 0; i < nt; i++) {
+            if (wall[i] || !fwd[arenaRoot(region, i)]) continue;
+            for (s32 e = 0; e < arenaSides(tiles[i]); e++) {
+                const s32 j = arenaTileIndex(tiles, nt, arenaLink(tiles[i], e));
+                if (j < 0) continue;
+                if (!wall[j]) {
+                    if (!fwd[arenaRoot(region, j)]) fwd[arenaRoot(region, j)] = changed = 1;
+                    continue;
+                }
+                if (mid[i] <= mid[j]) continue;
+                const s32 g = arenaRoot(region, j);
+                for (s32 k = 0; k < nt; k++) {
+                    if (!wall[k] || arenaRoot(region, k) != g) continue;
+                    for (s32 f = 0; f < arenaSides(tiles[k]); f++) {
+                        const s32 m = arenaTileIndex(tiles, nt, arenaLink(tiles[k], f));
+                        if (m >= 0 && !wall[m] && mid[m] < mid[k] && !fwd[arenaRoot(region, m)])
+                            fwd[arenaRoot(region, m)] = changed = 1;
+                    }
+                }
+            }
+        }
+    }
+    /* the pits: floor the main floor can fall to and not walk back from (an
+     * island the stan never joined, as a lift's floor, is left) */
     s32 npit = 0, cuts = 0;
     for (s32 i = 0; i < nt; i++) {
-        if (wall[i] || reach[arenaRoot(region, i)]) continue;
+        if (wall[i] || reach[arenaRoot(region, i)] || !fwd[arenaRoot(region, i)]) continue;
         size[i] = -1;   /* marks a pit tile; region sizes are done with */
         npit++;
     }
