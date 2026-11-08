@@ -370,6 +370,7 @@ extern s32 gevrStereoMirrored(void);
 extern s32 gevrHandsMirrored(void);
 extern s32 gevrStereoItemShown(s32 item);
 extern s32 gevrGexHeld(s32 hand);     /* gun.c: this hand's model is GoldenEye X's */
+extern s32 gevrStereoClubBat(s32 hand);   /* bondview2.c: the rifle butt held as a bat (GE-X, headset) */
 extern void gevrStereoItemPose(s32 item, Mtxf *m);
 extern s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out);
 extern s32 g_gevrStereo;
@@ -4546,6 +4547,13 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
         if (
             (handptr->weapon_hold_time != 0)
             && (var_s1 != ITEM_UNARMED)
+#ifdef GEVR
+            /* the rifle butt as a bat in the headset swings by the player's own arm
+             * only (bondview2.c gevrHandChopTick): its trigger swing has no
+             * animation there (above, gevrStereoClubBat), so it only made the
+             * sound (user) */
+            && !(g_gevrStereo && gevrStereoClubBat(hand))
+#endif
             && (((bondwalkItemCheckBitflags(var_s1, WEAPONSTATBITFLAG_CLICKY) != 0)) || (handptr->weapon_ammo_in_magazine > 0))
 #if defined(VERSION_JP) || defined(VERSION_EU)
             && ((var_s1 != ITEM_LASER) || (handptr->field_8A0 < 0xC8))
