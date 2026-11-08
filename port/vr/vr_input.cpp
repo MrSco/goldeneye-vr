@@ -661,6 +661,9 @@ XrResult update_vr_controllers(XrTime predicted_time) {
 
 
 
+// the gevr_fakegrip.txt probe (vr_fake_grip below): pinned hands, grips held
+static bool s_fakeGripHave[2], s_fakeGripPress[2];
+
 // Get a button state
 extern "C" bool get_button_state(int hand_index, const char* button_name) {
     if (hand_index < 0 || hand_index > 1) return false;
@@ -686,6 +689,13 @@ extern "C" bool get_button_state(int hand_index, const char* button_name) {
         const int stick = ((VrSwapJoysticks != 0) != (VrLeftHandedMode != 0)) ? 1 - hand_index : hand_index;
         return gControllerStates[stick].thumbstick_click.currentState;
     }
+
+#ifdef __ANDROID__
+    // the probe: a pinned hand's grip held from the file (the tests splice this function)
+    if (s_fakeGripHave[hand_index] && s_fakeGripPress[hand_index] && strcmp(button_name, "grip") == 0) {
+        return true;
+    }
+#endif
 
     if (VrLeftHandedMode){
         hand_index = 1 - hand_index;
@@ -2153,30 +2163,33 @@ extern "C" int gevrVrGripTracked(int hand)
 
 extern "C" int gevrVrGripPose(int hand, float pos[3], float quat[4]);
 
-// PORT probe: files/gevr_fakegrip.txt holds "hand x y z qx qy qz qw" lines
+// PORT probe: files/gevr_fakegrip.txt holds "hand x y z qx qy qz qw [grip]" lines
 // (view space, metres): that controller is placed there, so a model on it can
-// be looked at in a headset capture without holding anything.
+// be looked at in a headset capture without holding anything. A ninth field of
+// 1 holds that hand's grip (get_button_state), e.g. to take a two-handed hold.
 static bool vr_fake_grip(int hand, float pos[3], float quat[4])
 {
     static unsigned n;
-    static bool have[2];
     static float fp[2][7];
     if ((n++ % 36) == 0) {
-        have[0] = have[1] = false;
+        s_fakeGripHave[0] = s_fakeGripHave[1] = s_fakeGripPress[0] = s_fakeGripPress[1] = false;
         FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_fakegrip.txt", "r");
         if (f) {
-            int h;
-            float v[7];
-            while (fscanf(f, "%d %f %f %f %f %f %f %f", &h, &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6]) == 8) {
-                if (h == 0 || h == 1) {
+            char line[256];
+            while (fgets(line, sizeof(line), f)) {
+                int h, press = 0;
+                float v[7];
+                if (sscanf(line, "%d %f %f %f %f %f %f %f %d", &h, &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6],
+                           &press) >= 8 && (h == 0 || h == 1)) {
                     memcpy(fp[h], v, sizeof(v));
-                    have[h] = true;
+                    s_fakeGripHave[h] = true;
+                    s_fakeGripPress[h] = press == 1;
                 }
             }
             fclose(f);
         }
     }
-    if (!have[hand]) return false;
+    if (!s_fakeGripHave[hand]) return false;
     memcpy(pos, fp[hand], 3 * sizeof(float));
     memcpy(quat, fp[hand] + 3, 4 * sizeof(float));
     return true;
