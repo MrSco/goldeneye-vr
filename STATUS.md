@@ -26,8 +26,9 @@ Builds from test.12 on join only each other.
   (gevrPullSightClear, also the hand grab). Disarmed guards fetch a gun or punch.
   Co-op guards' grenades and rockets fly on clients (NET_MSG_COOP_SHOT).
 - **Hands:** two-handed rifle butt, empty-hand clench; GE-X sniper bat (fist
-  on the stock, off hand anywhere on the barrel below, its own Gun fit
-  VrGexBatFit/GexBat*, owner's fit as default); in VR the trigger does no
+  on the stock; with both hands the off hand holds the rifle's end and the
+  gun hand slides from its one-hand hold down to it, unreleased 3e4e8c04;
+  its own Gun fit VrGexBatFit/GexBat*, owner's fit as default); in VR the trigger does no
   melee (fists, butt, knife; throwing knives and bots keep it); hip
   Holster and Grip hand toggles gone; the cycle tap skips empty guns (#234).
 - **Third person**, flat, solo (#230 step 1). **Audio (#229):** 48 kHz
