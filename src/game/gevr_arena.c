@@ -6,6 +6,7 @@
 #include <bondtypes.h>
 #include <bondconstants.h>
 #include <memp.h>
+#include <stdlib.h>
 #include <string.h>
 #include "gevr_arena.h"
 #include "player.h"
@@ -77,10 +78,13 @@ static const struct ArenaBounds *arenaBounds(void)
     return NULL;
 }
 
+static s32 arenaBehindGlass(StandTile *tile);
+
 static void arenaAddPad(s32 *out, s32 *count, s32 capacity, s32 pad, s32 pads)
 {
     if (*count >= capacity || pad < 0 || pad >= pads || !g_CurrentSetup.pads[pad].stan) return;
     if (!arenaPadOnFloor(&g_CurrentSetup.pads[pad])) return;
+    if (arenaBehindGlass(g_CurrentSetup.pads[pad].stan)) return;
     const struct ArenaBounds *bounds = arenaBounds();
     const u8 room = g_CurrentSetup.pads[pad].stan->room;
     if (bounds && (room < bounds->first || room > bounds->last)) return;
@@ -137,6 +141,150 @@ static s32 arenaReverseLink(StandTile *a, StandTile *b)
 {
     for (s32 e = 0; e < arenaSides(b); e++) if (arenaLink(b, e) == a) return TRUE;
     return FALSE;
+}
+
+/* Floor that only glass leads to (user, 2026-11-07: an Archives (Full) start
+ * in the courtyard the mission escapes to, behind the ground floor's windows,
+ * in only once someone inside shoots the glass). The stan runs on under a
+ * pane, so the floor graph is cut where a link crosses an upright pane that
+ * reaches down to it, and whatever that cuts off from the rest of its floor
+ * takes no starts or pickups. Floors the stan never joined (lifts) are left as
+ * they are. gevrBotNavMainArea asks the same of the live collision, but the
+ * starts are picked here, before any pane is placed, so this reads the panes'
+ * bound pads instead. Replayed on the decomp's setups (2026-11-07), it moves a start
+ * off Archives' courtyard (rooms 47/55/64, pad 172), Caverns' rooms 40-42
+ * (pad 78), Dam's 106/109 (pad 17) and Aztec's 62-64 (pad 116); nothing on
+ * the other campaign levels. */
+struct ArenaPane { f32 ax, az, bx, bz, lo, hi; };
+static StandTile **s_glassed;   /* the tiles behind glass, by address */
+static s32 s_nglassed;
+
+static s32 arenaRoot(s32 *parent, s32 i)
+{
+    while (parent[i] != i) i = parent[i] = parent[parent[i]];
+    return i;
+}
+
+static void arenaJoin(s32 *parent, s32 a, s32 b)
+{
+    a = arenaRoot(parent, a); b = arenaRoot(parent, b);
+    if (a != b) parent[a > b ? a : b] = a < b ? a : b;
+}
+
+static s32 arenaGlassPane(PropDefHeaderRecord *p, struct ArenaPane *out)
+{
+    if (p->type != PROPDEF_GLASS && p->type != PROPDEF_TINTED_GLASS) return FALSE;
+    ObjectRecord obj; memcpy(&obj, p, sizeof(obj));
+    if (obj.pad < 10000 || !g_CurrentSetup.boundpads) return FALSE; /* sized by its bound pad */
+    BoundPadRecord *bp = g_CurrentSetup.boundpads;
+    for (s32 i = 10000; i < obj.pad; i++, bp++) if (!bp->plink) return FALSE;
+    if (!bp->plink) return FALSE;
+    /* chrprop.c's bound-pad frame: x along up x look, y along up, z along look */
+    const coord3d side = { .x = bp->up.y * bp->look.z - bp->look.y * bp->up.z,
+                           .y = bp->up.z * bp->look.x - bp->look.z * bp->up.x,
+                           .z = bp->up.x * bp->look.y - bp->look.x * bp->up.y };
+    const coord3d *axis[3] = { &side, &bp->up, &bp->look };
+    const f32 lo[3] = { bp->bbox.xmin, bp->bbox.ymin, bp->bbox.zmin };
+    const f32 hi[3] = { bp->bbox.xmax, bp->bbox.ymax, bp->bbox.zmax };
+    s32 thin = 0;
+    for (s32 a = 1; a < 3; a++) if (hi[a] - lo[a] < hi[thin] - lo[thin]) thin = a;
+    if (axis[thin]->y > .5f || axis[thin]->y < -.5f) return FALSE; /* a skylight or a glass floor */
+    coord3d c[8];
+    for (s32 k = 0; k < 8; k++) {
+        const f32 u = (k & 1 ? hi : lo)[0], v = (k & 2 ? hi : lo)[1], w = (k & 4 ? hi : lo)[2];
+        c[k].x = bp->pos.x + u * side.x + v * bp->up.x + w * bp->look.x;
+        c[k].y = bp->pos.y + u * side.y + v * bp->up.y + w * bp->look.y;
+        c[k].z = bp->pos.z + u * side.z + v * bp->up.z + w * bp->look.z;
+    }
+    f32 best = -1;
+    out->lo = out->hi = c[0].y;
+    for (s32 k = 0; k < 8; k++) {
+        if (c[k].y < out->lo) out->lo = c[k].y;
+        if (c[k].y > out->hi) out->hi = c[k].y;
+        for (s32 m = k + 1; m < 8; m++) {
+            const f32 dx = c[k].x - c[m].x, dz = c[k].z - c[m].z;
+            if (dx * dx + dz * dz <= best) continue;
+            best = dx * dx + dz * dz;
+            out->ax = c[k].x; out->az = c[k].z; out->bx = c[m].x; out->bz = c[m].z;
+        }
+    }
+    return TRUE;
+}
+
+static f32 arenaTurn(f32 ax, f32 az, f32 bx, f32 bz, f32 cx, f32 cz)
+{
+    return (bx - ax) * (cz - az) - (bz - az) * (cx - ax);
+}
+
+static s32 arenaPaneCuts(const struct ArenaPane *pane, const coord3d *a, const coord3d *b)
+{
+    const f32 floor = (a->y + b->y) * .5f;
+    /* the pane comes down to the floor (within its own height: Archives'
+     * windows stand 10-25 units over theirs) and the floor is not above it */
+    if (floor > pane->hi || pane->lo - floor > pane->hi - pane->lo) return FALSE;
+    return arenaTurn(a->x, a->z, b->x, b->z, pane->ax, pane->az) * arenaTurn(a->x, a->z, b->x, b->z, pane->bx, pane->bz) < 0
+        && arenaTurn(pane->ax, pane->az, pane->bx, pane->bz, a->x, a->z) * arenaTurn(pane->ax, pane->az, pane->bx, pane->bz, b->x, b->z) < 0;
+}
+
+static void arenaGlassFloors(void)
+{
+    s_glassed = NULL; s_nglassed = 0;
+    if (!stan_prefix || !stan_prefix->ptr_firstroom) return;
+    s32 npanes = 0;
+    struct ArenaPane scratch;
+    for (PropDefHeaderRecord *p = g_CurrentSetup.propDefs; p && p->type != PROPDEF_END;
+         p = (void *)((u32 *)p + sizepropdef(p))) npanes += arenaGlassPane(p, &scratch);
+    if (!npanes) return;
+    struct ArenaPane *panes = malloc(npanes * sizeof(*panes));
+    if (!panes) return;
+    npanes = 0;
+    for (PropDefHeaderRecord *p = g_CurrentSetup.propDefs; p && p->type != PROPDEF_END;
+         p = (void *)((u32 *)p + sizepropdef(p))) npanes += arenaGlassPane(p, &panes[npanes]);
+    s32 nt = 0;
+    for (StandTile *t = stan_prefix->ptr_firstroom; *(u32 *)t;
+         t = (void *)((u8 *)t + list_of_tilesizes[arenaSides(t)])) nt++;
+    /* working space off the stage pool (Dam: 2755 tiles); only the result stays */
+    StandTile **tiles = nt ? malloc(nt * sizeof(*tiles)) : NULL;
+    s32 *work = nt ? malloc(nt * 4 * sizeof(*work)) : NULL;
+    coord3d *mid = nt ? malloc(nt * sizeof(*mid)) : NULL;
+    if (!tiles || !work || !mid) { free(panes); free(tiles); free(work); free(mid); return; }
+    s32 *whole = work, *cut = work + nt, *size = work + 2 * nt, *best = work + 3 * nt;
+    s32 ti = 0;
+    for (StandTile *t = stan_prefix->ptr_firstroom; *(u32 *)t;
+         t = (void *)((u8 *)t + list_of_tilesizes[arenaSides(t)])) {
+        getTileMidPoint(t, &mid[ti]);
+        whole[ti] = cut[ti] = ti; size[ti] = 0; best[ti] = -1;
+        tiles[ti++] = t;
+    }
+    s32 cuts = 0;
+    for (s32 i = 0; i < nt; i++) for (s32 e = 0; e < arenaSides(tiles[i]); e++) {
+        const s32 j = arenaTileIndex(tiles, nt, arenaLink(tiles[i], e));
+        if (j <= i || !arenaReverseLink(tiles[i], tiles[j])) continue;
+        arenaJoin(whole, i, j);
+        s32 glassed = FALSE;
+        for (s32 k = 0; k < npanes && !glassed; k++) glassed = arenaPaneCuts(&panes[k], &mid[i], &mid[j]);
+        if (glassed) cuts++; else arenaJoin(cut, i, j);
+    }
+    /* each floor keeps its largest piece once the glass is in */
+    for (s32 i = 0; i < nt; i++) size[arenaRoot(cut, i)]++;
+    for (s32 i = 0; i < nt; i++) {
+        const s32 w = arenaRoot(whole, i), c = arenaRoot(cut, i);
+        if (best[w] < 0 || size[c] > size[best[w]]) best[w] = c;
+    }
+    s32 off = 0;
+    for (s32 i = 0; i < nt; i++) off += arenaRoot(cut, i) != best[arenaRoot(whole, i)];
+    if (off) {
+        s_glassed = arenaAlloc(off * sizeof(*s_glassed));
+        for (s32 i = 0; i < nt; i++)
+            if (arenaRoot(cut, i) != best[arenaRoot(whole, i)]) s_glassed[s_nglassed++] = tiles[i];
+    }
+    sysLogPrintf(LOG_NOTE, "arena: %d panes, %d floor links under glass, %d of %d tiles behind it", npanes, cuts, off, nt);
+    free(panes); free(tiles); free(work); free(mid);
+}
+
+static s32 arenaBehindGlass(StandTile *tile)
+{
+    return s_nglassed && arenaTileIndex(s_glassed, s_nglassed, tile) >= 0;
 }
 
 /* A tile centre -> shared edge -> tile centre path stays on the floor even
@@ -478,7 +626,9 @@ void gevrArenaPrepareSetup(s32 stage)
     s_out_ticks = 0;
     s_level_keys = 0;
     s_nunlocks = 0;
+    s_glassed = NULL; s_nglassed = 0;
     if (!netHordeActive() && !s_campaign_deathmatch) return;
+    arenaGlassFloors();     /* before the starts and Horde's pads take floor pads */
     if (s_solo_arena) arenaGasAsScenery();
     arenaLevelKeys();
     arenaScriptUnlocks();   /* before the scripts go, below */

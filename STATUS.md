@@ -33,7 +33,9 @@ each other.
   Streets' vehicles and posters, Jungle UVs.
 - **Fixes:** SpaceWarp default only with Bean at 120 Hz; script teleports
   keep loco smoothing; crashes 8e53cb27, a8d242cd/42ed2cf1, sig-e97854f4,
-  ebcf7d40 (hack campaigns load the hack's setup names).
+  ebcf7d40 (hack campaigns load the hack's setup names). Arenas give no
+  start or pickup to floor only glass leads to (Archives (Full)'s
+  courtyard; also Caverns, Dam, Aztec): gevr_arena.c arenaGlassFloors.
 - Test hooks: gevr_cheat.txt cycle/cycleback, ammo<T>_<N>. Suite 104/104 at
   test.23; symbols for each test build on the reports repo.
 

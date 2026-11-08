@@ -383,9 +383,61 @@ static int check_records(const char *path, s32 stage)
     return 0;
 }
 
+/* Floor only glass leads to takes no starts (2026-11-07: an Archives (Full)
+ * start in the courtyard behind the ground floor's windows). Three tiles in a
+ * row, an upright pane over the 1-2 link: tile 2 is behind it. A pane well
+ * above the floor, or lying flat, cuts nothing. */
+static void check_glass(void)
+{
+    _Alignas(16) u8 floor[0x200] = {0};
+    standTileStart = (void *)floor;
+    StandTile *t[3];
+    for (int i = 0; i < 3; i++) {
+        t[i] = (void *)(floor + 0x80 + i * 0x40);
+        *(u32 *)t[i] = i + 1; t[i]->tail.half = 0x3012;
+        t[i]->points[0].x = i * 1000;
+        t[i]->points[1].x = i * 1000 + 400;
+        t[i]->points[2].x = i * 1000 + 200;
+        t[i]->points[2].z = 300;
+    }
+    t[0]->points[0].link = 0xc0 >> 3; t[1]->points[0].link = 0x80 >> 3;
+    t[1]->points[1].link = 0x100 >> 3; t[2]->points[0].link = 0xc0 >> 3;
+    prefix.ptr_firstroom = t[0];
+    PadRecord pads[4] = {0};
+    for (int i = 0; i < 3; i++) { pads[i].plink = "pad"; pads[i].stan = t[i]; getTileMidPoint(t[i], &pads[i].pos); }
+    u32 stream[64] = {0};
+    GlassRecord glass = {.type = PROPDEF_GLASS, .pad = 10000};
+    memcpy(stream, &glass, sizeof(glass));
+    ((PropDefHeaderRecord *)(stream + gevrSetupPropWords(PROPDEF_GLASS)))->type = PROPDEF_END;
+    /* x = 1700, between the centres of tiles 1 and 2 (1200, 2200); z -100..400 */
+    const struct { f32 y; coord3d up, look; s32 cuts; } cases[] = {
+        { 50, {1, 0, 0}, {0, 1, 0}, 1 },     /* upright, down to the floor */
+        { 500, {1, 0, 0}, {0, 1, 0}, 0 },    /* a high window over an open floor */
+        { 0, {0, 1, 0}, {0, 0, 1}, 0 },      /* lying flat: a glass floor */
+    };
+    mode = NET_MODE_DEATHMATCH; full = 1;
+    for (unsigned c = 0; c < sizeof(cases) / sizeof(*cases); c++) {
+        BoundPadRecord bound[2] = {0};
+        bound[0].pos = (coord3d){.x = 1700, .y = cases[c].y, .z = 150};
+        bound[0].up = cases[c].up; bound[0].look = cases[c].look; bound[0].plink = "glass";
+        if (cases[c].up.x) bound[0].bbox = (bbox){-250, 250, -1, 1, -50, 50};    /* side z, up x, look y */
+        else bound[0].bbox = (bbox){-50, 50, -1, 1, -250, 250};    /* side x, up y, look z */
+        g_CurrentSetup = (struct stagesetup){.pads = pads, .boundpads = bound, .propDefs = (void *)stream};
+        gevrArenaPrepareSetup(LEVELID_ARCHIVES);
+        s32 candidates[8], n = gevrArenaPads(candidates, 8);
+        assert(n == (cases[c].cuts ? 2 : 3));
+        for (int i = 0; i < n; i++) assert(!cases[c].cuts || candidates[i] != 2);
+        SetupIntroSpawn *starts = (void *)g_CurrentSetup.intro;
+        for (int i = 0; cases[c].cuts && i < 8; i++) assert(starts[i].index != 2);
+        clear_allocations();
+    }
+    mode = 0; full = 0; prefix.ptr_firstroom = NULL;
+    puts("PASS: floor only glass leads to takes no starts; high and flat panes cut nothing");
+}
+
 int main(int argc, char **argv)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
     if (argc == 3) return check_records(argv[1], atoi(argv[2]));
-    check_graph(); check_campaign(); check_rules();
+    check_graph(); check_campaign(); check_rules(); check_glass();
 }
