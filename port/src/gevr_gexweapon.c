@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <string.h>
 #include "bondconstants.h"
 #include "gevr_gexweapon.h"
 
@@ -607,3 +608,23 @@ float *gevrGexInstalledMagFit(s32 item) { return VrGexWeaponFits[pp7(item) ? ITE
 float *gevrGexHandFit(s32 item) { return VrGexWeaponFits[pp7(item) ? ITEM_WPPK : fitItem(item)][7]; }
 float *gevrGexHandRotFit(s32 item) { return VrGexWeaponFits[pp7(item) ? ITEM_WPPK : fitItem(item)][8]; }
 float *gevrGexItemSizeFit(s32 item) { return VrGexWeaponFits[pp7(item) ? ITEM_WPPK : fitItem(item)][9]; }
+
+/* the rifle butt as a bat: its own fits, apart from the rifle's (user: Gun fit could not move it) */
+float *gevrGexBatFit(void) { return VrGexBatFit[0]; }
+static int batHandSet(void)
+{
+    int i;
+    for (i = 0; i < 3; i++) if (VrGexBatFit[1][i] != 0.0f || VrGexBatFit[2][i] != 0.0f) return 1;
+    return 0;
+}
+const float *gevrGexBatHandFit(s32 rifle) { return batHandSet() ? VrGexBatFit[1] : gevrGexHandFit(rifle); }
+const float *gevrGexBatHandRotFit(s32 rifle) { return batHandSet() ? VrGexBatFit[2] : gevrGexHandRotFit(rifle); }
+float *gevrGexBatHandOwn(s32 rifle)
+{
+    if (!batHandSet())
+    {
+        memcpy(VrGexBatFit[1], gevrGexHandFit(rifle), sizeof(VrGexBatFit[1]));
+        memcpy(VrGexBatFit[2], gevrGexHandRotFit(rifle), sizeof(VrGexBatFit[2]));
+    }
+    return VrGexBatFit[1];
+}

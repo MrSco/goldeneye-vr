@@ -251,6 +251,12 @@ float VrGexOffRot[3] = {5.2f,-12.6f,10.0f};   /* GE-X's empty off hand turned ab
 /* where GE-X's left hand holds a gun with both hands, cm forward, up and out
  * along the gun from where its animation has it (Gun fit's grip mode) */
 float VrGexForeHold[3] = { 0.0f, 0.0f, 0.0f };
+/* The sniper rifle's butt held as a bat (gun.c gevrGexBatPose), apart from
+ * the rifle's own fits (user: Gun fit could not move it): [0] the rifle on
+ * the fist, cm right, up and back (down slides the fist toward the butt);
+ * [1] and [2] the gun hand's place and turn on it, as GexFit<item>_7 and _8,
+ * the rifle's own until Gun fit first moves them. */
+float VrGexBatFit[3][3];
 /* PP7 and PP7 silenced share a model fit, separate from legacy KF7 values.
  * Grab is a cm delta from the actual magazine, not a guessed controller point. */
 float VrGexPp7Grab[3] = {-9.690000f,-9.140000f,3.940000f};

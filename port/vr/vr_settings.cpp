@@ -365,6 +365,12 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; Where GoldenEye X's left hand holds a gun with both hands (Gun fit, both hands):\n");
     fprintf(f, "; cm forward, up and out along the gun.\n");
     fprintf(f, "GexForeHold=%.2f %.2f %.2f\n", VrGexForeHold[0], VrGexForeHold[1], VrGexForeHold[2]);
+    fprintf(f, "; The sniper rifle's butt held as a bat (Gun fit with it out): GexBat the rifle on\n");
+    fprintf(f, "; the fist, cm right, up and back (down slides the fist toward the butt);\n");
+    fprintf(f, "; GexBatHand and GexBatHandRot the gun hand on it (all 0: the rifle's own).\n");
+    fprintf(f, "GexBat=%.4f %.4f %.4f\n", VrGexBatFit[0][0], VrGexBatFit[0][1], VrGexBatFit[0][2]);
+    fprintf(f, "GexBatHand=%.4f %.4f %.4f\n", VrGexBatFit[1][0], VrGexBatFit[1][1], VrGexBatFit[1][2]);
+    fprintf(f, "GexBatHandRot=%.4f %.4f %.4f\n", VrGexBatFit[2][0], VrGexBatFit[2][1], VrGexBatFit[2][2]);
     fprintf(f, "; Per-weapon fits: item number / vector (0 gun, 1 grab, 2 support, 3 rotation, 4 held mag, 5 well, 6 installed mesh).\n");
     for (int item=0; item<64; item++) {
         /* Do not write zero overrides for models implemented by future builds. */
@@ -600,6 +606,17 @@ extern "C" void vrSettingsLoad(void)
             if (sscanf(strchr(line, '=') + 1, "%f %f %f", &t[0], &t[1], &t[2]) == 3
                 && std::isfinite(t[0]) && std::isfinite(t[1]) && std::isfinite(t[2])) {
                 for (int i=0; i<3; i++) to[i] = t[i];
+            }
+            continue;
+        }
+        if (strncmp(line, "GexBat", 6) == 0) {
+            /* GexBat=, GexBatHand=, GexBatHandRot= (the rifle butt as a bat) */
+            const int which = strncmp(line, "GexBat=", 7) == 0 ? 0 : strncmp(line, "GexBatHand=", 11) == 0 ? 1
+                : strncmp(line, "GexBatHandRot=", 14) == 0 ? 2 : -1;
+            float t[3];
+            if (which >= 0 && sscanf(strchr(line, '=') + 1, "%f %f %f", &t[0], &t[1], &t[2]) == 3
+                && std::isfinite(t[0]) && std::isfinite(t[1]) && std::isfinite(t[2])) {
+                for (int i = 0; i < 3; i++) VrGexBatFit[which][i] = t[i];
             }
             continue;
         }

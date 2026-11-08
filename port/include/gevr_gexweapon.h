@@ -138,6 +138,15 @@ float *gevrGexInstalledMagFit(s32 item);
 float *gevrGexHandFit(s32 item);
 float *gevrGexHandRotFit(s32 item);
 float *gevrGexItemSizeFit(s32 item);
+/* The sniper rifle's butt held as a bat (gun.c gevrGexBatPose): the rifle on the
+ * fist (cm right, up, back), and the gun hand on it - the rifle's own (rifle) until
+ * Gun fit moves it; gevrGexBatHandOwn makes it the bat's own and returns its place,
+ * the turn following (VrGexBatFit[1], [2]). */
+extern float VrGexBatFit[3][3];
+float *gevrGexBatFit(void);
+const float *gevrGexBatHandFit(s32 rifle);
+const float *gevrGexBatHandRotFit(s32 rifle);
+float *gevrGexBatHandOwn(s32 rifle);
 
 #ifdef __cplusplus
 }

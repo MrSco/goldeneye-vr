@@ -2022,10 +2022,16 @@ static void gevrGexMtxPoint(const Mtxf *m, const f32 local[3], f32 out[3])
  * own). The gun matrix carries the gun's size, so its axes are normalised to
  * turn the joints' rows rather than inverted.
  */
+static void gevrGexHandFitAt(const GexWeaponDef *def, Mtxf *rwmtx, s32 numMatrices, const f32 *pos, const f32 *rot);
+
 static void gevrGexHandFitTo(const GexWeaponDef *def, Mtxf *rwmtx, s32 numMatrices)
 {
-    const f32 *pos = gevrGexHandFit(def->item);
-    const f32 *rot = gevrGexHandRotFit(def->item);
+    gevrGexHandFitAt(def, rwmtx, numMatrices, gevrGexHandFit(def->item), gevrGexHandRotFit(def->item));
+}
+
+/* the same with a given place and turn (the bat's, gevrGexBatPose) */
+static void gevrGexHandFitAt(const GexWeaponDef *def, Mtxf *rwmtx, s32 numMatrices, const f32 *pos, const f32 *rot)
+{
     const f32 palmLocal[3] = { 0.0f, 0.0f, GEVR_GEX_PALM_Z };
     /* a hand-held item (knife, grenade, mine): the item moves, turns and is
      * sized about its own origin in the hand, the hand staying on the
@@ -3088,7 +3094,8 @@ Gfx *gevrGexDrawPayload(Gfx *gdl, ModelRenderData *templ, GUNHAND hand)
  * starts as the sniper is held to shoot (gunfire.c drops GoldenEye's
  * butt-first turn for it), so the hand is where it always is on the
  * controller. Then only the rifle's joints turn, about the palm: its barrel
- * runs down through the fist, held GEVR_GEX_BAT_HANDLE behind the muzzle, the
+ * runs down through the fist, held GEVR_GEX_BAT_HANDLE behind the muzzle
+ * (anywhere along it with Gun fit, gevrGexBatHandle), the
  * butt up out of the thumb side, the scope away from the player, as a bat is
  * held. The other hand takes it below or above (bondview2.c
  * gevrTwoHandBarrel) and is drawn as itself, on its own controller.
@@ -3098,12 +3105,38 @@ Gfx *gevrGexDrawPayload(Gfx *gdl, ModelRenderData *templ, GUNHAND hand)
 static f32 s_gevrGexBatEnd[2][3];         /* the butt as drawn, per hand: the swing's end (bondview2.c) */
 static s32 s_gevrGexBatAt[2];             /* g_GlobalTimer when drawn, 0 never */
 
+/*
+ * Where the fist holds the bat, model units up from the muzzle: Gun fit's bat
+ * (gevr_gexweapon.c gevrGexBatFit, user: "move the primary hand towards the
+ * butt as the grip position") moves the rifle up or down through the fist,
+ * anywhere from the muzzle to the butt.
+ */
+static f32 gevrGexBatHandle(void)
+{
+    f32 handle = GEVR_GEX_BAT_HANDLE - gevrGexBatFit()[1] / 0.085f;
+
+    if (!(handle > 0.0f)) handle = 0.0f;   /* NaN too */
+    if (handle > GEVR_GEX_BAT_LENGTH) handle = GEVR_GEX_BAT_LENGTH;
+    return handle;
+}
+
+/* bondview2.c gevrTwoHandBarrel: the bat's length below the fist and above it, real cm */
+void gevrGexBatSpanCm(f32 *below, f32 *above)
+{
+    const f32 handle = gevrGexBatHandle();
+
+    *below = handle * 0.085f;
+    *above = (GEVR_GEX_BAT_LENGTH - handle) * 0.085f;
+}
+
 static void gevrGexBatPose(ModelFileHeader *hdr, const GexWeaponDef *def, Mtxf *rwmtx, s32 hand)
 {
     const f32 palmLocal[3] = { 0.0f, 0.0f, GEVR_GEX_PALM_Z };
     const s32 n = hdr->numMatrices;
+    const f32 handle = gevrGexBatHandle();
+    const f32 *fit = gevrGexBatFit();
     Mtxf gun;
-    f32 ex[3], ey[3], ez[3], palm[3], muzzle[3], h[3], len, unit;
+    f32 ex[3], ey[3], ez[3], palm[3], muzzle[3], h[3], len, unit, reach;
     s32 i, j, r;
 
     if (n > 64 || n <= def->gunMatrix || n <= GEVR_GEX_RHAND_WRIST || (hand != GUNRIGHT && hand != GUNLEFT))
@@ -3139,7 +3172,9 @@ static void gevrGexBatPose(ModelFileHeader *hdr, const GexWeaponDef *def, Mtxf *
     }
     for (i = 0; i < 3; i++)
     {
-        h[i] = muzzle[i] - ez[i] * GEVR_GEX_BAT_HANDLE * unit;
+        h[i] = muzzle[i] - ez[i] * handle * unit;
+        /* and the bat's fit across the fist, cm right and back (gevrGexHandFitAt's axes) */
+        palm[i] += (-fit[0] * ex[i] - fit[2] * ez[i]) * unit / 0.085f;
     }
     /* the rifle's joints, the gun's and after: about the gun's own left, its
      * forward to its down and its up to its forward, the handle onto the palm */
@@ -3161,10 +3196,12 @@ static void gevrGexBatPose(ModelFileHeader *hdr, const GexWeaponDef *def, Mtxf *
             }
         }
     }
-    /* the butt: up from the palm along the old barrel's back, now the gun's up */
+    /* the swing's end: the butt, up from the palm along the old barrel's back, now
+     * the gun's up - or the muzzle below, held nearer the butt than the muzzle */
+    reach = GEVR_GEX_BAT_LENGTH - handle >= handle ? GEVR_GEX_BAT_LENGTH - handle : -handle;
     for (i = 0; i < 3; i++)
     {
-        s_gevrGexBatEnd[hand][i] = palm[i] + ey[i] * (GEVR_GEX_BAT_LENGTH - GEVR_GEX_BAT_HANDLE) * unit;
+        s_gevrGexBatEnd[hand][i] = palm[i] + ey[i] * reach * unit;
     }
     s_gevrGexBatAt[hand] = g_GlobalTimer ? g_GlobalTimer : 1;
 }
@@ -3276,11 +3313,18 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
     /* the fist's hand fit is the headset's gesture hand on the controller: on the
      * screen GE-X's own punches play from its own pose (user: the arm stood up
      * in the air to the right) */
+    const s32 bat = g_gevrStereo && gevrStereoClubBat(hand);
+
     if (hdr->numMatrices > def->gunMatrix && hdr->numMatrices <= 64 && (g_gevrStereo || def->fireAnimAlt <= 0))
     {
-        gevrGexHandFitTo(def, rwmtx, hdr->numMatrices);   /* before the support point is taken from this hand */
+        /* before the support point is taken from this hand; the bat's hand its own
+         * (user: Gun fit could not move it), the rifle's until Gun fit moves it */
+        if (bat)
+            gevrGexHandFitAt(def, rwmtx, hdr->numMatrices, gevrGexBatHandFit(def->item), gevrGexBatHandRotFit(def->item));
+        else
+            gevrGexHandFitTo(def, rwmtx, hdr->numMatrices);
     }
-    if (g_gevrStereo && gevrStereoClubBat(hand))
+    if (bat)
     {
         gevrGexBatPose(hdr, def, rwmtx, hand);   /* the hand fitted, the rifle turned into a bat about it */
     }
