@@ -6,8 +6,8 @@ in docs/archive/ (the per-build log to v0.5.15-test.26 is
 own notes. No game data is shipped; building publishes nothing.
 
 **Release:** v0.5.14 (versionCode 95, protocol 25), 2026-11-01.
-**Pre-release:** v0.5.15-test.28 (vc 123, protocol 26), 2026-11-08, branch
-`prerelease/v0.5.15`, tag on 53fcbf65 (test.27 + no starts behind glass).
+**Pre-release:** v0.5.15-test.29 (vc 124, protocol 26), 2026-11-08, branch
+`prerelease/v0.5.15`, tag on 0c8c8c4e (test.28 + pulls stop at glass, GE-X bat).
 Builds from test.12 on join only each other.
 
 ## v0.5.15 batch (unreleased)
@@ -22,9 +22,12 @@ Builds from test.12 on join only each other.
   Mods; no page scrolls (fit tests). The watch's VR page is gone.
 - **Force pull** ([spec](docs/force-pull.md)), off by default (ForcePull):
   lock, flick, catch; arm-ray aim; disarm; gold glow; online through the host
-  (NET_MSG_FORCE_PULL, protocol 26). Disarmed guards fetch a gun or punch.
+  (NET_MSG_FORCE_PULL, protocol 26); nothing through glass, walls or doors
+  (gevrPullSightClear, also the hand grab). Disarmed guards fetch a gun or punch.
   Co-op guards' grenades and rockets fly on clients (NET_MSG_COOP_SHOT).
-- **Hands:** two-handed rifle butt, GE-X sniper bat, empty-hand clench; hip
+- **Hands:** two-handed rifle butt, empty-hand clench; GE-X sniper bat (fist
+  on the stock, off hand anywhere on the barrel below, its own Gun fit
+  VrGexBatFit/GexBat*, owner's fit as default, no trigger swing in VR); hip
   Holster and Grip hand toggles gone; the cycle tap skips empty guns (#234).
 - **Third person**, flat, solo (#230 step 1). **Audio (#229):** 48 kHz
   device, resampled in the game; Reset sound.
@@ -36,8 +39,8 @@ Builds from test.12 on join only each other.
   ebcf7d40 (hack campaigns load the hack's setup names). Arenas give no
   start or pickup to floor only glass leads to (Archives (Full)'s
   courtyard; also Caverns, Dam, Aztec): gevr_arena.c arenaGlassFloors.
-- Test hooks: gevr_cheat.txt cycle/cycleback, ammo<T>_<N>. Suite 104/104 at
-  test.23; symbols for each test build on the reports repo.
+- Test hooks: gevr_cheat.txt cycle/cycleback, ammo<T>_<N>; gevr_fakegrip.txt's
+  9th field holds a grip. Suite 104/104 at test.29; symbols on the reports repo.
 
 **Code review, 2026-11-07** (fixes published in test.27):
 friends settings retried every second offline; search opt-out lost on a new
