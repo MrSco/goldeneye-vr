@@ -273,11 +273,46 @@ s32 gevrPullBlocksWalkOver(PropRecord *prop)
 }
 
 /*
+ * Whether the player sees a world point to take something from it: the walk
+ * over the tiles from the player's (a wall ends it), along the line from the
+ * eye to the point, with doors and glass in the way (CDTYPE_PATHBLOCKER is
+ * OBJFLAG_PATHBLOCKER: windows, glass walls). Walking over only counted
+ * doors, at 30 above the floor, so guns came through glass windows (user,
+ * 2026-11-08). The heights are the eye's and the point's, as the guards'
+ * sight takes them (chraction.c), so a door or pane the line passes over or
+ * under is no block. *end: the tile the walk ended on. The pull, the disarm
+ * and the hand's grab (chrprop.c gevrHandFindProp) all ask it.
+ */
+s32 gevrPullSightClear(f32 x, f32 y, f32 z, StandTile **end)
+{
+    PropRecord *me = getCurrentPlayerProp();
+    Mtxf *v2w = currentPlayerGetViewToWorldMtxf();
+    StandTile *stan;
+    f32 eye;
+
+    if (me == NULL || me->stan == NULL)
+    {
+        return FALSE;
+    }
+    eye = v2w != NULL ? v2w->m[3][1] : me->pos.y;
+    stan = me->stan;
+    if (stanTestLineUnobstructed(&stan, me->pos.x, me->pos.z, x, z, CDTYPE_DOORS | CDTYPE_PATHBLOCKER, eye, eye, y, y) == 0)
+    {
+        return FALSE;
+    }
+    if (end != NULL)
+    {
+        *end = stan;
+    }
+    return TRUE;
+}
+
+/*
  * Whether a prop can be pulled: something walking over would collect (or a
  * gun the game would refuse), loose (no guard's or player's, no hat), not
- * in a safe, no mine and nothing live. Line of sight from the player's tile
- * as walking over checks it (objTickPlayer: doors block, the walk must end
- * on the prop's tile); a falling drop is let through once the walk is clear.
+ * in a safe, no mine and nothing live. In sight (gevrPullSightClear), and
+ * the walk must end on the prop's tile as walking over's does; a falling
+ * drop is let through once the line is clear.
  */
 static s32 gevrPullCandidate(PropRecord *prop)
 {
@@ -317,8 +352,7 @@ static s32 gevrPullCandidate(PropRecord *prop)
     {
         return FALSE;
     }
-    stan = me->stan;
-    if (stanTestLineUnobstructed(&stan, me->pos.x, me->pos.z, prop->pos.x, prop->pos.z, CDTYPE_DOORS, 30.0f, 30.0f, 0.0f, 1.0f) == 0)
+    if (!gevrPullSightClear(prop->pos.x, prop->pos.y, prop->pos.z, &stan))
     {
         return FALSE;
     }
@@ -396,9 +430,8 @@ static PropRecord *gevrPullDisarmable(PropRecord *chrprop, s32 h)
     {
         return NULL;
     }
-    stan = me->stan;
-    if (stanTestLineUnobstructed(&stan, me->pos.x, me->pos.z, chrprop->pos.x, chrprop->pos.z, CDTYPE_DOORS, 30.0f, 30.0f, 0.0f, 1.0f) == 0
-        || stan != chrprop->stan)
+    /* to his gun at about his hand's height (gevrPullDisarmPoint's guess) */
+    if (!gevrPullSightClear(chrprop->pos.x, chr->ground + 100.0f, chrprop->pos.z, &stan) || stan != chrprop->stan)
     {
         return NULL;
     }

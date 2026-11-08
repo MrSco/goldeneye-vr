@@ -2439,6 +2439,7 @@ static s32 gevrIsMineItem(s32 item)
  * grenades or armed traps).
  */
 f32 g_gevrHandFindDist;   /* the last find's distance, view units (bondview2.c logs it) */
+extern s32 gevrPullSightClear(f32 x, f32 y, f32 z, StandTile **end);   /* gevr_forcepull.c */
 
 PropRecord *gevrHandFindProp(const f32 p[3], f32 reach, s32 kind)
 {
@@ -2561,6 +2562,10 @@ PropRecord *gevrHandFindProp(const f32 p[3], f32 reach, s32 kind)
             {
                 dist = horiz;
             }
+        }
+        if (dist < bestdist && kind == GEVR_HAND_PICKUP && !gevrPullSightClear(prop->pos.x, prop->pos.y, prop->pos.z, NULL))
+        {
+            continue;   /* the hand through a window or a wall: the player can't see it (gevr_forcepull.c) */
         }
         if (dist < bestdist)
         {
