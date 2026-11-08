@@ -2812,13 +2812,21 @@ static void gevrGexOffClench(Mtxf *m, f32 amt)
  * the off hand left the empty gun hand open on its grip). As the off hand's
  * clench (gevrGexOffClench), on the right hand's joints of its own rig.
  */
+static void gevrGexOwnClenchBy(ModelFileHeader *hdr, const GexWeaponDef *def, Mtxf *rwmtx, f32 amt);
+
 static void gevrGexOwnClench(ModelFileHeader *hdr, const GexWeaponDef *def, Mtxf *rwmtx)
+{
+    gevrGexClenchTick();
+    gevrGexOwnClenchBy(hdr, def, rwmtx, s_gevrGexClenchGun);
+}
+
+/* the same closed by amt, 1 a fist (the rifle butt's grip, gevrGexBatPose) */
+static void gevrGexOwnClenchBy(ModelFileHeader *hdr, const GexWeaponDef *def, Mtxf *rwmtx, f32 amt)
 {
     Mtxf ident, inv, rel;
     s32 j;
 
-    gevrGexClenchTick();
-    if (s_gevrGexClenchGun <= 0.02f || hdr == NULL || def == NULL || hdr->numMatrices < GEVR_GEX_LHAND_FIRST
+    if (amt <= 0.02f || hdr == NULL || def == NULL || hdr->numMatrices < GEVR_GEX_LHAND_FIRST
         || hdr->numMatrices > 64)
     {
         return;
@@ -2826,7 +2834,7 @@ static void gevrGexOwnClench(ModelFileHeader *hdr, const GexWeaponDef *def, Mtxf
     matrix_4x4_set_identity(&ident);
     s_gevrGexClench.first = GEVR_GEX_RHAND_WRIST + 1;
     s_gevrGexClench.last = GEVR_GEX_LHAND_FIRST - 1;
-    s_gevrGexClench.amt = s_gevrGexClenchGun;
+    s_gevrGexClench.amt = amt;
     gevrGexPoseWalk(hdr, &ident, gevrGexRestAnim(def), 0.0f, s_gevrGexClenchPose);
     s_gevrGexClench.amt = 0.0f;
     gevrGexRigidInverse(&s_gevrGexClenchPose[GEVR_GEX_RHAND_WRIST], &inv);
@@ -3327,6 +3335,8 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
     if (bat)
     {
         gevrGexBatPose(hdr, def, rwmtx, hand);   /* the hand fitted, the rifle turned into a bat about it */
+        /* round it, a fist (user: the rifle's trigger-finger hand held nothing) */
+        gevrGexOwnClenchBy(hdr, def, rwmtx, 1.0f);
     }
     if (def->fireAnimAlt > 0 && g_CurrentPlayer != NULL && hdr->numMatrices > GEVR_GEX_RHAND_WRIST)
     {
