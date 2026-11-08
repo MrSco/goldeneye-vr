@@ -3124,7 +3124,9 @@ static f32 s_gevrGexBatEnd[2][3];         /* the butt as drawn, per hand: the sw
 static s32 s_gevrGexBatAt[2];             /* g_GlobalTimer when drawn, 0 never */
 /* the rifle's axis as drawn, per hand: a point on it (the fist's), its way to the
  * butt, how far it runs below and above that point, and one model unit (camera space) */
-static f32 s_gevrGexBatLine[2][9];
+static f32 s_gevrGexBatLine[2][15];
+/* and the rifle's own axes as drawn ([9] its left, [12] its forward; [3] is its back):
+ * the off hand on it keeps its turn to them (gevrGexDrawOffHand) */
 s32 gevrStereoBatOffHand(s32 hand, f32 opos[3], f32 *amt);   /* bondview2.c: both hands on the bat */
 
 /*
@@ -3247,6 +3249,12 @@ static void gevrGexBatPose(ModelFileHeader *hdr, const GexWeaponDef *def, Mtxf *
     s_gevrGexBatLine[hand][6] = handle * unit;
     s_gevrGexBatLine[hand][7] = (GEVR_GEX_BAT_LENGTH - handle) * unit;
     s_gevrGexBatLine[hand][8] = unit;
+    for (i = 0; i < 3; i++)
+    {
+        /* the posed rifle: model x is ex, model y is ez, model z is -ey */
+        s_gevrGexBatLine[hand][9 + i] = ex[i];
+        s_gevrGexBatLine[hand][12 + i] = ez[i];
+    }
     s_gevrGexBatAt[hand] = g_GlobalTimer ? g_GlobalTimer : 1;
 }
 
@@ -4109,6 +4117,89 @@ static void gevrGexWatchNote(s32 *last, s32 code, const char *what)
 s32 g_gevrGexOffWatch;
 
 /* gunfire.c, where the watch arm goes: the off hand, empty (gevrGexOffCache above) */
+/*
+ * The off hand on the bat keeps the turn it took hold with (user, test.31: "the
+ * off hand at bottom of gun barrel should be pinned... its able to twist around
+ * and pivot around its static grip point"): at the hold its wrist's axes are
+ * kept in the rifle's (gevrGexBatPose), and while it holds, the hand is turned
+ * about its palm to keep them there - it goes where the rifle goes, not where
+ * its controller turns. Gun fit's off-hand turn (GexBatOff) still applies on top.
+ */
+static f32 s_gevrGexBatGrip[3][3];   /* the wrist's axes in the rifle's, at the hold */
+static s32 s_gevrGexBatGripOn;
+static s32 s_gevrGexBatGripAt;       /* g_GlobalTimer when last pinned: a lapse is a new hold */
+
+static void gevrGexBatOffPin(Mtxf *m, s32 batGun)
+{
+    const f32 *line = s_gevrGexBatLine[batGun];
+    const f32 palmLocal[3] = { 0.0f, 0.0f, GEVR_GEX_PALM_Z };
+    f32 rifle[3][3], ax[3][3], to[3][3], palm[3], v[3], g[3];
+    s32 i, j, k, r;
+
+    for (i = 0; i < 3; i++)
+    {
+        rifle[0][i] = line[9 + i];
+        rifle[1][i] = line[12 + i];
+        rifle[2][i] = -line[3 + i];
+    }
+    for (k = 0; k < 3; k++)
+    {
+        const f32 len = sqrtf(m[GEVR_GEX_LHAND_WRIST].m[k][0] * m[GEVR_GEX_LHAND_WRIST].m[k][0]
+                              + m[GEVR_GEX_LHAND_WRIST].m[k][1] * m[GEVR_GEX_LHAND_WRIST].m[k][1]
+                              + m[GEVR_GEX_LHAND_WRIST].m[k][2] * m[GEVR_GEX_LHAND_WRIST].m[k][2]);
+
+        if (len < 1e-9f)
+        {
+            return;
+        }
+        for (i = 0; i < 3; i++)
+        {
+            ax[k][i] = m[GEVR_GEX_LHAND_WRIST].m[k][i] / len;
+        }
+    }
+    if (!s_gevrGexBatGripOn || (u32) (g_GlobalTimer - s_gevrGexBatGripAt) > 4u)
+    {
+        for (k = 0; k < 3; k++)
+        {
+            for (j = 0; j < 3; j++)
+            {
+                s_gevrGexBatGrip[k][j] = ax[k][0] * rifle[j][0] + ax[k][1] * rifle[j][1] + ax[k][2] * rifle[j][2];
+            }
+        }
+        s_gevrGexBatGripOn = TRUE;
+    }
+    s_gevrGexBatGripAt = g_GlobalTimer;
+    for (k = 0; k < 3; k++)
+    {
+        for (i = 0; i < 3; i++)
+        {
+            to[k][i] = s_gevrGexBatGrip[k][0] * rifle[0][i] + s_gevrGexBatGrip[k][1] * rifle[1][i]
+                     + s_gevrGexBatGrip[k][2] * rifle[2][i];
+        }
+    }
+    gevrGexMtxPoint(&m[GEVR_GEX_LHAND_WRIST], palmLocal, palm);
+    for (j = GEVR_GEX_LHAND_FIRST; j <= GEVR_GEX_LHAND_LAST; j++)
+    {
+        for (r = 0; r < 4; r++)
+        {
+            for (i = 0; i < 3; i++)
+            {
+                v[i] = r == 3 ? m[j].m[3][i] - palm[i] : m[j].m[r][i];
+            }
+            for (k = 0; k < 3; k++)
+            {
+                g[k] = v[0] * ax[k][0] + v[1] * ax[k][1] + v[2] * ax[k][2];
+            }
+            for (i = 0; i < 3; i++)
+            {
+                const f32 w = g[0] * to[0][i] + g[1] * to[1][i] + g[2] * to[2][i];
+
+                m[j].m[r][i] = r == 3 ? palm[i] + w : w;
+            }
+        }
+    }
+}
+
 Gfx *gevrGexDrawOffHand(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
 {
     extern void matrix_4x4_7F058C64(void);
@@ -4197,6 +4288,8 @@ Gfx *gevrGexDrawOffHand(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
             f32 palm[3], t, dd[3], ignore[3], amt;
             s32 j;
 
+            gevrGexBatOffPin(m, batGun);
+
             gevrGexMtxPoint(&m[GEVR_GEX_LHAND_WRIST], palmLocal, palm);
             t = (palm[0] - at[0]) * dir[0] + (palm[1] - at[1]) * dir[1] + (palm[2] - at[2]) * dir[2];
             if (t < -below) t = -below;
@@ -4222,6 +4315,7 @@ Gfx *gevrGexDrawOffHand(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
         else
         {
             gevrGexOffClench(m, VrFistClenchAmt);
+            s_gevrGexBatGripOn = FALSE;
         }
         watch = gevrGexWatchFrame(&m[GEVR_GEX_LHAND_ARM], pos, x, y);
     }
