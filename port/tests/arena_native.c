@@ -435,9 +435,51 @@ static void check_glass(void)
     puts("PASS: floor only glass leads to takes no starts; high and flat panes cut nothing");
 }
 
+/* #232: floor below a sheer drop with no way back up (Cradle's antenna
+ * platform and dish floor) is cut off the floor above and takes no starts */
+static void check_pits(void)
+{
+    for (int depth = 500; depth >= 100; depth -= 400) {   /* a sheer drop, then a step */
+        _Alignas(16) u8 floor[0x200] = {0};
+        standTileStart = (void *)floor;
+        StandTile *t[4];
+        for (int i = 0; i < 4; i++) {
+            t[i] = (void *)(floor + 0x80 + i * 0x40);
+            *(u32 *)t[i] = i + 1; t[i]->tail.half = 0x3012;
+            t[i]->points[1].x = 400;
+            t[i]->points[2].x = 200;
+        }
+        t[1]->points[0].x = 400; t[1]->points[1].x = 800; t[1]->points[2].x = 600;
+        t[0]->points[2].z = t[1]->points[2].z = 300;   /* the floor, two tiles */
+        t[2]->points[2].y = -depth;                     /* upright, no floor area */
+        for (int k = 0; k < 3; k++) t[3]->points[k].y = -depth;
+        t[3]->points[2].z = -300;                       /* the floor at its foot */
+        t[0]->points[0].link = 0xc0 >> 3; t[1]->points[0].link = 0x80 >> 3;
+        t[0]->points[1].link = 0x100 >> 3; t[2]->points[0].link = 0x80 >> 3;
+        t[2]->points[1].link = 0x140 >> 3; t[3]->points[0].link = 0x100 >> 3;
+        prefix.ptr_firstroom = t[0];
+        PadRecord pads[3] = {0};
+        pads[0].stan = t[0]; pads[1].stan = t[3];
+        for (int i = 0; i < 2; i++) { pads[i].plink = "pad"; getTileMidPoint(pads[i].stan, &pads[i].pos); }
+        u32 stream[4] = {0};
+        ((PropDefHeaderRecord *)stream)->type = PROPDEF_END;
+        mode = NET_MODE_DEATHMATCH; full = 1;
+        g_CurrentSetup = (struct stagesetup){.pads = pads, .propDefs = (void *)stream};
+        gevrArenaPrepareSetup(LEVELID_ARCHIVES);
+        s32 candidates[8], n = gevrArenaPads(candidates, 8);
+        const int sheer = depth > 175;
+        assert(n == (sheer ? 1 : 2) && candidates[0] == 0);
+        assert(!t[0]->points[1].link == sheer && !t[2]->points[0].link == sheer);
+        assert(t[2]->points[1].link && t[3]->points[0].link && t[0]->points[0].link && t[1]->points[0].link);
+        clear_allocations();
+    }
+    mode = 0; full = 0; prefix.ptr_firstroom = NULL;
+    puts("PASS: floor below a sheer drop is walled off and takes no starts; a step is left open");
+}
+
 int main(int argc, char **argv)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
     if (argc == 3) return check_records(argv[1], atoi(argv[2]));
-    check_graph(); check_campaign(); check_rules(); check_glass();
+    check_graph(); check_campaign(); check_rules(); check_glass(); check_pits();
 }

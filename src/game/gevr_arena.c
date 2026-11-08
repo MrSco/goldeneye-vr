@@ -79,12 +79,13 @@ static const struct ArenaBounds *arenaBounds(void)
 }
 
 static s32 arenaBehindGlass(StandTile *tile);
+static s32 arenaInPit(StandTile *tile);
 
 static void arenaAddPad(s32 *out, s32 *count, s32 capacity, s32 pad, s32 pads)
 {
     if (*count >= capacity || pad < 0 || pad >= pads || !g_CurrentSetup.pads[pad].stan) return;
     if (!arenaPadOnFloor(&g_CurrentSetup.pads[pad])) return;
-    if (arenaBehindGlass(g_CurrentSetup.pads[pad].stan)) return;
+    if (arenaBehindGlass(g_CurrentSetup.pads[pad].stan) || arenaInPit(g_CurrentSetup.pads[pad].stan)) return;
     const struct ArenaBounds *bounds = arenaBounds();
     const u8 room = g_CurrentSetup.pads[pad].stan->room;
     if (bounds && (room < bounds->first || room > bounds->last)) return;
@@ -285,6 +286,141 @@ static void arenaGlassFloors(void)
 static s32 arenaBehindGlass(StandTile *tile)
 {
     return s_nglassed && arenaTileIndex(s_glassed, s_nglassed, tile) >= 0;
+}
+
+/* Floor below a sheer drop with no way back up (#232, user, 2026-11-08: in a
+ * Cradle (Full) match against bots a player dropped from the antenna to the
+ * bottom of the map and was stuck there). A sheer drop in the stan is an
+ * upright tile, no floor area, taller than the 175-unit edge a player can
+ * step up (bondviewTryMoveToStan's stanTestLocusEdgeAboveY); off its top a
+ * player falls to the floor at its foot and never climbs back. Floor that can
+ * only be reached that way is a pit, and in an arena the drop into it is a
+ * wall: its links to the floor above are cut, as the mission never lets a
+ * player there (Cradle's last platform ends it). Replayed on every level's
+ * stan from the ROM (2026-11-08): only Cradle has pits, room 7 (the
+ * antenna's lower platform, 14 m down) and room 9 (the dish floor, 61 m
+ * further). The pit's tiles also take no starts or pickups. */
+static StandTile **s_pits;      /* the tiles in pits, by address */
+static s32 s_npits;
+
+static s64 arenaFloorArea2(StandTile *t)   /* twice the tile's area in x/z */
+{
+    s64 a = 0;
+    const s32 n = arenaSides(t);
+    for (s32 k = 0; k < n; k++) {
+        const s32 m = (k + 1) % n;
+        a += (s64)t->points[k].x * t->points[m].z - (s64)t->points[m].x * t->points[k].z;
+    }
+    return a < 0 ? -a : a;
+}
+
+static void arenaPits(void)
+{
+    s_pits = NULL; s_npits = 0;
+    if (!stan_prefix || !stan_prefix->ptr_firstroom) return;
+    s32 nt = 0;
+    for (StandTile *t = stan_prefix->ptr_firstroom; *(u32 *)t;
+         t = (void *)((u8 *)t + list_of_tilesizes[arenaSides(t)])) nt++;
+    StandTile **tiles = nt ? malloc(nt * sizeof(*tiles)) : NULL;
+    s32 *work = nt ? malloc(nt * 5 * sizeof(*work)) : NULL;
+    if (!tiles || !work) { free(tiles); free(work); return; }
+    /* region: floor joined by floor links, a drop's tiles by their own;
+     * reach: 1 when the floor region can walk to the largest floor */
+    s32 *region = work, *wall = work + nt, *size = work + 2 * nt, *reach = work + 3 * nt, *mid = work + 4 * nt;
+    const f32 climb = 175.0f * level_scale;   /* world units to the stan's */
+    s32 ti = 0, nwalls = 0;
+    for (StandTile *t = stan_prefix->ptr_firstroom; *(u32 *)t;
+         t = (void *)((u8 *)t + list_of_tilesizes[arenaSides(t)]), ti++) {
+        s32 lo = 0x7fff, hi = -0x8000, n = arenaSides(t);
+        for (s32 k = 0; k < n; k++) {
+            if (t->points[k].y < lo) lo = t->points[k].y;
+            if (t->points[k].y > hi) hi = t->points[k].y;
+        }
+        tiles[ti] = t; region[ti] = ti; size[ti] = 0; reach[ti] = 0;
+        wall[ti] = n >= 3 && arenaFloorArea2(t) <= 1 && hi - lo > climb;
+        mid[ti] = (lo + hi) / 2;
+        nwalls += wall[ti];
+    }
+    if (!nwalls) { free(tiles); free(work); return; }
+    for (s32 i = 0; i < nt; i++) for (s32 e = 0; e < arenaSides(tiles[i]); e++) {
+        const s32 j = arenaTileIndex(tiles, nt, arenaLink(tiles[i], e));
+        if (j >= 0 && wall[i] == wall[j]) arenaJoin(region, i, j);
+    }
+    s32 main = -1;
+    for (s32 i = 0; i < nt; i++) if (!wall[i]) size[arenaRoot(region, i)]++;
+    for (s32 i = 0; i < nt; i++) if (!wall[i] && (main < 0 || size[i] > size[main])) main = i;
+    /* A drop leads from the floor at its top to the floor at its foot. Walk
+     * back from the largest floor: a floor link both ways, a drop only from
+     * its foot's floor up to its top's (who stands at the top can fall). */
+    reach[main] = 1;
+    for (s32 changed = 1; changed; ) {
+        changed = 0;
+        for (s32 i = 0; i < nt; i++) {
+            if (wall[i]) continue;
+            const s32 ri = arenaRoot(region, i);
+            if (reach[ri]) continue;
+            for (s32 e = 0; e < arenaSides(tiles[i]) && !reach[ri]; e++) {
+                const s32 j = arenaTileIndex(tiles, nt, arenaLink(tiles[i], e));
+                if (j < 0) continue;
+                if (!wall[j]) { if (reach[arenaRoot(region, j)]) reach[ri] = changed = 1; continue; }
+                /* i stands at the top of drop j: it reaches whatever floor j's
+                 * group lands on that reaches the main floor */
+                if (mid[i] <= mid[j]) continue;
+                const s32 g = arenaRoot(region, j);
+                for (s32 k = 0; k < nt && !reach[ri]; k++) {
+                    if (!wall[k] || arenaRoot(region, k) != g) continue;
+                    for (s32 f = 0; f < arenaSides(tiles[k]); f++) {
+                        const s32 m = arenaTileIndex(tiles, nt, arenaLink(tiles[k], f));
+                        if (m >= 0 && !wall[m] && mid[m] < mid[k] && reach[arenaRoot(region, m)]) {
+                            reach[ri] = changed = 1;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    /* the pits: floor that is not the main floor's and cannot walk back to it,
+     * reached from floor that can (an island the stan never joined is left) */
+    s32 npit = 0, cuts = 0;
+    for (s32 i = 0; i < nt; i++) {
+        if (wall[i] || reach[arenaRoot(region, i)]) continue;
+        size[i] = -1;   /* marks a pit tile; region sizes are done with */
+        npit++;
+    }
+    /* cut each drop that lands in a pit off the walkable floor at its top */
+    for (s32 k = 0; k < nt; k++) {
+        if (!wall[k]) continue;
+        s32 intopit = FALSE;
+        const s32 g = arenaRoot(region, k);
+        for (s32 w = 0; w < nt && !intopit; w++) {
+            if (!wall[w] || arenaRoot(region, w) != g) continue;
+            for (s32 f = 0; f < arenaSides(tiles[w]); f++) {
+                const s32 m = arenaTileIndex(tiles, nt, arenaLink(tiles[w], f));
+                if (m >= 0 && !wall[m] && mid[m] < mid[w] && size[m] < 0) { intopit = TRUE; break; }
+            }
+        }
+        if (!intopit) continue;
+        for (s32 f = 0; f < arenaSides(tiles[k]); f++) {
+            const s32 m = arenaTileIndex(tiles, nt, arenaLink(tiles[k], f));
+            if (m < 0 || wall[m] || size[m] < 0 || !reach[arenaRoot(region, m)]) continue;
+            for (s32 e = 0; e < arenaSides(tiles[m]); e++)
+                if (arenaLink(tiles[m], e) == tiles[k]) tiles[m]->points[e].link = 0;
+            tiles[k]->points[f].link = 0;
+            cuts++;
+        }
+    }
+    if (npit) {
+        s_pits = arenaAlloc(npit * sizeof(*s_pits));
+        for (s32 i = 0; i < nt; i++) if (!wall[i] && size[i] < 0) s_pits[s_npits++] = tiles[i];
+    }
+    sysLogPrintf(LOG_NOTE, "arena: %d sheer drops, %d pit tiles below them, %d links cut", nwalls, npit, cuts);
+    free(tiles); free(work);
+}
+
+static s32 arenaInPit(StandTile *tile)
+{
+    return s_npits && arenaTileIndex(s_pits, s_npits, tile) >= 0;
 }
 
 /* A tile centre -> shared edge -> tile centre path stays on the floor even
@@ -627,8 +763,10 @@ void gevrArenaPrepareSetup(s32 stage)
     s_level_keys = 0;
     s_nunlocks = 0;
     s_glassed = NULL; s_nglassed = 0;
+    s_pits = NULL; s_npits = 0;
     if (!netHordeActive() && !s_campaign_deathmatch) return;
     arenaGlassFloors();     /* before the starts and Horde's pads take floor pads */
+    arenaPits();
     if (s_solo_arena) arenaGasAsScenery();
     arenaLevelKeys();
     arenaScriptUnlocks();   /* before the scripts go, below */
