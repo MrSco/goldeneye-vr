@@ -6,9 +6,9 @@ in docs/archive/ (the per-build log to v0.5.15-test.26 is
 own notes. No game data is shipped; building publishes nothing.
 
 **Release:** v0.5.14 (versionCode 95, protocol 25), 2026-11-01.
-**Pre-release:** v0.5.15-test.27 (vc 122, protocol 26), 2026-11-07, branch
-`prerelease/v0.5.15`, tag on 0e0e3ffb. Builds from test.12 on join only
-each other.
+**Pre-release:** v0.5.15-test.28 (vc 123, protocol 26), 2026-11-08, branch
+`prerelease/v0.5.15`, tag on 53fcbf65 (test.27 + no starts behind glass).
+Builds from test.12 on join only each other.
 
 ## v0.5.15 batch (unreleased)
 
