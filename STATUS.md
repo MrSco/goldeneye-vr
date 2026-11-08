@@ -6,8 +6,9 @@ in docs/archive/ (the per-build log to v0.5.15-test.26 is
 own notes. No game data is shipped; building publishes nothing.
 
 **Release:** v0.5.14 (versionCode 95, protocol 25), 2026-11-01.
-**Pre-release:** v0.5.15-test.31 (vc 126, protocol 26), 2026-11-08, branch
-`prerelease/v0.5.15`, tag on d059d943 (test.30 + no falling into Cradle's pits).
+**Pre-release:** v0.5.15-test.32 (vc 127, protocol 26), 2026-11-08, branch
+`prerelease/v0.5.15`, tag on 788238e7 (test.31 + the bat's
+two-handed grip.
 Builds from test.12 on join only each other.
 
 ## v0.5.15 batch (unreleased)
@@ -26,9 +27,10 @@ Builds from test.12 on join only each other.
   (gevrPullSightClear, also the hand grab). Disarmed guards fetch a gun or punch.
   Co-op guards' grenades and rockets fly on clients (NET_MSG_COOP_SHOT).
 - **Hands:** two-handed rifle butt, empty-hand clench; GE-X sniper bat (fist
-  on the stock; with both hands the off hand holds the rifle's end and the
-  gun hand slides from its one-hand hold down to it, unreleased 3e4e8c04;
-  its own Gun fit VrGexBatFit/GexBat*, owner's fit as default); in VR the trigger does no
+  on the stock; with both hands the off hand holds the rifle's end, pinned
+  to it, and the gun hand slides; fists together (<14 cm) the bat is locked
+  to the gun wrist, spread (>20 cm) the hands' line swings it, headset OK
+  test.32; its own Gun fit VrGexBatFit/GexBat*, owner's fit as default); in VR the trigger does no
   melee (fists, butt, knife; throwing knives and bots keep it); hip
   Holster and Grip hand toggles gone; the cycle tap skips empty guns (#234).
 - **Third person**, flat, solo (#230 step 1). **Audio (#229):** 48 kHz
@@ -44,7 +46,7 @@ Builds from test.12 on join only each other.
   drop too tall to climb back into floor with no way up is a wall in arenas
   (arenaPits; only Cradle's antenna platform and dish floor, #232).
 - Test hooks: gevr_cheat.txt cycle/cycleback, ammo<T>_<N>; gevr_fakegrip.txt's
-  9th field holds a grip. Suite 104/104 at test.31; symbols on the reports repo.
+  9th field holds a grip. Suite 104/104 at test.32; symbols on the reports repo.
 
 **Code review, 2026-11-07** (fixes published in test.27):
 friends settings retried every second offline; search opt-out lost on a new
