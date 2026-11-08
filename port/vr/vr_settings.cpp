@@ -371,6 +371,9 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "GexBat=%.4f %.4f %.4f\n", VrGexBatFit[0][0], VrGexBatFit[0][1], VrGexBatFit[0][2]);
     fprintf(f, "GexBatHand=%.4f %.4f %.4f\n", VrGexBatFit[1][0], VrGexBatFit[1][1], VrGexBatFit[1][2]);
     fprintf(f, "GexBatHandRot=%.4f %.4f %.4f\n", VrGexBatFit[2][0], VrGexBatFit[2][1], VrGexBatFit[2][2]);
+    fprintf(f, "; GexBatOff and GexBatOffRot: the off hand where it holds the rifle (both hands).\n");
+    fprintf(f, "GexBatOff=%.4f %.4f %.4f\n", VrGexBatFit[3][0], VrGexBatFit[3][1], VrGexBatFit[3][2]);
+    fprintf(f, "GexBatOffRot=%.4f %.4f %.4f\n", VrGexBatFit[4][0], VrGexBatFit[4][1], VrGexBatFit[4][2]);
     fprintf(f, "; Per-weapon fits: item number / vector (0 gun, 1 grab, 2 support, 3 rotation, 4 held mag, 5 well, 6 installed mesh).\n");
     for (int item=0; item<64; item++) {
         /* Do not write zero overrides for models implemented by future builds. */
@@ -612,7 +615,8 @@ extern "C" void vrSettingsLoad(void)
         if (strncmp(line, "GexBat", 6) == 0) {
             /* GexBat=, GexBatHand=, GexBatHandRot= (the rifle butt as a bat) */
             const int which = strncmp(line, "GexBat=", 7) == 0 ? 0 : strncmp(line, "GexBatHand=", 11) == 0 ? 1
-                : strncmp(line, "GexBatHandRot=", 14) == 0 ? 2 : -1;
+                : strncmp(line, "GexBatHandRot=", 14) == 0 ? 2 : strncmp(line, "GexBatOff=", 10) == 0 ? 3
+                : strncmp(line, "GexBatOffRot=", 13) == 0 ? 4 : -1;
             float t[3];
             if (which >= 0 && sscanf(strchr(line, '=') + 1, "%f %f %f", &t[0], &t[1], &t[2]) == 3
                 && std::isfinite(t[0]) && std::isfinite(t[1]) && std::isfinite(t[2])) {

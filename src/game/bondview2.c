@@ -3554,11 +3554,12 @@ s32 gevrStereoTwoHandSupportCtrl(void)
  * point.
  */
 #define GEVR_TWOHAND_FORE 0.35f
-/* the bat: the other hand takes it anywhere along it but the last cm of its
- * short end, and short of the swing's 37 cm on its long one (gun.c
- * gevrGexBatSpanCm; held as drawn by default, 10 cm below the fist, 45 above) */
+/* the bat: the other hand takes the barrel anywhere below the fist (user: "grip
+ * and slide up and down anywhere along the barrel below the primary hand's
+ * grip"), a fist's width from it down to the last cm at the muzzle (gun.c
+ * gevrGexBatLine). Held too near the muzzle for that, it takes the rifle above. */
 #define GEVR_TWOHAND_BAT_END_CM 1.0f
-#define GEVR_TWOHAND_BAT_SWING_CM 37.0f
+#define GEVR_TWOHAND_BAT_GAP_CM 9.0f
 void gevrGexBatSpanCm(f32 *below, f32 *above);   /* gun.c: the bat below and above the fist, real cm */
 s32 gevrGexBatLine(s32 hand, f32 at[3], f32 dir[3], f32 *below, f32 *above);   /* gun.c: its axis as drawn */
 #define GEVR_TWOHAND_FORE_MIN 0.2f
@@ -3609,11 +3610,10 @@ static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm, s32 drawn)
     }
     if (gevrStereoClubBat(gun))
     {
-        /* the bat: anywhere along it, the short end below the fist or the long one
-         * above - along the rifle as drawn, through the fist and its Gun fit, not
-         * the controller's line beside it (user: the off hand did not attach) */
+        /* the bat: anywhere on the barrel below the fist (GEVR_TWOHAND_BAT_GAP_CM)
+         * - along the rifle as drawn, through the fist and its Gun fit, not the
+         * controller's line beside it (user: the off hand did not attach) */
         f32 below, above, at[3], dir[3];
-        s32 swingsUp;
 
         if (gevrGexBatLine(gun, at, dir, &below, &above))
         {
@@ -3633,14 +3633,20 @@ static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm, s32 drawn)
         {
             d[i] = opos[i] - gpos[i];
         }
-        swingsUp = above >= below;
-        below -= swingsUp ? GEVR_TWOHAND_BAT_END_CM : GEVR_TWOHAND_BAT_SWING_CM;
-        above -= swingsUp ? GEVR_TWOHAND_BAT_SWING_CM : GEVR_TWOHAND_BAT_END_CM;
-        if (below < 0.0f) below = 0.0f;
-        if (above < 0.0f) above = 0.0f;
         t = d[0] * up[0] + d[1] * up[1] + d[2] * up[2];
-        if (t < -below * cm) t = -below * cm;
-        if (t > above * cm) t = above * cm;
+        if (below - GEVR_TWOHAND_BAT_END_CM >= GEVR_TWOHAND_BAT_GAP_CM)
+        {
+            tmin = -(below - GEVR_TWOHAND_BAT_END_CM) * cm;
+            tmax = -GEVR_TWOHAND_BAT_GAP_CM * cm;
+        }
+        else
+        {
+            tmin = GEVR_TWOHAND_BAT_GAP_CM * cm;
+            tmax = (above - GEVR_TWOHAND_BAT_END_CM) * cm;
+            if (tmax < tmin) tmax = tmin;
+        }
+        if (t < tmin) t = tmin;
+        if (t > tmax) t = tmax;
         for (i = 0; i < 3; i++)
         {
             snap[i] = gpos[i] + up[i] * t;
@@ -17367,13 +17373,22 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
                  "GRIP FIT (THIS %s)%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTILT %.0f  ROLL %.0f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, TILT\nHOLD RIGHT GRIP: TURN STICK ROLLS\nHOLD OFF TRIGGER: PLACE IT BY HAND\nA: SAVE   B: UNDO   MENU + A: DONE",
                  gevrStereoTwoHandClass() ? "GUN" : "PISTOL", gex, t[2], -t[0], t[1], t[3], t[5]);
     }
+    else if (gevrStereoClubBat(GUNRIGHT) && gevrStereoTwoHandGrip())
+    {
+        /* both hands on the bat: the off hand where it holds (input.c; gun.c gevrGexBatOffFitTo) */
+        const float *o = VrGexBatFit[3], *r = VrGexBatFit[4];
+
+        snprintf(buf, sizeof(buf),
+                 "BAT OFF HAND FIT%s\nTHE OFF HAND ON THE BARREL\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nPITCH %.0f  YAW %.0f  ROLL %.0f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nHOLD RIGHT GRIP: STICKS TURN IT\nLET GO: FIT THE RIFLE\n%sA: SAVE   B: UNDO   MENU + A: DONE",
+                 gex, -o[2], o[0], o[1], r[0], r[1], r[2], gevrFitNextLine(0));
+    }
     else if (gevrStereoClubBat(GUNRIGHT))
     {
         /* the rifle butt as a bat: the rifle through the fist (input.c; gun.c gevrGexBatPose) */
         const float *b = gevrGexBatFit();
 
         snprintf(buf, sizeof(buf),
-                 "BAT FIT%s\nTHE RIFLE THROUGH THE FIST\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTURN STICK DOWN: HOLD NEARER THE BUTT\nTURN STICK UP: NEARER THE MUZZLE\nMOVE STICK: FORWARD, SIDEWAYS\nHOLD OFF TRIGGER: MOVE IT BY HAND\n%sA: SAVE   B: UNDO   MENU + A: DONE",
+                 "BAT FIT%s\nTHE RIFLE THROUGH THE FIST\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTURN STICK DOWN: HOLD NEARER THE BUTT\nTURN STICK UP: NEARER THE MUZZLE\nMOVE STICK: FORWARD, SIDEWAYS\nHOLD OFF TRIGGER: MOVE IT BY HAND\nBOTH HANDS ON IT: FIT THE OFF HAND\n%sA: SAVE   B: UNDO   MENU + A: DONE",
                  gex, -b[2], b[0], b[1], gevrFitNextLine(0));
     }
     else

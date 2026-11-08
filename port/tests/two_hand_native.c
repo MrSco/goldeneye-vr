@@ -59,8 +59,9 @@ static int gevrGexHeld(int hand) { return gexHeld[hand]; }
 static int gevrGexPistolSupportAllowed(void) { return 1; }
 static int gevrGexPistolPoint(int support, float out[3]) { (void)support; (void)out; return 0; }
 static int gevrGexForePoint(float out[3]) { memcpy(out,gexFore,sizeof(gexFore)); return gexForeValid; }
-/* gun.c: the bat below and above the fist (real cm), as drawn before any Gun fit */
-static void gevrGexBatSpanCm(float *below, float *above) { *below = 130.0f * 0.085f; *above = (1092.0f - 130.0f) * 0.085f; }
+/* gun.c: the bat below and above the fist (real cm): held near the butt, as Gun fit
+ * lets it be, 50 cm of barrel below the fist */
+static void gevrGexBatSpanCm(float *below, float *above) { *below = 50.0f; *above = 43.0f; }
 /* gun.c: the rifle's axis as drawn (none here: the controller's line) */
 static int gevrGexBatLine(int hand, float at[3], float dir[3], float *below, float *above) { (void)hand; (void)at; (void)dir; (void)below; (void)above; return 0; }
 static int gevrReloadSupportGun(void)
@@ -247,8 +248,8 @@ static void testClubHold(void)
     assert(gevrTwoHandGunCandidate() == -1);
 }
 /* The rifle butt with GoldenEye X's arms is a bat (bondview2.c gevrStereoClubBat):
- * the other hand takes it along the fist's up, not the barrel, and the two
- * fists' line turns it (gevrTwoHandBarrel, gevrTwoHandBatAim). */
+ * the other hand takes its barrel below the fist, along the fist's up, and the
+ * two fists' line turns it (gevrTwoHandBarrel, gevrTwoHandBatAim). */
 static void testClubBat(void)
 {
     float pos[3], r[3], u[3], b[3], opos[3], snap[3], dist;
@@ -260,21 +261,22 @@ static void testClubBat(void)
     assert(!gevrStereoClubBat(GUNRIGHT));   /* GoldenEye's own arms: the butt-first club */
     VrGexGuns = 1; gexHeld[GUNRIGHT] = 1;
     assert(gevrStereoClubBat(GUNRIGHT) && !gevrStereoClubBat(GUNLEFT));
-    /* the other hand 20 cm up the bat from the gun hand's fist */
+    /* the other hand 20 cm down the barrel from the gun hand's fist (user: anywhere
+     * on the barrel below the primary hand's grip) */
     assert(gevrGripAxesRaw(1, pos, r, u, b));
-    for (int i = 0; i < 3; i++) pose[gevrPhysHand(GUNRIGHT)][i] = (pos[i] + u[i] * 0.20f * m) / m;
+    for (int i = 0; i < 3; i++) pose[gevrPhysHand(GUNRIGHT)][i] = (pos[i] - u[i] * 0.20f * m) / m;
     assert(gevrTwoHandBarrel(opos, snap, &dist, 0) && dist < 0.5f);
     hold(GUNRIGHT);
     for (int i = 0; i < 30; i++) tick();
     float u2[3], p2[3], r2[3], b2[3];
     assert(gevrGripAxes(1, p2, r2, u2, b2));
     near(u2[0] * u[0] + u2[1] * u[1] + u2[2] * u[2], 1.0f);   /* in line already: unturned */
-    /* the other hand 6 cm to the right: the bat leans that way */
+    /* the other hand 6 cm to the right: below the fist, so the butt leans the other way */
     for (int i = 0; i < 3; i++) pose[gevrPhysHand(GUNRIGHT)][i] += r[i] * 0.06f;
     for (int i = 0; i < 30; i++) tick();
     assert(gevrStereoTwoHandGrip());
     assert(gevrGripAxes(1, p2, r2, u2, b2));
-    assert(u2[0] * r[0] + u2[1] * r[1] + u2[2] * r[2] > 0.2f);
+    assert(u2[0] * r[0] + u2[1] * r[1] + u2[2] * r[2] < -0.2f);
     near(p2[0], pos[0]); near(p2[1], pos[1]); near(p2[2], pos[2]);   /* still on the gun hand */
     /* well off the bat (behind the fist) it is not taken */
     release();

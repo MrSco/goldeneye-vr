@@ -176,7 +176,7 @@ extern float VrGexHeldMag[3];      // a GE-X magazine's palm from the off hand's
 extern float VrGexWatch[4];        // the watch on GE-X's left wrist: cm ahead, up, out; its size
 extern float VrGexOffRot[3];       // GE-X's off hand turned about its palm: degrees about the grip's x, y, z
 extern float VrGexForeHold[3];     // GE-X's two-handed hold on the gun: cm forward, up, out
-extern float VrGexBatFit[3][3];    // the rifle butt as a bat: the rifle on the fist, the hand's place, its turn
+extern float VrGexBatFit[5][3];    // the rifle butt as a bat: the rifle on the fist, the hand's place, its turn, the off hand's place, its turn
 extern float VrGexWeaponFits[64][10][3];
 extern float VrGexPp7Grab[3], VrGexPp7Support[3]; // shared by both PP7 variants
 extern float VrGexPp7GunOff[3];

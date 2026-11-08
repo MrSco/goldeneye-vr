@@ -1585,9 +1585,28 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     mtrim[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
                     mtrim[2] += my * rate * dt;
                     mtrim[1] += ry * rate * dt;
+                } else if (bat && gevrStereoTwoHandGrip()) {
+                    /* both hands on the bat: the off hand where it holds (gun.c
+                     * gevrGexBatOffFitTo; user: it sat off the rifle) - the sticks move
+                     * it, holding the gun hand's grip they turn it about its palm */
+                    if (get_button_state(1, "grip")) {
+                        float *r = VrGexBatFit[4];
+                        r[0] += my * 45.0f * dt;
+                        r[1] += ry * 45.0f * dt;
+                        r[2] += mx * 45.0f * dt;
+                        for (int k = 0; k < 3; k++) {
+                            if (r[k] > 180.0f) r[k] -= 360.0f;
+                            if (r[k] < -180.0f) r[k] += 360.0f;
+                        }
+                    } else {
+                        float *o = VrGexBatFit[3];
+                        o[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
+                        o[2] -= my * rate * dt;
+                        o[1] += ry * rate * dt;
+                    }
                 } else if (bat) {
-                    /* the rifle butt as a bat, held in one hand or both: the rifle through
-                     * the fist - the turn stick down slides the fist toward the butt (gun.c
+                    /* the rifle butt as a bat, in one hand: the rifle through the fist -
+                     * the turn stick down slides the fist toward the butt (gun.c
                      * gevrGexBatPose), the move stick across it (user) */
                     *gunOff[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
                     *gunOff[2] -= my * rate * dt;

@@ -142,7 +142,7 @@ float *gevrGexItemSizeFit(s32 item);
  * fist (cm right, up, back), and the gun hand on it - the rifle's own (rifle) until
  * Gun fit moves it; gevrGexBatHandOwn makes it the bat's own and returns its place,
  * the turn following (VrGexBatFit[1], [2]). */
-extern float VrGexBatFit[3][3];
+extern float VrGexBatFit[5][3];
 float *gevrGexBatFit(void);
 const float *gevrGexBatHandFit(s32 rifle);
 const float *gevrGexBatHandRotFit(s32 rifle);

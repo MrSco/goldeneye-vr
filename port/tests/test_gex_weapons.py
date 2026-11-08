@@ -41,7 +41,7 @@ float VrGexOffRot[3];   /* gun.c gevrGexOffHandPose: the off hand's turn, none h
 s32 g_GlobalTimer; float VrGunOffX, VrGunOffY, VrGunOffZ;
 s32 gevrGadgetFitPose(s32 item, f32 ofs[3], f32 rot[3], f32 *scale) { (void)item; (void)ofs; (void)rot; (void)scale; return 0; }
 float VrGexKf7MagOff[3], VrGexPp7MagOff[3];
-float VrGexPp7SupportRot[3], VrGexWeaponFits[64][10][3], VrGexBatFit[3][3];
+float VrGexPp7SupportRot[3], VrGexWeaponFits[64][10][3], VrGexBatFit[5][3];
 float VrGexKf7WellOff[3],VrGexPp7WellOff[3];
 static int gevrScopeFitting,gevrReloadFitting,gevrOffHandFitting,gevrHeldMagFitting,gevrMuzzleFitting,gevrGunHandFitting;
 static int gevrWellFitting,gevrInstalledMagFitting,gevrBodySlotFitting,bodySlots;
