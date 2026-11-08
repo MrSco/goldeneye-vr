@@ -59,6 +59,8 @@ static int gevrGexHeld(int hand) { return gexHeld[hand]; }
 static int gevrGexPistolSupportAllowed(void) { return 1; }
 static int gevrGexPistolPoint(int support, float out[3]) { (void)support; (void)out; return 0; }
 static int gevrGexForePoint(float out[3]) { memcpy(out,gexFore,sizeof(gexFore)); return gexForeValid; }
+/* gun.c: the bat below and above the fist (real cm), as drawn before any Gun fit */
+static void gevrGexBatSpanCm(float *below, float *above) { *below = 130.0f * 0.085f; *above = (1092.0f - 130.0f) * 0.085f; }
 static int gevrReloadSupportGun(void)
 { return player.hands[GUNRIGHT].weaponnum <= ITEM_FIST ? GUNLEFT : GUNRIGHT; }
 static int gevrReloadClaimsOffHand(void) { return reloadClaims; }

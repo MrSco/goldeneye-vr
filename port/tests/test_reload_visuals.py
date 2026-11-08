@@ -30,7 +30,7 @@ HARNESS = r'''
 #include "gevr_hand_reload.h"
 float VrReloadGrab[2][3], VrGexForeHold[3], VrGexPp7Grab[3], VrGexPp7Support[3];
 float VrGexGunOff[3], VrGexPp7GunOff[3], VrGexKf7MagOff[3], VrGexPp7MagOff[3];
-float VrGexWeaponFits[64][10][3], VrGexKf7WellOff[3], VrGexPp7WellOff[3], VrGexPp7SupportRot[3];
+float VrGexWeaponFits[64][10][3], VrGexBatFit[3][3], VrGexKf7WellOff[3], VrGexPp7WellOff[3], VrGexPp7SupportRot[3];
 uintptr_t osVirtualToPhysical(void *ptr) { return (uintptr_t)ptr; }
 static struct TestPlayer { struct { Model weaponModel; } hands[2]; } player;
 static struct TestPlayer *g_CurrentPlayer = &player;

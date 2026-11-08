@@ -41,7 +41,7 @@ float VrGexOffRot[3];   /* gun.c gevrGexOffHandPose: the off hand's turn, none h
 s32 g_GlobalTimer; float VrGunOffX, VrGunOffY, VrGunOffZ;
 s32 gevrGadgetFitPose(s32 item, f32 ofs[3], f32 rot[3], f32 *scale) { (void)item; (void)ofs; (void)rot; (void)scale; return 0; }
 float VrGexKf7MagOff[3], VrGexPp7MagOff[3];
-float VrGexPp7SupportRot[3], VrGexWeaponFits[64][10][3];
+float VrGexPp7SupportRot[3], VrGexWeaponFits[64][10][3], VrGexBatFit[3][3];
 float VrGexKf7WellOff[3],VrGexPp7WellOff[3];
 static int gevrScopeFitting,gevrReloadFitting,gevrOffHandFitting,gevrHeldMagFitting,gevrMuzzleFitting,gevrGunHandFitting;
 static int gevrWellFitting,gevrInstalledMagFitting,gevrBodySlotFitting,bodySlots;
@@ -843,6 +843,7 @@ production.extend(function(gun,s) for s in ("s32 gevrGexForePoint(", "static s32
     "s32 gevrGexSupportHandShown(", "s32 gevrGexLeftHandShown(void)\n{", "s32 gevrGexMagazineHandShown(", "Model *gevrGexHands("))
 production.append(function(gun,"static s32 gevrGexIsHandHeld("))
 production.append(function(gun,"s32 gevrGexHandHeld(s32 hand)"))
+production.append(function(gun,"static void gevrGexHandFitAt(const GexWeaponDef *def, Mtxf *rwmtx, s32 numMatrices, const f32 *pos, const f32 *rot)\n{"))
 production.append(function(gun,"static void gevrGexHandFitTo(const GexWeaponDef *def, Mtxf *rwmtx, s32 numMatrices)\n{"))
 production.extend(function(gun,s) for s in ("static void gevrGexInstalledMagFitTo(const GexWeaponDef *def, Mtxf *mag, const Mtxf *gun)\n{", "static s32 gevrGexInstalledMagazineFitting(", "static s32 gevrGexMagazineFitting("))
 production.extend(function(gun,s) for s in ("static s32 gevrGexOffHandConsumed(", "static void gevrGexWellPoint(", "void gevrReloadFitSetWell("))
@@ -851,7 +852,7 @@ production.append(function(view,"static const char *gevrFitNextLine("))
 production.append(function(view,"static void gevrScopeLensPlace("))
 input_source=(ROOT/"port/src/input.c").read_text()
 cycle=function(input_source,"if (x && !xHeld && gadget < 0)")
-production.append('static void cycleFit(void) { const int gex=active!=NULL,scope=fitScope; '+cycle[cycle.index('{')+1:-1]+' }')
+production.append('static void cycleFit(void) { const int gex=active!=NULL,scope=fitScope,bat=0; '+cycle[cycle.index('{')+1:-1]+' }')
 fit=function(input_source,'if (gevrStereoTwoHandGrip() && gevrGexHeld(gevrStereoTwoHandGun()) && VrGexGuns)')
 production.append('static void fitSupport(float mx,float my,float ry,float rate,float dt) { '+fit+' }')
 fire=(ROOT/"src/game/gunfire.c").read_text(encoding="utf-8")
