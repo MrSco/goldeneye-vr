@@ -1592,6 +1592,9 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     *gunOff[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
                     *gunOff[2] -= my * rate * dt;
                     *gunOff[1] += ry * rate * dt * 3.0f;   /* the rifle is 93 cm long */
+                    /* muzzle to butt (gun.c gevrGexBatHandle: 11 cm of it below the fist as drawn) */
+                    if (*gunOff[1] > 11.05f) *gunOff[1] = 11.05f;
+                    if (*gunOff[1] < -81.77f) *gunOff[1] = -81.77f;
                 } else if (gevrStereoTwoHandGrip() && gevrGexHeld(gevrStereoTwoHandGun()) && VrGexGuns) {
                     /* GoldenEye X's own left hand holds it (gun.c): where, cm forward,
                      * up and out along the gun (user: the hold was taken too near the
