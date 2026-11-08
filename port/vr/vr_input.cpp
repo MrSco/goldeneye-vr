@@ -2158,7 +2158,13 @@ extern "C" int gevrVrGripUsable(int hand)
 }
 extern "C" int gevrVrGripTracked(int hand)
 {
-    return hand >= 0 && hand < 2 && gCamCtrlTracked[gevrPhysHand(hand)];
+    if (hand < 0 || hand > 1) return 0;
+#ifdef __ANDROID__
+    // a hand pinned by the gevr_fakegrip.txt probe counts as tracked, so a pinned
+    // two-handed hold can be taken with the controllers asleep (the tests splice this)
+    if (s_fakeGripHave[hand]) return 1;
+#endif
+    return gCamCtrlTracked[gevrPhysHand(hand)];
 }
 
 extern "C" int gevrVrGripPose(int hand, float pos[3], float quat[4]);
