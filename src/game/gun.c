@@ -3112,6 +3112,9 @@ Gfx *gevrGexDrawPayload(Gfx *gdl, ModelRenderData *templ, GUNHAND hand)
 #define GEVR_GEX_BAT_LENGTH 1092.0f   /* muzzle to butt, GsniperrifleZ's 93 cm */
 static f32 s_gevrGexBatEnd[2][3];         /* the butt as drawn, per hand: the swing's end (bondview2.c) */
 static s32 s_gevrGexBatAt[2];             /* g_GlobalTimer when drawn, 0 never */
+/* the rifle's axis as drawn, per hand: a point on it (the fist's), its way to the
+ * butt, and how far it runs below and above that point (camera space) */
+static f32 s_gevrGexBatLine[2][8];
 
 /*
  * Where the fist holds the bat, model units up from the muzzle: Gun fit's bat
@@ -3210,7 +3213,11 @@ static void gevrGexBatPose(ModelFileHeader *hdr, const GexWeaponDef *def, Mtxf *
     for (i = 0; i < 3; i++)
     {
         s_gevrGexBatEnd[hand][i] = palm[i] + ey[i] * reach * unit;
+        s_gevrGexBatLine[hand][i] = palm[i];
+        s_gevrGexBatLine[hand][3 + i] = ey[i];
     }
+    s_gevrGexBatLine[hand][6] = handle * unit;
+    s_gevrGexBatLine[hand][7] = (GEVR_GEX_BAT_LENGTH - handle) * unit;
     s_gevrGexBatAt[hand] = g_GlobalTimer ? g_GlobalTimer : 1;
 }
 
@@ -3225,6 +3232,31 @@ s32 gevrGexBatEnd(s32 hand, f32 out[3])
     out[0] = s_gevrGexBatEnd[hand][0];
     out[1] = s_gevrGexBatEnd[hand][1];
     out[2] = s_gevrGexBatEnd[hand][2];
+    return TRUE;
+}
+
+/*
+ * bondview2.c gevrTwoHandBarrel and the off hand below: the rifle's axis as
+ * last drawn (camera space), within a few ticks - a point on it at the fist,
+ * its unit way toward the butt, and its length below and above that point.
+ * The other hand takes the rifle on it (user: it did not attach to the gun).
+ */
+s32 gevrGexBatLine(s32 hand, f32 at[3], f32 dir[3], f32 *below, f32 *above)
+{
+    s32 i;
+
+    if ((hand != GUNRIGHT && hand != GUNLEFT) || s_gevrGexBatAt[hand] == 0
+        || (u32) (g_GlobalTimer - s_gevrGexBatAt[hand]) > 4u)
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        at[i] = s_gevrGexBatLine[hand][i];
+        dir[i] = s_gevrGexBatLine[hand][3 + i];
+    }
+    *below = s_gevrGexBatLine[hand][6];
+    *above = s_gevrGexBatLine[hand][7];
     return TRUE;
 }
 
@@ -4055,11 +4087,44 @@ Gfx *gevrGexDrawOffHand(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
     }
     else
     {
+        f32 at[3], dir[3], below, above;
+        const s32 batGun = gevrStereoTwoHandGrip() && gevrStereoClubBat(gevrStereoTwoHandGun())
+            ? gevrStereoTwoHandGun() : -1;
+
         if (!gevrGexOffHandPose(m, n))
         {
             return gdl;
         }
-        gevrGexOffClench(m, VrFistClenchAmt);
+        if (batGun >= 0 && gevrGexBatLine(batGun, at, dir, &below, &above))
+        {
+            /* holding the rifle butt with both hands (user: the off hand did not
+             * attach to the gun): its palm moves onto the rifle as drawn, at the
+             * nearest point along it, and closes round it */
+            const f32 palmLocal[3] = { 0.0f, 0.0f, GEVR_GEX_PALM_Z };
+            f32 palm[3], t, dd[3];
+            s32 j;
+
+            gevrGexMtxPoint(&m[GEVR_GEX_LHAND_WRIST], palmLocal, palm);
+            t = (palm[0] - at[0]) * dir[0] + (palm[1] - at[1]) * dir[1] + (palm[2] - at[2]) * dir[2];
+            if (t < -below) t = -below;
+            if (t > above) t = above;
+            for (i = 0; i < 3; i++)
+            {
+                dd[i] = at[i] + dir[i] * t - palm[i];
+            }
+            for (j = GEVR_GEX_LHAND_FIRST; j <= GEVR_GEX_LHAND_LAST; j++)
+            {
+                for (i = 0; i < 3; i++)
+                {
+                    m[j].m[3][i] += dd[i];
+                }
+            }
+            gevrGexOffClench(m, 1.0f);
+        }
+        else
+        {
+            gevrGexOffClench(m, VrFistClenchAmt);
+        }
         watch = gevrGexWatchFrame(&m[GEVR_GEX_LHAND_ARM], pos, x, y);
     }
 

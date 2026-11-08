@@ -3560,6 +3560,7 @@ s32 gevrStereoTwoHandSupportCtrl(void)
 #define GEVR_TWOHAND_BAT_END_CM 1.0f
 #define GEVR_TWOHAND_BAT_SWING_CM 37.0f
 void gevrGexBatSpanCm(f32 *below, f32 *above);   /* gun.c: the bat below and above the fist, real cm */
+s32 gevrGexBatLine(s32 hand, f32 at[3], f32 dir[3], f32 *below, f32 *above);   /* gun.c: its axis as drawn */
 #define GEVR_TWOHAND_FORE_MIN 0.2f
 #define GEVR_TWOHAND_FORE_MAX 0.55f
 
@@ -3608,15 +3609,30 @@ static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm, s32 drawn)
     }
     if (gevrStereoClubBat(gun))
     {
-        /* the bat: anywhere along it, the short end below the fist or the long one above */
+        /* the bat: anywhere along it, the short end below the fist or the long one
+         * above - along the rifle as drawn, through the fist and its Gun fit, not
+         * the controller's line beside it (user: the off hand did not attach) */
+        f32 below, above, at[3], dir[3];
+        s32 swingsUp;
+
+        if (gevrGexBatLine(gun, at, dir, &below, &above))
+        {
+            for (i = 0; i < 3; i++)
+            {
+                gpos[i] = at[i];
+                up[i] = dir[i];
+            }
+            below /= cm;
+            above /= cm;
+        }
+        else
+        {
+            gevrGexBatSpanCm(&below, &above);
+        }
         for (i = 0; i < 3; i++)
         {
             d[i] = opos[i] - gpos[i];
         }
-        f32 below, above;
-        s32 swingsUp;
-
-        gevrGexBatSpanCm(&below, &above);
         swingsUp = above >= below;
         below -= swingsUp ? GEVR_TWOHAND_BAT_END_CM : GEVR_TWOHAND_BAT_SWING_CM;
         above -= swingsUp ? GEVR_TWOHAND_BAT_SWING_CM : GEVR_TWOHAND_BAT_END_CM;

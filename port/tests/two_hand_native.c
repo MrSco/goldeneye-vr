@@ -61,6 +61,8 @@ static int gevrGexPistolPoint(int support, float out[3]) { (void)support; (void)
 static int gevrGexForePoint(float out[3]) { memcpy(out,gexFore,sizeof(gexFore)); return gexForeValid; }
 /* gun.c: the bat below and above the fist (real cm), as drawn before any Gun fit */
 static void gevrGexBatSpanCm(float *below, float *above) { *below = 130.0f * 0.085f; *above = (1092.0f - 130.0f) * 0.085f; }
+/* gun.c: the rifle's axis as drawn (none here: the controller's line) */
+static int gevrGexBatLine(int hand, float at[3], float dir[3], float *below, float *above) { (void)hand; (void)at; (void)dir; (void)below; (void)above; return 0; }
 static int gevrReloadSupportGun(void)
 { return player.hands[GUNRIGHT].weaponnum <= ITEM_FIST ? GUNLEFT : GUNRIGHT; }
 static int gevrReloadClaimsOffHand(void) { return reloadClaims; }
