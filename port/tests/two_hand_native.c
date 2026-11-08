@@ -59,9 +59,9 @@ static int gevrGexHeld(int hand) { return gexHeld[hand]; }
 static int gevrGexPistolSupportAllowed(void) { return 1; }
 static int gevrGexPistolPoint(int support, float out[3]) { (void)support; (void)out; return 0; }
 static int gevrGexForePoint(float out[3]) { memcpy(out,gexFore,sizeof(gexFore)); return gexForeValid; }
-/* gun.c: the bat below and above the fist (real cm): held near the butt, as Gun fit
- * lets it be, 50 cm of barrel below the fist */
-static void gevrGexBatSpanCm(float *below, float *above) { *below = 50.0f; *above = 43.0f; }
+/* gun.c: how far below the fist the off hand takes the bat (real cm): held near the
+ * butt, as Gun fit lets it be, 50 cm of barrel below the fist, its end 5 cm up */
+static void gevrGexBatReachCm(float *nearest, float *farthest) { *nearest = 9.0f; *farthest = 45.0f; }
 /* gun.c: the rifle's axis as drawn (none here: the controller's line) */
 static int gevrGexBatLine(int hand, float at[3], float dir[3], float *below, float *above) { (void)hand; (void)at; (void)dir; (void)below; (void)above; return 0; }
 static int gevrReloadSupportGun(void)
@@ -264,6 +264,13 @@ static void testClubBat(void)
     /* the other hand 20 cm down the barrel from the gun hand's fist (user: anywhere
      * on the barrel below the primary hand's grip) */
     assert(gevrGripAxesRaw(1, pos, r, u, b));
+    /* past the rifle's end (45 cm below the one-hand hold) it is that far from it,
+     * and nearer than a fist's width it is held a fist's width down (user, test.30:
+     * the off hand holds the end, the gun hand slides down to it) */
+    for (int i = 0; i < 3; i++) pose[gevrPhysHand(GUNRIGHT)][i] = (pos[i] - u[i] * 0.60f * m) / m;
+    assert(gevrTwoHandBarrel(opos, snap, &dist, 0) && fabsf(dist - 15.0f) < 0.5f);
+    for (int i = 0; i < 3; i++) pose[gevrPhysHand(GUNRIGHT)][i] = (pos[i] - u[i] * 0.05f * m) / m;
+    assert(gevrTwoHandBarrel(opos, snap, &dist, 0) && fabsf(dist - 4.0f) < 0.5f);
     for (int i = 0; i < 3; i++) pose[gevrPhysHand(GUNRIGHT)][i] = (pos[i] - u[i] * 0.20f * m) / m;
     assert(gevrTwoHandBarrel(opos, snap, &dist, 0) && dist < 0.5f);
     hold(GUNRIGHT);

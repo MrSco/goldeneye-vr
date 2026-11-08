@@ -3500,9 +3500,10 @@ s32 gevrStereoHandClub(s32 hand)
 /*
  * The rifle butt held as a bat (user, test.21): with GoldenEye X's arms the
  * rifle turns about the hand, barrel through the fist and butt up (gun.c
- * gevrGexBatPose); the other hand takes it anywhere along it and stays its
- * own hand (gevrTwoHandBarrel, gevrTwoHandAim). Other art sets keep
- * GoldenEye's butt-first pose: their hand is part of the rifle's model.
+ * gevrGexBatPose); the other hand takes it below the fist and stays its own
+ * hand (gevrTwoHandBarrel, gevrTwoHandAim). Held so, the off hand keeps the
+ * rifle's end and the gun hand slides along it (user, test.30). Other art
+ * sets keep GoldenEye's butt-first pose: their hand is part of the rifle's model.
  */
 s32 gevrGexBatEnd(s32 hand, f32 out[3]);   /* gun.c: the bat's butt as drawn */
 
@@ -3511,6 +3512,22 @@ s32 gevrStereoClubBat(s32 hand)
     extern int VrGexGuns;   /* vr_settings_defaults.c */
 
     return g_gevrStereo && VrGexGuns && gevrStereoHandClub(hand) && gevrGexHeld(hand);
+}
+
+/* gun.c gevrGexBatPose: both hands on the bat (hand's) - the off hand's
+ * controller (camera space) and how far the hold has eased in, also while it
+ * eases out after letting go */
+s32 gevrStereoBatOffHand(s32 hand, f32 opos[3], f32 *amt)
+{
+    f32 ignore[3];
+
+    if (s_gevrTwoHandAmt <= 0.001f || s_gevrTwoHandGun != hand || !gevrStereoClubBat(hand)
+        || !gevrGripAxesRaw(hand, opos, ignore, ignore, ignore))
+    {
+        return FALSE;
+    }
+    *amt = s_gevrTwoHandAmt;
+    return TRUE;
 }
 
 /* the hand holds nothing, or bare fists (not the rifle butt) */
@@ -3554,13 +3571,12 @@ s32 gevrStereoTwoHandSupportCtrl(void)
  * point.
  */
 #define GEVR_TWOHAND_FORE 0.35f
-/* the bat: the other hand takes the barrel anywhere below the fist (user: "grip
- * and slide up and down anywhere along the barrel below the primary hand's
- * grip"), a fist's width from it down to the last cm at the muzzle (gun.c
- * gevrGexBatLine). Held too near the muzzle for that, it takes the rifle above. */
-#define GEVR_TWOHAND_BAT_END_CM 1.0f
-#define GEVR_TWOHAND_BAT_GAP_CM 9.0f
-void gevrGexBatSpanCm(f32 *below, f32 *above);   /* gun.c: the bat below and above the fist, real cm */
+/* the bat: the other hand takes the barrel anywhere below the fist, a fist's
+ * width from it down to the rifle's end below the one-hand hold (gun.c
+ * gevrGexBatReachCm); the rifle then slides through the gun hand to put its
+ * end in the off hand (gevrGexBatPose; user, test.30: the off hand planted,
+ * the primary hand slides). */
+void gevrGexBatReachCm(f32 *nearest, f32 *farthest);   /* gun.c: real cm below the fist */
 s32 gevrGexBatLine(s32 hand, f32 at[3], f32 dir[3], f32 *below, f32 *above);   /* gun.c: its axis as drawn */
 #define GEVR_TWOHAND_FORE_MIN 0.2f
 #define GEVR_TWOHAND_FORE_MAX 0.55f
@@ -3610,10 +3626,10 @@ static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm, s32 drawn)
     }
     if (gevrStereoClubBat(gun))
     {
-        /* the bat: anywhere on the barrel below the fist (GEVR_TWOHAND_BAT_GAP_CM)
-         * - along the rifle as drawn, through the fist and its Gun fit, not the
+        /* the bat: anywhere on the barrel below the fist (gevrGexBatReachCm) -
+         * along the rifle as drawn, through the fist and its Gun fit, not the
          * controller's line beside it (user: the off hand did not attach) */
-        f32 below, above, at[3], dir[3];
+        f32 below, above, nearest, farthest, at[3], dir[3];
 
         if (gevrGexBatLine(gun, at, dir, &below, &above))
         {
@@ -3622,29 +3638,15 @@ static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm, s32 drawn)
                 gpos[i] = at[i];
                 up[i] = dir[i];
             }
-            below /= cm;
-            above /= cm;
         }
-        else
-        {
-            gevrGexBatSpanCm(&below, &above);
-        }
+        gevrGexBatReachCm(&nearest, &farthest);
         for (i = 0; i < 3; i++)
         {
             d[i] = opos[i] - gpos[i];
         }
         t = d[0] * up[0] + d[1] * up[1] + d[2] * up[2];
-        if (below - GEVR_TWOHAND_BAT_END_CM >= GEVR_TWOHAND_BAT_GAP_CM)
-        {
-            tmin = -(below - GEVR_TWOHAND_BAT_END_CM) * cm;
-            tmax = -GEVR_TWOHAND_BAT_GAP_CM * cm;
-        }
-        else
-        {
-            tmin = GEVR_TWOHAND_BAT_GAP_CM * cm;
-            tmax = (above - GEVR_TWOHAND_BAT_END_CM) * cm;
-            if (tmax < tmin) tmax = tmin;
-        }
+        tmin = -farthest * cm;
+        tmax = -nearest * cm;
         if (t < tmin) t = tmin;
         if (t > tmax) t = tmax;
         for (i = 0; i < 3; i++)
