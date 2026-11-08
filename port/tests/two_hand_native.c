@@ -278,12 +278,26 @@ static void testClubBat(void)
     float u2[3], p2[3], r2[3], b2[3];
     assert(gevrGripAxes(1, p2, r2, u2, b2));
     near(u2[0] * u[0] + u2[1] * u[1] + u2[2] * u[2], 1.0f);   /* in line already: unturned */
-    /* the other hand 6 cm to the right: below the fist, so the butt leans the other way */
-    for (int i = 0; i < 3; i++) pose[gevrPhysHand(GUNRIGHT)][i] += r[i] * 0.06f;
+    /* fists together as on a bat, the other hand 12 cm down and 3 cm to the right:
+     * the bat stays locked in the grip, on the wrist (user, test.31) */
+    for (int i = 0; i < 3; i++) pose[gevrPhysHand(GUNRIGHT)][i] = (pos[i] - u[i] * 0.12f * m) / m + r[i] * 0.03f;
+    for (int i = 0; i < 30; i++) tick();
+    assert(gevrStereoTwoHandGrip());
+    assert(gevrGripAxes(1, p2, r2, u2, b2));
+    assert(u2[0] * u[0] + u2[1] * u[1] + u2[2] * u[2] > 0.99f);
+    /* spread for the sledgehammer, 35 cm down and 10 cm to the right: the hands'
+     * line sets it, below the fist, so the butt leans the other way */
+    for (int i = 0; i < 3; i++) pose[gevrPhysHand(GUNRIGHT)][i] = (pos[i] - u[i] * 0.35f * m) / m + r[i] * 0.10f;
     for (int i = 0; i < 30; i++) tick();
     assert(gevrStereoTwoHandGrip());
     assert(gevrGripAxes(1, p2, r2, u2, b2));
     assert(u2[0] * r[0] + u2[1] * r[1] + u2[2] * r[2] < -0.2f);
+    /* and back together: locked where the line left it, not snapped to the wrist */
+    for (int i = 0; i < 3; i++) pose[gevrPhysHand(GUNRIGHT)][i] = (pos[i] - u[i] * 0.12f * m) / m + r[i] * 0.03f;
+    for (int i = 0; i < 30; i++) tick();
+    float u3[3];
+    assert(gevrGripAxes(1, p2, r2, u3, b2));
+    near(u3[0] * u2[0] + u3[1] * u2[1] + u3[2] * u2[2], 1.0f);
     near(p2[0], pos[0]); near(p2[1], pos[1]); near(p2[2], pos[2]);   /* still on the gun hand */
     /* well off the bat (behind the fist) it is not taken */
     release();

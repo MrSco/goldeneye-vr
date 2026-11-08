@@ -5085,45 +5085,83 @@ Gfx *gevrRenderBeanGripArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
 }
 
 /*
- * The bat with both hands (gevrStereoClubBat): it runs through both fists. Its
- * line is the one from this fist to the other, the right way up (the butt
- * above the thumbs); hands close together give that line no direction of
- * its own, so there both fists' own axes, averaged, set it. Eased in with
- * the hold, as the rifles' aim is.
+ * The bat with both hands (gevrStereoClubBat): it runs through both fists.
+ * Spread for the sledgehammer, its line is the one from this fist to the
+ * other, the right way up (the butt above the thumbs). Fists together, as on
+ * a baseball bat, it is locked in the grip and the wrists swing it (user,
+ * test.31: "There should be wrist movement, but the grip should still be
+ * pinned"): the line kept in the gun wrist's own axes where the hands came
+ * together, turning with the wrist. Between, the line draws it each tick, so
+ * the lock takes the bat where the line left it, and spread again the line
+ * takes it from there - no jump either way. Eased in with the hold, as the
+ * rifles' aim is.
  */
-#define GEVR_TWOHAND_BAT_LINE_MIN_CM 6.0f
-#define GEVR_TWOHAND_BAT_LINE_FULL_CM 16.0f
-static void gevrTwoHandBatAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3])
+#define GEVR_TWOHAND_BAT_LINE_MIN_CM 14.0f   /* fists stacked on a bat: the controllers ~10-13 cm apart */
+#define GEVR_TWOHAND_BAT_LINE_FULL_CM 20.0f
+static void gevrTwoHandBatAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3], s32 fresh)
 {
+    static f32 s_gevrBatWrist[3];          /* the bat's line in the gun wrist's right, up and back */
+    static f32 s_gevrBatWristBase[3];      /* the same as the snapshot began: every reader this tick agrees */
+    static unsigned s_gevrBatWristSnap;
+    static s32 s_gevrBatWristOn;
     f32 opos[3], oright[3], oup[3], oback[3], d[3], v[3], t[3], k[3];
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
     f32 sep, w, tl, s, c;
     f32 *axes[3];
     s32 i, a;
 
-    if (s_gevrTwoHandAmt <= 0.001f || cm < 1e-6f || !gevrGripAxesRaw(s_gevrTwoHandGun, opos, oright, oup, oback)
-        || up[0] * oup[0] + up[1] * oup[1] + up[2] * oup[2] < 0.2f)
+    if (s_gevrTwoHandAmt <= 0.001f || cm < 1e-6f || !gevrGripAxesRaw(s_gevrTwoHandGun, opos, oright, oup, oback))
     {
-        return;   /* not held, or the other fist turned well away from it */
+        return;
+    }
+    if (!s_gevrBatWristOn || fresh)   /* a new hold starts on the wrist's own line */
+    {
+        s_gevrBatWrist[0] = s_gevrBatWrist[2] = 0.0f;
+        s_gevrBatWrist[1] = 1.0f;
+        s_gevrBatWristOn = TRUE;
+        s_gevrBatWristSnap = gevrVrGripSnapshotId() - 1u;
+    }
+    if (s_gevrBatWristSnap != gevrVrGripSnapshotId())
+    {
+        s_gevrBatWristSnap = gevrVrGripSnapshotId();
+        for (i = 0; i < 3; i++) s_gevrBatWristBase[i] = s_gevrBatWrist[i];
     }
     for (i = 0; i < 3; i++)
     {
         d[i] = opos[i] - pos[i];
-        t[i] = up[i] + oup[i];
+        /* the locked line, out of the wrist's axes */
+        t[i] = right[i] * s_gevrBatWristBase[0] + up[i] * s_gevrBatWristBase[1] + back[i] * s_gevrBatWristBase[2];
     }
     sep = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
     w = (sep / cm - GEVR_TWOHAND_BAT_LINE_MIN_CM) / (GEVR_TWOHAND_BAT_LINE_FULL_CM - GEVR_TWOHAND_BAT_LINE_MIN_CM);
     if (w < 0.0f) w = 0.0f;
     if (w > 1.0f) w = 1.0f;
-    if (sep > 1e-6f)
+    if (sep > 1e-6f && w > 0.0f)
     {
         const f32 sign = d[0] * up[0] + d[1] * up[1] + d[2] * up[2] < 0.0f ? -1.0f : 1.0f;
 
-        tl = sqrtf(t[0] * t[0] + t[1] * t[1] + t[2] * t[2]);
         for (i = 0; i < 3; i++)
         {
-            t[i] = (tl > 1e-6f ? t[i] / tl : up[i]) * (1.0f - w) + sign * d[i] / sep * w;
+            t[i] = t[i] * (1.0f - w) + sign * d[i] / sep * w;
         }
+    }
+    tl = sqrtf(t[0] * t[0] + t[1] * t[1] + t[2] * t[2]);
+    if (tl < 1e-4f)
+    {
+        return;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        t[i] /= tl;
+    }
+    /* kept for the next tick, in the wrist's axes */
+    s_gevrBatWrist[0] = t[0] * right[0] + t[1] * right[1] + t[2] * right[2];
+    s_gevrBatWrist[1] = t[0] * up[0] + t[1] * up[1] + t[2] * up[2];
+    s_gevrBatWrist[2] = t[0] * back[0] + t[1] * back[1] + t[2] * back[2];
+    if (gevrAimLogEnabled() && (gevrVrGripSnapshotId() % 30) == 0)
+    {
+        sysLogPrintf(LOG_NOTE, "bat: hands %.1f cm apart, line %.2f, held %.2f, wrist %.2f %.2f %.2f",
+                     sep / cm, w, s_gevrTwoHandAmt, s_gevrBatWrist[0], s_gevrBatWrist[1], s_gevrBatWrist[2]);
     }
     for (i = 0; i < 3; i++)
     {
@@ -5185,17 +5223,20 @@ static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3
     static f32 s_twoHandDir[3];
     static f32 s_twoHandSepCm;
     static s32 s_twoHandDirValid = 0;
+    static s32 s_twoHandBatFresh = TRUE;
     static unsigned s_twoHandSnapshotId;
     static unsigned s_twoHandLoggedId;
 
     if (s_gevrTwoHandResetDir)
     {
         s_twoHandDirValid = 0;
+        s_twoHandBatFresh = TRUE;
         s_gevrTwoHandResetDir = FALSE;
     }
     if (gevrStereoClubBat(s_gevrTwoHandGun))
     {
-        gevrTwoHandBatAim(pos, right, up, back);
+        gevrTwoHandBatAim(pos, right, up, back, s_twoHandBatFresh);
+        s_twoHandBatFresh = FALSE;
         return;
     }
     if (!s_gevrTwoHand && !s_twoHandDirValid)
