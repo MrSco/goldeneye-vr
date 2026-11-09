@@ -9,8 +9,8 @@
  * the friends service. The PC keeps the same messages and answers them here,
  * so the launcher's pages are the Quest's. The native versions of those
  * services (P3) share pc_http.h: the internet lobby is pc_lobby.cpp, the Mods
- * page pc_mods.cpp, crash and log reports pc_reports.cpp; the rest report
- * that they aren't on PC yet.
+ * page pc_mods.cpp, crash and log reports pc_reports.cpp, friends and invites
+ * pc_friends.cpp; the rest report that they aren't on PC yet.
  */
 
 #include <string>
@@ -27,6 +27,8 @@ std::string pcModsStatus(void);              // pc_mods.cpp: ModManager
 void pcModsCommand(const char *cmd);
 std::string pcReportStatus(void);            // pc_reports.cpp: LogReporter
 void pcReportCommand(const char *cmd);
+std::string pcFriendsEvent(void);            // pc_friends.cpp: FriendsClient
+void pcFriendsCommand(const char *cmd);
 
 std::string pcServiceString(const char *method)
 {
@@ -39,7 +41,10 @@ std::string pcServiceString(const char *method)
     if (!strcmp(method, "reportStatus")) {
         return pcReportStatus();
     }
-    return std::string();   // friends*: nothing pending
+    if (!strcmp(method, "friendsEvent")) {
+        return pcFriendsEvent();
+    }
+    return std::string();
 }
 
 void pcServiceCommand(const char *method, const char *arg)
@@ -50,6 +55,10 @@ void pcServiceCommand(const char *method, const char *arg)
     }
     if (!strcmp(method, "modsCommand")) {
         pcModsCommand(arg);
+        return;
+    }
+    if (!strcmp(method, "friendsCommand")) {
+        pcFriendsCommand(arg);
         return;
     }
     if (!strcmp(method, "reportCommand")) {

@@ -100,6 +100,18 @@ test: `port/tests/pc_lobby_native.cpp`.
   crash, the offer on the next start, the report sent (kind crash, trace,
   redacted note) and not offered again; a run killed from outside offered as
   "ended unexpectedly"; a clean quit not offered; a manual debug log.
+- **Friends** (`pc_friends.cpp`, FriendsClient): the same commands and events
+  vr_friends.cpp sends and drains (presence, settings, search, add, answer,
+  remove, decline-all, block, unblock, invite, drop, restore, reset, and the
+  Discord ones, which the PC never sends: vr_discord.cpp has no SDK there, so
+  linking stays unavailable). The player is `gevr_player.json` beside the exe,
+  written to a new file and renamed over the old. The service is
+  `GEVR_FRIENDS_URL` when set (tests: a local mock; the real Worker never
+  saw a PC test). Checked against a mock of the Worker's contract: register,
+  presence with friends, requests, blocked and an invite (the sidebar draws
+  them), search, add (both answers), the other commands' requests, an error
+  reply, settings, the 5 s gap after a change, restore (good and bad), a 401
+  signing the player out, and the saved player reloaded.
 
 **Controls:** GoldenEye's 1.2 Solitaire, as the Quest's screen mode plays.
 - Keyboard and mouse: W/S walk, A/D strafe (the C buttons), arrows look,
