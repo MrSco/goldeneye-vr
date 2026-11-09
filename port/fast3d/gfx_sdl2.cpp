@@ -41,6 +41,18 @@ int mirror_height = 960;
 static int  mirror_eye_index   = 0;
 static bool mirror_sbs = false;  // false = one eye, true = side by side
 static bool imgui_initialized  = false;
+#ifndef ANDROID
+// The mirror window's toolbar has its own ImGui context. The in-VR launcher and
+// pause panel make and destroy theirs (port/vr/vr_launcher.cpp destroys its
+// context at Start, leaving none current), so every use here selects this one
+// and puts back whatever was current.
+static ImGuiContext *mirror_imgui = nullptr;
+struct MirrorImGuiScope {
+    ImGuiContext *prev;
+    MirrorImGuiScope() : prev(ImGui::GetCurrentContext()) { ImGui::SetCurrentContext(mirror_imgui); }
+    ~MirrorImGuiScope() { ImGui::SetCurrentContext(prev); }
+};
+#endif
 static bool mirror_is_43  = false;  // false = 1:1 VR, true = 4:3
 static float toolbar_alpha     = 1.0f;   // current opacity
 static uint32_t last_mouse_move_ms = 0;  // timestamp of the last mouse movement
@@ -445,12 +457,15 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
     if (mirror_wnd && mirror_ctx) {
         SDL_GL_MakeCurrent(mirror_wnd, mirror_ctx);
         IMGUI_CHECKVERSION();
-        ImGui::CreateContext();
+        ImGuiContext *prevImgui = ImGui::GetCurrentContext();
+        mirror_imgui = ImGui::CreateContext();
+        ImGui::SetCurrentContext(mirror_imgui);
         ImGui::GetIO().IniFilename = nullptr;
         ImGui::StyleColorsDark();
         ImGui_ImplSDL2_InitForOpenGL(mirror_wnd, mirror_ctx);
         ImGui_ImplOpenGL3_Init("#version 330");
         imgui_initialized = true;
+        ImGui::SetCurrentContext(prevImgui);
 
         SDL_GL_MakeCurrent(wnd, ctx); // Switch back to the main context
 
@@ -467,9 +482,14 @@ static void gfx_sdl_close(void) {
 #ifndef ANDROID
     if (imgui_initialized) {
         SDL_GL_MakeCurrent(mirror_wnd, mirror_ctx);
-        ImGui_ImplOpenGL3_Shutdown();
-        ImGui_ImplSDL2_Shutdown();
-        ImGui::DestroyContext();
+        {
+            MirrorImGuiScope scope;
+            ImGui_ImplOpenGL3_Shutdown();
+            ImGui_ImplSDL2_Shutdown();
+        }
+        ImGui::DestroyContext(mirror_imgui);
+        mirror_imgui = nullptr;
+        imgui_initialized = false;
         SDL_GL_MakeCurrent(wnd, ctx);
     }
 #endif
@@ -560,8 +580,10 @@ static void gfx_sdl_handle_events(void) {
 #ifndef ANDROID // if PC
     while (SDL_PollEvent(&event)) {
 
-        if (imgui_initialized)
+        if (imgui_initialized) {
+            MirrorImGuiScope scope;
             ImGui_ImplSDL2_ProcessEvent(&event);
+        }
 
         switch (event.type) {
             case SDL_KEYDOWN:
@@ -716,6 +738,7 @@ static void gfx_sdl_swap_buffers_begin(void) {
     SDL_GL_MakeCurrent(mirror_wnd, mirror_ctx);
 
     if (imgui_initialized) {
+        MirrorImGuiScope scope;
         uint32_t now = SDL_GetTicks();
         uint32_t idle_ms = now - last_mouse_move_ms;
 
