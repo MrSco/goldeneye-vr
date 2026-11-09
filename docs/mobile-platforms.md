@@ -27,8 +27,10 @@ launcher.
     edges and the front end is pillarboxed.
   - Flat builds default to 16:9; the headset's virtual screen stays 4:3 until
     its cost is measured.
+- **In-game panel:** hold the on-screen START (a tap is still START), or on a
+  PC F10 or a pad's Back, for the headset's panel (settings, Friends, back to
+  the launcher); a solo mission pauses under it.
 - **Not yet:**
-  - No in-game panel without grips (PC flat too).
   - Haptics and gyro.
   - A touch layout editor and settings.
   - A real phone, an online match against a Quest, and Bean import on a
