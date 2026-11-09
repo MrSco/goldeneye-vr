@@ -57,11 +57,29 @@ the same commands and events, WinHTTP after Dab's Mod's ghostnet.c, Dab's
 bounded JSON reader with SDP-safe strings; offline test
 port/tests/pc_lobby_native.cpp). Checked against lobbies.goldeneyevr.com:
 the public list, a private lobby hosted and removed on quit, and a second PC
-copy joining it by code (ICE, ENet, slot, clock sync, voice open). Not on
-PC yet: mods, crash reports, friends, the updater; LAN and direct-address
+copy joining it by code (ICE, ENet, slot, clock sync, voice open). The
+other services follow it (see **Services** below); LAN and direct-address
 play need no Java. `--boot-stage` and `--no-launcher` skip
 the launcher. Open: the Play page still offers "Stereo VR" (meaningless
 until PCVR); the Haptics page is empty (no Touch controllers).
+
+**Services** (P3): the Java services ported line for line into `port/pc/`,
+answering the same one-line messages (`pc_services.cpp`). They share
+`pc_http.h`: WinHTTP (any scheme and port, redirects, streamed downloads with
+progress and cancel), Dab's bounded JSON reader, Base64, SHA-256 (bcrypt),
+files on UTF-8 paths, `gevr_prefs.txt` beside the exe in place of Android's
+SharedPreferences, and ModArchive's bounded zip extraction on miniz. Offline
+test: `port/tests/pc_lobby_native.cpp`.
+- **Mods** (`pc_mods.cpp`, ModManager + ModArchive): the same pack list,
+  status lines and commands; packs unpack into `texture-packs/<id>` beside the
+  exe, where ext_tex.c, gfx_pc.cpp (`$S/texture-packs`) and Oddjob's hat
+  (`texture-packs/oddjob-hat/oddjob_hat.bin`) look. Checked for real: the
+  release check (the HD + AI pack's newer 2026.10.19 is offered), Oddjob's hat
+  installed and removed, GoldenEye 007 HD (129 MB, 1762 files) installed, and
+  a download cancelled half way leaves nothing behind. Not on PC: the XBLA /
+  Bean import and the Community Edition patch (no `openXblaPicker` /
+  `openCePicker` on PC yet); Bean's file roots are also `../texture-packs`,
+  relative to the Quest's data folder, which on PC is the exe's own folder.
 
 **Controls:** GoldenEye's 1.2 Solitaire, as the Quest's screen mode plays.
 - Keyboard and mouse: W/S walk, A/D strafe (the C buttons), arrows look,

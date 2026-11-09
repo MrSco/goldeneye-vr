@@ -4,7 +4,7 @@
  * android.util.Base64 (NO_WRAP | URL_SAFE) writes it, which the launcher and the
  * Quest's LobbyClient share.
  *
- *   clang++ -std=c++20 -I port/pc port/tests/pc_lobby_native.cpp -lwinhttp -o pc_lobby_test.exe
+ *   clang++ -std=c++20 -I port/pc port/tests/pc_lobby_native.cpp port/pc/pc_http.cpp -lwinhttp -lbcrypt -o pc_lobby_test.exe
  */
 #include <cstdarg>
 #include <cstdio>

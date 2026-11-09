@@ -7,9 +7,9 @@
  * gevrJavaCommand; vr_friends.cpp javaString, javaCommand). Behind them are
  * LobbyClient (HTTPS to lobbies.goldeneyevr.com), ModManager, LogReporter and
  * the friends service. The PC keeps the same messages and answers them here,
- * so the launcher's pages are the Quest's. Native versions of those services
- * land here one by one (P3): the internet lobby is pc_lobby.cpp; the rest
- * report that they aren't on PC yet.
+ * so the launcher's pages are the Quest's. The native versions of those
+ * services (P3) share pc_http.h: the internet lobby is pc_lobby.cpp, the Mods
+ * page pc_mods.cpp; the rest report that they aren't on PC yet.
  */
 
 #include <string>
@@ -22,19 +22,28 @@ void netVoicePermissionResult(int granted);   // net_voice.c
 
 std::string pcLobbyEvent(void);              // pc_lobby.cpp: LobbyClient, ported
 void pcLobbyCommand(const char *cmd);
+std::string pcModsStatus(void);              // pc_mods.cpp: ModManager
+void pcModsCommand(const char *cmd);
 
 std::string pcServiceString(const char *method)
 {
     if (!strcmp(method, "lobbyEvent")) {
         return pcLobbyEvent();
     }
-    return std::string();   // modsStatus (no packs), reportStatus, friends*: nothing pending
+    if (!strcmp(method, "modsStatus")) {
+        return pcModsStatus();
+    }
+    return std::string();   // reportStatus, friends*: nothing pending
 }
 
 void pcServiceCommand(const char *method, const char *arg)
 {
     if (!strcmp(method, "lobbyCommand")) {
         pcLobbyCommand(arg);
+        return;
+    }
+    if (!strcmp(method, "modsCommand")) {
+        pcModsCommand(arg);
         return;
     }
     if (!strcmp(method, "requestVoicePermission")) {
