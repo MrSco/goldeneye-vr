@@ -524,9 +524,28 @@ UpdateStatus gevrUpdaterStatus()
 #else
 UpdateStatus gevrUpdaterStatus()
 {
-    UpdateStatus st;   // no updater on PC yet: the version only
-    st.state = "idle";
-    st.installed = GEVR_APP_VERSION;
+    // port/pc/pc_updater.cpp (UpdateChecker, ported): the same line as the Quest's
+    UpdateStatus st;
+    const std::string raw = pcServiceString("updaterStatus");
+    std::vector<std::string> f;
+    size_t pos = 0;
+    while (true) {
+        size_t tab = raw.find('\t', pos);
+        f.push_back(raw.substr(pos, tab == std::string::npos ? std::string::npos : tab - pos));
+        if (tab == std::string::npos) break;
+        pos = tab + 1;
+    }
+    if (f.size() >= 6) {
+        st.state = f[0];
+        st.offered = f[1];
+        st.progress = atoi(f[2].c_str());
+        st.message = f[3];
+        st.testBuilds = f[4] == "1";
+        st.installed = f[5];
+    } else {
+        st.state = "idle";
+        st.installed = GEVR_APP_VERSION;
+    }
     return st;
 }
 #endif
@@ -556,7 +575,8 @@ void gevrUpdaterCommand(const char *cmd)
 #else
 void gevrUpdaterCommand(const char *cmd)
 {
-    vr_log("launcher: updater %s (not on PC yet)", cmd);
+    pcServiceCommand("updaterCommand", cmd);   // port/pc/pc_updater.cpp
+    vr_log("launcher: updater %s", cmd);
 }
 #endif
 

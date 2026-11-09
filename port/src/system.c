@@ -52,6 +52,16 @@ static void gevrOpenLog(void)
     rename("gevr.log", "gevr.prev.log");
     gevrLogFile = fopen("gevr.log", "ab");
 }
+
+/* Before the game starts itself again (pc_launcher.cpp pcRestartSelf): the
+ * new run can only rotate the log once this one has let go of it. */
+void gevrLogClose(void)
+{
+    if (gevrLogFile) {
+        fclose(gevrLogFile);
+        gevrLogFile = NULL;
+    }
+}
 #endif
 
 #ifdef PLATFORM_WIN32

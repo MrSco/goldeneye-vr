@@ -30,7 +30,8 @@ P0 and P1's first steps are in: `python tools/build_pc.py` builds
 `GoldenEyeVR.exe` (one static exe, about 2 minutes clean); with the ROM
 beside it the Quest's launcher opens in the window (ROM, settings,
 Start) and the game plays with sound, keyboard, mouse and gamepads.
-Not yet: the Java-side services (below), PCVR.
+The Java-side services are ported (lobby, mods, crash reports, friends,
+updater; see **Services**). Not yet: PCVR, the XBLA / Bean import.
 
 **Release download:** `python tools/package_pc.py VERSION` builds and packs
 `build/pc-dist/GoldenEyeVR-VERSION-windows-x64.zip` (22 MB): the exe without
@@ -69,7 +70,9 @@ answering the same one-line messages (`pc_services.cpp`). They share
 progress and cancel), Dab's bounded JSON reader, Base64, SHA-256 (bcrypt),
 files on UTF-8 paths, `gevr_prefs.txt` beside the exe in place of Android's
 SharedPreferences, and ModArchive's bounded zip extraction on miniz. Offline
-test: `port/tests/pc_lobby_native.cpp`.
+tests: `port/tests/pc_lobby_native.cpp` and `pc_services_native.cpp` (99
+checks: the Java tests' version order, release choice, archive and crash
+policy cases, the redaction patterns, the gzip member, the crash record).
 - **Mods** (`pc_mods.cpp`, ModManager + ModArchive): the same pack list,
   status lines and commands; packs unpack into `texture-packs/<id>` beside the
   exe, where ext_tex.c, gfx_pc.cpp (`$S/texture-packs`) and Oddjob's hat
@@ -112,6 +115,27 @@ test: `port/tests/pc_lobby_native.cpp`.
   them), search, add (both answers), the other commands' requests, an error
   reply, settings, the 5 s gap after a change, restore (good and bad), a 401
   signing the player out, and the saved player reloaded.
+- **Updater** (`pc_updater.cpp`, UpdateChecker + UpdateVersion): the same
+  status line and commands, reached through the launcher's
+  gevrUpdaterStatus / gevrUpdaterCommand (their PC branches now ask
+  pc_services.cpp). The same GitHub releases (`GEVR_UPDATES_URL` for a mock),
+  looking for `GoldenEyeVR-VERSION-windows-x64.zip` (package_pc.py's). Update:
+  download into `updates/`, size and GitHub's asset SHA-256 digest (the APK's
+  check), unpack into `updates/staging` (ModArchive's bounds), then in place of
+  Android's package, version and signer checks: the zip must hold
+  GoldenEyeVR.exe and a VERSION naming the offered release, not older than
+  this build. Nothing is signed: trust is GitHub's digest and HTTPS. Install:
+  each file the zip holds moves the game's own aside as NAME.old (a running
+  exe and a loaded DLL can be renamed), the new one moves in, any failure
+  puts every file back; the launcher's next status poll restarts the game
+  (pcRestartSelf, which now also clears the crash marker and closes the log
+  first). The next start deletes the .old files and the downloads and says
+  "Updated to vX." No "install unknown apps" permission state on PC.
+  Checked: the real releases (no Windows zip yet: up to date), and against a
+  mock release in a throwaway copy of the game folder: offered, downloaded,
+  swapped, restarted into the new version with the notice, leftovers gone; a
+  wrong digest fails with Retry and leaves the game as it was. Open: nobody
+  has published a Windows zip yet; the release workflow needs to attach it.
 
 **Controls:** GoldenEye's 1.2 Solitaire, as the Quest's screen mode plays.
 - Keyboard and mouse: W/S walk, A/D strafe (the C buttons), arrows look,
