@@ -251,6 +251,38 @@ static void testUpdater()
     CHECK(parsed[1].prerelease && parsed[1].zipUrl.empty());
     CHECK(pickTag(parsed, "0.5.15-test.32", false) == "v0.5.16");
     CHECK(throws([] { parseReleases(R"({"message":"Not Found"})"); }));
+    // the unpacked zip (package_pc.py's layout): both exes, the DLLs, the launch scripts
+    {
+        mz_zip_archive z;
+        memset(&z, 0, sizeof(z));
+        mz_zip_writer_init_file(&z, "t12.zip", 0);
+        const char *names[] = { "GoldenEyeVR.exe", "GoldenEyeVR-VR.exe", "phonon.dll", "openxr_loader.dll", "Play VR.cmd",
+                                "Play SteamVR.cmd", "Start-SteamVR.ps1", "README.txt", "VERSION", "licenses/openxr-loader.txt" };
+        for (const char *n : names) {
+            const std::string entry = std::string("GoldenEyeVR-0.5.16-windows-x64/") + n;
+            mz_zip_writer_add_mem(&z, entry.c_str(), "0.5.16\n", 7, MZ_DEFAULT_COMPRESSION);
+        }
+        mz_zip_writer_finalize_archive(&z);
+        mz_zip_writer_end(&z);
+        UnzipRules all;
+        all.least = 1;
+        all.minEntry = 0;
+        all.stripPrefix = "GoldenEyeVR-0.5.16-windows-x64/";
+        std::vector<std::string> files;
+        CHECK(unzipBounded("t12.zip", "t12", all, nullptr, &files) == 10);
+        CHECK(isFile("t12/Play VR.cmd") && isFile("t12/licenses/openxr-loader.txt"));
+        CHECK(stagedProblem(files, "0.5.16\n", "v0.5.16", "0.5.15-test.32", "GoldenEyeVR.exe").empty());
+        CHECK(stagedProblem(files, "0.5.16", "v0.5.16", "0.5.15", "GoldenEyeVR-VR.exe").empty());
+        CHECK(stagedProblem(files, "0.5.16", "v0.5.16", "0.5.15", "goldeneyevr-vr.EXE").empty());   // NTFS case
+        // a zip without the exe that is running (an older flat-only zip under PC VR)
+        CHECK(stagedProblem({ "GoldenEyeVR.exe", "VERSION" }, "0.5.16", "v0.5.16", "0.5.15", "GoldenEyeVR-VR.exe")
+              == "the download has no GoldenEyeVR-VR.exe");
+        CHECK(stagedProblem({ "GoldenEyeVR-VR.exe", "VERSION" }, "0.5.16", "v0.5.16", "0.5.15", "GoldenEyeVR-VR.exe")
+              == "the download is not GoldenEye VR for Windows");
+        CHECK(stagedProblem(files, "0.5.17", "v0.5.16", "0.5.15", "GoldenEyeVR.exe").find("different version") != std::string::npos);
+        CHECK(stagedProblem(files, "", "v0.5.16", "0.5.15", "GoldenEyeVR.exe") == "the download is a different version (none)");
+        CHECK(stagedProblem(files, "0.5.16", "v0.5.16", "0.5.17", "GoldenEyeVR.exe") == "that build is older than the one installed");
+    }
 }
 
 int main()

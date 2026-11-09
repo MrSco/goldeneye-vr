@@ -207,6 +207,7 @@ Perfect Dark's logo, which the vendored VR layer had shipped as the app icon.
 
 - **What for:** The VR API this port targets. Standalone on Horizon OS via the loader vendored in `OpenXR/`; the upstream code also supports PCVR runtimes.
 - **Spec / org:** https://www.khronos.org/openxr/
+- **Licence:** Apache 2.0; the Windows download ships Khronos's `openxr_loader.dll` (OpenXR-SDK 1.1.54), licence in `port/licenses/openxr-loader.txt`.
 
 ### SDL2
 

@@ -20,10 +20,14 @@
  *   digest (the asset's "digest", as UpdateChecker does for the APK).
  * - Android's checks that the APK is this package, not older and signed with
  *   our key become: the zip unpacks (bounded, ModArchive's rules) into
- *   updates/staging and holds GoldenEyeVR.exe and a VERSION file naming the
- *   offered release, not older than this build. There is no signature to
- *   check: the zip is only trusted as far as GitHub's digest and HTTPS go.
- * - Install: each file the zip holds replaces the game's own. A running exe and
+ *   updates/staging and holds GoldenEyeVR.exe, the exe that is running (the
+ *   PC VR GoldenEyeVR-VR.exe restarts into its own new copy) and a VERSION
+ *   file naming the offered release, not older than this build. There is no
+ *   signature to check: the zip is only trusted as far as GitHub's digest and
+ *   HTTPS go.
+ * - Install: each file the zip holds replaces the game's own (package_pc.py's:
+ *   both exes, phonon.dll, openxr_loader.dll, the Play VR / Play SteamVR
+ *   scripts, README, licences, VERSION). A running exe and
  *   a loaded DLL can be renamed though not overwritten, so the current files
  *   become NAME.old, the new ones move in (a failure puts every file back), and
  *   the game starts itself again (pcRestartSelf, from the launcher's thread at
@@ -44,6 +48,10 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #include "pc_http.h"
 
@@ -206,6 +214,49 @@ std::vector<Release> parseReleases(const std::string &json)
         out.push_back(r);
     }
     return out;
+}
+
+/* The running exe's file name ("GoldenEyeVR.exe" or "GoldenEyeVR-VR.exe"). */
+std::string runningExeName()
+{
+#ifdef _WIN32
+    wchar_t buf[MAX_PATH * 4];
+    const DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH * 4);
+    if (n > 0 && n < MAX_PATH * 4) {
+        const std::string path = narrow(std::wstring(buf, n));
+        const size_t slash = path.find_last_of("/\\");
+        return slash == std::string::npos ? path : path.substr(slash + 1);
+    }
+#endif
+    return "GoldenEyeVR.exe";
+}
+
+bool sameName(const std::string &a, const std::string &b)   // NTFS ignores case
+{
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); i++)
+        if (tolower((unsigned char)a[i]) != tolower((unsigned char)b[i])) return false;
+    return true;
+}
+
+/* Is the unpacked zip this game, the offered release and not older than this
+ * build (Android's package, versionCode and signer checks)? "" when it is, else
+ * why not. files: the zip's paths below its top folder; version: its VERSION. */
+std::string stagedProblem(const std::vector<std::string> &files, const std::string &versionFile,
+                          const std::string &tag, const std::string &installed, const std::string &runningExe)
+{
+    bool hasFlat = false, hasRunning = false;
+    for (const std::string &f : files) {
+        hasFlat = hasFlat || sameName(f, "GoldenEyeVR.exe");
+        hasRunning = hasRunning || sameName(f, runningExe);
+    }
+    if (!hasFlat) return "the download is not GoldenEye VR for Windows";
+    if (!hasRunning) return "the download has no " + runningExe;
+    const std::string version = normalize(versionFile);
+    if (version != normalize(tag))
+        return "the download is a different version (" + (version.empty() ? std::string("none") : version) + ")";
+    if (compare(version, installed) < 0) return "that build is older than the one installed";
+    return std::string();
 }
 
 std::string statusField(std::string s)
@@ -455,19 +506,12 @@ private:
         unzipBounded(zip, staging, rules, nullptr, &files);
 
         // this game, the offered version, not older than this one (Android's package, versionCode and signer checks)
-        bool hasExe = false;
-        for (const std::string &f : files) hasExe = hasExe || f == "GoldenEyeVR.exe";
-        if (!hasExe) { deleteTree(staging); throw HttpError{0, "the download is not GoldenEye VR for Windows"}; }
         std::string version;
         readFile(staging + "/VERSION", &version, 256);
-        version = normalize(version);
-        if (version != normalize(r.tag)) {
+        const std::string problem = stagedProblem(files, version, r.tag, installed_, runningExeName());
+        if (!problem.empty()) {
             deleteTree(staging);
-            throw HttpError{0, "the download is a different version (" + (version.empty() ? std::string("none") : version) + ")"};
-        }
-        if (compare(version, installed_) < 0) {
-            deleteTree(staging);
-            throw HttpError{0, "that build is older than the one installed"};
+            throw HttpError{0, problem};
         }
 
         // Every file aside (a running exe and a loaded DLL can be renamed), then the new ones in.

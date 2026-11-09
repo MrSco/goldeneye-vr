@@ -33,16 +33,39 @@ Start) and the game plays with sound, keyboard, mouse and gamepads.
 The Java-side services are ported (lobby, mods, crash reports, friends,
 updater; see **Services**). Not yet: PCVR, the XBLA / Bean import.
 
-**Release download:** `python tools/package_pc.py VERSION` builds and packs
-`build/pc-dist/GoldenEyeVR-VERSION-windows-x64.zip` (22 MB): the exe without
-its debug info (10 MB), Steam Audio's phonon.dll (the Quest's 4.8.1, fetched
-and checked by build_pc.py), port/pc/package/README.txt, the licences and a
-VERSION file. `GoldenEyeVR-VERSION-windows-x64.debug` stays beside it for
-crash addresses, as with the server. Checked from a fresh unzip: a ROM
-dropped in under any name is found and renamed, START plays. The launcher
-hides the rows only a headset has (settings table `.headset`), and the PC
-plays on the screen (VrPlayMode 0). Play VR / Play SteamVR shortcuts come
-with PCVR.
+**Release download:** `python tools/package_pc.py [VERSION]` (VERSION
+defaults to build.gradle's versionName) builds and packs
+`build/pc-dist/GoldenEyeVR-VERSION-windows-x64.zip` (28 MB): both exes
+without their debug info (GoldenEyeVR.exe 11 MB, GoldenEyeVR-VR.exe 12 MB),
+Steam Audio's phonon.dll (the Quest's 4.8.1, fetched and checked by
+build_pc.py), Khronos's openxr_loader.dll (1.1.54), Time Crisis II VR's
+launch scripts (`Play VR.cmd`: the VR exe on the active OpenXR runtime, Link
+or Virtual Desktop; `Play SteamVR.cmd` + `Start-SteamVR.ps1`: SteamVR's
+`steamxr_win64.json` from the Steam path in the registry, set as
+`XR_RUNTIME_JSON` for that launch only; the flat exe runs directly),
+port/pc/package/README.txt, the licences (with the loader's Apache 2.0) and
+a VERSION file. `GoldenEyeVR-VERSION-windows-x64.debug` and
+`GoldenEyeVR-VR-VERSION-windows-x64.debug` stay beside it for crash
+addresses, as with the server. Checked from a fresh unzip: a ROM dropped in
+under any name is found and renamed, START plays. The launcher hides the
+rows only a headset has (settings table `.headset`), and the flat exe plays
+on the screen (VrPlayMode 0).
+
+**Release step** (with the APK's, STATUS.md "How to work on it"), from the
+tagged build commit:
+1. `python tools/package_pc.py` (versionName is the release's, so no
+   argument; give one only to override).
+2. Attach `build/pc-dist/GoldenEyeVR-X.Y.Z-windows-x64.zip` to the GitHub
+   release: `gh release upload vX.Y.Z build/pc-dist/GoldenEyeVR-X.Y.Z-windows-x64.zip`
+   (or list it in `gh release create`). The updater takes exactly that name
+   and checks it against GitHub's own per-asset SHA-256 (`digest`), so the
+   zip is attached as built: never re-zipped or renamed. Pre-releases too
+   (offered to players with "Offer test builds" on).
+3. The two .debug files go with the symbols, to the reports repo's
+   `symbols` release beside the Quest's `native-debug-symbols-vX.Y.Z.zip`:
+   `gh release upload symbols build/pc-dist/GoldenEyeVR-X.Y.Z-windows-x64.debug build/pc-dist/GoldenEyeVR-VR-X.Y.Z-windows-x64.debug -R MrSco/goldeneye-vr-reports`.
+   They are not published with the game. A crash's `gevr_crash.txt` offset
+   reads with `llvm-addr2line -e <that .debug> 0x140000000+offset`.
 
 **Launcher:** `port/vr/vr_launcher.cpp` itself, the Quest's, drawn in the
 window (`port/pc/pc_launcher.cpp`: its texture letterboxed into the window,
@@ -70,9 +93,9 @@ answering the same one-line messages (`pc_services.cpp`). They share
 progress and cancel), Dab's bounded JSON reader, Base64, SHA-256 (bcrypt),
 files on UTF-8 paths, `gevr_prefs.txt` beside the exe in place of Android's
 SharedPreferences, and ModArchive's bounded zip extraction on miniz. Offline
-tests: `port/tests/pc_lobby_native.cpp` and `pc_services_native.cpp` (99
+tests: `port/tests/pc_lobby_native.cpp` and `pc_services_native.cpp` (109
 checks: the Java tests' version order, release choice, archive and crash
-policy cases, the redaction patterns, the gzip member, the crash record).
+policy cases, the redaction patterns, the gzip member, the crash record, the update zip's checks).
 - **Mods** (`pc_mods.cpp`, ModManager + ModArchive): the same pack list,
   status lines and commands; packs unpack into `texture-packs/<id>` beside the
   exe, where ext_tex.c, gfx_pc.cpp (`$S/texture-packs`) and Oddjob's hat
@@ -134,8 +157,13 @@ policy cases, the redaction patterns, the gzip member, the crash record).
   Checked: the real releases (no Windows zip yet: up to date), and against a
   mock release in a throwaway copy of the game folder: offered, downloaded,
   swapped, restarted into the new version with the notice, leftovers gone; a
-  wrong digest fails with Retry and leaves the game as it was. Open: nobody
-  has published a Windows zip yet; the release workflow needs to attach it.
+  wrong digest fails with Retry and leaves the game as it was. The zip must also hold the
+  exe that is running (GoldenEyeVR-VR.exe restarts into its own new copy);
+  every file in it is swapped, both exes, both DLLs and the launch scripts
+  included. Checked again with package_pc.py's two-exe zip (17 files) as a
+  mock release in a throwaway game folder: all swapped, restarted, leftovers
+  gone; port/tests/pc_services_native.cpp 109 checks. Open: no Windows zip
+  is published yet (see the release step above).
 
 **Controls:** GoldenEye's 1.2 Solitaire, as the Quest's screen mode plays.
 - Keyboard and mouse: W/S walk, A/D strafe (the C buttons), arrows look,

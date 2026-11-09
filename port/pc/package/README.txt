@@ -1,8 +1,8 @@
-GoldenEye VR for Windows (flat screen, experimental)
-====================================================
+GoldenEye VR for Windows (flat screen and PC VR, experimental)
+==============================================================
 
-The same game as GoldenEye VR on the Meta Quest, on a monitor: keyboard and
-mouse, or a gamepad. PC VR comes later.
+The same game as GoldenEye VR on the Meta Quest, on a monitor (keyboard and
+mouse, or a gamepad) or in a PC VR headset.
 
 No game data is included. You need your own GoldenEye 007 (USA) cartridge
 dump.
@@ -13,7 +13,8 @@ Getting started
 2. Put your ROM in the folder, next to GoldenEyeVR.exe. Any name ending in
    .z64 works; the launcher finds it. Or choose it with the launcher's
    "Choose ROM file..." button.
-3. Run GoldenEyeVR.exe. The launcher opens; press START.
+3. Flat screen: run GoldenEyeVR.exe. The launcher opens; press START.
+   PC VR: see below.
 
 Settings (goldeneye-vr.ini, goldeneye.ini), saves (eeprom.bin) and logs
 (vr_debug.txt) are kept in this folder.
@@ -37,10 +38,35 @@ Gamepad:
   LB             L                         Start     pause
   D-pad          the C buttons
 
+PC VR
+-----
+GoldenEyeVR-VR.exe is the Quest's VR game on a PC VR headset, through
+OpenXR. It needs openxr_loader.dll beside it (included).
+- Play VR.cmd: plays through the active OpenXR runtime, whichever your VR
+  software has set: Meta Quest Link (Air Link or a cable; set Meta Horizon
+  Link as the OpenXR runtime in its settings), Virtual Desktop, or SteamVR
+  when SteamVR is the active runtime. Connect the headset first; until the
+  runtime reports a headset the game waits in a small window.
+- Play SteamVR.cmd: plays through SteamVR for this launch only, whatever
+  runtime is active (sets XR_RUNTIME_JSON for the game). It looks for SteamVR
+  in the standard Steam library; if yours is elsewhere, set XR_RUNTIME_JSON
+  to its steamxr_win64.json yourself and use Play VR.cmd.
+The launcher, settings and saves are the flat game's, in this folder; the
+PC window mirrors the headset. The controls are the Quest's, for Touch
+controllers (the README on GitHub lists them all):
+  Right trigger  fire                      Right grip   aim / zoom
+  Left stick     walk and strafe           Right stick  turn
+  A / X          next weapon / left-hand item (hold: the weapon wheel)
+  B / Y          use, reload               Left stick click  crouch
+  Menu           pause, Bond's watch (hold: the in-game panel)
+  Both stick clicks  recenter              Swing a hand at a guard  melee
+
 Online
 ------
-LAN games and joining by address work. The internet lobby, mod downloads,
-crash reports and the friends list are not on PC yet.
+As on the Quest: LAN games, joining by address, the internet lobby, the
+friends list (no Discord linking on PC), mod downloads, crash reports and
+updates (the launcher offers a new release and replaces this folder's files
+with its own; your ROM, settings and saves stay).
 
 Troubleshooting
 ---------------
