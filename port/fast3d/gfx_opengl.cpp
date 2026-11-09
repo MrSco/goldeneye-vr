@@ -872,6 +872,18 @@ void gfx_opengl_init_multiview() { // VR
     pfnFramebufferTextureMultisampleMultiviewOVR =
             (PFNGLFRAMEBUFFERTEXTUREMULTISAMPLEMULTIVIEWOVRPROC)SDL_GL_GetProcAddress("glFramebufferTextureMultisampleMultiviewOVR");
 
+    if (!gl_es) {
+        // Desktop GL (PC VR): a driver can hand out the entry point without the
+        // extension (OVR_multiview_multisampled_render_to_texture is a mobile
+        // one); use it only when it is listed.
+        const char* e = (const char*)glGetString(GL_EXTENSIONS);
+        const bool listed = e && strstr(e, "GL_OVR_multiview_multisampled_render_to_texture");
+        sysLogPrintf(LOG_NOTE, "GL: multisampled multiview %s, entry point %s", listed ? "listed" : "not listed",
+                     pfnFramebufferTextureMultisampleMultiviewOVR ? "found" : "missing");
+        if (!listed) {
+            pfnFramebufferTextureMultisampleMultiviewOVR = nullptr;
+        }
+    }
     if (!pfnFramebufferTextureMultisampleMultiviewOVR) {
         sysLogPrintf(LOG_WARNING, "GL: glFramebufferTextureMultisampleMultiviewOVR not available, multiview MSAA disabled");
     }
@@ -1289,6 +1301,9 @@ bool vr_is_crosshair_left = (abs(mvPos.w - 1.0) == 7.0);
 bool vr_is_Menu_blur = (abs(mvPos.w - 1.0) == 8.0);
 
 vec4 eyeOffset = (gl_ViewID_OVR == 0u) ? uEyeOffsetLeft : uEyeOffsetRight;
+#ifdef GEVR_SHARED_EYE_Y
+eyeOffset.w = 0.5 * (uEyeOffsetLeft.w + uEyeOffsetRight.w);
+#endif
 
 // --------------------
 // MENU / HUD IN PAUSE MODE (uIsMenu == 1)
@@ -1362,6 +1377,15 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
                     "#extension GL_OVR_multiview2 : require");
         append_line(vs_buf, &vs_len,
                     "layout(num_views = 2) in;");
+        if (!gl_es) {
+            // Desktop GL (PC VR, NVIDIA): a gl_Position.y that depends on the
+            // view came out with its view-dependent part twice in the second
+            // view (the right eye drawn one lens-centre shift higher: eye
+            // dumps, 2026-11-09). The vertical centre is the same for both
+            // eyes, so desktop takes it from both, and y no longer depends on
+            // the view; only x does.
+            append_line(vs_buf, &vs_len, "#define GEVR_SHARED_EYE_Y 1");
+        }
 
         // --- New Menu uniforms ---
         append_line(vs_buf, &vs_len, "uniform int uIsMenu;");
