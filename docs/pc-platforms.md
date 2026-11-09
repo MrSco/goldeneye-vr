@@ -30,7 +30,18 @@ P0 and P1's first steps are in: `python tools/build_pc.py` builds
 `GoldenEyeVR.exe` (one static exe, about 2 minutes clean); with the ROM
 beside it the Quest's launcher opens in the window (ROM, settings,
 Start) and the game plays with sound, keyboard, mouse and gamepads.
-Not yet: Steam Audio, packaging, the Java-side services (below).
+Not yet: the Java-side services (below), PCVR.
+
+**Release download:** `python tools/package_pc.py VERSION` builds and packs
+`build/pc-dist/GoldenEyeVR-VERSION-windows-x64.zip` (22 MB): the exe without
+its debug info (10 MB), Steam Audio's phonon.dll (the Quest's 4.8.1, fetched
+and checked by build_pc.py), port/pc/package/README.txt, the licences and a
+VERSION file. `GoldenEyeVR-VERSION-windows-x64.debug` stays beside it for
+crash addresses, as with the server. Checked from a fresh unzip: a ROM
+dropped in under any name is found and renamed, START plays. The launcher
+hides the rows only a headset has (settings table `.headset`), and the PC
+plays on the screen (VrPlayMode 0). Play VR / Play SteamVR shortcuts come
+with PCVR.
 
 **Launcher:** `port/vr/vr_launcher.cpp` itself, the Quest's, drawn in the
 window (`port/pc/pc_launcher.cpp`: its texture letterboxed into the window,

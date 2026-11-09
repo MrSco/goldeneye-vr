@@ -109,8 +109,12 @@ int VrFastReinforcements = 0; /* independent difficulty option; normal reinforce
 int VrCoopFastReinforcements = 0; /* host-controlled co-op rule; clients follow the session, not their own preference */
 
 /* GoldenEye: 1 = true stereo in first-person play, 0 = everything on the virtual
- * screen. See vr_settings.h. */
+ * screen. See vr_settings.h. The flat PC game has no stereo view. */
+#ifdef GEVR_PC
+int VrPlayMode = 0;
+#else
 int VrPlayMode = 1;
+#endif
 int VrBeanModels = 1;
 /* Bean's look: the pictures the release leaves at the cartridge's (the stage
  * pictures and the like) from the HD + AI or HD pack, when one is installed. */
