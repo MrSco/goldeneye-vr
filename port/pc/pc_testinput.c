@@ -24,6 +24,7 @@
  *                            righty, lefttrigger, righttrigger), -1..1 with
  *                            y down positive as SDL has it, for 900 ms
  *   40000 quit
+ *   40000 crash              a deliberate access violation (the crash report test)
  *
  * '#' starts a comment.
  */
@@ -38,7 +39,7 @@
 
 #define TI_MAX 512
 
-enum { TI_CAPTURE, TI_RELEASE, TI_CLICK, TI_RCLICK, TI_MOVE, TI_KEY, TI_SHOT, TI_QUIT, TI_PAD, TI_AXIS, TI_POINT, TI_TEXT };
+enum { TI_CAPTURE, TI_RELEASE, TI_CLICK, TI_RCLICK, TI_MOVE, TI_KEY, TI_SHOT, TI_QUIT, TI_PAD, TI_AXIS, TI_POINT, TI_TEXT, TI_CRASH };
 
 struct ticmd {
 	u32 at;
@@ -108,6 +109,7 @@ static void tiLoad(void)
 		}
 		else if (!strcmp(word, "shot")) { c->kind = TI_SHOT; snprintf(c->name, sizeof(c->name), "%s", n >= 3 ? arg : "shot"); }
 		else if (!strcmp(word, "quit")) c->kind = TI_QUIT;
+		else if (!strcmp(word, "crash")) c->kind = TI_CRASH;
 		else if (!strcmp(word, "text")) { c->kind = TI_TEXT; snprintf(c->name, sizeof(c->name), "%s", arg); }
 		else if (!strcmp(word, "point")) { c->kind = TI_POINT; c->a = atoi(arg); c->b = atoi(extra); }
 		else if (!strcmp(word, "pad")) {
@@ -190,6 +192,10 @@ void pcTestInputFrame(s32 *mdx, s32 *mdy, u32 *buttons, s32 *lock)
 		case TI_QUIT:
 			sysLogPrintf(LOG_NOTE, "input script: quit");
 			exit(0);
+		case TI_CRASH:
+			sysLogPrintf(LOG_NOTE, "input script: crash");
+			*(volatile int *)(uintptr_t)8 = 1;
+			break;
 		}
 		sysLogPrintf(LOG_NOTE, "input script: %u ms: command %d", now, c->kind);
 	}

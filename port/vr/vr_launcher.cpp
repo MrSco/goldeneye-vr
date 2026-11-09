@@ -58,6 +58,7 @@
 std::string pcServiceString(const char *method);
 void pcServiceCommand(const char *method, const char *arg);
 bool pcOpenPicker(const char *method);
+bool pcLauncherStickClick(int hand);   // pc_launcher.cpp: a pad's stick click
 void pcRestartSelf(void);
 struct ImGuiIO;
 void pcLauncherInit(ImGuiIO &io);
@@ -3055,8 +3056,13 @@ extern "C" void gevrLauncherRun(void)
         }
 
         Uint32 now = SDL_GetTicks();
+#ifdef GEVR_PC_FLAT
+        // the same gesture on a pad: both sticks clicked (pc_launcher.cpp)
+        launcherSession.updateDebugCombo(pcLauncherStickClick(0), pcLauncherStickClick(1));
+#else
         launcherSession.updateDebugCombo(get_button_state(0, "thumbstick_click"),
                                          get_button_state(1, "thumbstick_click"));
+#endif
         io.DeltaTime = (now > last) ? (now - last) / 1000.0f : 1.0f / 72.0f;
         last = now;
         // Look for a ROM about once a second while there is none or the file

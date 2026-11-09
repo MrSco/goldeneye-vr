@@ -80,6 +80,26 @@ test: `port/tests/pc_lobby_native.cpp`.
   Bean import and the Community Edition patch (no `openXblaPicker` /
   `openCePicker` on PC yet); Bean's file roots are also `../texture-packs`,
   relative to the Quest's data folder, which on PC is the exe's own folder.
+- **Crash reports** (`pc_reports.cpp`, LogReporter + CrashExitPolicy): the
+  same status ("offer" after a crash, sending, sent, error:) and commands.
+  What Android hands LogReporter the PC makes itself: crash.c's Windows
+  handler was never built (nothing defines `PLATFORM_WIN32`) and now is on PC;
+  with sysFatalError it writes `gevr_crash.txt` (time, exception, address in
+  the exe, the stack walk: `llvm-addr2line -e GoldenEyeVR.exe 0x140000000+offset`
+  or the release's .debug) in place of the exit record and tombstone. The
+  foreground marker lives in `gevr_prefs.txt`, cleared on a clean exit and
+  before a restart, so a killed or hung run is offered too; the install time is
+  the exe's write time; boot detection uses `GetTickCount64` (no boot count on
+  Windows). The game log is the Quest's `gevr.log` / `gevr.prev.log` beside the
+  exe (port/src/system.c), and the tail of `vr_debug.txt` stands in for
+  logcat. The device line is "PC Windows <version> x64". The upload address is
+  `GEVR_REPORTS_URL` when set (a real report becomes an issue in the reports
+  repo: tests use a local mock). A scripted run (`--input-script`, with a new
+  `crash` command) skips sysFatalError's message box. A pad's two stick clicks
+  unlock "Send debug log", the Quest's gesture. Checked against a mock: a
+  crash, the offer on the next start, the report sent (kind crash, trace,
+  redacted note) and not offered again; a run killed from outside offered as
+  "ended unexpectedly"; a clean quit not offered; a manual debug log.
 
 **Controls:** GoldenEye's 1.2 Solitaire, as the Quest's screen mode plays.
 - Keyboard and mouse: W/S walk, A/D strafe (the C buttons), arrows look,

@@ -38,6 +38,22 @@ static void gevrOpenLog(void)
 }
 #endif
 
+#ifdef GEVR_PC
+/* The Quest's gevr.log and gevr.prev.log, beside the exe: the crash report
+ * (port/pc/pc_reports.cpp) sends the run before this one and this one. */
+static FILE *gevrLogFile;
+static size_t gevrLogSize;
+#define GEVR_LOG_MAX (16 * 1024 * 1024)
+void pcCrashRecord(const char *summary, const char *trace);   /* port/pc/pc_reports.cpp */
+
+static void gevrOpenLog(void)
+{
+    remove("gevr.prev.log");
+    rename("gevr.log", "gevr.prev.log");
+    gevrLogFile = fopen("gevr.log", "ab");
+}
+#endif
+
 #ifdef PLATFORM_WIN32
 
 #include <windows.h>
@@ -112,7 +128,7 @@ void sysInit(void)
 {
     startTick = sysGetMicroseconds();
 
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_PC)
     gevrOpenLog();
 #endif
 
@@ -241,6 +257,18 @@ void sysLogPrintf(s32 level, const char *fmt, ...)
         }
     }
 #else
+#ifdef GEVR_PC
+    if (gevrLogFile && gevrLogSize < GEVR_LOG_MAX) {
+        time_t now = time(NULL);
+        struct tm tm;
+        localtime_s(&tm, &now);
+        int len = fprintf(gevrLogFile, "%04d-%02d-%02d %02d:%02d:%02d %s%s\n",
+            tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec,
+            prefix[level], logmsg);
+        fflush(gevrLogFile);
+        if (len > 0) gevrLogSize += (size_t)len;
+    }
+#endif
     if (logPath[0]) {
 		FILE *f = fopen(logPath, "ab");
 		if (f) {
@@ -281,6 +309,13 @@ void sysFatalError(const char *fmt, ...)
        and silent on the headset. Abort instead, so the failure leaves a tombstone. */
     abort();
 #else
+#ifdef GEVR_PC
+    /* the Quest's abort leaves a tombstone, offered as a crash on the next start;
+       a crash's own record (crash.c, with the trace) is already written */
+    pcCrashRecord(errmsg, "");
+    /* a scripted test run (port/pc/pc_testinput.c) has nobody to close the box */
+    if (!sysArgCheck("--input-script"))
+#endif
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Fatal error", errmsg, NULL);
 
     exit(1);

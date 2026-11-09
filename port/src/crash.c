@@ -17,7 +17,7 @@
 #define CRASH_MSG(...) \
 	if (msglen < CRASH_MAX_MSG) msglen += snprintf(msg + msglen, CRASH_MAX_MSG - msglen, __VA_ARGS__)
 
-#if defined(PLATFORM_WIN32)
+#if defined(PLATFORM_WIN32) || defined(GEVR_PC)
 
 #include <windows.h>
 #include <dbghelp.h>
@@ -57,7 +57,7 @@ static void crashStackTrace(char *msg, PEXCEPTION_POINTERS exinfo)
 	stackframe.AddrFrame.Mode = AddrModeFlat;
 	stackframe.AddrStack.Offset = context.Esp;
 	stackframe.AddrStack.Mode = AddrModeFlat;
-#elif defined(PLATFORM_X86_64)
+#elif defined(PLATFORM_X86_64) || defined(__x86_64__)
 	image = IMAGE_FILE_MACHINE_AMD64;
 	stackframe.AddrPC.Offset = context.Rip;
 	stackframe.AddrPC.Mode = AddrModeFlat;
@@ -122,6 +122,12 @@ static void crashStackTrace(char *msg, PEXCEPTION_POINTERS exinfo)
 	SymCleanup(process);
 }
 
+#ifdef GEVR_PC
+/* port/pc/pc_reports.cpp: what the launcher offers to report on the next start */
+void pcCrashRecord(const char *summary, const char *trace);
+void pcReportStartup(void);
+#endif
+
 static long __stdcall crashHandler(PEXCEPTION_POINTERS exinfo)
 {
 	char msg[CRASH_MAX_MSG + 1] = { 0 };
@@ -139,6 +145,19 @@ static long __stdcall crashHandler(PEXCEPTION_POINTERS exinfo)
 	fflush(stdout);
 
 	crashStackTrace(msg, exinfo);
+
+#ifdef GEVR_PC
+	{
+		/* the address in the exe, for the release's .debug file (llvm-addr2line) */
+		char summary[256];
+		const uintptr_t pc = (uintptr_t)exinfo->ExceptionRecord->ExceptionAddress;
+		const uintptr_t base = (uintptr_t)crashGetModuleBase((void *)pc);
+		snprintf(summary, sizeof(summary), "EXCEPTION 0x%08lx at %p (module %p + 0x%llx)",
+			exinfo->ExceptionRecord->ExceptionCode, (void *)pc, (void *)base,
+			(unsigned long long)(base ? pc - base : 0));
+		pcCrashRecord(summary, msg);
+	}
+#endif
 
 	// open log file for the crash dump if one hasn't been opened yet
 	if (!sysLogIsOpen()) {
@@ -313,7 +332,10 @@ static char crashMsg[1024];
 
 void crashInit(void)
 {
-#ifdef PLATFORM_WIN32
+#ifdef GEVR_PC
+	pcReportStartup();   // the last run's crash or unexpected end, before this run's marker
+#endif
+#if defined(PLATFORM_WIN32) || defined(GEVR_PC)
 	SetErrorMode(SEM_FAILCRITICALERRORS);
 	prevExFilter = SetUnhandledExceptionFilter(crashHandler);
 	g_CrashEnabled = 1;
@@ -334,7 +356,7 @@ void crashShutdown(void)
 	if (!g_CrashEnabled) {
 		return;
 	}
-#ifdef PLATFORM_WIN32
+#if defined(PLATFORM_WIN32) || defined(GEVR_PC)
 	if (prevExFilter) {
 		SetUnhandledExceptionFilter(prevExFilter);
 	}

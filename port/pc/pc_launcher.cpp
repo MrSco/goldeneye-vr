@@ -192,6 +192,21 @@ void pcLauncherFeedInput(ImGuiIO &io)
     }
 }
 
+/* The Quest's thumbstick click (hand 0 left, 1 right): a pad's stick clicks.
+ * Both together unlock the launcher's "Send debug log", as on the Quest. */
+bool pcLauncherStickClick(int hand)
+{
+    bool down = false;
+    for (int i = 0; i < SDL_NumJoysticks() && !down; i++) {
+        if (!SDL_IsGameController(i)) continue;
+        SDL_GameController *pad = SDL_GameControllerOpen(i);
+        if (!pad) continue;
+        down = SDL_GameControllerGetButton(pad, hand ? SDL_CONTROLLER_BUTTON_RIGHTSTICK : SDL_CONTROLLER_BUTTON_LEFTSTICK) != 0;
+        SDL_GameControllerClose(pad);   // input.c keeps its own reference
+    }
+    return down;
+}
+
 #endif   /* GEVR_PC_FLAT */
 
 /*
@@ -233,9 +248,12 @@ bool pcOpenPicker(const char *method)
 #endif
 }
 
+void pcReportCleanExit(void);   // pc_reports.cpp
+
 /* The Quest restarts its activity into the launcher; the PC runs itself again. */
 void pcRestartSelf(void)
 {
+    pcReportCleanExit();   // before the new run looks for this one's marker (MainActivity.restartToLauncher)
 #ifdef _WIN32
     STARTUPINFOW si;
     PROCESS_INFORMATION pi;
