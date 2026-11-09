@@ -3077,7 +3077,8 @@ extern "C" void gevrLauncherRun(void)
 
         Uint32 now = SDL_GetTicks();
 #ifdef GEVR_PC_FLAT
-        // the same gesture on a pad: both sticks clicked (pc_launcher.cpp)
+        // the same gesture on a pad: both sticks clicked; on the keyboard
+        // Ctrl+Shift+D held (pc_launcher.cpp)
         launcherSession.updateDebugCombo(pcLauncherStickClick(0), pcLauncherStickClick(1));
 #else
         launcherSession.updateDebugCombo(get_button_state(0, "thumbstick_click"),

@@ -138,7 +138,9 @@ policy cases, the redaction patterns, the gzip member, the crash record, the upd
   `GEVR_REPORTS_URL` when set (a real report becomes an issue in the reports
   repo: tests use a local mock). A scripted run (`--input-script`, with a new
   `crash` command) skips sysFatalError's message box. A pad's two stick clicks
-  unlock "Send debug log", the Quest's gesture. Checked against a mock: a
+  unlock "Send debug log", the Quest's gesture; on the keyboard, Ctrl+Shift+D
+  held (pcLauncherStickClick; like the Quest's gesture it is not shown in the
+  launcher, and like it the keys must be up first). Checked against a mock: a
   crash, the offer on the next start, the report sent (kind crash, trace,
   redacted note) and not offered again; a run killed from outside offered as
   "ended unexpectedly"; a clean quit not offered; a manual debug log.

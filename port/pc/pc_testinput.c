@@ -16,7 +16,8 @@
  *   31000 text ABCD1234      typed into whatever text box has the focus
  *   30500 rclick 400         right button held 400 ms (aims)
  *   31000 move 15 0 40       15, 0 counts a frame for 40 frames
- *   32000 key Up 1200        hold a key (an SDL scancode name) 1200 ms
+ *   32000 key Up 1200        hold a key (an SDL scancode name, spaces written
+ *                            as '_': Left_Ctrl) 1200 ms
  *   33000 shot dam_turned    the window to shots/dam_turned.bmp
  *   34000 pad a 200          a virtual gamepad's button (SDL's names: a, b,
  *                            x, y, start, leftshoulder, dpup...) for 200 ms
@@ -111,6 +112,13 @@ static void tiLoad(void)
 		else if (!strcmp(word, "key")) {
 			c->kind = TI_KEY;
 			c->a = SDL_GetScancodeFromName(arg);
+			if (c->a == SDL_SCANCODE_UNKNOWN) {
+				/* SDL's names with a space ("Left Ctrl") are written Left_Ctrl */
+				char spaced[48];
+				snprintf(spaced, sizeof(spaced), "%s", arg);
+				for (char *u = spaced; *u; u++) if (*u == '_') *u = ' ';
+				c->a = SDL_GetScancodeFromName(spaced);
+			}
 			if (c->a == SDL_SCANCODE_UNKNOWN) {
 				sysLogPrintf(LOG_ERROR, "input script: no key called %s", arg);
 				continue;

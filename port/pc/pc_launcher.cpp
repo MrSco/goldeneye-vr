@@ -193,9 +193,20 @@ void pcLauncherFeedInput(ImGuiIO &io)
 }
 
 /* The Quest's thumbstick click (hand 0 left, 1 right): a pad's stick clicks.
- * Both together unlock the launcher's "Send debug log", as on the Quest. */
+ * Both together unlock the launcher's "Send debug log", as on the Quest.
+ * Without a pad, Ctrl+Shift+D held clicks both (unlabelled, like the Quest's
+ * gesture): released first, then held, as the sticks are. */
 bool pcLauncherStickClick(int hand)
 {
+    const Uint8 *keys = SDL_GetKeyboardState(nullptr);
+    const bool scripted = pcTestInputActive() != 0;
+    auto held = [&](SDL_Scancode sc) -> bool {
+        return scripted ? pcTestInputKey(sc) != 0 : (keys && keys[sc] && SDL_GetKeyboardFocus() == wnd);
+    };
+    if ((held(SDL_SCANCODE_LCTRL) || held(SDL_SCANCODE_RCTRL)) && (held(SDL_SCANCODE_LSHIFT) || held(SDL_SCANCODE_RSHIFT))
+        && held(SDL_SCANCODE_D)) {
+        return true;
+    }
     bool down = false;
     for (int i = 0; i < SDL_NumJoysticks() && !down; i++) {
         if (!SDL_IsGameController(i)) continue;
