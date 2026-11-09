@@ -39,6 +39,9 @@
 #include "game/bondwalk2.h"
 #include "game/file2.h"
 #include "objecthandler.h"
+#ifdef GEVR
+#include "hudaspect.h"   /* Screen shape 16:9: the front end pillarboxed (gepc-ref D335) */
+#endif
 #include "dyn.h"
 #include "viewport.h"
 #include "assets/obseg/text/LtitleE.h"
@@ -9125,6 +9128,15 @@ void menu_init(void)
 
 Gfx * menu_jump_constructor_handler(Gfx *DL)
 {
+#ifdef GEVR
+    /* Screen shape 16:9 (gepc-ref D335/D335a): the front end is 4:3, so it is
+     * pillarboxed (centred, undistorted), with a canvas scissor so that what
+     * slides in from off the canvas (the gun barrel) stops at its edge. */
+    PORT_HUD_ASPECT(DL, GE_HUD_ASPECT_CENTER);
+    if (portNativeAspect() > 1.3334f) {
+        gDPSetScissor(DL++, G_SC_NON_INTERLACE, 0, 0, viGetX(), viGetY());
+    }
+#endif
     switch(current_menu) {
         case MENU_LEGAL_SCREEN:
             DL = constructor_menu00_legalscreen(DL);
@@ -9202,5 +9214,14 @@ Gfx * menu_jump_constructor_handler(Gfx *DL)
             DL = constructor_menu19_spectrum(DL);
     }
 
+#ifdef GEVR
+    /* fast3d keeps a scissor as it was mapped when set: set the full canvas
+     * again with the mode off, or the stage's first frames stay clipped to the
+     * pillarbox (gepc-ref D335a follow-up). */
+    PORT_HUD_ASPECT(DL, GE_HUD_ASPECT_NONE);
+    if (portNativeAspect() > 1.3334f) {
+        gDPSetScissor(DL++, G_SC_NON_INTERLACE, 0, 0, viGetX(), viGetY());
+    }
+#endif
     return DL;
 }

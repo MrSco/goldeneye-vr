@@ -64,6 +64,7 @@ extern void gevrBeanSetEnabled(int on);
 extern int gevrTexpackFillAvailable(void);
 extern float VrScreenDistance, VrScreenFov;
 extern int VrScreenCurved, VrScreenPassthrough;
+extern int VrScreenShape;   /* vr_settings.cpp: every flat mode's 2D screen, 4:3 or 16:9 */
 extern void vr_screen_resize(float dist, float fov);
 extern int VrRefreshRate;
 extern int VrSpaceWarp;
@@ -301,6 +302,7 @@ static const int s_msaa[] = { 1, 2 };
 static const char *const s_msaaNames[] = { "Off", "2x" };
 #endif
 static const int s_two[] = { 0, 1 };
+static const char *const s_shapeNames[] = { "4:3", "16:9" };
 static const char *const s_playNames[] = { "Flat screen", "Stereo VR" };
 static const int s_ten[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
 static const char *const s_allyGunNames[] = { "PP7", "Silenced PP7", "DD44", "KF7 Soviet", "D5K Deutsche",
@@ -477,6 +479,9 @@ static const Row s_rows[] = {
       .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrScreenCurved, .def = NAN, .blocked = blockedCurved },
     { .label = "Passthrough", .headset = 1, .tooltip = "Your room around the flat screen.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrScreenPassthrough, .def = NAN, .blocked = blockedPassthrough },
+    { .label = "Screen shape", .tooltip = "The flat game's shape: 4:3 as the N64 drew it, or 16:9 with a wider view and the HUD at the edges.",
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_SCREEN), .where = GEVR_SET_BOTH,
+      .ivar = &VrScreenShape, .ivalues = s_two, .names = s_shapeNames, .count = 2, .def = NAN },
     { .label = "Third person", .tooltip = "The camera follows behind Bond in the flat screen, solo. "
                                           "Aiming, the watch and the tank go back to first person.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_BOTH, .ivar = &VrThirdPerson,

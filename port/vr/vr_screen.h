@@ -52,6 +52,9 @@ extern float VrScreenFov;
 extern int VrScreenCurved;
 extern int VrScreenPassthrough;
 extern float VrScreenHeight;
+/* Every flat mode's 2D screen (a phone, a PC window, the headset's virtual
+ * screen): 0 = 4:3, 1 = 16:9 (vr_settings.cpp; fast3d gevr_screen_shape_*). */
+extern int VrScreenShape;
 #define VR_SCREEN_HEIGHT_MAX 3.0f
 #define VR_SCREEN_DISTANCE_MIN 1.0f
 #define VR_SCREEN_DISTANCE_MAX 8.0f

@@ -65,6 +65,9 @@ extern bool netIsActive(void);
 #include "bondinv.h"
 #include "stan.h"
 #include "gbi_extension.h"
+#ifdef GEVR
+#include "hudaspect.h"   /* Screen shape 16:9 (gepc-ref D334/D335) */
+#endif
 
 
 #ifdef REFRESH_PAL
@@ -691,6 +694,15 @@ void gunUpdateAndFire(GUNHAND handnum)
         gunofs.y += g_CurrentPlayer->ducking_height_offset / (-100.0f);
         gunofs.z += (3.0f * g_CurrentPlayer->ducking_height_offset) / (-100.0f);
 
+#ifdef GEVR
+        /* Screen shape (gepc-ref D334): a 16:9 screen counts as the N64's
+         * 16:9 ratio for the rocket launcher's lowered view model. */
+        if ((item == ITEM_ROCKETLAUNCH) && portNativeAspect() >= 1.55f)
+        {
+            gunofs.y -= 3.0f;
+        }
+        else
+#endif
         if ((item == ITEM_ROCKETLAUNCH) && (((cur_player_get_screen_setting() == SCREEN_SIZE_WIDESCREEN) || (cur_player_get_screen_setting() == SCREEN_SIZE_CINEMA)) || (get_screen_ratio() == SCREEN_RATIO_16_9)))
         {
             gunofs.y -= 3.0f;
@@ -8282,6 +8294,9 @@ Gfx *generate_ammo_total_microcode(Gfx *gdl)
                 rightx = 109;
             }
 
+#ifdef GEVR
+            PORT_HUD_ASPECT(gdl, GE_HUD_ASPECT_RIGHT);   /* gepc-ref D335 */
+#endif
             if (weapon_right != ITEM_UNARMED)
             {
                 ammotype = get_ammo_type_for_weapon(weapon_right);
@@ -8347,6 +8362,9 @@ Gfx *generate_ammo_total_microcode(Gfx *gdl)
                 }
             }
 
+#ifdef GEVR
+            PORT_HUD_ASPECT(gdl, GE_HUD_ASPECT_LEFT);   /* dual wield */
+#endif
             if (weapon_left != ITEM_UNARMED)
             {
                 ammotype = get_ammo_type_for_weapon(weapon_left);
@@ -8414,6 +8432,9 @@ Gfx *generate_ammo_total_microcode(Gfx *gdl)
         }
     }
 
+#ifdef GEVR
+    PORT_HUD_ASPECT(gdl, GE_HUD_ASPECT_NONE);
+#endif
     return gdl;
 }
 
@@ -8953,6 +8974,14 @@ void gunDrawSight(Gfx **gdl) {
         halfedxy[0] = 16.0f;
         halfedxy[1] = 16.0f;
 
+#ifdef GEVR
+        /* Screen shape (gepc-ref D334): the N64 16:9 sprite fix (x0.75 =
+         * (4/3)/(16/9)) for the 2D screen's aspect, so the stretched canvas
+         * doesn't widen the crosshair. */
+        if (portNativeAspect() > 0.0f) {
+            halfedxy[0] = halfedxy[0] * ((4.0f / 3.0f) / portNativeAspect());
+        } else
+#endif
         if (get_screen_ratio() == SCREEN_RATIO_16_9) {
             halfedxy[0] = halfedxy[0] * 0.75f;
         }

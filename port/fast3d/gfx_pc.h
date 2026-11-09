@@ -85,21 +85,14 @@ extern "C" {
 #ifndef G_MODULATE_EXT
 #define G_MODULATE_EXT (1U << 30)
 #endif
-#ifndef G_ASPECT_MODE_EXT
-#define G_ASPECT_MODE_EXT 0x3
-#endif
-#ifndef G_ASPECT_CENTER_EXT
-#define G_ASPECT_CENTER_EXT 0
-#endif
-#ifndef G_ASPECT_LEFT_EXT
-#define G_ASPECT_LEFT_EXT 1
-#endif
-#ifndef G_ASPECT_RIGHT_EXT
-#define G_ASPECT_RIGHT_EXT 2
-#endif
-#ifndef G_ASPECT_WIDE_EXT
-#define G_ASPECT_WIDE_EXT (1U << 2)
-#endif
+/* HUD aspect modes (G_EXTRAGEOMETRYMODE_EXT), in gepc-ref's encoding (its
+ * gbiex.h, D335) so that CENTER is a mode of its own: the game wraps HUD draws
+ * in them on a 16:9 screen (port/include/hudaspect.h). */
+#define G_ASPECT_LEFT_EXT 0x10
+#define G_ASPECT_RIGHT_EXT 0x20
+#define G_ASPECT_WIDE_EXT 0x40
+#define G_ASPECT_CENTER_EXT (G_ASPECT_LEFT_EXT | G_ASPECT_RIGHT_EXT)
+#define G_ASPECT_MODE_EXT (G_ASPECT_CENTER_EXT | G_ASPECT_WIDE_EXT)
 #ifndef G_TF_BLUR_EXT
 #define G_TF_BLUR_EXT (1U << G_MDSFT_TEXTFILT)
 #endif

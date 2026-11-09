@@ -28,6 +28,12 @@
 #include "../src/net/net_match.h"
 #include "../src/net/net_rules.h" /* NET_FUN_MASK: the deathmatch fun rules */
 
+#if defined(GEVR_FLAT)
+int VrScreenShape = 1;   // a phone or a PC window: 16:9
+#else
+int VrScreenShape = 0;   // the headset's virtual screen: 4:3 until its cost is measured
+#endif
+
 extern "C" float inputRumbleGetStrength(int playernum);
 extern "C" void inputRumbleSetStrength(int playernum, int strength);
 
@@ -282,6 +288,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "ScreenCurved=%d\n", VrScreenCurved);
     fprintf(f, "; 1 = passthrough background behind the 2D screen, 0 = black void.\n");
     fprintf(f, "ScreenPassthrough=%d\n", VrScreenPassthrough);
+    fprintf(f, "; The 2D screen's shape (a phone, a PC window, the virtual screen): 0 = 4:3, 1 = 16:9.\n");
+    fprintf(f, "ScreenShape=%d\n", VrScreenShape);
     fprintf(f, "; Metres above (+) or below (-) eye level; set by grabbing the screen with both grips.\n");
     fprintf(f, "ScreenHeight=%.2f\n", VrScreenHeight);
     fprintf(f, "; Preferred display refresh rate in Hz. 0 = Auto (no app preference), the\n");
@@ -826,6 +834,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strncmp(key, "MpLoadout", 9) == 0 && key[9] >= '1' && key[9] <= '4') VrMpLoadout[key[9] - '1'] = ival;
             else if (strcmp(key, "ScreenCurved") == 0) VrScreenCurved = ival != 0;
             else if (strcmp(key, "ScreenPassthrough") == 0) VrScreenPassthrough = ival != 0;
+            else if (strcmp(key, "ScreenShape") == 0) VrScreenShape = ival == 1 ? 1 : 0;
             /* Keep saved DisplayHz preferences. The obsolete RefreshRate key
              * was never user-selectable and remains ignored. */
             else if (strcmp(key, "DisplayHz") == 0) VrRefreshRate = ival < 0 ? 0 : ival;

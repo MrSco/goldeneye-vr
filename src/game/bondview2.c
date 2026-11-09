@@ -38,6 +38,9 @@ extern s32 gevrCrouchToggled(void); // port/src/input.c
 #include <snd.h>
 #include <str.h>
 #include <options.h>
+#ifdef GEVR
+#include "hudaspect.h"   /* Screen shape 16:9: HUD anchors (gepc-ref D335) */
+#endif
 #include "bg.h"
 #include "bgroomtrans.h"
 #include "blood_animation.h"
@@ -15585,6 +15588,20 @@ void bondviewMovePlayerUpdateViewport(s8 stick_x, s8 stick_y, u16 buttons)
 
 #else
 
+#ifdef GEVR
+    /* Screen shape (gepc-ref D334): the N64's own 16:9 mode below with
+     * WIDESCREEN_ASPECT replaced by the 2D screen's aspect (portNativeAspect,
+     * 0 in stereo). The canvas is stretched across the screen as a 16:9 TV
+     * stretched it, so the world comes out undistorted: the game's vertical
+     * view, wider horizontally. At 4:3 it is the 4:3 line below exactly. The
+     * watch's "Ratio 16:9" gives way: the screen is the ratio. */
+    if (portNativeAspect() > 0.0f)
+    {
+        set_cur_player_aspect(((f32) bondviewGetCurrentPlayerViewportWidth() / (f32) bondviewGetCurrentPlayerViewportHeight()) * 0.75f * portNativeAspect());
+        viSetAspect(((f32) bondviewGetCurrentPlayerViewportWidth() / (f32) bondviewGetCurrentPlayerViewportHeight()) * 0.75f * portNativeAspect());
+    }
+    else
+#endif
     if (get_screen_ratio() == SCREEN_RATIO_16_9)
     {
         set_cur_player_aspect(((f32) bondviewGetCurrentPlayerViewportWidth() / (f32) bondviewGetCurrentPlayerViewportHeight()) * 0.75f * WIDESCREEN_ASPECT);
@@ -21114,12 +21131,25 @@ Gfx *maybe_mp_interface(Gfx *gdl)
     if (g_CurrentPlayer->cameramode == 1)
     {
         bondviewIntroCameraTextTick();
+#ifdef GEVR
+        PORT_HUD_ASPECT(gdl, GE_HUD_ASPECT_CENTER);
+#endif
         gdl = hudmsgBottomRender(gdl);
         bondviewUpperTextWindowTimerTick();
         gdl = sub_GAME_7F08AAE8(gdl);
         gdl = countdownTimerRender(gdl);
+#ifdef GEVR
+        PORT_HUD_ASPECT(gdl, GE_HUD_ASPECT_NONE);
+#endif
         gdl = currentPlayerDrawFade(gdl);
+#ifdef GEVR
+        PORT_HUD_ASPECT(gdl, GE_HUD_ASPECT_CENTER);   /* the end credits */
+        gdl = bondviewRenderCredits(gdl);
+        PORT_HUD_ASPECT(gdl, GE_HUD_ASPECT_NONE);
+        return gdl;
+#else
         return bondviewRenderCredits(gdl);
+#endif
     }
 
     gunUpdateAndFireBothHands();
@@ -21169,7 +21199,13 @@ Gfx *maybe_mp_interface(Gfx *gdl)
         gDPNoOpTag(gdl++, 0x565B0001);
     }
 #endif
+#ifdef GEVR
+    PORT_HUD_ASPECT(gdl, GE_HUD_ASPECT_CENTER);
+#endif
     if (!(netIsActive() && g_CurrentPlayer->mpmenuon)) gdl = bondviewRenderWatch(gdl);
+#ifdef GEVR
+    PORT_HUD_ASPECT(gdl, GE_HUD_ASPECT_NONE);
+#endif
 
     if (g_CurrentPlayer->mpmenuon != 0)
     {
@@ -21199,7 +21235,13 @@ Gfx *maybe_mp_interface(Gfx *gdl)
     {
         /* The temporary hit gauges are feedback, independent of radar,
          * watch-face preference and the three hit comfort settings. */
+#ifdef GEVR
+        PORT_HUD_ASPECT(gdl, GE_HUD_ASPECT_CENTER);
+#endif
         gdl = bondviewRenderGaugeBars(gdl);
+#ifdef GEVR
+        PORT_HUD_ASPECT(gdl, GE_HUD_ASPECT_NONE);
+#endif
     }
     else if (mpwatchShouldDisplayGauges()
 #ifdef GEVR
@@ -21213,7 +21255,16 @@ Gfx *maybe_mp_interface(Gfx *gdl)
 #else
             TRUE
 #endif
-            ) gdl = bondviewRenderGaugeBars(gdl);
+            )
+        {
+#ifdef GEVR
+            PORT_HUD_ASPECT(gdl, GE_HUD_ASPECT_CENTER);
+#endif
+            gdl = bondviewRenderGaugeBars(gdl);
+#ifdef GEVR
+            PORT_HUD_ASPECT(gdl, GE_HUD_ASPECT_NONE);
+#endif
+        }
         if (g_CurrentPlayer->healthdisplaytime > 0)
         {
             g_CurrentPlayer->healthdisplaytime -= g_ClockTimer;
@@ -21375,9 +21426,15 @@ Gfx *maybe_mp_interface(Gfx *gdl)
     }
 
     bondviewIntroCameraTextTick();
+#ifdef GEVR
+    PORT_HUD_ASPECT(gdl, GE_HUD_ASPECT_CENTER);
+#endif
     gdl = hudmsgBottomRender(gdl);
     bondviewUpperTextWindowTimerTick();
     gdl = sub_GAME_7F08AAE8(gdl);
+#ifdef GEVR
+    PORT_HUD_ASPECT(gdl, GE_HUD_ASPECT_NONE);
+#endif
 #ifdef GEVR
     gdl = gevrDrawStats(gdl);
     gdl = gevrDrawGunFit(gdl);
@@ -21411,7 +21468,13 @@ Gfx *maybe_mp_interface(Gfx *gdl)
 #else
     gdl = generate_ammo_total_microcode(gdl);
 #endif
+#ifdef GEVR
+    PORT_HUD_ASPECT(gdl, GE_HUD_ASPECT_CENTER);
+#endif
     gdl = countdownTimerRender(gdl);
+#ifdef GEVR
+    PORT_HUD_ASPECT(gdl, GE_HUD_ASPECT_NONE);
+#endif
 #ifdef GEVR
     if (g_gevrStereo)
     {

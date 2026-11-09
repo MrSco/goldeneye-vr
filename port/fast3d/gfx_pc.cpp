@@ -2460,14 +2460,40 @@ static void gfx_sp_pop_matrix(uint32_t count) {
 
 
 
+/*
+ * Screen shape (VrScreenShape, vr_settings.cpp): every flat mode's 2D screen
+ * (a phone, a PC window, the headset's virtual screen) at 4:3 or 16:9.
+ * gevr_screen_shape_width: the target's width for a height, even.
+ * portNativeAspect (port/include/hudaspect.h, gepc-ref D334): what the game
+ * projects and lays its HUD out for while it builds this frame, the screen's
+ * aspect when the frame goes to the 2D screen, else 0 (stereo).
+ */
+extern "C" int VrScreenShape;
+static float gevr_screen_shape_aspect(void)
+{
+    return VrScreenShape == 1 ? 16.0f / 9.0f : 4.0f / 3.0f;
+}
+static uint32_t gevr_screen_shape_width(uint32_t h)
+{
+    return ((uint32_t)((float)h * gevr_screen_shape_aspect() + 0.5f) + 1u) & ~1u;
+}
+extern "C" float portNativeAspect(void)
+{
+#if (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
+    if (gevrVrScreenMode == 0) return 0.0f;   // stereo: the eyes' own projection
+#endif
+    return gevr_screen_shape_aspect();
+}
+
 static float gfx_adjust_x_for_aspect_ratio(float x, float w = 1.f) {
-    // In VR, no aspect correction should be applied here.
-    // In VR, it must use the headset framebuffer's actual aspect ratio, e.g. ~0.916.
-    if (fbActive || vr_is_initialized()) {
+    // The 2D screen wider than 4:3 (Screen shape 16:9, every flat mode): a draw
+    // under a HUD aspect mode keeps the 4:3 canvas's proportions, anchored
+    // left, right or centre (gepc-ref D335). Stereo frames, game framebuffers
+    // and the 4:3 screen take x as it is.
+    if (fbActive || !gevr_screen_pass || !rsp.aspect_mode || gfx_current_dimensions.aspect_ratio <= 1.3334f) {
         return x;
-    } else {
-        return (rsp.aspect_ofs * w + x) * rsp.aspect_scale / gfx_current_dimensions.aspect_ratio;
     }
+    return (rsp.aspect_ofs * w + x) * rsp.aspect_scale / gfx_current_dimensions.aspect_ratio;
 }
 
 static void gfx_adjust_width_height_for_scale(uint32_t& width, uint32_t& height) {
@@ -3620,35 +3646,26 @@ static void gfx_sp_geometry_mode(uint32_t clear, uint32_t set) {
 
 
 
+/* gepc-ref's gfx_update_aspect_mode (D335): under a mode x is scaled by
+ * (4/3) / the target's aspect and shifted to its anchor. Applied only in the
+ * screen pass (gfx_adjust_x_for_aspect_ratio). */
 static inline void gfx_update_aspect_mode(void) {
-    // In VR, the resolution/FOV mapping is already fully handled by
-    // gfx_adjust_viewport_or_scissor() (viewport) and shaders_build_xr_projection().
-    if (vr_is_initialized()) {
-        rsp.aspect_mode = 0;
-        rsp.aspect_scale = XrAspect;
-        rsp.aspect_ofs = 0.0f;
-        return;
-    }
+    const uint32_t side = rsp.aspect_mode & G_ASPECT_CENTER_EXT;
+    constexpr float canvas = 4.f / 3.f;   // the game's 320x240 canvas
+    const float a = gfx_current_dimensions.aspect_ratio;
 
-    const uint32_t side = rsp.extra_geometry_mode & G_ASPECT_MODE_EXT;
-
-    rsp.aspect_mode = side != G_ASPECT_CENTER_EXT;
-    rsp.aspect_scale = rsp.aspect_mode
-                       ? gfx_current_native_aspect / gfx_current_window_dimensions.aspect_ratio
-                       : XrAspect;
-
+    rsp.aspect_scale = canvas;
     if (side == G_ASPECT_LEFT_EXT) {
-        rsp.aspect_ofs = (1.f - gfx_current_dimensions.aspect_ratio / gfx_current_native_aspect);
+        rsp.aspect_ofs = 1.f - a / canvas;
     } else if (side == G_ASPECT_RIGHT_EXT) {
-        rsp.aspect_ofs = (gfx_current_dimensions.aspect_ratio / gfx_current_native_aspect - 1.f);
+        rsp.aspect_ofs = a / canvas - 1.f;
     } else {
         rsp.aspect_ofs = 0.f;
     }
-
-    if (!side && rsp.aspect_mode == G_ASPECT_WIDE_EXT) {
+    if (side && (rsp.aspect_mode & G_ASPECT_WIDE_EXT)) {
         constexpr float c = 16.f / 9.f;
-        if (gfx_current_dimensions.aspect_ratio > c) {
-            rsp.aspect_ofs = c / gfx_current_dimensions.aspect_ratio;
+        if (a > c) {
+            rsp.aspect_ofs *= c / a;
         }
     }
 }
@@ -3661,6 +3678,30 @@ static void gfx_sp_extra_geometry_mode(uint32_t clear, uint32_t set) {
 }
 
 static void gfx_adjust_viewport_or_scissor(XYWidthHeight* area, bool preserve_aspect = false) {
+    if (gevr_screen_pass && gevr_target_width() * 3 > gevr_target_height() * 4 + 4) {
+        // The 2D screen wider than 4:3 (Screen shape 16:9): the canvas is
+        // stretched across it, as the vertices are (clip space), so X and Y
+        // map apart; a uniform ratio would crop the canvas top and bottom and
+        // the room portals' scissors would cut the world.
+        const float fboW = gevr_target_width();
+        const float fboH = gevr_target_height();
+        const float rx = fboW / (float)SCREEN_WIDTH;
+        const float ry = fboH / (float)SCREEN_HEIGHT;
+        float x = area->x * rx;
+        float w = area->width * rx;
+        if (preserve_aspect && rsp.aspect_mode) {
+            // as gfx_adjust_x_for_aspect_ratio, in pixels about the centre
+            const float mid = fboW * 0.5f;
+            const float k = rsp.aspect_scale / (fboW / fboH);
+            x = mid + ((x - mid) / mid + rsp.aspect_ofs) * k * mid;
+            w *= k;
+        }
+        area->x = (int32_t)floorf(x);
+        area->width = (int32_t)ceilf(w);
+        area->height = (int32_t)ceilf(area->height * ry);
+        area->y = (int32_t)(fboH - area->y * ry);
+        return;
+    }
     if (vr_is_initialized()) {
         const float fboW = gevr_target_width();
         const float fboH = gevr_target_height();
@@ -3683,7 +3724,7 @@ static void gfx_adjust_viewport_or_scissor(XYWidthHeight* area, bool preserve_as
         area->x      = (int32_t)(area->x * vrUniformRatio + offsetX);
         area->y      = (int32_t)(fboH - (area->y * vrUniformRatio + offsetY));
 
-        if (preserve_aspect) {
+        if (preserve_aspect && gevr_screen_pass) {   // a 4:3 screen: nothing to anchor
             const float ratio = vrAspect / gfx_current_dimensions.aspect_ratio;
             const float midx  = fboW * 0.5f;
             area->x      = (int32_t)(midx + (area->x - midx) * ratio);
@@ -5886,10 +5927,8 @@ extern "C" void gfx_run(Gfx* commands) {
         // at about the eye buffer's height so text stays sharp on the quad.
         uint32_t targetW = eyeW, targetH = eyeH;
         if (screenMode) {
-            const uint32_t nativeW = SCREEN_WIDTH > 0 ? (uint32_t)SCREEN_WIDTH : 320u;
-            const uint32_t nativeH = SCREEN_HEIGHT > 0 ? (uint32_t)SCREEN_HEIGHT : 240u;
             targetH = std::min<uint32_t>(eyeH, 1440u);
-            targetW = ((targetH * nativeW / nativeH) + 1u) & ~1u;
+            targetW = gevr_screen_shape_width(targetH);
         }
 
         auto set_target = [&](uint32_t w, uint32_t h) {
@@ -6171,13 +6210,12 @@ extern "C" void gfx_run(Gfx* commands) {
     {
         // the screen target, two-view or (no GL_OVR_multiview) its layer 0 alone
         const bool viaScreen = true;
-        const uint32_t nativeW = SCREEN_WIDTH > 0 ? (uint32_t)SCREEN_WIDTH : 320u;
-        const uint32_t nativeH = SCREEN_HEIGHT > 0 ? (uint32_t)SCREEN_HEIGHT : 240u;
-        // the window's height, 240 to 1440 lines (the headset's screen target's cap;
-        // a phone held upright is 2400 tall, which made a 3200-wide target)
+        // The window's height, 240 to 1440 lines (the headset's screen target's
+        // cap; a phone held upright is 2400 tall, which made a 3200-wide
+        // target), at the Screen shape (vr_screen_present fits it to the window).
         const uint32_t h = viaScreen ? std::min<uint32_t>(std::max<uint32_t>(gfx_current_window_dimensions.height, 240u), 1440u)
                                      : gfx_current_window_dimensions.height;
-        const uint32_t w = viaScreen ? (((h * nativeW / nativeH) + 1u) & ~1u)
+        const uint32_t w = viaScreen ? gevr_screen_shape_width(h)
                                      : gfx_current_window_dimensions.width;
         const bool screenTarget = viaScreen && vr_screen_target_begin((int)w, (int)h);
         gevr_target_w = w;
