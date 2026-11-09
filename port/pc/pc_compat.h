@@ -21,6 +21,13 @@
 /* no symbolic links to tell apart */
 #define lstat stat
 
+/* POSIX realpath(path, resolved): _fullpath does the same on Windows */
+#include <limits.h>
+#ifndef PATH_MAX
+#define PATH_MAX 260
+#endif
+#define realpath(path, resolved) _fullpath((resolved), (path), PATH_MAX)
+
 #ifdef __cplusplus
 extern "C" {
 #endif

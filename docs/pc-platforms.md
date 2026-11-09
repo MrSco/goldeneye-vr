@@ -28,8 +28,23 @@ release, not main's older state.
 
 P0 and P1's first steps are in: `python tools/build_pc.py` builds
 `GoldenEyeVR.exe` (one static exe, about 2 minutes clean); with the ROM
-beside it the game boots and plays in a window, with sound, keyboard,
-mouse and gamepads. Not yet: the launcher, Steam Audio, packaging.
+beside it the Quest's launcher opens in the window (ROM, settings,
+Start) and the game plays with sound, keyboard, mouse and gamepads.
+Not yet: Steam Audio, packaging, the Java-side services (below).
+
+**Launcher:** `port/vr/vr_launcher.cpp` itself, the Quest's, drawn in the
+window (`port/pc/pc_launcher.cpp`: its texture letterboxed into the window,
+mouse mapped onto its canvas, arrows/Return/Escape/Tab and a pad for ImGui
+navigation). The seven calls it makes into Java have PC bodies beside the
+Android ones: the ROM pickers are Windows' Open dialog (copied in as
+data/picked*.z64, which the launcher adopts as on the Quest), restart runs
+the exe again, the version comes from android/app/build.gradle. The
+one-line messages to Java (lobby, mods, reports, friends, voice permission)
+go to `port/pc/pc_services.cpp`, where the native services land in P3; until
+then they report "not on PC yet", and LAN and direct-address play, which
+need no Java, are as on the Quest. `--boot-stage` and `--no-launcher` skip
+the launcher. Open: the Play page still offers "Stereo VR" (meaningless
+until PCVR); the Haptics page is empty (no Touch controllers).
 
 **Controls:** GoldenEye's 1.2 Solitaire, as the Quest's screen mode plays.
 - Keyboard and mouse: W/S walk, A/D strafe (the C buttons), arrows look,

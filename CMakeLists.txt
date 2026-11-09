@@ -318,6 +318,21 @@ if(GEVR_PC)
   list(APPEND SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/vr/vr_settings.cpp")
   # the Quest's virtual-screen target: the flat frame is drawn as on the headset
   list(APPEND SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/vr/vr_screen.cpp")
+  # the Quest's launcher and friends list in the window (port/pc/pc_launcher.cpp)
+  list(APPEND SRC_PORT_CXX
+    "${CMAKE_SOURCE_DIR}/port/vr/vr_launcher.cpp"
+    "${CMAKE_SOURCE_DIR}/port/vr/vr_friends.cpp"
+    "${CMAKE_SOURCE_DIR}/port/vr/vr_discord.cpp"
+    "${CMAKE_SOURCE_DIR}/port/vr/imgui/imgui.cpp"
+    "${CMAKE_SOURCE_DIR}/port/vr/imgui/imgui_draw.cpp"
+    "${CMAKE_SOURCE_DIR}/port/vr/imgui/imgui_tables.cpp"
+    "${CMAKE_SOURCE_DIR}/port/vr/imgui/imgui_widgets.cpp"
+    "${CMAKE_SOURCE_DIR}/port/vr/imgui/imgui_impl_opengl3.cpp")
+  # the app's version, as the Quest's (android/app/build.gradle versionName)
+  file(STRINGS "${CMAKE_SOURCE_DIR}/android/app/build.gradle" GEVR_VERSION_LINE REGEX "versionName \"[^\"]+\"")
+  string(REGEX REPLACE ".*versionName \"([^\"]+)\".*" "\\1" GEVR_APP_VERSION "${GEVR_VERSION_LINE}")
+  add_definitions(-DGEVR_APP_VERSION="${GEVR_APP_VERSION}")
+  message(STATUS "GoldenEye VR version: ${GEVR_APP_VERSION}")
   # gfx_sdl2.cpp is the Quest's window and PDVR's PCVR mirror (P2); the flat
   # window is port/pc/pc_window.cpp, from Dab's Mod
   list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/fast3d/gfx_(android|sdl2)\\.cpp$")

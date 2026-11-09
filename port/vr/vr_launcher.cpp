@@ -48,8 +48,23 @@
 
 #include <SDL.h>
 #include <SDL_system.h>
+#ifdef ANDROID
 #include <jni.h>
 #include <GLES3/gl3.h>
+#else
+/* The PC game (docs/pc-platforms.md): desktop GL, and port/pc for what
+ * Android's Java does here (pc_launcher.cpp, pc_services.cpp). */
+#include "../fast3d/glad/glad.h"
+std::string pcServiceString(const char *method);
+void pcServiceCommand(const char *method, const char *arg);
+bool pcOpenPicker(const char *method);
+void pcRestartSelf(void);
+struct ImGuiIO;
+void pcLauncherInit(ImGuiIO &io);
+void pcLauncherShutdown(void);
+void pcLauncherFeedInput(ImGuiIO &io);
+extern "C" int sysArgCheck(const char *arg);   // port/src/system.c
+#endif
 
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_opengl3.h"
@@ -304,6 +319,7 @@ void pollInjected(Injected &in)
 // chosen file to data/picked.z64, which scan() checks and adopts.
 // Issue #16: back to the launcher from a level (port/src/input.c menu hold).
 // The launcher runs before the ROM loads, so the app restarts into it.
+#ifdef ANDROID
 extern "C" void gevrRestartToLauncher(void)
 {
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
@@ -324,9 +340,17 @@ extern "C" void gevrRestartToLauncher(void)
     env->DeleteLocalRef(cls);
     env->DeleteLocalRef(activity);
 }
+#else
+extern "C" void gevrRestartToLauncher(void)
+{
+    vr_log("launcher: restarting into the launcher");
+    pcRestartSelf();
+}
+#endif
 
 // MainActivity.openRomPicker / openGexPicker / openGoldfingerPicker /
 // openTndPicker: the system file picker, copying the pick to data/picked*.z64
+#ifdef ANDROID
 static bool gevrOpenPicker(const char *method)
 {
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
@@ -349,6 +373,14 @@ static bool gevrOpenPicker(const char *method)
     vr_log("launcher: file picker (%s) %s", method, ok ? "opened" : "failed");
     return ok;
 }
+#else
+static bool gevrOpenPicker(const char *method)
+{
+    const bool ok = pcOpenPicker(method);   // Windows' Open dialog, copied in at once
+    vr_log("launcher: file picker (%s) %s", method, ok ? "picked" : "closed");
+    return ok;
+}
+#endif
 
 bool gevrOpenRomPicker()
 {
@@ -391,6 +423,7 @@ static bool adoptHackFile(const char *pickedName, const char *finalName, const c
 
 // MainActivity.pickResult: a message about a failed or cancelled pick (a
 // successful one shows up as data/picked.z64 instead), read and cleared.
+#ifdef ANDROID
 std::string gevrTakePickResult()
 {
     std::string out;
@@ -420,6 +453,12 @@ std::string gevrTakePickResult()
     env->DeleteLocalRef(activity);
     return out;
 }
+#else
+std::string gevrTakePickResult()
+{
+    return std::string();   // the PC's picker copied the file already; scan() adopts it
+}
+#endif
 
 // Update check against the GitHub releases (android UpdateChecker.java, through
 // MainActivity.updaterStatus / updaterCommand). Java does the network and the
@@ -433,6 +472,7 @@ struct UpdateStatus {
     bool testBuilds = false;
 };
 
+#ifdef ANDROID
 UpdateStatus gevrUpdaterStatus()
 {
     UpdateStatus st;
@@ -480,7 +520,17 @@ UpdateStatus gevrUpdaterStatus()
     }
     return st;
 }
+#else
+UpdateStatus gevrUpdaterStatus()
+{
+    UpdateStatus st;   // no updater on PC yet: the version only
+    st.state = "idle";
+    st.installed = GEVR_APP_VERSION;
+    return st;
+}
+#endif
 
+#ifdef ANDROID
 void gevrUpdaterCommand(const char *cmd)
 {
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
@@ -502,8 +552,15 @@ void gevrUpdaterCommand(const char *cmd)
     env->DeleteLocalRef(activity);
     vr_log("launcher: updater %s", cmd);
 }
+#else
+void gevrUpdaterCommand(const char *cmd)
+{
+    vr_log("launcher: updater %s (not on PC yet)", cmd);
+}
+#endif
 
 // Java calls for the Mods page (MainActivity.modsStatus / modsCommand).
+#ifdef ANDROID
 static std::string gevrJavaString(const char *method)
 {
     std::string out;
@@ -532,7 +589,14 @@ static std::string gevrJavaString(const char *method)
     env->DeleteLocalRef(activity);
     return out;
 }
+#else
+static std::string gevrJavaString(const char *method)
+{
+    return pcServiceString(method);   // port/pc/pc_services.cpp
+}
+#endif
 
+#ifdef ANDROID
 static void gevrJavaCommand(const char *method, const char *arg)
 {
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
@@ -556,6 +620,12 @@ static void gevrJavaCommand(const char *method, const char *arg)
     if (strcmp(method, "reportCommand") == 0) vr_log("launcher: reportCommand");
     else vr_log("launcher: %s %s", method, arg);
 }
+#else
+static void gevrJavaCommand(const char *method, const char *arg)
+{
+    pcServiceCommand(method, arg);   // port/pc/pc_services.cpp
+}
+#endif
 
 static std::string gevrEncodeUrl64(const char *input)
 {
@@ -2773,6 +2843,16 @@ static void gevrLauncherLoadout(char *buf, size_t size)
 
 extern "C" void gevrLauncherRun(void)
 {
+#ifdef GEVR_PC
+    /* --boot-stage (straight into a level) and --no-launcher, for tests:
+     * the ini as the launcher's first frame would load it, and no launcher */
+    if (sysArgCheck("--no-launcher") || sysArgCheck("--boot-stage")) {
+        gevrVrPumpBegin();
+        gevrVrPumpEnd();
+        vr_log("launcher: skipped (command line)");
+        return;
+    }
+#endif
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO &io = ImGui::GetIO();
@@ -2789,7 +2869,12 @@ extern "C" void gevrLauncherRun(void)
     ImGuiStyle &style = ImGui::GetStyle();
     style.ScaleAllSizes(2.2f);
     style.WindowRounding = 0.0f;
+#ifdef ANDROID
     ImGui_ImplOpenGL3_Init("#version 300 es");
+#else
+    ImGui_ImplOpenGL3_Init("#version 330");
+    pcLauncherInit(io);   // mouse, keyboard and pad in the window
+#endif
 
     // The header icon (android assets/launcher_icon.rgba, tools/make_icons.py).
     GLuint iconTex = 0;
@@ -2939,7 +3024,12 @@ extern "C" void gevrLauncherRun(void)
         netPoll();
         netDiscoveryUpdate(SDL_GetTicks());
 
+#ifdef GEVR_PC
+        gevrVrPumpBegin();   // no headset: every frame is the launcher's (and loads the ini the first time)
+        if (false) {
+#else
         if (!gevrVrPumpBegin()) {
+#endif
             // The Quest menu can suppress rendering without stopping XR.
             // Keep the hosted lobby alive while that session still runs.
             static Uint32 lastNoFrameRefresh = 0;
@@ -3001,7 +3091,11 @@ extern "C" void gevrLauncherRun(void)
         }
         {
             // no stick navigation while the stick is resizing the screen
+#ifdef GEVR_PC
+            pcLauncherFeedInput(io);
+#else
             if (!grabbing) feedGamepad(io);
+#endif
             if (grabbing) {
                 io.AddKeyEvent(ImGuiKey_GamepadDpadUp, false);
                 io.AddKeyEvent(ImGuiKey_GamepadDpadDown, false);
@@ -3391,7 +3485,11 @@ extern "C" void gevrLauncherRun(void)
         }   // the START footer
         }   // reportPage
         if (footerNote.empty()) {
+#ifdef GEVR_PC
+            ImGui::TextDisabled("Click, or use the arrows and Return, or a pad's stick and A.");
+#else
             ImGui::TextDisabled("Point and pull the trigger, or use the stick and A.");
+#endif
         } else {
             ImGui::PushStyleColor(ImGuiCol_Text, footerBad ? bad : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
             gevrLauncherStatus(footerNote.c_str());
@@ -3431,6 +3529,9 @@ extern "C" void gevrLauncherRun(void)
            VrUseSnapTurn, VrComfortVignette);
     gevrTexpackStartEarly();   // index the chosen pack while the game boots
 
+#ifdef GEVR_PC
+    pcLauncherShutdown();
+#endif
     SDL_StopTextInput();
     SDL_DelEventWatch(keyboardWatch, nullptr);
     SDL_DestroyMutex(s_kbdLock);

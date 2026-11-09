@@ -4,8 +4,9 @@
  * presence line about once a second when it changes (and every 20 s when it
  * does not, which keeps it posting), drains its events into the model the
  * launcher's Friends page and the watch draw, and turns invites into the
- * launcher's ordinary join by code. */
-#ifdef ANDROID
+ * launcher's ordinary join by code. On PC the same, with port/pc/pc_services.cpp
+ * standing in for the Java side. */
+#if defined(ANDROID) || defined(GEVR_PC)
 // The launcher's order: the campaign header first, the game's headers (net_*) after SDL.
 #include "gevr_romlayout.h"
 #include "vr_friends.h"
@@ -18,7 +19,12 @@
 #include <ctime>
 #include <functional>
 #include <SDL.h>
+#ifdef ANDROID
 #include <jni.h>
+#else
+std::string pcServiceString(const char *method);   // port/pc/pc_services.cpp: the PC's Java
+void pcServiceCommand(const char *method, const char *arg);
+#endif
 #include "vr_settings.h"
 #include "vr_log.h"
 #include "net_core.h"
@@ -46,6 +52,7 @@ std::string s_notice;                     // in-mission notice, game font
 uint32_t s_noticeUntil = 0;
 std::string s_lastLobby;                  // the lobby the "invited" marks are for
 
+#ifdef ANDROID
 std::string javaString(const char *method) {
     std::string out;
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
@@ -84,6 +91,10 @@ void javaCommand(const std::string &command) {
     env->DeleteLocalRef(cls);
     env->DeleteLocalRef(activity);
 }
+#else
+std::string javaString(const char *method) { return pcServiceString(method); }
+void javaCommand(const std::string &command) { pcServiceCommand("friendsCommand", command.c_str()); }
+#endif
 
 std::vector<std::string> split(const std::string &line) {
     std::vector<std::string> out;

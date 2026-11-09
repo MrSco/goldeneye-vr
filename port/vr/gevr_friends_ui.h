@@ -435,9 +435,13 @@ inline void gevrFriendsSidePanel(GevrFriendsUiState &ui, const GevrFriendsUiCont
     ImGui::SetNextWindowPos(ImVec2((float)kGevrSurfaceW, 0));
     ImGui::SetNextWindowSize(ImVec2(width, (float)kGevrSurfaceH));
     ImGui::SetNextWindowBgAlpha(1.0f);
+    // NoFocusOnAppearing: the launcher's START keeps the stick's (and the keyboard's)
+    // focus from the first frame, so A alone starts the game; appearing after the
+    // launcher's window, the sidebar took it, and A pressed its fold button.
     ImGui::Begin("##friends-sidebar", nullptr,
                  ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar);
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar |
+                 ImGuiWindowFlags_NoFocusOnAppearing);
     int online = 0;
     for (const GevrFriend &f : m.friends) online += f.state != "offline";
     const int waiting = (int)(m.requests.size() + m.invites.size());

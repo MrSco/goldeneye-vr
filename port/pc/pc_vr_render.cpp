@@ -78,7 +78,7 @@ int vrGetMenuMirrorMVPList(int eyeIndex, struct VrMirrorMenuEntry *outEntries) {
 /* --- vr_screen.cpp / vr_hub.cpp: the virtual screen and the hub room ------- */
 
 /* A test script's shot (pc_testinput.c): the window's back buffer as a 24-bit BMP in shots/. */
-static void pc_write_shot(const char *name, int w, int h)
+void pc_write_shot(const char *name, int w, int h)
 {
     const int stride = (w * 3 + 3) & ~3;
     unsigned char *px = (unsigned char *)malloc((size_t)stride * h);
@@ -161,11 +161,22 @@ bool gfx_sdl_is_mirror_enabled(void) { return false; }
 int gfx_sdl_get_mirror_eye(void) { return 0; }
 void gfx_sdl_get_mirror_dimensions(int *w, int *h) { if (w) *w = 0; if (h) *h = 0; }
 
-/* --- vr_friends.cpp: no friends list on PC yet ------------------------------ */
+/* --- vr_openxr.cpp: the session the launcher asks about ---------------------- */
 
-const char *gevrFriendsNotice(void) { return 0; }
+int gevrVrSessionRunning(void) { return 1; }   // the window is always "up"
 
 }   // extern "C"
+
+/* --- vr_haptics.cpp: the Touch controllers' rumble table, which the launcher's
+ * Haptics page tunes. No tracked controllers on the flat PC: an empty table. */
+#include "../vr/vr_haptics.h"
+extern "C" {
+void vrHapticsResetAll(void) { }
+void vrHapticsResetCategory(HapticCategory cat) { (void)cat; }
+int vrHapticsGetCount(void) { return 0; }
+HapticProfile *vrHapticsGetProfileByIndex(int index) { (void)index; return nullptr; }
+void vrHapticsTriggerTest(int id) { (void)id; }
+}
 
 GLuint g_multiviewFBO = 0;   // vr_openxr.cpp's eye buffer; vr_screen.cpp hands fast3d back to it (none: the window)
 
