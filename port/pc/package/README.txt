@@ -19,6 +19,12 @@ Getting started
 Settings (goldeneye-vr.ini, goldeneye.ini), saves (eeprom.bin) and logs
 (vr_debug.txt) are kept in this folder.
 
+The launcher's Mods tab works as on the Quest: HD texture packs download
+into texture-packs\, and XBLA / Bean is read from your own copy of
+GoldenEye XBLA ("Choose copy...": its .7z, .zip or Xbox 360 package; then
+"CE..." for the Community Edition's CommunityEditionUpdaterV6.zip). Nothing
+of the XBLA release is downloaded.
+
 Controls
 --------
 Keyboard and mouse (GoldenEye's 1.2 Solitaire style):

@@ -25,6 +25,10 @@
  *                            y down positive as SDL has it, for 900 ms
  *   40000 quit
  *   40000 crash              a deliberate access violation (the crash report test)
+ *   35000 pick C:/x/y z.zip  the answer of the next file picker (pc_launcher.cpp
+ *                            pcOpenPicker), the rest of the line; "pick -" is
+ *                            Cancel. A scripted run never opens the Open dialog:
+ *                            with no pick waiting, a picker is cancelled.
  *
  * '#' starts a comment.
  */
@@ -39,7 +43,7 @@
 
 #define TI_MAX 512
 
-enum { TI_CAPTURE, TI_RELEASE, TI_CLICK, TI_RCLICK, TI_MOVE, TI_KEY, TI_SHOT, TI_QUIT, TI_PAD, TI_AXIS, TI_POINT, TI_TEXT, TI_CRASH };
+enum { TI_CAPTURE, TI_RELEASE, TI_CLICK, TI_RCLICK, TI_MOVE, TI_KEY, TI_SHOT, TI_QUIT, TI_PAD, TI_AXIS, TI_POINT, TI_TEXT, TI_CRASH, TI_PICK };
 
 struct ticmd {
 	u32 at;
@@ -65,11 +69,16 @@ static SDL_Joystick *s_pad;
 static u32 s_padUntil[SDL_CONTROLLER_BUTTON_MAX];
 static u32 s_axisUntil[SDL_CONTROLLER_AXIS_MAX];
 static f32 s_axisValue[SDL_CONTROLLER_AXIS_MAX];
+#define TI_MAXPICKS 8
+static char s_picks[TI_MAXPICKS][400];   /* pick commands' paths */
+static s32 s_pickCount;
+static char s_pickPending[400];
+static s32 s_pickWaiting;
 
 static void tiLoad(void)
 {
 	const char *path = sysArgGetString("--input-script");
-	char line[256];
+	char line[512];
 	FILE *f;
 
 	s_active = 0;
@@ -111,6 +120,21 @@ static void tiLoad(void)
 		else if (!strcmp(word, "quit")) c->kind = TI_QUIT;
 		else if (!strcmp(word, "crash")) c->kind = TI_CRASH;
 		else if (!strcmp(word, "text")) { c->kind = TI_TEXT; snprintf(c->name, sizeof(c->name), "%s", arg); }
+		else if (!strcmp(word, "pick")) {
+			/* the rest of the line, spaces and all */
+			char *rest = strstr(line, "pick") + 4;
+			size_t len;
+			while (*rest == ' ' || *rest == '\t') rest++;
+			len = strlen(rest);
+			while (len > 0 && (rest[len - 1] == '\n' || rest[len - 1] == '\r' || rest[len - 1] == ' ')) rest[--len] = '\0';
+			if (s_pickCount >= TI_MAXPICKS || len == 0 || len >= sizeof(s_picks[0])) {
+				sysLogPrintf(LOG_ERROR, "input script: pick needs a path (at most %d picks)", TI_MAXPICKS);
+				continue;
+			}
+			c->kind = TI_PICK;
+			c->a = s_pickCount;
+			memcpy(s_picks[s_pickCount++], rest, len + 1);
+		}
 		else if (!strcmp(word, "point")) { c->kind = TI_POINT; c->a = atoi(arg); c->b = atoi(extra); }
 		else if (!strcmp(word, "pad")) {
 			c->kind = TI_PAD;
@@ -179,6 +203,7 @@ void pcTestInputFrame(s32 *mdx, s32 *mdy, u32 *buttons, s32 *lock)
 		case TI_SHOT: memcpy(s_shotPending, c->name, sizeof(s_shotPending)); break;
 		case TI_PAD: s_padUntil[c->a] = now + (u32)c->b; break;
 		case TI_POINT: s_pointX = c->a; s_pointY = c->b; break;
+		case TI_PICK: memcpy(s_pickPending, s_picks[c->a], sizeof(s_pickPending)); s_pickWaiting = 1; break;
 		case TI_TEXT: {
 			/* as a keyboard types it: SDL's text event (the launcher's keyboardWatch reads it) */
 			SDL_Event e;
@@ -261,6 +286,16 @@ s32 pcTestInputPointer(s32 *x, s32 *y)
 	if (s_pointX < 0) return 0;
 	*x = s_pointX;
 	*y = s_pointY;
+	return 1;
+}
+
+/* The next file picker's scripted answer, once: 1 with the path in out ("-" is
+ * Cancel), 0 when the script left none. */
+s32 pcTestInputTakePick(char *out, s32 outLen)
+{
+	if (!s_pickWaiting || outLen <= 0) return 0;
+	snprintf(out, (size_t)outLen, "%s", s_pickPending);
+	s_pickWaiting = 0;
 	return 1;
 }
 

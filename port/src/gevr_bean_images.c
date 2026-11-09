@@ -245,7 +245,7 @@ static int lastW, lastH;
 
 static const u8 *picture(const char *name, int *w, int *h)
 {
-	static const char *roots[] = { "../texture-packs/ge007-bean/files", "added-content/xbla/files", "xbla/files" };
+	static const char *roots[] = { GEVR_BEAN_PACK_DIR "/files", "added-content/xbla/files", "xbla/files" };
 	char path[256];
 	FILE *f = NULL;
 	long size = 0;

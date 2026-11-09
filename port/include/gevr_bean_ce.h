@@ -9,6 +9,18 @@ extern "C" {
 #endif
 
 /*
+ * The imported copy (the Mods page's ge007-bean pack) as the game reads it,
+ * relative to its data folder, the working directory. On the Quest that is
+ * files/data and the Mods page's packs are in files/texture-packs
+ * (ModManager.root()); on PC both are the exe's folder (pc_mods.cpp).
+ */
+#ifdef GEVR_PC
+#define GEVR_BEAN_PACK_DIR "texture-packs/ge007-bean"
+#else
+#define GEVR_BEAN_PACK_DIR "../texture-packs/ge007-bean"
+#endif
+
+/*
  * The GoldenEye XBLA Community Edition over the player's imported Bean files
  * (gevr_bean_ce.c).
  *

@@ -14,6 +14,7 @@ s32 pcTestInputKey(s32 scancode);
 const char *pcTestInputTakeShot(void);
 s32 pcTestInputPointer(s32 *x, s32 *y);
 s32 pcTestInputLeftDown(void);
+s32 pcTestInputTakePick(char *out, s32 outLen);
 
 #ifdef __cplusplus
 }

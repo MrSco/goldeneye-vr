@@ -153,7 +153,7 @@ static struct beanCache s_cache[48];
 static int s_ncache;
 
 static const char *const s_roots[] = {
-    "../texture-packs/ge007-bean/files",
+    GEVR_BEAN_PACK_DIR "/files",
 	"added-content/xbla/files",
 	"added-content/xbla",
 	"xbla/files",

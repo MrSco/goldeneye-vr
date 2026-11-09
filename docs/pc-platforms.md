@@ -31,7 +31,8 @@ P0 and P1's first steps are in: `python tools/build_pc.py` builds
 beside it the Quest's launcher opens in the window (ROM, settings,
 Start) and the game plays with sound, keyboard, mouse and gamepads.
 The Java-side services are ported (lobby, mods, crash reports, friends,
-updater; see **Services**). Not yet: PCVR, the XBLA / Bean import.
+updater; see **Services**), and the XBLA / Bean import with the Community
+Edition patch. Not yet: PCVR beyond step 1.
 
 **Release download:** `python tools/package_pc.py [VERSION]` (VERSION
 defaults to build.gradle's versionName) builds and packs
@@ -102,10 +103,25 @@ policy cases, the redaction patterns, the gzip member, the crash record, the upd
   (`texture-packs/oddjob-hat/oddjob_hat.bin`) look. Checked for real: the
   release check (the HD + AI pack's newer 2026.10.19 is offered), Oddjob's hat
   installed and removed, GoldenEye 007 HD (129 MB, 1762 files) installed, and
-  a download cancelled half way leaves nothing behind. Not on PC: the XBLA /
-  Bean import and the Community Edition patch (no `openXblaPicker` /
-  `openCePicker` on PC yet); Bean's file roots are also `../texture-packs`,
-  relative to the Quest's data folder, which on PC is the exe's own folder.
+  a download cancelled half way leaves nothing behind.
+- **XBLA / Bean** (`pc_mods.cpp` importOwn / applyCe, ModManager's): the
+  Bean row's "Choose copy..." and "CE..." open Windows' Open dialog
+  (`pc_launcher.cpp` pcOpenPicker, for MainActivity.openXblaPicker /
+  openCePicker) and the chosen file goes to the Quest's native import
+  (`gevr_bean_import.c` gevrBeanImportStream, `gevr_bean_ce.c`
+  gevrBeanCeApply), opened by path where Android hands over a descriptor:
+  the same hidden folder, marker and move into place, the same progress
+  ("Importing N%") and Cancel, the same messages. Bean's files land in
+  `texture-packs/ge007-bean` beside the exe: the loaders' root
+  (`GEVR_BEAN_PACK_DIR`, gevr_bean_ce.h) is `../texture-packs/ge007-bean`
+  from the Quest's files/data and `texture-packs/ge007-bean` from the PC's
+  exe folder. Checked with the player's own copies on this PC (a scripted
+  `pick`, see below): GoldenEye_007_XBLA_Retail.zip imported (880 files, 382
+  MB), an import cancelled at 45% leaves nothing, a missing file and a
+  non-XBLA file give the Quest's messages, CommunityEditionUpdaterV6.zip
+  applied (148 files), and Dam boots with Bean's rooms, guns, heads and the
+  CE's sky read from there. The real Open dialog was not opened in a test
+  (it is modal on the desktop).
 - **Crash reports** (`pc_reports.cpp`, LogReporter + CrashExitPolicy): the
   same status ("offer" after a crash, sending, sent, error:) and commands.
   What Android hands LogReporter the PC makes itself: crash.c's Windows
@@ -189,8 +205,10 @@ aim reach, pad look stick, crosshair snap and aim-mode edge turn.
 **Testing without the desktop:** `--input-script FILE` (port/pc/pc_testinput.c)
 feeds timed mouse moves, clicks, held keys, a virtual gamepad (SDL's,
 seen by the game as a real pad), a launcher pointer (`point X Y`, canvas
-units) and typed text into the game, and `shot NAME` writes the
-window to `shots/NAME.bmp`. The game never grabs the real mouse
+units) and typed text into the game, `pick PATH` answers the next file
+picker (a scripted run never opens the Open dialog; with no pick waiting the
+picker is cancelled), and `shot NAME` writes the window to
+`shots/NAME.bmp`. The game never grabs the real mouse
 or raises its window, so a test runs while someone uses the computer.
 
 What it took:

@@ -47,7 +47,7 @@
 extern int VrBeanCommunityEdition;
 
 // the imported copy as the game sees it (gevr_bean.c's first root, one up)
-#define CE_GAME_DIR "../texture-packs/ge007-bean/ce"
+#define CE_GAME_DIR GEVR_BEAN_PACK_DIR "/ce"
 // the entry of the updater's zip that is applied
 #define CE_DIFF_ENTRY "CEUpdate/files.diff"
 // written last, once the overlay is whole: the size of the zip it came from

@@ -6,7 +6,7 @@
  * Nothing here touches the network.
  *
  *   clang -c port/vr/miniz/miniz.c -o miniz.o
- *   clang++ -std=c++20 -I port/pc port/tests/pc_services_native.cpp port/pc/pc_http.cpp port/pc/pc_files.cpp miniz.o -lwinhttp -lbcrypt -o pc_services_test.exe
+ *   clang++ -std=c++20 -I port/pc -I port/include port/tests/pc_services_native.cpp port/pc/pc_http.cpp port/pc/pc_files.cpp miniz.o -lwinhttp -lbcrypt -o pc_services_test.exe
  *
  * Run it from an empty folder: it writes its zips and their unpacked files there.
  */
@@ -14,8 +14,30 @@
 #include <cstdio>
 #include <string>
 
+#include "gevr_bean_import.h"
+#include "gevr_bean_ce.h"
+
 extern "C" void sysLogPrintf(int, const char *, ...) {}
 void pcRestartSelf(void) {}
+
+/* The Bean import itself (port/src/gevr_bean_import.c, gevr_bean_ce.c) is not
+ * linked here: pc_mods.cpp only hands it the picked file. */
+static int s_importCalls;
+extern "C" int gevrBeanImportStream(FILE *src, const char *, char *msg, size_t msgLen)
+{
+    s_importCalls++;
+    if (src) fclose(src);
+    snprintf(msg, msgLen, "stub");
+    return -1;
+}
+extern "C" int gevrBeanImportPercent(void) { return 42; }
+extern "C" void gevrBeanImportCancel(void) {}
+extern "C" int gevrBeanCeApply(FILE *zip, const char *, char *msg, size_t msgLen)
+{
+    if (zip) fclose(zip);
+    snprintf(msg, msgLen, "stub");
+    return -1;
+}
 
 #include "../pc/pc_mods.cpp"
 #include "../pc/pc_reports.cpp"
@@ -126,6 +148,29 @@ static void testMods()
     const std::string status = m.status();
     CHECK(status.find("oddjob-hat\tOddjob's hat\tEurocom / EA (007 Nightfire), GoldenEye VR\tgithub.com/MrSco/goldeneye-vr-mods\t1.1\t0\tnone\t-1\t\t") != std::string::npos);
     CHECK(status.find("ge007-hd\tGoldenEye 007 HD\tintermissionfb and GhostlyDark\tevilgames.eu\tv2025.12.30\t129\tnone\t-1\t\t") == 0);
+    // the player's own copy (importOwn): the Bean row's line once the job ends
+    auto beanLine = [&] {
+        std::string line;
+        for (int i = 0; i < 300; i++) {
+            const std::string all = m.status();
+            const size_t at = all.find("ge007-bean\t");
+            line = all.substr(at, all.find('\n', at) - at);
+            if (line.find("\timporting\t") == std::string::npos && line.find("\tpatching\t") == std::string::npos) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        return line;
+    };
+    m.importOwn("ge007-bean", "no-such-copy.7z");
+    CHECK(beanLine().find("\terror\t-1\tcould not open that file\t") != std::string::npos);
+    CHECK(s_importCalls == 0 && !isDir("texture-packs/.ge007-bean.unpacking"));
+    writeFileAtomic("copy.7z", "not a copy");
+    m.importOwn("ge007-bean", "copy.7z");
+    CHECK(beanLine().find("\terror\t-1\tstub\t") != std::string::npos);   // the import's own message
+    CHECK(s_importCalls == 1 && !isDir("texture-packs/.ge007-bean.unpacking") && !isDir("texture-packs/ge007-bean"));
+    m.importOwn("ge007-hd", "copy.7z");   // only an own-copy pack imports
+    CHECK(s_importCalls == 1);
+    m.applyCe("copy.7z");                 // the Community Edition needs the imported copy
+    CHECK(beanLine().find("\tpatching\t") == std::string::npos && beanLine().find("\tstub\t") != std::string::npos);
 }
 
 static void testReports()

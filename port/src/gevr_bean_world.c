@@ -119,7 +119,7 @@ static int s_ce = -1;
 static int s_ceOverlay = -1;  // whether s_ce was looked up with the overlay read
 
 static const char *const s_roots[] = {
-    "../texture-packs/ge007-bean/files",
+    GEVR_BEAN_PACK_DIR "/files",
 	"added-content/xbla/files",
 	"added-content/xbla",
 	"xbla/files",

@@ -23,7 +23,7 @@ static int fits(unsigned offset, unsigned size, unsigned length) {
 }
 
 static void loadFont(struct beanFont *f, int gothic) {
-    static const char *roots[] = {"../texture-packs/ge007-bean/files", "added-content/xbla/files", "xbla/files"};
+    static const char *roots[] = {GEVR_BEAN_PACK_DIR "/files", "added-content/xbla/files", "xbla/files"};
     char path[256];
     FILE *file = NULL;
     struct gevrCaff c;

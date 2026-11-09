@@ -16,9 +16,13 @@
  * ($S/texture-packs, ext_tex.c and gfx_pc.cpp) and Oddjob's hat
  * (gevr_oddjobhat.c: texture-packs/oddjob-hat/oddjob_hat.bin) look.
  *
- * Not on PC: XBLA / Bean's import from the player's own copy (ModManager.importOwn
- * and applyCe, MainActivity's openXblaPicker / openCePicker) - its row shows,
- * but there is no picker for it yet (pc_launcher.cpp pcOpenPicker).
+ * XBLA / Bean is never downloaded (ModManager's note): the player picks their own
+ * copy of the release in Windows' Open dialog (pc_launcher.cpp pcOpenPicker, in
+ * place of MainActivity.openXblaPicker / openCePicker) and importOwn / applyCe
+ * run the Quest's native import (port/src/gevr_bean_import.c, gevr_bean_ce.c)
+ * on it, reading the file by its path where Android hands over a descriptor.
+ * texture-packs/ge007-bean is where the Bean loaders look on PC
+ * (GEVR_BEAN_PACK_DIR, gevr_bean_ce.h).
  */
 
 #include <string>
@@ -29,6 +33,8 @@
 #include <cstring>
 
 #include "pc_http.h"
+#include "gevr_bean_import.h"
+#include "gevr_bean_ce.h"
 
 extern "C" void sysLogPrintf(int level, const char *fmt, ...);
 
@@ -143,7 +149,7 @@ public:
             const bool have = installed(p);
             if (p.id == busyId_) {
                 state = busyState_;
-                pr = progress_;   // IMPORTING's percent is the Bean import's, which the PC has not
+                pr = state == "importing" ? gevrBeanImportPercent() : progress_.load();
             } else if (p.id == errorId_) {
                 // a failed update leaves the installed pack in place (and usable)
                 state = have ? "installed" : "error";
@@ -178,6 +184,7 @@ public:
         std::lock_guard<std::mutex> lock(lock_);
         if (cmd == "cancel") {
             cancelled_ = true;
+            if (busyState_ == "importing") gevrBeanImportCancel();
             return;
         }
         if (cmd == "check") {
@@ -214,7 +221,81 @@ public:
         }
     }
 
+    /* The file the player picked for an own-copy pack (MainActivity.openXblaPicker). */
+    void importOwn(const std::string &id, const std::string &path)
+    {
+        std::lock_guard<std::mutex> lock(lock_);
+        Pack *p = find(id);
+        if (!p || !p->own() || !busyId_.empty()) return;
+        errorId_.clear();
+        cancelled_ = false;
+        progress_ = 0;
+        busyState_ = "importing";
+        busyId_ = id;
+        worker_.post([this, id, path] { run(id, [this, id, path] { importFrom(id, path); }); });
+    }
+
+    /*
+     * The Community Edition updater the player picked (MainActivity.openCePicker):
+     * applied to the imported Bean copy, into its ce/ folder (port/src/gevr_bean_ce.c).
+     */
+    void applyCe(const std::string &path)
+    {
+        std::lock_guard<std::mutex> lock(lock_);
+        Pack *p = find("ge007-bean");
+        if (!p || !installed(*p) || !busyId_.empty()) return;
+        errorId_.clear();
+        cancelled_ = false;
+        progress_ = -1;
+        busyState_ = "patching";
+        busyId_ = p->id;
+        const std::string id = p->id, beanDir = dir(*p);
+        worker_.post([this, id, beanDir, path] {
+            run(id, [id, beanDir, path] {
+                FILE *f = _wfopen(wide(path).c_str(), L"rb");
+                if (!f) throw HttpError{0, "could not open that file"};
+                char msg[256] = "";
+                // the native side reads and closes it
+                if (gevrBeanCeApply(f, beanDir.c_str(), msg, sizeof(msg)) < 0) throw HttpError{0, msg[0] ? msg : "failed"};
+                sysLogPrintf(0, "mods: applied the Community Edition to %s", id.c_str());
+            });
+        });
+    }
+
 private:
+    /* ModManager.importFrom: the copy into a hidden folder, then into place. */
+    void importFrom(const std::string &id, const std::string &path)
+    {
+        if (!isDir(kRoot) && !makeDirs(kRoot)) throw HttpError{0, std::string("could not create ") + kRoot};
+        const std::string tmp = std::string(kRoot) + "/." + id + ".unpacking";
+        const std::string dest = std::string(kRoot) + "/" + id;
+        const std::string backup = std::string(kRoot) + "/." + id + ".backup";
+        try {
+            deleteTree(tmp);
+            if (!makeDirs(tmp)) throw HttpError{0, "could not create " + tmp};
+            FILE *f = _wfopen(wide(path).c_str(), L"rb");
+            if (!f) throw HttpError{0, "could not open that file"};
+            char msg[256] = "";
+            // the native side reads and closes it; it writes with the C runtime's
+            // fopen and mkdir, so the folder stays relative (the game's folder
+            // may have a name those can't open)
+            if (gevrBeanImportStream(f, tmp.c_str(), msg, sizeof(msg)) < 0) throw HttpError{0, msg[0] ? msg : "failed"};
+            if (!writeFileAtomic(tmp + "/" + kMarker, "own\n")) throw HttpError{0, "could not write the pack's marker"};
+            deleteTree(backup);
+            if (isDir(dest) && !movePath(dest, backup, false)) throw HttpError{0, "could not preserve installed pack"};
+            if (!movePath(tmp, dest, false)) {
+                if (isDir(backup) && !movePath(backup, dest, false)) sysLogPrintf(1, "mods: could not restore %s", id.c_str());
+                throw HttpError{0, "could not finish importing"};
+            }
+            deleteTree(backup);
+            sysLogPrintf(0, "mods: imported %s from the player's copy", id.c_str());
+        } catch (...) {
+            deleteTree(tmp);
+            throw;
+        }
+        deleteTree(tmp);
+    }
+
     Pack *find(const std::string &id)
     {
         for (Pack &p : packs_) if (p.id == id) return &p;
@@ -495,3 +576,5 @@ ModManager &mods()
 
 std::string pcModsStatus(void) { return mods().status(); }
 void pcModsCommand(const char *cmd) { mods().command(cmd ? cmd : ""); }
+void pcModsImportOwn(const char *id, const std::string &path) { mods().importOwn(id ? id : "", path); }
+void pcModsApplyCe(const std::string &path) { mods().applyCe(path); }
