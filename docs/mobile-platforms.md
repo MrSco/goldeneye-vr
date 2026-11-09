@@ -21,8 +21,13 @@ launcher.
   layout").
 - **Tested** on a Pixel 8 emulator (Android 16): launcher, ROM, intro, menus
   by touch, and Dam (look, walk, fire, reload, crouch).
+- **Screen shape:** 4:3 or 16:9 on every flat mode (launcher Screen page,
+  `ScreenShape`), ported from gepc-ref's native widescreen (D334/D335).
+  - At 16:9 the world widens sideways (Hor+), the HUD keeps its shape at the
+    edges and the front end is pillarboxed.
+  - Flat builds default to 16:9; the headset's virtual screen stays 4:3 until
+    its cost is measured.
 - **Not yet:**
-  - The game draws 4:3 with bars on a wide phone (PC flat too).
   - No in-game panel without grips (PC flat too).
   - Haptics and gyro.
   - A touch layout editor and settings.
