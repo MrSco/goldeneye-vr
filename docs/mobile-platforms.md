@@ -7,6 +7,28 @@ Research and plan only (2026-11-09); no game code changes. It extends
 targets start the way the dedicated server and flat PC do, without the in-VR
 launcher.
 
+## Where it stands (2026-11-09)
+
+**Android phone/tablet (M1), first pass in** on branch `claude/pc-platforms`:
+
+- **Build:** `cd android && ./gradlew assembleMobileDebug` makes the separate
+  APK (`com.gevr.port.mobile`, flavor `mobile`, CMake `GEVR_MOBILE`): the PC
+  flat game's window, launcher and services on the Quest's GLES 3 path,
+  without OpenXR.
+- **Rendering:** a single view, without multiview; the window's height is
+  capped at 1440. It runs landscape, either way up, full screen.
+- **Touch:** controls in `port/flat/window/flat_touch.cpp` (see "Touch
+  layout").
+- **Tested** on a Pixel 8 emulator (Android 16): launcher, ROM, intro, menus
+  by touch, and Dam (look, walk, fire, reload, crouch).
+- **Not yet:**
+  - The game draws 4:3 with bars on a wide phone (PC flat too).
+  - No in-game panel without grips (PC flat too).
+  - Haptics and gyro.
+  - A touch layout editor and settings.
+  - A real phone, an online match against a Quest, and Bean import on a
+    phone.
+
 ## Recommendation in one paragraph
 
 Do **Android phones/tablets** right after PC P1. They are the PC flat build
@@ -178,7 +200,23 @@ before any XR-runtime work. Size: M.
 
 ## Touch layout
 
-Port it; don't design it.
+Port it; don't design it. **Done (first pass):** `port/flat/window/flat_touch.cpp`.
+
+- **Buttons:** Midas's buttons and numbers, less GADGET (GoldenEye has none).
+  - FIRE = Z, AIM = R, USE = B, WEAPON = A, START.
+  - RELOAD is B with a reload-only flag (`gevrReloadOnlyHeld`, lv.c), so it
+    never opens a door.
+  - CROUCH flips the Quest's crouch toggle.
+- **Stick:** the floating stick sets the C buttons past a quarter, as a pad's
+  left stick does. In menus it moves the front end's cursor, FIRE selects
+  (A) and USE goes back.
+- **Look:** goes in through the flat game's mouse look
+  (`inputMouseGetLookDeg`, bondview2.c), which now covers any flat build
+  (`GEVR_FLAT`).
+- **Drawing:** ImGui draw lists in their own context, over the frame after
+  `vr_screen_present`'s blit.
+- **Pads:** a pad button hides the overlay, and the next touch brings it
+  back. A PC shows it only after a finger lands.
 
 - **Code** from Mr4xd3mn/perfect-dark-android `port/src/touch.c`. It is
   C, and its base is the fgsfds PD port our `port/src` host comes from.
