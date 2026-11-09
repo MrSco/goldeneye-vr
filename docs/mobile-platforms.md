@@ -379,15 +379,23 @@ Android needs no new services work, since its Java services already work.
 
 1. **Sideload only**, as on Quest: no Play Store, App Store or AltStore PAL.
    Store policies don't constrain anything.
-2. **Apple:** the user has a paid developer account and a Mac. So 1-year
-   signing, the multicast entitlement can be requested (LAN discovery on
-   iOS), and iOS builds and debugging happen on the Mac; CI is optional.
+2. **Apple:** the user has a paid developer account and a Mac mini. So
+   1-year signing, the multicast entitlement can be requested (LAN discovery
+   on iOS), and iOS builds and debugging happen on the Mac; CI is optional.
+   **ANGLE lives in one global place on the Mac mini**, built once and
+   shared by every project (as rebelancap keeps one checkout per machine);
+   the build finds it through an `ANGLE_DIR` setting, never a copy in the
+   repo.
 3. **Vision Pro never holds anything back.** No VR on it for now (M5a/M5b
    dropped). At most the flat window (M4), with features switched off there
    where they don't fit; if even that costs too much, the platform is dropped.
-4. **Controllers are required** on phones and tablets: a paired gamepad, no
-   touch controls. The touch layout work and a "no touch players" option go
-   away. (Reading of the user's answer "controllers are required"; confirm.)
+4. **Tracked controllers are required in VR, and only there.** VR plays
+   with tracked controllers only, never hand tracking. Flat mode on any
+   device (phone, iPad, Android tablet, a Windows tablet) takes a gamepad,
+   or touch controls when no controller is connected (the touch layout
+   section stands). The only online filter is "VR players only": VR players
+   apart from flat ones, whatever the flat player holds. No "no touch
+   players" option.
 5. **Android: two APKs** from one tree (`quest`, `mobile` flavors).
 
 ### Corrections after a second look

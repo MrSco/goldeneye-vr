@@ -16,6 +16,10 @@ release, not main's older state.
   Desktop ports are references we port from, like gepc-ref.
 - **Steam Frame compatible** (user, 2026-11-09): every step keeps the Frame
   in reach (see "Steam Frame").
+- **Input by mode** (user, 2026-11-09): VR takes tracked controllers only
+  (no hand tracking). Flat mode anywhere takes keyboard and mouse, a
+  gamepad, or touch when nothing else is connected (a Windows tablet as much
+  as a phone), with the touch layer shared with the mobile builds.
 - **Mobile and full parity** (user, 2026-11-09): Android phones, iOS and
   Vision Pro are being researched separately (docs/mobile-platforms.md);
   online play and features at parity across every platform and mode.
