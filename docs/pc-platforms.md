@@ -51,9 +51,15 @@ Android ones: the ROM pickers are Windows' Open dialog (copied in as
 data/picked*.z64, which the launcher adopts as on the Quest), restart runs
 the exe again, the version comes from android/app/build.gradle. The
 one-line messages to Java (lobby, mods, reports, friends, voice permission)
-go to `port/pc/pc_services.cpp`, where the native services land in P3; until
-then they report "not on PC yet", and LAN and direct-address play, which
-need no Java, are as on the Quest. `--boot-stage` and `--no-launcher` skip
+go to `port/pc/pc_services.cpp`, where the native services land in P3. The
+internet lobby is there (`port/pc/pc_lobby.cpp`, LobbyClient.java ported:
+the same commands and events, WinHTTP after Dab's Mod's ghostnet.c, Dab's
+bounded JSON reader with SDP-safe strings; offline test
+port/tests/pc_lobby_native.cpp). Checked against lobbies.goldeneyevr.com:
+the public list, a private lobby hosted and removed on quit, and a second PC
+copy joining it by code (ICE, ENet, slot, clock sync, voice open). Not on
+PC yet: mods, crash reports, friends, the updater; LAN and direct-address
+play need no Java. `--boot-stage` and `--no-launcher` skip
 the launcher. Open: the Play page still offers "Stereo VR" (meaningless
 until PCVR); the Haptics page is empty (no Touch controllers).
 
@@ -79,8 +85,9 @@ the tank it turns the turret. Not ported yet: Midas's aim lock, wide-window
 aim reach, pad look stick, crosshair snap and aim-mode edge turn.
 
 **Testing without the desktop:** `--input-script FILE` (port/pc/pc_testinput.c)
-feeds timed mouse moves, clicks, held keys and a virtual gamepad (SDL's,
-seen by the game as a real pad) into the game, and `shot NAME` writes the
+feeds timed mouse moves, clicks, held keys, a virtual gamepad (SDL's,
+seen by the game as a real pad), a launcher pointer (`point X Y`, canvas
+units) and typed text into the game, and `shot NAME` writes the
 window to `shots/NAME.bmp`. The game never grabs the real mouse
 or raises its window, so a test runs while someone uses the computer.
 

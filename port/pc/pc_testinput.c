@@ -12,6 +12,8 @@
  *
  *   30000 capture            take the mouse for looking, as a click would
  *   30500 click 120          left button held 120 ms (fires)
+ *   30400 point 640 360      the launcher's pointer at that spot of its canvas
+ *   31000 text ABCD1234      typed into whatever text box has the focus
  *   30500 rclick 400         right button held 400 ms (aims)
  *   31000 move 15 0 40       15, 0 counts a frame for 40 frames
  *   32000 key Up 1200        hold a key (an SDL scancode name) 1200 ms
@@ -36,7 +38,7 @@
 
 #define TI_MAX 512
 
-enum { TI_CAPTURE, TI_RELEASE, TI_CLICK, TI_RCLICK, TI_MOVE, TI_KEY, TI_SHOT, TI_QUIT, TI_PAD, TI_AXIS };
+enum { TI_CAPTURE, TI_RELEASE, TI_CLICK, TI_RCLICK, TI_MOVE, TI_KEY, TI_SHOT, TI_QUIT, TI_PAD, TI_AXIS, TI_POINT, TI_TEXT };
 
 struct ticmd {
 	u32 at;
@@ -56,6 +58,7 @@ static u32 s_leftUntil, s_rightUntil;
 static s32 s_moveDx, s_moveDy, s_moveFrames;
 static u32 s_keyUntil[SDL_NUM_SCANCODES];
 static char s_shotPending[48];
+static s32 s_pointX = -1, s_pointY = -1;   /* the launcher's scripted pointer, canvas units */
 static s32 s_wantPad;                    /* the script drives a virtual gamepad */
 static SDL_Joystick *s_pad;
 static u32 s_padUntil[SDL_CONTROLLER_BUTTON_MAX];
@@ -105,6 +108,8 @@ static void tiLoad(void)
 		}
 		else if (!strcmp(word, "shot")) { c->kind = TI_SHOT; snprintf(c->name, sizeof(c->name), "%s", n >= 3 ? arg : "shot"); }
 		else if (!strcmp(word, "quit")) c->kind = TI_QUIT;
+		else if (!strcmp(word, "text")) { c->kind = TI_TEXT; snprintf(c->name, sizeof(c->name), "%s", arg); }
+		else if (!strcmp(word, "point")) { c->kind = TI_POINT; c->a = atoi(arg); c->b = atoi(extra); }
 		else if (!strcmp(word, "pad")) {
 			c->kind = TI_PAD;
 			c->a = SDL_GameControllerGetButtonFromString(arg);
@@ -171,6 +176,16 @@ void pcTestInputFrame(s32 *mdx, s32 *mdy, u32 *buttons, s32 *lock)
 		case TI_KEY: if (c->a > 0 && c->a < SDL_NUM_SCANCODES) s_keyUntil[c->a] = now + (u32)(c->b > 0 ? c->b : 100); break;
 		case TI_SHOT: memcpy(s_shotPending, c->name, sizeof(s_shotPending)); break;
 		case TI_PAD: s_padUntil[c->a] = now + (u32)c->b; break;
+		case TI_POINT: s_pointX = c->a; s_pointY = c->b; break;
+		case TI_TEXT: {
+			/* as a keyboard types it: SDL's text event (the launcher's keyboardWatch reads it) */
+			SDL_Event e;
+			memset(&e, 0, sizeof(e));
+			e.type = SDL_TEXTINPUT;
+			snprintf(e.text.text, sizeof(e.text.text), "%s", c->name);
+			SDL_PushEvent(&e);
+			break;
+		}
 		case TI_AXIS: s_axisUntil[c->a] = now + (u32)c->b; s_axisValue[c->a] = c->value; break;
 		case TI_QUIT:
 			sysLogPrintf(LOG_NOTE, "input script: quit");
@@ -232,4 +247,19 @@ const char *pcTestInputTakeShot(void)
 	memcpy(name, s_shotPending, sizeof(name));
 	s_shotPending[0] = '\0';
 	return name;
+}
+
+/* The launcher's scripted pointer (canvas units), 1 once a point command ran. */
+s32 pcTestInputPointer(s32 *x, s32 *y)
+{
+	if (s_pointX < 0) return 0;
+	*x = s_pointX;
+	*y = s_pointY;
+	return 1;
+}
+
+/* The scripted left button, for the launcher (input.c reads it through pcTestInputFrame). */
+s32 pcTestInputLeftDown(void)
+{
+	return s_started && (u32)(SDL_GetTicks64() - s_start) < s_leftUntil;
 }

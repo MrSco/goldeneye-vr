@@ -122,14 +122,20 @@ void pcLauncherFeedInput(ImGuiIO &io)
     }
     const bool inside = mx >= s_rectX && mx < s_rectX + s_rectW && my >= s_rectY && my < s_rectY + s_rectH;
     const bool focused = SDL_GetMouseFocus() == wnd && !scripted;
-    if (focused && inside) {
+    s32 px, py;
+    if (scripted && pcTestInputPointer(&px, &py)) {
+        io.AddMousePosEvent((float)px, (float)py);
+        io.AddMouseButtonEvent(0, pcTestInputLeftDown() != 0);
+    } else if (focused && inside) {
         io.AddMousePosEvent((float)(mx - s_rectX) * io.DisplaySize.x / (float)s_rectW,
                             (float)(my - s_rectY) * io.DisplaySize.y / (float)s_rectH);
     } else {
         io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
     }
-    io.AddMouseButtonEvent(0, focused && (buttons & SDL_BUTTON_LMASK) != 0);
-    io.AddMouseButtonEvent(1, focused && (buttons & SDL_BUTTON_RMASK) != 0);
+    if (!scripted) {
+        io.AddMouseButtonEvent(0, focused && (buttons & SDL_BUTTON_LMASK) != 0);
+        io.AddMouseButtonEvent(1, focused && (buttons & SDL_BUTTON_RMASK) != 0);
+    }
     if (s_wheel != 0.0f) {
         io.AddMouseWheelEvent(0.0f, s_wheel);
         s_wheel = 0.0f;
@@ -217,7 +223,7 @@ bool pcOpenPicker(const char *method)
     wchar_t wto[MAX_PATH * 2];
     MultiByteToWideChar(CP_UTF8, 0, to, -1, wto, MAX_PATH * 2);
     const bool ok = CopyFileW(file, wto, FALSE) != 0;
-    sysLogPrintf(ok ? 1 : 3, "launcher: picked a file for %s (%s)", dest, ok ? "copied" : "copy failed");
+    sysLogPrintf(ok ? 0 : 1, "launcher: picked a file for %s (%s)", dest, ok ? "copied" : "copy failed");
     return ok;
 #else
     return false;

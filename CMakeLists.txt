@@ -540,7 +540,7 @@ if(GEVR_PC)
   target_compile_options(GoldenEyeVR PRIVATE "SHELL:-include \"${CMAKE_BINARY_DIR}/port/include/versioninfo.h\""
     "SHELL:-include \"${CMAKE_SOURCE_DIR}/port/pc/pc_compat.h\"")
   target_link_libraries(GoldenEyeVR ${LIBS} juice-static opus gevr_physics
-    opengl32 ws2_32 iphlpapi winmm bcrypt imm32 version setupapi psapi)
+    opengl32 ws2_32 iphlpapi winmm bcrypt imm32 version setupapi psapi winhttp comdlg32)
   target_link_options(GoldenEyeVR PRIVATE -static -Wl,--error-limit=0)
   # Steam Audio for voice chat (net_spatial.c), the Quest's 4.8.1: phonon.lib
   # links, phonon.dll goes beside the exe. tools/build_pc.py fetches both.
