@@ -17,7 +17,7 @@
 #define CRASH_MSG(...) \
 	if (msglen < CRASH_MAX_MSG) msglen += snprintf(msg + msglen, CRASH_MAX_MSG - msglen, __VA_ARGS__)
 
-#if defined(PLATFORM_WIN32) || defined(GEVR_PC)
+#if defined(PLATFORM_WIN32) || (defined(GEVR_PC) && defined(_WIN32))
 
 #include <windows.h>
 #include <dbghelp.h>
@@ -321,6 +321,19 @@ static void crashHandler(s32 sig, siginfo_t *siginfo, void *ctx)
 
 	crashStackTrace(msg, sig, pc);
 
+#ifdef GEVR_PC
+	{
+		/* the PC game on Linux: what the launcher offers to report on the next start */
+		void pcCrashRecord(const char *summary, const char *trace);
+		char summary[160];
+		Dl_info info;
+		const uintptr_t base = (pc && dladdr(pc, &info)) ? (uintptr_t)info.dli_fbase : 0;
+		snprintf(summary, sizeof(summary), "SIGNAL %d at %p (module %p + 0x%llx)", (int)sig, pc, (void *)base,
+			(unsigned long long)(base ? (uintptr_t)pc - base : 0));
+		pcCrashRecord(summary, msg);
+	}
+#endif
+
 	sysFatalError("Crash!\n\n%s", msg);
 }
 
@@ -330,12 +343,16 @@ s32 g_CrashEnabled = 0;
 
 static char crashMsg[1024];
 
+#ifdef GEVR_PC
+void pcReportStartup(void);   /* port/pc/pc_reports.cpp */
+#endif
+
 void crashInit(void)
 {
 #ifdef GEVR_PC
 	pcReportStartup();   // the last run's crash or unexpected end, before this run's marker
 #endif
-#if defined(PLATFORM_WIN32) || defined(GEVR_PC)
+#if defined(PLATFORM_WIN32) || (defined(GEVR_PC) && defined(_WIN32))
 	SetErrorMode(SEM_FAILCRITICALERRORS);
 	prevExFilter = SetUnhandledExceptionFilter(crashHandler);
 	g_CrashEnabled = 1;
@@ -356,7 +373,7 @@ void crashShutdown(void)
 	if (!g_CrashEnabled) {
 		return;
 	}
-#if defined(PLATFORM_WIN32) || defined(GEVR_PC)
+#if defined(PLATFORM_WIN32) || (defined(GEVR_PC) && defined(_WIN32))
 	if (prevExFilter) {
 		SetUnhandledExceptionFilter(prevExFilter);
 	}

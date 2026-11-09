@@ -293,6 +293,28 @@ release.
 **Later:** Linux desktop and SteamVR on Linux (the server already builds
 there).
 
+## Linux (2026-11-09)
+
+`tools/build_linux.sh` builds both binaries on Linux or WSL from the same
+sources: `GoldenEyeVR` (flat) and `GoldenEyeVR-VR` (OpenXR over GLX, SDL's
+X11 driver; the distro's OpenXR loader, copied beside it). No root: the
+headers and link libraries (libcurl, GL/GLX, X11, PulseAudio, OpenXR,
+pkgconf) are fetched with `apt-get download` into `~/gevr-linux-deps`, clang
+comes from `~/clang18` as for the server, and Steam Audio's `libphonon.so`
+from the same pinned zip as Windows. What differs from Windows:
+
+- HTTPS through libcurl (`pc_http.cpp`), SHA-256 built in (the updater's
+  check; known-answer tests in `pc_services_native.cpp`, 122 checks on both);
+- file pickers through zenity or kdialog; restart with `posix_spawn`;
+- crashes through the Linux signal handler (`crash.c`), reported as on
+  Windows;
+- PC VR waits for the runtime (Monado, SteamVR) rather than starting it.
+
+Checked under WSLg: the flat game renders the intro and menus and plays
+sound through PulseAudio. PC VR on Linux is built, not yet run on a
+headset. A Linux release package and the updater's Linux asset are still to
+do.
+
 ## Steam Frame
 
 The Frame is ARM64 SteamOS (Snapdragon 8 Gen 3) with Valve's Lepton

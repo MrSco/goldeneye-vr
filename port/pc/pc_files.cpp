@@ -17,6 +17,8 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <unistd.h>   // fsync
 #endif
 
 #include "../vr/miniz/miniz.h"
@@ -34,7 +36,7 @@ static fs::path P(const std::string &s)
 #endif
 }
 
-static FILE *openFile(const std::string &path, const char *mode)
+FILE *openFile(const std::string &path, const char *mode)
 {
 #ifdef _WIN32
     return _wfopen(wide(path).c_str(), wide(mode).c_str());
@@ -129,10 +131,17 @@ std::string tailFile(const std::string &path, size_t max)
     std::string out;
     FILE *f = openFile(path, "rb");
     if (!f) return out;
+#ifdef _WIN32
     _fseeki64(f, 0, SEEK_END);
     const long long size = _ftelli64(f);
     const long long skip = size > (long long)max ? size - (long long)max : 0;
     _fseeki64(f, skip, SEEK_SET);
+#else
+    fseeko(f, 0, SEEK_END);
+    const long long size = (long long)ftello(f);
+    const long long skip = size > (long long)max ? size - (long long)max : 0;
+    fseeko(f, (off_t)skip, SEEK_SET);
+#endif
     char buf[1 << 14];
     size_t n;
     while (out.size() < max && (n = fread(buf, 1, std::min(sizeof(buf), max - out.size()), f)) > 0) out.append(buf, n);
@@ -148,6 +157,8 @@ bool writeFileAtomic(const std::string &path, const std::string &data)
     const bool ok = fwrite(data.data(), 1, data.size(), f) == data.size() && fflush(f) == 0;
 #ifdef _WIN32
     if (ok) FlushFileBuffers((HANDLE)_get_osfhandle(_fileno(f)));   // out.getFD().sync()
+#else
+    if (ok) fsync(fileno(f));
 #endif
     fclose(f);
     if (!ok || !movePath(tmp, path, true)) {
@@ -172,7 +183,10 @@ std::string exeDir()
     if (n == 0 || n >= MAX_PATH * 4) return ".";
     return narrow(fs::path(std::wstring(buf, n)).parent_path().wstring());
 #else
-    return ".";
+    // Linux: the folder of /proc/self/exe
+    std::error_code ec;
+    const fs::path self = fs::read_symlink("/proc/self/exe", ec);
+    return ec ? std::string(".") : self.parent_path().string();
 #endif
 }
 

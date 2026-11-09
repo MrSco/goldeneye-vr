@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "bondtypes.h"
 #include "limits.h"
+#include <float.h>   /* FLT_MAX */
 
 // rodata
 

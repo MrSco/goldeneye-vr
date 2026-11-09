@@ -23,6 +23,13 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <commdlg.h>
+#else
+#include <filesystem>
+#include <string>
+#include <vector>
+#include <spawn.h>      // pcRestartSelf
+#include <sys/wait.h>   // pclose's status
+extern char **environ;
 #endif
 
 extern SDL_Window *wnd;   // pc_window.cpp
@@ -267,6 +274,55 @@ static std::string pcNarrow(const std::wstring &w)
     if (n > 0) WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), &s[0], n, nullptr, nullptr);
     return s;
 }
+#else
+enum PickResult { PICK_CHOSEN, PICK_CANCELLED, PICK_FAILED };
+
+static std::string pcShellQuote(const std::string &s)
+{
+    std::string q = "'";
+    for (char c : s) q += c == '\'' ? std::string("'\\''") : std::string(1, c);
+    return q + "'";
+}
+
+/*
+ * Linux: the desktop's own open dialog, zenity (GNOME and most others) or
+ * kdialog (KDE), whichever is installed. patterns: "*.z64 *.v64 *.n64", or
+ * "" for any file. A test script answers as on Windows.
+ */
+static PickResult pcChooseFile(const char *title, const char *patterns, std::string *file)
+{
+    if (pcTestInputActive()) {
+        char scripted[400];
+        if (!pcTestInputTakePick(scripted, (s32)sizeof(scripted)) || !strcmp(scripted, "-")) {
+            sysLogPrintf(0, "launcher: scripted file picker: cancelled");
+            return PICK_CANCELLED;
+        }
+        *file = scripted;
+        sysLogPrintf(0, "launcher: scripted file picker: %s", scripted);
+        return PICK_CHOSEN;
+    }
+    const std::string zenity = "zenity --file-selection --title=" + pcShellQuote(title)
+        + (patterns[0] ? " --file-filter=" + pcShellQuote(patterns) : std::string()) + " 2>/dev/null";
+    const std::string kdialog = "kdialog --title " + pcShellQuote(title) + " --getopenfilename . "
+        + pcShellQuote(patterns[0] ? patterns : "*") + " 2>/dev/null";
+    for (const std::string &cmd : { zenity, kdialog }) {
+        FILE *p = popen(cmd.c_str(), "r");
+        if (!p) continue;
+        char line[4096] = "";
+        const bool read = fgets(line, sizeof(line), p) != nullptr;
+        const int status = pclose(p);
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 127) continue;   // not installed
+        std::string chosen = read ? line : "";
+        while (!chosen.empty() && (chosen.back() == '\n' || chosen.back() == '\r')) chosen.pop_back();
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 0 && !chosen.empty()) {
+            *file = chosen;
+            return PICK_CHOSEN;
+        }
+        return PICK_CANCELLED;
+    }
+    sysLogPrintf(1, "launcher: no file dialog (install zenity or kdialog)");
+    return PICK_FAILED;
+}
 #endif
 
 void pcModsImportOwn(const char *id, const std::string &path);   // pc_mods.cpp
@@ -299,6 +355,20 @@ bool pcOpenPicker(const char *method)
         }
         return r != PICK_FAILED;
     }
+#else
+    const bool xbla = !strcmp(method, "openXblaPicker"), ce = !strcmp(method, "openCePicker");
+    if (xbla || ce) {
+        std::string file;
+        const PickResult r = xbla
+            ? pcChooseFile("Choose your copy of GoldenEye XBLA", "", &file)
+            : pcChooseFile("Choose the GoldenEye XBLA Community Edition updater", "*.zip", &file);
+        if (r == PICK_CHOSEN) {
+            sysLogPrintf(0, "launcher: %s: a file chosen", xbla ? "XBLA copy" : "Community Edition");
+            if (xbla) pcModsImportOwn("ge007-bean", file);
+            else pcModsApplyCe(file);
+        }
+        return r != PICK_FAILED;
+    }
 #endif
     const char *dest = !strcmp(method, "openRomPicker") ? "picked.z64"
                      : !strcmp(method, "openGexPicker") ? "picked-gex.z64"
@@ -319,7 +389,14 @@ bool pcOpenPicker(const char *method)
     sysLogPrintf(ok ? 0 : 1, "launcher: picked a file for %s (%s)", dest, ok ? "copied" : "copy failed");
     return ok;
 #else
-    return false;
+    std::string file;
+    if (pcChooseFile("Choose the ROM", "*.z64 *.v64 *.n64", &file) != PICK_CHOSEN) {
+        return false;
+    }
+    std::error_code ec;
+    std::filesystem::copy_file(file, fsFullPath(dest), std::filesystem::copy_options::overwrite_existing, ec);
+    sysLogPrintf(ec ? 1 : 0, "launcher: picked a file for %s (%s)", dest, ec ? "copy failed" : "copied");
+    return !ec;
 #endif
 }
 
@@ -341,6 +418,20 @@ void pcRestartSelf(void)
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
     }
+#else
+    // the same command line again (/proc/self/cmdline), started before this one exits
+    std::string cmdline;
+    if (FILE *f = fopen("/proc/self/cmdline", "rb")) {
+        char buf[4096];
+        size_t n;
+        while ((n = fread(buf, 1, sizeof(buf), f)) > 0) cmdline.append(buf, n);
+        fclose(f);
+    }
+    std::vector<char *> argv;
+    for (size_t i = 0; i < cmdline.size(); i += strlen(&cmdline[i]) + 1) argv.push_back(&cmdline[i]);
+    argv.push_back(nullptr);
+    pid_t pid;
+    if (argv.size() > 1) posix_spawn(&pid, "/proc/self/exe", nullptr, nullptr, argv.data(), environ);
 #endif
     exit(0);
 }

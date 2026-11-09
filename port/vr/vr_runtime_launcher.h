@@ -5,7 +5,28 @@
 // Author: generated for Alex Le Tux (Updated)
 
 #pragma once
-#ifndef ANDROID // If PC
+#if !defined(ANDROID) && !defined(_WIN32)
+// Linux (and Steam Frame): no registry and no runtime to start for the player;
+// Monado or SteamVR runs as they set it up. The headset is ready when the
+// active runtime answers xrGetSystem, as on Windows.
+#include <cstring>
+#include "vr_log.h"
+#include "vr_openxr.h"
+static bool vrIsRuntimeAndHMDReady(void) {
+    XrInstanceCreateInfo ci = { XR_TYPE_INSTANCE_CREATE_INFO };
+    strncpy(ci.applicationInfo.applicationName, "GEVRprobe", XR_MAX_APPLICATION_NAME_SIZE - 1);
+    ci.applicationInfo.apiVersion = XR_API_VERSION_1_0;
+    XrInstance probe = XR_NULL_HANDLE;
+    if (XR_FAILED(xrCreateInstance(&ci, &probe)) || probe == XR_NULL_HANDLE) return false;
+    XrSystemGetInfo sysInfo = { XR_TYPE_SYSTEM_GET_INFO };
+    sysInfo.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
+    XrSystemId sysId = XR_NULL_SYSTEM_ID;
+    const XrResult rs = xrGetSystem(probe, &sysInfo, &sysId);
+    xrDestroyInstance(probe);
+    return XR_SUCCEEDED(rs);
+}
+static inline bool vrEnsureDefaultRuntimeRunning() { return vrIsRuntimeAndHMDReady(); }
+#elif !defined(ANDROID) // Windows
 
 #include <windows.h>
 #include <string>

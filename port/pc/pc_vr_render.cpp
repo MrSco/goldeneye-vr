@@ -16,7 +16,11 @@
 #include "../fast3d/glad/glad.h"
 #include <stdio.h>
 #include <stdlib.h>
+#ifdef _WIN32
 #include <direct.h>
+#else
+#include <sys/stat.h>
+#endif
 #include "pc_testinput.h"
 #include <PR/ultratypes.h>
 #include "system.h"
@@ -86,7 +90,11 @@ void pc_write_shot(const char *name, int w, int h)
     FILE *f;
 
     if (!px) return;
+#ifdef _WIN32
     _mkdir("shots");
+#else
+    mkdir("shots", 0755);
+#endif
     snprintf(path, sizeof(path), "shots/%s.bmp", name);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     glReadBuffer(GL_BACK);

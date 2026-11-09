@@ -21,6 +21,7 @@
 #include <thread>
 #include <condition_variable>
 #include <cstdint>
+#include <cstdio>
 
 namespace pcnet {
 
@@ -108,6 +109,7 @@ std::string tailFile(const std::string &path, size_t max);   // LogReporter.tail
 bool writeFileAtomic(const std::string &path, const std::string &data);   // a new file renamed over the old
 long long freeSpace(const std::string &path);       // bytes free on path's volume, -1 unknown
 std::string exeDir();                               // the folder GoldenEyeVR.exe runs from
+FILE *openFile(const std::string &path, const char *mode);   // fopen with a UTF-8 path
 
 /* ---- SharedPreferences: key=value lines in gevr_prefs.txt beside the exe ---- */
 

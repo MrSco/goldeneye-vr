@@ -252,7 +252,7 @@ public:
         const std::string id = p->id, beanDir = dir(*p);
         worker_.post([this, id, beanDir, path] {
             run(id, [id, beanDir, path] {
-                FILE *f = _wfopen(wide(path).c_str(), L"rb");
+                FILE *f = openFile(path, "rb");
                 if (!f) throw HttpError{0, "could not open that file"};
                 char msg[256] = "";
                 // the native side reads and closes it
@@ -273,7 +273,7 @@ private:
         try {
             deleteTree(tmp);
             if (!makeDirs(tmp)) throw HttpError{0, "could not create " + tmp};
-            FILE *f = _wfopen(wide(path).c_str(), L"rb");
+            FILE *f = openFile(path, "rb");
             if (!f) throw HttpError{0, "could not open that file"};
             char msg[256] = "";
             // the native side reads and closes it; it writes with the C runtime's
@@ -418,7 +418,7 @@ private:
 
     void download(const std::string &site, const Build &b, const std::string &out)
     {
-        FILE *f = _wfopen(wide(out).c_str(), L"wb");
+        FILE *f = openFile(out, "wb");
         if (!f) throw HttpError{0, "could not write " + out};
         long long got = 0;
         bool tooBig = false, writeFailed = false;

@@ -1011,8 +1011,8 @@ extern u32 		osGetMemSize(void);
 
 /* Printf */
 
-#ifdef GEVR_HEADLESS
-#include <stdio.h> /* glibc's C++ declaration is noexcept: take it, not a second one */
+#if defined(GEVR_HEADLESS) || (defined(__linux__) && !defined(ANDROID))
+#include <stdio.h> /* glibc's C++ declaration is noexcept: take it, not a second one (the server, the PC game on Linux) */
 #else
 extern int		sprintf(char *s, const char *fmt, ...);
 #endif

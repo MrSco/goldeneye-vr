@@ -374,6 +374,11 @@ int main(int argc, const char **argv)
      * (Quest Link, Air Link, Virtual Desktop, SteamVR), as Perfect Dark VR's PC
      * build does (port/fast3d/gfx_sdl2.cpp), rather than failing at the
      * session; closing it quits. */
+#ifndef _WIN32
+    /* Linux: OpenXR's desktop GL binding is GLX (vr_openxr.cpp), so SDL's X11
+     * driver, under Wayland too (XWayland) */
+    SDL_SetHint(SDL_HINT_VIDEODRIVER, "x11");
+#endif
     vrShowWaitingWindow("logo.bmp");
 #endif
 #ifdef GEVR_HEADLESS

@@ -28,7 +28,7 @@ elseif(NOT GEVR_PLATFORM STREQUAL "quest" OR NOT ANDROID)
   message(FATAL_ERROR
     "Pick a build: the Quest app through android/gradlew.bat assembleRelease (or assembleDebug), "
     "-DGEVR_PLATFORM=server (or -DGEVR_HEADLESS=ON) for the dedicated server, "
-    "or -DGEVR_PLATFORM=pc for Windows (tools/build_pc.py).")
+    "or -DGEVR_PLATFORM=pc for Windows or Linux (tools/build_pc.py, tools/build_linux.sh).")
 endif()
 message(STATUS "GoldenEye VR build: ${GEVR_PLATFORM}")
 
@@ -75,8 +75,10 @@ message(STATUS "Target arch: ${TARGET_ARCH}")
 
 if(GEVR_HEADLESS)
   set(TARGET_OS "linux")
-elseif(GEVR_PC)
+elseif(GEVR_PC AND WIN32)
   set(TARGET_OS "windows")
+elseif(GEVR_PC)
+  set(TARGET_OS "linux")
 else()
   set(TARGET_OS "android")
 endif()
@@ -143,10 +145,13 @@ if(GEVR_HEADLESS OR GEVR_PC)
   if(GEVR_HEADLESS)
     # _GNU_SOURCE: glibc hides the POSIX and BSD names bionic always shows
     add_definitions(-DGEVR_HEADLESS=1 -D_GNU_SOURCE)
-  else()
+  elseif(WIN32)
     # LLVM-MinGW (UCRT): winpthreads gives the POSIX threads and clocks, and
     # _USE_MATH_DEFINES the M_PI the NDK and glibc define by default
     add_definitions(-DGEVR_PC=1 -D_USE_MATH_DEFINES -DWIN32_LEAN_AND_MEAN -DNOMINMAX -DSDL_MAIN_HANDLED)
+  else()
+    # Linux (and Steam Frame's userland): glibc as the server's
+    add_definitions(-DGEVR_PC=1 -D_GNU_SOURCE -DSDL_MAIN_HANDLED)
   endif()
   # The Quest builds with NDK 25's clang 14, where these are warnings; newer
   # clang makes them errors. Same code, same rules.
@@ -539,19 +544,41 @@ if(GEVR_PC)
   # Audio's phonon.dll and (PC VR) Khronos's openxr_loader.dll go beside them.
   set(GEVR_STEAMAUDIO_WIN "" CACHE PATH "Folder with Steam Audio 4.8.1's Windows phonon.dll and phonon.lib")
   set(GEVR_OPENXR_WIN "" CACHE PATH "Folder with Khronos's Windows x64 openxr_loader.lib and openxr_loader.dll")
+  set(GEVR_STEAMAUDIO_LINUX "" CACHE PATH "Folder with Steam Audio 4.8.1's Linux x64 libphonon.so")
+  if(NOT WIN32)
+    # Linux: libcurl for the services (pc_http.cpp), the desktop's GL
+    find_package(CURL REQUIRED)
+    find_package(OpenGL REQUIRED)
+    find_package(Threads REQUIRED)
+  endif()
 
   function(gevr_pc_target name)
     add_executable(${name} ${ARGN})
     add_dependencies(${name} gevr_buildid)
     target_include_directories(${name} PRIVATE ${GEVR_INCLUDES})
-    # SHELL: keeps each -include with its file (CMake drops a repeated option)
-    target_compile_options(${name} PRIVATE "SHELL:-include \"${CMAKE_BINARY_DIR}/port/include/versioninfo.h\""
-      "SHELL:-include \"${CMAKE_SOURCE_DIR}/port/pc/pc_compat.h\"")
-    target_link_libraries(${name} ${LIBS} juice-static opus gevr_physics
-      opengl32 ws2_32 iphlpapi winmm bcrypt imm32 version setupapi psapi winhttp comdlg32 dbghelp)
-    target_link_options(${name} PRIVATE -static -Wl,--error-limit=0)
+    if(WIN32)
+      # SHELL: keeps each -include with its file (CMake drops a repeated option)
+      target_compile_options(${name} PRIVATE "SHELL:-include \"${CMAKE_BINARY_DIR}/port/include/versioninfo.h\""
+        "SHELL:-include \"${CMAKE_SOURCE_DIR}/port/pc/pc_compat.h\"")
+      target_link_libraries(${name} ${LIBS} juice-static opus gevr_physics
+        opengl32 ws2_32 iphlpapi winmm bcrypt imm32 version setupapi psapi winhttp comdlg32 dbghelp)
+      target_link_options(${name} PRIVATE -static -Wl,--error-limit=0)
+    else()
+      target_compile_options(${name} PRIVATE "SHELL:-include \"${CMAKE_BINARY_DIR}/port/include/versioninfo.h\"")
+      target_link_libraries(${name} ${LIBS} juice-static opus gevr_physics
+        CURL::libcurl OpenGL::GL Threads::Threads ${CMAKE_DL_LIBS} m)
+      # libphonon.so and the rest found beside the binary, as on Windows
+      set_target_properties(${name} PROPERTIES BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN")
+      if(GEVR_STEAMAUDIO_LINUX AND EXISTS "${GEVR_STEAMAUDIO_LINUX}/libphonon.so")
+        target_include_directories(${name} PRIVATE "${CMAKE_SOURCE_DIR}/port/external/steamaudio/include")
+        target_compile_definitions(${name} PRIVATE GEVR_STEAMAUDIO=1)
+        target_link_libraries(${name} "${GEVR_STEAMAUDIO_LINUX}/libphonon.so")
+        add_custom_command(TARGET ${name} POST_BUILD
+          COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${GEVR_STEAMAUDIO_LINUX}/libphonon.so" "$<TARGET_FILE_DIR:${name}>")
+      endif()
+    endif()
     # Steam Audio for voice chat (net_spatial.c), the Quest's 4.8.1
-    if(GEVR_STEAMAUDIO_WIN AND EXISTS "${GEVR_STEAMAUDIO_WIN}/phonon.lib")
+    if(WIN32 AND GEVR_STEAMAUDIO_WIN AND EXISTS "${GEVR_STEAMAUDIO_WIN}/phonon.lib")
       target_include_directories(${name} PRIVATE "${CMAKE_SOURCE_DIR}/port/external/steamaudio/include")
       target_compile_definitions(${name} PRIVATE GEVR_STEAMAUDIO=1)
       target_link_libraries(${name} "${GEVR_STEAMAUDIO_WIN}/phonon.lib")
@@ -564,8 +591,22 @@ if(GEVR_PC)
   gevr_pc_target(GoldenEyeVR ${SRC})
   target_compile_definitions(GoldenEyeVR PRIVATE GEVR_PC_FLAT=1)
 
-  # PC VR: the flat stand-ins out, the Quest's VR layer and window in
-  if(GEVR_OPENXR_WIN AND EXISTS "${GEVR_OPENXR_WIN}/openxr_loader.lib")
+  # PC VR: the flat stand-ins out, the Quest's VR layer and window in.
+  # Windows: Khronos's loader (GEVR_OPENXR_WIN); Linux: the distro's
+  # (libopenxr-dev, pkg-config "openxr") over GLX.
+  set(GEVR_PCVR_BUILD OFF)
+  if(WIN32 AND GEVR_OPENXR_WIN AND EXISTS "${GEVR_OPENXR_WIN}/openxr_loader.lib")
+    set(GEVR_PCVR_BUILD ON)
+  elseif(NOT WIN32)
+    set(GEVR_OPENXR_LINUX "" CACHE PATH "Prefix of the OpenXR loader's headers and library (default: the system's)")
+    find_path(OPENXR_INCLUDE_DIR openxr/openxr.h HINTS "${GEVR_OPENXR_LINUX}/include")
+    find_library(OPENXR_LIBRARY NAMES openxr_loader HINTS "${GEVR_OPENXR_LINUX}/lib/x86_64-linux-gnu" "${GEVR_OPENXR_LINUX}/lib")
+    find_package(X11 QUIET)
+    if(OPENXR_INCLUDE_DIR AND OPENXR_LIBRARY AND X11_FOUND)
+      set(GEVR_PCVR_BUILD ON)
+    endif()
+  endif()
+  if(GEVR_PCVR_BUILD)
     set(SRC_PCVR ${SRC})
     list(FILTER SRC_PCVR EXCLUDE REGEX "port/flat/.*")
     list(FILTER SRC_PCVR EXCLUDE REGEX "port/pc/pc_(window|vr_render)\\.cpp$")
@@ -574,14 +615,22 @@ if(GEVR_PC)
     list(APPEND SRC_PCVR ${SRC_VR_ALL} "${CMAKE_SOURCE_DIR}/port/fast3d/gfx_sdl2.cpp")
     list(REMOVE_DUPLICATES SRC_PCVR)
     gevr_pc_target(GoldenEyeVR-VR ${SRC_PCVR})
-    target_compile_definitions(GoldenEyeVR-VR PRIVATE GEVR_PCVR=1
-      XR_USE_PLATFORM_WIN32=1 XR_USE_GRAPHICS_API_OPENGL=1)
-    target_link_libraries(GoldenEyeVR-VR "${GEVR_OPENXR_WIN}/openxr_loader.lib")
-    add_custom_command(TARGET GoldenEyeVR-VR POST_BUILD
-      COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${GEVR_OPENXR_WIN}/openxr_loader.dll" "$<TARGET_FILE_DIR:GoldenEyeVR-VR>")
-    message(STATUS "PC VR: GoldenEyeVR-VR (OpenXR loader in ${GEVR_OPENXR_WIN})")
+    if(WIN32)
+      target_compile_definitions(GoldenEyeVR-VR PRIVATE GEVR_PCVR=1
+        XR_USE_PLATFORM_WIN32=1 XR_USE_GRAPHICS_API_OPENGL=1)
+      target_link_libraries(GoldenEyeVR-VR "${GEVR_OPENXR_WIN}/openxr_loader.lib")
+      add_custom_command(TARGET GoldenEyeVR-VR POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${GEVR_OPENXR_WIN}/openxr_loader.dll" "$<TARGET_FILE_DIR:GoldenEyeVR-VR>")
+      message(STATUS "PC VR: GoldenEyeVR-VR (OpenXR loader in ${GEVR_OPENXR_WIN})")
+    else()
+      target_compile_definitions(GoldenEyeVR-VR PRIVATE GEVR_PCVR=1
+        XR_USE_PLATFORM_XLIB=1 XR_USE_GRAPHICS_API_OPENGL=1)
+      target_include_directories(GoldenEyeVR-VR PRIVATE "${OPENXR_INCLUDE_DIR}" ${X11_INCLUDE_DIR})
+      target_link_libraries(GoldenEyeVR-VR "${OPENXR_LIBRARY}" ${X11_LIBRARIES})
+      message(STATUS "PC VR: GoldenEyeVR-VR (the system's OpenXR loader, GLX)")
+    endif()
   else()
-    message(STATUS "PC VR: no OpenXR loader given (GEVR_OPENXR_WIN), the flat game only")
+    message(STATUS "PC VR: no OpenXR loader (GEVR_OPENXR_WIN, or Linux's libopenxr-dev + X11), the flat game only")
   endif()
   return()
 endif()

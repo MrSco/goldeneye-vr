@@ -13,6 +13,14 @@
 #ifdef ANDROID
 #  define XR_USE_PLATFORM_ANDROID 1
 #  define XR_USE_GRAPHICS_API_OPENGL_ES 1
+#elif !defined(_WIN32)
+// Linux (and Steam Frame): desktop GL on SDL's X11 window (GLX)
+#  ifndef XR_USE_PLATFORM_XLIB
+#    define XR_USE_PLATFORM_XLIB
+#  endif
+#  ifndef XR_USE_GRAPHICS_API_OPENGL
+#    define XR_USE_GRAPHICS_API_OPENGL
+#  endif
 #else
 #  ifndef XR_USE_PLATFORM_WIN32
 #    define XR_USE_PLATFORM_WIN32
@@ -45,6 +53,22 @@
 // Graphics APIs
 #  include <EGL/egl.h>
 #  include <GLES3/gl3.h>
+#elif !defined(_WIN32)
+// Linux: glad first, then GLX (openxr_platform.h's Xlib binding needs both)
+#  include "../vr/vr_log.h"
+#  include "../fast3d/glad/glad.h"
+#  include <X11/Xlib.h>
+#  include <GL/glx.h>
+// Xlib's macros that collide with names in this file and the game's headers
+#  undef None
+#  undef Bool
+#  undef Status
+#  undef Success
+#  undef Always
+#  include <cstdio>
+#include "vr_runtime_launcher.h"
+#include <PR/ultratypes.h>
+#include <PR/os.h>
 #else
 // Windows API (unknwn.h: openxr_platform.h's Win32 types use IUnknown, which
 // WIN32_LEAN_AND_MEAN leaves out of windows.h)
@@ -136,8 +160,10 @@ static EGLDisplay g_sessionEglDisplay = EGL_NO_DISPLAY;
 static EGLContext g_sessionEglContext  = EGL_NO_CONTEXT;
 static EGLConfig  g_eglConfigForWindow = (EGLConfig)0;
 #else
+#ifdef _WIN32
 static HGLRC g_xr_hglrc = nullptr;
 static HDC   g_xr_hdc   = nullptr;
+#endif
 extern SDL_Window *wnd;
 extern SDL_GLContext ctx;
 #endif
@@ -1071,6 +1097,34 @@ static bool vr_create_session()
     binding.display = g_sessionEglDisplay;
     binding.config  = g_eglConfigForWindow;
     binding.context = g_sessionEglContext;
+#elif !defined(_WIN32)
+    // Linux: SDL's GLX context (SDL_VIDEODRIVER=x11 for PC VR, main.c)
+    Display *display = glXGetCurrentDisplay();
+    GLXContext context = glXGetCurrentContext();
+    GLXDrawable drawable = glXGetCurrentDrawable();
+    if (!display || !context) {
+        LOGE("No current GLX context (PC VR on Linux needs SDL's X11 driver)");
+        return false;
+    }
+    int fbId = 0, screen = DefaultScreen(display);
+    glXQueryContext(display, context, GLX_FBCONFIG_ID, &fbId);
+    glXQueryContext(display, context, GLX_SCREEN, &screen);
+    const int want[] = { GLX_FBCONFIG_ID, fbId, 0 };
+    int count = 0;
+    GLXFBConfig *configs = glXChooseFBConfig(display, screen, want, &count);
+    if (!configs || count < 1) {
+        LOGE("No GLX FB config for the context (%d)", fbId);
+        return false;
+    }
+    XVisualInfo *visual = glXGetVisualFromFBConfig(display, configs[0]);
+    XrGraphicsBindingOpenGLXlibKHR binding{ XR_TYPE_GRAPHICS_BINDING_OPENGL_XLIB_KHR };
+    binding.xDisplay = display;
+    binding.visualid = visual ? (uint32_t)visual->visualid : 0;
+    binding.glxFBConfig = configs[0];
+    binding.glxDrawable = drawable;
+    binding.glxContext = context;
+    if (visual) XFree(visual);
+    XFree(configs);
 #else
     HDC   hdc   = wglGetCurrentDC();
     HGLRC hglrc = wglGetCurrentContext();
@@ -3995,7 +4049,7 @@ XrQuaternionf MultiplyQuaternions(XrQuaternionf q1, XrQuaternionf q2) {
 
 XrQuaternionf YawToQuaternion(float angleDegrees) {
     float rad = angleDegrees * (3.14159265f / 180.0f) * 0.5f;
-    return { 0.0f, std::sinf(rad), 0.0f, std::cosf(rad) };
+    return { 0.0f, sinf(rad), 0.0f, cosf(rad) };
 }
 
 static float GetYawDegreesFromQuaternion(XrQuaternionf q) {
@@ -4015,7 +4069,7 @@ extern "C" void vr_align_with_game_angle(float target_game_angle) {
 
 XrVector3f RotateVectorY(XrVector3f v, float angleDegrees) {
     float rad = angleDegrees * (3.14159265f / 180.0f);
-    float s = std::sinf(rad), c = std::cosf(rad);
+    float s = sinf(rad), c = cosf(rad);
     return { v.x * c + v.z * s, v.y, -v.x * s + v.z * c };
 }
 
@@ -5500,15 +5554,15 @@ static bool vr_locate_frame_poses(XrTime t, bool outside)
 
     for (int eye = 0; eye < 2; eye++) {
         XrFovf& fov = g_frameViews[eye].fov;
-        tanHalfWidthSum += (std::tanf(fov.angleRight) - std::tanf(fov.angleLeft)) * 0.5f;
-        tanHalfHeightSum += (std::tanf(fov.angleUp) - std::tanf(fov.angleDown)) * 0.5f;
+        tanHalfWidthSum += (tanf(fov.angleRight) - tanf(fov.angleLeft)) * 0.5f;
+        tanHalfHeightSum += (tanf(fov.angleUp) - tanf(fov.angleDown)) * 0.5f;
     }
 
     const float tanHalfWidth = tanHalfWidthSum * 0.5f;
     const float tanHalfHeight = tanHalfHeightSum * 0.5f;
 
     if (tanHalfWidth > 0.001f && tanHalfHeight > 0.001f) {
-        XrFov = 2.0f * std::atanf(tanHalfHeight) * (180.0f / 3.14159265f);
+        XrFov = 2.0f * atanf(tanHalfHeight) * (180.0f / 3.14159265f);
         XrAspect = tanHalfWidth / tanHalfHeight;
     }
 
@@ -5523,10 +5577,10 @@ static bool vr_locate_frame_poses(XrTime t, bool outside)
              XrFov, XrAspect);
         for (int eye = 0; eye < 2; eye++) {
             XrFovf& fov = g_frameViews[eye].fov;
-            const float tanLeft = std::tanf(fov.angleLeft);
-            const float tanRight = std::tanf(fov.angleRight);
-            const float tanUp = std::tanf(fov.angleUp);
-            const float tanDown = std::tanf(fov.angleDown);
+            const float tanLeft = tanf(fov.angleLeft);
+            const float tanRight = tanf(fov.angleRight);
+            const float tanUp = tanf(fov.angleUp);
+            const float tanDown = tanf(fov.angleDown);
             LOGI("OpenXR eye %d projection: scale_x=%.6f center_x=%.6f scale_y=%.6f center_y=%.6f",
                  eye,
                  2.0f / (tanRight - tanLeft),
@@ -5544,8 +5598,8 @@ static bool vr_locate_frame_poses(XrTime t, bool outside)
         float projMtx[16], viewMtx[16];
 
         shaders_build_xr_projection(
-                std::tanf(fov.angleLeft),  std::tanf(fov.angleRight),
-                std::tanf(fov.angleUp),    std::tanf(fov.angleDown),
+                tanf(fov.angleLeft),  tanf(fov.angleRight),
+                tanf(fov.angleUp),    tanf(fov.angleDown),
                 g_camZNear, g_camZFar, projMtx
         );
         shaders_build_xr_view(

@@ -69,6 +69,22 @@ static bool throws(const std::function<void()> &f, int status = 0)
     return false;
 }
 
+/* sha256File (the updater's download check): BCrypt on Windows, the built-in
+ * one on Linux; FIPS 180-4's known answers, the last over many read chunks */
+static void testSha256()
+{
+    CHECK(writeFileAtomic("sha_abc.bin", "abc"));
+    CHECK(sha256File("sha_abc.bin") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    CHECK(writeFileAtomic("sha_empty.bin", ""));
+    CHECK(sha256File("sha_empty.bin") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    CHECK(writeFileAtomic("sha_million.bin", std::string(1000000, 'a')));
+    CHECK(sha256File("sha_million.bin") == "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0");
+    CHECK(sha256File("sha_missing.bin").empty());
+    removeFile("sha_abc.bin");
+    removeFile("sha_empty.bin");
+    removeFile("sha_million.bin");
+}
+
 static void testArchive()
 {
     UnzipRules png;
@@ -332,6 +348,7 @@ static void testUpdater()
 
 int main()
 {
+    testSha256();
     testArchive();
     testMods();
     testReports();

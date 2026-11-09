@@ -51,6 +51,8 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <unistd.h>   // readlink
 #endif
 
 #include "pc_http.h"
@@ -227,8 +229,17 @@ std::string runningExeName()
         const size_t slash = path.find_last_of("/\\");
         return slash == std::string::npos ? path : path.substr(slash + 1);
     }
-#endif
     return "GoldenEyeVR.exe";
+#else
+    char buf[4096];
+    const ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (n > 0) {
+        const std::string path(buf, (size_t)n);
+        const size_t slash = path.find_last_of('/');
+        return slash == std::string::npos ? path : path.substr(slash + 1);
+    }
+    return "GoldenEyeVR";
+#endif
 }
 
 bool sameName(const std::string &a, const std::string &b)   // NTFS ignores case
@@ -420,7 +431,7 @@ private:
         for (char &c : name) if (!(isalnum((unsigned char)c) || c == '.' || c == '_' || c == '-')) c = '_';
         const std::string part = dir + "/" + name + ".part";
         const std::string zip = dir + "/" + name;
-        FILE *f = _wfopen(wide(part).c_str(), L"wb");
+        FILE *f = openFile(part, "wb");
         if (!f) throw HttpError{0, "could not save the download"};
         long long got = 0, total = r.zipSize;
         bool tooBig = false, writeFailed = false;

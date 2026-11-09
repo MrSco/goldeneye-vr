@@ -10,6 +10,7 @@
 #include "bondview.h"
 #include "bgfog.h"
 #include <limits.h>
+#include <float.h>   /* FLT_MAX */
 #ifdef GEVR
 #include "gevr_bean.h"
 static float s_gevrFogTransition;

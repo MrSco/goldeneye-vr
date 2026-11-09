@@ -41,6 +41,9 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <process.h>
+#else
+#include <unistd.h>         // getpid, readlink
+#include <sys/utsname.h>    // the kernel for the report's device line
 #endif
 
 #include "pc_http.h"
@@ -179,7 +182,9 @@ std::string exePath()
     const DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH * 4);
     return n ? narrow(std::wstring(buf, n)) : std::string("GoldenEyeVR.exe");
 #else
-    return "GoldenEyeVR";
+    char buf[4096];
+    const ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    return n > 0 ? std::string(buf, (size_t)n) : std::string("GoldenEyeVR");
 #endif
 }
 
@@ -199,7 +204,7 @@ int myPid()
 #ifdef _WIN32
     return (int)GetCurrentProcessId();
 #else
-    return 0;
+    return (int)getpid();
 #endif
 }
 
@@ -218,7 +223,9 @@ std::string device()
              (unsigned long)v.dwMinorVersion, (unsigned long)v.dwBuildNumber);
     return buf;
 #else
-    return "PC";
+    struct utsname u;
+    if (uname(&u) != 0) return "PC Linux";
+    return std::string("PC Linux ") + u.release + " " + u.machine;
 #endif
 }
 
