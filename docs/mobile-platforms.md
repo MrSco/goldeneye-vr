@@ -14,10 +14,9 @@ on the Quest's own GLES path. Next, **move the Java-only services to shared C**
 (PC P3 needs this anyway). Then do **iOS/iPadOS** as a sideloaded IPA built on
 GitHub's macOS runners, rendering through ANGLE on Metal as
 rebelancap/Project-Midas-ios does. After that comes **visionOS in a window**,
-then Midas's **stereo panel** in an immersive space, and **6DoF immersive**
-last, behind a spike. 6DoF is the only large, uncertain piece: Apple has no
-OpenXR and ANGLE's Metal backend has no multiview, so it needs a second XR
-backend on Compositor Services with one pass per eye. One protocol bump at the release carries an input-class byte in
+then (originally) Midas's **stereo panel** and **6DoF immersive**; both
+are dropped for now by the user's decisions below, and Vision Pro stays at
+most a flat window. One protocol bump at the release carries an input-class byte in
 HELLO and the lobby listing, and a host's "VR players only" rule.
 
 ## Where it fits
@@ -376,22 +375,40 @@ Android needs no new services work, since its Java services already work.
 7. **Fairness:** touch + auto-aim versus VR hands. The VR-only filter is the
    answer the user chose; aim assist is a host rule.
 
-## Open questions for the user
+## Decisions (user, 2026-11-09)
 
-1. **Apple developer account (99 USD/year)?** It gives 1-year signing, the
-   multicast entitlement (LAN discovery), associated domains (join links)
-   and AltStore PAL. Without it: free SideStore with 7-day re-signing.
-2. **Stores at all, or sideload only?** Play Store for Android, App Store
-   or AltStore PAL for iOS. Recommendation: sideload only, as on Quest.
-3. **A Mac for development?** Not needed for builds (CI), but it matters
-   for debugging iOS/visionOS.
-4. **visionOS immersive scope:** require PSVR2 Sense controllers (port the
-   Touch bindings) or also hands-only play (new design)?
-5. **Phone touch players in public lobbies:** is the VR-only filter enough,
-   or should there also be a "no touch players" host option?
-6. **Android: one APK or two?** Recommended: two flavors from one tree
-   (`quest`, `mobile`). One universal APK would carry the OpenXR loader and
-   Quest manifest entries on phones.
+1. **Sideload only**, as on Quest: no Play Store, App Store or AltStore PAL.
+   Store policies don't constrain anything.
+2. **Apple:** the user has a paid developer account and a Mac. So 1-year
+   signing, the multicast entitlement can be requested (LAN discovery on
+   iOS), and iOS builds and debugging happen on the Mac; CI is optional.
+3. **Vision Pro never holds anything back.** No VR on it for now (M5a/M5b
+   dropped). At most the flat window (M4), with features switched off there
+   where they don't fit; if even that costs too much, the platform is dropped.
+4. **Controllers are required** on phones and tablets: a paired gamepad, no
+   touch controls. The touch layout work and a "no touch players" option go
+   away. (Reading of the user's answer "controllers are required"; confirm.)
+5. **Android: two APKs** from one tree (`quest`, `mobile` flavors).
+
+### Corrections after a second look
+
+- **iOS online play is not new ground.** rebelancap/perfect-dark-ios (Dab's
+  Mod on iPhone, iPad and Vision Pro, same author as Project-Midas-ios) runs
+  Dab's netplay on iOS: direct connect, Dab's lobby server, and LAN once the
+  multicast entitlement is granted. Its port layer is the Perfect Dark PC
+  port ours comes from, so it is the closer reference for the whole iOS
+  shell, ahead of Project-Midas-ios.
+- **ANGLE is for iPhone and iPad too, not only Vision Pro.** Both rebelancap
+  ports render GLES through ANGLE on Metal on every Apple target
+  (`app/gfx/gfx_angle_egl.mm`, `scripts/make-angle-xcframeworks.sh`). Its
+  18 GB checkout is a one-time build on the Mac; the app carries two small
+  frameworks. Apple's own OpenGL ES is deprecated since iOS 12.
+- **Neither fork has iOS CI**: Project-Midas-ios's `main.yml` is upstream's
+  PC build (manual only), perfect-dark-ios has only `refresh-sources.yml`.
+  With a Mac at hand this matters less.
+- **No multiview on ANGLE's Metal backend**, so iOS needs fast3d's
+  non-multiview path fixed (pc-platforms.md: it draws nothing today). The
+  same fix covers PC GPUs without `GL_OVR_multiview`.
 
 ## Research notes (2026-11-09)
 
