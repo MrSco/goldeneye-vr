@@ -239,6 +239,31 @@ Perfect Dark's logo, which the vendored VR layer had shipped as the app icon.
 - **What for:** Network protocol design, `netbuf` endian-safe serialization, and server-authoritative state synchronization architecture adapted for GoldenEye VR multiplayer.
 - **Licence:** MIT.
 
+### Project Midas iOS (rebelancap/Project-Midas-ios, MIT) - touch layout and feel
+
+- **Repo:** https://github.com/rebelancap/Project-Midas-ios
+- **What for:** the phone/tablet touch controls (`port/flat/window/flat_touch.cpp`)
+  take their layout and feel from `app/ios/GETouchOverlay.m` and
+  `GETouchLayout.m`: the button table (positions, sizes, roles), the floating
+  stick (region, travel, dead zone, response curve), the look rate, AIM and
+  FIRE dragging the view, the mirrored left FIRE while aiming, and RELOAD's
+  reload-only press. Their table comes from the GoldenEye recomp port's
+  shipped layout.
+- **Licence:** MIT; notice in
+  [`port/licenses/project-midas-ios.txt`](port/licenses/project-midas-ios.txt),
+  also shipped in the APK.
+
+### Perfect Dark Android (Mr4xd3mn/perfect-dark-android, MIT) - touch mechanics
+
+- **Repo:** https://github.com/Mr4xd3mn/perfect-dark-android
+- **What for:** the touch controls' mechanics follow its `port/src/touch.c`:
+  SDL finger tracking by touch and finger id, each finger's role fixed when it
+  lands, relative look fed into the port's mouse look, the pad bits the game
+  already reads, and a tap that lands between two polls still being seen.
+- **Licence:** MIT; notice in
+  [`port/licenses/perfect-dark-android.txt`](port/licenses/perfect-dark-android.txt),
+  also shipped in the APK.
+
 ---
 
 ## Looked at, not adapted into this port

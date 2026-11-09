@@ -34,4 +34,6 @@ static inline unsigned gevrReloadTargets(unsigned requested, int rightEquipped, 
 int gevrVrReloadPressedMask(void);
 int gevrVrReloadHeldMask(void);
 int gevrVrTakeReloadMask(void);
+/* the touch RELOAD is held: B reloads without activating (port/src/input.c, lv.c) */
+int gevrReloadOnlyHeld(void);
 #endif

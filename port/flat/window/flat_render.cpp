@@ -33,6 +33,9 @@
 #include "system.h"
 
 extern SDL_Window *wnd;   // flat_window.cpp
+#ifdef GEVR_FLAT
+extern "C" void flatTouchDraw(int winW, int winH);   // flat_touch.cpp: the on-screen controls
+#endif
 
 /* --- vr_openxr.cpp: eyes and their matrices -------------------------------- */
 
@@ -159,6 +162,9 @@ bool vr_screen_present(unsigned int srcArrayTex, int w, int h)
     glClear(GL_COLOR_BUFFER_BIT);
     glBlitFramebuffer(0, 0, w, h, dx, dy, dx + dw, dy + dh, GL_COLOR_BUFFER_BIT, GL_LINEAR);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+#ifdef GEVR_FLAT
+    flatTouchDraw(winW, winH);
+#endif
 #ifdef GEVR_PC
     if (const char *shot = pcTestInputTakeShot()) {
         pc_write_shot(shot, winW, winH);

@@ -342,9 +342,16 @@ static void gfx_sdl_get_dimensions(uint32_t* width, uint32_t* height, int32_t* p
     SDL_GetWindowPosition(wnd, static_cast<int*>(posX), static_cast<int*>(posY));
 }
 
+#ifdef GEVR_FLAT
+extern "C" void flatTouchEvent(const SDL_Event *e);   // flat_touch.cpp: the on-screen controls
+#endif
+
 static void gfx_sdl_handle_events(void) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+#ifdef GEVR_FLAT
+        flatTouchEvent(&event);
+#endif
         switch (event.type) {
             case SDL_KEYDOWN:
                 if (event.key.keysym.sym == SDLK_RETURN && (event.key.keysym.mod & KMOD_ALT)) {

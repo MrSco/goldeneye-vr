@@ -48,6 +48,20 @@ extern void gevrPlayerLayout(u32 *size, u32 *pausestate); // bondview2.c
 /* Crouch toggle for the left stick click; bondview2.c applies it. */
 static s32 gevrCrouchToggle = 0;
 
+/* The touch RELOAD is held: its B reloads and never activates (lv.c), as
+ * Midas's reload-only flag. 0 everywhere else. */
+static s32 gevrReloadOnly = 0;
+int gevrReloadOnlyHeld(void) { return gevrReloadOnly; }
+
+#ifdef GEVR_FLAT
+/* port/flat/window/flat_touch.cpp: the on-screen controls */
+enum { TOUCH_FIRE = 1, TOUCH_AIM = 2, TOUCH_USE = 4, TOUCH_RELOAD = 8, TOUCH_CROUCH = 16,
+       TOUCH_WEAPON = 32, TOUCH_START = 64 };
+extern unsigned flatTouchPoll(int menu, float *sx, float *sy);
+extern int flatTouchTakeCrouch(void);
+extern int flatTouchTakeLookDeg(float *yaw, float *pitch);
+#endif
+
 /*
  * Stereo gameplay (bondview2.c gevrStereoFrame): the right stick turns the
  * body instead of reaching the game (Perfect Dark VR's joy_for_vr), and both
@@ -1342,6 +1356,9 @@ s32 inputReadController(s32 idx, OSContPad *npad)
          * the right one is the game's stick (look and turn), the left one
          * walks and strafes on the C buttons past a quarter; in menus the
          * stick pushed further navigates. The keyboard's stick keys win. */
+        const bool paused = g_CurrentPlayer && g_CurrentPlayer->pause_state != 0;
+        const bool menu = bossGetStageNum() == LEVELID_TITLE || paused ||
+                          (netIsActive() && g_CurrentPlayer && g_CurrentPlayer->mpmenuon);
         SDL_GameController *pad = pads[0];
         if (pad) {
             const struct controllercfg *pcfg = &padsCfg[0];
@@ -1349,9 +1366,6 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             const f32 ly = -SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY) / 32767.0f;
             const f32 rx = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTX) / 32767.0f;
             const f32 ry = -SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTY) / 32767.0f;
-            const bool paused = g_CurrentPlayer && g_CurrentPlayer->pause_state != 0;
-            const bool menu = bossGetStageNum() == LEVELID_TITLE || paused ||
-                              (netIsActive() && g_CurrentPlayer && g_CurrentPlayer->mpmenuon);
             f32 sx = rx, sy = ry;
             if (menu && lx * lx + ly * ly >= rx * rx + ry * ry) {
                 sx = lx;
@@ -1371,6 +1385,36 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 if (ly < -0.25f) npad->button |= D_CBUTTONS;
                 if (ly >  0.25f) npad->button |= U_CBUTTONS;
             }
+        }
+        /* The on-screen touch controls (port/flat/window/flat_touch.cpp, from
+         * Midas-ios and PD Android): the floating stick as a pad's left stick,
+         * except in menus, where it moves GoldenEye's cursor and FIRE selects. */
+        {
+            f32 tx, ty;
+            const unsigned touch = flatTouchPoll(menu, &tx, &ty);
+            if (touch & TOUCH_FIRE) npad->button |= menu ? A_BUTTON : Z_TRIG;
+            if (touch & TOUCH_AIM) npad->button |= R_TRIG;
+            if (touch & (TOUCH_USE | TOUCH_RELOAD)) npad->button |= B_BUTTON;
+            if (touch & TOUCH_WEAPON) npad->button |= A_BUTTON;
+            if (touch & TOUCH_START) npad->button |= START_BUTTON;
+            /* RELOAD is B that never opens a door; USE held as well asks for the door */
+            gevrReloadOnly = (touch & TOUCH_RELOAD) && !(touch & TOUCH_USE);
+            if (menu) {
+                if (npad->stick_x == 0) npad->stick_x = (s8)(tx * 80.0f);
+                if (npad->stick_y == 0) npad->stick_y = (s8)(ty * 80.0f);
+            } else {
+                if (tx < -0.25f) npad->button |= L_CBUTTONS;
+                if (tx >  0.25f) npad->button |= R_CBUTTONS;
+                if (ty < -0.25f) npad->button |= D_CBUTTONS;
+                if (ty >  0.25f) npad->button |= U_CBUTTONS;
+            }
+            /* CROUCH toggles, as the Quest's left stick click; a new level stands */
+            static s32 crouchstage = -1;
+            if (bossGetStageNum() != crouchstage) {
+                crouchstage = bossGetStageNum();
+                gevrCrouchToggle = 0;
+            }
+            if ((flatTouchTakeCrouch() & 1) && !menu) gevrCrouchToggle = !gevrCrouchToggle;
         }
     } else   /* never true below: the headset's mapping is for the local slot */
 #endif
@@ -3094,10 +3138,18 @@ void inputMouseGetRawDelta(s32 *dx, s32 *dy)
     if (dy) *dy = mouseDY;
 }
 
-#ifdef GEVR_PC
+#if defined(GEVR_PC) || defined(GEVR_FLAT)
+/* The mouse or a finger looks directly this poll (bondview2.c g_portMouseDirect). */
+static s32 touchLooked;
+s32 inputLookDirect(void)
+{
+    return mouseLocked || touchLooked;
+}
+
 /*
  * This poll's mouse movement in degrees of camera turn, before the zoom's FOV
- * ratio, for mouse look (bondview2.c). Project Midas's
+ * ratio, for mouse look (bondview2.c). A touch screen's look drag
+ * (port/flat/window/flat_touch.cpp) adds its own, in the same degrees. Project Midas's
  * portInputMouseLookDeltaDeg, after the 1964 GoldenEye mouse injector: a
  * tenth of a degree a count at the default sensitivity (2.5, the injector's
  * own default), no smoothing or acceleration. Nothing unless captured.
@@ -3110,6 +3162,14 @@ void inputMouseGetLookDeg(f32 *dxdeg, f32 *dydeg)
         mx = ((f32)mouseDX / 10.0f) * (mouseSensX / 2.5f);
         my = ((f32)mouseDY / 10.0f) * (mouseSensY / 2.5f);
     }
+#ifdef GEVR_FLAT
+    {
+        f32 tyaw, tpitch;
+        touchLooked = flatTouchTakeLookDeg(&tyaw, &tpitch);
+        mx += tyaw;
+        my += tpitch;
+    }
+#endif
     if (dxdeg) *dxdeg = mx;
     if (dydeg) *dydeg = my;
 }

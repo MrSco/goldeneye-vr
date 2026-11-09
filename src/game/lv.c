@@ -1116,7 +1116,8 @@ Gfx* lvlRender(Gfx* DL)
 #endif
             if (bond_pressed_reload_activate() &&
 #ifdef GEVR
-                (gevrHandReloadActive() || bond_interact_object())
+                /* a touch RELOAD reloads without trying the door first (port/src/input.c) */
+                (gevrHandReloadActive() || gevrReloadOnlyHeld() || bond_interact_object())
 #else
                 bond_interact_object()
 #endif
