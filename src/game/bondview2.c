@@ -11626,6 +11626,69 @@ void bondviewApplyVertaTheta(void)
  * EU address 7F081A18.
  * Perfect Dark method bmoveProcessInput.
 */
+#ifdef GEVR_PC
+/*
+ * Mouse look for the flat PC game (docs/pc-platforms.md), ported from
+ * Project Midas's src/game/bondview2.c (murkantor/Project-Midas, MIT port
+ * code), which models the 1964 emulator's GoldenEye mouse injector: the
+ * mouse turns the camera ANGLE directly each tick (no stick integration or
+ * damping), pitch and yaw scaled by the zoom (fov / 60), and in aim mode it
+ * moves the crosshair instead. Player 1 only; keyboard and mouse belong to
+ * player 1. Not ported yet: Midas's aim lock, wide-window aim reach, the pad
+ * look stick, the crosshair snap (gunfire.c) and the aim-mode edge turn.
+ */
+s32 inputMouseIsLocked(void);                    /* port/src/input.c */
+void inputMouseGetLookDeg(f32 *dxdeg, f32 *dydeg);
+
+f32 g_portMouseYawDeg;      /* this tick's mouse turn in degrees, gated and inverted */
+f32 g_portMousePitchDeg;
+s32 g_portMouseDirect;      /* the mouse drove this tick */
+static f32 g_bondviewMouseSwivelX;   /* aim-mode crosshair offset from the mouse */
+static f32 g_bondviewMouseSwivelY;
+static s32 g_bondviewAimSeeded;      /* the offset was seeded from the gun's sway on aim entry */
+static s32 g_bondviewSwayFromMouse;  /* player 1's last look input was the mouse */
+static s32 g_bondviewAimMouseMoved;  /* the mouse has moved the crosshair this aim session */
+
+/* crosshair travel per degree of mouse movement in aim mode (Midas) */
+#define AIM_CROSSHAIR_PER_DEG 0.0173f
+
+/* The one place that decides whether this tick's mouse delta may move Bond's
+ * view: when the stick would be obeyed (Midas portMouseLookPermitted). */
+static s32 portMouseLookPermitted(void)
+{
+    if (lvlGetControlsLockedFlag() != 0) return 0;
+    if (g_CurrentPlayer->cameramode != 0) return 0;           /* swirl, death cam, cutscene */
+    if (get_is_ramrom_flag() != 0) return 0;                  /* demo playback replays a pad */
+    if (checkGamePaused() != 0) return 0;                     /* MP pause */
+    if (g_CurrentPlayer->watch_animation_state != WATCH_ANIMATION_0x0) return 0; /* solo pause: the watch */
+    if (g_CurrentPlayer->bonddead != FALSE) return 0;
+    if (!disablePlayerActionsWhenPausedOrInMpMenu()) return 0;
+    if (getPlayerCount() != 1 && (g_stopPlayFlag != 0 || g_gameOverFlag != 0)) return 0;
+    return 1;
+}
+
+/* The injector scales both axes by fov / 60, so only a real zoom slows the mouse. */
+static f32 portMouseFovRatio(void)
+{
+    return viGetFovY() / 60.0f;
+}
+
+static s32 portTankTurretWeaponHeld(void)
+{
+    return g_PlayerIsInTank == 1 && getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_TANKSHELLS;
+}
+
+/* The crosshair swivel is in viewport units: scale the mouse's Y by width /
+ * height so a hand movement is the same distance on screen either way. */
+static f32 portAimIsoY(void)
+{
+    f32 w = getPlayer_c_screenwidth();
+    f32 h = getPlayer_c_screenheight();
+
+    return (w > 0.0f && h > 0.0f) ? w / h : 1.0f;
+}
+#endif
+
 void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 {
     struct MoveData moveData; // sp120
@@ -11727,6 +11790,30 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 
     moveData.controlStickXRaw = (s32)stick_x;
     moveData.controlStickYRaw = (s32)stick_y;
+#ifdef GEVR_PC
+    /* Mouse look (Midas): sample this tick's mouse turn for player 1, drained
+     * every tick but kept only when the stick could move Bond, so motion never
+     * banks up and snaps the camera when control returns. */
+    g_portMouseYawDeg = 0.0f;
+    g_portMousePitchDeg = 0.0f;
+    g_portMouseDirect = 0;
+    if (get_cur_playernum() == 0)
+    {
+        inputMouseGetLookDeg(&g_portMouseYawDeg, &g_portMousePitchDeg);
+        if (!portMouseLookPermitted())
+        {
+            g_portMouseYawDeg = 0.0f;
+            g_portMousePitchDeg = 0.0f;
+        }
+        g_portMouseDirect = inputMouseIsLocked() != 0;
+        /* the mouse's pitch sign downstream follows the default REVERSE
+         * setting, so UPRIGHT negates it (mouse forward looks up) */
+        if (!moveData.invertPitch)
+        {
+            g_portMousePitchDeg = -g_portMousePitchDeg;
+        }
+    }
+#endif
 
     moveData.analogTurn = moveData.controlStickXSafe;
     moveData.analogPitch = moveData.controlStickYSafe;
@@ -12505,6 +12592,16 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 g_TankTurretTurn = gevrStereoTankTurretTurn();
             }
 #endif
+#ifdef GEVR_PC
+            /* Mouse yaw turns the turret, not the hull (Midas): the on-foot
+             * camera's degrees in radians, slowed by 2.5. With the tank's own
+             * gun in hand this holds in aim mode too. */
+            if ((!g_CurrentPlayer->insightaimmode || portTankTurretWeaponHeld())
+                && g_portMouseDirect && g_portMouseYawDeg != 0.0f)
+            {
+                g_TankTurretTurn += DegToRad1Fact(g_portMouseYawDeg * portMouseFovRatio()) / 2.5f;
+            }
+#endif
 
             if (!g_CurrentPlayer->insightaimmode)
             {
@@ -12950,6 +13047,15 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
             }
 
             g_CurrentPlayer->vv_verta += g_CurrentPlayer->speedverta * g_GlobalTimerDelta * 3.5f;
+#ifdef GEVR_PC
+            /* Mouse pitch (Midas): the delta is the angle, added after the
+             * engine's own integration; its limits below still apply. Not
+             * while aiming: then the mouse moves the crosshair. */
+            if (g_portMouseDirect && g_portMousePitchDeg != 0.0f && !g_CurrentPlayer->insightaimmode)
+            {
+                g_CurrentPlayer->vv_verta += g_portMousePitchDeg * portMouseFovRatio();
+            }
+#endif
 
             if ((g_PlayerIsInTank == 1) && (g_EnterTankAudioState == TANK_RUN_STATE_RUNNING) && (g_CurrentPlayer->vv_verta < -20.0f))
             {
@@ -13065,6 +13171,80 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         g_CurrentPlayer->controldef = CONTROLLER_CONFIG_KISSY;
     }
 
+#ifdef GEVR_PC
+    /* Aim-mode crosshair from the mouse (Midas): the stick places the
+     * crosshair absolutely, a mouse is relative, so its turn accumulates into
+     * an offset clamped to the stick's reach and cleared when aiming ends. */
+    if (get_cur_playernum() != 0)
+    {
+        /* the offset is player 1's; other players' ticks leave it alone */
+    }
+    else if (g_CurrentPlayer->controldef != CONTROLLER_CONFIG_KISSY || !moveData.canManualAim)
+    {
+        g_bondviewMouseSwivelX = 0.0f;
+        g_bondviewMouseSwivelY = 0.0f;
+        g_bondviewAimSeeded = 0;
+        g_bondviewAimMouseMoved = 0;
+        /* who swayed the gun last: the mouse, or the stick and keys */
+        if (g_portMouseYawDeg != 0.0f || g_portMousePitchDeg != 0.0f)
+        {
+            g_bondviewSwayFromMouse = 1;
+        }
+        else if (g_CurrentPlayer->speedtheta != 0.0f || g_CurrentPlayer->speedverta != 0.0f)
+        {
+            g_bondviewSwayFromMouse = 0;
+        }
+    }
+    else
+    {
+        if (!g_bondviewAimSeeded)
+        {
+            /* Aim entry: start the crosshair where the gun points, when the
+             * mouse did the looking (pos * (1 - d), gunfire.c's sway filter) */
+            g_bondviewAimSeeded = 1;
+            if (g_portMouseDirect && g_bondviewSwayFromMouse)
+            {
+                f32 d = g_CurrentPlayer->guncrossdamp;
+                s32 autoGun = bondwalkItemCheckBitflags(getCurrentPlayerWeaponId(GUNRIGHT), WEAPONSTATBITFLAG_HAS_AUTO_AIM);
+
+                if (d > 0.0f && d < 1.0f)
+                {
+                    if (!portTankTurretWeaponHeld()
+                        && !(autoGun && g_CurrentPlayer->autoaim_target_x && currentPlayerGetXAutoAimEnabledRedirect()))
+                    {
+                        g_bondviewMouseSwivelX = g_CurrentPlayer->crosshair_x_pos * (1.0f - d);
+                    }
+                    if (!(autoGun && g_CurrentPlayer->autoaim_target_y && currentPlayerGetYAutoAimEnabledRedirect()))
+                    {
+                        g_bondviewMouseSwivelY = g_CurrentPlayer->crosshair_y_pos * (1.0f - d);
+                    }
+                }
+            }
+        }
+        if (g_portMouseYawDeg != 0.0f || g_portMousePitchDeg != 0.0f)
+        {
+            g_bondviewAimMouseMoved = 1;
+            /* the tank's own gun: mouse X stays on the turret */
+            if (!portTankTurretWeaponHeld())
+            {
+                g_bondviewMouseSwivelX += g_portMouseYawDeg * AIM_CROSSHAIR_PER_DEG;
+            }
+            g_bondviewMouseSwivelY -= g_portMousePitchDeg * AIM_CROSSHAIR_PER_DEG * portAimIsoY();
+        }
+        else if (!g_bondviewAimMouseMoved
+                 && (moveData.controlStickXRaw != 0 || moveData.controlStickYRaw != 0))
+        {
+            /* the stick took over without the mouse: drop the seed so a pad glides as vanilla */
+            g_bondviewMouseSwivelX = 0.0f;
+            g_bondviewMouseSwivelY = 0.0f;
+        }
+        if (g_bondviewMouseSwivelX >  0.65f) g_bondviewMouseSwivelX =  0.65f;
+        if (g_bondviewMouseSwivelX < -0.65f) g_bondviewMouseSwivelX = -0.65f;
+        if (g_bondviewMouseSwivelY >  0.65f) g_bondviewMouseSwivelY =  0.65f;
+        if (g_bondviewMouseSwivelY < -0.65f) g_bondviewMouseSwivelY = -0.65f;
+    }
+#endif
+
     if (g_CurrentPlayer->controldef == CONTROLLER_CONFIG_HONEY)
     {
         gunSetAimType(0);
@@ -13093,12 +13273,51 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
             ftemp_nostack_sp78 = -g_CurrentPlayer->speedverta * 0.1f;
         }
 
+#ifdef GEVR_PC
+        /* Mouse gun sway (Midas): the mouse doesn't touch speedtheta /
+         * speedverta, which the sway comes from, so this tick's applied angle
+         * goes back in as the equivalent rate. Not on an axis auto-aim steers. */
+        if (g_portMouseDirect && g_GlobalTimerDelta > 0.0f)
+        {
+            f32 ratio = portMouseFovRatio();
+
+            if (g_portMouseYawDeg != 0.0f && !(moveData.canAutoAim
+                && currentPlayerGetXAutoAimEnabledRedirect()
+                && g_CurrentPlayer->autoaim_target_x
+                && bondwalkItemCheckBitflags(getCurrentPlayerWeaponId(GUNRIGHT), WEAPONSTATBITFLAG_HAS_AUTO_AIM)))
+            {
+                sp70 += ((g_portMouseYawDeg * ratio) / (g_GlobalTimerDelta * 3.5f)) * 0.3f;
+            }
+            if (g_portMousePitchDeg != 0.0f && !(moveData.canAutoAim
+                && currentPlayerGetYAutoAimEnabledRedirect()
+                && g_CurrentPlayer->autoaim_target_y
+                && bondwalkItemCheckBitflags(getCurrentPlayerWeaponId(GUNRIGHT), WEAPONSTATBITFLAG_HAS_AUTO_AIM)))
+            {
+                ftemp_nostack_sp78 -= ((g_portMousePitchDeg * ratio) / (g_GlobalTimerDelta * 3.5f)) * 0.1f;
+            }
+        }
+#endif
+
         sub_GAME_7F067F58(sp70, ftemp_nostack_sp78, MAX_AIMLOCK_SPEED_DEFAULT);
     }
     else if (g_CurrentPlayer->controldef == CONTROLLER_CONFIG_KISSY)
     {
         gunSetAimType(0);
+#ifdef GEVR_PC
+        { /* the stick's position plus the mouse's offset (player 1's), same clamp */
+            f32 swx = (((f32) moveData.controlStickXRaw * 0.65f) / 80.0f)
+                + (get_cur_playernum() == 0 ? g_bondviewMouseSwivelX : 0.0f);
+            f32 swy = (((f32) moveData.controlStickYRaw * 0.65f) / 80.0f)
+                + (get_cur_playernum() == 0 ? g_bondviewMouseSwivelY : 0.0f);
+            if (swx >  0.65f) swx =  0.65f;
+            if (swx < -0.65f) swx = -0.65f;
+            if (swy >  0.65f) swy =  0.65f;
+            if (swy < -0.65f) swy = -0.65f;
+            sub_GAME_7F067FBC(swx, swy);
+        }
+#else
         sub_GAME_7F067FBC(((f32) moveData.controlStickXRaw * 0.65f) / 80.0f, ((f32) moveData.controlStickYRaw * 0.65f) / 80.0f);
+#endif
     }
 }
 
@@ -14064,6 +14283,13 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     else
     {
         stack_padding_9 = g_CurrentPlayer->vv_theta + (g_CurrentPlayer->speedtheta * g_GlobalTimerDelta * 3.5f);
+#ifdef GEVR_PC
+        /* Mouse yaw (Midas): straight onto the camera angle; not while aiming */
+        if (g_portMouseDirect && g_portMouseYawDeg != 0.0f && !g_CurrentPlayer->insightaimmode)
+        {
+            stack_padding_9 += g_portMouseYawDeg * portMouseFovRatio();
+        }
+#endif
 
         while (stack_padding_9 < 0.0f)
         {

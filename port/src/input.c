@@ -396,7 +396,11 @@ static s32 useHIDAPI = 1;
 #endif
 static s32 useRawInput = 1;
 
+#ifdef GEVR_PC
+static s32 mouseEnabled = 1; // the flat PC game looks with it (bondview2.c, from Project Midas)
+#else
 static s32 mouseEnabled = 0; // Disabled for VR
+#endif
 static s32 mouseX, mouseY;
 static s32 mouseDX, mouseDY;
 static u32 mouseButtons;
@@ -2296,6 +2300,24 @@ void inputUpdate(void)
 
 
     if (mouseEnabled) {
+#ifdef GEVR_PC
+        inputUpdateMouse();
+        /* Project Midas's capture: a click in the window takes the mouse for
+         * looking, Escape or leaving the window gives it back. */
+        if (!mouseLocked) {
+            if ((mouseButtons & SDL_BUTTON_LMASK) && SDL_GetKeyboardFocus() != NULL) {
+                inputLockMouse(1);
+                sysLogPrintf(LOG_NOTE, "input: mouse captured for looking (Escape gives it back)");
+            }
+        } else {
+            const Uint8 *keys = SDL_GetKeyboardState(NULL);
+            const bool escape = keys && keys[SDL_SCANCODE_ESCAPE];
+            if (escape || SDL_GetKeyboardFocus() == NULL) {
+                inputLockMouse(0);
+                sysLogPrintf(LOG_NOTE, "input: mouse released (%s)", escape ? "Escape" : "focus lost");
+            }
+        }
+#endif
         // inputUpdateMouse(); Removed for VR
     }
 }
@@ -2879,6 +2901,27 @@ void inputMouseGetRawDelta(s32 *dx, s32 *dy)
     if (dx) *dx = mouseDX;
     if (dy) *dy = mouseDY;
 }
+
+#ifdef GEVR_PC
+/*
+ * This poll's mouse movement in degrees of camera turn, before the zoom's FOV
+ * ratio, for mouse look (bondview2.c). Project Midas's
+ * portInputMouseLookDeltaDeg, after the 1964 GoldenEye mouse injector: a
+ * tenth of a degree a count at the default sensitivity (2.5, the injector's
+ * own default), no smoothing or acceleration. Nothing unless captured.
+ */
+void inputMouseGetLookDeg(f32 *dxdeg, f32 *dydeg)
+{
+    f32 mx = 0.0f, my = 0.0f;
+
+    if (mouseEnabled && mouseLocked) {
+        mx = ((f32)mouseDX / 10.0f) * (mouseSensX / 2.5f);
+        my = ((f32)mouseDY / 10.0f) * (mouseSensY / 2.5f);
+    }
+    if (dxdeg) *dxdeg = mx;
+    if (dydeg) *dydeg = my;
+}
+#endif
 
 void inputMouseGetScaledDelta(f32* dx, f32* dy)
 {

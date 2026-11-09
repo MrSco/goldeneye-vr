@@ -254,6 +254,9 @@ void inputMouseGetRawDelta(s32 *dx, s32 *dy);
 // returns changes in mouse position since last frame, scaled by sensitivity
 // returns 0, 0 when the mouse is not locked into the window
 void inputMouseGetScaledDelta(f32 *dx, f32 *dy);
+#ifdef GEVR_PC
+void inputMouseGetLookDeg(f32 *dxdeg, f32 *dydeg);   // mouse look, degrees this poll (Project Midas)
+#endif
 
 // returns changes in mouse position since last frame, scaled by absolute sensitivity
 // returns 0, 0 when the mouse is not locked into the window
