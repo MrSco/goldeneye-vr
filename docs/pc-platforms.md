@@ -26,10 +26,30 @@ release, not main's older state.
 
 ## Where it stands (2026-11-09)
 
-P0 and the first P1 milestone are in: `python tools/build_pc.py` builds
-`GoldenEyeVR.exe` (one static exe, about 2 minutes clean), and with the ROM
-beside it the game boots to its title sequence in a window, with sound.
-Not yet: input, the launcher, Steam Audio, packaging. What it took:
+P0 and P1's first steps are in: `python tools/build_pc.py` builds
+`GoldenEyeVR.exe` (one static exe, about 2 minutes clean); with the ROM
+beside it the game boots and plays in a window, with sound, keyboard and
+mouse. Not yet: gamepads, the launcher, Steam Audio, packaging.
+
+**Controls (keyboard and mouse):** GoldenEye's 1.2 Solitaire, as the
+Quest's screen mode plays: W/S walk, A/D strafe (the C buttons), arrows
+look, left mouse fires, right mouse aims, Enter is Start, E/R are B/A
+(the Perfect Dark port's default binds). Click in the window to capture
+the mouse for looking, Escape releases it.
+
+**Mouse look** is Project Midas's (`src/game/bondview2.c`, PC only),
+modelled on the 1964 GoldenEye mouse injector: the mouse turns the camera
+angle directly each tick, 0.1 degree a count at sensitivity 2.5, scaled by
+the zoom; in aim mode it moves the crosshair; the gun sways with it; in
+the tank it turns the turret. Not ported yet: Midas's aim lock, wide-window
+aim reach, pad look stick, crosshair snap and aim-mode edge turn.
+
+**Testing without the desktop:** `--input-script FILE` (port/pc/pc_testinput.c)
+feeds timed mouse moves, clicks and held keys into the game, and `shot NAME`
+writes the window to `shots/NAME.bmp`. The game never grabs the real mouse
+or raises its window, so a test runs while someone uses the computer.
+
+What it took:
 
 - `port/flat/flat_headset.c`: the server's "no headset" answers, now shared
   by the server and the PC (60 Hz pacing on a high-resolution waitable timer

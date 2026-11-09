@@ -14,6 +14,12 @@
 #include <stdint.h>
 #include <SDL.h>
 #include "../fast3d/glad/glad.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <direct.h>
+#include "pc_testinput.h"
+#include <PR/ultratypes.h>
+#include "system.h"
 
 extern SDL_Window *wnd;   // pc_window.cpp
 
@@ -71,6 +77,38 @@ int vrGetMenuMirrorMVPList(int eyeIndex, struct VrMirrorMenuEntry *outEntries) {
 
 /* --- vr_screen.cpp / vr_hub.cpp: the virtual screen and the hub room ------- */
 
+/* A test script's shot (pc_testinput.c): the window's back buffer as a 24-bit BMP in shots/. */
+static void pc_write_shot(const char *name, int w, int h)
+{
+    const int stride = (w * 3 + 3) & ~3;
+    unsigned char *px = (unsigned char *)malloc((size_t)stride * h);
+    char path[96];
+    FILE *f;
+
+    if (!px) return;
+    _mkdir("shots");
+    snprintf(path, sizeof(path), "shots/%s.bmp", name);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    glReadBuffer(GL_BACK);
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    glReadPixels(0, 0, w, h, GL_BGR, GL_UNSIGNED_BYTE, px);   // bottom-up rows, as BMP stores them
+    f = fopen(path, "wb");
+    if (f) {
+        const unsigned int size = 54u + (unsigned)stride * (unsigned)h;
+        unsigned char hdr[54] = { 'B', 'M' };
+        hdr[2] = size; hdr[3] = size >> 8; hdr[4] = size >> 16; hdr[5] = size >> 24;
+        hdr[10] = 54; hdr[14] = 40;
+        hdr[18] = w; hdr[19] = w >> 8; hdr[20] = w >> 16; hdr[21] = w >> 24;
+        hdr[22] = h; hdr[23] = h >> 8; hdr[24] = h >> 16; hdr[25] = h >> 24;
+        hdr[26] = 1; hdr[28] = 24;
+        fwrite(hdr, 1, sizeof(hdr), f);
+        fwrite(px, 1, (size_t)stride * h, f);
+        fclose(f);
+        sysLogPrintf(LOG_NOTE, "input script: wrote %s", path);
+    }
+    free(px);
+}
+
 /*
  * The screen target itself is the Quest's (port/vr/vr_screen.cpp). Where the
  * headset hands its layer 0 to the compositor as a quad, the PC copies it
@@ -104,6 +142,9 @@ bool vr_screen_present(unsigned int srcArrayTex, int w, int h)
     glClear(GL_COLOR_BUFFER_BIT);
     glBlitFramebuffer(0, 0, w, h, dx, dy, dx + dw, dy + dh, GL_COLOR_BUFFER_BIT, GL_LINEAR);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (const char *shot = pcTestInputTakeShot()) {
+        pc_write_shot(shot, winW, winH);
+    }
     if (scissor) glEnable(GL_SCISSOR_TEST);
     return true;
 }

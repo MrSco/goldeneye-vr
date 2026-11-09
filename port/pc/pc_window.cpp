@@ -19,6 +19,7 @@
 
 #include "gfx_window_manager_api.h"
 #include "gfx_screen_config.h"
+#include "pc_testinput.h"
 
 // fast3d (gfx_opengl.cpp) reaches both by name, as with the Quest window
 SDL_Window* wnd;
@@ -220,6 +221,10 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
     SDL_GL_MakeCurrent(wnd, ctx);
     SDL_GL_SetSwapInterval(0);
 
+    if (pcTestInputActive()) {
+        // a test script runs while someone uses the desktop: shown, never raised over their windows
+        SDL_SetHint(SDL_HINT_WINDOW_NO_ACTIVATION_WHEN_SHOWN, "1");
+    }
     SDL_ShowWindow(wnd);
 
     qpc_freq = SDL_GetPerformanceFrequency();

@@ -295,6 +295,9 @@ extern s32 gevrDualWielding(void);
 extern int VrMotionThrowing;
 extern int VrPerWeaponRecoil;   /* launcher "Per-gun recoil" */
 #include "gevr_recoil.h"
+#ifdef GEVR_PC
+#include "../pc/pc_testinput.h"
+#endif
 /* bondview2.c: GEVR PC's grip gestures (src/game/gevr_grip_gesture.h) */
 extern void gevrGripGestureInput(int ctrl, int pressed, int held);
 /* src/game/gevr_bodyslots.c: a hand in a body slot steps through it */
@@ -1229,6 +1232,22 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         return 0;
     }
 
+#ifdef GEVR_PC
+    /*
+     * The flat PC game (docs/pc-platforms.md): the pad is the keyboard and
+     * mouse binds read above (the Perfect Dark port's: WASD on the C buttons,
+     * arrows on the stick, left mouse Z, right mouse R), under GoldenEye's
+     * 1.2 Solitaire as the Quest's screen mode plays: the C buttons walk and
+     * strafe, the stick looks, and the mouse looks too (bondview2.c). The
+     * headset's mapping below is skipped; the shared tail still applies.
+     * Gamepad sticks: not yet (GoldenEye's twin-stick styles, as Midas).
+     */
+    if (idx == localSlot) {
+        if (g_CurrentPlayer != NULL && cur_player_get_control_type() != CONTROLLER_CONFIG_SOLITARE) {
+            cur_player_set_control_type(CONTROLLER_CONFIG_SOLITARE);
+        }
+    } else   /* never true below: the headset's mapping is for the local slot */
+#endif
     /* Quest screen mode: ordinary GoldenEye 1.2 controls, no tracked-hand
      * weapon logic or Perfect Dark extended buttons. */
     if (idx == localSlot) {
@@ -2302,6 +2321,16 @@ void inputUpdate(void)
     if (mouseEnabled) {
 #ifdef GEVR_PC
         inputUpdateMouse();
+        if (pcTestInputActive()) {
+            /* A test script drives the mouse (port/pc/pc_testinput.c). The real
+             * pointer is never grabbed: whoever is at the desktop keeps it. */
+            s32 lock = -1;
+            u32 b = 0;
+            pcTestInputFrame(&mouseDX, &mouseDY, &b, &lock);
+            mouseButtons = b;
+            if (lock >= 0) mouseLocked = lock;
+            if (mouseLocked && pcTestInputKey(SDL_SCANCODE_ESCAPE)) mouseLocked = 0;
+        } else
         /* Project Midas's capture: a click in the window takes the mouse for
          * looking, Escape or leaving the window gives it back. */
         if (!mouseLocked) {
@@ -2819,6 +2848,11 @@ const u32 *inputKeyGetBinds(s32 idx, u32 ck)
 s32 inputKeyPressed(u32 vk)
 {
     if (vk >= VK_KEYBOARD_BEGIN && vk < VK_MOUSE_BEGIN) {
+#ifdef GEVR_PC
+        if (pcTestInputActive()) {
+            return pcTestInputKey((s32)(vk - VK_KEYBOARD_BEGIN));   // a test script's keys only
+        }
+#endif
         const u8 *state = SDL_GetKeyboardState(NULL);
         return state[vk - VK_KEYBOARD_BEGIN];
     }
