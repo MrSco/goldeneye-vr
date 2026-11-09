@@ -4715,9 +4715,19 @@ static void gfx_opengl_init(void) {
     {
         typedef void (*PFN_BufferStorageEXT)(GLenum, GLsizeiptr, const void *, GLbitfield);
         PFN_BufferStorageEXT bufferStorage = (PFN_BufferStorageEXT)SDL_GL_GetProcAddress("glBufferStorageEXT");
+        bool ringOk = gl_es;
+        if (!gl_es) {
+            // Desktop GL (PC): the same ring through ARB_buffer_storage. Without
+            // it the eye pass can't be kept, and the XR frames between game
+            // frames (90 Hz over 60) showed the last image again: judder
+            // against the head and hands (issue #53's, on PC VR).
+            const char* e = (const char*)glGetString(GL_EXTENSIONS);
+            ringOk = e && strstr(e, "GL_ARB_buffer_storage") != NULL;
+            bufferStorage = ringOk ? (PFN_BufferStorageEXT)SDL_GL_GetProcAddress("glBufferStorage") : NULL;
+        }
         const GLbitfield flags = GL_MAP_WRITE_BIT | 0x0040 /* PERSISTENT */ | 0x0080 /* COHERENT */;
         const GLsizeiptr segment = 16 << 20;
-        if (gl_es && bufferStorage != NULL && glMapBufferRange != NULL && glFenceSync != NULL) {
+        if (ringOk && bufferStorage != NULL && glMapBufferRange != NULL && glFenceSync != NULL) {
             bufferStorage(GL_ARRAY_BUFFER, segment * GEVR_PM_SEGMENTS, NULL, flags);
             s_pmPtr = (uint8_t *)glMapBufferRange(GL_ARRAY_BUFFER, 0, segment * GEVR_PM_SEGMENTS, flags);
             s_pmSegSize = segment;
