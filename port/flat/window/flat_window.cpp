@@ -141,6 +141,13 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
 
     // we will unhide the window once the GL context is successfully created
     Uint32 flags = SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE;
+#ifdef ANDROID
+    // The phone/tablet APK: landscape, either way up, full screen. SDL's Android
+    // window sets the activity's orientation itself, and a resizable window
+    // otherwise left it to the sensor (the game ran upright, letterboxed).
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+    flags |= SDL_WINDOW_FULLSCREEN;
+#endif
 
     // if fullscreen was requested, start the window in fullscreen right away
     if (set->fullscreen) {

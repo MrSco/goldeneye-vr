@@ -3195,8 +3195,14 @@ extern "C" void gevrLauncherRun(void)
             if (active.empty()) {
                 ImGui::TextColored(bad, "No ROM yet.");
                 ImGui::SameLine();
+#ifdef GEVR_MOBILE
+                // the phone/tablet APK's package (android/app/build.gradle's mobile flavor)
+                ImGui::TextWrapped("Choose your GoldenEye 007 (USA) ROM, or copy it over USB into "
+                                   "Android/data/com.gevr.port.mobile/files/data (any name).");
+#else
                 ImGui::TextWrapped("Choose your GoldenEye 007 (USA) ROM, or copy it over USB into "
                                    "Android/data/com.gevr.port/files/data (any name).");
+#endif
                 if (ImGui::Button("Choose ROM file...")) {
                     pickerPending = gevrOpenRomPicker();
                     romError = !pickerPending;
@@ -3517,7 +3523,9 @@ extern "C" void gevrLauncherRun(void)
         }   // the START footer
         }   // reportPage
         if (footerNote.empty()) {
-#ifdef GEVR_FLAT
+#ifdef GEVR_MOBILE
+            ImGui::TextDisabled("Tap, or use a pad's stick and A.");
+#elif defined(GEVR_FLAT)
             ImGui::TextDisabled("Click, or use the arrows and Return, or a pad's stick and A.");
 #else
             ImGui::TextDisabled("Point and pull the trigger, or use the stick and A.");
