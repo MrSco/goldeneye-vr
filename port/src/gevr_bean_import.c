@@ -40,7 +40,11 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <sys/statvfs.h>
+#endif
 #include <unistd.h>
 #include <zlib.h>
 
@@ -359,6 +363,15 @@ static int outClose(struct job *j, struct out *o, int complete)
 
 static int roomFor(struct job *j, uint64_t bytes)
 {
+#ifdef _WIN32
+	ULARGE_INTEGER avail;
+
+	if (!GetDiskFreeSpaceExA(j->dest, &avail, NULL, NULL)) {
+		return 1;  // nothing to go on: let the writes say
+	}
+
+	if ((uint64_t)avail.QuadPart < bytes + IMPORT_SPARE) {
+#else
 	struct statvfs vfs;
 
 	if (statvfs(j->dest, &vfs) != 0) {
@@ -366,6 +379,7 @@ static int roomFor(struct job *j, uint64_t bytes)
 	}
 
 	if ((uint64_t)vfs.f_bavail * vfs.f_frsize < bytes + IMPORT_SPARE) {
+#endif
 		fail(j, "Not enough free space: this needs %llu MB.",
 				(unsigned long long)((bytes + IMPORT_SPARE) >> 20));
 		return 0;

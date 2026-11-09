@@ -274,6 +274,8 @@ static GLuint load_bmp_texture(const char* path) {
     return tex;
 }
 
+static void gevr_mesh_settle(void);
+
 extern "C" void gfx_opengl_load_mirror_logo(const char* path) {
     gevr_mesh_settle();
     // Re-open to read dimensions from the BMP header
@@ -856,7 +858,7 @@ void gfx_opengl_init_multiview() { // VR
         found = e && strstr(e, "GL_OVR_multiview");
     }
 
-    if (!found) {
+    if (!found || !glad_glTexStorage3D) {   // the screen target needs both (vr_screen.cpp)
         return;
     }
 
@@ -4585,6 +4587,13 @@ static void gfx_opengl_init(void) {
     if (!gladLoadGLLoader(gl_load_proc) || glGetString == NULL || glEnable == NULL) {
         sysFatalError("Could not load OpenGL.\nReported SDL error: %s", SDL_GetError());
     }
+#ifdef GEVR_PC
+    // glad's desktop loader stops at GL 4.1, and the screen target (vr_screen.cpp)
+    // allocates with glTexStorage3D (GL 4.2, GLES 3.0): fetched from the driver
+    if (!glad_glTexStorage3D) {
+        glad_glTexStorage3D = (PFNGLTEXSTORAGE3DPROC)SDL_GL_GetProcAddress("glTexStorage3D");
+    }
+#endif
 
     // check if we're using ES or core, which have more limited feature sets
     int val = 0;
@@ -4674,7 +4683,7 @@ static void gfx_opengl_init(void) {
         snprintf(gl_glsl_version_str, sizeof(gl_glsl_version_str), "%d core", gl_glsl_version);
     }
 
-    // VR
+    // VR (and the flat PC game, which draws through the Quest's screen target: gfx_pc.cpp gfx_run)
     gfx_opengl_init_multiview();
 
     glGenBuffers(1, &opengl_vbo);

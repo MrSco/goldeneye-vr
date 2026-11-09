@@ -34,7 +34,9 @@
 
 #include <dirent.h>
 #include <sys/stat.h>
+#ifndef _WIN32
 #include <sys/resource.h>
+#endif
 #include <unistd.h>
 
 #ifdef __ANDROID__
@@ -245,8 +247,13 @@ static void scan(const std::string &dir, std::vector<Entry> &out,
         ++seen;
         if (name[0] == '.' || strncmp(name, "~!~", 3) == 0) continue;   // as GLideN64 skips them
         std::string path = dir + "/" + name;
+#ifdef _WIN32
+        bool isDir = false;   // MinGW's dirent has no d_type
+        {
+#else
         bool isDir = de->d_type == DT_DIR;
         if (de->d_type == DT_UNKNOWN) {
+#endif
             struct stat st;
             isDir = stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
         }

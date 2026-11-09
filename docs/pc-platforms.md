@@ -14,6 +14,39 @@ release, not main's older state.
   is a runtime choice for the same build, not separate code.
 - **No rebase onto another port** (see "Why not rebase onto Project Midas").
   Desktop ports are references we port from, like gepc-ref.
+- **Steam Frame compatible** (user, 2026-11-09): every step keeps the Frame
+  in reach (see "Steam Frame").
+- **Mobile and full parity** (user, 2026-11-09): Android phones, iOS and
+  Vision Pro are being researched separately (docs/mobile-platforms.md);
+  online play and features at parity across every platform and mode.
+
+## Where it stands (2026-11-09)
+
+P0 and the first P1 milestone are in: `python tools/build_pc.py` builds
+`GoldenEyeVR.exe` (one static exe, about 2 minutes clean), and with the ROM
+beside it the game boots to its title sequence in a window, with sound.
+Not yet: input, the launcher, Steam Audio, packaging. What it took:
+
+- `port/flat/flat_headset.c`: the server's "no headset" answers, now shared
+  by the server and the PC (60 Hz pacing on a high-resolution waitable timer
+  on Windows).
+- `port/pc/`: the window (Dab's Mod's flat SDL2 window, no Vulkan), host
+  stand-ins for the launcher, the renderer's headset hooks, and
+  `pc_compat.h` (force-included: `mkdir`, `lstat`, `bzero`, `FLT_MAX`,
+  `arc4random_uniform`).
+- **The frame is drawn the Quest's way.** fast3d's own desktop path (no
+  multiview) has rotted: its uniforms no longer match its shaders and it
+  draws nothing. The PC draws through the Quest's virtual-screen target
+  (`vr_screen.cpp`, `GL_OVR_multiview`) and copies layer 0 into the window,
+  so the image is the one the headset shows. GPUs without multiview (older
+  Intel) need that desktop path fixed: open.
+- **The decomp's libc stays out of the PC build.** `src/sprintf.c` returns
+  `written - 1` and broke fast3d's shader text when it replaced the C
+  runtime's; on the Quest the C library's versions are evidently the ones
+  the game binds to (its shaders build). To check: whether `src/str.c`'s
+  NULL-safe `strcpy` (gepc-ref D150) is in effect on the Quest at all.
+- glad's desktop loader stops at GL 4.1, so `glTexStorage3D` is fetched
+  from the driver on PC.
 
 ## The model: Time Crisis II VR
 
@@ -70,7 +103,24 @@ browser can hide such lobbies. The flag rides the one protocol bump at the
 release.
 
 **Later:** Linux desktop and SteamVR on Linux (the server already builds
-there). Steam Frame stays the APK in Lepton first.
+there).
+
+## Steam Frame
+
+The Frame is ARM64 SteamOS (Snapdragon 8 Gen 3) with Valve's Lepton
+running Android 10+ APKs, Touch-style controllers and an OpenXR runtime.
+
+1. **The Quest APK in Lepton** (decision of 2026-10-01): no new build. The
+   APK needs only `XR_KHR_android_create_instance` and
+   `XR_KHR_opengl_es_enable`; the FB extensions are optional. When a Frame is
+   at hand: install it, fix what Lepton rejects, check UDP discovery.
+2. **A native ARM64 Linux build**, if Lepton falls short: this plan's PC
+   layer on Linux. The game core already builds and runs there (the
+   dedicated server's aarch64 tarball), `port/flat` and `port/pc` are
+   SDL2 + GL, and PCVR's OpenXR path takes the GL binding (Xlib/EGL on
+   Linux instead of WGL). So each PC step keeps to SDL2, OpenXR and plain
+   GL/GLES, and nothing Windows-only goes into shared code: Windows calls
+   stay behind `_WIN32` in `port/pc` or the few files gated above.
 
 ## Why not rebase onto Project Midas
 

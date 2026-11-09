@@ -173,6 +173,13 @@ static unsigned gevr_head_hud_depth;
  */
 int gevrVrScreenMode = 1;
 static bool gevr_screen_pass = false;
+/* The flat PC game (docs/pc-platforms.md): a window and no headset session.
+ * PCVR (P2) answers false while its session runs. */
+#ifdef GEVR_PC
+static inline bool gevr_pc_flat(void) { return true; }
+#else
+static inline bool gevr_pc_flat(void) { return false; }
+#endif
 static uint32_t gevr_target_w = 0, gevr_target_h = 0;
 static inline float gevr_target_width(void) { return gevr_target_w ? (float)gevr_target_w : (float)vr_get_internal_render_width(); }
 static inline float gevr_target_height(void) { return gevr_target_h ? (float)gevr_target_h : (float)vr_get_internal_render_height(); }
@@ -5837,7 +5844,7 @@ extern "C" void gfx_run(Gfx* commands) {
     dropped_frame = false;
 
     // Dimensionner FBO 0:
-    if (vr_is_initialized() && gfx_rapi->is_multiview()) {
+    if (vr_is_initialized() && gfx_rapi->is_multiview() && !gevr_pc_flat()) {
         gfx_rapi->update_framebuffer_parameters(
                 0,
                 (uint32_t)vr_get_internal_render_width(),
@@ -5859,7 +5866,7 @@ extern "C" void gfx_run(Gfx* commands) {
     rendering_state.viewport = {};
     rendering_state.scissor = {};
 
-    if (vr_is_initialized() && gfx_rapi->is_multiview()) {
+    if (vr_is_initialized() && gfx_rapi->is_multiview() && !gevr_pc_flat()) {
         // --- PATH VR + MULTIVIEW ---
 
         const uint32_t eyeW = (uint32_t)vr_get_internal_render_width();
@@ -6155,6 +6162,57 @@ extern "C" void gfx_run(Gfx* commands) {
         return;
     }
 
+#ifdef GEVR_PC
+    // The flat PC game (docs/pc-platforms.md): no eyes. The frame goes through
+    // the screen pass above, into the Quest's virtual-screen target at the
+    // game's own aspect, and PC's vr_screen_present (port/pc/pc_vr_render.cpp)
+    // puts layer 0 in the window. Without GL_OVR_multiview it is drawn into
+    // the window directly (fast3d's old desktop path, not yet working).
+    {
+        const bool viaScreen = gfx_rapi->is_multiview();
+        const uint32_t nativeW = SCREEN_WIDTH > 0 ? (uint32_t)SCREEN_WIDTH : 320u;
+        const uint32_t nativeH = SCREEN_HEIGHT > 0 ? (uint32_t)SCREEN_HEIGHT : 240u;
+        const uint32_t h = viaScreen ? std::max<uint32_t>(gfx_current_window_dimensions.height, 240u)
+                                     : gfx_current_window_dimensions.height;
+        const uint32_t w = viaScreen ? (((h * nativeW / nativeH) + 1u) & ~1u)
+                                     : gfx_current_window_dimensions.width;
+        const bool screenTarget = viaScreen && vr_screen_target_begin((int)w, (int)h);
+        gevr_target_w = w;
+        gevr_target_h = h;
+        gfx_current_dimensions.width = w;
+        gfx_current_dimensions.height = h;
+        gfx_current_dimensions.aspect_ratio = (float)w / (float)h;
+        gfx_current_game_window_viewport = { 0, 0, w, h };
+        gfx_update_aspect_mode();
+
+        static const float noOffsets[8] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+        gfx_rapi->set_eye_offsets(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+        vr_set_cull_offsets(noOffsets);
+
+        gevr_screen_pass = true;
+        gVrFlatPass = true;
+        gfx_rapi->start_draw_to_framebuffer(0, 1.0f);
+        if (!screenTarget) gfx_rapi->clear_framebuffer(true, true);   // the target clears itself
+
+        ++s_beanTransformPass;   // gevr_bean_transform: a new tick's motion
+        gfx_sp_reset();
+        buf_vbo_len = buf_vbo_num_tris = 0;
+        fbActive = 0;
+        rdp.textures_changed[0] = rdp.textures_changed[1] = true;
+        rdp.viewport_or_scissor_changed = true;
+        gfx_run_dl(commands);
+        gfx_flush();
+        if (screenTarget) {
+            vr_screen_target_end();
+            vr_screen_present(vr_screen_target_tex(), (int)w, (int)h);
+        }
+
+        gVrFlatPass = false;
+        gevr_screen_pass = false;
+        gfx_rapi->end_frame();
+        gfx_wapi->swap_buffers_begin();
+    }
+#endif
 }
 
 

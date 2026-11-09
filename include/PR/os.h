@@ -996,7 +996,7 @@ extern void		osAckRamromWrite(void);
 
 /* byte string operations */
 
-#if !defined(__ANDROID__) && !defined(GEVR_HEADLESS) /* the C library declares them */
+#if !defined(__ANDROID__) && !defined(GEVR_HEADLESS) && !defined(GEVR_PC) /* the C library (PC: port/pc/pc_compat.h) declares them */
 extern void     bcopy(const void *, void *, int);
 extern int      bcmp(const void *, const void *, int);
 extern void     bzero(void *, int);

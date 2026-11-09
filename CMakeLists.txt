@@ -7,11 +7,30 @@ project(gevr C CXX)
 # compiler commands in port/tests and do not need a desktop game target.
 # GEVR_HEADLESS builds the dedicated server instead (docs/dedicated-server.md):
 # the same game sources on Linux, with no headset, window, sound or input.
+#
+# GEVR_PLATFORM picks one of three builds of the same game (docs/pc-platforms.md):
+#   quest  - the Android app (android/gradlew.bat), the default under the NDK
+#   server - the dedicated server; -DGEVR_HEADLESS=ON still selects it
+#   pc     - the Windows game: a window with keyboard, mouse and pad
+#            (tools/build_pc.py)
 option(GEVR_HEADLESS "Build the dedicated server (Linux, no headset)" OFF)
-if(NOT ANDROID AND NOT GEVR_HEADLESS)
-  message(FATAL_ERROR
-    "GoldenEye VR targets Android/Meta Quest only. Build through android/gradlew.bat assembleRelease (or assembleDebug), or configure with -DGEVR_HEADLESS=ON for the dedicated server.")
+if(GEVR_HEADLESS)
+  set(GEVR_PLATFORM "server")
+elseif(ANDROID)
+  set(GEVR_PLATFORM "quest")
 endif()
+set(GEVR_PLATFORM "${GEVR_PLATFORM}" CACHE STRING "quest, server or pc")
+if(GEVR_PLATFORM STREQUAL "server")
+  set(GEVR_HEADLESS ON)
+elseif(GEVR_PLATFORM STREQUAL "pc")
+  set(GEVR_PC ON)
+elseif(NOT GEVR_PLATFORM STREQUAL "quest" OR NOT ANDROID)
+  message(FATAL_ERROR
+    "Pick a build: the Quest app through android/gradlew.bat assembleRelease (or assembleDebug), "
+    "-DGEVR_PLATFORM=server (or -DGEVR_HEADLESS=ON) for the dedicated server, "
+    "or -DGEVR_PLATFORM=pc for Windows (tools/build_pc.py).")
+endif()
+message(STATUS "GoldenEye VR build: ${GEVR_PLATFORM}")
 
 include(TargetArch)
 include(FindPkgConfig)
@@ -56,6 +75,8 @@ message(STATUS "Target arch: ${TARGET_ARCH}")
 
 if(GEVR_HEADLESS)
   set(TARGET_OS "linux")
+elseif(GEVR_PC)
+  set(TARGET_OS "windows")
 else()
   set(TARGET_OS "android")
 endif()
@@ -118,9 +139,15 @@ if(TARGET_IS_64BIT)
   add_definitions(-DPLATFORM_64BIT=1)
 endif()
 
-if(GEVR_HEADLESS)
-  # _GNU_SOURCE: glibc hides the POSIX and BSD names bionic always shows
-  add_definitions(-DGEVR_HEADLESS=1 -D_GNU_SOURCE)
+if(GEVR_HEADLESS OR GEVR_PC)
+  if(GEVR_HEADLESS)
+    # _GNU_SOURCE: glibc hides the POSIX and BSD names bionic always shows
+    add_definitions(-DGEVR_HEADLESS=1 -D_GNU_SOURCE)
+  else()
+    # LLVM-MinGW (UCRT): winpthreads gives the POSIX threads and clocks, and
+    # _USE_MATH_DEFINES the M_PI the NDK and glibc define by default
+    add_definitions(-DGEVR_PC=1 -D_USE_MATH_DEFINES -DWIN32_LEAN_AND_MEAN -DNOMINMAX -DSDL_MAIN_HANDLED)
+  endif()
   # The Quest builds with NDK 25's clang 14, where these are warnings; newer
   # clang makes them errors. Same code, same rules.
   add_compile_options(
@@ -184,9 +211,10 @@ set(GEVR_INCLUDES
 set(LIBS )
 
 # SDL2 & ZLib
-if(GEVR_HEADLESS)
-  # A static SDL with its dummy video and audio drivers: the game's own input,
-  # audio and system layers compile unchanged and see no devices.
+if(GEVR_HEADLESS OR GEVR_PC)
+  # A static SDL. The server runs its dummy video and audio drivers: the
+  # game's own input, audio and system layers compile unchanged and see no
+  # devices. The PC build uses the real ones.
   set(SDL_SHARED OFF CACHE BOOL "" FORCE)
   set(SDL_STATIC ON CACHE BOOL "" FORCE)
   set(SDL_TEST OFF CACHE BOOL "" FORCE)
@@ -197,7 +225,11 @@ if(GEVR_HEADLESS)
     GIT_TAG release-2.32.8
     GIT_SHALLOW TRUE)
   FetchContent_MakeAvailable(SDL2)
-  find_package(ZLIB QUIET)
+  if(NOT GEVR_PC)
+    # The PC build always uses its own: a zlib.h elsewhere on PATH (Strawberry
+    # Perl ships one) is for another compiler
+    find_package(ZLIB QUIET)
+  endif()
   if(NOT ZLIB_FOUND)
     # none for the target (an aarch64 build from x86-64, tools/gevr_build_server.sh
     # --aarch64): zlib's own source, linked in
@@ -214,11 +246,11 @@ else()
   find_package(ZLIB QUIET)
 endif()
 
-if(NOT GEVR_HEADLESS AND (NOT SDL2_FOUND OR NOT ZLIB_FOUND))
+if(NOT GEVR_HEADLESS AND NOT GEVR_PC AND (NOT SDL2_FOUND OR NOT ZLIB_FOUND))
   include(cmake/android.cmake)
 endif()
 
-if(GEVR_HEADLESS)
+if(GEVR_HEADLESS OR GEVR_PC)
   # SDL2::SDL2-static above
 elseif(TARGET SDL2::SDL2)
   list(APPEND LIBS SDL2::SDL2)
@@ -234,7 +266,7 @@ elseif(ZLIB_LIBRARY)
   list(APPEND LIBS "${ZLIB_LIBRARY}")
 endif()
 
-if(NOT GEVR_HEADLESS)
+if(GEVR_PLATFORM STREQUAL "quest")
   # Graphics
   list(APPEND LIBS GLESv3 EGL log android)
 
@@ -274,6 +306,24 @@ list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/(external|tests)/.*")
 # launcher entry points it answers in their place (GEVR_HEADLESS only).
 list(FILTER SRC_PORT EXCLUDE REGEX "port/server/.*")
 list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/server/.*")
+# port/flat: the headset's answers when there isn't one (server and PC);
+# port/pc: the Windows game's window, host and launcher stand-ins (PC only).
+list(FILTER SRC_PORT EXCLUDE REGEX "port/(flat|pc)/.*")
+list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/(flat|pc)/.*")
+file(GLOB SRC_FLAT CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/port/flat/*.c" "${CMAKE_SOURCE_DIR}/port/flat/*.cpp")
+if(GEVR_PC)
+  # Kept from port/vr as on the server: the settings, the log and miniz.
+  # fast3d stays (it draws into the window) without its Android window.
+  list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/vr/.*")
+  list(APPEND SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/vr/vr_settings.cpp")
+  # the Quest's virtual-screen target: the flat frame is drawn as on the headset
+  list(APPEND SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/vr/vr_screen.cpp")
+  # gfx_sdl2.cpp is the Quest's window and PDVR's PCVR mirror (P2); the flat
+  # window is port/pc/pc_window.cpp, from Dab's Mod
+  list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/fast3d/gfx_(android|sdl2)\\.cpp$")
+  file(GLOB SRC_PC CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/port/pc/*.c" "${CMAKE_SOURCE_DIR}/port/pc/*.cpp")
+  list(APPEND SRC_PORT ${SRC_FLAT} ${SRC_PC})
+endif()
 if(GEVR_HEADLESS)
   # Kept from port/vr: the settings (goldeneye-vr.ini), the log and miniz.
   # Everything that draws, reads the headset or runs the launcher is left out;
@@ -283,7 +333,7 @@ if(GEVR_HEADLESS)
   list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/vr/.*")
   list(APPEND SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/vr/vr_settings.cpp")
   file(GLOB SRC_SERVER CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/port/server/*.c" "${CMAKE_SOURCE_DIR}/port/server/*.cpp")
-  list(APPEND SRC_PORT ${SRC_SERVER})
+  list(APPEND SRC_PORT ${SRC_SERVER} ${SRC_FLAT})
 endif()
 
 # Dab's Fast3D build restores inlining locally; keep the original game's
@@ -322,6 +372,14 @@ list(FILTER SRC_GAME EXCLUDE REGEX "src/game/indy_comms\.c$")
 file(GLOB SRC_ENGINE "${CMAKE_SOURCE_DIR}/src/*.c")
 list(FILTER SRC_ENGINE EXCLUDE REGEX
      "src/(crash|sched|motor|tlb_manage|init|rmon)\.c$")
+if(GEVR_PC)
+  # The decomp's own libc (sprintf returns written-1, strcpy, isalpha...): on
+  # the Quest the C library's versions are the ones the game's library binds
+  # to (fast3d's shader text depends on a standard sprintf), so the PC build
+  # leaves these out and links the C runtime's, rather than letting them
+  # replace it for the renderer too.
+  list(FILTER SRC_ENGINE EXCLUDE REGEX "src/(sprintf|str)\.c$")
+endif()
 # GoldenEye's game data: level backgrounds, character and weapon models,
 # animation tables and fonts. The decomp links these into the binary rather
 # than reading them out of a ROM at runtime, and they were never globbed,
@@ -401,8 +459,8 @@ set_source_files_properties(${SRC_HDP} PROPERTIES
 )
 
 include(FetchContent)
-if(GEVR_HEADLESS)
-  # The server is one file: opus inside it, not a libopus.so.0 a clean Linux
+if(GEVR_HEADLESS OR GEVR_PC)
+  # The server (and the PC exe) is one file: opus inside it, not a libopus.so.0 a clean Linux
   # lacks (libjuice's BUILD_SHARED_LIBS option, ON, made it shared from the
   # second configure on; the test.16 downloads needed libopus0 installed).
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "Static libraries in the server" FORCE)
@@ -453,6 +511,22 @@ if(GEVR_HEADLESS)
   target_include_directories(gevr-server PRIVATE ${GEVR_INCLUDES})
   target_compile_options(gevr-server PRIVATE -include "${CMAKE_BINARY_DIR}/port/include/versioninfo.h")
   target_link_libraries(gevr-server ${LIBS} juice-static opus gevr_physics m pthread dl)
+  return()
+endif()
+
+if(GEVR_PC)
+  # The Windows game: one exe, static C++ runtime and winpthreads, so it runs
+  # from a folder with nothing installed. No Steam Audio yet (net_spatial.c
+  # falls back as on the server) and no OpenXR until PCVR (docs/pc-platforms.md).
+  add_executable(GoldenEyeVR ${SRC})
+  add_dependencies(GoldenEyeVR gevr_buildid)
+  target_include_directories(GoldenEyeVR PRIVATE ${GEVR_INCLUDES})
+  # SHELL: keeps each -include with its file (CMake drops a repeated option)
+  target_compile_options(GoldenEyeVR PRIVATE "SHELL:-include \"${CMAKE_BINARY_DIR}/port/include/versioninfo.h\""
+    "SHELL:-include \"${CMAKE_SOURCE_DIR}/port/pc/pc_compat.h\"")
+  target_link_libraries(GoldenEyeVR ${LIBS} juice-static opus gevr_physics
+    opengl32 ws2_32 iphlpapi winmm bcrypt imm32 version setupapi psapi)
+  target_link_options(GoldenEyeVR PRIVATE -static -Wl,--error-limit=0)
   return()
 endif()
 

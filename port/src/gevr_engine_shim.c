@@ -143,6 +143,7 @@ volatile int g_gevrAppBackgrounded;   /* input.c: SDL's SDL_APP_*BACKGROUND, set
 extern int gevrVrSessionFocused(void);
 static volatile sig_atomic_t gevrWatchdogStackReady;
 static volatile sig_atomic_t gevrWatchdogFrameWait;
+#ifndef _WIN32   /* the PC build's stall log has no stack yet (docs/pc-platforms.md) */
 #include <unwind.h>
 #include <dlfcn.h>
 struct gevrBt { uintptr_t pc[32]; int n; };
@@ -180,6 +181,7 @@ static void gevrStackDumpHandler(int sig)
 	gevrWatchdogFrameWait = frameWait;
 	gevrWatchdogStackReady = 1;
 }
+#endif
 
 /*
  * Memory beside a stall (report 4616972e, v0.5.13, Quest 2): the whole game
@@ -191,6 +193,22 @@ static void gevrStackDumpHandler(int sig)
  * storage) and the kernel's memory pressure where it is readable. Logged once
  * a minute while frames run, and at each stall.
  */
+#ifdef _WIN32
+#include <windows.h>
+#include <psapi.h>
+static void gevrLogMemory(s32 level, const char *why)
+{
+	PROCESS_MEMORY_COUNTERS pmc;
+	MEMORYSTATUSEX ms;
+	memset(&pmc, 0, sizeof(pmc));
+	ms.dwLength = sizeof(ms);
+	GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc));
+	GlobalMemoryStatusEx(&ms);
+	sysLogPrintf(level, "memory (%s): working set %lu MB, peak %lu MB; system available %llu MB of %llu MB",
+			why, (unsigned long)(pmc.WorkingSetSize >> 20), (unsigned long)(pmc.PeakWorkingSetSize >> 20),
+			(unsigned long long)(ms.ullAvailPhys >> 20), (unsigned long long)(ms.ullTotalPhys >> 20));
+}
+#else
 #include <sys/syscall.h>
 static pid_t gevrGameTid;
 static long gevrProcKb(const char *path, const char *key)
@@ -254,6 +272,7 @@ static void gevrLogMemory(s32 level, const char *why)
 			procMaj, threadMaj, state, some, full);
 #undef GEVR_MB
 }
+#endif
 
 static void *gevrWatchdog(void *arg)
 {
@@ -291,6 +310,7 @@ static void *gevrWatchdog(void *arg)
 						stalled, gevrPumpStage, gevrPumpEntries, gevrPumpLoops, gevrFrameOpen, gevrVrFrameBegun,
 						g_gevrAppBackgrounded, gevrVrSessionFocused());
 				gevrLogMemory(LOG_ERROR, "stall");
+#ifndef _WIN32
 				/* where the game thread is (a paused headset shows the frame wait, a hang its cause) */
 				{
 					static int installed;
@@ -300,7 +320,9 @@ static void *gevrWatchdog(void *arg)
 					}
 					pthread_kill(gevrGameThread, SIGUSR2);
 				}
+#endif
 			}
+#ifndef _WIN32
 			/* A stack costs the process; only take one when asked for by a marker file. */
 			if (stalled >= 5 && access("/sdcard/Android/data/com.gevr.port/files/gevr_watchdog_kill.txt", F_OK) == 0) {
 				sysLogPrintf(LOG_ERROR, "watchdog: marker present, signalling the game thread for a stack");
@@ -315,6 +337,7 @@ static void *gevrWatchdog(void *arg)
 				pthread_kill(gevrGameThread, SIGSEGV);
 				return NULL;
 			}
+#endif
 		} else {
 			stalled = 0;
 			reported = 0;
@@ -336,7 +359,9 @@ static void gevrSchedEnsureInit(void)
 	{
 		pthread_t t;
 		gevrGameThread = pthread_self();
+#ifndef _WIN32
 		gevrGameTid = (pid_t)syscall(SYS_gettid);
+#endif
 		if (pthread_create(&t, NULL, gevrWatchdog, NULL) == 0) {
 			pthread_detach(t);
 		}

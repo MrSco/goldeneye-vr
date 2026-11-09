@@ -104,8 +104,9 @@ extern void bossEntry(void);
 #include <EGL/egl.h>
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  "GoldenEye-VR", __VA_ARGS__)
-#elif defined(GEVR_HEADLESS)
-/* The dedicated server (port/server): the Android boot below, logged to stdout. */
+#elif defined(GEVR_HEADLESS) || defined(GEVR_PC)
+/* The dedicated server (port/server) and the PC game (port/pc): the Android
+ * boot below, logged to stdout. */
 #include <SDL.h>
 #define ANDROID_LOG_INFO 4
 #define ANDROID_LOG_ERROR 6
@@ -120,7 +121,7 @@ extern void bossEntry(void);
 
 extern void vrShowWaitingWindow(const char *bmpPath);
 
-#if defined(ANDROID) || defined(GEVR_HEADLESS)
+#if defined(ANDROID) || defined(GEVR_HEADLESS) || defined(GEVR_PC)
 u32 g_OsMemSize = 0;
 s32 g_OsMemSizeMb = 16;
 u8 g_Is4Mb = 0;
@@ -317,7 +318,8 @@ const char* sysGetDataPath(void) {
 
 int pd_main(int argc, const char **argv)
 #else
-/* The dedicated server: the data folder is the working directory, or --basedir. */
+/* The dedicated server and the PC game: the data folder is the working
+ * directory, or --basedir. */
 const char* sysGetDataPath(void) {
     static char path[512];
     if (!path[0] && !getcwd(path, sizeof(path))) strcpy(path, ".");
@@ -329,6 +331,24 @@ int main(int argc, const char **argv)
 {
 
 
+#ifdef GEVR_PC
+    SDL_SetMainReady();   /* SDL_MAIN_HANDLED: this is the program's own main */
+    /* The log is stdout. Windows' C runtime buffers _IOLBF like _IOFBF, so a
+     * crash lost its last lines: unbuffered instead. */
+    setvbuf(stdout, NULL, _IONBF, 0);
+    /* Everything lives beside the exe, as in Time Crisis II VR's PC build: the
+     * ROM, goldeneye-vr.ini, saves and logs. A shortcut or a double click may
+     * start it anywhere. */
+    {
+        char *exeDir = SDL_GetBasePath();
+        if (exeDir) {
+            if (chdir(exeDir) != 0) {
+                printf("pc: could not enter %s\n", exeDir);
+            }
+            SDL_free(exeDir);
+        }
+    }
+#endif
     sysInitArgs(argc, argv);
 #ifdef GEVR_HEADLESS
     /* A line at a time: a log file holds stdout and the unbuffered stderr, and a
@@ -362,10 +382,12 @@ int main(int argc, const char **argv)
         return -1;
     }
 
+#ifndef GEVR_PC   // the PC window picks its own desktop context (port/pc/pc_window.cpp)
     // Set OpenGL ES attributes for Android
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#endif
 
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "videoInit starting");
     videoInit();
@@ -377,7 +399,7 @@ int main(int argc, const char **argv)
      */
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "audioInit starting");
     audioInit();
-#if defined(ANDROID) || defined(GEVR_HEADLESS)
+#if defined(ANDROID) || defined(GEVR_HEADLESS) || defined(GEVR_PC)
     /*
      * The in-VR launcher (port/vr/vr_launcher.cpp): ROM, stereo or screen,
      * turning and comfort, then Start - before the ROM is loaded, so a ROM

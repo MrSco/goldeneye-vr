@@ -6,5 +6,6 @@
 #undef bool
 #undef near
 #undef far
+#undef s_host   /* winsock's in_addr shorthand; net_core.c has a variable of that name */
 
 #endif

@@ -25,9 +25,11 @@ extern "C" {
 
 #ident "$Revision: 1.4 $"
 
+#ifndef GEVR_PC   /* port/pc/pc_compat.h declares them with size_t */
 extern void    bcopy(const void *, void *, int);
 extern int    bcmp(const void *, const void *, int);
 extern void    bzero(void *, int);
+#endif
 
 #ifdef __cplusplus
 }

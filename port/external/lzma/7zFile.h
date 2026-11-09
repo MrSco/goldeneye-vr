@@ -4,7 +4,8 @@
 #ifndef __7Z_FILE_H
 #define __7Z_FILE_H
 
-#ifdef _WIN32
+/* GEVR: the PC build keeps the stdio file, like Android: gevr_bean_import.c hands it an open FILE * */
+#if defined(_WIN32) && !defined(GEVR_PC)
 #define USE_WINDOWS_FILE
 #endif
 
