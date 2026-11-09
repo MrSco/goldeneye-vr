@@ -193,6 +193,9 @@ static void gameInit(void)
 }
 
 extern void vrSettingsSave(void);
+#ifdef GEVR_PCVR
+extern void vr_shutdown(void);   /* port/vr/vr_openxr.cpp */
+#endif
 
 static void cleanup(void)
 {
@@ -202,6 +205,13 @@ static void cleanup(void)
     inputSaveBinds();
     configSave(CONFIG_PATH);
     vrSettingsSave();
+#ifdef GEVR_PCVR
+    /* End and destroy the XR session and instance before the process goes:
+     * left running, the runtime's DLL (Virtual Desktop's VDXR) was unloaded
+     * with its threads still going and aborted the exit (FAST_FAIL_FATAL_APP_EXIT
+     * on closing the mirror window, 2026-11-09). */
+    vr_shutdown();
+#endif
     videoShutdown();
     crashShutdown();
 
