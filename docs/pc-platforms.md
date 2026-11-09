@@ -28,14 +28,22 @@ release, not main's older state.
 
 P0 and P1's first steps are in: `python tools/build_pc.py` builds
 `GoldenEyeVR.exe` (one static exe, about 2 minutes clean); with the ROM
-beside it the game boots and plays in a window, with sound, keyboard and
-mouse. Not yet: gamepads, the launcher, Steam Audio, packaging.
+beside it the game boots and plays in a window, with sound, keyboard,
+mouse and gamepads. Not yet: the launcher, Steam Audio, packaging.
 
-**Controls (keyboard and mouse):** GoldenEye's 1.2 Solitaire, as the
-Quest's screen mode plays: W/S walk, A/D strafe (the C buttons), arrows
-look, left mouse fires, right mouse aims, Enter is Start, E/R are B/A
-(the Perfect Dark port's default binds). Click in the window to capture
-the mouse for looking, Escape releases it.
+**Controls:** GoldenEye's 1.2 Solitaire, as the Quest's screen mode plays.
+- Keyboard and mouse: W/S walk, A/D strafe (the C buttons), arrows look,
+  left mouse or Space fires, right mouse or Z aims, Q or the wheel changes
+  weapon (A), E or R uses and reloads (B), F or X is L, Enter is Start.
+  Click in the window to capture the mouse for looking, Escape releases it.
+- Gamepad, as the Quest's screen mode holds the Touch controllers: left
+  stick walks and strafes (the C buttons past a quarter), right stick looks
+  and turns (the game's stick), right trigger fires, left trigger or RB
+  aims, A/X are A, B/Y are B, LB is L, Start, the d-pad is the C buttons;
+  in menus the stick pushed further navigates.
+- The Perfect Dark port's pad support was off for VR: its controller
+  setup in inputInit and the pad branch of inputKeyPressed run again on PC.
+  Custom binds from the ini are not loaded yet (inputLoadBinds is off).
 
 **Mouse look** is Project Midas's (`src/game/bondview2.c`, PC only),
 modelled on the 1964 GoldenEye mouse injector: the mouse turns the camera
@@ -45,8 +53,9 @@ the tank it turns the turret. Not ported yet: Midas's aim lock, wide-window
 aim reach, pad look stick, crosshair snap and aim-mode edge turn.
 
 **Testing without the desktop:** `--input-script FILE` (port/pc/pc_testinput.c)
-feeds timed mouse moves, clicks and held keys into the game, and `shot NAME`
-writes the window to `shots/NAME.bmp`. The game never grabs the real mouse
+feeds timed mouse moves, clicks, held keys and a virtual gamepad (SDL's,
+seen by the game as a real pad) into the game, and `shot NAME` writes the
+window to `shots/NAME.bmp`. The game never grabs the real mouse
 or raises its window, so a test runs while someone uses the computer.
 
 What it took:

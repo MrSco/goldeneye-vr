@@ -16,6 +16,11 @@
  *   31000 move 15 0 40       15, 0 counts a frame for 40 frames
  *   32000 key Up 1200        hold a key (an SDL scancode name) 1200 ms
  *   33000 shot dam_turned    the window to shots/dam_turned.bmp
+ *   34000 pad a 200          a virtual gamepad's button (SDL's names: a, b,
+ *                            x, y, start, leftshoulder, dpup...) for 200 ms
+ *   34000 axis leftx 0.8 900 a virtual gamepad's axis (leftx, lefty, rightx,
+ *                            righty, lefttrigger, righttrigger), -1..1 with
+ *                            y down positive as SDL has it, for 900 ms
  *   40000 quit
  *
  * '#' starts a comment.
@@ -31,12 +36,13 @@
 
 #define TI_MAX 512
 
-enum { TI_CAPTURE, TI_RELEASE, TI_CLICK, TI_RCLICK, TI_MOVE, TI_KEY, TI_SHOT, TI_QUIT };
+enum { TI_CAPTURE, TI_RELEASE, TI_CLICK, TI_RCLICK, TI_MOVE, TI_KEY, TI_SHOT, TI_QUIT, TI_PAD, TI_AXIS };
 
 struct ticmd {
 	u32 at;
 	s32 kind;
-	s32 a, b, c;            /* click: ms; move: dx, dy, frames; key: scancode, ms */
+	s32 a, b, c;            /* click: ms; move: dx, dy, frames; key: scancode, ms; pad: button, ms; axis: axis, ms */
+	f32 value;              /* axis */
 	char name[48];          /* shot */
 };
 
@@ -50,6 +56,11 @@ static u32 s_leftUntil, s_rightUntil;
 static s32 s_moveDx, s_moveDy, s_moveFrames;
 static u32 s_keyUntil[SDL_NUM_SCANCODES];
 static char s_shotPending[48];
+static s32 s_wantPad;                    /* the script drives a virtual gamepad */
+static SDL_Joystick *s_pad;
+static u32 s_padUntil[SDL_CONTROLLER_BUTTON_MAX];
+static u32 s_axisUntil[SDL_CONTROLLER_AXIS_MAX];
+static f32 s_axisValue[SDL_CONTROLLER_AXIS_MAX];
 
 static void tiLoad(void)
 {
@@ -68,14 +79,15 @@ static void tiLoad(void)
 	}
 	while (fgets(line, sizeof(line), f) && s_count < TI_MAX) {
 		struct ticmd *c = &s_cmds[s_count];
-		char word[32] = "", arg[48] = "";
+		char word[32] = "", arg[48] = "", extra[32] = "";
 		char *hash = strchr(line, '#');
 		u32 at;
 		s32 n;
 
 		if (hash) *hash = '\0';
 		memset(c, 0, sizeof(*c));
-		n = sscanf(line, "%u %31s %47s %d %d", &at, word, arg, &c->b, &c->c);
+		n = sscanf(line, "%u %31s %47s %31s %d", &at, word, arg, extra, &c->c);
+		c->b = atoi(extra);
 		if (n < 2) continue;
 		c->at = at;
 		if (!strcmp(word, "capture")) c->kind = TI_CAPTURE;
@@ -93,6 +105,27 @@ static void tiLoad(void)
 		}
 		else if (!strcmp(word, "shot")) { c->kind = TI_SHOT; snprintf(c->name, sizeof(c->name), "%s", n >= 3 ? arg : "shot"); }
 		else if (!strcmp(word, "quit")) c->kind = TI_QUIT;
+		else if (!strcmp(word, "pad")) {
+			c->kind = TI_PAD;
+			c->a = SDL_GameControllerGetButtonFromString(arg);
+			c->b = n >= 4 ? atoi(extra) : 100;
+			if (c->a == SDL_CONTROLLER_BUTTON_INVALID) {
+				sysLogPrintf(LOG_ERROR, "input script: no pad button called %s", arg);
+				continue;
+			}
+			s_wantPad = 1;
+		}
+		else if (!strcmp(word, "axis")) {
+			c->kind = TI_AXIS;
+			c->a = SDL_GameControllerGetAxisFromString(arg);
+			c->value = (f32)atof(extra);
+			if (c->a == SDL_CONTROLLER_AXIS_INVALID || n < 5) {
+				sysLogPrintf(LOG_ERROR, "input script: axis needs a name, a value and ms (%s)", arg);
+				continue;
+			}
+			c->b = c->c;
+			s_wantPad = 1;
+		}
 		else {
 			sysLogPrintf(LOG_ERROR, "input script: unknown command %s", word);
 			continue;
@@ -137,11 +170,39 @@ void pcTestInputFrame(s32 *mdx, s32 *mdy, u32 *buttons, s32 *lock)
 		case TI_MOVE: s_moveDx = c->a; s_moveDy = c->b; s_moveFrames = c->c; break;
 		case TI_KEY: if (c->a > 0 && c->a < SDL_NUM_SCANCODES) s_keyUntil[c->a] = now + (u32)(c->b > 0 ? c->b : 100); break;
 		case TI_SHOT: memcpy(s_shotPending, c->name, sizeof(s_shotPending)); break;
+		case TI_PAD: s_padUntil[c->a] = now + (u32)c->b; break;
+		case TI_AXIS: s_axisUntil[c->a] = now + (u32)c->b; s_axisValue[c->a] = c->value; break;
 		case TI_QUIT:
 			sysLogPrintf(LOG_NOTE, "input script: quit");
 			exit(0);
 		}
 		sysLogPrintf(LOG_NOTE, "input script: %u ms: command %d", now, c->kind);
+	}
+
+	if (s_wantPad && !s_pad) {
+		/* SDL's virtual game controller, attached once the game has its
+		 * controller subsystem: input.c sees it as a pad plugged in */
+		const s32 dev = SDL_JoystickAttachVirtual(SDL_JOYSTICK_TYPE_GAMECONTROLLER,
+				SDL_CONTROLLER_AXIS_MAX, SDL_CONTROLLER_BUTTON_MAX, 0);
+		s_pad = dev >= 0 ? SDL_JoystickOpen(dev) : NULL;
+		sysLogPrintf(s_pad ? LOG_NOTE : LOG_ERROR, "input script: virtual gamepad %s (device %d, a game controller: %d, %s)",
+				s_pad ? "attached" : SDL_GetError(), dev, dev >= 0 ? SDL_IsGameController(dev) : 0,
+				dev >= 0 && SDL_GameControllerNameForIndex(dev) ? SDL_GameControllerNameForIndex(dev) : "-");
+		if (!s_pad) s_wantPad = 0;
+	}
+	if (s_pad) {
+		for (s32 i = 0; i < SDL_CONTROLLER_BUTTON_MAX; i++) {
+			SDL_JoystickSetVirtualButton(s_pad, i, now < s_padUntil[i]);
+		}
+		for (s32 i = 0; i < SDL_CONTROLLER_AXIS_MAX; i++) {
+			const f32 v = now < s_axisUntil[i] ? s_axisValue[i] : 0.0f;
+			if (i == SDL_CONTROLLER_AXIS_TRIGGERLEFT || i == SDL_CONTROLLER_AXIS_TRIGGERRIGHT) {
+				/* a trigger's whole raw range is 0..1 to the game controller: released is -32768 */
+				SDL_JoystickSetVirtualAxis(s_pad, i, (Sint16)(v * 65535.0f - 32768.0f));
+			} else {
+				SDL_JoystickSetVirtualAxis(s_pad, i, (Sint16)(v < 0.0f ? v * 32768.0f : v * 32767.0f));
+			}
+		}
 	}
 
 	*mdx = *mdy = 0;

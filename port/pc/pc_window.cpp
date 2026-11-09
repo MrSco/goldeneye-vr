@@ -224,6 +224,8 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
     if (pcTestInputActive()) {
         // a test script runs while someone uses the desktop: shown, never raised over their windows
         SDL_SetHint(SDL_HINT_WINDOW_NO_ACTIVATION_WHEN_SHOWN, "1");
+        // ...so the window never has focus, and SDL would drop its (virtual) pad's input
+        SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
     }
     SDL_ShowWindow(wnd);
 

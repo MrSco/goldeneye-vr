@@ -533,6 +533,52 @@ static s8 vkPrevState[VK_TOTAL_COUNT];
 void inputSetDefaultKeyBinds(s32 cidx, s32 n64mode)
 {
     // TODO: make VK constants for all these
+#ifdef GEVR_PC
+    /*
+     * The PC game's defaults, for GoldenEye's own buttons (the Perfect Dark
+     * port's tables below bind PD's extras). Keyboard: WASD on the C buttons
+     * walks and strafes and the arrows look (1.2 Solitaire), left mouse or
+     * Space fires, right mouse or Z aims, Q or the wheel changes weapon (A),
+     * E or R uses and reloads (B). Pad: as the Quest's screen mode holds the
+     * Touch controllers - A/X are A, B/Y are B, the right trigger fires, the
+     * left trigger or RB aims (Project Midas's triggers), the d-pad is the C
+     * buttons; the sticks are read in inputReadController.
+     */
+    static const u32 pckbbinds[][3] = {
+            { CK_A,             SDL_SCANCODE_Q,      VK_MOUSE_WHEEL_DN   },
+            { CK_B,             SDL_SCANCODE_E,      SDL_SCANCODE_R      },
+            { CK_RTRIG,         VK_MOUSE_RIGHT,      SDL_SCANCODE_Z      },
+            { CK_LTRIG,         SDL_SCANCODE_F,      SDL_SCANCODE_X      },
+            { CK_ZTRIG,         VK_MOUSE_LEFT,       SDL_SCANCODE_SPACE  },
+            { CK_START,         SDL_SCANCODE_RETURN, SDL_SCANCODE_TAB    },
+            { CK_C_D,           SDL_SCANCODE_S,      0                   },
+            { CK_C_U,           SDL_SCANCODE_W,      0                   },
+            { CK_C_R,           SDL_SCANCODE_D,      0                   },
+            { CK_C_L,           SDL_SCANCODE_A,      0                   },
+            { CK_STICK_XNEG,    SDL_SCANCODE_LEFT,   0                   },
+            { CK_STICK_XPOS,    SDL_SCANCODE_RIGHT,  0                   },
+            { CK_STICK_YNEG,    SDL_SCANCODE_DOWN,   0                   },
+            { CK_STICK_YPOS,    SDL_SCANCODE_UP,     0                   },
+    };
+
+    static const u32 pcjoybinds[][2] = {
+            { CK_A,      SDL_CONTROLLER_BUTTON_A             },
+            { CK_A,      SDL_CONTROLLER_BUTTON_X             },
+            { CK_B,      SDL_CONTROLLER_BUTTON_B             },
+            { CK_B,      SDL_CONTROLLER_BUTTON_Y             },
+            { CK_ZTRIG,  VK_JOY1_RTRIG - VK_JOY1_BEGIN       },
+            { CK_RTRIG,  VK_JOY1_LTRIG - VK_JOY1_BEGIN       },
+            { CK_RTRIG,  SDL_CONTROLLER_BUTTON_RIGHTSHOULDER },
+            { CK_LTRIG,  SDL_CONTROLLER_BUTTON_LEFTSHOULDER  },
+            { CK_START,  SDL_CONTROLLER_BUTTON_START         },
+            { CK_C_D,    SDL_CONTROLLER_BUTTON_DPAD_DOWN     },
+            { CK_C_U,    SDL_CONTROLLER_BUTTON_DPAD_UP       },
+            { CK_C_R,    SDL_CONTROLLER_BUTTON_DPAD_RIGHT    },
+            { CK_C_L,    SDL_CONTROLLER_BUTTON_DPAD_LEFT     },
+            { CK_ACCEPT, SDL_CONTROLLER_BUTTON_A             },
+            { CK_CANCEL, SDL_CONTROLLER_BUTTON_B             },
+    };
+#else
     static const u32 pckbbinds[][3] = {
             { CK_B,             SDL_SCANCODE_E,      0                   },
             { CK_X,             SDL_SCANCODE_R,      0                   },
@@ -574,6 +620,7 @@ void inputSetDefaultKeyBinds(s32 cidx, s32 n64mode)
             { CK_CANCEL, SDL_CONTROLLER_BUTTON_B             },
             { CK_8000,   SDL_CONTROLLER_BUTTON_LEFTSTICK     },
     };
+#endif
 
     static const u32 n64kbbinds[][3] = {
             { CK_A,          SDL_SCANCODE_Q,      0                  },
@@ -1093,6 +1140,50 @@ s32 inputInit(void)
            }
        }
    */
+#ifdef GEVR_PC
+    /* The PC game has pads: the controller setup above, as the Perfect Dark
+     * port had it (the headset reads its controllers through OpenXR). */
+    if (useHIDAPI) {
+#if SDL_VERSION_ATLEAST(2, 0, 22)
+        SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI, "1");
+        SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4, "1");
+        SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5, "1");
+        SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_SWITCH, "1");
+        SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_JOY_CONS, "1");
+        SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_GAMECUBE, "1");
+        SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4_RUMBLE, "1");
+        SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE, "1");
+        SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_STEAM, "1");
+#endif
+#if SDL_VERSION_ATLEAST(2, 23, 2)
+        SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_COMBINE_JOY_CONS, "1");
+#endif
+#if SDL_VERSION_ATLEAST(2, 25, 1)
+        SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS3, "1");
+#endif
+#if SDL_VERSION_ATLEAST(2, 26, 0)
+        SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_WII, "1");
+#endif
+#if SDL_VERSION_ATLEAST(2, 30, 0)
+        SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_STEAMDECK, "1");
+#endif
+    }
+    if (useRawInput) {
+        SDL_SetHint(SDL_HINT_JOYSTICK_RAWINPUT, "1");
+        SDL_SetHint(SDL_HINT_JOYSTICK_RAWINPUT_CORRELATE_XINPUT, "1");
+    }
+    if (!SDL_WasInit(SDL_INIT_GAMECONTROLLER | SDL_INIT_HAPTIC)) {
+        SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_HAPTIC);
+    }
+    // a controller db beside the game adds pads SDL doesn't know
+    if (fsFileSize("$S/" CONTROLLERDB_FNAME) >= 0) {
+        const char *dbpath = fsFullPath("$S/" CONTROLLERDB_FNAME);
+        const s32 dbcount = SDL_GameControllerAddMappingsFromFile(dbpath);
+        if (dbcount >= 0) {
+            sysLogPrintf(LOG_NOTE, "input: added %d controller mappings from %s", dbcount, dbpath);
+        }
+    }
+#endif
 
     inputInitAllControllers();
 
@@ -1245,6 +1336,40 @@ s32 inputReadController(s32 idx, OSContPad *npad)
     if (idx == localSlot) {
         if (g_CurrentPlayer != NULL && cur_player_get_control_type() != CONTROLLER_CONFIG_SOLITARE) {
             cur_player_set_control_type(CONTROLLER_CONFIG_SOLITARE);
+        }
+        /* A pad's sticks, as the Quest's screen mode reads the Touch sticks:
+         * the right one is the game's stick (look and turn), the left one
+         * walks and strafes on the C buttons past a quarter; in menus the
+         * stick pushed further navigates. The keyboard's stick keys win. */
+        SDL_GameController *pad = pads[0];
+        if (pad) {
+            const struct controllercfg *pcfg = &padsCfg[0];
+            const f32 lx = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX) / 32767.0f;
+            const f32 ly = -SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY) / 32767.0f;
+            const f32 rx = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTX) / 32767.0f;
+            const f32 ry = -SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTY) / 32767.0f;
+            const bool paused = g_CurrentPlayer && g_CurrentPlayer->pause_state != 0;
+            const bool menu = bossGetStageNum() == LEVELID_TITLE || paused ||
+                              (netIsActive() && g_CurrentPlayer && g_CurrentPlayer->mpmenuon);
+            f32 sx = rx, sy = ry;
+            if (menu && lx * lx + ly * ly >= rx * rx + ry * ry) {
+                sx = lx;
+                sy = ly;
+            }
+            if (npad->stick_x == 0) {
+                npad->stick_x = inputAxisScale((s32)(sx * 32767.0f),
+                        pcfg->deadzone[SDL_CONTROLLER_AXIS_RIGHTX], pcfg->sens[SDL_CONTROLLER_AXIS_RIGHTX]) / 256;
+            }
+            if (npad->stick_y == 0) {
+                npad->stick_y = inputAxisScale((s32)(sy * 32767.0f),
+                        pcfg->deadzone[SDL_CONTROLLER_AXIS_RIGHTY], pcfg->sens[SDL_CONTROLLER_AXIS_RIGHTY]) / 256;
+            }
+            if (!menu) {
+                if (lx < -0.25f) npad->button |= L_CBUTTONS;
+                if (lx >  0.25f) npad->button |= R_CBUTTONS;
+                if (ly < -0.25f) npad->button |= D_CBUTTONS;
+                if (ly >  0.25f) npad->button |= U_CBUTTONS;
+            }
         }
     } else   /* never true below: the headset's mapping is for the local slot */
 #endif
@@ -2861,6 +2986,22 @@ s32 inputKeyPressed(u32 vk)
         return (mouseButtons & SDL_BUTTON(vk - VK_MOUSE_BEGIN + 1)) != 0;
     }
 
+#ifdef GEVR_PC
+    // A pad's buttons and triggers (the Perfect Dark port's, removed for VR)
+    if (vk >= VK_JOY_BEGIN && vk < VK_VR_BEGIN) {
+        vk -= VK_JOY_BEGIN;
+        const s32 idx = vk / INPUT_MAX_CONTROLLER_BUTTONS;
+        if (idx < 0 || idx >= INPUT_MAX_CONTROLLERS || !pads[idx]) {
+            return 0;
+        }
+        vk = vk % INPUT_MAX_CONTROLLER_BUTTONS;
+        if (vk == 30 || vk == 31) {
+            const s32 trig = SDL_CONTROLLER_AXIS_TRIGGERLEFT + vk - 30;
+            return SDL_GameControllerGetAxis(pads[idx], trig) > TRIG_THRESHOLD;
+        }
+        return SDL_GameControllerGetButton(pads[idx], vk);
+    }
+#endif
 
     // VR
     if (vk >= VK_VR_BEGIN && vk < VK_VR_END) {
