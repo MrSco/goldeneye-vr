@@ -59,6 +59,7 @@ enum { TOUCH_FIRE = 1, TOUCH_AIM = 2, TOUCH_USE = 4, TOUCH_RELOAD = 8, TOUCH_CRO
        TOUCH_WEAPON = 32, TOUCH_START = 64 };
 extern unsigned flatTouchPoll(int menu, float *sx, float *sy);
 extern int flatTouchTakeCrouch(void);
+extern int flatTouchTakePanel(void);
 extern int flatTouchTakeLookDeg(float *yaw, float *pitch);
 #endif
 
@@ -1415,6 +1416,47 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 gevrCrouchToggle = 0;
             }
             if ((flatTouchTakeCrouch() & 1) && !menu) gevrCrouchToggle = !gevrCrouchToggle;
+        }
+        /*
+         * The in-game panel (port/vr/vr_pause_menu.cpp) without grips: a long
+         * press of the on-screen START, F10, or a pad's Back (gepc-ref's keys
+         * for its in-game options) opens it and closes it again. In a solo
+         * mission it opens the watch under it, as the headset's chord does, so
+         * the game pauses; closing it closes the watch.
+         */
+        {
+            static int panelWas = 0;
+            static bool f10Was = false, backWas = false;
+            const u32 t = SDL_GetTicks();
+            const Uint8 *keys = SDL_GetKeyboardState(NULL);
+            bool f10 = keys && keys[SDL_SCANCODE_F10];
+#ifdef GEVR_PC
+            if (pcTestInputActive()) f10 = pcTestInputKey(SDL_SCANCODE_F10) != 0;
+#endif
+            const bool back = pad && SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_BACK);
+            const bool toggle = (f10 && !f10Was) | (back && !backWas) | (flatTouchTakePanel() != 0);
+            f10Was = f10;
+            backWas = back;
+            if (panelWas && !s_gevrPanel && s_gevrPanelPaused) {
+                s_gevrPanelPaused = 0;
+                if (paused) s_gevrStartUntil = t + 100;   /* the watch it opened closes */
+            }
+            panelWas = s_gevrPanel;
+            if (toggle && s_gevrPanel) {
+                s_gevrPanel = 0;
+            } else if (toggle) {
+                s_gevrPanel = 1;
+                if (!netIsActive() && !paused && bossGetStageNum() != LEVELID_TITLE && !lvlGetControlsLockedFlag()) {
+                    s_gevrPanelPaused = 1;
+                    s_gevrStartUntil = t + 100;
+                }
+                LOGI("input: panel opened%s\n", s_gevrPanelPaused ? " (mission paused)" : "");
+            }
+            if (gevrNativePauseOpen()) {   /* the panel, or the online pause, has the input */
+                npad->button = 0;
+                npad->stick_x = npad->stick_y = 0;
+            }
+            if (t < s_gevrStartUntil) npad->button |= START_BUTTON;
         }
     } else   /* never true below: the headset's mapping is for the local slot */
 #endif
@@ -3510,7 +3552,7 @@ int gevrMpMenuOpen(void)
     return slot >= 0 && slot < INPUT_MAX_SLOT_PADS && g_playerPointers[slot] != NULL && g_playerPointers[slot]->mpmenuon;
 }
 
-#if (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
+#if (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR) || defined(GEVR_FLAT)   /* the headset, a phone, a PC window */
 int gevrNativePauseOpen(void) {
     if(s_gevrPanel)return 1;   /* the in-game panel, solo or online */
     int slot=netIsActive()?netGetLocalSlot():-1;

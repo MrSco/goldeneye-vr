@@ -35,6 +35,9 @@
 extern SDL_Window *wnd;   // flat_window.cpp
 #ifdef GEVR_FLAT
 extern "C" void flatTouchDraw(int winW, int winH);   // flat_touch.cpp: the on-screen controls
+extern "C" int gevrNativePauseOpen(void);            // input.c: the in-game panel or the online pause
+extern "C" void gevrNativePauseRender(void);         // vr_pause_menu.cpp
+extern bool g_flatPresentNoSwap;                     // flat_launcher.cpp
 #endif
 
 /* --- vr_openxr.cpp: eyes and their matrices -------------------------------- */
@@ -140,6 +143,17 @@ bool vr_screen_present(unsigned int srcArrayTex, int w, int h)
     int winW = 0, winH = 0;
 
     if (!srcArrayTex || w <= 0 || h <= 0 || !wnd) return false;
+#ifdef GEVR_FLAT
+    // The in-game panel (vr_pause_menu.cpp) takes the window while it is up;
+    // the game's own swap shows it (vr_screen_present_tex2d doesn't swap).
+    if (gevrNativePauseOpen()) {
+        g_flatPresentNoSwap = true;
+        gevrNativePauseRender();
+        g_flatPresentNoSwap = false;
+        return true;
+    }
+    gevrNativePauseRender();   // closed: lets it tidy up after itself
+#endif
     SDL_GL_GetDrawableSize(wnd, &winW, &winH);
     if (winW <= 0 || winH <= 0) return false;
 
@@ -174,6 +188,7 @@ bool vr_screen_present(unsigned int srcArrayTex, int w, int h)
     return true;
 }
 void vr_screen_set_visible(int visible) { (void)visible; }
+void vr_screen_set_overlay(int overlay) { (void)overlay; }   // the panel replaces the frame (vr_screen_present)
 void vr_pointer_draw(void) { }
 void vr_hub_render(const float eyeViewProj[2][16]) { (void)eyeViewProj; }
 

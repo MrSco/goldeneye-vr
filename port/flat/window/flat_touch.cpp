@@ -47,7 +47,7 @@
 #include "system.h"
 
 extern SDL_Window *wnd;   // flat_window.cpp
-extern "C" int gevrPanelIsOpen(void);   // port/src/input.c: the in-game panel
+extern "C" int gevrNativePauseOpen(void);   // port/src/input.c: the in-game panel or the online pause is up
 
 /* What a button does; port/src/input.c turns these into pad bits. */
 enum {
@@ -108,6 +108,8 @@ struct Finger {
     float x, y;        // pixels
     float lastX, lastY;   // where the look last took its delta from
     bool active;
+    Uint32 downAt;     // SDL_GetTicks when it landed (START's long press)
+    bool fired;        // START: the long press has asked for the panel
 };
 
 static Finger s_fingers[10];
@@ -119,6 +121,10 @@ static int s_crouchTaps;
 /* Presses since the game's last poll: a tap goes down and up between two
  * polls, and the game must still see it once (PD Android's tap button). */
 static unsigned s_tapped;
+/* START held this long asks for the in-game panel (port/src/input.c); a
+ * shorter press is START, sent when the finger lifts. */
+static const Uint32 kPanelHoldMs = 700;
+static bool s_panelRequest;
 static bool s_menu;                  // the game's last word: a menu is up
 #ifdef GEVR_MOBILE
 static bool s_shown = true;          // drawn and taking touches: from the start on a phone
@@ -270,7 +276,8 @@ static void fingerDown(const SDL_TouchFingerEvent &e)
         const unsigned act = kButtons[b == kLeftFire ? 0 : b].action;
         f.dragsLook = !s_menu && (act == TOUCH_AIM || act == TOUCH_FIRE);
         if (act == TOUCH_CROUCH) s_crouchTaps++;
-        s_tapped |= act;
+        f.downAt = SDL_GetTicks();
+        if (act != TOUCH_START) s_tapped |= act;   // START waits: a tap, or a long press
         return;
     }
     if (s_stickFinger < 0 && e.x < kStickRegionFrac) {
@@ -315,6 +322,12 @@ static void fingerUp(const SDL_TouchFingerEvent &e)
     const int idx = findFinger(e.touchId, e.fingerId);
     if (idx < 0) return;
     if (idx == s_stickFinger) s_stickFinger = -1;
+    {
+        const Finger &f = s_fingers[idx];
+        if (f.role == R_BUTTON && f.button != kLeftFire && kButtons[f.button].action == TOUCH_START && !f.fired) {
+            s_tapped |= TOUCH_START;   // a tap of START
+        }
+    }
     s_fingers[idx].active = false;
     // An invisible button must not fire: letting go of AIM lets go of the left FIRE.
     if (!aimHeld()) {
@@ -336,7 +349,7 @@ extern "C" void flatTouchEvent(const SDL_Event *e)
             s_shown = true;
             releaseAll();
         }
-        if (gevrPanelIsOpen()) return;
+        if (gevrNativePauseOpen()) return;   // the panel takes the touch as its mouse
         fingerDown(e->tfinger);
         break;
     case SDL_FINGERMOTION:
@@ -379,14 +392,32 @@ extern "C" unsigned flatTouchPoll(int menu, float *sx, float *sy)
         s_tapped = 0;
     }
     *sx = *sy = 0.0f;
-    if (!s_shown || gevrPanelIsOpen()) return 0;
+    if (!s_shown || gevrNativePauseOpen()) return 0;
     unsigned held = s_tapped;
     s_tapped = 0;
-    for (const Finger &f : s_fingers) {
-        if (f.active && f.role == R_BUTTON) held |= kButtons[f.button == kLeftFire ? 0 : f.button].action;
+    const Uint32 now = SDL_GetTicks();
+    for (Finger &f : s_fingers) {
+        if (!f.active || f.role != R_BUTTON) continue;
+        const unsigned act = kButtons[f.button == kLeftFire ? 0 : f.button].action;
+        if (act == TOUCH_START) {
+            if (!f.fired && now - f.downAt >= kPanelHoldMs) {
+                f.fired = true;
+                s_panelRequest = true;
+            }
+            continue;
+        }
+        held |= act;
     }
     stickResponse(sx, sy);
     return held;
+}
+
+/* START held down long enough: open the in-game panel (once a press). */
+extern "C" int flatTouchTakePanel(void)
+{
+    const bool r = s_panelRequest;
+    s_panelRequest = false;
+    return r ? 1 : 0;
 }
 
 /* Taps of CROUCH since the last call (port/src/input.c flips the crouch toggle). */
@@ -495,7 +526,7 @@ static void drawButton(ImDrawList *dl, int i, float a)
 /* Over the game's frame in the window, after flat_render.cpp's blit. */
 extern "C" void flatTouchDraw(int winW, int winH)
 {
-    if (!s_shown || gevrPanelIsOpen() || winW <= 0 || winH <= 0) return;
+    if (!s_shown || gevrNativePauseOpen() || winW <= 0 || winH <= 0) return;
     if (winW != s_winW || winH != s_winH) touchMeasure();
 
     ImGuiContext *prev = ImGui::GetCurrentContext();

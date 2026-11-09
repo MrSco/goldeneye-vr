@@ -4,7 +4,7 @@
  * screen: the match's (gevr_pause_widgets.h), on Match for a tap of Menu and
  * on Settings for a hold. Solo, a hold opens the panel (gevr_panel_ui.h),
  * the same sections without the match's tabs; a tap opens GoldenEye's watch. */
-#if defined(ANDROID) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
+#if defined(ANDROID) || defined(GEVR_PCVR) || defined(GEVR_FLAT)   /* the headset, a phone, a PC window */
 #include "gevr_pause_widgets.h"
 #include "gevr_panel_ui.h"
 #include "gevr_friends_ui.h"
@@ -81,7 +81,11 @@ void initialize() {
     io.ConfigFlags|=ImGuiConfigFlags_NavEnableGamepad;io.BackendFlags|=ImGuiBackendFlags_HasGamepad;
     io.DisplaySize=ImVec2((float)gevrSurfaceCanvasW(),(float)kGevrSurfaceH);io.FontGlobalScale=2.2f;
     ImGui::StyleColorsDark();ImGui::GetStyle().ScaleAllSizes(2.2f);ImGui::GetStyle().WindowRounding=0;
+#ifdef ANDROID
     ImGui_ImplOpenGL3_Init("#version 300 es");
+#else
+    ImGui_ImplOpenGL3_Init("#version 330");   /* a PC window: desktop GL */
+#endif
     glGenTextures(1,&texture);glBindTexture(GL_TEXTURE_2D,texture);
     glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,kGevrSurfaceW+kGevrSidebarW,kGevrSurfaceH,0,GL_RGBA,GL_UNSIGNED_BYTE,nullptr);
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);

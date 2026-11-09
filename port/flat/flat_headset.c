@@ -200,7 +200,9 @@ int gevrTouchPadState(int phys, float *trigger, float *grip, float *stickx, floa
 	(void)phys; (void)trigger; (void)grip; (void)stickx; (void)sticky; (void)buttons;
 	return 0;
 }
+#ifndef GEVR_FLAT   /* the flat game has the panel (port/src/input.c); the server has none */
 int gevrNativePauseOpen(void) { return 0; }
+#endif
 
 /* --- Haptics: none -------------------------------------------------------- */
 

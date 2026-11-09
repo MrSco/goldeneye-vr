@@ -636,6 +636,7 @@ int gevrSettingShown(int id)
     const Row *r = row(id);
 #ifdef GEVR_FLAT
     if (r && r->headset) return 0;   /* no headset: no turning, screen, hands or display rate to set */
+    if (r && r->section == GEVR_SEC_GESTURES) return 0;   /* tracked hands' gestures */
 #endif
     return r && (!r->shown || r->shown());
 }

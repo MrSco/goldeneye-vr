@@ -168,6 +168,8 @@ inline void gevrSettingsTabs(const GevrSettingsApi &a, int &openSection) {
     const int sections = a.sectionCount ? a.sectionCount() : 0;
     if (ImGui::BeginTabBar("##panel-sections", ImGuiTabBarFlags_FittingPolicyResizeDown)) {
         for (int s = 0; s < sections; s++) {
+            // a section with nothing to set here (a flat game's Gestures) has no tab
+            if (a.sectionRows && a.sectionRows(s, GEVR_SET_INGAME, nullptr, 0) == 0) continue;
             const ImGuiTabItemFlags open = s == openSection ? ImGuiTabItemFlags_SetSelected : 0;
             if (!ImGui::BeginTabItem(a.sectionName(s), nullptr, open)) continue;
             ImGui::BeginChild("##panel-rows", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);

@@ -63,6 +63,10 @@ static int SDLCALL flatLauncherWheelWatch(void *, SDL_Event *e)
     return 1;
 }
 
+/* Set while the in-game panel is drawn inside the game's frame (flat_render.cpp):
+ * the game swaps the window itself. */
+bool g_flatPresentNoSwap = false;
+
 /* The launcher's texture (w x h, its canvas) into the window, letterboxed, and shown. */
 extern "C" bool vr_screen_present_tex2d(unsigned int srcTex, int w, int h)
 {
@@ -98,8 +102,27 @@ extern "C" bool vr_screen_present_tex2d(unsigned int srcTex, int w, int h)
         pc_write_shot(shot, winW, winH);   // flat_render.cpp
     }
 #endif
-    SDL_GL_SwapWindow(wnd);
+    if (!g_flatPresentNoSwap) SDL_GL_SwapWindow(wnd);
     return true;
+}
+
+/*
+ * The in-game panel's input (vr_pause_menu.cpp): the launcher's own, the
+ * mouse or a finger on the canvas, the keyboard and a pad. The headset's
+ * version points the controllers instead (vr_launcher.cpp).
+ */
+void flatLauncherInit(ImGuiIO &io);
+void flatLauncherFeedInput(ImGuiIO &io);
+extern "C" void gevrFeedPauseInput(int opening)
+{
+    static bool watching = false;
+    ImGuiIO &io = ImGui::GetIO();
+    if (!watching) {   // the launcher's click queue: a tap's down and up can share a frame
+        flatLauncherInit(io);
+        watching = true;
+    }
+    if (opening) s_clickCount = 0;   // presses from before it opened
+    flatLauncherFeedInput(io);
 }
 
 /* The launcher's canvas is wider than the game's screen when the friends

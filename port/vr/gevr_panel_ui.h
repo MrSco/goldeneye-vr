@@ -42,7 +42,11 @@ inline int gevrDrawPanelWindow(const GevrPanelView &v, GevrPanelUi &ui, ImTextur
     // The VR settings, a tab per section, across the whole surface.
     ImGui::SetCursorPos(ImVec2(18, 112));
     ImGui::BeginChild("##panel-settings", ImVec2(1244, 700));
+#ifdef GEVR_FLAT
+    ImGui::TextColored(gold, "SETTINGS");
+#else
     ImGui::TextColored(gold, "VR SETTINGS");
+#endif
     gevrSettingsTabs(v.settings, ui.openSection);
     ImGui::EndChild();
     if (v.note[0]) {
