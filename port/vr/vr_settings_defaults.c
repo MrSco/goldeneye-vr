@@ -169,7 +169,11 @@ int VrResetRenderScale = 0;
  * battery Quest caps the GPU, and 4x took the eye pass from 3.0 to 4.2 ms
  * with Bean for edges that look the same as 2x once Bean's pictures are
  * mipmapped and cutouts take alpha-to-coverage (2026-10-17). */
+#ifdef GEVR_PCVR
+int VrEyeMsaa = 4;   /* PC VR: a desktop GPU, no battery */
+#else
 int VrEyeMsaa = 2;
+#endif
 /* The CPU performance level asked of the headset as each session begins
  * (XR_EXT_performance_settings): -1 none, 0 power savings, 1 sustained low,
  * 2 sustained high. Unplugged, Quest caps the CPU at the level its governor

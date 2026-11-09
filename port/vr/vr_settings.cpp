@@ -761,7 +761,11 @@ extern "C" void vrSettingsLoad(void)
                 VrBodiesStay = ival >= 24 ? 24 : ival >= 12 ? 12 : 0;
             else if (strcmp(key, "ShowStats") == 0) VrShowStats = (ival != 0);
             else if (strcmp(key, "SpaceWarp") == 0) VrSpaceWarp = ival < 0 ? -1 : ival != 0;
+#ifdef GEVR_PCVR
+            else if (strcmp(key, "EyeMsaa") == 0) VrEyeMsaa = ival >= 4 ? 4 : ival >= 2 ? 2 : 1;
+#else
             else if (strcmp(key, "EyeMsaa") == 0) VrEyeMsaa = ival >= 2 ? 2 : 1;   // a saved 4x is 2x now
+#endif
             else if (strcmp(key, "CpuLevel") == 0) VrCpuLevel = ival < 0 ? -1 : ival > 2 ? 2 : ival;
             else if (strcmp(key, "RenderScale") == 0) VrResetRenderScale = 1;
             else if (strcmp(key, "GunSizeCheat") == 0) VrGunSizeCheat = ival < 0 ? 0 : ival > 2 ? 2 : ival;

@@ -430,6 +430,11 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
 
 // --- Create the mirror window by sharing the same GL context ---
     SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, 1);
+    // tests: both eyes side by side from the start, as the toolbar's SbS
+    if (sysArgCheck("--mirror-sbs")) {
+        mirror_enabled = true;
+        mirror_sbs = true;
+    }
 
     mirror_wnd = SDL_CreateWindow(
             "GoldenEye VR - Mirror",
@@ -710,6 +715,7 @@ extern "C" void mirror_apply_size(bool enabled) {
   // Restore the saved size
         SDL_SetWindowSize(mirror_wnd, mirror_saved_w, mirror_saved_h);
         SDL_SetWindowResizable(mirror_wnd, SDL_TRUE);
+        SDL_ShowWindow(mirror_wnd);   // started enabled (--mirror-sbs): the branch below never ran
     } else {
 // Save the current size then collapse
         mirror_saved_w = mirror_width;

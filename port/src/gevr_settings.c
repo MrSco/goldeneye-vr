@@ -292,8 +292,14 @@ static const char *const s_gunSizeNames[] = { "Normal", "Tiny", "Big" };
 static const char *const s_slotSizeNames[] = { "Small", "Normal", "Large" };
 static const int s_touch[] = { 0, 1, 2, 3, 4 };
 static const char *const s_touchNames[] = { "Auto", "Quest", "Quest 2", "Plus", "Pro" };
+#ifdef GEVR_PCVR
+/* PC VR: a desktop GPU takes 4x for little (vr_openxr.cpp's multisampled eye array) */
+static const int s_msaa[] = { 1, 2, 4 };
+static const char *const s_msaaNames[] = { "Off", "2x", "4x" };
+#else
 static const int s_msaa[] = { 1, 2 };
 static const char *const s_msaaNames[] = { "Off", "2x" };
+#endif
 static const int s_two[] = { 0, 1 };
 static const char *const s_playNames[] = { "Flat screen", "Stereo VR" };
 static const int s_ten[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
@@ -457,7 +463,7 @@ static const Row s_rows[] = {
       .cpositions = swPositions, .cget = swGet, .cset = swSet, .ctext = swText, .cdefault = -1 },
     { .label = "Anti-aliasing", .headset = 1, .tooltip = "Smooths jagged edges. Changes right away; costs GPU time, which is short on battery.",
       .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrEyeMsaa,
-      .ivalues = s_msaa, .names = s_msaaNames, .count = 2, .def = NAN, .blocked = blockedMsaa },
+      .ivalues = s_msaa, .names = s_msaaNames, .count = sizeof(s_msaa) / sizeof(s_msaa[0]), .def = NAN, .blocked = blockedMsaa },
     { .label = "Watch face", .headset = 1, .tooltip = "Health, armour and radar on your watch. Only: and nowhere else.", .kind = GEVR_SET_CHOICE,
       .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_HANDS), .where = GEVR_SET_BOTH, .ivar = &VrWatchFaceStatus,
       .ivalues = s_three, .names = s_watchNames, .count = 3, .def = NAN },

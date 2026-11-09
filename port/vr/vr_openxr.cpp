@@ -3627,13 +3627,127 @@ extern "C" void gevrVrSetWorldScale(float unitsPerMetre) { vr_world_scale = unit
 
 /* vr_launcher.cpp: Anti-aliasing is offered where the driver can multisample
  * the multiview eye images. */
+#ifdef ANDROID
 extern "C" int vr_eye_msaa_supported(void) { return use_multiview && pfnFramebufferTextureMultisampleMultiviewOVR != nullptr; }
+#endif
 
 // ============================================================================
 // FBOs - Render Targets
 // ============================================================================
 
 static bool vr_ensure_swapchain_images();
+
+#ifndef ANDROID
+/*
+ * Desktop GL (PC VR): anti-aliasing without the mobile extension (drivers
+ * don't list OVR_multiview_multisampled_render_to_texture). The eyes draw
+ * into a multisampled texture array through ordinary multiview, which takes
+ * one, and each layer is resolved into the swapchain image before the frame is
+ * submitted, and whenever something reads that image mid-frame
+ * (vr_get_current_multiview_swapchain_tex: the framebuffer copies, the mirror).
+ */
+static GLuint g_msColor, g_msDepth, g_msReadFbo, g_msDrawFbo;
+static GLsizei g_msSamples;   // of g_msColor/g_msDepth
+static GLuint g_msTarget;     // the swapchain image this frame resolves into; 0 none
+static bool g_msFailed;       // refused by the driver: single-sampled from then on
+static bool g_msChecked;      // the attachment was checked once since the allocation
+
+static void vr_desktop_ms_free(void)
+{
+    if (g_msColor) glDeleteTextures(1, &g_msColor);
+    if (g_msDepth) glDeleteTextures(1, &g_msDepth);
+    g_msColor = g_msDepth = 0;
+    g_msSamples = 0;
+    g_msTarget = 0;
+}
+
+static bool vr_desktop_ms_alloc(GLsizei samples, GLuint swapchainTex)
+{
+    if (g_msColor && g_msSamples == samples) return true;
+    vr_desktop_ms_free();
+    if (!glTexImage3DMultisample || !glBlitFramebuffer || !glFramebufferTextureLayer) return false;
+    for (int i = 0; i < 16 && glGetError() != GL_NO_ERROR; ++i) {}
+    GLint prevArray = 0, prevMs = 0, format = GL_SRGB8_ALPHA8;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D_ARRAY, &prevArray);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D_MULTISAMPLE_ARRAY, &prevMs);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, swapchainTex);   // the same format as the image it resolves into
+    glGetTexLevelParameteriv(GL_TEXTURE_2D_ARRAY, 0, GL_TEXTURE_INTERNAL_FORMAT, &format);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, (GLuint)prevArray);
+    GLint maxSamples = 4;
+    glGetIntegerv(GL_MAX_SAMPLES, &maxSamples);
+    if (samples > maxSamples) samples = maxSamples;
+    glGenTextures(1, &g_msColor);
+    glBindTexture(GL_TEXTURE_2D_MULTISAMPLE_ARRAY, g_msColor);
+    glTexImage3DMultisample(GL_TEXTURE_2D_MULTISAMPLE_ARRAY, samples, (GLenum)format,
+                            g_internalRenderWidth, g_internalRenderHeight, 2, GL_TRUE);
+    glGenTextures(1, &g_msDepth);
+    glBindTexture(GL_TEXTURE_2D_MULTISAMPLE_ARRAY, g_msDepth);
+    glTexImage3DMultisample(GL_TEXTURE_2D_MULTISAMPLE_ARRAY, samples, GL_DEPTH24_STENCIL8,
+                            g_internalRenderWidth, g_internalRenderHeight, 2, GL_TRUE);
+    glBindTexture(GL_TEXTURE_2D_MULTISAMPLE_ARRAY, (GLuint)prevMs);
+    const GLenum error = glGetError();
+    if (error != GL_NO_ERROR) {
+        LOGE("Eye MSAA (desktop): %d samples of 0x%x refused, error 0x%x", (int)samples, format, error);
+        vr_desktop_ms_free();
+        return false;
+    }
+    g_msSamples = samples;
+    g_msChecked = false;
+    LOGI("Eye MSAA (desktop): %d samples, %d x %d, format 0x%x", (int)samples,
+         g_internalRenderWidth, g_internalRenderHeight, format);
+    return true;
+}
+
+// Into the bound eye framebuffer; false: single-sampled from now on
+static bool vr_desktop_ms_attach(GLsizei samples, GLuint swapchainTex)
+{
+    if (g_msFailed || !glFramebufferTextureMultiviewOVR) return false;
+    if (!vr_desktop_ms_alloc(samples, swapchainTex)) {
+        g_msFailed = true;
+        return false;
+    }
+    glFramebufferTextureMultiviewOVR(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, g_msColor, 0, 0, 2);
+    glFramebufferTextureMultiviewOVR(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, g_msDepth, 0, 0, 2);
+    if (!g_msChecked) {
+        g_msChecked = true;
+        const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (status != GL_FRAMEBUFFER_COMPLETE) {
+            LOGE("Eye MSAA (desktop): multiview framebuffer incomplete (0x%x), single-sampled", status);
+            vr_desktop_ms_free();
+            g_msFailed = true;
+            return false;
+        }
+    }
+    g_msTarget = swapchainTex;
+    return true;
+}
+
+// The multisampled eyes into the swapchain image, layer by layer
+static void vr_desktop_ms_resolve(void)
+{
+    if (!g_msTarget || !g_msColor || g_msTarget != g_currentMultiviewSwapchainTex) return;
+    GLint prevRead = 0, prevDraw = 0;
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevRead);
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevDraw);
+    const GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);
+    glDisable(GL_SCISSOR_TEST);
+    if (!g_msReadFbo) glGenFramebuffers(1, &g_msReadFbo);
+    if (!g_msDrawFbo) glGenFramebuffers(1, &g_msDrawFbo);
+    for (int layer = 0; layer < 2; layer++) {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, g_msReadFbo);
+        glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, g_msColor, 0, layer);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, g_msDrawFbo);
+        glFramebufferTextureLayer(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, g_msTarget, 0, layer);
+        glBlitFramebuffer(0, 0, g_internalRenderWidth, g_internalRenderHeight,
+                          0, 0, g_internalRenderWidth, g_internalRenderHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    }
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)prevRead);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint)prevDraw);
+    if (scissor) glEnable(GL_SCISSOR_TEST);
+}
+
+extern "C" int vr_eye_msaa_supported(void) { return use_multiview && !g_msFailed; }
+#endif
 
 /* The eye images' samples: the launcher's Anti-aliasing, or the game's
  * Video.MSAA; read every frame. 1 when the runtime has no multisampled
@@ -3643,8 +3757,11 @@ static GLsizei vr_eye_samples(void)
     GLsizei samples = (GLsizei)std::max<uint32_t>((uint32_t)VrEyeMsaa, gfx_msaa_level);
 #ifdef ANDROID
     samples = std::min<GLsizei>(samples, 4);
-#endif
     return samples > 1 && pfnFramebufferTextureMultisampleMultiviewOVR ? samples : 1;
+#else
+    samples = std::min<GLsizei>(samples, 8);
+    return samples > 1 && !g_msFailed && use_multiview ? samples : 1;
+#endif
 }
 
 /* gfx_pc.cpp gfx_run: a multisampled eye image must be drawn in one pass */
@@ -3655,8 +3772,18 @@ extern "C" int vr_eye_multisampled(void)
 
 static bool vr_attach_eye_fbo(GLuint colorTexture, bool validate)
 {
-    const GLsizei samples = vr_eye_samples();
+    GLsizei samples = vr_eye_samples();
+    bool attached = false;
+#ifndef ANDROID
+    g_msTarget = 0;
     if (samples > 1) {
+        attached = vr_desktop_ms_attach(samples, colorTexture);
+        if (!attached) samples = 1;
+    }
+#endif
+    if (attached) {
+        if (!validate) return true;
+    } else if (samples > 1) {
         pfnFramebufferTextureMultisampleMultiviewOVR(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
                                                     colorTexture, 0, samples, 0, 2);
         pfnFramebufferTextureMultisampleMultiviewOVR(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
@@ -5411,6 +5538,9 @@ extern "C" void vr_get_eye_view_proj_gl(int eye, float outVP[16]) {
 }
 
 extern "C" GLuint vr_get_current_multiview_swapchain_tex() {
+#ifndef ANDROID
+    vr_desktop_ms_resolve();   // a reader wants what is drawn so far
+#endif
     return g_currentMultiviewSwapchainTex;
 }
 
@@ -5553,6 +5683,63 @@ void vr_get_eye_view_offset(int eye, float* out_tx, float* out_ty, float* out_tz
 // FRAME LIFECYCLE - Submit
 // ============================================================================
 
+#ifdef GEVR_PCVR
+/*
+ * Tests: gevr_eyedump.txt beside the exe asks for the eye images this frame
+ * submits: eye0.bmp and eye1.bmp (half size), read back from the swapchain's
+ * texture array before it goes to the runtime. Looked for twice a second.
+ */
+static void vr_pc_eye_dump(void)
+{
+    static unsigned frames;
+    if (++frames % 36) return;
+    FILE *trigger = fopen("gevr_eyedump.txt", "rb");
+    if (!trigger) return;
+    fclose(trigger);
+    remove("gevr_eyedump.txt");
+    const GLuint tex = vr_get_current_multiview_swapchain_tex();
+    if (!tex) return;
+    GLint prev = 0, w = 0, h = 0, layers = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D_ARRAY, &prev);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, tex);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D_ARRAY, 0, GL_TEXTURE_WIDTH, &w);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D_ARRAY, 0, GL_TEXTURE_HEIGHT, &h);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D_ARRAY, 0, GL_TEXTURE_DEPTH, &layers);
+    if (w <= 0 || h <= 0 || layers < 1) { glBindTexture(GL_TEXTURE_2D_ARRAY, prev); return; }
+    std::vector<uint8_t> px((size_t)w * h * layers * 4);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glGetTexImage(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+    glBindTexture(GL_TEXTURE_2D_ARRAY, prev);
+    const int ow = w / 2, oh = h / 2, stride = (ow * 3 + 3) & ~3;
+    for (int layer = 0; layer < layers && layer < 2; layer++) {
+        char name[32];
+        snprintf(name, sizeof(name), "eye%d.bmp", layer);
+        FILE *f = fopen(name, "wb");
+        if (!f) continue;
+        const uint32_t size = 54u + (uint32_t)stride * oh;
+        uint8_t hdr[54] = {'B', 'M'};
+        auto put32 = [&](int at, uint32_t v) { for (int i = 0; i < 4; i++) hdr[at + i] = (uint8_t)(v >> (8 * i)); };
+        put32(2, size); put32(10, 54); put32(14, 40); put32(18, (uint32_t)ow); put32(22, (uint32_t)oh);
+        hdr[26] = 1; hdr[28] = 24;
+        fwrite(hdr, 1, 54, f);
+        std::vector<uint8_t> row(stride, 0);
+        const uint8_t *base = px.data() + (size_t)layer * w * h * 4;
+        for (int y = 0; y < oh; y++) {   // GL rows run bottom-up, as BMP's
+            const uint8_t *src = base + (size_t)(y * 2) * w * 4;
+            for (int x = 0; x < ow; x++) {
+                const uint8_t *p = src + (size_t)(x * 2) * 4;
+                row[x * 3 + 0] = p[2];
+                row[x * 3 + 1] = p[1];
+                row[x * 3 + 2] = p[0];
+            }
+            fwrite(row.data(), 1, stride, f);
+        }
+        fclose(f);
+    }
+    LOGI("eye dump: %dx%d, %d layers", w, h, layers);
+}
+#endif
+
 extern "C" bool vr_end_frame_and_submit()
 {
     if (!g_vrState.sessionRunning || g_vrState.session == XR_NULL_HANDLE)
@@ -5562,6 +5749,13 @@ extern "C" bool vr_end_frame_and_submit()
 
     bool submitted = false;
     if (gfx_get_current_rendering_api()->is_multiview()) {
+#ifndef ANDROID
+        vr_desktop_ms_resolve();
+        g_msTarget = 0;   // the image goes back to the runtime: no resolves into it after this
+#endif
+#ifdef GEVR_PCVR
+        vr_pc_eye_dump();
+#endif
         vr_submit_frame(g_frameState, g_haveRenderedViews ? g_renderedViews : g_frameViews);
         submitted = true;
     }
@@ -5604,6 +5798,9 @@ extern "C" void vr_shutdown()
         glDeleteTextures(1, &g_multiviewDepthArray);
         g_multiviewDepthArray = 0;
     }
+#ifndef ANDROID
+    vr_desktop_ms_free();
+#endif
     g_currentMultiviewSwapchainTex = 0;
 
     // 3. Swapchains. Hand back any image still checked out before destroying anything --
