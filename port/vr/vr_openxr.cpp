@@ -876,7 +876,7 @@ extern "C" bool vr_configure_resolution() {
 
     LOGI("HMD recommended resolution: %u x %u", views[0].recommendedImageRectWidth,
          views[0].recommendedImageRectHeight);
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_PCVR)   /* the runtime's recommended size, within its and GL's limits */
     GLint textureLimit = 0, renderbufferLimit = 0, viewportLimits[2] = {};
     glGetIntegerv(GL_MAX_TEXTURE_SIZE, &textureLimit);
     glGetIntegerv(GL_MAX_RENDERBUFFER_SIZE, &renderbufferLimit);
@@ -927,7 +927,7 @@ extern "C" bool vr_configure_resolution() {
     VrRecommendedH = size.baseHeight;
     g_internalRenderWidth = size.width;
     g_internalRenderHeight = size.height;
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_PCVR)
     XrAspect = float(VrRecommendedW) / float(VrRecommendedH);
 #else
     XrAspect = views[0].recommendedImageRectWidth >= 2 && views[0].recommendedImageRectHeight >= 2
