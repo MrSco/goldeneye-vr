@@ -15,7 +15,11 @@ public class MainActivity extends SDLActivity {
     private static native void nativeSetVrJavaContext(android.app.Activity activity, android.view.Surface surface);
 
     static {
-        System.loadLibrary("openxr_loader");
+        try {
+            System.loadLibrary("openxr_loader");
+        } catch (UnsatisfiedLinkError e) {
+            // the phone/tablet APK (the "mobile" flavor) ships no OpenXR loader
+        }
         System.loadLibrary("SDL2");
         try {
             System.loadLibrary("gevr");

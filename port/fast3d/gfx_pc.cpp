@@ -1,4 +1,4 @@
-#if defined(ANDROID) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
+#if (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
 #include "../vr/gevr_pause_menu.h"
 #endif
 #define NOMINMAX
@@ -175,7 +175,7 @@ int gevrVrScreenMode = 1;
 static bool gevr_screen_pass = false;
 /* The flat PC game (docs/pc-platforms.md): a window and no headset session.
  * PCVR (P2) answers false while its session runs. */
-#ifdef GEVR_PC_FLAT
+#ifdef GEVR_FLAT
 static inline bool gevr_pc_flat(void) { return true; }
 #else
 static inline bool gevr_pc_flat(void) { return false; }
@@ -5873,7 +5873,7 @@ extern "C" void gfx_run(Gfx* commands) {
         const uint32_t eyeH = (uint32_t)vr_get_internal_render_height();
         const bool screenMode = gevrVrScreenMode != 0;
         // Stereo gameplay frames go to the eye buffers; the screen quad must not cover them.
-#if defined(ANDROID) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
+#if (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
         const bool pauseOverlay=gevrNativePauseOpen()!=0;
         vr_screen_set_overlay(pauseOverlay);
         vr_screen_set_visible(screenMode || pauseOverlay);
@@ -6026,7 +6026,7 @@ extern "C" void gfx_run(Gfx* commands) {
         const bool eyeDeferred = gevrVrFrameDeferred() != 0;
         const bool eyeMultisampled = vr_eye_multisampled() != 0;
         if (!screenRendered && (eyeDeferred || eyeMultisampled) && !(VrPauseHub && VrIsPaused) &&
-#if defined(ANDROID) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
+#if (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
             (!gevrNativePauseOpen() || eyeMultisampled) &&
 #endif
             gfx_vr_eye_record_possible(eyeProj, eyeInvertY)) {
@@ -6148,7 +6148,7 @@ extern "C" void gfx_run(Gfx* commands) {
 
             // 6) The finished game frame goes to the compositor as a quad layer.
             if (screenRendered
-#if defined(ANDROID) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
+#if (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
                 && !gevrNativePauseOpen()
 #endif
             ) {
@@ -6162,17 +6162,20 @@ extern "C" void gfx_run(Gfx* commands) {
         return;
     }
 
-#ifdef GEVR_PC_FLAT
+#ifdef GEVR_FLAT
     // The flat PC game (docs/pc-platforms.md): no eyes. The frame goes through
     // the screen pass above, into the Quest's virtual-screen target at the
     // game's own aspect, and PC's vr_screen_present (port/pc/pc_vr_render.cpp)
     // puts layer 0 in the window. Without GL_OVR_multiview it is drawn into
     // the window directly (fast3d's old desktop path, not yet working).
     {
-        const bool viaScreen = gfx_rapi->is_multiview();
+        // the screen target, two-view or (no GL_OVR_multiview) its layer 0 alone
+        const bool viaScreen = true;
         const uint32_t nativeW = SCREEN_WIDTH > 0 ? (uint32_t)SCREEN_WIDTH : 320u;
         const uint32_t nativeH = SCREEN_HEIGHT > 0 ? (uint32_t)SCREEN_HEIGHT : 240u;
-        const uint32_t h = viaScreen ? std::max<uint32_t>(gfx_current_window_dimensions.height, 240u)
+        // the window's height, 240 to 1440 lines (the headset's screen target's cap;
+        // a phone held upright is 2400 tall, which made a 3200-wide target)
+        const uint32_t h = viaScreen ? std::min<uint32_t>(std::max<uint32_t>(gfx_current_window_dimensions.height, 240u), 1440u)
                                      : gfx_current_window_dimensions.height;
         const uint32_t w = viaScreen ? (((h * nativeW / nativeH) + 1u) & ~1u)
                                      : gfx_current_window_dimensions.width;

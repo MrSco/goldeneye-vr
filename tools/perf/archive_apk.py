@@ -15,6 +15,8 @@ root = Path(__file__).resolve().parents[2]
 parser = argparse.ArgumentParser(__doc__)
 parser.add_argument('name')
 parser.add_argument('--variant', choices=['release', 'benchmark'], default='release')
+# android/app/build.gradle's flavors: the Quest APK, or the phone/tablet one
+parser.add_argument('--flavor', choices=['quest', 'mobile'], default='quest')
 args = parser.parse_args()
 assert re.fullmatch('[A-Za-z0-9_-]+', args.name)
 propsfile = root / 'android/keystore.properties'
@@ -30,11 +32,11 @@ assert key.exists()
 sdk = Path('C:/Users/Occor/AppData/Local/Android/Sdk')
 java = Path('C:/Program Files/Java/jdk-20/bin/java.exe')
 build = root / 'android/app/build'
-outputs = build / 'outputs/apk' / args.variant
+outputs = build / 'outputs/apk' / args.flavor / args.variant
 apk = outputs / (args.name + '.apk')
-unsigned = outputs / f'app-{args.variant}-unsigned.apk'
+unsigned = outputs / f'app-{args.flavor}-{args.variant}-unsigned.apk'
 if not unsigned.exists():
-    unsigned = outputs / f'app-{args.variant}.apk'
+    unsigned = outputs / f'app-{args.flavor}-{args.variant}.apk'
 shutil.copy2(unsigned, apk)
 env = dict(os.environ, JAVA_HOME='C:/Program Files/Java/jdk-20',
            GEVR_KS_PASS=props['storePassword'], GEVR_KEY_PASS=props['keyPassword'])
@@ -61,10 +63,11 @@ dest = build/'outputs/symbols'/identity
 dest.mkdir(parents=True, exist_ok=True)
 shutil.copy2(lib, dest/'libgevr.so')
 shutil.copy2(apk, dest/apk.name)
-shutil.copy2(build/'outputs/native-debug-symbols'/args.variant/'native-debug-symbols.zip', dest/'native-debug-symbols.zip')
+shutil.copy2(build/'outputs/native-debug-symbols'/(args.flavor + args.variant.capitalize())/'native-debug-symbols.zip',
+             dest/'native-debug-symbols.zip')
 info = {'commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip(),
         'dirty': bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=root, text=True).strip()),
-        'variant': args.variant, 'apk': apk.name, 'sha256': hashlib.sha256(apk.read_bytes()).hexdigest(),
+        'variant': args.variant, 'flavor': args.flavor, 'apk': apk.name, 'sha256': hashlib.sha256(apk.read_bytes()).hexdigest(),
         'elfBuildId': identity, 'installed': False, 'published': False}
 # Identical code gives the benchmark variant the release build ID; keep its
 # metadata beside, not over, the release build.json.

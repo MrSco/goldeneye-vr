@@ -92,6 +92,26 @@ android {
         }
     }
 
+    // Two APKs from one tree (docs/mobile-platforms.md): the Quest's, and the
+    // phone/tablet one (flat, touch and pads, no OpenXR; GEVR_MOBILE in
+    // CMakeLists.txt). assembleQuestRelease / assembleMobileRelease; the APKs
+    // land in outputs/apk/<flavor>/<type>/.
+    flavorDimensions 'device'
+    productFlavors {
+        quest {
+            dimension 'device'
+        }
+        mobile {
+            dimension 'device'
+            applicationIdSuffix '.mobile'   // installs beside the Quest's
+            externalNativeBuild {
+                cmake {
+                    arguments "-DGEVR_MOBILE=ON"
+                }
+            }
+        }
+    }
+
     buildFeatures {
         prefab withDiscord   // the SDK's native library and headers, for CMake's find_package
     }
@@ -114,7 +134,10 @@ android {
 
     sourceSets {
         main {
-            jniLibs.srcDirs = ['src/main/jniLibs', '../../OpenXR/Libs/Android']
+            jniLibs.srcDirs = ['src/main/jniLibs']
+        }
+        quest {
+            jniLibs.srcDirs = ['../../OpenXR/Libs/Android']   // Meta's OpenXR loader: the Quest's only
         }
     }
 }

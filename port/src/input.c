@@ -1324,7 +1324,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         return 0;
     }
 
-#ifdef GEVR_PC_FLAT
+#ifdef GEVR_FLAT
     /*
      * The flat PC game (docs/pc-platforms.md): the pad is the keyboard and
      * mouse binds read above (the Perfect Dark port's: WASD on the C buttons,
@@ -1411,7 +1411,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             }
             cur_player_set_control_type(CONTROLLER_CONFIG_SOLITARE);
         }
-#if defined(ANDROID) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
+#if (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
         const bool nativePause=gevrNativePauseOpen()!=0;
 #else
         const bool nativePause=false;
@@ -2355,7 +2355,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         }
     }
 
-#if defined(ANDROID) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
+#if (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
     /* Menu owns A/B, triggers and sticks. Co-op uses this panel without
      * entering the campaign watch or pausing the other three headsets. */
     {
@@ -2398,7 +2398,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         unsigned allowed = reloadGameplay
             && g_playerPointers[localSlot] && !g_playerPointers[localSlot]->bonddead
             && !gevrSpectating() && !gevrCoopLocalDowned() ? 3u : 0u;
-#if defined(ANDROID) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
+#if (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
         if (gevrNativePauseOpen()) allowed = 0;
 #endif
         /* Menu + physical B belongs to the microphone, in either handedness. */
@@ -3450,7 +3450,7 @@ int gevrMpMenuOpen(void)
     return slot >= 0 && slot < INPUT_MAX_SLOT_PADS && g_playerPointers[slot] != NULL && g_playerPointers[slot]->mpmenuon;
 }
 
-#if defined(ANDROID) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
+#if (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
 int gevrNativePauseOpen(void) {
     if(s_gevrPanel)return 1;   /* the in-game panel, solo or online */
     int slot=netIsActive()?netGetLocalSlot():-1;

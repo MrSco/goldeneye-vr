@@ -20,6 +20,10 @@ elseif(ANDROID)
   set(GEVR_PLATFORM "quest")
 endif()
 set(GEVR_PLATFORM "${GEVR_PLATFORM}" CACHE STRING "quest, server or pc")
+# The Android phone/tablet APK (docs/mobile-platforms.md): the Quest's library
+# with the flat window, launcher and headset stand-ins of the PC flat game in
+# place of OpenXR (android/app/build.gradle's "mobile" flavor sets it).
+option(GEVR_MOBILE "Android phone/tablet: flat, no OpenXR" OFF)
 if(GEVR_PLATFORM STREQUAL "server")
   set(GEVR_HEADLESS ON)
 elseif(GEVR_PLATFORM STREQUAL "pc")
@@ -316,6 +320,28 @@ list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/server/.*")
 list(FILTER SRC_PORT EXCLUDE REGEX "port/(flat|pc)/.*")
 list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/(flat|pc)/.*")
 file(GLOB SRC_FLAT CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/port/flat/*.c" "${CMAKE_SOURCE_DIR}/port/flat/*.cpp")
+# a flat game's window, renderer hand-off and launcher input (PC flat, Android mobile)
+file(GLOB SRC_FLAT_WINDOW CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/port/flat/window/*.cpp")
+if(GEVR_MOBILE)
+  # As the PC flat game: port/vr's settings, screen target, launcher, friends,
+  # Discord and ImGui, plus the JNI glue the Java services need; no OpenXR.
+  list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/vr/.*")
+  list(APPEND SRC_PORT_CXX
+    "${CMAKE_SOURCE_DIR}/port/vr/vr_settings.cpp"
+    "${CMAKE_SOURCE_DIR}/port/vr/vr_screen.cpp"
+    "${CMAKE_SOURCE_DIR}/port/vr/vr_launcher.cpp"
+    "${CMAKE_SOURCE_DIR}/port/vr/vr_friends.cpp"
+    "${CMAKE_SOURCE_DIR}/port/vr/vr_discord.cpp"
+    "${CMAKE_SOURCE_DIR}/port/vr/vr_android_jni.cpp"
+    "${CMAKE_SOURCE_DIR}/port/vr/imgui/imgui.cpp"
+    "${CMAKE_SOURCE_DIR}/port/vr/imgui/imgui_draw.cpp"
+    "${CMAKE_SOURCE_DIR}/port/vr/imgui/imgui_tables.cpp"
+    "${CMAKE_SOURCE_DIR}/port/vr/imgui/imgui_widgets.cpp"
+    "${CMAKE_SOURCE_DIR}/port/vr/imgui/imgui_impl_opengl3.cpp")
+  list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/fast3d/gfx_(android|sdl2)\\.cpp$")
+  list(APPEND SRC_PORT ${SRC_FLAT} ${SRC_FLAT_WINDOW})
+  add_definitions(-DGEVR_FLAT=1 -DGEVR_MOBILE=1)
+endif()
 if(GEVR_PC)
   # Kept from port/vr as on the server: the settings, the log and miniz.
   # fast3d stays (it draws into the window) without its Android window.
@@ -342,7 +368,7 @@ if(GEVR_PC)
   # window is port/pc/pc_window.cpp, from Dab's Mod
   list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/fast3d/gfx_(android|sdl2)\\.cpp$")
   file(GLOB SRC_PC CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/port/pc/*.c" "${CMAKE_SOURCE_DIR}/port/pc/*.cpp")
-  list(APPEND SRC_PORT ${SRC_FLAT} ${SRC_PC})
+  list(APPEND SRC_PORT ${SRC_FLAT} ${SRC_FLAT_WINDOW} ${SRC_PC})
 endif()
 if(GEVR_HEADLESS)
   # Kept from port/vr: the settings (goldeneye-vr.ini), the log and miniz.
@@ -589,7 +615,7 @@ if(GEVR_PC)
 
   # the flat game: SRC as assembled above
   gevr_pc_target(GoldenEyeVR ${SRC})
-  target_compile_definitions(GoldenEyeVR PRIVATE GEVR_PC_FLAT=1)
+  target_compile_definitions(GoldenEyeVR PRIVATE GEVR_PC_FLAT=1 GEVR_FLAT=1)
 
   # PC VR: the flat stand-ins out, the Quest's VR layer and window in.
   # Windows: Khronos's loader (GEVR_OPENXR_WIN); Linux: the distro's
@@ -608,8 +634,7 @@ if(GEVR_PC)
   endif()
   if(GEVR_PCVR_BUILD)
     set(SRC_PCVR ${SRC})
-    list(FILTER SRC_PCVR EXCLUDE REGEX "port/flat/.*")
-    list(FILTER SRC_PCVR EXCLUDE REGEX "port/pc/pc_(window|vr_render)\\.cpp$")
+    list(FILTER SRC_PCVR EXCLUDE REGEX "port/flat/.*")   # with port/flat/window
     file(GLOB SRC_VR_ALL CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/port/vr/*.cpp" "${CMAKE_SOURCE_DIR}/port/vr/imgui/*.cpp")
     list(FILTER SRC_VR_ALL EXCLUDE REGEX "port/vr/vr_android_jni\\.cpp$")
     list(APPEND SRC_PCVR ${SRC_VR_ALL} "${CMAKE_SOURCE_DIR}/port/fast3d/gfx_sdl2.cpp")
@@ -644,7 +669,13 @@ add_library(steamaudio SHARED IMPORTED)
 set_target_properties(steamaudio PROPERTIES IMPORTED_LOCATION "${CMAKE_SOURCE_DIR}/port/external/steamaudio/lib/android-armv8/libphonon.so")
 target_include_directories(gevr PRIVATE "${CMAKE_SOURCE_DIR}/port/external/steamaudio/include")
 target_compile_definitions(gevr PRIVATE GEVR_STEAMAUDIO=1)
-target_link_libraries(gevr ${LIBS} openxr_loader juice-static opus steamaudio gevr_physics)
+if(GEVR_MOBILE)
+  target_link_libraries(gevr ${LIBS} juice-static opus steamaudio gevr_physics)
+  # Play's 16 KB pages (Android 15+); harmless when sideloaded
+  target_link_options(gevr PRIVATE -Wl,-z,max-page-size=16384)
+else()
+  target_link_libraries(gevr ${LIBS} openxr_loader juice-static opus steamaudio gevr_physics)
+endif()
 # Discord's Social SDK (port/vr/vr_discord.cpp), when android/app/build.gradle found it.
 option(GEVR_DISCORD "Link Discord's Social SDK (its prefab package)" OFF)
 if(GEVR_DISCORD)

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The phone/tablet APK (the "mobile" flavor, docs/mobile-platforms.md): the
+    main manifest without what makes the app a Quest VR app. Flat, landscape,
+    GLES 3.0, touch or a pad; the same services, keyboard and join links.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- GLES 3.0 is enough flat (no multiview), as fast3d's fallbacks allow -->
+    <uses-feature
+        android:glEsVersion="0x00030000"
+        android:required="true"
+        tools:replace="android:glEsVersion" />
+
+    <uses-feature android:name="android.hardware.vr.headtracking" tools:node="remove" />
+    <uses-feature android:name="android.hardware.vr.highperformance" tools:node="remove" />
+    <uses-feature android:name="oculus.software.overlay_keyboard" tools:node="remove" />
+    <uses-feature android:name="com.oculus.feature.PASSTHROUGH" tools:node="remove" />
+    <!-- a phone without a touchscreen is rare, but a TV box with a pad plays too -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+
+    <uses-permission android:name="org.khronos.openxr.permission.OPENXR" tools:node="remove" />
+    <uses-permission android:name="org.khronos.openxr.permission.OPENXR_SYSTEM" tools:node="remove" />
+
+    <queries tools:node="remove" />
+
+    <application>
+        <meta-data android:name="com.samsung.android.vr.application.mode" tools:node="remove" />
+        <meta-data android:name="com.oculus.supportedDevices" tools:node="remove" />
+
+        <activity
+            android:name=".MainActivity"
+            android:icon="@mipmap/ic_launcher"
+            tools:replace="android:icon">
+            <intent-filter tools:node="removeAll" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- goldeneyevr://join/CODE, as the Quest's -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="goldeneyevr" android:host="join" />
+            </intent-filter>
+            <meta-data android:name="com.oculus.vr.focusaware" tools:node="remove" />
+        </activity>
+    </application>
+</manifest>

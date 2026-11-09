@@ -24,7 +24,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
-$apk = Join-Path $repo "android\app\build\outputs\apk\debug\app-debug.apk"
+$apk = Join-Path $repo "android\app\build\outputs\apk\quest\debug\app-quest-debug.apk"
 $log = Join-Path $env:TEMP "gevr_boot.log"
 $pkg = "com.gevr.port"
 
@@ -35,7 +35,7 @@ if (-not (adb devices | Select-String -Pattern "device$")) {
 
 if (-not $SkipBuild) {
     Push-Location (Join-Path $repo "android")
-    $result = & .\gradlew.bat assembleDebug --console=plain 2>&1
+    $result = & .\gradlew.bat assembleQuestDebug --console=plain 2>&1
     Pop-Location
     $ok = $result | Select-String -Pattern "BUILD SUCCESSFUL"
     if (-not $ok) {

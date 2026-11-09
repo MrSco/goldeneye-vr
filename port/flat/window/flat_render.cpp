@@ -13,19 +13,26 @@
 
 #include <stdint.h>
 #include <SDL.h>
-#include "../fast3d/glad/glad.h"
+#ifdef ANDROID
+#include <jni.h>   // SDLSurface.java's size questions (GEVR_MOBILE, below)
+#include <GLES3/gl3.h>   // the mobile APK: GLES 3, as the Quest's
+#else
+#include "../../fast3d/glad/glad.h"
+#endif
 #include <stdio.h>
 #include <stdlib.h>
+#ifdef GEVR_PC
 #ifdef _WIN32
 #include <direct.h>
 #else
 #include <sys/stat.h>
 #endif
-#include "pc_testinput.h"
+#include "../../pc/pc_testinput.h"
+#endif
 #include <PR/ultratypes.h>
 #include "system.h"
 
-extern SDL_Window *wnd;   // pc_window.cpp
+extern SDL_Window *wnd;   // flat_window.cpp
 
 /* --- vr_openxr.cpp: eyes and their matrices -------------------------------- */
 
@@ -81,6 +88,7 @@ int vrGetMenuMirrorMVPList(int eyeIndex, struct VrMirrorMenuEntry *outEntries) {
 
 /* --- vr_screen.cpp / vr_hub.cpp: the virtual screen and the hub room ------- */
 
+#ifdef GEVR_PC
 /* A test script's shot (pc_testinput.c): the window's back buffer as a 24-bit BMP in shots/. */
 void pc_write_shot(const char *name, int w, int h)
 {
@@ -116,6 +124,7 @@ void pc_write_shot(const char *name, int w, int h)
     }
     free(px);
 }
+#endif   /* GEVR_PC */
 
 /*
  * The screen target itself is the Quest's (port/vr/vr_screen.cpp). Where the
@@ -150,9 +159,11 @@ bool vr_screen_present(unsigned int srcArrayTex, int w, int h)
     glClear(GL_COLOR_BUFFER_BIT);
     glBlitFramebuffer(0, 0, w, h, dx, dy, dx + dw, dy + dh, GL_COLOR_BUFFER_BIT, GL_LINEAR);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+#ifdef GEVR_PC
     if (const char *shot = pcTestInputTakeShot()) {
         pc_write_shot(shot, winW, winH);
     }
+#endif
     if (scissor) glEnable(GL_SCISSOR_TEST);
     return true;
 }
@@ -172,12 +183,23 @@ void gfx_sdl_get_mirror_dimensions(int *w, int *h) { if (w) *w = 0; if (h) *h = 
 /* --- vr_openxr.cpp: the session the launcher asks about ---------------------- */
 
 int gevrVrSessionRunning(void) { return 1; }   // the window is always "up"
+#ifdef GEVR_MOBILE
+/* flat_headset.c's pacing: a dedicated server slows down while empty; a
+ * player's game never does (the PC's is port/pc/pc_host.c) */
+int gevrServerIdle(void) { return 0; }
+#endif
+#ifdef GEVR_MOBILE
+/* SDLSurface.java asks for the VR renderer's size (vr_openxr.cpp on the
+ * Quest); under 2 it keeps the surface's own: the phone's screen */
+JNIEXPORT jint JNICALL Java_org_libsdl_app_SDLSurface_get_1targetW(JNIEnv *, jobject) { return 0; }
+JNIEXPORT jint JNICALL Java_org_libsdl_app_SDLSurface_get_1targetH(JNIEnv *, jobject) { return 0; }
+#endif
 
 }   // extern "C"
 
 /* --- vr_haptics.cpp: the Touch controllers' rumble table, which the launcher's
  * Haptics page tunes. No tracked controllers on the flat PC: an empty table. */
-#include "../vr/vr_haptics.h"
+#include "../../vr/vr_haptics.h"
 extern "C" {
 void vrHapticsResetAll(void) { }
 void vrHapticsResetCategory(HapticCategory cat) { (void)cat; }

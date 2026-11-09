@@ -30,12 +30,16 @@ extern GevrFramebufferTextureMultiviewOVRProc glFramebufferTextureMultiviewOVR; 
 
 extern GLuint g_multiviewFBO; // the eye-buffer FBO, vr_openxr.cpp
 extern "C" void gfx_opengl_connect_multiview_fbo(GLuint fbo_id, uint32_t width, uint32_t height);
+extern "C" void gfx_opengl_connect_single_view_fbo(GLuint fbo_id, uint32_t width, uint32_t height);
 extern "C" int vr_get_internal_render_width();
 extern "C" int vr_get_internal_render_height();
 
 static GLuint sFbo = 0, sColor = 0, sDepth = 0;
 static int sW = 0, sH = 0;
 static bool sActive = false;
+/* No GL_OVR_multiview (a flat game on a GPU without it: the Android emulator,
+ * ANGLE on Metal, older phones): layer 0 alone, drawn with single-view shaders */
+static bool sSingle = false;
 
 static void vr_screen_target_release(void)
 {
@@ -50,9 +54,10 @@ static bool vr_screen_target_ensure(int w, int h)
     if (sFbo && sW == w && sH == h) {
         return true;
     }
-    if (!glFramebufferTextureMultiviewOVR || w <= 0 || h <= 0) {
+    if (w <= 0 || h <= 0) {
         return false;
     }
+    sSingle = !glFramebufferTextureMultiviewOVR;
     vr_screen_target_release();
 
     glGenTextures(1, &sColor);
@@ -70,20 +75,29 @@ static bool vr_screen_target_ensure(int w, int h)
 
     glGenFramebuffers(1, &sFbo);
     glBindFramebuffer(GL_FRAMEBUFFER, sFbo);
-    glFramebufferTextureMultiviewOVR(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, sColor, 0, 0, 2);
-    glFramebufferTextureMultiviewOVR(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, sDepth, 0, 0, 2);
+    if (sSingle) {
+        glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, sColor, 0, 0);
+        glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, sDepth, 0, 0);
+    } else {
+        glFramebufferTextureMultiviewOVR(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, sColor, 0, 0, 2);
+        glFramebufferTextureMultiviewOVR(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, sDepth, 0, 0, 2);
+    }
 
     const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     if (status != GL_FRAMEBUFFER_COMPLETE) {
-        SCR_LOGE("screen: render target %dx%d incomplete (0x%x)", w, h, (unsigned)status);
+        GLint maxTex = 0, maxLayers = 0;
+        glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTex);
+        glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &maxLayers);
+        SCR_LOGE("screen: GL error 0x%x, max texture %d, max layers %d", (unsigned)glGetError(), maxTex, maxLayers);
+        SCR_LOGE("screen: render target %dx%d%s incomplete (0x%x)", w, h, sSingle ? " (single view)" : " (two views)", (unsigned)status);
         vr_screen_target_release();
         return false;
     }
 
     sW = w;
     sH = h;
-    SCR_LOGI("screen: render target %dx%d", w, h);
+    SCR_LOGI("screen: render target %dx%d%s", w, h, sSingle ? " (single view: no GL_OVR_multiview)" : "");
     return true;
 }
 
@@ -95,7 +109,8 @@ bool vr_screen_target_begin(int w, int h)
 
     // Framebuffer 0 is what the game's display list draws into; point it at the
     // screen target for the duration of the pass.
-    gfx_opengl_connect_multiview_fbo(sFbo, (uint32_t)w, (uint32_t)h);
+    if (sSingle) gfx_opengl_connect_single_view_fbo(sFbo, (uint32_t)w, (uint32_t)h);
+    else gfx_opengl_connect_multiview_fbo(sFbo, (uint32_t)w, (uint32_t)h);
 
     glBindFramebuffer(GL_FRAMEBUFFER, sFbo);
     glViewport(0, 0, w, h);
@@ -113,9 +128,13 @@ void vr_screen_target_end(void)
         return;
     }
     sActive = false;
-    gfx_opengl_connect_multiview_fbo(g_multiviewFBO,
-                                     (uint32_t)vr_get_internal_render_width(),
-                                     (uint32_t)vr_get_internal_render_height());
+    if (sSingle) {
+        gfx_opengl_connect_single_view_fbo(0, (uint32_t)sW, (uint32_t)sH);   // the window's
+    } else {
+        gfx_opengl_connect_multiview_fbo(g_multiviewFBO,
+                                         (uint32_t)vr_get_internal_render_width(),
+                                         (uint32_t)vr_get_internal_render_height());
+    }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 

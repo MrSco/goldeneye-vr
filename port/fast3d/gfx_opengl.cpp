@@ -838,8 +838,37 @@ extern "C" void gfx_opengl_connect_multiview_fbo(GLuint fbo_id, uint32_t width, 
     use_multiview = true;
 }
 
+/* vr_screen.cpp without GL_OVR_multiview: framebuffer 0 is the screen target's
+ * layer 0 (or the window), drawn with single-view shaders */
+extern "C" void gfx_opengl_connect_single_view_fbo(GLuint fbo_id, uint32_t width, uint32_t height) {
+    gevr_mesh_settle();
+    if (framebuffers.empty()) framebuffers.resize(1);
+    Framebuffer& fb = framebuffers[0];
+    fb.fbo = fbo_id;
+    fb.width = width;
+    fb.height = height;
+    fb.has_depth_buffer = true;
+    fb.is_multiview = false;
+    fb.invert_y = false;
+    fb.msaa_level = 1;
+    fb.clrbuf = fb.clrbuf_msaa = fb.rbo = 0;
+}
+
+#if defined(GEVR_PCVR) || defined(GEVR_PC)
+/* a debugger's breakpoint for a GL error (the debug output is synchronous) */
+extern "C" __attribute__((noinline)) void gevr_gl_error_trap(void) { __asm__ volatile(""); }
+#endif
+
 void gfx_opengl_init_multiview() { // VR
     gevr_mesh_settle();
+#ifdef GEVR_FLAT
+    // A flat game (PC, Android phone/tablet) has one view: the screen target's
+    // layer 0 alone and single-view shaders (vr_screen.cpp), on any GPU. Two
+    // views there only added a dependence on GL_OVR_multiview, which ANGLE on
+    // Metal lacks and the Android emulator's attaches incomplete (2026-11-09).
+    sysLogPrintf(LOG_NOTE, "GL: flat game: single view");
+    return;
+#endif
     bool found = false;
     if (gl_es) {
         GLint numExts = 0;
@@ -1576,6 +1605,11 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         append_line(vs_buf, &vs_len, vr_shader);
         // GoldenEye decal band (gfx_opengl_draw_triangles): a view-space nudge
         append_line(vs_buf, &vs_len, "gl_Position.z += uDecalBias.x / max(gl_Position.w, max(uDecalBias.y, 0.0001));");
+    } else {
+        // One view (a flat game: PC, the phone APK): the vertex as fast3d has it.
+        // Only the VR prelude above wrote gl_Position, so without it every draw
+        // was clipped away and the flat frame stayed black.
+        append_line(vs_buf, &vs_len, "    gl_Position = aVtxPos;");
     }
 
 
@@ -2028,7 +2062,15 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     prg->vrFlatLocation = -1;
     prg->scopeLocation = prg->scopeVPLocation = prg->scopeHeadPLocation = -1;
     prg->reprojLocation = prg->reprojVPLocation = -1;
-    prg->zTintLocation = -1;
+    // The VR-only uniforms: none (-1) without the two-view shaders that declare
+    // them. Left at the pool's zeroed 0 they all pointed at the uniform in
+    // location 0, and every draw of a single-view game (the flat game, the
+    // phone APK) failed on GL_INVALID_OPERATION and drew nothing.
+    prg->zTintLocation = prg->reprojLocation = prg->reprojVPLocation = -1;
+    prg->scopeLocation = prg->scopeVPLocation = prg->scopeHeadPLocation = -1;
+    prg->eyeOffsetLeftLocation = prg->eyeOffsetRightLocation = prg->isMenuLocation = -1;
+    prg->worldScaleLocation = prg->IsTitleLegal = prg->TanHalfFovRight = prg->TanHalfFovLeft = -1;
+    prg->vrFlatLocation = prg->decalBiasLocation = -1;
     if (use_multiview) {
         prg->zTintLocation = glGetUniformLocation(shader_program, "uZTint");
         prg->reprojLocation = glGetUniformLocation(shader_program, "uReproj");
@@ -4711,7 +4753,7 @@ static void gfx_opengl_init(void) {
 
     // VR (and the flat PC game, which draws through the Quest's screen target: gfx_pc.cpp gfx_run)
     gfx_opengl_init_multiview();
-#ifdef GEVR_PCVR
+#if defined(GEVR_PCVR) || defined(GEVR_PC)
     {
         // PC VR: log the first errors the driver reports, with its own message
         // (GEVR_GL_DEBUG=1 asks for a debug context, which reports them all)
@@ -4719,12 +4761,14 @@ static void gfx_opengl_init(void) {
         DebugCallbackProc debugCallback = (DebugCallbackProc)SDL_GL_GetProcAddress("glDebugMessageCallback");
         if (debugCallback) {
             glEnable(0x92E0 /* GL_DEBUG_OUTPUT */);
+            glEnable(0x8242 /* GL_DEBUG_OUTPUT_SYNCHRONOUS: the call is on the stack */);
             debugCallback([](GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,
                              const GLchar *message, const void *) {
                 static int logged;
                 if (type != 0x824C /* GL_DEBUG_TYPE_ERROR */ || logged >= 40) return;
                 logged++;
                 sysLogPrintf(LOG_WARNING, "GL error %u: %.*s", id, (int)length, message);
+                gevr_gl_error_trap();
             }, nullptr);
         }
     }

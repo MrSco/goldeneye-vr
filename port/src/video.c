@@ -104,7 +104,7 @@ s32 videoInit(void)
             .rapi = renderingAPI,
             .window_settings = {
                     .title = "GoldenEye VR",
-#ifdef GEVR_PC_FLAT
+#ifdef GEVR_FLAT
                     /* the window, not an eye: Video.DefaultWidth/Height, or 1280x720 */
                     .width = vidWidth > 0 ? (u32)vidWidth : 1280,
                     .height = vidHeight > 0 ? (u32)vidHeight : 720,
@@ -331,7 +331,7 @@ s32 videoInitDisplayModes(void)
 
     // Custom modes scaled from the internal render resolution
     for (s32 i = 0; i < (s32)(sizeof(customScales) / sizeof(customScales[0])); ++i) {
-#ifdef ANDROID
+#if defined(ANDROID) && !defined(GEVR_MOBILE)
         if (!vr_get_render_dimensions_for_scale(customScales[i], &modeList[numModes].width,
                                                &modeList[numModes].height)) continue;
 #else

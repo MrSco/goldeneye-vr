@@ -103,6 +103,7 @@ static void setVrJavaContextInternal(JNIEnv* env, jobject activity, jobject surf
          g_vm, g_activity, g_appContext, g_window);
 
 // 5) Init loader only once, and keep the same g_appContext afterwards
+#ifndef GEVR_MOBILE   /* the phone/tablet APK has no OpenXR loader: the references above are for the Java services */
     if (!g_loaderInitialized && g_vm && g_appContext) {
         g_loaderInitialized = true;
 
@@ -128,6 +129,7 @@ static void setVrJavaContextInternal(JNIEnv* env, jobject activity, jobject surf
             LOGE("Failed to get xrInitializeLoaderKHR function pointer: %d", r);
         }
     }
+#endif
 }
 
 extern "C" JNIEXPORT void JNICALL

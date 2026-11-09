@@ -58,13 +58,16 @@
 std::string pcServiceString(const char *method);
 void pcServiceCommand(const char *method, const char *arg);
 bool pcOpenPicker(const char *method);
-bool pcLauncherStickClick(int hand);   // pc_launcher.cpp: a pad's stick click
 void pcRestartSelf(void);
-struct ImGuiIO;
-void pcLauncherInit(ImGuiIO &io);
-void pcLauncherShutdown(void);
-void pcLauncherFeedInput(ImGuiIO &io);
 extern "C" int sysArgCheck(const char *arg);   // port/src/system.c
+#endif
+#ifdef GEVR_FLAT
+/* a flat game's window, PC or Android phone/tablet (port/flat/window/flat_launcher.cpp) */
+struct ImGuiIO;
+bool flatLauncherStickClick(int hand);   // a pad's stick click
+void flatLauncherInit(ImGuiIO &io);
+void flatLauncherShutdown(void);
+void flatLauncherFeedInput(ImGuiIO &io);
 #endif
 
 #include "imgui/imgui.h"
@@ -2894,9 +2897,9 @@ extern "C" void gevrLauncherRun(void)
     ImGui_ImplOpenGL3_Init("#version 300 es");
 #else
     ImGui_ImplOpenGL3_Init("#version 330");
-#ifdef GEVR_PC_FLAT
-    pcLauncherInit(io);   // mouse, keyboard and pad in the window
 #endif
+#ifdef GEVR_FLAT
+    flatLauncherInit(io);   // mouse, keyboard and pad in the window (PC, Android phone/tablet)
 #endif
 
     // The header icon (android assets/launcher_icon.rgba, tools/make_icons.py).
@@ -3047,7 +3050,7 @@ extern "C" void gevrLauncherRun(void)
         netPoll();
         netDiscoveryUpdate(SDL_GetTicks());
 
-#ifdef GEVR_PC_FLAT
+#ifdef GEVR_FLAT
         gevrVrPumpBegin();   // no headset: every frame is the launcher's (and loads the ini the first time)
         if (false) {
 #else
@@ -3076,10 +3079,10 @@ extern "C" void gevrLauncherRun(void)
         }
 
         Uint32 now = SDL_GetTicks();
-#ifdef GEVR_PC_FLAT
+#ifdef GEVR_FLAT
         // the same gesture on a pad: both sticks clicked; on the keyboard
         // Ctrl+Shift+D held (pc_launcher.cpp)
-        launcherSession.updateDebugCombo(pcLauncherStickClick(0), pcLauncherStickClick(1));
+        launcherSession.updateDebugCombo(flatLauncherStickClick(0), flatLauncherStickClick(1));
 #else
         launcherSession.updateDebugCombo(get_button_state(0, "thumbstick_click"),
                                          get_button_state(1, "thumbstick_click"));
@@ -3120,8 +3123,8 @@ extern "C" void gevrLauncherRun(void)
         }
         {
             // no stick navigation while the stick is resizing the screen
-#ifdef GEVR_PC_FLAT
-            pcLauncherFeedInput(io);
+#ifdef GEVR_FLAT
+            flatLauncherFeedInput(io);
 #else
             if (!grabbing) feedGamepad(io);
 #endif
@@ -3514,7 +3517,7 @@ extern "C" void gevrLauncherRun(void)
         }   // the START footer
         }   // reportPage
         if (footerNote.empty()) {
-#ifdef GEVR_PC_FLAT
+#ifdef GEVR_FLAT
             ImGui::TextDisabled("Click, or use the arrows and Return, or a pad's stick and A.");
 #else
             ImGui::TextDisabled("Point and pull the trigger, or use the stick and A.");
@@ -3558,8 +3561,8 @@ extern "C" void gevrLauncherRun(void)
            VrUseSnapTurn, VrComfortVignette);
     gevrTexpackStartEarly();   // index the chosen pack while the game boots
 
-#ifdef GEVR_PC_FLAT
-    pcLauncherShutdown();
+#ifdef GEVR_FLAT
+    flatLauncherShutdown();
 #endif
     SDL_StopTextInput();
     SDL_DelEventWatch(keyboardWatch, nullptr);
@@ -3573,7 +3576,7 @@ extern "C" void gevrLauncherRun(void)
     glDeleteTextures(1, &tex);
 }
 
-#if defined(ANDROID) || defined(GEVR_PCVR)
+#if (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR)
 // The same ownership rules and ray coordinates as the boot launcher, with
 // no launch/ROM-picker test hooks in a running match.
 extern "C" void gevrFeedPauseInput(int opening) {

@@ -19,7 +19,9 @@
 
 #include "gfx_window_manager_api.h"
 #include "gfx_screen_config.h"
-#include "pc_testinput.h"
+#ifdef GEVR_PC
+#include "../../pc/pc_testinput.h"
+#endif
 
 // fast3d (gfx_opengl.cpp) reaches both by name, as with the Quest window
 SDL_Window* wnd;
@@ -163,6 +165,9 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
     // if that doesn't work, try 3.2 core in case we're on mac, 2.1 compat as a last resort
     static u32 glver[][3] = {
         { 0, 0, 0                                    }, // for command line override
+#ifdef ANDROID
+        { 3, 0, SDL_GL_CONTEXT_PROFILE_ES            }, // Android (the mobile APK): GLES 3, as the Quest's
+#endif
         { 3, 0, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY }, // 3.0: default, has all the features required
         { 4, 1, SDL_GL_CONTEXT_PROFILE_CORE          }, // 4.1core: macs only have core profile and this is the latest
         { 3, 2, SDL_GL_CONTEXT_PROFILE_CORE          }, // 3.2core: older macs will only have this at best
@@ -221,12 +226,14 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
     SDL_GL_MakeCurrent(wnd, ctx);
     SDL_GL_SetSwapInterval(0);
 
+#ifdef GEVR_PC
     if (pcTestInputActive()) {
         // a test script runs while someone uses the desktop: shown, never raised over their windows
         SDL_SetHint(SDL_HINT_WINDOW_NO_ACTIVATION_WHEN_SHOWN, "1");
         // ...so the window never has focus, and SDL would drop its (virtual) pad's input
         SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
     }
+#endif
     SDL_ShowWindow(wnd);
 
     qpc_freq = SDL_GetPerformanceFrequency();
