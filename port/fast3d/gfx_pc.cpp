@@ -1,4 +1,4 @@
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
 #include "../vr/gevr_pause_menu.h"
 #endif
 #define NOMINMAX
@@ -175,7 +175,7 @@ int gevrVrScreenMode = 1;
 static bool gevr_screen_pass = false;
 /* The flat PC game (docs/pc-platforms.md): a window and no headset session.
  * PCVR (P2) answers false while its session runs. */
-#ifdef GEVR_PC
+#ifdef GEVR_PC_FLAT
 static inline bool gevr_pc_flat(void) { return true; }
 #else
 static inline bool gevr_pc_flat(void) { return false; }
@@ -5873,7 +5873,7 @@ extern "C" void gfx_run(Gfx* commands) {
         const uint32_t eyeH = (uint32_t)vr_get_internal_render_height();
         const bool screenMode = gevrVrScreenMode != 0;
         // Stereo gameplay frames go to the eye buffers; the screen quad must not cover them.
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
         const bool pauseOverlay=gevrNativePauseOpen()!=0;
         vr_screen_set_overlay(pauseOverlay);
         vr_screen_set_visible(screenMode || pauseOverlay);
@@ -6026,7 +6026,7 @@ extern "C" void gfx_run(Gfx* commands) {
         const bool eyeDeferred = gevrVrFrameDeferred() != 0;
         const bool eyeMultisampled = vr_eye_multisampled() != 0;
         if (!screenRendered && (eyeDeferred || eyeMultisampled) && !(VrPauseHub && VrIsPaused) &&
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
             (!gevrNativePauseOpen() || eyeMultisampled) &&
 #endif
             gfx_vr_eye_record_possible(eyeProj, eyeInvertY)) {
@@ -6148,7 +6148,7 @@ extern "C" void gfx_run(Gfx* commands) {
 
             // 6) The finished game frame goes to the compositor as a quad layer.
             if (screenRendered
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
                 && !gevrNativePauseOpen()
 #endif
             ) {
@@ -6162,7 +6162,7 @@ extern "C" void gfx_run(Gfx* commands) {
         return;
     }
 
-#ifdef GEVR_PC
+#ifdef GEVR_PC_FLAT
     // The flat PC game (docs/pc-platforms.md): no eyes. The frame goes through
     // the screen pass above, into the Quest's virtual-screen target at the
     // game's own aspect, and PC's vr_screen_present (port/pc/pc_vr_render.cpp)

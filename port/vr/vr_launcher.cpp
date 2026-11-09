@@ -2873,7 +2873,9 @@ extern "C" void gevrLauncherRun(void)
     ImGui_ImplOpenGL3_Init("#version 300 es");
 #else
     ImGui_ImplOpenGL3_Init("#version 330");
+#ifdef GEVR_PC_FLAT
     pcLauncherInit(io);   // mouse, keyboard and pad in the window
+#endif
 #endif
 
     // The header icon (android assets/launcher_icon.rgba, tools/make_icons.py).
@@ -3024,7 +3026,7 @@ extern "C" void gevrLauncherRun(void)
         netPoll();
         netDiscoveryUpdate(SDL_GetTicks());
 
-#ifdef GEVR_PC
+#ifdef GEVR_PC_FLAT
         gevrVrPumpBegin();   // no headset: every frame is the launcher's (and loads the ini the first time)
         if (false) {
 #else
@@ -3091,7 +3093,7 @@ extern "C" void gevrLauncherRun(void)
         }
         {
             // no stick navigation while the stick is resizing the screen
-#ifdef GEVR_PC
+#ifdef GEVR_PC_FLAT
             pcLauncherFeedInput(io);
 #else
             if (!grabbing) feedGamepad(io);
@@ -3485,7 +3487,7 @@ extern "C" void gevrLauncherRun(void)
         }   // the START footer
         }   // reportPage
         if (footerNote.empty()) {
-#ifdef GEVR_PC
+#ifdef GEVR_PC_FLAT
             ImGui::TextDisabled("Click, or use the arrows and Return, or a pad's stick and A.");
 #else
             ImGui::TextDisabled("Point and pull the trigger, or use the stick and A.");
@@ -3529,7 +3531,7 @@ extern "C" void gevrLauncherRun(void)
            VrUseSnapTurn, VrComfortVignette);
     gevrTexpackStartEarly();   // index the chosen pack while the game boots
 
-#ifdef GEVR_PC
+#ifdef GEVR_PC_FLAT
     pcLauncherShutdown();
 #endif
     SDL_StopTextInput();
@@ -3544,7 +3546,7 @@ extern "C" void gevrLauncherRun(void)
     glDeleteTextures(1, &tex);
 }
 
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_PCVR)
 // The same ownership rules and ray coordinates as the boot launcher, with
 // no launch/ROM-picker test hooks in a running match.
 extern "C" void gevrFeedPauseInput(int opening) {

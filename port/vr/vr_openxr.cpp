@@ -46,8 +46,10 @@
 #  include <EGL/egl.h>
 #  include <GLES3/gl3.h>
 #else
-// Windows API
+// Windows API (unknwn.h: openxr_platform.h's Win32 types use IUnknown, which
+// WIN32_LEAN_AND_MEAN leaves out of windows.h)
 #  include <windows.h>
+#  include <unknwn.h>
 #  include <wingdi.h>
 #  include "../vr/vr_log.h"
 // Graphics APIs
@@ -55,6 +57,8 @@
 #  include <GL/gl.h>
 #  include <cstdio>
 #include "vr_runtime_launcher.h"
+#include <PR/ultratypes.h>
+#include <PR/os.h>   // OSViMode (g_ViModes below; the Quest gets it through gevr_pause_menu.h)
 #endif
 
 

@@ -32,6 +32,7 @@ const char *fsFullPath(const char *relPath);   // port/src/fs.c
 void sysLogPrintf(int level, const char *fmt, ...);
 }
 
+#ifdef GEVR_PC_FLAT   /* the window is the launcher's screen; PCVR shows it on the headset's quad */
 /* Where the canvas was last drawn in the window: the mouse maps through it. */
 static int s_rectX, s_rectY, s_rectW = 1, s_rectH = 1;
 static float s_wheel;
@@ -190,6 +191,8 @@ void pcLauncherFeedInput(ImGuiIO &io)
         ImGui::SetNavCursorVisible(true);
     }
 }
+
+#endif   /* GEVR_PC_FLAT */
 
 /*
  * The Quest's file pickers (MainActivity.openRomPicker and friends) copy the

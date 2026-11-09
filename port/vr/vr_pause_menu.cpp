@@ -4,14 +4,18 @@
  * screen: the match's (gevr_pause_widgets.h), on Match for a tap of Menu and
  * on Settings for a hold. Solo, a hold opens the panel (gevr_panel_ui.h),
  * the same sections without the match's tabs; a tap opens GoldenEye's watch. */
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
 #include "gevr_pause_widgets.h"
 #include "gevr_panel_ui.h"
 #include "gevr_friends_ui.h"
 #include "imgui/imgui_impl_opengl3.h"
 #include "vr_screen.h"
 #include "vr_log.h"
+#ifdef ANDROID
 #include <GLES3/gl3.h>
+#else
+#include "../fast3d/glad/glad.h"
+#endif
 #include <SDL.h>
 #include <cmath>
 #include "net_core.h"

@@ -959,7 +959,7 @@ extern "C" void vrSettingsLoad(void)
         extTexSetPack(g_ActiveExtTexPack);
         videoSetExternalTextures(true);
     }
-#ifdef GEVR_PC
+#ifdef GEVR_PC_FLAT
     // The flat PC game has no stereo view (PCVR, docs/pc-platforms.md P2, will
     // choose it with its session): the screen, so flat-only rows like third
     // person are open whatever an ini from elsewhere says.

@@ -623,7 +623,7 @@ int gevrSettingInfo(int id, GevrSettingInfo *out)
 int gevrSettingShown(int id)
 {
     const Row *r = row(id);
-#ifdef GEVR_PC
+#ifdef GEVR_PC_FLAT
     if (r && r->headset) return 0;   /* no headset: no turning, screen, hands or display rate to set */
 #endif
     return r && (!r->shown || r->shown());

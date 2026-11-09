@@ -530,29 +530,58 @@ if(GEVR_HEADLESS)
 endif()
 
 if(GEVR_PC)
-  # The Windows game: one exe, static C++ runtime and winpthreads, so it runs
-  # from a folder with nothing installed. No Steam Audio yet (net_spatial.c
-  # falls back as on the server) and no OpenXR until PCVR (docs/pc-platforms.md).
-  add_executable(GoldenEyeVR ${SRC})
-  add_dependencies(GoldenEyeVR gevr_buildid)
-  target_include_directories(GoldenEyeVR PRIVATE ${GEVR_INCLUDES})
-  # SHELL: keeps each -include with its file (CMake drops a repeated option)
-  target_compile_options(GoldenEyeVR PRIVATE "SHELL:-include \"${CMAKE_BINARY_DIR}/port/include/versioninfo.h\""
-    "SHELL:-include \"${CMAKE_SOURCE_DIR}/port/pc/pc_compat.h\"")
-  target_link_libraries(GoldenEyeVR ${LIBS} juice-static opus gevr_physics
-    opengl32 ws2_32 iphlpapi winmm bcrypt imm32 version setupapi psapi winhttp comdlg32)
-  target_link_options(GoldenEyeVR PRIVATE -static -Wl,--error-limit=0)
-  # Steam Audio for voice chat (net_spatial.c), the Quest's 4.8.1: phonon.lib
-  # links, phonon.dll goes beside the exe. tools/build_pc.py fetches both.
+  # The Windows game (docs/pc-platforms.md), two exes from the same sources:
+  #   GoldenEyeVR      the flat game: a window, keyboard, mouse and pads,
+  #                    port/flat's headset that isn't there (GEVR_PC_FLAT)
+  #   GoldenEyeVR-VR   PC VR: the Quest's own VR layer (port/vr, OpenXR on
+  #                    desktop GL) and window (gfx_sdl2.cpp, PDVR's mirror)
+  # Each is one exe with the C++ runtime and winpthreads linked in; Steam
+  # Audio's phonon.dll and (PC VR) Khronos's openxr_loader.dll go beside them.
   set(GEVR_STEAMAUDIO_WIN "" CACHE PATH "Folder with Steam Audio 4.8.1's Windows phonon.dll and phonon.lib")
-  if(GEVR_STEAMAUDIO_WIN AND EXISTS "${GEVR_STEAMAUDIO_WIN}/phonon.lib")
-    target_include_directories(GoldenEyeVR PRIVATE "${CMAKE_SOURCE_DIR}/port/external/steamaudio/include")
-    target_compile_definitions(GoldenEyeVR PRIVATE GEVR_STEAMAUDIO=1)
-    target_link_libraries(GoldenEyeVR "${GEVR_STEAMAUDIO_WIN}/phonon.lib")
-    add_custom_command(TARGET GoldenEyeVR POST_BUILD
-      COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${GEVR_STEAMAUDIO_WIN}/phonon.dll" "$<TARGET_FILE_DIR:GoldenEyeVR>")
+  set(GEVR_OPENXR_WIN "" CACHE PATH "Folder with Khronos's Windows x64 openxr_loader.lib and openxr_loader.dll")
+
+  function(gevr_pc_target name)
+    add_executable(${name} ${ARGN})
+    add_dependencies(${name} gevr_buildid)
+    target_include_directories(${name} PRIVATE ${GEVR_INCLUDES})
+    # SHELL: keeps each -include with its file (CMake drops a repeated option)
+    target_compile_options(${name} PRIVATE "SHELL:-include \"${CMAKE_BINARY_DIR}/port/include/versioninfo.h\""
+      "SHELL:-include \"${CMAKE_SOURCE_DIR}/port/pc/pc_compat.h\"")
+    target_link_libraries(${name} ${LIBS} juice-static opus gevr_physics
+      opengl32 ws2_32 iphlpapi winmm bcrypt imm32 version setupapi psapi winhttp comdlg32)
+    target_link_options(${name} PRIVATE -static -Wl,--error-limit=0)
+    # Steam Audio for voice chat (net_spatial.c), the Quest's 4.8.1
+    if(GEVR_STEAMAUDIO_WIN AND EXISTS "${GEVR_STEAMAUDIO_WIN}/phonon.lib")
+      target_include_directories(${name} PRIVATE "${CMAKE_SOURCE_DIR}/port/external/steamaudio/include")
+      target_compile_definitions(${name} PRIVATE GEVR_STEAMAUDIO=1)
+      target_link_libraries(${name} "${GEVR_STEAMAUDIO_WIN}/phonon.lib")
+      add_custom_command(TARGET ${name} POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${GEVR_STEAMAUDIO_WIN}/phonon.dll" "$<TARGET_FILE_DIR:${name}>")
+    endif()
+  endfunction()
+
+  # the flat game: SRC as assembled above
+  gevr_pc_target(GoldenEyeVR ${SRC})
+  target_compile_definitions(GoldenEyeVR PRIVATE GEVR_PC_FLAT=1)
+
+  # PC VR: the flat stand-ins out, the Quest's VR layer and window in
+  if(GEVR_OPENXR_WIN AND EXISTS "${GEVR_OPENXR_WIN}/openxr_loader.lib")
+    set(SRC_PCVR ${SRC})
+    list(FILTER SRC_PCVR EXCLUDE REGEX "port/flat/.*")
+    list(FILTER SRC_PCVR EXCLUDE REGEX "port/pc/pc_(window|vr_render)\\.cpp$")
+    file(GLOB SRC_VR_ALL CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/port/vr/*.cpp" "${CMAKE_SOURCE_DIR}/port/vr/imgui/*.cpp")
+    list(FILTER SRC_VR_ALL EXCLUDE REGEX "port/vr/vr_android_jni\\.cpp$")
+    list(APPEND SRC_PCVR ${SRC_VR_ALL} "${CMAKE_SOURCE_DIR}/port/fast3d/gfx_sdl2.cpp")
+    list(REMOVE_DUPLICATES SRC_PCVR)
+    gevr_pc_target(GoldenEyeVR-VR ${SRC_PCVR})
+    target_compile_definitions(GoldenEyeVR-VR PRIVATE GEVR_PCVR=1
+      XR_USE_PLATFORM_WIN32=1 XR_USE_GRAPHICS_API_OPENGL=1)
+    target_link_libraries(GoldenEyeVR-VR "${GEVR_OPENXR_WIN}/openxr_loader.lib")
+    add_custom_command(TARGET GoldenEyeVR-VR POST_BUILD
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${GEVR_OPENXR_WIN}/openxr_loader.dll" "$<TARGET_FILE_DIR:GoldenEyeVR-VR>")
+    message(STATUS "PC VR: GoldenEyeVR-VR (OpenXR loader in ${GEVR_OPENXR_WIN})")
   else()
-    message(STATUS "Steam Audio: none (voice chat falls back to directional stereo, as on the server)")
+    message(STATUS "PC VR: no OpenXR loader given (GEVR_OPENXR_WIN), the flat game only")
   endif()
   return()
 endif()

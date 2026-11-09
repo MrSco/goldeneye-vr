@@ -104,7 +104,7 @@ s32 videoInit(void)
             .rapi = renderingAPI,
             .window_settings = {
                     .title = "GoldenEye VR",
-#ifdef GEVR_PC
+#ifdef GEVR_PC_FLAT
                     /* the window, not an eye: Video.DefaultWidth/Height, or 1280x720 */
                     .width = vidWidth > 0 ? (u32)vidWidth : 1280,
                     .height = vidHeight > 0 ? (u32)vidHeight : 720,

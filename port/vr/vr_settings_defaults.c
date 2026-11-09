@@ -110,7 +110,7 @@ int VrCoopFastReinforcements = 0; /* host-controlled co-op rule; clients follow 
 
 /* GoldenEye: 1 = true stereo in first-person play, 0 = everything on the virtual
  * screen. See vr_settings.h. The flat PC game has no stereo view. */
-#ifdef GEVR_PC
+#ifdef GEVR_PC_FLAT
 int VrPlayMode = 0;
 #else
 int VrPlayMode = 1;

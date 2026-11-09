@@ -24,7 +24,7 @@
 
 #ifndef ANDROID // if PC
 #define LOGI(...) printf(__VA_ARGS__)
-#include <GL/glew.h>
+#include "glad/glad.h"   // PC VR: the GL loader fast3d uses (PDVR's PC build used GLEW)
 #include "../vr/imgui/imgui.h"
 #include "../vr/imgui/imgui_impl_sdl2.h"
 #include "../vr/imgui/imgui_impl_opengl3.h"
@@ -190,6 +190,12 @@ extern "C" void vrShowWaitingWindow(const char *bmpPath) {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, waitLogoW, waitLogoH, 0, GL_BGR, GL_UNSIGNED_BYTE, surf->pixels);
         SDL_FreeSurface(surf);
+    } else {
+        // no logo beside the exe: room for the message
+        waitLogoW = 560;
+        waitLogoH = 40;
+        SDL_SetWindowSize(waitWnd, waitLogoW, waitLogoH + 40);
+        SDL_SetWindowPosition(waitWnd, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
     }
 
 
@@ -228,7 +234,7 @@ extern "C" void vrShowWaitingWindow(const char *bmpPath) {
 
             // Waiting for VR connection text
             ImGui::SetCursorPos(ImVec2(0, waitLogoH + 16));
-            const char *text = "Waiting for VR connection...";
+            const char *text = "Waiting for the headset: turn on Link, or start Virtual Desktop or SteamVR";
             float textWidth = ImGui::CalcTextSize(text).x;
             ImGui::SetCursorPosX((waitLogoW - textWidth) * 0.5f);
             ImGui::TextColored(ImVec4(1, 1, 1, alpha), text);

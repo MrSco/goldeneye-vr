@@ -504,7 +504,7 @@ static void gevrPageMoveCursor(GevrMenuPage *page, s32 dir)
 
 static void gevrMenuPagesTick(s32 player_num)
 {
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
     if(gevrNativePauseOpen())return;
 #endif
     static int last_rclick = 0;
@@ -2002,7 +2002,7 @@ s32 mpwatchShouldDisplayScore(s32 param_1)
  */
 Gfx *mp_watch_menu_display(Gfx *gdl)
 {
-#if defined(GEVR) && defined(ANDROID)
+#if defined(GEVR) && (defined(ANDROID) || defined(GEVR_PCVR))
     if (gevrNativePauseOpen()) return gdl;
 #endif
 
@@ -2833,7 +2833,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
 s32 mpwatchShouldDisplayGauges(void)
 {
 #ifdef GEVR
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_PCVR)   /* the headset build: the Quest, PC VR */
     /* The native pause window owns these gauges while it is visible. */
     if (gevrNativePauseOpen()) return FALSE;
 #endif

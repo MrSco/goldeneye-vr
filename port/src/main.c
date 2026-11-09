@@ -350,6 +350,22 @@ int main(int argc, const char **argv)
     }
 #endif
     sysInitArgs(argc, argv);
+#ifdef GEVR_PC
+    if (sysArgCheck("--input-script")) {
+        /* a test script (port/pc/pc_testinput.c) runs while someone uses the
+         * desktop: the windows never take the focus, and SDL keeps feeding the
+         * (virtual) pad to a window without it */
+        SDL_SetHint(SDL_HINT_WINDOW_NO_ACTIVATION_WHEN_SHOWN, "1");
+        SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    }
+#endif
+#ifdef GEVR_PCVR
+    /* PC VR: wait, in a small window, until the OpenXR runtime has a headset
+     * (Quest Link, Air Link, Virtual Desktop, SteamVR), as Perfect Dark VR's PC
+     * build does (port/fast3d/gfx_sdl2.cpp), rather than failing at the
+     * session; closing it quits. */
+    vrShowWaitingWindow("logo.bmp");
+#endif
 #ifdef GEVR_HEADLESS
     /* A line at a time: a log file holds stdout and the unbuffered stderr, and a
      * warning landed inside a buffered line (a server stats line lost its
