@@ -64,7 +64,10 @@ controllers (the README on GitHub lists them all):
   Left stick     walk and strafe           Right stick  turn
   A / X          next weapon / left-hand item (hold: the weapon wheel)
   B / Y          use, reload               Left stick click  crouch
-  Menu           pause, Bond's watch (hold: the in-game panel)
+  Menu           pause, Bond's watch
+  Hold the right stick click (1 s)                 screen / stereo play
+  One grip + hold the right stick click            Project Bean models on/off
+  Both grips + hold the right stick click          the in-game panel
   Both stick clicks  recenter              Swing a hand at a guard  melee
 
 Online

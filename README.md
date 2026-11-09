@@ -71,7 +71,7 @@ Also:
 
   Nothing of theirs ships with the app. New pack releases show up on the Mods page as updates.
 
-  In game, hold **Menu** to open the in-game panel, then use **HD textures off** and **on** to compare.
+  In game, hold **both grips + the right-stick click** to open the in-game panel, then use **HD textures off** and **on** to compare.
 - **Multiplayer** (experimental): deathmatch for up to eight players, with **bots** to fill the empty slots or to play against on your own, endless Horde waves on any map for one to four, or the campaign in co-op for up to four, each in their own headset, over the internet or your Wi-Fi: browse public games, share a private code or invite your friends. See [Multiplayer](#-multiplayer-experimental).
 - **Friends and invites**: the **Friends** panel beside the launcher and the in-game panel shows which friends are online and what they're playing. Find friends by name or friend code, invite them into your lobby, or join theirs. **Link Discord** there to add your Discord friends, show what you're playing on Discord, and send and take invites through it. A lobby's `goldeneyevr.com/join` link shows its code and an **Open in GoldenEye VR** button. See [Friends and invites](docs/friends-and-invites.md).
 - **Optional ragdolls and limb dismemberment** (experimental): Ragdolls and Dismemberment on **Rules → Game rules**. Off by default; works in every mode, with the body count set to fade, 12 or 24. Physics and cuts are local to each headset. See [setup, limits and testing](docs/ragdolls.md).
@@ -82,7 +82,7 @@ Also:
 - **Project Bean visuals** (optional, experimental): characters, weapons, props,
   rooms and skies downloaded from the launcher's Mods page or loaded from your
   own extracted Bean files. Select Bean alongside HD / AI; switch during play
-  in the in-game panel (hold **Menu**) or with one grip + right-stick click. GE-X keeps
+  in the in-game panel (**both grips + hold the right-stick click**) or with one grip + right-stick click. GE-X keeps
   its first-person gear. See
   [Project Bean setup and checks](docs/project-bean.md).
 - **Updates in the headset**: the launcher offers each new release, no computer needed.
@@ -237,7 +237,7 @@ from [Wreck's N64 Vault page](https://n64vault.com/pd-multi-levels:goldeneye-x).
    **Choose ROM...** and select the patched file. Look for **GoldenEye X ROM chosen.**
    The app stores it as `Android/data/com.gevr.port/files/data/gex.z64`.
 4. Tick **GE-X guns, hands and watch**. It's off by default. During a mission
-   you can switch it in the in-game panel (hold **Menu**): **VR settings → Mods and fun → GoldenEye X**.
+   you can switch it in the in-game panel (**both grips + hold the right-stick click**): **VR settings → Mods and fun → GoldenEye X**.
 
 On the virtual screen, GE-X's own fire and reload animations play. To reload by hand in
 stereo VR, also turn on **Hand reload WIP** on **Controls → Gestures**. It needs
@@ -305,7 +305,7 @@ GE-X and the ROM section's **Choose ROM file...** for your GoldenEye ROM.
 | **☰ Menu** (left controller) | Pause / Bond's watch (in multiplayer: the pause menu) |
 | **☰ Menu** + **A** | Gun fit on or off (single player) |
 | **☰ Menu** + **B** | Mute or unmute your microphone (multiplayer) |
-| **Hold ☰ Menu** (1.5 s) | The in-game panel: VR settings, HD textures, **Reset sound**, Friends and **Back to launcher** (in multiplayer: the pause menu's **Settings** tab) |
+| **Both grips + hold right-stick click** (1 s) | The in-game panel: VR settings, HD textures, **Reset sound**, Friends and **Back to launcher** (in multiplayer: the pause menu's **Settings** tab) |
 | **Raise left wrist to your face** | Open Bond's watch when **Watch gesture** is on |
 | **Both stick clicks** | Recenter the view |
 | **Hold right stick click** (1 s) | Switch to the virtual screen |
@@ -343,7 +343,7 @@ Keeping bodies alone preserves the original reinforcement behavior across all
 levels and no longer causes the reported enemy surge. See
 [body retention and reinforcements](docs/body-retention-reinforcements.md).
 
-Hold **Menu** for a moment, in a mission or online, to open the **in-game panel** on the
+Hold **both grips + the right-stick click** for a second, in a mission or online, to open the **in-game panel** on the
 room screen (a solo mission pauses under it; tap Menu or press B to close it). It has
 **Back to launcher**, **HD textures** on/off with a texture pack, **Reset sound**, your **Friends** (see
 [Friends and invites](docs/friends-and-invites.md)), and the **VR settings**, which change settings
@@ -384,7 +384,7 @@ to read your wrist without opening the pause menu; the Menu button still pauses.
 | **Hold both grips and use the right stick** | Up/down: nearer/farther. Left/right: smaller/bigger |
 | **Left stick click** | Crouch (toggle) |
 | **Both stick clicks** | Recenter the view and the screen |
-| **☰ Menu** | Pause; hold it (1.5 s) for the in-game panel: back to the launcher, VR settings, Friends |
+| **☰ Menu** | Pause (the in-game panel: both grips + hold the right-stick click) |
 | **Hold left stick click** (1 s) | Bring the screen back in front of you |
 | **Hold right stick click** (1 s) | Switch to stereo VR |
 | **Grips** (in Bond's watch) | Turn the watch pages |
@@ -445,7 +445,7 @@ settings are on the pause menu's **Rules** tab as **Bots**, **Bot count** and
   match goes on.
 
 **In a match.** **☰ Menu** (or the watch gesture) opens the pause menu on its **Match** tab;
-holding Menu opens it on **Settings**. Its tabs are **Match** (scores, map and votes),
+both grips + the right-stick click open it on **Settings**. Its tabs are **Match** (scores, map and votes),
 **Rules** (the host's; a guest sees them greyed, **Host's choice**), **Player**, **Audio**
 and **Settings** (the in-game panel's VR settings, **HD textures** and **Reset sound**).
 The match goes on while it's open.
@@ -618,7 +618,7 @@ On the launcher's **Comfort** tab, raise **Vignette** (darkens the edges while y
 <details>
 <summary><b>The sound turns crunchy or echoes</b></summary>
 
-Hold **Menu** for the in-game panel (online: the pause menu's **Settings** tab) and press
+Hold **both grips + the right-stick click** for the in-game panel (online: the pause menu's **Settings** tab) and press
 **Reset sound**. It restarts the sound output without leaving the mission.
 </details>
 

@@ -190,7 +190,7 @@ void handle(const std::vector<std::string> &f, bool inGame) {
             s_seenInvites.push_back(invite.id);
             vr_log("friends: invite from %s to lobby %s", invite.name.c_str(), invite.lobby.c_str());
             if (inGame) {
-                s_notice = hudText(invite.name + " invites you to " + inviteWhat(invite)) + "\nHOLD MENU TO ANSWER";
+                s_notice = hudText(invite.name + " invites you to " + inviteWhat(invite)) + "\nBOTH GRIPS + HOLD R-STICK TO ANSWER";
                 s_noticeUntil = now + kNoticeMs;
             }
         }

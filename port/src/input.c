@@ -259,8 +259,9 @@ static GevrReloadInput s_gevrReloadInput;
 int gevrVrReloadPressedMask(void) { return s_gevrReloadInput.pending; }
 int gevrVrReloadHeldMask(void) { return s_gevrReloadInput.held; }
 int gevrVrTakeReloadMask(void) { return gevrReloadInputTake(&s_gevrReloadInput); }
-/* Menu held 1.5 s: the in-game panel (port/vr/vr_pause_menu.cpp), counted as
- * the native pause so the game gets no input under it. */
+/* Both grips + the right stick click held: the in-game panel
+ * (port/vr/vr_pause_menu.cpp), counted as the native pause so the game gets no
+ * input under it. */
 int s_gevrPanel;
 static int s_gevrPanelPaused;   /* it opened the watch to pause a solo mission */
 static u32 s_gevrStartUntil;    /* a START pulse until then (a Menu tap, or the panel's pause) */
@@ -1963,16 +1964,6 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     }
                     fitChordWas = fitChord;
                 }
-                if (!consumed && t - downat >= 1500) {
-                    consumed = true;
-                    s_gevrPanel = 1;
-                    /* not in a cutscene, where START would skip it */
-                    if (!netIsActive() && !paused && bossGetStageNum() != LEVELID_TITLE && !lvlGetControlsLockedFlag()) {
-                        s_gevrPanelPaused = 1;
-                        s_gevrStartUntil = t + 100;
-                    }
-                    LOGI("input: menu hold -> panel%s\n", s_gevrPanelPaused ? " (mission paused)" : "");
-                }
             } else {
                 if (downat && !consumed) s_gevrStartUntil = t + 100;
                 downat = 0;
@@ -2232,6 +2223,32 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     vrSettingsSave();
                     fired = true;
                     LOGI("input: bean models -> %s\n", gevrBeanIsEnabled() ? "on" : "off");
+                }
+            } else {
+                downat = 0;
+            }
+        }
+        /* Both grips plus a held right-stick click: the in-game panel, on every
+         * runtime (the Menu hold was taken by Virtual Desktop and SteamVR for
+         * their own menus). The stick-click family: alone, play mode; one grip,
+         * Bean; both grips, the panel (user, 2026-11-09). */
+        {
+            static u32 downat = 0;
+            static bool fired = false;
+            if (rclick && get_button_state(0, "grip") && get_button_state(1, "grip")) {
+                if (!downat) {
+                    downat = now ? now : 1;
+                    fired = false;
+                }
+                if (!fired && !s_gevrPanel && now - downat >= 1000) {
+                    fired = true;
+                    s_gevrPanel = 1;
+                    /* not in a cutscene, where START would skip it */
+                    if (!netIsActive() && !paused && bossGetStageNum() != LEVELID_TITLE && !lvlGetControlsLockedFlag()) {
+                        s_gevrPanelPaused = 1;
+                        s_gevrStartUntil = now + 100;
+                    }
+                    LOGI("input: grips + right stick hold -> panel%s\n", s_gevrPanelPaused ? " (mission paused)" : "");
                 }
             } else {
                 downat = 0;

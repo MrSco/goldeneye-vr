@@ -66,7 +66,7 @@ void joinFromSecret(const std::string &secret, const std::string &who) {
     }
     vr_log("discord: joining a lobby from Discord");
     gevrFriendsJoin(code);
-    gevrFriendsMessage("Joining " + who + "'s game from Discord. In a mission, hold Menu to confirm.");
+    gevrFriendsMessage("Joining " + who + "'s game from Discord. In a mission, hold both grips + the right stick click to confirm.");
 }
 
 void sendInvite(uint64_t id) {
