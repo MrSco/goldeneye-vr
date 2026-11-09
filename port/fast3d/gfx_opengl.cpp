@@ -1302,7 +1302,7 @@ bool vr_is_Menu_blur = (abs(mvPos.w - 1.0) == 8.0);
 
 vec4 eyeOffset = (gl_ViewID_OVR == 0u) ? uEyeOffsetLeft : uEyeOffsetRight;
 #ifdef GEVR_SHARED_EYE_Y
-eyeOffset.w = 0.5 * (uEyeOffsetLeft.w + uEyeOffsetRight.w);
+eyeOffset.w = uEyeOffsetLeft.w;   // the same for both eyes; a capture parks the right eye's at 1000
 #endif
 
 // --------------------
@@ -1382,8 +1382,10 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
             // view came out with its view-dependent part twice in the second
             // view (the right eye drawn one lens-centre shift higher: eye
             // dumps, 2026-11-09). The vertical centre is the same for both
-            // eyes, so desktop takes it from both, and y no longer depends on
-            // the view; only x does.
+            // eyes, so desktop takes the left eye's, and y no longer depends on
+            // the view; only x does. (Not the two eyes' mean: a capture - the
+            // weapon wheel, the wrist HUD - parks the right eye's offsets at
+            // 1000, and the mean pushed the capture off its image.)
             append_line(vs_buf, &vs_len, "#define GEVR_SHARED_EYE_Y 1");
         }
 
@@ -4709,6 +4711,24 @@ static void gfx_opengl_init(void) {
 
     // VR (and the flat PC game, which draws through the Quest's screen target: gfx_pc.cpp gfx_run)
     gfx_opengl_init_multiview();
+#ifdef GEVR_PCVR
+    {
+        // PC VR: log the first errors the driver reports, with its own message
+        // (GEVR_GL_DEBUG=1 asks for a debug context, which reports them all)
+        typedef void (APIENTRY *DebugCallbackProc)(GLDEBUGPROC, const void *);
+        DebugCallbackProc debugCallback = (DebugCallbackProc)SDL_GL_GetProcAddress("glDebugMessageCallback");
+        if (debugCallback) {
+            glEnable(0x92E0 /* GL_DEBUG_OUTPUT */);
+            debugCallback([](GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,
+                             const GLchar *message, const void *) {
+                static int logged;
+                if (type != 0x824C /* GL_DEBUG_TYPE_ERROR */ || logged >= 40) return;
+                logged++;
+                sysLogPrintf(LOG_WARNING, "GL error %u: %.*s", id, (int)length, message);
+            }, nullptr);
+        }
+    }
+#endif
 
     glGenBuffers(1, &opengl_vbo);
     glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);

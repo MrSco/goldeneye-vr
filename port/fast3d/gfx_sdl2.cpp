@@ -389,6 +389,10 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, vmaj);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, vmin);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, vprof);
+#ifndef ANDROID
+        // GEVR_GL_DEBUG=1: a debug context, so the driver reports every call it rejects
+        if (getenv("GEVR_GL_DEBUG")) SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG);
+#endif
 
         wnd = SDL_CreateWindow(set->title, posX, posY, window_width, window_height, flags);
         if (!wnd) {

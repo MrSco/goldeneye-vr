@@ -1,4 +1,4 @@
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_PCVR)
 #include "gevr_pause_menu.h"
 #endif
 // ============================================================================
@@ -1898,6 +1898,46 @@ static void vr_update_menu_swapchain_L()
     xrReleaseSwapchainImage(g_menuSwapchain, &releaseInfo);
 }
 
+#ifdef GEVR_PCVR
+/* Tests (vr_pc_eye_dump): the next menu swapchain images as the runtime gets them */
+static bool g_dumpMenuSwapchains;
+static void vr_pc_write_tex_bmp(GLuint tex, const char *name)
+{
+    GLint prev = 0, w = 0, h = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &w);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &h);
+    if (w <= 1 || h <= 1) { glBindTexture(GL_TEXTURE_2D, prev); return; }
+    std::vector<uint8_t> px((size_t)w * h * 4);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+    glBindTexture(GL_TEXTURE_2D, prev);
+    size_t drawn = 0, alphaSum = 0;
+    for (size_t i = 3; i < px.size(); i += 4) { drawn += px[i] != 0; alphaSum += px[i]; }
+    FILE *f = fopen(name, "wb");
+    if (!f) return;
+    const int ow = w / 2, oh = h / 2, stride = (ow * 3 + 3) & ~3;
+    uint8_t hdr[54] = {'B', 'M'};
+    auto put32 = [&](int at, uint32_t v) { for (int i = 0; i < 4; i++) hdr[at + i] = (uint8_t)(v >> (8 * i)); };
+    put32(2, 54u + (uint32_t)stride * oh); put32(10, 54); put32(14, 40); put32(18, (uint32_t)ow); put32(22, (uint32_t)oh);
+    hdr[26] = 1; hdr[28] = 24;
+    fwrite(hdr, 1, 54, f);
+    std::vector<uint8_t> row(stride, 0);
+    for (int y = 0; y < oh; y++) {
+        const uint8_t *src = px.data() + (size_t)(y * 2) * w * 4;
+        for (int x = 0; x < ow; x++) {
+            const uint8_t *q = src + (size_t)(x * 2) * 4;
+            row[x * 3 + 0] = q[2]; row[x * 3 + 1] = q[1]; row[x * 3 + 2] = q[0];
+        }
+        fwrite(row.data(), 1, stride, f);
+    }
+    fclose(f);
+    LOGI("eye dump: %s %dx%d, %zu pixels drawn, mean alpha of those %.1f", name, w, h, drawn,
+         drawn ? (double)alphaSum / drawn : 0.0);
+}
+#endif
+
 static void vr_update_menu_swapchain_R()
 {
     uint32_t imageIndex = 0;
@@ -1910,6 +1950,9 @@ static void vr_update_menu_swapchain_R()
     static GLuint srcFbo = 0, dstFbo = 0;
     vr_copy_menu_layer(gfx_opengl_get_vr_menu_texture_R(),
                        g_menuSwapchainImagesR[imageIndex].image, srcFbo, dstFbo);
+#ifdef GEVR_PCVR
+    if (g_dumpMenuSwapchains) vr_pc_write_tex_bmp(g_menuSwapchainImagesR[imageIndex].image, "swR.bmp");
+#endif
 
     XrSwapchainImageReleaseInfo releaseInfo = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
     xrReleaseSwapchainImage(g_menuSwapchainR, &releaseInfo);
@@ -1947,6 +1990,9 @@ static void vr_update_menu_swapchain_P()
 
     static GLuint srcFboP = 0, dstFboP = 0;
     vr_copy_menu_layer(gfx_opengl_get_vr_menu_texture_P(), g_menuSwapchainImagesP[imageIndex].image, srcFboP, dstFboP);
+#ifdef GEVR_PCVR
+    if (g_dumpMenuSwapchains) vr_pc_write_tex_bmp(g_menuSwapchainImagesP[imageIndex].image, "swP.bmp");
+#endif
 
     XrSwapchainImageReleaseInfo releaseInfo = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
     xrReleaseSwapchainImage(g_menuSwapchainP, &releaseInfo);
@@ -1961,10 +2007,21 @@ static void vr_update_menu_swapchain_P()
  * buffers' do. Converting them to linear first, as the menu copy does, left
  * the lens very dark (user).
  */
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_PCVR)   /* the round lens: NVIDIA runs the ES 3.0 shader too */
 static GLuint s_scopeCopyProg = 0;
 static GLint  s_scopeCopySrgbLoc = -1;
 static bool   s_scopeCopyFailed = false;
+static GLuint s_scopeCopyVao = 0;
+// The game's bytes go into the sRGB image unchanged unless the runtime encodes
+// writes to it (the Quest's menu path); desktop GL writes them raw.
+static int vr_scope_copy_srgb(void)
+{
+#ifdef ANDROID
+    return (g_menuSwapchainIsSrgb && !g_srgbWritesRaw) ? 1 : 0;
+#else
+    return 0;
+#endif
+}
 
 static bool vr_scope_copy_init()
 {
@@ -2045,7 +2102,7 @@ static void vr_update_scope_swapchain(int hand, GLuint srcTex)
     glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
                            g_scopeSwapchainImages[hand][imageIndex].image, 0);
 
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_PCVR)
     if (vr_scope_copy_init()) {
         GLint prevProg = 0, prevVao = 0, prevTex = 0, prevActive = 0, vp[4];
         GLboolean prevBlend   = glIsEnabled(GL_BLEND);
@@ -2064,9 +2121,9 @@ static void vr_update_scope_swapchain(int hand, GLuint srcTex)
         glViewport(0, 0, GEVR_SCOPE_RES, GEVR_SCOPE_RES);
 
         glUseProgram(s_scopeCopyProg);
-        glUniform1i(s_scopeCopySrgbLoc, (g_menuSwapchainIsSrgb && !g_srgbWritesRaw) ? 1 : 0);
-        if (!s_menuCopyVao) glGenVertexArrays(1, &s_menuCopyVao);
-        glBindVertexArray(s_menuCopyVao);
+        glUniform1i(s_scopeCopySrgbLoc, vr_scope_copy_srgb());
+        if (!s_scopeCopyVao) glGenVertexArrays(1, &s_scopeCopyVao);
+        glBindVertexArray(s_scopeCopyVao);
         glBindTexture(GL_TEXTURE_2D, srcTex);
         glDrawArrays(GL_TRIANGLES, 0, 3);
 
@@ -4275,6 +4332,23 @@ extern "C" int vrGetMenuMirrorMVPList(int eyeIndex, VrMirrorMenuEntry* outEntrie
 // gevrGripAxes), 7 cm up along the fist's thumb side (grip -Z), turned to face
 // the eyes so it reads from any hand angle. PD's facing test (mirrored gCtrl*
 // conventions) hid it.
+/*
+ * A sub-image's rectangle, from a box whose y runs bottom-up (OpenGL's texel
+ * order): the Quest's runtime reads the rectangle bottom-up too, the PC
+ * runtimes (Virtual Desktop's VDXR, SteamVR) from the top. With the bottom-up
+ * offset the ammo count, low in its capture, came out as an empty strip at
+ * the top on PC (2026-11-09; the weapon wheel, mid-image, hardly moved).
+ */
+static int32_t vr_subimage_y(float y0, float y1, int32_t h)
+{
+#ifdef GEVR_PCVR
+    return (int32_t)((1.0f - y1) * h);
+#else
+    (void)y1;
+    return (int32_t)(y0 * h);
+#endif
+}
+
 static bool vr_ammo_panel(XrCompositionLayerQuad *layer, int ctrl, const float box[4])
 {
     const int32_t w = (int32_t)g_menuSwapchainWidth, h = (int32_t)g_menuSwapchainHeight;
@@ -4284,8 +4358,8 @@ static bool vr_ammo_panel(XrCompositionLayerQuad *layer, int ctrl, const float b
     if (by0 < 0.0f) by0 = 0.0f;
     if (bx1 > 1.0f) bx1 = 1.0f;
     if (by1 > 1.0f) by1 = 1.0f;
-    // OpenGL swapchain images: texel origin bottom-left, as the box is.
-    layer->subImage.imageRect.offset = {(int32_t)(bx0 * w), (int32_t)(by0 * h)};
+    // the box is bottom-up, as OpenGL's texels (vr_subimage_y: the runtime's order)
+    layer->subImage.imageRect.offset = {(int32_t)(bx0 * w), vr_subimage_y(by0, by1, h)};
     layer->subImage.imageRect.extent = {(int32_t)((bx1 - bx0) * w), (int32_t)((by1 - by0) * h)};
     const float width = (bx1 - bx0) * 0.6f;   // the whole capture would be 0.6 m wide
     layer->size = {width, width * ((by1 - by0) * h) / ((bx1 - bx0) * w)};
@@ -4562,6 +4636,9 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     // (the left hand's panel, issue #56: above the off hand)
     bool submitMenuP = (g_menuSwapchainP != XR_NULL_HANDLE) && gfx_vr_menu_P_dirty_and_clear();
     if (submitMenuP) vr_update_menu_swapchain_P();
+#ifdef GEVR_PCVR
+    g_dumpMenuSwapchains = false;
+#endif
 
     XrCompositionLayerQuad menuLayerP = vr_init_menu_quad(g_menuSwapchainP);
     if (submitMenuP) {
@@ -4574,7 +4651,8 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         x0 = std::clamp(x0, 0.f, 1.f); y0 = std::clamp(y0, 0.f, 1.f);
         x1 = std::clamp(x1, 0.f, 1.f); y1 = std::clamp(y1, 0.f, 1.f);
         if (!(x1 > x0 && y1 > y0)) { x0 = 0.f; y0 = 0.f; x1 = 1.f; y1 = 1.f; }
-        menuLayerP.subImage.imageRect.offset = {(int32_t)(x0 * W), (int32_t)((1.0f - y1) * H)};
+        // the panel's rect runs top-down (screen units): bottom-up first
+        menuLayerP.subImage.imageRect.offset = {(int32_t)(x0 * W), vr_subimage_y(1.0f - y1, 1.0f - y0, (int32_t)H)};
         menuLayerP.subImage.imageRect.extent = {(int32_t)((x1 - x0) * W), (int32_t)((y1 - y0) * H)};
 
         // the shape in the game's screen units: the capture's pixels aren't square (an oval)
@@ -5611,17 +5689,32 @@ bool vr_begin_eye_render()
     return true;
 }
 
+#ifdef GEVR_PCVR
+static void vr_pc_eye_dump(void);   // below: the test dump of the eyes
+#endif
+
 // End OpenGL rendering for the current eye and release swapchain image
 void vr_end_eye_render()
 {
     if (!gfx_get_current_rendering_api()->is_multiview()) return;
     if (!g_swapchainImageAcquired) return;
     uint64_t timingStart = gevrFrameTimingNow();
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_PCVR)   /* the in-game panel (hold Menu) */
     gevrNativePauseRender();
 #endif
     gevrFrameTimingAdd(GEVR_TIME_LAYERS, timingStart);
     timingStart = gevrFrameTimingNow();
+#ifndef ANDROID
+    // The multisampled eyes into the image before it goes back to the runtime:
+    // resolved after the release (at the submit), a streaming runtime was
+    // already copying it - torn eye images, edges cut as the head moved
+    // (Virtual Desktop, 2026-11-09).
+    vr_desktop_ms_resolve();
+    g_msTarget = 0;
+#endif
+#ifdef GEVR_PCVR
+    vr_pc_eye_dump();
+#endif
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
@@ -5737,6 +5830,52 @@ static void vr_pc_eye_dump(void)
         fclose(f);
     }
     LOGI("eye dump: %dx%d, %d layers", w, h, layers);
+    g_dumpMenuSwapchains = true;   // this frame's submit writes swR/swP.bmp
+    // the weapon wheel's and the head HUD's captures (2D views), with how much of each is drawn
+    const GLuint captures[3] = { gfx_opengl_get_vr_menu_texture_P(), gfx_opengl_get_vr_menu_texture_H(),
+                                 gfx_opengl_get_vr_menu_texture_R() };
+    {
+        float box[4] = {0, 0, 0, 0}, side0[4] = {0, 0, 0, 0}, side1[4] = {0, 0, 0, 0};
+        const bool hasBox = gfx_vr_menu_R_bbox(box);
+        const bool has0 = gfx_vr_menu_R_bbox_side(0, side0), has1 = gfx_vr_menu_R_bbox_side(1, side1);
+        LOGI("eye dump: ammo hud %d dirty %d box %d (%.3f %.3f %.3f %.3f) side0 %d side1 %d (%.3f %.3f %.3f %.3f)",
+             is_weapon_hud ? 1 : 0, gfx_vr_menu_R_dirty_and_clear() ? 1 : 0, hasBox ? 1 : 0,
+             box[0], box[1], box[2], box[3], has0 ? 1 : 0, has1 ? 1 : 0, side1[0], side1[1], side1[2], side1[3]);
+    }
+    for (int c = 0; c < 3; c++) {
+        GLint prev2d = 0, cw = 0, ch = 0;
+        if (!captures[c]) continue;
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev2d);
+        glBindTexture(GL_TEXTURE_2D, captures[c]);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &cw);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &ch);
+        if (cw <= 1 || ch <= 1) { glBindTexture(GL_TEXTURE_2D, prev2d); continue; }
+        std::vector<uint8_t> cp((size_t)cw * ch * 4);
+        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, cp.data());
+        glBindTexture(GL_TEXTURE_2D, prev2d);
+        size_t drawn = 0;
+        for (size_t i = 3; i < cp.size(); i += 4) drawn += cp[i] != 0;
+        const char *name = c == 2 ? "capR.bmp" : c ? "capH.bmp" : "capP.bmp";
+        FILE *f = fopen(name, "wb");
+        if (!f) continue;
+        const int ow = cw / 2, oh = ch / 2, stride = (ow * 3 + 3) & ~3;
+        uint8_t hdr[54] = {'B', 'M'};
+        auto put32 = [&](int at, uint32_t v) { for (int i = 0; i < 4; i++) hdr[at + i] = (uint8_t)(v >> (8 * i)); };
+        put32(2, 54u + (uint32_t)stride * oh); put32(10, 54); put32(14, 40); put32(18, (uint32_t)ow); put32(22, (uint32_t)oh);
+        hdr[26] = 1; hdr[28] = 24;
+        fwrite(hdr, 1, 54, f);
+        std::vector<uint8_t> row(stride, 0);
+        for (int y = 0; y < oh; y++) {
+            const uint8_t *src = cp.data() + (size_t)(y * 2) * cw * 4;
+            for (int x = 0; x < ow; x++) {
+                const uint8_t *q = src + (size_t)(x * 2) * 4;
+                row[x * 3 + 0] = q[2]; row[x * 3 + 1] = q[1]; row[x * 3 + 2] = q[0];
+            }
+            fwrite(row.data(), 1, stride, f);
+        }
+        fclose(f);
+        LOGI("eye dump: %s %dx%d, %zu pixels drawn", name, cw, ch, drawn);
+    }
 }
 #endif
 
@@ -5749,13 +5888,6 @@ extern "C" bool vr_end_frame_and_submit()
 
     bool submitted = false;
     if (gfx_get_current_rendering_api()->is_multiview()) {
-#ifndef ANDROID
-        vr_desktop_ms_resolve();
-        g_msTarget = 0;   // the image goes back to the runtime: no resolves into it after this
-#endif
-#ifdef GEVR_PCVR
-        vr_pc_eye_dump();
-#endif
         vr_submit_frame(g_frameState, g_haveRenderedViews ? g_renderedViews : g_frameViews);
         submitted = true;
     }
