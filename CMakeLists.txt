@@ -542,6 +542,18 @@ if(GEVR_PC)
   target_link_libraries(GoldenEyeVR ${LIBS} juice-static opus gevr_physics
     opengl32 ws2_32 iphlpapi winmm bcrypt imm32 version setupapi psapi)
   target_link_options(GoldenEyeVR PRIVATE -static -Wl,--error-limit=0)
+  # Steam Audio for voice chat (net_spatial.c), the Quest's 4.8.1: phonon.lib
+  # links, phonon.dll goes beside the exe. tools/build_pc.py fetches both.
+  set(GEVR_STEAMAUDIO_WIN "" CACHE PATH "Folder with Steam Audio 4.8.1's Windows phonon.dll and phonon.lib")
+  if(GEVR_STEAMAUDIO_WIN AND EXISTS "${GEVR_STEAMAUDIO_WIN}/phonon.lib")
+    target_include_directories(GoldenEyeVR PRIVATE "${CMAKE_SOURCE_DIR}/port/external/steamaudio/include")
+    target_compile_definitions(GoldenEyeVR PRIVATE GEVR_STEAMAUDIO=1)
+    target_link_libraries(GoldenEyeVR "${GEVR_STEAMAUDIO_WIN}/phonon.lib")
+    add_custom_command(TARGET GoldenEyeVR POST_BUILD
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${GEVR_STEAMAUDIO_WIN}/phonon.dll" "$<TARGET_FILE_DIR:GoldenEyeVR>")
+  else()
+    message(STATUS "Steam Audio: none (voice chat falls back to directional stereo, as on the server)")
+  endif()
   return()
 endif()
 

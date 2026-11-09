@@ -8,7 +8,12 @@ or GEVR_TOOLS. GEVR_LLVM_MINGW points at an unpacked copy instead. GCC can't
 build the game (token pasting the NDK's clang accepts), and MSVC lacks the GNU
 C the decomp is written in, so clang it is, as in Time Crisis II VR.
 
-CMake and Ninja come from PATH. SDL2, zlib and Opus are fetched by CMake.
+Steam Audio (voice chat's binaural rendering, net_spatial.c) is the Quest's
+version, 4.8.1, from Valve's official SDK archive (checked against the SHA-256
+in port/external/steamaudio/README.md); its Windows phonon.dll goes beside
+the exe. CMake and Ninja come from PATH. SDL2, zlib and Opus are fetched by
+CMake.
+
 The build folder defaults to a short path under %LOCALAPPDATA%: object paths
 past 250 characters break CMake's compiler checks under a long worktree path.
 """
@@ -24,6 +29,9 @@ import zipfile
 
 LLVM_MINGW = 'llvm-mingw-20260922-ucrt-x86_64'
 LLVM_MINGW_URL = f'https://github.com/mstorsjo/llvm-mingw/releases/download/20260922/{LLVM_MINGW}.zip'
+STEAM_AUDIO = 'steamaudio-4.8.1'
+STEAM_AUDIO_URL = 'https://github.com/ValveSoftware/steam-audio/releases/download/v4.8.1/steamaudio_4.8.1.zip'
+STEAM_AUDIO_SHA256 = '4a0aa5ec1176f38f0b0993a37c2259d9e86f27e22d5e24f83ec4c3cb9a1d5449'
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -53,6 +61,39 @@ def llvm_mingw():
     return dest
 
 
+def fetch(url, archive):
+    if not os.path.isfile(archive):
+        print(f'fetching {url}', flush=True)
+        part = archive + '.part'
+        urllib.request.urlretrieve(url, part)
+        os.replace(part, archive)
+
+
+def steam_audio():
+    """The Windows x64 phonon.dll and phonon.lib of the Quest's Steam Audio."""
+    dest = os.path.join(tools_dir(), STEAM_AUDIO)
+    if os.path.isfile(os.path.join(dest, 'phonon.dll')) and os.path.isfile(os.path.join(dest, 'phonon.lib')):
+        return dest
+    archive = os.path.join(tools_dir(), STEAM_AUDIO + '.zip')
+    fetch(STEAM_AUDIO_URL, archive)
+    h = hashlib.sha256()
+    with open(archive, 'rb') as f:
+        for block in iter(lambda: f.read(1 << 20), b''):
+            h.update(block)
+    if h.hexdigest() != STEAM_AUDIO_SHA256:
+        os.remove(archive)
+        sys.exit(f'{archive}: SHA-256 {h.hexdigest()} is not Steam Audio 4.8.1\'s')
+    os.makedirs(dest, exist_ok=True)
+    with zipfile.ZipFile(archive) as z:
+        for name in z.namelist():
+            if '/lib/windows-x64/' in name and name.rsplit('/', 1)[-1] in ('phonon.dll', 'phonon.lib'):
+                with z.open(name) as src, open(os.path.join(dest, name.rsplit('/', 1)[-1]), 'wb') as out:
+                    shutil.copyfileobj(src, out)
+    if not os.path.isfile(os.path.join(dest, 'phonon.dll')):
+        sys.exit(f'{archive}: no lib/windows-x64/phonon.dll in it')
+    return dest
+
+
 def main():
     ap = argparse.ArgumentParser()
     key = hashlib.sha1(ROOT.lower().encode()).hexdigest()[:8]
@@ -66,6 +107,7 @@ def main():
         if not shutil.which(tool):
             sys.exit(f'{tool} is not on PATH')
     mingw = llvm_mingw()
+    phonon = steam_audio().replace(os.sep, '/')
     bin_dir = os.path.join(mingw, 'bin').replace(os.sep, '/')   # CMake reads backslashes as escapes
     env = dict(os.environ)
     # llvm-mingw first: a gcc elsewhere on PATH (Strawberry Perl ships one) must not be picked up
@@ -80,6 +122,7 @@ def main():
         f'-DCMAKE_C_COMPILER={bin_dir + "/x86_64-w64-mingw32-clang.exe"}',
         f'-DCMAKE_CXX_COMPILER={bin_dir + "/x86_64-w64-mingw32-clang++.exe"}',
         f'-DCMAKE_RC_COMPILER={bin_dir + "/x86_64-w64-mingw32-windres.exe"}',
+        f'-DGEVR_STEAMAUDIO_WIN={phonon}',
     ]
     subprocess.run(configure, check=True, env=env)
     if args.configure_only:

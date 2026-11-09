@@ -123,6 +123,7 @@ typedef struct Row {
     void (*cset)(int index);
     void (*ctext)(int index, char *buf, int size);
     int cdefault;                   /* its default position, -1 none */
+    int headset;                    /* a headset's own: hidden in the flat PC game (docs/pc-platforms.md) */
 } Row;
 
 /* ---- the special cases (as options.c had them) ---- */
@@ -377,18 +378,21 @@ static void voiceModeText(int i, char *b, int n) { snprintf(b, n, "%s", netVoice
 #define CUSTOM(sec, lab, kd, pos, get, set, text, dflt, tip) \
     { .label = lab, .tooltip = tip, .kind = kd, .section = sec, .where = GEVR_SET_BOTH, .def = NAN, \
       .cpositions = pos, .cget = get, .cset = set, .ctext = text, .cdefault = dflt }
+#define CUSTOM_VR(sec, lab, kd, pos, get, set, text, dflt, tip) \
+    { .label = lab, .tooltip = tip, .kind = kd, .section = sec, .where = GEVR_SET_BOTH, .def = NAN, \
+      .cpositions = pos, .cget = get, .cset = set, .ctext = text, .cdefault = dflt, .headset = 1 }
 
 static const Row s_rows[] = {
     /* Comfort */
     CUSTOM(GEVR_SEC_COMFORT, "Movement speed", GEVR_SET_RANGE, movePositions, moveGet, moveSet, moveText, 2,
            "How fast Bond walks and runs. Online it is the host's rule."),
-    CUSTOM(GEVR_SEC_COMFORT, "Turning", GEVR_SET_CHOICE, turnPositions, turnGet, turnSet, turnText, 0,
+    CUSTOM_VR(GEVR_SEC_COMFORT, "Turning", GEVR_SET_CHOICE, turnPositions, turnGet, turnSet, turnText, 0,
            "Smooth turning, or snapping by a set angle."),
-    { .label = "Turn speed", .tooltip = "Smooth turning's speed, degrees a second.", .kind = GEVR_SET_RANGE,
+    { .label = "Turn speed", .headset = 1, .tooltip = "Smooth turning's speed, degrees a second.", .kind = GEVR_SET_RANGE,
       .section = GEVR_SEC_COMFORT, .where = GEVR_SET_BOTH, .ivar = &VrSmoothTurnSpeed,
       .lo = SMOOTHTURN_MIN, .hi = SMOOTHTURN_MAX, .step = SMOOTHTURN_STEP, .scale = 1, .fmt = "%.0f", .def = 120,
       .blocked = blockedTurnSpeed },
-    { .label = "Vignette", .tooltip = "Darkens the edges of your view while you move or turn.", .kind = GEVR_SET_RANGE,
+    { .label = "Vignette", .headset = 1, .tooltip = "Darkens the edges of your view while you move or turn.", .kind = GEVR_SET_RANGE,
       .section = GEVR_SEC_COMFORT, .where = GEVR_SET_BOTH, .fvar = &VrComfortVignette,
       .lo = 0, .hi = 1, .step = 0.1f, .scale = 1, .fmt = "%.1f", .zero = "Off", .def = 0 },
     TOGGLE(GEVR_SEC_COMFORT, "No knockback", VrNoKnockback, "Hits don't push you around."),
@@ -407,65 +411,65 @@ static const Row s_rows[] = {
     /* Gestures */
     TOGGLE(GEVR_SEC_GESTURES, "Watch gesture", VrWatchGesturePause, "Raise your watch to open it."),
     TOGGLE(GEVR_SEC_GESTURES, "Body slots WIP", VrBodySlots, "Holsters on your body: reach and grip to draw or put away."),
-    { .label = "Slot size", .tooltip = "How far from a slot your hand still reaches it.", .kind = GEVR_SET_CHOICE,
+    { .label = "Slot size", .headset = 1, .tooltip = "How far from a slot your hand still reaches it.", .kind = GEVR_SET_CHOICE,
       .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrBodySlotSize, .ivalues = s_three,
       .names = s_slotSizeNames, .count = 3, .def = NAN, .blocked = blockedSlots },
-    { .label = "Show slots", .tooltip = "Draw what the hips, chest and belt hold when you look down.", .kind = GEVR_SET_TOGGLE,
+    { .label = "Show slots", .headset = 1, .tooltip = "Draw what the hips, chest and belt hold when you look down.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrBodySlotShow, .def = NAN, .blocked = blockedSlots },
-    { .label = "Hand reload WIP", .tooltip = "Reload by taking a magazine from your belt (GoldenEye X guns).", .kind = GEVR_SET_TOGGLE,
+    { .label = "Hand reload WIP", .headset = 1, .tooltip = "Reload by taking a magazine from your belt (GoldenEye X guns).", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrManualReloading, .def = NAN, .blocked = blockedReload },
-    { .label = "Grip use", .tooltip = "Grip doors, buttons and switches to use them.", .kind = GEVR_SET_TOGGLE,
+    { .label = "Grip use", .headset = 1, .tooltip = "Grip doors, buttons and switches to use them.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrGestureGripUse, .def = NAN, .blocked = blockedGripUse,
       .forced = forcedGripUse },
     TOGGLE(GEVR_SEC_GESTURES, "Mine re-grab", VrGestureMineGrab, "Grip your own stuck mine to take it back."),
     TOGGLE(GEVR_SEC_GESTURES, "Force pull WIP", VrForcePull, "Point an empty hand at a gun or item, squeeze to lock, flick to pull, and grip to catch it."),
-    { .label = "Pull disarm", .tooltip = "Force pull can take a gun out of a guard's hand. Never another player's.",
+    { .label = "Pull disarm", .headset = 1, .tooltip = "Force pull can take a gun out of a guard's hand. Never another player's.",
       .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrPullDisarm,
       .def = NAN, .blocked = blockedPull },
     TOGGLE(GEVR_SEC_GESTURES, "Auto pickup", VrAutoPickup, "Walking over a gun picks it up. Off: grab or pull guns."),
-    { .label = "Pull visuals", .tooltip = "The glow, ring and line on what force pull points at. The buzz stays.",
+    { .label = "Pull visuals", .headset = 1, .tooltip = "The glow, ring and line on what force pull points at. The buzz stays.",
       .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrPullVisuals,
       .def = NAN, .blocked = blockedPull },
 
     /* Weapons */
-    { .label = "Gun recoil", .tooltip = "Each gun's own kick, or one for all.", .kind = GEVR_SET_TOGGLE,
+    { .label = "Gun recoil", .headset = 1, .tooltip = "Each gun's own kick, or one for all.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_WEAPONS, .where = GEVR_SET_BOTH, .ivar = &VrPerWeaponRecoil, .def = NAN, .off = "Generic", .on = "Per gun" },
     TOGGLE(GEVR_SEC_WEAPONS, "Motion throw", VrMotionThrowing, "Throw grenades and knives with your arm."),
-    { .label = "Throw power", .tooltip = "How far a throw goes for your swing.", .kind = GEVR_SET_RANGE,
+    { .label = "Throw power", .headset = 1, .tooltip = "How far a throw goes for your swing.", .kind = GEVR_SET_RANGE,
       .section = GEVR_SEC_WEAPONS, .where = GEVR_SET_BOTH, .fvar = &VrMotionThrowStrength,
       .lo = 0.5f, .hi = 2.0f, .step = 0.1f, .scale = 1, .fmt = "%.1fx", .def = 1.0f, .blocked = blockedThrow },
-    { .label = "Throw pitch", .tooltip = "Tilts every throw up or down, degrees.", .kind = GEVR_SET_RANGE,
+    { .label = "Throw pitch", .headset = 1, .tooltip = "Tilts every throw up or down, degrees.", .kind = GEVR_SET_RANGE,
       .section = GEVR_SEC_WEAPONS, .where = GEVR_SET_BOTH, .fvar = &VrMotionThrowPitch,
       .lo = -20, .hi = 20, .step = 2, .scale = 1, .fmt = "%+.0f", .def = 0, .blocked = blockedThrow },
-    { .label = "Throw gaze", .tooltip = "How much throws bend toward where you look.", .kind = GEVR_SET_RANGE,
+    { .label = "Throw gaze", .headset = 1, .tooltip = "How much throws bend toward where you look.", .kind = GEVR_SET_RANGE,
       .section = GEVR_SEC_WEAPONS, .where = GEVR_SET_BOTH, .fvar = &VrMotionThrowGazeAssist,
       .lo = 0, .hi = 1, .step = 0.1f, .scale = 100, .fmt = "%.0f%%", .def = 0.5f, .blocked = blockedThrow },
 
     /* Display */
-    { .label = "Play mode", .tooltip = "Stereo VR: you are Bond. Flat screen: the game on a big screen.", .kind = GEVR_SET_CHOICE,
+    { .label = "Play mode", .headset = 1, .tooltip = "Stereo VR: you are Bond. Flat screen: the game on a big screen.", .kind = GEVR_SET_CHOICE,
       .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_LAUNCHER, .ivar = &VrPlayMode,
       .ivalues = s_two, .names = s_playNames, .count = 2, .def = NAN },
-    CUSTOM(GEVR_SEC_DISPLAY, "Refresh", GEVR_SET_CHOICE, refreshPositions, refreshGet, refreshSet, refreshText, 0,
+    CUSTOM_VR(GEVR_SEC_DISPLAY, "Refresh", GEVR_SET_CHOICE, refreshPositions, refreshGet, refreshSet, refreshText, 0,
            "The headset's display rate. Auto leaves it to the headset."),
-    { .label = "SpaceWarp", .tooltip = "Draws half the frames and has the headset make the rest. "
+    { .label = "SpaceWarp", .headset = 1, .tooltip = "Draws half the frames and has the headset make the rest. "
                                        "On by default with Bean at 120 Hz.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .def = NAN, .blocked = blockedSpaceWarp,
       .cpositions = swPositions, .cget = swGet, .cset = swSet, .ctext = swText, .cdefault = -1 },
-    { .label = "Anti-aliasing", .tooltip = "Smooths jagged edges. Changes right away; costs GPU time, which is short on battery.",
+    { .label = "Anti-aliasing", .headset = 1, .tooltip = "Smooths jagged edges. Changes right away; costs GPU time, which is short on battery.",
       .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrEyeMsaa,
       .ivalues = s_msaa, .names = s_msaaNames, .count = 2, .def = NAN, .blocked = blockedMsaa },
-    { .label = "Watch face", .tooltip = "Health, armour and radar on your watch. Only: and nowhere else.", .kind = GEVR_SET_CHOICE,
+    { .label = "Watch face", .headset = 1, .tooltip = "Health, armour and radar on your watch. Only: and nowhere else.", .kind = GEVR_SET_CHOICE,
       .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_HANDS), .where = GEVR_SET_BOTH, .ivar = &VrWatchFaceStatus,
       .ivalues = s_three, .names = s_watchNames, .count = 3, .def = NAN },
-    { .label = "Screen size", .tooltip = "The flat screen's size, degrees across.", .kind = GEVR_SET_RANGE,
+    { .label = "Screen size", .headset = 1, .tooltip = "The flat screen's size, degrees across.", .kind = GEVR_SET_RANGE,
       .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .fvar = &VrScreenFov,
       .lo = SCREEN_FOV_MIN, .hi = SCREEN_FOV_MAX, .step = 5, .scale = 1, .fmt = "%.0f", .def = NAN, .fset = setScreenFov },
-    { .label = "Screen dist", .tooltip = "How far away the flat screen is.", .kind = GEVR_SET_RANGE,
+    { .label = "Screen dist", .headset = 1, .tooltip = "How far away the flat screen is.", .kind = GEVR_SET_RANGE,
       .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .fvar = &VrScreenDistance,
       .lo = SCREEN_DIST_MIN, .hi = SCREEN_DIST_MAX, .step = 0.25f, .scale = 1, .fmt = "%.2f m", .def = NAN, .fset = setScreenDist },
-    { .label = "Curved", .tooltip = "Curves the flat screen around you.", .kind = GEVR_SET_TOGGLE,
+    { .label = "Curved", .headset = 1, .tooltip = "Curves the flat screen around you.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrScreenCurved, .def = NAN, .blocked = blockedCurved },
-    { .label = "Passthrough", .tooltip = "Your room around the flat screen.", .kind = GEVR_SET_TOGGLE,
+    { .label = "Passthrough", .headset = 1, .tooltip = "Your room around the flat screen.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrScreenPassthrough, .def = NAN, .blocked = blockedPassthrough },
     { .label = "Third person", .tooltip = "The camera follows behind Bond in the flat screen, solo. "
                                           "Aiming, the watch and the tank go back to first person.", .kind = GEVR_SET_TOGGLE,
@@ -527,7 +531,7 @@ static const Row s_rows[] = {
     /* the launcher's Mods tab draws these with their packs (vr_launcher.cpp gevrModsPage) */
     { .label = "GoldenEye X", .tooltip = "GoldenEye X's guns, hands and reloads.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .ivar = &VrGexGuns, .def = NAN },
-    { .label = "Gun size", .tooltip = "Tiny or big guns, as the cheat.", .kind = GEVR_SET_CHOICE,
+    { .label = "Gun size", .headset = 1, .tooltip = "Tiny or big guns, as the cheat.", .kind = GEVR_SET_CHOICE,
       .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_CHEATS), .where = GEVR_SET_BOTH, .ivar = &VrGunSizeCheat,
       .ivalues = s_three, .names = s_gunSizeNames, .count = 3, .def = NAN },
     { .label = "Blood patch", .tooltip = "Shot guards spray the red blood sparks Rare left in the game (by Wreck).",
@@ -550,7 +554,7 @@ static const Row s_rows[] = {
       .section = GEVR_SEC_RULES, .lsection = L(GEVR_LSEC_MP_FUN), .where = GEVR_SET_LAUNCHER, .def = NAN,
       .blocked = blockedHostRule, .cpositions = threePositions, .cget = immunityGet, .cset = immunitySet,
       .ctext = immunityText, .cdefault = 1 },
-    { .label = "Gun size", .tooltip = "Tiny or big guns for everyone in the match.", .kind = GEVR_SET_CHOICE,
+    { .label = "Gun size", .headset = 1, .tooltip = "Tiny or big guns for everyone in the match.", .kind = GEVR_SET_CHOICE,
       .section = GEVR_SEC_RULES, .lsection = L(GEVR_LSEC_MP_FUN), .where = GEVR_SET_LAUNCHER, .def = NAN,
       .blocked = blockedHostRule, .cpositions = threePositions, .cget = mpGunGet, .cset = mpGunSet,
       .ctext = mpGunText, .cdefault = 0 },
@@ -619,6 +623,9 @@ int gevrSettingInfo(int id, GevrSettingInfo *out)
 int gevrSettingShown(int id)
 {
     const Row *r = row(id);
+#ifdef GEVR_PC
+    if (r && r->headset) return 0;   /* no headset: no turning, screen, hands or display rate to set */
+#endif
     return r && (!r->shown || r->shown());
 }
 
