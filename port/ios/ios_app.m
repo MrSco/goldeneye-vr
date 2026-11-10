@@ -168,3 +168,23 @@ void gevrIosWatchTouches(void *view)
     w.delaysTouchesEnded = NO;
     [v addGestureRecognizer:w];
 }
+
+/*
+ * Online voice from a phone (port/src/net/net_voice.c): SDL opens the mic in
+ * the audio session's default mode, which records the phone's own speaker
+ * too - the game and the other players' voices - and the Quest heard
+ * "absolute muddled garbage" (user, 2026-11-09). The voice chat mode turns on
+ * Apple's echo cancellation and noise suppression on the built-in mic. SDL's
+ * category and options stay as they are, so it leaves the mode alone, and
+ * puts its own back (playback, default mode) when the mic closes.
+ */
+#import <AVFoundation/AVFoundation.h>
+
+void gevrIosVoiceChatMode(void)
+{
+    AVAudioSession *s = AVAudioSession.sharedInstance;
+    NSError *err = nil;
+    if (![s setCategory:s.category mode:AVAudioSessionModeVoiceChat options:s.categoryOptions error:&err]) {
+        NSLog(@"GoldenEyeVR: voice chat mode refused: %@", err);
+    }
+}

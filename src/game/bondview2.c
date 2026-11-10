@@ -11794,13 +11794,15 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     moveData.controlStickXRaw = (s32)stick_x;
     moveData.controlStickYRaw = (s32)stick_y;
 #if defined(GEVR_PC) || defined(GEVR_FLAT)
-    /* Mouse look (Midas): sample this tick's mouse turn for player 1, drained
-     * every tick but kept only when the stick could move Bond, so motion never
-     * banks up and snaps the camera when control returns. */
+    /* Mouse look (Midas): sample this tick's mouse turn for this machine's
+     * player, drained every tick but kept only when the stick could move Bond,
+     * so motion never banks up and snaps the camera when control returns.
+     * Online that is the local slot, not player 1: a phone that joined a
+     * Quest's game could walk but never look (user, 2026-11-09). */
     g_portMouseYawDeg = 0.0f;
     g_portMousePitchDeg = 0.0f;
     g_portMouseDirect = 0;
-    if (get_cur_playernum() == 0)
+    if (get_cur_playernum() == (netIsActive() ? netGetLocalSlot() : 0))
     {
         inputMouseGetLookDeg(&g_portMouseYawDeg, &g_portMousePitchDeg);
         if (!portMouseLookPermitted())

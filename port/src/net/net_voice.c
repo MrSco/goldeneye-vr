@@ -151,6 +151,12 @@ void netVoiceTick(void) {
             capture = SDL_OpenAudioDevice(NULL, 1, &want, &have, 0);
             if (capture) {
                 capture_failed = 0;
+#ifdef GEVR_IOS
+                /* the phone's speaker is beside its mic: Apple's echo
+                 * cancellation (port/ios/ios_app.m) */
+                extern void gevrIosVoiceChatMode(void);
+                gevrIosVoiceChatMode();
+#endif
                 SDL_PauseAudioDevice(capture, 0);
                 sysLogPrintf(LOG_NOTE, "voice: capture open, %d Hz %d ch %d frames",
                              have.freq, have.channels, have.samples);
