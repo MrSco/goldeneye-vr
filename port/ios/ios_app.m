@@ -102,45 +102,61 @@ void gevrIosHaptic(void)
 }
 
 /*
- * The touches UIKit has down, from every touch event's allTouches, so the
- * touch controls can let go of a finger whose lift never reached SDL (a
- * finger slid off an edge: user, 2026-11-09, AIM stuck held). SDL's finger
- * ids are the UITouch addresses (SDL_uikitview.m). A gesture recognizer that
- * never recognises sees every touch first and changes nothing for the view.
+ * Every touch on the game's view, held, so the touch controls can ask its
+ * phase: a finger whose end never reached SDL (user, iPhone, 2026-11-09: the
+ * stick and AIM stuck held, ten lifts lost in a fight) is let go of within a
+ * poll. rebelancap's perfect-dark-ios found the same on device (its D-034
+ * stuck-stick watchdog, PDTouchOverlay.m): a touch's phase says ended or
+ * cancelled though its callback never came, and a UITouch must be held
+ * strongly to be asked. SDL's finger ids are the UITouch addresses
+ * (SDL_uikitview.m). A gesture recognizer that never recognises sees every
+ * touch first and changes nothing for the view.
  */
 #import <UIKit/UIGestureRecognizerSubclass.h>
 
-static uintptr_t s_liveTouches[16];
-static int s_liveCount = -1;   /* -1: no touch event seen yet */
+static NSMutableDictionary<NSNumber *, UITouch *> *s_touches;   /* by address */
 
-static void gevrNoteTouches(UIEvent *event)
+static void gevrHoldTouches(NSSet<UITouch *> *touches)
 {
-    int n = 0;
-    for (UITouch *t in event.allTouches) {
-        if (t.phase == UITouchPhaseEnded || t.phase == UITouchPhaseCancelled) continue;
-        if (n < 16) s_liveTouches[n++] = (uintptr_t)(__bridge void *)t;
+    if (!s_touches) s_touches = [NSMutableDictionary dictionary];
+    for (UITouch *t in touches) s_touches[@((uintptr_t)(__bridge void *)t)] = t;
+}
+
+static void gevrForgetEnded(void)
+{
+    NSMutableArray<NSNumber *> *gone = nil;
+    for (NSNumber *k in s_touches) {
+        const UITouchPhase p = s_touches[k].phase;
+        if (p == UITouchPhaseEnded || p == UITouchPhaseCancelled) {
+            if (!gone) gone = [NSMutableArray array];
+            [gone addObject:k];
+        }
     }
-    s_liveCount = n;
+    if (gone) [s_touches removeObjectsForKeys:gone];
 }
 
 @interface GevrTouchWatcher : UIGestureRecognizer
 @end
 
 @implementation GevrTouchWatcher
-- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { gevrNoteTouches(event); }
-- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { gevrNoteTouches(event); }
-- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { gevrNoteTouches(event); }
-- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { gevrNoteTouches(event); }
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event
+{
+    if (s_touches.count > 32) gevrForgetEnded();   // ended ones SDL never asked about
+    gevrHoldTouches(touches);
+}
 @end
 
-/* 1: UIKit has the touch down; 0: it has not; -1: not known yet */
+/* 1: the touch is down; 0: its phase says the finger left; -1: not one we hold */
 int gevrIosTouchIsLive(long long fingerId)
 {
-    if (s_liveCount < 0) return -1;
-    for (int i = 0; i < s_liveCount; i++) {
-        if (s_liveTouches[i] == (uintptr_t)fingerId) return 1;
+    NSNumber *k = @((uintptr_t)fingerId);
+    UITouch *t = s_touches[k];
+    if (!t) return -1;
+    if (t.phase == UITouchPhaseEnded || t.phase == UITouchPhaseCancelled) {
+        [s_touches removeObjectForKey:k];
+        return 0;
     }
-    return 0;
+    return 1;
 }
 
 void gevrIosWatchTouches(void *view)
