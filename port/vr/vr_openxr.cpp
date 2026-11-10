@@ -1536,6 +1536,9 @@ static bool vr_load_swapchain_images(XrSwapchain swapchain, Images &images)
         return false;
     }
     images.resize(count);
+    // the runtime's texture names, for a layer that shows another's picture (SteamVR)
+    LOGI("swapchain %p: %u images, textures %u..%u", (void *)swapchain, count,
+         (unsigned)images[0].image, (unsigned)images[count - 1].image);
     return true;
 }
 
@@ -2227,7 +2230,8 @@ static std::vector<XrSwapchainImageOpenGLESKHR> g_screenImages;
 #else
 static std::vector<XrSwapchainImageOpenGLKHR> g_screenImages;
 #endif
-static uint32_t g_screenW = 0, g_screenH = 0;
+static uint32_t g_screenW = 0, g_screenH = 0;          // the picture on the screen
+static uint32_t g_screenCapW = 0, g_screenCapH = 0;    // the swapchain's images (PC VR: room for any picture)
 static bool     g_screenPending = false;
 static bool     g_screenPlaced  = false;
 static std::vector<XrTime> g_screenRecenterTimes;
@@ -2245,15 +2249,36 @@ static void vr_screen_destroy_swapchain(void)
     }
     g_screenImages.clear();
     g_screenW = g_screenH = 0;
+    g_screenCapW = g_screenCapH = 0;
     g_screenPending = false;
     g_screenPlaced = false;
 }
 
+/*
+ * The screen's swapchain. On the Quest it is the picture's size, made again
+ * when that changes (the launcher's 1780x960, the game's 1920x1440). On PC VR
+ * it is made once with room for any picture (2560x1440: the launcher, 4:3 and
+ * 16:9) and the picture takes its corner (the layer's imageRect): SteamVR
+ * showed the game's file select cut off at the top, and a scope lens with the
+ * weapon wheel's picture, after the swapchain was destroyed and made again at
+ * the game's size (user, 2026-11-09; Virtual Desktop's runtime was fine).
+ */
 static bool vr_screen_ensure_swapchain(uint32_t w, uint32_t h)
 {
     if (g_screenSwapchain != XR_NULL_HANDLE && g_screenW == w && g_screenH == h) {
         return true;
     }
+#ifdef GEVR_PCVR
+    if (g_screenSwapchain != XR_NULL_HANDLE && w <= g_screenCapW && h <= g_screenCapH) {
+        g_screenW = w;
+        g_screenH = h;
+        LOGI("screen: picture %ux%u in the %ux%u swapchain", w, h, g_screenCapW, g_screenCapH);
+        return true;
+    }
+    const uint32_t capW = w > 2560u ? w : 2560u, capH = h > 1440u ? h : 1440u;
+#else
+    const uint32_t capW = w, capH = h;
+#endif
     if (g_screenSwapchain != XR_NULL_HANDLE) {
         xrDestroySwapchain(g_screenSwapchain);
         g_screenSwapchain = XR_NULL_HANDLE;
@@ -2267,13 +2292,13 @@ static bool vr_screen_ensure_swapchain(uint32_t w, uint32_t h)
     info.usageFlags  = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
     info.format      = vr_pick_swapchain_format();
     info.sampleCount = 1;
-    info.width       = w;
-    info.height      = h;
+    info.width       = capW;
+    info.height      = capH;
     info.faceCount   = 1;
     info.arraySize   = 1;
     info.mipCount    = 1;
     if (XR_FAILED(xrCreateSwapchain(g_vrState.session, &info, &g_screenSwapchain))) {
-        LOGE("screen: xrCreateSwapchain %ux%u failed", w, h);
+        LOGE("screen: xrCreateSwapchain %ux%u failed", capW, capH);
         g_screenSwapchain = XR_NULL_HANDLE;
         return false;
     }
@@ -2289,7 +2314,11 @@ static bool vr_screen_ensure_swapchain(uint32_t w, uint32_t h)
                                reinterpret_cast<XrSwapchainImageBaseHeader*>(g_screenImages.data()));
     g_screenW = w;
     g_screenH = h;
-    LOGI("screen: swapchain %ux%u", w, h);
+    g_screenCapW = capW;
+    g_screenCapH = capH;
+    LOGI("screen: swapchain %ux%u (picture %ux%u), images %u%s%u%s%u", capW, capH, w, h,
+         n > 0 ? (unsigned)g_screenImages[0].image : 0u, n > 1 ? " " : "", n > 1 ? (unsigned)g_screenImages[1].image : 0u,
+         n > 2 ? " " : "", n > 2 ? (unsigned)g_screenImages[2].image : 0u);
     return true;
 }
 
@@ -4892,7 +4921,9 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         screenLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
         screenLayer.subImage.swapchain        = g_screenSwapchain;
         screenLayer.subImage.imageArrayIndex  = 0;
-        screenLayer.subImage.imageRect.offset = {0, 0};
+        // the picture's corner of the images: GL's bottom left (vr_subimage_y: the runtime's order)
+        screenLayer.subImage.imageRect.offset = {0, vr_subimage_y(0.0f, (float)g_screenH / (float)g_screenCapH,
+                                                                  (int32_t)g_screenCapH)};
         screenLayer.subImage.imageRect.extent = {(int32_t)g_screenW, (int32_t)g_screenH};
         screenLayer.pose = g_screenPose;
         const float width = vr_screen_shown_width();
