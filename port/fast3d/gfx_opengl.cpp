@@ -2582,8 +2582,8 @@ static void gevr_scope_make_target(int hand)
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, s_scopeDepth[hand]);
     const GLenum st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
     sysLogPrintf(st == GL_FRAMEBUFFER_COMPLETE ? LOG_NOTE : LOG_WARNING,
-                 "scope: hand %d %dx%d target %s (0x%x)", hand, GEVR_SCOPE_RES, GEVR_SCOPE_RES,
-                 st == GL_FRAMEBUFFER_COMPLETE ? "ready" : "incomplete", st);
+                 "scope: hand %d %dx%d target %s (0x%x), texture %u", hand, GEVR_SCOPE_RES, GEVR_SCOPE_RES,
+                 st == GL_FRAMEBUFFER_COMPLETE ? "ready" : "incomplete", st, (unsigned)s_scopeTex[hand]);
     glBindTexture(GL_TEXTURE_2D, s_boundTex[s_activeTexUnit]);
     glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prevFbo);
 }

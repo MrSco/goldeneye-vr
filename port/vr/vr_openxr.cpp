@@ -1536,9 +1536,22 @@ static bool vr_load_swapchain_images(XrSwapchain swapchain, Images &images)
         return false;
     }
     images.resize(count);
-    // the runtime's texture names, for a layer that shows another's picture (SteamVR)
-    LOGI("swapchain %p: %u images, textures %u..%u", (void *)swapchain, count,
-         (unsigned)images[0].image, (unsigned)images[count - 1].image);
+    // the runtime's texture names, for a layer that shows another's picture
+    // (SteamVR: a scope lens with the weapon wheel's): are they this context's
+    // textures, and how big does this context think they are?
+    {
+        GLint prevTex = 0, w0 = 0, h0 = 0;
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTex);
+        const GLboolean known = glIsTexture((GLuint)images[0].image);
+        if (known) {
+            glBindTexture(GL_TEXTURE_2D, (GLuint)images[0].image);
+            glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &w0);
+            glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &h0);
+            glBindTexture(GL_TEXTURE_2D, (GLuint)prevTex);
+        }
+        LOGI("swapchain %p: %u images, textures %u..%u (this context: %s, %dx%d)", (void *)swapchain, count,
+             (unsigned)images[0].image, (unsigned)images[count - 1].image, known ? "known" : "NOT its own", w0, h0);
+    }
     return true;
 }
 
@@ -2257,9 +2270,11 @@ static void vr_screen_destroy_swapchain(void)
 /*
  * The screen's swapchain. On the Quest it is the picture's size, made again
  * when that changes (the launcher's 1780x960, the game's 1920x1440). On PC VR
- * it is made once, 2560x1440 (grown only for a bigger picture), and each
- * picture is stretched over all of it: the layer shows the whole image at the
- * picture's own shape, so the stretch cancels out. SteamVR showed the game's
+ * it is made once, 1920x1080, and each picture is stretched over all of it:
+ * the layer shows the whole image at the picture's own shape, so the stretch
+ * cancels out. Under SteamVR a quad 1440 rows tall lost its top fifth (the
+ * game's file select at 1920x1440, the launcher in a 2560x1440 image; the
+ * launcher at 1780x960 was whole), so the image stays 1080 rows. SteamVR showed the game's
  * file select cut off at the top, and a scope lens with the weapon wheel's
  * picture, after the swapchain was destroyed and made again at the game's size
  * (user, 2026-11-09; Virtual Desktop's runtime was fine). The picture in a
@@ -2273,13 +2288,13 @@ static bool vr_screen_ensure_swapchain(uint32_t w, uint32_t h)
         return true;
     }
 #ifdef GEVR_PCVR
-    if (g_screenSwapchain != XR_NULL_HANDLE && w <= g_screenCapW && h <= g_screenCapH) {
+    if (g_screenSwapchain != XR_NULL_HANDLE) {
         g_screenW = w;
         g_screenH = h;
         LOGI("screen: picture %ux%u in the %ux%u swapchain", w, h, g_screenCapW, g_screenCapH);
         return true;
     }
-    const uint32_t capW = w > 2560u ? w : 2560u, capH = h > 1440u ? h : 1440u;
+    const uint32_t capW = 1920u, capH = 1080u;
 #else
     const uint32_t capW = w, capH = h;
 #endif
