@@ -123,7 +123,12 @@ int panelFrame() {
         if(VrCampaign==0&&mission&&mission[0])snprintf(v.session,sizeof(v.session),"%s",mission);
         snprintf(v.status,sizeof(v.status),"%s",netDifficultyName(lvlGetSelectedDifficulty()));
     }
+#ifdef GEVR_IOS
+    /* iOS: the app closes, and opening it again shows the launcher */
+    snprintf(v.note,sizeof(v.note),"%s",v.online?"Leaving closes the game; open it again for the launcher.":stage==90?"Closing the game: open it again for the launcher.":"Closing does not save this mission; open it again for the launcher.");
+#else
     snprintf(v.note,sizeof(v.note),"%s",v.online?"Leaving disconnects you from this match.":stage==90?"":"Going back to the launcher does not save this mission.");
+#endif
     return gevrDrawPanelWindow(v,panelUi,(ImTextureID)(intptr_t)icon);
 }
 }

@@ -75,7 +75,12 @@ inline int gevrDrawPanelWindow(const GevrPanelView &v, GevrPanelUi &ui, ImTextur
     if (ImGui::IsItemHovered()) gevrTooltip("If the sound turns crunchy or echoes, this restarts it.");
     ImGui::SetCursorPos(ImVec2(948, 886));
     ImGui::PushStyleColor(ImGuiCol_Text, bad);
+#ifdef GEVR_IOS
+    // an iOS app cannot start itself again: going back to the launcher closes it
+    if (ImGui::Button(v.online ? "Leave and close" : "Close the game", ImVec2(314, 52))) action = GEVR_PANEL_LAUNCHER;
+#else
     if (ImGui::Button(v.online ? "Leave to launcher" : "Back to launcher", ImVec2(314, 52))) action = GEVR_PANEL_LAUNCHER;
+#endif
     ImGui::PopStyleColor();
     if (ui.focusLauncher) { ImGui::SetItemDefaultFocus(); ImGui::SetKeyboardFocusHere(-1); ui.focusLauncher = false; }
     ImGui::End();

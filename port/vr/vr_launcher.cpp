@@ -3342,9 +3342,15 @@ extern "C" void gevrLauncherRun(void)
         // under it the update line, START and the campaign. Multiplayer draws
         // its own buttons in START's place. Settings are the table's rows
         // (port/src/gevr_settings.c), the in-game screen's too.
+#ifdef GEVR_IOS
+        // an iPhone or iPad app cannot replace itself (a sideloaded one is
+        // updated by installing it again, or by AltStore): no update line
+        const bool updLine = false;
+#else
         const bool updLine = upd.state == "available" || upd.state == "downloading"
             || upd.state == "permission" || upd.state == "installing"
             || upd.state == "error" || !upd.message.empty();
+#endif
         const float footerH = s_launcherFooterH > 0.0f ? s_launcherFooterH
             : gevrLauncherFooterHeight() + (updLine ? ImGui::GetTextLineHeightWithSpacing() : 0.0f);
         const GevrSettingsApi settings = gevrSettingsLive();
@@ -3369,6 +3375,7 @@ extern "C" void gevrLauncherRun(void)
             switch (tab) {
             case GEVR_LTAB_PLAY: {
                 gevrSettingsSection(settings, GEVR_LSEC_PLAY, GEVR_SET_LAUNCHER);
+#ifndef GEVR_IOS   // no updates in the app on iOS (the update line above)
                 ImGui::Spacing();
                 bool tests = upd.testBuilds;
                 if (ImGui::Checkbox("Offer test builds", &tests)) {
@@ -3376,6 +3383,7 @@ extern "C" void gevrLauncherRun(void)
                     gevrUpdaterCommand(tests ? "testbuilds:1" : "testbuilds:0");
                 }
                 if (ImGui::IsItemHovered()) gevrTooltip("Pre-release builds show up as updates too.");
+#endif
                 break;
             }
             case GEVR_LTAB_CONTROLS:
