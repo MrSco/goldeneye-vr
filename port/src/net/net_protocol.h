@@ -128,6 +128,26 @@ typedef enum {
 #define NET_CONTENT_ROM 1u              /* the cartridge's bytes (gevr_romload.c) */
 #define NET_CONTENT_MAX_PARTS 8
 #define NET_DISCONNECT_CONTENT 0x47454300u   /* | part */
+
+/*
+ * Who is joining (docs/mobile-platforms.md, "VR players only"): after the
+ * content block, HELLO carries u8 input class and u8 platform. A host with
+ * "VR players only" (VrMpVrOnly) turns a joiner whose class is known and not
+ * VR away with NET_DISCONNECT_VR_ONLY. Additive, without a protocol bump: an
+ * older joiner sends neither and is let in, an older host reads past them.
+ */
+#define NET_INPUT_UNKNOWN 0xFFu
+#define NET_INPUT_VR 0u                 /* tracked controllers in stereo VR */
+#define NET_INPUT_MOUSE 1u              /* keyboard and mouse */
+#define NET_INPUT_PAD 2u                /* a gamepad (or a headset's controllers on its flat screen) */
+#define NET_INPUT_TOUCH 3u              /* a phone's or tablet's touch controls */
+#define NET_PLATFORM_UNKNOWN 0u
+#define NET_PLATFORM_QUEST 1u
+#define NET_PLATFORM_PC 2u
+#define NET_PLATFORM_ANDROID 3u
+#define NET_PLATFORM_IOS 4u
+#define NET_PLATFORM_SERVER 5u
+#define NET_DISCONNECT_VR_ONLY 0x47455652u   /* 'GEVR' */
 #define NET_CLIENT_CAP_KICK 1u
 /* The guest reads NET_FUN_NO_RADAR (protocol 19 has it). A guest that says otherwise
  * is removed while the rule is pending or live (net_core.c netHostRemoveOldForNoRadar). */

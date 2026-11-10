@@ -1125,6 +1125,42 @@ static void netContentWrite(struct netbuf *buf) {
     netbufWriteU32(buf, (uint32_t)(rom >> 32));
 }
 
+/* How this player plays (net_protocol.h NET_INPUT_*), for "VR players only". */
+static uint8_t netLocalInputClass(void) {
+#if (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR)
+    extern int VrPlayMode;   /* 0 flat screen, 1 stereo VR */
+    return VrPlayMode == 1 ? NET_INPUT_VR : NET_INPUT_PAD;
+#elif defined(GEVR_MOBILE) || defined(GEVR_IOS)
+    extern int flatTouchSeenAny(void);   /* port/flat/window/flat_touch.cpp */
+    return flatTouchSeenAny() ? NET_INPUT_TOUCH : NET_INPUT_PAD;
+#elif defined(GEVR_PC)
+    return NET_INPUT_MOUSE;
+#else
+    return NET_INPUT_UNKNOWN;
+#endif
+}
+
+static uint8_t netLocalPlatform(void) {
+#if defined(GEVR_HEADLESS)
+    return NET_PLATFORM_SERVER;
+#elif defined(GEVR_IOS)
+    return NET_PLATFORM_IOS;
+#elif defined(GEVR_MOBILE)
+    return NET_PLATFORM_ANDROID;
+#elif defined(GEVR_PC)
+    return NET_PLATFORM_PC;
+#elif defined(ANDROID)
+    return NET_PLATFORM_QUEST;
+#else
+    return NET_PLATFORM_UNKNOWN;
+#endif
+}
+
+static const char *netInputClassName(uint8_t c) {
+    return c == NET_INPUT_VR ? "VR" : c == NET_INPUT_MOUSE ? "keyboard and mouse" : c == NET_INPUT_PAD ? "gamepad"
+         : c == NET_INPUT_TOUCH ? "touch" : "unknown";
+}
+
 /* A joiner's parts against this host's: the first that differs, or 0. A part
  * either side does not know (0: an older build, nothing loaded) is not held
  * against it. */
@@ -1145,9 +1181,15 @@ static uint32_t netContentDiffers(struct netbuf *buf) {
 static char s_join_refusal[128];
 
 static bool netClientContentRefused(ENetPeer *peer, uint32_t reason) {
-    if (!peer || netIsHost() || peer != s_server_peer || (reason & 0xFFFFFF00u) != NET_DISCONNECT_CONTENT) return false;
-    snprintf(s_join_refusal, sizeof(s_join_refusal),
-             "Cannot join: this game's %s is not the same as yours.", netContentPartName(reason & 0xFFu));
+    if (!peer || netIsHost() || peer != s_server_peer) return false;
+    if (reason == NET_DISCONNECT_VR_ONLY) {
+        snprintf(s_join_refusal, sizeof(s_join_refusal), "Cannot join: this game is for VR players only.");
+    } else if ((reason & 0xFFFFFF00u) == NET_DISCONNECT_CONTENT) {
+        snprintf(s_join_refusal, sizeof(s_join_refusal),
+                 "Cannot join: this game's %s is not the same as yours.", netContentPartName(reason & 0xFFu));
+    } else {
+        return false;
+    }
     NET_ERR("%s", s_join_refusal);
     s_server_peer = NULL;
     s_state = NET_STATE_OFFLINE;
@@ -3246,6 +3288,18 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 enet_peer_disconnect(peer, NET_DISCONNECT_CONTENT | differs);
                 break;
             }
+            {
+                /* who is joining: an older build sends nothing, and is let in */
+                const uint8_t input = netbufReadLeft(&buf) >= 2 ? netbufReadU8(&buf) : NET_INPUT_UNKNOWN;
+                const uint8_t platform = input != NET_INPUT_UNKNOWN ? netbufReadU8(&buf) : NET_PLATFORM_UNKNOWN;
+                extern int VrMpVrOnly;   /* the host's "VR players only" */
+                NET_LOG("%s joins with %s (platform %u)", clean, netInputClassName(input), (unsigned)platform);
+                if (VrMpVrOnly && input != NET_INPUT_UNKNOWN && input != NET_INPUT_VR) {
+                    NET_ERR("Turning %s away: VR players only, and it plays with %s", clean, netInputClassName(input));
+                    enet_peer_disconnect(peer, NET_DISCONNECT_VR_ONLY);
+                    break;
+                }
+            }
 
             /* The same name back on a new connection: the earlier one is dead
              * (a crash, a quit without a goodbye) and its slot is theirs again. */
@@ -4734,6 +4788,8 @@ void netPoll(void) {
                         netbufWriteU8(&buf, 0xFF);   /* no slot kept: the content block follows */
                     }
                     netContentWrite(&buf);
+                    netbufWriteU8(&buf, netLocalInputClass());   /* who is joining (net_protocol.h) */
+                    netbufWriteU8(&buf, netLocalPlatform());
 
                     ENetPacket *packet = enet_packet_create(buf.data, buf.wp, ENET_PACKET_FLAG_RELIABLE);
                     enet_peer_send(event.peer, NET_CHAN_RELIABLE, packet);

@@ -44,6 +44,7 @@ char VrPlayerName[16]     = "";     /* multiplayer name; the launcher makes one 
  * no loadouts, votes; the Rockets set's guns as the custom set, a PP7, a
  * KF7, a shotgun and grenades as the loadout; no favorites. */
 int VrMpStage = 27, VrMpWeaponSet = 4, VrMpChr = 0, VrMpVisibility = 0;
+int VrMpVrOnly = 0;   /* host: "VR players only" (net_core.c turns flat joiners away) */
 int VrFriendsShowDetail = 1, VrFriendsAppearOffline = 0, VrFriendsRestoreNoted = 0, VrFriendsSidebar = 1, VrFriendsSearchable = 1;
 int VrMpVoiceMode = 0;
 int VrMpFriendlyFire = 1;

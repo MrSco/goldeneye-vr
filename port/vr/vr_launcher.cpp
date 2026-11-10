@@ -1795,6 +1795,11 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
             if (ImGui::RadioButton("Private", VrMpVisibility == 1)) { VrMpVisibility=1;vrSettingsSave(); }
             if (ImGui::IsItemHovered()) gevrTooltip("Not listed. Players join with the code or an invite.");
         }
+        {
+            bool vrOnly = VrMpVrOnly != 0;
+            if (ImGui::Checkbox("VR players only", &vrOnly)) { VrMpVrOnly = vrOnly ? 1 : 0; vrSettingsSave(); }
+            if (ImGui::IsItemHovered()) gevrTooltip("Only players in VR can join: not a PC, phone or tablet, or a headset's flat screen.");
+        }
         ImGui::TextUnformatted("Mode:");ImGui::SameLine();
         if (ImGui::RadioButton("Deathmatch", VrMpMode == NET_MODE_DEATHMATCH)) { VrMpMode=NET_MODE_DEATHMATCH;gevrHostChoiceChanged(); }
         ImGui::SameLine();
