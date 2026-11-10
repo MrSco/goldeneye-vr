@@ -792,7 +792,21 @@ static void drawGlyph(ImDrawList *dl, Glyph g, ImVec2 c, float r, ImU32 col)
 {
     const float t = 0.09f * r > 2.0f ? 0.09f * r : 2.0f;   // stroke
     switch (g) {
-    case G_FIRE: {   // a crosshair
+    case G_FIRE: {   // a bullet, point up: shoot (user: the crosshair read as aim)
+        const float hw = r * 0.15f;                       // half its width
+        const float tip = c.y - r * 0.50f, shoulder = c.y - r * 0.12f;
+        const float caseTop = shoulder + r * 0.05f, base = c.y + r * 0.44f;
+        dl->PathLineTo(ImVec2(c.x - hw, shoulder));       // the head: an ogive to the point
+        dl->PathBezierCubicCurveTo(ImVec2(c.x - hw, tip + r * 0.16f), ImVec2(c.x - hw * 0.35f, tip),
+                                   ImVec2(c.x, tip), 12);
+        dl->PathBezierCubicCurveTo(ImVec2(c.x + hw * 0.35f, tip), ImVec2(c.x + hw, tip + r * 0.16f),
+                                   ImVec2(c.x + hw, shoulder), 12);
+        dl->PathFillConvex(col);
+        dl->AddRectFilled(ImVec2(c.x - hw, caseTop), ImVec2(c.x + hw, base - r * 0.07f), col);   // the case
+        dl->AddRectFilled(ImVec2(c.x - hw * 1.25f, base - r * 0.05f), ImVec2(c.x + hw * 1.25f, base), col);   // its rim
+        break;
+    }
+    case G_AIM: {   // a crosshair: aim
         dl->AddCircle(c, r * 0.36f, col, 32, t);
         const float in = r * 0.14f, out = r * 0.56f;
         dl->AddLine(ImVec2(c.x - out, c.y), ImVec2(c.x - in, c.y), col, t);
@@ -801,11 +815,6 @@ static void drawGlyph(ImDrawList *dl, Glyph g, ImVec2 c, float r, ImU32 col)
         dl->AddLine(ImVec2(c.x, c.y + in), ImVec2(c.x, c.y + out), col, t);
         break;
     }
-    case G_AIM:   // a target
-        dl->AddCircle(c, r * 0.46f, col, 32, t);
-        dl->AddCircle(c, r * 0.24f, col, 24, t);
-        dl->AddCircleFilled(c, r * 0.07f + t * 0.5f, col);
-        break;
     case G_USE: {   // a door with its handle: open, activate
         const float w = r * 0.30f, h = r * 0.46f;
         dl->AddRect(ImVec2(c.x - w, c.y - h), ImVec2(c.x + w, c.y + h), col, 0.0f, 0, t);
