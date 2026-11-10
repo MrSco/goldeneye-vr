@@ -53,6 +53,7 @@ extern "C" int VrTouchHaptics, VrGyroAim;   // vr_settings.cpp
 extern "C" float VrGyroSpeed;
 #ifdef GEVR_IOS
 extern "C" void gevrIosHaptic(void);   // port/ios/ios_app.m: the Taptic Engine's light tap
+extern "C" int gevrIosTouchIsLive(long long fingerId);   // ios_app.m: UIKit still has it down
 #endif
 
 /* What a button does; port/src/input.c turns these into pad bits. */
@@ -385,7 +386,15 @@ static void sweepLostFingers(void)
             const SDL_Finger *sf = SDL_GetTouchFinger(f.touch, k);
             down = sf && sf->id == f.id;
         }
+#ifdef GEVR_IOS
+        // iOS can lose a lift before SDL hears of it (a finger slid off an
+        // edge: user, AIM stuck held): UIKit's own list of the touches down
+        if (down && gevrIosTouchIsLive((long long)f.id) == 0) down = false;
+#endif
         if (!down) {
+            sysLogPrintf(LOG_NOTE, "touch: let go of a finger the system lost (%s)",
+                         f.role == R_STICK ? "the stick" : f.role == R_LOOK ? "a look"
+                         : f.role == R_BUTTON ? kButtons[f.button == kLeftFire ? 0 : f.button].name : "none");
             SDL_TouchFingerEvent up = {};
             up.touchId = f.touch;
             up.fingerId = f.id;
@@ -743,6 +752,12 @@ extern "C" unsigned flatTouchPoll(int menu, float *sx, float *sy)
         }
         held |= act;
     }
+    // START from a tap is sent when the finger lifts (a long press is the
+    // panel), so it was one poll long, and the briefing could miss it
+    // (user, 2026-11-09): held a tenth of a second, as the panel's own START is
+    static Uint32 startUntil;
+    if (held & TOUCH_START) startUntil = now + 100;
+    if ((Sint32)(startUntil - now) > 0) held |= TOUCH_START;
     stickResponse(sx, sy);
     return held;
 }

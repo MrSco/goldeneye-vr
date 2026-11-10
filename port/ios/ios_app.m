@@ -100,3 +100,55 @@ void gevrIosHaptic(void)
     [tap impactOccurred];
     [tap prepare];   // keeps the engine warm for the next press
 }
+
+/*
+ * The touches UIKit has down, from every touch event's allTouches, so the
+ * touch controls can let go of a finger whose lift never reached SDL (a
+ * finger slid off an edge: user, 2026-11-09, AIM stuck held). SDL's finger
+ * ids are the UITouch addresses (SDL_uikitview.m). A gesture recognizer that
+ * never recognises sees every touch first and changes nothing for the view.
+ */
+#import <UIKit/UIGestureRecognizerSubclass.h>
+
+static uintptr_t s_liveTouches[16];
+static int s_liveCount = -1;   /* -1: no touch event seen yet */
+
+static void gevrNoteTouches(UIEvent *event)
+{
+    int n = 0;
+    for (UITouch *t in event.allTouches) {
+        if (t.phase == UITouchPhaseEnded || t.phase == UITouchPhaseCancelled) continue;
+        if (n < 16) s_liveTouches[n++] = (uintptr_t)(__bridge void *)t;
+    }
+    s_liveCount = n;
+}
+
+@interface GevrTouchWatcher : UIGestureRecognizer
+@end
+
+@implementation GevrTouchWatcher
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { gevrNoteTouches(event); }
+- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { gevrNoteTouches(event); }
+- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { gevrNoteTouches(event); }
+- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { gevrNoteTouches(event); }
+@end
+
+/* 1: UIKit has the touch down; 0: it has not; -1: not known yet */
+int gevrIosTouchIsLive(long long fingerId)
+{
+    if (s_liveCount < 0) return -1;
+    for (int i = 0; i < s_liveCount; i++) {
+        if (s_liveTouches[i] == (uintptr_t)fingerId) return 1;
+    }
+    return 0;
+}
+
+void gevrIosWatchTouches(void *view)
+{
+    UIView *v = (__bridge UIView *)view;
+    GevrTouchWatcher *w = [[GevrTouchWatcher alloc] initWithTarget:nil action:nil];
+    w.cancelsTouchesInView = NO;
+    w.delaysTouchesBegan = NO;
+    w.delaysTouchesEnded = NO;
+    [v addGestureRecognizer:w];
+}

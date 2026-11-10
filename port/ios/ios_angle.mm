@@ -33,6 +33,7 @@
 extern "C" void sysLogPrintf(int level, const char *fmt, ...);
 extern "C" int gevrIosGraftWindows(void);   // ios_app.m: SDL's window onto the scene
 extern "C" void gevrIosSetHostView(void *view);
+extern "C" void gevrIosWatchTouches(void *view);   // ios_app.m: UIKit's touches down
 #define IOS_LOG(...) sysLogPrintf(1, __VA_ARGS__)
 
 static EGLDisplay s_dpy = EGL_NO_DISPLAY;
@@ -100,6 +101,7 @@ extern "C" SDL_GLContext gevrIosGLCreateContext(SDL_Window *window)
         return nullptr;
     }
     gevrIosSetHostView((void *)s_view);
+    gevrIosWatchTouches((void *)s_view);
     gevrIosGraftWindows();
     // the panel's pixels: SDL's sceneless window left the layer at 1 pixel a point
 #pragma clang diagnostic push
