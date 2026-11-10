@@ -18,6 +18,7 @@
 #endif
 #include <SDL.h>
 #include <cmath>
+#include <vector>
 #include "net_core.h"
 #include "net_game.h"
 #include "net_coop.h"
@@ -95,9 +96,10 @@ void initialize() {
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
     glGenFramebuffers(1,&framebuffer);glBindFramebuffer(GL_FRAMEBUFFER,framebuffer);
     glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,texture,0);
-    SDL_RWops*rw=SDL_RWFromFile("launcher_icon.rgba","rb");
-    if(rw){unsigned char px[128*128*4];if(SDL_RWread(rw,px,1,sizeof(px))==sizeof(px)) {
-        glGenTextures(1,&icon);glBindTexture(GL_TEXTURE_2D,icon);glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,128,128,0,GL_RGBA,GL_UNSIGNED_BYTE,px);
+    /* the header's logo, 384 x 128 (tools/make_icons.py), as the launcher's */
+    SDL_RWops*rw=SDL_RWFromFile("gevr_logo.rgba","rb");
+    if(rw){std::vector<unsigned char> px(384*128*4);if(SDL_RWread(rw,px.data(),1,px.size())==px.size()) {
+        glGenTextures(1,&icon);glBindTexture(GL_TEXTURE_2D,icon);glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,384,128,0,GL_RGBA,GL_UNSIGNED_BYTE,px.data());
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
     }SDL_RWclose(rw);}
 }

@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.16)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
 project(gevr C CXX)
+if(WIN32)
+  enable_language(RC)   # the PC exes' icon (port/pc/package/gevr.rc)
+endif()
 
 # The application targets Meta Quest. Native regression tests use their own
 # compiler commands in port/tests and do not need a desktop game target.
@@ -581,7 +584,16 @@ if(GEVR_PC)
   endif()
 
   function(gevr_pc_target name)
+    if(WIN32)
+      # the exe's icon (tools/make_icons.py writes port/pc/package/gevr.ico)
+      list(APPEND ARGN "${CMAKE_SOURCE_DIR}/port/pc/package/gevr.rc")
+    endif()
     add_executable(${name} ${ARGN})
+    # the window's icon and the headers' logo, read beside the exe
+    foreach(img gevr_icon.rgba gevr_logo.rgba)
+      add_custom_command(TARGET ${name} POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_SOURCE_DIR}/port/pc/package/${img}" "$<TARGET_FILE_DIR:${name}>")
+    endforeach()
     add_dependencies(${name} gevr_buildid)
     target_include_directories(${name} PRIVATE ${GEVR_INCLUDES})
     if(WIN32)

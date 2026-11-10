@@ -201,8 +201,9 @@ inline void gevrPauseRowAt(const GevrSettingsApi &api,int id,float x,float y,flo
 inline void gevrPauseHeader(ImTextureID icon,const GevrPauseRadarView& radar,const GevrPauseGaugeVertex* gauges,
                             const char* session,const char* status,const char* clock="",bool clockEnding=false) {
     const ImVec4 gold(.88f,.69f,.25f,1),bad(.95f,.5f,.4f,1);
-    if(icon){ImGui::SetCursorPos(ImVec2(18,18));ImGui::Image(icon,ImVec2(64,64));}
-    ImGui::SetCursorPos(ImVec2(100,32));ImGui::TextColored(ImVec4(1,.84f,.47f,1),"GOLDENEYE VR");
+    /* the logo (3:1), or the title in text without it */
+    if(icon){ImGui::SetCursorPos(ImVec2(18,18));ImGui::Image(icon,ImVec2(192,64));}
+    else{ImGui::SetCursorPos(ImVec2(18,32));ImGui::TextColored(ImVec4(1,.84f,.47f,1),"GOLDENEYE VR");}
     gevrPauseRadarWidget(radar);
     gevrPauseGaugeWidget(gauges);
     gevrPauseGaugeWidget(gauges+46);

@@ -117,6 +117,8 @@ def main():
     write_text(os.path.join(stage, 'Play SteamVR.cmd'), PLAY_STEAMVR)
     write_text(os.path.join(stage, 'Start-SteamVR.ps1'), START_STEAMVR)
     shutil.copy2(os.path.join(ROOT, 'port', 'pc', 'package', 'README.txt'), stage)
+    for img in ('gevr_icon.rgba', 'gevr_logo.rgba'):   # the window's icon, the headers' logo
+        shutil.copy2(os.path.join(ROOT, 'port', 'pc', 'package', img), stage)
     shutil.copy2(os.path.join(ROOT, 'LICENSE'), os.path.join(stage, 'LICENSE.txt'))
     shutil.copy2(os.path.join(ROOT, 'CREDITS.md'), stage)
     for f in os.listdir(os.path.join(ROOT, 'port', 'licenses')):

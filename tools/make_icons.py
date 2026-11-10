@@ -1,13 +1,17 @@
-"""Writes every icon size Android and the Quest library use, and the banners.
+"""Writes every app icon, the headers' logo and the banner.
 
     python tools/make_icons.py
 
-The artwork is docs/art/icon_source.jpg (a golden eye with a gun sight in the
-iris) and docs/art/banner_source.jpg (the wide scope-eye), both original
-images made for this project. The in-VR launcher header uses docs/logo.jpg.
-The flat emblem drawn below is only used for
-Android's monochrome (themed) icon, which must be a single-colour silhouette.
-Needs Pillow.
+The artwork (the user's, 2026-11-09):
+- docs/art/app_icon.jpg ("Dam Under Fire": Bond in a headset at the Dam, the
+  logo above): the app icon everywhere: both Android APKs' launcher icons,
+  the Quest library, the Windows exes (port/pc/package/gevr.ico) and the PC
+  window (gevr_icon.rgba).
+- docs/art/wordmark.png (the "GoldenEye VR" reticle logo): the smaller logo
+  places, the launcher's and the in-game panel's header (gevr_logo.rgba).
+- docs/art/banner_source.jpg (the wide scope-eye): docs/banner.png.
+Android's monochrome (themed) icon must be a single-colour silhouette: the
+logo's reticle, drawn below. Needs Pillow.
 """
 import math
 import os
@@ -144,23 +148,68 @@ def save(img, *parts):
 
 
 ART = os.path.join(ROOT, 'docs', 'art')
-# centre of the iris in icon_source.jpg, and the square that frames the eye
-ICON_CX, ICON_CY, ICON_BOX = 634, 548, 900
 
 
-def art_icon(size, box=ICON_BOX):
-    src = Image.open(os.path.join(ART, 'icon_source.jpg')).convert('RGB')
-    h = box // 2
-    crop = src.crop((ICON_CX - h, ICON_CY - h, ICON_CX + h, ICON_CY + h))
-    return crop.resize((size, size), Image.LANCZOS).convert('RGBA')
+def art_icon(size):
+    """The whole square artwork at size x size."""
+    src = Image.open(os.path.join(ART, 'app_icon.jpg')).convert('RGB')
+    return src.resize((size, size), Image.LANCZOS).convert('RGBA')
 
 
 def art_round(size):
-    img = art_icon(size, 700 if size <= 72 else ICON_BOX)
+    img = art_icon(size)
     mask = Image.new('L', (size * 4, size * 4), 0)
     ImageDraw.Draw(mask).ellipse([0, 0, size * 4 - 1, size * 4 - 1], fill=255)
     img.putalpha(mask.resize((size, size), Image.LANCZOS))
     return img
+
+
+def art_adaptive(size, keep=0.60):
+    """An adaptive icon's foreground: the artwork over the part a launcher's
+    mask can show (about 72 of the 108 dp), so the whole picture survives."""
+    img = Image.new('RGBA', (size, size), (0, 0, 0, 255))
+    inner = int(size * keep + 0.5)
+    img.paste(art_icon(inner), ((size - inner) // 2, (size - inner) // 2))
+    return img
+
+
+def reticle(size):
+    """The logo's reticle as one colour (the monochrome themed icon): a ring,
+    the four cross-hair arms through it, on transparent."""
+    k = 4
+    big = Image.new('L', (size * k, size * k), 0)
+    d = ImageDraw.Draw(big)
+    c = size * k / 2
+    r = size * k * 0.22
+    w = max(2, int(size * k * 0.035))
+    d.ellipse([c - r, c - r, c + r, c + r], outline=255, width=w)
+    arm = size * k * 0.30
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        d.line([(c + dx * r * 0.45, c + dy * r * 0.45), (c + dx * arm, c + dy * arm)], fill=255, width=w)
+    alpha = big.resize((size, size), Image.LANCZOS)
+    img = Image.new('RGBA', (size, size), (255, 255, 255, 0))
+    img.putalpha(alpha)
+    return img
+
+
+def wordmark(w, h):
+    """The reticle logo fitted into w x h, transparent around it."""
+    src = Image.open(os.path.join(ART, 'wordmark.png')).convert('RGBA')
+    k = min(w / src.width, h / src.height)
+    logo = src.resize((int(src.width * k + 0.5), int(src.height * k + 0.5)), Image.LANCZOS)
+    img = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    img.paste(logo, ((w - logo.width) // 2, (h - logo.height) // 2), logo)
+    return img
+
+
+def write_raw(img, *paths):
+    """Raw RGBA (the headers' and the PC window's: no image decoder needed)."""
+    for p in paths:
+        full = os.path.join(ROOT, *p)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, 'wb') as fh:
+            fh.write(img.tobytes())
+        print('wrote', os.path.relpath(full, ROOT), img.size)
 
 
 def art_banner(w, h, title=True):
@@ -195,40 +244,24 @@ def main():
     for name, k in dens.items():
         legacy = int(48 * k)
         adaptive = int(108 * k)
-        save(art_icon(legacy, 700 if legacy <= 72 else ICON_BOX).convert('RGB'), 'mipmap-' + name, 'ic_launcher.png')
+        save(art_icon(legacy).convert('RGB'), 'mipmap-' + name, 'ic_launcher.png')
         save(art_round(legacy), 'mipmap-' + name, 'ic_launcher_round.png')
-        # adaptive: full-bleed art; the launcher's mask keeps the middle, so
-        # frame the eye a little looser than the legacy square
-        save(art_icon(adaptive, 1090).convert('RGB'), 'mipmap-' + name, 'ic_launcher_foreground.png')
+        save(art_adaptive(adaptive).convert('RGB'), 'mipmap-' + name, 'ic_launcher_foreground.png')
         save(Image.new('RGB', (adaptive, adaptive), BLACK), 'mipmap-' + name, 'ic_launcher_background.png')
-        save(emblem(adaptive, 0.60, mono=True), 'mipmap-' + name, 'ic_launcher_monochrome.png')
+        save(reticle(adaptive), 'mipmap-' + name, 'ic_launcher_monochrome.png')
     save(art_icon(512).convert('RGB'), 'drawable-nodpi', 'ic_launcher_quest.png')
     save(art_icon(512).convert('RGB'), '@', 'android', 'app', 'src', 'main', 'play_store_512.png')
     save(art_banner(1280, 560).convert('RGB'), '@', 'docs', 'banner.png')
-    write_launcher_header_icon()
-
-
-def launcher_header_icon():
-    """docs/logo.jpg at 128x128 RGBA, with the header's rounded corners."""
-    src = Image.open(os.path.join(ROOT, 'docs', 'logo.jpg')).convert('RGBA')
-    icon = src.resize((128, 128), Image.LANCZOS)
-    mask = Image.new('L', (512, 512), 0)
-    ImageDraw.Draw(mask).rounded_rectangle([0, 0, 511, 511], radius=96, fill=255)
-    icon.putalpha(mask.resize((128, 128), Image.LANCZOS))
-    return icon
-
-
-def write_launcher_header_icon():
-    """In-VR launcher and pause headers, plus the menu-studio preview of the same pixels."""
-    icon = launcher_header_icon()
-    raw = os.path.join(ROOT, 'android', 'app', 'src', 'main', 'assets', 'launcher_icon.rgba')
-    os.makedirs(os.path.dirname(raw), exist_ok=True)
-    with open(raw, 'wb') as fh:
-        fh.write(icon.tobytes())
-    print('wrote', os.path.relpath(raw, ROOT), icon.size)
-    preview = os.path.join(ROOT, 'tools', 'menu-studio', 'assets', 'launcher-icon.png')
-    icon.save(preview)
-    print('wrote', os.path.relpath(preview, ROOT), icon.size)
+    # the headers' logo, 3:1 (vr_launcher.cpp, vr_pause_menu.cpp), and the PC window's icon
+    logo = wordmark(384, 128)
+    write_raw(logo, ('android', 'app', 'src', 'main', 'assets', 'gevr_logo.rgba'),
+              ('port', 'pc', 'package', 'gevr_logo.rgba'))
+    logo.save(os.path.join(ROOT, 'tools', 'menu-studio', 'assets', 'launcher-icon.png'))
+    write_raw(art_icon(128), ('port', 'pc', 'package', 'gevr_icon.rgba'))
+    # the Windows exes' icon (port/pc/package/gevr.rc)
+    ico = os.path.join(ROOT, 'port', 'pc', 'package', 'gevr.ico')
+    art_icon(256).save(ico, sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+    print('wrote', os.path.relpath(ico, ROOT))
 
 
 if __name__ == '__main__':

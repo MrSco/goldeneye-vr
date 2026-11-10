@@ -2902,16 +2902,17 @@ extern "C" void gevrLauncherRun(void)
     flatLauncherInit(io);   // mouse, keyboard and pad in the window (PC, Android phone/tablet)
 #endif
 
-    // The header icon (android assets/launcher_icon.rgba, tools/make_icons.py).
+    // The header's logo: the "GoldenEye VR" reticle wordmark, 384 x 128 raw
+    // RGBA (android assets / beside the PC exe; tools/make_icons.py).
     GLuint iconTex = 0;
     {
-        SDL_RWops *rw = SDL_RWFromFile("launcher_icon.rgba", "rb");
+        SDL_RWops *rw = SDL_RWFromFile("gevr_logo.rgba", "rb");
         if (rw) {
-            std::vector<unsigned char> px(128 * 128 * 4);
+            std::vector<unsigned char> px(384 * 128 * 4);
             if (SDL_RWread(rw, px.data(), 1, px.size()) == px.size()) {
                 glGenTextures(1, &iconTex);
                 glBindTexture(GL_TEXTURE_2D, iconTex);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 128, 128, 0, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 384, 128, 0, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             }
@@ -3154,15 +3155,15 @@ extern "C" void gevrLauncherRun(void)
         const ImVec4 good(0.5f, 0.9f, 0.5f, 1.0f);
         const ImVec4 bad(0.95f, 0.5f, 0.4f, 1.0f);
 
-        // header: icon and title left, build stamp and report button stacked right
+        // header: the logo left (the title in text without it), build stamp
+        // and report button stacked right
         const float headerY = ImGui::GetCursorPosY();
         const float headerH = ImGui::GetTextLineHeight() * 2.2f;
         if (iconTex) {
-            ImGui::Image((ImTextureID)(intptr_t)iconTex, ImVec2(headerH, headerH));
-            ImGui::SameLine();
-            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (headerH - ImGui::GetTextLineHeight()) * 0.5f);
+            ImGui::Image((ImTextureID)(intptr_t)iconTex, ImVec2(headerH * 3.0f, headerH));
+        } else {
+            ImGui::TextColored(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "GOLDENEYE VR");
         }
-        ImGui::TextColored(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "GOLDENEYE VR");
         {
             char build[128];
             if (!appVersion.empty()) {

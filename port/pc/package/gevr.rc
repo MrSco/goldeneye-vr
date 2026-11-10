@@ -1,0 +1,2 @@
+// The PC exes' icon (tools/make_icons.py writes gevr.ico from docs/art/app_icon.jpg)
+1 ICON "gevr.ico"

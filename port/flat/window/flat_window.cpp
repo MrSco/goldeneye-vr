@@ -48,6 +48,25 @@ SDL_GLContext ctx;
  * Here: unbind the dead surface, have SDL make the window's surface again
  * (its own surfaceChanged handler), and bind the context to it.
  */
+#ifdef GEVR_PC
+/* The window's icon (the taskbar, Alt-Tab, a Linux dock): gevr_icon.rgba beside
+ * the exe, 128 x 128 raw RGBA (tools/make_icons.py). */
+static void gevrSetWindowIcon(SDL_Window *w)
+{
+    static unsigned char px[128 * 128 * 4];
+    SDL_RWops *rw = SDL_RWFromFile("gevr_icon.rgba", "rb");
+    if (!rw) return;
+    const bool ok = SDL_RWread(rw, px, 1, sizeof(px)) == sizeof(px);
+    SDL_RWclose(rw);
+    if (!ok) return;
+    SDL_Surface *s = SDL_CreateRGBSurfaceWithFormatFrom(px, 128, 128, 32, 128 * 4, SDL_PIXELFORMAT_RGBA32);
+    if (s) {
+        SDL_SetWindowIcon(w, s);
+        SDL_FreeSurface(s);
+    }
+}
+#endif
+
 extern "C" void flatSwapWindow(void)
 {
 #ifdef ANDROID
@@ -258,6 +277,9 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, vprof);
 
         wnd = SDL_CreateWindow(set->title, posX, posY, window_width, window_height, flags);
+#ifdef GEVR_PC
+        if (wnd) gevrSetWindowIcon(wnd);
+#endif
         if (!wnd) {
             sysLogPrintf(LOG_WARNING, "SDL: could not open SDL window for GL%d.%d%s:\n%s", vmaj, vmin, vprofstr, SDL_GetError());
             continue;
