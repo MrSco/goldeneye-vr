@@ -16,13 +16,18 @@ endif()
 #   server - the dedicated server; -DGEVR_HEADLESS=ON still selects it
 #   pc     - the Windows game: a window with keyboard, mouse and pad
 #            (tools/build_pc.py)
+#   ios    - iPhone and iPad: the PC flat game with touch controls, drawn
+#            with OpenGL ES through ANGLE on Metal (tools/build_ios.sh,
+#            docs/mobile-platforms.md); a static library the Xcode app links
 option(GEVR_HEADLESS "Build the dedicated server (Linux, no headset)" OFF)
 if(GEVR_HEADLESS)
   set(GEVR_PLATFORM "server")
 elseif(ANDROID)
   set(GEVR_PLATFORM "quest")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+  set(GEVR_PLATFORM "ios")
 endif()
-set(GEVR_PLATFORM "${GEVR_PLATFORM}" CACHE STRING "quest, server or pc")
+set(GEVR_PLATFORM "${GEVR_PLATFORM}" CACHE STRING "quest, server, pc or ios")
 # The Android phone/tablet APK (docs/mobile-platforms.md): the Quest's library
 # with the flat window, launcher and headset stand-ins of the PC flat game in
 # place of OpenXR (android/app/build.gradle's "mobile" flavor sets it).
@@ -31,6 +36,15 @@ if(GEVR_PLATFORM STREQUAL "server")
   set(GEVR_HEADLESS ON)
 elseif(GEVR_PLATFORM STREQUAL "pc")
   set(GEVR_PC ON)
+elseif(GEVR_PLATFORM STREQUAL "ios")
+  # the PC flat game's sources, built for iOS (GEVR_IOS marks what differs)
+  set(GEVR_PC ON)
+  set(GEVR_IOS ON)
+  enable_language(OBJC OBJCXX)   # port/ios's UIKit and ANGLE glue
+  set(ANGLE_DIR "$ENV{HOME}/angle" CACHE PATH "ANGLE's one place on the Mac (tools/build_angle_apple.sh)")
+  if(NOT EXISTS "${ANGLE_DIR}/include/EGL/egl.h")
+    message(FATAL_ERROR "No ANGLE headers in ${ANGLE_DIR}/include: run tools/build_angle_apple.sh, or set ANGLE_DIR")
+  endif()
 elseif(NOT GEVR_PLATFORM STREQUAL "quest" OR NOT ANDROID)
   message(FATAL_ERROR
     "Pick a build: the Quest app through android/gradlew.bat assembleRelease (or assembleDebug), "
@@ -82,6 +96,8 @@ message(STATUS "Target arch: ${TARGET_ARCH}")
 
 if(GEVR_HEADLESS)
   set(TARGET_OS "linux")
+elseif(GEVR_IOS)
+  set(TARGET_OS "ios")
 elseif(GEVR_PC AND WIN32)
   set(TARGET_OS "windows")
 elseif(GEVR_PC)
@@ -156,6 +172,13 @@ if(GEVR_HEADLESS OR GEVR_PC)
     # LLVM-MinGW (UCRT): winpthreads gives the POSIX threads and clocks, and
     # _USE_MATH_DEFINES the M_PI the NDK and glibc define by default
     add_definitions(-DGEVR_PC=1 -D_USE_MATH_DEFINES -DWIN32_LEAN_AND_MEAN -DNOMINMAX -DSDL_MAIN_HANDLED)
+  elseif(GEVR_IOS)
+    # iOS: GLES 3 through ANGLE (port/ios/ios_angle.mm) in SDL's GL calls'
+    # place (port/ios/ios_gl.h), and SDL's UIKit app around the game's main
+    # (_FORTIFY_SOURCE off: Apple's checked sprintf macro breaks libultra's
+    # own sprintf declaration in include/PR/os.h)
+    add_definitions(-DGEVR_PC=1 -DGEVR_IOS=1 -DGEVR_GLES=1 -DSDL_MAIN_HANDLED
+      -DGL_SILENCE_DEPRECATION -DIMGUI_IMPL_OPENGL_ES3 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0)
   else()
     # Linux (and Steam Frame's userland): glibc as the server's
     add_definitions(-DGEVR_PC=1 -D_GNU_SOURCE -DSDL_MAIN_HANDLED)
@@ -231,6 +254,12 @@ if(GEVR_HEADLESS OR GEVR_PC)
   set(SDL_STATIC ON CACHE BOOL "" FORCE)
   set(SDL_TEST OFF CACHE BOOL "" FORCE)
   set(SDL_STATIC_PIC ON CACHE BOOL "" FORCE)
+  if(GEVR_IOS)
+    # ANGLE makes the GL context (port/ios/ios_angle.mm): no EAGL in SDL, and
+    # no second set of gl* symbols from Apple's OpenGLES framework
+    set(SDL_OPENGLES OFF CACHE BOOL "" FORCE)
+    set(SDL_OPENGL OFF CACHE BOOL "" FORCE)
+  endif()
   include(FetchContent)
   FetchContent_Declare(SDL2
     GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
@@ -576,6 +605,33 @@ if(GEVR_PC)
   set(GEVR_STEAMAUDIO_WIN "" CACHE PATH "Folder with Steam Audio 4.8.1's Windows phonon.dll and phonon.lib")
   set(GEVR_OPENXR_WIN "" CACHE PATH "Folder with Khronos's Windows x64 openxr_loader.lib and openxr_loader.dll")
   set(GEVR_STEAMAUDIO_LINUX "" CACHE PATH "Folder with Steam Audio 4.8.1's Linux x64 libphonon.so")
+  if(GEVR_IOS)
+    # The iOS game: one static library (libgevr_ios.a) with the game, SDL,
+    # opus, libjuice and the physics folded in; the Xcode app
+    # (port/ios/project.yml) links it with ANGLE's frameworks and Apple's.
+    # HTTPS goes through NSURLSession (port/ios/ios_http.mm), not libcurl.
+    file(GLOB SRC_IOS CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/port/ios/*.m" "${CMAKE_SOURCE_DIR}/port/ios/*.mm")
+    add_library(gevr_ios STATIC ${SRC} ${SRC_IOS})
+    add_dependencies(gevr_ios gevr_buildid)
+    target_include_directories(gevr_ios PRIVATE ${GEVR_INCLUDES} "${ANGLE_DIR}/include")
+    target_link_libraries(gevr_ios PRIVATE ${LIBS} juice-static opus gevr_physics)
+    target_compile_definitions(gevr_ios PRIVATE GEVR_PC_FLAT=1 GEVR_FLAT=1)
+    target_compile_options(gevr_ios PRIVATE
+      "SHELL:-include \"${CMAKE_BINARY_DIR}/port/include/versioninfo.h\""
+      "SHELL:-include \"${CMAKE_SOURCE_DIR}/port/ios/ios_gl.h\"")
+    # port/ios's own files make the GL context and call SDL's GL names themselves
+    set_source_files_properties(${SRC_IOS} PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
+      COMPILE_DEFINITIONS GEVR_IOS_NO_GL_SHIM=1)
+    # one archive for Xcode: the dependencies' objects merged in (libtool)
+    set(GEVR_IOS_DEPS SDL2-static juice-static opus gevr_physics Jolt zlibstatic)
+    add_custom_command(TARGET gevr_ios POST_BUILD
+      COMMAND libtool -static -o "${CMAKE_BINARY_DIR}/libgevr_ios_all.a" "$<TARGET_FILE:gevr_ios>"
+        $<TARGET_FILE:SDL2-static> $<TARGET_FILE:juice-static> $<TARGET_FILE:opus>
+        $<TARGET_FILE:gevr_physics> $<TARGET_FILE:Jolt> $<TARGET_FILE:zlibstatic>
+      COMMENT "libgevr_ios_all.a: the game and its libraries in one archive")
+    add_dependencies(gevr_ios ${GEVR_IOS_DEPS})
+    return()
+  endif()
   if(NOT WIN32)
     # Linux: libcurl for the services (pc_http.cpp), the desktop's GL
     find_package(CURL REQUIRED)

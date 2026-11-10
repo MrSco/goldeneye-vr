@@ -17,7 +17,7 @@
 #include <windows.h>
 #include <winhttp.h>
 #include <bcrypt.h>
-#else
+#elif !defined(GEVR_IOS)
 #include <curl/curl.h>   // Linux: libcurl in WinHTTP's place
 #endif
 
@@ -370,8 +370,15 @@ static std::string winhttpReason(DWORD err)
 }
 #endif
 
+#ifdef GEVR_IOS
+HttpReply httpSendApple(const HttpRequest &r);   // NSURLSession (port/ios/ios_http.mm)
+#endif
+
 HttpReply httpSend(const HttpRequest &r)
 {
+#ifdef GEVR_IOS
+    return httpSendApple(r);
+#else
     HttpReply reply;
 #ifdef _WIN32
     const std::wstring wurl = wide(r.url);
@@ -503,6 +510,7 @@ HttpReply httpSend(const HttpRequest &r)
     reply.length = (long long)length;
     return reply;
 #endif
+#endif   /* GEVR_IOS */
 }
 
 std::string httpJson(const char *method, const std::string &url, const std::string *body, const std::string &token)

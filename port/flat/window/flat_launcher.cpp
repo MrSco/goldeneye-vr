@@ -17,7 +17,7 @@
 #include <cmath>
 #include <SDL.h>
 
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_GLES)   // GLES 3: Android, iOS (ANGLE)
 #include <GLES3/gl3.h>
 #else
 #include "../../fast3d/glad/glad.h"

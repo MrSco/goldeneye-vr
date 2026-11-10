@@ -262,6 +262,11 @@ def main():
     ico = os.path.join(ROOT, 'port', 'pc', 'package', 'gevr.ico')
     art_icon(256).save(ico, sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
     print('wrote', os.path.relpath(ico, ROOT))
+    # iOS: the legacy icon files at the bundle's root (port/ios/Info.plist's
+    # CFBundleIconFiles; Xcode 27 refuses a single-size asset catalog), opaque
+    for name, px in (('AppIcon60x60@2x', 120), ('AppIcon60x60@3x', 180), ('AppIcon76x76@2x', 152),
+                     ('AppIcon83.5x83.5@2x', 167), ('AppIcon1024', 1024)):
+        save(art_icon(px).convert('RGB'), '@', 'port', 'ios', 'icon', name + '.png')
 
 
 if __name__ == '__main__':

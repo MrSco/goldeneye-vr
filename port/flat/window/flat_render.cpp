@@ -16,6 +16,8 @@
 #ifdef ANDROID
 #include <jni.h>   // SDLSurface.java's size questions (GEVR_MOBILE, below)
 #include <GLES3/gl3.h>   // the mobile APK: GLES 3, as the Quest's
+#elif defined(GEVR_GLES)
+#include <GLES3/gl3.h>   // iOS: GLES 3 through ANGLE
 #else
 #include "../../fast3d/glad/glad.h"
 #endif
@@ -114,7 +116,20 @@ void pc_write_shot(const char *name, int w, int h)
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     glReadBuffer(GL_BACK);
     glPixelStorei(GL_PACK_ALIGNMENT, 4);
+#ifdef GEVR_GLES
+    // GLES reads RGB only: BMP's BGR by hand
+    glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, px);   // bottom-up rows, as BMP stores them
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            unsigned char *p = px + y * stride + x * 3;
+            const unsigned char r = p[0];
+            p[0] = p[2];
+            p[2] = r;
+        }
+    }
+#else
     glReadPixels(0, 0, w, h, GL_BGR, GL_UNSIGNED_BYTE, px);   // bottom-up rows, as BMP stores them
+#endif
     f = fopen(path, "wb");
     if (f) {
         const unsigned int size = 54u + (unsigned)stride * (unsigned)h;
@@ -178,7 +193,23 @@ bool vr_screen_present(unsigned int srcArrayTex, int w, int h)
     glViewport(0, 0, winW, winH);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
+    static int told;
+    GLenum before = GL_NO_ERROR;
+    if (told < 3) {
+        for (GLenum e; (e = glGetError()) != GL_NO_ERROR;) before = e;   // the frame's, not the copy's
+    }
     glBlitFramebuffer(0, 0, w, h, dx, dy, dx + dw, dy + dh, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    {
+        if (told < 3) {   // the first copies: say if the driver refused one
+            told++;
+            if (before != GL_NO_ERROR) sysLogPrintf(LOG_WARNING, "screen: GL error 0x%x before the copy", (unsigned)before);
+            const GLenum rs = glCheckFramebufferStatus(GL_READ_FRAMEBUFFER);
+            const GLenum err = glGetError();
+            if (rs != GL_FRAMEBUFFER_COMPLETE || err != GL_NO_ERROR) {
+                sysLogPrintf(LOG_WARNING, "screen: copy to the window: read fb 0x%x, GL error 0x%x", (unsigned)rs, (unsigned)err);
+            }
+        }
+    }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 #ifdef GEVR_FLAT
     flatTouchDraw(winW, winH);

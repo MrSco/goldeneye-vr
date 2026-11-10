@@ -336,7 +336,20 @@ const char* sysGetDataPath(void) {
     return path;
 }
 
+#ifdef GEVR_IOS
+/* iOS: SDL's UIKit app delegate owns the process's main and calls this one
+ * once the app has launched (SDL_UIKitRunApp, below). */
+static int gevrIosMain(int argc, const char **argv);
+int main(int argc, char **argv)
+{
+    extern void gevrIosPrepare(void);   /* port/ios/ios_app.m: SDL's hints */
+    gevrIosPrepare();
+    return SDL_UIKitRunApp(argc, argv, (SDL_main_func)gevrIosMain);
+}
+static int gevrIosMain(int argc, const char **argv)
+#else
 int main(int argc, const char **argv)
+#endif
 #endif
 {
 
@@ -349,6 +362,23 @@ int main(int argc, const char **argv)
     /* Everything lives beside the exe, as in Time Crisis II VR's PC build: the
      * ROM, goldeneye-vr.ini, saves and logs. A shortcut or a double click may
      * start it anywhere. */
+#ifdef GEVR_IOS
+    /* iOS: the app's Documents folder, which the Files app shows (On My
+     * iPhone > GoldenEye VR): the ROM goes there, and the ini, saves and logs
+     * live there. The app bundle itself is read-only. */
+    {
+        char docs[1024];
+        const char *home = getenv("HOME");
+        snprintf(docs, sizeof(docs), "%s/Documents", home ? home : ".");
+        mkdir(docs, 0755);
+        if (chdir(docs) != 0) {
+            printf("ios: could not enter %s\n", docs);
+        }
+        /* an app has no console: the renderer's stderr notes go beside gevr.log */
+        freopen("gevr_stderr.txt", "w", stderr);
+        setvbuf(stderr, NULL, _IONBF, 0);
+    }
+#else
     {
         char *exeDir = SDL_GetBasePath();
         if (exeDir) {
@@ -358,6 +388,7 @@ int main(int argc, const char **argv)
             SDL_free(exeDir);
         }
     }
+#endif
 #endif
     sysInitArgs(argc, argv);
 #ifdef GEVR_PC

@@ -1011,8 +1011,8 @@ extern u32 		osGetMemSize(void);
 
 /* Printf */
 
-#if defined(GEVR_HEADLESS) || (defined(__linux__) && !defined(ANDROID))
-#include <stdio.h> /* glibc's C++ declaration is noexcept: take it, not a second one (the server, the PC game on Linux) */
+#if defined(GEVR_HEADLESS) || (defined(__linux__) && !defined(ANDROID)) || defined(__APPLE__)
+#include <stdio.h> /* glibc's C++ declaration is noexcept: take it, not a second one (the server, the PC game on Linux); Apple's stdio makes sprintf a checked macro (iOS) */
 #else
 extern int		sprintf(char *s, const char *fmt, ...);
 #endif

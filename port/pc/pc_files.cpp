@@ -66,7 +66,14 @@ long long fileTimeMs(const std::string &path)
     std::error_code ec;
     const auto t = fs::last_write_time(P(path), ec);
     if (ec) return 0;
+#ifdef __APPLE__
+    // Apple's libc++ has no clock_cast: the same instant through both clocks' now
+    const auto sys = std::chrono::system_clock::now() +
+        std::chrono::duration_cast<std::chrono::system_clock::duration>(t - fs::file_time_type::clock::now());
+    return std::chrono::duration_cast<std::chrono::milliseconds>(sys.time_since_epoch()).count();
+#else
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::clock_cast<std::chrono::system_clock>(t).time_since_epoch()).count();
+#endif
 #endif
 }
 

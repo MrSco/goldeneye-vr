@@ -40,8 +40,39 @@ launcher.
   - A real phone (gyro's feel, a pinch on a button), an online match
     against a Quest, and Bean import (the emulator's file picker would not
     take a tap on the zip).
-  - The first tap on a launcher tab only hovers it; a START tap on the
-    briefing sometimes needs a second one.
+  - A START tap on the briefing sometimes needs a second one. (The first
+    tap on a launcher tab now selects it.)
+
+**iOS and iPadOS (M3), first pass in** on the same branch:
+
+- **Build** (on the Mac): `tools/build_angle_apple.sh` once, then
+  `tools/build_ios.sh simulator --app` (or `device --app`).
+  - ANGLE lives in one place for every project, `~/angle` (`ANGLE_DIR`),
+    never in the repo: rebelancap's revision, Metal only, linked with Xcode's
+    own linker (that revision's lld cannot read the iOS 27 SDK), and the
+    Metal toolchain must be downloaded once
+    (`xcodebuild -downloadComponent MetalToolchain`).
+  - CMake's `ios` platform (`GEVR_IOS`) builds the PC flat game as one static
+    library, `build/ios-<kind>/libgevr_ios_all.a`. xcodegen makes the app from
+    `port/ios/project.yml`: `com.gevr.port.ios`, landscape, iPhone and iPad.
+- **Rendering:** OpenGL ES 3 through ANGLE on Metal (`port/ios/ios_angle.mm`).
+  `port/ios/ios_gl.h` sends the game's `SDL_GL_*` calls to EGL; SDL is built
+  without EAGL. It is the single-view path (ANGLE's Metal backend has no
+  multiview), as on the Android emulator.
+- **App shell** (`port/ios/ios_app.m`): the scene manifest the iOS 27 SDK
+  requires, SDL's window moved onto the scene, SDL's Bluetooth pad backend
+  off. Drawing waits while the app is in the background.
+- **Files:** Documents is the data folder: the ROM, `goldeneye-vr.ini`, saves
+  and logs. The Files app shows it as "GoldenEye VR". The launcher's pickers
+  use the system's document picker.
+- **Touch:** the Android phone's controls. A touch's mouse never fires or
+  takes the pointer; an iPad's real mouse and keyboard do.
+- **Services:** HTTPS through NSURLSession (`port/ios/ios_http.mm`) for the
+  lobby, friends, mods and reports.
+- **Not yet:** a run on an iPhone or iPad, signing for a device, an online
+  match, Steam Audio's iOS library, LAN discovery (iOS wants Apple's
+  multicast entitlement), and coming back from "Restart to launcher" (an iOS
+  app cannot start itself: it closes, and the player opens it again).
 
 ## Recommendation in one paragraph
 

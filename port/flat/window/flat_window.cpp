@@ -207,7 +207,7 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
 
     // we will unhide the window once the GL context is successfully created
     Uint32 flags = SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE;
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_IOS)
     // The phone/tablet APK: landscape, either way up, full screen. SDL's Android
     // window sets the activity's orientation itself, and a resizable window
     // otherwise left it to the sensor (the game ran upright, letterboxed).
@@ -232,14 +232,21 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
     }
 #endif
 
+#ifdef GEVR_IOS
+    // iOS: a Metal view; ANGLE makes the GLES 3 context on its layer
+    // (port/ios/ios_angle.mm, through ios_gl.h's SDL_GL_CreateContext)
+    // (ALLOW_HIGHDPI: the panel's pixels, not its points)
+    flags |= SDL_WINDOW_METAL | SDL_WINDOW_BORDERLESS | SDL_WINDOW_ALLOW_HIGHDPI;
+#else
     flags |= SDL_WINDOW_OPENGL;
+#endif
 
     // ideally we need 3.0 compat
     // if that doesn't work, try 3.2 core in case we're on mac, 2.1 compat as a last resort
     static u32 glver[][3] = {
         { 0, 0, 0                                    }, // for command line override
-#ifdef ANDROID
-        { 3, 0, SDL_GL_CONTEXT_PROFILE_ES            }, // Android (the mobile APK): GLES 3, as the Quest's
+#if defined(ANDROID) || defined(GEVR_IOS)
+        { 3, 0, SDL_GL_CONTEXT_PROFILE_ES            }, // Android (the mobile APK): GLES 3, as the Quest's; iOS: ANGLE's
 #endif
         { 3, 0, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY }, // 3.0: default, has all the features required
         { 4, 1, SDL_GL_CONTEXT_PROFILE_CORE          }, // 4.1core: macs only have core profile and this is the latest

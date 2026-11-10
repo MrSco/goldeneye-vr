@@ -426,6 +426,13 @@ static u32 mouseButtons;
 static s32 mouseWheel = 0;
 
 static s32 mouseLocked = 0;
+#ifdef GEVR_IOS
+/* iOS: SDL makes a mouse of every touch (the launcher and the panel read
+ * those); in the game a finger is the touch controls' (flat_touch.cpp), so a
+ * touch's mouse neither fires nor takes the pointer. An iPad's real mouse
+ * still does both. */
+static s32 mouseFromTouch = 0;
+#endif
 static s32 mouseLockMode = MLOCK_AUTO;
 static u64 mouseCursorTime = 0;
 static s32 mouseShowCursor = 1;
@@ -927,7 +934,21 @@ static int inputEventFilter(void *data, SDL_Event *event)
             }
             break;
 
+#ifdef GEVR_IOS
+        case SDL_MOUSEMOTION:
+            mouseFromTouch = event->motion.which == SDL_TOUCH_MOUSEID;
+            break;
+
+        case SDL_MOUSEBUTTONUP:
+            mouseFromTouch = event->button.which == SDL_TOUCH_MOUSEID;
+            break;
+#endif
+
         case SDL_MOUSEBUTTONDOWN:
+#ifdef GEVR_IOS
+            mouseFromTouch = event->button.which == SDL_TOUCH_MOUSEID;
+            if (mouseFromTouch) break;
+#endif
             if (!lastKey) {
                 lastKey = VK_MOUSE_BEGIN - 1 + event->button.button;
             }
@@ -2523,6 +2544,12 @@ static inline void inputUpdateMouse(void)
 
     mouseX = mx;
     mouseY = my;
+#ifdef GEVR_IOS
+    if (mouseFromTouch) {
+        mouseButtons &= ~(SDL_BUTTON_LMASK | SDL_BUTTON_MMASK | SDL_BUTTON_RMASK);
+        mouseDX = mouseDY = 0;
+    }
+#endif
 
     // if MLOCK_AUTO is enabled, disable cursor if mouse is unlocked
     // and we haven't moved it for a few seconds

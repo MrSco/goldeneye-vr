@@ -659,9 +659,9 @@ OSIntMask osSetIntMask(OSIntMask mask)
 	return 0;
 }
 
-/* libc compatibility wrappers */
+/* libc compatibility wrappers (Apple's libc has them: macOS, iOS) */
 
-#ifndef PLATFORM_OSX
+#if !defined(PLATFORM_OSX) && !defined(__APPLE__)
 
 void bzero(void *ptr, size_t size)
 {

@@ -783,7 +783,7 @@ static float current_noise_scale;
 static FilteringMode current_filter_mode = FILTER_LINEAR;
 static bool current_textures_linear_filter[2] = { false, false };
 
-#ifdef ANDROID // VR
+#if defined(ANDROID) || defined(GEVR_GLES) // VR, and iOS's GLES
 static int gl_glsl_version = 130;
 static char gl_glsl_version_str[16] = "130";
 #else
@@ -4665,7 +4665,11 @@ static void gfx_opengl_init(void) {
 
     // check if we're using ES or core, which have more limited feature sets
     int val = 0;
+#ifdef GEVR_IOS
+    val = SDL_GL_CONTEXT_PROFILE_ES;   // ANGLE's ES 3.0 context, which SDL never made (port/ios/ios_angle.mm)
+#else
     SDL_GL_GetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, &val);
+#endif
     gl_core_profile = (val == SDL_GL_CONTEXT_PROFILE_CORE);
     gl_es = (val == SDL_GL_CONTEXT_PROFILE_ES);
 
@@ -4731,7 +4735,7 @@ static void gfx_opengl_init(void) {
     }
     else if (!gl_core_profile) {
         // in compatibility profile we can just request the lowest possible version
-#ifdef ANDROID // VR
+#if defined(ANDROID) || defined(GEVR_GLES) // VR, and iOS's GLES
         gl_glsl_version = 130;
 #else
         gl_glsl_version = 330;
@@ -4759,6 +4763,9 @@ static void gfx_opengl_init(void) {
         // (GEVR_GL_DEBUG=1 asks for a debug context, which reports them all)
         typedef void (APIENTRY *DebugCallbackProc)(GLDEBUGPROC, const void *);
         DebugCallbackProc debugCallback = (DebugCallbackProc)SDL_GL_GetProcAddress("glDebugMessageCallback");
+        if (!debugCallback) {   // GLES (ANGLE on iOS): KHR_debug's name
+            debugCallback = (DebugCallbackProc)SDL_GL_GetProcAddress("glDebugMessageCallbackKHR");
+        }
         if (debugCallback) {
             glEnable(0x92E0 /* GL_DEBUG_OUTPUT */);
             glEnable(0x8242 /* GL_DEBUG_OUTPUT_SYNCHRONOUS: the call is on the stack */);

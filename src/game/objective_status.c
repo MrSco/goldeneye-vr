@@ -184,7 +184,16 @@ s32 get_difficulty_for_objective(s32 objectiveIndex)
 
 
 //horrible hack to get ai matching, but it does correctly refrence this func with 2 params
+#ifdef __APPLE__
+/* Mach-O has no weak aliases (clang ignores the pragma there): a real one (iOS) */
+OBJECTIVESTATUS get_status_of_objective(s32 objectiveNum);
+s32 objectiveGetStatus_WEAK(s32 objectiveNum, s32 unused)
+{
+    return get_status_of_objective(objectiveNum);
+}
+#else
 #pragma weak    objectiveGetStatus_WEAK = get_status_of_objective
+#endif
 
 /*
  * Return Status of objective.

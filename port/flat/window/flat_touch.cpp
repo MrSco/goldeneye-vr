@@ -37,7 +37,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_GLES)   // GLES 3: Android, iOS (ANGLE)
 #include <GLES3/gl3.h>
 #else
 #include "../../fast3d/glad/glad.h"
@@ -128,7 +128,7 @@ static unsigned s_tapped;
 static const Uint32 kPanelHoldMs = 700;
 static bool s_panelRequest;
 static bool s_menu;                  // the game's last word: a menu is up
-#ifdef GEVR_MOBILE
+#if defined(GEVR_MOBILE) || defined(GEVR_IOS)
 static bool s_shown = true;          // drawn and taking touches: from the start on a phone
 #else
 static bool s_shown;                 // a PC waits for a finger
@@ -919,7 +919,7 @@ extern "C" void flatTouchDraw(int winW, int winH)
         s_imgui = ImGui::CreateContext();
         ImGui::SetCurrentContext(s_imgui);
         ImGui::GetIO().IniFilename = nullptr;
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_GLES)
         ImGui_ImplOpenGL3_Init("#version 300 es");
 #else
         ImGui_ImplOpenGL3_Init("#version 330");

@@ -37,6 +37,9 @@ extern SDL_Window *wnd;   // pc_window.cpp
 extern "C" {
 const char *fsFullPath(const char *relPath);   // port/src/fs.c
 void sysLogPrintf(int level, const char *fmt, ...);
+#ifdef GEVR_IOS
+int gevrIosChooseFile(const char *title, char *out, int outLen);   // port/ios/ios_picker.m
+#endif
 }
 
 #ifdef _WIN32
@@ -113,6 +116,15 @@ static PickResult pcChooseFile(const char *title, const char *patterns, std::str
         sysLogPrintf(0, "launcher: scripted file picker: %s", scripted);
         return PICK_CHOSEN;
     }
+#ifdef GEVR_IOS
+    {
+        // iOS: the system's document picker (port/ios/ios_picker.m), any file
+        char chosen[4096];
+        const int r = gevrIosChooseFile(title, chosen, (int)sizeof(chosen));
+        if (r > 0) *file = chosen;
+        return r > 0 ? PICK_CHOSEN : r == 0 ? PICK_CANCELLED : PICK_FAILED;
+    }
+#endif
     const std::string zenity = "zenity --file-selection --title=" + pcShellQuote(title)
         + (patterns[0] ? " --file-filter=" + pcShellQuote(patterns) : std::string()) + " 2>/dev/null";
     const std::string kdialog = "kdialog --title " + pcShellQuote(title) + " --getopenfilename . "
@@ -243,7 +255,9 @@ void pcRestartSelf(void)
     for (size_t i = 0; i < cmdline.size(); i += strlen(&cmdline[i]) + 1) argv.push_back(&cmdline[i]);
     argv.push_back(nullptr);
     pid_t pid;
+#ifndef GEVR_IOS   // an iOS app cannot start itself: it closes, and the player opens it again
     if (argv.size() > 1) posix_spawn(&pid, "/proc/self/exe", nullptr, nullptr, argv.data(), environ);
+#endif
 #endif
     exit(0);
 }

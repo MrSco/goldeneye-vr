@@ -72,3 +72,6 @@ scratchpad/
 keystore.properties
 *.jks
 *.keystore
+
+# iOS: xcodegen output (tools/build_ios.sh)
+port/ios/GoldenEyeVR.xcodeproj/

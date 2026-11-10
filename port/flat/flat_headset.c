@@ -92,6 +92,13 @@ static void flatSleepUntil(long long t)
 		}
 	}
 	Sleep((DWORD)((t - now) / 1000000));
+#elif defined(__APPLE__)
+	/* no clock_nanosleep on Apple: the time left, relative */
+	const long long left = t - gevrFlatNowNs();
+	if (left > 0) {
+		struct timespec ts = { (time_t)(left / 1000000000ll), (long)(left % 1000000000ll) };
+		nanosleep(&ts, NULL);
+	}
 #else
 	struct timespec ts = { (time_t)(t / 1000000000ll), (long)(t % 1000000000ll) };
 	clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, NULL);

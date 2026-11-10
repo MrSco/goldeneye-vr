@@ -163,7 +163,7 @@
 #include <GLES2/gl2ext.h>
 #endif
 #elif defined(IMGUI_IMPL_OPENGL_ES3)
-#if (defined(__APPLE__) && (TARGET_OS_IOS || TARGET_OS_TV))
+#if (defined(__APPLE__) && (TARGET_OS_IOS || TARGET_OS_TV)) && !defined(GEVR_GLES)   // GoldenEye VR: ANGLE's on iOS
 #include <OpenGLES/ES3/gl.h>    // Use GL ES 3
 #else
 #include <GLES3/gl3.h>          // Use GL ES 3

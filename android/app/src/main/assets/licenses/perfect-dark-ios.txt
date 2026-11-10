@@ -1,0 +1,117 @@
+MIT License
+
+Copyright (c) 2026 rebelancap
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+================================================================================
+UPSTREAM AND THIRD-PARTY NOTICES
+================================================================================
+
+This repository contains the iOS and visionOS port only. The game engine is
+built from upstream sources that are fetched at build time and are not
+redistributed here; the released application binaries contain them, and their
+notices follow.
+
+--------------------------------------------------------------------------------
+Perfect Dark decompilation, the Perfect Dark PC port, and Dab's Mod
+--------------------------------------------------------------------------------
+
+  https://github.com/n64decomp/perfect_dark
+  https://github.com/perfect-dark-pc-port/perfect_dark
+  https://github.com/DabDavis/perfect-dark-dabs-mod
+
+MIT License
+
+Copyright (c) 2022 Ryan Dwyer
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+UnRAR (RARLAB) — port/src/external/unrar
+--------------------------------------------------------------------------------
+
+Copyright (c) Alexander Roshal.
+
+UnRAR source code may be used in any software to handle RAR archives without
+limitations free of charge, but cannot be used to develop RAR (WinRAR)
+compatible archiver and to re-create RAR compression algorithm, which is
+proprietary. Distribution of modified UnRAR source code in separate form or as
+a part of other software is permitted, provided that full text of this
+paragraph, starting from "UnRAR source code" words, is included in license, or
+in documentation if license is not available, and in source code comments of
+resulting package.
+
+The full licence text ships as license.txt beside the UnRAR source in the
+upstream tree.
+
+--------------------------------------------------------------------------------
+LZMA SDK — port/src/external/lzma
+--------------------------------------------------------------------------------
+
+Igor Pavlov. Placed in the public domain.
+
+--------------------------------------------------------------------------------
+SDL2
+--------------------------------------------------------------------------------
+
+Copyright (c) 1997-2025 Sam Lantinga and contributors. Licensed under the zlib
+licence; see https://github.com/libsdl-org/SDL/blob/SDL2/LICENSE.txt.
+
+--------------------------------------------------------------------------------
+ANGLE
+--------------------------------------------------------------------------------
+
+Copyright 2018 The ANGLE Project Authors. Licensed under the ANGLE BSD-style
+licence; see https://chromium.googlesource.com/angle/angle/+/main/LICENSE.
+
+--------------------------------------------------------------------------------
+libcurl
+--------------------------------------------------------------------------------
+
+Copyright (c) 1996 - 2024, Daniel Stenberg, and many contributors. Licensed
+under the curl licence (MIT/X derivate); see https://curl.se/docs/copyright.html.
+
+--------------------------------------------------------------------------------
+Game content
+--------------------------------------------------------------------------------
+
+Perfect Dark is (c) Rare / Microsoft. The 2010 Xbox Live Arcade release's art is
+(c) 4J Studios and Rare. No game content of any kind is contained in this
+repository or in the released application binaries; the user supplies their own
+ROM and, optionally, their own copy of the Xbox Live Arcade release. This
+project is not affiliated with, endorsed by, or connected to Rare, Microsoft,
+Nintendo or 4J Studios.

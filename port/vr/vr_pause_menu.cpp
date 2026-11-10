@@ -11,7 +11,7 @@
 #include "imgui/imgui_impl_opengl3.h"
 #include "vr_screen.h"
 #include "vr_log.h"
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_GLES)   // GLES 3: Android, iOS (ANGLE)
 #include <GLES3/gl3.h>
 #else
 #include "../fast3d/glad/glad.h"
@@ -86,7 +86,7 @@ void initialize() {
     io.ConfigFlags|=ImGuiConfigFlags_NavEnableGamepad;io.BackendFlags|=ImGuiBackendFlags_HasGamepad;
     io.DisplaySize=ImVec2((float)gevrSurfaceCanvasW(),(float)kGevrSurfaceH);io.FontGlobalScale=2.2f;
     ImGui::StyleColorsDark();ImGui::GetStyle().ScaleAllSizes(2.2f);ImGui::GetStyle().WindowRounding=0;
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_GLES)
     ImGui_ImplOpenGL3_Init("#version 300 es");
 #else
     ImGui_ImplOpenGL3_Init("#version 330");   /* a PC window: desktop GL */

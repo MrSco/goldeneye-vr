@@ -264,6 +264,21 @@ Perfect Dark's logo, which the vendored VR layer had shipped as the app icon.
   [`port/licenses/perfect-dark-android.txt`](port/licenses/perfect-dark-android.txt),
   also shipped in the APK.
 
+### Perfect Dark iOS (rebelancap/perfect-dark-ios, MIT) - the iOS app
+
+- **Repo:** https://github.com/rebelancap/perfect-dark-ios
+- **What for:** the iOS build follows it: OpenGL ES 3 through ANGLE on Metal
+  (`port/ios/ios_angle.mm`, after `app/gfx/gfx_angle_egl.mm`: SDL's Metal
+  view, ANGLE's Metal display, an ES 3.0 context on the layer), the ANGLE
+  revision and build arguments (`tools/build_angle_apple.sh`), the xcodegen
+  app around a CMake static library (`port/ios/project.yml`), and the traps
+  it found: the iOS 27 SDK's mandatory scene manifest with SDL's window
+  moved onto the scene (`port/ios/ios_app.m`, after `PDSceneDelegate.m`),
+  SDL's Bluetooth pad backend switched off, the legacy icon files.
+- **Licence:** MIT; notice in
+  [`port/licenses/perfect-dark-ios.txt`](port/licenses/perfect-dark-ios.txt),
+  also shipped in the apps.
+
 ---
 
 ## Looked at, not adapted into this port
