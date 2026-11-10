@@ -88,3 +88,15 @@ void gevrIosPrepare(void)
     // landscape only, so SDL never lays its view out portrait (Info.plist agrees)
     SDL_SetHintWithPriority(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight", SDL_HINT_OVERRIDE);
 }
+
+/* A light tap from the Taptic Engine (port/flat/window/flat_touch.cpp's
+ * Touch vibration): SDL lists no haptic device for the phone itself. */
+void gevrIosHaptic(void)
+{
+    static UIImpactFeedbackGenerator *tap;
+    if (!tap) {
+        tap = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
+    }
+    [tap impactOccurred];
+    [tap prepare];   // keeps the engine warm for the next press
+}

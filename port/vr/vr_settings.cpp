@@ -31,7 +31,8 @@
 /* A phone or tablet's touch controls (port/flat/window/flat_touch.cpp): a
  * buzz on an on-screen button, and turning the device to look and aim. */
 int VrTouchHaptics = 1;
-int VrGyroAim = 0;
+int VrGyroAim = 0;   // 0 off, 1 while aiming, 2 always
+float VrGyroSpeed = 1.5f;   // view degrees a degree the device turns
 /* The on-screen buttons moved or resized in the touch layout editor
  * (flat_touch.cpp): "NAME x y radius;..." in screen fractions and points,
  * empty for the built-in layout. */
@@ -300,7 +301,7 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; The 2D screen's shape (a phone, a PC window, the virtual screen): 0 = 4:3, 1 = 16:9.\n");
     fprintf(f, "ScreenShape=%d\n", VrScreenShape);
     fprintf(f, "; A phone or tablet: 1 = a buzz on an on-screen button; 1 = turn the device to look and aim.\n");
-    fprintf(f, "TouchHaptics=%d\nGyroAim=%d\n", VrTouchHaptics, VrGyroAim);
+    fprintf(f, "TouchHaptics=%d\nGyroAim=%d\nGyroSpeed=%.2f\n", VrTouchHaptics, VrGyroAim, VrGyroSpeed);
     fprintf(f, "; The touch layout editor's buttons (NAME x y radius;...), empty for the built-in layout.\n");
     fprintf(f, "TouchLayout=%s\n", VrTouchLayout);
     fprintf(f, "; Metres above (+) or below (-) eye level; set by grabbing the screen with both grips.\n");
@@ -854,7 +855,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "ScreenPassthrough") == 0) VrScreenPassthrough = ival != 0;
             else if (strcmp(key, "ScreenShape") == 0) VrScreenShape = ival == 1 ? 1 : 0;
             else if (strcmp(key, "TouchHaptics") == 0) VrTouchHaptics = ival != 0;
-            else if (strcmp(key, "GyroAim") == 0) VrGyroAim = ival != 0;
+            else if (strcmp(key, "GyroAim") == 0) VrGyroAim = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             /* Keep saved DisplayHz preferences. The obsolete RefreshRate key
              * was never user-selectable and remains ignored. */
             else if (strcmp(key, "DisplayHz") == 0) VrRefreshRate = ival < 0 ? 0 : ival;
@@ -903,6 +904,7 @@ extern "C" void vrSettingsLoad(void)
                 if (fval > VR_SCREEN_DISTANCE_MAX) fval = VR_SCREEN_DISTANCE_MAX;
                 VrScreenDistance = fval;
             }
+            else if (strcmp(key, "GyroSpeed") == 0) VrGyroSpeed = fminf(4.0f, fmaxf(0.5f, fval));
             else if (strcmp(key, "ComfortVignette") == 0) {
                 if (fval < 0.0f) fval = 0.0f;
                 if (fval > 1.0f) fval = 1.0f;

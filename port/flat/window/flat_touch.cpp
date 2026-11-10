@@ -50,6 +50,10 @@
 extern SDL_Window *wnd;   // flat_window.cpp
 extern "C" int gevrNativePauseOpen(void);   // port/src/input.c: the in-game panel or the online pause is up
 extern "C" int VrTouchHaptics, VrGyroAim;   // vr_settings.cpp
+extern "C" float VrGyroSpeed;
+#ifdef GEVR_IOS
+extern "C" void gevrIosHaptic(void);   // port/ios/ios_app.m: the Taptic Engine's light tap
+#endif
 
 /* What a button does; port/src/input.c turns these into pad bits. */
 enum {
@@ -314,6 +318,9 @@ static void touchBuzz(void)
         sysLogPrintf(LOG_NOTE, "touch: vibration %s", haptic ? "on" : "unavailable");
     }
     if (haptic) SDL_HapticRumblePlay(haptic, 0.35f, 12);
+#elif defined(GEVR_IOS)
+    // iOS: SDL lists no haptic device for the phone itself
+    if (VrTouchHaptics) gevrIosHaptic();
 #endif
 }
 
@@ -359,8 +366,37 @@ static void releaseAll(void)
     s_stickFinger = -1;
 }
 
+static void fingerUp(const SDL_TouchFingerEvent &e);
+
+/*
+ * Lets go of every finger SDL no longer has down. A lift we never saw (a
+ * finger that slid off the screen's edge into a system gesture, user test
+ * 2026-11-09) left the stick held: Bond kept walking, and the next thumb on
+ * the left could not take the stick back.
+ */
+static void sweepLostFingers(void)
+{
+    for (int i = 0; i < 10; i++) {
+        Finger &f = s_fingers[i];
+        if (!f.active) continue;
+        bool down = false;
+        const int n = SDL_GetNumTouchFingers(f.touch);
+        for (int k = 0; k < n && !down; k++) {
+            const SDL_Finger *sf = SDL_GetTouchFinger(f.touch, k);
+            down = sf && sf->id == f.id;
+        }
+        if (!down) {
+            SDL_TouchFingerEvent up = {};
+            up.touchId = f.touch;
+            up.fingerId = f.id;
+            fingerUp(up);
+        }
+    }
+}
+
 static void fingerDown(const SDL_TouchFingerEvent &e)
 {
+    sweepLostFingers();
     int idx = findFinger(e.touchId, e.fingerId);
     for (int i = 0; idx < 0 && i < 10; i++) {
         if (!s_fingers[i].active) idx = i;
@@ -644,7 +680,7 @@ extern "C" void flatTouchEvent(const SDL_Event *e)
         if (s_shown) fingerMotion(e->tfinger);
         break;
     case SDL_FINGERUP:
-        if (s_shown) fingerUp(e->tfinger);
+        fingerUp(e->tfinger);   // shown or not: a lift always lets go
         break;
     case SDL_CONTROLLERBUTTONDOWN:
     case SDL_KEYDOWN:
@@ -674,6 +710,7 @@ extern "C" void flatTouchEvent(const SDL_Event *e)
  */
 extern "C" unsigned flatTouchPoll(int menu, float *sx, float *sy)
 {
+    if (!s_editing) sweepLostFingers();
     if (s_menu != (menu != 0)) {
         s_menu = menu != 0;
         releaseAll();   // the buttons under the fingers changed
@@ -745,6 +782,8 @@ static void gyroLook(float *yaw, float *pitch)
     const float dt = last ? (now - last) / 1000.0f : 0.0f;
     last = now;
     if (!VrGyroAim || s_menu || !s_shown) return;
+    // While aiming: only with AIM held (the user found always-on gyro weak for turning)
+    if (VrGyroAim == 1 && !aimHeld()) return;
     if (!tried) {
         tried = true;
         if (SDL_InitSubSystem(SDL_INIT_SENSOR) == 0) {
@@ -760,7 +799,7 @@ static void gyroLook(float *yaw, float *pitch)
     const bool flipped = SDL_GetDisplayOrientation(0) == SDL_ORIENTATION_LANDSCAPE_FLIPPED;
     const float up = flipped ? -w[0] : w[0];      // about the screen's up axis
     const float right = flipped ? w[1] : -w[1];   // about the screen's right axis
-    const float deg = 57.29578f * dt;
+    const float deg = 57.29578f * dt * VrGyroSpeed;
     *yaw = -up * deg;      // a positive turn about up turns the view left
     *pitch = -right * deg; // a positive turn about right looks up
 }

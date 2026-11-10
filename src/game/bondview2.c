@@ -17343,7 +17343,12 @@ static Gfx *gevrDrawStats(Gfx *gdl)
     {
         return gdl;
     }
-    snprintf(buf, sizeof(buf), "%s\n%s  LEVEL %d", gevrVrStatsText(), g_gevrStereo ? "STEREO" : "SCREEN", (s32) bossGetStageNum());
+    {
+        const char *stats = gevrVrStatsText();
+        /* an empty first line put the text below its box (the box measures from the first glyph) */
+        snprintf(buf, sizeof(buf), "%s%s%s  LEVEL %d", stats, stats[0] ? "\n" : "",
+                 g_gevrStereo ? "STEREO" : "SCREEN", (s32) bossGetStageNum());
+    }
     if (netIsActive()) {
         char equalization[128];netHostEqualizationText(equalization,sizeof(equalization));
         if (equalization[0]) snprintf(buf+strlen(buf),sizeof(buf)-strlen(buf),"\n%s",equalization);
@@ -17351,6 +17356,14 @@ static Gfx *gevrDrawStats(Gfx *gdl)
 
     gdl = microcode_constructor(gdl);
     textMeasure(&h, &w, buf, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+    {
+        /* the box as tall as the picture's lines (gevrStatsLayout's line
+         * height): textMeasure's came up short, the last line under the box */
+        const s32 lineheight = ptrFontBankGothicChars['['].height + ptrFontBankGothicChars['['].baseline;
+        s32 lines = 1;
+        for (const char *c = buf; *c; c++) lines += *c == '\n';
+        if (lines * lineheight > h) h = lines * lineheight;
+    }
     if (g_gevrStereo)
     {
         x = viGetViewLeft() + (viGetViewWidth() * 22) / 100;

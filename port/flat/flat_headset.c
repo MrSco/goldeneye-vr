@@ -12,6 +12,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <time.h>
 #ifdef _WIN32
@@ -188,8 +189,50 @@ void gevrVrLocomotionCollision(const float step[3], const float requested[3], co
 	(void)step; (void)requested; (void)actual;
 }
 void gevrVrLocomotionResetReason(GevrLocomotionResetReason reason) { (void)reason; }
-void gevrVrStatsSimulation(unsigned ticks) { (void)ticks; }
-const char *gevrVrStatsText(void) { return ""; }
+/*
+ * Show stats in a flat game (PC, phone, tablet): the headset's readout
+ * (vr_openxr.cpp) without the XR lines - the build, the game's tick and frame
+ * rates, the worst gap between frames and the CPU time per frame
+ * (gevr_engine_shim.c). Called once a drawn frame while the readout is on;
+ * the numbers change once a second. It was empty here, so a phone showed an
+ * empty box (user, 2026-11-09).
+ */
+static unsigned s_flatStatSim;
+void gevrVrStatsSimulation(unsigned ticks) { s_flatStatSim += ticks; }
+extern const char gevrBuildId[];   /* generated, port/cmake/buildid.cmake */
+extern const char *gevrPerfText(void);   /* gevr_engine_shim.c: CPU time per frame */
+const char *gevrVrStatsText(void)
+{
+	static char text[512];
+	static long long since, last;
+	static unsigned frames;
+	static double worstMs;
+	const long long now = gevrFlatNowNs();
+	if (last) {
+		const double gap = (now - last) / 1e6;
+		if (gap > worstMs && gap < 1000.0) worstMs = gap;   /* not a pause or the background */
+	}
+	last = now;
+	frames++;
+	if (!since) since = now;
+	if (now - since >= 1000000000ll || !text[0]) {
+		const double el = (now - since) / 1e9;
+		char build[16];
+		snprintf(build, sizeof(build), "%s", gevrBuildId);
+		for (char *c = build; *c; c++) {
+			if (*c == ' ') { *c = 0; break; }
+		}
+		const char *perf = gevrPerfText();
+		snprintf(text, sizeof(text), "BUILD %s\nSIM %.0f HZ  RENDER %.0f FPS\nWORST RENDER GAP %.1f MS%s%s",
+		         build, el > 0.0 ? s_flatStatSim / el : 0.0, el > 0.0 ? frames / el : 0.0, worstMs,
+		         perf && perf[0] ? "\n" : "", perf ? perf : "");
+		since = now;
+		frames = 0;
+		s_flatStatSim = 0;
+		worstMs = 0.0;
+	}
+	return text;
+}
 
 /* --- Controllers: none ---------------------------------------------------- */
 

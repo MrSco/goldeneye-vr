@@ -66,6 +66,8 @@ extern float VrScreenDistance, VrScreenFov;
 extern int VrScreenCurved, VrScreenPassthrough;
 extern int VrScreenShape;   /* vr_settings.cpp: every flat mode's 2D screen, 4:3 or 16:9 */
 extern int VrTouchHaptics, VrGyroAim;   /* vr_settings.cpp: a phone's touch controls */
+extern float VrGyroSpeed;
+static const char *const s_gyroNames[] = { "Off", "While aiming", "Always" };
 extern void vr_screen_resize(float dist, float fov);
 extern int VrRefreshRate;
 extern int VrSpaceWarp;
@@ -418,8 +420,12 @@ static const Row s_rows[] = {
     /* Controls */
     { .label = "Touch vibration", .flat = 1, .tooltip = "A short buzz when you press an on-screen button.",
       .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .ivar = &VrTouchHaptics, .def = NAN },
-    { .label = "Gyro aim", .flat = 1, .tooltip = "Turn and tilt the phone or tablet to look and aim, as well as the touch controls.",
-      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .ivar = &VrGyroAim, .def = NAN },
+    { .label = "Gyro aim", .flat = 1, .tooltip = "Turn and tilt the phone or tablet to look and aim: while AIM is held, or always.",
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .ivar = &VrGyroAim,
+      .ivalues = s_three, .names = s_gyroNames, .count = 3, .def = NAN },
+    { .label = "Gyro speed", .flat = 1, .tooltip = "How far the view turns for a turn of the phone or tablet.",
+      .kind = GEVR_SET_RANGE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .fvar = &VrGyroSpeed,
+      .lo = 0.5f, .hi = 4, .step = 0.25f, .scale = 1, .fmt = "%.2fx", .def = 1.5f },
     TOGGLE_VR(GEVR_SEC_CONTROLS, "Left-handed", VrLeftHandedMode, "Swaps the gun hand and the off hand."),
     TOGGLE_VR(GEVR_SEC_CONTROLS, "Swap sticks", VrSwapJoysticks, "Moves walking and turning to the other sticks."),
     TOGGLE_VR(GEVR_SEC_CONTROLS, "Aim: no lean", VrAimNoLean, "Leaning your head doesn't move your aim."),
