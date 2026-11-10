@@ -69,6 +69,8 @@ static bool s_join_took_bot[GEVR_MAX_PLAYERS];   /* this join took a bot's place
 static uint8_t s_client_caps[GEVR_MAX_PLAYERS];        /* NET_CLIENT_CAP_*, as the guest last said */
 static bool s_client_caps_known[GEVR_MAX_PLAYERS];     /* ... and whether it has said */
 static uint8_t s_client_input[GEVR_MAX_PLAYERS];       /* NET_INPUT_*, from the guest's HELLO (the lobby's flat count) */
+static uint8_t s_input_table_sent[GEVR_MAX_PLAYERS];   /* the host's last NET_MSG_INPUT_CLASSES */
+static bool s_input_table_resend = true;                /* ... and send it again (someone joined) */
 static ENetVirtualSendCallback s_virtual_send = NULL;
 static ENetVirtualReceiveCallback s_virtual_receive = NULL;
 static void *s_virtual_context = NULL;
@@ -601,6 +603,8 @@ static void netResetLobbyState(void) {
     memset(s_client_caps, 0, sizeof(s_client_caps));
     memset(s_client_caps_known, 0, sizeof(s_client_caps_known));
     memset(s_client_input, NET_INPUT_UNKNOWN, sizeof(s_client_input));
+    memset(s_input_table_sent, NET_INPUT_UNKNOWN, sizeof(s_input_table_sent));
+    s_input_table_resend = true;
     s_match_ended = false;
     s_results_deadline_us = 0;
     s_lobby_code[0] = '\0';
@@ -1282,6 +1286,47 @@ static void netClientInputTick(void) {
     const uint8_t c = netLocalInputClass();
     if (c != s_sent_input) netSendInputClass(c);
 }
+/*
+ * Everyone's class, for the roster ("Plays"): the host sends the table when it
+ * changes or someone joins, and a client keeps it in s_client_input (so a new
+ * host after a migration starts from it, until each guest's HELLO).
+ */
+static uint8_t netSlotInputNow(int i) {
+    if (!s_lobby_state.slots[i].connected || s_lobby_state.slots[i].is_bot || netDedicatedSeat(i)) return NET_INPUT_UNKNOWN;
+    return i == s_local_slot ? netLocalInputClass() : s_client_input[i];
+}
+static void netHostInputTableTick(void) {
+    if (!netIsHost() || (s_state != NET_STATE_HOSTING_LOBBY && s_state != NET_STATE_INGAME)) return;
+    uint8_t table[GEVR_MAX_PLAYERS];
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) table[i] = netSlotInputNow(i);
+    if (!s_input_table_resend && !memcmp(table, s_input_table_sent, sizeof(table))) return;
+    u8 raw[9 + GEVR_MAX_PLAYERS];struct netbuf buf={.data=raw,.size=sizeof(raw)};
+    netbufStartWrite(&buf);
+    netbufWriteU32(&buf,GEVR_NET_MAGIC);netbufWriteU16(&buf,GEVR_NET_VERSION);
+    netbufWriteU8(&buf,NET_MSG_INPUT_CLASSES);netbufWriteU8(&buf,(uint8_t)s_local_slot);
+    netbufWriteU8(&buf,GEVR_MAX_PLAYERS);
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) netbufWriteU8(&buf,table[i]);
+    netBroadcastBuf(&buf,NET_CHAN_RELIABLE,ENET_PACKET_FLAG_RELIABLE,NULL);
+    memcpy(s_input_table_sent, table, sizeof(table));
+    s_input_table_resend = false;
+}
+static void netReceiveInputClasses(ENetPeer *peer, struct netbuf *buf, size_t size) {
+    if (netIsHost() || !peer || peer != s_server_peer || size < 9) return;
+    const int n = netbufReadU8(buf);
+    if (buf->error || n < 1 || n > GEVR_MAX_PLAYERS || size != (size_t)(9 + n)) return;
+    for (int i = 0; i < n; i++) {
+        const uint8_t c = netbufReadU8(buf);
+        s_client_input[i] = c <= NET_INPUT_TOUCH ? c : NET_INPUT_UNKNOWN;
+    }
+}
+/* What a slot plays with (NET_INPUT_*): this player's own, or as the host says. */
+int netGetSlotInputClass(int slot) {
+    if (slot < 0 || slot >= GEVR_MAX_PLAYERS || !s_lobby_state.slots[slot].connected || s_lobby_state.slots[slot].is_bot)
+        return NET_INPUT_UNKNOWN;
+    if (slot == s_local_slot) return netLocalInputClass();
+    return s_client_input[slot];
+}
+
 static void netReceiveInputClass(ENetPeer *peer, int slot, struct netbuf *buf, size_t size) {
     if (!netIsHost() || !peer || size!=9 || !netLobbySlotConnected(slot) ||
         s_client_peers[slot]!=peer || (int)(intptr_t)peer->data-1!=slot) return;
@@ -3382,6 +3427,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             s_client_caps[assigned] = 0;
             s_client_caps_known[assigned] = false;
             s_client_input[assigned] = joiner_input;
+            s_input_table_resend = true;   /* the joiner needs everyone's (netHostInputTableTick) */
             peer->data = (void *)(intptr_t)(assigned + 1);
             
             s_lobby_state.slots[assigned].connected = 1;
@@ -3538,6 +3584,9 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             break;
         case NET_MSG_INPUT_CLASS:
             netReceiveInputClass(peer, slot_id, &buf, size);
+            break;
+        case NET_MSG_INPUT_CLASSES:
+            netReceiveInputClasses(peer, &buf, size);
             break;
         case NET_MSG_LOBBY_TEAM: {
             int slot = (int)(intptr_t)peer->data - 1;
@@ -4819,6 +4868,7 @@ void netPoll(void) {
         return;
     }
     netClientInputTick();
+    netHostInputTableTick();
     
     ENetEvent event;
     while (enet_host_service(s_host, &event, 0) > 0) {

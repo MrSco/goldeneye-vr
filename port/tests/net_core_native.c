@@ -619,7 +619,29 @@ EXPORT int test_core_flat_count(void) {
     CHECK(sent_size==9 && sent_data[6]==NET_MSG_INPUT_CLASS && sent_data[7]==2 && sent_data[8]==NET_INPUT_UNKNOWN);
     CHECK(s_sent_input==NET_INPUT_UNKNOWN);
     sent_size=0;netClientInputTick();CHECK(sent_size==0);
-    s_host=NULL;s_server_peer=NULL;
+    /* the roster's table: the client keeps what the host sends, its own slot its own */
+    memset(s_client_input,NET_INPUT_UNKNOWN,sizeof(s_client_input));
+    {u8 raw[16]={GEVR_MAX_PLAYERS,NET_INPUT_VR,NET_INPUT_MOUSE,NET_INPUT_PAD,9,NET_INPUT_UNKNOWN,0,0,0};
+     struct netbuf b={.data=raw,.size=sizeof(raw)};
+     netbufStartReadData(&b,raw,1+GEVR_MAX_PLAYERS);netReceiveInputClasses(&hit_peers[1],&b,9+GEVR_MAX_PLAYERS);
+     CHECK(s_client_input[1]==NET_INPUT_UNKNOWN);   /* not from the host's peer */
+     netbufStartReadData(&b,raw,1+GEVR_MAX_PLAYERS);netReceiveInputClasses(&hit_peers[0],&b,8+GEVR_MAX_PLAYERS);
+     CHECK(s_client_input[1]==NET_INPUT_UNKNOWN);   /* the wrong size */
+     netbufStartReadData(&b,raw,1+GEVR_MAX_PLAYERS);netReceiveInputClasses(&hit_peers[0],&b,9+GEVR_MAX_PLAYERS);}
+    CHECK(netGetSlotInputClass(0)==NET_INPUT_VR && netGetSlotInputClass(1)==NET_INPUT_MOUSE);
+    CHECK(netGetSlotInputClass(2)==NET_INPUT_UNKNOWN);   /* this player's own (unknown here), not the table's */
+    CHECK(s_client_input[3]==NET_INPUT_UNKNOWN && netGetSlotInputClass(9)==NET_INPUT_UNKNOWN);
+    /* the host sends the table when it changes, and again for a joiner */
+    s_state=NET_STATE_HOSTING_LOBBY;s_local_slot=0;s_server_peer=NULL;
+    memset(s_client_input,NET_INPUT_UNKNOWN,sizeof(s_client_input));s_client_input[1]=NET_INPUT_TOUCH;
+    s_input_table_resend=true;sent_size=0;netHostInputTableTick();
+    CHECK(sent_size==9+GEVR_MAX_PLAYERS && sent_data[6]==NET_MSG_INPUT_CLASSES && sent_data[8]==GEVR_MAX_PLAYERS);
+    CHECK(sent_data[9+1]==NET_INPUT_TOUCH && sent_data[9+2]==NET_INPUT_UNKNOWN);
+    sent_size=0;netHostInputTableTick();CHECK(sent_size==0);
+    s_client_input[2]=NET_INPUT_VR;netHostInputTableTick();CHECK(sent_size==9+GEVR_MAX_PLAYERS && sent_data[9+2]==NET_INPUT_VR);
+    s_lobby_state.slots[1].is_bot=1;sent_size=0;netHostInputTableTick();CHECK(sent_data[9+1]==NET_INPUT_UNKNOWN);
+    s_lobby_state.slots[1].is_bot=0;
+    s_host=NULL;
     return 0;
 }
 EXPORT int test_core_dedicated_warmup(void) {

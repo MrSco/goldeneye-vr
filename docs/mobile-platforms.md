@@ -410,6 +410,11 @@ crash/log upload". Do it once, in P3, with the backends above in mind.
     sends `NET_MSG_INPUT_CLASS` (59, additive: an older host ignores it)
     when it changes, and the host's flat count follows. "VR players only"
     is checked at the join only.
+  - The roster's "Plays" column (VR, Mouse, Pad, Touch; "-" for bots and
+    older builds): the host sends everyone's class in
+    `NET_MSG_INPUT_CLASSES` (60, additive) when it changes or someone
+    joins. Checked with the server in WSL and the PC build on its LAN
+    list: the server logged "joins with keyboard and mouse".
 - **Host rule:**
   - "VR players only" (`VrMpVrOnly`) refuses a HELLO whose
     `input_class != 0` with `NET_DISCONNECT_VR_ONLY`, so the joiner sees why.

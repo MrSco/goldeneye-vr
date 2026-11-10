@@ -1753,11 +1753,12 @@ static void gevrLobbyRoster(const ImVec4 &gold, bool showCount = true) {
     const bool canKick = netIsHost();
     if (showCount) ImGui::TextColored(gold, "PLAYERS (%d/%d)", netGetConnectedPlayerCount(), netGetMaxPlayers());
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(ImGui::GetStyle().CellPadding.x, 2.0f));
-    if (ImGui::BeginTable("##lobbyroster", canKick ? 6 : 5, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerH)) {
+    if (ImGui::BeginTable("##lobbyroster", canKick ? 7 : 6, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerH)) {
         float font = ImGui::GetFontSize();
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Character", ImGuiTableColumnFlags_WidthFixed, font * 9);
         ImGui::TableSetupColumn("Team", ImGuiTableColumnFlags_WidthFixed, font * 5);
+        ImGui::TableSetupColumn("Plays", ImGuiTableColumnFlags_WidthFixed, font * 4.5f);
         ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthFixed, font * 6);
         ImGui::TableSetupColumn("Ping (ms)", ImGuiTableColumnFlags_WidthFixed, font * 6);
         if (canKick) ImGui::TableSetupColumn("Host", ImGuiTableColumnFlags_WidthFixed, font * 3.2f);
@@ -1780,6 +1781,18 @@ static void gevrLobbyRoster(const ImVec4 &gold, bool showCount = true) {
             ImGui::TextUnformatted(netCharacterName(slot.chr_id));
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(gevrLobbyHasTeams(&lobby->config) ? netTeamName(slot.team) : "—");
+            ImGui::TableNextColumn();
+            {
+                // what each person plays with (net_protocol.h NET_INPUT_*); an older build says nothing
+                static const char *const kPlays[] = {"VR", "Mouse", "Pad", "Touch"};
+                const int c = netGetSlotInputClass(i);
+                ImGui::TextUnformatted(c >= 0 && c <= 3 ? kPlays[c] : "—");
+                if (ImGui::IsItemHovered() && c >= 0 && c <= 3)
+                    gevrTooltip("%s", c == 0 ? "In VR, with tracked controllers"
+                                      : c == 1 ? "Flat: keyboard and mouse"
+                                      : c == 2 ? "Flat: a gamepad, or a headset's flat screen"
+                                               : "Flat: touch controls");
+            }
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(host ? "Host" : slot.is_bot ? "Bot" : slot.ready ? "Ready" : "Waiting");
             ImGui::TableNextColumn();

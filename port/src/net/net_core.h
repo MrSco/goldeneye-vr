@@ -144,6 +144,7 @@ const char *netGetLobbyCode(void);
 const char *netGetLobbyToken(void);
 int netGetLivePlayerCount(void);            /* connected players with a live connection (the lobby service's count) */
 int netGetFlatPlayerCount(void);            /* the people playing flat: this host and guests by their HELLO (the lobby's count) */
+int netGetSlotInputClass(int slot);         /* NET_INPUT_*: what a slot plays with (the roster's "Plays") */
 bool netTakeHostTakeover(void);             /* once: this headset was elected host; set the transport, then netHostTakeOver */
 bool netHostTakeOver(uint16_t port);
 bool netMigrationWantsRejoin(const char **old_host_ip);   /* a client still looking for the new host */
