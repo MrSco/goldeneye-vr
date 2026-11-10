@@ -10,6 +10,7 @@ static int VrMpScenario, VrMpLength, VrMpHealth=5, VrMpDual, VrMpLoadouts, VrMpN
 static int VrAlly, VrHordeFriendlyFire, VrHordeStage = 24, VrHordeStartWave = 1;
 static int VrMpMode, VrMpBotMode, VrMpBotCount=7, VrMpBotDifficulty=5, VrMpFriendlyFire;
 static int VrMpStage=34,VrMpMaxPlayers=8,VrMpVisibility=1,VrMpWeaponSet=4,VrMpCustom[4];
+static int VrMpVrOnly;   /* the host's "VR players only" */
 static int VrMovementSpeed, VrMpMovementSpeed, VrSmoothTurnSpeed=120;
 static int VrNoKnockback=1, VrNoHitstun=1, VrDamageFlash=1, VrCoopFastReinforcements;
 static unsigned long long VrMpFavStages;
@@ -38,6 +39,7 @@ static int netGetMaxPlayers(){return netGetConnectedPlayerCount();}
 static int netGetHostSlot(){return 0;}
 static const char *netGetSlotAppVersion(int){return "0.4.16";}
 static int netHostCanKickPlayer(int slot){return host && slot>0;}
+static int netGetSlotInputClass(int slot){return slot==1?1:0;}   /* the roster's "Plays": slot 1 on a mouse */
 static const char *netGetSlotName(int slot){return lobby.slots[slot].name;}
 static void netHostKickPlayer(int){}
 static bool gevrLobbyHasTeams(const FixtureConfig *c){return c->mode!=NET_MODE_COOP && netScenarioHasTeams(c->scenario);}
@@ -113,6 +115,7 @@ static void layout(int page) {
         }
         stageComboWidth=-1;
         if(page==0)gevrMatchOptions();else if(page==2)coop();
+        else if(page==4)gevrHostLobbyOptions(gold,false,"");   // the Host page before hosting
         else gevrHostLobbyOptions(gold,true,"TBGKYV43");
         if(pass==2) {
             auto *w=ImGui::GetCurrentWindow();
@@ -170,7 +173,8 @@ int main() {
     }
     online=host=1;
     for(VrMpMode=0;VrMpMode<3;VrMpMode++)for(VrMpScenario=0;VrMpScenario<10;VrMpScenario++)
-        for(int set: {4,NET_WEAPON_SET_CUSTOM}) {VrMpWeaponSet=set;layout(3);}
+        for(int set: {4,NET_WEAPON_SET_CUSTOM}) for(VrMpVrOnly=0;VrMpVrOnly<2;VrMpVrOnly++) {VrMpWeaponSet=set;layout(3);layout(4);}
+        VrMpVrOnly=0;
     // a long tooltip wraps and stays on the screen, wherever it is hovered
     for(float x:{20.0f,640.0f,1260.0f}) {
         io.AddMousePosEvent(x,480);

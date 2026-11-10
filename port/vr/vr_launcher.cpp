@@ -1874,7 +1874,14 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
             if (ImGui::RadioButton("Private", VrMpVisibility == 1)) { VrMpVisibility=1;vrSettingsSave(); }
             if (ImGui::IsItemHovered()) gevrTooltip("Not listed. Players join with the code or an invite.");
         }
-        {
+        // "VR players only", chosen before hosting, beside the visibility (on
+        // its own row when the column is too narrow); while hosting a note
+        // beside the player count (a row of its own made the lobby scroll)
+        if (!hosting) {
+            ImGui::SameLine();
+            const float need = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x +
+                               ImGui::CalcTextSize("VR players only").x;
+            if (ImGui::GetContentRegionAvail().x < need) ImGui::NewLine();
             bool vrOnly = VrMpVrOnly != 0;
             if (ImGui::Checkbox("VR players only", &vrOnly)) { VrMpVrOnly = vrOnly ? 1 : 0; vrSettingsSave(); }
             if (ImGui::IsItemHovered()) gevrTooltip("Only players in VR can join: not a PC, phone or tablet, or a headset's flat screen.");
@@ -1941,6 +1948,13 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
                 ImGui::TextColored(gold,"%s: %s",!strcmp(shown,"friends")?"FRIENDS":!strcmp(shown,"private")?"PRIVATE":"PUBLIC",code.c_str());ImGui::SameLine();
             }
             ImGui::TextColored(gold,"PLAYERS (%d/%d)",netGetConnectedPlayerCount(),netGetMaxPlayers());
+            if (VrMpVrOnly) {
+                ImGui::SameLine();
+                if (ImGui::GetContentRegionAvail().x >= ImGui::CalcTextSize("VR only").x) {
+                    ImGui::TextDisabled("VR only");
+                    if (ImGui::IsItemHovered()) gevrTooltip("VR players only. Stop hosting to change it.");
+                }
+            }
         }
         ImGui::EndTable();
     }
