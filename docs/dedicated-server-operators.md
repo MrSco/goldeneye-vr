@@ -87,6 +87,9 @@ powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\GoldenEyeVR-Server\g
 difficulty) is in `/var/lib/gevr-server/goldeneye-vr.ini`. Edit its `Mp...`
 lines, then restart the server. `/opt/gevr-server/gevr-server --list` prints
 the values each line takes. A server hosts Deathmatch only (`MpMode=0`).
+`MpVrOnly=1` keeps the server to VR players: players on a PC, phone or
+tablet, or on a headset's flat screen, are not shown it in the internet
+list and cannot join.
 
 The log writes a status line every 10 seconds:
 

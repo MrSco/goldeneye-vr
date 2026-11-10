@@ -29,7 +29,7 @@ import static org.junit.Assert.*;
 public class LobbyClientTest {
     private static final List<FakeConnection> requests = new ArrayList<>();
     private static int putStatus, getStatus, deleteStatus, postStatus, turnStatus;
-    private static String failureBody, hostRequests;
+    private static String failureBody, hostRequests, listedLobbies;
     private static CountDownLatch removalGate;
     private LobbyClient client;
     private ScheduledExecutorService executor;
@@ -49,6 +49,7 @@ public class LobbyClientTest {
         putStatus = getStatus = deleteStatus = postStatus = turnStatus = 200;
         failureBody = "{\"error\":\"Lobby idle timeout\"}";
         hostRequests = "[]";
+        listedLobbies = "[]";
         removalGate = null;
         client = new LobbyClient();
         ((ScheduledExecutorService) get("worker")).shutdownNow();
@@ -160,6 +161,39 @@ public class LobbyClientTest {
         requests.clear();
         command("join|abcdefgh|26");
         assertFalse(new JSONObject(requests.get(0).body.toString("UTF-8")).has("inputClass"));
+    }
+
+    @Test public void flatPlayersGoWithTheHeartbeatAndHideFlatWithTheList() throws Exception {
+        resume();
+        command("refresh|3|1|4|0|2");   // two of the three play flat
+        poll();
+        JSONObject state = new JSONObject(requests.get(0).body.toString("UTF-8"));
+        assertEquals(2, state.getInt("flatPlayers"));
+        assertFalse(state.getBoolean("vrOnly"));
+        requests.clear();
+        command("refresh|3|1|4|0");   // without a count the last one stays
+        assertEquals(2, get("flatPlayers"));
+        command("phase|warmup|1");      // fewer players than the count: never sent above them
+        poll();
+        assertEquals(1, new JSONObject(requests.get(0).body.toString("UTF-8")).getInt("flatPlayers"));
+        requests.clear();
+        resume();                       // a new host: not sent until its refresh counts them
+        poll();
+        assertFalse(new JSONObject(requests.get(0).body.toString("UTF-8")).has("flatPlayers"));
+        requests.clear();
+        listedLobbies = "[{\"code\":\"ABCDEFGH\",\"name\":\"A\",\"stage\":1,\"weapons\":2,\"players\":2,"
+                + "\"maxPlayers\":4,\"phase\":\"warmup\",\"flatPlayers\":1,\"vrOnly\":false},"
+                + "{\"code\":\"BCDEFGHJ\",\"name\":\"B\",\"stage\":1,\"weapons\":2,\"players\":1,"
+                + "\"maxPlayers\":4,\"vrOnly\":true}]";
+        command("list|26|0|1");
+        assertEquals("version=26&inputClass=0&hideFlat=1", requests.get(0).getURL().getQuery());
+        assertEquals("LIST_BEGIN", client.event());
+        assertEquals("LOBBY|ABCDEFGH|A|1|2|2|4|warmup|1|0", client.event());
+        assertEquals("LOBBY|BCDEFGHJ|B|1|2|1|4|waiting|-1|1", client.event());   // an older Worker's row
+        assertEquals("LIST_END", client.event());
+        requests.clear();
+        command("list|26|0|0");
+        assertEquals("version=26&inputClass=0", requests.get(0).getURL().getQuery());
     }
 
     @Test public void unchangedPhaseAlsoRenewsKeepalive() throws Exception {
@@ -295,7 +329,7 @@ public class LobbyClientTest {
         }
         @Override public InputStream getInputStream() {
             String path = url.getPath();
-            String json = "GET".equals(method) && path.endsWith("/v1/lobbies") ? "{\"lobbies\":[]}" :
+            String json = "GET".equals(method) && path.endsWith("/v1/lobbies") ? "{\"lobbies\":" + listedLobbies + "}" :
                 "GET".equals(method) ? "{\"requests\":" + hostRequests + "}" :
                 path.endsWith("/turn") ? "{\"username\":\"relay-user\",\"credential\":\"relay-pass\"}" :
                 path.endsWith("/joins") ? "{\"id\":\"join-1\",\"joinToken\":\"join-token\"}" :

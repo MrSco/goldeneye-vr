@@ -1361,6 +1361,25 @@ extern "C" int gevrNetLocalInputClass(void);   // net_core.c
 static std::string gevrInputClassField(void) { return "|" + std::to_string(gevrNetLocalInputClass()); }
 static const char *gevrVrOnlyField(void) { return VrMpVrOnly ? "|1" : "|0"; }
 
+/* The host's heartbeat: refresh|players|open|maxPlayers|vrOnly|flatPlayers. The
+ * flat count (net_core.c) never above the players the service is told of. */
+static std::string gevrLobbyRefreshCommand(int players)
+{
+    const int maxP = netGetMaxPlayers();
+    const int flat = std::min(netGetFlatPlayerCount(), players);
+    return "refresh|" + std::to_string(players) + "|" + (players < maxP ? "1" : "0") + "|" + std::to_string(maxP) +
+           gevrVrOnlyField() + "|" + std::to_string(flat);
+}
+
+/* list|version|inputClass[|1]: a VR player who chose "Hide games with flat
+ * players" asks the service to leave them out. */
+static bool gevrLocalPlaysVr(void) { return gevrNetLocalInputClass() == 0; }   // NET_INPUT_VR
+static std::string gevrLobbyListCommand(void)
+{
+    return "list|" + std::to_string(GEVR_NET_VERSION) + gevrInputClassField() +
+           (gevrLocalPlaysVr() && VrMpHideFlat ? "|1" : "");
+}
+
 static std::string gevrLobbyCreateCommand(const std::string &name, int stage, int set, int max)
 {
     return std::string("create|") + (s_hostVisibility ? s_hostVisibility : gevrVisibilityName(VrMpVisibility)) + "|" + name + "|" +
@@ -1930,6 +1949,8 @@ static void gevrFriendsInviteBanner(bool canJoin, const ImVec4 &gold)
 struct GevrOnlineLobby {
     std::string code, name, phase;
     int stage, weapons, players, maxPlayers;
+    int flatPlayers = -1;   // -1: the service did not say
+    bool vrOnly = false;
 };
 static struct {
     int joinMethod = 0;   // 0 = Public Internet, 1 = Private Code, 2 = LAN Games, 3 = Direct IP
@@ -2023,8 +2044,13 @@ void gevrMultiplayerTick(GevrLauncherTabs &tabs, bool &startMatch, bool romReady
         } else if (f[0] == "LIST_END") {
             listLoading = false;
         } else if (f[0] == "LOBBY" && f.size() >= 8) {
-            onlineLobbies.push_back(
-                {f[1], f[2], f[7], atoi(f[3].c_str()), atoi(f[4].c_str()), atoi(f[5].c_str()), atoi(f[6].c_str())});
+            // LOBBY|code|name|stage|weapons|players|max|phase[|flatPlayers|vrOnly]
+            GevrOnlineLobby game{f[1], f[2], f[7], atoi(f[3].c_str()), atoi(f[4].c_str()), atoi(f[5].c_str()), atoi(f[6].c_str())};
+            if (f.size() >= 10) {
+                game.flatPlayers = atoi(f[8].c_str());
+                game.vrOnly = f[9] == "1";
+            }
+            onlineLobbies.push_back(game);
         } else if (f[0] == "JOINED" && f.size() >= 4) {
             clientJoinId = f[1];
             g_joinedViaInternet = true;
@@ -2114,14 +2140,11 @@ void gevrMultiplayerTick(GevrLauncherTabs &tabs, bool &startMatch, bool romReady
         }
 
         int pCount = netGetHumanPlayerCount();   // a joiner takes a bot's place
-        int maxP = netGetMaxPlayers();
         const uint32_t heartbeatNow = SDL_GetTicks();
         if (netIsHost() && (heartbeatNow - lastHeartbeatMs > 5000 || lastHeartbeatMs == 0)) {
             lastHeartbeatMs = heartbeatNow;
             // the count too: the host may change it after registering the lobby
-            const std::string refresh = "refresh|" + std::to_string(pCount) + "|" + (pCount < maxP ? "1" : "0") +
-                                        "|" + std::to_string(maxP) + gevrVrOnlyField();
-            gevrJavaCommand("lobbyCommand", refresh.c_str());
+            gevrJavaCommand("lobbyCommand", gevrLobbyRefreshCommand(pCount).c_str());
         }
     }
     auto disconnect = [] { gevrMpDisconnect(); };
@@ -2331,26 +2354,38 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                     // 1. Public Internet Games
                     if (joinMethod == 0) {
                         const uint32_t listNow = SDL_GetTicks();
+                        if (gevrLocalPlaysVr()) {
+                            bool hideFlat = VrMpHideFlat != 0;
+                            if (ImGui::Checkbox("Hide games with flat players", &hideFlat)) {
+                                VrMpHideFlat = hideFlat ? 1 : 0;
+                                vrSettingsSave();
+                                lastListMs = 0;   // the list again, now
+                            }
+                            if (ImGui::IsItemHovered())
+                                gevrTooltip("Only games where everyone plays in VR: none on a PC, phone or tablet, or a headset's flat screen.");
+                        }
                         if (listNow - lastListMs > 8000 || lastListMs == 0) {
                             lastListMs = listNow;
                             listLoading = true;
-                            gevrJavaCommand("lobbyCommand",
-                                            ("list|" + std::to_string(GEVR_NET_VERSION) + gevrInputClassField()).c_str());
+                            gevrJavaCommand("lobbyCommand", gevrLobbyListCommand().c_str());
                         }
                         if (ImGui::SmallButton("Refresh list")) {
                             listLoading = true;
-                            gevrJavaCommand("lobbyCommand",
-                                            ("list|" + std::to_string(GEVR_NET_VERSION) + gevrInputClassField()).c_str());
+                            gevrJavaCommand("lobbyCommand", gevrLobbyListCommand().c_str());
                         }
                         if (listLoading)
                             ImGui::TextDisabled("Loading internet games...");
                         else if (onlineLobbies.empty())
                             ImGui::TextDisabled("No open internet games found.");
                         for (const GevrOnlineLobby &game : onlineLobbies) {
-                            char label[180];
-                            snprintf(label, sizeof(label), "%s  -  %s  -  %d/%d players%s##online%s",
+                            char label[200], flat[24] = "";
+                            if (game.vrOnly)
+                                snprintf(flat, sizeof(flat), ", VR only");
+                            else if (game.flatPlayers > 0)
+                                snprintf(flat, sizeof(flat), ", %d flat", game.flatPlayers);
+                            snprintf(label, sizeof(label), "%s  -  %s  -  %d/%d players%s%s##online%s",
                                      game.name.c_str(), listedGameLabel(game.stage, game.weapons).c_str(),
-                                     game.players, game.maxPlayers,
+                                     game.players, game.maxPlayers, flat,
                                      game.phase == "warmup"        ? " (warmup)"
                                      : game.phase == "in_progress" ? " (in progress)"
                                                                    : "",
@@ -2367,9 +2402,13 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                             }
                             if (ImGui::IsItemHovered()) {
                                 gevrTooltip(
-                                    "Game: %s\nRoom Code: %s\nPhase: %s\nPlayers: %d/%d\nProtocol: %d",
+                                    "Game: %s\nRoom Code: %s\nPhase: %s\nPlayers: %d/%d%s\nProtocol: %d",
                                     game.name.c_str(), game.code.c_str(), game.phase.c_str(), game.players,
-                                    game.maxPlayers, GEVR_NET_VERSION);
+                                    game.maxPlayers,
+                                    game.vrOnly ? " (VR players only)"
+                                    : game.flatPlayers > 0 ? (game.flatPlayers == 1 ? " (1 plays flat)" : " (some play flat)")
+                                                           : "",
+                                    GEVR_NET_VERSION);
                             }
                         }
                     }
@@ -2624,10 +2663,7 @@ extern "C" void gevrLobbyGameTick(void)
             } else {
                 // live connections: a player yet to come back after a host
                 // change must find the lobby open
-                const int players = netGetLivePlayerCount();
-                gevrJavaCommand("lobbyCommand", (std::string("refresh|") + std::to_string(players) +
-                                "|" + (players < netGetMaxPlayers() ? "1" : "0") +
-                                "|" + std::to_string(netGetMaxPlayers()) + gevrVrOnlyField()).c_str());
+                gevrJavaCommand("lobbyCommand", gevrLobbyRefreshCommand(netGetLivePlayerCount()).c_str());
             }
         }
     } else {
@@ -3079,10 +3115,7 @@ extern "C" void gevrLauncherRun(void)
             if (netIsHost() && gevrVrSessionRunning() &&
                 (lastNoFrameRefresh == 0 || now - lastNoFrameRefresh >= 5000)) {
                 lastNoFrameRefresh = now;
-                const int players = netGetHumanPlayerCount();
-                gevrJavaCommand("lobbyCommand", (std::string("refresh|") + std::to_string(players) +
-                    "|" + (players < netGetMaxPlayers() ? "1" : "0") +
-                    "|" + std::to_string(netGetMaxPlayers())).c_str());
+                gevrJavaCommand("lobbyCommand", gevrLobbyRefreshCommand(netGetHumanPlayerCount()).c_str());
             }
             SDL_Delay(5);
             continue;

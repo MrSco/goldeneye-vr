@@ -262,7 +262,7 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; The multiplayer page's last choices. MpStage is the level id; the sets,\n");
     fprintf(f, "; scenario, length and health are the launcher's list positions; the guns are\n");
     fprintf(f, "; item ids; the favorites are bitmasks over the stage and weapon-set lists.\n");
-    fprintf(f, "MpStage=%d\nMpWeaponSet=%d\nMpChr=%d\nMpVisibility=%d\nMpVrOnly=%d\n", VrMpStage, VrMpWeaponSet, VrMpChr, VrMpVisibility, VrMpVrOnly);
+    fprintf(f, "MpStage=%d\nMpWeaponSet=%d\nMpChr=%d\nMpVisibility=%d\nMpVrOnly=%d\nMpHideFlat=%d\n", VrMpStage, VrMpWeaponSet, VrMpChr, VrMpVisibility, VrMpVrOnly, VrMpHideFlat);
     fprintf(f, "MpScenario=%d\nMpLength=%d\nMpHealth=%d\nMpDual=%d\nMpLoadouts=%d\nMpNextRound=%d\n",
             VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound);
     fprintf(f, "MpVoiceMode=%d\n", VrMpVoiceMode);
@@ -817,6 +817,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MpChr") == 0) VrMpChr = ival;
             else if (strcmp(key, "MpVisibility") == 0) VrMpVisibility = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             else if (strcmp(key, "MpVrOnly") == 0) VrMpVrOnly = ival != 0;
+            else if (strcmp(key, "MpHideFlat") == 0) VrMpHideFlat = ival != 0;
             else if (strcmp(key, "FriendsShowDetail") == 0) VrFriendsShowDetail = ival != 0;
             else if (strcmp(key, "FriendsAppearOffline") == 0) VrFriendsAppearOffline = ival != 0;
             else if (strcmp(key, "FriendsRestoreNoted") == 0) VrFriendsRestoreNoted = ival != 0;

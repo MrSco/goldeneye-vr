@@ -7,10 +7,12 @@
  *
  *   create|visibility|name|version|stage|weapons|maxPlayers[|vrOnly]   CREATED|code|ownerToken
  *   resume|code|ownerToken|maxPlayers|phase|players[|name]     CREATED|code|ownerToken
- *   refresh|players|open[|maxPlayers[|vrOnly]]   phase|warmup|players   stop   leave
- *   list|version[|inputClass]   LIST_BEGIN, LOBBY|code|name|stage|weapons|players|max|phase, LIST_END
+ *   refresh|players|open[|maxPlayers[|vrOnly[|flatPlayers]]]   phase|warmup|players   stop   leave
+ *   list|version[|inputClass[|hideFlat]]
+ *       LIST_BEGIN, LOBBY|code|name|stage|weapons|players|max|phase|flatPlayers|vrOnly, LIST_END
  *   join|code|version[|inputClass]   JOINED|joinId|user|credential
- * (vrOnly and inputClass: "VR players only"; a flat player neither sees nor joins one)
+ * (vrOnly and inputClass: "VR players only"; a flat player neither sees nor joins one.
+ *  flatPlayers and hideFlat: a VR player may hide games with flat players in them)
  *   offer|sdp64         answer|joinId|sdp64
  *   (polled)            HOST_PEER|id|offer64|user|credential, ANSWER|joinId|sdp64,
  *                       LOBBY_LOST|code|why, ERROR|message
@@ -161,6 +163,7 @@ private:
                 + ",\"stage\":" + std::to_string(atoi(f[4].c_str())) + ",\"weapons\":" + std::to_string(atoi(f[5].c_str()))
                 + ",\"maxPlayers\":" + std::to_string(atoi(f[6].c_str()));
             vrOnly_ = f.size() == 8 ? (f[7] == "1" ? 1 : 0) : -1;
+            flatPlayers_ = -1;
             if (vrOnly_ >= 0) pendingCreate_ += std::string(",\"vrOnly\":") + (vrOnly_ ? "true" : "false");
             pendingCreate_ += "}";
             registerPending();
@@ -178,6 +181,7 @@ private:
             heartbeatPaused_ = false;
             maxPlayers_ = atoi(f[3].c_str());
             vrOnly_ = -1;   // the Worker keeps it; the next refresh says it again
+            flatPlayers_ = -1;
             phase_ = f[4];
             players_ = atoi(f[5].c_str());
             open_ = players_ < maxPlayers_;
@@ -190,16 +194,19 @@ private:
             push("CREATED|" + code_ + "|" + ownerToken_);
         } else if (c == "refresh") {
             lastKeepalive_ = nowMs();
-            if (f.size() >= 3 && f.size() <= 5) {
+            if (f.size() >= 3 && f.size() <= 6) {
                 const int newPlayers = atoi(f[1].c_str());
                 const bool newOpen = f[2] == "1";
                 const int newMax = f.size() >= 4 ? atoi(f[3].c_str()) : maxPlayers_;
-                const int newVrOnly = f.size() == 5 ? (f[4] == "1" ? 1 : 0) : vrOnly_;
-                if (newPlayers != players_ || newOpen != open_ || newMax != maxPlayers_ || newVrOnly != vrOnly_) {
+                const int newVrOnly = f.size() >= 5 ? (f[4] == "1" ? 1 : 0) : vrOnly_;
+                const int newFlat = f.size() == 6 ? std::max(0, std::min(atoi(f[5].c_str()), newPlayers)) : flatPlayers_;
+                if (newPlayers != players_ || newOpen != open_ || newMax != maxPlayers_ || newVrOnly != vrOnly_ ||
+                    newFlat != flatPlayers_) {
                     players_ = newPlayers;
                     open_ = newOpen;
                     maxPlayers_ = newMax;
                     vrOnly_ = newVrOnly;
+                    flatPlayers_ = newFlat;
                     nextHeartbeat_ = 0;
                 }
             }
@@ -213,7 +220,8 @@ private:
             }
         } else if (c == "list") {
             const int version = atoi(f.size() > 1 ? f[1].c_str() : "0");
-            const std::string input = f.size() > 2 && !f[2].empty() ? "&inputClass=" + std::to_string(atoi(f[2].c_str())) : "";
+            std::string input = f.size() > 2 && !f[2].empty() ? "&inputClass=" + std::to_string(atoi(f[2].c_str())) : "";
+            if (f.size() > 3 && f[3] == "1") input += "&hideFlat=1";
             const std::string reply = http("GET", std::string(kBase) + "?version=" + std::to_string(version) + input, nullptr, "");
             jspan obj, rows, row;
             jsonParse(reply, &obj);
@@ -224,7 +232,8 @@ private:
                     push("LOBBY|" + jsonGetStr(row, "code") + "|" + clean(jsonGetStr(row, "name")) + "|"
                          + std::to_string(jsonGetInt(row, "stage", 0)) + "|" + std::to_string(jsonGetInt(row, "weapons", 0)) + "|"
                          + std::to_string(jsonGetInt(row, "players", 0)) + "|" + std::to_string(jsonGetInt(row, "maxPlayers", 0)) + "|"
-                         + jsonGetStr(row, "phase", "waiting"));
+                         + jsonGetStr(row, "phase", "waiting") + "|"
+                         + std::to_string(jsonGetInt(row, "flatPlayers", -1)) + "|" + (jsonGetBool(row, "vrOnly", false) ? "1" : "0"));
                 }
             }
             push("LIST_END");
@@ -282,6 +291,7 @@ private:
                     std::string state = "{\"players\":" + std::to_string(players_) + ",\"open\":" + (open_ ? "true" : "false")
                         + ",\"phase\":" + q(phase_) + ",\"maxPlayers\":" + std::to_string(maxPlayers_);
                     if (vrOnly_ >= 0) state += std::string(",\"vrOnly\":") + (vrOnly_ ? "true" : "false");
+                    if (flatPlayers_ >= 0) state += ",\"flatPlayers\":" + std::to_string(std::min(flatPlayers_, players_));
                     if (!name_.empty()) state += ",\"name\":" + q(name_);
                     state += "}";
                     try { http("PUT", std::string(kBase) + "/" + code_, &state, ownerToken_); }
@@ -404,6 +414,7 @@ private:
     bool hosting_ = false, offerSent_ = false, answerReceived_ = false, open_ = true, heartbeatPaused_ = false;
     int players_ = 1, maxPlayers_ = 4;
     int vrOnly_ = -1;   // "VR players only" as the host last sent it; -1 not known (a resume before its refresh)
+    int flatPlayers_ = -1;   // how many play flat, as the host last counted them; -1 not known
     long long nextHeartbeat_ = 0, nextRequests_ = 0, lastKeepalive_ = 0;
     std::thread worker_;   // last: starts once the state above exists
 };

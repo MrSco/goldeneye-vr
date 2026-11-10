@@ -68,6 +68,7 @@ static bool s_client_can_be_kicked[GEVR_MAX_PLAYERS];
 static bool s_join_took_bot[GEVR_MAX_PLAYERS];   /* this join took a bot's place: it plays at once */
 static uint8_t s_client_caps[GEVR_MAX_PLAYERS];        /* NET_CLIENT_CAP_*, as the guest last said */
 static bool s_client_caps_known[GEVR_MAX_PLAYERS];     /* ... and whether it has said */
+static uint8_t s_client_input[GEVR_MAX_PLAYERS];       /* NET_INPUT_*, from the guest's HELLO (the lobby's flat count) */
 static ENetVirtualSendCallback s_virtual_send = NULL;
 static ENetVirtualReceiveCallback s_virtual_receive = NULL;
 static void *s_virtual_context = NULL;
@@ -599,6 +600,7 @@ static void netResetLobbyState(void) {
     memset(s_client_can_be_kicked, 0, sizeof(s_client_can_be_kicked));
     memset(s_client_caps, 0, sizeof(s_client_caps));
     memset(s_client_caps_known, 0, sizeof(s_client_caps_known));
+    memset(s_client_input, NET_INPUT_UNKNOWN, sizeof(s_client_input));
     s_match_ended = false;
     s_results_deadline_us = 0;
     s_lobby_code[0] = '\0';
@@ -1143,6 +1145,21 @@ static uint8_t netLocalInputClass(void) {
 /* The same for the lobby service (vr_launcher.cpp): a flat player's list leaves
  * out "VR players only" games, and the Worker refuses its join to one. */
 int gevrNetLocalInputClass(void) { return netLocalInputClass(); }
+
+static bool netInputIsFlat(uint8_t c) { return c == NET_INPUT_MOUSE || c == NET_INPUT_PAD || c == NET_INPUT_TOUCH; }
+
+/* The people here who play flat, for the lobby service's list (a VR player may
+ * hide such games): this host when it plays flat, and each guest whose HELLO
+ * said so. A guest that said nothing (an older build) or that this host never
+ * heard (one kept through a host change) is not counted. */
+int netGetFlatPlayerCount(void) {
+    int count = 0;
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+        if (!s_lobby_state.slots[i].connected || s_lobby_state.slots[i].is_bot || netDedicatedSeat(i)) continue;
+        if (netInputIsFlat(i == s_local_slot ? netLocalInputClass() : s_client_input[i])) count++;
+    }
+    return count;
+}
 
 static uint8_t netLocalPlatform(void) {
 #if defined(GEVR_HEADLESS)
@@ -3292,9 +3309,11 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 enet_peer_disconnect(peer, NET_DISCONNECT_CONTENT | differs);
                 break;
             }
+            uint8_t joiner_input;
             {
                 /* who is joining: an older build sends nothing, and is let in */
                 const uint8_t input = netbufReadLeft(&buf) >= 2 ? netbufReadU8(&buf) : NET_INPUT_UNKNOWN;
+                joiner_input = input;
                 const uint8_t platform = input != NET_INPUT_UNKNOWN ? netbufReadU8(&buf) : NET_PLATFORM_UNKNOWN;
                 extern int VrMpVrOnly;   /* the host's "VR players only" */
                 NET_LOG("%s joins with %s (platform %u)", clean, netInputClassName(input), (unsigned)platform);
@@ -3329,6 +3348,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             s_client_can_be_kicked[assigned] = false;
             s_client_caps[assigned] = 0;
             s_client_caps_known[assigned] = false;
+            s_client_input[assigned] = joiner_input;
             peer->data = (void *)(intptr_t)(assigned + 1);
             
             s_lobby_state.slots[assigned].connected = 1;
@@ -4658,6 +4678,7 @@ static void netHostDropSlot(int slot, ENetPeer *stale) {
     s_client_can_be_kicked[slot] = false;
     s_client_caps[slot] = 0;
     s_client_caps_known[slot] = false;
+    s_client_input[slot] = NET_INPUT_UNKNOWN;
     s_remote_active[slot] = false;
     netVoiceForgetSlot((uint8_t)slot);
     netForgetPlayerScore(slot);

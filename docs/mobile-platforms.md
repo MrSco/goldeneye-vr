@@ -423,8 +423,20 @@ crash/log upload". Do it once, in P3, with the backends above in mind.
   - The game sends them: `create|...|vrOnly`, `refresh|...|vrOnly`,
     `list|version|inputClass`, `join|code|version|inputClass`
     (`vr_launcher.cpp`, `LobbyClient.java`, `pc_lobby.cpp`).
-  - Not done: a flat-player count in the list, and a filter for VR players
-    that hides games with flat players in them.
+  - Flat players (2026-11-10, Worker version ea914842, also backwards
+    compatible): the heartbeat takes `flatPlayers` (0 to `players`; without
+    it the last count stays, lowered to `players`), the reads return it,
+    and `GET /v1/lobbies?hideFlat=1` leaves out games with any. The host
+    counts itself when it plays flat and each guest by its HELLO's class
+    (`net_core.c netGetFlatPlayerCount`; a guest from before the byte, or
+    one kept through a host change, is not counted). The game sends
+    `refresh|...|vrOnly|flatPlayers` and `list|version|inputClass|1`; the
+    list shows "VR only" or "N flat" beside a game, and a VR player gets a
+    "Hide games with flat players" box (`MpHideFlat` in the ini). The
+    dedicated server sends both too (`server_lobby.c`, the bridge), and
+    registers with the ini's `MpVrOnly`.
+  - Not done: a flat player who connects a pad mid-match keeps the class
+    it joined with (the HELLO is not sent again).
 - **LAN beacon:** one byte for `vr_only` in the discovery packet
   (`net_discovery.h`). It versions with the protocol.
 - **Aim data:**

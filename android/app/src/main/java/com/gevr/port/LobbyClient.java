@@ -46,6 +46,8 @@ final class LobbyClient {
     private int maxPlayers = 4;
     /** "VR players only" as last sent by the host: 1, 0, or -1 not known (a resume before its refresh). */
     private int vrOnly = -1;
+    /** How many of the players play flat, as the host last counted them; -1 not known. */
+    private int flatPlayers = -1;
     private boolean open = true;
     private String phase = "waiting";
     private long nextHeartbeat;
@@ -91,6 +93,7 @@ final class LobbyClient {
                         .put("weapons", Integer.parseInt(fields[5]))
                         .put("maxPlayers", Integer.parseInt(fields[6]));
                 vrOnly = fields.length == 8 ? ("1".equals(fields[7]) ? 1 : 0) : -1;
+                flatPlayers = -1;
                 if (vrOnly >= 0) pendingCreate.put("vrOnly", vrOnly == 1);
                 registerPending();
                 break;
@@ -108,6 +111,7 @@ final class LobbyClient {
                 heartbeatPaused = false;
                 maxPlayers = Integer.parseInt(fields[3]);
                 vrOnly = -1;   // the Worker keeps it; the next refresh says it again
+                flatPlayers = -1;
                 phase = fields[4];
                 players = Integer.parseInt(fields[5]);
                 open = players < maxPlayers;
@@ -123,19 +127,22 @@ final class LobbyClient {
                 break;
             }
             case "refresh":
-                // refresh|players|open[|maxPlayers[|vrOnly]]: the host may change the count
-                // and "VR players only" after registering
+                // refresh|players|open[|maxPlayers[|vrOnly[|flatPlayers]]]: the host may change
+                // the count, "VR players only" and who plays flat after registering
                 lastKeepalive = SystemClock.elapsedRealtime();
-                if (fields.length >= 3 && fields.length <= 5) {
+                if (fields.length >= 3 && fields.length <= 6) {
                     int newPlayers = Integer.parseInt(fields[1]);
                     boolean newOpen = "1".equals(fields[2]);
                     int newMax = fields.length >= 4 ? Integer.parseInt(fields[3]) : maxPlayers;
-                    int newVrOnly = fields.length == 5 ? ("1".equals(fields[4]) ? 1 : 0) : vrOnly;
-                    if (newPlayers != players || newOpen != open || newMax != maxPlayers || newVrOnly != vrOnly) {
+                    int newVrOnly = fields.length >= 5 ? ("1".equals(fields[4]) ? 1 : 0) : vrOnly;
+                    int newFlat = fields.length == 6 ? Math.max(0, Math.min(Integer.parseInt(fields[5]), newPlayers)) : flatPlayers;
+                    if (newPlayers != players || newOpen != open || newMax != maxPlayers || newVrOnly != vrOnly
+                            || newFlat != flatPlayers) {
                         players = newPlayers;
                         open = newOpen;
                         maxPlayers = newMax;
                         vrOnly = newVrOnly;
+                        flatPlayers = newFlat;
                         nextHeartbeat = 0;
                     }
                 }
@@ -151,9 +158,11 @@ final class LobbyClient {
                 }
                 break;
             case "list": {
-                // list|version[|inputClass]: a flat player is not shown "VR players only" games
+                // list|version[|inputClass[|hideFlat]]: a flat player is not shown "VR players
+                // only" games; a VR player may hide games with flat players in them
                 int version = Integer.parseInt(fields[1]);
                 String input = fields.length >= 3 && !fields[2].isEmpty() ? "&inputClass=" + Integer.parseInt(fields[2]) : "";
+                if (fields.length >= 4 && "1".equals(fields[3])) input += "&hideFlat=1";
                 JSONArray rows = http("GET", BASE + "?version=" + version + input, null, "").getJSONArray("lobbies");
                 events.add("LIST_BEGIN");
                 for (int i = 0; i < rows.length(); i++) {
@@ -161,7 +170,8 @@ final class LobbyClient {
                     events.add("LOBBY|" + row.getString("code") + "|" + clean(row.getString("name")) + "|"
                             + row.getInt("stage") + "|" + row.getInt("weapons") + "|"
                             + row.getInt("players") + "|" + row.getInt("maxPlayers") + "|"
-                            + row.optString("phase", "waiting"));
+                            + row.optString("phase", "waiting") + "|"
+                            + row.optInt("flatPlayers", -1) + "|" + (row.optBoolean("vrOnly", false) ? "1" : "0"));
                 }
                 events.add("LIST_END");
                 break;
@@ -225,6 +235,7 @@ final class LobbyClient {
                             .put("players", players).put("open", open).put("phase", phase)
                             .put("maxPlayers", maxPlayers);
                     if (vrOnly >= 0) state.put("vrOnly", vrOnly == 1);
+                    if (flatPlayers >= 0) state.put("flatPlayers", Math.min(flatPlayers, players));
                     if (!name.isEmpty()) state.put("name", name);
                     try { http("PUT", BASE + "/" + code, state, ownerToken); }
                     catch (HttpException e) {

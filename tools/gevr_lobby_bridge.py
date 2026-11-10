@@ -98,6 +98,8 @@ class Lobby:
         self.pending = None
         self.players = 1
         self.max_players = 4
+        self.vr_only = None        # "VR players only" as the server last said; None: not said
+        self.flat_players = None   # how many play flat, as the server last counted; None: not said
         self.open = True
         self.phase = "waiting"
         self.next_heartbeat = 0.0
@@ -109,24 +111,32 @@ class Lobby:
     def command(self, line):
         f = line.split("|")
         now = time.monotonic()
-        if f[0] == "create" and len(f) == 7:
+        if f[0] == "create" and len(f) in (7, 8):   # create|...|maxPlayers[|vrOnly]
             self.stop()
             self.name = f[2]
             self.last_keepalive = now
             self.players = 1
             self.max_players = int(f[6])
+            self.vr_only = f[7] == "1" if len(f) == 8 else None
+            self.flat_players = None
             self.open = True
             self.phase = "waiting"
             self.pending = {"visibility": f[1], "name": f[2], "version": int(f[3]), "stage": int(f[4]),
                             "weapons": int(f[5]), "maxPlayers": int(f[6])}
+            if self.vr_only is not None:
+                self.pending["vrOnly"] = self.vr_only
             self.register()
         elif f[0] == "stop":
             self.stop()
-        elif f[0] == "refresh" and len(f) in (3, 4):
+        elif f[0] == "refresh" and 3 <= len(f) <= 6:   # refresh|players|open[|max[|vrOnly[|flatPlayers]]]
             self.last_keepalive = now
-            players, open_, max_players = int(f[1]), f[2] == "1", int(f[3]) if len(f) == 4 else self.max_players
-            if (players, open_, max_players) != (self.players, self.open, self.max_players):
-                self.players, self.open, self.max_players = players, open_, max_players
+            players, open_ = int(f[1]), f[2] == "1"
+            max_players = int(f[3]) if len(f) >= 4 else self.max_players
+            vr_only = f[4] == "1" if len(f) >= 5 else self.vr_only
+            flat = max(0, min(int(f[5]), players)) if len(f) == 6 else self.flat_players
+            state = (players, open_, max_players, vr_only, flat)
+            if state != (self.players, self.open, self.max_players, self.vr_only, self.flat_players):
+                self.players, self.open, self.max_players, self.vr_only, self.flat_players = state
                 self.next_heartbeat = 0
         elif f[0] == "phase" and len(f) == 3 and f[1] in ("warmup", "in_progress"):
             self.last_keepalive = now
@@ -190,6 +200,10 @@ class Lobby:
             if now >= self.next_heartbeat:
                 state = {"players": self.players, "open": self.open, "phase": self.phase,
                          "maxPlayers": self.max_players}
+                if self.vr_only is not None:
+                    state["vrOnly"] = self.vr_only
+                if self.flat_players is not None:
+                    state["flatPlayers"] = min(self.flat_players, self.players)
                 if self.name:
                     state["name"] = self.name
                 try:

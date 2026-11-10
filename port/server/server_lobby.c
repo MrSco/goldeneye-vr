@@ -111,12 +111,14 @@ static void lobbyCommand(const char *line)
 	}
 }
 
+extern int VrMpVrOnly;   /* goldeneye-vr.ini MpVrOnly: net_core.c turns flat joiners away */
+
 static void lobbyCreate(void)
 {
 	char line[160];
 
-	snprintf(line, sizeof(line), "create|%s|%s|%d|%d|%d|%d", s_public ? "public" : "private", s_name,
-			GEVR_NET_VERSION, netGetLobbyStage(), netGetLobbyWeaponSet(), netGetMaxPlayers());
+	snprintf(line, sizeof(line), "create|%s|%s|%d|%d|%d|%d|%d", s_public ? "public" : "private", s_name,
+			GEVR_NET_VERSION, netGetLobbyStage(), netGetLobbyWeaponSet(), netGetMaxPlayers(), VrMpVrOnly ? 1 : 0);
 	lobbyCommand(line);
 	s_nextRefreshMs = 0;
 	s_lastPhase = -1;
@@ -240,7 +242,10 @@ void serverLobbyTick(void)
 			s_lastPhase = phase;
 			s_nextRefreshMs = lobbyNowMs() + 5000;
 		} else if (lobbyNowMs() >= s_nextRefreshMs) {
-			snprintf(line, sizeof(line), "refresh|%d|%d|%d", players, players < max ? 1 : 0, max);
+			const int flat = netGetFlatPlayerCount();
+			/* "VR players only" and how many play flat, as the launcher's heartbeat */
+			snprintf(line, sizeof(line), "refresh|%d|%d|%d|%d|%d", players, players < max ? 1 : 0, max,
+					VrMpVrOnly ? 1 : 0, flat < players ? flat : players);
 			lobbyCommand(line);
 			s_nextRefreshMs = lobbyNowMs() + 5000;
 		}

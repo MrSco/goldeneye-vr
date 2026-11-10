@@ -55,7 +55,7 @@ extern char VrPlayerName[16];  // multiplayer name, up to 15 characters (launche
 // Stage is a LEVELID; sets, scenario, length, health are net_match.c indices;
 // the guns are ITEM_IDS values; the favorites are bitmasks over net_match.c's lists.
 // VrMpVisibility: 0 public, 1 private, 2 friends only (listed to the host's friends).
-extern int VrMpStage, VrMpWeaponSet, VrMpChr, VrMpVisibility, VrMpVrOnly;
+extern int VrMpStage, VrMpWeaponSet, VrMpChr, VrMpVisibility, VrMpVrOnly, VrMpHideFlat;
 // Friends page (vr_friends.cpp): what friends see, and whether the restore code was noted.
 extern int VrFriendsShowDetail, VrFriendsAppearOffline, VrFriendsRestoreNoted;
 extern int VrFriendsSidebar;

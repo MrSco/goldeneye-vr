@@ -28,7 +28,9 @@ std::string fakeHttp(const char *method, const std::string &url, const std::stri
     if (m == "POST" && url.find("/joins") != std::string::npos) return R"({"id":"j1","joinToken":"jt"})";
     if (m == "POST") return R"({"code":"ABCDEFGH","ownerToken":"owner"})";
     if (m == "GET" && url.find("/joins") != std::string::npos) return R"({"requests":[]})";
-    if (m == "GET") return R"({"lobbies":[]})";
+    if (m == "GET")
+        return R"({"lobbies":[{"code":"ABCDEFGH","name":"A","stage":1,"weapons":2,"players":2,"maxPlayers":4,"phase":"warmup","flatPlayers":1,"vrOnly":false},)"
+               R"({"code":"BCDEFGHJ","name":"B","stage":1,"weapons":2,"players":1,"maxPlayers":4,"vrOnly":true}]})";
     return "{}";
 }
 /* The last call matching, once one comes (the client's thread), or an empty one. */
@@ -126,6 +128,31 @@ int main()
         c.command("create|public|A's game|26|1|2|4");   // the old command: no field
         created = waitCall([](const Call &x) { return x.method == "POST" && x.url == kBase; });
         CHECK(!created.body.empty() && created.body.find("vrOnly") == std::string::npos);
+
+        // who plays flat: the host's count with the heartbeat, never above the players;
+        // a VR player's list may leave such games out
+        clearCalls();
+        c.command("refresh|3|1|4|0|2");
+        beat = waitCall([](const Call &x) { return x.method == "PUT"; });
+        CHECK(beat.body.find("\"flatPlayers\":2") != std::string::npos);
+        clearCalls();
+        c.command("phase|warmup|1");
+        beat = waitCall([](const Call &x) { return x.method == "PUT"; });
+        CHECK(beat.body.find("\"flatPlayers\":1") != std::string::npos);
+        while (!c.event().empty()) {}
+        clearCalls();
+        c.command("list|26|0|1");
+        CHECK(waitCall([](const Call &x) { return x.method == "GET" && x.url.find("?version=") != std::string::npos; }).url
+              == std::string(kBase) + "?version=26&inputClass=0&hideFlat=1");
+        std::vector<std::string> listed;
+        for (int waited = 0; waited < 4000 && (listed.empty() || listed.back() != "LIST_END"); waited += 20) {
+            const std::string e = c.event();
+            if (!e.empty()) listed.push_back(e);
+            else std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        CHECK(listed.size() == 4);
+        CHECK(listed.size() == 4 && listed[1] == "LOBBY|ABCDEFGH|A|1|2|2|4|warmup|1|0");
+        CHECK(listed.size() == 4 && listed[2] == "LOBBY|BCDEFGHJ|B|1|2|1|4|waiting|-1|1");
         c.stopAndWait(1000);
     }
 
