@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/logo.jpg" alt="GoldenEye VR logo" width="96">
+  <img src="docs/art/wordmark.png" alt="GoldenEye VR logo" width="360">
 </p>
 
 <h1 align="center">GoldenEye VR</h1>
