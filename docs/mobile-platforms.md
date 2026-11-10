@@ -405,8 +405,11 @@ crash/log upload". Do it once, in P3, with the backends above in mind.
     identity.
   - Put them in the HELLO tail beside the content block
     (`net_protocol.h` 121-133), which is already additive.
-  - A flat player's input class can change mid-match (pad connected);
-    re-send it in a lobby message for the scoreboard icon only.
+  - A player's input class can change mid-match (a headset switched to its
+    flat screen with the stick hold, a phone's first touch): the client
+    sends `NET_MSG_INPUT_CLASS` (59, additive: an older host ignores it)
+    when it changes, and the host's flat count follows. "VR players only"
+    is checked at the join only.
 - **Host rule:**
   - "VR players only" (`VrMpVrOnly`) refuses a HELLO whose
     `input_class != 0` with `NET_DISCONNECT_VR_ONLY`, so the joiner sees why.
@@ -428,17 +431,21 @@ crash/log upload". Do it once, in P3, with the backends above in mind.
     it the last count stays, lowered to `players`), the reads return it,
     and `GET /v1/lobbies?hideFlat=1` leaves out games with any. The host
     counts itself when it plays flat and each guest by its HELLO's class
-    (`net_core.c netGetFlatPlayerCount`; a guest from before the byte, or
-    one kept through a host change, is not counted). The game sends
+    and any `NET_MSG_INPUT_CLASS` since (`net_core.c netGetFlatPlayerCount`;
+    a guest from before the byte is not counted; after a host change the
+    guests send the new host a HELLO, so it counts them). The game sends
     `refresh|...|vrOnly|flatPlayers` and `list|version|inputClass|1`; the
     list shows "VR only" or "N flat" beside a game, and a VR player gets a
     "Hide games with flat players" box (`MpHideFlat` in the ini). The
     dedicated server sends both too (`server_lobby.c`, the bridge), and
     registers with the ini's `MpVrOnly`.
-  - Not done: a flat player who connects a pad mid-match keeps the class
-    it joined with (the HELLO is not sent again).
-- **LAN beacon:** one byte for `vr_only` in the discovery packet
-  (`net_discovery.h`). It versions with the protocol.
+- **LAN beacon** (done, no bump): after the beacon a tail of tag 'V',
+  `vr_only` and the flat count (`net_discovery.c`); older builds read the
+  beacon and leave the rest (the real server's: 45 bytes, tail 86,1,0
+  with `MpVrOnly=1`). The LAN list applies the internet list's rules: a
+  flat player does not see VR-only games, a VR player with "Hide games
+  with flat players" does not see games with any, and each shows "VR
+  only" or "N flat". A host from before the tail lists as before.
 - **Aim data:**
   - Flat clients already have to fill `PLAYER_STATE`'s barrel
     (`UCMD_AIMVALID`) from the camera ray so VR peers draw them aiming

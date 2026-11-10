@@ -1148,10 +1148,11 @@ int gevrNetLocalInputClass(void) { return netLocalInputClass(); }
 
 static bool netInputIsFlat(uint8_t c) { return c == NET_INPUT_MOUSE || c == NET_INPUT_PAD || c == NET_INPUT_TOUCH; }
 
-/* The people here who play flat, for the lobby service's list (a VR player may
- * hide such games): this host when it plays flat, and each guest whose HELLO
- * said so. A guest that said nothing (an older build) or that this host never
- * heard (one kept through a host change) is not counted. */
+/* The people here who play flat, for the lobby service's list and the LAN
+ * beacon (a VR player may hide such games): this host when it plays flat, and
+ * each guest by its HELLO and any NET_MSG_INPUT_CLASS since. A guest from an
+ * older build says nothing and is not counted. After a host change the guests
+ * join the new host with a HELLO again, so it counts them too. */
 int netGetFlatPlayerCount(void) {
     int count = 0;
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
@@ -1257,6 +1258,38 @@ static void netSendClientCaps(void) {
     netbufWriteU8(&buf,NET_MSG_CLIENT_CAPS);netbufWriteU8(&buf,(uint8_t)s_local_slot);
     netbufWriteU8(&buf,NET_CLIENT_CAP_KICK|NET_CLIENT_CAP_NO_RADAR);
     netBroadcastBuf(&buf,NET_CHAN_RELIABLE,ENET_PACKET_FLAG_RELIABLE,NULL);
+}
+
+/*
+ * What this player plays with, sent again when it changes after the HELLO:
+ * a headset switched to its flat screen (input.c's stick hold) or back, a
+ * phone's first touch. The host's flat count (the lobby list) follows it;
+ * "VR players only" is checked at the join only.
+ */
+static uint8_t s_sent_input = NET_INPUT_UNKNOWN;   /* as the HELLO or the last NET_MSG_INPUT_CLASS said */
+static void netSendInputClass(uint8_t c) {
+    u8 raw[9];struct netbuf buf={.data=raw,.size=sizeof(raw)};
+    netbufStartWrite(&buf);
+    netbufWriteU32(&buf,GEVR_NET_MAGIC);netbufWriteU16(&buf,GEVR_NET_VERSION);
+    netbufWriteU8(&buf,NET_MSG_INPUT_CLASS);netbufWriteU8(&buf,(uint8_t)s_local_slot);
+    netbufWriteU8(&buf,c);
+    netBroadcastBuf(&buf,NET_CHAN_RELIABLE,ENET_PACKET_FLAG_RELIABLE,NULL);
+    s_sent_input=c;
+}
+static void netClientInputTick(void) {
+    if (netIsHost() || !s_server_peer || (s_state != NET_STATE_CLIENT_LOBBY && s_state != NET_STATE_INGAME)) return;
+    if (s_local_slot < 0 || s_local_slot >= GEVR_MAX_PLAYERS) return;
+    const uint8_t c = netLocalInputClass();
+    if (c != s_sent_input) netSendInputClass(c);
+}
+static void netReceiveInputClass(ENetPeer *peer, int slot, struct netbuf *buf, size_t size) {
+    if (!netIsHost() || !peer || size!=9 || !netLobbySlotConnected(slot) ||
+        s_client_peers[slot]!=peer || (int)(intptr_t)peer->data-1!=slot) return;
+    const uint8_t c=netbufReadU8(buf);
+    if (buf->error || netbufReadLeft(buf)) return;
+    if (c > NET_INPUT_TOUCH && c != NET_INPUT_UNKNOWN) return;
+    if (c != s_client_input[slot]) NET_LOG("Slot %d now plays with %s", slot, netInputClassName(c));
+    s_client_input[slot]=c;
 }
 
 static void netReceiveClientCaps(ENetPeer *peer, int slot, struct netbuf *buf, size_t size) {
@@ -3503,6 +3536,9 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
         case NET_MSG_CLIENT_CAPS:
             netReceiveClientCaps(peer, slot_id, &buf, size);
             break;
+        case NET_MSG_INPUT_CLASS:
+            netReceiveInputClass(peer, slot_id, &buf, size);
+            break;
         case NET_MSG_LOBBY_TEAM: {
             int slot = (int)(intptr_t)peer->data - 1;
             uint8_t team = netbufReadU8(&buf);
@@ -4782,6 +4818,7 @@ void netPoll(void) {
         netVoiceTick();
         return;
     }
+    netClientInputTick();
     
     ENetEvent event;
     while (enet_host_service(s_host, &event, 0) > 0) {
@@ -4813,7 +4850,8 @@ void netPoll(void) {
                         netbufWriteU8(&buf, 0xFF);   /* no slot kept: the content block follows */
                     }
                     netContentWrite(&buf);
-                    netbufWriteU8(&buf, netLocalInputClass());   /* who is joining (net_protocol.h) */
+                    s_sent_input = netLocalInputClass();
+                    netbufWriteU8(&buf, s_sent_input);   /* who is joining (net_protocol.h) */
                     netbufWriteU8(&buf, netLocalPlatform());
 
                     ENetPacket *packet = enet_packet_create(buf.data, buf.wp, ENET_PACKET_FLAG_RELIABLE);

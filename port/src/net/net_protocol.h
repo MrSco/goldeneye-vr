@@ -113,6 +113,8 @@ typedef enum {
     /* Protocol 26 (docs/force-pull.md "Online") */
     NET_MSG_FORCE_PULL = 57,    /* Puller -> host -> peers: a pull, catch or throw (NetForcePull); host -> claimant: refused */
     NET_MSG_COOP_SHOT = 58,     /* Host -> all: a guard's grenade, rocket or launcher round in flight; clients fly a copy */
+    /* Additive, no bump: an older host ignores the type. */
+    NET_MSG_INPUT_CLASS = 59,   /* Client -> host: what I play with now (u8 NET_INPUT_*), when it changes after HELLO */
 } NetMsgType;
 
 #define NET_DISCONNECT_KICKED 0x47454b49u

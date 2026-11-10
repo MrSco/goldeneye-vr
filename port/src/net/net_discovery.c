@@ -44,7 +44,21 @@ typedef struct {
     uint8_t  joinable;
     uint32_t host_id;    /* the sender's s_self_id: a headset hears its own broadcast */
 } NetDiscoveryBeacon;
+/*
+ * Additive, no bump: the beacon, then a tag, "VR players only" and how many
+ * play flat (as the lobby service lists them). An older build reads the
+ * beacon above and leaves the rest; one without the tail lists as unknown.
+ */
+#define NET_BEACON_TAIL_TAG 0x56u   /* 'V' */
+typedef struct {
+    NetDiscoveryBeacon base;
+    uint8_t tail_tag;
+    uint8_t vr_only;
+    uint8_t flat_players;
+} NetDiscoveryBeaconTail;
 #pragma pack(pop)
+
+extern int VrMpVrOnly;   /* the host's "VR players only" (vr_settings_defaults.c) */
 
 static SOCKET s_disc_socket = INVALID_SOCKET;
 static bool s_broadcasting = false;
@@ -158,6 +172,14 @@ void netDiscoveryUpdate(uint32_t current_time_ms) {
         beacon.phase = (uint8_t)netGetPhase();
         beacon.joinable = beacon.player_count < beacon.max_players;
         beacon.host_id = PD_LE32(s_self_id);
+        NetDiscoveryBeaconTail sent;
+        sent.base = beacon;
+        sent.tail_tag = NET_BEACON_TAIL_TAG;
+        sent.vr_only = VrMpVrOnly ? 1 : 0;
+        {
+            const int flat = netGetFlatPlayerCount();
+            sent.flat_players = (uint8_t)(flat < beacon.player_count ? flat : beacon.player_count);
+        }
         
         struct sockaddr_in broadcast_addr;
         memset(&broadcast_addr, 0, sizeof(broadcast_addr));
@@ -165,10 +187,10 @@ void netDiscoveryUpdate(uint32_t current_time_ms) {
         broadcast_addr.sin_port = htons(GEVR_DISCOVERY_PORT);
         broadcast_addr.sin_addr.s_addr = INADDR_BROADCAST;
         
-        sendto(s_disc_socket, (const char *)&beacon, sizeof(beacon), 0,
+        sendto(s_disc_socket, (const char *)&sent, sizeof(sent), 0,
                (struct sockaddr *)&broadcast_addr, sizeof(broadcast_addr));
         if (s_also_to.sin_family == AF_INET) {
-            sendto(s_disc_socket, (const char *)&beacon, sizeof(beacon), 0,
+            sendto(s_disc_socket, (const char *)&sent, sizeof(sent), 0,
                    (struct sockaddr *)&s_also_to, sizeof(s_also_to));
         }
     }
@@ -213,6 +235,15 @@ void netDiscoveryUpdate(uint32_t current_time_ms) {
                 srv->weapon_set = b->weapon_set;
                 srv->phase = b->phase;
                 srv->joinable = b->joinable;
+                if (bytes >= (int)sizeof(NetDiscoveryBeaconTail) &&
+                    ((const NetDiscoveryBeaconTail *)buffer)->tail_tag == NET_BEACON_TAIL_TAG) {
+                    const NetDiscoveryBeaconTail *t = (const NetDiscoveryBeaconTail *)buffer;
+                    srv->vr_only = t->vr_only != 0;
+                    srv->flat_players = t->flat_players;
+                } else {
+                    srv->vr_only = 0;
+                    srv->flat_players = 0xFF;   /* an older host: not said */
+                }
                 srv->last_seen_ms = current_time_ms;
             }
         }

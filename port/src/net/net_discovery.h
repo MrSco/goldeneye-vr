@@ -22,6 +22,8 @@ typedef struct {
     uint8_t  weapon_set;
     uint8_t  phase;
     uint8_t  joinable;
+    uint8_t  vr_only;       /* the host's "VR players only" */
+    uint8_t  flat_players;  /* how many play flat; 0xFF: an older host did not say */
     uint32_t last_seen_ms;
 } NetDiscoveredServer;
 

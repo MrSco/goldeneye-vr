@@ -60,6 +60,7 @@ def build_core():
     keep.update({"netReceiveLobbyReady","netHostCanStartRound","netBeginRoundReset","netBroadcastRoundPhase","netHostRestartWarmup","netDedicatedSeat","netSetDedicated","netIsDedicated","netContentPart","netContentPartName","netContentWrite","netContentDiffers","netClientContentRefused","netTakeJoinRefusal"})
     keep.update({"netLobbySlotConnected","netWarmupSettingsChanged","netTryHostStartRequest","netHostRoundTick","netHostReturnToLobby","netStageLoaded","netWarmupSecondsLeft","netHostStartRequested","netHostRequestVotes","netRoundNoticeText","netBroadcastRoundNotice","netReceiveRoundNotice","netGetVote","netResolveVotes","netTallyBallot","netRotationPick","netBallotSize","netHostKickPlayer","netHostDropSlot","netClientKickDisconnected","netBroadcastAllVotes"})
     keep.update({"netHostCanKickPlayer","netReceiveClientCaps","netSendClientCaps","netHostRemoveOldForNoRadar","netRoundLoadStage","netRoundFullMap","netRoundMatchesLoadedMap"})
+    keep.update({"netLocalInputClass","netInputClassName","netInputIsFlat","netGetFlatPlayerCount","netSendInputClass","netClientInputTick","netReceiveInputClass"})
     keep.update({"netSlotOwned","gevrNetOwnsSlot","netActingSlot","netSendHitReportAs","netSendOwnedMove","netIsRemotePlayerActive","netRemoteTrigger","netSlotIsBot","netGetHumanPlayerCount","netReleaseBotSlot","netAddBot","netUpdateBots","netBotPoints","netBotToReplace","netJoinSlot","gevrNetSlotIsBot","gevrNetBotRowsEditable"})
     keep.update({"netMapShotTime","netResetCombatEpoch","netWriteCombatIdentity","netReadCombatIdentity","netImportCombatIdentity","netSendClockTo","netClockTick","netReceiveClock","netExplosiveWeapon","netAcceptHit","netReceiveHitReport","netBeginLocalShot","netEndLocalShot","netMakeLocalHit","netNextLife","netAcceptRespawn","netSendRespawnEvent","netSendLocalPlayerMove","netLocalIsSpectator","netReceiveDamageEvent","netReceiveRespawn","netCombatClocksReady"})
     replacements=[]
@@ -320,6 +321,7 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_first_and_next_round_warmup_timers(self): self.assertEqual(self.core.test_core_warmup_lifecycle(),0)
     def test_dedicated_server_warmup_waits_for_a_person(self): self.assertEqual(self.core.test_core_dedicated_warmup(),0)
     def test_content_check_names_a_different_rom(self): self.assertEqual(self.core.test_core_content_check(),0)
+    def test_flat_player_count_and_input_class_changes(self): self.assertEqual(self.core.test_core_flat_count(),0)
     def test_late_join_countdown_and_voted_map_warmup(self): self.assertEqual(self.core.test_core_warmup_join_and_votes(),0)
     def test_ready_vote_prompts_and_authenticated_notices(self): self.assertEqual(self.core.test_core_round_prompts(),0)
     def test_host_kick_and_client_launcher_exit(self): self.assertEqual(self.core.test_core_host_kick(),0)

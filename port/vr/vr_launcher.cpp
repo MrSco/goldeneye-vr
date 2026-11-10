@@ -1380,6 +1380,43 @@ static std::string gevrLobbyListCommand(void)
            (gevrLocalPlaysVr() && VrMpHideFlat ? "|1" : "");
 }
 
+/* The same rules for a LAN game, which the lobby service never sees: a flat
+ * player is not shown a "VR players only" game, and a VR player who chose to
+ * is not shown one with flat players (flat 0xFF: an older host did not say). */
+static bool gevrLanGameListed(bool vrOnly, int flat)
+{
+    if (vrOnly && !gevrLocalPlaysVr() && gevrNetLocalInputClass() != 0xFF) return false;
+    if (gevrLocalPlaysVr() && VrMpHideFlat && flat > 0 && flat != 0xFF) return false;
+    return true;
+}
+
+/* " (VR only)", " (2 flat)" or nothing, after a listed game's players. */
+static void gevrFlatNote(char *out, size_t cap, bool vrOnly, int flat)
+{
+    if (vrOnly)
+        snprintf(out, cap, ", VR only");
+    else if (flat > 0 && flat != 0xFF)
+        snprintf(out, cap, ", %d flat", flat);
+    else if (cap)
+        out[0] = '\0';
+}
+
+/* Join's "Hide games with flat players" (a VR player's choice, MpHideFlat).
+ * Returns true when it changed. */
+static bool gevrHideFlatCheckbox(void)
+{
+    if (!gevrLocalPlaysVr()) return false;
+    bool hideFlat = VrMpHideFlat != 0;
+    const bool changed = ImGui::Checkbox("Hide games with flat players", &hideFlat);
+    if (changed) {
+        VrMpHideFlat = hideFlat ? 1 : 0;
+        vrSettingsSave();
+    }
+    if (ImGui::IsItemHovered())
+        gevrTooltip("Only games where everyone plays in VR: none on a PC, phone or tablet, or a headset's flat screen.");
+    return changed;
+}
+
 static std::string gevrLobbyCreateCommand(const std::string &name, int stage, int set, int max)
 {
     return std::string("create|") + (s_hostVisibility ? s_hostVisibility : gevrVisibilityName(VrMpVisibility)) + "|" + name + "|" +
@@ -2354,16 +2391,8 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                     // 1. Public Internet Games
                     if (joinMethod == 0) {
                         const uint32_t listNow = SDL_GetTicks();
-                        if (gevrLocalPlaysVr()) {
-                            bool hideFlat = VrMpHideFlat != 0;
-                            if (ImGui::Checkbox("Hide games with flat players", &hideFlat)) {
-                                VrMpHideFlat = hideFlat ? 1 : 0;
-                                vrSettingsSave();
-                                lastListMs = 0;   // the list again, now
-                            }
-                            if (ImGui::IsItemHovered())
-                                gevrTooltip("Only games where everyone plays in VR: none on a PC, phone or tablet, or a headset's flat screen.");
-                        }
+                        if (gevrHideFlatCheckbox())
+                            lastListMs = 0;   // the list again, now
                         if (listNow - lastListMs > 8000 || lastListMs == 0) {
                             lastListMs = listNow;
                             listLoading = true;
@@ -2378,11 +2407,8 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                         else if (onlineLobbies.empty())
                             ImGui::TextDisabled("No open internet games found.");
                         for (const GevrOnlineLobby &game : onlineLobbies) {
-                            char label[200], flat[24] = "";
-                            if (game.vrOnly)
-                                snprintf(flat, sizeof(flat), ", VR only");
-                            else if (game.flatPlayers > 0)
-                                snprintf(flat, sizeof(flat), ", %d flat", game.flatPlayers);
+                            char label[200], flat[24];
+                            gevrFlatNote(flat, sizeof(flat), game.vrOnly, game.flatPlayers);
                             snprintf(label, sizeof(label), "%s  -  %s  -  %d/%d players%s%s##online%s",
                                      game.name.c_str(), listedGameLabel(game.stage, game.weapons).c_str(),
                                      game.players, game.maxPlayers, flat,
@@ -2436,18 +2462,29 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                     char lanLabel[80];
                     snprintf(lanLabel, sizeof(lanLabel), "LAN Games Discovered (%d)###acc_lan", count);
                     if (joinMethod == 2) {
+                        gevrHideFlatCheckbox();
+                        int shown = 0;
+                        for (int i = 0; i < count; i++) {
+                            const NetDiscoveredServer *srv = netDiscoveryGetServer(i);
+                            shown += gevrLanGameListed(srv->vr_only, srv->flat_players);
+                        }
                         if (count == 0) {
                             ImGui::TextDisabled("Searching your Wi-Fi network for GoldenEye VR hosts...");
+                        } else if (shown == 0) {
+                            ImGui::TextDisabled("No LAN games for you: the ones found are hidden by the VR rules above.");
                         } else {
                             for (int i = 0; i < count; i++) {
                                 const NetDiscoveredServer *srv = netDiscoveryGetServer(i);
+                                if (!gevrLanGameListed(srv->vr_only, srv->flat_players))
+                                    continue;
                                 const int cap = srv->max_players;
                                 const bool full = !srv->joinable;
-                                char label[160];
-                                snprintf(label, sizeof(label), "%s  -  %s  -  %d/%d players%s##srv%d",
+                                char label[180], flat[24];
+                                gevrFlatNote(flat, sizeof(flat), srv->vr_only, srv->flat_players);
+                                snprintf(label, sizeof(label), "%s  -  %s  -  %d/%d players%s%s##srv%d",
                                          srv->server_name,
                                          listedGameLabel(srv->stage_num, srv->weapon_set).c_str(),
-                                         srv->player_count, cap,
+                                         srv->player_count, cap, flat,
                                          full                                  ? " (full)"
                                          : srv->phase == NET_PHASE_WARMUP      ? " (warmup)"
                                          : srv->phase == NET_PHASE_IN_PROGRESS ? " (in progress)"

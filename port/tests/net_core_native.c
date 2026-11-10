@@ -587,6 +587,41 @@ EXPORT int test_core_content_check(void) {
     CHECK(why && strstr(why, "ROM") && !netTakeJoinRefusal());
     return 0;
 }
+/* Who plays flat: the host's count for the lobby list and the LAN beacon,
+ * kept from each guest's HELLO and NET_MSG_INPUT_CLASS. */
+static void inputClass(int slot,int value,size_t size) {
+    u8 raw[2]={(u8)value,0};struct netbuf b={.data=raw,.size=sizeof(raw)};
+    netbufStartReadData(&b,raw,size-8);netReceiveInputClass(&hit_peers[slot],slot,&b,size);
+}
+EXPORT int test_core_flat_count(void) {
+    fixture(0);
+    memset(s_client_input,NET_INPUT_UNKNOWN,sizeof(s_client_input));
+    for(int i=1;i<4;i++){s_client_peers[i]=&hit_peers[i];hit_peers[i].data=(void*)(intptr_t)(i+1);}
+    CHECK(netGetFlatPlayerCount()==0);   /* the host (unknown here) and three that said nothing */
+    s_client_input[1]=NET_INPUT_MOUSE;s_client_input[2]=NET_INPUT_VR;s_client_input[3]=NET_INPUT_TOUCH;
+    CHECK(netGetFlatPlayerCount()==2);
+    inputClass(2,NET_INPUT_PAD,9);CHECK(s_client_input[2]==NET_INPUT_PAD && netGetFlatPlayerCount()==3);
+    inputClass(1,NET_INPUT_VR,9);CHECK(netGetFlatPlayerCount()==2);
+    /* not taken: the wrong size, a peer speaking for another slot, a class out of range */
+    inputClass(3,NET_INPUT_VR,10);inputClass(3,NET_INPUT_VR,8);CHECK(s_client_input[3]==NET_INPUT_TOUCH);
+    {u8 raw[1]={NET_INPUT_VR};struct netbuf b={.data=raw,.size=1};
+     netbufStartReadData(&b,raw,1);netReceiveInputClass(&hit_peers[2],3,&b,9);}
+    CHECK(s_client_input[3]==NET_INPUT_TOUCH);
+    inputClass(3,7,9);CHECK(s_client_input[3]==NET_INPUT_TOUCH);
+    /* a bot never counts; a dropped slot forgets its class */
+    s_lobby_state.slots[3].is_bot=1;CHECK(netGetFlatPlayerCount()==1);
+    s_lobby_state.slots[3].is_bot=0;
+    netHostDropSlot(3,NULL);CHECK(s_client_input[3]==NET_INPUT_UNKNOWN && netGetFlatPlayerCount()==1);
+    /* a client says its class again only when it changes */
+    s_state=NET_STATE_CLIENT_LOBBY;s_local_slot=2;s_host_slot=0;s_server_peer=&hit_peers[0];s_host=(ENetHost*)1;
+    s_sent_input=NET_INPUT_UNKNOWN;sent_size=0;netClientInputTick();CHECK(sent_size==0);
+    s_sent_input=NET_INPUT_VR;netClientInputTick();
+    CHECK(sent_size==9 && sent_data[6]==NET_MSG_INPUT_CLASS && sent_data[7]==2 && sent_data[8]==NET_INPUT_UNKNOWN);
+    CHECK(s_sent_input==NET_INPUT_UNKNOWN);
+    sent_size=0;netClientInputTick();CHECK(sent_size==0);
+    s_host=NULL;s_server_peer=NULL;
+    return 0;
+}
 EXPORT int test_core_dedicated_warmup(void) {
     fixture(0);netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_WARMUP;
     for(int i=1;i<4;i++)s_lobby_state.slots[i].is_bot=1;
