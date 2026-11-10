@@ -1,5 +1,7 @@
 #include <SDL.h>
 #include <opus.h>
+#include <stdio.h>
+#include "fs.h"
 #include <math.h>
 #include <string.h>
 #include "net_voice.h"
@@ -38,6 +40,64 @@ static VoiceStream streams[GEVR_MAX_PLAYERS];
 _Static_assert(NET_SPATIAL_SLOTS >= GEVR_MAX_PLAYERS, "a binaural effect per player slot");
 static SDL_AudioDeviceID capture;
 static OpusEncoder *encoder;
+
+/*
+ * What the mic gives (the phone's voice reached the Quest garbled, user
+ * 2026-11-09): once a second while it is open, the frames taken and sent, the
+ * stale ones thrown away and the loudest sample; and, with gevr_micdump.txt
+ * in the data folder, the first 20 s as encoded in gevr_mic.wav (16 kHz mono).
+ */
+static struct {
+    uint32_t since;
+    unsigned taken, sent, cleared;
+    int peak;
+    FILE *wav;
+    uint32_t wavFrames;
+} s_micStats;
+
+static void micWavHeader(FILE *f, uint32_t frames) {
+    const uint32_t bytes = frames * VOICE_FRAME * 2;
+    uint8_t h[44] = { 'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ', 16, 0, 0, 0, 1, 0, 1, 0,
+                      0x80, 0x3E, 0, 0, 0, 0x7D, 0, 0, 2, 0, 16, 0, 'd', 'a', 't', 'a', 0, 0, 0, 0 };   /* 16000 Hz, 32000 B/s */
+    const uint32_t riff = 36 + bytes;
+    for (int i = 0; i < 4; i++) {
+        h[4 + i] = (uint8_t)(riff >> (8 * i));
+        h[40 + i] = (uint8_t)(bytes >> (8 * i));
+    }
+    fseek(f, 0, SEEK_SET);
+    fwrite(h, 1, sizeof(h), f);
+    fseek(f, 0, SEEK_END);
+}
+
+static void micNote(const int16_t *pcm, int sent) {
+    s_micStats.taken++;
+    if (sent) s_micStats.sent++;
+    for (int i = 0; i < VOICE_FRAME; i++) {
+        const int v = pcm[i] < 0 ? -pcm[i] : pcm[i];
+        if (v > s_micStats.peak) s_micStats.peak = v;
+    }
+    if (s_micStats.wav && s_micStats.wavFrames < 1000) {   /* 20 ms a frame: 20 s */
+        fwrite(pcm, sizeof(int16_t), VOICE_FRAME, s_micStats.wav);
+        s_micStats.wavFrames++;
+        if (s_micStats.wavFrames == 1000) {
+            micWavHeader(s_micStats.wav, s_micStats.wavFrames);
+            fclose(s_micStats.wav);
+            s_micStats.wav = NULL;
+            sysLogPrintf(LOG_NOTE, "voice: wrote gevr_mic.wav (20 s of the mic as sent)");
+        }
+    }
+}
+
+static void micStatsTick(void) {
+    const uint32_t now = SDL_GetTicks();
+    if (!s_micStats.since) s_micStats.since = now;
+    if (now - s_micStats.since < 1000) return;
+    sysLogPrintf(LOG_NOTE, "voice: mic %u frames taken, %u sent, %u queue clears, peak %d in %u ms (50 a second expected)",
+                 s_micStats.taken, s_micStats.sent, s_micStats.cleared, s_micStats.peak, (unsigned)(now - s_micStats.since));
+    s_micStats.since = now;
+    s_micStats.taken = s_micStats.sent = s_micStats.cleared = 0;
+    s_micStats.peak = 0;
+}
 static SDL_atomic_t permission;
 static SDL_atomic_t paused;
 static uint32_t send_sequence;
@@ -158,8 +218,14 @@ void netVoiceTick(void) {
                 gevrIosVoiceChatMode();
 #endif
                 SDL_PauseAudioDevice(capture, 0);
-                sysLogPrintf(LOG_NOTE, "voice: capture open, %d Hz %d ch %d frames",
-                             have.freq, have.channels, have.samples);
+                sysLogPrintf(LOG_NOTE, "voice: capture open, %d Hz %d ch %d frames, format 0x%04x",
+                             have.freq, have.channels, have.samples, (unsigned)have.format);
+                s_micStats.since = 0;
+                if (!s_micStats.wav && fsFileSize("gevr_micdump.txt") >= 0) {
+                    s_micStats.wav = fopen("gevr_mic.wav", "wb");
+                    s_micStats.wavFrames = 0;
+                    if (s_micStats.wav) micWavHeader(s_micStats.wav, 0);
+                }
             } else {
                 if (!capture_failed)
                     sysLogPrintf(LOG_ERROR, "voice: capture open failed: %s", SDL_GetError());
@@ -169,16 +235,21 @@ void netVoiceTick(void) {
         }
         if (capture) {
             /* Never transmit stale speech after a render or network stall. */
-            if (SDL_GetQueuedAudioSize(capture) > VOICE_FRAME * sizeof(int16_t) * 8)
+            if (SDL_GetQueuedAudioSize(capture) > VOICE_FRAME * sizeof(int16_t) * 8) {
                 SDL_ClearQueuedAudio(capture);
+                s_micStats.cleared++;
+            }
             for (int i = 0; i < 4 && SDL_GetQueuedAudioSize(capture) >= VOICE_FRAME * sizeof(int16_t); i++) {
                 int16_t pcm[VOICE_FRAME];
                 uint8_t encoded[GEVR_VOIP_MAX_BYTES];
                 if (SDL_DequeueAudio(capture, pcm, sizeof(pcm)) != sizeof(pcm)) break;
                 int bytes = opus_encode(encoder, pcm, VOICE_FRAME, encoded, sizeof(encoded));
-                if (bytes > 2 && bytes <= GEVR_VOIP_MAX_BYTES)
+                const int sent = bytes > 2 && bytes <= GEVR_VOIP_MAX_BYTES;
+                if (sent)
                     netSendVoipChunk(send_sequence++, encoded, (uint16_t)bytes);
+                micNote(pcm, sent);
             }
+            micStatsTick();
         }
     }
     if (netGetState() != NET_STATE_INGAME) audioVoiceIdleTick();
