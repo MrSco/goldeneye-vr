@@ -2771,6 +2771,19 @@ static bool vr_pointer_wanted(void)
 }
 
 /*
+ * SteamVR draws quad layers over every projection layer, whatever the order
+ * (gevrVrQuadsOverScene), so a beam in the eye buffers is lost behind the
+ * screen. There the beam is a quad of its own, last in the list
+ * (vr_beam_quad), and the eye buffers keep only the spot.
+ */
+static bool g_beamQuadFailed;
+static bool vr_beam_as_quad(void)
+{
+    return gActiveRuntime == XrRuntimeType::SteamVR && !g_beamQuadFailed && g_screenVisible && g_screenPlaced &&
+           g_ptr[g_ptrActive].hit && g_ptrFrame - g_ptrWantedFrame < 20;
+}
+
+/*
  * The beam and its spot, into the bound multiview target, from these views.
  * declare: the target is the eye buffers, whose submitted views become these.
  */
@@ -2948,7 +2961,10 @@ static void vr_pointer_paint(const std::array<XrView, 2> &views, bool declare)
     glBindBuffer(GL_ARRAY_BUFFER, s_ptrVbo);
     if (p0.hit && wanted) {
         glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STREAM_DRAW);
-        glDrawArrays(GL_TRIANGLES, 0, 12);
+        if (vr_beam_as_quad())
+            glDrawArrays(GL_TRIANGLES, 6, 6);   // the spot only: the beam is a quad layer
+        else
+            glDrawArrays(GL_TRIANGLES, 0, 12);
     }
 
     if (grid) {
@@ -3106,6 +3122,156 @@ static void vr_pointer_layer_destroy(void)
         g_ptrLayerFbo = 0;
     }
     g_ptrLayerFailed = false;
+}
+
+/*
+ * SteamVR's beam (vr_beam_as_quad): a narrow quad from the controller to the
+ * spot, turned about the beam to face the head, its picture the eye-buffer
+ * beam's (white, fading in from the controller, soft at the sides). The image
+ * is fixed, so each swapchain image is filled once. GL images run bottom-up:
+ * row 0 is the quad's -Y end, the controller's.
+ */
+static XrSwapchain g_beamSwapchain = XR_NULL_HANDLE;
+#ifdef ANDROID
+static std::vector<XrSwapchainImageOpenGLESKHR> g_beamImages;
+#else
+static std::vector<XrSwapchainImageOpenGLKHR> g_beamImages;
+#endif
+static std::vector<bool> g_beamFilled;
+static int64_t g_beamFormat;
+static constexpr int BEAM_TEX_W = 16, BEAM_TEX_H = 128;
+
+static bool vr_beam_quad(XrCompositionLayerQuad *q)
+{
+    if (!vr_beam_as_quad()) {
+        return false;
+    }
+    if (g_beamSwapchain == XR_NULL_HANDLE) {
+        XrSwapchainCreateInfo info{XR_TYPE_SWAPCHAIN_CREATE_INFO};
+        info.usageFlags  = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT |
+                           XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT;
+        info.format      = g_beamFormat = vr_pick_swapchain_format(true);
+        info.sampleCount = 1;
+        info.width       = BEAM_TEX_W;
+        info.height      = BEAM_TEX_H;
+        info.faceCount   = 1;
+        info.arraySize   = 1;
+        info.mipCount    = 1;
+        if (XR_FAILED(xrCreateSwapchain(g_vrState.session, &info, &g_beamSwapchain)) ||
+            !vr_load_swapchain_images(g_beamSwapchain, g_beamImages)) {
+            LOGE("beam quad: no swapchain; the beam stays in the eye buffers");
+            if (g_beamSwapchain != XR_NULL_HANDLE) xrDestroySwapchain(g_beamSwapchain);
+            g_beamSwapchain = XR_NULL_HANDLE;
+            g_beamQuadFailed = true;
+            return false;
+        }
+        g_beamFilled.assign(g_beamImages.size(), false);
+        LOGI("beam quad: %d x %d, format 0x%llx", BEAM_TEX_W, BEAM_TEX_H, (unsigned long long)g_beamFormat);
+    }
+
+    // where: the eye-buffer beam's line (vr_pointer_paint), from the same smoothed spot
+    const VrPointerHand &p = g_ptr[g_ptrActive];
+    float head[3];
+    vr_screen_head(head);
+    const float d[3] = { p.h[0] - p.o[0], p.h[1] - p.o[1], p.h[2] - p.o[2] };
+    const float len = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    if (len < 0.01f) {
+        return false;
+    }
+    const float y[3] = { d[0] / len, d[1] / len, d[2] / len };
+    const float c[3] = { (p.o[0] + p.h[0]) * 0.5f, (p.o[1] + p.h[1]) * 0.5f, (p.o[2] + p.h[2]) * 0.5f };
+    // toward the head, square to the beam
+    float z[3] = { head[0] - c[0], head[1] - c[1], head[2] - c[2] };
+    const float along = z[0] * y[0] + z[1] * y[1] + z[2] * y[2];
+    for (int k = 0; k < 3; k++) z[k] -= along * y[k];
+    const float zl = sqrtf(z[0] * z[0] + z[1] * z[1] + z[2] * z[2]);
+    if (zl < 1e-4f) {
+        return false;   // looking straight down the beam: it is a point
+    }
+    for (int k = 0; k < 3; k++) z[k] /= zl;
+    const float x[3] = { y[1] * z[2] - y[2] * z[1], y[2] * z[0] - y[0] * z[2], y[0] * z[1] - y[1] * z[0] };
+    // the rotation whose columns are x, y, z, as a quaternion
+    const float m00 = x[0], m11 = y[1], m22 = z[2];
+    XrQuaternionf o;
+    const float tr = m00 + m11 + m22;
+    if (tr > 0.0f) {
+        const float s = sqrtf(tr + 1.0f) * 2.0f;
+        o = { (y[2] - z[1]) / s, (z[0] - x[2]) / s, (x[1] - y[0]) / s, 0.25f * s };
+    } else if (m00 > m11 && m00 > m22) {
+        const float s = sqrtf(1.0f + m00 - m11 - m22) * 2.0f;
+        o = { 0.25f * s, (y[0] + x[1]) / s, (z[0] + x[2]) / s, (y[2] - z[1]) / s };
+    } else if (m11 > m22) {
+        const float s = sqrtf(1.0f + m11 - m00 - m22) * 2.0f;
+        o = { (y[0] + x[1]) / s, 0.25f * s, (z[1] + y[2]) / s, (z[0] - x[2]) / s };
+    } else {
+        const float s = sqrtf(1.0f + m22 - m00 - m11) * 2.0f;
+        o = { (z[0] + x[2]) / s, (z[1] + y[2]) / s, 0.25f * s, (x[1] - y[0]) / s };
+    }
+
+    uint32_t index = 0;
+    XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+    if (XR_FAILED(xrAcquireSwapchainImage(g_beamSwapchain, &acquireInfo, &index))) {
+        return false;
+    }
+    XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+    waitInfo.timeout = XR_INFINITE_DURATION;
+    xrWaitSwapchainImage(g_beamSwapchain, &waitInfo);
+    if (index < g_beamFilled.size() && !g_beamFilled[index]) {
+        // premultiplied white; an sRGB image holds the colour encoded, the alpha as is
+        static uint8_t px[BEAM_TEX_H][BEAM_TEX_W][4];
+        const bool srgb = g_beamFormat == (int64_t)GL_SRGB8_ALPHA8;
+        for (int r = 0; r < BEAM_TEX_H; r++) {
+            const float v = (r + 0.5f) / BEAM_TEX_H;
+            const float t = v < 0.35f ? v / 0.35f : 1.0f;
+            const float fade = t * t * (3.0f - 2.0f * t);   // smoothstep(0, 0.35, v)
+            for (int col = 0; col < BEAM_TEX_W; col++) {
+                const float across = 1.0f - fabsf((col + 0.5f) / BEAM_TEX_W * 2.0f - 1.0f);
+                const float a = 0.55f * across * across * fade;
+                const float rgb = srgb ? (a <= 0.0031308f ? a * 12.92f : 1.055f * powf(a, 1.0f / 2.4f) - 0.055f) : a;
+                px[r][col][0] = px[r][col][1] = px[r][col][2] = (uint8_t)(rgb * 255.0f + 0.5f);
+                px[r][col][3] = (uint8_t)(a * 255.0f + 0.5f);
+            }
+        }
+        GLint prevTex = 0, prevAlign = 4;
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTex);
+        glGetIntegerv(GL_UNPACK_ALIGNMENT, &prevAlign);
+        GLint prevUnpackBuf = 0;
+        glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &prevUnpackBuf);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        glBindTexture(GL_TEXTURE_2D, g_beamImages[index].image);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, BEAM_TEX_W, BEAM_TEX_H, GL_RGBA, GL_UNSIGNED_BYTE, px);
+        glBindTexture(GL_TEXTURE_2D, (GLuint)prevTex);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, prevAlign);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, (GLuint)prevUnpackBuf);
+        g_beamFilled[index] = true;
+    }
+    XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+    xrReleaseSwapchainImage(g_beamSwapchain, &releaseInfo);
+
+    *q = {XR_TYPE_COMPOSITION_LAYER_QUAD};
+    q->layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+    q->space = g_vrState.playSpace;
+    q->eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+    q->subImage.swapchain = g_beamSwapchain;
+    q->subImage.imageArrayIndex = 0;
+    q->subImage.imageRect.offset = {0, 0};
+    q->subImage.imageRect.extent = {BEAM_TEX_W, BEAM_TEX_H};
+    q->pose.orientation = o;
+    q->pose.position = { c[0], c[1], c[2] };
+    q->size = { 0.007f, len };   // the eye-buffer beam's width
+    return true;
+}
+
+static void vr_beam_quad_destroy(void)
+{
+    if (g_beamSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(g_beamSwapchain);
+        g_beamSwapchain = XR_NULL_HANDLE;
+    }
+    g_beamImages.clear();
+    g_beamFilled.clear();
+    g_beamQuadFailed = false;
 }
 
 static bool vr_screen_present_common(unsigned int srcTex, bool is2d, int w, int h);
@@ -5068,7 +5234,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
      * the list as before.
      */
     const bool stableSlots = gActiveRuntime == XrRuntimeType::SteamVR;
-    enum { SLOT_SCREEN, SLOT_L, SLOT_R, SLOT_AMMO_L, SLOT_H, SLOT_P, SLOT_SCOPE0, SLOT_SCOPE1, SLOT_COUNT };
+    enum { SLOT_SCREEN, SLOT_L, SLOT_R, SLOT_AMMO_L, SLOT_H, SLOT_P, SLOT_SCOPE0, SLOT_SCOPE1, SLOT_BEAM, SLOT_COUNT };
     static XrCompositionLayerQuad s_slotLast[SLOT_COUNT];
     static bool s_slotSeen[SLOT_COUNT];
     static XrCompositionLayerQuad s_slotHidden[SLOT_COUNT];
@@ -5133,6 +5299,12 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     }
     if (submitPointer) {
         layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&ptrLayer);
+    }
+    // SteamVR: the beam over everything, the screen included (vr_beam_as_quad)
+    XrCompositionLayerQuad beamLayer;
+    if (gActiveRuntime == XrRuntimeType::SteamVR) {
+        const bool submitBeam = submitScreen && vr_beam_quad(&beamLayer);
+        quadSlot(SLOT_BEAM, submitBeam, &beamLayer, reinterpret_cast<const XrCompositionLayerBaseHeader*>(&beamLayer));
     }
     endInfo.layerCount           = numLayers;
     endInfo.layers               = layers;
@@ -6147,6 +6319,7 @@ extern "C" void vr_shutdown()
     }
     vr_screen_destroy_swapchain();
     vr_pointer_layer_destroy();
+    vr_beam_quad_destroy();
     g_screenRecenterTimes.clear();
     vr_passthrough_destroy();
 

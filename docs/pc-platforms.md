@@ -90,8 +90,10 @@ found with the user in the headset, and what the game does about it
   (every PC runtime): no sub-rectangle (SteamVR read one upside down and
   halved) and no remaking at a new size.
 - **Quad layers draw over the eye images, whatever their order.** The
-  launcher draws the pointer's spot itself; the laser's beam stays behind
-  the screen (it could be drawn as a quad of its own).
+  launcher draws the pointer's spot itself, and the laser's beam is a quad
+  of its own, last in the list (`vr_beam_quad`: 16x128, filled once per
+  swapchain image, turned about the beam to face the head); the eye
+  buffers then keep only the spot. Built, not yet seen in a headset.
 - **The first frames give the head at the floor.** The screen's first
   placement waits for a head above 30 cm (floor spaces, all runtimes).
 - **Through a streaming headset the screen's edge smears in one eye on a
