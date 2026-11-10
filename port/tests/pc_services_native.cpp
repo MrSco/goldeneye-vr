@@ -300,6 +300,8 @@ static void testUpdater()
     CHECK(isWindowsAsset("GoldenEyeVR-0.5.16-windows-x64.zip"));
     CHECK(!isWindowsAsset("GoldenEye-VR-0.5.16.apk") && !isWindowsAsset("GoldenEyeVR-0.5.16-windows-x64.debug")
           && !isWindowsAsset("gevr-server-0.5.16-linux-x64.tar.gz"));
+    CHECK(isLinuxAsset("GoldenEyeVR-0.5.16-linux-x64.zip") && !isLinuxAsset("GoldenEyeVR-0.5.16-windows-x64.zip")
+          && !isLinuxAsset("gevr-server-0.5.16-linux-x64.tar.gz"));
     const std::vector<Release> parsed = parseReleases(R"([
         {"tag_name":"v0.5.16","prerelease":false,"draft":false,"body":"notes","assets":[
             {"name":"GoldenEye-VR-0.5.16.apk","size":9,"browser_download_url":"https://x/a.apk"},

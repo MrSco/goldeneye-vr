@@ -312,8 +312,29 @@ from the same pinned zip as Windows. What differs from Windows:
 
 Checked under WSLg: the flat game renders the intro and menus and plays
 sound through PulseAudio. PC VR on Linux is built, not yet run on a
-headset. A Linux release package and the updater's Linux asset are still to
-do.
+headset.
+
+**Release package (2026-11-09):** `tools/package_linux.sh [VERSION]`, on
+Linux or in WSL, builds and packs `GoldenEyeVR-VERSION-linux-x64.zip`
+beside the Windows zip, in the same layout:
+- the two binaries, stripped, with `libphonon.so` and
+  `libopenxr_loader.so.1` beside them (rpath `$ORIGIN`);
+- `play-vr.sh` and `play-steamvr.sh` (SteamVR for one launch, through
+  `XR_RUNTIME_JSON`), README.txt (`port/pc/package/README-linux.txt`), the
+  icon and logo, the licences and VERSION;
+- each entry's Unix mode set in the zip, so a plain unzip runs;
+- the debug info beside the zip (`*-linux-x64.debug`), for the reports
+  repo's symbols release.
+
+The updater picks its platform's zip (`-windows-x64.zip` or
+`-linux-x64.zip`; an iPhone or iPad is offered none), sets the modes again
+after unpacking, and restarts into the new binary by its path:
+`/proc/self/exe` is the old file by then (renamed and deleted), and the
+first try started the old version again. Tested end to end in WSL against a
+mock release (GEVR_UPDATES_URL): offered, downloaded, checked, 21 files
+replaced, restarted into the new file. A release attaches both zips; the
+WSL build's id reads "nogit" (git there cannot follow the worktree's
+Windows path), which a release build from a plain clone does not.
 
 ## Steam Frame
 

@@ -256,7 +256,17 @@ void pcRestartSelf(void)
     argv.push_back(nullptr);
     pid_t pid;
 #ifndef GEVR_IOS   // an iOS app cannot start itself: it closes, and the player opens it again
-    if (argv.size() > 1) posix_spawn(&pid, "/proc/self/exe", nullptr, nullptr, argv.data(), environ);
+    // The exe by its path, not /proc/self/exe: after an update that is the
+    // old file, moved to NAME.old and deleted, and it started the old version
+    // again (Linux update test, 2026-11-09)
+    char self[4096];
+    const ssize_t n = readlink("/proc/self/exe", self, sizeof(self) - 1);
+    std::string path = n > 0 ? std::string(self, (size_t)n) : std::string("/proc/self/exe");
+    const std::string deleted = " (deleted)";
+    if (path.size() > deleted.size() && path.compare(path.size() - deleted.size(), deleted.size(), deleted) == 0)
+        path.resize(path.size() - deleted.size());
+    if (path.size() > 4 && path.compare(path.size() - 4, 4, ".old") == 0) path.resize(path.size() - 4);
+    if (argv.size() > 1) posix_spawn(&pid, path.c_str(), nullptr, nullptr, argv.data(), environ);
 #endif
 #endif
     exit(0);

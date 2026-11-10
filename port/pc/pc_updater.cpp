@@ -53,6 +53,23 @@
 #include <windows.h>
 #else
 #include <unistd.h>   // readlink
+#include <sys/stat.h>   // chmod: a zip keeps no Unix modes
+#endif
+
+/*
+ * The download this build installs: tools/package_pc.py's Windows zip, or
+ * tools/package_linux.sh's Linux one (the same layout: one top folder, the
+ * flat binary, the VR one, a VERSION). An iPhone or iPad cannot replace its
+ * own app, so it is offered none.
+ */
+#ifdef _WIN32
+#define GEVR_UPDATE_TAIL "-windows-x64.zip"
+#define GEVR_UPDATE_FLAT "GoldenEyeVR.exe"
+#define GEVR_UPDATE_OS "Windows"
+#else
+#define GEVR_UPDATE_TAIL "-linux-x64.zip"
+#define GEVR_UPDATE_FLAT "GoldenEyeVR"
+#define GEVR_UPDATE_OS "Linux"
 #endif
 
 #include "pc_http.h"
@@ -162,7 +179,7 @@ int compare(const std::string &a, const std::string &b)
     return 0;
 }
 
-/* The newest release with a Windows zip that is newer than the installed version, or none. */
+/* The newest release with this platform's zip that is newer than the installed version, or none. */
 bool pick(const std::vector<Release> &releases, const std::string &installed, bool includePrereleases, Release *out)
 {
     const Release *best = nullptr;
@@ -179,11 +196,27 @@ bool pick(const std::vector<Release> &releases, const std::string &installed, bo
 }
 
 /* tools/package_pc.py's zip: GoldenEyeVR-VERSION-windows-x64.zip (the APK's isApkAsset/isPreferredApk). */
-bool isWindowsAsset(const std::string &name)
+static bool isPackageAsset(const std::string &name, const std::string &tail)
 {
-    const std::string head = "GoldenEyeVR-", tail = "-windows-x64.zip";
+    const std::string head = "GoldenEyeVR-";
     return name.size() > head.size() + tail.size() && name.compare(0, head.size(), head) == 0
         && name.compare(name.size() - tail.size(), tail.size(), tail) == 0;
+}
+
+bool isWindowsAsset(const std::string &name) { return isPackageAsset(name, "-windows-x64.zip"); }
+
+/* tools/package_linux.sh's zip: GoldenEyeVR-VERSION-linux-x64.zip */
+bool isLinuxAsset(const std::string &name) { return isPackageAsset(name, "-linux-x64.zip"); }
+
+/* The zip this build installs */
+static bool isOwnAsset(const std::string &name)
+{
+#ifdef GEVR_IOS
+    (void)name;
+    return false;
+#else
+    return isPackageAsset(name, GEVR_UPDATE_TAIL);
+#endif
 }
 
 std::vector<Release> parseReleases(const std::string &json)
@@ -200,7 +233,7 @@ std::vector<Release> parseReleases(const std::string &json)
         if (jsonGet(o, "assets", &assets)) {
             for (int j = 0; jsonAt(assets, j, &a); j++) {
                 const std::string name = jsonGetStr(a, "name");
-                if (!isWindowsAsset(name)) continue;
+                if (!isOwnAsset(name)) continue;
                 r.zipName = name;
                 r.zipUrl = jsonGetStr(a, "browser_download_url");
                 r.zipSize = jsonGetInt(a, "size", -1);
@@ -234,7 +267,12 @@ std::string runningExeName()
     char buf[4096];
     const ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
     if (n > 0) {
-        const std::string path(buf, (size_t)n);
+        std::string path(buf, (size_t)n);
+        // an updated exe is the old file, NAME.old (deleted): its own name
+        const std::string deleted = " (deleted)";
+        if (path.size() > deleted.size() && path.compare(path.size() - deleted.size(), deleted.size(), deleted) == 0)
+            path.resize(path.size() - deleted.size());
+        if (path.size() > 4 && path.compare(path.size() - 4, 4, ".old") == 0) path.resize(path.size() - 4);
         const size_t slash = path.find_last_of('/');
         return slash == std::string::npos ? path : path.substr(slash + 1);
     }
@@ -258,10 +296,10 @@ std::string stagedProblem(const std::vector<std::string> &files, const std::stri
 {
     bool hasFlat = false, hasRunning = false;
     for (const std::string &f : files) {
-        hasFlat = hasFlat || sameName(f, "GoldenEyeVR.exe");
+        hasFlat = hasFlat || sameName(f, GEVR_UPDATE_FLAT);
         hasRunning = hasRunning || sameName(f, runningExe);
     }
-    if (!hasFlat) return "the download is not GoldenEye VR for Windows";
+    if (!hasFlat) return "the download is not GoldenEye VR for " GEVR_UPDATE_OS;
     if (!hasRunning) return "the download has no " + runningExe;
     const std::string version = normalize(versionFile);
     if (version != normalize(tag))
@@ -538,6 +576,16 @@ private:
                 aside.push_back(f);
             }
             if (!movePath(staging + "/" + f, dest, false)) { failure = "could not put " + f + " in place"; break; }
+#ifndef _WIN32
+            {
+                // the binaries, launch scripts and libraries run: a zip carries no modes
+                const std::string base = f.substr(f.find_last_of('/') == std::string::npos ? 0 : f.find_last_of('/') + 1);
+                const bool run = base == "GoldenEyeVR" || base == "GoldenEyeVR-VR"
+                    || (base.size() > 3 && base.compare(base.size() - 3, 3, ".sh") == 0)
+                    || base.find(".so") != std::string::npos;
+                if (run) chmod(dest.c_str(), 0755);
+            }
+#endif
             placed.push_back(f);
         }
         if (!failure.empty()) {
