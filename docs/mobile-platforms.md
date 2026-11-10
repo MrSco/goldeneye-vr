@@ -69,10 +69,21 @@ launcher.
   takes the pointer; an iPad's real mouse and keyboard do.
 - **Services:** HTTPS through NSURLSession (`port/ios/ios_http.mm`) for the
   lobby, friends, mods and reports.
-- **Not yet:** a run on an iPhone or iPad, signing for a device, an online
-  match, Steam Audio's iOS library, LAN discovery (iOS wants Apple's
-  multicast entitlement), and coming back from "Restart to launcher" (an iOS
-  app cannot start itself: it closes, and the player opens it again).
+- **Played on an iPhone 16 Pro Max** (user, 2026-11-09): Dam and its
+  tunnel with Bean, 60 fps at the panel's 2868x1320, touch, gyro (Off /
+  While aiming / Always, with a speed), the Taptic Engine on a press, Show
+  stats. A signed build: `~/src/gevr-ios-device.command` on the Mac, opened
+  from its desktop session (ssh cannot reach the signing keychain), with the
+  personal team only (`DEVELOPMENT_TEAM`); it installs over `devicectl`.
+- **Lost touches:** iOS sometimes never tells the app a finger lifted (the
+  stick, AIM held for good; ten lifts in one fight). Every touch is held and
+  its phase asked each poll, as perfect-dark-ios's D-034 watchdog does; a new
+  finger also takes over the stick or a held button, and the oldest gives
+  way when all ten slots are taken (Android too).
+- **Not yet:** an online match, Steam Audio's iOS library, LAN discovery
+  (iOS wants Apple's multicast entitlement), an iPad, the launcher's update
+  rows (meaningless on iOS), and coming back from "Restart to launcher" (an
+  iOS app cannot start itself: it closes, and the player opens it again).
 
 ## Recommendation in one paragraph
 
