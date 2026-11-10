@@ -28,6 +28,11 @@
 #include "../src/net/net_match.h"
 #include "../src/net/net_rules.h" /* NET_FUN_MASK: the deathmatch fun rules */
 
+/* A phone or tablet's touch controls (port/flat/window/flat_touch.cpp): a
+ * buzz on an on-screen button, and turning the device to look and aim. */
+int VrTouchHaptics = 1;
+int VrGyroAim = 0;
+
 #if defined(GEVR_FLAT)
 int VrScreenShape = 1;   // a phone or a PC window: 16:9
 #else
@@ -290,6 +295,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "ScreenPassthrough=%d\n", VrScreenPassthrough);
     fprintf(f, "; The 2D screen's shape (a phone, a PC window, the virtual screen): 0 = 4:3, 1 = 16:9.\n");
     fprintf(f, "ScreenShape=%d\n", VrScreenShape);
+    fprintf(f, "; A phone or tablet: 1 = a buzz on an on-screen button; 1 = turn the device to look and aim.\n");
+    fprintf(f, "TouchHaptics=%d\nGyroAim=%d\n", VrTouchHaptics, VrGyroAim);
     fprintf(f, "; Metres above (+) or below (-) eye level; set by grabbing the screen with both grips.\n");
     fprintf(f, "ScreenHeight=%.2f\n", VrScreenHeight);
     fprintf(f, "; Preferred display refresh rate in Hz. 0 = Auto (no app preference), the\n");
@@ -835,6 +842,8 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "ScreenCurved") == 0) VrScreenCurved = ival != 0;
             else if (strcmp(key, "ScreenPassthrough") == 0) VrScreenPassthrough = ival != 0;
             else if (strcmp(key, "ScreenShape") == 0) VrScreenShape = ival == 1 ? 1 : 0;
+            else if (strcmp(key, "TouchHaptics") == 0) VrTouchHaptics = ival != 0;
+            else if (strcmp(key, "GyroAim") == 0) VrGyroAim = ival != 0;
             /* Keep saved DisplayHz preferences. The obsolete RefreshRate key
              * was never user-selectable and remains ignored. */
             else if (strcmp(key, "DisplayHz") == 0) VrRefreshRate = ival < 0 ? 0 : ival;

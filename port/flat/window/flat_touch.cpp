@@ -48,6 +48,7 @@
 
 extern SDL_Window *wnd;   // flat_window.cpp
 extern "C" int gevrNativePauseOpen(void);   // port/src/input.c: the in-game panel or the online pause is up
+extern "C" int VrTouchHaptics, VrGyroAim;   // vr_settings.cpp
 
 /* What a button does; port/src/input.c turns these into pad bits. */
 enum {
@@ -211,6 +212,46 @@ static bool buttonHeld(int i)
     return false;
 }
 
+/* Held by a finger other than `except` (fingerDown: is this a new press). */
+static bool buttonHeldBy(int i, int except)
+{
+    for (int k = 0; k < 10; k++) {
+        const Finger &f = s_fingers[k];
+        if (k != except && f.active && f.role == R_BUTTON && f.button == i) return true;
+    }
+    return false;
+}
+
+/*
+ * A short buzz on a press (Midas: UIImpactFeedbackGenerator on the press).
+ * SDL lists the phone's own vibrator as a haptic device on Android
+ * (SDLHapticHandler, VIBRATE in the manifest); a pad's rumble is not used.
+ */
+static void touchBuzz(void)
+{
+#ifdef ANDROID
+    static SDL_Haptic *haptic;
+    static bool tried;
+    if (!VrTouchHaptics) return;
+    if (!tried) {
+        tried = true;
+        if (SDL_InitSubSystem(SDL_INIT_HAPTIC) == 0) {
+            for (int i = 0; i < SDL_NumHaptics() && !haptic; i++) {
+                const char *name = SDL_HapticName(i);
+                sysLogPrintf(LOG_NOTE, "touch: haptic %d \"%s\"", i, name ? name : "");
+                if (name && strstr(name, "VIBRATOR")) haptic = SDL_HapticOpen(i);
+            }
+            if (haptic && SDL_HapticRumbleInit(haptic) != 0) {
+                SDL_HapticClose(haptic);
+                haptic = nullptr;
+            }
+        }
+        sysLogPrintf(LOG_NOTE, "touch: vibration %s", haptic ? "on" : "unavailable");
+    }
+    if (haptic) SDL_HapticRumblePlay(haptic, 0.35f, 12);
+#endif
+}
+
 static bool aimHeld(void)
 {
     return buttonHeld(1);   // kButtons[1] is AIM
@@ -278,6 +319,7 @@ static void fingerDown(const SDL_TouchFingerEvent &e)
         if (act == TOUCH_CROUCH) s_crouchTaps++;
         f.downAt = SDL_GetTicks();
         if (act != TOUCH_START) s_tapped |= act;   // START waits: a tap, or a long press
+        if (!buttonHeldBy(b, idx)) touchBuzz();   // a second finger on a held button isn't a press
         return;
     }
     if (s_stickFinger < 0 && e.x < kStickRegionFrac) {
@@ -430,8 +472,50 @@ extern "C" int flatTouchTakeCrouch(void)
 
 /* The view turn since the last call, in degrees (right and down positive, as
  * the mouse's), and whether a finger turned it. */
+/*
+ * Gyro aim (VrGyroAim): the device's turn rate since the last call, as view
+ * degrees (right and down positive). Android reports it about the device's
+ * natural axes (portrait: x right, y up, z out of the screen); held sideways,
+ * the screen's up is +x (LANDSCAPE, the right side up) or -x (FLIPPED), and
+ * its right is -y or +y. No reference port has gyro aim (docs/mobile-platforms.md).
+ */
+static void gyroLook(float *yaw, float *pitch)
+{
+    static SDL_Sensor *gyro;
+    static bool tried;
+    static Uint32 last;
+    *yaw = *pitch = 0.0f;
+    const Uint32 now = SDL_GetTicks();
+    const float dt = last ? (now - last) / 1000.0f : 0.0f;
+    last = now;
+    if (!VrGyroAim || s_menu || !s_shown) return;
+    if (!tried) {
+        tried = true;
+        if (SDL_InitSubSystem(SDL_INIT_SENSOR) == 0) {
+            for (int i = 0; i < SDL_NumSensors() && !gyro; i++) {
+                if (SDL_SensorGetDeviceType(i) == SDL_SENSOR_GYRO) gyro = SDL_SensorOpen(i);
+            }
+        }
+        sysLogPrintf(LOG_NOTE, "touch: gyro %s", gyro ? "on" : "unavailable");
+    }
+    if (!gyro || dt <= 0.0f || dt > 0.1f) return;
+    float w[3] = { 0.0f, 0.0f, 0.0f };
+    if (SDL_SensorGetData(gyro, w, 3) != 0) return;
+    const bool flipped = SDL_GetDisplayOrientation(0) == SDL_ORIENTATION_LANDSCAPE_FLIPPED;
+    const float up = flipped ? -w[0] : w[0];      // about the screen's up axis
+    const float right = flipped ? w[1] : -w[1];   // about the screen's right axis
+    const float deg = 57.29578f * dt;
+    *yaw = -up * deg;      // a positive turn about up turns the view left
+    *pitch = -right * deg; // a positive turn about right looks up
+}
+
 extern "C" int flatTouchTakeLookDeg(float *yaw, float *pitch)
 {
+    float gy, gp;
+    gyroLook(&gy, &gp);
+    s_yawDeg += gy;
+    s_pitchDeg += gp;
+    if (gy != 0.0f || gp != 0.0f) s_looked = true;
     const int looked = s_looked;
     *yaw = s_yawDeg;
     *pitch = s_pitchDeg;

@@ -65,6 +65,7 @@ extern int gevrTexpackFillAvailable(void);
 extern float VrScreenDistance, VrScreenFov;
 extern int VrScreenCurved, VrScreenPassthrough;
 extern int VrScreenShape;   /* vr_settings.cpp: every flat mode's 2D screen, 4:3 or 16:9 */
+extern int VrTouchHaptics, VrGyroAim;   /* vr_settings.cpp: a phone's touch controls */
 extern void vr_screen_resize(float dist, float fov);
 extern int VrRefreshRate;
 extern int VrSpaceWarp;
@@ -125,6 +126,7 @@ typedef struct Row {
     void (*ctext)(int index, char *buf, int size);
     int cdefault;                   /* its default position, -1 none */
     int headset;                    /* a headset's own: hidden in the flat PC game (docs/pc-platforms.md) */
+    int flat;                       /* a flat game's own (touch, gyro): hidden on the headset */
 } Row;
 
 /* ---- the special cases (as options.c had them) ---- */
@@ -386,6 +388,12 @@ static void voiceModeText(int i, char *b, int n) { snprintf(b, n, "%s", netVoice
 #define CUSTOM(sec, lab, kd, pos, get, set, text, dflt, tip) \
     { .label = lab, .tooltip = tip, .kind = kd, .section = sec, .where = GEVR_SET_BOTH, .def = NAN, \
       .cpositions = pos, .cget = get, .cset = set, .ctext = text, .cdefault = dflt }
+/* a headset's own (tracked controllers): hidden in a flat game */
+#define TOGGLE_VR(sec, lab, var, tip) \
+    { .label = lab, .tooltip = tip, .kind = GEVR_SET_TOGGLE, .section = sec, .where = GEVR_SET_BOTH, .ivar = &var, .def = NAN, .headset = 1 }
+#define CHOICE_VR(sec, lab, var, vals, nm, tip) \
+    { .label = lab, .tooltip = tip, .kind = GEVR_SET_CHOICE, .section = sec, .where = GEVR_SET_BOTH, .ivar = &var, \
+      .ivalues = vals, .names = nm, .count = sizeof(vals) / sizeof(vals[0]), .def = NAN, .headset = 1 }
 #define CUSTOM_VR(sec, lab, kd, pos, get, set, text, dflt, tip) \
     { .label = lab, .tooltip = tip, .kind = kd, .section = sec, .where = GEVR_SET_BOTH, .def = NAN, \
       .cpositions = pos, .cget = get, .cset = set, .ctext = text, .cdefault = dflt, .headset = 1 }
@@ -408,13 +416,17 @@ static const Row s_rows[] = {
     TOGGLE(GEVR_SEC_COMFORT, "Hit flash", VrDamageFlash, "The screen flashes red when you're hit."),
 
     /* Controls */
-    TOGGLE(GEVR_SEC_CONTROLS, "Left-handed", VrLeftHandedMode, "Swaps the gun hand and the off hand."),
-    TOGGLE(GEVR_SEC_CONTROLS, "Swap sticks", VrSwapJoysticks, "Moves walking and turning to the other sticks."),
-    TOGGLE(GEVR_SEC_CONTROLS, "Aim: no lean", VrAimNoLean, "Leaning your head doesn't move your aim."),
-    TOGGLE(GEVR_SEC_CONTROLS, "Aim: crosshair", VrAimSight, "Shows the sight where your gun points."),
-    CHOICE(GEVR_SEC_CONTROLS, "Aim steady", VrAimSteady, s_three, s_steadyNames, "Smooths small shakes of your gun hand."),
-    TOGGLE(GEVR_SEC_CONTROLS, "Gun fit", VrGunFitArmed, "Adjust where guns sit in your hands."),
-    CHOICE(GEVR_SEC_CONTROLS, "Controllers", VrTouchModel, s_touch, s_touchNames, "Which Touch controllers the watch's Controls page shows."),
+    { .label = "Touch vibration", .flat = 1, .tooltip = "A short buzz when you press an on-screen button.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .ivar = &VrTouchHaptics, .def = NAN },
+    { .label = "Gyro aim", .flat = 1, .tooltip = "Turn and tilt the phone or tablet to look and aim, as well as the touch controls.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .ivar = &VrGyroAim, .def = NAN },
+    TOGGLE_VR(GEVR_SEC_CONTROLS, "Left-handed", VrLeftHandedMode, "Swaps the gun hand and the off hand."),
+    TOGGLE_VR(GEVR_SEC_CONTROLS, "Swap sticks", VrSwapJoysticks, "Moves walking and turning to the other sticks."),
+    TOGGLE_VR(GEVR_SEC_CONTROLS, "Aim: no lean", VrAimNoLean, "Leaning your head doesn't move your aim."),
+    TOGGLE_VR(GEVR_SEC_CONTROLS, "Aim: crosshair", VrAimSight, "Shows the sight where your gun points."),
+    CHOICE_VR(GEVR_SEC_CONTROLS, "Aim steady", VrAimSteady, s_three, s_steadyNames, "Smooths small shakes of your gun hand."),
+    TOGGLE_VR(GEVR_SEC_CONTROLS, "Gun fit", VrGunFitArmed, "Adjust where guns sit in your hands."),
+    CHOICE_VR(GEVR_SEC_CONTROLS, "Controllers", VrTouchModel, s_touch, s_touchNames, "Which Touch controllers the watch's Controls page shows."),
 
     /* Gestures */
     TOGGLE(GEVR_SEC_GESTURES, "Watch gesture", VrWatchGesturePause, "Raise your watch to open it."),
@@ -442,7 +454,7 @@ static const Row s_rows[] = {
     /* Weapons */
     { .label = "Gun recoil", .headset = 1, .tooltip = "Each gun's own kick, or one for all.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_WEAPONS, .where = GEVR_SET_BOTH, .ivar = &VrPerWeaponRecoil, .def = NAN, .off = "Generic", .on = "Per gun" },
-    TOGGLE(GEVR_SEC_WEAPONS, "Motion throw", VrMotionThrowing, "Throw grenades and knives with your arm."),
+    TOGGLE_VR(GEVR_SEC_WEAPONS, "Motion throw", VrMotionThrowing, "Throw grenades and knives with your arm."),
     { .label = "Throw power", .headset = 1, .tooltip = "How far a throw goes for your swing.", .kind = GEVR_SET_RANGE,
       .section = GEVR_SEC_WEAPONS, .where = GEVR_SET_BOTH, .fvar = &VrMotionThrowStrength,
       .lo = 0.5f, .hi = 2.0f, .step = 0.1f, .scale = 1, .fmt = "%.1fx", .def = 1.0f, .blocked = blockedThrow },
@@ -637,6 +649,8 @@ int gevrSettingShown(int id)
 #ifdef GEVR_FLAT
     if (r && r->headset) return 0;   /* no headset: no turning, screen, hands or display rate to set */
     if (r && r->section == GEVR_SEC_GESTURES) return 0;   /* tracked hands' gestures */
+#else
+    if (r && r->flat) return 0;      /* touch and gyro: a phone's */
 #endif
     return r && (!r->shown || r->shown());
 }

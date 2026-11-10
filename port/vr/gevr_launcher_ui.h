@@ -70,6 +70,9 @@ inline const char *gevrLauncherTabName(int tab) {
     return tab >= 0 && tab < GEVR_LTAB_COUNT ? names[tab] : "";
 }
 inline int gevrLauncherSubCount(int tab) {
+#ifdef GEVR_FLAT
+    if (tab == GEVR_LTAB_CONTROLS) return 0;   // a flat game: the sub-tabs are tracked controllers'
+#endif
     return tab == GEVR_LTAB_MULTIPLAYER ? 5 : tab == GEVR_LTAB_CONTROLS ? 4 : tab == GEVR_LTAB_RULES ? 3 : 0;
 }
 inline const char *gevrLauncherSubName(int tab, int sub) {

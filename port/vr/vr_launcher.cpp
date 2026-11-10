@@ -3367,7 +3367,9 @@ extern "C" void gevrLauncherRun(void)
                 break;
             }
             case GEVR_LTAB_CONTROLS:
-                if (sub == GEVR_LSUB_HANDS) {
+                if (sub < 0) {   // a flat game: one page, the touch screen's rows
+                    gevrSettingsSection(settings, GEVR_LSEC_HANDS, GEVR_SET_LAUNCHER);
+                } else if (sub == GEVR_LSUB_HANDS) {
                     gevrSettingsSection(settings, GEVR_LSEC_HANDS, GEVR_SET_LAUNCHER);
                     note("Gun fit: in the next level, with a gun in hand, the sticks move the gun on your hand; "
                          "A saves, B undoes. In single player, Menu + A starts and ends it during play.");
