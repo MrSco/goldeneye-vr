@@ -92,10 +92,12 @@ android {
         }
     }
 
-    // Two APKs from one tree (docs/mobile-platforms.md): the Quest's, and the
+    // Three APKs from one tree (docs/mobile-platforms.md): the Quest's, the
     // phone/tablet one (flat, touch and pads, no OpenXR; GEVR_MOBILE in
-    // CMakeLists.txt). assembleQuestRelease / assembleMobileRelease; the APKs
-    // land in outputs/apk/<flavor>/<type>/.
+    // CMakeLists.txt) and the Steam Frame's (the Quest's game with Khronos's
+    // OpenXR loader, GEVR_FRAME; docs/pc-platforms.md "Steam Frame").
+    // assembleQuestRelease / assembleMobileRelease / assembleFrameRelease; the
+    // APKs land in outputs/apk/<flavor>/<type>/.
     flavorDimensions 'device'
     productFlavors {
         quest {
@@ -110,10 +112,19 @@ android {
                 }
             }
         }
+        frame {
+            dimension 'device'
+            applicationIdSuffix '.frame'   // its own updates (UpdateVersion.apkDevice)
+            externalNativeBuild {
+                cmake {
+                    arguments "-DGEVR_FRAME=ON"
+                }
+            }
+        }
     }
 
     buildFeatures {
-        prefab withDiscord   // the SDK's native library and headers, for CMake's find_package
+        prefab true   // Discord's SDK (when found) and the Frame's OpenXR loader, for CMake's find_package
     }
 
     compileOptions {
@@ -150,6 +161,8 @@ dependencies {
         implementation files(discordSdk)
         implementation 'androidx.browser:browser:1.8.0'   // the SDK's sign-in in the browser
     }
+    // the Steam Frame's OpenXR loader (Khronos's; the Quest's is Meta's, in OpenXR/Libs)
+    frameImplementation 'org.khronos.openxr:openxr_loader_for_android:1.1.65'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20240303'  // Real JSON parsing in local JVM tests
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'

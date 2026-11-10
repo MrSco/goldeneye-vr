@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The Steam Frame APK (the "frame" flavor, docs/pc-platforms.md "Steam
+    Frame"): the Quest's manifest, run in Valve's Lepton on SteamVR's OpenXR
+    runtime. The main manifest already has what Lepton needs: LAUNCHER and
+    Khronos's IMMERSIVE_HMD on MainActivity itself (Lepton starts only an
+    activity with MAIN + LAUNCHER, and reads no activity-alias), 64-bit only.
+    Here only Meta's own features go: Lepton is not a Quest.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Lepton's Android may not list the VR features: none is required to install -->
+    <uses-feature
+        android:name="android.hardware.vr.headtracking"
+        android:required="false"
+        tools:replace="android:required" />
+    <uses-feature
+        android:name="android.hardware.vr.highperformance"
+        android:required="false"
+        tools:replace="android:required" />
+    <uses-feature android:name="oculus.software.overlay_keyboard" tools:node="remove" />
+    <uses-feature android:name="com.oculus.feature.PASSTHROUGH" tools:node="remove" />
+
+    <application>
+        <meta-data android:name="com.oculus.supportedDevices" tools:node="remove" />
+    </application>
+</manifest>

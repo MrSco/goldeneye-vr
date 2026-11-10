@@ -32,6 +32,24 @@ public class UpdateVersionTest {
     eq(tag(UpdateVersion.pick(rs, "0.1.14-test.1", false)), null, "test build installed, test builds off, older stable");
     eq(tag(UpdateVersion.pick(Arrays.asList(rel("v0.1.14", false, false, true)), "0.1.14-test.1", false)), "v0.1.14", "stable of the test build");
     eq(tag(UpdateVersion.pick(new ArrayList<>(), "0.1.12", true)), null, "no releases");
+    // which device's APK
+    eq(UpdateVersion.apkDevice("GoldenEye-VR-v0.5.16.apk"), "quest", "Quest APK");
+    eq(UpdateVersion.apkDevice("GoldenEye-VR-v0.5.16-test.3.apk"), "quest", "Quest test APK");
+    eq(UpdateVersion.apkDevice("GoldenEye-VR-v0.5.16-frame.apk"), "frame", "Frame APK");
+    eq(UpdateVersion.apkDevice("GoldenEye-VR-v0.5.16-test.3-Frame.APK"), "frame", "Frame APK, any case");
+    eq(UpdateVersion.apkDevice("GoldenEye-VR-v0.5.16-android.apk"), "android", "phone APK");
+    eq(UpdateVersion.deviceForFlavor("quest"), "quest", "quest flavor");
+    eq(UpdateVersion.deviceForFlavor("mobile"), "android", "mobile flavor");
+    eq(UpdateVersion.deviceForFlavor("frame"), "frame", "frame flavor");
+    eq(UpdateVersion.isApkFor("GoldenEye-VR-v0.5.16-frame.apk", "quest"), false, "Quest skips the Frame's");
+    eq(UpdateVersion.isApkFor("GoldenEye-VR-v0.5.16.apk", "frame"), false, "Frame skips the Quest's");
+    eq(UpdateVersion.isApkFor("GoldenEye-VR-v0.5.16-frame.apk", "frame"), true, "Frame takes its own");
+    eq(UpdateVersion.isApkFor("GoldenEye-VR-v0.5.16-frame.zip", "frame"), false, "not an APK");
+    // the release names: an older Quest updater (no isApkFor) prefers "GoldenEye-VR*" alone
+    eq(UpdateVersion.apkDevice("GoldenEyeVR-0.5.16-frame.apk"), "frame", "Frame release name");
+    eq(UpdateVersion.apkDevice("GoldenEyeVR-0.5.16-android.apk"), "android", "phone release name");
+    eq(UpdateVersion.isPreferredApk("GoldenEyeVR-0.5.16-frame.apk"), false, "older Quest updaters keep the Quest's");
+    eq(UpdateVersion.isPreferredApk("GoldenEyeVR-0.5.16-android.apk"), false, "older Quest updaters keep the Quest's (phone)");
     System.out.println(runs + " checks, " + fails + " failed");
     System.exit(fails == 0 ? 0 : 1);
   }

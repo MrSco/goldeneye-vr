@@ -87,7 +87,7 @@ const char *fsFullPath(const char *relPath);  // port/src/fs.c
 int fsFileSize(const char *name);             // port/src/fs.c: -1 when absent
 extern const char gevrBuildId[];              // generated, port/cmake/buildid.cmake
 void vrSettingsSave(void);            // vr_settings.cpp
-#ifdef GEVR_PCVR
+#if defined(GEVR_PCVR) || (defined(ANDROID) && !defined(GEVR_MOBILE))
 extern "C" int gevrVrQuadsOverScene(void);   // vr_openxr.cpp: SteamVR draws quads over the scene
 #endif
 void vrEnsurePlayerName(void);        // vr_settings.cpp: make up a name if there is none
@@ -3561,7 +3561,7 @@ extern "C" void gevrLauncherRun(void)
         if (footerTop >= 0.0f) s_launcherFooterH = ImGui::GetCursorPosY() - footerTop;
         ImGui::End();
         gevrFriendsSidebarWindow(onlineGame, gold, good, bad);
-#ifdef GEVR_PCVR
+#if defined(GEVR_PCVR) || (defined(ANDROID) && !defined(GEVR_MOBILE))   /* PC VR, and the Steam Frame */
         {
             // SteamVR puts the screen over the scene, the laser's spot included:
             // the spot drawn here instead, as the in-game panel draws its own

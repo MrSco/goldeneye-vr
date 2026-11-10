@@ -32,6 +32,9 @@ set(GEVR_PLATFORM "${GEVR_PLATFORM}" CACHE STRING "quest, server, pc or ios")
 # with the flat window, launcher and headset stand-ins of the PC flat game in
 # place of OpenXR (android/app/build.gradle's "mobile" flavor sets it).
 option(GEVR_MOBILE "Android phone/tablet: flat, no OpenXR" OFF)
+# The Steam Frame APK (the "frame" flavor, docs/pc-platforms.md "Steam Frame"):
+# the Quest's game with Khronos's OpenXR loader, which finds SteamVR in Lepton.
+option(GEVR_FRAME "Android OpenXR on any runtime (Steam Frame): Khronos's loader" OFF)
 if(GEVR_PLATFORM STREQUAL "server")
   set(GEVR_HEADLESS ON)
 elseif(GEVR_PLATFORM STREQUAL "pc")
@@ -312,12 +315,25 @@ if(GEVR_PLATFORM STREQUAL "quest")
   list(APPEND LIBS GLESv3 EGL log android)
 
   # OpenXR Loader
-  message(STATUS "OpenXR: Using bundled Quest Android loader")
-  add_library(openxr_loader SHARED IMPORTED)
-  set_target_properties(openxr_loader PROPERTIES
-    IMPORTED_LOCATION
-    ${CMAKE_SOURCE_DIR}/OpenXR/Libs/Android/arm64-v8a/Release/libopenxr_loader.so
-  )
+  if(GEVR_FRAME)
+    # Khronos's Android loader (Maven org.khronos.openxr:openxr_loader_for_android,
+    # a prefab package; build.gradle's frame flavor). Meta's below carries Meta's
+    # runtime client and looks for nothing else; this one asks the runtime
+    # brokers and then /vendor/etc/openxr/1/active_runtime.json, which is how
+    # Lepton points at SteamVR. Only the library: the headers stay ours.
+    find_package(OpenXR REQUIRED CONFIG)
+    get_target_property(GEVR_XR_LOADER_SO OpenXR::openxr_loader IMPORTED_LOCATION)
+    message(STATUS "OpenXR: Khronos Android loader (Steam Frame): ${GEVR_XR_LOADER_SO}")
+    add_library(openxr_loader SHARED IMPORTED)
+    set_target_properties(openxr_loader PROPERTIES IMPORTED_LOCATION "${GEVR_XR_LOADER_SO}")
+  else()
+    message(STATUS "OpenXR: Using bundled Quest Android loader")
+    add_library(openxr_loader SHARED IMPORTED)
+    set_target_properties(openxr_loader PROPERTIES
+      IMPORTED_LOCATION
+      ${CMAKE_SOURCE_DIR}/OpenXR/Libs/Android/arm64-v8a/Release/libopenxr_loader.so
+    )
+  endif()
 endif()
 
 # Source files

@@ -374,10 +374,45 @@ Windows path), which a release build from a plain clone does not.
 The Frame is ARM64 SteamOS (Snapdragon 8 Gen 3) with Valve's Lepton
 running Android 10+ APKs, Touch-style controllers and an OpenXR runtime.
 
-1. **The Quest APK in Lepton** (decision of 2026-10-01): no new build. The
-   APK needs only `XR_KHR_android_create_instance` and
-   `XR_KHR_opengl_es_enable`; the FB extensions are optional. When a Frame is
-   at hand: install it, fix what Lepton rejects, check UDP discovery.
+1. **The Frame's own APK in Lepton** (2026-11-10; built, untested: no Frame
+   at hand). The Quest APK cannot be it: its OpenXR loader is Meta's (SDK 38,
+   `OpenXR/Libs`), which carries Meta's runtime client and looks only for
+   `com.oculus.systemdriver`. The `frame` flavor (`assembleFrameRelease`,
+   package `com.gevr.port.frame`, CMake `GEVR_FRAME`) is the same game with
+   Khronos's Android loader (Maven
+   `org.khronos.openxr:openxr_loader_for_android`, a prefab package), which
+   asks the runtime brokers and then `/vendor/etc/openxr/1/active_runtime.json`,
+   where Lepton points at SteamVR. What Lepton and SteamVR need, from
+   third-party reports (Valve's pages say nothing of loaders or manifests):
+   - MAIN + LAUNCHER on `MainActivity` itself (Lepton starts nothing else and
+     reads no activity-alias), Khronos's `IMMERSIVE_HMD` category, arm64
+     only: the main manifest has all three. `src/frame/AndroidManifest.xml`
+     only drops Meta's features.
+   - OpenXR 1.0 (1.1 is refused), `xrGetOpenGLESGraphicsRequirementsKHR`
+     before the session: both already so.
+   - No `XR_FB_passthrough`, `XR_FB_color_space`, cylinder layers or a
+     working `xrPerfSettingsSetPerformanceLevelEXT`; refresh-rate requests
+     refused: each is already checked and skipped.
+   - The controllers come in as Touch (`oculus/touch_controller`) unless a
+     game binds `valve/frame_controller` (its own extension); Touch is bound.
+   - The runtime reads "SteamVR", so the game takes its PC SteamVR handling
+     (stable quad slots, the fixed 1920x1080 screen, the launcher's own
+     pointer spot). On the Quest the runtime is now detected too ("Oculus");
+     nothing there changes with it.
+   - Install: Developer Mode, start "Lepton Development" from the Steam
+     library, `adb connect <frame ip>`, `adb install -r` the APK. Logs:
+     `adb logcat`. Lepton is Android 11; the APK asks for 7 (API 24).
+   - Untested: multiview eye arrays, UDP discovery in Lepton, the
+     microphone, the keyboard, exit (Lepton gives no `onPause`).
+   - Release asset: `GoldenEyeVR-X.Y.Z-frame.apk` (the phone/tablet one
+     `GoldenEyeVR-X.Y.Z-android.apk`). Never `GoldenEye-VR-*`: an older Quest
+     updater takes the first APK of that name. The updater picks by the end
+     of the name (`UpdateVersion.apkDevice`), so each device takes its own.
+   Sources: [frame-control PR #20](https://github.com/saphid/frame-control/pull/20),
+   [Valve: custom engines](https://partner.steamgames.com/doc/steamhardware/steamframe/engines/custom),
+   [Valve: input](https://partner.steamgames.com/doc/steamhardware/steamframe/input),
+   [CitraVR for the Frame](https://github.com/SPD13/CitraVR-steam-frame),
+   [FramePort runtime notes](https://frameport.app/docs/frame-runtime/).
 2. **A native ARM64 Linux build**, if Lepton falls short: this plan's PC
    layer on Linux. The game core already builds and runs there (the
    dedicated server's aarch64 tarball), `port/flat` and `port/pc` are

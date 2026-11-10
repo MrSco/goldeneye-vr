@@ -92,6 +92,32 @@ final class UpdateVersion {
         return name != null && name.toLowerCase(java.util.Locale.ROOT).endsWith(".apk");
     }
 
+    /**
+     * Which build an APK asset is for, from the end of its name: the Steam
+     * Frame's "GoldenEyeVR-X.Y.Z-frame.apk", the phone/tablet one's
+     * "GoldenEyeVR-X.Y.Z-android.apk", the Quest's anything else (as every
+     * release before). Those two must not start "GoldenEye-VR": an older
+     * Quest updater takes the first APK of that name (isPreferredApk).
+     */
+    static String apkDevice(String name) {
+        String n = name == null ? "" : name.toLowerCase(java.util.Locale.ROOT);
+        if (n.endsWith("-frame.apk")) return "frame";
+        if (n.endsWith("-android.apk")) return "android";
+        return "quest";
+    }
+
+    /** The device whose APKs a build flavor takes (BuildConfig.FLAVOR; "mobile" is "android"). */
+    static String deviceForFlavor(String flavor) {
+        if ("frame".equals(flavor)) return "frame";
+        if ("mobile".equals(flavor)) return "android";
+        return "quest";
+    }
+
+    /** Whether an asset is an APK for that device: a Frame never installs the Quest's. */
+    static boolean isApkFor(String name, String device) {
+        return isApkAsset(name) && apkDevice(name).equals(device);
+    }
+
     /** Prefer "GoldenEye-VR-*.apk" over any other APK attached to the same release. */
     static boolean isPreferredApk(String name) {
         return isApkAsset(name) && name.startsWith("GoldenEye-VR");

@@ -70,6 +70,8 @@ final class UpdateChecker {
     private static final String PREF_TEST_BUILDS = "testBuilds";
     private static final String PREF_PENDING = "pendingVersion";
     private static final long MAX_APK = 512L << 20;
+    /** Whose APK a release offers this build: the Quest's, the phone/tablet's or the Frame's. */
+    private static final String DEVICE = UpdateVersion.deviceForFlavor(BuildConfig.FLAVOR);
 
     // States the launcher shows (vr_launcher.cpp keeps the same names).
     static final String IDLE = "idle";
@@ -254,7 +256,7 @@ final class UpdateChecker {
             for (int j = 0; assets != null && j < assets.length(); j++) {
                 JSONObject a = assets.getJSONObject(j);
                 String name = a.optString("name", "");
-                if (!UpdateVersion.isApkAsset(name)) continue;
+                if (!UpdateVersion.isApkFor(name, DEVICE)) continue;   // this device's APK only
                 // the project's own APK wins over anything else attached
                 if (r.apkUrl != null && !UpdateVersion.isPreferredApk(name)) continue;
                 r.apkName = name;

@@ -119,7 +119,10 @@ and MULTIPLAYER.md describe it all.
   with the GE/GF64/TND ROMs and build/xbla-files; Java: gradlew
   testReleaseUnitTest. Debug loop: tools/gevr_boot_test.ps1.
 - Release: bump versionCode/versionName, tag the build commit, sign
-  GoldenEye-VR-vX.Y.Z.apk. Never install to a headset unasked. Windows
+  GoldenEye-VR-vX.Y.Z.apk (assembleQuestRelease). Steam Frame (from
+  claude/pc-platforms on): assembleFrameRelease, attach as
+  GoldenEyeVR-X.Y.Z-frame.apk (never GoldenEye-VR-*: older Quest updaters
+  take that). Never install to a headset unasked. Windows
   (from claude/pc-platforms on): `python tools/package_pc.py`, attach
   GoldenEyeVR-X.Y.Z-windows-x64.zip as built (the updater's name and digest),
   .debug files to the reports repo's symbols release (docs/pc-platforms.md).

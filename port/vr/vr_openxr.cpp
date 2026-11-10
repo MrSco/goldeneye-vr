@@ -615,7 +615,9 @@ static void vr_detect_runtime() {
 
         if (strstr(props.runtimeName, "Oculus")) {
             gActiveRuntime = XrRuntimeType::MetaOculusQuest;
+#ifndef ANDROID   // the menu-blur copy is for Meta's PC runtime; the Quest never took it
             is_meta_runtime = true;
+#endif
             LOGI("Detected runtime: Meta/Oculus");
         } else if (strstr(props.runtimeName, "VirtualDesktopXR")){
             gActiveRuntime = XrRuntimeType::VirtualDesktopXR;
@@ -779,9 +781,8 @@ static bool vr_create_instance(const std::vector<const char*>& extensions)
     }
 
     LOGI("OpenXR instance created successfully");
-#ifndef ANDROID
+    // Android too: the Steam Frame's APK runs on SteamVR, with its quirks (below)
     vr_detect_runtime();
-#endif
 
     return true;
 }
@@ -2307,16 +2308,18 @@ static bool vr_screen_ensure_swapchain(uint32_t w, uint32_t h)
         return true;
     }
 #ifdef GEVR_PCVR
-    if (g_screenSwapchain != XR_NULL_HANDLE) {
+    const bool fixedScreen = true;
+#else
+    // the Steam Frame (Android on SteamVR): SteamVR's quads, as on PC
+    const bool fixedScreen = gActiveRuntime == XrRuntimeType::SteamVR;
+#endif
+    if (fixedScreen && g_screenSwapchain != XR_NULL_HANDLE) {
         g_screenW = w;
         g_screenH = h;
         LOGI("screen: picture %ux%u in the %ux%u swapchain", w, h, g_screenCapW, g_screenCapH);
         return true;
     }
-    const uint32_t capW = 1920u, capH = 1080u;
-#else
-    const uint32_t capW = w, capH = h;
-#endif
+    const uint32_t capW = fixedScreen ? 1920u : w, capH = fixedScreen ? 1080u : h;
     if (g_screenSwapchain != XR_NULL_HANDLE) {
         xrDestroySwapchain(g_screenSwapchain);
         g_screenSwapchain = XR_NULL_HANDLE;
