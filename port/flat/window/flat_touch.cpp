@@ -283,15 +283,6 @@ static bool buttonHeld(int i)
 }
 
 /* Held by a finger other than `except` (fingerDown: is this a new press). */
-static bool buttonHeldBy(int i, int except)
-{
-    for (int k = 0; k < 10; k++) {
-        const Finger &f = s_fingers[k];
-        if (k != except && f.active && f.role == R_BUTTON && f.button == i) return true;
-    }
-    return false;
-}
-
 /*
  * A short buzz on a press (Midas: UIImpactFeedbackGenerator on the press).
  * SDL lists the phone's own vibrator as a haptic device on Android
@@ -403,6 +394,25 @@ static void sweepLostFingers(void)
     }
 }
 
+/* Lets go of finger k as if it had lifted, saying why. */
+static void dropFinger(int k, const char *why)
+{
+    const Finger &f = s_fingers[k];
+    sysLogPrintf(LOG_NOTE, "touch: let go of %s (%s)", f.role == R_STICK ? "the stick" : f.role == R_LOOK ? "a look"
+                 : f.role == R_BUTTON ? kButtons[f.button == kLeftFire ? 0 : f.button].name : "a finger", why);
+    SDL_TouchFingerEvent up = {};
+    up.touchId = f.touch;
+    up.fingerId = f.id;
+    fingerUp(up);
+}
+
+/*
+ * A new finger never waits on an old one. Neither SDL nor iOS always says a
+ * finger lifted (user, iPhone, 2026-11-09: ten lifts lost in a fight, every
+ * slot taken, no touch worked for 11 s), so: with no free slot the oldest
+ * finger gives way; a thumb landing where the stick is takes the stick over;
+ * a finger on a held button takes that button over (AIM stuck held).
+ */
 static void fingerDown(const SDL_TouchFingerEvent &e)
 {
     sweepLostFingers();
@@ -410,27 +420,41 @@ static void fingerDown(const SDL_TouchFingerEvent &e)
     for (int i = 0; idx < 0 && i < 10; i++) {
         if (!s_fingers[i].active) idx = i;
     }
-    if (idx < 0) return;
+    if (idx < 0) {
+        int oldest = 0;
+        for (int i = 1; i < 10; i++) {
+            if ((Sint32)(s_fingers[i].downAt - s_fingers[oldest].downAt) < 0) oldest = i;
+        }
+        dropFinger(oldest, "no free slot");
+        idx = oldest;
+    }
     Finger &f = s_fingers[idx];
     memset(&f, 0, sizeof(f));
     f.active = true;
     f.touch = e.touchId;
     f.id = e.fingerId;
+    f.downAt = SDL_GetTicks();
     f.x = f.lastX = e.x * (float)s_winW;
     f.y = f.lastY = e.y * (float)s_winH;
     // The role is fixed now and kept until the finger lifts: a drag that
     // wanders onto a button must not press it.
     const int b = buttonAt(f.x, f.y);
     if (b >= 0) {
+        for (int k = 0; k < 10; k++) {
+            const Finger &o = s_fingers[k];
+            if (k != idx && o.active && o.role == R_BUTTON && o.button == b) dropFinger(k, "a new press of its button");
+        }
         f.role = R_BUTTON;
         f.button = b;
         const unsigned act = kButtons[b == kLeftFire ? 0 : b].action;
         f.dragsLook = !s_menu && (act == TOUCH_AIM || act == TOUCH_FIRE);
         if (act == TOUCH_CROUCH) s_crouchTaps++;
-        f.downAt = SDL_GetTicks();
         if (act != TOUCH_START) s_tapped |= act;   // START waits: a tap, or a long press
-        if (!buttonHeldBy(b, idx)) touchBuzz();   // a second finger on a held button isn't a press
+        touchBuzz();
         return;
+    }
+    if (s_stickFinger >= 0 && s_stickFinger != idx && e.x < kStickRegionFrac) {
+        dropFinger(s_stickFinger, "a new thumb on the stick");
     }
     if (s_stickFinger < 0 && e.x < kStickRegionFrac) {
         // the stick appears wherever the thumb lands and stays there
