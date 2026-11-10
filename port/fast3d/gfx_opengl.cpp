@@ -4655,13 +4655,13 @@ static void gfx_opengl_init(void) {
     if (!gladLoadGLLoader(gl_load_proc) || glGetString == NULL || glEnable == NULL) {
         sysFatalError("Could not load OpenGL.\nReported SDL error: %s", SDL_GetError());
     }
-#ifdef GEVR_PC
     // glad's desktop loader stops at GL 4.1, and the screen target (vr_screen.cpp)
-    // allocates with glTexStorage3D (GL 4.2, GLES 3.0): fetched from the driver
+    // allocates with glTexStorage3D (GL 4.2, GLES 3.0): fetched from the driver.
+    // Every build: on the Quest glad never loads it either, and without it
+    // gfx_opengl_init_multiview turned multiview off and OpenXR could not start.
     if (!glad_glTexStorage3D) {
         glad_glTexStorage3D = (PFNGLTEXSTORAGE3DPROC)SDL_GL_GetProcAddress("glTexStorage3D");
     }
-#endif
 
     // check if we're using ES or core, which have more limited feature sets
     int val = 0;
