@@ -16,6 +16,14 @@
 
 #include "platform.h"
 #include "system.h"
+#ifdef ANDROID
+#include <EGL/egl.h>
+#include <jni.h>
+#include <SDL_syswm.h>   // the window's EGL surface (flatSwapWindow)
+// SDL's own handler for SDLSurface.surfaceChanged: makes the window's EGL
+// surface again when it has none (libSDL2, SDL_android.c)
+extern "C" JNIEXPORT void JNICALL Java_org_libsdl_app_SDLActivity_onNativeSurfaceChanged(JNIEnv *env, jclass cls);
+#endif
 
 #include "gfx_window_manager_api.h"
 #include "gfx_screen_config.h"
@@ -26,6 +34,45 @@
 // fast3d (gfx_opengl.cpp) reaches both by name, as with the Quest window
 SDL_Window* wnd;
 SDL_GLContext ctx;
+
+/*
+ * Swap the window, on Android after making sure the context draws to the
+ * window's current surface.
+ *
+ * When the activity goes behind a file picker (or the home screen), SDL
+ * destroys the window's EGL surface once this thread has unbound the context
+ * in its event pump, waiting at most 500 ms. This thread can be stuck that
+ * long in a swap on the dying surface, so SDL destroyed a surface that was
+ * still current; the window stayed connected to it, SDL could not make the
+ * new one on return, and every swap failed (EGL_BAD_SURFACE, a black screen).
+ * Here: unbind the dead surface, have SDL make the window's surface again
+ * (its own surfaceChanged handler), and bind the context to it.
+ */
+extern "C" void flatSwapWindow(void)
+{
+#ifdef ANDROID
+    SDL_SysWMinfo wm;
+    SDL_VERSION(&wm.version);
+    if (SDL_GetWindowWMInfo(wnd, &wm) && wm.info.android.window != nullptr) {
+        if (wm.info.android.surface == EGL_NO_SURFACE) {
+            static Uint32 lastTry;
+            if (SDL_GetTicks() - lastTry < 250) return;   // no surface to draw to yet
+            lastTry = SDL_GetTicks();
+            SDL_GL_MakeCurrent(wnd, nullptr);   // the dead surface lets go of the window
+            Java_org_libsdl_app_SDLActivity_onNativeSurfaceChanged((JNIEnv *)SDL_AndroidGetJNIEnv(), nullptr);
+            SDL_VERSION(&wm.version);
+            const bool made = SDL_GetWindowWMInfo(wnd, &wm) && wm.info.android.surface != EGL_NO_SURFACE;
+            sysLogPrintf(LOG_NOTE, "window: the surface was lost; made again: %s", made ? "yes" : "not yet");
+            if (!made) return;
+        }
+        if (eglGetCurrentSurface(EGL_DRAW) != (EGLSurface)wm.info.android.surface) {
+            const int bound = SDL_GL_MakeCurrent(wnd, ctx);
+            sysLogPrintf(LOG_NOTE, "window: a new surface; context bound: %s", bound == 0 ? "yes" : SDL_GetError());
+        }
+    }
+#endif
+    SDL_GL_SwapWindow(wnd);
+}
 static bool vsync_enabled = false;
 
 static int window_width = 1280;
@@ -418,7 +465,7 @@ static void gfx_sdl_swap_buffers_begin(void) {
     if (target_fps) {
         sync_framerate_with_timer();
     }
-    SDL_GL_SwapWindow(wnd);
+    flatSwapWindow();
 }
 
 static void gfx_sdl_swap_buffers_end(void) {

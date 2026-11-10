@@ -63,6 +63,8 @@ static int SDLCALL flatLauncherWheelWatch(void *, SDL_Event *e)
     return 1;
 }
 
+extern "C" void flatSwapWindow(void);   // flat_window.cpp: a swap that survives a new surface
+
 /* Set while the in-game panel is drawn inside the game's frame (flat_render.cpp):
  * the game swaps the window itself. */
 bool g_flatPresentNoSwap = false;
@@ -102,7 +104,7 @@ extern "C" bool vr_screen_present_tex2d(unsigned int srcTex, int w, int h)
         pc_write_shot(shot, winW, winH);   // flat_render.cpp
     }
 #endif
-    if (!g_flatPresentNoSwap) SDL_GL_SwapWindow(wnd);
+    if (!g_flatPresentNoSwap) flatSwapWindow();
     return true;
 }
 
@@ -144,7 +146,13 @@ void flatLauncherShutdown(void)
 /* This frame's mouse, keys and pad for ImGui. */
 void flatLauncherFeedInput(ImGuiIO &io)
 {
-    SDL_PumpEvents();
+    // Drain the queue (the launcher reads its input through event watches and
+    // state): on Android SDL completes a pause, unbinding the context, only once
+    // the app has taken its SDL_APP_DIDENTERBACKGROUND. A quit is the window's own.
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {
+        if (e.type == SDL_QUIT) exit(0);
+    }
     const bool scripted = pcTestInputActive() != 0;
     if (scripted) {
         // the game's input poll (input.c) isn't running yet: tick the script here

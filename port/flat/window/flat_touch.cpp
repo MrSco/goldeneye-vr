@@ -434,7 +434,16 @@ extern "C" unsigned flatTouchPoll(int menu, float *sx, float *sy)
         s_tapped = 0;
     }
     *sx = *sy = 0.0f;
-    if (!s_shown || gevrNativePauseOpen()) return 0;
+    // The panel drains the window's events (flat_launcher.cpp): fingers lifted
+    // while it was up were never seen, so it starts and ends with none down.
+    static bool panelWas;
+    const bool panel = gevrNativePauseOpen() != 0;
+    if (panel != panelWas) {
+        panelWas = panel;
+        releaseAll();
+        s_tapped = 0;
+    }
+    if (!s_shown || panel) return 0;
     unsigned held = s_tapped;
     s_tapped = 0;
     const Uint32 now = SDL_GetTicks();
