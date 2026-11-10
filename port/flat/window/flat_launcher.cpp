@@ -173,34 +173,50 @@ void flatLauncherFeedInput(ImGuiIO &io)
     }
     const bool inside = mx >= s_rectX && mx < s_rectX + s_rectW && my >= s_rectY && my < s_rectY + s_rectH;
     const bool focused = SDL_GetMouseFocus() == wnd && !scripted;
+    static float lastX = -FLT_MAX, lastY = -FLT_MAX;   // where ImGui last had the pointer
     s32 px, py;
     if (scripted && pcTestInputPointer(&px, &py)) {
         io.AddMousePosEvent((float)px, (float)py);
         io.AddMouseButtonEvent(0, pcTestInputLeftDown() != 0);
-    } else if (focused && inside) {
-        io.AddMousePosEvent((float)(mx - s_rectX) * io.DisplaySize.x / (float)s_rectW,
-                            (float)(my - s_rectY) * io.DisplaySize.y / (float)s_rectH);
-    } else {
-        io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
-    }
-    if (!scripted) {
-        // the presses in order, each where it happened (a tap's down and up can
-        // share a frame); then the button's state, for a hold or a drag
-        for (int i = 0; i < s_clickCount; i++) {
-            int cx = s_clicks[i].x, cy = s_clicks[i].y;
-            if (winW > 0 && winH > 0) {
-                cx = cx * drawW / winW;
-                cy = cy * drawH / winH;
-            }
-            if (cx >= s_rectX && cx < s_rectX + s_rectW && cy >= s_rectY && cy < s_rectY + s_rectH) {
-                io.AddMousePosEvent((float)(cx - s_rectX) * io.DisplaySize.x / (float)s_rectW,
-                                    (float)(cy - s_rectY) * io.DisplaySize.y / (float)s_rectH);
-            }
-            io.AddMouseButtonEvent(s_clicks[i].button == SDL_BUTTON_LEFT ? 0 : 1, s_clicks[i].down);
+    } else if (!scripted && s_clickCount > 0) {
+        /*
+         * The presses in order, each where it happened (a tap's down and up
+         * share a frame), one step a frame: the pointer moves there first and
+         * presses on the next frame. A tab (ImGui's AllowOverlap items) counts
+         * as hovered only once the pointer was on it the frame before, so a
+         * tap that moved and pressed at once only lit the tab up.
+         */
+        int cx = s_clicks[0].x, cy = s_clicks[0].y;
+        if (winW > 0 && winH > 0) {
+            cx = cx * drawW / winW;
+            cy = cy * drawH / winH;
         }
-        s_clickCount = 0;
-        io.AddMouseButtonEvent(0, focused && (buttons & SDL_BUTTON_LMASK) != 0);
-        io.AddMouseButtonEvent(1, focused && (buttons & SDL_BUTTON_RMASK) != 0);
+        bool press = true;
+        if (cx >= s_rectX && cx < s_rectX + s_rectW && cy >= s_rectY && cy < s_rectY + s_rectH) {
+            const float fx = (float)(cx - s_rectX) * io.DisplaySize.x / (float)s_rectW;
+            const float fy = (float)(cy - s_rectY) * io.DisplaySize.y / (float)s_rectH;
+            press = fx == lastX && fy == lastY;
+            io.AddMousePosEvent(fx, fy);
+            lastX = fx;
+            lastY = fy;
+        }
+        if (press) {
+            io.AddMouseButtonEvent(s_clicks[0].button == SDL_BUTTON_LEFT ? 0 : 1, s_clicks[0].down);
+            for (int i = 1; i < s_clickCount; i++) s_clicks[i - 1] = s_clicks[i];
+            s_clickCount--;
+        }
+    } else {
+        if (focused && inside) {
+            lastX = (float)(mx - s_rectX) * io.DisplaySize.x / (float)s_rectW;
+            lastY = (float)(my - s_rectY) * io.DisplaySize.y / (float)s_rectH;
+        } else {
+            lastX = lastY = -FLT_MAX;
+        }
+        io.AddMousePosEvent(lastX, lastY);
+        if (!scripted) {   // the buttons' state, for a hold or a drag
+            io.AddMouseButtonEvent(0, focused && (buttons & SDL_BUTTON_LMASK) != 0);
+            io.AddMouseButtonEvent(1, focused && (buttons & SDL_BUTTON_RMASK) != 0);
+        }
     }
     if (s_wheel != 0.0f) {
         io.AddMouseWheelEvent(0.0f, s_wheel);
