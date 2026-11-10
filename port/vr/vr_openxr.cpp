@@ -2219,6 +2219,18 @@ static void vr_update_scope_swapchain(int hand, GLuint srcTex)
     }
 #endif
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+#ifdef GEVR_PCVR
+    // the eye dump (gevr_eyedump.txt): the scope's view, and what went into its swapchain
+    if (g_dumpMenuSwapchains) {
+        char name[16];
+        snprintf(name, sizeof(name), "scope%d.bmp", hand);
+        vr_pc_write_tex_bmp(srcTex, name);
+        snprintf(name, sizeof(name), "swS%d.bmp", hand);
+        vr_pc_write_tex_bmp(g_scopeSwapchainImages[hand][imageIndex].image, name);
+        LOGI("eye dump: scope %d from texture %u into swapchain image %u (index %u)", hand, (unsigned)srcTex,
+             (unsigned)g_scopeSwapchainImages[hand][imageIndex].image, imageIndex);
+    }
+#endif
 
     XrSwapchainImageReleaseInfo releaseInfo = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
     xrReleaseSwapchainImage(g_scopeSwapchain[hand], &releaseInfo);
@@ -4743,9 +4755,6 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     // (the left hand's panel, issue #56: above the off hand)
     bool submitMenuP = (g_menuSwapchainP != XR_NULL_HANDLE) && gfx_vr_menu_P_dirty_and_clear();
     if (submitMenuP) vr_update_menu_swapchain_P();
-#ifdef GEVR_PCVR
-    g_dumpMenuSwapchains = false;
-#endif
 
     XrCompositionLayerQuad menuLayerP = vr_init_menu_quad(g_menuSwapchainP);
     if (submitMenuP) {
@@ -4934,6 +4943,9 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     // XR frames the pump closes without a game frame (72 Hz display, 60 Hz
     // game): the swapchain keeps its last image, and a frame without the
     // layer is a visible flicker.
+#ifdef GEVR_PCVR
+    g_dumpMenuSwapchains = false;   // after the menus' and the scopes' images (the eye dump's)
+#endif
     const bool submitScreen = g_screenVisible && g_screenPlaced && g_screenSwapchain != XR_NULL_HANDLE;
     g_screenPending = false;
     XrCompositionLayerQuad screenLayer = {XR_TYPE_COMPOSITION_LAYER_QUAD};
@@ -4985,7 +4997,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     // If passthrough is active behind the screen, the passthrough layer is placed
     // at the very bottom (first layer).
     int numLayers = 0;
-    const XrCompositionLayerBaseHeader* layers[14];   // passthrough, screen, eyes, five menus, two scopes, room to spare
+    const XrCompositionLayerBaseHeader* layers[16];   // passthrough, screen, eyes, five menus, two scopes, overlay, pointer, room to spare
 
     const bool isScreenOnVoid = vr_screen_on_void();
     const bool usePassthrough = VrScreenPassthrough && g_passthroughSupported && isScreenOnVoid && (g_passthroughLayer != XR_NULL_HANDLE);
@@ -5020,23 +5032,60 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         ptrLayer.viewCount = 2;
         ptrLayer.views = ptrViews.data();
     }
+    /*
+     * SteamVR: every quad in the same place in the list, every frame. It
+     * showed a layer with the picture of whatever had been in its place in
+     * the list before (a scope lens with the weapon wheel's picture until the
+     * wheel first opened, the screen upside down or cut off until a grip or a
+     * recenter), though the game's own images were right (the eye dump: the
+     * scope's swapchain held the scope's view). The menus come and go from
+     * frame to frame (submitted when redrawn), so a layer missing this frame
+     * goes in as its last copy, a speck behind the head. Other runtimes get
+     * the list as before.
+     */
+    const bool stableSlots = gActiveRuntime == XrRuntimeType::SteamVR;
+    enum { SLOT_SCREEN, SLOT_L, SLOT_R, SLOT_AMMO_L, SLOT_H, SLOT_P, SLOT_SCOPE0, SLOT_SCOPE1, SLOT_COUNT };
+    static XrCompositionLayerQuad s_slotLast[SLOT_COUNT];
+    static bool s_slotSeen[SLOT_COUNT];
+    static XrCompositionLayerQuad s_slotHidden[SLOT_COUNT];
+    auto quadSlot = [&](int slot, bool submit, const XrCompositionLayerQuad *quad,
+                        const XrCompositionLayerBaseHeader *shown) {
+        if (submit) {
+            layers[numLayers++] = shown;
+            if (quad) {
+                s_slotLast[slot] = *quad;
+                s_slotSeen[slot] = true;
+            }
+        } else if (stableSlots && s_slotSeen[slot]) {
+            XrCompositionLayerQuad &h = s_slotHidden[slot];
+            h = s_slotLast[slot];
+            h.next = nullptr;
+            h.space = g_vrState.viewSpace;
+            h.pose.orientation = {0.0f, 0.0f, 0.0f, 1.0f};
+            h.pose.position = {0.0f, 0.0f, 50.0f};   // behind the head, facing away
+            h.size = {0.001f, 0.001f};
+            layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&h);
+        }
+    };
     if (submitScreen && !screenAsOverlay) {
-        layers[numLayers++] = screenCurved
-            ? reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenCyl)
-            : reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenLayer);
+        quadSlot(SLOT_SCREEN, true, screenCurved ? nullptr : &screenLayer,
+                 screenCurved ? reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenCyl)
+                              : reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenLayer));
         layer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
-    } else if (isScreenOnVoid) {
-        layer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+    } else {
+        quadSlot(SLOT_SCREEN, false, nullptr, nullptr);
+        if (isScreenOnVoid) layer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
     }
     layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader *>(&layer);
 
-    if (submitMenuL) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerL);
-    if (submitMenuR) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerR);
-    if (submitAmmoL) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerAmmoL);
-    if (submitMenuH) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerH);
-    if (submitMenuP) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerP);
+    quadSlot(SLOT_L, submitMenuL, &menuLayerL, reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerL));
+    quadSlot(SLOT_R, submitMenuR, &menuLayerR, reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerR));
+    quadSlot(SLOT_AMMO_L, submitAmmoL, &menuLayerAmmoL, reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerAmmoL));
+    quadSlot(SLOT_H, submitMenuH, &menuLayerH, reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerH));
+    quadSlot(SLOT_P, submitMenuP, &menuLayerP, reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerP));
     for (int hand = 0; hand < 2; hand++) {
-        if (submitScope[hand]) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&scopeLayer[hand]);
+        quadSlot(SLOT_SCOPE0 + hand, submitScope[hand], &scopeLayer[hand],
+                 reinterpret_cast<const XrCompositionLayerBaseHeader*>(&scopeLayer[hand]));
     }
 
 #ifndef ANDROID // if PC
