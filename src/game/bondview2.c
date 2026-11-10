@@ -21436,7 +21436,9 @@ Gfx *maybe_mp_interface(Gfx *gdl)
     PORT_HUD_ASPECT(gdl, GE_HUD_ASPECT_NONE);
 #endif
 #ifdef GEVR
+    PORT_HUD_ASPECT(gdl, GE_HUD_ASPECT_LEFT);   /* the stats in the top-left corner keep their shape */
     gdl = gevrDrawStats(gdl);
+    PORT_HUD_ASPECT(gdl, GE_HUD_ASPECT_NONE);
     gdl = gevrDrawGunFit(gdl);
     gdl = gevrDrawSpectatorLabel(gdl);
 #endif
