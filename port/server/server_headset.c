@@ -28,6 +28,8 @@ struct GfxDimensions gfx_current_dimensions;
 struct XYWidthHeight gfx_current_game_window_viewport;
 struct XYWidthHeight gfx_current_native_viewport;
 float gfx_current_native_aspect = 320.f / 220.f;
+/* hudaspect.h (gfx_pc.cpp on a screen): no screen here, the N64's 4:3 */
+float portNativeAspect(void) { return 4.0f / 3.0f; }
 uint32_t gfx_msaa_level = 1;
 bool gfx_framebuffers_enabled;
 bool gfx_detail_textures_enabled;
