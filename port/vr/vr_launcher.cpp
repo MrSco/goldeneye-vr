@@ -87,6 +87,9 @@ const char *fsFullPath(const char *relPath);  // port/src/fs.c
 int fsFileSize(const char *name);             // port/src/fs.c: -1 when absent
 extern const char gevrBuildId[];              // generated, port/cmake/buildid.cmake
 void vrSettingsSave(void);            // vr_settings.cpp
+#ifdef GEVR_PCVR
+extern "C" int gevrVrQuadsOverScene(void);   // vr_openxr.cpp: SteamVR draws quads over the scene
+#endif
 void vrEnsurePlayerName(void);        // vr_settings.cpp: make up a name if there is none
 extern char g_ActiveExtTexPack[];     // port/src/ext_tex.c: the texture pack in use ("" = none), saved in the ini
 void gevrTexpackStartEarly(void);     // fast3d/gfx_pc.cpp: index that pack in the background
@@ -3550,6 +3553,16 @@ extern "C" void gevrLauncherRun(void)
         if (footerTop >= 0.0f) s_launcherFooterH = ImGui::GetCursorPosY() - footerTop;
         ImGui::End();
         gevrFriendsSidebarWindow(onlineGame, gold, good, bad);
+#ifdef GEVR_PCVR
+        {
+            // SteamVR puts the screen over the scene, the laser's spot included:
+            // the spot drawn here instead, as the in-game panel draws its own
+            if (gevrVrQuadsOverScene() && io.MousePos.x >= 0.0f && io.MousePos.y >= 0.0f) {
+                ImGui::GetForegroundDrawList()->AddCircleFilled(io.MousePos, 8, IM_COL32(255, 214, 120, 255));
+                ImGui::GetForegroundDrawList()->AddCircle(io.MousePos, 11, IM_COL32(255, 255, 255, 255));
+            }
+        }
+#endif
         ImGui::Render();
         showKeyboard(io);
 

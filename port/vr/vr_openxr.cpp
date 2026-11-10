@@ -433,6 +433,11 @@ enum class XrRuntimeType {
 };
 
 static XrRuntimeType gActiveRuntime = XrRuntimeType::Unknown;
+
+/* SteamVR draws quad layers over the eye images whatever their order: the
+ * screen hides the laser's spot drawn in the scene, so the launcher draws its
+ * own (vr_launcher.cpp). */
+extern "C" int gevrVrQuadsOverScene(void) { return gActiveRuntime == XrRuntimeType::SteamVR; }
 bool is_meta_runtime = false;
 // GoldenEye: the curved virtual screen is a cylinder layer (VrScreenCurved).
 static bool g_cylinderSupported = false;
@@ -2362,6 +2367,20 @@ extern "C" void vr_screen_recenter(void)
     const XrPosef& l = g_frameViews[0].pose;
     const XrPosef& r = g_frameViews[1].pose;
     const XrQuaternionf& q = l.orientation;
+
+    // On a floor-based space the eyes are not at the floor: SteamVR's first
+    // frames gave the head there (valid flags and all), and the launcher came
+    // up at the player's feet until a recenter (log: placed at y -0.07).
+    // The first placement waits for a real head, at most three seconds.
+    {
+        static int waited;
+        const bool floorSpace = gPlaySpaceType == XR_REFERENCE_SPACE_TYPE_LOCAL_FLOOR_EXT
+                             || gPlaySpaceType == XR_REFERENCE_SPACE_TYPE_STAGE;
+        if (floorSpace && (l.position.y + r.position.y) * 0.5f < 0.3f && waited < 270) {
+            if (waited++ == 0) LOGI("screen: the head reads at the floor; placing it once it is up");
+            return;
+        }
+    }
 
     // Where the head looks, flattened onto the floor plane.
     float fx = -2.0f * (q.x * q.z + q.w * q.y);
