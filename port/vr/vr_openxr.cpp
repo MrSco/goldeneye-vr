@@ -2257,11 +2257,15 @@ static void vr_screen_destroy_swapchain(void)
 /*
  * The screen's swapchain. On the Quest it is the picture's size, made again
  * when that changes (the launcher's 1780x960, the game's 1920x1440). On PC VR
- * it is made once with room for any picture (2560x1440: the launcher, 4:3 and
- * 16:9) and the picture takes its corner (the layer's imageRect): SteamVR
- * showed the game's file select cut off at the top, and a scope lens with the
- * weapon wheel's picture, after the swapchain was destroyed and made again at
- * the game's size (user, 2026-11-09; Virtual Desktop's runtime was fine).
+ * it is made once, 2560x1440 (grown only for a bigger picture), and each
+ * picture is stretched over all of it: the layer shows the whole image at the
+ * picture's own shape, so the stretch cancels out. SteamVR showed the game's
+ * file select cut off at the top, and a scope lens with the weapon wheel's
+ * picture, after the swapchain was destroyed and made again at the game's size
+ * (user, 2026-11-09; Virtual Desktop's runtime was fine). The picture in a
+ * corner of the image instead (a sub-rectangle) came out cut in half and
+ * upside down under SteamVR: its sub-rectangles are not read as other
+ * runtimes read them, so the screen uses none.
  */
 static bool vr_screen_ensure_swapchain(uint32_t w, uint32_t h)
 {
@@ -3102,7 +3106,12 @@ static bool vr_screen_present_common(unsigned int srcArrayTex, bool is2d, int w,
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dstFbo);
     glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_screenImages[idx].image, 0);
     glDisable(GL_SCISSOR_TEST);
-    glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    if ((uint32_t)w == g_screenCapW && (uint32_t)h == g_screenCapH) {
+        glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    } else {
+        // PC VR: over the whole image (vr_screen_ensure_swapchain)
+        glBlitFramebuffer(0, 0, w, h, 0, 0, (GLint)g_screenCapW, (GLint)g_screenCapH, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    }
     glEnable(GL_SCISSOR_TEST);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
@@ -4921,10 +4930,9 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         screenLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
         screenLayer.subImage.swapchain        = g_screenSwapchain;
         screenLayer.subImage.imageArrayIndex  = 0;
-        // the picture's corner of the images: GL's bottom left (vr_subimage_y: the runtime's order)
-        screenLayer.subImage.imageRect.offset = {0, vr_subimage_y(0.0f, (float)g_screenH / (float)g_screenCapH,
-                                                                  (int32_t)g_screenCapH)};
-        screenLayer.subImage.imageRect.extent = {(int32_t)g_screenW, (int32_t)g_screenH};
+        // the whole image (the picture stretched over it on PC VR); the size below keeps the picture's shape
+        screenLayer.subImage.imageRect.offset = {0, 0};
+        screenLayer.subImage.imageRect.extent = {(int32_t)g_screenCapW, (int32_t)g_screenCapH};
         screenLayer.pose = g_screenPose;
         const float width = vr_screen_shown_width();
         screenLayer.size = { width, width * (float)g_screenH / (float)g_screenW };
