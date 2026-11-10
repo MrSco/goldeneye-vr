@@ -1543,12 +1543,14 @@ static bool vr_load_swapchain_images(XrSwapchain swapchain, Images &images)
         GLint prevTex = 0, w0 = 0, h0 = 0;
         glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTex);
         const GLboolean known = glIsTexture((GLuint)images[0].image);
+#ifndef ANDROID   // the Quest's GLES 3.0 has no texture size query
         if (known) {
             glBindTexture(GL_TEXTURE_2D, (GLuint)images[0].image);
             glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &w0);
             glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &h0);
             glBindTexture(GL_TEXTURE_2D, (GLuint)prevTex);
         }
+#endif
         LOGI("swapchain %p: %u images, textures %u..%u (this context: %s, %dx%d)", (void *)swapchain, count,
              (unsigned)images[0].image, (unsigned)images[count - 1].image, known ? "known" : "NOT its own", w0, h0);
     }
