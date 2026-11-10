@@ -72,6 +72,12 @@ fixture = r'''
 #define ZERO_7F08991C 0
 #define CHEAT_NO_RADAR_MP 1
 #define LOGI(...) ((void)0)
+/* port/include/hudaspect.h on a 4:3 screen: PORT_HUD_ASPECT emits nothing */
+#define GE_HUD_ASPECT_NONE 0x00u
+#define GE_HUD_ASPECT_LEFT 0x10u
+#define GE_HUD_ASPECT_RIGHT 0x20u
+#define GE_HUD_ASPECT_CENTER 0x30u
+#define PORT_HUD_ASPECT(gdl, mode) ((void)0)
 using s32=int; using u32=unsigned; using f32=float;
 struct Entry {std::string path;uint8_t fmt,siz;bool bean=false;};
 static std::vector<Entry> s_entries;

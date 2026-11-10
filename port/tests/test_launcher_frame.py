@@ -21,7 +21,8 @@ def function(signature):
 
 
 # the frame: from the tab rows to the line under START
-frame_start = source.index('        const bool updLine = upd.state == "available"')
+# (from the #ifdef GEVR_IOS that chooses updLine, so its #else and #endif come too)
+frame_start = source.rindex('#ifdef GEVR_IOS', 0, source.index('        const bool updLine = upd.state == "available"'))
 lam = source.index('gevrLauncherTabRows(launcherTabs, [&](int tab, int sub) {', frame_start)
 lam_end = balanced(source, source.index('{', lam)) + len(');')
 assert source[lam_end - 2:lam_end] == ');'

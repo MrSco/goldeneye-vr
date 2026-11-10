@@ -164,6 +164,7 @@ bool vr_create_menu_swapchain() {
 }
 void vr_screen_destroy_swapchain() {}
 void vr_pointer_layer_destroy() {}
+void vr_beam_quad_destroy() {}   // SteamVR's beam quad (vr_openxr.cpp)
 void vr_end_empty_frame(XrTime) {}
 extern "C" void gfx_vr_gpu_reset(void) {}
 extern "C" void gfx_vr_hud_bounds_reset(void) {}

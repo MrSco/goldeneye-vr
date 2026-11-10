@@ -8,6 +8,12 @@ enum GUNHAND { GUNRIGHT, GUNLEFT };
 enum { ITEM_UNARMED, GUN_ANIM_STATE_SWITCH_SWAP = 20, GUN_ANIM_STATE_SWITCH_HOLD,
        WEAPONSTATBITFLAG_HIDE_AMMO_DISPLAY = 1, WEAPONSTATBITFLAG_NO_CLIP_RELOADS = 2 };
 #define GEVR
+/* port/include/hudaspect.h on a 4:3 screen: PORT_HUD_ASPECT emits nothing */
+#define GE_HUD_ASPECT_NONE 0x00u
+#define GE_HUD_ASPECT_LEFT 0x10u
+#define GE_HUD_ASPECT_RIGHT 0x20u
+#define GE_HUD_ASPECT_CENTER 0x30u
+#define PORT_HUD_ASPECT(gdl, mode) ((void)0)
 struct Gfx {};
 struct sImageTableEntry { int width, id; } icons[4] = {{0,0},{10,1},{14,2},{18,3}};
 struct Hand { int weapon, weapon_action_state, weapon_ammo_in_magazine; };

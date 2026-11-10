@@ -47,6 +47,8 @@ int idx;
 void vr_log(const char *, ...) {}
 /* INSERT_BUTTONS */
 /* INSERT_BRIDGE */
+/* the touch RELOAD button (port/src/input.c): never held on a headset */
+int gevrReloadOnlyHeld(void) { return 0; }
 /* INSERT_RELOAD */
 void poll() {
     /* INSERT_POLL */
