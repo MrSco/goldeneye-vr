@@ -30,11 +30,18 @@ launcher.
 - **In-game panel:** hold the on-screen START (a tap is still START), or on a
   PC F10 or a pad's Back, for the headset's panel (settings, Friends, back to
   the launcher); a solo mission pauses under it.
+- **Touch extras:** a buzz on a press (Touch vibration, on) and Gyro aim
+  (off) on the Controls page; the panel's "Edit touch layout" moves and
+  resizes the buttons (saved as `TouchLayout`). A flat game shows no
+  tracked-controller rows.
+- **Picker and home screen:** the window's surface is made again on return
+  (it stayed black before).
 - **Not yet:**
-  - Haptics and gyro.
-  - A touch layout editor and settings.
-  - A real phone, an online match against a Quest, and Bean import on a
-    phone.
+  - A real phone (gyro's feel, a pinch on a button), an online match
+    against a Quest, and Bean import (the emulator's file picker would not
+    take a tap on the zip).
+  - The first tap on a launcher tab only hovers it; a START tap on the
+    briefing sometimes needs a second one.
 
 ## Recommendation in one paragraph
 
