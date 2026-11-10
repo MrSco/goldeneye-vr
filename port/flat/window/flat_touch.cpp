@@ -35,6 +35,7 @@
 
 #include <SDL.h>
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 #ifdef ANDROID
 #include <GLES3/gl3.h>
@@ -169,13 +170,77 @@ static bool buttonVisible(int i)
     return s_menu ? kButtons[i].inMenu : true;
 }
 
+/*
+ * The touch layout editor's changes (Midas's GETouchLayout overrides): a
+ * button's centre as fractions of the window and its radius in points, NAN
+ * where it keeps the built-in value. FIRE_L placed of its own stops
+ * mirroring FIRE. Kept in VrTouchLayout as "NAME x y radius;...".
+ */
+extern "C" char VrTouchLayout[1024];   // vr_settings.cpp
+extern "C" void vrSettingsSave(void);
+static float s_ovX[kCount + 1], s_ovY[kCount + 1], s_ovR[kCount + 1];
+static bool s_ovLoaded;
+
+static const char *buttonName(int i) { return i == kLeftFire ? "FIRE_L" : kButtons[i].name; }
+static float clampf(float v, float lo, float hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+static void layoutLoad(void)
+{
+    s_ovLoaded = true;
+    for (int i = 0; i <= kCount; i++) s_ovX[i] = s_ovY[i] = s_ovR[i] = NAN;
+    const char *p = VrTouchLayout;
+    while (*p) {
+        char name[16];
+        float x, y, r;
+        int used = 0;
+        if (sscanf(p, " %15[A-Z_] %f %f %f%n", name, &x, &y, &r, &used) == 4) {
+            for (int i = 0; i <= kCount; i++) {
+                if (strcmp(name, buttonName(i)) == 0) {
+                    s_ovX[i] = clampf(x, 0.02f, 0.98f);
+                    s_ovY[i] = clampf(y, 0.02f, 0.98f);
+                    s_ovR[i] = clampf(r, 12.0f, 80.0f);
+                }
+            }
+            p += used;
+        }
+        const char *semi = strchr(p, ';');
+        if (!semi) break;
+        p = semi + 1;
+    }
+}
+
+static void layoutSave(void)
+{
+    char out[sizeof(VrTouchLayout)] = "";
+    size_t n = 0;
+    for (int i = 0; i <= kCount; i++) {
+        if (isnan(s_ovX[i])) continue;
+        n += snprintf(out + n, sizeof(out) - n, "%s%s %.4f %.4f %.1f", n ? ";" : "", buttonName(i), s_ovX[i], s_ovY[i],
+                      isnan(s_ovR[i]) ? kButtons[i == kLeftFire ? 0 : i].radius : s_ovR[i]);
+        if (n >= sizeof(out)) break;
+    }
+    snprintf(VrTouchLayout, sizeof(VrTouchLayout), "%s", out);
+    vrSettingsSave();
+    sysLogPrintf(LOG_NOTE, "touch: layout saved \"%s\"", VrTouchLayout);
+}
+
 static void buttonCentre(int i, float *x, float *y, float *r)
 {
-    const TouchButton &b = kButtons[i == kLeftFire ? 0 : i];
-    *x = b.unitX * (float)s_winW;
-    *y = b.unitY * (float)s_winH;
-    *r = b.radius * s_ptPx;
-    if (i == kLeftFire) *x = (float)s_winW - *x;   // FIRE, mirrored for the left thumb
+    if (!s_ovLoaded) layoutLoad();
+    const int src = i == kLeftFire ? 0 : i;
+    const TouchButton &b = kButtons[src];
+    *x = (isnan(s_ovX[src]) ? b.unitX : s_ovX[src]) * (float)s_winW;
+    *y = (isnan(s_ovY[src]) ? b.unitY : s_ovY[src]) * (float)s_winH;
+    *r = (isnan(s_ovR[src]) ? b.radius : s_ovR[src]) * s_ptPx;
+    if (i == kLeftFire) {
+        if (!isnan(s_ovX[kLeftFire])) {   // placed in the editor
+            *x = s_ovX[kLeftFire] * (float)s_winW;
+            *y = s_ovY[kLeftFire] * (float)s_winH;
+            if (!isnan(s_ovR[kLeftFire])) *r = s_ovR[kLeftFire] * s_ptPx;
+        } else {
+            *x = (float)s_winW - *x;   // FIRE, mirrored for the left thumb
+        }
+    }
 }
 
 /* The button under a point: the nearest within its hit radius, or -1. The
@@ -379,9 +444,190 @@ static void fingerUp(const SDL_TouchFingerEvent &e)
     }
 }
 
+/*
+ * The touch layout editor (Midas's GETouchOverlay editing mode), opened from
+ * the in-game panel over the paused game: drag a button to move it, pinch
+ * with a second finger to resize it; Cancel, Reset (the built-in layout) and
+ * Done along the top. Done saves and goes back to the panel.
+ */
+static bool s_editing;
+static float s_snapX[kCount + 1], s_snapY[kCount + 1], s_snapR[kCount + 1];
+static int s_editCount;                 // fingers down, at most two
+static SDL_FingerID s_editId[2];
+static SDL_TouchID s_editTouch[2];
+static float s_editPX[2], s_editPY[2];
+static int s_editBtn = -1;              // the button under the first finger
+static float s_grabX, s_grabY;          // its centre less the finger
+static float s_pinchDist, s_pinchR;     // when the second finger landed
+enum { EB_CANCEL, EB_RESET, EB_DONE, EB_COUNT };
+static const char *const kEditBar[EB_COUNT] = { "Cancel", "Reset", "Done" };
+
+static void editBarRect(int k, float *x, float *y, float *w, float *h)
+{
+    const float bw = 120.0f * s_ptPx, bh = 40.0f * s_ptPx, gap = 16.0f * s_ptPx;
+    *x = ((float)s_winW - (3.0f * bw + 2.0f * gap)) * 0.5f + k * (bw + gap);
+    *y = 12.0f * s_ptPx;
+    *w = bw;
+    *h = bh;
+}
+
+static int editButtonAt(float px, float py)
+{
+    int best = -1;
+    float bestD = 1e30f;
+    for (int i = 0; i <= kCount; i++) {   // every button, the left FIRE too
+        const float d = hitDistance(i, px, py);
+        if (d >= 0.0f && d < bestD) {
+            best = i;
+            bestD = d;
+        }
+    }
+    return best;
+}
+
+extern "C" int flatTouchEditing(void) { return s_editing ? 1 : 0; }
+
+extern "C" void flatTouchEditBegin(void)
+{
+    if (!s_ovLoaded) layoutLoad();
+    memcpy(s_snapX, s_ovX, sizeof(s_ovX));
+    memcpy(s_snapY, s_ovY, sizeof(s_ovY));
+    memcpy(s_snapR, s_ovR, sizeof(s_ovR));
+    s_editing = true;
+    s_editCount = 0;
+    s_editBtn = -1;
+    releaseAll();
+    touchMeasure();
+}
+
+static void editEnd(bool save)
+{
+    if (save) {
+        layoutSave();
+    } else {
+        memcpy(s_ovX, s_snapX, sizeof(s_ovX));
+        memcpy(s_ovY, s_snapY, sizeof(s_ovY));
+        memcpy(s_ovR, s_snapR, sizeof(s_ovR));
+    }
+    s_editing = false;
+    s_editCount = 0;
+    s_editBtn = -1;
+    releaseAll();
+}
+
+static void editEvent(const SDL_Event *e)
+{
+    const float x = e->tfinger.x * (float)s_winW, y = e->tfinger.y * (float)s_winH;
+    int k = -1;
+    for (int j = 0; j < s_editCount; j++) {
+        if (s_editId[j] == e->tfinger.fingerId && s_editTouch[j] == e->tfinger.touchId) k = j;
+    }
+    switch (e->type) {
+    case SDL_FINGERDOWN:
+        if (s_editCount == 0) {
+            for (int b = 0; b < EB_COUNT; b++) {
+                float bx, by, bw, bh;
+                editBarRect(b, &bx, &by, &bw, &bh);
+                if (x >= bx && x <= bx + bw && y >= by && y <= by + bh) {
+                    if (b == EB_RESET) {
+                        for (int i = 0; i <= kCount; i++) s_ovX[i] = s_ovY[i] = s_ovR[i] = NAN;
+                    } else {
+                        editEnd(b == EB_DONE);
+                    }
+                    return;
+                }
+            }
+            s_editBtn = editButtonAt(x, y);
+            if (s_editBtn >= 0) {
+                float bx, by, br;
+                buttonCentre(s_editBtn, &bx, &by, &br);
+                s_grabX = bx - x;
+                s_grabY = by - y;
+            }
+            s_editId[0] = e->tfinger.fingerId;
+            s_editTouch[0] = e->tfinger.touchId;
+            s_editPX[0] = x;
+            s_editPY[0] = y;
+            s_editCount = 1;
+        } else if (s_editCount == 1) {
+            if (s_editBtn < 0) {
+                // a pinch that started beside the button: the one nearest the
+                // two fingers' midpoint, within twice its size (Midas's editControlNear)
+                const float mx = (x + s_editPX[0]) * 0.5f, my = (y + s_editPY[0]) * 0.5f;
+                float bestD = 1e30f;
+                for (int i = 0; i <= kCount; i++) {
+                    float bx, by, br;
+                    buttonCentre(i, &bx, &by, &br);
+                    const float d = hypotf(mx - bx, my - by);
+                    if (d <= br * 2.0f && d < bestD) {
+                        bestD = d;
+                        s_editBtn = i;
+                    }
+                }
+                if (s_editBtn < 0) break;
+            }
+            s_editId[1] = e->tfinger.fingerId;
+            s_editTouch[1] = e->tfinger.touchId;
+            s_editPX[1] = x;
+            s_editPY[1] = y;
+            s_editCount = 2;
+            s_pinchDist = fmaxf(hypotf(x - s_editPX[0], y - s_editPY[0]), 1.0f);
+            float bx, by, br;
+            buttonCentre(s_editBtn, &bx, &by, &br);
+            s_pinchR = br / s_ptPx;
+        }
+        break;
+    case SDL_FINGERMOTION:
+        if (k < 0) break;
+        s_editPX[k] = x;
+        s_editPY[k] = y;
+        if (s_editBtn < 0) break;
+        if (s_editCount == 1 && k == 0) {
+            float bx, by, br;
+            buttonCentre(s_editBtn, &bx, &by, &br);
+            s_ovX[s_editBtn] = clampf((x + s_grabX) / (float)s_winW, 0.02f, 0.98f);
+            s_ovY[s_editBtn] = clampf((y + s_grabY) / (float)s_winH, 0.02f, 0.98f);
+            if (isnan(s_ovR[s_editBtn])) s_ovR[s_editBtn] = br / s_ptPx;
+        } else if (s_editCount == 2) {
+            const float d = hypotf(s_editPX[1] - s_editPX[0], s_editPY[1] - s_editPY[0]);
+            float bx, by, br;
+            buttonCentre(s_editBtn, &bx, &by, &br);
+            if (isnan(s_ovX[s_editBtn])) {   // resized in place: keep where it is
+                s_ovX[s_editBtn] = bx / (float)s_winW;
+                s_ovY[s_editBtn] = by / (float)s_winH;
+            }
+            s_ovR[s_editBtn] = clampf(s_pinchR * d / s_pinchDist, 12.0f, 80.0f);
+        }
+        break;
+    case SDL_FINGERUP:
+        if (k == 0) {
+            s_editCount = 0;
+            s_editBtn = -1;
+        } else if (k == 1) {
+            s_editCount = 1;   // back to dragging, from where the button is now
+            float bx, by, br;
+            buttonCentre(s_editBtn, &bx, &by, &br);
+            s_grabX = bx - s_editPX[0];
+            s_grabY = by - s_editPY[0];
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+extern "C" int flatTouchSeenAny(void) { return s_seen ? 1 : 0; }
+
 /* Called for each SDL event the window drains (flat_window.cpp), on the game's thread. */
 extern "C" void flatTouchEvent(const SDL_Event *e)
 {
+    if (s_editing) {
+        if (e->type == SDL_FINGERDOWN || e->type == SDL_FINGERMOTION || e->type == SDL_FINGERUP) {
+            touchMeasure();
+            editEvent(e);
+        }
+        return;
+    }
     switch (e->type) {
     case SDL_FINGERDOWN:
         touchMeasure();
@@ -440,6 +686,7 @@ extern "C" unsigned flatTouchPoll(int menu, float *sx, float *sy)
     const bool panel = gevrNativePauseOpen() != 0;
     if (panel != panelWas) {
         panelWas = panel;
+        if (!panel && s_editing) editEnd(false);   // the panel closed under it (F10, Back)
         releaseAll();
         s_tapped = 0;
     }
@@ -617,9 +864,45 @@ static void drawButton(ImDrawList *dl, int i, float a)
 }
 
 /* Over the game's frame in the window, after flat_render.cpp's blit. */
+static ImU32 yellow(float a) { return IM_COL32(255, 217, 102, (int)(fminf(a, 1.0f) * 255.0f)); }
+
+/* The editor: a scrim over the paused game, every button in yellow (the one
+ * held thicker), and the bar. Midas: what is grabbable must be unmistakable,
+ * whatever the buttons' own opacity. */
+static void drawEditor(ImDrawList *dl)
+{
+    dl->AddRectFilled(ImVec2(0, 0), ImVec2((float)s_winW, (float)s_winH), IM_COL32(0, 0, 0, 140));
+    for (int i = 0; i <= kCount; i++) {
+        float x, y, r;
+        buttonCentre(i, &x, &y, &r);
+        const bool sel = i == s_editBtn;
+        const float a = i == kLeftFire ? 0.5f : 0.95f;   // only there while aiming
+        if (sel) dl->AddCircleFilled(ImVec2(x, y), r, yellow(0.25f), 48);
+        dl->AddCircle(ImVec2(x, y), r, yellow(a), 48, (sel ? 4.0f : 2.5f) * s_ptPx);
+        drawGlyph(dl, kButtons[i == kLeftFire ? 0 : i].glyph, ImVec2(x, y), r, white(a));
+    }
+    ImFont *font = ImGui::GetFont();
+    const float size = 20.0f * s_ptPx;
+    for (int b = 0; b < EB_COUNT; b++) {
+        float x, y, w, h;
+        editBarRect(b, &x, &y, &w, &h);
+        dl->AddRectFilled(ImVec2(x, y), ImVec2(x + w, y + h), b == EB_DONE ? IM_COL32(60, 120, 200, 230) : IM_COL32(50, 50, 50, 230),
+                          h * 0.5f);
+        const ImVec2 ts = font->CalcTextSizeA(size, 1e9f, 0.0f, kEditBar[b]);
+        dl->AddText(font, size, ImVec2(x + (w - ts.x) * 0.5f, y + (h - ts.y) * 0.5f), white(1.0f), kEditBar[b]);
+    }
+    const char *hint = "Drag a button to move it. Pinch to resize it.";
+    float bx, by, bw, bh;
+    editBarRect(0, &bx, &by, &bw, &bh);
+    const float hs = 15.0f * s_ptPx;
+    const ImVec2 ts = font->CalcTextSizeA(hs, 1e9f, 0.0f, hint);
+    dl->AddText(font, hs, ImVec2(((float)s_winW - ts.x) * 0.5f, by + bh + 8.0f * s_ptPx), white(0.85f), hint);
+}
+
 extern "C" void flatTouchDraw(int winW, int winH)
 {
-    if (!s_shown || gevrNativePauseOpen() || winW <= 0 || winH <= 0) return;
+    if (winW <= 0 || winH <= 0) return;
+    if (!s_editing && (!s_shown || gevrNativePauseOpen())) return;
     if (winW != s_winW || winH != s_winH) touchMeasure();
 
     ImGuiContext *prev = ImGui::GetCurrentContext();
@@ -642,6 +925,15 @@ extern "C" void flatTouchDraw(int winW, int winH)
     ImGui::NewFrame();
     ImDrawList *dl = ImGui::GetForegroundDrawList();
 
+    if (s_editing) {
+        drawEditor(dl);
+        ImGui::Render();
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, winW, winH);
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        ImGui::SetCurrentContext(prev);
+        return;
+    }
     for (int i = 0; i < kCount; i++) {
         if (buttonVisible(i)) drawButton(dl, i, kOpacity);
     }

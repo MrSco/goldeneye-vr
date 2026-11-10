@@ -19,6 +19,7 @@ struct GevrPanelView {
     char note[128] = "";         // what leaving costs ("... does not save this mission.")
     bool online = false;         // leaving says goodbye to the match
     int texpack = -1;            // 1 HD textures on, 0 off, -1 no pack
+    bool touchLayout = false;    // a touch screen: "Edit touch layout" (flat_touch.cpp)
     GevrPauseGaugeVertex gauges[92]{};
     GevrPauseRadarView radar{};
     GevrSettingsApi settings;    // the VR settings: the table, or a test's rows
@@ -27,7 +28,8 @@ struct GevrPanelUi {
     bool focusLauncher = true;   // hold Menu then A still goes back to the launcher
     int openSection = -1;        // >= 0: bring that tab up on the next frame (the layout test's)
 };
-enum { GEVR_PANEL_NONE, GEVR_PANEL_RESUME, GEVR_PANEL_LAUNCHER, GEVR_PANEL_TEXPACK, GEVR_PANEL_RESET_SOUND };
+enum { GEVR_PANEL_NONE, GEVR_PANEL_RESUME, GEVR_PANEL_LAUNCHER, GEVR_PANEL_TEXPACK, GEVR_PANEL_RESET_SOUND,
+       GEVR_PANEL_TOUCH_LAYOUT };
 
 inline int gevrDrawPanelWindow(const GevrPanelView &v, GevrPanelUi &ui, ImTextureID icon = 0) {
     int action = GEVR_PANEL_NONE;
@@ -54,6 +56,10 @@ inline int gevrDrawPanelWindow(const GevrPanelView &v, GevrPanelUi &ui, ImTextur
         ImGui::TextDisabled("%s", v.note);
     }
 
+    if (v.touchLayout) {   // over the game, which stays paused: Done comes back here
+        ImGui::SetCursorPos(ImVec2(948, 812));
+        if (ImGui::Button("Edit touch layout", ImVec2(314, 44))) action = GEVR_PANEL_TOUCH_LAYOUT;
+    }
     ImGui::SetCursorPos(ImVec2(18, 864));
     ImGui::Separator();
     ImGui::SetCursorPos(ImVec2(18, 886));

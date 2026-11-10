@@ -37,6 +37,7 @@ extern SDL_Window *wnd;   // flat_window.cpp
 extern "C" void flatTouchDraw(int winW, int winH);   // flat_touch.cpp: the on-screen controls
 extern "C" int gevrNativePauseOpen(void);            // input.c: the in-game panel or the online pause
 extern "C" void gevrNativePauseRender(void);         // vr_pause_menu.cpp
+extern "C" int flatTouchEditing(void);               // flat_touch.cpp: the layout editor is up
 extern bool g_flatPresentNoSwap;                     // flat_launcher.cpp
 #endif
 
@@ -147,12 +148,15 @@ bool vr_screen_present(unsigned int srcArrayTex, int w, int h)
     // The in-game panel (vr_pause_menu.cpp) takes the window while it is up;
     // the game's own swap shows it (vr_screen_present_tex2d doesn't swap).
     if (gevrNativePauseOpen()) {
-        g_flatPresentNoSwap = true;
-        gevrNativePauseRender();
-        g_flatPresentNoSwap = false;
-        return true;
+        if (!flatTouchEditing()) {   // the touch layout editor shows the game under it
+            g_flatPresentNoSwap = true;
+            gevrNativePauseRender();
+            g_flatPresentNoSwap = false;
+            return true;
+        }
+    } else {
+        gevrNativePauseRender();   // closed: lets it tidy up after itself
     }
-    gevrNativePauseRender();   // closed: lets it tidy up after itself
 #endif
     SDL_GL_GetDrawableSize(wnd, &winW, &winH);
     if (winW <= 0 || winH <= 0) return false;

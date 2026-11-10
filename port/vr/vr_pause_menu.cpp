@@ -31,6 +31,10 @@ extern int gevrTexpackToggleMsg;                 /* input.c: bondview2.c says it
 int lvlGetSelectedDifficulty(void);
 }
 extern int VrCampaign;
+#ifdef GEVR_FLAT
+extern "C" int flatTouchSeenAny(void);     // flat_touch.cpp: a finger has touched the screen
+extern "C" void flatTouchEditBegin(void);  // the touch layout editor, over the paused game
+#endif
 // vr_launcher.cpp: the headset keyboard for text boxes, as in the launcher
 void gevrTextInputBegin();void gevrTextInputFeed(ImGuiIO&);void gevrTextInputShow(const ImGuiIO&);void gevrTextInputEnd();
 namespace {
@@ -101,6 +105,9 @@ void initialize() {
 int panelFrame() {
     GevrPanelView v;
     v.online=netIsActive();v.texpack=gevrTexpackState();
+#ifdef GEVR_FLAT
+    v.touchLayout=flatTouchSeenAny()!=0;
+#endif
     v.settings=gevrSettingsLive();   /* the settings table (gevr_settings.c) */
     gevrPanelGauges(v.gauges);   /* the online pause's health and armour, solo too */
     gevrPauseLocalRadar(&v.radar);
@@ -200,10 +207,12 @@ extern "C" void gevrNativePauseRender(void) {
     joinFriend=confirmJoin();
     if(!popupWasOpen&&ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight))action=GEVR_PAUSE_RESUME;
     }
+#ifndef GEVR_FLAT   /* the controllers' pointer spot; a window has its own cursor, a phone none */
     if(io.MousePos.x>=0&&io.MousePos.y>=0) {
         ImGui::GetForegroundDrawList()->AddCircleFilled(io.MousePos,8,IM_COL32(255,214,120,255));
         ImGui::GetForegroundDrawList()->AddCircle(io.MousePos,11,IM_COL32(255,255,255,255));
     }
+#endif
     ImGui::Render();gevrTextInputShow(io);glBindFramebuffer(GL_FRAMEBUFFER,framebuffer);glViewport(0,0,canvasW,kGevrSurfaceH);glDisable(GL_SCISSOR_TEST);
     glClearColor(.06f,.06f,.06f,1);glClear(GL_COLOR_BUFFER_BIT);ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
     vr_screen_present_tex2d(texture,canvasW,kGevrSurfaceH);
@@ -215,6 +224,9 @@ extern "C" void gevrNativePauseRender(void) {
     if(joinFriend){leaveToLauncher();return;}
     if(panelAction==GEVR_PANEL_RESUME)gevrNativePauseResume();
     if(panelAction==GEVR_PANEL_LAUNCHER){vr_log("panel: back to the launcher");leaveToLauncher();return;}
+#ifdef GEVR_FLAT
+    if(panelAction==GEVR_PANEL_TOUCH_LAYOUT){vr_log("panel: touch layout editor");flatTouchEditBegin();}
+#endif
     if(panelAction==GEVR_PANEL_RESET_SOUND){audioReset();gevrFriendsMessage("Sound reset");vr_log("panel: sound reset");}
     if(panelAction==GEVR_PANEL_TEXPACK && gevrTexpackState()>=0){
         gevrTexpackToggleMsg=gevrTexpackToggle()+2;   /* 2 off, 3 on */

@@ -32,6 +32,10 @@
  * buzz on an on-screen button, and turning the device to look and aim. */
 int VrTouchHaptics = 1;
 int VrGyroAim = 0;
+/* The on-screen buttons moved or resized in the touch layout editor
+ * (flat_touch.cpp): "NAME x y radius;..." in screen fractions and points,
+ * empty for the built-in layout. */
+char VrTouchLayout[1024] = "";
 
 #if defined(GEVR_FLAT)
 int VrScreenShape = 1;   // a phone or a PC window: 16:9
@@ -297,6 +301,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "ScreenShape=%d\n", VrScreenShape);
     fprintf(f, "; A phone or tablet: 1 = a buzz on an on-screen button; 1 = turn the device to look and aim.\n");
     fprintf(f, "TouchHaptics=%d\nGyroAim=%d\n", VrTouchHaptics, VrGyroAim);
+    fprintf(f, "; The touch layout editor's buttons (NAME x y radius;...), empty for the built-in layout.\n");
+    fprintf(f, "TouchLayout=%s\n", VrTouchLayout);
     fprintf(f, "; Metres above (+) or below (-) eye level; set by grabbing the screen with both grips.\n");
     fprintf(f, "ScreenHeight=%.2f\n", VrScreenHeight);
     fprintf(f, "; Preferred display refresh rate in Hz. 0 = Auto (no app preference), the\n");
@@ -497,7 +503,7 @@ extern "C" void vrSettingsLoad(void)
     FILE *f = fopen(VR_INI_PATH, "r");
     if (!f) return;
 
-    char line[128];
+    char line[1100];   // TouchLayout's value is up to 1 KB
     char key[64];
     float fval;
     int ival;
@@ -510,6 +516,11 @@ extern "C" void vrSettingsLoad(void)
     bool beanFitsRead = false;
     while (fgets(line, sizeof(line), f)) {
         if (line[0] == '[' || line[0] == '\n' || line[0] == ';' || line[0] == '#') continue;
+        if (strncmp(line, "TouchLayout=", 12) == 0) {   // a string: before the number parsers
+            snprintf(VrTouchLayout, sizeof(VrTouchLayout), "%s", line + 12);
+            VrTouchLayout[strcspn(VrTouchLayout, "\r\n")] = 0;
+            continue;
+        }
         if (strncmp(line, "WatchFaceStatus=", 16) == 0) {
             char *end;
             const char *value = line + 16;
