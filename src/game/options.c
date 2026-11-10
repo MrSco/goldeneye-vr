@@ -2783,7 +2783,20 @@ Gfx *draw_fx_volume_slider(Gfx *gdl)
 
     if (watch_item_is_actively_selected && game_options_index == 1)
     {
+#ifdef GEVR
+        const u16 before = volume;
+#endif
         watch_adjust_volume_slider(&volume);
+#ifdef GEVR
+        if (volume != before)
+        {
+            /* the launcher's Sound effects (gevr_settings.c), kept in the ini */
+            extern float VrSfxVolume;
+            extern void vrSettingsSave(void);
+            VrSfxVolume = (f32)(u32)volume / 32767.0f;
+            vrSettingsSave();
+        }
+#endif
     }
 
     fvolume = (f32)(u32)volume / 32767.0f;
@@ -2835,7 +2848,19 @@ Gfx *draw_music_volume_slider(Gfx *gdl)
     volume = get_mTrack2Vol();
 
     if (watch_item_is_actively_selected && game_options_index == 0) {
+#ifdef GEVR
+        const u16 before = volume;
+#endif
         watch_adjust_volume_slider(&volume);
+#ifdef GEVR
+        if (volume != before) {
+            /* the launcher's Music (gevr_settings.c), kept in the ini */
+            extern float VrMusicVolume;
+            extern void vrSettingsSave(void);
+            VrMusicVolume = (f32)(u32)volume / 32767.0f;
+            vrSettingsSave();
+        }
+#endif
     }
 
     fvolume = (f32)(u32)volume / 32767.0f;

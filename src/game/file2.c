@@ -1276,20 +1276,21 @@ void fileLoadSettingsForFolder(u32 folder)
     if (save)
     {
 #ifdef GEVR
-        /* Stage setup reloads the selected folder between online rounds. Keep the
-         * volumes chosen in the launcher and the multiplayer pause menu instead:
-         * music as it stands, effects from the ini (SfxVolume). */
-        if (netIsActive())
+        /* The volumes are the launcher's (MusicVolume, SfxVolume in the ini),
+         * solo and online, not the save folder's: a folder loaded (and online,
+         * one reloaded between rounds) put back its own, so the launcher's
+         * Music and Sound effects did nothing solo. The watch's sliders set the
+         * same two (options.c). Music stands as it is; effects from the ini. */
         {
             extern float VrSfxVolume;
             sub_GAME_7F0A91A0((u16)(VrSfxVolume * 32767.0f));
         }
-        else
-#endif
+#else
         {
             set_mTrack2Vol((save->music_vol << 7) | (save->music_vol >> 1));
             sub_GAME_7F0A91A0((save->sfx_vol << 7) | (save->sfx_vol >> 1));
         }
+#endif
 
         options = save->options;
 

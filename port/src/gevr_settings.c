@@ -592,11 +592,14 @@ static const Row s_rows[] = {
     { .label = "Mute mic", .tooltip = "Mute your microphone; you still hear the others.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_RULES, .lsection = L(GEVR_LSEC_MP_AUDIO), .where = GEVR_SET_LAUNCHER, .def = NAN,
       .cpositions = twoPositions, .cget = micGet, .cset = micSet, .ctext = onOffText, .cdefault = -1 },
-    { .label = "Music", .tooltip = "The music's volume.", .kind = GEVR_SET_RANGE, .section = GEVR_SEC_RULES,
-      .lsection = L(GEVR_LSEC_MP_AUDIO), .where = GEVR_SET_LAUNCHER, .def = NAN,
+    /* Music and Sound effects are for every game, solo too, so the launcher
+     * shows them on its Play tab (user: they read as multiplayer only); the
+     * watch's own sliders are the same two settings (options.c, file2.c) */
+    { .label = "Music", .tooltip = "The music's volume, solo and online (the watch's Music slider is the same).", .kind = GEVR_SET_RANGE,
+      .section = GEVR_SEC_RULES, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_LAUNCHER, .def = NAN,
       .cpositions = volumePositions, .cget = musicGet, .cset = musicSet, .ctext = percentText, .cdefault = 20 },
-    { .label = "Sound effects", .tooltip = "Guns, steps and everything else but music and voices.", .kind = GEVR_SET_RANGE,
-      .section = GEVR_SEC_RULES, .lsection = L(GEVR_LSEC_MP_AUDIO), .where = GEVR_SET_LAUNCHER, .fvar = &VrSfxVolume,
+    { .label = "Sound effects", .tooltip = "Guns, steps and everything else but music and voices, solo and online.", .kind = GEVR_SET_RANGE,
+      .section = GEVR_SEC_RULES, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_LAUNCHER, .fvar = &VrSfxVolume,
       .lo = 0, .hi = 1, .step = 0.05f, .scale = 100, .fmt = "%.0f%%", .def = 1.0f, .fset = setSfxVolume },
     { .label = "Voices", .tooltip = "The other players' voices.", .kind = GEVR_SET_RANGE, .section = GEVR_SEC_RULES,
       .lsection = L(GEVR_LSEC_MP_AUDIO), .where = GEVR_SET_LAUNCHER, .fvar = &VrVoiceVolume,

@@ -95,12 +95,13 @@ int main(void)
     gevrSettingSet(id, 2); text(id, t);
     check(!strcmp(t, "100% (default)") && VrMovementSpeed == 0, "movement speed 100% is the normal mode");
 
-    /* The launcher's places: Play holds the play mode, third person and stats;
+    /* The launcher's places: Play holds the play mode, third person, stats and the volumes;
      * the watch face is on Hands; the ally has its own sub-tab; gun size is a cheat. */
     {
-        static const char *const play[] = { "Play mode", "Third person", "  Distance", "  Height", "  Shoulder", "Show stats" };
+        static const char *const play[] = { "Play mode", "Third person", "  Distance", "  Height", "  Shoulder", "Show stats",
+                                            "Music", "Sound effects" };
         int ids[48], n = gevrSettingSectionRows(GEVR_LSEC_PLAY, GEVR_SET_LAUNCHER, ids, 48);
-        check(n == 6, "Play: the play mode, third person and its camera, stats");
+        check(n == 8, "Play: the play mode, third person and its camera, stats, music and effects");
         for (int i = 0; i < n; i++) {
             GevrSettingInfo info;
             gevrSettingInfo(ids[i], &info);
@@ -199,7 +200,7 @@ int main(void)
     {
         int ids[48];
         check(gevrSettingSectionRows(GEVR_LSEC_MP_FUN, GEVR_SET_LAUNCHER, ids, 48) == 6, "Fun: four switches, hit immunity, gun size");
-        check(gevrSettingSectionRows(GEVR_LSEC_MP_AUDIO, GEVR_SET_LAUNCHER, ids, 48) == 5, "Audio: the mic, three volumes, the voice mode");
+        check(gevrSettingSectionRows(GEVR_LSEC_MP_AUDIO, GEVR_SET_LAUNCHER, ids, 48) == 3, "Audio: the mic, voices, the voice mode (music and effects are on Play)");
         int dk = -1, immunity = -1, gun = -1, music = -1, sfx = -1;
         for (int id = 0; id < gevrSettingCount(); id++) {
             GevrSettingInfo info;
