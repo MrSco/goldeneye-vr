@@ -130,6 +130,38 @@ public class LobbyClientTest {
         assertEquals(8, get("maxPlayers"));
     }
 
+    @Test public void vrPlayersOnlyGoesWithCreateAndHeartbeatAndInputClassWithListAndJoin() throws Exception {
+        command("create|public|A's game|6|1|2|4|1");
+        assertTrue(new JSONObject(requests.get(0).body.toString("UTF-8")).getBoolean("vrOnly"));
+        requests.clear();
+        command("refresh|1|1|4|0");   // the host switched it off in the lobby
+        poll();
+        assertEquals("PUT", requests.get(0).getRequestMethod());
+        assertFalse(new JSONObject(requests.get(0).body.toString("UTF-8")).getBoolean("vrOnly"));
+        requests.clear();
+        command("refresh|1|1|4");   // without it the last setting stays
+        assertEquals(0, get("vrOnly"));
+        resume();                     // a new host: the Worker keeps it until a refresh says it
+        poll();
+        assertFalse(new JSONObject(requests.get(0).body.toString("UTF-8")).has("vrOnly"));
+        requests.clear();
+        command("create|public|A's game|6|1|2|4");   // the old command: no field (after the DELETE of the last lobby)
+        assertEquals("POST", requests.get(requests.size() - 1).getRequestMethod());
+        assertFalse(new JSONObject(requests.get(requests.size() - 1).body.toString("UTF-8")).has("vrOnly"));
+        requests.clear();
+        command("list|26|3");
+        assertEquals("version=26&inputClass=3", requests.get(0).getURL().getQuery());
+        requests.clear();
+        command("list|26");
+        assertEquals("version=26", requests.get(0).getURL().getQuery());
+        requests.clear();
+        command("join|abcdefgh|26|1");
+        assertEquals(1, new JSONObject(requests.get(0).body.toString("UTF-8")).getInt("inputClass"));
+        requests.clear();
+        command("join|abcdefgh|26");
+        assertFalse(new JSONObject(requests.get(0).body.toString("UTF-8")).has("inputClass"));
+    }
+
     @Test public void unchangedPhaseAlsoRenewsKeepalive() throws Exception {
         resume();
         set("lastKeepalive", -60_001L);
@@ -263,7 +295,8 @@ public class LobbyClientTest {
         }
         @Override public InputStream getInputStream() {
             String path = url.getPath();
-            String json = "GET".equals(method) ? "{\"requests\":" + hostRequests + "}" :
+            String json = "GET".equals(method) && path.endsWith("/v1/lobbies") ? "{\"lobbies\":[]}" :
+                "GET".equals(method) ? "{\"requests\":" + hostRequests + "}" :
                 path.endsWith("/turn") ? "{\"username\":\"relay-user\",\"credential\":\"relay-pass\"}" :
                 path.endsWith("/joins") ? "{\"id\":\"join-1\",\"joinToken\":\"join-token\"}" :
                 "POST".equals(method) ? "{\"code\":\"ABCDEFGH\",\"ownerToken\":\"owner-token\"}" : "{}";

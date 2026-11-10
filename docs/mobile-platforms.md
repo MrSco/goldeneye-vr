@@ -411,17 +411,20 @@ crash/log upload". Do it once, in P3, with the backends above in mind.
   - "VR players only" (`VrMpVrOnly`) refuses a HELLO whose
     `input_class != 0` with `NET_DISCONNECT_VR_ONLY`, so the joiner sees why.
   - Lives in the match config, so a dedicated server's operator can set it.
-- **Lobby Worker** (`services/lobbies/src/index.ts`):
-  - `vr_only INTEGER` column (the same `ALTER TABLE` pattern as `dedicated`,
-    93-94);
-  - `create`/`PUT` accept `vrOnly`, and `list` returns it plus `flat`
-    (players not in VR, from the heartbeat).
-  - `POST /joins` takes `inputClass` and refuses early for `vr_only`
-    lobbies.
-  - The browser gets two filters: "Hide VR-only lobbies" (on by default for
-    flat players) and "VR players only" (for VR players: hides lobbies with
-    flat players).
-  - Deploying needs the user's OK (as for the dedicated keys).
+- **Lobby Worker** (`services/lobbies/src/index.ts`; done and deployed
+  2026-11-10 with the user's OK, version 5416c6e6, backwards compatible):
+  - a `vr_only` column (the `ALTER TABLE` pattern of `dedicated`);
+    `create` and the heartbeat `PUT` take `vrOnly` (a heartbeat without it
+    keeps it); list, resolve and activity return it.
+  - `GET /v1/lobbies?inputClass=N` leaves VR-only games out of a flat
+    player's list (1 to 3), and `POST /joins` with a flat `inputClass` is
+    refused early (403 "This game is for VR players only"). No class or 255
+    (every older client) is let through, as the host's own check does.
+  - The game sends them: `create|...|vrOnly`, `refresh|...|vrOnly`,
+    `list|version|inputClass`, `join|code|version|inputClass`
+    (`vr_launcher.cpp`, `LobbyClient.java`, `pc_lobby.cpp`).
+  - Not done: a flat-player count in the list, and a filter for VR players
+    that hides games with flat players in them.
 - **LAN beacon:** one byte for `vr_only` in the discovery packet
   (`net_discovery.h`). It versions with the protocol.
 - **Aim data:**

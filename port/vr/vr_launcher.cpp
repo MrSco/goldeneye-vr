@@ -1354,11 +1354,18 @@ extern "C" const char *gevrHostedLobbyVisibility(void)
     return !netIsHost() ? "" : s_hostVisibility ? s_hostVisibility : gevrVisibilityName(VrMpVisibility);
 }
 
+/* "VR players only" for the lobby service: the host's setting goes with its
+ * create and refresh commands; what this player plays with goes with list and
+ * join (net_protocol.h NET_INPUT_*), so a flat player is not offered the game. */
+extern "C" int gevrNetLocalInputClass(void);   // net_core.c
+static std::string gevrInputClassField(void) { return "|" + std::to_string(gevrNetLocalInputClass()); }
+static const char *gevrVrOnlyField(void) { return VrMpVrOnly ? "|1" : "|0"; }
+
 static std::string gevrLobbyCreateCommand(const std::string &name, int stage, int set, int max)
 {
     return std::string("create|") + (s_hostVisibility ? s_hostVisibility : gevrVisibilityName(VrMpVisibility)) + "|" + name + "|" +
         std::to_string(GEVR_NET_VERSION) + "|" + std::to_string(stage) + "|" +
-        std::to_string(set) + "|" + std::to_string(max);
+        std::to_string(set) + "|" + std::to_string(max) + gevrVrOnlyField();
 }
 
 // The multiplayer page's shared widgets. net_match.c is the one list of the
@@ -2051,7 +2058,7 @@ void gevrMultiplayerTick(GevrLauncherTabs &tabs, bool &startMatch, bool romReady
             netIceStop();
             clientJoinId.clear();
             onlineMessage = "Joining your friend's game...";
-            gevrJavaCommand("lobbyCommand", ("join|" + code + "|" + std::to_string(GEVR_NET_VERSION)).c_str());
+            gevrJavaCommand("lobbyCommand", ("join|" + code + "|" + std::to_string(GEVR_NET_VERSION) + gevrInputClassField()).c_str());
             tabs.open(GEVR_LTAB_MULTIPLAYER, GEVR_LSUB_JOIN);
         }
     }
@@ -2113,7 +2120,7 @@ void gevrMultiplayerTick(GevrLauncherTabs &tabs, bool &startMatch, bool romReady
             lastHeartbeatMs = heartbeatNow;
             // the count too: the host may change it after registering the lobby
             const std::string refresh = "refresh|" + std::to_string(pCount) + "|" + (pCount < maxP ? "1" : "0") +
-                                        "|" + std::to_string(maxP);
+                                        "|" + std::to_string(maxP) + gevrVrOnlyField();
             gevrJavaCommand("lobbyCommand", refresh.c_str());
         }
     }
@@ -2328,12 +2335,12 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                             lastListMs = listNow;
                             listLoading = true;
                             gevrJavaCommand("lobbyCommand",
-                                            ("list|" + std::to_string(GEVR_NET_VERSION)).c_str());
+                                            ("list|" + std::to_string(GEVR_NET_VERSION) + gevrInputClassField()).c_str());
                         }
                         if (ImGui::SmallButton("Refresh list")) {
                             listLoading = true;
                             gevrJavaCommand("lobbyCommand",
-                                            ("list|" + std::to_string(GEVR_NET_VERSION)).c_str());
+                                            ("list|" + std::to_string(GEVR_NET_VERSION) + gevrInputClassField()).c_str());
                         }
                         if (listLoading)
                             ImGui::TextDisabled("Loading internet games...");
@@ -2356,7 +2363,7 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                                 onlineMessage = "Joining " + game.name + "...";
                                 gevrJavaCommand(
                                     "lobbyCommand",
-                                    ("join|" + game.code + "|" + std::to_string(GEVR_NET_VERSION)).c_str());
+                                    ("join|" + game.code + "|" + std::to_string(GEVR_NET_VERSION) + gevrInputClassField()).c_str());
                             }
                             if (ImGui::IsItemHovered()) {
                                 gevrTooltip(
@@ -2379,7 +2386,7 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                             clientJoinId.clear();
                             onlineMessage = "Looking up private game...";
                             gevrJavaCommand("lobbyCommand", ("join|" + std::string(privateCode) + "|" +
-                                                             std::to_string(GEVR_NET_VERSION))
+                                                             std::to_string(GEVR_NET_VERSION) + gevrInputClassField())
                                                                 .c_str());
                         }
                     }
@@ -2620,7 +2627,7 @@ extern "C" void gevrLobbyGameTick(void)
                 const int players = netGetLivePlayerCount();
                 gevrJavaCommand("lobbyCommand", (std::string("refresh|") + std::to_string(players) +
                                 "|" + (players < netGetMaxPlayers() ? "1" : "0") +
-                                "|" + std::to_string(netGetMaxPlayers())).c_str());
+                                "|" + std::to_string(netGetMaxPlayers()) + gevrVrOnlyField()).c_str());
             }
         }
     } else {
@@ -2671,7 +2678,7 @@ extern "C" void gevrLobbyGameTick(void)
                         attemptMs = now;
                         netIceStop();
                         gevrJavaCommand("lobbyCommand", (std::string("join|") + netGetLobbyCode() + "|" +
-                                        std::to_string(GEVR_NET_VERSION)).c_str());
+                                        std::to_string(GEVR_NET_VERSION) + gevrInputClassField()).c_str());
                         vr_log("launcher: rejoining lobby %s after the host change", netGetLobbyCode());
                     }
                 } else {

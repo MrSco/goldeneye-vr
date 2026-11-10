@@ -44,6 +44,8 @@ final class LobbyClient {
     private boolean answerReceived;
     private int players = 1;
     private int maxPlayers = 4;
+    /** "VR players only" as last sent by the host: 1, 0, or -1 not known (a resume before its refresh). */
+    private int vrOnly = -1;
     private boolean open = true;
     private String phase = "waiting";
     private long nextHeartbeat;
@@ -73,7 +75,8 @@ final class LobbyClient {
         String[] fields = raw.split("\\|", -1);
         switch (fields[0]) {
             case "create": {
-                if (fields.length != 7) return;
+                // create|visibility|name|version|stage|weapons|maxPlayers[|vrOnly]
+                if (fields.length != 7 && fields.length != 8) return;
                 stop();
                 name = fields[2];
                 lastKeepalive = SystemClock.elapsedRealtime();
@@ -87,6 +90,8 @@ final class LobbyClient {
                         .put("stage", Integer.parseInt(fields[4]))
                         .put("weapons", Integer.parseInt(fields[5]))
                         .put("maxPlayers", Integer.parseInt(fields[6]));
+                vrOnly = fields.length == 8 ? ("1".equals(fields[7]) ? 1 : 0) : -1;
+                if (vrOnly >= 0) pendingCreate.put("vrOnly", vrOnly == 1);
                 registerPending();
                 break;
             }
@@ -102,6 +107,7 @@ final class LobbyClient {
                 lastKeepalive = SystemClock.elapsedRealtime();
                 heartbeatPaused = false;
                 maxPlayers = Integer.parseInt(fields[3]);
+                vrOnly = -1;   // the Worker keeps it; the next refresh says it again
                 phase = fields[4];
                 players = Integer.parseInt(fields[5]);
                 open = players < maxPlayers;
@@ -117,16 +123,19 @@ final class LobbyClient {
                 break;
             }
             case "refresh":
-                // refresh|players|open[|maxPlayers]: the host may change the count after registering
+                // refresh|players|open[|maxPlayers[|vrOnly]]: the host may change the count
+                // and "VR players only" after registering
                 lastKeepalive = SystemClock.elapsedRealtime();
-                if (fields.length == 3 || fields.length == 4) {
+                if (fields.length >= 3 && fields.length <= 5) {
                     int newPlayers = Integer.parseInt(fields[1]);
                     boolean newOpen = "1".equals(fields[2]);
-                    int newMax = fields.length == 4 ? Integer.parseInt(fields[3]) : maxPlayers;
-                    if (newPlayers != players || newOpen != open || newMax != maxPlayers) {
+                    int newMax = fields.length >= 4 ? Integer.parseInt(fields[3]) : maxPlayers;
+                    int newVrOnly = fields.length == 5 ? ("1".equals(fields[4]) ? 1 : 0) : vrOnly;
+                    if (newPlayers != players || newOpen != open || newMax != maxPlayers || newVrOnly != vrOnly) {
                         players = newPlayers;
                         open = newOpen;
                         maxPlayers = newMax;
+                        vrOnly = newVrOnly;
                         nextHeartbeat = 0;
                     }
                 }
@@ -142,8 +151,10 @@ final class LobbyClient {
                 }
                 break;
             case "list": {
+                // list|version[|inputClass]: a flat player is not shown "VR players only" games
                 int version = Integer.parseInt(fields[1]);
-                JSONArray rows = http("GET", BASE + "?version=" + version, null, "").getJSONArray("lobbies");
+                String input = fields.length >= 3 && !fields[2].isEmpty() ? "&inputClass=" + Integer.parseInt(fields[2]) : "";
+                JSONArray rows = http("GET", BASE + "?version=" + version + input, null, "").getJSONArray("lobbies");
                 events.add("LIST_BEGIN");
                 for (int i = 0; i < rows.length(); i++) {
                     JSONObject row = rows.getJSONObject(i);
@@ -156,7 +167,8 @@ final class LobbyClient {
                 break;
             }
             case "join": {
-                if (fields.length != 3) return;
+                // join|code|version[|inputClass]: the Worker refuses a flat player a VR-only game
+                if (fields.length != 3 && fields.length != 4) return;
                 joinId = "";
                 joinToken = "";
                 offerSent = false;
@@ -164,6 +176,7 @@ final class LobbyClient {
                 String requestedCode = fields[1].trim().toUpperCase();
                 int version = Integer.parseInt(fields[2]);
                 JSONObject body = new JSONObject().put("version", version);
+                if (fields.length == 4 && !fields[3].isEmpty()) body.put("inputClass", Integer.parseInt(fields[3]));
                 JSONObject result = http("POST", BASE + "/" + requestedCode + "/joins", body, "");
                 joinId = result.getString("id");
                 joinToken = result.getString("joinToken");
@@ -211,6 +224,7 @@ final class LobbyClient {
                     JSONObject state = new JSONObject()
                             .put("players", players).put("open", open).put("phase", phase)
                             .put("maxPlayers", maxPlayers);
+                    if (vrOnly >= 0) state.put("vrOnly", vrOnly == 1);
                     if (!name.isEmpty()) state.put("name", name);
                     try { http("PUT", BASE + "/" + code, state, ownerToken); }
                     catch (HttpException e) {

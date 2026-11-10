@@ -5,11 +5,12 @@
  * The launcher (port/vr/vr_launcher.cpp) sends it one-line commands and reads
  * one-line events, through pc_services.cpp as it reaches Java on the Quest:
  *
- *   create|visibility|name|version|stage|weapons|maxPlayers   CREATED|code|ownerToken
+ *   create|visibility|name|version|stage|weapons|maxPlayers[|vrOnly]   CREATED|code|ownerToken
  *   resume|code|ownerToken|maxPlayers|phase|players[|name]     CREATED|code|ownerToken
- *   refresh|players|open[|maxPlayers]   phase|warmup|players   stop   leave
- *   list|version        LIST_BEGIN, LOBBY|code|name|stage|weapons|players|max|phase, LIST_END
- *   join|code|version   JOINED|joinId|user|credential
+ *   refresh|players|open[|maxPlayers[|vrOnly]]   phase|warmup|players   stop   leave
+ *   list|version[|inputClass]   LIST_BEGIN, LOBBY|code|name|stage|weapons|players|max|phase, LIST_END
+ *   join|code|version[|inputClass]   JOINED|joinId|user|credential
+ * (vrOnly and inputClass: "VR players only"; a flat player neither sees nor joins one)
  *   offer|sdp64         answer|joinId|sdp64
  *   (polled)            HOST_PEER|id|offer64|user|credential, ANSWER|joinId|sdp64,
  *                       LOBBY_LOST|code|why, ERROR|message
@@ -48,9 +49,16 @@ const char *const kBase = "https://lobbies.goldeneyevr.com/v1/lobbies";
 
 /* The reply's JSON object; throws HttpError as LobbyClient.http does (status >= 400,
  * the reply's "error" when it has one, status 0 for a network failure). */
+#ifdef GEVR_LOBBY_TEST_HTTP   /* port/tests/pc_lobby_native.cpp: a fake service, nothing sent */
+std::string GEVR_LOBBY_TEST_HTTP(const char *method, const std::string &url, const std::string *body, const std::string &token);
+#endif
 std::string http(const char *method, const std::string &url, const std::string *body, const std::string &token)
 {
+#ifdef GEVR_LOBBY_TEST_HTTP
+    return GEVR_LOBBY_TEST_HTTP(method, url, body, token);
+#else
     return httpJson(method, url, body, token);
+#endif
 }
 
 /* ---- LobbyClient ---- */
@@ -141,7 +149,7 @@ private:
         const std::vector<std::string> f = splitBar(raw);
         const std::string &c = f[0];
         if (c == "create") {
-            if (f.size() != 7) return;
+            if (f.size() != 7 && f.size() != 8) return;
             stop();
             name_ = f[2];
             lastKeepalive_ = nowMs();
@@ -151,7 +159,10 @@ private:
             phase_ = "waiting";
             pendingCreate_ = "{\"visibility\":" + q(f[1]) + ",\"name\":" + q(f[2]) + ",\"version\":" + std::to_string(atoi(f[3].c_str()))
                 + ",\"stage\":" + std::to_string(atoi(f[4].c_str())) + ",\"weapons\":" + std::to_string(atoi(f[5].c_str()))
-                + ",\"maxPlayers\":" + std::to_string(atoi(f[6].c_str())) + "}";
+                + ",\"maxPlayers\":" + std::to_string(atoi(f[6].c_str()));
+            vrOnly_ = f.size() == 8 ? (f[7] == "1" ? 1 : 0) : -1;
+            if (vrOnly_ >= 0) pendingCreate_ += std::string(",\"vrOnly\":") + (vrOnly_ ? "true" : "false");
+            pendingCreate_ += "}";
             registerPending();
         } else if (c == "stop") {
             stop();
@@ -166,6 +177,7 @@ private:
             lastKeepalive_ = nowMs();
             heartbeatPaused_ = false;
             maxPlayers_ = atoi(f[3].c_str());
+            vrOnly_ = -1;   // the Worker keeps it; the next refresh says it again
             phase_ = f[4];
             players_ = atoi(f[5].c_str());
             open_ = players_ < maxPlayers_;
@@ -178,14 +190,16 @@ private:
             push("CREATED|" + code_ + "|" + ownerToken_);
         } else if (c == "refresh") {
             lastKeepalive_ = nowMs();
-            if (f.size() == 3 || f.size() == 4) {
+            if (f.size() >= 3 && f.size() <= 5) {
                 const int newPlayers = atoi(f[1].c_str());
                 const bool newOpen = f[2] == "1";
-                const int newMax = f.size() == 4 ? atoi(f[3].c_str()) : maxPlayers_;
-                if (newPlayers != players_ || newOpen != open_ || newMax != maxPlayers_) {
+                const int newMax = f.size() >= 4 ? atoi(f[3].c_str()) : maxPlayers_;
+                const int newVrOnly = f.size() == 5 ? (f[4] == "1" ? 1 : 0) : vrOnly_;
+                if (newPlayers != players_ || newOpen != open_ || newMax != maxPlayers_ || newVrOnly != vrOnly_) {
                     players_ = newPlayers;
                     open_ = newOpen;
                     maxPlayers_ = newMax;
+                    vrOnly_ = newVrOnly;
                     nextHeartbeat_ = 0;
                 }
             }
@@ -199,7 +213,8 @@ private:
             }
         } else if (c == "list") {
             const int version = atoi(f.size() > 1 ? f[1].c_str() : "0");
-            const std::string reply = http("GET", std::string(kBase) + "?version=" + std::to_string(version), nullptr, "");
+            const std::string input = f.size() > 2 && !f[2].empty() ? "&inputClass=" + std::to_string(atoi(f[2].c_str())) : "";
+            const std::string reply = http("GET", std::string(kBase) + "?version=" + std::to_string(version) + input, nullptr, "");
             jspan obj, rows, row;
             jsonParse(reply, &obj);
             push("LIST_BEGIN");
@@ -215,7 +230,7 @@ private:
             push("LIST_END");
             sysLogPrintf(0, "lobby: %d open games (version %d)", listed, version);
         } else if (c == "join") {
-            if (f.size() != 3) return;
+            if (f.size() != 3 && f.size() != 4) return;
             joinId_.clear();
             joinToken_.clear();
             offerSent_ = answerReceived_ = false;
@@ -223,7 +238,9 @@ private:
             while (!requested.empty() && requested.back() == ' ') requested.pop_back();
             while (!requested.empty() && requested.front() == ' ') requested.erase(0, 1);
             for (char &ch : requested) ch = (char)toupper((unsigned char)ch);
-            const std::string body = "{\"version\":" + std::to_string(atoi(f[2].c_str())) + "}";
+            std::string body = "{\"version\":" + std::to_string(atoi(f[2].c_str()));
+            if (f.size() == 4 && !f[3].empty()) body += ",\"inputClass\":" + std::to_string(atoi(f[3].c_str()));
+            body += "}";
             const std::string reply = http("POST", std::string(kBase) + "/" + requested + "/joins", &body, "");
             jspan obj;
             jsonParse(reply, &obj);
@@ -264,6 +281,7 @@ private:
                 if (now >= nextHeartbeat_) {
                     std::string state = "{\"players\":" + std::to_string(players_) + ",\"open\":" + (open_ ? "true" : "false")
                         + ",\"phase\":" + q(phase_) + ",\"maxPlayers\":" + std::to_string(maxPlayers_);
+                    if (vrOnly_ >= 0) state += std::string(",\"vrOnly\":") + (vrOnly_ ? "true" : "false");
                     if (!name_.empty()) state += ",\"name\":" + q(name_);
                     state += "}";
                     try { http("PUT", std::string(kBase) + "/" + code_, &state, ownerToken_); }
@@ -385,6 +403,7 @@ private:
     std::string code_, ownerToken_, name_, joinId_, joinToken_, phase_ = "waiting", lastError_, pendingCreate_;
     bool hosting_ = false, offerSent_ = false, answerReceived_ = false, open_ = true, heartbeatPaused_ = false;
     int players_ = 1, maxPlayers_ = 4;
+    int vrOnly_ = -1;   // "VR players only" as the host last sent it; -1 not known (a resume before its refresh)
     long long nextHeartbeat_ = 0, nextRequests_ = 0, lastKeepalive_ = 0;
     std::thread worker_;   // last: starts once the state above exists
 };

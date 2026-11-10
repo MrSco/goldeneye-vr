@@ -1140,6 +1140,10 @@ static uint8_t netLocalInputClass(void) {
 #endif
 }
 
+/* The same for the lobby service (vr_launcher.cpp): a flat player's list leaves
+ * out "VR players only" games, and the Worker refuses its join to one. */
+int gevrNetLocalInputClass(void) { return netLocalInputClass(); }
+
 static uint8_t netLocalPlatform(void) {
 #if defined(GEVR_HEADLESS)
     return NET_PLATFORM_SERVER;
