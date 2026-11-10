@@ -43,7 +43,7 @@ static OpusEncoder *encoder;
 
 /*
  * What the mic gives (the phone's voice reached the Quest garbled, user
- * 2026-11-09): once a second while it is open, the frames taken and sent, the
+ * 2026-11-09): every ten seconds while it is open, the frames encoded and sent, the
  * stale ones thrown away and the loudest sample; and, with gevr_micdump.txt
  * in the data folder, the first 20 s as encoded in gevr_mic.wav (16 kHz mono).
  */
@@ -54,6 +54,57 @@ static struct {
     FILE *wav;
     uint32_t wavFrames;
 } s_micStats;
+
+/*
+ * The mic's samples go through a converter to the codec's 16 kHz, from the
+ * rate the mic really runs at. SDL may say one rate and deliver another: on
+ * an iPhone it reported 16000 Hz and delivered 48000 Hz (150 frames a second
+ * where 50 were due, user's log 2026-11-09), so the Quest heard the phone's
+ * voice three times over, slowed and chopped. The first second and a half of
+ * samples is timed; a rate off by more than a sixth from the one assumed is
+ * snapped to the nearest common rate and the converter made again.
+ */
+static SDL_AudioStream *s_micConv;
+static int s_micRate;               /* the rate the converter takes */
+static uint32_t s_micMeasureStart;  /* SDL_GetTicks of the first samples, 0 before */
+static uint64_t s_micMeasured;      /* samples since then */
+static int s_micMeasureDone;
+
+static void micConvMake(int rate) {
+    if (s_micConv) SDL_FreeAudioStream(s_micConv);
+    s_micConv = SDL_NewAudioStream(AUDIO_S16SYS, 1, rate, AUDIO_S16SYS, 1, VOICE_RATE);
+    s_micRate = rate;
+}
+
+static int micSnapRate(double measured) {
+    static const int rates[] = { 8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000, 96000 };
+    int best = rates[0];
+    for (unsigned i = 1; i < sizeof(rates) / sizeof(rates[0]); i++) {
+        if (fabs(measured - rates[i]) < fabs(measured - best)) best = rates[i];
+    }
+    return best;
+}
+
+/* Counts the samples taken; after 1.5 s says the rate, and fixes it if SDL's was wrong. */
+static void micMeasure(unsigned samples) {
+    if (s_micMeasureDone) return;
+    const uint32_t now = SDL_GetTicks();
+    if (!s_micMeasureStart) {
+        s_micMeasureStart = now;   /* from the first delivery: the device's start-up is not counted */
+        return;
+    }
+    s_micMeasured += samples;
+    const uint32_t ms = now - s_micMeasureStart;
+    if (ms < 1500) return;
+    s_micMeasureDone = 1;
+    const double rate = s_micMeasured * 1000.0 / ms;
+    const int snapped = micSnapRate(rate);
+    sysLogPrintf(LOG_NOTE, "voice: the mic runs at %.0f Hz (%d), SDL said %d", rate, snapped, s_micRate);
+    if (fabs(rate - s_micRate) > s_micRate / 6.0 && s_micConv) {
+        micConvMake(snapped);
+        sysLogPrintf(LOG_NOTE, "voice: converting the mic from %d Hz", snapped);
+    }
+}
 
 static void micWavHeader(FILE *f, uint32_t frames) {
     const uint32_t bytes = frames * VOICE_FRAME * 2;
@@ -91,8 +142,8 @@ static void micNote(const int16_t *pcm, int sent) {
 static void micStatsTick(void) {
     const uint32_t now = SDL_GetTicks();
     if (!s_micStats.since) s_micStats.since = now;
-    if (now - s_micStats.since < 1000) return;
-    sysLogPrintf(LOG_NOTE, "voice: mic %u frames taken, %u sent, %u queue clears, peak %d in %u ms (50 a second expected)",
+    if (now - s_micStats.since < 10000) return;
+    sysLogPrintf(LOG_NOTE, "voice: mic %u frames encoded, %u sent, %u queue clears, peak %d in %u ms (50 a second expected)",
                  s_micStats.taken, s_micStats.sent, s_micStats.cleared, s_micStats.peak, (unsigned)(now - s_micStats.since));
     s_micStats.since = now;
     s_micStats.taken = s_micStats.sent = s_micStats.cleared = 0;
@@ -119,6 +170,10 @@ static void voiceCloseCapture(void) {
     if (capture) {
         SDL_CloseAudioDevice(capture);
         capture = 0;
+    }
+    if (s_micConv) {
+        SDL_FreeAudioStream(s_micConv);
+        s_micConv = NULL;
     }
     if (encoder) {
         opus_encoder_destroy(encoder);
@@ -204,13 +259,23 @@ void netVoiceTick(void) {
         if (!capture && (!capture_retry_at || (int32_t)(SDL_GetTicks() - capture_retry_at) >= 0)) {
             SDL_AudioSpec want, have;
             SDL_zero(want);
+#ifdef GEVR_IOS
+            /* the audio session's own rate, which the game's output already
+             * uses: asking for 16 kHz had SDL move the whole session to it */
+            want.freq = 48000;
+#else
             want.freq = VOICE_RATE;
+#endif
             want.format = AUDIO_S16SYS;
             want.channels = 1;
             want.samples = VOICE_FRAME;
-            capture = SDL_OpenAudioDevice(NULL, 1, &want, &have, 0);
+            capture = SDL_OpenAudioDevice(NULL, 1, &want, &have, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
             if (capture) {
                 capture_failed = 0;
+                micConvMake(have.freq);
+                s_micMeasureStart = 0;
+                s_micMeasured = 0;
+                s_micMeasureDone = 0;
 #ifdef GEVR_IOS
                 /* the phone's speaker is beside its mic: Apple's echo
                  * cancellation (port/ios/ios_app.m) */
@@ -233,16 +298,25 @@ void netVoiceTick(void) {
                 capture_retry_at = SDL_GetTicks() + 2000;
             }
         }
-        if (capture) {
-            /* Never transmit stale speech after a render or network stall. */
-            if (SDL_GetQueuedAudioSize(capture) > VOICE_FRAME * sizeof(int16_t) * 8) {
+        if (capture && s_micConv) {
+            /* Never transmit stale speech after a render or network stall:
+             * more than 160 ms waiting (eight frames at the mic's own rate). */
+            const Uint32 stale = (Uint32)(s_micRate / 50) * sizeof(int16_t) * 8;
+            if (SDL_GetQueuedAudioSize(capture) > stale) {
                 SDL_ClearQueuedAudio(capture);
+                SDL_AudioStreamClear(s_micConv);
                 s_micStats.cleared++;
             }
-            for (int i = 0; i < 4 && SDL_GetQueuedAudioSize(capture) >= VOICE_FRAME * sizeof(int16_t); i++) {
+            int16_t raw[2048];
+            Uint32 got;
+            while ((got = SDL_DequeueAudio(capture, raw, sizeof(raw))) > 0) {
+                micMeasure(got / sizeof(int16_t));
+                SDL_AudioStreamPut(s_micConv, raw, (int)got);
+            }
+            for (int i = 0; i < 4 && SDL_AudioStreamAvailable(s_micConv) >= (int)(VOICE_FRAME * sizeof(int16_t)); i++) {
                 int16_t pcm[VOICE_FRAME];
                 uint8_t encoded[GEVR_VOIP_MAX_BYTES];
-                if (SDL_DequeueAudio(capture, pcm, sizeof(pcm)) != sizeof(pcm)) break;
+                if (SDL_AudioStreamGet(s_micConv, pcm, sizeof(pcm)) != (int)sizeof(pcm)) break;
                 int bytes = opus_encode(encoder, pcm, VOICE_FRAME, encoded, sizeof(encoded));
                 const int sent = bytes > 2 && bytes <= GEVR_VOIP_MAX_BYTES;
                 if (sent)
