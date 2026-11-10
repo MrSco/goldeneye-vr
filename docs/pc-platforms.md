@@ -67,6 +67,39 @@ tagged build commit:
    `gh release upload symbols build/pc-dist/GoldenEyeVR-X.Y.Z-windows-x64.debug build/pc-dist/GoldenEyeVR-VR-X.Y.Z-windows-x64.debug -R MrSco/goldeneye-vr-reports`.
    They are not published with the game. A crash's `gevr_crash.txt` offset
    reads with `llvm-addr2line -e <that .debug> 0x140000000+offset`.
+4. Linux: `sh tools/package_linux.sh` (on Linux or in WSL, from a plain
+   clone so the build id is the commit's), then upload
+   `build/linux-dist/GoldenEyeVR-X.Y.Z-linux-x64.zip` to the release and the
+   two `*-linux-x64.debug` files to `symbols` as above.
+
+### SteamVR (2026-11-10, a Quest 3 through Virtual Desktop, SteamVR 2.18.4)
+
+What SteamVR does differently from Virtual Desktop's own runtime and Meta's,
+found with the user in the headset, and what the game does about it
+(`vr_openxr.cpp`, all only under SteamVR unless said):
+- **A quad layer shows the picture of whatever was in its place in the
+  layer list before.** The menus come and go from frame to frame (sent when
+  redrawn), so a scope lens showed the weapon wheel's picture until the
+  wheel first opened, and the launcher came up upside down or cut off until
+  a grip or a recenter. The eye dump proved the game's images right
+  (`swS0.bmp`: the scope's swapchain held the scope's view). Fix: every quad
+  keeps its place every frame; one missing this frame goes in as its last
+  copy, a speck behind the head.
+- **A screen image 1440 rows tall loses its top fifth.** The PC VR screen's
+  swapchain is made once, 1920x1080, every picture stretched over all of it
+  (every PC runtime): no sub-rectangle (SteamVR read one upside down and
+  halved) and no remaking at a new size.
+- **Quad layers draw over the eye images, whatever their order.** The
+  launcher draws the pointer's spot itself; the laser's beam stays behind
+  the screen (it could be drawn as a quad of its own).
+- **The first frames give the head at the floor.** The screen's first
+  placement waits for a head above 30 cm (floor spaces, all runtimes).
+- **Through a streaming headset the screen's edge smears in one eye on a
+  quick turn:** SteamVR bakes the quads into the streamed frame, which the
+  headset re-aims; Virtual Desktop's own runtime draws them on the headset.
+  Not the game's; a headset on SteamVR directly does not do it.
+- Tried and dropped: swapchain priming (each image cleared and released at creation)
+  made it worse - blur and both eyes cut - and was taken out.
 
 **Launcher:** `port/vr/vr_launcher.cpp` itself, the Quest's, drawn in the
 window (`port/pc/pc_launcher.cpp`: its texture letterboxed into the window,
