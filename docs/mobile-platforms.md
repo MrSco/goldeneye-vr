@@ -80,10 +80,16 @@ launcher.
   its phase asked each poll, as perfect-dark-ios's D-034 watchdog does; a new
   finger also takes over the stick or a held button, and the oldest gives
   way when all ten slots are taken (Android too).
-- **Not yet:** an online match, Steam Audio's iOS library, LAN discovery
-  (iOS wants Apple's multicast entitlement), an iPad, the launcher's update
-  rows (meaningless on iOS), and coming back from "Restart to launcher" (an
-  iOS app cannot start itself: it closes, and the player opens it again).
+- **Online against a Quest** (user, 2026-11-09: the Quest on test.32
+  hosting, the iPhone joining by code): play, look and aim, voice both
+  ways, the match's volume rows. Two bugs found and fixed for every flat
+  joiner: mouse/touch look was read for player 1 only, and SDL reported the
+  iPhone's mic at 16 kHz while it delivered 48 kHz (the voice now goes
+  through a converter from the rate measured in its first 1.5 s).
+- **Not yet:** Steam Audio's iOS library, LAN discovery (iOS wants Apple's
+  multicast entitlement), an iPad, the launcher's update rows (meaningless
+  on iOS), and coming back from "Restart to launcher" (an iOS app cannot
+  start itself: it closes, and the player opens it again).
 
 ## Recommendation in one paragraph
 
