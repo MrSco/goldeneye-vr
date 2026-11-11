@@ -98,6 +98,21 @@ worktree; the short version is below.
   any time. Checked on PC through the menus: Dam, the watch's abort, the
   debrief's statistics page.
 
+## Strafe running is kept
+
+GoldenEye's strafe running (forward and sideways at once is faster than
+forward) comes from Bond's speeds being clamped each on its own, never as a
+vector (bondview2.c: speedforwards and speedsideways to +-1 apiece, the walk
+animation's stride adding both). N64 runners get the full sideways from the
+C buttons with the stick forward. Every input of the port reaches the same
+place the same way: the Quest's move stick presses the C buttons past a
+quarter of its throw (input.c, "Solitaire: C directions move"), as do a
+pad's left stick, the touch stick and WASD on PC; no setting turns the stick
+by the hand or the head. Measured 2026-11-11 on PC from Dam's start, two
+seconds held: forward 503 units a second (speeds 1.08, 0), forward and
+right 710 (1.08, 1.0): 1.41 times. The movement speed setting scales both
+alike (and is stamped and not ranked).
+
 ## Testing the boards on PC
 
 No production involved: the Worker under `wrangler dev --local --port 8787`
@@ -130,4 +145,3 @@ hands), a full mission completion saving through the debrief.
   says the board did not load.
 - LiveSplit against a real LiveSplit (Windows), from the headset over Wi-Fi.
 - The stamp on a headset's debrief (Quest VR: the turning, the display rate).
-- Check that VR stick movement keeps strafe-running's diagonal speed.
