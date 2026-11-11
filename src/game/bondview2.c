@@ -6627,6 +6627,152 @@ f32 g_MpSwirlDistance;
 
 #define ALIGN64_V3(val) (((val) | 0x3f) ^ 0x3f)
 
+/*
+ * The body and head solo play gives Bond on this mission: solo_char_load's
+ * choice (the cuff, the folder's Bond, a ROM hack's outfit), moved here
+ * unchanged so the speedrun ghost (gevr_ghost.c) wears the same.
+ */
+void gevrSoloBondBodyHead(s32 *bodyout, s32 *headout)
+{
+    s32 body = BODY_Formal_Wear;
+    s32 head = HEAD_Male_Brosnan_Default;
+    s32 helddst;
+
+    if (getPlayerCount() == 1)
+    {
+        helddst = fileGetBondForCurrentFolder();
+        switch (g_CurrentPlayer->bondtype)
+        {
+            case CUFF_BLUE:
+                break;
+
+            case CUFF_BOILER:
+                body = BODY_Special_Operations_Uniform;
+                break;
+
+            case CUFF_JUNGLE:
+                body = BODY_Jungle_Fatigues;
+                break;
+
+            case CUFF_SNOW:
+                body = BODY_Parka;
+                break;
+
+            case CUFF_BROSNAN:
+                body = BODY_Brosnan_Tuxedo;
+                break;
+
+            case CUFF_CONNERY:
+                body = BODY_Brosnan_Tuxedo;
+                break;
+
+            case CUFF_DALTON:
+                body = BODY_Brosnan_Tuxedo;
+                break;
+
+            case CUFF_MOORE:
+                body = BODY_Brosnan_Tuxedo;
+                break;
+
+            case CUFF_FOLDER:
+                switch (helddst)
+                {
+                    case BOND_BROSNAN:
+                        body = BODY_Brosnan_Tuxedo;
+                        break;
+
+                    case BOND_CONNERY:
+                        body = BODY_Brosnan_Tuxedo;
+                        break;
+
+                    case BOND_DALTON:
+                        body = BODY_Brosnan_Tuxedo;
+                        break;
+
+                    case BOND_MOORE:
+                        body = BODY_Brosnan_Tuxedo;
+                        break;
+                }
+
+                break;
+        }
+
+        switch (helddst)
+        {
+            case BOND_BROSNAN:
+                switch (g_CurrentPlayer->bondtype)
+                {
+                    case CUFF_BLUE:
+                        break;
+
+                    case CUFF_BOILER:
+                        head = HEAD_Male_Brosnan_Boiler;
+                        break;
+
+                    case CUFF_JUNGLE:
+                        head = HEAD_Male_Brosnan_Jungle;
+                        break;
+
+                    case CUFF_BROSNAN:
+                        head = HEAD_Male_Brosnan_Tuxedo;
+                        break;
+
+                    case CUFF_CONNERY:
+                        head = HEAD_Male_Brosnan_Tuxedo;
+                        break;
+
+                    case CUFF_DALTON:
+                        head = HEAD_Male_Brosnan_Tuxedo;
+                        break;
+
+                    case CUFF_MOORE:
+                        head = HEAD_Male_Brosnan_Tuxedo;
+                        break;
+
+                    case CUFF_FOLDER:
+                        head = HEAD_Male_Brosnan_Tuxedo;
+                        break;
+                }
+
+                break;
+
+            case BOND_CONNERY:
+                head = HEAD_Male_Brosnan_Tuxedo;
+                break;
+
+            case BOND_DALTON:
+                head = HEAD_Male_Brosnan_Tuxedo;
+                break;
+
+            case BOND_MOORE:
+                head = HEAD_Male_Brosnan_Tuxedo;
+                break;
+        }
+    }
+    else
+    {
+        head = get_player_mp_char_head(get_cur_playernum());
+        body = get_player_mp_char_body(get_cur_playernum());
+    }
+
+#ifdef GEVR
+    if (getPlayerCount() == 1)
+    {
+        int gevrBody = 0;
+        int gevrHead = 0;
+
+        if (gevrRomBondOutfit((int)g_CurrentPlayer->bondtype, &gevrBody, &gevrHead))
+        {
+            body = gevrBody;
+            head = gevrHead;
+        }
+    }
+#endif
+
+    *bodyout = body;
+    *headout = head;
+}
+
 void solo_char_load(void)
 {
     f32                         yaw;
@@ -6674,136 +6820,7 @@ void solo_char_load(void)
 
         bondviewDeregisterPlayerRoom(g_CurrentPlayer);
 
-        if (getPlayerCount() == 1)
-        {
-            helddst = fileGetBondForCurrentFolder();
-            switch (g_CurrentPlayer->bondtype)
-            {
-                case CUFF_BLUE:
-                    break;
-
-                case CUFF_BOILER:
-                    body = BODY_Special_Operations_Uniform;
-                    break;
-
-                case CUFF_JUNGLE:
-                    body = BODY_Jungle_Fatigues;
-                    break;
-
-                case CUFF_SNOW:
-                    body = BODY_Parka;
-                    break;
-
-                case CUFF_BROSNAN:
-                    body = BODY_Brosnan_Tuxedo;
-                    break;
-
-                case CUFF_CONNERY:
-                    body = BODY_Brosnan_Tuxedo;
-                    break;
-
-                case CUFF_DALTON:
-                    body = BODY_Brosnan_Tuxedo;
-                    break;
-
-                case CUFF_MOORE:
-                    body = BODY_Brosnan_Tuxedo;
-                    break;
-
-                case CUFF_FOLDER:
-                    switch (helddst)
-                    {
-                        case BOND_BROSNAN:
-                            body = BODY_Brosnan_Tuxedo;
-                            break;
-
-                        case BOND_CONNERY:
-                            body = BODY_Brosnan_Tuxedo;
-                            break;
-
-                        case BOND_DALTON:
-                            body = BODY_Brosnan_Tuxedo;
-                            break;
-
-                        case BOND_MOORE:
-                            body = BODY_Brosnan_Tuxedo;
-                            break;
-                    }
-
-                    break;
-            }
-
-            switch (helddst)
-            {
-                case BOND_BROSNAN:
-                    switch (g_CurrentPlayer->bondtype)
-                    {
-                        case CUFF_BLUE:
-                            break;
-
-                        case CUFF_BOILER:
-                            head = HEAD_Male_Brosnan_Boiler;
-                            break;
-
-                        case CUFF_JUNGLE:
-                            head = HEAD_Male_Brosnan_Jungle;
-                            break;
-
-                        case CUFF_BROSNAN:
-                            head = HEAD_Male_Brosnan_Tuxedo;
-                            break;
-
-                        case CUFF_CONNERY:
-                            head = HEAD_Male_Brosnan_Tuxedo;
-                            break;
-
-                        case CUFF_DALTON:
-                            head = HEAD_Male_Brosnan_Tuxedo;
-                            break;
-
-                        case CUFF_MOORE:
-                            head = HEAD_Male_Brosnan_Tuxedo;
-                            break;
-
-                        case CUFF_FOLDER:
-                            head = HEAD_Male_Brosnan_Tuxedo;
-                            break;
-                    }
-
-                    break;
-
-                case BOND_CONNERY:
-                    head = HEAD_Male_Brosnan_Tuxedo;
-                    break;
-
-                case BOND_DALTON:
-                    head = HEAD_Male_Brosnan_Tuxedo;
-                    break;
-
-                case BOND_MOORE:
-                    head = HEAD_Male_Brosnan_Tuxedo;
-                    break;
-            }
-        }
-        else
-        {
-            head = get_player_mp_char_head(get_cur_playernum());
-            body = get_player_mp_char_body(get_cur_playernum());
-        }
-
-#ifdef GEVR
-        if (getPlayerCount() == 1)
-        {
-            int gevrBody = 0;
-            int gevrHead = 0;
-
-            if (gevrRomBondOutfit((int)g_CurrentPlayer->bondtype, &gevrBody, &gevrHead))
-            {
-                body = gevrBody;
-                head = gevrHead;
-            }
-        }
-#endif
+        gevrSoloBondBodyHead(&body, &head);
 
         if (g_CameraMode == CAMERAMODE_SWIRL)
         {
@@ -22902,6 +22919,399 @@ static s32 gevrPlayerModelTickOwner(void)
 }
 #endif
 
+/*
+ * The multiplayer body's animation, chosen from a player's movement: the
+ * chooser playerTick runs on another player's body, moved here unchanged
+ * (ppointers[index] is pl, playerGetCrouchPos(index) is crouchpos) so the
+ * speedrun ghost (gevr_ghost.c) can pose its body from a recorded run's
+ * state, as Dab's Mod poses its ghost with Perfect Dark's
+ * playerChooseThirdPersonAnimation. Returns the firing table the body's
+ * action keeps (act_bondmulti.unk2c).
+ */
+struct weapon_firing_animation_table *gevrPlayerBodyChooseAnim(struct player *pl, ChrRecord *chr, s32 crouchpos)
+{
+    s32 group;
+    s32 sub;
+    PropRecord *leftprop;
+    s32 anim;
+    f32 angle;
+    f32 frame;
+    f32 local90;
+    f32 local8c;
+    f32 local88;
+    f32 fwd;
+    f32 startframe;
+    struct weapon_firing_animation_table *firingtable;
+    s32 i;
+    s32 found;
+    s32 cur;
+    PropRecord *rightprop;
+    struct WeaponObjRecord *leftobj;
+    struct WeaponObjRecord *rightobj;
+    s32 setanim;
+
+    anim = 0;
+    firingtable = NULL;
+    local90 = -1.0f;
+    frame = -1;
+    leftprop = chrGetEquippedWeaponProp(chr, GUNLEFT);
+    rightprop = chrGetEquippedWeaponProp(chr, GUNRIGHT);
+    leftobj = NULL;
+    rightobj = NULL;
+    setanim = 0;
+ 
+    if (leftprop != NULL)
+    {
+        leftobj = leftprop->weapon;
+    }
+    
+    if (rightprop != NULL)
+    {
+        rightobj = rightprop->weapon;
+    }
+ 
+
+    local8c = pl->field_2A08;
+    local88 = pl->field_2A0C;
+ 
+    if (pl->bonddead != FALSE)
+    {
+        found = 0;
+ 
+        for (i = 0; i < g_bondviewBondDeathAnimationsCount; i++)
+        {
+            cur = pl->players_cur_animation;
+ 
+#ifdef GEVR
+            /* offsets, not addresses: see the modelSetAnimation below */
+            if (cur == g_bondviewBondDeathAnimations[i])
+#else
+            if (cur == (g_bondviewBondDeathAnimations[i] + ((s32) ptr_animation_table)))
+#endif
+            {
+                found = 1;
+            }
+        }
+ 
+        if (found)
+        {
+            anim = pl->players_cur_animation;
+            angle = 0.5f;
+        }
+        else
+        {
+#ifdef GEVR
+            anim = g_bondviewBondDeathAnimations[randomGetNext() % g_bondviewBondDeathAnimationsCount];
+#else
+            anim = g_bondviewBondDeathAnimations[randomGetNext() % g_bondviewBondDeathAnimationsCount] + ((s32) ptr_animation_table);
+#endif
+            angle = 0.5f;
+        }
+ 
+        cur = pl->players_cur_animation;
+        local8c = 0.0f;
+        local88 = 0.0f;
+        goto join_768;
+    }
+ 
+    if ((leftprop != NULL) && (rightprop != NULL))
+    {
+        group = 3;
+    }
+    else if ((leftprop == NULL) && (rightprop == NULL))
+    {
+        group = 2;
+    }
+    else if ((leftobj != NULL) && (bondwalkItemCheckBitflags(leftobj->weaponnum, WEAPONSTATBITFLAG_HOLD_AS_GUN) == 0))
+    {
+        group = 2;
+    }
+    else if ((rightobj != NULL) && (bondwalkItemCheckBitflags(rightobj->weaponnum, WEAPONSTATBITFLAG_HOLD_AS_GUN) == 0))
+    {
+        group = 2;
+    }
+    else if ((leftobj != NULL) && (bondwalkItemCheckBitflags(leftobj->weaponnum, WEAPONSTATBITFLAG_ONLY_1_HANDED) != 0))
+    {
+        group = 0;
+    }
+    else if ((rightobj != NULL) && (bondwalkItemCheckBitflags(rightobj->weaponnum, WEAPONSTATBITFLAG_ONLY_1_HANDED) != 0))
+    {
+        group = 0;
+    }
+    else
+    {
+        group = 1;
+    }
+ 
+    if (crouchpos == 1)
+    {
+        goto set_crouch_lean;
+    }
+    else if (crouchpos == 0)
+    {
+set_crouch_lean:
+        angle = 1.0f;
+        sub = 5;
+    }
+    else if ((pl->speedsideways < 0.0f) && (firing_animation_groups[group][4].pointer != NULL))
+    {
+        sub = 4;
+        angle = -pl->speedsideways;
+ 
+        /*
+         * The turn toward the step, 15 degrees a view pass as the split
+         * screen had it: online the frame's one drawn view turns it, not
+         * the copies' and the barrels' passes as well.
+         */
+        if (!g_gevrExtraPass && pl->field_1280 < 90.0f)
+        {
+            pl->field_1280 = pl->field_1280 + 15.0f;
+        }
+    }
+    else if ((pl->speedsideways > 0.0f) && (firing_animation_groups[group][3].pointer != NULL))
+    {
+        sub = 3;
+        angle = pl->speedsideways;
+ 
+        if (!g_gevrExtraPass && pl->field_1280 > (-90.0f))
+        {
+            pl->field_1280 = pl->field_1280 - 15.0f;
+        }
+    }
+    else
+    {
+        frame = pl->speedtheta;
+ 
+        if (frame < 0.0f)
+        {
+            frame = -frame;
+        }
+ 
+        fwd = pl->speedforwards;
+ 
+        if (fwd < -0.050000001f)
+        {
+            frame = -frame;
+ 
+            if (fwd < frame)
+            {
+                frame = fwd;
+            }
+ 
+            if (pl->headanim == 0)
+            {
+                goto shared_double_neg;
+            }
+ 
+            sub = 2;
+ 
+            if (-0.40000001f < fwd)
+            {
+shared_double_neg:
+                angle = frame + frame;
+                sub = 1;
+ 
+                if (angle < (-1.0f))
+                {
+                    angle = -1.0f;
+                }
+            }
+            else
+            {
+                angle = frame;
+                goto lean_return_to_centre;
+            }
+        }
+        else
+        {
+            if (0.050000001f < fwd)
+            {
+                goto shared_framefwd;
+            }
+            else if (0.050000001f < frame)
+            {
+shared_framefwd:
+                if (frame < fwd)
+                {
+                    frame = fwd;
+                }
+            }
+            else
+            {
+                goto set_full_lean;
+            }
+ 
+            if (pl->headanim == 0)
+            {
+                goto shared_double_pos;
+            }
+ 
+            sub = 2;
+ 
+            if (fwd < 0.40000001f)
+            {
+shared_double_pos:
+                angle = frame + frame;
+                sub = 1;
+ 
+                if (1.0f < angle)
+                {
+                    angle = 1.0f;
+                }
+            }
+            else
+            {
+                angle = frame;
+                goto lean_return_to_centre;
+            }
+        }
+ 
+        goto lean_return_to_centre;
+ 
+set_full_lean:
+        angle = 1.0f;
+        sub = 0;
+ 
+lean_return_to_centre:
+        if (!g_gevrExtraPass && 0.0f < pl->field_1280)
+        {
+            pl->field_1280 = pl->field_1280 - 15.0f;
+        }
+ 
+        if (!g_gevrExtraPass && pl->field_1280 < 0.0f)
+        {
+            pl->field_1280 = pl->field_1280 + 15.0f;
+        }
+    }
+ 
+    {
+        struct firing_anim_struct *fa = &firing_animation_groups[group][sub];
+ 
+        firingtable = fa->pointer;
+ 
+        if (fa->anim != 0)
+        {
+#ifdef GEVR
+            anim = fa->anim;
+#else
+            anim = fa->anim + (s32) ptr_animation_table;
+#endif
+        }
+ 
+        angle *= fa->x;
+        local90 = fa->z;
+        frame = fa->y;
+    }
+ 
+    cur = pl->players_cur_animation;
+ 
+join_768:
+    if ((firingtable != NULL) && (anim == 0))
+    {
+#ifdef GEVR
+    {
+        /* initactorpropstuff.c turned the table's offset into a host
+         * pointer in place; its low 32 bits are no animation */
+        uintptr_t fp = (uintptr_t)firingtable->anim.anim;
+        uintptr_t fb = (uintptr_t)ptr_animation_table;
+
+        anim = (s32)(fp >= fb ? fp - fb : fp);
+    }
+#else
+        anim = *((s32 *) firingtable);
+#endif
+    }
+ 
+    if (anim != cur)
+    {
+        setanim = 1;
+    }
+ 
+    if (0.0f <= frame)
+    {
+        if ((pl->bodyModel->animlooping == 0) || (frame != pl->bodyModel->animloopframe))
+        {
+            setanim = 1;
+        }
+    }
+ 
+    if (frame < 0.0f)
+    {
+        if (pl->bodyModel->animlooping)
+        {
+            setanim = 1;
+        }
+    }
+ 
+    if (setanim != 0)
+    {
+        if (pl->bodyModel->anim2 == NULL)
+        {
+            startframe = (0.0f <= frame) ? (frame) : (0.0f);
+#ifdef GEVR
+            /*
+             * anim, cur and players_cur_animation hold offsets into
+             * ptr_animation_table, as the cartridge's tables do; the
+             * address is made here at full width. As s32 addresses
+             * ("offset + (s32) ptr_animation_table", and a pointer read
+             * back through (s32 *)) the heap's top half was dropped: an
+             * online match crashed in modelSetAnimFrame on a player body
+             * (#62, x1 0x74073894).
+             */
+            modelSetAnimation(pl->bodyModel, (ModelAnimation *) ((uintptr_t)ptr_animation_table + (u32)anim), 0, startframe, angle, 16.0f);
+#else
+            modelSetAnimation(pl->bodyModel, (ModelAnimation *) anim, 0, startframe, angle, 16.0f);
+#endif
+            pl->players_cur_animation = anim;
+            pl->field_1288 = angle;
+ 
+            if (0.0f <= frame)
+            {
+                modelSetAnimLooping(pl->bodyModel, frame, 16.0f);
+            }
+ 
+            if (0.0f <= local90)
+            {
+                modelSetAnimEndFrame(pl->bodyModel, local90);
+            }
+        }
+ 
+        cur = pl->players_cur_animation;
+    }
+    else
+    {
+        if (angle != pl->field_1288)
+        {
+            modelSetAnimSpeed(pl->bodyModel, angle, 1.0f);
+            pl->field_1288 = angle;
+        }
+ 
+        cur = pl->players_cur_animation;
+    }
+ 
+    if (anim == cur)
+    {
+        if (firingtable != NULL)
+        {
+            chr->hidden &= ~CHRHIDDEN_0400;
+            chrlvUpdateAimendbackShoulders(chr, firingtable, 0, 1, local8c);
+        }
+        else
+        {
+            chr->aimendrshoulder = 0.0f;
+            chr->aimendlshoulder = 0.0f;
+            chr->hidden |= CHRHIDDEN_0400;
+            chr->aimendback = local8c;
+        }
+    }
+ 
+    chr->aimendsideback = local88;
+    chr->aimendcount = 10;
+
+    return firingtable;
+}
+
+
 s32 playerTick(PropRecord *prop)
 {
     s32 index;
@@ -23062,26 +23472,7 @@ s32 playerTick(PropRecord *prop)
         || gevrCoopCinemaHides(index))   /* co-op (#94): out of a scripted cutscene's shot */
         goto clear_and_return;
 #endif
-    anim = 0;
     firingtable = NULL;
-    local90 = -1.0f;
-    frame = -1;
-    leftprop = chrGetEquippedWeaponProp(chr, GUNLEFT);
-    rightprop = chrGetEquippedWeaponProp(chr, GUNRIGHT);
-    leftobj = NULL;
-    rightobj = NULL;
-    setanim = 0;
- 
-    if (leftprop != NULL)
-    {
-        leftobj = leftprop->weapon;
-    }
-    
-    if (rightprop != NULL)
-    {
-        rightobj = rightprop->weapon;
-    }
- 
     ppointers = g_playerPointers;
  
     if (
@@ -23104,342 +23495,7 @@ s32 playerTick(PropRecord *prop)
      */
     if (g_PlayerTickCount >= 2)
     {
-        local8c = ((0, ppointers[index]))->field_2A08;
-        local88 = ppointers[index]->field_2A0C;
- 
-        if (ppointers[index]->bonddead != FALSE)
-        {
-            found = 0;
- 
-            for (i = 0; i < g_bondviewBondDeathAnimationsCount; i++)
-            {
-                cur = ppointers[index]->players_cur_animation;
- 
-#ifdef GEVR
-                /* offsets, not addresses: see the modelSetAnimation below */
-                if (cur == g_bondviewBondDeathAnimations[i])
-#else
-                if (cur == (g_bondviewBondDeathAnimations[i] + ((s32) ptr_animation_table)))
-#endif
-                {
-                    found = 1;
-                }
-            }
- 
-            if (found)
-            {
-                anim = ppointers[index]->players_cur_animation;
-                angle = 0.5f;
-            }
-            else
-            {
-#ifdef GEVR
-                anim = g_bondviewBondDeathAnimations[randomGetNext() % g_bondviewBondDeathAnimationsCount];
-#else
-                anim = g_bondviewBondDeathAnimations[randomGetNext() % g_bondviewBondDeathAnimationsCount] + ((s32) ptr_animation_table);
-#endif
-                angle = 0.5f;
-            }
- 
-            cur = ppointers[index]->players_cur_animation;
-            local8c = 0.0f;
-            local88 = 0.0f;
-            goto join_768;
-        }
- 
-        if ((leftprop != NULL) && (rightprop != NULL))
-        {
-            group = 3;
-        }
-        else if ((leftprop == NULL) && (rightprop == NULL))
-        {
-            group = 2;
-        }
-        else if ((leftobj != NULL) && (bondwalkItemCheckBitflags(leftobj->weaponnum, WEAPONSTATBITFLAG_HOLD_AS_GUN) == 0))
-        {
-            group = 2;
-        }
-        else if ((rightobj != NULL) && (bondwalkItemCheckBitflags(rightobj->weaponnum, WEAPONSTATBITFLAG_HOLD_AS_GUN) == 0))
-        {
-            group = 2;
-        }
-        else if ((leftobj != NULL) && (bondwalkItemCheckBitflags(leftobj->weaponnum, WEAPONSTATBITFLAG_ONLY_1_HANDED) != 0))
-        {
-            group = 0;
-        }
-        else if ((rightobj != NULL) && (bondwalkItemCheckBitflags(rightobj->weaponnum, WEAPONSTATBITFLAG_ONLY_1_HANDED) != 0))
-        {
-            group = 0;
-        }
-        else
-        {
-            group = 1;
-        }
- 
-        if (playerGetCrouchPos(index) == 1)
-        {
-            goto set_crouch_lean;
-        }
-        else if (playerGetCrouchPos(index) == 0)
-        {
-set_crouch_lean:
-            angle = 1.0f;
-            sub = 5;
-        }
-        else if ((ppointers[index]->speedsideways < 0.0f) && (firing_animation_groups[group][4].pointer != NULL))
-        {
-            sub = 4;
-            angle = -ppointers[index]->speedsideways;
- 
-            /*
-             * The turn toward the step, 15 degrees a view pass as the split
-             * screen had it: online the frame's one drawn view turns it, not
-             * the copies' and the barrels' passes as well.
-             */
-            if (!g_gevrExtraPass && ppointers[index]->field_1280 < 90.0f)
-            {
-                ppointers[index]->field_1280 = ppointers[index]->field_1280 + 15.0f;
-            }
-        }
-        else if ((ppointers[index]->speedsideways > 0.0f) && (firing_animation_groups[group][3].pointer != NULL))
-        {
-            sub = 3;
-            angle = ppointers[index]->speedsideways;
- 
-            if (!g_gevrExtraPass && ppointers[index]->field_1280 > (-90.0f))
-            {
-                ppointers[index]->field_1280 = ppointers[index]->field_1280 - 15.0f;
-            }
-        }
-        else
-        {
-            frame = ppointers[index]->speedtheta;
- 
-            if (frame < 0.0f)
-            {
-                frame = -frame;
-            }
- 
-            fwd = ppointers[index]->speedforwards;
- 
-            if (fwd < -0.050000001f)
-            {
-                frame = -frame;
- 
-                if (fwd < frame)
-                {
-                    frame = fwd;
-                }
- 
-                if (ppointers[index]->headanim == 0)
-                {
-                    goto shared_double_neg;
-                }
- 
-                sub = 2;
- 
-                if (-0.40000001f < fwd)
-                {
-shared_double_neg:
-                    angle = frame + frame;
-                    sub = 1;
- 
-                    if (angle < (-1.0f))
-                    {
-                        angle = -1.0f;
-                    }
-                }
-                else
-                {
-                    angle = frame;
-                    goto lean_return_to_centre;
-                }
-            }
-            else
-            {
-                if (0.050000001f < fwd)
-                {
-                    goto shared_framefwd;
-                }
-                else if (0.050000001f < frame)
-                {
-shared_framefwd:
-                    if (frame < fwd)
-                    {
-                        frame = fwd;
-                    }
-                }
-                else
-                {
-                    goto set_full_lean;
-                }
- 
-                if (ppointers[index]->headanim == 0)
-                {
-                    goto shared_double_pos;
-                }
- 
-                sub = 2;
- 
-                if (fwd < 0.40000001f)
-                {
-shared_double_pos:
-                    angle = frame + frame;
-                    sub = 1;
- 
-                    if (1.0f < angle)
-                    {
-                        angle = 1.0f;
-                    }
-                }
-                else
-                {
-                    angle = frame;
-                    goto lean_return_to_centre;
-                }
-            }
- 
-            goto lean_return_to_centre;
- 
-set_full_lean:
-            angle = 1.0f;
-            sub = 0;
- 
-lean_return_to_centre:
-            if (!g_gevrExtraPass && 0.0f < ppointers[index]->field_1280)
-            {
-                ppointers[index]->field_1280 = ppointers[index]->field_1280 - 15.0f;
-            }
- 
-            if (!g_gevrExtraPass && ppointers[index]->field_1280 < 0.0f)
-            {
-                ppointers[index]->field_1280 = ppointers[index]->field_1280 + 15.0f;
-            }
-        }
- 
-        {
-            struct firing_anim_struct *fa = &firing_animation_groups[group][sub];
- 
-            firingtable = fa->pointer;
- 
-            if (fa->anim != 0)
-            {
-#ifdef GEVR
-                anim = fa->anim;
-#else
-                anim = fa->anim + (s32) ptr_animation_table;
-#endif
-            }
- 
-            angle *= fa->x;
-            local90 = fa->z;
-            frame = fa->y;
-        }
- 
-        cur = ppointers[index]->players_cur_animation;
- 
-join_768:
-        if ((firingtable != NULL) && (anim == 0))
-        {
-#ifdef GEVR
-        {
-            /* initactorpropstuff.c turned the table's offset into a host
-             * pointer in place; its low 32 bits are no animation */
-            uintptr_t fp = (uintptr_t)firingtable->anim.anim;
-            uintptr_t fb = (uintptr_t)ptr_animation_table;
-
-            anim = (s32)(fp >= fb ? fp - fb : fp);
-        }
-#else
-            anim = *((s32 *) firingtable);
-#endif
-        }
- 
-        if (anim != cur)
-        {
-            setanim = 1;
-        }
- 
-        if (0.0f <= frame)
-        {
-            if ((ppointers[index]->bodyModel->animlooping == 0) || (frame != ppointers[index]->bodyModel->animloopframe))
-            {
-                setanim = 1;
-            }
-        }
- 
-        if (frame < 0.0f)
-        {
-            if (ppointers[index]->bodyModel->animlooping)
-            {
-                setanim = 1;
-            }
-        }
- 
-        if (setanim != 0)
-        {
-            if (ppointers[index]->bodyModel->anim2 == NULL)
-            {
-                startframe = (0.0f <= frame) ? (frame) : (0.0f);
-#ifdef GEVR
-                /*
-                 * anim, cur and players_cur_animation hold offsets into
-                 * ptr_animation_table, as the cartridge's tables do; the
-                 * address is made here at full width. As s32 addresses
-                 * ("offset + (s32) ptr_animation_table", and a pointer read
-                 * back through (s32 *)) the heap's top half was dropped: an
-                 * online match crashed in modelSetAnimFrame on a player body
-                 * (#62, x1 0x74073894).
-                 */
-                modelSetAnimation(ppointers[index]->bodyModel, (ModelAnimation *) ((uintptr_t)ptr_animation_table + (u32)anim), 0, startframe, angle, 16.0f);
-#else
-                modelSetAnimation(ppointers[index]->bodyModel, (ModelAnimation *) anim, 0, startframe, angle, 16.0f);
-#endif
-                ppointers[index]->players_cur_animation = anim;
-                ppointers[index]->field_1288 = angle;
- 
-                if (0.0f <= frame)
-                {
-                    modelSetAnimLooping(ppointers[index]->bodyModel, frame, 16.0f);
-                }
- 
-                if (0.0f <= local90)
-                {
-                    modelSetAnimEndFrame(ppointers[index]->bodyModel, local90);
-                }
-            }
- 
-            cur = ppointers[index]->players_cur_animation;
-        }
-        else
-        {
-            if (angle != ppointers[index]->field_1288)
-            {
-                modelSetAnimSpeed(ppointers[index]->bodyModel, angle, 1.0f);
-                ppointers[index]->field_1288 = angle;
-            }
- 
-            cur = ppointers[index]->players_cur_animation;
-        }
- 
-        if (anim == cur)
-        {
-            if (firingtable != NULL)
-            {
-                chr->hidden &= ~CHRHIDDEN_0400;
-                chrlvUpdateAimendbackShoulders(chr, firingtable, 0, 1, local8c);
-            }
-            else
-            {
-                chr->aimendrshoulder = 0.0f;
-                chr->aimendlshoulder = 0.0f;
-                chr->hidden |= CHRHIDDEN_0400;
-                chr->aimendback = local8c;
-            }
-        }
- 
-        chr->aimendsideback = local88;
-        chr->aimendcount = 10;
+        firingtable = gevrPlayerBodyChooseAnim(ppointers[index], chr, playerGetCrouchPos(index));
     }
  
     prop->pos.x = ppointers[index]->field_488.collision_position.x;
