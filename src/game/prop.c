@@ -1293,6 +1293,7 @@ void proplvreset2(enum LEVELID stageId)
 #ifdef GEVR
     gevrAmmoResetSpawns();
     { extern void gevrTpStageReset(void); gevrTpStageReset(); }   /* gevr_thirdperson.c */
+    { extern void gevrGhostStageReset(s32 stage); gevrGhostStageReset(stageId); }   /* gevr_ghost.c */
 #endif
     ItemModelFileRecord *pitem;
     s32 withchrs;

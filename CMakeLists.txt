@@ -357,6 +357,7 @@ list(FILTER SRC_PORT EXCLUDE REGEX "port/src/(romdata|mod)\.c$")
 # src/game/gevr_thirdperson.c added 2026-11-05 (third person, #230).
 # port/src/gevr_disarm.c, src/game/gevr_disarmed.c added 2026-11-06 (disarmed guards).
 # src/game/gevr_speedrun.c added 2026-11-11 (speedrun timer).
+# src/game/gevr_ghost.c added 2026-11-11 (ghost race).
 # port/src/gevr_settings.c added 2026-11-05 (the settings table, docs/launcher-unify.md).
 file(GLOB_RECURSE SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/*.cpp")
 list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/(external|tests)/.*")

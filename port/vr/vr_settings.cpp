@@ -211,6 +211,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "ShowStats=%d\n", VrShowStats ? 1 : 0);
     fprintf(f, "; 1 = the mission time in the lower left, to the hundredth (as the debrief counts it).\n");
     fprintf(f, "SpeedrunTimer=%d\n", VrSpeedrunTimer ? 1 : 0);
+    fprintf(f, "; 1 = race your best run of each mission as a see-through Bond (files/ghosts).\n");
+    fprintf(f, "GhostRace=%d\n", VrGhostRace ? 1 : 0);
     fprintf(f, "; 1 = Application SpaceWarp: the game renders at half the display rate and the\n");
     fprintf(f, "; headset makes the frames between from motion vectors. 0 = off, -1 = on with Bean.\n");
     fprintf(f, "SpaceWarp=%d\n", VrSpaceWarp < 0 ? -1 : VrSpaceWarp ? 1 : 0);
@@ -790,6 +792,7 @@ extern "C" void vrSettingsLoad(void)
                 VrBodiesStay = ival >= 24 ? 24 : ival >= 12 ? 12 : 0;
             else if (strcmp(key, "ShowStats") == 0) VrShowStats = (ival != 0);
             else if (strcmp(key, "SpeedrunTimer") == 0) VrSpeedrunTimer = (ival != 0);
+            else if (strcmp(key, "GhostRace") == 0) VrGhostRace = (ival != 0);
             else if (strcmp(key, "SpaceWarp") == 0) VrSpaceWarp = ival < 0 ? -1 : ival != 0;
 #ifdef GEVR_PCVR
             else if (strcmp(key, "EyeMsaa") == 0) VrEyeMsaa = ival >= 4 ? 4 : ival >= 2 ? 2 : 1;

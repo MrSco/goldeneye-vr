@@ -3914,6 +3914,16 @@ s32 propIsOfCdType(PropRecord* prop, s32 cdtypes) {
     ObjectRecord *obj;
     ret = 1;
 
+#ifdef GEVR
+    /* the race's ghost (gevr_ghost.c) is a picture of a run: nothing walks into it */
+    {
+        extern s32 gevrGhostIsChr(ChrRecord *chr);
+        if (prop->type == PROP_TYPE_CHR && gevrGhostIsChr(prop->chr)) {
+            return 0;
+        }
+    }
+#endif
+
     if (prop->type == PROP_TYPE_DOOR) {
         if ((cdtypes & CDTYPE_AIOPAQUE)) {
             obj = prop->obj;

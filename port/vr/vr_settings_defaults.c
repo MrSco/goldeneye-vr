@@ -158,6 +158,9 @@ int VrThirdPersonSide = 35;
 /* The speedrun timer (src/game/gevr_speedrun.c): the mission's time to the
  * hundredth in the lower left, GoldenEye's own clock as the debrief counts it. */
 int VrSpeedrunTimer = 0;
+/* The ghost race (src/game/gevr_ghost.c): your best run of the mission, replayed
+ * as a see-through Bond, with the split against it beside the timer. */
+int VrGhostRace = 0;
 /* Application SpaceWarp: the runtime makes every other displayed frame from
  * motion vectors and depth (vr_openxr.cpp). 1 on, 0 off, -1 (the default) on
  * while Bean is and the display runs at 120 Hz: the user's 2026-10-17 feel

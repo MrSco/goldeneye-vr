@@ -18,7 +18,7 @@ int VrMotionThrowing, VrGestureGripUse, VrGestureMineGrab;
 int VrForcePull, VrPullDisarm, VrAutoPickup, VrPullVisuals, VrBodySlots, VrBodySlotSize, VrBodySlotShow = 1;
 int VrWatchGesturePause, VrManualReloading, VrPerWeaponRecoil, VrNoKnockback, VrNoHitstun, VrDamageFlash;
 int VrThirdPerson, VrThirdPersonDist = 150, VrThirdPersonHeight = 20, VrThirdPersonSide = 35;
-int VrLeftHandedMode, VrSwapJoysticks, VrGunFitArmed, VrShowStats, VrGunSizeCheat, VrSpeedrunTimer;
+int VrLeftHandedMode, VrSwapJoysticks, VrGunFitArmed, VrShowStats, VrGunSizeCheat, VrSpeedrunTimer, VrGhostRace;
 int VrScreenShape, VrTouchHaptics = 1, VrGyroAim;   /* flat games: the screen, a phone's touch controls */
 float VrGyroSpeed = 1.5f;
 int VrMinesStickToGuards, VrBodiesStay, VrFastReinforcements, VrRagdolls, VrDismemberment, VrDismemberChance = 40;

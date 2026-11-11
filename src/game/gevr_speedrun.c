@@ -19,8 +19,14 @@
  *
  * Stereo: on the head-locked HUD panel with the messages and the countdown
  * (VR_HUD_CAPTURE_*_H, as countdownTimerRender since issue #42).
+ *
+ * Racing a ghost (gevr_ghost.c) brings the clock with it, as in Dab's Mod
+ * ("a time trial without a time on screen is not one"), and the split
+ * beside it: green ahead of the ghost, red behind (hudmsgRenderMissionTimer's
+ * colours).
  */
 #include <ultra64.h>
+#include <stdio.h>
 #include <bondtypes.h>
 #include <bondconstants.h>
 #include "bondview.h"
@@ -34,6 +40,9 @@ extern int netGetLocalSlot(void);
 extern int netHordeActive(void);
 extern s32 g_gevrStereo;
 extern int VrSpeedrunTimer;   /* vr_settings_defaults.c */
+extern s32 gevrGhostRacing(void);      /* gevr_ghost.c */
+extern s32 gevrGhostHasSplit(void);
+extern s32 gevrGhostSplit60(void);
 
 /* the countdown's columns from its first digit's centre: m m : s s : h h */
 static const s8 s_columns[8] = { 0, 8, 17, 26, 34, 43, 52, 60 };
@@ -51,7 +60,7 @@ static const s8 s_columns[8] = { 0, 8, 17, 26, 34, 43, 52, 60 };
  */
 s32 gevrSpeedrunTimerShown(void)
 {
-    if (!VrSpeedrunTimer || g_CurrentPlayer == NULL)
+    if (!(VrSpeedrunTimer || gevrGhostRacing()) || g_CurrentPlayer == NULL)
     {
         return FALSE;
     }
@@ -67,6 +76,21 @@ s32 gevrSpeedrunTimerShown(void)
         return FALSE;
     }
     return g_CameraMode == CAMERAMODE_FP && is_timer_active && !g_CurrentPlayer->bonddead;
+}
+
+/* gunDrawHudString's outlined digits in a colour of their own, left aligned on y */
+static Gfx *gevrHudStringColour(Gfx *gdl, char *text, s32 x, s32 y, u32 colour)
+{
+    s32 w = 0;
+    s32 h = 0;
+    s32 x1;
+    s32 y1;
+
+    textMeasure(&h, &w, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+    x1 = x;
+    y1 = y - h;
+    return textRenderOutlined(gdl, &x1, &y1, text, ptrFontBankGothicChars, ptrFontBankGothic, colour, 0x646464FF,
+                              (s32)viGetX(), viGetY(), 0, 0);
 }
 
 Gfx *gevrSpeedrunTimerRender(Gfx *gdl)
@@ -132,6 +156,24 @@ Gfx *gevrSpeedrunTimerRender(Gfx *gdl)
         {
             gdl = gunDrawHudInteger(gdl, digits[i], x + s_columns[i], HUDHALIGN_MIDDLE, y, HUDVALIGN_BOTTOM, 1);
         }
+    }
+
+    /* the split against the ghost, after the hundredths */
+    if (gevrGhostHasSplit())
+    {
+        s32 split = gevrGhostSplit60();
+        s32 a = split < 0 ? -split : split;
+        char text[24];
+
+        if (a >= 3600)
+        {
+            snprintf(text, sizeof(text), "%c%d:%02d.%02d\n", split < 0 ? '-' : '+', a / 3600, (a / 60) % 60, ((a % 60) * 100) / 60);
+        }
+        else
+        {
+            snprintf(text, sizeof(text), "%c%d.%02d\n", split < 0 ? '-' : '+', a / 60, ((a % 60) * 100) / 60);
+        }
+        gdl = gevrHudStringColour(gdl, text, x + s_columns[7] + 12, y, split < 0 ? 0x40FF40FF : 0xFF6040FF);
     }
 
     gdl = combiner_bayer_lod_perspective(gdl);

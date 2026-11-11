@@ -3797,6 +3797,11 @@ void chrTestHit(PropRecord *prop, ShotData *shotdata)
     /* third person: the shot leaves the camera, and whoever stands between
      * the camera and Bond is behind Bond's gun (gevr_thirdperson.c) */
     if (prop->zDepth < gevrTpShotMinDepth()) return;
+    /* shots pass through the race's ghost (gevr_ghost.c) */
+    {
+        extern s32 gevrGhostIsChr(ChrRecord *chr);
+        if (gevrGhostIsChr(prop->chr)) return;
+    }
     posed = model ? model->render_pos : NULL;
     base = model ? gevrAvatarCollisionPose(model) : NULL;
     if (base) model->render_pos = base;

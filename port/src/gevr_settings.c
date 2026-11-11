@@ -38,7 +38,7 @@ extern int VrManualReloading;
 extern int VrPerWeaponRecoil;
 extern int VrNoKnockback, VrNoHitstun, VrDamageFlash;
 extern int VrThirdPerson, VrThirdPersonDist, VrThirdPersonHeight, VrThirdPersonSide;
-extern int VrLeftHandedMode, VrSwapJoysticks, VrGunFitArmed, VrShowStats, VrGunSizeCheat, VrSpeedrunTimer;
+extern int VrLeftHandedMode, VrSwapJoysticks, VrGunFitArmed, VrShowStats, VrGunSizeCheat, VrSpeedrunTimer, VrGhostRace;
 extern int VrMinesStickToGuards, VrBodiesStay, VrFastReinforcements;
 extern int VrRagdolls, VrDismemberment, VrDismemberChance;
 extern float VrDismemberDamage;
@@ -152,6 +152,8 @@ static const char *blockedTurnSpeed(void) { return VrUseSnapTurn > 0.0f ? "Smoot
 static const char *blockedThirdPerson(void) { return VrPlayMode ? "Flat screen only" : NULL; }
 /* the speedrun timer (src/game/gevr_speedrun.c): a mission's clock, solo or co-op */
 static const char *blockedSpeedrun(void) { return netIsActive() && !gevrNetConfigCoop() ? "Solo and co-op only" : NULL; }
+/* the ghost race (src/game/gevr_ghost.c): solo missions */
+static const char *blockedGhost(void) { return netIsActive() ? "Solo only" : NULL; }
 /* The AI ally (#194, src/game/gevr_ally.c): GoldenEye solo, co-op and Horde, the host's */
 static const char *blockedAlly(void)
 {
@@ -520,6 +522,9 @@ static const Row s_rows[] = {
     { .label = "Speedrun timer", .tooltip = "The mission time in the lower left, to the hundredth: the debrief's clock, stopped in cutscenes and on the watch.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_RULES, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_BOTH, .ivar = &VrSpeedrunTimer, .def = NAN,
       .blocked = blockedSpeedrun },
+    { .label = "Ghost race", .tooltip = "Race your best run of the mission as a see-through Bond, with the time you are ahead or behind beside the timer.", .kind = GEVR_SET_TOGGLE,
+      .section = GEVR_SEC_RULES, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_BOTH, .ivar = &VrGhostRace, .def = NAN,
+      .blocked = blockedGhost },
     /* The volumes for every game, solo too (user: under Multiplayer they read
      * as multiplayer only): the same two settings as Multiplayer > Audio's
      * rows below, which the match's pause panel shows; in game, the panel's

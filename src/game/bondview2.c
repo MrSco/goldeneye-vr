@@ -796,6 +796,14 @@ static void gevrCheatProbe(s32 inlevel)
             gevrRestartToLauncher();
             return;
         }
+        /* "ghostsave": keep the run so far as this mission's ghost (gevr_ghost.c) */
+        if (strcasecmp(word, "ghostsave") == 0)
+        {
+            extern void gevrGhostSaveNow(void);
+
+            gevrGhostSaveNow();
+            continue;
+        }
         /* "where": log where Bond stands and faces, as a gevr_warp.txt "at" line
          * that puts a test script back on the spot (gevrWarpProbe) */
         if (strcasecmp(word, "where") == 0)
@@ -15677,6 +15685,17 @@ void bondviewMovePlayerUpdateViewport(s8 stick_x, s8 stick_y, u16 buttons)
     {
         bondviewFrozenMoveBond(stick_x, stick_y, buttons, (u16) g_CurrentPlayer->buttons_pressed);
     }
+#ifdef GEVR
+    /* the ghost race (gevr_ghost.c): this tick of the run recorded, the ghost posed */
+    if (getPlayerCount() == 1)
+    {
+        extern void gevrGhostRecord(void);
+        extern void gevrGhostTick(void);
+
+        gevrGhostRecord();
+        gevrGhostTick();
+    }
+#endif
 
 #if defined(BUGFIX_R1)
     watch_time_0 += jpD_800484D0;
