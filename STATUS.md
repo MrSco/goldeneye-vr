@@ -5,8 +5,8 @@ in docs/archive/ (the v0.5.15 batch as it stood before release is
 [status-2026-11-10](docs/archive/status-2026-11-10.md)); features keep their
 own notes. No game data is shipped; building publishes nothing.
 
-**Release:** v0.5.16 (versionCode 129, protocol 26), 2026-11-11
-([notes](docs/releases/v0.5.16.md)): speedrunning (timer, ghost race, ghost
+**Release:** v0.5.16 (versionCode 129, protocol 26), 2026-11-11, tag on
+976aa580 ([notes](docs/releases/v0.5.16.md)): speedrunning (timer, ghost race, ghost
 boards on the lobby Worker, LiveSplit, debrief stamp; docs/speedrun.md).
 Plays online with v0.5.15. Downloads as v0.5.15's: Quest APK, Windows zip,
 and experimental Linux zip, Android phone APK, Steam Frame APK and
