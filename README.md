@@ -9,8 +9,8 @@
 <h1 align="center">GoldenEye VR</h1>
 
 <p align="center">
-  <b>GoldenEye 007, running natively on your Meta Quest.</b><br>
-  No PC, no streaming, no emulator: a from-source port built on the GoldenEye decompilation.
+  <b>GoldenEye 007, running natively on your Meta Quest, your PC, your phone and more.</b><br>
+  No streaming, no emulator: a from-source port built on the GoldenEye decompilation.
 </p>
 
 <p align="center">
@@ -18,11 +18,15 @@
   <a href="https://github.com/MrSco/goldeneye-vr/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/MrSco/goldeneye-vr?style=for-the-badge&color=d4a017"></a>
   <a href="https://github.com/MrSco/goldeneye-vr/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/MrSco/goldeneye-vr/total?style=for-the-badge&color=8a6d1f"></a>
   <img alt="Meta Quest 2 / 3 / 3S / Pro" src="https://img.shields.io/badge/Meta%20Quest-2%20%7C%203%20%7C%203S%20%7C%20Pro-1c1c1c?style=for-the-badge">
+  <img alt="Windows, Linux, Android, iOS, Steam Frame" src="https://img.shields.io/badge/also-Windows%20%7C%20Linux%20%7C%20Android%20%7C%20iOS%20%7C%20Steam%20Frame-1c1c1c?style=for-the-badge">
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-2f2f2f?style=for-the-badge"></a>
 </p>
 
 <p align="center">
+  <a href="#-features-at-a-glance">Features</a> ·
   <a href="#-install-it-in-5-steps">Install</a> ·
+  <a href="#-other-platforms-from-v0515">Other platforms</a> ·
+  <a href="#%EF%B8%8F-speedrunning">Speedrunning</a> ·
   <a href="#-goldeneye-x-optional-wip">GE-X</a> ·
   <a href="#-controls">Controls</a> ·
   <a href="#-troubleshooting">Troubleshooting</a> ·
@@ -39,12 +43,62 @@
 > file on your headset. Please don't ask for ROMs, and don't share them in Issues.
 
 > [!NOTE]
-> **v0.4.22** fixes co-op mission starts blocked by unused player bodies,
-> including Facility's air vent, and preserves your start through the intro.
-> It plays online with v0.4.16 and newer; update every co-op headset to get
-> the fixes. See [the v0.4.22 notes](docs/releases/v0.4.22.md).
+> **New in v0.5.16: speedrunning.** A mission timer to the hundredth, a ghost
+> of your best run to race, online ghost boards, LiveSplit from the headset
+> and a debrief stamp for run videos. It plays online with v0.5.15. See
+> [the v0.5.16 notes](docs/releases/v0.5.16.md).
 
-## ✨ What you get
+## ✨ Features at a glance
+
+| Platform | How you play | Status |
+|---|---|---|
+| 🥽 **Meta Quest** 2, 3, 3S, Pro | Stereo VR, or a big flat or curved virtual screen | ✅ Main target |
+| 🖥️ **Windows PC** | On your monitor (mouse and keyboard or a pad), or PC VR through Quest Link, Virtual Desktop or SteamVR | ✅ Released |
+| 🐧 **Linux PC** | Flat and PC VR, laid out like Windows | 🧪 Experimental |
+| 📱 **Android** phones and tablets | Touch controls, gyro aim or a pad | 🧪 Experimental |
+| 🍎 **iPhone and iPad** | Touch controls, an iPad's mouse and keyboard (SideStore) | 🧪 Experimental |
+| 🎮 **Steam Frame** | The Quest's game with the standard OpenXR loader | 🧪 Experimental |
+
+Every platform runs the same game from **your own ROM**, with the same launcher, and joins the same online games.
+
+**🎯 Real VR GoldenEye**
+- Aim with your hand, look and lean with your head, a 3D sight and the ammo on the gun
+- Bond's sleeve and watch on your arm: health, armour, radar, and the watch laser
+- Gadgets, mines and knives in your hand, thrown with your arm
+- Working scopes, two-handed guns, melee with either hand, shell casings
+- Optional **force pull**: tug a gun out of a guard's hand or catch a grenade
+- Smooth or snap turning, comfort vignette, left-handed mode, seated play
+
+**🌐 Online, together**
+- Deathmatch for up to **eight**, with **bots** for empty slots
+- **Co-op campaign** and endless **Horde** for up to four, with an optional **AI ally**
+- Internet lobbies (no IP addresses, no router setup), LAN, voice chat, host migration
+- **Friends and invites**, optionally through **Discord**, with join links
+- **Crossplay**: VR, mouse, pad and touch players together, or "VR players only"
+- **Dedicated servers** with a one-line setup
+
+**⏱️ Speedrunning**
+- A **timer** to the hundredth: the game's own mission clock
+- **Race your ghost**: your best run as a see-through Bond, with a live split
+- **Ghost boards**: top-100 leaderboards; download anyone's run and race it
+- **LiveSplit** on your PC, driven from the headset; a **debrief stamp** for run videos
+
+**🎨 Make it look new**
+- **HD textures** and an **HD + AI** upscale pack, downloaded in the launcher
+- **Project Bean** visuals from the XBLA remaster (from your own copy)
+- **GoldenEye X** guns, hands and hand reloading (from your own patched ROM)
+- Optional **ragdolls** and dismemberment, **3D sound**, 16:9 and third person
+
+**🗺️ More to play**
+- **Goldfinger 64**, **Tomorrow Never Dies 64** and **Mirror Mode** as separate campaigns (your own patched ROMs)
+- The classic **cheats**, tiny or big guns, and **unlock everything**
+
+**🧰 Easy to live with**
+- An in-VR **launcher** with everything on tabs, and an in-game panel
+- **Updates in the headset** and in the PC launcher, no computer needed
+- **Send a debug log** from the launcher; crash reports reach us
+
+## 🥽 In the headset
 
 **Two ways to play. Pick one at launch, and switch any time in game.**
 
@@ -64,7 +118,7 @@
 | Smooth or snap turning, and an optional **comfort vignette** for motion sickness. | |
 
 Also:
-- An **in-VR launcher** with **Play**, **Multiplayer**, **Controls** (**Hands**, **Gestures**, **Throwing**, **Haptics**), **Comfort**, **Screen**, **Rules** (**Game rules**, **AI ally**, **Cheats**) and **Mods** tabs: ROM check, display mode, screen shape and size, turning, comfort, **display rate** (Auto and the headset's supported rates), **aim steadying**, a **left-handed** mode, **swap sticks**, **gun fit** (set where the gun sits in your hand), an in-game **stats** readout for troubleshooting, and **Cheats** (the classic cheats, tiny or big guns, and **unlock all missions and cheats**).
+- An **in-VR launcher** with **Play**, **Ghosts**, **Multiplayer**, **Controls** (**Hands**, **Gestures**, **Throwing**, **Haptics**), **Comfort**, **Screen**, **Rules** (**Game rules**, **AI ally**, **Cheats**) and **Mods** tabs: ROM check, display mode, screen shape and size, turning, comfort, **display rate** (Auto and the headset's supported rates), **aim steadying**, a **left-handed** mode, **swap sticks**, **gun fit** (set where the gun sits in your hand), an in-game **stats** readout for troubleshooting, and **Cheats** (the classic cheats, tiny or big guns, and **unlock all missions and cheats**).
 - **HD textures**: the launcher's **Mods** page downloads a fan-made texture pack on request and installs it in the headset:
   - *GoldenEye 007 HD* by intermissionfb and GhostlyDark (evilgames.eu, 129 MB).
   - *GoldenEye 007 HD + AI* (251 MB), our [fork](https://github.com/MrSco/GoldenEye-007-HD). It adds AI upscales of the game's own textures for the ones the pack doesn't cover yet: guards, weapons, parts of levels.
@@ -413,6 +467,29 @@ to read your wrist without opening the pause menu; the Menu button still pauses.
 | **Hold right stick click** (1 s) | Switch to stereo VR |
 | **Grips** (in Bond's watch) | Turn the watch pages |
 
+## ⏱️ Speedrunning
+
+All of it is on the launcher's **Play** and **Ghosts** tabs. See
+[docs/speedrun.md](docs/speedrun.md) for how it works.
+
+- **Speedrun timer** (Play): the mission time in the lower left, to the
+  hundredth. It is the debrief's own clock, stopped in cutscenes and on the
+  watch, so it reads what GoldenEye's boards time.
+- **Ghost race** (Play): your best run of each mission and difficulty is kept
+  when you finish faster, and replayed as a see-through Bond. The split beside
+  the timer says how far ahead (green) or behind (red) you are.
+- **Ghost boards** (Ghosts tab): the top 100 of each mission and difficulty,
+  all runs or VR or flat only. **Race** downloads someone's run and makes it
+  your ghost; **Upload** sends yours under your Friends name. Boards rank the
+  original rules (no force pull, AI ally or changed speed).
+- **LiveSplit** (Play): tick it, enter your PC's address, and in LiveSplit
+  choose **Control > Start TCP Server**. It starts with Bond's first step,
+  splits at each completed mission and keeps the debrief's time as Game Time.
+- **Debrief stamp:** with any of these on, the debrief lists the version,
+  platform, VR or flat, rules, frame steps, auto-aim, turning and display
+  rate, for anyone checking a run's video.
+- **Strafe running** works as on the N64, with every controller.
+
 ## 🌐 Multiplayer (experimental)
 
 Host a deathmatch alone or play with up to eight players, each in their own headset, on any of the 26 campaign maps and multiplayer arenas. Or play the campaign together: up to four players in co-op, the host picking the missions.
@@ -657,8 +734,10 @@ headset verification; see [the investigation](docs/crash-4bde84c2.md).
 
 ## 🧭 Status
 
-The whole game boots, and the Dam has been played end to end in both modes. Other levels
-are playable but less tested. Expect rough edges: this is an early release.
+The whole campaign plays in stereo VR and on the screen, on the Quest and the PC, with
+Goldfinger 64, Tomorrow Never Dies 64 and Mirror Mode beside it. Multiplayer and the
+Linux, Android, Steam Frame and iPhone/iPad builds are still experimental, and each
+release lists what needs testing under "Help wanted".
 Found a bug? Open an [Issue](https://github.com/MrSco/goldeneye-vr/issues) with:
 - the build line from the launcher
 - your headset model

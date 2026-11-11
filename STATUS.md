@@ -5,11 +5,12 @@ in docs/archive/ (the v0.5.15 batch as it stood before release is
 [status-2026-11-10](docs/archive/status-2026-11-10.md)); features keep their
 own notes. No game data is shipped; building publishes nothing.
 
-**Release:** v0.5.15 (versionCode 128, protocol 26), 2026-11-10, tag on
-d26a8a40 ([notes](docs/releases/v0.5.15.md)): the v0.5.15 batch (test.1 to
-test.32) and the new platforms. Downloads: Quest APK, Windows zip, and
-experimental Linux zip, Android phone APK, Steam Frame APK and iPhone/iPad
-IPA (SideStore), plus the dedicated servers. Test builds from test.12 on join it.
+**Release:** v0.5.16 (versionCode 129, protocol 26), 2026-11-11
+([notes](docs/releases/v0.5.16.md)): speedrunning (timer, ghost race, ghost
+boards on the lobby Worker, LiveSplit, debrief stamp; docs/speedrun.md).
+Plays online with v0.5.15. Downloads as v0.5.15's: Quest APK, Windows zip,
+and experimental Linux zip, Android phone APK, Steam Frame APK and
+iPhone/iPad IPA (SideStore), plus the dedicated servers.
 **Pre-release:** none open. The next batch gets its own branch.
 
 ## Platforms (docs/pc-platforms.md, docs/mobile-platforms.md)
@@ -26,7 +27,11 @@ IPA (SideStore), plus the dedicated servers. Test builds from test.12 on join it
 - **Crossplay:** NET_INPUT classes in HELLO and NET_MSG 59/60 (additive), VR
   players only / hide flat (Worker), roster "Plays", LAN beacon tail.
 
-## Help wanted (listed in the v0.5.15 notes)
+## Help wanted (listed in the v0.5.15 and v0.5.16 notes)
+
+- Speedrun: LiveSplit against a real LiveSplit from a Quest; the debrief
+  stamp's VR values (turning, display rate, SpaceWarp); a long walked run's
+  ghost animation.
 
 - Two headsets: force pull online (and on a dedicated server), co-op guards'
   grenades and rockets; the online match screen's tabs as host and client.
@@ -59,7 +64,7 @@ IPA (SideStore), plus the dedicated servers. Test builds from test.12 on join it
 
 ## Releases
 
-Each has docs/releases/vX.Y.Z.md. v0.5.15 new platforms, crossplay, Friends
+Each has docs/releases/vX.Y.Z.md. v0.5.16 speedrunning; v0.5.15 new platforms, crossplay, Friends
 and invites, unified launcher, force pull; v0.5.14 all maps in
 Horde/Deathmatch, dedicated server; v0.5.13 co-op world from the host
 ([#216](docs/issue-216-coop-world.md)); v0.5.12 Bean frame rate; v0.5.11

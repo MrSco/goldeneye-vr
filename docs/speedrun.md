@@ -140,8 +140,7 @@ hands), a full mission completion saving through the debrief.
 
 ## Next
 
-- Ghost boards live: the Worker's branch `claude/ghost-boards` (goldeneyevr.com
-  repo) merged and deployed, with the user's OK. Until then the Ghosts tab
-  says the board did not load.
+- (The ghost boards went live 2026-11-11 with v0.5.16: goldeneyevr.com main
+  78dbb7c, Worker version 4eb1d4a3.)
 - LiveSplit against a real LiveSplit (Windows), from the headset over Wi-Fi.
 - The stamp on a headset's debrief (Quest VR: the turning, the display rate).
