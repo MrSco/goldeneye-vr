@@ -7,6 +7,7 @@
 #include "gevr_launcher_ui.h"
 #include "gevr_settings_ui.h"
 #include "gevr_romlayout.h"
+#include "gevr_ghosts_ui.h"
 #include "imgui/imgui_internal.h"
 #include <cstdio>
 #include <cstdlib>
@@ -28,6 +29,28 @@ static int VrUnlockAll = 1;
 static int customPages;
 static void gevrHapticsPage(const ImVec4 &, const ImVec4 &, const ImVec4 &) { customPages++; }
 static void gevrModsPage(unsigned, const ImVec4 &, const ImVec4 &, const ImVec4 &) { customPages++; }
+// the Ghosts tab (gevr_ghosts_ui.h) at its fullest: a page of the board with the
+// longest names the Friends service allows, your run ranked and refused, a
+// downloaded run raced with the setting off, and a message that wraps
+static void gevrGhostsPage(const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad) {
+    static const char *const missions[] = { "Surface II", "Dam" };
+    static GevrGhostsView v;
+    v.missions = missions; v.missionCount = 2; v.difficulty = 1; v.plays = 2;
+    v.haveBest = true; v.bestTime60 = 59 * 3600 + 59 * 60 + 59; v.bestFlags = 0x09; v.bestRank = 100; v.bestUnranked = true;
+    v.racing = std::string(32, 'W') + " (GE-7K3QX2), 1:02:03.05"; v.racingOther = true; v.raceOn = false;
+    v.state = GEVR_GHOSTS_LOADED;
+    v.rows.clear();
+    for (int i = 0; i < 100; i++) {
+        GevrGhostRow r;
+        r.id = i; r.time60 = 216000 + i; r.flags = i & 1; r.code = "7K3QX2"; r.name = std::string(32, 'W');
+        r.mine = i == 1; r.racing = i == 2;
+        v.rows.push_back(r);
+    }
+    v.page = 0;
+    v.message = "Uploaded 60 runs: 58 on the boards. Friends is still signing in; try again in a moment, and a little more.";
+    v.messageBad = true;
+    gevrGhostsPageDraw(v, gold, good, bad);
+}
 // Multiplayer: its Host > Fun and Audio pages, cut from gevrMultiplayerPage, in
 // its body (gevrLauncherBeginBody) above its status line and buttons
 struct NetMatchConfig { int mode, scenario; };
@@ -138,7 +161,7 @@ static int sweep(const char *state) {
             check(pageRight <= pageLimitX + 1, what);
             // the table's labels fit their column (gevrSettingsSection's split)
             static const int lsec[GEVR_LTAB_COUNT][4] = {
-                { GEVR_LSEC_PLAY }, { -1 }, { GEVR_LSEC_HANDS, GEVR_LSEC_GESTURES, GEVR_LSEC_THROWING, -1 },
+                { GEVR_LSEC_PLAY }, { -1 }, { -1 }, { GEVR_LSEC_HANDS, GEVR_LSEC_GESTURES, GEVR_LSEC_THROWING, -1 },
                 { GEVR_LSEC_COMFORT }, { GEVR_LSEC_SCREEN }, { GEVR_LSEC_RULES, GEVR_LSEC_ALLY, GEVR_LSEC_CHEATS }, { -1 } };
             const int section = lsec[tab][sub < 0 ? 0 : sub];
             if (section >= 0 && section != GEVR_LSEC_CHEATS) settingsFitControls(api, section, GEVR_SET_LAUNCHER, pageWidth, state);
@@ -171,7 +194,7 @@ int main() {
     pages += sweep("co-op host");
     s_host = 0; s_coop = 0; s_config.mode = 0; s_config.scenario = 1; s_netSpeed = 4;
     pages += sweep("deathmatch joiner");
-    check(pages == 4 * 11, "every settings page and Multiplayer's Fun and Audio, in four states");
+    check(pages == 4 * 12, "every settings page, Ghosts, and Multiplayer's Fun and Audio, in four states");
     // both tab rows fit without shrinking
     ImGuiContext &g = *ImGui::GetCurrentContext();
     int bars = 0;

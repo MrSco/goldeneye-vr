@@ -387,10 +387,15 @@ final class LobbyClient {
 
     // Also FriendsClient's (FriendsClient.Http).
     static JSONObject http(String method, String path, JSONObject data, String token) throws Exception {
+        return http(method, path, data, token, 65536, 5000);
+    }
+
+    /** As above, with a bigger reply and longer to wait for it (a ghost run: FriendsClient's ghost-*). */
+    static JSONObject http(String method, String path, JSONObject data, String token, int maxReply, int timeoutMs) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(path).openConnection();
         connection.setRequestMethod(method);
         connection.setConnectTimeout(5000);
-        connection.setReadTimeout(5000);
+        connection.setReadTimeout(timeoutMs);
         connection.setRequestProperty("Accept", "application/json");
         if (!token.isEmpty()) connection.setRequestProperty("Authorization", "Bearer " + token);
         if (data != null) {
@@ -404,7 +409,7 @@ final class LobbyClient {
             if (input != null) {
                 byte[] chunk = new byte[4096];
                 int read;
-                while ((read = input.read(chunk)) != -1 && bytes.size() < 65536) bytes.write(chunk, 0, read);
+                while ((read = input.read(chunk)) != -1 && bytes.size() < maxReply) bytes.write(chunk, 0, read);
             }
             JSONObject response;
             try { response = bytes.size() == 0 ? new JSONObject() : new JSONObject(bytes.toString("UTF-8")); }

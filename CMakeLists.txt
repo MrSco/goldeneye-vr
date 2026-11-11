@@ -381,6 +381,7 @@ if(GEVR_MOBILE)
     "${CMAKE_SOURCE_DIR}/port/vr/vr_screen.cpp"
     "${CMAKE_SOURCE_DIR}/port/vr/vr_launcher.cpp"
     "${CMAKE_SOURCE_DIR}/port/vr/vr_friends.cpp"
+    "${CMAKE_SOURCE_DIR}/port/vr/vr_ghosts.cpp"
     "${CMAKE_SOURCE_DIR}/port/vr/vr_discord.cpp"
     "${CMAKE_SOURCE_DIR}/port/vr/vr_pause_menu.cpp"
     "${CMAKE_SOURCE_DIR}/port/vr/vr_android_jni.cpp"
@@ -404,6 +405,7 @@ if(GEVR_PC)
   list(APPEND SRC_PORT_CXX
     "${CMAKE_SOURCE_DIR}/port/vr/vr_launcher.cpp"
     "${CMAKE_SOURCE_DIR}/port/vr/vr_friends.cpp"
+    "${CMAKE_SOURCE_DIR}/port/vr/vr_ghosts.cpp"
     "${CMAKE_SOURCE_DIR}/port/vr/vr_discord.cpp"
     "${CMAKE_SOURCE_DIR}/port/vr/vr_pause_menu.cpp"
     "${CMAKE_SOURCE_DIR}/port/vr/imgui/imgui.cpp"

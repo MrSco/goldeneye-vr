@@ -29,7 +29,23 @@ import java.util.concurrent.TimeUnit;
  * and presence stops a minute after the last one: a sleeping headset goes offline.
  */
 final class FriendsClient {
-    interface Http { JSONObject call(String method, String url, JSONObject body, String token) throws Exception; }
+    interface Http {
+        JSONObject call(String method, String url, JSONObject body, String token) throws Exception;
+        /** A ghost run (ghost-*): megabytes each way, and longer to send them. A test's fake answers both alike. */
+        default JSONObject large(String method, String url, JSONObject body, String token) throws Exception {
+            return call(method, url, body, token);
+        }
+    }
+    // The longest run the game records (gevr_ghost.c GHOST_MAXSAMPLES) is 1.5 MB; base64 and JSON on top.
+    static final int GHOST_MAX_FILE = 128 + 65536 * 24;
+    private static final Http NETWORK = new Http() {
+        @Override public JSONObject call(String method, String url, JSONObject body, String token) throws Exception {
+            return LobbyClient.http(method, url, body, token);
+        }
+        @Override public JSONObject large(String method, String url, JSONObject body, String token) throws Exception {
+            return LobbyClient.http(method, url, body, token, GHOST_MAX_FILE / 3 * 4 + 65536, 30_000);
+        }
+    };
 
     private static final String TAG = "GEVR-Friends";
     static final String BASE = "https://lobbies.goldeneyevr.com/v1";
@@ -60,7 +76,7 @@ final class FriendsClient {
     private String lastError = "";
 
     FriendsClient(File file) {
-        this(file, LobbyClient::http, Executors.newSingleThreadScheduledExecutor(r -> {
+        this(file, NETWORK, Executors.newSingleThreadScheduledExecutor(r -> {
             Thread thread = new Thread(r, "friends-client");
             thread.setDaemon(true);
             return thread;
@@ -264,6 +280,61 @@ final class FriendsClient {
                 soon();
                 break;
             }
+            // The ghost boards (the Worker's ghosts.ts; the launcher's Ghosts tab, vr_ghosts.cpp).
+            // Each answers with its own events, a failure included, so the tab is never left waiting.
+            case "ghost-board": {
+                // ghost-board|campaign|stage|difficulty|plays (vr, flat or empty)
+                if (f.length != 5) return;
+                String key = f[1] + "|" + f[2] + "|" + f[3] + "|" + f[4];
+                try {
+                    JSONArray entries = http.call("GET", BASE + "/ghosts?campaign=" + f[1] + "&stage=" + f[2] + "&difficulty=" + f[3]
+                            + (f[4].isEmpty() ? "" : "&plays=" + f[4]), null, "").optJSONArray("entries");
+                    emit("GHOSTS_BEGIN|" + key);
+                    for (int i = 0; entries != null && i < entries.length(); i++) {
+                        JSONObject x = entries.getJSONObject(i);
+                        // the name last: it may hold anything but '|'
+                        emit("GHOST|" + x.getLong("id") + "|" + x.getInt("time60") + "|" + x.optInt("flags") + "|"
+                                + clean(x.getString("code")) + "|" + clean(x.getString("name")));
+                    }
+                    emit("GHOSTS_END|" + key);
+                } catch (Exception e) {
+                    emit("GHOST_FAIL|board|" + key + "|" + clean(String.valueOf(e.getMessage())));
+                }
+                break;
+            }
+            case "ghost-upload": {
+                // ghost-upload|path: one of this headset's runs, its owner already this friend code
+                if (f.length != 2) return;
+                try {
+                    if (!ready()) throw new Exception("Friends is still signing in; try again in a moment");
+                    byte[] bytes = readFile(new File(f[1]), GHOST_MAX_FILE);
+                    JSONObject r = http.large("POST", BASE + "/me/ghosts", new JSONObject().put("data", base64(bytes)), token());
+                    emit("GHOST_UPLOADED|" + f[1] + "|" + (r.optBoolean("stored") ? 1 : 0) + "|" + r.optInt("rank") + "|"
+                            + clean(r.optString("reason")));
+                } catch (LobbyClient.HttpException e) {
+                    if (e.status == 401) failed(e);
+                    emit("GHOST_FAIL|upload|" + f[1] + "|" + clean(String.valueOf(e.getMessage())));
+                } catch (Exception e) {
+                    emit("GHOST_FAIL|upload|" + f[1] + "|" + clean(String.valueOf(e.getMessage())));
+                }
+                break;
+            }
+            case "ghost-get": {
+                // ghost-get|id|path: a board's run, written where the race reads it
+                if (f.length != 3) return;
+                try {
+                    JSONObject r = http.large("GET", BASE + "/ghosts/" + f[1], null, "");
+                    byte[] bytes = unbase64(r.getString("data"));
+                    if (bytes == null || bytes.length > GHOST_MAX_FILE) throw new Exception("Not a ghost file");
+                    File out = new File(f[2]), part = new File(f[2] + ".part");
+                    try (FileOutputStream stream = new FileOutputStream(part)) { stream.write(bytes); }
+                    if (!part.renameTo(out) && !(out.delete() && part.renameTo(out))) throw new IOException("Could not save " + out);
+                    emit("GHOST_SAVED|" + f[1] + "|" + f[2]);
+                } catch (Exception e) {
+                    emit("GHOST_FAIL|get|" + f[1] + "|" + clean(String.valueOf(e.getMessage())));
+                }
+                break;
+            }
             case "reset":
                 // Start over with a new friend code (after a sign-out, or by choice).
                 id = secret = friendCode = restoreCode = discordRefresh = discordName = "";
@@ -276,6 +347,52 @@ final class FriendsClient {
                 break;
             default: break;
         }
+    }
+
+    private static byte[] readFile(File file, int max) throws IOException {
+        if (file.length() > max) throw new IOException("Too large: " + file.getName());
+        byte[] bytes = new byte[(int) file.length()];
+        try (InputStream in = new FileInputStream(file)) {
+            int at = 0, n;
+            while (at < bytes.length && (n = in.read(bytes, at, bytes.length - at)) > 0) at += n;
+            if (at != bytes.length) throw new IOException("Short read: " + file.getName());
+        }
+        return bytes;
+    }
+
+    // Base64 by hand: java.util.Base64 is API 26 (the phone build allows 24), and the JVM tests stub android.util's.
+    private static final char[] B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".toCharArray();
+
+    static String base64(byte[] in) {
+        StringBuilder out = new StringBuilder((in.length + 2) / 3 * 4);
+        for (int i = 0; i < in.length; i += 3) {
+            int n = (in[i] & 0xff) << 16 | (i + 1 < in.length ? (in[i + 1] & 0xff) << 8 : 0) | (i + 2 < in.length ? in[i + 2] & 0xff : 0);
+            out.append(B64[n >> 18 & 63]).append(B64[n >> 12 & 63])
+               .append(i + 1 < in.length ? B64[n >> 6 & 63] : '=').append(i + 2 < in.length ? B64[n & 63] : '=');
+        }
+        return out.toString();
+    }
+
+    /** The bytes, or null if the text is not standard base64. */
+    static byte[] unbase64(String in) {
+        int len = in.length();
+        while (len > 0 && in.charAt(len - 1) == '=') len--;
+        if (len % 4 == 1) return null;
+        byte[] out = new byte[len * 3 / 4];
+        int bits = 0, value = 0, at = 0;
+        for (int i = 0; i < len; i++) {
+            char c = in.charAt(i);
+            int d = c >= 'A' && c <= 'Z' ? c - 'A' : c >= 'a' && c <= 'z' ? c - 'a' + 26 : c >= '0' && c <= '9' ? c - '0' + 52
+                    : c == '+' ? 62 : c == '/' ? 63 : -1;
+            if (d < 0) return null;
+            value = (value << 6 | d) & 0xffffff;
+            bits += 6;
+            if (bits >= 8) {
+                bits -= 8;
+                out[at++] = (byte) (value >> bits);
+            }
+        }
+        return out;
     }
 
     private boolean ready() { return "ready".equals(status); }

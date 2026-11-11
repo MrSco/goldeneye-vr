@@ -30,7 +30,13 @@
  * The file (little endian, fixed size, hashed) is Dab's layout with this
  * port's magic and stamps: the header says what the run was set under
  * (stereo or flat, the art set, force pull, the ally, third person, the
- * campaign), shown on the launcher's row so a ghost is raced knowingly.
+ * movement speed, the campaign), shown on the launcher's row so a ghost is
+ * raced knowingly. Each campaign keeps its own files (ge-, gf-, tnd-,
+ * mirror-): a ROM hack's Dam is not GoldenEye's.
+ *
+ * Which run a mission races is the launcher's Ghosts tab's (vr_ghosts.cpp):
+ * the best on file, or a run downloaded from the ghost boards (the lobby
+ * Worker's ghosts.ts, Dab's ghost server), named in "<mission>-race.txt".
  */
 #include <ultra64.h>
 #include <stdio.h>
@@ -46,11 +52,12 @@
 #include "gun.h"
 #include "fs.h"
 #include "system.h"
+#include "gevr_ghost.h"
 
 extern bool netIsActive(void);
 extern s32 g_gevrStereo;
 extern int VrGhostRace, VrSpeedrunTimer;   /* vr_settings_defaults.c */
-extern int VrBeanModels, VrGexGuns, VrForcePull, VrAlly, VrThirdPerson, VrCampaign;
+extern int VrBeanModels, VrGexGuns, VrForcePull, VrAlly, VrThirdPerson, VrCampaign, VrMovementSpeed;
 extern const char gevrBuildId[];
 
 extern struct weapon_firing_animation_table *gevrPlayerBodyChooseAnim(struct player *pl, ChrRecord *chr, s32 crouchpos);
@@ -91,13 +98,7 @@ extern s32 gevrBeanIsAvailable(void);
 #define GSF_DEAD       0x04
 #define GSF_DUAL       0x08           /* the left hand held the same gun */
 
-/* header flags: what the run was set under */
-#define GHF_STEREO     0x01
-#define GHF_BEAN       0x02
-#define GHF_GEX        0x04
-#define GHF_FORCEPULL  0x08
-#define GHF_ALLY       0x10
-#define GHF_THIRD      0x20
+/* header flags: what the run was set under (gevr_ghost.h GEVR_GHF_*) */
 
 struct gevrghostsample {
     /*0x00*/ f32 x;
@@ -153,9 +154,30 @@ static u32 ghostHash(const void *data, u32 len)
     return h;
 }
 
-static void ghostPath(char *out, size_t n, s32 stage, s32 difficulty)
+static const char *ghostCampaignTag(s32 campaign)
 {
-    snprintf(out, n, GHOST_DIR "/ge-s%02d-d%d-best" GHOST_EXT, stage, difficulty);
+    static const char *const tags[] = { "ge", "gf", "tnd", "mirror" };
+
+    return campaign >= 0 && campaign < (s32)(sizeof(tags) / sizeof(tags[0])) ? tags[campaign] : "ge";
+}
+
+void gevrGhostFilePath(char *out, int n, int campaign, int stage, int difficulty, const char *what)
+{
+    snprintf(out, n, GHOST_DIR "/%s-s%02d-d%d-%s%s", ghostCampaignTag(campaign), stage, difficulty, what,
+             strchr(what, '.') != NULL ? "" : GHOST_EXT);
+}
+
+static void ghostPath(char *out, size_t n, s32 campaign, s32 stage, s32 difficulty)
+{
+    gevrGhostFilePath(out, (int)n, campaign, stage, difficulty, "best");
+}
+
+void gevrGhostEnsureDir(void)
+{
+    if (fsFileSize(GHOST_DIR) < 0)
+    {
+        fsCreateDir(GHOST_DIR);
+    }
 }
 
 /*
@@ -215,6 +237,138 @@ static s32 ghostRead(const char *rel, struct gevrghostheader *hdr, struct gevrgh
     return TRUE;
 }
 
+/* ---- the launcher's (gevr_ghost.h) -------------------------------------- */
+
+int gevrGhostFileInfo(const char *rel, GevrGhostInfo *out)
+{
+    struct gevrghostheader hdr;
+    struct gevrghostsample *samples;
+
+    memset(out, 0, sizeof(*out));
+    if (!ghostRead(rel, &hdr, &samples))
+    {
+        return 0;
+    }
+    free(samples);
+    out->time60 = (int)hdr.time60;
+    out->numsamples = (int)hdr.numsamples;
+    out->stage = hdr.stage;
+    out->difficulty = hdr.difficulty;
+    out->campaign = hdr.campaign;
+    out->flags = hdr.flags;
+    out->timestamp = hdr.timestamp;
+    memcpy(out->owner, hdr.owner, sizeof(hdr.owner));
+    out->owner[sizeof(hdr.owner)] = '\0';
+    return 1;
+}
+
+/*
+ * Dab's ghosts say which account set them, and only that account may publish
+ * one (pdghostd's /upload). Here the account is the Friends identity, so the
+ * owner is the friend code, written into a run of this headset's before its
+ * first upload: the hash is over the samples, so the run is unchanged.
+ */
+int gevrGhostStampOwner(const char *rel, const char *friendCode)
+{
+    struct gevrghostheader hdr;
+    struct gevrghostsample *samples;
+    FILE *f;
+    s32 ok;
+
+    if (friendCode == NULL || friendCode[0] == '\0' || strlen(friendCode) >= sizeof(hdr.owner)
+        || !ghostRead(rel, &hdr, &samples))
+    {
+        return 0;
+    }
+    if (hdr.owner[0] != '\0')
+    {
+        free(samples);
+        return strncmp(hdr.owner, friendCode, sizeof(hdr.owner)) == 0;
+    }
+    /* this build's own shape only: a later one's fields would be lost on the rewrite */
+    if (hdr.headersize != sizeof(hdr) || hdr.samplesize != sizeof(*samples))
+    {
+        free(samples);
+        return 0;
+    }
+    strncpy(hdr.owner, friendCode, sizeof(hdr.owner) - 1);
+    f = fsFileOpenWrite(rel);
+    ok = f != NULL && fwrite(&hdr, sizeof(hdr), 1, f) == 1
+         && fwrite(samples, sizeof(*samples), hdr.numsamples, f) == hdr.numsamples;
+    if (f != NULL)
+    {
+        fclose(f);
+    }
+    free(samples);
+    return ok;
+}
+
+/* a file name in the ghosts folder, and nothing that leaves it */
+static s32 ghostSafeName(const char *name)
+{
+    size_t len = strlen(name);
+    size_t i;
+
+    if (len < 5 || len > 64 || strcmp(name + len - 4, GHOST_EXT) != 0 || strstr(name, "..") != NULL)
+    {
+        return FALSE;
+    }
+    for (i = 0; i < len; i++)
+    {
+        char c = name[i];
+
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.'))
+        {
+            return FALSE;
+        }
+    }
+    return TRUE;
+}
+
+void gevrGhostGetRace(int campaign, int stage, int difficulty, char *out, int n)
+{
+    char rel[128];
+    FILE *f;
+
+    out[0] = '\0';
+    gevrGhostFilePath(rel, sizeof(rel), campaign, stage, difficulty, "race.txt");
+    f = fsFileOpenRead(rel);
+    if (f == NULL)
+    {
+        return;
+    }
+    if (fgets(out, n, f) == NULL)
+    {
+        out[0] = '\0';
+    }
+    fclose(f);
+    out[strcspn(out, "\r\n")] = '\0';
+    if (out[0] != '\0' && !ghostSafeName(out))
+    {
+        out[0] = '\0';
+    }
+}
+
+/* "" back to the best run: an empty choice rather than a deleted file */
+void gevrGhostSetRace(int campaign, int stage, int difficulty, const char *fileName)
+{
+    char rel[128];
+    FILE *f;
+
+    if (fileName == NULL || (fileName[0] != '\0' && !ghostSafeName(fileName)))
+    {
+        return;
+    }
+    gevrGhostEnsureDir();
+    gevrGhostFilePath(rel, sizeof(rel), campaign, stage, difficulty, "race.txt");
+    f = fsFileOpenWrite(rel);
+    if (f != NULL)
+    {
+        fprintf(f, "%s\n", fileName);
+        fclose(f);
+    }
+}
+
 /* ---- recording --------------------------------------------------------- */
 
 static struct gevrghostsample *s_rec;
@@ -223,6 +377,7 @@ static s32 s_recCap;
 static s32 s_recFull;
 static s32 s_recStage = -1;
 static s32 s_recDifficulty = -1;
+static s32 s_recCampaign;
 static u8 s_recFlags;
 
 static s8 ghostSpeed(f32 v)
@@ -260,12 +415,14 @@ static u8 ghostRunFlags(void)
 {
     u8 f = 0;
 
-    if (g_gevrStereo) f |= GHF_STEREO;
-    if (VrBeanModels && gevrBeanIsAvailable()) f |= GHF_BEAN;
-    if (VrGexGuns) f |= GHF_GEX;
-    if (VrForcePull) f |= GHF_FORCEPULL;
-    if (VrAlly) f |= GHF_ALLY;
-    if (VrThirdPerson && !g_gevrStereo) f |= GHF_THIRD;
+    if (g_gevrStereo) f |= GEVR_GHF_STEREO;
+    if (VrBeanModels && gevrBeanIsAvailable()) f |= GEVR_GHF_BEAN;
+    if (VrGexGuns) f |= GEVR_GHF_GEX;
+    if (VrForcePull) f |= GEVR_GHF_FORCEPULL;
+    if (VrAlly) f |= GEVR_GHF_ALLY;
+    if (VrThirdPerson && !g_gevrStereo) f |= GEVR_GHF_THIRD;
+    /* the launcher's Movement speed (net_rules.h NET_MOVE_NORMAL is 0) */
+    if (VrMovementSpeed != 0) f |= GEVR_GHF_SPEED;
     return f;
 }
 
@@ -315,6 +472,7 @@ void gevrGhostRecord(void)
     {
         s_recStage = bossGetStageNum();
         s_recDifficulty = lvlGetSelectedDifficulty();
+        s_recCampaign = VrCampaign;
         s_recFlags = ghostRunFlags();
     }
     time60 = getMissiontimer();
@@ -373,7 +531,7 @@ static void ghostSave(s32 force)
     {
         return;
     }
-    ghostPath(rel, sizeof(rel), s_recStage, s_recDifficulty);
+    ghostPath(rel, sizeof(rel), s_recCampaign, s_recStage, s_recDifficulty);
     if (!force && ghostRead(rel, &old, &oldsamples))
     {
         free(oldsamples);
@@ -384,10 +542,7 @@ static void ghostSave(s32 force)
             return;
         }
     }
-    if (fsFileSize(GHOST_DIR) < 0)
-    {
-        fsCreateDir(GHOST_DIR);
-    }
+    gevrGhostEnsureDir();
 
     memset(&hdr, 0, sizeof(hdr));
     memcpy(hdr.magic, GHOST_MAGIC, sizeof(GHOST_MAGIC));
@@ -399,7 +554,7 @@ static void ghostSave(s32 force)
     hdr.rate60 = GHOST_RATE60;
     hdr.stage = (u8)s_recStage;
     hdr.difficulty = (u8)s_recDifficulty;
-    hdr.campaign = (u8)VrCampaign;
+    hdr.campaign = (u8)s_recCampaign;
     hdr.flags = s_recFlags;
     hdr.hash = ghostHash(s_rec, s_recCount * sizeof(*s_rec));
     hdr.timestamp = (u32)time(NULL);
@@ -529,18 +684,45 @@ void gevrGhostStageReset(s32 stage)
     }
 }
 
+/* a run for this mission: one recorded or downloaded for another is never raced here */
+static s32 ghostReadFor(const char *rel, s32 stage, s32 difficulty, struct gevrghostheader *hdr, struct gevrghostsample **samples)
+{
+    if (!ghostRead(rel, hdr, samples))
+    {
+        return FALSE;
+    }
+    if (hdr->stage != stage || hdr->difficulty != difficulty || hdr->campaign != VrCampaign)
+    {
+        sysLogPrintf(LOG_WARNING, "ghost: %s is a run of another mission (stage %d difficulty %d campaign %d)", rel,
+                     hdr->stage, hdr->difficulty, hdr->campaign);
+        free(*samples);
+        *samples = NULL;
+        return FALSE;
+    }
+    return TRUE;
+}
+
 static void ghostLoad(void)
 {
     struct gevrghostheader hdr;
     struct gevrghostsample *samples;
-    char rel[96];
+    char rel[128];
+    char chosen[80];
+    s32 stage = bossGetStageNum();
+    s32 difficulty = lvlGetSelectedDifficulty();
 
     s_race.loaded = TRUE;
     ghostFreeRun();
-    ghostPath(rel, sizeof(rel), bossGetStageNum(), lvlGetSelectedDifficulty());
-    if (!ghostRead(rel, &hdr, &samples))
+    /* the run the launcher's Ghosts tab chose for this mission, else the best on file */
+    gevrGhostGetRace(VrCampaign, stage, difficulty, chosen, sizeof(chosen));
+    snprintf(rel, sizeof(rel), GHOST_DIR "/%s", chosen);
+    if (chosen[0] == '\0' || !ghostReadFor(rel, stage, difficulty, &hdr, &samples))
     {
-        return;
+        ghostPath(rel, sizeof(rel), VrCampaign, stage, difficulty);
+        if (!ghostReadFor(rel, stage, difficulty, &hdr, &samples))
+        {
+            return;
+        }
     }
     s_race.samples = samples;
     s_race.count = hdr.numsamples;

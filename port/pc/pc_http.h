@@ -88,8 +88,10 @@ struct HttpReply {
 HttpReply httpSend(const HttpRequest &r);
 
 /* LobbyClient.http: JSON in, the reply's JSON object out; throws HttpError for
- * status >= 400 (the reply's "error" when it has one), 0 for the network. */
-std::string httpJson(const char *method, const std::string &url, const std::string *body, const std::string &token);
+ * status >= 400 (the reply's "error" when it has one), 0 for the network. A
+ * ghost run (pc_friends.cpp ghost-*) asks for a bigger reply and longer to wait. */
+std::string httpJson(const char *method, const std::string &url, const std::string *body, const std::string &token,
+                     size_t maxReply = 65536, int readMs = 5000);
 
 std::string sha256File(const std::string &path);   // lower-case hex, "" if unreadable
 

@@ -11,6 +11,7 @@
 #include "gevr_romlayout.h"
 #include "vr_friends.h"
 #include "vr_discord.h"
+#include "vr_ghosts.h"
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -212,6 +213,8 @@ void handle(const std::vector<std::string> &f, bool inGame) {
         gevrDiscordOnLinked(f[1] == "linked", f[2]);
     } else if (kind == "DISCORD_TOKEN" && f.size() >= 2 && !f[1].empty()) {
         gevrDiscordOnToken(f[1]);
+    } else if (kind.compare(0, 5, "GHOST") == 0) {
+        gevrGhostsEvent(f);   // the launcher's Ghosts tab (vr_ghosts.cpp)
     } else if ((kind == "NOTICE" || kind == "ERROR") && f.size() >= 2) {
         setMessage(f[1]);
     }

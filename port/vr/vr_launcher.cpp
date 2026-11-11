@@ -78,6 +78,7 @@ void flatLauncherFeedInput(ImGuiIO &io);
 #include "vr_settings.h"
 #include "vr_haptics.h"
 #include "vr_friends.h"
+#include "vr_ghosts.h"
 #include "gevr_friends_ui.h"
 
 extern "C" {
@@ -3550,6 +3551,10 @@ extern "C" void gevrLauncherRun(void)
                 } else {
                     gevrCheatsPage(settings, gold);
                 }
+                break;
+            case GEVR_LTAB_GHOSTS:
+                // the ghost boards and which run each mission races (vr_ghosts.cpp, docs/speedrun.md)
+                gevrGhostsPage(gold, good, bad);
                 break;
             case GEVR_LTAB_MODS:
                 gevrModsPage(now, gold, good, bad);

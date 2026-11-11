@@ -39,7 +39,45 @@ worktree; the short version is below.
   it draws no random numbers. The split beside the timer is Dab's: the time
   the ghost took to reach the sample nearest Bond, green ahead, red behind.
   When the ghost's run ends it is hidden, not removed (removal freed its gun
-  under objTick: SIGSEGV, fixed).
+  under objTick: SIGSEGV, fixed). Each campaign keeps its own files
+  (`ge-`, `gf-`, `tnd-`, `mirror-`), and a run is only raced on the mission,
+  difficulty and campaign its header names. The header's flags say what the
+  run was set under: VR `0x01`, Bean `0x02`, GE-X `0x04`, force pull `0x08`,
+  the ally `0x10`, third person `0x20`, a changed movement speed `0x40`.
+- **Ghost boards** (launcher tab **Ghosts**, `port/vr/vr_ghosts.cpp` drawn by
+  `gevr_ghosts_ui.h`; the Worker's `services/lobbies/src/ghosts.ts` in the
+  goldeneyevr.com repo): Dab's ghost server (`ghostnet.c` and its
+  `tools/pdghostd`) on the lobby Worker, signed in with the Friends identity
+  instead of Dab's name and PIN. One row per player per board (campaign,
+  mission, difficulty), replaced only by a quicker run; the top 100 shown,
+  eight to a page. The file is checked as the game writes it (sizes, time
+  against samples, mission, hash); its owner field must be the uploader's
+  friend code (stamped into a run of this headset's before its first upload,
+  `gevrGhostStampOwner`); force pull, the ally and a changed speed are not
+  ranked, as Dab's server refuses runs outside Ghost Trials' rules. The tab:
+  mission, difficulty, all/VR/flat runs; your best and its rank, **Upload**,
+  **Upload all my best runs** (each run once: `ghosts/uploaded.txt`); **Race**
+  on a row downloads that run as `ge-sNN-dN-<friend code>.gvg`, names it in
+  `ge-sNN-dN-race.txt` and turns Ghost race on; **Race my best** goes back.
+  GoldenEye's boards only: a hack's missions race their own best. The
+  Friends clients carry it (`FriendsClient.java`, `pc_friends.cpp`:
+  `ghost-board`, `ghost-upload`, `ghost-get`, answered by `GHOSTS_*`,
+  `GHOST`, `GHOST_UPLOADED`, `GHOST_SAVED`, `GHOST_FAIL`).
+
+## Testing the boards on PC
+
+No production involved: the Worker under `wrangler dev --local --port 8787`
+in `services/lobbies`, seeded by registering players and posting runs to
+`/v1/me/ghosts` (a real run with its owner set to the player's code and the
+hash redone), then the PC build with `GEVR_FRIENDS_URL=http://127.0.0.1:8787/v1`
+(and the updates and reports URLs at `127.0.0.1:9`) from a folder of its own
+(the ROM, the exe, `phonon.dll`), driven by `--input-script`: `point 158 180`
++ `click` opens Ghosts at the folded Friends strip's canvas size. Checked
+2026-11-11: the board, Race (download, race file, Ghost race on), Upload (#1,
+the row in gold), then `--boot-stage 33` raced the downloaded run (the log's
+`ghost: racing $S/ghosts/ge-s33-d0-<code>.gvg`, the see-through body, the
+split). Worker tests: `npm test` there (`test/ghosts.test.mjs`); client:
+`FriendsClientTest`, `test_launcher_frame` (the tab at its fullest).
 
 ## Testing on the headset
 
@@ -53,9 +91,9 @@ hands), a full mission completion saving through the debrief.
 
 ## Next
 
-- Ghost server: Dab's `ghostnet.c` (accounts, uploads, leaderboards,
-  downloads) against our own Worker on goldeneyevr.com, signed in with the
-  Friends identity rather than Dab's name and PIN. Needs a deploy OK.
+- Ghost boards live: the Worker's branch `claude/ghost-boards` (goldeneyevr.com
+  repo) merged and deployed, with the user's OK. Until then the Ghosts tab
+  says the board did not load.
 - LiveSplit client (TCP 16834: `starttimer`, `setgametime`, `split`, `reset`),
   never blocking the game.
 - Debrief stamp: version, platform, VR or flat, art set, locomotion, settings.

@@ -51,7 +51,7 @@ inline bool gevrLauncherRomHeader(GevrLauncherSession &session, bool ready, bool
  * second row where a tab has sub-tabs. No Done buttons and no pages behind
  * buttons: every page is a tab or a sub-tab, and none scrolls.
  */
-enum { GEVR_LTAB_PLAY, GEVR_LTAB_MULTIPLAYER, GEVR_LTAB_CONTROLS, GEVR_LTAB_COMFORT, GEVR_LTAB_SCREEN,
+enum { GEVR_LTAB_PLAY, GEVR_LTAB_GHOSTS, GEVR_LTAB_MULTIPLAYER, GEVR_LTAB_CONTROLS, GEVR_LTAB_COMFORT, GEVR_LTAB_SCREEN,
        GEVR_LTAB_RULES, GEVR_LTAB_MODS, GEVR_LTAB_COUNT };
 enum { GEVR_LSUB_HOST, GEVR_LSUB_JOIN, GEVR_LSUB_PLAYER, GEVR_LSUB_AUDIO, GEVR_LSUB_FAVORITES };  // Multiplayer's
 enum { GEVR_LSUB_HANDS, GEVR_LSUB_GESTURES, GEVR_LSUB_THROWING, GEVR_LSUB_HAPTICS };   // Controls'
@@ -66,7 +66,7 @@ struct GevrLauncherTabs {
     void open(int tab, int subTab = -1) { openTop = tab; openSub = subTab; openFrames = 4; }
 };
 inline const char *gevrLauncherTabName(int tab) {
-    static const char *const names[GEVR_LTAB_COUNT] = { "Play", "Multiplayer", "Controls", "Comfort", "Screen", "Rules", "Mods" };
+    static const char *const names[GEVR_LTAB_COUNT] = { "Play", "Ghosts", "Multiplayer", "Controls", "Comfort", "Screen", "Rules", "Mods" };
     return tab >= 0 && tab < GEVR_LTAB_COUNT ? names[tab] : "";
 }
 inline int gevrLauncherSubCount(int tab) {

@@ -323,6 +323,8 @@ private:
             const std::string body = "{\"ids\":[" + ids + "]}";
             http("PUT", "/me/discord/friends", &body, token());
             soon();
+        } else if (c == "ghost-board" || c == "ghost-upload" || c == "ghost-get") {
+            ghost(f);
         } else if (c == "reset") {
             // Start over with a new friend code (after a sign-out, or by choice).
             id_.clear(); secret_.clear(); friendCode_.clear(); restoreCode_.clear();
@@ -333,6 +335,67 @@ private:
             emitMe();
             emit("FRIENDS_BEGIN");
             emit("FRIENDS_END");
+        }
+    }
+
+    /* The ghost boards (the Worker's ghosts.ts; the launcher's Ghosts tab,
+     * vr_ghosts.cpp), as FriendsClient.java: each answers with its own events,
+     * a failure included, so the tab is never left waiting. */
+    void ghost(const std::vector<std::string> &f)
+    {
+        const std::string &c = f[0];
+        const size_t kFile = 128 + 65536 * 24;   // the longest run gevr_ghost.c records
+        const size_t kReply = kFile / 3 * 4 + 65536;
+        if (c == "ghost-board") {
+            // ghost-board|campaign|stage|difficulty|plays (vr, flat or empty)
+            if (f.size() != 5) return;
+            const std::string key = f[1] + "|" + f[2] + "|" + f[3] + "|" + f[4];
+            try {
+                const std::string reply = http("GET", "/ghosts?campaign=" + f[1] + "&stage=" + f[2] + "&difficulty=" + f[3]
+                                                   + (f[4].empty() ? "" : "&plays=" + f[4]), nullptr, "");
+                jspan obj, entries, x;
+                jsonParse(reply, &obj);
+                emit("GHOSTS_BEGIN|" + key);
+                if (jsonGet(obj, "entries", &entries))
+                    for (int i = 0; jsonAt(entries, i, &x); i++)
+                        // the name last: it may hold anything but '|'
+                        emit("GHOST|" + std::to_string(jsonGetInt(x, "id", 0)) + "|" + std::to_string(jsonGetInt(x, "time60", 0)) + "|"
+                             + std::to_string(jsonGetInt(x, "flags", 0)) + "|" + clean(need(x, "code")) + "|" + clean(need(x, "name")));
+                emit("GHOSTS_END|" + key);
+            } catch (const HttpError &e) {
+                emit("GHOST_FAIL|board|" + key + "|" + clean(e.message));
+            }
+        } else if (c == "ghost-upload") {
+            // ghost-upload|path: one of this PC's runs, its owner already this friend code
+            if (f.size() != 2) return;
+            try {
+                if (!ready()) throw HttpError{0, "Friends is still signing in; try again in a moment"};
+                std::string bytes;
+                if (fileSize(f[1]) > (long long)kFile || !readFile(f[1], &bytes, kFile)) throw HttpError{0, "Could not read the run"};
+                const std::string body = "{\"data\":" + q(encodeBase64(bytes)) + "}";
+                const std::string reply = httpJson("POST", base_ + "/me/ghosts", &body, token(), 65536, 30000);
+                jspan r;
+                jsonParse(reply, &r);
+                emit("GHOST_UPLOADED|" + f[1] + "|" + (jsonGetBool(r, "stored", false) ? "1" : "0") + "|"
+                     + std::to_string(jsonGetInt(r, "rank", 0)) + "|" + clean(opt(r, "reason")));
+            } catch (const HttpError &e) {
+                if (e.status == 401) failed(e);
+                emit("GHOST_FAIL|upload|" + f[1] + "|" + clean(e.message));
+            }
+        } else if (c == "ghost-get") {
+            // ghost-get|id|path: a board's run, written where the race reads it
+            if (f.size() != 3) return;
+            try {
+                const std::string reply = httpJson("GET", base_ + "/ghosts/" + f[1], nullptr, "", kReply, 30000);
+                jspan r;
+                jsonParse(reply, &r);
+                const std::string bytes = decode64(need(r, "data"));
+                if (bytes.empty() || bytes.size() > kFile) throw HttpError{0, "Not a ghost file"};
+                if (!writeFileAtomic(f[2], bytes)) throw HttpError{0, "Could not save the run"};
+                emit("GHOST_SAVED|" + f[1] + "|" + f[2]);
+            } catch (const HttpError &e) {
+                emit("GHOST_FAIL|get|" + f[1] + "|" + clean(e.message));
+            }
         }
     }
 

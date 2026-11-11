@@ -513,12 +513,15 @@ HttpReply httpSend(const HttpRequest &r)
 #endif   /* GEVR_IOS */
 }
 
-std::string httpJson(const char *method, const std::string &url, const std::string *body, const std::string &token)
+std::string httpJson(const char *method, const std::string &url, const std::string *body, const std::string &token,
+                     size_t maxReply, int readMs)
 {
     HttpRequest r;
     r.method = method;
     r.url = url;
     r.body = body;
+    r.maxReply = maxReply;
+    r.readMs = readMs;
     r.headers.push_back("Accept: application/json");
     if (!token.empty()) r.headers.push_back("Authorization: Bearer " + token);
     if (body) r.headers.push_back("Content-Type: application/json");

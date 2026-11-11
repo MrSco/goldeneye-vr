@@ -11,6 +11,8 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -254,6 +256,58 @@ public class FriendsClientTest {
         assertTrue(drain().contains("DISCORD|unlinked|"));
         JSONObject saved = new JSONObject(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
         assertEquals("", saved.optString("discordRefresh", ""));
+    }
+
+    @Test public void ghostBoardsUploadsAndDownloads() throws Exception {
+        drain();
+        // a board is anyone's to read; the name comes last, cleaned
+        answers.put("GET /ghosts?campaign=0&stage=33&difficulty=1&plays=vr", new JSONObject("{\"entries\":[{\"id\":7,"
+                + "\"name\":\"Nat|ty\",\"code\":\"AAAAAA\",\"time60\":5400,\"flags\":1,\"uploaded\":1}]}"));
+        command("ghost-board|0|33|1|vr");
+        assertEquals(List.of("GHOSTS_BEGIN|0|33|1|vr", "GHOST|7|5400|1|AAAAAA|Nat ty", "GHOSTS_END|0|33|1|vr"), drain());
+        assertEquals("", calls.get(calls.size() - 1).token);
+        answers.put("GET /ghosts?campaign=0&stage=34&difficulty=0", new LobbyClient.HttpException(400, "Invalid board"));
+        command("ghost-board|0|34|0|");
+        assertEquals(List.of("GHOST_FAIL|board|0|34|0||Invalid board"), drain());
+
+        // an upload waits for the identity, then sends the file as it is, in base64
+        File run = new File(file.getParentFile(), "ge-s33-d1-best.gvg");
+        byte[] bytes = new byte[301];
+        for (int i = 0; i < bytes.length; i++) bytes[i] = (byte) (i * 7);
+        Files.write(run.toPath(), bytes);
+        command("ghost-upload|" + run);
+        assertEquals(List.of("GHOST_FAIL|upload|" + run + "|Friends is still signing in; try again in a moment"), drain());
+        command("presence|launcher||25|Bond|");
+        poll();
+        drain();
+        answers.put("POST /me/ghosts", new JSONObject().put("ok", true).put("stored", true).put("rank", 3));
+        command("ghost-upload|" + run);
+        Call upload = calls.get(calls.size() - 1);
+        assertEquals(ID + "." + SECRET, upload.token);
+        assertArrayEquals(bytes, Base64.getDecoder().decode(upload.body.getString("data")));
+        assertEquals(List.of("GHOST_UPLOADED|" + run + "|1|3|"), drain());
+        answers.put("POST /me/ghosts", new JSONObject().put("ok", true).put("stored", false).put("reason", "You already have a faster time"));
+        command("ghost-upload|" + run);
+        assertEquals(List.of("GHOST_UPLOADED|" + run + "|0|0|You already have a faster time"), drain());
+
+        // a download is written where the race reads it
+        File got = new File(file.getParentFile(), "ge-s33-d1-AAAAAA.gvg");
+        answers.put("GET /ghosts/7", new JSONObject().put("data", Base64.getEncoder().encodeToString(bytes)));
+        command("ghost-get|7|" + got);
+        assertEquals(List.of("GHOST_SAVED|7|" + got), drain());
+        assertArrayEquals(bytes, Files.readAllBytes(got.toPath()));
+        answers.put("GET /ghosts/8", new LobbyClient.HttpException(404, "No such ghost"));
+        command("ghost-get|8|" + got);
+        assertEquals(List.of("GHOST_FAIL|get|8|No such ghost"), drain());
+        assertArrayEquals(bytes, Files.readAllBytes(got.toPath()));
+
+        // the hand-made base64 against the JDK's, every tail length
+        for (int n = 0; n < 8; n++) {
+            byte[] b = Arrays.copyOf(bytes, n);
+            assertEquals(Base64.getEncoder().encodeToString(b), FriendsClient.base64(b));
+            assertArrayEquals(b, FriendsClient.unbase64(Base64.getEncoder().encodeToString(b)));
+        }
+        assertNull(FriendsClient.unbase64("ab$d"));
     }
 
     @Test public void restoreReplacesTheIdentityAndResetForgetsIt() throws Exception {
