@@ -144,6 +144,7 @@ extern int VrSwapJoysticks;
 extern int VrAimSteady;         // gun-hand steadying: 0 off, 1 low, 2 high (issue #7)
 extern int VrTouchModel;        // watch Controls page: 0 the headset's controllers, 1..4 Quest 1, 2, Touch Plus, Pro
 extern int VrShowStats;         // troubleshooting readout in game
+extern int VrSpeedrunTimer;     // the mission time on the HUD, to the hundredth (gevr_speedrun.c)
 extern int VrSpaceWarp;         // Application SpaceWarp: 1 on, 0 off, -1 on while Bean is, at 120 Hz
 extern int VrResetRenderScale;  // the test build's RenderScale key was read: scale back to 1
 extern int VrEyeMsaa;           // eye images' anti-aliasing: 1 off, 2 samples (live)

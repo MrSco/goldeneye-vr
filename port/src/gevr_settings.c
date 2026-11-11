@@ -38,7 +38,7 @@ extern int VrManualReloading;
 extern int VrPerWeaponRecoil;
 extern int VrNoKnockback, VrNoHitstun, VrDamageFlash;
 extern int VrThirdPerson, VrThirdPersonDist, VrThirdPersonHeight, VrThirdPersonSide;
-extern int VrLeftHandedMode, VrSwapJoysticks, VrGunFitArmed, VrShowStats, VrGunSizeCheat;
+extern int VrLeftHandedMode, VrSwapJoysticks, VrGunFitArmed, VrShowStats, VrGunSizeCheat, VrSpeedrunTimer;
 extern int VrMinesStickToGuards, VrBodiesStay, VrFastReinforcements;
 extern int VrRagdolls, VrDismemberment, VrDismemberChance;
 extern float VrDismemberDamage;
@@ -150,6 +150,8 @@ static const char *blockedPull(void) { return VrForcePull ? NULL : "Needs force 
 static const char *blockedThrow(void) { return VrMotionThrowing ? NULL : "Needs motion throw"; }
 static const char *blockedTurnSpeed(void) { return VrUseSnapTurn > 0.0f ? "Smooth turning only" : NULL; }
 static const char *blockedThirdPerson(void) { return VrPlayMode ? "Flat screen only" : NULL; }
+/* the speedrun timer (src/game/gevr_speedrun.c): a mission's clock, solo or co-op */
+static const char *blockedSpeedrun(void) { return netIsActive() && !gevrNetConfigCoop() ? "Solo and co-op only" : NULL; }
 /* The AI ally (#194, src/game/gevr_ally.c): GoldenEye solo, co-op and Horde, the host's */
 static const char *blockedAlly(void)
 {
@@ -515,6 +517,9 @@ static const Row s_rows[] = {
       .lo = THIRDPERSON_SIDE_MIN, .hi = THIRDPERSON_SIDE_MAX, .step = 5, .scale = 1, .fmt = "%.0f", .def = 35, .shown = shownThirdPerson },
     { .label = "Show stats", .tooltip = "Frame rate and timing in the corner, and in the log.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_BOTH, .ivar = &VrShowStats, .def = NAN },
+    { .label = "Speedrun timer", .tooltip = "The mission time in the lower left, to the hundredth: the debrief's clock, stopped in cutscenes and on the watch.", .kind = GEVR_SET_TOGGLE,
+      .section = GEVR_SEC_RULES, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_BOTH, .ivar = &VrSpeedrunTimer, .def = NAN,
+      .blocked = blockedSpeedrun },
     /* The volumes for every game, solo too (user: under Multiplayer they read
      * as multiplayer only): the same two settings as Multiplayer > Audio's
      * rows below, which the match's pause panel shows; in game, the panel's

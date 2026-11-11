@@ -95,13 +95,13 @@ int main(void)
     gevrSettingSet(id, 2); text(id, t);
     check(!strcmp(t, "100% (default)") && VrMovementSpeed == 0, "movement speed 100% is the normal mode");
 
-    /* The launcher's places: Play holds the play mode, third person, stats and the volumes;
+    /* The launcher's places: Play holds the play mode, third person, stats, the speedrun timer and the volumes;
      * the watch face is on Hands; the ally has its own sub-tab; gun size is a cheat. */
     {
         static const char *const play[] = { "Play mode", "Third person", "  Distance", "  Height", "  Shoulder", "Show stats",
-                                            "Music", "Sound effects" };
+                                            "Speedrun timer", "Music", "Sound effects" };
         int ids[48], n = gevrSettingSectionRows(GEVR_LSEC_PLAY, GEVR_SET_LAUNCHER, ids, 48);
-        check(n == 8, "Play: the play mode, third person and its camera, stats, music and effects");
+        check(n == 9, "Play: the play mode, third person and its camera, stats, the speedrun timer, music and effects");
         for (int i = 0; i < n; i++) {
             GevrSettingInfo info;
             gevrSettingInfo(ids[i], &info);

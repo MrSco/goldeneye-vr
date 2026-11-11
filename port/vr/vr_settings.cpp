@@ -209,6 +209,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; 3 = Touch Plus (Quest 3 and 3S), 4 = Touch Pro.\n");
     fprintf(f, "TouchControllers=%d\n", VrTouchModel);
     fprintf(f, "ShowStats=%d\n", VrShowStats ? 1 : 0);
+    fprintf(f, "; 1 = the mission time in the lower left, to the hundredth (as the debrief counts it).\n");
+    fprintf(f, "SpeedrunTimer=%d\n", VrSpeedrunTimer ? 1 : 0);
     fprintf(f, "; 1 = Application SpaceWarp: the game renders at half the display rate and the\n");
     fprintf(f, "; headset makes the frames between from motion vectors. 0 = off, -1 = on with Bean.\n");
     fprintf(f, "SpaceWarp=%d\n", VrSpaceWarp < 0 ? -1 : VrSpaceWarp ? 1 : 0);
@@ -787,6 +789,7 @@ extern "C" void vrSettingsLoad(void)
                  * near its limit (2026-10-30): a saved 48 keeps 24 */
                 VrBodiesStay = ival >= 24 ? 24 : ival >= 12 ? 12 : 0;
             else if (strcmp(key, "ShowStats") == 0) VrShowStats = (ival != 0);
+            else if (strcmp(key, "SpeedrunTimer") == 0) VrSpeedrunTimer = (ival != 0);
             else if (strcmp(key, "SpaceWarp") == 0) VrSpaceWarp = ival < 0 ? -1 : ival != 0;
 #ifdef GEVR_PCVR
             else if (strcmp(key, "EyeMsaa") == 0) VrEyeMsaa = ival >= 4 ? 4 : ival >= 2 ? 2 : 1;

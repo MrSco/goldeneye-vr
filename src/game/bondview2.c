@@ -21491,6 +21491,10 @@ Gfx *maybe_mp_interface(Gfx *gdl)
     gdl = countdownTimerRender(gdl);
 #ifdef GEVR
     PORT_HUD_ASPECT(gdl, GE_HUD_ASPECT_NONE);
+    {
+        extern Gfx *gevrSpeedrunTimerRender(Gfx *gdl);   /* gevr_speedrun.c: the mission time, lower left */
+        gdl = gevrSpeedrunTimerRender(gdl);
+    }
 #endif
 #ifdef GEVR
     if (g_gevrStereo)
