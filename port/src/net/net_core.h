@@ -81,6 +81,7 @@ void netTouchLocalActivity(void);
 const NetMsgLobbyState *netGetLobbyState(void);
 const char *netGetSlotName(int slot);   /* NULL for an empty slot */
 void netSetLocalAppVersion(const char *version);
+const char *netGetLocalAppVersion(void);   /* "v0.5.15 (5a3b786)", "" before the launcher set it */
 const char *netGetSlotAppVersion(int slot); /* NULL or empty if not announced */
 const char *netTakeJoinRefusal(void);   /* why the host turned this join away (the content check), once; else NULL */
 uint8_t netGetLobbyStage(void);

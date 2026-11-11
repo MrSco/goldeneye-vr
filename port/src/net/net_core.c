@@ -1108,6 +1108,8 @@ void netSetLocalAppVersion(const char *version) {
     s_local_app_version[sizeof(s_local_app_version) - 1] = '\0';
 }
 
+const char *netGetLocalAppVersion(void) { return s_local_app_version; }
+
 const char *netGetSlotAppVersion(int slot) {
     if (slot < 0 || slot >= GEVR_MAX_PLAYERS || !s_lobby_state.slots[slot].connected) return NULL;
     return s_slot_app_version[slot];

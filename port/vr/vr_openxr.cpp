@@ -3704,6 +3704,8 @@ static void vr_stats_game_frame(void)
 
 extern "C" void sysLogPrintf(int level, const char *fmt, ...);   // system.c: the game's log
 
+extern "C" float g_gevrDisplayHz;   // vr_settings_defaults.c: for the debrief's stamp (gevr_speedrun.c)
+extern "C" int g_gevrSpaceWarpOn;
 static void vr_stats_xr_frame(void)
 {
     const auto now = std::chrono::steady_clock::now();
@@ -3717,6 +3719,7 @@ static void vr_stats_xr_frame(void)
         s_statInit = true;
     }
     s_statXr++;
+    g_gevrSpaceWarpOn = vr_spacewarp_wanted() ? 1 : 0;
     const double el = std::chrono::duration<double, std::milli>(now - s_statT0).count();
     if (el < 1000.0) {
         return;
@@ -3732,6 +3735,7 @@ static void vr_stats_xr_frame(void)
             hz = actual;
             static float lastHz = 0.0f;
             if (hz != lastHz) LOGI("display: actual %.2f Hz", hz);
+            g_gevrDisplayHz = hz;
             lastHz = hz;
         }
     }

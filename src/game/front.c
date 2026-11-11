@@ -7907,6 +7907,15 @@ Gfx *constructor_menu0D_missioncomplete(Gfx *DL)
         y = (y2 * 4) + 0xF4;
         DL = frontPrintText(DL, &x, &y, stagename, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
     }
+    /* the speedrun stamp (gevr_speedrun.c): what the run was played on, for a
+     * moderator watching the video; only with the timer, the ghost race or
+     * LiveSplit on, so the debrief is the original's otherwise */
+    {
+        extern Gfx *gevrSpeedrunStampDraw(Gfx *gdl, s32 rowy, s32 rowh, s32 coop);
+
+        /* in the room under the kills (gevr_speedrun.c) */
+        DL = gevrSpeedrunStampDraw(DL, 0xF4, y2, gevrCoopTallyCount() > 0);
+    }
 #endif
 
     DL = frontAddNextTabText(DL);

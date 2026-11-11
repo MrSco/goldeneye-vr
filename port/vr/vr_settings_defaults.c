@@ -166,6 +166,11 @@ int VrGhostRace = 0;
  * (a headset needs the PC's). */
 int VrLiveSplit = 0;
 char VrLiveSplitHost[64] = "";
+/* The headset's display, as vr_openxr.cpp last read it (once a second): the actual
+ * refresh rate and whether SpaceWarp is drawing; 0 in a flat game. For the debrief's
+ * stamp (gevr_speedrun.c). */
+float g_gevrDisplayHz = 0.0f;
+int g_gevrSpaceWarpOn = 0;
 /* Application SpaceWarp: the runtime makes every other displayed frame from
  * motion vectors and depth (vr_openxr.cpp). 1 on, 0 off, -1 (the default) on
  * while Bean is and the display runs at 120 Hz: the user's 2026-10-17 feel

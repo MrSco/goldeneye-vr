@@ -81,6 +81,23 @@ worktree; the short version is below.
   LiveSplit's server) and on PC against the mock on 16834 (Dam: start, the
   clock streaming).
 
+- **Debrief stamp** (`gevr_speedrun.c gevrSpeedrunStampDraw`, drawn by
+  front.c's statistics page): what a moderator needs from a run's video,
+  after Celeste's assist stamps and the port boards' rules. Only with the
+  timer, the ghost race or LiveSplit on, so the debrief is the original's
+  otherwise; in GoldenEye's HUD font, grey, in the room the page leaves: the
+  build ("v0.5.15 9d9f84d") and the platform ("Quest, VR", "Windows, flat")
+  in the left column under the kill total, and across the foot the rules
+  (any addition: force pull, ally, speed, fast reinforcements, sticky mines,
+  DK mode, paintball, line mode; else "original rules"), the frame clock's
+  steps ("step 2 cap 0": the longest step in fields and how many hit
+  frametiming.c's six-field cap, the port's equivalent of Midas's FPS
+  counter), auto-aim, the turning (VR), the display rate and SpaceWarp, the
+  art; what does not fit is counted ("+2 more"). Taken while the clock runs
+  (the debrief itself is drawn flat), an addition counting if it was on at
+  any time. Checked on PC through the menus: Dam, the watch's abort, the
+  debrief's statistics page.
+
 ## Testing the boards on PC
 
 No production involved: the Worker under `wrangler dev --local --port 8787`
@@ -112,5 +129,5 @@ hands), a full mission completion saving through the debrief.
   repo) merged and deployed, with the user's OK. Until then the Ghosts tab
   says the board did not load.
 - LiveSplit against a real LiveSplit (Windows), from the headset over Wi-Fi.
-- Debrief stamp: version, platform, VR or flat, art set, locomotion, settings.
+- The stamp on a headset's debrief (Quest VR: the turning, the display rate).
 - Check that VR stick movement keeps strafe-running's diagonal speed.

@@ -316,6 +316,7 @@ if(GEVR_PLATFORM STREQUAL "quest")
 
   # OpenXR Loader
   if(GEVR_FRAME)
+    add_definitions(-DGEVR_FRAME=1)   # the debrief's stamp names the platform (gevr_speedrun.c)
     # Khronos's Android loader (Maven org.khronos.openxr:openxr_loader_for_android,
     # a prefab package; build.gradle's frame flavor). Meta's below carries Meta's
     # runtime client and looks for nothing else; this one asks the runtime

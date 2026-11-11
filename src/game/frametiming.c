@@ -97,6 +97,7 @@ void waitForNextFrame(void) //maybe WaitForTick
    * hitch the game resumes at roughly real-time pace, as the console did when
    * it dropped frames.
    */
+  { extern void gevrSpeedrunStep(u32 fields); gevrSpeedrunStep(nextFrameTime); }   /* the debrief's stamp */
   if (nextFrameTime > 6) {
     nextFrameTime = 6;
   }

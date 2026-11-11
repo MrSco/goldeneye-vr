@@ -27,6 +27,7 @@
  */
 #include <ultra64.h>
 #include <stdio.h>
+#include <string.h>
 #include <bondtypes.h>
 #include <bondconstants.h>
 #include "bondview.h"
@@ -85,6 +86,243 @@ s32 gevrSpeedrunTimerShown(void)
     return (VrSpeedrunTimer || gevrGhostRacing()) && gevrSpeedrunClockRunning();
 }
 
+/*
+ * The debrief's stamp (front.c constructor_menu0D_missioncomplete): what a
+ * moderator needs to see on a run's video and could not tell from it, as the
+ * speedrun research listed it after Celeste's assist stamps, the Midas board's
+ * frame-rate rule and the XBLA board's "any other difference": the build, the
+ * platform, VR or flat, the art, the turning, auto-aim, the display, what was
+ * added to the game, and the frame clock's steps (the port's equivalent of
+ * Midas's FPS counter: whether the run had the long steps lag tricks need).
+ *
+ * Taken while the mission's clock runs, not at the debrief: a headset shows
+ * the debrief flat on its screen. An addition counts if it was on at any time
+ * in the run (the in-game panel can change it).
+ */
+extern int VrBeanModels, VrGexGuns, VrForcePull, VrAlly, VrThirdPerson, VrMovementSpeed;
+extern int VrFastReinforcements, VrMinesStickToGuards, VrSmoothTurnSpeed, VrGhostRace, VrLiveSplit;
+extern float VrUseSnapTurn;
+extern float g_gevrDisplayHz;        /* vr_settings_defaults.c, from vr_openxr.cpp */
+extern int g_gevrSpaceWarpOn;
+extern s32 gevrBeanIsAvailable(void);
+extern const char *netGetLocalAppVersion(void);
+extern const char gevrBuildId[];
+extern u8 g_CheatActivated[];
+
+#define STAMP_MAXFIELDS 6            /* frametiming.c's cap on a step */
+
+static struct {
+    s32 valid;
+    s32 stereo, third, bean, gex, snap, turn, autoaim, hz, spacewarp;
+    s32 forcepull, ally, speed, fastreinf, mines, dk, paintball, linemode;
+    s32 stepMax, stepCapped;
+} s_run;
+
+/* a mission's stage (not the menus', where the debrief reads it) starts the count */
+void gevrSpeedrunStageReset(s32 stage)
+{
+    if (stage >= 0 && stage < LEVELID_MAX)
+    {
+        memset(&s_run, 0, sizeof(s_run));
+    }
+}
+
+/* frametiming.c: each frame's step in fields, before the cap, while the clock runs */
+void gevrSpeedrunStep(u32 fields)
+{
+    s32 step = fields > STAMP_MAXFIELDS ? STAMP_MAXFIELDS : (s32)fields;
+
+    if (!is_timer_active || g_CameraMode != CAMERAMODE_FP)
+    {
+        return;
+    }
+    if (fields > STAMP_MAXFIELDS)
+    {
+        s_run.stepCapped++;
+    }
+    if (step > s_run.stepMax)
+    {
+        s_run.stepMax = step;
+    }
+}
+
+static void gevrSpeedrunCapture(void)
+{
+    static const s32 speeds[] = { 100, 50, 75, 125, 150, 175, 200 };   /* net_rules.h NET_MOVE_* */
+
+    s_run.valid = TRUE;
+    s_run.stereo = g_gevrStereo != 0;
+    s_run.third |= VrThirdPerson && !g_gevrStereo;
+    s_run.bean |= VrBeanModels && gevrBeanIsAvailable();
+    s_run.gex |= VrGexGuns != 0;
+    s_run.snap = (s32)VrUseSnapTurn;
+    s_run.turn = VrSmoothTurnSpeed;
+    s_run.autoaim |= currentPlayerGetXAutoAimEnabled() != 0;
+    if (g_gevrDisplayHz > 0.0f)
+    {
+        s_run.hz = (s32)(g_gevrDisplayHz + 0.5f);
+    }
+    s_run.spacewarp |= g_gevrSpaceWarpOn != 0;
+    s_run.forcepull |= VrForcePull != 0;
+    s_run.ally |= VrAlly != 0;
+    if (VrMovementSpeed > 0 && VrMovementSpeed < (s32)(sizeof(speeds) / sizeof(speeds[0])))
+    {
+        s_run.speed = speeds[VrMovementSpeed];
+    }
+    s_run.fastreinf |= VrFastReinforcements != 0;
+    s_run.mines |= VrMinesStickToGuards != 0;
+    s_run.dk |= g_CheatActivated[CHEAT_DK_MODE] != 0;
+    s_run.paintball |= g_CheatActivated[CHEAT_PAINTBALL] != 0;
+    s_run.linemode |= g_CheatActivated[CHEAT_LINEMODE] != 0;
+}
+
+static const char *gevrSpeedrunPlatform(void)
+{
+#if defined(GEVR_IOS)
+    return "iOS";
+#elif defined(GEVR_MOBILE)
+    return "Android";
+#elif defined(GEVR_FRAME)
+    return "Steam Frame";
+#elif defined(ANDROID)
+    return "Quest";
+#elif defined(__linux__)
+    return "Linux";
+#elif defined(_WIN32)
+    return "Windows";
+#else
+    return "PC";
+#endif
+}
+
+/* the HUD font has capitals, figures and a little punctuation: the rest goes */
+static void gevrStampFont(char *s)
+{
+    char *out = s;
+
+    for (; *s; s++)
+    {
+        char c = (*s >= 'a' && *s <= 'z') ? (char)(*s - 'a' + 'A') : *s;
+
+        if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == ' ' || c == '.' || c == ',' || c == ':' || c == '-'
+            || c == '+' || c == '\n')
+        {
+            *out++ = c;
+        }
+    }
+    *out = '\0';
+}
+
+static s32 gevrStampWidth(const char *text)
+{
+    s32 w = 0;
+    s32 h = 0;
+
+    textMeasure(&h, &w, (char *)text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+    return w;
+}
+
+static Gfx *gevrStampText(Gfx *gdl, const char *text, s32 x, s32 y)
+{
+    char line[112];
+
+    snprintf(line, sizeof(line), "%s\n", text);
+    gevrStampFont(line);
+    return textRender(gdl, &x, &y, line, ptrFontBankGothicChars, ptrFontBankGothic, 0x404040FF, viGetX(), viGetY(), 0, 0);
+}
+
+/*
+ * The debrief draws the stamp (front.c) in the room its page leaves, in the
+ * HUD font, grey: the build and the platform in the left column under the
+ * kill total, beside the limb and other hits; what the run was played with
+ * across the foot of the page, most telling first (the rules, the frame
+ * clock's steps, auto-aim, the turning, the display, the art), and what does
+ * not fit is counted ("+2 more") rather than dropped unseen. rowy is the
+ * page's first row of hits and rowh its rows' spacing; coop is the party's
+ * kills line, which takes the foot.
+ */
+Gfx *gevrSpeedrunStampDraw(Gfx *gdl, s32 rowy, s32 rowh, s32 coop)
+{
+    char items[12][32];
+    char text[112];
+    s32 count = 0;
+    s32 shown;
+    s32 len;
+    s32 foot;
+    s32 h = 0;
+    s32 w = 0;
+    s32 i;
+
+    if (!(VrSpeedrunTimer || VrGhostRace || VrLiveSplit) || !s_run.valid)
+    {
+        return gdl;
+    }
+    textMeasure(&h, &w, "A\n", ptrFontBankGothicChars, ptrFontBankGothic, 0);
+
+    /* the left column: the build ("v0.5.15 (5a3b786)", else its hash) and the platform */
+    {
+        const char *version = netGetLocalAppVersion();
+        char build[16];
+
+        snprintf(build, sizeof(build), "%s", gevrBuildId);
+        build[strcspn(build, " ")] = '\0';
+        gdl = gevrStampText(gdl, version[0] ? version : build, 0x37, rowy + 2 * rowh + 2);
+        snprintf(text, sizeof(text), "%s, %s%s", gevrSpeedrunPlatform(), s_run.stereo ? "VR" : "flat",
+                 s_run.third ? ", 3rd" : "");
+        gdl = gevrStampText(gdl, text, 0x37, rowy + 3 * rowh + 2);
+    }
+
+    /* the foot: what the run was played with */
+    foot = rowy + (coop ? 5 : 4) * rowh + 2;
+    if (foot + h > viGetY())
+    {
+        return gdl;
+    }
+#define STAMP_ITEM(...) (count < 12 ? (snprintf(items[count], sizeof(items[count]), __VA_ARGS__), count++) : 0)
+    if (s_run.forcepull) STAMP_ITEM("force pull");
+    if (s_run.ally) STAMP_ITEM("ally");
+    if (s_run.speed) STAMP_ITEM("speed %d", s_run.speed);
+    if (s_run.fastreinf) STAMP_ITEM("fast reinf");
+    if (s_run.mines) STAMP_ITEM("sticky mines");
+    if (s_run.dk) STAMP_ITEM("DK mode");
+    if (s_run.paintball) STAMP_ITEM("paintball");
+    if (s_run.linemode) STAMP_ITEM("line mode");
+    if (count == 0) STAMP_ITEM("original rules");
+    STAMP_ITEM("step %d cap %d", s_run.stepMax, s_run.stepCapped);
+    STAMP_ITEM("%s", s_run.autoaim ? "auto-aim" : "no auto-aim");
+    if (s_run.stereo)
+    {
+        if (s_run.snap > 0) STAMP_ITEM("snap %d", s_run.snap);
+        else STAMP_ITEM("smooth %d", s_run.turn);
+    }
+    if (s_run.hz > 0) STAMP_ITEM("%d hz%s", s_run.hz, s_run.spacewarp ? " sw" : "");
+    STAMP_ITEM("%s%s", s_run.bean ? "bean" : "n64", s_run.gex ? " gex" : "");
+#undef STAMP_ITEM
+
+    /* as many as fit the page's width, then how many did not */
+    text[0] = '\0';
+    len = 0;
+    for (shown = 0; shown < count; shown++)
+    {
+        char tryline[112];
+        char more[16];
+
+        snprintf(more, sizeof(more), ", +%d more", count - shown - 1);
+        snprintf(tryline, sizeof(tryline), "%s%s%s%s", text, len ? ", " : "", items[shown], shown + 1 < count ? more : "");
+        gevrStampFont(tryline);
+        if (0x37 + gevrStampWidth(tryline) > viGetX() - 0x30)
+        {
+            break;
+        }
+        len += snprintf(text + len, sizeof(text) - len, "%s%s", len ? ", " : "", items[shown]);
+    }
+    if (shown < count)
+    {
+        snprintf(text + len, sizeof(text) - len, ", +%d more", count - shown);
+    }
+    return gevrStampText(gdl, text, 0x37, foot);
+}
+
 /* gunDrawHudString's outlined digits in a colour of their own, left aligned on y */
 static Gfx *gevrHudStringColour(Gfx *gdl, char *text, s32 x, s32 y, u32 colour)
 {
@@ -111,8 +349,13 @@ Gfx *gevrSpeedrunTimerRender(Gfx *gdl)
     s32 y;
     s32 i;
 
-    /* LiveSplit gets the clock whether or not it is drawn (gevr_livesplit.c) */
+    /* LiveSplit gets the clock whether or not it is drawn (gevr_livesplit.c),
+     * and the debrief's stamp what the run is played on */
     gevrLiveSplitFrame(gevrSpeedrunClockRunning(), getMissiontimer());
+    if (gevrSpeedrunClockRunning())
+    {
+        gevrSpeedrunCapture();
+    }
     if (!gevrSpeedrunTimerShown())
     {
         return gdl;

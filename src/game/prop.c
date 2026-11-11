@@ -1295,6 +1295,7 @@ void proplvreset2(enum LEVELID stageId)
     { extern void gevrTpStageReset(void); gevrTpStageReset(); }   /* gevr_thirdperson.c */
     { extern void gevrGhostStageReset(s32 stage); gevrGhostStageReset(stageId); }   /* gevr_ghost.c */
     { extern void gevrLiveSplitStageReset(void); gevrLiveSplitStageReset(); }   /* gevr_livesplit.c */
+    { extern void gevrSpeedrunStageReset(s32 stage); gevrSpeedrunStageReset(stageId); }   /* gevr_speedrun.c */
 #endif
     ItemModelFileRecord *pitem;
     s32 withchrs;
