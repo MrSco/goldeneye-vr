@@ -79,6 +79,7 @@ void flatLauncherFeedInput(ImGuiIO &io);
 #include "vr_haptics.h"
 #include "vr_friends.h"
 #include "vr_ghosts.h"
+#include "gevr_livesplit.h"
 #include "gevr_friends_ui.h"
 
 extern "C" {
@@ -3480,6 +3481,38 @@ extern "C" void gevrLauncherRun(void)
             switch (tab) {
             case GEVR_LTAB_PLAY: {
                 gevrSettingsSection(settings, GEVR_LSEC_PLAY, GEVR_SET_LAUNCHER);
+                // LiveSplit (port/src/gevr_livesplit.c, docs/speedrun.md): the mission clock
+                // to the TCP server of LiveSplit on the runner's PC
+                ImGui::Spacing();
+                {
+                    bool liveSplit = VrLiveSplit != 0;
+                    if (ImGui::Checkbox("LiveSplit", &liveSplit)) {
+                        VrLiveSplit = liveSplit ? 1 : 0;
+                        vrSettingsSave();
+                    }
+                    if (ImGui::IsItemHovered())
+                        gevrTooltip("The mission time to LiveSplit (Control > Start TCP Server): it starts, splits at each "
+                                    "completed mission and keeps the debrief's time as Game Time.");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9.0f);
+                    ImGui::BeginDisabled(!VrLiveSplit);
+#ifdef ANDROID
+                    const char *hint = "PC's address";
+#else
+                    const char *hint = "this computer";
+#endif
+                    ImGui::InputTextWithHint("##livesplithost", hint, VrLiveSplitHost, sizeof(VrLiveSplitHost),
+                                             ImGuiInputTextFlags_CharsNoBlank);
+                    if (ImGui::IsItemDeactivatedAfterEdit()) vrSettingsSave();
+                    ImGui::EndDisabled();
+                    if (VrLiveSplit) {
+                        ImGui::SameLine();
+                        ImGui::AlignTextToFramePadding();
+                        ImGui::PushStyleColor(ImGuiCol_Text, gevrLiveSplitConnected() ? good : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                        gevrLauncherStatus(gevrLiveSplitStatus());
+                        ImGui::PopStyleColor();
+                    }
+                }
 #ifndef GEVR_IOS   // no updates in the app on iOS (the update line above)
                 ImGui::Spacing();
                 bool tests = upd.testBuilds;

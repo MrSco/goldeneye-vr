@@ -64,6 +64,23 @@ worktree; the short version is below.
   `ghost-board`, `ghost-upload`, `ghost-get`, answered by `GHOSTS_*`,
   `GHOST`, `GHOST_UPLOADED`, `GHOST_SAVED`, `GHOST_FAIL`).
 
+- **LiveSplit** (launcher Play: the LiveSplit box and the PC's address,
+  `port/src/gevr_livesplit.c`, ini `LiveSplit`, `LiveSplitHost`): the
+  mission clock to LiveSplit's own TCP server (LiveSplit 1.8.29+, Control >
+  Start TCP Server, port 16834), the one hook that reaches a Quest; Dab's Mod
+  has none. Game time is the debrief's clock (`alwayspausegametime`, then
+  `setgametime` ten times a second): this mission's plus every earlier one in
+  the run, a failed try included. A mission's clock starting with LiveSplit
+  stopped or finished starts it (`starttimer`, after `reset` for a finished
+  run); a completed mission splits at the debrief's time
+  (`end_of_mission_briefing`); a mission that ends unfinished while the run
+  is on its first segment resets it (a level's retry), later it does
+  nothing. A thread of its own does the talking, 1.5 s timeouts, a retry
+  every 5 s. Empty address: this computer (a headset asks for the PC's).
+  Tested by `port/tests/test_livesplit.py` (the client against a mock of
+  LiveSplit's server) and on PC against the mock on 16834 (Dam: start, the
+  clock streaming).
+
 ## Testing the boards on PC
 
 No production involved: the Worker under `wrangler dev --local --port 8787`
@@ -94,7 +111,6 @@ hands), a full mission completion saving through the debrief.
 - Ghost boards live: the Worker's branch `claude/ghost-boards` (goldeneyevr.com
   repo) merged and deployed, with the user's OK. Until then the Ghosts tab
   says the board did not load.
-- LiveSplit client (TCP 16834: `starttimer`, `setgametime`, `split`, `reset`),
-  never blocking the game.
+- LiveSplit against a real LiveSplit (Windows), from the headset over Wi-Fi.
 - Debrief stamp: version, platform, VR or flat, art set, locomotion, settings.
 - Check that VR stick movement keeps strafe-running's diagonal speed.

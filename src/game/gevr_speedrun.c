@@ -34,6 +34,7 @@
 #include "player.h"
 #include "textrelated.h"
 #include "hudaspect.h"
+#include "gevr_livesplit.h"
 
 extern bool netIsActive(void);
 extern int netGetLocalSlot(void);
@@ -58,9 +59,10 @@ static const s8 s_columns[8] = { 0, 8, 17, 26, 34, 43, 52, 60 };
  * the mission's clock is running, so not in an intro, a cutscene or with the
  * controls locked (hud_hide_and_lock_controls_and_pause_mission_time).
  */
-s32 gevrSpeedrunTimerShown(void)
+/* this headset's own mission, and its clock running */
+static s32 gevrSpeedrunClockRunning(void)
 {
-    if (!(VrSpeedrunTimer || gevrGhostRacing()) || g_CurrentPlayer == NULL)
+    if (g_CurrentPlayer == NULL)
     {
         return FALSE;
     }
@@ -76,6 +78,11 @@ s32 gevrSpeedrunTimerShown(void)
         return FALSE;
     }
     return g_CameraMode == CAMERAMODE_FP && is_timer_active && !g_CurrentPlayer->bonddead;
+}
+
+s32 gevrSpeedrunTimerShown(void)
+{
+    return (VrSpeedrunTimer || gevrGhostRacing()) && gevrSpeedrunClockRunning();
 }
 
 /* gunDrawHudString's outlined digits in a colour of their own, left aligned on y */
@@ -104,6 +111,8 @@ Gfx *gevrSpeedrunTimerRender(Gfx *gdl)
     s32 y;
     s32 i;
 
+    /* LiveSplit gets the clock whether or not it is drawn (gevr_livesplit.c) */
+    gevrLiveSplitFrame(gevrSpeedrunClockRunning(), getMissiontimer());
     if (!gevrSpeedrunTimerShown())
     {
         return gdl;

@@ -40,6 +40,16 @@ void end_of_mission_briefing(void)
     s16 var1;
 
 #ifdef GEVR
+    {
+        /* LiveSplit splits at the debrief's time (gevr_livesplit.c) */
+        extern void gevrLiveSplitMissionComplete(int time60);
+        extern s32 getMissiontimer(void);
+
+        gevrLiveSplitMissionComplete(getMissiontimer());
+    }
+#endif
+
+#ifdef GEVR
     /* look-only cheats (big heads, paintball, line mode) keep progress */
     extern s32 gevrCheatsBlockProgress(void);
     if ((-1 < briefingpage) && selected_difficulty != DIFFICULTY_007 && (g_AppendCheatSinglePlayer == FALSE || !gevrCheatsBlockProgress()))

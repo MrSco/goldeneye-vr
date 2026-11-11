@@ -161,6 +161,11 @@ int VrSpeedrunTimer = 0;
 /* The ghost race (src/game/gevr_ghost.c): your best run of the mission, replayed
  * as a see-through Bond, with the split against it beside the timer. */
 int VrGhostRace = 0;
+/* LiveSplit (port/src/gevr_livesplit.c): the mission clock to the runner's LiveSplit
+ * through its TCP server (port 16834) at this address; empty is this computer
+ * (a headset needs the PC's). */
+int VrLiveSplit = 0;
+char VrLiveSplitHost[64] = "";
 /* Application SpaceWarp: the runtime makes every other displayed frame from
  * motion vectors and depth (vr_openxr.cpp). 1 on, 0 off, -1 (the default) on
  * while Bean is and the display runs at 120 Hz: the user's 2026-10-17 feel

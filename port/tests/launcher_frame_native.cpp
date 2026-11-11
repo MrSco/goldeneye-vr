@@ -29,6 +29,11 @@ static int VrUnlockAll = 1;
 static int customPages;
 static void gevrHapticsPage(const ImVec4 &, const ImVec4 &, const ImVec4 &) { customPages++; }
 static void gevrModsPage(unsigned, const ImVec4 &, const ImVec4 &, const ImVec4 &) { customPages++; }
+// Play's LiveSplit row at its fullest: on, the longest address, the longest status
+int VrLiveSplit = 1;
+char VrLiveSplitHost[64] = "speedrun-pc.example.local";
+static const char *gevrLiveSplitStatus(void) { return "No LiveSplit server at speedrun-pc.example.local (LiveSplit: Control > Start TCP Server)"; }
+static int gevrLiveSplitConnected(void) { return 0; }
 // the Ghosts tab (gevr_ghosts_ui.h) at its fullest: a page of the board with the
 // longest names the Friends service allows, your run ranked and refused, a
 // downloaded run raced with the setting off, and a message that wraps

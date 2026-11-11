@@ -213,6 +213,10 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "SpeedrunTimer=%d\n", VrSpeedrunTimer ? 1 : 0);
     fprintf(f, "; 1 = race your best run of each mission as a see-through Bond (files/ghosts).\n");
     fprintf(f, "GhostRace=%d\n", VrGhostRace ? 1 : 0);
+    fprintf(f, "; 1 = the mission clock to LiveSplit's TCP server (LiveSplit: Control > Start TCP Server),\n");
+    fprintf(f, "; at LiveSplitHost (empty: this computer; on a headset, the PC's address).\n");
+    fprintf(f, "LiveSplit=%d\n", VrLiveSplit ? 1 : 0);
+    fprintf(f, "LiveSplitHost=%s\n", VrLiveSplitHost);
     fprintf(f, "; 1 = Application SpaceWarp: the game renders at half the display rate and the\n");
     fprintf(f, "; headset makes the frames between from motion vectors. 0 = off, -1 = on with Bean.\n");
     fprintf(f, "SpaceWarp=%d\n", VrSpaceWarp < 0 ? -1 : VrSpaceWarp ? 1 : 0);
@@ -717,6 +721,12 @@ extern "C" void vrSettingsLoad(void)
             VrCheatMask = strtoull(line + 7, NULL, 16);
             continue;
         }
+        if (strncmp(line, "LiveSplitHost=", 14) == 0) {   // text: an address or a name
+            strncpy(VrLiveSplitHost, line + 14, sizeof(VrLiveSplitHost) - 1);
+            VrLiveSplitHost[sizeof(VrLiveSplitHost) - 1] = '\0';
+            VrLiveSplitHost[strcspn(VrLiveSplitHost, "\r\n \t")] = '\0';
+            continue;
+        }
         if (strncmp(line, "PlayerName=", 11) == 0) {   // text, even when it reads as a number ("007")
             strncpy(VrPlayerName, line + 11, sizeof(VrPlayerName) - 1);
             VrPlayerName[sizeof(VrPlayerName) - 1] = '\0';
@@ -793,6 +803,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "ShowStats") == 0) VrShowStats = (ival != 0);
             else if (strcmp(key, "SpeedrunTimer") == 0) VrSpeedrunTimer = (ival != 0);
             else if (strcmp(key, "GhostRace") == 0) VrGhostRace = (ival != 0);
+            else if (strcmp(key, "LiveSplit") == 0) VrLiveSplit = (ival != 0);
             else if (strcmp(key, "SpaceWarp") == 0) VrSpaceWarp = ival < 0 ? -1 : ival != 0;
 #ifdef GEVR_PCVR
             else if (strcmp(key, "EyeMsaa") == 0) VrEyeMsaa = ival >= 4 ? 4 : ival >= 2 ? 2 : 1;

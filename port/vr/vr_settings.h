@@ -146,6 +146,8 @@ extern int VrTouchModel;        // watch Controls page: 0 the headset's controll
 extern int VrShowStats;         // troubleshooting readout in game
 extern int VrSpeedrunTimer;     // the mission time on the HUD, to the hundredth (gevr_speedrun.c)
 extern int VrGhostRace;         // race your best run of the mission as a see-through Bond (gevr_ghost.c)
+extern int VrLiveSplit;         // the mission clock to LiveSplit's TCP server (gevr_livesplit.c)
+extern char VrLiveSplitHost[64]; // its computer's address; empty: this one
 extern int VrSpaceWarp;         // Application SpaceWarp: 1 on, 0 off, -1 on while Bean is, at 120 Hz
 extern int VrResetRenderScale;  // the test build's RenderScale key was read: scale back to 1
 extern int VrEyeMsaa;           // eye images' anti-aliasing: 1 off, 2 samples (live)
