@@ -209,6 +209,9 @@ static const char* mv_blit_fs_src =
 #else
 extern "C" int gfx_sdl_get_mirror_eye();
 extern "C" bool gfx_sdl_is_mirror_enabled();
+#ifdef GEVR_PCVR
+extern "C" GLuint vr_mirror_screen_tex(int *w, int *h);   // vr_openxr.cpp: the screen's picture while it is up
+#endif
 static GLint s_mirror_uloc_sbs = -1;
 extern "C" bool gfx_sdl_is_mirror_sbs();
 
@@ -5781,13 +5784,51 @@ static void gfx_opengl_mirror_to_desktop(
 
     if (!gfx_sdl_is_mirror_enabled()) return;
 
-    GLuint eye_array_tex = vr_get_current_multiview_swapchain_tex();
-    if (!eye_array_tex) return;
-
     extern SDL_Window*   mirror_wnd;
     extern SDL_GLContext mirror_ctx;
     extern SDL_Window*   wnd;
     extern SDL_GLContext ctx;
+#ifdef GEVR_PCVR
+    // The screen up (the launcher, the folders, cutscenes, the pause panel): its
+    // picture at its own shape, the eye images behind it being black (user, 2026-11-10)
+    {
+        int sw = 0, sh = 0;
+        const GLuint screen_tex = vr_mirror_screen_tex(&sw, &sh);
+        if (screen_tex && mirror_wnd && mirror_ctx && sw > 0 && sh > 0) {
+            SDL_GL_MakeCurrent(mirror_wnd, mirror_ctx);
+            static GLuint read_fbo = 0;   // the mirror context's own: framebuffers are not shared
+            if (!read_fbo) glGenFramebuffers(1, &read_fbo);
+            glDisable(GL_FRAMEBUFFER_SRGB);
+            glDisable(GL_SCISSOR_TEST);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glViewport(0, 0, (GLsizei)dst_w, (GLsizei)dst_h);
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+            // letterboxed
+            int x0 = 0, y0 = 0, x1 = (int)dst_w, y1 = (int)dst_h;
+            if ((float)sw / (float)sh > (float)dst_w / (float)dst_h) {
+                const int h = (int)((float)dst_w * (float)sh / (float)sw + 0.5f);
+                y0 = ((int)dst_h - h) / 2;
+                y1 = y0 + h;
+            } else {
+                const int w = (int)((float)dst_h * (float)sw / (float)sh + 0.5f);
+                x0 = ((int)dst_w - w) / 2;
+                x1 = x0 + w;
+            }
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, read_fbo);
+            glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, screen_tex, 0);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+            glBlitFramebuffer(0, 0, sw, sh, x0, y0, x1, y1, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glFlush();
+            SDL_GL_MakeCurrent(wnd, ctx);
+            return;
+        }
+    }
+#endif
+
+    GLuint eye_array_tex = vr_get_current_multiview_swapchain_tex();
+    if (!eye_array_tex) return;
     if (!mirror_wnd || !mirror_ctx) return;
 
     gfx_opengl_init_mirror_shader();

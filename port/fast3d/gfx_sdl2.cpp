@@ -77,7 +77,7 @@ static float toolbar_alpha     = 1.0f;   // current opacity
 static uint32_t last_mouse_move_ms = 0;  // timestamp of the last mouse movement
 #define TOOLBAR_HIDE_DELAY_MS 3000       // 3 seconds without movement → disappears
 
-bool mirror_enabled     = false;
+bool mirror_enabled     = true;    // what the headset shows, from the start (user, 2026-11-10)
 static int  mirror_saved_w     = 916;
 static int  mirror_saved_h     = 960;
 
@@ -755,17 +755,34 @@ extern "C" void mirror_apply_size(bool enabled) {
 
 #endif
 
+#ifndef ANDROID
+static void gfx_sdl_mirror_toolbar_and_swap(void);
+
+/*
+ * The in-VR launcher's frames (vr_launcher.cpp, through gfx_pc.cpp
+ * gfx_pc_mirror_frame): the mirror window's events, toolbar and swap, which
+ * otherwise come only with the game's frames.
+ */
+extern "C" void gfx_sdl_mirror_present(void)
+{
+    gfx_sdl_handle_events();
+    gfx_sdl_mirror_toolbar_and_swap();
+}
+#endif
+
 static void gfx_sdl_swap_buffers_begin(void) {
     if (target_fps) {
         const uint64_t timingStart = gevrFrameTimingNow();
         sync_framerate_with_timer();
         gevrFrameTimingAdd(GEVR_TIME_THROTTLE, timingStart);
     }
-
-
+#ifndef ANDROID
+    gfx_sdl_mirror_toolbar_and_swap();
+#endif
+}
 
 #ifndef ANDROID
-
+static void gfx_sdl_mirror_toolbar_and_swap(void) {
     if (mirror_wnd && mirror_ctx) {
     SDL_GL_MakeCurrent(mirror_wnd, mirror_ctx);
 
@@ -919,9 +936,8 @@ static void gfx_sdl_swap_buffers_begin(void) {
     SDL_GL_SwapWindow(mirror_wnd);
     SDL_GL_MakeCurrent(wnd, ctx);
 }
-
-#endif
 }
+#endif
 
 
 static void gfx_sdl_swap_buffers_end(void) {

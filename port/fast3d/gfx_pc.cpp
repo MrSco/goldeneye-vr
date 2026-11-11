@@ -5700,6 +5700,21 @@ uint32_t num_dls = 0;
 
 
 extern "C" void gfx_sdl_get_mirror_dimensions(int* w, int* h);
+#ifdef GEVR_PCVR
+extern "C" void gfx_sdl_mirror_present(void);   // gfx_sdl2.cpp: the mirror window's events, toolbar and swap
+
+// The in-VR launcher's frames (vr_launcher.cpp): the mirror window, as the game's frames update it
+extern "C" void gfx_pc_mirror_frame(void)
+{
+    int mw = 0, mh = 0;
+    gfx_sdl_get_mirror_dimensions(&mw, &mh);
+    if (gfx_rapi && mw > 0 && mh > 0) {
+        gfx_rapi->mirror_to_desktop((uint32_t)vr_get_internal_render_width(), (uint32_t)vr_get_internal_render_height(),
+                                    (uint32_t)mw, (uint32_t)mh);
+    }
+    gfx_sdl_mirror_present();
+}
+#endif
 
 
 /* PORT probe: dump the frame's display list to logcat once, when the marker file exists */

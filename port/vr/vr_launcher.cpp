@@ -87,7 +87,8 @@ const char *fsFullPath(const char *relPath);  // port/src/fs.c
 int fsFileSize(const char *name);             // port/src/fs.c: -1 when absent
 extern const char gevrBuildId[];              // generated, port/cmake/buildid.cmake
 void vrSettingsSave(void);            // vr_settings.cpp
-#if defined(GEVR_PCVR) || (defined(ANDROID) && !defined(GEVR_MOBILE))
+#ifdef GEVR_PCVR
+void gfx_pc_mirror_frame(void);       // fast3d gfx_pc.cpp: the desktop mirror window, for the launcher's frames
 #endif
 void vrEnsurePlayerName(void);        // vr_settings.cpp: make up a name if there is none
 extern char g_ActiveExtTexPack[];     // port/src/ext_tex.c: the texture pack in use ("" = none), saved in the ini
@@ -3684,6 +3685,9 @@ extern "C" void gevrLauncherRun(void)
         }
         vr_screen_set_visible(1);
         vr_screen_present_tex2d(tex, canvasW, kTexH);
+#ifdef GEVR_PCVR
+        gfx_pc_mirror_frame();   // the desktop mirror shows the launcher too
+#endif
         gevrVrPumpEnd();
     }
 

@@ -3412,6 +3412,67 @@ static void vr_beam_quad_destroy(void)
 
 static bool vr_screen_present_common(unsigned int srcTex, bool is2d, int w, int h);
 
+#ifdef GEVR_PCVR
+/*
+ * The desktop mirror (gfx_opengl.cpp gfx_opengl_mirror_to_desktop) showed the
+ * eye images only, and behind the screen they are black: the launcher, the
+ * folders, cutscenes and the pause panel never reached it (user, 2026-11-10).
+ * The screen's picture is copied here as it goes to the headset, and the mirror
+ * shows it while the screen is up.
+ */
+extern "C" bool gfx_sdl_is_mirror_enabled();
+static GLuint g_mirrorScreenTex;
+static int g_mirrorScreenW, g_mirrorScreenH;
+static void vr_mirror_screen_copy(GLuint src, bool is2d, int w, int h)
+{
+    if (!gfx_sdl_is_mirror_enabled()) {
+        return;
+    }
+    GLint prevTex = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTex);
+    if (!g_mirrorScreenTex || g_mirrorScreenW != w || g_mirrorScreenH != h) {
+        if (!g_mirrorScreenTex) glGenTextures(1, &g_mirrorScreenTex);
+        glBindTexture(GL_TEXTURE_2D, g_mirrorScreenTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glBindTexture(GL_TEXTURE_2D, (GLuint)prevTex);
+        g_mirrorScreenW = w;
+        g_mirrorScreenH = h;
+    }
+    static GLuint srcFbo = 0, dstFbo = 0;
+    if (!srcFbo) glGenFramebuffers(1, &srcFbo);
+    if (!dstFbo) glGenFramebuffers(1, &dstFbo);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, srcFbo);
+    if (is2d) {
+        glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, src, 0);
+    } else {
+        glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, src, 0, 0);
+    }
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dstFbo);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_mirrorScreenTex, 0);
+    const GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);
+    glDisable(GL_SCISSOR_TEST);
+    glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    if (scissor) glEnable(GL_SCISSOR_TEST);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glFlush();   // the mirror's context reads it
+}
+
+// The screen's picture while the screen is up (the launcher, the folders, cutscenes, the pause panel), else 0
+extern "C" GLuint vr_mirror_screen_tex(int *w, int *h)
+{
+    if (!g_screenVisible || !g_mirrorScreenTex) {
+        return 0;
+    }
+    *w = g_mirrorScreenW;
+    *h = g_mirrorScreenH;
+    return g_mirrorScreenTex;
+}
+#endif
+
 // Copy layer 0 of the finished frame into the screen swapchain; the layer is
 // added to this frame's submission.
 extern "C" bool vr_screen_present(unsigned int srcArrayTex, int w, int h)
@@ -3471,6 +3532,9 @@ static bool vr_screen_present_common(unsigned int srcArrayTex, bool is2d, int w,
     XrSwapchainImageReleaseInfo releaseInfo = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
     xrReleaseSwapchainImage(g_screenSwapchain, &releaseInfo);
     g_screenPending = true;
+#ifdef GEVR_PCVR
+    vr_mirror_screen_copy((GLuint)srcArrayTex, is2d, w, h);
+#endif
     return true;
 }
 
