@@ -104,9 +104,18 @@ found with the user in the headset, and what the game does about it
   one projection layer last in the list (`vr_hud_layer_render`: the eyes'
   size, every XR frame, from the game's captures at the quads' poses).
   Other runtimes keep the quads.
-- **The left controller's menu button opens SteamVR's dashboard** (Quest
-  controllers through Virtual Desktop): the game's START and panel share
-  it. Open: SteamVR's binding settings, or another button in game.
+- **Known issues (user, 2026-11-10: "put down as known issues for now"):**
+  - **The left controller's menu button opens SteamVR's dashboard** (Quest
+    controllers through Virtual Desktop), and the game's START and panel
+    share it. Players can move the dashboard in SteamVR's settings
+    (Dashboard, or the controller bindings). Later: another button for
+    START under SteamVR only.
+  - **No curved screen under SteamVR:** SteamVR 2.18.4 does not offer
+    `XR_KHR_composition_layer_cylinder` (every VDXR run enabled it, no
+    SteamVR run did), so Curved falls back to flat, the pointer with it.
+    Later: the game draws the screen itself under SteamVR (flat or curved,
+    the beam and spot over it in order), which would also retire the
+    beam/spot quads and the stable slots.
 - **The first frames give the head at the floor.** The screen's first
   placement waits for a head above 30 cm (floor spaces, all runtimes).
 - **Through a streaming headset the screen's edge smears in one eye on a
