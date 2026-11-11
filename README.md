@@ -201,6 +201,30 @@ Coming from v0.1.12 or older, or if you'd rather not update in the headset: inst
 the same way as the first time. Your ROM and settings stay where they are.
 **Don't uninstall first:** uninstalling deletes the app's folder, ROM included.
 
+## 💻 Other platforms (from v0.5.15)
+
+The same game and the same online matches outside the Quest. Each
+[release](https://github.com/MrSco/goldeneye-vr/releases/latest) has the downloads. Bring your own
+ROM, as on the Quest.
+
+- **Windows PC:** `GoldenEyeVR-X.Y.Z-windows-x64.zip`. Unzip it somewhere you can write to (not
+  Program Files) and put your ROM in the folder. `GoldenEyeVR.exe` plays on the screen with
+  keyboard and mouse or a gamepad (F10 or the pad's Back button for the in-game panel; the zip's
+  README.txt lists the keys). `Play VR.cmd` plays in a PC VR headset through your OpenXR runtime
+  (Quest Link, Virtual Desktop), `Play SteamVR.cmd` through SteamVR. The PC launcher updates
+  itself.
+- **Experimental** (built from the same code, not yet tried on real hardware, so please
+  [tell us](https://github.com/MrSco/goldeneye-vr/issues) how they run):
+  - **Linux PC:** `GoldenEyeVR-X.Y.Z-linux-x64.zip`, laid out like Windows' (`play-vr.sh`,
+    `play-steamvr.sh`).
+  - **Android phones and tablets:** `GoldenEyeVR-X.Y.Z-android.apk` (Android 7 or newer,
+    64-bit): touch controls, gyro aim or a gamepad. Hold the on-screen START for the panel.
+  - **Steam Frame:** `GoldenEyeVR-X.Y.Z-frame.apk`, the Quest's game for the Frame.
+  - **iPhone and iPad:** `GoldenEyeVR-X.Y.Z-ios.ipa`, unsigned: install it with
+    [SideStore](https://sidestore.io/).
+- **Crossplay:** flat players (mouse, pad, touch) can join VR players. A host can tick
+  **VR players only**, and VR players can tick **Hide games with flat players** on the Join page.
+
 ## Mirrored missions (optional)
 
 Wreck's **Mirror Mode** is available as a separate solo campaign. Apply the
