@@ -1397,9 +1397,12 @@ void frontUpdateControlStickPosition(void) {
          * stick as soon as the stick is pushed; the trigger selects (Z).
          */
         extern s32 gevrVrScreenPointer(f32 *u, f32 *v);
+        extern void gevrVrScreenPointerOwnCursor(void);
         static s32 pointing = FALSE;
         f32 u, v;
         s32 hit = gevrVrScreenPointer(&u, &v);
+
+        gevrVrScreenPointerOwnCursor();   /* the crosshair is the spot: the laser draws none */
 
         /* co-op (#94): a headset following the host's menus shows the host's cursor */
         if (gevrCoopMenuFollowing())

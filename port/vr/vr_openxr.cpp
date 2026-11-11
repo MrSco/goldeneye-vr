@@ -434,10 +434,6 @@ enum class XrRuntimeType {
 
 static XrRuntimeType gActiveRuntime = XrRuntimeType::Unknown;
 
-/* SteamVR draws quad layers over the eye images whatever their order: the
- * screen hides the laser's spot drawn in the scene, so the launcher draws its
- * own (vr_launcher.cpp). */
-extern "C" int gevrVrQuadsOverScene(void) { return gActiveRuntime == XrRuntimeType::SteamVR; }
 bool is_meta_runtime = false;
 // GoldenEye: the curved virtual screen is a cylinder layer (VrScreenCurved).
 static bool g_cylinderSupported = false;
@@ -2746,6 +2742,24 @@ extern "C" int gevrVrScreenPointer(float *u, float *v)
 }
 
 /*
+ * The game's folders draw their own cursor, the crosshair, where the laser
+ * points (front.c): there the laser has no spot to cover it (user, 2026-11-10:
+ * the spot is for the launcher and the in-game panel). Called each frame the
+ * folders read the pointer.
+ */
+static unsigned g_ptrOwnCursorFrame;
+static bool g_ptrOwnCursorSeen;
+extern "C" void gevrVrScreenPointerOwnCursor(void)
+{
+    g_ptrOwnCursorFrame = g_ptrFrame;
+    g_ptrOwnCursorSeen = true;
+}
+static bool vr_pointer_own_cursor(void)
+{
+    return g_ptrOwnCursorSeen && g_ptrFrame - g_ptrOwnCursorFrame < 20;
+}
+
+/*
  * The beam and its spot, drawn into the eye buffers while the virtual screen
  * is up (the projection layer is then composited over the screen, with a
  * transparent clear - see the layer order in vr_end_frame): a thin white
@@ -2977,11 +2991,12 @@ static void vr_pointer_paint(const std::array<XrView, 2> &views, bool declare)
     glBindBuffer(GL_ARRAY_BUFFER, s_ptrVbo);
     if (p0.hit && wanted) {
         glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STREAM_DRAW);
+        const bool spot = !vr_pointer_own_cursor();   // not over the folders' crosshair
         if (vr_beam_as_quad()) {
-            if (vr_dot_quad_failed())
+            if (spot && vr_dot_quad_failed())
                 glDrawArrays(GL_TRIANGLES, 6, 6);   // the spot only: the beam is a quad layer
         } else {
-            glDrawArrays(GL_TRIANGLES, 0, 12);
+            glDrawArrays(GL_TRIANGLES, 0, spot ? 12 : 6);
         }
     }
 
@@ -3350,7 +3365,7 @@ static bool vr_beam_quad(XrCompositionLayerQuad *q)
  */
 static bool vr_dot_quad(XrCompositionLayerQuad *q)
 {
-    if (!vr_beam_as_quad()) {
+    if (!vr_beam_as_quad() || vr_pointer_own_cursor()) {
         return false;
     }
     const VrPointerHand &p = g_ptr[g_ptrActive];

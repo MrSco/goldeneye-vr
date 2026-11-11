@@ -179,6 +179,7 @@ int gevrVrGripPoseCamera(int hand, float pos[3], float q[4]) { (void)hand; (void
 int gevrVrGripPosePlay(int hand, float pos[3], float quat[4]) { (void)hand; (void)pos; (void)quat; return 0; }
 int gevrVrWatchGesture(void) { return 0; }
 int gevrVrScreenPointer(float *u, float *v) { (void)u; (void)v; return 0; }
+void gevrVrScreenPointerOwnCursor(void) {}
 void gevrVrCameraWorld(const float position[3], const float look[3], const float up[3]) { (void)position; (void)look; (void)up; }
 void gevrVrLocomotionSnapshot(const float position[3], const float tracking[3], float yaw, uint64_t sequence)
 {
