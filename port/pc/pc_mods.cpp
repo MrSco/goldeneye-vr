@@ -282,6 +282,8 @@ private:
             if (gevrBeanImportStream(f, tmp.c_str(), msg, sizeof(msg)) < 0) throw HttpError{0, msg[0] ? msg : "failed"};
             if (!writeFileAtomic(tmp + "/" + kMarker, "own\n")) throw HttpError{0, "could not write the pack's marker"};
             deleteTree(backup);
+            // a dead link or a stray file in the pack's place would block the move
+            if (!isDir(dest) && !removeNonDir(dest)) throw HttpError{0, "could not clear " + dest};
             if (isDir(dest) && !movePath(dest, backup, false)) throw HttpError{0, "could not preserve installed pack"};
             if (!movePath(tmp, dest, false)) {
                 if (isDir(backup) && !movePath(backup, dest, false)) sysLogPrintf(1, "mods: could not restore %s", id.c_str());
@@ -400,6 +402,8 @@ private:
             if (n < least) throw HttpError{0, "the download holds " + std::to_string(n) + " files, not the pack"};
             if (!writeFileAtomic(tmp + "/" + kMarker, b.version + "\n")) throw HttpError{0, "could not write the pack's marker"};
             deleteTree(backup);
+            // a dead link or a stray file in the pack's place would block the move
+            if (!isDir(dest) && !removeNonDir(dest)) throw HttpError{0, "could not clear " + dest};
             if (isDir(dest) && !movePath(dest, backup, false)) throw HttpError{0, "could not preserve installed pack"};
             if (!movePath(tmp, dest, false)) {
                 if (isDir(backup) && !movePath(backup, dest, false)) sysLogPrintf(1, "mods: could not restore %s", id.c_str());

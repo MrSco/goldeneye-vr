@@ -102,6 +102,7 @@ long long fileTimeMs(const std::string &path);      // last write, ms since 1970
 bool makeDirs(const std::string &path);
 bool removeFile(const std::string &path);
 bool deleteTree(const std::string &path);           // a file or a folder and all in it
+bool removeNonDir(const std::string &path);        // a file or a link (a dead one too) that is no folder; true if none is left
 bool movePath(const std::string &from, const std::string &to, bool replace);
 std::vector<std::string> listDir(const std::string &path);   // names, without . and ..
 bool readFile(const std::string &path, std::string *out, size_t max);

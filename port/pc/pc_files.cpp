@@ -94,6 +94,22 @@ bool deleteTree(const std::string &path)
     return !ec;
 }
 
+bool removeNonDir(const std::string &path)
+{
+    if (isDir(path)) return false;
+#ifdef _WIN32
+    // the link itself, not what it points at: a dead junction is a directory entry
+    const DWORD a = GetFileAttributesW(wide(path).c_str());
+    if (a == INVALID_FILE_ATTRIBUTES) return true;
+    if (a & FILE_ATTRIBUTE_DIRECTORY) return RemoveDirectoryW(wide(path).c_str()) != 0;
+    return DeleteFileW(wide(path).c_str()) != 0;
+#else
+    std::error_code ec;
+    if (!fs::exists(fs::symlink_status(P(path), ec))) return true;
+    return fs::remove(P(path), ec) && !ec;
+#endif
+}
+
 bool movePath(const std::string &from, const std::string &to, bool replace)
 {
 #ifdef _WIN32

@@ -13,6 +13,9 @@
 #include <cstdarg>
 #include <cstdio>
 #include <string>
+#ifndef _WIN32
+#include <unistd.h>   // symlink
+#endif
 
 #include "gevr_bean_import.h"
 #include "gevr_bean_ce.h"
@@ -23,10 +26,16 @@ void pcRestartSelf(void) {}
 /* The Bean import itself (port/src/gevr_bean_import.c, gevr_bean_ce.c) is not
  * linked here: pc_mods.cpp only hands it the picked file. */
 static int s_importCalls;
-extern "C" int gevrBeanImportStream(FILE *src, const char *, char *msg, size_t msgLen)
+static bool s_importOk;
+extern "C" int gevrBeanImportStream(FILE *src, const char *dest, char *msg, size_t msgLen)
 {
     s_importCalls++;
     if (src) fclose(src);
+    if (s_importOk) {
+        FILE *f = fopen((std::string(dest) + "/bond.bin").c_str(), "wb");
+        if (f) fclose(f);
+        return 1;
+    }
     snprintf(msg, msgLen, "stub");
     return -1;
 }
@@ -187,6 +196,24 @@ static void testMods()
     CHECK(s_importCalls == 1);
     m.applyCe("copy.7z");                 // the Community Edition needs the imported copy
     CHECK(beanLine().find("\tpatching\t") == std::string::npos && beanLine().find("\tstub\t") != std::string::npos);
+    // a stray file, then a dead link, in the pack's place: cleared, not "could not finish importing"
+    s_importOk = true;
+    writeFileAtomic("texture-packs/ge007-bean", "stray");
+    m.importOwn("ge007-bean", "copy.7z");
+    CHECK(beanLine().find("\terror\t") == std::string::npos && isFile("texture-packs/ge007-bean/bond.bin"));
+    deleteTree("texture-packs/ge007-bean");
+#ifdef _WIN32
+    makeDirs("dead-target");
+    CHECK(system("cmd /c mklink /J texture-packs\\ge007-bean dead-target >nul") == 0);
+    deleteTree("dead-target");
+#else
+    CHECK(symlink("dead-target", "texture-packs/ge007-bean") == 0);
+#endif
+    CHECK(!isDir("texture-packs/ge007-bean"));
+    m.importOwn("ge007-bean", "copy.7z");
+    CHECK(beanLine().find("\terror\t") == std::string::npos && isFile("texture-packs/ge007-bean/bond.bin"));
+    deleteTree("texture-packs/ge007-bean");
+    s_importOk = false;
 }
 
 static void testReports()
