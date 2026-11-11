@@ -1,9 +1,9 @@
 # Speedrun timer and ghost race
 
-Branch notes (2026-11-11). Research behind it: what other games ship, what
-GoldenEye runners and streamers use, in the untracked
-`reports/Speedrun features and community standards.md` of the session
-worktree; the short version is below.
+Released in v0.5.16 (2026-11-11). Research behind it: what other games ship,
+what GoldenEye runners and streamers use, in
+[research/speedrun-standards.md](research/speedrun-standards.md); the short
+version is below.
 
 ## What runners expect
 
