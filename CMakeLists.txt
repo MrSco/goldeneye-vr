@@ -564,8 +564,10 @@ endif()
 set(OPUS_BUILD_TESTING OFF CACHE BOOL "Do not build Opus tests" FORCE)
 set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "Do not build Opus tools" FORCE)
 set(OPUS_INSTALL OFF CACHE BOOL "Do not install Opus" FORCE)
+# The mirror second: CMake 3.22's curl fails on downloads.xiph.org ("Error in the
+# HTTP2 framing layer", 2026-11-11) and fetches its redirect target fine.
 FetchContent_Declare(opus
-  URL https://downloads.xiph.org/releases/opus/opus-1.6.1.tar.gz
+  URL https://downloads.xiph.org/releases/opus/opus-1.6.1.tar.gz https://ftp.osuosl.org/pub/xiph/releases/opus/opus-1.6.1.tar.gz
   URL_HASH SHA256=6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1)
 FetchContent_MakeAvailable(opus)
 target_compile_options(opus PRIVATE $<$<CONFIG:Debug>:-O2>)
