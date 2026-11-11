@@ -38,6 +38,8 @@ static f32 s_minx, s_maxx, s_minz, s_maxz, s_bottom, s_top;
 s32 propDoorGetCdTypes(PropRecord *prop) { (void)prop; return CDTYPE_CLOSEDDOORS; }
 /* This floor/glass fixture has no network session or player props. */
 bool netIsActive(void) { return FALSE; }
+/* the ghost race (gevr_ghost.c): no ghost here; chrprop.c asks */
+s32 gevrGhostIsChr(ChrRecord *chr) { (void)chr; return 0; }
 bool netSlotOccupied(int slot) { (void)slot; return FALSE; }
 s32 getPlayerPointerIndex(PropRecord *prop) { (void)prop; return -1; }
 /* INSERT_PRODUCTION_CD_SELECTOR */

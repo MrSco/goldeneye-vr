@@ -52,6 +52,8 @@ static s32 propDoorGetCdTypes(PropRecord *prop) { return CDTYPE_DOORS; }
 /* INSERT_PLAYER_RULE */
 static s32 gevrNetInsideDoorProp(PropRecord *p, rect4f *r, s32 n, f32 x, f32 z) { return 0; }
 static s32 gevrInsideObjProp(PropRecord *p, rect4f *r, s32 n, f32 x, f32 z) { return 0; }
+/* the ghost race (gevr_ghost.c): no ghost here; chrprop.c asks */
+s32 gevrGhostIsChr(ChrRecord *chr) { (void)chr; return 0; }
 void roomGetProps(s32 *rooms) {
     int n = 0;
     if (obstacle) props[n++] = 0;
