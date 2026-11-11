@@ -131,7 +131,7 @@ int main() {
     sweep(true, "online, co-op host");
     s_host = 0; s_coop = 0; s_netSpeed = 4;
     sweep(true, "online, deathmatch joiner");
-    settingsFitFail(screens == 4 * 7, "every section of both in-game screens, in four states");
+    settingsFitFail(screens == 4 * GEVR_SEC_COUNT, "every section of both in-game screens, in four states");
     // the online tabs: Rules (mpmenu.c's rules and the table's fun switches), Player, Audio,
     // as the host (all theirs) and as a joiner (the host's greyed with their reason)
     int online = 0;

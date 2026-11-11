@@ -61,7 +61,7 @@ static const int fullestCount = sizeof(fullest) / sizeof(fullest[0]);
 static int fakeIndex[GEVR_SEC_COUNT * 16];
 static const FakeRow &fakeRow(int id) { return fullest[(id % 16) % fullestCount]; }
 static int fakeSectionCount() { return GEVR_SEC_COUNT; }
-static const char *fakeSectionName(int s) { static const char *n[] = {"Comfort", "Controls", "Gestures", "Weapons", "Display", "Game rules", "Mods and fun"}; return n[s]; }
+static const char *fakeSectionName(int s) { static const char *n[] = {"Comfort", "Controls", "Gestures", "Weapons", "Display", "Game rules", "Mods and fun", "Audio"}; return n[s]; }
 static int fakeSectionRows(int s, unsigned, int *ids, int max) {
     const int n = s == GEVR_SEC_DISPLAY ? fullestCount : s == GEVR_SEC_GESTURES ? 12 : 7;
     for (int i = 0; i < n && i < max; i++) ids[i] = s * 16 + i;
@@ -188,7 +188,9 @@ int main() {
     ImGuiTabBar *tabs = nullptr;
     for (int t = 0; t < ImGui::GetCurrentContext()->TabBars.GetMapSize(); t++)
         if (ImGuiTabBar *bar = ImGui::GetCurrentContext()->TabBars.TryGetMapData(t)) tabs = bar;
-    check(tabs && tabs->Tabs.Size == 7, "the seven VR sections are tabs");
+    check(tabs && tabs->Tabs.Size == GEVR_SEC_COUNT, "the eight VR sections are tabs");
+    for (int t = 0; tabs && t < tabs->Tabs.Size; t++)
+        check(tabs->Tabs[t].Width + 0.5f >= tabs->Tabs[t].ContentWidth, "no section's tab is cut short");
     check(tabs->WidthAllTabsIdeal <= tabs->BarRect.GetWidth() + 1, "all seven section tabs fit without scrolling or shrinking");
     check(ImGui::FindWindowByName("##friends-sidebar")->Pos.x == 1280, "the panel has the same Friends side panel as the launcher");
     check(panel->ContentSize.y + panel->WindowPadding.y <= 960, "the footer (Resume, HD textures, Back to launcher) stays on the canvas");

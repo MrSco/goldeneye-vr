@@ -32,6 +32,7 @@ enum {
     GEVR_SEC_DISPLAY,
     GEVR_SEC_RULES,
     GEVR_SEC_MODS,
+    GEVR_SEC_AUDIO,        /* the volumes: the Play tab's in the launcher */
     GEVR_SEC_COUNT
 };
 

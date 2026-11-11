@@ -517,12 +517,13 @@ static const Row s_rows[] = {
       .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_BOTH, .ivar = &VrShowStats, .def = NAN },
     /* The volumes for every game, solo too (user: under Multiplayer they read
      * as multiplayer only): the same two settings as Multiplayer > Audio's
-     * rows below, which the match's pause panel shows */
+     * rows below, which the match's pause panel shows; in game, the panel's
+     * Audio tab (user: the solo in-game menu had no audio settings) */
     { .label = "Music", .tooltip = "The music's volume, solo and online (the watch's Music slider is the same).", .kind = GEVR_SET_RANGE,
-      .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_LAUNCHER, .def = NAN,
+      .section = GEVR_SEC_AUDIO, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_BOTH, .def = NAN,
       .cpositions = volumePositions, .cget = musicGet, .cset = musicSet, .ctext = percentText, .cdefault = 20 },
     { .label = "Sound effects", .tooltip = "Guns, steps and everything else but music and voices, solo and online.", .kind = GEVR_SET_RANGE,
-      .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_LAUNCHER, .fvar = &VrSfxVolume,
+      .section = GEVR_SEC_AUDIO, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_BOTH, .fvar = &VrSfxVolume,
       .lo = 0, .hi = 1, .step = 0.05f, .scale = 100, .fmt = "%.0f%%", .def = 1.0f, .fset = setSfxVolume },
 
     /* Game rules */
@@ -623,7 +624,7 @@ static const Row s_rows[] = {
 #define ROWS ((int)(sizeof(s_rows) / sizeof(s_rows[0])))
 
 static const char *const s_sections[GEVR_SEC_COUNT] = {
-    "Comfort", "Controls", "Gestures", "Weapons", "Display", "Game rules", "Mods and fun",
+    "Comfort", "Controls", "Gestures", "Weapons", "Display", "Game rules", "Mods and fun", "Audio",
 };
 
 static const Row *row(int id) { return id >= 0 && id < ROWS ? &s_rows[id] : NULL; }
@@ -631,7 +632,7 @@ static const Row *row(int id) { return id >= 0 && id < ROWS ? &s_rows[id] : NULL
 /* The launcher's place for a section's rows, where a row names none */
 static const int s_launcherOf[GEVR_SEC_COUNT] = {
     GEVR_LSEC_COMFORT, GEVR_LSEC_HANDS, GEVR_LSEC_GESTURES, GEVR_LSEC_THROWING,
-    GEVR_LSEC_SCREEN, GEVR_LSEC_RULES, GEVR_LSEC_MODS,
+    GEVR_LSEC_SCREEN, GEVR_LSEC_RULES, GEVR_LSEC_MODS, GEVR_LSEC_PLAY,
 };
 static int launcherSection(const Row *r) { return r->lsection ? r->lsection - 1 : s_launcherOf[r->section]; }
 

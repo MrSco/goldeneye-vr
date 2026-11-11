@@ -113,7 +113,9 @@ int main(void)
         gevrSettingInfo(find("Gun size"), &info);
         check(info.launcherSection == GEVR_LSEC_CHEATS, "gun size is with the cheats");
         check(gevrSettingSectionRows(GEVR_LSEC_ALLY, GEVR_SET_LAUNCHER, ids, 48) == 6, "the ally's six rows");
-        check(gevrSettingSectionRows(GEVR_LSEC_ALLY, GEVR_SET_INGAME, ids, 48) == 0, "an LSEC asked of the in-game screen is its own section number");
+        check(gevrSettingSectionRows(GEVR_LSEC_CHEATS, GEVR_SET_INGAME, ids, 48) == 0, "an LSEC asked of the in-game screen is its own section number");
+        n = gevrSettingSectionRows(GEVR_SEC_AUDIO, GEVR_SET_INGAME, ids, 48);
+        check(n == 2 && ids[0] == find("Music") && ids[1] == find("Sound effects"), "in game, Audio: the Play tab's music and effects (solo too)");
         n = gevrSettingSectionRows(GEVR_SEC_RULES, GEVR_SET_INGAME, ids, 48);
         for (int i = 0; i < n; i++) {
             gevrSettingInfo(ids[i], &info);

@@ -242,7 +242,8 @@ batch's branch.
 **Phase 4, done.**
 
 - **One screen online.** The match screen (`gevr_pause_widgets.h`) gains a **Settings**
-  tab: the panel's seven sections, drawn by the same `gevrSettingsTabs`, with HD
+  tab: the panel's sections (eight: Audio, the Play tab's Music and Sound effects,
+  came last), drawn by the same `gevrSettingsTabs`, with HD
   textures and Reset sound under them.
   - A tap of Menu opens the screen on Match.
   - A hold opens it on Settings. The separate panel no longer opens online.
