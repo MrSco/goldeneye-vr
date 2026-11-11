@@ -90,10 +90,23 @@ found with the user in the headset, and what the game does about it
   (every PC runtime): no sub-rectangle (SteamVR read one upside down and
   halved) and no remaking at a new size.
 - **Quad layers draw over the eye images, whatever their order.** The
-  launcher draws the pointer's spot itself, and the laser's beam is a quad
-  of its own, last in the list (`vr_beam_quad`: 16x128, filled once per
-  swapchain image, turned about the beam to face the head); the eye
-  buffers then keep only the spot. Built, not yet seen in a headset.
+  launcher draws the pointer's spot itself, and the laser's beam and spot
+  are quads of their own, last in the list (`vr_beam_quad`: 16x128,
+  `vr_dot_quad`: 32x32, each filled once per swapchain image; the beam
+  turned about itself to face the head, the spot facing it). The beam was
+  seen over the screen (user, 2026-11-10); the spot in the eye buffers was
+  hidden behind it, so it became a quad too.
+- **In game no quad showed: not the weapon wheel, not the scope** (user,
+  2026-11-10; the log had both open and drawn). The wheel is the weapon
+  panel's box in its capture, a sub-rectangle, which SteamVR reads its own
+  way. So under SteamVR the in-game quads (hands' HUDs, head HUD, weapon
+  panel and wheel, scope lenses) are drawn into eye buffers of their own,
+  one projection layer last in the list (`vr_hud_layer_render`: the eyes'
+  size, every XR frame, from the game's captures at the quads' poses).
+  Other runtimes keep the quads.
+- **The left controller's menu button opens SteamVR's dashboard** (Quest
+  controllers through Virtual Desktop): the game's START and panel share
+  it. Open: SteamVR's binding settings, or another button in game.
 - **The first frames give the head at the floor.** The screen's first
   placement waits for a head above 30 cm (floor spaces, all runtimes).
 - **Through a streaming headset the screen's edge smears in one eye on a

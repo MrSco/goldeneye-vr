@@ -2268,6 +2268,9 @@ static uint32_t g_screenCapW = 0, g_screenCapH = 0;    // the swapchain's images
 static bool     g_screenPending = false;
 static bool     g_screenPlaced  = false;
 static std::vector<XrTime> g_screenRecenterTimes;
+// Placed from a head below the floor (vr_screen_recenter stopped waiting): placed
+// again once the head reads up (vr_begin_frame_and_update_poses)
+static bool g_screenProvisional;
 static XrPosef  g_screenPose    = { {0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 0.0f} };
 static float    g_screenYaw     = 0.0f;   // radians; the quad's +Z (its face) points back along it
 // Cleared while the game draws true stereo into the eye buffers (bondview2.c
@@ -2374,15 +2377,21 @@ extern "C" void vr_screen_recenter(void)
     // On a floor-based space the eyes are not at the floor: SteamVR's first
     // frames gave the head there (valid flags and all), and the launcher came
     // up at the player's feet until a recenter (log: placed at y -0.07).
-    // The first placement waits for a real head, at most three seconds.
+    // The first placement waits for a real head, at most three seconds; one
+    // made without it is placed again when the head is up. Through Virtual
+    // Desktop, started with the headset on the desk, SteamVR gave the head
+    // 1.3 m below the floor for good (log: placed at y -1.11), and the user
+    // saw the screen upside down until a recenter (2026-11-10).
     {
         static int waited;
         const bool floorSpace = gPlaySpaceType == XR_REFERENCE_SPACE_TYPE_LOCAL_FLOOR_EXT
                              || gPlaySpaceType == XR_REFERENCE_SPACE_TYPE_STAGE;
-        if (floorSpace && (l.position.y + r.position.y) * 0.5f < 0.3f && waited < 270) {
+        const bool low = floorSpace && (l.position.y + r.position.y) * 0.5f < 0.3f;
+        if (low && waited < 270) {
             if (waited++ == 0) LOGI("screen: the head reads at the floor; placing it once it is up");
             return;
         }
+        g_screenProvisional = low;
     }
 
     // Where the head looks, flattened onto the floor plane.
@@ -2404,9 +2413,14 @@ extern "C" void vr_screen_recenter(void)
     g_screenYaw = yaw;
     g_screenPose.orientation = { 0.0f, sinf(yaw * 0.5f), 0.0f, cosf(yaw * 0.5f) };
     g_screenPlaced = true;
-    LOGI("screen: placed at (%.2f, %.2f, %.2f), yaw %.0f deg",
+    // the head's up in the play space: (0 1 0) upright, y below 0 upside down
+    const float upx = 2.0f * (q.x * q.y - q.w * q.z);
+    const float upy = 1.0f - 2.0f * (q.x * q.x + q.z * q.z);
+    const float upz = 2.0f * (q.y * q.z + q.w * q.x);
+    LOGI("screen: placed at (%.2f, %.2f, %.2f), yaw %.0f deg; head at y %.2f, its up (%.2f %.2f %.2f)%s",
          g_screenPose.position.x, g_screenPose.position.y, g_screenPose.position.z,
-         yaw * 180.0f / 3.14159265f);
+         yaw * 180.0f / 3.14159265f, (l.position.y + r.position.y) * 0.5f, upx, upy, upz,
+         g_screenProvisional ? "; again once the head is up" : "");
 }
 
 // The screen's physical width in metres (flat: the chord; curved: the same
@@ -2787,6 +2801,8 @@ static bool vr_beam_as_quad(void)
  * The beam and its spot, into the bound multiview target, from these views.
  * declare: the target is the eye buffers, whose submitted views become these.
  */
+static bool vr_dot_quad_failed(void);   // below: SteamVR's spot is a quad too, unless it could not be
+
 static void vr_pointer_paint(const std::array<XrView, 2> &views, bool declare)
 {
     const VrPointerHand &p0 = g_ptr[g_ptrActive];
@@ -2961,10 +2977,12 @@ static void vr_pointer_paint(const std::array<XrView, 2> &views, bool declare)
     glBindBuffer(GL_ARRAY_BUFFER, s_ptrVbo);
     if (p0.hit && wanted) {
         glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STREAM_DRAW);
-        if (vr_beam_as_quad())
-            glDrawArrays(GL_TRIANGLES, 6, 6);   // the spot only: the beam is a quad layer
-        else
+        if (vr_beam_as_quad()) {
+            if (vr_dot_quad_failed())
+                glDrawArrays(GL_TRIANGLES, 6, 6);   // the spot only: the beam is a quad layer
+        } else {
             glDrawArrays(GL_TRIANGLES, 0, 12);
+        }
     }
 
     if (grid) {
@@ -3125,48 +3143,146 @@ static void vr_pointer_layer_destroy(void)
 }
 
 /*
- * SteamVR's beam (vr_beam_as_quad): a narrow quad from the controller to the
- * spot, turned about the beam to face the head, its picture the eye-buffer
- * beam's (white, fading in from the controller, soft at the sides). The image
- * is fixed, so each swapchain image is filled once. GL images run bottom-up:
- * row 0 is the quad's -Y end, the controller's.
+ * SteamVR's beam and spot (vr_beam_as_quad): quads of their own, last in the
+ * list, with the eye-buffer beam's and spot's pictures. A picture is fixed, so
+ * each swapchain image is filled once. GL images run bottom-up: row 0 is the
+ * quad's -Y end (the beam's controller end).
  */
-static XrSwapchain g_beamSwapchain = XR_NULL_HANDLE;
+struct VrFixedImage {
+    const char *name;
+    int w, h;
+    void (*fill)(uint8_t *px, int w, int h, bool srgb);   // premultiplied RGBA, bottom row first
+    XrSwapchain swapchain;
 #ifdef ANDROID
-static std::vector<XrSwapchainImageOpenGLESKHR> g_beamImages;
+    std::vector<XrSwapchainImageOpenGLESKHR> images;
 #else
-static std::vector<XrSwapchainImageOpenGLKHR> g_beamImages;
+    std::vector<XrSwapchainImageOpenGLKHR> images;
 #endif
-static std::vector<bool> g_beamFilled;
-static int64_t g_beamFormat;
-static constexpr int BEAM_TEX_W = 16, BEAM_TEX_H = 128;
+    std::vector<bool> filled;
+    int64_t format;
+    bool failed;
+};
 
+// an sRGB image holds the colour encoded, the alpha as is
+static uint8_t vr_fixed_rgb(float a, bool srgb)
+{
+    const float c = srgb ? (a <= 0.0031308f ? a * 12.92f : 1.055f * powf(a, 1.0f / 2.4f) - 0.055f) : a;
+    return (uint8_t)(c * 255.0f + 0.5f);
+}
+
+// the beam: white, fading in from the controller, soft at the sides
+static void vr_beam_fill(uint8_t *px, int w, int h, bool srgb)
+{
+    for (int r = 0; r < h; r++) {
+        const float v = (r + 0.5f) / h;
+        const float t = v < 0.35f ? v / 0.35f : 1.0f;
+        const float fade = t * t * (3.0f - 2.0f * t);   // smoothstep(0, 0.35, v)
+        for (int col = 0; col < w; col++) {
+            const float across = 1.0f - fabsf((col + 0.5f) / w * 2.0f - 1.0f);
+            const float a = 0.55f * across * across * fade;
+            uint8_t *p = px + ((size_t)r * w + col) * 4;
+            p[0] = p[1] = p[2] = vr_fixed_rgb(a, srgb);
+            p[3] = (uint8_t)(a * 255.0f + 0.5f);
+        }
+    }
+}
+
+// the spot: the eye-buffer spot's soft disc (vr_pointer_paint's shader)
+static void vr_dot_fill(uint8_t *px, int w, int h, bool srgb)
+{
+    for (int r = 0; r < h; r++) {
+        for (int col = 0; col < w; col++) {
+            const float x = (col + 0.5f) / w * 2.0f - 1.0f, y = (r + 0.5f) / h * 2.0f - 1.0f;
+            const float d = sqrtf(x * x + y * y);
+            const float t = d <= 0.55f ? 0.0f : d >= 1.0f ? 1.0f : (d - 0.55f) / 0.45f;
+            const float a = 0.95f * (1.0f - t * t * (3.0f - 2.0f * t));   // 1 - smoothstep(0.55, 1, d)
+            uint8_t *p = px + ((size_t)r * w + col) * 4;
+            p[0] = p[1] = p[2] = vr_fixed_rgb(a, srgb);
+            p[3] = (uint8_t)(a * 255.0f + 0.5f);
+        }
+    }
+}
+
+static VrFixedImage g_beamImage = { "beam quad", 16, 128, vr_beam_fill };
+static VrFixedImage g_dotImage = { "spot quad", 32, 32, vr_dot_fill };
+static bool vr_dot_quad_failed(void) { return g_dotImage.failed; }
+
+// The image ready for this frame: made the first time, filled once per swapchain image.
+static bool vr_fixed_image_ready(VrFixedImage &f)
+{
+    if (f.failed) {
+        return false;
+    }
+    if (f.swapchain == XR_NULL_HANDLE) {
+        XrSwapchainCreateInfo info{XR_TYPE_SWAPCHAIN_CREATE_INFO};
+        info.usageFlags  = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT |
+                           XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT;
+        info.format      = f.format = vr_pick_swapchain_format(true);
+        info.sampleCount = 1;
+        info.width       = (uint32_t)f.w;
+        info.height      = (uint32_t)f.h;
+        info.faceCount   = 1;
+        info.arraySize   = 1;
+        info.mipCount    = 1;
+        if (XR_FAILED(xrCreateSwapchain(g_vrState.session, &info, &f.swapchain)) ||
+            !vr_load_swapchain_images(f.swapchain, f.images)) {
+            LOGE("%s: no swapchain; drawn in the eye buffers instead", f.name);
+            if (f.swapchain != XR_NULL_HANDLE) xrDestroySwapchain(f.swapchain);
+            f.swapchain = XR_NULL_HANDLE;
+            f.failed = true;
+            return false;
+        }
+        f.filled.assign(f.images.size(), false);
+        LOGI("%s: %d x %d, format 0x%llx", f.name, f.w, f.h, (unsigned long long)f.format);
+    }
+    uint32_t index = 0;
+    XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+    if (XR_FAILED(xrAcquireSwapchainImage(f.swapchain, &acquireInfo, &index))) {
+        return false;
+    }
+    XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+    waitInfo.timeout = XR_INFINITE_DURATION;
+    xrWaitSwapchainImage(f.swapchain, &waitInfo);
+    if (index < f.filled.size() && !f.filled[index]) {
+        std::vector<uint8_t> px((size_t)f.w * f.h * 4);
+        f.fill(px.data(), f.w, f.h, f.format == (int64_t)GL_SRGB8_ALPHA8);
+        GLint prevTex = 0, prevAlign = 4;
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTex);
+        glGetIntegerv(GL_UNPACK_ALIGNMENT, &prevAlign);
+        GLint prevUnpackBuf = 0;
+        glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &prevUnpackBuf);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        glBindTexture(GL_TEXTURE_2D, f.images[index].image);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, f.w, f.h, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+        glBindTexture(GL_TEXTURE_2D, (GLuint)prevTex);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, prevAlign);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, (GLuint)prevUnpackBuf);
+        f.filled[index] = true;
+    }
+    XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+    xrReleaseSwapchainImage(f.swapchain, &releaseInfo);
+    return true;
+}
+
+static void vr_fixed_image_destroy(VrFixedImage &f)
+{
+    if (f.swapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(f.swapchain);
+        f.swapchain = XR_NULL_HANDLE;
+    }
+    f.images.clear();
+    f.filled.clear();
+    f.failed = false;
+}
+
+static XrQuaternionf vr_quat_from_basis(const float x[3], const float y[3], const float z[3]);   // below
+
+// The beam: a narrow quad from the controller to the spot, turned about the beam to face the head
 static bool vr_beam_quad(XrCompositionLayerQuad *q)
 {
     if (!vr_beam_as_quad()) {
         return false;
-    }
-    if (g_beamSwapchain == XR_NULL_HANDLE) {
-        XrSwapchainCreateInfo info{XR_TYPE_SWAPCHAIN_CREATE_INFO};
-        info.usageFlags  = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT |
-                           XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT;
-        info.format      = g_beamFormat = vr_pick_swapchain_format(true);
-        info.sampleCount = 1;
-        info.width       = BEAM_TEX_W;
-        info.height      = BEAM_TEX_H;
-        info.faceCount   = 1;
-        info.arraySize   = 1;
-        info.mipCount    = 1;
-        if (XR_FAILED(xrCreateSwapchain(g_vrState.session, &info, &g_beamSwapchain)) ||
-            !vr_load_swapchain_images(g_beamSwapchain, g_beamImages)) {
-            LOGE("beam quad: no swapchain; the beam stays in the eye buffers");
-            if (g_beamSwapchain != XR_NULL_HANDLE) xrDestroySwapchain(g_beamSwapchain);
-            g_beamSwapchain = XR_NULL_HANDLE;
-            g_beamQuadFailed = true;
-            return false;
-        }
-        g_beamFilled.assign(g_beamImages.size(), false);
-        LOGI("beam quad: %d x %d, format 0x%llx", BEAM_TEX_W, BEAM_TEX_H, (unsigned long long)g_beamFormat);
     }
 
     // where: the eye-buffer beam's line (vr_pointer_paint), from the same smoothed spot
@@ -3208,69 +3324,74 @@ static bool vr_beam_quad(XrCompositionLayerQuad *q)
         o = { (z[0] + x[2]) / s, (z[1] + y[2]) / s, 0.25f * s, (x[1] - y[0]) / s };
     }
 
-    uint32_t index = 0;
-    XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-    if (XR_FAILED(xrAcquireSwapchainImage(g_beamSwapchain, &acquireInfo, &index))) {
+    if (!vr_fixed_image_ready(g_beamImage)) {
+        if (g_beamImage.failed) g_beamQuadFailed = true;   // the beam goes back into the eye buffers
         return false;
     }
-    XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
-    waitInfo.timeout = XR_INFINITE_DURATION;
-    xrWaitSwapchainImage(g_beamSwapchain, &waitInfo);
-    if (index < g_beamFilled.size() && !g_beamFilled[index]) {
-        // premultiplied white; an sRGB image holds the colour encoded, the alpha as is
-        static uint8_t px[BEAM_TEX_H][BEAM_TEX_W][4];
-        const bool srgb = g_beamFormat == (int64_t)GL_SRGB8_ALPHA8;
-        for (int r = 0; r < BEAM_TEX_H; r++) {
-            const float v = (r + 0.5f) / BEAM_TEX_H;
-            const float t = v < 0.35f ? v / 0.35f : 1.0f;
-            const float fade = t * t * (3.0f - 2.0f * t);   // smoothstep(0, 0.35, v)
-            for (int col = 0; col < BEAM_TEX_W; col++) {
-                const float across = 1.0f - fabsf((col + 0.5f) / BEAM_TEX_W * 2.0f - 1.0f);
-                const float a = 0.55f * across * across * fade;
-                const float rgb = srgb ? (a <= 0.0031308f ? a * 12.92f : 1.055f * powf(a, 1.0f / 2.4f) - 0.055f) : a;
-                px[r][col][0] = px[r][col][1] = px[r][col][2] = (uint8_t)(rgb * 255.0f + 0.5f);
-                px[r][col][3] = (uint8_t)(a * 255.0f + 0.5f);
-            }
-        }
-        GLint prevTex = 0, prevAlign = 4;
-        glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTex);
-        glGetIntegerv(GL_UNPACK_ALIGNMENT, &prevAlign);
-        GLint prevUnpackBuf = 0;
-        glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &prevUnpackBuf);
-        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-        glBindTexture(GL_TEXTURE_2D, g_beamImages[index].image);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, BEAM_TEX_W, BEAM_TEX_H, GL_RGBA, GL_UNSIGNED_BYTE, px);
-        glBindTexture(GL_TEXTURE_2D, (GLuint)prevTex);
-        glPixelStorei(GL_UNPACK_ALIGNMENT, prevAlign);
-        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, (GLuint)prevUnpackBuf);
-        g_beamFilled[index] = true;
-    }
-    XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-    xrReleaseSwapchainImage(g_beamSwapchain, &releaseInfo);
 
     *q = {XR_TYPE_COMPOSITION_LAYER_QUAD};
     q->layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
     q->space = g_vrState.playSpace;
     q->eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-    q->subImage.swapchain = g_beamSwapchain;
+    q->subImage.swapchain = g_beamImage.swapchain;
     q->subImage.imageArrayIndex = 0;
     q->subImage.imageRect.offset = {0, 0};
-    q->subImage.imageRect.extent = {BEAM_TEX_W, BEAM_TEX_H};
+    q->subImage.imageRect.extent = {g_beamImage.w, g_beamImage.h};
     q->pose.orientation = o;
     q->pose.position = { c[0], c[1], c[2] };
     q->size = { 0.007f, len };   // the eye-buffer beam's width
     return true;
 }
 
+/*
+ * The spot, over the screen too (user, 2026-11-10: in the eye buffers it was
+ * behind the screen, as the beam had been): the eye-buffer spot's place and
+ * size (vr_pointer_paint), a square facing the head, upright.
+ */
+static bool vr_dot_quad(XrCompositionLayerQuad *q)
+{
+    if (!vr_beam_as_quad()) {
+        return false;
+    }
+    const VrPointerHand &p = g_ptr[g_ptrActive];
+    float head[3];
+    vr_screen_head(head);
+    const float e[3] = { p.h[0] - head[0], p.h[1] - head[1], p.h[2] - head[2] };
+    const float dist = sqrtf(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
+    if (dist < 0.05f) {
+        return false;
+    }
+    const float z[3] = { -e[0] / dist, -e[1] / dist, -e[2] / dist };   // toward the head
+    float y[3] = { -z[1] * z[0], 1.0f - z[1] * z[1], -z[1] * z[2] };    // the world's up, square to z
+    const float yl = sqrtf(y[0] * y[0] + y[1] * y[1] + y[2] * y[2]);
+    if (yl < 1e-4f) {
+        return false;   // straight up or down at it
+    }
+    for (int k = 0; k < 3; k++) y[k] /= yl;
+    const float x[3] = { y[1] * z[2] - y[2] * z[1], y[2] * z[0] - y[0] * z[2], y[0] * z[1] - y[1] * z[0] };
+    if (!vr_fixed_image_ready(g_dotImage)) {
+        return false;
+    }
+    const float rad = dist * 0.009f;
+    *q = {XR_TYPE_COMPOSITION_LAYER_QUAD};
+    q->layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+    q->space = g_vrState.playSpace;
+    q->eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+    q->subImage.swapchain = g_dotImage.swapchain;
+    q->subImage.imageArrayIndex = 0;
+    q->subImage.imageRect.offset = {0, 0};
+    q->subImage.imageRect.extent = {g_dotImage.w, g_dotImage.h};
+    q->pose.orientation = vr_quat_from_basis(x, y, z);
+    // a touch toward the viewer, as the eye-buffer spot
+    q->pose.position = { p.h[0] + z[0] * 0.01f, p.h[1] + z[1] * 0.01f, p.h[2] + z[2] * 0.01f };
+    q->size = { rad * 2.0f, rad * 2.0f };
+    return true;
+}
+
 static void vr_beam_quad_destroy(void)
 {
-    if (g_beamSwapchain != XR_NULL_HANDLE) {
-        xrDestroySwapchain(g_beamSwapchain);
-        g_beamSwapchain = XR_NULL_HANDLE;
-    }
-    g_beamImages.clear();
-    g_beamFilled.clear();
+    vr_fixed_image_destroy(g_beamImage);
+    vr_fixed_image_destroy(g_dotImage);
     g_beamQuadFailed = false;
 }
 
@@ -4789,6 +4910,311 @@ static XrCompositionLayerQuad vr_init_menu_quad(XrSwapchain swapchain) {
     return q;
 }
 
+/*
+ * SteamVR: the in-game quads (the hands' HUDs, the head HUD, the weapon panel
+ * and its wheel, the scope lenses) drawn into eye buffers of their own, a
+ * projection layer over the game's, on every XR frame. As quads SteamVR
+ * showed neither the wheel nor the scope (user, 2026-11-10; the log had both
+ * open and drawn): it reads a quad's sub-rectangle its own way (the wheel's is
+ * the panel's box in its capture, vr_subimage_y) and showed some quads with
+ * another's picture (the stable slots below). Here each is drawn from the
+ * game's own capture at the pose its quad would have had, so nothing is left
+ * to SteamVR's quads in game. Other runtimes keep the quads.
+ */
+struct VrHudQuad {
+    XrCompositionLayerQuad layer;   // where, and which part of the image
+    GLuint tex;                     // the capture the quad's swapchain is copied from
+    int32_t texW, texH;             // the image the rectangle is in
+    bool round;                     // the scope's lens: cut round with a dark rim (vr_scope_copy_init)
+};
+static XrSwapchain g_hudLayerSwapchain = XR_NULL_HANDLE;
+#ifdef ANDROID
+static std::vector<XrSwapchainImageOpenGLESKHR> g_hudLayerImages;
+#else
+static std::vector<XrSwapchainImageOpenGLKHR> g_hudLayerImages;
+#endif
+static GLuint g_hudLayerFbo, s_hudProg, s_hudVao, s_hudVbo;
+static GLint s_hudVpLoc = -1, s_hudRoundLoc = -1;
+static int32_t g_hudLayerW, g_hudLayerH;
+static bool g_hudLayerFailed;
+
+// A sub-image's rows as GL texture v, bottom-up: vr_subimage_y's inverse
+static void vr_subimage_v(const XrRect2Di &r, int32_t h, float *v0, float *v1)
+{
+#ifdef GEVR_PCVR
+    *v0 = 1.0f - (float)(r.offset.y + r.extent.height) / (float)h;
+    *v1 = 1.0f - (float)r.offset.y / (float)h;
+#else
+    *v0 = (float)r.offset.y / (float)h;
+    *v1 = (float)(r.offset.y + r.extent.height) / (float)h;
+#endif
+}
+
+static bool vr_hud_layer_render(const std::array<XrView, 2> &views, XrTime time, const VrHudQuad *quads, int n)
+{
+    if (n <= 0 || g_hudLayerFailed || !glFramebufferTextureMultiviewOVR) {
+        return false;
+    }
+    if (g_hudLayerSwapchain == XR_NULL_HANDLE) {
+        XrSwapchainCreateInfo info{XR_TYPE_SWAPCHAIN_CREATE_INFO};
+        info.usageFlags  = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+        info.format      = vr_pick_swapchain_format();
+        info.sampleCount = 1;
+        info.width       = (uint32_t)g_internalRenderWidth;   // the eyes' size: the HUD's text stays sharp
+        info.height      = (uint32_t)g_internalRenderHeight;
+        info.faceCount   = 1;
+        info.arraySize   = 2;
+        info.mipCount    = 1;
+        if (XR_FAILED(xrCreateSwapchain(g_vrState.session, &info, &g_hudLayerSwapchain)) ||
+            !vr_load_swapchain_images(g_hudLayerSwapchain, g_hudLayerImages)) {
+            LOGE("hud layer: no %u x %u swapchain; the quads stay quads", info.width, info.height);
+            if (g_hudLayerSwapchain != XR_NULL_HANDLE) xrDestroySwapchain(g_hudLayerSwapchain);
+            g_hudLayerSwapchain = XR_NULL_HANDLE;
+            g_hudLayerFailed = true;
+            return false;
+        }
+        g_hudLayerW = (int32_t)info.width;
+        g_hudLayerH = (int32_t)info.height;
+        LOGI("hud layer: %d x %d (SteamVR: the in-game quads as eye buffers)", g_hudLayerW, g_hudLayerH);
+    }
+    if (s_hudProg == 0) {
+        const char *vs =
+            "#version 300 es\n"
+            "#extension GL_OVR_multiview2 : require\n"
+            "layout(num_views = 2) in;\n"
+            "uniform mat4 uVP[2];\n"
+            "layout(location = 0) in vec3 aPos;\n"
+            "layout(location = 1) in vec2 aUV;\n"
+            "out vec2 vUV;\n"
+            "void main() { vUV = aUV; gl_Position = uVP[gl_ViewID_OVR] * vec4(aPos, 1.0); }\n";
+        // the scope's: vr_scope_copy_init's lens, its uv across the quad
+        const char *fs =
+            "#version 300 es\n"
+            "precision highp float;\n"
+            "uniform sampler2D uTex;\n"
+            "uniform int uRound;\n"
+            "in vec2 vUV;\n"
+            "out vec4 o;\n"
+            "void main() {\n"
+            "    if (uRound == 1) {\n"
+            "        float r = length(vUV * 2.0 - 1.0);\n"
+            "        float a = 1.0 - smoothstep(1.0 - 4.0 / 512.0, 1.0, r);\n"
+            "        if (a <= 0.0) { o = vec4(0.0); return; }\n"
+            "        vec3 c = texture(uTex, vUV).rgb * (1.0 - 0.6 * smoothstep(0.9, 1.0, r));\n"
+            "        o = vec4(c * a, a);\n"
+            "    } else {\n"
+            "        o = texture(uTex, vUV);\n"   // premultiplied, as the quads were taken
+            "    }\n"
+            "}\n";
+        GLuint v = glCreateShader(GL_VERTEX_SHADER);
+        glShaderSource(v, 1, &vs, nullptr);
+        glCompileShader(v);
+        GLuint f = glCreateShader(GL_FRAGMENT_SHADER);
+        glShaderSource(f, 1, &fs, nullptr);
+        glCompileShader(f);
+        GLuint prog = glCreateProgram();
+        glAttachShader(prog, v);
+        glAttachShader(prog, f);
+        glLinkProgram(prog);
+        glDeleteShader(v);
+        glDeleteShader(f);
+        GLint ok = 0;
+        glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+        if (!ok) {
+            char log[512] = {0};
+            glGetProgramInfoLog(prog, sizeof(log) - 1, nullptr, log);
+            LOGE("hud layer: program failed: %s", log);
+            glDeleteProgram(prog);
+            g_hudLayerFailed = true;
+            return false;
+        }
+        s_hudProg = prog;
+        s_hudVpLoc = glGetUniformLocation(prog, "uVP");
+        s_hudRoundLoc = glGetUniformLocation(prog, "uRound");
+        GLint prevProg = 0, prevVao = 0, prevBuf = 0;
+        glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg);
+        glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVao);
+        glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prevBuf);
+        glUseProgram(prog);
+        glUniform1i(glGetUniformLocation(prog, "uTex"), 0);
+        glGenVertexArrays(1, &s_hudVao);
+        glGenBuffers(1, &s_hudVbo);
+        glBindVertexArray(s_hudVao);
+        glBindBuffer(GL_ARRAY_BUFFER, s_hudVbo);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *)0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *)(3 * sizeof(float)));
+        glBindVertexArray((GLuint)prevVao);
+        glBindBuffer(GL_ARRAY_BUFFER, (GLuint)prevBuf);
+        glUseProgram((GLuint)prevProg);
+    }
+
+    // the head in play space, for the quads in view space
+    XrSpaceLocation head{XR_TYPE_SPACE_LOCATION};
+    const XrSpaceLocationFlags need = XR_SPACE_LOCATION_ORIENTATION_VALID_BIT | XR_SPACE_LOCATION_POSITION_VALID_BIT;
+    if (XR_FAILED(xrLocateSpace(g_vrState.viewSpace, g_vrState.playSpace, time, &head)) ||
+        (head.locationFlags & need) != need) {
+        head.pose.orientation = views[0].pose.orientation;   // between the eyes, looking as they do
+        head.pose.position = { (views[0].pose.position.x + views[1].pose.position.x) * 0.5f,
+                               (views[0].pose.position.y + views[1].pose.position.y) * 0.5f,
+                               (views[0].pose.position.z + views[1].pose.position.z) * 0.5f };
+    }
+    const XrQuaternionf &hq = head.pose.orientation;
+
+    // two triangles a quad: play-space corners, and the image's part as GL texture coordinates
+    float verts[8 * 6][5];
+    if (n > 8) n = 8;
+    for (int i = 0; i < n; i++) {
+        const XrCompositionLayerQuad &l = quads[i].layer;
+        const XrQuaternionf &q = l.pose.orientation;
+        float ax[3] = { l.size.width * 0.5f, 0.0f, 0.0f }, ay[3] = { 0.0f, l.size.height * 0.5f, 0.0f };
+        rotvec(&ax[0], &ax[1], &ax[2], q.w, q.x, q.y, q.z);
+        rotvec(&ay[0], &ay[1], &ay[2], q.w, q.x, q.y, q.z);
+        const bool inView = l.space == g_vrState.viewSpace;
+        const float u0 = (float)l.subImage.imageRect.offset.x / (float)quads[i].texW;
+        const float u1 = (float)(l.subImage.imageRect.offset.x + l.subImage.imageRect.extent.width) / (float)quads[i].texW;
+        float v0, v1;
+        vr_subimage_v(l.subImage.imageRect, quads[i].texH, &v0, &v1);
+        const float corner[6][4] = {   // across, up, u, v
+            { -1, -1, u0, v0 }, { 1, -1, u1, v0 }, { 1, 1, u1, v1 },
+            { -1, -1, u0, v0 }, { 1, 1, u1, v1 }, { -1, 1, u0, v1 },
+        };
+        for (int k = 0; k < 6; k++) {
+            float px = l.pose.position.x + corner[k][0] * ax[0] + corner[k][1] * ay[0];
+            float py = l.pose.position.y + corner[k][0] * ax[1] + corner[k][1] * ay[1];
+            float pz = l.pose.position.z + corner[k][0] * ax[2] + corner[k][1] * ay[2];
+            if (inView) {
+                rotvec(&px, &py, &pz, hq.w, hq.x, hq.y, hq.z);
+                px += head.pose.position.x;
+                py += head.pose.position.y;
+                pz += head.pose.position.z;
+            }
+            float *out = verts[i * 6 + k];
+            out[0] = px; out[1] = py; out[2] = pz; out[3] = corner[k][2]; out[4] = corner[k][3];
+        }
+    }
+
+    // the eyes' view-projections, play space (vr_pointer_paint's, nearer: the scope comes close)
+    float vp[32];
+    for (int eye = 0; eye < 2; eye++) {
+        float pose[16], view[16], proj[16];
+        QuatToMat4(views[eye].pose.orientation, pose);
+        pose[12] = views[eye].pose.position.x;
+        pose[13] = views[eye].pose.position.y;
+        pose[14] = views[eye].pose.position.z;
+        InvertRigidMat4(pose, view);
+        ProjectionFromFov(views[eye].fov, 0.01f, 100.0f, proj);
+        Mat4Mul(proj, view, vp + eye * 16);
+    }
+
+    uint32_t index = 0;
+    XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+    if (XR_FAILED(xrAcquireSwapchainImage(g_hudLayerSwapchain, &acquireInfo, &index))) {
+        return false;
+    }
+    XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+    waitInfo.timeout = XR_INFINITE_DURATION;
+    xrWaitSwapchainImage(g_hudLayerSwapchain, &waitInfo);
+
+    GLint prevDraw = 0, prevRead = 0, vpRect[4], prevProg = 0, prevVao = 0, prevBuf = 0, prevActive = 0, prevTex = 0;
+    GLint srcRGB, dstRGB, srcA, dstA;
+    GLfloat clearCol[4];
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevDraw);
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevRead);
+    glGetIntegerv(GL_VIEWPORT, vpRect);
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg);
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVao);
+    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prevBuf);
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActive);
+    glActiveTexture(GL_TEXTURE0);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTex);
+    glGetIntegerv(GL_BLEND_SRC_RGB, &srcRGB);
+    glGetIntegerv(GL_BLEND_DST_RGB, &dstRGB);
+    glGetIntegerv(GL_BLEND_SRC_ALPHA, &srcA);
+    glGetIntegerv(GL_BLEND_DST_ALPHA, &dstA);
+    glGetFloatv(GL_COLOR_CLEAR_VALUE, clearCol);
+    const GLboolean blend = glIsEnabled(GL_BLEND), depth = glIsEnabled(GL_DEPTH_TEST),
+                    cull = glIsEnabled(GL_CULL_FACE), scissor = glIsEnabled(GL_SCISSOR_TEST);
+
+    if (!g_hudLayerFbo) {
+        glGenFramebuffers(1, &g_hudLayerFbo);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, g_hudLayerFbo);
+    glFramebufferTextureMultiviewOVR(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, g_hudLayerImages[index].image, 0, 0, 2);
+    glViewport(0, 0, g_hudLayerW, g_hudLayerH);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);   // premultiplied, as the runtime takes the quads
+    glUseProgram(s_hudProg);
+    glUniformMatrix4fv(s_hudVpLoc, 2, GL_FALSE, vp);
+    glBindVertexArray(s_hudVao);
+    glBindBuffer(GL_ARRAY_BUFFER, s_hudVbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(n * 6 * 5 * sizeof(float)), verts, GL_STREAM_DRAW);
+    for (int i = 0; i < n; i++) {
+        // smooth and clamped while drawn here; the capture keeps its own filtering
+        GLint minF = 0, magF = 0, wrapS = 0, wrapT = 0;
+        glBindTexture(GL_TEXTURE_2D, quads[i].tex);
+        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, &minF);
+        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, &magF);
+        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, &wrapS);
+        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, &wrapT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glUniform1i(s_hudRoundLoc, quads[i].round ? 1 : 0);
+        glDrawArrays(GL_TRIANGLES, i * 6, 6);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, minF);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, magF);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapS);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapT);
+    }
+
+    glBindTexture(GL_TEXTURE_2D, (GLuint)prevTex);
+    glActiveTexture((GLenum)prevActive);
+    glBindVertexArray((GLuint)prevVao);
+    glBindBuffer(GL_ARRAY_BUFFER, (GLuint)prevBuf);
+    glUseProgram((GLuint)prevProg);
+    glBlendFuncSeparate(srcRGB, dstRGB, srcA, dstA);
+    if (!blend) glDisable(GL_BLEND);
+    if (depth) glEnable(GL_DEPTH_TEST);
+    if (cull) glEnable(GL_CULL_FACE);
+    if (scissor) glEnable(GL_SCISSOR_TEST);
+    glClearColor(clearCol[0], clearCol[1], clearCol[2], clearCol[3]);
+    glViewport(vpRect[0], vpRect[1], vpRect[2], vpRect[3]);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint)prevDraw);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)prevRead);
+
+    XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+    xrReleaseSwapchainImage(g_hudLayerSwapchain, &releaseInfo);
+    static bool logged;
+    if (!logged) {
+        logged = true;
+        LOGI("hud layer: first frame, %d quad%s", n, n == 1 ? "" : "s");
+    }
+    return true;
+}
+
+static void vr_hud_layer_destroy(void)
+{
+    if (g_hudLayerSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(g_hudLayerSwapchain);
+        g_hudLayerSwapchain = XR_NULL_HANDLE;
+    }
+    g_hudLayerImages.clear();
+    if (g_hudLayerFbo) {
+        glDeleteFramebuffers(1, &g_hudLayerFbo);
+        g_hudLayerFbo = 0;
+    }
+    g_hudLayerFailed = false;
+}
+
 static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2>& views) {
     const uint64_t layerTimingStart = gevrFrameTimingNow();
 #ifdef ANDROID
@@ -5179,6 +5605,46 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         }
     }
 
+    // SteamVR: the in-game quads as a projection layer of their own (vr_hud_layer_render)
+    const bool shownMenuL = submitMenuL, shownMenuR = submitMenuR, shownMenuH = submitMenuH;   // the PC mirror's
+    std::array<XrCompositionLayerProjectionView, 2> hudViews;
+    XrCompositionLayerProjection hudLayer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+    bool submitHud = false;
+    if (gActiveRuntime == XrRuntimeType::SteamVR) {
+        VrHudQuad hud[8];
+        int n = 0;
+        const int32_t mw = (int32_t)g_menuSwapchainWidth, mh = (int32_t)g_menuSwapchainHeight;
+        auto add = [&](bool on, const XrCompositionLayerQuad &l, GLuint tex, int32_t w, int32_t h, bool round) {
+            if (on && tex != 0 && n < 8) hud[n++] = { l, tex, w, h, round };
+        };
+        add(submitMenuL, menuLayerL, gfx_opengl_get_vr_menu_texture(), mw, mh, false);
+        add(submitMenuR, menuLayerR, gfx_opengl_get_vr_menu_texture_R(), mw, mh, false);
+        add(submitAmmoL, menuLayerAmmoL, gfx_opengl_get_vr_menu_texture_R(), mw, mh, false);
+        add(submitMenuH, menuLayerH, gfx_opengl_get_vr_menu_texture_H(), mw, mh, false);
+        add(submitMenuP, menuLayerP, gfx_opengl_get_vr_menu_texture_P(), mw, mh, false);
+        for (int hand = 0; hand < 2; hand++) {
+            add(submitScope[hand], scopeLayer[hand], gfx_vr_scope_texture(hand), GEVR_SCOPE_RES, GEVR_SCOPE_RES, true);
+        }
+        if (n > 0 && vr_hud_layer_render(g_frameViews, frameState.predictedDisplayTime, hud, n)) {
+            submitMenuL = submitMenuR = submitAmmoL = submitMenuH = submitMenuP = false;
+            submitScope[0] = submitScope[1] = false;
+            for (int eye = 0; eye < 2; ++eye) {
+                hudViews[eye] = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
+                hudViews[eye].pose = g_frameViews[eye].pose;
+                hudViews[eye].fov = g_frameViews[eye].fov;
+                hudViews[eye].subImage.swapchain = g_hudLayerSwapchain;
+                hudViews[eye].subImage.imageArrayIndex = eye;
+                hudViews[eye].subImage.imageRect.offset = {0, 0};
+                hudViews[eye].subImage.imageRect.extent = {g_hudLayerW, g_hudLayerH};
+            }
+            hudLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            hudLayer.space = g_vrState.playSpace;
+            hudLayer.viewCount = 2;
+            hudLayer.views = hudViews.data();
+            submitHud = true;
+        }
+    }
+
     // --- Layer submission ---
     // With the virtual screen up, the screen goes first and the eye buffers
     // (cleared transparent, holding only the laser pointer) over it, so the
@@ -5187,7 +5653,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     // If passthrough is active behind the screen, the passthrough layer is placed
     // at the very bottom (first layer).
     int numLayers = 0;
-    const XrCompositionLayerBaseHeader* layers[16];   // passthrough, screen, eyes, five menus, two scopes, overlay, pointer, room to spare
+    const XrCompositionLayerBaseHeader* layers[20];   // passthrough, screen, eyes, five menus, two scopes, overlay, pointer, beam, spot, hud, room to spare
 
     const bool isScreenOnVoid = vr_screen_on_void();
     const bool usePassthrough = VrScreenPassthrough && g_passthroughSupported && isScreenOnVoid && (g_passthroughLayer != XR_NULL_HANDLE);
@@ -5234,7 +5700,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
      * the list as before.
      */
     const bool stableSlots = gActiveRuntime == XrRuntimeType::SteamVR;
-    enum { SLOT_SCREEN, SLOT_L, SLOT_R, SLOT_AMMO_L, SLOT_H, SLOT_P, SLOT_SCOPE0, SLOT_SCOPE1, SLOT_BEAM, SLOT_COUNT };
+    enum { SLOT_SCREEN, SLOT_L, SLOT_R, SLOT_AMMO_L, SLOT_H, SLOT_P, SLOT_SCOPE0, SLOT_SCOPE1, SLOT_BEAM, SLOT_DOT, SLOT_COUNT };
     static XrCompositionLayerQuad s_slotLast[SLOT_COUNT];
     static bool s_slotSeen[SLOT_COUNT];
     static XrCompositionLayerQuad s_slotHidden[SLOT_COUNT];
@@ -5283,9 +5749,9 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     g_lastMenuLayerL   = menuLayerL;
     g_lastMenuLayerR   = menuLayerR;
     g_lastMenuLayerH   = menuLayerH;
-    g_lastSubmitMenuL  = submitMenuL;
-    g_lastSubmitMenuR  = submitMenuR;
-    g_lastSubmitMenuH  = submitMenuH;
+    g_lastSubmitMenuL  = shownMenuL;
+    g_lastSubmitMenuR  = shownMenuR;
+    g_lastSubmitMenuH  = shownMenuH;
     g_lastViews        = views;
 #endif
 
@@ -5300,11 +5766,17 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     if (submitPointer) {
         layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&ptrLayer);
     }
-    // SteamVR: the beam over everything, the screen included (vr_beam_as_quad)
-    XrCompositionLayerQuad beamLayer;
+    // SteamVR: the beam and its spot over everything, the screen included (vr_beam_as_quad)
+    XrCompositionLayerQuad beamLayer, dotLayer;
     if (gActiveRuntime == XrRuntimeType::SteamVR) {
         const bool submitBeam = submitScreen && vr_beam_quad(&beamLayer);
         quadSlot(SLOT_BEAM, submitBeam, &beamLayer, reinterpret_cast<const XrCompositionLayerBaseHeader*>(&beamLayer));
+        const bool submitDot = submitBeam && vr_dot_quad(&dotLayer);
+        quadSlot(SLOT_DOT, submitDot, &dotLayer, reinterpret_cast<const XrCompositionLayerBaseHeader*>(&dotLayer));
+    }
+    // last, so the quads keep their places in the list (the stable slots above)
+    if (submitHud) {
+        layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&hudLayer);
     }
     endInfo.layerCount           = numLayers;
     endInfo.layers               = layers;
@@ -5833,8 +6305,15 @@ static bool vr_locate_frame_poses(XrTime t, bool outside)
         return false;
     }
 
+    if (g_screenProvisional && g_screenPlaced &&
+        (g_frameViews[0].pose.position.y + g_frameViews[1].pose.position.y) * 0.5f >= 0.3f) {
+        g_screenProvisional = false;
+        g_screenPlaced = false;   // vr_screen_recenter, in front of the head now
+        LOGI("screen: the head is up now; placing it again");
+    }
     for (auto it = g_screenRecenterTimes.begin(); it != g_screenRecenterTimes.end();) {
         if (t >= *it) {
+            g_screenProvisional = false;
             g_screenPlaced = false;
             gevrVrLocomotionResetReason(GEVR_LOCO_RESET_RECENTER);
             it = g_screenRecenterTimes.erase(it);
@@ -6320,6 +6799,7 @@ extern "C" void vr_shutdown()
     vr_screen_destroy_swapchain();
     vr_pointer_layer_destroy();
     vr_beam_quad_destroy();
+    vr_hud_layer_destroy();
     g_screenRecenterTimes.clear();
     vr_passthrough_destroy();
 
