@@ -35,7 +35,6 @@ IPA (SideStore), plus the dedicated servers. Test builds from test.12 on join it
   goldeneyevr:// from the Quest browser.
 - Real hardware: an Android phone (Bean import too), a Steam Frame, Linux
   with a headset, an iPad, Quest Link, SteamVR with other headsets.
-- #233 (blown-out sound, Quest Pro): its reporter's word on v0.5.15.
 
 ## Known issues (v0.5.15)
 
