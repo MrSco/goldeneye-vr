@@ -1417,6 +1417,17 @@ void frontUpdateControlStickPosition(void) {
         }
         if (pointing)
         {
+            /* Screen shape 16:9: the folders are a 4:3 canvas centred on the
+             * wide screen (menu_jump_constructor_handler), and u runs across
+             * the whole screen: into the canvas, or the cursor sat inside the
+             * spot, by an eighth at the edges (user, SteamVR screenshot) */
+            const f32 wide = portNativeAspect();
+            const f32 canvas = (f32)viGetX() / (f32)viGetY();
+            if (wide > 1.3334f && canvas > 0.0f)
+            {
+                u = 0.5f + (u - 0.5f) * wide / canvas;
+                u = u < 0.0f ? 0.0f : u > 1.0f ? 1.0f : u;   /* on a bar: the canvas's edge */
+            }
             cursor_h_pos = u * (f32)viGetX();
             cursor_v_pos = v * (f32)viGetY();
         }
