@@ -360,6 +360,16 @@ void osContGetReadData(OSContPad *pad)
 			gevrMoveStickX = gevrInjectX / 80.0f;
 			gevrMoveStickY = gevrInjectY / 80.0f;
 		}
+		/*
+		 * An N64 stick reads about +/-80, never -128, and GoldenEye negates
+		 * it into an s8 (front.c frontUpdateControlStickPosition: sticky =
+		 * -joyGetStickY), where -(-128) wraps back to -128. The PC keyboard's
+		 * full down (-0x80, the Perfect Dark port's) moved the folder cursor
+		 * up (rivas_10, Windows flat, 2026-11-12); a pad's stick can reach
+		 * -128 through its sensitivity too.
+		 */
+		if (pad->stick_x < -127) pad->stick_x = -127;
+		if (pad->stick_y < -127) pad->stick_y = -127;
 		if (i == 0 && (pad->button != 0 || pad->stick_x != 0 || pad->stick_y != 0)) {
 			/* PORT probe: proof that controller input reaches the game */
 			static u64 sLastLogUs;

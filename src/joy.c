@@ -101,6 +101,9 @@ static void gevrReadSlotPads(void)
 
             pad = none;
         }
+        /* no N64 stick reads -128 (port/src/libultra.c osContGetReadData) */
+        if (pad.stick_x < -127) pad.stick_x = -127;
+        if (pad.stick_y < -127) pad.stick_y = -127;
         g_GevrSlotPads[i] = pad;
         g_GevrSlotPadsPressed[i] = pad.button & ~held;
     }
