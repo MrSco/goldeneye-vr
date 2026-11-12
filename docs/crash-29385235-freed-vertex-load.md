@@ -77,6 +77,7 @@ eye intro began. Checked 2026-11-12 on the Quest 3 (crashdl lines, then
 debuggerd's `Fatal signal 11 ... SEGV_ACCERR` and "Tombstone written") and on
 Windows (scripted Dam run). A file saying `tkill` instead sends the thread
 SIGSEGV as the watchdog does (no crashdl lines; the system's report must
-still come). The `tkill` run on the Quest was blocked by a USB debugging
-prompt and is not yet checked. A test crash before a reinstall is not offered
-as a report (LogReporter skips exits before the install).
+still come): checked on the Quest 3 the same day, `SIGSEGV, code -6
+(SI_TKILL)` went straight to debuggerd and "Tombstone written". A test crash
+before a reinstall is not offered as a report (LogReporter skips exits before
+the install).
