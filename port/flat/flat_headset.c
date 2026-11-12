@@ -178,7 +178,14 @@ int gevrVrGripUsable(int hand) { (void)hand; return 0; }
 int gevrVrGripPoseCamera(int hand, float pos[3], float q[4]) { (void)hand; (void)pos; (void)q; return 0; }
 int gevrVrGripPosePlay(int hand, float pos[3], float quat[4]) { (void)hand; (void)pos; (void)quat; return 0; }
 int gevrVrWatchGesture(void) { return 0; }
+#ifdef GEVR_PC_FLAT
+/* the mouse over the window's picture, where the headset has its laser:
+ * front.c's folder cursor follows it (port/src/input.c) */
+extern s32 inputMenuPointer(f32 *u, f32 *v);
+int gevrVrScreenPointer(float *u, float *v) { return inputMenuPointer(u, v); }
+#else
 int gevrVrScreenPointer(float *u, float *v) { (void)u; (void)v; return 0; }
+#endif
 void gevrVrScreenPointerOwnCursor(void) {}
 void gevrVrCameraWorld(const float position[3], const float look[3], const float up[3]) { (void)position; (void)look; (void)up; }
 void gevrVrLocomotionSnapshot(const float position[3], const float tracking[3], float yaw, uint64_t sequence)

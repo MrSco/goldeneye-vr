@@ -244,7 +244,14 @@ policy cases, the redaction patterns, the gzip member, the crash record, the upd
 - Keyboard and mouse: W/S walk, A/D strafe (the C buttons), arrows look,
   left mouse or Space fires, right mouse or Z aims, Q or the wheel changes
   weapon (A), E or R uses and reloads (B), F or X is L, Enter is Start.
-  Click in the window to capture the mouse for looking, Escape releases it.
+  Click in the window to capture the mouse for looking, Escape releases it;
+  it is held only in play (gepc-ref's click-to-lock, D345/D544). In the
+  front end the free mouse is the folders' pointer (front.c's laser hook,
+  flat_headset.c gevrVrScreenPointer -> input.c inputMenuPointer), left click
+  selects (A), right click goes back (B); the F10 panel frees it and shows
+  the system pointer. The VR binds stay off in flat builds (they took the
+  keyboard's first slot: Enter, Q, E, F). Keyboard full down is -128,
+  clamped to -127 in osContGetReadData (front.c negates the stick in an s8).
 - Gamepad, as the Quest's screen mode holds the Touch controllers: left
   stick walks and strafes (the C buttons past a quarter), right stick looks
   and turns (the game's stick), right trigger fires, left trigger or RB
@@ -264,7 +271,8 @@ aim reach, pad look stick, crosshair snap and aim-mode edge turn.
 **Testing without the desktop:** `--input-script FILE` (port/pc/pc_testinput.c)
 feeds timed mouse moves, clicks, held keys, a virtual gamepad (SDL's,
 seen by the game as a real pad), a launcher pointer (`point X Y`, canvas
-units) and typed text into the game, `pick PATH` answers the next file
+units), the free mouse over the game's window (`mouse X Y`, thousandths of
+the window: the front end's pointer) and typed text into the game, `pick PATH` answers the next file
 picker (a scripted run never opens the Open dialog; with no pick waiting the
 picker is cancelled), and `shot NAME` writes the window to
 `shots/NAME.bmp`. The game never grabs the real mouse

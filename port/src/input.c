@@ -436,6 +436,16 @@ static s32 mouseFromTouch = 0;
 static s32 mouseLockMode = MLOCK_AUTO;
 static u64 mouseCursorTime = 0;
 static s32 mouseShowCursor = 1;
+#ifdef GEVR_PC_FLAT
+/*
+ * gepc-ref's click-to-lock (its port/src/input.c captureArmed, D345, D544): a
+ * click in the window asks for the mouse and Escape gives it back, but it is
+ * held for looking only in play. The front end's folders take the free mouse
+ * as their pointer (inputMenuPointer), the in-game panel (F10) as ImGui's.
+ */
+static s32 mouseCaptureArmed = 0;
+static s32 mouseButtonsWait = 0;   /* the click that took the mouse fires nothing: until let go */
+#endif
 
 static f32 mouseSensX = 2.5f;
 static f32 mouseSensY = 2.5f;
@@ -1445,6 +1455,18 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             }
             if ((flatTouchTakeCrouch() & 1) && !menu) gevrCrouchToggle = !gevrCrouchToggle;
         }
+#ifdef GEVR_PC_FLAT
+        /* gepc-ref: in the front end the free mouse's left button selects (A)
+         * and its right goes back (B), where in play they fire and aim */
+        if (bossGetStageNum() == LEVELID_TITLE && !mouseLocked) {
+            if (mouseButtons & SDL_BUTTON_LMASK) {
+                npad->button = (npad->button & ~Z_TRIG) | A_BUTTON;
+            }
+            if (mouseButtons & SDL_BUTTON_RMASK) {
+                npad->button = (npad->button & ~R_TRIG) | B_BUTTON;
+            }
+        }
+#endif
         /*
          * The in-game panel (port/vr/vr_pause_menu.cpp) without grips: a long
          * press of the on-screen START, F10, or a pad's Back (gepc-ref's keys
@@ -2557,21 +2579,108 @@ static inline void inputUpdateMouse(void)
         mouseDX = mouseDY = 0;
     }
 #endif
+}
 
-    // if MLOCK_AUTO is enabled, disable cursor if mouse is unlocked
-    // and we haven't moved it for a few seconds
-    if (mouseLockMode == MLOCK_AUTO && !mouseLocked) {
+#ifdef GEVR_PC_FLAT
+/*
+ * The system's pointer while the mouse is free (held, relative mode hides it):
+ * always shown over the in-game panel (gepc-ref D544), hidden over the front
+ * end, whose folders draw their own cursor, the crosshair, where the mouse is
+ * (D345); in play, shown while it moves and hidden a few seconds after.
+ */
+static void inputUpdateCursor(s32 frontEnd, s32 panel)
+{
+    s32 show = mouseShowCursor;
+
+    if (mouseLocked) {
+        return;
+    }
+    if (panel) {
+        show = 1;
+    } else if (frontEnd) {
+        show = 0;
+    } else if (mouseLockMode == MLOCK_AUTO) {
         if (abs(mouseDX) > CURSOR_HIDE_THRESHOLD || abs(mouseDY) > CURSOR_HIDE_THRESHOLD) {
-            if (!mouseShowCursor) {
-                inputMouseShowCursor(1);
-            }
+            show = 1;
+            mouseCursorTime = sysGetMicroseconds() + CURSOR_HIDE_TIME;
         } else if (sysGetMicroseconds() > mouseCursorTime) {
-            if (mouseShowCursor) {
-                inputMouseShowCursor(0);
-            }
+            show = 0;
         }
     }
+    if (show != mouseShowCursor) {
+        inputMouseShowCursor(show);
+    }
 }
+
+/*
+ * The free mouse over the game's picture (flat_render.cpp flatPictureRect),
+ * for the front end's folder cursor: front.c frontUpdateControlStickPosition
+ * asks flat_headset.c's gevrVrScreenPointer, the headset's laser, which asks
+ * here. gepc-ref D345's 1:1 pointer: the cursor goes where the mouse is when
+ * it moves and stays with the keys or a stick while it lies still. u and v
+ * run 0..1 across the picture, v down. 0 = no mouse over the window (or held
+ * for looking, or the panel has it), 1 = over it, 2 = and it moved.
+ */
+s32 inputMenuPointer(f32 *u, f32 *v)
+{
+    extern void flatPictureRect(f32 *x, f32 *y, f32 *w, f32 *h);
+    static s32 had = 0;
+    static f32 lastU, lastV;
+    f32 fx, fy, px, py, pw, ph;
+
+    if (!mouseEnabled || mouseLocked || gevrNativePauseOpen()) {
+        had = 0;
+        return 0;
+    }
+    if (pcTestInputActive()) {
+        if (!pcTestInputMouse(&fx, &fy)) {
+            had = 0;
+            return 0;
+        }
+    } else {
+        SDL_Window *w = SDL_GetMouseFocus();
+        s32 mx = 0, my = 0, ww = 0, wh = 0;
+#ifdef GEVR_IOS
+        if (mouseFromTouch) {   /* a finger is the touch controls' */
+            had = 0;
+            return 0;
+        }
+#endif
+        if (w) {
+            SDL_GetMouseState(&mx, &my);
+            SDL_GetWindowSize(w, &ww, &wh);
+        }
+        if (ww <= 0 || wh <= 0) {
+            had = 0;
+            return 0;
+        }
+        fx = ((f32)mx + 0.5f) / (f32)ww;
+        fy = ((f32)my + 0.5f) / (f32)wh;
+    }
+    /* on the bars beside or above the picture: its edge */
+    flatPictureRect(&px, &py, &pw, &ph);
+    if (pw > 0.0f && ph > 0.0f) {
+        fx = (fx - px) / pw;
+        fy = (fy - py) / ph;
+    }
+    fx = fx < 0.0f ? 0.0f : fx > 1.0f ? 1.0f : fx;
+    fy = fy < 0.0f ? 0.0f : fy > 1.0f ? 1.0f : fy;
+    *u = fx;
+    *v = fy;
+    if (!had) {   /* just came over the window: where it is, not a move (no yank) */
+        had = 1;
+        lastU = fx;
+        lastV = fy;
+        return 1;
+    }
+    if (fx != lastU || fy != lastV) {
+        lastU = fx;
+        lastV = fy;
+        return 2;
+    }
+    return 1;
+}
+#endif
 
 
 
@@ -2583,30 +2692,66 @@ void inputUpdate(void)
     if (mouseEnabled) {
 #ifdef GEVR_PC_FLAT
         inputUpdateMouse();
-        if (pcTestInputActive()) {
+        /*
+         * gepc-ref's click-to-lock (D345, D544): a click in the window asks for
+         * the mouse and Escape gives it back; it is held for looking only in
+         * play, with the window focused. The front end's folders take it free
+         * as their pointer (inputMenuPointer), and the in-game panel (F10, or
+         * the online pause) as ImGui's, with the system's pointer shown: held
+         * there, the mouse moved nothing and the panel had no pointer (rivas_10,
+         * Windows flat, 2026-11-12). Coming back to play takes it again.
+         */
+        const s32 scripted = pcTestInputActive();
+        const s32 frontEnd = bossGetStageNum() == LEVELID_TITLE;
+        const s32 panel = gevrNativePauseOpen();
+        const s32 focused = scripted || SDL_GetKeyboardFocus() != NULL;
+        if (scripted) {
             /* A test script drives the mouse (port/pc/pc_testinput.c). The real
              * pointer is never grabbed: whoever is at the desktop keeps it. */
             s32 lock = -1;
             u32 b = 0;
             pcTestInputFrame(&mouseDX, &mouseDY, &b, &lock);
             mouseButtons = b;
-            if (lock >= 0) mouseLocked = lock;
-            if (mouseLocked && pcTestInputKey(SDL_SCANCODE_ESCAPE)) mouseLocked = 0;
-        } else
-        /* Project Midas's capture: a click in the window takes the mouse for
-         * looking, Escape or leaving the window gives it back. */
-        if (!mouseLocked) {
-            if ((mouseButtons & SDL_BUTTON_LMASK) && SDL_GetKeyboardFocus() != NULL) {
-                inputLockMouse(1);
-                sysLogPrintf(LOG_NOTE, "input: mouse captured for looking (Escape gives it back)");
-            }
-        } else {
+            if (lock >= 0) mouseCaptureArmed = lock;
+            if (pcTestInputKey(SDL_SCANCODE_ESCAPE)) mouseCaptureArmed = 0;
+        } else if (focused && !panel) {
             const Uint8 *keys = SDL_GetKeyboardState(NULL);
-            const bool escape = keys && keys[SDL_SCANCODE_ESCAPE];
-            if (escape || SDL_GetKeyboardFocus() == NULL) {
-                inputLockMouse(0);
-                sysLogPrintf(LOG_NOTE, "input: mouse released (%s)", escape ? "Escape" : "focus lost");
+            if (keys && keys[SDL_SCANCODE_ESCAPE]) {
+                if (mouseCaptureArmed) sysLogPrintf(LOG_NOTE, "input: mouse given back (Escape)");
+                mouseCaptureArmed = 0;
+            } else if ((mouseButtons & SDL_BUTTON_LMASK) && !mouseCaptureArmed) {
+                mouseCaptureArmed = 1;
+                sysLogPrintf(LOG_NOTE, "input: mouse taken for looking in play (Escape gives it back)");
             }
+        }
+        const s32 hold = mouseCaptureArmed && focused && !frontEnd && !panel;
+        if (hold != mouseLocked) {
+            if (scripted) {
+                mouseLocked = hold;
+            } else {
+                inputLockMouse(hold);
+            }
+            mouseDX = mouseDY = 0;
+            if (hold) {
+                mouseButtonsWait = 1;   /* the click that took it, or closed the panel */
+            }
+            sysLogPrintf(LOG_NOTE, "input: mouse %s", hold ? "held for looking"
+                    : frontEnd ? "free: the menus' pointer" : panel ? "free: the panel's pointer" : "free");
+        }
+        if (frontEnd) {
+            /* the wheel changes weapon (A), which in the folders is "select" */
+            mouseButtons &= ~(WHEEL_UP_MASK | WHEEL_DN_MASK);
+        }
+        if (mouseButtonsWait) {
+            const u32 clicks = SDL_BUTTON_LMASK | SDL_BUTTON_MMASK | SDL_BUTTON_RMASK;
+            if (mouseButtons & clicks) {
+                mouseButtons &= ~clicks;
+            } else {
+                mouseButtonsWait = 0;
+            }
+        }
+        if (!scripted) {
+            inputUpdateCursor(frontEnd, panel);
         }
 #endif
         // inputUpdateMouse(); Removed for VR

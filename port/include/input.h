@@ -257,6 +257,11 @@ void inputMouseGetScaledDelta(f32 *dx, f32 *dy);
 #ifdef GEVR_PC
 void inputMouseGetLookDeg(f32 *dxdeg, f32 *dydeg);   // mouse look, degrees this poll (Project Midas)
 #endif
+#ifdef GEVR_PC_FLAT
+// the free mouse over the game's picture (u, v 0..1, v down) for the front
+// end's cursor: 0 = not over the window, 1 = over it, 2 = and it moved
+s32 inputMenuPointer(f32 *u, f32 *v);
+#endif
 
 // returns changes in mouse position since last frame, scaled by absolute sensitivity
 // returns 0, 0 when the mouse is not locked into the window

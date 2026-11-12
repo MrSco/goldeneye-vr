@@ -148,6 +148,17 @@ void pc_write_shot(const char *name, int w, int h)
 }
 #endif   /* GEVR_PC */
 
+/* Where the last copy put the game's picture in the window, as fractions of
+ * it: input.c maps the mouse through it onto the front end's cursor. */
+static float s_pictureRect[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+extern "C" void flatPictureRect(float *x, float *y, float *w, float *h)
+{
+    *x = s_pictureRect[0];
+    *y = s_pictureRect[1];
+    *w = s_pictureRect[2];
+    *h = s_pictureRect[3];
+}
+
 /*
  * The screen target itself is the Quest's (port/vr/vr_screen.cpp). Where the
  * headset hands its layer 0 to the compositor as a quad, the PC copies it
@@ -183,6 +194,10 @@ bool vr_screen_present(unsigned int srcArrayTex, int w, int h)
         dw = (int)((long long)winH * w / h);
     }
     const int dx = (winW - dw) / 2, dy = (winH - dh) / 2;
+    s_pictureRect[0] = (float)dx / (float)winW;
+    s_pictureRect[1] = (float)dy / (float)winH;
+    s_pictureRect[2] = (float)dw / (float)winW;
+    s_pictureRect[3] = (float)dh / (float)winH;
 
     if (!readFbo) glGenFramebuffers(1, &readFbo);
     const GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);

@@ -13,6 +13,7 @@ void pcTestInputFrame(s32 *mdx, s32 *mdy, u32 *buttons, s32 *lock);
 s32 pcTestInputKey(s32 scancode);
 const char *pcTestInputTakeShot(void);
 s32 pcTestInputPointer(s32 *x, s32 *y);
+s32 pcTestInputMouse(f32 *fx, f32 *fy);
 s32 pcTestInputLeftDown(void);
 s32 pcTestInputTakePick(char *out, s32 outLen);
 

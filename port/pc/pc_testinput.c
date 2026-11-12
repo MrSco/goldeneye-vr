@@ -13,6 +13,9 @@
  *   30000 capture            take the mouse for looking, as a click would
  *   30500 click 120          left button held 120 ms (fires)
  *   30400 point 640 360      the launcher's pointer at that spot of its canvas
+ *   30400 mouse 500 250      the free mouse over the game's window, in
+ *                            thousandths of its width and height (the front
+ *                            end's pointer, input.c inputMenuPointer)
  *   31000 text ABCD1234      typed into whatever text box has the focus
  *   30500 rclick 400         right button held 400 ms (aims)
  *   31000 move 15 0 40       15, 0 counts a frame for 40 frames
@@ -44,7 +47,7 @@
 
 #define TI_MAX 512
 
-enum { TI_CAPTURE, TI_RELEASE, TI_CLICK, TI_RCLICK, TI_MOVE, TI_KEY, TI_SHOT, TI_QUIT, TI_PAD, TI_AXIS, TI_POINT, TI_TEXT, TI_CRASH, TI_PICK };
+enum { TI_CAPTURE, TI_RELEASE, TI_CLICK, TI_RCLICK, TI_MOVE, TI_KEY, TI_SHOT, TI_QUIT, TI_PAD, TI_AXIS, TI_POINT, TI_TEXT, TI_CRASH, TI_PICK, TI_MOUSE };
 
 struct ticmd {
 	u32 at;
@@ -65,6 +68,7 @@ static s32 s_moveDx, s_moveDy, s_moveFrames;
 static u32 s_keyUntil[SDL_NUM_SCANCODES];
 static char s_shotPending[48];
 static s32 s_pointX = -1, s_pointY = -1;   /* the launcher's scripted pointer, canvas units */
+static s32 s_mouseX = -1, s_mouseY = -1;   /* the game's scripted mouse, thousandths of the window */
 static s32 s_wantPad;                    /* the script drives a virtual gamepad */
 static SDL_Joystick *s_pad;
 static u32 s_padUntil[SDL_CONTROLLER_BUTTON_MAX];
@@ -144,6 +148,7 @@ static void tiLoad(void)
 			memcpy(s_picks[s_pickCount++], rest, len + 1);
 		}
 		else if (!strcmp(word, "point")) { c->kind = TI_POINT; c->a = atoi(arg); c->b = atoi(extra); }
+		else if (!strcmp(word, "mouse")) { c->kind = TI_MOUSE; c->a = atoi(arg); c->b = atoi(extra); }
 		else if (!strcmp(word, "pad")) {
 			c->kind = TI_PAD;
 			c->a = SDL_GameControllerGetButtonFromString(arg);
@@ -211,6 +216,7 @@ void pcTestInputFrame(s32 *mdx, s32 *mdy, u32 *buttons, s32 *lock)
 		case TI_SHOT: memcpy(s_shotPending, c->name, sizeof(s_shotPending)); break;
 		case TI_PAD: s_padUntil[c->a] = now + (u32)c->b; break;
 		case TI_POINT: s_pointX = c->a; s_pointY = c->b; break;
+		case TI_MOUSE: s_mouseX = c->a; s_mouseY = c->b; break;
 		case TI_PICK: memcpy(s_pickPending, s_picks[c->a], sizeof(s_pickPending)); s_pickWaiting = 1; break;
 		case TI_TEXT: {
 			/* as a keyboard types it: SDL's text event (the launcher's keyboardWatch reads it) */
@@ -294,6 +300,16 @@ s32 pcTestInputPointer(s32 *x, s32 *y)
 	if (s_pointX < 0) return 0;
 	*x = s_pointX;
 	*y = s_pointY;
+	return 1;
+}
+
+/* The game's scripted mouse over its window, 0..1 each way: 1 once a mouse
+ * command ran. */
+s32 pcTestInputMouse(f32 *fx, f32 *fy)
+{
+	if (s_mouseX < 0) return 0;
+	*fx = (f32)s_mouseX / 1000.0f;
+	*fy = (f32)s_mouseY / 1000.0f;
 	return 1;
 }
 

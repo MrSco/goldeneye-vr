@@ -35,7 +35,10 @@ Keyboard and mouse (GoldenEye's 1.2 Solitaire style):
   Right mouse    aim                       Z         aim
   Q, mouse wheel next weapon (A)           E, R      use / reload (B)
   F, X           L                         Enter     Start (pause)
-  Alt+Enter      fullscreen
+  Alt+Enter      fullscreen                F10       in-game panel
+In the menus the mouse moves the cursor (so do the arrow keys); left click
+selects, right click goes back. The mouse is captured for looking only in
+play, and is free in the menus and the in-game panel.
 
 Gamepad:
   Left stick     walk and strafe           Right stick   look and turn
