@@ -105,6 +105,23 @@ extern "C" void gevrSndApplySfxVolume(unsigned short);
 // first name did, at launcher start, and reset everything it held.
 static bool s_settingsLoaded = false;
 
+#ifdef GEVR_FLAT
+// The ini's PlayMode, kept for PC VR: the flat game shares goldeneye-vr.ini
+// with GoldenEyeVR-VR.exe and plays on the screen whatever it says, so it
+// writes back what it read (stereo when the ini has none), never its own 0.
+// Saving 0 left PC VR on the big screen after a flat run (rivas_10, Quest 3
+// over Virtual Desktop, 2026-11-12).
+static int s_iniPlayMode = VR_PLAYMODE_STEREO;
+#endif
+static int gevrIniPlayMode(int ival)
+{
+    const int mode = ival != 0 ? VR_PLAYMODE_STEREO : VR_PLAYMODE_SCREEN;
+#ifdef GEVR_FLAT
+    s_iniPlayMode = mode;
+#endif
+    return mode;
+}
+
 static void gevrEnsureWritable(const char *path)
 {
 #ifdef _WIN32
@@ -244,7 +261,11 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; 1 = true stereo in first-person play (menus, cutscenes and the watch stay on the\n");
     fprintf(f, "; virtual screen), 0 = everything on the virtual screen. Hold the right stick click\n");
     fprintf(f, "; in game to switch.\n");
+#ifdef GEVR_FLAT
+    fprintf(f, "PlayMode=%d\n", s_iniPlayMode);   // PC VR's: the flat game plays on the screen
+#else
     fprintf(f, "PlayMode=%d\n", VrPlayMode);
+#endif
     fprintf(f, "; 1 = Project Bean characters, guns, rooms and skies, when the files are in\n");
     fprintf(f, "; added-content/xbla. Hold one grip and the right stick click to switch.\n");
     fprintf(f, "XblaVisualsMode=%d\n", VrBeanModels);
@@ -818,7 +839,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MatchCharacterHeight") == 0) VrMatchCharacterHeight = (ival != 0);
             else if (strcmp(key, "GexFistClench") == 0) VrFistClench = ival != 0;
             else if (strcmp(key, "AutoSwitchKeepMs") == 0) VrAutoSwitchKeepMs = ival < 0 ? 0 : ival > 5000 ? 5000 : ival;
-            else if (strcmp(key, "PlayMode") == 0) VrPlayMode = ival != 0 ? VR_PLAYMODE_STEREO : VR_PLAYMODE_SCREEN;
+            else if (strcmp(key, "PlayMode") == 0) VrPlayMode = gevrIniPlayMode(ival);
             else if (strcmp(key, "XblaVisualsMode") == 0) VrBeanModels = ival != 0;
             else if (strcmp(key, "BeanFillTextures") == 0) VrBeanFillTextures = ival != 0;
             else if (strcmp(key, "BeanCommunityEdition") == 0) VrBeanCommunityEdition = ival != 0;
