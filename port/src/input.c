@@ -1233,8 +1233,15 @@ s32 inputInit(void)
         inputSetDefaultKeyBinds(i, 0);
     }
 
+#ifndef GEVR_FLAT
     // Setup VR bindings
     inputSetupVRBindings(0);
+#else
+    /* No tracked controllers in a flat game. The VR binds take each button's
+     * first slot, which on the PC is the keyboard's: Enter stopped being
+     * Start, and Q, E and F their buttons (found testing rivas_10's menu
+     * report, 2026-11-12; port/pc/package/README.txt lists them). */
+#endif
 
     if (mouseLockMode != MLOCK_AUTO) {
         inputLockMouse(mouseLockMode);
