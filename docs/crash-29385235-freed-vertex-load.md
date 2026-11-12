@@ -71,9 +71,10 @@ Traps found testing it on the Quest:
 ## Testing it
 
 Marker `gevr_crashtest.txt` in the files folder (the PC: beside the exe),
-checked every 60 frames: the next top-level vertex load reads a no-access page.
-On the Quest the logo screens draw no top-level vertex loads; it fired as the
-eye intro began. Checked 2026-11-12 on the Quest 3 (crashdl lines, then
+put there before the game starts (it is looked for once, at the first frame,
+so nothing polls a file while the game runs): the first top-level vertex load
+then reads a no-access page. On the Quest the logo screens draw no top-level
+vertex loads; it fired as the eye intro began. Checked 2026-11-12 on the Quest 3 (crashdl lines, then
 debuggerd's `Fatal signal 11 ... SEGV_ACCERR` and "Tombstone written") and on
 Windows (scripted Dam run). A file saying `tkill` instead sends the thread
 SIGSEGV as the watchdog does (no crashdl lines; the system's report must

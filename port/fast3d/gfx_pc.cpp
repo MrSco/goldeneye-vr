@@ -5147,13 +5147,16 @@ extern "C" int gevrGfxCrashContext(const void* fault) {
 }
 
 /* The crash test: with gevr_crashtest.txt in the files folder (the PC: beside the
- * exe), the next top-level vertex load reads a page no one may read, once; the
- * crash report then shows crashdl lines before the system's own. A file saying
- * "tkill" instead sends this thread SIGSEGV, as the watchdog does (no crashdl
- * lines: the system's report must still come). */
+ * exe) when the game starts, the first top-level vertex load reads a page no one
+ * may read; the crash report then shows crashdl lines before the system's own. A
+ * file saying "tkill" instead sends this thread SIGSEGV, as the watchdog does (no
+ * crashdl lines: the system's report must still come). Looked for once, at the
+ * first frame: no file is polled while the game runs (on the Quest /sdcard is
+ * FUSE, where even a missing file is a trip through its daemon). */
 static void gevrMaybeCrashTest(void) {
-    static uint32_t sTick;
-    if ((++sTick % 60) != 0) return;
+    static bool checked;
+    if (checked) return;
+    checked = true;
 #ifdef ANDROID
     const char* marker = "/sdcard/Android/data/com.gevr.port/files/gevr_crashtest.txt";
 #else
@@ -5185,7 +5188,8 @@ static void gfx_run_dl(Gfx* cmd) {
     GevrSkinDraw* skin = nullptr;
     GevrDlTrack track(cmd);   // crash context (gevrGfxCrashContext)
     if (track.depth == 0) {   // a frame's list: whose thread, and the crash test's marker
-        s_dlThread = gevrCrashThreadId();
+        static thread_local const unsigned long tid = gevrCrashThreadId();
+        s_dlThread = tid;
         gevrMaybeCrashTest();
     }
 
