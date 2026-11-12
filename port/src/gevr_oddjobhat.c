@@ -159,9 +159,15 @@ static float rdf(const u8 *p) { float v; memcpy(&v, p, 4); return v; }
 
 static const char *hatFile(void)
 {
+	/* asked on every knife draw while the pack is missing (the default): look
+	 * again at most every 2 s, not two stat()s a draw */
+	static u64 nextLook;
 	struct stat st;
+	const u64 now = sysGetMicroseconds();
+	if (now < nextLook) return NULL;
 	for (unsigned i = 0; i < sizeof(s_files) / sizeof(s_files[0]); i++)
 		if (stat(s_files[i], &st) == 0 && st.st_size > 64) return s_files[i];
+	nextLook = now + 2000000;
 	return NULL;
 }
 
@@ -603,7 +609,12 @@ static void tuneCheck(void)
 	long stamp;
 	FILE *f;
 	char line[160];
-	if (s_tune.frames++ % 60) return;
+	{
+		static u64 nextLook;   /* once a second by the clock: it is asked per draw */
+		const u64 now = sysGetMicroseconds();
+		if (now < nextLook) return;
+		nextLook = now + 1000000;
+	}
 	stamp = stat(HAT_TUNE, &st) == 0 ? (long)st.st_mtime : 0;
 	if (stamp == s_tune.stamp) return;
 	s_tune.stamp = stamp;

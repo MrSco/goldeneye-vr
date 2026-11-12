@@ -308,6 +308,17 @@ void skyTick(void)
 
 Gfx* sub_GAME_7F09343C(Gfx*, s32);
 
+#ifdef GEVR
+/* The gepc-ref probes' environment switches (GE_D176, GE_D245V, GE_D227V),
+ * read once: they were asked per frame, per water fan and per sky vertex. */
+static s32 s_skyD176 = -1, s_skyD245V = -1, s_skyD227V = -1;
+static s32 gevrSkyProbe(const char *name, s32 *cached)
+{
+    if (*cached < 0) *cached = getenv(name) != NULL;
+    return *cached;
+}
+#endif
+
 Gfx *skyRender(Gfx *gdl)
 {
     coord3d sp6a4;
@@ -379,7 +390,7 @@ Gfx *skyRender(Gfx *gdl)
 #endif
 
 #ifdef GEVR
-    if (getenv("GE_D176")) {
+    if (gevrSkyProbe("GE_D176", &s_skyD176)) {
         static int n = 0;
         if (n++ < 4)
             fprintf(stderr, "D176 sky: Clouds=%d RGB=%d,%d,%d SkyImageId=%d CloudRGB=%.1f,%.1f,%.1f "
@@ -444,7 +455,7 @@ Gfx *skyRender(Gfx *gdl)
     sp52c = skyIsScreenCornerInSky(&sp680, &sp620, &sp580);
 
 #ifdef GEVR
-    if (getenv("GE_D176")) {
+    if (gevrSkyProbe("GE_D176", &s_skyD176)) {
         static int m = 0;
         if (m++ < 3) {
             coord3d *eye = bondviewGetCurrentPlayersPosition();
@@ -1002,7 +1013,9 @@ Gfx *skyRender(Gfx *gdl)
              * comment. Off by default (unset env => identical to the current
              * allowShift=TRUE behaviour this row is still reopened against). */
             {
-                const char *fs = getenv("GE_D245_FIXEDSHIFT");
+                static const char *fs;
+                static int fsRead;
+                if (!fsRead) { fs = getenv("GE_D245_FIXEDSHIFT"); fsRead = 1; }
                 if (fs) {
                     s32 kFixed = atoi(fs);
                     if (kFixed < 0) kFixed = 0;
@@ -1018,7 +1031,7 @@ Gfx *skyRender(Gfx *gdl)
              * still-open question after allowShift=TRUE didn't fix the live
              * symptom. Recomputed locally rather than reading skyPortBeginFan's
              * statics (defined later in this TU, not forward-declared). */
-            if (getenv("GE_D245V")) {
+            if (gevrSkyProbe("GE_D245V", &s_skyD245V)) {
                 static int callN = 0;
                 f32 minS = sp274[0].unk20, maxS = sp274[0].unk20;
                 f32 minT = sp274[0].unk24, maxT = sp274[0].unk24;
@@ -2169,7 +2182,7 @@ static Gfx *skyPortRenderPoly(Gfx *gdl, SkyRelated38 **v, s32 nverts)
          * one sky quad spans ~30,000 texels in S and T, but tc is S10.5, so
          * (S - foldS) * 32 only holds +/-1024 texels. Same env-gate style as
          * the GE_D176 probes above. */
-        if (getenv("GE_D227V")) {
+        if (gevrSkyProbe("GE_D227V", &s_skyD227V)) {
             static int n = 0;
             if (n++ < 200)
                 fprintf(stderr, "D227V poly nv=%d i=%d w=%.1f 1/w=%.6g sx=%.1f sy=%.1f S=%.1f T=%.1f "

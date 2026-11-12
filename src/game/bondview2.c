@@ -1822,6 +1822,7 @@ static s32 gevrItemPoseSet(void)
     return VrGexGuns ? 1 : 0;
 }
 
+static u64 s_gevrItemPoseNextUs;   /* the gun fit file's next look (gevrItemPose) */
 static GevrItemPose *gevrItemPoseFind(s32 item)
 {
     static u32 tick;
@@ -1850,9 +1851,10 @@ static GevrItemPose *gevrItemPoseFind(s32 item)
     }
 
     /* Gun fit's saved poses (and hand edits), re-read every couple of seconds
-     * and when the hands change */
-    if (((tick++ % 120) == 0 || set != lastSet) && !s_gevrGadgetFitting)
+     * (by the clock: it is asked several times a tick) and when the hands change */
+    if ((sysGetMicroseconds() >= s_gevrItemPoseNextUs || set != lastSet) && !s_gevrGadgetFitting)
     {
+        s_gevrItemPoseNextUs = sysGetMicroseconds() + 2000000;
         FILE *f = fopen(s_gevrItemPoseFiles[set], "r");
 
         lastSet = set;
@@ -3463,10 +3465,11 @@ static s32 gevrGexPistolPoint(s32 support, f32 out[3]);
 /* Touch files/gevr_aimlog.txt to sample the grip/aim path in the app log. */
 static s32 gevrAimLogEnabled(void)
 {
-    static u32 check;
+    static u64 next;   /* looked for every 1.5 s by the clock: it is asked many times a tick */
     static s32 enabled;
-    if ((check++ % 90) == 0)
+    if (sysGetMicroseconds() >= next)
     {
+        next = sysGetMicroseconds() + 1500000;
 #ifdef ANDROID
         FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_aimlog.txt", "r");
 #else
@@ -20931,6 +20934,19 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
         gevrWeaponPanelRelease = 0;
     }
     hand = gevrWeaponPanelLeft ? GUNLEFT : GUNRIGHT;
+    gevrWeaponPanelTune();
+    if (s_gevrWpTuneOpen)
+    {
+        gevrWeaponPanelOpen = 1;
+    }
+    /* closed and not being let go: no list to build (it walked the inventory
+     * every frame); cycling and the body slots build their own */
+    if (!gevrWeaponPanelOpen && !gevrWeaponPanelRelease)
+    {
+        gevrWeaponPanelStep = 0;
+        s_gevrWpShown = FALSE;
+        return gdl;
+    }
     count = gevrWeaponPanelLeft ? gevrWeaponPanelBuildLeft() : gevrWeaponPanelBuild();
 
     if (gevrWeaponPanelRelease)
@@ -20944,12 +20960,6 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
             gevrWeaponPanelEquip(hand, e, 1);
         }
         s_gevrWpShown = FALSE;
-    }
-
-    gevrWeaponPanelTune();
-    if (s_gevrWpTuneOpen)
-    {
-        gevrWeaponPanelOpen = 1;
     }
 
     if (!gevrWeaponPanelOpen || count <= 0)

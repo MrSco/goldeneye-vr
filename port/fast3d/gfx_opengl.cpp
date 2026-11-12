@@ -4771,7 +4771,17 @@ static void gfx_opengl_init(void) {
         }
         if (debugCallback) {
             glEnable(0x92E0 /* GL_DEBUG_OUTPUT */);
-            glEnable(0x8242 /* GL_DEBUG_OUTPUT_SYNCHRONOUS: the call is on the stack */);
+            // Errors only: the driver formats no other message. Synchronous only
+            // for a debug run (GEVR_GL_DEBUG=1: the call is on the stack for the
+            // trap); always on, it cost NVIDIA its threaded optimisation.
+            typedef void (APIENTRY *DebugControlProc)(GLenum, GLenum, GLenum, GLsizei, const GLuint *, GLboolean);
+            DebugControlProc debugControl = (DebugControlProc)SDL_GL_GetProcAddress("glDebugMessageControl");
+            if (!debugControl) debugControl = (DebugControlProc)SDL_GL_GetProcAddress("glDebugMessageControlKHR");
+            if (debugControl && !getenv("GEVR_GL_DEBUG")) {
+                debugControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_FALSE);
+                debugControl(GL_DONT_CARE, 0x824C /* GL_DEBUG_TYPE_ERROR */, GL_DONT_CARE, 0, nullptr, GL_TRUE);
+            }
+            if (getenv("GEVR_GL_DEBUG")) glEnable(0x8242 /* GL_DEBUG_OUTPUT_SYNCHRONOUS */);
             debugCallback([](GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,
                              const GLchar *message, const void *) {
                 static int logged;

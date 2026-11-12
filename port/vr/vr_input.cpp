@@ -6,6 +6,7 @@
 #endif
 
 
+#include <chrono>
 #include <openxr/openxr.h>
 
 #include <cstring>
@@ -2175,9 +2176,13 @@ extern "C" int gevrVrGripPose(int hand, float pos[3], float quat[4]);
 // 1 holds that hand's grip (get_button_state), e.g. to take a two-handed hold.
 static bool vr_fake_grip(int hand, float pos[3], float quat[4])
 {
-    static unsigned n;
+    // once a second by the clock: the poses ask for it many times a frame, and
+    // counting calls opened the file 15-50 times a second
+    static std::chrono::steady_clock::time_point next;
     static float fp[2][7];
-    if ((n++ % 36) == 0) {
+    const auto now = std::chrono::steady_clock::now();
+    if (now >= next) {
+        next = now + std::chrono::seconds(1);
         s_fakeGripHave[0] = s_fakeGripHave[1] = s_fakeGripPress[0] = s_fakeGripPress[1] = false;
         FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_fakegrip.txt", "r");
         if (f) {
