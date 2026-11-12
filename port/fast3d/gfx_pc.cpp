@@ -5005,6 +5005,172 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, 
 }
 
 extern "C" void gfx_opengl_mesh_settle(void);
+/*
+ * Crash context (reports repo #19/#20, 2026-11-12: a vertex load read freed
+ * heap memory, and the tombstone held nothing of the list that asked for it).
+ * Each open display list's start and current command, a store a command; a
+ * crash on the thread running them logs the commands around the one that ran,
+ * the segments and the game heap (port/src/crash.c calls gevrGfxCrashContext
+ * before the system's crash report), so the next report shows what wrote it.
+ * Nothing is skipped or recovered: the crash goes on as before.
+ */
+#include "system.h"
+#include <csignal>
+extern "C" unsigned long gevrCrashThreadId(void);              // crash.c
+extern "C" void* gevrCrashNoAccessPage(void);                   // crash.c: the crash test's target
+extern "C" void gevrCrashLogMaps(const char* what, const void* addr);   // crash.c
+extern "C" void gevrCrashLog(const char* fmt, ...);            // crash.c: a crash-time log line
+extern "C" unsigned char* gevrHeapTlbBlock(void);               // gevr_romload.c: the 16 MB game heap's end
+#define GEVR_DL_TRACK 8
+static const Gfx* volatile s_dlStart[GEVR_DL_TRACK];   // each open list's start (a branch's target after one)
+static const Gfx* volatile s_dlAt[GEVR_DL_TRACK];      // and the command it runs
+static volatile int s_dlDepth;                          // lists open now: 0 = not drawing
+static volatile unsigned long s_dlThread;               // the thread drawing them
+static const void* volatile s_dlVtx;                    // the last vertex load's resolved address
+static volatile int s_gevrCrashTest;                    // gevr_crashtest.txt: the next top-level load faults
+struct GevrDlTrack {
+    const int depth;
+    explicit GevrDlTrack(const Gfx* start) : depth(s_dlDepth) {
+        s_dlDepth = depth + 1;
+        if (depth < GEVR_DL_TRACK) s_dlStart[depth] = start;
+    }
+    ~GevrDlTrack() { s_dlDepth = depth; }
+    void at(const Gfx* cmd) const {
+        if (depth < GEVR_DL_TRACK) s_dlAt[depth] = cmd;
+    }
+    void branch(const Gfx* to) const {
+        if (depth < GEVR_DL_TRACK) s_dlStart[depth] = to;
+    }
+};
+
+static const char* gevrDlOpName(uint8_t op) {
+    switch (op) {
+        case (uint8_t)G_VTX: return "VTX";
+        case (uint8_t)G_GEVR_WORLD_VTX: return "GEVR_WORLD_VTX";
+        case (uint8_t)G_DL: return "DL";
+        case (uint8_t)G_ENDDL: return "ENDDL";
+        case (uint8_t)G_MTX: return "MTX";
+        case (uint8_t)G_POPMTX: return "POPMTX";
+        case (uint8_t)G_TRI1: return "TRI1";
+        case (uint8_t)G_TRI4: return "TRI4";
+        case (uint8_t)G_TEXTURE: return "TEXTURE";
+        case (uint8_t)G_SETTIMG: return "SETTIMG";
+        case (uint8_t)G_SETTILE: return "SETTILE";
+        case (uint8_t)G_SETTILESIZE: return "SETTILESIZE";
+        case (uint8_t)G_LOADBLOCK: return "LOADBLOCK";
+        case (uint8_t)G_LOADTILE: return "LOADTILE";
+        case (uint8_t)G_LOADTLUT: return "LOADTLUT";
+        case (uint8_t)G_SETCOMBINE: return "SETCOMBINE";
+        case (uint8_t)G_SETOTHERMODE_L: return "SETOTHERMODE_L";
+        case (uint8_t)G_SETOTHERMODE_H: return "SETOTHERMODE_H";
+        case (uint8_t)G_SETGEOMETRYMODE: return "SETGEOMETRYMODE";
+        case (uint8_t)G_CLEARGEOMETRYMODE: return "CLEARGEOMETRYMODE";
+        case (uint8_t)G_MOVEWORD: return "MOVEWORD";
+        case (uint8_t)G_MOVEMEM: return "MOVEMEM";
+        case (uint8_t)G_SETPRIMCOLOR: return "SETPRIMCOLOR";
+        case (uint8_t)G_SETENVCOLOR: return "SETENVCOLOR";
+        case (uint8_t)G_SETFOGCOLOR: return "SETFOGCOLOR";
+        case (uint8_t)G_SETBLENDCOLOR: return "SETBLENDCOLOR";
+        case (uint8_t)G_NOOP: return "NOOP";
+        case (uint8_t)G_RDPPIPESYNC: return "RDPPIPESYNC";
+        case (uint8_t)G_RDPTILESYNC: return "RDPTILESYNC";
+        case (uint8_t)G_RDPLOADSYNC: return "RDPLOADSYNC";
+        case (uint8_t)G_TEXRECT: return "TEXRECT";
+        case (uint8_t)G_TEXRECTFLIP: return "TEXRECTFLIP";
+        case (uint8_t)G_SETCIMG: return "SETCIMG";
+        case (uint8_t)G_SETZIMG: return "SETZIMG";
+        case (uint8_t)G_SETSCISSOR: return "SETSCISSOR";
+        case (uint8_t)G_SETFILLCOLOR: return "SETFILLCOLOR";
+        case (uint8_t)G_FILLRECT: return "FILLRECT";
+        case (uint8_t)G_SETPRIMDEPTH: return "SETPRIMDEPTH";
+        case (uint8_t)G_RDPFULLSYNC: return "RDPFULLSYNC";
+        case (uint8_t)G_LOADTLUT2: return "LOADTLUT2";
+        case (uint8_t)G_GEVR_SKIN: return "GEVR_SKIN";
+        case (uint8_t)G_GEVR_MESH: return "GEVR_MESH";
+        default: return "";
+    }
+}
+
+static void gevrDlLogCommand(int depth, const Gfx* start, const Gfx* c, const char* mark) {
+    const uint8_t op = (uint8_t)(c->words.w0 >> 24);
+    gevrCrashLog("crashdl: %d %s+0x%05llx %08x %016llx %s", depth, mark,
+                 (unsigned long long)((const char*)c - (const char*)start), (unsigned)c->words.w0,
+                 (unsigned long long)c->words.w1, gevrDlOpName(op));
+}
+
+/* From crash.c's handler on the crashing thread: 1 when it was drawing. */
+extern "C" int gevrGfxCrashContext(const void* fault) {
+    const int depth = s_dlDepth;
+    if (depth <= 0 || s_dlThread != gevrCrashThreadId()) return 0;
+    const unsigned char* heapEnd = gevrHeapTlbBlock();
+    const unsigned char* heap = heapEnd ? heapEnd - 16 * 1024 * 1024 : nullptr;
+    gevrCrashLog("crashdl: crashed drawing: fault %p, %d list%s deep, last vertex load %p, game heap %p-%p",
+                 fault, depth, depth == 1 ? "" : "s", s_dlVtx, (const void*)heap, (const void*)heapEnd);
+    const int shown = depth < GEVR_DL_TRACK ? depth : GEVR_DL_TRACK;
+    for (int d = 0; d < shown; d++) {
+        const Gfx* start = s_dlStart[d];
+        const Gfx* at = s_dlAt[d];
+        if (!start || !at || at < start) continue;
+        const bool inner = d == shown - 1;
+        gevrCrashLog("crashdl: list %d at %p, command %lld", d, (const void*)start, (long long)(at - start));
+        // the latest game tag (G_NOOP 0x4745xxxx) before the command, however far back
+        for (const Gfx* c = at; c >= start; c--) {
+            if ((uint8_t)(c->words.w0 >> 24) == (uint8_t)G_NOOP && ((uint32_t)c->words.w1 & 0xffff0000u) == 0x47450000u) {
+                gevrDlLogCommand(d, start, c, "tag ");
+                break;
+            }
+        }
+        // the commands it ran before this one (all of them were read, so readable), it, and a few after
+        const int before = inner ? 40 : 6;
+        const Gfx* from = at - start > before ? at - before : start;
+        for (const Gfx* c = from; c < at; c++) gevrDlLogCommand(d, start, c, "    ");
+        gevrDlLogCommand(d, start, at, ">>> ");
+        if (inner && (uint8_t)(at->words.w0 >> 24) != (uint8_t)G_ENDDL) {
+            for (const Gfx* c = at + 1; c <= at + 4; c++) {
+                gevrDlLogCommand(d, start, c, "    ");
+                if ((uint8_t)(c->words.w0 >> 24) == (uint8_t)G_ENDDL) break;
+            }
+        }
+    }
+    {
+        char line[400];
+        int len = 0;
+        for (int i = 0; i < 16; i++) {
+            if (segmentPointers[i] && len < (int)sizeof(line) - 32)
+                len += snprintf(line + len, sizeof(line) - len, " %d=%p", i, (void*)segmentPointers[i]);
+        }
+        gevrCrashLog("crashdl: segments%s", len ? line : " none");
+    }
+    gevrCrashLogMaps("fault", fault);
+    if (s_dlVtx && ((uintptr_t)s_dlVtx >> 12) != ((uintptr_t)fault >> 12)) gevrCrashLogMaps("last vertex load", s_dlVtx);
+    return 1;
+}
+
+/* The crash test: with gevr_crashtest.txt in the files folder (the PC: beside the
+ * exe), the next top-level vertex load reads a page no one may read, once; the
+ * crash report then shows crashdl lines before the system's own. A file saying
+ * "tkill" instead sends this thread SIGSEGV, as the watchdog does (no crashdl
+ * lines: the system's report must still come). */
+static void gevrMaybeCrashTest(void) {
+    static uint32_t sTick;
+    if ((++sTick % 60) != 0) return;
+#ifdef ANDROID
+    const char* marker = "/sdcard/Android/data/com.gevr.port/files/gevr_crashtest.txt";
+#else
+    const char* marker = "gevr_crashtest.txt";
+#endif
+    if (FILE* f = fopen(marker, "rb")) {
+        const int tkill = fgetc(f) == 't';
+        fclose(f);
+        remove(marker);
+        sysLogPrintf(LOG_ERROR, "crashdl: crash test armed (%s%s)", marker, tkill ? ", tkill" : "");
+#ifndef _WIN32
+        if (tkill) raise(SIGSEGV);
+#endif
+        s_gevrCrashTest = 1;
+    }
+}
+
 static void gfx_run_dl(Gfx* cmd) {
     GevrProfileSection profile(GEVR_TIME_DL);
     // puts("dl");
@@ -5017,8 +5183,14 @@ static void gfx_run_dl(Gfx* cmd) {
     GevrStaticMesh* mesh = nullptr;   // G_GEVR_MESH: the runs this list draws from buffers
     uint32_t meshRun = 0;
     GevrSkinDraw* skin = nullptr;
+    GevrDlTrack track(cmd);   // crash context (gevrGfxCrashContext)
+    if (track.depth == 0) {   // a frame's list: whose thread, and the crash test's marker
+        s_dlThread = gevrCrashThreadId();
+        gevrMaybeCrashTest();
+    }
 
     for (;;) {
+        track.at(cmd);
         uint32_t opcode = cmd->words.w0 >> 24;
         // gfx_print_cmd(cmd);
         switch (opcode) {
@@ -5309,6 +5481,11 @@ static void gfx_run_dl(Gfx* cmd) {
                     }
                     break;
                 }
+                if (s_gevrCrashTest && track.depth == 0) {   // gevrMaybeCrashTest
+                    s_gevrCrashTest = 0;
+                    if (void* page = gevrCrashNoAccessPage()) vtxp = (uintptr_t)page + 0x78c;
+                }
+                s_dlVtx = (const void*)vtxp;
                 if ((cmd->words.w0 >> 24) == G_GEVR_WORLD_VTX)
                     gfx_sp_vertex(C0(0,16)/sizeof(GevrWorldVertex),C0(16,4),nullptr,(const GevrWorldVertex*)vtxp);
                 else gfx_sp_vertex(C0(0, 16) / sizeof(Vtx), C0(16, 4), (const Vtx*)vtxp);
@@ -5324,6 +5501,7 @@ static void gfx_run_dl(Gfx* cmd) {
                     }
                 } else {
                     cmd = (Gfx*)seg_addr(cmd->words.w1);
+                    track.branch(cmd);
                     --cmd; // increase after break
                 }
                 break;

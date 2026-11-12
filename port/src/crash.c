@@ -17,6 +17,9 @@
 #define CRASH_MSG(...) \
 	if (msglen < CRASH_MAX_MSG) msglen += snprintf(msg + msglen, CRASH_MAX_MSG - msglen, __VA_ARGS__)
 
+/* gfx_pc.cpp: logs the display list it was running when this thread crashed drawing */
+int gevrGfxCrashContext(const void *fault);
+
 #if defined(PLATFORM_WIN32) || (defined(GEVR_PC) && defined(_WIN32))
 
 #include <windows.h>
@@ -140,6 +143,11 @@ static long __stdcall crashHandler(PEXCEPTION_POINTERS exinfo)
 	}
 
 	sysLogPrintf(LOG_ERROR, "FATAL: Crashed: PC=%p CODE=0x%08lx", exinfo->ExceptionRecord->ExceptionAddress, exinfo->ExceptionRecord->ExceptionCode);
+	{
+		/* the display list the renderer was running, if it crashed drawing (gfx_pc.cpp) */
+		const EXCEPTION_RECORD *rec = exinfo->ExceptionRecord;
+		gevrGfxCrashContext(rec->NumberParameters >= 2 ? (const void *)rec->ExceptionInformation[1] : NULL);
+	}
 
 	fflush(stderr);
 	fflush(stdout);
@@ -337,6 +345,62 @@ static void crashHandler(s32 sig, siginfo_t *siginfo, void *ctx)
 	sysFatalError("Crash!\n\n%s", msg);
 }
 
+#elif defined(ANDROID)
+
+/*
+ * The Quest and the Android phone: Android's crash reporter (debuggerd) writes
+ * the tombstone a crash report sends. This handler only logs the renderer's
+ * display list first (reports repo #19/#20: the tombstone alone could not
+ * name what wrote a bad vertex load), then calls the handler that was there
+ * before it, as crash reporters chain: debuggerd's dumps, then lets the fault
+ * end the process (or sends a sent signal, the watchdog's, again). A fault
+ * inside the logging jumps back out of it; a handler entered over and over
+ * gives up to the default action, so it can never hold the process up.
+ */
+#include <setjmp.h>
+#include <signal.h>
+#include <unistd.h>
+#include <dlfcn.h>
+
+unsigned long gevrCrashThreadId(void);
+void gevrCrashLog(const char *fmt, ...);
+
+static struct sigaction s_prevSegv, s_prevBus;
+static sigjmp_buf s_dumpJump;
+static volatile unsigned long s_dumpThread;   /* 0 before the log, the thread during it, ~0 after */
+static volatile int s_chainEntries;
+
+static void crashChainHandler(int sig, siginfo_t *info, void *ctx)
+{
+	const unsigned long self = gevrCrashThreadId();
+	const struct sigaction *prev = sig == SIGBUS ? &s_prevBus : &s_prevSegv;
+
+	if (s_dumpThread == self) {
+		siglongjmp(s_dumpJump, 1);   /* only while the log below runs on this thread */
+	}
+	if (++s_chainEntries > 4) {
+		signal(sig, SIG_DFL);   /* a loop: let the default end it */
+		return;
+	}
+	if (s_dumpThread == 0 && info && info->si_code > 0) {   /* a fault, not a signal sent */
+		s_dumpThread = self;
+		if (sigsetjmp(s_dumpJump, 1) != 0) {
+			gevrCrashLog("crashdl: the context log faulted itself; the system's report follows");
+		} else {
+			gevrGfxCrashContext(info->si_addr);
+		}
+		s_dumpThread = ~0ul;
+	}
+	if ((prev->sa_flags & SA_SIGINFO) && prev->sa_sigaction && prev->sa_sigaction != crashChainHandler) {
+		prev->sa_sigaction(sig, info, ctx);
+	} else if (!(prev->sa_flags & SA_SIGINFO) && prev->sa_handler != SIG_DFL && prev->sa_handler != SIG_IGN) {
+		prev->sa_handler(sig);
+	} else {
+		signal(sig, SIG_DFL);   /* nothing before us: the default, on the fault again */
+		if (info && info->si_code <= 0) raise(sig);
+	}
+}
+
 #endif
 
 s32 g_CrashEnabled = 0;
@@ -365,6 +429,27 @@ void crashInit(void)
 	sigaction(SIGBUS,  &sigact, &prevSigAction);
 	sigaction(SIGILL,  &sigact, &prevSigAction);
 	g_CrashEnabled = 1;
+#elif defined(ANDROID)
+	static int installed;
+	if (!installed) {
+		struct sigaction sigact;
+		installed = 1;
+		memset(&sigact, 0, sizeof(sigact));
+		sigemptyset(&sigact.sa_mask);
+		sigact.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_NODEFER;   /* NODEFER: a fault in the log comes back here */
+		sigact.sa_sigaction = crashChainHandler;
+		sigaction(SIGSEGV, &sigact, &s_prevSegv);
+		sigaction(SIGBUS, &sigact, &s_prevBus);
+		{
+			Dl_info dl;
+			const void *before = (s_prevSegv.sa_flags & SA_SIGINFO) ? (const void *)s_prevSegv.sa_sigaction : (const void *)s_prevSegv.sa_handler;
+			sysLogPrintf(LOG_NOTE, "crash: renderer context handler on; SIGSEGV went to %p (%s)%s", before,
+				before && dladdr(before, &dl) && dl.dli_sname ? dl.dli_sname : "?",
+				before == (const void *)crashChainHandler ? ", ours already" : "");
+		}
+	} else {
+		sysLogPrintf(LOG_NOTE, "crash: renderer context handler already on");
+	}
 #endif
 }
 
@@ -382,6 +467,11 @@ void crashShutdown(void)
 	sigaction(SIGABRT, &prevSigAction, NULL);
 	sigaction(SIGBUS,  &prevSigAction, NULL);
 	sigaction(SIGILL,  &prevSigAction, NULL);
+#elif defined(ANDROID)
+	if (s_prevSegv.sa_sigaction || s_prevSegv.sa_handler) {
+		sigaction(SIGSEGV, &s_prevSegv, NULL);
+		sigaction(SIGBUS, &s_prevBus, NULL);
+	}
 #endif
 	g_CrashEnabled = 0;
 }
@@ -405,3 +495,131 @@ void crashAppendChar(char c)
 {
 
 }
+
+/* --- for gfx_pc.cpp's crash context --- */
+#ifndef _WIN32
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/mman.h>
+#ifdef __linux__
+#include <sys/syscall.h>
+#else
+#include <pthread.h>
+#endif
+#endif
+
+#ifdef ANDROID
+#include <android/log.h>
+#endif
+#ifndef _WIN32
+#include <dlfcn.h>
+#endif
+#include <stdarg.h>
+
+/* A line from the crash handler: a static buffer (the signal stack is small)
+ * and logcat, which the next start's report takes; elsewhere the game's log. */
+void gevrCrashLog(const char *fmt, ...)
+{
+	static char line[1024];
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(line, sizeof(line), fmt, ap);
+	va_end(ap);
+#ifdef ANDROID
+	__android_log_write(ANDROID_LOG_ERROR, "GoldenEye", line);
+#else
+	sysLogPrintf(LOG_ERROR, "%s", line);
+#endif
+}
+
+/* this thread, to tell the drawing thread's crash from another's */
+unsigned long gevrCrashThreadId(void)
+{
+#if defined(_WIN32)
+	return (unsigned long)GetCurrentThreadId();
+#elif defined(__linux__)
+	return (unsigned long)syscall(SYS_gettid);
+#else
+	return (unsigned long)(uintptr_t)pthread_self();
+#endif
+}
+
+/* a page nobody may read: the crash test's (gfx_pc.cpp gevrMaybeCrashTest) */
+void *gevrCrashNoAccessPage(void)
+{
+#ifdef _WIN32
+	return VirtualAlloc(NULL, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_NOACCESS);
+#else
+	void *p = mmap(NULL, 4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	return p == MAP_FAILED ? NULL : p;
+#endif
+}
+
+/*
+ * What the address is in: Linux and Android, the /proc/self/maps lines that
+ * hold it and lie on each side (a freed block shows as a gap, or as someone
+ * else's mapping now); Windows, VirtualQuery's region. Plain syscalls and
+ * static buffers: this runs in the crash handler.
+ */
+void gevrCrashLogMaps(const char *what, const void *addr)
+{
+#if defined(__linux__)
+	static char buf[4096];
+	static char line[512], below[512];
+	const unsigned long long a = (unsigned long long)(uintptr_t)addr;
+	int fd = open("/proc/self/maps", O_RDONLY);
+	int len = 0, held = 0;
+	below[0] = 0;
+	if (fd < 0) {
+		gevrCrashLog("crashdl: %s %p: no /proc/self/maps", what, addr);
+		return;
+	}
+	for (;;) {
+		const int got = (int)read(fd, buf, sizeof(buf));
+		if (got <= 0) break;
+		for (int i = 0; i < got; i++) {
+			if (buf[i] != '\n') {
+				if (len < (int)sizeof(line) - 1) line[len++] = buf[i];
+				continue;
+			}
+			line[len] = 0;
+			len = 0;
+			char *dash;
+			const unsigned long long start = strtoull(line, &dash, 16);
+			const unsigned long long end = *dash == '-' ? strtoull(dash + 1, NULL, 16) : 0;
+			if (end <= a) {
+				memcpy(below, line, sizeof(below));
+				continue;
+			}
+			if (start <= a) {
+				if (below[0]) gevrCrashLog("crashdl: %s %p: below  %s", what, addr, below);
+				gevrCrashLog("crashdl: %s %p: holds  %s", what, addr, line);
+				held = 1;
+				continue;
+			}
+			if (!held) {
+				if (below[0]) gevrCrashLog("crashdl: %s %p: below  %s", what, addr, below);
+				gevrCrashLog("crashdl: %s %p: unmapped", what, addr);
+			}
+			gevrCrashLog("crashdl: %s %p: above  %s", what, addr, line);
+			close(fd);
+			return;
+		}
+	}
+	close(fd);
+	if (!held) gevrCrashLog("crashdl: %s %p: past every mapping (last %s)", what, addr, below);
+#elif defined(_WIN32)
+	MEMORY_BASIC_INFORMATION mbi;
+	if (VirtualQuery(addr, &mbi, sizeof(mbi)) == sizeof(mbi)) {
+		gevrCrashLog("crashdl: %s %p: region %p + 0x%llx, allocation %p, state 0x%lx, protect 0x%lx, type 0x%lx",
+			what, addr, mbi.BaseAddress, (unsigned long long)mbi.RegionSize, mbi.AllocationBase,
+			(unsigned long)mbi.State, (unsigned long)mbi.Protect, (unsigned long)mbi.Type);
+	} else {
+		gevrCrashLog("crashdl: %s %p: VirtualQuery failed", what, addr);
+	}
+#else
+	(void)what;
+	(void)addr;
+#endif
+}
+
