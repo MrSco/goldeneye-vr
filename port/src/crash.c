@@ -359,11 +359,19 @@ static void crashHandler(s32 sig, siginfo_t *siginfo, void *ctx)
  */
 #include <setjmp.h>
 #include <signal.h>
+#include <stdint.h>
 #include <unistd.h>
 #include <dlfcn.h>
 
 unsigned long gevrCrashThreadId(void);
 void gevrCrashLog(const char *fmt, ...);
+#ifdef GEVR_NATIVE_SERVICES
+/* No MainActivity (Klepton on Vision Pro): no Java to offer the crash on the
+ * next start, so port/pc/pc_reports.cpp records it as on PC. */
+extern int gevrAndroidJava;
+void pcCrashRecord(const char *summary, const char *trace);
+void pcReportStartup(void);
+#endif
 
 static struct sigaction s_prevSegv, s_prevBus;
 static sigjmp_buf s_dumpJump;
@@ -390,6 +398,17 @@ static void crashChainHandler(int sig, siginfo_t *info, void *ctx)
 			gevrGfxCrashContext(info->si_addr);
 		}
 		s_dumpThread = ~0ul;
+#ifdef GEVR_NATIVE_SERVICES
+		if (!gevrAndroidJava) {
+			char summary[160];
+			Dl_info dl;
+			const void *pc = info->si_addr;
+			const uintptr_t base = (pc && dladdr(pc, &dl)) ? (uintptr_t)dl.dli_fbase : 0;
+			snprintf(summary, sizeof(summary), "SIGNAL %d at %p (module %p + 0x%llx)", sig, pc, (void *)base,
+				(unsigned long long)(base ? (uintptr_t)pc - base : 0));
+			pcCrashRecord(summary, "");
+		}
+#endif
 	}
 	if ((prev->sa_flags & SA_SIGINFO) && prev->sa_sigaction && prev->sa_sigaction != crashChainHandler) {
 		prev->sa_sigaction(sig, info, ctx);
@@ -431,6 +450,11 @@ void crashInit(void)
 	g_CrashEnabled = 1;
 #elif defined(ANDROID)
 	static int installed;
+#ifdef GEVR_NATIVE_SERVICES
+	if (!gevrAndroidJava) {
+		pcReportStartup();   // the last run's crash or unexpected end, before this run's marker
+	}
+#endif
 	if (!installed) {
 		struct sigaction sigact;
 		installed = 1;

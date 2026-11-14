@@ -769,6 +769,80 @@ if(GEVR_MOBILE)
 else()
   target_link_libraries(gevr ${LIBS} openxr_loader juice-static opus steamaudio gevr_physics)
 endif()
+
+# Vision Pro (docs/mobile-platforms.md): Klepton runs this APK without
+# MainActivity, so port/pc's ports of the Java services (friends, the internet
+# lobby, mods, reports, the update check) answer what Java answers on the
+# Quest; gevrAndroidJava picks at run time and the Quest keeps its Java.
+# HTTPS is libcurl over mbedTLS with curl's Mozilla CA bundle built in: no
+# Android trust store answers there.
+if(NOT GEVR_MOBILE)
+  file(STRINGS "${CMAKE_SOURCE_DIR}/android/app/build.gradle" GEVR_VERSION_LINE REGEX "versionName \"[^\"]+\"")
+  string(REGEX REPLACE ".*versionName \"([^\"]+)\".*" "\\1" GEVR_APP_VERSION "${GEVR_VERSION_LINE}")
+  target_sources(gevr PRIVATE
+    "${CMAKE_SOURCE_DIR}/port/pc/pc_http.cpp"
+    "${CMAKE_SOURCE_DIR}/port/pc/pc_files.cpp"
+    "${CMAKE_SOURCE_DIR}/port/pc/pc_services.cpp"
+    "${CMAKE_SOURCE_DIR}/port/pc/pc_friends.cpp"
+    "${CMAKE_SOURCE_DIR}/port/pc/pc_lobby.cpp"
+    "${CMAKE_SOURCE_DIR}/port/pc/pc_mods.cpp"
+    "${CMAKE_SOURCE_DIR}/port/pc/pc_reports.cpp"
+    "${CMAKE_SOURCE_DIR}/port/pc/pc_updater.cpp")
+  target_compile_definitions(gevr PRIVATE GEVR_NATIVE_SERVICES=1 "GEVR_APP_VERSION=\"${GEVR_APP_VERSION}\"")
+
+  include(FetchContent)
+  set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
+  set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+  set(GEN_FILES OFF CACHE BOOL "" FORCE)
+  set(USE_SHARED_MBEDTLS_LIBRARY OFF CACHE BOOL "" FORCE)
+  set(USE_STATIC_MBEDTLS_LIBRARY ON CACHE BOOL "" FORCE)
+  set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
+  # mbedTLS and curl static, inside libgevr.so (the APK's other libraries are shared)
+  set(GEVR_SHARED_BEFORE_TLS ${BUILD_SHARED_LIBS})
+  set(BUILD_SHARED_LIBS OFF)
+  FetchContent_Declare(mbedtls
+    URL https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2
+    URL_HASH SHA256=a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6)
+  FetchContent_MakeAvailable(mbedtls)
+
+  # curl finds mbedTLS by these (its CMake/FindMbedTLS.cmake): the targets above
+  set(MBEDTLS_INCLUDE_DIR "${mbedtls_SOURCE_DIR}/include" CACHE PATH "" FORCE)
+  set(MBEDTLS_LIBRARY mbedtls CACHE STRING "" FORCE)
+  set(MBEDX509_LIBRARY mbedx509 CACHE STRING "" FORCE)
+  set(MBEDCRYPTO_LIBRARY mbedcrypto CACHE STRING "" FORCE)
+  set(HAVE_MBEDTLS_DES_CRYPT_ECB 0 CACHE INTERNAL "")   # a link test against targets not built yet
+  foreach(opt CURL_USE_MBEDTLS HTTP_ONLY CURL_DISABLE_INSTALL BUILD_STATIC_LIBS)
+    set(${opt} ON CACHE BOOL "" FORCE)
+  endforeach()
+  foreach(opt CURL_USE_OPENSSL CURL_USE_PKGCONFIG BUILD_CURL_EXE BUILD_LIBCURL_DOCS BUILD_MISC_DOCS
+              ENABLE_CURL_MANUAL BUILD_EXAMPLES CURL_USE_LIBPSL CURL_USE_LIBSSH2 CURL_USE_LIBSSH
+              USE_NGHTTP2 USE_LIBIDN2 CURL_BROTLI CURL_ZSTD CURL_ZLIB ENABLE_UNIX_SOCKETS CURL_CA_FALLBACK)
+    set(${opt} OFF CACHE BOOL "" FORCE)
+  endforeach()
+  set(CURL_CA_BUNDLE "none" CACHE STRING "" FORCE)
+  set(CURL_CA_PATH "none" CACHE STRING "" FORCE)
+  FetchContent_Declare(curl
+    URL https://curl.se/download/curl-8.23.0.tar.xz
+    URL_HASH SHA256=8dadd7d2536a314f982ad05a651b713f426bf7d02cc2c76cffb9796f2218e6c5)
+  FetchContent_MakeAvailable(curl)
+  set(BUILD_SHARED_LIBS ${GEVR_SHARED_BEFORE_TLS})
+
+  # curl's extract of Mozilla's roots, as a C array (pc_http.cpp's CURLOPT_CAINFO_BLOB)
+  set(GEVR_CACERT "${CMAKE_BINARY_DIR}/cacert-2026-11-05.pem")
+  if(NOT EXISTS "${GEVR_CACERT}")
+    file(DOWNLOAD https://curl.se/ca/cacert-2026-11-05.pem "${GEVR_CACERT}" TLS_VERIFY ON
+      EXPECTED_HASH SHA256=427c064216761a1e72a8b30f0d954d08cb6e4435a82091fb865afd20c8497285)
+  endif()
+  if(NOT EXISTS "${CMAKE_BINARY_DIR}/gevr_cacert.c")
+    file(READ "${GEVR_CACERT}" GEVR_CACERT_HEX HEX)
+    string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," GEVR_CACERT_BYTES "${GEVR_CACERT_HEX}")
+    file(WRITE "${CMAKE_BINARY_DIR}/gevr_cacert.c"
+      "#include <stddef.h>\nconst unsigned char gevr_cacert_pem[] = {${GEVR_CACERT_BYTES}0x00};\n"
+      "const size_t gevr_cacert_pem_size = sizeof(gevr_cacert_pem) - 1;\n")
+  endif()
+  target_sources(gevr PRIVATE "${CMAKE_BINARY_DIR}/gevr_cacert.c")
+  target_link_libraries(gevr CURL::libcurl)
+endif()
 # Discord's Social SDK (port/vr/vr_discord.cpp), when android/app/build.gradle found it.
 option(GEVR_DISCORD "Link Discord's Social SDK (its prefab package)" OFF)
 if(GEVR_DISCORD)

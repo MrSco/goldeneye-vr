@@ -255,7 +255,17 @@ class LogReporter {
 public:
     LogReporter()
     {
+#ifdef ANDROID
+        // no exe to date (an Android build without MainActivity): the first run of
+        // this version stands for the Quest's PackageInfo.lastUpdateTime
+        if (prefGet("debug_reports.install_version") != appVersion()) {
+            prefSet("debug_reports.install_version", appVersion());
+            prefSetInt("debug_reports.install_at", wallMs());
+        }
+        installTime_ = prefGetInt("debug_reports.install_at", 0);
+#else
         installTime_ = fileTimeMs(exePath());
+#endif
         const long long offered = prefGetInt("debug_reports.offered_crash", 0);
         long long lastExit = 0;
         sysLogPrintf(0, "reports: install %s version %s%s", isoUtc(installTime_).c_str(), appVersion(),
@@ -451,6 +461,13 @@ void pcReportCleanExit(void)
 
 extern "C" {
 
+/* The app in or out of the foreground: MainActivity's onResume/onPause, for an
+ * Android build without it (vr_openxr.cpp, from the XR session's state). */
+void pcReportForeground(int active)
+{
+    if (s_reporter) s_reporter->foreground(active != 0);
+}
+
 /* At start (crash.c crashInit): read the last run's records before this run's marker. */
 void pcReportStartup(void)
 {
@@ -463,7 +480,7 @@ void pcReportStartup(void)
 void pcCrashRecord(const char *summary, const char *trace)
 {
     if (s_recorded.exchange(true)) return;
-    FILE *f = fopen(kCrashFile, "wb");
+    FILE *f = openFile(kCrashFile, "wb");   // beside the log (pc_files.cpp: Android's services folder)
     if (!f) return;
     std::string one = summary ? summary : "";
     for (char &c : one) if (c == '\n' || c == '\r') c = ' ';

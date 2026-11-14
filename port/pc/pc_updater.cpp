@@ -60,7 +60,8 @@
  * The download this build installs: tools/package_pc.py's Windows zip, or
  * tools/package_linux.sh's Linux one (the same layout: one top folder, the
  * flat binary, the VR one, a VERSION). An iPhone or iPad cannot replace its
- * own app, so it is offered none.
+ * own app, so it is offered none, nor is the Vision Pro build (an Android one
+ * run by Klepton without MainActivity), which TestFlight updates.
  */
 #ifdef _WIN32
 #define GEVR_UPDATE_TAIL "-windows-x64.zip"
@@ -75,7 +76,11 @@
 #include "pc_http.h"
 
 extern "C" void sysLogPrintf(int level, const char *fmt, ...);
+#ifdef ANDROID
+static void pcRestartSelf(void) {}   // never reached: an app store build installs no update itself
+#else
 void pcRestartSelf(void);   // pc_launcher.cpp
+#endif
 
 using namespace pcnet;
 
@@ -211,7 +216,7 @@ bool isLinuxAsset(const std::string &name) { return isPackageAsset(name, "-linux
 /* The zip this build installs */
 static bool isOwnAsset(const std::string &name)
 {
-#ifdef GEVR_IOS
+#if defined(GEVR_IOS) || defined(ANDROID)   // an app store build: TestFlight or the App Store updates it
     (void)name;
     return false;
 #else

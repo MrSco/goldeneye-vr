@@ -22,8 +22,10 @@
 #include <SDL.h>
 #ifdef ANDROID
 #include <jni.h>
-#else
-std::string pcServiceString(const char *method);   // port/pc/pc_services.cpp: the PC's Java
+#endif
+#if !defined(ANDROID) || defined(GEVR_NATIVE_SERVICES)
+// port/pc/pc_services.cpp: the PC's Java, and an Android build's without MainActivity
+std::string pcServiceString(const char *method);
 void pcServiceCommand(const char *method, const char *arg);
 #endif
 #include "vr_settings.h"
@@ -57,7 +59,12 @@ std::string s_lastLobby;                  // the lobby the "invited" marks are f
 extern "C" int gevrAndroidJava;
 std::string javaString(const char *method) {
     std::string out;
-    if (!gevrAndroidJava) return out;   // no MainActivity (see gevrAndroidJava)
+    if (!gevrAndroidJava) {   // no MainActivity (see gevrAndroidJava)
+#ifdef GEVR_NATIVE_SERVICES
+        out = pcServiceString(method);
+#endif
+        return out;
+    }
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
     jobject activity = (jobject)SDL_AndroidGetActivity();
     if (!env || !activity) return out;
@@ -80,7 +87,12 @@ std::string javaString(const char *method) {
 }
 
 void javaCommand(const std::string &command) {
-    if (!gevrAndroidJava) return;   // no MainActivity (see gevrAndroidJava)
+    if (!gevrAndroidJava) {   // no MainActivity (see gevrAndroidJava)
+#ifdef GEVR_NATIVE_SERVICES
+        pcServiceCommand("friendsCommand", command.c_str());
+#endif
+        return;
+    }
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
     jobject activity = (jobject)SDL_AndroidGetActivity();
     if (!env || !activity) return;

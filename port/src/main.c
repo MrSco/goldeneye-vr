@@ -313,6 +313,13 @@ int SDL_main(int argc, char* argv[]) {
             snprintf(g_data_path, sizeof(g_data_path), "%s/data", external);
             mkdir(g_data_path, 0755);
             g_initialized = 1;
+#ifdef GEVR_NATIVE_SERVICES
+            {
+                /* port/pc's services stand in for the Java ones, in their folder */
+                extern void pcServicesSetRoot(const char *dir);
+                pcServicesSetRoot(external);
+            }
+#endif
             __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "No nativeInit: data path from SDL");
         }
     }

@@ -27,12 +27,26 @@ namespace fs = std::filesystem;
 
 namespace pcnet {
 
+#ifdef ANDROID
+/* An Android build without MainActivity (Klepton on Vision Pro): the services
+ * keep the Java ones' folder, getExternalFilesDir(null), while the game runs
+ * in its data subfolder. A relative path is taken from there. */
+static std::string s_root;
+
+static std::string R(const std::string &s)
+{
+    return s_root.empty() || s.empty() || s[0] == '/' ? s : s_root + "/" + s;
+}
+#else
+static const std::string &R(const std::string &s) { return s; }
+#endif
+
 static fs::path P(const std::string &s)
 {
 #ifdef _WIN32
     return fs::path(wide(s));
 #else
-    return fs::path(s);
+    return fs::path(R(s));
 #endif
 }
 
@@ -41,7 +55,7 @@ FILE *openFile(const std::string &path, const char *mode)
 #ifdef _WIN32
     return _wfopen(wide(path).c_str(), wide(mode).c_str());
 #else
-    return fopen(path.c_str(), mode);
+    return fopen(R(path).c_str(), mode);
 #endif
 }
 
@@ -66,8 +80,8 @@ long long fileTimeMs(const std::string &path)
     std::error_code ec;
     const auto t = fs::last_write_time(P(path), ec);
     if (ec) return 0;
-#ifdef __APPLE__
-    // Apple's libc++ has no clock_cast: the same instant through both clocks' now
+#if defined(__APPLE__) || defined(ANDROID)
+    // Apple's and the NDK's libc++ have no clock_cast: the same instant through both clocks' now
     const auto sys = std::chrono::system_clock::now() +
         std::chrono::duration_cast<std::chrono::system_clock::duration>(t - fs::file_time_type::clock::now());
     return std::chrono::duration_cast<std::chrono::milliseconds>(sys.time_since_epoch()).count();
@@ -205,6 +219,8 @@ std::string exeDir()
     const DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH * 4);
     if (n == 0 || n >= MAX_PATH * 4) return ".";
     return narrow(fs::path(std::wstring(buf, n)).parent_path().wstring());
+#elif defined(ANDROID)
+    return s_root.empty() ? std::string(".") : s_root;
 #else
     // Linux: the folder of /proc/self/exe
     std::error_code ec;
@@ -371,3 +387,12 @@ int unzipBounded(const std::string &zip, const std::string &dir, const UnzipRule
 }
 
 }   // namespace pcnet
+
+#ifdef ANDROID
+/* main.c, for an Android build without MainActivity: the services' folder
+ * (getExternalFilesDir(null), the Java services' own). */
+extern "C" void pcServicesSetRoot(const char *dir)
+{
+    pcnet::s_root = dir ? dir : "";
+}
+#endif

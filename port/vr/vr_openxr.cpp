@@ -158,6 +158,9 @@ extern jobject        g_activity;
 extern ANativeWindow* g_window;
 extern "C" void vr_android_context_from_sdl(void);
 extern "C" int gevrAndroidJava;
+#if defined(ANDROID) && defined(GEVR_NATIVE_SERVICES)
+extern "C" void pcReportForeground(int active);   // port/pc/pc_reports.cpp
+#endif
 
 static EGLDisplay g_sessionEglDisplay = EGL_NO_DISPLAY;
 static EGLContext g_sessionEglContext  = EGL_NO_CONTEXT;
@@ -5913,6 +5916,16 @@ extern "C" void vr_poll_events(void)
                 LOGI("Session state changed: %d", (int)ssEvent->state);
                 g_sessionFocused = ssEvent->state == XR_SESSION_STATE_FOCUSED;
                 if (!g_sessionFocused) gevrVrLocomotionResetReason(GEVR_LOCO_RESET_SESSION);
+#if defined(ANDROID) && defined(GEVR_NATIVE_SERVICES)
+                // No MainActivity (Klepton on Vision Pro): the session stands in for
+                // onResume/onPause's crash-report foreground marker (pc_reports.cpp), so
+                // a player closing the app is not offered a crash on the next start.
+                if (!gevrAndroidJava) {
+                    if (ssEvent->state == XR_SESSION_STATE_FOCUSED) pcReportForeground(1);
+                    else if (ssEvent->state == XR_SESSION_STATE_STOPPING || ssEvent->state == XR_SESSION_STATE_EXITING
+                             || ssEvent->state == XR_SESSION_STATE_LOSS_PENDING) pcReportForeground(0);
+                }
+#endif
 
                 switch (ssEvent->state) {
                     case XR_SESSION_STATE_READY:

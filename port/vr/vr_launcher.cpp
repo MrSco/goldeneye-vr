@@ -51,6 +51,12 @@
 #ifdef ANDROID
 #include <jni.h>
 #include <GLES3/gl3.h>
+#ifdef GEVR_NATIVE_SERVICES
+/* No MainActivity (Klepton on Vision Pro, gevrAndroidJava 0): the PC's ports of
+ * its Java services answer the same messages (port/pc/pc_services.cpp). */
+std::string pcServiceString(const char *method);
+void pcServiceCommand(const char *method, const char *arg);
+#endif
 #else
 /* The PC game (docs/pc-platforms.md): desktop GL, and port/pc for what
  * Android's Java does here (pc_launcher.cpp, pc_services.cpp). */
@@ -488,10 +494,15 @@ struct UpdateStatus {
 };
 
 #ifdef ANDROID
+static std::string gevrJavaString(const char *method);
+
 UpdateStatus gevrUpdaterStatus()
 {
-    if (!gevrAndroidJava) return UpdateStatus();   // no MainActivity (see gevrAndroidJava)
     UpdateStatus st;
+    std::string raw;
+    if (!gevrAndroidJava) {
+        raw = gevrJavaString("updaterStatus");   // the native services' answer, or none
+    } else {
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
     jobject activity = (jobject)SDL_AndroidGetActivity();
     if (env == nullptr || activity == nullptr) {
@@ -499,7 +510,6 @@ UpdateStatus gevrUpdaterStatus()
     }
     jclass cls = env->GetObjectClass(activity);
     jmethodID m = env->GetMethodID(cls, "updaterStatus", "()Ljava/lang/String;");
-    std::string raw;
     if (m != nullptr) {
         jstring s = (jstring)env->CallObjectMethod(activity, m);
         if (!env->ExceptionCheck() && s != nullptr) {
@@ -516,6 +526,7 @@ UpdateStatus gevrUpdaterStatus()
     }
     env->DeleteLocalRef(cls);
     env->DeleteLocalRef(activity);
+    }
 
     // state \t offered \t progress \t message \t testBuilds \t installed
     std::vector<std::string> f;
@@ -533,6 +544,9 @@ UpdateStatus gevrUpdaterStatus()
         st.message = f[3];
         st.testBuilds = f[4] == "1";
         st.installed = f[5];
+    } else if (!gevrAndroidJava) {
+        st.state = "idle";
+        st.installed = GEVR_APP_VERSION;
     }
     return st;
 }
@@ -566,9 +580,14 @@ UpdateStatus gevrUpdaterStatus()
 #endif
 
 #ifdef ANDROID
+static void gevrJavaCommand(const char *method, const char *arg);
+
 void gevrUpdaterCommand(const char *cmd)
 {
-    if (!gevrAndroidJava) return;   // no MainActivity (see gevrAndroidJava)
+    if (!gevrAndroidJava) {
+        gevrJavaCommand("updaterCommand", cmd);   // the native services, or nothing
+        return;
+    }
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
     jobject activity = (jobject)SDL_AndroidGetActivity();
     if (env == nullptr || activity == nullptr) {
@@ -601,7 +620,12 @@ void gevrUpdaterCommand(const char *cmd)
 static std::string gevrJavaString(const char *method)
 {
     std::string out;
-    if (!gevrAndroidJava) return out;   // no MainActivity (see gevrAndroidJava)
+    if (!gevrAndroidJava) {   // no MainActivity (see gevrAndroidJava)
+#ifdef GEVR_NATIVE_SERVICES
+        out = pcServiceString(method);
+#endif
+        return out;
+    }
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
     jobject activity = (jobject)SDL_AndroidGetActivity();
     if (env == nullptr || activity == nullptr) {
@@ -637,7 +661,12 @@ static std::string gevrJavaString(const char *method)
 #ifdef ANDROID
 static void gevrJavaCommand(const char *method, const char *arg)
 {
-    if (!gevrAndroidJava) return;   // no MainActivity (see gevrAndroidJava)
+    if (!gevrAndroidJava) {   // no MainActivity (see gevrAndroidJava)
+#ifdef GEVR_NATIVE_SERVICES
+        pcServiceCommand(method, arg);
+#endif
+        return;
+    }
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
     jobject activity = (jobject)SDL_AndroidGetActivity();
     if (env == nullptr || activity == nullptr) {

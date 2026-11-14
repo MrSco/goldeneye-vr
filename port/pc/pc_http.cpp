@@ -18,7 +18,13 @@
 #include <winhttp.h>
 #include <bcrypt.h>
 #elif !defined(GEVR_IOS)
-#include <curl/curl.h>   // Linux: libcurl in WinHTTP's place
+#include <curl/curl.h>   // Linux: libcurl in WinHTTP's place (and Android's, over mbedTLS)
+#endif
+#ifdef ANDROID
+/* curl's Mozilla CA bundle, built in (CMakeLists.txt): an Android build run
+ * without MainActivity (Klepton on Vision Pro) has no system trust store. */
+extern "C" const unsigned char gevr_cacert_pem[];
+extern "C" const size_t gevr_cacert_pem_size;
 #endif
 
 #ifndef GEVR_APP_VERSION
@@ -479,6 +485,13 @@ HttpReply httpSend(const HttpRequest &r)
     struct curl_slist *headers = nullptr;
     for (const std::string &h : r.headers) headers = curl_slist_append(headers, h.c_str());
     curl_easy_setopt(curl, CURLOPT_URL, r.url.c_str());
+#ifdef ANDROID
+    struct curl_blob ca;
+    ca.data = (void *)gevr_cacert_pem;
+    ca.len = gevr_cacert_pem_size;
+    ca.flags = CURL_BLOB_NOCOPY;
+    curl_easy_setopt(curl, CURLOPT_CAINFO_BLOB, &ca);
+#endif
     curl_easy_setopt(curl, CURLOPT_USERAGENT, r.agent.c_str());
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 10L);

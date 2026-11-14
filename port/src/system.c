@@ -321,6 +321,15 @@ void sysFatalError(const char *fmt, ...)
 #ifdef ANDROID
     /* PORT: no desktop to show a box on; a blocking dialog here left the process alive
        and silent on the headset. Abort instead, so the failure leaves a tombstone. */
+#ifdef GEVR_NATIVE_SERVICES
+    {
+        /* no MainActivity (Klepton on Vision Pro): no tombstone reaches a report,
+           so port/pc/pc_reports.cpp records the error as on PC */
+        extern int gevrAndroidJava;
+        void pcCrashRecord(const char *summary, const char *trace);
+        if (!gevrAndroidJava) pcCrashRecord(errmsg, "");
+    }
+#endif
     abort();
 #else
 #ifdef GEVR_PC
