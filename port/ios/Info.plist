@@ -68,6 +68,8 @@
 	</array>
 	<!-- The ROM, goldeneye-vr.ini, saves and logs live in Documents
 	     (port/src/main.c), which the Files app shows as "GoldenEye VR". -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
