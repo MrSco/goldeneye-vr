@@ -30,6 +30,28 @@ static UIWindowScene *gevrForegroundScene(void)
     return any;
 }
 
+void sysLogPrintf(int level, const char *fmt, ...);
+
+/* Adds the GCEventInteraction to a view once: controller events under it go
+ * to GameController (SDL) instead of becoming UI input. On visionOS they go to
+ * "the view the user is gazing at" and up the responder chain, so the window
+ * (the root of everything the game draws) and its root view get it as well as
+ * the game's own view (gevrIosGraftWindows, gevrIosSetHostView). */
+static void gevrIosClaimControllers(UIView *v)
+{
+    if (!v) return;
+    if (@available(iOS 18.0, *)) {
+        for (id<UIInteraction> i in v.interactions) {
+            if ([i isKindOfClass:GCEventInteraction.class]) return;
+        }
+        GCEventInteraction *only = [[GCEventInteraction alloc] init];
+        only.handledEventTypes = GCUIEventTypeGamepad;   // exclusively to GameController (receivesEventsInView NO)
+        [v addInteraction:only];
+        sysLogPrintf(0, "ios: game controllers to the game: GCEventInteraction on %s (in a window %d, on a scene %d)",
+                     NSStringFromClass(v.class).UTF8String, v.window != nil, v.window.windowScene != nil);
+    }
+}
+
 /* The game's view (ios_angle.mm): a sceneless window is in no list UIKit
  * keeps, so the view is the one way to it. */
 static UIView *s_hostView;
@@ -45,14 +67,7 @@ void gevrIosSetHostView(void *view)
      * flood of new lines in a text box). Apple's answer is GCEventInteraction.
      */
     UIView *v = s_hostView;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (@available(iOS 18.0, *)) {
-            GCEventInteraction *only = [[GCEventInteraction alloc] init];
-            only.handledEventTypes = GCUIEventTypeGamepad;
-            [v addInteraction:only];
-            NSLog(@"GoldenEyeVR: game controllers go to the game only (GCEventInteraction)");
-        }
-    });
+    dispatch_async(dispatch_get_main_queue(), ^{ gevrIosClaimControllers(v); });
 }
 
 /* Moves SDL's sceneless windows onto the app's scene; returns how many. */
@@ -70,6 +85,8 @@ int gevrIosGraftWindows(void)
     }
 #pragma clang diagnostic pop
     for (UIWindow *w in windows) {
+        gevrIosClaimControllers(w);
+        gevrIosClaimControllers(w.rootViewController.view);
         if (w.windowScene) continue;
         w.windowScene = scene;
         [w makeKeyAndVisible];
@@ -105,6 +122,13 @@ void gevrIosPrepare(void)
     SDL_SetHintWithPriority(SDL_HINT_RETURN_KEY_HIDES_IME, "1", SDL_HINT_OVERRIDE);
     // landscape only, so SDL never lays its view out portrait (Info.plist agrees)
     SDL_SetHintWithPriority(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight", SDL_HINT_OVERRIDE);
+    // which controllers the system hands the app (the iPad app on Vision Pro)
+    [NSNotificationCenter.defaultCenter addObserverForName:GCControllerDidConnectNotification object:nil queue:nil
+                                                usingBlock:^(NSNotification *n) {
+        GCController *c = n.object;
+        sysLogPrintf(0, "ios: controller connected: %s (%s), extended gamepad %d", c.vendorName.UTF8String ?: "?",
+                     c.productCategory.UTF8String ?: "?", c.extendedGamepad != nil);
+    }];
 }
 
 /* A light tap from the Taptic Engine (port/flat/window/flat_touch.cpp's
