@@ -97,10 +97,10 @@ Do **Android phones/tablets** right after PC P1. They are the PC flat build
 on the Quest's own GLES path. Next, **move the Java-only services to shared C**
 (PC P3 needs this anyway). Then do **iOS/iPadOS** as a sideloaded IPA built on
 GitHub's macOS runners, rendering through ANGLE on Metal as
-rebelancap/Project-Midas-ios does. After that comes **visionOS in a window**,
-then (originally) Midas's **stereo panel** and **6DoF immersive**; both
-are dropped for now by the user's decisions below, and Vision Pro stays at
-most a flat window. One protocol bump at the release carries an input-class byte in
+rebelancap/Project-Midas-ios does. **Vision Pro gets full stereo VR, as on
+Quest** (user, 2026-11-13; this replaces the 11-09 "flat window at most"):
+6DoF head tracking, tracked PSVR2 Sense controllers, no flat 2D mode. It
+starts with a one-week spike (see "visionOS immersive"). One protocol bump at the release carries an input-class byte in
 HELLO and the lobby listing, and a host's "VR players only" rule.
 
 ## Where it fits
@@ -115,7 +115,7 @@ time, like TC2's `--desktop` (pc-platforms.md).
 | `pc` | Windows exe | flat, PCVR | GL 3.3 core | OpenXR (any) |
 | `android` (new) | APK, flavor `mobile` | flat | GLES 3.0, the Quest path without multiview | none |
 | `ios` (new) | IPA (iPhone, iPad) | flat | see "iOS graphics" | none |
-| `visionos` (new) | visionOS app | window, stereo panel, then immersive | ANGLE on Metal | Compositor Services + ARKit, not OpenXR |
+| `visionos` (new) | visionOS app | VR (immersive, 6DoF), no flat mode | ANGLE on Metal | Compositor Services + ARKit, not OpenXR |
 
 Shared pieces every new target reuses, in the order PC creates them:
 
@@ -185,7 +185,10 @@ Shared pieces every new target reuses, in the order PC creates them:
 **Recommendation:** ANGLE on Metal on both iOS and visionOS, so Apple has
 one GL path; Apple's GLES is a fallback for a first spike only.
 
-### visionOS in a window
+### visionOS app target (the shell the VR mode runs in)
+
+Not shipped as a flat game (user, 2026-11-13). The target, SDL and
+distribution work below is still needed under the immersive space.
 
 - **Native target, as Midas does it:**
   - Its own `Info-visionos.plist` and a SwiftUI `WindowGroup`.
@@ -202,10 +205,9 @@ one GL path; Apple's GLES is a fallback for a first spike only.
 - **Distribution:** Midas ships a separate `-visionOS.ipa` through a
   SideStore source (`rebelancap/all-ports` `apps-visionos.json`). SideStore
   itself goes onto Vision Pro with iloader.
-- **Input:** gaze-and-pinch arrives as touches, and an on-screen stick is
-  poor there. Gamepads (Vision Pro pairs MFi/PS/Xbox pads) are the real
-  input; the touch overlay stays as a fallback.
-- **Size:** M on top of iOS.
+- **Input:** PSVR2 Sense controllers in the immersive space (decision 4);
+  the launcher window takes gaze-and-pinch as touches.
+- **Size:** S-M on top of iOS.
 
 ### visionOS stereo panel (the step between)
 
@@ -225,8 +227,10 @@ does, in stereo. GL reaches Compositor Services like this
 - A 3-deep ring is synced with `MTLSharedEvent`.
 - Compositor Services samples the ring in Metal. RealityKit is not used.
 
-Port this as M5a. It gives Vision Pro owners a 3D GoldenEye with gamepads
-before any XR-runtime work. Size: M.
+Not a product on its own any more (it is not 6DoF). Its ANGLE-to-Metal
+bridge is the base of the immersive renderer, and its panel is the model
+for the in-space virtual screen (menus, cutscenes), as `vr_screen` is on
+Quest.
 
 ### visionOS immersive (VR)
 
@@ -249,11 +253,10 @@ before any XR-runtime work. Size: M.
     path, the cost `gevr-perf-lessons` names.
   - Foveation (rasterization rate maps) is Metal-only and stays off.
 - **Tracking:** ARKit `WorldTrackingProvider` for the head and
-  `HandTrackingProvider` for the hands. visionOS 26 adds PlayStation VR2
-  Sense controllers, which give tracked controllers close to Touch. Hands
-  only means designing pinch-to-fire, grip and reload gestures from
-  nothing, against the user's "port, don't invent" rule. Controllers port
-  the Quest's Touch bindings almost one to one.
+  the PlayStation VR2 Sense controllers visionOS 26 supports (accessory
+  tracking for their pose, GameController for buttons, sticks and haptics).
+  They are **required** (decision 4: tracked controllers, never hand
+  tracking) and port the Quest's Touch bindings almost one to one.
 - **Comfort/UI:** the virtual-screen launcher works as a SwiftUI window
   (flat launcher) next to the immersive space. No head-locked UI
   (user rule).
@@ -467,9 +470,13 @@ crash/log upload". Do it once, in P3, with the backends above in mind.
 | PC P2-P3 | PCVR; C services layer, crossplay flag, CI for all | (pc-platforms.md) | |
 | **M2** services everywhere | services layer used by Quest and Android too; Java services deleted | Quest regression (lobby, friends, mods, report, update) | M |
 | **M3** iOS/iPadOS | Xcode-generator build, ANGLE/Metal, picker, CI IPA, AltStore source | sideloaded iPhone + iPad joins a Quest lobby; voice both ways | M-L |
-| **M4** visionOS window | visionOS target with Midas's SDL2 visionOS patch, gamepad first | Vision Pro plays a solo mission and joins online | M |
-| **M5a** visionOS stereo panel | port Midas `vision3d` (ANGLE into `MTLTexture`s into `CompositorLayer`, mixed immersion) | stereo panel at 90 fps with a gamepad | M |
-| **M5b** visionOS immersive | spike first; XR-runtime interface; ARKit head + PSVR2 Sense controllers; per-eye passes | spike: 6DoF stereo with head pose; then a deathmatch vs Quest | L |
+| **V0** spike | visionOS target (Midas's SDL2 patch), ANGLE into `MTLTexture`s into a full-immersion `CompositorLayer`, per-eye projections, ARKit head pose | one level drawn in stereo with 6DoF head pose, in the simulator then on the device | 1 week |
+| **V1** XR-runtime interface | split `vr_openxr.cpp` into an interface with OpenXR and Compositor Services backends; per-eye passes (no multiview on ANGLE Metal) | Quest regression clean; Vision Pro runs the Quest VR loop | L |
+| **V2** controllers | PSVR2 Sense pose + buttons + haptics through the same virtual Touch the Quest uses | a solo mission played with Sense controllers | M |
+| **V3** parity | in-space virtual screen + launcher, online, voice | a deathmatch vs Quest | M |
+
+(The old M4 flat window and M5a stereo panel are not shipped; their
+target and ANGLE bridge become V0.)
 
 M1 can start in parallel with PC P2 once P1 has created `port/flat/`.
 Android needs no new services work, since its Java services already work.
@@ -513,9 +520,9 @@ Android needs no new services work, since its Java services already work.
    shared by every project (as rebelancap keeps one checkout per machine);
    the build finds it through an `ANGLE_DIR` setting, never a copy in the
    repo.
-3. **Vision Pro never holds anything back.** No VR on it for now (M5a/M5b
-   dropped). At most the flat window (M4), with features switched off there
-   where they don't fit; if even that costs too much, the platform is dropped.
+3. **Vision Pro is full stereo VR, like Quest** (changed 2026-11-13; it was
+   "flat window at most"). No 2D flat mode on visionOS: 6DoF immersive
+   with PSVR2 Sense controllers (V0-V3).
 4. **Tracked controllers are required in VR, and only there.** VR plays
    with tracked controllers only, never hand tracking. Flat mode on any
    device (phone, iPad, Android tablet, a Windows tablet) takes a gamepad,
