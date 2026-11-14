@@ -53,7 +53,7 @@ targets:
       base:
         SDKROOT: iphoneos
         TARGETED_DEVICE_FAMILY: "1,2"
-        PRODUCT_BUNDLE_IDENTIFIER: com.gevr.port.ios
+        PRODUCT_BUNDLE_IDENTIFIER: com.mrsco.goldeneyevr
         PRODUCT_NAME: GoldenEyeVR
         INFOPLIST_FILE: Info.plist
         MARKETING_VERSION: "${GEVR_VERSION}"

@@ -54,7 +54,8 @@ launcher.
     (`xcodebuild -downloadComponent MetalToolchain`).
   - CMake's `ios` platform (`GEVR_IOS`) builds the PC flat game as one static
     library, `build/ios-<kind>/libgevr_ios_all.a`. xcodegen makes the app from
-    `port/ios/project.yml`: `com.gevr.port.ios`, landscape, iPhone and iPad.
+    `port/ios/project.yml`: `com.mrsco.goldeneyevr` (one App Store Connect app with
+    the Vision Pro build), landscape, iPhone and iPad.
 - **Rendering:** OpenGL ES 3 through ANGLE on Metal (`port/ios/ios_angle.mm`).
   `port/ios/ios_gl.h` sends the game's `SDL_GL_*` calls to EGL; SDL is built
   without EAGL. It is the single-view path (ANGLE's Metal backend has no
