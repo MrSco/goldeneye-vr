@@ -1410,6 +1410,14 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 sx = lx;
                 sy = ly;
             }
+            /* GoldenEye's menus move the cursor with the stick; the D-pad,
+             * bound to the C buttons for play, moves it there too */
+            if (menu) {
+                if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT)) sx = -1.0f;
+                if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) sx = 1.0f;
+                if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_UP)) sy = 1.0f;
+                if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN)) sy = -1.0f;
+            }
             if (npad->stick_x == 0) {
                 npad->stick_x = inputAxisScale((s32)(sx * 32767.0f),
                         pcfg->deadzone[SDL_CONTROLLER_AXIS_RIGHTX], pcfg->sens[SDL_CONTROLLER_AXIS_RIGHTX]) / 256;

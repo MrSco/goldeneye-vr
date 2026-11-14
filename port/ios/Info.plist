@@ -56,6 +56,18 @@
 	</array>
 	<!-- The ROM, goldeneye-vr.ini, saves and logs live in Documents
 	     (port/src/main.c), which the Files app shows as "GoldenEye VR". -->
+	<!-- A game that reads game controllers itself (SDL, through GameController):
+	     without these, visionOS also drove the iPad app's UI with a connected
+	     pad (its sticks and D-pad as arrow keys, A as Return; 2026-11-14). -->
+	<key>GCSupportsControllerUserInteraction</key>
+	<true/>
+	<key>GCSupportedGameControllers</key>
+	<array>
+		<dict>
+			<key>ProfileName</key>
+			<string>ExtendedGamepad</string>
+		</dict>
+	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>UIFileSharingEnabled</key>
