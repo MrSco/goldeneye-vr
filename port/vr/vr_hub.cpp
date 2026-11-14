@@ -20,6 +20,7 @@
 #else
 #include "../fast3d/glad/glad.h"
 #endif
+#include "../fast3d/gevr_mv_emu.h"
 
 #ifdef ANDROID
 #include <android/log.h>

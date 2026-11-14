@@ -92,6 +92,7 @@
 // OpenXR Runtime
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
+#include "../fast3d/gevr_mv_emu.h"
 
 // Project
 #include "vr_openxr.h"

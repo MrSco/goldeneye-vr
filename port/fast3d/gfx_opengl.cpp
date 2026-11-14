@@ -17,6 +17,7 @@
 #endif
 #include <PR/gbi.h>
 #include "glad/glad.h"
+#include "gevr_mv_emu.h"
 #include "gfx_cc.h"
 #include "gfx_rendering_api.h"
 #include "gfx_pc.h"
@@ -890,6 +891,16 @@ void gfx_opengl_init_multiview() { // VR
         found = e && strstr(e, "GL_OVR_multiview");
     }
 
+    if (!found && glad_glTexStorage3D && glad_glFramebufferTextureLayer) {
+        // No GL_OVR_multiview (ANGLE on Metal: Vision Pro through Klepton): the
+        // same two-view renderer, each eye drawn in its own pass (gevr_mv_emu.h).
+        sysLogPrintf(LOG_NOTE, "GL: no GL_OVR_multiview: emulated, one pass per eye");
+        gevr_mv_emu_enable();
+        glFramebufferTextureMultiviewOVR = gevr_mv_FramebufferTextureMultiviewOVR;
+        pfnFramebufferTextureMultisampleMultiviewOVR = nullptr;   // eye MSAA off
+        use_multiview = true;
+        return;
+    }
     if (!found || !glad_glTexStorage3D) {   // the screen target needs both (vr_screen.cpp)
         return;
     }

@@ -24,6 +24,7 @@
 #define SCR_LOGI(...) fprintf(stderr, __VA_ARGS__)
 #define SCR_LOGE(...) fprintf(stderr, __VA_ARGS__)
 #endif
+#include "../fast3d/gevr_mv_emu.h"
 
 typedef void (*GevrFramebufferTextureMultiviewOVRProc)(GLenum, GLenum, GLuint, GLint, GLint, GLsizei);
 extern GevrFramebufferTextureMultiviewOVRProc glFramebufferTextureMultiviewOVR; // resolved by gfx_opengl.cpp
