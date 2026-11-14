@@ -890,6 +890,37 @@ static inline void inputInitAllControllers(void)
     }
 }
 
+#ifdef GEVR_IOS
+/*
+ * The iPad app on Vision Pro: visionOS also turns a connected pad into key
+ * presses for the app (user reports, 2026-11-14: the walking stick arrived as
+ * the arrow keys, which the stick binds read as a look; A as Return, which is
+ * Start). The pad plays through GameController, so while one is connected these
+ * keys are not a keyboard's. Text still types through SDL_TEXTINPUT, and any
+ * other key is untouched.
+ */
+static s32 inputIosPadKeyIgnored(const u32 scancode)
+{
+    switch (scancode) {
+        case SDL_SCANCODE_UP:
+        case SDL_SCANCODE_DOWN:
+        case SDL_SCANCODE_LEFT:
+        case SDL_SCANCODE_RIGHT:
+        case SDL_SCANCODE_RETURN:
+        case SDL_SCANCODE_KP_ENTER:
+            for (s32 i = 0; i < INPUT_MAX_CONTROLLERS; ++i) {
+                if (pads[i]) {
+                    return 1;
+                }
+            }
+            break;
+        default:
+            break;
+    }
+    return 0;
+}
+#endif
+
 static int inputEventFilter(void *data, SDL_Event *event)
 {
     extern volatile int g_gevrAppBackgrounded;
@@ -911,6 +942,11 @@ static int inputEventFilter(void *data, SDL_Event *event)
             break;
 
         case SDL_CONTROLLERDEVICEADDED:
+            // inputInitAllControllers() may have opened it already (MFi pads connect
+            // asynchronously); a second slot for it would outlive its removal
+            if (inputControllerGetIndexById(event->cdevice.which) >= 0) {
+                break;
+            }
             for (s32 i = firstController; i < INPUT_MAX_CONTROLLERS; ++i) {
                 if (!pads[i]) {
                     pads[i] = SDL_GameControllerOpen(event->cdevice.which);
@@ -924,10 +960,12 @@ static int inputEventFilter(void *data, SDL_Event *event)
 
         case SDL_CONTROLLERDEVICEREMOVED: {
             SDL_GameController *ctrl = SDL_GameControllerFromInstanceID(event->cdevice.which);
-            const s32 idx = inputControllerGetIndex(ctrl);
-            if (idx >= 0) {
-                inputCloseController(idx);
-                padsCfg[idx].deviceIndex = -1;
+            // every slot holding it, not just the first
+            for (s32 idx = 0; ctrl && idx < INPUT_MAX_CONTROLLERS; ++idx) {
+                if (pads[idx] == ctrl) {
+                    inputCloseController(idx);
+                    padsCfg[idx].deviceIndex = -1;
+                }
             }
             break;
         }
@@ -965,6 +1003,11 @@ static int inputEventFilter(void *data, SDL_Event *event)
             break;
 
         case SDL_KEYDOWN:
+#ifdef GEVR_IOS
+            if (inputIosPadKeyIgnored((u32)event->key.keysym.scancode)) {
+                break;
+            }
+#endif
             if (!lastKey) {
                 lastKey = VK_KEYBOARD_BEGIN + event->key.keysym.scancode;
             }
@@ -3266,6 +3309,11 @@ s32 inputKeyPressed(u32 vk)
 #ifdef GEVR_PC
         if (pcTestInputActive()) {
             return pcTestInputKey((s32)(vk - VK_KEYBOARD_BEGIN));   // a test script's keys only
+        }
+#endif
+#ifdef GEVR_IOS
+        if (inputIosPadKeyIgnored(vk - VK_KEYBOARD_BEGIN)) {
+            return 0;
         }
 #endif
         const u8 *state = SDL_GetKeyboardState(NULL);

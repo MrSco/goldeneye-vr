@@ -225,8 +225,17 @@ void flatLauncherFeedInput(ImGuiIO &io)
 
     // the keyboard: ImGui's own navigation keys (text goes through the launcher's keyboardWatch)
     const Uint8 *keys = SDL_GetKeyboardState(nullptr);
+    bool padKeys = false;   // iOS: with a pad connected, the arrows and Return are visionOS's, not a keyboard's (input.c)
+#ifdef GEVR_IOS
+    for (int i = 0; i < SDL_NumJoysticks() && !padKeys; i++) padKeys = SDL_IsGameController(i) != SDL_FALSE;
+#endif
     auto key = [&](SDL_Scancode sc) -> bool {
-        return scripted ? pcTestInputKey(sc) != 0 : (keys && keys[sc] && SDL_GetKeyboardFocus() == wnd);
+        if (scripted) return pcTestInputKey(sc) != 0;
+        if (padKeys && (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_DOWN || sc == SDL_SCANCODE_LEFT
+                        || sc == SDL_SCANCODE_RIGHT || sc == SDL_SCANCODE_RETURN || sc == SDL_SCANCODE_KP_ENTER)) {
+            return false;
+        }
+        return keys && keys[sc] && SDL_GetKeyboardFocus() == wnd;
     };
     io.AddKeyEvent(ImGuiKey_UpArrow, key(SDL_SCANCODE_UP));
     io.AddKeyEvent(ImGuiKey_DownArrow, key(SDL_SCANCODE_DOWN));
