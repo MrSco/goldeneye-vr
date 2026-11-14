@@ -637,10 +637,13 @@ UpdateStatus gevrUpdaterStatus()
         st.message = f[3];
         st.testBuilds = f[4] == "1";
         st.installed = f[5];
-    } else if (!gevrAndroidJava) {
+    }
+#ifdef GEVR_NATIVE_SERVICES
+    else if (!gevrAndroidJava) {
         st.state = "idle";
         st.installed = GEVR_APP_VERSION;
     }
+#endif
     return st;
 }
 #else
