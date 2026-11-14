@@ -13,13 +13,16 @@
 
 extern "C" {
 int gevrMvEmuActive = 0;
+int gevrMvEmuSingleView = 0;
 }
 
 // A multiview framebuffer (the name the renderer binds, holding layer
 // baseViewIndex) -> the framebuffer of ours holding the next layer.
 static std::unordered_map<GLuint, GLuint> s_secondView;
-// A linked program -> its gevr_ViewID location (only programs that have one).
-static std::unordered_map<GLuint, GLint> s_viewLocation;
+// A linked program -> its gevr_ViewID location (only programs that have one)
+// and the value it holds now (-1: unknown).
+struct ViewUniform { GLint location; GLint value; };
+static std::unordered_map<GLuint, ViewUniform> s_viewLocation;
 
 static const char kViewUniform[] = "gevr_ViewID";
 
@@ -109,7 +112,7 @@ extern "C" void gevr_mv_LinkProgram(GLuint program)
     glLinkProgram(program);
     if (!gevrMvEmuActive) return;
     const GLint location = glGetUniformLocation(program, kViewUniform);
-    if (location >= 0) s_viewLocation[program] = location;
+    if (location >= 0) s_viewLocation[program] = {location, -1};
     else s_viewLocation.erase(program);
 }
 
@@ -126,33 +129,74 @@ extern "C" void gevr_mv_DeleteFramebuffers(GLsizei n, const GLuint *framebuffers
     glDeleteFramebuffers(n, framebuffers);
 }
 
+// The framebuffer bound to `target` stops being multiview.
+static void vr_single_view_again(GLenum target)
+{
+    if (!gevrMvEmuActive || s_secondView.empty()) return;
+    const GLuint fb = vr_bound_framebuffer(target == GL_READ_FRAMEBUFFER ? GL_READ_FRAMEBUFFER_BINDING
+                                                                         : GL_DRAW_FRAMEBUFFER_BINDING);
+    auto it = s_secondView.find(fb);
+    if (it == s_secondView.end()) return;
+    glDeleteFramebuffers(1, &it->second);
+    s_secondView.erase(it);
+}
+
+extern "C" void gevr_mv_FramebufferTexture2D(GLenum target, GLenum attachment, GLenum textarget, GLuint texture,
+                                             GLint level)
+{
+    vr_single_view_again(target);
+    glFramebufferTexture2D(target, attachment, textarget, texture, level);
+}
+
+extern "C" void gevr_mv_FramebufferTextureLayer(GLenum target, GLenum attachment, GLuint texture, GLint level,
+                                                GLint layer)
+{
+    vr_single_view_again(target);
+    glFramebufferTextureLayer(target, attachment, texture, level, layer);
+}
+
+extern "C" void gevr_mv_FramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbuffertarget,
+                                                GLuint renderbuffer)
+{
+    vr_single_view_again(target);
+    glFramebufferRenderbuffer(target, attachment, renderbuffertarget, renderbuffer);
+}
+
+// The current program's gevr_ViewID, set to `view` unless it already holds it.
+static inline void vr_set_view(ViewUniform *uniform, GLint view)
+{
+    if (!uniform || uniform->value == view) return;
+    glUniform1ui(uniform->location, (GLuint)view);
+    uniform->value = view;
+}
+
 // Runs `draw` once per view when a multiview framebuffer is the draw target:
 // layer 0 through the renderer's own framebuffer, layer 1 through ours, with
-// gevr_ViewID set to match when the program has it.
+// gevr_ViewID set to match when the program has it. Any other target gets one
+// draw as view 0, which is what gl_ViewID_OVR reads outside a multiview
+// framebuffer (a HUD capture parks the right eye's offsets off-screen, so a
+// leftover view 1 there drew the capture empty).
 template <class Draw>
 static inline void vr_each_view(bool usesProgram, Draw draw)
 {
-    if (!gevrMvEmuActive || s_secondView.empty()) {
+    if (!gevrMvEmuActive) {
         draw();
         return;
     }
-    const GLuint first = vr_bound_framebuffer(GL_DRAW_FRAMEBUFFER_BINDING);
-    const auto second = first ? s_secondView.find(first) : s_secondView.end();
-    if (second == s_secondView.end()) {
-        draw();
-        return;
-    }
-    GLint location = -1;
-    if (usesProgram) {
+    ViewUniform *uniform = nullptr;
+    if (usesProgram && !s_viewLocation.empty()) {
         GLint program = 0;
         glGetIntegerv(GL_CURRENT_PROGRAM, &program);
         const auto it = s_viewLocation.find((GLuint)program);
-        if (it != s_viewLocation.end()) location = it->second;
+        if (it != s_viewLocation.end()) uniform = &it->second;
     }
-    if (location >= 0) glUniform1ui(location, 0u);
+    const GLuint first = s_secondView.empty() ? 0 : vr_bound_framebuffer(GL_DRAW_FRAMEBUFFER_BINDING);
+    const auto second = first ? s_secondView.find(first) : s_secondView.end();
+    vr_set_view(uniform, 0);
     draw();
+    if (second == s_secondView.end() || gevrMvEmuSingleView) return;
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, second->second);
-    if (location >= 0) glUniform1ui(location, 1u);
+    vr_set_view(uniform, 1);
     draw();
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, first);
 }

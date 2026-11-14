@@ -3063,6 +3063,12 @@ struct GevrEdgeCoverage {
 static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalDepth, float decalPull, bool lineMode)
 {
     GevrCpuSection timing(GEVR_TIME_DRAW_ISSUE);
+    // A HUD capture's draw is the left view only (its right eye is parked):
+    // without real multiview, no second pass (gevr_mv_emu.h).
+    struct MvSingleView {
+        MvSingleView() { gevrMvEmuSingleView = gForceFlatShaderForMenu ? 1 : 0; }
+        ~MvSingleView() { gevrMvEmuSingleView = 0; }
+    } mvSingleView;
     if (lineMode) { gevr_draw_world_lines(first,count); return; }
     GevrEdgeCoverage coverage;
     if (decalZ && decalDepth) {

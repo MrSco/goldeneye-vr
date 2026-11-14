@@ -17,10 +17,22 @@ extern "C" {
 #endif
 
 extern int gevrMvEmuActive;
+// Set around a draw that belongs to the left view only: a HUD capture's draws
+// (gForceFlatShaderForMenu), which hide the right eye by moving its geometry
+// 1000 units away. Real multiview drops that view off-screen; a second pass
+// is skipped instead.
+extern int gevrMvEmuSingleView;
 void gevr_mv_emu_enable(void);
 
 void gevr_mv_FramebufferTextureMultiviewOVR(GLenum target, GLenum attachment, GLuint texture,
                                             GLint level, GLint baseViewIndex, GLsizei numViews);
+// A plain attachment makes a framebuffer single-view again: GL reuses the
+// name of a deleted multiview framebuffer (the eye's, when VR re-initialises)
+// for an ordinary one, such as the HUD copy's.
+void gevr_mv_FramebufferTexture2D(GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level);
+void gevr_mv_FramebufferTextureLayer(GLenum target, GLenum attachment, GLuint texture, GLint level, GLint layer);
+void gevr_mv_FramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbuffertarget,
+                                     GLuint renderbuffer);
 void gevr_mv_ShaderSource(GLuint shader, GLsizei count, const GLchar *const *string, const GLint *length);
 void gevr_mv_LinkProgram(GLuint program);
 void gevr_mv_DeleteFramebuffers(GLsizei n, const GLuint *framebuffers);
@@ -40,6 +52,9 @@ void gevr_mv_ClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint
 #endif
 
 #ifndef GEVR_MV_EMU_IMPL
+#undef glFramebufferTexture2D
+#undef glFramebufferTextureLayer
+#undef glFramebufferRenderbuffer
 #undef glShaderSource
 #undef glLinkProgram
 #undef glDeleteFramebuffers
@@ -51,6 +66,9 @@ void gevr_mv_ClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint
 #undef glClear
 #undef glClearBufferfv
 #undef glClearBufferfi
+#define glFramebufferTexture2D    gevr_mv_FramebufferTexture2D
+#define glFramebufferTextureLayer gevr_mv_FramebufferTextureLayer
+#define glFramebufferRenderbuffer gevr_mv_FramebufferRenderbuffer
 #define glShaderSource          gevr_mv_ShaderSource
 #define glLinkProgram           gevr_mv_LinkProgram
 #define glDeleteFramebuffers    gevr_mv_DeleteFramebuffers
