@@ -39,7 +39,8 @@ echo "library: $BUILD/libgevr_ios_all.a"
 if [ "$APP" = 1 ]; then
   NAME=$(sed -n 's/.*versionName "\([^"]*\)".*/\1/p' android/app/build.gradle)
   export ANGLE_DIR GEVR_ROOT="$ROOT" GEVR_VERSION="${NAME%%-*}"
-  export GEVR_BUILD=$(sed -n 's/.*versionCode \([0-9]*\).*/\1/p' android/app/build.gradle)
+  # the Android versionCode, unless an App Store upload needs the next number
+  export GEVR_BUILD="${GEVR_BUILD:-$(sed -n 's/.*versionCode \([0-9]*\).*/\1/p' android/app/build.gradle)}"
   export DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-}"
   ( cd port/ios && xcodegen generate --quiet )
   DEST="generic/platform=iOS Simulator"
