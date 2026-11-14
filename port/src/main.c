@@ -225,6 +225,10 @@ static void cleanup(void)
 // Android-specific globals
 static char g_data_path[512] = {0};
 static int g_initialized = 0;
+/* Set by nativeInit: our MainActivity is there. Not when another host runs the
+ * APK's SDL activity alone (Klepton on Vision Pro): the game then skips its
+ * calls into MainActivity's Java (updater, friends, pickers, restart, resize). */
+int gevrAndroidJava = 0;
 
 // JNI functions for Android
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
@@ -240,6 +244,7 @@ Java_com_gevr_port_MainActivity_nativeInit(JNIEnv* env, jobject thiz, jstring da
     (*env)->ReleaseStringUTFChars(env, dataPath, path);
 
     g_initialized = 1;
+    gevrAndroidJava = 1;
 
     sysLogPrintf(LOG_NOTE, "GEVR Android native init complete, data path: %s", g_data_path);
 }

@@ -329,8 +329,13 @@ void pollInjected(Injected &in)
 // Issue #16: back to the launcher from a level (port/src/input.c menu hold).
 // The launcher runs before the ROM loads, so the app restarts into it.
 #ifdef ANDROID
+extern "C" int gevrAndroidJava;
 extern "C" void gevrRestartToLauncher(void)
 {
+    if (!gevrAndroidJava) {
+        vr_log("launcher: no restart without MainActivity");
+        return;
+    }
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
     jobject activity = (jobject)SDL_AndroidGetActivity();
     if (env == nullptr || activity == nullptr) {
@@ -362,6 +367,7 @@ extern "C" void gevrRestartToLauncher(void)
 #ifdef ANDROID
 static bool gevrOpenPicker(const char *method)
 {
+    if (!gevrAndroidJava) return false;   // no MainActivity (see gevrAndroidJava)
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
     jobject activity = (jobject)SDL_AndroidGetActivity();
     if (env == nullptr || activity == nullptr) {
@@ -484,6 +490,7 @@ struct UpdateStatus {
 #ifdef ANDROID
 UpdateStatus gevrUpdaterStatus()
 {
+    if (!gevrAndroidJava) return UpdateStatus();   // no MainActivity (see gevrAndroidJava)
     UpdateStatus st;
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
     jobject activity = (jobject)SDL_AndroidGetActivity();
@@ -561,6 +568,7 @@ UpdateStatus gevrUpdaterStatus()
 #ifdef ANDROID
 void gevrUpdaterCommand(const char *cmd)
 {
+    if (!gevrAndroidJava) return;   // no MainActivity (see gevrAndroidJava)
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
     jobject activity = (jobject)SDL_AndroidGetActivity();
     if (env == nullptr || activity == nullptr) {
@@ -593,6 +601,7 @@ void gevrUpdaterCommand(const char *cmd)
 static std::string gevrJavaString(const char *method)
 {
     std::string out;
+    if (!gevrAndroidJava) return out;   // no MainActivity (see gevrAndroidJava)
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
     jobject activity = (jobject)SDL_AndroidGetActivity();
     if (env == nullptr || activity == nullptr) {
@@ -628,6 +637,7 @@ static std::string gevrJavaString(const char *method)
 #ifdef ANDROID
 static void gevrJavaCommand(const char *method, const char *arg)
 {
+    if (!gevrAndroidJava) return;   // no MainActivity (see gevrAndroidJava)
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
     jobject activity = (jobject)SDL_AndroidGetActivity();
     if (env == nullptr || activity == nullptr) {

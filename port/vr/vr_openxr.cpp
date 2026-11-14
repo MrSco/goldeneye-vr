@@ -157,6 +157,7 @@ extern JavaVM*        g_vm;
 extern jobject        g_activity;
 extern ANativeWindow* g_window;
 extern "C" void vr_android_context_from_sdl(void);
+extern "C" int gevrAndroidJava;
 
 static EGLDisplay g_sessionEglDisplay = EGL_NO_DISPLAY;
 static EGLContext g_sessionEglContext  = EGL_NO_CONTEXT;
@@ -977,12 +978,14 @@ extern "C" bool vr_configure_resolution() {
 
 #ifdef ANDROID
     // Set android surface with/height
-    JNIEnv* env = (JNIEnv*)SDL_AndroidGetJNIEnv();
-    jobject activity = (jobject)SDL_AndroidGetActivity();
-    jclass clazz = env->GetObjectClass(activity);
-    jmethodID method_id = env->GetStaticMethodID(clazz, "triggerResize", "()V");
-    env->CallStaticVoidMethod(clazz, method_id);
-    env->DeleteLocalRef(activity);
+    if (gevrAndroidJava) {   // MainActivity.triggerResize: none without our Java
+        JNIEnv* env = (JNIEnv*)SDL_AndroidGetJNIEnv();
+        jobject activity = (jobject)SDL_AndroidGetActivity();
+        jclass clazz = env->GetObjectClass(activity);
+        jmethodID method_id = env->GetStaticMethodID(clazz, "triggerResize", "()V");
+        env->CallStaticVoidMethod(clazz, method_id);
+        env->DeleteLocalRef(activity);
+    }
 #else
     // Set windows with/height
     SDL_GL_MakeCurrent(wnd, ctx);

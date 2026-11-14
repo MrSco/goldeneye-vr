@@ -54,8 +54,10 @@ uint32_t s_noticeUntil = 0;
 std::string s_lastLobby;                  // the lobby the "invited" marks are for
 
 #ifdef ANDROID
+extern "C" int gevrAndroidJava;
 std::string javaString(const char *method) {
     std::string out;
+    if (!gevrAndroidJava) return out;   // no MainActivity (see gevrAndroidJava)
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
     jobject activity = (jobject)SDL_AndroidGetActivity();
     if (!env || !activity) return out;
@@ -78,6 +80,7 @@ std::string javaString(const char *method) {
 }
 
 void javaCommand(const std::string &command) {
+    if (!gevrAndroidJava) return;   // no MainActivity (see gevrAndroidJava)
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
     jobject activity = (jobject)SDL_AndroidGetActivity();
     if (!env || !activity) return;

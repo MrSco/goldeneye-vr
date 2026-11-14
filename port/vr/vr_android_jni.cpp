@@ -133,18 +133,13 @@ static void setVrJavaContextInternal(JNIEnv* env, jobject activity, jobject surf
 #endif
 }
 
-// No MainActivity to call nativeSetVrJavaContext: the APK run by a host other
+// No MainActivity, so no nativeSetVrJavaContext: the APK run by a host other
 // than Android, Klepton on Vision Pro (docs/mobile-platforms.md), starts SDL's
-// activity but not our Java. Take the activity and SDL's surface from SDL
-// instead, once the Java call is clearly not coming: 3 s after the first VR
-// frame asked (on the Quest it lands within a few hundred ms of onResume).
+// activity but not our Java. Take the activity and SDL's surface from SDL.
+extern "C" int gevrAndroidJava;
 extern "C" void vr_android_context_from_sdl(void)
 {
-    if (g_activity && g_window) return;
-    static Uint32 firstAsked = 0;
-    const Uint32 now = SDL_GetTicks();
-    if (!firstAsked) firstAsked = now ? now : 1;
-    if (now - firstAsked < 3000) return;
+    if (gevrAndroidJava || (g_activity && g_window)) return;
     static bool tried = false;
     if (tried) return;
     tried = true;
@@ -163,7 +158,7 @@ extern "C" void vr_android_context_from_sdl(void)
         env->DeleteLocalRef(sdl);
     }
     if (env->ExceptionCheck()) env->ExceptionClear();
-    LOGI("VR context from SDL (no nativeSetVrJavaContext after 3 s)");
+    LOGI("VR context from SDL (no MainActivity)");
     setVrJavaContextInternal(env, activity, surface);
     if (surface) env->DeleteLocalRef(surface);
     env->DeleteLocalRef(activity);
