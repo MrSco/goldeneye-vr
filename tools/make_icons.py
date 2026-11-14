@@ -262,11 +262,36 @@ def main():
     ico = os.path.join(ROOT, 'port', 'pc', 'package', 'gevr.ico')
     art_icon(256).save(ico, sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
     print('wrote', os.path.relpath(ico, ROOT))
-    # iOS: the legacy icon files at the bundle's root (port/ios/Info.plist's
-    # CFBundleIconFiles; Xcode 27 refuses a single-size asset catalog), opaque
-    for name, px in (('AppIcon60x60@2x', 120), ('AppIcon60x60@3x', 180), ('AppIcon76x76@2x', 152),
-                     ('AppIcon83.5x83.5@2x', 167), ('AppIcon1024', 1024)):
-        save(art_icon(px).convert('RGB'), '@', 'port', 'ios', 'icon', name + '.png')
+    ios_app_icon()
+
+
+# iOS: an asset-catalog app icon with every size listed (Xcode 27 refuses a
+# single-size one, and App Store validation wants the catalog: CFBundleIconName,
+# 120 px iPhone and 152 px iPad icons), opaque.
+IOS_ICONS = (('iphone', 20, (2, 3)), ('iphone', 29, (2, 3)), ('iphone', 40, (2, 3)), ('iphone', 60, (2, 3)),
+             ('ipad', 20, (1, 2)), ('ipad', 29, (1, 2)), ('ipad', 40, (1, 2)), ('ipad', 76, (1, 2)),
+             ('ipad', 83.5, (2,)), ('ios-marketing', 1024, (1,)))
+
+
+def ios_app_icon():
+    import json
+    images = []
+    for idiom, pt, scales in IOS_ICONS:
+        for k in scales:
+            px = int(round(pt * k))
+            name = 'icon-%d.png' % px
+            if not os.path.exists(os.path.join(ROOT, 'port', 'ios', 'Assets.xcassets', 'AppIcon.appiconset', name)):
+                save(art_icon(px).convert('RGB'), '@', 'port', 'ios', 'Assets.xcassets', 'AppIcon.appiconset', name)
+            images.append({'filename': name, 'idiom': idiom, 'scale': '%dx' % k,
+                           'size': '%gx%g' % (pt, pt)})
+    info = {'author': 'xcode', 'version': 1}
+    base = os.path.join(ROOT, 'port', 'ios', 'Assets.xcassets')
+    for path, doc in ((os.path.join(base, 'Contents.json'), {'info': info}),
+                      (os.path.join(base, 'AppIcon.appiconset', 'Contents.json'), {'images': images, 'info': info})):
+        with open(path, 'w', newline='\n') as f:
+            json.dump(doc, f, indent=2)
+            f.write('\n')
+    print('wrote port/ios/Assets.xcassets/AppIcon.appiconset')
 
 
 if __name__ == '__main__':

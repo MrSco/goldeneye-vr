@@ -89,6 +89,15 @@ cp -R "$SRC/include" "$ANGLE_DIR/include"
 if [ -d "$ANGLE_DIR/out/ios-device/libEGL.framework" ] && [ -d "$ANGLE_DIR/out/ios-simulator/libEGL.framework" ]; then
   mkdir -p "$ANGLE_DIR/xcframeworks"
   for lib in libEGL libGLESv2; do
+    # App Store validation wants a version in every embedded framework, and
+    # ANGLE's gn output has none.
+    for slice in ios-device ios-simulator; do
+      plist="$ANGLE_DIR/out/$slice/$lib.framework/Info.plist"
+      /usr/libexec/PlistBuddy -c "Delete :CFBundleShortVersionString" "$plist" 2>/dev/null || true
+      /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.0" "$plist"
+      /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$plist" >/dev/null 2>&1 ||
+        /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 1" "$plist"
+    done
     rm -rf "$ANGLE_DIR/xcframeworks/$lib.xcframework"
     xcodebuild -create-xcframework       -framework "$ANGLE_DIR/out/ios-device/$lib.framework"       -framework "$ANGLE_DIR/out/ios-simulator/$lib.framework"       -output "$ANGLE_DIR/xcframeworks/$lib.xcframework"
   done

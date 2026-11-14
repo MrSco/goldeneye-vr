@@ -20,20 +20,8 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<!-- The icon files at the bundle's root (tools/make_icons.py): Xcode 27
-	     refuses a single 1024 image as an asset-catalog app icon. -->
-	<key>CFBundleIcons</key>
-	<dict>
-		<key>CFBundlePrimaryIcon</key>
-		<dict>
-			<key>CFBundleIconFiles</key>
-			<array>
-				<string>AppIcon60x60</string>
-				<string>AppIcon76x76</string>
-				<string>AppIcon83.5x83.5</string>
-			</array>
-		</dict>
-	</dict>
+	<!-- The app icon is Assets.xcassets' AppIcon (tools/make_icons.py); actool
+	     adds CFBundleIcons and CFBundleIconName at build time. -->
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<!-- Required by the iOS 27 SDK (UIKit kills an app without it).

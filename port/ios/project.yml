@@ -38,11 +38,8 @@ targets:
     sources:
       # the app's one source of its own: main() is the game's (port/src/main.c)
       - path: stub.c
-      - path: icon/AppIcon60x60@2x.png
-      - path: icon/AppIcon60x60@3x.png
-      - path: icon/AppIcon76x76@2x.png
-      - path: icon/AppIcon83.5x83.5@2x.png
-      - path: icon/AppIcon1024.png
+      # the app icon, every size listed (tools/make_icons.py)
+      - path: Assets.xcassets
       # read by name from the bundle (SDL_RWFromFile looks there first)
       - path: ../pc/package/gevr_logo.rgba
         buildPhase: resources
@@ -56,6 +53,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.mrsco.goldeneyevr
         PRODUCT_NAME: GoldenEyeVR
         INFOPLIST_FILE: Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         MARKETING_VERSION: "${GEVR_VERSION}"
         CURRENT_PROJECT_VERSION: "${GEVR_BUILD}"
         # -ObjC: the scene delegate is only named in Info.plist, never called,
