@@ -264,6 +264,34 @@ Quest.
 - **Size:** L. Do it last, after a one-week spike: one Compositor Services
   frame from ANGLE, both eyes, with head pose.
 
+### visionOS build: the Quest APK in Klepton (2026-11-14)
+
+What shipped to TestFlight instead of the plan above: the Quest APK run by
+Klepton (shinyquagsire23/Klepton, MIT), which relinks its `.so` files for
+visionOS, answers its Android and Java calls itself, and is an OpenXR runtime
+on Compositor Services with the PSVR2 Sense controllers as Touch. Our fork,
+MrSco/Klepton branch `goldeneye-vr`, adds the `gevr` target and general fixes
+meant for upstream.
+
+- **In the game** (all of it inactive on the Quest):
+  - `port/fast3d/gevr_mv_emu.cpp` emulates `GL_OVR_multiview` (one pass per
+    eye) where the GL lacks it, as ANGLE on Metal does.
+  - `gevrAndroidJava` (set by `nativeInit`) says MainActivity runs. Without
+    it: the data folder and the VR context come from SDL, and port/pc's
+    services (friends, internet lobby, mods, reports, the update check) answer
+    the launcher instead of Java, over libcurl and mbedTLS with curl's CA
+    bundle built in (`CMakeLists.txt`, `GEVR_NATIVE_SERVICES`).
+  - The launcher's file pickers ask Klepton's `klepton_import_file` (visionOS's
+    file picker) and land where Android's would.
+- **Build** on the Mac: `tools/build_visionos.sh <quest-release.apk> <version>
+  <build> [--upload]`. The signing setup comes from the environment (see the
+  script); the layered icon is `port/visionos/AppIcon-gevr.solidimagestack`.
+  The iPhone/iPad app (`tools/build_ios.sh`) shares the App Store Connect app:
+  one bundle id, a binary per platform.
+- **Not on Vision Pro:** restarting into the launcher from a level, and
+  Discord. Without Sense controllers Klepton gives hand tracking only (aim and
+  pinch to fire; no sticks or buttons).
+
 ## Touch layout
 
 Port it; don't design it. **Done (first pass):** `port/flat/window/flat_touch.cpp`.
