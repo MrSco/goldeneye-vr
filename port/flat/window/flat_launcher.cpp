@@ -225,8 +225,12 @@ void flatLauncherFeedInput(ImGuiIO &io)
 
     // the keyboard: ImGui's own navigation keys (text goes through the launcher's keyboardWatch)
     const Uint8 *keys = SDL_GetKeyboardState(nullptr);
+    bool padKeys = false;   // iOS: keys a connected pad makes (input.c inputKeyPressed)
+#ifdef GEVR_IOS
+    for (int i = 0; i < SDL_NumJoysticks() && !padKeys; i++) padKeys = SDL_IsGameController(i);
+#endif
     auto key = [&](SDL_Scancode sc) -> bool {
-        return scripted ? pcTestInputKey(sc) != 0 : (keys && keys[sc] && SDL_GetKeyboardFocus() == wnd);
+        return scripted ? pcTestInputKey(sc) != 0 : (!padKeys && keys && keys[sc] && SDL_GetKeyboardFocus() == wnd);
     };
     io.AddKeyEvent(ImGuiKey_UpArrow, key(SDL_SCANCODE_UP));
     io.AddKeyEvent(ImGuiKey_DownArrow, key(SDL_SCANCODE_DOWN));
