@@ -3260,17 +3260,6 @@ s32 inputKeyPressed(u32 vk)
             return pcTestInputKey((s32)(vk - VK_KEYBOARD_BEGIN));   // a test script's keys only
         }
 #endif
-#ifdef GEVR_IOS
-        /* The iPad app on Vision Pro (2026-11-14, report logs 21-25): visionOS
-         * also turns a connected pad into keys, its sticks into the arrows
-         * (the stick binds: a full-speed turn from the walking stick) and A
-         * into Return (Start), which GCEventInteraction (ios_app.m) does not
-         * stop there. While a pad is connected the pad plays; text still
-         * types through SDL's text events. */
-        for (s32 i = 0; i < INPUT_MAX_CONTROLLERS; ++i) {
-            if (pads[i]) return 0;
-        }
-#endif
         const u8 *state = SDL_GetKeyboardState(NULL);
         return state[vk - VK_KEYBOARD_BEGIN];
     }
