@@ -15,6 +15,7 @@
  *   GameController (SDL's MFi backend) instead.
  */
 #import <UIKit/UIKit.h>
+#import <GameController/GameController.h>
 
 #include <SDL.h>
 
@@ -35,6 +36,23 @@ static UIView *s_hostView;
 void gevrIosSetHostView(void *view)
 {
     s_hostView = (__bridge UIView *)view;
+    /*
+     * Game controllers to the game alone (SDL reads them through
+     * GameController). Without this, visionOS (the iPad app on Vision Pro,
+     * 2026-11-14) also turns a pad into UI input for the view under the
+     * viewer's gaze: its sticks arrived as arrow keys (the stick binds: a full
+     * turn from a nudge of the walking stick) and A as Return (Start, and a
+     * flood of new lines in a text box). Apple's answer is GCEventInteraction.
+     */
+    UIView *v = s_hostView;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (@available(iOS 18.0, *)) {
+            GCEventInteraction *only = [[GCEventInteraction alloc] init];
+            only.handledEventTypes = GCUIEventTypeGamepad;
+            [v addInteraction:only];
+            NSLog(@"GoldenEyeVR: game controllers go to the game only (GCEventInteraction)");
+        }
+    });
 }
 
 /* Moves SDL's sceneless windows onto the app's scene; returns how many. */

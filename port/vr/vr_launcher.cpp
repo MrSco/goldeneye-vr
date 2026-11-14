@@ -3025,8 +3025,9 @@ std::string s_kbdQueue;
 int SDLCALL keyboardWatch(void *, SDL_Event *e)
 {
     const bool text = e->type == SDL_TEXTINPUT;
+    // a held Return types one new line, not one per repeat (a held Backspace still repeats)
     const bool key = e->type == SDL_KEYDOWN
-        && (e->key.keysym.sym == SDLK_BACKSPACE || e->key.keysym.sym == SDLK_RETURN);
+        && (e->key.keysym.sym == SDLK_BACKSPACE || (e->key.keysym.sym == SDLK_RETURN && !e->key.repeat));
     if (!text && !key) return 1;
     SDL_LockMutex(s_kbdLock);
     if (key) s_kbdQueue += e->key.keysym.sym == SDLK_BACKSPACE ? '\b' : '\r';

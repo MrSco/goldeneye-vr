@@ -237,10 +237,9 @@ void flatLauncherFeedInput(ImGuiIO &io)
     io.AddKeyEvent(ImGuiKey_Escape, key(SDL_SCANCODE_ESCAPE));
     io.AddKeyEvent(ImGuiKey_LeftShift, key(SDL_SCANCODE_LSHIFT));
     io.AddKeyEvent(ImGuiKey_LeftCtrl, key(SDL_SCANCODE_LCTRL));
-    if (!io.WantTextInput) {
-        // Return activates (in a text box the launcher's queue types it)
-        io.AddKeyEvent(ImGuiKey_Enter, key(SDL_SCANCODE_RETURN));
-    }
+    // Return activates; in a text box the launcher's queue types it, and ImGui
+    // must see it up there: one held as the box opened repeated new lines
+    io.AddKeyEvent(ImGuiKey_Enter, !io.WantTextInput && key(SDL_SCANCODE_RETURN));
     bool navKey = key(SDL_SCANCODE_UP) || key(SDL_SCANCODE_DOWN) || key(SDL_SCANCODE_LEFT) || key(SDL_SCANCODE_RIGHT)
                || key(SDL_SCANCODE_TAB) || key(SDL_SCANCODE_SPACE) || key(SDL_SCANCODE_RETURN);
 
