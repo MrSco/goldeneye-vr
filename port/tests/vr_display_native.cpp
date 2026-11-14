@@ -34,6 +34,7 @@ EGLContext eglGetCurrentContext() { return reinterpret_cast<void *>(1); }
 JavaVM *g_vm = reinterpret_cast<JavaVM *>(1);
 jobject g_activity = reinterpret_cast<void *>(1);
 ANativeWindow *g_window = reinterpret_cast<ANativeWindow *>(1);
+extern "C" void vr_android_context_from_sdl(void) {}
 struct VRState {
     XrInstance instance{};
     XrSystemId systemId{};

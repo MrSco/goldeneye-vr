@@ -12,6 +12,7 @@
 #include <openxr/openxr_platform.h>
 
 #include "vr_openxr.h"
+#include <SDL.h>
 
 static const char* TAG = "GoldenEye-VR";
 
@@ -130,6 +131,42 @@ static void setVrJavaContextInternal(JNIEnv* env, jobject activity, jobject surf
         }
     }
 #endif
+}
+
+// No MainActivity to call nativeSetVrJavaContext: the APK run by a host other
+// than Android, Klepton on Vision Pro (docs/mobile-platforms.md), starts SDL's
+// activity but not our Java. Take the activity and SDL's surface from SDL
+// instead, once the Java call is clearly not coming: 3 s after the first VR
+// frame asked (on the Quest it lands within a few hundred ms of onResume).
+extern "C" void vr_android_context_from_sdl(void)
+{
+    if (g_activity && g_window) return;
+    static Uint32 firstAsked = 0;
+    const Uint32 now = SDL_GetTicks();
+    if (!firstAsked) firstAsked = now ? now : 1;
+    if (now - firstAsked < 3000) return;
+    static bool tried = false;
+    if (tried) return;
+    tried = true;
+
+    JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
+    jobject activity = (jobject)SDL_AndroidGetActivity();
+    if (!env || !activity) {
+        LOGE("No VR context from Java or SDL");
+        return;
+    }
+    jobject surface = nullptr;
+    jclass sdl = env->FindClass("org/libsdl/app/SDLActivity");
+    if (sdl) {
+        jmethodID get = env->GetStaticMethodID(sdl, "getNativeSurface", "()Landroid/view/Surface;");
+        if (get) surface = env->CallStaticObjectMethod(sdl, get);
+        env->DeleteLocalRef(sdl);
+    }
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    LOGI("VR context from SDL (no nativeSetVrJavaContext after 3 s)");
+    setVrJavaContextInternal(env, activity, surface);
+    if (surface) env->DeleteLocalRef(surface);
+    env->DeleteLocalRef(activity);
 }
 
 extern "C" JNIEXPORT void JNICALL

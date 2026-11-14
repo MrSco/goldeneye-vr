@@ -102,6 +102,7 @@ extern void bossEntry(void);
 #include <SDL.h>
 #include <SDL_main.h>
 #include <EGL/egl.h>
+#include <sys/stat.h>
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  "GoldenEye-VR", __VA_ARGS__)
 #elif defined(GEVR_HEADLESS) || defined(GEVR_PC)
@@ -298,6 +299,18 @@ int SDL_main(int argc, char* argv[]) {
         timeout--;
     }
 
+    // No nativeInit: an Android host that starts SDL's activity without our
+    // MainActivity (Klepton on Vision Pro, docs/mobile-platforms.md). Use the
+    // folder MainActivity would pass, getExternalFilesDir(null)/data, from SDL.
+    if (!g_initialized) {
+        const char *external = SDL_AndroidGetExternalStoragePath();
+        if (external && external[0]) {
+            snprintf(g_data_path, sizeof(g_data_path), "%s/data", external);
+            mkdir(g_data_path, 0755);
+            g_initialized = 1;
+            __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "No nativeInit: data path from SDL");
+        }
+    }
     if (!g_initialized) {
         __android_log_print(ANDROID_LOG_ERROR, "GoldenEye", "Android not initialized after timeout");
         return -1;

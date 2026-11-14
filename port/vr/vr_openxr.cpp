@@ -156,6 +156,7 @@ extern bool copy_fbo_menu;
 extern JavaVM*        g_vm;
 extern jobject        g_activity;
 extern ANativeWindow* g_window;
+extern "C" void vr_android_context_from_sdl(void);
 
 static EGLDisplay g_sessionEglDisplay = EGL_NO_DISPLAY;
 static EGLContext g_sessionEglContext  = EGL_NO_CONTEXT;
@@ -6070,6 +6071,7 @@ extern "C" bool openxr_initialize_vr_windows(void) {
 extern "C" void vr_initialize()
 {
 #ifdef ANDROID
+    if (!g_vrInitialized) vr_android_context_from_sdl();
     if (g_vrInitialized || !g_activity || !g_window) return;
 
     EGLDisplay display = eglGetCurrentDisplay();
