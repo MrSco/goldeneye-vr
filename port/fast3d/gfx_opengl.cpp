@@ -4811,7 +4811,17 @@ static void gfx_opengl_init(void) {
         typedef void (*PFN_BufferStorageEXT)(GLenum, GLsizeiptr, const void *, GLbitfield);
         PFN_BufferStorageEXT bufferStorage = (PFN_BufferStorageEXT)SDL_GL_GetProcAddress("glBufferStorageEXT");
         bool ringOk = gl_es;
-        if (!gl_es) {
+        if (gl_es) {
+            // GLES: the entry point can resolve without the extension (ANGLE on
+            // Metal under Klepton), and then storage and map only set errors.
+            GLint numExts = 0;
+            glGetIntegerv(GL_NUM_EXTENSIONS, &numExts);
+            ringOk = false;
+            for (GLint i = 0; i < numExts && !ringOk; i++) {
+                const char* e = (const char*)glGetStringi(GL_EXTENSIONS, i);
+                ringOk = e && strcmp(e, "GL_EXT_buffer_storage") == 0;
+            }
+        } else {
             // Desktop GL (PC): the same ring through ARB_buffer_storage. Without
             // it the eye pass can't be kept, and the XR frames between game
             // frames (90 Hz over 60) showed the last image again: judder
@@ -4823,9 +4833,22 @@ static void gfx_opengl_init(void) {
         const GLbitfield flags = GL_MAP_WRITE_BIT | 0x0040 /* PERSISTENT */ | 0x0080 /* COHERENT */;
         const GLsizeiptr segment = 16 << 20;
         if (ringOk && bufferStorage != NULL && glMapBufferRange != NULL && glFenceSync != NULL) {
+            while (glGetError() != GL_NO_ERROR) {}
             bufferStorage(GL_ARRAY_BUFFER, segment * GEVR_PM_SEGMENTS, NULL, flags);
-            s_pmPtr = (uint8_t *)glMapBufferRange(GL_ARRAY_BUFFER, 0, segment * GEVR_PM_SEGMENTS, flags);
-            s_pmSegSize = segment;
+            if (glGetError() == GL_NO_ERROR) {
+                s_pmPtr = (uint8_t *)glMapBufferRange(GL_ARRAY_BUFFER, 0, segment * GEVR_PM_SEGMENTS, flags);
+                if (glGetError() != GL_NO_ERROR) s_pmPtr = NULL;
+            }
+            if (s_pmPtr) {
+                s_pmSegSize = segment;
+            } else {
+                // Immutable storage may exist without a mapping: start over with
+                // a plain buffer for the glBufferData path.
+                glBindBuffer(GL_ARRAY_BUFFER, 0);
+                glDeleteBuffers(1, &opengl_vbo);
+                glGenBuffers(1, &opengl_vbo);
+                glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+            }
         }
         sysLogPrintf(LOG_NOTE, "GL: persistent vertex buffer %s", s_pmPtr ? "on (3 x 16 MB)" : "off (glBufferData per draw)");
     }
