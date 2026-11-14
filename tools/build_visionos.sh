@@ -26,7 +26,7 @@ export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"   # not GNU coreut
 
 # The guest: the APK's libraries and assets where Klepton's gevr target reads them
 rm -rf "$KLEPTON/gevr"
-cp "$APK" "$KLEPTON/gevr.apk"
+cmp -s "$APK" "$KLEPTON/gevr.apk" || cp "$APK" "$KLEPTON/gevr.apk"
 apktool d -f -o "$KLEPTON/gevr" "$KLEPTON/gevr.apk" >/dev/null
 # The layered app icon (from docs/art/app_icon.jpg), which Klepton's catalog leaves to each target
 rm -rf "$KLEPTON/visionos/Assets.xcassets/AppIcon-gevr.solidimagestack"
