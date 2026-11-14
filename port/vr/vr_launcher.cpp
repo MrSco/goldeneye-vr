@@ -52,10 +52,13 @@
 #include <jni.h>
 #include <GLES3/gl3.h>
 #ifdef GEVR_NATIVE_SERVICES
+#include <dlfcn.h>   // Klepton's file request, looked up by name
 /* No MainActivity (Klepton on Vision Pro, gevrAndroidJava 0): the PC's ports of
  * its Java services answer the same messages (port/pc/pc_services.cpp). */
 std::string pcServiceString(const char *method);
 void pcServiceCommand(const char *method, const char *arg);
+void pcModsImportOwn(const char *id, const std::string &path);   // pc_mods.cpp: a Klepton pick's hand-off
+void pcModsApplyCe(const std::string &path);
 #endif
 #else
 /* The PC game (docs/pc-platforms.md): desktop GL, and port/pc for what
@@ -368,12 +371,95 @@ extern "C" void gevrRestartToLauncher(void)
 }
 #endif
 
+#if defined(ANDROID) && defined(GEVR_NATIVE_SERVICES)
+/*
+ * No MainActivity (Klepton on Vision Pro): Klepton's file request
+ * (klepton_import_file in its kl_import.h, looked up by name, so an Android
+ * device without it is unaffected) shows visionOS's file picker and copies
+ * the choice to where MainActivity's picker would have: data/picked*.z64 for
+ * the ROMs, which the launcher adopts as on the Quest. The XBLA copy and the
+ * Community Edition updater are staged beside the services' files and handed
+ * to the Mods page's import once copied (ModManager.importOwn / applyCe).
+ */
+namespace {
+int (*s_klImport)(const char *title, const char *extensions, const char *dest);
+int (*s_klImportStatus)(int ticket);
+int s_klTicket;
+std::string s_klMethod, s_klDest, s_klResult;
+}
+
+static bool gevrKleptonPick(const char *method)
+{
+    static bool looked;
+    if (!looked) {
+        looked = true;
+        s_klImport = (int (*)(const char *, const char *, const char *))dlsym(RTLD_DEFAULT, "klepton_import_file");
+        s_klImportStatus = (int (*)(int))dlsym(RTLD_DEFAULT, "klepton_import_status");
+    }
+    if (!s_klImport || !s_klImportStatus) return false;
+    const char *rom = !strcmp(method, "openRomPicker") ? "picked.z64"
+                    : !strcmp(method, "openGexPicker") ? "picked-gex.z64"
+                    : !strcmp(method, "openGoldfingerPicker") ? "picked-goldfinger.z64"
+                    : !strcmp(method, "openTndPicker") ? "picked-tnd.z64"
+                    : !strcmp(method, "openMirrorPicker") ? "picked-mirror.z64" : nullptr;
+    const char *files = SDL_AndroidGetExternalStoragePath();
+    std::string dest, title, extensions;
+    if (rom) {
+        dest = dataDir() + "/" + rom;
+        title = !strcmp(method, "openGexPicker") ? "Choose your GoldenEye X ROM"
+              : !strcmp(method, "openGoldfingerPicker") ? "Choose your Goldfinger 64 ROM"
+              : !strcmp(method, "openTndPicker") ? "Choose your Tomorrow Never Dies 64 ROM"
+              : !strcmp(method, "openMirrorPicker") ? "Choose your Mirror ROM" : "Choose your GoldenEye 007 ROM";
+        extensions = "z64,v64,n64";
+    } else if (!strcmp(method, "openXblaPicker") && files) {
+        dest = std::string(files) + "/.import-xbla";
+        title = "Choose your copy of GoldenEye XBLA (its .7z, .zip or Xbox 360 package)";
+    } else if (!strcmp(method, "openCePicker") && files) {
+        dest = std::string(files) + "/.import-ce.zip";
+        title = "Choose the GoldenEye XBLA Community Edition updater";
+        extensions = "zip";
+    } else {
+        return false;
+    }
+    const int ticket = s_klImport(title.c_str(), extensions.c_str(), dest.c_str());
+    if (ticket <= 0) return false;
+    s_klTicket = ticket;
+    s_klMethod = method;
+    s_klDest = dest;
+    return true;
+}
+
+// A Klepton pick answered: the XBLA copy and the updater go on to the Mods
+// page's import; a cancel or a failed copy leaves MainActivity.pickResult's message.
+static void gevrKleptonPickPoll()
+{
+    if (!s_klTicket || !s_klImportStatus) return;
+    const int status = s_klImportStatus(s_klTicket);
+    if (status == 0) return;   // the picker is still up
+    s_klTicket = 0;
+    if (status == 1) {
+        vr_log("launcher: file picker (%s) copied", s_klMethod.c_str());
+        if (s_klMethod == "openXblaPicker") pcModsImportOwn("ge007-bean", s_klDest);
+        else if (s_klMethod == "openCePicker") pcModsApplyCe(s_klDest);
+    } else {
+        s_klResult = status == 2 ? "No file chosen." : "Could not copy that file.";
+    }
+}
+#endif
+
 // MainActivity.openRomPicker / openGexPicker / openGoldfingerPicker /
 // openTndPicker: the system file picker, copying the pick to data/picked*.z64
 #ifdef ANDROID
 static bool gevrOpenPicker(const char *method)
 {
-    if (!gevrAndroidJava) return false;   // no MainActivity (see gevrAndroidJava)
+    if (!gevrAndroidJava) {   // no MainActivity (see gevrAndroidJava)
+        bool ok = false;
+#ifdef GEVR_NATIVE_SERVICES
+        ok = gevrKleptonPick(method);
+#endif
+        vr_log("launcher: file picker (%s) %s", method, ok ? "asked of Klepton" : "not available");
+        return ok;
+    }
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
     jobject activity = (jobject)SDL_AndroidGetActivity();
     if (env == nullptr || activity == nullptr) {
@@ -448,6 +534,13 @@ static bool adoptHackFile(const char *pickedName, const char *finalName, const c
 std::string gevrTakePickResult()
 {
     std::string out;
+    if (!gevrAndroidJava) {   // no MainActivity: Klepton's picker, if one is up
+#ifdef GEVR_NATIVE_SERVICES
+        gevrKleptonPickPoll();
+        out.swap(s_klResult);
+#endif
+        return out;
+    }
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
     jobject activity = (jobject)SDL_AndroidGetActivity();
     if (env == nullptr || activity == nullptr) {
@@ -622,6 +715,7 @@ static std::string gevrJavaString(const char *method)
     std::string out;
     if (!gevrAndroidJava) {   // no MainActivity (see gevrAndroidJava)
 #ifdef GEVR_NATIVE_SERVICES
+        gevrKleptonPickPoll();   // the Mods page asks every frame: a Bean pick's hand-off
         out = pcServiceString(method);
 #endif
         return out;
@@ -3356,6 +3450,15 @@ extern "C" void gevrLauncherRun(void)
 #elif defined(GEVR_IOS)
                 ImGui::TextWrapped("Choose your GoldenEye 007 (USA) ROM, or put it in GoldenEye VR's "
                                    "folder in the Files app (any name).");
+#elif defined(ANDROID)
+                if (!gevrAndroidJava) {
+                    // Vision Pro (Klepton): the app's folder in the Files app
+                    ImGui::TextWrapped("Choose your GoldenEye 007 (USA) ROM, or put it in GoldenEye VR's "
+                                       "android-files/files/data folder in the Files app (any name).");
+                } else {
+                    ImGui::TextWrapped("Choose your GoldenEye 007 (USA) ROM, or copy it over USB into "
+                                       "Android/data/com.gevr.port/files/data (any name).");
+                }
 #else
                 ImGui::TextWrapped("Choose your GoldenEye 007 (USA) ROM, or copy it over USB into "
                                    "Android/data/com.gevr.port/files/data (any name).");
