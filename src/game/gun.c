@@ -1327,6 +1327,97 @@ static void gevrGexSlideTo(const GexWeaponDef *def, ModelFileHeader *hdr, Mtxf *
     }
 }
 
+/*
+ * The magazine's band (user: a glance at the grip should tell whether the
+ * magazine is in): House of the Dead VR draws a plate with a brass rim under
+ * its gun's grip while a magazine is in (quest_xr.c, the base plate). Here a
+ * gold plate on the base of every GE-X magazine, fitted to the magazine
+ * part's own end face when the rig is built (gevr_gexmodel.c gevrGexPartBase)
+ * and drawn on whichever magazine mesh shows - in the gun, in the off hand or
+ * falling - on that mesh's own matrix, so it leaves the gun with the magazine.
+ */
+typedef struct { s8 state; Vtx v[2][8]; } GevrGexBand;   /* state: 1 fitted, -1 none, 0 not looked up */
+static GevrGexBand s_gevrGexBand[ITEM_IDS_MAX];
+static s32 s_gevrGexBandShown[2];   /* this frame: the gun's magazine (1), the held one (2) */
+
+/* the plate's corners on the installed magazine [0] and, through heldToMag
+ * turned back, on the held one [1]; the outer face gold, the inner orange */
+static void gevrGexBandBuild(const GexWeaponDef *def, const f32 c[8][3], GevrGexBand *band)
+{
+    s32 i, k, a;
+
+    for (i = 0; i < 8; i++)
+    {
+        f32 held[3];
+
+        for (k = 0; k < 3; k++)
+        {
+            held[k] = 0.0f;
+            for (a = 0; a < 3; a++) held[k] += (c[i][a] - def->heldToMag[3][a]) * def->heldToMag[k][a];
+        }
+        for (k = 0; k < 2; k++)
+        {
+            Vtx *v = &band->v[k][i];
+
+            for (a = 0; a < 3; a++) { const f32 x = k ? held[a] : c[i][a]; v->v.ob[a] = (s16) (x < 0.0f ? x - 0.5f : x + 0.5f); }
+            v->v.flag = 0;
+            v->v.tc[0] = v->v.tc[1] = 0;
+            v->v.cn[0] = (i & 4) ? 0xFF : 0xE0;
+            v->v.cn[1] = (i & 4) ? 0xC0 : 0x68;
+            v->v.cn[2] = (i & 4) ? 0x30 : 0x10;
+            v->v.cn[3] = 0xFF;
+        }
+    }
+    band->state = 1;
+}
+
+/* the plate on each magazine mesh drawn this frame, on its own (converted) matrix */
+static Gfx *gevrGexDrawMagazineBand(Gfx *gdl, s32 hand)
+{
+    static const u8 tris[12][3] = {
+        {0,1,3}, {0,3,2}, {4,6,7}, {4,7,5}, {0,2,6}, {0,6,4}, {1,5,7}, {1,7,3}, {0,4,5}, {0,5,1}, {2,3,7}, {2,7,6} };
+    const GexWeaponDef *def = gevrGexWeaponForHand(hand);
+    Model *model = &g_CurrentPlayer->hands[hand].weaponModel;
+    const ModelFileHeader *hdr = model->obj;
+    const GevrGexBand *band;
+    s32 k, t;
+
+    if (hand < 0 || hand > 1 || !gevrHandReloadActive() || !gevrGexHasMagazine(def) || def->item >= ITEM_IDS_MAX
+        || hdr == NULL || model->render_pos == NULL || s_gevrGexBandShown[hand] == 0)
+    {
+        return gdl;
+    }
+    band = &s_gevrGexBand[def->item];
+    if (band->state != 1)
+    {
+        return gdl;
+    }
+    gDPPipeSync(gdl++);
+    gSPClearGeometryMode(gdl++, G_LIGHTING | G_FOG | G_CULL_BOTH | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
+    gSPSetGeometryMode(gdl++, G_ZBUFFER | G_SHADE | G_SHADING_SMOOTH);
+    gDPSetCycleType(gdl++, G_CYC_1CYCLE);
+    gDPSetRenderMode(gdl++, G_RM_ZB_OPA_SURF, G_RM_ZB_OPA_SURF2);
+    gSPTexture(gdl++, 0, 0, 0, G_TX_RENDERTILE, G_OFF);
+    gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
+    for (k = 0; k < 2; k++)
+    {
+        const s32 m = k ? def->heldMatrix : def->magMatrix;
+
+        if (!(s_gevrGexBandShown[hand] & (1 << k)) || m < 0 || m >= hdr->numMatrices)
+        {
+            continue;
+        }
+        gSPMatrix(gdl++, osVirtualToPhysical(&model->render_pos[m]), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+        gSPVertex(gdl++, osVirtualToPhysical((void *) band->v[k]), 8, 0);
+        for (t = 0; t < 12; t += 2)
+        {
+            gSP2Triangles(gdl++, tris[t][0], tris[t][1], tris[t][2], 0, tris[t + 1][0], tris[t + 1][1], tris[t + 1][2], 0);
+        }
+    }
+    gDPPipeSync(gdl++);
+    return gdl;
+}
+
 /* Weapon definitions own the appended part switches and texture mapping.
  * Original GoldenEye switch indices stay clear for cuffs and gun logic. */
 static void gevrGexGunPrepare(GUNHAND hand, ITEM_IDS item, ModelFileHeader *hdr)
@@ -1364,6 +1455,14 @@ static void gevrGexGunPrepare(GUNHAND hand, ITEM_IDS item, ModelFileHeader *hdr)
     {
         s_gevrGexSlide[def->item] = (s8) (gevrGexPartMatrix(def->model, GEVR_PD_PART_GUN_SLIDE) + 1);
         if (s_gevrGexSlide[def->item] == 0) s_gevrGexSlide[def->item] = -1;
+    }
+    if (gevrGexPendingFile != NULL && gevrGexHasMagazine(def) && def->item < ITEM_IDS_MAX && s_gevrGexBand[def->item].state == 0)
+    {
+        f32 corners[8][3];
+
+        s_gevrGexBand[def->item].state = -1;
+        if (gevrGexPartBase(def->model, def->parts[0], def->magTop, def->magCentre, corners))
+            gevrGexBandBuild(def, corners, &s_gevrGexBand[def->item]);
     }
     if (gevrGexPendingFile != NULL)
     {
@@ -2292,6 +2391,7 @@ Gfx *gevrGexDrawReloadGuide(Gfx *gdl, ModelRenderData *templ, s32 hand)
     f32 well[3];
     s32 hover = hand == gevrReloadSupportGun() && gevrReloadSeatHover(well);
     const s32 state = gevrGexMagState(hand, NULL);
+    gdl = gevrGexDrawMagazineBand(gdl, hand);   /* first: the gun's own projection is still loaded */
     if (state == GEVR_GEXMAG_OUT || state == GEVR_GEXMAG_INHAND)
         gdl = gevrGexDrawMagazineGuide(gdl, templ, hand, NULL,
             (hover ? GEVR_RELOAD_READY_TINT : GEVR_RELOAD_TINT) | 0x50);
@@ -3665,6 +3765,10 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
         inHand = fell ? s_gevrGexFall[hand].rounds
                : (!preview && hand == gevrReloadSupportGun() && mag == GEVR_GEXMAG_INHAND && held > 0) ? held
                : def->loaderRounds;
+    }
+    if (hand == GUNRIGHT || hand == GUNLEFT)
+    {
+        s_gevrGexBandShown[hand] = (inGun ? 1 : 0) | (inHand ? 2 : 0);
     }
     gevrGexShowMagazines(hdr, model, inGun, inHand);
     if (def->reload.openHide > 0) {

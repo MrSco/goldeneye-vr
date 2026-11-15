@@ -24,6 +24,7 @@
  * them, as the texture expansion (objecthandler_2.c) needs.
  */
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <PR/ultratypes.h>
@@ -629,4 +630,123 @@ s32 gevrGexPartMatrix(const char *pdname, s32 part)
 	}
 	free(pd);
 	return mtx;
+}
+
+#define BASE_MAX_VERTS 256
+
+/* every distinct vertex under a node (its children, not its siblings) */
+static void partVertices(const u8 *pd, u32 pdLen, u32 node, s32 depth, f32 (*out)[3], s32 *n)
+{
+	u32 ofs = node + 0x18 <= pdLen && rd32(pd + node + 0x14) ? OFS(rd32(pd + node + 0x14)) : 0;
+	s32 guard = 0;
+
+	while (ofs != 0 && ofs + 0x18 <= pdLen && depth < 16 && guard++ < 256) {
+		if (pd[ofs + 1] == PD_NODE_GUNDL) {
+			const u32 ro = OFS(rd32(pd + ofs + 4));
+			const u32 v = ro + 0x14 <= pdLen ? OFS(rd32(pd + ro + 12)) : 0;
+			const u32 count = ro + 0x14 <= pdLen ? rd16(pd + ro + 0x10) : 0;
+			u32 i;
+			s32 j;
+
+			for (i = 0; v != 0 && i < count && v + 12 * (i + 1) <= pdLen && *n < BASE_MAX_VERTS; i++) {
+				const f32 p[3] = { (s16)rd16(pd + v + 12 * i), (s16)rd16(pd + v + 12 * i + 2), (s16)rd16(pd + v + 12 * i + 4) };
+
+				for (j = 0; j < *n && (out[j][0] != p[0] || out[j][1] != p[1] || out[j][2] != p[2]); j++) {}
+				if (j == *n) {
+					memcpy(out[(*n)++], p, sizeof(p));
+				}
+			}
+		}
+		partVertices(pd, pdLen, ofs, depth + 1, out, n);
+		ofs = rd32(pd + ofs + 0x0c) ? OFS(rd32(pd + ofs + 0x0c)) : 0;
+	}
+}
+
+static f32 dot3(const f32 *a, const f32 *b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+
+static void cross3(const f32 *a, const f32 *b, f32 *out)
+{
+	out[0] = a[1] * b[2] - a[2] * b[1];
+	out[1] = a[2] * b[0] - a[0] * b[2];
+	out[2] = a[0] * b[1] - a[1] * b[0];
+}
+
+static s32 unit3(f32 *v)
+{
+	const f32 len = sqrtf(dot3(v, v));
+	s32 i;
+
+	if (len < 1e-4f) return 0;
+	for (i = 0; i < 3; i++) v[i] /= len;
+	return 1;
+}
+
+s32 gevrGexPartBase(const char *pdname, s32 part, const f32 top[3], const f32 centre[3], f32 out[8][3])
+{
+	static f32 v[BASE_MAX_VERTS][3];
+	u32 pdLen = 0, k;
+	u8 *pd = gevrGexFileLoad(pdname, &pdLen);
+	f32 axis[3], d[3], e[3], u[3], w[3], nrm[3], lo, hi;
+	f32 ext[2][2] = { { 1e9f, -1e9f }, { 1e9f, -1e9f } }, depth, pad;
+	s32 n = 0, i, j, deep = 0, far2 = -1;
+
+	if (pd != NULL && pdLen >= 0x1c) {
+		const u32 parts = OFS(rd32(pd + 8));
+		const u16 numparts = rd16(pd + 0xc);
+
+		for (k = 0; k < numparts && parts + 6 * (u32)numparts <= pdLen; k++) {
+			if ((s16)rd16(pd + parts + 4 * numparts + 2 * k) == part) {
+				partVertices(pd, pdLen, OFS(rd32(pd + parts + 4 * k)), 0, v, &n);
+				break;
+			}
+		}
+	}
+	free(pd);
+	for (i = 0; i < 3; i++) axis[i] = centre[i] - top[i];
+	if (n < 3 || !unit3(axis)) return 0;
+	/* the vertices farthest from the top, nearest first: the end of the part */
+	for (i = 1; i < n; i++) {
+		for (j = i; j > 0 && dot3(v[j], axis) > dot3(v[j - 1], axis); j--) {
+			f32 t[3];
+			memcpy(t, v[j], sizeof(t)); memcpy(v[j], v[j - 1], sizeof(t)); memcpy(v[j - 1], t, sizeof(t));
+		}
+	}
+	lo = dot3(v[n - 1], axis);
+	hi = dot3(v[0], axis);
+	/* its end face: the fewest of them that span a plane (a curved magazine's is
+	 * tilted): the farthest, the next, and the next more than a unit off their line */
+	for (j = 0; j < 3; j++) e[j] = v[1][j] - v[0][j];
+	for (i = 2; i < n && far2 < 0; i++) {
+		for (j = 0; j < 3; j++) d[j] = v[i][j] - v[0][j];
+		cross3(e, d, nrm);
+		if (dot3(nrm, nrm) > dot3(e, e)) far2 = i;
+	}
+	if (far2 < 0 || !unit3(nrm)) return 0;
+	for (j = 0; j < 3; j++) d[j] = v[0][j] - centre[j];
+	if (dot3(nrm, d) < 0.0f) for (j = 0; j < 3; j++) nrm[j] = -nrm[j];   /* out of the part */
+	memcpy(u, e, sizeof(u));
+	unit3(u);
+	cross3(nrm, u, w);
+	/* its extent: every vertex on that face's plane */
+	for (i = 0; i < n; i++) {
+		for (j = 0; j < 3; j++) d[j] = v[i][j] - v[0][j];
+		if (fabsf(dot3(d, nrm)) > 1.5f) continue;
+		deep++;
+		ext[0][0] = fminf(ext[0][0], dot3(d, u)); ext[0][1] = fmaxf(ext[0][1], dot3(d, u));
+		ext[1][0] = fminf(ext[1][0], dot3(d, w)); ext[1][1] = fmaxf(ext[1][1], dot3(d, w));
+	}
+	if (deep < 3) return 0;
+	/* HOTD's plate: a band GEVR_GEX_BAND_DEPTH of the part's length thick, a
+	 * little proud of the face and of its edges */
+	depth = GEVR_GEX_BAND_DEPTH * (hi - lo);
+	depth = depth < 5.0f ? 5.0f : depth > 12.0f ? 12.0f : depth;
+	pad = 1.5f;
+	for (i = 0; i < 8; i++) {
+		const f32 a = (i & 1) ? ext[0][1] + pad : ext[0][0] - pad;
+		const f32 b = (i & 2) ? ext[1][1] + pad : ext[1][0] - pad;
+		const f32 c = (i & 4) ? pad : -depth;   /* 4: the outer face */
+
+		for (j = 0; j < 3; j++) out[i][j] = v[0][j] + a * u[j] + b * w[j] + c * nrm[j];
+	}
+	return 1;
 }

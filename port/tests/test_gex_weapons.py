@@ -823,6 +823,18 @@ int main(int argc,char **argv) {
             || active->item==ITEM_SILVERWPPK || active->item==ITEM_GOLDWPPK) assert(slide==37);
         if (active->item==ITEM_AK47 || active->item==ITEM_MP5K || active->item==ITEM_SHOTGUN) assert(slide==-1);
     }
+    /* the magazine's band (gun.c gevrGexBandBuild): at the base, the end away from the top */
+    if (gevrGexHasMagazine(active)) {
+        f32 c[8][3], outer=0, inner=0, centre=0, top=0, side=0;
+        assert(gevrGexPartBase(active->model,active->parts[0],active->magTop,active->magCentre,c));
+        for (int a=0;a<3;a++) {
+            const f32 d=active->magCentre[a]-active->magTop[a];
+            for (int i=0;i<4;i++) { inner+=c[i][a]*d/4; outer+=c[i+4][a]*d/4; }
+            centre+=active->magCentre[a]*d; top+=active->magTop[a]*d;
+            side+=(c[1][a]-c[0][a])*(c[1][a]-c[0][a]);
+        }
+        assert(outer>inner && inner>centre && centre>top && sqrtf(side)>5);
+    }
     printf("PASS: %s: %d nodes, %d matrices, host model %u / 61440 bytes, production poses\n",active->model,count,matrices,converted);
     free(host); free(rom); return 0;
 }
