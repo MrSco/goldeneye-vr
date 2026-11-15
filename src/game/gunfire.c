@@ -9016,6 +9016,20 @@ void inc_cur_civilian_casualties(void)
 
 s32 get_civilian_casualties(void)
 {
+#ifdef GEVR
+    /* co-op (#241): the team's. A hostage counts against whoever shot it, and
+     * a mission list asks as whichever player it runs as (Frigate's
+     * "Unacceptable hostage casualties"). */
+    if (gevrCoopActive())
+    {
+        s32 i, total = 0;
+        for (i = 0; i < getPlayerCount(); i++)
+        {
+            total += g_playerPlayerData[i].killed_civilians;
+        }
+        return total;
+    }
+#endif
     return g_playerPerm->killed_civilians;
 }
 

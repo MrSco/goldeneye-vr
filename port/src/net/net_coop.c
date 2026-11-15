@@ -92,6 +92,7 @@ static void coopHostClock(u64 now);
 static void coopClockReset(void);
 static void coopScriptReset(void);
 static void coopSendScriptSnapshot(int slot);
+static void coopGadgetReset(void);
 static bool s_downed[4];                  /* revive: each player down, not dead (every headset's view) */
 static int s_host_sees_me_down = -1;      /* a teammate's headset: the host's last word on its player, -1 none */
 static u64 s_down_sent_us;
@@ -866,6 +867,7 @@ void netCoopStageLoaded(void)
     coopReviveReset();
     coopDropInReset();
     coopCinemaReset();
+    coopGadgetReset();
     gevrHordeStageLoaded();
     s_last_send_us = 0;
     g_gevrCoopGuardTick = FALSE;
@@ -1685,21 +1687,85 @@ static s32 coopTagOf(ObjectRecord *obj)
     return -1;
 }
 
+/*
+ * Who used a gadget on what (the host, #241). Frigate's bomb lists ask "did
+ * Bond use a gadget on the bomb?" and at once "is Bond holding the defuser?";
+ * a no to the second destroys the bomb. A background list runs as the
+ * nearest player (chrlvAllChrTick), who need not be the one who used it, so
+ * the second question goes to the user's hands.
+ */
+#define COOP_GADGET_USES 8
+static s32 s_gadget_tag[COOP_GADGET_USES];
+static s8 s_gadget_by[COOP_GADGET_USES];    /* the user's slot + 1, 0 free */
+static u8 s_gadget_next;
+static s8 s_gadget_user = -1;               /* the use a list just took */
+static const void *s_gadget_list;
+static s32 s_gadget_tick;
+
+static void coopRememberGadgetUser(s32 tag, int slot)
+{
+    int at = s_gadget_next;
+
+    for (int i = 0; i < COOP_GADGET_USES; i++)
+        if (s_gadget_by[i] && s_gadget_tag[i] == tag) at = i;
+    if (at == s_gadget_next) s_gadget_next = (u8)((s_gadget_next + 1) % COOP_GADGET_USES);
+    s_gadget_tag[at] = tag;
+    s_gadget_by[at] = (s8)(slot + 1);
+}
+
+static void coopGadgetReset(void)
+{
+    memset(s_gadget_by, 0, sizeof(s_gadget_by));
+    s_gadget_next = 0;
+    s_gadget_user = -1;
+    s_gadget_list = NULL;
+}
+
 void gevrCoopReportGadgetUse(ObjectRecord *obj)
 {
     s32 tag;
 
-    if (!obj || !gevrCoopPuppets() || get_cur_playernum() != netGetLocalSlot()) return;
+    if (!obj || !netCoopActive() || get_cur_playernum() != netGetLocalSlot()) return;
     tag = coopTagOf(obj);
     if (tag < 0) return;
-    coopSendEvent(NET_COOP_EVENT_GADGET, tag, 0, 1);
+    if (netIsHost()) coopRememberGadgetUser(tag, netGetLocalSlot());
+    else if (gevrCoopPuppets()) coopSendEvent(NET_COOP_EVENT_GADGET, tag, 0, 1);
 }
 
-static void coopApplyGadgetUse(s32 tag)
+static void coopApplyGadgetUse(int slot, s32 tag)
 {
     ObjectRecord *obj = objFindByTagId(tag);
 
-    if (obj) obj->state |= PROPSTATE_ACTIVATED;
+    if (!obj) return;
+    obj->state |= PROPSTATE_ACTIVATED;
+    coopRememberGadgetUser(tag, slot);
+}
+
+/* chrai.c, AI_IFBondUsedGadgetOnObject: this list took the use of obj */
+void gevrCoopGadgetTaken(ObjectRecord *obj, const void *list)
+{
+    s32 tag;
+
+    s_gadget_user = -1;
+    if (!obj || !netCoopActive() || !netIsHost()) return;
+    tag = coopTagOf(obj);
+    for (int i = 0; i < COOP_GADGET_USES; i++) {
+        if (!s_gadget_by[i] || s_gadget_tag[i] != tag) continue;
+        s_gadget_user = (s8)(s_gadget_by[i] - 1);
+        s_gadget_by[i] = 0;
+        break;
+    }
+    s_gadget_list = list;
+    s_gadget_tick = g_GlobalTimer;
+}
+
+/* chrai.c, AI_IFBondHasItemEquipped: whose hands, -1 the list's own player.
+ * Only the list that took the use, and only in the same tick. */
+int gevrCoopGadgetUser(const void *list)
+{
+    if (s_gadget_user < 0 || list != s_gadget_list || g_GlobalTimer != s_gadget_tick ||
+        !netCoopActive() || !g_playerPointers[s_gadget_user]) return -1;
+    return s_gadget_user;
 }
 
 /*
@@ -1945,7 +2011,7 @@ static void coopReceiveEvent(int slot, struct netbuf *b)
         }
         case NET_COOP_EVENT_GADGET: {
             s32 tag = netbufReadS32(b);
-            if (!b->error && !netbufReadLeft(b)) coopApplyGadgetUse(tag);
+            if (!b->error && !netbufReadLeft(b)) coopApplyGadgetUse(slot, tag);
             break;
         }
         case NET_COOP_EVENT_MINE: {

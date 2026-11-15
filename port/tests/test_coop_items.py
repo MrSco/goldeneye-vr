@@ -21,6 +21,8 @@ assert "set_cur_player(gevrTarget)" in tick
 assert "set_cur_player(gevrPrev)" in tick
 assert "gevrCoopGrantItem(wep->weaponnum)" in propobj
 assert "gevrCoopReportGadgetUse(temp_v0_8->obj)" in gunfire
+casualties = block(gunfire, "s32 get_civilian_casualties(void)")
+assert "gevrCoopActive()" in casualties and "g_playerPlayerData[i].killed_civilians" in casualties
 collision = block(bondview, "void bondviewCalcUpdatePlayerCollision(")
 assert "gevrCoopReleaseTank()" in collision
 move = block(bondview, "void MoveBond(")
@@ -68,8 +70,13 @@ parts = {
     )),
     "GADGET": "\n\n".join((
         block(coop, "static s32 coopTagOf("),
+        coop[coop.index("#define COOP_GADGET_USES"):coop.index("static void coopRememberGadgetUser(")],
+        block(coop, "static void coopRememberGadgetUser("),
+        block(coop, "static void coopGadgetReset(void)\n{"),
         block(coop, "void gevrCoopReportGadgetUse("),
         block(coop, "static void coopApplyGadgetUse("),
+        block(coop, "void gevrCoopGadgetTaken("),
+        block(coop, "int gevrCoopGadgetUser("),
     )),
     "TANK": bondview[tank_start:tank_end],
     "TANK_SEND": "\n\n".join((
@@ -81,6 +88,7 @@ parts = {
     "GRANT_CASE": block(coop, "case NET_COOP_EVENT_GRANT:"),
     "GADGET_CASE": block(coop, "case NET_COOP_EVENT_GADGET:"),
     "AI_CASE": block(ai, "case AI_IFBondUsedGadgetOnObject:\n                {"),
+    "EQUIPPED_CASE": block(ai, "case AI_IFBondHasItemEquipped:\n                {"),
     "MINE": "\n\n".join((
         block(coop, "int gevrCoopThrownMissionItem("),
         block(coop, "int gevrCoopDeferRemoteMineSettle("),
