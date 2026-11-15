@@ -4,6 +4,7 @@
 #include <string.h>
 #include "gevr_gexweapon.h"
 #include "gevr_gexgrip.h"
+#include "gevr_hand_reload.h"
 typedef int s32;
 typedef float f32;
 typedef unsigned u32;
@@ -26,7 +27,7 @@ static int s_gevrGexHeldRounds = -1;
 static int s_gevrGexHeldGun = GUNRIGHT;
 static float VrGexHeldMag[3];
 static int s_gevrGexHeldAmmoType;
-static int s_gevrReloadSeatTicks;
+static int s_gevrReloadSeatTicks, s_gevrGexSeatedTicks[2];
 static float s_gevrReloadSeatAt[3];
 static float poses[2][3];
 static int gex[2], buzzes, fills, tracked[2] = {1, 1};
@@ -493,11 +494,13 @@ static void pp7Reload(void)
         gripHeld[0]=1; pistolTick();
         assert(s_gevrPistolGripOwner==GEVR_GEXGRIP_MAG);
         assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_GRIPPED);
+        assert(gevrReloadLabel(GUNRIGHT)==GEVR_RELOAD_LABEL_GRIPPED);
         poses[0][1]-=8*cm; poses[1][1]-=8*cm; pistolTick();
         assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_GRIPPED);
         poses[0][1]-=5.1f*cm; pistolTick();
         assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_INHAND);
         assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==0 && s_gevrGexHeldRounds==3 && reserve==50);
+        assert(gevrReloadLabel(GUNRIGHT)==GEVR_RELOAD_LABEL_INSERT);
         online=1; localSlot=0; playerSlot=1; gevrHandReloadTick();
         assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_INHAND && s_gevrGexHeldRounds==3 && reserve==50);
         online=0; playerSlot=0;
@@ -511,12 +514,13 @@ static void pp7Reload(void)
         assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_INHAND);
         heldPoint[1]=2.9f*cm; pistolTick();
         assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_IN && s_gevrGexGripSpent);
-        assert(readyEvents==1);
+        assert(readyEvents==1 && gevrReloadLabel(GUNRIGHT)==GEVR_RELOAD_LABEL_SEATED);
         assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==3 && reserve==50);
         pistolTick(); assert(gevrGexClaimsOffHand());
 
         gevrGexDropMagazine(GUNRIGHT);
         assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_OUT && reserve==53 && falls==1);
+        assert(gevrReloadLabel(GUNRIGHT)==GEVR_RELOAD_LABEL_OUT);
         gripHeld[0]=0; pistolTick();
         belt(0,0); gripHeld[0]=1; pistolTick();
         assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_INHAND && s_gevrGexHeldRounds==-1);
@@ -765,6 +769,33 @@ static void reloadIndicators(void)
     assert(gevrReloadGrabBelt(1) && s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN);
     assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == stats.MagSize);
     assert(!gevrReloadGrabBelt(1));   /* one squeeze loads once */
+}
+
+/* The label over the gun: each stage of the reload, and none once it is done */
+static void reloadLabels(void)
+{
+    float atBelt[3];
+    reset(); stats.MagSize = 7; gex[GUNRIGHT] = 1; player.hands[GUNRIGHT].weapon = ITEM_WPPK;
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine = 2; pistolTick();
+    assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_NONE);   /* loaded: nothing to do */
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine = 0;
+    assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_EMPTY);
+    reserve = 0; assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_NOAMMO); reserve = 50;
+    g_gevrStereo = 0; assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_NONE); g_gevrStereo = 1;
+    gex[GUNRIGHT] = 0; assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_NONE); gex[GUNRIGHT] = 1;
+    player.watch_animation_state = 1; assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_NONE);
+    player.watch_animation_state = 0;
+    gevrGexDropMagazine(GUNRIGHT);
+    assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_OUT);
+    reserve = 0; assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_NOAMMO); reserve = 50;
+    assert(gevrReloadBeltPoint(1, atBelt)); memcpy(poses[1], atBelt, sizeof(atBelt));
+    assert(gevrReloadGrabBelt(1) && player.hands[GUNRIGHT].weapon_ammo_in_magazine == 7);
+    for (int t = 0; t < 59; t++) {
+        assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_SEATED);
+        gevrHandReloadTick();
+    }
+    gevrHandReloadTick(); assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_NONE);   /* the "in" fades */
+    stats.MagSize = 30;
 }
 
 static void requiredGripUse(void)
@@ -1018,6 +1049,7 @@ int main(void)
         grenadeRounds();
         magazinePersistence();
         reloadIndicators();
+        reloadLabels();
         requiredGripUse();
         torsoReloadBelt();
         reversedReloads();

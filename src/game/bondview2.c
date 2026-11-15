@@ -19028,6 +19028,7 @@ static s32 s_gevrGexMagItem[2] = {-1,-1};
 static s32 s_gevrGexGripSpent;       /* the off hand's grip seated a magazine: held until let go */
 static s32 s_gevrReloadSeatTicks;
 static f32 s_gevrReloadSeatAt[3];
+static s32 s_gevrGexSeatedTicks[2];  /* the label's "in" after a magazine seats (gevrReloadLabel) */
 
 extern void sub_GAME_7F0649D8(enum GUNHAND hand);   /* gunfire.c: the reload's ammo move */
 extern void currentPlayerCreateRocket(GUNHAND hand); /* gun.c: the launcher's loaded rocket */
@@ -19131,6 +19132,7 @@ void gevrReloadInventoryReset(void)
     s_gevrGexHeldRounds = -1;
     s_gevrGexSeatArmed = s_gevrGexGripSpent = s_gevrMagGrab = FALSE;
     s_gevrReloadSeatTicks = 0;
+    s_gevrGexSeatedTicks[0] = s_gevrGexSeatedTicks[1] = 0;
 }
 
 static void gevrReloadInventoryRelease(void)
@@ -19197,6 +19199,7 @@ static void gevrGexMagIn(s32 hand, const char *how, s32 rounds)
         sub_GAME_7F0649D8(hand);
     }
     s_gevrGexMag[hand] = GEVR_GEXMAG_IN;
+    s_gevrGexSeatedTicks[hand] = 60;
     if (hand == gevrReloadSupportGun())
     {
         f32 centre[3], held[3];
@@ -19533,6 +19536,7 @@ void gevrGexReloadReset(s32 hand)
     }
     s_gevrGexMag[hand] = GEVR_GEXMAG_IN;
     s_gevrGexMagItem[hand] = -1;
+    s_gevrGexSeatedTicks[hand] = 0;
 }
 
 /*
@@ -19618,6 +19622,19 @@ s32 gevrGexMagState(s32 hand, f32 off[3])
         st = st == GEVR_GEXMAG_GRIPPED ? GEVR_GEXMAG_IN : GEVR_GEXMAG_OUT;
     }
     return st;
+}
+
+/* gun.c: the label over a GoldenEye X gun with a magazine, in play (gevrReloadLabelFor) */
+s32 gevrReloadLabel(s32 hand)
+{
+    if (hand < 0 || hand > 1 || !gevrHandReloadActive() || g_CurrentPlayer->bonddead
+        || g_CurrentPlayer->watch_animation_state || g_CurrentPlayer->mpmenuon
+        || !gevrGexByHand(hand) || !gevrGexHasMagazine(gevrGexWeaponForHand(hand)))
+    {
+        return GEVR_RELOAD_LABEL_NONE;
+    }
+    return gevrReloadLabelFor(gevrGexMagState(hand, NULL), g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine,
+                              get_ammo_in_hands_weapon(hand), s_gevrGexSeatedTicks[hand]);
 }
 
 /*
@@ -19886,6 +19903,8 @@ void gevrHandReloadTick(void)
     if (netIsActive() && get_cur_playernum() != netGetLocalSlot()) return;
     gevrReloadTuneRead();
     if (s_gevrReloadSeatTicks > 0) s_gevrReloadSeatTicks -= g_ClockTimer;
+    for (i = 0; i < 2; i++)
+        if (s_gevrGexSeatedTicks[i] > 0) s_gevrGexSeatedTicks[i] -= g_ClockTimer;
     if (!gevrHandReloadEnabled() || !g_gevrStereo) gevrReloadInventoryRelease();
     if (g_CurrentPlayer != NULL && g_CurrentPlayer->bonddead) gevrReloadInventoryReset();
     if (!gevrHandReloadEnabled() || !g_gevrStereo || g_CurrentPlayer == NULL || g_CurrentPlayer->bonddead

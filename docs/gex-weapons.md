@@ -121,6 +121,10 @@ fields (KF7 13, -23, -27; PP7 8, -19, -26).
   and pushes it into the well. A magazine keeps its rounds while out;
   dropped, they go back to the reserve; one from the belt is full. Either
   gun can take one at the belt by itself. Left GE-X guns are mirrored.
+  A label 10 cm over the gun (House of the Dead VR's reload hint) says
+  where the magazine is and the next step: EMPTY (red), MAG OUT / INSERT
+  MAGAZINE (blue), MAG IN while the off hand holds it and for a second
+  after one seats (green); none while loaded (gun.c gevrGexDrawReloadLabel).
 - Gun fit keeps GE-X's own gun, grip and scope fits, and adds modes (X):
   reload (where the magazine is taken, the belt), off hand (its palm;
   holding the right grip, the watch) and, holding with both hands, where

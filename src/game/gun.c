@@ -2197,6 +2197,37 @@ Gfx *gevrGexDrawMagazineGuide(Gfx *gdl, ModelRenderData *templ, s32 hand, const 
     return rd.gdl;
 }
 
+/*
+ * The magazine's state and the next step on a small label over the gun (user:
+ * hard to tell whether the magazine was in or out), as House of the Dead VR
+ * labels its gun's reload (quest_xr.c draw_rack_hint: "DROP THE MAG", "INSERT A
+ * MAGAZINE", "RACK THE SLIDE" on a dark panel 7 cm over the slide, facing the
+ * head, drawn over everything): here GEVR_RELOAD_LABEL_UP_CM over the gun
+ * joint along the gun's own up, the letters facing the eye, not depth-tested
+ * (gunfire.c gevrDrawViewTagOverlay). Red: empty; blue, the missing-magazine
+ * guide's colour: a magazine to take or put in; green: in.
+ */
+#define GEVR_RELOAD_LABEL_UP_CM 10.0f
+static Gfx *gevrGexDrawReloadLabel(Gfx *gdl, s32 hand)
+{
+    extern Gfx *gevrDrawViewTagOverlay(Gfx *gdl, const char *name, const f32 at[3], f32 k, u32 panel);
+    static const char *const text[GEVR_RELOAD_LABEL_COUNT] = {
+        NULL, "EMPTY: EJECT B/Y", "NO AMMO", "MAG OUT: GRAB ONE", "INSERT MAGAZINE", "MAG IN: PULL", "MAG IN" };
+    static const u32 panel[GEVR_RELOAD_LABEL_COUNT] = {
+        0, 0xB02020C0, 0xB02020C0, 0x2878A8C0, 0x2878A8C0, 0x209040C0, 0x209040C0 };
+    const s32 label = gevrReloadLabel(hand);
+    const Mtxf *gun = &s_gevrGexLastGun[hand];
+    const f32 up = sqrtf(gun->m[1][0] * gun->m[1][0] + gun->m[1][1] * gun->m[1][1] + gun->m[1][2] * gun->m[1][2]);
+    f32 at[3];
+    s32 i;
+    if (label <= GEVR_RELOAD_LABEL_NONE || label >= GEVR_RELOAD_LABEL_COUNT || !s_gevrGexLastValid[hand]
+        || up < 1e-6f || D_800364CC < 1e-6f) return gdl;
+    for (i = 0; i < 3; i++)
+        at[i] = gun->m[3][i] + gun->m[1][i] / up * GEVR_RELOAD_LABEL_UP_CM * D_800364CC;
+    if (at[2] > -5.0f * D_800364CC) return gdl;   /* behind the eye */
+    return gevrDrawViewTagOverlay(gdl, text[label], at, 0.1f * D_800364CC, panel[label]);
+}
+
 Gfx *gevrGexDrawReloadGuide(Gfx *gdl, ModelRenderData *templ, s32 hand)
 {
     extern Gfx *gevrDrawInteractionRing(Gfx *gdl, const f32 at[3], f32 radius, u32 rgba);
@@ -2208,7 +2239,7 @@ Gfx *gevrGexDrawReloadGuide(Gfx *gdl, ModelRenderData *templ, s32 hand)
             (hover ? GEVR_RELOAD_READY_TINT : GEVR_RELOAD_TINT) | 0x50);
     if (hover)
         gdl = gevrDrawInteractionRing(gdl, well, 3.0f, GEVR_RELOAD_READY_TINT | 0xE0);
-    return gdl;
+    return gevrGexDrawReloadLabel(gdl, hand);
 }
 
 /* a joint's matrix without scale, undone: rotation transposed, translation turned back */
