@@ -265,6 +265,7 @@ final class LogReporter {
                 if (code < 200 || code >= 300) throw new Exception("Server returned HTTP " + code);
                 state = "sent";
                 crash = null;
+                unexpectedExit = false;   // reported: a later debug log is not that crash again
             } finally { connection.disconnect(); }
         } catch (Exception e) {
             Log.w(TAG, "Report failed", e);

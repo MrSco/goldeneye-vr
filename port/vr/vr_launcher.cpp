@@ -973,18 +973,31 @@ static void gevrReportPage(bool &open, bool crash, const ImVec4 &gold, const ImV
     ImGui::TextWrapped("Optional note (what happened just before the problem):");
     ImGui::InputTextMultiline("##reportnote", note, sizeof(note), ImVec2(-1, ImGui::GetTextLineHeight() * 4));
     ImGui::Spacing();
-    if (status != "sending" && ImGui::Button("Send", ImVec2(-1, 0))) {
+    /*
+     * One report per send: after "Sent", Send stays away until the note
+     * changes (another problem to tell of) or the page is left. A second press
+     * sent the same report again (reports #27 and #28, 2026-11-14).
+     */
+    static std::string sentNote;
+    static bool sentOnce = false;
+    const bool alreadySent = sentOnce && status != "sending" && status.rfind("error:", 0) != 0 && sentNote == note;
+    if (status != "sending" && !alreadySent && ImGui::Button("Send", ImVec2(-1, 0))) {
         vrHapticsDumpCTable();
         std::string command = "send|" + gevrEncodeUrl64(note) + "|"
             + gevrEncodeUrl64(VrPlayerName) + "|" + gevrBuildId;
         gevrJavaCommand("reportCommand", command.c_str());
         status = "sending";
+        sentNote = note;
+        sentOnce = true;
     }
     if (status == "sending") ImGui::TextColored(gold, "Sending...");
     else if (status == "sent") ImGui::TextColored(good, "Sent. Thank you.");
     else if (status.rfind("error:", 0) == 0) ImGui::TextColored(bad, "%s", status.c_str() + 6);
     ImGui::Spacing();
-    if (ImGui::Button("Back", ImVec2(-1, 0))) open = false;
+    if (ImGui::Button("Back", ImVec2(-1, 0))) {
+        open = false;
+        sentOnce = false;
+    }
 }
 
 static std::string gevrDecodeUrl64(const std::string &input)

@@ -921,6 +921,10 @@ static s32 inputIosPadKeyIgnored(const u32 scancode)
 }
 #endif
 
+#ifdef GEVR_IOS
+void pcReportForeground(int active);   // port/pc/pc_reports.cpp
+#endif
+
 static int inputEventFilter(void *data, SDL_Event *event)
 {
     extern volatile int g_gevrAppBackgrounded;
@@ -935,10 +939,23 @@ static int inputEventFilter(void *data, SDL_Event *event)
         case SDL_APP_WILLENTERBACKGROUND:
         case SDL_APP_DIDENTERBACKGROUND:
             g_gevrAppBackgrounded = 1;
+#ifdef GEVR_IOS
+            /*
+             * The crash-report marker out of the foreground, as the Quest's
+             * onPause (pc_reports.cpp). iOS ends an app with no exit (atexit
+             * never runs): swiped away in the app switcher, it is killed in the
+             * background, and the marker left set offered a crash report at the
+             * next start (user, iPhone, 2026-11-14).
+             */
+            pcReportForeground(0);
+#endif
             break;
         case SDL_APP_WILLENTERFOREGROUND:
         case SDL_APP_DIDENTERFOREGROUND:
             g_gevrAppBackgrounded = 0;
+#ifdef GEVR_IOS
+            pcReportForeground(1);
+#endif
             break;
 
         case SDL_CONTROLLERDEVICEADDED:

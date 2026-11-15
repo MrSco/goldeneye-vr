@@ -408,6 +408,7 @@ private:
             std::lock_guard<std::mutex> lock(lock_);
             state_ = "sent";
             hasCrash_ = false;
+            unexpectedExit_ = false;   // reported: a later debug log is not that crash again
         } catch (const HttpError &e) {
             sysLogPrintf(1, "reports: report failed: %s", e.message.c_str());
             setState("error:" + e.message);
