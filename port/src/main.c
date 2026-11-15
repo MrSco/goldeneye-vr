@@ -381,6 +381,12 @@ int main(int argc, const char **argv)
 
 #ifdef GEVR_PC
     SDL_SetMainReady();   /* SDL_MAIN_HANDLED: this is the program's own main */
+#if defined(_WIN32) && !defined(GEVR_IOS)
+    {
+        extern void pcConsoleInit(void);   /* port/pc/pc_console.c: a Windows program, no console */
+        pcConsoleInit();
+    }
+#endif
     /* The log is stdout. Windows' C runtime buffers _IOLBF like _IOFBF, so a
      * crash lost its last lines: unbuffered instead. */
     setvbuf(stdout, NULL, _IONBF, 0);
