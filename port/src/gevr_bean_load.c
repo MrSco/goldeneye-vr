@@ -1439,6 +1439,181 @@ done:
 	free(l.item);
 }
 
+/* DAB gebeanstage.c paintUnlit() (cc90f36, port/licenses/dabs-mod.txt):
+ * triangles whose three corners are opaque black where the level round them
+ * is lit. Rare baked no light into a few faces they did not expect to be
+ * seen, and the release draws them solid black: in Aztec a block filling a
+ * wall's corner at the top of a shaft drew a black L across the corner (DAB
+ * F3 20260929-055243), and beside the shuttle bay a black slab stood on the
+ * wall (user report, 2026-11-15). Such a face takes the light of the nearest
+ * lit face (one in its own plane, facing its way, before any other); one with
+ * no picture laid on it (the same UV at every corner) takes that face's
+ * picture too, carried on across it. A picture black on much of its use is
+ * dark on purpose (Aztec's pit, a recess), and so is a cut-out under a cast
+ * shadow (markLevelShadows()). A plain face it lights is flagged: the stage
+ * puts its black back where GoldenEye's own surface is dark too
+ * (gevr_bean_world.c). Before the decals are matched, as in DAB.
+ *
+ * Plain faces (no UV, no picture of their own) are asked after the decals
+ * are matched (plainPass): lit and carried on, Aztec's slab beside the
+ * shuttle bay was the wall's own picture in the wall's plane, matched as no
+ * decal, and once the plain face lost the picture again (fixPlainLevelFaces)
+ * it fought the wall in grey (user, 2026-11-15). A black plain face that is
+ * a decal lies on a whole surface: it is only flagged, and the stage leaves
+ * it out where GoldenEye's surface is lit, as DAB leaves out the white plain
+ * decals (fixPlainLevelFaces()), and keeps it black where that is dark. */
+#define UNLIT_SHARE 0.05f   /* a picture black on more than this share of its faces is dark on purpose */
+#define UNLIT_REACH 400.0f  /* how far a lit face is looked for, in DAB's units (the file's x the level's scale) */
+
+static const float (*s_unlitMid)[3];
+
+static int unlitCmp(const void *a, const void *b)
+{
+	const float xa = s_unlitMid[*(const int *)a][0], xb = s_unlitMid[*(const int *)b][0];
+	return (xa > xb) - (xa < xb);
+}
+
+static int unlitBlack(const struct gevrBeanTri *t)
+{
+	for (int k = 0; k < 3; k++)
+		if (t->rgba[k * 4] || t->rgba[k * 4 + 1] || t->rgba[k * 4 + 2] || t->rgba[k * 4 + 3] != 255)
+			return 0;
+	return 1;
+}
+
+static float unlitNormal(const float *p, float n[3])
+{
+	const float e1[3] = { p[3] - p[0], p[4] - p[1], p[5] - p[2] };
+	const float e2[3] = { p[6] - p[0], p[7] - p[1], p[8] - p[2] };
+	n[0] = e1[1] * e2[2] - e1[2] * e2[1];
+	n[1] = e1[2] * e2[0] - e1[0] * e2[2];
+	n[2] = e1[0] * e2[1] - e1[1] * e2[0];
+	const float len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+	if (len > 0)
+		for (int k = 0; k < 3; k++) n[k] /= len;
+	return len * 0.5f;
+}
+
+static int paintLevelUnlit(struct gevrBeanMesh *mesh, const uint8_t *pass, int npass, const uint8_t *texAlpha,
+		float scale, int plainPass)
+{
+	const int num = mesh->ntris;
+	int *total = calloc(MAX_TEX + 1, sizeof(int)), *black = calloc(MAX_TEX + 1, sizeof(int));
+	float (*mid)[3] = malloc(sizeof(*mid) * (num ? num : 1));
+	int *byx = malloc(sizeof(int) * (num ? num : 1));
+	int painted = 0;
+	/* DAB's distances are in the file's units times the level's scale */
+	const float reach = UNLIT_REACH / scale, plane = 1.0f / scale;
+	if (!total || !black || !mid || !byx) {
+		free(total);
+		free(black);
+		free(mid);
+		free(byx);
+		return 0;
+	}
+	for (int t = 0; t < num; t++) {
+		const struct gevrBeanTri *tri = &mesh->tris[t];
+		const int slot = tri->tex >= 0 && tri->tex < MAX_TEX ? tri->tex : MAX_TEX;
+		for (int j = 0; j < 3; j++)
+			mid[t][j] = (tri->p[j] + tri->p[3 + j] + tri->p[6 + j]) / 3.0f;
+		total[slot]++;
+		if (unlitBlack(tri))
+			black[slot]++;
+		byx[t] = t;
+	}
+	/* faces in order along x, so that only those within reach are looked at */
+	s_unlitMid = (const float (*)[3])mid;
+	qsort(byx, num, sizeof(int), unlitCmp);
+	for (int t = 0; t < num; t++) {
+		struct gevrBeanTri *tri = &mesh->tris[t];
+		const int slot = tri->tex >= 0 && tri->tex < MAX_TEX ? tri->tex : MAX_TEX;
+		const int bare = tri->uv[0] == tri->uv[2] && tri->uv[0] == tri->uv[4]
+			&& tri->uv[1] == tri->uv[3] && tri->uv[1] == tri->uv[5];
+		const int alpha = tri->tex >= 0 && tri->tex < MAX_TEX && texAlpha[tri->tex];
+		float n[3], best = reach * reach;
+		int from = -1;
+		if (!unlitBlack(tri) || !(tri->flags & GEVR_BEAN_F_PLAIN) != !plainPass
+				|| (!bare && black[slot] > total[slot] * UNLIT_SHARE) || alpha
+				|| unlitNormal(tri->p, n) <= 0.0f)
+			continue;
+		if (plainPass && (tri->flags & GEVR_BEAN_F_DECAL)) {
+			tri->flags |= GEVR_BEAN_F_UNLITPLAIN;
+			painted++;
+			continue;
+		}
+		/* the nearest lit face; one in the same plane, facing the same way,
+		 * before any other, whose picture then carries straight on */
+		for (int round = 0; round < 2 && from < 0; round++) {
+			int lo = 0, hi = num;
+			while (lo < hi) {
+				const int m = (lo + hi) / 2;
+				if (mid[byx[m]][0] < mid[t][0] - reach)
+					lo = m + 1;
+				else
+					hi = m;
+			}
+			for (int i = lo; i < num && mid[byx[i]][0] <= mid[t][0] + reach; i++) {
+				const int u = byx[i];
+				const struct gevrBeanTri *o = &mesh->tris[u];
+				const float d[3] = { mid[u][0] - mid[t][0], mid[u][1] - mid[t][1], mid[u][2] - mid[t][2] };
+				const float dist = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+				float no[3];
+				if (u == t || dist >= best || unlitBlack(o) || o->tex < 0 || (o->tex < MAX_TEX && texAlpha[o->tex])
+						|| (u < npass && (pass[u] & LDECAL_PASS_BLEND)) || unlitNormal(o->p, no) <= 0.0f)
+					continue;
+				if (round == 0) {
+					const float off[3] = { o->p[0] - tri->p[0], o->p[1] - tri->p[1], o->p[2] - tri->p[2] };
+					if (n[0] * no[0] + n[1] * no[1] + n[2] * no[2] < 0.99f
+							|| fabsf(off[0] * n[0] + off[1] * n[1] + off[2] * n[2]) > plane)
+						continue;
+				}
+				best = dist;
+				from = u;
+			}
+		}
+		if (from < 0)
+			continue;
+		const struct gevrBeanTri *o = &mesh->tris[from];
+		if (bare && !plainPass) {
+			/* o's picture laid on as o has it: each corner put in o's plane
+			 * and given the UV o's own corners make there */
+			float e1[3], e2[3];
+			for (int j = 0; j < 3; j++) {
+				e1[j] = o->p[3 + j] - o->p[j];
+				e2[j] = o->p[6 + j] - o->p[j];
+			}
+			const float d00 = e1[0] * e1[0] + e1[1] * e1[1] + e1[2] * e1[2];
+			const float d01 = e1[0] * e2[0] + e1[1] * e2[1] + e1[2] * e2[2];
+			const float d11 = e2[0] * e2[0] + e2[1] * e2[1] + e2[2] * e2[2];
+			const float den = d00 * d11 - d01 * d01;
+			if (den == 0.0f)
+				continue;
+			for (int k = 0; k < 3; k++) {
+				const float p[3] = { tri->p[k * 3] - o->p[0], tri->p[k * 3 + 1] - o->p[1], tri->p[k * 3 + 2] - o->p[2] };
+				const float d20 = p[0] * e1[0] + p[1] * e1[1] + p[2] * e1[2];
+				const float d21 = p[0] * e2[0] + p[1] * e2[1] + p[2] * e2[2];
+				const float v = (d11 * d20 - d01 * d21) / den, w = (d00 * d21 - d01 * d20) / den;
+				for (int j = 0; j < 2; j++)
+					tri->uv[k * 2 + j] = o->uv[j] + v * (o->uv[2 + j] - o->uv[j]) + w * (o->uv[4 + j] - o->uv[j]);
+			}
+			tri->tex = o->tex;
+		}
+		for (int j = 0; j < 3; j++) {
+			const int c = (o->rgba[j] + o->rgba[4 + j] + o->rgba[8 + j]) / 3;
+			for (int k = 0; k < 3; k++)
+				tri->rgba[k * 4 + j] = (uint8_t)c;
+		}
+		if (tri->flags & GEVR_BEAN_F_PLAIN)
+			tri->flags |= GEVR_BEAN_F_UNLITPLAIN;
+		painted++;
+	}
+	free(byx);
+	free(total);
+	free(black);
+	free(mid);
+	return painted;
+}
+
 /* DAB gebeanLevelTriangles()/gebeanstage.c (aae28c8): a draw without UVs
  * or a material since its vertex shader was set has no picture of its own.
  * Bunker's helipad has 107 white triangles shaded entirely by that shader.
@@ -2752,8 +2927,16 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		free(tris);
 	}
 	if (levelFade) {
+		const int unlit = paintLevelUnlit(mesh, triPass, passCap < mesh->ntris ? passCap : mesh->ntris, texAlpha,
+		                                 levelDecalScale(source), 0);
+		if (unlit)
+			GEVR_BEAN_LOG("gevr bean: %s: %d black faces given the light of the lit faces beside them\n", source, unlit);
 		markLevelDecals(mesh, triPass, passCap < mesh->ntris ? passCap : mesh->ntris, texAlpha,
 		                levelDecalScale(source));
+		const int unlitPlain = paintLevelUnlit(mesh, triPass, passCap < mesh->ntris ? passCap : mesh->ntris, texAlpha,
+		                                      levelDecalScale(source), 1);
+		if (unlitPlain)
+			GEVR_BEAN_LOG("gevr bean: %s: %d black faces of draws with no UV or picture lit or (decals) flagged\n", source, unlitPlain);
 		mesh->shadows = markLevelShadows(mesh, triPass, passCap < mesh->ntris ? passCap : mesh->ntris,
 		                                 texAlpha, texSoft);
 		const int posters = fixFlatPosters(mesh);
