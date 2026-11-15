@@ -24,19 +24,31 @@ Python 3.8+, standard library only.
 """
 
 import base64
+import hashlib
 import json
 import os
 import queue
 import signal
+import socket
+import ssl
 import subprocess
 import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 BASE = os.environ.get("GEVR_LOBBY_URL", "https://lobbies.goldeneyevr.com/v1/lobbies")
 AGENT = "GEVR-Server/1"
+# Push signaling (the Worker's /socket): join requests arrive at once and the heartbeat
+# rides the socket, so a server waiting for players makes no HTTP requests. Polling is
+# the fallback, as in LobbyClient.java.
+SOCKET_BASE = BASE.replace("https://", "wss://", 1).replace("http://", "ws://", 1)
+SOCKET_RETRY = 60     # s after a failed or dropped socket
+SOCKET_PING = 30      # s; the Worker answers "ping" without waking
+SOCKET_SILENCE = 75   # s heard nothing: the socket is dead
+STATE_REPLY = 10      # s a heartbeat may go unanswered before HTTP takes over
 
 
 def log(message):
@@ -83,15 +95,148 @@ def http(method, url, data=None, token=""):
     return json.loads(raw) if raw else {}
 
 
+class PushSocket:
+    """The lobby Worker's push signaling socket (LobbySocket.java): an RFC 6455 client
+    for text frames. Its reader thread puts ("message", self, text) and, once,
+    ("closed", self, why) on the inbox; the bridge's loop handles them."""
+
+    GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+    MAX_MESSAGE = 65536
+
+    def __init__(self, url, token, inbox, timeout=5):
+        parts = urllib.parse.urlsplit(url)
+        tls = parts.scheme == "wss"
+        conn = socket.create_connection((parts.hostname, parts.port or (443 if tls else 80)), timeout=timeout)
+        try:
+            if tls:
+                conn = ssl.create_default_context().wrap_socket(conn, server_hostname=parts.hostname)
+            key = base64.b64encode(os.urandom(16)).decode("ascii")
+            path = parts.path + ("?" + parts.query if parts.query else "")
+            host = parts.hostname + (":%d" % parts.port if parts.port else "")
+            conn.sendall(("GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                          "Sec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\nAuthorization: Bearer %s\r\n"
+                          "User-Agent: %s\r\n\r\n" % (path, host, key, token, AGENT)).encode("utf-8"))
+            self.reader = conn.makefile("rb")
+            status = self.reader.readline(8192)
+            accept = None
+            while True:
+                line = self.reader.readline(8192)
+                if line in (b"\r\n", b"\n", b""):
+                    break
+                name, _, value = line.decode("latin-1").partition(":")
+                if name.strip().lower() == "sec-websocket-accept":
+                    accept = value.strip()
+            if not status.startswith(b"HTTP/1.1 101"):
+                raise OSError("upgrade refused: %s" % status.decode("latin-1").strip())
+            if accept != base64.b64encode(hashlib.sha1((key + self.GUID).encode("ascii")).digest()).decode("ascii"):
+                raise OSError("bad upgrade reply")
+            conn.settimeout(SOCKET_SILENCE)
+        except BaseException:
+            conn.close()
+            raise
+        self.conn = conn
+        self.inbox = inbox
+        self.lock = threading.Lock()         # one frame written at a time
+        self.state_lock = threading.Lock()   # closed() goes on the inbox once
+        self.done = False
+        threading.Thread(target=self.read, daemon=True).start()
+
+    def send(self, text):
+        self.write(0x1, text.encode("utf-8"))
+
+    def close(self):
+        if self.done:
+            return
+        try:
+            self.write(0x8, b"\x03\xe8")   # 1000, normal
+        except OSError:
+            pass
+        self.finish("closed here")
+
+    def write(self, opcode, payload):
+        if self.done:
+            raise OSError("socket closed")
+        n = len(payload)
+        head = bytes([0x80 | opcode]) + (bytes([0x80 | n]) if n < 126 else bytes([0x80 | 126, n >> 8, n & 0xFF]))
+        mask = os.urandom(4)
+        frame = head + mask + bytes(b ^ mask[i & 3] for i, b in enumerate(payload))
+        try:
+            with self.lock:
+                self.conn.sendall(frame)
+        except OSError as e:
+            self.finish("send failed: %s" % e)
+            raise
+
+    def exactly(self, n):
+        data = self.reader.read(n)
+        if data is None or len(data) < n:
+            raise EOFError("connection ended")
+        return data
+
+    def read(self):
+        text = b""
+        try:
+            while not self.done:
+                b0, b1 = self.exactly(2)
+                opcode, length = b0 & 0x0F, b1 & 0x7F
+                if length == 126:
+                    length = int.from_bytes(self.exactly(2), "big")
+                elif length == 127:
+                    length = int.from_bytes(self.exactly(8), "big")
+                if length > self.MAX_MESSAGE:
+                    raise OSError("frame too large")
+                mask = self.exactly(4) if b1 & 0x80 else None
+                payload = self.exactly(length) if length else b""
+                if mask:
+                    payload = bytes(b ^ mask[i & 3] for i, b in enumerate(payload))
+                if opcode in (0x0, 0x1):
+                    text += payload
+                    if len(text) > self.MAX_MESSAGE:
+                        raise OSError("message too large")
+                    if b0 & 0x80:
+                        self.inbox.put(("message", self, text.decode("utf-8")))
+                        text = b""
+                elif opcode == 0x8:
+                    code = int.from_bytes(payload[:2], "big") if len(payload) >= 2 else 1005
+                    try:
+                        self.write(0x8, payload[:2])
+                    except OSError:
+                        pass
+                    self.finish("closed by the service: %d %s" % (code, payload[2:].decode("utf-8", "replace")))
+                    return
+                elif opcode == 0x9:
+                    self.write(0xA, payload)
+            self.finish("closed")
+        except EOFError:
+            self.finish("connection ended")
+        except Exception as e:
+            self.finish(str(e) or type(e).__name__)
+
+    def finish(self, why):
+        with self.state_lock:
+            if self.done:
+                return
+            self.done = True
+        try:
+            self.conn.close()
+        except OSError:
+            pass
+        self.inbox.put(("closed", self, why))
+
+
 class Lobby:
     """LobbyClient.java's host side, driven by the server's commands."""
 
     def __init__(self, send, key=""):
         self.send = send   # an event line to the server
         self.key = key     # the server key ("": an ordinary lobby)
+        self.push = None   # the push socket, None while polling
+        self.inbox = queue.Queue()
         self.forget()
 
     def forget(self):
+        self.close_socket()
+        self.next_socket_try = 0.0
         self.code = ""
         self.token = ""
         self.name = ""
@@ -178,6 +323,64 @@ class Lobby:
         self.send("LOBBY_LOST|%s|%s" % (code, clean(e)))
         return True
 
+    def open_socket(self):
+        try:
+            self.push = PushSocket("%s/%s/socket" % (SOCKET_BASE, self.code), self.token, self.inbox)
+            self.last_ping = time.monotonic()
+            log("lobby socket open")
+        except Exception as e:
+            log("lobby socket unavailable, polling instead: %s" % e)
+            self.push = None
+            self.next_socket_try = time.monotonic() + SOCKET_RETRY
+
+    def close_socket(self):
+        push, self.push = self.push, None
+        self.state_sent_at = 0.0
+        if push is not None:
+            push.close()
+
+    def drop_socket(self, why):
+        log("lobby socket closed (%s); polling, socket again in %d s" % (why, SOCKET_RETRY))
+        self.close_socket()
+        self.next_socket_try = time.monotonic() + SOCKET_RETRY
+        self.next_heartbeat = self.next_requests = 0   # the last heartbeat may not have landed
+
+    def request(self, id_, offer):
+        if id_ in self.seen:
+            return
+        self.seen.add(id_)
+        log("join request %s" % id_)
+        self.send("HOST_PEER|%s|%s|%s" % (id_, encode(offer), self.relay()))
+
+    def pump(self):
+        """The push socket's messages, on the bridge's loop (as LobbyClient's worker thread)."""
+        while True:
+            try:
+                kind, push, payload = self.inbox.get_nowait()
+            except queue.Empty:
+                return
+            if push is not self.push:
+                continue   # an old socket's
+            if kind == "closed":
+                self.drop_socket(payload)
+                continue
+            if payload == "pong":
+                continue
+            try:
+                message = json.loads(payload)
+                if message.get("type") == "request":
+                    self.request(message["id"], message["offer"])
+                elif message.get("type") == "state":
+                    self.state_sent_at = 0.0
+                    status = int(message.get("status", 200))
+                    if status >= 400:
+                        e = HttpError(status, message.get("error", "HTTP %d" % status))
+                        if not self.lost(e):
+                            log("Lobby service: %s" % e)
+                            self.send("ERROR|" + clean("Lobby service: %s" % e))
+            except Exception as e:
+                log("lobby socket message ignored: %s" % e)
+
     def relay(self):
         """TURN credentials for a joiner; empty (direct only) if refused."""
         try:
@@ -192,12 +395,18 @@ class Lobby:
         now = time.monotonic()
         try:
             if now - self.last_keepalive > 60:
+                self.close_socket()
+                self.next_socket_try = 0.0
                 return   # the server stopped talking; it is restarting or gone
             if self.pending is not None:
                 self.register()
             if not self.code:
                 return
-            if now >= self.next_heartbeat:
+            if self.push is None and now >= self.next_socket_try:
+                self.open_socket()
+            if self.push is not None and self.state_sent_at and time.monotonic() - self.state_sent_at > STATE_REPLY:
+                self.drop_socket("a heartbeat went unanswered")
+            if time.monotonic() >= self.next_heartbeat:
                 state = {"players": self.players, "open": self.open, "phase": self.phase,
                          "maxPlayers": self.max_players}
                 if self.vr_only is not None:
@@ -206,14 +415,30 @@ class Lobby:
                     state["flatPlayers"] = min(self.flat_players, self.players)
                 if self.name:
                     state["name"] = self.name
-                try:
-                    http("PUT", "%s/%s" % (BASE, self.code), state, self.token)
-                except HttpError as e:
-                    if self.lost(e):
-                        return
-                    raise
+                sent = False
+                if self.push is not None:
+                    try:
+                        self.push.send(json.dumps(dict(state, type="state")))
+                        self.state_sent_at = time.monotonic()
+                        sent = True
+                    except OSError as e:
+                        self.drop_socket(str(e))
+                if not sent:
+                    try:
+                        http("PUT", "%s/%s" % (BASE, self.code), state, self.token)
+                    except HttpError as e:
+                        if self.lost(e):
+                            return
+                        raise
                 self.next_heartbeat = time.monotonic() + 15
-            if self.open and time.monotonic() >= self.next_requests:
+            if self.push is not None and time.monotonic() - self.last_ping >= SOCKET_PING:
+                self.last_ping = time.monotonic()
+                try:
+                    self.push.send("ping")
+                except OSError:
+                    pass   # its "closed" follows and polling resumes
+            # With a socket the Worker sends each request itself (the pending ones on connect).
+            if self.push is None and self.open and time.monotonic() >= self.next_requests:
                 try:
                     requests = http("GET", "%s/%s/joins" % (BASE, self.code), None, self.token)["requests"]
                 except HttpError as e:
@@ -222,11 +447,7 @@ class Lobby:
                     raise
                 self.next_requests = time.monotonic() + (4 if self.phase == "waiting" else 10)
                 for request in requests:
-                    if request["id"] in self.seen:
-                        continue
-                    self.seen.add(request["id"])
-                    log("join request %s" % request["id"])
-                    self.send("HOST_PEER|%s|%s|%s" % (request["id"], encode(request["offer"]), self.relay()))
+                    self.request(request["id"], request["offer"])
             self.last_error = ""
         except Exception as e:
             message = "Lobby service: %s" % e
@@ -293,6 +514,7 @@ def run_server(argv, public, stopping, key):
             pass
         if stopping.is_set() and server.poll() is None:
             server.send_signal(signal.SIGTERM)
+        lobby.pump()
         if time.monotonic() >= next_poll:
             lobby.poll()
             next_poll = time.monotonic() + 2
