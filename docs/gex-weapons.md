@@ -125,6 +125,11 @@ fields (KF7 13, -23, -27; PP7 8, -19, -26).
   where the magazine is and the next step: EMPTY (red), MAG OUT / INSERT
   MAGAZINE (blue), MAG IN while the off hand holds it and for a second
   after one seats (green); none while loaded (gun.c gevrGexDrawReloadLabel).
+- A rig with PD's slide part (MODELPART_GUN_SLIDE 0x33: the PP7s, DD44)
+  moves it by GoldenEye's own slide (field_A88, the gun's BoltRecoilBack),
+  as GoldenEye and PD do: back on each shot, locked open on the last round,
+  closed once a loaded magazine is in (no rack then). Guns with no bolt stat
+  or no slide part keep theirs still (gun.c gevrGexSlideTo).
 - Gun fit keeps GE-X's own gun, grip and scope fits, and adds modes (X):
   reload (where the magazine is taken, the belt), off hand (its palm;
   holding the right grip, the watch) and, holding with both hands, where

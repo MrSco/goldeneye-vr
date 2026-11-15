@@ -1277,6 +1277,56 @@ static const GexWeaponDef *gevrGexForHeader(ModelFileHeader *hdr)
     return gevrGexWeaponForHand(GUNRIGHT);
 }
 
+/*
+ * The slide (user: it never stayed back on an empty gun). GoldenEye moves its
+ * own model's slide (gunfire.c, Switches[7]) back by the gun's BoltRecoilBack on
+ * each shot, and leaves it back while the magazine is empty (sub_GAME_7F05E83C);
+ * Perfect Dark moves a rig's MODELPART_GUN_SLIDE the same way by the same stat
+ * (pdvr bondgun.c bgunUpdateSlide; Dab's Mod gegunsOwnModelSlide). A GE-X rig
+ * with that part gets GoldenEye's own slide: those whose gun has a bolt stat (the
+ * PP7s and the DD44) cycle on each shot, lock open on the last round and close
+ * once a loaded magazine is in. The rest have no slide part or no stat.
+ */
+#define GEVR_PD_PART_GUN_SLIDE 0x33   /* PD's MODELPART_GUN_SLIDE, a position */
+static s8 s_gevrGexSlide[ITEM_IDS_MAX];   /* per item: its rig's slide matrix + 1; -1 none, 0 not looked up */
+extern void sub_GAME_7F05E83C(GUNHAND hand);
+
+static s32 gevrGexSlideMatrix(const GexWeaponDef *def)
+{
+    return def != NULL && def->item >= 0 && def->item < ITEM_IDS_MAX ? s_gevrGexSlide[def->item] - 1 : -1;
+}
+
+/* the slide is back: locked open on an empty magazine, or still closing after a shot */
+static s32 gevrGexSlideLocked(const GexWeaponDef *def, s32 hand)
+{
+    return gevrGexSlideMatrix(def) > def->gunMatrix && g_CurrentPlayer != NULL && (hand == GUNRIGHT || hand == GUNLEFT)
+        && g_CurrentPlayer->hands[hand].field_A88 > 0.0f;
+}
+
+/* The slide at GoldenEye's field_A88, back along its own z, as gunfire.c moves
+ * GoldenEye's. A reload clip or the ready motion poses the slide itself (clip). */
+static void gevrGexSlideTo(const GexWeaponDef *def, ModelFileHeader *hdr, Mtxf *rwmtx, GUNHAND hand, s32 clip)
+{
+    const s32 m = gevrGexSlideMatrix(def);
+    f32 back;
+    s32 i;
+
+    if (m <= def->gunMatrix || m >= hdr->numMatrices || g_CurrentPlayer == NULL || (hand != GUNRIGHT && hand != GUNLEFT))
+    {
+        return;
+    }
+    sub_GAME_7F05E83C(hand);
+    back = g_CurrentPlayer->hands[hand].field_A88;
+    if (clip || back <= 0.0f)
+    {
+        return;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        rwmtx[m].m[3][i] -= back * rwmtx[m].m[2][i];
+    }
+}
+
 /* Weapon definitions own the appended part switches and texture mapping.
  * Original GoldenEye switch indices stay clear for cuffs and gun logic. */
 static void gevrGexGunPrepare(GUNHAND hand, ITEM_IDS item, ModelFileHeader *hdr)
@@ -1310,6 +1360,11 @@ static void gevrGexGunPrepare(GUNHAND hand, ITEM_IDS item, ModelFileHeader *hdr)
     }
     for (i = 0; i < def->numParts; i++) parts[n + i] = def->parts[i];
     gevrGexPendingFile = gevrGexBuildModel(def->model, n + def->numParts, parts, def->texturePairs, &len, &mtx, &tex);
+    if (gevrGexPendingFile != NULL && def->item >= 0 && def->item < ITEM_IDS_MAX && s_gevrGexSlide[def->item] == 0)
+    {
+        s_gevrGexSlide[def->item] = (s8) (gevrGexPartMatrix(def->model, GEVR_PD_PART_GUN_SLIDE) + 1);
+        if (s_gevrGexSlide[def->item] == 0) s_gevrGexSlide[def->item] = -1;
+    }
     if (gevrGexPendingFile != NULL)
     {
         for (i = 0; i < def->numParts; i++)
@@ -1374,12 +1429,15 @@ static s32 s_gevrGexReloading[MAX_PLAYER_COUNT][2];
 static f32 s_gevrGexReadyFrame[MAX_PLAYER_COUNT][2];
 
 /* Physical insertion readies ammo immediately. PP7 retains GE-X's receiver
- * motion after its ammo frame, without animating either tracked hand. */
+ * motion after its ammo frame, without animating either tracked hand. A slide
+ * locked open closes on the magazine instead (gevrGexSlideTo), as it would on
+ * the slide release. */
 void gevrGexMagazineReady(s32 hand)
 {
     s32 p = get_cur_playernum();
     const GexWeaponDef *def = gevrGexWeaponForHand(hand);
-    if (p >= 0 && p < MAX_PLAYER_COUNT && def != NULL && (def->pistol || def->singleRound) && def->reload.anim > 0)
+    if (p >= 0 && p < MAX_PLAYER_COUNT && def != NULL && (def->pistol || def->singleRound) && def->reload.anim > 0
+        && !gevrGexSlideLocked(def, hand))
         s_gevrGexReadyFrame[p][hand] = def->reload.ammoFrame;
 }
 
@@ -3480,6 +3538,8 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
         if (cookFrame > def->cookEnd) cookFrame = def->cookEnd;
         gevrGexPoseMechanism(hdr, rwmtx, def->cookAnim, cookFrame);
     }
+    gevrGexSlideTo(def, hdr, rwmtx, hand, phase >= 0.0f
+        || (g_gevrStereo && p >= 0 && p < MAX_PLAYER_COUNT && s_gevrGexReadyFrame[p][hand] >= 0.0f));
     /* the fist's hand fit is the headset's gesture hand on the controller: on the
      * screen GE-X's own punches play from its own pose (user: the arm stood up
      * in the air to the right) */

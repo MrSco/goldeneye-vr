@@ -32,6 +32,10 @@ extern "C" {
 u8 *gevrGexBuildModel(const char *pdname, u32 numSwitches, const s32 *switchParts,
 		const u16 *texturePairs, u32 *outLen, u16 *outMatrices, u16 *outTextures);
 
+/* The matrix of PD model part `part` (a position node, as MODELPART_GUN_SLIDE),
+ * or -1: the model has no such part, or the ROM is missing. */
+s32 gevrGexPartMatrix(const char *pdname, s32 part);
+
 /* A mapped id's compressed GE-X texture, or NULL for any other id. */
 const u8 *gevrGexTextureForId(s32 id, u32 *len);
 

@@ -603,3 +603,30 @@ u8 *gevrGexBuildModel(const char *pdname, u32 numSwitches, const s32 *switchPart
 	free(pd);
 	return out;
 }
+
+s32 gevrGexPartMatrix(const char *pdname, s32 part)
+{
+	u32 pdLen = 0, k;
+	u8 *pd = gevrGexFileLoad(pdname, &pdLen);
+	s32 mtx = -1;
+
+	if (pd != NULL && pdLen >= 0x1c) {
+		const u32 parts = OFS(rd32(pd + 8));
+		const u16 numparts = rd16(pd + 0xc);
+
+		for (k = 0; k < numparts && parts + 6 * (u32)numparts <= pdLen; k++) {
+			if ((s16)rd16(pd + parts + 4 * numparts + 2 * k) == part) {
+				const u32 node = OFS(rd32(pd + parts + 4 * k));
+				const u32 ro = node + 8 <= pdLen ? OFS(rd32(pd + node + 4)) : pdLen;
+
+				/* PD's position: pos, joint, its matrix (modelrodata_position) */
+				if (ro + 0x10 <= pdLen && pd[node + 1] == PD_NODE_POSITION) {
+					mtx = (s16)rd16(pd + ro + 0x0e);
+				}
+				break;
+			}
+		}
+	}
+	free(pd);
+	return mtx;
+}

@@ -119,6 +119,7 @@ static Gfx *gevrRenderBeanGripArm(Gfx *gdl, ModelRenderData *rd, s32 *drawn) { (
 /* bondview2.c: the rifle butt held as a bat (none here) */
 static s32 gevrStereoClubBat(s32 hand) { (void)hand; return 0; }
 static s32 gevrGexMagazineFitting(void);
+static s32 gevrGexSlideLocked(const GexWeaponDef *def, s32 hand) { (void)def; (void)hand; return 0; }   /* gun.c: test_slide_lock.py */
 static s32 gevrGexIsHandHeld(const GexWeaponDef *def);
 static void gevrGexHandFitTo(const GexWeaponDef *def, Mtxf *rwmtx, s32 numMatrices);
 s32 gevrStereoOffHandMatrix(Mtxf *out) { *out=offController; return 1; }
@@ -562,6 +563,7 @@ int main(int argc,char **argv) {
     cycleFit(); assert(gevrGunHandFitting && !gevrMuzzleFitting);
     cycleFit(); assert(!gevrGunHandFitting);
     { u32 len; u16 matrices,textures; assert(!gevrGexBuildModel("missing",0,NULL,NULL,&len,&matrices,&textures)); }
+    assert(gevrGexPartMatrix("missing",0x33)==-1);
     if (argc<4) { puts("PASS: registry and production attachment/magazine visibility"); return 0; }
     active=gevrGexWeaponGet(atoi(argv[3])); modelPath=argv[1]; rom=readFile(argv[2],&romSize);
     s_gevrGexFire[0][0]=-1; s_gevrGexReadyFrame[0][0]=-1; s_gevrGexFiring[0][0]=0;
@@ -813,6 +815,13 @@ int main(int argc,char **argv) {
         assert(!memcmp(&poses[38],&before[38],sizeof(Mtxf)));
         assert(!memcmp(&poses[42],&before[42],sizeof(Mtxf)));
         assert(fabsf(poses[37].m[3][2]-before[37].m[3][2])>20);
+    }
+    /* PD's MODELPART_GUN_SLIDE (gun.c gevrGexSlideTo): the pistols' slide is the joint their reload clip racks */
+    {
+        const s32 slide=gevrGexPartMatrix(active->model,0x33);
+        if (active->item==ITEM_WPPK || active->item==ITEM_WPPKSIL || active->item==ITEM_TT33
+            || active->item==ITEM_SILVERWPPK || active->item==ITEM_GOLDWPPK) assert(slide==37);
+        if (active->item==ITEM_AK47 || active->item==ITEM_MP5K || active->item==ITEM_SHOTGUN) assert(slide==-1);
     }
     printf("PASS: %s: %d nodes, %d matrices, host model %u / 61440 bytes, production poses\n",active->model,count,matrices,converted);
     free(host); free(rom); return 0;
