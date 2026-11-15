@@ -47,7 +47,27 @@ using namespace pcnet;   // the JSON, Base64 and HTTPS the PC services share (pc
 
 namespace {
 
-const char *const kBase = "https://lobbies.goldeneyevr.com/v1/lobbies";
+/* GEVR_LOBBY_URL: a test's lobby service (tools/gevr_lobby_bridge.py takes the same). */
+const std::string &base()
+{
+    static const std::string url = envOr("GEVR_LOBBY_URL", "https://lobbies.goldeneyevr.com/v1/lobbies");
+    return url;
+}
+
+/* Push signaling (the Worker's /socket, LobbyClient.java's LobbySocket): offers and
+ * answers arrive at once, and the host's heartbeat rides the socket. Polling is the
+ * fallback whenever there is no socket. */
+std::string socketBase()
+{
+    const std::string &b = base();
+    if (b.rfind("https://", 0) == 0) return "wss://" + b.substr(8);
+    if (b.rfind("http://", 0) == 0) return "ws://" + b.substr(7);
+    return b;
+}
+const long long kSocketRetryMs = 60000;   // after a failed or dropped host socket
+const long long kSocketPingMs = 30000;    // the Worker answers "ping" without waking
+const int kSocketSilenceMs = 75000;       // nothing heard this long: the socket is dead
+const long long kStateReplyMs = 10000;    // a heartbeat unanswered this long: back to HTTP
 
 /* The reply's JSON object; throws HttpError as LobbyClient.http does (status >= 400,
  * the reply's "error" when it has one, status 0 for a network failure). */
@@ -124,7 +144,16 @@ private:
             {
                 std::unique_lock<std::mutex> lock(cmdLock_);
                 cmdWake_.wait_for(lock, std::chrono::milliseconds(std::max(0LL, nextPoll - nowMs())),
-                                  [this] { return !commands_.empty(); });
+                                  [this] { return !commands_.empty() || !socketInbox_.empty(); });
+                if (commands_.empty() && !socketInbox_.empty()) {
+                    SocketEvent ev = std::move(socketInbox_.front());
+                    socketInbox_.pop_front();
+                    lock.unlock();
+                    try { socketEvent(ev); }
+                    catch (const HttpError &e) { error("Lobby service: " + e.message); }
+                    catch (...) { error("Lobby service: failed"); }
+                    continue;
+                }
                 if (!commands_.empty()) {
                     cmd = commands_.front();
                     commands_.pop_front();
@@ -222,7 +251,7 @@ private:
             const int version = atoi(f.size() > 1 ? f[1].c_str() : "0");
             std::string input = f.size() > 2 && !f[2].empty() ? "&inputClass=" + std::to_string(atoi(f[2].c_str())) : "";
             if (f.size() > 3 && f[3] == "1") input += "&hideFlat=1";
-            const std::string reply = http("GET", std::string(kBase) + "?version=" + std::to_string(version) + input, nullptr, "");
+            const std::string reply = http("GET", base() + "?version=" + std::to_string(version) + input, nullptr, "");
             jspan obj, rows, row;
             jsonParse(reply, &obj);
             push("LIST_BEGIN");
@@ -240,6 +269,7 @@ private:
             sysLogPrintf(0, "lobby: %d open games (version %d)", listed, version);
         } else if (c == "join") {
             if (f.size() != 3 && f.size() != 4) return;
+            closeJoinSocket();
             joinId_.clear();
             joinToken_.clear();
             offerSent_ = answerReceived_ = false;
@@ -250,7 +280,7 @@ private:
             std::string body = "{\"version\":" + std::to_string(atoi(f[2].c_str()));
             if (f.size() == 4 && !f[3].empty()) body += ",\"inputClass\":" + std::to_string(atoi(f[3].c_str()));
             body += "}";
-            const std::string reply = http("POST", std::string(kBase) + "/" + requested + "/joins", &body, "");
+            const std::string reply = http("POST", base() + "/" + requested + "/joins", &body, "");
             jspan obj;
             jsonParse(reply, &obj);
             joinId_ = jsonGetStr(obj, "id");
@@ -260,12 +290,14 @@ private:
         } else if (c == "offer") {
             if (f.size() != 2 || joinId_.empty()) return;
             const std::string body = "{\"sdp\":" + q(decode64(f[1])) + "}";
-            http("PUT", std::string(kBase) + "/" + code_ + "/joins/" + joinId_ + "/offer", &body, joinToken_);
+            http("PUT", base() + "/" + code_ + "/joins/" + joinId_ + "/offer", &body, joinToken_);
+            // an answer stored before the socket opens is sent on connect; without a socket, poll
+            joinSocket_ = openSocket(socketBase() + "/" + code_ + "/socket?join=" + joinId_, joinToken_);
             offerSent_ = true;
         } else if (c == "answer") {
             if (f.size() != 3 || !hosting_) return;
             const std::string body = "{\"sdp\":" + q(decode64(f[2])) + "}";
-            http("PUT", std::string(kBase) + "/" + code_ + "/joins/" + f[1] + "/answer", &body, ownerToken_);
+            http("PUT", base() + "/" + code_ + "/joins/" + f[1] + "/answer", &body, ownerToken_);
         }
     }
 
@@ -286,37 +318,57 @@ private:
             }
             if (!pendingCreate_.empty() && keepalive) registerPending();
             if (hosting_ && !code_.empty()) {
-                if (!keepalive) return;
-                if (now >= nextHeartbeat_) {
+                if (!keepalive) {
+                    closeSockets();
+                    return;
+                }
+                if (!hostSocket_ && now >= nextSocketTry_) {
+                    hostSocket_ = openSocket(socketBase() + "/" + code_ + "/socket", ownerToken_);
+                    if (!hostSocket_) nextSocketTry_ = nowMs() + kSocketRetryMs;
+                }
+                if (hostSocket_ && stateSentAt_ > 0 && nowMs() - stateSentAt_ > kStateReplyMs) {
+                    sysLogPrintf(1, "lobby: the socket did not answer a heartbeat; polling again");
+                    dropHostSocket("unanswered");
+                }
+                if (nowMs() >= nextHeartbeat_) {
                     std::string state = "{\"players\":" + std::to_string(players_) + ",\"open\":" + (open_ ? "true" : "false")
                         + ",\"phase\":" + q(phase_) + ",\"maxPlayers\":" + std::to_string(maxPlayers_);
                     if (vrOnly_ >= 0) state += std::string(",\"vrOnly\":") + (vrOnly_ ? "true" : "false");
                     if (flatPlayers_ >= 0) state += ",\"flatPlayers\":" + std::to_string(std::min(flatPlayers_, players_));
                     if (!name_.empty()) state += ",\"name\":" + q(name_);
                     state += "}";
-                    try { http("PUT", std::string(kBase) + "/" + code_, &state, ownerToken_); }
-                    catch (const HttpError &e) { if (lost(e)) return; throw; }
+                    bool sent = false;
+                    if (hostSocket_) {
+                        if (hostSocket_->send("{\"type\":\"state\"," + state.substr(1))) {
+                            stateSentAt_ = nowMs();
+                            sent = true;
+                        } else {
+                            dropHostSocket("send failed");
+                        }
+                    }
+                    if (!sent) {
+                        try { http("PUT", base() + "/" + code_, &state, ownerToken_); }
+                        catch (const HttpError &e) { if (lost(e)) return; throw; }
+                    }
                     nextHeartbeat_ = nowMs() + 15000;
                 }
-                if (open_ && nowMs() >= nextRequests_) {
+                pingSockets();
+                // with a socket the Worker sends each request itself (the pending ones on connect)
+                if (!hostSocket_ && open_ && nowMs() >= nextRequests_) {
                     std::string reply;
-                    try { reply = http("GET", std::string(kBase) + "/" + code_ + "/joins", nullptr, ownerToken_); }
+                    try { reply = http("GET", base() + "/" + code_ + "/joins", nullptr, ownerToken_); }
                     catch (const HttpError &e) { if (lost(e)) return; throw; }
                     nextRequests_ = nowMs() + (phase_ == "waiting" ? 4000 : 10000);
                     jspan obj, reqs, r;
                     jsonParse(reply, &obj);
                     if (jsonGet(obj, "requests", &reqs)) {
-                        for (int i = 0; jsonAt(reqs, i, &r); i++) {
-                            const std::string id = jsonGetStr(r, "id");
-                            if (id.empty() || seenRequests_.count(id)) continue;
-                            push("HOST_PEER|" + id + "|" + encode64(jsonGetStr(r, "offer")) + "|"
-                                 + relayCredentials("{}", ownerToken_));
-                            seenRequests_.insert(id);
-                        }
+                        for (int i = 0; jsonAt(reqs, i, &r); i++) hostPeer(jsonGetStr(r, "id"), jsonGetStr(r, "offer"));
                     }
                 }
+            } else if (!joinId_.empty() && offerSent_ && !answerReceived_ && joinSocket_) {
+                pingSockets();
             } else if (!joinId_.empty() && offerSent_ && !answerReceived_) {
-                const std::string reply = http("GET", std::string(kBase) + "/" + code_ + "/joins/" + joinId_ + "/answer", nullptr, joinToken_);
+                const std::string reply = http("GET", base() + "/" + code_ + "/joins/" + joinId_ + "/answer", nullptr, joinToken_);
                 jspan obj, answer;
                 jsonParse(reply, &obj);
                 if (jsonGet(obj, "answer", &answer) && !jsonIsNull(answer)) {
@@ -334,11 +386,124 @@ private:
         }
     }
 
+    void hostPeer(const std::string &id, const std::string &offer)
+    {
+        if (id.empty() || seenRequests_.count(id)) return;
+        push("HOST_PEER|" + id + "|" + encode64(offer) + "|" + relayCredentials("{}", ownerToken_));
+        seenRequests_.insert(id);
+    }
+
+    struct SocketEvent {
+        std::shared_ptr<WebSocket> from;
+        bool closed;
+        std::string text;   // the message, or why it closed
+    };
+
+    void postSocket(SocketEvent ev)
+    {
+        std::lock_guard<std::mutex> lock(cmdLock_);
+        socketInbox_.push_back(std::move(ev));
+        cmdWake_.notify_one();
+    }
+
+    /* A push socket with its reader thread, or null (and the caller polls). */
+    std::shared_ptr<WebSocket> openSocket(const std::string &url, const std::string &token)
+    {
+#ifdef GEVR_LOBBY_TEST_HTTP
+        if (!getenv("GEVR_LOBBY_URL")) return nullptr;   // the fake service has no socket: poll
+#endif
+        std::string why;
+        std::shared_ptr<WebSocket> socket = webSocketOpen(url, token, kSocketSilenceMs, &why);
+        const bool join = url.find("?join=") != std::string::npos;
+        if (!socket) {
+            sysLogPrintf(1, "lobby: socket unavailable, polling instead: %s", why.c_str());
+            return nullptr;
+        }
+        sysLogPrintf(0, "lobby: socket open (%s)", join ? "join" : "host");
+        lastSocketPing_ = nowMs();
+        std::thread([this, socket] {
+            std::string text, why;
+            while (socket->receive(&text, &why)) postSocket({socket, false, text});
+            postSocket({socket, true, why});
+        }).detach();   // the client lives as long as the process
+        return socket;
+    }
+
+    /* On the worker thread, as everything that touches the lobby state. */
+    void socketEvent(const SocketEvent &ev)
+    {
+        if (!ev.from || (ev.from != hostSocket_ && ev.from != joinSocket_)) return;   // an old socket's
+        if (ev.closed) {
+            if (ev.from == hostSocket_) dropHostSocket(ev.text);
+            else {
+                sysLogPrintf(0, "lobby: join socket closed (%s)", ev.text.c_str());
+                joinSocket_.reset();
+            }
+            return;
+        }
+        if (ev.text == "pong") return;
+        jspan obj;
+        if (!jsonParse(ev.text, &obj)) return;
+        const std::string type = jsonGetStr(obj, "type");
+        if (ev.from == hostSocket_ && type == "request") {
+            hostPeer(jsonGetStr(obj, "id"), jsonGetStr(obj, "offer"));
+        } else if (ev.from == hostSocket_ && type == "state") {
+            stateSentAt_ = 0;
+            const int status = (int)jsonGetInt(obj, "status", 200);
+            if (status >= 400) {
+                const HttpError e{status, jsonGetStr(obj, "error", ("HTTP " + std::to_string(status)).c_str())};
+                if (!lost(e)) error("Lobby service: " + e.message);
+            }
+        } else if (ev.from == joinSocket_ && type == "answer" && !answerReceived_) {
+            push("ANSWER|" + joinId_ + "|" + encode64(jsonGetStr(obj, "answer")));
+            answerReceived_ = true;
+            closeJoinSocket();
+        }
+    }
+
+    void dropHostSocket(const std::string &why)
+    {
+        std::shared_ptr<WebSocket> socket = std::move(hostSocket_);
+        hostSocket_.reset();
+        if (socket) {
+            sysLogPrintf(0, "lobby: socket closed (%s); polling, socket again in %lld s", why.c_str(), kSocketRetryMs / 1000);
+            socket->close();
+        }
+        stateSentAt_ = 0;
+        nextSocketTry_ = nowMs() + kSocketRetryMs;
+        nextHeartbeat_ = nextRequests_ = 0;   // the last heartbeat may not have landed
+    }
+
+    void closeJoinSocket()
+    {
+        std::shared_ptr<WebSocket> socket = std::move(joinSocket_);
+        joinSocket_.reset();
+        if (socket) socket->close();
+    }
+
+    void closeSockets()
+    {
+        std::shared_ptr<WebSocket> socket = std::move(hostSocket_);
+        hostSocket_.reset();
+        if (socket) socket->close();
+        stateSentAt_ = 0;
+        nextSocketTry_ = 0;
+        closeJoinSocket();
+    }
+
+    void pingSockets()
+    {
+        if (nowMs() - lastSocketPing_ < kSocketPingMs) return;
+        lastSocketPing_ = nowMs();
+        if (hostSocket_) hostSocket_->send("ping");   // a failure ends the socket: its reader says so
+        if (joinSocket_) joinSocket_->send("ping");
+    }
+
     /* TURN is a fallback: a refused relay leaves "|" and ICE gathers STUN only. */
     std::string relayCredentials(const std::string &body, const std::string &token)
     {
         try {
-            const std::string reply = http("POST", std::string(kBase) + "/" + code_ + "/turn", &body, token);
+            const std::string reply = http("POST", base() + "/" + code_ + "/turn", &body, token);
             jspan obj;
             jsonParse(reply, &obj);
             return clean(jsonGetStr(obj, "username")) + "|" + clean(jsonGetStr(obj, "credential"));
@@ -352,7 +517,7 @@ private:
     {
         if (pendingCreate_.empty()) return;
         const std::string body = pendingCreate_;
-        const std::string reply = http("POST", kBase, &body, "");
+        const std::string reply = http("POST", base(), &body, "");
         jspan obj;
         jsonParse(reply, &obj);
         code_ = jsonGetStr(obj, "code");
@@ -369,7 +534,7 @@ private:
         pendingCreate_.clear();
         if (hosting_ && !code_.empty()) {
             try {
-                http("DELETE", std::string(kBase) + "/" + code_, nullptr, ownerToken_);
+                http("DELETE", base() + "/" + code_, nullptr, ownerToken_);
                 sysLogPrintf(0, "lobby: removed %s", code_.c_str());
             } catch (const HttpError &e) {
                 if (e.status == 404 || e.status == 410) sysLogPrintf(0, "lobby: %s already gone (HTTP %d)", code_.c_str(), e.status);
@@ -381,6 +546,7 @@ private:
 
     void forget()
     {
+        closeSockets();
         pendingCreate_.clear();
         hosting_ = false;
         phase_ = "waiting";
@@ -408,6 +574,9 @@ private:
     std::mutex eventsLock_, cmdLock_;
     std::condition_variable cmdWake_;
     std::deque<std::string> events_, commands_;
+    std::deque<SocketEvent> socketInbox_;   // under cmdLock_
+    std::shared_ptr<WebSocket> hostSocket_, joinSocket_;
+    long long nextSocketTry_ = 0, lastSocketPing_ = 0, stateSentAt_ = 0;
     bool busy_ = false;
     std::set<std::string> seenRequests_;
     std::string code_, ownerToken_, name_, joinId_, joinToken_, phase_ = "waiting", lastError_, pendingCreate_;

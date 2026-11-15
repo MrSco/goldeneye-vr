@@ -104,7 +104,7 @@ int main()
     {
         LobbyClient &c = *new LobbyClient();   // lives as long as the process, as the game's (its thread is never joined)
         c.command("create|public|A's game|26|1|2|4|1");
-        Call created = waitCall([](const Call &x) { return x.method == "POST" && x.url == kBase; });
+        Call created = waitCall([](const Call &x) { return x.method == "POST" && x.url == base(); });
         CHECK(created.body.find("\"vrOnly\":true") != std::string::npos);
         clearCalls();
         c.command("refresh|1|1|4|0");   // switched off in the lobby: the next heartbeat says so
@@ -113,20 +113,20 @@ int main()
         clearCalls();
         c.command("list|26|3");
         CHECK(waitCall([](const Call &x) { return x.method == "GET" && x.url.find("?version=") != std::string::npos; }).url
-              == std::string(kBase) + "?version=26&inputClass=3");
+              == base() + "?version=26&inputClass=3");
         c.command("list|26");   // the old command
-        CHECK(waitCall([](const Call &x) { return x.method == "GET" && x.url == std::string(kBase) + "?version=26"; }).method == "GET");
+        CHECK(waitCall([](const Call &x) { return x.method == "GET" && x.url == base() + "?version=26"; }).method == "GET");
         clearCalls();
         c.command("join|abcdefgh|26|1");
         Call join = waitCall([](const Call &x) { return x.method == "POST" && x.url.find("/joins") != std::string::npos; });
-        CHECK(join.url == std::string(kBase) + "/ABCDEFGH/joins");
+        CHECK(join.url == base() + "/ABCDEFGH/joins");
         CHECK(join.body == "{\"version\":26,\"inputClass\":1}");
         clearCalls();
         c.command("join|abcdefgh|26");
         CHECK(waitCall([](const Call &x) { return x.method == "POST" && x.url.find("/joins") != std::string::npos; }).body == "{\"version\":26}");
         clearCalls();
         c.command("create|public|A's game|26|1|2|4");   // the old command: no field
-        created = waitCall([](const Call &x) { return x.method == "POST" && x.url == kBase; });
+        created = waitCall([](const Call &x) { return x.method == "POST" && x.url == base(); });
         CHECK(!created.body.empty() && created.body.find("vrOnly") == std::string::npos);
 
         // who plays flat: the host's count with the heartbeat, never above the players;
@@ -143,7 +143,7 @@ int main()
         clearCalls();
         c.command("list|26|0|1");
         CHECK(waitCall([](const Call &x) { return x.method == "GET" && x.url.find("?version=") != std::string::npos; }).url
-              == std::string(kBase) + "?version=26&inputClass=0&hideFlat=1");
+              == base() + "?version=26&inputClass=0&hideFlat=1");
         std::vector<std::string> listed;
         for (int waited = 0; waited < 4000 && (listed.empty() || listed.back() != "LIST_END"); waited += 20) {
             const std::string e = c.event();

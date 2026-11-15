@@ -17,6 +17,7 @@
 #include <vector>
 #include <deque>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <condition_variable>
@@ -92,6 +93,23 @@ HttpReply httpSend(const HttpRequest &r);
  * ghost run (pc_friends.cpp ghost-*) asks for a bigger reply and longer to wait. */
 std::string httpJson(const char *method, const std::string &url, const std::string *body, const std::string &token,
                      size_t maxReply = 65536, int readMs = 5000);
+
+/* ---- WebSocket: the lobby's push signaling (pc_lobby.cpp), text messages only ---- */
+
+class WebSocket {
+public:
+    virtual ~WebSocket() {}
+    virtual bool send(const std::string &text) = 0;   // false: closed or broken
+    /* Blocks for the next text message; false once the socket has ended, why says how.
+     * One thread receives; another may send and close. */
+    virtual bool receive(std::string *text, std::string *why) = 0;
+    virtual void close() = 0;                         // receive then returns false
+};
+
+/* Connects and upgrades a ws:// or wss:// address with "Authorization: Bearer token"
+ * (WinHTTP; libcurl 7.86+ elsewhere). Null, with why, when it cannot: the caller polls.
+ * receive gives up after silenceMs without a frame, so the caller pings inside it. */
+std::shared_ptr<WebSocket> webSocketOpen(const std::string &url, const std::string &token, int silenceMs, std::string *why);
 
 std::string sha256File(const std::string &path);   // lower-case hex, "" if unreadable
 
