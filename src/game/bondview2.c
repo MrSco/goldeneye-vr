@@ -16547,6 +16547,20 @@ Gfx *bondviewRenderWatch(Gfx *gdl)
                 renderdata.gdl = gevrGexArmOnWatch(armdata.gdl, &armdata, matrices);
                 matrix_4x4_7F058C88();
             }
+            else
+            {
+                /*
+                 * Issue #238: GoldenEye's own arm, with its hand patches
+                 * (gevr_handpatch.h), on a cleared depth buffer of its own.
+                 * The N64 drew it without depth, culling and draw order
+                 * enough for an open shell; the patches close the shell and
+                 * are drawn after each node's list, so without depth the
+                 * insides of the fingers and the sleeve painted over the
+                 * outside in the flat game's raise.
+                 */
+                gDPParam(renderdata.gdl++, 0x7E /* G_CLEAR_DEPTH_EXT */, 0);
+                renderdata.zbufferenabled = 1;
+            }
         }
 #endif
         subdraw(&renderdata, (Model *) (&g_CurrentPlayer->something_with_watch_object_instance));
