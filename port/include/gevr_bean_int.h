@@ -16,6 +16,7 @@
 #define GEVR_BEAN_F_ROUND 16   /* the rocket launcher's round in its tube (DAB fpRound) */
 #define GEVR_BEAN_F_PLAIN 32   /* level shader-only draw, no authored picture/UV */
 #define GEVR_BEAN_F_PAINTED 64 /* level face a later blended one hides wholly; the loader leaves it out */
+#define GEVR_BEAN_F_UNLITPLAIN 128 /* a black plain face paintLevelUnlit() lit (DAB unlitplain); the stage may put its black back */
 
 struct gevrBeanTri {
 	float p[9];

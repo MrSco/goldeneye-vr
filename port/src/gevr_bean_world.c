@@ -828,6 +828,43 @@ static int buildStage(int stage)
 	/* the doorways round GoldenEye's doors, then the holes left in the ground,
 	 * before the triangles are dealt to the rooms */
 	fitLevelOpenings(mesh, st);
+	/* DAB gebeanstage.c build() (cc90f36): a black face of a plain draw (no
+	 * UV, no picture of its own) that the loader's paintLevelUnlit() lit is
+	 * black again where GoldenEye's own surface under it is dark too, so the
+	 * black was paint and not light Rare left out (DAB: Bunker's monitor wall).
+	 * DAB's brightness weighs the vertices by the picture's colour; here it
+	 * is the brightest vertex colour, of the triangle within 32 of DAB's units.
+	 * A black plain decal (left black by the loader) lies on a whole surface:
+	 * left out where GoldenEye's is lit (Aztec's slab by the shuttle bay),
+	 * marked painted here and dealt to no room below. */
+	if (s_referenceCount) {
+		const float reach = 32.0f * fileScale / st->scale;
+		int kept = 0, dropped = 0;
+		for (int i = 0; i < mesh->ntris; i++) {
+			struct gevrBeanTri *t = &mesh->tris[i];
+			float c[3], d = reach * reach;
+			int ref = -1;
+			if (!(t->flags & GEVR_BEAN_F_UNLITPLAIN))
+				continue;
+			for (int j = 0; j < 3; j++)
+				c[j] = (t->p[j] + t->p[3 + j] + t->p[6 + j]) * fileScale / 3.0f;
+			roomReferenceNearestTri(0, c, &d, &ref);
+			if (ref >= 0 && s_reference[ref].shade < 4) {
+				for (int k = 0; k < 3; k++)
+					t->rgba[k * 4] = t->rgba[k * 4 + 1] = t->rgba[k * 4 + 2] = 0;
+				kept++;
+			} else if (t->flags & GEVR_BEAN_F_DECAL) {
+				t->flags |= GEVR_BEAN_F_PAINTED;
+				dropped++;
+			}
+		}
+		if (dropped)
+			GEVR_BEAN_LOG("gevr bean: %s: %d black decals of draws with no UV or picture left out over GoldenEye's lit surface\n",
+			              st->bg, dropped);
+		if (kept)
+			GEVR_BEAN_LOG("gevr bean: %s: %d black faces of draws with no UV or picture kept black over GoldenEye's dark surface\n",
+			              st->bg, kept);
+	}
 	assign = malloc((size_t)mesh->ntris * sizeof(int));
 	if (!assign) {
 		gevrBeanMeshFree(mesh);
@@ -844,7 +881,7 @@ static int buildStage(int stage)
 		c[0] /= 3.0f;
 		c[1] /= 3.0f;
 		c[2] /= 3.0f;
-		assign[i] = roomFor(c, nrooms);
+		assign[i] = (t->flags & GEVR_BEAN_F_PAINTED) ? -1 : roomFor(c, nrooms);
 	}
 	markWater(mesh, fileScale);
 	shotsBuild(mesh, assign, st->scale);

@@ -391,3 +391,28 @@ static void roomReferenceNearest(int node, const float p[3], float *distance, in
 		roomReferenceNearest(a <= b ? t->right : t->left, p, distance, room);
 	}
 }
+
+/* The nearest of GoldenEye's room triangles to p within sqrt(*distance), as
+ * roomReferenceNearest(), by its index in s_reference (-1 for none). */
+static void roomReferenceNearestTri(int node, const float p[3], float *distance, int *tri)
+{
+	const struct beanRoomTree *t = &s_tree[node];
+	if (roomBoxDistance(p, t->lo, t->hi) > *distance)
+		return;
+	if (t->left < 0) {
+		for (int i = t->begin; i < t->end; i++) {
+			if (roomBoxDistance(p, s_reference[i].lo, s_reference[i].hi) > *distance)
+				continue;
+			float d = roomTriangleDistance(p, &s_reference[i]);
+			if (d < *distance) {
+				*distance = d;
+				*tri = i;
+			}
+		}
+	} else {
+		float a = roomBoxDistance(p, s_tree[t->left].lo, s_tree[t->left].hi);
+		float b = roomBoxDistance(p, s_tree[t->right].lo, s_tree[t->right].hi);
+		roomReferenceNearestTri(a <= b ? t->left : t->right, p, distance, tri);
+		roomReferenceNearestTri(a <= b ? t->right : t->left, p, distance, tri);
+	}
+}
