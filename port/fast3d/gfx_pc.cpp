@@ -2485,15 +2485,38 @@ extern "C" float portNativeAspect(void)
     return gevr_screen_shape_aspect();
 }
 
+// The 2D screen wider than 4:3 (Screen shape 16:9, every flat mode): a draw
+// under a HUD aspect mode keeps the 4:3 canvas's proportions, anchored left,
+// right or centre (gepc-ref D335). Stereo frames, game framebuffers and the
+// 4:3 screen take x as it is.
+static bool gfx_aspect_mode_applies(void) {
+    return !fbActive && gevr_screen_pass && rsp.aspect_mode && gfx_current_dimensions.aspect_ratio > 1.3334f;
+}
+
 static float gfx_adjust_x_for_aspect_ratio(float x, float w = 1.f) {
-    // The 2D screen wider than 4:3 (Screen shape 16:9, every flat mode): a draw
-    // under a HUD aspect mode keeps the 4:3 canvas's proportions, anchored
-    // left, right or centre (gepc-ref D335). Stereo frames, game framebuffers
-    // and the 4:3 screen take x as it is.
-    if (fbActive || !gevr_screen_pass || !rsp.aspect_mode || gfx_current_dimensions.aspect_ratio <= 1.3334f) {
+    if (!gfx_aspect_mode_applies()) {
         return x;
     }
     return (rsp.aspect_ofs * w + x) * rsp.aspect_scale / gfx_current_dimensions.aspect_ratio;
+}
+
+/* The same mapping folded into a clip matrix, for the vertices the GPU
+ * transforms itself: Bean's static meshes and skins (gevr_mesh_params, and
+ * gevr_mesh_run_visible's cull). mp is a column per input coordinate, so
+ * x_clip = mp[0] x + mp[4] y + mp[8] z + mp[12]; x' = (ofs w + x) k is linear
+ * in x and w, so each column's x becomes (x + ofs w) k. Without it a Bean model
+ * under an aspect mode spread the canvas across the whole 16:9 screen while
+ * the text, the N64 models and the canvas scissor were pillarboxed: the legal
+ * screen's Rare logo ran past the scissor on the headset (PC's GL 3.0 has no
+ * GPU meshes, so it drew right there). */
+static void gfx_adjust_mp_for_aspect_ratio(float mp[16]) {
+    if (!gfx_aspect_mode_applies()) {
+        return;
+    }
+    const float k = rsp.aspect_scale / gfx_current_dimensions.aspect_ratio;
+    for (int c = 0; c < 4; c++) {
+        mp[c * 4] = (mp[c * 4] + rsp.aspect_ofs * mp[c * 4 + 3]) * k;
+    }
 }
 
 static void gfx_adjust_width_height_for_scale(uint32_t& width, uint32_t& height) {
@@ -4745,6 +4768,7 @@ static bool gevr_mesh_params(struct GfxMeshDrawParams* p) {
             p->mp[r * 4 + 1] = -p->mp[r * 4 + 1];
         }
     }
+    gfx_adjust_mp_for_aspect_ratio(p->mp);   // as gfx_sp_vertex's x
     for (int t = 0; t < 2; t++) {
         if (!s_gevrMeshState.used_textures[t]) {
             continue;
@@ -4865,6 +4889,7 @@ static bool gevr_mesh_run_visible(const GevrStaticMeshRun* run)
 {
     float mp[16];
     memcpy(mp, rsp.MP_matrix, sizeof(mp));
+    gfx_adjust_mp_for_aspect_ratio(mp);   // where the draw will put it
     if (gevrMeshBoundsVisible(run->lo, run->hi, mp, vr_clip_margin_x_const,
                              vr_clip_margin_x_w, vr_clip_margin_y_w, GEVR_FAR_DEPTH_SCALE)) return true;
     if (s_gevrPresentReady) {

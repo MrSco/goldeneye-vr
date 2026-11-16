@@ -21,6 +21,7 @@ static bool scope(const float*mp,const float*lo,const float*hi) {
  called=true; assert(mp[5]==(inverted?-1:1)); return scopeSees;
 }
 static GfxRenderingAPI api; static GfxRenderingAPI*gfx_rapi=&api;
+static void gfx_adjust_mp_for_aspect_ratio(float*){} // stereo: no HUD aspect mode (test_mesh_aspect.py)
 /* PRODUCTION */
 int main() {
  float mp[16]={1,0,0,0,0,1,0,0,0,0,1,-1,0,0,0,0}; memcpy(rsp.MP_matrix,mp,sizeof(mp));
