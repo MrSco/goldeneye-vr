@@ -1015,6 +1015,7 @@ static s32 gevrBodyInView(const f32 v[3])
 static Gfx *gevrReloadBeltDraw(Gfx *gdl)
 {
     extern Gfx *gevrGexDrawMagazineGuide(Gfx *, ModelRenderData *, s32, const Mtxf *, u32);
+    extern Gfx *gevrGexDrawPayloadGuide(Gfx *, ModelRenderData *, s32, const Mtxf *, u32, s32);
     extern Gfx *gevrDrawInteractionRing(Gfx *, const f32 *, f32, u32);
     ModelRenderData rd = {0};
     s32 ctrl;
@@ -1026,19 +1027,23 @@ static Gfx *gevrReloadBeltDraw(Gfx *gdl)
     gSPPerspNormalize(gdl++, matrix_4x4_calc_depth_scale(0.0f, 300.0f));
     for (ctrl = 0; ctrl < 2; ctrl++)
     {
-        const s32 hand = gevrReloadBeltAmmo(ctrl);
+        s32 hand = gevrReloadBeltAmmo(ctrl), rounds = 0, hover = FALSE;
         extern float VrReloadBelt[3];
         f32 pose[4][3];
         Mtxf belt;
         s32 i, j;
-        const s32 hover = gevrReloadBeltHover(ctrl);
+        u32 tint;
+        /* a magazine, else a single-round gun's shell, rocket, round or speedloader */
+        if (hand >= 0) hover = gevrReloadBeltHover(ctrl);
+        else hand = gevrReloadBeltRound(ctrl, &rounds, &hover);
         if (hand < 0 || !gevrBodyReloadPose(ctrl, VrReloadBelt, pose) || !gevrBodyInView(pose[3])) continue;
         matrix_4x4_set_identity(&belt);
         for (i = 0; i < 4; i++)
             for (j = 0; j < 3; j++) belt.m[i][j] = pose[i][j];
+        tint = (hover ? GEVR_RELOAD_READY_TINT : GEVR_RELOAD_TINT) | 0xFF;
         matrix_4x4_7F058C64();
-        gdl = gevrGexDrawMagazineGuide(gdl, &rd, hand, &belt,
-            (hover ? GEVR_RELOAD_READY_TINT : GEVR_RELOAD_TINT) | 0xFF);
+        gdl = rounds > 0 ? gevrGexDrawPayloadGuide(gdl, &rd, hand, &belt, tint, rounds)
+                         : gevrGexDrawMagazineGuide(gdl, &rd, hand, &belt, tint);
         matrix_4x4_7F058C88();
         if (hover) gdl = gevrDrawInteractionRing(gdl, pose[3], 4.0f, GEVR_RELOAD_READY_TINT | 0xE0);
     }

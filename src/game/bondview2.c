@@ -19264,6 +19264,32 @@ s32 gevrReloadBeltHover(s32 ctrl)
         && gevrGripAxesRaw(ctrl, at, r, u, b) && gevrGexAtBelt(ctrl, at);
 }
 
+/* A single-round gun's ammo offered at this controller's belt, as
+ * gevrGexRoundTick takes it (one gun, the off hand's side, not already
+ * holding one, room in the gun and rounds in the reserve): the gun hand,
+ * how many rounds a grip takes and whether the hand is there; -1 none. */
+s32 gevrReloadBeltRound(s32 ctrl, s32 *rounds, s32 *hover)
+{
+    const s32 gunHand = gevrReloadSupportGun();
+    const GexWeaponDef *def;
+    WeaponStats *st;
+    f32 at[3], r[3], u[3], b[3];
+
+    *rounds = 0;
+    *hover = FALSE;
+    if (!gevrHandReloadActive() || ctrl != gunHand || g_CurrentPlayer->bonddead || g_CurrentPlayer->watch_animation_state
+        || g_CurrentPlayer->mpmenuon || g_PlayerIsInTank == 1 || gevrSpectating() || gevrCoopLocalDowned()
+        || !gevrGexByHand(gunHand) || gevrReloadGun(getCurrentPlayerWeaponId(1 - gunHand))) return -1;
+    def = gevrGexWeaponForHand(gunHand);
+    if (!def->singleRound || s_gevrGexMag[gunHand] == GEVR_GEXMAG_INHAND) return -1;
+    st = get_ptr_item_statistics(def->item);
+    *rounds = gevrGexPickupRounds(def, g_CurrentPlayer->hands[gunHand].weapon_ammo_in_magazine, st->MagSize,
+                                  g_CurrentPlayer->ammoheldarr[st->AmmoType]);
+    if (*rounds <= 0) return -1;
+    *hover = gevrGripAxesRaw(ctrl, at, r, u, b) && gevrGexAtBelt(ctrl, at);
+    return gunHand;
+}
+
 /* A gun hand squeezing at its own ammo replaces its missing magazine at
  * once. A free off hand instead takes the magazine to the well in Tick. */
 s32 gevrReloadGrabBelt(s32 ctrl)

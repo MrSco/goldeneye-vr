@@ -630,3 +630,53 @@ s32 gevrGexPartMatrix(const char *pdname, s32 part)
 	free(pd);
 	return mtx;
 }
+
+/* the bounds of every vertex under a node: its children, not its siblings */
+static void partBounds(const u8 *pd, u32 pdLen, u32 node, s32 depth, f32 lo[3], f32 hi[3], s32 *n)
+{
+	u32 ofs = node + 0x18 <= pdLen && rd32(pd + node + 0x14) ? OFS(rd32(pd + node + 0x14)) : 0;
+	s32 guard = 0, k;
+
+	while (ofs != 0 && ofs + 0x18 <= pdLen && depth < 16 && guard++ < 256) {
+		if (pd[ofs + 1] == PD_NODE_GUNDL) {
+			const u32 ro = OFS(rd32(pd + ofs + 4));
+			const u32 v = ro + 0x14 <= pdLen ? OFS(rd32(pd + ro + 12)) : 0;
+			const u32 count = ro + 0x14 <= pdLen ? rd16(pd + ro + 0x10) : 0;
+			u32 i;
+
+			for (i = 0; v != 0 && i < count && v + 12 * (i + 1) <= pdLen; i++, (*n)++) {
+				for (k = 0; k < 3; k++) {
+					const f32 c = (s16)rd16(pd + v + 12 * i + 2 * k);
+
+					lo[k] = *n == 0 || c < lo[k] ? c : lo[k];
+					hi[k] = *n == 0 || c > hi[k] ? c : hi[k];
+				}
+			}
+		}
+		partBounds(pd, pdLen, ofs, depth + 1, lo, hi, n);
+		ofs = rd32(pd + ofs + 0x0c) ? OFS(rd32(pd + ofs + 0x0c)) : 0;
+	}
+}
+
+s32 gevrGexPartCentre(const char *pdname, const s32 *partList, s32 count, f32 out[3])
+{
+	u32 pdLen = 0, k;
+	u8 *pd = gevrGexFileLoad(pdname, &pdLen);
+	f32 lo[3] = { 0, 0, 0 }, hi[3] = { 0, 0, 0 };
+	s32 n = 0, p;
+
+	for (p = 0; pd != NULL && pdLen >= 0x1c && p < count; p++) {
+		const u32 parts = OFS(rd32(pd + 8));
+		const u16 numparts = rd16(pd + 0xc);
+
+		for (k = 0; k < numparts && parts + 6 * (u32)numparts <= pdLen; k++) {
+			if ((s16)rd16(pd + parts + 4 * numparts + 2 * k) == partList[p]) {
+				partBounds(pd, pdLen, OFS(rd32(pd + parts + 4 * k)), 0, lo, hi, &n);
+				break;
+			}
+		}
+	}
+	free(pd);
+	for (p = 0; p < 3; p++) out[p] = 0.5f * (lo[p] + hi[p]);
+	return n > 0;
+}

@@ -16,6 +16,8 @@ void gevrReloadInventoryReset(void);
 /* Which gun supplies the magazine at this controller's fitted belt, -1 none. */
 int gevrReloadBeltAmmo(int ctrl);
 int gevrReloadBeltHover(int ctrl);
+/* A single-round gun's (shotgun, launcher, Cougar, Golden Gun) at this belt: its gun, -1 none. */
+int gevrReloadBeltRound(int ctrl, int *rounds, int *hover);
 int gevrReloadGrabBelt(int ctrl);
 int gevrReloadBeltPoint(int ctrl, float out[3]);
 int gevrReloadSeatHover(float out[3]);

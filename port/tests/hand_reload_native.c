@@ -570,9 +570,19 @@ static void singleRoundReloads(void)
         player.hands[GUNRIGHT].weapon=items[i]; player.hands[GUNRIGHT].weapon_ammo_in_magazine=i>=2 ? 0 : 2;
         int loaded=player.hands[GUNRIGHT].weapon_ammo_in_magazine;
         pistolTick(); assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_IN);
+        {   /* the belt offers its round on the off hand's side (gevr_bodyslots.c draws it there) */
+            int rounds, hover;
+            assert(gevrReloadBeltRound(0,&rounds,&hover)==GUNRIGHT && rounds==1 && !hover);
+            assert(gevrReloadBeltRound(1,&rounds,&hover)==-1);
+            belt(0,0); assert(gevrReloadBeltRound(0,&rounds,&hover)==GUNRIGHT && hover);
+            reserve=0; assert(gevrReloadBeltRound(0,&rounds,&hover)==-1); reserve=50;   /* none left: nothing shown */
+            gex[GUNRIGHT]=0; assert(gevrReloadBeltRound(0,&rounds,&hover)==-1); gex[GUNRIGHT]=1;
+            at(0,20,20,40);
+        }
         gevrGexDropMagazine(GUNRIGHT); assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==loaded && reserve==50);
         belt(0,0); gripHeld[0]=1; pistolTick();
         assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_INHAND && s_gevrGexHeldRounds==1 && reserve==49);
+        { int rounds, hover; assert(gevrReloadBeltRound(0,&rounds,&hover)==-1); }   /* one in the hand already */
         int rocketsBefore=rockets;
         pointsValid=3; memset(wellPoint,0,sizeof(wellPoint)); memset(heldPoint,0,sizeof(heldPoint)); pistolTick();
         assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==loaded+1 && reserve==49 && readyEvents==1);
@@ -607,6 +617,7 @@ static void singleRoundReloads(void)
         player.hands[GUNRIGHT].weapon_ammo_in_magazine=stats.MagSize;
         pointsValid=3; memset(wellPoint,0,sizeof(wellPoint)); memset(heldPoint,0,sizeof(heldPoint)); pistolTick();
         assert(reserve==1 && player.hands[GUNRIGHT].weapon_ammo_in_magazine==stats.MagSize && s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_IN);
+        { int rounds, hover; assert(gevrReloadBeltRound(0,&rounds,&hover)==-1); }   /* full: nothing offered */
         gripHeld[0]=0; pistolTick(); player.hands[GUNRIGHT].weapon_ammo_in_magazine=0;
         pointsValid=0; gripHeld[0]=1; pistolTick(); assert(reserve==0);
         tracked[0]=0; pistolTick(); assert(reserve==1 && s_gevrGexHeldRounds==-1);
@@ -643,6 +654,11 @@ static void speedloaderReloads(void)
     assert(gevrGexWeaponGet(ITEM_RUGER)->loaderRounds==6 && gevrGexWeaponGet(ITEM_RUGER)->singleRound);
     reset(); stats.MagSize=6; gex[GUNRIGHT]=1; player.hands[GUNRIGHT].weapon=ITEM_RUGER;
     player.hands[GUNRIGHT].weapon_ammo_in_magazine=2; pistolTick();
+    {   /* the belt's speedloader carries what a grip would take */
+        int rounds, hover;
+        assert(gevrReloadBeltRound(0,&rounds,&hover)==GUNRIGHT && rounds==4);
+        reserve=3; assert(gevrReloadBeltRound(0,&rounds,&hover)==GUNRIGHT && rounds==3); reserve=50;
+    }
     LOADER_TAKE();
     assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_INHAND && s_gevrGexHeldRounds==4 && reserve==46);
     assert(gevrGexHeldRoundCount()==4);

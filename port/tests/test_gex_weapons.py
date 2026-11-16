@@ -823,6 +823,15 @@ int main(int argc,char **argv) {
             || active->item==ITEM_SILVERWPPK || active->item==ITEM_GOLDWPPK) assert(slide==37);
         if (active->item==ITEM_AK47 || active->item==ITEM_MP5K || active->item==ITEM_SHOTGUN) assert(slide==-1);
     }
+    /* the belt's payload (gun.c gevrGexDrawPayloadGuide) is centred on its held part(s) */
+    if (active->singleRound && active->payloadProp<=0) {
+        const s32 n=active->loaderRounds>1 ? active->loaderRounds : 1;
+        f32 c[3];
+        assert(n<active->numParts && gevrGexPartCentre(active->model,&active->parts[1],n,c));
+        if (active->item==ITEM_SHOTGUN) assert(c[0]==0.5f && c[1]==-0.5f && c[2]==20.5f);   /* the shell, 0..41 along z */
+        if (active->item==ITEM_ROCKETLAUNCH) assert(c[2]==108.5f);   /* the rocket, -126..343 */
+        if (active->item==ITEM_RUGER) assert(fabsf(c[0])<1 && fabsf(c[1])<1 && c[2]==17);   /* six rounds round the axis */
+    }
     printf("PASS: %s: %d nodes, %d matrices, host model %u / 61440 bytes, production poses\n",active->model,count,matrices,converted);
     free(host); free(rom); return 0;
 }

@@ -86,7 +86,7 @@ production.extend(function(view, signature) for signature in (
     "static s32 gevrReloadBeltLocal(", "static f32 gevrBeltDist2(", "static s32 gevrGexAtBelt(",
     "static s32 gevrGexPistolPoint(s32 support, f32 out[3])\n{", "static void gevrReloadMagPoint(",
     "static s32 gevrGexPistolSupportAllowed(void)\n{", "static f32 gevrGexReloadDistance(s32 index)\n{",
-    "s32 gevrReloadBeltAmmo(", "s32 gevrReloadBeltHover(", "s32 gevrReloadGrabBelt(", "s32 gevrReloadBeltPoint(", "s32 gevrReloadSeatHover(",
+    "s32 gevrReloadBeltAmmo(", "s32 gevrReloadBeltHover(", "s32 gevrReloadBeltRound(", "s32 gevrReloadGrabBelt(", "s32 gevrReloadBeltPoint(", "s32 gevrReloadSeatHover(",
     "void gevrGexReloadReset(",
     "s32 gevrGexClaimsOffHand(void)\n{", "s32 gevrGexHeldPalm(f32 out[3])\n{",
     "s32 gevrGexMagState(s32 hand, f32 off[3])\n{", "s32 gevrReloadLabel(s32 hand)\n{", "void gevrGexDropMagazine(",

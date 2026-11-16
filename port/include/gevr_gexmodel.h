@@ -36,6 +36,11 @@ u8 *gevrGexBuildModel(const char *pdname, u32 numSwitches, const s32 *switchPart
  * or -1: the model has no such part, or the ROM is missing. */
 s32 gevrGexPartMatrix(const char *pdname, s32 part);
 
+/* The centre of the bounds of PD model parts partList[0..count) (a held round,
+ * a speedloader's rounds), in their own coordinates; 0 when they have no
+ * vertices or the ROM is missing. */
+s32 gevrGexPartCentre(const char *pdname, const s32 *partList, s32 count, f32 out[3]);
+
 /* A mapped id's compressed GE-X texture, or NULL for any other id. */
 const u8 *gevrGexTextureForId(s32 id, u32 *len);
 

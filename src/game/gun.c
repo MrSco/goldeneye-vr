@@ -1291,6 +1291,12 @@ static const GexWeaponDef *gevrGexForHeader(ModelFileHeader *hdr)
 static s8 s_gevrGexSlide[ITEM_IDS_MAX];   /* per item: its rig's slide matrix + 1; -1 none, 0 not looked up */
 extern void sub_GAME_7F05E83C(GUNHAND hand);
 
+/* each single-round gun's held payload's centre, in its held joint's frame
+ * (gevr_gexmodel.c gevrGexPartCentre, when the rig is built); state 1 found,
+ * -1 none, 0 not looked up */
+typedef struct { s8 state; f32 centre[3]; } GevrGexPayloadAt;
+static GevrGexPayloadAt s_gevrGexPayloadAt[ITEM_IDS_MAX];
+
 static s32 gevrGexSlideMatrix(const GexWeaponDef *def)
 {
     return def != NULL && def->item >= 0 && def->item < ITEM_IDS_MAX ? s_gevrGexSlide[def->item] - 1 : -1;
@@ -1364,6 +1370,15 @@ static void gevrGexGunPrepare(GUNHAND hand, ITEM_IDS item, ModelFileHeader *hdr)
     {
         s_gevrGexSlide[def->item] = (s8) (gevrGexPartMatrix(def->model, GEVR_PD_PART_GUN_SLIDE) + 1);
         if (s_gevrGexSlide[def->item] == 0) s_gevrGexSlide[def->item] = -1;
+    }
+    if (gevrGexPendingFile != NULL && def->singleRound && def->item < ITEM_IDS_MAX && s_gevrGexPayloadAt[def->item].state == 0)
+    {
+        /* the held round(s) the belt shows (gevrGexDrawPayloadGuide); a prop payload is centred on its origin */
+        const s32 count = def->loaderRounds > 1 ? def->loaderRounds : 1;
+        GevrGexPayloadAt *at = &s_gevrGexPayloadAt[def->item];
+
+        at->state = def->payloadProp > 0 || (count < def->numParts
+            && gevrGexPartCentre(def->model, &def->parts[1], count, at->centre)) ? 1 : -1;
     }
     if (gevrGexPendingFile != NULL)
     {
@@ -2181,10 +2196,11 @@ s32 gevrGexMagPoints(f32 centre[3], f32 well[3], f32 held[3])
 enum { GEVR_GEXMAG_IN, GEVR_GEXMAG_GRIPPED, GEVR_GEXMAG_INHAND, GEVR_GEXMAG_OUT };
 extern s32 gevrGexMagState(s32 hand, f32 off[3]);
 
-/* Isolate the installed magazine in a scratch model. Its live switches,
- * falling pose and hand matrices remain untouched. beltPose == NULL draws the
- * ghost exactly where the fitted installed magazine would sit. */
-Gfx *gevrGexDrawMagazineGuide(Gfx *gdl, ModelRenderData *templ, s32 hand, const Mtxf *beltPose, u32 tint)
+/* Isolate some of the rig's parts (parts[first] on, count of them) in a scratch
+ * model, on one matrix at pose. Its live switches, falling pose and hand
+ * matrices remain untouched. ghost: the translucent guide in the gun. */
+static Gfx *gevrGexDrawPartGuide(Gfx *gdl, ModelRenderData *templ, s32 hand, s32 matrix, const Mtxf *pose,
+                                 s32 first, s32 count, u32 tint, s32 ghost)
 {
     const GexWeaponDef *def = gevrGexWeaponForHand(hand);
     Model *source = &g_CurrentPlayer->hands[hand].weaponModel;
@@ -2192,10 +2208,9 @@ Gfx *gevrGexDrawMagazineGuide(Gfx *gdl, ModelRenderData *templ, s32 hand, const 
     ModelFileHeader *hdr = source->obj;
     ModelRenderData rd = *templ;
     Mtxf *matrices;
-    s32 i, j;
-    if (!gevrHandReloadActive() || !gevrGexHasMagazine(def) || !s_gevrGexLastValid[hand]
-        || hdr == NULL || hdr->numMatrices <= def->magMatrix || hdr->numMatrices > 64
-        || hdr->numRecords <= 0 || source->datas == NULL) return gdl;
+    s32 i, j, p;
+    if (hdr == NULL || matrix < 0 || hdr->numMatrices <= matrix || hdr->numMatrices > 64
+        || hdr->numRecords <= 0 || source->datas == NULL || first < 0 || first + count > def->numParts) return gdl;
     copy = *source;
     copy.datas = dynAllocate(hdr->numRecords * sizeof(u32));
     memcpy(copy.datas, source->datas, hdr->numRecords * sizeof(u32));
@@ -2205,54 +2220,112 @@ Gfx *gevrGexDrawMagazineGuide(Gfx *gdl, ModelRenderData *templ, s32 hand, const 
         matrix_4x4_set_identity(&matrices[i]);
         gevrGexCollapse(&matrices[i]);
     }
-    matrices[def->magMatrix] = s_gevrGexLastMag[hand];
-    if (beltPose != NULL)
-    {
-        Mtxf *mag = &matrices[def->magMatrix];
-        f32 size = sqrtf(mag->m[0][0]*mag->m[0][0] + mag->m[0][1]*mag->m[0][1] + mag->m[0][2]*mag->m[0][2]);
-        *mag = *beltPose;
-        for (i = 0; i < 3; i++)
-        {
-            for (j = 0; j < 3; j++) mag->m[i][j] *= size;
-        }
-        for (i = 0; i < 3; i++)
-        {
-            mag->m[3][i] = beltPose->m[3][i] - def->magCentre[0]*mag->m[0][i]
-                - def->magCentre[1]*mag->m[1][i] - def->magCentre[2]*mag->m[2][i];
-        }
-    }
+    matrices[matrix] = *pose;
     copy.render_pos = (RenderPosView *)matrices;
-    gevrGexShowMagazines(hdr, &copy, TRUE, FALSE);
     /* Every other switch is off: no muzzle flash or extra rig parts. */
     for (j = 0; j < hdr->numSwitches; j++)
-        if (j != hdr->numSwitches - def->numParts && hdr->Switches[j] != NULL)
-            *(s32 *)modelGetNodeRwData(&copy, hdr->Switches[j]) = FALSE;
+        if (hdr->Switches[j] != NULL)
+            *(s32 *)modelGetNodeRwData(&copy, hdr->Switches[j]) = j >= hdr->numSwitches - def->numParts + first
+                && j < hdr->numSwitches - def->numParts + first + count;
     rd.gdl = gdl;
     rd.flags = 3;
-    rd.PropType = beltPose == NULL ? GEVR_MODEL_RELOAD_GHOST : PROP_TYPE_CHR + 1;
+    rd.PropType = ghost ? GEVR_MODEL_RELOAD_GHOST : PROP_TYPE_CHR + 1;
     rd.envcolour.word = tint;
     rd.zbufferenabled = TRUE;
     rd.cullmode = CULLMODE_NONE;
     gSPClearGeometryMode(rd.gdl++, G_CULL_BOTH);
-    /* Walk only this switch's subtree. A whole rig with collapsed matrices
-     * still emits its gun's draw calls, three extra times per frame. */
-    ModelNode *root = hdr->Switches[hdr->numSwitches - def->numParts], *node = root;
-    ModelNode *savedChild = root != NULL ? root->Child : NULL;
     gSPSegment(rd.gdl++, 3, osVirtualToPhysical(copy.render_pos));
-    while (node != NULL)
+    /* Walk only these switches' subtrees. A whole rig with collapsed matrices
+     * still emits its gun's draw calls, three extra times per frame. */
+    for (p = first; p < first + count; p++)
     {
-        sub_GAME_7F074534(&rd, &copy, node);
-        if (node->Child != NULL) node = node->Child;
-        else
+        ModelNode *root = hdr->Switches[hdr->numSwitches - def->numParts + p], *node = root;
+        ModelNode *savedChild = root != NULL ? root->Child : NULL;
+        while (node != NULL)
         {
-            while (node != root && node->Next == NULL) node = node->Parent;
-            if (node == root) break;
-            node = node->Next;
+            sub_GAME_7F074534(&rd, &copy, node);
+            if (node->Child != NULL) node = node->Child;
+            else
+            {
+                while (node != root && node->Next == NULL) node = node->Parent;
+                if (node == root) break;
+                node = node->Next;
+            }
         }
+        if (root != NULL) root->Child = savedChild;
     }
-    if (root != NULL) root->Child = savedChild;
     bondviewTransformManyPosToViewMatrix(copy.render_pos, hdr->numMatrices);
     return rd.gdl;
+}
+
+/* The installed magazine. beltPose == NULL draws the ghost exactly where the
+ * fitted installed magazine would sit. */
+Gfx *gevrGexDrawMagazineGuide(Gfx *gdl, ModelRenderData *templ, s32 hand, const Mtxf *beltPose, u32 tint)
+{
+    const GexWeaponDef *def = gevrGexWeaponForHand(hand);
+    Mtxf mag;
+    s32 i, j;
+    if (!gevrHandReloadActive() || !gevrGexHasMagazine(def) || !s_gevrGexLastValid[hand]) return gdl;
+    mag = s_gevrGexLastMag[hand];
+    if (beltPose != NULL)
+    {
+        f32 size = sqrtf(mag.m[0][0]*mag.m[0][0] + mag.m[0][1]*mag.m[0][1] + mag.m[0][2]*mag.m[0][2]);
+        mag = *beltPose;
+        for (i = 0; i < 3; i++)
+        {
+            for (j = 0; j < 3; j++) mag.m[i][j] *= size;
+        }
+        for (i = 0; i < 3; i++)
+        {
+            mag.m[3][i] = beltPose->m[3][i] - def->magCentre[0]*mag.m[0][i]
+                - def->magCentre[1]*mag.m[1][i] - def->magCentre[2]*mag.m[2][i];
+        }
+    }
+    return gevrGexDrawPartGuide(gdl, templ, hand, def->magMatrix, &mag, 0, 1, tint, beltPose == NULL);
+}
+
+static Gfx *gevrGexDrawProp(Gfx *gdl, ModelRenderData *templ, const GexWeaponDef *def, const Mtxf *held);   /* below */
+
+/*
+ * A single-round gun's payload where the belt offers it (gevr_bodyslots.c;
+ * user: nowhere showed where the shotgun reloads): the shell, the rocket, the
+ * Golden Gun's round, the Cougar's speedloader with as many rounds as a grip
+ * takes (rounds), the grenade launcher's round (its GoldenEye prop) - the
+ * meshes the off hand then holds, at the gun's size, turned as they sit in the
+ * gun (heldToMag), centred on the belt point, tinted as the belt's magazine.
+ */
+Gfx *gevrGexDrawPayloadGuide(Gfx *gdl, ModelRenderData *templ, s32 hand, const Mtxf *belt, u32 tint, s32 rounds)
+{
+    const GexWeaponDef *def = gevrGexWeaponForHand(hand);
+    const Mtxf *gun = &s_gevrGexLastGun[hand];
+    const f32 size = sqrtf(gun->m[0][0] * gun->m[0][0] + gun->m[0][1] * gun->m[0][1] + gun->m[0][2] * gun->m[0][2]);
+    const f32 *at;
+    ModelRenderData rd = *templ;
+    Mtxf pose;
+    s32 i, j, k;
+    if (hand < 0 || hand > 1 || !gevrHandReloadActive() || def == NULL || !def->singleRound || !s_gevrGexLastValid[hand]
+        || def->item >= ITEM_IDS_MAX || s_gevrGexPayloadAt[def->item].state != 1 || size < 1e-6f) return gdl;
+    at = s_gevrGexPayloadAt[def->item].centre;
+    matrix_4x4_set_identity(&pose);
+    for (k = 0; k < 3; k++)
+        for (j = 0; j < 3; j++)
+            for (pose.m[k][j] = 0.0f, i = 0; i < 3; i++) pose.m[k][j] += size * def->heldToMag[k][i] * belt->m[i][j];
+    for (j = 0; j < 3; j++)
+        pose.m[3][j] = belt->m[3][j] - at[0] * pose.m[0][j] - at[1] * pose.m[1][j] - at[2] * pose.m[2][j];
+    if (def->payloadProp > 0)
+    {
+        rd.flags = 3;
+        rd.PropType = PROP_TYPE_CHR + 1;
+        rd.envcolour.word = tint;
+        rd.zbufferenabled = TRUE;
+        rd.cullmode = CULLMODE_NONE;
+        return gevrGexDrawProp(gdl, &rd, def, &pose);
+    }
+    if (def->loaderRounds > 1)
+        rounds = rounds < 1 ? 1 : rounds > def->loaderRounds ? def->loaderRounds : rounds;
+    else
+        rounds = 1;
+    return gevrGexDrawPartGuide(gdl, templ, hand, def->heldMatrix, &pose, 1, rounds, tint, FALSE);
 }
 
 /*
@@ -3146,20 +3219,31 @@ static u32 s_gevrGexPayloadRw[64];
 Gfx *gevrGexDrawPayload(Gfx *gdl, ModelRenderData *templ, GUNHAND hand)
 {
     const GexWeaponDef *def = gevrGexWeaponForHand(hand);
-    ModelFileHeader *ph;
-    ModelRenderData renderdata;
-    Mtxf *held, *m, scale;
-    s32 i, n;
+    Mtxf *held;
 
     if ((hand != GUNRIGHT && hand != GUNLEFT) || def == NULL || def->payloadProp <= 0 || !s_gevrGexPayloadOn[hand])
     {
         return gdl;
     }
-    ph = PitemZ_entries[def->payloadProp].header;
     held = (Mtxf *) g_CurrentPlayer->hands[hand].weaponModel.render_pos;
-    if (ph == NULL || ph->RootNode == NULL || ph->numMatrices <= 0 || held == NULL
-        || ph->numRecords > (s32) (sizeof(s_gevrGexPayloadRw) / sizeof(s_gevrGexPayloadRw[0]))
-        || g_CurrentPlayer->copy_of_body_obj_header[hand].numMatrices <= def->heldMatrix)
+    if (held == NULL || g_CurrentPlayer->copy_of_body_obj_header[hand].numMatrices <= def->heldMatrix)
+    {
+        return gdl;
+    }
+    return gevrGexDrawProp(gdl, templ, def, &held[def->heldMatrix]);
+}
+
+/* the payload's GoldenEye prop on the held joint's matrix held, at payloadScale
+ * (in the hand, gevrGexDrawPayload; at the belt, gevrGexDrawPayloadGuide) */
+static Gfx *gevrGexDrawProp(Gfx *gdl, ModelRenderData *templ, const GexWeaponDef *def, const Mtxf *held)
+{
+    ModelFileHeader *ph = PitemZ_entries[def->payloadProp].header;
+    ModelRenderData renderdata;
+    Mtxf *m, scale;
+    s32 i, n;
+
+    if (ph == NULL || ph->RootNode == NULL || ph->numMatrices <= 0
+        || ph->numRecords > (s32) (sizeof(s_gevrGexPayloadRw) / sizeof(s_gevrGexPayloadRw[0])))
     {
         return gdl;
     }
@@ -3167,7 +3251,7 @@ Gfx *gevrGexDrawPayload(Gfx *gdl, ModelRenderData *templ, GUNHAND hand)
     m = (Mtxf *) dynAllocate(n * (s32) sizeof(Mtxf));
     matrix_4x4_set_identity(&scale);
     scale.m[0][0] = scale.m[1][1] = scale.m[2][2] = def->payloadScale;
-    matrix_4x4_multiply(&held[def->heldMatrix], &scale, &m[0]);
+    matrix_4x4_multiply((Mtxf *) held, &scale, &m[0]);
     for (i = 1; i < n; i++)
     {
         m[i] = m[0];
