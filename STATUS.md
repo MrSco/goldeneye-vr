@@ -5,14 +5,15 @@ in docs/archive/ (the v0.5.15 batch as it stood before release is
 [status-2026-11-10](docs/archive/status-2026-11-10.md)); features keep their
 own notes. No game data is shipped; building publishes nothing.
 
-**Release:** v0.5.17 (versionCode 130, protocol 26), 2026-11-12, tag on
-210d4a7a ([notes](docs/releases/v0.5.17.md)): PC flat menus (mouse pointer,
-arrows, Enter/Q/E/F, F10 pointer), PC VR stays in stereo after a flat run,
-renderer crash context in reports
-([crash doc](docs/crash-29385235-freed-vertex-load.md)), release perf pass.
-Plays online with v0.5.15 and v0.5.16. Downloads as v0.5.15's: Quest APK,
-Windows zip, and experimental Linux zip, Android phone APK, Steam Frame APK
-and iPhone/iPad IPA (SideStore), plus the dedicated servers.
+**Release:** v0.5.18 (versionCode 131, protocol 26), 2026-11-15, tag on
+d8bd0011 ([notes](docs/releases/v0.5.18.md)): lobby push signaling (the
+Worker's WebSocket, polling fallback), voice FEC + adaptive jitter buffer +
+Quest echo cancellation, GE-X hand reload (label over the gun, PP7/DD44
+slide lock, belt rounds for single-round guns, pistols' magazine fits,
+Cougar/Golden Gun grip caps), co-op Frigate defuser and hostages (#241),
+Bean unlit faces, Bean 16:9 front end, flat hands (#238), Windows without a
+console, iOS crash-prompt and controller fixes. Plays online with v0.5.15
+to v0.5.17. Downloads as v0.5.17's (8 files, same commit).
 **Pre-release:** none open. The next batch gets its own branch.
 
 ## Platforms (docs/pc-platforms.md, docs/mobile-platforms.md)
@@ -31,6 +32,9 @@ and iPhone/iPad IPA (SideStore), plus the dedicated servers.
 
 ## Help wanted (listed in the v0.5.15 and v0.5.16 notes)
 
+- Two headsets (v0.5.18): voice in a real round (echo with the speakers,
+  FEC and the jitter buffer: `voice: slot N ran dry` lines), the co-op
+  Frigate defuser by a client.
 - Speedrun: LiveSplit against a real LiveSplit from a Quest; the debrief
   stamp's VR values (turning, display rate, SpaceWarp); a long walked run's
   ghost animation.
@@ -66,7 +70,8 @@ and iPhone/iPad IPA (SideStore), plus the dedicated servers.
 
 ## Releases
 
-Each has docs/releases/vX.Y.Z.md. v0.5.17 PC fixes, crash context, perf
+Each has docs/releases/vX.Y.Z.md. v0.5.18 push signaling, voice, GE-X
+reload aids, co-op Frigate; v0.5.17 PC fixes, crash context, perf
 pass; v0.5.16 speedrunning; v0.5.15 new platforms, crossplay, Friends
 and invites, unified launcher, force pull; v0.5.14 all maps in
 Horde/Deathmatch, dedicated server; v0.5.13 co-op world from the host
