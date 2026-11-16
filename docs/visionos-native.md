@@ -66,10 +66,16 @@ Simulator test:
 - The simulator has one view and a fixed head (ARKit gives the origin), so stereo and
   6DoF need the device.
 
+- TestFlight 0.5.18 (6), uploaded 2026-11-16 under `com.mrsco.goldeneyevr` with the
+  user's OK. It replaces the Klepton build on the tester's headset. It was made with
+  `tools/build_visionos_native.sh device --archive 6 --upload` and the wrapper's
+  signing environment. The archive, with its dSYMs, stays in
+  `build/visionos-device/testflight-0.5.18-6`.
+
 ## Next
 
-1. **Device build and TestFlight.** Signing goes the way `tools/build_visionos.sh`
-   does it, then the tester runs the build.
+1. **Tester's report on build 6.** Check stereo, head tracking, frame rate, and the
+   picture's orientation and colour on the device.
 2. **PSVR2 Sense controllers (V2).** GameController's spatial gamepad for buttons,
    ARKit's accessory tracking for poses, and haptics. Klepton's
    `KleptonControllers.swift` is the reference.
