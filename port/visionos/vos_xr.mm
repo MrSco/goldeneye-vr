@@ -56,6 +56,10 @@
 #include <cstring>
 #include <mutex>
 #include <algorithm>
+#include <atomic>
+#include <condition_variable>
+#include <memory>
+#include <pthread.h>
 
 #include "vos.h"
 
@@ -140,7 +144,9 @@ struct VosImage {
     GLuint copyTex[2] = { 0, 0 };
     id<MTLTexture> copyMtl[2];
     id<MTLTexture> copySrgb[2];
-    uint64_t lastUse = 0;           // the compositor frame that last read it
+    // the compositor slot that last read it, shared with the published frames
+    // that read it (they may outlive the swapchain)
+    std::shared_ptr<std::atomic<uint64_t>> lastUse = std::make_shared<std::atomic<uint64_t>>(0);
 };
 
 struct VosSwapchainObj {
@@ -174,6 +180,8 @@ static bool s_haveFocus;
 
 extern "C" void pcReportForeground(int active);   // port/pc/pc_reports.cpp
 
+static std::mutex s_eventLock;   // the game's thread and the compositor's post
+
 static void vosPostState(XrSessionState state)
 {
     // the crash report's marker: a run that ends while focused is a crash
@@ -187,7 +195,10 @@ static void vosPostState(XrSessionState state)
     e->session = (XrSession)s_session;
     e->state = state;
     e->time = vosTime(vosNow());
-    s_events.push_back(b);
+    {
+        std::lock_guard<std::mutex> lk(s_eventLock);
+        s_events.push_back(b);
+    }
     vosLog("visionos: xr: session state %d", (int)state);
 }
 
@@ -378,8 +389,11 @@ extern "C" int vosAccessoryGrip(int hand, double seconds, simd_float4x4 *out)
  * device anchor for the drawable: this one if the tracker answered, else the
  * last one it did (an unanswered anchor is never handed to the compositor),
  * or nil before the first. */
+static std::mutex s_arLock;
+
 static ar_device_anchor_t vosQueryHead(double seconds, simd_float4x4 *out, bool *tracked)
 {
+    std::lock_guard<std::mutex> lk(s_arLock);
     if (tracked) *tracked = false;
     *out = s_lastHead;
     if (!s_worldTracking) return nil;
@@ -429,7 +443,9 @@ struct VosViewInfo {
     simd_float4x4 deviceFromView;
     float tanL, tanR, tanU, tanD;   // signed tangents (left and down negative)
 };
-static VosViewInfo s_views[2];
+static VosViewInfo s_views[2];          // written by the compositor's thread (s_viewLock)
+static std::mutex s_viewLock;
+static std::condition_variable s_viewsCv;
 static size_t s_viewCount;
 static uint32_t s_eyeW = 1888, s_eyeH = 1824;
 static bool s_viewsKnown;
@@ -451,6 +467,7 @@ static void vosDefaultViews(void)
  * Midas found, so they are read off the projection the compositor builds). */
 static void vosReadViews(cp_drawable_t drawable)
 {
+    std::unique_lock<std::mutex> lk(s_viewLock);
     const size_t n = cp_drawable_get_view_count(drawable);
     s_viewCount = n < 1 ? 1 : (n > 2 ? 2 : n);
     for (size_t v = 0; v < s_viewCount; v++) {
@@ -479,6 +496,7 @@ static void vosReadViews(cp_drawable_t drawable)
     if (s_viewCount == 1) s_views[1] = s_views[0];
     if (!s_viewsKnown) {
         s_viewsKnown = true;
+        s_viewsCv.notify_all();
         vosLog("visionos: compositor: %zu view(s), %ux%u, fov L(%.2f %.2f %.2f %.2f) R(%.2f %.2f %.2f %.2f) tangents, "
                "eye offset %.4f m", n, s_eyeW, s_eyeH, s_views[0].tanL, s_views[0].tanR, s_views[0].tanU,
                s_views[0].tanD, s_views[1].tanL, s_views[1].tanR, s_views[1].tanU, s_views[1].tanD,
@@ -495,15 +513,25 @@ static cp_layer_renderer_t vosLayer(void)
     return (__bridge cp_layer_renderer_t)vosLayerRenderer();
 }
 
-static cp_frame_t s_frame;
-static cp_drawable_t s_drawable;            // the main one (views, timing)
-static cp_drawable_array_t s_drawables;     // every one the frame has: each is presented
-static ar_device_anchor_t s_frameAnchor;
-static simd_float4x4 s_frameHead;
-static double s_frameDisplay, s_lastDisplay;
-static double s_period = 1.0 / 90.0;
-static uint64_t s_frameNo;
+/*
+ * Two threads (Klepton's and Midas's shape on this headset):
+ *   - the compositor's (vosCompositorMain) presents every panel slot: the
+ *     game's latest published frame, stamped with the anchor of the head it
+ *     was drawn from, so the system turns it to the head of each slot; and it
+ *     releases the game's next frame on an even grid of slots;
+ *   - the game's: xrWaitFrame waits for a release, xrEndFrame copies, fences
+ *     and publishes.
+ * Build 10 drove the compositor from the game's frames, one for one: at 55-68
+ * fps on a 90 Hz panel each picture was held 1 or 2 slots, raggedly, and the
+ * picture, corrected as a flat image at one depth, alternated between two
+ * places with a still head (tester). Now each is held the same number of
+ * slots, and the head always gets the panel's rate.
+ */
+static double s_period = 1.0 / 90.0;      // the panel's slot
+static double s_releaseDisplay;           // the display time of the frame the game was given
+static uint64_t s_gameFrameNo;            // the game's frames (array copies once each)
 static bool s_frameBegun;
+static std::atomic<uint64_t> s_compNo{0}; // the compositor's slots
 
 static id<MTLDevice> s_dev;
 static id<MTLCommandQueue> s_queue;
@@ -626,59 +654,71 @@ static bool vosEnsureMetal(cp_drawable_t drawable)
     return true;
 }
 
-/* Waits for the compositor's next frame up to its drawable. 0: no drawable
- * (the frame is skipped). */
-static bool vosNextFrame(void)
+static double s_waitReturned;          // when xrWaitFrame handed the game its frame
+static double s_gameMsSum, s_gameMsMax, s_compMsSum;
+static unsigned s_costFrames, s_compFrames;
+
+/* The release: the game's next frame starts only on the grid of s_paceDiv
+ * slots (Klepton's KL_GUEST_FPS_DIV=auto). A game that overruns waits for the
+ * next grid tick, so holds stay div, 2 div, never a ragged mix. The grid grows
+ * when more than a quarter of a 128-frame window overran (up to 4), and
+ * shrinks after two windows under 3%. */
+static std::mutex s_paceLock;
+static std::condition_variable s_paceCv;
+static bool s_gameWaiting, s_released, s_haveRelease;
+static uint64_t s_slot, s_lastReleaseSlot;
+static int s_paceDiv = 1;
+static int s_paceWinFrames, s_paceWinOverruns, s_paceGoodWins;
+static int s_paceGoodNeeded = 2;   // clean windows before a step down; doubles each time one is undone
+static bool s_paceSteppedDown;
+static uint64_t s_paceFrames, s_paceOverruns;
+
+/* the compositor, each slot (s_paceLock held) */
+static void vosPaceSlot(double present)
 {
-    cp_layer_renderer_t layer = vosLayer();
-    if (!layer) return false;
-    switch (cp_layer_renderer_get_state(layer)) {
-    case cp_layer_renderer_state_paused:
-        vosLog("visionos: compositor paused");
-        if (s_haveFocus) { s_haveFocus = false; vosPostState(XR_SESSION_STATE_VISIBLE); }
-        cp_layer_renderer_wait_until_running(layer);
-        vosLog("visionos: compositor running");
-        return false;
-    case cp_layer_renderer_state_invalidated:
-        // the player closed the space: there is nothing else to show, so the
-        // game saves and goes (an app in one full space has no window to return to)
-        vosLog("visionos: the immersive space closed");
-        vosSpaceClosed();
-        return false;
-    default:
-        break;
+    s_slot++;
+    if (!s_gameWaiting || s_released) return;
+    const uint64_t since = s_slot - s_lastReleaseSlot;
+    const bool onGrid = !s_haveRelease || (since >= (uint64_t)s_paceDiv && since % (uint64_t)s_paceDiv == 0);
+    if (!onGrid && since < (uint64_t)(8 * s_paceDiv)) return;
+    if (s_haveRelease && since <= (uint64_t)(8 * s_paceDiv)) {   // a load or a pause is no overrun
+        s_paceFrames++;
+        s_paceWinFrames++;
+        if (since > (uint64_t)s_paceDiv) { s_paceOverruns++; s_paceWinOverruns++; }
+        if (s_paceWinFrames >= 128) {
+            const double rate = (double)s_paceWinOverruns / (double)s_paceWinFrames;
+            const int was = s_paceDiv;
+            if (rate > 0.25 && s_paceDiv < 4) {
+                s_paceDiv++;
+                s_paceGoodWins = 0;
+                // a step down undone at once: wait longer before the next
+                // (a cadence that flaps is a change of pace every few seconds)
+                if (s_paceSteppedDown) s_paceGoodNeeded = std::min(s_paceGoodNeeded * 2, 16);
+                s_paceSteppedDown = false;
+            } else if (rate < 0.03 && s_paceDiv > 1) {
+                if (++s_paceGoodWins >= s_paceGoodNeeded) {
+                    s_paceDiv--;
+                    s_paceGoodWins = 0;
+                    s_paceSteppedDown = true;
+                }
+            } else {
+                s_paceGoodWins = 0;
+                s_paceSteppedDown = false;
+            }
+            s_paceWinFrames = s_paceWinOverruns = 0;
+            if (s_paceDiv != was) {
+                vosLog("visionos: cadence %d -> %d panel slots a frame (%.0f%% of the last window late): "
+                       "%.1f fps on a %.1f Hz panel, evenly", was, s_paceDiv, rate * 100.0,
+                       1.0 / (s_period * s_paceDiv), 1.0 / s_period);
+            }
+        }
     }
-    if (!s_haveFocus && s_sessionRunning) { s_haveFocus = true; vosPostState(XR_SESSION_STATE_FOCUSED); }
-
-    cp_frame_t frame = cp_layer_renderer_query_next_frame(layer);
-    if (!frame) return false;
-    cp_frame_timing_t timing = cp_frame_predict_timing(frame);
-    if (!timing) return false;
-    cp_frame_start_update(frame);
-    cp_frame_end_update(frame);
-    cp_time_wait_until(cp_frame_timing_get_optimal_input_time(timing));
-    // The drawables BEFORE the submission starts (Apple's template, ALVR and
-    // Klepton's order): a frame without one is abandoned unstarted, never
-    // ended (ending one that presented nothing aborts the process).
-    cp_drawable_array_t drawables = cp_frame_query_drawables(frame);
-    if (!drawables || cp_drawable_array_get_count(drawables) == 0) return false;
-    cp_drawable_t drawable = cp_drawable_array_get_drawable(drawables, 0);
-    cp_frame_start_submission(frame);
-
-    s_frame = frame;
-    s_drawables = drawables;
-    s_drawable = drawable;
-    vosReadViews(drawable);
-    s_frameDisplay = cp_time_to_cf_time_interval(
-        cp_frame_timing_get_presentation_time(cp_drawable_get_frame_timing(drawable)));
-    if (s_lastDisplay > 0.0) {
-        const double dt = s_frameDisplay - s_lastDisplay;
-        if (dt > 0.004 && dt < 0.05) s_period += (dt - s_period) * 0.1;
-    }
-    s_lastDisplay = s_frameDisplay;
-    // the head at THIS frame's presentation: the compositor reprojects with it
-    s_frameAnchor = vosQueryHead(s_frameDisplay, &s_frameHead, nullptr);
-    return true;
+    s_released = true;
+    s_haveRelease = true;
+    s_lastReleaseSlot = s_slot;
+    // shown from the slot a grid period on (it is drawn meanwhile)
+    s_releaseDisplay = present + s_period * s_paceDiv;
+    s_paceCv.notify_one();
 }
 
 // ============================================================================
@@ -687,7 +727,6 @@ static bool vosNextFrame(void)
 
 static simd_float4x4 vosHeadFor(double seconds)
 {
-    if (s_drawable && fabs(seconds - s_frameDisplay) < 0.0005) return s_frameHead;
     simd_float4x4 h;
     (void)vosQueryHead(seconds, &h, nullptr);
     return h;
@@ -743,10 +782,11 @@ static id<MTLTexture> vosSrgbView(id<MTLTexture> t)
 /* waits until the compositor has read an image (its last frame's commands ran) */
 static void vosWaitImage(const VosImage &img)
 {
-    if (!s_doneEvent || img.lastUse == 0 || s_doneEvent.signaledValue >= img.lastUse) return;
-    if (![s_doneEvent waitUntilSignaledValue:img.lastUse timeoutMS:100]) {
-        vosLog("visionos: swapchain image still in the compositor's hands after 100 ms (frame %llu)",
-               (unsigned long long)img.lastUse);
+    const uint64_t use = img.lastUse->load();
+    if (!s_doneEvent || use == 0 || s_doneEvent.signaledValue >= use) return;
+    if (![s_doneEvent waitUntilSignaledValue:use timeoutMS:100]) {
+        vosLog("visionos: swapchain image still in the compositor's hands after 100 ms (slot %llu)",
+               (unsigned long long)use);
     }
 }
 
@@ -766,7 +806,19 @@ struct VosLayerDraw {
     simd_float4x4 worldFromQuad;     // scaled by its size
     float rect[4];
     int eyes;                        // XrEyeVisibility
+    std::shared_ptr<std::atomic<uint64_t>> use[2];   // the images' use counters
 };
+
+/* A game frame, as the compositor shows it until the next */
+struct VosPublished {
+    std::vector<VosLayerDraw> draws;
+    simd_float4x4 head;              // the head its eye images were drawn from
+    ar_device_anchor_t anchor;       // ...and its anchor, for the drawable
+    id<MTLSharedEvent> glEvent;      // its GL work, before Metal reads it
+    uint64_t glValue = 0;
+};
+static std::mutex s_pubLock;
+static std::shared_ptr<VosPublished> s_pub;
 
 static int vosBlendOf(XrCompositionLayerFlags f)
 {
@@ -788,8 +840,8 @@ static bool vosCopyArrayImage(VosSwapchainObj *sc)
 {
     if (sc->lastReleased < 0) return false;
     VosImage &img = sc->images[sc->lastReleased];
-    if (sc->copiedFrame == s_frameNo) return true;
-    sc->copiedFrame = s_frameNo;
+    if (sc->copiedFrame == s_gameFrameNo) return true;
+    sc->copiedFrame = s_gameFrameNo;
     GLint prevRead = 0, prevDraw = 0;
     glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevRead);
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevDraw);
@@ -819,14 +871,22 @@ static VosImage *vosReleasedImage(XrSwapchain h)
     return &sc->images[sc->lastReleased];
 }
 
-static void vosComposite(const XrFrameEndInfo *info)
+/* The game's thread, at xrEndFrame: the frame's layers as the compositor
+ * draws them, the array images copied, its GL work fenced. */
+static std::shared_ptr<VosPublished> vosBuildFrame(const XrFrameEndInfo *info)
 {
-    std::vector<VosLayerDraw> draws;
-    const double t = info->displayTime ? vosSeconds(info->displayTime) : s_frameDisplay;
+    auto pub = std::make_shared<VosPublished>();
+    std::vector<VosLayerDraw> &draws = pub->draws;
+    const double t = info->displayTime ? vosSeconds(info->displayTime) : s_releaseDisplay;
+    simd_float4x4 deviceFromView0;
+    {
+        std::lock_guard<std::mutex> lk(s_viewLock);
+        deviceFromView0 = s_views[0].deviceFromView;
+    }
     // The head the eye images were drawn from, and its anchor: from the
     // projection layer's left view (its pose = head * device-from-view)
-    simd_float4x4 compHead = s_frameHead;
-    ar_device_anchor_t compAnchor = s_frameAnchor;
+    simd_float4x4 compHead;
+    ar_device_anchor_t compAnchor = vosQueryHead(t, &compHead, nullptr);
     for (uint32_t i = 0; i < info->layerCount; i++) {
         const XrCompositionLayerBaseHeader *base = info->layers[i];
         if (!base || base->type != XR_TYPE_COMPOSITION_LAYER_PROJECTION) continue;
@@ -834,9 +894,10 @@ static void vosComposite(const XrFrameEndInfo *info)
         simd_float4x4 worldFromSpace;
         if (l->viewCount < 1 || !vosWorldFromSpace((const VosSpaceObj *)l->space, t, &worldFromSpace)) break;
         const simd_float4x4 rendered = simd_mul(simd_mul(worldFromSpace, vosMatrixFromPose(l->views[0].pose)),
-                                                simd_inverse(s_views[0].deviceFromView));
+                                                simd_inverse(deviceFromView0));
         float best = 1e9f;
         int bestIdx = -1;
+        std::lock_guard<std::mutex> lk(s_arLock);
         const unsigned n = std::min(s_headRingNext, 32u);
         for (unsigned k = 0; k < n; k++) {
             const VosHeadSample &h = s_headRing[k];
@@ -858,6 +919,8 @@ static void vosComposite(const XrFrameEndInfo *info)
         }
         break;
     }
+    pub->head = compHead;
+    pub->anchor = compAnchor;
 
     for (uint32_t i = 0; i < info->layerCount; i++) {
         const XrCompositionLayerBaseHeader *base = info->layers[i];
@@ -880,7 +943,7 @@ static void vosComposite(const XrFrameEndInfo *info)
                 } else {
                     d.eyeTex[e] = img->mtlSrgb;
                 }
-                img->lastUse = s_frameNo;
+                d.use[e] = img->lastUse;
                 vosTangents(pv.fov, d.eyeTan[e]);
                 const XrRect2Di &r = pv.subImage.imageRect;
                 d.eyeRect[e][0] = (float)r.offset.x / (float)sc->w;
@@ -911,7 +974,7 @@ static void vosComposite(const XrFrameEndInfo *info)
                 d.tex = img->mtlSrgb;
             }
             if (!d.tex) continue;
-            img->lastUse = s_frameNo;
+            d.use[0] = img->lastUse;
             simd_float4x4 scale = matrix_identity_float4x4;
             scale.columns[0].x = q->size.width;
             scale.columns[1].y = q->size.height;
@@ -933,15 +996,35 @@ static void vosComposite(const XrFrameEndInfo *info)
     void *evtRaw = nullptr;
     uint64_t evtValue = 0;
     vosGLFence(&evtRaw, &evtValue);
-    id<MTLSharedEvent> glDone = evtRaw ? (__bridge_transfer id<MTLSharedEvent>)evtRaw : nil;
+    pub->glEvent = evtRaw ? (__bridge_transfer id<MTLSharedEvent>)evtRaw : nil;
+    pub->glValue = evtValue;
+    return pub;
+}
 
-    if (!vosEnsureMetal(s_drawable)) return;
+/* The compositor's thread, every slot: a published frame (or none: black)
+ * into the frame's drawables. */
+static void vosEncodeFrame(cp_drawable_array_t drawables, const VosPublished *pub, ar_device_anchor_t displayAnchor,
+                           const simd_float4x4 &displayHead)
+{
+    cp_drawable_t main = cp_drawable_array_get_drawable(drawables, 0);
+    if (!vosEnsureMetal(main)) return;
+    static const std::vector<VosLayerDraw> none;
+    const std::vector<VosLayerDraw> &draws = pub ? pub->draws : none;
+    const simd_float4x4 compHead = pub ? pub->head : displayHead;
+    ar_device_anchor_t compAnchor = pub && pub->anchor ? pub->anchor : displayAnchor;
+    const uint64_t slot = ++s_compNo;
+    for (const VosLayerDraw &d : draws) {
+        for (int k = 0; k < 2; k++) {
+            if (d.use[k]) d.use[k]->store(slot);   // the game waits for this slot before writing it again
+        }
+    }
+
     id<MTLCommandBuffer> cmd = [s_queue commandBuffer];
-    if (glDone) [cmd encodeWaitForEvent:glDone value:evtValue];
+    if (pub && pub->glEvent) [cmd encodeWaitForEvent:pub->glEvent value:pub->glValue];
 
-    const size_t drawableCount = s_drawables ? cp_drawable_array_get_count(s_drawables) : 1;
+    const size_t drawableCount = cp_drawable_array_get_count(drawables);
     for (size_t di = 0; di < drawableCount; di++) {
-    cp_drawable_t drawable = s_drawables ? cp_drawable_array_get_drawable(s_drawables, di) : s_drawable;
+    cp_drawable_t drawable = cp_drawable_array_get_drawable(drawables, di);
     const size_t views = cp_drawable_get_view_count(drawable);
     for (size_t v = 0; v < views; v++) {
         cp_view_t view = cp_drawable_get_view(drawable, v);
@@ -958,8 +1041,6 @@ static void vosComposite(const XrFrameEndInfo *info)
         pass.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 1.0);
         id<MTLTexture> depth = cp_drawable_get_depth_texture(drawable, texIdx);
         if (depth) {
-            // reverse Z: 0 is infinitely far, so the compositor turns the
-            // picture with the head and does not move it with the head's position
             pass.depthAttachment.texture = depth;
             pass.depthAttachment.slice = slice;
             pass.depthAttachment.loadAction = MTLLoadActionClear;
@@ -1017,51 +1098,121 @@ static void vosComposite(const XrFrameEndInfo *info)
     if (compAnchor) cp_drawable_set_device_anchor(drawable, compAnchor);
     cp_drawable_encode_present(drawable, cmd);
     }
-    [cmd encodeSignalEvent:s_doneEvent value:s_frameNo];
+    [cmd encodeSignalEvent:s_doneEvent value:slot];
     [cmd commit];
     static bool saidDrawables;
     if (!saidDrawables) {
         saidDrawables = true;
-        const simd_float4x4 p0 = cp_drawable_compute_projection(s_drawable, cp_axis_direction_convention_right_up_back, 0);
+        const simd_float4x4 p0 = cp_drawable_compute_projection(main, cp_axis_direction_convention_right_up_back, 0);
         const simd_float4 d2 = simd_mul(p0, simd_make_float4(0.0f, 0.0f, -2.0f, 1.0f));
         vosLog("visionos: compositor: %zu drawable(s), %zu view(s) in the first, head anchor %s, eye depth %.4f (2 m)",
-               drawableCount, cp_drawable_get_view_count(s_drawable), s_frameAnchor ? "set" : "NOT set (no tracking yet)",
+               drawableCount, cp_drawable_get_view_count(main), compAnchor ? "set" : "NOT set (no tracking yet)",
                d2.w > 0.0f ? d2.z / d2.w : -1.0f);
     }
 }
 
-/* A frame with no drawable work of the game's: black, presented (the
- * compositor expects every drawable it hands out back). */
-static void vosPresentEmpty(void)
+/* The compositor's thread: one frame a panel slot, for as long as the space
+ * is open. Its frames are begun and ended here only (a frame queried before
+ * the last was ended aborts the process). */
+static void *vosCompositorMain(void *)
 {
-    XrFrameEndInfo none{ XR_TYPE_FRAME_END_INFO };
-    none.displayTime = vosTime(s_frameDisplay);
-    vosComposite(&none);
+    pthread_setname_np("gevr-compositor");
+    // the panel's deadlines come first: above the game's thread
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+    double lastPresent = 0.0;
+    uint64_t lastIdx = 0;
+    for (;;) {
+        @autoreleasepool {
+            cp_layer_renderer_t layer = vosLayer();
+            switch (cp_layer_renderer_get_state(layer)) {
+            case cp_layer_renderer_state_paused:
+                vosLog("visionos: compositor paused");
+                if (s_haveFocus) { s_haveFocus = false; vosPostState(XR_SESSION_STATE_VISIBLE); }
+                cp_layer_renderer_wait_until_running(layer);
+                vosLog("visionos: compositor running");
+                continue;
+            case cp_layer_renderer_state_invalidated:
+                // the player closed the space: there is nothing else to show,
+                // so the game saves and goes (no window to return to)
+                vosLog("visionos: the immersive space closed");
+                vosSpaceClosed();
+                return nullptr;
+            default:
+                break;
+            }
+            if (!s_haveFocus && s_sessionRunning) { s_haveFocus = true; vosPostState(XR_SESSION_STATE_FOCUSED); }
+
+            cp_frame_t frame = cp_layer_renderer_query_next_frame(layer);
+            if (!frame) { usleep(1000); continue; }
+            cp_frame_start_update(frame);
+            cp_frame_end_update(frame);
+            cp_frame_timing_t timing = cp_frame_predict_timing(frame);
+            if (timing) cp_time_wait_until(cp_frame_timing_get_optimal_input_time(timing));
+            // The drawables BEFORE the submission starts (Apple's template,
+            // ALVR and Klepton's order): a frame without one is abandoned
+            // unstarted, never ended (ending one that presented nothing aborts).
+            cp_drawable_array_t drawables = cp_frame_query_drawables(frame);
+            if (!drawables || cp_drawable_array_get_count(drawables) == 0) continue;
+            cp_drawable_t main = cp_drawable_array_get_drawable(drawables, 0);
+            cp_frame_start_submission(frame);
+            const double t0 = vosNow();
+
+            vosReadViews(main);
+            const double present = cp_time_to_cf_time_interval(
+                cp_frame_timing_get_presentation_time(cp_drawable_get_frame_timing(main)));
+            const uint64_t idx = cp_frame_get_frame_index(frame);
+            if (lastPresent > 0.0 && idx > lastIdx && present > lastPresent) {
+                // a headset's panel (Vision Pro: 90, 96 or 100 Hz): the
+                // simulator's compositor waits for the app, so its "period"
+                // is the app's own
+                const double p = (present - lastPresent) / (double)(idx - lastIdx);
+                if (p > 1.0 / 121.0 && p < 1.0 / 79.0) s_period += (p - s_period) * 0.05;
+            }
+            lastPresent = present;
+            lastIdx = idx;
+
+            {
+                std::lock_guard<std::mutex> lk(s_paceLock);
+                vosPaceSlot(present);
+            }
+            std::shared_ptr<VosPublished> pub;
+            {
+                std::lock_guard<std::mutex> lk(s_pubLock);
+                pub = s_pub;
+            }
+            simd_float4x4 displayHead;
+            ar_device_anchor_t displayAnchor = nil;
+            if (!pub || !pub->anchor) displayAnchor = vosQueryHead(present, &displayHead, nullptr);
+            vosEncodeFrame(drawables, pub.get(), displayAnchor, displayHead);
+            cp_frame_end_submission(frame);
+            s_compMsSum += (vosNow() - t0) * 1000.0;
+            s_compFrames++;
+        }
+    }
+    return nullptr;
+}
+
+static void vosStartCompositor(void)
+{
+    static bool started;
+    if (started) return;
+    started = true;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_t th;
+    if (pthread_create(&th, &attr, vosCompositorMain, nullptr) != 0) {
+        vosLog("visionos: the compositor's thread would not start");
+        abort();
+    }
+    pthread_attr_destroy(&attr);
+    pthread_detach(th);
+    vosLog("visionos: compositor thread started");
 }
 
 extern "C" void vosKeepAlive(void)
 {
-    if (s_frame) {
-        // mid-frame (the picker was asked for from the launcher's frame): end
-        // it black; the game's own xrEndFrame then has nothing to present
-        vosPresentEmpty();
-        cp_frame_end_submission(s_frame);
-        s_frame = nil;
-        s_drawable = nil;
-        s_drawables = nil;
-        s_frameAnchor = nil;
-    }
-    s_frameNo++;
-    if (vosNextFrame()) {
-        vosPresentEmpty();
-        cp_frame_end_submission(s_frame);
-        s_frame = nil;
-        s_drawable = nil;
-        s_drawables = nil;
-        s_frameAnchor = nil;
-    } else {
-        usleep(10000);
-    }
+    // the compositor's thread keeps the space fed on its own
+    usleep(10000);
 }
 
 // ============================================================================
@@ -1138,6 +1289,7 @@ XRAPI_ATTR XrResult XRAPI_CALL xrGetInstanceProperties(XrInstance, XrInstancePro
 
 XRAPI_ATTR XrResult XRAPI_CALL xrPollEvent(XrInstance, XrEventDataBuffer *out)
 {
+    std::lock_guard<std::mutex> lk(s_eventLock);
     if (s_events.empty()) return XR_EVENT_UNAVAILABLE;
     *out = s_events.front();
     s_events.pop_front();
@@ -1198,20 +1350,13 @@ static void vosProbeViews(void)
 {
     if (s_viewsKnown) return;
     vosStartTracking();
-    vosDefaultViews();
-    for (int tries = 0; tries < 200 && !s_viewsKnown; tries++) {
-        s_frameNo++;
-        if (vosNextFrame()) {
-            vosPresentEmpty();
-            cp_frame_end_submission(s_frame);
-            s_frame = nil;
-            s_drawable = nil;
-        s_drawables = nil;
-            s_frameAnchor = nil;
-        } else {
-            usleep(5000);
-        }
+    {
+        std::lock_guard<std::mutex> lk(s_viewLock);
+        vosDefaultViews();
     }
+    vosStartCompositor();
+    std::unique_lock<std::mutex> lk(s_viewLock);
+    s_viewsCv.wait_for(lk, std::chrono::seconds(5), [] { return s_viewsKnown; });
 }
 
 XRAPI_ATTR XrResult XRAPI_CALL xrCreateSession(XrInstance, const XrSessionCreateInfo *ci, XrSession *session)
@@ -1327,8 +1472,14 @@ XRAPI_ATTR XrResult XRAPI_CALL xrLocateViews(XrSession, const XrViewLocateInfo *
     }
     const simd_float4x4 head = vosHeadFor(t);
     const simd_float4x4 baseInv = simd_inverse(base);
+    VosViewInfo views2[2];
+    {
+        std::lock_guard<std::mutex> lk(s_viewLock);
+        views2[0] = s_views[0];
+        views2[1] = s_views[1];
+    }
     for (int i = 0; i < 2; i++) {
-        const VosViewInfo &vi = s_views[i];
+        const VosViewInfo &vi = views2[i];
         views[i].pose = vosPoseFromMatrix(simd_mul(baseInv, simd_mul(head, vi.deviceFromView)));
         views[i].fov.angleLeft = atanf(vi.tanL);
         views[i].fov.angleRight = atanf(vi.tanR);
@@ -1467,26 +1618,23 @@ XRAPI_ATTR XrResult XRAPI_CALL xrReleaseSwapchainImage(XrSwapchain h, const XrSw
 XRAPI_ATTR XrResult XRAPI_CALL xrWaitFrame(XrSession, const XrFrameWaitInfo *, XrFrameState *state)
 {
     if (!s_sessionRunning) return XR_ERROR_SESSION_NOT_RUNNING;
-    if (s_frame) {
-        // a frame waited for and never ended: present it black
-        vosPresentEmpty();
-        cp_frame_end_submission(s_frame);
-        s_frame = nil;
-        s_drawable = nil;
-        s_drawables = nil;
-        s_frameAnchor = nil;
+    vosStartCompositor();
+    bool have;
+    {
+        std::unique_lock<std::mutex> lk(s_paceLock);
+        s_gameWaiting = true;
+        // released on the grid by the compositor's thread (vosPaceSlot)
+        have = s_paceCv.wait_for(lk, std::chrono::milliseconds(200), [] { return s_released; });
+        s_released = false;
+        s_gameWaiting = false;
+        if (!have) s_releaseDisplay = vosNow() + s_period;   // paused or closing: an empty frame
+        state->predictedDisplayTime = vosTime(s_releaseDisplay);
+        // the game's own period: the panel's times the grid (the frame pump
+        // paces its early tick and its 1/60 s slots on it, as under SpaceWarp)
+        state->predictedDisplayPeriod = vosTime(s_period * s_paceDiv);
     }
-    s_frameNo++;
-    const bool have = vosNextFrame();
-    if (!have) {
-        // no drawable this time (paused, closing, or a skipped frame): the
-        // game ends an empty frame and asks again
-        usleep(2000);
-        s_frameDisplay = vosNow() + s_period;
-    }
-    state->predictedDisplayTime = vosTime(s_frameDisplay);
-    state->predictedDisplayPeriod = vosTime(s_period);
     state->shouldRender = have ? XR_TRUE : XR_FALSE;
+    s_waitReturned = vosNow();
     s_frameBegun = false;
     return XR_SUCCESS;
 }
@@ -1503,17 +1651,30 @@ XRAPI_ATTR XrResult XRAPI_CALL xrEndFrame(XrSession, const XrFrameEndInfo *info)
 {
     if (!s_frameBegun) return XR_ERROR_CALL_ORDER_INVALID;
     s_frameBegun = false;
-    if (!s_frame || !s_drawable) return XR_SUCCESS;
-    vosComposite(info);
-    cp_frame_end_submission(s_frame);
-    s_frame = nil;
-    s_drawable = nil;
-    s_drawables = nil;
-    s_frameAnchor = nil;
+    const double t0 = vosNow();
+    if (s_waitReturned > 0.0) {
+        const double g = (t0 - s_waitReturned) * 1000.0;
+        s_gameMsSum += g;
+        if (g > s_gameMsMax) s_gameMsMax = g;
+    }
+    s_gameFrameNo++;
+    std::shared_ptr<VosPublished> pub = vosBuildFrame(info);
+    {
+        std::lock_guard<std::mutex> lk(s_pubLock);
+        s_pub = pub;   // shown from the compositor's next slot until the next
+    }
+    s_costFrames++;
     static unsigned frames;
     if (++frames == 3 || frames % 900 == 0) {
-        vosLog("visionos: xr: frame %u, %u layers, %.1f Hz, head (%.2f %.2f %.2f)", frames, info->layerCount,
-               1.0 / s_period, s_frameHead.columns[3].x, s_frameHead.columns[3].y, s_frameHead.columns[3].z);
+        vosLog("visionos: xr: frame %u, %u layers, panel %.1f Hz, every %d slot(s), %llu of %llu frames late, head (%.2f %.2f %.2f)",
+               frames, info->layerCount, 1.0 / s_period, s_paceDiv, (unsigned long long)s_paceOverruns,
+               (unsigned long long)s_paceFrames, pub->head.columns[3].x, pub->head.columns[3].y,
+               pub->head.columns[3].z);
+        vosLog("visionos: xr: the game's frame %.1f ms average, %.1f worst; the compositor's slot %.2f ms of %.1f",
+               s_costFrames ? s_gameMsSum / s_costFrames : 0.0, s_gameMsMax,
+               s_compFrames ? s_compMsSum / s_compFrames : 0.0, s_period * 1000.0);
+        s_gameMsSum = s_gameMsMax = s_compMsSum = 0.0;
+        s_costFrames = s_compFrames = 0;
     }
     return XR_SUCCESS;
 }
@@ -1626,7 +1787,7 @@ static void vosEvaluate(VosActionObj *a, int which, float out[2], bool *active)
 
 XRAPI_ATTR XrResult XRAPI_CALL xrSyncActions(XrSession, const XrActionsSyncInfo *)
 {
-    const double t = s_frameDisplay > 0.0 ? s_frameDisplay : vosNow();
+    const double t = s_releaseDisplay > 0.0 ? s_releaseDisplay : vosNow();
     simd_float4x4 head = vosHeadFor(t);
     vosInputSync(t, &head);
     const XrTime now = vosTime(vosNow());

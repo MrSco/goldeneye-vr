@@ -45,6 +45,15 @@ Conventions:
   matched through the projection layer's pose, so the system reprojects from the
   pixels' own pose (Klepton's `KL_WARP=system`). Build 9 stamped the display time's
   anchor instead, and the world swam with the head.
+- **Two threads.** A compositor thread presents every panel slot, showing the
+  game's latest published frame stamped with its render anchor. It releases the
+  game's next frame on an even grid of slots, which is Klepton's
+  `KL_GUEST_FPS_DIV=auto`: more than 25% of a 128-frame window late adds a slot,
+  up to 4, and enough clean windows remove one, with a back-off when a step down
+  is undone. Build 10 drove the compositor from the game's frames one for one.
+  At 55-68 fps on 90 Hz, the pictures were held a ragged 1 or 2 slots, and the
+  world shook with a still head. Compositor Services aborts if a frame is queried
+  before the last one was ended, so frames can't simply be skipped.
 - **Sense grip:** Apple's `.grip` turned +5.037 degrees about X. That is
   Klepton's net turn for an OpenXR game: its controller side's -37 and its OpenXR
   side's +37 cancel. Build 9 had only the -37, and the gun pointed down.
