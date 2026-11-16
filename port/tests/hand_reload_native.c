@@ -574,8 +574,12 @@ static void singleRoundReloads(void)
             int rounds, hover;
             assert(gevrReloadBeltRound(0,&rounds,&hover)==GUNRIGHT && rounds==1 && !hover);
             assert(gevrReloadBeltRound(1,&rounds,&hover)==-1);
+            /* a round at this belt: its hip's holster steps aside; the grip is the belt's only at it */
+            assert(gevrReloadBeltOffers(0) && !gevrReloadBeltAtHand(0) && !gevrReloadBeltOffers(1));
             belt(0,0); assert(gevrReloadBeltRound(0,&rounds,&hover)==GUNRIGHT && hover);
-            reserve=0; assert(gevrReloadBeltRound(0,&rounds,&hover)==-1); reserve=50;   /* none left: nothing shown */
+            assert(gevrReloadBeltAtHand(0) && !gevrReloadBeltAtHand(1));
+            reserve=0; assert(gevrReloadBeltRound(0,&rounds,&hover)==-1);   /* none left: nothing shown */
+            assert(!gevrReloadBeltOffers(0) && !gevrReloadBeltAtHand(0)); reserve=50;
             gex[GUNRIGHT]=0; assert(gevrReloadBeltRound(0,&rounds,&hover)==-1); gex[GUNRIGHT]=1;
             at(0,20,20,40);
         }

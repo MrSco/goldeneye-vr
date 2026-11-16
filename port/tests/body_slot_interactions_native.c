@@ -72,7 +72,7 @@ static int gevrShotCtrl(int hand) { return hand == GUNRIGHT ? 1 : 0; }
 static int getCurrentPlayerWeaponId(int hand) { return player.hands[hand].item; }
 static int gevrBodyHandSelected(int hand) { return getCurrentPlayerWeaponId(hand); }
 int gevrIsThrowable(int item) { return item == ITEM_GRENADE || item == ITEM_KNIFE; }
-static int gevrReloadBeltHover(int ctrl) { (void)ctrl; return 0; }
+static int gevrReloadBeltAtHand(int ctrl) { (void)ctrl; return 0; }
 static int getPlayerCount(void) { return 1; }
 static int get_scenario(void) { return 0; }
 static int bondinvIsAliveWithFlag(void) { return 0; }

@@ -368,7 +368,7 @@ static s32 gevrBodyFrameUpdate(void)
             {
                 freeze = TRUE;
             }
-            if (gevrReloadBeltHover(ctrl)) freeze = TRUE;
+            if (gevrReloadBeltAtHand(ctrl)) freeze = TRUE;
         }
     }
     if (gevrBodyTorsoUpdate(&s_bodyTorso, hp, follow, (f32) g_ClockTimer, freeze, s_bodyTune[BT_TWIST], 45.0f))
@@ -454,7 +454,7 @@ static void gevrBodyHandUpdate(s32 ctrl)
         dist[s] = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
         /* a slot with nothing for this hand isn't there for it */
         eligible[s] = offOk && (gevrBodySlotHands(s) & (1 << ctrl)) && gevrBodyChoicesFor(s, hand, choices) > 0
-            && !(gevrReloadBeltHover(ctrl) && (s == GEVR_BS_HIP_GUN || s == GEVR_BS_HIP_OFF || s == GEVR_BS_BELT));
+            && !(gevrReloadBeltAtHand(ctrl) && (s == GEVR_BS_HIP_GUN || s == GEVR_BS_HIP_OFF || s == GEVR_BS_BELT));
         if (eligible[s] && s != GEVR_BS_BACK_GUN && s != GEVR_BS_BACK_OFF && dist[s] < 1.25f * s_bodyRadius[s])
         {
             h->nearFront = TRUE;
@@ -597,7 +597,7 @@ int gevrBodySlotGrip(int ctrl)
     s32 hand, held, action;
     char from[48], to[48];
 
-    if (!s_bodyLive || ctrl < 0 || ctrl > 1 || s_bodyHand[ctrl].slot < 0 || gevrReloadBeltHover(ctrl))
+    if (!s_bodyLive || ctrl < 0 || ctrl > 1 || s_bodyHand[ctrl].slot < 0 || gevrReloadBeltAtHand(ctrl))
     {
         return FALSE;
     }
@@ -1094,7 +1094,7 @@ Gfx *gevrBodySlotsDraw(Gfx *gdl)
             set = TRUE;
         }
         if ((slot == GEVR_BS_HIP_GUN || slot == GEVR_BS_HIP_OFF)
-            && gevrReloadBeltAmmo(slot == GEVR_BS_HIP_GUN ? 1 : 0) >= 0) continue;
+            && gevrReloadBeltOffers(slot == GEVR_BS_HIP_GUN ? 1 : 0)) continue;
         rd.envcolour.word = tint;
         if ((s_bodyHand[0].slot == slot && s_bodyHand[0].ms >= 150.0f)
             || (s_bodyHand[1].slot == slot && s_bodyHand[1].ms >= 150.0f))
