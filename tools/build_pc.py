@@ -14,8 +14,9 @@ in port/external/steamaudio/README.md); its Windows phonon.dll goes beside
 the exe. CMake and Ninja come from PATH. SDL2, zlib and Opus are fetched by
 CMake.
 
-The build folder defaults to a short path under %LOCALAPPDATA%: object paths
-past 250 characters break CMake's compiler checks under a long worktree path.
+The build folder is GEVR_BUILDS\\<checkout key>, or by default a short path
+under %LOCALAPPDATA%\\gevr-pc: object paths past 250 characters break CMake's
+compiler checks under a long worktree path.
 """
 
 import argparse
@@ -44,6 +45,13 @@ def tools_dir():
     base = os.environ.get('GEVR_TOOLS') or os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'gevr-tools')
     os.makedirs(base, exist_ok=True)
     return base
+
+
+def default_build_dir():
+    """One build folder per checkout, keyed by its path."""
+    key = hashlib.sha1(ROOT.lower().encode()).hexdigest()[:8]
+    base = os.environ.get('GEVR_BUILDS') or os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'gevr-pc')
+    return os.path.join(base, key)
 
 
 def llvm_mingw():
@@ -126,8 +134,7 @@ def openxr_loader():
 
 def main():
     ap = argparse.ArgumentParser()
-    key = hashlib.sha1(ROOT.lower().encode()).hexdigest()[:8]
-    ap.add_argument('--build-dir', default=os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'gevr-pc', key))
+    ap.add_argument('--build-dir', default=default_build_dir())
     ap.add_argument('--config', default='RelWithDebInfo')
     ap.add_argument('--jobs', type=int, default=0)
     ap.add_argument('--configure-only', action='store_true')

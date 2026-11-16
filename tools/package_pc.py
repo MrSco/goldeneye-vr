@@ -80,8 +80,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('version', nargs='?', help="default: android/app/build.gradle's versionName")
     ap.add_argument('--out', default=os.path.join(ROOT, 'build', 'pc-dist'))
-    key = hashlib.sha1(ROOT.lower().encode()).hexdigest()[:8]
-    ap.add_argument('--build-dir', default=os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'gevr-pc', key))
+    ap.add_argument('--build-dir', default=build_pc.default_build_dir())
     ap.add_argument('--no-build', action='store_true', help='pack what the build folder holds')
     args = ap.parse_args()
     version = args.version or app_version()
