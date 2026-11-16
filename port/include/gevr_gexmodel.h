@@ -36,15 +36,6 @@ u8 *gevrGexBuildModel(const char *pdname, u32 numSwitches, const s32 *switchPart
  * or -1: the model has no such part, or the ROM is missing. */
 s32 gevrGexPartMatrix(const char *pdname, s32 part);
 
-/* A plate on the base of PD model part `part` (a magazine), as House of the
- * Dead VR puts one under its gun's grip: the part's end face away from top
- * (past centre), found from its own vertices, as a box GEVR_GEX_BAND_DEPTH of
- * its length thick, a little proud of the face. out: its 8 corners in the
- * part's coordinates, bit 0 and 1 across the face, bit 2 the outer face.
- * 0 when the model or the part has no such face. */
-#define GEVR_GEX_BAND_DEPTH 0.07f
-s32 gevrGexPartBase(const char *pdname, s32 part, const f32 top[3], const f32 centre[3], f32 out[8][3]);
-
 /* A mapped id's compressed GE-X texture, or NULL for any other id. */
 const u8 *gevrGexTextureForId(s32 id, u32 *len);
 

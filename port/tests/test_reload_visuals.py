@@ -102,47 +102,13 @@ int main(void) {
     assert((commands[4].words.w1 & Z_UPD)==0);   /* transparent guide never writes solid depth */
     assert((commands[4].words.w1 & FORCE_BL)!=0);
     rd.PropType=PROP_TYPE_CHR+1; assert(!modelApplyReloadGhost(&rd));
-    /* the magazine's band: on the gun's magazine and on the held one, on each mesh's own matrix */
-    {
-        f32 corners[8][3]; Gfx band[96], *end; RenderPosView pos[64];
-        for (int i=0;i<8;i++) { corners[i][0]=(i&1)?7:-7; corners[i][1]=(i&4)?-121:-111; corners[i][2]=(i&2)?-22:-64; }
-        gevrGexBandBuild(def,corners,&s_gevrGexBand[ITEM_WPPK]);
-        for (int i=0;i<8;i++) for (int a=0;a<3;a++) {   /* the held plate is the installed one, carried by heldToMag */
-            f32 p=def->heldToMag[3][a];
-            for (int k=0;k<3;k++) p+=s_gevrGexBand[ITEM_WPPK].v[1][i].v.ob[k]*def->heldToMag[k][a];
-            assert(fabsf(p-s_gevrGexBand[ITEM_WPPK].v[0][i].v.ob[a])<1.5f);
-            assert(s_gevrGexBand[ITEM_WPPK].v[0][i].v.ob[a]==(s16)corners[i][a]);
-        }
-        assert(s_gevrGexBand[ITEM_WPPK].v[0][4].v.cn[1]==0xC0 && s_gevrGexBand[ITEM_WPPK].v[0][0].v.cn[1]==0x68);
-        hdr.numMatrices=64; player.hands[0].weaponModel.render_pos=pos;
-        for (int shown=0;shown<4;shown++) {
-            s32 mtx[2]={0,0}, vtx[2]={0,0};
-            s_gevrGexBandShown[0]=shown;
-            end=gevrGexDrawMagazineBand(band,0);
-            assert(shown ? end>band : end==band);   /* nothing at all with no magazine drawn */
-            for (Gfx *g=band; g<end; g++) for (int k=0;k<2;k++) {
-                mtx[k]+=g->words.w1==(uintptr_t)&pos[k ? def->heldMatrix : def->magMatrix];
-                vtx[k]+=g->words.w1==(uintptr_t)s_gevrGexBand[ITEM_WPPK].v[k];
-            }
-            for (int k=0;k<2;k++) assert(mtx[k]==((shown>>k)&1) && vtx[k]==((shown>>k)&1));
-        }
-        s_gevrGexBand[ITEM_WPPK].state=-1; s_gevrGexBandShown[0]=3;
-        assert(gevrGexDrawMagazineBand(band,0)==band);   /* a magazine with no face found: none */
-    }
-    puts("PASS: magazine subtree only, installed/belt poses, live switches preserved, ghost alpha and translucent depth, magazine band");
+    puts("PASS: magazine subtree only, installed/belt poses, live switches preserved, ghost alpha and translucent depth");
 }
 '''
 gun = (ROOT / "src/game/gun.c").read_text()
 model = (ROOT / "src/game/model.c").read_text()
 production = [function(model, "void modelApplyToggleRelations("), function(model, "static bool modelApplyReloadGhost(")]
 production += [function(gun, s) for s in ("static void gevrGexCollapse(", "static void gevrGexShowMagazines(", "Gfx *gevrGexDrawMagazineGuide(")]
-production += [line for line in gun.splitlines()
-               if line.startswith(("typedef struct { s8 state; Vtx v[2][8]; } GevrGexBand;", "static GevrGexBand s_gevrGexBand[", "static s32 s_gevrGexBandShown["))]
-production += [function(gun, s) for s in ("static void gevrGexBandBuild(", "static Gfx *gevrGexDrawMagazineBand(")]
-# the pose says which magazine meshes show; the guide draws the band; the rig's build fits it
-assert "s_gevrGexBandShown[hand] = (inGun ? 1 : 0) | (inHand ? 2 : 0);" in function(gun, "void gevrGexPoseGun(")
-assert "gevrGexDrawMagazineBand(gdl, hand)" in function(gun, "Gfx *gevrGexDrawReloadGuide(")
-assert "gevrGexBandBuild(def, corners," in function(gun, "static void gevrGexGunPrepare(")
 with tempfile.TemporaryDirectory(prefix="gevr-reload-visuals-") as temp:
     source, exe = Path(temp) / "test.c", Path(temp) / "test.exe"
     source.write_text(HARNESS.replace("/* PRODUCTION */", "\n".join(production)))
