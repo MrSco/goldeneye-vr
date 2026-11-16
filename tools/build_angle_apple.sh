@@ -102,4 +102,45 @@ if [ -d "$ANGLE_DIR/out/ios-device/libEGL.framework" ] && [ -d "$ANGLE_DIR/out/i
     xcodebuild -create-xcframework       -framework "$ANGLE_DIR/out/ios-device/$lib.framework"       -framework "$ANGLE_DIR/out/ios-simulator/$lib.framework"       -output "$ANGLE_DIR/xcframeworks/$lib.xcframework"
   done
 fi
+# Vision Pro (docs/visionos-native.md): ANGLE's gn has no visionOS target, so
+# the iOS slices are retargeted, as Klepton does (tools/angle_retarget.sh,
+# MIT): the Mach-O's build version set to visionOS with vtool, the install name
+# @rpath-relative, and the framework's Info.plist naming the visionOS platform
+# (vtool leaves the bundle alone, and an iPhoneOS plist fails the install's
+# bundle check before dyld runs). AMFI takes the result on the device.
+retarget() {   # <ios slice> <visionos slice> <vtool platform> <plist platform>
+  local src="$ANGLE_DIR/out/$1" dst="$ANGLE_DIR/out/$2"
+  for lib in libEGL libGLESv2; do
+    rm -rf "$dst/$lib.framework"
+    mkdir -p "$dst/$lib.framework"
+    xcrun vtool -arch arm64 -set-build-version "$3" 26.0 26.0 -replace \
+      -output "$dst/$lib.framework/$lib" "$src/$lib.framework/$lib"
+    install_name_tool -id "@rpath/$lib.framework/$lib" "$dst/$lib.framework/$lib"
+    cat > "$dst/$lib.framework/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleExecutable</key><string>$lib</string>
+  <key>CFBundleIdentifier</key><string>com.google.angle.$lib</string>
+  <key>CFBundleName</key><string>$lib</string>
+  <key>CFBundlePackageType</key><string>FMWK</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleSupportedPlatforms</key><array><string>$4</string></array>
+  <key>MinimumOSVersion</key><string>26.0</string>
+</dict></plist>
+EOF
+  done
+}
+if [ -f "$ANGLE_DIR/out/ios-device/libEGL.framework/libEGL" ] && [ -f "$ANGLE_DIR/out/ios-simulator/libEGL.framework/libEGL" ]; then
+  retarget ios-device xros visionos XROS
+  retarget ios-simulator xrsimulator visionossim XRSimulator
+  mkdir -p "$ANGLE_DIR/xcframeworks-visionos"
+  for lib in libEGL libGLESv2; do
+    rm -rf "$ANGLE_DIR/xcframeworks-visionos/$lib.xcframework"
+    xcodebuild -create-xcframework -framework "$ANGLE_DIR/out/xros/$lib.framework" \
+      -framework "$ANGLE_DIR/out/xrsimulator/$lib.framework" \
+      -output "$ANGLE_DIR/xcframeworks-visionos/$lib.xcframework"
+  done
+fi
 echo "ANGLE ready in $ANGLE_DIR (set ANGLE_DIR for the iOS build if you moved it)"
