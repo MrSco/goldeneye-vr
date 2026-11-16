@@ -40,6 +40,14 @@ Conventions:
   quad's own depth. visionOS discards a frame whose depth is all 0 (reverse-Z
   infinity) as empty. Klepton measured this on the device, and builds 6-8 were black
   because of it. The simulator does not do this.
+- **Head pose for reprojection:** every head the game is given keeps its ARKit
+  anchor. Each drawable is stamped with the anchor its eye images were drawn from,
+  matched through the projection layer's pose, so the system reprojects from the
+  pixels' own pose (Klepton's `KL_WARP=system`). Build 9 stamped the display time's
+  anchor instead, and the world swam with the head.
+- **Sense grip:** Apple's `.grip` turned +5.037 degrees about X. That is
+  Klepton's net turn for an OpenXR game: its controller side's -37 and its OpenXR
+  side's +37 cancel. Build 9 had only the -37, and the gun pointed down.
 - **Scene role:** the launch scene role is `CPSceneSessionRoleImmersiveSpaceApplication`.
   Using UIKit's `UISceneSessionRoleImmersiveSpaceApplication` made SwiftUI abort at
   launch.

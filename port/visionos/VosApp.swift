@@ -146,6 +146,9 @@ struct GoldenEyeVRApp: App {
         // the Digital Crown's close and the system's home tap stay; nothing
         // else of the system's floats over the game
         .persistentSystemOverlays(.hidden)
+        // the player's own hands and arms not drawn over the game's (tester,
+        // build 9); Klepton sets the same on its space
+        .upperLimbVisibility(.hidden)
 
         WindowGroup(id: "picker") { VosPickerView() }
             .defaultSize(width: 620, height: 260)

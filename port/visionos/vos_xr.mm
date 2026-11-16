@@ -213,6 +213,15 @@ static float s_localHeight = 1.6f;   // LOCAL's origin: the first tracked head h
 static bool s_localSet;
 static unsigned s_headMisses;
 
+/* Every head the game was given, with its anchor: the drawable is stamped
+ * with the one the eye images were drawn from (the game often locates its
+ * poses ahead of the frame), so the compositor's reprojection starts from the
+ * pose the pixels hold. Klepton's KL_WARP=system: build 9 stamped the display
+ * time's anchor instead, and the world swam with the head (tester). */
+struct VosHeadSample { ar_device_anchor_t anchor; simd_float4x4 head; };
+static VosHeadSample s_headRing[32];
+static unsigned s_headRingNext;
+
 static NSLock *s_accLock;
 static ar_accessory_anchor_t s_accAnchor[2];   // the latest per hand (under s_accLock)
 
@@ -330,9 +339,13 @@ static void vosStartTracking(void)
         });
 }
 
-/* Klepton's turn from Apple's .grip to a Touch grip (KLSenseTune): the PSVR2's
- * own 5.037 degrees plus -37 about X, and (-0.005, 0.02, -0.02) m in the
- * grip's frame, x mirrored for the left hand */
+/* Klepton's turn from Apple's .grip to the OpenXR grip an OpenXR game reads:
+ * its controller side turns the PSVR2's own 5.037 degrees plus a saber hilt's
+ * -37 about X (KLSenseTune), and its OpenXR side turns +37 back for the grip
+ * pose (kl_openxr.c KLXR_GRIP_PITCH_DEFAULT, local, so they cancel): +5.037
+ * net. Build 9 had only the controller half, and the gun pointed down (tester).
+ * The offset (-0.005, 0.02, -0.02) m is in Apple's grip frame, x mirrored for
+ * the left hand. */
 extern "C" int vosAccessoryGrip(int hand, double seconds, simd_float4x4 *out)
 {
     if (!s_accProvider || hand < 0 || hand > 1) return 0;
@@ -352,7 +365,7 @@ extern "C" int vosAccessoryGrip(int hand, double seconds, simd_float4x4 *out)
     const simd_float3x3 r3 = simd_matrix(simd_normalize(m.columns[0].xyz), simd_normalize(m.columns[1].xyz),
                                          simd_normalize(m.columns[2].xyz));
     const simd_quatf raw = simd_quaternion(r3);
-    static const simd_quatf turn = simd_quaternion((5.037f - 37.0f) * (float)M_PI / 180.0f, simd_make_float3(1, 0, 0));
+    static const simd_quatf turn = simd_quaternion(5.037f * (float)M_PI / 180.0f, simd_make_float3(1, 0, 0));
     const simd_quatf q = simd_normalize(simd_mul(raw, turn));
     const simd_float3 off = simd_make_float3(hand == 0 ? 0.005f : -0.005f, 0.02f, -0.02f);
     const simd_float3 pos = m.columns[3].xyz + simd_act(raw, off);
@@ -382,6 +395,8 @@ static ar_device_anchor_t vosQueryHead(double seconds, simd_float4x4 *out, bool 
     }
     s_goodAnchor = anchor;
     s_lastHead = ar_device_anchor_get_origin_from_anchor_transform(anchor);
+    s_headRing[s_headRingNext % 32] = { anchor, s_lastHead };
+    s_headRingNext++;
     s_haveHead = true;
     if (!s_localSet) {
         s_localSet = true;
@@ -808,6 +823,42 @@ static void vosComposite(const XrFrameEndInfo *info)
 {
     std::vector<VosLayerDraw> draws;
     const double t = info->displayTime ? vosSeconds(info->displayTime) : s_frameDisplay;
+    // The head the eye images were drawn from, and its anchor: from the
+    // projection layer's left view (its pose = head * device-from-view)
+    simd_float4x4 compHead = s_frameHead;
+    ar_device_anchor_t compAnchor = s_frameAnchor;
+    for (uint32_t i = 0; i < info->layerCount; i++) {
+        const XrCompositionLayerBaseHeader *base = info->layers[i];
+        if (!base || base->type != XR_TYPE_COMPOSITION_LAYER_PROJECTION) continue;
+        const auto *l = (const XrCompositionLayerProjection *)base;
+        simd_float4x4 worldFromSpace;
+        if (l->viewCount < 1 || !vosWorldFromSpace((const VosSpaceObj *)l->space, t, &worldFromSpace)) break;
+        const simd_float4x4 rendered = simd_mul(simd_mul(worldFromSpace, vosMatrixFromPose(l->views[0].pose)),
+                                                simd_inverse(s_views[0].deviceFromView));
+        float best = 1e9f;
+        int bestIdx = -1;
+        const unsigned n = std::min(s_headRingNext, 32u);
+        for (unsigned k = 0; k < n; k++) {
+            const VosHeadSample &h = s_headRing[k];
+            if (!h.anchor) continue;
+            const float dp = simd_distance(h.head.columns[3].xyz, rendered.columns[3].xyz);
+            const float dr = simd_distance(h.head.columns[2].xyz, rendered.columns[2].xyz) +
+                             simd_distance(h.head.columns[1].xyz, rendered.columns[1].xyz);
+            if (dp + dr < best) { best = dp + dr; bestIdx = (int)k; }
+        }
+        if (bestIdx >= 0 && best < 0.01f) {
+            compHead = s_headRing[bestIdx].head;
+            compAnchor = s_headRing[bestIdx].anchor;
+        }
+        static unsigned matched, missed;
+        (bestIdx >= 0 && best < 0.01f) ? matched++ : missed++;
+        if (((matched + missed) % 900) == 1) {
+            vosLog("visionos: compositor: rendered pose matched to its anchor %u times, not %u (last miss %.4f)",
+                   matched, missed, best);
+        }
+        break;
+    }
+
     for (uint32_t i = 0; i < info->layerCount; i++) {
         const XrCompositionLayerBaseHeader *base = info->layers[i];
         if (!base) continue;
@@ -844,7 +895,12 @@ static void vosComposite(const XrFrameEndInfo *info)
             VosImage *img = vosReleasedImage(q->subImage.swapchain);
             if (!sc || !img) continue;
             simd_float4x4 worldFromSpace;
-            if (!vosWorldFromSpace((const VosSpaceObj *)q->space, t, &worldFromSpace)) continue;
+            const auto *qs = (const VosSpaceObj *)q->space;
+            if (qs && qs->kind == VOS_SPACE_REFERENCE && qs->type == XR_REFERENCE_SPACE_TYPE_VIEW) {
+                worldFromSpace = simd_mul(compHead, qs->offset);   // head-locked to the eyes' own head
+            } else if (!vosWorldFromSpace(qs, t, &worldFromSpace)) {
+                continue;
+            }
             VosLayerDraw d{};
             d.projection = false;
             d.blend = vosBlendOf(q->layerFlags);
@@ -929,7 +985,7 @@ static void vosComposite(const XrFrameEndInfo *info)
         // (Klepton's measured value) so the compositor keeps them
         const simd_float4 at2m = simd_mul(proj, simd_make_float4(0.0f, 0.0f, -2.0f, 1.0f));
         const float eyeDepth = at2m.w > 0.0f ? at2m.z / at2m.w : 0.05f;
-        const simd_float4x4 viewFromWorld = simd_inverse(simd_mul(s_frameHead, vi.deviceFromView));
+        const simd_float4x4 viewFromWorld = simd_inverse(simd_mul(compHead, vi.deviceFromView));
         for (const VosLayerDraw &d : draws) {
             if (d.projection) {
                 struct { simd_float4 dst, src, rect; float opaque; } p;
@@ -958,7 +1014,7 @@ static void vosComposite(const XrFrameEndInfo *info)
         }
         [enc endEncoding];
     }
-    if (s_frameAnchor) cp_drawable_set_device_anchor(drawable, s_frameAnchor);
+    if (compAnchor) cp_drawable_set_device_anchor(drawable, compAnchor);
     cp_drawable_encode_present(drawable, cmd);
     }
     [cmd encodeSignalEvent:s_doneEvent value:s_frameNo];

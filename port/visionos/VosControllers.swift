@@ -5,7 +5,7 @@
 // port/licenses/klepton.txt), which runs this same game on this headset:
 //   - poses: not here. ARKit's accessory tracking runs in the head's own
 //     session (vos_xr.mm vosAccessoryGrip, with Klepton's turn to a Touch
-//     grip): build 7 ran it in a second session, the suspect for its black device;
+//     grip, Klepton's net turn for an OpenXR game);
 //   - buttons: GameController's input state, read by element name ("Trigger",
 //     "Grip", "Button A"/"B", "Thumbstick" as a d-pad, "Thumbstick Button",
 //     "Button Menu"/"Options"); the hand from the vendor name's "(L)";
