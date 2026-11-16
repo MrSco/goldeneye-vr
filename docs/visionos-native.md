@@ -36,6 +36,10 @@ Conventions:
   dump, and top-down sub-images.
 - **Colours:** swapchains are `GL_RGBA8`, sampled through an sRGB view into the
   `bgra8Unorm_srgb` drawable. The game's colours arrive unchanged.
+- **Depth:** the drawable's depth is written: 2 m for the eye images, and each
+  quad's own depth. visionOS discards a frame whose depth is all 0 (reverse-Z
+  infinity) as empty. Klepton measured this on the device, and builds 6-8 were black
+  because of it. The simulator does not do this.
 - **Scene role:** the launch scene role is `CPSceneSessionRoleImmersiveSpaceApplication`.
   Using UIKit's `UISceneSessionRoleImmersiveSpaceApplication` made SwiftUI abort at
   launch.

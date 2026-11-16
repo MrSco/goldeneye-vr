@@ -495,7 +495,7 @@ static id<MTLCommandQueue> s_queue;
 static id<MTLSharedEvent> s_doneEvent;   // signalled with a frame's number when its composite has run
 static id<MTLRenderPipelineState> s_projPipe[3], s_quadPipe[3];   // opaque, premultiplied, straight alpha
 static id<MTLSamplerState> s_sampler;
-static id<MTLDepthStencilState> s_noDepth;
+static id<MTLDepthStencilState> s_noDepth;   // no test, depth written (see vosBuildPipelines)
 static MTLPixelFormat s_colorFormat, s_depthFormat;
 
 static const char *kVosShaders = R"(
@@ -504,10 +504,10 @@ using namespace metal;
 struct VOut { float4 pos [[position]]; float2 uv; };
 struct ProjParams { float4 dst; float4 src; float4 rect; float opaque; };
 struct QuadParams { float4x4 mvp; float4 rect; float opaque; };
-vertex VOut vos_full_vs(uint vid [[vertex_id]]) {
+vertex VOut vos_full_vs(uint vid [[vertex_id]], constant float &depth [[buffer(0)]]) {
     float2 p = float2((vid << 1) & 2, vid & 2);
     VOut o;
-    o.pos = float4(p * 2.0 - 1.0, 0.0, 1.0);
+    o.pos = float4(p * 2.0 - 1.0, depth, 1.0);
     o.uv = float2(p.x, 1.0 - p.y);
     return o;
 }
@@ -577,9 +577,15 @@ static bool vosBuildPipelines(MTLPixelFormat color, MTLPixelFormat depth)
     sd.sAddressMode = MTLSamplerAddressModeClampToEdge;
     sd.tAddressMode = MTLSamplerAddressModeClampToEdge;
     s_sampler = [s_dev newSamplerStateWithDescriptor:sd];
+    // Depth WRITTEN, layer over layer (each later one is in front, as the
+    // layers are). visionOS reprojects the frame with its depth and discards
+    // one whose depth is all 0, reverse-Z infinity, as "nothing there":
+    // Klepton measured it on the device (a quad with writes off invisible, the
+    // same quad with writes on shown), and build 8 was black for exactly that
+    // while the simulator, which does not do it, showed the game.
     MTLDepthStencilDescriptor *dd = [MTLDepthStencilDescriptor new];
     dd.depthCompareFunction = MTLCompareFunctionAlways;
-    dd.depthWriteEnabled = NO;
+    dd.depthWriteEnabled = YES;
     s_noDepth = [s_dev newDepthStencilStateWithDescriptor:dd];
     s_colorFormat = color;
     s_depthFormat = depth;
@@ -919,6 +925,10 @@ static void vosComposite(const XrFrameEndInfo *info)
         vi.tanD = (proj.columns[2].y - 1.0f) / proj.columns[1].y;
         vi.tanU = (proj.columns[2].y + 1.0f) / proj.columns[1].y;
         const int eye = (views == 1) ? 0 : (int)(v < 2 ? v : 1);
+        // the eye images carry no depth of their own: a finite one at 2 m
+        // (Klepton's measured value) so the compositor keeps them
+        const simd_float4 at2m = simd_mul(proj, simd_make_float4(0.0f, 0.0f, -2.0f, 1.0f));
+        const float eyeDepth = at2m.w > 0.0f ? at2m.z / at2m.w : 0.05f;
         const simd_float4x4 viewFromWorld = simd_inverse(simd_mul(s_frameHead, vi.deviceFromView));
         for (const VosLayerDraw &d : draws) {
             if (d.projection) {
@@ -928,6 +938,7 @@ static void vosComposite(const XrFrameEndInfo *info)
                 p.rect = simd_make_float4(d.eyeRect[eye][0], d.eyeRect[eye][1], d.eyeRect[eye][2], d.eyeRect[eye][3]);
                 p.opaque = d.blend == 0 ? 1.0f : 0.0f;
                 [enc setRenderPipelineState:s_projPipe[d.blend]];
+                [enc setVertexBytes:&eyeDepth length:sizeof(eyeDepth) atIndex:0];
                 [enc setFragmentBytes:&p length:sizeof(p) atIndex:0];
                 [enc setFragmentTexture:d.eyeTex[eye] atIndex:0];
                 [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
@@ -955,8 +966,11 @@ static void vosComposite(const XrFrameEndInfo *info)
     static bool saidDrawables;
     if (!saidDrawables) {
         saidDrawables = true;
-        vosLog("visionos: compositor: %zu drawable(s), %zu view(s) in the first, head anchor %s", drawableCount,
-               cp_drawable_get_view_count(s_drawable), s_frameAnchor ? "set" : "NOT set (no tracking yet)");
+        const simd_float4x4 p0 = cp_drawable_compute_projection(s_drawable, cp_axis_direction_convention_right_up_back, 0);
+        const simd_float4 d2 = simd_mul(p0, simd_make_float4(0.0f, 0.0f, -2.0f, 1.0f));
+        vosLog("visionos: compositor: %zu drawable(s), %zu view(s) in the first, head anchor %s, eye depth %.4f (2 m)",
+               drawableCount, cp_drawable_get_view_count(s_drawable), s_frameAnchor ? "set" : "NOT set (no tracking yet)",
+               d2.w > 0.0f ? d2.z / d2.w : -1.0f);
     }
 }
 

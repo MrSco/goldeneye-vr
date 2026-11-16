@@ -651,6 +651,12 @@ static void vr_detect_runtime() {
             gActiveRuntime = XrRuntimeType::VirtualDesktopXR;
             is_meta_runtime = false;
             LOGI("Detected runtime: VirtualDesktopXR");
+        } else if (strstr(props.runtimeName, "visionOS")) {
+            // port/visionos's own runtime (Vision Pro, native): no SteamVR quirks;
+            // its quads, sub-images and screen take any size, as the Quest's
+            gActiveRuntime = XrRuntimeType::Unknown;
+            is_meta_runtime = false;
+            LOGI("Detected runtime: visionOS (port/visionos)");
         } else if (strstr(props.runtimeName, "SteamVR")){
             gActiveRuntime = XrRuntimeType::SteamVR;
             is_meta_runtime = false;
