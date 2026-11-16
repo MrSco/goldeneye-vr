@@ -130,6 +130,13 @@ fields (KF7 13, -23, -27; PP7 8, -19, -26).
   has room and the reserve has rounds: the held shell, rocket or round (the
   Cougar's speedloader with what a grip takes), turned as it sits in the gun
   (gun.c gevrGexDrawPayloadGuide).
+- Some GE-X grips are open shells where PD's own hand covered them (the
+  Cougar's wooden grip has no front strap or butt, the Golden Gun's grip no
+  butt): gevr_gexmodel.c s_gexCaps names each hole, one per line (model, node,
+  a vertex on it), and the build closes the open edge loop there with
+  triangles between its two halves, in the loop's own texture and shades.
+  Surveyed with the ROM: the other guns' open loops are inside the body, bores
+  or magazine wells (the DD44's grip is its magazine's well).
 - A rig with PD's slide part (MODELPART_GUN_SLIDE 0x33: the PP7s, DD44)
   moves it by GoldenEye's own slide (field_A88, the gun's BoltRecoilBack),
   as GoldenEye and PD do: back on each shot, locked open on the last round,

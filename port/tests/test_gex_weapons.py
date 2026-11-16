@@ -457,6 +457,48 @@ static void collect(u8 *data,ModelNode *n) {
 static void *pointer(u8 *data,void *value) { return value ? data+((uintptr_t)value&0xffffff) : NULL; }
 static u32 be32(u8 *p) { return (u32)p[0]<<24|(u32)p[1]<<16|(u32)p[2]<<8|p[3]; }
 static int be16(u8 *p) { return (int)((s16)((u16)p[0]<<8|p[1])); }
+/* the built file's display lists: open edges (one triangle's only, by position) at a point */
+static int openTris, openCorner[2048][3][3];
+static void openWalk(const u8 *f,u32 node) {
+    for (;node;node=be32(f+node+12)&0xffffff) {
+        if (f[node+1]==4) {
+            const u32 ro=be32(f+node+4)&0xffffff;
+            for (int list=0;list<2;list++) {   /* opaque and translucent */
+            const u32 dl=be32(f+ro+4*list)&0xffffff;
+            int slot[16][3]={{0}};
+            for (u32 p=dl;dl && p<dl+0x4000;p+=8) {
+                const u32 w0=be32(f+p), w1=be32(f+p+4), op=w0>>24;
+                if (op==0xb8) break;
+                if (op==0x04) for (u32 i=0;i<((w0>>20)&0xf)+1;i++) for (int k=0;k<3;k++)
+                    slot[(((w0>>16)&0xf)+i)&15][k]=(s16)be16(f+(w1&0xffffff)+16*i+2*k);
+                if (op==0xb1 || op==0xbf) for (int t=0;t<(op==0xb1 ? 4 : 1);t++) {
+                    const int x=op==0xb1 ? (w1>>(8*t))&15 : ((w1>>16)&0xff)/10;
+                    const int y=op==0xb1 ? (w1>>(8*t+4))&15 : ((w1>>8)&0xff)/10;
+                    const int z=op==0xb1 ? (w0>>(4*t))&15 : (w1&0xff)/10;
+                    if ((x|y|z)==0 || openTris>=2048) continue;
+                    memcpy(openCorner[openTris][0],slot[x],12); memcpy(openCorner[openTris][1],slot[y],12);
+                    memcpy(openCorner[openTris++][2],slot[z],12);
+                }
+            }
+            }
+        }
+        if (be32(f+node+20)) openWalk(f,be32(f+node+20)&0xffffff);
+    }
+}
+static int openAt(const u8 *f,u32 first,const int at[3]) {
+    int n=0; openTris=0; openWalk(f,first);
+    for (int t=0;t<openTris;t++) for (int e=0;e<3;e++) {
+        const int *a=openCorner[t][e], *b=openCorner[t][(e+1)%3], shared=0;
+        int s=0;
+        for (int u=0;u<openTris && !s;u++) for (int g=0;g<3 && !s;g++) {
+            const int *c=openCorner[u][g], *d=openCorner[u][(g+1)%3];
+            s=u!=t && ((!memcmp(a,c,12) && !memcmp(b,d,12)) || (!memcmp(a,d,12) && !memcmp(b,c,12)));
+        }
+        (void)shared;
+        n+=!s && (!memcmp(a,at,12) || !memcmp(b,at,12));
+    }
+    return n;
+}
 static u8 *partVertices(u8 *source,int wanted) {
     u32 table=be32(source+8)&0xffffff; int count=be16(source+12);
     for (int i=0;i<count;i++) if (be16(source+table+4*count+2*i)==wanted) {
@@ -601,6 +643,16 @@ int main(int argc,char **argv) {
     u32 length=0; u16 matrices=0,textures=0;
     u8 *cart=gevrGexBuildModel(active->model,ns,parts,active->texturePairs,&length,&matrices,&textures);
     assert(cart && matrices<=64); u8 *host=calloc(1,0xf000); assert(length<=0xf000);
+    /* the grips PD's hand hid are closed (gevr_gexmodel.c s_gexCaps); other open edges stay */
+    if (!strcmp(active->model,"GmaianpistolZ")) {
+        static const int butt[3]={-16,-134,-18}, strap[3]={8,-40,15}, muzzle[3]={-6,22,345};
+        assert(openAt(cart,4*ns+12*textures,butt)==0 && openAt(cart,4*ns+12*textures,strap)==0);
+        assert(openAt(cart,4*ns+12*textures,muzzle)==2);
+    }
+    if (!strcmp(active->model,"Gleegun1Z")) {
+        static const int butt[3]={-31,-88,-15}, top[3]={-31,1,-15};
+        assert(openAt(cart,4*ns+12*textures,butt)==0 && openAt(cart,4*ns+12*textures,top)==2);
+    }
     memcpy(host,cart,length); free(cart);
     u32 converted=gevrModelConvert(host,length,0xf000,ns,textures,active->model); assert(converted);
     ModelFileHeader hdr={0}; hdr.numSwitches=ns; hdr.numMatrices=matrices;

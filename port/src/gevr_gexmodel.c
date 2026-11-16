@@ -88,12 +88,16 @@ struct pdArray {      /* a vertex array of the source and its place in the outpu
 	u8 *colours;       /* RGBA per vertex, from the G_COL in force when it was loaded */
 	u8 *seen;
 	s32 star;          /* star gunfire: read through segment 4, not segment 5 */
+	u32 extra;         /* cap vertices after the array's own (gexCap): */
+	u16 *extraSrc;     /* each one a copy of this vertex of the array */
 };
 
 struct pdDl {
 	u32 src, dst, len, outLen;
 	struct pdArray *arr;
 	s32 flash;          /* uses the extra muzzle matrix, not PD's animated flash joints */
+	u8 *cap;            /* PD commands put in before the list's G_ENDDL (gexCap) */
+	u32 capLen;
 };
 
 struct build {
@@ -324,6 +328,181 @@ static void colourVertices(struct build *b, struct pdDl *dl)
 	}
 }
 
+/*
+ * Holes Perfect Dark's own hand hid (user: the Cougar's and the Golden Gun's
+ * grips were hollow in the headset): GE-X modelled these grips as open shells,
+ * since PD's first-person hand always covered their front and butt. In VR they
+ * are seen from below. One line a hole: the GE-X model, the display-list node
+ * (its offset in the PD file) and a vertex on the open edge loop to close
+ * (model units). capLoop finds the loop from the mesh's own open edges and
+ * closes it with triangles between its two halves (these grips are left-right
+ * symmetric), in the loop's own texture, vertices and shades.
+ */
+static const struct gexCap { const char *model; u32 node; s16 at[3]; } s_gexCaps[] = {
+	{ "GmaianpistolZ", 0x19c, { -16, -134, -18 } },   /* Cougar: the wooden grip's front strap and butt */
+	{ "Gleegun1Z",     0x168, { -31,  -88, -15 } },   /* Golden Gun: the grip's butt */
+};
+
+#define CAP_MAX_TRIS  512
+#define CAP_MAX_LOOP  64
+
+static s32 capSame(const u8 *pd, u32 arr, u16 a, u16 b)
+{
+	return !memcmp(pd + arr + 12 * a, pd + arr + 12 * b, 6);
+}
+
+static s32 capAt(const u8 *pd, u32 arr, u16 v, const s16 at[3])
+{
+	return (s16)rd16(pd + arr + 12 * v) == at[0] && (s16)rd16(pd + arr + 12 * v + 2) == at[1]
+	    && (s16)rd16(pd + arr + 12 * v + 4) == at[2];
+}
+
+static void capAddTri(struct pdDl *dl, u8 *out, u32 *len, const u16 v[3])
+{
+	struct pdArray *a = dl->arr;
+	s32 i;
+
+	wr32(out + *len, 0x04000000 | (2 << 20) | 36);   /* G_VTX: three, into slots 0-2 */
+	wr32(out + *len + 4, 0x05000000 | (a->src + 12 * (a->count + a->extra)));
+	wr32(out + *len + 8, 0xb1000002);                 /* G_TRI4: (0, 1, 2) */
+	wr32(out + *len + 12, 0x00000010);
+	*len += 16;
+	for (i = 0; i < 3; i++) {
+		a->extraSrc[a->extra++] = v[i];
+	}
+}
+
+/* Closes the open edge loop through `at` in a node's triangles (its opaque
+ * list dl, and xlu, its other list on the same array, or NULL), adding the cap
+ * to dl (see s_gexCaps). */
+static void capLoop(struct build *b, struct pdDl *dl, const struct pdDl *xlu, const s16 at[3])
+{
+	static u16 tri[CAP_MAX_TRIS][3];
+	static u32 texw[CAP_MAX_TRIS][2];
+	u16 loop[CAP_MAX_LOOP], left[CAP_MAX_LOOP], right[CAP_MAX_LOOP], cap[3];
+	s32 slot[16], n = 0, t, e, f, g, k, len = 0, nl = 0, nr = 0, crossings = 0, start = -1, cross = -1, l, r;
+	u32 p, tw0 = 0, tw1 = 0, capLen = 0;
+	s32 list;
+	struct pdArray *a = dl->arr;
+	const u8 *pd = b->pd;
+	f32 mid = 0.0f;
+
+	if (a == NULL || a->star) return;
+	/* the lists' triangles, as indices into their array, with the texture each was drawn in */
+	for (list = 0; list < 2; list++) {
+		const struct pdDl *in = list ? xlu : dl;
+
+		for (k = 0; k < 16; k++) slot[k] = -1;
+		for (p = in != NULL && in->arr == a ? in->src : 0; in != NULL && in->arr == a && p < in->src + in->len && n < CAP_MAX_TRIS; p += 8) {
+			const u32 w0 = rd32(pd + p), w1 = rd32(pd + p + 4);
+			const u8 op = w0 >> 24;
+
+			if (op == 0x04 && SEGOF(w1) == 5 && OFS(w1) >= a->src) {
+				const s32 count = ((w0 >> 20) & 0xf) + 1, v0 = (w0 >> 16) & 0xf, first = (OFS(w1) - a->src) / 12;
+
+				for (k = 0; k < count && v0 + k < 16; k++) slot[v0 + k] = first + k < (s32)a->count ? first + k : -1;
+			} else if (op == 0xc0) {
+				tw0 = w0; tw1 = w1;
+			} else if (op == 0xb1 || op == 0xbf) {
+				for (k = 0; k < (op == 0xb1 ? 4 : 1) && n < CAP_MAX_TRIS; k++) {
+					const s32 x = op == 0xb1 ? (w1 >> (8 * k)) & 0xf : ((w1 >> 16) & 0xff) / 10;
+					const s32 y = op == 0xb1 ? (w1 >> (8 * k + 4)) & 0xf : ((w1 >> 8) & 0xff) / 10;
+					const s32 z = op == 0xb1 ? (w0 >> (4 * k)) & 0xf : (w1 & 0xff) / 10;
+
+					if ((x | y | z) == 0 || x > 15 || y > 15 || z > 15 || slot[x] < 0 || slot[y] < 0 || slot[z] < 0) continue;
+					tri[n][0] = slot[x]; tri[n][1] = slot[y]; tri[n][2] = slot[z];
+					texw[n][0] = tw0; texw[n][1] = tw1;
+					n++;
+				}
+			}
+		}
+	}
+	/* the loop: from the open edge (a triangle's edge no other triangle shares,
+	 * by position) leaving `at`, each next one leaving where the last arrived */
+	for (;;) {
+		s32 found = -1;
+		const u16 from = len ? loop[len - 1] : 0;
+
+		for (t = 0; t < n && found < 0; t++) {
+			for (e = 0; e < 3 && found < 0; e++) {
+				const u16 v0 = tri[t][e], v1 = tri[t][(e + 1) % 3];
+				s32 shared = 0;
+
+				if (len ? !capSame(pd, a->src, v0, from) : !capAt(pd, a->src, v0, at)) continue;
+				for (f = 0; f < n && !shared; f++) {
+					for (g = 0; g < 3 && !shared; g++) {
+						const u16 w0 = tri[f][g], w1 = tri[f][(g + 1) % 3];
+
+						shared = f != t && ((capSame(pd, a->src, v0, w0) && capSame(pd, a->src, v1, w1))
+						                 || (capSame(pd, a->src, v0, w1) && capSame(pd, a->src, v1, w0)));
+					}
+				}
+				if (!shared) found = t * 3 + e;
+			}
+		}
+		if (found < 0 || len >= CAP_MAX_LOOP) { len = 0; break; }
+		if (start < 0) { start = found / 3; loop[len++] = tri[found / 3][found % 3]; }
+		loop[len] = tri[found / 3][(found % 3 + 1) % 3];
+		if (capSame(pd, a->src, loop[len], loop[0])) break;   /* round */
+		len++;
+	}
+	if (len < 3) {
+		sysLogPrintf(LOG_ERROR, "gexmodel: %s: no open loop at %d %d %d", b->name, at[0], at[1], at[2]);
+		return;
+	}
+	/* its two halves either side of its mean x, joined by two crossing edges */
+	for (k = 0; k < len; k++) mid += (s16)rd16(pd + a->src + 12 * loop[k]) / (f32)len;
+#define CAP_LEFT(i) ((f32)(s16)rd16(pd + a->src + 12 * loop[((i) % len + len) % len]) < mid)
+	for (k = 0; k < len; k++) {
+		if (CAP_LEFT(k) != CAP_LEFT(k + 1)) crossings++;
+		if (CAP_LEFT(k) && !CAP_LEFT(k + 1)) cross = k;
+	}
+	if (crossings != 2 || cross < 0) {
+		sysLogPrintf(LOG_ERROR, "gexmodel: %s: the loop at %d %d %d is not two halves", b->name, at[0], at[1], at[2]);
+		return;
+	}
+	for (k = cross; CAP_LEFT(k) && nl < len; k--) left[nl++] = loop[(k % len + len) % len];
+	for (k = cross + 1; !CAP_LEFT(k) && nr < len; k++) right[nr++] = loop[k % len];
+#undef CAP_LEFT
+	dl->cap = (u8 *)malloc(8 + 16 * (nl + nr));
+	a->extraSrc = (u16 *)malloc(sizeof(u16) * 3 * (nl + nr));
+	if (dl->cap == NULL || a->extraSrc == NULL) return;
+	if (texw[start][0] != 0) {   /* the texture the loop's own faces are drawn in */
+		wr32(dl->cap, texw[start][0]);
+		wr32(dl->cap + 4, texw[start][1]);
+		capLen = 8;
+	}
+	/* zipped up from one crossing edge to the other, the shorter diagonal first,
+	 * wound against the loop (as the faces it closes) */
+	for (l = 0, r = 0; l < nl - 1 || r < nr - 1;) {
+		s32 advanceRight = l >= nl - 1;
+
+		if (!advanceRight && r < nr - 1) {
+			f32 dl2 = 0.0f, dr2 = 0.0f;
+
+			for (k = 0; k < 3; k++) {
+				const f32 lr = (s16)rd16(pd + a->src + 12 * left[l + 1] + 2 * k) - (s16)rd16(pd + a->src + 12 * right[r] + 2 * k);
+				const f32 rl = (s16)rd16(pd + a->src + 12 * left[l] + 2 * k) - (s16)rd16(pd + a->src + 12 * right[r + 1] + 2 * k);
+
+				dl2 += lr * lr;
+				dr2 += rl * rl;
+			}
+			advanceRight = dr2 < dl2;
+		}
+		if (advanceRight) {
+			cap[0] = left[l]; cap[1] = right[r + 1]; cap[2] = right[r];
+			r++;
+		} else {
+			cap[0] = left[l]; cap[1] = left[l + 1]; cap[2] = right[r];
+			l++;
+		}
+		capAddTri(dl, dl->cap, &capLen, cap);
+	}
+	dl->capLen = capLen;
+	dl->outLen += capLen;
+	sysLogPrintf(LOG_NOTE, "gexmodel: %s: closed a %d-vertex hole with %u triangles", b->name, len, a->extra / 3);
+}
+
 /* Writes the output; with out NULL only measures it. */
 static u32 emit(struct build *b, u8 *out, u32 numSwitches, const u32 *switchNodes)
 {
@@ -370,7 +549,7 @@ static u32 emit(struct build *b, u8 *out, u32 numSwitches, const u32 *switchNode
 	/* the vertex arrays, 16 bytes a vertex */
 	for (k = 0; k < (u32)b->numArrays; k++) {
 		b->arrays[k].dst = pos;
-		pos += 16 * b->arrays[k].count;
+		pos += 16 * (b->arrays[k].count + b->arrays[k].extra);
 	}
 
 	/* the display lists, last, in iteration order */
@@ -427,6 +606,11 @@ static u32 emit(struct build *b, u8 *out, u32 numSwitches, const u32 *switchNode
 				if (verts && b->arrays[k].src == OFS(verts)) wr32(rd + 12, 0x05000000 | b->arrays[k].dst);
 			}
 			memcpy(rd + 0x10, rs + 0x10, 2);   /* numvertices */
+			for (k = 0; k < (u32)b->numArrays; k++) {
+				if (verts && b->arrays[k].src == OFS(verts) && b->arrays[k].extra) {
+					wr16(rd + 0x10, b->arrays[k].count + b->arrays[k].extra);   /* and a cap's */
+				}
+			}
 			rd[0x12] = rs[0x13];               /* PD's s16 unk12 is GE's s8 model type */
 			break;
 		}
@@ -461,14 +645,15 @@ static u32 emit(struct build *b, u8 *out, u32 numSwitches, const u32 *switchNode
 	for (k = 0; k < (u32)b->numArrays; k++) {
 		const struct pdArray *a = &b->arrays[k];
 
-		for (i = 0; i < a->count; i++) {
-			const u8 *s = pd + a->src + 12 * i;
+		for (i = 0; i < a->count + a->extra; i++) {
+			const u32 v = i < a->count ? i : a->extraSrc[i - a->count];   /* a cap's: a copy */
+			const u8 *s = pd + a->src + 12 * v;
 			u8 *d = out + a->dst + 16 * i;
 
 			memcpy(d, s, 6);          /* x, y, z, local to the selected matrix */
 			wr16(d + 6, 0);           /* flag */
 			memcpy(d + 8, s + 8, 4);  /* s, t */
-			memcpy(d + 12, a->colours + 4 * i, 4);
+			memcpy(d + 12, a->colours + 4 * v, 4);
 		}
 	}
 
@@ -481,8 +666,12 @@ static u32 emit(struct build *b, u8 *out, u32 numSwitches, const u32 *switchNode
 			d += 8;
 		}
 
-		for (i = 0; i < dl->len; i += 8) {
-			u32 w0 = rd32(pd + dl->src + i), w1 = rd32(pd + dl->src + i + 4);
+		for (i = 0; i < dl->len + dl->capLen; i += 8) {
+			/* a cap's commands go in before the list's last, its G_ENDDL */
+			const u8 *at = i + 8 < dl->len ? pd + dl->src + i
+			             : i + 8 < dl->len + dl->capLen ? dl->cap + (i + 8 - dl->len)
+			             : pd + dl->src + dl->len - 8;
+			u32 w0 = rd32(at), w1 = rd32(at + 4);
 			u8 op = w0 >> 24;
 
 			if (op == 0x07) {                      /* G_COL: the colours are inline now */
@@ -579,6 +768,23 @@ u8 *gevrGexBuildModel(const char *pdname, u32 numSwitches, const s32 *switchPart
 	for (k = 0; k < (u32)b->numDls && !b->failed; k++) {
 		colourVertices(b, &b->dls[k]);
 	}
+	for (i = 0; i < sizeof(s_gexCaps) / sizeof(s_gexCaps[0]) && !b->failed; i++) {
+		s32 n = strcmp(pdname, s_gexCaps[i].model) ? -1 : nodeIndex(b, s_gexCaps[i].node);
+		const u8 *s = n >= 0 ? pd + b->nodeSrc[n] : NULL;
+
+		const u32 xlu = s != NULL ? rd32(pd + OFS(rd32(s + 4)) + 4) : 0;
+		const struct pdDl *other = NULL;
+
+		for (k = 0; xlu != 0 && k < (u32)b->numDls; k++) {
+			if (b->dls[k].src == OFS(xlu)) other = &b->dls[k];
+		}
+		for (k = 0; s != NULL && s[1] == PD_NODE_GUNDL && k < (u32)b->numDls; k++) {
+			if (b->dls[k].src == OFS(rd32(pd + OFS(rd32(s + 4)))) && b->dls[k].arr != NULL && b->dls[k].arr->extra == 0) {
+				capLoop(b, &b->dls[k], other, s_gexCaps[i].at);
+				break;
+			}
+		}
+	}
 
 	len = b->failed ? 0 : emit(b, NULL, numSwitches, switchNodes);
 	if (len) {
@@ -598,6 +804,10 @@ u8 *gevrGexBuildModel(const char *pdname, u32 numSwitches, const s32 *switchPart
 	for (k = 0; k < (u32)b->numArrays; k++) {
 		free(b->arrays[k].colours);
 		free(b->arrays[k].seen);
+		free(b->arrays[k].extraSrc);
+	}
+	for (k = 0; k < (u32)b->numDls; k++) {
+		free(b->dls[k].cap);
 	}
 	free(b);
 	free(pd);
