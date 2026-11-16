@@ -442,8 +442,24 @@ extern "C" double vosNow(void)
 struct VosViewInfo {
     simd_float4x4 deviceFromView;
     float tanL, tanR, tanU, tanD;   // signed tangents (left and down negative)
+    // The eye as the game is told it (xrLocateViews): at the real eye, but
+    // turned like the head, with tangents wide enough to hold the real one.
+    simd_float4x4 deviceFromGame;
+    float gL, gR, gU, gD;
 };
 static VosViewInfo s_views[2];          // written by the compositor's thread (s_viewLock)
+/* Vision Pro's displays are canted: each eye's view is turned outward,
+ * oppositely, and its tangents (tan 60 out, tan 45 in) are in that turned
+ * frame. The game draws BOTH eyes with one camera, the left view's
+ * orientation (vr_openxr.cpp: the head is views[0]'s orientation) offset by
+ * the IPD alone, so builds 9-13 drew the right eye facing where the left one
+ * faces and placed it at the right one's real angle: the two eyes disagreed
+ * by twice the cant, which is seen as two images (Klepton's kl_ovrp.c, its
+ * measurements). The game is told un-canted eyes: both turned like the
+ * head, their cones widened to cover the real ones; the compositor turns
+ * each picture into its real eye (vosEncodeFrame). The head's frame (VIEW)
+ * from the device: the eyes' midpoint, their mean orientation. (s_viewLock) */
+static simd_float4x4 s_deviceFromHead = matrix_identity_float4x4;
 /* OpenXR's VIEW space is the midpoint between the eyes; ARKit's device anchor
  * is a point on the hardware. The game builds its camera from VIEW (its head)
  * and its own eye offsets, so a VIEW at the device anchor put the head where
@@ -466,8 +482,65 @@ static void vosDefaultViews(void)
         s_views[i].tanR = 1.1f;
         s_views[i].tanU = 1.1f;
         s_views[i].tanD = -1.1f;
+        s_views[i].deviceFromGame = s_views[i].deviceFromView;
+        s_views[i].gL = -1.1f;
+        s_views[i].gR = 1.1f;
+        s_views[i].gU = 1.1f;
+        s_views[i].gD = -1.1f;
     }
     s_viewCount = 2;
+}
+
+static simd_quatf vosRotationOf(const simd_float4x4 &m)
+{
+    const simd_float3x3 r = simd_matrix(m.columns[0].xyz, m.columns[1].xyz, m.columns[2].xyz);
+    return simd_normalize(simd_quaternion(r));
+}
+
+/* The un-canted eyes (s_viewLock held): the head's frame at the eyes'
+ * midpoint and mean orientation; each eye there, turned like it, with the
+ * bounds of its real cone's corners as seen in that orientation (a rotation
+ * maps the cone's edges to lines: the corners bound it). */
+static void vosUncantViews(void)
+{
+    const simd_float3 mid = (s_views[0].deviceFromView.columns[3].xyz + s_views[1].deviceFromView.columns[3].xyz) * 0.5f;
+    simd_quatf q0 = vosRotationOf(s_views[0].deviceFromView);
+    simd_quatf q1 = vosRotationOf(s_views[1].deviceFromView);
+    if (simd_dot(q0.vector, q1.vector) < 0.0f) q1.vector = -q1.vector;
+    const simd_quatf qc = simd_normalize(simd_quaternion((q0.vector + q1.vector) * 0.5f));
+    const simd_float3x3 rc = simd_matrix3x3(qc);
+    simd_float4x4 head = matrix_identity_float4x4;
+    head.columns[0].xyz = rc.columns[0];
+    head.columns[1].xyz = rc.columns[1];
+    head.columns[2].xyz = rc.columns[2];
+    head.columns[3].xyz = mid;
+    s_deviceFromHead = head;
+    for (int i = 0; i < 2; i++) {
+        VosViewInfo &vi = s_views[i];
+        simd_float4x4 g = head;
+        g.columns[3].xyz = vi.deviceFromView.columns[3].xyz;
+        vi.deviceFromGame = g;
+        // the real cone's corners, turned into the head's orientation
+        const simd_float3x3 rel = simd_mul(simd_transpose(rc), simd_matrix3x3(vosRotationOf(vi.deviceFromView)));
+        const float xs[2] = { vi.tanL, vi.tanR }, ys[2] = { vi.tanD, vi.tanU };
+        float l = 1e9f, r = -1e9f, d = 1e9f, u = -1e9f;
+        bool ok = true;
+        for (float x : xs) {
+            for (float y : ys) {
+                const simd_float3 c = simd_mul(rel, simd_make_float3(x, y, -1.0f));
+                if (c.z > -1e-3f) { ok = false; continue; }
+                const float tx = c.x / -c.z, ty = c.y / -c.z;
+                l = std::min(l, tx); r = std::max(r, tx);
+                d = std::min(d, ty); u = std::max(u, ty);
+            }
+        }
+        if (ok) {
+            vi.gL = l; vi.gR = r; vi.gD = d; vi.gU = u;
+        } else {   // a cone past 90 degrees off the head: not turned
+            vi.deviceFromGame = vi.deviceFromView;
+            vi.gL = vi.tanL; vi.gR = vi.tanR; vi.gD = vi.tanD; vi.gU = vi.tanU;
+        }
+    }
 }
 
 /* Each view's transform and field of view, from the drawable (the
@@ -508,6 +581,25 @@ static void vosReadViews(cp_drawable_t drawable)
                mid.x, mid.y, mid.z);
     }
     s_eyeMid = mid;
+    vosUncantViews();
+    // each eye's turn from the head's orientation (yaw, pitch of its forward)
+    float cant[2][2];
+    for (int i = 0; i < 2; i++) {
+        const simd_float3 f = simd_mul(simd_transpose(simd_matrix(s_deviceFromHead.columns[0].xyz,
+                                                                  s_deviceFromHead.columns[1].xyz,
+                                                                  s_deviceFromHead.columns[2].xyz)),
+                                       -s_views[i].deviceFromView.columns[2].xyz);
+        cant[i][0] = atan2f(-f.x, -f.z) * 57.29578f;
+        cant[i][1] = atan2f(f.y, sqrtf(f.x * f.x + f.z * f.z)) * 57.29578f;
+    }
+    static float s_loggedCant = 1e9f;
+    if (fabsf(cant[0][0] - s_loggedCant) > 0.05f) {
+        s_loggedCant = cant[0][0];
+        vosLog("visionos: eyes canted L yaw %.2f pitch %.2f, R yaw %.2f pitch %.2f deg from the head; the game's "
+               "un-canted cones L(%.3f %.3f %.3f %.3f) R(%.3f %.3f %.3f %.3f)", cant[0][0], cant[0][1], cant[1][0],
+               cant[1][1], s_views[0].gL, s_views[0].gR, s_views[0].gU, s_views[0].gD, s_views[1].gL, s_views[1].gR,
+               s_views[1].gU, s_views[1].gD);
+    }
     if (!s_viewsKnown) {
         s_viewsKnown = true;
         s_viewsCv.notify_all();
@@ -757,12 +849,12 @@ static bool vosWorldFromSpace(const VosSpaceObj *s, double seconds, simd_float4x
     if (s->kind == VOS_SPACE_REFERENCE) {
         switch (s->type) {
         case XR_REFERENCE_SPACE_TYPE_VIEW: {
-            simd_float3 mid;
+            simd_float4x4 deviceFromHead;
             {
                 std::lock_guard<std::mutex> lk(s_viewLock);
-                mid = s_eyeMid;
+                deviceFromHead = s_deviceFromHead;
             }
-            *out = simd_mul(simd_mul(vosHeadFor(seconds), vosTranslate(mid.x, mid.y, mid.z)), s->offset);
+            *out = simd_mul(simd_mul(vosHeadFor(seconds), deviceFromHead), s->offset);
             return true;
         }
         case XR_REFERENCE_SPACE_TYPE_LOCAL:
@@ -908,7 +1000,7 @@ static std::shared_ptr<VosPublished> vosBuildFrame(const XrFrameEndInfo *info)
     simd_float4x4 deviceFromView0;
     {
         std::lock_guard<std::mutex> lk(s_viewLock);
-        deviceFromView0 = s_views[0].deviceFromView;
+        deviceFromView0 = s_views[0].deviceFromGame;   // the eye the game was told
     }
     // The head the eye images were drawn from, and its anchor: from the
     // projection layer's left view (its pose = head * device-from-view)
@@ -1105,13 +1197,13 @@ static void vosEncodeFrame(cp_drawable_array_t drawables, const VosPublished *pu
         const float eyeDepth = at2m.w > 0.0f ? at2m.z / at2m.w : 0.05f;
         const simd_float4x4 worldFromView = simd_mul(compHead, vi.deviceFromView);
         const simd_float4x4 viewFromWorld = simd_inverse(worldFromView);
-        // a head-locked quad is in VIEW, the eyes' midpoint (not the device anchor)
-        simd_float3 mid;
+        // a head-locked quad is in VIEW, the eyes' midpoint and mean orientation
+        simd_float4x4 deviceFromHead;
         {
             std::lock_guard<std::mutex> lk(s_viewLock);
-            mid = s_eyeMid;
+            deviceFromHead = s_deviceFromHead;
         }
-        const simd_float4x4 viewFromHead = simd_mul(simd_inverse(vi.deviceFromView), vosTranslate(mid.x, mid.y, mid.z));
+        const simd_float4x4 viewFromHead = simd_mul(simd_inverse(vi.deviceFromView), deviceFromHead);
         for (const VosLayerDraw &d : draws) {
             if (d.projection) {
                 struct { simd_float4 dst, src, rect, r0, r1, r2; float opaque; } p;
@@ -1376,9 +1468,20 @@ XRAPI_ATTR XrResult XRAPI_CALL xrEnumerateViewConfigurationViews(XrInstance, XrS
     vosProbeViews();   // the drawable's size is the eyes'
     XrResult r = vosCopyOut(cap, count, 2);
     if (cap && r == XR_SUCCESS) {
+        // the game's (un-canted) cone is wider than the panel's: the same
+        // pixels per tangent across it
+        uint32_t w = s_eyeW, h = s_eyeH;
+        {
+            std::lock_guard<std::mutex> lk(s_viewLock);
+            const VosViewInfo &vi = s_views[0];
+            const float sx = (vi.gR - vi.gL) / std::max(vi.tanR - vi.tanL, 1e-3f);
+            const float sy = (vi.gU - vi.gD) / std::max(vi.tanU - vi.tanD, 1e-3f);
+            if (sx >= 1.0f && sx < 2.0f) w = ((uint32_t)ceilf(s_eyeW * sx) + 15u) & ~15u;
+            if (sy >= 1.0f && sy < 2.0f) h = ((uint32_t)ceilf(s_eyeH * sy) + 15u) & ~15u;
+        }
         for (int i = 0; i < 2; i++) {
-            views[i].recommendedImageRectWidth = s_eyeW;
-            views[i].recommendedImageRectHeight = s_eyeH;
+            views[i].recommendedImageRectWidth = w;
+            views[i].recommendedImageRectHeight = h;
             views[i].maxImageRectWidth = 8192;
             views[i].maxImageRectHeight = 8192;
             views[i].recommendedSwapchainSampleCount = 1;
@@ -1531,11 +1634,12 @@ XRAPI_ATTR XrResult XRAPI_CALL xrLocateViews(XrSession, const XrViewLocateInfo *
     }
     for (int i = 0; i < 2; i++) {
         const VosViewInfo &vi = views2[i];
-        views[i].pose = vosPoseFromMatrix(simd_mul(baseInv, simd_mul(head, vi.deviceFromView)));
-        views[i].fov.angleLeft = atanf(vi.tanL);
-        views[i].fov.angleRight = atanf(vi.tanR);
-        views[i].fov.angleUp = atanf(vi.tanU);
-        views[i].fov.angleDown = atanf(vi.tanD);
+        // un-canted: the game draws both eyes with one orientation (vosUncantViews)
+        views[i].pose = vosPoseFromMatrix(simd_mul(baseInv, simd_mul(head, vi.deviceFromGame)));
+        views[i].fov.angleLeft = atanf(vi.gL);
+        views[i].fov.angleRight = atanf(vi.gR);
+        views[i].fov.angleUp = atanf(vi.gU);
+        views[i].fov.angleDown = atanf(vi.gD);
     }
     state->viewStateFlags = XR_VIEW_STATE_ORIENTATION_VALID_BIT | XR_VIEW_STATE_POSITION_VALID_BIT |
                             XR_VIEW_STATE_ORIENTATION_TRACKED_BIT | XR_VIEW_STATE_POSITION_TRACKED_BIT;

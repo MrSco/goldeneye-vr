@@ -47,6 +47,18 @@ Conventions:
   swam, bounced, and doubled on a head shake (tester, builds 9-12). This is
   Klepton's `KL_HEAD_MIDPOINT`. The midpoint is the average of the drawable's two
   eye transforms.
+- **The game sees un-canted eyes.** Vision Pro's displays are canted: each eye's
+  view transform is turned outward, oppositely, and its tangents (tan 60 out, tan
+  45 in) are expressed in that turned frame. The game draws both eyes with one
+  camera, `views[0]`'s orientation offset by the IPD alone. Through build 13 the
+  right eye was drawn facing where the left one faces and then placed at its own
+  real angle, so the eyes disagreed by twice the cant. That shows as two images
+  (Klepton's `kl_ovrp.c` measured and described it), which is the doubled wall the
+  tester saw on a head shake. Since build 14, `xrLocateViews` reports each eye at
+  its real position, turned like the head (the eyes' mean orientation; VIEW space
+  too), and its cone is widened to bound the real one's corners. The compositor
+  turns each picture into the real canted eye. The log line `eyes canted ...`
+  states the cant and the cones. The recommended size grows with the cone.
 - **Correction per slot (Klepton's default warp, "ours"):** every slot is drawn
   for its own head, from ARKit at its presentation time. The held picture's pixels
   are turned from the eye it was drawn from (each eye's submitted pose), rotation
