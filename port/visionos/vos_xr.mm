@@ -170,8 +170,15 @@ static std::vector<VosActionObj *> s_actions;
 static XrPath s_touchProfile, s_handPath[2];
 static bool s_haveFocus;
 
+extern "C" void pcReportForeground(int active);   // port/pc/pc_reports.cpp
+
 static void vosPostState(XrSessionState state)
 {
+    // the crash report's marker: a run that ends while focused is a crash
+    // (the Klepton build's MainActivity stand-in, vr_openxr.cpp)
+    if (state == XR_SESSION_STATE_FOCUSED) pcReportForeground(1);
+    else if (state == XR_SESSION_STATE_VISIBLE || state == XR_SESSION_STATE_STOPPING ||
+             state == XR_SESSION_STATE_EXITING) pcReportForeground(0);
     XrEventDataBuffer b{};
     auto *e = reinterpret_cast<XrEventDataSessionStateChanged *>(&b);
     e->type = XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED;
@@ -792,6 +799,29 @@ static void vosPresentEmpty(void)
     XrFrameEndInfo none{ XR_TYPE_FRAME_END_INFO };
     none.displayTime = vosTime(s_frameDisplay);
     vosComposite(&none);
+}
+
+extern "C" void vosKeepAlive(void)
+{
+    if (s_frame) {
+        // mid-frame (the picker was asked for from the launcher's frame): end
+        // it black; the game's own xrEndFrame then has nothing to present
+        vosPresentEmpty();
+        cp_frame_end_submission(s_frame);
+        s_frame = nil;
+        s_drawable = nil;
+        s_frameAnchor = nil;
+    }
+    s_frameNo++;
+    if (vosNextFrame()) {
+        vosPresentEmpty();
+        cp_frame_end_submission(s_frame);
+        s_frame = nil;
+        s_drawable = nil;
+        s_frameAnchor = nil;
+    } else {
+        usleep(10000);
+    }
 }
 
 // ============================================================================

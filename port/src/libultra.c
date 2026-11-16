@@ -298,7 +298,11 @@ static void gevrInjectEnd(void)
 static void gevrPollInjectedInput(void)
 {
 	static u32 sTick;
+#ifdef GEVR_IOS
+	const char *path = "gevr_input.txt";   /* Apple: the app's Documents (its working folder) */
+#else
 	const char *path = "/sdcard/Android/data/com.gevr.port/files/gevr_input.txt";
+#endif
 	if (gevrInjectUntilUs) {
 		if (sysGetMicroseconds() >= gevrInjectUntilUs) gevrInjectEnd();
 		return;

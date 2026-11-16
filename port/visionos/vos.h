@@ -43,6 +43,9 @@ void *vosLayerRenderer(void);
  * in seconds on CACurrentMediaTime's clock. 1 tracked, 0 not (out is then the
  * last good one, or 1.6 m up at the origin). */
 int vosHeadAt(double seconds, simd_float4x4 *out);
+/* (vos_xr.mm) a compositor frame presented black, for a wait on the game's
+ * thread (the file picker): the space must keep getting frames */
+void vosKeepAlive(void);
 /* (vos_app.mm) the immersive space closed: save and quit */
 void vosSpaceClosed(void);
 /* seconds on CACurrentMediaTime's clock (the compositor's and ARKit's) */

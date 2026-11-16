@@ -321,7 +321,11 @@ void pollInjected(Injected &in)
     in.mask = 0;
     in.x = in.y = 0;
     if ((++tick % 15) != 0) return;
+#ifdef GEVR_IOS
+    const char *path = "gevr_input.txt";   /* Apple: the app's Documents (its working folder) */
+#else
     const char *path = "/sdcard/Android/data/com.gevr.port/files/gevr_input.txt";
+#endif
     FILE *f = fopen(path, "r");
     if (!f) return;
     int frames = 4;

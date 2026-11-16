@@ -39,6 +39,7 @@ targets:
     platform: visionOS
     sources:
       - path: VosApp.swift
+      - path: VosControllers.swift
       - path: Assets.xcassets
       # read by name from the bundle (SDL_RWFromFile looks there first)
       - path: ../pc/package/gevr_logo.rgba

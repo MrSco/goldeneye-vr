@@ -24,7 +24,9 @@ The native build is the PC VR game (`port/vr`, OpenXR) built for visionOS.
 | `vos_egl.mm` | ANGLE context with a pbuffer and no window. Turns Metal textures into GL textures (`EGL_METAL_TEXTURE_ANGLE`), and fences GL work before Metal work with a shared event. Both techniques come from Midas's `GEEyeTargets.mm`. |
 | `vos_window.cpp` | fast3d's window manager, which has no window here. SDL is built with no video (`CMakeLists.txt`). |
 | `vos_xr.mm` | The runtime. Covers instance, session and events; spaces (ARKit world tracking is the head; STAGE and LOCAL_FLOOR are ARKit's origin); swapchains; the frame loop; and actions. Swapchain images are Metal-backed GL textures. Eye arrays are blitted per layer into Metal textures. `xrWaitFrame` is the compositor's frame up to its drawable. `xrEndFrame` draws the projection layer (with the field-of-view remap) and the quad layers into the drawable in Metal, then presents. |
-| `vos_input.mm` | Answers a Touch pair. For now it reads a game pad through GameController. With no tracked controllers, the hands are held in front of the head. |
+| `vos_input.mm` | Answers a Touch pair. It prefers PlayStation VR2 Sense controllers (`VosControllers.swift`) and falls back to a game pad, with the hands held in front of the head. |
+| `VosControllers.swift` | Sense controllers, ported from Klepton's `KleptonControllers.swift`. Poses come from ARKit accessory tracking (`.grip`, `.rendered`), predicted to display time, with Klepton's tuned turn to a Touch grip: 5.037 + -37 degrees about X, and an offset of (-0.005, 0.02, -0.02) m with x mirrored on the left. Buttons are read by element name, and rumble goes through CoreHaptics. The session runs again whenever the paired set changes. |
+| `VosApp.swift` picker | A window opens for the launcher's file pickers through a scene activation request, using `.fileImporter`. While it is up, the game's thread keeps presenting black frames (`vosKeepAlive`). |
 
 Conventions:
 
@@ -76,11 +78,13 @@ Simulator test:
 
 1. **Tester's report on build 6.** Check stereo, head tracking, frame rate, and the
    picture's orientation and colour on the device.
-2. **PSVR2 Sense controllers (V2).** GameController's spatial gamepad for buttons,
-   ARKit's accessory tracking for poses, and haptics. Klepton's
-   `KleptonControllers.swift` is the reference.
-3. **ROM picker.** A window opened beside the space, as Klepton's "kimport" does. For
-   now the ROM goes in through the Files app.
+2. **Sense controllers and the picker on the device.** Both were added on
+   2026-11-16. In the simulator the picker window opens beside the space
+   (`gevr_input.txt` with `20` in Documents is the launcher's hook), and accessory
+   tracking does not exist there.
+3. **Logs.** `gevr.log` and the crash records sit in the app's Documents folder,
+   which the Files app shows. The crash report's foreground marker follows the
+   session state.
 4. **Swapchain size and foveation.** A layer per eye at the drawable's size; then
    rasterization rate maps if ANGLE allows them.
 5. **Depth for the compositor's reprojection.** Today depth is cleared to "far", which

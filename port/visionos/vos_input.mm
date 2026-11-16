@@ -3,25 +3,31 @@
  * (docs/visionos-native.md, vos_xr.mm's actions).
  *
  * The game binds Touch (vr_input.cpp: /interaction_profiles/oculus/
- * touch_controller), so this answers a Touch pair. V0 (the spike) reads a
- * game pad through GameController: left stick and trigger, X/Y and the left
- * shoulder as the left Touch; the right ones and A/B as the right. With no
- * tracked controllers the hands are held in front of the head, turned with
- * it, so a pad aims where the player looks. PlayStation VR2 Sense
- * controllers with their tracked poses are V2 (accessory tracking).
+ * touch_controller), so this answers a Touch pair:
+ *   - PlayStation VR2 Sense controllers (VosControllers.swift, Klepton's
+ *     port): tracked grips, sticks, triggers, grips, A/B (X/Y on the left),
+ *     the left menu button, rumble. A hand without a tracked pose this frame
+ *     keeps its last one;
+ *   - otherwise a game pad through GameController: left stick and trigger,
+ *     X/Y and the left shoulder as the left Touch, the right ones and A/B as
+ *     the right, the hands held in front of the head and turned with it, so
+ *     the pad aims where the player looks.
  */
 #import <Foundation/Foundation.h>
 #import <GameController/GameController.h>
 
 #include "vos.h"
+#include "vos_bridging.h"
 
 static VosHand s_hands[2];
-static bool s_saidPad;
+static bool s_saidPad, s_saidSense[2];
+static int s_senseCount = -1;
+static bool s_senseActive;
 
 static simd_float4x4 vosHandAtHead(const simd_float4x4 &head, int hand)
 {
-    // the head's facing without its roll: forward and level-ish, so the hands
-    // follow the look up and down but do not tip with a tilted head
+    // the head's facing without its roll: the hands follow the look up and
+    // down but do not tip with a tilted head
     simd_float3 fwd = -head.columns[2].xyz;
     if (simd_length(fwd) < 1e-4f) fwd = simd_make_float3(0.0f, 0.0f, -1.0f);
     fwd = simd_normalize(fwd);
@@ -38,20 +44,65 @@ static simd_float4x4 vosHandAtHead(const simd_float4x4 &head, int hand)
     return m;
 }
 
-extern "C" void vosInputSync(double, const simd_float4x4 *head)
+/* the Sense pair; false when none is connected */
+static bool vosSyncSense(double t)
 {
+    VosSenseHand sense[2];
+    const int n = vosSenseSync(t, sense);
+    if (n != s_senseCount) {
+        s_senseCount = n;
+        vosLog("visionos: %d PlayStation VR2 Sense controller(s)", n);
+    }
+    if (n <= 0) return false;
+    for (int h = 0; h < 2; h++) {
+        const VosSenseHand &s = sense[h];
+        VosHand &v = s_hands[h];
+        const simd_float4x4 lastGrip = v.grip;
+        const bool hadPose = v.poseValid && v.active;
+        v = VosHand{};
+        v.active = s.connected != 0;
+        if (!v.active) continue;
+        if (s.tracked) {
+            memcpy(&v.grip, s.grip, sizeof(s.grip));
+            v.poseValid = true;
+            if (!s_saidSense[h]) {
+                s_saidSense[h] = true;
+                vosLog("visionos: %s Sense controller tracked at (%.2f %.2f %.2f) m", h == 0 ? "left" : "right",
+                       v.grip.columns[3].x, v.grip.columns[3].y, v.grip.columns[3].z);
+            }
+        } else if (hadPose) {
+            v.grip = lastGrip;   // lost for a moment: where it last was
+            v.poseValid = true;
+        }
+        v.stickX = s.stickX;
+        v.stickY = s.stickY;
+        v.trigger = s.trigger;
+        v.squeeze = s.squeeze;
+        v.a = s.a;
+        v.b = s.b;
+        v.menu = h == 0 && s.menu;   // Touch's menu button is the left's
+        v.stickClick = s.stickClick;
+        v.triggerTouch = s.triggerTouch;
+    }
+    return true;
+}
+
+extern "C" void vosInputSync(double t, const simd_float4x4 *head)
+{
+    s_senseActive = vosSyncSense(t);
+    if (s_senseActive) return;
+
     GCController *pad = nil;
     for (GCController *c in GCController.controllers) {
-        if (c.extendedGamepad) {
+        if (c.extendedGamepad && ![c.productCategory isEqualToString:GCProductCategorySpatialController]) {
             pad = c;
             break;
         }
     }
     for (int h = 0; h < 2; h++) {
         VosHand &v = s_hands[h];
-        const simd_float4x4 grip = vosHandAtHead(*head, h);
         v = VosHand{};
-        v.grip = grip;
+        v.grip = vosHandAtHead(*head, h);
         v.poseValid = pad != nil;
         v.active = pad != nil;
     }
@@ -88,7 +139,7 @@ extern "C" const VosHand *vosInputHand(int hand)
     return hand >= 0 && hand < 2 ? &s_hands[hand] : nullptr;
 }
 
-extern "C" void vosInputHaptic(int, float, double)
+extern "C" void vosInputHaptic(int hand, float amplitude, double seconds)
 {
-    // V2: the Sense controllers' haptics (GCController.haptics)
+    if (s_senseActive) vosSenseHaptic(hand, amplitude, seconds);
 }

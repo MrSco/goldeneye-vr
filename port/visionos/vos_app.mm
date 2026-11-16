@@ -16,9 +16,11 @@
 #include <stdlib.h>
 
 #include "vos.h"
+#include "vos_bridging.h"
 
 extern "C" void sysLogPrintf(int level, const char *fmt, ...);
 extern "C" int gevrVosGameMain(int argc, const char **argv);   // port/src/main.c
+extern "C" void pcReportForeground(int active);                 // port/pc/pc_reports.cpp
 
 static void *s_layer;   // cp_layer_renderer_t, CFBridgingRetain'd
 static bool s_started;
@@ -84,18 +86,46 @@ extern "C" void gevrVosLayerReady(void *layerRenderer)
 }
 
 /*
- * The launcher's file pickers (port/pc/pc_launcher.cpp, as on iOS): none yet.
- * A full space has no window to show the system's picker in; the next step is
- * a window opened for it beside the space, as Klepton's "kimport" does. Until
- * then the ROM goes into the app's folder in the Files app (UIFileSharingEnabled),
- * where the launcher finds it. -1: could not be shown.
+ * The launcher's file pickers (port/pc/pc_launcher.cpp, as on iOS): a window
+ * beside the space with the system's picker (VosApp.swift), as Klepton's
+ * "kimport" window. The game's thread waits here, and since it is also the
+ * compositor's frame loop, the space keeps getting frames (black) meanwhile.
+ * Returns 1 with the copy's path in out (the caller copies or reads it), 0
+ * cancelled, -1 the picker could not be shown.
  */
+static pthread_mutex_t s_pickLock = PTHREAD_MUTEX_INITIALIZER;
+static int s_pickStatus;   // 2 waiting
+static char s_pickPath[1024];
+
+extern "C" void vosPickerDone(int status, const char *path)
+{
+    pthread_mutex_lock(&s_pickLock);
+    snprintf(s_pickPath, sizeof(s_pickPath), "%s", path ? path : "");
+    s_pickStatus = status;
+    pthread_mutex_unlock(&s_pickLock);
+}
+
 extern "C" int gevrIosChooseFile(const char *title, char *out, int outLen)
 {
-    (void)out;
-    (void)outLen;
-    vosLog("visionos: no file picker yet (%s): put the file in GoldenEye VR's folder in the Files app", title ? title : "");
-    return -1;
+    pthread_mutex_lock(&s_pickLock);
+    s_pickStatus = 2;
+    s_pickPath[0] = 0;
+    pthread_mutex_unlock(&s_pickLock);
+    vosLog("visionos: file picker: %s", title ? title : "");
+    vosPickerOpen(title);
+    for (;;) {
+        pthread_mutex_lock(&s_pickLock);
+        const int st = s_pickStatus;
+        pthread_mutex_unlock(&s_pickLock);
+        if (st != 2) break;
+        vosKeepAlive();
+    }
+    pthread_mutex_lock(&s_pickLock);
+    const int st = s_pickStatus;
+    if (st == 1 && out && outLen > 0) snprintf(out, (size_t)outLen, "%s", s_pickPath);
+    pthread_mutex_unlock(&s_pickLock);
+    vosLog("visionos: file picker: %s", st == 1 ? "chosen" : st == 0 ? "cancelled" : "could not be shown");
+    return st == 1 && out && out[0] ? 1 : st;
 }
 
 /* Online voice (port/src/net/net_voice.c): Apple's echo cancellation and noise
@@ -113,7 +143,9 @@ extern "C" void gevrIosVoiceChatMode(void)
 
 extern "C" void vosSpaceClosed(void)
 {
-    // main.c's atexit (cleanup) saves the binds, the config and the VR settings
+    // main.c's atexit (cleanup) saves the binds, the config and the VR settings;
+    // a closed space is a clean close, not a crash to offer a report for
+    pcReportForeground(0);
     vosLog("visionos: closing");
     exit(0);
 }
