@@ -444,6 +444,14 @@ struct VosViewInfo {
     float tanL, tanR, tanU, tanD;   // signed tangents (left and down negative)
 };
 static VosViewInfo s_views[2];          // written by the compositor's thread (s_viewLock)
+/* OpenXR's VIEW space is the midpoint between the eyes; ARKit's device anchor
+ * is a point on the hardware. The game builds its camera from VIEW (its head)
+ * and its own eye offsets, so a VIEW at the device anchor put the head where
+ * it is not, and every head turn swung the rendered eyes along a lever arm
+ * the real ones do not have: the world swam, bounced and doubled on a head
+ * shake (tester, builds 9-12). Klepton's KL_HEAD_MIDPOINT: VIEW = the anchor
+ * moved to the midpoint of the eyes the drawable states. (s_viewLock) */
+static simd_float3 s_eyeMid;
 static std::mutex s_viewLock;
 static std::condition_variable s_viewsCv;
 static size_t s_viewCount;
@@ -494,6 +502,12 @@ static void vosReadViews(cp_drawable_t drawable)
     }
     // the simulator draws one view: both eyes see it
     if (s_viewCount == 1) s_views[1] = s_views[0];
+    const simd_float3 mid = (s_views[0].deviceFromView.columns[3].xyz + s_views[1].deviceFromView.columns[3].xyz) * 0.5f;
+    if (simd_distance(mid, s_eyeMid) > 0.0005f) {
+        vosLog("visionos: the eyes' midpoint is (%.4f %.4f %.4f) m from the device anchor: the game's head (VIEW)",
+               mid.x, mid.y, mid.z);
+    }
+    s_eyeMid = mid;
     if (!s_viewsKnown) {
         s_viewsKnown = true;
         s_viewsCv.notify_all();
@@ -742,9 +756,15 @@ static bool vosWorldFromSpace(const VosSpaceObj *s, double seconds, simd_float4x
 {
     if (s->kind == VOS_SPACE_REFERENCE) {
         switch (s->type) {
-        case XR_REFERENCE_SPACE_TYPE_VIEW:
-            *out = simd_mul(vosHeadFor(seconds), s->offset);
+        case XR_REFERENCE_SPACE_TYPE_VIEW: {
+            simd_float3 mid;
+            {
+                std::lock_guard<std::mutex> lk(s_viewLock);
+                mid = s_eyeMid;
+            }
+            *out = simd_mul(simd_mul(vosHeadFor(seconds), vosTranslate(mid.x, mid.y, mid.z)), s->offset);
             return true;
+        }
         case XR_REFERENCE_SPACE_TYPE_LOCAL:
             *out = simd_mul(vosTranslate(0.0f, s_localHeight, 0.0f), s->offset);
             return true;
@@ -1085,7 +1105,13 @@ static void vosEncodeFrame(cp_drawable_array_t drawables, const VosPublished *pu
         const float eyeDepth = at2m.w > 0.0f ? at2m.z / at2m.w : 0.05f;
         const simd_float4x4 worldFromView = simd_mul(compHead, vi.deviceFromView);
         const simd_float4x4 viewFromWorld = simd_inverse(worldFromView);
-        const simd_float4x4 viewFromHead = simd_inverse(vi.deviceFromView);
+        // a head-locked quad is in VIEW, the eyes' midpoint (not the device anchor)
+        simd_float3 mid;
+        {
+            std::lock_guard<std::mutex> lk(s_viewLock);
+            mid = s_eyeMid;
+        }
+        const simd_float4x4 viewFromHead = simd_mul(simd_inverse(vi.deviceFromView), vosTranslate(mid.x, mid.y, mid.z));
         for (const VosLayerDraw &d : draws) {
             if (d.projection) {
                 struct { simd_float4 dst, src, rect, r0, r1, r2; float opaque; } p;

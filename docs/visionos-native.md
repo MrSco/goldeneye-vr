@@ -40,6 +40,13 @@ Conventions:
   quad's own depth. visionOS discards a frame whose depth is all 0 (reverse-Z
   infinity) as empty. Klepton measured this on the device, and builds 6-8 were black
   because of it. The simulator does not do this.
+- **VIEW space is the eyes' midpoint,** not ARKit's device anchor (a point on the
+  hardware). OpenXR defines VIEW as the midpoint, and the game builds its camera
+  from VIEW plus its own eye offsets. With VIEW at the anchor, every head turn
+  swung the rendered eyes along a lever arm the real eyes don't have: the world
+  swam, bounced, and doubled on a head shake (tester, builds 9-12). This is
+  Klepton's `KL_HEAD_MIDPOINT`. The midpoint is the average of the drawable's two
+  eye transforms.
 - **Correction per slot (Klepton's default warp, "ours"):** every slot is drawn
   for its own head, from ARKit at its presentation time. The held picture's pixels
   are turned from the eye it was drawn from (each eye's submitted pose), rotation
