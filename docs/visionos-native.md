@@ -40,11 +40,14 @@ Conventions:
   quad's own depth. visionOS discards a frame whose depth is all 0 (reverse-Z
   infinity) as empty. Klepton measured this on the device, and builds 6-8 were black
   because of it. The simulator does not do this.
-- **Head pose for reprojection:** every head the game is given keeps its ARKit
-  anchor. Each drawable is stamped with the anchor its eye images were drawn from,
-  matched through the projection layer's pose, so the system reprojects from the
-  pixels' own pose (Klepton's `KL_WARP=system`). Build 9 stamped the display time's
-  anchor instead, and the world swam with the head.
+- **Correction per slot (Klepton's default warp, "ours"):** every slot is drawn
+  for its own head, from ARKit at its presentation time. The held picture's pixels
+  are turned from the eye it was drawn from (each eye's submitted pose), rotation
+  only, which is exact for far content. The drawable is stamped with that slot's
+  anchor, and the system corrects the small rest. Build 11 stamped the picture's
+  own older anchor and left the turn to the system (Klepton's `KL_WARP=system`), and
+  the tester saw a doubled wall when shaking the head. A simulator check with a
+  synthetic 15-degree head turn moved the picture the right way.
 - **Two threads.** A compositor thread presents every panel slot, showing the
   game's latest published frame stamped with its render anchor. It releases the
   game's next frame on an even grid of slots, which is Klepton's

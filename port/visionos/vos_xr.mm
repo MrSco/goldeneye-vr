@@ -545,7 +545,7 @@ static const char *kVosShaders = R"(
 #include <metal_stdlib>
 using namespace metal;
 struct VOut { float4 pos [[position]]; float2 uv; };
-struct ProjParams { float4 dst; float4 src; float4 rect; float opaque; };
+struct ProjParams { float4 dst; float4 src; float4 rect; float4 r0; float4 r1; float4 r2; float opaque; };
 struct QuadParams { float4x4 mvp; float4 rect; float opaque; };
 vertex VOut vos_full_vs(uint vid [[vertex_id]], constant float &depth [[buffer(0)]]) {
     float2 p = float2((vid << 1) & 2, vid & 2);
@@ -556,9 +556,14 @@ vertex VOut vos_full_vs(uint vid [[vertex_id]], constant float &depth [[buffer(0
 }
 fragment float4 vos_proj_fs(VOut in [[stage_in]], texture2d<float> tex [[texture(0)]],
                             sampler s [[sampler(0)]], constant ProjParams &p [[buffer(0)]]) {
-    // this view's pixel as a direction (tangents), then where the eye image saw it
-    float tx = mix(p.dst.x, p.dst.y, in.uv.x);
-    float ty = mix(p.dst.z, p.dst.w, in.uv.y);
+    // this view's pixel as a ray (tangents), turned into the eye the picture
+    // was drawn from (the head has moved since: the rotation is exact for
+    // anything far, and the system's own correction is left the residual)
+    float3 ray = float3(mix(p.dst.x, p.dst.y, in.uv.x), mix(p.dst.z, p.dst.w, in.uv.y), -1.0);
+    float3 src = float3(dot(p.r0.xyz, ray), dot(p.r1.xyz, ray), dot(p.r2.xyz, ray));
+    if (src.z > -1e-4) return float4(0.0, 0.0, 0.0, p.opaque);
+    float tx = src.x / -src.z;
+    float ty = src.y / -src.z;
     float u = (tx - p.src.x) / (p.src.y - p.src.x);
     float vtop = (p.src.z - ty) / (p.src.z - p.src.w);
     if (u < 0.0 || u > 1.0 || vtop < 0.0 || vtop > 1.0) return float4(0.0, 0.0, 0.0, p.opaque);
@@ -799,11 +804,13 @@ struct VosLayerDraw {
     int blend;                       // 0 opaque, 1 premultiplied, 2 straight alpha
     // projection: per eye
     id<MTLTexture> eyeTex[2];
+    simd_float4x4 eyeWorld[2];       // the eye it was drawn from (world from eye)
     float eyeTan[2][4];
     float eyeRect[2][4];
     // quad
     id<MTLTexture> tex;
     simd_float4x4 worldFromQuad;     // scaled by its size
+    bool headLocked;                 // VIEW space: worldFromQuad is head from quad
     float rect[4];
     int eyes;                        // XrEyeVisibility
     std::shared_ptr<std::atomic<uint64_t>> use[2];   // the images' use counters
@@ -928,6 +935,8 @@ static std::shared_ptr<VosPublished> vosBuildFrame(const XrFrameEndInfo *info)
         if (base->type == XR_TYPE_COMPOSITION_LAYER_PROJECTION) {
             const auto *l = (const XrCompositionLayerProjection *)base;
             if (l->viewCount < 1) continue;
+            simd_float4x4 worldFromSpace;
+            if (!vosWorldFromSpace((const VosSpaceObj *)l->space, t, &worldFromSpace)) continue;
             VosLayerDraw d{};
             d.projection = true;
             d.blend = vosBlendOf(l->layerFlags);
@@ -944,6 +953,7 @@ static std::shared_ptr<VosPublished> vosBuildFrame(const XrFrameEndInfo *info)
                     d.eyeTex[e] = img->mtlSrgb;
                 }
                 d.use[e] = img->lastUse;
+                d.eyeWorld[e] = simd_mul(worldFromSpace, vosMatrixFromPose(pv.pose));
                 vosTangents(pv.fov, d.eyeTan[e]);
                 const XrRect2Di &r = pv.subImage.imageRect;
                 d.eyeRect[e][0] = (float)r.offset.x / (float)sc->w;
@@ -959,12 +969,14 @@ static std::shared_ptr<VosPublished> vosBuildFrame(const XrFrameEndInfo *info)
             if (!sc || !img) continue;
             simd_float4x4 worldFromSpace;
             const auto *qs = (const VosSpaceObj *)q->space;
-            if (qs && qs->kind == VOS_SPACE_REFERENCE && qs->type == XR_REFERENCE_SPACE_TYPE_VIEW) {
-                worldFromSpace = simd_mul(compHead, qs->offset);   // head-locked to the eyes' own head
+            const bool headLocked = qs && qs->kind == VOS_SPACE_REFERENCE && qs->type == XR_REFERENCE_SPACE_TYPE_VIEW;
+            if (headLocked) {
+                worldFromSpace = qs->offset;   // the head's own frame: placed by each slot's head
             } else if (!vosWorldFromSpace(qs, t, &worldFromSpace)) {
                 continue;
             }
             VosLayerDraw d{};
+            d.headLocked = headLocked;
             d.projection = false;
             d.blend = vosBlendOf(q->layerFlags);
             if (sc->arraySize > 1) {
@@ -1010,8 +1022,13 @@ static void vosEncodeFrame(cp_drawable_array_t drawables, const VosPublished *pu
     if (!vosEnsureMetal(main)) return;
     static const std::vector<VosLayerDraw> none;
     const std::vector<VosLayerDraw> &draws = pub ? pub->draws : none;
-    const simd_float4x4 compHead = pub ? pub->head : displayHead;
-    ar_device_anchor_t compAnchor = pub && pub->anchor ? pub->anchor : displayAnchor;
+    // Klepton's default warp ("ours"): every slot is drawn for ITS head, the
+    // held picture turned from the eye it was drawn from, and the drawable
+    // stamped with this slot's anchor. Build 11 stamped the picture's own
+    // (older) anchor and left the turn to the system: the tester saw the wall
+    // doubled when shaking the head - held pictures were not being turned.
+    const simd_float4x4 compHead = displayHead;
+    ar_device_anchor_t compAnchor = displayAnchor ? displayAnchor : (pub ? pub->anchor : nil);
     const uint64_t slot = ++s_compNo;
     for (const VosLayerDraw &d : draws) {
         for (int k = 0; k < 2; k++) {
@@ -1066,10 +1083,18 @@ static void vosEncodeFrame(cp_drawable_array_t drawables, const VosPublished *pu
         // (Klepton's measured value) so the compositor keeps them
         const simd_float4 at2m = simd_mul(proj, simd_make_float4(0.0f, 0.0f, -2.0f, 1.0f));
         const float eyeDepth = at2m.w > 0.0f ? at2m.z / at2m.w : 0.05f;
-        const simd_float4x4 viewFromWorld = simd_inverse(simd_mul(compHead, vi.deviceFromView));
+        const simd_float4x4 worldFromView = simd_mul(compHead, vi.deviceFromView);
+        const simd_float4x4 viewFromWorld = simd_inverse(worldFromView);
+        const simd_float4x4 viewFromHead = simd_inverse(vi.deviceFromView);
         for (const VosLayerDraw &d : draws) {
             if (d.projection) {
-                struct { simd_float4 dst, src, rect; float opaque; } p;
+                struct { simd_float4 dst, src, rect, r0, r1, r2; float opaque; } p;
+                // the turn from this view to the eye the picture was drawn from
+                // (rotation only: rows of eyeFromWorld x worldFromView)
+                const simd_float4x4 rel = simd_mul(simd_inverse(d.eyeWorld[eye]), worldFromView);
+                p.r0 = simd_make_float4(rel.columns[0].x, rel.columns[1].x, rel.columns[2].x, 0.0f);
+                p.r1 = simd_make_float4(rel.columns[0].y, rel.columns[1].y, rel.columns[2].y, 0.0f);
+                p.r2 = simd_make_float4(rel.columns[0].z, rel.columns[1].z, rel.columns[2].z, 0.0f);
                 p.dst = simd_make_float4(vi.tanL, vi.tanR, vi.tanU, vi.tanD);
                 p.src = simd_make_float4(d.eyeTan[eye][0], d.eyeTan[eye][1], d.eyeTan[eye][2], d.eyeTan[eye][3]);
                 p.rect = simd_make_float4(d.eyeRect[eye][0], d.eyeRect[eye][1], d.eyeRect[eye][2], d.eyeRect[eye][3]);
@@ -1083,7 +1108,7 @@ static void vosEncodeFrame(cp_drawable_array_t drawables, const VosPublished *pu
                 if (d.eyes == XR_EYE_VISIBILITY_LEFT && eye != 0) continue;
                 if (d.eyes == XR_EYE_VISIBILITY_RIGHT && eye != 1) continue;
                 struct { simd_float4x4 mvp; simd_float4 rect; float opaque; } q;
-                q.mvp = simd_mul(proj, simd_mul(viewFromWorld, d.worldFromQuad));
+                q.mvp = simd_mul(proj, simd_mul(d.headLocked ? viewFromHead : viewFromWorld, d.worldFromQuad));
                 q.rect = simd_make_float4(d.rect[0], d.rect[1], d.rect[2], d.rect[3]);
                 q.opaque = d.blend == 0 ? 1.0f : 0.0f;
                 [enc setRenderPipelineState:s_quadPipe[d.blend]];
@@ -1180,9 +1205,9 @@ static void *vosCompositorMain(void *)
                 std::lock_guard<std::mutex> lk(s_pubLock);
                 pub = s_pub;
             }
+            // this slot's head, at its presentation: the picture is turned to it
             simd_float4x4 displayHead;
-            ar_device_anchor_t displayAnchor = nil;
-            if (!pub || !pub->anchor) displayAnchor = vosQueryHead(present, &displayHead, nullptr);
+            ar_device_anchor_t displayAnchor = vosQueryHead(present, &displayHead, nullptr);
             vosEncodeFrame(drawables, pub.get(), displayAnchor, displayHead);
             cp_frame_end_submission(frame);
             s_compMsSum += (vosNow() - t0) * 1000.0;
