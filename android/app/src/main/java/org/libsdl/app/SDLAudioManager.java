@@ -226,14 +226,24 @@ public class SDLAudioManager {
 
         if (isCapture) {
             if (mAudioRecord == null) {
-                mAudioRecord = new AudioRecord(MediaRecorder.AudioSource.DEFAULT, sampleRate,
-                        channelConfig, audioFormat, desiredFrames * frameSize);
-
-                // see notes about AudioTrack state in audioOpen(), above. Probably also applies here.
-                if (mAudioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
-                    Log.e(TAG, "Failed during initialization of AudioRecord");
+                // GEVR: the mic is voice chat's. VOICE_COMMUNICATION turns on the
+                // device's echo canceller and noise suppressor, so the Quest's strap
+                // speakers (the game, the other players) stay out of what is sent.
+                // Playback keeps its own usage. DEFAULT if the device refuses it.
+                int[] sources = { MediaRecorder.AudioSource.VOICE_COMMUNICATION, MediaRecorder.AudioSource.DEFAULT };
+                for (int source : sources) {
+                    mAudioRecord = new AudioRecord(source, sampleRate,
+                            channelConfig, audioFormat, desiredFrames * frameSize);
+                    // see notes about AudioTrack state in audioOpen(), above. Probably also applies here.
+                    if (mAudioRecord.getState() == AudioRecord.STATE_INITIALIZED) {
+                        Log.i(TAG, "AudioRecord source " + source + (source == MediaRecorder.AudioSource.VOICE_COMMUNICATION ? " (voice communication: echo cancelled)" : ""));
+                        break;
+                    }
                     mAudioRecord.release();
                     mAudioRecord = null;
+                }
+                if (mAudioRecord == null) {
+                    Log.e(TAG, "Failed during initialization of AudioRecord");
                     return null;
                 }
 

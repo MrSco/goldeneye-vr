@@ -121,6 +121,27 @@ fields (KF7 13, -23, -27; PP7 8, -19, -26).
   and pushes it into the well. A magazine keeps its rounds while out;
   dropped, they go back to the reserve; one from the belt is full. Either
   gun can take one at the belt by itself. Left GE-X guns are mirrored.
+  A label 10 cm over the gun (House of the Dead VR's reload hint) says
+  where the magazine is and the next step: EMPTY (red), MAG OUT / INSERT
+  MAGAZINE (blue), MAG IN while the off hand holds it and for a second
+  after one seats (green); none while loaded (gun.c gevrGexDrawReloadLabel).
+  The single-round guns (shotguns, launchers, Cougar, Golden Gun) show their
+  payload at the belt as the magazine guns do their magazine, while the gun
+  has room and the reserve has rounds: the held shell, rocket or round (the
+  Cougar's speedloader with what a grip takes), turned as it sits in the gun
+  (gun.c gevrGexDrawPayloadGuide).
+- Some GE-X grips are open shells where PD's own hand covered them (the
+  Cougar's wooden grip has no front strap or butt, the Golden Gun's grip no
+  butt): gevr_gexmodel.c s_gexCaps names each hole, one per line (model, node,
+  a vertex on it), and the build closes the open edge loop there with
+  triangles between its two halves, in the loop's own texture and shades.
+  Surveyed with the ROM: the other guns' open loops are inside the body, bores
+  or magazine wells (the DD44's grip is its magazine's well).
+- A rig with PD's slide part (MODELPART_GUN_SLIDE 0x33: the PP7s, DD44)
+  moves it by GoldenEye's own slide (field_A88, the gun's BoltRecoilBack),
+  as GoldenEye and PD do: back on each shot, locked open on the last round,
+  closed once a loaded magazine is in (no rack then). Guns with no bolt stat
+  or no slide part keep theirs still (gun.c gevrGexSlideTo).
 - Gun fit keeps GE-X's own gun, grip and scope fits, and adds modes (X):
   reload (where the magazine is taken, the belt), off hand (its palm;
   holding the right grip, the watch) and, holding with both hands, where

@@ -73,6 +73,8 @@ void gevrCoopScriptEffect(struct AIRecord *list, int offset);      /* chrai.c: a
 /* The mission: the host's, shown everywhere (objective_status.c, chrai.c, gunfire.c) */
 int gevrCoopHostObjectiveStatus(int objective);   /* a teammate's headset: the host's status */
 int gevrCoopTeammateHolds(int tag);         /* the host: a teammate's player holds this objective item */
+void gevrCoopGadgetTaken(struct ObjectRecord *obj, const void *list);   /* chrai.c: a list took a gadget use */
+int gevrCoopGadgetUser(const void *list);   /* chrai.c: that use's player, -1 the list's own */
 void gevrCoopReportRoom(int room);          /* a teammate's headset: its player's objective events */
 void gevrCoopReportDeposit(int item, int room);
 void gevrCoopReportPhoto(int tag);

@@ -2980,17 +2980,15 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
                  * depth-tested, on a depth buffer cleared first, so it
                  * never sinks into a wall (gfx_pc.h G_CLEAR_DEPTH_EXT).
                  */
-                extern s32 gevrGexHeld(s32 hand);
-                extern int gevrBeanDrawsModel(const void *header);
-
                 /* Bean's guns too: their meshes test depth, so against the
                  * level's they sank into the floor as the view looked down
-                 * (user: "the more down you look the worse it is") */
-                if (gevrGexHeld(handnum) || gevrBeanDrawsModel(handptr->weaponModel.obj))
-                {
-                    renderdata.zbufferenabled = 1;
-                    gDPParam(renderdata.gdl++, 0x7E /* G_CLEAR_DEPTH_EXT */, 0);
-                }
+                 * (user: "the more down you look the worse it is").
+                 * And GoldenEye's own (issue #238): the hand patches
+                 * (gevr_handpatch.h) close the hands for the headset and are
+                 * drawn after each node's list, so undepthed the insides of
+                 * the fingers and the sleeve painted over the outside. */
+                renderdata.zbufferenabled = 1;
+                gDPParam(renderdata.gdl++, 0x7E /* G_CLEAR_DEPTH_EXT */, 0);
             }
         }
 #endif
@@ -9016,6 +9014,20 @@ void inc_cur_civilian_casualties(void)
 
 s32 get_civilian_casualties(void)
 {
+#ifdef GEVR
+    /* co-op (#241): the team's. A hostage counts against whoever shot it, and
+     * a mission list asks as whichever player it runs as (Frigate's
+     * "Unacceptable hostage casualties"). */
+    if (gevrCoopActive())
+    {
+        s32 i, total = 0;
+        for (i = 0; i < getPlayerCount(); i++)
+        {
+            total += g_playerPlayerData[i].killed_civilians;
+        }
+        return total;
+    }
+#endif
     return g_playerPerm->killed_civilians;
 }
 

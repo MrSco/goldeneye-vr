@@ -19,7 +19,10 @@
 #include <bcrypt.h>
 #elif !defined(GEVR_IOS)
 #include <curl/curl.h>   // Linux: libcurl in WinHTTP's place (and Android's, over mbedTLS)
+#include <cerrno>
+#include <poll.h>
 #endif
+#include <atomic>
 #ifdef ANDROID
 /* curl's Mozilla CA bundle, built in (CMakeLists.txt): an Android build run
  * without MainActivity (Klepton on Vision Pro) has no system trust store. */
@@ -549,6 +552,289 @@ std::string httpJson(const char *method, const std::string &url, const std::stri
     if (!parsed) throw HttpError{reply.status, "bad reply"};
     return reply.body.empty() ? std::string("{}") : reply.body;
 }
+
+/* ---- WebSocket ---- */
+
+#if defined(_WIN32)
+
+namespace {
+
+/* WinHTTP's own WebSocket: the upgrade on a synchronous request, then
+ * WinHttpWebSocketSend/Receive; the receive timeout is the silence limit. */
+class WinHttpWebSocket : public WebSocket {
+public:
+    WinHttpWebSocket(HINTERNET session, HINTERNET connect, HINTERNET socket) : session_(session), connect_(connect), socket_(socket) {}
+    ~WinHttpWebSocket() override
+    {
+        WinHttpCloseHandle(socket_);
+        WinHttpCloseHandle(connect_);
+        WinHttpCloseHandle(session_);
+    }
+
+    bool send(const std::string &text) override
+    {
+        std::lock_guard<std::mutex> lock(sendLock_);
+        if (closed_) return false;
+        return WinHttpWebSocketSend(socket_, WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE,
+                                    (PVOID)text.data(), (DWORD)text.size()) == NO_ERROR;
+    }
+
+    bool receive(std::string *text, std::string *why) override
+    {
+        text->clear();
+        char buf[4096];
+        for (;;) {
+            DWORD got = 0;
+            WINHTTP_WEB_SOCKET_BUFFER_TYPE type;
+            const DWORD err = WinHttpWebSocketReceive(socket_, buf, sizeof(buf), &got, &type);
+            if (err != NO_ERROR) {
+                *why = closed_ ? "closed here" : winhttpReason(err);
+                return false;
+            }
+            if (type == WINHTTP_WEB_SOCKET_CLOSE_BUFFER_TYPE) {
+                USHORT status = 0;
+                char reason[128];
+                DWORD length = 0;
+                WinHttpWebSocketQueryCloseStatus(socket_, &status, reason, sizeof(reason), &length);
+                *why = "closed by the service: " + std::to_string(status) + " " + std::string(reason, length);
+                return false;
+            }
+            if (type == WINHTTP_WEB_SOCKET_UTF8_FRAGMENT_BUFFER_TYPE || type == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE) {
+                if (text->size() + got > 65536) {
+                    *why = "message too large";
+                    return false;
+                }
+                text->append(buf, got);
+                if (type == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE) return true;
+            }
+            // binary: not used
+        }
+    }
+
+    void close() override
+    {
+        std::lock_guard<std::mutex> lock(sendLock_);
+        if (closed_) return;
+        closed_ = true;
+        WinHttpWebSocketShutdown(socket_, WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS, nullptr, 0);
+    }
+
+private:
+    HINTERNET session_, connect_, socket_;
+    std::mutex sendLock_;
+    std::atomic<bool> closed_{false};
+};
+
+}   // namespace
+
+std::shared_ptr<WebSocket> webSocketOpen(const std::string &url, const std::string &token, int silenceMs, std::string *why)
+{
+    // WinHttpCrackUrl knows http(s): ws:// and wss:// are those with an upgrade
+    std::string address = url;
+    if (address.rfind("wss://", 0) == 0) address = "https://" + address.substr(6);
+    else if (address.rfind("ws://", 0) == 0) address = "http://" + address.substr(5);
+    const std::wstring wurl = wide(address);
+    URL_COMPONENTS uc;
+    memset(&uc, 0, sizeof(uc));
+    uc.dwStructSize = sizeof(uc);
+    wchar_t host[256] = L"";
+    uc.lpszHostName = host;
+    uc.dwHostNameLength = 256;
+    uc.dwUrlPathLength = (DWORD)-1;
+    uc.dwExtraInfoLength = (DWORD)-1;
+    if (!WinHttpCrackUrl(wurl.c_str(), (DWORD)wurl.size(), 0, &uc) || !host[0]) {
+        *why = "bad address";
+        return nullptr;
+    }
+    std::wstring path(uc.lpszUrlPath ? std::wstring(uc.lpszUrlPath, uc.dwUrlPathLength) : L"/");
+    if (uc.lpszExtraInfo) path += std::wstring(uc.lpszExtraInfo, uc.dwExtraInfoLength);
+    HINTERNET session = WinHttpOpen(L"GoldenEyeVR-PC", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!session) {
+        *why = "no network";
+        return nullptr;
+    }
+    WinHttpSetTimeouts(session, 5000, 5000, 5000, silenceMs);
+    HINTERNET connect = WinHttpConnect(session, host, uc.nPort, 0);
+    HINTERNET request = connect ? WinHttpOpenRequest(connect, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
+                                                     uc.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0) : nullptr;
+    HINTERNET socket = nullptr;
+    DWORD status = 0;
+    if (request && WinHttpSetOption(request, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, nullptr, 0)) {
+        const std::wstring headers = wide("Authorization: Bearer " + token + "\r\n");
+        if (WinHttpSendRequest(request, headers.c_str(), (DWORD)-1, WINHTTP_NO_REQUEST_DATA, 0, 0, 0)
+            && WinHttpReceiveResponse(request, nullptr)) {
+            DWORD size = sizeof(status);
+            WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX,
+                                &status, &size, WINHTTP_NO_HEADER_INDEX);
+            if (status == 101) socket = WinHttpWebSocketCompleteUpgrade(request, 0);
+        }
+    }
+    const DWORD err = GetLastError();
+    if (request) WinHttpCloseHandle(request);
+    if (!socket) {
+        *why = status && status != 101 ? "upgrade refused (HTTP " + std::to_string(status) + ")" : winhttpReason(err);
+        if (connect) WinHttpCloseHandle(connect);
+        WinHttpCloseHandle(session);
+        return nullptr;
+    }
+    return std::make_shared<WinHttpWebSocket>(session, connect, socket);
+}
+
+#elif !defined(GEVR_IOS) && defined(CURLWS_TEXT)   /* libcurl 7.86+, built with WebSockets */
+
+namespace {
+
+/* libcurl's WebSocket: CONNECT_ONLY = 2 does the upgrade, then curl_ws_send and
+ * curl_ws_recv on the connection (pongs are curl's own). The handle is not
+ * thread-safe, so every call holds lock_; receive waits on the socket outside it. */
+class CurlWebSocket : public WebSocket {
+public:
+    CurlWebSocket(CURL *curl, curl_socket_t fd, int silenceMs) : curl_(curl), fd_(fd), silenceMs_(silenceMs) {}
+    ~CurlWebSocket() override { curl_easy_cleanup(curl_); }
+
+    bool send(const std::string &text) override
+    {
+        std::lock_guard<std::mutex> lock(lock_);
+        return !closed_ && sendLocked(text.data(), text.size(), CURLWS_TEXT);
+    }
+
+    bool receive(std::string *text, std::string *why) override
+    {
+        text->clear();
+        long long heard = nowMs();
+        for (;;) {
+            if (closed_) {
+                *why = "closed here";
+                return false;
+            }
+            struct pollfd p = {fd_, POLLIN, 0};
+            const int ready = poll(&p, 1, 500);
+            if (ready < 0 && errno != EINTR) {
+                *why = "connection lost";
+                return false;
+            }
+            if (ready <= 0) {
+                if (nowMs() - heard > silenceMs_) {
+                    *why = "silent too long";
+                    return false;
+                }
+                continue;
+            }
+            for (;;) {   // everything curl has buffered, not one frame per poll
+                char buf[4096];
+                size_t got = 0;
+                const struct curl_ws_frame *meta = nullptr;
+                CURLcode rc;
+                {
+                    std::lock_guard<std::mutex> lock(lock_);
+                    if (closed_) break;
+                    rc = curl_ws_recv(curl_, buf, sizeof(buf), &got, &meta);
+                }
+                if (rc == CURLE_AGAIN) break;
+                if (rc != CURLE_OK) {
+                    *why = rc == CURLE_GOT_NOTHING ? "connection ended" : curl_easy_strerror(rc);
+                    return false;
+                }
+                heard = nowMs();
+                if (meta && (meta->flags & CURLWS_CLOSE)) {
+                    *why = "closed by the service";
+                    return false;
+                }
+                if (meta && (meta->flags & CURLWS_TEXT)) {
+                    if (text->size() + got > 65536) {
+                        *why = "message too large";
+                        return false;
+                    }
+                    text->append(buf, got);
+                    if (meta->bytesleft == 0 && !(meta->flags & CURLWS_CONT)) return true;
+                }
+            }
+        }
+    }
+
+    void close() override
+    {
+        std::lock_guard<std::mutex> lock(lock_);
+        if (closed_) return;
+        closed_ = true;
+        const unsigned char normal[2] = {0x03, 0xE8};   // 1000
+        sendLocked((const char *)normal, 2, CURLWS_CLOSE);
+    }
+
+private:
+    bool sendLocked(const char *data, size_t n, unsigned flags)
+    {
+        const long long until = nowMs() + 5000;
+        while (n > 0) {
+            size_t sent = 0;
+            const CURLcode rc = curl_ws_send(curl_, data, n, &sent, 0, flags);
+            if (rc == CURLE_AGAIN) {
+                if (nowMs() > until) return false;
+                struct pollfd p = {fd_, POLLOUT, 0};
+                poll(&p, 1, 100);
+                continue;
+            }
+            if (rc != CURLE_OK) return false;
+            data += sent;
+            n -= sent;
+        }
+        return true;
+    }
+
+    CURL *curl_;
+    curl_socket_t fd_;
+    int silenceMs_;
+    std::mutex lock_;
+    std::atomic<bool> closed_{false};
+};
+
+}   // namespace
+
+std::shared_ptr<WebSocket> webSocketOpen(const std::string &url, const std::string &token, int silenceMs, std::string *why)
+{
+    static const bool curlReady = curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK;
+    CURL *curl = curlReady ? curl_easy_init() : nullptr;
+    if (!curl) {
+        *why = "no libcurl";
+        return nullptr;
+    }
+    struct curl_slist *headers = curl_slist_append(nullptr, ("Authorization: Bearer " + token).c_str());
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+#ifdef ANDROID
+    struct curl_blob ca;
+    ca.data = (void *)gevr_cacert_pem;
+    ca.len = gevr_cacert_pem_size;
+    ca.flags = CURL_BLOB_NOCOPY;
+    curl_easy_setopt(curl, CURLOPT_CAINFO_BLOB, &ca);
+#endif
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "GoldenEyeVR-PC");
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 5000L);
+    curl_easy_setopt(curl, CURLOPT_CONNECT_ONLY, 2L);   // the upgrade, then the frames are ours
+    const CURLcode rc = curl_easy_perform(curl);
+    curl_slist_free_all(headers);   // used by the perform only
+    curl_socket_t fd = CURL_SOCKET_BAD;
+    if (rc == CURLE_OK) curl_easy_getinfo(curl, CURLINFO_ACTIVESOCKET, &fd);
+    if (rc != CURLE_OK || fd == CURL_SOCKET_BAD) {
+        long status = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+        *why = status && status != 101 ? "upgrade refused (HTTP " + std::to_string(status) + ")" : std::string(curl_easy_strerror(rc));
+        curl_easy_cleanup(curl);
+        return nullptr;
+    }
+    return std::make_shared<CurlWebSocket>(curl, fd, silenceMs);
+}
+
+#else   /* iOS (NSURLSession has its own; not wired yet), or a libcurl without WebSockets */
+
+std::shared_ptr<WebSocket> webSocketOpen(const std::string &, const std::string &, int, std::string *why)
+{
+    *why = "no WebSocket support in this build";
+    return nullptr;
+}
+
+#endif
 
 std::string sha256File(const std::string &path)
 {

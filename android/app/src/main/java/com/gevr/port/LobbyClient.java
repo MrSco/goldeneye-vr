@@ -8,6 +8,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -27,6 +28,13 @@ import java.util.concurrent.TimeoutException;
 final class LobbyClient {
     private static final String TAG = "GEVR-Lobbies";
     private static final String BASE = "https://lobbies.goldeneyevr.com/v1/lobbies";
+    // Push signaling (the Worker's /socket): offers and answers arrive at once instead of on
+    // the next poll, and the host's heartbeat rides the socket. Polling is the fallback.
+    private static final String SOCKET_BASE = "wss://lobbies.goldeneyevr.com/v1/lobbies";
+    private static final long SOCKET_RETRY_MS = 60_000;   // after a failed or dropped host socket
+    private static final long SOCKET_PING_MS = 30_000;    // the Worker answers "ping" without waking
+    private static final int SOCKET_SILENCE_MS = 75_000;  // nothing heard this long: the socket is dead
+    private static final long STATE_REPLY_MS = 10_000;    // a heartbeat unanswered this long: back to HTTP
     private final ScheduledExecutorService worker = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread thread = new Thread(r, "lobby-client");
         thread.setDaemon(true);
@@ -56,6 +64,11 @@ final class LobbyClient {
     private boolean heartbeatPaused;
     private String lastError = "";
     private JSONObject pendingCreate;
+    private LobbySocket hostSocket;
+    private LobbySocket joinSocket;
+    private long nextSocketTry;
+    private long lastSocketPing;
+    private long stateSentAt;   // a heartbeat sent on the socket and not yet answered; 0 none
 
     LobbyClient() {
         worker.scheduleWithFixedDelay(this::poll, 2, 2, TimeUnit.SECONDS);
@@ -179,6 +192,7 @@ final class LobbyClient {
             case "join": {
                 // join|code|version[|inputClass]: the Worker refuses a flat player a VR-only game
                 if (fields.length != 3 && fields.length != 4) return;
+                closeJoinSocket();
                 joinId = "";
                 joinToken = "";
                 offerSent = false;
@@ -199,6 +213,8 @@ final class LobbyClient {
                 String sdp = decode(fields[1]);
                 http("PUT", BASE + "/" + code + "/joins/" + joinId + "/offer", new JSONObject().put("sdp", sdp), joinToken);
                 offerSent = true;
+                // An answer stored before the socket opens is sent on connect; without a socket, poll.
+                joinSocket = openSocket(SOCKET_BASE + "/" + code + "/socket?join=" + joinId, joinToken);
                 break;
             }
             case "answer": {
@@ -229,22 +245,45 @@ final class LobbyClient {
             if (hosting && !code.isEmpty()) {
                 // Pause offer polling too: discovering expiry while asleep must
                 // not make the native loop register a replacement in the background.
-                if (!keepalive) return;
-                if (now >= nextHeartbeat) {
+                if (!keepalive) {
+                    closeSockets();
+                    return;
+                }
+                if (hostSocket == null && now >= nextSocketTry) {
+                    hostSocket = openSocket(SOCKET_BASE + "/" + code + "/socket", ownerToken);
+                    if (hostSocket == null) nextSocketTry = SystemClock.elapsedRealtime() + SOCKET_RETRY_MS;
+                }
+                if (hostSocket != null && stateSentAt > 0 && SystemClock.elapsedRealtime() - stateSentAt > STATE_REPLY_MS) {
+                    Log.w(TAG, "Lobby socket did not answer a heartbeat; polling again");
+                    dropHostSocket();
+                }
+                if (SystemClock.elapsedRealtime() >= nextHeartbeat) {
                     JSONObject state = new JSONObject()
                             .put("players", players).put("open", open).put("phase", phase)
                             .put("maxPlayers", maxPlayers);
                     if (vrOnly >= 0) state.put("vrOnly", vrOnly == 1);
                     if (flatPlayers >= 0) state.put("flatPlayers", Math.min(flatPlayers, players));
                     if (!name.isEmpty()) state.put("name", name);
-                    try { http("PUT", BASE + "/" + code, state, ownerToken); }
-                    catch (HttpException e) {
-                        if (lost(e)) return;
-                        throw e;
+                    boolean sent = false;
+                    if (hostSocket != null) {
+                        try {
+                            hostSocket.send(new JSONObject(state.toString()).put("type", "state").toString());
+                            stateSentAt = SystemClock.elapsedRealtime();
+                            sent = true;
+                        } catch (IOException e) { dropHostSocket(); }
+                    }
+                    if (!sent) {
+                        try { http("PUT", BASE + "/" + code, state, ownerToken); }
+                        catch (HttpException e) {
+                            if (lost(e)) return;
+                            throw e;
+                        }
                     }
                     nextHeartbeat = SystemClock.elapsedRealtime() + 15_000;
                 }
-                if (open && SystemClock.elapsedRealtime() >= nextRequests) {
+                pingSockets();
+                // With a socket the Worker sends each request itself (the pending ones on connect).
+                if (hostSocket == null && open && SystemClock.elapsedRealtime() >= nextRequests) {
                     JSONArray requests;
                     try { requests = http("GET", BASE + "/" + code + "/joins", null, ownerToken).getJSONArray("requests"); }
                     catch (HttpException e) {
@@ -261,6 +300,8 @@ final class LobbyClient {
                         seenRequests.add(id);
                     }
                 }
+            } else if (!joinId.isEmpty() && offerSent && !answerReceived && joinSocket != null) {
+                pingSockets();
             } else if (!joinId.isEmpty() && offerSent && !answerReceived) {
                 JSONObject answer = http("GET", BASE + "/" + code + "/joins/" + joinId + "/answer", null, joinToken);
                 if (!answer.isNull("answer")) {
@@ -273,6 +314,101 @@ final class LobbyClient {
             String message = "Lobby service: " + e.getMessage();
             if (!message.equals(lastError)) error(message);
             lastError = message;
+        }
+    }
+
+    /** Opens a push socket, or null (and the caller polls) if the Worker cannot be reached that way. */
+    private LobbySocket openSocket(String url, String token) {
+        final LobbySocket[] self = new LobbySocket[1];
+        try {
+            self[0] = LobbySocket.open(url, token, new LobbySocket.Listener() {
+                @Override public void message(String text) { post(() -> socketMessage(self[0], text)); }
+                @Override public void closed(String why) { post(() -> socketClosed(self[0], why)); }
+            }, 5000, SOCKET_SILENCE_MS);
+            lastSocketPing = SystemClock.elapsedRealtime();
+            Log.i(TAG, "Lobby socket open (" + (url.contains("?join=") ? "join" : "host") + ")");
+            return self[0];
+        } catch (Exception e) {
+            Log.w(TAG, "Lobby socket unavailable, polling instead: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private void post(Runnable job) {
+        try { worker.execute(job); } catch (RejectedExecutionException ignored) { }
+    }
+
+    /** On the worker thread, as everything that touches the lobby state. */
+    private void socketMessage(LobbySocket from, String text) {
+        if (from == null || (from != hostSocket && from != joinSocket) || "pong".equals(text)) return;
+        try {
+            JSONObject message = new JSONObject(text);
+            String type = message.optString("type");
+            if (from == hostSocket && "request".equals(type)) {
+                String id = message.getString("id");
+                if (seenRequests.contains(id)) return;
+                events.add("HOST_PEER|" + id + "|" + encode(message.getString("offer")) + "|"
+                        + relayCredentials(new JSONObject(), ownerToken));
+                seenRequests.add(id);
+            } else if (from == hostSocket && "state".equals(type)) {
+                stateSentAt = 0;
+                int status = message.optInt("status", 200);
+                if (status >= 400) {
+                    HttpException e = new HttpException(status, message.optString("error", "HTTP " + status));
+                    if (!lost(e)) error("Lobby service: " + e.getMessage());
+                }
+            } else if (from == joinSocket && "answer".equals(type) && !answerReceived) {
+                events.add("ANSWER|" + joinId + "|" + encode(message.getString("answer")));
+                answerReceived = true;
+                closeJoinSocket();
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Lobby socket message ignored: " + e.getMessage());
+        }
+    }
+
+    private void socketClosed(LobbySocket from, String why) {
+        if (from != null && from == hostSocket) {
+            Log.i(TAG, "Lobby socket closed (" + why + "); polling, socket again in " + SOCKET_RETRY_MS / 1000 + " s");
+            hostSocket = null;
+            stateSentAt = 0;
+            nextSocketTry = SystemClock.elapsedRealtime() + SOCKET_RETRY_MS;
+            nextHeartbeat = 0;   // the last heartbeat may not have landed
+            nextRequests = 0;
+        } else if (from != null && from == joinSocket) {
+            Log.i(TAG, "Lobby join socket closed (" + why + ")");
+            joinSocket = null;
+        }
+    }
+
+    private void dropHostSocket() {
+        LobbySocket socket = hostSocket;
+        socketClosed(socket, "dropped");
+        if (socket != null) socket.close();
+    }
+
+    private void closeJoinSocket() {
+        LobbySocket socket = joinSocket;
+        joinSocket = null;
+        if (socket != null) socket.close();
+    }
+
+    private void closeSockets() {
+        LobbySocket socket = hostSocket;
+        hostSocket = null;
+        stateSentAt = 0;
+        nextSocketTry = 0;
+        if (socket != null) socket.close();
+        closeJoinSocket();
+    }
+
+    private void pingSockets() {
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastSocketPing < SOCKET_PING_MS) return;
+        lastSocketPing = now;
+        for (LobbySocket socket : new LobbySocket[] { hostSocket, joinSocket }) {
+            if (socket == null) continue;
+            try { socket.send("ping"); } catch (IOException ignored) { }   // closed() follows and polling resumes
         }
     }
 
@@ -322,6 +458,7 @@ final class LobbyClient {
 
     /** Drops this client's part in the lobby without removing the lobby itself. */
     private void forget() {
+        closeSockets();
         pendingCreate = null;
         hosting = false;
         phase = "waiting";

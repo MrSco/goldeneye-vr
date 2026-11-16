@@ -18,6 +18,17 @@
 #define OUTPUT_RATE 22050
 #define VOICE_FRAME 320
 #define VOICE_QUEUE (VOICE_FRAME * 10)
+/*
+ * How many frames a stream gathers before it plays (its jitter buffer). It
+ * starts at two (40 ms). A stream that runs dry and gets its next packet
+ * within 100 ms ran out mid-speech, not at a pause (DTX sends nothing in a
+ * pause), so it waits one frame more from then on, up to six (120 ms); after
+ * 15 s without that it waits one frame less.
+ */
+#define VOICE_TARGET_MIN 2
+#define VOICE_TARGET_MAX 6
+#define VOICE_STARVE_MS 100
+#define VOICE_RELAX_MS 15000
 
 extern int VrMicMuted;
 extern float VrVoiceVolume;
@@ -34,6 +45,10 @@ typedef struct {
     unsigned phase;
     uint32_t speaking_until;
     float applied_gain;
+    unsigned target;          /* frames gathered before playing: VOICE_TARGET_MIN..MAX */
+    uint32_t dry_at;          /* SDL_GetTicks when it last ran dry while playing, 0 if not since */
+    uint32_t steady_since;    /* since the last change of target */
+    unsigned recovered;       /* frames rebuilt from in-band FEC */
 } VoiceStream;
 
 static VoiceStream streams[GEVR_MAX_PLAYERS];
@@ -253,6 +268,11 @@ void netVoiceTick(void) {
             opus_encoder_ctl(encoder, OPUS_SET_BITRATE(24000));
             opus_encoder_ctl(encoder, OPUS_SET_DTX(1));
             opus_encoder_ctl(encoder, OPUS_SET_SIGNAL(OPUS_SIGNAL_VOICE));
+            /* Each packet also carries a coarse copy of the frame before it, so
+             * one lost packet is rebuilt from the next (netVoiceReceive). Older
+             * builds ignore it. */
+            opus_encoder_ctl(encoder, OPUS_SET_INBAND_FEC(1));
+            opus_encoder_ctl(encoder, OPUS_SET_PACKET_LOSS_PERC(10));
             /* The codec runs on the game thread, which holds 90 Hz. */
             opus_encoder_ctl(encoder, OPUS_SET_COMPLEXITY(5));
         }
@@ -346,22 +366,47 @@ void netVoiceReceive(uint8_t slot, uint32_t sequence, const uint8_t *packet, uin
     if (!netVoiceSameGroup(slot, netGetLocalSlot())) { netVoiceForgetSlot(slot); return; }
     VoiceStream *s = &streams[slot];
     if (s->seen && (int32_t)(sequence - s->last_sequence) <= 0) return;
+    const uint32_t now = SDL_GetTicks();
     if (!s->decoder) {
         int err;
         s->decoder = opus_decoder_create(VOICE_RATE, 1, &err);
         if (!s->decoder || err != OPUS_OK) { s->decoder = NULL; return; }
+        s->target = VOICE_TARGET_MIN;
+        s->steady_since = now;
     }
+    const int contiguous = s->seen && sequence == s->last_sequence + 1;
     if (s->seen) {
         uint32_t lost = sequence - s->last_sequence - 1;
         if (lost > 5) {
             s->read = s->count = s->started = 0;
             opus_decoder_ctl(s->decoder, OPUS_RESET_STATE);
-        } else for (uint32_t i = 0; i < lost; i++) {
-            int16_t concealed[VOICE_FRAME];
-            int n = opus_decode(s->decoder, NULL, 0, concealed, VOICE_FRAME, 0);
-            if (n > 0) pushSamples(s, concealed, (unsigned)n);
+        } else if (lost > 0) {
+            /* all but the last missing frame by concealment; the last from the
+             * copy this packet carries (in-band FEC; concealment if it has none) */
+            int16_t rebuilt[VOICE_FRAME];
+            for (uint32_t i = 0; i + 1 < lost; i++) {
+                int n = opus_decode(s->decoder, NULL, 0, rebuilt, VOICE_FRAME, 0);
+                if (n > 0) pushSamples(s, rebuilt, (unsigned)n);
+            }
+            int n = opus_decode(s->decoder, packet, size, rebuilt, VOICE_FRAME, 1);
+            if (n > 0) {
+                pushSamples(s, rebuilt, (unsigned)n);
+                s->recovered++;
+            }
         }
     }
+    /* Ran dry while playing and the next packet came at once: it was late,
+     * not the end of a sentence. Wait longer before playing from now on. */
+    if (!s->started && s->dry_at && contiguous && now - s->dry_at < VOICE_STARVE_MS && s->target < VOICE_TARGET_MAX) {
+        s->target++;
+        s->steady_since = now;
+        sysLogPrintf(LOG_NOTE, "voice: slot %u ran dry mid-speech; buffering %u ms (%u frames rebuilt from FEC so far)",
+                     slot, s->target * 20, s->recovered);
+    } else if (s->target > VOICE_TARGET_MIN && now - s->steady_since > VOICE_RELAX_MS) {
+        s->target--;
+        s->steady_since = now;
+    }
+    s->dry_at = 0;
     int16_t decoded[VOICE_FRAME];
     int n = opus_decode(s->decoder, packet, size, decoded, VOICE_FRAME, 0);
     if (n <= 0 || n > VOICE_FRAME) return;
@@ -385,7 +430,7 @@ static int16_t popSample(VoiceStream *s) {
 
 static float streamSample(VoiceStream *s) {
     if (!s->started) {
-        if (s->count < VOICE_FRAME * 2) return 0.0f;
+        if (s->count < VOICE_FRAME * (s->target ? s->target : VOICE_TARGET_MIN)) return 0.0f;
         s->current = popSample(s);
         s->next = popSample(s);
         s->phase = 0;
@@ -397,7 +442,10 @@ static float streamSample(VoiceStream *s) {
         s->phase -= OUTPUT_RATE;
         s->current = s->next;
         s->next = popSample(s);
-        if (!s->count && !s->next) s->started = 0;
+        if (!s->count && !s->next) {
+            s->started = 0;
+            s->dry_at = SDL_GetTicks() | 1;   /* never 0, which means "not since" */
+        }
     }
     return sample;
 }

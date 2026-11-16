@@ -2291,7 +2291,18 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 case AI_IFBondHasItemEquipped:
                 {
                     AiIFBondHasItemEquippedRecord *ai = AiListp + Offset;
+#ifdef GEVR
+                    /* co-op (#241): just after a gadget use, the hands of whoever used it */
+                    s32 gevrUser = gevrCoopGadgetUser(AiListp);
+                    s32 gevrPrev = get_cur_playernum();
+                    s32 gevrHeld;
+                    if (gevrUser >= 0) set_cur_player(gevrUser);
+                    gevrHeld = ai->ITEM_NUM == getCurrentPlayerWeaponId(GUNRIGHT) || ai->ITEM_NUM == getCurrentPlayerWeaponId(GUNLEFT);
+                    if (gevrUser >= 0) set_cur_player(gevrPrev);
+                    if (gevrHeld)
+#else
                     if (ai->ITEM_NUM == getCurrentPlayerWeaponId(GUNRIGHT) || ai->ITEM_NUM == getCurrentPlayerWeaponId(GUNLEFT)) // order matters
+#endif
                     {
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
                     }
@@ -2351,6 +2362,9 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     if (obj && obj->prop && (obj->state & PROPSTATE_ACTIVATED))
                     {
                         obj->state &= ~PROPSTATE_ACTIVATED;
+#ifdef GEVR
+                        gevrCoopGadgetTaken(obj, AiListp);
+#endif
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
                     }
                     else

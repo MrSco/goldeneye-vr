@@ -5523,6 +5523,11 @@ void gfx_opengl_clear_framebuffer(bool clear_color, bool clear_depth) {
     if (gevr_eye_draw_deferred()) {
         return;   // the eye image is not this pass's yet; the replay keeps no clears
     }
+    /* The scissor test goes back as it was found: a depth clear in mid-list
+     * (G_CLEAR_DEPTH_EXT, a viewmodel on its own depth) that left it on
+     * scissored the flat game's later frames to the viewport, and the sky
+     * fill showed in a strip down each side of the screen (issue #238). */
+    const GLboolean scissorWasOn = glIsEnabled(GL_SCISSOR_TEST);
     glDisable(GL_SCISSOR_TEST);
 
     GLbitfield mask = 0;
@@ -5540,7 +5545,7 @@ void gfx_opengl_clear_framebuffer(bool clear_color, bool clear_depth) {
         glDepthMask(current_depth_mask ? GL_TRUE : GL_FALSE);
     }
 
-    glEnable(GL_SCISSOR_TEST);
+    if (scissorWasOn) glEnable(GL_SCISSOR_TEST);
 }
 
 void gfx_opengl_resolve_msaa_color_buffer(int fb_id_target, int fb_id_source) {

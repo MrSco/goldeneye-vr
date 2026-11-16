@@ -35,10 +35,16 @@ uintptr_t osVirtualToPhysical(void *ptr) { return (uintptr_t)ptr; }
 static struct TestPlayer { struct { Model weaponModel; } hands[2]; } player;
 static struct TestPlayer *g_CurrentPlayer = &player;
 static const GexWeaponDef *def;
-static Mtxf s_gevrGexLastMag[2], rendered;
+static Mtxf s_gevrGexLastMag[2], s_gevrGexLastGun[2], rendered, propPose;
 static s32 s_gevrGexLastValid[2] = {1,1};
-static int visits, switches, meshes;
-static ModelNode *expectedMesh;
+static int visits, switches, meshes, props;
+static ModelNode *expectedMesh;   /* NULL: any */
+static s32 expectedMatrix;
+static u32 expectedTint = GEVR_RELOAD_TINT|0x50;
+static ModelRenderData propRd;
+/* gun.c: the grenade launcher's GoldenEye prop, drawn on the held matrix given */
+static Gfx *gevrGexDrawProp(Gfx *gdl, ModelRenderData *templ, const GexWeaponDef *d, const Mtxf *held)
+{ (void)d; props++; propPose=*held; propRd=*templ; return gdl; }
 int gevrHandReloadActive(void) { return 1; }
 const GexWeaponDef *gevrGexWeaponForHand(int hand) { (void)hand; return def; }
 static const GexWeaponDef *gevrGexForHeader(ModelFileHeader *hdr) { (void)hdr; return def; }
@@ -55,15 +61,16 @@ void sub_GAME_7F074534(ModelRenderData *rd,Model *model,ModelNode *node) {
     visits++;
     if (node->Opcode == MODELNODE_OPCODE_SWITCH) { switches++; modelApplyToggleRelations(model,node); }
     else {
-        assert(node==expectedMesh); meshes++;
-        rendered=((Mtxf *)model->render_pos)[def->magMatrix];
-        assert(rd->envcolour.word== (GEVR_RELOAD_TINT|0x50));
+        assert(expectedMesh==NULL || node==expectedMesh); meshes++;
+        rendered=((Mtxf *)model->render_pos)[expectedMatrix];
+        assert(rd->envcolour.word==expectedTint);
     }
 }
 /* PRODUCTION */
 int main(void) {
     def=gevrGexWeaponGet(ITEM_WPPK);
     assert(def && def->numParts>=2);
+    expectedMatrix=def->magMatrix;
     ModelNode magSwitch={0}, heldSwitch={0}, magMesh={0}, heldMesh={0}, gunMesh={0};
     union ModelRoData magData={0}, heldData={0};
     ModelNode *sw[64]={&magSwitch,&heldSwitch};
@@ -102,13 +109,75 @@ int main(void) {
     assert((commands[4].words.w1 & Z_UPD)==0);   /* transparent guide never writes solid depth */
     assert((commands[4].words.w1 & FORCE_BL)!=0);
     rd.PropType=PROP_TYPE_CHR+1; assert(!modelApplyReloadGhost(&rd));
-    puts("PASS: magazine subtree only, installed/belt poses, live switches preserved, ghost alpha and translucent depth");
+    rd=(ModelRenderData){0};
+    /* a single-round gun's payload at the belt: its held part on the held matrix, at the
+     * gun's size, turned as it sits in the gun and centred on the belt point */
+    {
+        static const f32 at[3]={0.5f,-0.5f,20.5f};
+        const u32 tint=GEVR_RELOAD_READY_TINT|0xFF;
+        assert(gevrGexDrawPayloadGuide(commands,&rd,0,&belt,tint,1)==commands);   /* a magazine gun: none */
+        def=gevrGexWeaponGet(ITEM_SHOTGUN); assert(def->singleRound && def->numParts==2);
+        hdr.numSwitches=def->numParts;   /* its switches: {none, the held shell} */
+        matrix_4x4_set_identity(&s_gevrGexLastGun[0]);
+        for (int i=0;i<3;i++) s_gevrGexLastGun[0].m[i][i]=0.12f;
+        assert(gevrGexDrawPayloadGuide(commands,&rd,0,&belt,tint,1)==commands);   /* no payload found: none */
+        s_gevrGexPayloadAt[ITEM_SHOTGUN].state=1; memcpy(s_gevrGexPayloadAt[ITEM_SHOTGUN].centre,at,sizeof(at));
+        visits=switches=meshes=0; expectedMesh=&heldMesh; expectedMatrix=def->heldMatrix; expectedTint=tint;
+        gevrGexDrawPayloadGuide(commands,&rd,0,&belt,tint,1);
+        assert(meshes==1 && switches==1);
+        for (int i=0;i<3;i++) {
+            float c=rendered.m[3][i];
+            for (int k=0;k<3;k++) {
+                float r=0; for (int a=0;a<3;a++) r+=0.12f*def->heldToMag[k][a]*belt.m[a][i];
+                assert(fabsf(rendered.m[k][i]-r)<0.0001f);
+                c+=at[k]*rendered.m[k][i];
+            }
+            assert(fabsf(c-belt.m[3][i])<0.0001f);
+        }
+        assert(original[0]==0 && original[1]==1 && heldSwitch.Child==NULL);   /* live switches untouched */
+    }
+    /* the Cougar's speedloader carries the rounds a grip takes, up to its six */
+    {
+        ModelNode rsw[7]={0}, rmesh[7]={0}, *rtab[64]={0}; union ModelRoData rdata[7]={0}; u32 rdatas[8]={0};
+        ModelFileHeader rhdr={0}; rhdr.Switches=rtab; rhdr.numSwitches=7; rhdr.numMatrices=64; rhdr.numRecords=8;
+        for (int i=0;i<7;i++) {
+            rsw[i].Opcode=MODELNODE_OPCODE_SWITCH; rsw[i].Data=&rdata[i]; rdata[i].Switch.Controls=&rmesh[i];
+            rdata[i].Switch.RwDataIndex=i; rmesh[i].Parent=&rsw[i]; rtab[i]=&rsw[i];
+        }
+        def=gevrGexWeaponGet(ITEM_RUGER); assert(def->loaderRounds==6 && def->numParts==7);
+        player.hands[0].weaponModel.obj=&rhdr; player.hands[0].weaponModel.datas=rdatas;
+        s_gevrGexPayloadAt[ITEM_RUGER].state=1; expectedMesh=NULL; expectedMatrix=def->heldMatrix;
+        for (int r=1;r<=8;r++) { meshes=0; gevrGexDrawPayloadGuide(commands,&rd,0,&belt,expectedTint,r); assert(meshes==(r>6 ? 6 : r)); }
+        for (int i=0;i<8;i++) assert(rdatas[i]==0);
+        player.hands[0].weaponModel.obj=&hdr; player.hands[0].weaponModel.datas=original;
+    }
+    /* the grenade launcher's round is its GoldenEye prop, tinted as the belt's magazine */
+    {
+        def=gevrGexWeaponGet(ITEM_GRENADELAUNCH); assert(def->payloadProp>0);
+        s_gevrGexPayloadAt[ITEM_GRENADELAUNCH].state=1;
+        meshes=0; gevrGexDrawPayloadGuide(commands,&rd,0,&belt,expectedTint,1);
+        assert(props==1 && meshes==0 && propRd.envcolour.word==expectedTint && propRd.PropType==PROP_TYPE_CHR+1);
+        for (int i=0;i<3;i++) {
+            assert(fabsf(propPose.m[3][i]-belt.m[3][i])<0.0001f);   /* its origin on the belt point */
+            for (int k=0;k<3;k++) {
+                float r=0; for (int a=0;a<3;a++) r+=0.12f*def->heldToMag[k][a]*belt.m[a][i];
+                assert(fabsf(propPose.m[k][i]-r)<0.0001f);
+            }
+        }
+    }
+    puts("PASS: magazine subtree only, installed/belt poses, live switches preserved, ghost alpha and translucent depth, belt payloads");
 }
 '''
 gun = (ROOT / "src/game/gun.c").read_text()
 model = (ROOT / "src/game/model.c").read_text()
+# the belt draws a single-round gun's payload where it draws a magazine
+belt = function((ROOT / "src/game/gevr_bodyslots.c").read_text(), "static Gfx *gevrReloadBeltDraw(")
+assert "gevrReloadBeltRound(ctrl, &rounds, &hover)" in belt and "gevrGexDrawPayloadGuide(gdl, &rd, hand, &belt, tint, rounds)" in belt
 production = [function(model, "void modelApplyToggleRelations("), function(model, "static bool modelApplyReloadGhost(")]
-production += [function(gun, s) for s in ("static void gevrGexCollapse(", "static void gevrGexShowMagazines(", "Gfx *gevrGexDrawMagazineGuide(")]
+production += [line for line in gun.splitlines()
+               if line.startswith(("typedef struct { s8 state; f32 centre[3]; } GevrGexPayloadAt;", "static GevrGexPayloadAt s_gevrGexPayloadAt["))]
+production += [function(gun, s) for s in ("static void gevrGexCollapse(", "static Gfx *gevrGexDrawPartGuide(",
+                                          "Gfx *gevrGexDrawMagazineGuide(", "Gfx *gevrGexDrawPayloadGuide(")]
 with tempfile.TemporaryDirectory(prefix="gevr-reload-visuals-") as temp:
     source, exe = Path(temp) / "test.c", Path(temp) / "test.exe"
     source.write_text(HARNESS.replace("/* PRODUCTION */", "\n".join(production)))

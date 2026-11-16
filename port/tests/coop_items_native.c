@@ -72,6 +72,9 @@ ObjectRecord *objFindByTagId(s32 tag)
 {
     return tagged && tag == 7 ? tagged : NULL;
 }
+s32 g_GlobalTimer;
+static s32 held[4][2];   /* each player's hands, by GUNRIGHT/GUNLEFT */
+ITEM_IDS getCurrentPlayerWeaponId(GUNHAND hand) { return (ITEM_IDS)held[cur_player][hand]; }
 s32 chraiGoToLabel(AIRecord *list, s32 offset, u8 label)
 {
     assert(list == AiListp);
@@ -162,13 +165,23 @@ void gevrCoopApplyTank(s32 slot, s32 driven, const f32 pos[3], f32 yaw, f32 turr
 
 /* INSERT_TANK_SYNC */
 
-static void host_event(struct netbuf *b)
+static void host_event(int slot, struct netbuf *b)
 {
     u8 kind = netbufReadU8(b);
     switch (kind) {
         /* INSERT_GRANT_CASE */
         /* INSERT_GADGET_CASE */
         default:
+            break;
+    }
+}
+
+static void run_equipped_check(void)
+{
+    switch (AI_IFBondHasItemEquipped) {
+        /* INSERT_EQUIPPED_CASE */
+        default:
+            assert(0);
             break;
     }
 }
@@ -519,7 +532,7 @@ int main(void)
     netbufWriteU8(&packet, NET_COOP_EVENT_GRANT);
     netbufWriteS32(&packet, ITEM_BOMBDEFUSER);
     rewind_written(&packet);
-    host_event(&packet);
+    host_event(1, &packet);
     assert(owned[0][ITEM_BOMBDEFUSER] && owned[2][ITEM_BOMBDEFUSER]);
     assert(!owned[3][ITEM_BOMBDEFUSER]);
     packet = open_last();
@@ -619,7 +632,7 @@ int main(void)
     netbufWriteU8(&packet, NET_COOP_EVENT_GADGET);
     netbufWriteS32(&packet, 7);
     rewind_written(&packet);
-    host_event(&packet);
+    host_event(1, &packet);
     assert(obj->state & PROPSTATE_ACTIVATED);
 
     AiListp = (AIRecord *)(u8[]){ AI_IFBondUsedGadgetOnObject, 7, 9 };
@@ -630,7 +643,7 @@ int main(void)
     assert(goto_calls == 0);
     assert(Offset == (s32)sizeof(AiIFBondUsedGadgetOnObjectRecord));
 
-    coopApplyGadgetUse(7);
+    coopApplyGadgetUse(1, 7);
     assert(obj->state & PROPSTATE_ACTIVATED);
     Offset = 0;
     goto_offset = 42;
@@ -641,6 +654,71 @@ int main(void)
     run_gadget_check();
     assert(goto_calls == 1);
     assert(Offset == 42 + (s32)sizeof(AiIFBondUsedGadgetOnObjectRecord));
+
+    /* #241: Frigate's bomb list. Player 1 uses the defuser while the list
+     * runs as player 0 (the nearest), whose hands hold a gun: "is Bond
+     * holding the defuser?" asks player 1's hands, in that tick only. */
+    {
+        static u8 bomb[] = { AI_IFBondUsedGadgetOnObject, 7, 9, AI_IFBondHasItemEquipped, ITEM_BOMBDEFUSER, 9 };
+        s32 equipped = (s32)sizeof(AiIFBondUsedGadgetOnObjectRecord);
+
+        AiListp = (AIRecord *)bomb;
+        held[0][GUNRIGHT] = ITEM_WPPK;
+        held[1][GUNRIGHT] = ITEM_BOMBDEFUSER;
+        cur_player = 0;
+        g_GlobalTimer = 100;
+        obj->state = 0;
+        goto_calls = 0;
+
+        /* no use: player 0's own hands, no defuser */
+        Offset = equipped;
+        run_equipped_check();
+        assert(goto_calls == 0 && cur_player == 0);
+
+        /* player 1's use, from its event */
+        packet = written(raw, sizeof(raw));
+        netbufWriteU8(&packet, NET_COOP_EVENT_GADGET);
+        netbufWriteS32(&packet, 7);
+        rewind_written(&packet);
+        host_event(1, &packet);
+        Offset = 0;
+        goto_offset = equipped;
+        run_gadget_check();
+        assert(goto_calls == 1 && Offset == equipped);
+        goto_offset = 99;
+        run_equipped_check();
+        assert(goto_calls == 2 && Offset == 99 && cur_player == 0);
+
+        /* the next tick: the list's own player again */
+        g_GlobalTimer++;
+        Offset = equipped;
+        run_equipped_check();
+        assert(goto_calls == 2);
+
+        /* the host's own use: its own hands, even when the list runs as player 1 */
+        held[0][GUNLEFT] = ITEM_BOMBDEFUSER;
+        held[1][GUNRIGHT] = ITEM_WPPK;
+        cur_player = 0;
+        gevrCoopReportGadgetUse(obj);
+        obj->state |= PROPSTATE_ACTIVATED;
+        cur_player = 1;
+        Offset = 0;
+        goto_offset = equipped;
+        run_gadget_check();
+        goto_offset = 77;
+        run_equipped_check();
+        assert(goto_calls == 4 && Offset == 77 && cur_player == 1);
+
+        /* a use with no user on record (a single headset's): unchanged */
+        obj->state |= PROPSTATE_ACTIVATED;
+        Offset = 0;
+        goto_offset = equipped;
+        run_gadget_check();
+        run_equipped_check();
+        assert(goto_calls == 5 && cur_player == 1);
+        memset(held, 0, sizeof(held));
+        cur_player = 0;
+    }
 
     /* Player A is this headset. Player B's tick must not take the deck. */
     memset(&tank, 0, sizeof(tank));
