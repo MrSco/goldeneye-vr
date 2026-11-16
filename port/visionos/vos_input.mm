@@ -4,8 +4,9 @@
  *
  * The game binds Touch (vr_input.cpp: /interaction_profiles/oculus/
  * touch_controller), so this answers a Touch pair:
- *   - PlayStation VR2 Sense controllers (VosControllers.swift, Klepton's
- *     port): tracked grips, sticks, triggers, grips, A/B (X/Y on the left),
+ *   - PlayStation VR2 Sense controllers, Klepton's port: tracked grips
+ *     (vos_xr.mm vosAccessoryGrip), and through VosControllers.swift the
+ *     sticks, triggers, grips, A/B (X/Y on the left),
  *     the left menu button, rumble. A hand without a tracked pose this frame
  *     keeps its last one;
  *   - otherwise a game pad through GameController: left stick and trigger,
@@ -62,8 +63,9 @@ static bool vosSyncSense(double t)
         v = VosHand{};
         v.active = s.connected != 0;
         if (!v.active) continue;
-        if (s.tracked) {
-            memcpy(&v.grip, s.grip, sizeof(s.grip));
+        simd_float4x4 grip;
+        if (vosAccessoryGrip(h, t, &grip)) {   // vos_xr.mm: the head's ARKit session
+            v.grip = grip;
             v.poseValid = true;
             if (!s_saidSense[h]) {
                 s_saidSense[h] = true;

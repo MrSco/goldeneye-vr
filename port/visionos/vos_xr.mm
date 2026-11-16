@@ -38,6 +38,7 @@
 #import <QuartzCore/QuartzCore.h>
 #import <CompositorServices/CompositorServices.h>
 #import <ARKit/ARKit.h>
+#import <GameController/GameController.h>
 
 #define GL_GLEXT_PROTOTYPES
 #include <EGL/egl.h>
@@ -54,6 +55,7 @@
 #include <cmath>
 #include <cstring>
 #include <mutex>
+#include <algorithm>
 
 #include "vos.h"
 
@@ -190,22 +192,110 @@ static void vosPostState(XrSessionState state)
 }
 
 // ============================================================================
-// The head: ARKit world tracking
+// ARKit: the head (world tracking) and the Sense controllers (accessory
+// tracking), in ONE session, as Klepton runs them on this headset. Build 7
+// ran the controllers in a second session and showed black on the device past
+// the permission dialog, while the simulator (no accessory tracking, so no
+// second session) ran: that second session is the suspect. World tracking runs at once; accessory tracking joins
+// the same session once its permission is granted, so a refusal leaves the
+// head working, and its list of controllers is swapped on the running provider
+// as they come and go (ar_accessory_tracking_provider_update_accessories).
 // ============================================================================
 
 static ar_session_t s_arSession;
 static ar_world_tracking_provider_t s_worldTracking;
-static bool s_arStarted, s_arSupported;
+static ar_accessory_tracking_provider_t s_accProvider;
+static bool s_arStarted, s_arSupported, s_accRunning;
 static simd_float4x4 s_lastHead;
+static ar_device_anchor_t s_goodAnchor;   // the last anchor the tracker answered
 static bool s_haveHead;
 static float s_localHeight = 1.6f;   // LOCAL's origin: the first tracked head height
 static bool s_localSet;
+static unsigned s_headMisses;
+
+static NSLock *s_accLock;
+static ar_accessory_anchor_t s_accAnchor[2];   // the latest per hand (under s_accLock)
+
+static void vosRunSession(void)
+{
+    ar_data_providers_t providers = ar_data_providers_create();
+    ar_data_providers_add_data_provider(providers, s_worldTracking);
+    if (s_accRunning && s_accProvider) ar_data_providers_add_data_provider(providers, s_accProvider);
+    ar_session_run(s_arSession, providers);
+}
+
+/* the paired Sense controllers, handed to the running provider */
+static void vosAccessoryReload(void)
+{
+    if (!s_accProvider) return;
+    NSMutableArray<GCController *> *spatial = [NSMutableArray array];
+    for (GCController *c in GCController.controllers) {
+        if ([c.productCategory isEqualToString:GCProductCategorySpatialController]) [spatial addObject:c];
+    }
+    ar_accessories_t list = ar_accessories_create();
+    if (spatial.count == 0) {
+        ar_accessory_tracking_provider_update_accessories(s_accProvider, list, ^(bool ok, ar_error_t) {
+            vosLog("visionos: ARKit: no controllers to track (%s)", ok ? "ok" : "refused");
+        });
+        return;
+    }
+    __block NSUInteger pending = spatial.count;
+    for (GCController *c in spatial) {
+        ar_accessory_load_from_device(c, ^(id<GCDevice>, bool ok, ar_error_t, ar_accessory_t accessory) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (ok && accessory) ar_accessories_add_accessory(list, accessory);
+                vosLog("visionos: ARKit: controller %s %s", c.vendorName.UTF8String ?: "?", ok ? "loaded" : "failed to load");
+                if (--pending == 0) {
+                    ar_accessory_tracking_provider_update_accessories(s_accProvider, list, ^(bool done, ar_error_t) {
+                        vosLog("visionos: ARKit: tracking %lu controller(s) (%s)", (unsigned long)spatial.count,
+                               done ? "ok" : "refused");
+                    });
+                }
+            });
+        });
+    }
+}
+
+static void vosAccessoryStart(void)
+{
+    ar_accessory_tracking_configuration_t config = ar_accessory_tracking_configuration_create();
+    ar_accessory_tracking_configuration_set_accessories(config, ar_accessories_create());
+    s_accProvider = ar_accessory_tracking_provider_create(config);
+    ar_accessory_tracking_provider_set_update_handler(s_accProvider, nullptr,
+        ^(ar_accessory_anchors_t added, ar_accessory_anchors_t updated, ar_accessory_anchors_t removed) {
+            auto keep = ^(ar_accessory_anchors_t set, bool gone) {
+                ar_accessory_anchors_enumerate_anchors(set, ^bool(ar_accessory_anchor_t a) {
+                    const int hand =
+                        ar_accessory_get_inherent_chirality(ar_accessory_anchor_get_accessory(a)) ==
+                                ar_accessory_chirality_left ? 0 : 1;   // unsaid: the right (ALVR, Klepton)
+                    [s_accLock lock];
+                    s_accAnchor[hand] = gone ? nil : a;
+                    [s_accLock unlock];
+                    return true;
+                });
+            };
+            keep(added, false);
+            keep(updated, false);
+            keep(removed, true);
+        });
+    s_accRunning = true;
+    vosRunSession();   // the same session, now with the controllers' provider
+    vosLog("visionos: ARKit: accessory tracking joined the session");
+    vosAccessoryReload();
+    [NSNotificationCenter.defaultCenter addObserverForName:GCControllerDidConnectNotification object:nil
+                                                     queue:NSOperationQueue.mainQueue
+                                                usingBlock:^(NSNotification *) { vosAccessoryReload(); }];
+    [NSNotificationCenter.defaultCenter addObserverForName:GCControllerDidDisconnectNotification object:nil
+                                                     queue:NSOperationQueue.mainQueue
+                                                usingBlock:^(NSNotification *) { vosAccessoryReload(); }];
+}
 
 static void vosStartTracking(void)
 {
     if (s_arStarted) return;
     s_arStarted = true;
     s_lastHead = vosTranslate(0.0f, 1.6f, 0.0f);
+    s_accLock = [NSLock new];
     s_arSupported = ar_world_tracking_provider_is_supported();
     if (!s_arSupported) {
         vosLog("visionos: ARKit world tracking is not supported here: the head stays at 1.6 m");
@@ -214,13 +304,67 @@ static void vosStartTracking(void)
     ar_world_tracking_configuration_t config = ar_world_tracking_configuration_create();
     s_worldTracking = ar_world_tracking_provider_create(config);
     s_arSession = ar_session_create();
-    ar_data_providers_t providers = ar_data_providers_create_with_data_providers(s_worldTracking, nullptr);
-    ar_session_run(s_arSession, providers);
+    ar_session_set_data_provider_state_change_handler(s_arSession, nullptr,
+        ^(ar_data_providers_t, ar_data_provider_state_t state, ar_error_t error, ar_data_provider_t failed) {
+            vosLog("visionos: ARKit: providers %s%s", state == ar_data_provider_state_running ? "running"
+                   : state == ar_data_provider_state_paused ? "paused"
+                   : state == ar_data_provider_state_stopped ? "stopped" : "initialized",
+                   error ? (failed == (ar_data_provider_t)s_accProvider ? " (the controllers' failed)" : " (one failed)") : "");
+        });
+    vosRunSession();
     vosLog("visionos: ARKit world tracking started");
+    if (!ar_accessory_tracking_provider_is_supported()) {
+        vosLog("visionos: ARKit: no accessory tracking here (the simulator): no tracked controllers");
+        return;
+    }
+    // the controllers' permission first: a refusal must leave the head running
+    ar_session_request_authorization(s_arSession, ar_accessory_tracking_provider_get_required_authorization_type(),
+        ^(ar_authorization_results_t results, ar_error_t) {
+            __block bool allowed = false;
+            ar_authorization_results_enumerate_results(results, ^bool(ar_authorization_result_t r) {
+                allowed |= ar_authorization_result_get_status(r) == ar_authorization_status_allowed;
+                return true;
+            });
+            vosLog("visionos: ARKit: controller tracking %s", allowed ? "allowed" : "not allowed");
+            if (allowed) dispatch_async(dispatch_get_main_queue(), ^{ vosAccessoryStart(); });
+        });
+}
+
+/* Klepton's turn from Apple's .grip to a Touch grip (KLSenseTune): the PSVR2's
+ * own 5.037 degrees plus -37 about X, and (-0.005, 0.02, -0.02) m in the
+ * grip's frame, x mirrored for the left hand */
+extern "C" int vosAccessoryGrip(int hand, double seconds, simd_float4x4 *out)
+{
+    if (!s_accProvider || hand < 0 || hand > 1) return 0;
+    [s_accLock lock];
+    ar_accessory_anchor_t a = s_accAnchor[hand];
+    [s_accLock unlock];
+    if (!a) return 0;
+    const double now = CACurrentMediaTime();
+    const double ahead = std::min(std::max(seconds - now, 0.0), 0.050);
+    ar_accessory_anchor_t p = ar_accessory_anchor_create();
+    if (!ar_accessory_tracking_provider_predict_anchor_at_timestamp(s_accProvider, a, now + ahead, p)) p = a;
+    if (!ar_accessory_anchor_is_tracked(p)) return 0;
+    const simd_float4x4 m = simd_mul(
+        ar_accessory_anchor_get_origin_from_anchor_transform_with_correction(p, ar_transform_correction_rendered),
+        ar_accessory_anchor_get_anchor_from_location_transform_with_correction(p, ar_accessory_location_name_grip,
+                                                                              ar_transform_correction_rendered));
+    const simd_float3x3 r3 = simd_matrix(simd_normalize(m.columns[0].xyz), simd_normalize(m.columns[1].xyz),
+                                         simd_normalize(m.columns[2].xyz));
+    const simd_quatf raw = simd_quaternion(r3);
+    static const simd_quatf turn = simd_quaternion((5.037f - 37.0f) * (float)M_PI / 180.0f, simd_make_float3(1, 0, 0));
+    const simd_quatf q = simd_normalize(simd_mul(raw, turn));
+    const simd_float3 off = simd_make_float3(hand == 0 ? 0.005f : -0.005f, 0.02f, -0.02f);
+    const simd_float3 pos = m.columns[3].xyz + simd_act(raw, off);
+    *out = simd_matrix4x4(q);
+    out->columns[3] = simd_make_float4(pos, 1.0f);
+    return 1;
 }
 
 /* The head at a time (the last good one when ARKit has none); returns the
- * device anchor queried, for the drawable, or nil. */
+ * device anchor for the drawable: this one if the tracker answered, else the
+ * last one it did (an unanswered anchor is never handed to the compositor),
+ * or nil before the first. */
 static ar_device_anchor_t vosQueryHead(double seconds, simd_float4x4 *out, bool *tracked)
 {
     if (tracked) *tracked = false;
@@ -229,7 +373,14 @@ static ar_device_anchor_t vosQueryHead(double seconds, simd_float4x4 *out, bool 
     ar_device_anchor_t anchor = ar_device_anchor_create();
     const ar_device_anchor_query_status_t st =
         ar_world_tracking_provider_query_device_anchor_at_timestamp(s_worldTracking, seconds, anchor);
-    if (st != ar_device_anchor_query_status_success) return anchor;
+    if (st != ar_device_anchor_query_status_success) {
+        if ((s_headMisses++ % 600) == 0) {
+            vosLog("visionos: ARKit had no head for a frame (%u so far)%s", s_headMisses,
+                   s_goodAnchor ? "" : ", none yet");
+        }
+        return s_goodAnchor;
+    }
+    s_goodAnchor = anchor;
     s_lastHead = ar_device_anchor_get_origin_from_anchor_transform(anchor);
     s_haveHead = true;
     if (!s_localSet) {
@@ -330,7 +481,8 @@ static cp_layer_renderer_t vosLayer(void)
 }
 
 static cp_frame_t s_frame;
-static cp_drawable_t s_drawable;
+static cp_drawable_t s_drawable;            // the main one (views, timing)
+static cp_drawable_array_t s_drawables;     // every one the frame has: each is presented
 static ar_device_anchor_t s_frameAnchor;
 static simd_float4x4 s_frameHead;
 static double s_frameDisplay, s_lastDisplay;
@@ -484,16 +636,16 @@ static bool vosNextFrame(void)
     cp_frame_start_update(frame);
     cp_frame_end_update(frame);
     cp_time_wait_until(cp_frame_timing_get_optimal_input_time(timing));
+    // The drawables BEFORE the submission starts (Apple's template, ALVR and
+    // Klepton's order): a frame without one is abandoned unstarted, never
+    // ended (ending one that presented nothing aborts the process).
+    cp_drawable_array_t drawables = cp_frame_query_drawables(frame);
+    if (!drawables || cp_drawable_array_get_count(drawables) == 0) return false;
+    cp_drawable_t drawable = cp_drawable_array_get_drawable(drawables, 0);
     cp_frame_start_submission(frame);
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-    // the singular query: with a NULL drawable, end_submission must NOT run
-    // (it aborts the process, Midas found)
-    cp_drawable_t drawable = cp_frame_query_drawable(frame);
-#pragma clang diagnostic pop
-    if (!drawable) return false;
 
     s_frame = frame;
+    s_drawables = drawables;
     s_drawable = drawable;
     vosReadViews(drawable);
     s_frameDisplay = cp_time_to_cf_time_interval(
@@ -721,11 +873,13 @@ static void vosComposite(const XrFrameEndInfo *info)
     vosGLFence(&evtRaw, &evtValue);
     id<MTLSharedEvent> glDone = evtRaw ? (__bridge_transfer id<MTLSharedEvent>)evtRaw : nil;
 
-    cp_drawable_t drawable = s_drawable;
-    if (!vosEnsureMetal(drawable)) return;
+    if (!vosEnsureMetal(s_drawable)) return;
     id<MTLCommandBuffer> cmd = [s_queue commandBuffer];
     if (glDone) [cmd encodeWaitForEvent:glDone value:evtValue];
 
+    const size_t drawableCount = s_drawables ? cp_drawable_array_get_count(s_drawables) : 1;
+    for (size_t di = 0; di < drawableCount; di++) {
+    cp_drawable_t drawable = s_drawables ? cp_drawable_array_get_drawable(s_drawables, di) : s_drawable;
     const size_t views = cp_drawable_get_view_count(drawable);
     for (size_t v = 0; v < views; v++) {
         cp_view_t view = cp_drawable_get_view(drawable, v);
@@ -755,9 +909,16 @@ static void vosComposite(const XrFrameEndInfo *info)
         [enc setDepthStencilState:s_noDepth];
         [enc setFragmentSamplerState:s_sampler atIndex:0];
 
-        const VosViewInfo &vi = s_views[v < 2 ? v : 1];
-        const int eye = (views == 1) ? 0 : (int)(v < 2 ? v : 1);
+        // this drawable's view: its own transform and field of view (a
+        // second drawable, a capture's, has its own)
+        VosViewInfo vi;
+        vi.deviceFromView = cp_view_get_transform(view);
         const simd_float4x4 proj = cp_drawable_compute_projection(drawable, cp_axis_direction_convention_right_up_back, v);
+        vi.tanL = (proj.columns[2].x - 1.0f) / proj.columns[0].x;
+        vi.tanR = (proj.columns[2].x + 1.0f) / proj.columns[0].x;
+        vi.tanD = (proj.columns[2].y - 1.0f) / proj.columns[1].y;
+        vi.tanU = (proj.columns[2].y + 1.0f) / proj.columns[1].y;
+        const int eye = (views == 1) ? 0 : (int)(v < 2 ? v : 1);
         const simd_float4x4 viewFromWorld = simd_inverse(simd_mul(s_frameHead, vi.deviceFromView));
         for (const VosLayerDraw &d : draws) {
             if (d.projection) {
@@ -786,10 +947,17 @@ static void vosComposite(const XrFrameEndInfo *info)
         }
         [enc endEncoding];
     }
-    [cmd encodeSignalEvent:s_doneEvent value:s_frameNo];
     if (s_frameAnchor) cp_drawable_set_device_anchor(drawable, s_frameAnchor);
     cp_drawable_encode_present(drawable, cmd);
+    }
+    [cmd encodeSignalEvent:s_doneEvent value:s_frameNo];
     [cmd commit];
+    static bool saidDrawables;
+    if (!saidDrawables) {
+        saidDrawables = true;
+        vosLog("visionos: compositor: %zu drawable(s), %zu view(s) in the first, head anchor %s", drawableCount,
+               cp_drawable_get_view_count(s_drawable), s_frameAnchor ? "set" : "NOT set (no tracking yet)");
+    }
 }
 
 /* A frame with no drawable work of the game's: black, presented (the
@@ -810,6 +978,7 @@ extern "C" void vosKeepAlive(void)
         cp_frame_end_submission(s_frame);
         s_frame = nil;
         s_drawable = nil;
+        s_drawables = nil;
         s_frameAnchor = nil;
     }
     s_frameNo++;
@@ -818,6 +987,7 @@ extern "C" void vosKeepAlive(void)
         cp_frame_end_submission(s_frame);
         s_frame = nil;
         s_drawable = nil;
+        s_drawables = nil;
         s_frameAnchor = nil;
     } else {
         usleep(10000);
@@ -966,6 +1136,7 @@ static void vosProbeViews(void)
             cp_frame_end_submission(s_frame);
             s_frame = nil;
             s_drawable = nil;
+        s_drawables = nil;
             s_frameAnchor = nil;
         } else {
             usleep(5000);
@@ -1232,6 +1403,7 @@ XRAPI_ATTR XrResult XRAPI_CALL xrWaitFrame(XrSession, const XrFrameWaitInfo *, X
         cp_frame_end_submission(s_frame);
         s_frame = nil;
         s_drawable = nil;
+        s_drawables = nil;
         s_frameAnchor = nil;
     }
     s_frameNo++;
@@ -1266,6 +1438,7 @@ XRAPI_ATTR XrResult XRAPI_CALL xrEndFrame(XrSession, const XrFrameEndInfo *info)
     cp_frame_end_submission(s_frame);
     s_frame = nil;
     s_drawable = nil;
+    s_drawables = nil;
     s_frameAnchor = nil;
     static unsigned frames;
     if (++frames == 3 || frames % 900 == 0) {

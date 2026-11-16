@@ -46,6 +46,9 @@ int vosHeadAt(double seconds, simd_float4x4 *out);
 /* (vos_xr.mm) a compositor frame presented black, for a wait on the game's
  * thread (the file picker): the space must keep getting frames */
 void vosKeepAlive(void);
+/* (vos_xr.mm) a Sense controller's grip (origin from grip, as Touch's) at a
+ * display time: 1 tracked, 0 not */
+int vosAccessoryGrip(int hand, double seconds, simd_float4x4 *out);
 /* (vos_app.mm) the immersive space closed: save and quit */
 void vosSpaceClosed(void);
 /* seconds on CACurrentMediaTime's clock (the compositor's and ARKit's) */
