@@ -19290,6 +19290,23 @@ s32 gevrReloadBeltRound(s32 ctrl, s32 *rounds, s32 *hover)
     return gunHand;
 }
 
+/* gevr_bodyslots.c: the belt offers this controller ammo, a magazine or a
+ * single round, so the hip's holstered gun steps aside for it (it would
+ * stand in the same place). */
+s32 gevrReloadBeltOffers(s32 ctrl)
+{
+    s32 rounds, hover;
+    return gevrReloadBeltAmmo(ctrl) >= 0 || gevrReloadBeltRound(ctrl, &rounds, &hover) >= 0;
+}
+
+/* ... and the hand is there: a grip is the belt's, not a holster's. */
+s32 gevrReloadBeltAtHand(s32 ctrl)
+{
+    s32 rounds, hover = FALSE;
+    if (gevrReloadBeltHover(ctrl)) return TRUE;
+    return gevrReloadBeltRound(ctrl, &rounds, &hover) >= 0 && hover;
+}
+
 /* A gun hand squeezing at its own ammo replaces its missing magazine at
  * once. A free off hand instead takes the magazine to the well in Tick. */
 s32 gevrReloadGrabBelt(s32 ctrl)

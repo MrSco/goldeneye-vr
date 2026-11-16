@@ -41,7 +41,7 @@ static Gfx *gevrReloadBeltDraw(Gfx*g){return g;}
 static int gevrBodyShownItem(int s,int*by){*by=-1;return items[s];}
 static void gevrBodyToView(const float*p,float k,float*out){(void)k;for(int i=0;i<3;i++)out[i]=p[i];}
 static int gevrBodyInView(const float*p){(void)p;return visible;}
-static int gevrReloadBeltAmmo(int ctrl){return reload[ctrl];}
+static int gevrReloadBeltOffers(int ctrl){return reload[ctrl]>=0;}
 static unsigned gevrBodyCategoryTint(int cat){(void)cat;return 0x80402000;}
 static void gevrBodySlotRoot(int s,int item,Mtxf*m){(void)s;(void)item;(void)m;roots++;}
 static int gevrBodyItemPosed(int item){return item==40;}

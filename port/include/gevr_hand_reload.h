@@ -18,6 +18,9 @@ int gevrReloadBeltAmmo(int ctrl);
 int gevrReloadBeltHover(int ctrl);
 /* A single-round gun's (shotgun, launcher, Cougar, Golden Gun) at this belt: its gun, -1 none. */
 int gevrReloadBeltRound(int ctrl, int *rounds, int *hover);
+/* Either kind of ammo offered at this belt (the hip's holster hides), and the hand at it (the grip is the belt's). */
+int gevrReloadBeltOffers(int ctrl);
+int gevrReloadBeltAtHand(int ctrl);
 int gevrReloadGrabBelt(int ctrl);
 int gevrReloadBeltPoint(int ctrl, float out[3]);
 int gevrReloadSeatHover(float out[3]);
