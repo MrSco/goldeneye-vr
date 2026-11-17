@@ -128,9 +128,13 @@ typedef enum {
  * NET_DISCONNECT_CONTENT | part. Additive on protocol 25: an older joiner
  * sends no block and is let in, an older host reads past it.
  */
-#define NET_CONTENT_ROM 1u              /* the cartridge's bytes (gevr_romload.c) */
+#define NET_CONTENT_ROM 1u              /* the cartridge's bytes (gevr_romload.c): the hack's in a hack campaign */
+#define NET_CONTENT_CAMPAIGN 2u         /* the campaign + 1 (gevr_romlayout.h GEVR_CAMPAIGN_*): co-op in a hack */
 #define NET_CONTENT_MAX_PARTS 8
 #define NET_DISCONNECT_CONTENT 0x47454300u   /* | part */
+/* A joiner on another campaign: | the host's campaign. An older joiner sees an
+ * unknown reason; its ROM part differs as well, which older hosts refuse. */
+#define NET_DISCONNECT_CAMPAIGN 0x47454d00u
 
 /*
  * Who is joining (docs/mobile-platforms.md, "VR players only"): after the

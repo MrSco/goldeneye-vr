@@ -111,6 +111,10 @@ void sub_GAME_7F04088C(ObjectRecord *obj, coord3d *pos, Mtxf *m, StandTile *stan
 void setupUpdateObjectRoomPosition(ObjectRecord *obj) { (void)obj; }
 void monitorSetImageByNum(MonitorRecord *mon, s32 bank) { mon->offset = bank; monitor_calls++; }
 void fogSwitchToSolosky2(f32 fraction) { fog = fraction; }
+/* Mario Characters' changed AI commands (gevr_footsteps.c): off, as in GoldenEye */
+int gevrRomFootsteps(void) { return 0; }
+void gevrFootstepsSoundAt(s32 sound, struct coord3d *pos) { (void)sound;(void)pos; assert(0); }
+void gevrFootstepsSwapSkies(void) { assert(0); }
 void sub_GAME_7F03FDA8(PropRecord *p) { (void)p; }
 void projectileSetSticky(PropRecord *p) { (void)p; }
 void matrix_4x4_set_identity(Mtxf *m) { *m = identity; }
@@ -149,6 +153,7 @@ void ai(PropDefHeaderRecord *entity, PROP_TYPE type)
 {
     assert(type == PROP_TYPE_CHR);
     AIRecord *AiListp = ((ChrRecord *)entity)->ailist;
+    ChrRecord *ChrEntityp = (ChrRecord *)entity;
     s32 Offset = 0;
     gevrCoopScriptEffect(AiListp, Offset);
     switch (AiListp->cmd) {

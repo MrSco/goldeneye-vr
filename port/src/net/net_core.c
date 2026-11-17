@@ -31,6 +31,7 @@
 #include "music.h"   /* g_musicSfxBufferPtr: the hit heard at a copy (netApplyDamage) */
 #include "snd.h"
 #include "system.h"
+#include "gevr_romlayout.h"   /* the campaign: the content check and co-op in a hack (gevrCampaignCoop) */
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -1118,19 +1119,36 @@ const char *netGetSlotAppVersion(int slot) {
 /* The content check (net_protocol.h NET_CONTENT_*): this machine's parts. */
 static uint64_t netContentPart(uint32_t part) {
     extern u64 gevrRomContentHash(void);   /* gevr_romload.c */
+    if (part == NET_CONTENT_CAMPAIGN) return (uint64_t)gevrRomPlayCampaign() + 1u;
     return part == NET_CONTENT_ROM ? gevrRomContentHash() : 0;
 }
 
+/* gevr_romlayout.h GEVR_CAMPAIGN_*, as the launcher names them */
+static const char *netCampaignName(int campaign) {
+    static const char *const names[] = { "GoldenEye", "Goldfinger 64", "Tomorrow Never Dies 64", "Mirror Mode",
+                                         "Mario Characters" };
+    typedef char namesForEveryCampaign[sizeof(names) / sizeof(names[0]) == GEVR_CAMPAIGN_COUNT ? 1 : -1];
+    (void)sizeof(namesForEveryCampaign);
+    return campaign >= 0 && campaign < GEVR_CAMPAIGN_COUNT ? names[campaign] : "another campaign";
+}
+
 static const char *netContentPartName(uint32_t part) {
-    return part == NET_CONTENT_ROM ? "GoldenEye ROM" : "game content";
+    static char rom[48];
+    if (part == NET_CONTENT_CAMPAIGN) return "campaign";
+    if (part != NET_CONTENT_ROM) return "game content";
+    snprintf(rom, sizeof(rom), "%s ROM", netCampaignName(gevrRomPlayCampaign()));
+    return rom;
 }
 
 static void netContentWrite(struct netbuf *buf) {
-    const uint64_t rom = netContentPart(NET_CONTENT_ROM);
-    netbufWriteU8(buf, 1);
-    netbufWriteU8(buf, NET_CONTENT_ROM);
-    netbufWriteU32(buf, (uint32_t)rom);
-    netbufWriteU32(buf, (uint32_t)(rom >> 32));
+    static const uint32_t parts[] = { NET_CONTENT_ROM, NET_CONTENT_CAMPAIGN };
+    netbufWriteU8(buf, (uint8_t)(sizeof(parts) / sizeof(parts[0])));
+    for (size_t i = 0; i < sizeof(parts) / sizeof(parts[0]); i++) {
+        const uint64_t v = netContentPart(parts[i]);
+        netbufWriteU8(buf, (uint8_t)parts[i]);
+        netbufWriteU32(buf, (uint32_t)v);
+        netbufWriteU32(buf, (uint32_t)(v >> 32));
+    }
 }
 
 /* How this player plays (net_protocol.h NET_INPUT_*), for "VR players only". */
@@ -1189,20 +1207,26 @@ static const char *netInputClassName(uint8_t c) {
          : c == NET_INPUT_TOUCH ? "touch" : "unknown";
 }
 
-/* A joiner's parts against this host's: the first that differs, or 0. A part
+/* A joiner's parts against this host's: the campaign if it differs (its
+ * refusal names the host's), else the first part that differs, or 0. A part
  * either side does not know (0: an older build, nothing loaded) is not held
- * against it. */
+ * against it; an older joiner's ROM part still differs from a hack's. */
 static uint32_t netContentDiffers(struct netbuf *buf) {
     if (netbufReadLeft(buf) < 1) return 0;
     int n = netbufReadU8(buf);
-    for (int i = 0; i < n && i < NET_CONTENT_MAX_PARTS && netbufReadLeft(buf) >= 9; i++) {
+    uint32_t first = 0;
+    for (int i = 0; i < n && netbufReadLeft(buf) >= 9; i++) {
         const uint32_t part = netbufReadU8(buf);
         uint64_t theirs = netbufReadU32(buf);
         theirs |= (uint64_t)netbufReadU32(buf) << 32;
+        if (i >= NET_CONTENT_MAX_PARTS) continue;
         const uint64_t ours = netContentPart(part);
-        if (!buf->error && part && theirs && ours && theirs != ours) return part;
+        if (!buf->error && part && theirs && ours && theirs != ours) {
+            if (part == NET_CONTENT_CAMPAIGN) return part;
+            if (!first) first = part;
+        }
     }
-    return 0;
+    return first;
 }
 
 /* A join this host refused for its content: the launcher shows why. */
@@ -1212,6 +1236,9 @@ static bool netClientContentRefused(ENetPeer *peer, uint32_t reason) {
     if (!peer || netIsHost() || peer != s_server_peer) return false;
     if (reason == NET_DISCONNECT_VR_ONLY) {
         snprintf(s_join_refusal, sizeof(s_join_refusal), "Cannot join: this game is for VR players only.");
+    } else if ((reason & 0xFFFFFF00u) == NET_DISCONNECT_CAMPAIGN) {
+        snprintf(s_join_refusal, sizeof(s_join_refusal), "Cannot join: this party plays %s. Choose it beside START.",
+                 netCampaignName((int)(reason & 0xFFu)));
     } else if ((reason & 0xFFFFFF00u) == NET_DISCONNECT_CONTENT) {
         snprintf(s_join_refusal, sizeof(s_join_refusal),
                  "Cannot join: this game's %s is not the same as yours.", netContentPartName(reason & 0xFFu));
@@ -3386,7 +3413,8 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             const uint32_t differs = netContentDiffers(&buf);
             if (differs) {
                 NET_ERR("Turning %s away: its %s differs from this host's", clean, netContentPartName(differs));
-                enet_peer_disconnect(peer, NET_DISCONNECT_CONTENT | differs);
+                enet_peer_disconnect(peer, differs == NET_CONTENT_CAMPAIGN
+                    ? NET_DISCONNECT_CAMPAIGN | (uint32_t)gevrRomPlayCampaign() : NET_DISCONNECT_CONTENT | differs);
                 break;
             }
             uint8_t joiner_input;

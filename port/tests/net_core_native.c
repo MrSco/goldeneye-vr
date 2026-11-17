@@ -60,6 +60,8 @@ void sysLogPrintf(s32 level,const char *fmt,...) { (void)level;(void)fmt; }
 u64 sysGetMicroseconds(void) { return clock_us; }
 static u64 fixture_rom_hash = 0x1122334455667788ull;
 u64 gevrRomContentHash(void) { return fixture_rom_hash; }
+static int fixture_campaign;   /* GEVR_CAMPAIGN_GE */
+int gevrRomPlayCampaign(void) { return fixture_campaign; }
 void vrSettingsSave(void) {}
 void netVoiceForgetSlot(uint8_t slot) { (void)slot;voice_resets++; }
 void netCoopHostLost(int oldhost,int elected) { (void)oldhost;(void)elected; }
@@ -561,12 +563,13 @@ EXPORT int test_core_connected_roster(void) {
 /* A dedicated server (port/server): its seat is no player, and the warmup
  * clock running out starts a round only with a person in it, never bots alone. */
 /* The content check: a joiner whose ROM differs is named and turned away; an
- * older joiner (no block) or an unknown part (0) is let in. */
+ * older joiner (no block) or an unknown part (0) is let in. A joiner on another
+ * campaign is told the host's, even when its ROM differs too (it always does). */
 EXPORT int test_core_content_check(void) {
     u8 raw[32];
     struct netbuf w = { .data = raw, .size = sizeof(raw) }, r;
     netbufStartWrite(&w);netContentWrite(&w);
-    CHECK(!w.error && w.wp == 10);
+    CHECK(!w.error && w.wp == 19);
     netbufStartReadData(&r, raw, w.wp);CHECK(netContentDiffers(&r) == 0);
     fixture_rom_hash ^= 1;
     netbufStartReadData(&r, raw, w.wp);CHECK(netContentDiffers(&r) == NET_CONTENT_ROM);
@@ -585,6 +588,31 @@ EXPORT int test_core_content_check(void) {
     CHECK(s_state == NET_STATE_OFFLINE && !s_server_peer);
     const char *why = netTakeJoinRefusal();
     CHECK(why && strstr(why, "ROM") && !netTakeJoinRefusal());
+    /* a GoldenEye joiner (this block) at a Goldfinger 64 host: the campaign, named */
+    fixture_campaign = 1;fixture_rom_hash ^= 2;
+    netbufStartReadData(&r, raw, w.wp);CHECK(netContentDiffers(&r) == NET_CONTENT_CAMPAIGN);
+    fixture_rom_hash ^= 2;
+    netbufStartReadData(&r, raw, w.wp);CHECK(netContentDiffers(&r) == NET_CONTENT_CAMPAIGN);
+    /* the same campaign with another dump of it: its ROM, named by the campaign */
+    netbufStartWrite(&w);netContentWrite(&w);fixture_rom_hash ^= 4;
+    netbufStartReadData(&r, raw, w.wp);CHECK(netContentDiffers(&r) == NET_CONTENT_ROM);
+    CHECK(strstr(netContentPartName(NET_CONTENT_ROM), "Goldfinger 64 ROM") != NULL);
+    fixture_rom_hash ^= 4;
+    netbufStartReadData(&r, raw, w.wp);CHECK(netContentDiffers(&r) == 0);
+    /* an older joiner sends only its ROM part, which is GoldenEye's: refused by the ROM */
+    {
+        u8 old[10];
+        struct netbuf o = { .data = old, .size = sizeof(old) };
+        netbufStartWrite(&o);netbufWriteU8(&o, 1);netbufWriteU8(&o, NET_CONTENT_ROM);
+        netbufWriteU32(&o, 0x55667788u);netbufWriteU32(&o, 0x11223344u);
+        fixture_rom_hash = 0x99ull;
+        netbufStartReadData(&r, old, o.wp);CHECK(netContentDiffers(&r) == NET_CONTENT_ROM);
+    }
+    fixture_rom_hash = 0x1122334455667788ull;fixture_campaign = 0;
+    fixture(0);s_local_slot = 2;s_host_slot = 0;s_state = NET_STATE_CONNECTING;s_server_peer = &hit_peers[0];
+    CHECK(netClientContentRefused(&hit_peers[0], NET_DISCONNECT_CAMPAIGN | 2u));
+    why = netTakeJoinRefusal();
+    CHECK(why && strstr(why, "Tomorrow Never Dies 64") && strstr(why, "START"));
     return 0;
 }
 /* Who plays flat: the host's count for the lobby list and the LAN beacon,
