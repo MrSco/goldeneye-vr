@@ -59,6 +59,10 @@ s32 ob_c_debug_notice_list_entry = 0;
 
 //D:800482D4
 s32 file_entry_max = OBJ_INDEX_END;
+#ifdef GEVR
+/* how far a hack campaign's longer file table may widen file_entry_max (gevr_romcampaign.c) */
+const s32 gevrFileSlots = OBJ_INDEX_MAX;
+#endif
 
 
 
@@ -131,7 +135,8 @@ void load_resource(u8 *ptrdata, s32 bytes,  fileentry *srcfile,  resource_lookup
                 lookupdata->poolRemaining = converted;
             }
         }
-        else if (srcfile->filename != NULL && strncmp(srcfile->filename, "Tbg_", 4) == 0)
+        /* a stage's collision: GoldenEye's Tbg_<stage>_all_p_stanZ, Mario Characters' Tbg<stage>Z */
+        else if (srcfile->filename != NULL && strncmp(srcfile->filename, "Tbg", 3) == 0)
         {
             size_t converted = gevrConvertStan(ptrdata, lookupdata->poolRemaining, bytes);
             if (!converted) sysFatalError("stage: collision conversion failed for %s", srcfile->filename);

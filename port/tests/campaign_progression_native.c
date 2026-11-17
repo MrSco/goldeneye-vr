@@ -41,7 +41,7 @@ static void completed_through(int last, int difficulty)
 static void unlocks(void)
 {
     /* Check both original 20-mission layouts as well as TND's 14-mission layout. */
-    const int campaigns[] = {GEVR_CAMPAIGN_GE, GEVR_CAMPAIGN_GF64, GEVR_CAMPAIGN_TND64, GEVR_CAMPAIGN_MIRROR};
+    const int campaigns[] = {GEVR_CAMPAIGN_GE, GEVR_CAMPAIGN_GF64, GEVR_CAMPAIGN_TND64, GEVR_CAMPAIGN_MIRROR, GEVR_CAMPAIGN_MARIO};
     for (int c = 0; c < (int)(sizeof(campaigns) / sizeof(campaigns[0])); c++)
     {
         int first_bonus = c == 2 ? 11 : 18;
@@ -92,7 +92,7 @@ static void unlocks(void)
 }
 static void ending(void)
 {
-    const int campaigns[] = {GEVR_CAMPAIGN_GE, GEVR_CAMPAIGN_GF64, GEVR_CAMPAIGN_TND64, GEVR_CAMPAIGN_MIRROR};
+    const int campaigns[] = {GEVR_CAMPAIGN_GE, GEVR_CAMPAIGN_GF64, GEVR_CAMPAIGN_TND64, GEVR_CAMPAIGN_MIRROR, GEVR_CAMPAIGN_MARIO};
     for (int c = 0; c < (int)(sizeof(campaigns) / sizeof(campaigns[0])); c++)
     {
         int final = c == 2 ? 9 : 17, advance_limit = c == 2 ? 13 : 18;

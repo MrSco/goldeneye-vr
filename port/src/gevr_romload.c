@@ -219,6 +219,10 @@ static const char *const gevrMirrorNames[] = {
 	GEVR_ROM_MIRROR_FILE,
 	"data/" GEVR_ROM_MIRROR_FILE,
 };
+static const char *const gevrMarioNames[] = {
+	GEVR_ROM_MARIO_FILE,
+	"data/" GEVR_ROM_MARIO_FILE,
+};
 
 static void *gevrLoadNamed(const char *const *names, u32 count, u32 *size)
 {
@@ -262,6 +266,10 @@ s32 romdataInit(void)
 		case GEVR_CAMPAIGN_TND64:
 			names = gevrTndNames;
 			nameCount = sizeof(gevrTndNames) / sizeof(gevrTndNames[0]);
+			break;
+		case GEVR_CAMPAIGN_MARIO:
+			names = gevrMarioNames;
+			nameCount = sizeof(gevrMarioNames) / sizeof(gevrMarioNames[0]);
 			break;
 		default: /* GEVR_CAMPAIGN_MIRROR */
 			names = gevrMirrorNames;

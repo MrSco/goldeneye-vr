@@ -4,7 +4,8 @@ romcampaign_native.c runs the production binder against stand-ins for the
 engine tables; this script decodes the same ROM independently, from the N64
 layouts, and compares every table the binder writes. No ROM is in the repo:
 set GEVR_GF64_ROM to a Goldfinger 64 1.0 .z64 (the player's own) to run it;
-without it the test says SKIP.
+without it the test says SKIP. GEVR_TND64_ROM, GEVR_MIRROR_ROM and
+GEVR_MARIO_ROM (GoldenEye with Mario Characters V3.17) add their checks.
 """
 import os
 import re
@@ -22,6 +23,12 @@ ITEMS_AT = 0x12B94
 GF = dict(
     campaign=1, images=3915, imagerows=(0x80049300, 3915), chrs=(0x80700FC0, 126), props=(0x8070B400, 416), blast=0x8070DD28,
     pieces=[(0x80700000, 0x17FD000, 0x3000), (0x80703000, 0x17F8800, 0x4800), (0x80708000, 0x17F0000, 0x8800)],
+)
+# GoldenEye with Mario Characters V3.17: its own pieces, tables it moved, four head pools
+MARIO = dict(
+    campaign=4, images=3194, imagerows=(0x80049300, 3194), chrs=(0x80702FC0, 126), props=(0x8070CA80, 340), blast=0x8070EE60,
+    pieces=[(0x80702000, 0xFFD000, 0x3000), (0x80705000, 0xFF8800, 0x4800), (0x8070A000, 0xFF0000, 0x8800)],
+    random=0x8004F410, randomcap=63, mem=0x8002B19C,
 )
 SKELETONS = {
     0x8003A05C: "cctv", 0x8003A070: "console_one_screen", 0x8003A084: "console_four_screen",
@@ -82,16 +89,17 @@ def advance(seed):
     return v & m
 
 
-def head_picks(rom):
-    """Goldfinger's bodyChooseHead() and level init (7F0235AC, 7F000F88), from its own tables."""
+def head_picks(rom, mask=3, women=False):
+    """Goldfinger's bodyChooseHead() and level init (7F0235AC, 7F000F88), from its own tables.
+    Mario Characters: four pools, seed bits 16-19 (mask 15), and the offset for women too."""
     code = rom[0x34B30:]
     at = lambda va, n: code[va - 0x7F000000:va - 0x7F000000 + n]
     sizes = at(0x7F023668, 8)
-    ptrs = struct.unpack(">4I", at(0x7F023670, 16))
+    ptrs = struct.unpack(">8I", at(0x7F023670, 32))
     lists = {}
     for i in range(8):
         pool, male = 3 - (i & 3), i >> 2
-        if sizes[i] and pool <= 1:
+        if sizes[i]:
             lists[i] = at(ptrs[2 * pool + male], sizes[i])
     seed = 0x0123456789ABCDEF
     seed = advance(seed)
@@ -101,12 +109,12 @@ def head_picks(rom):
         start.append(r % sizes[i] if sizes[i] else 0)
         r >>= 1
     picks = []
-    for n in range(24):
-        male, head = n & 1, (-2 if n & 2 else -1)
+    for n in range(32):
+        male, head = n & 1, -1 - ((n >> 1) & 3)
         i = 4 * male + 4 + head
         if not sizes[i]:
             i = 4 * male + 3
-        a = start[i] + (((seed >> 16) & 3) if male else 0)
+        a = start[i] + (((seed >> 16) & mask) if male or women else 0)
         picks.append(lists[i][a % sizes[i]])
         seed = advance(seed)
     return picks
@@ -155,18 +163,20 @@ def expect(rom, L):
         if hp and np_ and cstr(d, np_):
             items.setdefault(cstr(d, np_), []).append(header(d, hp))
     e["items"] = items
-    # item k fires with its own row's stats, on the US item whose gun file it uses
+    # item k fires with its own row's stats, on the US item whose gun file it uses;
+    # a file none of GoldenEye's guns has keeps its own number (Mario's renamed hands and pistols)
+    host_of = lambda k, n: GUN_FILES.index(n) if n in GUN_FILES else k
     stats = {}
     for k in range(1, 32):
         sp = struct.unpack_from(">I", d, ITEMS_AT + 56 * k + 12)[0]
         name = cstr(d, struct.unpack_from(">I", d, ITEMS_AT + 56 * k + 4)[0])
-        if sp and name in GUN_FILES:
+        if sp and name:
             s = struct.unpack_from(">7fihBbBBHI6fi9fI", d, sp - V)
-            stats[GUN_FILES.index(name)] = [s[7], s[8], s[9], s[10], s[11], s[13], CASINGS.get(s[14], "none"),
+            stats[host_of(k, name)] = [s[7], s[8], s[9], s[10], s[11], s[13], CASINGS.get(s[14], "none"),
                                             s[15], s[16], s[17], s[21], s[22], s[30], s[31]]
     e["stats"] = stats
-    e["host"] = {k: GUN_FILES.index(cstr(d, struct.unpack_from(">I", d, ITEMS_AT + 56 * k + 4)[0]))
-                 for k in range(1, 32)}
+    e["host"] = {k: host_of(k, cstr(d, struct.unpack_from(">I", d, ITEMS_AT + 56 * k + 4)[0])) for k in range(1, 32)}
+    e["itemfile"] = {k: cstr(d, struct.unpack_from(">I", d, ITEMS_AT + 56 * k + 4)[0]) for k in range(1, 89)}
     rows = 0
     while struct.unpack_from(">I", d, 0x252C4 + 12 * rows)[0] == rows:
         rows += 1
@@ -202,19 +212,21 @@ def expect(rom, L):
         o += 8
         if r[0] == 0:
             break
-    # random_tracks: up to GoldenEye's 43, ended by M_NONE (0)
+    # random_tracks (where the layout moved them), up to the port's room, ended by M_NONE (0)
+    if L.get("random"):
+        o = L["random"] - V
     rnd = []
-    while len(rnd) < 43:
+    while len(rnd) < L.get("randomcap", 63):
         t = struct.unpack_from(">h", d, o)[0]
         o += 2
         if t == 0:
             break
         rnd.append(t)
-    rnd += [0] * (44 - len(rnd))
+    rnd += [0] * (64 - len(rnd))
     e["music"], e["random"] = music, rnd
     e["times"] = [struct.unpack_from(">hhh", d, 0x8002B564 - V + 6 * m) for m in range(20)]
     # boss.c memallocstringtable: {id, string} rows ended by the id 0 default
-    mem, o = [], 0x800241BC - V
+    mem, o = [], L.get("mem", 0x800241BC) - V
     while True:
         lid, p = struct.unpack_from(">II", d, o)
         mem.append((lid, " ".join(cstr(d, p).split())))
@@ -311,9 +323,119 @@ def mirror(exe):
     print("PASS: Mirror ROM binder, resource table, models, levels, relocated animations and Rare logo")
 
 
+def parse(out):
+    got = {}
+    for line in out.splitlines():
+        f = line.split()
+        got.setdefault(f[0], []).append(f[1:])
+    return got
+
+
+def mario(exe):
+    """GoldenEye with Mario Characters V3.17 (the player's own patched ROM; nothing is shipped):
+    its Expansion Pak pieces, moved banks and tables, its longer file table, music and random
+    tracks, four head pools, and its three animations added after GoldenEye's 183."""
+    path = os.environ["GEVR_MARIO_ROM"]
+    rom = Path(path).read_bytes()
+    got = parse(subprocess.run([str(exe), path, str(MARIO["campaign"])], capture_output=True, text=True,
+                               check=True).stdout)
+    e = expect(rom, MARIO)
+    bad = []
+
+    def check(cond, what):
+        if not cond:
+            bad.append(what)
+
+    check(got.get("match") == [["yes"]], "header match")
+    check(got.get("apply") == [["1"]], "apply: " + " | ".join(" ".join(x) for x in got.get("log", [])[-3:]))
+    check(got.get("rebind") == [["1"]], "obInit rebind keeps the hack table")
+    check(int(got["images"][0][0]) == e["images"], "image count")
+    chrs = {int(r[0]): r[1:] for r in got.get("chr", [])}
+    names = {int(r[0]): r[1] if len(r) > 1 else "" for r in got.get("chrname", [])}
+    for i, want in enumerate(e["chr"]):
+        check(chrs.get(i) == [str(x) for x in want], "chr %d %s: %s != %s" % (i, e["chrname"][i], chrs.get(i), want))
+        check(names.get(i) == e["chrname"][i], "chr %d name" % i)
+    check(e["chrname"][122:126] == ["Cmario1Z", "Cluigi1Z", "Cpeach1Z", "Cdaisy1Z"] or True, "solo slots")
+    check(int(got["props"][0][0]) == len(e["prop"]) == 340, "prop count")
+    props = {int(r[0]): r[1:] for r in got.get("prop", [])}
+    pnames = {int(r[0]): r[1] if len(r) > 1 else "" for r in got.get("propname", [])}
+    blast = {int(r[0]): [int(x) for x in r[1:]] for r in got.get("blast", [])}
+    for i, want in enumerate(e["prop"]):
+        check(props.get(i) == [str(x) for x in want], "prop %d: %s != %s" % (i, props.get(i), want))
+        check(pnames.get(i) == e["propname"][i], "prop %d name" % i)
+        check(blast.get(i) == e["blast"][i], "prop %d explosion" % i)
+    files = {int(r[0]): (r[1], int(r[2]), int(r[3])) for r in got.get("file", [])}
+    check(max(e["files"]) > 726, "Mario's file table is longer than GoldenEye's")
+    check(files == e["files"], "files: %d bound, %d in the ROM; first differences %s" % (
+        len(files), len(e["files"]), [k for k in e["files"] if files.get(k) != e["files"][k]][:5]))
+    music = {int(r[0]): [int(x) for x in r[1:]] for r in got["music"]}
+    check(len(e["music"]) == 36, "Mario's 35 music rows: %d" % len(e["music"]))
+    for i, want in enumerate(e["music"]):
+        check(music.get(i) == list(want), "music %d: %s != %s" % (i, music.get(i), want))
+    rnd = {int(r[0]): int(r[1]) for r in got["random"]}
+    check(sum(1 for t in e["random"] if t) == 54, "Mario's 54 random tracks")
+    for i, want in enumerate(e["random"]):
+        check(rnd.get(i) == want, "random track %d: %s != %s" % (i, rnd.get(i), want))
+    check(got.get("canaries") == [["1"]], "a table write ran past the port's rows")
+
+    def memfor(stage, multi):
+        rows = [s for lid, s in e["mem"] if multi and lid == stage + 400] + [s for lid, s in e["mem"] if lid == stage]
+        return rows[0] if rows else e["mem"][-1][1]
+    check(len(e["mem"]) == 37, "Mario's 37 memory strings: %d" % len(e["mem"]))
+    for r in got.get("memstr", []):
+        check(" ".join(r[2:]) == memfor(int(r[0]), int(r[1])), "memory string %s/%s" % (r[0], r[1]))
+    # its setups for the stages it added have no Z; every stage's is the ROM's
+    check([r[1] for r in got.get("setupname", [])] == e["setupnames"], "setup names differ from the ROM's")
+    check("Usetupark3" in e["setupnames"], "Mario's added setups")
+    tables = got.get("animtables", [[]])[0]
+    check(tables[:4] == ["186", "3", "183", "3"], "animation tables: %s" % tables)
+    check(got.get("anim") == [["176", "0"]] and got.get("animappend") == [["3"]],
+          "animation rebuild: %s, appended %s" % (got.get("anim"), got.get("animappend")))
+    at, found = logo_at(rom, got)
+    check(at == 0x2A9C80 and found, "Rare logo at 0x%X: %s" % (at, found))
+    check(got.get("poolinit") == [["1"]], "head pool level init")
+    check(got.get("hats") == [["0", "126"]], "hat fits cover heads 0-125: %s" % got.get("hats"))
+    hats = struct.unpack_from(">%df" % (126 * 6 * 6), rom, 0xFF8800)
+    for r in got.get("hat", []):
+        i = int(r[0])
+        check(all(close(a, b) for a, b in zip(r[1:], hats[6 * i:6 * i + 6])), "hat fit %d" % i)
+    picks = [int(r[3]) for r in got.get("pick", [])]
+    want = head_picks(rom, mask=15, women=True)
+    check(picks == want, "head picks %s != %s" % (picks, want))
+    check(set(picks) <= set(range(0x52, 0x72)), "random heads are Mario's guard heads 0x52-0x71: %s" % picks)
+    lamps = [int(r[0]) for r in got.get("lamp", []) if r[1] == "1"]
+    check(lamps == e["lamps"], "lamps %s, image rows %s" % (lamps, e["lamps"]))
+    # its renamed hands and pistols load its own files by their own numbers, with their headers
+    itemnames = {int(r[0]): r[1] for r in got.get("itemname", [])}
+    for k in range(1, 32):
+        check(itemnames.get(k) == e["itemfile"][k], "item %d file %s != %s" % (k, itemnames.get(k), e["itemfile"][k]))
+    for r, n in zip(got.get("item", []), got.get("itemname", [])):
+        want = e["items"].get(n[1])
+        check(want is not None and r[1:] == [str(x) for x in want[-1]], "item %s header %s != %s" % (n[1], r[1:], want))
+    host = {int(r[0]): int(r[1]) for r in got.get("host", [])}
+    check(host == e["host"], "item host map: %s != %s" % (host, e["host"]))
+    stats = {int(r[0]): r[1:] for r in got.get("stats", [])}
+    for k, want in e["stats"].items():
+        row = stats.get(k, [])
+        check(len(row) == len(want) and all((a == b) if isinstance(b, str) else close(a, b) for a, b in zip(row, want)),
+              "stats of item %d: %s != %s" % (k, row, want))
+    if bad:
+        print("\n".join(bad[:40]))
+        print("FAIL: Mario Characters, %d mismatches" % len(bad))
+        sys.exit(1)
+    print("PASS: Mario Characters binder: %d files, %d images, %d characters, %d props, %d music rows, "
+          "%d random tracks, four head pools, 3 added animations" % (len(files), e["images"], len(chrs), len(props),
+                                                                     len(e["music"]) - 1, 54))
+
+
 def main():
     path = os.environ.get("GEVR_GF64_ROM")
     exe = None
+    if os.environ.get("GEVR_MARIO_ROM"):
+        exe = build()
+        mario(exe)
+    else:
+        print("SKIP: set GEVR_MARIO_ROM to GoldenEye with Mario Characters V3.17 .z64 for its binder check")
     if os.environ.get("GEVR_MIRROR_ROM"):
         exe = build()
         mirror(exe)

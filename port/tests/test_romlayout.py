@@ -107,9 +107,20 @@ def test_headers(lib):
     assert tag_of(lib, lib.gevrRomActiveLayout()) == "mirror"
     assert lib.gevrRomMissionLimit() == 20
     assert lib.gevrRomCreditsAfter() == lib.gevrRomAdvanceBelow() == 0
-    for invalid in (-1, 4, 99):
+    for invalid in (-1, 5, 99):
         lib.gevrRomCampaignSet(invalid)
         assert lib.gevrRomCampaign() == 0
+
+    # GoldenEye with Mario Characters V3.17: same title, code and size as TND, its own CRC
+    mario, mario_size = header(b"GOLDENEYE", b"NGEE",
+                               [0x59, 0xbe, 0x5a, 0x72, 0xbc, 0x7e, 0x5c, 0x17], 0x1000000)
+    assert tag_of(lib, lib.gevrRomLayoutMatchHeader(mario, mario_size)) == "mario"
+    assert not lib.gevrRomLayoutMatchHeader(mario, 0xC00000)
+    lib.gevrRomCampaignSet(4)
+    assert lib.gevrRomCampaign() == 4 and lib.gevrRomIsVariant() == 1
+    assert tag_of(lib, lib.gevrRomActiveLayout()) == "mario"
+    assert lib.gevrRomMissionLimit() == 20
+    lib.gevrRomCampaignSet(0)
 
     gf, gf_size = header(b"GOLDFINGER", b"NGFE",
                          [0xb2, 0x24, 0x27, 0x48, 0xff, 0xbd, 0x61, 0xda], 0x1800000)

@@ -198,7 +198,8 @@ bool pcOpenPicker(const char *method)
                      : !strcmp(method, "openGexPicker") ? "picked-gex.z64"
                      : !strcmp(method, "openGoldfingerPicker") ? "picked-goldfinger.z64"
                      : !strcmp(method, "openTndPicker") ? "picked-tnd.z64"
-                     : !strcmp(method, "openMirrorPicker") ? "picked-mirror.z64" : nullptr;
+                     : !strcmp(method, "openMirrorPicker") ? "picked-mirror.z64"
+                     : !strcmp(method, "openMarioPicker") ? "picked-mario.z64" : nullptr;
     if (!dest) return false;
 #ifdef _WIN32
     std::wstring file;

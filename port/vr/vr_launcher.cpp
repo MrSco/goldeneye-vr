@@ -401,7 +401,8 @@ static bool gevrKleptonPick(const char *method)
                     : !strcmp(method, "openGexPicker") ? "picked-gex.z64"
                     : !strcmp(method, "openGoldfingerPicker") ? "picked-goldfinger.z64"
                     : !strcmp(method, "openTndPicker") ? "picked-tnd.z64"
-                    : !strcmp(method, "openMirrorPicker") ? "picked-mirror.z64" : nullptr;
+                    : !strcmp(method, "openMirrorPicker") ? "picked-mirror.z64"
+                    : !strcmp(method, "openMarioPicker") ? "picked-mario.z64" : nullptr;
     const char *files = SDL_AndroidGetExternalStoragePath();
     std::string dest, title, extensions;
     if (rom) {
@@ -409,7 +410,8 @@ static bool gevrKleptonPick(const char *method)
         title = !strcmp(method, "openGexPicker") ? "Choose your GoldenEye X ROM"
               : !strcmp(method, "openGoldfingerPicker") ? "Choose your Goldfinger 64 ROM"
               : !strcmp(method, "openTndPicker") ? "Choose your Tomorrow Never Dies 64 ROM"
-              : !strcmp(method, "openMirrorPicker") ? "Choose your Mirror ROM" : "Choose your GoldenEye 007 ROM";
+              : !strcmp(method, "openMirrorPicker") ? "Choose your Mirror ROM"
+              : !strcmp(method, "openMarioPicker") ? "Choose your Mario Characters ROM" : "Choose your GoldenEye 007 ROM";
         extensions = "z64,v64,n64";
     } else if (!strcmp(method, "openXblaPicker") && files) {
         dest = std::string(files) + "/.import-xbla";
@@ -1070,13 +1072,16 @@ enum {
     GEVR_START_ROW_PICK_GF,
     GEVR_START_ROW_PICK_TND,
     GEVR_START_ROW_PICK_MIRROR,
+    GEVR_START_ROW_PICK_MARIO,
 };
 
-static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool mirrorGood, bool ready, bool focus,
-                                const char *startLabel = "START")
+static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool mirrorGood, bool marioGood, bool ready,
+                                bool focus, const char *startLabel = "START")
 {
-    static const char *const names[] = { "GoldenEye", "Goldfinger 64", "Tomorrow Never Dies", "Mirror Mode (Wreck)" };
-    const bool installed[] = { true, gfGood, tndGood, mirrorGood };
+    static const char *const names[] = { "GoldenEye", "Goldfinger 64", "Tomorrow Never Dies", "Mirror Mode (Wreck)",
+                                         "Mario Characters" };
+    const bool installed[] = { true, gfGood, tndGood, mirrorGood, marioGood };
+    static_assert(sizeof(names) / sizeof(names[0]) == GEVR_CAMPAIGN_COUNT, "a name for every campaign");
     const float startH = ImGui::GetFrameHeight() * 1.6f;
     const float rowY = ImGui::GetCursorPosY();
     int action = GEVR_START_ROW_NONE;
@@ -1100,10 +1105,11 @@ static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool m
         if (ImGui::Selectable("Add Goldfinger 64 ROM...")) action = GEVR_START_ROW_PICK_GF;
         if (ImGui::Selectable("Add Tomorrow Never Dies ROM...")) action = GEVR_START_ROW_PICK_TND;
         if (ImGui::Selectable("Add Mirror Mode ROM...")) action = GEVR_START_ROW_PICK_MIRROR;
+        if (ImGui::Selectable("Add Mario Characters ROM...")) action = GEVR_START_ROW_PICK_MARIO;
         ImGui::EndCombo();
     }
     if (ImGui::IsItemHovered())
-        gevrTooltip("Choose GoldenEye, Goldfinger 64, Tomorrow Never Dies or Wreck's Mirror Mode. Add a patched ROM with this menu.");
+        gevrTooltip("Choose GoldenEye, Goldfinger 64, Tomorrow Never Dies, Wreck's Mirror Mode or Mario Characters. Add a patched ROM with this menu.");
     ImGui::SameLine();
     ImGui::SetCursorPosY(rowY);
     ImGui::BeginDisabled(!ready);
@@ -3198,10 +3204,10 @@ extern "C" void gevrLauncherRun(void)
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    std::string active, message, gfNote, tndNote, mirrorNote, campaignFail;
+    std::string active, message, gfNote, tndNote, mirrorNote, marioNote, campaignFail;
     std::string footerNote;    // the line under START (gevrLauncherStartRow), this frame
     bool footerBad = false;
-    bool gfGood = false, tndGood = false, mirrorGood = false;   // the hack ROMs' header checks, refreshed about once a second
+    bool gfGood = false, tndGood = false, mirrorGood = false, marioGood = false;   // the hack ROMs' header checks, refreshed about once a second
     Uint32 hackCheckMs = 0;
     {
         // gevr_romload.c leaves this when a chosen campaign did not load
@@ -3578,7 +3584,16 @@ extern "C" void gevrLauncherRun(void)
                     gevrRomCampaignSet(VrCampaign);
                     vrSettingsSave();
                 }
+                if (adoptHackFile("picked-mario.z64", GEVR_ROM_MARIO_FILE, "mario",
+                                  "Mario Characters ROM chosen.",
+                                  "That is not GoldenEye with Mario Characters V3.17.",
+                                  marioNote)) {
+                    VrCampaign = GEVR_CAMPAIGN_MARIO;
+                    gevrRomCampaignSet(VrCampaign);
+                    vrSettingsSave();
+                }
                 mirrorGood = hackHeaderOk(dataDir() + "/" + GEVR_ROM_MIRROR_FILE, "mirror");
+                marioGood = hackHeaderOk(dataDir() + "/" + GEVR_ROM_MARIO_FILE, "mario");
                 gfGood = hackHeaderOk(dataDir() + "/" + GEVR_ROM_GF_FILE, "gf64");
                 tndGood = hackHeaderOk(dataDir() + "/" + GEVR_ROM_TND_FILE, "tnd64");
                 if (VrCampaign == GEVR_CAMPAIGN_GF64 && !gfGood) {
@@ -3596,6 +3611,11 @@ extern "C" void gevrLauncherRun(void)
                     gevrRomCampaignSet(VrCampaign);
                     vrSettingsSave();
                     if (mirrorNote.empty()) mirrorNote = "Mirror Mode is not installed. This start uses GoldenEye.";
+                } else if (VrCampaign == GEVR_CAMPAIGN_MARIO && !marioGood) {
+                    VrCampaign = GEVR_CAMPAIGN_GE;
+                    gevrRomCampaignSet(VrCampaign);
+                    vrSettingsSave();
+                    if (marioNote.empty()) marioNote = "Mario Characters is not installed. This start uses GoldenEye.";
                 }
             }
         }
@@ -3802,10 +3822,11 @@ extern "C" void gevrLauncherRun(void)
         const bool campaignReady = VrCampaign == GEVR_CAMPAIGN_GE
             || (VrCampaign == GEVR_CAMPAIGN_GF64 && gfGood)
             || (VrCampaign == GEVR_CAMPAIGN_TND64 && tndGood)
-            || (VrCampaign == GEVR_CAMPAIGN_MIRROR && mirrorGood);
+            || (VrCampaign == GEVR_CAMPAIGN_MIRROR && mirrorGood)
+            || (VrCampaign == GEVR_CAMPAIGN_MARIO && marioGood);
         char startLabel[160];
         gevrLauncherLoadout(startLabel, sizeof(startLabel));   /* "START  (Bean, GE-X, 3 cheats)" */
-        switch (gevrLauncherStartRow(&VrCampaign, gfGood, tndGood, mirrorGood,
+        switch (gevrLauncherStartRow(&VrCampaign, gfGood, tndGood, mirrorGood, marioGood,
                                      !active.empty() && activeInfo.good && campaignReady, focusStart, startLabel)) {
         case GEVR_START_ROW_START:
             start = true;
@@ -3816,6 +3837,7 @@ extern "C" void gevrLauncherRun(void)
             gfNote.clear();
             tndNote.clear();
             mirrorNote.clear();
+            marioNote.clear();
             campaignFail.clear();
             break;
         case GEVR_START_ROW_PICK_GF:
@@ -3830,6 +3852,10 @@ extern "C" void gevrLauncherRun(void)
             mirrorNote = gevrOpenPicker("openMirrorPicker") ? "Pick Wreck's Mirror Mode ROM in the window that opened."
                                                             : "Could not open the file picker.";
             break;
+        case GEVR_START_ROW_PICK_MARIO:
+            marioNote = gevrOpenPicker("openMarioPicker") ? "Pick the Mario Characters ROM in the window that opened."
+                                                          : "Could not open the file picker.";
+            break;
         }
         if (s_injectStart && !active.empty() && activeInfo.good && campaignReady) {
             start = true;
@@ -3839,6 +3865,7 @@ extern "C" void gevrLauncherRun(void)
         // the line under START: a campaign's news if there is any, its terms if
         // a hack is chosen, the hint otherwise (one line, so the page keeps its height)
         footerNote = !campaignFail.empty() ? campaignFail : !gfNote.empty() ? gfNote : !tndNote.empty() ? tndNote : !mirrorNote.empty() ? mirrorNote
+                   : !marioNote.empty() ? marioNote
                    : VrCampaign == GEVR_CAMPAIGN_GE ? std::string()
                    : VrCampaign == GEVR_CAMPAIGN_MIRROR ? "Solo, with its own save. Online play and GoldenEye X are off."
                    : "Solo, with its own save. Online play, GoldenEye X, Bean and HD packs are off.";

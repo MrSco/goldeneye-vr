@@ -262,6 +262,7 @@ std::string presenceLine(bool inGame) {
         } else if (inGame) {
             if (VrCampaign == GEVR_CAMPAIGN_GF64) snprintf(text, sizeof(text), "Goldfinger 64");
             else if (VrCampaign == GEVR_CAMPAIGN_TND64) snprintf(text, sizeof(text), "Tomorrow Never Dies 64");
+            else if (VrCampaign == GEVR_CAMPAIGN_MARIO) snprintf(text, sizeof(text), "Mario Characters");
             else {
                 const int stage = bossGetStageNum();
                 const char *mission = netCoopStageName((uint8_t)stage);

@@ -212,6 +212,10 @@ uintptr_t animation_table_ptrs1[] = {
     PTR_ANIM_credits_bond_kissing,
     PTR_ANIM_credits_natalya_kissing,
     0
+#ifdef GEVR
+    /* room for a hack campaign's own animations after GoldenEye's 183 (Mario Characters adds 3) */
+    , 0, 0, 0, 0, 0, 0, 0, 0
+#endif
 };
 
 struct ModelAnimation *animation_table_ptrs2[] = {
@@ -290,8 +294,8 @@ static s32 gevrAnimLoadHackSegment(s32 hackSize)
     static u32 geOfs[ARRAYCOUNT(animation_table_ptrs1) + ARRAYCOUNT(animation_table_ptrs2)];
     static u32 hackOfs[ARRAYCOUNT(animation_table_ptrs1) + ARRAYCOUNT(animation_table_ptrs2)];
     const uint32_t *hack1, *hack2;
-    int n1, n2, i;
-    u32 count = 0, size = 0;
+    int n1, n2, i, ge1 = 0, ge2 = 0;
+    u32 count = 0, size = 0, appendAt, appended = 0;
     s32 moved = FALSE;
     u8 *bytes, *rebuilt;
 
@@ -299,14 +303,32 @@ static s32 gevrAnimLoadHackSegment(s32 hackSize)
     {
         return FALSE;
     }
-    for (i = 0; animation_table_ptrs1[i] != 0 && i < n1; i++)
+    while (animation_table_ptrs1[ge1] != 0)
+    {
+        ge1++;
+    }
+    while (animation_table_ptrs2[ge2] != NULL)
+    {
+        ge2++;
+    }
+    for (i = 0; i < ge1 && i < n1; i++)
     {
         geOfs[count] = (u32)animation_table_ptrs1[i];
         hackOfs[count] = hack1[i];
         moved |= geOfs[count] != hackOfs[count];
         count++;
     }
-    for (i = 0; animation_table_ptrs2[i] != NULL && i < n2; i++)
+    /* the hack's animations past GoldenEye's, kept where its bytes have them; the table's spare slots take them */
+    appendAt = count;
+    for (i = ge1; i < n1 && i < (int)ARRAYCOUNT(animation_table_ptrs1) - 1; i++)
+    {
+        geOfs[count] = GEVR_ANIM_APPEND;
+        hackOfs[count] = hack1[i];
+        moved = TRUE;
+        count++;
+        appended++;
+    }
+    for (i = 0; i < ge2 && i < n2; i++)
     {
         geOfs[count] = (u32)(uintptr_t)animation_table_ptrs2[i];
         hackOfs[count] = hack2[i];
@@ -317,10 +339,10 @@ static s32 gevrAnimLoadHackSegment(s32 hackSize)
     {
         return FALSE;
     }
-    if (n1 != ARRAYCOUNT(animation_table_ptrs1) - 1 || n2 != ARRAYCOUNT(animation_table_ptrs2) - 1)
+    if (n1 != ge1 || n2 != ge2)
     {
-        sysLogPrintf(LOG_WARNING, "anim: the hack's tables hold %d and %d records, GoldenEye's %d and %d",
-                     n1, n2, ARRAYCOUNT(animation_table_ptrs1) - 1, ARRAYCOUNT(animation_table_ptrs2) - 1);
+        sysLogPrintf(LOG_WARNING, "anim: the hack's tables hold %d and %d records, GoldenEye's %d and %d; %u added",
+                     n1, n2, ge1, ge2, appended);
     }
     bytes = malloc((size_t)hackSize);
     if (bytes == NULL)
@@ -333,6 +355,11 @@ static s32 gevrAnimLoadHackSegment(s32 hackSize)
     if (rebuilt == NULL)
     {
         return FALSE;
+    }
+    for (i = 0; i < (int)appended; i++)
+    {
+        /* 1 is the null placeholder: 0 would end the table */
+        animation_table_ptrs1[ge1 + i] = geOfs[appendAt + i] ? geOfs[appendAt + i] : 1;
     }
     ptr_animation_table = (struct animation_table_data *)rebuilt;
     return TRUE;

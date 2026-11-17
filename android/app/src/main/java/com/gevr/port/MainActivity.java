@@ -215,6 +215,11 @@ public class MainActivity extends SDLActivity {
         openPicker("picked-mirror.z64");
     }
 
+    /** GoldenEye with Mario Characters V3.17, kept beside the original cartridge as data/mario.z64. */
+    public void openMarioPicker() {
+        openPicker("picked-mario.z64");
+    }
+
     private void openPicker(String target) {
         pickTarget = target;
         openDocument(REQUEST_PICK_ROM);

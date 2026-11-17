@@ -3,14 +3,16 @@
 
 /*
  * Measured layouts for Goldfinger 64 1.0, Tomorrow Never Dies 64
- * Expanded 06-22 and Wreck's Mirror Mode (August 2017). The GF64/TND64
+ * Expanded 06-22, Wreck's Mirror Mode (August 2017) and GoldenEye with
+ * Mario Characters V3.17. The GF64/TND64
  * numbers come from perfect-dark-dabs-mod's g_Layouts (port/src/geconvert.c),
  * MIT License, Copyright (c) 2022 Ryan Dwyer, measurements by Dab. Mirror
- * Mode was measured from Wreck's patch; see docs/mirror-mode.md. This header
+ * Mode was measured from Wreck's patch; see docs/mirror-mode.md, and Mario
+ * Characters from its V3.17 patch; see docs/mario-characters.md. This header
  * does not pull that converter in.
  *
  * Retail ge.z64 stays where it is. The hacks live beside it
- * (goldfinger64.z64, tnd64.z64, mirror.z64). The launcher campaign picks which file
+ * (goldfinger64.z64, tnd64.z64, mirror.z64, mario.z64). The launcher campaign picks which file
  * romdataInit binds.
  */
 
@@ -29,11 +31,13 @@ extern "C" {
 #define GEVR_CAMPAIGN_GF64 1
 #define GEVR_CAMPAIGN_TND64 2
 #define GEVR_CAMPAIGN_MIRROR 3
-#define GEVR_CAMPAIGN_COUNT 4
+#define GEVR_CAMPAIGN_MARIO 4
+#define GEVR_CAMPAIGN_COUNT 5
 
 #define GEVR_ROM_GF_FILE  "goldfinger64.z64"
 #define GEVR_ROM_TND_FILE "tnd64.z64"
 #define GEVR_ROM_MIRROR_FILE "mirror.z64"
+#define GEVR_ROM_MARIO_FILE "mario.z64"
 /* Written when a chosen campaign did not load; the launcher shows it and deletes it. */
 #define GEVR_CAMPAIGN_FAILED_FILE "gevr_campaign_failed.txt"
 
@@ -116,6 +120,23 @@ struct gevrRomLayout {
 	 * GoldenEye's address).
 	 */
 	uint32_t rarelogo;
+	/*
+	 * Tables Mario Characters moved inside its data segment; 0 keeps
+	 * GoldenEye's address: animation_table_ptrs1[] and ptrs2[]
+	 * (initanitable.c), boss.c's memallocstringtable, and random_tracks
+	 * (0: right after the music table's end row, as GoldenEye has it).
+	 */
+	uint32_t animtable1, animtable2;
+	uint32_t memstrings;
+	uint32_t randomtracks;
+	/*
+	 * bodyChooseHead()'s random offset into a pool (7F0235F4): GoldenEye and
+	 * Goldfinger add (seed >> 16) & 3, Mario Characters & 15 (0 means 3).
+	 * headwomen: the offset applies to women too (Mario Characters drops
+	 * Goldfinger's men-only test at 7F0235F8).
+	 */
+	uint8_t headmask;
+	uint8_t headwomen;
 };
 
 struct gevrDataWindow {

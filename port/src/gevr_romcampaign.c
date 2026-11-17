@@ -23,6 +23,7 @@
 extern fileentry file_resource_table[];
 extern resource_lookup_data_entry resource_lookup_data_array[];
 extern s32 file_entry_max;
+extern const s32 gevrFileSlots;   /* ob.c: the rows its lookup arrays hold (OBJ_INDEX_MAX) */
 extern u8 *g_RomFile;
 extern GunModelFileRecord gitem_structs[];
 
@@ -174,6 +175,15 @@ static int bindFiles(void)
 	int i;
 	int bound = 0;
 
+	/*
+	 * A hack with more files than GoldenEye's 725 (Mario Characters: 734 and
+	 * its end row) widens the table to its own end, within the arrays' room.
+	 */
+	for (i = 0; i < g_FileRowCount; i++) {
+		if ((s32)g_FileRows[i].index >= file_entry_max && (s32)g_FileRows[i].index < gevrFileSlots) {
+			file_entry_max = (s32)g_FileRows[i].index + 1;
+		}
+	}
 	for (i = 0; i < g_FileRowCount; i++) {
 		const struct gevrRomFileRow *row = &g_FileRows[i];
 		fileentry *slot;
@@ -474,6 +484,7 @@ static int installItemHeaders(void)
 	static const char *names[ITEM_IDS_MAX];
 	int k;
 	int done = 0;
+	int renamed = 0;
 
 	/* Read every row first: the compiled headers are written only when all of them are good. */
 	for (k = 1; k < ITEM_IDS_MAX; k++) {
@@ -512,7 +523,35 @@ static int installItemHeaders(void)
 			done++;
 		}
 	}
-	sysLogPrintf(LOG_NOTE, "rom: %d hand item headers from the hack", done);
+	/*
+	 * A row whose file no item of GoldenEye's has is the hack's own file for
+	 * that item (Mario Characters renamed them: item 1, the fist, is its
+	 * Garmr1Z): the item loads it, by the hack's name, with its header, as
+	 * the cartridge's own code would.
+	 */
+	for (k = 1; k < ITEM_IDS_MAX; k++) {
+		ModelFileHeader *dst = gitem_structs[k].item_header;
+		int j, known = 0;
+
+		if (!names[k] || !dst || !gitem_structs[k].item_file_name) {
+			continue;
+		}
+		for (j = 1; j < ITEM_IDS_MAX && !known; j++) {
+			known = gitem_structs[j].item_file_name && strcmp(gitem_structs[j].item_file_name, names[k]) == 0;
+		}
+		if (known) {
+			continue;
+		}
+		gitem_structs[k].item_file_name = (char *)names[k];
+		dst->Skeleton = hdrs[k].Skeleton;
+		dst->numSwitches = hdrs[k].numSwitches;
+		dst->numMatrices = hdrs[k].numMatrices;
+		dst->BoundingVolumeRadius = hdrs[k].BoundingVolumeRadius;
+		dst->numRecords = hdrs[k].numRecords;
+		dst->numtextures = hdrs[k].numtextures;
+		renamed++;
+	}
+	sysLogPrintf(LOG_NOTE, "rom: %d hand item headers from the hack, %d items on files of its own", done, renamed);
 	return 1;
 }
 
@@ -610,11 +649,14 @@ static void installItems(void)
  * Goldfinger's bodyChooseHead() (7F0235AC), read off its code: a record's
  * head of -1 or -2 picks a pool, each pool a list for men and one for women,
  * and the head is the pool's list at (start + (seed bits 16-17, men only))
- * modulo its length. The eight starts are drawn at level init (7F000F88),
+ * modulo its length. Mario Characters grows it to four pools (heads -1 to
+ * -4: guards, scientists, hostages, civilians), takes seed bits 16-19 and
+ * gives women the offset too (L->headmask, L->headwomen). The eight starts are drawn at level init (7F000F88),
  * one random number shifted right a bit per entry. The tables sit in the
  * game code, which the cartridge keeps unpacked at 0x34B30 (TLB-paged), and
  * are indexed 4 * male + 4 + head: 3 and 2 the women's pools -1 and -2, 7
- * and 6 the men's. Lengths at L->headpools, the lists' addresses after them.
+ * and 6 the men's (0 and 4 for pool -4). Lengths at L->headpools, the
+ * lists' addresses after them, eight bytes a pool.
  */
 #define GEVR_CODE_ROM   0x34b30u
 #define GEVR_CODE_VRAM  0x7f000000u
@@ -625,6 +667,7 @@ static uint8_t g_PoolLen[8];
 static uint8_t g_PoolStart[8];
 static uint8_t g_PoolHeads[8][GEVR_POOL_MAX];
 static int g_HasPools;
+static uint8_t g_PoolMask, g_PoolWomen;
 
 extern u64 g_randomSeed;
 u32 randomGetNext(void);
@@ -640,7 +683,7 @@ static const uint8_t *codeAt(const uint8_t *rom, uint32_t romLen, uint32_t va, u
 
 static void installHeadPools(const struct gevrRomLayout *L, const uint8_t *rom, uint32_t romLen)
 {
-	const uint8_t *len = L->headpools ? codeAt(rom, romLen, L->headpools, 24) : NULL;
+	const uint8_t *len = L->headpools ? codeAt(rom, romLen, L->headpools, 40) : NULL;
 	int i;
 
 	g_HasPools = 0;
@@ -648,14 +691,16 @@ static void installHeadPools(const struct gevrRomLayout *L, const uint8_t *rom, 
 	if (!len) {
 		return;
 	}
+	g_PoolMask = L->headmask ? L->headmask : 3;
+	g_PoolWomen = L->headwomen;
 	for (i = 0; i < 8; i++) {
-		/* entry i = 4 * male + 4 + head: 3 and 7 are pool 0 (head -1), 2 and 6 pool 1 (-2) */
+		/* entry i = 4 * male + 4 + head: 3 and 7 are pool 0 (head -1), 2 and 6 pool 1 (-2), ... 0 and 4 pool 3 (-4) */
 		const int pool = 3 - (i & 3);
 		const int male = i >> 2;
 		const uint8_t *list;
 		uint32_t ptr;
 
-		if (!len[i] || pool > 1) {
+		if (!len[i]) {
 			continue;
 		}
 		ptr = be32at(len + 8 + 8 * pool + 4 * male);
@@ -668,7 +713,8 @@ static void installHeadPools(const struct gevrRomLayout *L, const uint8_t *rom, 
 		memcpy(g_PoolHeads[i], list, len[i]);
 	}
 	g_HasPools = 1;
-	sysLogPrintf(LOG_NOTE, "rom: head pools men %d/%d, women %d/%d", g_PoolLen[7], g_PoolLen[6], g_PoolLen[3], g_PoolLen[2]);
+	sysLogPrintf(LOG_NOTE, "rom: head pools men %d/%d/%d/%d, women %d/%d/%d/%d", g_PoolLen[7], g_PoolLen[6],
+			g_PoolLen[5], g_PoolLen[4], g_PoolLen[3], g_PoolLen[2], g_PoolLen[1], g_PoolLen[0]);
 }
 
 int gevrRomHeadPoolsLevelInit(void)
@@ -696,7 +742,7 @@ int gevrRomChooseHead(int male, int head)
 	if (!g_HasPools || !gevrRomIsVariant()) {
 		return -1;
 	}
-	if (head != -2) {
+	if (head < -4 || head > -1) {
 		head = -1;
 	}
 	i = 4 * (male ? 1 : 0) + 4 + head;
@@ -707,7 +753,7 @@ int gevrRomChooseHead(int male, int head)
 			return -1;
 		}
 	}
-	at = g_PoolStart[i] + (male ? (int)((g_randomSeed >> 16) & 3) : 0);
+	at = g_PoolStart[i] + (male || g_PoolWomen ? (int)((g_randomSeed >> 16) & g_PoolMask) : 0);
 	pick = g_PoolHeads[i][at % g_PoolLen[i]];
 	randomGetNext();
 	return pick;
@@ -899,6 +945,8 @@ extern EnvironmentRecord fog_tables[];
 extern EnvironmentFoglessRecord fog_tables2[];
 extern struct gevrMusicRow music_setup_entries[];
 extern s16 random_tracks[];
+/* their room in music_0D2720.c, end rows included (Mario Characters has 35 levels with music and 54 tracks) */
+extern const int gevrMusicRowsMax, gevrRandomTracksMax;
 
 /*
  * The per-level tables GoldenEye compiles in, which a hack edits in its data
@@ -908,7 +956,7 @@ extern s16 random_tracks[];
  * GoldenEye's, so they are written in place; a table that would not fit is
  * left as GoldenEye's and logged.
  */
-static void installLevelTables(void)
+static void installLevelTables(const struct gevrRomLayout *L)
 {
 	const uint8_t *p;
 	uint32_t i, rows, cap;
@@ -953,7 +1001,8 @@ static void installLevelTables(void)
 		}
 		name = vramString(be32at(p));
 		len = strlen(name);
-		if (len < 3 || name[0] != 'U' || name[len - 1] != 'Z') {
+		/* Mario Characters' added setups have no Z (Usetupark3, Usetupdam2) */
+		if (len < 3 || name[0] != 'U') {
 			break;
 		}
 	}
@@ -996,8 +1045,7 @@ static void installLevelTables(void)
 		sysLogPrintf(LOG_ERROR, "rom: fog table has %u rows, room for %u", rows, cap);
 	}
 
-	for (cap = 0; music_setup_entries[cap].stage_id != 0; cap++) {
-	}
+	cap = (uint32_t)gevrMusicRowsMax - 1;   /* rows before the end row */
 	for (rows = 0; rows <= cap; rows++) {
 		p = atVram(GEVR_MUSIC_AT + 8u * rows, 8);
 		if (!p || be16at(p) == 0) {
@@ -1013,14 +1061,16 @@ static void installLevelTables(void)
 			music_setup_entries[i].xtrack = (s16)be16at(p + 6);
 		}
 		/*
-		 * random_tracks follow the end row, ended by M_NONE (0), not -1:
-		 * the copy stops at the hack's 0 and never writes past GoldenEye's
-		 * own 0 (a scan for -1 ran off the array and over the file table).
+		 * random_tracks follow the end row (Mario Characters moved them:
+		 * L->randomtracks), ended by M_NONE (0), not -1: the copy stops at
+		 * the hack's 0 and keeps the array's last slot 0 (a scan for -1 ran
+		 * off the array and over the file table).
 		 */
-		for (cap = 0; random_tracks[cap] != 0; cap++) {
-		}
+		const uint32_t tracks = L->randomtracks ? L->randomtracks : GEVR_MUSIC_AT + 8u * (rows + 1);
+
+		cap = (uint32_t)gevrRandomTracksMax - 1;
 		for (i = 0; i < cap; i++) {
-			p = atVram(GEVR_MUSIC_AT + 8u * (rows + 1) + 2u * i, 2);
+			p = atVram(tracks + 2u * i, 2);
 			if (!p || be16at(p) == 0) {
 				break;
 			}
@@ -1030,7 +1080,7 @@ static void installLevelTables(void)
 			random_tracks[i] = 0;   /* a shorter list ends where the hack's does */
 		}
 	} else {
-		sysLogPrintf(LOG_ERROR, "rom: music table does not fit GoldenEye's %u rows", cap);
+		sysLogPrintf(LOG_ERROR, "rom: music table does not fit the port's %u rows", cap);
 	}
 
 	p = atVram(GEVR_TARGETTIMES_AT, sizeof(solo_target_time_array));
@@ -1055,13 +1105,15 @@ static uint32_t g_MemStringCount;
  * the Cartel's rooms did not fit the room heap (missing walls) and its
  * textures overflowed the pool (flicker). Rows end with the id 0 default.
  */
-static void installMemStrings(void)
+static void installMemStrings(const struct gevrRomLayout *L)
 {
-	uint32_t i, rows = hackRows(GEVR_MEMSTRINGS_AT, 8, GEVR_MEMSTRING_ROWS);
+	/* Mario Characters gives every level a solo and a multiplayer row, moved (L->memstrings) */
+	const uint32_t at = L->memstrings ? L->memstrings : GEVR_MEMSTRINGS_AT;
+	uint32_t i, rows = hackRows(at, 8, GEVR_MEMSTRING_ROWS);
 
 	g_MemStringCount = 0;
 	for (i = 0; i < rows; i++) {
-		const uint8_t *p = atVram(GEVR_MEMSTRINGS_AT + 8u * i, 8);
+		const uint8_t *p = atVram(at + 8u * i, 8);
 		const char *s = vramString(be32at(p + 4));
 
 		if (!*s) {
@@ -1112,10 +1164,10 @@ static int readAnimTable(uint32_t at, uint32_t *dst, int cap)
 	return n;
 }
 
-static void installAnimTables(void)
+static void installAnimTables(const struct gevrRomLayout *L)
 {
-	g_AnimCount1 = readAnimTable(GEVR_ANIM_TABLE1_AT, g_AnimTable1, GEVR_ANIM_TABLE1_CAP);
-	g_AnimCount2 = readAnimTable(GEVR_ANIM_TABLE2_AT, g_AnimTable2, GEVR_ANIM_TABLE2_CAP);
+	g_AnimCount1 = readAnimTable(L->animtable1 ? L->animtable1 : GEVR_ANIM_TABLE1_AT, g_AnimTable1, GEVR_ANIM_TABLE1_CAP);
+	g_AnimCount2 = readAnimTable(L->animtable2 ? L->animtable2 : GEVR_ANIM_TABLE2_AT, g_AnimTable2, GEVR_ANIM_TABLE2_CAP);
 	sysLogPrintf(LOG_NOTE, "rom: %d guard and %d aircraft animation records from the hack", g_AnimCount1, g_AnimCount2);
 }
 
@@ -1229,9 +1281,9 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 	installItemStats();
 	installHeadPools(L, rom, romLen);
 	installHats(L);
-	installLevelTables();
-	installMemStrings();
-	installAnimTables();
+	installLevelTables(L);
+	installMemStrings(L);
+	installAnimTables(L);
 	ok = 1;
 	sysLogPrintf(LOG_NOTE, "rom: %s ready (%u bytes)", L->name, romLen);
 	return ok;
