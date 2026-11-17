@@ -45,7 +45,7 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
     cpp = temp / "vr_display_native.cpp"
     cpp.write_text(fixture, encoding="utf-8")
     exe = temp / "vr_display_native.exe"
-    subprocess.run([compiler, "-std=c++17", "-O2", "-DANDROID", "-I" + str(root / "port/vr"),
+    subprocess.run([compiler, "-std=c++17", "-O2", "-DANDROID", "-DGEVR_XR_ES=1", "-I" + str(root / "port/vr"),
                     "-I" + str(root / "port/include"),
                     "-I" + str(root / "OpenXR/Include"), str(cpp), "-o", str(exe)], check=True)
     subprocess.run([str(exe)], cwd=temp, check=True)
