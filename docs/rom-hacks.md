@@ -21,9 +21,9 @@ Tomorrow Never Dies: only **Expanded 06-22** is supported. The newer 07-23 and 1
 
 Mirror Mode: use Wreck's full August 2017 **Mirror Mode** patch, not the older
 Mirror Multi patch. It supplies mirrored backgrounds, collision, setups and
-objects. The port also runs its watch clock backwards. The port currently offers
-this campaign in solo play; the N64 patch's multiplayer support does not enable
-VR online play. See [Mirror Mode notes](mirror-mode.md).
+objects. The port also runs its watch clock backwards. The port offers this
+campaign in solo play and online co-op; the N64 patch's own multiplayer maps are
+not used. See [Mirror Mode notes](mirror-mode.md).
 
 ## On the launcher
 
@@ -34,9 +34,9 @@ VR online play. See [Mirror Mode notes](mirror-mode.md).
 
 ## What a hack campaign leaves out
 
-A hack campaign is solo play with the hack's own look:
+A hack campaign is solo play or online co-op with the hack's own look:
 
-- **Online play, co-op and bots** are off. Both headsets would have to run the same hack, and the network does not check that yet.
+- **Online co-op** works in Goldfinger 64, Tomorrow Never Dies and Mirror Mode. Every player chooses the same campaign beside **START** and has the same ROM: the host checks both, and a joiner on another campaign is told which one the party plays. Deathmatch, Horde and bots stay GoldenEye's, since they use GoldenEye's multiplayer maps. Mario Characters has no online play yet: its level scripts change each headset's own game.
 - **GoldenEye X**, **XBLA / Bean** and the **HD texture packs** are off for that run. They are made for GoldenEye's own models and textures. Your settings for them are kept for the next GoldenEye run. Mirror Mode keeps GoldenEye's own models and textures, so Bean and HD packs stay on there ([Mirror Mode](mirror-mode.md)).
 - **The launcher's cheat list** is off: it names GoldenEye's guns, and the hack puts its own on those items. The game's own Cheat Options, **Unlock all missions and cheats** and the VR gun size still work.
 - **Progress** is saved separately (`eeprom-gf64.bin`, `eeprom-tnd64.bin`, `eeprom-mirror.bin`), so a hack's missions never unlock GoldenEye's or the other way round.

@@ -32,6 +32,8 @@ extern int gevrTexpackToggleMsg;                 /* input.c: bondview2.c says it
 int lvlGetSelectedDifficulty(void);
 }
 extern int VrCampaign;
+extern "C" int gevrCampaignCoopOk(int campaign);   /* gevr_romload.c: gevr_romlayout.h gevrCampaignCoop */
+extern "C" const char *gevrCoopStageLabel(unsigned char stage);   /* front.c: a hack's missions by its names */
 #ifdef GEVR_FLAT
 extern "C" int flatTouchSeenAny(void);     // flat_touch.cpp: a finger has touched the screen
 extern "C" void flatTouchEditBegin(void);  // the touch layout editor, over the paused game
@@ -52,8 +54,8 @@ void drawFriends() {
     const char*lobby=netIsActive()?netGetLobbyCode():"";
     const bool open=lobby[0]&&netGetLivePlayerCount()<netGetMaxPlayers();
     GevrFriendsUiContext ctx;
-    ctx.canJoin=VrCampaign==0;   /* GEVR_CAMPAIGN_GE: online play is GoldenEye's */
-    ctx.joinHint="Online play needs the GoldenEye campaign.";
+    ctx.canJoin=gevrCampaignCoopOk(VrCampaign);   /* co-op in Goldfinger 64, TND and Mirror Mode too */
+    ctx.joinHint="Online play needs GoldenEye, or Goldfinger 64, Tomorrow Never Dies or Mirror Mode for co-op.";
     ctx.canInvite=open;
     ctx.inviteHint=!netIsActive()?"Invite from a lobby: host one on the launcher's Multiplayer page."
         :!lobby[0]?"This game has no internet lobby to invite into.":!open?"This match is full.":"Invite them into this match.";
@@ -115,12 +117,12 @@ int panelFrame() {
     gevrPauseLocalRadar(&v.radar);
     const int stage=bossGetStageNum();
     if(v.online) {
-        snprintf(v.session,sizeof(v.session),"%s",netCoopActive()?netCoopStageName((uint8_t)stage):netStageName(netStageIndexOf((uint8_t)netGetLobbyStage())));
+        snprintf(v.session,sizeof(v.session),"%s",netCoopActive()?gevrCoopStageLabel((uint8_t)stage):netStageName(netStageIndexOf((uint8_t)netGetLobbyStage())));
         snprintf(v.status,sizeof(v.status),"%s",netCoopActive()?netDifficultyName(netGetMatchConfig()->difficulty):"Match continues while this menu is open");
     } else if(stage==90)snprintf(v.session,sizeof(v.session),"In the menus");   /* LEVELID_TITLE */
     else {
-        const char*mission=netCoopStageName((uint8_t)stage);
-        if(VrCampaign==0&&mission&&mission[0])snprintf(v.session,sizeof(v.session),"%s",mission);
+        const char*mission=gevrCoopStageLabel((uint8_t)stage);
+        if(mission&&mission[0])snprintf(v.session,sizeof(v.session),"%s",mission);
         snprintf(v.status,sizeof(v.status),"%s",netDifficultyName(lvlGetSelectedDifficulty()));
     }
 #ifdef GEVR_IOS
@@ -179,7 +181,7 @@ extern "C" void gevrNativePauseRender(void) {
     view.voting=gevrNetConfigGet(CFG_NEXT_ROUND)==NET_NEXT_VOTE;view.warmup=netGetPhase()==NET_PHASE_WARMUP;
     view.canReturn=!view.coop&&gevrPauseActionAvailable("RETURN TO LOBBY");view.countdown=netCountdownSecondsLeft();view.localReady=netLocalReady()!=0;
     view.settings=gevrSettingsLive();view.texpack=gevrTexpackState();
-    snprintf(view.session,sizeof(view.session),"%s",view.coop?netCoopStageName(bossGetStageNum()):netStageName(netStageIndexOf((uint8_t)netGetLobbyStage())));
+    snprintf(view.session,sizeof(view.session),"%s",view.coop?gevrCoopStageLabel((uint8_t)bossGetStageNum()):netStageName(netStageIndexOf((uint8_t)netGetLobbyStage())));
     snprintf(view.status,sizeof(view.status),"%s",view.coop?netDifficultyName(netGetMatchConfig()->difficulty):view.countdown>0?"Match is starting":netGetPhase()==NET_PHASE_IN_PROGRESS?"Match continues while this menu is open":"Warmup / next round");
     if(view.horde) {
         snprintf(view.session,sizeof(view.session),"Horde: %s",netHordeStageName((unsigned)bossGetStageNum()));

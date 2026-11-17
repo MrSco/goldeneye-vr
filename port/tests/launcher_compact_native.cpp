@@ -11,6 +11,8 @@ static int VrAlly, VrHordeFriendlyFire, VrHordeStage = 24, VrHordeStartWave = 1;
 static int VrMpMode, VrMpBotMode, VrMpBotCount=7, VrMpBotDifficulty=5, VrMpFriendlyFire;
 static int VrMpStage=34,VrMpMaxPlayers=8,VrMpVisibility=1,VrMpWeaponSet=4,VrMpCustom[4];
 static int VrMpVrOnly;   /* the host's "VR players only" */
+static int VrCampaign;   /* GoldenEye: every mode offered (a hack campaign offers co-op only) */
+#define GEVR_CAMPAIGN_GE 0
 static int VrMovementSpeed, VrMpMovementSpeed, VrSmoothTurnSpeed=120;
 static int VrNoKnockback=1, VrNoHitstun=1, VrDamageFlash=1, VrCoopFastReinforcements;
 static unsigned long long VrMpFavStages;

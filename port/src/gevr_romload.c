@@ -115,6 +115,12 @@ static const char *const gevrRomNames[] = {
  * hashed, again only if the launcher's campaign changes.
  * 0 when there is none (the join check skips an unknown part).
  */
+/* gevrCampaignCoop for callers that cannot include gevr_romlayout.h (vr_pause_menu.cpp) */
+int gevrCampaignCoopOk(int campaign)
+{
+	return gevrCampaignCoop(campaign);
+}
+
 int gevrRomPlayCampaign(void)
 {
 	return g_RomFile ? gevrRomCampaign()

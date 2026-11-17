@@ -39,6 +39,19 @@ int bossGetStageNum(void);        /* boss.c */
 int lvlGetSelectedDifficulty(void);   /* lv.c (a DIFFICULTY) */
 void vrEnsurePlayerName(void);        /* vr_settings.cpp */
 void vrSettingsSave(void);
+const char *gevrCoopStageLabel(unsigned char stage);   /* front.c: a hack's missions by its names */
+}
+
+/* GEVR_CAMPAIGN_*, as the launcher names them; GoldenEye's is not named. */
+static const char *gevrFriendsCampaignName(int campaign)
+{
+    switch (campaign) {
+    case GEVR_CAMPAIGN_GF64: return "Goldfinger 64";
+    case GEVR_CAMPAIGN_TND64: return "Tomorrow Never Dies 64";
+    case GEVR_CAMPAIGN_MIRROR: return "Mirror Mode";
+    case GEVR_CAMPAIGN_MARIO: return "Mario Characters";
+    default: return "";
+    }
 }
 
 namespace {
@@ -253,16 +266,17 @@ std::string presenceLine(bool inGame) {
             // the people, as the lobby service counts them: a joiner takes a bot's place
             const int players = netGetHumanPlayerCount(), max = netGetMaxPlayers();
             if (cfg->mode == NET_MODE_COOP)
-                snprintf(text, sizeof(text), "Co-op, %s, %d/%d", inGame ? netCoopStageName((uint8_t)bossGetStageNum()) : "lobby", players, max);
+                snprintf(text, sizeof(text), "Co-op%s%s, %s, %d/%d", VrCampaign != GEVR_CAMPAIGN_GE ? " in " : "",
+                         gevrFriendsCampaignName(VrCampaign),
+                         inGame ? gevrCoopStageLabel((uint8_t)bossGetStageNum()) : "lobby", players, max);
             else if (cfg->mode == NET_MODE_HORDE)
                 snprintf(text, sizeof(text), "Horde, %s, %d/%d", netHordeStageName(cfg->stage), players, max);
             else
                 snprintf(text, sizeof(text), "%s, %s, %d/%d", cfg->scenario ? netScenarioName(cfg->scenario) : "Deathmatch",
                          netStageName(netStageIndexOf(cfg->stage)), players, max);
         } else if (inGame) {
-            if (VrCampaign == GEVR_CAMPAIGN_GF64) snprintf(text, sizeof(text), "Goldfinger 64");
-            else if (VrCampaign == GEVR_CAMPAIGN_TND64) snprintf(text, sizeof(text), "Tomorrow Never Dies 64");
-            else if (VrCampaign == GEVR_CAMPAIGN_MARIO) snprintf(text, sizeof(text), "Mario Characters");
+            if (VrCampaign != GEVR_CAMPAIGN_GE && VrCampaign != GEVR_CAMPAIGN_MIRROR)
+                snprintf(text, sizeof(text), "%s", gevrFriendsCampaignName(VrCampaign));
             else {
                 const int stage = bossGetStageNum();
                 const char *mission = netCoopStageName((uint8_t)stage);

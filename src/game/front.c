@@ -9309,3 +9309,53 @@ Gfx * menu_jump_constructor_handler(Gfx *DL)
 #endif
     return DL;
 }
+
+#ifdef GEVR
+/*
+ * A co-op party's whereabouts for the friends list, the pause menu and the
+ * launcher (net_match.c netCoopStageName names GoldenEye's missions). In a
+ * hack campaign its missions sit in GoldenEye's stage slots under its own
+ * names: they are named as its mission select names them, from the folder the
+ * binder installed and its title bank (the mission select's icon or folder
+ * text). Before the game has loaded that text, "a mission".
+ */
+const char *gevrCoopStageLabel(u8 stage)
+{
+    extern void *g_LangBanks[45];   /* language.c */
+    extern const char *netCoopStageName(u8 level_id);   /* net_match.c */
+    static char name[48];
+    s32 i;
+
+    if (!gevrRomIsVariant() || stage == 90 /* NET_COOP_FRONT_STAGE */)
+    {
+        return netCoopStageName(stage);
+    }
+    for (i = 0; mission_folder_setup_entries[i].folder_text_preset; i++)
+    {
+        const struct mission_folder_setup *e = &mission_folder_setup_entries[i];
+        const u16 id = e->icon_text_preset ? e->icon_text_preset : e->folder_text_preset;
+        const char *text;
+        size_t n;
+
+        if (e->type != MISSION_PART || e->stage_id != stage)
+        {
+            continue;
+        }
+        text = g_LangBanks[id >> 10] ? (const char *)langGet(id) : NULL;
+        if (text == NULL)
+        {
+            break;
+        }
+        /* titles end in a newline */
+        n = strcspn(text, "\n");
+        if (n >= sizeof(name))
+        {
+            n = sizeof(name) - 1;
+        }
+        memcpy(name, text, n);
+        name[n] = '\0';
+        return name;
+    }
+    return "a mission";
+}
+#endif
