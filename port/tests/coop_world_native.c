@@ -115,6 +115,13 @@ void fogSwitchToSolosky2(f32 fraction) { fog = fraction; }
 int gevrRomFootsteps(void) { return 0; }
 void gevrFootstepsSoundAt(s32 sound, struct coord3d *pos) { (void)sound;(void)pos; assert(0); }
 void gevrFootstepsSwapSkies(void) { assert(0); }
+s32 gevrFootstepsTakeWrites(u32 *start, u32 *len, s32 cap) { (void)start;(void)len;(void)cap; return 0; }
+s32 gevrFootstepsTouchedWrites(u32 *start, u32 *len, s32 cap) { (void)start;(void)len;(void)cap; return 0; }
+void gevrFootstepsApplyWrite(u32 vram, const u8 *bytes, u32 len) { (void)vram;(void)bytes;(void)len; assert(0); }
+void gevrFootstepsObjectiveState(s16 *flags, s8 *difficulty) { (void)flags;(void)difficulty; }
+void gevrFootstepsSetObjectiveState(const s16 *flags, const s8 *difficulty) { (void)flags;(void)difficulty; assert(0); }
+u32 gevrFootstepsWrittenHash(u32 vram0, u32 vram1) { (void)vram0;(void)vram1; return 0; }
+u8 *gevrRomWindowBytes(u32 vram, u32 need) { (void)vram;(void)need; return NULL; }
 void sub_GAME_7F03FDA8(PropRecord *p) { (void)p; }
 void projectileSetSticky(PropRecord *p) { (void)p; }
 void matrix_4x4_set_identity(Mtxf *m) { *m = identity; }

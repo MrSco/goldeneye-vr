@@ -137,6 +137,10 @@ def main():
     check(fs.get("ran") == [str(len(cmds))], "every command ran: %s of %d" % (fs.get("ran"), len(cmds)))
     check(len(cmds) > 12000, "its setups' commands: %d" % len(cmds))
     check(not unmapped, "addresses the port has no memory for:\n  " + "\n  ".join(unmapped[:20]))
+    # co-op: every written range, copied into a fresh bind, gives the host's memory
+    sync = [int(x) for x in fs.get("pokesync", ["0"] * 5)]
+    check(sync[0] > 0 and sync[1] > 0 and sync[2] == 0 and sync[3] == 1 and sync[4] == 1,
+          "co-op pokes: ranges %d, bytes %d, take %d, same %d, changed %d" % tuple(sync))
     # page 2: Aztec, Egypt, Bob-omb Battlefield, Big Boo's Haunt, Peach's Castle as missions 0-4, a chapter each
     missions = [(stage, mission) for stage, kind, mission in folder if kind == 0]
     check(len(page2) > 100 and missions[:5] == [(28, 0), (32, 1), (42, 2), (44, 3), (40, 4)]
@@ -147,7 +151,7 @@ def main():
         print("FAIL: Footsteps commands, %d mismatches" % len(bad))
         sys.exit(1)
     print("PASS: Footsteps commands on Mario Characters: renames, scales, POV height, cheat bits, Bond's fields, "
-          "music, objectives, items, page 2 of the mission select, and all %d of its setups' commands on memory "
+          "music, objectives, items, page 2 of the mission select, the co-op copy of its writes, and all %d of its setups' commands on memory "
           "the port has" % len(cmds))
 
 

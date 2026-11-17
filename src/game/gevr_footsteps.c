@@ -30,6 +30,7 @@
 
 #include <ultra64.h>
 #include <string.h>
+#include <stdlib.h>
 #include <bondtypes.h>
 #include <bondconstants.h>
 #include "bondview.h"
@@ -60,6 +61,8 @@ void bondviewKillCurrentPlayer(void);
  * watch show an objective by it (gevrFootstepsObjectiveDifficulty).
  */
 static s16 g_ObjectiveFlag[OBJECTIVES_MAX];
+/* co-op: what the scripts wrote to the hack's memory, since the bind and since the last send */
+static s32 s_pendingOverflow, s_pendingCount, s_touchedCount;
 
 /* The fields of struct player its scripts name, by N64 offset (bondview.h) */
 static const struct {
@@ -91,6 +94,8 @@ static void noteUnmapped(u32 a, const char *what)
 }
 
 /* One byte of the cartridge's memory. Returns 0 where the port has nothing there. */
+static void coopNoteWrite(u32 a, u32 n);
+
 static int vmByte(u32 a, u8 *out, int write, u8 value)
 {
     u8 *w;
@@ -175,6 +180,7 @@ static int vmByte(u32 a, u8 *out, int write, u8 value)
     if (w) {
         if (write) {
             *w = value;
+            coopNoteWrite(a, 1);
         } else {
             *out = *w;
         }
@@ -685,9 +691,187 @@ static void bindGlobalLists(void)
 
 void gevrFootstepsBind(void)
 {
+    s_touchedCount = s_pendingCount = 0;
+    s_pendingOverflow = 0;
     if (!gevrRomFootsteps()) {
         return;
     }
     gevrFootstepsBindCheats();
     bindGlobalLists();
+}
+
+/* ---- Online co-op (net_coop.c NET_MSG_COOP_POKES) ------------------------ */
+
+/*
+ * The host runs the level scripts (the guards' lists); a teammate's headset
+ * runs none. What its pokes change in the hack's memory (gun and character
+ * files, scales, the mission folder, fog, music, its own variables) is shared
+ * as the bytes written: each range the scripts wrote since the last send,
+ * copied in on every other headset, whose tables follow as on the host
+ * (gevrRomWindowChanged). A drop-in gets every range written since the bind.
+ * The player's own fields (health, armour, outfit) and Cheat Options are each
+ * headset's and are not in the hack's memory, so they never go.
+ */
+#define FS_RANGES 2048
+
+typedef struct {
+    u32 start, end;
+} FsRange;
+
+static FsRange s_pending[FS_RANGES], s_touched[FS_RANGES];
+
+/* 0 when the list is full and it fits no range (the touched list then grows its last one) */
+static s32 rangeAdd(FsRange *r, s32 *count, u32 a, u32 n, s32 grow)
+{
+    s32 i;
+
+    /* the last range first: a poke writes its bytes in order */
+    for (i = *count - 1; i >= 0; i--) {
+        if (a <= r[i].end && a + n >= r[i].start) {
+            if (a < r[i].start) {
+                r[i].start = a;
+            }
+            if (a + n > r[i].end) {
+                r[i].end = a + n;
+            }
+            return 1;
+        }
+    }
+    if (*count < FS_RANGES) {
+        r[*count].start = a;
+        r[*count].end = a + n;
+        (*count)++;
+    } else if (!grow) {
+        return 0;
+    } else {
+        /* full: the last range grows to cover it (more bytes sent, none lost) */
+        FsRange *last = &r[*count - 1];
+
+        if (a < last->start) {
+            last->start = a;
+        }
+        if (a + n > last->end) {
+            last->end = a + n;
+        }
+    }
+    return 1;
+}
+
+/*
+ * Every write is kept twice: since the bind (a drop-in's snapshot) and since
+ * the last send. Solo, nothing sends: once the second list is full it stops
+ * (no cost per write) and says so, and the host's next send is everything.
+ */
+static void coopNoteWrite(u32 a, u32 n)
+{
+    rangeAdd(s_touched, &s_touchedCount, a, n, 1);
+    if (!s_pendingOverflow && !rangeAdd(s_pending, &s_pendingCount, a, n, 0)) {
+        s_pendingOverflow = 1;
+    }
+}
+
+static s32 copyRanges(const FsRange *r, s32 count, u32 *start, u32 *len, s32 cap)
+{
+    s32 i;
+
+    for (i = 0; i < count && i < cap; i++) {
+        start[i] = r[i].start;
+        len[i] = r[i].end - r[i].start;
+    }
+    return i;
+}
+
+s32 gevrFootstepsTakeWrites(u32 *start, u32 *len, s32 cap)
+{
+    s32 n;
+
+    if (s_pendingOverflow) {
+        /* some were not kept: the caller sends everything (gevrFootstepsTouchedWrites) */
+        s_pendingOverflow = 0;
+        s_pendingCount = 0;
+        return -1;
+    }
+    n = copyRanges(s_pending, s_pendingCount, start, len, cap);
+
+    /* what did not fit stays for the next call */
+    memmove(s_pending, s_pending + n, (size_t)(s_pendingCount - n) * sizeof(s_pending[0]));
+    s_pendingCount -= n;
+    return n;
+}
+
+s32 gevrFootstepsTouchedWrites(u32 *start, u32 *len, s32 cap)
+{
+    return copyRanges(s_touched, s_touchedCount, start, len, cap);
+}
+
+static int rangeOrder(const void *x, const void *y)
+{
+    const FsRange *a = (const FsRange *)x, *b = (const FsRange *)y;
+
+    return a->start < b->start ? -1 : a->start > b->start;
+}
+
+/* The written bytes as one number: FNV-1a over every written address once, in
+ * address order (however the ranges were recorded), so a host and a teammate
+ * whose last values agree hold the same hack memory. For the co-op log. */
+u32 gevrFootstepsWrittenHash(u32 vram0, u32 vram1)
+{
+    static FsRange sorted[FS_RANGES];
+    u32 h = 2166136261u, done = 0;
+    s32 i;
+
+    memcpy(sorted, s_touched, (size_t)s_touchedCount * sizeof(sorted[0]));
+    qsort(sorted, (size_t)s_touchedCount, sizeof(sorted[0]), rangeOrder);
+    for (i = 0; i < s_touchedCount; i++) {
+        u32 a = sorted[i].start > done ? sorted[i].start : done;
+
+        for (; a < sorted[i].end; a++) {
+            const u8 *w = a >= vram0 && a < vram1 ? gevrRomWindowBytes(a, 1) : NULL;
+
+            if (w) {
+                h = (h ^ (a & 0xff)) * 16777619u;
+                h = (h ^ *w) * 16777619u;
+            }
+        }
+        if (sorted[i].end > done) {
+            done = sorted[i].end;
+        }
+    }
+    return h;
+}
+
+/* A teammate's headset: the host's bytes, then the tables that read them. */
+void gevrFootstepsApplyWrite(u32 vram, const u8 *bytes, u32 len)
+{
+    u8 *w = gevrRomFootsteps() && len ? gevrRomWindowBytes(vram, len) : NULL;
+
+    if (!w) {
+        return;
+    }
+    memcpy(w, bytes, len);
+    rangeAdd(s_touched, &s_touchedCount, vram, len, 1);
+    gevrRomWindowChanged(vram, len);
+}
+
+/* The objectives' show/hide state (AI 0x36, its pokes): each flag and difficulty. */
+void gevrFootstepsObjectiveState(s16 *flags, s8 *difficulty)
+{
+    s32 i;
+
+    for (i = 0; i < OBJECTIVES_MAX; i++) {
+        flags[i] = g_ObjectiveFlag[i];
+        difficulty[i] = objective_ptrs[i] ? objective_ptrs[i]->difficulty : 0;
+    }
+}
+
+void gevrFootstepsSetObjectiveState(const s16 *flags, const s8 *difficulty)
+{
+    s32 i;
+
+    for (i = 0; i < OBJECTIVES_MAX; i++) {
+        g_ObjectiveFlag[i] = flags[i];
+        if (objective_ptrs[i]) {
+            objective_ptrs[i]->difficulty = difficulty[i];
+        }
+    }
 }

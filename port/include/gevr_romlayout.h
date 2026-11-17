@@ -162,12 +162,12 @@ void gevrRomCampaignSet(int campaign);
 int gevrRomCampaign(void);
 /* The campaign this machine plays: the loaded one, or before the game loads the launcher's (gevr_romload.c). */
 int gevrRomPlayCampaign(void);
-/* Online co-op: GoldenEye and the hacks whose scripts touch only the shared simulation. Mario Characters'
- * Footsteps pokes change each headset's own memory and are not sent yet. Deathmatch, Horde and bots stay
- * GoldenEye's: they use its multiplayer maps and tables. */
+/* Online co-op: every campaign. Mario Characters' level-script pokes reach the teammates as the bytes the
+ * host's scripts wrote (net_coop.c NET_MSG_COOP_POKES). Deathmatch, Horde and bots stay GoldenEye's: they use
+ * its multiplayer maps and tables. */
 static inline int gevrCampaignCoop(int campaign)
 {
-	return campaign >= GEVR_CAMPAIGN_GE && campaign < GEVR_CAMPAIGN_COUNT && campaign != GEVR_CAMPAIGN_MARIO;
+	return campaign >= GEVR_CAMPAIGN_GE && campaign < GEVR_CAMPAIGN_COUNT;
 }
 int gevrRomIsVariant(void);
 /* GoldenEye's own models and pictures: retail, or Mirror Mode's (flipped,

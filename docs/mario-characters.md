@@ -162,6 +162,37 @@ view, the Cheat Options page. On the PC (2026-11-16, `--boot-stage`, 25 s
 each), all 20 missions of its first page, Temple (38) and the credits (54)
 load and run their scripts: no crash, no address the port lacks.
 
+## Online co-op (2026-11-17)
+
+Only the host runs the level scripts; a teammate's guards are puppets. What
+Mario's pokes write to the hack's memory (gun and character files, scales,
+the mission folder, fog, music, its own variables) is sent as the bytes
+written: the poke engine logs each written range (`gevrFootstepsTakeWrites`,
+since the last send; `gevrFootstepsTouchedWrites`, since the bind), the host
+sends them each tick as `NET_MSG_COOP_POKES` and with each roster (a
+drop-in's snapshot), and a teammate copies them in and calls
+`gevrRomWindowChanged`, so its tables follow as the host's did. The same
+message carries the objectives' show/hide flags and difficulties (AI 0x36).
+If nothing took the log for a while (solo play) it stops logging and the
+host sends everything once.
+
+Checked: `test_footsteps.py` copies every range written by all 12,789
+commands into a fresh bind and gets the host's bytes (153 ranges, 1,295
+bytes); two PC copies in a co-op Dam log the same hash of the written
+memory on host and teammate.
+
+Not shared, by design or not yet:
+
+- The player's own fields (health, armour, outfit: 410 pokes, its power-up
+  loop) act on the host's player only; a teammate's health is GoldenEye's.
+- Play as, Tiny and Mushroom Mode follow the host's Cheat Options: the
+  host's script decides, and its renames reach everyone.
+- A teammate's body comes from GoldenEye's multiplayer character list, which
+  in a hack names its own characters by number (its multiplayer character
+  table, 0x80028490, is not bound).
+- Not checked: whether a teammate's guns and guards that load before the
+  first message arrives reload with the renamed files.
+
 ## Step 3: its missions (done)
 
 Page 2 is not code: Temple (stage 38, mission 19 of page 1) is a hub, and

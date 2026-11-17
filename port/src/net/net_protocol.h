@@ -116,6 +116,8 @@ typedef enum {
     /* Additive, no bump: an older host ignores the type. */
     NET_MSG_INPUT_CLASS = 59,   /* Client -> host: what I play with now (u8 NET_INPUT_*), when it changes after HELLO */
     NET_MSG_INPUT_CLASSES = 60, /* Host -> all: u8 n, then n x u8 NET_INPUT_* by slot (the roster's "Plays" column) */
+    /* Additive, no bump: only a Mario Characters party sends it, which older builds cannot join (NET_CONTENT_ROM). */
+    NET_MSG_COOP_POKES = 61,    /* Host -> all: its level scripts' writes to the hack's memory, and the objectives' show/hide (gevr_footsteps.c) */
 } NetMsgType;
 
 #define NET_DISCONNECT_KICKED 0x47454b49u

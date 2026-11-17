@@ -2147,10 +2147,10 @@ static void gevrFriendsSidebarWindow(bool onlineGame, const ImVec4 &gold, const 
     const char *lobby = netIsActive() ? netGetLobbyCode() : "";
     GevrFriendsUiContext ctx;
     ctx.canJoin = onlineGame && !netIsActive();
-    ctx.joinHint = !onlineGame ? "Online play needs GoldenEye, or a hack campaign with co-op (not Mario Characters yet)."
+    ctx.joinHint = !onlineGame ? "Online play needs the chosen campaign's ROM installed."
                                : "Leave your lobby to join another.";
     ctx.canInvite = onlineGame && (!netIsActive() || lobby[0]);
-    ctx.inviteHint = !onlineGame ? "Online play needs GoldenEye, or a hack campaign with co-op (not Mario Characters yet)."
+    ctx.inviteHint = !onlineGame ? "Online play needs the chosen campaign's ROM installed."
                      : lobby[0] ? "Invite them into your lobby."
                      : netIsActive() ? "This game has no internet lobby to invite into."
                      : "Starts a private lobby and invites them into it.";
@@ -3701,14 +3701,9 @@ extern "C" void gevrLauncherRun(void)
         };
         gevrLauncherTabRows(launcherTabs, [&](int tab, int sub) {
             if (tab == GEVR_LTAB_MULTIPLAYER) {
-                // Online play: GoldenEye, and co-op in the hacks whose scripts touch only
-                // the shared game (gevrCampaignCoop). A join compares the campaign and its
-                // ROM (net_core.c NET_CONTENT_*), so both sides load the same game.
-                if (!gevrCampaignCoop(VrCampaign) && !netIsActive()) {
-                    note("Mario Characters has no online play yet: its scripts change each headset's own game. "
-                         "Choose another campaign beside START, on any other tab.");
-                    return;
-                }
+                // Online play: GoldenEye's every mode, a hack campaign's co-op (gevrCampaignCoop).
+                // A join compares the campaign and its ROM (net_core.c NET_CONTENT_*), so both
+                // sides load the same game.
                 gevrMultiplayerPage(sub, start, romReady, gold, good, bad);
                 return;
             }

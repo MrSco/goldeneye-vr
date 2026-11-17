@@ -55,7 +55,7 @@ void drawFriends() {
     const bool open=lobby[0]&&netGetLivePlayerCount()<netGetMaxPlayers();
     GevrFriendsUiContext ctx;
     ctx.canJoin=gevrCampaignCoopOk(VrCampaign);   /* co-op in Goldfinger 64, TND and Mirror Mode too */
-    ctx.joinHint="Online play needs GoldenEye, or Goldfinger 64, Tomorrow Never Dies or Mirror Mode for co-op.";
+    ctx.joinHint="A friend's party plays one campaign: choose theirs beside START in the launcher.";
     ctx.canInvite=open;
     ctx.inviteHint=!netIsActive()?"Invite from a lobby: host one on the launcher's Multiplayer page."
         :!lobby[0]?"This game has no internet lobby to invite into.":!open?"This match is full.":"Invite them into this match.";

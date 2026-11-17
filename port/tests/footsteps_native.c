@@ -212,6 +212,43 @@ int main(int argc, char **argv)
 	fclose(f);
 	printf("fs ran %d\n", n);
 
+	/*
+	 * Co-op (net_coop.c NET_MSG_COOP_POKES): what the commands wrote, as a
+	 * teammate gets it. A fresh bind is the teammate's memory; the host's bytes
+	 * copied in give the same hash. Every command of every level writes 153
+	 * ranges, which the log since the last send holds (no overflow: 0 taken
+	 * with no room given, -1 would mean "send everything").
+	 */
+	{
+		static u32 st[2048], ln[2048];
+		s32 ranges = gevrFootstepsTouchedWrites(st, ln, 2048), i, total = 0, taken;
+		u32 host = gevrFootstepsWrittenHash(0, 0xffffffffu), fresh, mate;
+		u8 *saved, *at;
+
+		taken = gevrFootstepsTakeWrites(st, ln, 0);
+		gevrFootstepsTouchedWrites(st, ln, 2048);
+		for (i = 0; i < ranges; i++) {
+			total += (s32)ln[i];
+		}
+		saved = at = (u8 *)malloc((size_t)total + 1);
+		for (i = 0; i < ranges; i++) {
+			memcpy(at, gevrRomWindowBytes(st[i], ln[i]), ln[i]);
+			at += ln[i];
+		}
+		if (romcampaign_main(argc, argv) != 0) {
+			return 5;
+		}
+		gevrFootstepsBind();
+		fresh = gevrFootstepsWrittenHash(0, 0xffffffffu);
+		for (i = 0, at = saved; i < ranges; i++) {
+			gevrFootstepsApplyWrite(st[i], at, ln[i]);
+			at += ln[i];
+		}
+		mate = gevrFootstepsWrittenHash(0, 0xffffffffu);
+		printf("fs pokesync %d %d %d %d %d\n", ranges, total, taken, host == mate, fresh != host);
+		free(saved);
+	}
+
 	/* Temple's console list (page 2 of the mission select), in its order, on a freshly bound cartridge */
 	if (argc > 4) {
 		s32 i;

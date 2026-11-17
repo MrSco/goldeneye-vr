@@ -37,4 +37,19 @@ void gevrFootstepsSwapSkies(void);
 /* after binding: its cheat rows and its edited global AI lists */
 void gevrFootstepsBind(void);
 
+/*
+ * Online co-op (net_coop.c): the host shares what its scripts wrote to the
+ * hack's memory as bytes, and the objectives' show/hide state. Ranges are
+ * vram addresses and lengths; Take empties what it returns, Touched is
+ * everything since the bind (a drop-in's snapshot).
+ */
+/* -1: some writes were not kept (nothing took them for a while): send everything */
+s32 gevrFootstepsTakeWrites(u32 *start, u32 *len, s32 cap);
+s32 gevrFootstepsTouchedWrites(u32 *start, u32 *len, s32 cap);
+void gevrFootstepsApplyWrite(u32 vram, const u8 *bytes, u32 len);
+void gevrFootstepsObjectiveState(s16 *flags, s8 *difficulty);
+void gevrFootstepsSetObjectiveState(const s16 *flags, const s8 *difficulty);
+/* A hash of the written bytes in [vram0, vram1): the co-op log compares host and teammate */
+u32 gevrFootstepsWrittenHash(u32 vram0, u32 vram1);
+
 #endif
