@@ -995,6 +995,9 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
 
     if (AiListp) // continue if Has ailist (check once)
     {
+#ifdef GEVR
+        gevrCoopBondRoomPassed(NULL, -1);   /* a Bond room test counts only within this run */
+#endif
         // loop forever (or until broken)
         for (;;)
         {
@@ -2214,6 +2217,12 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
     #ifdef ENABLE_LOG
                         osSyncPrintf("BOND IN ROOM\n");
     #endif
+    #ifdef GEVR
+                        {
+                            extern s32 gevrPresetRoom(ChrRecord *self, s32 padnum);
+                            gevrCoopBondRoomPassed(AiListp, gevrPresetRoom(ChrEntityp, pad_id));
+                        }
+    #endif
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
                     }
                     else
@@ -2615,9 +2624,15 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     {
                         DoorRecord *door = (DoorRecord *)obj;
                         u8          bits = ai->LOCK_FLAG;
-                        door->keyflags   = door->keyflags | bits;
     #ifdef GEVR
-                        netSendHostDoorLock(obj);   /* co-op (#94): locked on every headset */
+                        /* co-op (#246): shut behind "Bond", locked once the whole party is through */
+                        if (!gevrCoopDeferBehindLock(AiListp, obj, bits))
+                        {
+                            door->keyflags = door->keyflags | bits;
+                            netSendHostDoorLock(obj);   /* co-op (#94): locked on every headset */
+                        }
+    #else
+                        door->keyflags   = door->keyflags | bits;
     #endif
                     }
                     Offset += sizeof(AiDoorSetLockRecord);

@@ -63,7 +63,7 @@ def build_core():
     keep.update({"netLocalInputClass","netInputClassName","netInputIsFlat","netGetFlatPlayerCount","netSendInputClass","netClientInputTick","netReceiveInputClass"})
     keep.update({"netSlotInputNow","netHostInputTableTick","netReceiveInputClasses","netGetSlotInputClass"})
     keep.update({"netSlotOwned","gevrNetOwnsSlot","netActingSlot","netSendHitReportAs","netSendOwnedMove","netIsRemotePlayerActive","netRemoteTrigger","netSlotIsBot","netGetHumanPlayerCount","netReleaseBotSlot","netAddBot","netUpdateBots","netBotPoints","netBotToReplace","netJoinSlot","gevrNetSlotIsBot","gevrNetBotRowsEditable"})
-    keep.update({"netMapShotTime","netResetCombatEpoch","netWriteCombatIdentity","netReadCombatIdentity","netImportCombatIdentity","netSendClockTo","netClockTick","netReceiveClock","netExplosiveWeapon","netAcceptHit","netReceiveHitReport","netBeginLocalShot","netEndLocalShot","netMakeLocalHit","netNextLife","netAcceptRespawn","netSendRespawnEvent","netSendLocalPlayerMove","netLocalIsSpectator","netReceiveDamageEvent","netReceiveRespawn","netCombatClocksReady"})
+    keep.update({"netMapShotTime","netResetCombatEpoch","netWriteCombatIdentity","netReadCombatIdentity","netImportCombatIdentity","netSendClockTo","netClockTick","netReceiveClock","netExplosiveWeapon","netAcceptHit","netReceiveHitReport","netBeginLocalShot","netEndLocalShot","netMakeLocalHit","netNextLife","netAcceptRespawn","netSendRespawnEvent","netSendLocalPlayerMove","netLocalIsSpectator","netReceiveDamageEvent","netReceiveRespawn","netCombatClocksReady","netPveLoadGraceOver"})
     replacements=[]
     for m in re.finditer(r"^[A-Za-z_][A-Za-z_ \t*]*?\s+([A-Za-z_]\w*)\([^;]*?\)\s*\{",masked,re.M):
         if m.group(1) in keep: continue
@@ -311,6 +311,7 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_launch_consent_and_scenario_transition(self): self.assertEqual(self.core.test_core_launch_consent(),0)
     def test_in_game_ready_packets_and_start(self): self.assertEqual(self.core.test_core_menu_ready(),0)
     def test_coop_ignores_team_scenario_for_ready(self): self.assertEqual(self.core.test_core_coop_team_scenario_ready(),0)
+    def test_coop_load_grace_drops_unloaded_teammate(self): self.assertEqual(self.core.test_core_coop_load_grace(),0)
     def test_horde_solo_launch_and_coop_rules(self): self.assertEqual(self.core.test_core_horde_lobby(),0)
     def test_horde_initial_party_and_late_admission(self): self.assertEqual(self.core.test_core_horde_admission(),0)
     def test_coop_guard_drops_detach_and_activate(self): self.assertEqual(self.coop_drops.test_coop_guard_drops(),0)

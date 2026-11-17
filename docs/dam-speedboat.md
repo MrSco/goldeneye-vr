@@ -25,7 +25,11 @@ campaign (their own levels sit in Dam's slot). The island's floor only covers pa
 ground there, which is how the stage was left; the landing is that pad.
 
 On the retail Dam the picker takes jetty pad 238 (unused, at the waterline)
-and an island pad about 305 m across: pads 79-81 stand on a patch of floor with
-no tile link to the rest of the stage, 259-268 on the island's hut.
+and an island pad about 300 m across on the patch of floor under pads 79-81,
+which has no tile link to the rest of the stage. A pad counts only with floor
+under it at its height: the hut's pads 259-268 name tiles but stand over the
+water, and the landing was one of them until #247 (the player stepped off onto
+nothing and could not move). Stepping off puts Bond on the floor found under
+the landing pad.
 `GEVR_GE_ROM=<ge.z64> python port/tests/test_speedboat.py` checks that choice
 on the player's own ROM.

@@ -182,6 +182,33 @@ static void gevrDamBoatMarkUsed(s32 count)
 
 static void gevrDamBoatAdoptTile(struct PropRecord *prop, struct StandTile *tile);
 
+/*
+ * The floor under a pad at its own height, NULL none. A pad's stan is the
+ * tile its setup names, not always one it stands over: Dam's hut pads
+ * (259-268) name tiles but sit over the water beside the island, and the
+ * island landing was one of them, so a player who stepped off there stood
+ * on nothing and could not move (#247). The island's real floor is the
+ * patch under pads 79-81.
+ */
+static struct StandTile *gevrDamBoatFloorAt(const struct coord3d *at, f32 *floory)
+{
+    struct coord3d probe = *at;
+    struct StandTile *tile;
+    f32 y = 0.0f;
+
+    probe.y += 100.0f;
+    tile = stanFindTileBelowPos(&probe, NULL, &y);
+    if (tile == NULL || at->y - y > 200.0f)
+    {
+        return NULL;
+    }
+    if (floory != NULL)
+    {
+        *floory = y;
+    }
+    return tile;
+}
+
 /* Ends the ride with Bond standing on a pad: the island landing, or the
  * north jetty when the hull is lost under him. */
 static void gevrDamBoatStepOffAt(s32 padnum)
@@ -194,6 +221,33 @@ static void gevrDamBoatStepOffAt(s32 padnum)
         return;
     }
     pad = &g_CurrentSetup.pads[padnum];
+    {
+        /* onto the floor found under the pad, the tile Bond walks from */
+        f32 floory = pad->pos.y;
+        struct StandTile *floor = gevrDamBoatFloorAt(&pad->pos, &floory);
+
+        if (floor != NULL)
+        {
+            g_CurrentPlayer->field_488.collision_position.f[0] = pad->pos.x;
+            g_CurrentPlayer->field_488.collision_position.f[2] = pad->pos.z;
+            g_CurrentPlayer->field_70 = floory;
+            g_CurrentPlayer->stanHeight = floory;
+            g_CurrentPlayer->field_7C = 0.0f;
+            g_CurrentPlayer->speedforwards = 0.0f;
+            g_CurrentPlayer->speedsideways = 0.0f;
+            g_CurrentPlayer->speedtheta = 0.0f;
+            g_CurrentPlayer->field_488.current_tile_ptr = floor;
+            gevrDamBoatAdoptTile(g_CurrentPlayer->prop, floor);
+            if (g_CurrentPlayer->prop != NULL)
+            {
+                g_CurrentPlayer->prop->pos.x = pad->pos.x;
+                g_CurrentPlayer->prop->pos.y = floory;
+                g_CurrentPlayer->prop->pos.z = pad->pos.z;
+            }
+            return;
+        }
+        sysLogPrintf(LOG_NOTE, "dam boat: no floor under pad %d; stepped off on its own tile", padnum);
+    }
     g_CurrentPlayer->field_488.collision_position.f[0] = pad->pos.x;
     g_CurrentPlayer->field_488.collision_position.f[2] = pad->pos.z;
     g_CurrentPlayer->field_70 = pad->pos.y;
@@ -372,7 +426,8 @@ void gevrDamBoatPrepare(s32 stageId)
         s_pads[i].y = pad->pos.y;
         s_pads[i].z = pad->pos.z;
         s_pads[i].used = 0;
-        s_pads[i].has_stan = pad->stan != NULL;
+        /* standable: a floor under it, not only a named tile (#247) */
+        s_pads[i].has_stan = pad->stan != NULL && gevrDamBoatFloorAt(&pad->pos, NULL) != NULL;
     }
     gevrDamBoatMarkUsed(count);
     if (!gevrBoatChoosePads(s_pads, count, &place))

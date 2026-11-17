@@ -122,11 +122,15 @@ def test_dam_speedboat():
             # 259-268 (no tile names) are the island's hut
             return ((pads[i][0] - pads[81][0]) ** 2 + (pads[i][2] - pads[81][2]) ** 2) ** 0.5 < 2000
 
-        # the game finds a floor near a pad its tile misses, so the choice must not hang on those
-        for label, chosen in (("on the floor", pads), ("all", [p[:4] + [1] for p in pads])):
-            jetty, island = choose(exe, temp, chosen)
-            assert on_island(island), "%s pads: island pad %d is not on the reservoir island" % (label, island)
-            assert jetty == 238, "%s pads: jetty pad %d, not the unused waterline pad 238" % (label, jetty)
+        # The game counts a pad only with floor under it (gevrDamBoatFloorAt). The hut's
+        # pads name tiles but stand over the water, and stepping off there left the
+        # player on nothing (#247): the landing must be on the island's floor patch.
+        jetty, island = choose(exe, temp, pads)
+        assert on_island(island), "island pad %d is not on the reservoir island" % island
+        assert pads[island][4], "island pad %d has no floor under it (#247)" % island
+        assert island in (79, 80, 81), "island pad %d, not the floor patch 79-81" % island
+        assert jetty == 238, "jetty pad %d, not the unused waterline pad 238" % jetty
+        assert not any(pads[i][4] for i in range(259, 269)), "the hut pads 259-268 now have floor under them"
         crossing = ((pads[238][0] - pads[island][0]) ** 2 + (pads[238][2] - pads[island][2]) ** 2) ** 0.5
         print("PASS: Dam's %d pads: jetty 238, island %d, %.0f m across" % (len(pads), island, crossing / 100))
 

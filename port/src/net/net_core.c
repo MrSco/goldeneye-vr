@@ -102,6 +102,8 @@ static uint64_t s_slot_grace_us[GEVR_MAX_PLAYERS];   /* new host: a slot kept fo
 static uint64_t s_slot_heard_us[GEVR_MAX_PLAYERS];   /* last application packet from this remote slot */
 static uint64_t s_host_heard_us;                     /* client: last application packet from the host */
 #define NET_SILENCE_TIMEOUT_US (30ull * 1000000ull)
+/* co-op/Horde (#245): a teammate still not loaded this long after the host is dropped */
+#define NET_PVE_LOAD_GRACE_US (60ull * 1000000ull)
 static void netBroadcastAllVotes(void);
 static void netClearVotes(int slot);
 static void netBroadcastVotes(int kind);
@@ -203,6 +205,7 @@ static bool s_waiting_for_match_snapshot = false;
 static bool s_stage_ready_sent = false;
 static int s_loaded_map = -1; /* the round's stage code as loaded: Facility and Facility (Full) share a LEVELID (PR #224) */
 static uint64_t s_last_stage_ready_us = 0;
+static uint64_t s_host_loaded_us = 0;   /* the host: its own load of this round, 0 none yet */
 
 /* Current Lobby State */
 static NetMsgLobbyState s_lobby_state;
@@ -1928,6 +1931,7 @@ static void netBeginRoundReset(bool start) {
     netBroadcastRoundPhase(NET_PHASE_WARMUP);
     s_round_reset_pending = true;
     s_round_reset_loading = true;
+    s_host_loaded_us = 0;
     netBroadcastRoundNotice();
 }
 
@@ -2042,8 +2046,33 @@ static void netTryHostStartRequest(void) {
     }
 }
 
+/*
+ * Co-op/Horde (#245): until every teammate has loaded, the host holds the
+ * mission in its loading state, which also holds the guards' sync, revives
+ * and the end's return to the menus. A teammate whose headset never confirmed
+ * the load (stuck, or its STAGE_READY lost with the link) held all of that
+ * for the whole mission: the party played on, a downed player stayed down,
+ * and the exit faded to black for good. Once the host has been loaded for
+ * NET_PVE_LOAD_GRACE_US, such a slot is dropped like a silent one (it can
+ * join again: drop-in), and the clock check stops holding the party.
+ */
+static bool netPveLoadGraceOver(void) {
+    uint64_t now = sysGetMicroseconds();
+    if (!netIsHost() || !s_round_reset_loading || !netModePve(s_round.config.mode) || !s_host_loaded_us ||
+        now - s_host_loaded_us < NET_PVE_LOAD_GRACE_US) return false;
+    for (int i = 0; i < s_max_players && i < GEVR_MAX_PLAYERS; i++) {
+        if (i == s_local_slot || !s_lobby_state.slots[i].connected || s_lobby_state.slots[i].loaded || netSlotIsBot(i))
+            continue;
+        NET_LOG("Slot %d has not loaded the mission %llu s after the host: dropping", i,
+                (unsigned long long)((now - s_host_loaded_us) / 1000000ull));
+        netHostDropSlot(i, s_client_peers[i]);
+    }
+    return true;
+}
+
 static void netReadyProgress(void) {
-    if (!netIsHost() || !netAllLoaded() || !netCombatClocksReady()) return;
+    bool grace_over = netPveLoadGraceOver();
+    if (!netIsHost() || !netAllLoaded() || (!netCombatClocksReady() && !grace_over)) return;
     if (netModePve(s_round.config.mode)) {
         /* the next mission (netCoopTick) is under way once everyone has loaded it, alone too */
         if (s_round_reset_loading) {
@@ -2102,6 +2131,7 @@ void netStageLoaded(void) {
     } else {
         for (int i = 0; i < GEVR_MAX_PLAYERS; i++)
             if (netSlotIsBot(i)) s_lobby_state.slots[i].loaded = 1;
+        s_host_loaded_us = sysGetMicroseconds();
         netBroadcastLobbyState();
         netReadyProgress();
     }

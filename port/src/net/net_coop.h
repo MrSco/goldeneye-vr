@@ -69,6 +69,8 @@ void netSendHostDoorState(struct ObjectRecord *door, int state);   /* propobj.c 
 void netSendHostDoorLock(struct ObjectRecord *door);               /* chrai.c AI_DoorSetLock / UnsetLock */
 void netSendHostGlassBreak(struct ObjectRecord *obj);              /* propobj.c: the host shattered a setup pane */
 void gevrCoopScriptEffect(struct AIRecord *list, int offset);      /* chrai.c: a shared effect from a local mission list */
+void gevrCoopBondRoomPassed(struct AIRecord *list, int room);      /* chrai.c AI_IFBondInRoomWithPad passed (NULL: a new run) */
+int gevrCoopDeferBehindLock(struct AIRecord *list, struct ObjectRecord *door, unsigned char bits);   /* chrai.c AI_DoorSetLock */
 
 /* The mission: the host's, shown everywhere (objective_status.c, chrai.c, gunfire.c) */
 int gevrCoopHostObjectiveStatus(int objective);   /* a teammate's headset: the host's status */

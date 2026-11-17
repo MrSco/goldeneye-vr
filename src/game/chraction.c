@@ -11261,6 +11261,26 @@ bool check_if_actor_is_at_preset(ChrRecord *self, s32 padnum)
     return FALSE;
 }
 
+#ifdef GEVR
+/* The room check_if_actor_is_at_preset tests "Bond" against, -1 none
+ * (co-op: a door the script shuts behind Bond, net_coop.c). */
+s32 gevrPresetRoom(ChrRecord *self, s32 padnum)
+{
+    PadRecord *pad;
+
+    padnum = chrResolvePadId(self, padnum);
+    if (isNotBoundPad(padnum))
+    {
+        pad = (PadRecord *)&g_CurrentSetup.pads[padnum];
+    }
+    else
+    {
+        pad = (PadRecord *)&g_CurrentSetup.boundpads[getBoundPadNum(padnum)];
+    }
+    return pad->stan ? pad->stan->room : -1;
+}
+#endif
+
 
 /**
  * Address 0x7F0344FC.
