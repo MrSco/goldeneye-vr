@@ -14,12 +14,17 @@ Cougar/Golden Gun grip caps), co-op Frigate defuser and hostages (#241),
 Bean unlit faces, Bean 16:9 front end, flat hands (#238), Windows without a
 console, iOS crash-prompt and controller fixes. Plays online with v0.5.15
 to v0.5.17. Downloads as v0.5.17's (8 files, same commit).
-**Next batch** (branch t3/66d9016a, not pushed, no build yet): co-op Control
-door locked behind the host (#246, lock waits for the party), co-op mission
-held by a teammate that never loaded (#245: Depot exit black, downed player
-never revived; dropped 60 s after the host loads); Dam boat landing on the
-island floor (#247: the hut pad it used had no floor). Needs two headsets
-(#245/#246); #247 not headset-run (Guardian prompt blocked the launch).
+**Next batch** (branch release/v0.5.19, not pushed): the t3/66d9016a fixes
+(co-op Control door locked behind the host #246, lock waits for the party;
+co-op mission held by a teammate that never loaded #245, dropped 60 s after
+the host loads; Dam boat lands on the island floor #247), the native Vision
+Pro build (claude/visionos-native, TestFlight build 14), the Mario
+Characters campaign and co-op in every hack campaign (t3/a9e4fd65, PR #248,
+docs/mario-characters.md), and PC VR quitting when the runtime ends the
+session (report fa49c715: no false crash prompt). Suite 109/109 with the
+Mario ROM; Quest APK and both PC exes build. Not yet headset-run: Mario,
+Dam boat to the island, co-op #245/#246 (two headsets), PC VR quit from
+the SteamVR dashboard; visionOS still to build on the Mac.
 
 ## Platforms (docs/pc-platforms.md, docs/mobile-platforms.md)
 
