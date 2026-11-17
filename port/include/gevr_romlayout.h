@@ -3,14 +3,16 @@
 
 /*
  * Measured layouts for Goldfinger 64 1.0, Tomorrow Never Dies 64
- * Expanded 06-22 and Wreck's Mirror Mode (August 2017). The GF64/TND64
+ * Expanded 06-22, Wreck's Mirror Mode (August 2017) and GoldenEye with
+ * Mario Characters V3.17. The GF64/TND64
  * numbers come from perfect-dark-dabs-mod's g_Layouts (port/src/geconvert.c),
  * MIT License, Copyright (c) 2022 Ryan Dwyer, measurements by Dab. Mirror
- * Mode was measured from Wreck's patch; see docs/mirror-mode.md. This header
+ * Mode was measured from Wreck's patch; see docs/mirror-mode.md, and Mario
+ * Characters from its V3.17 patch; see docs/mario-characters.md. This header
  * does not pull that converter in.
  *
  * Retail ge.z64 stays where it is. The hacks live beside it
- * (goldfinger64.z64, tnd64.z64, mirror.z64). The launcher campaign picks which file
+ * (goldfinger64.z64, tnd64.z64, mirror.z64, mario.z64). The launcher campaign picks which file
  * romdataInit binds.
  */
 
@@ -29,11 +31,13 @@ extern "C" {
 #define GEVR_CAMPAIGN_GF64 1
 #define GEVR_CAMPAIGN_TND64 2
 #define GEVR_CAMPAIGN_MIRROR 3
-#define GEVR_CAMPAIGN_COUNT 4
+#define GEVR_CAMPAIGN_MARIO 4
+#define GEVR_CAMPAIGN_COUNT 5
 
 #define GEVR_ROM_GF_FILE  "goldfinger64.z64"
 #define GEVR_ROM_TND_FILE "tnd64.z64"
 #define GEVR_ROM_MIRROR_FILE "mirror.z64"
+#define GEVR_ROM_MARIO_FILE "mario.z64"
 /* Written when a chosen campaign did not load; the launcher shows it and deletes it. */
 #define GEVR_CAMPAIGN_FAILED_FILE "gevr_campaign_failed.txt"
 
@@ -116,6 +120,38 @@ struct gevrRomLayout {
 	 * GoldenEye's address).
 	 */
 	uint32_t rarelogo;
+	/*
+	 * Tables Mario Characters moved inside its data segment; 0 keeps
+	 * GoldenEye's address: animation_table_ptrs1[] and ptrs2[]
+	 * (initanitable.c), boss.c's memallocstringtable, and random_tracks
+	 * (0: right after the music table's end row, as GoldenEye has it).
+	 */
+	uint32_t animtable1, animtable2;
+	uint32_t memstrings;
+	uint32_t randomtracks;
+	/*
+	 * bodyChooseHead()'s random offset into a pool (7F0235F4): GoldenEye and
+	 * Goldfinger add (seed >> 16) & 3, Mario Characters & 15 (0 means 3).
+	 * headwomen: the offset applies to women too (Mario Characters drops
+	 * Goldfinger's men-only test at 7F0235F8).
+	 */
+	uint8_t headmask;
+	uint8_t headwomen;
+	/*
+	 * Carnivorous' Footsteps patch drives the campaign (gevr_footsteps.c):
+	 * its scripts' memory pokes (AI 0x2B with the PRINT after it), its
+	 * reworked AI commands and hooks. Mario Characters; TND64 carries the
+	 * same patch but its port drops the pokes (aihooks).
+	 */
+	uint8_t footsteps;
+	/*
+	 * Its multiplayer characters (front.c mp_chr_setup, 12-byte rows: name,
+	 * gender, portrait, body, head, eye height) and how many its character
+	 * select offers (7F011D50's count). 0: GoldenEye's compiled table. A co-op
+	 * teammate's body is the row its lobby character names.
+	 */
+	uint32_t mpchars;
+	uint8_t mpcharcount;
 };
 
 struct gevrDataWindow {
@@ -132,6 +168,15 @@ struct gevrRomFileRow {
 
 void gevrRomCampaignSet(int campaign);
 int gevrRomCampaign(void);
+/* The campaign this machine plays: the loaded one, or before the game loads the launcher's (gevr_romload.c). */
+int gevrRomPlayCampaign(void);
+/* Online co-op: every campaign. Mario Characters' level-script pokes reach the teammates as the bytes the
+ * host's scripts wrote (net_coop.c NET_MSG_COOP_POKES). Deathmatch, Horde and bots stay GoldenEye's: they use
+ * its multiplayer maps and tables. */
+static inline int gevrCampaignCoop(int campaign)
+{
+	return campaign >= GEVR_CAMPAIGN_GE && campaign < GEVR_CAMPAIGN_COUNT;
+}
 int gevrRomIsVariant(void);
 /* GoldenEye's own models and pictures: retail, or Mirror Mode's (flipped,
  * gevr_mirror.h). Bean and HD packs need them; Goldfinger's and TND's are
@@ -173,6 +218,21 @@ int gevrRomParseFiles(const uint8_t *data, uint32_t dataLen,
 void gevrRomDecodeImage(uint32_t word, uint32_t stride, uint32_t mask,
 		uint32_t *hitSound, uint32_t *hitTexture, uint32_t *size);
 
+/*
+ * The cartridge's memory as a Footsteps campaign's scripts see it: its data
+ * segment and Expansion Pak pieces, writable (NULL outside them or with no
+ * hack bound). After writing, gevrRomWindowChanged reads the tables the
+ * binder copied out of the range again.
+ */
+uint8_t *gevrRomWindowBytes(uint32_t vram, uint32_t need);
+void gevrRomWindowChanged(uint32_t vram, uint32_t len);
+int gevrRomFootsteps(void);
+/* An AI list's bytes through its end command, by GoldenEye's command lengths; 0 if it does not end within max */
+uint32_t gevrRomAiListLength(const uint8_t *code, uint32_t max);
+uint32_t gevrRomAiCommandLength(const uint8_t *code, uint32_t max, uint32_t at);
+/* bheadUpdatePos's (1 - 0.93) factor, the hack's own; -1 is GoldenEye's (bondhead.c) */
+extern float g_GevrHeadPosOut;
+
 /* Put the hack's file table back in file_resource_table (obInit rebinds it). */
 int gevrRomRebindVariantFiles(void);
 
@@ -193,6 +253,8 @@ int gevrRomBondOutfit(int cuff, int *body, int *head);
 /* A hack's own random-head pools (Goldfinger): level init, and the head for a record's -1 or -2.
  * Both return 0 / -1 where the campaign has none, and GoldenEye's code runs. */
 int gevrRomHeadPoolsLevelInit(void);
+/* The cartridge's text bank for a stage (language.c's switch, decoded): -1 none, -2 GoldenEye's switch applies. */
+int gevrRomLangBank(int stage);
 /* The hack's own memory split for a stage (boss.c memallocstringtable), or NULL. */
 const char *gevrRomStageMemString(int stage, int multi);
 /* 1 or 0 when the hack flags its lamps in the image table; -1: GoldenEye's own list applies. */

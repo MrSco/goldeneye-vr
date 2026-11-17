@@ -31,6 +31,7 @@
 #include "mp_weapon.h"
 #include "math_floor.h"
 #include "objective_status.h"
+#include "gevr_footsteps.h"
 #include "player.h"
 #include "spectrum.h"
 #include "textrelated.h"
@@ -832,6 +833,11 @@ struct MP_selectable_chars mp_chr_setup[] = {
 };
 #endif
 
+#ifdef GEVR
+/* The rows a hack campaign's own table fills (gevr_romcampaign.c installMpChars). */
+const s32 gevrMpCharRows = sizeof(mp_chr_setup) / sizeof(mp_chr_setup[0]);
+#endif
+
 
 struct MP_handicap_menu MP_handicap_table[] = {
     {getStringID(LTITLE, TITLE_STR_61_HERO), 0, 10.0},       // "Health -10\n(Hero)"
@@ -1153,6 +1159,9 @@ static s32 frontCheckIfCheatIsUnlockedInSave(s32 cheat);
 s32 frontCheckIfCheatIsUnlocked(s32 cheat)
 {
     extern int VrUnlockAll;
+
+    /* Mario Characters unlocks some cheats as others are (its jump table at 0x800518A0) */
+    cheat = gevrFootstepsCheatUnlockAs(cheat);
 
     if (VrUnlockAll && cheat >= CHEAT_INVINCIBILITY && cheat <= CHEAT_2X_LASER)
     {
@@ -7100,7 +7109,15 @@ Gfx *print_objectives_and_status_to_menu(Gfx *DL, s32 arg1, u8 *arg2, s32 arg3)
 
     for (i = 0; i < OBJECTIVES_MAX; i++)
     {
+#ifdef GEVR
+        /* Mario Characters shows an objective by its scripts' flag here, not in the pause list (0x80004EA4) */
+        s32 gevrFrom = arg3 ? gevrFootstepsObjectiveDifficulty(i, ptrbriefingdata->objective[i].enabled_difficulty)
+                            : ptrbriefingdata->objective[i].enabled_difficulty;
+
+        if (ptrbriefingdata->objective[i].textid != 0 && selected_difficulty >= gevrFrom)
+#else
         if (ptrbriefingdata->objective[i].textid != 0 && selected_difficulty >= ptrbriefingdata->objective[i].enabled_difficulty)
+#endif
         {
             v1 = ptrbriefingdata->objective[i].textid;
             text = langGet(v1);
@@ -7460,7 +7477,12 @@ s32 frontCompleteAllObjectivesAliveSuccess(void)
     for (i=0; i<10; i++)
     {
         if (ptrbriefingdata->objective[i].textid != 0
+#ifdef GEVR
+            /* a hidden Mario Characters objective counts once its scripts show it (0x80004E98) */
+            && lvlGetSelectedDifficulty() >= gevrFootstepsObjectiveDifficulty(i, ptrbriefingdata->objective[i].enabled_difficulty)
+#else
             && lvlGetSelectedDifficulty() >= ptrbriefingdata->objective[i].enabled_difficulty
+#endif
             && get_status_of_objective(i) != OBJECTIVESTATUS_COMPLETE)
             {
                 return 0;
@@ -7999,16 +8021,23 @@ void interface_menu15_cheat(void)
         }
         else
         {
-            if (totalunlockedcheats >= 0xD)
+#ifdef GEVR
+            /* Mario Characters' list is fourteen to a column from higher up (gevr_footsteps.c) */
+            const s32 rows = gevrFootstepsCheatRows(), top = gevrFootstepsCheatTop();
+#else
+            const s32 rows = 0xC, top = 0x35;
+#endif
+
+            if (totalunlockedcheats >= rows + 1)
             {
-                i = totalunlockedcheats - 0xD;
+                i = totalunlockedcheats - (rows + 1);
                 if ((s32) cursor_h_pos >= 0xDC)
                 {
                     for (; i >= 0; i--)
                     {
-                        if ((s32) cursor_v_pos >= (i * 0x14) + 0x35)
+                        if ((s32) cursor_v_pos >= (i * 0x14) + top)
                         {
-                            cheathighlighted = i + 0xC;
+                            cheathighlighted = i + rows;
                             break;
                         }
                     }
@@ -8017,13 +8046,13 @@ void interface_menu15_cheat(void)
 
             if (cheathighlighted == 0)
             {
-                i = (totalunlockedcheats >= 0xD)
-                    ? 0xB
+                i = (totalunlockedcheats >= rows + 1)
+                    ? rows - 1
                     : totalunlockedcheats - 1;
 
                 for (; i >= 0; i--)
                 {
-                    if ((s32) cursor_v_pos >= (i * 0x14) + 0x35)
+                    if ((s32) cursor_v_pos >= (i * 0x14) + top)
                     {
                         cheathighlighted = i;
                         break;
@@ -8098,13 +8127,20 @@ Gfx * constructor_menu15_cheat(Gfx *DL)
     DL = frontSetupMenuBackground(DL);
     DL = microcode_constructor(DL);
 
-    for (var_fp = 0; var_fp < ((totalunlockedcheats >= 0xD) ? 0xC : totalunlockedcheats); var_fp++)
+#ifdef GEVR
+    /* Mario Characters' list is fourteen to a column from higher up (gevr_footsteps.c) */
+    const s32 rows = gevrFootstepsCheatRows(), top = gevrFootstepsCheatTop();
+#else
+    const s32 rows = 0xC, top = 0x35;
+#endif
+
+    for (var_fp = 0; var_fp < ((totalunlockedcheats >= rows + 1) ? rows : totalunlockedcheats); var_fp++)
     {
         temp_v0 = cheatGetMenuTextPointer(arrayUnlockedCheats[var_fp]);
         textMeasure(&sp80, &sp7C, temp_v0, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
 
         sp88 = 0x37;
-        sp84 = (var_fp * 0x14) + 0x35;
+        sp84 = (var_fp * 0x14) + top;
         if ((var_fp == cheathighlighted) && (frontCheckCursorOnPreviousTab() == 0))
         {
             DL = microcode_constructor_related_to_menus(DL, sp88 - 2, sp84 - 1, sp88 + sp7C + 5, sp84 + 0xE, 0x32);
@@ -8117,34 +8153,34 @@ Gfx * constructor_menu15_cheat(Gfx *DL)
         textMeasure(&sp80, &sp7C, temp_v0, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
 
         sp88 = 0xB3;
-        sp84 = (var_fp * 0x14) + 0x35;
+        sp84 = (var_fp * 0x14) + top;
 
         DL = frontPrintText(DL, &sp88, &sp84, temp_v0, ptrFontZurichBoldChars, ptrFontZurichBold, (g_CheatActivated[arrayUnlockedCheats[var_fp]]) ? 0xA00000FF : 0xFF, viGetX(), viGetY(), 0, 0);
     }
 
-    if (totalunlockedcheats >= 0xd)
+    if (totalunlockedcheats >= rows + 1)
     {
-        for (var_fp = 0; var_fp < (totalunlockedcheats - 0xC); var_fp++)
+        for (var_fp = 0; var_fp < (totalunlockedcheats - rows); var_fp++)
         {
-            temp_v0 = cheatGetMenuTextPointer(arrayUnlockedCheats[var_fp + 12]);
+            temp_v0 = cheatGetMenuTextPointer(arrayUnlockedCheats[var_fp + rows]);
             textMeasure(&sp80, &sp7C, temp_v0, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
 
             sp88 = 0xDC;
-            sp84 = (var_fp * 0x14) + 0x35;
-            if ((var_fp + 0xc == cheathighlighted) && (frontCheckCursorOnPreviousTab() == 0))
+            sp84 = (var_fp * 0x14) + top;
+            if ((var_fp + rows == cheathighlighted) && (frontCheckCursorOnPreviousTab() == 0))
             {
                 DL = microcode_constructor_related_to_menus(DL, sp88 - 2, sp84 - 1, sp88 + sp7C + 5, sp84 + 0xE, 0x32);
             }
 
             DL = frontPrintText(DL, &sp88, &sp84, temp_v0, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
 
-            strID  = (g_CheatActivated[arrayUnlockedCheats[var_fp + 12]]) ? getStringID(LTITLE, TITLE_STR_115_ON) : getStringID(LTITLE, TITLE_STR_116_OFF);
+            strID  = (g_CheatActivated[arrayUnlockedCheats[var_fp + rows]]) ? getStringID(LTITLE, TITLE_STR_115_ON) : getStringID(LTITLE, TITLE_STR_116_OFF);
             temp_v0 = langGet(strID);
             textMeasure(&sp80, &sp7C, temp_v0, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
 
             sp88 = 0x158;
-            sp84 = (var_fp * 0x14) + 0x35;
-            strID = (g_CheatActivated[arrayUnlockedCheats[var_fp + 12]]) ? 0xA00000FF : 0xFF;
+            sp84 = (var_fp * 0x14) + top;
+            strID = (g_CheatActivated[arrayUnlockedCheats[var_fp + rows]]) ? 0xA00000FF : 0xFF;
 
             DL = frontPrintText(DL, &sp88, &sp84, temp_v0, ptrFontZurichBoldChars, ptrFontZurichBold, strID, viGetX(), viGetY(), 0, 0);
         }
@@ -8325,6 +8361,36 @@ void init_menu18_displaycast(void)
     { 
         body = BODY_Trevelyan_Janus; 
     } 
+
+#ifdef GEVR
+    /*
+     * Mario Characters' cast keeps GoldenEye's draws on its own slots
+     * (7F0187C4-7F0188B8): Mario (0x7A) in one of his outfits 0x16-0x19 with
+     * the invisible head, Peach's slot (0x7C) now and then as 0x2D, Luigi's
+     * (0x7B) as 8.
+     */
+    if (gevrRomFootsteps() && body == 0x7a)
+    {
+        const u32 pick = randomGetNext() % 5U;
+
+        if (pick != 0)
+        {
+            body = 0x15 + (s32)pick;
+            head = 0x4e;
+        }
+    }
+    else if (gevrRomFootsteps() && body == 0x7c)
+    {
+        if (randomGetNext() & 1)
+        {
+            body = 0x2d;
+        }
+    }
+    else if (gevrRomFootsteps() && body == 0x7b && (randomGetNext() & 1))
+    {
+        body = 8;
+    }
+#endif
 
     if (head == HEAD_RANDOM) 
     { 
@@ -9248,3 +9314,53 @@ Gfx * menu_jump_constructor_handler(Gfx *DL)
 #endif
     return DL;
 }
+
+#ifdef GEVR
+/*
+ * A co-op party's whereabouts for the friends list, the pause menu and the
+ * launcher (net_match.c netCoopStageName names GoldenEye's missions). In a
+ * hack campaign its missions sit in GoldenEye's stage slots under its own
+ * names: they are named as its mission select names them, from the folder the
+ * binder installed and its title bank (the mission select's icon or folder
+ * text). Before the game has loaded that text, "a mission".
+ */
+const char *gevrCoopStageLabel(u8 stage)
+{
+    extern void *g_LangBanks[45];   /* language.c */
+    extern const char *netCoopStageName(u8 level_id);   /* net_match.c */
+    static char name[48];
+    s32 i;
+
+    if (!gevrRomIsVariant() || stage == 90 /* NET_COOP_FRONT_STAGE */)
+    {
+        return netCoopStageName(stage);
+    }
+    for (i = 0; mission_folder_setup_entries[i].folder_text_preset; i++)
+    {
+        const struct mission_folder_setup *e = &mission_folder_setup_entries[i];
+        const u16 id = e->icon_text_preset ? e->icon_text_preset : e->folder_text_preset;
+        const char *text;
+        size_t n;
+
+        if (e->type != MISSION_PART || e->stage_id != stage)
+        {
+            continue;
+        }
+        text = g_LangBanks[id >> 10] ? (const char *)langGet(id) : NULL;
+        if (text == NULL)
+        {
+            break;
+        }
+        /* titles end in a newline */
+        n = strcspn(text, "\n");
+        if (n >= sizeof(name))
+        {
+            n = sizeof(name) - 1;
+        }
+        memcpy(name, text, n);
+        name[n] = '\0';
+        return name;
+    }
+    return "a mission";
+}
+#endif

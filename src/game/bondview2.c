@@ -763,7 +763,11 @@ static void gevrCheatProbe(s32 inlevel)
         { "maxammo", CHEAT_MAXAMMO }, { "infammo", CHEAT_INFINITE_AMMO },
     };
     static u32 tick;
+#ifdef GEVR_PC
+    const char *path = "gevr_cheat.txt";   /* the PC game runs in its own folder */
+#else
     const char *path = "/sdcard/Android/data/com.gevr.port/files/gevr_cheat.txt";
+#endif
     char word[32];
     FILE *fp;
     s32 i, id;
@@ -22455,6 +22459,11 @@ void hudmsgBottomShow(char *mess)
         assert(strlen(mess)<=MAXMESSAGELEN);
     #endif
 #ifdef GEVR
+    /* langGet() returns NULL for a bank or slot that is not loaded (logged there) */
+    if (mess == NULL)
+    {
+        return;
+    }
     /* Online only the local player's row is drawn (hudmsgBottomRender from
      * maybe_mp_interface); a host's bot or another player's copy posts nothing
      * (user: the bots' pickups showed on the host's screen) */
@@ -22756,6 +22765,9 @@ void hudmsgTopShow(char* mess)
     #ifdef DEBUG
         assert(strlen(mess)<=MAXTALKMESSLEN);
     #endif
+#ifdef GEVR
+    if (mess == NULL) { return; }   /* langGet(): bank or slot not loaded */
+#endif
     if (display_upper_text_window >= 2) { return; }
 
     index = (upper_text_buffer_index + display_upper_text_window) % 2;

@@ -253,7 +253,7 @@ void gevrRomSwapAnimationData(u8 *data, u32 size)
 	gevrSwapAnimRecords(data, size, gevrAnimHeaderOffsets, ARRAYCOUNT(gevrAnimHeaderOffsets));
 }
 
-u8 *gevrRomRebuildAnimationData(const u8 *hack, u32 hackSize, const u32 *geOfs, const u32 *hackOfs, u32 count,
+u8 *gevrRomRebuildAnimationData(const u8 *hack, u32 hackSize, u32 *geOfs, const u32 *hackOfs, u32 count,
 		u32 *outSize)
 {
 	u32 base = 0, i, nh = 0, copied = 0, missing = 0, bad;
@@ -289,7 +289,7 @@ u8 *gevrRomRebuildAnimationData(const u8 *hack, u32 hackSize, const u32 *geOfs, 
 	for (i = 0; i < count; i++) {
 		ModelAnimation *h;
 
-		if (geOfs[i] <= 1) {
+		if (geOfs[i] <= 1 || geOfs[i] == GEVR_ANIM_APPEND) {
 			continue;
 		}
 		if (hackOfs[i] <= 1 || geOfs[i] + ANIM_HEADER_SIZE > base || hackOfs[i] + ANIM_HEADER_SIZE > hackSize) {
@@ -300,6 +300,24 @@ u8 *gevrRomRebuildAnimationData(const u8 *hack, u32 hackSize, const u32 *geOfs, 
 		h = (ModelAnimation *)(out + geOfs[i]);
 		h->bitDescriptors += base;
 		h->bitStream += base;
+		copied++;
+	}
+	/* the hack's own animations, after every copy has read its source header */
+	for (i = 0; i < count; i++) {
+		ModelAnimation *h;
+
+		if (geOfs[i] != GEVR_ANIM_APPEND) {
+			continue;
+		}
+		if (hackOfs[i] <= 1 || hackOfs[i] + ANIM_HEADER_SIZE > hackSize) {
+			geOfs[i] = 0;
+			missing++;
+			continue;
+		}
+		h = (ModelAnimation *)(out + base + hackOfs[i]);
+		h->bitDescriptors += base;
+		h->bitStream += base;
+		geOfs[i] = base + hackOfs[i];
 		copied++;
 	}
 	sysLogPrintf(bad || missing ? LOG_ERROR : LOG_NOTE,

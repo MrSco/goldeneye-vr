@@ -405,7 +405,8 @@ static bool gevrKleptonPick(const char *method)
                     : !strcmp(method, "openGexPicker") ? "picked-gex.z64"
                     : !strcmp(method, "openGoldfingerPicker") ? "picked-goldfinger.z64"
                     : !strcmp(method, "openTndPicker") ? "picked-tnd.z64"
-                    : !strcmp(method, "openMirrorPicker") ? "picked-mirror.z64" : nullptr;
+                    : !strcmp(method, "openMirrorPicker") ? "picked-mirror.z64"
+                    : !strcmp(method, "openMarioPicker") ? "picked-mario.z64" : nullptr;
     const char *files = SDL_AndroidGetExternalStoragePath();
     std::string dest, title, extensions;
     if (rom) {
@@ -413,7 +414,8 @@ static bool gevrKleptonPick(const char *method)
         title = !strcmp(method, "openGexPicker") ? "Choose your GoldenEye X ROM"
               : !strcmp(method, "openGoldfingerPicker") ? "Choose your Goldfinger 64 ROM"
               : !strcmp(method, "openTndPicker") ? "Choose your Tomorrow Never Dies 64 ROM"
-              : !strcmp(method, "openMirrorPicker") ? "Choose your Mirror ROM" : "Choose your GoldenEye 007 ROM";
+              : !strcmp(method, "openMirrorPicker") ? "Choose your Mirror ROM"
+              : !strcmp(method, "openMarioPicker") ? "Choose your Mario Characters ROM" : "Choose your GoldenEye 007 ROM";
         extensions = "z64,v64,n64";
     } else if (!strcmp(method, "openXblaPicker") && files) {
         dest = std::string(files) + "/.import-xbla";
@@ -1074,13 +1076,16 @@ enum {
     GEVR_START_ROW_PICK_GF,
     GEVR_START_ROW_PICK_TND,
     GEVR_START_ROW_PICK_MIRROR,
+    GEVR_START_ROW_PICK_MARIO,
 };
 
-static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool mirrorGood, bool ready, bool focus,
-                                const char *startLabel = "START")
+static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool mirrorGood, bool marioGood, bool ready,
+                                bool focus, const char *startLabel = "START", bool online = false)
 {
-    static const char *const names[] = { "GoldenEye", "Goldfinger 64", "Tomorrow Never Dies", "Mirror Mode (Wreck)" };
-    const bool installed[] = { true, gfGood, tndGood, mirrorGood };
+    static const char *const names[] = { "GoldenEye", "Goldfinger 64", "Tomorrow Never Dies", "Mirror Mode (Wreck)",
+                                         "Mario Characters" };
+    const bool installed[] = { true, gfGood, tndGood, mirrorGood, marioGood };
+    static_assert(sizeof(names) / sizeof(names[0]) == GEVR_CAMPAIGN_COUNT, "a name for every campaign");
     const float startH = ImGui::GetFrameHeight() * 1.6f;
     const float rowY = ImGui::GetCursorPosY();
     int action = GEVR_START_ROW_NONE;
@@ -1088,6 +1093,8 @@ static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool m
 
     ImGui::SetCursorPosY(rowY + (startH - ImGui::GetFrameHeight()) * 0.5f);
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.38f);
+    // online the party plays one campaign (net_core.c's join check): not changed mid-session
+    ImGui::BeginDisabled(online);
     if (ImGui::BeginCombo("##campaign", names[shown])) {
         for (int c = 0; c < GEVR_CAMPAIGN_COUNT; c++) {
             char label[64];
@@ -1104,10 +1111,13 @@ static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool m
         if (ImGui::Selectable("Add Goldfinger 64 ROM...")) action = GEVR_START_ROW_PICK_GF;
         if (ImGui::Selectable("Add Tomorrow Never Dies ROM...")) action = GEVR_START_ROW_PICK_TND;
         if (ImGui::Selectable("Add Mirror Mode ROM...")) action = GEVR_START_ROW_PICK_MIRROR;
+        if (ImGui::Selectable("Add Mario Characters ROM...")) action = GEVR_START_ROW_PICK_MARIO;
         ImGui::EndCombo();
     }
+    ImGui::EndDisabled();
+    if (online && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) gevrTooltip("Leave the online game to change campaign.");
     if (ImGui::IsItemHovered())
-        gevrTooltip("Choose GoldenEye, Goldfinger 64, Tomorrow Never Dies or Wreck's Mirror Mode. Add a patched ROM with this menu.");
+        gevrTooltip("Choose GoldenEye, Goldfinger 64, Tomorrow Never Dies, Wreck's Mirror Mode or Mario Characters. Add a patched ROM with this menu.");
     ImGui::SameLine();
     ImGui::SetCursorPosY(rowY);
     ImGui::BeginDisabled(!ready);
@@ -1576,7 +1586,7 @@ static std::string gevrLobbyCreateCommand(const std::string &name, int stage, in
 {
     return std::string("create|") + (s_hostVisibility ? s_hostVisibility : gevrVisibilityName(VrMpVisibility)) + "|" + name + "|" +
         std::to_string(GEVR_NET_VERSION) + "|" + std::to_string(stage) + "|" +
-        std::to_string(set) + "|" + std::to_string(max) + gevrVrOnlyField();
+        std::to_string(set) + "|" + std::to_string(max) + gevrVrOnlyField() + "|" + std::to_string(VrCampaign);
 }
 
 // The multiplayer page's shared widgets. net_match.c is the one list of the
@@ -2042,11 +2052,18 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
             if (ImGui::IsItemHovered()) gevrTooltip("Only players in VR can join: not a PC, phone or tablet, or a headset's flat screen.");
         }
         ImGui::TextUnformatted("Mode:");ImGui::SameLine();
+        const bool hackCoopOnly = VrCampaign != GEVR_CAMPAIGN_GE;   // a hack campaign: co-op only
+        ImGui::BeginDisabled(hackCoopOnly);
         if (ImGui::RadioButton("Deathmatch", VrMpMode == NET_MODE_DEATHMATCH)) { VrMpMode=NET_MODE_DEATHMATCH;gevrHostChoiceChanged(); }
+        ImGui::EndDisabled();
+        if (hackCoopOnly && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) gevrTooltip("GoldenEye's multiplayer: choose GoldenEye beside START.");
         ImGui::SameLine();
         if (ImGui::RadioButton("Co-op", VrMpMode == NET_MODE_COOP)) { VrMpMode=NET_MODE_COOP;gevrHostChoiceChanged(); }
         ImGui::SameLine();
+        ImGui::BeginDisabled(hackCoopOnly);
         if (ImGui::RadioButton("Horde", VrMpMode == NET_MODE_HORDE)) { VrMpMode=NET_MODE_HORDE;gevrHostChoiceChanged(); }
+        ImGui::EndDisabled();
+        if (hackCoopOnly && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) gevrTooltip("GoldenEye's multiplayer: choose GoldenEye beside START.");
         if (VrMpMode == NET_MODE_DEATHMATCH) {
             int stage=netStageIndexOf((uint8_t)VrMpStage);if (stage<0)stage=9;
             // no "Stage:" label: "Bunker II (Full)" needs the room beside the players
@@ -2134,10 +2151,10 @@ static void gevrFriendsSidebarWindow(bool onlineGame, const ImVec4 &gold, const 
     const char *lobby = netIsActive() ? netGetLobbyCode() : "";
     GevrFriendsUiContext ctx;
     ctx.canJoin = onlineGame && !netIsActive();
-    ctx.joinHint = !onlineGame ? "Online play needs the GoldenEye ROM (not a hack campaign)."
+    ctx.joinHint = !onlineGame ? "Online play needs the chosen campaign's ROM installed."
                                : "Leave your lobby to join another.";
     ctx.canInvite = onlineGame && (!netIsActive() || lobby[0]);
-    ctx.inviteHint = !onlineGame ? "Online play needs the GoldenEye ROM (not a hack campaign)."
+    ctx.inviteHint = !onlineGame ? "Online play needs the chosen campaign's ROM installed."
                      : lobby[0] ? "Invite them into your lobby."
                      : netIsActive() ? "This game has no internet lobby to invite into."
                      : "Starts a private lobby and invites them into it.";
@@ -2170,7 +2187,21 @@ struct GevrOnlineLobby {
     int stage, weapons, players, maxPlayers;
     int flatPlayers = -1;   // -1: the service did not say
     bool vrOnly = false;
+    int campaign = 0;       // GEVR_CAMPAIGN_*: a ROM hack's co-op game; 0 from an older host
 };
+
+// Which campaigns' ROMs are installed (the main frame's header checks, about once a
+// second): a listed game of another campaign switches to it before joining.
+static bool s_campaignInstalled[GEVR_CAMPAIGN_COUNT] = { true };
+
+// GEVR_CAMPAIGN_*, as a listed game names it
+static const char *gevrCampaignTitle(int campaign)
+{
+    static const char *const names[] = { "GoldenEye", "Goldfinger 64", "Tomorrow Never Dies", "Mirror Mode",
+                                         "Mario Characters" };
+    static_assert(sizeof(names) / sizeof(names[0]) == GEVR_CAMPAIGN_COUNT, "a name for every campaign");
+    return campaign >= 0 && campaign < GEVR_CAMPAIGN_COUNT ? names[campaign] : "another campaign";
+}
 static struct {
     int joinMethod = 0;   // 0 = Public Internet, 1 = Private Code, 2 = LAN Games, 3 = Direct IP
     char directIp[64] = "192.168.1.";
@@ -2232,10 +2263,13 @@ void gevrMultiplayerTick(GevrLauncherTabs &tabs, bool &startMatch, bool romReady
     auto &onlineLobbies = s_mp.onlineLobbies;
     auto &listLoading = s_mp.listLoading;
     auto &lastHeartbeatMs = s_mp.lastHeartbeatMs;
-    if (VrCampaign != GEVR_CAMPAIGN_GE && !netIsActive()) {
-        // the tab says why in a hack campaign
+    if (!gevrCampaignCoop(VrCampaign) && !netIsActive()) {
+        // the tab says why in a hack campaign without co-op
         return;
     }
+    // A hack campaign plays co-op only: deathmatch, Horde and bots use GoldenEye's
+    // multiplayer maps and tables, which a hack's levels do not fit.
+    if (VrCampaign != GEVR_CAMPAIGN_GE && VrMpMode != NET_MODE_COOP && !netIsActive()) VrMpMode = NET_MODE_COOP;
     vrEnsurePlayerName(); // here, not at launcher start: the settings load on the first frame
     for (int i = 0; i < 32; ++i) {
         const std::string raw = gevrJavaString("lobbyEvent");
@@ -2263,8 +2297,9 @@ void gevrMultiplayerTick(GevrLauncherTabs &tabs, bool &startMatch, bool romReady
         } else if (f[0] == "LIST_END") {
             listLoading = false;
         } else if (f[0] == "LOBBY" && f.size() >= 8) {
-            // LOBBY|code|name|stage|weapons|players|max|phase[|flatPlayers|vrOnly]
+            // LOBBY|code|name|stage|weapons|players|max|phase[|flatPlayers|vrOnly[|campaign]]
             GevrOnlineLobby game{f[1], f[2], f[7], atoi(f[3].c_str()), atoi(f[4].c_str()), atoi(f[5].c_str()), atoi(f[6].c_str())};
+            if (f.size() >= 11) game.campaign = atoi(f[10].c_str());
             if (f.size() >= 10) {
                 game.flatPlayers = atoi(f[8].c_str());
                 game.vrOnly = f[9] == "1";
@@ -2591,24 +2626,46 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                         for (const GevrOnlineLobby &game : onlineLobbies) {
                             char label[200], flat[24];
                             gevrFlatNote(flat, sizeof(flat), game.vrOnly, game.flatPlayers);
+                            // A ROM hack's co-op game: its campaign, not GoldenEye's mission names for its
+                            // stages. Another campaign is switched to first if its ROM is installed.
+                            const bool hack = game.campaign != GEVR_CAMPAIGN_GE;
+                            const bool otherCampaign = game.campaign != VrCampaign;
+                            const bool canSwitch = game.campaign >= 0 && game.campaign < GEVR_CAMPAIGN_COUNT &&
+                                                   s_campaignInstalled[game.campaign] && gevrCampaignCoop(game.campaign);
+                            const std::string where = hack ? std::string("Co-op in ") + gevrCampaignTitle(game.campaign)
+                                                           : listedGameLabel(game.stage, game.weapons);
                             snprintf(label, sizeof(label), "%s  -  %s  -  %d/%d players%s%s##online%s",
-                                     game.name.c_str(), listedGameLabel(game.stage, game.weapons).c_str(),
+                                     game.name.c_str(), where.c_str(),
                                      game.players, game.maxPlayers, flat,
                                      game.phase == "warmup"        ? " (warmup)"
                                      : game.phase == "in_progress" ? " (in progress)"
                                                                    : "",
                                      game.code.c_str());
-                            if (ImGui::Button(label, ImVec2(-1, 0))) {
+                            ImGui::BeginDisabled(otherCampaign && !canSwitch);
+                            const bool join = ImGui::Button(label, ImVec2(-1, 0));
+                            ImGui::EndDisabled();
+                            if (join) {
+                                if (otherCampaign) {
+                                    // the join check compares campaign and ROM (net_core.c): play the party's
+                                    VrCampaign = game.campaign;
+                                    gevrRomCampaignSet(VrCampaign);
+                                    vrSettingsSave();
+                                }
                                 gevrJavaCommand("requestVoicePermission", "");
                                 netDisconnect();
                                 netIceStop();
                                 clientJoinId.clear();
-                                onlineMessage = "Joining " + game.name + "...";
+                                onlineMessage = otherCampaign ? "Switched to " + std::string(gevrCampaignTitle(game.campaign)) +
+                                                                    ". Joining " + game.name + "..."
+                                                              : "Joining " + game.name + "...";
                                 gevrJavaCommand(
                                     "lobbyCommand",
                                     ("join|" + game.code + "|" + std::to_string(GEVR_NET_VERSION) + gevrInputClassField()).c_str());
                             }
-                            if (ImGui::IsItemHovered()) {
+                            if (otherCampaign && !canSwitch && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                                gevrTooltip("This party plays %s. Add its ROM in the campaign dropdown beside START to join.",
+                                            gevrCampaignTitle(game.campaign));
+                            } else if (ImGui::IsItemHovered()) {
                                 gevrTooltip(
                                     "Game: %s\nRoom Code: %s\nPhase: %s\nPlayers: %d/%d%s\nProtocol: %d",
                                     game.name.c_str(), game.code.c_str(), game.phase.c_str(), game.players,
@@ -3202,10 +3259,10 @@ extern "C" void gevrLauncherRun(void)
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    std::string active, message, gfNote, tndNote, mirrorNote, campaignFail;
+    std::string active, message, gfNote, tndNote, mirrorNote, marioNote, campaignFail;
     std::string footerNote;    // the line under START (gevrLauncherStartRow), this frame
     bool footerBad = false;
-    bool gfGood = false, tndGood = false, mirrorGood = false;   // the hack ROMs' header checks, refreshed about once a second
+    bool gfGood = false, tndGood = false, mirrorGood = false, marioGood = false;   // the hack ROMs' header checks, refreshed about once a second
     Uint32 hackCheckMs = 0;
     {
         // gevr_romload.c leaves this when a chosen campaign did not load
@@ -3543,9 +3600,9 @@ extern "C" void gevrLauncherRun(void)
         s_launcherFrame++;   // the host's idle clock (gevrMultiplayerPage) sees frames it missed
         // Friends: presence and the list, every frame (vr_friends.cpp sends at most once a second).
         gevrFriendsTick(0);
-        const bool onlineGame = romReady && VrCampaign == GEVR_CAMPAIGN_GE;
+        const bool onlineGame = romReady && gevrCampaignCoop(VrCampaign);
         if (gevrFriendsJoinPending() && !onlineGame) {
-            vr_log("launcher: friend's lobby %s not joined: no GoldenEye ROM in use", gevrFriendsTakeJoin().c_str());
+            vr_log("launcher: friend's lobby %s not joined: this campaign has no online play", gevrFriendsTakeJoin().c_str());
         }
         // the lobby and its connections, whichever tab is open; a friend's lobby,
         // an invite, or a lobby to host for an invite brings up Multiplayer
@@ -3582,9 +3639,22 @@ extern "C" void gevrLauncherRun(void)
                     gevrRomCampaignSet(VrCampaign);
                     vrSettingsSave();
                 }
+                if (adoptHackFile("picked-mario.z64", GEVR_ROM_MARIO_FILE, "mario",
+                                  "Mario Characters ROM chosen.",
+                                  "That is not GoldenEye with Mario Characters V3.17.",
+                                  marioNote)) {
+                    VrCampaign = GEVR_CAMPAIGN_MARIO;
+                    gevrRomCampaignSet(VrCampaign);
+                    vrSettingsSave();
+                }
                 mirrorGood = hackHeaderOk(dataDir() + "/" + GEVR_ROM_MIRROR_FILE, "mirror");
+                marioGood = hackHeaderOk(dataDir() + "/" + GEVR_ROM_MARIO_FILE, "mario");
                 gfGood = hackHeaderOk(dataDir() + "/" + GEVR_ROM_GF_FILE, "gf64");
                 tndGood = hackHeaderOk(dataDir() + "/" + GEVR_ROM_TND_FILE, "tnd64");
+                s_campaignInstalled[GEVR_CAMPAIGN_GF64] = gfGood;
+                s_campaignInstalled[GEVR_CAMPAIGN_TND64] = tndGood;
+                s_campaignInstalled[GEVR_CAMPAIGN_MIRROR] = mirrorGood;
+                s_campaignInstalled[GEVR_CAMPAIGN_MARIO] = marioGood;
                 if (VrCampaign == GEVR_CAMPAIGN_GF64 && !gfGood) {
                     VrCampaign = GEVR_CAMPAIGN_GE;
                     gevrRomCampaignSet(VrCampaign);
@@ -3600,6 +3670,11 @@ extern "C" void gevrLauncherRun(void)
                     gevrRomCampaignSet(VrCampaign);
                     vrSettingsSave();
                     if (mirrorNote.empty()) mirrorNote = "Mirror Mode is not installed. This start uses GoldenEye.";
+                } else if (VrCampaign == GEVR_CAMPAIGN_MARIO && !marioGood) {
+                    VrCampaign = GEVR_CAMPAIGN_GE;
+                    gevrRomCampaignSet(VrCampaign);
+                    vrSettingsSave();
+                    if (marioNote.empty()) marioNote = "Mario Characters is not installed. This start uses GoldenEye.";
                 }
             }
         }
@@ -3630,13 +3705,9 @@ extern "C" void gevrLauncherRun(void)
         };
         gevrLauncherTabRows(launcherTabs, [&](int tab, int sub) {
             if (tab == GEVR_LTAB_MULTIPLAYER) {
-                // Online play, co-op and bots: GoldenEye only. A hack's levels and
-                // characters sit under GoldenEye's numbers and peers do not compare
-                // campaigns, so the two sides would load different games.
-                if (VrCampaign != GEVR_CAMPAIGN_GE && !netIsActive()) {
-                    note("Online play, co-op and bots are GoldenEye's: choose GoldenEye beside START, on any other tab.");
-                    return;
-                }
+                // Online play: GoldenEye's every mode, a hack campaign's co-op (gevrCampaignCoop).
+                // A join compares the campaign and its ROM (net_core.c NET_CONTENT_*), so both
+                // sides load the same game.
                 gevrMultiplayerPage(sub, start, romReady, gold, good, bad);
                 return;
             }
@@ -3806,11 +3877,13 @@ extern "C" void gevrLauncherRun(void)
         const bool campaignReady = VrCampaign == GEVR_CAMPAIGN_GE
             || (VrCampaign == GEVR_CAMPAIGN_GF64 && gfGood)
             || (VrCampaign == GEVR_CAMPAIGN_TND64 && tndGood)
-            || (VrCampaign == GEVR_CAMPAIGN_MIRROR && mirrorGood);
+            || (VrCampaign == GEVR_CAMPAIGN_MIRROR && mirrorGood)
+            || (VrCampaign == GEVR_CAMPAIGN_MARIO && marioGood);
         char startLabel[160];
         gevrLauncherLoadout(startLabel, sizeof(startLabel));   /* "START  (Bean, GE-X, 3 cheats)" */
-        switch (gevrLauncherStartRow(&VrCampaign, gfGood, tndGood, mirrorGood,
-                                     !active.empty() && activeInfo.good && campaignReady, focusStart, startLabel)) {
+        switch (gevrLauncherStartRow(&VrCampaign, gfGood, tndGood, mirrorGood, marioGood,
+                                     !active.empty() && activeInfo.good && campaignReady, focusStart, startLabel,
+                                     netIsActive())) {
         case GEVR_START_ROW_START:
             start = true;
             break;
@@ -3820,6 +3893,7 @@ extern "C" void gevrLauncherRun(void)
             gfNote.clear();
             tndNote.clear();
             mirrorNote.clear();
+            marioNote.clear();
             campaignFail.clear();
             break;
         case GEVR_START_ROW_PICK_GF:
@@ -3834,6 +3908,10 @@ extern "C" void gevrLauncherRun(void)
             mirrorNote = gevrOpenPicker("openMirrorPicker") ? "Pick Wreck's Mirror Mode ROM in the window that opened."
                                                             : "Could not open the file picker.";
             break;
+        case GEVR_START_ROW_PICK_MARIO:
+            marioNote = gevrOpenPicker("openMarioPicker") ? "Pick the Mario Characters ROM in the window that opened."
+                                                          : "Could not open the file picker.";
+            break;
         }
         if (s_injectStart && !active.empty() && activeInfo.good && campaignReady) {
             start = true;
@@ -3843,8 +3921,10 @@ extern "C" void gevrLauncherRun(void)
         // the line under START: a campaign's news if there is any, its terms if
         // a hack is chosen, the hint otherwise (one line, so the page keeps its height)
         footerNote = !campaignFail.empty() ? campaignFail : !gfNote.empty() ? gfNote : !tndNote.empty() ? tndNote : !mirrorNote.empty() ? mirrorNote
+                   : !marioNote.empty() ? marioNote
                    : VrCampaign == GEVR_CAMPAIGN_GE ? std::string()
-                   : VrCampaign == GEVR_CAMPAIGN_MIRROR ? "Solo, with its own save. Online play and GoldenEye X are off."
+                   : VrCampaign == GEVR_CAMPAIGN_MIRROR ? "Solo or co-op online, with its own save. GoldenEye X is off."
+                   : gevrCampaignCoop(VrCampaign) ? "Solo or co-op online, its own save. GoldenEye X, Bean and HD packs are off."
                    : "Solo, with its own save. Online play, GoldenEye X, Bean and HD packs are off.";
         footerBad = !campaignFail.empty();
         }   // the START footer

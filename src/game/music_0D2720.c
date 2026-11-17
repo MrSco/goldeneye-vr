@@ -37,6 +37,11 @@ struct music_setup music_setup_entries[] = {
     { LEVELID_SURFACE2,  M_SURFACE2,     M_WIND,   M_SURFACE2END },
     { LEVELID_CUBA,      M_CUBA,         0xFFFF,   0xFFFF },
     { 0 }
+#ifdef GEVR
+    /* room for a hack campaign's longer table (gevr_romcampaign.c; Mario Characters has 35 rows) */
+    , { 0 }, { 0 }, { 0 }, { 0 }, { 0 }, { 0 }, { 0 }, { 0 }, { 0 }, { 0 }, { 0 }, { 0 },
+    { 0 }, { 0 }, { 0 }, { 0 }, { 0 }, { 0 }, { 0 }, { 0 }, { 0 }, { 0 }, { 0 }, { 0 }
+#endif
 };
 
 //D:8004EBD0
@@ -85,7 +90,17 @@ s16 random_tracks[] = {
     M_RUNWAYX,
     M_SURFACE1,
     M_NONE
+#ifdef GEVR
+    /* room for a hack campaign's longer list (Mario Characters has 54 tracks) */
+    , M_NONE, M_NONE, M_NONE, M_NONE, M_NONE, M_NONE, M_NONE, M_NONE, M_NONE, M_NONE,
+    M_NONE, M_NONE, M_NONE, M_NONE, M_NONE, M_NONE, M_NONE, M_NONE, M_NONE, M_NONE
+#endif
 };
+
+#ifdef GEVR
+const int gevrMusicRowsMax = sizeof(music_setup_entries) / sizeof(music_setup_entries[0]);
+const int gevrRandomTracksMax = sizeof(random_tracks) / sizeof(random_tracks[0]);
+#endif
 
 
 /**

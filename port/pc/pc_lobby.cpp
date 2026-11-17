@@ -5,11 +5,11 @@
  * The launcher (port/vr/vr_launcher.cpp) sends it one-line commands and reads
  * one-line events, through pc_services.cpp as it reaches Java on the Quest:
  *
- *   create|visibility|name|version|stage|weapons|maxPlayers[|vrOnly]   CREATED|code|ownerToken
+ *   create|visibility|name|version|stage|weapons|maxPlayers[|vrOnly[|campaign]]   CREATED|code|ownerToken
  *   resume|code|ownerToken|maxPlayers|phase|players[|name]     CREATED|code|ownerToken
  *   refresh|players|open[|maxPlayers[|vrOnly[|flatPlayers]]]   phase|warmup|players   stop   leave
  *   list|version[|inputClass[|hideFlat]]
- *       LIST_BEGIN, LOBBY|code|name|stage|weapons|players|max|phase|flatPlayers|vrOnly, LIST_END
+ *       LIST_BEGIN, LOBBY|code|name|stage|weapons|players|max|phase|flatPlayers|vrOnly|campaign, LIST_END
  *   join|code|version[|inputClass]   JOINED|joinId|user|credential
  * (vrOnly and inputClass: "VR players only"; a flat player neither sees nor joins one.
  *  flatPlayers and hideFlat: a VR player may hide games with flat players in them)
@@ -180,7 +180,7 @@ private:
         const std::vector<std::string> f = splitBar(raw);
         const std::string &c = f[0];
         if (c == "create") {
-            if (f.size() != 7 && f.size() != 8) return;
+            if (f.size() < 7 || f.size() > 9) return;
             stop();
             name_ = f[2];
             lastKeepalive_ = nowMs();
@@ -191,9 +191,11 @@ private:
             pendingCreate_ = "{\"visibility\":" + q(f[1]) + ",\"name\":" + q(f[2]) + ",\"version\":" + std::to_string(atoi(f[3].c_str()))
                 + ",\"stage\":" + std::to_string(atoi(f[4].c_str())) + ",\"weapons\":" + std::to_string(atoi(f[5].c_str()))
                 + ",\"maxPlayers\":" + std::to_string(atoi(f[6].c_str()));
-            vrOnly_ = f.size() == 8 ? (f[7] == "1" ? 1 : 0) : -1;
+            vrOnly_ = f.size() >= 8 ? (f[7] == "1" ? 1 : 0) : -1;
             flatPlayers_ = -1;
             if (vrOnly_ >= 0) pendingCreate_ += std::string(",\"vrOnly\":") + (vrOnly_ ? "true" : "false");
+            // the game's campaign (gevr_romlayout.h GEVR_CAMPAIGN_*): a ROM hack's co-op game says which
+            if (f.size() == 9) pendingCreate_ += ",\"campaign\":" + std::to_string(atoi(f[8].c_str()));
             pendingCreate_ += "}";
             registerPending();
         } else if (c == "stop") {
@@ -262,7 +264,8 @@ private:
                          + std::to_string(jsonGetInt(row, "stage", 0)) + "|" + std::to_string(jsonGetInt(row, "weapons", 0)) + "|"
                          + std::to_string(jsonGetInt(row, "players", 0)) + "|" + std::to_string(jsonGetInt(row, "maxPlayers", 0)) + "|"
                          + jsonGetStr(row, "phase", "waiting") + "|"
-                         + std::to_string(jsonGetInt(row, "flatPlayers", -1)) + "|" + (jsonGetBool(row, "vrOnly", false) ? "1" : "0"));
+                         + std::to_string(jsonGetInt(row, "flatPlayers", -1)) + "|" + (jsonGetBool(row, "vrOnly", false) ? "1" : "0")
+                         + "|" + std::to_string(jsonGetInt(row, "campaign", 0)));
                 }
             }
             push("LIST_END");

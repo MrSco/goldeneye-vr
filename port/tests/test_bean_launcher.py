@@ -30,7 +30,8 @@ static int VrOddjobHat=0;          /* Mods: Oddjob's hat (PR #196), drawn when i
 static int gevrHatAvailable() {return 1;}
 #define GEVR_CAMPAIGN_GE 0
 #define GEVR_CAMPAIGN_MIRROR 3
-#define GEVR_CAMPAIGN_COUNT 4
+#define GEVR_CAMPAIGN_MARIO 4
+#define GEVR_CAMPAIGN_COUNT 5
 static int gevrCampaignRetailArt(int c){return c==GEVR_CAMPAIGN_GE||c==GEVR_CAMPAIGN_MIRROR;}
 static std::vector<std::string> commands;
 static ImVec2 bean,hd,original,chooseBean,ceButton,ceCheck;

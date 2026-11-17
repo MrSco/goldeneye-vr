@@ -5,6 +5,9 @@
 #include "system.h"
 #include "ob.h"
 #include "gevr_rom_segments.h"
+#ifdef GEVR
+#include "gevr_romlayout.h"
+#endif
 
 // bss
 //CODE.bss:8008C640
@@ -136,6 +139,19 @@ void *LnameX_lookuptable[45][2] = {
 LEVELID langGetLangBankIndexFromStagenum(LEVELID level)
 {
     LEVELID return_id;
+
+#ifdef GEVR
+    /* a hack campaign's own switch, decoded from its cartridge (gevr_romcampaign.c) */
+    return_id = gevrRomLangBank(level);
+    if (return_id != -2)
+    {
+        if (return_id < 0)
+        {
+            sysLogPrintf(LOG_ERROR, "lang: no text bank for level %d", (s32)level);
+        }
+        return return_id;
+    }
+#endif
 
     switch(level)
     {

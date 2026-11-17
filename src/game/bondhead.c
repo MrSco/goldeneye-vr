@@ -14,6 +14,8 @@
 
 #ifdef GEVR
 extern s32 g_gevrStereo;   /* bondview2.c: this frame is drawn in stereo */
+/* a hack's own (1 - 0.93), which Mario Characters' scripts set; -1: GoldenEye's (gevr_romcampaign.c) */
+extern float g_GevrHeadPosOut;
 #endif
 
 
@@ -96,6 +98,16 @@ void bheadUpdatePos(coord3d *vel)
         g_CurrentPlayer->headpossum.f[2] = ((CURRENTPLAYERUPDATEHEADPOS_SCALE * g_CurrentPlayer->headpossum.f[2]) + vel->f[2]);
     }
 
+#ifdef GEVR
+    if (g_GevrHeadPosOut >= 0.0f)
+    {
+        /* the cartridge's own constant, not 1 - 0.93: Mario Characters lowers the view with it (7F08DEA0) */
+        g_CurrentPlayer->headpos.f[0] = g_CurrentPlayer->headpossum.f[0] * g_GevrHeadPosOut;
+        g_CurrentPlayer->headpos.f[1] = g_CurrentPlayer->headpossum.f[1] * g_GevrHeadPosOut;
+        g_CurrentPlayer->headpos.f[2] = g_CurrentPlayer->headpossum.f[2] * g_GevrHeadPosOut;
+        return;
+    }
+#endif
     g_CurrentPlayer->headpos.f[0] = (g_CurrentPlayer->headpossum.f[0] * (1.0f - CURRENTPLAYERUPDATEHEADPOS_SCALE));
     g_CurrentPlayer->headpos.f[1] = (g_CurrentPlayer->headpossum.f[1] * (1.0f - CURRENTPLAYERUPDATEHEADPOS_SCALE));
     g_CurrentPlayer->headpos.f[2] = (g_CurrentPlayer->headpossum.f[2] * (1.0f - CURRENTPLAYERUPDATEHEADPOS_SCALE));

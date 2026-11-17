@@ -1,11 +1,13 @@
 /*
  * Measured ROM layouts for Goldfinger 64 1.0, Tomorrow Never Dies 64
- * Expanded 06-22 and Wreck's Mirror Mode (August 2017).
+ * Expanded 06-22, Wreck's Mirror Mode (August 2017) and GoldenEye with
+ * Mario Characters V3.17.
  *
  * Rows are the g_Layouts table from perfect-dark-dabs-mod
  * (port/src/geconvert.c). MIT License, Copyright (c) 2022 Ryan Dwyer.
  * Measurements by Dab. Mirror Mode was measured from Wreck's xdelta patch
- * (docs/mirror-mode.md). This file does not include that converter.
+ * (docs/mirror-mode.md), Mario Characters from its V3.17 cartridge
+ * (docs/mario-characters.md). This file does not include that converter.
  */
 
 #include "gevr_romlayout.h"
@@ -50,6 +52,10 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		0,
 		{ 18, 19 },
 		0,
+		/* animation tables, memory strings, random tracks, head offset: GoldenEye's; no Footsteps */
+		0, 0, 0, 0, 0, 0, 0,
+		/* multiplayer characters: GoldenEye's own */
+		0, 0,
 	},
 	{
 		"Goldfinger 64", "gf64", "GOLDFINGER", "NGFE",
@@ -100,6 +106,10 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		1,
 		{ 18, 19 },
 		0,
+		/* animation tables, memory strings, random tracks, head offset: GoldenEye's; no Footsteps */
+		0, 0, 0, 0, 0, 0, 0,
+		/* multiplayer characters: GoldenEye's place, its own characters */
+		0x8002b198, 64,
 	},
 	{
 		"Tomorrow Never Dies 64", "tnd64", "GOLDENEYE", "NGEE",
@@ -136,6 +146,10 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		0,
 		{ 11, 12 },
 		0x297930,
+		/* animation tables, memory strings, random tracks, head offset: GoldenEye's; no Footsteps */
+		0, 0, 0, 0, 0, 0, 0,
+		/* multiplayer characters: moved, 71 rows (7F011D50's 0x47) */
+		0x80028490, 71,
 	},
 	/* Wreck's GE_MirrorMode_patch.xdelta, 2017-08-12. Same US engine tables,
 	 * 4-byte image rows; animation records shrink by 16 bytes, moving the
@@ -173,6 +187,69 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		0,
 		{ 18, 19 },
 		0x29e550,
+		/* animation tables, memory strings, random tracks, head offset: GoldenEye's; no Footsteps */
+		0, 0, 0, 0, 0, 0, 0,
+		/* multiplayer characters: GoldenEye's (its characters are GoldenEye's, mirrored) */
+		0, 0,
+	},
+	/*
+	 * GoldenEye with Mario Characters V3.17 (MarioCharactersV3.17.xdelta,
+	 * 2022-09-26), built on Carnivorous' Footsteps patch. Its own addresses,
+	 * read off its code (docs/mario-characters.md): the Expansion Pak pieces
+	 * its modding notes give (characters, hat fits, props), every bank after
+	 * the animation segment moved, 4-byte image rows, Goldfinger's head pools
+	 * grown to four sets, and some data-segment tables moved.
+	 */
+	{
+		"Mario Characters", "mario", "GOLDENEYE", "NGEE",
+		{ 0x59, 0xbe, 0x5a, 0x72, 0xbc, 0x7e, 0x5c, 0x17 },
+		0x1000000, 1,
+		0x80049300, 0xc0a734, 3194, 4, 0x7fffff,
+		0x80702fc0, 126,
+		{
+			{ 0x80702000, 0xffd000, 0x3000 },
+			{ 0x80705000, 0xff8800, 0x4800 },
+			{ 0x8070a000, 0xff0000, 0x8800 },
+		},
+		{
+			{ 0x2f1b10, 0x24b0 }, { 0x2f3fc0, 0x3540 },
+			{ 0x5c25e8, 0x43a0 }, { 0x5c6988, 0x60fa0 }, { 0x627928, 0x22a00 },
+			{ 0x2f7500, 0x5bc0 }, { 0x2fd0c0, 0x2c5528 },
+			{ 0x2b0470, 106976 },
+		},
+		/* its solo slots, 122-125 (Mario, Luigi, Peach, Daisy; its scripts set
+		 * their files), all with the invisible head 78 (7F079D94-7F079F3C) */
+		{ { 124, 78 }, { 122, 78 }, { 125, 78 }, { 122, 78 }, { 124, 78 }, { 123, 78 }, { 123, 78 }, { 125, 78 }, { 125, 78 } },
+		/* GoldenEye's, but its own props for the silver and gold PP7 (7F09B350) */
+		{
+			-1, -1, 186, 209, 191, 204, 205, 193, 184, 195, 189, 206, 194, 188, 197, 192,
+			207, 210, 190, 208, 230, 231, 187, -1, 185, 211, 196, 201, 200, 199, -1, -1,
+		},
+		0x299450, 0x2a84e0, 0x17a0,
+		0, 0, 0,
+		0, 0, 0, 0,
+		0x8070ca80, 340, 0x8070ee60,
+		/* Goldfinger's pools, four sets of 16, 12, 8 and 4 heads */
+		0x7f023668,
+		0x80705000, 0, 126,
+		/* Mario's gun-barrel model (7F009088) */
+		41, 78,
+		{ { 0 } },
+		21, 13,
+		{ 39, 55 },
+		/* GoldenEye's code at each of these */
+		1, { 18, 20 }, 33, 10, 17,
+		0,
+		{ 18, 19 },
+		0x2a9c80,
+		0x80023718, 0x80023a04,
+		0x8002b19c,
+		0x8004f410,
+		15, 1,
+		/* the Footsteps patch: its scripts' pokes and hooks (gevr_footsteps.c) */
+		1,
+		/* multiplayer characters: moved, 80 rows (7F011D50's 0x50) */
+		0x80028490, 80,
 	},
 };
 
@@ -471,6 +548,22 @@ void gevrRomBuildItemMap(const char *const *names, int count)
 			}
 		}
 	}
+	/*
+	 * An item whose file is none of GoldenEye's guns stays itself (Mario
+	 * Characters renamed its hands and pistols: GfistZ is its Garmr1Z), and
+	 * takes the hack's held prop for its own number.
+	 */
+	for (item = 1; item < 32 && item < count; item++) {
+		const char *stem = itemStem(names[item]);
+		int j, known = 0;
+
+		for (j = 1; stem && j < 32; j++) {
+			known |= g_GeItemFiles[j] && strcmp(g_GeItemFiles[j], stem) == 0;
+		}
+		if (stem && !known && g_Held[item] == -2) {
+			g_Held[item] = L->heldprops[item];
+		}
+	}
 	g_MapOn = 1;
 }
 
@@ -531,6 +624,11 @@ int gevrRomAdvanceBelow(void)
 	const struct gevrRomLayout *L = gevrRomActiveLayout();
 
 	return L->variant ? L->advancebelow : 0;
+}
+
+int gevrRomFootsteps(void)
+{
+	return gevrRomActiveLayout()->footsteps && gevrRomIsVariant();
 }
 
 int gevrRomAiHooks(void)
@@ -681,6 +779,30 @@ static uint32_t gevrAiLen(const uint8_t *code, uint32_t len, uint32_t at)
 		return 0;
 	}
 	return end - at + 1;
+}
+
+/* One AI command's length at code + at (PRINT to its NUL), 0 if it does not fit in max. */
+uint32_t gevrRomAiCommandLength(const uint8_t *code, uint32_t max, uint32_t at)
+{
+	return code && at < max ? gevrAiLen(code, max, at) : 0;
+}
+
+uint32_t gevrRomAiListLength(const uint8_t *code, uint32_t max)
+{
+	uint32_t at = 0;
+
+	while (code && at < max) {
+		const uint32_t n = gevrAiLen(code, max, at);
+
+		if (!n || at + n > max) {
+			return 0;
+		}
+		if (code[at] == 0x04) {   /* ai_list_end */
+			return at + n;
+		}
+		at += n;
+	}
+	return 0;
 }
 
 uint32_t gevrRomAiPrepare(uint8_t *code, uint32_t len, int dropHooks)

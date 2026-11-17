@@ -44,6 +44,8 @@
 #include "music.h"   /* g_musicSfxBufferPtr: a guard's rocket copy's launch (coopReceiveShot) */
 #include "snd.h"
 #include "aicommands2.h"
+#include "game/gevr_footsteps.h"   /* Mario Characters' pokes (NET_MSG_COOP_POKES) */
+#include "gevr_romlayout.h"
 
 #define COOP_LOG(...) sysLogPrintf(LOG_NOTE, "coop: " __VA_ARGS__)
 
@@ -109,6 +111,8 @@ static void coopSendEvent(u8 kind, s32 a, s32 b2, int nargs);
 static void coopWriteSpawn(struct netbuf *buf, ChrRecord *chr, s32 slot, AIRecord *ailist, s32 spawnflags);
 static bool coopTeammateUp(int i);
 static void coopHostGuardShots(void);
+static void coopHostPokes(void);
+static void coopSendPokes(int slot, int all);
 
 /* Drop-in and a host change (below, "Drop-in, drop-out and a host change") */
 #define COOP_BACKGROUND_MAX 64
@@ -360,6 +364,7 @@ void netCoopHostTick(void)
     coopBehindLockTick();
     coopHostDropIn(now);
     coopCinemaHostTick(now);
+    coopHostPokes();
     if (!g_ChrSlots || now - s_last_send_us < COOP_SEND_INTERVAL_US) return;
     s_last_send_us = now;
     s_state_seq++;
@@ -1477,6 +1482,200 @@ static void coopReceiveScript(struct netbuf *b)
     if (coopScriptPersistent(command->cmd)) coopRememberScript(list, offset);
 }
 
+/* ---- Mario Characters' level scripts (gevr_footsteps.c) ----
+ *
+ * Its pokes write the hack's memory: gun and character files (Play as,
+ * random heads), scales (Tiny and Mushroom Mode), the mission folder (page
+ * 2), fog, music and its own variables. The host runs the scripts and sends
+ * the bytes they wrote; each teammate copies them in and its tables follow.
+ * A message: stage, world epoch, the objectives' flags and difficulties
+ * (AI 0x36 shows and hides them), then ranges (u32 vram, u16 length, bytes).
+ * The ranges are applied whatever the stage, since the hack's memory lasts
+ * the session; the objectives only in the same stage and epoch.
+ */
+#define COOP_POKE_RANGES 64
+#define COOP_POKE_BYTES 3072   /* a message's bytes, split below that */
+
+static s16 s_poke_flags[OBJECTIVES_MAX];
+static s8 s_poke_difficulty[OBJECTIVES_MAX];
+static int s_poke_state_sent;
+
+static void coopPokeHeader(struct netbuf *b, const s16 *flags, const s8 *difficulty)
+{
+    coopHeader(b, NET_MSG_COOP_POKES);
+    netbufWriteU8(b, netGetActiveMatchConfig()->stage);
+    netbufWriteU32(b, netGetWorldEpoch());
+    for (int i = 0; i < OBJECTIVES_MAX; i++) {
+        netbufWriteU16(b, (u16)flags[i]);
+        netbufWriteU8(b, (u8)difficulty[i]);
+    }
+}
+
+/* Ranges as one or more messages to a slot (or everyone, slot -1). */
+static void coopSendRanges(int slot, const u32 *start, const u32 *len, int count, const s16 *flags, const s8 *difficulty)
+{
+    static u8 raw[64 + COOP_POKE_BYTES + 6 * COOP_POKE_RANGES];
+    struct netbuf b = { .data = raw, .size = sizeof(raw) };
+    int ranges = 0, bytes = 0, sentAny = 0;
+    size_t countAt = 0;
+
+    for (int i = 0; i <= count; i++) {
+        u32 at = i < count ? start[i] : 0, left = i < count ? len[i] : 0;
+        do {
+            const u32 piece = left > COOP_POKE_BYTES ? COOP_POKE_BYTES : left;
+            const u8 *src = piece ? gevrRomWindowBytes(at, piece) : NULL;
+            /* flush a full message, and the last one (also with no ranges, for the objectives) */
+            if (ranges && (i == count || ranges == COOP_POKE_RANGES || bytes + (int)piece > COOP_POKE_BYTES)) {
+                b.data[countAt] = (u8)ranges;
+                if (slot < 0) netCoopBroadcast(b.data, b.wp, 1); else netCoopSendTo(slot, b.data, b.wp);
+                ranges = bytes = 0;
+                sentAny = 1;
+            }
+            if (i == count) break;
+            if (!ranges) {
+                coopPokeHeader(&b, flags, difficulty);
+                countAt = b.wp;
+                netbufWriteU8(&b, 0);   /* the range count, filled in at the flush */
+            }
+            if (src) {
+                netbufWriteU32(&b, at);
+                netbufWriteU16(&b, (u16)piece);
+                for (u32 k = 0; k < piece; k++) netbufWriteU8(&b, src[k]);
+                ranges++;
+                bytes += (int)piece;
+            }
+            at += piece;
+            left -= piece;
+        } while (left);
+    }
+    if (!sentAny) {
+        /* only the objectives changed */
+        coopPokeHeader(&b, flags, difficulty);
+        netbufWriteU8(&b, 0);
+        if (slot < 0) netCoopBroadcast(b.data, b.wp, 1); else netCoopSendTo(slot, b.data, b.wp);
+    }
+}
+
+/* A joiner (with the roster): every range written since the campaign was bound. */
+static void coopSendPokes(int slot, int all)
+{
+    static u32 start[2048], len[2048];
+    s16 flags[OBJECTIVES_MAX];
+    s8 difficulty[OBJECTIVES_MAX];
+    int count;
+
+    if (!all || !gevrRomFootsteps()) return;
+    gevrFootstepsObjectiveState(flags, difficulty);
+    count = gevrFootstepsTouchedWrites(start, len, 2048);
+    coopSendRanges(slot, start, len, count, flags, difficulty);
+    COOP_LOG("pokes to slot %d: %d ranges", slot, count);
+}
+
+/* The host, every tick: what its scripts wrote since, and the objectives when they change. */
+static void coopHostPokes(void)
+{
+    static u32 start[256], len[256];
+    s16 flags[OBJECTIVES_MAX];
+    s8 difficulty[OBJECTIVES_MAX];
+    int count;
+
+    if (!gevrRomFootsteps()) return;
+    gevrFootstepsObjectiveState(flags, difficulty);
+    count = gevrFootstepsTakeWrites(start, len, 256);
+    if (count < 0) {
+        /* writes from before the party, more than the log keeps: everything written */
+        coopSendPokes(-1, 1);
+        COOP_LOG("pokes: the written set to everyone (the log was full)");
+        count = 0;
+    }
+    if (!count && s_poke_state_sent && !memcmp(flags, s_poke_flags, sizeof(flags)) &&
+        !memcmp(difficulty, s_poke_difficulty, sizeof(difficulty))) return;
+    coopSendRanges(-1, start, len, count, flags, difficulty);
+    {
+        static int sends;
+        if (++sends <= 30 || sends % 100 == 0)
+            COOP_LOG("pokes sent #%d: %d ranges, written %08x", sends, count, gevrFootstepsWrittenHash(0, 0xffffffffu));
+    }
+    memcpy(s_poke_flags, flags, sizeof(flags));
+    memcpy(s_poke_difficulty, difficulty, sizeof(difficulty));
+    s_poke_state_sent = 1;
+}
+
+static void coopReceivePokes(struct netbuf *b)
+{
+    s16 flags[OBJECTIVES_MAX];
+    s8 difficulty[OBJECTIVES_MAX];
+    u8 stage = netbufReadU8(b);
+    u32 epoch = netbufReadU32(b);
+    int count;
+
+    for (int i = 0; i < OBJECTIVES_MAX; i++) {
+        flags[i] = (s16)netbufReadU16(b);
+        difficulty[i] = (s8)netbufReadU8(b);
+    }
+    count = netbufReadU8(b);
+    if (b->error || !gevrRomFootsteps()) return;
+    for (int i = 0; i < count; i++) {
+        u32 at = netbufReadU32(b);
+        u16 n = netbufReadU16(b);
+        if (b->error || n > COOP_POKE_BYTES || netbufReadLeft(b) < n) return;
+        gevrFootstepsApplyWrite(at, b->data + b->rp, n);
+        b->rp += n;
+    }
+    if (stage == netGetActiveMatchConfig()->stage && epoch == netGetWorldEpoch())
+        gevrFootstepsSetObjectiveState(flags, difficulty);
+    {
+        static int applied;
+        if (++applied <= 30 || applied % 100 == 0)
+            COOP_LOG("pokes applied #%d: %d ranges, written %08x", applied, count, gevrFootstepsWrittenHash(0, 0xffffffffu));
+    }
+}
+
+/* ---- Mario Characters' player-only cheat lists on a teammate's headset ----
+ *
+ * The host runs them for its own player (and sends none of their writes);
+ * every other headset runs the same lists here, each tick, for its own
+ * player and its own Cheat Options (gevr_footsteps.c gevrFootstepsPlayerList),
+ * each on a stand-in actor that only keeps its place in the list. A list
+ * that switches its own list (its end) stops.
+ */
+#define COOP_PLAYER_LISTS 32
+
+static struct {
+    AIRecord *list;
+    ChrRecord chr;
+} s_player_lists[COOP_PLAYER_LISTS];
+static int s_player_list_count = -1;   /* -1: not found yet this stage */
+static void *s_player_lists_setup;
+
+void netCoopRunPlayerLists(void)
+{
+    if (!gevrRomFootsteps() || !gevrCoopPuppets() || !g_CurrentSetup.ailists) {
+        s_player_list_count = -1;
+        return;
+    }
+    if (s_player_list_count < 0 || s_player_lists_setup != (void *)g_CurrentSetup.ailists) {
+        s_player_list_count = 0;
+        s_player_lists_setup = (void *)g_CurrentSetup.ailists;
+        for (int i = 0; g_CurrentSetup.ailists[i].ailist && s_player_list_count < COOP_PLAYER_LISTS; i++) {
+            AIRecord *list = g_CurrentSetup.ailists[i].ailist;
+            if (!gevrFootstepsPlayerList((const u8 *)list)) continue;
+            memset(&s_player_lists[s_player_list_count], 0, sizeof(s_player_lists[0]));
+            s_player_lists[s_player_list_count].list = list;
+            s_player_lists[s_player_list_count].chr.ailist = list;
+            s_player_list_count++;
+        }
+        COOP_LOG("this player's own cheat lists: %d", s_player_list_count);
+    }
+    gevrFootstepsRunningLocal(1);
+    for (int i = 0; i < s_player_list_count; i++) {
+        ChrRecord *chr = &s_player_lists[i].chr;
+        if (chr->ailist != s_player_lists[i].list) continue;   /* ended */
+        ai((PropDefHeaderRecord *)chr, PROP_TYPE_CHR);
+    }
+    gevrFootstepsRunningLocal(0);
+}
+
 static void coopSendScriptSnapshot(int slot)
 {
     for (int i = 0; i < s_script_count; i++) {
@@ -2380,6 +2579,7 @@ static void coopSendRoster(int slot)
     int removes = 0, spawns = 0;
 
     coopSendScriptSnapshot(slot);
+    coopSendPokes(slot, 1);
 
     if (s_roster_remap[slot]) {
         u8 big[16 + COOP_MAX_SLOTS * 4];
@@ -2686,6 +2886,7 @@ void netCoopReceive(int type, int slot, int from_host, struct netbuf *b)
         case NET_MSG_COOP_MISSION: if (from_host && !netIsHost()) coopReceiveMission(b); break;
         case NET_MSG_COOP_CLOCK: if (from_host && !netIsHost()) coopReceiveClock(b); break;
         case NET_MSG_COOP_SCRIPT: if (from_host && !netIsHost()) coopReceiveScript(b); break;
+        case NET_MSG_COOP_POKES: if (from_host && !netIsHost()) coopReceivePokes(b); break;
         case NET_MSG_COOP_SHOT: if (from_host && !netIsHost()) coopReceiveShot(b); break;
         case NET_MSG_COOP_TEXT: if (from_host && !netIsHost()) coopReceiveText(b); break;
         case NET_MSG_COOP_GRANT: if (from_host && !netIsHost()) coopReceiveGrant(b); break;

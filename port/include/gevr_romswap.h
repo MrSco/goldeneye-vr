@@ -37,8 +37,13 @@ void gevrRomSwapAnimationData(u8 *data, u32 size);
  * the hack's header for the same animation, its descriptors and stream moved
  * with the bytes. Returns the new segment (malloc'd, swapped) and its size, or
  * NULL.
+ *
+ * A geOfs of GEVR_ANIM_APPEND is an animation GoldenEye does not have (Mario
+ * Characters adds three after its 183): its header stays where the hack's
+ * bytes put it, and geOfs[i] comes back as its offset in the new segment.
  */
-u8 *gevrRomRebuildAnimationData(const u8 *hack, u32 hackSize, const u32 *geOfs, const u32 *hackOfs, u32 count,
+#define GEVR_ANIM_APPEND 0xffffffffu
+u8 *gevrRomRebuildAnimationData(const u8 *hack, u32 hackSize, u32 *geOfs, const u32 *hackOfs, u32 count,
 		u32 *outSize);
 
 /*

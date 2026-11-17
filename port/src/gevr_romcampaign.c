@@ -23,6 +23,7 @@
 extern fileentry file_resource_table[];
 extern resource_lookup_data_entry resource_lookup_data_array[];
 extern s32 file_entry_max;
+extern const s32 gevrFileSlots;   /* ob.c: the rows its lookup arrays hold (OBJ_INDEX_MAX) */
 extern u8 *g_RomFile;
 extern GunModelFileRecord gitem_structs[];
 
@@ -83,7 +84,7 @@ static int readCastTable(const struct gevrRomLayout *L)
 {
     int i;
     g_CastCount = 0;
-    if (gevrRomCampaign() != GEVR_CAMPAIGN_GF64) return 1;
+    if (gevrRomCampaign() != GEVR_CAMPAIGN_GF64 && !L->footsteps) return 1;
     for (i = 0; i < GEVR_CAST_CAP; i++) {
         const uint8_t *row = atVram(GEVR_CAST_AT + 20u * (uint32_t)i, 20);
         int32_t body, head;
@@ -107,13 +108,13 @@ static int readCastTable(const struct gevrRomLayout *L)
         g_Cast[i].RESERVED = (s16)be16at(row + 14);
         g_Cast[i].flag = (s32)be32at(row + 16);
     }
-    sysLogPrintf(LOG_ERROR, "rom: Goldfinger cast table is invalid or unterminated");
+    sysLogPrintf(LOG_ERROR, "rom: %s cast table is invalid or unterminated", L->tag);
     return 0;
 }
 
 const struct intro_char *gevrRomCastTable(void)
 {
-    return gevrRomCampaign() == GEVR_CAMPAIGN_GF64 && g_CastCount ? g_Cast : NULL;
+    return (gevrRomCampaign() == GEVR_CAMPAIGN_GF64 || gevrRomFootsteps()) && g_CastCount ? g_Cast : NULL;
 }
 
 static const char *vramString(uint32_t ptr)
@@ -174,6 +175,15 @@ static int bindFiles(void)
 	int i;
 	int bound = 0;
 
+	/*
+	 * A hack with more files than GoldenEye's 725 (Mario Characters: 734 and
+	 * its end row) widens the table to its own end, within the arrays' room.
+	 */
+	for (i = 0; i < g_FileRowCount; i++) {
+		if ((s32)g_FileRows[i].index >= file_entry_max && (s32)g_FileRows[i].index < gevrFileSlots) {
+			file_entry_max = (s32)g_FileRows[i].index + 1;
+		}
+	}
 	for (i = 0; i < g_FileRowCount; i++) {
 		const struct gevrRomFileRow *row = &g_FileRows[i];
 		fileentry *slot;
@@ -474,6 +484,7 @@ static int installItemHeaders(void)
 	static const char *names[ITEM_IDS_MAX];
 	int k;
 	int done = 0;
+	int renamed = 0;
 
 	/* Read every row first: the compiled headers are written only when all of them are good. */
 	for (k = 1; k < ITEM_IDS_MAX; k++) {
@@ -512,7 +523,46 @@ static int installItemHeaders(void)
 			done++;
 		}
 	}
-	sysLogPrintf(LOG_NOTE, "rom: %d hand item headers from the hack", done);
+	/*
+	 * A row whose file no item of GoldenEye's has is the hack's own file for
+	 * that item (Mario Characters renamed them: item 1, the fist, is its
+	 * Garmr1Z): the item loads it, by the hack's name, with its header, as
+	 * the cartridge's own code would.
+	 */
+	for (k = 1; k < ITEM_IDS_MAX; k++) {
+		ModelFileHeader *dst = gitem_structs[k].item_header;
+		int j, known = 0;
+
+		if (!names[k] || !dst || !gitem_structs[k].item_file_name) {
+			continue;
+		}
+		for (j = 1; j < ITEM_IDS_MAX && !known; j++) {
+			known = gitem_structs[j].item_file_name && strcmp(gitem_structs[j].item_file_name, names[k]) == 0;
+		}
+		if (known) {
+			continue;
+		}
+		gitem_structs[k].item_file_name = (char *)names[k];
+		dst->Skeleton = hdrs[k].Skeleton;
+		dst->numSwitches = hdrs[k].numSwitches;
+		dst->numMatrices = hdrs[k].numMatrices;
+		dst->BoundingVolumeRadius = hdrs[k].BoundingVolumeRadius;
+		dst->numRecords = hdrs[k].numRecords;
+		dst->numtextures = hdrs[k].numtextures;
+		renamed++;
+	}
+	/*
+	 * Mario Characters' scripts rename hand items' files in its data segment
+	 * ("Gun 04 uses Gwppk1Z"): every item named there is read from there, so a
+	 * rename reaches the next load.
+	 */
+	for (k = 1; k < ITEM_IDS_MAX && gevrRomActiveLayout()->footsteps; k++) {
+		if (names[k] && gitem_structs[k].item_file_name
+				&& strcmp(gitem_structs[k].item_file_name, names[k]) == 0) {
+			gitem_structs[k].item_file_name = (char *)names[k];
+		}
+	}
+	sysLogPrintf(LOG_NOTE, "rom: %d hand item headers from the hack, %d items on files of its own", done, renamed);
 	return 1;
 }
 
@@ -610,11 +660,14 @@ static void installItems(void)
  * Goldfinger's bodyChooseHead() (7F0235AC), read off its code: a record's
  * head of -1 or -2 picks a pool, each pool a list for men and one for women,
  * and the head is the pool's list at (start + (seed bits 16-17, men only))
- * modulo its length. The eight starts are drawn at level init (7F000F88),
+ * modulo its length. Mario Characters grows it to four pools (heads -1 to
+ * -4: guards, scientists, hostages, civilians), takes seed bits 16-19 and
+ * gives women the offset too (L->headmask, L->headwomen). The eight starts are drawn at level init (7F000F88),
  * one random number shifted right a bit per entry. The tables sit in the
  * game code, which the cartridge keeps unpacked at 0x34B30 (TLB-paged), and
  * are indexed 4 * male + 4 + head: 3 and 2 the women's pools -1 and -2, 7
- * and 6 the men's. Lengths at L->headpools, the lists' addresses after them.
+ * and 6 the men's (0 and 4 for pool -4). Lengths at L->headpools, the
+ * lists' addresses after them, eight bytes a pool.
  */
 #define GEVR_CODE_ROM   0x34b30u
 #define GEVR_CODE_VRAM  0x7f000000u
@@ -625,6 +678,7 @@ static uint8_t g_PoolLen[8];
 static uint8_t g_PoolStart[8];
 static uint8_t g_PoolHeads[8][GEVR_POOL_MAX];
 static int g_HasPools;
+static uint8_t g_PoolMask, g_PoolWomen;
 
 extern u64 g_randomSeed;
 u32 randomGetNext(void);
@@ -638,9 +692,69 @@ static const uint8_t *codeAt(const uint8_t *rom, uint32_t romLen, uint32_t va, u
 	return rom + GEVR_CODE_ROM + (va - GEVR_CODE_VRAM);
 }
 
+/*
+ * language.c's langGetLangBankIndexFromStagenum as the cartridge compiles
+ * it: "addiu t6,a0,-first; sltiu at,t6,n; ...; lui at,hi; addu; lw t6,lo(at);
+ * jr t6", each case "jr ra; addiu v0,zero,bank". Mario Characters widens it
+ * to 48 stages and names banks for its own (42 Lsho, 44 Leld, 47 Llue...);
+ * GoldenEye, Goldfinger and TND decode to the switch language.c has.
+ */
+#define GEVR_LANGSWITCH_AT 0x7f0c15e0u
+#define GEVR_LANG_STAGES   64
+static int8_t g_LangBank[GEVR_LANG_STAGES];
+static int g_HasLangBanks;
+
+static void installLangBanks(const uint8_t *rom, uint32_t romLen)
+{
+	const uint8_t *fn = codeAt(rom, romLen, GEVR_LANGSWITCH_AT, 0x1c);
+	uint32_t first, count, table, i;
+	int named = 0;
+
+	g_HasLangBanks = 0;
+	memset(g_LangBank, -1, sizeof(g_LangBank));
+	if (!fn || (be32at(fn) & 0xffff0000u) != 0x248e0000u || (be32at(fn + 4) & 0xffff0000u) != 0x2dc10000u
+			|| (be32at(fn + 0x10) & 0xffff0000u) != 0x3c010000u || (be32at(fn + 0x18) & 0xffff0000u) != 0x8c2e0000u) {
+		sysLogPrintf(LOG_ERROR, "rom: the text bank switch is not at %08X", GEVR_LANGSWITCH_AT);
+		return;
+	}
+	first = (uint32_t)-(int16_t)be16at(fn + 2);
+	count = be16at(fn + 6);
+	table = ((uint32_t)be16at(fn + 0x12) << 16) + (uint32_t)(int32_t)(int16_t)be16at(fn + 0x1a);
+	if (first + count > GEVR_LANG_STAGES || !atVram(table, 4 * count)) {
+		sysLogPrintf(LOG_ERROR, "rom: text bank switch stages %u+%u at %08X do not fit", first, count, table);
+		return;
+	}
+	for (i = 0; i < count; i++) {
+		/* Mario's added cases are stubs in the data segment, just before the table (0x8005BB00) */
+		const uint32_t to = be32at(atVram(table + 4 * i, 4));
+		const uint8_t *c = codeAt(rom, romLen, to, 8);
+
+		if (!c) {
+			c = atVram(to, 8);
+		}
+
+		/* bank 0 is the null row: no stage bank (Mario's stage 21) */
+		if (c && be32at(c) == 0x03e00008u && (be32at(c + 4) & 0xffff0000u) == 0x24020000u
+				&& be16at(c + 6) > 0 && be16at(c + 6) < 45) {
+			g_LangBank[first + i] = (int8_t)be16at(c + 6);
+			named++;
+		}
+	}
+	g_HasLangBanks = 1;
+	sysLogPrintf(LOG_NOTE, "rom: text banks for %d of stages %u-%u", named, first, first + count - 1);
+}
+
+int gevrRomLangBank(int stage)
+{
+	if (!g_HasLangBanks) {
+		return -2;
+	}
+	return stage >= 0 && stage < GEVR_LANG_STAGES ? g_LangBank[stage] : -1;
+}
+
 static void installHeadPools(const struct gevrRomLayout *L, const uint8_t *rom, uint32_t romLen)
 {
-	const uint8_t *len = L->headpools ? codeAt(rom, romLen, L->headpools, 24) : NULL;
+	const uint8_t *len = L->headpools ? codeAt(rom, romLen, L->headpools, 40) : NULL;
 	int i;
 
 	g_HasPools = 0;
@@ -648,14 +762,16 @@ static void installHeadPools(const struct gevrRomLayout *L, const uint8_t *rom, 
 	if (!len) {
 		return;
 	}
+	g_PoolMask = L->headmask ? L->headmask : 3;
+	g_PoolWomen = L->headwomen;
 	for (i = 0; i < 8; i++) {
-		/* entry i = 4 * male + 4 + head: 3 and 7 are pool 0 (head -1), 2 and 6 pool 1 (-2) */
+		/* entry i = 4 * male + 4 + head: 3 and 7 are pool 0 (head -1), 2 and 6 pool 1 (-2), ... 0 and 4 pool 3 (-4) */
 		const int pool = 3 - (i & 3);
 		const int male = i >> 2;
 		const uint8_t *list;
 		uint32_t ptr;
 
-		if (!len[i] || pool > 1) {
+		if (!len[i]) {
 			continue;
 		}
 		ptr = be32at(len + 8 + 8 * pool + 4 * male);
@@ -668,7 +784,8 @@ static void installHeadPools(const struct gevrRomLayout *L, const uint8_t *rom, 
 		memcpy(g_PoolHeads[i], list, len[i]);
 	}
 	g_HasPools = 1;
-	sysLogPrintf(LOG_NOTE, "rom: head pools men %d/%d, women %d/%d", g_PoolLen[7], g_PoolLen[6], g_PoolLen[3], g_PoolLen[2]);
+	sysLogPrintf(LOG_NOTE, "rom: head pools men %d/%d/%d/%d, women %d/%d/%d/%d", g_PoolLen[7], g_PoolLen[6],
+			g_PoolLen[5], g_PoolLen[4], g_PoolLen[3], g_PoolLen[2], g_PoolLen[1], g_PoolLen[0]);
 }
 
 int gevrRomHeadPoolsLevelInit(void)
@@ -696,7 +813,7 @@ int gevrRomChooseHead(int male, int head)
 	if (!g_HasPools || !gevrRomIsVariant()) {
 		return -1;
 	}
-	if (head != -2) {
+	if (head < -4 || head > -1) {
 		head = -1;
 	}
 	i = 4 * (male ? 1 : 0) + 4 + head;
@@ -707,7 +824,7 @@ int gevrRomChooseHead(int male, int head)
 			return -1;
 		}
 	}
-	at = g_PoolStart[i] + (male ? (int)((g_randomSeed >> 16) & 3) : 0);
+	at = g_PoolStart[i] + (male || g_PoolWomen ? (int)((g_randomSeed >> 16) & g_PoolMask) : 0);
 	pick = g_PoolHeads[i][at % g_PoolLen[i]];
 	randomGetNext();
 	return pick;
@@ -899,6 +1016,8 @@ extern EnvironmentRecord fog_tables[];
 extern EnvironmentFoglessRecord fog_tables2[];
 extern struct gevrMusicRow music_setup_entries[];
 extern s16 random_tracks[];
+/* their room in music_0D2720.c, end rows included (Mario Characters has 35 levels with music and 54 tracks) */
+extern const int gevrMusicRowsMax, gevrRandomTracksMax;
 
 /*
  * The per-level tables GoldenEye compiles in, which a hack edits in its data
@@ -908,12 +1027,19 @@ extern s16 random_tracks[];
  * GoldenEye's, so they are written in place; a table that would not fit is
  * left as GoldenEye's and logged.
  */
-static void installLevelTables(void)
+#define GEVR_LT_LEVELS 1u
+#define GEVR_LT_SETUPS 2u
+#define GEVR_LT_FOG    4u
+#define GEVR_LT_MUSIC  8u
+#define GEVR_LT_TIMES  16u
+#define GEVR_LT_ALL    31u
+
+static void installLevelTables(const struct gevrRomLayout *L, unsigned parts)
 {
 	const uint8_t *p;
 	uint32_t i, rows, cap;
 
-	for (i = 0; i < GEVR_LEVELINFO_ROWS; i++) {
+	for (i = 0; i < GEVR_LEVELINFO_ROWS && (parts & GEVR_LT_LEVELS); i++) {
 		p = atVram(GEVR_LEVELINFO_AT + 24u * i, 24);
 		if (!p || (s32)be32at(p) != levelinfotable[i].levelID) {
 			sysLogPrintf(LOG_ERROR, "rom: level table row %u is not level %d; left as GoldenEye's",
@@ -940,7 +1066,7 @@ static void installLevelTables(void)
 	/* Installed only when every row reads as a setup name (U...Z) or null,
 	 * so a hack laid out differently keeps GoldenEye's table whole instead
 	 * of losing stages' setups to stray words. */
-	for (i = 0; i < GEVR_SETUPNAMES_ROWS; i++) {
+	for (i = 0; i < GEVR_SETUPNAMES_ROWS && (parts & GEVR_LT_SETUPS); i++) {
 		const char *name;
 		size_t len;
 
@@ -953,11 +1079,13 @@ static void installLevelTables(void)
 		}
 		name = vramString(be32at(p));
 		len = strlen(name);
-		if (len < 3 || name[0] != 'U' || name[len - 1] != 'Z') {
+		/* Mario Characters' added setups have no Z (Usetupark3, Usetupdam2) */
+		if (len < 3 || name[0] != 'U') {
 			break;
 		}
 	}
-	if (i < GEVR_SETUPNAMES_ROWS) {
+	if (!(parts & GEVR_LT_SETUPS)) {
+	} else if (i < GEVR_SETUPNAMES_ROWS) {
 		sysLogPrintf(LOG_ERROR, "rom: setup name table row %u is not a setup name; left as GoldenEye's", i);
 	} else {
 		for (i = 0; i < GEVR_SETUPNAMES_ROWS; i++) {
@@ -970,7 +1098,8 @@ static void installLevelTables(void)
 	for (cap = 1; fog_tables[cap - 1].Id != 0 || cap == 1; cap++) {
 	}
 	rows = hackRows(GEVR_FOG_AT, GEVR_FOG_ROW, 256);
-	if (fieldBytes(GEVR_FOG_FIELDS) != GEVR_FOG_ROW || sizeof(EnvironmentRecord) != GEVR_FOG_ROW
+	if (!(parts & GEVR_LT_FOG)) {
+	} else if (fieldBytes(GEVR_FOG_FIELDS) != GEVR_FOG_ROW || sizeof(EnvironmentRecord) != GEVR_FOG_ROW
 			|| fieldBytes(GEVR_FOGLESS_FIELDS) != GEVR_FOGLESS_ROW
 			|| sizeof(EnvironmentFoglessRecord) != GEVR_FOGLESS_ROW) {
 		sysLogPrintf(LOG_ERROR, "rom: fog record layout is not the N64's; fog left as GoldenEye's");
@@ -996,15 +1125,15 @@ static void installLevelTables(void)
 		sysLogPrintf(LOG_ERROR, "rom: fog table has %u rows, room for %u", rows, cap);
 	}
 
-	for (cap = 0; music_setup_entries[cap].stage_id != 0; cap++) {
-	}
-	for (rows = 0; rows <= cap; rows++) {
+	cap = (uint32_t)gevrMusicRowsMax - 1;   /* rows before the end row */
+	for (rows = 0; rows <= cap && (parts & GEVR_LT_MUSIC); rows++) {
 		p = atVram(GEVR_MUSIC_AT + 8u * rows, 8);
 		if (!p || be16at(p) == 0) {
 			break;
 		}
 	}
-	if (p && rows <= cap) {
+	if (!(parts & GEVR_LT_MUSIC)) {
+	} else if (p && rows <= cap) {
 		for (i = 0; i <= rows; i++) {
 			p = atVram(GEVR_MUSIC_AT + 8u * i, 8);
 			music_setup_entries[i].stage_id = (s16)be16at(p);
@@ -1013,14 +1142,16 @@ static void installLevelTables(void)
 			music_setup_entries[i].xtrack = (s16)be16at(p + 6);
 		}
 		/*
-		 * random_tracks follow the end row, ended by M_NONE (0), not -1:
-		 * the copy stops at the hack's 0 and never writes past GoldenEye's
-		 * own 0 (a scan for -1 ran off the array and over the file table).
+		 * random_tracks follow the end row (Mario Characters moved them:
+		 * L->randomtracks), ended by M_NONE (0), not -1: the copy stops at
+		 * the hack's 0 and keeps the array's last slot 0 (a scan for -1 ran
+		 * off the array and over the file table).
 		 */
-		for (cap = 0; random_tracks[cap] != 0; cap++) {
-		}
+		const uint32_t tracks = L->randomtracks ? L->randomtracks : GEVR_MUSIC_AT + 8u * (rows + 1);
+
+		cap = (uint32_t)gevrRandomTracksMax - 1;
 		for (i = 0; i < cap; i++) {
-			p = atVram(GEVR_MUSIC_AT + 8u * (rows + 1) + 2u * i, 2);
+			p = atVram(tracks + 2u * i, 2);
 			if (!p || be16at(p) == 0) {
 				break;
 			}
@@ -1030,16 +1161,18 @@ static void installLevelTables(void)
 			random_tracks[i] = 0;   /* a shorter list ends where the hack's does */
 		}
 	} else {
-		sysLogPrintf(LOG_ERROR, "rom: music table does not fit GoldenEye's %u rows", cap);
+		sysLogPrintf(LOG_ERROR, "rom: music table does not fit the port's %u rows", cap);
 	}
 
 	p = atVram(GEVR_TARGETTIMES_AT, sizeof(solo_target_time_array));
-	if (p) {
+	if (p && (parts & GEVR_LT_TIMES)) {
 		for (i = 0; i < 20 * 3; i++) {
 			solo_target_time_array[i / 3][i % 3] = (s16)be16at(p + 2 * i);
 		}
 	}
-	sysLogPrintf(LOG_NOTE, "rom: level scales, fog, music and target times from the hack");
+	if (parts == GEVR_LT_ALL) {
+		sysLogPrintf(LOG_NOTE, "rom: level scales, fog, music and target times from the hack");
+	}
 }
 
 #define GEVR_MEMSTRINGS_AT   0x800241bcu   /* boss.c memallocstringtable: {s32 id; char *string} */
@@ -1055,13 +1188,51 @@ static uint32_t g_MemStringCount;
  * the Cartel's rooms did not fit the room heap (missing walls) and its
  * textures overflowed the pool (flicker). Rows end with the id 0 default.
  */
-static void installMemStrings(void)
+extern struct MP_selectable_chars mp_chr_setup[];
+extern const s32 gevrMpCharRows;   /* front.c */
+
+/*
+ * The hack's multiplayer characters (layout mpchars, mpcharcount): its 12-byte
+ * rows (name, gender, portrait, body, head, eye height) over front.c's, as far
+ * as the port's table goes (GoldenEye's 64; the lobby offers 64). A co-op
+ * teammate's body and head are its lobby character's row, which in a hack
+ * names the hack's own characters (Goldfinger in GoldenEye's place, TND and
+ * Mario Characters moved and longer).
+ */
+static void installMpChars(const struct gevrRomLayout *L)
 {
-	uint32_t i, rows = hackRows(GEVR_MEMSTRINGS_AT, 8, GEVR_MEMSTRING_ROWS);
+	uint32_t i, n;
+
+	if (!L->mpchars || !L->mpcharcount) {
+		return;
+	}
+	n = L->mpcharcount < (uint32_t)gevrMpCharRows ? L->mpcharcount : (uint32_t)gevrMpCharRows;
+	if (!atVram(L->mpchars, 12u * n)) {
+		sysLogPrintf(LOG_ERROR, "rom: %s multiplayer characters are not at %08X", L->name, L->mpchars);
+		return;
+	}
+	for (i = 0; i < n; i++) {
+		const uint8_t *r = atVram(L->mpchars + 12u * i, 12);
+
+		mp_chr_setup[i].text_preset = be16at(r);
+		mp_chr_setup[i].gender = r[2];
+		mp_chr_setup[i].select_photo = r[3];
+		mp_chr_setup[i].body = (s16)be16at(r + 4);
+		mp_chr_setup[i].head = (s16)be16at(r + 6);
+		mp_chr_setup[i].pov = bef32(r + 8);
+	}
+	sysLogPrintf(LOG_NOTE, "rom: %u of its %u multiplayer characters", n, (unsigned)L->mpcharcount);
+}
+
+static void installMemStrings(const struct gevrRomLayout *L)
+{
+	/* Mario Characters gives every level a solo and a multiplayer row, moved (L->memstrings) */
+	const uint32_t at = L->memstrings ? L->memstrings : GEVR_MEMSTRINGS_AT;
+	uint32_t i, rows = hackRows(at, 8, GEVR_MEMSTRING_ROWS);
 
 	g_MemStringCount = 0;
 	for (i = 0; i < rows; i++) {
-		const uint8_t *p = atVram(GEVR_MEMSTRINGS_AT + 8u * i, 8);
+		const uint8_t *p = atVram(at + 8u * i, 8);
 		const char *s = vramString(be32at(p + 4));
 
 		if (!*s) {
@@ -1112,10 +1283,10 @@ static int readAnimTable(uint32_t at, uint32_t *dst, int cap)
 	return n;
 }
 
-static void installAnimTables(void)
+static void installAnimTables(const struct gevrRomLayout *L)
 {
-	g_AnimCount1 = readAnimTable(GEVR_ANIM_TABLE1_AT, g_AnimTable1, GEVR_ANIM_TABLE1_CAP);
-	g_AnimCount2 = readAnimTable(GEVR_ANIM_TABLE2_AT, g_AnimTable2, GEVR_ANIM_TABLE2_CAP);
+	g_AnimCount1 = readAnimTable(L->animtable1 ? L->animtable1 : GEVR_ANIM_TABLE1_AT, g_AnimTable1, GEVR_ANIM_TABLE1_CAP);
+	g_AnimCount2 = readAnimTable(L->animtable2 ? L->animtable2 : GEVR_ANIM_TABLE2_AT, g_AnimTable2, GEVR_ANIM_TABLE2_CAP);
 	sysLogPrintf(LOG_NOTE, "rom: %d guard and %d aircraft animation records from the hack", g_AnimCount1, g_AnimCount2);
 }
 
@@ -1131,6 +1302,106 @@ int gevrRomAnimTables(const uint32_t **ptrs1, int *count1, const uint32_t **ptrs
 	return 1;
 }
 
+/*
+ * bheadUpdatePos's (1 - 0.93): GoldenEye's 0.07, Mario Characters' 0.055,
+ * which its scripts set ("POV Height") to lower or raise the view.
+ */
+#define GEVR_HEADPOS_AT 0x800552fcu
+float g_GevrHeadPosOut = -1.0f;
+
+/*
+ * A Footsteps campaign's scripts write the cartridge's memory
+ * (gevr_footsteps.c): the window is that memory, from its data segment to the
+ * end of its Expansion Pak pieces. A string the binder's tables point at
+ * changes in place; a value it copied into a host table is read again below.
+ */
+/* The window's length from GEVR_DATA_VRAM (the PC input script's windowdump), 0 with no hack bound. */
+uint32_t gevrRomWindowLength(void)
+{
+	return g_Window.bytes ? g_Window.len : 0;
+}
+
+uint8_t *gevrRomWindowBytes(uint32_t vram, uint32_t need)
+{
+	if (!gevrRomIsVariant() || !g_Window.bytes) {
+		return NULL;
+	}
+	return (uint8_t *)gevrRomDataBytes(&g_Window, vram, need);
+}
+
+static int touches(uint32_t vram, uint32_t len, uint32_t at, uint32_t size)
+{
+	return vram < at + size && at < vram + len;
+}
+
+/* one character row again: its header, file, scale, eye height and flags */
+static void refreshCharacter(const struct gevrRomLayout *L, uint32_t i)
+{
+	const uint8_t *row = atVram(L->chrs + 20u * i, 20);
+	struct ChrModelFileRecord *r = &c_item_entries[i];
+	struct ModelFileHeader h;
+	uint32_t flags;
+
+	if (!row || !r->header) {
+		return;
+	}
+	memset(&h, 0, sizeof(h));
+	if (readHeader(be32at(row), &h)) {
+		r->header->Skeleton = h.Skeleton;
+		r->header->numSwitches = h.numSwitches;
+		r->header->numMatrices = h.numMatrices;
+		r->header->BoundingVolumeRadius = h.BoundingVolumeRadius;
+		r->header->numRecords = h.numRecords;
+		r->header->numtextures = h.numtextures;
+	}
+	flags = be32at(row + 16);
+	r->filename = (char *)vramString(be32at(row + 4));
+	r->scale = bef32(row + 8);
+	r->pov = bef32(row + 12);
+	r->isMale = (u8)((flags >> 24) & 1u);
+	r->hasHead = (u8)((flags >> 16) & 1u);
+}
+
+void gevrRomWindowChanged(uint32_t vram, uint32_t len)
+{
+	const struct gevrRomLayout *L = gevrRomActiveLayout();
+	unsigned parts = 0;
+	uint32_t i;
+
+	if (!L->footsteps || !gevrRomIsVariant() || !g_Window.bytes || !len) {
+		return;
+	}
+	if (L->numchrs && touches(vram, len, L->chrs, 20u * L->numchrs)) {
+		for (i = 0; i < L->numchrs; i++) {
+			if (touches(vram, len, L->chrs + 20u * i, 20)) {
+				refreshCharacter(L, i);
+			}
+		}
+	}
+	if (touches(vram, len, GEVR_FOLDER_AT, GEVR_FOLDER_ROW * GEVR_FOLDER_CAP)) {
+		installFolder();
+	}
+	if (touches(vram, len, GEVR_CAST_AT, 20u * GEVR_CAST_CAP)) {
+		readCastTable(L);
+	}
+	if (L->hats && touches(vram, len, L->hats, 24u * 6u * L->hatcount)) {
+		installHats(L);
+	}
+	if (touches(vram, len, GEVR_HEADPOS_AT, 4)) {
+		g_GevrHeadPosOut = bef32(atVram(GEVR_HEADPOS_AT, 4));
+	}
+	parts |= touches(vram, len, GEVR_LEVELINFO_AT, 24u * GEVR_LEVELINFO_ROWS) ? GEVR_LT_LEVELS : 0;
+	parts |= touches(vram, len, GEVR_SETUPNAMES_AT, 4u * GEVR_SETUPNAMES_ROWS) ? GEVR_LT_SETUPS : 0;
+	parts |= touches(vram, len, GEVR_FOG_AT, GEVR_FOG_ROW * 64u) ? GEVR_LT_FOG : 0;
+	parts |= touches(vram, len, GEVR_MUSIC_AT, 8u * (uint32_t)gevrMusicRowsMax) ? GEVR_LT_MUSIC : 0;
+	parts |= L->randomtracks && touches(vram, len, L->randomtracks, 2u * (uint32_t)gevrRandomTracksMax)
+			? GEVR_LT_MUSIC : 0;
+	parts |= touches(vram, len, GEVR_TARGETTIMES_AT, 6u * 20u) ? GEVR_LT_TIMES : 0;
+	if (parts) {
+		installLevelTables(L, parts);
+	}
+}
+
 int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 {
 	const struct gevrRomLayout *L = gevrRomActiveLayout();
@@ -1143,6 +1414,7 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 	g_MemStringCount = 0;
 	g_AnimCount1 = g_AnimCount2 = 0;
 	g_CastCount = 0;
+	g_HasLangBanks = 0;
 	clearLamps();
 	gevrRomClearItemMap();
 	if (!rom || !L || !L->variant || romLen < GEVR_DATA_ROM + 3) {
@@ -1228,10 +1500,16 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 	installItems();
 	installItemStats();
 	installHeadPools(L, rom, romLen);
+	installLangBanks(rom, romLen);
 	installHats(L);
-	installLevelTables();
-	installMemStrings();
-	installAnimTables();
+	installLevelTables(L, GEVR_LT_ALL);
+	g_GevrHeadPosOut = -1.0f;
+	if (L->footsteps && atVram(GEVR_HEADPOS_AT, 4)) {
+		g_GevrHeadPosOut = bef32(atVram(GEVR_HEADPOS_AT, 4));
+	}
+	installMemStrings(L);
+	installMpChars(L);
+	installAnimTables(L);
 	ok = 1;
 	sysLogPrintf(LOG_NOTE, "rom: %s ready (%u bytes)", L->name, romLen);
 	return ok;

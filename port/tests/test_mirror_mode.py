@@ -52,6 +52,8 @@ static u32 g_RomFileSize;
 using u64 = unsigned long long;   /* the content hash (net_core.c join check) is not under test here */
 static u64 s_RomContentHash;
 static void gevrRomHashContent(const u8 *, u32) {}
+static int s_RomContentCampaign;
+static const char *const *gevrCampaignNames(int campaign, u32 *count);
 static int VrCampaign, VrGexGuns, bankCalls, applyCalls, retailBinds;
 static bool bindOk;
 static void *fsFileLoad(const char *name, u32 *size) {
@@ -62,6 +64,7 @@ static void *fsFileLoad(const char *name, u32 *size) {
 static FILE *fsFileOpenWrite(const char *path) { return fopen(path, "wb"); }
 extern "C" int gevrRomApplyVariant(const u8*, u32) { ++applyCalls; return bindOk; }
 void gevrRomBindSegments() { ++bankCalls; }
+void gevrFootstepsBind() {}
 static void gevrRomBindFileTable() { ++retailBinds; }
 static int gevrRomCheckFiles(void*, unsigned, char*, size_t) { return 1; }
 static const struct gevrRomFile g_GevrRomSegments[GEVR_SEG_COUNT] = {

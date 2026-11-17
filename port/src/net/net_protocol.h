@@ -116,6 +116,8 @@ typedef enum {
     /* Additive, no bump: an older host ignores the type. */
     NET_MSG_INPUT_CLASS = 59,   /* Client -> host: what I play with now (u8 NET_INPUT_*), when it changes after HELLO */
     NET_MSG_INPUT_CLASSES = 60, /* Host -> all: u8 n, then n x u8 NET_INPUT_* by slot (the roster's "Plays" column) */
+    /* Additive, no bump: only a Mario Characters party sends it, which older builds cannot join (NET_CONTENT_ROM). */
+    NET_MSG_COOP_POKES = 61,    /* Host -> all: its level scripts' writes to the hack's memory, and the objectives' show/hide (gevr_footsteps.c) */
 } NetMsgType;
 
 #define NET_DISCONNECT_KICKED 0x47454b49u
@@ -128,9 +130,13 @@ typedef enum {
  * NET_DISCONNECT_CONTENT | part. Additive on protocol 25: an older joiner
  * sends no block and is let in, an older host reads past it.
  */
-#define NET_CONTENT_ROM 1u              /* the cartridge's bytes (gevr_romload.c) */
+#define NET_CONTENT_ROM 1u              /* the cartridge's bytes (gevr_romload.c): the hack's in a hack campaign */
+#define NET_CONTENT_CAMPAIGN 2u         /* the campaign + 1 (gevr_romlayout.h GEVR_CAMPAIGN_*): co-op in a hack */
 #define NET_CONTENT_MAX_PARTS 8
 #define NET_DISCONNECT_CONTENT 0x47454300u   /* | part */
+/* A joiner on another campaign: | the host's campaign. An older joiner sees an
+ * unknown reason; its ROM part differs as well, which older hosts refuse. */
+#define NET_DISCONNECT_CAMPAIGN 0x47454d00u
 
 /*
  * Who is joining (docs/mobile-platforms.md, "VR players only"): after the

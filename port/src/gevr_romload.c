@@ -72,6 +72,7 @@ u32 g_RomFileSize = 0;
  * gevrRomValidate would play a different game.
  */
 static u64 s_RomContentHash;
+static int s_RomContentCampaign = -1;   /* the campaign whose cartridge it is */
 
 static void gevrRomHashContent(const u8 *rom, u32 size)
 {
@@ -81,8 +82,11 @@ static void gevrRomHashContent(const u8 *rom, u32 size)
 		h = (h ^ rom[i]) * 0x100000001b3ull;
 	}
 	s_RomContentHash = h;
+	s_RomContentCampaign = gevrRomCampaign();
 	sysLogPrintf(LOG_NOTE, "rom: content %016llx", (unsigned long long)h);
 }
+
+static const char *const *gevrCampaignNames(int campaign, u32 *count);
 
 
 #define GEVR_ROM_SIZE   12582912          /* 12 MiB, every retail GoldenEye cart */
@@ -103,24 +107,48 @@ static const char *const gevrRomNames[] = {
 };
 
 /*
- * Asked for before the game has loaded the cartridge too: multiplayer joins
- * and hosts start in the launcher (vr_launcher.cpp, port/server), ahead of
- * romdataInit. Then the file romdataInit will load is read and hashed once.
+ * The cartridge this machine plays: GoldenEye's, or in a hack campaign the
+ * hack's (romdataInit hashes whichever it loads). Asked for before the game
+ * has loaded it too: multiplayer joins and hosts start in the launcher
+ * (vr_launcher.cpp, port/server), ahead of romdataInit, with the launcher's
+ * campaign (VrCampaign). Then the file romdataInit will load is read and
+ * hashed, again only if the launcher's campaign changes.
  * 0 when there is none (the join check skips an unknown part).
  */
+/* gevrCampaignCoop for callers that cannot include gevr_romlayout.h (vr_pause_menu.cpp) */
+int gevrCampaignCoopOk(int campaign)
+{
+	return gevrCampaignCoop(campaign);
+}
+
+int gevrRomPlayCampaign(void)
+{
+	return g_RomFile ? gevrRomCampaign()
+			: VrCampaign > GEVR_CAMPAIGN_GE && VrCampaign < GEVR_CAMPAIGN_COUNT ? VrCampaign : GEVR_CAMPAIGN_GE;
+}
+
 u64 gevrRomContentHash(void)
 {
-	u32 size = 0;
+	const int campaign = gevrRomPlayCampaign();
+	const char *const *names;
+	u32 count, size = 0;
 	void *data = NULL;
 
-	if (s_RomContentHash) {
+	if (s_RomContentHash && s_RomContentCampaign == campaign) {
 		return s_RomContentHash;
 	}
-	for (u32 i = 0; i < sizeof(gevrRomNames) / sizeof(gevrRomNames[0]) && !data; i++) {
-		data = fsFileLoad(gevrRomNames[i], &size);
+	names = gevrCampaignNames(campaign, &count);
+	if (!names) {
+		names = gevrRomNames;
+		count = sizeof(gevrRomNames) / sizeof(gevrRomNames[0]);
 	}
+	for (u32 i = 0; i < count && !data; i++) {
+		data = fsFileLoad(names[i], &size);
+	}
+	s_RomContentHash = 0;
 	if (data && gevrRomNormaliseOrder((u8 *)data, size)) {
 		gevrRomHashContent((const u8 *)data, size);
+		s_RomContentCampaign = campaign;
 	}
 	free(data);
 	return s_RomContentHash;
@@ -219,6 +247,30 @@ static const char *const gevrMirrorNames[] = {
 	GEVR_ROM_MIRROR_FILE,
 	"data/" GEVR_ROM_MIRROR_FILE,
 };
+static const char *const gevrMarioNames[] = {
+	GEVR_ROM_MARIO_FILE,
+	"data/" GEVR_ROM_MARIO_FILE,
+};
+
+/* The files a hack campaign plays from; NULL for GoldenEye's own (gevrRomNames). */
+static const char *const *gevrCampaignNames(int campaign, u32 *count)
+{
+#define GEVR_NAMES(a) (*count = sizeof(a) / sizeof(a[0]), a)
+	switch (campaign) {
+	case GEVR_CAMPAIGN_GF64:
+		return GEVR_NAMES(gevrGoldfingerNames);
+	case GEVR_CAMPAIGN_TND64:
+		return GEVR_NAMES(gevrTndNames);
+	case GEVR_CAMPAIGN_MIRROR:
+		return GEVR_NAMES(gevrMirrorNames);
+	case GEVR_CAMPAIGN_MARIO:
+		return GEVR_NAMES(gevrMarioNames);
+	default:
+		*count = 0;
+		return NULL;
+	}
+#undef GEVR_NAMES
+}
 
 static void *gevrLoadNamed(const char *const *names, u32 count, u32 *size)
 {
@@ -252,22 +304,8 @@ s32 romdataInit(void)
 	gevrRomSetImageBankBytes(0);
 
 	if (gevrRomIsVariant()) {
-		const char *const *names;
 		u32 nameCount;
-		switch (gevrRomCampaign()) {
-		case GEVR_CAMPAIGN_GF64:
-			names = gevrGoldfingerNames;
-			nameCount = sizeof(gevrGoldfingerNames) / sizeof(gevrGoldfingerNames[0]);
-			break;
-		case GEVR_CAMPAIGN_TND64:
-			names = gevrTndNames;
-			nameCount = sizeof(gevrTndNames) / sizeof(gevrTndNames[0]);
-			break;
-		default: /* GEVR_CAMPAIGN_MIRROR */
-			names = gevrMirrorNames;
-			nameCount = sizeof(gevrMirrorNames) / sizeof(gevrMirrorNames[0]);
-			break;
-		}
+		const char *const *names = gevrCampaignNames(gevrRomCampaign(), &nameCount);
 		const struct gevrRomLayout *want = gevrRomActiveLayout();
 
 		data = gevrLoadNamed(names, nameCount, &size);
@@ -289,6 +327,12 @@ s32 romdataInit(void)
 					sysLogPrintf(LOG_NOTE, "rom: GoldenEye X models are off in %s", want->name);
 				}
 				gevrRomBindSegments();
+				{
+					/* a Footsteps campaign's own cheat rows and global AI lists (src/game/gevr_footsteps.c) */
+					extern void gevrFootstepsBind(void);
+
+					gevrFootstepsBind();
+				}
 				return 0;
 			}
 			g_RomFile = NULL;

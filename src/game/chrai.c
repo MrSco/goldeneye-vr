@@ -20,6 +20,8 @@
 #include "mp_music.h"
 #include "objecthandler.h"
 #include "objective_status.h"
+#include "gevr_footsteps.h"
+#include "gevr_romlayout.h"
 #include "player.h"
 #include "propobj.h"
 #include "stan.h"
@@ -1093,6 +1095,15 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
 
                     if (CHR_NUM == ((u8)CHR_SELF))
                     {
+#ifdef GEVR
+                        /* a teammate's own run of a player-only list (net_coop.c): its end */
+                        if (gevrFootstepsIsRunningLocal() && ChrEntityp)
+                        {
+                            ChrEntityp->ailist   = NULL;
+                            ChrEntityp->aioffset = 0;
+                            return;
+                        }
+#endif
                         AiListp = ailistFindById(AI_LIST_ID);
                         Offset  = 0;
                     }
@@ -1636,6 +1647,23 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 case AI_TRYFindCover:
                 { // Find Cover
                     AiTRYFindCoverRecord *ai = AiListp + Offset;
+#ifdef GEVR
+                    /* the Footsteps patch's pokes (gevr_footsteps.c; its code at 7F0360A0) */
+                    if (gevrRomFootsteps())
+                    {
+                        s32 gevrLabel = gevrFootstepsCommandIn((const u8 *)AiListp, (const u8 *)ai);
+
+                        if (gevrLabel >= 0)
+                        {
+                            Offset = chraiGoToLabel(AiListp, Offset, (u8)gevrLabel);
+                        }
+                        else
+                        {
+                            Offset += sizeof(AiTRYFindCoverRecord);
+                        }
+                        break;
+                    }
+#endif
                     if (removed_animation_routine_2B(ChrEntityp))
                     {
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
@@ -1771,6 +1799,15 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 case AI_IFICanHearAlarm:
                 {
                     AiIFICanHearAlarmRecord *ai = AiListp + Offset;
+#ifdef GEVR
+                    /* Mario Characters: shows or hides objective <label byte> (7F0362D8) */
+                    if (gevrRomFootsteps())
+                    {
+                        gevrFootstepsToggleObjective(ai->GOTOLABEL);
+                        Offset += sizeof(AiIFICanHearAlarmRecord);
+                        break;
+                    }
+#endif
                     if (chrCanHearAlarm(ChrEntityp))
                     {
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
@@ -3231,6 +3268,16 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 {
                     AiSetObjectiveBitfieldRecord *ai    = AiListp + Offset;
                     s32                           flags = ntohl(ai->BITFIELD);
+#ifdef GEVR
+                    /* a player-only cheat list's flags are its player's (gevr_footsteps.c) */
+                    s32 *gevrOwn = gevrFootstepsPlayerFlags((const u8 *)AiListp);
+
+                    if (gevrOwn)
+                    {
+                        *gevrOwn |= flags;
+                    }
+                    if (!gevrOwn || !gevrFootstepsIsRunningLocal())
+#endif
                     chrSetStageFlags(ChrEntityp, flags);
                     Offset += sizeof(AiSetObjectiveBitfieldRecord);
                     break;
@@ -3239,6 +3286,15 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 {
                     AiUnsetObjectiveBitfieldRecord *ai    = AiListp + Offset;
                     s32                             flags = ntohl(ai->BITFIELD);
+#ifdef GEVR
+                    s32 *gevrOwn = gevrFootstepsPlayerFlags((const u8 *)AiListp);
+
+                    if (gevrOwn)
+                    {
+                        *gevrOwn &= ~flags;
+                    }
+                    if (!gevrOwn || !gevrFootstepsIsRunningLocal())
+#endif
                     chrUnsetStageFlags(ChrEntityp, flags);
                     Offset += sizeof(AiUnsetObjectiveBitfieldRecord);
                     break;
@@ -3247,7 +3303,13 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 {
                     AiIFObjectiveBitfieldHasRecord *ai    = AiListp + Offset;
                     s32                             flags = ntohl(ai->BITS);
-                    if (chrHasStageFlag(ChrEntityp, flags)) /* PD && ai->val[4] == 1) || (!chrHasStageFlag(ChrEntityp, flags) && ai->val[4] == 0  * */
+#ifdef GEVR
+                    s32 *gevrOwn = gevrFootstepsPlayerFlags((const u8 *)AiListp);
+
+                    if (gevrOwn ? (*gevrOwn & flags) != 0 : chrHasStageFlag(ChrEntityp, flags))
+#else
+                    if (chrHasStageFlag(ChrEntityp, flags))
+#endif /* PD && ai->val[4] == 1) || (!chrHasStageFlag(ChrEntityp, flags) && ai->val[4] == 0  * */
                     {
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
                     }
@@ -3719,6 +3781,14 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                         }
                         else
                         {
+#ifdef GEVR
+                            /* Mario Characters: Enemy Rockets in Cheat Options arms these too (0x80004B04) */
+                            if (gevrFootstepsEnemyRockets() && ai->ITEM_NUM >= 4 && ai->ITEM_NUM <= 24)
+                            {
+                                prop = chrGiveWeapon(ChrEntityp, PROP_CHRROCKETLAUNCH, ITEM_ROCKETLAUNCH, flags);
+                            }
+                            else
+#endif
                             prop = chrGiveWeapon(ChrEntityp, model, ai->ITEM_NUM, flags);
                         }
                     }
@@ -3895,6 +3965,15 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 {
                     AiSfxPlayRecord *ai       = AiListp + Offset;
                     s16              audio_id = ntohs(ai->SOUND_NUM);
+#ifdef GEVR
+                    /* Mario Characters: channel -2 plays it where the guard is (0x80004AE0) */
+                    if (gevrRomFootsteps() && (s8)ai->CHANNEL_NUM == -2 && ChrEntityp && ChrEntityp->prop)
+                    {
+                        gevrFootstepsSoundAt(audio_id, &ChrEntityp->prop->pos);
+                        Offset += sizeof(AiSfxPlayRecord);
+                        break;
+                    }
+#endif
                     audioPlayFromProp((s8)ai->CHANNEL_NUM, audio_id);
                     Offset += sizeof(AiSfxPlayRecord);
                     break;
@@ -4505,6 +4584,13 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 case AI_SwitchSky:
                 { // SWITCHENVIRONMENT
                     fogSwitchToSolosky2(1.0);
+#ifdef GEVR
+                    /* Mario Characters: the next one switches back (its swap at 7F0BAD00) */
+                    if (gevrRomFootsteps())
+                    {
+                        gevrFootstepsSwapSkies();
+                    }
+#endif
                     Offset += sizeof(AiSwitchSkyRecord);
                     break;
                 }
@@ -4532,6 +4618,15 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 }
                 case AI_BondDisableDamageAndPickups:
                 {
+#ifdef GEVR
+                    /* Mario Characters: a second one gives them back (7F039DA8) */
+                    if (gevrRomFootsteps())
+                    {
+                        g_PlayerInvincible = !g_PlayerInvincible;
+                        Offset += sizeof(AiBondDisableDamageAndPickupsRecord);
+                        break;
+                    }
+#endif
                     g_PlayerInvincible = TRUE;
                     Offset += sizeof(AiBondDisableDamageAndPickupsRecord);
                     break;
@@ -4698,6 +4793,15 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 }
                 case AI_GasLeakAndFadeFog:
                 {
+#ifdef GEVR
+                    /* Mario Characters: the fog's fade, no gas (7F03A104) */
+                    if (gevrRomFootsteps())
+                    {
+                        gevrFootstepsFogFade();
+                        Offset += sizeof(AiGasLeakAndFadeFogRecord);
+                        break;
+                    }
+#endif
                     coord3d emitPos = New_Coord3d();
                     init_trigger_toxic_gas_effect(&emitPos);
                     Offset += sizeof(AiGasLeakAndFadeFogRecord);

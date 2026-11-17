@@ -91,11 +91,11 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
             subprocess.run([str(exe), "horde_read", "24"], cwd=temp, check=True)
         ini.unlink(missing_ok=True)
         print("PASS: all 26 Horde map choices persist; invalid IDs fall back to Archives")
-        for campaign in range(4):
+        for campaign in range(5):
             subprocess.run([str(exe), "campaign_write", str(campaign)], cwd=temp, check=True)
             subprocess.run([str(exe), "campaign_read", str(campaign)], cwd=temp, check=True)
-        print("PASS: four campaign selections survive independent save/load processes")
-        for invalid in (-1, 4, 99):
+        print("PASS: five campaign selections survive independent save/load processes")
+        for invalid in (-1, 5, 99):
             ini.write_text(f"Campaign={invalid}\n", encoding="utf-8")
             subprocess.run([str(exe), "campaign_read", "0"], cwd=temp, check=True)
         ini.unlink(missing_ok=True)

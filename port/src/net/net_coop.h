@@ -93,7 +93,8 @@ int gevrCoopObjectiveSnapshot(unsigned char *statuses, int max, int localslot); 
 int gevrCoopHeldObjectiveTags(int *tags, int max, int localslot);
 void gevrCoopApplyPhoto(int tag);
 int gevrCoopAnyCopiedKey(void);
-void netCoopClientTick(void);               /* netPoll, a teammate's headset: the items its player holds */
+void netCoopClientTick(void);
+void netCoopRunPlayerLists(void);   /* a teammate's headset: Mario Characters' player-only cheat lists, each tick */               /* netPoll, a teammate's headset: the items its player holds */
 
 /* The party's menus: the solo front end, the host driving (net_coop_menu.c) */
 int gevrCoopSession(void);                  /* a co-op party, in its menus or a mission */

@@ -3,7 +3,7 @@
  * the engine tables it writes, and prints what it bound. test_romcampaign.py
  * decodes the same ROM on its own and compares. No ROM data is kept here.
  *
- * usage: romcampaign_native <hack.z64> <campaign 1|2>
+ * usage: romcampaign_native <hack.z64> <campaign 1-4>
  *
  * It also rebuilds the hack's animation segment (gevr_romswap.c) from the
  * tables the binder read, and checks every one of GoldenEye's records there
@@ -36,6 +36,7 @@
 fileentry file_resource_table[1024];
 resource_lookup_data_entry resource_lookup_data_array[1024];
 s32 file_entry_max = 727; /* GoldenEye (US)'s table */
+const s32 gevrFileSlots = 736; /* ob.c's OBJ_INDEX_MAX */
 u8 *g_RomFile;
 u32 g_RomFileSize;
 
@@ -57,6 +58,8 @@ s32 gevrTextureCount(void) { return s_textureCount; }
 void gevrTextureUse(struct image_entry *entries, s32 count) { g_Textures = entries; s_textureCount = count; }
 
 struct mission_folder_setup mission_folder_setup_entries[48];
+struct MP_selectable_chars mp_chr_setup[64];   /* front.c's, GoldenEye's 64 */
+const s32 gevrMpCharRows = 64;
 s16 solo_target_time_array[20][3];
 
 /* bg.c's row order */
@@ -77,8 +80,12 @@ char *setup_text_pointers[59];
 #define CANARY 4
 EnvironmentRecord fog_tables[48 + CANARY];          /* GoldenEye's 47 and the end row */
 EnvironmentFoglessRecord fog_tables2[4 + CANARY];   /* 3 and the end row */
-struct gevrTestMusicRow { s16 stage_id, main_music, bg_sound, xtrack; } music_setup_entries[25 + CANARY];
-s16 random_tracks[44 + CANARY];                     /* 43 tracks and M_NONE (0) */
+/* music_0D2720.c's room under GEVR: GoldenEye's 23 rows and 43 tracks, spares, the end rows */
+#define MUSIC_ROWS 48
+#define RANDOM_ROWS 64
+struct gevrTestMusicRow { s16 stage_id, main_music, bg_sound, xtrack; } music_setup_entries[MUSIC_ROWS + CANARY];
+s16 random_tracks[RANDOM_ROWS + CANARY];
+const int gevrMusicRowsMax = MUSIC_ROWS, gevrRandomTracksMax = RANDOM_ROWS;
 
 struct ModelFileHeader cartridge_header, cartrifle_header, cartblue_header, cartshell_header;
 
@@ -125,7 +132,7 @@ static void animCheck(const u8 *rom, uint32_t romLen)
 	static u32 ge[512], hk[512];
 	const struct gevrRomLayout *L = gevrRomActiveLayout();
 	const uint32_t *h1, *h2;
-	int n1, n2, i, count = 0, moved = 0, ok = 0, bad = 0;
+	int n1, n2, i, count = 0, moved = 0, ok = 0, bad = 0, appended = 0;
 	u32 size = 0, segLen;
 	u8 *seg;
 
@@ -142,6 +149,13 @@ static void animCheck(const u8 *rom, uint32_t romLen)
 		ge[count] = s_geAnim2[i];
 		hk[count] = h2[i];
 		moved += ge[count] != hk[count];
+	}
+	/* the hack's animations past GoldenEye's (Mario Characters' three), kept where its bytes have them */
+	for (i = (int)(sizeof(s_geAnim1) / 4) - 1; i < n1; i++, count++) {
+		ge[count] = GEVR_ANIM_APPEND;
+		hk[count] = h1[i];
+		moved++;
+		appended++;
 	}
 	printf("animtables %d %d %d %d moved %d\n", n1, n2, (int)(sizeof(s_geAnim1) / 4) - 1,
 			(int)(sizeof(s_geAnim2) / 4) - 1, moved);
@@ -184,6 +198,7 @@ static void animCheck(const u8 *rom, uint32_t romLen)
 		}
 	}
 	printf("anim %d %d\n", ok, bad);
+	printf("animappend %d\n", appended);
 	free(seg);
 }
 
@@ -262,7 +277,7 @@ int main(int argc, char **argv)
 	for (i = 0; i < 3; i++) {
 		fog_tables2[i].Id = 1;
 	}
-	for (i = 0; i < 24; i++) {
+	for (i = 0; i < 23; i++) {
 		music_setup_entries[i].stage_id = 1;
 	}
 	for (i = 0; i < 43; i++) {
@@ -271,8 +286,8 @@ int main(int argc, char **argv)
 	for (i = 0; i < CANARY; i++) {
 		fog_tables[48 + i].Id = 0x7777;
 		fog_tables2[4 + i].Id = 0x7777;
-		music_setup_entries[25 + i].stage_id = 0x777;
-		random_tracks[44 + i] = 0x777;
+		music_setup_entries[MUSIC_ROWS + i].stage_id = 0x777;
+		random_tracks[RANDOM_ROWS + i] = 0x777;
 	}
 	for (i = 1; i < 32; i++) {
 		gitem_structs[i].item_header = &s_itemHeaders[i];
@@ -321,14 +336,16 @@ int main(int argc, char **argv)
 					hats[i].zoffset, hats[i].xsize, hats[i].ysize, hats[i].zsize);
 		}
 	}
-	/* Goldfinger's head pools: a fixed seed, its level init, then picks */
+	/* the head pools (Goldfinger's, Mario Characters' four): a fixed seed, its level init, then picks */
 	{
 		extern u64 g_randomSeed;
 
 		g_randomSeed = 0x0123456789ABCDEFULL;
 		printf("poolinit %d\n", gevrRomHeadPoolsLevelInit());
-		for (i = 0; i < 24; i++) {
-			printf("pick %d %d %d %d\n", i, i & 1, (i & 2) ? -2 : -1, gevrRomChooseHead(i & 1, (i & 2) ? -2 : -1));
+		for (i = 0; i < 32; i++) {
+			const int head = -1 - ((i >> 1) & 3);
+
+			printf("pick %d %d %d %d\n", i, i & 1, head, gevrRomChooseHead(i & 1, head));
 		}
 	}
 	for (i = 1; i < 32; i++) {
@@ -345,7 +362,7 @@ int main(int argc, char **argv)
 				s->DestructionAmount, s->Inaccuracy, s->Zoom, s->RecoilSpeed, s->RecoilBack, s->ForceOfImpact,
 				(unsigned)s->BitFlags);
 	}
-	for (i = 1; i < 727; i++) {
+	for (i = 1; i < file_entry_max; i++) {
 		if (file_resource_table[i].hw_address) {
 			printf("file %d %s %ld %u\n", i, file_resource_table[i].filename,
 					(long)(file_resource_table[i].hw_address - rom), resource_lookup_data_array[i].rom_size);
@@ -374,7 +391,7 @@ int main(int argc, char **argv)
 		printf("fogless %d %u %d %d %d %d %.3f %d %.3f\n", i, (unsigned)r->Id, r->Red, r->Green, r->Blue,
 				r->Clouds, r->CloudRepeat, r->IsWater, r->WaterRepeat);
 	}
-	for (i = 0; i < 25; i++) {
+	for (i = 0; i < MUSIC_ROWS; i++) {
 		printf("music %d %d %d %d %d\n", i, music_setup_entries[i].stage_id, music_setup_entries[i].main_music,
 				music_setup_entries[i].bg_sound, music_setup_entries[i].xtrack);
 	}
@@ -383,11 +400,11 @@ int main(int argc, char **argv)
 
 		for (i = 0; i < CANARY; i++) {
 			intact &= fog_tables[48 + i].Id == 0x7777 && fog_tables2[4 + i].Id == 0x7777
-				&& music_setup_entries[25 + i].stage_id == 0x777 && random_tracks[44 + i] == 0x777;
+				&& music_setup_entries[MUSIC_ROWS + i].stage_id == 0x777 && random_tracks[RANDOM_ROWS + i] == 0x777;
 		}
 		printf("canaries %d\n", intact);
 	}
-	for (i = 0; i < 44; i++) {
+	for (i = 0; i < RANDOM_ROWS; i++) {
 		printf("random %d %d\n", i, random_tracks[i]);
 	}
 	for (i = 0; i < 20; i++) {
@@ -412,6 +429,13 @@ int main(int argc, char **argv)
 		const char *s = gevrRomStageMemString(stage, multi);
 
 		printf("memstr %d %d %s\n", stage, multi, s ? s : "NULL");
+	}
+	for (i = 0; i < 64; i++) {
+		printf("langbank %d %d\n", i, gevrRomLangBank(i));
+	}
+	for (i = 0; i < 64; i++) {
+		printf("mpchar %d %u %u %u %d %d %.5f\n", i, mp_chr_setup[i].text_preset, mp_chr_setup[i].gender,
+				mp_chr_setup[i].select_photo, mp_chr_setup[i].body, mp_chr_setup[i].head, mp_chr_setup[i].pov);
 	}
 	return 0;
 }

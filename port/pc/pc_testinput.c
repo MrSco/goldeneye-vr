@@ -45,9 +45,51 @@
 
 #include "system.h"
 
+/*
+ * "windowdump <name>": a hack campaign's window (its data segment and
+ * Expansion Pak pieces, gevr_romcampaign.c) to shots/<name>.bin, and the
+ * ranges its level scripts wrote (gevr_footsteps.c) to shots/<name>.ranges,
+ * to compare with an emulator's RDRAM at the same moment (tools/emu).
+ */
+extern unsigned int gevrRomWindowLength(void);
+extern unsigned char *gevrRomWindowBytes(unsigned int vram, unsigned int need);
+extern int gevrFootstepsTouchedWrites(unsigned int *start, unsigned int *len, int cap);
+
+static void windowDump(const char *name)
+{
+	static unsigned int start[2048], len[2048];
+	const unsigned int base = 0x80020d90u, n = gevrRomWindowLength();
+	const unsigned char *w = n ? gevrRomWindowBytes(base, n) : NULL;
+	char path[96];
+	FILE *f;
+	int count, i;
+
+	if (!w) {
+		sysLogPrintf(LOG_WARNING, "input script: windowdump: no hack campaign is bound");
+		return;
+	}
+	snprintf(path, sizeof(path), "shots/%s.bin", name);
+	f = fopen(path, "wb");
+	if (f) {
+		fwrite(w, 1, n, f);
+		fclose(f);
+	}
+	count = gevrFootstepsTouchedWrites(start, len, 2048);
+	snprintf(path, sizeof(path), "shots/%s.ranges", name);
+	f = fopen(path, "w");
+	if (f) {
+		fprintf(f, "base %08X len %08X\n", base, n);
+		for (i = 0; i < count; i++) {
+			fprintf(f, "%08X %u\n", start[i], len[i]);
+		}
+		fclose(f);
+	}
+	sysLogPrintf(LOG_NOTE, "input script: window dump %s: %u bytes, %d written ranges", name, n, count);
+}
+
 #define TI_MAX 512
 
-enum { TI_CAPTURE, TI_RELEASE, TI_CLICK, TI_RCLICK, TI_MOVE, TI_KEY, TI_SHOT, TI_QUIT, TI_PAD, TI_AXIS, TI_POINT, TI_TEXT, TI_CRASH, TI_PICK, TI_MOUSE };
+enum { TI_CAPTURE, TI_RELEASE, TI_CLICK, TI_RCLICK, TI_MOVE, TI_KEY, TI_SHOT, TI_QUIT, TI_PAD, TI_AXIS, TI_POINT, TI_TEXT, TI_CRASH, TI_PICK, TI_MOUSE, TI_WINDOWDUMP };
 
 struct ticmd {
 	u32 at;
@@ -130,6 +172,7 @@ static void tiLoad(void)
 		}
 		else if (!strcmp(word, "shot")) { c->kind = TI_SHOT; snprintf(c->name, sizeof(c->name), "%s", n >= 3 ? arg : "shot"); }
 		else if (!strcmp(word, "quit")) c->kind = TI_QUIT;
+		else if (!strcmp(word, "windowdump")) { c->kind = TI_WINDOWDUMP; snprintf(c->name, sizeof(c->name), "%s", n >= 3 ? arg : "window"); }
 		else if (!strcmp(word, "crash")) c->kind = TI_CRASH;
 		else if (!strcmp(word, "text")) { c->kind = TI_TEXT; snprintf(c->name, sizeof(c->name), "%s", arg); }
 		else if (!strcmp(word, "pick")) {
@@ -214,6 +257,7 @@ void pcTestInputFrame(s32 *mdx, s32 *mdy, u32 *buttons, s32 *lock)
 		case TI_MOVE: s_moveDx = c->a; s_moveDy = c->b; s_moveFrames = c->c; break;
 		case TI_KEY: if (c->a > 0 && c->a < SDL_NUM_SCANCODES) s_keyUntil[c->a] = now + (u32)(c->b > 0 ? c->b : 100); break;
 		case TI_SHOT: memcpy(s_shotPending, c->name, sizeof(s_shotPending)); break;
+		case TI_WINDOWDUMP: windowDump(c->name); break;
 		case TI_PAD: s_padUntil[c->a] = now + (u32)c->b; break;
 		case TI_POINT: s_pointX = c->a; s_pointY = c->b; break;
 		case TI_MOUSE: s_mouseX = c->a; s_mouseY = c->b; break;

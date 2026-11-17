@@ -98,6 +98,7 @@ void gevrAllyAttach(ChrRecord *chr, u32 flags) {
 static void coopHostMission(u64 t) {}
 static void coopHostDropIn(u64 t) {}
 static void coopCinemaHostTick(u64 t) {}
+static void coopHostPokes(void) {}   /* Mario Characters' pokes: not in this test */
 static void coopHostClock(u64 t) {}
 static void coopBehindLockTick(void) {}
 static void coopHostGuardShots(void) {}

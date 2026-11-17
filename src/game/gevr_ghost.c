@@ -32,7 +32,7 @@
  * (stereo or flat, the art set, force pull, the ally, third person, the
  * movement speed, the campaign), shown on the launcher's row so a ghost is
  * raced knowingly. Each campaign keeps its own files (ge-, gf-, tnd-,
- * mirror-): a ROM hack's Dam is not GoldenEye's.
+ * mirror-, mario-): a ROM hack's Dam is not GoldenEye's.
  *
  * Which run a mission races is the launcher's Ghosts tab's (vr_ghosts.cpp):
  * the best on file, or a run downloaded from the ghost boards (the lobby
@@ -53,6 +53,7 @@
 #include "fs.h"
 #include "system.h"
 #include "gevr_ghost.h"
+#include "gevr_romlayout.h"   /* GEVR_CAMPAIGN_COUNT */
 
 extern bool netIsActive(void);
 extern s32 g_gevrStereo;
@@ -156,8 +157,12 @@ static u32 ghostHash(const void *data, u32 len)
 
 static const char *ghostCampaignTag(s32 campaign)
 {
-    static const char *const tags[] = { "ge", "gf", "tnd", "mirror" };
+    /* one per campaign: a missing one would file that campaign's runs as GoldenEye's
+     * and overwrite GoldenEye's best (Mario Characters, campaign 4, had none) */
+    static const char *const tags[] = { "ge", "gf", "tnd", "mirror", "mario" };
+    typedef char tagsForEveryCampaign[sizeof(tags) / sizeof(tags[0]) == GEVR_CAMPAIGN_COUNT ? 1 : -1];
 
+    (void)sizeof(tagsForEveryCampaign);
     return campaign >= 0 && campaign < (s32)(sizeof(tags) / sizeof(tags[0])) ? tags[campaign] : "ge";
 }
 
