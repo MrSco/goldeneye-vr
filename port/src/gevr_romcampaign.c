@@ -692,6 +692,66 @@ static const uint8_t *codeAt(const uint8_t *rom, uint32_t romLen, uint32_t va, u
 	return rom + GEVR_CODE_ROM + (va - GEVR_CODE_VRAM);
 }
 
+/*
+ * language.c's langGetLangBankIndexFromStagenum as the cartridge compiles
+ * it: "addiu t6,a0,-first; sltiu at,t6,n; ...; lui at,hi; addu; lw t6,lo(at);
+ * jr t6", each case "jr ra; addiu v0,zero,bank". Mario Characters widens it
+ * to 48 stages and names banks for its own (42 Lsho, 44 Leld, 47 Llue...);
+ * GoldenEye, Goldfinger and TND decode to the switch language.c has.
+ */
+#define GEVR_LANGSWITCH_AT 0x7f0c15e0u
+#define GEVR_LANG_STAGES   64
+static int8_t g_LangBank[GEVR_LANG_STAGES];
+static int g_HasLangBanks;
+
+static void installLangBanks(const uint8_t *rom, uint32_t romLen)
+{
+	const uint8_t *fn = codeAt(rom, romLen, GEVR_LANGSWITCH_AT, 0x1c);
+	uint32_t first, count, table, i;
+	int named = 0;
+
+	g_HasLangBanks = 0;
+	memset(g_LangBank, -1, sizeof(g_LangBank));
+	if (!fn || (be32at(fn) & 0xffff0000u) != 0x248e0000u || (be32at(fn + 4) & 0xffff0000u) != 0x2dc10000u
+			|| (be32at(fn + 0x10) & 0xffff0000u) != 0x3c010000u || (be32at(fn + 0x18) & 0xffff0000u) != 0x8c2e0000u) {
+		sysLogPrintf(LOG_ERROR, "rom: the text bank switch is not at %08X", GEVR_LANGSWITCH_AT);
+		return;
+	}
+	first = (uint32_t)-(int16_t)be16at(fn + 2);
+	count = be16at(fn + 6);
+	table = ((uint32_t)be16at(fn + 0x12) << 16) + (uint32_t)(int32_t)(int16_t)be16at(fn + 0x1a);
+	if (first + count > GEVR_LANG_STAGES || !atVram(table, 4 * count)) {
+		sysLogPrintf(LOG_ERROR, "rom: text bank switch stages %u+%u at %08X do not fit", first, count, table);
+		return;
+	}
+	for (i = 0; i < count; i++) {
+		/* Mario's added cases are stubs in the data segment, just before the table (0x8005BB00) */
+		const uint32_t to = be32at(atVram(table + 4 * i, 4));
+		const uint8_t *c = codeAt(rom, romLen, to, 8);
+
+		if (!c) {
+			c = atVram(to, 8);
+		}
+
+		/* bank 0 is the null row: no stage bank (Mario's stage 21) */
+		if (c && be32at(c) == 0x03e00008u && (be32at(c + 4) & 0xffff0000u) == 0x24020000u
+				&& be16at(c + 6) > 0 && be16at(c + 6) < 45) {
+			g_LangBank[first + i] = (int8_t)be16at(c + 6);
+			named++;
+		}
+	}
+	g_HasLangBanks = 1;
+	sysLogPrintf(LOG_NOTE, "rom: text banks for %d of stages %u-%u", named, first, first + count - 1);
+}
+
+int gevrRomLangBank(int stage)
+{
+	if (!g_HasLangBanks) {
+		return -2;
+	}
+	return stage >= 0 && stage < GEVR_LANG_STAGES ? g_LangBank[stage] : -1;
+}
+
 static void installHeadPools(const struct gevrRomLayout *L, const uint8_t *rom, uint32_t romLen)
 {
 	const uint8_t *len = L->headpools ? codeAt(rom, romLen, L->headpools, 40) : NULL;
@@ -1312,6 +1372,7 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 	g_MemStringCount = 0;
 	g_AnimCount1 = g_AnimCount2 = 0;
 	g_CastCount = 0;
+	g_HasLangBanks = 0;
 	clearLamps();
 	gevrRomClearItemMap();
 	if (!rom || !L || !L->variant || romLen < GEVR_DATA_ROM + 3) {
@@ -1397,6 +1458,7 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 	installItems();
 	installItemStats();
 	installHeadPools(L, rom, romLen);
+	installLangBanks(rom, romLen);
 	installHats(L);
 	installLevelTables(L, GEVR_LT_ALL);
 	g_GevrHeadPosOut = -1.0f;

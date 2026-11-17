@@ -428,5 +428,8 @@ int main(int argc, char **argv)
 
 		printf("memstr %d %d %s\n", stage, multi, s ? s : "NULL");
 	}
+	for (i = 0; i < 64; i++) {
+		printf("langbank %d %d\n", i, gevrRomLangBank(i));
+	}
 	return 0;
 }

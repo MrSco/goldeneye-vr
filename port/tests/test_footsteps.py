@@ -31,8 +31,9 @@ def ai_lengths():
     return lens
 
 
-def commands(rom):
-    """Every 2B command of the cartridge's setups, with the PRINT after it."""
+def commands(rom, setup=None, ailist=None, until=None):
+    """Every 2B command of the cartridge's setups (or of one setup's one list, up to its label `until`),
+    with the PRINT after it."""
     d = rc.window(rom, rc.MARIO)
     lens = ai_lengths()
     rows = 0
@@ -43,22 +44,26 @@ def commands(rom):
         _, nptr, addr = struct.unpack_from(">III", d, 0x252C4 + 12 * k)
         nxt = struct.unpack_from(">I", d, 0x252C4 + 12 * (k + 1) + 8)[0]
         name = rc.cstr(d, nptr)
-        if not (name.startswith("Usetup") or name.startswith("Ump_setup")):
+        if not (name.startswith("Usetup") or name.startswith("Ump_setup")) or setup and name != setup:
             continue
         s = zlib.decompressobj(-15).decompress(rom[addr + 2:nxt])
         tab = struct.unpack_from(">I", s, 0x14)[0]
         i = 0
         while True:
-            p, _ = struct.unpack_from(">II", s, tab + 8 * i)
+            p, lid = struct.unpack_from(">II", s, tab + 8 * i)
             if not p:
                 break
             i += 1
+            if ailist is not None and lid != ailist:
+                continue
             at = p
             while at < len(s):
                 op = s[at]
                 if op >= 253:
                     break
                 n = lens[op] or s.index(b"\0", at + 1) - at + 1
+                if op == 2 and s[at + 1] == until:
+                    break
                 if op == 0x2B and s[at + 1] >= 0xFB or op == 0x2B and 0 < s[at + 1] < 0x80:
                     text = ""
                     if s[at + 2] == 0xAD:
@@ -79,14 +84,22 @@ def main():
     cmds = commands(rom)
     listing = Path(tempfile.mkdtemp(prefix="gevr-footsteps-")) / "commands.txt"
     listing.write_text("\n".join(cmds) + "\n", encoding="latin1")
+    # Temple's console (list 0x1001) up to its label 02: the half that writes page 2 into the mission folder
+    page2 = commands(rom, "UsetupdishZ", 0x1001, 2)
+    console = listing.with_name("page2.txt")
+    console.write_text("\n".join(page2) + "\n", encoding="latin1")
     exe = rc.build("port/tests/footsteps_native.c", ("src/game/gevr_footsteps.c",))
-    out = subprocess.run([str(exe), path, "4", str(listing)], capture_output=True, text=True, check=True).stdout
+    out = subprocess.run([str(exe), path, "4", str(listing), str(console)], capture_output=True, text=True,
+                         check=True).stdout
     tail = out[out.index("== footsteps"):].splitlines()[1:]
     fs = {}
+    folder = []
     unmapped = []
     for line in tail:
         f = line.split()
-        if f[0] == "fs":
+        if f[:2] == ["fs", "page2"]:
+            folder.append((int(f[4]), int(f[6]), int(f[8])))   # stage, type, mission
+        elif f[0] == "fs":
             fs[f[1]] = f[2:]
         elif "is no memory the port has" in line:
             unmapped.append(line)
@@ -124,12 +137,18 @@ def main():
     check(fs.get("ran") == [str(len(cmds))], "every command ran: %s of %d" % (fs.get("ran"), len(cmds)))
     check(len(cmds) > 12000, "its setups' commands: %d" % len(cmds))
     check(not unmapped, "addresses the port has no memory for:\n  " + "\n  ".join(unmapped[:20]))
+    # page 2: Aztec, Egypt, Bob-omb Battlefield, Big Boo's Haunt, Peach's Castle as missions 0-4, a chapter each
+    missions = [(stage, mission) for stage, kind, mission in folder if kind == 0]
+    check(len(page2) > 100 and missions[:5] == [(28, 0), (32, 1), (42, 2), (44, 3), (40, 4)]
+          and [kind for _, kind, _ in folder[:10]] == [1, 0] * 5,
+          "Temple's console writes page 2 into the folder: %s" % folder[:12])
     if bad:
         print("\n".join(bad))
         print("FAIL: Footsteps commands, %d mismatches" % len(bad))
         sys.exit(1)
     print("PASS: Footsteps commands on Mario Characters: renames, scales, POV height, cheat bits, Bond's fields, "
-          "music, objectives, items, and all %d of its setups' commands on memory the port has" % len(cmds))
+          "music, objectives, items, page 2 of the mission select, and all %d of its setups' commands on memory "
+          "the port has" % len(cmds))
 
 
 if __name__ == "__main__":

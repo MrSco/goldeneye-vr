@@ -211,5 +211,34 @@ int main(int argc, char **argv)
 	}
 	fclose(f);
 	printf("fs ran %d\n", n);
+
+	/* Temple's console list (page 2 of the mission select), in its order, on a freshly bound cartridge */
+	if (argc > 4) {
+		s32 i;
+
+		if (romcampaign_main(argc, argv) != 0) {
+			return 3;
+		}
+		f = fopen(argv[4], "r");
+		if (!f) {
+			return 4;
+		}
+		while (fgets(line, sizeof(line), f)) {
+			unsigned arg;
+			char text[280] = "";
+
+			line[strcspn(line, "\r\n")] = 0;
+			if (sscanf(line, "%x %279[^\n]", &arg, text) >= 1) {
+				run((u8)arg, text[0] ? text : NULL);
+			}
+		}
+		fclose(f);
+		for (i = 0; mission_folder_setup_entries[i].folder_text_preset; i++) {
+			printf("fs page2 %d stage %d type %d mission %d text %04x %s\n", i, mission_folder_setup_entries[i].stage_id,
+					mission_folder_setup_entries[i].type, mission_folder_setup_entries[i].mission_num,
+					mission_folder_setup_entries[i].folder_text_preset,
+					mission_folder_setup_entries[i].string_ptr ? mission_folder_setup_entries[i].string_ptr : "-");
+		}
+	}
 	return 0;
 }

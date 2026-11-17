@@ -162,21 +162,51 @@ view, the Cheat Options page. On the PC (2026-11-16, `--boot-stage`, 25 s
 each), all 20 missions of its first page, Temple (38) and the credits (54)
 load and run their scripts: no crash, no address the port lacks.
 
-## Step 3: its missions (to do)
+## Step 3: its missions (done)
 
-- Its own stages 42, 44, 45, 46 and 47 (Peach's Castle, Bob-omb Battlefield,
-  Big Boo's Haunt and their multiplayer forms) load, then crash on the first
-  HUD message: "lang: no text bank for level 44" (the port's stage-to-bank
-  table is GoldenEye's; the cartridge's names their banks, e.g. LeldE), then
-  hudmsgBottomShow (bondview2.c) on the missing text.
+Page 2 is not code: Temple (stage 38, mission 19 of page 1) is a hub, and
+its console list (`UsetupdishZ` list 0x1001) is a two-state switch. Its first
+half (flag 0x80700124 = 0) writes page 2 into the mission folder (0x8002ABE4)
+with Footsteps stores, swaps the menu's `Pmainmenu1Z`/`Pmainmenu2Z` files and
+sets the flag; the half after its label 02 writes page 1 back. The rows point
+at its extended mission numbers (0x8004F310), chapter numbers (0x8005BA00)
+and briefing names (0x80055A70), all in the binder's window, so step 2's
+`gevrRomWindowChanged` -> `installFolder` already builds page 2: Aztec (28),
+Egypt (32), Bob-omb Battlefield (42), Big Boo's Haunt (44) and Peach's Castle (40) as
+missions 0-4, then page 1's rows from mission 5. They share save slots 0-4
+with page 1, as on the cartridge. `test_footsteps.py` runs that half on the
+real cartridge and checks the folder it leaves.
 
-- Mission select page 2 (constructor_menu07_missionsel 7F01014C-7F010588,
-  0x40 -> 0x50 and 0xD -> 0x13/0x1B): Aztec, Egypt, Castle, Bob-omb
-  Battlefield, Big Boo's Haunt. Page 1's folder (0x8002ABE4) already binds:
-  20 missions, Credits as 18 (stage 54) and Temple as 19 (stage 38).
-- Level row 37: Mario gives it stage 21 (Usetupark3) instead of 57; the
-  binder keeps GoldenEye's and logs it.
-- Its extended mission numbers (0x8004F310), chapter numbers (0x8005BA00),
-  briefing names (0x80055A70) and per-level allocations (0x80055CC0).
-- The 3 added animations' users, its MP character table (0x80028490; MP is
-  off).
+What was missing was its text banks. language.c's switch
+(langGetLangBankIndexFromStagenum, 7F0C15E0) is widened in the cartridge
+(`sltiu 0x2e` -> `0x30`, stages 9-56) and its added cases are stubs in the
+data segment just before the jump table (0x8005BB00-0x8005BB50): 40 Lcat,
+42 Lsho, 44 Leld, 47 Llue, 49 Lrit, 51 Lear, 52 Llee, 53 Llip, 55 Lwax,
+56 Lpam; stage 21 returns the null bank. Its default no longer hangs. The
+binder decodes the cartridge's own switch for every campaign
+(`gevrRomLangBank`; Goldfinger and TND decode to GoldenEye's) and language.c
+asks it first. `test_romcampaign.py` compares it with an independent decode
+on all three hack ROMs. A message whose bank is not loaded is now skipped by
+hudmsgBottomShow/hudmsgTopShow instead of crashing (langGet logs it).
+
+Seen running (2026-11-17, Windows flat build, `--boot-stage`): 40, 42 and 44
+load, show their own HUD text ("Big Koopa: ..." on Bob-omb Battlefield) and
+run, no error. 45-47 are their multiplayer forms: their scripts name the solo
+banks, which those stages do not load; the cartridge would read garbage, the
+port logs and skips the line (multiplayer is off in a hack campaign anyway).
+
+Left as GoldenEye's, multiplayer only (off in a hack campaign):
+
+- Level row 37: Mario gives it stage 21 (Usetupark3); the only writes of
+  stage 21 are to multiplayer tables (Temple's "Multiplayer Map 0A", Cuba's
+  slot table at 0x8002B808). The binder logs it and keeps GoldenEye's row.
+- Its menu code changes besides the cheats (7F0100D0-7F010588, 7F011D50):
+  multiplayer stages always open, 0x50 characters instead of 0x40, weapon
+  sets 14 -> 20 (mp_weapon_set, 0x80049160, table 0x80049080), its
+  multiplayer character table (0x80028490).
+
+Not checked: which of its lists play the 3 added animations (183-185; they
+are bound since step 1).
+
+Still not seen in a headset: anything of this campaign (the desk-parked
+Quest ends the VR session two seconds after launch).

@@ -62,6 +62,38 @@ def word(d, vram):
     return struct.unpack_from(">I", d, vram - V)[0]
 
 
+def lang_banks(rom, layout):
+    """language.c's text bank switch (7F0C15E0) as the cartridge compiles it: stage -> bank, -1 none.
+    Its jump table is in the data segment; Mario Characters' added cases are stubs there too."""
+    d = window(rom, layout)
+
+    def at(va):
+        if 0x7F000000 <= va < 0x7F0E2D51:
+            return struct.unpack_from(">I", rom, 0x34B30 + va - 0x7F000000)[0]
+        return word(d, va)
+
+    def s16(w):
+        return (w & 0xFFFF) - 0x10000 if w & 0x8000 else w & 0xFFFF
+
+    fn = 0x7F0C15E0
+    first, count = -s16(at(fn)), at(fn + 4) & 0xFFFF
+    table = ((at(fn + 0x10) & 0xFFFF) << 16) + s16(at(fn + 0x18))
+    banks = {i: -1 for i in range(64)}
+    for i in range(count):
+        case = word(d, table + 4 * i)
+        w0, w1 = at(case), at(case + 4)
+        if w0 == 0x03E00008 and w1 >> 16 == 0x2402 and 0 < w1 & 0xFFFF < 45:
+            banks[first + i] = w1 & 0xFFFF
+    return banks
+
+
+def check_lang_banks(rom, layout, got, check):
+    want = lang_banks(rom, layout)
+    have = {int(r[0]): int(r[1]) for r in got.get("langbank", [])}
+    check(have == want, "text banks: %s" % [(s, have.get(s), b) for s, b in want.items() if have.get(s) != b])
+    return want
+
+
 def cstr(d, ptr):
     if ptr < V or ptr - V >= len(d):
         return ""
@@ -271,6 +303,8 @@ def tnd(exe):
     bad = []
     if got.get("match") != [["yes"]] or got.get("apply") != [["1"]] or got.get("rebind") != [["1"]]:
         bad.append("TND binds: %s %s %s" % (got.get("match"), got.get("apply"), got.get("rebind")))
+    check_lang_banks(open(path, "rb").read(), dict(pieces=[]), got,
+                     lambda cond, what: cond or bad.append("TND " + what))
     tables = got.get("animtables", [[]])[0]
     if len(tables) != 6 or tables[0] != tables[2] or tables[1] != tables[3] or int(tables[5]) == 0:
         bad.append("TND animation tables: %s" % tables)
@@ -350,6 +384,10 @@ def mario(exe):
     check(got.get("match") == [["yes"]], "header match")
     check(got.get("apply") == [["1"]], "apply: " + " | ".join(" ".join(x) for x in got.get("log", [])[-3:]))
     check(got.get("rebind") == [["1"]], "obInit rebind keeps the hack table")
+    # its own stages' text banks (Bob-omb Battlefield 42 Lsho, Big Boo's Haunt 44 Leld, 40 Lcat), stage 21 none
+    banks = check_lang_banks(rom, MARIO, got, check)
+    check((banks[42], banks[44], banks[40], banks[47], banks[21], banks[33]) == (33, 16, 6, 22, -1, 11),
+          "Mario's text banks: %s" % banks)
     check(int(got["images"][0][0]) == e["images"], "image count")
     chrs = {int(r[0]): r[1:] for r in got.get("chr", [])}
     names = {int(r[0]): r[1] if len(r) > 1 else "" for r in got.get("chrname", [])}
@@ -465,6 +503,7 @@ def main():
     check(got["match"] == [["yes"]], "header match")
     check(got["apply"] == [["1"]], "apply: " + " | ".join(" ".join(x) for x in got.get("log", [])[-3:]))
     check(got["rebind"] == [["1"]], "obInit rebind keeps the hack table")
+    check_lang_banks(rom, GF, got, check)
     check(int(got["images"][0][0]) == e["images"], "image count")
     chrs = {int(r[0]): r[1:] for r in got.get("chr", [])}
     names = {int(r[0]): r[1] if len(r) > 1 else "" for r in got.get("chrname", [])}

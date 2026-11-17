@@ -235,6 +235,8 @@ int gevrRomBondOutfit(int cuff, int *body, int *head);
 /* A hack's own random-head pools (Goldfinger): level init, and the head for a record's -1 or -2.
  * Both return 0 / -1 where the campaign has none, and GoldenEye's code runs. */
 int gevrRomHeadPoolsLevelInit(void);
+/* The cartridge's text bank for a stage (language.c's switch, decoded): -1 none, -2 GoldenEye's switch applies. */
+int gevrRomLangBank(int stage);
 /* The hack's own memory split for a stage (boss.c memallocstringtable), or NULL. */
 const char *gevrRomStageMemString(int stage, int multi);
 /* 1 or 0 when the hack flags its lamps in the image table; -1: GoldenEye's own list applies. */
