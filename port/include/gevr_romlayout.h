@@ -229,6 +229,7 @@ void gevrRomWindowChanged(uint32_t vram, uint32_t len);
 int gevrRomFootsteps(void);
 /* An AI list's bytes through its end command, by GoldenEye's command lengths; 0 if it does not end within max */
 uint32_t gevrRomAiListLength(const uint8_t *code, uint32_t max);
+uint32_t gevrRomAiCommandLength(const uint8_t *code, uint32_t max, uint32_t at);
 /* bheadUpdatePos's (1 - 0.93) factor, the hack's own; -1 is GoldenEye's (bondhead.c) */
 extern float g_GevrHeadPosOut;
 

@@ -781,6 +781,12 @@ static uint32_t gevrAiLen(const uint8_t *code, uint32_t len, uint32_t at)
 	return end - at + 1;
 }
 
+/* One AI command's length at code + at (PRINT to its NUL), 0 if it does not fit in max. */
+uint32_t gevrRomAiCommandLength(const uint8_t *code, uint32_t max, uint32_t at)
+{
+	return code && at < max ? gevrAiLen(code, max, at) : 0;
+}
+
 uint32_t gevrRomAiListLength(const uint8_t *code, uint32_t max)
 {
 	uint32_t at = 0;

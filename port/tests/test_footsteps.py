@@ -18,6 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_romcampaign as rc  # noqa: E402
+import collections  # noqa: E402
 
 ROOT = rc.ROOT
 
@@ -75,6 +76,45 @@ def commands(rom, setup=None, ailist=None, until=None):
     return out
 
 
+def all_lists(rom):
+    """Every AI list of the cartridge's solo setups: (setup, id, bytes, its first PRINT that is not an address)."""
+    d = rc.window(rom, rc.MARIO)
+    lens = ai_lengths()
+    rows = 0
+    while struct.unpack_from(">I", d, 0x252C4 + 12 * rows)[0] == rows:
+        rows += 1
+    out = []
+    for k in range(1, rows - 1):
+        _, nptr, addr = struct.unpack_from(">III", d, 0x252C4 + 12 * k)
+        nxt = struct.unpack_from(">I", d, 0x252C4 + 12 * (k + 1) + 8)[0]
+        name = rc.cstr(d, nptr)
+        if not name.startswith("Usetup"):
+            continue
+        s = zlib.decompressobj(-15).decompress(rom[addr + 2:nxt])
+        tab = struct.unpack_from(">I", s, 0x14)[0]
+        i = 0
+        while True:
+            p, lid = struct.unpack_from(">II", s, tab + 8 * i)
+            if not p:
+                break
+            i += 1
+            at, title = p, ""
+            while at < len(s):
+                op = s[at]
+                if op >= 253:
+                    break
+                n = lens[op] or s.index(b"\0", at + 1) - at + 1
+                if op == 0xAD and not title:
+                    t = s[at + 1:at + n - 1].decode("latin1")
+                    if not re.match(r"^[0-9A-F]{8}", t):
+                        title = t
+                at += n
+                if op == 4:
+                    break
+            out.append((name, lid, s[p:at], title))
+    return out
+
+
 def main():
     path = os.environ.get("GEVR_MARIO_ROM")
     if not path or not Path(path).is_file():
@@ -88,16 +128,23 @@ def main():
     page2 = commands(rom, "UsetupdishZ", 0x1001, 2)
     console = listing.with_name("page2.txt")
     console.write_text("\n".join(page2) + "\n", encoding="latin1")
+    every = all_lists(rom)
+    titles = {(name, lid): title for name, lid, _, title in every}
+    lists_file = listing.with_name("lists.txt")
+    lists_file.write_text("".join("%s %x %s\n" % (name, lid, body.hex()) for name, lid, body, _ in every), encoding="latin1")
     exe = rc.build("port/tests/footsteps_native.c", ("src/game/gevr_footsteps.c",))
-    out = subprocess.run([str(exe), path, "4", str(listing), str(console)], capture_output=True, text=True,
-                         check=True).stdout
+    out = subprocess.run([str(exe), path, "4", str(listing), str(console), str(lists_file)], capture_output=True,
+                         text=True, check=True).stdout
     tail = out[out.index("== footsteps"):].splitlines()[1:]
     fs = {}
     folder = []
+    mine = []
     unmapped = []
     for line in tail:
         f = line.split()
-        if f[:2] == ["fs", "page2"]:
+        if f[:2] == ["fs", "mine"]:
+            mine.append(titles.get((f[2], int(f[3], 16)), "?"))
+        elif f[:2] == ["fs", "page2"]:
             folder.append((int(f[4]), int(f[6]), int(f[8])))   # stage, type, mission
         elif f[0] == "fs":
             fs[f[1]] = f[2:]
@@ -137,6 +184,13 @@ def main():
     check(fs.get("ran") == [str(len(cmds))], "every command ran: %s of %d" % (fs.get("ran"), len(cmds)))
     check(len(cmds) > 12000, "its setups' commands: %d" % len(cmds))
     check(not unmapped, "addresses the port has no memory for:\n  " + "\n  ".join(unmapped[:20]))
+    # each player's own cheat lists: Active Cheats, Play as, Tiny and Mushroom Mode's health and size;
+    # never one that touches the world (Mushrooms replace Armor), prints text or talks (the boss)
+    kinds = collections.Counter(mine)
+    player_titles = {"Active Cheats", "Play as Luigi", "Play as Peach", "Play as Daisy", "Play as Mario",
+                     "Mushroom Mode - Armor restores Health", "Mushroom Mode - Change Size", "Change Character & POV Height"}
+    check(set(kinds) <= player_titles and kinds["Play as Luigi"] >= 20 and kinds["Mushroom Mode - Change Size"] >= 20
+          and kinds["Active Cheats"] >= 20, "player-only cheat lists: %s" % dict(kinds))
     # co-op: every written range, copied into a fresh bind, gives the host's memory
     sync = [int(x) for x in fs.get("pokesync", ["0"] * 5)]
     check(sync[0] > 0 and sync[1] > 0 and sync[2] == 0 and sync[3] == 1 and sync[4] == 1,

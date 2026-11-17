@@ -198,17 +198,26 @@ commands into a fresh bind and gets the host's bytes (153 ranges, 1,295
 bytes); two PC copies in a co-op Dam log the same hash of the written
 memory on host and teammate.
 
-Not shared, by design or not yet:
+Each player's own: the cheat-gated lists that only touch the player (per
+level: Active Cheats, Play as Mario, Luigi, Peach and Daisy, Mushroom Mode's
+armour-to-health and change-size lists; 165 of the 1244 solo lists,
+`gevrFootstepsPlayerList`: only flow, stage flags and pokes, gated on a
+cheat variable or copying Cheat Options). The host runs them for its own
+player and logs none of their writes; every other headset runs them for its
+own player each tick (`netCoopRunPlayerLists`, a stand-in actor per list;
+a list that switches its own list ends there), from its own Cheat Options.
+Their stage flags are the player's own (also set in the shared ones where
+the world scripts run). The eye-height constant (0x800552FC) is never
+shared. Checked on the PC pair (the PC-only `GEVR_TEST_CHEATS=8` turns Play
+as Luigi on before the level): the joiner ran its 7 lists, its Luigi cheat
+variable and eye height are Luigi's while the host's are Mario's, and the
+host sent 19 ranges (the world) instead of 41.
 
-- The player's own fields (health, armour, outfit: 410 pokes, its power-up
-  loop) act on the host's player only; a teammate's health is GoldenEye's.
-- Play as, Tiny and Mushroom Mode follow the host's Cheat Options: the
-  host's script decides, and its renames reach everyone.
-- A teammate's body comes from GoldenEye's multiplayer character list, which
-  in a hack names its own characters by number (its multiplayer character
-  table, 0x80028490, is not bound).
-- Not checked: whether a teammate's guns and guards that load before the
-  first message arrives reload with the renamed files.
+A teammate's body is its lobby character's row of the hack's own
+multiplayer table (layout `mpchars`: 0x80028490, 80 rows; the port's 64).
+
+Not checked: whether a teammate's guns and guards that load before the
+first message arrives reload with the renamed files.
 
 ## Step 3: its missions (done)
 

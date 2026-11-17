@@ -249,6 +249,40 @@ int main(int argc, char **argv)
 		free(saved);
 	}
 
+	/* every list of its setups, classified: a player-only cheat list or not (argv[5]) */
+	if (argc > 5) {
+		static char row[200000];
+		static u8 bytes[100000];
+		FILE *lf = fopen(argv[5], "r");
+		s32 lists = 0, mine = 0;
+
+		while (lf && fgets(row, sizeof(row), lf)) {
+			char setup[40], *hex;
+			unsigned id, k = 0;
+
+			if (sscanf(row, "%39s %x", setup, &id) != 2 || !(hex = strrchr(row, ' '))) {
+				continue;
+			}
+			for (hex++; hex[0] && hex[1] && hex[0] != '\n' && k < sizeof(bytes); hex += 2) {
+				unsigned v;
+
+				sscanf(hex, "%2x", &v);
+				bytes[k++] = (u8)v;
+			}
+			/* the cache is by address: one buffer, so classify fresh each time */
+			gevrFootstepsStageStart(LEVELID_DAM);
+			if (gevrFootstepsPlayerList(bytes)) {
+				printf("fs mine %s %04x\n", setup, id);
+				mine++;
+			}
+			lists++;
+		}
+		if (lf) {
+			fclose(lf);
+		}
+		printf("fs lists %d mine %d\n", lists, mine);
+	}
+
 	/* Temple's console list (page 2 of the mission select), in its order, on a freshly bound cartridge */
 	if (argc > 4) {
 		s32 i;

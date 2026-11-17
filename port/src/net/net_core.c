@@ -4882,8 +4882,10 @@ void netPoll(void) {
     }
     if (netIsHost() && s_state == NET_STATE_INGAME && !s_round_reset_loading && netPlayersWereTicked())
         netCoopHostTick();
-    else if (!netIsHost() && s_state == NET_STATE_INGAME && netPlayersWereTicked())
+    else if (!netIsHost() && s_state == NET_STATE_INGAME && netPlayersWereTicked()) {
+        netCoopRunPlayerLists();
         netCoopClientTick();
+    }
     if (s_state == NET_STATE_INGAME && !s_round_reset_loading && netPlayersWereTicked())
         netCoopReviveTick();
     if (netIsHost() && s_state == NET_STATE_INGAME && s_phase == NET_PHASE_IN_PROGRESS && netPlayersWereTicked()) {

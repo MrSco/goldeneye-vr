@@ -1092,6 +1092,15 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
 
                     if (CHR_NUM == ((u8)CHR_SELF))
                     {
+#ifdef GEVR
+                        /* a teammate's own run of a player-only list (net_coop.c): its end */
+                        if (gevrFootstepsIsRunningLocal() && ChrEntityp)
+                        {
+                            ChrEntityp->ailist   = NULL;
+                            ChrEntityp->aioffset = 0;
+                            return;
+                        }
+#endif
                         AiListp = ailistFindById(AI_LIST_ID);
                         Offset  = 0;
                     }
@@ -1639,7 +1648,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     /* the Footsteps patch's pokes (gevr_footsteps.c; its code at 7F0360A0) */
                     if (gevrRomFootsteps())
                     {
-                        s32 gevrLabel = gevrFootstepsCommand((const u8 *)ai);
+                        s32 gevrLabel = gevrFootstepsCommandIn((const u8 *)AiListp, (const u8 *)ai);
 
                         if (gevrLabel >= 0)
                         {
@@ -3244,6 +3253,16 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 {
                     AiSetObjectiveBitfieldRecord *ai    = AiListp + Offset;
                     s32                           flags = ntohl(ai->BITFIELD);
+#ifdef GEVR
+                    /* a player-only cheat list's flags are its player's (gevr_footsteps.c) */
+                    s32 *gevrOwn = gevrFootstepsPlayerFlags((const u8 *)AiListp);
+
+                    if (gevrOwn)
+                    {
+                        *gevrOwn |= flags;
+                    }
+                    if (!gevrOwn || !gevrFootstepsIsRunningLocal())
+#endif
                     chrSetStageFlags(ChrEntityp, flags);
                     Offset += sizeof(AiSetObjectiveBitfieldRecord);
                     break;
@@ -3252,6 +3271,15 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 {
                     AiUnsetObjectiveBitfieldRecord *ai    = AiListp + Offset;
                     s32                             flags = ntohl(ai->BITFIELD);
+#ifdef GEVR
+                    s32 *gevrOwn = gevrFootstepsPlayerFlags((const u8 *)AiListp);
+
+                    if (gevrOwn)
+                    {
+                        *gevrOwn &= ~flags;
+                    }
+                    if (!gevrOwn || !gevrFootstepsIsRunningLocal())
+#endif
                     chrUnsetStageFlags(ChrEntityp, flags);
                     Offset += sizeof(AiUnsetObjectiveBitfieldRecord);
                     break;
@@ -3260,7 +3288,13 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 {
                     AiIFObjectiveBitfieldHasRecord *ai    = AiListp + Offset;
                     s32                             flags = ntohl(ai->BITS);
-                    if (chrHasStageFlag(ChrEntityp, flags)) /* PD && ai->val[4] == 1) || (!chrHasStageFlag(ChrEntityp, flags) && ai->val[4] == 0  * */
+#ifdef GEVR
+                    s32 *gevrOwn = gevrFootstepsPlayerFlags((const u8 *)AiListp);
+
+                    if (gevrOwn ? (*gevrOwn & flags) != 0 : chrHasStageFlag(ChrEntityp, flags))
+#else
+                    if (chrHasStageFlag(ChrEntityp, flags))
+#endif /* PD && ai->val[4] == 1) || (!chrHasStageFlag(ChrEntityp, flags) && ai->val[4] == 0  * */
                     {
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
                     }

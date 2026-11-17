@@ -49,6 +49,19 @@ s32 gevrFootstepsTouchedWrites(u32 *start, u32 *len, s32 cap);
 void gevrFootstepsApplyWrite(u32 vram, const u8 *bytes, u32 len);
 void gevrFootstepsObjectiveState(s16 *flags, s8 *difficulty);
 void gevrFootstepsSetObjectiveState(const s16 *flags, const s8 *difficulty);
+/*
+ * Each player's own cheat lists (Play as, Tiny and Mushroom Mode): 1 for a
+ * list that only touches the player. CommandIn runs a poke from list (its
+ * writes stay out of the co-op log when it is one); PlayerFlags is that
+ * list's own stage flags, NULL for any other list; RunningLocal marks a
+ * teammate's headset running them itself (net_coop.c), where a list that
+ * switches its own list ends.
+ */
+s32 gevrFootstepsPlayerList(const u8 *list);
+s32 gevrFootstepsCommandIn(const u8 *list, const u8 *cmd);
+s32 *gevrFootstepsPlayerFlags(const u8 *list);
+void gevrFootstepsRunningLocal(s32 on);
+s32 gevrFootstepsIsRunningLocal(void);
 /* A hash of the written bytes in [vram0, vram1): the co-op log compares host and teammate */
 u32 gevrFootstepsWrittenHash(u32 vram0, u32 vram1);
 

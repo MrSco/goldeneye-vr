@@ -1627,6 +1627,51 @@ static void coopReceivePokes(struct netbuf *b)
     }
 }
 
+/* ---- Mario Characters' player-only cheat lists on a teammate's headset ----
+ *
+ * The host runs them for its own player (and sends none of their writes);
+ * every other headset runs the same lists here, each tick, for its own
+ * player and its own Cheat Options (gevr_footsteps.c gevrFootstepsPlayerList),
+ * each on a stand-in actor that only keeps its place in the list. A list
+ * that switches its own list (its end) stops.
+ */
+#define COOP_PLAYER_LISTS 32
+
+static struct {
+    AIRecord *list;
+    ChrRecord chr;
+} s_player_lists[COOP_PLAYER_LISTS];
+static int s_player_list_count = -1;   /* -1: not found yet this stage */
+static void *s_player_lists_setup;
+
+void netCoopRunPlayerLists(void)
+{
+    if (!gevrRomFootsteps() || !gevrCoopPuppets() || !g_CurrentSetup.ailists) {
+        s_player_list_count = -1;
+        return;
+    }
+    if (s_player_list_count < 0 || s_player_lists_setup != (void *)g_CurrentSetup.ailists) {
+        s_player_list_count = 0;
+        s_player_lists_setup = (void *)g_CurrentSetup.ailists;
+        for (int i = 0; g_CurrentSetup.ailists[i].ailist && s_player_list_count < COOP_PLAYER_LISTS; i++) {
+            AIRecord *list = g_CurrentSetup.ailists[i].ailist;
+            if (!gevrFootstepsPlayerList((const u8 *)list)) continue;
+            memset(&s_player_lists[s_player_list_count], 0, sizeof(s_player_lists[0]));
+            s_player_lists[s_player_list_count].list = list;
+            s_player_lists[s_player_list_count].chr.ailist = list;
+            s_player_list_count++;
+        }
+        COOP_LOG("this player's own cheat lists: %d", s_player_list_count);
+    }
+    gevrFootstepsRunningLocal(1);
+    for (int i = 0; i < s_player_list_count; i++) {
+        ChrRecord *chr = &s_player_lists[i].chr;
+        if (chr->ailist != s_player_lists[i].list) continue;   /* ended */
+        ai((PropDefHeaderRecord *)chr, PROP_TYPE_CHR);
+    }
+    gevrFootstepsRunningLocal(0);
+}
+
 static void coopSendScriptSnapshot(int slot)
 {
     for (int i = 0; i < s_script_count; i++) {

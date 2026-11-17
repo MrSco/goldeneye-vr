@@ -63,6 +63,9 @@ void bondviewKillCurrentPlayer(void);
 static s16 g_ObjectiveFlag[OBJECTIVES_MAX];
 /* co-op: what the scripts wrote to the hack's memory, since the bind and since the last send */
 static s32 s_pendingOverflow, s_pendingCount, s_touchedCount;
+/* a player-only list (gevrFootstepsPlayerList) is running its command: its writes are this player's */
+static s32 s_inPlayerList, s_runningLocal, s_playerFlags;
+static s32 s_classCount;   /* the player-only lists found this stage (gevrFootstepsPlayerList) */
 
 /* The fields of struct player its scripts name, by N64 offset (bondview.h) */
 static const struct {
@@ -469,6 +472,25 @@ void gevrFootstepsStageStart(s32 stage)
     }
     memset(g_ObjectiveFlag, 0, sizeof(g_ObjectiveFlag));
     g_Logged = 0;
+    s_playerFlags = 0;
+    s_classCount = 0;
+#ifdef GEVR_PC
+    {
+        /* PC test hook: GEVR_TEST_CHEATS="8,13" turns those Cheat Options on before the level's scripts read them */
+        const char *ids = getenv("GEVR_TEST_CHEATS");
+
+        while (ids && *ids) {
+            const s32 id = (s32)strtol(ids, (char **)&ids, 10);
+
+            if (id > 0 && id < CHEAT_MAX) {
+                g_CheatActivated[id] = 1;
+            }
+            while (*ids && (*ids < '0' || *ids > '9')) {
+                ids++;
+            }
+        }
+    }
+#endif
 }
 
 /*
@@ -700,6 +722,114 @@ void gevrFootstepsBind(void)
     bindGlobalLists();
 }
 
+/* ---- Each player's own cheat lists ------------------------------------------
+ *
+ * Play as Mario, Luigi, Peach and Daisy, Tiny Mode and Mushroom Mode's
+ * health and size lists act on the player alone: its fields, eye height,
+ * solo body and gloves, gated on its Cheat Options (the "Active Cheats" list
+ * copies them into the hack's own variables). A list is one of them when it
+ * only uses flow (goto, label, yield, end, a switch of its own list), stage
+ * flags, pokes and their PRINTs, and its pokes test a cheat variable
+ * (0x8004E6xx +E) or copy the Cheat Options (0x800696xx). In co-op every
+ * headset runs them for its own player (net_coop.c on a teammate's), their
+ * writes stay out of the shared log, and their stage flags are the player's
+ * own (s_playerFlags), also set in the shared ones where the scripts run
+ * (the host's world lists may read them).
+ */
+#define FS_CLASSES 128
+
+static const u8 *s_classList[FS_CLASSES];
+static s8 s_classResult[FS_CLASSES];
+
+static s32 classify(const u8 *list)
+{
+    const u32 max = 8192;
+    u32 at = 0;
+    s32 gated = 0, pokes = 0;
+
+    while (at < max) {
+        const u8 op = list[at];
+        const u32 n = gevrRomAiCommandLength(list, max, at);
+
+        if (!n) {
+            return 0;
+        }
+        switch (op) {
+        case 0x00: case 0x01: case 0x02: case 0x03:   /* goto next/first, label, yield */
+        case 0x9a: case 0x9b: case 0x9c:              /* stage flags: set, unset, test */
+        case 0xad:                                    /* PRINT */
+            break;
+        case 0x04:                                    /* end */
+            return gated && pokes;
+        case 0x05:                                    /* its own list switched: the end of it */
+            if (list[at + 1] != 0xfd) {
+                return 0;
+            }
+            break;
+        case 0x2b:
+            pokes++;
+            if (list[at + n] == 0xad) {
+                const char *t = (const char *)list + at + n + 1;
+
+                if ((list[at + 1] == 0xfe && !strncmp(t, "8004E6", 6) && strlen(t) > 9 && t[9] == 'E')
+                        || (list[at + 1] == 0xfd && !strncmp(t, "800696", 6))) {
+                    gated = 1;
+                }
+            }
+            break;
+        default:
+            return 0;
+        }
+        at += n;
+    }
+    return 0;
+}
+
+s32 gevrFootstepsPlayerList(const u8 *list)
+{
+    s32 i, r;
+
+    if (!list || !gevrRomFootsteps()) {
+        return 0;
+    }
+    for (i = 0; i < s_classCount; i++) {
+        if (s_classList[i] == list) {
+            return s_classResult[i];
+        }
+    }
+    r = classify(list);
+    if (s_classCount < FS_CLASSES) {
+        s_classList[s_classCount] = list;
+        s_classResult[s_classCount++] = (s8)r;
+    }
+    return r;
+}
+
+s32 gevrFootstepsCommandIn(const u8 *list, const u8 *cmd)
+{
+    s32 label;
+
+    s_inPlayerList = gevrFootstepsPlayerList(list);
+    label = gevrFootstepsCommand(cmd);
+    s_inPlayerList = 0;
+    return label;
+}
+
+s32 *gevrFootstepsPlayerFlags(const u8 *list)
+{
+    return gevrFootstepsPlayerList(list) ? &s_playerFlags : NULL;
+}
+
+void gevrFootstepsRunningLocal(s32 on)
+{
+    s_runningLocal = on;
+}
+
+s32 gevrFootstepsIsRunningLocal(void)
+{
+    return s_runningLocal;
+}
+
 /* ---- Online co-op (net_coop.c NET_MSG_COOP_POKES) ------------------------ */
 
 /*
@@ -764,6 +894,10 @@ static s32 rangeAdd(FsRange *r, s32 *count, u32 a, u32 n, s32 grow)
  */
 static void coopNoteWrite(u32 a, u32 n)
 {
+    /* a player-only list's writes (Play as, Tiny and Mushroom Mode) are this player's own */
+    if (s_inPlayerList) {
+        return;
+    }
     /* the eye height (bheadUpdatePos's constant, Mushroom and Tiny Mode) is each player's own */
     if (a < 0x80055300u && a + n > 0x800552fcu) {
         return;
