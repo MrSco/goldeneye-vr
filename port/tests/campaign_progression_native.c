@@ -46,11 +46,14 @@ static void unlocks(void)
     {
         int first_bonus = c == 2 ? 11 : 18;
         int second_bonus = c == 2 ? 12 : 19, count = c == 2 ? 14 : 20;
+        /* Mario Characters has its secret missions' checks true from the start (gevr_footsteps.c) */
+        const int open = campaigns[c] == GEVR_CAMPAIGN_MARIO;
+
         gevrRomCampaignSet(campaigns[c]);
         reset_save();
-        assert(!fileIsCradleCompletedForFolder(0));
-        assert(!fileIsAztecCompletedOnSecretOr00ForFolder(0));
-        assert(!fileIsEgyptCompletedOn00ForFolder(0));
+        assert(fileIsCradleCompletedForFolder(0) == open);
+        assert(fileIsAztecCompletedOnSecretOr00ForFolder(0) == open);
+        assert(fileIsEgyptCompletedOn00ForFolder(0) == open);
         for (int d = 0; d < 4; d++)
         {
             assert(fileIsStageUnlockedAtDifficulty(0, 0, d) == STAGESTATUS_UNLOCKED);
@@ -68,7 +71,7 @@ static void unlocks(void)
         assert(fileIsStageUnlockedAtDifficulty(0, second_bonus, DIFFICULTY_SECRET) == STAGESTATUS_LOCKED);
         storage.complete[first_bonus][DIFFICULTY_SECRET] = 1;
         assert(fileIsAztecCompletedOnSecretOr00ForFolder(0));
-        assert(!fileIsEgyptCompletedOn00ForFolder(0));
+        assert(fileIsEgyptCompletedOn00ForFolder(0) == open);
 
         reset_save();
         completed_through(second_bonus - 1, DIFFICULTY_00);

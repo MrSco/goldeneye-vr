@@ -16,6 +16,9 @@
 #include "cheat.h"
 #include "objective_status.h"
 #include "gevr_footsteps.h"
+#include "chrai.h"
+#include "propobj.h"
+#include <snd.h>
 
 static struct player s_player;
 struct player *g_CurrentPlayer = &s_player;
@@ -27,7 +30,34 @@ u16 mTrack2Vol = 0x7fff;
 s32 selected_stage = LEVELID_DAM;
 f32 g_GlobalTimerDelta = 1.0f;
 s32 g_ClockTimer = 2;
-static s32 s_removed, s_killed;
+static s32 s_removed, s_killed, s_sounds;
+
+/* what the engine calls in the game, stood in for */
+f32 toxic_gas_sound_timer = 5.0f;
+s32 activate_gas_sound_timer;
+f32 gasTimeToFullOpacity = 3600.0f;
+u32 gasDoesDamageFlag = 1;
+ALBank *g_musicSfxBufferPtr;
+EnvironmentRecord *g_EnvironmentMainp, *g_EnvironmentAltp;
+static u8 s_retail0D[] = { 0x04 };   /* stands in for GoldenEye's own list 0x000D: not the cartridge's */
+AIListRecord g_GlobalAILists[] = { { (AIRecord *)s_retail0D, 0x0d }, { NULL, 0 } };
+CheatInfo g_CheatInfo[17];   /* cheats 1-16 in their rows, as cheat.c has them; the end row */
+const s32 gevrCheatInfoCount = 17;
+
+ALSoundState *sndPlaySfx(struct ALBankAlt_s *soundBank, s16 soundIndex, ALSoundState *pendingState)
+{
+	(void)soundBank;
+	(void)soundIndex;
+	(void)pendingState;
+	s_sounds++;
+	return NULL;
+}
+
+void chrobjSndCreatePostEventDefault(ALSoundState *state, coord3d *pos)
+{
+	(void)state;
+	(void)pos;
+}
 
 void bondinvRemoveItemByID(ITEM_IDS weaponnum)
 {
@@ -139,6 +169,30 @@ int main(int argc, char **argv)
 	run(0xfc, "FF");   /* the cartridge reads hex in capitals */
 	run(0xfb, NULL);
 	printf("fs removed %d killed %d\n", s_removed, s_killed);
+
+	/* its cheat rows, its global list 0x000D, its cheat rewiring, AI 0xFB */
+	{
+		s32 i;
+
+		for (i = 0; i < 16; i++) {
+			g_CheatInfo[i].cheat_id = (u8)(i + 1);
+		}
+	}
+	gevrFootstepsBind();
+	printf("fs cheats %04x %x %04x %x %04x %x %04x %x\n", g_CheatInfo[7].text_bank_id, g_CheatInfo[7].maskfield,
+			g_CheatInfo[8].text_bank_id, g_CheatInfo[8].maskfield, g_CheatInfo[12].text_bank_id, g_CheatInfo[12].maskfield,
+			g_CheatInfo[15].text_bank_id, g_CheatInfo[15].maskfield);
+	printf("fs list0d %d\n", g_GlobalAILists[0].ailist != (AIRecord *)s_retail0D
+			&& g_GlobalAILists[0].ailist == (AIRecord *)gevrRomWindowBytes(0x800372e0u, 1));
+	printf("fs effects %d %d %d %d %d %d %d\n", gevrFootstepsCheatEffect(1), gevrFootstepsCheatEffect(5),
+			gevrFootstepsCheatEffect(6), gevrFootstepsCheatEffect(8), gevrFootstepsCheatEffect(9),
+			gevrFootstepsCheatEffect(13), gevrFootstepsCheatEffect(16));
+	printf("fs unlocks %d %d %d %d %d %d\n", gevrFootstepsCheatUnlockAs(7), gevrFootstepsCheatUnlockAs(8),
+			gevrFootstepsCheatUnlockAs(9), gevrFootstepsCheatUnlockAs(13), gevrFootstepsCheatUnlockAs(16),
+			gevrFootstepsCheatUnlockAs(14));
+	gevrFootstepsFogFade();
+	printf("fs fogfade %.1f %d %.1f %u\n", toxic_gas_sound_timer, activate_gas_sound_timer, gasTimeToFullOpacity,
+			gasDoesDamageFlag);
 
 	/* every command its levels have, once each */
 	f = fopen(argv[3], "r");

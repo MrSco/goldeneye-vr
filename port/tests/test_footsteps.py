@@ -115,6 +115,12 @@ def main():
     check(fs.get("objflipped") == ["4", "0", "4"], "after AI 0x36: %s" % fs.get("objflipped"))
     check(fs.get("objstatus") == ["1"], "objective 2's status word: %s" % fs.get("objstatus"))
     check(fs.get("removed") == ["31", "killed", "1"], "items taken and Bond killed: %s" % fs.get("removed"))
+    check(fs.get("cheats") == ["b002", "11", "b003", "11", "b005", "12", "b009", "12"],
+          "its cheat rows (Play as Luigi, Peach, Mushroom Mode, Extra Weapons): %s" % fs.get("cheats"))
+    check(fs.get("list0d") == ["1"], "global list 0x000D runs from the cartridge: %s" % fs.get("list0d"))
+    check(fs.get("effects") == ["8", "9", "16", "-1", "-1", "6", "13"], "cheat effects: %s" % fs.get("effects"))
+    check(fs.get("unlocks") == ["17", "17", "18", "19", "19", "14"], "cheat unlocks: %s" % fs.get("unlocks"))
+    check(fs.get("fogfade") == ["0.0", "1", "120.0", "0"], "AI 0xFB's fog fade: %s" % fs.get("fogfade"))
     check(fs.get("ran") == [str(len(cmds))], "every command ran: %s of %d" % (fs.get("ran"), len(cmds)))
     check(len(cmds) > 12000, "its setups' commands: %d" % len(cmds))
     check(not unmapped, "addresses the port has no memory for:\n  " + "\n  ".join(unmapped[:20]))

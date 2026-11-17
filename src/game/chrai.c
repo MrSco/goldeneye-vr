@@ -3732,6 +3732,14 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                         }
                         else
                         {
+#ifdef GEVR
+                            /* Mario Characters: Enemy Rockets in Cheat Options arms these too (0x80004B04) */
+                            if (gevrFootstepsEnemyRockets() && ai->ITEM_NUM >= 4 && ai->ITEM_NUM <= 24)
+                            {
+                                prop = chrGiveWeapon(ChrEntityp, PROP_CHRROCKETLAUNCH, ITEM_ROCKETLAUNCH, flags);
+                            }
+                            else
+#endif
                             prop = chrGiveWeapon(ChrEntityp, model, ai->ITEM_NUM, flags);
                         }
                     }
@@ -3908,6 +3916,15 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 {
                     AiSfxPlayRecord *ai       = AiListp + Offset;
                     s16              audio_id = ntohs(ai->SOUND_NUM);
+#ifdef GEVR
+                    /* Mario Characters: channel -2 plays it where the guard is (0x80004AE0) */
+                    if (gevrRomFootsteps() && (s8)ai->CHANNEL_NUM == -2 && ChrEntityp && ChrEntityp->prop)
+                    {
+                        gevrFootstepsSoundAt(audio_id, &ChrEntityp->prop->pos);
+                        Offset += sizeof(AiSfxPlayRecord);
+                        break;
+                    }
+#endif
                     audioPlayFromProp((s8)ai->CHANNEL_NUM, audio_id);
                     Offset += sizeof(AiSfxPlayRecord);
                     break;
@@ -4518,6 +4535,13 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 case AI_SwitchSky:
                 { // SWITCHENVIRONMENT
                     fogSwitchToSolosky2(1.0);
+#ifdef GEVR
+                    /* Mario Characters: the next one switches back (its swap at 7F0BAD00) */
+                    if (gevrRomFootsteps())
+                    {
+                        gevrFootstepsSwapSkies();
+                    }
+#endif
                     Offset += sizeof(AiSwitchSkyRecord);
                     break;
                 }
@@ -4545,6 +4569,15 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 }
                 case AI_BondDisableDamageAndPickups:
                 {
+#ifdef GEVR
+                    /* Mario Characters: a second one gives them back (7F039DA8) */
+                    if (gevrRomFootsteps())
+                    {
+                        g_PlayerInvincible = !g_PlayerInvincible;
+                        Offset += sizeof(AiBondDisableDamageAndPickupsRecord);
+                        break;
+                    }
+#endif
                     g_PlayerInvincible = TRUE;
                     Offset += sizeof(AiBondDisableDamageAndPickupsRecord);
                     break;
@@ -4711,6 +4744,15 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 }
                 case AI_GasLeakAndFadeFog:
                 {
+#ifdef GEVR
+                    /* Mario Characters: the fog's fade, no gas (7F03A104) */
+                    if (gevrRomFootsteps())
+                    {
+                        gevrFootstepsFogFade();
+                        Offset += sizeof(AiGasLeakAndFadeFogRecord);
+                        break;
+                    }
+#endif
                     coord3d emitPos = New_Coord3d();
                     init_trigger_toxic_gas_effect(&emitPos);
                     Offset += sizeof(AiGasLeakAndFadeFogRecord);

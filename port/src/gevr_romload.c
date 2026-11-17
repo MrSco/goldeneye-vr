@@ -298,10 +298,10 @@ s32 romdataInit(void)
 				}
 				gevrRomBindSegments();
 				{
-					/* a Footsteps campaign's own cheat rows (src/game/gevr_footsteps.c) */
-					extern void gevrFootstepsBindCheats(void);
+					/* a Footsteps campaign's own cheat rows and global AI lists (src/game/gevr_footsteps.c) */
+					extern void gevrFootstepsBind(void);
 
-					gevrFootstepsBindCheats();
+					gevrFootstepsBind();
 				}
 				return 0;
 			}

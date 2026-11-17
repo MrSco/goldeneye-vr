@@ -8357,6 +8357,36 @@ void init_menu18_displaycast(void)
         body = BODY_Trevelyan_Janus; 
     } 
 
+#ifdef GEVR
+    /*
+     * Mario Characters' cast keeps GoldenEye's draws on its own slots
+     * (7F0187C4-7F0188B8): Mario (0x7A) in one of his outfits 0x16-0x19 with
+     * the invisible head, Peach's slot (0x7C) now and then as 0x2D, Luigi's
+     * (0x7B) as 8.
+     */
+    if (gevrRomFootsteps() && body == 0x7a)
+    {
+        const u32 pick = randomGetNext() % 5U;
+
+        if (pick != 0)
+        {
+            body = 0x15 + (s32)pick;
+            head = 0x4e;
+        }
+    }
+    else if (gevrRomFootsteps() && body == 0x7c)
+    {
+        if (randomGetNext() & 1)
+        {
+            body = 0x2d;
+        }
+    }
+    else if (gevrRomFootsteps() && body == 0x7b && (randomGetNext() & 1))
+    {
+        body = 8;
+    }
+#endif
+
     if (head == HEAD_RANDOM) 
     { 
         head = get_random_head(body); 

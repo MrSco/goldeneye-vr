@@ -1,6 +1,7 @@
 #ifdef GEVR
 #include "system.h"
 #include "gevr_romlayout.h"
+#include "gevr_footsteps.h"
 #endif
 #include <ultra64.h>
 #ifdef GEVR
@@ -7992,6 +7993,13 @@ void chrlvTickThrowGrenade(ChrRecord *self)
     if ((temp_f2 >= 61.0f) && (held_prop != NULL))
     {
         struct WeaponObjRecord *weap = held_prop->weapon;
+#ifdef GEVR
+        /* Mario Characters: the pin is heard as the guard pulls it (0x80004A90, its sound 0x117) */
+        if (gevrRomFootsteps() && weap->timer <= 0 && self->prop)
+        {
+            gevrFootstepsSoundAt(0x117, &self->prop->pos);
+        }
+#endif
         weap->timer = CHRLV_DEFAULT_TIMER;
     }
 

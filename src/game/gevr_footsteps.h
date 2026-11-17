@@ -25,4 +25,16 @@ s32 gevrFootstepsCheatUnlockAs(s32 cheat);
 s32 gevrFootstepsCheatRows(void);
 s32 gevrFootstepsCheatTop(void);
 
+/* AI 0xFB's fog fade without gas; a sound heard from a place */
+struct coord3d;
+void gevrFootstepsFogFade(void);
+void gevrFootstepsSoundAt(s32 sound, struct coord3d *pos);
+/* AI 0xBF: Mario Characters gives a spawning guard a rocket launcher with Enemy Rockets on in Cheat Options */
+s32 gevrFootstepsEnemyRockets(void);
+
+/* AI 0xE9: the stage's two environments swapped after the switch */
+void gevrFootstepsSwapSkies(void);
+/* after binding: its cheat rows and its edited global AI lists */
+void gevrFootstepsBind(void);
+
 #endif

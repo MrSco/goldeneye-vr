@@ -579,3 +579,115 @@ s32 gevrFootstepsCheatTop(void)
 {
     return gevrRomFootsteps() ? 0x28 : 0x35;
 }
+
+/* ---- its reworked AI commands and hooks ---------------------------------- */
+
+#include <music.h>
+#include <snd.h>
+#include "chrai.h"
+#include "propobj.h"
+
+/*
+ * AI 0xFB (GasLeakAndFadeFog, 7F03A104): the fog's fade without the gas.
+ * The fade restarts (toxic_gas_sound_timer 0), takes 120 ticks and does
+ * no harm, as GoldenEye's Egypt has it, from wherever the gas last was.
+ */
+void gevrFootstepsFogFade(void)
+{
+    toxic_gas_sound_timer = 0.0f;
+    activate_gas_sound_timer = TRUE;
+    gasTimeToFullOpacity = 120.0f;
+    gasDoesDamageFlag = FALSE;
+}
+
+/*
+ * A sound heard from a place, as its code plays them (sndPlaySfx, then
+ * chrobjSndCreatePostEventDefault): AI 0xC4 on channel -2 at the guard
+ * (0x80004AE0), and the pin of a guard's grenade, sound 0x117 (0x80004A90).
+ */
+void gevrFootstepsSoundAt(s32 sound, coord3d *pos)
+{
+    ALSoundState *state = sndPlaySfx((struct ALBankAlt_s *)g_musicSfxBufferPtr, (s16)sound, NULL);
+
+    if (state && pos) {
+        chrobjSndCreatePostEventDefault(state, pos);
+    }
+}
+
+/*
+ * AI 0xBF (TRYGiveMeItem) where GoldenEye gives the item as asked (its
+ * 0x80004B04, Footsteps' fix for reinforcements): with Enemy Rockets on in
+ * Cheat Options, items 4 to 24 become the rocket launcher.
+ */
+s32 gevrFootstepsEnemyRockets(void)
+{
+    return gevrRomFootsteps() && g_CheatActivated[CHEAT_ENEMY_ROCKETS];
+}
+
+/*
+ * AI 0xE9 (SwitchSky) in Mario Characters swaps the stage's two
+ * environments as it switches (0x8005C14C, called from fogSwitchToSolosky2
+ * when AI 0xE9 asks): the switch is drawn as GoldenEye's, and the next 0xE9
+ * goes back.
+ */
+#include "bgfog.h"
+extern EnvironmentRecord *g_EnvironmentMainp, *g_EnvironmentAltp;
+
+void gevrFootstepsSwapSkies(void)
+{
+    EnvironmentRecord *main = g_EnvironmentMainp;
+
+    g_EnvironmentMainp = g_EnvironmentAltp;
+    g_EnvironmentAltp = main;
+}
+
+/*
+ * GoldenEye's global AI lists as the cartridge has them (its table at
+ * 0x8003744C): the Footsteps patch edits 0x000D, PersistentlyChaseAndAttack-
+ * Bond, to the cancelled XBLA release's (a chasing guard holds his fire
+ * until Bond is within 15 m). A list whose bytes differ from the port's is
+ * run from the cartridge's copy, its commands the same bytes as the port's.
+ */
+extern AIListRecord g_GlobalAILists[];
+
+static void bindGlobalLists(void)
+{
+    s32 i, k;
+
+    for (i = 0; g_GlobalAILists[i].ailist; i++) {
+        for (k = 0; k < 64; k++) {
+            const u8 *row = gevrRomWindowBytes(0x8003744cu + 8u * (u32)k, 8);
+            u32 ptr, id, len, mine;
+            u8 *list;
+
+            if (!row) {
+                break;
+            }
+            ptr = ((u32)row[0] << 24) | ((u32)row[1] << 16) | ((u32)row[2] << 8) | row[3];
+            id = ((u32)row[4] << 24) | ((u32)row[5] << 16) | ((u32)row[6] << 8) | row[7];
+            if (!ptr) {
+                break;
+            }
+            if ((s32)id != g_GlobalAILists[i].ID) {
+                continue;
+            }
+            list = gevrRomWindowBytes(ptr, 1);
+            len = list && gevrRomWindowBytes(ptr, 2048) ? gevrRomAiListLength(list, 2048) : 0;
+            mine = gevrRomAiListLength((const u8 *)g_GlobalAILists[i].ailist, 4096);
+            if (len && (len != mine || memcmp(list, g_GlobalAILists[i].ailist, len) != 0)) {
+                g_GlobalAILists[i].ailist = (AIRecord *)list;
+                sysLogPrintf(LOG_NOTE, "footsteps: global AI list %04x is the cartridge's (%u bytes)", id, len);
+            }
+            break;
+        }
+    }
+}
+
+void gevrFootstepsBind(void)
+{
+    if (!gevrRomFootsteps()) {
+        return;
+    }
+    gevrFootstepsBindCheats();
+    bindGlobalLists();
+}

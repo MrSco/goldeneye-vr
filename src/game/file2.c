@@ -8,6 +8,7 @@
 #include "file2.h"
 #include "front.h"
 #include "cheat.h"
+#include "gevr_romlayout.h"
 #ifdef GEVR
 extern bool netIsActive(void);
 #endif
@@ -951,6 +952,13 @@ LEVEL_SOLO_SEQUENCE fileGetHighestStageUnlockedAnyFolder(void)
  */
 bool fileIsCradleCompletedForFolder(s32 folder)
 {
+#ifdef GEVR
+    /* Mario Characters has this true from the start: its secret missions and their cheats are open (7F01EA48-7F01EAC4) */
+    if (gevrRomFootsteps())
+    {
+        return TRUE;
+    }
+#endif
     return (fileIsStageUnlockedAtDifficulty(folder, GEVR_SP_CRADLE, DIFFICULTY_AGENT) == STAGESTATUS_COMPLETED) ||
            (fileIsStageUnlockedAtDifficulty(folder, GEVR_SP_CRADLE, DIFFICULTY_SECRET) == STAGESTATUS_COMPLETED) ||
            (fileIsStageUnlockedAtDifficulty(folder, GEVR_SP_CRADLE, DIFFICULTY_00) == STAGESTATUS_COMPLETED);
@@ -964,6 +972,13 @@ bool fileIsCradleCompletedForFolder(s32 folder)
  */
 bool fileIsAztecCompletedOnSecretOr00ForFolder(s32 folder)
 {
+#ifdef GEVR
+    /* Mario Characters has this true from the start: its secret missions and their cheats are open (7F01EA48-7F01EAC4) */
+    if (gevrRomFootsteps())
+    {
+        return TRUE;
+    }
+#endif
     return (fileIsStageUnlockedAtDifficulty(folder, GEVR_SP_AZTEC, DIFFICULTY_SECRET) == STAGESTATUS_COMPLETED) ||
            (fileIsStageUnlockedAtDifficulty(folder, GEVR_SP_AZTEC, DIFFICULTY_00) == STAGESTATUS_COMPLETED);
 }
@@ -976,6 +991,13 @@ bool fileIsAztecCompletedOnSecretOr00ForFolder(s32 folder)
  */
 bool fileIsEgyptCompletedOn00ForFolder(int foldernum)
 {
+#ifdef GEVR
+    /* Mario Characters has this true from the start: its secret missions and their cheats are open (7F01EA48-7F01EAC4) */
+    if (gevrRomFootsteps())
+    {
+        return TRUE;
+    }
+#endif
     return fileIsStageUnlockedAtDifficulty(foldernum, GEVR_SP_EGYPT, DIFFICULTY_00) == STAGESTATUS_COMPLETED;
 }
 

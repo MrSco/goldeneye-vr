@@ -62,6 +62,7 @@ static void *fsFileLoad(const char *name, u32 *size) {
 static FILE *fsFileOpenWrite(const char *path) { return fopen(path, "wb"); }
 extern "C" int gevrRomApplyVariant(const u8*, u32) { ++applyCalls; return bindOk; }
 void gevrRomBindSegments() { ++bankCalls; }
+void gevrFootstepsBind() {}
 static void gevrRomBindFileTable() { ++retailBinds; }
 static int gevrRomCheckFiles(void*, unsigned, char*, size_t) { return 1; }
 static const struct gevrRomFile g_GevrRomSegments[GEVR_SEG_COUNT] = {

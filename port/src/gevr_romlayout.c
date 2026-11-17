@@ -771,6 +771,24 @@ static uint32_t gevrAiLen(const uint8_t *code, uint32_t len, uint32_t at)
 	return end - at + 1;
 }
 
+uint32_t gevrRomAiListLength(const uint8_t *code, uint32_t max)
+{
+	uint32_t at = 0;
+
+	while (code && at < max) {
+		const uint32_t n = gevrAiLen(code, max, at);
+
+		if (!n || at + n > max) {
+			return 0;
+		}
+		if (code[at] == 0x04) {   /* ai_list_end */
+			return at + n;
+		}
+		at += n;
+	}
+	return 0;
+}
+
 uint32_t gevrRomAiPrepare(uint8_t *code, uint32_t len, int dropHooks)
 {
 	uint32_t r = 0;

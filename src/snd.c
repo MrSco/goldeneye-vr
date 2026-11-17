@@ -5,6 +5,10 @@
 #include "snd.h"
 #ifdef GEVR
 #include "system.h"
+#ifdef GEVR
+#include "gevr_romlayout.h"
+extern u64 g_randomSeed;   /* random.c */
+#endif
 #endif
 //likely named gslibaudio.c from xbla
 /**
@@ -957,6 +961,18 @@ ALSoundState *sndPlaySfx(struct ALBankAlt_s *soundBank, s16 soundIndex, ALSoundS
             ALSndpEvent playEvent;
 
 #ifdef GEVR
+            /*
+             * The Footsteps patch (Mario Characters) pitches a quarter of the
+             * guards' cries, sounds 0x7B-0x9E, half a semitone down: its
+             * 0x8005C774 takes 50 cents off when the random seed's low byte
+             * is 0xC0 or more.
+             */
+            if (gevrRomFootsteps() && soundIndex >= 0x7b && soundIndex <= 0x9e
+                && (u8)g_randomSeed >= 0xc0 && (newState->unk3e & 0x20) == 0)
+            {
+                newState->pitch_28 = alCents2Ratio((sound->keyMap->keyBase * 100) + sound->keyMap->detune - 50
+                                                   + DEFAULT_SETUP_PITCH_SHIFT);
+            }
             /*
              * Rare logo is a composite: id 258 (vol 100, immediate) chains to
              * 259 (vol 60, +467ms) and then 260 (vol 30, +933ms) - the same
