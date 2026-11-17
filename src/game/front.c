@@ -31,6 +31,7 @@
 #include "mp_weapon.h"
 #include "math_floor.h"
 #include "objective_status.h"
+#include "gevr_footsteps.h"
 #include "player.h"
 #include "spectrum.h"
 #include "textrelated.h"
@@ -1153,6 +1154,9 @@ static s32 frontCheckIfCheatIsUnlockedInSave(s32 cheat);
 s32 frontCheckIfCheatIsUnlocked(s32 cheat)
 {
     extern int VrUnlockAll;
+
+    /* Mario Characters unlocks some cheats as others are (its jump table at 0x800518A0) */
+    cheat = gevrFootstepsCheatUnlockAs(cheat);
 
     if (VrUnlockAll && cheat >= CHEAT_INVINCIBILITY && cheat <= CHEAT_2X_LASER)
     {
@@ -7100,7 +7104,15 @@ Gfx *print_objectives_and_status_to_menu(Gfx *DL, s32 arg1, u8 *arg2, s32 arg3)
 
     for (i = 0; i < OBJECTIVES_MAX; i++)
     {
+#ifdef GEVR
+        /* Mario Characters shows an objective by its scripts' flag here, not in the pause list (0x80004EA4) */
+        s32 gevrFrom = arg3 ? gevrFootstepsObjectiveDifficulty(i, ptrbriefingdata->objective[i].enabled_difficulty)
+                            : ptrbriefingdata->objective[i].enabled_difficulty;
+
+        if (ptrbriefingdata->objective[i].textid != 0 && selected_difficulty >= gevrFrom)
+#else
         if (ptrbriefingdata->objective[i].textid != 0 && selected_difficulty >= ptrbriefingdata->objective[i].enabled_difficulty)
+#endif
         {
             v1 = ptrbriefingdata->objective[i].textid;
             text = langGet(v1);
@@ -7460,7 +7472,12 @@ s32 frontCompleteAllObjectivesAliveSuccess(void)
     for (i=0; i<10; i++)
     {
         if (ptrbriefingdata->objective[i].textid != 0
+#ifdef GEVR
+            /* a hidden Mario Characters objective counts once its scripts show it (0x80004E98) */
+            && lvlGetSelectedDifficulty() >= gevrFootstepsObjectiveDifficulty(i, ptrbriefingdata->objective[i].enabled_difficulty)
+#else
             && lvlGetSelectedDifficulty() >= ptrbriefingdata->objective[i].enabled_difficulty
+#endif
             && get_status_of_objective(i) != OBJECTIVESTATUS_COMPLETE)
             {
                 return 0;
@@ -7999,16 +8016,23 @@ void interface_menu15_cheat(void)
         }
         else
         {
-            if (totalunlockedcheats >= 0xD)
+#ifdef GEVR
+            /* Mario Characters' list is fourteen to a column from higher up (gevr_footsteps.c) */
+            const s32 rows = gevrFootstepsCheatRows(), top = gevrFootstepsCheatTop();
+#else
+            const s32 rows = 0xC, top = 0x35;
+#endif
+
+            if (totalunlockedcheats >= rows + 1)
             {
-                i = totalunlockedcheats - 0xD;
+                i = totalunlockedcheats - (rows + 1);
                 if ((s32) cursor_h_pos >= 0xDC)
                 {
                     for (; i >= 0; i--)
                     {
-                        if ((s32) cursor_v_pos >= (i * 0x14) + 0x35)
+                        if ((s32) cursor_v_pos >= (i * 0x14) + top)
                         {
-                            cheathighlighted = i + 0xC;
+                            cheathighlighted = i + rows;
                             break;
                         }
                     }
@@ -8017,13 +8041,13 @@ void interface_menu15_cheat(void)
 
             if (cheathighlighted == 0)
             {
-                i = (totalunlockedcheats >= 0xD)
-                    ? 0xB
+                i = (totalunlockedcheats >= rows + 1)
+                    ? rows - 1
                     : totalunlockedcheats - 1;
 
                 for (; i >= 0; i--)
                 {
-                    if ((s32) cursor_v_pos >= (i * 0x14) + 0x35)
+                    if ((s32) cursor_v_pos >= (i * 0x14) + top)
                     {
                         cheathighlighted = i;
                         break;
@@ -8098,13 +8122,20 @@ Gfx * constructor_menu15_cheat(Gfx *DL)
     DL = frontSetupMenuBackground(DL);
     DL = microcode_constructor(DL);
 
-    for (var_fp = 0; var_fp < ((totalunlockedcheats >= 0xD) ? 0xC : totalunlockedcheats); var_fp++)
+#ifdef GEVR
+    /* Mario Characters' list is fourteen to a column from higher up (gevr_footsteps.c) */
+    const s32 rows = gevrFootstepsCheatRows(), top = gevrFootstepsCheatTop();
+#else
+    const s32 rows = 0xC, top = 0x35;
+#endif
+
+    for (var_fp = 0; var_fp < ((totalunlockedcheats >= rows + 1) ? rows : totalunlockedcheats); var_fp++)
     {
         temp_v0 = cheatGetMenuTextPointer(arrayUnlockedCheats[var_fp]);
         textMeasure(&sp80, &sp7C, temp_v0, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
 
         sp88 = 0x37;
-        sp84 = (var_fp * 0x14) + 0x35;
+        sp84 = (var_fp * 0x14) + top;
         if ((var_fp == cheathighlighted) && (frontCheckCursorOnPreviousTab() == 0))
         {
             DL = microcode_constructor_related_to_menus(DL, sp88 - 2, sp84 - 1, sp88 + sp7C + 5, sp84 + 0xE, 0x32);
@@ -8117,34 +8148,34 @@ Gfx * constructor_menu15_cheat(Gfx *DL)
         textMeasure(&sp80, &sp7C, temp_v0, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
 
         sp88 = 0xB3;
-        sp84 = (var_fp * 0x14) + 0x35;
+        sp84 = (var_fp * 0x14) + top;
 
         DL = frontPrintText(DL, &sp88, &sp84, temp_v0, ptrFontZurichBoldChars, ptrFontZurichBold, (g_CheatActivated[arrayUnlockedCheats[var_fp]]) ? 0xA00000FF : 0xFF, viGetX(), viGetY(), 0, 0);
     }
 
-    if (totalunlockedcheats >= 0xd)
+    if (totalunlockedcheats >= rows + 1)
     {
-        for (var_fp = 0; var_fp < (totalunlockedcheats - 0xC); var_fp++)
+        for (var_fp = 0; var_fp < (totalunlockedcheats - rows); var_fp++)
         {
-            temp_v0 = cheatGetMenuTextPointer(arrayUnlockedCheats[var_fp + 12]);
+            temp_v0 = cheatGetMenuTextPointer(arrayUnlockedCheats[var_fp + rows]);
             textMeasure(&sp80, &sp7C, temp_v0, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
 
             sp88 = 0xDC;
-            sp84 = (var_fp * 0x14) + 0x35;
-            if ((var_fp + 0xc == cheathighlighted) && (frontCheckCursorOnPreviousTab() == 0))
+            sp84 = (var_fp * 0x14) + top;
+            if ((var_fp + rows == cheathighlighted) && (frontCheckCursorOnPreviousTab() == 0))
             {
                 DL = microcode_constructor_related_to_menus(DL, sp88 - 2, sp84 - 1, sp88 + sp7C + 5, sp84 + 0xE, 0x32);
             }
 
             DL = frontPrintText(DL, &sp88, &sp84, temp_v0, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
 
-            strID  = (g_CheatActivated[arrayUnlockedCheats[var_fp + 12]]) ? getStringID(LTITLE, TITLE_STR_115_ON) : getStringID(LTITLE, TITLE_STR_116_OFF);
+            strID  = (g_CheatActivated[arrayUnlockedCheats[var_fp + rows]]) ? getStringID(LTITLE, TITLE_STR_115_ON) : getStringID(LTITLE, TITLE_STR_116_OFF);
             temp_v0 = langGet(strID);
             textMeasure(&sp80, &sp7C, temp_v0, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
 
             sp88 = 0x158;
-            sp84 = (var_fp * 0x14) + 0x35;
-            strID = (g_CheatActivated[arrayUnlockedCheats[var_fp + 12]]) ? 0xA00000FF : 0xFF;
+            sp84 = (var_fp * 0x14) + top;
+            strID = (g_CheatActivated[arrayUnlockedCheats[var_fp + rows]]) ? 0xA00000FF : 0xFF;
 
             DL = frontPrintText(DL, &sp88, &sp84, temp_v0, ptrFontZurichBoldChars, ptrFontZurichBold, strID, viGetX(), viGetY(), 0, 0);
         }

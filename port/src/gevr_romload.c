@@ -297,6 +297,12 @@ s32 romdataInit(void)
 					sysLogPrintf(LOG_NOTE, "rom: GoldenEye X models are off in %s", want->name);
 				}
 				gevrRomBindSegments();
+				{
+					/* a Footsteps campaign's own cheat rows (src/game/gevr_footsteps.c) */
+					extern void gevrFootstepsBindCheats(void);
+
+					gevrFootstepsBindCheats();
+				}
 				return 0;
 			}
 			g_RomFile = NULL;

@@ -137,6 +137,13 @@ struct gevrRomLayout {
 	 */
 	uint8_t headmask;
 	uint8_t headwomen;
+	/*
+	 * Carnivorous' Footsteps patch drives the campaign (gevr_footsteps.c):
+	 * its scripts' memory pokes (AI 0x2B with the PRINT after it), its
+	 * reworked AI commands and hooks. Mario Characters; TND64 carries the
+	 * same patch but its port drops the pokes (aihooks).
+	 */
+	uint8_t footsteps;
 };
 
 struct gevrDataWindow {
@@ -193,6 +200,18 @@ int gevrRomParseFiles(const uint8_t *data, uint32_t dataLen,
 /* Top byte is hit sound / hit texture. Size is the word under the layout mask. */
 void gevrRomDecodeImage(uint32_t word, uint32_t stride, uint32_t mask,
 		uint32_t *hitSound, uint32_t *hitTexture, uint32_t *size);
+
+/*
+ * The cartridge's memory as a Footsteps campaign's scripts see it: its data
+ * segment and Expansion Pak pieces, writable (NULL outside them or with no
+ * hack bound). After writing, gevrRomWindowChanged reads the tables the
+ * binder copied out of the range again.
+ */
+uint8_t *gevrRomWindowBytes(uint32_t vram, uint32_t need);
+void gevrRomWindowChanged(uint32_t vram, uint32_t len);
+int gevrRomFootsteps(void);
+/* bheadUpdatePos's (1 - 0.93) factor, the hack's own; -1 is GoldenEye's (bondhead.c) */
+extern float g_GevrHeadPosOut;
 
 /* Put the hack's file table back in file_resource_table (obInit rebinds it). */
 int gevrRomRebindVariantFiles(void);

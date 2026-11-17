@@ -20,6 +20,8 @@
 #include "mp_music.h"
 #include "objecthandler.h"
 #include "objective_status.h"
+#include "gevr_footsteps.h"
+#include "gevr_romlayout.h"
 #include "player.h"
 #include "propobj.h"
 #include "stan.h"
@@ -1633,6 +1635,23 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 case AI_TRYFindCover:
                 { // Find Cover
                     AiTRYFindCoverRecord *ai = AiListp + Offset;
+#ifdef GEVR
+                    /* the Footsteps patch's pokes (gevr_footsteps.c; its code at 7F0360A0) */
+                    if (gevrRomFootsteps())
+                    {
+                        s32 gevrLabel = gevrFootstepsCommand((const u8 *)ai);
+
+                        if (gevrLabel >= 0)
+                        {
+                            Offset = chraiGoToLabel(AiListp, Offset, (u8)gevrLabel);
+                        }
+                        else
+                        {
+                            Offset += sizeof(AiTRYFindCoverRecord);
+                        }
+                        break;
+                    }
+#endif
                     if (removed_animation_routine_2B(ChrEntityp))
                     {
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
@@ -1768,6 +1787,15 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 case AI_IFICanHearAlarm:
                 {
                     AiIFICanHearAlarmRecord *ai = AiListp + Offset;
+#ifdef GEVR
+                    /* Mario Characters: shows or hides objective <label byte> (7F0362D8) */
+                    if (gevrRomFootsteps())
+                    {
+                        gevrFootstepsToggleObjective(ai->GOTOLABEL);
+                        Offset += sizeof(AiIFICanHearAlarmRecord);
+                        break;
+                    }
+#endif
                     if (chrCanHearAlarm(ChrEntityp))
                     {
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);

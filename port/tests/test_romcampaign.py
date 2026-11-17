@@ -131,14 +131,15 @@ def anim_tables(folder):
     (folder / "anim_tables.h").write_text("\n".join(out) + "\n", encoding="utf-8")
 
 
-def build():
-    out = Path(tempfile.mkdtemp(prefix="gevr-romcampaign-")) / "romcampaign_native.exe"
+def build(harness="port/tests/romcampaign_native.c", extra=()):
+    out = Path(tempfile.mkdtemp(prefix="gevr-romcampaign-")) / (Path(harness).stem + ".exe")
     anim_tables(out.parent)
     args = [shutil.which("gcc") or "gcc", "-O1", "-fms-extensions", "-Wno-builtin-declaration-mismatch", "-static"]
     args += ["-I" + str(out.parent)]
     args += ["-D" + v for v in ("GEVR=1", "PLATFORM_64BIT=1", "_LANGUAGE_C=1", "VERSION=2", "VERSION_US=1", "LANG_US=1")]
     args += ["-I" + str(ROOT / v) for v in (".", "port/include", "include", "src", "src/game", "port/src")]
-    args += [str(ROOT / p) for p in ("port/tests/romcampaign_native.c", "port/src/gevr_romcampaign.c",
+    args += ["-I" + str(ROOT / "port/tests")]
+    args += [str(ROOT / p) for p in (harness,) + tuple(extra) + ("port/src/gevr_romcampaign.c",
                                       "port/src/gevr_romlayout.c", "port/src/gevr_romcheck.c", "src/random.c",
                                       "port/src/gevr_rom_manifest.c", "port/src/gevr_romswap.c")]
     args += ["-lz", "-o", str(out)]

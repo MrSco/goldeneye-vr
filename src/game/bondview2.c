@@ -763,7 +763,11 @@ static void gevrCheatProbe(s32 inlevel)
         { "maxammo", CHEAT_MAXAMMO }, { "infammo", CHEAT_INFINITE_AMMO },
     };
     static u32 tick;
+#ifdef GEVR_PC
+    const char *path = "gevr_cheat.txt";   /* the PC game runs in its own folder */
+#else
     const char *path = "/sdcard/Android/data/com.gevr.port/files/gevr_cheat.txt";
+#endif
     char word[32];
     FILE *fp;
     s32 i, id;

@@ -27,6 +27,7 @@
 #include "net_game.h"
 #include "gevr_touch.h"  /* the Controls page's Touch controllers */
 /*
+#include "gevr_footsteps.h"
  * Co-op (#94): the watch reads this headset's own controller. Online the
  * first controller is player one's copy, on a teammate's headset the host's
  * (port/src/input.c); every PLAYER_1 in this file is a controller read.
@@ -399,6 +400,10 @@ void init_watch_at_start_of_stage(int stage)
     D_80040B50 = 0x32;
     D_80040B54 = 0x32;
     fileLoadSaveSettingsForSelectedFolder(stage);
+#ifdef GEVR
+    /* the Footsteps patch's level start (gevr_footsteps.c; its code at 7F0A4A84) */
+    gevrFootstepsStageStart(stage);
+#endif
     mission_failed_or_aborted = FALSE;
 }
 

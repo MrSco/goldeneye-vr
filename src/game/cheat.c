@@ -21,6 +21,7 @@
 #include "player.h"
 #include "assets/obseg/text/LmiscE.h"
 #include "model.h"
+#include "gevr_footsteps.h"
 
 //#include "chraicommands.h" /* needed for ai list commands, remove when moving global ai lists to chraicommands/chrai */
 // bss
@@ -761,6 +762,10 @@ CheatInfo g_CheatInfo[] = {
     {            CHEAT_UNLOCK_EGYPT,  0xA, 0, 0, mBtnCheatEgypt,                              0, 0,  /* 0x11 */ CHEAT_MASK_SHOW_TEXT | CHEAT_MASK_MENUS}, //at mission select
     {0}
 };
+#ifdef GEVR
+/* rows of g_CheatInfo, for a hack campaign's own (gevr_footsteps.c) */
+const s32 gevrCheatInfoCount = sizeof(g_CheatInfo) / sizeof(g_CheatInfo[0]);
+#endif
 
 
 
@@ -1020,7 +1025,12 @@ void cheatButtonHandleCheatsTurnedOn(CHEAT_ID cheat_id)
         }
     }
 
+#ifdef GEVR
+    /* Mario Characters puts other cheats' effects on some (its jump table at 0x800572B0) */
+    switch (gevrFootstepsCheatEffect(cheat_id))
+#else
     switch (cheat_id)
+#endif
     {
         case CHEAT_EXTRA_MP_CHARS:
             unlock_all_mp_chars();
