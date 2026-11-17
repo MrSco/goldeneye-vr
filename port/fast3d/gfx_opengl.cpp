@@ -5800,7 +5800,7 @@ FilteringMode gfx_opengl_get_texture_filter(void) {
 
 
 static void gfx_opengl_init_mirror_shader() {
-#ifndef ANDROID // if PC
+#if !defined(ANDROID) && !defined(GEVR_VISIONOS) // if PC (Vision Pro has no mirror window)
     if (s_mirror_prog) return;
 
     auto compile = [](GLenum type, const char* src) -> GLuint {
@@ -5835,7 +5835,7 @@ static void gfx_opengl_mirror_to_desktop(
         uint32_t dst_w, uint32_t dst_h)   // real size of mirror_wnd
 {
     gevr_mesh_settle();
-#ifndef ANDROID // if PC
+#if !defined(ANDROID) && !defined(GEVR_VISIONOS) // if PC (Vision Pro has no mirror window)
 
     if (!gfx_sdl_is_mirror_enabled()) return;
 

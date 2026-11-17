@@ -19,6 +19,10 @@ endif()
 #   ios    - iPhone and iPad: the PC flat game with touch controls, drawn
 #            with OpenGL ES through ANGLE on Metal (tools/build_ios.sh,
 #            docs/mobile-platforms.md); a static library the Xcode app links
+#   visionos - Vision Pro, native: the PC VR game (port/vr, OpenXR) on an
+#            OpenXR runtime of its own over Compositor Services and ARKit
+#            (port/visionos, docs/visionos-native.md), OpenGL ES through ANGLE;
+#            a static library the SwiftUI app links (tools/build_visionos_native.sh)
 option(GEVR_HEADLESS "Build the dedicated server (Linux, no headset)" OFF)
 if(GEVR_HEADLESS)
   set(GEVR_PLATFORM "server")
@@ -26,8 +30,10 @@ elseif(ANDROID)
   set(GEVR_PLATFORM "quest")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS")
   set(GEVR_PLATFORM "ios")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "visionOS")
+  set(GEVR_PLATFORM "visionos")
 endif()
-set(GEVR_PLATFORM "${GEVR_PLATFORM}" CACHE STRING "quest, server, pc or ios")
+set(GEVR_PLATFORM "${GEVR_PLATFORM}" CACHE STRING "quest, server, pc, ios or visionos")
 # The Android phone/tablet APK (docs/mobile-platforms.md): the Quest's library
 # with the flat window, launcher and headset stand-ins of the PC flat game in
 # place of OpenXR (android/app/build.gradle's "mobile" flavor sets it).
@@ -39,10 +45,14 @@ if(GEVR_PLATFORM STREQUAL "server")
   set(GEVR_HEADLESS ON)
 elseif(GEVR_PLATFORM STREQUAL "pc")
   set(GEVR_PC ON)
-elseif(GEVR_PLATFORM STREQUAL "ios")
-  # the PC flat game's sources, built for iOS (GEVR_IOS marks what differs)
+elseif(GEVR_PLATFORM STREQUAL "ios" OR GEVR_PLATFORM STREQUAL "visionos")
+  # the PC flat game's sources, built for iOS (GEVR_IOS marks what differs);
+  # visionOS: the PC VR game's, with iOS's Apple shell (GEVR_VISIONOS)
   set(GEVR_PC ON)
   set(GEVR_IOS ON)
+  if(GEVR_PLATFORM STREQUAL "visionos")
+    set(GEVR_VISIONOS ON)
+  endif()
   enable_language(OBJC OBJCXX)   # port/ios's UIKit and ANGLE glue
   set(ANGLE_DIR "$ENV{HOME}/angle" CACHE PATH "ANGLE's one place on the Mac (tools/build_angle_apple.sh)")
   if(NOT EXISTS "${ANGLE_DIR}/include/EGL/egl.h")
@@ -99,6 +109,8 @@ message(STATUS "Target arch: ${TARGET_ARCH}")
 
 if(GEVR_HEADLESS)
   set(TARGET_OS "linux")
+elseif(GEVR_VISIONOS)
+  set(TARGET_OS "visionos")
 elseif(GEVR_IOS)
   set(TARGET_OS "ios")
 elseif(GEVR_PC AND WIN32)
@@ -182,6 +194,12 @@ if(GEVR_HEADLESS OR GEVR_PC)
     # own sprintf declaration in include/PR/os.h)
     add_definitions(-DGEVR_PC=1 -DGEVR_IOS=1 -DGEVR_GLES=1 -DSDL_MAIN_HANDLED
       -DGL_SILENCE_DEPRECATION -DIMGUI_IMPL_OPENGL_ES3 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0)
+    if(GEVR_VISIONOS)
+      # Vision Pro: the PC VR game (GEVR_PCVR) with OpenXR's ES swapchains and
+      # EGL binding, answered by port/visionos's runtime (no loader)
+      add_definitions(-DGEVR_VISIONOS=1 -DGEVR_PCVR=1
+        -DXR_USE_GRAPHICS_API_OPENGL_ES=1 -DXR_USE_PLATFORM_EGL=1)
+    endif()
   else()
     # Linux (and Steam Frame's userland): glibc as the server's
     add_definitions(-DGEVR_PC=1 -D_GNU_SOURCE -DSDL_MAIN_HANDLED)
@@ -263,12 +281,24 @@ if(GEVR_HEADLESS OR GEVR_PC)
     set(SDL_OPENGLES OFF CACHE BOOL "" FORCE)
     set(SDL_OPENGL OFF CACHE BOOL "" FORCE)
   endif()
+  if(GEVR_VISIONOS)
+    # Vision Pro: no SDL window at all (Compositor Services shows the game,
+    # port/visionos), so SDL 2.32's UIKit video, which predates visionOS and
+    # does not compile for it, stays out. Audio, pads, threads and timers
+    # build as they are. No HIDAPI: its iOS backend is not added for visionOS.
+    set(SDL_VIDEO OFF CACHE BOOL "" FORCE)
+    set(SDL_HIDAPI OFF CACHE BOOL "" FORCE)
+  endif()
   include(FetchContent)
   FetchContent_Declare(SDL2
     GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
     GIT_TAG release-2.32.8
     GIT_SHALLOW TRUE)
   FetchContent_MakeAvailable(SDL2)
+  if(GEVR_VISIONOS)
+    # SDL_sysurl.m's iOS 9 fallback (openURL:) is gated on this, and visionOS has none
+    target_compile_definitions(SDL2-static PRIVATE SDL_PLATFORM_VISIONOS=1)
+  endif()
   if(NOT GEVR_PC)
     # The PC build always uses its own: a zlib.h elsewhere on PATH (Strawberry
     # Perl ships one) is for another compiler
@@ -366,6 +396,10 @@ list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/(external|tests)/.*")
 # launcher entry points it answers in their place (GEVR_HEADLESS only).
 list(FILTER SRC_PORT EXCLUDE REGEX "port/server/.*")
 list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/server/.*")
+# port/visionos: Vision Pro's OpenXR runtime, EGL and window (GEVR_VISIONOS only,
+# added by its target below)
+list(FILTER SRC_PORT EXCLUDE REGEX "port/visionos/.*")
+list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/visionos/.*")
 # port/flat: the headset's answers when there isn't one (server and PC);
 # port/pc: the Windows game's window, host and launcher stand-ins (PC only).
 list(FILTER SRC_PORT EXCLUDE REGEX "port/(flat|pc)/.*")
@@ -628,6 +662,43 @@ if(GEVR_PC)
   set(GEVR_STEAMAUDIO_WIN "" CACHE PATH "Folder with Steam Audio 4.8.1's Windows phonon.dll and phonon.lib")
   set(GEVR_OPENXR_WIN "" CACHE PATH "Folder with Khronos's Windows x64 openxr_loader.lib and openxr_loader.dll")
   set(GEVR_STEAMAUDIO_LINUX "" CACHE PATH "Folder with Steam Audio 4.8.1's Linux x64 libphonon.so")
+  if(GEVR_VISIONOS)
+    # Vision Pro, native (docs/visionos-native.md): PC VR's sources (port/vr
+    # in, port/flat out) in one static library for the SwiftUI app
+    # (port/visionos/project.yml). port/visionos stands in for the OpenXR
+    # loader and runtime (Compositor Services, ARKit, GameController) and for
+    # gfx_sdl2.cpp's window (there is none); iOS's NSURLSession HTTP stays.
+    set(SRC_VOS ${SRC})
+    list(FILTER SRC_VOS EXCLUDE REGEX "port/flat/.*")
+    file(GLOB SRC_VR_ALL CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/port/vr/*.cpp" "${CMAKE_SOURCE_DIR}/port/vr/imgui/*.cpp")
+    list(FILTER SRC_VR_ALL EXCLUDE REGEX "port/vr/vr_android_jni\\.cpp$")
+    # imgui's SDL2 backend: the PC mirror window's, and there is no window here
+    list(FILTER SRC_VR_ALL EXCLUDE REGEX "port/vr/imgui/imgui_impl_sdl2\\.cpp$")
+    file(GLOB SRC_VOS_OWN CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/port/visionos/*.c"
+      "${CMAKE_SOURCE_DIR}/port/visionos/*.cpp" "${CMAKE_SOURCE_DIR}/port/visionos/*.m"
+      "${CMAKE_SOURCE_DIR}/port/visionos/*.mm")
+    list(APPEND SRC_VOS ${SRC_VR_ALL} ${SRC_VOS_OWN} "${CMAKE_SOURCE_DIR}/port/ios/ios_http.mm")
+    list(REMOVE_DUPLICATES SRC_VOS)
+    add_library(gevr_visionos STATIC ${SRC_VOS})
+    add_dependencies(gevr_visionos gevr_buildid)
+    target_include_directories(gevr_visionos PRIVATE ${GEVR_INCLUDES} "${ANGLE_DIR}/include")
+    target_link_libraries(gevr_visionos PRIVATE ${LIBS} juice-static opus gevr_physics)
+    target_compile_options(gevr_visionos PRIVATE
+      "SHELL:-include \"${CMAKE_BINARY_DIR}/port/include/versioninfo.h\""
+      "SHELL:-include \"${CMAKE_SOURCE_DIR}/port/ios/ios_gl.h\"")
+    set(SRC_VOS_OBJC ${SRC_VOS_OWN} "${CMAKE_SOURCE_DIR}/port/ios/ios_http.mm")
+    list(FILTER SRC_VOS_OBJC INCLUDE REGEX "\\.mm?$")
+    set_source_files_properties(${SRC_VOS_OBJC} PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
+      COMPILE_DEFINITIONS GEVR_IOS_NO_GL_SHIM=1)
+    set(GEVR_VOS_DEPS SDL2-static juice-static opus gevr_physics Jolt zlibstatic)
+    add_custom_command(TARGET gevr_visionos POST_BUILD
+      COMMAND libtool -static -o "${CMAKE_BINARY_DIR}/libgevr_visionos_all.a" "$<TARGET_FILE:gevr_visionos>"
+        $<TARGET_FILE:SDL2-static> $<TARGET_FILE:juice-static> $<TARGET_FILE:opus>
+        $<TARGET_FILE:gevr_physics> $<TARGET_FILE:Jolt> $<TARGET_FILE:zlibstatic>
+      COMMENT "libgevr_visionos_all.a: the game and its libraries in one archive")
+    add_dependencies(gevr_visionos ${GEVR_VOS_DEPS})
+    return()
+  endif()
   if(GEVR_IOS)
     # The iOS game: one static library (libgevr_ios.a) with the game, SDL,
     # opus, libjuice and the physics folded in; the Xcode app

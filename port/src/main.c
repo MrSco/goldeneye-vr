@@ -361,7 +361,12 @@ const char* sysGetDataPath(void) {
     return path;
 }
 
-#ifdef GEVR_IOS
+#ifdef GEVR_VISIONOS
+/* Vision Pro: SwiftUI's app owns the process's main (port/visionos/
+ * VosApp.swift), and the game's runs on a thread of its own once the
+ * immersive space is open (port/visionos/vos_app.mm). */
+int gevrVosGameMain(int argc, const char **argv)
+#elif defined(GEVR_IOS)
 /* iOS: SDL's UIKit app delegate owns the process's main and calls this one
  * once the app has launched (SDL_UIKitRunApp, below). */
 static int gevrIosMain(int argc, const char **argv);
@@ -431,7 +436,7 @@ int main(int argc, const char **argv)
         SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
     }
 #endif
-#ifdef GEVR_PCVR
+#if defined(GEVR_PCVR) && !defined(GEVR_VISIONOS)   /* Vision Pro's runtime is in the app */
     /* PC VR: wait, in a small window, until the OpenXR runtime has a headset
      * (Quest Link, Air Link, Virtual Desktop, SteamVR), as Perfect Dark VR's PC
      * build does (port/fast3d/gfx_sdl2.cpp), rather than failing at the
@@ -470,7 +475,13 @@ int main(int argc, const char **argv)
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "configInit starting");
     configInit();
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "SDL2 init starting");
+#ifdef GEVR_VISIONOS
+    /* no SDL video on Vision Pro (CMakeLists.txt): the headset's pictures are
+     * the OpenXR runtime's (port/visionos), the pads SDL's events read */
+    if (SDL_Init(SDL_INIT_AUDIO | SDL_INIT_EVENTS) != 0) {
+#else
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
+#endif
         __android_log_print(ANDROID_LOG_ERROR, "GoldenEye", "SDL_Init failed: %s", SDL_GetError());
         return -1;
     }

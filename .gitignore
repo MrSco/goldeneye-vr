@@ -75,3 +75,6 @@ keystore.properties
 
 # iOS: xcodegen output (tools/build_ios.sh)
 port/ios/GoldenEyeVR.xcodeproj/
+# Vision Pro, native: xcodegen output (tools/build_visionos_native.sh)
+port/visionos/GoldenEyeVR.xcodeproj/
+port/visionos/Assets.xcassets/

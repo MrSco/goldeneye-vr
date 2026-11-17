@@ -13,6 +13,9 @@
 #ifdef ANDROID
 #  define XR_USE_PLATFORM_ANDROID 1
 #  define XR_USE_GRAPHICS_API_OPENGL_ES 1
+#elif defined(GEVR_VISIONOS)
+// Vision Pro, native (docs/visionos-native.md): OpenGL ES through ANGLE, and
+// the EGL binding (CMakeLists.txt defines both) to port/visionos's runtime
 #elif !defined(_WIN32)
 // Linux (and Steam Frame): desktop GL on SDL's X11 window (GLX)
 #  ifndef XR_USE_PLATFORM_XLIB
@@ -53,6 +56,15 @@
 // Graphics APIs
 #  include <EGL/egl.h>
 #  include <GLES3/gl3.h>
+#elif defined(GEVR_VISIONOS)
+// Vision Pro: glad loads ANGLE's GL, as for fast3d; EGL for the session's binding
+#  include "../vr/vr_log.h"
+#  include "../fast3d/glad/glad.h"
+#  include <EGL/egl.h>
+#  include <cstdio>
+#include "vr_runtime_launcher.h"
+#include <PR/ultratypes.h>
+#include <PR/os.h>
 #elif !defined(_WIN32)
 // Linux: glad first, then GLX (openxr_platform.h's Xlib binding needs both)
 #  include "../vr/vr_log.h"
@@ -108,6 +120,19 @@
 #include "gevr_xr_metrics.h"
 #include "gevr_hud_bounds.h"
 
+// Which build's GL and runtime the code below is for:
+//   GEVR_XR_ES  OpenGL ES 3.0 swapchains and the Quest's GL paths: the Quest,
+//               and Vision Pro (ANGLE on Metal, whose runtime, port/visionos,
+//               reads images bottom-up as the Quest's does)
+//   GEVR_XR_PC  desktop GL on a PC runtime (SteamVR, Meta's, VDXR): their
+//               quirks, the mirror window, the eye dump
+#if defined(ANDROID) || defined(GEVR_VISIONOS)
+#define GEVR_XR_ES 1
+#endif
+#if defined(GEVR_PCVR) && !defined(GEVR_VISIONOS)
+#define GEVR_XR_PC 1
+#endif
+
 extern "C" void sysFatalError(const char *fmt, ...) __attribute__((noreturn));
 
 extern "C" struct GfxRenderingAPI* gfx_get_current_rendering_api(void);
@@ -161,10 +186,6 @@ extern "C" int gevrAndroidJava;
 #if defined(ANDROID) && defined(GEVR_NATIVE_SERVICES)
 extern "C" void pcReportForeground(int active);   // port/pc/pc_reports.cpp
 #endif
-
-static EGLDisplay g_sessionEglDisplay = EGL_NO_DISPLAY;
-static EGLContext g_sessionEglContext  = EGL_NO_CONTEXT;
-static EGLConfig  g_eglConfigForWindow = (EGLConfig)0;
 #else
 #ifdef _WIN32
 static HGLRC g_xr_hglrc = nullptr;
@@ -172,6 +193,11 @@ static HDC   g_xr_hdc   = nullptr;
 #endif
 extern SDL_Window *wnd;
 extern SDL_GLContext ctx;
+#endif
+#if defined(ANDROID) || defined(GEVR_VISIONOS)
+static EGLDisplay g_sessionEglDisplay = EGL_NO_DISPLAY;
+static EGLContext g_sessionEglContext  = EGL_NO_CONTEXT;
+static EGLConfig  g_eglConfigForWindow = (EGLConfig)0;
 #endif
 
 // ============================================================================
@@ -260,7 +286,7 @@ extern uint32_t gfx_msaa_level;
 // ============================================================================
 // GLOBAL STATE - Rendering & Swapchains
 // ============================================================================
-#ifdef ANDROID
+#ifdef GEVR_XR_ES
 static bool g_swapchainImagesInit[1] = { false };
 static std::vector<XrSwapchainImageOpenGLESKHR> g_swapchainImages[1];
 #else
@@ -296,7 +322,7 @@ static bool g_colorSpaceExtSupported = false;
 // GLOBAL STATE - MENU Rendering & Swapchains
 // ============================================================================
 
-#ifdef ANDROID
+#ifdef GEVR_XR_ES
 static bool g_menuSwapchainIsSrgb = false;
 static bool g_srgbWritesRaw = false;   // sRGB write control off: writes to sRGB images are not encoded
 #endif
@@ -321,7 +347,7 @@ static XrSwapchain g_menuSwapchainH = XR_NULL_HANDLE; // Head-locked HUD
 static XrSwapchain g_menuSwapchainP = XR_NULL_HANDLE; // weapon panel (issue #10)
 static XrSwapchain g_scopeSwapchain[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE }; // scope lenses (issue #40), per hand
 
-#ifdef ANDROID
+#ifdef GEVR_XR_ES
 static std::vector<XrSwapchainImageOpenGLESKHR> g_menuSwapchainImages;
 static std::vector<XrSwapchainImageOpenGLESKHR> g_menuSwapchainImagesR;
 static std::vector<XrSwapchainImageOpenGLESKHR> g_menuSwapchainImagesH;
@@ -625,6 +651,12 @@ static void vr_detect_runtime() {
             gActiveRuntime = XrRuntimeType::VirtualDesktopXR;
             is_meta_runtime = false;
             LOGI("Detected runtime: VirtualDesktopXR");
+        } else if (strstr(props.runtimeName, "visionOS")) {
+            // port/visionos's own runtime (Vision Pro, native): no SteamVR quirks;
+            // its quads, sub-images and screen take any size, as the Quest's
+            gActiveRuntime = XrRuntimeType::Unknown;
+            is_meta_runtime = false;
+            LOGI("Detected runtime: visionOS (port/visionos)");
         } else if (strstr(props.runtimeName, "SteamVR")){
             gActiveRuntime = XrRuntimeType::SteamVR;
             is_meta_runtime = false;
@@ -677,6 +709,12 @@ static std::vector<const char*> vr_enumerate_extensions()
     const char* requiredExts[] = {
             "XR_KHR_android_create_instance",
             "XR_KHR_opengl_es_enable"
+    };
+#elif defined(GEVR_VISIONOS)
+    // port/visionos's runtime: ES swapchains, the EGL context as the binding
+    const char* requiredExts[] = {
+        "XR_KHR_opengl_es_enable",
+        "XR_MNDX_egl_enable"
     };
 #else
     const char* requiredExts[] = {
@@ -870,7 +908,7 @@ extern OSViMode g_ViModes[2];
 
 extern "C" bool vr_get_render_dimensions_for_scale(float scale, int32_t *width, int32_t *height) {
     if (!width || !height) return false;
-#ifdef ANDROID
+#ifdef GEVR_XR_ES
     const GevrRenderSize size = gevrQuestRenderSize(VrRecommendedW, VrRecommendedH, scale,
                                                   g_maxRenderWidth, g_maxRenderHeight);
     *width = size.width;
@@ -1002,7 +1040,7 @@ extern "C" bool vr_configure_resolution() {
 // PLATFORM CONTEXT - Capture and Verify
 // ============================================================================
 
-#ifdef ANDROID
+#if defined(ANDROID) || defined(GEVR_VISIONOS)
 static bool vr_capture_egl_context()
 {
     LOGI("Capturing EGL context");
@@ -1051,7 +1089,7 @@ static bool vr_verify_graphics_requirements()
 {
     LOGI("Verifying graphics requirements");
 
-#ifdef ANDROID
+#ifdef GEVR_XR_ES
     PFN_xrGetOpenGLESGraphicsRequirementsKHR xrGetGLReq = nullptr;
     XrResult pr = xrGetInstanceProcAddr(
             g_vrState.instance,
@@ -1104,6 +1142,13 @@ static bool vr_create_session()
 
 #ifdef ANDROID
     XrGraphicsBindingOpenGLESAndroidKHR binding{ XR_TYPE_GRAPHICS_BINDING_OPENGL_ES_ANDROID_KHR };
+    binding.display = g_sessionEglDisplay;
+    binding.config  = g_eglConfigForWindow;
+    binding.context = g_sessionEglContext;
+#elif defined(GEVR_VISIONOS)
+    // ANGLE's context (port/visionos/vos_egl.mm), current on this thread
+    XrGraphicsBindingEGLMNDX binding{ XR_TYPE_GRAPHICS_BINDING_EGL_MNDX };
+    binding.getProcAddress = (PFN_xrEglGetProcAddressMNDX)eglGetProcAddress;
     binding.display = g_sessionEglDisplay;
     binding.config  = g_eglConfigForWindow;
     binding.context = g_sessionEglContext;
@@ -1393,7 +1438,7 @@ static int64_t vr_pick_swapchain_format(bool forQuadLayer = false)
              (unsigned long long)formats[i], (long long)formats[i]);
     }
 
-#ifdef ANDROID
+#ifdef GEVR_XR_ES
     /*
      * The game's colours are already display-encoded (sRGB). The compositor
      * reads a UNORM swapchain (GL_RGBA8) as linear and encodes it again on
@@ -1534,7 +1579,7 @@ static bool vr_load_swapchain_images(XrSwapchain swapchain, Images &images)
     uint32_t count = 0;
     XrResult result = xrEnumerateSwapchainImages(swapchain, 0, &count, nullptr);
     if (XR_FAILED(result) || count == 0) return false;
-#ifdef ANDROID
+#ifdef GEVR_XR_ES
     images.resize(count, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR});
 #else
     images.resize(count, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR});
@@ -1553,7 +1598,7 @@ static bool vr_load_swapchain_images(XrSwapchain swapchain, Images &images)
         GLint prevTex = 0, w0 = 0, h0 = 0;
         glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTex);
         const GLboolean known = glIsTexture((GLuint)images[0].image);
-#ifndef ANDROID   // the Quest's GLES 3.0 has no texture size query
+#ifndef GEVR_XR_ES   // the Quest's GLES 3.0 has no texture size query
         if (known) {
             glBindTexture(GL_TEXTURE_2D, (GLuint)images[0].image);
             glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &w0);
@@ -1578,7 +1623,7 @@ static bool vr_load_swapchain_images(XrSwapchain swapchain, Images &images)
  * Display page toggle (goldeneye-vr.ini SpaceWarp) or files/gevr_spacewarp.txt turns it on.
  */
 static XrSwapchain g_swMotionSwapchain = XR_NULL_HANDLE, g_swDepthSwapchain = XR_NULL_HANDLE;
-#ifdef ANDROID
+#ifdef GEVR_XR_ES
 static std::vector<XrSwapchainImageOpenGLESKHR> g_swMotionImages, g_swDepthImages;
 #else
 static std::vector<XrSwapchainImageOpenGLKHR> g_swMotionImages, g_swDepthImages;
@@ -1766,7 +1811,7 @@ static bool vr_create_menu_swapchain()
 
     // Quad layers: sRGB format preferred on Android (see vr_pick_swapchain_format)
     const int64_t chosenFormat = vr_pick_swapchain_format(/*forQuadLayer=*/true);
-#ifdef ANDROID
+#ifdef GEVR_XR_ES
     g_menuSwapchainIsSrgb = (chosenFormat == (int64_t)GL_SRGB8_ALPHA8);
 #endif
 
@@ -1833,7 +1878,7 @@ static bool vr_create_menu_swapchain()
 
 
 
-#ifdef ANDROID
+#ifdef GEVR_XR_ES
 static GLuint s_menuCopyProg = 0;
 static GLuint s_menuCopyVao  = 0;
 static bool   s_menuCopyFailed = false;
@@ -1907,7 +1952,7 @@ static void vr_copy_menu_layer(GLuint srcTex, GLuint dstTex, GLuint& srcFbo, GLu
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dstFbo);
     glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, dstTex, 0);
 
-#ifdef ANDROID
+#ifdef GEVR_XR_ES
     if (g_menuSwapchainIsSrgb && vr_menu_copy_init()) {
         GLint prevProg = 0, prevVao = 0, prevTex = 0, prevActive = 0, vp[4];
         GLboolean prevBlend   = glIsEnabled(GL_BLEND);
@@ -1980,7 +2025,7 @@ static void vr_update_menu_swapchain_L()
     xrReleaseSwapchainImage(g_menuSwapchain, &releaseInfo);
 }
 
-#ifdef GEVR_PCVR
+#ifdef GEVR_XR_PC
 /* Tests (vr_pc_eye_dump): the next menu swapchain images as the runtime gets them */
 static bool g_dumpMenuSwapchains;
 static void vr_pc_write_tex_bmp(GLuint tex, const char *name)
@@ -2032,7 +2077,7 @@ static void vr_update_menu_swapchain_R()
     static GLuint srcFbo = 0, dstFbo = 0;
     vr_copy_menu_layer(gfx_opengl_get_vr_menu_texture_R(),
                        g_menuSwapchainImagesR[imageIndex].image, srcFbo, dstFbo);
-#ifdef GEVR_PCVR
+#ifdef GEVR_XR_PC
     if (g_dumpMenuSwapchains) vr_pc_write_tex_bmp(g_menuSwapchainImagesR[imageIndex].image, "swR.bmp");
 #endif
 
@@ -2072,7 +2117,7 @@ static void vr_update_menu_swapchain_P()
 
     static GLuint srcFboP = 0, dstFboP = 0;
     vr_copy_menu_layer(gfx_opengl_get_vr_menu_texture_P(), g_menuSwapchainImagesP[imageIndex].image, srcFboP, dstFboP);
-#ifdef GEVR_PCVR
+#ifdef GEVR_XR_PC
     if (g_dumpMenuSwapchains) vr_pc_write_tex_bmp(g_menuSwapchainImagesP[imageIndex].image, "swP.bmp");
 #endif
 
@@ -2098,7 +2143,7 @@ static GLuint s_scopeCopyVao = 0;
 // writes to it (the Quest's menu path); desktop GL writes them raw.
 static int vr_scope_copy_srgb(void)
 {
-#ifdef ANDROID
+#ifdef GEVR_XR_ES
     return (g_menuSwapchainIsSrgb && !g_srgbWritesRaw) ? 1 : 0;
 #else
     return 0;
@@ -2231,7 +2276,7 @@ static void vr_update_scope_swapchain(int hand, GLuint srcTex)
     }
 #endif
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-#ifdef GEVR_PCVR
+#ifdef GEVR_XR_PC
     // the eye dump (gevr_eyedump.txt): the scope's view, and what went into its swapchain
     if (g_dumpMenuSwapchains) {
         char name[16];
@@ -2262,7 +2307,7 @@ extern "C" int vr_passthrough_supported(void) {
 }
 
 static XrSwapchain g_screenSwapchain = XR_NULL_HANDLE;
-#ifdef ANDROID
+#ifdef GEVR_XR_ES
 static std::vector<XrSwapchainImageOpenGLESKHR> g_screenImages;
 #else
 static std::vector<XrSwapchainImageOpenGLKHR> g_screenImages;
@@ -2314,7 +2359,7 @@ static bool vr_screen_ensure_swapchain(uint32_t w, uint32_t h)
     if (g_screenSwapchain != XR_NULL_HANDLE && g_screenW == w && g_screenH == h) {
         return true;
     }
-#ifdef GEVR_PCVR
+#ifdef GEVR_XR_PC
     const bool fixedScreen = true;
 #else
     // the Steam Frame (Android on SteamVR): SteamVR's quads, as on PC
@@ -2353,7 +2398,7 @@ static bool vr_screen_ensure_swapchain(uint32_t w, uint32_t h)
 
     uint32_t n = 0;
     xrEnumerateSwapchainImages(g_screenSwapchain, 0, &n, nullptr);
-#ifdef ANDROID
+#ifdef GEVR_XR_ES
     g_screenImages.resize(n, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR});
 #else
     g_screenImages.resize(n, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR});
@@ -3066,7 +3111,7 @@ extern "C" void vr_pointer_draw(void)
  * Half the eye size: it holds only the beam and its spot.
  */
 static XrSwapchain g_ptrLayerSwapchain = XR_NULL_HANDLE;
-#ifdef ANDROID
+#ifdef GEVR_XR_ES
 static std::vector<XrSwapchainImageOpenGLESKHR> g_ptrLayerImages;
 #else
 static std::vector<XrSwapchainImageOpenGLKHR> g_ptrLayerImages;
@@ -3176,7 +3221,7 @@ struct VrFixedImage {
     int w, h;
     void (*fill)(uint8_t *px, int w, int h, bool srgb);   // premultiplied RGBA, bottom row first
     XrSwapchain swapchain;
-#ifdef ANDROID
+#ifdef GEVR_XR_ES
     std::vector<XrSwapchainImageOpenGLESKHR> images;
 #else
     std::vector<XrSwapchainImageOpenGLKHR> images;
@@ -3420,7 +3465,7 @@ static void vr_beam_quad_destroy(void)
 
 static bool vr_screen_present_common(unsigned int srcTex, bool is2d, int w, int h);
 
-#ifdef GEVR_PCVR
+#ifdef GEVR_XR_PC
 /*
  * The desktop mirror (gfx_opengl.cpp gfx_opengl_mirror_to_desktop) showed the
  * eye images only, and behind the screen they are black: the launcher, the
@@ -3540,7 +3585,7 @@ static bool vr_screen_present_common(unsigned int srcArrayTex, bool is2d, int w,
     XrSwapchainImageReleaseInfo releaseInfo = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
     xrReleaseSwapchainImage(g_screenSwapchain, &releaseInfo);
     g_screenPending = true;
-#ifdef GEVR_PCVR
+#ifdef GEVR_XR_PC
     vr_mirror_screen_copy((GLuint)srcArrayTex, is2d, w, h);
 #endif
     return true;
@@ -4205,7 +4250,7 @@ extern "C" void gevrVrSetWorldScale(float unitsPerMetre) { vr_world_scale = unit
 
 /* vr_launcher.cpp: Anti-aliasing is offered where the driver can multisample
  * the multiview eye images. */
-#ifdef ANDROID
+#ifdef GEVR_XR_ES
 extern "C" int vr_eye_msaa_supported(void) { return use_multiview && pfnFramebufferTextureMultisampleMultiviewOVR != nullptr; }
 #endif
 
@@ -4215,7 +4260,7 @@ extern "C" int vr_eye_msaa_supported(void) { return use_multiview && pfnFramebuf
 
 static bool vr_ensure_swapchain_images();
 
-#ifndef ANDROID
+#ifndef GEVR_XR_ES
 /*
  * Desktop GL (PC VR): anti-aliasing without the mobile extension (drivers
  * don't list OVR_multiview_multisampled_render_to_texture). The eyes draw
@@ -4333,7 +4378,7 @@ extern "C" int vr_eye_msaa_supported(void) { return use_multiview && !g_msFailed
 static GLsizei vr_eye_samples(void)
 {
     GLsizei samples = (GLsizei)std::max<uint32_t>((uint32_t)VrEyeMsaa, gfx_msaa_level);
-#ifdef ANDROID
+#ifdef GEVR_XR_ES
     samples = std::min<GLsizei>(samples, 4);
     return samples > 1 && pfnFramebufferTextureMultisampleMultiviewOVR ? samples : 1;
 #else
@@ -4352,7 +4397,7 @@ static bool vr_attach_eye_fbo(GLuint colorTexture, bool validate)
 {
     GLsizei samples = vr_eye_samples();
     bool attached = false;
-#ifndef ANDROID
+#ifndef GEVR_XR_ES
     g_msTarget = 0;
     if (samples > 1) {
         attached = vr_desktop_ms_attach(samples, colorTexture);
@@ -4453,7 +4498,7 @@ static bool vr_ensure_swapchain_images()
 
     g_swapchainImages[0].resize(count);
     for (auto& img : g_swapchainImages[0]) {
-#ifdef ANDROID
+#ifdef GEVR_XR_ES
         img.type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
 #else
         img.type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR;
@@ -4753,7 +4798,7 @@ static void InvertRigidMat4(const float* m, float* out) {
     out[14] = -(out[2] * tx + out[6] * ty + out[10] * tz);
 }
 
-#ifndef ANDROID
+#ifdef GEVR_XR_PC   // the PC mirror window
 
 enum VrMirrorMenuSource {
     VR_MIRROR_MENU_L = 0,
@@ -4862,7 +4907,7 @@ extern "C" int vrGetMenuMirrorMVPList(int eyeIndex, VrMirrorMenuEntry* outEntrie
  */
 static int32_t vr_subimage_y(float y0, float y1, int32_t h)
 {
-#ifdef GEVR_PCVR
+#ifdef GEVR_XR_PC
     return (int32_t)((1.0f - y1) * h);
 #else
     (void)y1;
@@ -5019,7 +5064,7 @@ struct VrHudQuad {
     bool round;                     // the scope's lens: cut round with a dark rim (vr_scope_copy_init)
 };
 static XrSwapchain g_hudLayerSwapchain = XR_NULL_HANDLE;
-#ifdef ANDROID
+#ifdef GEVR_XR_ES
 static std::vector<XrSwapchainImageOpenGLESKHR> g_hudLayerImages;
 #else
 static std::vector<XrSwapchainImageOpenGLKHR> g_hudLayerImages;
@@ -5032,7 +5077,7 @@ static bool g_hudLayerFailed;
 // A sub-image's rows as GL texture v, bottom-up: vr_subimage_y's inverse
 static void vr_subimage_v(const XrRect2Di &r, int32_t h, float *v0, float *v1)
 {
-#ifdef GEVR_PCVR
+#ifdef GEVR_XR_PC
     *v0 = 1.0f - (float)(r.offset.y + r.extent.height) / (float)h;
     *v1 = 1.0f - (float)r.offset.y / (float)h;
 #else
@@ -5650,7 +5695,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     // XR frames the pump closes without a game frame (72 Hz display, 60 Hz
     // game): the swapchain keeps its last image, and a frame without the
     // layer is a visible flicker.
-#ifdef GEVR_PCVR
+#ifdef GEVR_XR_PC
     g_dumpMenuSwapchains = false;   // after the menus' and the scopes' images (the eye dump's)
 #endif
     const bool submitScreen = g_screenVisible && g_screenPlaced && g_screenSwapchain != XR_NULL_HANDLE;
@@ -6040,6 +6085,9 @@ static bool openxrInitializeVRwindowsInternal(void) {
     if (extensions.empty())              return false;
     if (!vr_create_instance(extensions)) return false;
     if (!vr_get_system())                  return false;
+#ifdef GEVR_VISIONOS
+    if (!vr_capture_egl_context())         return false;
+#endif
     if (!vr_configure_resolution())        return false;
     if (!vr_verify_graphics_requirements()) return false;
     if (!vr_create_session())              return false;
@@ -6550,7 +6598,7 @@ extern "C" void vr_get_eye_view_proj_gl(int eye, float outVP[16]) {
 }
 
 extern "C" GLuint vr_get_current_multiview_swapchain_tex() {
-#ifndef ANDROID
+#ifndef GEVR_XR_ES
     vr_desktop_ms_resolve();   // a reader wants what is drawn so far
 #endif
     return g_currentMultiviewSwapchainTex;
@@ -6623,7 +6671,7 @@ bool vr_begin_eye_render()
     return true;
 }
 
-#ifdef GEVR_PCVR
+#ifdef GEVR_XR_PC
 static void vr_pc_eye_dump(void);   // below: the test dump of the eyes
 #endif
 
@@ -6638,7 +6686,7 @@ void vr_end_eye_render()
 #endif
     gevrFrameTimingAdd(GEVR_TIME_LAYERS, timingStart);
     timingStart = gevrFrameTimingNow();
-#ifndef ANDROID
+#ifndef GEVR_XR_ES
     // The multisampled eyes into the image before it goes back to the runtime:
     // resolved after the release (at the submit), a streaming runtime was
     // already copying it - torn eye images, edges cut as the head moved
@@ -6646,7 +6694,7 @@ void vr_end_eye_render()
     vr_desktop_ms_resolve();
     g_msTarget = 0;
 #endif
-#ifdef GEVR_PCVR
+#ifdef GEVR_XR_PC
     vr_pc_eye_dump();
 #endif
 
@@ -6710,7 +6758,7 @@ void vr_get_eye_view_offset(int eye, float* out_tx, float* out_ty, float* out_tz
 // FRAME LIFECYCLE - Submit
 // ============================================================================
 
-#ifdef GEVR_PCVR
+#ifdef GEVR_XR_PC
 /*
  * Tests: gevr_eyedump.txt beside the exe asks for the eye images this frame
  * submits: eye0.bmp and eye1.bmp (half size), read back from the swapchain's
@@ -6864,7 +6912,7 @@ extern "C" void vr_shutdown()
         glDeleteTextures(1, &g_multiviewDepthArray);
         g_multiviewDepthArray = 0;
     }
-#ifndef ANDROID
+#ifndef GEVR_XR_ES
     vr_desktop_ms_free();
 #endif
     g_currentMultiviewSwapchainTex = 0;
@@ -6980,7 +7028,7 @@ extern "C" bool vr_apply_pending_scale(void) {
     if (scale == RENDER_SCALE) {
         return true;
     }
-#ifdef ANDROID
+#ifdef GEVR_XR_ES
     int32_t width = 0, height = 0;
     if (vr_get_render_dimensions_for_scale(scale, &width, &height) &&
         width == g_internalRenderWidth && height == g_internalRenderHeight) {

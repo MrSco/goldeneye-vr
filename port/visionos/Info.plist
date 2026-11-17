@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Vision Pro, native (docs/visionos-native.md). The privacy strings follow
+  Klepton's visionos/Info.plist (MIT), which learnt on the device that a
+  missing one is a process kill (SIGKILL, a TCC crash report) the simulator
+  never shows, and that the trigger is asking for a provider, not using it.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>GoldenEye VR</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+
+	<!-- The full space is the app's first scene: it opens into VR, as on the Quest.
+	     A CompositorLayer space has Compositor Services' own role, CPSceneSession...;
+	     UIKit's UISceneSessionRoleImmersiveSpaceApplication matched no scene and
+	     SwiftUI aborted at launch (simulator, 2026-11-16). -->
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationPreferredDefaultSceneSessionRole</key>
+		<string>CPSceneSessionRoleImmersiveSpaceApplication</string>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<true/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>CPSceneSessionRoleImmersiveSpaceApplication</key>
+			<array>
+				<dict>
+					<key>UISceneInitialImmersionStyle</key>
+					<string>UIImmersionStyleFull</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+
+	<!-- ARKit: world tracking for the head now; hands and accessories (the
+	     PlayStation VR2 Sense controllers) when their providers are made. -->
+	<key>NSWorldSensingUsageDescription</key>
+	<string>GoldenEye VR follows your head so the game moves with you.</string>
+	<key>NSHandsTrackingUsageDescription</key>
+	<string>GoldenEye VR can use your hands when no controllers are connected.</string>
+	<key>NSAccessoryTrackingUsageDescription</key>
+	<string>GoldenEye VR tracks PlayStation VR2 Sense controllers as your hands in the game.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>GoldenEye VR connects to game controllers.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>GoldenEye VR uses the microphone for voice chat in online games.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>GoldenEye VR finds multiplayer games on your local network.</string>
+
+	<!-- the Sense controllers come as spatial game pads, other pads as extended ones -->
+	<key>GCSupportsControllerUserInteraction</key>
+	<true/>
+	<key>GCSupportedGameControllers</key>
+	<array>
+		<dict>
+			<key>ProfileName</key>
+			<string>SpatialGamepad</string>
+		</dict>
+		<dict>
+			<key>ProfileName</key>
+			<string>ExtendedGamepad</string>
+		</dict>
+	</array>
+
+	<!-- the ROM, saves, ini and logs live in Documents, shown in the Files app -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>arm64</string>
+	</array>
+</dict>
+</plist>
