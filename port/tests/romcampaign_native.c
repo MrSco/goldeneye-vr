@@ -58,6 +58,8 @@ s32 gevrTextureCount(void) { return s_textureCount; }
 void gevrTextureUse(struct image_entry *entries, s32 count) { g_Textures = entries; s_textureCount = count; }
 
 struct mission_folder_setup mission_folder_setup_entries[48];
+struct MP_selectable_chars mp_chr_setup[64];   /* front.c's, GoldenEye's 64 */
+const s32 gevrMpCharRows = 64;
 s16 solo_target_time_array[20][3];
 
 /* bg.c's row order */
@@ -430,6 +432,10 @@ int main(int argc, char **argv)
 	}
 	for (i = 0; i < 64; i++) {
 		printf("langbank %d %d\n", i, gevrRomLangBank(i));
+	}
+	for (i = 0; i < 64; i++) {
+		printf("mpchar %d %u %u %u %d %d %.5f\n", i, mp_chr_setup[i].text_preset, mp_chr_setup[i].gender,
+				mp_chr_setup[i].select_photo, mp_chr_setup[i].body, mp_chr_setup[i].head, mp_chr_setup[i].pov);
 	}
 	return 0;
 }

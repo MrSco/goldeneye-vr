@@ -1188,6 +1188,42 @@ static uint32_t g_MemStringCount;
  * the Cartel's rooms did not fit the room heap (missing walls) and its
  * textures overflowed the pool (flicker). Rows end with the id 0 default.
  */
+extern struct MP_selectable_chars mp_chr_setup[];
+extern const s32 gevrMpCharRows;   /* front.c */
+
+/*
+ * The hack's multiplayer characters (layout mpchars, mpcharcount): its 12-byte
+ * rows (name, gender, portrait, body, head, eye height) over front.c's, as far
+ * as the port's table goes (GoldenEye's 64; the lobby offers 64). A co-op
+ * teammate's body and head are its lobby character's row, which in a hack
+ * names the hack's own characters (Goldfinger in GoldenEye's place, TND and
+ * Mario Characters moved and longer).
+ */
+static void installMpChars(const struct gevrRomLayout *L)
+{
+	uint32_t i, n;
+
+	if (!L->mpchars || !L->mpcharcount) {
+		return;
+	}
+	n = L->mpcharcount < (uint32_t)gevrMpCharRows ? L->mpcharcount : (uint32_t)gevrMpCharRows;
+	if (!atVram(L->mpchars, 12u * n)) {
+		sysLogPrintf(LOG_ERROR, "rom: %s multiplayer characters are not at %08X", L->name, L->mpchars);
+		return;
+	}
+	for (i = 0; i < n; i++) {
+		const uint8_t *r = atVram(L->mpchars + 12u * i, 12);
+
+		mp_chr_setup[i].text_preset = be16at(r);
+		mp_chr_setup[i].gender = r[2];
+		mp_chr_setup[i].select_photo = r[3];
+		mp_chr_setup[i].body = (s16)be16at(r + 4);
+		mp_chr_setup[i].head = (s16)be16at(r + 6);
+		mp_chr_setup[i].pov = bef32(r + 8);
+	}
+	sysLogPrintf(LOG_NOTE, "rom: %u of its %u multiplayer characters", n, (unsigned)L->mpcharcount);
+}
+
 static void installMemStrings(const struct gevrRomLayout *L)
 {
 	/* Mario Characters gives every level a solo and a multiplayer row, moved (L->memstrings) */
@@ -1472,6 +1508,7 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 		g_GevrHeadPosOut = bef32(atVram(GEVR_HEADPOS_AT, 4));
 	}
 	installMemStrings(L);
+	installMpChars(L);
 	installAnimTables(L);
 	ok = 1;
 	sysLogPrintf(LOG_NOTE, "rom: %s ready (%u bytes)", L->name, romLen);

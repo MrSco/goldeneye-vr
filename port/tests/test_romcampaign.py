@@ -87,6 +87,19 @@ def lang_banks(rom, layout):
     return banks
 
 
+def check_mp_chars(rom, layout, at, count, got, check):
+    """The hack's multiplayer characters (front.c mp_chr_setup rows) over the port's 64."""
+    d = window(rom, layout)
+    want = {}
+    for i in range(min(count, 64)):
+        t, g, p, b, h, v = struct.unpack_from(">HBBhhf", d, at - V + 12 * i)
+        want[i] = [str(t), str(g), str(p), str(b), str(h), "%.5f" % v]
+    have = {int(r[0]): r[1:] for r in got.get("mpchar", [])}
+    check(all(have.get(i) == w for i, w in want.items()),
+          "multiplayer characters: %s" % [(i, have.get(i), w) for i, w in want.items() if have.get(i) != w][:3])
+    return want
+
+
 def check_lang_banks(rom, layout, got, check):
     want = lang_banks(rom, layout)
     have = {int(r[0]): int(r[1]) for r in got.get("langbank", [])}
@@ -305,6 +318,8 @@ def tnd(exe):
         bad.append("TND binds: %s %s %s" % (got.get("match"), got.get("apply"), got.get("rebind")))
     check_lang_banks(open(path, "rb").read(), dict(pieces=[]), got,
                      lambda cond, what: cond or bad.append("TND " + what))
+    check_mp_chars(open(path, "rb").read(), dict(pieces=[]), 0x80028490, 71, got,
+                   lambda cond, what: cond or bad.append("TND " + what))
     tables = got.get("animtables", [[]])[0]
     if len(tables) != 6 or tables[0] != tables[2] or tables[1] != tables[3] or int(tables[5]) == 0:
         bad.append("TND animation tables: %s" % tables)
@@ -386,6 +401,7 @@ def mario(exe):
     check(got.get("rebind") == [["1"]], "obInit rebind keeps the hack table")
     # its own stages' text banks (Bob-omb Battlefield 42 Lsho, Big Boo's Haunt 44 Leld, 40 Lcat), stage 21 none
     banks = check_lang_banks(rom, MARIO, got, check)
+    check_mp_chars(rom, MARIO, 0x80028490, 80, got, check)
     check((banks[42], banks[44], banks[40], banks[47], banks[21], banks[33]) == (33, 16, 6, 22, -1, 11),
           "Mario's text banks: %s" % banks)
     check(int(got["images"][0][0]) == e["images"], "image count")
@@ -504,6 +520,8 @@ def main():
     check(got["apply"] == [["1"]], "apply: " + " | ".join(" ".join(x) for x in got.get("log", [])[-3:]))
     check(got["rebind"] == [["1"]], "obInit rebind keeps the hack table")
     check_lang_banks(rom, GF, got, check)
+    gf_chars = check_mp_chars(rom, GF, 0x8002B198, 64, got, check)
+    check(gf_chars[0][3] == "20", "Goldfinger's first multiplayer character's body: %s" % gf_chars[0])
     check(int(got["images"][0][0]) == e["images"], "image count")
     chrs = {int(r[0]): r[1:] for r in got.get("chr", [])}
     names = {int(r[0]): r[1] if len(r) > 1 else "" for r in got.get("chrname", [])}

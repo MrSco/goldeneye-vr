@@ -144,6 +144,14 @@ struct gevrRomLayout {
 	 * same patch but its port drops the pokes (aihooks).
 	 */
 	uint8_t footsteps;
+	/*
+	 * Its multiplayer characters (front.c mp_chr_setup, 12-byte rows: name,
+	 * gender, portrait, body, head, eye height) and how many its character
+	 * select offers (7F011D50's count). 0: GoldenEye's compiled table. A co-op
+	 * teammate's body is the row its lobby character names.
+	 */
+	uint32_t mpchars;
+	uint8_t mpcharcount;
 };
 
 struct gevrDataWindow {

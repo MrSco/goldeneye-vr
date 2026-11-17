@@ -833,6 +833,11 @@ struct MP_selectable_chars mp_chr_setup[] = {
 };
 #endif
 
+#ifdef GEVR
+/* The rows a hack campaign's own table fills (gevr_romcampaign.c installMpChars). */
+const s32 gevrMpCharRows = sizeof(mp_chr_setup) / sizeof(mp_chr_setup[0]);
+#endif
+
 
 struct MP_handicap_menu MP_handicap_table[] = {
     {getStringID(LTITLE, TITLE_STR_61_HERO), 0, 10.0},       // "Health -10\n(Hero)"

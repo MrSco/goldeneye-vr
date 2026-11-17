@@ -54,6 +54,8 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		0,
 		/* animation tables, memory strings, random tracks, head offset: GoldenEye's; no Footsteps */
 		0, 0, 0, 0, 0, 0, 0,
+		/* multiplayer characters: GoldenEye's own */
+		0, 0,
 	},
 	{
 		"Goldfinger 64", "gf64", "GOLDFINGER", "NGFE",
@@ -106,6 +108,8 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		0,
 		/* animation tables, memory strings, random tracks, head offset: GoldenEye's; no Footsteps */
 		0, 0, 0, 0, 0, 0, 0,
+		/* multiplayer characters: GoldenEye's place, its own characters */
+		0x8002b198, 64,
 	},
 	{
 		"Tomorrow Never Dies 64", "tnd64", "GOLDENEYE", "NGEE",
@@ -144,6 +148,8 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		0x297930,
 		/* animation tables, memory strings, random tracks, head offset: GoldenEye's; no Footsteps */
 		0, 0, 0, 0, 0, 0, 0,
+		/* multiplayer characters: moved, 71 rows (7F011D50's 0x47) */
+		0x80028490, 71,
 	},
 	/* Wreck's GE_MirrorMode_patch.xdelta, 2017-08-12. Same US engine tables,
 	 * 4-byte image rows; animation records shrink by 16 bytes, moving the
@@ -183,6 +189,8 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		0x29e550,
 		/* animation tables, memory strings, random tracks, head offset: GoldenEye's; no Footsteps */
 		0, 0, 0, 0, 0, 0, 0,
+		/* multiplayer characters: GoldenEye's (its characters are GoldenEye's, mirrored) */
+		0, 0,
 	},
 	/*
 	 * GoldenEye with Mario Characters V3.17 (MarioCharactersV3.17.xdelta,
@@ -240,6 +248,8 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		15, 1,
 		/* the Footsteps patch: its scripts' pokes and hooks (gevr_footsteps.c) */
 		1,
+		/* multiplayer characters: moved, 80 rows (7F011D50's 0x50) */
+		0x80028490, 80,
 	},
 };
 
