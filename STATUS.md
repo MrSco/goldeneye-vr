@@ -17,7 +17,9 @@ to v0.5.17. Downloads as v0.5.17's (8 files, same commit).
 **Next batch** (branch t3/66d9016a, not pushed, no build yet): co-op Control
 door locked behind the host (#246, lock waits for the party), co-op mission
 held by a teammate that never loaded (#245: Depot exit black, downed player
-never revived; dropped 60 s after the host loads). Needs two headsets.
+never revived; dropped 60 s after the host loads); Dam boat landing on the
+island floor (#247: the hut pad it used had no floor). Needs two headsets
+(#245/#246); #247 not headset-run (Guardian prompt blocked the launch).
 
 ## Platforms (docs/pc-platforms.md, docs/mobile-platforms.md)
 
