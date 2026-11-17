@@ -71,6 +71,8 @@ static uint32_t disconnect_reason;
 static int launcher_stops,launcher_restarts;
 void enet_peer_disconnect(ENetPeer *peer,uint32_t reason) { disconnected_peer=peer;disconnect_reason=reason; }
 void netCoopSlotLeft(int slot) { (void)slot; }
+void netIceForgetPeer(const char *ip) { (void)ip; }
+void enet_peer_reset(ENetPeer *peer) { (void)peer; }
 void netCoopMenuReset(void) {}
 static HordeState fixture_horde;
 static int coop_joins, horde_snapshots;
@@ -478,6 +480,42 @@ EXPORT int test_core_coop_team_scenario_ready(void) {
     s_lobby_state.config.mode=NET_MODE_COOP;
     readyPacket(&hit_peers[1],1,1,1);
     CHECK(s_lobby_state.slots[1].ready && netLobbyCanLaunch());
+    return 0;
+}
+/* #245: a teammate that never confirms its load cannot hold a co-op mission
+ * (guards' sync, revives, the end's return to the menus) for good. */
+EXPORT int test_core_coop_load_grace(void) {
+    for (int mode=0; mode<2; mode++) {
+        fixture(0);s_max_players=4;
+        for(int i=2;i<GEVR_MAX_PLAYERS;i++)s_lobby_state.slots[i].connected=0;
+        memset(hit_peers,0,sizeof(hit_peers));
+        hit_peers[1].data=(void*)(intptr_t)2;s_client_peers[1]=&hit_peers[1];
+        s_lobby_state.config.mode=mode?NET_MODE_DEATHMATCH:NET_MODE_COOP;
+        netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_IN_PROGRESS;
+        netBeginRoundReset(true);
+        CHECK(s_round_reset_loading && !s_lobby_state.slots[0].loaded && !s_lobby_state.slots[1].loaded);
+        clock_us+=20000000;netStageLoaded();   /* the host's own load, 20 s in */
+        CHECK(s_lobby_state.slots[0].loaded && s_round_reset_loading);
+        clock_us+=59000000;netReadyProgress();
+        CHECK(s_round_reset_loading && s_lobby_state.slots[1].connected);
+        clock_us+=2000000;netReadyProgress();
+        if (mode) {   /* deathmatch keeps its own ready rules */
+            CHECK(s_round_reset_loading && s_lobby_state.slots[1].connected);
+            continue;
+        }
+        CHECK(!s_lobby_state.slots[1].connected && !s_client_peers[1] && !s_round_reset_loading);
+    }
+    /* everyone loaded, one link too slow for a clock: held, then let go after the grace */
+    fixture(0);s_max_players=4;
+    for(int i=2;i<GEVR_MAX_PLAYERS;i++)s_lobby_state.slots[i].connected=0;
+    memset(hit_peers,0,sizeof(hit_peers));memset(s_clock_sync,0,sizeof(s_clock_sync));
+    hit_peers[1].data=(void*)(intptr_t)2;hit_peers[1].state=ENET_PEER_STATE_CONNECTED;s_client_peers[1]=&hit_peers[1];
+    s_lobby_state.config.mode=NET_MODE_COOP;
+    netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_IN_PROGRESS;
+    netBeginRoundReset(true);netStageLoaded();s_lobby_state.slots[1].loaded=1;
+    netReadyProgress();CHECK(s_round_reset_loading);
+    clock_us+=61000000;netReadyProgress();
+    CHECK(!s_round_reset_loading && s_lobby_state.slots[1].connected);
     return 0;
 }
 EXPORT int test_core_menu_ready(void) {
