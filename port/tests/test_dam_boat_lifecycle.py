@@ -112,8 +112,11 @@ static ModelNode hullGroup={MODELNODE_OPCODE_GROUP,&hullOrigin,NULL,NULL,NULL,&h
 static ModelNode hullRoot={0,NULL,NULL,NULL,NULL,&hullGroup};
 static struct ModelRoData_BoundingBoxRecord*chrobjGetBboxFromObjectRecord(ObjectRecord*o){(void)o;return NULL;}
 static float get_room_data_float2(void){return 4.0f;}
-/* the dock: a floor over the water behind the jetty (z 2000, the island at 0); open water before it */
-static struct StandTile*stanFindTileBelowPos(coord3d*p,u8*rooms,float*y){(void)rooms;if(p->z>2150){*y=0;return &tile;}return NULL;}
+/* the dock: a floor over the water behind the jetty (z 2000, the island at 0); open water before it.
+ * The pads at z 0 and 2000 have floor under them; the hut pad out at z -1500 has none (#247). */
+static struct StandTile*stanFindTileBelowPos(coord3d*p,u8*rooms,float*y){(void)rooms;if(p->z>2150){*y=0;return &tile;}
+    if(p->x>-1&&p->x<1&&p->z>-1&&p->z<1){*y=0;return &tile;}
+    if(p->x>-1&&p->x<1&&p->z>1999&&p->z<2001){*y=-1000;return &tile;}return NULL;}
 static u64 sysGetMicroseconds(void){static u64 t;return t+=2000000;}
 #define EXTENT(name) static float name(struct ModelRoData_BoundingBoxRecord*b,Mtxf*m){(void)b;(void)m;return 0;}
 EXTENT(chrpropSumMatrixPosX) EXTENT(chrpropSumMatrixPosY) EXTENT(chrpropSumMatrixPosZ)
@@ -121,9 +124,11 @@ EXTENT(chrpropSumMatrixNegX) EXTENT(chrpropSumMatrixNegY) EXTENT(chrpropSumMatri
 static void chrpropUpdateRoomList(PropRecord*p,coord3d*a,coord3d*b,float f){(void)p;(void)a;(void)b;(void)f;updates++;}
 /* PRODUCTION */
 static void prepare(void){
-    static struct PadRecord pads[4];memset(pads,0,sizeof(pads));
+    static struct PadRecord pads[5];memset(pads,0,sizeof(pads));
     for(int i=0;i<3;i++){pads[i].plink=&tile;pads[i].stan=&tile;pads[i].pos.z=i*2000;}
     pads[0].pos.y=0;pads[1].pos.y=-1000;pads[2].pos.y=0;
+    /* farther out than the island and naming a tile, but over the water (#247) */
+    pads[3].plink=&tile;pads[3].stan=&tile;pads[3].pos.z=-1500;
     g_CurrentSetup.pads=pads;PitemZ_entries[PROP_SPEEDBOAT].header=&header;header.RootNode=&hullRoot;
     PitemZ_entries[PROP_SPEEDBOAT].scale=.1f;
     memset(&boat,0,sizeof(boat));memset(&model,0,sizeof(model));memset(&player,0,sizeof(player));
@@ -131,6 +136,7 @@ static void prepare(void){
     player.prop=&playerProp;boat.rooms[0]=255;
     gevrDamBoatPrepare(LEVELID_DAM);
     assert(object.prop==&boat && boat.obj==&object);
+    assert(s_island_pad==0);   /* the floorless pad beyond it is no landing */
     // Use the resulting ride coordinates; pad selection is separately tested.
     player.field_488.collision_position.x=s_ride.x;player.field_488.collision_position.z=s_ride.z;
     player.field_70=s_ride.y;
@@ -202,6 +208,11 @@ int main(int argc,char**argv){
     prepare();assert(gevrDamBoatOnB() && !gevrDamBoatAboard());
     assert(player.field_488.collision_position.z==g_CurrentSetup.pads[s_jetty_pad].pos.z);
     assert(player.field_70==g_CurrentSetup.pads[s_jetty_pad].pos.y);
+    // At the island landing B steps off onto the floor found under its pad (#247).
+    prepare();s_ride.x=0;s_ride.z=300;player.field_488.current_tile_ptr=NULL;
+    assert(gevrDamBoatOnB() && !gevrDamBoatAboard());
+    assert(player.field_488.collision_position.z==0 && player.field_70==0 && player.prop->pos.y==0);
+    assert(player.field_488.current_tile_ptr==&tile);
     prepare();s_ride.x=s_ride.anchor_x;s_ride.z=s_ride.anchor_z;
     assert(gevrDamBoatOnB() && gevrDamBoatAboard());
     prepare();object.prop=NULL;assert(!gevrDamBoatAboard());
