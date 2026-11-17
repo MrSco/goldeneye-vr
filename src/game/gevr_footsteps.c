@@ -764,6 +764,10 @@ static s32 rangeAdd(FsRange *r, s32 *count, u32 a, u32 n, s32 grow)
  */
 static void coopNoteWrite(u32 a, u32 n)
 {
+    /* the eye height (bheadUpdatePos's constant, Mushroom and Tiny Mode) is each player's own */
+    if (a < 0x80055300u && a + n > 0x800552fcu) {
+        return;
+    }
     rangeAdd(s_touched, &s_touchedCount, a, n, 1);
     if (!s_pendingOverflow && !rangeAdd(s_pending, &s_pendingCount, a, n, 0)) {
         s_pendingOverflow = 1;
