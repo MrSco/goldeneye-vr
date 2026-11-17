@@ -1582,7 +1582,7 @@ static std::string gevrLobbyCreateCommand(const std::string &name, int stage, in
 {
     return std::string("create|") + (s_hostVisibility ? s_hostVisibility : gevrVisibilityName(VrMpVisibility)) + "|" + name + "|" +
         std::to_string(GEVR_NET_VERSION) + "|" + std::to_string(stage) + "|" +
-        std::to_string(set) + "|" + std::to_string(max) + gevrVrOnlyField();
+        std::to_string(set) + "|" + std::to_string(max) + gevrVrOnlyField() + "|" + std::to_string(VrCampaign);
 }
 
 // The multiplayer page's shared widgets. net_match.c is the one list of the
@@ -2183,7 +2183,21 @@ struct GevrOnlineLobby {
     int stage, weapons, players, maxPlayers;
     int flatPlayers = -1;   // -1: the service did not say
     bool vrOnly = false;
+    int campaign = 0;       // GEVR_CAMPAIGN_*: a ROM hack's co-op game; 0 from an older host
 };
+
+// Which campaigns' ROMs are installed (the main frame's header checks, about once a
+// second): a listed game of another campaign switches to it before joining.
+static bool s_campaignInstalled[GEVR_CAMPAIGN_COUNT] = { true };
+
+// GEVR_CAMPAIGN_*, as a listed game names it
+static const char *gevrCampaignTitle(int campaign)
+{
+    static const char *const names[] = { "GoldenEye", "Goldfinger 64", "Tomorrow Never Dies", "Mirror Mode",
+                                         "Mario Characters" };
+    static_assert(sizeof(names) / sizeof(names[0]) == GEVR_CAMPAIGN_COUNT, "a name for every campaign");
+    return campaign >= 0 && campaign < GEVR_CAMPAIGN_COUNT ? names[campaign] : "another campaign";
+}
 static struct {
     int joinMethod = 0;   // 0 = Public Internet, 1 = Private Code, 2 = LAN Games, 3 = Direct IP
     char directIp[64] = "192.168.1.";
@@ -2279,8 +2293,9 @@ void gevrMultiplayerTick(GevrLauncherTabs &tabs, bool &startMatch, bool romReady
         } else if (f[0] == "LIST_END") {
             listLoading = false;
         } else if (f[0] == "LOBBY" && f.size() >= 8) {
-            // LOBBY|code|name|stage|weapons|players|max|phase[|flatPlayers|vrOnly]
+            // LOBBY|code|name|stage|weapons|players|max|phase[|flatPlayers|vrOnly[|campaign]]
             GevrOnlineLobby game{f[1], f[2], f[7], atoi(f[3].c_str()), atoi(f[4].c_str()), atoi(f[5].c_str()), atoi(f[6].c_str())};
+            if (f.size() >= 11) game.campaign = atoi(f[10].c_str());
             if (f.size() >= 10) {
                 game.flatPlayers = atoi(f[8].c_str());
                 game.vrOnly = f[9] == "1";
@@ -2607,24 +2622,46 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                         for (const GevrOnlineLobby &game : onlineLobbies) {
                             char label[200], flat[24];
                             gevrFlatNote(flat, sizeof(flat), game.vrOnly, game.flatPlayers);
+                            // A ROM hack's co-op game: its campaign, not GoldenEye's mission names for its
+                            // stages. Another campaign is switched to first if its ROM is installed.
+                            const bool hack = game.campaign != GEVR_CAMPAIGN_GE;
+                            const bool otherCampaign = game.campaign != VrCampaign;
+                            const bool canSwitch = game.campaign >= 0 && game.campaign < GEVR_CAMPAIGN_COUNT &&
+                                                   s_campaignInstalled[game.campaign] && gevrCampaignCoop(game.campaign);
+                            const std::string where = hack ? std::string("Co-op in ") + gevrCampaignTitle(game.campaign)
+                                                           : listedGameLabel(game.stage, game.weapons);
                             snprintf(label, sizeof(label), "%s  -  %s  -  %d/%d players%s%s##online%s",
-                                     game.name.c_str(), listedGameLabel(game.stage, game.weapons).c_str(),
+                                     game.name.c_str(), where.c_str(),
                                      game.players, game.maxPlayers, flat,
                                      game.phase == "warmup"        ? " (warmup)"
                                      : game.phase == "in_progress" ? " (in progress)"
                                                                    : "",
                                      game.code.c_str());
-                            if (ImGui::Button(label, ImVec2(-1, 0))) {
+                            ImGui::BeginDisabled(otherCampaign && !canSwitch);
+                            const bool join = ImGui::Button(label, ImVec2(-1, 0));
+                            ImGui::EndDisabled();
+                            if (join) {
+                                if (otherCampaign) {
+                                    // the join check compares campaign and ROM (net_core.c): play the party's
+                                    VrCampaign = game.campaign;
+                                    gevrRomCampaignSet(VrCampaign);
+                                    vrSettingsSave();
+                                }
                                 gevrJavaCommand("requestVoicePermission", "");
                                 netDisconnect();
                                 netIceStop();
                                 clientJoinId.clear();
-                                onlineMessage = "Joining " + game.name + "...";
+                                onlineMessage = otherCampaign ? "Switched to " + std::string(gevrCampaignTitle(game.campaign)) +
+                                                                    ". Joining " + game.name + "..."
+                                                              : "Joining " + game.name + "...";
                                 gevrJavaCommand(
                                     "lobbyCommand",
                                     ("join|" + game.code + "|" + std::to_string(GEVR_NET_VERSION) + gevrInputClassField()).c_str());
                             }
-                            if (ImGui::IsItemHovered()) {
+                            if (otherCampaign && !canSwitch && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                                gevrTooltip("This party plays %s. Add its ROM in the campaign dropdown beside START to join.",
+                                            gevrCampaignTitle(game.campaign));
+                            } else if (ImGui::IsItemHovered()) {
                                 gevrTooltip(
                                     "Game: %s\nRoom Code: %s\nPhase: %s\nPlayers: %d/%d%s\nProtocol: %d",
                                     game.name.c_str(), game.code.c_str(), game.phase.c_str(), game.players,
@@ -3610,6 +3647,10 @@ extern "C" void gevrLauncherRun(void)
                 marioGood = hackHeaderOk(dataDir() + "/" + GEVR_ROM_MARIO_FILE, "mario");
                 gfGood = hackHeaderOk(dataDir() + "/" + GEVR_ROM_GF_FILE, "gf64");
                 tndGood = hackHeaderOk(dataDir() + "/" + GEVR_ROM_TND_FILE, "tnd64");
+                s_campaignInstalled[GEVR_CAMPAIGN_GF64] = gfGood;
+                s_campaignInstalled[GEVR_CAMPAIGN_TND64] = tndGood;
+                s_campaignInstalled[GEVR_CAMPAIGN_MIRROR] = mirrorGood;
+                s_campaignInstalled[GEVR_CAMPAIGN_MARIO] = marioGood;
                 if (VrCampaign == GEVR_CAMPAIGN_GF64 && !gfGood) {
                     VrCampaign = GEVR_CAMPAIGN_GE;
                     gevrRomCampaignSet(VrCampaign);

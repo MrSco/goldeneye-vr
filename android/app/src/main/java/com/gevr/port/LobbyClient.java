@@ -90,8 +90,8 @@ final class LobbyClient {
         String[] fields = raw.split("\\|", -1);
         switch (fields[0]) {
             case "create": {
-                // create|visibility|name|version|stage|weapons|maxPlayers[|vrOnly]
-                if (fields.length != 7 && fields.length != 8) return;
+                // create|visibility|name|version|stage|weapons|maxPlayers[|vrOnly[|campaign]]
+                if (fields.length < 7 || fields.length > 9) return;
                 stop();
                 name = fields[2];
                 lastKeepalive = SystemClock.elapsedRealtime();
@@ -105,9 +105,11 @@ final class LobbyClient {
                         .put("stage", Integer.parseInt(fields[4]))
                         .put("weapons", Integer.parseInt(fields[5]))
                         .put("maxPlayers", Integer.parseInt(fields[6]));
-                vrOnly = fields.length == 8 ? ("1".equals(fields[7]) ? 1 : 0) : -1;
+                vrOnly = fields.length >= 8 ? ("1".equals(fields[7]) ? 1 : 0) : -1;
                 flatPlayers = -1;
                 if (vrOnly >= 0) pendingCreate.put("vrOnly", vrOnly == 1);
+                // the game's campaign (gevr_romlayout.h GEVR_CAMPAIGN_*): a ROM hack's co-op game says which
+                if (fields.length == 9) pendingCreate.put("campaign", Integer.parseInt(fields[8]));
                 registerPending();
                 break;
             }
@@ -184,7 +186,8 @@ final class LobbyClient {
                             + row.getInt("stage") + "|" + row.getInt("weapons") + "|"
                             + row.getInt("players") + "|" + row.getInt("maxPlayers") + "|"
                             + row.optString("phase", "waiting") + "|"
-                            + row.optInt("flatPlayers", -1) + "|" + (row.optBoolean("vrOnly", false) ? "1" : "0"));
+                            + row.optInt("flatPlayers", -1) + "|" + (row.optBoolean("vrOnly", false) ? "1" : "0") + "|"
+                            + row.optInt("campaign", 0));
                 }
                 events.add("LIST_END");
                 break;
