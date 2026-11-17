@@ -5997,6 +5997,16 @@ extern "C" void vr_poll_events(void)
                     case XR_SESSION_STATE_LOSS_PENDING:
                         g_vrState.sessionRunning = false;
                         LOGI("Session exiting/loss pending");
+#if !defined(ANDROID) && !defined(GEVR_VISIONOS)
+                        // PC VR: the runtime is closing the game (quit from the
+                        // SteamVR dashboard, or the runtime itself going away). Quit
+                        // as the mirror window's close does: exit() runs the atexit
+                        // that clears the crash marker. Waiting with no session got
+                        // the process ended by the runtime and offered a crash on
+                        // the next start (report fa49c715).
+                        LOGI("Session exiting: the runtime closed the game; quitting");
+                        exit(0);
+#endif
                         break;
                     case XR_SESSION_STATE_VISIBLE:
                     default: break;
