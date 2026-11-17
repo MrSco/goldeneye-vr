@@ -91,6 +91,8 @@ static void coopMissionReset(void);
 static void coopHostClock(u64 now);
 static void coopClockReset(void);
 static void coopScriptReset(void);
+static void coopBehindLockTick(void);
+static void coopBehindLockReset(void);
 static void coopSendScriptSnapshot(int slot);
 static void coopGadgetReset(void);
 static bool s_downed[4];                  /* revive: each player down, not dead (every headset's view) */
@@ -355,6 +357,7 @@ void netCoopHostTick(void)
     netAllyHostTick();
     coopHostMission(now);
     coopHostClock(now);
+    coopBehindLockTick();
     coopHostDropIn(now);
     coopCinemaHostTick(now);
     if (!g_ChrSlots || now - s_last_send_us < COOP_SEND_INTERVAL_US) return;
@@ -864,6 +867,7 @@ void netCoopStageLoaded(void)
     coopMissionReset();
     coopClockReset();
     coopScriptReset();
+    coopBehindLockReset();
     coopReviveReset();
     coopDropInReset();
     coopCinemaReset();
@@ -1639,6 +1643,72 @@ s32 gevrCoopNearestPlayer(const coord3d *pos)
         }
     }
     return best;
+}
+
+/* A door a list shuts behind "Bond" (#246). Solo, the script tests Bond's
+ * room and then closes and locks the door he came through (Control's door
+ * after Natalya opens it). A co-op list's Bond is whoever got there first,
+ * so the lock shut the rest of the party out. The door still closes when
+ * the script says; its lock waits until every standing player is in that
+ * room. A teammate who never comes (down, gone quiet) leaves it unlocked
+ * rather than stopping the list, whose later steps open other doors. */
+#define COOP_BEHIND_LOCKS 8
+typedef struct { ObjectRecord *door; s16 room; u8 bits; } CoopBehindLock;
+static CoopBehindLock s_behind[COOP_BEHIND_LOCKS];
+static AIRecord *s_bond_room_list;
+static int s_bond_room = -1;
+
+void gevrCoopBondRoomPassed(AIRecord *list, int room)
+{
+    s_bond_room_list = list;
+    s_bond_room = room;
+}
+
+static int coopPartyInRoom(int room)
+{
+    for (int i = 0; i < 4; i++) {
+        if (!coopPlayerTargetable(i)) continue;
+        if (!g_playerPointers[i]->prop->stan || g_playerPointers[i]->prop->stan->room != room) return 0;
+    }
+    return 1;
+}
+
+int gevrCoopDeferBehindLock(AIRecord *list, ObjectRecord *door, u8 bits)
+{
+    if (!gevrCoopHostGuards() || !list || list != s_bond_room_list || s_bond_room < 0 || !door ||
+        coopPartyInRoom(s_bond_room)) return 0;
+    for (int i = 0; i < COOP_BEHIND_LOCKS; i++) {
+        if (s_behind[i].door && s_behind[i].door != door) continue;
+        s_behind[i].door = door;
+        s_behind[i].room = (s16)s_bond_room;
+        s_behind[i].bits |= bits;
+        COOP_LOG("door %p shut behind the first player: locks once the party is in room %d", (void *)door, s_bond_room);
+        return 1;
+    }
+    return 0;   /* full: lock as solo */
+}
+
+static void coopBehindLockTick(void)
+{
+    for (int i = 0; i < COOP_BEHIND_LOCKS; i++) {
+        CoopBehindLock *b = &s_behind[i];
+        DoorRecord *door = (DoorRecord *)b->door;
+        if (!door || !coopPartyInRoom(b->room)) continue;
+        /* a teammate may have opened it on the way through: shut it as the script did */
+        extern void doorActivate(DoorRecord *door, DOORSTATE State);   /* propobj.c */
+        if (door->openPosition > 0 || door->openstate != DOORSTATE_STATIONARY) doorActivate(door, DOORSTATE_CLOSING);
+        door->keyflags |= b->bits;
+        netSendHostDoorLock(b->door);
+        COOP_LOG("door %p locked: the party is in room %d", (void *)b->door, b->room);
+        memset(b, 0, sizeof(*b));
+    }
+}
+
+static void coopBehindLockReset(void)
+{
+    memset(s_behind, 0, sizeof(s_behind));
+    s_bond_room_list = NULL;
+    s_bond_room = -1;
 }
 
 static void coopGrantLocal(s32 item)
