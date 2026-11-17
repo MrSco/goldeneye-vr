@@ -94,24 +94,81 @@ random tracks, memory splits, setups, four head pools, hat fits, renamed
 items and their stats, 176 animation records incl. the 3 added). The
 Goldfinger and TND checks still pass with the same changes.
 
-## Step 2: its code, in C (to do)
+## Step 2: its code, in C (done)
 
-Port each own run behind `gevrRomCampaign() == GEVR_CAMPAIGN_MARIO`:
+Most of what Mario Characters does is in its level scripts, not its code:
+Carnivorous' Footsteps patch makes AI command 0x2B ("2B FE", "2B FD"...) run
+the PRINT after it as a memory poke. The cartridge's interpreter (0x7005C250,
+called from the 0x2B case at 7F0360A0; TND64 carries the same code, see DAB
+geconvert.c tndHookConvert) is ported whole in `src/game/gevr_footsteps.c`:
 
-- AI interpreter: repurposed commands at 7F0362D8 (toggles a flag byte in
-  the table at 0x80075D30), 7F038F38, 7F039DA8 (xor-toggles 0x800364B4),
-  7F03A104. Every solo level's scripts use them for Play as Luigi / Peach /
-  Daisy (renames the solo slots' and hands' files), Tiny Mode and Mushroom
-  Mode, so the levels need them.
-- The boot-segment routines and the mailbox (model scale, play-as state).
-- chrRenderProp 7F022668: a dead guard is skipped only when byte 0xC is 0xFF.
-- Footsteps patch gameplay: random guard sizes, pitched pain voices, the
-  grenade-draw sound (sfx 0x117?), health/armour display on pickup, the
-  XBLA fix of action block 000D, enemy rockets for spawned guards. Its
-  anti-aliasing pause option and multiplayer spawn shuffle do not apply.
-- Its attract cast (7F01881C: body 0x7A picks one of 0x16-0x19).
+| Form | What it does |
+| --- | --- |
+| `2B 00` | music volume back to what level start saved |
+| `2B nn` | the stage's X track is nn |
+| `2B FE "AAAAAAAA[+Poooooooo]+Xvvvvvvvv"` | pointer steps, then C store, A/S add/subtract (F floats, T per tick), E/H/L go to `+Rxx` |
+| `2B FD "SSSSSSSS++DDDDDDDD+C[n]"` | copy n bytes (4); `+A`/`+S` (F) puts S +/- D in D |
+| `2B FC "ii"` | take item ii (FF: 32 down to 2) |
+| `2B FB` | kill Bond |
+
+Its 12,789 commands (all setups) name: gun and character file names (Play as
+Luigi/Peach/Daisy, random pilot heads), character scales (Tiny Mode,
+Mushroom Mode), the POV height constant, Cheat Options' toggles, Bond's
+health/armour/outfit, objectives, the mission folder (Temple writes page 2
+into it), the cast table, fog and music rows, and its own variables. The
+addresses are the binder's copy of the cartridge (`gevrRomWindowBytes`); a
+write into a table the port copied out of it reads that table again
+(`gevrRomWindowChanged`). Bond's fields (g_CurrentPlayer + N64 offset),
+g_CheatActivated (0x800696A0), g_CheatPlayerTextRelated (0x80079E30), the
+objectives' words (0x80075D58) and mTrack2Vol (0x80040B58) map to the port's
+own variables. `port/tests/test_footsteps.py` runs every one of them on the
+real cartridge: none names memory the port lacks.
+
+Also ported from its code:
+
+- AI 0x36 (IFICanHearAlarm in the port) shows or hides objective n: its
+  difficulty flips by 4 and a flag in the high half of its status word; the
+  briefing, the pause list and the mission-complete check follow it (an
+  objective at difficulty 4 is hidden until shown).
+- AI 0xEC toggles; 0xFB fades the fog without gas (Egypt's 120 ticks, no
+  harm); 0xC4 channel -2 plays at the guard; 0xBF arms spawned guards with
+  rocket launchers when Enemy Rockets is on in Cheat Options; 0xE9 swaps the
+  two environments so the next switches back.
+- Global AI list 0x000D runs from the cartridge (the XBLA fix).
+- bheadUpdatePos uses its constant at 0x800552FC (POV height).
+- Cheats: its rows' names and masks; 1/5/6 run 2x Health, 2x Armour and 10x
+  Health (button codes), 8/9 (Play as Luigi/Peach) and 13 (Mushroom Mode) are
+  its scripts', 16 is Extra Weapons; 7/8, 9 and 13/16 unlock as 17, 18 and 19;
+  Cheat Options has fourteen rows a column from y 0x28.
+- Cradle, Aztec and Egypt count as completed (its secret missions and those
+  cheats are open from the start).
+- A guard's grenade pin (sound 0x117); a quarter of the guards' cries half a
+  semitone down; its attract cast's Mario outfits; level start keeps the
+  music volume and silences it where the level row's last float is 0.
+
+Left out on purpose:
+
+- Switches no Mario list sets (mailbox 0x807000A0-0x807000F0): a frame
+  buffer effect, a camera offset, four extra save bits, widescreen field of
+  view and viewport; the AI preamble's store to 0x8070011C (never read).
+- Dead bodies drawn after ACT_DEAD and not faded (chrRenderProp, chrlvTick-
+  Dead): the port keeps bodies its own way (body retention, ragdolls).
+- Multiplayer's random respawns (multiplayer is off in a hack campaign);
+  its anti-aliasing pause option and intro skip.
+- AI 0x27 and 0xF2's new code: no setup or global list uses them.
+
+Not seen in a headset yet: Play as Luigi/Peach on the hands, Tiny Mode's
+view, the Cheat Options page. On the PC (2026-11-16, `--boot-stage`, 25 s
+each), all 20 missions of its first page, Temple (38) and the credits (54)
+load and run their scripts: no crash, no address the port lacks.
 
 ## Step 3: its missions (to do)
+
+- Its own stages 42, 44, 45, 46 and 47 (Peach's Castle, Bob-omb Battlefield,
+  Big Boo's Haunt and their multiplayer forms) load, then crash on the first
+  HUD message: "lang: no text bank for level 44" (the port's stage-to-bank
+  table is GoldenEye's; the cartridge's names their banks, e.g. LeldE), then
+  hudmsgBottomShow (bondview2.c) on the missing text.
 
 - Mission select page 2 (constructor_menu07_missionsel 7F01014C-7F010588,
   0x40 -> 0x50 and 0xD -> 0x13/0x1B): Aztec, Egypt, Castle, Bob-omb
