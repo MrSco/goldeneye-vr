@@ -162,6 +162,23 @@ view, the Cheat Options page. On the PC (2026-11-16, `--boot-stage`, 25 s
 each), all 20 missions of its first page, Temple (38) and the credits (54)
 load and run their scripts: no crash, no address the port lacks.
 
+## Against an emulator (2026-11-17)
+
+BizHawk 2.11.1 with its ares N64 core (Mupen64Plus gave noise and no RDRAM
+domain) runs the cartridge; `tools/emu/n64_dump.lua` presses into its first
+mission and dumps the data segment and 0x80700000-0x80712800 from RDRAM,
+the PC build's input-script command `windowdump <name>` writes the port's
+copy and the ranges its scripts wrote, and `tools/emu/compare_window.py`
+compares them. Mario's Dam, a few seconds in: all 41 ranges the port's
+scripts wrote hold the emulator's bytes; in the scripts' targets (mission
+folder, fog, music rows, item file names, POV height) the emulator changed
+nothing the port did not; the port changed nothing the emulator did not.
+The emulator alone changed 0x80700100 (1) and 0x8070011C, which no script
+names (its own code's), and 15026 bytes of 0x80702000-0x80702FC0 that hold
+RAM pointers and flags (the game's loaded models, which the port keeps its
+own way). Not compared yet: Temple's page-2 console (it needs a walk to the
+console; forcing stage 38 in the menus did not load it).
+
 ## Online co-op (2026-11-17)
 
 Only the host runs the level scripts; a teammate's guards are puppets. What

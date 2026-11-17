@@ -1279,6 +1279,12 @@ float g_GevrHeadPosOut = -1.0f;
  * end of its Expansion Pak pieces. A string the binder's tables point at
  * changes in place; a value it copied into a host table is read again below.
  */
+/* The window's length from GEVR_DATA_VRAM (the PC input script's windowdump), 0 with no hack bound. */
+uint32_t gevrRomWindowLength(void)
+{
+	return g_Window.bytes ? g_Window.len : 0;
+}
+
 uint8_t *gevrRomWindowBytes(uint32_t vram, uint32_t need)
 {
 	if (!gevrRomIsVariant() || !g_Window.bytes) {
