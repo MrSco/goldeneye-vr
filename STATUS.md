@@ -14,7 +14,10 @@ Cougar/Golden Gun grip caps), co-op Frigate defuser and hostages (#241),
 Bean unlit faces, Bean 16:9 front end, flat hands (#238), Windows without a
 console, iOS crash-prompt and controller fixes. Plays online with v0.5.15
 to v0.5.17. Downloads as v0.5.17's (8 files, same commit).
-**Pre-release:** none open. The next batch gets its own branch.
+**Next batch** (branch t3/66d9016a, not pushed, no build yet): co-op Control
+door locked behind the host (#246, lock waits for the party), co-op mission
+held by a teammate that never loaded (#245: Depot exit black, downed player
+never revived; dropped 60 s after the host loads). Needs two headsets.
 
 ## Platforms (docs/pc-platforms.md, docs/mobile-platforms.md)
 
