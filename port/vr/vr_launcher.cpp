@@ -1272,7 +1272,7 @@ static void gevrModsPage(Uint32 now, const ImVec4 &gold, const ImVec4 &good, con
         vrSettingsSave();
     }
     if (!gevrCampaignRetailArt(VrCampaign) && gevrBeanIsAvailable())
-        ImGui::TextWrapped("XBLA / Bean is off while the Goldfinger 64 or Tomorrow Never Dies campaign is chosen.");
+        ImGui::TextWrapped("XBLA / Bean is off while the Goldfinger 64, Tomorrow Never Dies or Mario Characters campaign is chosen.");
     else if (gevrBeanIsEnabled()) {
         // How to toggle Bean in game is the Bean row's tooltip: with the HD fill
         // row and Done's blood patch, its two lines ran the page past the panel.
@@ -3174,17 +3174,23 @@ void gevrTextInputEnd()
  * "Mods... (Bean on)" and "Cheats... (3 on)" showed it before launching; the
  * tabbed launcher had lost it). Cheats count as the old page did: the gun
  * size, Unlock all, and the ticked cheats with GoldenEye's campaign only.
+ * The chosen campaign's, not the last run's: a hack turns GoldenEye X off
+ * (gevr_romload.c), and Bean, HD packs and Oddjob's hat are fitted to
+ * GoldenEye's own models, which only Mirror Mode keeps (gevr_bean.c,
+ * gfx_pc.cpp, gevr_oddjobhat.c; Goldfinger 64, TND and Mario Characters
+ * ship their own knives). The START label listed them all in Mario's.
  */
 static void gevrLauncherLoadout(char *buf, size_t size)
 {
     std::string parts;
     int cheats = (VrGunSizeCheat ? 1 : 0) + (VrUnlockAll ? 1 : 0);
+    const bool retailArt = gevrCampaignRetailArt(VrCampaign);
 
     for (int b = 0; b < 64 && VrCampaign == GEVR_CAMPAIGN_GE; b++) cheats += (int)((VrCheatMask >> b) & 1ULL);
-    if (gevrBeanIsEnabled()) parts = "Bean";
-    else if (g_ActiveExtTexPack[0]) parts = "HD";
-    if (VrGexGuns) parts += parts.empty() ? "GE-X" : ", GE-X";
-    if (VrOddjobHat && gevrHatAvailable()) parts += parts.empty() ? "Oddjob's hat" : ", Oddjob's hat";
+    if (retailArt && gevrBeanIsEnabled()) parts = "Bean";
+    else if (retailArt && g_ActiveExtTexPack[0]) parts = "HD";
+    if (VrGexGuns && VrCampaign == GEVR_CAMPAIGN_GE) parts += parts.empty() ? "GE-X" : ", GE-X";
+    if (retailArt && VrOddjobHat && gevrHatAvailable()) parts += parts.empty() ? "Oddjob's hat" : ", Oddjob's hat";
     if (cheats) {
         char n[32];
         snprintf(n, sizeof(n), "%d cheat%s", cheats, cheats == 1 ? "" : "s");
