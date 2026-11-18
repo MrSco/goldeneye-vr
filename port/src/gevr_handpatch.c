@@ -25,27 +25,67 @@ s32 texLoadFromGdl(Gfx *src, s32 srcsize, Gfx *dst, void *texpool);   /* tex.c *
 
 /* ------------------------------------------------ notes from the converter */
 
-static const struct gevrHpModel *s_noted;
+#define HP_MAX_TEX      64
+
+static char s_notedName[64];
 static u32 s_src[HP_MAX_NODES], s_dst[HP_MAX_NODES];
 static s32 s_numNodes;
 static u32 s_markerTex[HP_MAX_MARKERS], s_markerW0[HP_MAX_MARKERS];
 static s32 s_numMarkers;
+static u32 s_tex[HP_MAX_TEX];
+static s32 s_numTex;
 
-static const struct gevrHpModel *hpFind(const char *name)
+/*
+ * A ROM hack's copy of a model: Mario Characters keeps GoldenEye's hands in
+ * a file per character (Gwppk1Z, Gwppk2Z, Gwppk3Z for GwppkZ), the same
+ * vertices with the skin in other textures. A name ending in a digit and Z
+ * is a copy of the name without the digit; two such names with one stem are
+ * copies of each other (a patch tools/gevr_handpatch_port.py carried to
+ * Gtaser1Z serves Gtaser2Z). Every node's fingerprint still decides.
+ */
+static s32 hpCopyStem(const char *name)
 {
-	s32 i;
+	s32 n = (s32)strlen(name);
+
+	return n >= 3 && (name[n - 1] == 'Z' || name[n - 1] == 'z') && name[n - 2] >= '0' && name[n - 2] <= '9' ? n - 2 : -1;
+}
+
+static s32 hpServes(const struct gevrHpModel *m, const char *name)
+{
+	s32 stem, mine;
+
+	if (strcasecmp(m->name, name) == 0) {
+		return TRUE;
+	}
+	stem = hpCopyStem(name);
+	if (stem < 0 || strncasecmp(m->name, name, (size_t)stem) != 0) {
+		return FALSE;
+	}
+	mine = hpCopyStem(m->name);
+	return (s32)strlen(m->name) == stem + 1 || mine == stem;
+}
+
+#define HP_MAX_CANDIDATES 8
+
+/* The patches that may serve this model: its own first, then those of the models it copies */
+static s32 hpCandidates(const char *name, const struct gevrHpModel **out)
+{
+	s32 i, n = 0;
 
 	if (name == NULL) {
-		return NULL;
+		return 0;
 	}
-
-	for (i = 0; i < g_gevrHpNumModels; i++) {
+	for (i = 0; i < g_gevrHpNumModels && n < HP_MAX_CANDIDATES; i++) {
 		if (strcasecmp(g_gevrHpModels[i].name, name) == 0) {
-			return &g_gevrHpModels[i];
+			out[n++] = &g_gevrHpModels[i];
 		}
 	}
-
-	return NULL;
+	for (i = 0; i < g_gevrHpNumModels && n < HP_MAX_CANDIDATES; i++) {
+		if (strcasecmp(g_gevrHpModels[i].name, name) != 0 && hpServes(&g_gevrHpModels[i], name)) {
+			out[n++] = &g_gevrHpModels[i];
+		}
+	}
+	return n;
 }
 
 /*
@@ -82,10 +122,21 @@ s32 gevrHandPatchDropsTexture(const char *name, u32 texnum)
 
 s32 gevrHandPatchWants(const char *name)
 {
-	s_noted = hpFind(name);
+	const struct gevrHpModel *c[HP_MAX_CANDIDATES];
+	s32 wants = hpCandidates(name, c) > 0;
+
+	snprintf(s_notedName, sizeof(s_notedName), "%s", wants ? name : "");
 	s_numNodes = 0;
 	s_numMarkers = 0;
-	return s_noted != NULL;
+	s_numTex = 0;
+	return wants;
+}
+
+void gevrHandPatchNoteTexture(u32 slot, u32 texnum)
+{
+	if (slot == (u32)s_numTex && s_numTex < HP_MAX_TEX) {
+		s_tex[s_numTex++] = texnum;
+	}
 }
 
 void gevrHandPatchNoteNode(u32 src, u32 dst)
@@ -393,17 +444,53 @@ static u32 hpMarker(u32 texnum)
  */
 s32 g_gevrHandPatchSkip;
 
+/* Every node of every part is the one the patch was made for (quietly: a candidate's test) */
+static s32 hpMatches(u8 *file, const struct gevrHpModel *m)
+{
+	s32 p, n;
+
+	for (p = 0; p < m->numParts; p++) {
+		const struct gevrHpPart *part = &g_gevrHpParts[m->firstPart + p];
+		for (n = 0; n < part->numNodes; n++) {
+			const struct gevrHpNode *hn = &g_gevrHpNodes[part->firstNode + n];
+			ModelRoData_DisplayListRecord *dl = hpDl(file, hn->ofs);
+			if (dl == NULL || dl->numVertices != hn->numvtx || hpFnv(dl->Vertices, dl->numVertices) != hn->fnv) {
+				return FALSE;
+			}
+		}
+	}
+	return TRUE;
+}
+
+/* A patch group's texture as this model numbers it: the one in the same slot of its table */
+static u32 hpTexture(const struct gevrHpModel *m, u32 tex)
+{
+	s32 i;
+
+	if (m->numTex == 0 || m->numTex != s_numTex) {
+		return tex;
+	}
+	for (i = 0; i < m->numTex; i++) {
+		if (g_gevrHpTextures[m->firstTex + i] == tex) {
+			return s_tex[i];
+		}
+	}
+	return tex;
+}
+
 void gevrHandPatchApply(struct ModelFileHeader *header, const char *name, void *texpool)
 {
-	const struct gevrHpModel *model = hpFind(name);
+	const struct gevrHpModel *cand[HP_MAX_CANDIDATES];
+	const struct gevrHpModel *model;
+	s32 numCand = hpCandidates(name, cand);
 	u8 *file;
 	s32 slot, p, mode, applied = 0, triangles = 0, skipped = 0;
 
-	if (model == NULL || g_gevrHandPatchSkip) {
+	if (numCand == 0 || g_gevrHandPatchSkip) {
 		return;
 	}
 
-	if (s_noted != model) {
+	if (strcasecmp(s_notedName, name) != 0) {
 		sysLogPrintf(LOG_WARNING, "handpatch %s: the converter noted no layout for it; not patched", name);
 		return;
 	}
@@ -415,6 +502,19 @@ void gevrHandPatchApply(struct ModelFileHeader *header, const char *name, void *
 	}
 
 	file = (u8 *)header->Switches;
+
+	/* its own patch, else the first one made for a model it copies whose nodes are all here */
+	model = cand[0];
+	for (p = 0; p < numCand; p++) {
+		if (hpMatches(file, cand[p])) {
+			model = cand[p];
+			break;
+		}
+	}
+	if (strcasecmp(model->name, name) != 0) {
+		sysLogPrintf(LOG_NOTE, "handpatch %s: %s's patch (the same vertices)", name, model->name);
+	}
+
 	slot = hpSlot(file);
 
 	if (slot < 0) {
@@ -468,12 +568,13 @@ void gevrHandPatchApply(struct ModelFileHeader *header, const char *name, void *
 
 		for (gi = 0; ok && gi < part->numGroups; gi++) {
 			const struct gevrHpGroup *grp = &g_gevrHpGroups[part->firstGroup + gi];
-			u32 marker = hpMarker(grp->tex);
+			const u32 tex = hpTexture(model, grp->tex);
+			u32 marker = hpMarker(tex);
 			Vtx *gc = corners;
 
 			if (marker == 0) {
 				sysLogPrintf(LOG_WARNING, "handpatch %s: texture 0x%03x is not in the model; part 0x%04x skipped",
-						name, grp->tex, part->host);
+						name, tex, part->host);
 				ok = FALSE;
 				break;
 			}
@@ -505,7 +606,7 @@ void gevrHandPatchApply(struct ModelFileHeader *header, const char *name, void *
 			}
 
 			/* the texture as the model's own lists load it: the marker, expanded below */
-			hpCmd(&g, marker, grp->tex);
+			hpCmd(&g, marker, tex);
 			triangles += hpEmitGroup(&g, &vp, grp, gc);
 			corners += grp->numCorners;
 		}

@@ -12,6 +12,11 @@ fingerprint per node - so the generated file holds no ROM data either.
 A corner's shade is its own "c" ([r, g, b, a]), else its group's "shade";
 "inherit": true on a ROM vertex's corner draws it in that vertex's colour.
 
+tools/handpatch/textures.json (tools/gevr_handpatch_port.py) gives a model's
+texture table by slot: a hack's renamed copy with other texture numbers in the
+same slots (Mario Characters' Luigi and Peach hands) draws a patch group with
+the texture in its slot.
+
 Usage
 -----
     python tools/gevr_handpatch_gen.py
@@ -32,9 +37,18 @@ OUT = os.path.join(REPO, "port", "src", "gevr_handpatch_data.c")
 
 def main():
     nodes, corners, mixes, tris, groups, parts, models = [], [], [], [], [], [], []
+    tables = {}
+    if os.path.exists(os.path.join(SRC, "textures.json")):
+        with open(os.path.join(SRC, "textures.json"), encoding="utf-8") as f:
+            tables = {k: [int(t, 16) for t in v] for k, v in json.load(f).items()}
+    texs = []
+    loaded = []
     for path in sorted(glob.glob(os.path.join(SRC, "*.patch.json"))):
         with open(path, encoding="utf-8") as f:
-            patch = json.load(f)
+            loaded.append(json.load(f))
+    # a hack's ported patches after GoldenEye's own, so adding one leaves the others' indices be
+    loaded.sort(key=lambda p: "ported_from" in p)
+    for patch in loaded:
         first_part = len(parts)
         for part in patch["parts"]:
             first_node = len(nodes)
@@ -66,7 +80,9 @@ def main():
         if len(parts) - first_part > 9:
             # each part takes 5 of a model buffer's 48 allocations (gevr_handpatch.c)
             raise SystemExit("%s: %d parts (at most 9)" % (patch["model"], len(parts) - first_part))
-        models.append((patch["model"], first_part, len(parts) - first_part))
+        table = tables.get(patch["model"], [])
+        models.append((patch["model"], first_part, len(parts) - first_part, len(texs), len(table)))
+        texs.extend(table)
 
     for c in corners:
         if not (-32768 <= c[2] <= 32767 and -32768 <= c[3] <= 32767):
@@ -127,9 +143,14 @@ def main():
         w("    { 0x%04x, %d, %d, %d, %d }," % p)
     w("};")
     w("")
+    w("const u16 g_gevrHpTextures[] = {")
+    for i in range(0, len(texs), 12):
+        w("    " + " ".join("0x%03x," % t for t in texs[i:i + 12]))
+    w("};")
+    w("")
     w("const struct gevrHpModel g_gevrHpModels[] = {")
-    for name, fp, np_ in models:
-        w('    { "%s", %d, %d },' % (name, fp, np_))
+    for name, fp, np_, ft, nt in models:
+        w('    { "%s", %d, %d, %d, %d },' % (name, fp, np_, ft, nt))
     w("};")
     w("")
     w("const s32 g_gevrHpNumModels = %d;" % len(models))

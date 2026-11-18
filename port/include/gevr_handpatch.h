@@ -41,7 +41,9 @@ struct gevrHpCorner { u32 node; s16 ref; s16 s, t; u8 mtx; u8 nmix; u16 firstMix
 struct gevrHpMix    { u32 node; u16 idx; f32 w; };
 struct gevrHpGroup  { u16 tex; u16 firstCorner, numCorners; u16 firstTri, numTris; };
 struct gevrHpPart   { u32 host; u16 firstNode, numNodes; u16 firstGroup, numGroups; };
-struct gevrHpModel  { const char *name; u16 firstPart, numParts; };
+/* tex: the model's texture table by slot (g_gevrHpTextures), for a hack's copy
+ * with other texture numbers in the same slots; numTex 0 when not known */
+struct gevrHpModel  { const char *name; u16 firstPart, numParts; u16 firstTex, numTex; };
 
 extern const struct gevrHpNode g_gevrHpNodes[];
 extern const struct gevrHpCorner g_gevrHpCorners[];
@@ -49,6 +51,7 @@ extern const struct gevrHpMix g_gevrHpMixes[];
 extern const u16 g_gevrHpTris[][3];
 extern const struct gevrHpGroup g_gevrHpGroups[];
 extern const struct gevrHpPart g_gevrHpParts[];
+extern const u16 g_gevrHpTextures[];
 extern const struct gevrHpModel g_gevrHpModels[];
 extern const s32 g_gevrHpNumModels;
 
@@ -59,6 +62,7 @@ struct ModelFileHeader;
 s32 gevrHandPatchWants(const char *name);
 void gevrHandPatchNoteNode(u32 src, u32 dst);
 void gevrHandPatchNoteMarker(u32 texnum, u32 w0);
+void gevrHandPatchNoteTexture(u32 slot, u32 texnum);   /* the model's texture table, by slot */
 /* A face the model should not draw at all: nonzero for a texture whose
  * triangles the converter turns into no-ops (issue #24). */
 s32 gevrHandPatchDropsTexture(const char *name, u32 texnum);

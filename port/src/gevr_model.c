@@ -1209,6 +1209,13 @@ u32 gevrModelConvert(u8 *data, u32 size, u32 capacity, s32 numSwitches, s32 numT
 
 			if (b->kind == BK_NODE) {
 				gevrHandPatchNoteNode(b->src, b->dst);
+			} else if (b->kind == BK_TEXTURES) {
+				const ModelFileTextures *t = (const ModelFileTextures *)(out + b->dst);
+				s32 j;
+
+				for (j = 0; j < b->count; j++) {
+					gevrHandPatchNoteTexture((u32)j, (u32)t[j].TextureID);
+				}
 			} else if (b->kind == BK_GDL) {
 				Gfx *g = (Gfx *)(out + b->dst);
 				gevrModelFilterDisplayList(g, b->dstSize / sizeof(Gfx), c.name);

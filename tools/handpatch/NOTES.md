@@ -480,3 +480,24 @@ Tool quirks
   <abs json> <abs outdir> --render 1c0 --tint` then the before/after views
   land in the outdir; bmesh index tables go stale after subdivide
   (directed_loops refreshes them).
+
+## A ROM hack's hands (2026-11-18, Mario Characters)
+Mario Characters keeps GoldenEye's pistol and knife hands in a file per
+character (Gwppk1Z/2Z/3Z for GwppkZ, and so on): the same vertices, the skin
+in other texture numbers in the same slots of each copy's texture table.
+- Runtime (gevr_handpatch.c): a name ending in a digit and Z is a copy of the
+  name without the digit, and copies with one stem serve each other; the
+  first candidate whose every node's fingerprint matches is used, and a
+  group's texture is the one in the same slot of the loaded model's table
+  (tools/handpatch/textures.json, generated into g_gevrHpTextures).
+- Hands a hack reshaped get patches of their own from
+  tools/gevr_handpatch_port.py <ge.z64> <hack.z64>: every reference followed
+  to the vertex at the same position (or the whole node moved by one shift:
+  Mario's watch-arm glove is GoldenEye's hand 254 units along the arm, in
+  another order), a vertex nudged within 4 units taken as the nearest, each
+  texture by what the hack draws on the same triangles. Written after
+  GoldenEye's in the generated data. Mario: Gtaser1Z (the off hand, Luigi's
+  and Peach's copies use it), Garmlw1Z/3Z-6Z (the watch-arm glove; the band
+  too where the watch is GoldenEye's), Garml1-3Z (the watch laser arm's two
+  palms). Mario's own sleeves are new meshes: GoldenEye's sleeve patches do
+  not carry.

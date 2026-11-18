@@ -26,6 +26,11 @@ void gevrHandPatchNoteNode(u32 cart, u32 host)
 	(void)cart;
 	(void)host;
 }
+void gevrHandPatchNoteTexture(u32 slot, u32 texnum)
+{
+	(void)slot;
+	(void)texnum;
+}
 
 static void *promoted(void *value, u8 *base)
 {

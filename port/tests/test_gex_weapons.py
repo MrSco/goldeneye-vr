@@ -137,6 +137,7 @@ s32 gevrHandPatchWants(const char *n) { return 0; }
 s32 gevrHandPatchDropsTexture(const char *n,u32 t) { return 0; }
 void gevrHandPatchNoteNode(u32 s,u32 d) {}
 void gevrHandPatchNoteMarker(u32 t,u32 w) {}
+void gevrHandPatchNoteTexture(u32 s,u32 t) {}
 const u8 *gevrGexTextureData(s32 id,u32 *len) { return NULL; }
 const u8 *gevrGexRom(u32 *len) { *len=romSize; return rom; }
 u8 *readFile(const char *path,u32 *len) {
