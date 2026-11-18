@@ -2431,7 +2431,7 @@ static s32 gevrLeftWatchLoad(void)
     }
 
     animInit(&s_gevrWatchModel, &s_gevrWatchHeader, s_gevrWatchRw);
-    modelSetScale(&s_gevrWatchModel, c_item_entries[41].scale * 0.10000001f);
+    modelSetScale(&s_gevrWatchModel, g_gevrRetailChrRecords[41].scale * 0.10000001f);   /* as the pause's (sub_GAME_7F07E7CC) */
     modelSetAnimation(&s_gevrWatchModel, (ModelAnimation *)&ptr_animation_table->data[(uintptr_t)&ANIM_DATA_bond_watch], 0, 0.0f, 0.0f, 0.0f);
     s_gevrWatchScale = 0.0f;
     gevrWatchStatusFit();
@@ -10028,7 +10028,12 @@ void sub_GAME_7F07E7CC(void) {
     }
 #endif
     animInit(&g_CurrentPlayer->something_with_watch_object_instance, itemheader, g_CurrentPlayer->watchRwPool);
+#ifdef GEVR
+    /* the watch arm's own record in GoldenEye's table, as the cartridge reads it in a hack campaign too (cobjdata.c) */
+    modelSetScale(&g_CurrentPlayer->something_with_watch_object_instance, g_gevrRetailChrRecords[41].scale * 0.10000001f);
+#else
     modelSetScale(&g_CurrentPlayer->something_with_watch_object_instance, c_item_entries[41].scale * 0.10000001f);
+#endif
     modelSetAnimation(&g_CurrentPlayer->something_with_watch_object_instance, (ModelAnimation *)&ptr_animation_table->data[(uintptr_t)&ANIM_DATA_bond_watch], 0, 0.0f, 0.5f * watch_transition_time, 0.0f);
     g_CurrentPlayer->step_in_view_watch_animation = 0;
 }

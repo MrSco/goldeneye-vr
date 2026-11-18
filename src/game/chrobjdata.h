@@ -565,6 +565,9 @@ extern struct ModelFileHeader chrtesttube_header;
 extern struct ModelFileHeader bollard_header;
 
 extern struct ChrModelFileRecord *c_item_entries;
+#ifdef GEVR
+extern struct ChrModelFileRecord *const g_gevrRetailChrRecords;   /* cobjdata.c: GoldenEye's table, even in a hack campaign */
+#endif
 extern struct ModelSkeleton SKELETON(guard);
 extern struct ModelSkeleton SKELETON(suit_lf_hand);
 
