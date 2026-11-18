@@ -22,9 +22,11 @@ Pro build (claude/visionos-native, TestFlight build 14), the Mario
 Characters campaign and co-op in every hack campaign (t3/a9e4fd65, PR #248,
 docs/mario-characters.md), and PC VR quitting when the runtime ends the
 session (report fa49c715: no false crash prompt). Suite 109/109 with the
-Mario ROM; Quest APK and both PC exes build. Not yet headset-run: Mario,
-Dam boat to the island, co-op #245/#246 (two headsets), PC VR quit from
-the SteamVR dashboard; visionOS still to build on the Mac.
+Mario ROM; Quest APK and both PC exes build. Headset 2026-11-18 (build
+34059696): Dam boat crosses and steps off on the island floor at pad 81;
+Mario Dam in stereo at 120 fps (Mario's hands, PP7, Koopa guards). Not yet
+run: co-op #245/#246 (two headsets), PC VR quit from the SteamVR dashboard;
+visionOS still to build on the Mac.
 
 ## Platforms (docs/pc-platforms.md, docs/mobile-platforms.md)
 
