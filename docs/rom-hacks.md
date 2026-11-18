@@ -14,6 +14,7 @@ The loader accepts these, matched on size, title, game code, and the eight CRC b
 | Goldfinger 64 | `data/goldfinger64.z64` | 24 MB | `Goldfinger64_1_0.xdelta` (from `goldfinger64.zip`) |
 | Tomorrow Never Dies | `data/tnd64.z64` | 16 MB | `expanded/TND64_Expanded_06-22.xdelta` (inside n64vault's `tnd64.zip`) |
 | Mirror Mode (Wreck) | `data/mirror.z64` | 12 MB | `GE_MirrorMode_patch.xdelta` (inside [`mirrormode[wreck].zip`](https://n64vault.com/ge-levels:mirror-mode)) |
+| GoldenEye with Mario Characters V3.17 | `data/mario.z64` | 16 MB | `MarioCharactersV3.17.xdelta` (inside `GE-with-Mario-Characters-V3.17.zip`, [n64squid](https://n64squid.com/homebrew/roms/goldeneye-mario-characters/)) |
 
 Apply the patch to a big-endian `.z64` GoldenEye 007 (USA) ROM with any xdelta patcher (Delta Patcher, `xdelta3 -d -s ge.z64 patch.xdelta out.z64`, or `python tools/gex/vcdiff_apply.py ge.z64 patch.xdelta out.z64`). A file with the right size and the wrong CRC is rejected.
 

@@ -5,28 +5,22 @@ in docs/archive/ (the v0.5.15 batch as it stood before release is
 [status-2026-11-10](docs/archive/status-2026-11-10.md)); features keep their
 own notes. No game data is shipped; building publishes nothing.
 
-**Release:** v0.5.18 (versionCode 131, protocol 26), 2026-11-15, tag on
-d8bd0011 ([notes](docs/releases/v0.5.18.md)): lobby push signaling (the
-Worker's WebSocket, polling fallback), voice FEC + adaptive jitter buffer +
-Quest echo cancellation, GE-X hand reload (label over the gun, PP7/DD44
-slide lock, belt rounds for single-round guns, pistols' magazine fits,
-Cougar/Golden Gun grip caps), co-op Frigate defuser and hostages (#241),
-Bean unlit faces, Bean 16:9 front end, flat hands (#238), Windows without a
-console, iOS crash-prompt and controller fixes. Plays online with v0.5.15
-to v0.5.17. Downloads as v0.5.17's (8 files, same commit).
-**Next batch** (branch release/v0.5.19, not pushed): the t3/66d9016a fixes
-(co-op Control door locked behind the host #246, lock waits for the party;
-co-op mission held by a teammate that never loaded #245, dropped 60 s after
-the host loads; Dam boat lands on the island floor #247), the native Vision
-Pro build (claude/visionos-native, TestFlight build 14), the Mario
-Characters campaign and co-op in every hack campaign (t3/a9e4fd65, PR #248,
-docs/mario-characters.md), and PC VR quitting when the runtime ends the
-session (report fa49c715: no false crash prompt). Suite 109/109 with the
-Mario ROM; Quest APK and both PC exes build. Headset 2026-11-18 (build
-34059696): Dam boat crosses and steps off on the island floor at pad 81;
-Mario Dam in stereo at 120 fps (Mario's hands, PP7, Koopa guards). Not yet
-run: co-op #245/#246 (two headsets), PC VR quit from the SteamVR dashboard;
-visionOS still to build on the Mac.
+**Release:** v0.5.19 (versionCode 132, protocol 26), 2026-11-18, tag on
+c0c40e72 ([notes](docs/releases/v0.5.19.md)): the Mario Characters V3.17
+campaign (docs/mario-characters.md) with GoldenEye's hand patches carried to
+its hands (tools/gevr_handpatch_port.py) and its pause watch at the arm's
+own scale; online co-op in every hack campaign (lobby names the campaign);
+co-op Control door waits for the party (#246); a teammate that never loads
+is dropped 60 s after the host (#245); Dam boat lands on the island floor
+(#247); PC VR quits when the runtime ends the session (report fa49c715);
+START lists only what the campaign loads; native Vision Pro app
+(docs/visionos-native.md). Plays online with v0.5.15 to v0.5.18 in
+GoldenEye's campaign. 8 downloads from one commit; iOS TestFlight 139,
+visionOS TestFlight 15 (native). Gates: suite 111/111 (97 Windows + 14 WSL,
+Mario ROM), Java 46x3, server gate passed.
+**Next:** Mario Characters' dismemberment caps use GoldenEye's neck sizes
+(user report 2026-11-18). Untested with two headsets: #245/#246 and co-op
+in the hack campaigns; PC VR dashboard quit untested on SteamVR.
 
 ## Platforms (docs/pc-platforms.md, docs/mobile-platforms.md)
 

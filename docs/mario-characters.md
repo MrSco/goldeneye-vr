@@ -11,8 +11,9 @@ Apply the patch to a big-endian GoldenEye 007 (USA) `.z64`
 The result is 16 MB, title `GOLDENEYE`, code `NGEE` (the same as retail and
 TND64), CRC bytes `59 BE 5A 72 BC 7E 5C 17`. It is stored as `data/mario.z64`
 and runs as campaign 4 (`GEVR_CAMPAIGN_MARIO`, layout tag `mario`, save
-`eeprom-mario.bin`). Like the other hacks it is solo play only: online play,
-co-op, bots, GoldenEye X, Bean, HD packs and the launcher's cheat list are off.
+`eeprom-mario.bin`). Like the other hacks it plays solo or in online co-op
+(every player on the same ROM); deathmatch, bots, GoldenEye X, Bean, HD packs
+and the launcher's cheat list are off.
 
 No ROM, patch or asset is in the repository: only offsets and counts.
 
