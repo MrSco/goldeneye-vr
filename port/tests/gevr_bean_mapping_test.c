@@ -20,6 +20,7 @@ int VrGexGuns;
 /* model.c, for gevr_bean_wounds.inc.h: no bruises in this fixture */
 union ModelRwData *modelGetNodeRwData(Model *model, ModelNode *node) { (void)model; (void)node; return NULL; }
 s32 modelFindNodeMtxIndex(ModelNode *node, s32 arg1) { (void)node; (void)arg1; return -1; }
+s32 vtxstoreIsWreckCopy(const void *vertices) { (void)vertices; return 0; }
 uintptr_t osVirtualToPhysical(void *p)
 {
 	return (uintptr_t)p;
@@ -311,6 +312,10 @@ static void checkRigid(ModelFileHeader *h, const struct gevrBeanMesh *mesh, int 
 		} else if (kind == BEAN_GUN && gunHandNode(h, s_swap[i].node)) {
 			assert(!hand);
 			hand = s_swap[i].node;
+			int triangles = 0;
+			for (int t = 0; t < mesh->ntris; t++)
+				triangles += triWanted(mesh, &mesh->tris[t], kind, 0) && gunGloveTri(mesh, &mesh->tris[t]);
+			assert(s_swap[i].emittedVerts == triangles * 3);
 		} else if (kind == BEAN_GUN) {
 			assert(!hand && !listToggled(h, s_swap[i].node) && nodeMatrix(s_swap[i].node) != nodeMatrix(anchor));
 		}
@@ -661,11 +666,42 @@ int main(int argc, char **argv)
 	int kind = sourceForName(argv[2], source, sizeof(source));
 	assert(kind);
 	struct gevrBeanMesh *mesh = NULL;
-	int loaded = gevrBeanLoad(argv[6], 1, &mesh);
-	if (!loaded) {
+	if (kind == BEAN_GUN)
+		mesh = cachedLoad(argv[6], 1, kind);
+	else
+		gevrBeanLoad(argv[6], 1, &mesh);
+	if (!mesh) {
 		printf("FALLBACK %s\n", argv[2]);
 		free(native);
 		return 0;
+	}
+	static const char *const patched[] = {
+		"GwppkZ", "GwppksilZ", "GgoldwppkZ", "GsilverwppkZ", "Gtt33Z",
+		"GrugerZ", "GgoldengunZ", "GknifeZ", "GthrowknifeZ",
+	};
+	for (size_t i = 0; i < sizeof(patched) / sizeof(patched[0]); i++) {
+		if (strcmp(argv[2], patched[i]))
+			continue;
+		struct gevrBeanMesh *raw = NULL;
+		assert(gevrBeanLoad(argv[6], 1, &raw));
+		assert(mesh->ntris == raw->ntris + 297);
+		int tex = mesh->tris[raw->ntris].tex;
+		assert(beanGunHandTexture(mesh, tex) && mesh->standin[tex] == raw->standin[tex]);
+		for (int t = raw->ntris; t < mesh->ntris; t++)
+			assert(mesh->tris[t].tex == tex);
+		/* A different UV layout on the same mesh must not reuse this patch. */
+		for (int t = 0; t < raw->ntris; t++) {
+			if (raw->tris[t].tex == tex) {
+				raw->tris[t].uv[0] += .01f;
+				break;
+			}
+		}
+		int rawCount = raw->ntris;
+		beanPatchGunHand(raw);
+		assert(raw->ntris == rawCount);
+		gevrBeanMeshFree(raw);
+		printf("HANDPATCH %s 297 triangles, existing atlas %d\n", argv[2], tex);
+		break;
 	}
 	s_want = s_available = 1;
     FILE *legacy=fopen("gevr_body_batch.txt","w");assert(legacy);fputs("0",legacy);fclose(legacy);
@@ -1031,7 +1067,8 @@ int main(int argc, char **argv)
 		fflush(stdout);
 	}
 	combinedBodyCheck(&header,mesh,kind,fitForName(argv[2]));
-	gevrBeanMeshFree(mesh);
+	if (kind != BEAN_GUN)
+		gevrBeanMeshFree(mesh);
 	gevrBeanReset();
 	free(native);
 	return 0;

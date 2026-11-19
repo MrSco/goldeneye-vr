@@ -532,7 +532,9 @@ static int sourceForName(const char *name, char *source, int sourcelen)
 	return BEAN_NONE;
 }
 
-static struct gevrBeanMesh *cachedLoad(const char *path, int keepparts)
+#include "gevr_bean_handpatch.inc.h"
+
+static struct gevrBeanMesh *cachedLoad(const char *path, int keepparts, int kind)
 {
 	for (int i = 0; i < s_ncache; i++) {
 		if (strcmp(s_cache[i].path, path) == 0) {
@@ -544,6 +546,8 @@ static struct gevrBeanMesh *cachedLoad(const char *path, int keepparts)
 		if (!gevrBeanLoad(path, keepparts, &mesh) || !mesh) {
 			return NULL;
 		}
+		if (kind == BEAN_GUN)
+			beanPatchGunHand(mesh);
 		if (s_ncache < (int)(sizeof(s_cache) / sizeof(s_cache[0]))) {
 			snprintf(s_cache[s_ncache].path, sizeof(s_cache[s_ncache].path), "%s", path);
 			s_cache[s_ncache].mesh = mesh;
@@ -1656,7 +1660,7 @@ static int gunHandNode(const ModelFileHeader *header, const ModelNode *node)
  * 512x511 picture. It is drawn where GoldenEye draws the hand. */
 static int gunGloveTri(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *t)
 {
-	return t->tex >= 0 && t->tex < mesh->ntex && mesh->texW[t->tex] == 512 && mesh->texH[t->tex] == 511;
+	return beanGunHandTexture(mesh, t->tex);
 }
 
 /* DAB gebean.c:10560: an odd permutation swaps two axes and each negative
@@ -3207,7 +3211,7 @@ void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
 		GEVR_BEAN_LOG("gevr bean: %s: missing %s", name, source);
 		return;
 	}
-	mesh = cachedLoad(path, 1);
+	mesh = cachedLoad(path, 1, kind);
 	if (!mesh) {
 		GEVR_BEAN_LOG("gevr bean: %s: native fallback, CAFF not decoded (%s)", name, path);
 		return;
@@ -3255,7 +3259,7 @@ void *gevrBeanRareLogoGdl(const float lo[3], const float hi[3], const void **pic
         char path[192];
         struct gevrBeanMesh *mesh = NULL;
         s_rareLogoTried = 1;
-        if (findFile("new/prop/rarewarelogo", path, sizeof(path))) mesh = cachedLoad(path, 1);
+        if (findFile("new/prop/rarewarelogo", path, sizeof(path))) mesh = cachedLoad(path, 1, BEAN_PROP);
         int tex = -1;
         float mlo[3] = {1e30f, 1e30f, 1e30f}, mhi[3] = {-1e30f, -1e30f, -1e30f};
         for (int i = 0; mesh && i < mesh->ntris; i++) {
