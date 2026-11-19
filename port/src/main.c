@@ -7,6 +7,7 @@
 #include <PR/ultratypes.h>
 #include <PR/os.h>
 #include <sched.h>
+#include <signal.h>
 #include "platform.h"
 #ifndef G_ASPECT_CENTER_EXT
 #define G_ASPECT_CENTER_EXT 0
@@ -479,6 +480,15 @@ int main(int argc, const char **argv)
     if (!sysArgCheck("--no-crash-handler")) {
         crashInit();
     }
+
+#ifdef __APPLE__
+    /* iOS, tvOS and visionOS tear down a suspended app's sockets, and the
+     * first send on one after it comes back raises SIGPIPE, which ends the
+     * process without a word: an Apple TV left mid-match for the home screen
+     * died on its return (issue #268, report f2d199f1). Ignored, the send
+     * fails with EPIPE and the network code sees a lost connection. */
+    signal(SIGPIPE, SIG_IGN);
+#endif
 
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "sysInit starting");
     sysInit();
