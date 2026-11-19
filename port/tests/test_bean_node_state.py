@@ -29,6 +29,8 @@ static struct { uint32_t other_mode_l, other_mode_h, palette_fmt; bool textures_
                 uint64_t combine_mode; struct RGBA prim_color; } rdp;
 static struct { uint32_t geometry_mode; } rsp;
 static bool s_beanNodeOn, s_beanNodeSaved, s_beanNodePrimTouched, s_beanModelCull, s_beanNodeOnTop, s_beanAlphaCore;
+static uint8_t s_depthPullArmed, s_depthPullList, s_depthPull;   /* VR_DEPTH_PULL_NEXT */
+static const void *s_depthPullFirstPicture;
 static uint8_t s_beanPass;
 static bool s_beanBatchXlu, s_beanPassSkip;
 static uint64_t s_beanNodeCombine;

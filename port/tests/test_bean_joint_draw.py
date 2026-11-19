@@ -33,6 +33,7 @@ uintptr_t osVirtualToPhysical(void *p){return (uintptr_t)p;}
 float getjointsize(Model *m,ModelNode *n){return 1;}
 void sub_GAME_7F074534(ModelRenderData *d,Model *m,ModelNode *n){nativeCalls++;}
 int gevrPullHeldGlow(Model *m,unsigned *fog){return 0;}
+static int s_gevrPullNode;   /* model.c: VR_DEPTH_PULL_NEXT's node rule */
 '''
 main='''int main(void){
  ModelFileHeader header={0};

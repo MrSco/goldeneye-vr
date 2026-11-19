@@ -7,6 +7,9 @@ void modelApplyCullMode(ModelRenderData *r) { (void)r; }
 /* vtxstore.c: objDeform's wreck copies (one at most here) */
 static const void *s_wreckCopy;
 s32 vtxstoreIsWreckCopy(const void *vertices) { return vertices && vertices == s_wreckCopy; }
+/* model.c: VR_DEPTH_PULL_NEXT's node rule */
+static s32 s_gevrPullNode;
+static s32 gevrModelHandNode(Model *model, ModelNode *node) { (void)model; (void)node; return 0; }
 /* PRODUCTION MODEL DISPATCH */
 static void materialPathChecks(void)
 {

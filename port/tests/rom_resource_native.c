@@ -46,6 +46,9 @@ void gevrRomSwapLangBank(u8 *data, u32 size, const char *name) {
     (void)data; (void)size; (void)name; conversions++;
 }
 
+/* gevr_romswap.c / gevr_romlayout.h: the stage data fixes (load_resource) */
+int gevrRomIsVariant(void) { return 0; }
+int gevrRomFixData(const char *name, u8 *data, u32 size) { (void)name; (void)data; (void)size; return 0; }
 /* INSERT_RESOURCE */
 
 int test_load(u8 *src, u32 srcSize, u8 *dst, s32 capacity, u32 *written) {
