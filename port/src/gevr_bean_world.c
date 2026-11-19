@@ -687,6 +687,88 @@ static int hiddenRoom(const struct gevrBeanMesh *mesh, float fileScale, int room
 	return hidden;
 }
 
+/*
+ * DAB gebeanstage.c takeBackdrop() (port/licenses/dabs-mod.txt): the level's
+ * backdrop. 4J ring some levels with a panorama on a band of triangles far
+ * outside the level (Surface's peaks, Dam's, Runway's, Cradle's canyon), whose
+ * top fades into the sky. A picture is the backdrop when no corner of any of
+ * its triangles lies over the level's rooms in plan, or when at least half its
+ * triangles are outside and it reaches past the level by more than a third of
+ * the level's size (Cradle's cliffs dip under the platform). DAB draws it
+ * after the sky, fogged by each vertex's distance from the eye: a band round
+ * the level is as far at the view's edges as in its middle, and fogged by eye
+ * depth, as the rooms are, its haze shifted as the head turned. Here nothing
+ * is cut by the far plane, so only that fog is needed: its triangles are
+ * marked 2 in nofog[] (GEVR_ROOM_RADIAL). Returns how many.
+ */
+static int markBackdrop(const struct gevrBeanMesh *mesh, float fileScale, int nrooms, uint8_t *nofog)
+{
+	float mn[2] = { 1e30f, 1e30f }, mx[2] = { -1e30f, -1e30f };
+	int *total = calloc((size_t)mesh->ntex + 1, sizeof(int)), *outside = calloc((size_t)mesh->ntex + 1, sizeof(int));
+	float (*reach)[4] = calloc((size_t)mesh->ntex + 1, sizeof(*reach));
+	int marked = 0, pictures = 0;
+	if (!total || !outside || !reach) {
+		free(total);
+		free(outside);
+		free(reach);
+		return 0;
+	}
+	for (int r = 1; r < nrooms; r++) {
+		const float x0 = g_BgRoomInfo[r].minbounds.x, x1 = g_BgRoomInfo[r].maxbounds.x;
+		const float z0 = g_BgRoomInfo[r].minbounds.z, z1 = g_BgRoomInfo[r].maxbounds.z;
+		if (!(x1 > x0) || !(z1 > z0))
+			continue;
+		mn[0] = fminf(mn[0], x0);
+		mn[1] = fminf(mn[1], z0);
+		mx[0] = fmaxf(mx[0], x1);
+		mx[1] = fmaxf(mx[1], z1);
+	}
+	for (int t = 0; t < mesh->ntex; t++) {
+		reach[t][0] = reach[t][1] = 1e30f;
+		reach[t][2] = reach[t][3] = -1e30f;
+	}
+	for (int i = 0; i < mesh->ntris && mn[0] <= mx[0]; i++) {
+		const struct gevrBeanTri *t = &mesh->tris[i];
+		int over = 0;
+		if (t->tex < 0 || t->tex >= mesh->ntex)
+			continue;
+		for (int k = 0; k < 3; k++) {
+			const float x = t->p[k * 3] * fileScale, z = t->p[k * 3 + 2] * fileScale;
+			over |= x >= mn[0] && x <= mx[0] && z >= mn[1] && z <= mx[1];
+			reach[t->tex][0] = fminf(reach[t->tex][0], x);
+			reach[t->tex][1] = fminf(reach[t->tex][1], z);
+			reach[t->tex][2] = fmaxf(reach[t->tex][2], x);
+			reach[t->tex][3] = fmaxf(reach[t->tex][3], z);
+		}
+		total[t->tex]++;
+		outside[t->tex] += !over;
+	}
+	const float size = fmaxf(mx[0] - mn[0], mx[1] - mn[1]);
+	for (int i = 0; i < mesh->ntris && mn[0] <= mx[0]; i++) {
+		const int x = mesh->tris[i].tex;
+		if (x < 0 || x >= mesh->ntex || !total[x])
+			continue;
+		const float past = fmaxf(fmaxf(mn[0] - reach[x][0], mn[1] - reach[x][1]),
+		                         fmaxf(reach[x][2] - mx[0], reach[x][3] - mx[1]));
+		if ((outside[x] == total[x] || (outside[x] * 2 >= total[x] && past > size / 3.0f)) && !nofog[i]) {
+			nofog[i] = 2;
+			marked++;
+		}
+	}
+	for (int x = 0; x < mesh->ntex; x++) {
+		const float past = fmaxf(fmaxf(mn[0] - reach[x][0], mn[1] - reach[x][1]),
+		                         fmaxf(reach[x][2] - mx[0], reach[x][3] - mx[1]));
+		pictures += total[x] && (outside[x] == total[x] || (outside[x] * 2 >= total[x] && past > size / 3.0f));
+	}
+	if (marked)
+		GEVR_BEAN_LOG("gevr bean: backdrop: %d triangles of %d pictures fogged by their distance from the eye\n",
+		              marked, pictures);
+	free(total);
+	free(outside);
+	free(reach);
+	return marked;
+}
+
 static int roomFor(const float c[3], int nrooms)
 {
 	if (s_tree) {
@@ -1017,10 +1099,11 @@ static int buildStage(int stage)
 		assign[i] = (t->flags & GEVR_BEAN_F_PAINTED) ? -1 : ref >= 0 ? s_reference[ref].room : roomFor(c, nrooms);
 		nofog[i] = ref >= 0 && s_reference[ref].nofog;
 	}
+	markBackdrop(mesh, fileScale, nrooms, nofog);
 	{
 		int nofogs = 0;
 		for (int i = 0; i < mesh->ntris; i++)
-			nofogs += nofog[i];
+			nofogs += nofog[i] == 1;
 		if (nofogs)
 			GEVR_BEAN_LOG("gevr bean: %s: %d triangles over GoldenEye's surfaces drawn without fog\n", st->bg, nofogs);
 	}

@@ -616,7 +616,7 @@ static uint32_t *s_sortSpatial;
 /* A level's list: its faces' sides batch apart (markLevelSides()); the
  * batch being emitted's, for beanRenderMode() */
 static int s_sortSides;
-static int s_emitNoFog;   /* the batch's: GEVR_ROOM_NOFOG (beanRenderMode()) */
+static int s_emitNoFog;   /* the batch's: 1 GEVR_ROOM_NOFOG, 2 GEVR_ROOM_RADIAL (beanRenderMode()) */
 static int s_emitSide;
 
 static uint32_t spatialBits(uint32_t x)
@@ -630,7 +630,7 @@ static uint32_t spatialBits(uint32_t x)
 static int vertKey(const struct gevrEmitVert *v)
 {
 	return ((int)(v->reflectionDiffuse != 0) << 30) | ((int)v->decal << 29) | ((int)v->cut << 28)
-        | ((s_sortSides ? (int)(v->side & 3) : 0) << 26) | (s_sortSides ? (int)(v->nofog & 1) : 0)
+        | ((s_sortSides ? (int)(v->side & 3) : 0) << 26) | (s_sortSides ? (int)(v->nofog & 3) : 0)
         | ((v->tex + 1) << 16) | ((int)v->alpha << 8);
 }
 
@@ -682,7 +682,7 @@ static uint32_t beanRenderMode(Gfx **next, int mode1, int mode2, int room)
 {
     Gfx *g = *next;
     g->words.w0 = ((uintptr_t)G_GEVR_ROOM_STATE << 24) | (room == 2 ? 2 : room ? 0 : 1) |
-                  (s_emitSide ? GEVR_ROOM_FACES : 0) | (s_emitNoFog ? GEVR_ROOM_NOFOG : 0);
+                  (s_emitSide ? GEVR_ROOM_FACES : 0) | (s_emitNoFog == 1 ? GEVR_ROOM_NOFOG : s_emitNoFog == 2 ? GEVR_ROOM_RADIAL : 0);
     g->words.w1 = (uint32_t)(G_RM_PASS | mode2 | (mode1 & 0xffff));
     *next = g + 1;
     return (uint32_t)g->words.w1;
@@ -828,7 +828,7 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 		}
 		/* the batch's side (vertKey() keeps one side a batch): its mode culls */
 		s_emitSide = s_sortSides ? base->side : 0;
-		s_emitNoFog = s_sortSides && base->nofog;
+		s_emitNoFog = s_sortSides ? (base->nofog & 3) : 0;
 		sided |= s_emitSide;
 		if (tex >= 0 && tex < mesh->ntex && mesh->standin[tex]) {
 			logicalW = mesh->texW[tex] > 0 ? mesh->texW[tex] : 32;

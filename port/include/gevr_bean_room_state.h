@@ -12,6 +12,11 @@
  * nofog: a room list whose render mode is neither G_RM_PASS nor fog, as
  * Caverns' water's G_RM_AA_ZB_OPA_SURF); its own mode, no fog */
 #define GEVR_ROOM_NOFOG 16
+/* w0 bit 5: a level batch fogged by its distance from the eye, not its depth
+ * (DAB's backdrop: a band of peaks round the level is as far at the view's
+ * edges as in its middle, and fogged by depth its haze moved as the head
+ * turned) */
+#define GEVR_ROOM_RADIAL 32
 /* A fading chr's Bean draws (chrRenderProp's PropType 8 env alpha, which the
  * game's render mode carries for its own lists): w1 the alpha, 255 ends it. */
 #define G_GEVR_BEAN_FADE 0x6D

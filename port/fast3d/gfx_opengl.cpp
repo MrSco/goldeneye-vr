@@ -388,7 +388,7 @@ struct ShaderProgram {
     bool opt_fog, opt_grayscale, is_mesh;
     float motion_cut;   // SpaceWarp: the alpha a cutout discards below, 0 for none (gfx_vr_motion_pass)
     GLint meshTintLocation, meshLitLocation, meshAmbientLocation, meshLightDirLocation, meshLightColorLocation,
-        meshNumLightsLocation, meshFogLocation, meshFogParamsLocation, meshValidLocation;
+        meshNumLightsLocation, meshFogLocation, meshFogParamsLocation, meshFogEyeLocation, meshValidLocation;
     // each array element on its own: the compiler keeps only those the shader uses
     GLint meshWoundCountLocation, meshWoundLocation;
     GLint meshNormalTexLocation, meshNormalAxisLocation, meshMPLocation, meshTexLocation[2], meshTexRotationLocation[2], meshInSelLocation[GFX_MESH_MAX_INPUTS],
@@ -1499,6 +1499,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         append_line(vs_buf, &vs_len, "uniform vec3 uMeshAmbient, uMeshLightDir[7], uMeshLightColor[7];");
         append_line(vs_buf, &vs_len, "uniform vec4 uMeshFog;");
         append_line(vs_buf, &vs_len, "uniform vec4 uMeshFogParams;");
+        append_line(vs_buf, &vs_len, "uniform vec4 uMeshFogEye;");   // GEVR_ROOM_RADIAL (gfx_pc.cpp gevr_fog_radial_scale)
         append_line(vs_buf, &vs_len, "void skinAdd(int b, float w, vec3 p, vec3 n, inout vec3 pos, inout vec3 norm, inout float total) {");
         append_line(vs_buf, &vs_len, "  if (w == 0.0 || (uSkinValid[b / 32] & (1u << uint(b % 32))) == 0u) return;");
         append_line(vs_buf, &vs_len, "  vec4 r0 = uSkinRows[b*3], r1 = uSkinRows[b*3+1], r2 = uSkinRows[b*3+2];");
@@ -1581,7 +1582,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         if (cc_features.opt_fog) {
             append_line(vs_buf, &vs_len, "    float fw = abs(aVtxPos.w) < 0.001 ? 0.001 : aVtxPos.w;");
             append_line(vs_buf, &vs_len, "    float wi = fw < 0.0 ? 32767.0 : 1.0 / fw;");
-            append_line(vs_buf, &vs_len, "    vec4 aFog = vec4(uMeshFog.rgb, uMeshFogParams.z != 0.0 ? clamp((uMeshFogParams.w != 0.0 ? aVtxPos.w : aVtxPos.z * wi) * uMeshFogParams.x + uMeshFogParams.y, 0.0, 255.0) / 255.0 : uMeshFog.a);");
+            append_line(vs_buf, &vs_len, "    vec4 aFog = vec4(uMeshFog.rgb, uMeshFogParams.z != 0.0 ? clamp((uMeshFogParams.w != 0.0 ? (uMeshFogEye.w > 0.0 ? length(vec3(aVtxPos.x * uMeshFogEye.x, aVtxPos.y * uMeshFogEye.y, aVtxPos.w)) : aVtxPos.w) : aVtxPos.z * wi) * uMeshFogParams.x + uMeshFogParams.y, 0.0, 255.0) / 255.0 : uMeshFog.a);");
         }
         if (s_meshClipDistance) {
             // gfx_sp_tri1 drops a triangle past the squashed far plane at all three
@@ -2056,6 +2057,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     prg->meshNumLightsLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshNumLights") : -1;
     prg->meshFogLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshFog") : -1;
     prg->meshFogParamsLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshFogParams") : -1;
+    prg->meshFogEyeLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshFogEye") : -1;
     prg->meshValidLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uSkinValid") : -1;
     glUseProgram(shader_program);
 
@@ -3526,6 +3528,7 @@ static void gevr_mesh_uniforms(const struct ShaderProgram* prg, const struct Gfx
     if (prg->meshFogParamsLocation >= 0 && (changed(p->fog_mul,old.fog_mul) || changed(p->fog_offset,old.fog_offset) ||
         changed(p->fog_enabled,old.fog_enabled) || changed(p->fog_linear,old.fog_linear)))
         glUniform4f(prg->meshFogParamsLocation, p->fog_mul, p->fog_offset, p->fog_enabled, p->fog_linear);
+    if (prg->meshFogEyeLocation >= 0 && changed(p->fog_radial,old.fog_radial)) glUniform4fv(prg->meshFogEyeLocation, 1, p->fog_radial);
     if(prg->meshWoundCountLocation>=0 && changed(p->num_wounds,old.num_wounds))
         glUniform1i(prg->meshWoundCountLocation,p->num_wounds);
     if(prg->meshWoundLocation>=0 && p->num_wounds && changed(p->wounds,old.wounds))
