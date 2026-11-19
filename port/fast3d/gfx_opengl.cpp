@@ -2282,6 +2282,9 @@ static void gfx_opengl_set_sampler_parameters(int tile, bool linear_filter, uint
 #define GEVR_DECAL_BAND 1
 
 static void gfx_opengl_set_depth_mode(bool depth_test, bool depth_update, bool depth_compare, bool depth_source_prim, uint16_t zmode) {
+    s_depthZmode = zmode;   /* with its GEVR_ZMODE_PULL level, so a recorded draw keeps it */
+    const int pull = (zmode & GEVR_ZMODE_PULL_MASK) >> GEVR_ZMODE_PULL_SHIFT;
+    zmode &= ZMODE_DEC;
     // issue #72 test switch (gevr_zdebug.txt): the class of what follows, and mode 2's forced compare
     s_zDebugClass = !depth_test ? 0 : !depth_compare ? 1 : zmode == ZMODE_DEC ? 2 : zmode == ZMODE_XLU ? 3 : !depth_update ? 4 : 5;
     if (gevrZDebugMode == 2 && depth_test && !depth_compare) {
@@ -2291,7 +2294,6 @@ static void gfx_opengl_set_depth_mode(bool depth_test, bool depth_update, bool d
     s_depthArgs[1] = depth_update;
     s_depthArgs[2] = depth_compare;
     s_depthArgs[3] = depth_source_prim;
-    s_depthZmode = zmode;
     // The custom XLU + Z_UPD mode asks for a second, depth-only draw of
     // fully opaque fragments. The color draw keeps ordinary XLU blending.
     s_opaqueDepthWrite = depth_test && depth_compare && depth_update && zmode == ZMODE_XLU;
@@ -2312,6 +2314,17 @@ static void gfx_opengl_set_depth_mode(bool depth_test, bool depth_update, bool d
 
                 case ZMODE_OPA:
                 case ZMODE_XLU:
+                    if (pull) {
+                        /* GEVR_ZMODE_PULL: a held model's lists in painter's
+                         * order, each level a slope and two depth steps further.
+                         * Steps alone held faces seen straight on, but the grip's
+                         * pattern fought its grey at an angle, where a tie's error
+                         * grows with the slope (user, 2026-11-19) */
+                        glDepthFunc(GL_LEQUAL);
+                        glEnable(GL_POLYGON_OFFSET_FILL);
+                        glPolygonOffset(-(float)pull, -2.0f * (float)pull);
+                        break;
+                    }
                     if (depth_source_prim) {
                         glDepthFunc(GL_LEQUAL);
                     }
@@ -3226,7 +3239,7 @@ static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalD
         gevr_opaque_depth_after_blend(first, count);
         glDepthFunc(GL_LEQUAL);
         gevr_draw_range(first, count);
-        glDepthFunc(s_depthArgs[3] ? GL_LEQUAL : GL_LESS);   /* as set_depth_mode left it */
+        glDepthFunc(s_depthArgs[3] || (s_depthZmode & GEVR_ZMODE_PULL_MASK) ? GL_LEQUAL : GL_LESS);   /* as set_depth_mode left it */
         return;
     }
 
