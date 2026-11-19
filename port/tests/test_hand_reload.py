@@ -80,7 +80,7 @@ production.extend(function(view, signature) for signature in (
     "s32 gevrHandReloadActive(", "s32 gevrManualReloadOn(", "s32 gevrReloadButtonDrops(",
     "static s32 gevrBeanByHand(", "static s32 gevrGexByHand(",
     "static s32 gevrReloadSingleRound(", "static s32 gevrReloadHasMagazine(", "static s32 gevrReloadPullsUp(",
-    "static s32 gevrReloadMagPulls(",
+    "static s32 gevrReloadMagPulls(", "static void gevrReloadOffHandAt(",
     "static s32 gevrReloadPoints(",
     "s32 gevrGexHeldRoundCount(void)\n{",
     "static void gevrGexHeldDropped(", "static void gevrGexMagOut(",

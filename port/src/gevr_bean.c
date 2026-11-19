@@ -23,6 +23,8 @@
 #include "gevr_mirror.h"
 #include "gevr_bean_int.h"
 #include "gevr_beanmag.h"
+#include "gevr_hand_reload.h"
+#define GEVR_BEAN_MAG_GHOST_ALPHA 0x60   /* a placeholder magazine: a little over a third there */
 #include "gevr_bean_ce.h"
 #include "gevr_skin_mesh.h"
 #include "gevr_bean_room_state.h"
@@ -108,7 +110,7 @@ struct beanSwap {
 	void *spent;   /* DAB fpRound: the rocket launcher drawn with nothing in its tube */
 	/* a gun's removable magazine (gevr_beanmag.h, gunMagazine()): the body with
 	 * the magazine out, the magazine itself, and where it sits; NULL without one */
-	void *open, *magazine;
+	void *open, *magazine, *ghost[2];
 	struct gevrBeanMagInfo *magInfo;
 	/* A rigid prop's own list and vertices (gevrBeanEmitList), for the copy a
 	 * destroyed instance draws (gevrBeanScorchedGdl); NULL for the others. */
@@ -280,7 +282,7 @@ static void swapAdd(void *node, void *original, void *ours, int origType)
 	s_swap[s_nswap].deferredMatrix = 0;
 	s_swap[s_nswap].watchArm = s_registrationWatchArm;
 	s_swap[s_nswap].spent = NULL;
-	s_swap[s_nswap].open = s_swap[s_nswap].magazine = NULL;
+	s_swap[s_nswap].open = s_swap[s_nswap].magazine = s_swap[s_nswap].ghost[0] = s_swap[s_nswap].ghost[1] = NULL;
 	s_swap[s_nswap].magInfo = NULL;
 	s_swap[s_nswap].emitted = NULL;
 	s_swap[s_nswap].emittedVtx = NULL;
@@ -355,7 +357,9 @@ void *gevrBeanShownGdl(void *node, void *current)
 	/* GE-X and the VR watch hide the hand by clearing its native list.
 	 * Honour that per-draw visibility instead of resurrecting the Bean arm. */
 	if (s && (current || !s->original) && s->magInfo && s_magazine != GEVR_BEAN_MAG_IN)
-		return s_magazine == GEVR_BEAN_MAG_ITSELF ? s->magazine : s->open;
+		return s_magazine == GEVR_BEAN_MAG_ITSELF ? s->magazine
+		     : s_magazine == GEVR_BEAN_MAG_GHOST ? s->ghost[0]
+		     : s_magazine == GEVR_BEAN_MAG_GHOST_READY ? s->ghost[1] : s->open;
 	return s && (current || !s->original) ? (s->spent && !s_loaded ? s->spent : s->ours) : current;
 }
 
@@ -2030,12 +2034,26 @@ static void gunMagazine(const GevrBeanMagDef *def, const struct gevrBeanMesh *me
 		return;
 	}
 	free(eligible);
-	for (int pass = 0; pass < 2; pass++) {
+	/* the gun without it, the magazine, and its silhouette in the two placeholder
+	 * colours (gevr_hand_reload.h's, as GoldenEye X's guides), see-through */
+	for (int pass = 0; pass < 4; pass++) {
+		static const uint32_t tint[2] = { GEVR_RELOAD_TINT, GEVR_RELOAD_READY_TINT };
 		struct gevrBeanMesh piece = *mesh;
 		struct beanGunParts of = *parts;
 		void *g = NULL, *v = NULL;
-		piece.tris = pass ? built.mag : built.open;
-		piece.ntris = pass ? built.nmag : built.nopen;
+		void **to = pass == 0 ? &body->open : pass == 1 ? &body->magazine : &body->ghost[pass - 2];
+		for (int t = 0; pass >= 2 && t < built.nghost; t++) {
+			struct gevrBeanTri *tri = &built.ghost[t];
+			for (int c = 0; c < 3; c++) {
+				tri->rgba[c * 4] = (uint8_t)(tint[pass - 2] >> 24);
+				tri->rgba[c * 4 + 1] = (uint8_t)(tint[pass - 2] >> 16);
+				tri->rgba[c * 4 + 2] = (uint8_t)(tint[pass - 2] >> 8);
+				tri->rgba[c * 4 + 3] = GEVR_BEAN_MAG_GHOST_ALPHA;
+			}
+			tri->alpha = GEVR_BEAN_MAG_GHOST_ALPHA;
+		}
+		piece.tris = pass == 0 ? built.open : pass == 1 ? built.mag : built.ghost;
+		piece.ntris = pass == 0 ? built.nopen : pass == 1 ? built.nmag : built.nghost;
 		piece.draws = NULL;
 		piece.ndraws = 0;
 		piece.triSrc = NULL;
@@ -2050,14 +2068,14 @@ static void gunMagazine(const GevrBeanMagDef *def, const struct gevrBeanMesh *me
 		if (emitRigid(&piece, kind, hasHead, node, fit, NULL, -1, rest, 0, &g, &v)) {
 			keepAlloc(g);
 			keepAlloc(v);
-			*(pass ? &body->magazine : &body->open) = wrapEmitted(node, g);
+			*to = wrapEmitted(node, g);
 		}
 		free(of.of);
 	}
 	s_parts = wasParts;
 	s_partsMesh = wasMesh;
 	s_partWant = wasWant;
-	if (body->open && body->magazine)
+	if (body->open && body->magazine && body->ghost[0] && body->ghost[1])
 		info = malloc(sizeof(*info));
 	if (info && keepAlloc(info)) {
 		const float *from[4] = { built.mouth, built.top, built.foot, built.hold };
@@ -2077,7 +2095,7 @@ static void gunMagazine(const GevrBeanMagDef *def, const struct gevrBeanMesh *me
 		              built.nmag, built.nfoot, built.nopen);
 	} else {
 		free(info);
-		body->open = body->magazine = NULL;
+		body->open = body->magazine = body->ghost[0] = body->ghost[1] = NULL;
 	}
 	gevrBeanMagFree(&built);
 }

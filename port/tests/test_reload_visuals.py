@@ -48,8 +48,8 @@ static Gfx *gevrGexDrawProp(Gfx *gdl, ModelRenderData *templ, const GexWeaponDef
 int gevrHandReloadActive(void) { return 1; }
 /* a Bean gun's magazine at the belt (gun.c): GoldenEye X's guns here, so never drawn */
 static int beanBelts;
-Gfx *gevrBeanMagDrawBelt(Gfx *gdl, ModelRenderData *templ, s32 hand, const Mtxf *beltPose)
-{ (void)templ; (void)hand; (void)beltPose; beanBelts++; return gdl; }
+Gfx *gevrBeanMagDrawBelt(Gfx *gdl, ModelRenderData *templ, s32 hand, const Mtxf *beltPose, u32 tint)
+{ (void)templ; (void)hand; (void)beltPose; (void)tint; beanBelts++; return gdl; }
 const GexWeaponDef *gevrGexWeaponForHand(int hand) { (void)hand; return def; }
 static const GexWeaponDef *gevrGexForHeader(ModelFileHeader *hdr) { (void)hdr; return def; }
 void *dynAllocate(s32 size) { return calloc(1,size); }

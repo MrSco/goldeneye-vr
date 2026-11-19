@@ -2287,8 +2287,8 @@ Gfx *gevrGexDrawMagazineGuide(Gfx *gdl, ModelRenderData *templ, s32 hand, const 
     if (def == NULL)
     {
         /* a Bean gun's magazine where the belt offers it (below); it has no ghost in the gun */
-        extern Gfx *gevrBeanMagDrawBelt(Gfx *gdl, ModelRenderData *templ, s32 hand, const Mtxf *beltPose);
-        return beltPose != NULL ? gevrBeanMagDrawBelt(gdl, templ, hand, beltPose) : gdl;
+        extern Gfx *gevrBeanMagDrawBelt(Gfx *gdl, ModelRenderData *templ, s32 hand, const Mtxf *beltPose, u32 tint);
+        return beltPose != NULL ? gevrBeanMagDrawBelt(gdl, templ, hand, beltPose, tint) : gdl;
     }
     if (!gevrHandReloadActive() || !gevrGexHasMagazine(def) || !s_gevrGexLastValid[hand]) return gdl;
     mag = s_gevrGexLastMag[hand];
@@ -2622,8 +2622,18 @@ static s32 gevrBeanMagInHandPose(const struct gevrBeanMagInfo *info, const Mtxf 
 
 /* The magazine alone, at pose: the gun's body list in a scratch model whose
  * every other matrix is collapsed, as GE-X's parts are isolated (gevrGexDrawPartGuide). */
+static Gfx *gevrBeanMagDrawAs(Gfx *gdl, ModelRenderData *templ, s32 hand, const struct gevrBeanMagInfo *info,
+                              const Mtxf *pose, s32 as);
+
 static Gfx *gevrBeanMagDrawAt(Gfx *gdl, ModelRenderData *templ, s32 hand, const struct gevrBeanMagInfo *info,
                               const Mtxf *pose)
+{
+    return gevrBeanMagDrawAs(gdl, templ, hand, info, pose, GEVR_BEAN_MAG_ITSELF);
+}
+
+/* ... as itself, or as its see-through placeholder (GEVR_BEAN_MAG_GHOST, _READY) */
+static Gfx *gevrBeanMagDrawAs(Gfx *gdl, ModelRenderData *templ, s32 hand, const struct gevrBeanMagInfo *info,
+                              const Mtxf *pose, s32 as)
 {
     Model *source = &g_CurrentPlayer->hands[hand].weaponModel;
     ModelFileHeader *hdr = source->obj;
@@ -2650,7 +2660,7 @@ static Gfx *gevrBeanMagDrawAt(Gfx *gdl, ModelRenderData *templ, s32 hand, const 
     copy.render_pos = (RenderPosView *) matrices;
     rd.gdl = gdl;
     gSPSegment(rd.gdl++, 3, osVirtualToPhysical(copy.render_pos));
-    gevrBeanSetMagazine(GEVR_BEAN_MAG_ITSELF);
+    gevrBeanSetMagazine(as);
     sub_GAME_7F074534(&rd, &copy, (ModelNode *) info->node);
     gevrBeanSetMagazine(GEVR_BEAN_MAG_IN);
     bondviewTransformManyPosToViewMatrix(copy.render_pos, hdr->numMatrices);
@@ -2659,8 +2669,9 @@ static Gfx *gevrBeanMagDrawAt(Gfx *gdl, ModelRenderData *templ, s32 hand, const 
 
 /* gevr_bodyslots.c gevrReloadBeltDraw, through gevrGexDrawMagazineGuide: the
  * magazine the belt offers, at the gun's size, upright in the belt's frame and
- * centred on its point (GE-X's is its installed part there). */
-Gfx *gevrBeanMagDrawBelt(Gfx *gdl, ModelRenderData *templ, s32 hand, const Mtxf *beltPose)
+ * centred on its point (GE-X's is its installed part there): its placeholder,
+ * in the colour the belt asks - GE-X's blue, or its green with the hand there. */
+Gfx *gevrBeanMagDrawBelt(Gfx *gdl, ModelRenderData *templ, s32 hand, const Mtxf *beltPose, u32 tint)
 {
     struct gevrBeanMagInfo info;
     ModelRenderData rd = *templ;
@@ -2690,7 +2701,9 @@ Gfx *gevrBeanMagDrawBelt(Gfx *gdl, ModelRenderData *templ, s32 hand, const Mtxf 
     rd.PropType = PROP_TYPE_CHR + 1;
     rd.cullmode = CULLMODE_NONE;
     gSPClearGeometryMode(gdl++, G_CULL_BOTH);
-    return gevrBeanMagDrawAt(gdl, &rd, hand, &info, &pose);
+    return gevrBeanMagDrawAs(gdl, &rd, hand, &info, &pose,
+                             (tint & 0xFFFFFF00u) == GEVR_RELOAD_READY_TINT ? GEVR_BEAN_MAG_GHOST_READY
+                                                                            : GEVR_BEAN_MAG_GHOST);
 }
 
 /* gunfire.c, after the gun's own draw and before its matrices leave the view's
@@ -2703,7 +2716,7 @@ Gfx *gevrBeanMagDraw(Gfx *gdl, ModelRenderData *templ, GUNHAND hand)
     Model *model;
     Mtxf *rw, pose;
     f32 well[3];
-    s32 state, item;
+    s32 state, item, hover;
 
     if (hand != GUNRIGHT && hand != GUNLEFT)
     {
@@ -2765,7 +2778,15 @@ Gfx *gevrBeanMagDraw(Gfx *gdl, ModelRenderData *templ, GUNHAND hand)
     {
         gdl = gevrBeanMagDrawAt(gdl, templ, hand, &info, &pose);
     }
-    if (hand == gevrReloadSupportGun() && gevrReloadSeatHover(well))
+    hover = hand == gevrReloadSupportGun() && gevrReloadSeatHover(well);
+    if (state == GEVR_GEXMAG_OUT || state == GEVR_GEXMAG_INHAND)
+    {
+        /* where it goes: its placeholder in the gun, as GE-X's ghost (gevrGexDrawReloadGuide),
+         * after the gun and the magazines so they show through it */
+        gdl = gevrBeanMagDrawAs(gdl, templ, hand, &info, &rw[info.matrix],
+                                hover ? GEVR_BEAN_MAG_GHOST_READY : GEVR_BEAN_MAG_GHOST);
+    }
+    if (hover)
     {
         gdl = gevrDrawInteractionRing(gdl, well, 3.0f, GEVR_RELOAD_READY_TINT | 0xE0);
     }

@@ -117,21 +117,21 @@ static void island(void)
 			assert(fabsf(built.mag[i].p[v * 3 + 1] - (20.0f - 0.02f * 420.0f)) < 1e-2f);
 	}
 	assert(lid >= 3);
-	/* the gun keeps every other triangle, in order, and is floored where the magazine went in */
-	assert(built.nopen > s_ntris - 12);
+	/* the gun keeps every other triangle, in order, and nothing is added to it: where
+	 * the magazine went in may be open, shut or not the gun's at all, so no floor */
 	for (int i = 0; i < built.nopen; i++) {
 		const int src = built.openSrc[i];
-		if (src < 0) {
-			floor++;
-			assert(built.open[i].tex == -1 && built.open[i].rgba[0] == 10 && built.open[i].n[1] == -1.0f);
-			for (int v = 0; v < 3; v++)
-				assert(fabsf(built.open[i].p[v * 3 + 1] - 4.0f) < 1e-2f);   /* the mouth at y 0, 4 up */
-			continue;
-		}
-		assert(src < mag || src >= hand);
+		floor += src < 0;
+		assert(src >= 0 && (src < mag || src >= hand));
 		assert(!memcmp(&built.open[i], &s_tris[src], sizeof(s_tris[src])));
 	}
-	assert(floor >= 3 && built.nopen - floor == s_ntris - 12);
+	assert(floor == 0 && built.nopen == s_ntris - 12);
+	/* its silhouette: every triangle of it, plain and white for the port to tint */
+	assert(built.nghost == built.nmag);
+	for (int i = 0; i < built.nghost; i++) {
+		assert(built.ghost[i].tex == -1 && built.ghost[i].rgba[0] == 255 && built.ghost[i].rgba[3] == 255);
+		assert(fabsf(area(&built.ghost[i]) - area(&built.mag[i])) < 1e-2f);
+	}
 	(void)gun;
 	(void)reaching;
 	/* in along its own lean; the mouth where it meets the gun, the top 20 further in */
@@ -273,8 +273,9 @@ int main(void)
 		assert(fabsf(side(plane, built.top) - 200.0f) < 1e-1f && fabsf(built.top[2] - lean * built.top[1]) < 0.2f);
 		assert(built.foot[1] < 0 && built.foot[1] > -100.0f);
 	}
+	assert(built.nghost == built.nmag && built.ghost[0].tex == -1);
 	gevrBeanMagFree(&built);
-	assert(!built.open && !built.mag && !built.nopen);
+	assert(!built.open && !built.mag && !built.ghost && !built.nopen);
 
 	/* nothing below the plane: no magazine, and nothing left allocated */
 	def.plane[3] = 500.0f;

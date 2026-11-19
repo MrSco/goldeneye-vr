@@ -17,8 +17,10 @@
  * That is a pistol's, whose magazine is inside its grip. A rifle's or a
  * submachine gun's hangs out of the gun and is a piece of the mesh on its own
  * (an island: it shares no corner with the rest), so there the magazine is
- * that piece whole, with a lid on its top, and the gun without it has a dark
- * floor where it went in. Nothing is cut and no body is made.
+ * that piece whole, with a lid on its top, and the gun without it is the rest
+ * as it is: where the magazine went in the release's gun may be open, shut or
+ * not there at all (the AR33's hangs off the receiver's front), so no floor is
+ * guessed for it. Nothing is cut and no body is made.
  * Everything here is in the release mesh's own units (gevrBeanTri.p), which
  * tools/gevr_bean_mag_preview.py draws.
  */
@@ -60,6 +62,11 @@ typedef struct GevrBeanMagBuilt {
 	float top[3];         /* the seated magazine's top */
 	float foot[3];        /* the foot's middle: where a hand takes it */
 	float hold[3];        /* where the off hand's palm has it */
+	/* its silhouette, plain and one colour, for the see-through placeholders in
+	 * the well and at the belt (gevr_bean.c tints it): the magazine's own
+	 * triangles, or its box when it has very many (the RC-P90's rounds) */
+	struct gevrBeanTri *ghost;
+	int nghost;
 } GevrBeanMagBuilt;
 
 const GevrBeanMagDef *gevrBeanMagFor(const char *source);

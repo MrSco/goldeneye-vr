@@ -106,8 +106,23 @@ That is a pistol's. A rifle's or a submachine gun's magazine hangs out of the
 gun, and in the release's meshes it is a piece on its own: it shares no corner
 with the rest of the gun. There the magazine is every such piece wholly inside
 a box round it, taken whole, with a lid just under its top; the gun without it
-is floored where it went in. Nothing is cut and no body is made. It goes in the
-way its own top third runs, so a curved or leaning magazine seats along itself.
+is the rest, untouched. Nothing is cut, no body is made, and no floor is added:
+where the magazine went in, the release's gun may be open, shut, or not there
+at all (the AR33's hangs off the receiver's front, and a guessed floor hung in
+the air). It goes in the way its own top third runs, so a curved or leaning
+magazine seats along itself.
+
+**Placeholders.** As GE-X's: with the magazine out, its see-through silhouette
+stands in the gun where it goes, and at the belt where a fresh one is taken,
+blue, or green when the hand is there. They are two more builds of the body
+list, the magazine's triangles plain and tinted (the RC-P90's, with its
+thousands of rounds, is its box).
+
+**The off hand is its palm.** GE-X's left hand is posed with the palm on the
+controller's grip. Bean's off hand is GoldenEye's watch arm, whose hand lies
+well ahead of the grip, so the place that takes a magazine at the belt or off
+the gun is the palm the magazine is held in: Gun fit's held ammo. Fit that and
+both follow.
 
 The gun's body list then has three builds on the same matrix: whole (the
 release's own, drawn while the magazine is in), open, and the magazine alone.
@@ -159,8 +174,6 @@ goes by the weapon wheel's pistols.
   RC-P90 - where each magazine sits in the hand, the pull (taken at the
   magazine's middle as drawn, within 10 cm and nearer than the two-handed hold),
   the lids and floors, and the RC-P90's see-through magazine drawn on its own.
-- The magazine at the belt is drawn untinted, and there is no ghost in the well
-  (GE-X has both).
 - Nothing is sent to other players: the magazine's state is local, as GE-X's.
 
 ### Path to a manual slide rack (both families)

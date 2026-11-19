@@ -773,6 +773,7 @@ int main(int argc, char **argv)
         assert(gevrBeanGunMagazine(&header, &info) == wants);
         for (int i = 0; i < s_nswap; i++) {
             assert(!s_swap[i].magInfo == !s_swap[i].open && !s_swap[i].open == !s_swap[i].magazine);
+            assert(!s_swap[i].magInfo == !s_swap[i].ghost[0] && !s_swap[i].ghost[0] == !s_swap[i].ghost[1]);
             if (!s_swap[i].magInfo)
                 continue;
             struct beanSwap whole = s_swap[i], open = s_swap[i], mag = s_swap[i];
@@ -814,6 +815,10 @@ int main(int argc, char **argv)
                 assert(gevrBeanShownGdl(s_swap[i].node, current) == s_swap[i].open);
                 gevrBeanSetMagazine(GEVR_BEAN_MAG_ITSELF);
                 assert(gevrBeanShownGdl(s_swap[i].node, current) == s_swap[i].magazine);
+                gevrBeanSetMagazine(GEVR_BEAN_MAG_GHOST);
+                assert(gevrBeanShownGdl(s_swap[i].node, current) == s_swap[i].ghost[0]);
+                gevrBeanSetMagazine(GEVR_BEAN_MAG_GHOST_READY);
+                assert(gevrBeanShownGdl(s_swap[i].node, current) == s_swap[i].ghost[1]);
                 gevrBeanSetMagazine(GEVR_BEAN_MAG_IN);
                 assert(gevrBeanShownGdl(s_swap[i].node, current) == s_swap[i].ours);
                 printf("MAGAZINE %s draws in, out and alone\n", argv[2]);

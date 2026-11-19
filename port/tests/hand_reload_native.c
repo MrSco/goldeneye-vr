@@ -96,6 +96,7 @@ static int beanLiftsOff;
 s32 gevrBeanMagPullsUp(s32 hand) { return gevrBeanMagHeld(hand) && beanLiftsOff; }
 float *gevrBeanMagFit(s32 item, s32 which) { (void)item; return beanFit[which]; }
 s32 gevrWeaponCategory(s32 item);   /* bondview2.c's own, below: the pistols are its first wedge */
+s32 gevrBeanHeldPalm(f32 out[3]);   /* bondview2.c's own, below: the off hand's palm */
 const GexWeaponDef *gevrGexWeaponForHand(int hand)
 { return gex[hand] ? gevrGexWeaponGet(getCurrentPlayerWeaponId(hand)) : NULL; }
 static float gevrGunSizeFactor(void) { return 1.0f; }
@@ -563,6 +564,26 @@ static void beanPp7Reload(void)
     assert(gevrReloadDraw(GUNRIGHT));
     gevrHandReloadTick();
     assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_OUT && player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0);
+
+    /* The off hand is where its palm is, not the controller's grip (user: "it thinks
+     * like my hand is the end of the wrist"): with the palm fitted 18 cm ahead of
+     * the grip, the belt answers the palm there, not the grip. */
+    reset();
+    VrGexGuns = 0; beanOn = 1; beanMag[GUNRIGHT] = 1;
+    stats.MagSize = 7;
+    at(1, 20, 20, 40);
+    gevrHandReloadTick();
+    gevrGexDropMagazine(GUNRIGHT);
+    beanFit[0][2] = -18;
+    belt(0, 0); gripHeld[0] = 1; gevrHandReloadTick();           /* the grip at the belt, the palm 18 cm off */
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_OUT && !gevrReloadBeltHover(0));
+    gripHeld[0] = 0; gevrHandReloadTick();
+    belt(0, 0); poses[0][2] += 18 * cm;                          /* the palm at the belt */
+    assert(gevrReloadBeltHover(0) && gevrGexClaimsOffHand());
+    gripHeld[0] = 1; gevrHandReloadTick();
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_INHAND);
+    gripHeld[0] = 0; gevrHandReloadTick();
+    stats.MagSize = magSize;
 
     /* A rifle's magazine hangs out of the gun: Bean's is pulled as GE-X's, taken
      * at its middle where the gun is drawn, within the rifles' 10 cm and out by

@@ -5,9 +5,9 @@ guns, and with your release's files every gun of the table.
 
 Without the files only the made-up guns are checked. With them each gun in the
 table is loaded by the production loader, its magazine taken, and checked: the
-hand is whole, the gun without it is floored, and a pistol's foot hangs below
-its plane with the body standing on it, or a rifle's magazine is a piece of the
-mesh on its own with a lid. The release's files are read locally, never copied.
+hand is whole, and a pistol's foot hangs below its plane with the body standing
+on it and the well floored, or a rifle's magazine is a piece of the mesh on its
+own with a lid and the gun otherwise untouched. The release's files are read locally, never copied.
 """
 from pathlib import Path
 import os
@@ -66,7 +66,10 @@ def main():
             hands = sum(1 for kind, _ in sets["g"] if kind == 1)
             assert hands == sum(1 for kind, _ in sets["o"] if kind == 1), f"{source}: the hand was cut"
             floor = [p for kind, p in sets["o"] if kind == 3]
-            assert len(own) >= 20 and len(made) >= 3 and len(floor) >= 3, (source, len(own), len(made), len(floor))
+            assert len(own) >= 20 and len(made) >= 3, (source, len(own), len(made))
+            # a pistol's empty well is floored; where a rifle's magazine went in is left as the
+            # release has it (the AR33's floor hung in the air under the receiver)
+            assert (len(floor) == 0) if int(island) else (len(floor) >= 3), (source, len(floor))
             axis, mouth, top, hold = ([float(v) for v in facts[k]] for k in ("axis", "mouth", "top", "hold"))
             assert abs(sum(v * v for v in axis) - 1) < 1e-3, (source, axis)
             # into the gun is up, or down for a magazine that lifts off its top
@@ -91,7 +94,7 @@ def main():
                 assert top[1] - mouth[1] > 250, (source, mouth, top)   # a pistol's well: most of the grip
             print(f"{source}: {'a piece of its own' if int(island) else 'cut from the grip'}, "
                   f"{len(own)} triangles, {len(made)} made, floor {len(floor)}")
-        print(f"PASS: the release's {len(guns)} guns - magazines taken, hands whole, wells floored")
+        print(f"PASS: the release's {len(guns)} guns - magazines taken, hands whole, pistols' wells floored")
 
 
 if __name__ == "__main__":

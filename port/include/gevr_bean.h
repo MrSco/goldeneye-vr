@@ -66,7 +66,10 @@ int gevrBeanHasRound(const void *header);
  * (as the release made it), with it out and the well empty, or as the magazine
  * alone, which sits in the gun under the body's own matrix. Points are in that
  * list's space: the body matrix takes them to the view. */
-enum { GEVR_BEAN_MAG_IN, GEVR_BEAN_MAG_OUT, GEVR_BEAN_MAG_ITSELF };
+/* ... or as its see-through silhouette: the placeholder in the empty well and
+ * at the belt, GoldenEye X's colours (gevr_hand_reload.h), _READY's when the
+ * hand is there to take or seat it. */
+enum { GEVR_BEAN_MAG_IN, GEVR_BEAN_MAG_OUT, GEVR_BEAN_MAG_ITSELF, GEVR_BEAN_MAG_GHOST, GEVR_BEAN_MAG_GHOST_READY };
 struct gevrBeanMagInfo {
 	void *node;      /* the body's list */
 	int matrix;      /* and its matrix */
