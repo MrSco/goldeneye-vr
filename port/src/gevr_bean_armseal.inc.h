@@ -156,6 +156,78 @@ static int armSealLace(struct gevrBeanMesh *mesh, const int *rim, int n, const f
 /* 0.92 left a corner of the wrist through the band's underside (headset): 0.90 */
 #define ARMSEAL_ARM_SIZE 0.90f
 
+/*
+ * The wrist kept inside the watch band (user, 2026-11-18, headset: at 90% "the
+ * watch is still clipping into the left wrist a little bit" - one corner of the
+ * wrist's skin stood through the band's underside). A smaller arm only makes
+ * the corner smaller; the wrist is not round where the band is. So round the
+ * arm's axis (y, through the watch's middle) the band's own inside is measured
+ * in sectors - the nearest watch corner to the axis in each - and every corner
+ * of the hand's skin beside the band is drawn in to just under it, there and
+ * a band's width either side, easing off to nothing beyond.
+ */
+#define ARMSEAL_SECTORS 32
+#define ARMSEAL_BAND_CLEAR 0.90f   /* the skin stays this much of the band's inside radius: room for the posed wrist */
+
+static void beanWristUnderBand(struct gevrBeanMesh *mesh, const double middle[3])
+{
+	float inside[ARMSEAL_SECTORS], low = 1e30f, high = -1e30f, width;
+	for (int k = 0; k < ARMSEAL_SECTORS; k++)
+		inside[k] = 1e30f;
+	/* the band: the watch's corners, bar its face and case, which stand out from the wrist */
+	for (int i = 0; i < mesh->ntris; i++) {
+		const struct gevrBeanTri *t = &mesh->tris[i];
+		if (t->tex >= ARMSEAL_FIRST_TEX && t->tex <= ARMSEAL_LAST_TEX)
+			continue;
+		for (int c = 0; c < 3; c++) {
+			const float x = t->p[c * 3] - (float)middle[0], z = t->p[c * 3 + 2] - (float)middle[2];
+			const float r = sqrtf(x * x + z * z);
+			const int k = (int)((atan2f(z, x) + 3.14159265f) / 6.2831853f * ARMSEAL_SECTORS) % ARMSEAL_SECTORS;
+			if (r < 1.0f)
+				continue;   /* the hands' pivot, on the axis */
+			if (r < inside[k]) inside[k] = r;
+			if (t->p[c * 3 + 1] < low) low = t->p[c * 3 + 1];
+			if (t->p[c * 3 + 1] > high) high = t->p[c * 3 + 1];
+		}
+	}
+	width = high - low;
+	if (width < 1.0f)
+		return;
+	/* a sector takes its neighbours' insides too: a corner between two sectors' is under both */
+	{
+		float eased[ARMSEAL_SECTORS];
+		for (int k = 0; k < ARMSEAL_SECTORS; k++) {
+			const float a = inside[(k + ARMSEAL_SECTORS - 1) % ARMSEAL_SECTORS], b = inside[(k + 1) % ARMSEAL_SECTORS];
+			eased[k] = inside[k];
+			if (a < eased[k]) eased[k] = a;
+			if (b < eased[k]) eased[k] = b;
+		}
+		memcpy(inside, eased, sizeof(inside));
+	}
+	for (int i = 0; i < mesh->ntris; i++) {
+		struct gevrBeanTri *t = &mesh->tris[i];
+		if (t->tex != ARMSEAL_FIRST_TEX)
+			continue;   /* the hand and bare forearm: the sleeves are clear of the watch */
+		for (int c = 0; c < 3; c++) {
+			float *p = &t->p[c * 3];
+			const float x = p[0] - (float)middle[0], z = p[2] - (float)middle[2];
+			const float r = sqrtf(x * x + z * z);
+			const int k = (int)((atan2f(z, x) + 3.14159265f) / 6.2831853f * ARMSEAL_SECTORS) % ARMSEAL_SECTORS;
+			/* how far along the arm from the band: 0 under it, 1 a band's width away */
+			const float off = p[1] < low ? (low - p[1]) / width : p[1] > high ? (p[1] - high) / width : 0.0f;
+			float most;
+			if (off >= 1.0f || inside[k] > 1e29f || r < 1e-3f)
+				continue;
+			most = inside[k] * ARMSEAL_BAND_CLEAR;
+			most += (r - most) * off;   /* easing off: no step in the forearm */
+			if (r > most) {
+				p[0] = (float)middle[0] + x * most / r;
+				p[2] = (float)middle[2] + z * most / r;
+			}
+		}
+	}
+}
+
 static void beanShrinkWatchArm(struct gevrBeanMesh *mesh)
 {
 	double middle[3] = { 0, 0, 0 };
@@ -179,6 +251,7 @@ static void beanShrinkWatchArm(struct gevrBeanMesh *mesh)
 		for (int c = 0; c < 9; c++)
 			t->p[c] = (float)(middle[c % 3] + (t->p[c] - middle[c % 3]) * ARMSEAL_ARM_SIZE);
 	}
+	beanWristUnderBand(mesh, middle);
 }
 
 /* The triangles added, for the pictures firstTex to lastTex. every: close each

@@ -6234,8 +6234,11 @@ static s32 gevrScopeBeginHand(s32 hand)
     s32 i;
 
     st->gunValid = FALSE;
+    /* not while the weapon wheel is up (user, 2026-11-18, headset: the scope's view
+     * showed on top of it): the lens is a layer of its own, over the game's picture */
+    extern s32 gevrWeaponPanelOpen;
     if (g_gevrStereo && g_CurrentPlayer != NULL && !gevrVrScreenMode && g_PlayerIsInTank != 1
-        && sc != NULL
+        && sc != NULL && !gevrWeaponPanelOpen
         && vu > 1e-6f && gevrGripAxes(ctrl, pos, right, up, back) && gevrStereoShot(hand, NULL, &o, &d))
     {
         gevrScopeTune();
