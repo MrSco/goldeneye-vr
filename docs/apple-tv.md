@@ -29,6 +29,7 @@ CMake's `tvos` platform sets `GEVR_IOS` and `GEVR_TVOS`; everything under
   signing environment, with the tvOS profile "GoldenEye VR tvOS App Store"
   (the iPhone and Vision Pro profile does not cover Apple TV). It validated and
   uploaded without errors; nobody has run it on a device yet.
+  0.5.20 (2) followed with the release, from its tag.
 
 ## Build (on the Mac)
 

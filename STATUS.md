@@ -5,22 +5,23 @@ in docs/archive/ (the v0.5.15 batch as it stood before release is
 [status-2026-11-10](docs/archive/status-2026-11-10.md)); features keep their
 own notes. No game data is shipped; building publishes nothing.
 
-**Release:** v0.5.19 (versionCode 132, protocol 26), 2026-11-18, tag on
-c0c40e72 ([notes](docs/releases/v0.5.19.md)): the Mario Characters V3.17
-campaign (docs/mario-characters.md) with GoldenEye's hand patches carried to
-its hands (tools/gevr_handpatch_port.py) and its pause watch at the arm's
-own scale; online co-op in every hack campaign (lobby names the campaign);
-co-op Control door waits for the party (#246); a teammate that never loads
-is dropped 60 s after the host (#245); Dam boat lands on the island floor
-(#247); PC VR quits when the runtime ends the session (report fa49c715);
-START lists only what the campaign loads; native Vision Pro app
-(docs/visionos-native.md). Plays online with v0.5.15 to v0.5.18 in
-GoldenEye's campaign. 8 downloads from one commit; iOS TestFlight 139,
-visionOS TestFlight 15 (native). Gates: suite 111/111 (97 Windows + 14 WSL,
-Mario ROM), Java 46x3, server gate passed.
-**Next:** Mario Characters' dismemberment caps use GoldenEye's neck sizes
-(user report 2026-11-18). Untested with two headsets: #245/#246 and co-op
-in the hack campaigns; PC VR dashboard quit untested on SteamVR.
+**Release:** v0.5.20 (versionCode 133, protocol 26), 2026-11-18, tag on
+305fb5af ([notes](docs/releases/v0.5.20.md)): Bean guns reload by hand as
+GE-X's do (port/src/gevr_beanmag.c: magazines cut from the XBLA models,
+round-at-a-time guns, pistols never pulled, no self-reload with hand
+reloading); Bean's sculpted glove patches and a sealed, smaller off-hand arm
+(port/src/gevr_bean_armseal.inc.h); the scope lens follows a reload, the
+KF7/AR33 magnifier always shows, the ammo count beside the lens, the
+supporting hand takes the recoil; Bean level fixes #249-#254; ragdolls drawn
+before the see-through pass; Apple TV (docs/apple-tv.md). Plays online with
+v0.5.15 to v0.5.19 in GoldenEye's campaign. 8 downloads from one commit;
+TestFlight iOS 140 (native now; 139 was Klepton's), visionOS 16, tvOS 2.
+Gates: suite 112/112 (98 Windows + 14 WSL, every ROM incl. Mario and
+Mirror), Java 46x3, server gate passed.
+**Next:** headset checks of the round-at-a-time Bean reloads (the shotguns'
+port is a guess) and the placeholders; Apple TV's remote and pads on a
+device; Mario Characters' dismemberment caps use GoldenEye's neck sizes.
+Untested with two headsets: #245/#246 and co-op in the hack campaigns.
 
 ## Platforms (docs/pc-platforms.md, docs/mobile-platforms.md)
 

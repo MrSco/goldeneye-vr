@@ -85,6 +85,10 @@ launcher.
   stats. A signed build: `~/src/gevr-ios-device.command` on the Mac, opened
   from its desktop session (ssh cannot reach the signing keychain), with the
   personal team only (`DEVELOPMENT_TEAM`); it installs over `devicectl`.
+- **TestFlight:** the native app from v0.5.20 (build 140), made with
+  `tools/build_ios.sh device --archive <build> --upload` and the App Store
+  profile "GoldenEye VR App Store" (iOS and visionOS). Builds up to 139 were
+  the Quest APK in Klepton.
 - **Lost touches:** iOS sometimes never tells the app a finger lifted (the
   stick, AIM held for good; ten lifts in one fight). Every touch is held and
   its phase asked each poll, as perfect-dark-ios's D-034 watchdog does; a new
