@@ -2041,6 +2041,112 @@ static int paintLevelUnlit(struct gevrBeanMesh *mesh, const uint8_t *pass, int n
 	return painted;
 }
 
+/*
+ * DAB gebeanstage.c dropTwins() (port/licenses/dabs-mod.txt): opaque triangles
+ * the release's draws repeat corner for corner in another picture, of which it
+ * shows only the first it draws. Its level draws in its stream's order, the
+ * opaque pass with the depth test LESS: a second triangle at exactly the first
+ * one's depth fails it everywhere and is never seen. Facility's walls carry
+ * GoldenEye's yellow and black hazard stripes this way, under the concrete the
+ * release shows, and Dam's, Runway's and Frigate's have more (445 twins over
+ * the levels). The decal pass took both as lying wholly on each other and drew
+ * the later one on top. A blended twin is kept (the blended pass wins its ties)
+ * and left to the decal pass; so is the next twin under a first that is a
+ * cut-out, which shows where the cut-out is clear (the Cradle's walkway plate
+ * under its braces); and a twin in the same picture and colour is drawn the
+ * same anyway. Corners compared to the bit, as the release's buffers have
+ * them. Before the level's other passes, its pass bytes compacted with it.
+ */
+struct twinKey {
+	float c[9];
+	int tri;
+};
+
+static int twinCornerCmp(const void *a, const void *b)
+{
+	return memcmp(a, b, 3 * sizeof(float));
+}
+
+static int twinCmp(const void *a, const void *b)
+{
+	const struct twinKey *x = a, *y = b;
+	const int r = memcmp(x->c, y->c, sizeof(x->c));
+	return r ? r : (x->tri > y->tri) - (x->tri < y->tri);
+}
+
+static int dropLevelTwins(struct gevrBeanMesh *mesh, uint8_t *pass, int npass, const uint8_t *texAlpha)
+{
+	const int n = mesh->ntris;
+	struct twinKey *keys = malloc((size_t)(n > 0 ? n : 1) * sizeof(*keys));
+	uint8_t *drop = calloc((size_t)(n > 0 ? n : 1), 1);
+	int dropped = 0, kept = 0;
+	if (!keys || !drop) {
+		free(keys);
+		free(drop);
+		return 0;
+	}
+	for (int t = 0; t < n; t++) {
+		float corner[3][3];
+		memcpy(corner, mesh->tris[t].p, sizeof(corner));
+		qsort(corner, 3, sizeof(corner[0]), twinCornerCmp);
+		memcpy(keys[t].c, corner, sizeof(keys[t].c));
+		keys[t].tri = t;
+	}
+	qsort(keys, (size_t)n, sizeof(*keys), twinCmp);
+/* blended, or a plain shader-only overlay fixPlainLevelFaces() may leave out */
+#define TWIN_BLEND(t) (((t) < npass && (pass[(t)] & LDECAL_PASS_BLEND)) || (mesh->tris[(t)].flags & GEVR_BEAN_F_PLAIN))
+	for (int a = 0; a < n;) {
+		int b = a + 1, first = -1, second = -1;
+		while (b < n && !memcmp(keys[b].c, keys[a].c, sizeof(keys[a].c)))
+			b++;
+		/* of the opaque ones, the one the release draws first */
+		for (int k = a; k < b; k++) {
+			const int t = keys[k].tri;
+			if (!TWIN_BLEND(t) && (first < 0 || t < first))
+				first = t;
+		}
+		/* a first that is a cut-out shows the next one where it is clear */
+		if (first >= 0 && mesh->tris[first].alphatest && mesh->tris[first].tex >= 0 &&
+		    mesh->tris[first].tex < MAX_TEX && texAlpha[mesh->tris[first].tex])
+			for (int k = a; k < b; k++) {
+				const int t = keys[k].tri;
+				if (t != first && !TWIN_BLEND(t) && mesh->tris[t].tex != mesh->tris[first].tex &&
+				    (second < 0 || t < second))
+					second = t;
+			}
+		for (int k = a; k < b && first >= 0; k++) {
+			const int t = keys[k].tri;
+			if (t == first || t == second || TWIN_BLEND(t))
+				continue;
+			if (mesh->tris[t].tex != mesh->tris[first].tex ||
+			    memcmp(mesh->tris[t].rgba, mesh->tris[first].rgba, sizeof(mesh->tris[t].rgba))) {
+				drop[t] = 1;
+				dropped++;
+			}
+		}
+		a = b;
+	}
+#undef TWIN_BLEND
+	for (int t = 0; t < n && dropped; t++) {
+		if (drop[t])
+			continue;
+		if (kept != t) {
+			mesh->tris[kept] = mesh->tris[t];
+			if (kept < npass)
+				pass[kept] = t < npass ? pass[t] : 0;
+		}
+		kept++;
+	}
+	if (dropped) {
+		for (int t = kept; t < npass; t++)
+			pass[t] = 0;
+		mesh->ntris = kept;
+	}
+	free(keys);
+	free(drop);
+	return dropped;
+}
+
 /* DAB gebeanLevelTriangles()/gebeanstage.c (aae28c8): a draw without UVs
  * or a material since its vertex shader was set has no picture of its own.
  * Bunker's helipad has 107 white triangles shaded entirely by that shader.
@@ -3395,6 +3501,9 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		free(tris);
 	}
 	if (levelFade) {
+		const int twins = dropLevelTwins(mesh, triPass, passCap < mesh->ntris ? passCap : mesh->ntris, texAlpha);
+		if (twins)
+			GEVR_BEAN_LOG("gevr bean: %s: %d opaque twins the release never shows left out\n", source, twins);
 		const int unlit = paintLevelUnlit(mesh, triPass, passCap < mesh->ntris ? passCap : mesh->ntris, texAlpha,
 		                                 levelDecalScale(source), 0);
 		if (unlit)
