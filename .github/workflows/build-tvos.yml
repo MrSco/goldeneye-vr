@@ -7,6 +7,10 @@ on:
       - 'tvos-*'
   workflow_dispatch:
     inputs:
+      runner:
+        description: "GitHub Actions macOS runner label"
+        required: false
+        default: "macos-15-intel"
       xcode_path:
         description: "Optional explicit Xcode .app path (e.g. /Applications/Xcode_26.1.1.app)"
         required: false
@@ -27,7 +31,7 @@ env:
 
 jobs:
   build-tvos:
-    runs-on: macos-15
+    runs-on: ${{ inputs.runner || 'macos-15-intel' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -63,6 +67,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
           HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install xcodegen
           xcodegen --version
 
