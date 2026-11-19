@@ -68,4 +68,14 @@ void gevrRomSwapLangBank(u8 *data, u32 size, const char *name);
 /* Ubrief files contain only u16 string ids and difficulty values. */
 void gevrRomSwapBriefing(u8 *data, u32 size);
 
+/*
+ * Faults in GoldenEye's own data the community found in the XBLA release's
+ * copy and mended in its Community Edition (DAB geconvert.c g_RomPatches[]):
+ * a stage's collision or setup file, decompressed and still in the
+ * cartridge's byte order. Each fix is the cartridge's bytes and what they
+ * become; a file whose bytes are not the cartridge's (a ROM hack's) is left
+ * as it is. Returns how many were made.
+ */
+int gevrRomFixData(const char *name, u8 *data, u32 size);
+
 #endif

@@ -128,10 +128,14 @@ with tempfile.TemporaryDirectory(prefix="bean-helipad-") as temporary:
         ("white12", {"stride": 12}, 1, -1),
         ("coloured20", {"stride": 20, "colour": 0xFF123456}, 2, -1),
         ("isolated16", {"stride": 16, "isolated": True}, 2, -1),
-        ("owned16", {"stride": 16, "own": True}, 2, 0),
-        ("owned20", {"stride": 20, "own": True}, 2, 0),
+        ("owned16", {"stride": 16, "own": True, "isolated": True}, 2, 0),
+        ("owned20", {"stride": 20, "own": True, "isolated": True}, 2, 0),
         ("fading20", {"stride": 20, "colour": 0x80FFFFFF, "blended": True}, 2, -1),
-        ("uv24", {"stride": 24}, 2, 0),
+        ("uv24", {"stride": 24, "isolated": True}, 2, 0),
+        # an opaque textured face corner for corner on an earlier one is a twin the
+        # release never shows (DAB dropTwins()): left out, the first kept
+        ("twin16", {"stride": 16, "own": True}, 1, 0),
+        ("twin24", {"stride": 24}, 1, 0),
     ]
     for name, options, count, tex in cases:
         model = files / (name + ".bin")

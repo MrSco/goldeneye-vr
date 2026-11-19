@@ -1636,6 +1636,11 @@ bool bgIsRoomOnScreen(s32 roomID, struct rectbbox *screenbox)
     const f32 farN64 = zrange[1];   /* issue #46 */
     s32 count_zN64 = 0;
     zrange[1] *= GEVR_FAR_EXTEND;
+    /* the HD level's whole reach (gevrBeanFarReach(): DAB raises its far plane to it) */
+    if (zrange[1] < gevrBeanFarReach())
+    {
+        zrange[1] = gevrBeanFarReach();
+    }
 #endif
 
     for (i = 0; i < 8; i++) {
@@ -1773,6 +1778,10 @@ s32 sub_GAME_7F0B5528(s32 portalnum, f32 arg1, coord3d *arg2)
 #ifdef GEVR
     const f32 farN64 = zrange[1];   /* issue #46 */
     zrange[1] *= GEVR_FAR_EXTEND;
+    if (zrange[1] < gevrBeanFarReach())
+    {
+        zrange[1] = gevrBeanFarReach();
+    }
 #endif
 
     for (i = 0; i < g_BgPortals[portalnum].offset_portal->numPoints; i++) {
@@ -3115,6 +3124,75 @@ Gfx *bgRenderRoomPrimary(Gfx *gdl, s32 room_index)
  *
  * Render a room's secondary (transparent) geometry.
 */
+#ifdef GEVR
+/*
+ * Whether a room's translucent list draws nothing but GoldenEye's water: the
+ * grey (1508) and the blue (1509), which it also draws its sea with, and Dam
+ * and Complex's (1511). Egyptian's pool in the pillared hall is a plain stone
+ * basin in the release, and GoldenEye's is a sheet of its blue water at half
+ * alpha laid over it (room 3); Bean's room drew the dry basin (DAB
+ * gebeanstage.c fileWaterLeaves(), texIsGeWater()). Read once per list.
+ */
+static s32 gevrRoomListIsWater(s32 room_index)
+{
+    static Gfx *s_checked[MAXROOMCOUNT];
+    static s8 s_water[MAXROOMCOUNT];
+    Gfx *list = (Gfx *)g_BgRoomInfo[room_index].ptr_secondary_expanded_mapping_info;
+    Gfx *c;
+    s32 water = 0;
+    s32 other = 0;
+    s32 n;
+
+    if (list == NULL || room_index <= 0 || room_index >= MAXROOMCOUNT)
+    {
+        return FALSE;
+    }
+
+    if (s_checked[room_index] == list)
+    {
+        return s_water[room_index];
+    }
+
+    for (c = list, n = 0; n < 4096; c++, n++)
+    {
+        const u8 op = (u8)(c->words.w0 >> 24);
+
+        if (op == (u8)G_ENDDL)
+        {
+            break;
+        }
+
+        if (op == (u8)G_DL)
+        {
+            other = 1;
+        }
+        else if (op == (u8)G_SETTIMG)
+        {
+            void *imgptr = (void *)c->words.w1;
+            s32 texnum = -1;
+
+            if (imgptr != NULL)
+            {
+                texnum = ((struct tex *)((u8 *)imgptr - offsetof(struct tex, data)))->texturenum;
+            }
+
+            if (texnum == 0x5e4 || texnum == 0x5e5 || texnum == 0x5e7)
+            {
+                water = 1;
+            }
+            else
+            {
+                other = 1;
+            }
+        }
+    }
+
+    s_checked[room_index] = list;
+    s_water[room_index] = water && !other;
+    return s_water[room_index];
+}
+#endif
+
 Gfx *bgRenderRoomSecondary(Gfx *gdl, s32 room_index)
 {
     if (room_index >= g_MaxNumRooms)
@@ -3148,6 +3226,13 @@ Gfx *bgRenderRoomSecondary(Gfx *gdl, s32 room_index)
             {
                 int beanReplaced = 0;
                 Gfx *beanGdl = applyRoomMatrixToDisplayList(gdl, room_index);
+                /* GoldenEye's water where Bean's room has none (gevrRoomListIsWater()),
+                 * first: drawn in the state set for the room, as without Bean */
+                if (gevrBeanRoomWantsWater(room_index) && gevrRoomListIsWater(room_index))
+                {
+                    gSPSegment(beanGdl++, SPSEGMENT_BG_VTX, OS_K0_TO_PHYSICAL(g_BgRoomInfo[room_index].vertices));
+                    gSPDisplayList(beanGdl++, OS_K0_TO_PHYSICAL(g_BgRoomInfo[room_index].ptr_secondary_expanded_mapping_info));
+                }
                 beanGdl = gevrBeanRoomAppendSecondary(beanGdl, room_index, &beanReplaced);
                 if (beanReplaced) {
                     g_BgRoomInfo[room_index].model_bin_loaded = 1;
@@ -3863,6 +3948,19 @@ bool bgTestBulletHitBackground(coord3d *from, coord3d *to, s32 roomnum, struct H
     s32 dy;
     s32 dz;
 
+#ifdef GEVR
+    /*
+     * A room the HD level leaves out and draws nothing for (gevr_bean_world.c
+     * hiddenRoom(): Dam's far cliffs, a patch Bean's own surface replaced) stops
+     * no shot: shots stopped in mid-air near the dam (DAB prop.c shotGeRooms(),
+     * gebeanStageRoomHidden()). Every user of this test is a line that should
+     * pass where nothing is seen: shots, the camera's ceiling, a thrown prop.
+     */
+    if (gevrBeanRoomHidden(roomnum))
+    {
+        return FALSE;
+    }
+#endif
     found = FALSE;
     bestdist = 0x7fffffff;
 

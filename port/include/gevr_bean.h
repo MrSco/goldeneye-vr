@@ -87,6 +87,20 @@ void gevrBeanSetMagazine(int state);
 int gevrBeanGunMagazine(const void *header, struct gevrBeanMagInfo *out);
 /* whether the release draws any of a model's lists now */
 int gevrBeanDrawsModel(const void *header);
+/* Bean has an HD list on one of the model's nodes, cached (model.c's detail level) */
+int gevrBeanModelHasHd(const void *header);
+/* around a prop the game draws without depth on purpose (propobj.c): Bean's lists follow */
+void *gevrBeanNodeOnTop(void *gdl, int on);
+/* a shot (view space) on the Bean body or head a chr's model draws: its distance in dir's
+ * lengths and the matrix the hit triangle hangs from (gevr_bean_bodyhit.inc.h, chr.c) */
+int gevrBeanChrRayHit(void *chrModel, const float origin[3], const float dir[3], float *t, int *matrix);
+/* a shot at one of a prop's lists, on the triangles Bean draws: 1 hit, 0 miss, -1 the game's own (propobj.c) */
+struct HitThing;
+int gevrBeanHitNode(void *node, const float pos[3], const float dir[3], struct HitThing *hit);
+/* a hat on a head Bean draws, seated by the HD meshes: an offset, a size and the point
+ * it is sized about, in the hat's own space (gevr_bean_hats.inc.h; chr.c) */
+int gevrBeanHatSeat(void *chrModel, const void *headHeader, void *hatModel, const float joint[4][4], int hattype,
+                    float seat[7]);
 void gevrBeanReset(void);
 
 /* Stand-in tile address -> decoded RGBA8. 1 when addr is one of ours. */
@@ -181,6 +195,15 @@ int gevrBeanScreenQuad(struct Model *model, void *node, struct Vertex *vertices)
 /* HD level rooms. Advances the display list. *replaced is 1 when the N64
  * room list should be left out. The second call is the transparent pass. */
 void *gevrBeanRoomAppend(void *gdl, int room, int *replaced);
+/* a GoldenEye room the HD level hides: it stops no shot (bg.c) */
+int gevrBeanRoomHidden(int room);
+/* a prop left out of this view: one beside Aztec's armour closet, the camera
+ * in it (gevr_bean_world.c keepOutOfRooms()) */
+int gevrBeanHidesProp(const float pos[3], const unsigned char *rooms, int nrooms, int camRoom);
+/* Bean draws this room and no water of its own: keep GoldenEye's water (bg.c) */
+int gevrBeanRoomWantsWater(int room);
+/* how far the HD level reaches, world units, 0 when it is not drawn: the far tests take it (bg.c, bgfog.c) */
+float gevrBeanFarReach(void);
 void *gevrBeanRoomAppendSecondary(void *gdl, int room, int *replaced);
 
 /* HD sky. *drew is 1 when GoldenEye's sky plane should be left out. */

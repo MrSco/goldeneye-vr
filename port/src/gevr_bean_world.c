@@ -57,6 +57,9 @@ struct roomSlot {
 	int has;
 	/* GoldenEye's own backdrop, which Bean leaves out: drawn as nothing (hiddenRoom) */
 	int hidden;
+	/* drawn from its own lists where GoldenEye's portal walk reaches it, out of
+	 * the merged world (keepOutOfRooms) */
+	int byPortals;
 	/* opa and xlu as static meshes (gevr_static_mesh.h): the lists drawn, or NULL */
 	Gfx *wrap[2];
 	GevrStaticMesh *mesh[2];
@@ -69,10 +72,15 @@ static int s_nrooms;
 static int s_stage = -9999;
 static int s_tried;
 static int s_ok;
+static int s_levelWater;   /* Bean pictures markWater() took for water */
+static float s_reachWorld;  /* the HD rooms' box's diagonal, world units (gevrBeanWorldReach()) */
 static Gfx *s_opaque, *s_opaqueWrap;
 static void *s_opaqueVertices;
 static GevrStaticMesh *s_opaqueMesh;
 static int s_opaqueDrawn;
+static int s_nlampUndo;   /* gevrBeanWorldLampDarken's undo log, below */
+static int s_keptRoom = -1;               /* keepOutOfRooms' room, or -1 */
+static float s_keptLo[3], s_keptHi[3];   /* its box from GoldenEye's own triangles, room table units */
 
 static int s_cullOutside;   /* this view's camera stands outside the level */
 static int s_authoredView;  /* this view is one of GoldenEye's own cameras */
@@ -255,6 +263,7 @@ static void fillVert(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *
 	e->n[2] = t->n[corner * 3 + 2];
 	e->uv[0] = t->uv[corner * 2];
 	e->uv[1] = t->uv[corner * 2 + 1];
+	e->nofog = 0;
 	e->rgba[0] = t->rgba[corner * 4];
 	e->rgba[1] = t->rgba[corner * 4 + 1];
 	e->rgba[2] = t->rgba[corner * 4 + 2];
@@ -358,6 +367,122 @@ static void waterGrad(struct waterMeasure *m, const float v[3][3], const float f
 	m->area += area;
 }
 
+/*
+ * DAB gebeanstage.c markUnderSea() (port/licenses/dabs-mod.txt): what lies
+ * under a level's sea is seen through it, as GoldenEye has it. GoldenEye's
+ * sea is the sky's water plane (WaterRepeat its height), drawn before
+ * everything; Frigate's reflection is the hull built again upside down below
+ * its foot, in a translucent leaf at half alpha over the sea. Bean builds the
+ * same mirrored hull, on both sides, among the hull's own opaque draws, so it
+ * stood under the ship as a second, solid hull and the ship looked sunk deep
+ * in the water (user, Quest, 2026-11-19, beside the N64 look).
+ *
+ * So below the lowest of GoldenEye's opaque geometry, where that is under the
+ * sea and GoldenEye draws something translucent there, Bean's triangles are
+ * drawn translucent: at that leaf's alpha at the waterline, fading to nothing
+ * at the deepest, in the mirror's mean colour and a few steps of fade, turned
+ * outwards and culled so the far side's mirror is not seen through the near
+ * one's. What is above - the hull's own foot, the decks - is as it was.
+ */
+#define UNDERSEA_SLACK 2.0f
+#define UNDERSEA_STEPS 8
+
+static int underSeaTri(const struct gevrBeanTri *t, float fileScale, float top)
+{
+	return t->p[1] * fileScale <= top && t->p[4] * fileScale <= top && t->p[7] * fileScale <= top;
+}
+
+static void underSeaSwap(uint8_t *a, uint8_t *b, size_t n)
+{
+	uint8_t tmp[64];
+	memcpy(tmp, a, n);
+	memcpy(a, b, n);
+	memcpy(b, tmp, n);
+}
+
+static int markUnderSea(struct gevrBeanMesh *mesh, float fileScale)
+{
+	struct CurrentEnvironmentRecord *env = fogGetCurrentEnvironmentp();
+	float floor = 1e30f, top, bottom = 1e30f, centre[3] = { 0, 0, 0 };
+	double mean[3] = { 0, 0, 0 };
+	int alpha = 0, num = 0, marked = 0;
+	if (!env || !env->IsWater || !s_reference || !s_referenceCount)
+		return 0;
+	for (int i = 0; i < s_referenceCount; i++)
+		if (s_reference[i].opaque && s_reference[i].lo[1] < floor)
+			floor = s_reference[i].lo[1];
+	/* the sea's height is in world units, the level file's in its own (room_data_float2) */
+	if (floor * room_data_float2 >= env->WaterRepeat)
+		return 0;
+	for (int i = 0; i < s_referenceCount; i++)
+		if (!s_reference[i].opaque && s_reference[i].hi[1] <= floor + UNDERSEA_SLACK && s_reference[i].envAlpha > alpha)
+			alpha = s_reference[i].envAlpha;
+	if (!alpha)
+		return 0;
+	top = floor + UNDERSEA_SLACK;
+	for (int i = 0; i < mesh->ntris; i++) {
+		const struct gevrBeanTri *t = &mesh->tris[i];
+		if (!underSeaTri(t, fileScale, top))
+			continue;
+		for (int k = 0; k < 3; k++) {
+			if (t->p[k * 3 + 1] * fileScale < bottom)
+				bottom = t->p[k * 3 + 1] * fileScale;
+			for (int j = 0; j < 3; j++) {
+				centre[j] += t->p[k * 3 + j] * fileScale;
+				mean[j] += t->rgba[k * 4 + j];
+			}
+		}
+		num += 3;
+	}
+	if (!num)
+		return 0;
+	for (int j = 0; j < 3; j++) {
+		centre[j] /= num;
+		mean[j] = mean[j] / num + 0.5;
+	}
+	for (int i = 0; i < mesh->ntris; i++) {
+		struct gevrBeanTri *t = &mesh->tris[i];
+		float e1[3], e2[3], n[3], mid[3];
+		if (!underSeaTri(t, fileScale, top))
+			continue;
+		/* turned to face away from the middle of the mirror, so culling keeps
+		 * the side towards the eye */
+		for (int j = 0; j < 3; j++) {
+			mid[j] = (t->p[j] + t->p[3 + j] + t->p[6 + j]) * fileScale / 3.0f;
+			e1[j] = t->p[3 + j] - t->p[j];
+			e2[j] = t->p[6 + j] - t->p[j];
+		}
+		n[0] = e1[1] * e2[2] - e1[2] * e2[1];
+		n[1] = e1[2] * e2[0] - e1[0] * e2[2];
+		n[2] = e1[0] * e2[1] - e1[1] * e2[0];
+		if (n[0] * n[0] + n[1] * n[1] + n[2] * n[2] > 0.0f &&
+		    n[0] * (mid[0] - centre[0]) + n[2] * (mid[2] - centre[2]) < 0.0f) {
+			underSeaSwap((uint8_t *)&t->p[3], (uint8_t *)&t->p[6], 3 * sizeof(float));
+			underSeaSwap((uint8_t *)&t->n[3], (uint8_t *)&t->n[6], 3 * sizeof(float));
+			underSeaSwap((uint8_t *)&t->uv[2], (uint8_t *)&t->uv[4], 2 * sizeof(float));
+			underSeaSwap(&t->rgba[4], &t->rgba[8], 4);
+			underSeaSwap(&t->bone[4], &t->bone[8], 4);
+			underSeaSwap(&t->weight[4], &t->weight[8], 4);
+		}
+		for (int k = 0; k < 3; k++) {
+			const float y = t->p[k * 3 + 1] * fileScale;
+			const float fade = top > bottom ? (y - bottom) / (top - bottom) : 1.0f;
+			const int step = (int)(fade * UNDERSEA_STEPS + 0.5f);
+			for (int j = 0; j < 3; j++)
+				t->rgba[k * 4 + j] = (uint8_t)mean[j];
+			t->rgba[k * 4 + 3] = (uint8_t)(alpha * step / UNDERSEA_STEPS);
+		}
+		t->alpha = 254;   /* the translucent pass (gevrBeanEmitList) */
+		t->alphatest = 0;
+		t->side = GEVR_BEAN_SIDE_BACKED;   /* drawn culled */
+		marked++;
+	}
+	if (marked)
+		GEVR_BEAN_LOG("gevr bean: %d triangles of the reflection under the sea drawn through it "
+		              "(GoldenEye's floor %.0f, sea %.0f, alpha %d)\n", marked, floor, env->WaterRepeat, alpha);
+	return marked;
+}
+
 static void markWater(const struct gevrBeanMesh *mesh, float fileScale)
 {
 	struct waterMeasure ge, hd;
@@ -366,6 +491,7 @@ static void markWater(const struct gevrBeanMesh *mesh, float fileScale)
 	memset(&ge, 0, sizeof(ge));
 	memset(&hd, 0, sizeof(hd));
 	gevrBeanWaterSetRate(0, 0, 0);
+	s_levelWater = 0;
 	if (!s_reference || !mesh->ntex)
 		return;
 	int *water = malloc((size_t)s_referenceCount * sizeof(int));
@@ -448,6 +574,7 @@ static void markWater(const struct gevrBeanMesh *mesh, float fileScale)
 			              x, on[x], all[x]);
 		}
 	}
+	s_levelWater = marked;
 	/* Bean's UV is in repeats, drawn as quarter texels of a 32 texel repeat,
 	 * t running the other way (gevr_bean.c gevrBeanEmitList) */
 	for (int i = 0; marked && i < mesh->ntris; i++) {
@@ -565,6 +692,172 @@ static int hiddenRoom(const struct gevrBeanMesh *mesh, float fileScale, int room
 	return hidden;
 }
 
+/*
+ * DAB gebeanstage.c takeBackdrop() (port/licenses/dabs-mod.txt): the level's
+ * backdrop. 4J ring some levels with a panorama on a band of triangles far
+ * outside the level (Surface's peaks, Dam's, Runway's, Cradle's canyon), whose
+ * top fades into the sky. A picture is the backdrop when no corner of any of
+ * its triangles lies over the level's rooms in plan, or when at least half its
+ * triangles are outside and it reaches past the level by more than a third of
+ * the level's size (Cradle's cliffs dip under the platform). DAB draws it
+ * after the sky, fogged by each vertex's distance from the eye: a band round
+ * the level is as far at the view's edges as in its middle, and fogged by eye
+ * depth, as the rooms are, its haze shifted as the head turned. Here nothing
+ * is cut by the far plane, so only that fog is needed: its triangles are
+ * marked 2 in nofog[] (GEVR_ROOM_RADIAL). Returns how many.
+ */
+static int markBackdrop(const struct gevrBeanMesh *mesh, float fileScale, int nrooms, uint8_t *nofog)
+{
+	float mn[2] = { 1e30f, 1e30f }, mx[2] = { -1e30f, -1e30f };
+	int *total = calloc((size_t)mesh->ntex + 1, sizeof(int)), *outside = calloc((size_t)mesh->ntex + 1, sizeof(int));
+	float (*reach)[4] = calloc((size_t)mesh->ntex + 1, sizeof(*reach));
+	int marked = 0, pictures = 0;
+	if (!total || !outside || !reach) {
+		free(total);
+		free(outside);
+		free(reach);
+		return 0;
+	}
+	for (int r = 1; r < nrooms; r++) {
+		const float x0 = g_BgRoomInfo[r].minbounds.x, x1 = g_BgRoomInfo[r].maxbounds.x;
+		const float z0 = g_BgRoomInfo[r].minbounds.z, z1 = g_BgRoomInfo[r].maxbounds.z;
+		if (!(x1 > x0) || !(z1 > z0))
+			continue;
+		mn[0] = fminf(mn[0], x0);
+		mn[1] = fminf(mn[1], z0);
+		mx[0] = fmaxf(mx[0], x1);
+		mx[1] = fmaxf(mx[1], z1);
+	}
+	for (int t = 0; t < mesh->ntex; t++) {
+		reach[t][0] = reach[t][1] = 1e30f;
+		reach[t][2] = reach[t][3] = -1e30f;
+	}
+	for (int i = 0; i < mesh->ntris && mn[0] <= mx[0]; i++) {
+		const struct gevrBeanTri *t = &mesh->tris[i];
+		int over = 0;
+		if (t->tex < 0 || t->tex >= mesh->ntex)
+			continue;
+		for (int k = 0; k < 3; k++) {
+			const float x = t->p[k * 3] * fileScale, z = t->p[k * 3 + 2] * fileScale;
+			over |= x >= mn[0] && x <= mx[0] && z >= mn[1] && z <= mx[1];
+			reach[t->tex][0] = fminf(reach[t->tex][0], x);
+			reach[t->tex][1] = fminf(reach[t->tex][1], z);
+			reach[t->tex][2] = fmaxf(reach[t->tex][2], x);
+			reach[t->tex][3] = fmaxf(reach[t->tex][3], z);
+		}
+		total[t->tex]++;
+		outside[t->tex] += !over;
+	}
+	const float size = fmaxf(mx[0] - mn[0], mx[1] - mn[1]);
+	for (int i = 0; i < mesh->ntris && mn[0] <= mx[0]; i++) {
+		const int x = mesh->tris[i].tex;
+		if (x < 0 || x >= mesh->ntex || !total[x])
+			continue;
+		const float past = fmaxf(fmaxf(mn[0] - reach[x][0], mn[1] - reach[x][1]),
+		                         fmaxf(reach[x][2] - mx[0], reach[x][3] - mx[1]));
+		if ((outside[x] == total[x] || (outside[x] * 2 >= total[x] && past > size / 3.0f)) && !nofog[i]) {
+			nofog[i] = 2;
+			marked++;
+		}
+	}
+	for (int x = 0; x < mesh->ntex; x++) {
+		const float past = fmaxf(fmaxf(mn[0] - reach[x][0], mn[1] - reach[x][1]),
+		                         fmaxf(reach[x][2] - mx[0], reach[x][3] - mx[1]));
+		pictures += total[x] && (outside[x] == total[x] || (outside[x] * 2 >= total[x] && past > size / 3.0f));
+	}
+	if (marked)
+		GEVR_BEAN_LOG("gevr bean: backdrop: %d triangles of %d pictures fogged by their distance from the eye\n",
+		              marked, pictures);
+	free(total);
+	free(outside);
+	free(reach);
+	return marked;
+}
+
+/*
+ * DAB gebeanstage.c markOverlaps() (port/licenses/dabs-mod.txt): Bean's solid
+ * faces drawn culled where GoldenEye's own face under them has another room's
+ * space behind it - the first of GoldenEye's faces a line back from it meets,
+ * within 64 units, faces the same way (a wall of the space behind, not the far
+ * side of a slab), and that space is closed on all six sides by GoldenEye's
+ * faces turned into it (not the open air under a roof's edge or behind a
+ * gantry's panel). GoldenEye's rooms overlap and rely on their faces being
+ * culled: Aztec's computer room by the exhaust vent is a box whose west wall
+ * runs through the vent's last 50 units, and from the vent GoldenEye shows the
+ * room through the back of that wall, the body armour on the floor. Bean's
+ * wall, drawn two-sided, was a stone face across the vent. Marked as a sheet's
+ * face (GEVR_BEAN_SIDE_BACKED): its back culled.
+ */
+#define OVERLAP_REACH 64.0f
+#define OVERLAP_SPACE 400.0f
+
+static int markOverlaps(struct gevrBeanMesh *mesh, float fileScale)
+{
+	static const float axes[6][3] = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 } };
+	int count = 0;
+	if (!s_tree)
+		return 0;
+	for (int i = 0; i < mesh->ntris; i++) {
+		struct gevrBeanTri *t = &mesh->tris[i];
+		float p[3][3], e1[3], e2[3], n[3], mid[3], o[3], back[3], nf[3], best = OVERLAP_REACH, len, pd;
+		if ((t->flags & (GEVR_BEAN_F_DECAL | GEVR_BEAN_F_PAINTED)) || t->alpha < 255 || t->side ||
+		    (t->tex >= 0 && t->tex < mesh->ntex && mesh->texCut[t->tex]))
+			continue;
+		for (int v = 0; v < 3; v++)
+			for (int k = 0; k < 3; k++)
+				p[v][k] = t->p[v * 3 + k] * fileScale;
+		for (int k = 0; k < 3; k++) {
+			e1[k] = p[1][k] - p[0][k];
+			e2[k] = p[2][k] - p[0][k];
+		}
+		n[0] = e1[1] * e2[2] - e1[2] * e2[1];
+		n[1] = e1[2] * e2[0] - e1[0] * e2[2];
+		n[2] = e1[0] * e2[1] - e1[1] * e2[0];
+		len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+		if (!(len > 0.0f))
+			continue;
+		for (int k = 0; k < 3; k++) {
+			n[k] /= len;
+			mid[k] = (p[0][k] + p[1][k] + p[2][k]) / 3.0f;
+			back[k] = -n[k];
+			o[k] = mid[k] - n[k];
+		}
+		pd = n[0] * mid[0] + n[1] * mid[1] + n[2] * mid[2];
+		/* GoldenEye has a face here, facing the same way */
+		{
+			float dist = 16.0f;   /* 4 units, squared */
+			int ref = -1;
+			roomReferenceNearestTri(0, mid, &dist, &ref);
+			if (ref < 0 || !roomReferenceNormal(ref, nf))
+				continue;
+			const float dot = nf[0] * n[0] + nf[1] * n[1] + nf[2] * n[2];
+			if (dot < 0.9f)
+				continue;
+		}
+		/* the first of GoldenEye's faces behind it faces the same way: a space */
+		if (roomRayFirst(o, back, n, pd, OVERLAP_REACH, &best, nf) < 0 ||
+		    nf[0] * n[0] + nf[1] * n[1] + nf[2] * n[2] < 0.5f || best < 8.0f)
+			continue;
+		/* and the space between is closed all round */
+		{
+			const float in[3] = { o[0] + back[0] * best * 0.5f, o[1] + back[1] * best * 0.5f, o[2] + back[2] * best * 0.5f };
+			int closed = 1;
+			for (int a = 0; a < 6 && closed; a++) {
+				float far = OVERLAP_SPACE, na[3];
+				closed = roomRayFirst(in, axes[a], n, pd, OVERLAP_SPACE, &far, na) >= 0 &&
+				         na[0] * axes[a][0] + na[1] * axes[a][1] + na[2] * axes[a][2] < 0.0f;
+			}
+			if (!closed)
+				continue;
+		}
+		t->side = GEVR_BEAN_SIDE_BACKED;
+		count++;
+	}
+	if (count)
+		GEVR_BEAN_LOG("gevr bean: %d faces over another room's space drawn culled\n", count);
+	return count;
+}
+
 static int roomFor(const float c[3], int nrooms)
 {
 	if (s_tree) {
@@ -651,6 +944,7 @@ static void clearRooms(void)
     shotsFree();
     s_cullOutside = 0;
     gevrStaticMeshFree(s_opaqueMesh); free(s_opaqueWrap);
+    s_nlampUndo = 0;   /* its colours went with the lists (gevrBeanWorldLampDarken) */
     free(s_opaque); free(s_opaqueVertices);
     s_opaqueMesh=NULL; s_opaqueWrap=NULL; s_opaque=NULL; s_opaqueVertices=NULL;
     s_opaqueDrawn=0;
@@ -671,9 +965,11 @@ static void clearRooms(void)
 		s_room[i].vtxXlu = NULL;
 		s_room[i].has = 0;
 		s_room[i].hidden = 0;
+		s_room[i].byPortals = 0;
 	}
 	s_nrooms = 0;
 	s_ok = 0;
+	s_keptRoom = -1;
 }
 
 /* GoldenEye's doors as the setup places them, in world units: the bound
@@ -755,6 +1051,109 @@ static void fitLevelOpenings(struct gevrBeanMesh *mesh, const struct beanStage *
 	if (faded || strips)
 		GEVR_BEAN_LOG("gevr bean: %s holes: %d faded faces made solid, %d strips to a wall's foot\n",
 		              st->bg, faded, strips);
+}
+
+/*
+ * DAB gebeanstage.c keptOutOf[] (port/licenses/dabs-mod.txt). Aztec's room 45
+ * is the closet under the exhaust hatch, a box of metal panels with the body
+ * armour on its floor. Bean runs the stone wall of room 18 beside it down the
+ * middle of the box, so a mossy slab stood across the closet by the armour,
+ * the sky over its top edge; GoldenEye shows the whole closet. What of
+ * another room stands inside the closet's box (any of the points of a 12-step
+ * grid across a face, 4 units in from GoldenEye's own walls of it) is dealt
+ * to room 18, and the two rooms, which overlap, are drawn from their own
+ * lists, out of the merged world, only where GoldenEye's portal walk reaches
+ * them: the wall from room 18 (left out, room 18 had no back wall and the
+ * guidance room's glass showed the closet's box and the rooms past it), the
+ * closet from inside it. While the camera is in the closet, the props of the
+ * rooms beside it within its box are left out as well
+ * (gevrBeanWorldHidesProp()): Bean's monitors on room 18's wall hang into the
+ * closet's top, and its white post at pad 139 stands through the east wall.
+ */
+static const struct {
+	short room, to;
+	int stage;
+} s_keptOutOf[] = {
+	{ 45, 18, LEVELID_AZTEC },
+};
+#define KEPTOUT_MARGIN 4.0f       /* inside the box by this much: its walls are its neighbours' too */
+#define KEPTOUT_STEPS 12          /* points across a face, a side */
+#define KEPTOUT_PROPREACH 48.0f   /* a prop of another room this far outside the box across is kept out too */
+
+static int keepOutOfRooms(const struct gevrBeanMesh *mesh, float fileScale, int *assign, int nrooms)
+{
+	int count = 0;
+	s_keptRoom = -1;
+	for (size_t i = 0; i < sizeof(s_keptOutOf) / sizeof(s_keptOutOf[0]); i++) {
+		const int r = s_keptOutOf[i].room, to = s_keptOutOf[i].to;
+		float lo[3] = { 1e30f, 1e30f, 1e30f }, hi[3] = { -1e30f, -1e30f, -1e30f };
+		int own = 0, moved = 0;
+		if (s_keptOutOf[i].stage != s_stage || r <= 0 || r >= nrooms || to <= 0 || to >= nrooms)
+			continue;
+		for (int j = 0; j < s_referenceCount; j++) {
+			if (s_reference[j].room != r)
+				continue;
+			own++;
+			for (int v = 0; v < 3; v++)
+				for (int k = 0; k < 3; k++) {
+					lo[k] = s_reference[j].p[v][k] < lo[k] ? s_reference[j].p[v][k] : lo[k];
+					hi[k] = s_reference[j].p[v][k] > hi[k] ? s_reference[j].p[v][k] : hi[k];
+				}
+		}
+		if (!own)
+			continue;
+		for (int t = 0; t < mesh->ntris; t++) {
+			const struct gevrBeanTri *tri = &mesh->tris[t];
+			int inside = 0;
+			if (assign[t] <= 0 || assign[t] == r || assign[t] == to)
+				continue;
+			/* any of it inside: the slab's middle is above the closet's ceiling,
+			 * its lower edge well inside */
+			for (int a = 0; a <= KEPTOUT_STEPS && !inside; a++)
+				for (int b = 0; a + b <= KEPTOUT_STEPS && !inside; b++) {
+					const float wa = (float)a / KEPTOUT_STEPS, wb = (float)b / KEPTOUT_STEPS;
+					int in = 1;
+					for (int k = 0; k < 3 && in; k++) {
+						const float q = (tri->p[k] * wa + tri->p[3 + k] * wb + tri->p[6 + k] * (1.0f - wa - wb)) * fileScale;
+						in = q > lo[k] + KEPTOUT_MARGIN && q < hi[k] - KEPTOUT_MARGIN;
+					}
+					inside = in;
+				}
+			if (inside) {
+				assign[t] = to;
+				moved++;
+			}
+		}
+		s_room[r].byPortals = s_room[to].byPortals = 1;
+		s_keptRoom = r;
+		for (int k = 0; k < 3; k++) {
+			s_keptLo[k] = lo[k];
+			s_keptHi[k] = hi[k];
+		}
+		count += moved;
+		GEVR_BEAN_LOG("gevr bean: room %d's box (world) %.0f %.0f %.0f .. %.0f %.0f %.0f: %d triangles of other rooms in it dealt to room %d; rooms %d and %d drawn by the portal walk\n",
+		              r, lo[0] * room_data_float2, lo[1] * room_data_float2, lo[2] * room_data_float2, hi[0] * room_data_float2,
+		              hi[1] * room_data_float2, hi[2] * room_data_float2, moved, to, r, to);
+	}
+	return count;
+}
+
+/* a prop at pos, in rooms[] (0xff ends it), left out of this view: the camera
+ * is in a kept-out room (keepOutOfRooms()) and the prop, of another room, at
+ * its box or within KEPTOUT_PROPREACH of it across (DAB gebeanStageHidesProp()) */
+int gevrBeanWorldHidesProp(const float pos[3], const unsigned char *rooms, int nrooms, int camRoom)
+{
+	if (!s_ok || s_keptRoom <= 0 || camRoom != s_keptRoom || !pos)
+		return 0;
+	for (int k = 0; rooms && k < nrooms && rooms[k] != 0xff; k++)
+		if (rooms[k] == s_keptRoom)
+			return 0;
+	for (int k = 0; k < 3; k++) {
+		const float reach = k == 1 ? -KEPTOUT_MARGIN : KEPTOUT_PROPREACH;
+		if (!(pos[k] > s_keptLo[k] * room_data_float2 - reach && pos[k] < s_keptHi[k] * room_data_float2 + reach))
+			return 0;
+	}
+	return 1;
 }
 
 static int buildStage(int stage)
@@ -867,7 +1266,10 @@ static int buildStage(int stage)
 			              st->bg, kept);
 	}
 	assign = malloc((size_t)mesh->ntris * sizeof(int));
-	if (!assign) {
+	uint8_t *nofog = calloc((size_t)mesh->ntris + 1, 1);   /* DAB tri->nofog */
+	if (!assign || !nofog) {
+		free(assign);
+		free(nofog);
 		gevrBeanMeshFree(mesh);
 		return 0;
 	}
@@ -882,9 +1284,27 @@ static int buildStage(int stage)
 		c[0] /= 3.0f;
 		c[1] /= 3.0f;
 		c[2] /= 3.0f;
-		assign[i] = (t->flags & GEVR_BEAN_F_PAINTED) ? -1 : roomFor(c, nrooms);
+		/* GoldenEye's nearest triangle gives the room (roomFor()) and whether
+		 * it is drawn without fog */
+		int ref = -1;
+		float distance = 1e30f;
+		if (s_tree && !(t->flags & GEVR_BEAN_F_PAINTED))
+			roomReferenceNearestTri(0, c, &distance, &ref);
+		assign[i] = (t->flags & GEVR_BEAN_F_PAINTED) ? -1 : ref >= 0 ? s_reference[ref].room : roomFor(c, nrooms);
+		nofog[i] = ref >= 0 && s_reference[ref].nofog;
 	}
+	markBackdrop(mesh, fileScale, nrooms, nofog);
+	{
+		int nofogs = 0;
+		for (int i = 0; i < mesh->ntris; i++)
+			nofogs += nofog[i] == 1;
+		if (nofogs)
+			GEVR_BEAN_LOG("gevr bean: %s: %d triangles over GoldenEye's surfaces drawn without fog\n", st->bg, nofogs);
+	}
+	markOverlaps(mesh, fileScale);
 	markWater(mesh, fileScale);
+	markUnderSea(mesh, fileScale);
+	keepOutOfRooms(mesh, fileScale, assign, nrooms);
 	shotsBuild(mesh, assign, st->scale);
 	for (int r = 0; r < nrooms; r++) {
 		int nopa = 0, nxlu = 0;
@@ -944,6 +1364,7 @@ static int buildStage(int stage)
 				p[1] = t->p[k * 3 + 1] * fileScale - ptr_bgdata_room_fileposition_list[r].pos.y;
 				p[2] = t->p[k * 3 + 2] * fileScale - ptr_bgdata_room_fileposition_list[r].pos.z;
 				fillVert(mesh, t, &dst[slot + k], p, k);
+				dst[slot + k].nofog = nofog[i];
 				for (int j = 0; j < 3; j++) {
 					const float world = p[j] + ptr_bgdata_room_fileposition_list[r].pos.f[j];
 					if (world < s_room[r].lo[j])
@@ -986,14 +1407,15 @@ static int buildStage(int stage)
     GEVR_BEAN_LOG("gevr bean room-draws: %d\n",merge);
     if (merge) {
         int count=0;
-        for (int i=0;i<mesh->ntris;i++) if (assign[i]>=0 && mesh->tris[i].alpha==255) count+=3;
+        for (int i=0;i<mesh->ntris;i++) if (assign[i]>=0 && !s_room[assign[i]].byPortals && mesh->tris[i].alpha==255) count+=3;
         struct gevrEmitVert *opaque=malloc((size_t)count*sizeof(*opaque));
         if (opaque && count) {
             int vi=0;
-            for (int i=0;i<mesh->ntris;i++) if (assign[i]>=0 && mesh->tris[i].alpha==255)
+            for (int i=0;i<mesh->ntris;i++) if (assign[i]>=0 && !s_room[assign[i]].byPortals && mesh->tris[i].alpha==255)
                 for (int k=0;k<3;k++) {
                     float p[3]; for (int j=0;j<3;j++) p[j]=mesh->tris[i].p[k*3+j]*fileScale;
-                    fillVert(mesh,&mesh->tris[i],&opaque[vi++],p,k);
+                    fillVert(mesh,&mesh->tris[i],&opaque[vi],p,k);
+                    opaque[vi++].nofog=nofog[i];
                 }
             mesh->spatialSort=1;
             void *list=NULL;
@@ -1008,6 +1430,7 @@ static int buildStage(int stage)
                 s_meshRunTris=512;
                 /* CPU replay of the float list is also complete if GPU creation fails. */
                 for (int r=0;r<nrooms;r++) {
+                    if (s_room[r].byPortals) continue;   /* drawn on its own (keepOutOfRooms) */
                     gevrStaticMeshFree(s_room[r].mesh[0]); free(s_room[r].wrap[0]);
                     free(s_room[r].opa); free(s_room[r].vtxOpa);
                     s_room[r].mesh[0]=NULL; s_room[r].wrap[0]=NULL;
@@ -1021,6 +1444,7 @@ static int buildStage(int stage)
     }
     /* GoldenEye's own triangles stay for the camera test (gevrBeanWorldBeginView) */
     free(assign);
+    free(nofog);
     {
         FILE *force = gevrBeanControlOpen("gevr_bean_roomcull.txt");
         s_cullForce = 0;
@@ -1031,6 +1455,19 @@ static int buildStage(int stage)
         GEVR_BEAN_LOG("gevr bean: %d of GoldenEye's room triangles for the camera test, roomcull=%d\n",
                       s_referenceCount, s_cullForce);
     }
+	{
+		float lo[3] = { 1e30f, 1e30f, 1e30f }, hi[3] = { -1e30f, -1e30f, -1e30f };
+		for (int r = 0; r < nrooms; r++)
+			for (int k = 0; s_room[r].has && k < 3; k++) {
+				lo[k] = fminf(lo[k], s_room[r].lo[k]);
+				hi[k] = fmaxf(hi[k], s_room[r].hi[k]);
+			}
+		s_reachWorld = 0.0f;
+		if (lo[0] <= hi[0]) {
+			const float dx = hi[0] - lo[0], dy = hi[1] - lo[1], dz = hi[2] - lo[2];
+			s_reachWorld = sqrtf(dx * dx + dy * dy + dz * dz) * room_data_float2 * 1.05f;
+		}
+	}
 	s_nrooms = nrooms;
 	s_ok = 1;
 	GEVR_BEAN_LOG("gevr bean: HD rooms %s, %d tris across %d rooms, native scale %.8f\n", st->bg, mesh->ntris, nrooms, fileScale);
@@ -1043,7 +1480,15 @@ int gevrBeanRoomFog(float line[2], uint8_t rgb[3])
     if (!s_ok || !gevrBeanIsEnabled() || !g_CurrentPlayer) return 0;
     float share, fraction; uint8_t target[3];
     fogGetBeanTransition(&share,&fraction,target);
-    return gevrBeanFogLineTransition(baseStage(s_stage), g_CurrentPlayer->current_model_pos.y,
+    /* Dam's fog reaches further the lower the camera stands (DAB gebeanStageFog():
+     * cam_pos.y, the player's own but in the opening and closing shots). The
+     * release's heights (2782, 9161) are its own world's: the room table's units,
+     * Dam's file scale being 1 - DAB's conversion moved them up by 13219 to fit
+     * Dam's -7418..8914 in sixteen bits. current_model_pos is the camera's room's
+     * origin in world units, neither the camera nor the release's space. */
+    const coord3d *camera = bondviewGetCurrentPlayersPosition();
+    const float height = camera && room_data_float2 > 0.0f ? camera->y / room_data_float2 : 0.0f;
+    return gevrBeanFogLineTransition(baseStage(s_stage), height,
                            bgGetLevelVisibilityScale(), communityEdition(),share,fraction,target,line,rgb);
 }
 
@@ -1184,16 +1629,21 @@ void *gevrBeanWorldRoom(void *gdl, int room, int *replaced)
 		*replaced = 1;   /* a hidden room's GoldenEye list is not drawn either */
 	}
     if (!xlu && s_opaque) {
-        if (s_opaqueDrawn || !g_CurrentPlayer) return gdl;
+        /* a room drawn on its own (keepOutOfRooms): under bg.c's matrix for
+         * the room and its scissor, ahead of the merged world's */
+        g = gdl;
+        if (s_room[room].byPortals && s_room[room].opa)
+            gSPDisplayList(g++, s_room[room].wrap[0] ? s_room[room].wrap[0] : s_room[room].opa);
+        if (s_opaqueDrawn || !g_CurrentPlayer) return g;
         Mtx *packed=dynAllocateMatrix();
-        if (!packed) return gdl;
+        if (!packed) return g;
         Mtxf matrix; memset(&matrix,0,sizeof(matrix)); matrix.m[3][3]=1;
         for (int k=0;k<3;k++) {
             matrix.m[k][k]=room_data_float2;
             matrix.m[3][k]=-g_CurrentPlayer->current_model_pos.f[k];
         }
         matrix_4x4_f32_to_s32(matrix.m,packed->m);
-        g=bgScissorCurrentPlayerViewDefault(gdl);
+        g=bgScissorCurrentPlayerViewDefault(g);
         gSPMatrix(g++,osVirtualToPhysical(packed),G_MTX_MODELVIEW|G_MTX_LOAD|G_MTX_NOPUSH);
         gSPDisplayList(g++,s_opaqueWrap ? s_opaqueWrap : s_opaque);
         s_opaqueDrawn=1;
@@ -1214,6 +1664,219 @@ void *gevrBeanWorldRoom(void *gdl, int room, int *replaced)
 }
 
 /* Whether the stage's Bean geometry has room `room`, and its bounds. */
+/*
+ * Shot-out lamps darken the HD rooms (DAB gelights.c geLightsDarken(), port/
+ * licenses/dabs-mod.txt). GoldenEye's lightfixture.c still breaks the fixture
+ * a shot meets and takes its N64 vertices, and those of every fixture
+ * triangle within 100 units, to a quarter; with Bean drawing the room nothing
+ * of that showed: the glass fell and the lamp stayed lit. Each triangle
+ * GoldenEye darkens (darken_triangle_in_room) darkens Bean's vertices within
+ * LAMP_REACH of it, to a quarter as well - by distance to the triangle, not a
+ * box: a box square to the axes round a sloping ceiling strip took in the
+ * wall under it (DAB, Bunker). The room's lists change in place and their
+ * meshes are sent to the GPU again; the colours come back at the level's start
+ * (lightFixtureInitTables).
+ */
+#define LAMP_REACH 16.0f   /* DAB FIXTURE_MARGIN, room units */
+
+struct lampUndo {
+	uint8_t *rgba;
+	uint8_t rgb[3];
+};
+static struct lampUndo *s_lampUndo;
+static int s_nlampUndo, s_lampUndoCap;
+
+static float lampTriDistance2(const float p[3], const float t[3][3])
+{
+	/* the nearest point of the triangle (Ericson, Real-Time Collision Detection 5.1.5) */
+	float ab[3], ac[3], ap[3], q[3];
+	for (int k = 0; k < 3; k++) {
+		ab[k] = t[1][k] - t[0][k];
+		ac[k] = t[2][k] - t[0][k];
+		ap[k] = p[k] - t[0][k];
+	}
+	const float d1 = ab[0] * ap[0] + ab[1] * ap[1] + ab[2] * ap[2];
+	const float d2 = ac[0] * ap[0] + ac[1] * ap[1] + ac[2] * ap[2];
+	float bp[3], cp[3];
+	for (int k = 0; k < 3; k++) {
+		bp[k] = p[k] - t[1][k];
+		cp[k] = p[k] - t[2][k];
+	}
+	const float d3 = ab[0] * bp[0] + ab[1] * bp[1] + ab[2] * bp[2];
+	const float d4 = ac[0] * bp[0] + ac[1] * bp[1] + ac[2] * bp[2];
+	const float d5 = ab[0] * cp[0] + ab[1] * cp[1] + ab[2] * cp[2];
+	const float d6 = ac[0] * cp[0] + ac[1] * cp[1] + ac[2] * cp[2];
+	const float vc = d1 * d4 - d3 * d2, vb = d5 * d2 - d1 * d6, va = d3 * d6 - d5 * d4;
+	if (d1 <= 0.0f && d2 <= 0.0f) {
+		for (int k = 0; k < 3; k++) q[k] = t[0][k];
+	} else if (d3 >= 0.0f && d4 <= d3) {
+		for (int k = 0; k < 3; k++) q[k] = t[1][k];
+	} else if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f) {
+		const float v = d1 / (d1 - d3);
+		for (int k = 0; k < 3; k++) q[k] = t[0][k] + v * ab[k];
+	} else if (d6 >= 0.0f && d5 <= d6) {
+		for (int k = 0; k < 3; k++) q[k] = t[2][k];
+	} else if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f) {
+		const float w = d2 / (d2 - d6);
+		for (int k = 0; k < 3; k++) q[k] = t[0][k] + w * ac[k];
+	} else if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f) {
+		const float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+		for (int k = 0; k < 3; k++) q[k] = t[1][k] + w * (t[2][k] - t[1][k]);
+	} else {
+		const float denom = 1.0f / (va + vb + vc), v = vb * denom, w = vc * denom;
+		for (int k = 0; k < 3; k++) q[k] = t[0][k] + ab[k] * v + ac[k] * w;
+	}
+	float d = 0.0f;
+	for (int k = 0; k < 3; k++) d += (p[k] - q[k]) * (p[k] - q[k]);
+	return d;
+}
+
+static int lampDarkenOne(uint8_t *rgba)
+{
+	for (int i = 0; i < s_nlampUndo; i++)
+		if (s_lampUndo[i].rgba == rgba)
+			return 0;   /* already a quarter */
+	if (s_nlampUndo == s_lampUndoCap) {
+		int cap = s_lampUndoCap ? s_lampUndoCap * 2 : 256;
+		struct lampUndo *grown = realloc(s_lampUndo, (size_t)cap * sizeof(*grown));
+		if (!grown)
+			return 0;
+		s_lampUndo = grown;
+		s_lampUndoCap = cap;
+	}
+	s_lampUndo[s_nlampUndo].rgba = rgba;
+	memcpy(s_lampUndo[s_nlampUndo].rgb, rgba, 3);
+	s_nlampUndo++;
+	rgba[0] >>= 2;
+	rgba[1] >>= 2;
+	rgba[2] >>= 2;
+	return 1;
+}
+
+/* count vertices, as Vtx or GevrWorldVertex, at off in the level's space */
+static int lampDarkenVertices(void *verts, int count, int world, const float off[3], const float tri[3][3],
+                              const float lo[3], const float hi[3])
+{
+	int n = 0;
+	for (int i = 0; verts && i < count; i++) {
+		float p[3];
+		uint8_t *rgba;
+		if (world) {
+			GevrWorldVertex *w = &((GevrWorldVertex *)verts)[i];
+			for (int k = 0; k < 3; k++) p[k] = w->p[k] + off[k];
+			rgba = w->rgba;
+		} else {
+			Vtx *v = &((Vtx *)verts)[i];
+			for (int k = 0; k < 3; k++) p[k] = v->v.ob[k] + off[k];
+			rgba = v->v.cn;
+		}
+		if (p[0] < lo[0] || p[0] > hi[0] || p[1] < lo[1] || p[1] > hi[1] || p[2] < lo[2] || p[2] > hi[2])
+			continue;
+		if (lampTriDistance2(p, tri) <= LAMP_REACH * LAMP_REACH)
+			n += lampDarkenOne(rgba);
+	}
+	return n;
+}
+
+/* the vertices a list loads (gevrBeanEmitList: G_VTX or G_GEVR_WORLD_VTX runs) */
+static int lampDarkenList(Gfx *gdl, const float off[3], const float tri[3][3], const float lo[3], const float hi[3])
+{
+	int n = 0;
+	for (Gfx *g = gdl; g; g++) {
+		const unsigned op = (unsigned)(g->words.w0 >> 24) & 0xff;
+		if (op == (G_ENDDL & 0xff))
+			break;
+		if (op == (G_VTX & 0xff))
+			n += lampDarkenVertices((void *)g->words.w1, (int)((g->words.w0 & 0xffff) / sizeof(Vtx)), 0, off, tri, lo, hi);
+		else if (op == G_GEVR_WORLD_VTX)
+			n += lampDarkenVertices((void *)g->words.w1, (int)((g->words.w0 & 0xffff) / sizeof(GevrWorldVertex)), 1, off,
+			                        tri, lo, hi);
+	}
+	return n;
+}
+
+static int lampDarkenMesh(GevrStaticMesh *m, const float off[3], const float tri[3][3], const float lo[3], const float hi[3])
+{
+	if (!m || !m->vertices)
+		return 0;
+	const int n = lampDarkenVertices((void *)m->vertices, (int)m->numVertices, m->worldVertices, off, tri, lo, hi);
+	if (n)
+		gfx_static_mesh_release(m);   /* drawn again from its vertices */
+	return n;
+}
+
+void gevrBeanWorldLampDarken(int room, const short a[3], const short b[3], const short c[3])
+{
+	if (!s_ok || room < 0 || room >= s_nrooms)
+		return;
+	float tri[3][3], lo[3], hi[3];
+	const short *v[3] = { a, b, c };
+	for (int k = 0; k < 3; k++) {
+		lo[k] = 1e30f;
+		hi[k] = -1e30f;
+		for (int i = 0; i < 3; i++) {
+			tri[i][k] = v[i][k] + ptr_bgdata_room_fileposition_list[room].pos.f[k];
+			if (tri[i][k] - LAMP_REACH < lo[k]) lo[k] = tri[i][k] - LAMP_REACH;
+			if (tri[i][k] + LAMP_REACH > hi[k]) hi[k] = tri[i][k] + LAMP_REACH;
+		}
+	}
+	static const float zero[3] = { 0.0f, 0.0f, 0.0f };
+	int n = lampDarkenList(s_opaque, zero, tri, lo, hi) + lampDarkenMesh(s_opaqueMesh, zero, tri, lo, hi);
+	for (int r = 0; r < s_nrooms; r++) {
+		if (!s_room[r].has || s_room[r].lo[0] > hi[0] || s_room[r].hi[0] < lo[0] || s_room[r].lo[1] > hi[1] ||
+		    s_room[r].hi[1] < lo[1] || s_room[r].lo[2] > hi[2] || s_room[r].hi[2] < lo[2])
+			continue;
+		const float *off = ptr_bgdata_room_fileposition_list[r].pos.f;
+		n += lampDarkenList(s_room[r].opa, off, tri, lo, hi) + lampDarkenList(s_room[r].xlu, off, tri, lo, hi);
+		n += lampDarkenMesh(s_room[r].mesh[0], off, tri, lo, hi) + lampDarkenMesh(s_room[r].mesh[1], off, tri, lo, hi);
+	}
+	if (n)
+		GEVR_BEAN_LOG("gevr bean: a shot-out lamp darkened %d of Bean's vertices in room %d\n", n, room);
+}
+
+/* the level's start: every lamp lit again */
+void gevrBeanWorldLampsReset(void)
+{
+	if (!s_nlampUndo)
+		return;
+	for (int i = 0; i < s_nlampUndo; i++)
+		memcpy(s_lampUndo[i].rgba, s_lampUndo[i].rgb, 3);
+	s_nlampUndo = 0;
+	gfx_static_mesh_release(s_opaqueMesh);
+	for (int r = 0; r < s_nrooms; r++) {
+		gfx_static_mesh_release(s_room[r].mesh[0]);
+		gfx_static_mesh_release(s_room[r].mesh[1]);
+	}
+}
+
+/* a room hiddenRoom() left out, on the level built now (bg.c's shot test:
+ * never builds one) */
+/* the HD level as built draws room `room` and no water of its own (bg.c keeps
+ * GoldenEye's water leaves then) */
+int gevrBeanWorldRoomWantsWater(int room)
+{
+	return s_tried && s_ok && s_stage == (int)bossGetStageNum() && room > 0 && room < s_nrooms &&
+	       s_room[room].has && !s_levelWater;
+}
+
+/*
+ * How far the HD level reaches, in world units: its rooms' box's diagonal and a
+ * twentieth, while it is served (DAB gebeanstage.c gebeanStageTickFar(): "at least
+ * the length of the HD mesh's box, so that nothing of the level is ever cut").
+ * 0 when it is not. bg.c's room and portal tests and bgfog.c's prop tests take
+ * it, never the projection, so GoldenEye's own fog and the guards' sight stay.
+ */
+float gevrBeanWorldReach(void)
+{
+	return s_tried && s_ok && s_stage == (int)bossGetStageNum() ? s_reachWorld : 0.0f;
+}
+
+int gevrBeanWorldRoomHidden(int room)
+{
+	return s_tried && s_ok && s_stage == (int)bossGetStageNum() && room >= 0 && room < s_nrooms &&
+	       s_room[room].hidden;
+}
+
 int gevrBeanWorldRoomBounds(int room, float lo[3], float hi[3])
 {
 	if (!ensureStage() || room < 0 || room >= s_nrooms || !s_room[room].has)
@@ -1264,6 +1927,32 @@ void *gevrBeanWorldSky(void *gdl, int *drew)
 	mf.m[3][3] *= SKY_AT_INFINITY;
 	matrix_4x4_f32_to_s32(mf.m, packed->m);
 	g = gdl;
+	/*
+	 * Under the dome's lowest ring: the level's own sky colour, as GoldenEye
+	 * fills a level with no clouds (sky.c skyRender()), or with the Community
+	 * Edition's storm over Surface 2 its dome's horizon, which its fog takes too
+	 * (DAB gebeansky.c gebeanSkyRender(), gebeanSkyFogColour()). Unfilled it was
+	 * the frame's clear colour, black below the dome where no mesh covers it.
+	 */
+	{
+		struct CurrentEnvironmentRecord *env = fogGetCurrentEnvironmentp();
+		uint8_t rgb[3] = { 0, 0, 0 };
+		float end;
+		if (env) {
+			rgb[0] = (uint8_t)env->Red;
+			rgb[1] = (uint8_t)env->Green;
+			rgb[2] = (uint8_t)env->Blue;
+		}
+		if (communityEdition() && baseStage(s_stage) == 43)
+			gevrBeanFogRange(43, 0.0f, 1, &end, rgb);
+		gDPPipeSync(g++);
+		gDPSetCycleType(g++, G_CYC_FILL);
+		g = viSetFillColor(g, rgb[0], rgb[1], rgb[2]);
+		gDPSetRenderMode(g++, G_RM_NOOP, G_RM_NOOP2);
+		gDPFillRectangle(g++, viGetViewLeft(), viGetViewTop(), viGetViewLeft() + viGetViewWidth() - 1,
+		                 viGetViewTop() + viGetViewHeight() - 1);
+		gDPPipeSync(g++);
+	}
 	gSPMatrix(g++, osVirtualToPhysical(currentPlayerGetProjectionMatrix()),
 		G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);
 	gSPClearGeometryMode(g++, G_ZBUFFER | G_CULL_BOTH | G_LIGHTING | G_FOG);

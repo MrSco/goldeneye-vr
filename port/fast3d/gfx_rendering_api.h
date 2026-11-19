@@ -39,6 +39,8 @@ struct GfxMeshDrawParams {
     float fog[4];       // RGB and constant factor when G_FOG is clear
     float fog_mul, fog_offset;
     bool fog_enabled, fog_linear;
+    float fog_radial[4]; // fog by distance (GEVR_ROOM_RADIAL): clip x and y's scales to w's
+                         // (gevr_fog_radial_scale), w 1; w 0 fogs by eye depth
     int num_wounds;     // a Bean body's bullet wounds (GevrSkinDraw)
     float wounds[GEVR_SKIN_WOUNDS][4];
     GevrSkinPalette palette; // copied into redraw records, never a frame-arena pointer

@@ -89,6 +89,16 @@ opening a document picker:
   whatever UIKit's responders do. As keys (the hint at 0), the remote's presses
   never reached SDL's view in the simulator, though the system's Settings took
   the same presses.
+- **Swipes step** (`flat_launcher.cpp` `tvSwipeTrack`): SDL reports the touch
+  surface as the finger's travel from where it landed. In the launcher and the
+  in-game panel each third of the surface swiped is one d-pad press, as in
+  tvOS's own menus (a held half-way swipe repeated, a short one did nothing).
+- **Friends panel:** right on a page's right-most item crosses into it, left on
+  its left-most item comes back (`gevr_friends_ui.h` `gevrFriendsNavCross`, on
+  every platform: the panel is its own ImGui window, out of a pad's reach).
+- **Vibration:** Controls has a Pad vibration row on every flat game. Apple's
+  full pads are asked to rumble even when SDL reports none; the log has each
+  pad's rumble on assignment and its first refusal.
 - **Back stays in the app:** controller presses are the game's alone
   (`SDL_HINT_APPLE_TV_CONTROLLER_UI_EVENTS` 0), so Back doesn't leave the app.
   The TV button still does.
@@ -143,8 +153,10 @@ opening a document picker:
 
 ## Not yet
 
-- **Voice chat:** an Apple TV has no microphone of its own. The capture path is
-  iOS's and is untried here.
+- **Voice chat:** an Apple TV has no microphone of its own, and opening SDL's
+  capture without one ended the app when a game started (reports 86a85fd7,
+  51bf4ffb). It listens only unless AVAudioSession reports an input
+  (`pc_services.cpp`). Talking from a connected headset is untried.
 - **LAN discovery:** as on iOS, it needs Apple's multicast entitlement. The
   internet lobby and direct connect don't.
 - **Updates:** they come through TestFlight or the App Store; the launcher has

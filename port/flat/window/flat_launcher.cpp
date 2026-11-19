@@ -143,6 +143,54 @@ void flatLauncherShutdown(void)
     SDL_DelEventWatch(flatLauncherWheelWatch, nullptr);
 }
 
+#ifdef GEVR_TVOS
+/*
+ * The Siri Remote's touch surface (#260): SDL reads it as a stick whose value
+ * is the finger's travel from where it landed, back to 0 when it lifts. As a
+ * held d-pad past half way, a short swipe did nothing and a long one kept
+ * repeating. As tvOS's own menus do, each third of the surface swiped is one
+ * step, a d-pad press for one frame and its release on the next.
+ */
+struct TvSwipe {
+    float anchorX = 0.0f, anchorY = 0.0f;   // where the last step was taken
+    int pending = 0;                        // steps still to send: 1 up, 2 down, 3 left, 4 right
+    int queued = 0, held = 0;               // steps waiting; the frame a step is down
+};
+static TvSwipe s_swipe;
+
+static void tvSwipeTrack(float x, float y)
+{
+    const float step = 0.33f;
+    if (x == 0.0f && y == 0.0f) {   // lifted: the next touch starts its own travel
+        s_swipe.anchorX = s_swipe.anchorY = 0.0f;
+        return;
+    }
+    const float dx = x - s_swipe.anchorX, dy = y - s_swipe.anchorY;
+    int dir = 0;
+    if (fabsf(dx) >= step && fabsf(dx) >= fabsf(dy)) dir = dx > 0.0f ? 4 : 3;
+    else if (fabsf(dy) >= step) dir = dy > 0.0f ? 2 : 1;   // SDL's y is down-positive
+    if (!dir) return;
+    s_swipe.anchorX = x;
+    s_swipe.anchorY = y;
+    if (s_swipe.queued && s_swipe.pending != dir) s_swipe.queued = 0;   // turned: drop the old way's steps
+    s_swipe.pending = dir;
+    if (s_swipe.queued < 3) s_swipe.queued++;
+}
+
+/* this frame's step, 0 none: down one frame, up the next */
+static int tvSwipeStep(void)
+{
+    if (s_swipe.held) {
+        s_swipe.held = 0;
+        return 0;
+    }
+    if (!s_swipe.queued) return 0;
+    s_swipe.queued--;
+    s_swipe.held = 1;
+    return s_swipe.pending;
+}
+#endif
+
 /* This frame's mouse, keys and pad for ImGui. */
 void flatLauncherFeedInput(ImGuiIO &io)
 {
@@ -268,6 +316,16 @@ void flatLauncherFeedInput(ImGuiIO &io)
         const float t = 0.5f;
         const float lx = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX) / 32767.0f;
         const float ly = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY) / 32767.0f;
+#ifdef GEVR_TVOS
+        // the Siri Remote: no right stick, and its stick is the touch surface
+        if (!SDL_GameControllerHasAxis(pad, SDL_CONTROLLER_AXIS_RIGHTX)) {
+            tvSwipeTrack(lx, ly);
+            faceA = faceA || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A);
+            faceB = faceB || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_B);
+            SDL_GameControllerClose(pad);
+            continue;
+        }
+#endif
         const bool dUp = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_UP) != 0;
         const bool dDown = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN) != 0;
         up = up || dUp || ly < -t;
@@ -281,6 +339,15 @@ void flatLauncherFeedInput(ImGuiIO &io)
         moved = moved || fabsf(lx) > t || fabsf(ly) > t || dUp || dDown;
         SDL_GameControllerClose(pad);   // drop this reference; input.c keeps its own
     }
+#ifdef GEVR_TVOS
+    if (const int swipe = tvSwipeStep()) {
+        up = up || swipe == 1;
+        down = down || swipe == 2;
+        left = left || swipe == 3;
+        right = right || swipe == 4;
+        moved = true;
+    }
+#endif
     if (padSeen) {
         io.AddKeyEvent(ImGuiKey_GamepadDpadUp, up);
         io.AddKeyEvent(ImGuiKey_GamepadDpadDown, down);

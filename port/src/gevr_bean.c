@@ -388,6 +388,35 @@ int gevrBeanDrawsModel(const void *header)
 	return 0;
 }
 
+/*
+ * Whether Bean has laid an HD list on any of this model's nodes, for the
+ * detail level model.c picks (it asks per distance node, every frame): the
+ * registry read once per model and kept, until a registration or a reset
+ * changes it.
+ */
+static unsigned s_hdGeneration;
+
+int gevrBeanModelHasHd(const void *header)
+{
+	enum { N = 256 };
+	static const void *key[N];
+	static unsigned stamp[N];
+	static uint8_t value[N];
+	if (!header || !gevrBeanIsEnabled())
+		return 0;
+	const unsigned now = (unsigned)s_nswap ^ (s_hdGeneration << 16);
+	const unsigned h = (unsigned)(((uintptr_t)header >> 4) ^ ((uintptr_t)header >> 12)) & (N - 1);
+	if (key[h] == header && stamp[h] == now)
+		return value[h];
+	int has = 0;
+	for (int i = 0; i < s_nswap && !has; i++)
+		has = s_swap[i].owner == header && s_swap[i].ours != s_blank;
+	key[h] = header;
+	stamp[h] = now;
+	value[h] = (uint8_t)has;
+	return has;
+}
+
 int gevrBeanShownModelType(void *node, int current)
 {
 	return activeSwap(node) ? 0 : current;
@@ -412,6 +441,15 @@ int gevrBeanNodeModeType(void *node, int current)
 {
     struct beanSwap *s = activeSwap(node);
     return s && gevrBeanNodeMode() ? s->origType : current;
+}
+
+/* a prop the game draws without depth on purpose: Bean's lists follow (GEVR_NODE_ONTOP) */
+void *gevrBeanNodeOnTop(void *gdl, int on)
+{
+	Gfx *g = gdl;
+	g->words.w0 = ((uintptr_t)G_GEVR_NODE_STATE << 24) | GEVR_NODE_ONTOP;
+	g->words.w1 = on != 0;
+	return g + 1;
 }
 
 void *gevrBeanNodeMark(void *gdl, int on)
@@ -578,6 +616,8 @@ static uint32_t *s_sortSpatial;
 /* A level's list: its faces' sides batch apart (markLevelSides()); the
  * batch being emitted's, for beanRenderMode() */
 static int s_sortSides;
+static int s_emitNoFog;   /* the batch's: 1 GEVR_ROOM_NOFOG, 2 GEVR_ROOM_RADIAL (beanRenderMode()) */
+static int s_sortFringe;  /* a skinned list: its soft cut-outs' fringe batches go last */
 static int s_emitSide;
 
 static uint32_t spatialBits(uint32_t x)
@@ -591,7 +631,7 @@ static uint32_t spatialBits(uint32_t x)
 static int vertKey(const struct gevrEmitVert *v)
 {
 	return ((int)(v->reflectionDiffuse != 0) << 30) | ((int)v->decal << 29) | ((int)v->cut << 28)
-        | ((s_sortSides ? (int)(v->side & 3) : 0) << 26)
+        | ((s_sortSides ? (int)(v->side & 3) : 0) << 26) | (s_sortSides ? (int)(v->nofog & 3) : 0)
         | ((v->tex + 1) << 16) | ((int)v->alpha << 8);
 }
 
@@ -599,6 +639,16 @@ static int triCmp(const void *a, const void *b)
 {
 	int ia = *(const int *)a;
 	int ib = *(const int *)b;
+	/* a skinned list's translucent batches after its solid ones, soft fringes and
+	 * glass alike (DAB's translucent pass): blended without depth, a lens drawn
+	 * before the face behind it was painted over by it (Boris's glasses, the
+	 * guards' dark ones, alpha 131) */
+	if (s_sortFringe) {
+		const int fa = s_sortVerts[ia * 3].fringe || s_sortVerts[ia * 3].alpha < 255;
+		const int fb = s_sortVerts[ib * 3].fringe || s_sortVerts[ib * 3].alpha < 255;
+		if (fa != fb)
+			return fa - fb;
+	}
 	int ka = vertKey(&s_sortVerts[ia * 3]);
 	int kb = vertKey(&s_sortVerts[ib * 3]);
     if (ka != kb) return (ka > kb) - (ka < kb);
@@ -643,7 +693,7 @@ static uint32_t beanRenderMode(Gfx **next, int mode1, int mode2, int room)
 {
     Gfx *g = *next;
     g->words.w0 = ((uintptr_t)G_GEVR_ROOM_STATE << 24) | (room == 2 ? 2 : room ? 0 : 1) |
-                  (s_emitSide ? GEVR_ROOM_FACES : 0);
+                  (s_emitSide ? GEVR_ROOM_FACES : 0) | (s_emitNoFog == 1 ? GEVR_ROOM_NOFOG : s_emitNoFog == 2 ? GEVR_ROOM_RADIAL : 0);
     g->words.w1 = (uint32_t)(G_RM_PASS | mode2 | (mode1 & 0xffff));
     *next = g + 1;
     return (uint32_t)g->words.w1;
@@ -697,7 +747,9 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
     /* A level's faces back to back over part of their face (markLevelSides())
      * are drawn again, their backs: room for their second vertices */
     s_sortSides = mesh->roomMaterial == 1 && !lit && !skin && zbuf;
+    s_sortFringe = s_emitSkin != NULL;
     s_emitSide = 0;
+    s_emitNoFog = 0;
     int nback = 0, sided = 0;
     for (int i = 0; s_sortSides && i + 2 < nverts; i += 3)
         nback += v[i].side == GEVR_BEAN_SIDE_FIGHTS ? 3 : 0;
@@ -771,6 +823,7 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 	if (dim) {
 		gDPSetPrimColor(g++, 0, 0, 96, 96, 96, 255);
 	}
+	int coreOn = 0;
 	for (int batch = 0; batch < ntri; ) {
 		const struct gevrEmitVert *base = &v[order[batch] * 3];
 		int key = vertKey(base);
@@ -786,8 +839,19 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
             v[order[end]*3].reflectionAlphaBase==base->reflectionAlphaBase) {
 			end++;
 		}
+		/* a skinned list's soft cut-out: its solid core cut at 3/4 alpha (DAB
+		 * G_ALPHA_CORE_EXT), its fringe blended after the rest (gevrBeanSoftSpans()) */
+		{
+			const int core = s_sortFringe && base->cut && !base->fringe;
+			if (core != coreOn) {
+				g->words.w0 = ((uintptr_t)G_GEVR_NODE_STATE << 24) | GEVR_NODE_CORE;
+				g++->words.w1 = (uint32_t)core;
+				coreOn = core;
+			}
+		}
 		/* the batch's side (vertKey() keeps one side a batch): its mode culls */
 		s_emitSide = s_sortSides ? base->side : 0;
+		s_emitNoFog = s_sortSides ? (base->nofog & 3) : 0;
 		sided |= s_emitSide;
 		if (tex >= 0 && tex < mesh->ntex && mesh->standin[tex]) {
 			logicalW = mesh->texW[tex] > 0 ? mesh->texW[tex] : 32;
@@ -1016,7 +1080,12 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
     if (!mesh->roomMaterial) gSPClearGeometryMode(g++, G_FOG);
     /* no FACES/BACKS cull past a level's list */
     if (sided) gSPClearGeometryMode(g++, G_CULL_BOTH);
+    if (coreOn) {
+        g->words.w0 = ((uintptr_t)G_GEVR_NODE_STATE << 24) | GEVR_NODE_CORE;
+        g++->words.w1 = 0;
+    }
     s_emitSide = 0;
+    s_emitNoFog = 0;
     g->words.w0=(uintptr_t)G_GEVR_NORMAL_TEX1<<24; g++->words.w1=0;
     g->words.w0 = G_GEVR_VERTEX_TINT << 24; g++->words.w1 = 0;
     if (node) { g->words.w0 = ((uintptr_t)G_GEVR_NODE_STATE << 24) | GEVR_NODE_END; g++->words.w1 = 0; }
@@ -1442,6 +1511,9 @@ struct beanGunParts {
 static const struct beanGunParts *s_parts;
 static const struct gevrBeanMesh *s_partsMesh;
 static int s_partWant;
+/* emitRigid(): 1 leaves a windowed door's pane (its translucent faces) out,
+ * 2 draws it alone (applyMesh(), DAB xblamesh.c) */
+static int s_paneMode;
 static int s_noRound;   /* laying out the launcher without its round (DAB fpRound) */
 /* the watch items' pressing hand (pressHand()): per triangle 0 the rest, 1 the
  * palm, 2 the finger, and the one being laid out */
@@ -1510,6 +1582,8 @@ static void fillEmit(const struct gevrBeanTri *t, int texCut, struct gevrEmitVer
 	e->cut = (uint8_t)(t->alphatest || (t->tex >= 0 && texCut));
 	e->decal = (t->flags & GEVR_BEAN_F_DECAL) ? 1 : 0;
 	e->side = 0;
+	e->nofog = 0;
+	e->fringe = 0;
 }
 
 struct beanRigidBinding {
@@ -1636,6 +1710,8 @@ static void rigidBindings(const struct gevrBeanMesh *mesh, const struct beanFit 
 	}
 }
 
+static int gevrBeanSoftSpans(const struct gevrBeanMesh *mesh, struct gevrEmitVert **ev, struct beanSkinVert **skin, int n);   /* below */
+#include "gevr_bean_seams.inc.h"
 #include "gevr_bean_heads.inc.h"
 
 /* All six sleeves share one release mesh; retain the cartridge's switches. */
@@ -1697,6 +1773,122 @@ static int groupHasUntoggledList(const ModelFileHeader *header, const struct bea
 /* A first-person gun's hand and sleeve: GoldenEye shows and hides Switches
  * 8-13 and 35 together (gun.c sub_GAME_7F05E978). The watch inventory and the
  * guns guards hold (gevr_heldgun.c) draw the gun bare. */
+/*
+ * DAB xblamesh.c xblaMeshObjShotTest() and xblaMeshHitTest() (port/licenses/
+ * dabs-mod.txt): a prop Bean draws is shot where it is drawn, on the release's
+ * triangles, not the cartridge's under them. The release's thin jungle trees
+ * stand inside the N64 trunks' width, and a shot past the drawn trunk stopped
+ * on the invisible one; where the release's prop is bigger, shots went through
+ * it. For one list of the shot's walk (propobj.c propobjFindHit), with the ray
+ * in the list's matrix space:
+ *   1  a hit, in *hit, on the triangles this list draws;
+ *   0  the list is Bean's and the ray misses it, or it draws nothing here (its
+ *      part drawn on another list);
+ *  -1  the game's own triangles: Bean off, a skinned or unrecorded list, or a
+ *      list the game hides and finds by its node - a CCTV's lens, a door's
+ *      window - blank here, its Bean part drawn on a list the game never hides
+ *      (registration below), so its glass still breaks as GoldenEye's does.
+ */
+extern bool intersectRayTriangle(Vertex *vertex0, Vertex *vertex1, Vertex *vertex2, coord3d *vertexOffset,
+                                 coord3d *rayStart, coord3d *linePoint, coord3d *rayDirection, HitThing *hit);
+
+static int hitRayMeetsBox(const float pos[3], const float dir[3], const float box[2][3])
+{
+	float near = 0.0f, far = 1e30f;
+	for (int k = 0; k < 3; k++) {
+		if (fabsf(dir[k]) < 1e-12f) {
+			if (pos[k] < box[0][k] || pos[k] > box[1][k])
+				return 0;
+			continue;
+		}
+		float a = (box[0][k] - pos[k]) / dir[k], b = (box[1][k] - pos[k]) / dir[k];
+		if (a > b) {
+			const float t = a;
+			a = b;
+			b = t;
+		}
+		if (a > near) near = a;
+		if (b < far) far = b;
+		if (near > far)
+			return 0;
+	}
+	return 1;
+}
+
+static void hitVertex(const struct beanSwap *s, int i, Vertex *out)
+{
+	memset(out, 0, sizeof(*out));
+	if (s->emittedWorld) {
+		const GevrWorldVertex *w = &((const GevrWorldVertex *)s->emittedVtx)[i];
+		out->coord.x = (s16)(w->p[0] < 0.0f ? w->p[0] - 0.5f : w->p[0] + 0.5f);
+		out->coord.y = (s16)(w->p[1] < 0.0f ? w->p[1] - 0.5f : w->p[1] + 0.5f);
+		out->coord.z = (s16)(w->p[2] < 0.0f ? w->p[2] - 0.5f : w->p[2] + 0.5f);
+	} else {
+		const Vtx *v = &((const Vtx *)s->emittedVtx)[i];
+		out->coord.x = v->v.ob[0];
+		out->coord.y = v->v.ob[1];
+		out->coord.z = v->v.ob[2];
+	}
+}
+
+int gevrBeanHitNode(void *node, const float pos[3], const float dir[3], struct HitThing *hit)
+{
+	static Vertex s_hitTri[3];   /* the hit's corners, as hit->vtx0..2 name them */
+	const struct beanSwap *s = activeSwap(node);
+	if (!s || !hit)
+		return -1;
+	if (s->ours == s_blank)
+		return s->owner && listToggled(s->owner, node) ? -1 : 0;
+	if (!s->emitted || !s->emittedVtx || s->emittedVerts < 3 || s->skin || s->deferredMatrix)
+		return -1;
+	/* the list's box first: every prop on screen is asked about every shot */
+	if (s->hasBox && !hitRayMeetsBox(pos, dir, s->box))
+		return 0;
+	coord3d start, far, ray, zero = { { 0.0f, 0.0f, 0.0f } };
+	for (int k = 0; k < 3; k++) {
+		start.f[k] = pos[k];
+		ray.f[k] = dir[k];
+		far.f[k] = pos[k] + dir[k] * 32767.0f;
+	}
+	float best = 1e30f;
+	int found = 0;
+	for (int t = 0; t + 2 < s->emittedVerts; t += 3) {
+		Vertex v[3];
+		HitThing h;
+		for (int c = 0; c < 3; c++)
+			hitVertex(s, t + c, &v[c]);
+		memset(&h, 0, sizeof(h));
+		if (!intersectRayTriangle(&v[0], &v[1], &v[2], &zero, &start, &far, &ray, &h))
+			continue;
+		const float dx = h.hitpos.x - pos[0], dy = h.hitpos.y - pos[1], dz = h.hitpos.z - pos[2];
+		const float d = dx * dx + dy * dy + dz * dz;
+		if (d >= best)
+			continue;
+		best = d;
+		found = 1;
+		hit->hitpos = h.hitpos;
+		hit->normal = h.normal;
+		memcpy(s_hitTri, v, sizeof(s_hitTri));
+	}
+	if (!found)
+		return 0;
+	hit->vtx0 = &s_hitTri[0];
+	hit->vtx1 = &s_hitTri[1];
+	hit->vtx2 = &s_hitTri[2];
+	hit->tricmd = s->emitted;
+	hit->texturenum = -1;   /* the generic impact, as for the game's converted lists (propobj.c D135) */
+	hit->unk28 = 0;
+	{   /* the first few only: a shot asks every prop on screen */
+		static int logged;
+		if (logged < 8) {
+			logged++;
+			GEVR_BEAN_LOG("gevr bean: shot on the release's mesh, list %p, %d triangles, at %.0f %.0f %.0f\n",
+			              node, s->emittedVerts / 3, hit->hitpos.x, hit->hitpos.y, hit->hitpos.z);
+		}
+	}
+	return 1;
+}
+
 static int gunHandNode(const ModelFileHeader *header, const ModelNode *node)
 {
 	for (; node; node = node->Parent)
@@ -1997,6 +2189,7 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 		const struct gevrBeanTri *t = &mesh->tris[i];
 		if (!triWanted(mesh, t, kind, hasHead) || (mesh->triggerCuffs && t->cuff != cuff) ||
 		    (binding && rigidTriangleGroup(t, binding) != binding->target) ||
+		    (s_paneMode && (t->alpha < 255) != (s_paneMode == 2)) ||
 		    (glove >= 0 && gunGloveTri(mesh, t) != glove)) {
 			continue;
 		}
@@ -2046,6 +2239,42 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 			free(ev);
 			return 0;
 		}
+		/*
+		 * DAB gebean.c beanDoubleWheels(): dual rear wheels. GoldenEye's military
+		 * truck has a pair of wheels a side at the back, one part each pair (610
+		 * units across where a front wheel is 305); Bean's has one wheel a side
+		 * there, the outer one, and the HD truck stood on single rear wheels.
+		 * Where GoldenEye's geometry for a part spans across x at least half
+		 * again what Bean's wheel on it does - a wheel: round across y and z,
+		 * thin along x - the wheel is drawn a second time beside itself, on the
+		 * side GoldenEye's pair goes.
+		 */
+		if (kind == BEAN_PROP && binding && binding->target >= 0 && binding->target != binding->base && hv && hc > 0) {
+			float lo[3] = { 1e30f, 1e30f, 1e30f }, hi[3] = { -1e30f, -1e30f, -1e30f }, glo = 1e30f, ghi = -1e30f;
+			for (int v = 0; v < n; v++)
+				for (int k = 0; k < 3; k++) {
+					lo[k] = fminf(lo[k], ev[v].p[k]);
+					hi[k] = fmaxf(hi[k], ev[v].p[k]);
+				}
+			for (int v = 0; v < hc; v++) {
+				glo = fminf(glo, hv[v].coord.AsArray[0]);
+				ghi = fmaxf(ghi, hv[v].coord.AsArray[0]);
+			}
+			const float bw = hi[0] - lo[0], bh = hi[1] - lo[1], bd = hi[2] - lo[2], gw = ghi - glo;
+			if (bw > 0.0f && gw >= bw * 1.5f && bw <= fminf(bh, bd) * 0.6f && fabsf(bh - bd) <= fmaxf(bh, bd) * 0.15f) {
+				const float shift = (glo + ghi) * 0.5f >= (lo[0] + hi[0]) * 0.5f ? bw : -bw;
+				struct gevrEmitVert *grown = realloc(ev, (size_t)n * 2 * sizeof(*ev));
+				if (grown) {
+					ev = grown;
+					memcpy(ev + n, ev, (size_t)n * sizeof(*ev));
+					for (int v = n; v < n * 2; v++)
+						ev[v].p[0] += shift;
+					GEVR_BEAN_LOG("gevr bean: %s: a wheel drawn twice, as GoldenEye's pair (%.0f across, Bean's %.0f)\n",
+					              fit ? fit->source : "prop", gw, bw);
+					n *= 2;
+				}
+			}
+		}
 		/* DAB xblamesh.c:7171: characters cull their back faces as the N64 models
 		 * do; props and guns stay two-sided (Dam's truck cab and gates lost their
 		 * far walls when they culled) */
@@ -2054,6 +2283,219 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 		free(ev);
 		return ok;
 	}
+}
+
+/*
+ * DAB gebean.c fpBuildCards() (port/licenses/dabs-mod.txt): the release's
+ * muzzle-flash cards (GEVR_BEAN_F_FLASH, DAB fpDrawIsCard()) on GoldenEye's
+ * own flash, the lists under its flash switch (part 1), so they draw only on
+ * the frames GoldenEye shows its flash. They were dropped, and every gun fired
+ * the N64's painted flash.
+ *
+ * Where GoldenEye poses its flash (part 3, a group on a matrix of its own, and
+ * its star, part 2, on another): the cards on the muzzle bone go in the
+ * flash's list and those on the muzzle's other bones in the star's, each laid
+ * from the point the release turns it about (SKEL_MUZZLE, and the star's bone
+ * nearest it). A flash whose only list is its star's (the RC-P90's, the
+ * AR33's) has every card on the star. A flash GoldenEye does not pose takes
+ * every card into its first list, where the gun lays them. They are drawn as
+ * the release draws them: blended by the picture's alpha without writing
+ * depth, both sides, the pictures clamped (repeating, each quarter's edge read
+ * the far side of its picture, a dark seam through the flash). The switch's
+ * other lists are covered, as DAB covers them.
+ */
+static int gunCardBone(const struct gevrBeanTri *t, int corner)
+{
+	int best = -1, weight = 0;
+	for (int j = 0; j < 4; j++) {
+		const int b = t->bone[corner * 4 + j];
+		if (b < 64 && t->weight[corner * 4 + j] > weight) {
+			weight = t->weight[corner * 4 + j];
+			best = b;
+		}
+	}
+	return best;
+}
+
+static void gunFlashCards(const ModelFileHeader *header, const struct gevrBeanMesh *cmesh, const struct beanFit *fit,
+                          const struct beanGrp *grp, const struct beanDl *dls, int nd)
+{
+	struct gevrBeanMesh *mesh = (struct gevrBeanMesh *)cmesh;   /* the cards' pictures clamp (below) */
+	ModelNode *sw = header->numSwitches > 1 ? header->Switches[1] : NULL;
+	ModelNode *flashpos = header->numSwitches > 3 ? header->Switches[3] : NULL;
+	ModelNode *starpos = header->numSwitches > 2 ? header->Switches[2] : NULL;
+	int cards = 0;
+	for (int t = 0; t < mesh->ntris; t++)
+		cards += (mesh->tris[t].flags & GEVR_BEAN_F_FLASH) != 0;
+	if (!sw || !cards || !fit)
+		return;
+	const int basemtx = nodeMatrix(sw);
+	const int flashmtx = flashpos && nodeOp(flashpos) == MODELNODE_OPCODE_GROUP ? nodeMatrix(flashpos) : -1;
+	int starmtx = starpos && nodeOp(starpos) == MODELNODE_OPCODE_GROUP ? nodeMatrix(starpos) : -1;
+	int posed = flashmtx >= 0 && basemtx >= 0 && flashmtx != basemtx;
+	int anylist = -1, flashlist = -1, starlist = -1, billboard = 0;
+	if (!posed || starmtx == flashmtx || starmtx == basemtx)
+		starmtx = -1;
+	/* GoldenEye's lists under the switch that draw under each matrix */
+	for (int k = 0; k < nd; k++) {
+		if (!gunFlashNode(header, dls[k].node) || dls[k].grp < 0)
+			continue;
+		if (anylist < 0)
+			anylist = k;
+		if (flashlist < 0 && posed && nodeMatrix(dls[k].node) == flashmtx)
+			flashlist = k;
+		if (starlist < 0 && starmtx >= 0 && nodeMatrix(dls[k].node) == starmtx)
+			starlist = k;
+	}
+	if (flashlist < 0 && posed && starlist >= 0) {
+		billboard = 1;
+		flashlist = starlist;
+	} else if (flashlist < 0) {
+		posed = 0;
+		starlist = -1;
+		flashlist = anylist;
+	}
+	if (flashlist < 0)
+		return;
+	/* the bones the cards hang from: the muzzle, and the star's nearest it */
+	int root = -1, star = -1;
+	float nearest = 1e30f;
+	for (int pass = 0; pass < 2; pass++)
+		for (int t = 0; t < mesh->ntris; t++) {
+			const struct gevrBeanTri *tri = &mesh->tris[t];
+			if (!(tri->flags & GEVR_BEAN_F_FLASH))
+				continue;
+			for (int c = 0; c < 3; c++) {
+				const int b = gunCardBone(tri, c);
+				if (b < 0 || b >= mesh->nbones || !(mesh->boneMuzzle[b] & 1))
+					continue;
+				if (pass == 0 && (root < 0 || ((mesh->boneMuzzle[b] & 2) && !(mesh->boneMuzzle[root] & 2)))) {
+					root = b;
+				} else if (pass == 1 && root >= 0 && b != root && !(mesh->boneMuzzle[b] & 2)) {
+					float d2 = 0.0f;
+					for (int k = 0; k < 3; k++)
+						d2 += (mesh->boneBind[b][k] - mesh->boneBind[root][k]) * (mesh->boneBind[b][k] - mesh->boneBind[root][k]);
+					if (d2 < nearest) {
+						nearest = d2;
+						star = b;
+					}
+				}
+			}
+		}
+	if (star < 0 && !billboard)
+		starlist = -1;
+	/* what the cards' places are measured from: where the release turns the
+	 * flash (its muzzle, else the cards' own middle), or for a flash GoldenEye
+	 * does not pose, its list's own rest */
+	float rootat[3], starat[3] = { 0.0f, 0.0f, 0.0f };
+	if (posed && root >= 0) {
+		fitPoint(fit, mesh->boneBind[root], rootat);
+	} else if (posed) {
+		double sum[3] = { 0.0, 0.0, 0.0 };
+		int count = 0;
+		for (int t = 0; t < mesh->ntris; t++)
+			for (int c = 0; (mesh->tris[t].flags & GEVR_BEAN_F_FLASH) && c < 3; c++) {
+				float at[3];
+				fitPoint(fit, &mesh->tris[t].p[c * 3], at);
+				for (int k = 0; k < 3; k++)
+					sum[k] += at[k];
+				count++;
+			}
+		for (int k = 0; k < 3; k++)
+			rootat[k] = count ? (float)(sum[k] / count) : grp[dls[flashlist].grp].o[k];
+	} else {
+		memcpy(rootat, grp[dls[flashlist].grp].o, sizeof(rootat));
+	}
+	if (billboard)
+		memcpy(starat, rootat, sizeof(starat));
+	else if (starlist >= 0)
+		fitPoint(fit, mesh->boneBind[star], starat);
+	/* a picture only the cards use is clamped, from its lowest whole repeat */
+	uint8_t other[256] = {0}, mine[256] = {0};
+	float base[256][2];
+	for (int x = 0; x < 256; x++)
+		base[x][0] = base[x][1] = 1e30f;
+	for (int t = 0; t < mesh->ntris; t++) {
+		const struct gevrBeanTri *tri = &mesh->tris[t];
+		if (tri->tex < 0 || tri->tex >= mesh->ntex)
+			continue;
+		if (!(tri->flags & GEVR_BEAN_F_FLASH)) {
+			other[tri->tex] = 1;
+			continue;
+		}
+		mine[tri->tex] = 1;
+		for (int c = 0; c < 3; c++)
+			for (int k = 0; k < 2; k++)
+				if (tri->uv[c * 2 + k] < base[tri->tex][k])
+					base[tri->tex][k] = tri->uv[c * 2 + k];
+	}
+	for (int x = 0; x < mesh->ntex && x < 256; x++)
+		if (mine[x] && !other[x]) {
+			mesh->texClamp[x] = 3;
+			mesh->texClampBase[x][0] = floorf(base[x][0]);
+			mesh->texClampBase[x][1] = floorf(base[x][1]);
+		}
+	/* the cards, a layer a list: 0 the flash's, 1 the star's; lit by themselves, not dimmed with the
+	 * gun by the room (gevrBeanEmitList's dim: a grey haze where GoldenEye's flash is bright) */
+	struct gevrEmitVert *ev[2] = { NULL, NULL };
+	int n[2] = { 0, 0 }, cap[2] = { 0, 0 };
+	const int mirror = fitMirrors(fit);
+	for (int t = 0; t < mesh->ntris; t++) {
+		const struct gevrBeanTri *tri = &mesh->tris[t];
+		int layer[3];
+		if (!(tri->flags & GEVR_BEAN_F_FLASH))
+			continue;
+		for (int c = 0; c < 3; c++) {
+			const int b = gunCardBone(tri, c);
+			layer[c] = billboard || (starlist >= 0 && b != root && b >= 0 && b < mesh->nbones &&
+			                         (mesh->boneMuzzle[b] & 1) && !(mesh->boneMuzzle[b] & 2));
+		}
+		/* a card is in one layer; a triangle across two is no card */
+		if (layer[0] != layer[1] || layer[0] != layer[2])
+			continue;
+		const int l = layer[0];
+		if ((l ? starlist : flashlist) < 0)
+			continue;
+		if (n[l] + 3 > cap[l]) {
+			cap[l] = cap[l] ? cap[l] * 2 : 96;
+			struct gevrEmitVert *grown = realloc(ev[l], (size_t)cap[l] * sizeof(*grown));
+			if (!grown)
+				break;
+			ev[l] = grown;
+		}
+		for (int c = 0; c < 3; c++) {
+			float pt[3], nr[3];
+			fitPoint(fit, &tri->p[c * 3], pt);
+			for (int k = 0; k < 3; k++) {
+				pt[k] -= l ? starat[k] : rootat[k];
+				nr[k] = tri->n[c * 3 + fit->perm[k]] * fit->sign[k];
+			}
+			struct gevrEmitVert *e = &ev[l][n[l] + (mirror && c ? 3 - c : c)];
+			fillEmit(tri, 0, e, pt, nr, c);
+			e->alpha = 254;   /* blended, no depth written (gevrBeanEmitList's XLU span) */
+			e->cut = 0;
+		}
+		n[l] += 3;
+	}
+	int drawn = 0;
+	for (int l = 0; l < 2; l++) {
+		const int list = l ? starlist : flashlist;
+		void *gdl = NULL, *vtx = NULL;
+		if (list >= 0 && n[l] && gevrBeanEmitList(mesh, ev[l], n[l], 0, 0, 0, 1, &gdl, &vtx)) {
+			keepAlloc(gdl);
+			keepAlloc(vtx);
+			registerPrimary(dls[list].node, gdl, 0);
+			drawn += n[l] / 3;
+		}
+		free(ev[l]);
+	}
+	if (!drawn)
+		return;
+	for (int k = 0; k < nd; k++)
+		if (k != flashlist && k != starlist && gunFlashNode(header, dls[k].node))
+			registerPrimary(dls[k].node, s_blank, 1);
+	GEVR_BEAN_LOG("gevr bean: %s: %d flash card triangles on GoldenEye's flash (%s%s)\n", fit->source, drawn,
+	              posed ? "posed" : "on the gun", billboard ? ", every card on the star" : starlist >= 0 ? ", a star" : "");
 }
 
 /*
@@ -2177,6 +2619,67 @@ static void gunMagazine(const GevrBeanMagDef *def, const struct gevrBeanMesh *me
 	gevrBeanMagFree(&built);
 }
 
+/*
+ * DAB xblamesh.c (softspan, G_ALPHA_CORE_EXT): a character's cut-out span is a
+ * soft picture - hair, a lens - drawn twice: its solid core (three quarters alpha
+ * and more) cut and writing depth, then the whole of it blended over that core and
+ * whatever is behind, depth tested and not written, after the rest of the body.
+ * Cut at the edge test's 0.19, every half-clear strand came out solid and a
+ * fringe drew as a thick slab; blended alone and writing depth, a strand hid what
+ * was drawn after it. Each cut-out triangle of a skinned list gets a copy, its
+ * fringe (alpha 254: the translucent batch, sorted last by s_sortFringe), with its
+ * skin. Returns the new count of corners, n where nothing is copied.
+ */
+static int gevrBeanSoftSpans(const struct gevrBeanMesh *mesh, struct gevrEmitVert **ev, struct beanSkinVert **skin, int n)
+{
+	/* a cut-out (cut, solid) gets its fringe; a soft picture blended alone (254, a
+	 * picture with alpha) gets its core and is the fringe; glass with an alpha of
+	 * its own (below 254) stays as it is */
+#define SOFT_CUT(x) ((x).cut && (x).alpha == 255 && !(x).fringe)
+#define SOFT_XLU(x) ((x).alpha == 254 && !(x).fringe && (x).tex >= 0 && (x).tex < mesh->ntex && mesh->texCut[(x).tex])
+	int soft = 0;
+	for (int t = 0; t + 2 < n; t += 3)
+		soft += SOFT_CUT((*ev)[t]) || SOFT_XLU((*ev)[t]);
+	if (!soft)
+		return n;
+	{
+		static int told;
+		if (told++ < 12)
+			GEVR_BEAN_LOG("gevr bean: %d soft cut-out triangles drawn as a core and a blended fringe\n", soft);
+	}
+	struct gevrEmitVert *e = realloc(*ev, (size_t)(n + soft * 3) * sizeof(**ev));
+	if (!e)
+		return n;
+	*ev = e;
+	struct beanSkinVert *s = realloc(*skin, (size_t)(n + soft * 3) * sizeof(**skin));
+	if (!s)
+		return n;
+	*skin = s;
+	int m = n;
+	for (int t = 0; t + 2 < n; t += 3) {
+		const int cut = SOFT_CUT(e[t]), xlu = SOFT_XLU(e[t]);
+		if (!cut && !xlu)
+			continue;
+		for (int c = 0; c < 3; c++) {
+			e[m + c] = e[t + c];
+			s[m + c] = s[t + c];
+			if (cut) {   /* the copy is the fringe */
+				e[m + c].cut = 0;
+				e[m + c].alpha = 254;
+				e[m + c].fringe = 1;
+			} else {     /* the copy is the core, the original the fringe */
+				e[m + c].cut = 1;
+				e[m + c].alpha = 255;
+				e[t + c].fringe = 1;
+			}
+		}
+		m += 3;
+	}
+#undef SOFT_CUT
+#undef SOFT_XLU
+	return m;
+}
+
 static int emitSkinned(const struct gevrBeanMesh *mesh, int sk, int hasHead,
                        const float R[GEVR_BEAN_SK_COUNT][9], float scale, const struct beanGrp *grp, int ng,
                        const ModelFileHeader *header, int cuff, int whole, void **gdl, void **vtx)
@@ -2197,6 +2700,9 @@ static int emitSkinned(const struct gevrBeanMesh *mesh, int sk, int hasHead,
 		free(skin);
 		return 0;
 	}
+	/* a point the mesh splits at a seam skinned the one way, and the neck's share
+	 * against the back smoothed (gevr_bean_seams.inc.h) */
+	seamWeldMesh(mesh, scale, 0);
 	for (int i = 0; i < mesh->ntris; i++) {
 		const struct gevrBeanTri *t = &mesh->tris[i];
 		int use = whole ||
@@ -2259,6 +2765,7 @@ static int emitSkinned(const struct gevrBeanMesh *mesh, int sk, int hasHead,
 		return 0;
 	}
 	{
+		n = gevrBeanSoftSpans(mesh, &ev, &skin, n);
 		s_emitSkin = skin;
 		int ok = gevrBeanEmitList(mesh, ev, n, 1, 0, 1, 1, gdl, vtx);
 		s_emitSkin = NULL;
@@ -2269,6 +2776,7 @@ static int emitSkinned(const struct gevrBeanMesh *mesh, int sk, int hasHead,
 }
 
 #include "gevr_bean_pose.inc.h"
+#include "gevr_bean_bodyhit.inc.h"
 #include "gevr_bean_preview.inc.h"
 
 static void classifyGroups(struct beanGrp *grp, int ng)
@@ -2976,9 +3484,36 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 					s_partWant = parts.body;
 				}
 			}
+			/*
+			 * A windowed door's pane once three shots have shattered it: GoldenEye
+			 * hides its glass list, under the door's Switches[1] (propobj.c), and
+			 * draws the shards. The release's door carries its window in the one
+			 * mesh with the door, and the HD pane stood whole behind the shards
+			 * (DAB xblamesh.c, the fading span left out when the toggle is off;
+			 * Bunker's cell doors). Its translucent faces go on GoldenEye's glass
+			 * list instead of the body's, so they go with it.
+			 */
+			int pane = -1;
+			if (kind == BEAN_PROP && header->Skeleton == &skeleton_door && header->Switches &&
+			    header->numSwitches > 1 && header->Switches[1]) {
+				int panes = 0;
+				for (int i = 0; i < nd && pane < 0; i++) {
+					if (i == best || dls[i].simple || nodeMatrix(dls[i].node) != nodeMatrix(dls[best].node))
+						continue;
+					for (ModelNode *up = dls[i].node->Parent; up && pane < 0; up = up->Parent)
+						if (up == header->Switches[1])
+							pane = i;
+				}
+				for (int t = 0; pane >= 0 && t < mesh->ntris; t++)
+					panes += triWanted(mesh, &mesh->tris[t], kind, hasHead) && mesh->tris[t].alpha < 255;
+				if (!panes)
+					pane = -1;
+			}
+			s_paneMode = pane >= 0;
 			int mainEmitted = emitRigid(mesh, kind, hasHead, dls[best].node, fit,
 			                            kind == BEAN_PROP ? &binding : NULL, -1, gun ? grp[dls[best].grp].o : NULL,
 			                            gun && !mesh->triggerCuffs ? 0 : -1, &gdl, &vtx);
+			s_paneMode = 0;
 			if (mainEmitted || kind == BEAN_PROP) {
 				if (mainEmitted) {
 					keepAlloc(gdl);
@@ -2987,6 +3522,19 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 				if (mainEmitted && fit && !strcmp(fit->source, "prop/helicopter"))
 					gdl = helicopterWithPilot(dls[best].node, gdl);
 				registerPrimary(dls[best].node, mainEmitted ? gdl : s_blank, 0);
+				s_paneMode = 0;
+				if (pane >= 0) {
+					void *paneG = NULL, *paneV = NULL;
+					s_paneMode = 2;
+					if (emitRigid(mesh, kind, hasHead, dls[pane].node, fit, &binding, -1, NULL, -1, &paneG, &paneV)) {
+						keepAlloc(paneG);
+						keepAlloc(paneV);
+						registerPrimary(dls[pane].node, paneG, 0);
+						GEVR_BEAN_LOG("gevr bean: %s: the window's pane on GoldenEye's glass list\n",
+						              fit ? fit->source : "door");
+					}
+					s_paneMode = 0;
+				}
 				/* DAB fpRound: the release's rocket launcher carries its round
 				 * in the tube, so it is laid out without it too, for while the
 				 * tube is empty (and GoldenEye's rocket is not drawn over it) */
@@ -3157,6 +3705,9 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 					registerPrimary(dls[i].node, s_blank, 1);
 				}
 			}
+			/* the release's flash cards on GoldenEye's flash (DAB fpBuildCards()) */
+			if (kind == BEAN_GUN && fit)
+				gunFlashCards(header, mesh, fit, grp, dls, nd);
 			if (kind == BEAN_PROP) {
 				s_screenBuild = NULL;
 				beanScreensFinish(&screens, header, dls[best].node, fit, mainEmitted);
@@ -3398,11 +3949,15 @@ void *gevrBeanRareLogoGdl(const float lo[3], const float hi[3], const void **pic
     return s_rareLogo;
 }
 
+#include "gevr_bean_hats.inc.h"
+
 void gevrBeanReset(void)
 {
 	beanFrameReset();
+	s_hdGeneration++;
 	beanCutReset();
 	beanCapReset();
+	hatSeatsReset();
 	memset(s_wounds, 0, sizeof(s_wounds));
 	s_woundUse = 0;
 	for (int i = 0; i < s_nrigidMeshes; i++) gevrStaticMeshFree(s_rigidMeshes[i]);
@@ -3490,6 +4045,38 @@ void *gevrBeanRoomAppendSecondary(void *gdl, int room, int *replaced)
 		return gdl;
 	}
 	return gevrBeanWorldRoom(gdl, room + 100000, replaced);
+}
+
+/* the HD level's reach (gevrBeanWorldReach()), no further than its fog is whole:
+ * past that a prop or a room's see-through list is the fog's colour, and drawn
+ * it cost Surface 16 props a frame and Runway up to 22 for nothing */
+float bgGetLevelVisibilityScale(void);   /* bg.c */
+
+float gevrBeanFarReach(void)
+{
+	float reach = gevrBeanIsEnabled() ? gevrBeanWorldReach() : 0.0f, line[2];
+	uint8_t rgb[3];
+	if (reach > 0.0f && gevrBeanRoomFog(line, rgb) && line[0] > 0.0f) {
+		const float whole = (255.0f - line[1]) / (line[0] * bgGetLevelVisibilityScale());
+		if (whole > 0.0f && whole < reach)
+			reach = whole;
+	}
+	return reach;
+}
+
+int gevrBeanRoomWantsWater(int room)
+{
+	return gevrBeanIsEnabled() && gevrBeanWorldRoomWantsWater(room);
+}
+
+int gevrBeanRoomHidden(int room)
+{
+	return gevrBeanIsEnabled() && gevrBeanWorldRoomHidden(room);
+}
+
+int gevrBeanHidesProp(const float pos[3], const unsigned char *rooms, int nrooms, int camRoom)
+{
+	return gevrBeanIsEnabled() && gevrBeanWorldHidesProp(pos, rooms, nrooms, camRoom);
 }
 
 void *gevrBeanSkyAppend(void *gdl, int *drew)

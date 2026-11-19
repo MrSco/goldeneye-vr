@@ -29,6 +29,11 @@ FLOOR = {2236: 0.85, 2161: 0.75, 2164: 0.88, 2233: 0.80, 2234: 0.92, 2238: 0.85,
 # not the cartridge's picture at all, bound by DAB all the same: texture/bulletholes/bullethole is a
 # smaller hole than the ROM's 2171 (mean alpha 42 against 170), and geimpact.c gives it GE_IMAGE_IMPACT4
 OTHER_PICTURE = {2171}
+# the monitors: the release's redrawn art, bound by DAB's table (gemonitor.c), so only loaded
+REDRAWN = "new/texture/monitors/"
+# the Community Edition's own pictures (its 512x512 sea): absent from a retail copy, which
+# leaves the ROM's picture; a row of these alone may be unrepainted ("a|b" names alternatives)
+CE_ONLY = "new/texture/bg/"
 
 
 def padded(width, depth):
@@ -123,9 +128,10 @@ def main():
         image = int(image)
         name, _, siz, tw, th, nrgba, _ = native[image]
         if not w:
-            check(False, "image %d (%s): not repainted" % (image, picture))
+            check(all(p.startswith(CE_ONLY) for p in picture.split("|")) and not (Path(files) / picture).exists(),
+                  "image %d (%s): not repainted" % (image, picture))
             continue
-        if image in OTHER_PICTURE:
+        if image in OTHER_PICTURE or picture.startswith(REDRAWN):
             continue
         cw = max(1, round(w * tw / padded(tw, siz)))
         mine = shrink(rgba, w, h, cw, tw, th)

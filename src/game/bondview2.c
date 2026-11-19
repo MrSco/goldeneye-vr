@@ -1318,7 +1318,11 @@ static s32 gevrWarpNearDish(coord3d *dish, s32 model, f32 reach)
 static void gevrWarpProbe(s32 inlevel)
 {
     static u32 tick;
+#ifdef GEVR_PC
+    const char *path = "gevr_warp.txt";   /* the PC and Apple games' own folder, as gevr_cheat.txt */
+#else
     const char *path = "/sdcard/Android/data/com.gevr.port/files/gevr_warp.txt";
+#endif
     s32 padnum = -1;
     FILE *fp;
     PadRecord *pad;

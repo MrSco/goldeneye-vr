@@ -49,7 +49,7 @@ int VrScreenShape = 0;   // the headset's virtual screen: 4:3 until its cost is 
 #endif
 
 extern "C" float inputRumbleGetStrength(int playernum);
-extern "C" void inputRumbleSetStrength(int playernum, int strength);
+extern "C" void inputRumbleSetStrength(int playernum, float strength);   // input.c takes an f32
 
 #define FS_MAXPATH 256
 

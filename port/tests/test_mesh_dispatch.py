@@ -27,7 +27,8 @@ static struct {
 } rsp;
 static struct {struct {unsigned char r,g,b,a;} fog_color;} rdp;
 static bool s_gevrMeshOn=true, s_gevrSkinOn=true, gevrCullOff, gevrCullMirror; static uint8_t s_beanFadeAlpha=255;
-static bool fbActive=true, s_gevrMeshProbe, s_beanRoomFogLinear, gevrRoomDl;
+static bool fbActive=true, s_gevrMeshProbe, s_beanRoomFogLinear, s_beanRoomFogRadial, gevrRoomDl;
+static void gevr_fog_radial_scale(float k[2]){k[0]=k[1]=0;}   /* GEVR_ROOM_RADIAL: not in these draws */
 static float s_beanRoomFogLine[2];
 static unsigned s_gevrMeshCulled, s_gevrMeshCulledTris, s_gevrMeshFallbacks;
 static unsigned s_gevrMeshDraws, s_gevrMeshTris, s_gevrSkinDraws, s_gevrSkinTris;

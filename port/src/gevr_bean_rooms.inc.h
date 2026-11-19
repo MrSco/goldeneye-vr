@@ -11,6 +11,8 @@ struct beanRoomTri {
 	float p[3][3], lo[3], hi[3];
 	int room;
 	uint8_t opaque, culled;   /* the primary (opaque) list's; drawn under G_CULL_BACK */
+	uint8_t envAlpha;         /* its leaf's G_SETENVCOLOR alpha, 0xff unset (DAB eachEnvAlpha) */
+	uint8_t nofog;            /* its leaf draws it without fog (DAB fileRoomTrianglesEach() nofog) */
 	/* its texture number (the list's G_NOOP, tex.c), -1 for none; its
 	 * vertices' s and t (s10.5) and the brightest of their colours */
 	int16_t tex;
@@ -26,6 +28,8 @@ static struct beanRoomTree *s_tree;
 static int s_referenceCount, s_referenceCap, s_treeCount, s_roomSortAxis;
 static uint8_t s_referenceOpaque, s_referenceCulled;   /* the list being read, its geometry mode */
 static int s_referenceTex;                             /* and its texture number */
+static uint8_t s_referenceEnvAlpha = 0xff;            /* and its environment colour's alpha */
+static uint8_t s_referenceNoFog;                       /* and whether its render mode has no fog */
 static int16_t s_referenceSt[16][2];                   /* and its loaded vertices' s, t and shade */
 static uint8_t s_referenceShade[16];
 
@@ -82,6 +86,8 @@ static int roomReferenceTri(int room, const float cache[16][3], unsigned valid, 
 	t->opaque = s_referenceOpaque;
 	t->culled = s_referenceCulled;
 	t->tex = (int16_t)s_referenceTex;
+	t->envAlpha = s_referenceEnvAlpha;
+	t->nofog = s_referenceNoFog;
 	t->shade = 0;
 	for (int v = 0; v < 3; v++) {
 		t->st[v][0] = s_referenceSt[index[v]][0];
@@ -112,6 +118,8 @@ static int roomReferenceLists(int room, const uint8_t *vertices, unsigned vlen, 
 	int depth = 0;
 	s_referenceCulled = 0;
 	s_referenceTex = -1;
+	s_referenceEnvAlpha = 0xff;
+	s_referenceNoFog = 0;
 	for (unsigned guard = 0; pc + 8 <= glen && guard < 262144; guard++) {
 		unsigned w0 = roomBe32(gdl + pc), w1 = roomBe32(gdl + pc + 4), op = w0 >> 24;
 		pc += 8;
@@ -123,6 +131,17 @@ static int roomReferenceLists(int room, const uint8_t *vertices, unsigned vlen, 
 		/* the cartridge's G_NOOP names the texture the triangles after it use (tex.c) */
 		if (op == 0xc0)
 			s_referenceTex = (int)(w1 & 0xfff);
+		if (op == (G_SETENVCOLOR & 255))
+			s_referenceEnvAlpha = (uint8_t)(w1 & 0xff);
+		/* the render mode (the cartridge's G_SETOTHERMODE_L 0xb900031d): cycle 1
+		 * neither G_RM_PASS, which bg.c's fog swap turns to fog, nor fog already.
+		 * GoldenEye draws Caverns' water in G_RM_AA_ZB_OPA_SURF, one cycle,
+		 * unfogged (DAB gebeanstage.c) */
+		if (w0 == 0xb900031du) {
+			const unsigned c1 = w1 & 0xcccc0000u;
+			s_referenceNoFog = c1 != (GBL_c1((unsigned)G_BL_CLR_IN, (unsigned)G_BL_0, (unsigned)G_BL_CLR_IN, (unsigned)G_BL_1) & 0xcccc0000u) &&
+			                   c1 != (GBL_c1((unsigned)G_BL_CLR_FOG, (unsigned)G_BL_A_SHADE, (unsigned)G_BL_CLR_IN, (unsigned)G_BL_1MA) & 0xcccc0000u);
+		}
 		if (op == (G_VTX & 255)) {
 			unsigned first = (w0 >> 16) & 15, count = (w0 & 0xffff) / 16, offset = w1 & 0xffffff;
 			if (first + count > 16 || offset > vlen || count > (vlen - offset) / 16) {
@@ -308,6 +327,105 @@ static void roomRayNode(int node, const float o[3], const float d[3], const floa
 			*facing = det > 0.0f || !t->culled ? 1 : -1;
 		}
 	}
+}
+
+/*
+ * The first of GoldenEye's room triangles a ray from o along unit d meets
+ * beyond 0 and within *best, leaving out those lying in the plane n.x = pd
+ * (DAB gebeanstage.c rayFirst()): its index in *hit, *best its distance.
+ */
+static void roomRayFirstNode(int node, const float o[3], const float d[3], const float inv[3], const float n[3], float pd,
+                             float *best, int *hit)
+{
+	const struct beanRoomTree *b = &s_tree[node];
+	float t0 = 0.0f, t1 = *best;
+	for (int k = 0; k < 3; k++) {
+		float lo = (b->lo[k] - o[k]) * inv[k], hi = (b->hi[k] - o[k]) * inv[k];
+		if (lo > hi) {
+			const float t = lo;
+			lo = hi;
+			hi = t;
+		}
+		t0 = lo > t0 ? lo : t0;
+		t1 = hi < t1 ? hi : t1;
+		if (t0 > t1)
+			return;
+	}
+	if (b->left >= 0) {
+		roomRayFirstNode(b->left, o, d, inv, n, pd, best, hit);
+		roomRayFirstNode(b->right, o, d, inv, n, pd, best, hit);
+		return;
+	}
+	for (int i = b->begin; i < b->end; i++) {
+		const struct beanRoomTri *t = &s_reference[i];
+		float e1[3], e2[3], q[3], s[3], c[3];
+		int inPlane = 1;
+		for (int v = 0; v < 3 && inPlane; v++)
+			inPlane = fabsf(n[0] * t->p[v][0] + n[1] * t->p[v][1] + n[2] * t->p[v][2] - pd) < 1.0f;
+		if (inPlane)
+			continue;
+		for (int k = 0; k < 3; k++) {
+			e1[k] = t->p[1][k] - t->p[0][k];
+			e2[k] = t->p[2][k] - t->p[0][k];
+			s[k] = o[k] - t->p[0][k];
+		}
+		c[0] = d[1] * e2[2] - d[2] * e2[1];
+		c[1] = d[2] * e2[0] - d[0] * e2[2];
+		c[2] = d[0] * e2[1] - d[1] * e2[0];
+		const float det = e1[0] * c[0] + e1[1] * c[1] + e1[2] * c[2];
+		if (fabsf(det) < 1e-9f)
+			continue;
+		const float u = (s[0] * c[0] + s[1] * c[1] + s[2] * c[2]) / det;
+		if (u < 0.0f || u > 1.0f)
+			continue;
+		q[0] = s[1] * e1[2] - s[2] * e1[1];
+		q[1] = s[2] * e1[0] - s[0] * e1[2];
+		q[2] = s[0] * e1[1] - s[1] * e1[0];
+		const float w = (d[0] * q[0] + d[1] * q[1] + d[2] * q[2]) / det;
+		if (w < 0.0f || u + w > 1.0f)
+			continue;
+		const float tt = (e2[0] * q[0] + e2[1] * q[1] + e2[2] * q[2]) / det;
+		if (tt > 0.0f && tt < *best) {
+			*best = tt;
+			*hit = i;
+		}
+	}
+}
+
+/* a GoldenEye room triangle's unit normal (its corners' order), 0 for none */
+static int roomReferenceNormal(int i, float nrm[3])
+{
+	const struct beanRoomTri *t = &s_reference[i];
+	float e1[3], e2[3];
+	for (int k = 0; k < 3; k++) {
+		e1[k] = t->p[1][k] - t->p[0][k];
+		e2[k] = t->p[2][k] - t->p[0][k];
+	}
+	nrm[0] = e1[1] * e2[2] - e1[2] * e2[1];
+	nrm[1] = e1[2] * e2[0] - e1[0] * e2[2];
+	nrm[2] = e1[0] * e2[1] - e1[1] * e2[0];
+	const float len = sqrtf(nrm[0] * nrm[0] + nrm[1] * nrm[1] + nrm[2] * nrm[2]);
+	if (!(len > 0.0f))
+		return 0;
+	for (int k = 0; k < 3; k++)
+		nrm[k] /= len;
+	return 1;
+}
+
+static int roomRayFirst(const float o[3], const float d[3], const float n[3], float pd, float reach, float *t,
+                        float nf[3])
+{
+	float inv[3], best = reach;
+	int hit = -1;
+	if (!s_tree)
+		return -1;
+	for (int k = 0; k < 3; k++)
+		inv[k] = fabsf(d[k]) > 1e-12f ? 1.0f / d[k] : 1e30f;
+	roomRayFirstNode(0, o, d, inv, n, pd, &best, &hit);
+	if (hit < 0 || !roomReferenceNormal(hit, nf))
+		return -1;
+	*t = best;
+	return hit;
 }
 
 static float roomBoxDistance(const float p[3], const float lo[3], const float hi[3])

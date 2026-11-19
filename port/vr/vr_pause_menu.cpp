@@ -165,6 +165,7 @@ extern "C" void gevrNativePauseRender(void) {
     gevrTextInputFeed(io);
     gevrFeedPauseInput(!wasOpen || panel!=wasPanel || hold!=wasHold);wasOpen=true;wasPanel=panel;wasHold=hold;
     ImGui_ImplOpenGL3_NewFrame();ImGui::NewFrame();
+    gevrFriendsNavCross();   /* a pad or the remote into the Friends panel and back */
     const bool popupWasOpen=ImGui::IsPopupOpen(nullptr,ImGuiPopupFlags_AnyPopupId|ImGuiPopupFlags_AnyPopupLevel);
     int action=GEVR_PAUSE_NONE,panelAction=GEVR_PANEL_NONE;
     bool joinFriend=false;

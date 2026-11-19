@@ -22,6 +22,12 @@ Mirror), Java 46x3, server gate passed.
 port is a guess) and the placeholders; Apple TV's remote and pads on a
 device; Mario Characters' dismemberment caps use GoldenEye's neck sizes.
 Untested with two headsets: #245/#246 and co-op in the hack campaigns.
+PR #261's stage data fixes (gevr_romswap.c gevrRomFixData: Bunker II's
+stair tiles, the Silo, Control, Surface and Egyptian setups) change what
+peers load: the release that ships them needs protocol 27.
+At that release close #241, #245, #246, #250-#253 (main), #31 and #32
+(reports) and PR #260 (in #261), each with a note to reopen with details
+if still broken (the user, 2026-11-19). #249 stays open.
 
 ## Platforms (docs/pc-platforms.md, docs/mobile-platforms.md)
 

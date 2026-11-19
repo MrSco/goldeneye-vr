@@ -104,6 +104,12 @@ void lightFixtureInitTables(void)
     }
 
     cur_entry_darkened_light_table = 0;
+#ifdef GEVR
+    {
+        extern void gevrBeanWorldLampsReset(void);   /* port/src/gevr_bean_world.c */
+        gevrBeanWorldLampsReset();
+    }
+#endif
 }
 
 
@@ -345,6 +351,13 @@ void darken_triangle_in_room(Gfx *gfx, u32 tri_type, s32 room_index)
 
     vertex = &vertices[idx3];
     darken_vertex_in_room(vertex, room_index);
+#ifdef GEVR
+    {
+        /* Bean draws the room: its vertices by this fixture triangle go dark too */
+        extern void gevrBeanWorldLampDarken(int room, const short a[3], const short b[3], const short c[3]);
+        gevrBeanWorldLampDarken(room_index, vertices[idx1].v.ob, vertices[idx2].v.ob, vertices[idx3].v.ob);
+    }
+#endif
 }
 
 

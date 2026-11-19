@@ -326,3 +326,77 @@ u8 *gevrRomRebuildAnimationData(const u8 *hack, u32 hackSize, u32 *geOfs, const 
 	*outSize = base + hackSize;
 	return out;
 }
+
+/*
+ * DAB geconvert.c g_RomPatches[] (port/licenses/dabs-mod.txt): faults in
+ * GoldenEye's own data that the community found in the XBLA release's copy of
+ * the same data and mended in its Community Edition; none is a change of
+ * design. Dab makes them on the HD look's copies only; here every look takes
+ * them, so the players of one game load the same stage whatever look each
+ * plays in (the network protocol moves with them at the release).
+ */
+static const struct {
+	const char *name;
+	u32 at;
+	u8 n;
+	u8 old[4], fix[4];
+} s_romFixes[] = {
+	/* Bunker II: two tiles meeting on the stairs (room 0x14, y 93) are
+	 * unlinked from both sides, and a body stops at the edge as at a wall;
+	 * each link names the other tile */
+	{ "Tbg_sevb_all_p_stanZ", 0x65c2, 2, { 0x00, 0x00 }, { 0x0c, 0xcd } },
+	{ "Tbg_sevb_all_p_stanZ", 0x6612, 2, { 0x00, 0x00 }, { 0x0c, 0xc4 } },
+	/* Silo: armour 59 gives half, as the others do, drawn as the full suit */
+	{ "UsetupsiloZ", 0x4efc, 2, { 0x00, 0x73 }, { 0x00, 0x74 } },
+	/* Control: the blast door on pad 146 (object 184) slides up without its
+	 * clip to the box, through the ceiling (DOORFLAG_0004) */
+	{ "UsetupcontrolZ", 0xb8d4, 4, { 0x00, 0x00, 0x00, 0x04 }, { 0x00, 0x04, 0x00, 0x04 } },
+	/* Surface: a guard's pair of Klobbs (guard_try_spawning_item, 0xBF: prop,
+	 * item, a big-endian u32 of flags, label) without the paired flag, which
+	 * Surface 2 and Runway give theirs (0x80000000 and 0x90000000). Dab's row
+	 * names the byte after each flag word's first, 0x10794 and 0x107a3: the
+	 * first set a wrong bit and the second never matched */
+	{ "UsetupsevxZ", 0x10793, 1, { 0x00 }, { 0x80 } },
+	{ "UsetupsevxZ", 0x107a2, 1, { 0x10 }, { 0x90 } },
+	/* Surface and Surface 2: the path pad by the outside railing (288, 279)
+	 * stands past the rail, at z -5001, off the tile it names; -4968 is on
+	 * the tile beside its neighbour */
+	{ "UsetupsevxZ", 0x31b0, 4, { 0xc5, 0x9c, 0x48, 0x00 }, { 0xc5, 0x9b, 0x40, 0x00 } },
+	{ "UsetupsevxbZ", 0x3024, 4, { 0xc5, 0x9c, 0x48, 0x00 }, { 0xc5, 0x9b, 0x40, 0x00 } },
+	/* Egyptian: the Golden Gun's glass case, four door_win panes (objects
+	 * 45-48, pads 53-56) that sink into the plinth, lacked DOORFLAG_0004 as
+	 * Control's blast door did, so a pane was not clipped to its box as it
+	 * went down */
+	{ "UsetupcrypZ", 0x4b5c, 2, { 0x00, 0x08 }, { 0x00, 0x0c } },
+	{ "UsetupcrypZ", 0x4c5c, 2, { 0x00, 0x08 }, { 0x00, 0x0c } },
+	{ "UsetupcrypZ", 0x4d5c, 2, { 0x00, 0x08 }, { 0x00, 0x0c } },
+	{ "UsetupcrypZ", 0x4e5c, 2, { 0x00, 0x08 }, { 0x00, 0x0c } },
+};
+
+int gevrRomFixData(const char *name, u8 *data, u32 size)
+{
+	int made = 0;
+
+	if (name == NULL || data == NULL) {
+		return 0;
+	}
+
+	for (size_t i = 0; i < sizeof(s_romFixes) / sizeof(s_romFixes[0]); i++) {
+		const u32 at = s_romFixes[i].at, n = s_romFixes[i].n;
+
+		if (strcmp(name, s_romFixes[i].name) != 0 || at + n > size) {
+			continue;
+		}
+
+		if (memcmp(data + at, s_romFixes[i].old, n) == 0) {
+			memcpy(data + at, s_romFixes[i].fix, n);
+			made++;
+		}
+	}
+
+	if (made) {
+		sysLogPrintf(LOG_NOTE, "rom: %s: %d of the Community Edition's data fixes", name, made);
+	}
+
+	return made;
+}
