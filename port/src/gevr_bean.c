@@ -538,6 +538,7 @@ static int sourceForName(const char *name, char *source, int sourcelen)
 }
 
 #include "gevr_bean_handpatch.inc.h"
+#include "gevr_bean_armseal.inc.h"
 
 static struct gevrBeanMesh *cachedLoad(const char *path, int keepparts, int kind)
 {
@@ -553,6 +554,11 @@ static struct gevrBeanMesh *cachedLoad(const char *path, int keepparts, int kind
 		}
 		if (kind == BEAN_GUN)
 			beanPatchGunHand(mesh);
+		/* the off-hand arm's open sleeves and forearm, closed (gevr_bean_armseal.inc.h) */
+		if (mesh->watchArm) {
+			const int sealed = beanSealWatchArm(mesh);
+			GEVR_BEAN_LOG("gevr bean: %s: off-hand arm sealed with %d triangles\n", path, sealed);
+		}
 		if (s_ncache < (int)(sizeof(s_cache) / sizeof(s_cache[0]))) {
 			snprintf(s_cache[s_ncache].path, sizeof(s_cache[s_ncache].path), "%s", path);
 			s_cache[s_ncache].mesh = mesh;

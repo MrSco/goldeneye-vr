@@ -164,6 +164,23 @@ the well's mouth on the gun; the off trigger in the insertion mode puts the
 mouth at the held magazine's top. Saved per gun as `BeanMagFit<item>_<0|1>`,
 the PP7s sharing item 4's. Unfitted, both are where the mesh has them.
 
+### The off-hand arm
+
+Bean's off hand is the release's watch arm (`new/char/suitlfhand`). Its hand is
+whole, but it was made to be seen from one side: the bare forearm ends in an
+open rim, every outfit's sleeve is open at the elbow, and two sleeves are open
+along their length. With backs culled, each opening showed straight through.
+At load (`port/src/gevr_bean_armseal.inc.h`):
+
+- the hand and sleeves are drawn in to 92% about the watch's middle, the watch
+  itself left at its size, so the wrist sits inside the band;
+- each far-end rim is closed with a fan, each lengthwise opening laced shut
+  from side to side; the wrist end, where the hand comes through, stays open.
+
+Nothing is authored: the rims are found in the mesh, and each new triangle
+uses the rim's own corners (place, picture, shade, bones). The closing faces
+are flat and take the sleeve's own picture stretched across them.
+
 ### Adding a gun
 
 1. Add a row in `gevr_beanmag.c` for the gun's file, then draw it:

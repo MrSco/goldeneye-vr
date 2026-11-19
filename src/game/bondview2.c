@@ -2857,7 +2857,6 @@ static s32 gevrStereoTwoHandTurn(f32 w[3][3]);
  * drawn (the mirrored fist is the fallback). With `hold`, the arm holds the
  * gun with both hands (gevrRenderBeanGripArm).
  */
-#define GEVR_BEAN_OFFARM_SIZE 0.92f   /* Bean's off-hand arm, of GoldenEye's calibrated size */
 static Gfx *gevrWatchArmDraw(Gfx *gdl, ModelRenderData *templ, s32 *drawn, s32 hold)
 {
     ModelRenderData renderdata;
@@ -2928,12 +2927,6 @@ static Gfx *gevrWatchArmDraw(Gfx *gdl, ModelRenderData *templ, s32 *drawn, s32 h
         /* the model's scale in the wanted frame: root's row length times the calibration */
         f32 rs = sqrtf(matrices[0].m[0][0] * matrices[0].m[0][0] + matrices[0].m[0][1] * matrices[0].m[0][1] + matrices[0].m[0][2] * matrices[0].m[0][2]);
         f32 s = rs * s_gevrWatchScale * cm * gevrGunSizeFactor();
-        /* Bean's off-hand arm a little smaller, about its wrist (user, 2026-11-18:
-         * "shrink the overall offhand arm size by 5% or 10%"): the release's arm is
-         * fuller than GoldenEye's, which the forearm's length is calibrated on */
-        extern int gevrBeanIsEnabled(void);
-        extern int VrGexGuns;
-        if (gevrBeanIsEnabled() && !VrGexGuns) s *= GEVR_BEAN_OFFARM_SIZE;
         for (i = 0; i < 3; i++)
         {
             want.m[0][i] = x[i] * s;
