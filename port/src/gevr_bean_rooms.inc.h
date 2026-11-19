@@ -12,6 +12,7 @@ struct beanRoomTri {
 	int room;
 	uint8_t opaque, culled;   /* the primary (opaque) list's; drawn under G_CULL_BACK */
 	uint8_t envAlpha;         /* its leaf's G_SETENVCOLOR alpha, 0xff unset (DAB eachEnvAlpha) */
+	uint8_t nofog;            /* its leaf draws it without fog (DAB fileRoomTrianglesEach() nofog) */
 	/* its texture number (the list's G_NOOP, tex.c), -1 for none; its
 	 * vertices' s and t (s10.5) and the brightest of their colours */
 	int16_t tex;
@@ -28,6 +29,7 @@ static int s_referenceCount, s_referenceCap, s_treeCount, s_roomSortAxis;
 static uint8_t s_referenceOpaque, s_referenceCulled;   /* the list being read, its geometry mode */
 static int s_referenceTex;                             /* and its texture number */
 static uint8_t s_referenceEnvAlpha = 0xff;            /* and its environment colour's alpha */
+static uint8_t s_referenceNoFog;                       /* and whether its render mode has no fog */
 static int16_t s_referenceSt[16][2];                   /* and its loaded vertices' s, t and shade */
 static uint8_t s_referenceShade[16];
 
@@ -85,6 +87,7 @@ static int roomReferenceTri(int room, const float cache[16][3], unsigned valid, 
 	t->culled = s_referenceCulled;
 	t->tex = (int16_t)s_referenceTex;
 	t->envAlpha = s_referenceEnvAlpha;
+	t->nofog = s_referenceNoFog;
 	t->shade = 0;
 	for (int v = 0; v < 3; v++) {
 		t->st[v][0] = s_referenceSt[index[v]][0];
@@ -116,6 +119,7 @@ static int roomReferenceLists(int room, const uint8_t *vertices, unsigned vlen, 
 	s_referenceCulled = 0;
 	s_referenceTex = -1;
 	s_referenceEnvAlpha = 0xff;
+	s_referenceNoFog = 0;
 	for (unsigned guard = 0; pc + 8 <= glen && guard < 262144; guard++) {
 		unsigned w0 = roomBe32(gdl + pc), w1 = roomBe32(gdl + pc + 4), op = w0 >> 24;
 		pc += 8;
@@ -129,6 +133,15 @@ static int roomReferenceLists(int room, const uint8_t *vertices, unsigned vlen, 
 			s_referenceTex = (int)(w1 & 0xfff);
 		if (op == (G_SETENVCOLOR & 255))
 			s_referenceEnvAlpha = (uint8_t)(w1 & 0xff);
+		/* the render mode (the cartridge's G_SETOTHERMODE_L 0xb900031d): cycle 1
+		 * neither G_RM_PASS, which bg.c's fog swap turns to fog, nor fog already.
+		 * GoldenEye draws Caverns' water in G_RM_AA_ZB_OPA_SURF, one cycle,
+		 * unfogged (DAB gebeanstage.c) */
+		if (w0 == 0xb900031du) {
+			const unsigned c1 = w1 & 0xcccc0000u;
+			s_referenceNoFog = c1 != (GBL_c1((unsigned)G_BL_CLR_IN, (unsigned)G_BL_0, (unsigned)G_BL_CLR_IN, (unsigned)G_BL_1) & 0xcccc0000u) &&
+			                   c1 != (GBL_c1((unsigned)G_BL_CLR_FOG, (unsigned)G_BL_A_SHADE, (unsigned)G_BL_CLR_IN, (unsigned)G_BL_1MA) & 0xcccc0000u);
+		}
 		if (op == (G_VTX & 255)) {
 			unsigned first = (w0 >> 16) & 15, count = (w0 & 0xffff) / 16, offset = w1 & 0xffffff;
 			if (first + count > 16 || offset > vlen || count > (vlen - offset) / 16) {

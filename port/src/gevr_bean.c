@@ -578,6 +578,7 @@ static uint32_t *s_sortSpatial;
 /* A level's list: its faces' sides batch apart (markLevelSides()); the
  * batch being emitted's, for beanRenderMode() */
 static int s_sortSides;
+static int s_emitNoFog;   /* the batch's: GEVR_ROOM_NOFOG (beanRenderMode()) */
 static int s_emitSide;
 
 static uint32_t spatialBits(uint32_t x)
@@ -591,7 +592,7 @@ static uint32_t spatialBits(uint32_t x)
 static int vertKey(const struct gevrEmitVert *v)
 {
 	return ((int)(v->reflectionDiffuse != 0) << 30) | ((int)v->decal << 29) | ((int)v->cut << 28)
-        | ((s_sortSides ? (int)(v->side & 3) : 0) << 26)
+        | ((s_sortSides ? (int)(v->side & 3) : 0) << 26) | (s_sortSides ? (int)(v->nofog & 1) : 0)
         | ((v->tex + 1) << 16) | ((int)v->alpha << 8);
 }
 
@@ -643,7 +644,7 @@ static uint32_t beanRenderMode(Gfx **next, int mode1, int mode2, int room)
 {
     Gfx *g = *next;
     g->words.w0 = ((uintptr_t)G_GEVR_ROOM_STATE << 24) | (room == 2 ? 2 : room ? 0 : 1) |
-                  (s_emitSide ? GEVR_ROOM_FACES : 0);
+                  (s_emitSide ? GEVR_ROOM_FACES : 0) | (s_emitNoFog ? GEVR_ROOM_NOFOG : 0);
     g->words.w1 = (uint32_t)(G_RM_PASS | mode2 | (mode1 & 0xffff));
     *next = g + 1;
     return (uint32_t)g->words.w1;
@@ -698,6 +699,7 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
      * are drawn again, their backs: room for their second vertices */
     s_sortSides = mesh->roomMaterial == 1 && !lit && !skin && zbuf;
     s_emitSide = 0;
+    s_emitNoFog = 0;
     int nback = 0, sided = 0;
     for (int i = 0; s_sortSides && i + 2 < nverts; i += 3)
         nback += v[i].side == GEVR_BEAN_SIDE_FIGHTS ? 3 : 0;
@@ -788,6 +790,7 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 		}
 		/* the batch's side (vertKey() keeps one side a batch): its mode culls */
 		s_emitSide = s_sortSides ? base->side : 0;
+		s_emitNoFog = s_sortSides && base->nofog;
 		sided |= s_emitSide;
 		if (tex >= 0 && tex < mesh->ntex && mesh->standin[tex]) {
 			logicalW = mesh->texW[tex] > 0 ? mesh->texW[tex] : 32;
@@ -1017,6 +1020,7 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
     /* no FACES/BACKS cull past a level's list */
     if (sided) gSPClearGeometryMode(g++, G_CULL_BOTH);
     s_emitSide = 0;
+    s_emitNoFog = 0;
     g->words.w0=(uintptr_t)G_GEVR_NORMAL_TEX1<<24; g++->words.w1=0;
     g->words.w0 = G_GEVR_VERTEX_TINT << 24; g++->words.w1 = 0;
     if (node) { g->words.w0 = ((uintptr_t)G_GEVR_NODE_STATE << 24) | GEVR_NODE_END; g++->words.w1 = 0; }

@@ -8,6 +8,10 @@
  * BACKS draws only its backs, pushed away from the eye (gfx_pc.cpp) */
 #define GEVR_ROOM_FACES 4
 #define GEVR_ROOM_BACKS 8
+/* w0 bit 4: a level batch GoldenEye draws without fog (DAB gebeanstage.c
+ * nofog: a room list whose render mode is neither G_RM_PASS nor fog, as
+ * Caverns' water's G_RM_AA_ZB_OPA_SURF); its own mode, no fog */
+#define GEVR_ROOM_NOFOG 16
 /* A fading chr's Bean draws (chrRenderProp's PropType 8 env alpha, which the
  * game's render mode carries for its own lists): w1 the alpha, 255 ends it. */
 #define G_GEVR_BEAN_FADE 0x6D

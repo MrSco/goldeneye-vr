@@ -5425,7 +5425,7 @@ static void gfx_run_dl(Gfx* cmd) {
                 s_beanBackPush = false;
                 if (model && s_beanModelCull) rsp.geometry_mode = (rsp.geometry_mode & ~G_CULL_BOTH) | G_CULL_BACK;
                 if (model && s_beanNodeSaved) break;   // the node's fog and mode stand (G_GEVR_NODE_STATE)
-                s_beanRoomFogLinear = !(cmd->words.w0 & 2) && (model ? !vr_dl_is_pause_or_menu : gevrRoomDl && (rsp.geometry_mode & G_FOG))
+                s_beanRoomFogLinear = !(cmd->words.w0 & (2 | GEVR_ROOM_NOFOG)) && (model ? !vr_dl_is_pause_or_menu : gevrRoomDl && (rsp.geometry_mode & G_FOG))
                     && gevrBeanRoomFog(s_beanRoomFogLine, rgb);
                 if (model) {
                     if (s_beanRoomFogLinear) rsp.geometry_mode |= G_FOG;
@@ -5455,7 +5455,8 @@ static void gfx_run_dl(Gfx* cmd) {
                     // as the game's own fading lists (model.c): solid pixels write depth
                     mode = G_RM_PASS | ((mode & Z_CMP) ? G_RM_CUSTOM_AA_ZB_XLU_SURF2 : G_RM_XLU_SURF2);
                 }
-                gfx_sp_set_other_mode(3, 29, gevrBeanRoomMode(mode, rsp.geometry_mode & G_FOG));
+                gfx_sp_set_other_mode(3, 29, gevrBeanRoomMode(mode, !(cmd->words.w0 & GEVR_ROOM_NOFOG) &&
+                                                                 (rsp.geometry_mode & G_FOG)));
                 break;
             }
             case G_GEVR_NODE_STATE:

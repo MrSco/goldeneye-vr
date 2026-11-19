@@ -257,6 +257,7 @@ static void fillVert(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *
 	e->n[2] = t->n[corner * 3 + 2];
 	e->uv[0] = t->uv[corner * 2];
 	e->uv[1] = t->uv[corner * 2 + 1];
+	e->nofog = 0;
 	e->rgba[0] = t->rgba[corner * 4];
 	e->rgba[1] = t->rgba[corner * 4 + 1];
 	e->rgba[2] = t->rgba[corner * 4 + 2];
@@ -988,7 +989,10 @@ static int buildStage(int stage)
 			              st->bg, kept);
 	}
 	assign = malloc((size_t)mesh->ntris * sizeof(int));
-	if (!assign) {
+	uint8_t *nofog = calloc((size_t)mesh->ntris + 1, 1);   /* DAB tri->nofog */
+	if (!assign || !nofog) {
+		free(assign);
+		free(nofog);
 		gevrBeanMeshFree(mesh);
 		return 0;
 	}
@@ -1003,7 +1007,21 @@ static int buildStage(int stage)
 		c[0] /= 3.0f;
 		c[1] /= 3.0f;
 		c[2] /= 3.0f;
-		assign[i] = (t->flags & GEVR_BEAN_F_PAINTED) ? -1 : roomFor(c, nrooms);
+		/* GoldenEye's nearest triangle gives the room (roomFor()) and whether
+		 * it is drawn without fog */
+		int ref = -1;
+		float distance = 1e30f;
+		if (s_tree && !(t->flags & GEVR_BEAN_F_PAINTED))
+			roomReferenceNearestTri(0, c, &distance, &ref);
+		assign[i] = (t->flags & GEVR_BEAN_F_PAINTED) ? -1 : ref >= 0 ? s_reference[ref].room : roomFor(c, nrooms);
+		nofog[i] = ref >= 0 && s_reference[ref].nofog;
+	}
+	{
+		int nofogs = 0;
+		for (int i = 0; i < mesh->ntris; i++)
+			nofogs += nofog[i];
+		if (nofogs)
+			GEVR_BEAN_LOG("gevr bean: %s: %d triangles over GoldenEye's surfaces drawn without fog\n", st->bg, nofogs);
 	}
 	markWater(mesh, fileScale);
 	markUnderSea(mesh, fileScale);
@@ -1066,6 +1084,7 @@ static int buildStage(int stage)
 				p[1] = t->p[k * 3 + 1] * fileScale - ptr_bgdata_room_fileposition_list[r].pos.y;
 				p[2] = t->p[k * 3 + 2] * fileScale - ptr_bgdata_room_fileposition_list[r].pos.z;
 				fillVert(mesh, t, &dst[slot + k], p, k);
+				dst[slot + k].nofog = nofog[i];
 				for (int j = 0; j < 3; j++) {
 					const float world = p[j] + ptr_bgdata_room_fileposition_list[r].pos.f[j];
 					if (world < s_room[r].lo[j])
@@ -1115,7 +1134,8 @@ static int buildStage(int stage)
             for (int i=0;i<mesh->ntris;i++) if (assign[i]>=0 && mesh->tris[i].alpha==255)
                 for (int k=0;k<3;k++) {
                     float p[3]; for (int j=0;j<3;j++) p[j]=mesh->tris[i].p[k*3+j]*fileScale;
-                    fillVert(mesh,&mesh->tris[i],&opaque[vi++],p,k);
+                    fillVert(mesh,&mesh->tris[i],&opaque[vi],p,k);
+                    opaque[vi++].nofog=nofog[i];
                 }
             mesh->spatialSort=1;
             void *list=NULL;
@@ -1143,6 +1163,7 @@ static int buildStage(int stage)
     }
     /* GoldenEye's own triangles stay for the camera test (gevrBeanWorldBeginView) */
     free(assign);
+    free(nofog);
     {
         FILE *force = gevrBeanControlOpen("gevr_bean_roomcull.txt");
         s_cullForce = 0;

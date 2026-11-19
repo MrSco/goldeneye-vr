@@ -118,6 +118,7 @@ struct gevrEmitVert {
     uint8_t reflectionDiffuse; /* 0 screen, 1 diffuse-tinted, 2 coloured */
     uint8_t reflectionAlphaBase;
     uint32_t reflectionColour;
+	uint8_t nofog;  /* GoldenEye draws it without fog: read for a level's list only */
 };
 
 int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out);
