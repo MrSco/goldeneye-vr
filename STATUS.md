@@ -5,29 +5,24 @@ in docs/archive/ (the v0.5.15 batch as it stood before release is
 [status-2026-11-10](docs/archive/status-2026-11-10.md)); features keep their
 own notes. No game data is shipped; building publishes nothing.
 
-**Release:** v0.5.20 (versionCode 133, protocol 26), 2026-11-18, tag on
-305fb5af ([notes](docs/releases/v0.5.20.md)): Bean guns reload by hand as
-GE-X's do (port/src/gevr_beanmag.c: magazines cut from the XBLA models,
-round-at-a-time guns, pistols never pulled, no self-reload with hand
-reloading); Bean's sculpted glove patches and a sealed, smaller off-hand arm
-(port/src/gevr_bean_armseal.inc.h); the scope lens follows a reload, the
-KF7/AR33 magnifier always shows, the ammo count beside the lens, the
-supporting hand takes the recoil; Bean level fixes #249-#254; ragdolls drawn
-before the see-through pass; Apple TV (docs/apple-tv.md). Plays online with
-v0.5.15 to v0.5.19 in GoldenEye's campaign. 9 downloads from one commit;
-TestFlight iOS 140 (native now; 139 was Klepton's), visionOS 16, tvOS 2.
-Gates: suite 112/112 (98 Windows + 14 WSL, every ROM incl. Mario and
-Mirror), Java 46x3, server gate passed.
-**Next:** headset checks of the round-at-a-time Bean reloads (the shotguns'
-port is a guess) and the placeholders; Apple TV's remote and pads on a
-device; Mario Characters' dismemberment caps use GoldenEye's neck sizes.
-Untested with two headsets: #245/#246 and co-op in the hack campaigns.
-PR #261's stage data fixes (gevr_romswap.c gevrRomFixData: Bunker II's
-stair tiles, the Silo, Control, Surface and Egyptian setups) change what
-peers load: the release that ships them needs protocol 27.
-At that release close #241, #245, #246, #250-#253 (main), #31 and #32
-(reports) and PR #260 (in #261), each with a note to reopen with details
-if still broken (the user, 2026-11-19). #249 stays open.
+**Release:** v0.5.21 (versionCode 134, protocol 27), 2026-11-19, tag on
+f501fbff ([notes](docs/releases/v0.5.21.md)): the rest of Dab's Mod's Bean
+fixes (docs/bean-parity-backlog.md; the HD level drawn to its fog, HD hit
+tests, monitors, hats, seams, the Community Edition's level, colour and sea
+fixes, the Aztec closet, mines on the HD surface), held guns' labels and
+overlapping faces in painter's order (VR_DEPTH_PULL_NEXT, #267), each
+player's device in the roster and the lobby service's player totals (#262),
+ghost races' drops (#263) and VR count (#265), the Apple TV fixes (#260).
+Protocol 27 for the stage data fixes (gevr_romswap.c gevrRomFixData): plays
+online only with v0.5.21. 9 downloads from one commit; TestFlight iOS 141,
+visionOS 17, tvOS 3. Gates: suite 113/113 (93 Windows + 20 WSL), Java 48x3,
+server gate passed. Closed at release with a reopen note: #241, #245, #246,
+#250-#253, reports #31 and #32, PR #260. #249 stays open.
+**Next:** headset checks of the Aztec closet, the RPG-7 held by the grip, a
+grenade or mine left in hand after a throw, and a ghost race's drops; the
+roster's Device column on a real headset; Bean throat gaps (Dab's
+beanAddNeckTube, still on the backlog); the round-at-a-time Bean reloads;
+Apple TV's remote and pads on a device.
 
 ## Platforms (docs/pc-platforms.md, docs/mobile-platforms.md)
 
@@ -42,18 +37,12 @@ if still broken (the user, 2026-11-19). #249 stays open.
   flavor, Khronos loader), iOS (simulator and one development iPhone).
 - **Crossplay:** NET_INPUT classes in HELLO and NET_MSG 59/60 (additive), VR
   players only / hide flat (Worker), LAN beacon tail.
-- **Unreleased, branch t3/multiplayer-player-platform:** each player's
-  device (Quest, Quest flat, PC VR, PC, Android, iPhone/iPad, Apple TV,
-  Vision Pro, Steam Frame) in the launcher roster ("Device", was "Plays")
-  and the in-game pause table: NET_PLATFORM_TVOS/VISIONOS/FRAME, the host's
-  NET_MSG_PLATFORMS 62 table beside 60 (additive, no bump),
-  net_core.c netGetSlotDeviceKey/Name/Build. The lobby service gets
-  `devices|key@build,...` (own command; LobbyClient, pc_lobby, the bridge
-  and server_lobby.c) and presence gains device, build and input for
-  everyone online, solo too. Worker side: goldeneyevr.com branch
-  claude/platform-build-stats (usage.ts, "Who's playing" on
-  lobbies.goldeneyevr.com, privacy policy updated). Deploy the Worker
-  before the release; older Workers ignore the new fields.
+- **Device** (v0.5.21): each player's device (Quest, Quest flat, PC VR, PC,
+  Android, iPhone/iPad, Apple TV, Vision Pro, Steam Frame) in the launcher
+  roster and the in-game pause table (NET_MSG_PLATFORMS 62, additive); the
+  lobby service gets `devices|key@build,...` and presence carries device,
+  build and input for its anonymous daily totals ("Who's playing" on
+  lobbies.goldeneyevr.com; goldeneyevr.com #13, #14 deployed 2026-11-19).
 
 ## Help wanted (listed in the v0.5.15 and v0.5.16 notes)
 
@@ -95,7 +84,9 @@ if still broken (the user, 2026-11-19). #249 stays open.
 
 ## Releases
 
-Each has docs/releases/vX.Y.Z.md. v0.5.18 push signaling, voice, GE-X
+Each has docs/releases/vX.Y.Z.md. v0.5.21 Bean parity with Dab's Mod,
+Device, ghost race fixes; v0.5.20 Bean hand reloading, Apple TV; v0.5.19
+Mario Characters, co-op in hacks, native Vision Pro; v0.5.18 push signaling, voice, GE-X
 reload aids, co-op Frigate; v0.5.17 PC fixes, crash context, perf
 pass; v0.5.16 speedrunning; v0.5.15 new platforms, crossplay, Friends
 and invites, unified launcher, force pull; v0.5.14 all maps in
