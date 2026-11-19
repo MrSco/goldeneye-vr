@@ -898,7 +898,12 @@ static void ghostPose(const struct gevrghostsample *s)
         prop->stan = tile;
     }
     prop->pos = pos;
-    chrpropActivateThisFrame(prop);
+    /* No chrpropActivateThisFrame here: ghostBuild put the body in the active
+     * list once, and it stays there. Relisting it every tick without
+     * chrpropDelist cut off whatever sat at the list's head. objTick moves
+     * every falling object there (a dropped gun, ammo, a key, a grenade), so
+     * none of them was ticked, drawn or picked up again: kills dropped nothing
+     * in a race (#263). */
 
     s_ghostPlayer.speedforwards = s->forwards / 100.0f;
     s_ghostPlayer.speedsideways = s->sideways / 100.0f;

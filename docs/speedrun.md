@@ -39,7 +39,11 @@ version is below.
   it draws no random numbers. The split beside the timer is Dab's: the time
   the ghost took to reach the sample nearest Bond, green ahead, red behind.
   When the ghost's run ends it is hidden, not removed (removal freed its gun
-  under objTick: SIGSEGV, fixed). Each campaign keeps its own files
+  under objTick: SIGSEGV, fixed). The body goes into the active prop list
+  once, when it is built: relisting it each tick without unlinking it cut
+  off the list's head, where objTick keeps falling objects, so kills dropped
+  nothing during a race (#263, fixed; `port/tests/test_ghost_prop_list.py`).
+  Each campaign keeps its own files
   (`ge-`, `gf-`, `tnd-`, `mirror-`), and a run is only raced on the mission,
   difficulty and campaign its header names. The header's flags say what the
   run was set under: VR `0x01`, Bean `0x02`, GE-X `0x04`, force pull `0x08`,
