@@ -45,6 +45,9 @@ void gevrCaffClose(struct gevrCaff *c) { (void)c; }
 void gevrBeanFontReset(void) {}
 void gevrBeanWorldReset(void) {}
 void *gevrBeanWorldRoom(void *g, int r, int *replaced) { (void)r; *replaced = 0; return g; }
+/* gevr_bean_world.c: no level in this fixture */
+int gevrBeanWorldRoomHidden(int room) { (void)room; return 0; }
+int gevrBeanWorldRoomWantsWater(int room) { (void)room; return 0; }
 void *gevrBeanWorldSky(void *g, int *drew) { *drew = 0; return g; }
 int gevrBeanWorldAuthoredView(void) { return 0; }
 /* Oddjob's hat (PR #196): off, so the knife draws as Bean's */

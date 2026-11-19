@@ -48,6 +48,9 @@ void *gevrBeanWorldRoom(void *g, int r, int *replaced)
 }
 int gevrBeanWorldAuthoredView(void) { return 0; }
 int gevrHatOwnsNode(const void *node) { (void)node; return 0; } /* Oddjob's hat (PR #196): off */
+/* gevr_bean_world.c: no level in this fixture */
+int gevrBeanWorldRoomHidden(int room) { (void)room; return 0; }
+int gevrBeanWorldRoomWantsWater(int room) { (void)room; return 0; }
 void *gevrBeanWorldSky(void *g, int *drew)
 {
 	*drew = 0;
