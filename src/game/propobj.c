@@ -12874,6 +12874,49 @@ extern s32 gevrHeldGunCompute(ChrRecord *chr, PropRecord *weapon, GUNHAND hand, 
  * Render the weapon(s) characters are holding including the muzzle flash.
  * Address: 0x7f0523f8
  */
+#ifdef GEVR
+/*
+ * DAB gebean.c geHeldNudge, chr.c gebeanHeldGunOffset() (port/licenses/
+ * dabs-mod.txt): Bean's pickups of two guns are not shaped like GoldenEye's,
+ * and the fit that lays them on the held model (gevr_bean_fits.h, Dab's own)
+ * leaves the grip out of the fist. Bean's rocket launcher is an RPG-7 whose
+ * pistol grip is well behind where GoldenEye's tube is held, so the tube was
+ * held in the air above the fist with the grip behind the wrist; Bean's
+ * Moonraker's grip stood half a fist ahead of the hand. A gun held in a hand
+ * and drawn as Bean's moves by this much in its own space (-x forward, +z
+ * up), after the left hand's flip. Only the game's held model: DetailedGuns
+ * draws the first-person gun on its own fit (gevr_heldgun.c), from the hand's
+ * matrix unmoved; a pickup on the floor stays where its box puts it.
+ */
+static Mtxf *gevrHeldNudge(Model *model, s32 propnum, Mtxf *base, Mtxf *out)
+{
+    static const struct { s32 prop; f32 d[3]; } nudges[] = {
+        { PROP_CHRLASER, { 40.0f, 0.0f, 0.0f } },
+        { PROP_CHRROCKETLAUNCH, { -210.0f, 0.0f, -40.0f } },
+    };
+    s32 i;
+    s32 a;
+
+    for (i = 0; i < (s32) ARRAYCOUNT(nudges); i++)
+    {
+        if (nudges[i].prop == propnum)
+        {
+            break;
+        }
+    }
+    if (i == (s32) ARRAYCOUNT(nudges) || base == NULL || model == NULL || !gevrBeanModelHasHd(model->obj))
+    {
+        return base;
+    }
+    *out = *base;
+    for (a = 0; a < 3; a++)
+    {
+        out->m[3][a] += nudges[i].d[0] * base->m[0][a] + nudges[i].d[1] * base->m[1][a] + nudges[i].d[2] * base->m[2][a];
+    }
+    return out;
+}
+#endif
+
 void chrRenderHeldWeapon(void *renderContext, GUNHAND hand, Gfx **gdl)
 {
     ChrRecord *chr;
@@ -12920,7 +12963,19 @@ void chrRenderHeldWeapon(void *renderContext, GUNHAND hand, Gfx **gdl)
                 }
 
                 renderData.mtxlist = dynAllocate(heldModel->obj->numMatrices * sizeof(Mtxf));
+#ifdef GEVR
+                {
+                    /* Bean's RPG-7 and Moonraker held by the grip (gevrHeldNudge) */
+                    Mtxf gevrNudged;
+                    Mtxf *gevrHand = renderData.basemtx;
+
+                    renderData.basemtx = gevrHeldNudge(heldModel, weaponObj->obj, gevrHand, &gevrNudged);
+                    instcalcmatrices(&renderData, heldModel);
+                    renderData.basemtx = gevrHand;
+                }
+#else
                 instcalcmatrices(&renderData, heldModel);
+#endif
 #ifdef GEVR
                 {
                     /* gevr_forcepull.c: the hand holding it, for pull and disarm. Its own
