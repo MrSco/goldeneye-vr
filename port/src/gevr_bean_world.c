@@ -358,6 +358,122 @@ static void waterGrad(struct waterMeasure *m, const float v[3][3], const float f
 	m->area += area;
 }
 
+/*
+ * DAB gebeanstage.c markUnderSea() (port/licenses/dabs-mod.txt): what lies
+ * under a level's sea is seen through it, as GoldenEye has it. GoldenEye's
+ * sea is the sky's water plane (WaterRepeat its height), drawn before
+ * everything; Frigate's reflection is the hull built again upside down below
+ * its foot, in a translucent leaf at half alpha over the sea. Bean builds the
+ * same mirrored hull, on both sides, among the hull's own opaque draws, so it
+ * stood under the ship as a second, solid hull and the ship looked sunk deep
+ * in the water (user, Quest, 2026-11-19, beside the N64 look).
+ *
+ * So below the lowest of GoldenEye's opaque geometry, where that is under the
+ * sea and GoldenEye draws something translucent there, Bean's triangles are
+ * drawn translucent: at that leaf's alpha at the waterline, fading to nothing
+ * at the deepest, in the mirror's mean colour and a few steps of fade, turned
+ * outwards and culled so the far side's mirror is not seen through the near
+ * one's. What is above - the hull's own foot, the decks - is as it was.
+ */
+#define UNDERSEA_SLACK 2.0f
+#define UNDERSEA_STEPS 8
+
+static int underSeaTri(const struct gevrBeanTri *t, float fileScale, float top)
+{
+	return t->p[1] * fileScale <= top && t->p[4] * fileScale <= top && t->p[7] * fileScale <= top;
+}
+
+static void underSeaSwap(uint8_t *a, uint8_t *b, size_t n)
+{
+	uint8_t tmp[64];
+	memcpy(tmp, a, n);
+	memcpy(a, b, n);
+	memcpy(b, tmp, n);
+}
+
+static int markUnderSea(struct gevrBeanMesh *mesh, float fileScale)
+{
+	struct CurrentEnvironmentRecord *env = fogGetCurrentEnvironmentp();
+	float floor = 1e30f, top, bottom = 1e30f, centre[3] = { 0, 0, 0 };
+	double mean[3] = { 0, 0, 0 };
+	int alpha = 0, num = 0, marked = 0;
+	if (!env || !env->IsWater || !s_reference || !s_referenceCount)
+		return 0;
+	for (int i = 0; i < s_referenceCount; i++)
+		if (s_reference[i].opaque && s_reference[i].lo[1] < floor)
+			floor = s_reference[i].lo[1];
+	/* the sea's height is in world units, the level file's in its own (room_data_float2) */
+	if (floor * room_data_float2 >= env->WaterRepeat)
+		return 0;
+	for (int i = 0; i < s_referenceCount; i++)
+		if (!s_reference[i].opaque && s_reference[i].hi[1] <= floor + UNDERSEA_SLACK && s_reference[i].envAlpha > alpha)
+			alpha = s_reference[i].envAlpha;
+	if (!alpha)
+		return 0;
+	top = floor + UNDERSEA_SLACK;
+	for (int i = 0; i < mesh->ntris; i++) {
+		const struct gevrBeanTri *t = &mesh->tris[i];
+		if (!underSeaTri(t, fileScale, top))
+			continue;
+		for (int k = 0; k < 3; k++) {
+			if (t->p[k * 3 + 1] * fileScale < bottom)
+				bottom = t->p[k * 3 + 1] * fileScale;
+			for (int j = 0; j < 3; j++) {
+				centre[j] += t->p[k * 3 + j] * fileScale;
+				mean[j] += t->rgba[k * 4 + j];
+			}
+		}
+		num += 3;
+	}
+	if (!num)
+		return 0;
+	for (int j = 0; j < 3; j++) {
+		centre[j] /= num;
+		mean[j] = mean[j] / num + 0.5;
+	}
+	for (int i = 0; i < mesh->ntris; i++) {
+		struct gevrBeanTri *t = &mesh->tris[i];
+		float e1[3], e2[3], n[3], mid[3];
+		if (!underSeaTri(t, fileScale, top))
+			continue;
+		/* turned to face away from the middle of the mirror, so culling keeps
+		 * the side towards the eye */
+		for (int j = 0; j < 3; j++) {
+			mid[j] = (t->p[j] + t->p[3 + j] + t->p[6 + j]) * fileScale / 3.0f;
+			e1[j] = t->p[3 + j] - t->p[j];
+			e2[j] = t->p[6 + j] - t->p[j];
+		}
+		n[0] = e1[1] * e2[2] - e1[2] * e2[1];
+		n[1] = e1[2] * e2[0] - e1[0] * e2[2];
+		n[2] = e1[0] * e2[1] - e1[1] * e2[0];
+		if (n[0] * n[0] + n[1] * n[1] + n[2] * n[2] > 0.0f &&
+		    n[0] * (mid[0] - centre[0]) + n[2] * (mid[2] - centre[2]) < 0.0f) {
+			underSeaSwap((uint8_t *)&t->p[3], (uint8_t *)&t->p[6], 3 * sizeof(float));
+			underSeaSwap((uint8_t *)&t->n[3], (uint8_t *)&t->n[6], 3 * sizeof(float));
+			underSeaSwap((uint8_t *)&t->uv[2], (uint8_t *)&t->uv[4], 2 * sizeof(float));
+			underSeaSwap(&t->rgba[4], &t->rgba[8], 4);
+			underSeaSwap(&t->bone[4], &t->bone[8], 4);
+			underSeaSwap(&t->weight[4], &t->weight[8], 4);
+		}
+		for (int k = 0; k < 3; k++) {
+			const float y = t->p[k * 3 + 1] * fileScale;
+			const float fade = top > bottom ? (y - bottom) / (top - bottom) : 1.0f;
+			const int step = (int)(fade * UNDERSEA_STEPS + 0.5f);
+			for (int j = 0; j < 3; j++)
+				t->rgba[k * 4 + j] = (uint8_t)mean[j];
+			t->rgba[k * 4 + 3] = (uint8_t)(alpha * step / UNDERSEA_STEPS);
+		}
+		t->alpha = 254;   /* the translucent pass (gevrBeanEmitList) */
+		t->alphatest = 0;
+		t->side = GEVR_BEAN_SIDE_BACKED;   /* drawn culled */
+		marked++;
+	}
+	if (marked)
+		GEVR_BEAN_LOG("gevr bean: %d triangles of the reflection under the sea drawn through it "
+		              "(GoldenEye's floor %.0f, sea %.0f, alpha %d)\n", marked, floor, env->WaterRepeat, alpha);
+	return marked;
+}
+
 static void markWater(const struct gevrBeanMesh *mesh, float fileScale)
 {
 	struct waterMeasure ge, hd;
@@ -885,6 +1001,7 @@ static int buildStage(int stage)
 		assign[i] = (t->flags & GEVR_BEAN_F_PAINTED) ? -1 : roomFor(c, nrooms);
 	}
 	markWater(mesh, fileScale);
+	markUnderSea(mesh, fileScale);
 	shotsBuild(mesh, assign, st->scale);
 	for (int r = 0; r < nrooms; r++) {
 		int nopa = 0, nxlu = 0;

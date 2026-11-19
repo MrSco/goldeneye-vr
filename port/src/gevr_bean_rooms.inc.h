@@ -11,6 +11,7 @@ struct beanRoomTri {
 	float p[3][3], lo[3], hi[3];
 	int room;
 	uint8_t opaque, culled;   /* the primary (opaque) list's; drawn under G_CULL_BACK */
+	uint8_t envAlpha;         /* its leaf's G_SETENVCOLOR alpha, 0xff unset (DAB eachEnvAlpha) */
 	/* its texture number (the list's G_NOOP, tex.c), -1 for none; its
 	 * vertices' s and t (s10.5) and the brightest of their colours */
 	int16_t tex;
@@ -26,6 +27,7 @@ static struct beanRoomTree *s_tree;
 static int s_referenceCount, s_referenceCap, s_treeCount, s_roomSortAxis;
 static uint8_t s_referenceOpaque, s_referenceCulled;   /* the list being read, its geometry mode */
 static int s_referenceTex;                             /* and its texture number */
+static uint8_t s_referenceEnvAlpha = 0xff;            /* and its environment colour's alpha */
 static int16_t s_referenceSt[16][2];                   /* and its loaded vertices' s, t and shade */
 static uint8_t s_referenceShade[16];
 
@@ -82,6 +84,7 @@ static int roomReferenceTri(int room, const float cache[16][3], unsigned valid, 
 	t->opaque = s_referenceOpaque;
 	t->culled = s_referenceCulled;
 	t->tex = (int16_t)s_referenceTex;
+	t->envAlpha = s_referenceEnvAlpha;
 	t->shade = 0;
 	for (int v = 0; v < 3; v++) {
 		t->st[v][0] = s_referenceSt[index[v]][0];
@@ -112,6 +115,7 @@ static int roomReferenceLists(int room, const uint8_t *vertices, unsigned vlen, 
 	int depth = 0;
 	s_referenceCulled = 0;
 	s_referenceTex = -1;
+	s_referenceEnvAlpha = 0xff;
 	for (unsigned guard = 0; pc + 8 <= glen && guard < 262144; guard++) {
 		unsigned w0 = roomBe32(gdl + pc), w1 = roomBe32(gdl + pc + 4), op = w0 >> 24;
 		pc += 8;
@@ -123,6 +127,8 @@ static int roomReferenceLists(int room, const uint8_t *vertices, unsigned vlen, 
 		/* the cartridge's G_NOOP names the texture the triangles after it use (tex.c) */
 		if (op == 0xc0)
 			s_referenceTex = (int)(w1 & 0xfff);
+		if (op == (G_SETENVCOLOR & 255))
+			s_referenceEnvAlpha = (uint8_t)(w1 & 0xff);
 		if (op == (G_VTX & 255)) {
 			unsigned first = (w0 >> 16) & 15, count = (w0 & 0xffff) / 16, offset = w1 & 0xffffff;
 			if (first + count > 16 || offset > vlen || count > (vlen - offset) / 16) {
