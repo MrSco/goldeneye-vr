@@ -42,10 +42,6 @@ def main():
         mapped = set(re.findall(r'"new/(gun/[^"]+)"', (ROOT / "port/include/gevr_bean_files.h").read_text()))
         fitted = set(re.findall(r'BEANFIT\("\w+", "(gun/[^"]+)"', (ROOT / "port/include/gevr_bean_fits.h").read_text()))
         assert set(guns) <= mapped and set(guns) <= fitted, (set(guns) - mapped, set(guns) - fitted)
-        # ... and gun.c knows each one's item: one more name there for each gun here
-        items = re.search(r"s32 gevrBeanMagItem\(s32 item\).*?default:", (ROOT / "src/game/gun.c").read_text(
-            encoding="utf-8"), re.S).group()
-        assert len(re.findall(r"case ITEM_\w+:", items)) == len(guns), "gun.c gevrBeanMagItem and the table differ"
         if len(sys.argv) < 2:
             print("SKIP: the release's guns (give your xbla files folder to check them)")
             return

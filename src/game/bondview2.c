@@ -2857,6 +2857,7 @@ static s32 gevrStereoTwoHandTurn(f32 w[3][3]);
  * drawn (the mirrored fist is the fallback). With `hold`, the arm holds the
  * gun with both hands (gevrRenderBeanGripArm).
  */
+#define GEVR_BEAN_OFFARM_SIZE 0.92f   /* Bean's off-hand arm, of GoldenEye's calibrated size */
 static Gfx *gevrWatchArmDraw(Gfx *gdl, ModelRenderData *templ, s32 *drawn, s32 hold)
 {
     ModelRenderData renderdata;
@@ -2927,6 +2928,12 @@ static Gfx *gevrWatchArmDraw(Gfx *gdl, ModelRenderData *templ, s32 *drawn, s32 h
         /* the model's scale in the wanted frame: root's row length times the calibration */
         f32 rs = sqrtf(matrices[0].m[0][0] * matrices[0].m[0][0] + matrices[0].m[0][1] * matrices[0].m[0][1] + matrices[0].m[0][2] * matrices[0].m[0][2]);
         f32 s = rs * s_gevrWatchScale * cm * gevrGunSizeFactor();
+        /* Bean's off-hand arm a little smaller, about its wrist (user, 2026-11-18:
+         * "shrink the overall offhand arm size by 5% or 10%"): the release's arm is
+         * fuller than GoldenEye's, which the forearm's length is calibrated on */
+        extern int gevrBeanIsEnabled(void);
+        extern int VrGexGuns;
+        if (gevrBeanIsEnabled() && !VrGexGuns) s *= GEVR_BEAN_OFFARM_SIZE;
         for (i = 0; i < 3; i++)
         {
             want.m[0][i] = x[i] * s;
@@ -18994,13 +19001,12 @@ extern float VrReloadGrab[2][3], VrReloadBelt[3], VrGexHeldMag[3];   /* vr_setti
 extern float VrBeanReloadGrab[3];   /* and Bean's models' grab */
 
 extern int VrManualReloading;
-/* Hand reload needs a model with a magazine to take out (user): GoldenEye X's,
- * whose reloads are its magazines and hands, or with GE-X off a Bean gun that
- * has one cut from it (gevr_beanmag.h; user, 2026-11-18). The setting is kept;
- * every other gun reloads itself as the game does. */
+/* Hand reload needs a model set with magazines to take out (user): GoldenEye
+ * X's, whose reloads are its magazines and hands, or with GE-X off Bean's, cut
+ * from its guns (gevr_beanmag.h; user, 2026-11-18). The setting is kept; with
+ * neither set the game reloads itself. */
 extern int gevrBeanIsEnabled(void);
-extern s32 gevrBeanMagItem(s32 item);   /* gun.c: a Bean gun with a magazine to take out */
-extern s32 gevrBeanMagHeld(s32 hand);   /* ... and it is the model in this hand */
+extern s32 gevrBeanMagHeld(s32 hand);   /* gun.c: the hand's Bean gun has a magazine to take out */
 extern s32 gevrBeanMagPoints(f32 centre[3], f32 well[3], f32 held[3]);
 #define gevrHandReloadEnabled() (VrManualReloading && (VrGexGuns || gevrBeanIsEnabled()))
 
@@ -19009,11 +19015,15 @@ static s32 gevrReloadGun(s32 item)
     return GEVR_ITEM_AS(item) >= ITEM_WPPK && GEVR_ITEM_AS(item) <= ITEM_ROCKETLAUNCH && GEVR_ITEM_AS(item) != ITEM_WATCHLASER && GEVR_ITEM_AS(item) != ITEM_LASER;
 }
 
-/* by its item: reloaded by hand. With GoldenEye X every gun is; Bean's are the
- * ones that have a magazine, whichever model is loaded just now. */
+/* By its item: reloaded by hand, so never by itself. Every gun is, with either
+ * model set (user, 2026-11-18: "the reload that happens automatically when you
+ * run out of ammo should be off when gesture reloading is on, just like Gex ...
+ * it should force gestures"). A gun whose model has no magazine to take (Bean's
+ * sniper rifle and Golden Gun, or one whose mesh could not be cut) reloads by
+ * the belt's touch or the chest cross, the game's own reload from a gesture. */
 static s32 gevrReloadItemByHand(s32 item)
 {
-    return gevrReloadGun(item) && (VrGexGuns || gevrBeanMagItem(item));
+    return gevrReloadGun(item) && (VrGexGuns || gevrBeanIsEnabled());
 }
 
 /* The free controller follows the weapon slot, independently of handedness. */
@@ -19052,8 +19062,7 @@ static s32 gevrHandReloadBase(void)
 }
 
 /* gunfire.c and lv.c: the local player reloads by hand. With Bean's models
- * that is while a gun with a magazine is out: B, the grip and the belt are the
- * game's own with any other gun. */
+ * that is while a gun is out. */
 s32 gevrHandReloadActive(void)
 {
     return gevrHandReloadBase()
@@ -20116,8 +20125,9 @@ s32 gevrGexHeldPalm(f32 out[3])
 /* lv.c: B or Y where the game would have reloaded: a GoldenEye X gun drops its magazine out */
 void gevrGexDropMagazine(s32 hand)
 {
+    /* not a rocket: one and done, there is nothing to top off by dropping it (user) */
     if (hand < 0 || hand > 1 || g_CurrentPlayer == NULL || !gevrGexByHand(hand)
-        || gevrReloadSingleRound(hand)
+        || gevrReloadSingleRound(hand) || (gevrBeanMagKind(hand) & 2)
         || (s_gevrGexMag[hand] != GEVR_GEXMAG_IN && s_gevrGexMag[hand] != GEVR_GEXMAG_GRIPPED))
     {
         return;

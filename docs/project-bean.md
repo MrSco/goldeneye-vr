@@ -74,8 +74,10 @@ well. A pistol's magazine is not pulled out by hand, GE-X's or Bean's: it is
 inside the grip, with too little showing to take hold of. Rifles and submachine
 guns, whose magazine hangs out of the gun, keep the pull (`bondview2.c
 gevrReloadMagPulls`), so a Bean rifle added to the table gets it too.
-A touch of the gun hand at the belt still loads it one-handed. Every other
-Bean gun keeps the game's own reload, B and all.
+A touch of the gun hand at the belt still loads it one-handed. No gun reloads
+itself or by B / Y while hand reload is on, as with GE-X: one whose model has
+nothing to take (the sniper rifle, the Golden Gun) reloads by the belt's touch
+or the chest cross, which run the game's own reload.
 
 | Gun | Magazine | Out by |
 | --- | --- | --- |
@@ -85,7 +87,7 @@ Bean gun keeps the game's own reload, B and all.
 | RC-P90 | the see-through one on top, with its rounds | lift up, or B / Y |
 | Cougar | its cylinder (and the plate behind it) | B / Y |
 | Grenade launcher | its drum | B / Y |
-| Rocket launcher | the rocket in its tube | fired, it is gone; loaded, B / Y |
+| Rocket launcher | the rocket in its tube | fired, it is gone; loaded, it stays |
 | Shotgun, automatic shotgun | a shell: a copy of one on the gun's saddle | never out: a shell at a time goes in |
 
 The round-at-a-time guns (user, 2026-11-18: "cut off a shotgun shell from a

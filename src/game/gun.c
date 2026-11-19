@@ -2449,31 +2449,9 @@ float *gevrBeanMagFit(s32 item, s32 which)
     return VrBeanMagFits[item >= 0 && item < 64 ? item : 0][which ? 1 : 0];
 }
 
-/* The guns the release's meshes give a magazine (gevr_beanmag.c's table, by
- * item): the PP7s, the DD44, every rifle and submachine gun, and the guns that
- * load a round at a time (the shotguns' shells, the Cougar's cylinder, the
- * grenade launcher's drum, the rocket); not the sniper rifle or the Golden Gun,
- * whose meshes show nothing to take. Once one has been drawn, whether its mesh really
- * had one to cut: a gun that has not keeps the game's own reload (bondview2.c). */
+/* Whether each gun's model, once drawn, had a magazine to take (gevr_beanmag.c's
+ * table; a mesh that could not be cut has none): told once a change, for the log. */
 static s8 s_gevrBeanMagKnown[ITEM_IDS_MAX];   /* 0 not drawn yet, 1 it has one, -1 it has not */
-
-s32 gevrBeanMagItem(s32 item)
-{
-    if (VrGexGuns || !gevrBeanIsEnabled())
-    {
-        return FALSE;
-    }
-    switch (item)
-    {
-        case ITEM_WPPK: case ITEM_WPPKSIL: case ITEM_SILVERWPPK: case ITEM_GOLDWPPK: case ITEM_TT33:
-        case ITEM_SKORPION: case ITEM_AK47: case ITEM_UZI: case ITEM_MP5K: case ITEM_MP5KSIL:
-        case ITEM_SPECTRE: case ITEM_M16: case ITEM_FNP90:
-        case ITEM_SHOTGUN: case ITEM_AUTOSHOT: case ITEM_RUGER: case ITEM_GRENADELAUNCH: case ITEM_ROCKETLAUNCH:
-            return s_gevrBeanMagKnown[item] >= 0;
-        default:
-            return FALSE;
-    }
-}
 
 /* the hand's gun is a Bean model with a magazine to take out */
 s32 gevrBeanMagHeld(s32 hand)
@@ -2757,7 +2735,14 @@ Gfx *gevrBeanMagDraw(Gfx *gdl, ModelRenderData *templ, GUNHAND hand)
         if (loaded == getCurrentPlayerWeaponId(hand) && loaded >= 0 && loaded < ITEM_IDS_MAX
             && g_CurrentPlayer->hands[hand].weaponModel.obj != NULL)
         {
-            s_gevrBeanMagKnown[loaded] = gevrBeanGunMagazine(g_CurrentPlayer->hands[hand].weaponModel.obj, NULL) ? 1 : -1;
+            const s8 has = gevrBeanGunMagazine(g_CurrentPlayer->hands[hand].weaponModel.obj, NULL) ? 1 : -1;
+
+            if (has != s_gevrBeanMagKnown[loaded])
+            {
+                sysLogPrintf(LOG_NOTE, "stereo: bean magazine: item %d's model %s", loaded,
+                             has > 0 ? "has one to take" : "has none: gestures run the game's reload");
+                s_gevrBeanMagKnown[loaded] = has;
+            }
         }
     }
     if (g_CurrentPlayer == NULL || !g_gevrStereo || !gevrBeanMagHeld(hand)

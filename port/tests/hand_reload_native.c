@@ -88,10 +88,6 @@ static float beanFoot[3], beanFit[2][3];
 static int gevrBeanIsEnabled(void) { return beanOn; }
 static int gevrBeanPp7(int item)
 { return item == ITEM_WPPK || item == ITEM_WPPKSIL || item == ITEM_SILVERWPPK || item == ITEM_GOLDWPPK; }
-/* the table's guns the cases use: the PP7s, a rifle, the RC-P90, a shotgun and the launcher */
-static int gevrBeanMagItem(int item)
-{ return !VrGexGuns && beanOn && (gevrBeanPp7(item) || item == ITEM_M16 || item == ITEM_FNP90
-                                  || item == ITEM_SHOTGUN || item == ITEM_ROCKETLAUNCH); }
 static int beanKind;   /* gun.c gevrBeanMagKind: 1 a loose round, 2 gone once fired, 4 never pulled */
 static int gevrBeanMagKind(int hand);
 static int gevrBeanMagHeld(int hand) { return !VrGexGuns && beanOn && beanMag[hand]; }
@@ -552,16 +548,20 @@ static void beanPp7Reload(void)
     /* holstered with its magazine out, it comes back so; its rounds are its own */
     gevrGexDropMagazine(GUNRIGHT);
     assert(reserve == 53 && gevrReloadStow(GUNRIGHT, ITEM_WPPK));
+    /* A gun whose model has no magazine to take (one not cut, the sniper rifle): still
+     * never reloads itself and B does not reload it (user: "it should force gestures"),
+     * as a GE-X gun without one; the belt's touch runs the game's own reload. It has
+     * no magazine's label, pull or fit. */
     player.hands[GUNRIGHT].weapon = ITEM_AK47; beanMag[GUNRIGHT] = 0;
     gevrHandReloadTick();
-    assert(!gevrHandReloadActive() && !gevrManualReloadOn(GUNRIGHT) && !gevrReloadButtonDrops(GUNRIGHT));
-    assert(!gevrReloadStow(GUNRIGHT, ITEM_AK47));   /* a gun the game reloads keeps its rounds in the game's way */
+    assert(gevrHandReloadActive() && gevrManualReloadOn(GUNRIGHT) && gevrReloadButtonDrops(GUNRIGHT));
     assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_NONE);
-    /* ... and no gesture of the hand reload's touches it: the belt, the magazine pull */
+    gevrGexDropMagazine(GUNRIGHT);
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN && falls == 2);
     before = buzzes;
     belt(1, 13.1f); gevrHandReloadTick();
     belt(1, 0); gevrHandReloadTick();
-    assert(buzzes == before && fills == 1);
+    assert(buzzes == before + 2 && fills == 1);
     at(1, 20, 20, 40);
     assert(!gevrReloadClaimsOffHand() && !gevrReloadFitAvailable());
     player.hands[GUNRIGHT].weapon = ITEM_WPPK; beanMag[GUNRIGHT] = 1;
@@ -677,7 +677,7 @@ static void beanPp7Reload(void)
 
     /* A Bean launcher's rocket (consumed, never pulled): fired, the launcher's is
      * out with nothing dropped; a fresh one from the belt, its tail at the muzzle,
-     * loads it and makes GoldenEye's rocket. Loaded, B drops it back to the reserve. */
+     * loads it and makes GoldenEye's rocket. */
     reset();
     VrGexGuns = 0; beanOn = 1; beanMag[GUNRIGHT] = 1; beanKind = 2 | 4;
     stats.MagSize = 1;
@@ -706,12 +706,14 @@ static void beanPp7Reload(void)
     assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN && player.hands[GUNRIGHT].weapon_ammo_in_magazine == 1);
     assert(reserve == 49 && rockets == 1);
     gripHeld[0] = 0; gevrHandReloadTick();
+    /* loaded, B leaves it: one and done, there is nothing to top off (user) */
     gevrGexDropMagazine(GUNRIGHT);
-    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_OUT && reserve == 50 && falls == 1);
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN && reserve == 49 && falls == 0);
+    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 1);
     stats.MagSize = magSize;
 
     /* its model not in the hand yet (a switch): no magazine state, nothing to grip.
-     * gun.c then learns whether the mesh had one to cut (gevrBeanMagItem). */
+     * The gun still never reloads itself. */
     reset();
     VrGexGuns = 0; beanOn = 1;
     gevrHandReloadTick();
