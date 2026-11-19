@@ -46,7 +46,23 @@ typedef struct GevrBeanMagDef {
 	int island;
 	float inside;
 	int straight;         /* it goes in along the normal; else along its own top third */
+	int lid;              /* its top is open in the mesh: close it (a box magazine's; not a shell's or a rocket's) */
 	int pullUp;           /* it lifts off the top of the gun (the RC-P90's) */
+	/* The guns that load a round at a time (user, 2026-11-18: "cut off a shotgun
+	 * shell from a shotgun model and for the cougar magnum you can cut out the
+	 * chamber and use that as the magazine, same with grenade launcher and rocket
+	 * launcher"). All are island magazines with something more: */
+	int single;           /* a loose round (a shotgun's shell): one is pushed in at a time, the gun never opened */
+	int keep;             /* the gun keeps the piece (a shell on its saddle): the round is a copy of it */
+	int hasPort;          /* ... and goes in at port, not where the piece sits */
+	float port[3];
+	int rocket;           /* the piece is the launcher's round in its tube (the loader's GEVR_BEAN_F_ROUND) */
+	int consumed;         /* fired, it is gone: an empty gun's is out without being dropped (the rocket) */
+	int noPull;           /* never pulled out by hand: B / Y alone (a cylinder, the rocket) */
+	/* The piece is, or is partly, one of the gun's moving parts (a cylinder on
+	 * GoldenEye's drum matrix), not the body's alone: taken from any part, and
+	 * that part's own list is not drawn while it is out (gevr_bean.c). */
+	int anyPart;
 } GevrBeanMagDef;
 
 typedef struct GevrBeanMagBuilt {

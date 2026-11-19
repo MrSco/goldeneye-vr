@@ -810,6 +810,18 @@ int main(int argc, char **argv)
         for (int i = 0; i < s_nswap; i++) {
             assert(!s_swap[i].magInfo == !s_swap[i].open && !s_swap[i].open == !s_swap[i].magazine);
             assert(!s_swap[i].magInfo == !s_swap[i].ghost[0] && !s_swap[i].ghost[0] == !s_swap[i].ghost[1]);
+            /* a moving part that is the magazine (a cylinder): its own list stands down with it */
+            if (s_swap[i].magPart) {
+                void *part = s_swap[i].original ? s_swap[i].original : NULL;
+                assert(wants && !s_swap[i].magInfo);
+                if (part && gevrBeanShownGdl(s_swap[i].node, part) == s_swap[i].ours) {
+                    gevrBeanSetMagazine(GEVR_BEAN_MAG_OUT);
+                    assert(gevrBeanShownGdl(s_swap[i].node, part) == s_blank);
+                    gevrBeanSetMagazine(GEVR_BEAN_MAG_IN);
+                    assert(gevrBeanShownGdl(s_swap[i].node, part) == s_swap[i].ours);
+                    printf("MAGAZINE %s part on matrix %d stands down\n", argv[2], nodeMatrix(s_swap[i].node));
+                }
+            }
             if (!s_swap[i].magInfo)
                 continue;
             struct beanSwap whole = s_swap[i], open = s_swap[i], mag = s_swap[i];
@@ -820,8 +832,10 @@ int main(int argc, char **argv)
             const int na = swapVerts(&whole, &a), nb = swapVerts(&open, &b), nc = swapVerts(&mag, &c);
             printf("MAGAZINE %s whole %d open %d magazine %d vertices\n", argv[2], na, nb, nc);
             assert(wants && info.node == s_swap[i].node && info.matrix == nodeMatrix(s_swap[i].node));
-            /* some twenty triangles or more left the gun; the floor is not as many */
-            assert(nb > 0 && nb <= na - 3 * 20 && nc >= 3 * 40);
+            /* some twenty triangles or more left the gun (the floor is not as many); a loose
+             * round is a copy, and the gun keeps what it was copied from */
+            assert(nb > 0 && nc >= 3 * 40);
+            assert(info.single ? nb == na : nb <= na - 3 * 20);
             /* the well runs up the gun (its y), and the magazine fills it from mouth to top */
             restOf(s_swap[i].node, rest);
             for (int v = 0; v < nc; v++)
@@ -836,11 +850,12 @@ int main(int argc, char **argv)
                 float along = 0;
                 for (int k = 0; k < 3; k++)
                     along += (info.top[k] - info.mouth[k]) * info.axis[k];
-                assert(fabsf(unit - 1.0f) < 1e-3f && fabsf(info.axis[1]) > 0.7f && along >= -1e-3f);
-                assert((info.axis[1] < 0) == (info.pullUp != 0));
+                assert(fabsf(unit - 1.0f) < 1e-3f && (info.single || along >= -1e-3f));
+                assert(!info.pullUp || info.axis[1] < -0.7f);
             }
             for (int k = 0; k < 3; k++) {
-                assert(info.mouth[k] + rest[k] > lo[k] - 2.0f && info.mouth[k] + rest[k] < hi[k] + 2.0f);
+                /* a loose round's mouth is the gun's port, away from the round */
+                assert(info.single || (info.mouth[k] + rest[k] > lo[k] - 2.0f && info.mouth[k] + rest[k] < hi[k] + 2.0f));
                 assert(info.top[k] + rest[k] > lo[k] - 2.0f && info.top[k] + rest[k] < hi[k] + 2.0f);
                 assert(info.foot[k] + rest[k] > lo[k] - 2.0f && info.foot[k] + rest[k] < hi[k] + 2.0f);
                 assert(info.hold[k] + rest[k] > lo[k] - 2.0f && info.hold[k] + rest[k] < hi[k] + 2.0f);

@@ -88,12 +88,16 @@ static float beanFoot[3], beanFit[2][3];
 static int gevrBeanIsEnabled(void) { return beanOn; }
 static int gevrBeanPp7(int item)
 { return item == ITEM_WPPK || item == ITEM_WPPKSIL || item == ITEM_SILVERWPPK || item == ITEM_GOLDWPPK; }
-/* the table's guns the cases use: the PP7s, a rifle and the RC-P90 */
+/* the table's guns the cases use: the PP7s, a rifle, the RC-P90, a shotgun and the launcher */
 static int gevrBeanMagItem(int item)
-{ return !VrGexGuns && beanOn && (gevrBeanPp7(item) || item == ITEM_M16 || item == ITEM_FNP90); }
+{ return !VrGexGuns && beanOn && (gevrBeanPp7(item) || item == ITEM_M16 || item == ITEM_FNP90
+                                  || item == ITEM_SHOTGUN || item == ITEM_ROCKETLAUNCH); }
+static int beanKind;   /* gun.c gevrBeanMagKind: 1 a loose round, 2 gone once fired, 4 never pulled */
+static int gevrBeanMagKind(int hand);
 static int gevrBeanMagHeld(int hand) { return !VrGexGuns && beanOn && beanMag[hand]; }
 static int beanLiftsOff;
 s32 gevrBeanMagPullsUp(s32 hand) { return gevrBeanMagHeld(hand) && beanLiftsOff; }
+static int gevrBeanMagKind(int hand) { return gevrBeanMagHeld(hand) ? beanKind : 0; }
 float *gevrBeanMagFit(s32 item, s32 which) { (void)item; return beanFit[which]; }
 s32 gevrWeaponCategory(s32 item);   /* bondview2.c's own, below: the pistols are its first wedge */
 s32 gevrBeanHeldPalm(f32 out[3]);   /* bondview2.c's own, below: the off hand's palm */
@@ -205,7 +209,7 @@ static void reset(void)
     player.hands[GUNRIGHT].weapon = ITEM_WPPK;
     player.hands[GUNLEFT].weapon = ITEM_UNARMED;
     gex[0] = gex[1] = 0;
-    beanOn = beanMag[0] = beanMag[1] = beanPoints = beanLiftsOff = 0;
+    beanOn = beanMag[0] = beanMag[1] = beanPoints = beanLiftsOff = beanKind = 0;
     memset(beanFit, 0, sizeof(beanFit));
     pointsValid = supportHeld = supportCtrl = falls = 0;
     readyEvents = 0;
@@ -625,6 +629,86 @@ static void beanPp7Reload(void)
         assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 12 && reserve == 50 && falls == 0);
         gripHeld[0] = 0; gevrHandReloadTick();
     }
+
+    /* A Bean shotgun's shell (gevr_beanmag.h single): a round at a time, as GE-X's.
+     * The gun is never open; a grip at the belt takes one shell out of the reserve,
+     * its middle at the port puts it in, and B drops nothing. */
+    reset();
+    VrGexGuns = 0; beanOn = 1; beanMag[GUNRIGHT] = 1; beanKind = 1 | 4;
+    stats.MagSize = 5;
+    player.hands[GUNRIGHT].weapon = ITEM_SHOTGUN;
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine = 3;
+    at(1, 20, 20, 40);
+    at(0, 20, -20, 40);
+    gevrHandReloadTick();
+    assert(gevrManualReloadOn(GUNRIGHT) && gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_NONE);
+    gevrGexDropMagazine(GUNRIGHT);
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN && falls == 0 && reserve == 50);
+    {
+        int rounds = 0, hover = 0;
+        assert(gevrReloadBeltAmmo(0) < 0);                       /* no magazine at the belt: a round */
+        belt(0, 0);
+        assert(gevrReloadBeltRound(0, &rounds, &hover) == GUNRIGHT && rounds == 1 && hover);
+        assert(gevrGexClaimsOffHand());
+    }
+    gripHeld[0] = 1; gevrHandReloadTick();
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_INHAND && s_gevrGexHeldRounds == 1 && reserve == 49);
+    assert(gevrBeanMagState(GUNRIGHT, NULL) == GEVR_GEXMAG_INHAND);
+    beanPoints = 3;
+    memset(wellPoint, 0, sizeof(wellPoint));
+    memset(heldPoint, 0, sizeof(heldPoint));
+    heldPoint[1] = 6.1f * cm; gevrHandReloadTick();
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_INHAND);
+    heldPoint[1] = 5.9f * cm; gevrHandReloadTick();
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN && player.hands[GUNRIGHT].weapon_ammo_in_magazine == 4 && reserve == 49);
+    gripHeld[0] = 0; gevrHandReloadTick();
+    /* let go away from the port, the shell goes back to the reserve */
+    belt(0, 0); gripHeld[0] = 1; gevrHandReloadTick();
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_INHAND && reserve == 48);
+    heldPoint[1] = 30 * cm; gripHeld[0] = 0; gevrHandReloadTick();
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN && player.hands[GUNRIGHT].weapon_ammo_in_magazine == 4 && reserve == 49);
+    /* full: the belt has nothing to give */
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine = 5;
+    {
+        int rounds = 0, hover = 0;
+        belt(0, 0);
+        assert(gevrReloadBeltRound(0, &rounds, &hover) < 0 && !gevrGexClaimsOffHand());
+    }
+
+    /* A Bean launcher's rocket (consumed, never pulled): fired, the launcher's is
+     * out with nothing dropped; a fresh one from the belt, its tail at the muzzle,
+     * loads it and makes GoldenEye's rocket. Loaded, B drops it back to the reserve. */
+    reset();
+    VrGexGuns = 0; beanOn = 1; beanMag[GUNRIGHT] = 1; beanKind = 2 | 4;
+    stats.MagSize = 1;
+    player.hands[GUNRIGHT].weapon = ITEM_ROCKETLAUNCH;
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine = 1;
+    at(1, 20, 20, 40);
+    at(0, 20, -20, 40);
+    rockets = 0;
+    gevrHandReloadTick();
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN && gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_NONE);
+    memcpy(beanFoot, poses[1], sizeof(beanFoot)); beanPoints = 1;
+    memcpy(poses[0], beanFoot, sizeof(beanFoot));
+    gripHeld[0] = 1; gevrHandReloadTick();                       /* a grip right on it: not pulled */
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN && !gevrGexClaimsOffHand());
+    gripHeld[0] = 0; gevrHandReloadTick();
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine = 0;          /* fired */
+    at(0, 20, -20, 40); gevrHandReloadTick();
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_OUT && falls == 0 && reserve == 50);
+    assert(gevrBeanMagState(GUNRIGHT, NULL) == GEVR_GEXMAG_OUT && gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_OUT);
+    belt(0, 0); gripHeld[0] = 1; gevrHandReloadTick();
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_INHAND);
+    beanPoints = 3;
+    memset(wellPoint, 0, sizeof(wellPoint));
+    memset(heldPoint, 0, sizeof(heldPoint));
+    gevrHandReloadTick();
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN && player.hands[GUNRIGHT].weapon_ammo_in_magazine == 1);
+    assert(reserve == 49 && rockets == 1);
+    gripHeld[0] = 0; gevrHandReloadTick();
+    gevrGexDropMagazine(GUNRIGHT);
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_OUT && reserve == 50 && falls == 1);
+    stats.MagSize = magSize;
 
     /* its model not in the hand yet (a switch): no magazine state, nothing to grip.
      * gun.c then learns whether the mesh had one to cut (gevrBeanMagItem). */

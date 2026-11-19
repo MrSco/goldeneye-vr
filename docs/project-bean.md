@@ -83,10 +83,28 @@ Bean gun keeps the game's own reload, B and all.
 | DD44 | cut from the grip | B / Y |
 | Klobb, KF7, ZMG, D5K, silenced D5K, Phantom, AR33 | a piece of the mesh on its own | pull down, or B / Y |
 | RC-P90 | the see-through one on top, with its rounds | lift up, or B / Y |
+| Cougar | its cylinder (and the plate behind it) | B / Y |
+| Grenade launcher | its drum | B / Y |
+| Rocket launcher | the rocket in its tube | fired, it is gone; loaded, B / Y |
+| Shotgun, automatic shotgun | a shell: a copy of one on the gun's saddle | never out: a shell at a time goes in |
 
-The sniper rifle's mesh shows no magazine, so it keeps the game's reload (GE-X's
-has one). The shotguns, launchers, Cougar and Golden Gun load a round at a time
-on GE-X; Bean has no loose rounds for them yet.
+The round-at-a-time guns (user, 2026-11-18: "cut off a shotgun shell from a
+shotgun model and for the cougar magnum you can cut out the chamber and use
+that as the magazine, same with grenade launcher and rocket launcher"):
+
+- **Shotguns** load as GE-X's: grip at the belt takes one shell from the
+  reserve, its middle at the port under the receiver puts it in, let go
+  elsewhere and it goes back. The gun is never open and its saddle stays full.
+- **Cougar and grenade launcher**: the cylinder is a magazine. B / Y drops it
+  with its rounds, a full one comes from the belt, and it seats at the middle of
+  where it sits. A cylinder turns on GoldenEye's drum matrix, so it is taken
+  from that moving part and the part's own list is not drawn while it is out.
+- **Rocket launcher**: the rocket is the magazine (the loader's round in the
+  tube). Fired, the launcher's is out with nothing to drop; a fresh one from the
+  belt goes in tail first at the muzzle.
+
+The sniper rifle's mesh shows no magazine and the Golden Gun's no round, so
+both keep the game's reload (GE-X's models have them).
 
 The release's guns are one skinned mesh each with no magazine bone, and its
 dropped-magazine props are a 28-triangle wedge, so the magazine is made from the
@@ -169,11 +187,11 @@ goes by the weapon wheel's pistols.
 
 ### Not done yet
 
-- Checked in the headset: the PP7 (2026-11-18), whose held place is now every
-  gun's default. Not yet: the DD44, the rifles and submachine guns, and the
-  RC-P90 - where each magazine sits in the hand, the pull (taken at the
-  magazine's middle as drawn, within 10 cm and nearer than the two-handed hold),
-  the lids and floors, and the RC-P90's see-through magazine drawn on its own.
+- Checked in the headset (2026-11-18): the PP7, whose held place is every gun's
+  default, and the rifles' and submachine guns' reloads. Not yet: the shotguns'
+  port (under the receiver, a guess from the mesh: Gun fit's ammo insertion
+  moves it), how a shell, cylinder, drum and rocket sit in the hand, and the
+  placeholders.
 - Nothing is sent to other players: the magazine's state is local, as GE-X's.
 
 ### Path to a manual slide rack (both families)

@@ -31,7 +31,8 @@ int main(int argc, char **argv)
 	if (argc == 2 && !strcmp(argv[1], "--guns")) {
 		/* the table: a gun a line, and whether its magazine is a piece of its own */
 		for (int n = 0; gevrBeanMagAt(n); n++)
-			printf("%s %d %d\n", gevrBeanMagAt(n)->source, gevrBeanMagAt(n)->island, gevrBeanMagAt(n)->pullUp);
+			printf("%s %d %d %d %d\n", gevrBeanMagAt(n)->source, gevrBeanMagAt(n)->island, gevrBeanMagAt(n)->pullUp,
+			       gevrBeanMagAt(n)->single, gevrBeanMagAt(n)->keep);
 		return 0;
 	}
 	if (argc < 3 || !def) {
@@ -44,7 +45,8 @@ int main(int argc, char **argv)
 	}
 	eligible = calloc((size_t)m->ntris, 1);
 	for (int i = 0; i < m->ntris; i++)
-		eligible[i] = !(m->tris[i].flags & (GEVR_BEAN_F_FLASH | GEVR_BEAN_F_SLIDE)) && !glove(m, &m->tris[i]);
+		eligible[i] = def->rocket ? (m->tris[i].flags & GEVR_BEAN_F_ROUND) != 0
+		            : !(m->tris[i].flags & (GEVR_BEAN_F_FLASH | GEVR_BEAN_F_SLIDE | GEVR_BEAN_F_ROUND)) && !glove(m, &m->tris[i]);
 	if (!gevrBeanMagBuild(def, m->tris, m->ntris, eligible, &built)) {
 		fprintf(stderr, "nothing to cut in %s\n", argv[1]);
 		return 1;
@@ -57,6 +59,7 @@ int main(int argc, char **argv)
 	printf("# hold %.3f %.3f %.3f\n", built.hold[0], built.hold[1], built.hold[2]);
 	printf("# plane %.5f %.5f %.5f %.3f\n", def->plane[0], def->plane[1], def->plane[2], def->plane[3]);
 	printf("# island %d\n", def->island);
+	/* the whole gun: its own triangles 0, its hand's 1; a launcher's round counts as the gun's */
 	for (int i = 0; i < m->ntris; i++)
 		if (!(m->tris[i].flags & GEVR_BEAN_F_FLASH))
 			line('g', glove(m, &m->tris[i]), &m->tris[i]);

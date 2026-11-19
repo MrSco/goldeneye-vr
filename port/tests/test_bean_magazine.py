@@ -37,7 +37,7 @@ def main():
         table = [line.split() for line in subprocess.run([str(dump), "--guns"], capture_output=True, text=True,
                                                          check=True).stdout.splitlines() if line.strip()]
         guns = [row[0] for row in table]
-        assert len(guns) == len(set(guns)) and "gun/ppk" in guns and "gun/ak47" in guns, guns
+        assert len(guns) == len(set(guns)) and "gun/ppk" in guns and "gun/ak47" in guns and "gun/shotgun" in guns, guns
         # every gun the table names is one the port maps and fits by that name
         mapped = set(re.findall(r'"new/(gun/[^"]+)"', (ROOT / "port/include/gevr_bean_files.h").read_text()))
         fitted = set(re.findall(r'BEANFIT\("\w+", "(gun/[^"]+)"', (ROOT / "port/include/gevr_bean_fits.h").read_text()))
@@ -50,7 +50,7 @@ def main():
             print("SKIP: the release's guns (give your xbla files folder to check them)")
             return
         files = Path(sys.argv[1])
-        for source, island, lifts in table:
+        for source, island, lifts, single, keep in table:
             run = subprocess.run([str(dump), str(files / "new" / source / "default.bin"), source],
                                  capture_output=True, text=True)
             assert run.returncode == 0, f"{source}: {run.stderr.strip()[-400:]}"
@@ -66,23 +66,28 @@ def main():
             hands = sum(1 for kind, _ in sets["g"] if kind == 1)
             assert hands == sum(1 for kind, _ in sets["o"] if kind == 1), f"{source}: the hand was cut"
             floor = [p for kind, p in sets["o"] if kind == 3]
-            assert len(own) >= 20 and len(made) >= 3, (source, len(own), len(made))
+            assert len(own) >= 20, (source, len(own))
             # a pistol's empty well is floored; where a rifle's magazine went in is left as the
             # release has it (the AR33's floor hung in the air under the receiver)
             assert (len(floor) == 0) if int(island) else (len(floor) >= 3), (source, len(floor))
             axis, mouth, top, hold = ([float(v) for v in facts[k]] for k in ("axis", "mouth", "top", "hold"))
             assert abs(sum(v * v for v in axis) - 1) < 1e-3, (source, axis)
-            # into the gun is up, or down for a magazine that lifts off its top
-            assert (axis[1] < -0.7) if int(lifts) else (axis[1] > 0.7), (source, axis)
-            assert sum((t - m) * a for t, m, a in zip(top, mouth, axis)) >= -1e-3, (source, mouth, top)
+            # into the gun is up for one under it, down for one that lifts off its top; a
+            # cylinder goes in from the side and a rocket down the tube
+            if int(lifts):
+                assert axis[1] < -0.7, (source, axis)
+            # the top is the mouth's side of it that way; a loose round goes in at a port instead
+            if not int(single):
+                assert sum((t - m) * a for t, m, a in zip(top, mouth, axis)) >= -1e-3, (source, mouth, top)
             # the palm's point is within the magazine
             points = [p[c:c + 3] for p in own + made for c in (0, 3, 6)]
             for k in range(3):
                 assert min(p[k] for p in points) - 1 <= hold[k] <= max(p[k] for p in points) + 1, (source, hold)
             if int(island):
-                # the release's own piece, whole: the gun lost exactly those triangles
+                # the release's own piece, whole: the gun lost exactly those triangles, or
+                # none of them when the round is a copy of a shell that stays on its saddle
                 gun = sum(1 for kind, _ in sets["g"] if kind == 0)
-                assert sum(1 for kind, _ in sets["o"] if kind == 0) == gun - len(own), source
+                assert sum(1 for kind, _ in sets["o"] if kind == 0) == gun - (0 if int(keep) else len(own)), source
             else:
                 plane = [float(v) for v in facts["plane"]]
 

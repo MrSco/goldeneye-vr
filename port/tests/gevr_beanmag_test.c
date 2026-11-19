@@ -102,6 +102,7 @@ static void island(void)
 	def.hi[0] = 60; def.hi[1] = 30; def.hi[2] = 300;
 	def.floorDepth = 4.0f;
 	def.island = 1;
+	def.lid = 1;
 	def.inside = 20.0f;
 	def.bodyRgb[0] = 40;
 	def.floorRgb[0] = 10;
@@ -150,6 +151,19 @@ static void island(void)
 	assert(gevrBeanMagBuild(&def, s_tris, s_ntris, s_eligible, &built));
 	assert(built.axis[1] == 1.0f && fabsf(built.top[1] - 20.0f) < 1e-2f && fabsf(built.top[2] - built.mouth[2]) < 1e-4f);
 	gevrBeanMagFree(&built);
+	/* a loose round: a copy of the piece - the gun keeps its own - in at a port, with
+	 * no lid unless asked */
+	def.keep = def.single = def.hasPort = 1;
+	def.lid = 0;
+	def.port[0] = 5; def.port[1] = 60; def.port[2] = 300;
+	assert(gevrBeanMagBuild(&def, s_tris, s_ntris, s_eligible, &built));
+	assert(built.nopen == s_ntris && built.nmag == 12 && built.nfoot == 12 && built.nghost == 12);
+	for (int i = 0; i < built.nopen; i++)
+		assert(built.openSrc[i] == i && !memcmp(&built.open[i], &s_tris[i], sizeof(s_tris[i])));
+	assert(built.mouth[0] == 5 && built.mouth[1] == 60 && built.mouth[2] == 300);
+	assert(!memcmp(built.top, built.hold, sizeof(built.top)) && !memcmp(built.hold, built.foot, sizeof(built.hold)));
+	gevrBeanMagFree(&built);
+	def.keep = def.single = def.hasPort = 0;
 	/* nothing wholly in the box: no magazine */
 	def.hi[1] = -10.0f;
 	assert(!gevrBeanMagBuild(&def, s_tris, s_ntris, s_eligible, &built) && !built.mag && !built.open);

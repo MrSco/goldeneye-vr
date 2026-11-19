@@ -2328,6 +2328,12 @@ Gfx *gevrGexDrawPayloadGuide(Gfx *gdl, ModelRenderData *templ, s32 hand, const M
     ModelRenderData rd = *templ;
     Mtxf pose;
     s32 i, j, k;
+    if (def == NULL && (hand == GUNRIGHT || hand == GUNLEFT))
+    {
+        /* a Bean gun's loose round where the belt offers it (below) */
+        extern Gfx *gevrBeanMagDrawBelt(Gfx *gdl, ModelRenderData *templ, s32 hand, const Mtxf *beltPose, u32 tint);
+        return gevrBeanMagDrawBelt(gdl, templ, hand, belt, tint);
+    }
     if (hand < 0 || hand > 1 || !gevrHandReloadActive() || def == NULL || !def->singleRound || !s_gevrGexLastValid[hand]
         || def->item >= ITEM_IDS_MAX || s_gevrGexPayloadAt[def->item].state != 1 || size < 1e-6f) return gdl;
     at = s_gevrGexPayloadAt[def->item].centre;
@@ -2444,8 +2450,10 @@ float *gevrBeanMagFit(s32 item, s32 which)
 }
 
 /* The guns the release's meshes give a magazine (gevr_beanmag.c's table, by
- * item): the PP7s, the DD44 and every rifle and submachine gun; not the sniper
- * rifle, whose mesh shows none. Once one has been drawn, whether its mesh really
+ * item): the PP7s, the DD44, every rifle and submachine gun, and the guns that
+ * load a round at a time (the shotguns' shells, the Cougar's cylinder, the
+ * grenade launcher's drum, the rocket); not the sniper rifle or the Golden Gun,
+ * whose meshes show nothing to take. Once one has been drawn, whether its mesh really
  * had one to cut: a gun that has not keeps the game's own reload (bondview2.c). */
 static s8 s_gevrBeanMagKnown[ITEM_IDS_MAX];   /* 0 not drawn yet, 1 it has one, -1 it has not */
 
@@ -2460,6 +2468,7 @@ s32 gevrBeanMagItem(s32 item)
         case ITEM_WPPK: case ITEM_WPPKSIL: case ITEM_SILVERWPPK: case ITEM_GOLDWPPK: case ITEM_TT33:
         case ITEM_SKORPION: case ITEM_AK47: case ITEM_UZI: case ITEM_MP5K: case ITEM_MP5KSIL:
         case ITEM_SPECTRE: case ITEM_M16: case ITEM_FNP90:
+        case ITEM_SHOTGUN: case ITEM_AUTOSHOT: case ITEM_RUGER: case ITEM_GRENADELAUNCH: case ITEM_ROCKETLAUNCH:
             return s_gevrBeanMagKnown[item] >= 0;
         default:
             return FALSE;
@@ -2489,6 +2498,20 @@ s32 gevrBeanMagPullsUp(s32 hand)
         && info.pullUp;
 }
 
+/* bondview2.c: what the hand's Bean gun loads (gevr_beanmag.h): 1 a loose round
+ * at a time, 2 one that is gone once fired, 4 never pulled out by hand; 0 a
+ * plain magazine, or no Bean gun with one */
+s32 gevrBeanMagKind(s32 hand)
+{
+    struct gevrBeanMagInfo info;
+
+    if (!gevrBeanMagHeld(hand) || !gevrBeanGunMagazine(g_CurrentPlayer->hands[hand].weaponModel.obj, &info))
+    {
+        return 0;
+    }
+    return (info.single ? 1 : 0) | (info.consumed ? 2 : 0) | (info.noPull ? 4 : 0);
+}
+
 /* gunfire.c, round the gun's own draw: its magazine in the gun or out of it */
 s32 gevrBeanMagShown(s32 hand)
 {
@@ -2497,6 +2520,10 @@ s32 gevrBeanMagShown(s32 hand)
     if (!g_gevrStereo || !gevrBeanMagHeld(hand))
     {
         return GEVR_BEAN_MAG_IN;
+    }
+    if (gevrBeanMagKind(hand) & 1)
+    {
+        return GEVR_BEAN_MAG_IN;   /* a loose round goes into a gun that stays whole */
     }
     state = gevrBeanMagState(hand, NULL);
     return state == GEVR_GEXMAG_OUT || state == GEVR_GEXMAG_INHAND ? GEVR_BEAN_MAG_OUT : GEVR_BEAN_MAG_IN;
@@ -2779,7 +2806,7 @@ Gfx *gevrBeanMagDraw(Gfx *gdl, ModelRenderData *templ, GUNHAND hand)
         gdl = gevrBeanMagDrawAt(gdl, templ, hand, &info, &pose);
     }
     hover = hand == gevrReloadSupportGun() && gevrReloadSeatHover(well);
-    if (state == GEVR_GEXMAG_OUT || state == GEVR_GEXMAG_INHAND)
+    if ((state == GEVR_GEXMAG_OUT || state == GEVR_GEXMAG_INHAND) && !info.single)
     {
         /* where it goes: its placeholder in the gun, as GE-X's ghost (gevrGexDrawReloadGuide),
          * after the gun and the magazines so they show through it */

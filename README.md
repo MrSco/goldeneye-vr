@@ -320,8 +320,8 @@ from [Wreck's N64 Vault page](https://n64vault.com/pd-multi-levels:goldeneye-x).
 On the virtual screen, GE-X's own fire and reload animations play. To reload by hand in
 stereo VR, also turn on **Hand reload WIP** on **Controls → Gestures**. It needs
 GoldenEye X or Bean's models; with neither on, it's greyed out with
-**Needs GoldenEye X or Bean**. With Bean alone, the pistols, rifles and submachine guns
-reload by hand and every other gun reloads as usual ([details](docs/project-bean.md#removable-magazines-hand-reload-wip)).
+**Needs GoldenEye X or Bean**. With Bean alone, every gun but the sniper rifle and the Golden Gun
+reloads by hand ([details](docs/project-bean.md#removable-magazines-hand-reload-wip)).
 - **Magazine guns.** Pull the magazine with your off hand, grip a replacement at your
   belt, and seat it in the gun.
   - B/Y drops the magazine. A removed magazine keeps its rounds until you put it back or drop it.

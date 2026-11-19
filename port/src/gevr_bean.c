@@ -112,6 +112,7 @@ struct beanSwap {
 	 * the magazine out, the magazine itself, and where it sits; NULL without one */
 	void *open, *magazine, *ghost[2];
 	struct gevrBeanMagInfo *magInfo;
+	int magPart;   /* a moving part's list that is (part of) the magazine: not drawn while it is out */
 	/* A rigid prop's own list and vertices (gevrBeanEmitList), for the copy a
 	 * destroyed instance draws (gevrBeanScorchedGdl); NULL for the others. */
 	Gfx *emitted;
@@ -284,6 +285,7 @@ static void swapAdd(void *node, void *original, void *ours, int origType)
 	s_swap[s_nswap].spent = NULL;
 	s_swap[s_nswap].open = s_swap[s_nswap].magazine = s_swap[s_nswap].ghost[0] = s_swap[s_nswap].ghost[1] = NULL;
 	s_swap[s_nswap].magInfo = NULL;
+	s_swap[s_nswap].magPart = 0;
 	s_swap[s_nswap].emitted = NULL;
 	s_swap[s_nswap].emittedVtx = NULL;
 	s_swap[s_nswap].emittedVerts = s_swap[s_nswap].emittedCommands = s_swap[s_nswap].emittedWorld = 0;
@@ -356,6 +358,9 @@ void *gevrBeanShownGdl(void *node, void *current)
 	struct beanSwap *s = activeSwap(node);
 	/* GE-X and the VR watch hide the hand by clearing its native list.
 	 * Honour that per-draw visibility instead of resurrecting the Bean arm. */
+	/* a cylinder turns on its own matrix and list: out of the gun, that list is not drawn */
+	if (s && s->magPart && s_magazine != GEVR_BEAN_MAG_IN)
+		return current ? s_blank : current;
 	if (s && (current || !s->original) && s->magInfo && s_magazine != GEVR_BEAN_MAG_IN)
 		return s_magazine == GEVR_BEAN_MAG_ITSELF ? s->magazine
 		     : s_magazine == GEVR_BEAN_MAG_GHOST ? s->ghost[0]
@@ -2050,7 +2055,7 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
  */
 static void gunMagazine(const GevrBeanMagDef *def, const struct gevrBeanMesh *mesh, int kind, int hasHead,
                         ModelNode *node, const struct beanFit *fit, const float *rest,
-                        const struct beanGunParts *parts)
+                        const struct beanGunParts *parts, const struct beanDl *dls)
 {
 	struct beanSwap *body = swapOf(node);
 	const struct beanGunParts *wasParts = s_parts;
@@ -2063,13 +2068,33 @@ static void gunMagazine(const GevrBeanMagDef *def, const struct gevrBeanMesh *me
 		free(eligible);
 		return;
 	}
+	/* the body's own triangles (a cylinder's from whichever part carries them); for
+	 * the launcher its round's alone (DAB fpRound) */
 	for (int t = 0; t < mesh->ntris; t++)
-		eligible[t] = parts->of[t] == parts->body && !gunGloveTri(mesh, &mesh->tris[t]) &&
-		              !(mesh->tris[t].flags & (GEVR_BEAN_F_FLASH | GEVR_BEAN_F_SLIDE | GEVR_BEAN_F_ROUND));
+		eligible[t] = (def->anyPart || parts->of[t] == parts->body) && !gunGloveTri(mesh, &mesh->tris[t]) &&
+		              (def->rocket ? (mesh->tris[t].flags & GEVR_BEAN_F_ROUND) != 0
+		                           : !(mesh->tris[t].flags & (GEVR_BEAN_F_FLASH | GEVR_BEAN_F_SLIDE | GEVR_BEAN_F_ROUND)));
 	if (!gevrBeanMagBuild(def, mesh->tris, mesh->ntris, eligible, &built)) {
 		GEVR_BEAN_LOG("gevr bean: %s: no magazine to cut\n", fit->source);
 		free(eligible);
 		return;
+	}
+	/* the moving parts it took triangles from: their own lists stand down with it */
+	if (def->anyPart && !def->keep) {
+		for (int t = 0; t < mesh->ntris; t++)
+			eligible[t] = eligible[t] ? 2 : 0;
+		for (int t = 0; t < built.nopen; t++)
+			if (built.openSrc[t] >= 0 && eligible[built.openSrc[t]])
+				eligible[built.openSrc[t]] = 1;   /* stayed on the gun */
+		for (int t = 0; t < mesh->ntris; t++) {
+			const int m = parts->of[t];
+			struct beanSwap *part;
+			if (eligible[t] != 2 || m == parts->body || m < 0 || m >= BEAN_GUN_MTX || parts->carrier[m] < 0)
+				continue;
+			part = swapOf(dls[parts->carrier[m]].node);
+			if (part && part != body)
+				part->magPart = 1;
+		}
 	}
 	free(eligible);
 	/* the gun without it, the magazine, and its silhouette in the two placeholder
@@ -2121,6 +2146,9 @@ static void gunMagazine(const GevrBeanMagDef *def, const struct gevrBeanMesh *me
 		info->node = node;
 		info->matrix = nodeMatrix(node);
 		info->pullUp = def->pullUp;
+		info->single = def->single;
+		info->consumed = def->consumed;
+		info->noPull = def->noPull;
 		for (int p = 0; p < 4; p++) {
 			fitPoint(fit, from[p], to[p]);
 			for (int k = 0; k < 3; k++)
@@ -2967,10 +2995,6 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 					}
 					s_noRound = 0;
 				}
-				/* a magazine-fed gun's magazine, to take out by hand (gevr_beanmag.h) */
-				if (gun && mainEmitted && !mesh->triggerCuffs && parts.of && fit && gevrBeanMagFor(fit->source))
-					gunMagazine(gevrBeanMagFor(fit->source), mesh, kind, hasHead, dls[best].node, fit,
-					            grp[dls[best].grp].o, &parts);
 				/* the watch items' pressing hand on GoldenEye's palm and finger */
 				for (int k = 1; press.of && k <= 2; k++) {
 					const int list = k == 1 ? press.palm : press.finger;
@@ -3003,6 +3027,11 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 						parts.used[m] = 0;
 					}
 				}
+				/* a magazine-fed gun's magazine, to take out by hand (gevr_beanmag.h): after
+				 * the moving parts, whose lists a cylinder's are */
+				if (gun && mainEmitted && !mesh->triggerCuffs && parts.of && fit && gevrBeanMagFor(fit->source))
+					gunMagazine(gevrBeanMagFor(fit->source), mesh, kind, hasHead, dls[best].node, fit,
+					            grp[dls[best].grp].o, &parts, dls);
 				s_parts = NULL;
 				s_partsMesh = NULL;
 				for (int i = 0; i < nd; i++) {

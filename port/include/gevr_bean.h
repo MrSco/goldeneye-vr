@@ -79,6 +79,9 @@ struct gevrBeanMagInfo {
 	float hold[3];   /* where the off hand's palm has it */
 	float axis[3];   /* up the well, unit */
 	int pullUp;      /* it lifts off the top of the gun (the RC-P90's) */
+	int single;      /* a loose round pushed in one at a time (a shotgun's shell): gevr_beanmag.h */
+	int consumed;    /* fired, it is gone (the rocket) */
+	int noPull;      /* never pulled out by hand */
 };
 void gevrBeanSetMagazine(int state);
 int gevrBeanGunMagazine(const void *header, struct gevrBeanMagInfo *out);

@@ -34,6 +34,7 @@
 	.bodyRgb = { 46, 46, 50 }, \
 	.floorRgb = { 10, 10, 12 }, \
 	.island = 1, \
+	.lid = 1, \
 	.inside = into, \
 }
 /* the four PP7s are one grip: the silenced, silver and gold files cut alike */
@@ -81,8 +82,68 @@ static const GevrBeanMagDef s_magDefs[] = {
 		.bodyRgb = { 46, 46, 50 },
 		.floorRgb = { 10, 10, 12 },
 		.island = 1,
+		.lid = 1,
 		.straight = 1,
 		.pullUp = 1,
+	},
+	/* The shotgun carries five shells across the top of its receiver, the
+	 * automatic shotgun five in a saddle on its left: each a piece of its own.
+	 * The round is the first one's copy (the saddle stays full), pushed in under
+	 * the receiver ahead of the trigger guard. */
+	{
+		.source = "gun/shotgun",
+		.plane = { 0.0f, 1.0f, 0.0f, 0.0f },
+		.lo = { -105.0f, 85.0f, -48.0f },
+		.hi = { 140.0f, 215.0f, 80.0f },
+		.bodyRgb = { 46, 46, 50 },
+		.floorRgb = { 10, 10, 12 },
+		.island = 1, .straight = 1, .single = 1, .keep = 1, .noPull = 1,
+		.hasPort = 1, .port = { 0.0f, -190.0f, 350.0f },
+	},
+	{
+		.source = "gun/automaticshotgun",
+		.plane = { 0.0f, 1.0f, 0.0f, 0.0f },
+		.lo = { -392.0f, 108.0f, 45.0f },
+		.hi = { 34.0f, 502.0f, 182.0f },
+		.bodyRgb = { 46, 46, 50 },
+		.floorRgb = { 10, 10, 12 },
+		.island = 1, .straight = 1, .single = 1, .keep = 1, .noPull = 1,
+		.hasPort = 1, .port = { 0.0f, -130.0f, 400.0f },
+	},
+	/* The Cougar's cylinder (and the plate behind it) and the grenade launcher's
+	 * drum are the magazine: B / Y drops it with its rounds, a full one comes
+	 * from the belt. The cylinder goes in from the gun's left (+x), the drum from
+	 * below; each mouth is the middle of where it sits. The drum is its barrel
+	 * and back plate: the collar in front of it (z -264 on) carries the top
+	 * strap's bracket and stays on the gun. */
+	{
+		.source = "gun/ruger",
+		.plane = { -1.0f, 0.0f, 0.0f, 0.0f },
+		.lo = { -125.0f, -205.0f, -385.0f },
+		.hi = { 125.0f, 40.0f, 35.0f },
+		.bodyRgb = { 46, 46, 50 },
+		.floorRgb = { 10, 10, 12 },
+		.island = 1, .straight = 1, .noPull = 1, .anyPart = 1, .inside = 120.0f,
+	},
+	{
+		.source = "gun/grenadelauncher",
+		.plane = { 0.0f, 1.0f, 0.0f, 0.0f },
+		.lo = { -425.0f, -690.0f, -780.0f },
+		.hi = { 425.0f, 285.0f, -190.0f },
+		.bodyRgb = { 46, 46, 50 },
+		.floorRgb = { 10, 10, 12 },
+		.island = 1, .straight = 1, .noPull = 1, .anyPart = 1, .inside = 320.0f,
+	},
+	/* The rocket: the launcher's round in its tube, 303 of it inside the muzzle
+	 * at z 1578. It goes in backwards down the tube; fired, there is none to drop. */
+	{
+		.source = "gun/rocketlauncher",
+		.plane = { 0.0f, 0.0f, -1.0f, 0.0f },
+		.lo = { -1000.0f, -1000.0f, 1000.0f },
+		.hi = { 1000.0f, 1000.0f, 4500.0f },
+		.bodyRgb = { 46, 46, 50 },
+		.floorRgb = { 10, 10, 12 },
+		.island = 1, .straight = 1, .rocket = 1, .consumed = 1, .noPull = 1, .inside = 303.0f,
 	},
 };
 
@@ -565,10 +626,10 @@ static int magBuildIsland(const GevrBeanMagDef *def, const struct gevrBeanTri *t
 	}
 	magFrameOf(plane, &f);
 	for (int i = 0; ok && i < ntris; i++) {
-		if (!member[i]) {
+		if (!member[i] || def->keep)
 			ok = magListPush(&open, &tris[i], i);
+		if (!member[i])
 			continue;
-		}
 		if (!like)
 			like = &tris[i];
 		for (int c = 0; c < 3; c++) {
@@ -619,8 +680,14 @@ static int magBuildIsland(const GevrBeanMagDef *def, const struct gevrBeanTri *t
 	along = built->axis[0] * f.n[0] + built->axis[1] * f.n[1] + built->axis[2] * f.n[2];
 	for (int k = 0; k < 3; k++)
 		built->top[k] = built->mouth[k] + built->axis[k] * (-mouthHeight / (along > 0.2f ? along : 1.0f));
+	if (def->hasPort) {
+		/* a loose round: in at the gun's port, wherever the piece it was copied from
+		 * sits; it is there when its middle is */
+		memcpy(built->mouth, def->port, sizeof(def->port));
+		memcpy(built->top, built->hold, sizeof(built->hold));
+	}
 	/* a lid just under its top. The gun gets no floor: see gevr_beanmag.h */
-	if (nlid)
+	if (nlid && def->lid)
 		ok = magHullPush(&mag, like, &f, lidHull, nlid, &lidAt, -0.02f * length, 0.98f, f.n, def->bodyRgb);
 	free(mouthHull);
 	free(lidHull);

@@ -356,7 +356,12 @@ float VrBeanMagFits[64][2][3] = {
     [12] = BEAN_MAG_HELD,   /* Phantom */
     [13] = BEAN_MAG_HELD,   /* AR33 */
     [14] = BEAN_MAG_HELD,   /* RC-P90 */
+    [15] = BEAN_MAG_HELD,   /* shotgun: a shell */
+    [16] = BEAN_MAG_HELD,   /* automatic shotgun: a shell */
     [17] = BEAN_MAG_HELD,   /* sniper rifle */
+    [18] = BEAN_MAG_HELD,   /* Cougar: its cylinder */
+    [24] = BEAN_MAG_HELD,   /* grenade launcher: its drum */
+    [25] = BEAN_MAG_HELD,   /* rocket launcher: a rocket */
 };
 #undef BEAN_MAG_HELD
 float VrBeanScopeFit[4][4];
