@@ -10,13 +10,14 @@ extern "C" {
 #endif
 
 /* header flags: what a run was set under (the file's, the Worker's ghosts.ts) */
-#define GEVR_GHF_STEREO    0x01
+#define GEVR_GHF_STEREO    0x01   /* played wholly in VR */
 #define GEVR_GHF_BEAN      0x02
 #define GEVR_GHF_GEX       0x04
 #define GEVR_GHF_FORCEPULL 0x08
 #define GEVR_GHF_ALLY      0x10
 #define GEVR_GHF_THIRD     0x20
 #define GEVR_GHF_SPEED     0x40   /* a movement speed other than the game's */
+#define GEVR_GHF_MIXED     0x80   /* switched between VR and the flat screen mid-run */
 /* what the boards do not rank (Dab's Ghost Trials: a run outside the trial's rules) */
 #define GEVR_GHF_UNRANKED  (GEVR_GHF_FORCEPULL | GEVR_GHF_ALLY | GEVR_GHF_SPEED)
 
