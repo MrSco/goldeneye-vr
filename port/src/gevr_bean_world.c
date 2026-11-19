@@ -73,6 +73,7 @@ static Gfx *s_opaque, *s_opaqueWrap;
 static void *s_opaqueVertices;
 static GevrStaticMesh *s_opaqueMesh;
 static int s_opaqueDrawn;
+static int s_nlampUndo;   /* gevrBeanWorldLampDarken's undo log, below */
 
 static int s_cullOutside;   /* this view's camera stands outside the level */
 static int s_authoredView;  /* this view is one of GoldenEye's own cameras */
@@ -767,6 +768,7 @@ static void clearRooms(void)
     shotsFree();
     s_cullOutside = 0;
     gevrStaticMeshFree(s_opaqueMesh); free(s_opaqueWrap);
+    s_nlampUndo = 0;   /* its colours went with the lists (gevrBeanWorldLampDarken) */
     free(s_opaque); free(s_opaqueVertices);
     s_opaqueMesh=NULL; s_opaqueWrap=NULL; s_opaque=NULL; s_opaqueVertices=NULL;
     s_opaqueDrawn=0;
@@ -1331,6 +1333,191 @@ void *gevrBeanWorldRoom(void *gdl, int room, int *replaced)
 }
 
 /* Whether the stage's Bean geometry has room `room`, and its bounds. */
+/*
+ * Shot-out lamps darken the HD rooms (DAB gelights.c geLightsDarken(), port/
+ * licenses/dabs-mod.txt). GoldenEye's lightfixture.c still breaks the fixture
+ * a shot meets and takes its N64 vertices, and those of every fixture
+ * triangle within 100 units, to a quarter; with Bean drawing the room nothing
+ * of that showed: the glass fell and the lamp stayed lit. Each triangle
+ * GoldenEye darkens (darken_triangle_in_room) darkens Bean's vertices within
+ * LAMP_REACH of it, to a quarter as well - by distance to the triangle, not a
+ * box: a box square to the axes round a sloping ceiling strip took in the
+ * wall under it (DAB, Bunker). The room's lists change in place and their
+ * meshes are sent to the GPU again; the colours come back at the level's start
+ * (lightFixtureInitTables).
+ */
+#define LAMP_REACH 16.0f   /* DAB FIXTURE_MARGIN, room units */
+
+struct lampUndo {
+	uint8_t *rgba;
+	uint8_t rgb[3];
+};
+static struct lampUndo *s_lampUndo;
+static int s_nlampUndo, s_lampUndoCap;
+
+static float lampTriDistance2(const float p[3], const float t[3][3])
+{
+	/* the nearest point of the triangle (Ericson, Real-Time Collision Detection 5.1.5) */
+	float ab[3], ac[3], ap[3], q[3];
+	for (int k = 0; k < 3; k++) {
+		ab[k] = t[1][k] - t[0][k];
+		ac[k] = t[2][k] - t[0][k];
+		ap[k] = p[k] - t[0][k];
+	}
+	const float d1 = ab[0] * ap[0] + ab[1] * ap[1] + ab[2] * ap[2];
+	const float d2 = ac[0] * ap[0] + ac[1] * ap[1] + ac[2] * ap[2];
+	float bp[3], cp[3];
+	for (int k = 0; k < 3; k++) {
+		bp[k] = p[k] - t[1][k];
+		cp[k] = p[k] - t[2][k];
+	}
+	const float d3 = ab[0] * bp[0] + ab[1] * bp[1] + ab[2] * bp[2];
+	const float d4 = ac[0] * bp[0] + ac[1] * bp[1] + ac[2] * bp[2];
+	const float d5 = ab[0] * cp[0] + ab[1] * cp[1] + ab[2] * cp[2];
+	const float d6 = ac[0] * cp[0] + ac[1] * cp[1] + ac[2] * cp[2];
+	const float vc = d1 * d4 - d3 * d2, vb = d5 * d2 - d1 * d6, va = d3 * d6 - d5 * d4;
+	if (d1 <= 0.0f && d2 <= 0.0f) {
+		for (int k = 0; k < 3; k++) q[k] = t[0][k];
+	} else if (d3 >= 0.0f && d4 <= d3) {
+		for (int k = 0; k < 3; k++) q[k] = t[1][k];
+	} else if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f) {
+		const float v = d1 / (d1 - d3);
+		for (int k = 0; k < 3; k++) q[k] = t[0][k] + v * ab[k];
+	} else if (d6 >= 0.0f && d5 <= d6) {
+		for (int k = 0; k < 3; k++) q[k] = t[2][k];
+	} else if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f) {
+		const float w = d2 / (d2 - d6);
+		for (int k = 0; k < 3; k++) q[k] = t[0][k] + w * ac[k];
+	} else if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f) {
+		const float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+		for (int k = 0; k < 3; k++) q[k] = t[1][k] + w * (t[2][k] - t[1][k]);
+	} else {
+		const float denom = 1.0f / (va + vb + vc), v = vb * denom, w = vc * denom;
+		for (int k = 0; k < 3; k++) q[k] = t[0][k] + ab[k] * v + ac[k] * w;
+	}
+	float d = 0.0f;
+	for (int k = 0; k < 3; k++) d += (p[k] - q[k]) * (p[k] - q[k]);
+	return d;
+}
+
+static int lampDarkenOne(uint8_t *rgba)
+{
+	for (int i = 0; i < s_nlampUndo; i++)
+		if (s_lampUndo[i].rgba == rgba)
+			return 0;   /* already a quarter */
+	if (s_nlampUndo == s_lampUndoCap) {
+		int cap = s_lampUndoCap ? s_lampUndoCap * 2 : 256;
+		struct lampUndo *grown = realloc(s_lampUndo, (size_t)cap * sizeof(*grown));
+		if (!grown)
+			return 0;
+		s_lampUndo = grown;
+		s_lampUndoCap = cap;
+	}
+	s_lampUndo[s_nlampUndo].rgba = rgba;
+	memcpy(s_lampUndo[s_nlampUndo].rgb, rgba, 3);
+	s_nlampUndo++;
+	rgba[0] >>= 2;
+	rgba[1] >>= 2;
+	rgba[2] >>= 2;
+	return 1;
+}
+
+/* count vertices, as Vtx or GevrWorldVertex, at off in the level's space */
+static int lampDarkenVertices(void *verts, int count, int world, const float off[3], const float tri[3][3],
+                              const float lo[3], const float hi[3])
+{
+	int n = 0;
+	for (int i = 0; verts && i < count; i++) {
+		float p[3];
+		uint8_t *rgba;
+		if (world) {
+			GevrWorldVertex *w = &((GevrWorldVertex *)verts)[i];
+			for (int k = 0; k < 3; k++) p[k] = w->p[k] + off[k];
+			rgba = w->rgba;
+		} else {
+			Vtx *v = &((Vtx *)verts)[i];
+			for (int k = 0; k < 3; k++) p[k] = v->v.ob[k] + off[k];
+			rgba = v->v.cn;
+		}
+		if (p[0] < lo[0] || p[0] > hi[0] || p[1] < lo[1] || p[1] > hi[1] || p[2] < lo[2] || p[2] > hi[2])
+			continue;
+		if (lampTriDistance2(p, tri) <= LAMP_REACH * LAMP_REACH)
+			n += lampDarkenOne(rgba);
+	}
+	return n;
+}
+
+/* the vertices a list loads (gevrBeanEmitList: G_VTX or G_GEVR_WORLD_VTX runs) */
+static int lampDarkenList(Gfx *gdl, const float off[3], const float tri[3][3], const float lo[3], const float hi[3])
+{
+	int n = 0;
+	for (Gfx *g = gdl; g; g++) {
+		const unsigned op = (unsigned)(g->words.w0 >> 24) & 0xff;
+		if (op == (G_ENDDL & 0xff))
+			break;
+		if (op == (G_VTX & 0xff))
+			n += lampDarkenVertices((void *)g->words.w1, (int)((g->words.w0 & 0xffff) / sizeof(Vtx)), 0, off, tri, lo, hi);
+		else if (op == G_GEVR_WORLD_VTX)
+			n += lampDarkenVertices((void *)g->words.w1, (int)((g->words.w0 & 0xffff) / sizeof(GevrWorldVertex)), 1, off,
+			                        tri, lo, hi);
+	}
+	return n;
+}
+
+static int lampDarkenMesh(GevrStaticMesh *m, const float off[3], const float tri[3][3], const float lo[3], const float hi[3])
+{
+	if (!m || !m->vertices)
+		return 0;
+	const int n = lampDarkenVertices((void *)m->vertices, (int)m->numVertices, m->worldVertices, off, tri, lo, hi);
+	if (n)
+		gfx_static_mesh_release(m);   /* drawn again from its vertices */
+	return n;
+}
+
+void gevrBeanWorldLampDarken(int room, const short a[3], const short b[3], const short c[3])
+{
+	if (!s_ok || room < 0 || room >= s_nrooms)
+		return;
+	float tri[3][3], lo[3], hi[3];
+	const short *v[3] = { a, b, c };
+	for (int k = 0; k < 3; k++) {
+		lo[k] = 1e30f;
+		hi[k] = -1e30f;
+		for (int i = 0; i < 3; i++) {
+			tri[i][k] = v[i][k] + ptr_bgdata_room_fileposition_list[room].pos.f[k];
+			if (tri[i][k] - LAMP_REACH < lo[k]) lo[k] = tri[i][k] - LAMP_REACH;
+			if (tri[i][k] + LAMP_REACH > hi[k]) hi[k] = tri[i][k] + LAMP_REACH;
+		}
+	}
+	static const float zero[3] = { 0.0f, 0.0f, 0.0f };
+	int n = lampDarkenList(s_opaque, zero, tri, lo, hi) + lampDarkenMesh(s_opaqueMesh, zero, tri, lo, hi);
+	for (int r = 0; r < s_nrooms; r++) {
+		if (!s_room[r].has || s_room[r].lo[0] > hi[0] || s_room[r].hi[0] < lo[0] || s_room[r].lo[1] > hi[1] ||
+		    s_room[r].hi[1] < lo[1] || s_room[r].lo[2] > hi[2] || s_room[r].hi[2] < lo[2])
+			continue;
+		const float *off = ptr_bgdata_room_fileposition_list[r].pos.f;
+		n += lampDarkenList(s_room[r].opa, off, tri, lo, hi) + lampDarkenList(s_room[r].xlu, off, tri, lo, hi);
+		n += lampDarkenMesh(s_room[r].mesh[0], off, tri, lo, hi) + lampDarkenMesh(s_room[r].mesh[1], off, tri, lo, hi);
+	}
+	if (n)
+		GEVR_BEAN_LOG("gevr bean: a shot-out lamp darkened %d of Bean's vertices in room %d\n", n, room);
+}
+
+/* the level's start: every lamp lit again */
+void gevrBeanWorldLampsReset(void)
+{
+	if (!s_nlampUndo)
+		return;
+	for (int i = 0; i < s_nlampUndo; i++)
+		memcpy(s_lampUndo[i].rgba, s_lampUndo[i].rgb, 3);
+	s_nlampUndo = 0;
+	gfx_static_mesh_release(s_opaqueMesh);
+	for (int r = 0; r < s_nrooms; r++) {
+		gfx_static_mesh_release(s_room[r].mesh[0]);
+		gfx_static_mesh_release(s_room[r].mesh[1]);
+	}
+}
+
 int gevrBeanWorldRoomBounds(int room, float lo[3], float hi[3])
 {
 	if (!ensureStage() || room < 0 || room >= s_nrooms || !s_room[room].has)
