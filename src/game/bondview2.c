@@ -5881,22 +5881,23 @@ static f32 s_gevrScopeK = 1.0f;    /* the N64's own zoomed view (gevr_scope.txt 
  * 2.2x) and the AR33 (m16_stats Zoom 20, 3.3x) - zoomed the whole screen; a
  * headset's view must not (as Perfect Dark VR does; GEVR PC's plan instead is
  * a scope render). They have no scope, so their magnifier sits on the sight
- * line at the back of the sights and shows only with the eye brought to it
- * (user), within GEVR_SCOPE_NEAR_SHOW_M, gone past GEVR_SCOPE_NEAR_HIDE_M (a
- * single distance flickered at its edge, HANDOFF 105). KF7 (Gak47Z): the
+ * line at the back of the sights. It showed only with the eye brought within
+ * 15 cm of it; it now shows whenever the gun is out, as the sniper rifle's
+ * does, with every model set (user, 2026-11-18: "we should probably just show
+ * it all the time"). That close, the lens was always inside the range where
+ * it is turned to the eyes and pushed out from them (vr_openxr.cpp), so it was
+ * never seen fixed to the gun: "the same moving problem". KF7 (Gak47Z): the
  * receiver's top, y 79, back to z -44; front sight post y 80 at z 600..627.
  * AR33 (Gm16Z): the carry handle's rear sight housing, x -10..11, y 100..154,
  * z -5..70; front sight y 154 at z 634..677.
  */
-#define GEVR_SCOPE_NEAR_SHOW_M  0.15f
-#define GEVR_SCOPE_NEAR_HIDE_M  0.20f
 #define GEVR_LASER_SCOPE_ZOOM   21.8f   /* 3x: 2 atan(tan 30 / 3) */
 
 struct GevrScope
 {
     s32 item;
     f32 x, y, z, r;   /* the eyepiece: centre and radius */
-    s32 nearOnly;     /* no scope on the model: shown with the eye at it */
+    s32 nearOnly;     /* no scope on the model: a magnifier at the back of its sights */
 };
 
 static const struct GevrScope s_gevrScopes[] = {
@@ -6218,7 +6219,6 @@ static s32 gevrScopeBeginHand(s32 hand)
     extern f32 g_viProjectionMatrixF[4][4];
     extern void viGetZRange(f32 *zrange);
     static s32 was[2] = { -1, -1 };
-    static s32 s_near[2];
     GevrScopeState *st = &gevrScope[hand];
     s32 ctrl = hand == GUNRIGHT ? 1 : 0;
     f32 pos[3], right[3], up[3], back[3];
@@ -6254,27 +6254,6 @@ static s32 gevrScopeBeginHand(s32 hand)
             }
             eye = sqrtf(l[0] * l[0] + l[1] * l[1] + l[2] * l[2]);
             s_gevrScopeEyeNear[hand] = (eye < 0.35f);
-        }
-        /* a sight magnifier shows while Gun fit moves it, wherever the eye is */
-        if (sc->nearOnly && !(hand == GUNRIGHT && gevrScopeFitting))
-        {
-            if (eye < GEVR_SCOPE_NEAR_SHOW_M || (s_near[hand] && eye < GEVR_SCOPE_NEAR_HIDE_M))
-            {
-                if (!s_near[hand])
-                {
-                    sysLogPrintf(LOG_NOTE, "stereo: sight magnifier on (hand %d item %d, eye %.1f cm from it)", hand, item, eye * 100.0f);
-                }
-                s_near[hand] = TRUE;
-            }
-            else
-            {
-                if (s_near[hand])
-                {
-                    sysLogPrintf(LOG_NOTE, "stereo: sight magnifier off (hand %d item %d, eye %.1f cm from it)", hand, item, eye * 100.0f);
-                }
-                s_near[hand] = FALSE;
-                on = FALSE;
-            }
         }
     }
     if (on != was[hand])
