@@ -205,6 +205,48 @@ static uint32_t fixVertexColour(const char *source, uint32_t vboff, uint32_t vi,
 }
 
 /*
+ * DAB gebean.c beanVertexUvFixes, beanFixVertexUv() (port/licenses/dabs-mod.txt):
+ * UVs the release got wrong, mended where its own UV is still there (the
+ * Community Edition's copy carries the mended one). By file, vertex buffer
+ * (.gpu offset) and vertex; UVs raw, as the file has them. stool1: the seat's
+ * rim quad (vertices 40-43) stops 3% short of its strip of the picture at one
+ * end and runs a 32nd past it at the other, so a band of the wrong texels
+ * showed round the seat's edge.
+ */
+static const struct {
+	const char *source;
+	uint32_t vboff;
+	uint16_t vi;
+	int16_t old[2], fix[2];
+} s_uvFixes[] = {
+	{ "new/prop/stool1", 0, 40, { -8191, 15455 }, { -7936, 16384 } },
+	{ "new/prop/stool1", 0, 41, { 0, 15455 }, { 0, 16384 } },
+	{ "new/prop/stool1", 0, 42, { 0, 8191 }, { 0, 8192 } },
+	{ "new/prop/stool1", 0, 43, { -8192, 8192 }, { -7936, 8192 } },
+};
+
+static int uvFixesFor(const char *source)
+{
+	for (unsigned i = 0; i < sizeof(s_uvFixes) / sizeof(s_uvFixes[0]); i++)
+		if (sourceIs(source, s_uvFixes[i].source))
+			return 1;
+	return 0;
+}
+
+static int fixVertexUv(const char *source, uint32_t vboff, uint32_t vi, float uvscale, float uv[2])
+{
+	for (unsigned i = 0; i < sizeof(s_uvFixes) / sizeof(s_uvFixes[0]); i++)
+		if (s_uvFixes[i].vboff == vboff && s_uvFixes[i].vi == vi &&
+		    (int32_t)floorf(uv[0] * uvscale + 0.5f) == s_uvFixes[i].old[0] &&
+		    (int32_t)floorf(uv[1] * uvscale + 0.5f) == s_uvFixes[i].old[1] && sourceIs(source, s_uvFixes[i].source)) {
+			uv[0] = s_uvFixes[i].fix[0] / uvscale;
+			uv[1] = s_uvFixes[i].fix[1] / uvscale;
+			return 1;
+		}
+	return 0;
+}
+
+/*
  * DAB fpTint, beanShadeTint() and beanGoldPicture(): the Golden Gun's two
  * pictures are a near-white scratch and shine map, which its shader lays under
  * a gold reflection map on a second sampler (c12 1.77, c14 -0.77); one sampler
@@ -2911,6 +2953,50 @@ static void keepScreenDraw(struct gevrBeanDrawSrc *ds, const char *path, const s
 	ds->nverts = vb->count;
 }
 
+/*
+ * DAB gebean.c beanApplyCeFixes() (port/licenses/dabs-mod.txt): the Community
+ * Edition's vertex colours, built in, so a retail copy gets them too - the
+ * crates' and the ammo crate's shading, the runway gun's greys, the metal
+ * chair, the tuning console's trim, Complex's railings. Byte for byte against
+ * the release's own file as it is read, before anything is made of it, and
+ * only where the file is the size listed and still has the bytes listed: the
+ * Community Edition's own copy (gevr_bean_ce.c) is another size, left alone.
+ * Colours only; Dab's generator refuses anything else.
+ */
+#define CEFIX(src, size, off, len, old, new) { src, size, off, len, old, new }
+static const struct {
+	const char *source;
+	uint32_t size;
+	uint32_t off;
+	uint8_t len;
+	const char *old;
+	const char *fix;
+} s_ceFixes[] = {
+#include "gevr_bean_cefixes.h"
+};
+#undef CEFIX
+
+static void applyCeFixes(const char *path, uint8_t *file, uint32_t size)
+{
+	const char *last = NULL;
+	int applied = 0, matches = 0;
+	for (unsigned i = 0; i < sizeof(s_ceFixes) / sizeof(s_ceFixes[0]); i++) {
+		if (s_ceFixes[i].size != size || s_ceFixes[i].off + s_ceFixes[i].len > size)
+			continue;
+		/* one name test per file: the table runs file by file */
+		if (s_ceFixes[i].source != last) {
+			last = s_ceFixes[i].source;
+			matches = sourceIs(path, last);
+		}
+		if (matches && memcmp(file + s_ceFixes[i].off, s_ceFixes[i].old, s_ceFixes[i].len) == 0) {
+			memcpy(file + s_ceFixes[i].off, s_ceFixes[i].fix, s_ceFixes[i].len);
+			applied++;
+		}
+	}
+	if (applied)
+		GEVR_BEAN_LOG("gevr bean: %s: %d of the Community Edition's vertex colours\n", path, applied);
+}
+
 int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 {
 	FILE *fp;
@@ -2981,6 +3067,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		return 0;
 	}
 	fclose(fp);
+	applyCeFixes(source, file, (uint32_t)size);
 	memset(&caff, 0, sizeof(caff));
 	if (!gevrCaffOpen(&caff, file, (uint32_t)size)) {
 		free(file);
@@ -3533,6 +3620,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		const int fpMend = !original && fpGunFile(source) && d->piece != 0 ? fpMendOf(source) : -1;
 		const int colourFixes = !original && colourFixesFor(source);
 		int coloursFixed = 0;
+		const int uvFixes = !original && uvFixesFor(source);
+		int uvsFixed = 0;
 		struct beanSphere sphere;
 		int sphered = 0;
 		if (!levelFade && d->ownmat && d->tex < (uint32_t)ntex &&
@@ -3570,6 +3659,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
                     corner[k].argb = fixVertexColour(source, vbrec.off, tris[t * 3 + k], corner[k].argb);
                     coloursFixed += corner[k].argb != was;
                 }
+                if (uvFixes && fixVertexUv(source, vbrec.off, tris[t * 3 + k], uvscale, corner[k].uv))
+                    uvsFixed++;
                 if (d->repaint)
                     repaintUv(d->repaint, corner[k].pos, corner[k].nrm, corner[k].uv);
                 if (fpMend >= 0 && corner[k].pos[2] > s_fpMends[fpMend].zmin && corner[k].pos[1] > s_fpMends[fpMend].ymin)
@@ -3719,6 +3810,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		}
 		if (coloursFixed)
 			GEVR_BEAN_LOG("gevr bean: %s: draw %d: %d corners' colours mended\n", source, di, coloursFixed);
+		if (uvsFixed)
+			GEVR_BEAN_LOG("gevr bean: %s: draw %d: %d corners' UVs mended\n", source, di, uvsFixed);
 		free(tris);
 	}
 	if (levelFade) {
