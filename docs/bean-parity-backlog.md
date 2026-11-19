@@ -50,8 +50,6 @@ xm = `port/src/xblamesh.c`, all Dab's. Size S/M/L.
 - **Community Edition colour/UV fixes on retail copies** (gb 8905-9035,
   `gebeancefixes.h`): only from the player's updater zip; retail shows the old
   colours (Complex railings; Bunker 2's cell doors are mended built in). M
-- **HD casing fits** (gb cartRows): ejected casings offset, shotgun shells upside
-  down. S
 - **Dam fog from the camera's height** (gbs `gebeanStageFog`, cam_pos.y): the port
   uses the player's height, so intro and ending shots get low fog. The intro camera is
   the player's `pos` while `cameramode` is 1 (1160 down to 68 on Dam's), but it ends far
@@ -79,7 +77,9 @@ fog; scrolling pictures; tinted glass; third-person muzzle flash; cut-out edge
 bleed; tree UVs; vertex drops; markUnderSea, Frigate's hull reflection
 (bbd5ff40); the monitors' pictures (DAB gemonitor.c); shots against HD props (DAB xblaMeshObjShotTest, 31754136); shot-out lamps darken HD rooms (DAB gelights.c, not yet seen on screen); first-person HD muzzle-flash cards (DAB fpBuildCards); mirrored gun lettering (DAB beanFixLettering); hat seating on HD heads (DAB xblaMeshHatSeat); seam weld and neck weights on HD bodies and heads; the sky colour under the dome (DAB gebeanSkyRender's fill); hidden native rooms stop no shot (DAB shotGeRooms); GoldenEye's water leaves in rooms Bean leaves dry (DAB fileWaterLeaves; Egyptian's pool); lettering painted on black made clear (DAB beanKeyStencil); sphere-mapped prop draws without UVs get the map's lookup (DAB beanSphereUv; not yet seen on screen); opaque twins the release never shows left out (DAB dropTwins); a shot-out door pane goes with GoldenEye's glass (DAB xblamesh fade toggle; not yet seen on screen); surfaces GoldenEye draws without fog drawn without it (DAB nofog); the truck's dual rear wheels (DAB beanDoubleWheels); the KF7's front sight on the bore (DAB fpMendVertex); props' cut-out cards sampled clamped (DAB beanClampCards); the crypt block's repaint and end faces, the cell doors' and table's colours (DAB beanRepaints, beanVertexColourFixes); alpha-tested level faces that never pass left out (DAB alphaTested); a model Bean draws takes its near detail level (DAB modelDistanceIsFullDetail).
 
-Not needed in the port: weldVertices, markDecalLifts and markDecalCorners and
+Not needed in the port: DAB's cartRows (its casing fits are on Perfect Dark's
+models; the port's sit on GoldenEye's own within 0.1 to 0.4 units, the shell's rim
+with GoldenEye's, and Dab's shell flip put it 13.5 off); weldVertices, markDecalLifts and markDecalCorners and
 the far-off triangle moves (Dab's s16 room vertices; the port's are floats);
 the CCTV lens test (the port's shots use N64 geometry); Dab's tile and texture
 table readers and native water (GoldenEye does its own).
