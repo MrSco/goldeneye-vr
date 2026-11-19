@@ -36,7 +36,8 @@ xm = `port/src/xblamesh.c`, all Dab's. Size S/M/L.
 - **Other ROM patch-table fixes** (Dab geconvert.c `g_RomPatches`): Silo armour,
   Control blast-door clip, Surface Klobbs/railing pad, Egyptian Golden Gun case
   glass. S each
-- **Always-on-top props** (xm, no depth): Cuba's flagged plants. S
+- **Always-on-top props** (xm, no depth): Cuba's flagged plants. Conflicts with the
+  hands' rule in `gfx_bean_node_state()` (a node without depth keeps the list's). S
 - **Held-gun nudge** (gb `geHeldNudge`): Moonraker and RPG-7, only with
   DetailedGuns off. S
 
@@ -56,7 +57,9 @@ xm = `port/src/xblamesh.c`, all Dab's. Size S/M/L.
 - **HD casing fits** (gb cartRows): ejected casings offset, shotgun shells upside
   down. S
 - **Dam fog from the camera's height** (gbs `gebeanStageFog`, cam_pos.y): the port
-  uses the player's height, so intro and ending shots get low fog. S
+  uses the player's height, so intro and ending shots get low fog. The intro camera is
+  the player's `pos` while `cameramode` is 1 (1160 down to 68 on Dam's), but it ends far
+  from the player's 757; check the space on screen before using it. S
 - **Grenade or mine left in hand after a throw** (gb toggled lists): same
   mechanism as Dab's; needs a headset check. S
 
