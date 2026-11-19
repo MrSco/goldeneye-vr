@@ -62,6 +62,31 @@ static int fpGunFile(const char *source)
 }
 
 /*
+ * DAB gebean.c fpMends[] and fpMendVertex() (port/licenses/dabs-mod.txt):
+ * pieces of the release's first-person guns modelled out of line, moved back
+ * where GoldenEye's own model has them. Each is the release's vertices past
+ * zmin along the barrel and above ymin, in the file's own units, moved dx
+ * across. The KF7's front sight ring stands 26 units left of the barrel's
+ * middle (its ring centred at x -24.1 over a barrel centred at 2.2), so at the
+ * sights the post leant off the bore: "crooked ironsight". GoldenEye's own KF7
+ * has its post on the bore's line to within half a unit.
+ */
+static const struct { const char *gun; float zmin, ymin, dx; } s_fpMends[] = {
+	{ "ak47", 2950.0f, 150.0f, 26.3f },
+};
+
+static int fpMendOf(const char *source)
+{
+	for (unsigned i = 0; i < sizeof(s_fpMends) / sizeof(s_fpMends[0]); i++) {
+		char folder[48];
+		snprintf(folder, sizeof(folder), "/gun/%s/", s_fpMends[i].gun);
+		if (strstr(source, folder))
+			return (int)i;
+	}
+	return -1;
+}
+
+/*
  * DAB fpTint, beanShadeTint() and beanGoldPicture(): the Golden Gun's two
  * pictures are a near-white scratch and shine map, which its shader lays under
  * a gold reflection map on a second sampler (c12 1.77, c14 -0.77); one sampler
@@ -3337,6 +3362,9 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		}
 		/* a sphere-mapped draw's lookup (sphereFrame()): a prop's own material
 		 * on a picture, its vertices without UV */
+		/* a gun's mended piece (fpMendOf()); never its flash cards (piece 0, DAB
+		 * fpDrawIsCard()), which DAB lays apart and which stand on the bore */
+		const int fpMend = !original && fpGunFile(source) && d->piece != 0 ? fpMendOf(source) : -1;
 		struct beanSphere sphere;
 		int sphered = 0;
 		if (!levelFade && d->ownmat && d->tex < (uint32_t)ntex &&
@@ -3367,6 +3395,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
                     corner[k].uv[0] = (int16_t)be16(raw+20)/uvscale;
                     corner[k].uv[1] = (int16_t)be16(raw+22)/uvscale;
                 }
+                if (fpMend >= 0 && corner[k].pos[2] > s_fpMends[fpMend].zmin && corner[k].pos[1] > s_fpMends[fpMend].ymin)
+                    corner[k].pos[0] += s_fpMends[fpMend].dx;
                 if (sphered) sphereUv(&sphere, &corner[k]);
                 for (int j=0; j<3; j++) if (fabsf(corner[k].pos[j]) > 1e8f) ok = 0;
 				/* DAB ignores the native/fog alpha outside a fading material.
