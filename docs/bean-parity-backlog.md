@@ -12,8 +12,6 @@ xm = `port/src/xblamesh.c`, all Dab's. Size S/M/L.
 
 ## Missing
 
-- **Shots against HD props** (xm `xblaMeshHitTest`, `xblaMeshObjShotTest`): shots
-  stop on invisible N64 hulls or pass through HD bulk (Jungle's trees). L
 - **Shots against HD bodies** (xm `xblaMeshHitTest` from Dab's chr hit walk): guards
   are still shot on the N64 body, so HD hair, shoulders and coats are hit only
   where the N64 body is. Props are done; bodies need the skinned pose. M
@@ -110,7 +108,7 @@ level cut-out clamps; doorway gaps, reveals and slots; markBacked and markFights
 dealing; hidden rooms not drawn; release sky table and cap fade; release and CE
 fog; scrolling pictures; tinted glass; third-person muzzle flash; cut-out edge
 bleed; tree UVs; vertex drops; markUnderSea, Frigate's hull reflection
-(bbd5ff40); the monitors' pictures (DAB gemonitor.c).
+(bbd5ff40); the monitors' pictures (DAB gemonitor.c); shots against HD props (DAB xblaMeshObjShotTest, 31754136).
 
 Not needed in the port: weldVertices, markDecalLifts and markDecalCorners and
 the far-off triangle moves (Dab's s16 room vertices; the port's are floats);
