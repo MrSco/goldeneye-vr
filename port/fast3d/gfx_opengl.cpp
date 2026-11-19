@@ -465,7 +465,11 @@ static void gevr_decal_switch_poll(void)
 {
     static unsigned n;
     if ((n++ % 240) != 0) return;
+#ifdef GEVR_PC
+    FILE *f = fopen("gevr_decal.txt", "r");   /* the data folder (Apple's, the PC's) */
+#else
     FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_decal.txt", "r");
+#endif
     int mode = 0;
     float a = 0.0f, b = 0.0f;
     if (f) {
@@ -500,7 +504,11 @@ static void gevr_zdebug_poll(void)
     static unsigned n;
     unsigned frame = n++;
     if ((frame % 120) != 0) return;
+#ifdef GEVR_PC
+    FILE *f = fopen("gevr_zdebug.txt", "r");   /* the data folder (Apple's, the PC's) */
+#else
     FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_zdebug.txt", "r");
+#endif
     int mode = 0;
     if (f) {
         if (fscanf(f, "%d", &mode) < 1) mode = 0;
@@ -3170,9 +3178,35 @@ static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalD
 
     if (decalDepth) {
         if (decalPull != 0.0f) gevr_set_decal_bias(gfx_decal_proj_z * decalPull);
+        /*
+         * Colour first without depth, as the RDP draws a decal, then its depth
+         * alone at the surface (no offset). Writing depth in the colour pass
+         * left a later decal on the same spot (Bunker II's bullet holes over
+         * their stain, Frigate's hull letters) only an exact tie against the
+         * earlier one: ANGLE on Metal (iOS, Apple TV) breaks such ties
+         * differently tile by tile and frame by frame, and the layers flickered
+         * in blocks (#261; tvOS simulator, the PC clean). Pushed back by the
+         * offset, the written depth leaves the next decal the same margin it
+         * has over its wall.
+         */
+#ifdef GEVR_IOS
+        if (current_depth_mask) glDepthMask(GL_FALSE);
+        gevr_draw_range(first, count);
+        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+        glDepthMask(GL_TRUE);
+        glPolygonOffset(0.0f, 0.0f);
+        if (decalPull != 0.0f) gevr_set_decal_bias(0.0f);   /* the surface itself */
+        gevr_draw_range(first, count);
+        if (s_decalMode == 1) glPolygonOffset(s_decalA, s_decalB);   /* as set_depth_mode left it */
+        else glPolygonOffset(-2.0f, -2.0f);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        if (!current_depth_mask) glDepthMask(GL_FALSE);
+#else
+        /* elsewhere the tie holds (the PC, the Quest), and one pass is cheaper */
         if (!current_depth_mask) glDepthMask(GL_TRUE);
         gevr_draw_range(first, count);
         if (!current_depth_mask) glDepthMask(GL_FALSE);
+#endif
         if (decalPull != 0.0f) {
             gevr_set_decal_bias(0.0f);
             s_uniCacheValid = false;
