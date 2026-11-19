@@ -220,9 +220,14 @@ static const struct imagerow imageRows[] = {
 	{ 2217, "new/texture/monitors/anim2.3", WHOLE },   /* IMAGE_MONITOR_CUBE4 */
 	{ 2263, "new/texture/monitors/animradar", WHOLE },   /* IMAGE_MONITOR_TRIANGLE */
 	{ 837, "new/texture/monitors/keyboardkey", WHOLE },   /* IMAGE_MONITOR_KEYBOARDKEY */
-	/* the sky's clouds and the blue water */
+	/* the sky's clouds and the sea. The Community Edition's sea pictures are
+	 * 512x512 (new/texture/bg/water1 and water2) and draw its Frigate's sea dark
+	 * blue with pale glints; the release's own blue one is GoldenEye's 32x32
+	 * again, and it has no grey one (DAB gebeansky.c gebeanSkyWaterTile). On the
+	 * sea's 32-texel tile, so the sea keeps GoldenEye's scale and shimmer. */
 	{ 2228, "bg/clouds", WHOLE },
-	{ 1509, "bg/water2", WHOLE },
+	{ 1508, "new/texture/bg/water1", WHOLE },   /* IMAGE_WATER_GRAYSCALE */
+	{ 1509, "new/texture/bg/water2|bg/water2", WHOLE },   /* IMAGE_WATER_BLUE */
 };
 
 #define IMAGE_IDS 4096
@@ -366,17 +371,23 @@ static const u8 *picture(const char *name, int *w, int *h)
 static u8 *makeTile(const struct imagerow *row, int tw, int th, int depth, int *outw, int *outh)
 {
 	char name[64];
-	const char *variant = "";
-	const u8 *src;
+	char variant[16] = "";
+	const u8 *src = NULL;
 	int sw = 0, sh = 0, x0 = 0, y0 = 0, cw, ch, w;
 	u8 *out;
 
-	snprintf(name, sizeof(name), "%s", row->picture);
-	if (strchr(name, '#')) {
-		variant = strchr(row->picture, '#') + 1;
-		*strchr(name, '#') = 0;
+	/* "a|b": the first of the pictures on the device */
+	for (const char *alt = row->picture; alt && !src;) {
+		const char *bar = strchr(alt, '|');
+		snprintf(name, sizeof(name), "%.*s", bar ? (int)(bar - alt) : (int)strlen(alt), alt);
+		variant[0] = 0;
+		if (strchr(name, '#')) {
+			snprintf(variant, sizeof(variant), "%s", strchr(name, '#') + 1);
+			*strchr(name, '#') = 0;
+		}
+		src = picture(name, &sw, &sh);
+		alt = bar ? bar + 1 : NULL;
 	}
-	src = picture(name, &sw, &sh);
 	if (!src) {
 		return NULL;
 	}
