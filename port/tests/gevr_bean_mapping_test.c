@@ -21,6 +21,13 @@ int VrGexGuns;
 union ModelRwData *modelGetNodeRwData(Model *model, ModelNode *node) { (void)model; (void)node; return NULL; }
 s32 modelFindNodeMtxIndex(ModelNode *node, s32 arg1) { (void)node; (void)arg1; return -1; }
 s32 vtxstoreIsWreckCopy(const void *vertices) { (void)vertices; return 0; }
+/* line_tri_intersect.c, for gevrBeanHitNode(): no shots in this fixture */
+bool intersectRayTriangle(Vertex *a, Vertex *b, Vertex *c, coord3d *offset, coord3d *start, coord3d *end,
+                          coord3d *dir, HitThing *hit)
+{
+    (void)a; (void)b; (void)c; (void)offset; (void)start; (void)end; (void)dir; (void)hit;
+    return 0;
+}
 uintptr_t osVirtualToPhysical(void *p)
 {
 	return (uintptr_t)p;
@@ -304,6 +311,9 @@ static void checkRigid(ModelFileHeader *h, const struct gevrBeanMesh *mesh, int 
 	for (int i = 0; i < s_nswap; i++) {
 		handBlanks += kind == BEAN_GUN && s_swap[i].ours == s_blank && gunHandNode(h, s_swap[i].node);
 		if (s_swap[i].ours == s_blank)
+			continue;
+		/* the HD flash cards on GoldenEye's flash (gunFlashCards()): not the gun */
+		if (kind == BEAN_GUN && gunFlashNode(h, s_swap[i].node))
 			continue;
 		/* The gun's own list is registered first, then its moving parts, each
 		 * on its own matrix's untoggled list, then the glove's. */
@@ -771,7 +781,12 @@ int main(int argc, char **argv)
 		if (s_swap[i].ours == s_blank)
 			continue;
         if (kind == BEAN_GUN) {
-            assert(!gunFlashNode(&header, node));
+            /* GoldenEye's flash lists carry the HD flash cards (DAB fpBuildCards(),
+             * gevr_bean.c gunFlashCards()), drawn as the flash is: not the body */
+            if (gunFlashNode(&header, node)) {
+                assert(!s_swap[i].skin);
+                continue;
+            }
             /* the body on the root's list; a moving part on its own matrix's
              * untoggled list (DAB gebeanBuildFirstPerson()) */
             assert(gunHandNode(&header, node) || nodeMatrix(node) == nodeMatrix(header.RootNode) ||
