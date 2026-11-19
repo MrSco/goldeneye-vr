@@ -69,6 +69,7 @@ static int s_nrooms;
 static int s_stage = -9999;
 static int s_tried;
 static int s_ok;
+static int s_levelWater;   /* Bean pictures markWater() took for water */
 static Gfx *s_opaque, *s_opaqueWrap;
 static void *s_opaqueVertices;
 static GevrStaticMesh *s_opaqueMesh;
@@ -483,6 +484,7 @@ static void markWater(const struct gevrBeanMesh *mesh, float fileScale)
 	memset(&ge, 0, sizeof(ge));
 	memset(&hd, 0, sizeof(hd));
 	gevrBeanWaterSetRate(0, 0, 0);
+	s_levelWater = 0;
 	if (!s_reference || !mesh->ntex)
 		return;
 	int *water = malloc((size_t)s_referenceCount * sizeof(int));
@@ -565,6 +567,7 @@ static void markWater(const struct gevrBeanMesh *mesh, float fileScale)
 			              x, on[x], all[x]);
 		}
 	}
+	s_levelWater = marked;
 	/* Bean's UV is in repeats, drawn as quarter texels of a 32 texel repeat,
 	 * t running the other way (gevr_bean.c gevrBeanEmitList) */
 	for (int i = 0; marked && i < mesh->ntris; i++) {
@@ -1520,6 +1523,14 @@ void gevrBeanWorldLampsReset(void)
 
 /* a room hiddenRoom() left out, on the level built now (bg.c's shot test:
  * never builds one) */
+/* the HD level as built draws room `room` and no water of its own (bg.c keeps
+ * GoldenEye's water leaves then) */
+int gevrBeanWorldRoomWantsWater(int room)
+{
+	return s_tried && s_ok && s_stage == (int)bossGetStageNum() && room > 0 && room < s_nrooms &&
+	       s_room[room].has && !s_levelWater;
+}
+
 int gevrBeanWorldRoomHidden(int room)
 {
 	return s_tried && s_ok && s_stage == (int)bossGetStageNum() && room >= 0 && room < s_nrooms &&

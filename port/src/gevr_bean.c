@@ -3831,6 +3831,11 @@ void *gevrBeanRoomAppendSecondary(void *gdl, int room, int *replaced)
 	return gevrBeanWorldRoom(gdl, room + 100000, replaced);
 }
 
+int gevrBeanRoomWantsWater(int room)
+{
+	return gevrBeanIsEnabled() && gevrBeanWorldRoomWantsWater(room);
+}
+
 int gevrBeanRoomHidden(int room)
 {
 	return gevrBeanIsEnabled() && gevrBeanWorldRoomHidden(room);

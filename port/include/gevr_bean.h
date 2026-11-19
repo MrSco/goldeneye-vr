@@ -190,6 +190,8 @@ int gevrBeanScreenQuad(struct Model *model, void *node, struct Vertex *vertices)
 void *gevrBeanRoomAppend(void *gdl, int room, int *replaced);
 /* a GoldenEye room the HD level hides: it stops no shot (bg.c) */
 int gevrBeanRoomHidden(int room);
+/* Bean draws this room and no water of its own: keep GoldenEye's water (bg.c) */
+int gevrBeanRoomWantsWater(int room);
 void *gevrBeanRoomAppendSecondary(void *gdl, int room, int *replaced);
 
 /* HD sky. *drew is 1 when GoldenEye's sky plane should be left out. */

@@ -3115,6 +3115,75 @@ Gfx *bgRenderRoomPrimary(Gfx *gdl, s32 room_index)
  *
  * Render a room's secondary (transparent) geometry.
 */
+#ifdef GEVR
+/*
+ * Whether a room's translucent list draws nothing but GoldenEye's water: the
+ * grey (1508) and the blue (1509), which it also draws its sea with, and Dam
+ * and Complex's (1511). Egyptian's pool in the pillared hall is a plain stone
+ * basin in the release, and GoldenEye's is a sheet of its blue water at half
+ * alpha laid over it (room 3); Bean's room drew the dry basin (DAB
+ * gebeanstage.c fileWaterLeaves(), texIsGeWater()). Read once per list.
+ */
+static s32 gevrRoomListIsWater(s32 room_index)
+{
+    static Gfx *s_checked[MAXROOMCOUNT];
+    static s8 s_water[MAXROOMCOUNT];
+    Gfx *list = (Gfx *)g_BgRoomInfo[room_index].ptr_secondary_expanded_mapping_info;
+    Gfx *c;
+    s32 water = 0;
+    s32 other = 0;
+    s32 n;
+
+    if (list == NULL || room_index <= 0 || room_index >= MAXROOMCOUNT)
+    {
+        return FALSE;
+    }
+
+    if (s_checked[room_index] == list)
+    {
+        return s_water[room_index];
+    }
+
+    for (c = list, n = 0; n < 4096; c++, n++)
+    {
+        const u8 op = (u8)(c->words.w0 >> 24);
+
+        if (op == (u8)G_ENDDL)
+        {
+            break;
+        }
+
+        if (op == (u8)G_DL)
+        {
+            other = 1;
+        }
+        else if (op == (u8)G_SETTIMG)
+        {
+            void *imgptr = (void *)c->words.w1;
+            s32 texnum = -1;
+
+            if (imgptr != NULL)
+            {
+                texnum = ((struct tex *)((u8 *)imgptr - offsetof(struct tex, data)))->texturenum;
+            }
+
+            if (texnum == 0x5e4 || texnum == 0x5e5 || texnum == 0x5e7)
+            {
+                water = 1;
+            }
+            else
+            {
+                other = 1;
+            }
+        }
+    }
+
+    s_checked[room_index] = list;
+    s_water[room_index] = water && !other;
+    return s_water[room_index];
+}
+#endif
+
 Gfx *bgRenderRoomSecondary(Gfx *gdl, s32 room_index)
 {
     if (room_index >= g_MaxNumRooms)
@@ -3148,6 +3217,13 @@ Gfx *bgRenderRoomSecondary(Gfx *gdl, s32 room_index)
             {
                 int beanReplaced = 0;
                 Gfx *beanGdl = applyRoomMatrixToDisplayList(gdl, room_index);
+                /* GoldenEye's water where Bean's room has none (gevrRoomListIsWater()),
+                 * first: drawn in the state set for the room, as without Bean */
+                if (gevrBeanRoomWantsWater(room_index) && gevrRoomListIsWater(room_index))
+                {
+                    gSPSegment(beanGdl++, SPSEGMENT_BG_VTX, OS_K0_TO_PHYSICAL(g_BgRoomInfo[room_index].vertices));
+                    gSPDisplayList(beanGdl++, OS_K0_TO_PHYSICAL(g_BgRoomInfo[room_index].ptr_secondary_expanded_mapping_info));
+                }
                 beanGdl = gevrBeanRoomAppendSecondary(beanGdl, room_index, &beanReplaced);
                 if (beanReplaced) {
                     g_BgRoomInfo[room_index].model_bin_loaded = 1;
