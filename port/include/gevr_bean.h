@@ -89,6 +89,8 @@ int gevrBeanGunMagazine(const void *header, struct gevrBeanMagInfo *out);
 int gevrBeanDrawsModel(const void *header);
 /* Bean has an HD list on one of the model's nodes, cached (model.c's detail level) */
 int gevrBeanModelHasHd(const void *header);
+/* around a prop the game draws without depth on purpose (propobj.c): Bean's lists follow */
+void *gevrBeanNodeOnTop(void *gdl, int on);
 /* a shot (view space) on the Bean body or head a chr's model draws: its distance in dir's
  * lengths and the matrix the hit triangle hangs from (gevr_bean_bodyhit.inc.h, chr.c) */
 int gevrBeanChrRayHit(void *chrModel, const float origin[3], const float dir[3], float *t, int *matrix);

@@ -7995,8 +7995,20 @@ Gfx *chrobjRenderProp(PropRecord *prop, Gfx *gdl, s32 arg2)
         gDPNoOpTag(mrData.gdl++, 0x565F0003);   /* VR_HAND_DRAW 3: the body */
     }
 #endif
+#ifdef GEVR
+    /* GoldenEye draws an object flagged on top without depth (flags2 0x10000:
+     * Cuba's jungle plants); Bean's lists follow it (DAB xblamesh.c) */
+    if (!mrData.zbufferenabled)
+    {
+        mrData.gdl = gevrBeanNodeOnTop(mrData.gdl, 1);
+    }
+#endif
     sub_GAME_7F04AC20(prop, &mrData, arg2);
 #ifdef GEVR
+    if (!mrData.zbufferenabled)
+    {
+        mrData.gdl = gevrBeanNodeOnTop(mrData.gdl, 0);
+    }
     if (gevrRidden)
     {
         gDPNoOpTag(mrData.gdl++, 0x565F0000);   /* the world again */

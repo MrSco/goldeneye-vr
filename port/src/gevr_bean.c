@@ -443,6 +443,15 @@ int gevrBeanNodeModeType(void *node, int current)
     return s && gevrBeanNodeMode() ? s->origType : current;
 }
 
+/* a prop the game draws without depth on purpose: Bean's lists follow (GEVR_NODE_ONTOP) */
+void *gevrBeanNodeOnTop(void *gdl, int on)
+{
+	Gfx *g = gdl;
+	g->words.w0 = ((uintptr_t)G_GEVR_NODE_STATE << 24) | GEVR_NODE_ONTOP;
+	g->words.w1 = on != 0;
+	return g + 1;
+}
+
 void *gevrBeanNodeMark(void *gdl, int on)
 {
     Gfx *g = gdl;

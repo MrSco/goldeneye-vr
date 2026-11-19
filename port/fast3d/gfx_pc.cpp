@@ -4545,6 +4545,7 @@ static void gfx_dp_set_other_mode(uint32_t h, uint32_t l) {
     rdp.other_mode_l = l;
 }
 
+static bool s_beanNodeOnTop;   /* GEVR_NODE_ONTOP */
 static void gfx_bean_node_state(uint32_t w0, uint32_t ownMode) {
     static struct RGBA s_beanNodePrim;
     switch (w0 & 0xff) {
@@ -4554,6 +4555,9 @@ static void gfx_bean_node_state(uint32_t w0, uint32_t ownMode) {
             break;
         case GEVR_NODE_CULL:
             s_beanModelCull = ownMode != 0;
+            break;
+        case GEVR_NODE_ONTOP:
+            s_beanNodeOnTop = ownMode != 0;
             break;
         case GEVR_NODE_PASS:
             s_beanPass = (uint8_t)ownMode;
@@ -4587,7 +4591,10 @@ static void gfx_bean_node_state(uint32_t w0, uint32_t ownMode) {
             /* A node mode without a depth test (the first-person hands: the N64 drew
              * them over everything) leaves the list its own depth test and write;
              * under it Bean's arm drew over the watch on the wrist (user, 2026-10-14). */
-            if (!(s_beanNodeMode & Z_CMP)) {
+            /* ...but not a prop the game flags to draw on top (Cuba's jungle
+             * plants, GEVR_NODE_ONTOP): its lists draw over what is there, as
+             * GoldenEye's do and DAB's follow (xblamesh.c zbufferenabled) */
+            if (!(s_beanNodeMode & Z_CMP) && !s_beanNodeOnTop) {
                 const uint32_t depth = Z_CMP | Z_UPD | ZMODE_DEC;
                 mode = (mode & ~depth) | (ownMode & depth);
             }
