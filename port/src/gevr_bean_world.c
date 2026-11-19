@@ -70,6 +70,7 @@ static int s_stage = -9999;
 static int s_tried;
 static int s_ok;
 static int s_levelWater;   /* Bean pictures markWater() took for water */
+static float s_reachWorld;  /* the HD rooms' box's diagonal, world units (gevrBeanWorldReach()) */
 static Gfx *s_opaque, *s_opaqueWrap;
 static void *s_opaqueVertices;
 static GevrStaticMesh *s_opaqueMesh;
@@ -1174,6 +1175,19 @@ static int buildStage(int stage)
         GEVR_BEAN_LOG("gevr bean: %d of GoldenEye's room triangles for the camera test, roomcull=%d\n",
                       s_referenceCount, s_cullForce);
     }
+	{
+		float lo[3] = { 1e30f, 1e30f, 1e30f }, hi[3] = { -1e30f, -1e30f, -1e30f };
+		for (int r = 0; r < nrooms; r++)
+			for (int k = 0; s_room[r].has && k < 3; k++) {
+				lo[k] = fminf(lo[k], s_room[r].lo[k]);
+				hi[k] = fmaxf(hi[k], s_room[r].hi[k]);
+			}
+		s_reachWorld = 0.0f;
+		if (lo[0] <= hi[0]) {
+			const float dx = hi[0] - lo[0], dy = hi[1] - lo[1], dz = hi[2] - lo[2];
+			s_reachWorld = sqrtf(dx * dx + dy * dy + dz * dz) * room_data_float2 * 1.05f;
+		}
+	}
 	s_nrooms = nrooms;
 	s_ok = 1;
 	GEVR_BEAN_LOG("gevr bean: HD rooms %s, %d tris across %d rooms, native scale %.8f\n", st->bg, mesh->ntris, nrooms, fileScale);
@@ -1550,6 +1564,18 @@ int gevrBeanWorldRoomWantsWater(int room)
 {
 	return s_tried && s_ok && s_stage == (int)bossGetStageNum() && room > 0 && room < s_nrooms &&
 	       s_room[room].has && !s_levelWater;
+}
+
+/*
+ * How far the HD level reaches, in world units: its rooms' box's diagonal and a
+ * twentieth, while it is served (DAB gebeanstage.c gebeanStageTickFar(): "at least
+ * the length of the HD mesh's box, so that nothing of the level is ever cut").
+ * 0 when it is not. bg.c's room and portal tests and bgfog.c's prop tests take
+ * it, never the projection, so GoldenEye's own fog and the guards' sight stay.
+ */
+float gevrBeanWorldReach(void)
+{
+	return s_tried && s_ok && s_stage == (int)bossGetStageNum() ? s_reachWorld : 0.0f;
 }
 
 int gevrBeanWorldRoomHidden(int room)

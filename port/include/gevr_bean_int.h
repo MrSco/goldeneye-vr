@@ -166,5 +166,6 @@ void *gevrBeanWorldSky(void *gdl, int *drew);
 int gevrBeanWorldRoomBounds(int room, float lo[3], float hi[3]);
 int gevrBeanWorldRoomHidden(int room);
 int gevrBeanWorldRoomWantsWater(int room);
+float gevrBeanWorldReach(void);
 
 #endif

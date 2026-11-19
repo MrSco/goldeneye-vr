@@ -3955,6 +3955,23 @@ void *gevrBeanRoomAppendSecondary(void *gdl, int room, int *replaced)
 	return gevrBeanWorldRoom(gdl, room + 100000, replaced);
 }
 
+/* the HD level's reach (gevrBeanWorldReach()), no further than its fog is whole:
+ * past that a prop or a room's see-through list is the fog's colour, and drawn
+ * it cost Surface 16 props a frame and Runway up to 22 for nothing */
+float bgGetLevelVisibilityScale(void);   /* bg.c */
+
+float gevrBeanFarReach(void)
+{
+	float reach = gevrBeanIsEnabled() ? gevrBeanWorldReach() : 0.0f, line[2];
+	uint8_t rgb[3];
+	if (reach > 0.0f && gevrBeanRoomFog(line, rgb) && line[0] > 0.0f) {
+		const float whole = (255.0f - line[1]) / (line[0] * bgGetLevelVisibilityScale());
+		if (whole > 0.0f && whole < reach)
+			reach = whole;
+	}
+	return reach;
+}
+
 int gevrBeanRoomWantsWater(int room)
 {
 	return gevrBeanIsEnabled() && gevrBeanWorldRoomWantsWater(room);

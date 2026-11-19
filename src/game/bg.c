@@ -1636,6 +1636,11 @@ bool bgIsRoomOnScreen(s32 roomID, struct rectbbox *screenbox)
     const f32 farN64 = zrange[1];   /* issue #46 */
     s32 count_zN64 = 0;
     zrange[1] *= GEVR_FAR_EXTEND;
+    /* the HD level's whole reach (gevrBeanFarReach(): DAB raises its far plane to it) */
+    if (zrange[1] < gevrBeanFarReach())
+    {
+        zrange[1] = gevrBeanFarReach();
+    }
 #endif
 
     for (i = 0; i < 8; i++) {
@@ -1773,6 +1778,10 @@ s32 sub_GAME_7F0B5528(s32 portalnum, f32 arg1, coord3d *arg2)
 #ifdef GEVR
     const f32 farN64 = zrange[1];   /* issue #46 */
     zrange[1] *= GEVR_FAR_EXTEND;
+    if (zrange[1] < gevrBeanFarReach())
+    {
+        zrange[1] = gevrBeanFarReach();
+    }
 #endif
 
     for (i = 0; i < g_BgPortals[portalnum].offset_portal->numPoints; i++) {

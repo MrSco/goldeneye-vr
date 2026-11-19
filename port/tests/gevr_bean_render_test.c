@@ -48,6 +48,9 @@ void *gevrBeanWorldRoom(void *g, int r, int *replaced) { (void)r; *replaced = 0;
 /* gevr_bean_world.c: no level in this fixture */
 int gevrBeanWorldRoomHidden(int room) { (void)room; return 0; }
 int gevrBeanWorldRoomWantsWater(int room) { (void)room; return 0; }
+float gevrBeanWorldReach(void) { return 0.0f; }
+int gevrBeanRoomFog(float line[2], uint8_t rgb[3]) { (void)line; (void)rgb; return 0; }
+float bgGetLevelVisibilityScale(void) { return 1.0f; }
 void *gevrBeanWorldSky(void *g, int *drew) { *drew = 0; return g; }
 int gevrBeanWorldAuthoredView(void) { return 0; }
 /* Oddjob's hat (PR #196): off, so the knife draws as Bean's */

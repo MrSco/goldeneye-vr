@@ -199,6 +199,8 @@ void *gevrBeanRoomAppend(void *gdl, int room, int *replaced);
 int gevrBeanRoomHidden(int room);
 /* Bean draws this room and no water of its own: keep GoldenEye's water (bg.c) */
 int gevrBeanRoomWantsWater(int room);
+/* how far the HD level reaches, world units, 0 when it is not drawn: the far tests take it (bg.c, bgfog.c) */
+float gevrBeanFarReach(void);
 void *gevrBeanRoomAppendSecondary(void *gdl, int room, int *replaced);
 
 /* HD sky. *drew is 1 when GoldenEye's sky plane should be left out. */

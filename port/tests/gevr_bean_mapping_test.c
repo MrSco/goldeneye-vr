@@ -51,6 +51,9 @@ int gevrHatOwnsNode(const void *node) { (void)node; return 0; } /* Oddjob's hat 
 /* gevr_bean_world.c: no level in this fixture */
 int gevrBeanWorldRoomHidden(int room) { (void)room; return 0; }
 int gevrBeanWorldRoomWantsWater(int room) { (void)room; return 0; }
+float gevrBeanWorldReach(void) { return 0.0f; }
+int gevrBeanRoomFog(float line[2], uint8_t rgb[3]) { (void)line; (void)rgb; return 0; }
+float bgGetLevelVisibilityScale(void) { return 1.0f; }
 void *gevrBeanWorldSky(void *g, int *drew)
 {
 	*drew = 0;
