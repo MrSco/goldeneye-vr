@@ -132,6 +132,8 @@ int gevrBeanTexture(const void *addr, const uint8_t **rgba, int *w, int *h);
 int gevrBeanTexIsPlaceholder(const void *addr);
 /* a registered picture with patches turned over along u (gevr_bean_tex.c) */
 const void *gevrBeanTexTurnPatches(const void *from, const char *key, const float (*patch)[4], int npatch);
+/* lettering painted on black: the black made clear, in place (DAB beanKeyStencil) */
+int gevrBeanTexKeyStencil(const void *standin);
 void gevrBeanTexScrollSet(const void *addr, float s, float t);
 /* GoldenEye's moving water on a Bean picture (gevr_bean_tex.c): marks one,
  * sets the rate (quarter texels a frame; 0 measured for GoldenEye's own). */

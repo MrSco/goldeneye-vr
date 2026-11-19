@@ -25,6 +25,7 @@ struct beanDraw {
     uint32_t reflectSpot,reflectLand; uint8_t reflectAmount[4],reflectionDiffuse,reflectionAlphaBase; uint32_t reflectionColour;
 	int16_t inst;
 	uint8_t blend, alpha, alphatest, terrainBlend, tree, ownmat;
+	uint8_t scratch;   /* its material lays the glass map over it: a pane, never a stencil */
 	uint8_t pal[GEVR_BEAN_MAXPAL];
 	uint8_t numpal;
 	uint32_t colour;
@@ -2559,7 +2560,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	int triggerCuffs;
 	uint32_t end, pc, vb = 0, tex = 0, matpc = 0, vs = 0, masktex = ~0u;
 	uint8_t maskslot = 0;
-    uint32_t reflectSpot=~0u,reflectLand=~0u; int reflectForm=0;
+    uint32_t reflectSpot=~0u,reflectLand=~0u; int reflectForm=0, glassMat=0;
     uint8_t reflectAmount[4]={0},reflectionAlphaBase=0; uint32_t reflectionColour=0;
 	uint8_t pal[GEVR_BEAN_MAXPAL];
 	uint16_t remap[GEVR_BEAN_MAXPAL];
@@ -2791,7 +2792,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 			matpc = pc;
             masktex = ~0u;
             maskslot = 0;
-            reflectSpot=reflectLand=~0u; reflectForm=0;
+            reflectSpot=reflectLand=~0u; reflectForm=0; glassMat=0;
             memset(reflectAmount,0,sizeof(reflectAmount)); reflectionColour=0; reflectionAlphaBase=0;
             int spotSlot=-1,landSlot=-1,pictureSlot=-1,scratchSlot=-1,validInputs=0;uint32_t scratch=~0u;
             for (uint32_t k = 0; 12 + 8*k + 8 <= sz && fits(pc+12+8*k, 8, slen); k++) {
@@ -2802,7 +2803,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
                 if(sphere==1){reflectSpot=other;spotSlot=slot;}
                 else if(sphere==2){reflectLand=other;landSlot=slot;}
                 else if(other==tex)pictureSlot=slot;
-                if(scratchTex(&caff,texfile,ntex,other)){scratch=other;scratchSlot=slot;}
+                if(scratchTex(&caff,texfile,ntex,other)){scratch=other;scratchSlot=slot;glassMat|=other!=tex;}
                 if (other != tex && other < (uint32_t)ntex && masktex == ~0u) {
                     masktex = other;
                     maskslot = be32(stream+pc+16+8*k) >> 16;
@@ -2914,6 +2915,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
                 if (paneForm) memcpy(d->reflectAmount,reflectAmount,4);
                 else memset(d->reflectAmount,0,4);
                 d->masktex = masktex;
+                d->scratch = (uint8_t)glassMat;
                 d->maskslot = maskslot;
                 d->matpc = matpc;
 				d->prim = be32(stream + pc + 4);
@@ -3039,6 +3041,25 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	/* Props also own scrolling pictures (the helicopter at 0.9 repeats/s). */
 	readTextureScroll(mesh, data, dlen, stream, slen, &caff, texfile);
 	fixPlaceholders(mesh, draws, ndraws, source);
+	/* DAB beanTexBlendedOnly() and beanKeyStencil(): a picture every draw of
+	 * which is in the release's blended pass, never a glass pane, drawn with no
+	 * alpha of its own, is a stencil the release painted on black: the black
+	 * made clear (gevr_bean_tex.c), and cut out where it is not blended */
+	for (int t = 0; t < mesh->ntex; t++) {
+		int blended = 0, other = 0;
+		for (int di = 0; di < ndraws && !other; di++) {
+			if (draws[di].tex != (uint32_t)t)
+				continue;
+			if (!draws[di].blend || draws[di].scratch)
+				other = 1;
+			else
+				blended = 1;
+		}
+		if (blended && !other && gevrBeanTexKeyStencil(mesh->standin[t])) {
+			mesh->texCut[t] = 1;
+			GEVR_BEAN_LOG("gevr bean: %s: texture %d is lettering on black, the black made clear\n", source, t);
+		}
+	}
 	textureAlphaFlags(mesh, texAlpha, texSoft);
     if (levelFade) markLevelBlendShaders(mesh, draws, ndraws, ibs, nibs, data, dlen, gpu, glen, uv20);
 	if (levelFade) markTreeBuffers(draws, ndraws);

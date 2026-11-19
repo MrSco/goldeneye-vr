@@ -840,6 +840,136 @@ const void *gevrBeanTexTurnPatches(const void *from, const char *key, const floa
 }
 
 
+/*
+ * DAB gebean.c beanKeyStencil() (port/licenses/dabs-mod.txt): lettering and
+ * signs Rare drew on black in pictures with no alpha, which the release puts
+ * over walls and crates in the blended pass: Dam's CTON, Facility's ВАДКО,
+ * the numbers and stars on the container stack, the wooden crates' stencils,
+ * the hazard triangles. Drawn with their vertex alpha alone they were black
+ * or grey boxes round their lettering; GoldenEye's own pictures have the black
+ * clear. The black is made clear, ramped by brightness so the edges stay soft:
+ *
+ * - grey lettering (bright texels near grey, few middle tones, black round a
+ *   good part of the edge): all the black, the insides of the letters too;
+ * - a coloured sign on black (black all round the edge): the black joined to
+ *   the edge, so a hazard triangle's black skull stays.
+ *
+ * A pattern (stripes, a checker board), a photograph (too many middle tones)
+ * and a picture nearly all black are left alone. In place, before the picture
+ * is first drawn; a picture keyed already has alpha and is left as it is.
+ * Returns whether anything was made clear.
+ */
+#define STENCIL_DARK 48   /* a texel darker than this (mean of r, g, b) is background */
+
+static int stencilDark(const uint8_t *p)
+{
+	return (p[0] + p[1] + p[2]) / 3 < STENCIL_DARK;
+}
+
+int gevrBeanTexKeyStencil(const void *standin)
+{
+	const int si = standin ? texFind(standin) : -1;
+	if (si < 0 || !s_tex[si].rgba)
+		return 0;
+	uint8_t *rgba = s_tex[si].rgba;
+	const int w = s_tex[si].w, h = s_tex[si].h, n = w * h;
+	int dark = 0, mid = 0, bright = 0, edge = 0, edgedark = 0, rows = 0, cols = 0;
+	uint32_t satsum = 0;
+	if (w < 8 || h < 8)
+		return 0;
+	for (int i = 0; i < n; i++) {
+		const uint8_t *p = rgba + (size_t)i * 4;
+		const int lum = (p[0] + p[1] + p[2]) / 3;
+		const int hi = p[0] > p[1] ? (p[0] > p[2] ? p[0] : p[2]) : (p[1] > p[2] ? p[1] : p[2]);
+		const int lo = p[0] < p[1] ? (p[0] < p[2] ? p[0] : p[2]) : (p[1] < p[2] ? p[1] : p[2]);
+		const int x = i % w, y = i / w;
+		if (p[3] < 0xf0)
+			return 0;
+		if (lum < STENCIL_DARK) {
+			dark++;
+		} else if (lum < 120) {
+			mid++;
+		} else {
+			bright++;
+			satsum += (uint32_t)(hi - lo);
+		}
+		if (x == 0 || y == 0 || x == w - 1 || y == h - 1) {
+			edge++;
+			edgedark += lum < STENCIL_DARK;
+		}
+	}
+	if (dark * 4 < n || dark * 100 > n * 95 || bright * 20 < n)
+		return 0;
+	/* stripes and checks: few different rows, or few different columns, of
+	 * black and not black */
+	for (int pass = 0; pass < 2; pass++) {
+		const int len = pass ? h : w, num = pass ? w : h;
+		int distinct = 0;
+		for (int a = 0; a < num && distinct <= 4; a++) {
+			int same = 0;
+			for (int b = 0; b < a && !same; b++) {
+				int k;
+				for (k = 0; k < len; k++) {
+					const uint8_t *pa = rgba + (size_t)(pass ? k * w + a : a * w + k) * 4;
+					const uint8_t *pb = rgba + (size_t)(pass ? k * w + b : b * w + k) * 4;
+					if (stencilDark(pa) != stencilDark(pb))
+						break;
+				}
+				same = k == len;
+			}
+			distinct += !same;
+		}
+		if (pass)
+			cols = distinct;
+		else
+			rows = distinct;
+	}
+	if (rows <= 4 || cols <= 4)
+		return 0;
+	const int grey = satsum / (uint32_t)bright < 24 && mid * 10 < n && edgedark * 10 >= edge * 3;
+	const int sign = !grey && satsum / (uint32_t)bright >= 40 && edgedark * 10 >= edge * 9;
+	if (!grey && !sign)
+		return 0;
+	uint8_t *clear = calloc((size_t)n, 1);
+	if (!clear)
+		return 0;
+	if (grey) {
+		for (int i = 0; i < n; i++)
+			clear[i] = (uint8_t)stencilDark(rgba + (size_t)i * 4);
+	} else {
+		/* the black flooded in from the edge */
+		int *stack = malloc((size_t)n * sizeof(int)), sp = 0;
+		if (!stack) {
+			free(clear);
+			return 0;
+		}
+		for (int i = 0; i < n; i++) {
+			const int x = i % w, y = i / w;
+			if ((x == 0 || y == 0 || x == w - 1 || y == h - 1) && stencilDark(rgba + (size_t)i * 4)) {
+				clear[i] = 1;
+				stack[sp++] = i;
+			}
+		}
+		while (sp > 0) {
+			const int i = stack[--sp], x = i % w, y = i / w;
+			const int next[4] = { x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1 };
+			for (int k = 0; k < 4; k++)
+				if (next[k] >= 0 && !clear[next[k]] && stencilDark(rgba + (size_t)next[k] * 4)) {
+					clear[next[k]] = 1;
+					stack[sp++] = next[k];
+				}
+		}
+		free(stack);
+	}
+	for (int i = 0; i < n; i++)
+		if (clear[i]) {
+			uint8_t *p = rgba + (size_t)i * 4;
+			p[3] = (uint8_t)((p[0] + p[1] + p[2]) / 3 * 255 / STENCIL_DARK);
+		}
+	free(clear);
+	return 1;
+}
+
 /* Shared prop maps: screen the diffuse by c12 * spot * landscape.
  * Keep the two authored maps at their decoded resolution in one immutable map;
  * normal-derived coordinates remain a per-view renderer operation. */
