@@ -3668,6 +3668,39 @@ void modelApplyRenderModeType1(ModelRenderData *renderdata)
  * @param renderdata
  * @param isPrimary
  */
+#ifdef GEVR
+/*
+ * Whether the list node being drawn may take VR_DEPTH_PULL_NEXT (below): not
+ * a first-person gun's hand and arm (its switches 8-13 and 35, as gevr_bean.c
+ * gunHandNode reads them). Their pieces meet at joins, double-sided, and
+ * pulled apart there the hand and sleeve split and showed the view through
+ * (user, 2026-11-19); they never needed it.
+ */
+static s32 s_gevrPullNode;
+
+static s32 gevrModelHandNode(Model *model, ModelNode *node)
+{
+    ModelFileHeader *header = model != NULL ? model->obj : NULL;
+    s32 s;
+
+    if (header == NULL || header->Switches == NULL)
+    {
+        return 0;
+    }
+    for (; node != NULL; node = node->Parent)
+    {
+        for (s = 8; s <= 35 && s < header->numSwitches; s = s == 13 ? 35 : s + 1)
+        {
+            if (header->Switches[s] != NULL && node == header->Switches[s])
+            {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+#endif
+
 void modelApplyRenderModeType3(ModelRenderData *renderdata, bool isPrimary)
 {
 #ifdef GEVR
@@ -3861,7 +3894,10 @@ void modelApplyRenderModeType3(ModelRenderData *renderdata, bool isPrimary)
                 /* depth-tested, in GoldenEye's painter's order (VR_DEPTH_PULL_NEXT,
                  * gfx_pc.cpp): the rocket launcher's grip draws a pattern over
                  * its grey in this one list, and the two tied (user 2026-11-19) */
-                gDPNoOpTag(renderdata->gdl++, 0x56630001);   /* VR_DEPTH_PULL_NEXT, level 1 */
+                if (s_gevrPullNode)
+                {
+                    gDPNoOpTag(renderdata->gdl++, 0x56630001);   /* VR_DEPTH_PULL_NEXT, the first list */
+                }
 #endif
                 gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_ZB_OPA_SURF2);
             }
@@ -3891,7 +3927,10 @@ void modelApplyRenderModeType3(ModelRenderData *renderdata, bool isPrimary)
                  * wins (VR_DEPTH_PULL_NEXT, gfx_pc.cpp): still solid, still
                  * culled by what stands in front of it.
                  */
-                gDPNoOpTag(renderdata->gdl++, 0x56630008);   /* VR_DEPTH_PULL_NEXT, level 8 */
+                if (s_gevrPullNode)
+                {
+                    gDPNoOpTag(renderdata->gdl++, 0x56630002);   /* VR_DEPTH_PULL_NEXT, the second list */
+                }
                 gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_ZB_TEX_EDGE2);
 #else
                 gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_ZB_XLU_SURF2);
@@ -4353,6 +4392,9 @@ void modelRenderNodeGundl(ModelRenderData* renderdata, Model* model, ModelNode* 
 {
     ModelRoData_DisplayListRecord* rodata = &arg1->Data->DisplayList;
 #ifdef GEVR
+    s_gevrPullNode = !gevrModelHandNode(model, arg1);
+#endif
+#ifdef GEVR
     /* Mods: Oddjob's hat draws in the knife's nodes, ahead of Bean (gevr_oddjobhat.c) */
     void *hatGdl = NULL;
     const s32 hat = gevrHatNodeGdl(arg1, model, &hatGdl);
@@ -4582,6 +4624,7 @@ GeometryMode is not in setup and is persistent accross parts.
  * fade in env alpha (PropType 8). Without node mode, G_GEVR_BEAN_FADE. */
 void modelDrawBeanBody(ModelRenderData *renderdata, Gfx *body)
 {
+    s_gevrPullNode = 0;
     const s32 fade = renderdata->PropType == PROP_TYPE_EXPLOSION + 1 ? (s32)(renderdata->envcolour.word & 0xff) : 255;
 
     if (!body)
@@ -4605,6 +4648,9 @@ void modelDrawBeanBody(ModelRenderData *renderdata, Gfx *body)
 void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *node)
 {
     union ModelRoData *rodata = node->Data;
+#ifdef GEVR
+    s_gevrPullNode = !gevrModelHandNode(model, node);
+#endif
 
     if (!renderdata->unk18)
     {

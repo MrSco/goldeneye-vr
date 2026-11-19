@@ -48,7 +48,7 @@ struct GfxMeshDrawParams {
 
 /* A depth-tested draw pulled toward the eye and passing ties, but not a
  * decal (no band, no back-face rule): a held model's lists, in GoldenEye's
- * painter's order (gfx_pc.cpp VR_DEPTH_PULL_NEXT, model.c). A level 1-15,
+ * painter's order (gfx_pc.cpp VR_DEPTH_PULL_NEXT, model.c). A level, 1 or 2,
  * each a step further, so what was drawn later wins a tie. Above the RDP's
  * ZMODE_* bits, so recorded draws carry it in their zmode. */
 #define GEVR_ZMODE_PULL_SHIFT 12

@@ -2316,14 +2316,13 @@ static void gfx_opengl_set_depth_mode(bool depth_test, bool depth_update, bool d
                 case ZMODE_XLU:
                     if (pull) {
                         /* GEVR_ZMODE_PULL: a held model's lists in painter's
-                         * order, each level a slope and two depth steps further:
-                         * the steps alone held faces seen straight on, and the
-                         * grip's pattern still fought its grey seen at an angle
-                         * (user, 2026-11-19), where the depth error grows with
-                         * the slope */
+                         * order, each level a slope and two depth steps further.
+                         * Steps alone held faces seen straight on, but the grip's
+                         * pattern fought its grey at an angle, where a tie's error
+                         * grows with the slope (user, 2026-11-19) */
                         glDepthFunc(GL_LEQUAL);
                         glEnable(GL_POLYGON_OFFSET_FILL);
-                        glPolygonOffset(-2.0f - (float)pull, -2.0f - 2.0f * (float)pull);
+                        glPolygonOffset(-(float)pull, -2.0f * (float)pull);
                         break;
                     }
                     if (depth_source_prim) {

@@ -63,7 +63,8 @@ static unsigned s_beanVertexTintStride;
 static bool s_beanRoomFogLinear;
 static bool s_beanAlphaCore;   /* GEVR_NODE_CORE: a soft cut-out's core (gfx_bean_node_state) */
 static bool s_beanRoomFogRadial;   /* GEVR_ROOM_RADIAL: by the vertex's distance from the eye */
-static uint8_t s_depthPullArmed, s_depthPull, s_depthPullCap;   /* VR_DEPTH_PULL_NEXT, see gfx_sp_set_other_mode */
+static uint8_t s_depthPullArmed, s_depthPullList, s_depthPull;   /* VR_DEPTH_PULL_NEXT, see gfx_sp_set_other_mode */
+static const void *s_depthPullFirstPicture;
 /* G_GEVR_BEAN_FADE: a fading chr's Bean draws (chrRenderProp's PropType 8). The
  * game's own lists fade through their render mode (modelApplyRenderModeType3:
  * env alpha, G_RM_AA_ZB_XLU_SURF2); Bean's set theirs, so the renderer applies
@@ -3943,7 +3944,10 @@ static void gfx_dp_set_scissor(uint32_t mode, uint32_t ulx, uint32_t uly, uint32
 
 
 static void gfx_dp_set_texture_image(uint32_t format, uint32_t size, uint32_t width, uint32_t tex_flags, const void* addr) {
-    if (s_depthPull && s_depthPull < s_depthPullCap) s_depthPull++;   /* VR_DEPTH_PULL_NEXT: a later picture, a step further */
+    if (s_depthPullList == 1) {   /* VR_DEPTH_PULL_NEXT: the first list's later pictures, a level on */
+        if (!s_depthPullFirstPicture) s_depthPullFirstPicture = addr;
+        else if (addr != s_depthPullFirstPicture) s_depthPull = 1;
+    }
     rdp.texture_to_load.addr = (const uint8_t*)addr;
     rdp.texture_to_load.fmt = (uint8_t)format; /* gepc-ref D229 */
     rdp.texture_to_load.siz = size;
@@ -4554,16 +4558,19 @@ static void gfx_dp_set_color_image(uint32_t format, uint32_t size, uint32_t widt
  * the first. The port draws it depth-tested (#9 stereo, #238 the flat
  * screen), and faces lying on each other tied and flickered: the rocket
  * launcher's labels on its tube, and its grip's green pattern over its grey
- * (both the first list; user 2026-11-19). The tag arms a pull for the render
- * mode set next, from the level in its low byte (1 the first list, 8 the
- * second); each picture the list then loads is a level further (to 7, or
- * 15), so what was drawn later wins. It lasts until the render mode is set
+ * (both the first list; user 2026-11-19). The tag arms the render mode set
+ * next, its low byte which list it is: in the first, its first picture
+ * draws as it is and any other picture a level on (1); the second list is
+ * level 2. Each level a step of slope and depth: no more, as levels to 15
+ * with a slope each split the hands and sleeves at their joins and let
+ * the view through (user). It lasts until the render mode is set
  * again, so it can't outlive the list.
  */
 static void gfx_sp_set_other_mode(uint32_t shift, uint32_t num_bits, uint64_t mode) {
     if (shift <= G_MDSFT_RENDERMODE && shift + num_bits > G_MDSFT_RENDERMODE) {
-        s_depthPull = s_depthPullArmed;
-        s_depthPullCap = s_depthPull == 0 ? 0 : s_depthPull < 8 ? 7 : 15;
+        s_depthPullList = s_depthPullArmed;
+        s_depthPull = s_depthPullList == 2 ? 2 : 0;
+        s_depthPullFirstPicture = NULL;
         s_depthPullArmed = 0;
     }
     uint64_t mask = (((uint64_t)1 << num_bits) - 1) << shift;
@@ -4591,8 +4598,9 @@ static void gfx_sp_set_vertex_colors(uint32_t count, const struct NormalColor *v
 }
 
 static void gfx_dp_set_other_mode(uint32_t h, uint32_t l) {
-    s_depthPull = s_depthPullArmed;   /* the render mode set: VR_DEPTH_PULL_NEXT */
-    s_depthPullCap = s_depthPull == 0 ? 0 : s_depthPull < 8 ? 7 : 15;
+    s_depthPullList = s_depthPullArmed;   /* the render mode set: VR_DEPTH_PULL_NEXT */
+    s_depthPull = s_depthPullList == 2 ? 2 : 0;
+    s_depthPullFirstPicture = NULL;
     s_depthPullArmed = 0;
     rdp.other_mode_h = h;
     rdp.other_mode_l = l;
@@ -5316,8 +5324,8 @@ static void gfx_run_dl(Gfx* cmd) {
                     break;
                 }
                 if ((tag_w1 & 0xFFFF0000u) == 0x56630000u) {
-                    // VR_DEPTH_PULL_NEXT (model.c): the render mode set next pulls
-                    // from the level in the low byte (s_depthPull)
+                    // VR_DEPTH_PULL_NEXT (model.c): the render mode set next is a held
+                    // model's first list (1) or second (2) (s_depthPull)
                     s_depthPullArmed = (uint8_t)(tag_w1 & 0x0F);
                     break;
                 }
