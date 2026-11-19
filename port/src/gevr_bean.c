@@ -1442,6 +1442,9 @@ struct beanGunParts {
 static const struct beanGunParts *s_parts;
 static const struct gevrBeanMesh *s_partsMesh;
 static int s_partWant;
+/* emitRigid(): 1 leaves a windowed door's pane (its translucent faces) out,
+ * 2 draws it alone (applyMesh(), DAB xblamesh.c) */
+static int s_paneMode;
 static int s_noRound;   /* laying out the launcher without its round (DAB fpRound) */
 /* the watch items' pressing hand (pressHand()): per triangle 0 the rest, 1 the
  * palm, 2 the finger, and the one being laid out */
@@ -2114,6 +2117,7 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 		const struct gevrBeanTri *t = &mesh->tris[i];
 		if (!triWanted(mesh, t, kind, hasHead) || (mesh->triggerCuffs && t->cuff != cuff) ||
 		    (binding && rigidTriangleGroup(t, binding) != binding->target) ||
+		    (s_paneMode && (t->alpha < 255) != (s_paneMode == 2)) ||
 		    (glove >= 0 && gunGloveTri(mesh, t) != glove)) {
 			continue;
 		}
@@ -3309,9 +3313,36 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 					s_partWant = parts.body;
 				}
 			}
+			/*
+			 * A windowed door's pane once three shots have shattered it: GoldenEye
+			 * hides its glass list, under the door's Switches[1] (propobj.c), and
+			 * draws the shards. The release's door carries its window in the one
+			 * mesh with the door, and the HD pane stood whole behind the shards
+			 * (DAB xblamesh.c, the fading span left out when the toggle is off;
+			 * Bunker's cell doors). Its translucent faces go on GoldenEye's glass
+			 * list instead of the body's, so they go with it.
+			 */
+			int pane = -1;
+			if (kind == BEAN_PROP && header->Skeleton == &skeleton_door && header->Switches &&
+			    header->numSwitches > 1 && header->Switches[1]) {
+				int panes = 0;
+				for (int i = 0; i < nd && pane < 0; i++) {
+					if (i == best || dls[i].simple || nodeMatrix(dls[i].node) != nodeMatrix(dls[best].node))
+						continue;
+					for (ModelNode *up = dls[i].node->Parent; up && pane < 0; up = up->Parent)
+						if (up == header->Switches[1])
+							pane = i;
+				}
+				for (int t = 0; pane >= 0 && t < mesh->ntris; t++)
+					panes += triWanted(mesh, &mesh->tris[t], kind, hasHead) && mesh->tris[t].alpha < 255;
+				if (!panes)
+					pane = -1;
+			}
+			s_paneMode = pane >= 0;
 			int mainEmitted = emitRigid(mesh, kind, hasHead, dls[best].node, fit,
 			                            kind == BEAN_PROP ? &binding : NULL, -1, gun ? grp[dls[best].grp].o : NULL,
 			                            gun && !mesh->triggerCuffs ? 0 : -1, &gdl, &vtx);
+			s_paneMode = 0;
 			if (mainEmitted || kind == BEAN_PROP) {
 				if (mainEmitted) {
 					keepAlloc(gdl);
@@ -3320,6 +3351,19 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 				if (mainEmitted && fit && !strcmp(fit->source, "prop/helicopter"))
 					gdl = helicopterWithPilot(dls[best].node, gdl);
 				registerPrimary(dls[best].node, mainEmitted ? gdl : s_blank, 0);
+				s_paneMode = 0;
+				if (pane >= 0) {
+					void *paneG = NULL, *paneV = NULL;
+					s_paneMode = 2;
+					if (emitRigid(mesh, kind, hasHead, dls[pane].node, fit, &binding, -1, NULL, -1, &paneG, &paneV)) {
+						keepAlloc(paneG);
+						keepAlloc(paneV);
+						registerPrimary(dls[pane].node, paneG, 0);
+						GEVR_BEAN_LOG("gevr bean: %s: the window's pane on GoldenEye's glass list\n",
+						              fit ? fit->source : "door");
+					}
+					s_paneMode = 0;
+				}
 				/* DAB fpRound: the release's rocket launcher carries its round
 				 * in the tube, so it is laid out without it too, for while the
 				 * tube is empty (and GoldenEye's rocket is not drawn over it) */
