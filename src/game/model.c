@@ -3878,7 +3878,14 @@ void modelApplyRenderModeType3(ModelRenderData *renderdata, bool isPrimary)
                  * faces painted over its outside and it read as a see-through
                  * shell (user). Alpha-tested with depth instead: solid where
                  * the texture is, cut-outs kept.
+                 * It lies on the first list in places - the rocket launcher's
+                 * labels on its tube - which GoldenEye's order drew it over;
+                 * depth-tested, the two tied and the labels flickered (user,
+                 * 2026-11-19). Pulled toward the eye as a decal is, it wins
+                 * (VR_DEPTH_PULL_NEXT, gfx_pc.cpp): still solid, still culled
+                 * by what stands in front of it.
                  */
+                gDPNoOpTag(renderdata->gdl++, 0x56630000);   /* VR_DEPTH_PULL_NEXT */
                 gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_ZB_TEX_EDGE2);
 #else
                 gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_ZB_XLU_SURF2);

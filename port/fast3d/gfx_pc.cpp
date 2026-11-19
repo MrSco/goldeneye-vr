@@ -63,6 +63,7 @@ static unsigned s_beanVertexTintStride;
 static bool s_beanRoomFogLinear;
 static bool s_beanAlphaCore;   /* GEVR_NODE_CORE: a soft cut-out's core (gfx_bean_node_state) */
 static bool s_beanRoomFogRadial;   /* GEVR_ROOM_RADIAL: by the vertex's distance from the eye */
+static bool s_depthPullArmed, s_depthPull;   /* VR_DEPTH_PULL_NEXT, see gfx_sp_set_other_mode */
 /* G_GEVR_BEAN_FADE: a fading chr's Bean draws (chrRenderProp's PropType 8). The
  * game's own lists fade through their render mode (modelApplyRenderModeType3:
  * env alpha, G_RM_AA_ZB_XLU_SURF2); Bean's set theirs, so the renderer applies
@@ -3225,6 +3226,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     bool depth_compare = (rdp.other_mode_l & Z_CMP) == Z_CMP;
     bool depth_source_prim = (rdp.other_mode_l & G_ZS_PRIM) == G_ZS_PRIM /* && gDP.primDepth.z == 1.0f */;
     uint16_t zmode = rdp.other_mode_l & ZMODE_DEC;
+    if (s_depthPull && zmode != ZMODE_DEC) zmode |= GEVR_ZMODE_PULL;   /* VR_DEPTH_PULL_NEXT */
     uint8_t depth_mode = (depth_test ? 1 : 0) | (depth_update ? 2 : 0) | (depth_compare ? 4 : 0) | (depth_source_prim ? 8 : 0) | (zmode >> 6);
 
     if (depth_mode != rendering_state.depth_mode) {
@@ -4544,7 +4546,20 @@ static void gfx_dp_set_color_image(uint32_t format, uint32_t size, uint32_t widt
     rdp.color_image_address = address;
 }
 
+/*
+ * VR_DEPTH_PULL_NEXT (model.c modelApplyRenderModeType3): GoldenEye draws
+ * the first-person gun without depth, a node's second list (its labels and
+ * stencils, a KF7's wood) after the first in painter's order; the port draws
+ * it depth-tested (#9 stereo, #238 the flat screen), and a label lying on its
+ * tube tied with it and flickered (the rocket launcher's, user 2026-11-19).
+ * The tag arms a pull for the render mode set next; it lasts until the
+ * render mode is set again, so it can't outlive the list.
+ */
 static void gfx_sp_set_other_mode(uint32_t shift, uint32_t num_bits, uint64_t mode) {
+    if (shift <= G_MDSFT_RENDERMODE && shift + num_bits > G_MDSFT_RENDERMODE) {
+        s_depthPull = s_depthPullArmed;
+        s_depthPullArmed = false;
+    }
     uint64_t mask = (((uint64_t)1 << num_bits) - 1) << shift;
     uint64_t om = rdp.other_mode_l | ((uint64_t)rdp.other_mode_h << 32);
     om = (om & ~mask) | mode;
@@ -4570,6 +4585,8 @@ static void gfx_sp_set_vertex_colors(uint32_t count, const struct NormalColor *v
 }
 
 static void gfx_dp_set_other_mode(uint32_t h, uint32_t l) {
+    s_depthPull = s_depthPullArmed;   /* the render mode set: VR_DEPTH_PULL_NEXT */
+    s_depthPullArmed = false;
     rdp.other_mode_h = h;
     rdp.other_mode_l = l;
 }
@@ -5308,6 +5325,9 @@ static void gfx_run_dl(Gfx* cmd) {
                     break;
                 }
                 switch (tag_w1) {
+                    case 0x56630000: // VR_DEPTH_PULL_NEXT: the render mode set next pulls (s_depthPull)
+                        s_depthPullArmed = true;
+                        break;
                     case 0x56520001: // Menu is open
                     case 0x56520000: // GoldenEye: menu closed
                         gfx_flush();
