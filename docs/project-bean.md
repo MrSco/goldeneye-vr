@@ -264,6 +264,9 @@ diffuse UV at dword 5 and colour at dword 8.
 
 ## Headset checks before publishing
 
+Check a Bean report against the release itself in Xenia
+(docs/xenia-reference.md) before calling something the release's own look.
+
 - Dam: ground alignment, sky rotation, water, portal visibility, texture seams,
   Bond's body and head, KF7, slide and muzzle flash.
 - A water stage with a replacement sky, plus Facility, Silo and Statue.

@@ -27,6 +27,7 @@
  *
  * The overlay hides itself when a pad button or a key is pressed and comes
  * back with the next touch; on a PC it stays hidden until a finger lands.
+ * TouchControls=0 in goldeneye-vr.ini turns it off for good (#254).
  * Drawn with ImGui's draw lists, in its own context, over the game's frame
  * in the window (flat_render.cpp vr_screen_present).
  */
@@ -49,7 +50,7 @@
 
 extern SDL_Window *wnd;   // flat_window.cpp
 extern "C" int gevrNativePauseOpen(void);   // port/src/input.c: the in-game panel or the online pause is up
-extern "C" int VrTouchHaptics, VrGyroAim;   // vr_settings.cpp
+extern "C" int VrTouchHaptics, VrGyroAim, VrTouchControls;   // vr_settings.cpp
 extern "C" float VrGyroSpeed;
 #ifdef GEVR_IOS
 extern "C" void gevrIosHaptic(void);   // port/ios/ios_app.m: the Taptic Engine's light tap
@@ -139,6 +140,10 @@ static bool s_shown = true;          // drawn and taking touches: from the start
 static bool s_shown;                 // a PC waits for a finger
 #endif
 static bool s_seen;                  // a finger has landed since start
+/* TouchControls=0 in goldeneye-vr.ini (#254): no overlay, and touches are not
+ * controls. For a mouse and keyboard whose clicks arrive as touches: the iOS
+ * app on a Mac through PlayCover turns a left click into a tap. */
+static bool shown(void) { return s_shown && VrTouchControls; }
 static int s_winW, s_winH;           // the window's drawable size, pixels
 static float s_ptPx = 2.0f;          // pixels a point
 static ImGuiContext *s_imgui;
@@ -697,6 +702,7 @@ extern "C" void flatTouchEvent(const SDL_Event *e)
         }
         return;
     }
+    if (!VrTouchControls) return;
     switch (e->type) {
     case SDL_FINGERDOWN:
         touchMeasure();
@@ -710,7 +716,7 @@ extern "C" void flatTouchEvent(const SDL_Event *e)
         fingerDown(e->tfinger);
         break;
     case SDL_FINGERMOTION:
-        if (s_shown) fingerMotion(e->tfinger);
+        if (shown()) fingerMotion(e->tfinger);
         break;
     case SDL_FINGERUP:
         fingerUp(e->tfinger);   // shown or not: a lift always lets go
@@ -760,7 +766,7 @@ extern "C" unsigned flatTouchPoll(int menu, float *sx, float *sy)
         releaseAll();
         s_tapped = 0;
     }
-    if (!s_shown || panel) return 0;
+    if (!shown() || panel) return 0;
     unsigned held = s_tapped;
     s_tapped = 0;
     const Uint32 now = SDL_GetTicks();
@@ -820,7 +826,7 @@ static void gyroLook(float *yaw, float *pitch)
     const Uint32 now = SDL_GetTicks();
     const float dt = last ? (now - last) / 1000.0f : 0.0f;
     last = now;
-    if (!VrGyroAim || s_menu || !s_shown) return;
+    if (!VrGyroAim || s_menu || !shown()) return;
     // While aiming: only with AIM held (the user found always-on gyro weak for turning)
     if (VrGyroAim == 1 && !aimHeld()) return;
     if (!tried) {
@@ -989,7 +995,7 @@ static void drawEditor(ImDrawList *dl)
 extern "C" void flatTouchDraw(int winW, int winH)
 {
     if (winW <= 0 || winH <= 0) return;
-    if (!s_editing && (!s_shown || gevrNativePauseOpen())) return;
+    if (!s_editing && (!shown() || gevrNativePauseOpen())) return;
     if (winW != s_winW || winH != s_winH) touchMeasure();
 
     ImGuiContext *prev = ImGui::GetCurrentContext();

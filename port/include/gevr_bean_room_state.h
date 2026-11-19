@@ -3,6 +3,11 @@
 #include <stdint.h>
 /* Host-only room material: select fog at draw time, without rewriting lists. */
 #define G_GEVR_ROOM_STATE 0x6c
+/* w0 bits 2-3 of a level batch's G_GEVR_ROOM_STATE (DAB writeLeaf(), the
+ * faces of markBacked() and markFights()): FACES culls the batch's backs;
+ * BACKS draws only its backs, pushed away from the eye (gfx_pc.cpp) */
+#define GEVR_ROOM_FACES 4
+#define GEVR_ROOM_BACKS 8
 /* A fading chr's Bean draws (chrRenderProp's PropType 8 env alpha, which the
  * game's render mode carries for its own lists): w1 the alpha, 255 ends it. */
 #define G_GEVR_BEAN_FADE 0x6D

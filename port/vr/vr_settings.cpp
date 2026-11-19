@@ -31,6 +31,10 @@
 /* A phone or tablet's touch controls (port/flat/window/flat_touch.cpp): a
  * buzz on an on-screen button, and turning the device to look and aim. */
 int VrTouchHaptics = 1;
+/* 0: no on-screen controls at all, for a mouse and keyboard whose clicks
+ * arrive as touches (the iOS app on a Mac through PlayCover, #254). Only in
+ * the ini: a phone with it off would have no way back to the panel. */
+int VrTouchControls = 1;
 int VrGyroAim = 0;   // 0 off, 1 while aiming, 2 always
 float VrGyroSpeed = 1.5f;   // view degrees a degree the device turns
 /* The on-screen buttons moved or resized in the touch layout editor
@@ -331,6 +335,9 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "ScreenShape=%d\n", VrScreenShape);
     fprintf(f, "; A phone or tablet: 1 = a buzz on an on-screen button; 1 = turn the device to look and aim.\n");
     fprintf(f, "TouchHaptics=%d\nGyroAim=%d\nGyroSpeed=%.2f\n", VrTouchHaptics, VrGyroAim, VrGyroSpeed);
+    fprintf(f, "; 0 = no on-screen touch controls, for a mouse and keyboard whose clicks arrive\n");
+    fprintf(f, "; as touches (the iOS app on a Mac through PlayCover). 1 = shown (the default).\n");
+    fprintf(f, "TouchControls=%d\n", VrTouchControls);
     fprintf(f, "; The touch layout editor's buttons (NAME x y radius;...), empty for the built-in layout.\n");
     fprintf(f, "TouchLayout=%s\n", VrTouchLayout);
     fprintf(f, "; Metres above (+) or below (-) eye level; set by grabbing the screen with both grips.\n");
@@ -911,6 +918,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "ScreenPassthrough") == 0) VrScreenPassthrough = ival != 0;
             else if (strcmp(key, "ScreenShape") == 0) VrScreenShape = ival == 1 ? 1 : 0;
             else if (strcmp(key, "TouchHaptics") == 0) VrTouchHaptics = ival != 0;
+            else if (strcmp(key, "TouchControls") == 0) VrTouchControls = ival != 0;
             else if (strcmp(key, "GyroAim") == 0) VrGyroAim = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             /* Keep saved DisplayHz preferences. The obsolete RefreshRate key
              * was never user-selectable and remains ignored. */

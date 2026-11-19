@@ -1,7 +1,70 @@
+/* DAB markBacked()/markFights() (markLevelSides()): faces back to back in
+ * one plane. #252: Aztec's mural wall and the grey wall of the corridor
+ * behind it share z = 525 over part of their faces and fought in a hatch;
+ * four of the mural's triangles were made decals of the grey. */
+static void levelSideTri(struct gevrBeanTri *t, const float *p, int tex)
+{
+    memset(t,0,sizeof(*t));
+    memcpy(t->p,p,9*sizeof(float));
+    memset(t->rgba,255,sizeof(t->rgba));
+    t->tex=(int16_t)tex; t->alpha=255;
+}
+
+static void levelSideChecks(void)
+{
+    /* a wall facing +z, x 0..100, and a wall facing -z over half of it, x 50..150 */
+    static const float wall[2][9] = {{0,0,0, 100,0,0, 100,100,0}, {0,0,0, 100,100,0, 0,100,0}};
+    static const float behind[2][9] = {{50,0,0, 150,100,0, 150,0,0}, {50,0,0, 50,100,0, 150,100,0}};
+    static const float apart[9] = {0,300,0, 100,400,0, 100,300,0};
+    struct gevrBeanTri tris[5];
+    uint8_t texAlpha[MAX_TEX] = {0}, pass[5] = {0};
+    struct gevrBeanMesh mesh = {.tris=tris,.ntris=5,.ntex=3};
+    for (int i=0;i<2;i++) {
+        levelSideTri(&tris[i],wall[i],0);
+        levelSideTri(&tris[2+i],behind[i],1);
+    }
+    levelSideTri(&tris[4],apart,1);   /* the other way, out of the plane's overlap */
+    markLevelDecals(&mesh,pass,5,texAlpha,1.475407422f); /* Aztec scale */
+    for (int i=0;i<4;i++) {
+        assert(tris[i].side==GEVR_BEAN_SIDE_FIGHTS);
+        assert(!(tris[i].flags & GEVR_BEAN_F_DECAL));   /* not a decal of the other face */
+    }
+    assert(tris[4].side==0 && !(tris[4].flags & GEVR_BEAN_F_DECAL));
+
+    /* A sheet: the same triangle twice, wound both ways, of two pictures */
+    levelSideTri(&tris[0],wall[0],0);
+    levelSideTri(&tris[1],wall[0],1);
+    memcpy(tris[1].p+3,wall[0]+6,3*sizeof(float));
+    memcpy(tris[1].p+6,wall[0]+3,3*sizeof(float));
+    mesh.ntris=2;
+    markLevelDecals(&mesh,pass,2,texAlpha,1);
+    assert(tris[0].side==GEVR_BEAN_SIDE_BACKED && tris[1].side==GEVR_BEAN_SIDE_BACKED);
+    assert(!(tris[0].flags & GEVR_BEAN_F_DECAL) && !(tris[1].flags & GEVR_BEAN_F_DECAL));
+
+    /* a solid face over a cut-out one is no sheet (DAB: alpha with alpha), but they fight */
+    texAlpha[1]=1;
+    markLevelDecals(&mesh,pass,2,texAlpha,1);
+    assert(tris[0].side==GEVR_BEAN_SIDE_FIGHTS && tris[1].side==GEVR_BEAN_SIDE_FIGHTS);
+    texAlpha[1]=0;
+
+    /* the translucent layer is left alone */
+    pass[1]=LDECAL_PASS_BLEND;
+    markLevelDecals(&mesh,pass,2,texAlpha,1);
+    assert(tris[0].side==0 && tris[1].side==0);
+    pass[1]=0;
+
+    /* a face the other way a little out of the plane (more than DECAL_DIST) is apart */
+    for (int v=0;v<3;v++) tris[1].p[v*3+2]=2.0f;
+    markLevelDecals(&mesh,pass,2,texAlpha,1);
+    assert(tris[0].side==0 && tris[1].side==0);
+    puts("Bean level faces back to back: a sheet culled, a part-covered pair face then back, neither a decal");
+}
+
 /* Coincident room faces may share an image but sample/paint it differently.
  * Keep both faces; the later paint must use decal depth, not fight its base. */
 static void levelSameTextureDecalChecks(void)
 {
+    levelSideChecks();
     struct gevrBeanTri tris[2] = {0};
     struct gevrBeanMesh mesh = {.tris=tris,.ntris=2,.ntex=1};
     uint8_t texAlpha[MAX_TEX] = {0}, pass[2] = {0};

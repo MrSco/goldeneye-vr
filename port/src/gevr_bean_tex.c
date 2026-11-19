@@ -556,6 +556,65 @@ void gevrBeanTexPaint(const void *addr, uint32_t rgb)
 }
 
 /*
+ * DAB gebean.c beanBleedCutout() (port/licenses/dabs-mod.txt): a cut-out's
+ * clear texels given the colour of the nearest solid one. A picture whose
+ * alpha is all or nothing - DXT1's punch-through, whose clear texel is black
+ * by the format, or a DXT3/5 cut that stayed binary - is filtered across its
+ * edge, where a texel part solid and part clear passes the cut-out threshold
+ * (0.19) mostly black. Aztec's floor logo (_0x0831A9E5, 76x76, clear texels
+ * RGB 0) wore a dark rim round its stair-stepped edge (#253); DAB fixed the
+ * same rim on Jungle's leaves and vines. Only the colour of a texel with
+ * alpha 0 changes, which nothing drawn with its alpha shows; a picture with
+ * any partial alpha is left as it is.
+ */
+static void bleedCutout(uint8_t *rgba, uint32_t w, uint32_t h)
+{
+	const uint32_t n = w * h;
+	uint32_t *queue, head = 0, tail = 0;
+	uint8_t *filled;
+	uint32_t clear = 0;
+
+	for (uint32_t i = 0; i < n; i++) {
+		const uint8_t a = rgba[i * 4 + 3];
+		if (a != 0 && a != 0xff)
+			return;
+		clear += a == 0;
+	}
+	if (!clear || clear == n)
+		return;
+	queue = malloc((size_t)n * sizeof(*queue));
+	filled = malloc(n);
+	if (!queue || !filled) {
+		free(queue);
+		free(filled);
+		return;
+	}
+	for (uint32_t i = 0; i < n; i++) {
+		filled[i] = rgba[i * 4 + 3] != 0;
+		if (filled[i])
+			queue[tail++] = i;
+	}
+	/* outward from the solid texels, a ring at a time; the picture repeats */
+	while (head < tail) {
+		const uint32_t i = queue[head++], x = i % w, y = i / w;
+		const uint32_t nb[4] = {
+			y * w + (x + 1) % w, y * w + (x + w - 1) % w,
+			((y + 1) % h) * w + x, ((y + h - 1) % h) * w + x,
+		};
+		for (int k = 0; k < 4; k++) {
+			const uint32_t j = nb[k];
+			if (!filled[j]) {
+				filled[j] = 1;
+				memcpy(rgba + (size_t)j * 4, rgba + (size_t)i * 4, 3);
+				queue[tail++] = j;
+			}
+		}
+	}
+	free(queue);
+	free(filled);
+}
+
+/*
  * Decode texture file `fileIndex` inside an open CAFF to RGBA8, bottom row
  * first as DAB's decoder gives it. malloc'd and the caller's; NULL when the
  * file is not a texture this decodes.
@@ -660,6 +719,7 @@ static uint8_t *decodeFrame(const struct gevrCaff *c, int fileIndex, int frame, 
 			uint8_t *b = rgba + (size_t)(h - 1 - y) * w * 4 + x;
 			uint8_t tmp = *a; *a = *b; *b = tmp;
 		}
+	bleedCutout(rgba, w, h);
 	if (outW) *outW = (int)w;
 	if (outH) *outH = (int)h;
 	return rgba;

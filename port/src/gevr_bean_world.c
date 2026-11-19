@@ -266,6 +266,7 @@ static void fillVert(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *
 	e->alpha = t->alpha;
 	e->cut = t->alphatest;
 	e->decal = (t->flags & GEVR_BEAN_F_DECAL) ? 1 : 0;
+	e->side = t->side;
 }
 
 #include "gevr_bean_rooms.inc.h"
