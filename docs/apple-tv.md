@@ -22,8 +22,13 @@ CMake's `tvos` platform sets `GEVR_IOS` and `GEVR_TVOS`; everything under
     level, the gun and the HUD drawn at 16:9.
 - **Not yet tested:**
   - the Siri Remote and a game pad (see "Testing in the simulator");
-  - a real Apple TV;
-  - a signed device build and TestFlight.
+  - a real Apple TV.
+- **TestFlight:** 0.5.19 (1), uploaded 2026-11-18 under `com.mrsco.goldeneyevr`
+  with the user's OK, from the combined testing branch. It was made with
+  `tools/build_tvos.sh device --archive 1 --upload` and the Vision Pro wrapper's
+  signing environment, with the tvOS profile "GoldenEye VR tvOS App Store"
+  (the iPhone and Vision Pro profile does not cover Apple TV). It validated and
+  uploaded without errors; nobody has run it on a device yet.
 
 ## Build (on the Mac)
 
