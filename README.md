@@ -109,7 +109,7 @@ Every platform runs the same game from **your own ROM**, with the same launcher,
 | A 3D sight where your shot will land. Your ammo counter sits on the gun. | **Grab the screen** with both grips to move it anywhere. |
 | Your **left arm** is Bond's own suit sleeve with his watch, keeping mission time and showing live health, armor, and multiplayer radar. The launcher offers **Off / On / Only** for wrist status and a separate **Watch gesture** toggle. | The classic experience, with no motion at all. |
 | Gadgets are **in your hand**: mines, the covert modem, cameras and more, thrown from where you hold them. | **Third person** (optional, solo): tick it on the launcher's **Play** tab and the camera follows behind Bond. Aiming, the watch and the tank go back to first person. |
-| The **sniper rifle's scope** shows the zoomed view in its lens, 4.4x up to 25x, with a red sight when you aim. The **Moonraker laser** has a 3x scope, and the **KF7** and **AR33** show a magnifier when you bring your eye to their sights. | |
+| The **sniper rifle's scope** shows the zoomed view in its lens, 4.4x up to 25x, with a red sight when you aim. The **Moonraker laser** has a 3x scope, and the **KF7** and **AR33** carry a magnifier at the back of their sights. | |
 | **Melee with either hand**: swing your hand, a gun, the knife or the sniper rifle's butt at a guard. Sneak up on one and chop him. Hold the rifle butt with both hands and it hits twice as hard. | |
 | **Force pull** (optional, WIP): point an empty hand at a gun or item up to 3.5 m away, squeeze to lock it, flick to pull it in, and grip to catch it. Pull a gun out of a guard's hand, or catch a live grenade and throw it back. A disarmed guard runs for another gun, or comes at you with his fists. | |
 | The **watch laser** fires when you bring your gun hand to the watch and grip it, as Bond does in the original. | |
@@ -319,13 +319,15 @@ from [Wreck's N64 Vault page](https://n64vault.com/pd-multi-levels:goldeneye-x).
 
 On the virtual screen, GE-X's own fire and reload animations play. To reload by hand in
 stereo VR, also turn on **Hand reload WIP** on **Controls → Gestures**. It needs
-GoldenEye X; until GE-X is on, it's greyed out with **Needs GoldenEye X**.
+GoldenEye X or Bean's models; with neither on, it's greyed out with
+**Needs GoldenEye X or Bean**. With Bean alone, every gun but the sniper rifle and the Golden Gun
+reloads by hand ([details](docs/project-bean.md#removable-magazines-hand-reload-wip)).
 - **Magazine guns.** Pull the magazine with your off hand, grip a replacement at your
   belt, and seat it in the gun.
   - B/Y drops the magazine. A removed magazine keeps its rounds until you put it back or drop it.
   - The RC-P90's magazine lifts off the top.
-  - On the PP7, cupping the pistol counts as support. Release, then grip clearly below it
-    to remove its magazine.
+  - The pistols (PP7s, DD44) are not pulled: their magazine is inside the grip. B/Y drops
+    it, then push a fresh one from the belt up into the grip. A grip under a pistol is support.
 - **Shotguns, rocket launcher, Golden Gun and grenade launcher.** Grip one round at your
   belt and insert it at the gun's port. Release the grip before taking another.
 - **Cougar Magnum.** A belt grab takes a speedloader with up to six rounds. The cylinder
@@ -398,7 +400,7 @@ The launcher's **Controls → Gestures** tab turns grip gestures on or off: **Wa
 **Body slots WIP**, **Grip use** (doors and switches), **Mine re-grab**, **Force pull WIP**
 (with **Pull disarm** and **Pull visuals**) and **Auto pickup**. Anywhere else the grip aims
 as before. The 25 cm grab of a gun on the floor is always on. **Hand reload WIP** is there
-too, off by default: it needs GoldenEye X. Guns stop reloading themselves, and B/Y stop
+too, off by default: it needs GoldenEye X, or Bean's models for its magazine-fed guns. Guns stop reloading themselves, and B/Y stop
 reloading. You reload by hand as described under [GoldenEye X](#-goldeneye-x-optional-wip),
 including when dual-wielding.
 

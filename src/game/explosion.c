@@ -237,6 +237,55 @@ Gfx *explosionRenderPart(struct ExplosionPart *arg0, Gfx *gdl, struct coord3d *c
 #define GEVR_HIT_PULL 4.0f              /* stereo pull for the bullet hit (explosionRenderPart) */
 #define GEVR_HIT_SMOKE_PULL 16.0f       /* ... and its smoke, which grows: at 4 it cut into the wall (user) */
 static s32 s_gevrPartExplosionType;
+
+/*
+ * The view's right and up for a flame or smoke billboard, without the head's
+ * roll (#249). The headset rolls the view, and a sprite drawn square to it
+ * turned as the head tilted. Right is level (the world's up crossed with the
+ * view's axis), up is square to both, each pointing the way the view's own
+ * does and as long; looking straight up or down keeps the view's.
+ */
+static Mtxf *gevrBillboardMtx(Mtxf *v2w)
+{
+    extern s32 g_gevrStereo;
+    static Mtxf m;
+    f32 bx = v2w->m[2][0], by = v2w->m[2][1], bz = v2w->m[2][2];
+    f32 b = sqrtf(bx * bx + by * by + bz * bz);
+    f32 rx = bz, rz = -bx;   /* (0,1,0) x the view's axis */
+    f32 r = sqrtf(rx * rx + rz * rz);
+    f32 rlen, ulen, ux, uy, uz, u;
+
+    if (!g_gevrStereo || b < 0.0001f || r < 0.0001f * b) {
+        return v2w;
+    }
+    rlen = sqrtf(v2w->m[0][0] * v2w->m[0][0] + v2w->m[0][1] * v2w->m[0][1] + v2w->m[0][2] * v2w->m[0][2]);
+    ulen = sqrtf(v2w->m[1][0] * v2w->m[1][0] + v2w->m[1][1] * v2w->m[1][1] + v2w->m[1][2] * v2w->m[1][2]);
+    rx /= r;
+    rz /= r;
+    if (rx * v2w->m[0][0] + rz * v2w->m[0][2] < 0.0f) {
+        rx = -rx;
+        rz = -rz;
+    }
+    /* the view's axis x right */
+    ux = by * rz;
+    uy = bz * rx - bx * rz;
+    uz = -by * rx;
+    u = sqrtf(ux * ux + uy * uy + uz * uz);
+    if (u < 0.0001f) {
+        return v2w;
+    }
+    if (ux * v2w->m[1][0] + uy * v2w->m[1][1] + uz * v2w->m[1][2] < 0.0f) {
+        u = -u;
+    }
+    m = *v2w;
+    m.m[0][0] = rx * rlen;
+    m.m[0][1] = 0.0f;
+    m.m[0][2] = rz * rlen;
+    m.m[1][0] = ux / u * ulen;
+    m.m[1][1] = uy / u * ulen;
+    m.m[1][2] = uz / u * ulen;
+    return &m;
+}
 #endif
 
 /*** *************************************************************************************************************/
@@ -1227,6 +1276,7 @@ Gfx *explosionRenderPart(struct ExplosionPart *arg0, Gfx *gdl, struct coord3d *c
 
     sp9C = currentPlayerGetViewToWorldMtxf();
 #ifdef GEVR
+    sp9C = gevrBillboardMtx(sp9C);
     {
         extern coord3d *gevrEyePosition(void);   /* bondview2.c: stereo's eye, the head's rise included */
         sp98 = gevrEyePosition();
@@ -1367,6 +1417,7 @@ Gfx *explosionSmokeRenderPart(struct Smoke *smoke, struct SmokePart *smoke_part,
 
     mtx = currentPlayerGetViewToWorldMtxf();
 #ifdef GEVR
+    mtx = gevrBillboardMtx(mtx);
     {
         extern coord3d *gevrEyePosition(void);   /* bondview2.c */
         sp70 = gevrEyePosition();

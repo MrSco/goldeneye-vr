@@ -22,6 +22,9 @@
 #include "gevr_romlayout.h"
 #include "gevr_mirror.h"
 #include "gevr_bean_int.h"
+#include "gevr_beanmag.h"
+#include "gevr_hand_reload.h"
+#define GEVR_BEAN_MAG_GHOST_ALPHA 0x60   /* a placeholder magazine: a little over a third there */
 #include "gevr_bean_ce.h"
 #include "gevr_skin_mesh.h"
 #include "gevr_bean_room_state.h"
@@ -105,6 +108,11 @@ struct beanSwap {
 	int deferredMatrix;
 	int watchArm;
 	void *spent;   /* DAB fpRound: the rocket launcher drawn with nothing in its tube */
+	/* a gun's removable magazine (gevr_beanmag.h, gunMagazine()): the body with
+	 * the magazine out, the magazine itself, and where it sits; NULL without one */
+	void *open, *magazine, *ghost[2];
+	struct gevrBeanMagInfo *magInfo;
+	int magPart;   /* a moving part's list that is (part of) the magazine: not drawn while it is out */
 	/* A rigid prop's own list and vertices (gevrBeanEmitList), for the copy a
 	 * destroyed instance draws (gevrBeanScorchedGdl); NULL for the others. */
 	Gfx *emitted;
@@ -275,6 +283,9 @@ static void swapAdd(void *node, void *original, void *ours, int origType)
 	s_swap[s_nswap].deferredMatrix = 0;
 	s_swap[s_nswap].watchArm = s_registrationWatchArm;
 	s_swap[s_nswap].spent = NULL;
+	s_swap[s_nswap].open = s_swap[s_nswap].magazine = s_swap[s_nswap].ghost[0] = s_swap[s_nswap].ghost[1] = NULL;
+	s_swap[s_nswap].magInfo = NULL;
+	s_swap[s_nswap].magPart = 0;
 	s_swap[s_nswap].emitted = NULL;
 	s_swap[s_nswap].emittedVtx = NULL;
 	s_swap[s_nswap].emittedVerts = s_swap[s_nswap].emittedCommands = s_swap[s_nswap].emittedWorld = 0;
@@ -321,11 +332,39 @@ void *gevrBeanFadeMark(void *gdl, int alpha)
     return g + 1;
 }
 
+/* A gun's removable magazine (gun.c sets it for the hand it draws): in the gun,
+ * out of it (the gun is drawn with its well empty), or the magazine drawn on
+ * its own. A gun without one draws as ever. */
+static int s_magazine = GEVR_BEAN_MAG_IN;
+
+void gevrBeanSetMagazine(int state)
+{
+	s_magazine = state;
+}
+
+int gevrBeanGunMagazine(const void *header, struct gevrBeanMagInfo *out)
+{
+	for (int i = 0; header && i < s_nswap; i++)
+		if (s_swap[i].owner == header && s_swap[i].magInfo && activeSwap(s_swap[i].node) == &s_swap[i]) {
+			if (out)
+				*out = *s_swap[i].magInfo;
+			return 1;
+		}
+	return 0;
+}
+
 void *gevrBeanShownGdl(void *node, void *current)
 {
 	struct beanSwap *s = activeSwap(node);
 	/* GE-X and the VR watch hide the hand by clearing its native list.
 	 * Honour that per-draw visibility instead of resurrecting the Bean arm. */
+	/* a cylinder turns on its own matrix and list: out of the gun, that list is not drawn */
+	if (s && s->magPart && s_magazine != GEVR_BEAN_MAG_IN)
+		return current ? s_blank : current;
+	if (s && (current || !s->original) && s->magInfo && s_magazine != GEVR_BEAN_MAG_IN)
+		return s_magazine == GEVR_BEAN_MAG_ITSELF ? s->magazine
+		     : s_magazine == GEVR_BEAN_MAG_GHOST ? s->ghost[0]
+		     : s_magazine == GEVR_BEAN_MAG_GHOST_READY ? s->ghost[1] : s->open;
 	return s && (current || !s->original) ? (s->spent && !s_loaded ? s->spent : s->ours) : current;
 }
 
@@ -498,7 +537,10 @@ static int sourceForName(const char *name, char *source, int sourcelen)
 	return BEAN_NONE;
 }
 
-static struct gevrBeanMesh *cachedLoad(const char *path, int keepparts)
+#include "gevr_bean_handpatch.inc.h"
+#include "gevr_bean_armseal.inc.h"
+
+static struct gevrBeanMesh *cachedLoad(const char *path, int keepparts, int kind)
 {
 	for (int i = 0; i < s_ncache; i++) {
 		if (strcmp(s_cache[i].path, path) == 0) {
@@ -509,6 +551,18 @@ static struct gevrBeanMesh *cachedLoad(const char *path, int keepparts)
 		struct gevrBeanMesh *mesh = NULL;
 		if (!gevrBeanLoad(path, keepparts, &mesh) || !mesh) {
 			return NULL;
+		}
+		if (kind == BEAN_GUN) {
+			/* the sculpted patch, then the opening it leaves round the handle */
+			const int before = mesh->ntris;
+			beanPatchGunHand(mesh);
+			if (mesh->ntris > before)
+				beanSealGunHand(mesh);
+		}
+		/* the off-hand arm's open sleeves and forearm, closed (gevr_bean_armseal.inc.h) */
+		if (mesh->watchArm) {
+			const int sealed = beanSealWatchArm(mesh);
+			GEVR_BEAN_LOG("gevr bean: %s: off-hand arm sealed with %d triangles\n", path, sealed);
 		}
 		if (s_ncache < (int)(sizeof(s_cache) / sizeof(s_cache[0]))) {
 			snprintf(s_cache[s_ncache].path, sizeof(s_cache[s_ncache].path), "%s", path);
@@ -521,6 +575,10 @@ static struct gevrBeanMesh *cachedLoad(const char *path, int keepparts)
 
 static const struct gevrEmitVert *s_sortVerts;
 static uint32_t *s_sortSpatial;
+/* A level's list: its faces' sides batch apart (markLevelSides()); the
+ * batch being emitted's, for beanRenderMode() */
+static int s_sortSides;
+static int s_emitSide;
 
 static uint32_t spatialBits(uint32_t x)
 {
@@ -533,6 +591,7 @@ static uint32_t spatialBits(uint32_t x)
 static int vertKey(const struct gevrEmitVert *v)
 {
 	return ((int)(v->reflectionDiffuse != 0) << 30) | ((int)v->decal << 29) | ((int)v->cut << 28)
+        | ((s_sortSides ? (int)(v->side & 3) : 0) << 26)
         | ((v->tex + 1) << 16) | ((int)v->alpha << 8);
 }
 
@@ -583,7 +642,8 @@ static s16 posClamp(float v)
 static uint32_t beanRenderMode(Gfx **next, int mode1, int mode2, int room)
 {
     Gfx *g = *next;
-    g->words.w0 = ((uintptr_t)G_GEVR_ROOM_STATE << 24) | (room == 2 ? 2 : room ? 0 : 1);
+    g->words.w0 = ((uintptr_t)G_GEVR_ROOM_STATE << 24) | (room == 2 ? 2 : room ? 0 : 1) |
+                  (s_emitSide ? GEVR_ROOM_FACES : 0);
     g->words.w1 = (uint32_t)(G_RM_PASS | mode2 | (mode1 & 0xffff));
     *next = g + 1;
     return (uint32_t)g->words.w1;
@@ -634,11 +694,18 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 	}
     if (worldFormat && (lit || s_emitSkin)) return 0;
     ntri = nverts / 3;
+    /* A level's faces back to back over part of their face (markLevelSides())
+     * are drawn again, their backs: room for their second vertices */
+    s_sortSides = mesh->roomMaterial == 1 && !lit && !skin && zbuf;
+    s_emitSide = 0;
+    int nback = 0, sided = 0;
+    for (int i = 0; s_sortSides && i + 2 < nverts; i += 3)
+        nback += v[i].side == GEVR_BEAN_SIDE_FIGHTS ? 3 : 0;
     order = malloc((size_t)ntri * sizeof(int));
 	/* One texture group can be a single triangle, and gDPLoadTextureBlock writes several commands. */
-	cmdcap = 64 + ntri * 40;
+	cmdcap = 64 + (ntri + nback / 3) * 40;
 	gdl = malloc((size_t)cmdcap * sizeof(Gfx));
-    vtx = malloc((size_t)nverts * (worldFormat ? sizeof(GevrWorldVertex) :
+    vtx = malloc((size_t)(nverts + nback) * (worldFormat ? sizeof(GevrWorldVertex) :
                  sizeof(Vtx) + (lit && !skin ? sizeof(GevrVertexTint) : 0)));
     if (worldFormat) world = (GevrWorldVertex *)vtx;
 	if (!order || !gdl || !vtx) {
@@ -719,6 +786,9 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
             v[order[end]*3].reflectionAlphaBase==base->reflectionAlphaBase) {
 			end++;
 		}
+		/* the batch's side (vertKey() keeps one side a batch): its mode culls */
+		s_emitSide = s_sortSides ? base->side : 0;
+		sided |= s_emitSide;
 		if (tex >= 0 && tex < mesh->ntex && mesh->standin[tex]) {
 			logicalW = mesh->texW[tex] > 0 ? mesh->texW[tex] : 32;
 			logicalH = mesh->texH[tex] > 0 ? mesh->texH[tex] : 32;
@@ -848,6 +918,19 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
             gDPSetCombineLERP(g++, TEXEL1, TEXEL0, PRIM_LOD_FRAC, TEXEL0, TEXEL1, TEXEL0, PRIM_LOD_FRAC, TEXEL0,
                               COMBINED, 0, SHADE, 0, COMBINED, 0, SHADE, 0);
         }
+        /* DAB writeLeaf() side 1: a level's faces back to back over part of
+         * their face (markFights()) are drawn again, culled to their backs
+         * and pushed away from the eye (GEVR_ROOM_BACKS, gfx_pc.cpp), so the
+         * face turned to the camera wins and a back with no face over it
+         * still shows */
+        const int first = batch;
+        for (int side = 0; side < (s_emitSide == GEVR_BEAN_SIDE_FIGHTS ? 2 : 1) && g - gdl <= cmdcap - 16; side++) {
+        if (side) {
+            /* a level's list (s_sortSides): room material 1 */
+            g->words.w0 = ((uintptr_t)G_GEVR_ROOM_STATE << 24) | GEVR_ROOM_BACKS;
+            g++->words.w1 = ownMode;
+            batch = first;
+        }
         while (batch < end) {
 			int take = end - batch;
 			if (take > 5) {
@@ -925,11 +1008,15 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 				break;
 			}
 		}
+        }
 		if (g - gdl > cmdcap - 16) {
 			break;
 		}
 	}
     if (!mesh->roomMaterial) gSPClearGeometryMode(g++, G_FOG);
+    /* no FACES/BACKS cull past a level's list */
+    if (sided) gSPClearGeometryMode(g++, G_CULL_BOTH);
+    s_emitSide = 0;
     g->words.w0=(uintptr_t)G_GEVR_NORMAL_TEX1<<24; g++->words.w1=0;
     g->words.w0 = G_GEVR_VERTEX_TINT << 24; g++->words.w1 = 0;
     if (node) { g->words.w0 = ((uintptr_t)G_GEVR_NODE_STATE << 24) | GEVR_NODE_END; g++->words.w1 = 0; }
@@ -1422,6 +1509,7 @@ static void fillEmit(const struct gevrBeanTri *t, int texCut, struct gevrEmitVer
 	e->alpha = t->alpha;
 	e->cut = (uint8_t)(t->alphatest || (t->tex >= 0 && texCut));
 	e->decal = (t->flags & GEVR_BEAN_F_DECAL) ? 1 : 0;
+	e->side = 0;
 }
 
 struct beanRigidBinding {
@@ -1622,7 +1710,7 @@ static int gunHandNode(const ModelFileHeader *header, const ModelNode *node)
  * 512x511 picture. It is drawn where GoldenEye draws the hand. */
 static int gunGloveTri(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *t)
 {
-	return t->tex >= 0 && t->tex < mesh->ntex && mesh->texW[t->tex] == 512 && mesh->texH[t->tex] == 511;
+	return beanGunHandTexture(mesh, t->tex);
 }
 
 /* DAB gebean.c:10560: an odd permutation swaps two axes and each negative
@@ -1966,6 +2054,127 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 		free(ev);
 		return ok;
 	}
+}
+
+/*
+ * A gun's removable magazine (gevr_beanmag.h; user, 2026-11-18): the body list
+ * laid out twice more from the mesh cut across its grip - without the magazine,
+ * the well floored, and the magazine alone - both on the body's matrix and from
+ * its rest, so the magazine drawn under the gun's own matrix sits in the gun
+ * and under any other is out of it (gun.c gevrBeanMagDraw). Only the body's
+ * own triangles are cut: not the hand's, the slide's or the flash's.
+ */
+static void gunMagazine(const GevrBeanMagDef *def, const struct gevrBeanMesh *mesh, int kind, int hasHead,
+                        ModelNode *node, const struct beanFit *fit, const float *rest,
+                        const struct beanGunParts *parts, const struct beanDl *dls)
+{
+	struct beanSwap *body = swapOf(node);
+	const struct beanGunParts *wasParts = s_parts;
+	const struct gevrBeanMesh *wasMesh = s_partsMesh;
+	const int wasWant = s_partWant;
+	unsigned char *eligible = calloc((size_t)(mesh->ntris ? mesh->ntris : 1), 1);
+	struct gevrBeanMagInfo *info = NULL;
+	GevrBeanMagBuilt built;
+	if (!body || body->ours == s_blank || !eligible || !parts->of) {
+		free(eligible);
+		return;
+	}
+	/* the body's own triangles (a cylinder's from whichever part carries them); for
+	 * the launcher its round's alone (DAB fpRound) */
+	for (int t = 0; t < mesh->ntris; t++)
+		eligible[t] = (def->anyPart || parts->of[t] == parts->body) && !gunGloveTri(mesh, &mesh->tris[t]) &&
+		              (def->rocket ? (mesh->tris[t].flags & GEVR_BEAN_F_ROUND) != 0
+		                           : !(mesh->tris[t].flags & (GEVR_BEAN_F_FLASH | GEVR_BEAN_F_SLIDE | GEVR_BEAN_F_ROUND)));
+	if (!gevrBeanMagBuild(def, mesh->tris, mesh->ntris, eligible, &built)) {
+		GEVR_BEAN_LOG("gevr bean: %s: no magazine to cut\n", fit->source);
+		free(eligible);
+		return;
+	}
+	/* the moving parts it took triangles from: their own lists stand down with it */
+	if (def->anyPart && !def->keep) {
+		for (int t = 0; t < mesh->ntris; t++)
+			eligible[t] = eligible[t] ? 2 : 0;
+		for (int t = 0; t < built.nopen; t++)
+			if (built.openSrc[t] >= 0 && eligible[built.openSrc[t]])
+				eligible[built.openSrc[t]] = 1;   /* stayed on the gun */
+		for (int t = 0; t < mesh->ntris; t++) {
+			const int m = parts->of[t];
+			struct beanSwap *part;
+			if (eligible[t] != 2 || m == parts->body || m < 0 || m >= BEAN_GUN_MTX || parts->carrier[m] < 0)
+				continue;
+			part = swapOf(dls[parts->carrier[m]].node);
+			if (part && part != body)
+				part->magPart = 1;
+		}
+	}
+	free(eligible);
+	/* the gun without it, the magazine, and its silhouette in the two placeholder
+	 * colours (gevr_hand_reload.h's, as GoldenEye X's guides), see-through */
+	for (int pass = 0; pass < 4; pass++) {
+		static const uint32_t tint[2] = { GEVR_RELOAD_TINT, GEVR_RELOAD_READY_TINT };
+		struct gevrBeanMesh piece = *mesh;
+		struct beanGunParts of = *parts;
+		void *g = NULL, *v = NULL;
+		void **to = pass == 0 ? &body->open : pass == 1 ? &body->magazine : &body->ghost[pass - 2];
+		for (int t = 0; pass >= 2 && t < built.nghost; t++) {
+			struct gevrBeanTri *tri = &built.ghost[t];
+			for (int c = 0; c < 3; c++) {
+				tri->rgba[c * 4] = (uint8_t)(tint[pass - 2] >> 24);
+				tri->rgba[c * 4 + 1] = (uint8_t)(tint[pass - 2] >> 16);
+				tri->rgba[c * 4 + 2] = (uint8_t)(tint[pass - 2] >> 8);
+				tri->rgba[c * 4 + 3] = GEVR_BEAN_MAG_GHOST_ALPHA;
+			}
+			tri->alpha = GEVR_BEAN_MAG_GHOST_ALPHA;
+		}
+		piece.tris = pass == 0 ? built.open : pass == 1 ? built.mag : built.ghost;
+		piece.ntris = pass == 0 ? built.nopen : pass == 1 ? built.nmag : built.nghost;
+		piece.draws = NULL;
+		piece.ndraws = 0;
+		piece.triSrc = NULL;
+		of.of = malloc((size_t)piece.ntris);
+		if (!of.of)
+			break;
+		for (int t = 0; t < piece.ntris; t++)
+			of.of[t] = pass || built.openSrc[t] < 0 ? (int8_t)parts->body : parts->of[built.openSrc[t]];
+		s_parts = &of;
+		s_partsMesh = &piece;
+		s_partWant = parts->body;
+		if (emitRigid(&piece, kind, hasHead, node, fit, NULL, -1, rest, 0, &g, &v)) {
+			keepAlloc(g);
+			keepAlloc(v);
+			*to = wrapEmitted(node, g);
+		}
+		free(of.of);
+	}
+	s_parts = wasParts;
+	s_partsMesh = wasMesh;
+	s_partWant = wasWant;
+	if (body->open && body->magazine && body->ghost[0] && body->ghost[1])
+		info = malloc(sizeof(*info));
+	if (info && keepAlloc(info)) {
+		const float *from[4] = { built.mouth, built.top, built.foot, built.hold };
+		float *to[4] = { info->mouth, info->top, info->foot, info->hold };
+		info->node = node;
+		info->matrix = nodeMatrix(node);
+		info->pullUp = def->pullUp;
+		info->single = def->single;
+		info->consumed = def->consumed;
+		info->noPull = def->noPull;
+		for (int p = 0; p < 4; p++) {
+			fitPoint(fit, from[p], to[p]);
+			for (int k = 0; k < 3; k++)
+				to[p][k] -= rest ? rest[k] : 0.0f;
+		}
+		for (int k = 0; k < 3; k++)
+			info->axis[k] = built.axis[fit->perm[k]] * fit->sign[k];
+		body->magInfo = info;
+		GEVR_BEAN_LOG("gevr bean: %s: magazine of %d triangles (%d its foot), the gun without it %d\n", fit->source,
+		              built.nmag, built.nfoot, built.nopen);
+	} else {
+		free(info);
+		body->open = body->magazine = body->ghost[0] = body->ghost[1] = NULL;
+	}
+	gevrBeanMagFree(&built);
 }
 
 static int emitSkinned(const struct gevrBeanMesh *mesh, int sk, int hasHead,
@@ -2829,6 +3038,11 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 						parts.used[m] = 0;
 					}
 				}
+				/* a magazine-fed gun's magazine, to take out by hand (gevr_beanmag.h): after
+				 * the moving parts, whose lists a cylinder's are */
+				if (gun && mainEmitted && !mesh->triggerCuffs && parts.of && fit && gevrBeanMagFor(fit->source))
+					gunMagazine(gevrBeanMagFor(fit->source), mesh, kind, hasHead, dls[best].node, fit,
+					            grp[dls[best].grp].o, &parts, dls);
 				s_parts = NULL;
 				s_partsMesh = NULL;
 				for (int i = 0; i < nd; i++) {
@@ -3071,7 +3285,7 @@ void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
 		GEVR_BEAN_LOG("gevr bean: %s: missing %s", name, source);
 		return;
 	}
-	mesh = cachedLoad(path, 1);
+	mesh = cachedLoad(path, 1, kind);
 	if (!mesh) {
 		GEVR_BEAN_LOG("gevr bean: %s: native fallback, CAFF not decoded (%s)", name, path);
 		return;
@@ -3119,7 +3333,7 @@ void *gevrBeanRareLogoGdl(const float lo[3], const float hi[3], const void **pic
         char path[192];
         struct gevrBeanMesh *mesh = NULL;
         s_rareLogoTried = 1;
-        if (findFile("new/prop/rarewarelogo", path, sizeof(path))) mesh = cachedLoad(path, 1);
+        if (findFile("new/prop/rarewarelogo", path, sizeof(path))) mesh = cachedLoad(path, 1, BEAN_PROP);
         int tex = -1;
         float mlo[3] = {1e30f, 1e30f, 1e30f}, mhi[3] = {-1e30f, -1e30f, -1e30f};
         for (int i = 0; mesh && i < mesh->ntris; i++) {

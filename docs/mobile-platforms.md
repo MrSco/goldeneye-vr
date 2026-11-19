@@ -68,6 +68,15 @@ launcher.
   use the system's document picker.
 - **Touch:** the Android phone's controls. A touch's mouse never fires or
   takes the pointer; an iPad's real mouse and keyboard do.
+- **A Mac through PlayCover** (#254, reported on an M1 with PlayCover 3.0.0,
+  v0.5.18; untested here): the iOS `.ipa` runs on Apple Silicon and plays
+  online with headsets. In PlayCover's Keymapping tab turn off Keymapping and
+  Smart Keymap, so the mouse and keyboard arrive as the game's own (GCMouse).
+  PlayCover still turns a left click into a tap as well, which brought up the
+  touch overlay mid-fight: set `TouchControls=0` in `goldeneye-vr.ini` (the
+  app container's Documents) for no overlay and no touch input. It is in the
+  ini only, since a phone with it off has no way back to the panel. macOS's
+  pointer acceleration off (Mouse > Advanced) gives 1:1 aim.
 - **Services:** HTTPS through NSURLSession (`port/ios/ios_http.mm`) for the
   lobby, friends, mods and reports.
 - **Played on an iPhone 16 Pro Max** (user, 2026-11-09): Dam and its
@@ -91,6 +100,10 @@ launcher.
   multicast entitlement), an iPad, the launcher's update rows (meaningless
   on iOS), and coming back from "Restart to launcher" (an iOS app cannot
   start itself: it closes, and the player opens it again).
+
+**Apple TV, first pass in** (2026-11-18): the iOS game built for tvOS
+(`tools/build_tvos.sh`), played with a pad, the ROM sent from a phone or
+computer over the local network. See [apple-tv.md](apple-tv.md).
 
 ## Recommendation in one paragraph
 

@@ -2851,6 +2851,7 @@ Gfx *gevrRenderGexWatch(Gfx *gdl, ModelRenderData *templ, const f32 pos[3], cons
 
 static s32 gevrStereoTwoHandTarget(f32 target[3]);
 static s32 gevrStereoTwoHandTurn(f32 w[3][3]);
+static s32 gevrStereoTwoHandGunMove(Mtxf *move);
 
 /*
  * gunfire.c gunRenderFirstPersonGunModels: returns whether the watch arm was
@@ -2998,6 +2999,18 @@ static Gfx *gevrWatchArmDraw(Gfx *gdl, ModelRenderData *templ, s32 *drawn, s32 h
             for (j = 0; j < 3; j++)
             {
                 matrices[i].m[3][j] = row[0] * w[0][j] + row[1] * w[1][j] + row[2] * w[2][j] + target[j];
+            }
+        }
+        {
+            /* ... and with the gun through its recoil (gevrStereoTwoHandGunMove) */
+            Mtxf move;
+
+            if (gevrStereoTwoHandGunMove(&move))
+            {
+                for (i = 0; i < n; i++)
+                {
+                    gevrMtxMul(&matrices[i], &move, &matrices[i]);
+                }
             }
         }
     }
@@ -4909,6 +4922,59 @@ s32 gevrStereoTwoHandMatrix(Mtxf *m)
                 + s_gevrTwoHandPalm[2] * m->m[2][i] + m->m[3][i];
         m->m[3][i] += target[i] - palm[i];
     }
+    {
+        Mtxf move;
+
+        if (gevrStereoTwoHandGunMove(&move))
+        {
+            gevrMtxMul(m, &move, m);
+        }
+    }
+    return TRUE;
+}
+
+/*
+ * The hand that holds the gun goes with it through its recoil (user,
+ * 2026-11-18: "when you two hand grab a gun and shoot the recoil doesn't
+ * transfer to off-hand that is gripping so it stays still while gun moves").
+ * The hand is put on the gun as the controller has it (gevrStereoGunMatrix),
+ * but the gun is drawn with GoldenEye's keyframe - its recoil, its reload's
+ * dip - laid over that in its own frame (gunfire.c, the same conditions
+ * here; gevrScopeGunFollow takes the lens through it the same way). move is
+ * that keyframe as a move of view space: out of the gun's frame, through the
+ * keyframe, and back. A point p of the hand goes to p * move.
+ */
+static s32 gevrStereoTwoHandGunMove(Mtxf *move)
+{
+    const s32 hand = s_gevrTwoHandGun;
+    struct hand *h;
+    Mtxf gun, inv, anim;
+    s32 item;
+
+    if (g_CurrentPlayer == NULL)
+    {
+        return FALSE;
+    }
+    h = &g_CurrentPlayer->hands[hand];
+    item = getCurrentPlayerWeaponId(hand);
+    if (h->field_92C == 0 || gevrStereoItemShown(item) || gevrMotionThrowOwnsHand(hand)
+        || GEVR_ITEM_AS(item) == ITEM_TASER || gevrStereoClubBat(hand) || !gevrStereoGunMatrix(hand, &gun))
+    {
+        return FALSE;
+    }
+    gun.m[0][3] = gun.m[1][3] = gun.m[2][3] = 0.0f;
+    gun.m[3][3] = 1.0f;
+    if (!gevrMtxInvAffine(&gun, &inv))
+    {
+        return FALSE;
+    }
+    anim = h->field_8EC;
+    anim.m[3][0] = -anim.m[3][0];
+    anim.m[3][2] = -anim.m[3][2];
+    anim.m[0][3] = anim.m[1][3] = anim.m[2][3] = 0.0f;
+    anim.m[3][3] = 1.0f;
+    gevrMtxMul(&inv, &anim, move);
+    gevrMtxMul(move, &gun, move);
     return TRUE;
 }
 
@@ -5881,22 +5947,23 @@ static f32 s_gevrScopeK = 1.0f;    /* the N64's own zoomed view (gevr_scope.txt 
  * 2.2x) and the AR33 (m16_stats Zoom 20, 3.3x) - zoomed the whole screen; a
  * headset's view must not (as Perfect Dark VR does; GEVR PC's plan instead is
  * a scope render). They have no scope, so their magnifier sits on the sight
- * line at the back of the sights and shows only with the eye brought to it
- * (user), within GEVR_SCOPE_NEAR_SHOW_M, gone past GEVR_SCOPE_NEAR_HIDE_M (a
- * single distance flickered at its edge, HANDOFF 105). KF7 (Gak47Z): the
+ * line at the back of the sights. It showed only with the eye brought within
+ * 15 cm of it; it now shows whenever the gun is out, as the sniper rifle's
+ * does, with every model set (user, 2026-11-18: "we should probably just show
+ * it all the time"). That close, the lens was always inside the range where
+ * it is turned to the eyes and pushed out from them (vr_openxr.cpp), so it was
+ * never seen fixed to the gun: "the same moving problem". KF7 (Gak47Z): the
  * receiver's top, y 79, back to z -44; front sight post y 80 at z 600..627.
  * AR33 (Gm16Z): the carry handle's rear sight housing, x -10..11, y 100..154,
  * z -5..70; front sight y 154 at z 634..677.
  */
-#define GEVR_SCOPE_NEAR_SHOW_M  0.15f
-#define GEVR_SCOPE_NEAR_HIDE_M  0.20f
 #define GEVR_LASER_SCOPE_ZOOM   21.8f   /* 3x: 2 atan(tan 30 / 3) */
 
 struct GevrScope
 {
     s32 item;
     f32 x, y, z, r;   /* the eyepiece: centre and radius */
-    s32 nearOnly;     /* no scope on the model: shown with the eye at it */
+    s32 nearOnly;     /* no scope on the model: a magnifier at the back of its sights */
 };
 
 static const struct GevrScope s_gevrScopes[] = {
@@ -6134,6 +6201,79 @@ static void gevrScopeLensPlace(s32 hand, const struct GevrScope *sc, f32 lens[4]
 }
 
 /*
+ * The lens goes with the gun through its reload (user, 2026-11-18: "the gun
+ * dips down and the scope view just stays where it is"; then, with only its
+ * place following: "it doesn't seem to stay parallel to the scope eyepiece ...
+ * it pivots"). GoldenEye's reload, throw and swing are a keyframe turn and move
+ * in the gun's own frame, laid over the controller's pose (gunfire.c, under
+ * gevrStereoGunMatrix: the same conditions here). The lens is placed from the
+ * gun's frame the scope keeps (gunOrigin, gunAxes: vr_openxr.cpp), so that
+ * frame takes the same keyframe - into the gun's frame, through it, and back -
+ * and the lens turns and moves as the eyepiece does.
+ */
+static void gevrScopeGunFollow(s32 hand, s32 item, f32 vu, GevrScopeState *st)
+{
+    struct hand *h = &g_CurrentPlayer->hands[hand];
+    Mtxf gun, anim;
+    f32 at[3], in[3], moved[3], out[3], k2 = 0.0f, k, len;
+    s32 a, i, j;
+
+    if (h->field_92C == 0 || gevrStereoItemShown(item) || gevrMotionThrowOwnsHand(hand)
+        || GEVR_ITEM_AS(item) == ITEM_TASER || gevrStereoClubBat(hand) || !gevrStereoGunMatrix(hand, &gun))
+    {
+        return;
+    }
+    anim = h->field_8EC;
+    anim.m[3][0] = -anim.m[3][0];
+    anim.m[3][2] = -anim.m[3][2];
+    for (i = 0; i < 3; i++)
+    {
+        at[i] = st->gunOrigin[i] * vu;
+        k2 += gun.m[0][i] * gun.m[0][i];
+    }
+    if (k2 < 1e-12f)
+    {
+        return;
+    }
+    k = sqrtf(k2);
+    /* the grip's place: a point */
+    for (i = 0; i < 3; i++)
+    {
+        in[i] = ((at[0] - gun.m[3][0]) * gun.m[i][0] + (at[1] - gun.m[3][1]) * gun.m[i][1]
+               + (at[2] - gun.m[3][2]) * gun.m[i][2]) / k2;
+    }
+    for (j = 0; j < 3; j++)
+    {
+        moved[j] = in[0] * anim.m[0][j] + in[1] * anim.m[1][j] + in[2] * anim.m[2][j] + anim.m[3][j];
+    }
+    for (j = 0; j < 3; j++)
+    {
+        st->gunOrigin[j] = (moved[0] * gun.m[0][j] + moved[1] * gun.m[1][j] + moved[2] * gun.m[2][j] + gun.m[3][j]) / vu;
+    }
+    /* its right, up and back: directions, turned alone */
+    for (a = 0; a < 3; a++)
+    {
+        for (i = 0; i < 3; i++)
+        {
+            in[i] = (st->gunAxes[a][0] * gun.m[i][0] + st->gunAxes[a][1] * gun.m[i][1] + st->gunAxes[a][2] * gun.m[i][2]) / k;
+        }
+        for (j = 0; j < 3; j++)
+        {
+            moved[j] = in[0] * anim.m[0][j] + in[1] * anim.m[1][j] + in[2] * anim.m[2][j];
+        }
+        for (j = 0; j < 3; j++)
+        {
+            out[j] = (moved[0] * gun.m[0][j] + moved[1] * gun.m[1][j] + moved[2] * gun.m[2][j]) / k;
+        }
+        len = sqrtf(out[0] * out[0] + out[1] * out[1] + out[2] * out[2]);
+        for (j = 0; len > 1e-6f && j < 3; j++)
+        {
+            st->gunAxes[a][j] = out[j] / len;
+        }
+    }
+}
+
+/*
  * One hand's scope this frame. The left gun (GUNLEFT, controller 0) is the
  * GoldenEye model unmirrored (gevrStereoGunMatrix: none of the scoped guns is
  * MIRROR_DUAL), so the eyepiece's place on it carries over; a GoldenEye X gun
@@ -6145,7 +6285,6 @@ static s32 gevrScopeBeginHand(s32 hand)
     extern f32 g_viProjectionMatrixF[4][4];
     extern void viGetZRange(f32 *zrange);
     static s32 was[2] = { -1, -1 };
-    static s32 s_near[2];
     GevrScopeState *st = &gevrScope[hand];
     s32 ctrl = hand == GUNRIGHT ? 1 : 0;
     f32 pos[3], right[3], up[3], back[3];
@@ -6161,8 +6300,11 @@ static s32 gevrScopeBeginHand(s32 hand)
     s32 i;
 
     st->gunValid = FALSE;
+    /* not while the weapon wheel is up (user, 2026-11-18, headset: the scope's view
+     * showed on top of it): the lens is a layer of its own, over the game's picture */
+    extern s32 gevrWeaponPanelOpen;
     if (g_gevrStereo && g_CurrentPlayer != NULL && !gevrVrScreenMode && g_PlayerIsInTank != 1
-        && sc != NULL
+        && sc != NULL && !gevrWeaponPanelOpen
         && vu > 1e-6f && gevrGripAxes(ctrl, pos, right, up, back) && gevrStereoShot(hand, NULL, &o, &d))
     {
         gevrScopeTune();
@@ -6178,27 +6320,6 @@ static s32 gevrScopeBeginHand(s32 hand)
             }
             eye = sqrtf(l[0] * l[0] + l[1] * l[1] + l[2] * l[2]);
             s_gevrScopeEyeNear[hand] = (eye < 0.35f);
-        }
-        /* a sight magnifier shows while Gun fit moves it, wherever the eye is */
-        if (sc->nearOnly && !(hand == GUNRIGHT && gevrScopeFitting))
-        {
-            if (eye < GEVR_SCOPE_NEAR_SHOW_M || (s_near[hand] && eye < GEVR_SCOPE_NEAR_HIDE_M))
-            {
-                if (!s_near[hand])
-                {
-                    sysLogPrintf(LOG_NOTE, "stereo: sight magnifier on (hand %d item %d, eye %.1f cm from it)", hand, item, eye * 100.0f);
-                }
-                s_near[hand] = TRUE;
-            }
-            else
-            {
-                if (s_near[hand])
-                {
-                    sysLogPrintf(LOG_NOTE, "stereo: sight magnifier off (hand %d item %d, eye %.1f cm from it)", hand, item, eye * 100.0f);
-                }
-                s_near[hand] = FALSE;
-                on = FALSE;
-            }
         }
     }
     if (on != was[hand])
@@ -6232,6 +6353,7 @@ static s32 gevrScopeBeginHand(s32 hand)
         st->gunAxes[2][i] = back[i];
     }
     st->gunValid = TRUE;
+    gevrScopeGunFollow(hand, item, vu, st);
 
     /* the camera: on the shot's line, looking along it, the gun's up as its up */
     f[0] = d.x; f[1] = d.y; f[2] = d.z;
@@ -17528,6 +17650,14 @@ static void gevrItemLabel(s32 item, char *label, s32 size)
     label[n] = 0;
 }
 
+/* input.c: Gun fit's held magazine and magazine well are a Bean gun's (the right
+ * hand's, reloaded by hand), not GoldenEye X's */
+s32 gevrBeanMagFitAvailable(void)
+{
+    extern s32 gevrBeanMagHeld(s32 hand);   /* gun.c */
+    return g_gevrStereo && g_CurrentPlayer != NULL && gevrManualReloadOn(GUNRIGHT) && gevrBeanMagHeld(GUNRIGHT);
+}
+
 /* X's next fit, in the same order as input.c. */
 static const char *gevrFitNextLine(s32 from)
 {
@@ -17536,8 +17666,10 @@ static const char *gevrFitNextLine(s32 from)
         "X: FIT THE OFF HAND\n", "X: FIT THE HELD AMMO\n", "X: FIT THE AMMO INSERTION\n", "X: FIT THE INSTALLED MAGAZINE\n", "X: FIT THE BARREL TIP\n",
         "X: FIT THE GUN HAND\n", "X: FIT THE BODY SLOTS\n" };
     const s32 bat = gevrStereoClubBat(GUNRIGHT);   /* the rifle butt: no magazine to fit (input.c) */
+    /* GE-X's ammo, or a Bean gun's magazine (gun.c gevrBeanMagFit): held and well */
+    const s32 ammo = (!bat && gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT))) || gevrBeanMagFitAvailable();
     const s32 can[10] = { TRUE, gevrScopeFitIndex() >= 0, gevrReloadFitAvailable(), gevrGexHeld(GUNRIGHT),
-        !bat && gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)), !bat && gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)),
+        ammo, ammo,
         !bat && gevrGexHasMagazine(gevrGexWeaponForHand(GUNRIGHT)), gevrMuzzleFitAvailable(),
         gevrGexHeld(GUNRIGHT), gevrBodySlotFitAvailable() };
     s32 k = from;
@@ -17613,12 +17745,16 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
     else if (gevrWellFitting)
     {
         extern s32 gevrGexMagPoints(f32 centre[3], f32 well[3], f32 held[3]);
-        const float *fit = gevrGexWellFit(getCurrentPlayerWeaponId(GUNRIGHT));
+        extern s32 gevrBeanMagPoints(f32 centre[3], f32 well[3], f32 held[3]);
+        extern float *gevrBeanMagFit(s32 item, s32 which);
+        const s32 bean = gevrBeanMagFitAvailable();
+        const float *fit = bean ? gevrBeanMagFit(getCurrentPlayerWeaponId(GUNRIGHT), 1)
+                                : gevrGexWellFit(getCurrentPlayerWeaponId(GUNRIGHT));
         const f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
         f32 centre[3], well[3], held[3], distance2 = 0;
         char distance[16] = "?";
         s32 i;
-        if ((gevrGexMagPoints(centre, well, held) & 3) == 3 && cm > 1e-6f)
+        if (((bean ? gevrBeanMagPoints(centre, well, held) : gevrGexMagPoints(centre, well, held)) & 3) == 3 && cm > 1e-6f)
         {
             for (i = 0; i < 3; i++) distance2 += (held[i] - well[i]) * (held[i] - well[i]);
             snprintf(distance, sizeof(distance), "%.1f CM", sqrtf(distance2) / cm);
@@ -17629,7 +17765,9 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
     }
     else if (gevrHeldMagFitting)
     {
-        const float *fit = gevrGexHeldMagFit(getCurrentPlayerWeaponId(GUNRIGHT));
+        extern float *gevrBeanMagFit(s32 item, s32 which);
+        const float *fit = gevrBeanMagFitAvailable() ? gevrBeanMagFit(getCurrentPlayerWeaponId(GUNRIGHT), 0)
+                                                     : gevrGexHeldMagFit(getCurrentPlayerWeaponId(GUNRIGHT));
         snprintf(buf, sizeof(buf),
                  "HELD AMMO FIT%s\nPREVIEW ON THE OFF HAND\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\n%sA: SAVE   B: UNDO   MENU + A: DONE",
                  gex, -fit[2], fit[0], fit[1], gevrFitNextLine(4));
@@ -18904,13 +19042,29 @@ extern float VrReloadGrab[2][3], VrReloadBelt[3], VrGexHeldMag[3];   /* vr_setti
 extern float VrBeanReloadGrab[3];   /* and Bean's models' grab */
 
 extern int VrManualReloading;
-/* Hand reload needs GoldenEye X's models (user): its reloads are GE-X's magazines
- * and hands. The setting is kept; with GE-X off the game reloads itself. */
-#define gevrHandReloadEnabled() (VrManualReloading && VrGexGuns)
+/* Hand reload needs a model set with magazines to take out (user): GoldenEye
+ * X's, whose reloads are its magazines and hands, or with GE-X off Bean's, cut
+ * from its guns (gevr_beanmag.h; user, 2026-11-18). The setting is kept; with
+ * neither set the game reloads itself. */
+extern int gevrBeanIsEnabled(void);
+extern s32 gevrBeanMagHeld(s32 hand);   /* gun.c: the hand's Bean gun has a magazine to take out */
+extern s32 gevrBeanMagPoints(f32 centre[3], f32 well[3], f32 held[3]);
+#define gevrHandReloadEnabled() (VrManualReloading && (VrGexGuns || gevrBeanIsEnabled()))
 
 static s32 gevrReloadGun(s32 item)
 {
     return GEVR_ITEM_AS(item) >= ITEM_WPPK && GEVR_ITEM_AS(item) <= ITEM_ROCKETLAUNCH && GEVR_ITEM_AS(item) != ITEM_WATCHLASER && GEVR_ITEM_AS(item) != ITEM_LASER;
+}
+
+/* By its item: reloaded by hand, so never by itself. Every gun is, with either
+ * model set (user, 2026-11-18: "the reload that happens automatically when you
+ * run out of ammo should be off when gesture reloading is on, just like Gex ...
+ * it should force gestures"). A gun whose model has no magazine to take (Bean's
+ * sniper rifle and Golden Gun, or one whose mesh could not be cut) reloads by
+ * the belt's touch or the chest cross, the game's own reload from a gesture. */
+static s32 gevrReloadItemByHand(s32 item)
+{
+    return gevrReloadGun(item) && (VrGexGuns || gevrBeanIsEnabled());
 }
 
 /* The free controller follows the weapon slot, independently of handedness. */
@@ -18941,16 +19095,33 @@ static s32 gevrReloadMagazineFed(s32 item)
     }
 }
 
-/* gunfire.c and lv.c: the local player reloads by hand */
-s32 gevrHandReloadActive(void)
+/* hand reload is on for the local player, whatever is in the hands */
+static s32 gevrHandReloadBase(void)
 {
     return g_gevrStereo && gevrHandReloadEnabled() && g_CurrentPlayer != NULL
         && (!netIsActive() || get_cur_playernum() == netGetLocalSlot());
 }
 
+/* gunfire.c and lv.c: the local player reloads by hand. With Bean's models
+ * that is while a gun is out. */
+s32 gevrHandReloadActive(void)
+{
+    return gevrHandReloadBase()
+        && (VrGexGuns || gevrReloadItemByHand(getCurrentPlayerWeaponId(GUNRIGHT))
+            || gevrReloadItemByHand(getCurrentPlayerWeaponId(GUNLEFT)));
+}
+
 s32 gevrManualReloadOn(s32 hand)
 {
-    return gevrHandReloadActive() && gevrReloadGun(getCurrentPlayerWeaponId(hand));
+    return gevrHandReloadBase() && gevrReloadItemByHand(getCurrentPlayerWeaponId(hand));
+}
+
+/* lv.c: B or Y is the hand reload's (a magazine drops out, gevrGexDropMagazine),
+ * not the game's reload. With GoldenEye X that is every item, as it was; with
+ * Bean's models only the guns that reload by hand. */
+s32 gevrReloadButtonDrops(s32 hand)
+{
+    return gevrHandReloadActive() && (VrGexGuns || gevrManualReloadOn(hand));
 }
 
 static void gevrReloadTuneRead(void)
@@ -19042,12 +19213,94 @@ static s32 s_gevrGexSeatedTicks[2];  /* the label's "in" after a magazine seats 
 extern void sub_GAME_7F0649D8(enum GUNHAND hand);   /* gunfire.c: the reload's ammo move */
 extern void currentPlayerCreateRocket(GUNHAND hand); /* gun.c: the launcher's loaded rocket */
 
-/* a GoldenEye X magazine-fed gun, reloaded by hand */
+/* a Bean gun with a magazine to take out, reloaded by hand (gun.c gevrBeanMagDraw) */
+static s32 gevrBeanByHand(s32 hand)
+{
+    return gevrManualReloadOn(hand) && gevrBeanMagHeld(hand);
+}
+
+/* a GoldenEye X magazine-fed gun, or such a Bean gun, reloaded by hand */
 static s32 gevrGexByHand(s32 hand)
 {
     const GexWeaponDef *def = gevrGexWeaponForHand(hand);
+    if (def == NULL) return gevrBeanByHand(hand);
     return gevrManualReloadOn(hand) && gevrGexHasAmmo(def)
         && def->item == getCurrentPlayerWeaponId(hand);
+}
+
+/* what the gun in the hand loads: a round at a time (GE-X's shotguns, launchers,
+ * revolver), a magazine, and a magazine that comes out upwards (the RC-P90) */
+extern s32 gevrBeanMagKind(s32 hand);   /* gun.c: 1 a loose round, 2 gone once fired, 4 never pulled */
+
+static s32 gevrReloadSingleRound(s32 hand)
+{
+    const GexWeaponDef *def = gevrGexWeaponForHand(hand);
+    return def != NULL ? def->singleRound : (gevrBeanMagKind(hand) & 1) != 0;
+}
+
+static s32 gevrReloadHasMagazine(s32 hand)
+{
+    const GexWeaponDef *def = gevrGexWeaponForHand(hand);
+    return def != NULL ? gevrGexHasMagazine(def) : gevrBeanMagHeld(hand) && !(gevrBeanMagKind(hand) & 1);
+}
+
+/* the rounds one grip at the belt takes for a round-at-a-time gun: GoldenEye X's
+ * one or a speedloader's (gevrGexPickupRounds), a Bean gun's one shell */
+static s32 gevrReloadPickup(s32 hand)
+{
+    const GexWeaponDef *def = gevrGexWeaponForHand(hand);
+    const s32 item = getCurrentPlayerWeaponId(hand);
+    WeaponStats *st = get_ptr_item_statistics(item);
+    const s32 loaded = g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine;
+    const s32 spare = g_CurrentPlayer->ammoheldarr[st->AmmoType];
+
+    if (def != NULL) return gevrGexPickupRounds(def, loaded, st->MagSize, spare);
+    return gevrReloadSingleRound(hand) && loaded < st->MagSize && spare > 0 ? 1 : 0;
+}
+
+static s32 gevrReloadPullsUp(s32 hand)
+{
+    extern s32 gevrBeanMagPullsUp(s32 hand);   /* gun.c */
+    const GexWeaponDef *def = gevrGexWeaponForHand(hand);
+    return def != NULL ? def->pullUp : gevrBeanMagPullsUp(hand);
+}
+
+/* Whether the off hand can pull the gun's magazine out. A rifle's or a
+ * submachine gun's hangs out of the gun, large enough to take hold of; a
+ * pistol's is inside its grip, only its foot showing (user, 2026-11-18: "the
+ * pistols don't have exposed or large enough mags"). A pistol's leaves by B / Y
+ * alone, GoldenEye X's and Bean's alike; a fresh one still goes in by hand. */
+static s32 gevrReloadMagPulls(s32 hand)
+{
+    extern s32 gevrWeaponCategory(s32 item);   /* below: 0 the pistols' wedge */
+    /* nor a Bean cylinder, drum or rocket (gevr_beanmag.h noPull) */
+    return gevrWeaponCategory(getCurrentPlayerWeaponId(hand)) != 0 && !(gevrBeanMagKind(hand) & 4);
+}
+
+/*
+ * Where the off hand is, to take a magazine. GoldenEye X's left hand is posed
+ * with its palm on the controller's grip, so that is the place. With Bean's
+ * models the off hand is GoldenEye's watch arm, whose hand lies well ahead of
+ * the grip (user, 2026-11-18: "I had to position my hand on the wrist basically
+ * to grab the magazine from my hip ... it thinks like my hand is the end of the
+ * wrist"): the place is then the palm the magazine is held in, Gun fit's held
+ * ammo (gevrBeanHeldPalm, below), for the belt and for the gun's magazine alike.
+ */
+s32 gevrBeanHeldPalm(f32 out[3]);
+static void gevrReloadOffHandAt(s32 gunHand, const f32 grip[3], f32 out[3])
+{
+    if (!(gevrBeanByHand(gunHand) && gunHand == gevrReloadSupportGun() && gevrBeanHeldPalm(out)))
+    {
+        memcpy(out, grip, 3 * sizeof(f32));
+    }
+}
+
+/* gun.c: the gun's magazine, its well and the magazine in the hand, as drawn */
+static s32 gevrReloadPoints(f32 centre[3], f32 well[3], f32 held[3])
+{
+    extern s32 gevrGexMagPoints(f32 centre[3], f32 well[3], f32 held[3]);
+    return gevrGexWeaponForHand(gevrReloadSupportGun()) != NULL ? gevrGexMagPoints(centre, well, held)
+                                                               : gevrBeanMagPoints(centre, well, held);
 }
 
 static void gevrGexBuzz(f32 amp)
@@ -19109,20 +19362,20 @@ static GevrStoredMagazine s_gevrStoredMag[2][ITEM_ROCKETLAUNCH + 1];
 
 s32 gevrReloadStoredRounds(s32 hand, s32 item)
 {
-    if (!gevrHandReloadActive() || hand < 0 || hand > 1 || !gevrReloadGun(item)) return 0;
+    if (!gevrHandReloadBase() || hand < 0 || hand > 1 || !gevrReloadItemByHand(item)) return 0;
     return s_gevrStoredMag[hand][item].valid ? s_gevrStoredMag[hand][item].rounds : 0;
 }
 
 s32 gevrReloadCarriesRounds(s32 hand)
 {
-    return gevrHandReloadActive() && hand == s_gevrGexHeldGun && s_gevrGexMag[hand] == GEVR_GEXMAG_INHAND
+    return gevrHandReloadBase() && hand == s_gevrGexHeldGun && s_gevrGexMag[hand] == GEVR_GEXMAG_INHAND
         && s_gevrGexHeldRounds > 0;
 }
 
 s32 gevrReloadReservedRounds(s32 ammoType)
 {
     s32 total = 0, hand, item;
-    if (!gevrHandReloadActive()) return 0;
+    if (!gevrHandReloadBase()) return 0;
     for (hand = 0; hand < 2; hand++)
         for (item = ITEM_WPPK; item <= ITEM_ROCKETLAUNCH; item++)
         {
@@ -19160,7 +19413,7 @@ static void gevrReloadInventoryRelease(void)
 s32 gevrReloadStow(s32 hand, s32 item)
 {
     GevrStoredMagazine *saved;
-    if (!gevrHandReloadActive() || hand < 0 || hand > 1 || !gevrReloadGun(item)) return FALSE;
+    if (!gevrHandReloadBase() || hand < 0 || hand > 1 || !gevrReloadItemByHand(item)) return FALSE;
     saved = &s_gevrStoredMag[hand][item];
     if (saved->valid) return TRUE;   /* SWITCH_LOWER already stored it */
     if (hand == s_gevrGexHeldGun && s_gevrGexMag[hand] == GEVR_GEXMAG_INHAND)
@@ -19180,9 +19433,9 @@ s32 gevrReloadDraw(s32 hand)
 {
     s32 item;
     GevrStoredMagazine *saved;
-    if (!gevrHandReloadActive() || hand < 0 || hand > 1) return FALSE;
+    if (!gevrHandReloadBase() || hand < 0 || hand > 1) return FALSE;
     item = getCurrentPlayerWeaponId(hand);
-    if (!gevrReloadGun(item)) return FALSE;
+    if (!gevrReloadItemByHand(item)) return FALSE;
     saved = &s_gevrStoredMag[hand][item];
     s_gevrGexMag[hand] = saved->valid && saved->missing ? GEVR_GEXMAG_OUT : GEVR_GEXMAG_IN;
     s_gevrGexMagItem[hand] = item;
@@ -19207,13 +19460,13 @@ static void gevrGexMagIn(s32 hand, const char *how, s32 rounds)
     {
         sub_GAME_7F0649D8(hand);
     }
+    /* (a Bean launcher's fresh rocket: that ammo move makes GoldenEye's rocket prop too) */
     s_gevrGexMag[hand] = GEVR_GEXMAG_IN;
     s_gevrGexSeatedTicks[hand] = 60;
     if (hand == gevrReloadSupportGun())
     {
         f32 centre[3], held[3];
-        extern s32 gevrGexMagPoints(f32 centre[3], f32 well[3], f32 held[3]);
-        if (gevrGexMagPoints(centre, s_gevrReloadSeatAt, held) & 1) s_gevrReloadSeatTicks = 15;
+        if (gevrReloadPoints(centre, s_gevrReloadSeatAt, held) & 1) s_gevrReloadSeatTicks = 15;
     }
     gevrGexMagazineReady(hand);
     gevrGexBuzz(0.6f);
@@ -19259,7 +19512,7 @@ s32 gevrReloadBeltAmmo(s32 ctrl)
     if (g_CurrentPlayer->bonddead || g_CurrentPlayer->watch_animation_state || g_CurrentPlayer->mpmenuon
         || g_PlayerIsInTank == 1 || gevrSpectating() || gevrCoopLocalDowned()) return -1;
     if (!gevrReloadGun(getCurrentPlayerWeaponId(hand))) hand = gevrReloadSupportGun();
-    if (!gevrGexByHand(hand) || !gevrGexHasMagazine(gevrGexWeaponForHand(hand))
+    if (!gevrGexByHand(hand) || !gevrReloadHasMagazine(hand)
         || (s_gevrGexMag[hand] != GEVR_GEXMAG_OUT && s_gevrGexMag[hand] != GEVR_GEXMAG_INHAND)
         || get_ammo_in_hands_weapon(hand) <= 0) return -1;
     return hand;
@@ -19269,8 +19522,9 @@ s32 gevrReloadBeltHover(s32 ctrl)
 {
     f32 at[3], r[3], u[3], b[3];
     s32 hand = gevrReloadBeltAmmo(ctrl);
-    return hand >= 0 && s_gevrGexMag[hand] == GEVR_GEXMAG_OUT
-        && gevrGripAxesRaw(ctrl, at, r, u, b) && gevrGexAtBelt(ctrl, at);
+    if (hand < 0 || s_gevrGexMag[hand] != GEVR_GEXMAG_OUT || !gevrGripAxesRaw(ctrl, at, r, u, b)) return FALSE;
+    if (ctrl == hand) gevrReloadOffHandAt(hand, at, at);   /* the free hand (its index is the gun's slot) */
+    return gevrGexAtBelt(ctrl, at);
 }
 
 /* A single-round gun's ammo offered at this controller's belt, as
@@ -19289,13 +19543,16 @@ s32 gevrReloadBeltRound(s32 ctrl, s32 *rounds, s32 *hover)
     if (!gevrHandReloadActive() || ctrl != gunHand || g_CurrentPlayer->bonddead || g_CurrentPlayer->watch_animation_state
         || g_CurrentPlayer->mpmenuon || g_PlayerIsInTank == 1 || gevrSpectating() || gevrCoopLocalDowned()
         || !gevrGexByHand(gunHand) || gevrReloadGun(getCurrentPlayerWeaponId(1 - gunHand))) return -1;
-    def = gevrGexWeaponForHand(gunHand);
-    if (!def->singleRound || s_gevrGexMag[gunHand] == GEVR_GEXMAG_INHAND) return -1;
-    st = get_ptr_item_statistics(def->item);
-    *rounds = gevrGexPickupRounds(def, g_CurrentPlayer->hands[gunHand].weapon_ammo_in_magazine, st->MagSize,
-                                  g_CurrentPlayer->ammoheldarr[st->AmmoType]);
+    (void)def;
+    (void)st;
+    if (!gevrReloadSingleRound(gunHand) || s_gevrGexMag[gunHand] == GEVR_GEXMAG_INHAND) return -1;
+    *rounds = gevrReloadPickup(gunHand);
     if (*rounds <= 0) return -1;
-    *hover = gevrGripAxesRaw(ctrl, at, r, u, b) && gevrGexAtBelt(ctrl, at);
+    if (gevrGripAxesRaw(ctrl, at, r, u, b))
+    {
+        gevrReloadOffHandAt(gunHand, at, at);
+        *hover = gevrGexAtBelt(ctrl, at);
+    }
     return gunHand;
 }
 
@@ -19370,13 +19627,12 @@ s32 gevrReloadSeatHover(f32 out[3])
     const f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
     f32 radius;
     s32 i;
-    extern s32 gevrGexMagPoints(f32 centre[3], f32 well[3], f32 held[3]);
     if (!gevrHandReloadActive() || !gevrGexByHand(gunHand)) return FALSE;
     if (s_gevrReloadSeatTicks > 0)
     {
-        return (gevrGexMagPoints(centre, out, held) & 1) != 0;
+        return (gevrReloadPoints(centre, out, held) & 1) != 0;
     }
-    if (s_gevrGexMag[gunHand] != GEVR_GEXMAG_INHAND || (gevrGexMagPoints(centre, well, held) & 3) != 3) return FALSE;
+    if (s_gevrGexMag[gunHand] != GEVR_GEXMAG_INHAND || (gevrReloadPoints(centre, well, held) & 3) != 3) return FALSE;
     radius = gevrGexReloadDistance(GEVR_RT_SEAT) * cm * 1.5f;
     for (i = 0; i < 3; i++) dist2 += (held[i]-well[i])*(held[i]-well[i]);
     memcpy(out, well, sizeof(well));
@@ -19553,7 +19809,7 @@ static s32 gevrGexPistolSupportAllowed(void)
             }
             /* PP7 overlaps its support cup; other compact magazines use distinct points. */
             s_gevrPistolGripOwner = gevrGexPistolGripPick(sqrtf(md2)/cm, sqrtf(sd2)/cm, (def->item == ITEM_WPPK || def->item == ITEM_WPPKSIL || def->item == ITEM_SILVERWPPK || def->item == ITEM_GOLDWPPK) ? below : 2.0f);
-            if (!gevrGexByHand(gunHand) && s_gevrPistolGripOwner == GEVR_GEXGRIP_MAG)
+            if ((!gevrGexByHand(gunHand) || !gevrReloadMagPulls(gunHand)) && s_gevrPistolGripOwner == GEVR_GEXGRIP_MAG)
                 s_gevrPistolGripOwner = sd2 < 144*cm*cm ? GEVR_GEXGRIP_SUPPORT : GEVR_GEXGRIP_NONE;
         }
     }
@@ -19567,6 +19823,11 @@ static f32 gevrGexReloadDistance(s32 index)
     const GexWeaponDef *def = gevrGexWeaponForHand(gunHand);
     if (def != NULL && def->compact)
         return index == GEVR_RT_MAGRADIUS ? 4.0f : index == GEVR_RT_PULL ? 5.0f : 3.0f;
+    /* a Bean pistol's (the weapon wheel's first wedge) well is a small mouth under
+     * the grip: a magazine seats within 4 cm of it */
+    extern s32 gevrWeaponCategory(s32 item);
+    if (def == NULL && gevrBeanMagHeld(gunHand) && gevrWeaponCategory(getCurrentPlayerWeaponId(gunHand)) == 0)
+        return index == GEVR_RT_SEAT ? 4.0f : s_gevrReloadTune[index];
     return s_gevrReloadTune[index];
 }
 
@@ -19626,10 +19887,34 @@ s32 gevrGexClaimsOffHand(void)
     {
         return FALSE;
     }
+    gevrReloadOffHandAt(gunHand, off, off);
     const GexWeaponDef *ammoDef = gevrGexWeaponForHand(gunHand);
-    if (ammoDef->singleRound)
-        return g_CurrentPlayer->hands[gunHand].weapon_ammo_in_magazine < get_ptr_item_statistics(ammoDef->item)->MagSize
+    if (gevrReloadSingleRound(gunHand))
+        return g_CurrentPlayer->hands[gunHand].weapon_ammo_in_magazine
+                < get_ptr_item_statistics(getCurrentPlayerWeaponId(gunHand))->MagSize
             && gevrGexAtBelt(gunHand, off);
+    if (s_gevrGexMag[gunHand] == GEVR_GEXMAG_IN && !gevrReloadMagPulls(gunHand))
+    {
+        return FALSE;   /* a pistol's magazine stays in until B / Y drops it */
+    }
+    if (s_gevrGexMag[gunHand] == GEVR_GEXMAG_IN && ammoDef == NULL)
+    {
+        /* a Bean gun: at its magazine's foot as drawn, nearer it than the two-handed hold */
+        const f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+        const f32 rr = gevrGexReloadDistance(GEVR_RT_MAGRADIUS) * cm;
+        f32 centre[3], well[3], held[3], d2 = 0.0f;
+        s32 i;
+
+        if (cm < 1e-6f || !(gevrBeanMagPoints(centre, well, held) & 1))
+        {
+            return FALSE;
+        }
+        for (i = 0; i < 3; i++)
+        {
+            d2 += (off[i] - centre[i]) * (off[i] - centre[i]);
+        }
+        return d2 <= rr * rr && gevrMagNearerThanFore(sqrtf(d2) / cm);
+    }
     if (s_gevrGexMag[gunHand] == GEVR_GEXMAG_IN)
     {
         const GexWeaponDef *def = gevrGexWeaponForHand(gunHand);
@@ -19664,7 +19949,8 @@ s32 gevrGexMagState(s32 hand, f32 off[3])
     f32 r[3], u[3], b[3];
     s32 st;
 
-    if (hand < 0 || hand > 1 || !g_gevrStereo || g_CurrentPlayer == NULL || !gevrGexByHand(hand))
+    if (hand < 0 || hand > 1 || !g_gevrStereo || g_CurrentPlayer == NULL || !gevrGexByHand(hand)
+        || gevrGexWeaponForHand(hand) == NULL)   /* GE-X's hand holds it: a Bean gun's is the player's own */
     {
         return GEVR_GEXMAG_IN;
     }
@@ -19676,16 +19962,57 @@ s32 gevrGexMagState(s32 hand, f32 off[3])
     return st;
 }
 
+/* gun.c: where a Bean gun's magazine is (GEVR_GEXMAG_*), and the off hand's grip, camera space */
+s32 gevrBeanMagState(s32 hand, f32 off[3])
+{
+    f32 r[3], u[3], b[3];
+    s32 st;
+
+    if (hand < 0 || hand > 1 || !g_gevrStereo || g_CurrentPlayer == NULL || !gevrBeanByHand(hand))
+    {
+        return GEVR_GEXMAG_IN;
+    }
+    st = s_gevrGexMag[hand];
+    if ((st == GEVR_GEXMAG_GRIPPED || st == GEVR_GEXMAG_INHAND) && off != NULL && !gevrGripAxesRaw(hand, off, r, u, b))
+    {
+        st = st == GEVR_GEXMAG_GRIPPED ? GEVR_GEXMAG_IN : GEVR_GEXMAG_OUT;
+    }
+    return st;
+}
+
+/* gun.c: where a Bean gun's magazine in the off hand has its palm (Gun fit's
+ * held magazine: cm right, up, back of the off hand's grip), camera space */
+s32 gevrBeanHeldPalm(f32 out[3])
+{
+    extern float *gevrBeanMagFit(s32 item, s32 which);
+    const s32 gunHand = gevrReloadSupportGun();
+    const f32 *fit = gevrBeanMagFit(getCurrentPlayerWeaponId(gunHand), 0);
+    f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    f32 off[3], r[3], u[3], b[3];
+    s32 i;
+
+    if (!gevrGripAxesRaw(gunHand, off, r, u, b))
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        out[i] = off[i] + (fit[0] * r[i] + fit[1] * u[i] + fit[2] * b[i]) * cm;
+    }
+    return TRUE;
+}
+
 /* gun.c: the label over a GoldenEye X gun with a magazine, in play (gevrReloadLabelFor) */
 s32 gevrReloadLabel(s32 hand)
 {
     if (hand < 0 || hand > 1 || !gevrHandReloadActive() || g_CurrentPlayer->bonddead
         || g_CurrentPlayer->watch_animation_state || g_CurrentPlayer->mpmenuon
-        || !gevrGexByHand(hand) || !gevrGexHasMagazine(gevrGexWeaponForHand(hand)))
+        || !gevrGexByHand(hand) || !gevrReloadHasMagazine(hand))
     {
         return GEVR_RELOAD_LABEL_NONE;
     }
-    return gevrReloadLabelFor(gevrGexMagState(hand, NULL), g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine,
+    return gevrReloadLabelFor(gevrGexWeaponForHand(hand) != NULL ? gevrGexMagState(hand, NULL) : gevrBeanMagState(hand, NULL),
+                              g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine,
                               get_ammo_in_hands_weapon(hand), s_gevrGexSeatedTicks[hand]);
 }
 
@@ -19740,7 +20067,7 @@ s32 gevrReloadFitAvailable(void)
         return FALSE;
     }
     right = getCurrentPlayerWeaponId(GUNRIGHT);
-    return gevrReloadGun(right) && (gevrGexByHand(GUNRIGHT) || gevrReloadMagazineFed(right))
+    return gevrReloadGun(right) && (gevrGexByHand(GUNRIGHT) || (VrGexGuns && gevrReloadMagazineFed(right)))
         && !gevrReloadGun(getCurrentPlayerWeaponId(GUNLEFT));
 }
 
@@ -19805,6 +20132,11 @@ void gevrReloadFitDistances(f32 *grab, f32 *belt)
         return;
     }
     gevrReloadMagPoint(gun, gr, gu, gb, cm, gevrGexHeld(GUNRIGHT), mag);
+    if (gevrBeanByHand(GUNRIGHT))
+    {
+        f32 well[3], held[3];
+        if (!(gevrBeanMagPoints(mag, well, held) & 1)) return;
+    }
     for (i = 0; i < 3; i++)
     {
         d2 += (off[i] - mag[i]) * (off[i] - mag[i]);
@@ -19834,8 +20166,9 @@ s32 gevrGexHeldPalm(f32 out[3])
 /* lv.c: B or Y where the game would have reloaded: a GoldenEye X gun drops its magazine out */
 void gevrGexDropMagazine(s32 hand)
 {
+    /* not a rocket: one and done, there is nothing to top off by dropping it (user) */
     if (hand < 0 || hand > 1 || g_CurrentPlayer == NULL || !gevrGexByHand(hand)
-        || gevrGexWeaponForHand(hand)->singleRound
+        || gevrReloadSingleRound(hand) || (gevrBeanMagKind(hand) & 2)
         || (s_gevrGexMag[hand] != GEVR_GEXMAG_IN && s_gevrGexMag[hand] != GEVR_GEXMAG_GRIPPED))
     {
         return;
@@ -19863,7 +20196,7 @@ s32 gevrReloadClaimsOffHand(void)
         return TRUE;
     }
     if (gevrGexByHand(gunHand)) return FALSE;
-    if (!gevrHandReloadEnabled() || !g_gevrStereo || g_CurrentPlayer == NULL
+    if (!gevrHandReloadEnabled() || !VrGexGuns || !g_gevrStereo || g_CurrentPlayer == NULL
         || (netIsActive() && get_cur_playernum() != netGetLocalSlot()) || cm < 1e-6f
         || !gevrGripAxesRaw(1-gunHand, gun, gr, gu, gb) || !gevrGripAxesRaw(gunHand, off, orr, ou, ob))
     {
@@ -19886,15 +20219,16 @@ s32 gevrReloadClaimsOffHand(void)
 /* Real rounds are reserved at pickup: one, or a speedloader's as many as fit
  * and the reserve has (gevrGexPickupRounds). Insertion adds them all; abandoning
  * them uses the same captured-ammo refund path as a partial magazine. */
-static void gevrGexRoundTick(s32 gunHand, f32 cm, const f32 off[3], s32 grip, s32 fresh)
+static void gevrGexRoundTick(s32 gunHand, f32 cm, const f32 grip0[3], s32 grip, s32 fresh)
 {
-    const GexWeaponDef *def = gevrGexWeaponForHand(gunHand);
-    WeaponStats *stats = get_ptr_item_statistics(def->item);
+    const s32 roundItem = getCurrentPlayerWeaponId(gunHand);   /* GoldenEye X's gun, or a Bean one (a shotgun's shell) */
+    WeaponStats *stats = get_ptr_item_statistics(roundItem);
     struct hand *hand = &g_CurrentPlayer->hands[gunHand];
     s32 *state = &s_gevrGexMag[gunHand];
-    f32 centre[3], well[3], held[3], distance2=0;
+    f32 centre[3], well[3], held[3], off[3], distance2=0;
     const f32 radius = gevrGexReloadDistance(GEVR_RT_SEAT)*cm;
-    const s32 points = gevrGexMagPoints(centre,well,held);
+    const s32 points = gevrReloadPoints(centre,well,held);
+    gevrReloadOffHandAt(gunHand, grip0, off);   /* with Bean's arm, the palm (above) */
     /* These guns have no removable magazine. Idle must stay IN so existing
      * fire/melee gates do not treat the gun as permanently disassembled. */
     if (*state != GEVR_GEXMAG_INHAND) *state = GEVR_GEXMAG_IN;
@@ -19917,19 +20251,19 @@ static void gevrGexRoundTick(s32 gunHand, f32 cm, const f32 off[3], s32 grip, s3
                 /* GE draws a loaded rocket as its own prop at the tube (gun.c
                  * gunUpdateAttachedRocket), made by its reload's ammo move; this
                  * insertion bypasses that move, so make it here too. */
-                if (def->item == ITEM_ROCKETLAUNCH) currentPlayerCreateRocket(gunHand);
+                if (roundItem == ITEM_ROCKETLAUNCH) currentPlayerCreateRocket(gunHand);
                 s_gevrGexHeldRounds=-1; gevrGexMagazineReady(gunHand); gevrGexBuzz(0.6f);
             } else gevrGexHeldDropped();
             *state=GEVR_GEXMAG_IN; s_gevrGexGripSpent=TRUE;
         }
     } else if (grip && fresh && !s_gevrGexGripSpent && gevrGexAtBelt(gunHand,off)
-        && gevrGexPickupRounds(def, hand->weapon_ammo_in_magazine, stats->MagSize, g_CurrentPlayer->ammoheldarr[stats->AmmoType]) > 0) {
-        const s32 rounds = gevrGexPickupRounds(def, hand->weapon_ammo_in_magazine, stats->MagSize, g_CurrentPlayer->ammoheldarr[stats->AmmoType]);
+        && gevrReloadPickup(gunHand) > 0) {
+        const s32 rounds = gevrReloadPickup(gunHand);
         g_CurrentPlayer->ammoheldarr[stats->AmmoType] -= rounds;
         s_gevrGexHeldAmmoType=stats->AmmoType; s_gevrGexHeldRounds=rounds;
         *state=GEVR_GEXMAG_INHAND; s_gevrGexHeldGun=gunHand; gevrGexBuzz(0.4f);
         sysLogPrintf(LOG_NOTE, "stereo: hand reload, %d round(s) taken at the belt (item %d, %d loaded, %d left)",
-                     rounds, def->item, hand->weapon_ammo_in_magazine, g_CurrentPlayer->ammoheldarr[stats->AmmoType]);
+                     rounds, roundItem, hand->weapon_ammo_in_magazine, g_CurrentPlayer->ammoheldarr[stats->AmmoType]);
     } else if (grip && fresh) {
         /* why a fresh grip took nothing: away from the belt, already full, or no reserve */
         sysLogPrintf(LOG_NOTE, "stereo: hand reload, grip took no round: %.1f cm from the belt, spent %d, %d/%d loaded, %d in reserve",
@@ -20011,6 +20345,20 @@ void gevrHandReloadTick(void)
         }
     }
 
+    /* Bean's models with no gun that reloads by hand out: nothing here is the
+     * player's to do, and the game reloads as it does with hand reload off. */
+    if (!VrGexGuns && !gevrReloadItemByHand(right) && !gevrReloadItemByHand(left))
+    {
+        s_gevrMagGrab = 0;
+        s_gevrGexGripSpent = FALSE;
+        s_crossArmed[0] = s_crossArmed[1] = FALSE;
+        s_beltArmed[0] = s_beltArmed[1] = FALSE;
+        s_gevrBeltMeleeTaken[0] = s_gevrBeltMeleeTaken[1] = FALSE;
+        s_gripWas[0] = get_button_state(0, "grip");
+        s_gripWas[1] = get_button_state(1, "grip");
+        return;
+    }
+
     /* The gun and the free controller may be in either logical slot. */
     {
         const s32 gunHand = gevrReloadSupportGun();
@@ -20027,29 +20375,47 @@ void gevrHandReloadTick(void)
         {
             s_gevrGexGripSpent = FALSE;
         }
-        if (gevrGexByHand(gunHand) && gevrGexWeaponForHand(gunHand)->singleRound && !gevrReloadGun(otherItem))
+        if (gevrGexByHand(gunHand) && gevrReloadSingleRound(gunHand) && !gevrReloadGun(otherItem))
             gevrGexRoundTick(gunHand,cm,reloadOff,grip,!s_gripWas[gunHand]);
         else if (gevrGexByHand(gunHand) && !gevrReloadGun(otherItem))
         {
             /* the magazine where the player set it (Gun fit's reload mode); the seat as drawn (gun.c) */
             f32 mag[3], centre[3], well[3], held[3], dist2 = 0.0f, seatd2 = 0.0f, upnow = 0.0f, pulled;
             const f32 seat2 = gevrGexReloadDistance(GEVR_RT_SEAT) * cm * gevrGexReloadDistance(GEVR_RT_SEAT) * cm;
-            const s32 have = gevrGexMagPoints(centre, well, held);
+            const s32 have = gevrReloadPoints(centre, well, held);
             s32 *st = &s_gevrGexMag[gunHand];
+            f32 handAt[3];   /* the off hand's place: its grip, or with Bean's arm its palm */
 
-            gevrReloadMagPoint(reloadGun, reloadRight, reloadUp, reloadBack, cm, TRUE, mag);
+            gevrReloadOffHandAt(gunHand, reloadOff, handAt);
+            /* a Bean launcher's rocket is its magazine, and fired it is gone: the
+             * empty launcher's is out, with nothing to drop */
+            if (*st == GEVR_GEXMAG_IN && (gevrBeanMagKind(gunHand) & 2)
+                && g_CurrentPlayer->hands[gunHand].weapon_ammo_in_magazine <= 0)
+            {
+                *st = GEVR_GEXMAG_OUT;
+            }
+
+            if (gevrGexWeaponForHand(gunHand) != NULL)
+            {
+                gevrReloadMagPoint(reloadGun, reloadRight, reloadUp, reloadBack, cm, TRUE, mag);
+            }
+            else
+            {
+                /* a Bean gun's magazine is taken at its foot, as drawn */
+                memcpy(mag, (have & 1) ? centre : reloadGun, sizeof(mag));
+            }
             for (i = 0; i < 3; i++)
             {
-                dist2 += (reloadOff[i] - mag[i]) * (reloadOff[i] - mag[i]);
+                dist2 += (handAt[i] - mag[i]) * (handAt[i] - mag[i]);
                 upnow += (reloadOff[i] - reloadGun[i]) * reloadUp[i];
                 seatd2 += (have & 2) ? (held[i] - well[i]) * (held[i] - well[i]) : 1e9f;
             }
             if (grip && !s_gripWas[gunHand])
             {
                 sysLogPrintf(LOG_NOTE, "stereo: hand reload, grip %.1f cm from the magazine, %.1f from the belt, state %d",
-                             sqrtf(dist2) / cm, sqrtf(gevrBeltDist2(gunHand, reloadOff)), *st);
+                             sqrtf(dist2) / cm, sqrtf(gevrBeltDist2(gunHand, handAt)), *st);
             }
-            pulled = gevrGexPullAmount(gevrGexWeaponForHand(gunHand)->pullUp, s_magGrabUp, upnow, gevrGexReloadDistance(GEVR_RT_PULL) * cm);
+            pulled = gevrGexPullAmount(gevrReloadPullsUp(gunHand), s_magGrabUp, upnow, gevrGexReloadDistance(GEVR_RT_PULL) * cm);
             switch (*st)
             {
                 case GEVR_GEXMAG_IN:
@@ -20093,7 +20459,7 @@ void gevrHandReloadTick(void)
                     }
                     break;
                 case GEVR_GEXMAG_OUT:
-                    if (grip && !s_gripWas[gunHand] && gevrGexAtBelt(gunHand, reloadOff) && get_ammo_in_hands_weapon(gunHand) > 0)
+                    if (grip && !s_gripWas[gunHand] && gevrGexAtBelt(gunHand, handAt) && get_ammo_in_hands_weapon(gunHand) > 0)
                     {
                         *st = GEVR_GEXMAG_INHAND; s_gevrGexHeldGun = gunHand;
                         s_gevrGexSeatArmed = TRUE;
@@ -20105,7 +20471,7 @@ void gevrHandReloadTick(void)
             }
             s_gevrMagGrab = 0;
         }
-        else if (gevrReloadGun(reloadItem) && gevrReloadMagazineFed(reloadItem) && !gevrReloadGun(otherItem))
+        else if (VrGexGuns && gevrReloadGun(reloadItem) && gevrReloadMagazineFed(reloadItem) && !gevrReloadGun(otherItem))
         {
             f32 mag[3], d[3], dist2 = 0.0f, upnow = 0.0f;
 
@@ -20159,7 +20525,9 @@ void gevrHandReloadTick(void)
         const f32 beltRadius = s_gevrReloadTune[GEVR_RT_BELTRADIUS];
         const f32 beltExit = beltRadius + GEVR_RELOAD_BELT_EXIT_CM;
 
-        if (!gevrReloadGun(item) || s_gevrGripGesture[ctrl] == 2
+        /* the belt and the chest cross reload a gun that reloads by hand: with
+         * Bean's models every other gun is the game's own to reload */
+        if (!gevrReloadItemByHand(item) || s_gevrGripGesture[ctrl] == 2
             || !gevrReloadBeltLocal(ctrl, at, loc))
         {
             s_crossArmed[ctrl] = FALSE;
@@ -20168,7 +20536,10 @@ void gevrHandReloadTick(void)
             continue;
         }
         drop = loc[0]; side = loc[1]; ahead = loc[2];
-        if (gevrGexByHand(hand) || (gevrReloadMagazineFed(item) && !gevrReloadGun(other)))
+        /* a gun reloaded through its magazine has no chest cross, nor a GE-X-set
+         * magazine-fed gun, whose pull it is; a Bean gun with nothing to take (the
+         * sniper rifle: it would not reload at the chest, user 2026-11-18) keeps it */
+        if (gevrGexByHand(hand) || (VrGexGuns && gevrReloadMagazineFed(item) && !gevrReloadGun(other)))
         {
             s_crossArmed[ctrl] = FALSE;
         }

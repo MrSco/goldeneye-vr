@@ -73,6 +73,7 @@ extern uint8_t gevrFadeDepthAlpha;   /* gfx_opengl.cpp: VR_FADE_DEPTH, the fadin
  * (the node's combiner, its blender's first cycle) and restores it at END. */
 static bool s_beanNodeOn, s_beanNodeSaved, s_beanNodePrimTouched;
 static bool s_beanModelCull;   /* GEVR_NODE_CULL: a Bean prop with GoldenEye's camera inside it */
+static bool s_beanBackPush;    /* GEVR_ROOM_BACKS: a level face's back, pushed away (DAB markFights()) */
 /* GEVR_NODE_PASS: a prop's list split over GoldenEye's opaque and translucent
  * passes (1 its solid batches, 2 its XLU ones); the batches the pass leaves out
  * are skipped (s_beanPassSkip), their vertices and triangles both. */
@@ -3453,6 +3454,11 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
             if (inputKind[j][k] == GEVR_INPUT_SLOW) inputsFast = false;
         }
     }
+    /* a level face's back drawn after its face (GEVR_ROOM_BACKS, DAB markFights()):
+     * pushed as the stereo pass's back faces are, so the face in its plane wins */
+    if (s_beanBackPush && (rsp.geometry_mode & G_CULL_BOTH) == G_CULL_FRONT) {
+        gevrBackFace = true;
+    }
     for (int i = 0; i < 3; i++) {
         float x = v_arr[i]->x, y = v_arr[i]->y, z = v_arr[i]->z, w = v_arr[i]->w;
         if (gevrBackFace) {
@@ -5416,6 +5422,7 @@ static void gfx_run_dl(Gfx* cmd) {
             case G_GEVR_ROOM_STATE: {
                 uint8_t rgb[3];
                 const bool model = (cmd->words.w0 & 1) != 0;
+                s_beanBackPush = false;
                 if (model && s_beanModelCull) rsp.geometry_mode = (rsp.geometry_mode & ~G_CULL_BOTH) | G_CULL_BACK;
                 if (model && s_beanNodeSaved) break;   // the node's fog and mode stand (G_GEVR_NODE_STATE)
                 s_beanRoomFogLinear = !(cmd->words.w0 & 2) && (model ? !vr_dl_is_pause_or_menu : gevrRoomDl && (rsp.geometry_mode & G_FOG))
@@ -5432,6 +5439,17 @@ static void gfx_run_dl(Gfx* cmd) {
                     extern int gevrBeanWorldCullsBackFaces(void);
                     rsp.geometry_mode &= ~G_CULL_BOTH;
                     if (gevrBeanWorldCullsBackFaces() && !(mode & (CVG_X_ALPHA | FORCE_BL))) rsp.geometry_mode |= G_CULL_BACK;
+                }
+                /* DAB writeLeaf(): a two-faced sheet's face or one back to back with
+                 * another over part of it culls its back (FACES); the second draw of
+                 * the latter is its back alone, pushed away (BACKS), and none for a
+                 * camera outside the level, which culls every back */
+                if (!model && (cmd->words.w0 & (GEVR_ROOM_FACES | GEVR_ROOM_BACKS))) {
+                    extern int gevrBeanWorldCullsBackFaces(void);
+                    const bool backs = (cmd->words.w0 & GEVR_ROOM_BACKS) != 0;
+                    rsp.geometry_mode &= ~G_CULL_BOTH;
+                    rsp.geometry_mode |= !backs ? G_CULL_BACK : gevrBeanWorldCullsBackFaces() ? G_CULL_BOTH : G_CULL_FRONT;
+                    s_beanBackPush = backs;
                 }
                 if (model && s_beanFadeAlpha < 255) {
                     // as the game's own fading lists (model.c): solid pixels write depth

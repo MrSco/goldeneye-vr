@@ -1063,6 +1063,7 @@ extern bool netIsActive(void);   /* net_core.c */
 extern int netGetLocalSlot(void);
 #include "gevr_pdanim.h"
 #include "system.h"
+#include "gevr_bean.h"
 extern int VrGexGuns;   /* goldeneye-vr.ini GexGuns: GoldenEye X's guns (docs/gex-weapons.md) */
 extern s32 g_gevrHandPatchSkip;   /* gevr_handpatch.c: the hand shells are GoldenEye's model's */
 
@@ -2010,6 +2011,8 @@ static void gevrGexRigidInverse(const Mtxf *g, Mtxf *inv);
 extern s32 gevrTpPlayerHasBody(void);   /* gevr_thirdperson.c */
 extern s32 gevrGexHeldRoundCount(void);   /* bondview2.c: rounds in the off hand's payload */
 
+static const Mtxf *gevrBeanMagLast(s32 hand, s32 fromHand);   /* below */
+
 void gevrGexMagazineFalls(s32 hand, s32 fromHand)
 {
     const GexWeaponDef *def = gevrGexWeaponForHand(hand);
@@ -2019,11 +2022,27 @@ void gevrGexMagazineFalls(s32 hand, s32 fromHand)
     f32 inv = D_800364CC > 1e-6f ? 1.0f / D_800364CC : 1.0f;
     s32 r, c;
 
-    if (hand < 0 || hand > 1 || def == NULL || v2w == NULL || !(fromHand ? (s_gevrGexLastHeldValid && s_gevrGexLastHeldGun == hand) : s_gevrGexLastValid[hand]))
+    if (hand < 0 || hand > 1 || v2w == NULL)
     {
         return;
     }
-    last = fromHand ? &s_gevrGexLastHeld : &s_gevrGexLastMag[hand];
+    if (def == NULL)
+    {
+        /* a Bean gun's (gevrBeanMagDraw): the magazine as it was last drawn */
+        last = gevrBeanMagLast(hand, fromHand);
+        if (last == NULL)
+        {
+            return;
+        }
+    }
+    else if (!(fromHand ? (s_gevrGexLastHeldValid && s_gevrGexLastHeldGun == hand) : s_gevrGexLastValid[hand]))
+    {
+        return;
+    }
+    else
+    {
+        last = fromHand ? &s_gevrGexLastHeld : &s_gevrGexLastMag[hand];
+    }
     for (r = 0; r < 4; r++)
     {
         for (c = 0; c < 3; c++)
@@ -2034,7 +2053,7 @@ void gevrGexMagazineFalls(s32 hand, s32 fromHand)
     }
     matrix_4x4_multiply(v2w, &unit, &s_gevrGexFall[hand].world);
     s_gevrGexFall[hand].on = TRUE;
-    s_gevrGexFall[hand].matrix = fromHand ? def->heldMatrix : def->magMatrix;
+    s_gevrGexFall[hand].matrix = def == NULL ? 0 : fromHand ? def->heldMatrix : def->magMatrix;
     s_gevrGexFall[hand].rounds = fromHand ? gevrGexHeldRoundCount() : 0;
     s_gevrGexFall[hand].t = 0.0f;
 }
@@ -2265,6 +2284,12 @@ Gfx *gevrGexDrawMagazineGuide(Gfx *gdl, ModelRenderData *templ, s32 hand, const 
     const GexWeaponDef *def = gevrGexWeaponForHand(hand);
     Mtxf mag;
     s32 i, j;
+    if (def == NULL)
+    {
+        /* a Bean gun's magazine where the belt offers it (below); it has no ghost in the gun */
+        extern Gfx *gevrBeanMagDrawBelt(Gfx *gdl, ModelRenderData *templ, s32 hand, const Mtxf *beltPose, u32 tint);
+        return beltPose != NULL ? gevrBeanMagDrawBelt(gdl, templ, hand, beltPose, tint) : gdl;
+    }
     if (!gevrHandReloadActive() || !gevrGexHasMagazine(def) || !s_gevrGexLastValid[hand]) return gdl;
     mag = s_gevrGexLastMag[hand];
     if (beltPose != NULL)
@@ -2303,6 +2328,12 @@ Gfx *gevrGexDrawPayloadGuide(Gfx *gdl, ModelRenderData *templ, s32 hand, const M
     ModelRenderData rd = *templ;
     Mtxf pose;
     s32 i, j, k;
+    if (def == NULL && (hand == GUNRIGHT || hand == GUNLEFT))
+    {
+        /* a Bean gun's loose round where the belt offers it (below) */
+        extern Gfx *gevrBeanMagDrawBelt(Gfx *gdl, ModelRenderData *templ, s32 hand, const Mtxf *beltPose, u32 tint);
+        return gevrBeanMagDrawBelt(gdl, templ, hand, belt, tint);
+    }
     if (hand < 0 || hand > 1 || !gevrHandReloadActive() || def == NULL || !def->singleRound || !s_gevrGexLastValid[hand]
         || def->item >= ITEM_IDS_MAX || s_gevrGexPayloadAt[def->item].state != 1 || size < 1e-6f) return gdl;
     at = s_gevrGexPayloadAt[def->item].centre;
@@ -2339,7 +2370,15 @@ Gfx *gevrGexDrawPayloadGuide(Gfx *gdl, ModelRenderData *templ, s32 hand, const M
  * guide's colour: a magazine to take or put in; green: in.
  */
 #define GEVR_RELOAD_LABEL_UP_CM 10.0f
+static Gfx *gevrReloadLabelOn(Gfx *gdl, s32 hand, const Mtxf *gun);
+
 static Gfx *gevrGexDrawReloadLabel(Gfx *gdl, s32 hand)
+{
+    return s_gevrGexLastValid[hand] ? gevrReloadLabelOn(gdl, hand, &s_gevrGexLastGun[hand]) : gdl;
+}
+
+/* ... over this gun joint (a GoldenEye X gun's, or a Bean gun's body) */
+static Gfx *gevrReloadLabelOn(Gfx *gdl, s32 hand, const Mtxf *gun)
 {
     extern Gfx *gevrDrawViewTagOverlay(Gfx *gdl, const char *name, const f32 at[3], f32 k, u32 panel);
     static const char *const text[GEVR_RELOAD_LABEL_COUNT] = {
@@ -2347,11 +2386,10 @@ static Gfx *gevrGexDrawReloadLabel(Gfx *gdl, s32 hand)
     static const u32 panel[GEVR_RELOAD_LABEL_COUNT] = {
         0, 0xB02020C0, 0xB02020C0, 0x2878A8C0, 0x2878A8C0, 0x209040C0, 0x209040C0 };
     const s32 label = gevrReloadLabel(hand);
-    const Mtxf *gun = &s_gevrGexLastGun[hand];
     const f32 up = sqrtf(gun->m[1][0] * gun->m[1][0] + gun->m[1][1] * gun->m[1][1] + gun->m[1][2] * gun->m[1][2]);
     f32 at[3];
     s32 i;
-    if (label <= GEVR_RELOAD_LABEL_NONE || label >= GEVR_RELOAD_LABEL_COUNT || !s_gevrGexLastValid[hand]
+    if (label <= GEVR_RELOAD_LABEL_NONE || label >= GEVR_RELOAD_LABEL_COUNT
         || up < 1e-6f || D_800364CC < 1e-6f) return gdl;
     for (i = 0; i < 3; i++)
         at[i] = gun->m[3][i] + gun->m[1][i] / up * GEVR_RELOAD_LABEL_UP_CM * D_800364CC;
@@ -2371,6 +2409,400 @@ Gfx *gevrGexDrawReloadGuide(Gfx *gdl, ModelRenderData *templ, s32 hand)
     if (hover)
         gdl = gevrDrawInteractionRing(gdl, well, 3.0f, GEVR_RELOAD_READY_TINT | 0xE0);
     return gevrGexDrawReloadLabel(gdl, hand);
+}
+
+/*
+ * Bean guns' removable magazines (user, 2026-11-18: "removable magazines ...
+ * like the gex weapons have but to the bean weapon meshes"; gevr_beanmag.h).
+ * The release's gun has no magazine of its own, so gevr_bean.c lays the gun's
+ * body out twice more when it has one to cut: with the magazine out, and the
+ * magazine alone. Reloaded by hand (bondview2.c, GoldenEye X's own states) the
+ * gun is drawn whole while its magazine is in, with the well empty while it is
+ * out, and the magazine is drawn on its own in the off hand, then falling.
+ * It lies in the gun's own space, so under the gun's body matrix it is seated;
+ * in the hand it is turned as the gun would be in that hand (so with the hands
+ * held alike it lines up with the well, as GE-X's) and held a third of the way
+ * up its body. The hands are the player's own: nothing is animated.
+ * The slide needs nothing here: GoldenEye's own clock holds it back on an
+ * empty magazine and lets it home on a loaded one (sub_GAME_7F05E83C), and the
+ * release's slide rides GoldenEye's matrix (gevr_bean.c gunParts).
+ */
+extern int gevrBeanIsEnabled(void);
+extern s32 gevrBeanMagState(s32 hand, f32 off[3]);   /* bondview2.c: GEVR_GEXMAG_* */
+extern s32 gevrBeanHeldPalm(f32 out[3]);             /* bondview2.c: the off hand's palm, Gun fit's held magazine */
+extern s32 gevrStereoReloadHandMatrix(Mtxf *out);    /* bondview2.c */
+extern s32 gevrReloadSeatHover(f32 out[3]);
+extern float VrBeanMagFits[64][2][3];                /* vr_settings_defaults.c */
+extern s32 g_gevrStereo;
+
+static Mtxf s_gevrBeanMagGun[2], s_gevrBeanMagInHand;
+static s32 s_gevrBeanMagGunValid[2], s_gevrBeanMagInHandValid, s_gevrBeanMagInHandGun = GUNRIGHT;
+static f32 s_gevrBeanMagAt[3], s_gevrBeanWellAt[3], s_gevrBeanTipAt[3];
+static s32 s_gevrBeanMagPointsGun = GUNRIGHT, s_gevrBeanMagPointsValid;
+
+/* Gun fit's magazine modes for a Bean gun: 0 the magazine in the off hand (cm
+ * right, up, back of its grip), 1 the well's mouth on the gun. The PP7s share one. */
+float *gevrBeanMagFit(s32 item, s32 which)
+{
+    if (item == ITEM_WPPKSIL || item == ITEM_SILVERWPPK || item == ITEM_GOLDWPPK) item = ITEM_WPPK;
+    if (item == ITEM_MP5KSIL) item = ITEM_MP5K;
+    return VrBeanMagFits[item >= 0 && item < 64 ? item : 0][which ? 1 : 0];
+}
+
+/* Whether each gun's model, once drawn, had a magazine to take (gevr_beanmag.c's
+ * table; a mesh that could not be cut has none): told once a change, for the log. */
+static s8 s_gevrBeanMagKnown[ITEM_IDS_MAX];   /* 0 not drawn yet, 1 it has one, -1 it has not */
+
+/* the hand's gun is a Bean model with a magazine to take out */
+s32 gevrBeanMagHeld(s32 hand)
+{
+    Model *model;
+
+    if (VrGexGuns || g_CurrentPlayer == NULL || (hand != GUNRIGHT && hand != GUNLEFT) || !gevrBeanIsEnabled())
+    {
+        return FALSE;
+    }
+    model = &g_CurrentPlayer->hands[hand].weaponModel;
+    return model->obj != NULL && g_CurrentPlayer->hand_item[hand] == getCurrentPlayerWeaponId(hand)
+        && gevrBeanGunMagazine(model->obj, NULL);
+}
+
+/* bondview2.c: the hand's Bean gun's magazine lifts off its top (the RC-P90's) */
+s32 gevrBeanMagPullsUp(s32 hand)
+{
+    struct gevrBeanMagInfo info;
+
+    return gevrBeanMagHeld(hand) && gevrBeanGunMagazine(g_CurrentPlayer->hands[hand].weaponModel.obj, &info)
+        && info.pullUp;
+}
+
+/* bondview2.c: what the hand's Bean gun loads (gevr_beanmag.h): 1 a loose round
+ * at a time, 2 one that is gone once fired, 4 never pulled out by hand; 0 a
+ * plain magazine, or no Bean gun with one */
+s32 gevrBeanMagKind(s32 hand)
+{
+    struct gevrBeanMagInfo info;
+
+    if (!gevrBeanMagHeld(hand) || !gevrBeanGunMagazine(g_CurrentPlayer->hands[hand].weaponModel.obj, &info))
+    {
+        return 0;
+    }
+    return (info.single ? 1 : 0) | (info.consumed ? 2 : 0) | (info.noPull ? 4 : 0);
+}
+
+/* gunfire.c, round the gun's own draw: its magazine in the gun or out of it */
+s32 gevrBeanMagShown(s32 hand)
+{
+    s32 state;
+
+    if (!g_gevrStereo || !gevrBeanMagHeld(hand))
+    {
+        return GEVR_BEAN_MAG_IN;
+    }
+    if (gevrBeanMagKind(hand) & 1)
+    {
+        return GEVR_BEAN_MAG_IN;   /* a loose round goes into a gun that stays whole */
+    }
+    state = gevrBeanMagState(hand, NULL);
+    return state == GEVR_GEXMAG_OUT || state == GEVR_GEXMAG_INHAND ? GEVR_BEAN_MAG_OUT : GEVR_BEAN_MAG_IN;
+}
+
+static const Mtxf *gevrBeanMagLast(s32 hand, s32 fromHand)
+{
+    if (!gevrBeanMagHeld(hand))
+    {
+        return NULL;
+    }
+    if (fromHand)
+    {
+        return s_gevrBeanMagInHandValid && s_gevrBeanMagInHandGun == hand ? &s_gevrBeanMagInHand : NULL;
+    }
+    return s_gevrBeanMagGunValid[hand] ? &s_gevrBeanMagGun[hand] : NULL;
+}
+
+/* bondview2.c: the gun's magazine (its foot, and the well's mouth) and the one in the hand (its top) */
+s32 gevrBeanMagPoints(f32 centre[3], f32 well[3], f32 held[3])
+{
+    s32 i;
+
+    for (i = 0; i < 3; i++)
+    {
+        centre[i] = s_gevrBeanMagAt[i];
+        well[i] = s_gevrBeanWellAt[i];
+        held[i] = s_gevrBeanTipAt[i];
+    }
+    return s_gevrBeanMagPointsGun == gevrReloadSupportGun() ? s_gevrBeanMagPointsValid : 0;
+}
+
+/* a joint's axis r as it runs in the view, one centimetre long */
+static void gevrBeanMagAxisCm(const Mtxf *joint, s32 r, f32 out[3])
+{
+    const f32 len = sqrtf(joint->m[r][0] * joint->m[r][0] + joint->m[r][1] * joint->m[r][1] + joint->m[r][2] * joint->m[r][2]);
+    s32 i;
+
+    for (i = 0; i < 3; i++)
+    {
+        out[i] = len > 1e-9f ? joint->m[r][i] / len * D_800364CC : 0.0f;
+    }
+}
+
+/* the well's mouth on the gun as drawn, moved by Gun fit's magazine well (cm right, up, back) */
+static void gevrBeanMagWell(const struct gevrBeanMagInfo *info, const Mtxf *gun, s32 item, f32 out[3])
+{
+    const f32 *fit = gevrBeanMagFit(item, 1);
+    f32 x[3], y[3], z[3];
+    s32 i;
+
+    gevrGexMtxPoint(gun, info->mouth, out);
+    gevrBeanMagAxisCm(gun, 0, x);
+    gevrBeanMagAxisCm(gun, 1, y);
+    gevrBeanMagAxisCm(gun, 2, z);
+    for (i = 0; i < 3; i++)
+    {
+        out[i] += -fit[0] * x[i] + fit[1] * y[i] - fit[2] * z[i];
+    }
+}
+
+/* Gun fit's magazine well, the off hand's trigger (input.c): the held magazine's
+ * top is the mouth. Moves the gun-local target only, never the ammunition. */
+s32 gevrBeanMagFitSetWell(void)
+{
+    const Mtxf *gun = &s_gevrBeanMagGun[GUNRIGHT];
+    f32 *fit, axis[3], along;
+    s32 r, i;
+
+    if (!gevrBeanMagHeld(GUNRIGHT) || !s_gevrBeanMagGunValid[GUNRIGHT] || (s_gevrBeanMagPointsValid & 3) != 3
+        || D_800364CC < 1e-6f)
+    {
+        return FALSE;
+    }
+    fit = gevrBeanMagFit(getCurrentPlayerWeaponId(GUNRIGHT), 1);
+    for (r = 0; r < 3; r++)
+    {
+        gevrBeanMagAxisCm(gun, r, axis);
+        for (along = 0.0f, i = 0; i < 3; i++)
+        {
+            along += (s_gevrBeanTipAt[i] - s_gevrBeanWellAt[i]) * axis[i];
+        }
+        fit[r] += (r == 1 ? 1.0f : -1.0f) * along / (D_800364CC * D_800364CC);
+    }
+    return TRUE;
+}
+
+/* The magazine in the off hand: turned as the gun would be in that hand, at the
+ * gun's size, its hold point on the palm (a pistol's a third of the way up its
+ * body, a rifle's its middle: gevr_beanmag.c). */
+static s32 gevrBeanMagInHandPose(const struct gevrBeanMagInfo *info, const Mtxf *gun, Mtxf *out)
+{
+    const f32 size = sqrtf(gun->m[0][0] * gun->m[0][0] + gun->m[0][1] * gun->m[0][1] + gun->m[0][2] * gun->m[0][2]);
+    Mtxf off;
+    const f32 *hold = info->hold;
+    f32 palm[3];
+    s32 r, i;
+
+    if (size < 1e-9f || !gevrStereoReloadHandMatrix(&off) || !gevrBeanHeldPalm(palm))
+    {
+        return FALSE;
+    }
+    matrix_4x4_set_identity(out);
+    for (r = 0; r < 3; r++)
+    {
+        const f32 len = sqrtf(off.m[r][0] * off.m[r][0] + off.m[r][1] * off.m[r][1] + off.m[r][2] * off.m[r][2]);
+
+        if (len < 1e-9f)
+        {
+            return FALSE;
+        }
+        for (i = 0; i < 3; i++)
+        {
+            out->m[r][i] = off.m[r][i] / len * size;
+        }
+    }
+    for (i = 0; i < 3; i++)
+    {
+        out->m[3][i] = palm[i] - (hold[0] * out->m[0][i] + hold[1] * out->m[1][i] + hold[2] * out->m[2][i]);
+    }
+    return TRUE;
+}
+
+/* The magazine alone, at pose: the gun's body list in a scratch model whose
+ * every other matrix is collapsed, as GE-X's parts are isolated (gevrGexDrawPartGuide). */
+static Gfx *gevrBeanMagDrawAs(Gfx *gdl, ModelRenderData *templ, s32 hand, const struct gevrBeanMagInfo *info,
+                              const Mtxf *pose, s32 as);
+
+static Gfx *gevrBeanMagDrawAt(Gfx *gdl, ModelRenderData *templ, s32 hand, const struct gevrBeanMagInfo *info,
+                              const Mtxf *pose)
+{
+    return gevrBeanMagDrawAs(gdl, templ, hand, info, pose, GEVR_BEAN_MAG_ITSELF);
+}
+
+/* ... as itself, or as its see-through placeholder (GEVR_BEAN_MAG_GHOST, _READY) */
+static Gfx *gevrBeanMagDrawAs(Gfx *gdl, ModelRenderData *templ, s32 hand, const struct gevrBeanMagInfo *info,
+                              const Mtxf *pose, s32 as)
+{
+    Model *source = &g_CurrentPlayer->hands[hand].weaponModel;
+    ModelFileHeader *hdr = source->obj;
+    ModelRenderData rd = *templ;
+    Model copy;
+    Mtxf *matrices;
+    s32 i;
+
+    if (hdr == NULL || info->node == NULL || info->matrix < 0 || hdr->numMatrices <= info->matrix || hdr->numMatrices > 64
+        || hdr->numRecords <= 0 || source->datas == NULL)
+    {
+        return gdl;
+    }
+    copy = *source;
+    copy.datas = dynAllocate(hdr->numRecords * sizeof(u32));
+    memcpy(copy.datas, source->datas, hdr->numRecords * sizeof(u32));
+    matrices = dynAllocate(hdr->numMatrices * sizeof(Mtxf));
+    for (i = 0; i < hdr->numMatrices; i++)
+    {
+        matrix_4x4_set_identity(&matrices[i]);
+        gevrGexCollapse(&matrices[i]);
+    }
+    matrices[info->matrix] = *pose;
+    copy.render_pos = (RenderPosView *) matrices;
+    rd.gdl = gdl;
+    gSPSegment(rd.gdl++, 3, osVirtualToPhysical(copy.render_pos));
+    gevrBeanSetMagazine(as);
+    sub_GAME_7F074534(&rd, &copy, (ModelNode *) info->node);
+    gevrBeanSetMagazine(GEVR_BEAN_MAG_IN);
+    bondviewTransformManyPosToViewMatrix(copy.render_pos, hdr->numMatrices);
+    return rd.gdl;
+}
+
+/* gevr_bodyslots.c gevrReloadBeltDraw, through gevrGexDrawMagazineGuide: the
+ * magazine the belt offers, at the gun's size, upright in the belt's frame and
+ * centred on its point (GE-X's is its installed part there): its placeholder,
+ * in the colour the belt asks - GE-X's blue, or its green with the hand there. */
+Gfx *gevrBeanMagDrawBelt(Gfx *gdl, ModelRenderData *templ, s32 hand, const Mtxf *beltPose, u32 tint)
+{
+    struct gevrBeanMagInfo info;
+    ModelRenderData rd = *templ;
+    const Mtxf *gun;
+    Mtxf pose;
+    f32 size, middle[3];
+    s32 i, j;
+
+    if ((hand != GUNRIGHT && hand != GUNLEFT) || !gevrHandReloadActive() || !gevrBeanMagHeld(hand)
+        || !s_gevrBeanMagGunValid[hand]
+        || !gevrBeanGunMagazine(g_CurrentPlayer->hands[hand].weaponModel.obj, &info))
+    {
+        return gdl;
+    }
+    gun = &s_gevrBeanMagGun[hand];
+    size = sqrtf(gun->m[0][0] * gun->m[0][0] + gun->m[0][1] * gun->m[0][1] + gun->m[0][2] * gun->m[0][2]);
+    pose = *beltPose;
+    for (i = 0; i < 3; i++)
+    {
+        for (j = 0; j < 3; j++) pose.m[i][j] *= size;
+        middle[i] = info.hold[i];
+    }
+    for (i = 0; i < 3; i++)
+    {
+        pose.m[3][i] = beltPose->m[3][i] - middle[0] * pose.m[0][i] - middle[1] * pose.m[1][i] - middle[2] * pose.m[2][i];
+    }
+    rd.PropType = PROP_TYPE_CHR + 1;
+    rd.cullmode = CULLMODE_NONE;
+    gSPClearGeometryMode(gdl++, G_CULL_BOTH);
+    return gevrBeanMagDrawAs(gdl, &rd, hand, &info, &pose,
+                             (tint & 0xFFFFFF00u) == GEVR_RELOAD_READY_TINT ? GEVR_BEAN_MAG_GHOST_READY
+                                                                            : GEVR_BEAN_MAG_GHOST);
+}
+
+/* gunfire.c, after the gun's own draw and before its matrices leave the view's
+ * floats: the magazine out of the gun, the points bondview2.c reloads by, the
+ * ring at the well and the label. */
+Gfx *gevrBeanMagDraw(Gfx *gdl, ModelRenderData *templ, GUNHAND hand)
+{
+    extern Gfx *gevrDrawInteractionRing(Gfx *gdl, const f32 at[3], f32 radius, u32 rgba);
+    struct gevrBeanMagInfo info;
+    Model *model;
+    Mtxf *rw, pose;
+    f32 well[3];
+    s32 state, item, hover;
+
+    if (hand != GUNRIGHT && hand != GUNLEFT)
+    {
+        return gdl;
+    }
+    if (g_CurrentPlayer != NULL && !VrGexGuns && gevrBeanIsEnabled()
+        && !(netIsActive() && get_cur_playernum() != netGetLocalSlot()))
+    {
+        const s32 loaded = g_CurrentPlayer->hand_item[hand];
+
+        if (loaded == getCurrentPlayerWeaponId(hand) && loaded >= 0 && loaded < ITEM_IDS_MAX
+            && g_CurrentPlayer->hands[hand].weaponModel.obj != NULL)
+        {
+            const s8 has = gevrBeanGunMagazine(g_CurrentPlayer->hands[hand].weaponModel.obj, NULL) ? 1 : -1;
+
+            if (has != s_gevrBeanMagKnown[loaded])
+            {
+                sysLogPrintf(LOG_NOTE, "stereo: bean magazine: item %d's model %s", loaded,
+                             has > 0 ? "has one to take" : "has none: gestures run the game's reload");
+                s_gevrBeanMagKnown[loaded] = has;
+            }
+        }
+    }
+    if (g_CurrentPlayer == NULL || !g_gevrStereo || !gevrBeanMagHeld(hand)
+        || (netIsActive() && get_cur_playernum() != netGetLocalSlot()))
+    {
+        s_gevrBeanMagGunValid[hand] = FALSE;
+        if (hand == s_gevrBeanMagPointsGun) s_gevrBeanMagPointsValid = 0;
+        if (hand == s_gevrBeanMagInHandGun) s_gevrBeanMagInHandValid = FALSE;
+        if (g_CurrentPlayer != NULL && !gevrGexHeld(hand)
+            && !(netIsActive() && get_cur_playernum() != netGetLocalSlot())) s_gevrGexFall[hand].on = FALSE;
+        return gdl;
+    }
+    model = &g_CurrentPlayer->hands[hand].weaponModel;
+    rw = (Mtxf *) model->render_pos;
+    if (rw == NULL || !gevrBeanGunMagazine(model->obj, &info) || info.matrix < 0 || info.matrix >= model->obj->numMatrices)
+    {
+        return gdl;
+    }
+    item = getCurrentPlayerWeaponId(hand);
+    state = gevrBeanMagState(hand, NULL);
+    s_gevrBeanMagGun[hand] = rw[info.matrix];
+    s_gevrBeanMagGunValid[hand] = TRUE;
+    if (hand == gevrReloadSupportGun())
+    {
+        gevrGexMtxPoint(&rw[info.matrix], info.foot, s_gevrBeanMagAt);
+        gevrBeanMagWell(&info, &rw[info.matrix], item, s_gevrBeanWellAt);
+        s_gevrBeanMagPointsGun = hand;
+        s_gevrBeanMagPointsValid = 1;
+    }
+    if (state == GEVR_GEXMAG_INHAND && hand == gevrReloadSupportGun()
+        && gevrBeanMagInHandPose(&info, &rw[info.matrix], &pose))
+    {
+        s_gevrBeanMagInHand = pose;
+        s_gevrBeanMagInHandValid = TRUE;
+        s_gevrBeanMagInHandGun = hand;
+        gevrGexMtxPoint(&pose, info.top, s_gevrBeanTipAt);
+        s_gevrBeanMagPointsValid |= 2;
+        gdl = gevrBeanMagDrawAt(gdl, templ, hand, &info, &pose);
+    }
+    else if (hand == s_gevrBeanMagInHandGun)
+    {
+        s_gevrBeanMagInHandValid = FALSE;
+    }
+    if (gevrGexFallAt(hand, &pose))
+    {
+        gdl = gevrBeanMagDrawAt(gdl, templ, hand, &info, &pose);
+    }
+    hover = hand == gevrReloadSupportGun() && gevrReloadSeatHover(well);
+    if ((state == GEVR_GEXMAG_OUT || state == GEVR_GEXMAG_INHAND) && !info.single)
+    {
+        /* where it goes: its placeholder in the gun, as GE-X's ghost (gevrGexDrawReloadGuide),
+         * after the gun and the magazines so they show through it */
+        gdl = gevrBeanMagDrawAs(gdl, templ, hand, &info, &rw[info.matrix],
+                                hover ? GEVR_BEAN_MAG_GHOST_READY : GEVR_BEAN_MAG_GHOST);
+    }
+    if (hover)
+    {
+        gdl = gevrDrawInteractionRing(gdl, well, 3.0f, GEVR_RELOAD_READY_TINT | 0xE0);
+    }
+    return gevrReloadLabelOn(gdl, hand, &rw[info.matrix]);
 }
 
 /* a joint's matrix without scale, undone: rotation transposed, translation turned back */
@@ -2463,7 +2895,13 @@ void gevrReloadFitSetWell(void)
     f32 length2[3], projection;
     f32 *fit;
     s32 r, i;
-    if (def == NULL || (s_gevrGexMagPointsValid & 3) != 3) return;
+    if (def == NULL)
+    {
+        extern s32 gevrBeanMagFitSetWell(void);   /* below: a Bean gun's */
+        gevrBeanMagFitSetWell();
+        return;
+    }
+    if ((s_gevrGexMagPointsValid & 3) != 3) return;
     for (r = 0; r < 3; r++)
     {
         length2[r] = 0;

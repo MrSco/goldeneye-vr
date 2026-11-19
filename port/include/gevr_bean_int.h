@@ -18,6 +18,11 @@
 #define GEVR_BEAN_F_PAINTED 64 /* level face a later blended one hides wholly; the loader leaves it out */
 #define GEVR_BEAN_F_UNLITPLAIN 128 /* a black plain face paintLevelUnlit() lit (DAB unlitplain); the stage may put its black back */
 
+/* gevrBeanTri.side, a level face's (gevr_bean_load.c markLevelSides(), DAB
+ * markBacked() and markFights()) */
+#define GEVR_BEAN_SIDE_BACKED 1 /* one face of a two-faced sheet: drawn culled */
+#define GEVR_BEAN_SIDE_FIGHTS 2 /* back to back with a face over part of it: its face culled, then its back pushed away */
+
 struct gevrBeanTri {
 	float p[9];
 	float n[9];
@@ -34,6 +39,7 @@ struct gevrBeanTri {
 	uint8_t alphatest;
 	uint8_t sk;
 	uint8_t flags;
+	uint8_t side;   /* GEVR_BEAN_SIDE_*, levels only */
 };
 
 /* A prop's draws as DAB gebean.c reads them for GoldenEye's monitor screens
@@ -105,6 +111,7 @@ struct gevrEmitVert {
 	uint8_t alpha;
 	uint8_t cut;
 	uint8_t decal;
+	uint8_t side;   /* GEVR_BEAN_SIDE_*: read for a level's list (roomMaterial 1) only */
     const void *reflection;
     uint8_t reflectionDiffuse; /* 0 screen, 1 diffuse-tinted, 2 coloured */
     uint8_t reflectionAlphaBase;

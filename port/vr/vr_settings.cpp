@@ -31,6 +31,10 @@
 /* A phone or tablet's touch controls (port/flat/window/flat_touch.cpp): a
  * buzz on an on-screen button, and turning the device to look and aim. */
 int VrTouchHaptics = 1;
+/* 0: no on-screen controls at all, for a mouse and keyboard whose clicks
+ * arrive as touches (the iOS app on a Mac through PlayCover, #254). Only in
+ * the ini: a phone with it off would have no way back to the panel. */
+int VrTouchControls = 1;
 int VrGyroAim = 0;   // 0 off, 1 while aiming, 2 always
 float VrGyroSpeed = 1.5f;   // view degrees a degree the device turns
 /* The on-screen buttons moved or resized in the touch layout editor
@@ -331,6 +335,9 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "ScreenShape=%d\n", VrScreenShape);
     fprintf(f, "; A phone or tablet: 1 = a buzz on an on-screen button; 1 = turn the device to look and aim.\n");
     fprintf(f, "TouchHaptics=%d\nGyroAim=%d\nGyroSpeed=%.2f\n", VrTouchHaptics, VrGyroAim, VrGyroSpeed);
+    fprintf(f, "; 0 = no on-screen touch controls, for a mouse and keyboard whose clicks arrive\n");
+    fprintf(f, "; as touches (the iOS app on a Mac through PlayCover). 1 = shown (the default).\n");
+    fprintf(f, "TouchControls=%d\n", VrTouchControls);
     fprintf(f, "; The touch layout editor's buttons (NAME x y radius;...), empty for the built-in layout.\n");
     fprintf(f, "TouchLayout=%s\n", VrTouchLayout);
     fprintf(f, "; Metres above (+) or below (-) eye level; set by grabbing the screen with both grips.\n");
@@ -425,6 +432,13 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; GexBatOff and GexBatOffRot: the off hand where it holds the rifle (both hands).\n");
     fprintf(f, "GexBatOff=%.4f %.4f %.4f\n", VrGexBatFit[3][0], VrGexBatFit[3][1], VrGexBatFit[3][2]);
     fprintf(f, "GexBatOffRot=%.4f %.4f %.4f\n", VrGexBatFit[4][0], VrGexBatFit[4][1], VrGexBatFit[4][2]);
+    fprintf(f, "; Bean guns' magazines: item number / vector (0 held magazine, 1 magazine well); fitted ones only.\n");
+    for (int item=0; item<64; item++)
+        for (int which=0; which<2; which++) {
+            const float *v=VrBeanMagFits[item][which];
+            if (v[0] != 0.0f || v[1] != 0.0f || v[2] != 0.0f)
+                fprintf(f, "BeanMagFit%d_%d=%.4f %.4f %.4f\n", item, which, v[0], v[1], v[2]);
+        }
     fprintf(f, "; Per-weapon fits: item number / vector (0 gun, 1 grab, 2 support, 3 rotation, 4 held mag, 5 well, 6 installed mesh).\n");
     for (int item=0; item<64; item++) {
         /* Do not write zero overrides for models implemented by future builds. */
@@ -636,6 +650,15 @@ extern "C" void vrSettingsLoad(void)
                 continue;
             }
             // BodySlots=, BodySlotShow=, BodySlotSize=: the integer keys below
+        }
+        if (strncmp(line, "BeanMagFit", 10) == 0) {
+            int item, which, consumed=0; float t[3];
+            if (sscanf(line, "BeanMagFit%d_%d=%n", &item, &which, &consumed) == 2 && consumed > 0
+                && item >= 0 && item < 64 && which >= 0 && which < 2
+                && sscanf(line+consumed, "%f %f %f", &t[0], &t[1], &t[2]) == 3
+                && std::isfinite(t[0]) && std::isfinite(t[1]) && std::isfinite(t[2]))
+                memcpy(VrBeanMagFits[item][which], t, sizeof(t));
+            continue;
         }
         if (strncmp(line, "GexFit", 6) == 0) {
             int item, component, consumed=0; float t[3];
@@ -895,6 +918,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "ScreenPassthrough") == 0) VrScreenPassthrough = ival != 0;
             else if (strcmp(key, "ScreenShape") == 0) VrScreenShape = ival == 1 ? 1 : 0;
             else if (strcmp(key, "TouchHaptics") == 0) VrTouchHaptics = ival != 0;
+            else if (strcmp(key, "TouchControls") == 0) VrTouchControls = ival != 0;
             else if (strcmp(key, "GyroAim") == 0) VrGyroAim = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             /* Keep saved DisplayHz preferences. The obsolete RefreshRate key
              * was never user-selectable and remains ignored. */

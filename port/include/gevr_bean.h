@@ -61,6 +61,30 @@ int gevrBeanPreviewPose(struct Model *model, const float root[4][4]);
  * drawn in its mouth then) */
 void gevrBeanSetLoaded(int loaded);
 int gevrBeanHasRound(const void *header);
+/* A magazine-fed gun's removable magazine (gevr_beanmag.h): made with the gun
+ * when the gun is laid out. The gun's body list is drawn with the magazine in
+ * (as the release made it), with it out and the well empty, or as the magazine
+ * alone, which sits in the gun under the body's own matrix. Points are in that
+ * list's space: the body matrix takes them to the view. */
+/* ... or as its see-through silhouette: the placeholder in the empty well and
+ * at the belt, GoldenEye X's colours (gevr_hand_reload.h), _READY's when the
+ * hand is there to take or seat it. */
+enum { GEVR_BEAN_MAG_IN, GEVR_BEAN_MAG_OUT, GEVR_BEAN_MAG_ITSELF, GEVR_BEAN_MAG_GHOST, GEVR_BEAN_MAG_GHOST_READY };
+struct gevrBeanMagInfo {
+	void *node;      /* the body's list */
+	int matrix;      /* and its matrix */
+	float mouth[3];  /* the well's mouth */
+	float top[3];    /* the seated magazine's top */
+	float foot[3];   /* its foot: where a hand takes it */
+	float hold[3];   /* where the off hand's palm has it */
+	float axis[3];   /* up the well, unit */
+	int pullUp;      /* it lifts off the top of the gun (the RC-P90's) */
+	int single;      /* a loose round pushed in one at a time (a shotgun's shell): gevr_beanmag.h */
+	int consumed;    /* fired, it is gone (the rocket) */
+	int noPull;      /* never pulled out by hand */
+};
+void gevrBeanSetMagazine(int state);
+int gevrBeanGunMagazine(const void *header, struct gevrBeanMagInfo *out);
 /* whether the release draws any of a model's lists now */
 int gevrBeanDrawsModel(const void *header);
 void gevrBeanReset(void);

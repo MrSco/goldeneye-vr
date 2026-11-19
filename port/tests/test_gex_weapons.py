@@ -51,6 +51,9 @@ static int gevrGunFitActive,g_gevrStereo=1,fitReload,fitScope=-1;
 s32 gevrScopeFitIndex(void) { return fitScope; }
 s32 gevrReloadFitAvailable(void) { return fitReload; }
 s32 gevrMuzzleFitAvailable(void) { return 1; }
+/* Bean's guns' magazines (gun.c gevrBeanMag*, bondview2.c): GoldenEye X's models here, so none */
+s32 gevrBeanMagFitAvailable(void) { return 0; }
+s32 gevrBeanMagFitSetWell(void) { return 0; }
 static const GexWeaponDef *active;
 struct GevrScope { s32 item; f32 x,y,z,r; s32 nearOnly; };
 static const struct GevrScope s_gevrScopes[]={{ITEM_SNIPERRIFLE,13.5f,126.5f,-128,23.5f,0},{ITEM_LASER,0,100,-80,16,0}};
@@ -923,7 +926,7 @@ production.append(function(view,"static const char *gevrFitNextLine("))
 production.append(function(view,"static void gevrScopeLensPlace("))
 input_source=(ROOT/"port/src/input.c").read_text()
 cycle=function(input_source,"if (x && !xHeld && gadget < 0)")
-production.append('static void cycleFit(void) { const int gex=active!=NULL,scope=fitScope,bat=0; '+cycle[cycle.index('{')+1:-1]+' }')
+production.append('static void cycleFit(void) { const int gex=active!=NULL,scope=fitScope,bat=0,beanMag=0; '+cycle[cycle.index('{')+1:-1]+' }')
 fit=function(input_source,'if (gevrStereoTwoHandGrip() && gevrGexHeld(gevrStereoTwoHandGun()) && VrGexGuns)')
 production.append('static void fitSupport(float mx,float my,float ry,float rate,float dt) { '+fit+' }')
 fire=(ROOT/"src/game/gunfire.c").read_text(encoding="utf-8")

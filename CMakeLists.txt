@@ -19,6 +19,9 @@ endif()
 #   ios    - iPhone and iPad: the PC flat game with touch controls, drawn
 #            with OpenGL ES through ANGLE on Metal (tools/build_ios.sh,
 #            docs/mobile-platforms.md); a static library the Xcode app links
+#   tvos   - Apple TV: the iOS build without touch, played with a pad, the
+#            ROM sent from a phone or computer over the local network
+#            (tools/build_tvos.sh, port/tvos, docs/apple-tv.md)
 #   visionos - Vision Pro, native: the PC VR game (port/vr, OpenXR) on an
 #            OpenXR runtime of its own over Compositor Services and ARKit
 #            (port/visionos, docs/visionos-native.md), OpenGL ES through ANGLE;
@@ -32,8 +35,10 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS")
   set(GEVR_PLATFORM "ios")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "visionOS")
   set(GEVR_PLATFORM "visionos")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "tvOS")
+  set(GEVR_PLATFORM "tvos")
 endif()
-set(GEVR_PLATFORM "${GEVR_PLATFORM}" CACHE STRING "quest, server, pc, ios or visionos")
+set(GEVR_PLATFORM "${GEVR_PLATFORM}" CACHE STRING "quest, server, pc, ios, tvos or visionos")
 # The Android phone/tablet APK (docs/mobile-platforms.md): the Quest's library
 # with the flat window, launcher and headset stand-ins of the PC flat game in
 # place of OpenXR (android/app/build.gradle's "mobile" flavor sets it).
@@ -45,13 +50,16 @@ if(GEVR_PLATFORM STREQUAL "server")
   set(GEVR_HEADLESS ON)
 elseif(GEVR_PLATFORM STREQUAL "pc")
   set(GEVR_PC ON)
-elseif(GEVR_PLATFORM STREQUAL "ios" OR GEVR_PLATFORM STREQUAL "visionos")
+elseif(GEVR_PLATFORM STREQUAL "ios" OR GEVR_PLATFORM STREQUAL "visionos" OR GEVR_PLATFORM STREQUAL "tvos")
   # the PC flat game's sources, built for iOS (GEVR_IOS marks what differs);
-  # visionOS: the PC VR game's, with iOS's Apple shell (GEVR_VISIONOS)
+  # visionOS: the PC VR game's, with iOS's Apple shell (GEVR_VISIONOS);
+  # Apple TV: iOS's game and shell, and what a TV does differently (GEVR_TVOS)
   set(GEVR_PC ON)
   set(GEVR_IOS ON)
   if(GEVR_PLATFORM STREQUAL "visionos")
     set(GEVR_VISIONOS ON)
+  elseif(GEVR_PLATFORM STREQUAL "tvos")
+    set(GEVR_TVOS ON)
   endif()
   enable_language(OBJC OBJCXX)   # port/ios's UIKit and ANGLE glue
   set(ANGLE_DIR "$ENV{HOME}/angle" CACHE PATH "ANGLE's one place on the Mac (tools/build_angle_apple.sh)")
@@ -111,6 +119,8 @@ if(GEVR_HEADLESS)
   set(TARGET_OS "linux")
 elseif(GEVR_VISIONOS)
   set(TARGET_OS "visionos")
+elseif(GEVR_TVOS)
+  set(TARGET_OS "tvos")
 elseif(GEVR_IOS)
   set(TARGET_OS "ios")
 elseif(GEVR_PC AND WIN32)
@@ -199,6 +209,8 @@ if(GEVR_HEADLESS OR GEVR_PC)
       # EGL binding, answered by port/visionos's runtime (no loader)
       add_definitions(-DGEVR_VISIONOS=1 -DGEVR_PCVR=1
         -DXR_USE_GRAPHICS_API_OPENGL_ES=1 -DXR_USE_PLATFORM_EGL=1)
+    elseif(GEVR_TVOS)
+      add_definitions(-DGEVR_TVOS=1)
     endif()
   else()
     # Linux (and Steam Frame's userland): glibc as the server's
@@ -382,7 +394,7 @@ list(FILTER SRC_PORT EXCLUDE REGEX ".*(preprocess|pdmain|pdsched|communityart|mp
 # GoldenEye. port/src/gevr_romload.c stands in for them; see that file for what
 # a GoldenEye replacement has to do.
 list(FILTER SRC_PORT EXCLUDE REGEX "port/src/(romdata|mod)\.c$")
-# port/vr/vr_pause_menu.cpp added 2026-10-03; port/vr/vr_screen.cpp added 2026-09-20; gevr_setup.c 2026-09-20; port/fast3d/gevr_texpack.cpp 2026-09-25; port/vr/vr_haptics.cpp 2026-09-29; src/game/gevr_heldgun.c 2026-10-04; port/src/gevr_gex.c, gevr_gexmodel.c, gevr_pdanim.c 2026-10-04; src/game/gevr_bot.c, gevr_sndpath.c 2026-10-07; port/src/gevr_bodyslot.c, src/game/gevr_bodyslots.c 2026-10-08; port/src/gevr_touch_model_data.c, src/game/gevr_touch.c 2026-10-09; port/src/gevr_bean.c, gevr_bean_load.c, gevr_bean_tex.c, gevr_bean_logic.c, gevr_bean_world.c 2026-10-11; port/src/gevr_romlayout.c, gevr_romcampaign.c 2026-10-11; port/src/gevr_speedboat.c, src/game/gevr_dam_boat.c 2026-10-11; port/src/gevr_bean_folder.c, gevr_bean_font.c, gevr_bean_images.c 2026-10-11; port/src/gevr_bean_import.c 2026-10-12; port/src/gevr_bean_ce.c 2026-10-19; src/game/gevr_footsteps.c 2026-11-16 (touching this line makes the glob re-run)
+# port/vr/vr_pause_menu.cpp added 2026-10-03; port/vr/vr_screen.cpp added 2026-09-20; gevr_setup.c 2026-09-20; port/fast3d/gevr_texpack.cpp 2026-09-25; port/vr/vr_haptics.cpp 2026-09-29; src/game/gevr_heldgun.c 2026-10-04; port/src/gevr_gex.c, gevr_gexmodel.c, gevr_pdanim.c 2026-10-04; src/game/gevr_bot.c, gevr_sndpath.c 2026-10-07; port/src/gevr_bodyslot.c, src/game/gevr_bodyslots.c 2026-10-08; port/src/gevr_touch_model_data.c, src/game/gevr_touch.c 2026-10-09; port/src/gevr_bean.c, gevr_bean_load.c, gevr_bean_tex.c, gevr_bean_logic.c, gevr_bean_world.c 2026-10-11; port/src/gevr_romlayout.c, gevr_romcampaign.c 2026-10-11; port/src/gevr_speedboat.c, src/game/gevr_dam_boat.c 2026-10-11; port/src/gevr_bean_folder.c, gevr_bean_font.c, gevr_bean_images.c 2026-10-11; port/src/gevr_bean_import.c 2026-10-12; port/src/gevr_bean_ce.c 2026-10-19; src/game/gevr_footsteps.c 2026-11-16; port/src/gevr_beanmag.c 2026-11-18 (touching this line makes the glob re-run)
 # src/game/gevr_ally.c added 2026-10-17 (refresh the game source glob).
 # port/src/gevr_pull.c, src/game/gevr_forcepull.c added 2026-11-05 (force pull).
 # src/game/gevr_thirdperson.c added 2026-11-05 (third person, #230).
@@ -705,6 +717,12 @@ if(GEVR_PC)
     # (port/ios/project.yml) links it with ANGLE's frameworks and Apple's.
     # HTTPS goes through NSURLSession (port/ios/ios_http.mm), not libcurl.
     file(GLOB SRC_IOS CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/port/ios/*.m" "${CMAKE_SOURCE_DIR}/port/ios/*.mm")
+    if(GEVR_TVOS)
+      # Apple TV: the same library, plus what a TV has instead of iOS's
+      # document picker (the local-network upload, port/tvos)
+      file(GLOB SRC_TVOS CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/port/tvos/*.m" "${CMAKE_SOURCE_DIR}/port/tvos/*.mm")
+      list(APPEND SRC_IOS ${SRC_TVOS})
+    endif()
     add_library(gevr_ios STATIC ${SRC} ${SRC_IOS})
     add_dependencies(gevr_ios gevr_buildid)
     target_include_directories(gevr_ios PRIVATE ${GEVR_INCLUDES} "${ANGLE_DIR}/include")

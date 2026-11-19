@@ -30,9 +30,14 @@ and calibration decisions remain below. The newest seven await headset acceptanc
   reload when the other hand is occupied.
 - VR physically inserts ammunition and automatically readies the weapon. Reuse
   GE-X held-ammunition poses and receiver motion without moving tracked hands
-  away from their controllers. Separate manual slides/bolts/latches come later.
-- PP7 combines position and proximity: a clear underside grab selects magazine
-  removal; ambiguous cupping selects support. Removal needs a deliberate pull.
+  away from their controllers. Separate manual slides/bolts/latches come later
+  (the plan, for GE-X and Bean alike: `docs/project-bean.md`, "Path to a manual
+  slide rack").
+- Pistols (the PP7s, the DD44) are not pulled: the magazine is inside the grip
+  (user, 2026-11-18). B / Y drops it; a grab under the pistol is support. Rifles
+  and submachine guns keep the pull (`bondview2.c gevrReloadMagPulls`).
+  Before that the PP7 combined position and proximity: a clear underside grab
+  selected magazine removal; ambiguous cupping selected support.
   Grip ownership persists until release; support never converts into a reload.
 - Seating requires release before another grab/support hold. Button eject stays.
 - Dual wield keeps independent gun-to-belt reloads. Holster one gun for detailed

@@ -40,6 +40,11 @@ void sysLogPrintf(int level, const char *fmt, ...);
 static void gevrIosClaimControllers(UIView *v)
 {
     if (!v) return;
+#if TARGET_OS_TV
+    // Apple TV: SDL's view controller is a GCEventViewController that already
+    // keeps controller events from UIKit (SDL_HINT_APPLE_TV_CONTROLLER_UI_EVENTS)
+    (void)v;
+#else
     if (@available(iOS 18.0, *)) {
         for (id<UIInteraction> i in v.interactions) {
             if ([i isKindOfClass:GCEventInteraction.class]) return;
@@ -50,6 +55,7 @@ static void gevrIosClaimControllers(UIView *v)
         sysLogPrintf(0, "ios: game controllers to the game: GCEventInteraction on %s (in a window %d, on a scene %d)",
                      NSStringFromClass(v.class).UTF8String, v.window != nil, v.window.windowScene != nil);
     }
+#endif
 }
 
 /* The game's view (ios_angle.mm): a sceneless window is in no list UIKit
@@ -68,6 +74,12 @@ void gevrIosSetHostView(void *view)
      */
     UIView *v = s_hostView;
     dispatch_async(dispatch_get_main_queue(), ^{ gevrIosClaimControllers(v); });
+    // the controllers there already (the connect note below runs before the log opens)
+    for (GCController *c in GCController.controllers) {
+        sysLogPrintf(0, "ios: controller: %s (%s), extended gamepad %d, micro gamepad %d",
+                     c.vendorName.UTF8String ?: "?", c.productCategory.UTF8String ?: "?",
+                     c.extendedGamepad != nil, c.microGamepad != nil);
+    }
 }
 
 /* Moves SDL's sceneless windows onto the app's scene; returns how many. */
@@ -122,6 +134,17 @@ void gevrIosPrepare(void)
     SDL_SetHintWithPriority(SDL_HINT_RETURN_KEY_HIDES_IME, "1", SDL_HINT_OVERRIDE);
     // landscape only, so SDL never lays its view out portrait (Info.plist agrees)
     SDL_SetHintWithPriority(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight", SDL_HINT_OVERRIDE);
+#if TARGET_OS_TV
+    // Apple TV: the Siri Remote is a pad, read through GameController (its
+    // touch surface or ring, the click as A, Back as B, Play/Pause as X), and
+    // it drives the launcher. Every controller's presses are the game's alone,
+    // so Back never leaves the app (the TV button still does). As keys
+    // instead, its presses never reached SDL's view (simulator, 2026-11-18:
+    // the system's Settings took the same presses). tvos_upload.mm hands
+    // controllers to UIKit while its dialog is up.
+    SDL_SetHintWithPriority(SDL_HINT_TV_REMOTE_AS_JOYSTICK, "1", SDL_HINT_OVERRIDE);
+    SDL_SetHintWithPriority(SDL_HINT_APPLE_TV_CONTROLLER_UI_EVENTS, "0", SDL_HINT_OVERRIDE);
+#endif
     // which controllers the system hands the app (the iPad app on Vision Pro)
     [NSNotificationCenter.defaultCenter addObserverForName:GCControllerDidConnectNotification object:nil queue:nil
                                                 usingBlock:^(NSNotification *n) {
@@ -135,12 +158,16 @@ void gevrIosPrepare(void)
  * Touch vibration): SDL lists no haptic device for the phone itself. */
 void gevrIosHaptic(void)
 {
+#if TARGET_OS_TV
+    return;   // no touch controls and no Taptic Engine on a TV
+#else
     static UIImpactFeedbackGenerator *tap;
     if (!tap) {
         tap = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
     }
     [tap impactOccurred];
     [tap prepare];   // keeps the engine warm for the next press
+#endif
 }
 
 /*

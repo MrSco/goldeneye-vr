@@ -1,5 +1,73 @@
+/* A level's faces back to back (markLevelSides(), DAB writeLeaf()): a sheet's
+ * face and a fighting face cull their backs (GEVR_ROOM_FACES); a fighting
+ * face is drawn again, its back alone (GEVR_ROOM_BACKS), with the same
+ * corners; a model list's sides are not read. */
+static void roomSideChecks(void)
+{
+    struct gevrBeanMesh m = {.ntex = 1, .roomMaterial = 1};
+    Vtx tile[16];
+    m.standin[0] = tile;
+    m.texW[0] = m.texH[0] = 16;
+    struct gevrEmitVert v[9] = {0};
+    for (int i = 0; i < 9; i++) {
+        v[i].alpha = 255; memset(v[i].rgba, 255, 4);
+        v[i].p[0] = (float)(i * 10); v[i].p[1] = (float)((i % 3) * 7); v[i].p[2] = (float)(i / 3);
+    }
+    for (int i = 0; i < 3; i++) v[i].side = GEVR_BEAN_SIDE_FIGHTS;
+    for (int i = 3; i < 6; i++) v[i].side = GEVR_BEAN_SIDE_BACKED;
+    void *dl, *raw;
+    for (int room = 1; room >= 0; room--) {
+        m.roomMaterial = room;
+        assert(gevrBeanEmitList(&m, v, 9, 0, 0, 0, 1, &dl, &raw));
+        int faces = 0, backs = 0, tris = 0, backTris = 0, inBacks = 0, cleared = 0, fightTris = 0;
+        uint32_t faceMode = 0;
+        const Vtx *loaded = NULL;
+        int fight[2][3][3];
+        for (Gfx *g = dl; (g->words.w0 >> 24) != (G_ENDDL & 255); g++) {
+            unsigned op = g->words.w0 >> 24;
+            if (op == G_GEVR_ROOM_STATE) {
+                faces += (g->words.w0 & GEVR_ROOM_FACES) != 0;
+                backs += (g->words.w0 & GEVR_ROOM_BACKS) != 0;
+                inBacks = (g->words.w0 & GEVR_ROOM_BACKS) != 0;
+                /* the back pass keeps its face's own mode */
+                if (inBacks) assert(g->words.w1 == faceMode);
+                else faceMode = (uint32_t)g->words.w1;
+            }
+            /* the cull a level's list leaves is cleared at its end */
+            if (op == (G_CLEARGEOMETRYMODE & 255) && g->words.w1 == G_CULL_BOTH)
+                cleared++;
+            if (op == (G_VTX & 255))
+                loaded = (const Vtx *)(uintptr_t)g->words.w1;
+            if (op == (G_TRI1 & 255)) {
+                const unsigned corner[3] = {(unsigned)(g->words.w1 >> 16 & 255) / 10,
+                                            (unsigned)(g->words.w1 >> 8 & 255) / 10, (unsigned)(g->words.w1 & 255) / 10};
+                const Vtx *t = &loaded[corner[0]];
+                tris++;
+                backTris += inBacks;
+                /* the fighting triangle is the one at z 0 */
+                if (t->v.ob[2] == 0 && fightTris < 2) {
+                    for (int k = 0; k < 3; k++)
+                        for (int c = 0; c < 3; c++)
+                            fight[fightTris][k][c] = loaded[corner[k]].v.ob[c];
+                    fightTris++;
+                }
+            }
+        }
+        if (room) {
+            /* the sheet's and the fighting face's batches, then the fighting face's back */
+            assert(faces == 2 && backs == 1 && tris == 4 && backTris == 1 && cleared == 1);
+            assert(fightTris == 2 && !memcmp(fight[0], fight[1], sizeof(fight[0])));
+        } else {
+            assert(faces == 0 && backs == 0 && tris == 3 && cleared == 0);
+        }
+        free(dl); free(raw);
+    }
+    puts("Room sides: a sheet and a fighting face cull their backs; the fighting face's back drawn again, pushed");
+}
+
 static void roomMaterialChecks(void)
 {
+    roomSideChecks();
     struct gevrBeanMesh m = {.ntex = 2, .roomMaterial = 1};
     Vtx tile[16];
     m.standin[0] = m.standin[1] = tile;

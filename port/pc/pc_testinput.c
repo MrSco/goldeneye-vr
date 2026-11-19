@@ -33,6 +33,8 @@
  *                            pcOpenPicker), the rest of the line; "pick -" is
  *                            Cancel. A scripted run never opens the Open dialog:
  *                            with no pick waiting, a picker is cancelled.
+ *                            "pick !" opens the real one, outside Windows (the
+ *                            Apple TV's upload dialog, port/tvos/tvos_upload.mm).
  *
  * '#' starts a comment.
  */

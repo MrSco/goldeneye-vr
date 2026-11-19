@@ -1,4 +1,5 @@
 #include "../src/gevr_bean.c"
+#include "../src/gevr_beanmag.c"
 #include "../src/gevr_static_mesh_build.inc.h"
 int gevrRomIsVariant(void) { return 0; } /* GoldenEye: no hack campaign */
 int gevrRomCampaign(void) { return GEVR_CAMPAIGN_GE; }
@@ -19,6 +20,7 @@ int VrGexGuns;
 /* model.c, for gevr_bean_wounds.inc.h: no bruises in this fixture */
 union ModelRwData *modelGetNodeRwData(Model *model, ModelNode *node) { (void)model; (void)node; return NULL; }
 s32 modelFindNodeMtxIndex(ModelNode *node, s32 arg1) { (void)node; (void)arg1; return -1; }
+s32 vtxstoreIsWreckCopy(const void *vertices) { (void)vertices; return 0; }
 uintptr_t osVirtualToPhysical(void *p)
 {
 	return (uintptr_t)p;
@@ -310,6 +312,10 @@ static void checkRigid(ModelFileHeader *h, const struct gevrBeanMesh *mesh, int 
 		} else if (kind == BEAN_GUN && gunHandNode(h, s_swap[i].node)) {
 			assert(!hand);
 			hand = s_swap[i].node;
+			int triangles = 0;
+			for (int t = 0; t < mesh->ntris; t++)
+				triangles += triWanted(mesh, &mesh->tris[t], kind, 0) && gunGloveTri(mesh, &mesh->tris[t]);
+			assert(s_swap[i].emittedVerts == triangles * 3);
 		} else if (kind == BEAN_GUN) {
 			assert(!hand && !listToggled(h, s_swap[i].node) && nodeMatrix(s_swap[i].node) != nodeMatrix(anchor));
 		}
@@ -660,11 +666,67 @@ int main(int argc, char **argv)
 	int kind = sourceForName(argv[2], source, sizeof(source));
 	assert(kind);
 	struct gevrBeanMesh *mesh = NULL;
-	int loaded = gevrBeanLoad(argv[6], 1, &mesh);
-	if (!loaded) {
+	if (kind == BEAN_GUN)
+		mesh = cachedLoad(argv[6], 1, kind);
+	else
+		gevrBeanLoad(argv[6], 1, &mesh);
+	if (!mesh) {
 		printf("FALLBACK %s\n", argv[2]);
 		free(native);
 		return 0;
+	}
+	static const char *const patched[] = {
+		"GwppkZ", "GwppksilZ", "GgoldwppkZ", "GsilverwppkZ", "Gtt33Z",
+		"GrugerZ", "GgoldengunZ", "GknifeZ", "GthrowknifeZ",
+	};
+	for (size_t i = 0; i < sizeof(patched) / sizeof(patched[0]); i++) {
+		if (strcmp(argv[2], patched[i]))
+			continue;
+		struct gevrBeanMesh *raw = NULL;
+		assert(gevrBeanLoad(argv[6], 1, &raw));
+		/* the sculpted patch's 297, and the 43 that close the opening it leaves round
+		 * the handle (gevr_bean_armseal.inc.h beanSealGunHand): the lining's inner edge */
+		assert(mesh->ntris == raw->ntris + 297 + 43);
+		int tex = mesh->tris[raw->ntris].tex;
+		assert(beanGunHandTexture(mesh, tex) && mesh->standin[tex] == raw->standin[tex]);
+		for (int t = raw->ntris; t < mesh->ntris; t++)
+			assert(mesh->tris[t].tex == tex);
+		/* A different UV layout on the same mesh must not reuse this patch. */
+		for (int t = 0; t < raw->ntris; t++) {
+			if (raw->tris[t].tex == tex) {
+				raw->tris[t].uv[0] += .01f;
+				break;
+			}
+		}
+		int rawCount = raw->ntris;
+		beanPatchGunHand(raw);
+		assert(raw->ntris == rawCount);
+		gevrBeanMeshFree(raw);
+		/* dressed and closed, the glove has no open edge left: every edge two triangles' */
+		{
+			int open = 0;
+			for (int a = 0; a < mesh->ntris; a++) {
+				if (mesh->tris[a].tex != tex)
+					continue;
+				for (int c = 0; c < 3; c++) {
+					const float *p = &mesh->tris[a].p[c * 3], *q = &mesh->tris[a].p[((c + 1) % 3) * 3];
+					int shared = 0;
+					for (int b = 0; b < mesh->ntris && !shared; b++) {
+						if (b == a || mesh->tris[b].tex != tex)
+							continue;
+						for (int d = 0; d < 3 && !shared; d++) {
+							const float *r = &mesh->tris[b].p[d * 3], *s = &mesh->tris[b].p[((d + 1) % 3) * 3];
+							shared = fabsf(p[0] - s[0]) + fabsf(p[1] - s[1]) + fabsf(p[2] - s[2]) < 0.02f &&
+							         fabsf(q[0] - r[0]) + fabsf(q[1] - r[1]) + fabsf(q[2] - r[2]) < 0.02f;
+						}
+					}
+					open += !shared;
+				}
+			}
+			assert(open == 0);
+		}
+		printf("HANDPATCH %s 297 triangles and 43 closing it, existing atlas %d\n", argv[2], tex);
+		break;
 	}
 	s_want = s_available = 1;
     FILE *legacy=fopen("gevr_body_batch.txt","w");assert(legacy);fputs("0",legacy);fclose(legacy);
@@ -762,6 +824,86 @@ int main(int argc, char **argv)
             free(a);
             free(b);
         }
+    /* A gun with a magazine to take out (gevr_beanmag.h): only the table's guns,
+     * and its body list then has two more builds on the same matrix - the gun
+     * with its magazine out, and the magazine alone, seated where the well is. */
+    {
+        const struct beanFit *magFit = fitForName(argv[2]);
+        struct gevrBeanMagInfo info;
+        const int wants = kind == BEAN_GUN && magFit && gevrBeanMagFor(magFit->source) != NULL;
+        assert(gevrBeanGunMagazine(&header, &info) == wants);
+        for (int i = 0; i < s_nswap; i++) {
+            assert(!s_swap[i].magInfo == !s_swap[i].open && !s_swap[i].open == !s_swap[i].magazine);
+            assert(!s_swap[i].magInfo == !s_swap[i].ghost[0] && !s_swap[i].ghost[0] == !s_swap[i].ghost[1]);
+            /* a moving part that is the magazine (a cylinder): its own list stands down with it */
+            if (s_swap[i].magPart) {
+                void *part = s_swap[i].original ? s_swap[i].original : NULL;
+                assert(wants && !s_swap[i].magInfo);
+                if (part && gevrBeanShownGdl(s_swap[i].node, part) == s_swap[i].ours) {
+                    gevrBeanSetMagazine(GEVR_BEAN_MAG_OUT);
+                    assert(gevrBeanShownGdl(s_swap[i].node, part) == s_blank);
+                    gevrBeanSetMagazine(GEVR_BEAN_MAG_IN);
+                    assert(gevrBeanShownGdl(s_swap[i].node, part) == s_swap[i].ours);
+                    printf("MAGAZINE %s part on matrix %d stands down\n", argv[2], nodeMatrix(s_swap[i].node));
+                }
+            }
+            if (!s_swap[i].magInfo)
+                continue;
+            struct beanSwap whole = s_swap[i], open = s_swap[i], mag = s_swap[i];
+            float (*a)[3], (*b)[3], (*c)[3], rest[3], lo[3] = {1e9f, 1e9f, 1e9f}, hi[3] = {-1e9f, -1e9f, -1e9f};
+            void *current = s_swap[i].original ? s_swap[i].original : NULL;
+            open.ours = open.open;
+            mag.ours = mag.magazine;
+            const int na = swapVerts(&whole, &a), nb = swapVerts(&open, &b), nc = swapVerts(&mag, &c);
+            printf("MAGAZINE %s whole %d open %d magazine %d vertices\n", argv[2], na, nb, nc);
+            assert(wants && info.node == s_swap[i].node && info.matrix == nodeMatrix(s_swap[i].node));
+            /* some twenty triangles or more left the gun (the floor is not as many); a loose
+             * round is a copy, and the gun keeps what it was copied from */
+            assert(nb > 0 && nc >= 3 * 40);
+            assert(info.single ? nb == na : nb <= na - 3 * 20);
+            /* the well runs up the gun (its y), and the magazine fills it from mouth to top */
+            restOf(s_swap[i].node, rest);
+            for (int v = 0; v < nc; v++)
+                for (int k = 0; k < 3; k++) {
+                    if (c[v][k] < lo[k]) lo[k] = c[v][k];
+                    if (c[v][k] > hi[k]) hi[k] = c[v][k];
+                }
+            /* into the gun: up, or for the RC-P90's on the gun's top, down; the top is
+             * the mouth's side of the magazine that way */
+            {
+                const float unit = info.axis[0] * info.axis[0] + info.axis[1] * info.axis[1] + info.axis[2] * info.axis[2];
+                float along = 0;
+                for (int k = 0; k < 3; k++)
+                    along += (info.top[k] - info.mouth[k]) * info.axis[k];
+                assert(fabsf(unit - 1.0f) < 1e-3f && (info.single || along >= -1e-3f));
+                assert(!info.pullUp || info.axis[1] < -0.7f);
+            }
+            for (int k = 0; k < 3; k++) {
+                /* a loose round's mouth is the gun's port, away from the round */
+                assert(info.single || (info.mouth[k] + rest[k] > lo[k] - 2.0f && info.mouth[k] + rest[k] < hi[k] + 2.0f));
+                assert(info.top[k] + rest[k] > lo[k] - 2.0f && info.top[k] + rest[k] < hi[k] + 2.0f);
+                assert(info.foot[k] + rest[k] > lo[k] - 2.0f && info.foot[k] + rest[k] < hi[k] + 2.0f);
+                assert(info.hold[k] + rest[k] > lo[k] - 2.0f && info.hold[k] + rest[k] < hi[k] + 2.0f);
+            }
+            /* the draw's three states, and back */
+            if (gevrBeanShownGdl(s_swap[i].node, current) == s_swap[i].ours) {
+                gevrBeanSetMagazine(GEVR_BEAN_MAG_OUT);
+                assert(gevrBeanShownGdl(s_swap[i].node, current) == s_swap[i].open);
+                gevrBeanSetMagazine(GEVR_BEAN_MAG_ITSELF);
+                assert(gevrBeanShownGdl(s_swap[i].node, current) == s_swap[i].magazine);
+                gevrBeanSetMagazine(GEVR_BEAN_MAG_GHOST);
+                assert(gevrBeanShownGdl(s_swap[i].node, current) == s_swap[i].ghost[0]);
+                gevrBeanSetMagazine(GEVR_BEAN_MAG_GHOST_READY);
+                assert(gevrBeanShownGdl(s_swap[i].node, current) == s_swap[i].ghost[1]);
+                gevrBeanSetMagazine(GEVR_BEAN_MAG_IN);
+                assert(gevrBeanShownGdl(s_swap[i].node, current) == s_swap[i].ours);
+                printf("MAGAZINE %s draws in, out and alone\n", argv[2]);
+            }
+            free(a);
+            free(b);
+            free(c);
+        }
+    }
     checkScreens(&header, mesh, kind, fitForName(argv[2]), argv[2]);
     if (kind == BEAN_GUN) {
         Model model = {0}; model.obj = &header;
@@ -965,7 +1107,8 @@ int main(int argc, char **argv)
 		fflush(stdout);
 	}
 	combinedBodyCheck(&header,mesh,kind,fitForName(argv[2]));
-	gevrBeanMeshFree(mesh);
+	if (kind != BEAN_GUN)
+		gevrBeanMeshFree(mesh);
 	gevrBeanReset();
 	free(native);
 	return 0;

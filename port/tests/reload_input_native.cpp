@@ -40,6 +40,8 @@ int bond_pressed_reload_activate() { return g_CurrentPlayer->field_D0; }
 bool bond_interact_object() { interactionCount++; return !interact; }
 int gevrHandReloadActive() { return VrManualReloading && VrGexGuns && (!connected || slot == localSlot); }
 int gevrManualReloadOn(int) { return gevrHandReloadActive(); }
+int gevrBeanIsEnabled() { return 0; }   /* Bean's models off: hand reload is GoldenEye X's here */
+int gevrReloadButtonDrops(int hand) { return gevrManualReloadOn(hand); }   /* bondview2.c */
 int ejections[2];
 void gevrGexDropMagazine(int hand) { ejections[hand]++; }
 struct Pad { unsigned button; } pad, *npad = &pad;

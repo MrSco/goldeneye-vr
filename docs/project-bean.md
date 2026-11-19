@@ -41,6 +41,7 @@ pictures use the original game textures, as in Dab's Mod (its explosions are
 the cartridge's); HD / AI and legacy texture packs cannot fill those gaps. Switching during a level clears previous texture uploads and caches.
 With GoldenEye X enabled, its first-person guns, arms, watch and hand-reload rig
 keep priority and their own ROM textures. Bean supplies the other models and rooms.
+With it off, Bean's magazine-fed guns have a magazine to take out by hand (below).
 
 During play, use **watch → VR options → Mods and fun → Project Bean** or hold
 exactly one grip + right-stick click for one second. Both switches affect meshes
@@ -63,6 +64,187 @@ intro logo also keep native geometry, following DAB's fallback choices.
 Statue now has Bean rooms. The installed edition determines which skies exist;
 the game keeps its sky when a replacement is absent and keeps its original
 water pass when a Bean dome is drawn.
+
+## Removable magazines (hand reload, WIP)
+
+With GoldenEye X off, Bean on and **Hand reload WIP** on (Controls → Gestures), a
+Bean gun that has a magazine reloads by hand through the same states as GE-X's:
+B / Y drops the magazine out, take a fresh one at the belt, bring its top to the
+well. A pistol's magazine is not pulled out by hand, GE-X's or Bean's: it is
+inside the grip, with too little showing to take hold of. Rifles and submachine
+guns, whose magazine hangs out of the gun, keep the pull (`bondview2.c
+gevrReloadMagPulls`), so a Bean rifle added to the table gets it too.
+A touch of the gun hand at the belt still loads it one-handed. No gun reloads
+itself or by B / Y while hand reload is on, as with GE-X: one whose model has
+nothing to take (the sniper rifle, the Golden Gun) reloads by the belt's touch
+or the chest cross, which run the game's own reload.
+
+| Gun | Magazine | Out by |
+| --- | --- | --- |
+| PP7, silenced, silver, gold (one grip) | cut from the grip | B / Y |
+| DD44 | cut from the grip | B / Y |
+| Klobb, KF7, ZMG, D5K, silenced D5K, Phantom, AR33 | a piece of the mesh on its own | pull down, or B / Y |
+| RC-P90 | the see-through one on top, with its rounds | lift up, or B / Y |
+| Cougar | its cylinder (and the plate behind it) | B / Y |
+| Grenade launcher | its drum | B / Y |
+| Rocket launcher | the rocket in its tube | fired, it is gone; loaded, it stays |
+| Shotgun, automatic shotgun | a shell: a copy of one on the gun's saddle | never out: a shell at a time goes in |
+
+The round-at-a-time guns (user, 2026-11-18: "cut off a shotgun shell from a
+shotgun model and for the cougar magnum you can cut out the chamber and use
+that as the magazine, same with grenade launcher and rocket launcher"):
+
+- **Shotguns** load as GE-X's: grip at the belt takes one shell from the
+  reserve, its middle at the port under the receiver puts it in, let go
+  elsewhere and it goes back. The gun is never open and its saddle stays full.
+- **Cougar and grenade launcher**: the cylinder is a magazine. B / Y drops it
+  with its rounds, a full one comes from the belt, and it seats at the middle of
+  where it sits. A cylinder turns on GoldenEye's drum matrix, so it is taken
+  from that moving part and the part's own list is not drawn while it is out.
+- **Rocket launcher**: the rocket is the magazine (the loader's round in the
+  tube). Fired, the launcher's is out with nothing to drop; a fresh one from the
+  belt goes in tail first at the muzzle.
+
+The sniper rifle's mesh shows no magazine and the Golden Gun's no round, so
+both keep the game's reload (GE-X's models have them).
+
+The release's guns are one skinned mesh each with no magazine bone, and its
+dropped-magazine props are a 28-triangle wedge, so the magazine is made from the
+gun when the gun is laid out (`port/src/gevr_beanmag.c`, `gevr_bean.c`
+`gunMagazine()`):
+
+- **The foot** is the gun's own triangles below a plane across the grip (the
+  PP7's floor plate and finger rest), cut along it. Triangles that straddle the
+  plane are split, with their picture, so nothing is lost or doubled.
+- **The body** is a plain dark prism up the well from that plane: the grip's own
+  outline there, drawn in. The well's direction is read from the grip's outline
+  at two heights, so it follows the grip's lean.
+- **The gun without it** is everything else plus a dark floor a little way up the
+  empty well. The guns draw two-sided, so the grip's inner walls show round it.
+
+That is a pistol's. A rifle's or a submachine gun's magazine hangs out of the
+gun, and in the release's meshes it is a piece on its own: it shares no corner
+with the rest of the gun. There the magazine is every such piece wholly inside
+a box round it, taken whole, with a lid just under its top; the gun without it
+is the rest, untouched. Nothing is cut, no body is made, and no floor is added:
+where the magazine went in, the release's gun may be open, shut, or not there
+at all (the AR33's hangs off the receiver's front, and a guessed floor hung in
+the air). It goes in the way its own top third runs, so a curved or leaning
+magazine seats along itself.
+
+**Placeholders.** As GE-X's: with the magazine out, its see-through silhouette
+stands in the gun where it goes, and at the belt where a fresh one is taken,
+blue, or green when the hand is there. They are two more builds of the body
+list, the magazine's triangles plain and tinted (the RC-P90's, with its
+thousands of rounds, is its box).
+
+**The off hand is its palm.** GE-X's left hand is posed with the palm on the
+controller's grip. Bean's off hand is GoldenEye's watch arm, whose hand lies
+well ahead of the grip, so the place that takes a magazine at the belt or off
+the gun is the palm the magazine is held in: Gun fit's held ammo. Fit that and
+both follow.
+
+The gun's body list then has three builds on the same matrix: whole (the
+release's own, drawn while the magazine is in), open, and the magazine alone.
+`gun.c gevrBeanMagDraw` picks per draw (`gevrBeanSetMagazine`), and draws the
+magazine by itself under another matrix: the off hand's, or a falling one's.
+It lies in the gun's space, so under the gun's own matrix it is seated. In the
+hand it is turned as the gun would be in that hand; held alike, it lines up
+with the well. The hands are the player's own. Nothing is animated.
+
+**The slide** needs no code of its own. GoldenEye's slide clock already holds the
+slide back while the magazine is empty and lets it home once it holds rounds
+(`gun.c sub_GAME_7F05E83C`), and the release's slide rides GoldenEye's matrix.
+With hand reload the gun stays empty until a magazine seats, so the PP7 locks
+open on its last round and closes on a loaded magazine, as GE-X's does.
+
+**Gun fit** (launcher or in-game): X steps to **held ammo** and **ammo
+insertion** for a Bean magazine too. They move the magazine in the off hand and
+the well's mouth on the gun; the off trigger in the insertion mode puts the
+mouth at the held magazine's top. Saved per gun as `BeanMagFit<item>_<0|1>`,
+the PP7s sharing item 4's. Unfitted, both are where the mesh has them.
+
+### The off-hand arm
+
+Bean's off hand is the release's watch arm (`new/char/suitlfhand`). Its hand is
+whole, but it was made to be seen from one side: the bare forearm ends in an
+open rim, every outfit's sleeve is open at the elbow, and two sleeves are open
+along their length. With backs culled, each opening showed straight through.
+At load (`port/src/gevr_bean_armseal.inc.h`):
+
+- the hand and sleeves are drawn in to 92% about the watch's middle, the watch
+  itself left at its size, so the wrist sits inside the band;
+- each far-end rim is closed with a fan, each lengthwise opening laced shut
+  from side to side; the wrist end, where the hand comes through, stays open.
+
+Nothing is authored: the rims are found in the mesh, and each new triangle
+uses the rim's own corners (place, picture, shade, bones). The closing faces
+are flat and take the sleeve's own picture stretched across them.
+
+### Adding a gun
+
+1. Add a row in `gevr_beanmag.c` for the gun's file, then draw it:
+   `python tools/gevr_bean_mag_preview.py <xbla files> <out dir> gun/<name>`
+   (no gun named: the whole table).
+   - A magazine that is a piece of its own: `ISLAND_MAGAZINE` with a box that
+     holds all of it and no other whole piece, and how much of its top is inside
+     the gun.
+   - One inside the grip: copy the PP7's row and move its plane (unit normal up
+     the well; `n.p + d >= 0` stays on the gun) and box.
+
+   The picture should show the magazine blue, what was made for it (body, lid,
+   the well's floor) orange, and the hand whole.
+2. Name its item in `gun.c gevrBeanMagItem` (and `gevrBeanMagFit` if it shares
+   another's fits).
+3. `python port/tests/test_bean_magazine.py <xbla files>` and
+   `python port/tests/test_hand_reload.py`; with the ROM,
+   `python port/tests/test_bean_mapping.py <ROM> <xbla files>` prints a
+   `MAGAZINE` line for it.
+
+A pistol's item also needs no more than that: `bondview2.c gevrReloadMagPulls`
+goes by the weapon wheel's pistols.
+
+### Not done yet
+
+- Checked in the headset (2026-11-18): the PP7, whose held place is every gun's
+  default, and the rifles' and submachine guns' reloads. Not yet: the shotguns'
+  port (under the receiver, a guess from the mesh: Gun fit's ammo insertion
+  moves it), how a shell, cylinder, drum and rocket sit in the hand, and the
+  placeholders.
+- Nothing is sent to other players: the magazine's state is local, as GE-X's.
+
+### Path to a manual slide rack (both families)
+
+Not built. GE-X has none either: its slide cycles, locks open and closes on its
+own. The plan keeps GoldenEye's `field_A88` as the one slide position for both
+model sets, so the mesh side is already shared (GE-X: part 0x33's matrix,
+`gevrGexSlideTo`; Bean: `Switches[7]`).
+
+1. **A chambered flag per gun hand**, beside the magazine's state in
+   `bondview2.c`. A shot chambers the next round while the magazine has one; the
+   last shot leaves the chamber empty and the slide back.
+2. **The clock waits for the hand.** `sub_GAME_7F05E83C` returns the slide while
+   `weapon_ammo_in_magazine > 0`; with manual rack on it also needs the flag, so
+   a magazine seated on an empty chamber leaves the slide locked.
+3. **The grab.** A point at the slide's rear per gun (GE-X: a `GexWeaponDef`
+   field in the slide matrix's space; Bean: a field in `GevrBeanMagDef`'s row).
+   The off hand's fresh grip within reach owns the slide until let go, ahead of
+   the magazine and the two-handed hold (`gevrGexClaimsOffHand` is where that
+   order is decided). While held, `field_A88` is the hand's pull along the
+   slide's own z, clamped to `BoltRecoilBack`.
+4. **The rack.** Pulled past most of its travel and let go, the slide runs home
+   on the existing clock and sets the flag. Let go short of that, it returns
+   without chambering. A release button can do the same from locked.
+5. **Rules.** A reload with a round still chambered needs no rack. Racking a
+   loaded gun throws a round away (reserve unchanged, magazine less one), or is
+   refused; decide in the headset.
+6. **Around it.** A `RACK THE SLIDE` label (`gevr_hand_reload.h`), a Gun fit mode
+   for the grab point, its own toggle (off by default, under Hand reload), and
+   `test_slide_lock.py` extended to the held slide and the flag.
+
+Only guns with a slide part and a bolt stat take part: the PP7s and the DD44.
+Rifle bolts and charging handles are the same mechanism with another point and
+axis.
 
 ## Validation for PR #170
 
@@ -118,6 +300,9 @@ The local Dam stride-36 shader fetches position at dword 1, normal at dword 4,
 diffuse UV at dword 5 and colour at dword 8.
 
 ## Headset checks before publishing
+
+Check a Bean report against the release itself in Xenia
+(docs/xenia-reference.md) before calling something the release's own look.
 
 - Dam: ground alignment, sky rotation, water, portal visibility, texture seams,
   Bond's body and head, KF7, slide and muzzle flash.

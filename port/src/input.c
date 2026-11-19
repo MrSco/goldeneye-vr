@@ -120,6 +120,9 @@ extern float VrGexKf7MagOff[3], VrGexPp7MagOff[3];
 extern float *gevrGexHeldMagFit(s32 item);
 extern float VrGexKf7WellOff[3], VrGexPp7WellOff[3];
 extern float *gevrGexWellFit(s32 item);
+extern float *gevrBeanMagFit(s32 item, s32 which);   /* gun.c: a Bean gun's held magazine (0) and well (1) */
+extern s32 gevrBeanMagFitAvailable(void);            /* bondview2.c */
+extern float VrBeanMagFits[64][2][3];
 extern void gevrReloadFitSetWell(void);
 extern int VrGexGuns;                     /* vr_settings_defaults.c: GoldenEye X's models */
 extern int VrManualReloading;
@@ -146,17 +149,20 @@ static struct {
     float pp7SupportRot[3];
     float kf7Well[3], pp7Well[3];
     float weaponFits[64][10][3];   /* GEVR_GEX_FIT_COMPONENTS, checked below */
+    float beanMagFits[64][2][3];   /* Bean guns' magazines (gun.c gevrBeanMagFit) */
     float batFit[3][3];            /* the rifle butt as a bat (gevr_gexweapon.h) */
     float bodySlots[GEVR_BODY_SLOTS][3];
     float gunPer[2][GEVR_MAX_WEAPONS][3], gripPer[2][GEVR_MAX_WEAPONS][6];   /* each gun's own (gevr_scope.h) */
     unsigned char gunPerSet[2][GEVR_MAX_WEAPONS], gripPerSet[2][GEVR_MAX_WEAPONS];
 } s_gunFitSaved;
 _Static_assert(sizeof(s_gunFitSaved.weaponFits) == sizeof(VrGexWeaponFits), "fit snapshot matches the fits");
+_Static_assert(sizeof(s_gunFitSaved.beanMagFits) == sizeof(VrBeanMagFits), "fit snapshot matches Bean's magazine fits");
 
 static void gevrGunFitSaved(bool restore)
 {
     if (restore) {
         memcpy(VrGexWeaponFits, s_gunFitSaved.weaponFits, sizeof(VrGexWeaponFits));
+        memcpy(VrBeanMagFits, s_gunFitSaved.beanMagFits, sizeof(VrBeanMagFits));
         memcpy(VrGexBatFit, s_gunFitSaved.batFit, sizeof(VrGexBatFit));
         VrGunOffX = s_gunFitSaved.gun[0];
         VrGunOffY = s_gunFitSaved.gun[1];
@@ -192,6 +198,7 @@ static void gevrGunFitSaved(bool restore)
         memcpy(VrGripTrimPerSet, s_gunFitSaved.gripPerSet, sizeof(VrGripTrimPerSet));
     } else {
         memcpy(s_gunFitSaved.weaponFits, VrGexWeaponFits, sizeof(VrGexWeaponFits));
+        memcpy(s_gunFitSaved.beanMagFits, VrBeanMagFits, sizeof(VrBeanMagFits));
         memcpy(s_gunFitSaved.batFit, VrGexBatFit, sizeof(VrGexBatFit));
         s_gunFitSaved.gun[0] = VrGunOffX;
         s_gunFitSaved.gun[1] = VrGunOffY;
@@ -848,6 +855,60 @@ static inline s32 inputTryController(const s32 cidx, const s32 jidx)
     return 0;
 }
 
+#ifdef GEVR_TVOS
+/*
+ * Apple TV: the Siri Remote is always connected, and SDL lists it as a pad so
+ * that it drives the launcher (port/ios/ios_app.m). It connects first, so it
+ * would hold player 1's slot ahead of a game pad. A full pad (two sticks) goes
+ * ahead of anything less: the remote is player 1's only when no pad is there.
+ */
+static s32 inputIsFullPad(SDL_GameController *ctrl)
+{
+    return ctrl && SDL_GameControllerHasAxis(ctrl, SDL_CONTROLLER_AXIS_LEFTX)
+        && SDL_GameControllerHasAxis(ctrl, SDL_CONTROLLER_AXIS_RIGHTX);
+}
+
+static void inputTvPadFirst(void)
+{
+    if (pads[0] && inputIsFullPad(pads[0])) {
+        return;
+    }
+    s32 best = -1;
+    for (s32 i = 1; i < INPUT_MAX_CONTROLLERS; ++i) {
+        if (!pads[i]) {
+            continue;
+        }
+        if (inputIsFullPad(pads[i])) {
+            best = i;
+            break;
+        }
+        if (!pads[0] && best < 0) {
+            best = i;   // player 1 has nothing: anything is better
+        }
+    }
+    if (best < 0) {
+        return;
+    }
+    SDL_GameController *const was = pads[0];
+    const s32 wasRumble = padsCfg[0].rumbleOn, wasDevice = padsCfg[0].deviceIndex;
+    pads[0] = pads[best];
+    padsCfg[0].rumbleOn = padsCfg[best].rumbleOn;
+    padsCfg[0].deviceIndex = padsCfg[best].deviceIndex;
+    pads[best] = was;
+    padsCfg[best].rumbleOn = was ? wasRumble : 0;
+    padsCfg[best].deviceIndex = was ? wasDevice : -1;
+    SDL_GameControllerSetPlayerIndex(pads[0], 0);
+    if (was) {
+        SDL_GameControllerSetPlayerIndex(was, best);
+    } else {
+        connectedMask &= ~(1 << best);
+    }
+    connectedMask |= 1;
+    sysLogPrintf(LOG_NOTE, "input: '%s' is player 1's%s%s", SDL_GameControllerName(pads[0]),
+                 was ? ", ahead of " : "", was ? SDL_GameControllerName(was) : "");
+}
+#endif
+
 static inline void inputInitAllControllers(void)
 {
     SDL_GameControllerUpdate();
@@ -883,6 +944,10 @@ static inline void inputInitAllControllers(void)
             }
         }
     }
+
+#ifdef GEVR_TVOS
+    inputTvPadFirst();
+#endif
 
     const s32 overrideMask = (1 << fakeControllers) - 1;
     if (overrideMask) {
@@ -973,6 +1038,9 @@ static int inputEventFilter(void *data, SDL_Event *event)
                     break;
                 }
             }
+#ifdef GEVR_TVOS
+            inputTvPadFirst();   // a pad connected after the Siri Remote
+#endif
             break;
 
         case SDL_CONTROLLERDEVICEREMOVED: {
@@ -984,6 +1052,9 @@ static int inputEventFilter(void *data, SDL_Event *event)
                     padsCfg[idx].deviceIndex = -1;
                 }
             }
+#ifdef GEVR_TVOS
+            inputTvPadFirst();   // player 1's pad gone: the remote, or another pad
+#endif
             break;
         }
 
@@ -1678,8 +1749,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             if (scope < 0) gevrScopeFitting = 0;
             if (!fitting || !gevrReloadFitAvailable()) gevrReloadFitting = 0;
             if (!gex) gevrOffHandFitting = 0;
-            if (!gex || bat || !gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT))) gevrHeldMagFitting = 0;
-            if (!gex || bat || !gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT))) gevrWellFitting = 0;
+            /* a Bean gun's magazine has the held and well fits too (gun.c gevrBeanMagFit) */
+            const bool beanMag = fitting && !gex && gevrBeanMagFitAvailable();
+            if (!beanMag && (!gex || bat || !gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)))) gevrHeldMagFitting = 0;
+            if (!beanMag && (!gex || bat || !gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)))) gevrWellFitting = 0;
             if (!gex || bat || !gevrGexHasMagazine(gevrGexWeaponForHand(GUNRIGHT))) gevrInstalledMagFitting = 0;
             if (!fitting || !gevrMuzzleFitAvailable()) gevrMuzzleFitting = 0;
             if (!gex) gevrGunHandFitting = 0;
@@ -1707,8 +1780,9 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 if (x && !xHeld && gadget < 0) {
                     static const char *const names[10] = { "gun", "scope", "reload", "off hand", "held magazine", "magazine well", "installed magazine", "barrel tip", "gun hand", "body slots" };
                     /* the bat has no magazine to fit (bondview2.c gevrFitNextLine alike) */
+                    const bool ammo = beanMag || (!bat && gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)));
                     const bool can[10] = { true, scope >= 0, gevrReloadFitAvailable() != 0, gex != 0,
-                        !bat && gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)), !bat && gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)),
+                        ammo, ammo,
                         !bat && gevrGexHasMagazine(gevrGexWeaponForHand(GUNRIGHT)), gevrMuzzleFitAvailable() != 0,
                         gex != 0, gevrBodySlotFitAvailable() != 0 };
                     int mode = gevrScopeFitting ? 1 : gevrReloadFitting ? 2 : gevrOffHandFitting ? 3
@@ -1864,12 +1938,12 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     fit[2] -= my * rate * dt;
                     fit[1] += ry * rate * dt;
                 } else if (gevrWellFitting) {
-                    float *wellFit = gevrGexWellFit(fitItem);
+                    float *wellFit = beanMag ? gevrBeanMagFit(fitItem, 1) : gevrGexWellFit(fitItem);
                     wellFit[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
                     wellFit[2] -= my * rate * dt;
                     wellFit[1] += ry * rate * dt;
                 } else if (gevrHeldMagFitting) {
-                    float *magFit = gevrGexHeldMagFit(fitItem);
+                    float *magFit = beanMag ? gevrBeanMagFit(fitItem, 0) : gevrGexHeldMagFit(fitItem);
                     magFit[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
                     magFit[2] -= my * rate * dt;
                     magFit[1] += ry * rate * dt;
@@ -2609,7 +2683,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         if (s_menuHeld) allowed &= ~(VrLeftHandedMode ? 2u : 1u);
         const unsigned context = 1u + (unsigned)bossGetStageNum() * 32u
             + (unsigned)localSlot * 4u + (VrLeftHandedMode ? 2u : 0u) + (VrPlayMode ? 1u : 0u)
-            + ((VrManualReloading && VrGexGuns) ? 0x10000u : 0u);
+            + ((VrManualReloading && (VrGexGuns || gevrBeanIsEnabled())) ? 0x10000u : 0u);
         gevrReloadInputUpdate(&s_gevrReloadInput, held, allowed, context);
     }
     return 0;

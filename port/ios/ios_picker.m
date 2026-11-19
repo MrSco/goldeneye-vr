@@ -2,7 +2,12 @@
  * iOS: the launcher's file pickers (port/pc/pc_launcher.cpp pcChooseFile):
  * the system's document picker, as a copy, waited for on the game's thread
  * (the main thread) while SDL's event pump keeps UIKit's run loop turning.
+ *
+ * Apple TV has no document picker (and no Files app): port/tvos/tvos_upload.mm
+ * answers gevrIosChooseFile there.
  */
+#include <TargetConditionals.h>
+#if !TARGET_OS_TV
 #import <UIKit/UIKit.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
@@ -68,3 +73,4 @@ int gevrIosChooseFile(const char *title, char *out, int outLen)
         return 1;
     }
 }
+#endif   /* !TARGET_OS_TV */

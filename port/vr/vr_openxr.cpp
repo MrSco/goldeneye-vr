@@ -5690,6 +5690,39 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         }
     }
 
+    // A scoped gun's ammo count beside its lens (user, 2026-11-18, headset: "the
+    // scope view is covering up the ammo HUD more on the KFV, but a little bit
+    // on the sniper rifle too"). The count is a layer 7 cm over the grip and the
+    // lens another, later one, so with the magnifier now shown all the time it
+    // sat under the lens. With a lens on its hand's gun the count goes level
+    // with the lens instead, a centimetre clear of its rim on the hand's own
+    // side (away from the other hand), facing the eyes as before.
+    for (int hand = 0; hand < 2; hand++) {
+        if (!submitScope[hand]) continue;
+        const int ctrl = hand == 0 ? 1 : 0;
+        const XrCompositionLayerQuad& lens = scopeLayer[hand];
+        const XrQuaternionf& lq = lens.pose.orientation;
+        float ax = ((ctrl == 1) != (VrLeftHandedMode != 0)) ? 1.0f : -1.0f, ay = 0.0f, az = 0.0f;
+        rotvec(&ax, &ay, &az, lq.w, lq.x, lq.y, lq.z);
+        XrCompositionLayerQuad *panel = nullptr;
+        if (is_weapon_hud && ctrl == ctrlR && submitMenuR) panel = &menuLayerR;
+        if (is_weapon_hud && ctrl == ctrlL && submitAmmoL) panel = &menuLayerAmmoL;
+        if (panel == nullptr) continue;
+        const float reach = lens.size.width * 0.5f + panel->size.width * 0.5f + 0.01f;
+        const float px = lens.pose.position.x + ax * reach;
+        const float py = lens.pose.position.y + ay * reach;
+        const float pz = lens.pose.position.z + az * reach;
+        const float len = sqrtf(px * px + py * py + pz * pz);
+        panel->pose.position = {px, py, pz};
+        if (len > 0.01f) {
+            const float yaw = vr_atan2f(-px, -pz);
+            const float pitch = vr_asinf(py / len);
+            const XrQuaternionf qy = {0.0f, sinf(yaw * 0.5f), 0.0f, cosf(yaw * 0.5f)};
+            const XrQuaternionf qx = {sinf(pitch * 0.5f), 0.0f, 0.0f, cosf(pitch * 0.5f)};
+            panel->pose.orientation = MultiplyQuaternions(qy, qx);
+        }
+    }
+
     // --- Virtual screen (world-locked) ---
     // Once the screen exists it is submitted on every frame, including the
     // XR frames the pump closes without a game frame (72 Hz display, 60 Hz
