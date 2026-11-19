@@ -678,6 +678,9 @@ int gevrSettingShown(int id)
 #ifdef GEVR_FLAT
     if (r && r->headset) return 0;   /* no headset: no turning, screen, hands or display rate to set */
     if (r && r->section == GEVR_SEC_GESTURES) return 0;   /* tracked hands' gestures */
+#ifdef GEVR_TVOS
+    if (r && r->flat) return 0;      /* touch and gyro: a phone's, and Apple TV has neither */
+#endif
 #else
     if (r && r->flat) return 0;      /* touch and gyro: a phone's */
 #endif

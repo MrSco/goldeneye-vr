@@ -3531,6 +3531,10 @@ extern "C" void gevrLauncherRun(void)
                 // the phone/tablet APK's package (android/app/build.gradle's mobile flavor)
                 ImGui::TextWrapped("Choose your GoldenEye 007 (USA) ROM, or copy it over USB into "
                                    "Android/data/com.gevr.port.mobile/files/data (any name).");
+#elif defined(GEVR_TVOS)
+                // no Files app: the picker takes it from a phone or computer (port/tvos/tvos_upload.mm)
+                ImGui::TextWrapped("Choose your GoldenEye 007 (USA) ROM, then send it from a phone or "
+                                   "computer on the same network.");
 #elif defined(GEVR_IOS)
                 ImGui::TextWrapped("Choose your GoldenEye 007 (USA) ROM, or put it in GoldenEye VR's "
                                    "folder in the Files app (any name).");
@@ -3936,7 +3940,9 @@ extern "C" void gevrLauncherRun(void)
         }   // the START footer
         }   // reportPage
         if (footerNote.empty()) {
-#if defined(GEVR_MOBILE) || defined(GEVR_IOS)
+#if defined(GEVR_TVOS)
+            ImGui::TextDisabled("Use the remote, or a pad's stick and A.");
+#elif defined(GEVR_MOBILE) || defined(GEVR_IOS)
             ImGui::TextDisabled("Tap, or use a pad's stick and A.");
 #elif defined(GEVR_FLAT)
             ImGui::TextDisabled("Click, or use the arrows and Return, or a pad's stick and A.");

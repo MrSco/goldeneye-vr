@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Builds ANGLE (OpenGL ES on Metal) for the Apple builds: iOS device, iOS
-# simulator and macOS arm64, release, Metal backend only.
+# simulator, Apple TV device and simulator, and macOS arm64, release, Metal
+# backend only.
 #
-#     tools/build_angle_apple.sh [ios-device|ios-simulator|mac ...]
+#     tools/build_angle_apple.sh [ios-device|ios-simulator|tvos-device|tvos-simulator|mac ...]
+#
+# With no slices named it builds the iOS pair; the Apple TV pair is asked for
+# by name (tools/build_tvos.sh) and lands in $ANGLE_DIR/xcframeworks-tvos.
 #
 # ANGLE lives in ONE place on the Mac, shared by every project, never in this
 # repo: $ANGLE_DIR (default ~/angle). The first run fetches the ANGLE checkout
@@ -53,6 +57,21 @@ ios_enable_code_signing = false' ;;
 target_environment = "simulator"
 ios_deployment_target = "15.0"
 ios_enable_code_signing = false' ;;
+    # Apple TV: this revision's gn builds tvOS itself (target_platform), and
+    # asks for use_blink with it (build/config/apple/mobile_config.gni), which
+    # only raises the default deployment target: 17.0 is set here instead.
+    tvos-device)   TARGET='target_os = "ios"
+target_platform = "tvos"
+target_environment = "device"
+use_blink = true
+ios_deployment_target = "17.0"
+ios_enable_code_signing = false' ;;
+    tvos-simulator) TARGET='target_os = "ios"
+target_platform = "tvos"
+target_environment = "simulator"
+use_blink = true
+ios_deployment_target = "17.0"
+ios_enable_code_signing = false' ;;
     mac)           TARGET='target_os = "mac"
 mac_deployment_target = "13.0"' ;;
     *) echo "unknown slice $slice" >&2; exit 1 ;;
@@ -84,24 +103,28 @@ done
 rm -rf "$ANGLE_DIR/include"
 cp -R "$SRC/include" "$ANGLE_DIR/include"
 
-# The iOS slices as xcframeworks, so Xcode picks device or simulator itself
-# (port/ios/project.yml); a plain .framework path cannot.
-if [ -d "$ANGLE_DIR/out/ios-device/libEGL.framework" ] && [ -d "$ANGLE_DIR/out/ios-simulator/libEGL.framework" ]; then
-  mkdir -p "$ANGLE_DIR/xcframeworks"
+# A device and simulator pair as xcframeworks, so Xcode picks device or
+# simulator itself (port/ios/project.yml); a plain .framework path cannot.
+xcframeworks() {   # <device slice> <simulator slice> <output folder>
+  [ -d "$ANGLE_DIR/out/$1/libEGL.framework" ] && [ -d "$ANGLE_DIR/out/$2/libEGL.framework" ] || return 0
+  mkdir -p "$ANGLE_DIR/$3"
   for lib in libEGL libGLESv2; do
     # App Store validation wants a version in every embedded framework, and
     # ANGLE's gn output has none.
-    for slice in ios-device ios-simulator; do
+    for slice in "$1" "$2"; do
       plist="$ANGLE_DIR/out/$slice/$lib.framework/Info.plist"
       /usr/libexec/PlistBuddy -c "Delete :CFBundleShortVersionString" "$plist" 2>/dev/null || true
       /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.0" "$plist"
       /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$plist" >/dev/null 2>&1 ||
         /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 1" "$plist"
     done
-    rm -rf "$ANGLE_DIR/xcframeworks/$lib.xcframework"
-    xcodebuild -create-xcframework       -framework "$ANGLE_DIR/out/ios-device/$lib.framework"       -framework "$ANGLE_DIR/out/ios-simulator/$lib.framework"       -output "$ANGLE_DIR/xcframeworks/$lib.xcframework"
+    rm -rf "$ANGLE_DIR/$3/$lib.xcframework"
+    xcodebuild -create-xcframework -framework "$ANGLE_DIR/out/$1/$lib.framework" \
+      -framework "$ANGLE_DIR/out/$2/$lib.framework" -output "$ANGLE_DIR/$3/$lib.xcframework"
   done
-fi
+}
+xcframeworks ios-device ios-simulator xcframeworks
+xcframeworks tvos-device tvos-simulator xcframeworks-tvos   # Apple TV (port/tvos/project.yml)
 # Vision Pro (docs/visionos-native.md): ANGLE's gn has no visionOS target, so
 # the iOS slices are retargeted, as Klepton does (tools/angle_retarget.sh,
 # MIT): the Mach-O's build version set to visionOS with vtool, the install name

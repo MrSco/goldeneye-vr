@@ -848,6 +848,60 @@ static inline s32 inputTryController(const s32 cidx, const s32 jidx)
     return 0;
 }
 
+#ifdef GEVR_TVOS
+/*
+ * Apple TV: the Siri Remote is always connected, and SDL lists it as a pad so
+ * that it drives the launcher (port/ios/ios_app.m). It connects first, so it
+ * would hold player 1's slot ahead of a game pad. A full pad (two sticks) goes
+ * ahead of anything less: the remote is player 1's only when no pad is there.
+ */
+static s32 inputIsFullPad(SDL_GameController *ctrl)
+{
+    return ctrl && SDL_GameControllerHasAxis(ctrl, SDL_CONTROLLER_AXIS_LEFTX)
+        && SDL_GameControllerHasAxis(ctrl, SDL_CONTROLLER_AXIS_RIGHTX);
+}
+
+static void inputTvPadFirst(void)
+{
+    if (pads[0] && inputIsFullPad(pads[0])) {
+        return;
+    }
+    s32 best = -1;
+    for (s32 i = 1; i < INPUT_MAX_CONTROLLERS; ++i) {
+        if (!pads[i]) {
+            continue;
+        }
+        if (inputIsFullPad(pads[i])) {
+            best = i;
+            break;
+        }
+        if (!pads[0] && best < 0) {
+            best = i;   // player 1 has nothing: anything is better
+        }
+    }
+    if (best < 0) {
+        return;
+    }
+    SDL_GameController *const was = pads[0];
+    const s32 wasRumble = padsCfg[0].rumbleOn, wasDevice = padsCfg[0].deviceIndex;
+    pads[0] = pads[best];
+    padsCfg[0].rumbleOn = padsCfg[best].rumbleOn;
+    padsCfg[0].deviceIndex = padsCfg[best].deviceIndex;
+    pads[best] = was;
+    padsCfg[best].rumbleOn = was ? wasRumble : 0;
+    padsCfg[best].deviceIndex = was ? wasDevice : -1;
+    SDL_GameControllerSetPlayerIndex(pads[0], 0);
+    if (was) {
+        SDL_GameControllerSetPlayerIndex(was, best);
+    } else {
+        connectedMask &= ~(1 << best);
+    }
+    connectedMask |= 1;
+    sysLogPrintf(LOG_NOTE, "input: '%s' is player 1's%s%s", SDL_GameControllerName(pads[0]),
+                 was ? ", ahead of " : "", was ? SDL_GameControllerName(was) : "");
+}
+#endif
+
 static inline void inputInitAllControllers(void)
 {
     SDL_GameControllerUpdate();
@@ -883,6 +937,10 @@ static inline void inputInitAllControllers(void)
             }
         }
     }
+
+#ifdef GEVR_TVOS
+    inputTvPadFirst();
+#endif
 
     const s32 overrideMask = (1 << fakeControllers) - 1;
     if (overrideMask) {
@@ -973,6 +1031,9 @@ static int inputEventFilter(void *data, SDL_Event *event)
                     break;
                 }
             }
+#ifdef GEVR_TVOS
+            inputTvPadFirst();   // a pad connected after the Siri Remote
+#endif
             break;
 
         case SDL_CONTROLLERDEVICEREMOVED: {
@@ -984,6 +1045,9 @@ static int inputEventFilter(void *data, SDL_Event *event)
                     padsCfg[idx].deviceIndex = -1;
                 }
             }
+#ifdef GEVR_TVOS
+            inputTvPadFirst();   // player 1's pad gone: the remote, or another pad
+#endif
             break;
         }
 

@@ -133,7 +133,7 @@ static unsigned s_tapped;
 static const Uint32 kPanelHoldMs = 700;
 static bool s_panelRequest;
 static bool s_menu;                  // the game's last word: a menu is up
-#if defined(GEVR_MOBILE) || defined(GEVR_IOS)
+#if (defined(GEVR_MOBILE) || defined(GEVR_IOS)) && !defined(GEVR_TVOS)
 static bool s_shown = true;          // drawn and taking touches: from the start on a phone
 #else
 static bool s_shown;                 // a PC waits for a finger
@@ -690,6 +690,13 @@ extern "C" int flatTouchSeenAny(void) { return s_seen ? 1 : 0; }
 /* Called for each SDL event the window drains (flat_window.cpp), on the game's thread. */
 extern "C" void flatTouchEvent(const SDL_Event *e)
 {
+#ifdef GEVR_TVOS
+    // Apple TV: no touch screen. The Siri Remote's touch surface is a pad's,
+    // read through SDL's controller (port/ios/ios_app.m), so the overlay
+    // never shows and the game plays as with any pad.
+    (void)e;
+    return;
+#endif
     if (s_editing) {
         if (e->type == SDL_FINGERDOWN || e->type == SDL_FINGERMOTION || e->type == SDL_FINGERUP) {
             touchMeasure();
