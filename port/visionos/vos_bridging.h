@@ -30,6 +30,17 @@ void vosSenseHaptic(int hand, float amplitude, double seconds);
 void vosPickerOpen(const char *title);
 void vosPickerDone(int status, const char *path);
 
+/* The keyboard: SDL has no video here, so the launcher's text boxes
+ * (port/vr/vr_launcher.cpp showKeyboard) ask VosApp.swift for a window with a
+ * text field, which brings up the system's keyboard. Open starts it from the
+ * box's text (again on a second box: the window stays); Close puts it away.
+ * The window sends the field's whole text on each change (vosKeyboardText)
+ * and Return on a one-line box (vosKeyboardSubmit). */
+void vosKeyboardOpen(const char *text, int multiline);
+void vosKeyboardClose(void);
+void vosKeyboardText(const char *utf8);
+void vosKeyboardSubmit(void);
+
 #ifdef __cplusplus
 }
 #endif

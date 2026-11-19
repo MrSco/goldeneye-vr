@@ -81,6 +81,10 @@ void flatLauncherFeedInput(ImGuiIO &io);
 
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_opengl3.h"
+#ifdef GEVR_VISIONOS
+#include "imgui/imgui_internal.h"   // the active text box's state (the keyboard window)
+#include "../visionos/vos_bridging.h"
+#endif
 #include "vr_input.h"
 #include "vr_log.h"
 #include "vr_screen.h"
@@ -3134,13 +3138,42 @@ int SDLCALL keyboardWatch(void *, SDL_Event *e)
     return 1;
 }
 
+#ifdef GEVR_VISIONOS
+// Vision Pro: SDL has no video there, so SDL_StartTextInput shows nothing.
+// A window beside the space (VosApp.swift) holds a text field with the
+// system's keyboard. It sends the field's whole text on each change, and the
+// box's text is replaced with it: all of it selected, then typed over.
+std::string s_vosText;
+bool s_vosTextPending, s_vosSubmit;
+#endif
+
 void feedKeyboard(ImGuiIO &io)
 {
     std::string q;
     SDL_LockMutex(s_kbdLock);
     q.swap(s_kbdQueue);
+#ifdef GEVR_VISIONOS
+    std::string vosText;
+    const bool vosPending = s_vosTextPending, vosSubmit = s_vosSubmit;
+    vosText.swap(s_vosText);
+    s_vosTextPending = s_vosSubmit = false;
+#endif
     SDL_UnlockMutex(s_kbdLock);
     if (!io.WantTextInput) return;   // no text box to type into
+#ifdef GEVR_VISIONOS
+    if (vosPending) {
+        if (ImGuiInputTextState *st = ImGui::GetInputTextState(ImGui::GetActiveID())) {
+            st->SelectAll();
+            if (vosText.empty()) {
+                io.AddKeyEvent(ImGuiKey_Backspace, true);
+                io.AddKeyEvent(ImGuiKey_Backspace, false);
+            } else {
+                io.AddInputCharactersUTF8(vosText.c_str());
+            }
+        }
+    }
+    if (vosSubmit) q += '\r';
+#endif
     size_t run = 0;
     for (size_t i = 0; i <= q.size(); i++) {
         if (i < q.size() && q[i] != '\b' && q[i] != '\r') continue;
@@ -3160,13 +3193,30 @@ void feedKeyboard(ImGuiIO &io)
 void showKeyboard(const ImGuiIO &io)
 {
     static bool shown = false;
+#ifdef GEVR_VISIONOS
+    // the window starts from the box's text; one-line boxes end on Return
+    auto vosOpen = [] {
+        const ImGuiInputTextState *st = ImGui::GetInputTextState(ImGui::GetActiveID());
+        const std::string text = st && st->TextA.Data ? std::string(st->TextA.Data, (size_t)st->TextLen) : "";
+        vosKeyboardOpen(text.c_str(), st && (st->Flags & ImGuiInputTextFlags_Multiline) ? 1 : 0);
+    };
+#endif
     if (io.WantTextInput != shown) {
         shown = io.WantTextInput;
+#ifdef GEVR_VISIONOS
+        if (shown) vosOpen();
+        else vosKeyboardClose();
+#else
         if (shown) SDL_StartTextInput();
         else SDL_StopTextInput();
+#endif
         vr_log("launcher: system keyboard %s", shown ? "up" : "down");
     } else if (shown && io.MouseClicked[0]) {
+#ifdef GEVR_VISIONOS
+        vosOpen();
+#else
         SDL_StartTextInput();
+#endif
     }
 }
 
@@ -3180,6 +3230,25 @@ void gevrTextInputBegin()
     SDL_StopTextInput();
     SDL_AddEventWatch(keyboardWatch, nullptr);
 }
+#ifdef GEVR_VISIONOS
+// VosApp.swift's keyboard window, on the main thread: the field's whole text
+// (fed to the box with the next frame's input), and Return on a one-line box
+extern "C" void vosKeyboardText(const char *utf8)
+{
+    if (!s_kbdLock) return;
+    SDL_LockMutex(s_kbdLock);
+    s_vosText = utf8 ? utf8 : "";
+    s_vosTextPending = true;
+    SDL_UnlockMutex(s_kbdLock);
+}
+extern "C" void vosKeyboardSubmit(void)
+{
+    if (!s_kbdLock) return;
+    SDL_LockMutex(s_kbdLock);
+    s_vosSubmit = true;
+    SDL_UnlockMutex(s_kbdLock);
+}
+#endif
 void gevrTextInputFeed(ImGuiIO &io) { feedKeyboard(io); }
 void gevrTextInputShow(const ImGuiIO &io) { showKeyboard(io); }
 void gevrTextInputEnd()
