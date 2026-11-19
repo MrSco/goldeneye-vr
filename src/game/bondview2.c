@@ -20423,21 +20423,6 @@ void gevrHandReloadTick(void)
             }
             s_gevrMagGrab = 0;
         }
-        else if (!VrGexGuns && gevrReloadItemByHand(reloadItem) && !gevrReloadGun(otherItem))
-        {
-            /* A Bean gun with no magazine to take (the sniper rifle, the Golden Gun):
-             * the off hand's grip at the belt, where every other gun's fresh magazine
-             * is taken, runs the game's own reload (user: "i tried moving across
-             * chest or down by hip and it would not reload"). */
-            f32 palm[3];
-
-            if (!gevrBeanHeldPalm(palm)) memcpy(palm, reloadOff, sizeof(palm));
-            if (grip && !s_gripWas[gunHand] && gevrGexAtBelt(gunHand, palm) && gevrReloadNeedsAmmo(gunHand))
-            {
-                gevrHandReloadFire(gunHand, "belt grip");
-            }
-            s_gevrMagGrab = 0;
-        }
         else if (VrGexGuns && gevrReloadGun(reloadItem) && gevrReloadMagazineFed(reloadItem) && !gevrReloadGun(otherItem))
         {
             f32 mag[3], d[3], dist2 = 0.0f, upnow = 0.0f;

@@ -564,15 +564,15 @@ static void beanPp7Reload(void)
     assert(buzzes == before + 2 && fills == 1);
     at(1, 20, 20, 40);
     assert(!gevrReloadClaimsOffHand() && !gevrReloadFitAvailable());
-    /* ... and so does the off hand's grip at the belt, and the chest cross: a rifle
-     * here, which under GE-X would be pulled instead (the sniper rifle, user) */
+    /* ... and so does the chest cross: a rifle here, which under GE-X would be pulled
+     * instead (the sniper rifle, user). The off hand's grip at the belt does nothing
+     * for it: that is a magazine's gesture, and GE-X has no such reload either. */
     player.hands[GUNRIGHT].weapon_current_animation = 0;
     gevrHandReloadTick();
     before = buzzes;
     belt(0, 0); gripHeld[0] = 1; gevrHandReloadTick();
-    assert(buzzes == before + 2 && player.hands[GUNRIGHT].weapon_current_animation == 9);
+    assert(buzzes == before && player.hands[GUNRIGHT].weapon_current_animation == 0);
     gripHeld[0] = 0; at(0, 20, -20, 40); gevrHandReloadTick();
-    player.hands[GUNRIGHT].weapon_current_animation = 0;
     player.hands[GUNRIGHT].weapon = ITEM_SNIPERRIFLE;
     at(1, 20, 20, 40); gevrHandReloadTick();
     before = buzzes;
