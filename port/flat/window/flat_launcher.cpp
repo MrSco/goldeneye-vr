@@ -252,26 +252,45 @@ void flatLauncherFeedInput(ImGuiIO &io)
     bool navKey = key(SDL_SCANCODE_UP) || key(SDL_SCANCODE_DOWN) || key(SDL_SCANCODE_LEFT) || key(SDL_SCANCODE_RIGHT)
                || key(SDL_SCANCODE_TAB) || key(SDL_SCANCODE_SPACE) || key(SDL_SCANCODE_RETURN);
 
-    // the first pad, as the Quest's sticks and A/B drive the launcher
-    SDL_GameController *pad = nullptr;
-    for (int i = 0; i < SDL_NumJoysticks() && !pad; i++) {
-        if (SDL_IsGameController(i)) pad = SDL_GameControllerOpen(i);   // the one input.c holds, by reference
-    }
-    if (pad) {
+    // the first pad, as the Quest's sticks and A/B drive the launcher; on
+    // Apple TV every pad together, since the Siri Remote is always connected
+    // and a game pad comes after it
+    bool padSeen = false, up = false, down = false, left = false, right = false;
+    bool faceA = false, faceB = false, l1 = false, r1 = false, moved = false;
+    for (int i = 0; i < SDL_NumJoysticks(); i++) {
+#ifndef GEVR_TVOS
+        if (padSeen) break;
+#endif
+        if (!SDL_IsGameController(i)) continue;
+        SDL_GameController *pad = SDL_GameControllerOpen(i);   // the one input.c holds, by reference
+        if (!pad) continue;
+        padSeen = true;
         const float t = 0.5f;
         const float lx = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX) / 32767.0f;
         const float ly = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY) / 32767.0f;
-        io.AddKeyEvent(ImGuiKey_GamepadDpadUp, SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_UP) || ly < -t);
-        io.AddKeyEvent(ImGuiKey_GamepadDpadDown, SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN) || ly > t);
-        io.AddKeyEvent(ImGuiKey_GamepadDpadLeft, SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT) || lx < -t);
-        io.AddKeyEvent(ImGuiKey_GamepadDpadRight, SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT) || lx > t);
-        io.AddKeyEvent(ImGuiKey_GamepadFaceDown, SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A));
-        io.AddKeyEvent(ImGuiKey_GamepadFaceRight, SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_B));
-        io.AddKeyEvent(ImGuiKey_GamepadL1, SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_LEFTSHOULDER));
-        io.AddKeyEvent(ImGuiKey_GamepadR1, SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER));
-        navKey = navKey || fabsf(lx) > t || fabsf(ly) > t || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A)
-              || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_UP) || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+        const bool dUp = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_UP) != 0;
+        const bool dDown = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN) != 0;
+        up = up || dUp || ly < -t;
+        down = down || dDown || ly > t;
+        left = left || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT) || lx < -t;
+        right = right || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT) || lx > t;
+        faceA = faceA || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A);
+        faceB = faceB || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_B);
+        l1 = l1 || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
+        r1 = r1 || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
+        moved = moved || fabsf(lx) > t || fabsf(ly) > t || dUp || dDown;
         SDL_GameControllerClose(pad);   // drop this reference; input.c keeps its own
+    }
+    if (padSeen) {
+        io.AddKeyEvent(ImGuiKey_GamepadDpadUp, up);
+        io.AddKeyEvent(ImGuiKey_GamepadDpadDown, down);
+        io.AddKeyEvent(ImGuiKey_GamepadDpadLeft, left);
+        io.AddKeyEvent(ImGuiKey_GamepadDpadRight, right);
+        io.AddKeyEvent(ImGuiKey_GamepadFaceDown, faceA);
+        io.AddKeyEvent(ImGuiKey_GamepadFaceRight, faceB);
+        io.AddKeyEvent(ImGuiKey_GamepadL1, l1);
+        io.AddKeyEvent(ImGuiKey_GamepadR1, r1);
+        navKey = navKey || moved || faceA;
     }
     // A key or the pad shows ImGui's navigation cursor, so the same press that
     // reaches START activates it (with the cursor hidden, ImGui spends the first

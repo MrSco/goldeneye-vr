@@ -1,0 +1,85 @@
+# GoldenEye VR for Apple TV: the xcodegen project (tools/build_tvos.sh).
+#
+# CMake builds the iOS game for tvOS into
+# build/tvos-{device,simulator}/libgevr_ios_all.a; this project is only the
+# app around it, as port/ios/project.yml is for iPhone and iPad: Info.plist,
+# the icons, ANGLE's Apple TV frameworks, Apple's frameworks and the signing.
+# Generated, never edited: GoldenEyeVR.xcodeproj is git-ignored.
+#
+# From the environment (tools/build_tvos.sh sets them):
+#   ANGLE_DIR          ANGLE's one place on the Mac (tools/build_angle_apple.sh)
+#   GEVR_ROOT          the repository
+#   GEVR_VERSION       0.5.19 (CFBundleShortVersionString: numbers only)
+#   GEVR_BUILD         android/app/build.gradle's versionCode
+#   DEVELOPMENT_TEAM   your Apple team id, for a signed device build
+name: GoldenEyeVR
+options:
+  bundleIdPrefix: com.gevr.port
+  createIntermediateGroups: true
+settings:
+  base:
+    DEVELOPMENT_TEAM: "${DEVELOPMENT_TEAM}"
+    TVOS_DEPLOYMENT_TARGET: "17.0"
+    CLANG_ENABLE_OBJC_ARC: "YES"
+    ENABLE_BITCODE: "NO"
+    ENABLE_USER_SCRIPT_SANDBOXING: "NO"
+    # a real executable in Debug too (Xcode's debug dylib wants main in it)
+    ENABLE_DEBUG_DYLIB: "NO"
+    # arm64 only: the library (and ANGLE) has no Intel simulator slice
+    EXCLUDED_ARCHS[sdk=appletvsimulator*]: x86_64
+    GEVR_SLICE: device
+    GEVR_SLICE[sdk=appletvsimulator*]: simulator
+    LIBRARY_SEARCH_PATHS:
+      - "${GEVR_ROOT}/build/tvos-$(GEVR_SLICE)"
+targets:
+  GoldenEyeVR:
+    type: application
+    platform: tvOS
+    sources:
+      # the app's one source of its own: main() is the game's (port/src/main.c)
+      - path: ../ios/stub.c
+      # the home screen's layered icon and the Top Shelf (tools/make_icons.py)
+      - path: Assets.xcassets
+      # read by name from the bundle (SDL_RWFromFile looks there first)
+      - path: ../pc/package/gevr_logo.rgba
+        buildPhase: resources
+      - path: ../../android/app/src/main/assets/licenses
+        type: folder
+        buildPhase: resources
+    settings:
+      base:
+        SDKROOT: appletvos
+        TARGETED_DEVICE_FAMILY: "3"
+        # one App Store Connect app with the iPhone, iPad and Vision Pro builds
+        PRODUCT_BUNDLE_IDENTIFIER: com.mrsco.goldeneyevr
+        PRODUCT_NAME: GoldenEyeVR
+        INFOPLIST_FILE: Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
+        MARKETING_VERSION: "${GEVR_VERSION}"
+        CURRENT_PROJECT_VERSION: "${GEVR_BUILD}"
+        # -ObjC: the scene delegate is only named in Info.plist, never called,
+        # so without it the linker drops it from the library
+        OTHER_LDFLAGS: "-ObjC -lgevr_ios_all -lc++"
+    dependencies:
+      # ANGLE supplies every gl* and egl* call; SDL is built without EAGL
+      - framework: "${ANGLE_DIR}/xcframeworks-tvos/libGLESv2.xcframework"
+        embed: true
+        codeSign: true
+      - framework: "${ANGLE_DIR}/xcframeworks-tvos/libEGL.xcframework"
+        embed: true
+        codeSign: true
+      - sdk: UIKit.framework
+      - sdk: QuartzCore.framework
+      - sdk: Metal.framework
+      - sdk: AVFoundation.framework
+      - sdk: AudioToolbox.framework
+      - sdk: CoreAudio.framework
+      - sdk: CoreGraphics.framework
+      - sdk: CoreHaptics.framework
+      - sdk: GameController.framework
+      # SDL's HIDAPI pad code links it (its Bluetooth backend stays off: ios_app.m)
+      - sdk: CoreBluetooth.framework
+      - sdk: Foundation.framework
+      - sdk: CoreFoundation.framework
+      - sdk: Security.framework
+      - sdk: SystemConfiguration.framework

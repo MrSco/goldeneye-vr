@@ -359,7 +359,7 @@ static void gevrSchedEnsureInit(void)
 	{
 		pthread_t t;
 		gevrGameThread = pthread_self();
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(GEVR_TVOS)   /* tvOS refuses syscall(); the id only reads Linux's /proc */
 		gevrGameTid = (pid_t)syscall(SYS_gettid);
 #endif
 		if (pthread_create(&t, NULL, gevrWatchdog, NULL) == 0) {

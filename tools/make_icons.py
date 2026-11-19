@@ -13,6 +13,7 @@ The artwork (the user's, 2026-11-09):
 Android's monochrome (themed) icon must be a single-colour silhouette: the
 logo's reticle, drawn below. Needs Pillow.
 """
+import json
 import math
 import os
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -263,6 +264,7 @@ def main():
     art_icon(256).save(ico, sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
     print('wrote', os.path.relpath(ico, ROOT))
     ios_app_icon()
+    tvos_brand_assets()
 
 
 # iOS: an asset-catalog app icon with every size listed (Xcode 27 refuses a
@@ -294,5 +296,104 @@ def ios_app_icon():
     print('wrote port/ios/Assets.xcassets/AppIcon.appiconset')
 
 
+# Apple TV (port/tvos/project.yml): the home screen's icon is a layered image
+# stack that tilts under the focus: the app icon everywhere else
+# (app_icon.jpg, whole) floating in front of a blurred, darkened copy of
+# itself that fills the TV's wider shape. The Top Shelf, shown while the icon
+# is focused, is the README's Dam banner (docs/banner.png, the user's art since
+# 2026-10-16, not banner_source.jpg). Every size App Store validation asks
+# for, at 1x and 2x. The opaque pictures are JPEG, which the asset catalog
+# takes, so the repository stays small.
+TV_INFO = {'author': 'xcode', 'version': 1}
+
+
+def tv_json(path, doc):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w', newline='\n') as f:
+        json.dump(doc, f, indent=2)
+        f.write('\n')
+
+
+def tv_save(img, path):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if path.endswith('.jpg'):
+        img.convert('RGB').save(path, quality=86, optimize=True, progressive=True)
+    else:
+        img.save(path, optimize=True)
+    print('wrote', os.path.relpath(path, ROOT), img.size)
+
+
+def tv_cover(src, w, h):
+    """src scaled to cover w x h, centred, the overflow cut."""
+    k = max(w / src.width, h / src.height)
+    src = src.resize((int(src.width * k + 0.5), int(src.height * k + 0.5)), Image.LANCZOS)
+    x0, y0 = (src.width - w) // 2, (src.height - h) // 2
+    return src.crop((x0, y0, x0 + w, y0 + h))
+
+
+def tv_back(w, h):
+    """The stack's back: the app icon across the whole shape, blurred and darker."""
+    img = tv_cover(Image.open(os.path.join(ART, 'app_icon.jpg')).convert('RGB'), w, h)
+    img = img.filter(ImageFilter.GaussianBlur(w * 0.025))
+    return Image.blend(img, Image.new('RGB', (w, h), BLACK), 0.35)
+
+
+def tv_front(w, h):
+    """The stack's front: the app icon, whole, in the middle, on transparency."""
+    side = int(h * 0.88)
+    out = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    out.paste(art_icon(side), ((w - side) // 2, (h - side) // 2))
+    return out
+
+
+def tv_shelf(w, h):
+    """The Top Shelf: the README's Dam banner, its logo kept in the crop."""
+    return tv_cover(Image.open(os.path.join(ROOT, 'docs', 'banner.png')).convert('RGB'), w, h)
+
+
+def tvos_brand_assets():
+    import shutil
+    base = os.path.join(ROOT, 'port', 'tvos', 'Assets.xcassets')
+    brand = os.path.join(base, 'App Icon & Top Shelf Image.brandassets')
+    shutil.rmtree(brand, ignore_errors=True)
+    tv_json(os.path.join(base, 'Contents.json'), {'info': TV_INFO})
+    # the icon stacks: (folder, 1x size, scales)
+    for stack, (w, h), scales in (('App Icon.imagestack', (400, 240), (1, 2)),
+                                  ('App Icon - App Store.imagestack', (1280, 768), (1,))):
+        root = os.path.join(brand, stack)
+        layers = (('Front', 'front', 'png', tv_front), ('Back', 'back', 'jpg', tv_back))
+        for layer, stem, ext, draw in layers:
+            images = []
+            for k in scales:
+                name = '%s%s.%s' % (stem, '' if k == 1 else '@%dx' % k, ext)
+                tv_save(draw(w * k, h * k), os.path.join(root, layer + '.imagestacklayer', 'Content.imageset', name))
+                images.append({'filename': name, 'idiom': 'tv', 'scale': '%dx' % k})
+            tv_json(os.path.join(root, layer + '.imagestacklayer', 'Content.imageset', 'Contents.json'),
+                    {'images': images, 'info': TV_INFO})
+            tv_json(os.path.join(root, layer + '.imagestacklayer', 'Contents.json'), {'info': TV_INFO})
+        tv_json(os.path.join(root, 'Contents.json'),
+                {'info': TV_INFO, 'layers': [{'filename': l[0] + '.imagestacklayer'} for l in layers]})
+    # the Top Shelf images
+    for folder, stem, (w, h) in (('Top Shelf Image.imageset', 'shelf', (1920, 720)),
+                                 ('Top Shelf Image Wide.imageset', 'shelf-wide', (2320, 720))):
+        images = []
+        for k in (1, 2):
+            name = '%s%s.jpg' % (stem, '' if k == 1 else '@2x')
+            tv_save(tv_shelf(w * k, h * k), os.path.join(brand, folder, name))
+            images.append({'filename': name, 'idiom': 'tv', 'scale': '%dx' % k})
+        tv_json(os.path.join(brand, folder, 'Contents.json'), {'images': images, 'info': TV_INFO})
+    tv_json(os.path.join(brand, 'Contents.json'), {'assets': [
+        {'filename': 'App Icon - App Store.imagestack', 'idiom': 'tv', 'role': 'primary-app-icon', 'size': '1280x768'},
+        {'filename': 'App Icon.imagestack', 'idiom': 'tv', 'role': 'primary-app-icon', 'size': '400x240'},
+        {'filename': 'Top Shelf Image Wide.imageset', 'idiom': 'tv', 'role': 'top-shelf-image-wide', 'size': '2320x720'},
+        {'filename': 'Top Shelf Image.imageset', 'idiom': 'tv', 'role': 'top-shelf-image', 'size': '1920x720'},
+    ], 'info': TV_INFO})
+    print('wrote port/tvos/Assets.xcassets')
+
+
 if __name__ == '__main__':
-    main()
+    import sys
+    if sys.argv[1:] == ['tvos']:   # only the Apple TV assets: python tools/make_icons.py tvos
+        tvos_brand_assets()
+    else:
+        main()

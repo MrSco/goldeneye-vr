@@ -101,6 +101,10 @@ launcher.
   on iOS), and coming back from "Restart to launcher" (an iOS app cannot
   start itself: it closes, and the player opens it again).
 
+**Apple TV, first pass in** (2026-11-18): the iOS game built for tvOS
+(`tools/build_tvos.sh`), played with a pad, the ROM sent from a phone or
+computer over the local network. See [apple-tv.md](apple-tv.md).
+
 ## Recommendation in one paragraph
 
 Do **Android phones/tablets** right after PC P1. They are the PC flat build

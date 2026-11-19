@@ -112,9 +112,13 @@ static PickResult pcChooseFile(const char *title, const char *patterns, std::str
             sysLogPrintf(0, "launcher: scripted file picker: cancelled");
             return PICK_CANCELLED;
         }
-        *file = scripted;
-        sysLogPrintf(0, "launcher: scripted file picker: %s", scripted);
-        return PICK_CHOSEN;
+        if (strcmp(scripted, "!") != 0) {
+            *file = scripted;
+            sysLogPrintf(0, "launcher: scripted file picker: %s", scripted);
+            return PICK_CHOSEN;
+        }
+        // "pick !": the real picker (an Apple TV's upload dialog, port/tvos)
+        sysLogPrintf(0, "launcher: scripted file picker: the real one");
     }
 #ifdef GEVR_IOS
     {

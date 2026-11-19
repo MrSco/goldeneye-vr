@@ -19,6 +19,9 @@ endif()
 #   ios    - iPhone and iPad: the PC flat game with touch controls, drawn
 #            with OpenGL ES through ANGLE on Metal (tools/build_ios.sh,
 #            docs/mobile-platforms.md); a static library the Xcode app links
+#   tvos   - Apple TV: the iOS build without touch, played with a pad, the
+#            ROM sent from a phone or computer over the local network
+#            (tools/build_tvos.sh, port/tvos, docs/apple-tv.md)
 #   visionos - Vision Pro, native: the PC VR game (port/vr, OpenXR) on an
 #            OpenXR runtime of its own over Compositor Services and ARKit
 #            (port/visionos, docs/visionos-native.md), OpenGL ES through ANGLE;
@@ -32,8 +35,10 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS")
   set(GEVR_PLATFORM "ios")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "visionOS")
   set(GEVR_PLATFORM "visionos")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "tvOS")
+  set(GEVR_PLATFORM "tvos")
 endif()
-set(GEVR_PLATFORM "${GEVR_PLATFORM}" CACHE STRING "quest, server, pc, ios or visionos")
+set(GEVR_PLATFORM "${GEVR_PLATFORM}" CACHE STRING "quest, server, pc, ios, tvos or visionos")
 # The Android phone/tablet APK (docs/mobile-platforms.md): the Quest's library
 # with the flat window, launcher and headset stand-ins of the PC flat game in
 # place of OpenXR (android/app/build.gradle's "mobile" flavor sets it).
@@ -45,13 +50,16 @@ if(GEVR_PLATFORM STREQUAL "server")
   set(GEVR_HEADLESS ON)
 elseif(GEVR_PLATFORM STREQUAL "pc")
   set(GEVR_PC ON)
-elseif(GEVR_PLATFORM STREQUAL "ios" OR GEVR_PLATFORM STREQUAL "visionos")
+elseif(GEVR_PLATFORM STREQUAL "ios" OR GEVR_PLATFORM STREQUAL "visionos" OR GEVR_PLATFORM STREQUAL "tvos")
   # the PC flat game's sources, built for iOS (GEVR_IOS marks what differs);
-  # visionOS: the PC VR game's, with iOS's Apple shell (GEVR_VISIONOS)
+  # visionOS: the PC VR game's, with iOS's Apple shell (GEVR_VISIONOS);
+  # Apple TV: iOS's game and shell, and what a TV does differently (GEVR_TVOS)
   set(GEVR_PC ON)
   set(GEVR_IOS ON)
   if(GEVR_PLATFORM STREQUAL "visionos")
     set(GEVR_VISIONOS ON)
+  elseif(GEVR_PLATFORM STREQUAL "tvos")
+    set(GEVR_TVOS ON)
   endif()
   enable_language(OBJC OBJCXX)   # port/ios's UIKit and ANGLE glue
   set(ANGLE_DIR "$ENV{HOME}/angle" CACHE PATH "ANGLE's one place on the Mac (tools/build_angle_apple.sh)")
@@ -111,6 +119,8 @@ if(GEVR_HEADLESS)
   set(TARGET_OS "linux")
 elseif(GEVR_VISIONOS)
   set(TARGET_OS "visionos")
+elseif(GEVR_TVOS)
+  set(TARGET_OS "tvos")
 elseif(GEVR_IOS)
   set(TARGET_OS "ios")
 elseif(GEVR_PC AND WIN32)
@@ -199,6 +209,8 @@ if(GEVR_HEADLESS OR GEVR_PC)
       # EGL binding, answered by port/visionos's runtime (no loader)
       add_definitions(-DGEVR_VISIONOS=1 -DGEVR_PCVR=1
         -DXR_USE_GRAPHICS_API_OPENGL_ES=1 -DXR_USE_PLATFORM_EGL=1)
+    elseif(GEVR_TVOS)
+      add_definitions(-DGEVR_TVOS=1)
     endif()
   else()
     # Linux (and Steam Frame's userland): glibc as the server's
@@ -705,6 +717,12 @@ if(GEVR_PC)
     # (port/ios/project.yml) links it with ANGLE's frameworks and Apple's.
     # HTTPS goes through NSURLSession (port/ios/ios_http.mm), not libcurl.
     file(GLOB SRC_IOS CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/port/ios/*.m" "${CMAKE_SOURCE_DIR}/port/ios/*.mm")
+    if(GEVR_TVOS)
+      # Apple TV: the same library, plus what a TV has instead of iOS's
+      # document picker (the local-network upload, port/tvos)
+      file(GLOB SRC_TVOS CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/port/tvos/*.m" "${CMAKE_SOURCE_DIR}/port/tvos/*.mm")
+      list(APPEND SRC_IOS ${SRC_TVOS})
+    endif()
     add_library(gevr_ios STATIC ${SRC} ${SRC_IOS})
     add_dependencies(gevr_ios gevr_buildid)
     target_include_directories(gevr_ios PRIVATE ${GEVR_INCLUDES} "${ANGLE_DIR}/include")

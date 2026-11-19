@@ -405,7 +405,19 @@ int main(int argc, const char **argv)
     {
         char docs[1024];
         const char *home = getenv("HOME");
+#ifdef GEVR_TVOS
+        /* Apple TV: an app keeps only caches on the device (Documents is
+         * refused there, though the simulator allows it, so it is the same
+         * folder in both): the ROM, ini, saves and logs live in
+         * Library/Caches/GoldenEyeVR, which tvOS may empty when the device
+         * runs short of space. The ROM then has to be sent again
+         * (port/tvos/tvos_upload.mm). There is no Files app to show it. */
+        snprintf(docs, sizeof(docs), "%s/Library/Caches", home ? home : ".");
+        mkdir(docs, 0755);
+        snprintf(docs, sizeof(docs), "%s/Library/Caches/GoldenEyeVR", home ? home : ".");
+#else
         snprintf(docs, sizeof(docs), "%s/Documents", home ? home : ".");
+#endif
         mkdir(docs, 0755);
         if (chdir(docs) != 0) {
             printf("ios: could not enter %s\n", docs);
