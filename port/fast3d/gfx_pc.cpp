@@ -61,6 +61,7 @@ static bool s_beanNormalTex1, s_beanReflectDiffuse;
 static const uint8_t *s_beanVertexTint;
 static unsigned s_beanVertexTintStride;
 static bool s_beanRoomFogLinear;
+static bool s_beanAlphaCore;   /* GEVR_NODE_CORE: a soft cut-out's core (gfx_bean_node_state) */
 static bool s_beanRoomFogRadial;   /* GEVR_ROOM_RADIAL: by the vertex's distance from the eye */
 /* G_GEVR_BEAN_FADE: a fading chr's Bean draws (chrRenderProp's PropType 8). The
  * game's own lists fade through their render mode (modelApplyRenderModeType3:
@@ -3271,6 +3272,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     }
     if (texture_edge) {
         cc_options |= (uint64_t)SHADER_OPT_TEXTURE_EDGE;
+        if (s_beanAlphaCore) cc_options |= (uint64_t)SHADER_OPT_ALPHA_CORE;   // GEVR_NODE_CORE
     }
     if (use_noise) {
         cc_options |= (uint64_t)SHADER_OPT_NOISE;
@@ -4582,6 +4584,9 @@ static void gfx_bean_node_state(uint32_t w0, uint32_t ownMode) {
             break;
         case GEVR_NODE_CULL:
             s_beanModelCull = ownMode != 0;
+            break;
+        case GEVR_NODE_CORE:
+            s_beanAlphaCore = ownMode != 0;
             break;
         case GEVR_NODE_ONTOP:
             s_beanNodeOnTop = ownMode != 0;

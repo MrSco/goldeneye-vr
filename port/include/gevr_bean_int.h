@@ -119,6 +119,7 @@ struct gevrEmitVert {
     uint8_t reflectionAlphaBase;
     uint32_t reflectionColour;
 	uint8_t nofog;  /* 1 GoldenEye draws it without fog, 2 fogged by distance (the backdrop): a level's list only */
+	uint8_t fringe; /* a soft cut-out's blended copy over its core (gevrBeanSoftSpans()): skinned lists */
 };
 
 int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out);

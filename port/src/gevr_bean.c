@@ -617,6 +617,7 @@ static uint32_t *s_sortSpatial;
  * batch being emitted's, for beanRenderMode() */
 static int s_sortSides;
 static int s_emitNoFog;   /* the batch's: 1 GEVR_ROOM_NOFOG, 2 GEVR_ROOM_RADIAL (beanRenderMode()) */
+static int s_sortFringe;  /* a skinned list: its soft cut-outs' fringe batches go last */
 static int s_emitSide;
 
 static uint32_t spatialBits(uint32_t x)
@@ -638,6 +639,16 @@ static int triCmp(const void *a, const void *b)
 {
 	int ia = *(const int *)a;
 	int ib = *(const int *)b;
+	/* a skinned list's translucent batches after its solid ones, soft fringes and
+	 * glass alike (DAB's translucent pass): blended without depth, a lens drawn
+	 * before the face behind it was painted over by it (Boris's glasses, the
+	 * guards' dark ones, alpha 131) */
+	if (s_sortFringe) {
+		const int fa = s_sortVerts[ia * 3].fringe || s_sortVerts[ia * 3].alpha < 255;
+		const int fb = s_sortVerts[ib * 3].fringe || s_sortVerts[ib * 3].alpha < 255;
+		if (fa != fb)
+			return fa - fb;
+	}
 	int ka = vertKey(&s_sortVerts[ia * 3]);
 	int kb = vertKey(&s_sortVerts[ib * 3]);
     if (ka != kb) return (ka > kb) - (ka < kb);
@@ -736,6 +747,7 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
     /* A level's faces back to back over part of their face (markLevelSides())
      * are drawn again, their backs: room for their second vertices */
     s_sortSides = mesh->roomMaterial == 1 && !lit && !skin && zbuf;
+    s_sortFringe = s_emitSkin != NULL;
     s_emitSide = 0;
     s_emitNoFog = 0;
     int nback = 0, sided = 0;
@@ -811,6 +823,7 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 	if (dim) {
 		gDPSetPrimColor(g++, 0, 0, 96, 96, 96, 255);
 	}
+	int coreOn = 0;
 	for (int batch = 0; batch < ntri; ) {
 		const struct gevrEmitVert *base = &v[order[batch] * 3];
 		int key = vertKey(base);
@@ -825,6 +838,16 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
             v[order[end]*3].reflectionColour==base->reflectionColour &&
             v[order[end]*3].reflectionAlphaBase==base->reflectionAlphaBase) {
 			end++;
+		}
+		/* a skinned list's soft cut-out: its solid core cut at 3/4 alpha (DAB
+		 * G_ALPHA_CORE_EXT), its fringe blended after the rest (gevrBeanSoftSpans()) */
+		{
+			const int core = s_sortFringe && base->cut && !base->fringe;
+			if (core != coreOn) {
+				g->words.w0 = ((uintptr_t)G_GEVR_NODE_STATE << 24) | GEVR_NODE_CORE;
+				g++->words.w1 = (uint32_t)core;
+				coreOn = core;
+			}
 		}
 		/* the batch's side (vertKey() keeps one side a batch): its mode culls */
 		s_emitSide = s_sortSides ? base->side : 0;
@@ -1057,6 +1080,10 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
     if (!mesh->roomMaterial) gSPClearGeometryMode(g++, G_FOG);
     /* no FACES/BACKS cull past a level's list */
     if (sided) gSPClearGeometryMode(g++, G_CULL_BOTH);
+    if (coreOn) {
+        g->words.w0 = ((uintptr_t)G_GEVR_NODE_STATE << 24) | GEVR_NODE_CORE;
+        g++->words.w1 = 0;
+    }
     s_emitSide = 0;
     s_emitNoFog = 0;
     g->words.w0=(uintptr_t)G_GEVR_NORMAL_TEX1<<24; g++->words.w1=0;
@@ -1555,6 +1582,8 @@ static void fillEmit(const struct gevrBeanTri *t, int texCut, struct gevrEmitVer
 	e->cut = (uint8_t)(t->alphatest || (t->tex >= 0 && texCut));
 	e->decal = (t->flags & GEVR_BEAN_F_DECAL) ? 1 : 0;
 	e->side = 0;
+	e->nofog = 0;
+	e->fringe = 0;
 }
 
 struct beanRigidBinding {
@@ -1681,6 +1710,7 @@ static void rigidBindings(const struct gevrBeanMesh *mesh, const struct beanFit 
 	}
 }
 
+static int gevrBeanSoftSpans(const struct gevrBeanMesh *mesh, struct gevrEmitVert **ev, struct beanSkinVert **skin, int n);   /* below */
 #include "gevr_bean_seams.inc.h"
 #include "gevr_bean_heads.inc.h"
 
@@ -2589,6 +2619,67 @@ static void gunMagazine(const GevrBeanMagDef *def, const struct gevrBeanMesh *me
 	gevrBeanMagFree(&built);
 }
 
+/*
+ * DAB xblamesh.c (softspan, G_ALPHA_CORE_EXT): a character's cut-out span is a
+ * soft picture - hair, a lens - drawn twice: its solid core (three quarters alpha
+ * and more) cut and writing depth, then the whole of it blended over that core and
+ * whatever is behind, depth tested and not written, after the rest of the body.
+ * Cut at the edge test's 0.19, every half-clear strand came out solid and a
+ * fringe drew as a thick slab; blended alone and writing depth, a strand hid what
+ * was drawn after it. Each cut-out triangle of a skinned list gets a copy, its
+ * fringe (alpha 254: the translucent batch, sorted last by s_sortFringe), with its
+ * skin. Returns the new count of corners, n where nothing is copied.
+ */
+static int gevrBeanSoftSpans(const struct gevrBeanMesh *mesh, struct gevrEmitVert **ev, struct beanSkinVert **skin, int n)
+{
+	/* a cut-out (cut, solid) gets its fringe; a soft picture blended alone (254, a
+	 * picture with alpha) gets its core and is the fringe; glass with an alpha of
+	 * its own (below 254) stays as it is */
+#define SOFT_CUT(x) ((x).cut && (x).alpha == 255 && !(x).fringe)
+#define SOFT_XLU(x) ((x).alpha == 254 && !(x).fringe && (x).tex >= 0 && (x).tex < mesh->ntex && mesh->texCut[(x).tex])
+	int soft = 0;
+	for (int t = 0; t + 2 < n; t += 3)
+		soft += SOFT_CUT((*ev)[t]) || SOFT_XLU((*ev)[t]);
+	if (!soft)
+		return n;
+	{
+		static int told;
+		if (told++ < 12)
+			GEVR_BEAN_LOG("gevr bean: %d soft cut-out triangles drawn as a core and a blended fringe\n", soft);
+	}
+	struct gevrEmitVert *e = realloc(*ev, (size_t)(n + soft * 3) * sizeof(**ev));
+	if (!e)
+		return n;
+	*ev = e;
+	struct beanSkinVert *s = realloc(*skin, (size_t)(n + soft * 3) * sizeof(**skin));
+	if (!s)
+		return n;
+	*skin = s;
+	int m = n;
+	for (int t = 0; t + 2 < n; t += 3) {
+		const int cut = SOFT_CUT(e[t]), xlu = SOFT_XLU(e[t]);
+		if (!cut && !xlu)
+			continue;
+		for (int c = 0; c < 3; c++) {
+			e[m + c] = e[t + c];
+			s[m + c] = s[t + c];
+			if (cut) {   /* the copy is the fringe */
+				e[m + c].cut = 0;
+				e[m + c].alpha = 254;
+				e[m + c].fringe = 1;
+			} else {     /* the copy is the core, the original the fringe */
+				e[m + c].cut = 1;
+				e[m + c].alpha = 255;
+				e[t + c].fringe = 1;
+			}
+		}
+		m += 3;
+	}
+#undef SOFT_CUT
+#undef SOFT_XLU
+	return m;
+}
+
 static int emitSkinned(const struct gevrBeanMesh *mesh, int sk, int hasHead,
                        const float R[GEVR_BEAN_SK_COUNT][9], float scale, const struct beanGrp *grp, int ng,
                        const ModelFileHeader *header, int cuff, int whole, void **gdl, void **vtx)
@@ -2674,6 +2765,7 @@ static int emitSkinned(const struct gevrBeanMesh *mesh, int sk, int hasHead,
 		return 0;
 	}
 	{
+		n = gevrBeanSoftSpans(mesh, &ev, &skin, n);
 		s_emitSkin = skin;
 		int ok = gevrBeanEmitList(mesh, ev, n, 1, 0, 1, 1, gdl, vtx);
 		s_emitSkin = NULL;

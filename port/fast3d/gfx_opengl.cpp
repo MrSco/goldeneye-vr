@@ -1852,11 +1852,14 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         // the edge in the texture becomes coverage: alpha sharpened to about a pixel
         // of its slope, half coverage at the cut, through alpha-to-coverage. Writing
         // gl_SampleMask instead dropped the whole draw on Quest 3's multiview MSAA.
+        // A soft cut-out's solid core (GEVR_NODE_CORE, DAB G_ALPHA_CORE_EXT): three quarters
+        // alpha and more, the rest blended over it by the list's fringe batch
+        const char *cut = cc_features.opt_alpha_core ? "0.75" : "0.19";
         append_line(fs_buf, &fs_len, "    if (uEdgeA2C != 0) {");
-        append_line(fs_buf, &fs_len,
-                    "        texel.a = clamp((texel.a - 0.19) / max(fwidth(texel.a), 0.0001) + 0.5, 0.0, 1.0);");
+        fs_len += sprintf(fs_buf + fs_len,
+                    "        texel.a = clamp((texel.a - %s) / max(fwidth(texel.a), 0.0001) + 0.5, 0.0, 1.0);\n", cut);
         append_line(fs_buf, &fs_len, "        if (texel.a <= 0.0) discard;");
-        append_line(fs_buf, &fs_len, "    } else if (texel.a > 0.19) texel.a = 1.0; else discard;");
+        fs_len += sprintf(fs_buf + fs_len, "    } else if (texel.a > %s) texel.a = 1.0; else discard;\n", cut);
     }
 
     if (cc_features.opt_alpha && cc_features.opt_noise) {
@@ -2025,7 +2028,8 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     prg->opt_grayscale = cc_features.opt_grayscale;
     prg->is_mesh = s_buildMesh;
     prg->motion_cut = !cc_features.opt_alpha || !cc_features.used_textures[0] ? 0.0f
-        : cc_features.opt_texture_edge ? 0.1901f : cc_features.opt_alpha_threshold ? 8.0f / 256.0f : 0.0f;
+        : cc_features.opt_texture_edge ? (cc_features.opt_alpha_core ? 0.7501f : 0.1901f)
+        : cc_features.opt_alpha_threshold ? 8.0f / 256.0f : 0.0f;
     prg->meshNormalTexLocation=s_buildMesh ? glGetUniformLocation(shader_program,"uNormalTex1") : -1;
     prg->meshWoundCountLocation=s_buildMesh ? glGetUniformLocation(shader_program,"uWoundCount") : -1;
     prg->meshWoundLocation=s_buildMesh ? glGetUniformLocation(shader_program,"uWound") : -1;

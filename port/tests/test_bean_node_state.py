@@ -28,7 +28,7 @@ struct RGBA { uint8_t r, g, b, a; };
 static struct { uint32_t other_mode_l, other_mode_h, palette_fmt; bool textures_changed[2], tex_lod, tex_detail;
                 uint64_t combine_mode; struct RGBA prim_color; } rdp;
 static struct { uint32_t geometry_mode; } rsp;
-static bool s_beanNodeOn, s_beanNodeSaved, s_beanNodePrimTouched, s_beanModelCull, s_beanNodeOnTop;
+static bool s_beanNodeOn, s_beanNodeSaved, s_beanNodePrimTouched, s_beanModelCull, s_beanNodeOnTop, s_beanAlphaCore;
 static uint8_t s_beanPass;
 static bool s_beanBatchXlu, s_beanPassSkip;
 static uint64_t s_beanNodeCombine;
@@ -103,6 +103,12 @@ int main() {
     op(GEVR_NODE_END);
     op(GEVR_NODE_ONTOP, 0);
     assert(!s_beanNodeOnTop);
+
+    /* A soft cut-out's core (hair, lenses): on for its batch, off after. */
+    op(GEVR_NODE_CORE, 1);
+    assert(s_beanAlphaCore);
+    op(GEVR_NODE_CORE, 0);
+    assert(!s_beanAlphaCore);
 
     /* A one-cycle node (type 1: no shade, no fade) leaves the list its own state. */
     node(G_CYC_1CYCLE, G_RM_AA_ZB_OPA_SURF, 0x66);

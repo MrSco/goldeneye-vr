@@ -58,6 +58,7 @@ static int emitHead(const struct gevrBeanMesh *mesh, int kind, void **gdl, void 
 			count++;
 		}
 	}
+	count = gevrBeanSoftSpans(mesh, &vertices, &skin, count);
 	s_emitSkin = skin;
 	int ok = count && gevrBeanEmitList(mesh, vertices, count, 1, 0, 1, 1, gdl, vtx);
 	if (ok && s_emittedSkin)
