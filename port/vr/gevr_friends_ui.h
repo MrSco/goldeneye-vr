@@ -5,6 +5,12 @@
 #ifndef GEVR_FRIENDS_UI_H
 #define GEVR_FRIENDS_UI_H
 #include "imgui/imgui.h"
+// gevrFriendsNavCross: the windows' focus and navigation. libultra's os.h
+// defines BLOCKSIZE, a template parameter's name in there.
+#pragma push_macro("BLOCKSIZE")
+#undef BLOCKSIZE
+#include "imgui/imgui_internal.h"
+#pragma pop_macro("BLOCKSIZE")
 #include "gevr_tooltip.h"
 #include "vr_friends.h"
 #include "vr_discord.h"
@@ -425,6 +431,51 @@ inline void gevrFriendsSidebar(GevrFriendsUiState &ui, const GevrFriendsUiContex
     }
     ImGui::EndChild();
 }
+// A pad's or the Siri Remote's way into the panel and back (#260): ImGui's
+// stick and d-pad moves stay inside one window, and the panel is a window of
+// its own, so without a pointer it could never be reached. Right on the
+// surface's right-most item crosses into the panel, left on the panel's
+// left-most item comes back to where the cursor was. Call it after NewFrame.
+inline void gevrFriendsNavCross() {
+    ImGuiContext &g = *ImGui::GetCurrentContext();
+    static ImGuiContext *s_ctx = nullptr;
+    static ImGuiID s_from = 0, s_surface = 0;   // the item pressed on; the surface's window
+    static int s_dir = 0, s_wait = 0;           // the press waiting on ImGui's move: +1 right, -1 left
+    if (s_ctx != &g) {   // the launcher and the in-game panel each have their own context
+        s_ctx = &g;
+        s_from = s_surface = 0;
+        s_dir = 0;
+    }
+    ImGuiWindow *side = ImGui::FindWindowByName("##friends-sidebar");
+    ImGuiWindow *nav = g.NavWindow ? g.NavWindow->RootWindow : nullptr;
+    const bool busy = g.ActiveId != 0 || ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+    if (nav && nav != side && !(nav->Flags & (ImGuiWindowFlags_Popup | ImGuiWindowFlags_Tooltip))) s_surface = nav->ID;
+    if (s_dir) {
+        // ImGui answers a move on the frame after the press; the cursor still on
+        // the same item a frame later means there was nothing further that way
+        if (busy || g.NavId != s_from) {
+            s_dir = 0;
+        } else if (--s_wait <= 0) {
+            ImGuiWindow *to = s_dir > 0 ? side : ImGui::FindWindowByID(s_surface);
+            if (to && to->WasActive) {
+                ImGui::FocusWindow(to);
+                if (g.NavWindow == to && g.NavId == 0) ImGui::NavInitWindow(to, true);
+                ImGui::SetNavCursorVisible(true);
+            }
+            s_dir = 0;
+        }
+    }
+    if (s_dir || busy || !nav || !side || !g.NavId) return;
+    const bool right = ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, false) || ImGui::IsKeyPressed(ImGuiKey_RightArrow, false);
+    const bool left = ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, false) || ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false);
+    if (right && nav != side) s_dir = 1;
+    else if (left && nav == side && s_surface) s_dir = -1;
+    if (s_dir) {
+        s_from = g.NavId;
+        s_wait = 2;
+    }
+}
+
 // The side panel itself: its own window right of the surface. Folded, a strip
 // with the word down it and what is waiting; open, the sidebar under a FRIENDS
 // heading with >> to fold it.

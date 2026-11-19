@@ -195,5 +195,58 @@ int main() {
     check(ImGui::FindWindowByName("##friends-sidebar")->Pos.x == 1280, "the panel has the same Friends side panel as the launcher");
     check(panel->ContentSize.y + panel->WindowPadding.y <= 960, "the footer (Resume, HD textures, Back to launcher) stays on the canvas");
     ImGui::DestroyContext();
-    puts("PASS: the Friends side panel fits open (500) and folded (76) beside the 1280 surface; the in-game panel's tabs, VR settings and footer fit at Quest font size");
+    // A pad's way into the side panel and back (gevrFriendsNavCross, #260):
+    // right on the surface's right-most item crosses into the panel, right on
+    // an item with one beside it only moves, left out of the panel comes back.
+    {
+        ImGuiContext *prev = ImGui::GetCurrentContext();
+        ImGuiContext *nav = ImGui::CreateContext();
+        ImGui::SetCurrentContext(nav);
+        ImGuiIO &nio = ImGui::GetIO();
+        nio.IniFilename = nullptr; nio.DeltaTime = 1.f / 60;
+        nio.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad | ImGuiConfigFlags_NavEnableKeyboard;
+        nio.BackendFlags |= ImGuiBackendFlags_HasGamepad;
+        unsigned char *npx; int nw, nh; nio.Fonts->GetTexDataAsRGBA32(&npx, &nw, &nh);
+        VrFriendsSidebar = 1;
+        ImGuiID idA = 0, idB = 0;
+        int frame = 0;
+        auto navFrame = [&]() {
+            nio.DisplaySize = ImVec2((float)gevrSurfaceCanvasW(), 960);
+            ImGui::NewFrame();
+            gevrFriendsNavCross();
+            ImGui::SetNextWindowPos(ImVec2(0, 0));
+            ImGui::SetNextWindowSize(ImVec2(1280, 960));
+            ImGui::Begin("##launcher", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove);
+            ImGui::Button("A"); idA = ImGui::GetItemID();
+            ImGui::SameLine();
+            if (frame == 1) ImGui::SetKeyboardFocusHere();
+            ImGui::Button("B"); idB = ImGui::GetItemID();
+            ImGui::End();
+            drawSidePanel();
+            ImGui::Render();
+            frame++;
+        };
+        auto press = [&](ImGuiKey key) {
+            nio.AddKeyEvent(key, true); navFrame();
+            nio.AddKeyEvent(key, false); navFrame();
+            for (int i = 0; i < 3; i++) navFrame();
+        };
+        auto navRoot = [&]() { ImGuiWindow *w = GImGui->NavWindow; return w ? w->RootWindow : nullptr; };
+        for (int i = 0; i < 4; i++) navFrame();
+        ImGuiWindow *launcherWin = ImGui::FindWindowByName("##launcher");
+        ImGuiWindow *sideWin = ImGui::FindWindowByName("##friends-sidebar");
+        check(navRoot() == launcherWin && GImGui->NavId == idB, "the nav cursor starts on the surface's right-most item");
+        press(ImGuiKey_GamepadDpadLeft);
+        check(navRoot() == launcherWin && GImGui->NavId == idA, "left on the surface moves within it");
+        press(ImGuiKey_GamepadDpadRight);
+        check(navRoot() == launcherWin && GImGui->NavId == idB, "right with an item beside it only moves");
+        press(ImGuiKey_GamepadDpadRight);
+        check(navRoot() == sideWin && GImGui->NavId != 0, "right on the right-most item crosses into the Friends panel");
+        for (int i = 0; i < 12 && navRoot() == sideWin; i++) press(ImGuiKey_GamepadDpadLeft);
+        check(navRoot() == launcherWin && GImGui->NavId == idB, "left out of the panel comes back to where the cursor was");
+        ImGui::DestroyContext(nav);
+        ImGui::SetCurrentContext(prev);
+    }
+
+    puts("PASS: the Friends side panel fits open (500) and folded (76) beside the 1280 surface, and a pad crosses into it and back; the in-game panel's tabs, VR settings and footer fit at Quest font size");
 }
