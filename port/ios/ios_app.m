@@ -17,7 +17,18 @@
 #import <UIKit/UIKit.h>
 #import <GameController/GameController.h>
 
+#include <TargetConditionals.h>
 #include <SDL.h>
+
+#include "ios_app.h"
+
+@interface GevrSceneDelegate : UIResponder <UIWindowSceneDelegate>
+@property (nonatomic, strong) UIWindow *window;
+@end
+
+/* The connecting or active UIWindowScene captured by GevrSceneDelegate, so
+ * gevrForegroundScene() finds it reliably even before activation finishes. */
+static __weak UIWindowScene *s_activeScene;
 
 static UIWindowScene *gevrForegroundScene(void)
 {
@@ -27,7 +38,7 @@ static UIWindowScene *gevrForegroundScene(void)
         if (sc.activationState == UISceneActivationStateForegroundActive) return (UIWindowScene *)sc;
         if (!any) any = (UIWindowScene *)sc;
     }
-    return any;
+    return any ?: s_activeScene;
 }
 
 void sysLogPrintf(int level, const char *fmt, ...);
@@ -63,7 +74,20 @@ static void gevrIosClaimControllers(UIView *v)
 static UIView *s_hostView;
 void gevrIosSetHostView(void *view)
 {
+    UIView *prev = s_hostView;
     s_hostView = (__bridge UIView *)view;
+    if (!s_hostView) {
+        if (prev.window) {
+            UIWindowScene *sc = prev.window.windowScene ?: s_activeScene;
+            if ([sc.delegate isKindOfClass:GevrSceneDelegate.class]) {
+                GevrSceneDelegate *del = (GevrSceneDelegate *)sc.delegate;
+                if (del.window == prev.window) {
+                    del.window = nil;
+                }
+            }
+        }
+        return;
+    }
     /*
      * Game controllers to the game alone (SDL reads them through
      * GameController). Without this, visionOS (the iPad app on Vision Pro,
@@ -87,6 +111,9 @@ int gevrIosGraftWindows(void)
 {
     UIWindowScene *scene = gevrForegroundScene();
     if (!scene) return 0;
+    GevrSceneDelegate *sceneDel = [scene.delegate isKindOfClass:GevrSceneDelegate.class]
+        ? (GevrSceneDelegate *)scene.delegate
+        : nil;
     int moved = 0;
     NSMutableArray<UIWindow *> *windows = [NSMutableArray array];
     if (s_hostView.window) [windows addObject:s_hostView.window];
@@ -96,11 +123,23 @@ int gevrIosGraftWindows(void)
         if (![windows containsObject:w]) [windows addObject:w];
     }
 #pragma clang diagnostic pop
+    const CGRect sceneBounds = scene.coordinateSpace.bounds;
     for (UIWindow *w in windows) {
         gevrIosClaimControllers(w);
         gevrIosClaimControllers(w.rootViewController.view);
-        if (w.windowScene) continue;
+        if (w.windowScene) {
+            if (sceneDel && !sceneDel.window && w.windowScene == scene) {
+                sceneDel.window = w;
+            }
+            continue;
+        }
         w.windowScene = scene;
+        if (!CGRectIsEmpty(sceneBounds) && !CGRectEqualToRect(w.frame, sceneBounds)) {
+            w.frame = sceneBounds;
+        }
+        if (sceneDel && (!sceneDel.window || w == s_hostView.window)) {
+            sceneDel.window = w;
+        }
         [w makeKeyAndVisible];
         moved++;
         NSLog(@"GoldenEyeVR: moved SDL's window %@ onto the scene", NSStringFromCGRect(w.bounds));
@@ -108,22 +147,135 @@ int gevrIosGraftWindows(void)
     return moved;
 }
 
-@interface GevrSceneDelegate : UIResponder <UIWindowSceneDelegate>
-@property (nonatomic, strong) UIWindow *window;
-@end
-
 @implementation GevrSceneDelegate
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session
       options:(UISceneConnectionOptions *)options
 {
+    (void)session;
+    (void)options;
+    if ([scene isKindOfClass:UIWindowScene.class]) {
+        s_activeScene = (UIWindowScene *)scene;
+    }
     gevrIosGraftWindows();
 }
 
 - (void)sceneDidBecomeActive:(UIScene *)scene
 {
+    if ([scene isKindOfClass:UIWindowScene.class]) {
+        s_activeScene = (UIWindowScene *)scene;
+    }
     gevrIosGraftWindows();
 }
+
+- (void)sceneDidDisconnect:(UIScene *)scene
+{
+    if (s_activeScene == scene) {
+        s_activeScene = nil;
+    }
+    if (self.window.windowScene == scene) {
+        self.window = nil;
+    }
+}
 @end
+
+/*
+ * Fatal error presentation for iOS/tvOS (port/src/system.c sysFatalError).
+ *
+ * SDL_ShowSimpleMessageBox(..., NULL) creates a sceneless UIWindow that UIKit
+ * never composites under UIApplicationSceneManifest, hanging forever in
+ * UIKit_WaitUntilMessageBoxClosed on an empty launch screen. Attach an alert
+ * window directly to the active UIWindowScene instead, and bail out immediately
+ * if no scene is connected or if called off the main thread.
+ */
+void gevrIosFatalError(const char *msg)
+{
+    @autoreleasepool {
+        if (![NSThread isMainThread]) {
+            NSLog(@"GoldenEyeVR: fatal error (off main thread): %s", msg ? msg : "");
+            return;
+        }
+
+        UIWindowScene *scene = gevrForegroundScene();
+        for (int i = 0; !scene && i < 20; i++) {
+            [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                     beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+            scene = gevrForegroundScene();
+        }
+        if (!scene) {
+            NSLog(@"GoldenEyeVR: fatal error (no UIWindowScene): %s", msg ? msg : "");
+            return;
+        }
+
+#if TARGET_OS_TV
+        // Let the Siri Remote / game pad drive the alert (Select or Back closes it).
+        SDL_SetHintWithPriority(SDL_HINT_APPLE_TV_CONTROLLER_UI_EVENTS, "1", SDL_HINT_OVERRIDE);
+#endif
+
+        NSString *text = msg ? [NSString stringWithUTF8String:msg] : nil;
+        if (!text && msg) {
+            text = [NSString stringWithCString:msg encoding:NSISOLatin1StringEncoding];
+        }
+        if (!text || text.length == 0) {
+            text = @"An unrecoverable error occurred.";
+        }
+
+        UIWindow *alertWindow = [[UIWindow alloc] initWithWindowScene:scene];
+        const CGRect sceneBounds = scene.coordinateSpace.bounds;
+        if (!CGRectIsEmpty(sceneBounds)) {
+            alertWindow.frame = sceneBounds;
+        }
+        alertWindow.windowLevel = UIWindowLevelAlert + 1;
+        UIViewController *host = [[UIViewController alloc] init];
+        host.view.backgroundColor = [UIColor blackColor];
+        alertWindow.rootViewController = host;
+        if ([scene.delegate isKindOfClass:GevrSceneDelegate.class]) {
+            ((GevrSceneDelegate *)scene.delegate).window = alertWindow;
+        }
+        [alertWindow makeKeyAndVisible];
+        [alertWindow layoutIfNeeded];
+        [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                 beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"GoldenEye VR - Fatal Error"
+                                                                       message:text
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        __block BOOL dismissed = NO;
+        __block BOOL presented = NO;
+        UIAlertAction *closeAction = [UIAlertAction actionWithTitle:@"Close"
+                                                              style:UIAlertActionStyleCancel
+                                                            handler:^(UIAlertAction *action) {
+            (void)action;
+            dismissed = YES;
+        }];
+        [alert addAction:closeAction];
+        alert.preferredAction = closeAction;
+
+        [host presentViewController:alert animated:YES completion:^{
+            presented = YES;
+        }];
+
+        NSDate *presentDeadline = [NSDate dateWithTimeIntervalSinceNow:2.0];
+        while (!dismissed) {
+            [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                     beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+            if (![UIApplication.sharedApplication.connectedScenes containsObject:scene] && s_activeScene != scene) {
+                break;
+            }
+            if (presented) {
+                if (host.presentedViewController == nil) {
+                    break;
+                }
+            } else if (host.presentedViewController == alert) {
+                presented = YES;
+            } else if ([presentDeadline timeIntervalSinceNow] <= 0.0) {
+                NSLog(@"GoldenEyeVR: fatal error alert failed to present: %@", text);
+                break;
+            }
+        }
+
+        alertWindow.hidden = YES;
+    }
+}
 
 /* Before SDL starts (port/src/main.c) */
 void gevrIosPrepare(void)
@@ -181,6 +333,7 @@ void gevrIosHaptic(void)
  * (SDL_uikitview.m). A gesture recognizer that never recognises sees every
  * touch first and changes nothing for the view.
  */
+#if !TARGET_OS_TV
 #import <UIKit/UIGestureRecognizerSubclass.h>
 
 static NSMutableDictionary<NSNumber *, UITouch *> *s_touches;   /* by address */
@@ -210,14 +363,20 @@ static void gevrForgetEnded(void)
 @implementation GevrTouchWatcher
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event
 {
+    (void)event;
     if (s_touches.count > 32) gevrForgetEnded();   // ended ones SDL never asked about
     gevrHoldTouches(touches);
 }
 @end
+#endif /* !TARGET_OS_TV */
 
 /* 1: the touch is down; 0: its phase says the finger left; -1: not one we hold */
 int gevrIosTouchIsLive(long long fingerId)
 {
+#if TARGET_OS_TV
+    (void)fingerId;
+    return -1;
+#else
     NSNumber *k = @((uintptr_t)fingerId);
     UITouch *t = s_touches[k];
     if (!t) return -1;
@@ -226,16 +385,21 @@ int gevrIosTouchIsLive(long long fingerId)
         return 0;
     }
     return 1;
+#endif
 }
 
 void gevrIosWatchTouches(void *view)
 {
+#if !TARGET_OS_TV
     UIView *v = (__bridge UIView *)view;
     GevrTouchWatcher *w = [[GevrTouchWatcher alloc] initWithTarget:nil action:nil];
     w.cancelsTouchesInView = NO;
     w.delaysTouchesBegan = NO;
     w.delaysTouchesEnded = NO;
     [v addGestureRecognizer:w];
+#else
+    (void)view;
+#endif
 }
 
 /*

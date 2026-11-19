@@ -1,0 +1,231 @@
+name: Build tvOS IPA (Apple TV)
+
+on:
+  push:
+    branches:
+      - 'fix/tvos-*'
+      - 'tvos-*'
+  workflow_dispatch:
+    inputs:
+      xcode_path:
+        description: "Optional explicit Xcode .app path (e.g. /Applications/Xcode_26.1.1.app)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-tvos-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ANGLE_REV: e25e8d8565f7b077002e07c2cbacfc2eec35aec0
+  BASE_TVOS_IPA_URL: https://github.com/MrSco/goldeneye-vr/releases/download/v0.5.20/GoldenEyeVR-0.5.20-tvos.ipa
+  BASE_TVOS_IPA_SHA256: 68ac87d4f8f400fc1e5d74ec1a555a51f1dbf4f1738ac815009152a210efe39b
+  CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+
+jobs:
+  build-tvos:
+    runs-on: macos-15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode and inspect tvOS SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          XCODE="${{ inputs.xcode_path }}"
+          if [ -n "$XCODE" ]; then
+            test -d "$XCODE" || { echo "Requested Xcode not found: $XCODE" >&2; exit 1; }
+          elif [ -d "/Applications/Xcode_26.1.1.app" ]; then
+            XCODE="/Applications/Xcode_26.1.1.app"
+          else
+            XCODE="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n 1 || true)"
+            if [ -z "$XCODE" ]; then
+              XCODE="/Applications/Xcode.app"
+            fi
+          fi
+          echo "Selecting Xcode: $XCODE"
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+          xcodebuild -showsdks
+          TVOS_SDK_VER="$(xcrun --sdk appletvos --show-sdk-version)"
+          echo "Active appletvos SDK version: $TVOS_SDK_VER"
+          echo "TVOS_SDK_VER=$TVOS_SDK_VER" >> "$GITHUB_ENV"
+          echo "ANGLE_DIR=$RUNNER_TEMP/angle" >> "$GITHUB_ENV"
+          uname -m
+          cmake --version
+          ninja --version
+
+      - name: Install xcodegen
+        shell: bash
+        run: |
+          set -euo pipefail
+          HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install xcodegen
+          xcodegen --version
+
+      - name: Cache ANGLE headers
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/angle/include
+          key: angle-include-${{ env.ANGLE_REV }}
+
+      - name: Fetch ANGLE headers (sparse checkout)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f "$ANGLE_DIR/include/EGL/egl.h" ]; then
+            SRC="$RUNNER_TEMP/angle-src"
+            rm -rf "$SRC"
+            mkdir -p "$SRC" "$ANGLE_DIR"
+            git -C "$SRC" init -q
+            git -C "$SRC" remote add origin https://github.com/google/angle.git
+            git -C "$SRC" sparse-checkout init --cone
+            git -C "$SRC" sparse-checkout set include
+            git -C "$SRC" fetch --depth 1 --filter=blob:none origin "$ANGLE_REV"
+            git -C "$SRC" checkout -q FETCH_HEAD
+            cp -R "$SRC/include" "$ANGLE_DIR/include"
+            rm -rf "$SRC"
+          fi
+          test -f "$ANGLE_DIR/include/EGL/egl.h"
+          test -f "$ANGLE_DIR/include/EGL/eglext.h"
+          test -f "$ANGLE_DIR/include/EGL/eglext_angle.h"
+          test -f "$ANGLE_DIR/include/GLES3/gl3.h"
+
+      - name: Prepare and patch prebuilt tvOS ANGLE frameworks for A10X
+        shell: bash
+        run: |
+          set -euo pipefail
+          WORK="$RUNNER_TEMP/angle-fw"
+          rm -rf "$WORK" "$ANGLE_DIR/xcframeworks-tvos"
+          mkdir -p "$WORK" "$ANGLE_DIR/xcframeworks-tvos"
+
+          curl --fail --location --retry 3 --connect-timeout 20 --max-time 180 \
+            "$BASE_TVOS_IPA_URL" -o "$WORK/base-tvos.ipa"
+          ACTUAL_SHA="$(shasum -a 256 "$WORK/base-tvos.ipa" | awk '{print $1}')"
+          if [ "$ACTUAL_SHA" != "$BASE_TVOS_IPA_SHA256" ]; then
+            echo "SHA-256 mismatch for base IPA: got $ACTUAL_SHA, expected $BASE_TVOS_IPA_SHA256" >&2
+            exit 1
+          fi
+
+          unzip -q "$WORK/base-tvos.ipa" \
+            "Payload/GoldenEyeVR.app/Frameworks/libEGL.framework/*" \
+            "Payload/GoldenEyeVR.app/Frameworks/libGLESv2.framework/*" \
+            -d "$WORK/unpacked"
+          FW_DIR="$WORK/unpacked/Payload/GoldenEyeVR.app/Frameworks"
+
+          # Patch DisplayMtl::getMaxSupportedESVersion (mov w1, #0x4 -> mov w1, #0x3) for A10X (Apple3).
+          python3 tools/patch_angle_a10x.py "$FW_DIR/libGLESv2.framework/libGLESv2"
+
+          echo "=== Patched DisplayMtl::getMaxSupportedESVersion disassembly ==="
+          xcrun objdump -d --start-address=0x52c898 --stop-address=0x52c8e4 \
+            "$FW_DIR/libGLESv2.framework/libGLESv2" | tee "$WORK/disasm.txt"
+          grep -E '52c8ac:[[:space:]]+(52800061|61 00 80 52)[[:space:]]+mov[[:space:]]+w1, #(0x)?3' "$WORK/disasm.txt"
+
+          # Align LC_BUILD_VERSION sdk with the active Xcode appletvos SDK so ld/dyld see consistent tvOS metadata.
+          for lib in libEGL libGLESv2; do
+            BIN="$FW_DIR/$lib.framework/$lib"
+            xcrun vtool -arch arm64 -set-build-version tvos 17.0 "$TVOS_SDK_VER" -replace \
+              -output "$BIN.tmp" "$BIN"
+            mv "$BIN.tmp" "$BIN"
+            chmod 0755 "$BIN"
+            echo "=== vtool -show-build ($lib) ==="
+            xcrun vtool -show-build "$BIN"
+          done
+
+          # Re-verify patch remained intact after vtool.
+          python3 tools/patch_angle_a10x.py --check "$FW_DIR/libGLESv2.framework/libGLESv2"
+
+          for lib in libEGL libGLESv2; do
+            xcodebuild -create-xcframework \
+              -framework "$FW_DIR/$lib.framework" \
+              -output "$ANGLE_DIR/xcframeworks-tvos/$lib.xcframework"
+          done
+
+      - name: Cache CMake FetchContent dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/tvos-device/_deps
+          key: tvos-deps-v1-${{ env.TVOS_SDK_VER }}-${{ hashFiles('CMakeLists.txt', 'cmake/physics.cmake') }}
+
+      - name: Build GoldenEye VR tvOS device app
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Drop any cached FetchContent build outputs while preserving *-src and *-subbuild stamps.
+          rm -rf build/tvos-device/_deps/*-build
+          bash tools/build_tvos.sh device --app
+
+      - name: Package and verify unsigned tvOS IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME="$(sed -n 's/.*versionName "\([^"]*\)".*/\1/p' android/app/build.gradle)"
+          VERSION="${NAME%%-*}"
+          SHORT_SHA="$(git rev-parse --short HEAD)"
+          STAGE="$RUNNER_TEMP/ipa-stage"
+          VERIFY="$RUNNER_TEMP/ipa-verify"
+          rm -rf "$STAGE" "$VERIFY" dist
+          mkdir -p "$STAGE/Payload" "$VERIFY" dist
+
+          cp -R build/tvos-device/app/GoldenEyeVR.app "$STAGE/Payload/"
+          # Ensure no stale signing artifacts remain so Sideloadly signs cleanly.
+          find "$STAGE/Payload/GoldenEyeVR.app" -name "_CodeSignature" -type d -exec rm -rf {} +
+          rm -f "$STAGE/Payload/GoldenEyeVR.app/embedded.mobileprovision"
+
+          IPA_NAME="GoldenEyeVR-${VERSION}-tvos-a10x-${SHORT_SHA}.ipa"
+          OUT_IPA="$PWD/dist/$IPA_NAME"
+          ( cd "$STAGE" && zip -qry "$OUT_IPA" Payload )
+
+          # Re-unpack and run end-to-end verification on the actual artifact.
+          unzip -q "$OUT_IPA" -d "$VERIFY"
+          APP="$VERIFY/Payload/GoldenEyeVR.app"
+
+          test -f "$APP/GoldenEyeVR"
+          test -f "$APP/Frameworks/libEGL.framework/libEGL"
+          test -f "$APP/Frameworks/libGLESv2.framework/libGLESv2"
+          test ! -d "$APP/_CodeSignature"
+          test ! -f "$APP/embedded.mobileprovision"
+
+          echo "=== lipo -info ==="
+          lipo -info "$APP/GoldenEyeVR" "$APP/Frameworks/libEGL.framework/libEGL" "$APP/Frameworks/libGLESv2.framework/libGLESv2"
+
+          echo "=== otool -L GoldenEyeVR ==="
+          otool -L "$APP/GoldenEyeVR"
+          otool -L "$APP/GoldenEyeVR" | grep -Fq '@rpath/libGLESv2.framework/libGLESv2'
+          otool -L "$APP/GoldenEyeVR" | grep -Fq '@rpath/libEGL.framework/libEGL'
+
+          echo "=== vtool -show-build ==="
+          xcrun vtool -show-build "$APP/GoldenEyeVR"
+          xcrun vtool -show-build "$APP/Frameworks/libEGL.framework/libEGL"
+          xcrun vtool -show-build "$APP/Frameworks/libGLESv2.framework/libGLESv2"
+
+          echo "=== Verify _gevrIosFatalError and GevrSceneDelegate symbols ==="
+          nm "$APP/GoldenEyeVR" | grep -E ' _gevrIosFatalError$| _OBJC_CLASS_\$_GevrSceneDelegate$' | tee "$VERIFY/syms.txt"
+          grep -q ' _gevrIosFatalError$' "$VERIFY/syms.txt"
+          grep -q ' _OBJC_CLASS_\$_GevrSceneDelegate$' "$VERIFY/syms.txt"
+
+          echo "=== Verify A10X patch in packaged libGLESv2 ==="
+          python3 tools/patch_angle_a10x.py --check "$APP/Frameworks/libGLESv2.framework/libGLESv2"
+          xcrun objdump -d --start-address=0x52c898 --stop-address=0x52c8e4 \
+            "$APP/Frameworks/libGLESv2.framework/libGLESv2" | grep -E '52c8ac:[[:space:]]+(52800061|61 00 80 52)[[:space:]]+mov[[:space:]]+w1, #(0x)?3'
+
+          echo "=== Verify unsigned (for Sideloadly) ==="
+          for bundle in "$APP" "$APP/Frameworks/libEGL.framework" "$APP/Frameworks/libGLESv2.framework"; do
+            CS_OUT="$(codesign -dv "$bundle" 2>&1 || true)"
+            echo "$CS_OUT"
+            echo "$CS_OUT" | grep -Fq "code object is not signed at all"
+          done
+
+          echo "=== Artifact summary ==="
+          ls -lh "$OUT_IPA"
+          shasum -a 256 "$OUT_IPA"
+
+      - name: Upload tvOS IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoldenEyeVR-tvos-a10x-ipa
+          path: dist/*.ipa
+          if-no-files-found: error
