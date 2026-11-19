@@ -2851,6 +2851,7 @@ Gfx *gevrRenderGexWatch(Gfx *gdl, ModelRenderData *templ, const f32 pos[3], cons
 
 static s32 gevrStereoTwoHandTarget(f32 target[3]);
 static s32 gevrStereoTwoHandTurn(f32 w[3][3]);
+static s32 gevrStereoTwoHandGunMove(Mtxf *move);
 
 /*
  * gunfire.c gunRenderFirstPersonGunModels: returns whether the watch arm was
@@ -2998,6 +2999,18 @@ static Gfx *gevrWatchArmDraw(Gfx *gdl, ModelRenderData *templ, s32 *drawn, s32 h
             for (j = 0; j < 3; j++)
             {
                 matrices[i].m[3][j] = row[0] * w[0][j] + row[1] * w[1][j] + row[2] * w[2][j] + target[j];
+            }
+        }
+        {
+            /* ... and with the gun through its recoil (gevrStereoTwoHandGunMove) */
+            Mtxf move;
+
+            if (gevrStereoTwoHandGunMove(&move))
+            {
+                for (i = 0; i < n; i++)
+                {
+                    gevrMtxMul(&matrices[i], &move, &matrices[i]);
+                }
             }
         }
     }
@@ -4909,6 +4922,59 @@ s32 gevrStereoTwoHandMatrix(Mtxf *m)
                 + s_gevrTwoHandPalm[2] * m->m[2][i] + m->m[3][i];
         m->m[3][i] += target[i] - palm[i];
     }
+    {
+        Mtxf move;
+
+        if (gevrStereoTwoHandGunMove(&move))
+        {
+            gevrMtxMul(m, &move, m);
+        }
+    }
+    return TRUE;
+}
+
+/*
+ * The hand that holds the gun goes with it through its recoil (user,
+ * 2026-11-18: "when you two hand grab a gun and shoot the recoil doesn't
+ * transfer to off-hand that is gripping so it stays still while gun moves").
+ * The hand is put on the gun as the controller has it (gevrStereoGunMatrix),
+ * but the gun is drawn with GoldenEye's keyframe - its recoil, its reload's
+ * dip - laid over that in its own frame (gunfire.c, the same conditions
+ * here; gevrScopeGunFollow takes the lens through it the same way). move is
+ * that keyframe as a move of view space: out of the gun's frame, through the
+ * keyframe, and back. A point p of the hand goes to p * move.
+ */
+static s32 gevrStereoTwoHandGunMove(Mtxf *move)
+{
+    const s32 hand = s_gevrTwoHandGun;
+    struct hand *h;
+    Mtxf gun, inv, anim;
+    s32 item;
+
+    if (g_CurrentPlayer == NULL)
+    {
+        return FALSE;
+    }
+    h = &g_CurrentPlayer->hands[hand];
+    item = getCurrentPlayerWeaponId(hand);
+    if (h->field_92C == 0 || gevrStereoItemShown(item) || gevrMotionThrowOwnsHand(hand)
+        || GEVR_ITEM_AS(item) == ITEM_TASER || gevrStereoClubBat(hand) || !gevrStereoGunMatrix(hand, &gun))
+    {
+        return FALSE;
+    }
+    gun.m[0][3] = gun.m[1][3] = gun.m[2][3] = 0.0f;
+    gun.m[3][3] = 1.0f;
+    if (!gevrMtxInvAffine(&gun, &inv))
+    {
+        return FALSE;
+    }
+    anim = h->field_8EC;
+    anim.m[3][0] = -anim.m[3][0];
+    anim.m[3][2] = -anim.m[3][2];
+    anim.m[0][3] = anim.m[1][3] = anim.m[2][3] = 0.0f;
+    anim.m[3][3] = 1.0f;
+    gevrMtxMul(&inv, &anim, move);
+    gevrMtxMul(move, &gun, move);
     return TRUE;
 }
 

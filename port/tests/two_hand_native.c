@@ -98,6 +98,10 @@ static WeaponRecoilProfile GetRecoilProfileForGEClass(int cls)
 { (void)cls; WeaponRecoilProfile p = {2, 3, 4}; return p; }
 static void RecoilFireImpulse(int ctrl, WeaponRecoilProfile profile) { (void)ctrl; (void)profile; }
 s32 gevrStereoTwoHandGun(void);
+static s32 gevrStereoTwoHandGunMove(Mtxf *move);
+/* the gun's keyframe is laid over the controller's pose for a gun, not a gadget or a throw */
+static int gevrStereoItemShown(int item) { (void)item; return 0; }
+static int gevrMotionThrowOwnsHand(int hand) { (void)hand; return 0; }
 /* DEFINITIONS */
 /* PRODUCTION */
 
@@ -377,6 +381,31 @@ static void testGrab(int gun, int leftHanded)
         for (int c = 0; c < 3; c++)
             assert(fabsf(held.m[r][c] - free.m[r][c]) < 1e-3f * (r == 3 ? GEVR_UNITS_PER_METRE : 1.0f));
     for (int k = 3; k < 6; k++) assert(follow[k] > -180.0f && follow[k] <= 180.0f);
+    /* The gun's recoil takes the holding hand with it (user: "the recoil doesn't
+     * transfer to off-hand that is gripping so it stays still while gun moves"):
+     * the gun drawn 10 back along its own line, the hand is moved the same, unturned. */
+    {
+        Mtxf plain, kicked, still;
+        assert(gevrStereoGunMatrix(gun, &plain));
+        kicked = plain;
+        if (1 - gun == GUNLEFT) matrix_column_1_scalar_multiply(-1.0f, kicked.m[0]);
+        matrix_scalar_multiply(IDO_POINT_ONE, kicked.m[0]);
+        still = kicked;
+        assert(gevrStereoTwoHandMatrix(&still));
+        matrix_4x4_set_identity(&player.hands[gun].field_8EC);
+        player.hands[gun].field_8EC.m[3][2] = -10.0f;   /* gunfire.c: back, in the camera's axes */
+        player.hands[gun].field_92C = 1;
+        assert(gevrStereoTwoHandMatrix(&kicked));
+        for (int c = 0; c < 3; c++)
+        {
+            assert(fabsf(kicked.m[3][c] - still.m[3][c] - 10.0f * plain.m[2][c]) < 1e-2f);
+            for (int r = 0; r < 3; r++) assert(fabsf(kicked.m[r][c] - still.m[r][c]) < 1e-4f);
+        }
+        player.hands[gun].field_92C = 0;
+        kicked = still;
+        assert(gevrStereoTwoHandMatrix(&kicked));   /* no keyframe: where the controller has it */
+        player.hands[gun].field_92C = 0;
+    }
     memcpy(VrGripTrim[cls], saved, sizeof(saved));
     for (int i = 0; i < 2; i++) { quats[i][0] = quats[i][3] = 0.70710678f; quats[i][1] = quats[i][2] = 0; }
     release();

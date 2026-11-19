@@ -44,6 +44,7 @@ production.extend(function(math, signature) for signature in (
     'void matrix_4x4_get_rotation_around_xyz(', 'void matrix_column_1_scalar_multiply(',
     'void matrix_scalar_multiply('))
 production.extend(function(view, signature) for signature in (
+    'static void gevrMtxMul(', 'static s32 gevrMtxInvAffine(',
     'static s32 gevrGripAxesRaw(', 'static s32 gevrGripAxes(',
     's32 gevrGexHeldPalm(f32 out[3])\n{',
     's32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)',
@@ -54,7 +55,8 @@ production.extend(function(view, signature) for signature in (
     's32 gevrStereoTwoHandUpdate(void)', 's32 gevrStereoTwoHandGrip(void)',
     's32 gevrStereoTwoHandClass(void)', 'static f32 *gevrTwoHandTrimNow(void)',
     'static s32 gevrStereoTwoHandTarget(f32 target[3])\n{',
-    's32 gevrStereoTwoHandMatrix(', 'static f32 gevrFitTurnDegrees(', 's32 gevrStereoTwoHandFollow(f32 out[6])',
+    's32 gevrStereoTwoHandMatrix(', 'static s32 gevrStereoTwoHandGunMove(Mtxf *move)\n{',
+    'static f32 gevrFitTurnDegrees(', 's32 gevrStereoTwoHandFollow(f32 out[6])',
     'static void gevrTwoHandBatAim(',
     'static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3])\n{'))
 production.extend(function(gun, signature) for signature in (
