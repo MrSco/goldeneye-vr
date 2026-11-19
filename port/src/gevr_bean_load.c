@@ -2888,6 +2888,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	for (int i = 0; i < numbones; i++) {
 		memcpy(mesh->boneBind[i], bind[i], sizeof(bind[i]));
 		mesh->boneSk[i] = boneSk[i] < 0 ? 0 : boneSk[i];
+		mesh->boneMuzzle[i] = (uint8_t)((muzzle[i] ? 1 : 0) |
+		                                (i < numnames && !strcmp(names[i], "SKEL_MUZZLE") ? 2 : 0));
 		if (i < numnames)
 			snprintf(mesh->boneName[i], 64, "%s", names[i]);
 	}

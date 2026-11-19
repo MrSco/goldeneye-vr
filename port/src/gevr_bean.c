@@ -2173,6 +2173,219 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 }
 
 /*
+ * DAB gebean.c fpBuildCards() (port/licenses/dabs-mod.txt): the release's
+ * muzzle-flash cards (GEVR_BEAN_F_FLASH, DAB fpDrawIsCard()) on GoldenEye's
+ * own flash, the lists under its flash switch (part 1), so they draw only on
+ * the frames GoldenEye shows its flash. They were dropped, and every gun fired
+ * the N64's painted flash.
+ *
+ * Where GoldenEye poses its flash (part 3, a group on a matrix of its own, and
+ * its star, part 2, on another): the cards on the muzzle bone go in the
+ * flash's list and those on the muzzle's other bones in the star's, each laid
+ * from the point the release turns it about (SKEL_MUZZLE, and the star's bone
+ * nearest it). A flash whose only list is its star's (the RC-P90's, the
+ * AR33's) has every card on the star. A flash GoldenEye does not pose takes
+ * every card into its first list, where the gun lays them. They are drawn as
+ * the release draws them: blended by the picture's alpha without writing
+ * depth, both sides, the pictures clamped (repeating, each quarter's edge read
+ * the far side of its picture, a dark seam through the flash). The switch's
+ * other lists are covered, as DAB covers them.
+ */
+static int gunCardBone(const struct gevrBeanTri *t, int corner)
+{
+	int best = -1, weight = 0;
+	for (int j = 0; j < 4; j++) {
+		const int b = t->bone[corner * 4 + j];
+		if (b < 64 && t->weight[corner * 4 + j] > weight) {
+			weight = t->weight[corner * 4 + j];
+			best = b;
+		}
+	}
+	return best;
+}
+
+static void gunFlashCards(const ModelFileHeader *header, const struct gevrBeanMesh *cmesh, const struct beanFit *fit,
+                          const struct beanGrp *grp, const struct beanDl *dls, int nd)
+{
+	struct gevrBeanMesh *mesh = (struct gevrBeanMesh *)cmesh;   /* the cards' pictures clamp (below) */
+	ModelNode *sw = header->numSwitches > 1 ? header->Switches[1] : NULL;
+	ModelNode *flashpos = header->numSwitches > 3 ? header->Switches[3] : NULL;
+	ModelNode *starpos = header->numSwitches > 2 ? header->Switches[2] : NULL;
+	int cards = 0;
+	for (int t = 0; t < mesh->ntris; t++)
+		cards += (mesh->tris[t].flags & GEVR_BEAN_F_FLASH) != 0;
+	if (!sw || !cards || !fit)
+		return;
+	const int basemtx = nodeMatrix(sw);
+	const int flashmtx = flashpos && nodeOp(flashpos) == MODELNODE_OPCODE_GROUP ? nodeMatrix(flashpos) : -1;
+	int starmtx = starpos && nodeOp(starpos) == MODELNODE_OPCODE_GROUP ? nodeMatrix(starpos) : -1;
+	int posed = flashmtx >= 0 && basemtx >= 0 && flashmtx != basemtx;
+	int anylist = -1, flashlist = -1, starlist = -1, billboard = 0;
+	if (!posed || starmtx == flashmtx || starmtx == basemtx)
+		starmtx = -1;
+	/* GoldenEye's lists under the switch that draw under each matrix */
+	for (int k = 0; k < nd; k++) {
+		if (!gunFlashNode(header, dls[k].node) || dls[k].grp < 0)
+			continue;
+		if (anylist < 0)
+			anylist = k;
+		if (flashlist < 0 && posed && nodeMatrix(dls[k].node) == flashmtx)
+			flashlist = k;
+		if (starlist < 0 && starmtx >= 0 && nodeMatrix(dls[k].node) == starmtx)
+			starlist = k;
+	}
+	if (flashlist < 0 && posed && starlist >= 0) {
+		billboard = 1;
+		flashlist = starlist;
+	} else if (flashlist < 0) {
+		posed = 0;
+		starlist = -1;
+		flashlist = anylist;
+	}
+	if (flashlist < 0)
+		return;
+	/* the bones the cards hang from: the muzzle, and the star's nearest it */
+	int root = -1, star = -1;
+	float nearest = 1e30f;
+	for (int pass = 0; pass < 2; pass++)
+		for (int t = 0; t < mesh->ntris; t++) {
+			const struct gevrBeanTri *tri = &mesh->tris[t];
+			if (!(tri->flags & GEVR_BEAN_F_FLASH))
+				continue;
+			for (int c = 0; c < 3; c++) {
+				const int b = gunCardBone(tri, c);
+				if (b < 0 || b >= mesh->nbones || !(mesh->boneMuzzle[b] & 1))
+					continue;
+				if (pass == 0 && (root < 0 || ((mesh->boneMuzzle[b] & 2) && !(mesh->boneMuzzle[root] & 2)))) {
+					root = b;
+				} else if (pass == 1 && root >= 0 && b != root && !(mesh->boneMuzzle[b] & 2)) {
+					float d2 = 0.0f;
+					for (int k = 0; k < 3; k++)
+						d2 += (mesh->boneBind[b][k] - mesh->boneBind[root][k]) * (mesh->boneBind[b][k] - mesh->boneBind[root][k]);
+					if (d2 < nearest) {
+						nearest = d2;
+						star = b;
+					}
+				}
+			}
+		}
+	if (star < 0 && !billboard)
+		starlist = -1;
+	/* what the cards' places are measured from: where the release turns the
+	 * flash (its muzzle, else the cards' own middle), or for a flash GoldenEye
+	 * does not pose, its list's own rest */
+	float rootat[3], starat[3] = { 0.0f, 0.0f, 0.0f };
+	if (posed && root >= 0) {
+		fitPoint(fit, mesh->boneBind[root], rootat);
+	} else if (posed) {
+		double sum[3] = { 0.0, 0.0, 0.0 };
+		int count = 0;
+		for (int t = 0; t < mesh->ntris; t++)
+			for (int c = 0; (mesh->tris[t].flags & GEVR_BEAN_F_FLASH) && c < 3; c++) {
+				float at[3];
+				fitPoint(fit, &mesh->tris[t].p[c * 3], at);
+				for (int k = 0; k < 3; k++)
+					sum[k] += at[k];
+				count++;
+			}
+		for (int k = 0; k < 3; k++)
+			rootat[k] = count ? (float)(sum[k] / count) : grp[dls[flashlist].grp].o[k];
+	} else {
+		memcpy(rootat, grp[dls[flashlist].grp].o, sizeof(rootat));
+	}
+	if (billboard)
+		memcpy(starat, rootat, sizeof(starat));
+	else if (starlist >= 0)
+		fitPoint(fit, mesh->boneBind[star], starat);
+	/* a picture only the cards use is clamped, from its lowest whole repeat */
+	uint8_t other[256] = {0}, mine[256] = {0};
+	float base[256][2];
+	for (int x = 0; x < 256; x++)
+		base[x][0] = base[x][1] = 1e30f;
+	for (int t = 0; t < mesh->ntris; t++) {
+		const struct gevrBeanTri *tri = &mesh->tris[t];
+		if (tri->tex < 0 || tri->tex >= mesh->ntex)
+			continue;
+		if (!(tri->flags & GEVR_BEAN_F_FLASH)) {
+			other[tri->tex] = 1;
+			continue;
+		}
+		mine[tri->tex] = 1;
+		for (int c = 0; c < 3; c++)
+			for (int k = 0; k < 2; k++)
+				if (tri->uv[c * 2 + k] < base[tri->tex][k])
+					base[tri->tex][k] = tri->uv[c * 2 + k];
+	}
+	for (int x = 0; x < mesh->ntex && x < 256; x++)
+		if (mine[x] && !other[x]) {
+			mesh->texClamp[x] = 3;
+			mesh->texClampBase[x][0] = floorf(base[x][0]);
+			mesh->texClampBase[x][1] = floorf(base[x][1]);
+		}
+	/* the cards, a layer a list: 0 the flash's, 1 the star's; lit by themselves, not dimmed with the
+	 * gun by the room (gevrBeanEmitList's dim: a grey haze where GoldenEye's flash is bright) */
+	struct gevrEmitVert *ev[2] = { NULL, NULL };
+	int n[2] = { 0, 0 }, cap[2] = { 0, 0 };
+	const int mirror = fitMirrors(fit);
+	for (int t = 0; t < mesh->ntris; t++) {
+		const struct gevrBeanTri *tri = &mesh->tris[t];
+		int layer[3];
+		if (!(tri->flags & GEVR_BEAN_F_FLASH))
+			continue;
+		for (int c = 0; c < 3; c++) {
+			const int b = gunCardBone(tri, c);
+			layer[c] = billboard || (starlist >= 0 && b != root && b >= 0 && b < mesh->nbones &&
+			                         (mesh->boneMuzzle[b] & 1) && !(mesh->boneMuzzle[b] & 2));
+		}
+		/* a card is in one layer; a triangle across two is no card */
+		if (layer[0] != layer[1] || layer[0] != layer[2])
+			continue;
+		const int l = layer[0];
+		if ((l ? starlist : flashlist) < 0)
+			continue;
+		if (n[l] + 3 > cap[l]) {
+			cap[l] = cap[l] ? cap[l] * 2 : 96;
+			struct gevrEmitVert *grown = realloc(ev[l], (size_t)cap[l] * sizeof(*grown));
+			if (!grown)
+				break;
+			ev[l] = grown;
+		}
+		for (int c = 0; c < 3; c++) {
+			float pt[3], nr[3];
+			fitPoint(fit, &tri->p[c * 3], pt);
+			for (int k = 0; k < 3; k++) {
+				pt[k] -= l ? starat[k] : rootat[k];
+				nr[k] = tri->n[c * 3 + fit->perm[k]] * fit->sign[k];
+			}
+			struct gevrEmitVert *e = &ev[l][n[l] + (mirror && c ? 3 - c : c)];
+			fillEmit(tri, 0, e, pt, nr, c);
+			e->alpha = 254;   /* blended, no depth written (gevrBeanEmitList's XLU span) */
+			e->cut = 0;
+		}
+		n[l] += 3;
+	}
+	int drawn = 0;
+	for (int l = 0; l < 2; l++) {
+		const int list = l ? starlist : flashlist;
+		void *gdl = NULL, *vtx = NULL;
+		if (list >= 0 && n[l] && gevrBeanEmitList(mesh, ev[l], n[l], 0, 0, 0, 1, &gdl, &vtx)) {
+			keepAlloc(gdl);
+			keepAlloc(vtx);
+			registerPrimary(dls[list].node, gdl, 0);
+			drawn += n[l] / 3;
+		}
+		free(ev[l]);
+	}
+	if (!drawn)
+		return;
+	for (int k = 0; k < nd; k++)
+		if (k != flashlist && k != starlist && gunFlashNode(header, dls[k].node))
+			registerPrimary(dls[k].node, s_blank, 1);
+	GEVR_BEAN_LOG("gevr bean: %s: %d flash card triangles on GoldenEye's flash (%s%s)\n", fit->source, drawn,
+	              posed ? "posed" : "on the gun", billboard ? ", every card on the star" : starlist >= 0 ? ", a star" : "");
+}
+
+/*
  * A gun's removable magazine (gevr_beanmag.h; user, 2026-11-18): the body list
  * laid out twice more from the mesh cut across its grip - without the magazine,
  * the well floored, and the magazine alone - both on the body's matrix and from
@@ -3273,6 +3486,9 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 					registerPrimary(dls[i].node, s_blank, 1);
 				}
 			}
+			/* the release's flash cards on GoldenEye's flash (DAB fpBuildCards()) */
+			if (kind == BEAN_GUN && fit)
+				gunFlashCards(header, mesh, fit, grp, dls, nd);
 			if (kind == BEAN_PROP) {
 				s_screenBuild = NULL;
 				beanScreensFinish(&screens, header, dls[best].node, fit, mainEmitted);

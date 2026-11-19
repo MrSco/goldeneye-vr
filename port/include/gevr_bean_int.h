@@ -98,6 +98,7 @@ struct gevrBeanMesh {
 	float boneBind[64][3];
 	char boneName[64][64];
 	uint8_t boneSk[64];
+	uint8_t boneMuzzle[64];   /* DAB muzzlebone (bit 0: SKEL_MUZZLE*, *FLASH* or under one), muzzleroot (bit 1) */
 	int tricaps;
 	int mirrorPieces;   /* Mirror Mode turned its pieces over in place (gevr_mirror.c) */
 };
