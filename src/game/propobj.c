@@ -290,6 +290,156 @@ static void gevrMineToBodySurface(ObjectRecord *obj, PropRecord *prop, coord3d *
     prop->pos = obj->runtime_pos;
     chrobjCollisionRelated(obj);   /* as sub_GAME_7F0439B8 ends */
 }
+
+/*
+ * DAB propobj.c objLandOnDrawnSurface(), xblamesh.c xblaMeshSurfaceAlong()
+ * (port/licenses/dabs-mod.txt): a mine stuck to a prop the HD look draws is
+ * moved by as much as the drawn surface stands off the collision surface it
+ * landed on - out along the normal to the nearest of Bean's triangles within
+ * reach or, with none outside, in to the nearest under it. Bean's props are
+ * not the N64 ones' shape: a mine stuck to one of Facility's tanks sat inside
+ * the HD tank's fatter wall. The model's matrices are the last frame's, in the
+ * camera's space, as a shot tests them (propobjFindHit) and objEmbed reads
+ * them; only the lists Bean draws are asked (gevr_bean.c gevrBeanHitNode).
+ */
+#define GEVR_LAND_DRAWN_REACH 40.0f
+
+static s32 gevrDrawnSurfaceAlong(Model *model, const coord3d *from, const coord3d *dir, f32 reach, coord3d *hit)
+{
+    Mtxf *viewtoworld = currentPlayerGetViewToWorldMtxf();
+    Mtxf worldtoview;
+    coord3d vpos;
+    coord3d vdir;
+    ModelNode *node;
+    ModelNode *root;
+    f32 best = reach;
+    s32 found = 0;
+
+    if (model == NULL || model->obj == NULL || model->render_pos == NULL || viewtoworld == NULL)
+    {
+        return 0;
+    }
+    matrix_4x4_invert_affine(viewtoworld->m, worldtoview.m);
+    vpos = *from;
+    vdir = *dir;
+    mtx4TransformVecInPlace(&worldtoview, &vpos);
+    mtx4RotateVecInPlace(&worldtoview, &vdir);
+
+    /* propobjFindHit's walk: the switches and LODs pick the children drawn */
+    root = model->obj->RootNode;
+    for (node = root; node != NULL; )
+    {
+        u32 type = node->Opcode & 0xff;
+
+        if (type == MODELNODE_OPCODE_LOD)
+        {
+            modelApplyDistanceRelations(model, node);
+        }
+        else if (type == MODELNODE_OPCODE_SWITCH)
+        {
+            modelApplyToggleRelations(model, node);
+        }
+        else if (type == MODELNODE_OPCODE_HEAD)
+        {
+            modelApplyHeadRelations(model, node);
+        }
+        else if (type == MODELNODE_OPCODE_DL || type == MODELNODE_OPCODE_DLCOLLISION)
+        {
+            s32 mtxindex = modelFindNodeMtxIndex(node, 0);
+
+            if (mtxindex >= 0)
+            {
+                Mtxf *mtx = (Mtxf *)&model->render_pos[mtxindex];
+                Mtxf inv;
+                coord3d lpos = vpos;
+                coord3d ldir = vdir;
+                HitThing h;
+
+                matrix_4x4_invert_affine(mtx->m, inv.m);
+                mtx4TransformVecInPlace(&inv, &lpos);
+                mtx4RotateVecInPlace(&inv, &ldir);
+                memset(&h, 0, sizeof(h));
+                if (gevrBeanHitNode(node, lpos.f, ldir.f, &h) > 0)
+                {
+                    coord3d w = h.hitpos;
+                    f32 dx, dy, dz, dist;
+
+                    mtx4TransformVecInPlace(mtx, &w);
+                    mtx4TransformVecInPlace(viewtoworld, &w);
+                    dx = w.x - from->x;
+                    dy = w.y - from->y;
+                    dz = w.z - from->z;
+                    dist = sqrtf(dx * dx + dy * dy + dz * dz);
+                    if (dist < best)
+                    {
+                        best = dist;
+                        *hit = w;
+                        found = 1;
+                    }
+                }
+            }
+        }
+
+        if (node->Child)
+        {
+            node = node->Child;
+        }
+        else
+        {
+            while (node != NULL)
+            {
+                if (node == root)
+                {
+                    node = NULL;
+                    break;
+                }
+                if (node->Next)
+                {
+                    node = node->Next;
+                    break;
+                }
+                node = node->Parent;
+            }
+        }
+    }
+    return found;
+}
+
+static void gevrMineToDrawnSurface(ObjectRecord *obj, PropRecord *prop, Model *model, const coord3d *contact,
+                                   const coord3d *normal)
+{
+    coord3d n = *normal;
+    coord3d hit;
+    f32 len = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
+    s32 found;
+
+    if (model == NULL || !(len > 0.0f))
+    {
+        return;
+    }
+    n.x /= len;
+    n.y /= len;
+    n.z /= len;
+    found = gevrDrawnSurfaceAlong(model, contact, &n, GEVR_LAND_DRAWN_REACH, &hit);
+    if (!found)
+    {
+        n.x = -n.x;
+        n.y = -n.y;
+        n.z = -n.z;
+        found = gevrDrawnSurfaceAlong(model, contact, &n, GEVR_LAND_DRAWN_REACH, &hit);
+    }
+    if (!found)
+    {
+        return;
+    }
+    obj->runtime_pos.x += hit.x - contact->x;
+    obj->runtime_pos.y += hit.y - contact->y;
+    obj->runtime_pos.z += hit.z - contact->z;
+    prop->pos = obj->runtime_pos;
+    chrobjCollisionRelated(obj);   /* as sub_GAME_7F0439B8 ends */
+    sysLogPrintf(LOG_NOTE, "mine: moved %.1f %.1f %.1f onto the drawn surface", hit.x - contact->x,
+                 hit.y - contact->y, hit.z - contact->z);
+}
 #endif
 /* 0x80030AF8 */ s32 g_NextWeaponSlot = 0; // numbers between 0 and 30
 /* 0x80030AFC */ s32 g_NextHatSlot = 0;
@@ -4963,6 +5113,13 @@ s32 objTick(struct PropRecord *prop)
 						if (gevrMineSticksToGuard(airborneWeapon, D_80030B0C))
 						{
 							gevrMineToBodySurface(obj, prop, &collisionNormal);
+						}
+						/* on a prop: onto the surface Bean draws (DAB objLandOnDrawnSurface) */
+						else if (D_80030B0C != NULL && (D_80030B0C->type == PROP_TYPE_OBJ || D_80030B0C->type == PROP_TYPE_DOOR
+						             || D_80030B0C->type == PROP_TYPE_WEAPON)
+						         && (D_80030B0C->flags & PROPFLAG_ONSCREEN))
+						{
+							gevrMineToDrawnSurface(obj, prop, g_CurrentProjectileModel, &collisionPoint, &collisionNormal);
 						}
 #endif
 						if (D_80030B0C != NULL)
