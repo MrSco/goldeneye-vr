@@ -14,7 +14,7 @@ reloading); Bean's sculpted glove patches and a sealed, smaller off-hand arm
 KF7/AR33 magnifier always shows, the ammo count beside the lens, the
 supporting hand takes the recoil; Bean level fixes #249-#254; ragdolls drawn
 before the see-through pass; Apple TV (docs/apple-tv.md). Plays online with
-v0.5.15 to v0.5.19 in GoldenEye's campaign. 8 downloads from one commit;
+v0.5.15 to v0.5.19 in GoldenEye's campaign. 9 downloads from one commit;
 TestFlight iOS 140 (native now; 139 was Klepton's), visionOS 16, tvOS 2.
 Gates: suite 112/112 (98 Windows + 14 WSL, every ROM incl. Mario and
 Mirror), Java 46x3, server gate passed.
@@ -120,7 +120,8 @@ server, Friends). README.md and MULTIPLAYER.md describe it all.
   --build-dir <new>`, `tools/gevr_package_server.sh X.Y.Z` with
   GEVR_SERVER_BUILD/_ARM); iOS on the Mac (`bash tools/build_ios.sh device
   --app`, unsigned; Payload/GoldenEyeVR.app zipped as
-  `GoldenEyeVR-X.Y.Z-ios.ipa`). Notes list every file's SHA-256 (the server
+  `GoldenEyeVR-X.Y.Z-ios.ipa`; Apple TV the same with tools/build_tvos.sh as
+  `-tvos.ipa`). Notes list every file's SHA-256 (the server
   setup reads them). Symbols (APK zips, .debug files) to the reports repo's
   `symbols` release. Never install to a headset unasked.
 - A batch is one branch; a new branch gets its own worktree. Commit before
