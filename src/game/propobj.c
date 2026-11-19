@@ -7207,6 +7207,9 @@ Gfx *process_monitor_animation_microcode(Model *model, ModelNode *node, MonitorR
         union ModelRwData *rwdata = modelGetNodeRwData(model, node);
         sImageTableEntry *tconfig;
         bool yielding = FALSE;
+#ifdef GEVR
+        s32 gevrRecess = FALSE;
+#endif
 
         while (!yielding) 
         {
@@ -7458,6 +7461,7 @@ Gfx *process_monitor_animation_microcode(Model *model, ModelNode *node, MonitorR
         if (gevrBeanScreenQuad(model, node, vertices) && arg4 == 1)
         {
             arg4 = 8;
+            gevrRecess = TRUE;
         }
 #endif
 
@@ -7572,6 +7576,17 @@ Gfx *process_monitor_animation_microcode(Model *model, ModelNode *node, MonitorR
         gSPSetGeometryMode(gdl++, G_CULL_BACK);
 
         texSelect(&gdl, tconfig, arg5, arg4, 2);
+#ifdef GEVR
+        /* DAB tvscreenRender() draws the programme with G_DECAL_EXT, which
+         * changes only the depth comparison: an opaque programme still writes
+         * depth. texSelect()'s decal mode writes none, and a room drawn after
+         * the prop painted through the door console's lamp in Bean's recess
+         * (Aztec, #251). A translucent programme keeps texSelect()'s. */
+        if (gevrRecess && arg5 != 2 && arg5 != 3 && arg5 != 4)
+        {
+            gDPSetRenderMode(gdl++, G_RM_AA_ZB_OPA_DECAL | Z_UPD, G_RM_AA_ZB_OPA_DECAL2 | Z_UPD);
+        }
+#endif
 
         gSPMatrix(gdl++, osVirtualToPhysical(model->render_pos), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
         gSPSegment(gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(vertices));
