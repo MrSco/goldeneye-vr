@@ -257,3 +257,9 @@ void gevrIosVoiceChatMode(void)
         NSLog(@"GoldenEyeVR: voice chat mode refused: %@", err);
     }
 }
+
+/* Apple TV: a microphone only when one is connected (port/pc/pc_services.cpp) */
+int gevrIosMicAvailable(void)
+{
+    return AVAudioSession.sharedInstance.isInputAvailable ? 1 : 0;
+}
