@@ -2171,6 +2171,42 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 			free(ev);
 			return 0;
 		}
+		/*
+		 * DAB gebean.c beanDoubleWheels(): dual rear wheels. GoldenEye's military
+		 * truck has a pair of wheels a side at the back, one part each pair (610
+		 * units across where a front wheel is 305); Bean's has one wheel a side
+		 * there, the outer one, and the HD truck stood on single rear wheels.
+		 * Where GoldenEye's geometry for a part spans across x at least half
+		 * again what Bean's wheel on it does - a wheel: round across y and z,
+		 * thin along x - the wheel is drawn a second time beside itself, on the
+		 * side GoldenEye's pair goes.
+		 */
+		if (kind == BEAN_PROP && binding && binding->target >= 0 && binding->target != binding->base && hv && hc > 0) {
+			float lo[3] = { 1e30f, 1e30f, 1e30f }, hi[3] = { -1e30f, -1e30f, -1e30f }, glo = 1e30f, ghi = -1e30f;
+			for (int v = 0; v < n; v++)
+				for (int k = 0; k < 3; k++) {
+					lo[k] = fminf(lo[k], ev[v].p[k]);
+					hi[k] = fmaxf(hi[k], ev[v].p[k]);
+				}
+			for (int v = 0; v < hc; v++) {
+				glo = fminf(glo, hv[v].coord.AsArray[0]);
+				ghi = fmaxf(ghi, hv[v].coord.AsArray[0]);
+			}
+			const float bw = hi[0] - lo[0], bh = hi[1] - lo[1], bd = hi[2] - lo[2], gw = ghi - glo;
+			if (bw > 0.0f && gw >= bw * 1.5f && bw <= fminf(bh, bd) * 0.6f && fabsf(bh - bd) <= fmaxf(bh, bd) * 0.15f) {
+				const float shift = (glo + ghi) * 0.5f >= (lo[0] + hi[0]) * 0.5f ? bw : -bw;
+				struct gevrEmitVert *grown = realloc(ev, (size_t)n * 2 * sizeof(*ev));
+				if (grown) {
+					ev = grown;
+					memcpy(ev + n, ev, (size_t)n * sizeof(*ev));
+					for (int v = n; v < n * 2; v++)
+						ev[v].p[0] += shift;
+					GEVR_BEAN_LOG("gevr bean: %s: a wheel drawn twice, as GoldenEye's pair (%.0f across, Bean's %.0f)\n",
+					              fit ? fit->source : "prop", gw, bw);
+					n *= 2;
+				}
+			}
+		}
 		/* DAB xblamesh.c:7171: characters cull their back faces as the N64 models
 		 * do; props and guns stay two-sided (Dam's truck cab and gates lost their
 		 * far walls when they culled) */
