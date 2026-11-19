@@ -1697,6 +1697,122 @@ static int groupHasUntoggledList(const ModelFileHeader *header, const struct bea
 /* A first-person gun's hand and sleeve: GoldenEye shows and hides Switches
  * 8-13 and 35 together (gun.c sub_GAME_7F05E978). The watch inventory and the
  * guns guards hold (gevr_heldgun.c) draw the gun bare. */
+/*
+ * DAB xblamesh.c xblaMeshObjShotTest() and xblaMeshHitTest() (port/licenses/
+ * dabs-mod.txt): a prop Bean draws is shot where it is drawn, on the release's
+ * triangles, not the cartridge's under them. The release's thin jungle trees
+ * stand inside the N64 trunks' width, and a shot past the drawn trunk stopped
+ * on the invisible one; where the release's prop is bigger, shots went through
+ * it. For one list of the shot's walk (propobj.c propobjFindHit), with the ray
+ * in the list's matrix space:
+ *   1  a hit, in *hit, on the triangles this list draws;
+ *   0  the list is Bean's and the ray misses it, or it draws nothing here (its
+ *      part drawn on another list);
+ *  -1  the game's own triangles: Bean off, a skinned or unrecorded list, or a
+ *      list the game hides and finds by its node - a CCTV's lens, a door's
+ *      window - blank here, its Bean part drawn on a list the game never hides
+ *      (registration below), so its glass still breaks as GoldenEye's does.
+ */
+extern bool intersectRayTriangle(Vertex *vertex0, Vertex *vertex1, Vertex *vertex2, coord3d *vertexOffset,
+                                 coord3d *rayStart, coord3d *linePoint, coord3d *rayDirection, HitThing *hit);
+
+static int hitRayMeetsBox(const float pos[3], const float dir[3], const float box[2][3])
+{
+	float near = 0.0f, far = 1e30f;
+	for (int k = 0; k < 3; k++) {
+		if (fabsf(dir[k]) < 1e-12f) {
+			if (pos[k] < box[0][k] || pos[k] > box[1][k])
+				return 0;
+			continue;
+		}
+		float a = (box[0][k] - pos[k]) / dir[k], b = (box[1][k] - pos[k]) / dir[k];
+		if (a > b) {
+			const float t = a;
+			a = b;
+			b = t;
+		}
+		if (a > near) near = a;
+		if (b < far) far = b;
+		if (near > far)
+			return 0;
+	}
+	return 1;
+}
+
+static void hitVertex(const struct beanSwap *s, int i, Vertex *out)
+{
+	memset(out, 0, sizeof(*out));
+	if (s->emittedWorld) {
+		const GevrWorldVertex *w = &((const GevrWorldVertex *)s->emittedVtx)[i];
+		out->coord.x = (s16)(w->p[0] < 0.0f ? w->p[0] - 0.5f : w->p[0] + 0.5f);
+		out->coord.y = (s16)(w->p[1] < 0.0f ? w->p[1] - 0.5f : w->p[1] + 0.5f);
+		out->coord.z = (s16)(w->p[2] < 0.0f ? w->p[2] - 0.5f : w->p[2] + 0.5f);
+	} else {
+		const Vtx *v = &((const Vtx *)s->emittedVtx)[i];
+		out->coord.x = v->v.ob[0];
+		out->coord.y = v->v.ob[1];
+		out->coord.z = v->v.ob[2];
+	}
+}
+
+int gevrBeanHitNode(void *node, const float pos[3], const float dir[3], struct HitThing *hit)
+{
+	static Vertex s_hitTri[3];   /* the hit's corners, as hit->vtx0..2 name them */
+	const struct beanSwap *s = activeSwap(node);
+	if (!s || !hit)
+		return -1;
+	if (s->ours == s_blank)
+		return s->owner && listToggled(s->owner, node) ? -1 : 0;
+	if (!s->emitted || !s->emittedVtx || s->emittedVerts < 3 || s->skin || s->deferredMatrix)
+		return -1;
+	/* the list's box first: every prop on screen is asked about every shot */
+	if (s->hasBox && !hitRayMeetsBox(pos, dir, s->box))
+		return 0;
+	coord3d start, far, ray, zero = { { 0.0f, 0.0f, 0.0f } };
+	for (int k = 0; k < 3; k++) {
+		start.f[k] = pos[k];
+		ray.f[k] = dir[k];
+		far.f[k] = pos[k] + dir[k] * 32767.0f;
+	}
+	float best = 1e30f;
+	int found = 0;
+	for (int t = 0; t + 2 < s->emittedVerts; t += 3) {
+		Vertex v[3];
+		HitThing h;
+		for (int c = 0; c < 3; c++)
+			hitVertex(s, t + c, &v[c]);
+		memset(&h, 0, sizeof(h));
+		if (!intersectRayTriangle(&v[0], &v[1], &v[2], &zero, &start, &far, &ray, &h))
+			continue;
+		const float dx = h.hitpos.x - pos[0], dy = h.hitpos.y - pos[1], dz = h.hitpos.z - pos[2];
+		const float d = dx * dx + dy * dy + dz * dz;
+		if (d >= best)
+			continue;
+		best = d;
+		found = 1;
+		hit->hitpos = h.hitpos;
+		hit->normal = h.normal;
+		memcpy(s_hitTri, v, sizeof(s_hitTri));
+	}
+	if (!found)
+		return 0;
+	hit->vtx0 = &s_hitTri[0];
+	hit->vtx1 = &s_hitTri[1];
+	hit->vtx2 = &s_hitTri[2];
+	hit->tricmd = s->emitted;
+	hit->texturenum = -1;   /* the generic impact, as for the game's converted lists (propobj.c D135) */
+	hit->unk28 = 0;
+	{   /* the first few only: a shot asks every prop on screen */
+		static int logged;
+		if (logged < 8) {
+			logged++;
+			GEVR_BEAN_LOG("gevr bean: shot on the release's mesh, list %p, %d triangles, at %.0f %.0f %.0f\n",
+			              node, s->emittedVerts / 3, hit->hitpos.x, hit->hitpos.y, hit->hitpos.z);
+		}
+	}
+	return 1;
+}
+
 static int gunHandNode(const ModelFileHeader *header, const ModelNode *node)
 {
 	for (; node; node = node->Parent)

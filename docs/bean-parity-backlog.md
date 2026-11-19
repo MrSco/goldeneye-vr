@@ -14,6 +14,9 @@ xm = `port/src/xblamesh.c`, all Dab's. Size S/M/L.
 
 - **Shots against HD props** (xm `xblaMeshHitTest`, `xblaMeshObjShotTest`): shots
   stop on invisible N64 hulls or pass through HD bulk (Jungle's trees). L
+- **Shots against HD bodies** (xm `xblaMeshHitTest` from Dab's chr hit walk): guards
+  are still shot on the N64 body, so HD hair, shoulders and coats are hit only
+  where the N64 body is. Props are done; bodies need the skinned pose. M
 - **Shot-out lamps darken HD rooms** (`gelights.c` via `roomSetLightBroken`, and
   gbs build()'s unlampLit): the lamp breaks, the room stays lit. M
 - **First-person HD muzzle-flash cards** (gb `fpBuildCards`): the HD flash

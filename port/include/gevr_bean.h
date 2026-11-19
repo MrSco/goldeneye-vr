@@ -87,6 +87,9 @@ void gevrBeanSetMagazine(int state);
 int gevrBeanGunMagazine(const void *header, struct gevrBeanMagInfo *out);
 /* whether the release draws any of a model's lists now */
 int gevrBeanDrawsModel(const void *header);
+/* a shot at one of a prop's lists, on the triangles Bean draws: 1 hit, 0 miss, -1 the game's own (propobj.c) */
+struct HitThing;
+int gevrBeanHitNode(void *node, const float pos[3], const float dir[3], struct HitThing *hit);
 void gevrBeanReset(void);
 
 /* Stand-in tile address -> decoded RGBA8. 1 when addr is one of ours. */

@@ -1214,6 +1214,11 @@ bool projectileTestPropBoundingSphere(coord3d *zeropos, coord3d *pos, coord3d *v
 }
 
 
+#ifdef GEVR
+extern s32 gevrHitAllBoxes;                              /* model.c */
+extern int gevrBeanDrawsModel(const void *header);      /* port/src/gevr_bean.c */
+#endif
+
 /**
  * Address: 7F041160
  */
@@ -1248,6 +1253,9 @@ bool projectileLineTestModel(ObjectRecord *obj, coord3d *modelRayOrigin, coord3d
     } 
     else 
     {
+#ifdef GEVR
+        gevrHitAllBoxes = gevrBeanDrawsModel(model->obj);   /* as for a shot (sub_GAME_7F04E720) */
+#endif
         do 
         {
             found = modelFindNextProjectileHitCandidate(model, modelRayOrigin, modelRayDir, &node);
@@ -1261,6 +1269,9 @@ bool projectileLineTestModel(ObjectRecord *obj, coord3d *modelRayOrigin, coord3d
                 }
             }
         } while (found > 0);
+#ifdef GEVR
+        gevrHitAllBoxes = 0;
+#endif
     }
 
     if (found > 0) 
@@ -9220,6 +9231,9 @@ bool bgTestHitOnObj(coord3d *arg0, coord3d *arg1, coord3d *arg2, Gfx *gdl, Gfx *
 
 
 // PD: obj_find_hitthing_by_gfx_tris
+#ifdef GEVR
+extern int gevrBeanHitNode(void *node, const float pos[3], const float dir[3], struct HitThing *hit);   /* port/src/gevr_bean.c */
+#endif
 bool propobjFindHit(Model *model, ModelNode *startNode, coord3d *rayPos, coord3d *rayDir, struct HitThing *hitthing, s32 *dstmtxindex, ModelNode **dstnode)
 {
     coord3d spec;
@@ -9334,7 +9348,15 @@ bool propobjFindHit(Model *model, ModelNode *startNode, coord3d *rayPos, coord3d
                 spe0.z = spd4.z * 32767.0f + spec.z;
             }
 
+#ifdef GEVR
+            /* a list Bean draws is shot on the triangles drawn (DAB xblaMeshObjShotTest(),
+             * gevr_bean.c gevrBeanHitNode); the rest on the game's own */
+            s32 beanhit = mtx ? gevrBeanHitNode(node, spec.f, spd4.f, hitthing) : -1;
+
+            if (beanhit > 0 || (beanhit < 0 && bgTestHitOnObj(&spec, &spe0, &spd4, s3, s5, vertices, hitthing)))
+#else
             if (bgTestHitOnObj(&spec, &spe0, &spd4, s3, s5, vertices, hitthing))
+#endif
             {
                 *dstmtxindex = mtxindex;
                 *dstnode = node;
@@ -9937,6 +9959,10 @@ dummy_label_995911:
         }
         else
         {
+#ifdef GEVR
+            /* a prop Bean draws: every box, its own shape decides (gevr_bean.c gevrBeanHitNode) */
+            gevrHitAllBoxes = gevrBeanDrawsModel(model->obj);
+#endif
             do
             {
                 hitpart = modelFindNextProjectileHitCandidate(model, &hitinfo->viewOrigin, &hitinfo->viewDir, &node);
@@ -9950,6 +9976,9 @@ dummy_label_995911:
                 }
             }
             while (hitpart > HIT_NULL_PART);
+#ifdef GEVR
+            gevrHitAllBoxes = 0;
+#endif
         }
 
         if (hitpart > HIT_NULL_PART)
