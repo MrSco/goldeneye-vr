@@ -583,6 +583,47 @@ static void clampLevelCutouts(struct gevrBeanMesh *mesh, const uint8_t *texAlpha
 	}
 }
 
+/*
+ * DAB gebean.c beanClampCards() (port/licenses/dabs-mod.txt): a rigid prop's
+ * cut-out pictures laid once across their triangles - every UV of every
+ * triangle with the picture within 0 to 1, give or take a texel - are sampled
+ * clamped. Repeating, the filter at a card's edge reads the opposite edge's
+ * texels: Jungle's vine tree (prop/jungle3tree) hangs its vines from the top
+ * of their picture, so the foot of every vine card drew a row of the vines'
+ * tops as dark dashes floating in the air under it. Glass (a draw laying the
+ * scratch map over it) is left repeating. Returns how many were clamped.
+ */
+static int clampPropCards(struct gevrBeanMesh *mesh, const uint8_t *texAlpha, const struct beanDraw *draws, int ndraws)
+{
+	const float slack = 1.0f / 64.0f;   /* the vine cards reach a texel or so past 0 */
+	uint8_t inside[MAX_TEX], used[MAX_TEX], glass[MAX_TEX];
+	int num = 0;
+	memset(inside, 1, sizeof(inside));
+	memset(used, 0, sizeof(used));
+	memset(glass, 0, sizeof(glass));
+	for (int i = 0; i < ndraws; i++)
+		if (draws[i].scratch && draws[i].blend && draws[i].tex < MAX_TEX)
+			glass[draws[i].tex] = 1;
+	for (int t = 0; t < mesh->ntris; t++) {
+		const struct gevrBeanTri *tri = &mesh->tris[t];
+		if (tri->tex < 0 || tri->tex >= mesh->ntex || tri->tex >= MAX_TEX)
+			continue;
+		used[tri->tex] = 1;
+		for (int k = 0; k < 3; k++) {
+			const float u = tri->uv[k * 2], v = tri->uv[k * 2 + 1];
+			if (u < -slack || u > 1.0f + slack || v < -slack || v > 1.0f + slack)
+				inside[tri->tex] = 0;
+		}
+	}
+	for (int x = 0; x < mesh->ntex && x < MAX_TEX; x++)
+		if (used[x] && inside[x] && texAlpha[x] && !glass[x]) {
+			mesh->texClamp[x] = 3;
+			mesh->texClampBase[x][0] = mesh->texClampBase[x][1] = 0.0f;
+			num++;
+		}
+	return num;
+}
+
 static void applyInst(float *p, const float *m)
 {
 	float x = p[0], y = p[1], z = p[2];
@@ -3559,6 +3600,11 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		clampLevelCutouts(mesh, texAlpha);
 	} else if (rigidDecals)
 		markRigidDecals(mesh, texAlpha);
+	if (!levelFade && (strstr(source, "/prop/") || strstr(source, "\\prop\\"))) {
+		const int clamped = clampPropCards(mesh, texAlpha, draws, ndraws);
+		if (clamped)
+			GEVR_BEAN_LOG("gevr bean: %s: %d cut-out cards sampled clamped\n", source, clamped);
+	}
 	free(triPass);
 	free(draws);
 	free(ibs);
