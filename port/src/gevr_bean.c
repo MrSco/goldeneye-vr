@@ -2675,6 +2675,7 @@ static int emitSkinned(const struct gevrBeanMesh *mesh, int sk, int hasHead,
 }
 
 #include "gevr_bean_pose.inc.h"
+#include "gevr_bean_bodyhit.inc.h"
 #include "gevr_bean_preview.inc.h"
 
 static void classifyGroups(struct beanGrp *grp, int ng)
