@@ -1568,6 +1568,32 @@ void *gevrBeanWorldSky(void *gdl, int *drew)
 	mf.m[3][3] *= SKY_AT_INFINITY;
 	matrix_4x4_f32_to_s32(mf.m, packed->m);
 	g = gdl;
+	/*
+	 * Under the dome's lowest ring: the level's own sky colour, as GoldenEye
+	 * fills a level with no clouds (sky.c skyRender()), or with the Community
+	 * Edition's storm over Surface 2 its dome's horizon, which its fog takes too
+	 * (DAB gebeansky.c gebeanSkyRender(), gebeanSkyFogColour()). Unfilled it was
+	 * the frame's clear colour, black below the dome where no mesh covers it.
+	 */
+	{
+		struct CurrentEnvironmentRecord *env = fogGetCurrentEnvironmentp();
+		uint8_t rgb[3] = { 0, 0, 0 };
+		float end;
+		if (env) {
+			rgb[0] = (uint8_t)env->Red;
+			rgb[1] = (uint8_t)env->Green;
+			rgb[2] = (uint8_t)env->Blue;
+		}
+		if (communityEdition() && baseStage(s_stage) == 43)
+			gevrBeanFogRange(43, 0.0f, 1, &end, rgb);
+		gDPPipeSync(g++);
+		gDPSetCycleType(g++, G_CYC_FILL);
+		g = viSetFillColor(g, rgb[0], rgb[1], rgb[2]);
+		gDPSetRenderMode(g++, G_RM_NOOP, G_RM_NOOP2);
+		gDPFillRectangle(g++, viGetViewLeft(), viGetViewTop(), viGetViewLeft() + viGetViewWidth() - 1,
+		                 viGetViewTop() + viGetViewHeight() - 1);
+		gDPPipeSync(g++);
+	}
 	gSPMatrix(g++, osVirtualToPhysical(currentPlayerGetProjectionMatrix()),
 		G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);
 	gSPClearGeometryMode(g++, G_ZBUFFER | G_CULL_BOTH | G_LIGHTING | G_FOG);
