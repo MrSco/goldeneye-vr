@@ -129,6 +129,8 @@ const void *gevrBeanTexDecode(const struct gevrCaff *c, int fileIndex, const cha
 		int *outW, int *outH, int *outAlpha);
 int gevrBeanTexture(const void *addr, const uint8_t **rgba, int *w, int *h);
 int gevrBeanTexIsPlaceholder(const void *addr);
+/* a registered picture with patches turned over along u (gevr_bean_tex.c) */
+const void *gevrBeanTexTurnPatches(const void *from, const char *key, const float (*patch)[4], int npatch);
 void gevrBeanTexScrollSet(const void *addr, float s, float t);
 /* GoldenEye's moving water on a Bean picture (gevr_bean_tex.c): marks one,
  * sets the rate (quarter texels a frame; 0 measured for GoldenEye's own). */

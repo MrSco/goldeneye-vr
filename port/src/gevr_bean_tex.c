@@ -793,6 +793,53 @@ const void *gevrBeanTexDecode(const struct gevrCaff *c, int fileIndex, const cha
 	return slot->standin;
 }
 
+/*
+ * A copy of a registered picture with rectangles of it turned over along u,
+ * as a picture of its own (DAB gebean.c beanFixLettering(): the mirrored side
+ * of a gun's lettering). A patch is u0, v0, u1, v1 in the picture, v down;
+ * the decoded rows are bottom first, so v runs up them.
+ */
+const void *gevrBeanTexTurnPatches(const void *from, const char *key, const float (*patch)[4], int npatch)
+{
+	for (int i = 0; i < s_ntex; i++)
+		if (!strcmp(s_tex[i].key, key))
+			return s_tex[i].standin;
+	const int si = texFind(from);
+	if (si < 0 || !s_tex[si].rgba || s_ntex >= TEX_SLOTS)
+		return NULL;
+	const int w = s_tex[si].w, h = s_tex[si].h;
+	uint8_t *rgba = malloc((size_t)w * h * 4), *standin = calloc(16 * 16, 2);
+	if (!rgba || !standin) {
+		free(rgba);
+		free(standin);
+		return NULL;
+	}
+	memcpy(rgba, s_tex[si].rgba, (size_t)w * h * 4);
+	for (int k = 0; k < npatch; k++) {
+		const int c0 = (int)(patch[k][0] * w), c1 = (int)(patch[k][2] * w);
+		const int r0 = (int)((1.0f - patch[k][3]) * h), r1 = (int)((1.0f - patch[k][1]) * h);
+		for (int y = r0 < 0 ? 0 : r0; y < r1 && y < h; y++) {
+			uint8_t *row = rgba + (size_t)y * w * 4;
+			for (int x0 = c0 < 0 ? 0 : c0, x1 = (c1 > w ? w : c1) - 1; x0 < x1; x0++, x1--) {
+				uint8_t tmp[4];
+				memcpy(tmp, row + x0 * 4, 4);
+				memcpy(row + x0 * 4, row + x1 * 4, 4);
+				memcpy(row + x1 * 4, tmp, 4);
+			}
+		}
+	}
+	struct texSlot *slot = s_tex + s_ntex++;
+	memset(slot, 0, sizeof(*slot));
+	snprintf(slot->key, sizeof(slot->key), "%s", key);
+	slot->rgba = rgba;
+	slot->standin = standin;
+	slot->w = w;
+	slot->h = h;
+	texIndexAdd((int)(slot - s_tex));
+	return standin;
+}
+
+
 /* Shared prop maps: screen the diffuse by c12 * spot * landscape.
  * Keep the two authored maps at their decoded resolution in one immutable map;
  * normal-derived coordinates remain a per-view renderer operation. */

@@ -105,6 +105,128 @@ static uint32_t beanShadeTint(uint32_t argb, const float *nrm, const float *ligh
 	return out;
 }
 
+/*
+ * DAB gebean.c beanFixLettering() (port/licenses/dabs-mod.txt): the
+ * release's first-person guns are mostly symmetric and paint both sides from
+ * one picture, the far side's triangles the near side's mirrored on the same
+ * texels, so their lettering reads backwards on one side. In the headset a
+ * gun is turned over in the hand and both are seen. Each patch below is where
+ * a piece of lettering lies in its picture (u across, v down), DAB's, found
+ * by eye in the release's textures; a triangle over one whose picture is laid
+ * the other way round from its surface (the mirrored side) draws from a copy
+ * of the picture with each patch turned over along u, the gun's length. A
+ * dual-wielded left gun is mirrored whole by GoldenEye (MIRROR_DUAL), which
+ * no picture can undo.
+ */
+struct beanLettering {
+	const char *gun;   /* the folder under gun/ */
+	int tex;           /* the model's picture index */
+	float patch[4];    /* u0, v0, u1, v1 */
+};
+static const struct beanLettering s_lettering[] = {
+	/* "Ракетно-картофельная пусковая установка", "сброс горячий", "оптический прицел" */
+	{ "rocketlauncher", 1, { 0.330f, 0.600f, 0.520f, 0.710f } },
+	{ "rocketlauncher", 2, { 0.215f, 0.150f, 0.410f, 0.185f } },
+	{ "rocketlauncher", 2, { 0.400f, 0.855f, 0.795f, 0.905f } },
+	/* "P90 cal 5.7x28", and "P90 - 50 ROUND MAGAZINE" on the magazine */
+	{ "fnp90", 5, { 0.160f, 0.520f, 0.510f, 0.590f } },
+	{ "fnp90", 6, { 0.310f, 0.460f, 0.730f, 0.530f } },
+	/* "KLOBB" */
+	{ "skorpion", 0, { 0.650f, 0.460f, 0.760f, 0.520f } },
+	/* the scope's maker's plate (not its rings' numbers, which run round it) */
+	{ "sniperrifle", 0, { 0.310f, 0.670f, 0.410f, 0.720f } },
+	/* the AR33's receiver: maker, selector, serial block */
+	{ "m16", 1, { 0.510f, 0.560f, 0.850f, 0.625f } },
+	{ "m16", 1, { 0.120f, 0.570f, 0.260f, 0.800f } },
+	/* the Phantom's slide */
+	{ "spectre", 5, { 0.330f, 0.205f, 0.820f, 0.240f } },
+	/* the D5K's receiver serial */
+	{ "mp5k", 5, { 0.170f, 0.005f, 0.310f, 0.040f } },
+	{ "mp5ksilenced", 5, { 0.170f, 0.005f, 0.310f, 0.040f } },
+};
+
+/* the picture laid on a triangle the other way round from its surface: the
+ * mirrored half of a mirrored gun (DAB beanTriFacesBack()) */
+static int letteringFacesBack(const struct gevrBeanTri *t)
+{
+	float e1[3], e2[3], g[3], d = 0.0f;
+	for (int k = 0; k < 3; k++) {
+		e1[k] = t->p[3 + k] - t->p[k];
+		e2[k] = t->p[6 + k] - t->p[k];
+	}
+	g[0] = e1[1] * e2[2] - e1[2] * e2[1];
+	g[1] = e1[2] * e2[0] - e1[0] * e2[2];
+	g[2] = e1[0] * e2[1] - e1[1] * e2[0];
+	for (int k = 0; k < 3; k++)
+		d += g[k] * (t->n[k] + t->n[3 + k] + t->n[6 + k]);
+	const float s = (t->uv[2] - t->uv[0]) * (t->uv[5] - t->uv[1]) - (t->uv[4] - t->uv[0]) * (t->uv[3] - t->uv[1]);
+	return s != 0.0f && d != 0.0f && (s > 0.0f) == (d > 0.0f);
+}
+
+/* a triangle's corners in the picture on a patch, in the repeat its middle is in */
+static int letteringOnPatch(const struct gevrBeanTri *t, const float patch[4])
+{
+	float lo[2] = { 1e30f, 1e30f }, hi[2] = { -1e30f, -1e30f }, mid[2];
+	for (int a = 0; a < 2; a++)
+		mid[a] = floorf((t->uv[a] + t->uv[2 + a] + t->uv[4 + a]) / 3.0f);
+	for (int k = 0; k < 3; k++)
+		for (int a = 0; a < 2; a++) {
+			const float c = t->uv[k * 2 + a] - mid[a];
+			if (c < lo[a]) lo[a] = c;
+			if (c > hi[a]) hi[a] = c;
+		}
+	return hi[0] > patch[0] && lo[0] < patch[2] && hi[1] > patch[1] && lo[1] < patch[3];
+}
+
+static void fixLettering(struct gevrBeanMesh *mesh, const char *source)
+{
+	char folder[48];
+	for (int tex = 0; tex < mesh->ntex && mesh->ntex < 256; tex++) {
+		float patches[8][4];
+		int npatch = 0, count = 0;
+		for (unsigned i = 0; i < sizeof(s_lettering) / sizeof(s_lettering[0]) && npatch < 8; i++) {
+			snprintf(folder, sizeof(folder), "/gun/%s/", s_lettering[i].gun);
+			if (s_lettering[i].tex == tex && strstr(source, folder))
+				memcpy(patches[npatch++], s_lettering[i].patch, sizeof(patches[0]));
+		}
+		if (!npatch || !mesh->standin[tex])
+			continue;
+		const int turned = mesh->ntex;
+		for (int t = 0; t < mesh->ntris; t++) {
+			struct gevrBeanTri *tri = &mesh->tris[t];
+			if (tri->tex != tex || !letteringFacesBack(tri))
+				continue;
+			for (int k = 0; k < npatch; k++)
+				if (letteringOnPatch(tri, patches[k])) {
+					tri->tex = (int16_t)turned;
+					count++;
+					break;
+				}
+		}
+		if (!count)
+			continue;
+		char key[160];
+		snprintf(key, sizeof(key), "%s:%d:lettering", source, tex);
+		const void *standin = gevrBeanTexTurnPatches(mesh->standin[tex], key, (const float (*)[4])patches, npatch);
+		if (!standin) {
+			for (int t = 0; t < mesh->ntris; t++)
+				if (mesh->tris[t].tex == turned)
+					mesh->tris[t].tex = (int16_t)tex;
+			continue;
+		}
+		mesh->standin[turned] = standin;
+		mesh->texW[turned] = mesh->texW[tex];
+		mesh->texH[turned] = mesh->texH[tex];
+		mesh->texCut[turned] = mesh->texCut[tex];
+		mesh->texClamp[turned] = mesh->texClamp[tex];
+		memcpy(mesh->texClampBase[turned], mesh->texClampBase[tex], sizeof(mesh->texClampBase[0]));
+		mesh->ntex++;
+		GEVR_BEAN_LOG("gevr bean: %s: %d triangles of the mirrored side's lettering on picture %d turned round\n",
+		              source, count, tex);
+	}
+}
+
+
 struct beanIb {
 	uint32_t obj, off, size, width;
 };
@@ -3175,6 +3297,9 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		return 0;
 	}
 	GEVR_BEAN_LOG("gevr bean: %s %d tris, uv %.0f\n", source, mesh->ntris, uvscale);
+	/* the mirrored side of a gun's lettering, once its triangles are built */
+	if (!original && fpGunFile(source))
+		fixLettering(mesh, source);
 	*out = mesh;
 	return 1;
 }
