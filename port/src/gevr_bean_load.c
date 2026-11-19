@@ -27,6 +27,7 @@ struct beanDraw {
 	uint8_t blend, alpha, alphatest, terrainBlend, tree, ownmat;
 	uint8_t scratch;   /* its material lays the glass map over it: a pane, never a stencil */
 	uint8_t repaint;   /* 1 + its s_repaints[] row: another picture, laid from the position */
+	uint8_t alpharef;  /* its alpha test's reference (render state 0x64), 0 for none set */
 	uint8_t pal[GEVR_BEAN_MAXPAL];
 	uint8_t numpal;
 	uint32_t colour;
@@ -2934,7 +2935,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	int numbones = 0;
 	float insts[MAX_INST][16];
 	int ninst = 0;
-	int original, levelFade, rigidDecals;
+	int original, levelFade, rigidDecals, untested = 0;
 	uint8_t texAlpha[MAX_TEX], texSoft[MAX_TEX], *triPass = NULL;
 	int passCap = 0;
 	int section = -1, afterpieces = 0;
@@ -2948,6 +2949,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	uint16_t remap[GEVR_BEAN_MAXPAL];
 	int numremap = 0;
 	uint8_t numpal = 1, passblend = 0, blend = 0, alphatest = 0;
+	uint8_t alpharef = 0;   /* DAB beandraw.alpharef */
 	uint8_t alpha = 0xff;
 	uint8_t ownmat = 0;
 	uint32_t colour = 0xffffffu;
@@ -3165,6 +3167,10 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		} else if (type == 0x15 && sz >= 12) {
 			secend = be32(stream + pc + 4);
 			secblend = (be32(stream + pc + 8) & 0xff) == 2;
+		} else if (type == 0x0c && sz >= 12 && be32(stream + pc + 4) == 0x64) {
+			/* the alpha test's reference, 0 to 255 (its function, 0x68, is greater on
+			 * every level draw that sets one: DAB gebean.c) */
+			alpharef = (uint8_t)(be32(stream + pc + 8) > 255 ? 255 : be32(stream + pc + 8));
 		} else if (type == 0x0c && sz >= 12 && be32(stream + pc + 4) == 0x60) {
 			alphatest = be32(stream + pc + 8) != 0;
 		} else if (type == 0x2d && sz >= 20) {
@@ -3307,6 +3313,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 				d->blend = blend;
 				d->alpha = alpha;
 				d->alphatest = alphatest;
+				d->alpharef = alpharef;
 				d->numpal = numpal;
 				d->colour = colour;
 				for (int k = 0; k < numpal; k++) {
@@ -3544,6 +3551,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 
 		for (int t = 0; t < ntris; t++) {
 			struct beanVtx corner[3];
+			uint8_t rawAlpha[3] = { 255, 255, 255 };
 			int ok = 1;
 			for (int k = 0; k < 3; k++) {
 				if (!(isTree ? readTreeVtx(gpu, &vbrec, tris[t * 3 + k], &corner[k])
@@ -3571,6 +3579,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 				/* DAB ignores the native/fog alpha outside a fading material.
 				 * Nintendo's blended shader has no material fade and many zeros.
 				 * A first-person gun's material alpha fades nothing (below). */
+				rawAlpha[k] = (uint8_t)(corner[k].argb >> 24);
 				if (!(d->blend && ((d->alpha < 255 && !fpCards) || levelFade)))
 					corner[k].argb |= 0xff000000u;
                 if (mask) corner[k].argb = (corner[k].argb & 0xffffff) | (uint32_t)raw[24]<<24;
@@ -3585,6 +3594,17 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 					| ((corner[k].argb & 255) * (cr & 255) / 255));
 			}
 			if (ok) {
+				/* DAB gebeanstage.c alphaTested(): the release's alpha test on its opaque
+				 * level draws passes alpha greater than the draw's reference (127),
+				 * of the picture's alpha times the vertex's. Control's yellow stripes
+				 * down its stairs are cut-outs on vertices of alpha 0x7f: never
+				 * drawn. Its floor's cross, at 0x80, is drawn whole. Not a blended
+				 * draw's, whose vertex alpha blends as well. */
+				if (levelFade && d->alphatest && !d->blend && !mask && d->alpharef &&
+				    rawAlpha[0] <= d->alpharef && rawAlpha[1] <= d->alpharef && rawAlpha[2] <= d->alpharef) {
+					untested++;
+					continue;
+				}
 				if (isTree) beanTreeUvs(gpu, &vbrec, &tree, &tris[t * 3], corner);
 				if (d->inst >= 0 && d->inst < ninst)
 					for (int k = 0; k < 3; k++) {
@@ -3702,6 +3722,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		free(tris);
 	}
 	if (levelFade) {
+		if (untested)
+			GEVR_BEAN_LOG("gevr bean: %s: %d alpha-tested faces whose vertex alpha never passes left out\n", source, untested);
 		const int twins = dropLevelTwins(mesh, triPass, passCap < mesh->ntris ? passCap : mesh->ntris, texAlpha);
 		if (twins)
 			GEVR_BEAN_LOG("gevr bean: %s: %d opaque twins the release never shows left out\n", source, twins);
