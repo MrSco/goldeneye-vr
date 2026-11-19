@@ -19,6 +19,8 @@
 
 #include <SDL.h>
 
+#include "ios_app.h"
+
 static UIWindowScene *gevrForegroundScene(void)
 {
     UIWindowScene *any = nil;
@@ -64,6 +66,7 @@ static UIView *s_hostView;
 void gevrIosSetHostView(void *view)
 {
     s_hostView = (__bridge UIView *)view;
+    if (!s_hostView) return;   // ios_angle.mm: a context that failed to come up
     /*
      * Game controllers to the game alone (SDL reads them through
      * GameController). Without this, visionOS (the iPad app on Vision Pro,
@@ -124,6 +127,78 @@ int gevrIosGraftWindows(void)
     gevrIosGraftWindows();
 }
 @end
+
+/*
+ * A fatal error on iOS and Apple TV (port/src/system.c sysFatalError), from
+ * #260 (e-ee): SDL's message box makes a window with no scene, which UIKit
+ * never shows, and waits on it forever. An Apple TV 4K (1st gen) sat on a grey
+ * screen there when ANGLE refused it ES 3.0. The alert goes on the app's scene
+ * instead; off the main thread, or with no scene, it is only logged.
+ */
+void gevrIosFatalError(const char *msg)
+{
+    @autoreleasepool {
+        if (![NSThread isMainThread]) {
+            NSLog(@"GoldenEyeVR: fatal error (off main thread): %s", msg ? msg : "");
+            return;
+        }
+        UIWindowScene *scene = gevrForegroundScene();
+        for (int i = 0; !scene && i < 20; i++) {
+            [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                     beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+            scene = gevrForegroundScene();
+        }
+        if (!scene) {
+            NSLog(@"GoldenEyeVR: fatal error (no UIWindowScene): %s", msg ? msg : "");
+            return;
+        }
+#if TARGET_OS_TV
+        // the remote and pads drive the alert (Select or Back closes it)
+        SDL_SetHintWithPriority(SDL_HINT_APPLE_TV_CONTROLLER_UI_EVENTS, "1", SDL_HINT_OVERRIDE);
+#endif
+        NSString *text = msg ? [NSString stringWithUTF8String:msg] : nil;
+        if (!text && msg) text = [NSString stringWithCString:msg encoding:NSISOLatin1StringEncoding];
+        if (!text.length) text = @"An unrecoverable error occurred.";
+
+        UIWindow *alertWindow = [[UIWindow alloc] initWithWindowScene:scene];
+        const CGRect sceneBounds = scene.coordinateSpace.bounds;
+        if (!CGRectIsEmpty(sceneBounds)) alertWindow.frame = sceneBounds;
+        alertWindow.windowLevel = UIWindowLevelAlert + 1;
+        UIViewController *host = [[UIViewController alloc] init];
+        host.view.backgroundColor = [UIColor blackColor];
+        alertWindow.rootViewController = host;
+        [alertWindow makeKeyAndVisible];
+        [alertWindow layoutIfNeeded];
+        [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                 beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"GoldenEye VR - Fatal Error"
+                                                                       message:text
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        __block BOOL dismissed = NO, presented = NO;
+        UIAlertAction *close = [UIAlertAction actionWithTitle:@"Close" style:UIAlertActionStyleCancel
+                                                      handler:^(UIAlertAction *action) { (void)action; dismissed = YES; }];
+        [alert addAction:close];
+        alert.preferredAction = close;
+        [host presentViewController:alert animated:YES completion:^{ presented = YES; }];
+
+        NSDate *presentDeadline = [NSDate dateWithTimeIntervalSinceNow:2.0];
+        while (!dismissed) {
+            [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                     beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+            if (![UIApplication.sharedApplication.connectedScenes containsObject:scene]) break;
+            if (presented) {
+                if (host.presentedViewController == nil) break;
+            } else if (host.presentedViewController == alert) {
+                presented = YES;
+            } else if ([presentDeadline timeIntervalSinceNow] <= 0.0) {
+                NSLog(@"GoldenEyeVR: fatal error alert failed to present: %@", text);
+                break;
+            }
+        }
+        alertWindow.hidden = YES;
+    }
+}
 
 /* Before SDL starts (port/src/main.c) */
 void gevrIosPrepare(void)

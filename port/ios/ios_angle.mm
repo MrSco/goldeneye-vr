@@ -9,6 +9,7 @@
  * The app must not touch the GPU while it is in the background (iOS kills
  * it), so a swap waits there, pumping SDL's events, until the app is back.
  */
+#import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <UIKit/UIKit.h>
 
@@ -20,6 +21,8 @@
 #include <EGL/eglext.h>
 #include <GLES3/gl3.h>
 
+#include "ios_app.h"
+
 #ifndef EGL_PLATFORM_ANGLE_ANGLE
 #define EGL_PLATFORM_ANGLE_ANGLE 0x3202
 #endif
@@ -29,11 +32,11 @@
 #ifndef EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE
 #define EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE 0x3489
 #endif
+#ifndef EGL_FEATURE_OVERRIDES_DISABLED_ANGLE
+#define EGL_FEATURE_OVERRIDES_DISABLED_ANGLE 0x3467
+#endif
 
 extern "C" void sysLogPrintf(int level, const char *fmt, ...);
-extern "C" int gevrIosGraftWindows(void);   // ios_app.m: SDL's window onto the scene
-extern "C" void gevrIosSetHostView(void *view);
-extern "C" void gevrIosWatchTouches(void *view);   // ios_app.m: UIKit's touches down
 #define IOS_LOG(...) sysLogPrintf(1, __VA_ARGS__)
 
 static EGLDisplay s_dpy = EGL_NO_DISPLAY;
@@ -85,11 +88,55 @@ static void iosSyncDrawable(void)
     }
 }
 
+static void iosCleanupFailedCreate(bool dpyInitialized)
+{
+    if (s_dpy != EGL_NO_DISPLAY) {
+        if (dpyInitialized) {
+            eglMakeCurrent(s_dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        }
+        if (s_surf != EGL_NO_SURFACE) {
+            eglDestroySurface(s_dpy, s_surf);
+            s_surf = EGL_NO_SURFACE;
+        }
+        if (s_ctx != EGL_NO_CONTEXT) {
+            eglDestroyContext(s_dpy, s_ctx);
+            s_ctx = EGL_NO_CONTEXT;
+        }
+        if (dpyInitialized) {
+            eglTerminate(s_dpy);
+        }
+        s_dpy = EGL_NO_DISPLAY;
+    }
+    // Clear host-view registration before destroying s_view so ios_app.m can
+    // still inspect prev.window and detach GevrSceneDelegate.window if needed.
+    gevrIosSetHostView(nullptr);
+    s_layer = nil;
+    if (s_view) {
+        SDL_Metal_DestroyView(s_view);
+        s_view = nullptr;
+    }
+}
+
+static bool iosShouldDisableShaderStencilOutput(void)
+{
+    // Metal [[stencil]] shader output (ANGLE hasShaderStencilOutput) requires
+    // Apple GPU Family 5 (A12+); disable it defensively on older GPUs such as
+    // Apple TV 4K Gen 1's A10X Fusion (Apple GPU Family 3).
+    if (@available(iOS 13.0, tvOS 13.0, *)) {
+        id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
+        if (dev && ![dev supportsFamily:MTLGPUFamilyApple5]) {
+            return true;
+        }
+    }
+    return false;
+}
+
 extern "C" SDL_GLContext gevrIosGLCreateContext(SDL_Window *window)
 {
     if (s_ctx != EGL_NO_CONTEXT) {
         return (SDL_GLContext)s_ctx;   // one window, one context
     }
+    bool dpyInitialized = false;
     s_view = SDL_Metal_CreateView(window);
     if (!s_view) {
         iosFail("SDL_Metal_CreateView");
@@ -98,6 +145,7 @@ extern "C" SDL_GLContext gevrIosGLCreateContext(SDL_Window *window)
     s_layer = (__bridge CAMetalLayer *)SDL_Metal_GetLayer(s_view);
     if (!s_layer) {
         iosFail("no CAMetalLayer");
+        iosCleanupFailedCreate(false);
         return nullptr;
     }
     gevrIosSetHostView((void *)s_view);
@@ -111,19 +159,48 @@ extern "C" SDL_GLContext gevrIosGLCreateContext(SDL_Window *window)
     s_layer.contentsScale = screen.nativeScale;
     iosSyncDrawable();
 
-    PFNEGLGETPLATFORMDISPLAYEXTPROC getPlatformDisplay =
-        (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");
-    if (!getPlatformDisplay) {
-        iosFail("no eglGetPlatformDisplayEXT");
-        return nullptr;
+    static const char *const kDisableLegacyMtlFeatures[] = {
+        "hasShaderStencilOutput",
+        nullptr,
+    };
+    const bool disableStencilOutput = iosShouldDisableShaderStencilOutput();
+    s_dpy = EGL_NO_DISPLAY;
+    if (disableStencilOutput) {
+        const EGLAttrib dattr[] = {
+            EGL_PLATFORM_ANGLE_TYPE_ANGLE, EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE,
+            EGL_FEATURE_OVERRIDES_DISABLED_ANGLE, reinterpret_cast<EGLAttrib>(kDisableLegacyMtlFeatures),
+            EGL_NONE
+        };
+        s_dpy = eglGetPlatformDisplay(EGL_PLATFORM_ANGLE_ANGLE, (void *)EGL_DEFAULT_DISPLAY, dattr);
+        if (s_dpy != EGL_NO_DISPLAY) {
+            IOS_LOG("ios: ANGLE: < Apple5 GPU, disabled hasShaderStencilOutput");
+        }
     }
-    const EGLint dattr[] = { EGL_PLATFORM_ANGLE_TYPE_ANGLE, EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE, EGL_NONE };
-    s_dpy = getPlatformDisplay(EGL_PLATFORM_ANGLE_ANGLE, (void *)EGL_DEFAULT_DISPLAY, dattr);
+    if (s_dpy == EGL_NO_DISPLAY) {
+        const EGLAttrib dattr[] = {
+            EGL_PLATFORM_ANGLE_TYPE_ANGLE, EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE,
+            EGL_NONE
+        };
+        s_dpy = eglGetPlatformDisplay(EGL_PLATFORM_ANGLE_ANGLE, (void *)EGL_DEFAULT_DISPLAY, dattr);
+    }
+    if (s_dpy == EGL_NO_DISPLAY) {
+        PFNEGLGETPLATFORMDISPLAYEXTPROC getPlatformDisplay =
+            (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");
+        if (!getPlatformDisplay) {
+            iosFail("no eglGetPlatformDisplayEXT");
+            iosCleanupFailedCreate(false);
+            return nullptr;
+        }
+        const EGLint dattr[] = { EGL_PLATFORM_ANGLE_TYPE_ANGLE, EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE, EGL_NONE };
+        s_dpy = getPlatformDisplay(EGL_PLATFORM_ANGLE_ANGLE, (void *)EGL_DEFAULT_DISPLAY, dattr);
+    }
     EGLint maj = 0, min = 0;
     if (s_dpy == EGL_NO_DISPLAY || !eglInitialize(s_dpy, &maj, &min)) {
         iosFail("no Metal display");
+        iosCleanupFailedCreate(false);
         return nullptr;
     }
+    dpyInitialized = true;
     // depth 24 + stencil 8, as the desktop window asks SDL for
     const EGLint cattr[] = {
         EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
@@ -135,21 +212,25 @@ extern "C" SDL_GLContext gevrIosGLCreateContext(SDL_Window *window)
     EGLint n = 0;
     if (!eglChooseConfig(s_dpy, cattr, &s_cfg, 1, &n) || n < 1) {
         iosFail("no ES 3 config with depth 24 and stencil 8");
+        iosCleanupFailedCreate(dpyInitialized);
         return nullptr;
     }
     const EGLint xattr[] = { EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE };
     s_ctx = eglCreateContext(s_dpy, s_cfg, EGL_NO_CONTEXT, xattr);
     if (s_ctx == EGL_NO_CONTEXT) {
         iosFail("no ES 3.0 context");
+        iosCleanupFailedCreate(dpyInitialized);
         return nullptr;
     }
     s_surf = eglCreateWindowSurface(s_dpy, s_cfg, (EGLNativeWindowType)(__bridge void *)s_layer, nullptr);
     if (s_surf == EGL_NO_SURFACE) {
         iosFail("no window surface on the layer");
+        iosCleanupFailedCreate(dpyInitialized);
         return nullptr;
     }
     if (!eglMakeCurrent(s_dpy, s_surf, s_surf, s_ctx)) {
         iosFail("eglMakeCurrent");
+        iosCleanupFailedCreate(dpyInitialized);
         return nullptr;
     }
     eglSwapInterval(s_dpy, s_interval);

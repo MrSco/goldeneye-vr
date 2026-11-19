@@ -38,6 +38,10 @@ static void gevrOpenLog(void)
 }
 #endif
 
+#if defined(GEVR_IOS) && !defined(GEVR_VISIONOS)
+#include "../ios/ios_app.h"
+#endif
+
 #ifdef GEVR_PC
 /* The Quest's gevr.log and gevr.prev.log, beside the exe: the crash report
  * (port/pc/pc_reports.cpp) sends the run before this one and this one. */
@@ -331,6 +335,19 @@ void sysFatalError(const char *fmt, ...)
     }
 #endif
     abort();
+#elif defined(GEVR_VISIONOS)
+    pcCrashRecord(errmsg, "");
+    abort();
+#elif defined(GEVR_IOS)
+    /* Record the error for the next launch's crash-report offer (pc_reports.cpp).
+       Avoid SDL_ShowSimpleMessageBox(..., NULL): SDL 2 creates a sceneless UIWindow
+       that UIKit never composites under UIApplicationSceneManifest, hanging forever
+       in UIKit_WaitUntilMessageBoxClosed on an empty launch screen. */
+    pcCrashRecord(errmsg, "");
+    if (!sysArgCheck("--input-script")) {
+        gevrIosFatalError(errmsg);
+    }
+    exit(1);
 #else
 #ifdef GEVR_PC
     /* the Quest's abort leaves a tombstone, offered as a crash on the next start;

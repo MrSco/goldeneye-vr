@@ -45,6 +45,87 @@ if [ "$(git rev-parse --short=12 HEAD)" != "$ANGLE_REV" ] || [ ! -f "$SRC/.gclie
 fi
 export DEPOT_TOOLS_UPDATE=0
 
+# Apple TV 4K Gen 1 (A10X Fusion, MTLGPUFamilyApple3) compatibility patches for
+# ANGLE's Metal backend (idempotent; applied before gn gen / autoninja):
+#  1. Revert ANGLE 09a869c245's Apple4-only ES 3.0 gate back to Apple3.
+#  2. Cap maxVertexOutputComponents/maxFragmentInputComponents at 60 on < Apple4
+#     per Apple's Metal Feature Set Tables (keeping 16384 max2DTextureSize on Apple3+).
+#  3. Guard hasShaderStencilOutput ([[stencil]]) on Apple5+ / Mac2+.
+python3 - "$SRC/src/libANGLE/renderer/metal/DisplayMtl.mm" <<'PY'
+import pathlib, sys
+
+path = pathlib.Path(sys.argv[1])
+src = path.read_text(encoding="utf-8")
+
+patches = [
+    (
+        "getMaxSupportedESVersion Apple3 gate",
+        """#else
+    if (supportsEitherGPUFamily(4, 1))
+    {
+        return mtl::kMaxSupportedGLVersion;
+    }
+    return gl::Version(2, 0);
+#endif""",
+        """#else
+    // GoldenEye VR: revert ANGLE 09a869c245 (Apple4-only ES3 gate) back to
+    // Apple3 so Apple TV 4K Gen 1 (A10X Fusion, MTLGPUFamilyApple3) gets
+    // OpenGL ES 3.0. GoldenEye VR's flat/tvOS shaders use at most 1 UBO
+    // (well within Apple3's 31 buffer-entry/stage limit).
+    if (supportsEitherGPUFamily(3, 1))
+    {
+        return mtl::kMaxSupportedGLVersion;
+    }
+    return gl::Version(2, 0);
+#endif""",
+    ),
+    (
+        "maxFragmentInputComponents Apple3 cap",
+        """    if (supportsAppleGPUFamily(3))
+    {
+        mNativeCaps.max2DTextureSize          = 16384;
+        mNativeCaps.maxVertexOutputComponents = mNativeCaps.maxFragmentInputComponents = 124;
+        mNativeCaps.maxVaryingVectors = mNativeCaps.maxVertexOutputComponents / 4;
+    }
+    else
+    {
+        mNativeCaps.max2DTextureSize          = 8192;
+        mNativeCaps.maxVertexOutputComponents = mNativeCaps.maxFragmentInputComponents = 60;
+        mNativeCaps.maxVaryingVectors = mNativeCaps.maxVertexOutputComponents / 4;
+    }""",
+        """    // GoldenEye VR: Metal Feature Set Tables cap Apple1-Apple3 at 60 fragment
+    // input components (15 vec4s); 124 begins at Apple4. Keep 16384 max 2D
+    // texture size on Apple3+.
+    mNativeCaps.max2DTextureSize = supportsAppleGPUFamily(3) ? 16384 : 8192;
+    mNativeCaps.maxVertexOutputComponents = mNativeCaps.maxFragmentInputComponents =
+        supportsAppleGPUFamily(4) ? 124 : 60;
+    mNativeCaps.maxVaryingVectors = mNativeCaps.maxVertexOutputComponents / 4;""",
+    ),
+    (
+        "hasShaderStencilOutput Apple5 guard",
+        """    ANGLE_FEATURE_CONDITION((&mFeatures), hasShaderStencilOutput, !isIntel() && !isNVIDIA());""",
+        """    // GoldenEye VR: Metal [[stencil]] shader output requires Apple5+ (A12+) or Mac2+.
+    ANGLE_FEATURE_CONDITION((&mFeatures), hasShaderStencilOutput,
+                            !isIntel() && !isNVIDIA() && supportsEitherGPUFamily(5, 2));""",
+    ),
+]
+
+changed = False
+for label, old, new in patches:
+    if new in src:
+        continue
+    if old not in src:
+        raise SystemExit(f"build_angle_apple.sh: patch '{label}' did not match {path}")
+    if src.count(old) != 1:
+        raise SystemExit(f"build_angle_apple.sh: patch '{label}' matched {src.count(old)} times in {path}")
+    src = src.replace(old, new, 1)
+    changed = True
+
+if changed:
+    path.write_text(src, encoding="utf-8")
+    print(f"patched {path} for Apple GPU Family 3 (A10X) compatibility")
+PY
+
 for slice in $SLICES; do
   OUT="$ANGLE_DIR/out/$slice"
   mkdir -p "$OUT"
