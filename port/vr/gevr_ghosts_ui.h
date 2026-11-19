@@ -67,7 +67,7 @@ inline std::string gevrGhostTimeText(int time60) {
 
 // what a run was set with beyond VR or flat, for a row's tooltip (gevr_ghost.h GEVR_GHF_*)
 inline std::string gevrGhostFlagsText(int flags) {
-    std::string out = flags & 0x01 ? "VR" : "Flat screen";
+    std::string out = flags & 0x01 ? "VR" : flags & 0x80 ? "VR and flat screen" : "Flat screen";
     if (flags & 0x20) out += ", third person";
     out += flags & 0x02 ? ", Bean's art" : flags & 0x04 ? ", GoldenEye X guns" : ", N64 art";
     return out;
@@ -209,7 +209,7 @@ inline GevrGhostsActions gevrGhostsPageDraw(GevrGhostsView &v, const ImVec4 &gol
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(gevrGhostTimeText(r.time60).c_str());
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(r.flags & 0x01 ? "VR" : "Flat");
+            ImGui::TextUnformatted(r.flags & 0x01 ? "VR" : r.flags & 0x80 ? "Mixed" : "Flat");
             if (ImGui::IsItemHovered()) gevrTooltip("%s", gevrGhostFlagsText(r.flags).c_str());
             ImGui::TableNextColumn();
             if (r.racing) {
