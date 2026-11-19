@@ -1911,6 +1911,16 @@ void modelUpdateDistanceRelations(Model* model, ModelNode* node)
          * could.
          */
         distance *= 0.25f;
+        /*
+         * A model the HD look draws takes its near detail level at any distance
+         * (DAB src/lib/model.c modelDistanceIsFullDetail()): Bean's mesh is one
+         * model, and a far list on another matrix than the one that carries it
+         * dropped a distant prop back to GoldenEye's low-detail model.
+         */
+        if (gevrBeanModelHasHd(model->obj))
+        {
+            distance = 0;
+        }
 #endif
 
         if (g_ModelDistanceScale != 1)

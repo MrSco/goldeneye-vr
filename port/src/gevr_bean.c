@@ -388,6 +388,35 @@ int gevrBeanDrawsModel(const void *header)
 	return 0;
 }
 
+/*
+ * Whether Bean has laid an HD list on any of this model's nodes, for the
+ * detail level model.c picks (it asks per distance node, every frame): the
+ * registry read once per model and kept, until a registration or a reset
+ * changes it.
+ */
+static unsigned s_hdGeneration;
+
+int gevrBeanModelHasHd(const void *header)
+{
+	enum { N = 256 };
+	static const void *key[N];
+	static unsigned stamp[N];
+	static uint8_t value[N];
+	if (!header || !gevrBeanIsEnabled())
+		return 0;
+	const unsigned now = (unsigned)s_nswap ^ (s_hdGeneration << 16);
+	const unsigned h = (unsigned)(((uintptr_t)header >> 4) ^ ((uintptr_t)header >> 12)) & (N - 1);
+	if (key[h] == header && stamp[h] == now)
+		return value[h];
+	int has = 0;
+	for (int i = 0; i < s_nswap && !has; i++)
+		has = s_swap[i].owner == header && s_swap[i].ours != s_blank;
+	key[h] = header;
+	stamp[h] = now;
+	value[h] = (uint8_t)has;
+	return has;
+}
+
 int gevrBeanShownModelType(void *node, int current)
 {
 	return activeSwap(node) ? 0 : current;
@@ -3823,6 +3852,7 @@ void *gevrBeanRareLogoGdl(const float lo[3], const float hi[3], const void **pic
 void gevrBeanReset(void)
 {
 	beanFrameReset();
+	s_hdGeneration++;
 	beanCutReset();
 	beanCapReset();
 	hatSeatsReset();

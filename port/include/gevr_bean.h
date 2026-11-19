@@ -87,6 +87,8 @@ void gevrBeanSetMagazine(int state);
 int gevrBeanGunMagazine(const void *header, struct gevrBeanMagInfo *out);
 /* whether the release draws any of a model's lists now */
 int gevrBeanDrawsModel(const void *header);
+/* Bean has an HD list on one of the model's nodes, cached (model.c's detail level) */
+int gevrBeanModelHasHd(const void *header);
 /* a shot at one of a prop's lists, on the triangles Bean draws: 1 hit, 0 miss, -1 the game's own (propobj.c) */
 struct HitThing;
 int gevrBeanHitNode(void *node, const float pos[3], const float dir[3], struct HitThing *hit);
