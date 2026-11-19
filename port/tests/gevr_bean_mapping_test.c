@@ -50,6 +50,7 @@ int gevrBeanWorldAuthoredView(void) { return 0; }
 int gevrHatOwnsNode(const void *node) { (void)node; return 0; } /* Oddjob's hat (PR #196): off */
 /* gevr_bean_world.c: no level in this fixture */
 int gevrBeanWorldRoomHidden(int room) { (void)room; return 0; }
+int gevrBeanWorldHidesProp(const float pos[3], const unsigned char *rooms, int nrooms, int camRoom) { (void)pos; (void)rooms; (void)nrooms; (void)camRoom; return 0; }
 int gevrBeanWorldRoomWantsWater(int room) { (void)room; return 0; }
 float gevrBeanWorldReach(void) { return 0.0f; }
 int gevrBeanRoomFog(float line[2], uint8_t rgb[3]) { (void)line; (void)rgb; return 0; }

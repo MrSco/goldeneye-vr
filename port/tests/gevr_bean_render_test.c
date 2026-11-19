@@ -47,6 +47,7 @@ void gevrBeanWorldReset(void) {}
 void *gevrBeanWorldRoom(void *g, int r, int *replaced) { (void)r; *replaced = 0; return g; }
 /* gevr_bean_world.c: no level in this fixture */
 int gevrBeanWorldRoomHidden(int room) { (void)room; return 0; }
+int gevrBeanWorldHidesProp(const float pos[3], const unsigned char *rooms, int nrooms, int camRoom) { (void)pos; (void)rooms; (void)nrooms; (void)camRoom; return 0; }
 int gevrBeanWorldRoomWantsWater(int room) { (void)room; return 0; }
 float gevrBeanWorldReach(void) { return 0.0f; }
 int gevrBeanRoomFog(float line[2], uint8_t rgb[3]) { (void)line; (void)rgb; return 0; }

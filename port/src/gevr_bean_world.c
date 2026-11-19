@@ -57,6 +57,9 @@ struct roomSlot {
 	int has;
 	/* GoldenEye's own backdrop, which Bean leaves out: drawn as nothing (hiddenRoom) */
 	int hidden;
+	/* drawn from its own lists where GoldenEye's portal walk reaches it, out of
+	 * the merged world (keepOutOfRooms) */
+	int byPortals;
 	/* opa and xlu as static meshes (gevr_static_mesh.h): the lists drawn, or NULL */
 	Gfx *wrap[2];
 	GevrStaticMesh *mesh[2];
@@ -76,6 +79,8 @@ static void *s_opaqueVertices;
 static GevrStaticMesh *s_opaqueMesh;
 static int s_opaqueDrawn;
 static int s_nlampUndo;   /* gevrBeanWorldLampDarken's undo log, below */
+static int s_keptRoom = -1;               /* keepOutOfRooms' room, or -1 */
+static float s_keptLo[3], s_keptHi[3];   /* its box from GoldenEye's own triangles, room table units */
 
 static int s_cullOutside;   /* this view's camera stands outside the level */
 static int s_authoredView;  /* this view is one of GoldenEye's own cameras */
@@ -960,9 +965,11 @@ static void clearRooms(void)
 		s_room[i].vtxXlu = NULL;
 		s_room[i].has = 0;
 		s_room[i].hidden = 0;
+		s_room[i].byPortals = 0;
 	}
 	s_nrooms = 0;
 	s_ok = 0;
+	s_keptRoom = -1;
 }
 
 /* GoldenEye's doors as the setup places them, in world units: the bound
@@ -1044,6 +1051,109 @@ static void fitLevelOpenings(struct gevrBeanMesh *mesh, const struct beanStage *
 	if (faded || strips)
 		GEVR_BEAN_LOG("gevr bean: %s holes: %d faded faces made solid, %d strips to a wall's foot\n",
 		              st->bg, faded, strips);
+}
+
+/*
+ * DAB gebeanstage.c keptOutOf[] (port/licenses/dabs-mod.txt). Aztec's room 45
+ * is the closet under the exhaust hatch, a box of metal panels with the body
+ * armour on its floor. Bean runs the stone wall of room 18 beside it down the
+ * middle of the box, so a mossy slab stood across the closet by the armour,
+ * the sky over its top edge; GoldenEye shows the whole closet. What of
+ * another room stands inside the closet's box (any of the points of a 12-step
+ * grid across a face, 4 units in from GoldenEye's own walls of it) is dealt
+ * to room 18, and the two rooms, which overlap, are drawn from their own
+ * lists, out of the merged world, only where GoldenEye's portal walk reaches
+ * them: the wall from room 18 (left out, room 18 had no back wall and the
+ * guidance room's glass showed the closet's box and the rooms past it), the
+ * closet from inside it. While the camera is in the closet, the props of the
+ * rooms beside it within its box are left out as well
+ * (gevrBeanWorldHidesProp()): Bean's monitors on room 18's wall hang into the
+ * closet's top, and its white post at pad 139 stands through the east wall.
+ */
+static const struct {
+	short room, to;
+	int stage;
+} s_keptOutOf[] = {
+	{ 45, 18, LEVELID_AZTEC },
+};
+#define KEPTOUT_MARGIN 4.0f       /* inside the box by this much: its walls are its neighbours' too */
+#define KEPTOUT_STEPS 12          /* points across a face, a side */
+#define KEPTOUT_PROPREACH 48.0f   /* a prop of another room this far outside the box across is kept out too */
+
+static int keepOutOfRooms(const struct gevrBeanMesh *mesh, float fileScale, int *assign, int nrooms)
+{
+	int count = 0;
+	s_keptRoom = -1;
+	for (size_t i = 0; i < sizeof(s_keptOutOf) / sizeof(s_keptOutOf[0]); i++) {
+		const int r = s_keptOutOf[i].room, to = s_keptOutOf[i].to;
+		float lo[3] = { 1e30f, 1e30f, 1e30f }, hi[3] = { -1e30f, -1e30f, -1e30f };
+		int own = 0, moved = 0;
+		if (s_keptOutOf[i].stage != s_stage || r <= 0 || r >= nrooms || to <= 0 || to >= nrooms)
+			continue;
+		for (int j = 0; j < s_referenceCount; j++) {
+			if (s_reference[j].room != r)
+				continue;
+			own++;
+			for (int v = 0; v < 3; v++)
+				for (int k = 0; k < 3; k++) {
+					lo[k] = s_reference[j].p[v][k] < lo[k] ? s_reference[j].p[v][k] : lo[k];
+					hi[k] = s_reference[j].p[v][k] > hi[k] ? s_reference[j].p[v][k] : hi[k];
+				}
+		}
+		if (!own)
+			continue;
+		for (int t = 0; t < mesh->ntris; t++) {
+			const struct gevrBeanTri *tri = &mesh->tris[t];
+			int inside = 0;
+			if (assign[t] <= 0 || assign[t] == r || assign[t] == to)
+				continue;
+			/* any of it inside: the slab's middle is above the closet's ceiling,
+			 * its lower edge well inside */
+			for (int a = 0; a <= KEPTOUT_STEPS && !inside; a++)
+				for (int b = 0; a + b <= KEPTOUT_STEPS && !inside; b++) {
+					const float wa = (float)a / KEPTOUT_STEPS, wb = (float)b / KEPTOUT_STEPS;
+					int in = 1;
+					for (int k = 0; k < 3 && in; k++) {
+						const float q = (tri->p[k] * wa + tri->p[3 + k] * wb + tri->p[6 + k] * (1.0f - wa - wb)) * fileScale;
+						in = q > lo[k] + KEPTOUT_MARGIN && q < hi[k] - KEPTOUT_MARGIN;
+					}
+					inside = in;
+				}
+			if (inside) {
+				assign[t] = to;
+				moved++;
+			}
+		}
+		s_room[r].byPortals = s_room[to].byPortals = 1;
+		s_keptRoom = r;
+		for (int k = 0; k < 3; k++) {
+			s_keptLo[k] = lo[k];
+			s_keptHi[k] = hi[k];
+		}
+		count += moved;
+		GEVR_BEAN_LOG("gevr bean: room %d's box (world) %.0f %.0f %.0f .. %.0f %.0f %.0f: %d triangles of other rooms in it dealt to room %d; rooms %d and %d drawn by the portal walk\n",
+		              r, lo[0] * room_data_float2, lo[1] * room_data_float2, lo[2] * room_data_float2, hi[0] * room_data_float2,
+		              hi[1] * room_data_float2, hi[2] * room_data_float2, moved, to, r, to);
+	}
+	return count;
+}
+
+/* a prop at pos, in rooms[] (0xff ends it), left out of this view: the camera
+ * is in a kept-out room (keepOutOfRooms()) and the prop, of another room, at
+ * its box or within KEPTOUT_PROPREACH of it across (DAB gebeanStageHidesProp()) */
+int gevrBeanWorldHidesProp(const float pos[3], const unsigned char *rooms, int nrooms, int camRoom)
+{
+	if (!s_ok || s_keptRoom <= 0 || camRoom != s_keptRoom || !pos)
+		return 0;
+	for (int k = 0; rooms && k < nrooms && rooms[k] != 0xff; k++)
+		if (rooms[k] == s_keptRoom)
+			return 0;
+	for (int k = 0; k < 3; k++) {
+		const float reach = k == 1 ? -KEPTOUT_MARGIN : KEPTOUT_PROPREACH;
+		if (!(pos[k] > s_keptLo[k] * room_data_float2 - reach && pos[k] < s_keptHi[k] * room_data_float2 + reach))
+			return 0;
+	}
+	return 1;
 }
 
 static int buildStage(int stage)
@@ -1194,6 +1304,7 @@ static int buildStage(int stage)
 	markOverlaps(mesh, fileScale);
 	markWater(mesh, fileScale);
 	markUnderSea(mesh, fileScale);
+	keepOutOfRooms(mesh, fileScale, assign, nrooms);
 	shotsBuild(mesh, assign, st->scale);
 	for (int r = 0; r < nrooms; r++) {
 		int nopa = 0, nxlu = 0;
@@ -1296,11 +1407,11 @@ static int buildStage(int stage)
     GEVR_BEAN_LOG("gevr bean room-draws: %d\n",merge);
     if (merge) {
         int count=0;
-        for (int i=0;i<mesh->ntris;i++) if (assign[i]>=0 && mesh->tris[i].alpha==255) count+=3;
+        for (int i=0;i<mesh->ntris;i++) if (assign[i]>=0 && !s_room[assign[i]].byPortals && mesh->tris[i].alpha==255) count+=3;
         struct gevrEmitVert *opaque=malloc((size_t)count*sizeof(*opaque));
         if (opaque && count) {
             int vi=0;
-            for (int i=0;i<mesh->ntris;i++) if (assign[i]>=0 && mesh->tris[i].alpha==255)
+            for (int i=0;i<mesh->ntris;i++) if (assign[i]>=0 && !s_room[assign[i]].byPortals && mesh->tris[i].alpha==255)
                 for (int k=0;k<3;k++) {
                     float p[3]; for (int j=0;j<3;j++) p[j]=mesh->tris[i].p[k*3+j]*fileScale;
                     fillVert(mesh,&mesh->tris[i],&opaque[vi],p,k);
@@ -1319,6 +1430,7 @@ static int buildStage(int stage)
                 s_meshRunTris=512;
                 /* CPU replay of the float list is also complete if GPU creation fails. */
                 for (int r=0;r<nrooms;r++) {
+                    if (s_room[r].byPortals) continue;   /* drawn on its own (keepOutOfRooms) */
                     gevrStaticMeshFree(s_room[r].mesh[0]); free(s_room[r].wrap[0]);
                     free(s_room[r].opa); free(s_room[r].vtxOpa);
                     s_room[r].mesh[0]=NULL; s_room[r].wrap[0]=NULL;
@@ -1509,16 +1621,21 @@ void *gevrBeanWorldRoom(void *gdl, int room, int *replaced)
 		*replaced = 1;   /* a hidden room's GoldenEye list is not drawn either */
 	}
     if (!xlu && s_opaque) {
-        if (s_opaqueDrawn || !g_CurrentPlayer) return gdl;
+        /* a room drawn on its own (keepOutOfRooms): under bg.c's matrix for
+         * the room and its scissor, ahead of the merged world's */
+        g = gdl;
+        if (s_room[room].byPortals && s_room[room].opa)
+            gSPDisplayList(g++, s_room[room].wrap[0] ? s_room[room].wrap[0] : s_room[room].opa);
+        if (s_opaqueDrawn || !g_CurrentPlayer) return g;
         Mtx *packed=dynAllocateMatrix();
-        if (!packed) return gdl;
+        if (!packed) return g;
         Mtxf matrix; memset(&matrix,0,sizeof(matrix)); matrix.m[3][3]=1;
         for (int k=0;k<3;k++) {
             matrix.m[k][k]=room_data_float2;
             matrix.m[3][k]=-g_CurrentPlayer->current_model_pos.f[k];
         }
         matrix_4x4_f32_to_s32(matrix.m,packed->m);
-        g=bgScissorCurrentPlayerViewDefault(gdl);
+        g=bgScissorCurrentPlayerViewDefault(g);
         gSPMatrix(g++,osVirtualToPhysical(packed),G_MTX_MODELVIEW|G_MTX_LOAD|G_MTX_NOPUSH);
         gSPDisplayList(g++,s_opaqueWrap ? s_opaqueWrap : s_opaque);
         s_opaqueDrawn=1;

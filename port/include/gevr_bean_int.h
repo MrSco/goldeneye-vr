@@ -166,6 +166,7 @@ void *gevrBeanWorldSky(void *gdl, int *drew);
  * g_BgRoomInfo's), built with the stage; 0 when the room has none. */
 int gevrBeanWorldRoomBounds(int room, float lo[3], float hi[3]);
 int gevrBeanWorldRoomHidden(int room);
+int gevrBeanWorldHidesProp(const float pos[3], const unsigned char *rooms, int nrooms, int camRoom);
 int gevrBeanWorldRoomWantsWater(int room);
 float gevrBeanWorldReach(void);
 

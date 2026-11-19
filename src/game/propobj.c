@@ -7871,6 +7871,15 @@ Gfx *chrobjRenderProp(PropRecord *prop, Gfx *gdl, s32 arg2)
 
     obj = prop->obj;
 
+#ifdef GEVR
+    /* DAB objRenderProp: a prop beside Aztec's armour closet, the camera in it
+     * (gevr_bean_world.c keepOutOfRooms()) */
+    {
+        extern s32 g_BgCurrentRoom;
+        if (gevrBeanHidesProp(prop->pos.f, prop->rooms, PROPRECORD_STAN_ROOM_LEN, g_BgCurrentRoom))
+            return gdl;
+    }
+#endif
     mrData = D_80031FD0;
 
     objAlpha = 0xFF;

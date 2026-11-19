@@ -197,6 +197,9 @@ int gevrBeanScreenQuad(struct Model *model, void *node, struct Vertex *vertices)
 void *gevrBeanRoomAppend(void *gdl, int room, int *replaced);
 /* a GoldenEye room the HD level hides: it stops no shot (bg.c) */
 int gevrBeanRoomHidden(int room);
+/* a prop left out of this view: one beside Aztec's armour closet, the camera
+ * in it (gevr_bean_world.c keepOutOfRooms()) */
+int gevrBeanHidesProp(const float pos[3], const unsigned char *rooms, int nrooms, int camRoom);
 /* Bean draws this room and no water of its own: keep GoldenEye's water (bg.c) */
 int gevrBeanRoomWantsWater(int room);
 /* how far the HD level reaches, world units, 0 when it is not drawn: the far tests take it (bg.c, bgfog.c) */

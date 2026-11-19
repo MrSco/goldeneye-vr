@@ -4074,6 +4074,11 @@ int gevrBeanRoomHidden(int room)
 	return gevrBeanIsEnabled() && gevrBeanWorldRoomHidden(room);
 }
 
+int gevrBeanHidesProp(const float pos[3], const unsigned char *rooms, int nrooms, int camRoom)
+{
+	return gevrBeanIsEnabled() && gevrBeanWorldHidesProp(pos, rooms, nrooms, camRoom);
+}
+
 void *gevrBeanSkyAppend(void *gdl, int *drew)
 {
 	if (drew) {
