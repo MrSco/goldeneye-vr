@@ -428,6 +428,99 @@ static int readVtx(const uint8_t *gpu, const struct beanVb *vb, uint32_t i, floa
 	return 1;
 }
 
+/*
+ * DAB gebean.c beanDrawIsSphereMapped(), beanSphereFrame(), beanSphereUv()
+ * (port/licenses/dabs-mod.txt): a draw the release sphere-maps. Its vertices
+ * carry no UV (stride 16, or 20 with a colour) and its material has a picture
+ * of its own, the round reflection map the shader looks up by the normal as
+ * GoldenEye's texgen did: the satellite's blue panels in Silo, the car's
+ * windows, the Yale key. With no UV to read they drew the map's first texel -
+ * black, the corner outside the sphere. Each vertex takes where its normal
+ * would land for a viewer square to the draw, the draw's surface spread across
+ * the middle of the map as a mirror's reflection travels across it: the draw's
+ * mean normal is the view, up the model's +y (+z for a face looking straight
+ * up or down), so the map's sky stays above its horizon; a draw round a solid
+ * (the key) has no mean to speak of and is looked at from the front. Kept
+ * within the sphere's disc.
+ */
+struct beanSphere {
+	float t[3], b[3];   /* across and up the map */
+	float c[3];         /* the draw's middle */
+	float reach;        /* half its biggest extent */
+	float spread;       /* how far its surface travels across the map */
+};
+
+static void sphereCross(const float a[3], const float b[3], float out[3])
+{
+	out[0] = a[1] * b[2] - a[2] * b[1];
+	out[1] = a[2] * b[0] - a[0] * b[2];
+	out[2] = a[0] * b[1] - a[1] * b[0];
+}
+
+static void sphereFrame(const struct beanVtx *v, int count, struct beanSphere *sp)
+{
+	float n[3] = { 0, 0, 0 }, lo[3] = { 1e30f, 1e30f, 1e30f }, hi[3] = { -1e30f, -1e30f, -1e30f };
+	float up[3] = { 0, 1, 0 }, len;
+	for (int i = 0; i < count; i++) {
+		/* a panel's back is in the same draw as its front, facing the other
+		 * way: both sides are square to one view */
+		const float side = v[i].nrm[0] * v[0].nrm[0] + v[i].nrm[1] * v[0].nrm[1] + v[i].nrm[2] * v[0].nrm[2] < 0.0f ? -1.0f : 1.0f;
+		for (int k = 0; k < 3; k++) {
+			n[k] += v[i].nrm[k] * side;
+			lo[k] = fminf(lo[k], v[i].pos[k]);
+			hi[k] = fmaxf(hi[k], v[i].pos[k]);
+		}
+	}
+	len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+	sp->spread = 0.2f;
+	if (count == 0 || len < 0.5f * count) {
+		n[0] = n[1] = 0.0f;
+		n[2] = 1.0f;
+		sp->spread = 0.0f;
+	} else {
+		for (int k = 0; k < 3; k++)
+			n[k] /= len;
+	}
+	if (fabsf(n[1]) > 0.9f) {
+		up[1] = 0.0f;
+		up[2] = 1.0f;
+	}
+	sphereCross(up, n, sp->t);
+	len = sqrtf(sp->t[0] * sp->t[0] + sp->t[1] * sp->t[1] + sp->t[2] * sp->t[2]);
+	for (int k = 0; k < 3; k++)
+		sp->t[k] /= len > 0.0f ? len : 1.0f;
+	sphereCross(n, sp->t, sp->b);
+	sp->reach = 0.0f;
+	for (int k = 0; k < 3 && count > 0; k++) {
+		sp->c[k] = (lo[k] + hi[k]) * 0.5f;
+		sp->reach = fmaxf(sp->reach, (hi[k] - lo[k]) * 0.5f);
+	}
+	if (sp->reach <= 0.0f) {
+		sp->spread = 0.0f;
+		sp->reach = 1.0f;
+	}
+}
+
+static void sphereUv(const struct beanSphere *sp, struct beanVtx *v)
+{
+	float d[3], s, w, r;
+	for (int k = 0; k < 3; k++)
+		d[k] = (v->pos[k] - sp->c[k]) / sp->reach;
+	s = 0.45f * (v->nrm[0] * sp->t[0] + v->nrm[1] * sp->t[1] + v->nrm[2] * sp->t[2]) +
+	    sp->spread * (d[0] * sp->t[0] + d[1] * sp->t[1] + d[2] * sp->t[2]);
+	w = 0.45f * (v->nrm[0] * sp->b[0] + v->nrm[1] * sp->b[1] + v->nrm[2] * sp->b[2]) +
+	    sp->spread * (d[0] * sp->b[0] + d[1] * sp->b[1] + d[2] * sp->b[2]) + sp->spread * 0.5f;
+	r = sqrtf(s * s + w * w);
+	if (r > 0.45f) {
+		s *= 0.45f / r;
+		w *= 0.45f / r;
+	}
+	v->uv[0] = 0.5f + s;
+	v->uv[1] = 0.5f - w;
+	v->hasuv = 1;
+}
+
+
 #include "gevr_bean_tree.inc.h"
 
 /* A tree's first copy has no instance record. Mark every draw of a buffer
@@ -3136,6 +3229,24 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 			mesh->draws[di].prim = (uint8_t)d->prim;
 			mesh->draws[di].alphatest = (uint8_t)(d->alphatest != 0);
 		}
+		/* a sphere-mapped draw's lookup (sphereFrame()): a prop's own material
+		 * on a picture, its vertices without UV */
+		struct beanSphere sphere;
+		int sphered = 0;
+		if (!levelFade && d->ownmat && d->tex < (uint32_t)ntex &&
+		    (vbrec.stride == 16 || (vbrec.stride == 20 && !vbrec.uv20))) {
+			struct beanVtx *all = malloc((size_t)(ntris > 0 ? ntris : 1) * 3 * sizeof(*all));
+			int nall = 0;
+			for (int c = 0; all && c < ntris * 3; c++)
+				nall += readVtx(gpu, &vbrec, tris[c], uvscale, numbones > 0, &all[nall]);
+			if (all && nall > 0) {
+				sphereFrame(all, nall, &sphere);
+				sphered = 1;
+				GEVR_BEAN_LOG("gevr bean: %s: draw %d sphere-mapped, its %d corners without UV\n", source, di, nall);
+			}
+			free(all);
+		}
+
 		for (int t = 0; t < ntris; t++) {
 			struct beanVtx corner[3];
 			int ok = 1;
@@ -3150,6 +3261,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
                     corner[k].uv[0] = (int16_t)be16(raw+20)/uvscale;
                     corner[k].uv[1] = (int16_t)be16(raw+22)/uvscale;
                 }
+                if (sphered) sphereUv(&sphere, &corner[k]);
                 for (int j=0; j<3; j++) if (fabsf(corner[k].pos[j]) > 1e8f) ok = 0;
 				/* DAB ignores the native/fog alpha outside a fading material.
 				 * Nintendo's blended shader has no material fade and many zeros.
