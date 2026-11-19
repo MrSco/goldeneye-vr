@@ -906,9 +906,10 @@ done:
  * pointTriDist(), pinned adef1dc2; port/licenses/dabs-mod.txt. DAB measures
  * in its converted level, Bean units times the stage row's scale
  * (gebeanstagetable.h), so its distances are divided by that scale here.
- * Not ported: markBacked(), markFights() and markOverlaps() (no face here is
- * drawn culled, so DAB's triCulled() is false). The blended faces a later
- * blended one paints over, which DAB leaves out, are levelPainted(). */
+ * markBacked() and markFights() are markLevelSides(), and a face either
+ * marks is DAB's triCulled(); markOverlaps() is not ported. The blended
+ * faces a later blended one paints over, which DAB leaves out, are
+ * levelPainted(). */
 #define LDECAL_DIST 1.0f
 #define LDECAL_COS 0.999f
 #define LDECAL_CELL 64.0f
@@ -1140,6 +1141,9 @@ static int levelCandidate(const struct levelDecals *l, int i, const float *ni, i
 	cosang = levelDot(ni, nu);
 	if ((cosang < LDECAL_COS && cosang > -LDECAL_COS) || !levelOther(l, i, o))
 		return 0;
+	/* back to back and both drawn culled: each side shows its own face */
+	if (cosang < 0 && l->mesh->tris[i].side && l->mesh->tris[o].side)
+		return 0;
 	for (int k = 0; k < 3; k++) {
 		const float rel[3] = { tp[k * 3] - up[0], tp[k * 3 + 1] - up[1], tp[k * 3 + 2] - up[2] };
 		if (fabsf(levelDot(rel, nu)) > l->dist)
@@ -1303,6 +1307,11 @@ static int levelPick(struct levelDecals *l, int i, int redo, int *bystrip)
 			cosang = levelDot(ni, nu);
 			if (au <= 0 || (cosang < LDECAL_COS && cosang > -LDECAL_COS))
 				continue;
+			/* Back to back and drawn culled (markBacked(), markFights()):
+			 * each side shows its own face, and a decal would show from
+			 * behind as well */
+			if (cosang < 0 && l->mesh->tris[i].side && l->mesh->tris[o].side)
+				continue;
 			for (int k = 0; k < 3 && flat; k++) {
 				const float rel[3] = { tp[k * 3] - up[0], tp[k * 3 + 1] - up[1], tp[k * 3 + 2] - up[2] };
 				flat = fabsf(levelDot(rel, nu)) <= l->dist;
@@ -1356,6 +1365,80 @@ static int levelPick(struct levelDecals *l, int i, int redo, int *bystrip)
 	return -1;
 }
 
+/* DAB markCandidate(MARKFILTER_BACKED, MARKFILTER_FIGHTS): a face o turned
+ * the other way in i's plane, not of the translucent layer; for a sheet
+ * (backed), solid with solid and cut-out with cut-out */
+static int levelSideCandidate(const struct levelDecals *l, int i, int o, int backed)
+{
+	const float *nu = l->nrm[o], *tp = l->mesh->tris[i].p, *up = l->mesh->tris[o].p;
+	if (o == i || nu[3] <= 0 || levelDot(l->nrm[i], nu) > -LDECAL_COS || levelBlend(l, o) ||
+	    l->mesh->tris[o].alpha < 255)
+		return 0;
+	if (backed && levelAlpha(l, o) != levelAlpha(l, i))
+		return 0;
+	for (int k = 0; k < 3; k++) {
+		const float rel[3] = { tp[k * 3] - up[0], tp[k * 3 + 1] - up[1], tp[k * 3 + 2] - up[2] };
+		if (fabsf(levelDot(rel, nu)) > l->dist)
+			return 0;
+	}
+	return 1;
+}
+
+/* DAB markPointsOn() for markBacked() (all) and markFights() (any): triangle
+ * i's middle and its corners pulled a tenth of the way in, on such a face */
+static int levelSideOn(const struct levelDecals *l, int i, int backed)
+{
+	const float *p = l->mesh->tris[i].p;
+	float pts[4][3];
+	for (int j = 0; j < 3; j++)
+		pts[3][j] = (p[j] + p[3 + j] + p[6 + j]) / 3.0f;
+	for (int k = 0; k < 3; k++)
+		for (int j = 0; j < 3; j++)
+			pts[k][j] = p[k * 3 + j] + (pts[3][j] - p[k * 3 + j]) * 0.1f;
+	for (int k = 0; k < 4; k++) {
+		int hit = 0;
+		for (int e = l->head[levelDecalPointKey(l, pts[k])]; e >= 0 && !hit; e = l->next[e]) {
+			const int o = l->item[e];
+			hit = levelSideCandidate(l, i, o, backed) && levelTriDist(l, pts[k], o) <= l->dist * l->dist;
+		}
+		if (backed && !hit)
+			return 0;
+		if (!backed && hit)
+			return 1;
+	}
+	return backed;
+}
+
+/* DAB markBacked() and markFights(). 4J built decks, treads and walls as
+ * single planes, some with a second face the other way in the same plane,
+ * and a level is drawn two-sided, so from either side the far face fought
+ * the near one. A face wholly covered by faces the other way is one side of
+ * a sheet, drawn culled (BACKED); one covered over part of it is drawn
+ * culled and then its back on its own, pushed away from the eye, so a back
+ * with no face over it still shows (FIGHTS; gevrBeanEmitList(), gfx_pc.cpp).
+ * Aztec's mural wall and the sloped corridor wall behind it share z = 525,
+ * and the corridor's grey fought the mural in a hatch under the ceiling
+ * (#252). The translucent layer is left alone. */
+static void markLevelSides(struct levelDecals *l, struct gevrBeanMesh *mesh)
+{
+	int count[3] = { 0, 0, 0 };
+	for (int i = 0; i < mesh->ntris; i++)
+		mesh->tris[i].side = 0;
+	for (int side = GEVR_BEAN_SIDE_BACKED; side <= GEVR_BEAN_SIDE_FIGHTS; side++)
+		for (int i = 0; i < mesh->ntris; i++) {
+			struct gevrBeanTri *t = &mesh->tris[i];
+			if (t->side || levelBlend(l, i) || t->alpha < 255 || l->nrm[i][3] <= 0)
+				continue;
+			if (levelSideOn(l, i, side == GEVR_BEAN_SIDE_BACKED)) {
+				t->side = (uint8_t)side;
+				count[side]++;
+			}
+		}
+	if (count[GEVR_BEAN_SIDE_BACKED] || count[GEVR_BEAN_SIDE_FIGHTS])
+		GEVR_BEAN_LOG("gevr bean: %d faces of two-faced sheets drawn culled, %d back to back over part drawn face then back\n",
+		              count[GEVR_BEAN_SIDE_BACKED], count[GEVR_BEAN_SIDE_FIGHTS]);
+}
+
 static void markLevelDecals(struct gevrBeanMesh *mesh, const uint8_t *pass, int npass, const uint8_t *texAlpha,
 		float scale)
 {
@@ -1388,6 +1471,8 @@ static void markLevelDecals(struct gevrBeanMesh *mesh, const uint8_t *pass, int 
 	}
 	for (int i = 0; i < n; i++)
 		levelDecalAdd(&l, i);
+	/* DAB's build: markBacked(), markFights(), then markDecals() */
+	markLevelSides(&l, mesh);
 	for (int i = 0; i < n; i++) {
 		int strip, o;
 		if (l.decal[i])

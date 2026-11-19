@@ -521,6 +521,10 @@ static struct gevrBeanMesh *cachedLoad(const char *path, int keepparts)
 
 static const struct gevrEmitVert *s_sortVerts;
 static uint32_t *s_sortSpatial;
+/* A level's list: its faces' sides batch apart (markLevelSides()); the
+ * batch being emitted's, for beanRenderMode() */
+static int s_sortSides;
+static int s_emitSide;
 
 static uint32_t spatialBits(uint32_t x)
 {
@@ -533,6 +537,7 @@ static uint32_t spatialBits(uint32_t x)
 static int vertKey(const struct gevrEmitVert *v)
 {
 	return ((int)(v->reflectionDiffuse != 0) << 30) | ((int)v->decal << 29) | ((int)v->cut << 28)
+        | ((s_sortSides ? (int)(v->side & 3) : 0) << 26)
         | ((v->tex + 1) << 16) | ((int)v->alpha << 8);
 }
 
@@ -583,7 +588,8 @@ static s16 posClamp(float v)
 static uint32_t beanRenderMode(Gfx **next, int mode1, int mode2, int room)
 {
     Gfx *g = *next;
-    g->words.w0 = ((uintptr_t)G_GEVR_ROOM_STATE << 24) | (room == 2 ? 2 : room ? 0 : 1);
+    g->words.w0 = ((uintptr_t)G_GEVR_ROOM_STATE << 24) | (room == 2 ? 2 : room ? 0 : 1) |
+                  (s_emitSide ? GEVR_ROOM_FACES : 0);
     g->words.w1 = (uint32_t)(G_RM_PASS | mode2 | (mode1 & 0xffff));
     *next = g + 1;
     return (uint32_t)g->words.w1;
@@ -634,11 +640,18 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 	}
     if (worldFormat && (lit || s_emitSkin)) return 0;
     ntri = nverts / 3;
+    /* A level's faces back to back over part of their face (markLevelSides())
+     * are drawn again, their backs: room for their second vertices */
+    s_sortSides = mesh->roomMaterial == 1 && !lit && !skin && zbuf;
+    s_emitSide = 0;
+    int nback = 0, sided = 0;
+    for (int i = 0; s_sortSides && i + 2 < nverts; i += 3)
+        nback += v[i].side == GEVR_BEAN_SIDE_FIGHTS ? 3 : 0;
     order = malloc((size_t)ntri * sizeof(int));
 	/* One texture group can be a single triangle, and gDPLoadTextureBlock writes several commands. */
-	cmdcap = 64 + ntri * 40;
+	cmdcap = 64 + (ntri + nback / 3) * 40;
 	gdl = malloc((size_t)cmdcap * sizeof(Gfx));
-    vtx = malloc((size_t)nverts * (worldFormat ? sizeof(GevrWorldVertex) :
+    vtx = malloc((size_t)(nverts + nback) * (worldFormat ? sizeof(GevrWorldVertex) :
                  sizeof(Vtx) + (lit && !skin ? sizeof(GevrVertexTint) : 0)));
     if (worldFormat) world = (GevrWorldVertex *)vtx;
 	if (!order || !gdl || !vtx) {
@@ -719,6 +732,9 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
             v[order[end]*3].reflectionAlphaBase==base->reflectionAlphaBase) {
 			end++;
 		}
+		/* the batch's side (vertKey() keeps one side a batch): its mode culls */
+		s_emitSide = s_sortSides ? base->side : 0;
+		sided |= s_emitSide;
 		if (tex >= 0 && tex < mesh->ntex && mesh->standin[tex]) {
 			logicalW = mesh->texW[tex] > 0 ? mesh->texW[tex] : 32;
 			logicalH = mesh->texH[tex] > 0 ? mesh->texH[tex] : 32;
@@ -848,6 +864,19 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
             gDPSetCombineLERP(g++, TEXEL1, TEXEL0, PRIM_LOD_FRAC, TEXEL0, TEXEL1, TEXEL0, PRIM_LOD_FRAC, TEXEL0,
                               COMBINED, 0, SHADE, 0, COMBINED, 0, SHADE, 0);
         }
+        /* DAB writeLeaf() side 1: a level's faces back to back over part of
+         * their face (markFights()) are drawn again, culled to their backs
+         * and pushed away from the eye (GEVR_ROOM_BACKS, gfx_pc.cpp), so the
+         * face turned to the camera wins and a back with no face over it
+         * still shows */
+        const int first = batch;
+        for (int side = 0; side < (s_emitSide == GEVR_BEAN_SIDE_FIGHTS ? 2 : 1) && g - gdl <= cmdcap - 16; side++) {
+        if (side) {
+            /* a level's list (s_sortSides): room material 1 */
+            g->words.w0 = ((uintptr_t)G_GEVR_ROOM_STATE << 24) | GEVR_ROOM_BACKS;
+            g++->words.w1 = ownMode;
+            batch = first;
+        }
         while (batch < end) {
 			int take = end - batch;
 			if (take > 5) {
@@ -925,11 +954,15 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 				break;
 			}
 		}
+        }
 		if (g - gdl > cmdcap - 16) {
 			break;
 		}
 	}
     if (!mesh->roomMaterial) gSPClearGeometryMode(g++, G_FOG);
+    /* no FACES/BACKS cull past a level's list */
+    if (sided) gSPClearGeometryMode(g++, G_CULL_BOTH);
+    s_emitSide = 0;
     g->words.w0=(uintptr_t)G_GEVR_NORMAL_TEX1<<24; g++->words.w1=0;
     g->words.w0 = G_GEVR_VERTEX_TINT << 24; g++->words.w1 = 0;
     if (node) { g->words.w0 = ((uintptr_t)G_GEVR_NODE_STATE << 24) | GEVR_NODE_END; g++->words.w1 = 0; }
@@ -1422,6 +1455,7 @@ static void fillEmit(const struct gevrBeanTri *t, int texCut, struct gevrEmitVer
 	e->alpha = t->alpha;
 	e->cut = (uint8_t)(t->alphatest || (t->tex >= 0 && texCut));
 	e->decal = (t->flags & GEVR_BEAN_F_DECAL) ? 1 : 0;
+	e->side = 0;
 }
 
 struct beanRigidBinding {
