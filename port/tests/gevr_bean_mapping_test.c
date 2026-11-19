@@ -783,7 +783,7 @@ int main(int argc, char **argv)
             const int na = swapVerts(&whole, &a), nb = swapVerts(&open, &b), nc = swapVerts(&mag, &c);
             printf("MAGAZINE %s whole %d open %d magazine %d vertices\n", argv[2], na, nb, nc);
             assert(wants && info.node == s_swap[i].node && info.matrix == nodeMatrix(s_swap[i].node));
-            /* a foot of some twenty triangles left the gun; the floor is not as many */
+            /* some twenty triangles or more left the gun; the floor is not as many */
             assert(nb > 0 && nb <= na - 3 * 20 && nc >= 3 * 40);
             /* the well runs up the gun (its y), and the magazine fills it from mouth to top */
             restOf(s_swap[i].node, rest);
@@ -792,13 +792,22 @@ int main(int argc, char **argv)
                     if (c[v][k] < lo[k]) lo[k] = c[v][k];
                     if (c[v][k] > hi[k]) hi[k] = c[v][k];
                 }
-            assert(info.axis[1] > 0.9f && info.top[1] - info.mouth[1] > 50.0f);
+            /* into the gun: up, or for the RC-P90's on the gun's top, down; the top is
+             * the mouth's side of the magazine that way */
+            {
+                const float unit = info.axis[0] * info.axis[0] + info.axis[1] * info.axis[1] + info.axis[2] * info.axis[2];
+                float along = 0;
+                for (int k = 0; k < 3; k++)
+                    along += (info.top[k] - info.mouth[k]) * info.axis[k];
+                assert(fabsf(unit - 1.0f) < 1e-3f && fabsf(info.axis[1]) > 0.7f && along >= -1e-3f);
+                assert((info.axis[1] < 0) == (info.pullUp != 0));
+            }
             for (int k = 0; k < 3; k++) {
                 assert(info.mouth[k] + rest[k] > lo[k] - 2.0f && info.mouth[k] + rest[k] < hi[k] + 2.0f);
                 assert(info.top[k] + rest[k] > lo[k] - 2.0f && info.top[k] + rest[k] < hi[k] + 2.0f);
                 assert(info.foot[k] + rest[k] > lo[k] - 2.0f && info.foot[k] + rest[k] < hi[k] + 2.0f);
+                assert(info.hold[k] + rest[k] > lo[k] - 2.0f && info.hold[k] + rest[k] < hi[k] + 2.0f);
             }
-            assert(info.foot[1] < info.mouth[1]);
             /* the draw's three states, and back */
             if (gevrBeanShownGdl(s_swap[i].node, current) == s_swap[i].ours) {
                 gevrBeanSetMagazine(GEVR_BEAN_MAG_OUT);

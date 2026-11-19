@@ -19120,8 +19120,9 @@ static s32 gevrReloadHasMagazine(s32 hand)
 
 static s32 gevrReloadPullsUp(s32 hand)
 {
+    extern s32 gevrBeanMagPullsUp(s32 hand);   /* gun.c */
     const GexWeaponDef *def = gevrGexWeaponForHand(hand);
-    return def != NULL && def->pullUp;
+    return def != NULL ? def->pullUp : gevrBeanMagPullsUp(hand);
 }
 
 /* Whether the off hand can pull the gun's magazine out. A rifle's or a

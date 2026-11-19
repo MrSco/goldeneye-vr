@@ -2439,12 +2439,14 @@ static s32 s_gevrBeanMagPointsGun = GUNRIGHT, s_gevrBeanMagPointsValid;
 float *gevrBeanMagFit(s32 item, s32 which)
 {
     if (item == ITEM_WPPKSIL || item == ITEM_SILVERWPPK || item == ITEM_GOLDWPPK) item = ITEM_WPPK;
+    if (item == ITEM_MP5KSIL) item = ITEM_MP5K;
     return VrBeanMagFits[item >= 0 && item < 64 ? item : 0][which ? 1 : 0];
 }
 
 /* The guns the release's meshes give a magazine (gevr_beanmag.c's table, by
- * item): the PP7s. Once one has been drawn, whether its mesh really had one to
- * cut: a gun that has not keeps the game's own reload (bondview2.c). */
+ * item): the PP7s, the DD44 and every rifle and submachine gun; not the sniper
+ * rifle, whose mesh shows none. Once one has been drawn, whether its mesh really
+ * had one to cut: a gun that has not keeps the game's own reload (bondview2.c). */
 static s8 s_gevrBeanMagKnown[ITEM_IDS_MAX];   /* 0 not drawn yet, 1 it has one, -1 it has not */
 
 s32 gevrBeanMagItem(s32 item)
@@ -2455,7 +2457,9 @@ s32 gevrBeanMagItem(s32 item)
     }
     switch (item)
     {
-        case ITEM_WPPK: case ITEM_WPPKSIL: case ITEM_SILVERWPPK: case ITEM_GOLDWPPK:
+        case ITEM_WPPK: case ITEM_WPPKSIL: case ITEM_SILVERWPPK: case ITEM_GOLDWPPK: case ITEM_TT33:
+        case ITEM_SKORPION: case ITEM_AK47: case ITEM_UZI: case ITEM_MP5K: case ITEM_MP5KSIL:
+        case ITEM_SPECTRE: case ITEM_M16: case ITEM_FNP90:
             return s_gevrBeanMagKnown[item] >= 0;
         default:
             return FALSE;
@@ -2474,6 +2478,15 @@ s32 gevrBeanMagHeld(s32 hand)
     model = &g_CurrentPlayer->hands[hand].weaponModel;
     return model->obj != NULL && g_CurrentPlayer->hand_item[hand] == getCurrentPlayerWeaponId(hand)
         && gevrBeanGunMagazine(model->obj, NULL);
+}
+
+/* bondview2.c: the hand's Bean gun's magazine lifts off its top (the RC-P90's) */
+s32 gevrBeanMagPullsUp(s32 hand)
+{
+    struct gevrBeanMagInfo info;
+
+    return gevrBeanMagHeld(hand) && gevrBeanGunMagazine(g_CurrentPlayer->hands[hand].weaponModel.obj, &info)
+        && info.pullUp;
 }
 
 /* gunfire.c, round the gun's own draw: its magazine in the gun or out of it */
@@ -2572,12 +2585,14 @@ s32 gevrBeanMagFitSetWell(void)
 }
 
 /* The magazine in the off hand: turned as the gun would be in that hand, at the
- * gun's size, the point a third of the way up its body on the palm. */
+ * gun's size, its hold point on the palm (a pistol's a third of the way up its
+ * body, a rifle's its middle: gevr_beanmag.c). */
 static s32 gevrBeanMagInHandPose(const struct gevrBeanMagInfo *info, const Mtxf *gun, Mtxf *out)
 {
     const f32 size = sqrtf(gun->m[0][0] * gun->m[0][0] + gun->m[0][1] * gun->m[0][1] + gun->m[0][2] * gun->m[0][2]);
     Mtxf off;
-    f32 palm[3], hold[3];
+    const f32 *hold = info->hold;
+    f32 palm[3];
     s32 r, i;
 
     if (size < 1e-9f || !gevrStereoReloadHandMatrix(&off) || !gevrBeanHeldPalm(palm))
@@ -2597,10 +2612,6 @@ static s32 gevrBeanMagInHandPose(const struct gevrBeanMagInfo *info, const Mtxf 
         {
             out->m[r][i] = off.m[r][i] / len * size;
         }
-    }
-    for (i = 0; i < 3; i++)
-    {
-        hold[i] = info->mouth[i] + (info->top[i] - info->mouth[i]) * 0.33f;
     }
     for (i = 0; i < 3; i++)
     {
@@ -2670,7 +2681,7 @@ Gfx *gevrBeanMagDrawBelt(Gfx *gdl, ModelRenderData *templ, s32 hand, const Mtxf 
     for (i = 0; i < 3; i++)
     {
         for (j = 0; j < 3; j++) pose.m[i][j] *= size;
-        middle[i] = (info.mouth[i] + info.top[i]) * 0.5f;
+        middle[i] = info.hold[i];
     }
     for (i = 0; i < 3; i++)
     {

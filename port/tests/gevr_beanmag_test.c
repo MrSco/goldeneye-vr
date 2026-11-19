@@ -57,6 +57,104 @@ static float side(const float plane[4], const float *p)
 	return plane[0] * p[0] + plane[1] * p[1] + plane[2] * p[2] + plane[3];
 }
 
+/* a closed leaning box from y lowY to highY: 12 triangles, corner to corner */
+static void box(float x, float z0, float z1, float lowY, float highY, float lean, int tex, int eligible)
+{
+	float c[2][4][3];
+	for (int level = 0; level < 2; level++) {
+		const float y = level ? highY : lowY;
+		const float xs[4] = { -x, x, x, -x }, zs[4] = { z0, z0, z1, z1 };
+		for (int k = 0; k < 4; k++) {
+			c[level][k][0] = xs[k];
+			c[level][k][1] = y;
+			c[level][k][2] = zs[k] + lean * (y - highY);
+		}
+	}
+	for (int k = 0; k < 4; k++)
+		quad(c[0][k], c[0][(k + 1) % 4], c[1][(k + 1) % 4], c[1][k], tex, eligible);
+	quad(c[0][0], c[0][1], c[0][2], c[0][3], tex, eligible);
+	quad(c[1][0], c[1][1], c[1][2], c[1][3], tex, eligible);
+}
+
+/* A rifle: its magazine a piece of the mesh on its own, hanging under the gun
+ * and leaning; the gun, a hand's piece inside the box and a second gun piece
+ * that only reaches into it are none of the magazine. */
+static void island(void)
+{
+	GevrBeanMagDef def;
+	GevrBeanMagBuilt built;
+	int gun, mag, hand, reaching, lid = 0, floor = 0;
+
+	s_ntris = 0;
+	gun = s_ntris;
+	box(30, -200, 400, 0, 100, 0, 5, 1);            /* the receiver, above the box */
+	mag = s_ntris;
+	box(20, 0, 80, -400, 20, 0.5f, 5, 1);           /* the magazine: its top 20 inside the gun */
+	hand = s_ntris;
+	box(10, 100, 120, -300, -200, 0, 4, 0);         /* a hand's, wholly in the box */
+	reaching = s_ntris;
+	box(10, 150, 170, -300, 50, 0, 5, 1);           /* the gun's, in and out of the box */
+
+	memset(&def, 0, sizeof(def));
+	def.source = "test";
+	def.plane[1] = 1.0f;
+	def.lo[0] = -60; def.lo[1] = -450; def.lo[2] = -300;
+	def.hi[0] = 60; def.hi[1] = 30; def.hi[2] = 300;
+	def.floorDepth = 4.0f;
+	def.island = 1;
+	def.inside = 20.0f;
+	def.bodyRgb[0] = 40;
+	def.floorRgb[0] = 10;
+	assert(gevrBeanMagBuild(&def, s_tris, s_ntris, s_eligible, &built));
+
+	/* the magazine is its twelve triangles as they were, then a lid just under its top */
+	assert(built.nfoot == 12 && built.nmag > 12);
+	assert(!memcmp(built.mag, &s_tris[mag], 12 * sizeof(s_tris[0])));
+	for (int i = 12; i < built.nmag; i++) {
+		lid++;
+		assert(built.mag[i].tex == -1 && built.mag[i].rgba[0] == 40 && built.mag[i].n[1] == 1.0f);
+		for (int v = 0; v < 3; v++)
+			assert(fabsf(built.mag[i].p[v * 3 + 1] - (20.0f - 0.02f * 420.0f)) < 1e-2f);
+	}
+	assert(lid >= 3);
+	/* the gun keeps every other triangle, in order, and is floored where the magazine went in */
+	assert(built.nopen > s_ntris - 12);
+	for (int i = 0; i < built.nopen; i++) {
+		const int src = built.openSrc[i];
+		if (src < 0) {
+			floor++;
+			assert(built.open[i].tex == -1 && built.open[i].rgba[0] == 10 && built.open[i].n[1] == -1.0f);
+			for (int v = 0; v < 3; v++)
+				assert(fabsf(built.open[i].p[v * 3 + 1] - 4.0f) < 1e-2f);   /* the mouth at y 0, 4 up */
+			continue;
+		}
+		assert(src < mag || src >= hand);
+		assert(!memcmp(&built.open[i], &s_tris[src], sizeof(s_tris[src])));
+	}
+	assert(floor >= 3 && built.nopen - floor == s_ntris - 12);
+	(void)gun;
+	(void)reaching;
+	/* in along its own lean; the mouth where it meets the gun, the top 20 further in */
+	{
+		const float len = sqrtf(1.0f + 0.25f);
+		assert(fabsf(built.axis[0]) < 1e-3f && fabsf(built.axis[1] - 1.0f / len) < 1e-3f
+		    && fabsf(built.axis[2] - 0.5f / len) < 1e-3f);
+		assert(fabsf(built.mouth[1]) < 1e-2f && fabsf(built.mouth[2] - (40.0f - 10.0f)) < 0.1f);
+		assert(fabsf(built.top[1] - 20.0f) < 1e-2f && fabsf(built.top[2] - 40.0f) < 0.1f);
+		assert(fabsf(built.hold[1] - built.foot[1]) < 1e-4f && built.hold[1] < -100.0f && built.hold[1] > -300.0f);
+	}
+	gevrBeanMagFree(&built);
+
+	/* straight in along the normal when told so; and down for one on the gun's top */
+	def.straight = 1;
+	assert(gevrBeanMagBuild(&def, s_tris, s_ntris, s_eligible, &built));
+	assert(built.axis[1] == 1.0f && fabsf(built.top[1] - 20.0f) < 1e-2f && fabsf(built.top[2] - built.mouth[2]) < 1e-4f);
+	gevrBeanMagFree(&built);
+	/* nothing wholly in the box: no magazine */
+	def.hi[1] = -10.0f;
+	assert(!gevrBeanMagBuild(&def, s_tris, s_ntris, s_eligible, &built) && !built.mag && !built.open);
+}
+
 int main(void)
 {
 	/* the tube: 40 wide (x), 80 deep (z), from y -100 to y 300, leaning 0.25 in z a unit up */
@@ -67,7 +165,8 @@ int main(void)
 	float whole = 0, kept = 0, foot = 0, made = 0, corner[2][4][3];
 	int hand, outside, floor = 0, body = 0, passed = 0;
 
-	assert(gevrBeanMagFor("gun/ppk") && gevrBeanMagFor("gun/goldppk") && !gevrBeanMagFor("gun/ak47") && !gevrBeanMagFor(NULL));
+	assert(gevrBeanMagFor("gun/ppk") && gevrBeanMagFor("gun/goldppk") && !gevrBeanMagFor("gun/sniperrifle") && !gevrBeanMagFor(NULL));
+	assert(!gevrBeanMagFor("gun/ppk")->island && gevrBeanMagFor("gun/ak47")->island && gevrBeanMagFor("gun/fnp90")->pullUp);
 	assert(gevrBeanMagAt(0) == gevrBeanMagFor("gun/ppk") && !gevrBeanMagAt(-1) && !gevrBeanMagAt(1000));
 
 	for (int level = 0; level < 2; level++) {
@@ -186,6 +285,7 @@ int main(void)
 	assert(!gevrBeanMagBuild(&def, s_tris, s_ntris, s_eligible, &built));
 	assert(!gevrBeanMagBuild(NULL, s_tris, s_ntris, NULL, &built) && !gevrBeanMagBuild(&def, NULL, 0, NULL, &built));
 
-	puts("PASS: Bean magazine cut - foot split along the plane with nothing lost, floored well, body inside the grip up its lean, the hand and far parts untouched");
+	island();
+	puts("PASS: Bean magazine cut - foot split along the plane with nothing lost, floored well, body inside the grip up its lean, the hand and far parts untouched; a magazine that is a piece of its own taken whole");
 	return 0;
 }

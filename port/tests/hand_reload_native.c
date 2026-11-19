@@ -88,8 +88,12 @@ static float beanFoot[3], beanFit[2][3];
 static int gevrBeanIsEnabled(void) { return beanOn; }
 static int gevrBeanPp7(int item)
 { return item == ITEM_WPPK || item == ITEM_WPPKSIL || item == ITEM_SILVERWPPK || item == ITEM_GOLDWPPK; }
-static int gevrBeanMagItem(int item) { return !VrGexGuns && beanOn && gevrBeanPp7(item); }
+/* the table's guns the cases use: the PP7s, a rifle and the RC-P90 */
+static int gevrBeanMagItem(int item)
+{ return !VrGexGuns && beanOn && (gevrBeanPp7(item) || item == ITEM_M16 || item == ITEM_FNP90); }
 static int gevrBeanMagHeld(int hand) { return !VrGexGuns && beanOn && beanMag[hand]; }
+static int beanLiftsOff;
+s32 gevrBeanMagPullsUp(s32 hand) { return gevrBeanMagHeld(hand) && beanLiftsOff; }
 float *gevrBeanMagFit(s32 item, s32 which) { (void)item; return beanFit[which]; }
 s32 gevrWeaponCategory(s32 item);   /* bondview2.c's own, below: the pistols are its first wedge */
 const GexWeaponDef *gevrGexWeaponForHand(int hand)
@@ -200,7 +204,7 @@ static void reset(void)
     player.hands[GUNRIGHT].weapon = ITEM_WPPK;
     player.hands[GUNLEFT].weapon = ITEM_UNARMED;
     gex[0] = gex[1] = 0;
-    beanOn = beanMag[0] = beanMag[1] = beanPoints = 0;
+    beanOn = beanMag[0] = beanMag[1] = beanPoints = beanLiftsOff = 0;
     memset(beanFit, 0, sizeof(beanFit));
     pointsValid = supportHeld = supportCtrl = falls = 0;
     readyEvents = 0;
@@ -559,6 +563,47 @@ static void beanPp7Reload(void)
     assert(gevrReloadDraw(GUNRIGHT));
     gevrHandReloadTick();
     assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_OUT && player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0);
+
+    /* A rifle's magazine hangs out of the gun: Bean's is pulled as GE-X's, taken
+     * at its middle where the gun is drawn, within the rifles' 10 cm and out by
+     * their 8; the RC-P90's lifts off upward. Put back, it has its rounds. */
+    for (int lifts = 0; lifts < 2; lifts++) {
+        reset();
+        VrGexGuns = 0; beanOn = 1; beanMag[GUNRIGHT] = 1; beanLiftsOff = lifts;
+        stats.MagSize = 30;
+        player.hands[GUNRIGHT].weapon = lifts ? ITEM_FNP90 : ITEM_M16;
+        player.hands[GUNRIGHT].weapon_ammo_in_magazine = 12;
+        at(1, 20, 20, 40);
+        at(0, 20, -20, 40);
+        gevrHandReloadTick();
+        assert(gevrManualReloadOn(GUNRIGHT) && gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_NONE);
+        memcpy(beanFoot, poses[1], sizeof(beanFoot));
+        beanFoot[2] -= 15 * cm;
+        beanPoints = 1;
+        memcpy(poses[0], beanFoot, sizeof(beanFoot));
+        poses[0][0] += 10.1f * cm;
+        assert(!gevrGexClaimsOffHand());
+        poses[0][0] -= 0.2f * cm;
+        assert(gevrGexClaimsOffHand());
+        gripHeld[0] = 1; gevrHandReloadTick();
+        assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_GRIPPED && gevrBeanMagState(GUNRIGHT, NULL) == GEVR_GEXMAG_GRIPPED);
+        assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_GRIPPED);
+        poses[0][1] += (lifts ? -1 : 1) * 8.1f * cm; gevrHandReloadTick();   /* the wrong way: still in */
+        assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_GRIPPED);
+        poses[0][1] += (lifts ? 1 : -1) * 16.2f * cm; gevrHandReloadTick();
+        assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_INHAND && s_gevrGexHeldRounds == 12 && reserve == 50);
+        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0 && gevrReloadCarriesRounds(GUNRIGHT));
+        beanPoints = 3;
+        memset(wellPoint, 0, sizeof(wellPoint));
+        memset(heldPoint, 0, sizeof(heldPoint));
+        heldPoint[1] = 12.1f * cm; gevrHandReloadTick();
+        heldPoint[1] = 6.1f * cm; gevrHandReloadTick();
+        assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_INHAND);
+        heldPoint[1] = 5.9f * cm; gevrHandReloadTick();
+        assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN && s_gevrGexGripSpent);
+        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 12 && reserve == 50 && falls == 0);
+        gripHeld[0] = 0; gevrHandReloadTick();
+    }
 
     /* its model not in the hand yet (a switch): no magazine state, nothing to grip.
      * gun.c then learns whether the mesh had one to cut (gevrBeanMagItem). */

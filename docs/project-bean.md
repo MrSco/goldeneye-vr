@@ -41,7 +41,7 @@ pictures use the original game textures, as in Dab's Mod (its explosions are
 the cartridge's); HD / AI and legacy texture packs cannot fill those gaps. Switching during a level clears previous texture uploads and caches.
 With GoldenEye X enabled, its first-person guns, arms, watch and hand-reload rig
 keep priority and their own ROM textures. Bean supplies the other models and rooms.
-With it off, Bean's PP7s have a magazine to take out by hand (below).
+With it off, Bean's magazine-fed guns have a magazine to take out by hand (below).
 
 During play, use **watch → VR options → Mods and fun → Project Bean** or hold
 exactly one grip + right-stick click for one second. Both switches affect meshes
@@ -75,8 +75,18 @@ inside the grip, with too little showing to take hold of. Rifles and submachine
 guns, whose magazine hangs out of the gun, keep the pull (`bondview2.c
 gevrReloadMagPulls`), so a Bean rifle added to the table gets it too.
 A touch of the gun hand at the belt still loads it one-handed. Every other
-Bean gun keeps the game's own reload, B and all. **First pass: the four PP7s**
-(PP7, silenced, silver, gold), which share one grip.
+Bean gun keeps the game's own reload, B and all.
+
+| Gun | Magazine | Out by |
+| --- | --- | --- |
+| PP7, silenced, silver, gold (one grip) | cut from the grip | B / Y |
+| DD44 | cut from the grip | B / Y |
+| Klobb, KF7, ZMG, D5K, silenced D5K, Phantom, AR33 | a piece of the mesh on its own | pull down, or B / Y |
+| RC-P90 | the see-through one on top, with its rounds | lift up, or B / Y |
+
+The sniper rifle's mesh shows no magazine, so it keeps the game's reload (GE-X's
+has one). The shotguns, launchers, Cougar and Golden Gun load a round at a time
+on GE-X; Bean has no loose rounds for them yet.
 
 The release's guns are one skinned mesh each with no magazine bone, and its
 dropped-magazine props are a 28-triangle wedge, so the magazine is made from the
@@ -91,6 +101,13 @@ gun when the gun is laid out (`port/src/gevr_beanmag.c`, `gevr_bean.c`
   at two heights, so it follows the grip's lean.
 - **The gun without it** is everything else plus a dark floor a little way up the
   empty well. The guns draw two-sided, so the grip's inner walls show round it.
+
+That is a pistol's. A rifle's or a submachine gun's magazine hangs out of the
+gun, and in the release's meshes it is a piece on its own: it shares no corner
+with the rest of the gun. There the magazine is every such piece wholly inside
+a box round it, taken whole, with a lid just under its top; the gun without it
+is floored where it went in. Nothing is cut and no body is made. It goes in the
+way its own top third runs, so a curved or leaning magazine seats along itself.
 
 The gun's body list then has three builds on the same matrix: whole (the
 release's own, drawn while the magazine is in), open, and the magazine alone.
@@ -114,11 +131,17 @@ the PP7s sharing item 4's. Unfitted, both are where the mesh has them.
 
 ### Adding a gun
 
-1. Copy the PP7's row in `gevr_beanmag.c` for the gun's file, then draw it:
-   `python tools/gevr_bean_mag_preview.py <xbla files> <out dir> gun/<name>`.
-   Move the row's plane (unit normal up the well; `n.p + d >= 0` stays on the
-   gun) and box until the picture shows the foot blue, the body and the well's
-   floor orange, and the hand whole.
+1. Add a row in `gevr_beanmag.c` for the gun's file, then draw it:
+   `python tools/gevr_bean_mag_preview.py <xbla files> <out dir> gun/<name>`
+   (no gun named: the whole table).
+   - A magazine that is a piece of its own: `ISLAND_MAGAZINE` with a box that
+     holds all of it and no other whole piece, and how much of its top is inside
+     the gun.
+   - One inside the grip: copy the PP7's row and move its plane (unit normal up
+     the well; `n.p + d >= 0` stays on the gun) and box.
+
+   The picture should show the magazine blue, what was made for it (body, lid,
+   the well's floor) orange, and the hand whole.
 2. Name its item in `gun.c gevrBeanMagItem` (and `gevrBeanMagFit` if it shares
    another's fits).
 3. `python port/tests/test_bean_magazine.py <xbla files>` and
@@ -126,16 +149,16 @@ the PP7s sharing item 4's. Unfitted, both are where the mesh has them.
    `python port/tests/test_bean_mapping.py <ROM> <xbla files>` prints a
    `MAGAZINE` line for it.
 
-A rifle's magazine hangs outside the gun, so its cut is the whole magazine and
-its made body should be short or none (`bodyLength`); the table has not been
-tried on one yet.
+A pistol's item also needs no more than that: `bondview2.c gevrReloadMagPulls`
+goes by the weapon wheel's pistols.
 
 ### Not done yet
 
-- Not checked in the headset: the held magazine's place in the hand, the well's
-  reach (4 cm for a pistol), and how the open grip and plain body look. The pull
-  for a Bean gun (its foot as drawn, nearer than the two-handed hold) has no gun
-  to run on until a rifle or submachine gun is in the table.
+- Checked in the headset: the PP7 (2026-11-18), whose held place is now every
+  gun's default. Not yet: the DD44, the rifles and submachine guns, and the
+  RC-P90 - where each magazine sits in the hand, the pull (taken at the
+  magazine's middle as drawn, within 10 cm and nearer than the two-handed hold),
+  the lids and floors, and the RC-P90's see-through magazine drawn on its own.
 - The magazine at the belt is drawn untinted, and there is no ghost in the well
   (GE-X has both).
 - Nothing is sent to other players: the magazine's state is local, as GE-X's.

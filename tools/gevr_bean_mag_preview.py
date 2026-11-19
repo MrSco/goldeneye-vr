@@ -5,8 +5,9 @@
 XBLA_FILES is your imported release's files folder (the one holding new/gun).
 For each gun that has a magazine it writes OUT_DIR/<gun>_magazine.png: the gun,
 the gun with its magazine out (seen from the side and from below, into the
-well), and the magazine on its own. The foot is drawn blue, what the port makes
-(the body, the well's floor) orange. Needs a C compiler, numpy and Pillow.
+well), and the magazine on its own. The release's own triangles of the magazine
+are drawn blue, what the port makes (a pistol's body, a lid, the well's floor)
+orange. Needs a C compiler, numpy and Pillow.
 Reads your files; writes pictures only, which hold the release's shapes - keep
 them to yourself.
 """
@@ -99,18 +100,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("files", type=Path)
     parser.add_argument("out", type=Path)
-    parser.add_argument("guns", nargs="*", default=["gun/ppk"])
+    parser.add_argument("guns", nargs="*", help="as gun/ppk; every gun of the table when none is named")
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="bean-mag-") as temp:
         exe = build(temp)
-        for source in args.guns:
+        table = subprocess.run([str(exe), "--guns"], capture_output=True, text=True, check=True).stdout.split("\n")
+        for source in args.guns or [line.split()[0] for line in table if line.strip()]:
             sets, facts = dump(exe, args.files, source)
             out = args.out / (source.replace("/", "_") + "_magazine.png")
             sheet(sets, out)
-            print(f"{source}: {facts['tris'][0]} triangles, {facts['tris'][6]} in the foot, "
-                  f"{int(facts['tris'][4]) - int(facts['tris'][6])} made for the body")
-            for key in ("axis", "mouth", "top", "foot"):
+            print(f"{source}: {facts['tris'][0]} triangles, {facts['tris'][6]} the magazine's own, "
+                  f"{int(facts['tris'][4]) - int(facts['tris'][6])} made for it")
+            for key in ("axis", "mouth", "top", "foot", "hold"):
                 print(f"  {key} " + " ".join(f"{v:.2f}" for v in facts[key]))
             print(f"  {out}")
 

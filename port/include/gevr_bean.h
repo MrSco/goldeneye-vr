@@ -73,7 +73,9 @@ struct gevrBeanMagInfo {
 	float mouth[3];  /* the well's mouth */
 	float top[3];    /* the seated magazine's top */
 	float foot[3];   /* its foot: where a hand takes it */
+	float hold[3];   /* where the off hand's palm has it */
 	float axis[3];   /* up the well, unit */
+	int pullUp;      /* it lifts off the top of the gun (the RC-P90's) */
 };
 void gevrBeanSetMagazine(int state);
 int gevrBeanGunMagazine(const void *header, struct gevrBeanMagInfo *out);

@@ -24,12 +24,64 @@
 	.bodyRgb = { 46, 46, 50 }, \
 	.floorRgb = { 10, 10, 12 }, \
 }
+/* A magazine that is a piece of the mesh on its own, below the gun: the box
+ * round it and how much of its top is inside the gun. */
+#define ISLAND_MAGAZINE(file, x, ylow, yhigh, zback, zfront, into) { \
+	.source = file, \
+	.plane = { 0.0f, 1.0f, 0.0f, 0.0f }, \
+	.lo = { -(x), ylow, zback }, \
+	.hi = { x, yhigh, zfront }, \
+	.floorDepth = 4.0f, \
+	.bodyRgb = { 46, 46, 50 }, \
+	.floorRgb = { 10, 10, 12 }, \
+	.island = 1, \
+	.inside = into, \
+}
 /* the four PP7s are one grip: the silenced, silver and gold files cut alike */
 static const GevrBeanMagDef s_magDefs[] = {
 	PP7_MAGAZINE("gun/ppk"),
 	PP7_MAGAZINE("gun/ppksilenced"),
 	PP7_MAGAZINE("gun/silverppk"),
 	PP7_MAGAZINE("gun/goldppk"),
+	/* The DD44 (new/gun/tt33), a pistol as the PP7: its floor plate's seam runs
+	 * from (y -599.2, z -1244.1) at the back strap to (y -628.4, z -1027) at
+	 * the front, the plate hanging 46 below it. */
+	{
+		.source = "gun/tt33",
+		.plane = { 0.0f, 0.99107f, 0.13330f, 759.69f },
+		.lo = { -100.0f, -720.0f, -1300.0f },
+		.hi = { 100.0f, -150.0f, -900.0f },
+		.floorDepth = 60.0f,
+		.bodyLength = 380.0f,
+		.bodyDraw = { 0.62f, 0.72f },
+		.axisSpan = 200.0f,
+		.bodyRgb = { 46, 46, 50 },
+		.floorRgb = { 10, 10, 12 },
+	},
+	/* the rifles and submachine guns: each magazine a piece of its own. The
+	 * boxes are measured from the release's meshes; the sniper rifle's mesh has
+	 * no magazine to take. */
+	ISLAND_MAGAZINE("gun/skorpion", 60.0f, -620.0f, -150.0f, 100.0f, 460.0f, 20.0f),
+	ISLAND_MAGAZINE("gun/ak47", 80.0f, -1200.0f, -60.0f, 520.0f, 1300.0f, 20.0f),
+	ISLAND_MAGAZINE("gun/uzi", 60.0f, -1400.0f, -600.0f, -140.0f, 120.0f, 0.0f),
+	ISLAND_MAGAZINE("gun/mp5k", 130.0f, -1160.0f, -220.0f, 800.0f, 1360.0f, 40.0f),
+	ISLAND_MAGAZINE("gun/mp5ksilenced", 130.0f, -1160.0f, -220.0f, 800.0f, 1360.0f, 40.0f),
+	ISLAND_MAGAZINE("gun/spectre", 90.0f, -1100.0f, -470.0f, -1020.0f, -630.0f, 30.0f),
+	ISLAND_MAGAZINE("gun/m16", 90.0f, -1000.0f, -180.0f, 380.0f, 970.0f, 120.0f),
+	/* The RC-P90's lies along the top of the gun, see-through, its rounds two
+	 * more pieces inside it: into the gun is down, and it lifts off. */
+	{
+		.source = "gun/fnp90",
+		.plane = { 0.0f, -1.0f, 0.0f, 0.0f },
+		.lo = { -130.0f, 100.0f, 700.0f },
+		.hi = { 130.0f, 320.0f, 2350.0f },
+		.floorDepth = 2.0f,
+		.bodyRgb = { 46, 46, 50 },
+		.floorRgb = { 10, 10, 12 },
+		.island = 1,
+		.straight = 1,
+		.pullUp = 1,
+	},
 };
 
 const GevrBeanMagDef *gevrBeanMagAt(int n)
@@ -350,6 +402,199 @@ void gevrBeanMagFree(GevrBeanMagBuilt *built)
 	memset(built, 0, sizeof(*built));
 }
 
+struct magKey { int k[3], tri; };
+
+static int magKeyCmp(const void *a, const void *b)
+{
+	const struct magKey *p = a, *q = b;
+	for (int k = 0; k < 3; k++)
+		if (p->k[k] != q->k[k])
+			return p->k[k] < q->k[k] ? -1 : 1;
+	return 0;
+}
+
+static int magRoot(int *parent, int i)
+{
+	while (parent[i] != i) {
+		parent[i] = parent[parent[i]];
+		i = parent[i];
+	}
+	return i;
+}
+
+/* member[i] = 1 for the gun's triangles in pieces that lie wholly inside the
+ * box: a piece is the triangles joined corner to corner (half a unit apart or
+ * less). The count of them; 0 when there is none or memory ran out. */
+static int magIslands(const GevrBeanMagDef *def, const struct gevrBeanTri *tris, int ntris,
+                      const unsigned char *eligible, unsigned char *member)
+{
+	struct magKey *keys = malloc((size_t)ntris * 3 * sizeof(*keys));
+	int *parent = malloc((size_t)ntris * sizeof(*parent));
+	unsigned char *out = calloc((size_t)ntris, 1);
+	int n = 0, count = 0;
+	if (!keys || !parent || !out) {
+		free(keys);
+		free(parent);
+		free(out);
+		return 0;
+	}
+	for (int i = 0; i < ntris; i++) {
+		parent[i] = i;
+		for (int c = 0; (!eligible || eligible[i]) && c < 3; c++, n++) {
+			for (int k = 0; k < 3; k++)
+				keys[n].k[k] = (int)lroundf(tris[i].p[c * 3 + k] * 2.0f);
+			keys[n].tri = i;
+		}
+	}
+	qsort(keys, (size_t)n, sizeof(*keys), magKeyCmp);
+	for (int j = 1; j < n; j++)
+		if (!magKeyCmp(&keys[j - 1], &keys[j]))
+			parent[magRoot(parent, keys[j].tri)] = magRoot(parent, keys[j - 1].tri);
+	for (int i = 0; i < ntris; i++)
+		if ((!eligible || eligible[i]) && !magTriInBox(&tris[i], def->lo, def->hi))
+			out[magRoot(parent, i)] = 1;
+	for (int i = 0; i < ntris; i++) {
+		member[i] = (!eligible || eligible[i]) && !out[magRoot(parent, i)];
+		count += member[i];
+	}
+	free(keys);
+	free(parent);
+	free(out);
+	return count;
+}
+
+/* a hull as a fan at `height`, drawn in about its middle, facing normal */
+static int magHullPush(struct magList *l, const struct gevrBeanTri *like, const struct magFrame *f,
+                       const struct magFlat *hull, int count, const struct magFlat *middle, float height, float draw,
+                       const float normal[3], const unsigned char rgb[3])
+{
+	float centre[3];
+	magFrameAt(f, height, middle, centre);
+	for (int i = 0; i < count; i++) {
+		struct magFlat ring[2];
+		float a[3], b[3];
+		for (int e = 0; e < 2; e++) {
+			const struct magFlat *h = &hull[(i + e) % count];
+			ring[e].u = middle->u + (h->u - middle->u) * draw;
+			ring[e].v = middle->v + (h->v - middle->v) * draw;
+		}
+		magFrameAt(f, height, &ring[0], a);
+		magFrameAt(f, height, &ring[1], b);
+		if (!magPlainPush(l, like, centre, a, b, normal, rgb, -1))
+			return 0;
+	}
+	return 1;
+}
+
+/* An island magazine (gevr_beanmag.h): the pieces in the box whole, a lid on
+ * their top; the gun without them, floored where they went in. Heights run
+ * from 0 at the magazine's top (the end inside the gun) down its length. */
+static int magBuildIsland(const GevrBeanMagDef *def, const struct gevrBeanTri *tris, int ntris,
+                          const unsigned char *eligible, GevrBeanMagBuilt *built)
+{
+	struct magList open = { NULL, NULL, 0, 0, 1 }, mag = { NULL, NULL, 0, 0, 0 };
+	struct magFlat *mouthHull = NULL, *lidHull = NULL, *upHull = NULL, *downHull = NULL, mouthAt, lidAt, upAt, downAt;
+	unsigned char *member = calloc((size_t)ntris, 1);
+	const struct gevrBeanTri *like = NULL;
+	struct magFrame f;
+	float plane[4] = { def->plane[0], def->plane[1], def->plane[2], 0.0f }, top = -1e30f, bottom = 1e30f;
+	float sum[3] = { 0, 0, 0 }, down[3], length, mouthHeight, along;
+	int nmouth, nlid, nup = 0, ndown = 0, ok = 1, count;
+	count = member ? magIslands(def, tris, ntris, eligible, member) : 0;
+	if (!count) {
+		free(member);
+		return 0;
+	}
+	magFrameOf(plane, &f);
+	for (int i = 0; ok && i < ntris; i++) {
+		if (!member[i]) {
+			ok = magListPush(&open, &tris[i], i);
+			continue;
+		}
+		if (!like)
+			like = &tris[i];
+		for (int c = 0; c < 3; c++) {
+			const float h = magPlaneSide(f.plane, &tris[i].p[c * 3]);
+			if (h > top) top = h;
+			if (h < bottom) bottom = h;
+			for (int k = 0; k < 3; k++)
+				sum[k] += tris[i].p[c * 3 + k];
+		}
+		ok = magListPush(&mag, &tris[i], i);
+	}
+	if (!ok)
+		goto fail;
+	built->nfoot = mag.n;
+	for (int k = 0; k < 3; k++)
+		built->foot[k] = built->hold[k] = sum[k] / (count * 3);
+	f.plane[3] = -top;
+	length = top - bottom;
+	if (length < 1.0f)
+		goto fail;
+	/* the mouth: where the magazine meets the gun, never right on its top edge */
+	mouthHeight = -(def->inside > 0.03f * length ? def->inside : 0.03f * length);
+	/* a straight one's outline is read at its middle: the RC-P90's flat magazine
+	 * touches the gun along one end only, and its outline there is a sliver */
+	nmouth = magOutlineAt(def, &f, tris, ntris, member, def->straight ? -0.5f * length : mouthHeight, &mouthHull,
+	                      &mouthAt);
+	nlid = magOutlineAt(def, &f, tris, ntris, member, def->straight ? -0.5f * length : -0.02f * length, &lidHull,
+	                    &lidAt);
+	if (!nmouth)
+		goto fail;
+	magFrameAt(&f, mouthHeight, &mouthAt, built->mouth);
+	memcpy(built->axis, f.n, sizeof(f.n));
+	if (!def->straight) {
+		/* into the gun as its top third runs: a curved or leaning magazine's own way */
+		nup = magOutlineAt(def, &f, tris, ntris, member, -0.10f * length, &upHull, &upAt);
+		ndown = magOutlineAt(def, &f, tris, ntris, member, -0.35f * length, &downHull, &downAt);
+		if (nup && ndown) {
+			float a[3], b[3], len = 0;
+			magFrameAt(&f, -0.10f * length, &upAt, a);
+			magFrameAt(&f, -0.35f * length, &downAt, b);
+			for (int k = 0; k < 3; k++)
+				len += (a[k] - b[k]) * (a[k] - b[k]);
+			len = sqrtf(len);
+			for (int k = 0; len > 1e-3f && k < 3; k++)
+				built->axis[k] = (a[k] - b[k]) / len;
+		}
+	}
+	along = built->axis[0] * f.n[0] + built->axis[1] * f.n[1] + built->axis[2] * f.n[2];
+	for (int k = 0; k < 3; k++) {
+		built->top[k] = built->mouth[k] + built->axis[k] * (-mouthHeight / (along > 0.2f ? along : 1.0f));
+		down[k] = -f.n[k];
+	}
+	if (nlid)
+		ok = magHullPush(&mag, like, &f, lidHull, nlid, &lidAt, -0.02f * length, 0.98f, f.n, def->bodyRgb);
+	if (ok)
+		ok = magHullPush(&open, like, &f, mouthHull, nmouth, &mouthAt, mouthHeight + def->floorDepth, 0.97f, down,
+		                 def->floorRgb);
+	free(mouthHull);
+	free(lidHull);
+	free(upHull);
+	free(downHull);
+	mouthHull = lidHull = upHull = downHull = NULL;
+	if (!ok)
+		goto fail;
+	free(member);
+	built->open = open.tris;
+	built->openSrc = open.src;
+	built->nopen = open.n;
+	built->mag = mag.tris;
+	built->nmag = mag.n;
+	return 1;
+fail:
+	free(mouthHull);
+	free(lidHull);
+	free(upHull);
+	free(downHull);
+	free(member);
+	free(open.tris);
+	free(open.src);
+	free(mag.tris);
+	memset(built, 0, sizeof(*built));
+	return 0;
+}
+
 int gevrBeanMagBuild(const GevrBeanMagDef *def, const struct gevrBeanTri *tris, int ntris,
                      const unsigned char *eligible, GevrBeanMagBuilt *built)
 {
@@ -364,6 +609,8 @@ int gevrBeanMagBuild(const GevrBeanMagDef *def, const struct gevrBeanTri *tris, 
 	memset(built, 0, sizeof(*built));
 	if (!def || !tris || ntris <= 0)
 		return 0;
+	if (def->island)
+		return magBuildIsland(def, tris, ntris, eligible, built);
 	magFrameOf(def->plane, &f);
 	for (int i = 0; ok && i < ntris; i++) {
 		const struct gevrBeanTri *t = &tris[i];
@@ -419,8 +666,11 @@ int gevrBeanMagBuild(const GevrBeanMagDef *def, const struct gevrBeanTri *tris, 
 		}
 	}
 	reach = def->bodyLength / (built->axis[0] * f.n[0] + built->axis[1] * f.n[1] + built->axis[2] * f.n[2]);
-	for (int k = 0; k < 3; k++)
+	for (int k = 0; k < 3; k++) {
 		built->top[k] = built->mouth[k] + built->axis[k] * reach;
+		/* the hand closes round the body a third of the way up from its foot */
+		built->hold[k] = built->mouth[k] + built->axis[k] * reach * 0.33f;
+	}
 
 	/* the body: the mouth's outline drawn in, up the well, and its top */
 	for (int i = 0; ok && i < nmouth; i++) {

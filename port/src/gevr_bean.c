@@ -2060,11 +2060,12 @@ static void gunMagazine(const GevrBeanMagDef *def, const struct gevrBeanMesh *me
 	if (body->open && body->magazine)
 		info = malloc(sizeof(*info));
 	if (info && keepAlloc(info)) {
-		const float *from[3] = { built.mouth, built.top, built.foot };
-		float *to[3] = { info->mouth, info->top, info->foot };
+		const float *from[4] = { built.mouth, built.top, built.foot, built.hold };
+		float *to[4] = { info->mouth, info->top, info->foot, info->hold };
 		info->node = node;
 		info->matrix = nodeMatrix(node);
-		for (int p = 0; p < 3; p++) {
+		info->pullUp = def->pullUp;
+		for (int p = 0; p < 4; p++) {
 			fitPoint(fit, from[p], to[p]);
 			for (int k = 0; k < 3; k++)
 				to[p][k] -= rest ? rest[k] : 0.0f;

@@ -14,6 +14,11 @@
  *    outline there drawn in;
  *  - the gun without it: the rest of the gun, and a dark floor a little way up
  *    the empty well.
+ * That is a pistol's, whose magazine is inside its grip. A rifle's or a
+ * submachine gun's hangs out of the gun and is a piece of the mesh on its own
+ * (an island: it shares no corner with the rest), so there the magazine is
+ * that piece whole, with a lid on its top, and the gun without it has a dark
+ * floor where it went in. Nothing is cut and no body is made.
  * Everything here is in the release mesh's own units (gevrBeanTri.p), which
  * tools/gevr_bean_mag_preview.py draws.
  */
@@ -33,6 +38,13 @@ typedef struct GevrBeanMagDef {
 	float bodyDraw[2];    /* its outline: the grip's, drawn in across (x) and along the gun */
 	float axisSpan;       /* the well runs through the grip's outlines at the plane and this far up */
 	unsigned char bodyRgb[3], floorRgb[3];
+	/* An island magazine: every piece of the gun wholly inside lo..hi. plane's
+	 * normal then only says which way is into the gun (its offset is not read);
+	 * the mouth is `inside` below the magazine's top, where it meets the gun. */
+	int island;
+	float inside;
+	int straight;         /* it goes in along the normal; else along its own top third */
+	int pullUp;           /* it lifts off the top of the gun (the RC-P90's) */
 } GevrBeanMagDef;
 
 typedef struct GevrBeanMagBuilt {
@@ -47,6 +59,7 @@ typedef struct GevrBeanMagBuilt {
 	float mouth[3];       /* the well's mouth: its outline's middle on the plane */
 	float top[3];         /* the seated magazine's top */
 	float foot[3];        /* the foot's middle: where a hand takes it */
+	float hold[3];        /* where the off hand's palm has it */
 } GevrBeanMagBuilt;
 
 const GevrBeanMagDef *gevrBeanMagFor(const char *source);

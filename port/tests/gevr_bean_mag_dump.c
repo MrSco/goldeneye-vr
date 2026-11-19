@@ -28,6 +28,12 @@ int main(int argc, char **argv)
 	const GevrBeanMagDef *def = argc > 2 ? gevrBeanMagFor(argv[2]) : NULL;
 	GevrBeanMagBuilt built;
 	unsigned char *eligible;
+	if (argc == 2 && !strcmp(argv[1], "--guns")) {
+		/* the table: a gun a line, and whether its magazine is a piece of its own */
+		for (int n = 0; gevrBeanMagAt(n); n++)
+			printf("%s %d %d\n", gevrBeanMagAt(n)->source, gevrBeanMagAt(n)->island, gevrBeanMagAt(n)->pullUp);
+		return 0;
+	}
 	if (argc < 3 || !def) {
 		fprintf(stderr, "usage: %s <default.bin> <source, as gun/ppk>\n", argv[0]);
 		return 2;
@@ -48,6 +54,9 @@ int main(int argc, char **argv)
 	printf("# mouth %.3f %.3f %.3f\n", built.mouth[0], built.mouth[1], built.mouth[2]);
 	printf("# top %.3f %.3f %.3f\n", built.top[0], built.top[1], built.top[2]);
 	printf("# foot %.3f %.3f %.3f\n", built.foot[0], built.foot[1], built.foot[2]);
+	printf("# hold %.3f %.3f %.3f\n", built.hold[0], built.hold[1], built.hold[2]);
+	printf("# plane %.5f %.5f %.5f %.3f\n", def->plane[0], def->plane[1], def->plane[2], def->plane[3]);
+	printf("# island %d\n", def->island);
 	for (int i = 0; i < m->ntris; i++)
 		if (!(m->tris[i].flags & GEVR_BEAN_F_FLASH))
 			line('g', glove(m, &m->tris[i]), &m->tris[i]);
