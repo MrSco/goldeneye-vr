@@ -1480,7 +1480,15 @@ int gevrBeanRoomFog(float line[2], uint8_t rgb[3])
     if (!s_ok || !gevrBeanIsEnabled() || !g_CurrentPlayer) return 0;
     float share, fraction; uint8_t target[3];
     fogGetBeanTransition(&share,&fraction,target);
-    return gevrBeanFogLineTransition(baseStage(s_stage), g_CurrentPlayer->current_model_pos.y,
+    /* Dam's fog reaches further the lower the camera stands (DAB gebeanStageFog():
+     * cam_pos.y, the player's own but in the opening and closing shots). The
+     * release's heights (2782, 9161) are its own world's: the room table's units,
+     * Dam's file scale being 1 - DAB's conversion moved them up by 13219 to fit
+     * Dam's -7418..8914 in sixteen bits. current_model_pos is the camera's room's
+     * origin in world units, neither the camera nor the release's space. */
+    const coord3d *camera = bondviewGetCurrentPlayersPosition();
+    const float height = camera && room_data_float2 > 0.0f ? camera->y / room_data_float2 : 0.0f;
+    return gevrBeanFogLineTransition(baseStage(s_stage), height,
                            bgGetLevelVisibilityScale(), communityEdition(),share,fraction,target,line,rgb);
 }
 
