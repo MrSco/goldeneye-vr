@@ -552,8 +552,13 @@ static struct gevrBeanMesh *cachedLoad(const char *path, int keepparts, int kind
 		if (!gevrBeanLoad(path, keepparts, &mesh) || !mesh) {
 			return NULL;
 		}
-		if (kind == BEAN_GUN)
+		if (kind == BEAN_GUN) {
+			/* the sculpted patch, then the opening it leaves round the handle */
+			const int before = mesh->ntris;
 			beanPatchGunHand(mesh);
+			if (mesh->ntris > before)
+				beanSealGunHand(mesh);
+		}
 		/* the off-hand arm's open sleeves and forearm, closed (gevr_bean_armseal.inc.h) */
 		if (mesh->watchArm) {
 			const int sealed = beanSealWatchArm(mesh);

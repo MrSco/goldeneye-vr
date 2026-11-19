@@ -684,7 +684,9 @@ int main(int argc, char **argv)
 			continue;
 		struct gevrBeanMesh *raw = NULL;
 		assert(gevrBeanLoad(argv[6], 1, &raw));
-		assert(mesh->ntris == raw->ntris + 297);
+		/* the sculpted patch's 297, and the 43 that close the opening it leaves round
+		 * the handle (gevr_bean_armseal.inc.h beanSealGunHand): the lining's inner edge */
+		assert(mesh->ntris == raw->ntris + 297 + 43);
 		int tex = mesh->tris[raw->ntris].tex;
 		assert(beanGunHandTexture(mesh, tex) && mesh->standin[tex] == raw->standin[tex]);
 		for (int t = raw->ntris; t < mesh->ntris; t++)
@@ -700,7 +702,30 @@ int main(int argc, char **argv)
 		beanPatchGunHand(raw);
 		assert(raw->ntris == rawCount);
 		gevrBeanMeshFree(raw);
-		printf("HANDPATCH %s 297 triangles, existing atlas %d\n", argv[2], tex);
+		/* dressed and closed, the glove has no open edge left: every edge two triangles' */
+		{
+			int open = 0;
+			for (int a = 0; a < mesh->ntris; a++) {
+				if (mesh->tris[a].tex != tex)
+					continue;
+				for (int c = 0; c < 3; c++) {
+					const float *p = &mesh->tris[a].p[c * 3], *q = &mesh->tris[a].p[((c + 1) % 3) * 3];
+					int shared = 0;
+					for (int b = 0; b < mesh->ntris && !shared; b++) {
+						if (b == a || mesh->tris[b].tex != tex)
+							continue;
+						for (int d = 0; d < 3 && !shared; d++) {
+							const float *r = &mesh->tris[b].p[d * 3], *s = &mesh->tris[b].p[((d + 1) % 3) * 3];
+							shared = fabsf(p[0] - s[0]) + fabsf(p[1] - s[1]) + fabsf(p[2] - s[2]) < 0.02f &&
+							         fabsf(q[0] - r[0]) + fabsf(q[1] - r[1]) + fabsf(q[2] - r[2]) < 0.02f;
+						}
+					}
+					open += !shared;
+				}
+			}
+			assert(open == 0);
+		}
+		printf("HANDPATCH %s 297 triangles and 43 closing it, existing atlas %d\n", argv[2], tex);
 		break;
 	}
 	s_want = s_available = 1;

@@ -153,7 +153,8 @@ static int armSealLace(struct gevrBeanMesh *mesh, const int *rim, int n, const f
  * the watch (its pictures: every one that is not the arm's), so the wrist draws
  * in under the band and the watch stays on it.
  */
-#define ARMSEAL_ARM_SIZE 0.92f
+/* 0.92 left a corner of the wrist through the band's underside (headset): 0.90 */
+#define ARMSEAL_ARM_SIZE 0.90f
 
 static void beanShrinkWatchArm(struct gevrBeanMesh *mesh)
 {
@@ -180,8 +181,9 @@ static void beanShrinkWatchArm(struct gevrBeanMesh *mesh)
 	}
 }
 
-/* The triangles added, for the pictures firstTex to lastTex. */
-static int armSealPieces(struct gevrBeanMesh *mesh, int firstTex, int lastTex)
+/* The triangles added, for the pictures firstTex to lastTex. every: close each
+ * rim there is with a fan, whatever its place (a gun hand's, beanSealGunHand). */
+static int armSealPieces(struct gevrBeanMesh *mesh, int firstTex, int lastTex, int every)
 {
 	const int ntris = mesh->ntris;
 	struct armSealCorner *corners = malloc((size_t)ntris * 3 * sizeof(*corners));
@@ -268,6 +270,10 @@ static int armSealPieces(struct gevrBeanMesh *mesh, int firstTex, int lastTex)
 			}
 			if (!closed || count < 3)
 				continue;
+			if (every) {
+				added += armSealFan(mesh, rim, count);
+				continue;
+			}
 			across = hi[0] - lo[0] > hi[2] - lo[2] ? hi[0] - lo[0] : hi[2] - lo[2];
 			if (across < ARMSEAL_SMALL && hi[1] - lo[1] < ARMSEAL_SMALL)
 				continue;   /* a button's, the watch's */
@@ -291,5 +297,29 @@ done:
 static int beanSealWatchArm(struct gevrBeanMesh *mesh)
 {
 	beanShrinkWatchArm(mesh);
-	return armSealPieces(mesh, ARMSEAL_FIRST_TEX, ARMSEAL_LAST_TEX);
+	return armSealPieces(mesh, ARMSEAL_FIRST_TEX, ARMSEAL_LAST_TEX, 0);
+}
+
+/*
+ * A gun hand's last opening (user, 2026-11-18, headset: "the gun hand still
+ * missing finger pieces and holes"). The pistols' and knives' sculpted patch
+ * (gevr_bean_handpatch.inc.h, which runs first) fills the fingers, palm and
+ * forearm and lines the inside of the grip, but leaves the lining's inner edge
+ * open for each weapon's handle: round a slim handle that edge stands clear of
+ * it, and the hollow hand shows between them. The edge is closed to its own
+ * middle, which is inside the handle: what shows is skin from the lining to
+ * the handle, darker towards it. Only a hand the patch has dressed; any other
+ * glove is left as the release has it. The glove is the gun's one 512x511 picture.
+ */
+static int beanSealGunHand(struct gevrBeanMesh *mesh)
+{
+	int tex = -1;
+	for (int i = 0; i < mesh->ntex; i++) {
+		if (mesh->texW[i] != 512 || mesh->texH[i] != 511)
+			continue;
+		if (tex >= 0)
+			return 0;
+		tex = i;
+	}
+	return tex >= 0 ? armSealPieces(mesh, tex, tex, 1) : 0;
 }
