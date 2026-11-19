@@ -2820,6 +2820,61 @@ after_position_update:
                 hat = get_hat_model(chr->handle_positiondata_hat);
 
 #ifdef GEVR
+                {
+                    /*
+                     * A hat on a head Bean draws: seated by the HD meshes (DAB
+                     * xblaMeshHatSeat(), port/src/gevr_bean_hats.inc.h), not by the
+                     * table's fit for the N64 heads, which floated a side cap over 4J's
+                     * hair or left hair standing through it: set on the hair, sized
+                     * about the middle of its rim to cover it, (offset + anchor) *
+                     * size(anchor). A beret and a fur hat are worn as modelled.
+                     */
+                    extern int gevrBeanHatSeat(void *chrModel, const void *headHeader, void *hatModel,
+                                               const float joint[4][4], int hattype, float seat[7]);
+                    ModelFileHeader *gevrHead = NULL;
+                    f32 seat[7];
+
+                    if (model->obj->Switches[4] != NULL)
+                    {
+                        gevrHead = modelGetNodeRwData(model, model->obj->Switches[4])->HeadPlaceholder.ModelFileHeader;
+                    }
+
+                    if ((gevrHead != NULL) && (renderdata.basemtx != NULL)
+                        && gevrBeanHatSeat(model, gevrHead, hatmodel, renderdata.basemtx->m, hat, seat))
+                    {
+                        Mtxf seatmtx;
+                        Mtxf moved;
+                        coord3d hatpos;
+                        s32 i;
+                        s32 j;
+
+                        hatpos.x = seat[0] + seat[4] * (1.0f - seat[3]);
+                        hatpos.y = seat[1] + seat[5] * (1.0f - seat[3]);
+                        hatpos.z = seat[2] + seat[6] * (1.0f - seat[3]);
+                        matrix_4x4_set_identity_and_position(&hatpos, &seatmtx);
+
+                        for (i = 0; i < 3; i++)
+                        {
+                            for (j = 0; j < 3; j++)
+                            {
+                                seatmtx.m[i][j] *= seat[3];
+                            }
+                        }
+
+                        matrix_4x4_multiply_homogeneous((Mtxf *)hatmodel->render_pos, &seatmtx, &moved);
+                        matrix_4x4_copy(&moved, (Mtxf *)hatmodel->render_pos);
+
+                        if (hat == HATTYPE_PEAKED)
+                        {
+                            headVisible = 0;
+                        }
+
+                        goto gevr_hat_seated;
+                    }
+                }
+#endif
+
+#ifdef GEVR
                 headindex = chr->headnum - gevrHatFirst;
                 entry = &((struct headHat (*)[6]) gevrHats)[headindex][hat];
 #else
@@ -2938,6 +2993,9 @@ after_position_update:
                 }
             }
 
+#ifdef GEVR
+gevr_hat_seated:
+#endif
             if ((!(chr->hidden & CHRHIDDEN_DROP_HELD_ITEMS)) || (!(hatobj->runtime_bitflags & RUNTIMEBITFLAG_00000080)))
             {
                 chr->field_20 = sub_GAME_7F06B120(chr->field_20, hatmodel);

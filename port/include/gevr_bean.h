@@ -90,6 +90,10 @@ int gevrBeanDrawsModel(const void *header);
 /* a shot at one of a prop's lists, on the triangles Bean draws: 1 hit, 0 miss, -1 the game's own (propobj.c) */
 struct HitThing;
 int gevrBeanHitNode(void *node, const float pos[3], const float dir[3], struct HitThing *hit);
+/* a hat on a head Bean draws, seated by the HD meshes: an offset, a size and the point
+ * it is sized about, in the hat's own space (gevr_bean_hats.inc.h; chr.c) */
+int gevrBeanHatSeat(void *chrModel, const void *headHeader, void *hatModel, const float joint[4][4], int hattype,
+                    float seat[7]);
 void gevrBeanReset(void);
 
 /* Stand-in tile address -> decoded RGBA8. 1 when addr is one of ours. */
