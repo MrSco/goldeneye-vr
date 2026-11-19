@@ -100,7 +100,8 @@ if [ "$APP" = 1 ]; then
 PL
   xcodebuild -exportArchive -archivePath "$OUT/GoldenEyeVR.xcarchive" -exportPath "$OUT/export" \
     -exportOptionsPlist "$OUT/ExportOptions.plist" 2>&1 | grep -E 'error|EXPORT' || true
-  IPA="$OUT/export/GoldenEyeVR.ipa"
+  # named for the app's display name ("GoldenEye VR.ipa"), not its product
+  IPA="$(ls "$OUT/export"/*.ipa 2>/dev/null | head -1)"
   [ -f "$IPA" ] || { echo "!! export failed"; exit 1; }
   echo "ipa: $IPA"
   if [ "$UPLOAD" = --upload ]; then
