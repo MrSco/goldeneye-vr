@@ -758,6 +758,14 @@ static inline void inputInitController(const s32 cidx, const s32 jidx)
         padsCfg[cidx].rumbleOn = ctype && (ctype != SDL_CONTROLLER_TYPE_VIRTUAL);
     }
 #endif
+#ifdef GEVR_IOS
+    // Apple's pads vibrate through GameController's haptics, which a pad may
+    // only report once it is in use: ask a full pad anyway (a refusal is logged
+    // once, inputPadRumble). The Siri Remote has none.
+    if (!padsCfg[cidx].rumbleOn && SDL_GameControllerHasAxis(pads[cidx], SDL_CONTROLLER_AXIS_RIGHTX)) {
+        padsCfg[cidx].rumbleOn = 1;
+    }
+#endif
 
     // make the LEDs on the controller indicate which player it's for
     SDL_GameControllerSetPlayerIndex(pads[cidx], cidx);
@@ -767,8 +775,9 @@ static inline void inputInitController(const s32 cidx, const s32 jidx)
 
     connectedMask |= (1 << cidx);
 
-    sysLogPrintf(LOG_NOTE, "input: assigned controller '%d: (%s)' (id %d) to player %d",
-                 jidx, SDL_GameControllerName(pads[cidx]), inputControllerGetId(pads[cidx]), cidx);
+    sysLogPrintf(LOG_NOTE, "input: assigned controller '%d: (%s)' (id %d) to player %d, rumble %s",
+                 jidx, SDL_GameControllerName(pads[cidx]), inputControllerGetId(pads[cidx]), cidx,
+                 padsCfg[cidx].rumbleOn ? "yes" : "no");
 
     SDL_Joystick* joy = SDL_GameControllerGetJoystick(pads[cidx]);
     if (joy) {
@@ -2927,6 +2936,19 @@ s32 inputRumbleSupported(s32 idx) {
     return padsCfg[idx].rumbleOn;
 }
 
+/* A pad's rumble, and the first refusal in the log: Apple TV's pads reported
+ * no vibration at all (#260) and the log said nothing either way. */
+static void inputPadRumble(s32 idx, f32 amp, f32 seconds)
+{
+    static SDL_GameController *refused[INPUT_MAX_CONTROLLERS];
+    const u16 level = (u16)(amp * 65535.f);
+    if (SDL_GameControllerRumble(pads[idx], level, level, (u32)(seconds * 1000.f)) != 0 && refused[idx] != pads[idx]) {
+        refused[idx] = pads[idx];
+        sysLogPrintf(LOG_WARNING, "input: player %d's pad '%s' refused rumble: %s", idx,
+                     SDL_GameControllerName(pads[idx]), SDL_GetError());
+    }
+}
+
 void inputRumble(s32 idx, f32 strength, f32 time) {
     if (idx < 0 || idx >= INPUT_MAX_CONTROLLERS) {
         return;
@@ -3032,14 +3054,14 @@ void inputRumble(s32 idx, f32 strength, f32 time) {
 
     if (padsCfg[idx].rumbleOn) {
         strength *= padsCfg[idx].rumbleScale;
-        if (strength > 0.f) {
-            strength *= 65535.f;
-            time *= 1000.f;
-        } else {
+        if (strength > 1.f) {
+            strength = 1.f;
+        }
+        if (strength <= 0.f) {
             strength = 0.f;
             time = 0.f;
         }
-        SDL_GameControllerRumble(pads[idx], (u16)strength, (u16)strength, (u32)time);
+        inputPadRumble(idx, strength, time);
     }
 }
 
@@ -3158,7 +3180,7 @@ void gevrRumbleGunfire(s32 hand, s32 item_id) {
     // Gamepad controller rumble
     if (pads[0] && padsCfg[0].rumbleOn && padsCfg[0].rumbleScale > 0.f) {
         f32 padAmp = amp * padsCfg[0].rumbleScale;
-        SDL_GameControllerRumble(pads[0], (u16)(padAmp * 65535.f), (u16)(padAmp * 65535.f), (u32)(p.duration * 1000.f));
+        inputPadRumble(0, padAmp > 1.f ? 1.f : padAmp, p.duration);
     }
 }
 
@@ -3183,7 +3205,7 @@ void gevrRumbleDamage(f32 damage_amount, s32 is_explosion) {
     // Gamepad controller rumble
     if (pads[0] && padsCfg[0].rumbleOn && padsCfg[0].rumbleScale > 0.f) {
         f32 padAmp = base_amp * padsCfg[0].rumbleScale;
-        SDL_GameControllerRumble(pads[0], (u16)(padAmp * 65535.f), (u16)(padAmp * 65535.f), (u32)(base_dur * 1000.f));
+        inputPadRumble(0, padAmp > 1.f ? 1.f : padAmp, base_dur);
     }
 }
 

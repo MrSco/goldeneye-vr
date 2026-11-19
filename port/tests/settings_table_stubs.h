@@ -20,6 +20,9 @@ int VrWatchGesturePause, VrManualReloading, VrPerWeaponRecoil, VrNoKnockback, Vr
 int VrThirdPerson, VrThirdPersonDist = 150, VrThirdPersonHeight = 20, VrThirdPersonSide = 35;
 int VrLeftHandedMode, VrSwapJoysticks, VrGunFitArmed, VrShowStats, VrGunSizeCheat, VrSpeedrunTimer, VrGhostRace;
 int VrScreenShape, VrTouchHaptics = 1, VrGyroAim;   /* flat games: the screen, a phone's touch controls */
+static float s_padRumble = 0.5f;   /* input.c's pad rumble scale (Pad vibration) */
+float inputRumbleGetStrength(int cidx) { (void)cidx; return s_padRumble; }
+void inputRumbleSetStrength(int cidx, float val) { (void)cidx; s_padRumble = val; }
 float VrGyroSpeed = 1.5f;
 int VrMinesStickToGuards, VrBodiesStay, VrFastReinforcements, VrRagdolls, VrDismemberment, VrDismemberChance = 40;
 int VrGexGuns, VrBeanFillTextures, VrBloodPatch, VrOddjobHat, VrEyeMsaa = 1;
