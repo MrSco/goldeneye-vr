@@ -26,6 +26,7 @@ struct beanDraw {
 	int16_t inst;
 	uint8_t blend, alpha, alphatest, terrainBlend, tree, ownmat;
 	uint8_t scratch;   /* its material lays the glass map over it: a pane, never a stencil */
+	uint8_t repaint;   /* 1 + its s_repaints[] row: another picture, laid from the position */
 	uint8_t pal[GEVR_BEAN_MAXPAL];
 	uint8_t numpal;
 	uint32_t colour;
@@ -84,6 +85,122 @@ static int fpMendOf(const char *source)
 			return (int)i;
 	}
 	return -1;
+}
+
+/* path names .../new/prop/NAME/default.bin (below) */
+static int sourceIs(const char *path, const char *source);
+
+/*
+ * DAB gebean.c beanRepaints[], beanRepaintDraws(), beanRepaintUv()
+ * (port/licenses/dabs-mod.txt): pictures the release's HD props wear that do
+ * not fit them, swapped for another of the same file's and laid again from
+ * the vertex position, a repeat every unit of the file's own units from origin
+ * (x or z across by the face's normal, y up; UVs in repeats).
+ *
+ * - cryptdoor1b, the 200x100 block under Egyptian's hieroglyph slab: its
+ *   front and back carry a 512x512 photograph of an Akhenaten relief at UV
+ *   0..1, the whole square squashed into the 2:1 face, which read as a strip
+ *   of carved wood under the door. On the cartridge the block wears the wall's
+ *   sandstone. The block-stone picture its sides already wear, at the sides'
+ *   own 75 units a repeat up the face and square texels across it.
+ */
+static const struct {
+	const char *source, *oldpic, *newpic;
+	float unit, origin[2];
+} s_repaints[] = {
+	{ "new/prop/cryptdoor1b", "_0x01460E75", "_0x08A255B5", 75.0f, { 2750.0f, 400.0f } },
+};
+
+static void repaintDraws(struct beanDraw *draws, int ndraws, const char *source, const struct gevrCaff *c,
+                         const int *texfile, int ntex)
+{
+	for (unsigned k = 0; k < sizeof(s_repaints) / sizeof(s_repaints[0]); k++) {
+		int from = -1, to = -1;
+		if (!sourceIs(source, s_repaints[k].source))
+			continue;
+		for (int t = 0; t < ntex; t++) {
+			const char *name = gevrCaffAssetName(c, c->files[texfile[t]].asset);
+			if (!name)
+				continue;
+			if (!strncmp(name, s_repaints[k].oldpic, strlen(s_repaints[k].oldpic)))
+				from = t;
+			else if (!strncmp(name, s_repaints[k].newpic, strlen(s_repaints[k].newpic)))
+				to = t;
+		}
+		if (from < 0 || to < 0) {
+			GEVR_BEAN_LOG("gevr bean: %s: repaint %s -> %s: picture not in the file\n", source, s_repaints[k].oldpic,
+			              s_repaints[k].newpic);
+			continue;
+		}
+		int n = 0;
+		for (int i = 0; i < ndraws; i++)
+			if (draws[i].tex == (uint32_t)from) {
+				draws[i].tex = (uint32_t)to;
+				draws[i].repaint = (uint8_t)(k + 1);
+				n++;
+			}
+		GEVR_BEAN_LOG("gevr bean: %s: %d draws repainted %s -> %s\n", source, n, s_repaints[k].oldpic,
+		              s_repaints[k].newpic);
+	}
+}
+
+static void repaintUv(int repaint, const float pos[3], const float nrm[3], float uv[2])
+{
+	const int k = repaint - 1;
+	const float across = fabsf(nrm[0]) > fabsf(nrm[2]) ? pos[2] : pos[0];
+	uv[0] = (across - s_repaints[k].origin[0]) / s_repaints[k].unit;
+	uv[1] = (pos[1] - s_repaints[k].origin[1]) / s_repaints[k].unit;
+}
+
+/*
+ * DAB gebean.c beanVertexColourFixes[] and beanFixVertexColour(): vertex
+ * colours the release's HD props got wrong, mended where the release's own
+ * colour is still there (the Community Edition's copy already carries the
+ * mended one, and is left alone). By file, vertex buffer (its .gpu offset) and
+ * vertex range, checked against GoldenEye's own:
+ *
+ * - doorprison1, Bunker 2's cell door: every vertex white where GoldenEye's
+ *   are dark grey, so the door stood out bright against the dark bars of the
+ *   cells either side; the Community Edition's greys, a step lighter for the
+ *   HD texture.
+ * - woodentable1: its legs opaque black in the HD file and in GoldenEye's own;
+ *   the Community Edition's dark grey keeps them dark.
+ * - cryptdoor1b: its two end faces are baked dark (10% and 35%) for Egyptian,
+ *   where the block sits in the wall. Temple's six doors are the same model
+ *   squashed across that axis, so those ends are the doors' big faces - near
+ *   black on one side and dim on the other ("lit wrong on certain sides").
+ *   They take the release's front's mean colour.
+ */
+static const struct {
+	const char *source;
+	uint32_t vboff;
+	uint16_t first, last;
+	uint32_t old, fix;
+} s_colourFixes[] = {
+	{ "new/prop/doorprison1", 0, 0, 5, 0xffffffffu, 0xff4a4a4au },
+	{ "new/prop/doorprison1", 0, 6, 7, 0xffffffffu, 0xff666666u },
+	{ "new/prop/doorprison1", 0, 8, 9, 0xffffffffu, 0xff4a4a4au },
+	{ "new/prop/doorprison1", 0, 10, 11, 0xffffffffu, 0xff666666u },
+	{ "new/prop/woodentable1", 0, 0, 67, 0xff000000u, 0xff292929u },
+	{ "new/prop/cryptdoor1b", 0, 12, 15, 0xff584a3bu, 0xffab9173u },
+	{ "new/prop/cryptdoor1b", 0, 20, 23, 0xff191510u, 0xffab9173u },
+};
+
+static int colourFixesFor(const char *source)
+{
+	for (unsigned i = 0; i < sizeof(s_colourFixes) / sizeof(s_colourFixes[0]); i++)
+		if (sourceIs(source, s_colourFixes[i].source))
+			return 1;
+	return 0;
+}
+
+static uint32_t fixVertexColour(const char *source, uint32_t vboff, uint32_t vi, uint32_t argb)
+{
+	for (unsigned i = 0; i < sizeof(s_colourFixes) / sizeof(s_colourFixes[0]); i++)
+		if (s_colourFixes[i].vboff == vboff && vi >= s_colourFixes[i].first && vi <= s_colourFixes[i].last &&
+		    argb == s_colourFixes[i].old && sourceIs(source, s_colourFixes[i].source))
+			return s_colourFixes[i].fix;
+	return argb;
 }
 
 /*
@@ -3305,6 +3422,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	}
 	/* Props also own scrolling pictures (the helicopter at 0.9 repeats/s). */
 	readTextureScroll(mesh, data, dlen, stream, slen, &caff, texfile);
+	repaintDraws(draws, ndraws, source, &caff, texfile, ntex);
 	fixPlaceholders(mesh, draws, ndraws, source);
 	/* DAB beanTexBlendedOnly() and beanKeyStencil(): a picture every draw of
 	 * which is in the release's blended pass, never a glass pane, drawn with no
@@ -3406,6 +3524,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		/* a gun's mended piece (fpMendOf()); never its flash cards (piece 0, DAB
 		 * fpDrawIsCard()), which DAB lays apart and which stand on the bore */
 		const int fpMend = !original && fpGunFile(source) && d->piece != 0 ? fpMendOf(source) : -1;
+		const int colourFixes = !original && colourFixesFor(source);
+		int coloursFixed = 0;
 		struct beanSphere sphere;
 		int sphered = 0;
 		if (!levelFade && d->ownmat && d->tex < (uint32_t)ntex &&
@@ -3436,6 +3556,14 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
                     corner[k].uv[0] = (int16_t)be16(raw+20)/uvscale;
                     corner[k].uv[1] = (int16_t)be16(raw+22)/uvscale;
                 }
+                if (colourFixes)
+                {
+                    const uint32_t was = corner[k].argb;
+                    corner[k].argb = fixVertexColour(source, vbrec.off, tris[t * 3 + k], corner[k].argb);
+                    coloursFixed += corner[k].argb != was;
+                }
+                if (d->repaint)
+                    repaintUv(d->repaint, corner[k].pos, corner[k].nrm, corner[k].uv);
                 if (fpMend >= 0 && corner[k].pos[2] > s_fpMends[fpMend].zmin && corner[k].pos[1] > s_fpMends[fpMend].ymin)
                     corner[k].pos[0] += s_fpMends[fpMend].dx;
                 if (sphered) sphereUv(&sphere, &corner[k]);
@@ -3569,6 +3697,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
                 }
 			}
 		}
+		if (coloursFixed)
+			GEVR_BEAN_LOG("gevr bean: %s: draw %d: %d corners' colours mended\n", source, di, coloursFixed);
 		free(tris);
 	}
 	if (levelFade) {
