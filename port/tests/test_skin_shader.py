@@ -28,7 +28,7 @@ def shaders(directory):
 #include "gfx_rendering_api.h"
 struct GevrCpuSection { explicit GevrCpuSection(int) {} };
 enum { GEVR_TIME_SHADER_COMPILE };
-static bool use_multiview = true, gl_es = true, s_buildMesh = true, s_meshClipDistance;
+static bool use_multiview = true, gl_es = true, s_buildMesh = true, s_buildStatic, s_meshClipDistance;
 static const char *gl_glsl_version_str = "300 es";
 static int gl_glsl_version = 300;
 static FilteringMode current_filter_mode = FILTER_THREE_POINT;
