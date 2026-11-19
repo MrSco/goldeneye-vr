@@ -7,7 +7,7 @@
  *
  *   create|visibility|name|version|stage|weapons|maxPlayers[|vrOnly[|campaign]]   CREATED|code|ownerToken
  *   resume|code|ownerToken|maxPlayers|phase|players[|name]     CREATED|code|ownerToken
- *   refresh|players|open[|maxPlayers[|vrOnly[|flatPlayers]]]   phase|warmup|players   stop   leave
+ *   refresh|players|open[|maxPlayers[|vrOnly[|flatPlayers]]]   devices|key@build,...   phase|warmup|players   stop   leave
  *   list|version[|inputClass[|hideFlat]]
  *       LIST_BEGIN, LOBBY|code|name|stage|weapons|players|max|phase|flatPlayers|vrOnly|campaign, LIST_END
  *   join|code|version[|inputClass]   JOINED|joinId|user|credential
@@ -46,6 +46,32 @@ extern "C" void sysLogPrintf(int level, const char *fmt, ...);
 using namespace pcnet;   // the JSON, Base64 and HTTPS the PC services share (pc_http.h)
 
 namespace {
+
+/* devices|key@build,... as the Worker takes it: [{device, build}], at most eight,
+ * odd entries left out (LobbyClient.java devicesJson). */
+std::string devicesJson(const std::string &devices)
+{
+    std::string out = "[";
+    int n = 0;
+    size_t start = 0;
+    while (start <= devices.size() && !devices.empty()) {
+        size_t end = devices.find(',', start);
+        if (end == std::string::npos) end = devices.size();
+        const std::string entry = devices.substr(start, end - start);
+        const size_t at = entry.find('@');
+        const std::string key = entry.substr(0, at);
+        const std::string build = at == std::string::npos ? "" : entry.substr(at + 1);
+        bool ok = !key.empty() && key.size() <= 16 && build.size() <= 23 && n < 8;
+        for (char c : key) ok = ok && ((c >= 'a' && c <= 'z') || c == '-');
+        for (char c : build) ok = ok && ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || c == '.' || c == '-');
+        if (ok) {
+            out += std::string(n ? "," : "") + "{\"device\":\"" + key + "\",\"build\":\"" + build + "\"}";
+            n++;
+        }
+        start = end + 1;
+    }
+    return out + "]";
+}
 
 /* GEVR_LOBBY_URL: a test's lobby service (tools/gevr_lobby_bridge.py takes the same). */
 const std::string &base()
@@ -193,6 +219,7 @@ private:
                 + ",\"maxPlayers\":" + std::to_string(atoi(f[6].c_str()));
             vrOnly_ = f.size() >= 8 ? (f[7] == "1" ? 1 : 0) : -1;
             flatPlayers_ = -1;
+            devicesKnown_ = false;
             if (vrOnly_ >= 0) pendingCreate_ += std::string(",\"vrOnly\":") + (vrOnly_ ? "true" : "false");
             // the game's campaign (gevr_romlayout.h GEVR_CAMPAIGN_*): a ROM hack's co-op game says which
             if (f.size() == 9) pendingCreate_ += ",\"campaign\":" + std::to_string(atoi(f[8].c_str()));
@@ -213,6 +240,7 @@ private:
             maxPlayers_ = atoi(f[3].c_str());
             vrOnly_ = -1;   // the Worker keeps it; the next refresh says it again
             flatPlayers_ = -1;
+            devicesKnown_ = false;
             phase_ = f[4];
             players_ = atoi(f[5].c_str());
             open_ = players_ < maxPlayers_;
@@ -240,6 +268,14 @@ private:
                     flatPlayers_ = newFlat;
                     nextHeartbeat_ = 0;
                 }
+            }
+        } else if (c == "devices") {
+            // what each person runs: passed on with the next heartbeat when it changes
+            const std::string next = f.size() >= 2 ? f[1] : "";
+            if (!devicesKnown_ || next != devices_) {
+                devices_ = next;
+                devicesKnown_ = true;
+                nextHeartbeat_ = 0;
             }
         } else if (c == "phase") {
             lastKeepalive_ = nowMs();
@@ -338,6 +374,7 @@ private:
                         + ",\"phase\":" + q(phase_) + ",\"maxPlayers\":" + std::to_string(maxPlayers_);
                     if (vrOnly_ >= 0) state += std::string(",\"vrOnly\":") + (vrOnly_ ? "true" : "false");
                     if (flatPlayers_ >= 0) state += ",\"flatPlayers\":" + std::to_string(std::min(flatPlayers_, players_));
+                    if (devicesKnown_) state += ",\"devices\":" + devicesJson(devices_);
                     if (!name_.empty()) state += ",\"name\":" + q(name_);
                     state += "}";
                     bool sent = false;
@@ -587,6 +624,8 @@ private:
     int players_ = 1, maxPlayers_ = 4;
     int vrOnly_ = -1;   // "VR players only" as the host last sent it; -1 not known (a resume before its refresh)
     int flatPlayers_ = -1;   // how many play flat, as the host last counted them; -1 not known
+    std::string devices_;     // devices|key@build,... as the host last sent it
+    bool devicesKnown_ = false;
     long long nextHeartbeat_ = 0, nextRequests_ = 0, lastKeepalive_ = 0;
     std::thread worker_;   // last: starts once the state above exists
 };

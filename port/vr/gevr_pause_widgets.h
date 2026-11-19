@@ -11,7 +11,7 @@
 // This view contains no engine pointers, XR calls or GL state. The browser
 // starter uses the same 1280x960 window and stable field labels/bindings.
 struct GevrPausePlayerView {
-    char name[64], character[64];
+    char name[64], character[64], device[32]="";   // device: "Quest", "PC VR"... (net_core.c netGetSlotDeviceName)
     int slot=-1,points=0,kills=0,losses=0,ping=0;
     bool host=false,ready=false,down=false,loaded=true,spectator=false,canKick=false,bot=false;
 };
@@ -269,9 +269,10 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
         ImGui::SetCursorPos(ImVec2(18,276));ImGui::TextColored(gold,"%s  (%d / %d)",model.coop?"PARTY":"PLAYERS & SCORES",model.count,model.capacity);
         ImGui::SetCursorPos(ImVec2(18,320));
         const bool kicks=model.host && !model.coop;
-        if(ImGui::BeginTable("players",model.coop?4:kicks?8:7,ImGuiTableFlags_RowBg|ImGuiTableFlags_BordersInnerH|ImGuiTableFlags_SizingStretchProp|ImGuiTableFlags_ScrollY,ImVec2(1244,model.coop?224:382))) {
+        if(ImGui::BeginTable("players",model.coop?5:kicks?9:8,ImGuiTableFlags_RowBg|ImGuiTableFlags_BordersInnerH|ImGuiTableFlags_SizingStretchProp|ImGuiTableFlags_ScrollY,ImVec2(1244,model.coop?224:382))) {
             ImGui::TableSetupColumn("PLAYER",ImGuiTableColumnFlags_WidthStretch,2.2f);
             ImGui::TableSetupColumn("CHARACTER",ImGuiTableColumnFlags_WidthStretch,1.8f);
+            ImGui::TableSetupColumn("DEVICE",ImGuiTableColumnFlags_WidthStretch,1.5f);
             if(model.coop) {ImGui::TableSetupColumn("STATUS");ImGui::TableSetupColumn("PING MS");}
             else {
                 ImGui::TableSetupColumn("PTS",ImGuiTableColumnFlags_WidthFixed,68);
@@ -287,6 +288,7 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
                 ImGui::TableNextColumn();ImGui::Text("%.14s%s",p.name,p.host?" *":"");
                 if(ImGui::IsItemHovered())gevrTooltip("%s%s",p.name,p.host?" (Host)":"");
                 ImGui::TableNextColumn();ImGui::TextUnformatted(p.character);
+                ImGui::TableNextColumn();ImGui::TextDisabled("%s",p.bot?"Bot":p.device[0]?p.device:"—");
                 if(model.coop) {ImGui::TableNextColumn();ImGui::TextColored(p.down?bad:good,"%s",p.down?"Down / revive":"Active");ImGui::TableNextColumn();ImGui::Text("%d",p.ping);}
                 else {
                     ImGui::TableNextColumn();ImGui::TextColored(gold,"%d",p.points);

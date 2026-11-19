@@ -242,6 +242,18 @@ void serverLobbyTick(void)
 			s_lastPhase = phase;
 			s_nextRefreshMs = lobbyNowMs() + 5000;
 		} else if (lobbyNowMs() >= s_nextRefreshMs) {
+			/* what each person runs (vr_launcher.cpp gevrLobbyDevicesCommand); the server's
+			 * own seat and bots have no key */
+			char devices[8 * 40 + 16] = "devices|";
+			for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+				const char *key = netGetSlotDeviceKey(i);
+				char build[24];
+				if (!key[0]) continue;
+				netGetSlotBuild(i, build, sizeof(build));
+				snprintf(devices + strlen(devices), sizeof(devices) - strlen(devices), "%s%s@%s",
+						devices[8] ? "," : "", key, build);
+			}
+			lobbyCommand(devices);
 			const int flat = netGetFlatPlayerCount();
 			/* "VR players only" and how many play flat, as the launcher's heartbeat */
 			snprintf(line, sizeof(line), "refresh|%d|%d|%d|%d|%d", players, players < max ? 1 : 0, max,

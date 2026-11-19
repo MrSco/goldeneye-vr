@@ -67,6 +67,9 @@ final class FriendsClient {
     // Discord (vr_discord.cpp): the link's refresh token and the account's name, kept with the player.
     private String discordRefresh = "", discordName = "";
     private String state = "launcher", lobby = "", name = "", detail = "";
+    // what this player runs, its build and its input class (NET_INPUT_*), for the daily totals; -1 not said
+    private String device = "", build = "";
+    private int input = -1;
     private int version;
     private boolean showDetail = true, appearOffline, searchable = true;
     private String refusedName = "";   // a rename the Worker kept back (ten a day), said once
@@ -117,8 +120,13 @@ final class FriendsClient {
         long now = SystemClock.elapsedRealtime();
         switch (f[0]) {
             case "presence": {
-                // presence|state|lobby|version|name|detail (detail last: it may hold anything but '|')
+                // presence|state|lobby|version|name|detail[|device|build|input] (no field holds '|')
                 if (f.length < 6) return;
+                if (f.length >= 9) {
+                    device = f[6];
+                    build = f[7];
+                    try { input = Integer.parseInt(f[8]); } catch (NumberFormatException e) { input = -1; }
+                }
                 boolean changed = !f[1].equals(state) || !f[2].equals(lobby);
                 boolean first = name.isEmpty();
                 state = f[1];
@@ -463,6 +471,9 @@ final class FriendsClient {
         JSONObject body = new JSONObject().put("state", state).put("version", version).put("name", name);
         if (!detail.isEmpty()) body.put("detail", detail);
         if (!lobby.isEmpty()) body.put("lobby", lobby);
+        if (!device.isEmpty()) body.put("device", device);
+        if (!build.isEmpty()) body.put("build", build);
+        if (input >= 0 && input <= 3) body.put("input", input);
         lastSent = now;
         nextPresence = now + PRESENCE_MS;
         JSONObject r = http.call("POST", BASE + "/me/presence", body, token());

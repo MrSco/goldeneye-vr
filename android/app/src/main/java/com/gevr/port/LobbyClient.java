@@ -56,6 +56,8 @@ final class LobbyClient {
     private int vrOnly = -1;
     /** How many of the players play flat, as the host last counted them; -1 not known. */
     private int flatPlayers = -1;
+    // devices|key@build,...: what each person runs (vr_launcher.cpp); null not said since create/resume
+    private String devices = null;
     private boolean open = true;
     private String phase = "waiting";
     private long nextHeartbeat;
@@ -107,6 +109,7 @@ final class LobbyClient {
                         .put("maxPlayers", Integer.parseInt(fields[6]));
                 vrOnly = fields.length >= 8 ? ("1".equals(fields[7]) ? 1 : 0) : -1;
                 flatPlayers = -1;
+                devices = null;
                 if (vrOnly >= 0) pendingCreate.put("vrOnly", vrOnly == 1);
                 // the game's campaign (gevr_romlayout.h GEVR_CAMPAIGN_*): a ROM hack's co-op game says which
                 if (fields.length == 9) pendingCreate.put("campaign", Integer.parseInt(fields[8]));
@@ -127,6 +130,7 @@ final class LobbyClient {
                 maxPlayers = Integer.parseInt(fields[3]);
                 vrOnly = -1;   // the Worker keeps it; the next refresh says it again
                 flatPlayers = -1;
+                devices = null;
                 phase = fields[4];
                 players = Integer.parseInt(fields[5]);
                 open = players < maxPlayers;
@@ -162,6 +166,15 @@ final class LobbyClient {
                     }
                 }
                 break;
+            case "devices": {
+                // devices|key@build,...: sent before each refresh, passed on when it changes
+                String next = fields.length >= 2 ? fields[1] : "";
+                if (!next.equals(devices)) {
+                    devices = next;
+                    nextHeartbeat = 0;
+                }
+                break;
+            }
             case "phase":
                 lastKeepalive = SystemClock.elapsedRealtime();
                 if (fields.length == 3 && ("warmup".equals(fields[1]) || "in_progress".equals(fields[1]))) {
@@ -266,6 +279,7 @@ final class LobbyClient {
                             .put("maxPlayers", maxPlayers);
                     if (vrOnly >= 0) state.put("vrOnly", vrOnly == 1);
                     if (flatPlayers >= 0) state.put("flatPlayers", Math.min(flatPlayers, players));
+                    if (devices != null) state.put("devices", devicesJson(devices));
                     if (!name.isEmpty()) state.put("name", name);
                     boolean sent = false;
                     if (hostSocket != null) {
@@ -560,5 +574,20 @@ final class LobbyClient {
             if (status >= 400) throw new HttpException(status, response.optString("error", "HTTP " + status));
             return response;
         } finally { connection.disconnect(); }
+    }
+
+    /** devices|key@build,... as the Worker takes it: [{device, build}], at most eight, odd entries left out. */
+    static JSONArray devicesJson(String devices) {
+        JSONArray out = new JSONArray();
+        if (devices == null || devices.isEmpty()) return out;
+        for (String entry : devices.split(",")) {
+            int at = entry.indexOf('@');
+            String key = at < 0 ? entry : entry.substring(0, at);
+            String build = at < 0 ? "" : entry.substring(at + 1);
+            if (!key.matches("[a-z-]{1,16}") || !build.matches("[0-9a-z.-]{0,23}") || out.length() >= 8) continue;
+            try { out.put(new JSONObject().put("device", key).put("build", build)); }
+            catch (org.json.JSONException e) { /* never for these strings */ }
+        }
+        return out;
     }
 }

@@ -35,7 +35,19 @@ Untested with two headsets: #245/#246 and co-op in the hack campaigns.
   Android phone (`mobile` flavor, emulator only), Steam Frame (`frame`
   flavor, Khronos loader), iOS (simulator and one development iPhone).
 - **Crossplay:** NET_INPUT classes in HELLO and NET_MSG 59/60 (additive), VR
-  players only / hide flat (Worker), roster "Plays", LAN beacon tail.
+  players only / hide flat (Worker), LAN beacon tail.
+- **Unreleased, branch t3/multiplayer-player-platform:** each player's
+  device (Quest, Quest flat, PC VR, PC, Android, iPhone/iPad, Apple TV,
+  Vision Pro, Steam Frame) in the launcher roster ("Device", was "Plays")
+  and the in-game pause table: NET_PLATFORM_TVOS/VISIONOS/FRAME, the host's
+  NET_MSG_PLATFORMS 62 table beside 60 (additive, no bump),
+  net_core.c netGetSlotDeviceKey/Name/Build. The lobby service gets
+  `devices|key@build,...` (own command; LobbyClient, pc_lobby, the bridge
+  and server_lobby.c) and presence gains device, build and input for
+  everyone online, solo too. Worker side: goldeneyevr.com branch
+  claude/platform-build-stats (usage.ts, "Who's playing" on
+  lobbies.goldeneyevr.com, privacy policy updated). Deploy the Worker
+  before the release; older Workers ignore the new fields.
 
 ## Help wanted (listed in the v0.5.15 and v0.5.16 notes)
 
