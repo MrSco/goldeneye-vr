@@ -8601,6 +8601,50 @@ static Gfx *gevrDrawSight3D(Gfx *gdl, s32 hand, s32 scope)
     mf.m[3][0] = p.x;
     mf.m[3][1] = p.y;
     mf.m[3][2] = p.z;
+    {
+        /*
+         * Its up is not the head's (user, 2026-11-18: "the red crosshair ...
+         * follows your head tilt, and it rotates. It should stay static"). The
+         * quad's axes were the view's own, so a tilted head rolled the sight
+         * with it. Up is now the world's, as it runs in the view (the view-to-
+         * world matrix's second column), square to the line from the eye; the
+         * scope's copy keeps the scope's up, the gun's, as a reticle would.
+         * Looking straight up or down, where that has no direction, the view's.
+         */
+        Mtxf *v2w = currentPlayerGetViewToWorldMtxf();
+        f32 to[3] = { p.x, p.y, p.z }, up[3] = { 0.0f, 1.0f, 0.0f }, x[3], len, along;
+
+        len = sqrtf(to[0] * to[0] + to[1] * to[1] + to[2] * to[2]);
+        if (scope && st->gunValid)
+        {
+            up[0] = st->gunAxes[1][0]; up[1] = st->gunAxes[1][1]; up[2] = st->gunAxes[1][2];
+        }
+        else if (v2w != NULL)
+        {
+            up[0] = v2w->m[0][1]; up[1] = v2w->m[1][1]; up[2] = v2w->m[2][1];
+        }
+        if (len > 1e-6f)
+        {
+            for (i = 0; i < 3; i++) to[i] /= len;
+            along = up[0] * to[0] + up[1] * to[1] + up[2] * to[2];
+            for (i = 0; i < 3; i++) up[i] -= along * to[i];
+            len = sqrtf(up[0] * up[0] + up[1] * up[1] + up[2] * up[2]);
+            if (len > 0.05f)
+            {
+                for (i = 0; i < 3; i++) up[i] /= len;
+                /* its face to the eye (-to), its right = up x face */
+                x[0] = up[1] * -to[2] - up[2] * -to[1];
+                x[1] = up[2] * -to[0] - up[0] * -to[2];
+                x[2] = up[0] * -to[1] - up[1] * -to[0];
+                for (i = 0; i < 3; i++)
+                {
+                    mf.m[0][i] = x[i] * k;
+                    mf.m[1][i] = up[i] * k;
+                    mf.m[2][i] = -to[i] * k;
+                }
+            }
+        }
+    }
     mv = dynAllocateMatrix();
     guMtxF2L(mf.m, mv);
 
