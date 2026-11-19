@@ -54,6 +54,9 @@ static const char *gevrFriendsCampaignName(int campaign)
     }
 }
 
+// net_core.c: NET_INPUT_*, for presence - every build sends it, not only Android
+extern "C" int gevrNetLocalInputClass(void);
+
 namespace {
 const char *kPendingJoinFile = "gevr_pending_join.txt";   // beside goldeneye-vr.ini
 const uint32_t kNoticeMs = 8000;
@@ -70,7 +73,6 @@ std::string s_lastLobby;                  // the lobby the "invited" marks are f
 
 #ifdef ANDROID
 extern "C" int gevrAndroidJava;
-extern "C" int gevrNetLocalInputClass(void);   // net_core.c: NET_INPUT_*, for presence
 std::string javaString(const char *method) {
     std::string out;
     if (!gevrAndroidJava) {   // no MainActivity (see gevrAndroidJava)
