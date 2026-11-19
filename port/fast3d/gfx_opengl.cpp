@@ -3183,13 +3183,13 @@ static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalD
          * alone at the surface (no offset). Writing depth in the colour pass
          * left a later decal on the same spot (Bunker II's bullet holes over
          * their stain, Frigate's hull letters) only an exact tie against the
-         * earlier one: ANGLE on Metal (iOS, Apple TV) breaks such ties
-         * differently tile by tile and frame by frame, and the layers flickered
-         * in blocks (#261; tvOS simulator, the PC clean). Pushed back by the
-         * offset, the written depth leaves the next decal the same margin it
-         * has over its wall.
+         * earlier one. GPUs break such ties their own way: ANGLE on Metal
+         * tile by tile and frame by frame (#261, Bunker II's holes in blocks),
+         * the Quest along the letters' edges (Frigate's "06", N64 art, user
+         * 2026-11-19; written depth since v0.5.10), the PC not at all. Pushed
+         * back by the offset, the written depth leaves the next decal the same
+         * margin it has over its wall.
          */
-#ifdef GEVR_IOS
         if (current_depth_mask) glDepthMask(GL_FALSE);
         gevr_draw_range(first, count);
         glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
@@ -3201,12 +3201,6 @@ static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalD
         else glPolygonOffset(-2.0f, -2.0f);
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         if (!current_depth_mask) glDepthMask(GL_FALSE);
-#else
-        /* elsewhere the tie holds (the PC, the Quest), and one pass is cheaper */
-        if (!current_depth_mask) glDepthMask(GL_TRUE);
-        gevr_draw_range(first, count);
-        if (!current_depth_mask) glDepthMask(GL_FALSE);
-#endif
         if (decalPull != 0.0f) {
             gevr_set_decal_bias(0.0f);
             s_uniCacheValid = false;
