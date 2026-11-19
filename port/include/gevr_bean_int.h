@@ -101,6 +101,7 @@ struct gevrBeanMesh {
 	uint8_t boneMuzzle[64];   /* DAB muzzlebone (bit 0: SKEL_MUZZLE*, *FLASH* or under one), muzzleroot (bit 1) */
 	int tricaps;
 	int mirrorPieces;   /* Mirror Mode turned its pieces over in place (gevr_mirror.c) */
+	int seamsWelded;    /* its seams' copies skinned one way (gevr_bean_seams.inc.h) */
 };
 
 struct gevrEmitVert {

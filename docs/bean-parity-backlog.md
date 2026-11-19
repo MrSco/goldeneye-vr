@@ -15,9 +15,9 @@ xm = `port/src/xblamesh.c`, all Dab's. Size S/M/L.
 - **Shots against HD bodies** (xm `xblaMeshHitTest` from Dab's chr hit walk): guards
   are still shot on the N64 body, so HD hair, shoulders and coats are hit only
   where the N64 body is. Props are done; bodies need the skinned pose. M
-- **Neck seams** (gb `beanAddNeckTube`, `beanWeldSeams`, `beanSmoothNeckWeights`,
-  `beanWeldNeckWeights`; xm `xblaMeshCollarUnderHead`): cracks at the nape,
-  throat gaps. M
+- **Throat gaps** (gb `beanAddNeckTube`; xm `xblaMeshCollarUnderHead`,
+  `xblaMeshHeadTubeOn`): a head cut off a high collar on a body cut lower
+  (Bond's tuxedo head on the Russian guard) leaves the throat open. M
 - **Backdrop as its own pass** (gbs `takeBackdrop`, `backdropPrepare`,
   `gebeanStageRenderBackdrop`): far peaks (Surface, Dam, Runway, Cradle's ring)
   are fogged by eye depth, so the haze shifts as you turn. M
@@ -100,7 +100,7 @@ level cut-out clamps; doorway gaps, reveals and slots; markBacked and markFights
 dealing; hidden rooms not drawn; release sky table and cap fade; release and CE
 fog; scrolling pictures; tinted glass; third-person muzzle flash; cut-out edge
 bleed; tree UVs; vertex drops; markUnderSea, Frigate's hull reflection
-(bbd5ff40); the monitors' pictures (DAB gemonitor.c); shots against HD props (DAB xblaMeshObjShotTest, 31754136); shot-out lamps darken HD rooms (DAB gelights.c, not yet seen on screen); first-person HD muzzle-flash cards (DAB fpBuildCards); mirrored gun lettering (DAB beanFixLettering); hat seating on HD heads (DAB xblaMeshHatSeat).
+(bbd5ff40); the monitors' pictures (DAB gemonitor.c); shots against HD props (DAB xblaMeshObjShotTest, 31754136); shot-out lamps darken HD rooms (DAB gelights.c, not yet seen on screen); first-person HD muzzle-flash cards (DAB fpBuildCards); mirrored gun lettering (DAB beanFixLettering); hat seating on HD heads (DAB xblaMeshHatSeat); seam weld and neck weights on HD bodies and heads.
 
 Not needed in the port: weldVertices, markDecalLifts and markDecalCorners and
 the far-off triangle moves (Dab's s16 room vertices; the port's are floats);

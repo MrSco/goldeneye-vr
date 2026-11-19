@@ -12,6 +12,11 @@ static int emitHead(const struct gevrBeanMesh *mesh, int kind, void **gdl, void 
 		free(skin);
 		return 0;
 	}
+	/* a head that keeps its back weights: its seams' copies one share between the
+	 * neck and the back, and no vertex far from its neighbours' (DAB
+	 * beanWeldNeckWeights(), beanSmoothNeckWeights(); gevr_bean_seams.inc.h) */
+	if (kind == BEAN_HEAD)
+		seamWeldMesh(mesh, 0.213f, 1);
 	float rotation[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
 	if (kind == BEAN_HEADBODY && mesh->haveBind[GEVR_BEAN_SK_BACK]) {
 		float spine[3], up[3] = {0, 1, 0}, length = 0;

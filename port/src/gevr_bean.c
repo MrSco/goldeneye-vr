@@ -1636,6 +1636,7 @@ static void rigidBindings(const struct gevrBeanMesh *mesh, const struct beanFit 
 	}
 }
 
+#include "gevr_bean_seams.inc.h"
 #include "gevr_bean_heads.inc.h"
 
 /* All six sleeves share one release mesh; retain the cartridge's switches. */
@@ -2526,6 +2527,9 @@ static int emitSkinned(const struct gevrBeanMesh *mesh, int sk, int hasHead,
 		free(skin);
 		return 0;
 	}
+	/* a point the mesh splits at a seam skinned the one way, and the neck's share
+	 * against the back smoothed (gevr_bean_seams.inc.h) */
+	seamWeldMesh(mesh, scale, 0);
 	for (int i = 0; i < mesh->ntris; i++) {
 		const struct gevrBeanTri *t = &mesh->tris[i];
 		int use = whole ||
