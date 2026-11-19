@@ -13,9 +13,14 @@
  * picture, shrunk to the ROM's size, correlates 0.77-1.00 with them in the
  * decoded row order and lower turned over (port/tests/test_bean_images.py).
  * The decoded rows are the ROM's memory order, so nothing is flipped here.
- * Left out: the briefing folder's Bond photograph (gevr_bean_folder.c owns
- * 2602-2605), the monitors (DAB draws redrawn art), the fire frames and the
- * bullet hole the check could not confirm.
+ * The monitors' pictures are the release's own redrawn art, which the check
+ * cannot confirm, so they take DAB's table as it is (gemonitor.c g_GeMonBean,
+ * files/new/texture/monitors/): the release runs GoldenEye's programmes over
+ * them, its scrolling text a list of the release's staff where GoldenEye's is
+ * dashes. Left out: the briefing folder's Bond photograph (gevr_bean_folder.c
+ * owns 2602-2605), the skateboard's frames (DAB too: the release's are dark
+ * photo stills, near black under the programme's green), the fire frames and
+ * the bullet hole the check could not confirm.
  */
 #include "gevr_bean_log.h"
 
@@ -168,6 +173,53 @@ static const struct imagerow imageRows[] = {
 	{ 2136, "sfx/scorch", WHOLE },
 	{ 654, "sfx/glass", WHOLE },
 	{ 1015, "bg/debris", WHOLE },
+	/* the monitors' programmes (DAB gemonitor.c g_GeMonBean): redrawn, not checked */
+	{ 2187, "new/texture/monitors/bondlogo", WHOLE },   /* IMAGE_MONITOR_BOND */
+	{ 2188, "new/texture/monitors/cyrlocation", WHOLE },   /* IMAGE_MONITOR_LOCATION */
+	{ 2189, "new/texture/monitors/cyrweaponarmed", WHOLE },   /* IMAGE_MONITOR_BEGINARMING */
+	{ 2190, "new/texture/monitors/cyrtarget", WHOLE },   /* IMAGE_MONITOR_TARGET */
+	{ 2191, "new/texture/monitors/cyrsevernaya", WHOLE },   /* IMAGE_MONITOR_SEVERNAYA */
+	{ 2192, "new/texture/monitors/cyrtimetotarget", WHOLE },   /* IMAGE_MONITOR_BREAKTARGET */
+	{ 2193, "new/texture/monitors/cyrxhairspanel", WHOLE },   /* IMAGE_MONITOR_AIMER */
+	{ 2194, "new/texture/monitors/screen1", WHOLE },   /* IMAGE_MONITOR_EARTH */
+	{ 2195, "new/texture/monitors/screen2", WHOLE },   /* IMAGE_MONITOR_DESKTOPBANG */
+	{ 2196, "new/texture/monitors/screen3", WHOLE },   /* IMAGE_MONITOR_HEATMAP */
+	{ 2197, "new/texture/monitors/screen4", WHOLE },   /* IMAGE_MONITOR_3DMATH */
+	{ 1185, "new/texture/monitors/screen5", WHOLE },   /* IMAGE_MONITOR_DESKTOPBARS */
+	{ 2198, "new/texture/monitors/screen6", WHOLE },   /* IMAGE_MONITOR_2DMATH */
+	{ 2199, "new/texture/monitors/screen7", WHOLE },   /* IMAGE_MONITOR_SATELLITE */
+	{ 1186, "new/texture/monitors/screen8", WHOLE },   /* IMAGE_MONITOR_DESKTOP */
+	{ 1187, "new/texture/monitors/screen9", WHOLE },   /* IMAGE_MONITOR_DESKTOPSTAGGERED */
+	{ 2200, "new/texture/monitors/anim2.0", WHOLE },   /* IMAGE_MONITOR_CUBE1 */
+	{ 582, "new/texture/monitors/drax1", WHOLE },   /* IMAGE_MONITOR_SHUTTLE1 */
+	{ 583, "new/texture/monitors/drax2", WHOLE },   /* IMAGE_MONITOR_SHUTTLE2 */
+	{ 584, "new/texture/monitors/drax3", WHOLE },   /* IMAGE_MONITOR_EARTHFULL1 */
+	{ 2201, "new/texture/monitors/drax4", WHOLE },   /* IMAGE_MONITOR_EARTHFULL2 */
+	{ 2202, "new/texture/monitors/drax5", WHOLE },   /* IMAGE_MONITOR_BLUESTARS */
+	{ 2203, "new/texture/monitors/drax6", WHOLE },   /* IMAGE_MONITOR_GALAXY1 */
+	{ 2204, "new/texture/monitors/drax7", WHOLE },   /* IMAGE_MONITOR_GALAXY2 */
+	{ 581, "new/texture/monitors/drax10", WHOLE },   /* IMAGE_MONITOR_EARTHTEXT */
+	{ 2205, "new/texture/monitors/drax11", WHOLE },   /* IMAGE_MONITOR_TARGETEARTH */
+	{ 2206, "new/texture/monitors/drax12", WHOLE },   /* IMAGE_MONITOR_GALAXY3 */
+	{ 2227, "new/texture/monitors/screenstatic", WHOLE },   /* IMAGE_MONITOR_STATIC */
+	{ 2223, "new/texture/monitors/screennew1", WHOLE },   /* IMAGE_MONITOR_SINE */
+	{ 2224, "new/texture/monitors/screennew2", WHOLE },   /* IMAGE_MONITOR_TEXT */
+	{ 2225, "new/texture/monitors/screennew3", WHOLE },   /* IMAGE_MONITOR_BARS */
+	{ 2226, "new/texture/monitors/screennew4", WHOLE },   /* IMAGE_MONITOR_SQUARES */
+	{ 2219, "new/texture/monitors/anim4.1", WHOLE },   /* IMAGE_MONITOR_FIST1 */
+	{ 2220, "new/texture/monitors/anim4.2", WHOLE },   /* IMAGE_MONITOR_FIST2 */
+	{ 2221, "new/texture/monitors/anim4.3", WHOLE },   /* IMAGE_MONITOR_FIST3 */
+	{ 2222, "new/texture/monitors/anim4.4", WHOLE },   /* IMAGE_MONITOR_FIST4 */
+	{ 2210, "new/texture/monitors/anim3.1", WHOLE },   /* IMAGE_MONITOR_TALK1 */
+	{ 2211, "new/texture/monitors/anim3.2", WHOLE },   /* IMAGE_MONITOR_TALK2 */
+	{ 2212, "new/texture/monitors/anim3.3", WHOLE },   /* IMAGE_MONITOR_TALK3 */
+	{ 2213, "new/texture/monitors/anim3.4", WHOLE },   /* IMAGE_MONITOR_TALK4 */
+	{ 2214, "new/texture/monitors/earthmap", WHOLE },   /* IMAGE_MONITOR_WORLDMAP */
+	{ 2215, "new/texture/monitors/anim2.1", WHOLE },   /* IMAGE_MONITOR_CUBE2 */
+	{ 2216, "new/texture/monitors/anim2.2", WHOLE },   /* IMAGE_MONITOR_CUBE3 */
+	{ 2217, "new/texture/monitors/anim2.3", WHOLE },   /* IMAGE_MONITOR_CUBE4 */
+	{ 2263, "new/texture/monitors/animradar", WHOLE },   /* IMAGE_MONITOR_TRIANGLE */
+	{ 837, "new/texture/monitors/keyboardkey", WHOLE },   /* IMAGE_MONITOR_KEYBOARDKEY */
 	/* the sky's clouds and the blue water */
 	{ 2228, "bg/clouds", WHOLE },
 	{ 1509, "bg/water2", WHOLE },
@@ -261,12 +313,14 @@ static const u8 *picture(const char *name, int *w, int *h)
 	lastRgba = NULL;
 	lastName[0] = 0;
 	// the Community Edition first (gevr_bean_ce.c)
+	/* the release's pictures under texture/; its new ones (the monitors) by their own path */
+	const char *under = strncmp(name, "new/", 4) == 0 ? "" : "texture/";
 	if (gevrBeanCeRoot()) {
-		snprintf(path, sizeof(path), "%s/texture/%s/default.rba", gevrBeanCeRoot(), name);
+		snprintf(path, sizeof(path), "%s/%s%s/default.rba", gevrBeanCeRoot(), under, name);
 		f = fopen(path, "rb");
 	}
 	for (size_t i = 0; i < sizeof(roots) / sizeof(roots[0]) && !f; i++) {
-		snprintf(path, sizeof(path), "%s/texture/%s/default.rba", roots[i], name);
+		snprintf(path, sizeof(path), "%s/%s%s/default.rba", roots[i], under, name);
 		f = fopen(path, "rb");
 	}
 	if (!f) {

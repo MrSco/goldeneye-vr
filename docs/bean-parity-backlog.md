@@ -28,9 +28,6 @@ xm = `port/src/xblamesh.c`, all Dab's. Size S/M/L.
 - **Backdrop as its own pass** (gbs `takeBackdrop`, `backdropPrepare`,
   `gebeanStageRenderBackdrop`): far peaks (Surface, Dam, Runway, Cradle's ring)
   are fogged by eye depth, so the haze shifts as you turn. M
-- **N64 brightness match** (gbs `matchN64Brightness`): rooms darker than the N64
-  look on 15 levels (Train, Depot, Caverns worst). Dab's owner's taste, level by
-  level: the user's call. L
 - **Hair and lenses, solid core plus blended fringe** (xm, `G_ALPHA_CORE_EXT`):
   hair strands sort wrong or show through. M
 - **Sky fill under the dome** (`gebeansky.c` gebeanSkyRender's fill): black below
@@ -46,8 +43,6 @@ xm = `port/src/xblamesh.c`, all Dab's. Size S/M/L.
 - **Opaque twins the release never shows** (gbs `dropTwins`): the port's
   `levelPick` draws the later twin on top, the reverse of the release; Facility's
   hazard stripes over the concrete. Unchecked on screen. S
-- **Monitor pictures** (`gemonitor.c`, 50 release textures): left out on purpose
-  (`gevr_bean_images.c`); monitors show the cartridge's programmes. M
 - **Shattered windowed-door pane** (xm door glass toggle): the HD pane stays
   whole over the shards. S
 - **Sphere-mapped prop draws without UVs** (gb `beanDrawIsSphereMapped`,
@@ -94,6 +89,10 @@ xm = `port/src/xblamesh.c`, all Dab's. Size S/M/L.
 - **Grenade or mine left in hand after a throw** (gb toggled lists): same
   mechanism as Dab's; needs a headset check. S
 
+## Declined (the user's call)
+
+- N64 brightness match (gbs `matchN64Brightness`): the user sees no brightness problem (2026-11-19).
+
 ## Not Dab fixes (port-only gaps, no Dab code to port)
 
 - Rocket-launcher sight screen and taser arc: Dab too shows live screens on
@@ -108,7 +107,7 @@ level cut-out clamps; doorway gaps, reveals and slots; markBacked and markFights
 dealing; hidden rooms not drawn; release sky table and cap fade; release and CE
 fog; scrolling pictures; tinted glass; third-person muzzle flash; cut-out edge
 bleed; tree UVs; vertex drops; markUnderSea, Frigate's hull reflection
-(bbd5ff40).
+(bbd5ff40); the monitors' pictures (DAB gemonitor.c).
 
 Not needed in the port: weldVertices, markDecalLifts and markDecalCorners and
 the far-off triangle moves (Dab's s16 room vertices; the port's are floats);
