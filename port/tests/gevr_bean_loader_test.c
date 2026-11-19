@@ -114,6 +114,20 @@ int main(void)
 		}
 	const void *leaves = gevrBeanTexDecode(&image, 0, "authored:leaves", &width, &height, &alpha);
 	assert(leaves && alpha == 1);
+	/* #253 (DAB beanBleedCutout): a binary cut-out's clear texels, black in
+	 * the file, take their solid neighbour's colour; alpha and solid texels kept */
+	for (unsigned y = 0; y < 8; y++) {
+		uint8_t *p = texture + 0x80 + tiledOffset(0, y, 32, 2) * 4;
+		p[0] = p[1] = p[2] = 0;
+	}
+	const void *bled = gevrBeanTexDecode(&image, 0, "authored:bleed", &width, &height, &alpha);
+	const uint8_t *bledRgba;
+	assert(bled && alpha == 1 && gevrBeanTexture(bled, &bledRgba, &width, &height));
+	for (int i = 0; i < width * height; i++) {
+		const uint8_t *t = bledRgba + i * 4;
+		assert(t[3] == (i % width == 0 ? 0 : 255));
+		assert(t[0] == 10 && t[1] == 180 && t[2] == 30);
+	}
 	struct gevrBeanMesh foliage = {.ntex = 2};
 	foliage.standin[0] = tile; foliage.standin[1] = leaves;
 	foliage.texW[1] = 4; foliage.texH[1] = 8; foliage.texCut[1] = 1;
