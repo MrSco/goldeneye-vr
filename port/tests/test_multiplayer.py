@@ -62,6 +62,8 @@ def build_core():
     keep.update({"netHostCanKickPlayer","netReceiveClientCaps","netSendClientCaps","netHostRemoveOldForNoRadar","netRoundLoadStage","netRoundFullMap","netRoundMatchesLoadedMap"})
     keep.update({"netLocalInputClass","netInputClassName","netInputIsFlat","netGetFlatPlayerCount","netSendInputClass","netClientInputTick","netReceiveInputClass"})
     keep.update({"netSlotInputNow","netHostInputTableTick","netReceiveInputClasses","netGetSlotInputClass"})
+    keep.update({"netLocalPlatform","netSlotPlatformNow","netReceivePlatforms","netGetSlotPlatform","netDeviceKey","netGetSlotDeviceKey",
+                 "netGetLocalDeviceKey","netGetSlotDeviceName","netBuildOf","netGetSlotBuild","netGetLocalBuild","netGetSlotAppVersion"})
     keep.update({"netSlotOwned","gevrNetOwnsSlot","netActingSlot","netSendHitReportAs","netSendOwnedMove","netIsRemotePlayerActive","netRemoteTrigger","netSlotIsBot","netGetHumanPlayerCount","netReleaseBotSlot","netAddBot","netUpdateBots","netBotPoints","netBotToReplace","netJoinSlot","gevrNetSlotIsBot","gevrNetBotRowsEditable"})
     keep.update({"netMapShotTime","netResetCombatEpoch","netWriteCombatIdentity","netReadCombatIdentity","netImportCombatIdentity","netSendClockTo","netClockTick","netReceiveClock","netExplosiveWeapon","netAcceptHit","netReceiveHitReport","netBeginLocalShot","netEndLocalShot","netMakeLocalHit","netNextLife","netAcceptRespawn","netSendRespawnEvent","netSendLocalPlayerMove","netLocalIsSpectator","netReceiveDamageEvent","netReceiveRespawn","netCombatClocksReady","netPveLoadGraceOver"})
     replacements=[]

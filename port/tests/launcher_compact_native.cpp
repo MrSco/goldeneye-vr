@@ -42,6 +42,7 @@ static int netGetHostSlot(){return 0;}
 static const char *netGetSlotAppVersion(int){return "0.4.16";}
 static int netHostCanKickPlayer(int slot){return host && slot>0;}
 static int netGetSlotInputClass(int slot){return slot==1?1:0;}   /* the roster's "Plays": slot 1 on a mouse */
+static const char *netGetSlotDeviceName(int slot){return slot==1?"PC":"Quest";}   /* the roster's "Device" */
 static const char *netGetSlotName(int slot){return lobby.slots[slot].name;}
 static void netHostKickPlayer(int){}
 static bool gevrLobbyHasTeams(const FixtureConfig *c){return c->mode!=NET_MODE_COOP && netScenarioHasTeams(c->scenario);}

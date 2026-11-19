@@ -70,6 +70,7 @@ std::string s_lastLobby;                  // the lobby the "invited" marks are f
 
 #ifdef ANDROID
 extern "C" int gevrAndroidJava;
+extern "C" int gevrNetLocalInputClass(void);   // net_core.c: NET_INPUT_*, for presence
 std::string javaString(const char *method) {
     std::string out;
     if (!gevrAndroidJava) {   // no MainActivity (see gevrAndroidJava)
@@ -294,8 +295,13 @@ std::string presenceLine(bool inGame) {
     // Discord friends may join a public or friends-only lobby this headset hosts; the rest go by invite
     const char *visibility = online && netIsHost() ? gevrHostedLobbyVisibility() : "";
     s_presence.joinable = strcmp(visibility, "public") == 0 || strcmp(visibility, "friends") == 0;
+    // then what this player runs, its build and what it plays with, for the
+    // service's daily totals (net_core.c; NET_INPUT_*, 255 unknown)
+    char build[24];
+    netGetLocalBuild(build, sizeof(build));
     return std::string("presence|") + state + "|" + field(lobby) + "|" + std::to_string(GEVR_NET_VERSION) + "|" +
-           field(VrPlayerName) + "|" + field(detail);
+           field(VrPlayerName) + "|" + field(detail) + "|" + netGetLocalDeviceKey() + "|" + build + "|" +
+           std::to_string(gevrNetLocalInputClass());
 }
 
 std::string pendingJoinPath() { return kPendingJoinFile; }

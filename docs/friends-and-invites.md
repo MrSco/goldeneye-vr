@@ -164,7 +164,7 @@ goldeneyevr.com repo's `services/lobbies/README.md` has the full table.
 |---|---|---|
 | POST | `/v1/players` | `{name}`: register; returns ID, secret, friend code, restore code |
 | POST | `/v1/players/restore` | `{friendCode, restoreCode}`: a new secret |
-| POST | `/v1/me/presence` | `{state, detail, lobby, version, name}`; returns friends, requests, sent, invites, blocked |
+| POST | `/v1/me/presence` | `{state, detail, lobby, version, name}`, optional `device`, `build`, `input` (player totals); returns friends, requests, sent, invites, blocked |
 | POST | `/v1/me/friends` | `{code}`: send a request (accepts theirs if they asked first) |
 | PUT | `/v1/me/friends/<id>` | `{accept: true\|false}` |
 | DELETE | `/v1/me/friends/<id>` | remove, cancel or decline |
@@ -185,7 +185,9 @@ the stats and the activity page.
 
 - `FriendsClient.java` (beside `LobbyClient`, its own thread and queue;
   `friendsCommand` / `friendsEvent` on `MainActivity`). Commands:
-  `presence|state|lobby|version|name|detail`, `settings|showDetail|offline`,
+  `presence|state|lobby|version|name|detail[|device|build|input]` (the last
+  three feed the Worker's anonymous player totals: net_core.c
+  netGetLocalDeviceKey, netGetLocalBuild, NET_INPUT_*), `settings|showDetail|offline`,
   `add|code`, `answer|id|1/0`, `remove|id`, `block|id`, `unblock|id`,
   `invite|id|lobby`, `drop|inviteId`, `restore|friendCode|restoreCode`,
   `reset`, `refresh`. Events: `ME|status|friendCode|restoreCode|detail|offline`,

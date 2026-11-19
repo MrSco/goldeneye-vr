@@ -115,9 +115,11 @@ typedef enum {
     NET_MSG_COOP_SHOT = 58,     /* Host -> all: a guard's grenade, rocket or launcher round in flight; clients fly a copy */
     /* Additive, no bump: an older host ignores the type. */
     NET_MSG_INPUT_CLASS = 59,   /* Client -> host: what I play with now (u8 NET_INPUT_*), when it changes after HELLO */
-    NET_MSG_INPUT_CLASSES = 60, /* Host -> all: u8 n, then n x u8 NET_INPUT_* by slot (the roster's "Plays" column) */
+    NET_MSG_INPUT_CLASSES = 60, /* Host -> all: u8 n, then n x u8 NET_INPUT_* by slot (the roster's "Device" column) */
     /* Additive, no bump: only a Mario Characters party sends it, which older builds cannot join (NET_CONTENT_ROM). */
     NET_MSG_COOP_POKES = 61,    /* Host -> all: its level scripts' writes to the hack's memory, and the objectives' show/hide (gevr_footsteps.c) */
+    /* Additive, no bump: an older build ignores the type and shows no device. */
+    NET_MSG_PLATFORMS = 62,     /* Host -> all: u8 n, then n x u8 NET_PLATFORM_* by slot (the roster's "Device" column) */
 } NetMsgType;
 
 #define NET_DISCONNECT_KICKED 0x47454b49u
@@ -156,6 +158,11 @@ typedef enum {
 #define NET_PLATFORM_ANDROID 3u
 #define NET_PLATFORM_IOS 4u
 #define NET_PLATFORM_SERVER 5u
+/* Added after protocol 26 (the roster's "Device"); an older host logs them as numbers. */
+#define NET_PLATFORM_TVOS 6u
+#define NET_PLATFORM_VISIONOS 7u
+#define NET_PLATFORM_FRAME 8u           /* the Steam Frame APK (GEVR_FRAME) */
+#define NET_PLATFORM_MAX NET_PLATFORM_FRAME
 #define NET_DISCONNECT_VR_ONLY 0x47455652u   /* 'GEVR' */
 #define NET_CLIENT_CAP_KICK 1u
 /* The guest reads NET_FUN_NO_RADAR (protocol 19 has it). A guest that says otherwise

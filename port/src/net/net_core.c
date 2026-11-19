@@ -72,6 +72,8 @@ static bool s_client_caps_known[GEVR_MAX_PLAYERS];     /* ... and whether it has
 static uint8_t s_client_input[GEVR_MAX_PLAYERS];       /* NET_INPUT_*, from the guest's HELLO (the lobby's flat count) */
 static uint8_t s_input_table_sent[GEVR_MAX_PLAYERS];   /* the host's last NET_MSG_INPUT_CLASSES */
 static bool s_input_table_resend = true;                /* ... and send it again (someone joined) */
+static uint8_t s_client_platform[GEVR_MAX_PLAYERS];    /* NET_PLATFORM_*, from the guest's HELLO or the host's table */
+static uint8_t s_platform_table_sent[GEVR_MAX_PLAYERS];   /* the host's last NET_MSG_PLATFORMS */
 static ENetVirtualSendCallback s_virtual_send = NULL;
 static ENetVirtualReceiveCallback s_virtual_receive = NULL;
 static void *s_virtual_context = NULL;
@@ -608,6 +610,8 @@ static void netResetLobbyState(void) {
     memset(s_client_caps_known, 0, sizeof(s_client_caps_known));
     memset(s_client_input, NET_INPUT_UNKNOWN, sizeof(s_client_input));
     memset(s_input_table_sent, NET_INPUT_UNKNOWN, sizeof(s_input_table_sent));
+    memset(s_client_platform, NET_PLATFORM_UNKNOWN, sizeof(s_client_platform));
+    memset(s_platform_table_sent, NET_PLATFORM_UNKNOWN, sizeof(s_platform_table_sent));
     s_input_table_resend = true;
     s_match_ended = false;
     s_results_deadline_us = 0;
@@ -1192,12 +1196,18 @@ int netGetFlatPlayerCount(void) {
 static uint8_t netLocalPlatform(void) {
 #if defined(GEVR_HEADLESS)
     return NET_PLATFORM_SERVER;
+#elif defined(GEVR_VISIONOS)
+    return NET_PLATFORM_VISIONOS;
+#elif defined(GEVR_TVOS)
+    return NET_PLATFORM_TVOS;
 #elif defined(GEVR_IOS)
     return NET_PLATFORM_IOS;
 #elif defined(GEVR_MOBILE)
     return NET_PLATFORM_ANDROID;
 #elif defined(GEVR_PC)
     return NET_PLATFORM_PC;
+#elif defined(GEVR_FRAME)
+    return NET_PLATFORM_FRAME;
 #elif defined(ANDROID)
     return NET_PLATFORM_QUEST;
 #else
@@ -1327,10 +1337,37 @@ static uint8_t netSlotInputNow(int i) {
     if (!s_lobby_state.slots[i].connected || s_lobby_state.slots[i].is_bot || netDedicatedSeat(i)) return NET_INPUT_UNKNOWN;
     return i == s_local_slot ? netLocalInputClass() : s_client_input[i];
 }
+/* Each slot's platform, for the roster ("Device"): from the guest's HELLO, sent
+ * by the host beside the input table; a platform never changes mid-session. */
+static uint8_t netSlotPlatformNow(int i) {
+    if (!s_lobby_state.slots[i].connected || s_lobby_state.slots[i].is_bot || netDedicatedSeat(i)) return NET_PLATFORM_UNKNOWN;
+    return i == s_local_slot ? netLocalPlatform() : s_client_platform[i];
+}
+static void netReceivePlatforms(ENetPeer *peer, struct netbuf *buf, size_t size) {
+    if (netIsHost() || !peer || peer != s_server_peer || size < 9) return;
+    const int n = netbufReadU8(buf);
+    if (buf->error || n < 1 || n > GEVR_MAX_PLAYERS || size != (size_t)(9 + n)) return;
+    for (int i = 0; i < n; i++) {
+        const uint8_t p = netbufReadU8(buf);
+        s_client_platform[i] = p <= NET_PLATFORM_MAX ? p : NET_PLATFORM_UNKNOWN;
+    }
+}
 static void netHostInputTableTick(void) {
     if (!netIsHost() || (s_state != NET_STATE_HOSTING_LOBBY && s_state != NET_STATE_INGAME)) return;
     uint8_t table[GEVR_MAX_PLAYERS];
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) table[i] = netSlotInputNow(i);
+    uint8_t platforms[GEVR_MAX_PLAYERS];
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) platforms[i] = netSlotPlatformNow(i);
+    if (s_input_table_resend || memcmp(platforms, s_platform_table_sent, sizeof(platforms))) {
+        u8 praw[9 + GEVR_MAX_PLAYERS];struct netbuf pbuf={.data=praw,.size=sizeof(praw)};
+        netbufStartWrite(&pbuf);
+        netbufWriteU32(&pbuf,GEVR_NET_MAGIC);netbufWriteU16(&pbuf,GEVR_NET_VERSION);
+        netbufWriteU8(&pbuf,NET_MSG_PLATFORMS);netbufWriteU8(&pbuf,(uint8_t)s_local_slot);
+        netbufWriteU8(&pbuf,GEVR_MAX_PLAYERS);
+        for (int i = 0; i < GEVR_MAX_PLAYERS; i++) netbufWriteU8(&pbuf,platforms[i]);
+        netBroadcastBuf(&pbuf,NET_CHAN_RELIABLE,ENET_PACKET_FLAG_RELIABLE,NULL);
+        memcpy(s_platform_table_sent, platforms, sizeof(platforms));
+    }
     if (!s_input_table_resend && !memcmp(table, s_input_table_sent, sizeof(table))) return;
     u8 raw[9 + GEVR_MAX_PLAYERS];struct netbuf buf={.data=raw,.size=sizeof(raw)};
     netbufStartWrite(&buf);
@@ -1351,6 +1388,76 @@ static void netReceiveInputClasses(ENetPeer *peer, struct netbuf *buf, size_t si
         s_client_input[i] = c <= NET_INPUT_TOUCH ? c : NET_INPUT_UNKNOWN;
     }
 }
+/* A slot's NET_PLATFORM_*: this player's own, or as the host says. */
+int netGetSlotPlatform(int slot) {
+    if (slot < 0 || slot >= GEVR_MAX_PLAYERS || !s_lobby_state.slots[slot].connected || s_lobby_state.slots[slot].is_bot)
+        return NET_PLATFORM_UNKNOWN;
+    if (slot == s_local_slot) return netLocalPlatform();
+    return s_client_platform[slot];
+}
+
+/* What a slot runs on, as one word for the lobby service (lobbies.goldeneyevr.com)
+ * and the roster: the platform, "-flat" where a headset plays on its flat
+ * screen; from the input class alone when an older build sent no platform.
+ * "" for a bot, a server seat or nothing known. */
+static const char *netDeviceKey(int platform, int input) {
+    const bool vr = input == NET_INPUT_VR, flat = input != NET_INPUT_UNKNOWN && !vr;
+    switch (platform) {
+    case NET_PLATFORM_QUEST: return flat ? "quest-flat" : "quest";
+    case NET_PLATFORM_FRAME: return flat ? "frame-flat" : "frame";
+    case NET_PLATFORM_PC: return vr ? "pcvr" : "pc";
+    case NET_PLATFORM_ANDROID: return "android";
+    case NET_PLATFORM_IOS: return "ios";
+    case NET_PLATFORM_TVOS: return "tvos";
+    case NET_PLATFORM_VISIONOS: return "visionos";
+    case NET_PLATFORM_SERVER: return "";
+    default: break;
+    }
+    return vr ? "vr" : flat ? "flat" : "";
+}
+const char *netGetSlotDeviceKey(int slot) {
+    if (slot < 0 || slot >= GEVR_MAX_PLAYERS || !s_lobby_state.slots[slot].connected || s_lobby_state.slots[slot].is_bot)
+        return "";
+    return netDeviceKey(netGetSlotPlatform(slot), netGetSlotInputClass(slot));
+}
+/* This player's, in or out of a game (the friends service's presence). */
+const char *netGetLocalDeviceKey(void) { return netDeviceKey(netLocalPlatform(), netLocalInputClass()); }
+
+/* The roster's "Device" for a key above. */
+const char *netGetSlotDeviceName(int slot) {
+    static const char *const names[][2] = {
+        {"quest", "Quest"}, {"quest-flat", "Quest (flat)"}, {"frame", "Steam Frame"}, {"frame-flat", "Steam Frame (flat)"},
+        {"pcvr", "PC VR"}, {"pc", "PC"}, {"android", "Android"}, {"ios", "iPhone / iPad"}, {"tvos", "Apple TV"},
+        {"visionos", "Vision Pro"}, {"vr", "VR"}, {"flat", "Flat"},
+    };
+    const char *key = netGetSlotDeviceKey(slot);
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++)
+        if (!strcmp(key, names[i][0])) return names[i][1];
+    return "";
+}
+
+/* A slot's build as the lobby service counts it: "0.5.20" from "v0.5.20 (5a3b786)",
+ * "" if it said none or something else. */
+static void netBuildOf(const char *v, char *out, size_t size) {
+    if (!out || !size) return;
+    out[0] = '\0';
+    if (!v) return;
+    if (*v == 'v') v++;
+    size_t n = 0;
+    while (v[n] && v[n] != ' ' && n + 1 < size) {
+        const char c = v[n];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || c == '.' || c == '-')) { out[0] = '\0'; return; }
+        out[n] = c;
+        n++;
+    }
+    out[n] = '\0';
+    if (n == 0 || out[0] < '0' || out[0] > '9') out[0] = '\0';
+}
+void netGetSlotBuild(int slot, char *out, size_t size) {
+    netBuildOf(slot >= 0 && slot < GEVR_MAX_PLAYERS ? netGetSlotAppVersion(slot) : NULL, out, size);
+}
+void netGetLocalBuild(char *out, size_t size) { netBuildOf(s_local_app_version, out, size); }
+
 /* What a slot plays with (NET_INPUT_*): this player's own, or as the host says. */
 int netGetSlotInputClass(int slot) {
     if (slot < 0 || slot >= GEVR_MAX_PLAYERS || !s_lobby_state.slots[slot].connected || s_lobby_state.slots[slot].is_bot)
@@ -3447,12 +3554,13 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                     ? NET_DISCONNECT_CAMPAIGN | (uint32_t)gevrRomPlayCampaign() : NET_DISCONNECT_CONTENT | differs);
                 break;
             }
-            uint8_t joiner_input;
+            uint8_t joiner_input, joiner_platform;
             {
                 /* who is joining: an older build sends nothing, and is let in */
                 const uint8_t input = netbufReadLeft(&buf) >= 2 ? netbufReadU8(&buf) : NET_INPUT_UNKNOWN;
                 joiner_input = input;
                 const uint8_t platform = input != NET_INPUT_UNKNOWN ? netbufReadU8(&buf) : NET_PLATFORM_UNKNOWN;
+                joiner_platform = platform <= NET_PLATFORM_MAX ? platform : NET_PLATFORM_UNKNOWN;
                 extern int VrMpVrOnly;   /* the host's "VR players only" */
                 NET_LOG("%s joins with %s (platform %u)", clean, netInputClassName(input), (unsigned)platform);
                 if (VrMpVrOnly && input != NET_INPUT_UNKNOWN && input != NET_INPUT_VR) {
@@ -3487,6 +3595,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             s_client_caps[assigned] = 0;
             s_client_caps_known[assigned] = false;
             s_client_input[assigned] = joiner_input;
+            s_client_platform[assigned] = joiner_platform;
             s_input_table_resend = true;   /* the joiner needs everyone's (netHostInputTableTick) */
             peer->data = (void *)(intptr_t)(assigned + 1);
             
@@ -3647,6 +3756,9 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             break;
         case NET_MSG_INPUT_CLASSES:
             netReceiveInputClasses(peer, &buf, size);
+            break;
+        case NET_MSG_PLATFORMS:
+            netReceivePlatforms(peer, &buf, size);
             break;
         case NET_MSG_LOBBY_TEAM: {
             int slot = (int)(intptr_t)peer->data - 1;
@@ -4825,6 +4937,7 @@ static void netHostDropSlot(int slot, ENetPeer *stale) {
     s_client_caps[slot] = 0;
     s_client_caps_known[slot] = false;
     s_client_input[slot] = NET_INPUT_UNKNOWN;
+    s_client_platform[slot] = NET_PLATFORM_UNKNOWN;
     s_remote_active[slot] = false;
     netVoiceForgetSlot((uint8_t)slot);
     netForgetPlayerScore(slot);
