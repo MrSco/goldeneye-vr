@@ -340,6 +340,25 @@ float VrBeanGripTrim[2][6] = {
     { 2.04f, 0.79f, 11.90f, 32.9f, 0.0f, 85.3f },     /* long guns */
 };
 float VrBeanReloadGrab[3] = { 0.0000f, -7.0000f, -8.0000f };
+/* Bean guns' removable magazines (gun.c gevrBeanMagFit), by item: [0] the
+ * magazine in the off hand (cm right, up, back of its grip), [1] the well's
+ * mouth on the gun from where the mesh has it (unfitted: the mesh's own).
+ * The held place is the off hand's, wherever the magazine is held from: the
+ * PP7's, headset fit 2026-11-18, for every gun until its own is fitted. */
+#define BEAN_MAG_HELD { { 0.5470f, 6.2007f, -18.4547f }, { 0.0f, 0.0f, 0.0f } }
+float VrBeanMagFits[64][2][3] = {
+    [4] = BEAN_MAG_HELD,    /* PP7 (and the silenced, silver and gold ones) */
+    [6] = BEAN_MAG_HELD,    /* DD44 */
+    [7] = BEAN_MAG_HELD,    /* Klobb */
+    [8] = BEAN_MAG_HELD,    /* KF7 */
+    [9] = BEAN_MAG_HELD,    /* ZMG */
+    [10] = BEAN_MAG_HELD,   /* D5K (and the silenced one) */
+    [12] = BEAN_MAG_HELD,   /* Phantom */
+    [13] = BEAN_MAG_HELD,   /* AR33 */
+    [14] = BEAN_MAG_HELD,   /* RC-P90 */
+    [17] = BEAN_MAG_HELD,   /* sniper rifle */
+};
+#undef BEAN_MAG_HELD
 float VrBeanScopeFit[4][4];
 float VrBeanMuzzleTrim[GEVR_MAX_WEAPONS][3];
 /* each gun's own place in the hand and two-handed hold, once Gun fit moves

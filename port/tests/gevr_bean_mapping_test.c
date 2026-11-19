@@ -1,4 +1,5 @@
 #include "../src/gevr_bean.c"
+#include "../src/gevr_beanmag.c"
 #include "../src/gevr_static_mesh_build.inc.h"
 int gevrRomIsVariant(void) { return 0; } /* GoldenEye: no hack campaign */
 int gevrRomCampaign(void) { return GEVR_CAMPAIGN_GE; }
@@ -762,6 +763,57 @@ int main(int argc, char **argv)
             free(a);
             free(b);
         }
+    /* A gun with a magazine to take out (gevr_beanmag.h): only the table's guns,
+     * and its body list then has two more builds on the same matrix - the gun
+     * with its magazine out, and the magazine alone, seated where the well is. */
+    {
+        const struct beanFit *magFit = fitForName(argv[2]);
+        struct gevrBeanMagInfo info;
+        const int wants = kind == BEAN_GUN && magFit && gevrBeanMagFor(magFit->source) != NULL;
+        assert(gevrBeanGunMagazine(&header, &info) == wants);
+        for (int i = 0; i < s_nswap; i++) {
+            assert(!s_swap[i].magInfo == !s_swap[i].open && !s_swap[i].open == !s_swap[i].magazine);
+            if (!s_swap[i].magInfo)
+                continue;
+            struct beanSwap whole = s_swap[i], open = s_swap[i], mag = s_swap[i];
+            float (*a)[3], (*b)[3], (*c)[3], rest[3], lo[3] = {1e9f, 1e9f, 1e9f}, hi[3] = {-1e9f, -1e9f, -1e9f};
+            void *current = s_swap[i].original ? s_swap[i].original : NULL;
+            open.ours = open.open;
+            mag.ours = mag.magazine;
+            const int na = swapVerts(&whole, &a), nb = swapVerts(&open, &b), nc = swapVerts(&mag, &c);
+            printf("MAGAZINE %s whole %d open %d magazine %d vertices\n", argv[2], na, nb, nc);
+            assert(wants && info.node == s_swap[i].node && info.matrix == nodeMatrix(s_swap[i].node));
+            /* a foot of some twenty triangles left the gun; the floor is not as many */
+            assert(nb > 0 && nb <= na - 3 * 20 && nc >= 3 * 40);
+            /* the well runs up the gun (its y), and the magazine fills it from mouth to top */
+            restOf(s_swap[i].node, rest);
+            for (int v = 0; v < nc; v++)
+                for (int k = 0; k < 3; k++) {
+                    if (c[v][k] < lo[k]) lo[k] = c[v][k];
+                    if (c[v][k] > hi[k]) hi[k] = c[v][k];
+                }
+            assert(info.axis[1] > 0.9f && info.top[1] - info.mouth[1] > 50.0f);
+            for (int k = 0; k < 3; k++) {
+                assert(info.mouth[k] + rest[k] > lo[k] - 2.0f && info.mouth[k] + rest[k] < hi[k] + 2.0f);
+                assert(info.top[k] + rest[k] > lo[k] - 2.0f && info.top[k] + rest[k] < hi[k] + 2.0f);
+                assert(info.foot[k] + rest[k] > lo[k] - 2.0f && info.foot[k] + rest[k] < hi[k] + 2.0f);
+            }
+            assert(info.foot[1] < info.mouth[1]);
+            /* the draw's three states, and back */
+            if (gevrBeanShownGdl(s_swap[i].node, current) == s_swap[i].ours) {
+                gevrBeanSetMagazine(GEVR_BEAN_MAG_OUT);
+                assert(gevrBeanShownGdl(s_swap[i].node, current) == s_swap[i].open);
+                gevrBeanSetMagazine(GEVR_BEAN_MAG_ITSELF);
+                assert(gevrBeanShownGdl(s_swap[i].node, current) == s_swap[i].magazine);
+                gevrBeanSetMagazine(GEVR_BEAN_MAG_IN);
+                assert(gevrBeanShownGdl(s_swap[i].node, current) == s_swap[i].ours);
+                printf("MAGAZINE %s draws in, out and alone\n", argv[2]);
+            }
+            free(a);
+            free(b);
+            free(c);
+        }
+    }
     checkScreens(&header, mesh, kind, fitForName(argv[2]), argv[2]);
     if (kind == BEAN_GUN) {
         Model model = {0}; model.obj = &header;

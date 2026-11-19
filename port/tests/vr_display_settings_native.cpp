@@ -135,9 +135,14 @@ int main(int argc, char **argv) {
         VrMuzzleTrim[1][8][2] = 4.25f;
         VrGexWeaponFits[6][3][2] = 47.25f;
         VrGexWeaponFits[12][6][0] = -3.25f;
+        /* Bean guns' magazines (gun.c gevrBeanMagFit): the PP7's held magazine and well */
+        VrBeanMagFits[4][0][1] = 1.75f;
+        VrBeanMagFits[4][1][2] = -0.5f;
         VrBodySlotFit[GEVR_BS_BELT][1] = 6.5f;
         newFamilyFits(-5,false);
         gevrGunFitSaved(false);
+        VrBeanMagFits[4][0][1] = 99;           /* B puts a Bean magazine's fits back too */
+        VrBeanMagFits[4][1][2] = 99;
         VrBodySlotFit[GEVR_BS_BELT][1] = 99;   /* B puts the body slots' fits back too */
         newFamilyFits(99,false);
         VrGexPp7MagOff[0] = 99;
@@ -156,6 +161,7 @@ int main(int argc, char **argv) {
         assert(VrGexPp7SupportRot[2] == 90);
         assert(VrGexKf7WellOff[0] == -0.75f && VrGexPp7WellOff[1] == -2.25f);
         assert(VrBodySlotFit[GEVR_BS_BELT][1] == 6.5f);
+        assert(VrBeanMagFits[4][0][1] == 1.75f && VrBeanMagFits[4][1][2] == -0.5f);
         vrSettingsSave();
         return 0;
     }
@@ -164,6 +170,10 @@ int main(int argc, char **argv) {
         assert(VrAimSight == 0);   // "Aim: crosshair" off round trips
         assert(VrGexWeaponFits[6][3][2] == 47.25f);
         assert(VrGexWeaponFits[12][6][0] == -3.25f);
+        /* the fitted rows of Bean's magazines round trip; the others keep their defaults */
+        assert(VrBeanMagFits[4][0][1] == 1.75f && VrBeanMagFits[4][1][2] == -0.5f);
+        assert(VrBeanMagFits[4][0][0] == 0.5470f && VrBeanMagFits[8][0][1] == 6.2007f);   // the headset's default
+        assert(VrBeanMagFits[4][1][0] == 0 && VrBeanMagFits[0][0][0] == 0);
         assert(VrGexGunOff[0] == 1.5f && VrGexGunOff[2] == -19.1169f && VrGunOffX == 2.74f);
         assert(VrGexGripTrim[1][3] == 45.0f && VrGripTrim[1][3] == 86.3f);
         assert(VrScopeFit[0][0][0] == 0.5f && VrScopeFit[1][2][3] == -1.25f && VrScopeFit[0][2][3] == 0.0f);

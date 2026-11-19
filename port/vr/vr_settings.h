@@ -3,6 +3,7 @@
 #include "gevr_watch_status.h"
 #include "gevr_bodyslot.h"
 extern int VrManualReloading;
+extern float VrBeanMagFits[64][2][3];   /* Bean guns' magazines (gun.c gevrBeanMagFit) */
 extern bool VrlaserDotForALL;
 extern bool inputRumbleSupported(int playernum);
 extern int g_ExtMenuPlayer;

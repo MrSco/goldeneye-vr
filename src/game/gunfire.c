@@ -3092,12 +3092,17 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         /* Bean's rocket launcher with its round in the tube or without (DAB fpRound) */
         extern void gevrBeanSetLoaded(int loaded);
         gevrBeanSetLoaded(item != ITEM_ROCKETLAUNCH || handptr->rocket != NULL);
+        /* a Bean gun reloaded by hand: with its magazine, or its well empty (gun.c) */
+        extern void gevrBeanSetMagazine(int state);
+        extern s32 gevrBeanMagShown(s32 hand);
+        gevrBeanSetMagazine(gevrBeanMagShown(handnum));
         /* issue #31: the watch items' arm is the tracked watch arm (bondview2.c gevrStereoWatchItem) */
         if (!gevrStereoWatchItem(item))
 #endif
         subdraw(&renderdata, &handptr->weaponModel);
 #ifdef GEVR
         gevrBeanSetLoaded(1);
+        gevrBeanSetMagazine(0);
         {
             /* a GoldenEye X gun's hands, on its matrices (gun.c) */
             extern s32 gevrGexHeld(s32 hand);
@@ -3120,6 +3125,13 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
                 renderdata.gdl = gevrGexDrawPayload(renderdata.gdl, &renderdata, handnum);
                 extern Gfx *gevrGexDrawReloadGuide(Gfx *gdl, ModelRenderData *templ, s32 hand);
                 renderdata.gdl = gevrGexDrawReloadGuide(renderdata.gdl, &renderdata, handnum);
+            }
+            else if (!gevrStereoWatchItem(item))
+            {
+                /* a Bean gun's magazine out of the gun, in the off hand or falling (gun.c) */
+                extern Gfx *gevrBeanMagDraw(Gfx *gdl, ModelRenderData *templ, GUNHAND hand);
+
+                renderdata.gdl = gevrBeanMagDraw(renderdata.gdl, &renderdata, handnum);
             }
         }
 #endif

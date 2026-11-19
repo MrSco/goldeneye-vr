@@ -1,6 +1,7 @@
 /* Compile the actual emitter and registry, with authored geometry and a
  * stub decoder. The runner supplies empty local marker files. */
 #include "../src/gevr_bean.c"
+#include "../src/gevr_beanmag.c"
 #include "../src/gevr_static_mesh_build.inc.h"
 int gevrRomIsVariant(void) { return 0; } /* GoldenEye: no hack campaign */
 int gevrRomCampaign(void) { return GEVR_CAMPAIGN_GE; }

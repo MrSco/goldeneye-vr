@@ -319,13 +319,15 @@ from [Wreck's N64 Vault page](https://n64vault.com/pd-multi-levels:goldeneye-x).
 
 On the virtual screen, GE-X's own fire and reload animations play. To reload by hand in
 stereo VR, also turn on **Hand reload WIP** on **Controls → Gestures**. It needs
-GoldenEye X; until GE-X is on, it's greyed out with **Needs GoldenEye X**.
+GoldenEye X or Bean's models; with neither on, it's greyed out with
+**Needs GoldenEye X or Bean**. With Bean alone, the PP7s reload by hand and every
+other gun reloads as usual ([details](docs/project-bean.md#removable-magazines-hand-reload-wip)).
 - **Magazine guns.** Pull the magazine with your off hand, grip a replacement at your
   belt, and seat it in the gun.
   - B/Y drops the magazine. A removed magazine keeps its rounds until you put it back or drop it.
   - The RC-P90's magazine lifts off the top.
-  - On the PP7, cupping the pistol counts as support. Release, then grip clearly below it
-    to remove its magazine.
+  - The pistols (PP7s, DD44) are not pulled: their magazine is inside the grip. B/Y drops
+    it, then push a fresh one from the belt up into the grip. A grip under a pistol is support.
 - **Shotguns, rocket launcher, Golden Gun and grenade launcher.** Grip one round at your
   belt and insert it at the gun's port. Release the grip before taking another.
 - **Cougar Magnum.** A belt grab takes a speedloader with up to six rounds. The cylinder
@@ -398,7 +400,7 @@ The launcher's **Controls → Gestures** tab turns grip gestures on or off: **Wa
 **Body slots WIP**, **Grip use** (doors and switches), **Mine re-grab**, **Force pull WIP**
 (with **Pull disarm** and **Pull visuals**) and **Auto pickup**. Anywhere else the grip aims
 as before. The 25 cm grab of a gun on the floor is always on. **Hand reload WIP** is there
-too, off by default: it needs GoldenEye X. Guns stop reloading themselves, and B/Y stop
+too, off by default: it needs GoldenEye X, or Bean's models for the PP7s alone. Guns stop reloading themselves, and B/Y stop
 reloading. You reload by hand as described under [GoldenEye X](#-goldeneye-x-optional-wip),
 including when dual-wielding.
 

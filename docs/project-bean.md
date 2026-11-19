@@ -41,6 +41,7 @@ pictures use the original game textures, as in Dab's Mod (its explosions are
 the cartridge's); HD / AI and legacy texture packs cannot fill those gaps. Switching during a level clears previous texture uploads and caches.
 With GoldenEye X enabled, its first-person guns, arms, watch and hand-reload rig
 keep priority and their own ROM textures. Bean supplies the other models and rooms.
+With it off, Bean's PP7s have a magazine to take out by hand (below).
 
 During play, use **watch → VR options → Mods and fun → Project Bean** or hold
 exactly one grip + right-stick click for one second. Both switches affect meshes
@@ -63,6 +64,114 @@ intro logo also keep native geometry, following DAB's fallback choices.
 Statue now has Bean rooms. The installed edition determines which skies exist;
 the game keeps its sky when a replacement is absent and keeps its original
 water pass when a Bean dome is drawn.
+
+## Removable magazines (hand reload, WIP)
+
+With GoldenEye X off, Bean on and **Hand reload WIP** on (Controls → Gestures), a
+Bean gun that has a magazine reloads by hand through the same states as GE-X's:
+B / Y drops the magazine out, take a fresh one at the belt, bring its top to the
+well. A pistol's magazine is not pulled out by hand, GE-X's or Bean's: it is
+inside the grip, with too little showing to take hold of. Rifles and submachine
+guns, whose magazine hangs out of the gun, keep the pull (`bondview2.c
+gevrReloadMagPulls`), so a Bean rifle added to the table gets it too.
+A touch of the gun hand at the belt still loads it one-handed. Every other
+Bean gun keeps the game's own reload, B and all. **First pass: the four PP7s**
+(PP7, silenced, silver, gold), which share one grip.
+
+The release's guns are one skinned mesh each with no magazine bone, and its
+dropped-magazine props are a 28-triangle wedge, so the magazine is made from the
+gun when the gun is laid out (`port/src/gevr_beanmag.c`, `gevr_bean.c`
+`gunMagazine()`):
+
+- **The foot** is the gun's own triangles below a plane across the grip (the
+  PP7's floor plate and finger rest), cut along it. Triangles that straddle the
+  plane are split, with their picture, so nothing is lost or doubled.
+- **The body** is a plain dark prism up the well from that plane: the grip's own
+  outline there, drawn in. The well's direction is read from the grip's outline
+  at two heights, so it follows the grip's lean.
+- **The gun without it** is everything else plus a dark floor a little way up the
+  empty well. The guns draw two-sided, so the grip's inner walls show round it.
+
+The gun's body list then has three builds on the same matrix: whole (the
+release's own, drawn while the magazine is in), open, and the magazine alone.
+`gun.c gevrBeanMagDraw` picks per draw (`gevrBeanSetMagazine`), and draws the
+magazine by itself under another matrix: the off hand's, or a falling one's.
+It lies in the gun's space, so under the gun's own matrix it is seated. In the
+hand it is turned as the gun would be in that hand; held alike, it lines up
+with the well. The hands are the player's own. Nothing is animated.
+
+**The slide** needs no code of its own. GoldenEye's slide clock already holds the
+slide back while the magazine is empty and lets it home once it holds rounds
+(`gun.c sub_GAME_7F05E83C`), and the release's slide rides GoldenEye's matrix.
+With hand reload the gun stays empty until a magazine seats, so the PP7 locks
+open on its last round and closes on a loaded magazine, as GE-X's does.
+
+**Gun fit** (launcher or in-game): X steps to **held ammo** and **ammo
+insertion** for a Bean magazine too. They move the magazine in the off hand and
+the well's mouth on the gun; the off trigger in the insertion mode puts the
+mouth at the held magazine's top. Saved per gun as `BeanMagFit<item>_<0|1>`,
+the PP7s sharing item 4's. Unfitted, both are where the mesh has them.
+
+### Adding a gun
+
+1. Copy the PP7's row in `gevr_beanmag.c` for the gun's file, then draw it:
+   `python tools/gevr_bean_mag_preview.py <xbla files> <out dir> gun/<name>`.
+   Move the row's plane (unit normal up the well; `n.p + d >= 0` stays on the
+   gun) and box until the picture shows the foot blue, the body and the well's
+   floor orange, and the hand whole.
+2. Name its item in `gun.c gevrBeanMagItem` (and `gevrBeanMagFit` if it shares
+   another's fits).
+3. `python port/tests/test_bean_magazine.py <xbla files>` and
+   `python port/tests/test_hand_reload.py`; with the ROM,
+   `python port/tests/test_bean_mapping.py <ROM> <xbla files>` prints a
+   `MAGAZINE` line for it.
+
+A rifle's magazine hangs outside the gun, so its cut is the whole magazine and
+its made body should be short or none (`bodyLength`); the table has not been
+tried on one yet.
+
+### Not done yet
+
+- Not checked in the headset: the held magazine's place in the hand, the well's
+  reach (4 cm for a pistol), and how the open grip and plain body look. The pull
+  for a Bean gun (its foot as drawn, nearer than the two-handed hold) has no gun
+  to run on until a rifle or submachine gun is in the table.
+- The magazine at the belt is drawn untinted, and there is no ghost in the well
+  (GE-X has both).
+- Nothing is sent to other players: the magazine's state is local, as GE-X's.
+
+### Path to a manual slide rack (both families)
+
+Not built. GE-X has none either: its slide cycles, locks open and closes on its
+own. The plan keeps GoldenEye's `field_A88` as the one slide position for both
+model sets, so the mesh side is already shared (GE-X: part 0x33's matrix,
+`gevrGexSlideTo`; Bean: `Switches[7]`).
+
+1. **A chambered flag per gun hand**, beside the magazine's state in
+   `bondview2.c`. A shot chambers the next round while the magazine has one; the
+   last shot leaves the chamber empty and the slide back.
+2. **The clock waits for the hand.** `sub_GAME_7F05E83C` returns the slide while
+   `weapon_ammo_in_magazine > 0`; with manual rack on it also needs the flag, so
+   a magazine seated on an empty chamber leaves the slide locked.
+3. **The grab.** A point at the slide's rear per gun (GE-X: a `GexWeaponDef`
+   field in the slide matrix's space; Bean: a field in `GevrBeanMagDef`'s row).
+   The off hand's fresh grip within reach owns the slide until let go, ahead of
+   the magazine and the two-handed hold (`gevrGexClaimsOffHand` is where that
+   order is decided). While held, `field_A88` is the hand's pull along the
+   slide's own z, clamped to `BoltRecoilBack`.
+4. **The rack.** Pulled past most of its travel and let go, the slide runs home
+   on the existing clock and sets the flag. Let go short of that, it returns
+   without chambering. A release button can do the same from locked.
+5. **Rules.** A reload with a round still chambered needs no rack. Racking a
+   loaded gun throws a round away (reserve unchanged, magazine less one), or is
+   refused; decide in the headset.
+6. **Around it.** A `RACK THE SLIDE` label (`gevr_hand_reload.h`), a Gun fit mode
+   for the grab point, its own toggle (off by default, under Hand reload), and
+   `test_slide_lock.py` extended to the held slide and the flag.
+
+Only guns with a slide part and a bolt stat take part: the PP7s and the DD44.
+Rifle bolts and charging handles are the same mechanism with another point and
+axis.
 
 ## Validation for PR #170
 

@@ -425,6 +425,13 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; GexBatOff and GexBatOffRot: the off hand where it holds the rifle (both hands).\n");
     fprintf(f, "GexBatOff=%.4f %.4f %.4f\n", VrGexBatFit[3][0], VrGexBatFit[3][1], VrGexBatFit[3][2]);
     fprintf(f, "GexBatOffRot=%.4f %.4f %.4f\n", VrGexBatFit[4][0], VrGexBatFit[4][1], VrGexBatFit[4][2]);
+    fprintf(f, "; Bean guns' magazines: item number / vector (0 held magazine, 1 magazine well); fitted ones only.\n");
+    for (int item=0; item<64; item++)
+        for (int which=0; which<2; which++) {
+            const float *v=VrBeanMagFits[item][which];
+            if (v[0] != 0.0f || v[1] != 0.0f || v[2] != 0.0f)
+                fprintf(f, "BeanMagFit%d_%d=%.4f %.4f %.4f\n", item, which, v[0], v[1], v[2]);
+        }
     fprintf(f, "; Per-weapon fits: item number / vector (0 gun, 1 grab, 2 support, 3 rotation, 4 held mag, 5 well, 6 installed mesh).\n");
     for (int item=0; item<64; item++) {
         /* Do not write zero overrides for models implemented by future builds. */
@@ -636,6 +643,15 @@ extern "C" void vrSettingsLoad(void)
                 continue;
             }
             // BodySlots=, BodySlotShow=, BodySlotSize=: the integer keys below
+        }
+        if (strncmp(line, "BeanMagFit", 10) == 0) {
+            int item, which, consumed=0; float t[3];
+            if (sscanf(line, "BeanMagFit%d_%d=%n", &item, &which, &consumed) == 2 && consumed > 0
+                && item >= 0 && item < 64 && which >= 0 && which < 2
+                && sscanf(line+consumed, "%f %f %f", &t[0], &t[1], &t[2]) == 3
+                && std::isfinite(t[0]) && std::isfinite(t[1]) && std::isfinite(t[2]))
+                memcpy(VrBeanMagFits[item][which], t, sizeof(t));
+            continue;
         }
         if (strncmp(line, "GexFit", 6) == 0) {
             int item, component, consumed=0; float t[3];

@@ -22,6 +22,7 @@
 #include "gevr_romlayout.h"
 #include "gevr_mirror.h"
 #include "gevr_bean_int.h"
+#include "gevr_beanmag.h"
 #include "gevr_bean_ce.h"
 #include "gevr_skin_mesh.h"
 #include "gevr_bean_room_state.h"
@@ -105,6 +106,10 @@ struct beanSwap {
 	int deferredMatrix;
 	int watchArm;
 	void *spent;   /* DAB fpRound: the rocket launcher drawn with nothing in its tube */
+	/* a gun's removable magazine (gevr_beanmag.h, gunMagazine()): the body with
+	 * the magazine out, the magazine itself, and where it sits; NULL without one */
+	void *open, *magazine;
+	struct gevrBeanMagInfo *magInfo;
 	/* A rigid prop's own list and vertices (gevrBeanEmitList), for the copy a
 	 * destroyed instance draws (gevrBeanScorchedGdl); NULL for the others. */
 	Gfx *emitted;
@@ -275,6 +280,8 @@ static void swapAdd(void *node, void *original, void *ours, int origType)
 	s_swap[s_nswap].deferredMatrix = 0;
 	s_swap[s_nswap].watchArm = s_registrationWatchArm;
 	s_swap[s_nswap].spent = NULL;
+	s_swap[s_nswap].open = s_swap[s_nswap].magazine = NULL;
+	s_swap[s_nswap].magInfo = NULL;
 	s_swap[s_nswap].emitted = NULL;
 	s_swap[s_nswap].emittedVtx = NULL;
 	s_swap[s_nswap].emittedVerts = s_swap[s_nswap].emittedCommands = s_swap[s_nswap].emittedWorld = 0;
@@ -321,11 +328,34 @@ void *gevrBeanFadeMark(void *gdl, int alpha)
     return g + 1;
 }
 
+/* A gun's removable magazine (gun.c sets it for the hand it draws): in the gun,
+ * out of it (the gun is drawn with its well empty), or the magazine drawn on
+ * its own. A gun without one draws as ever. */
+static int s_magazine = GEVR_BEAN_MAG_IN;
+
+void gevrBeanSetMagazine(int state)
+{
+	s_magazine = state;
+}
+
+int gevrBeanGunMagazine(const void *header, struct gevrBeanMagInfo *out)
+{
+	for (int i = 0; header && i < s_nswap; i++)
+		if (s_swap[i].owner == header && s_swap[i].magInfo && activeSwap(s_swap[i].node) == &s_swap[i]) {
+			if (out)
+				*out = *s_swap[i].magInfo;
+			return 1;
+		}
+	return 0;
+}
+
 void *gevrBeanShownGdl(void *node, void *current)
 {
 	struct beanSwap *s = activeSwap(node);
 	/* GE-X and the VR watch hide the hand by clearing its native list.
 	 * Honour that per-draw visibility instead of resurrecting the Bean arm. */
+	if (s && (current || !s->original) && s->magInfo && s_magazine != GEVR_BEAN_MAG_IN)
+		return s_magazine == GEVR_BEAN_MAG_ITSELF ? s->magazine : s->open;
 	return s && (current || !s->original) ? (s->spent && !s_loaded ? s->spent : s->ours) : current;
 }
 
@@ -1968,6 +1998,89 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 	}
 }
 
+/*
+ * A gun's removable magazine (gevr_beanmag.h; user, 2026-11-18): the body list
+ * laid out twice more from the mesh cut across its grip - without the magazine,
+ * the well floored, and the magazine alone - both on the body's matrix and from
+ * its rest, so the magazine drawn under the gun's own matrix sits in the gun
+ * and under any other is out of it (gun.c gevrBeanMagDraw). Only the body's
+ * own triangles are cut: not the hand's, the slide's or the flash's.
+ */
+static void gunMagazine(const GevrBeanMagDef *def, const struct gevrBeanMesh *mesh, int kind, int hasHead,
+                        ModelNode *node, const struct beanFit *fit, const float *rest,
+                        const struct beanGunParts *parts)
+{
+	struct beanSwap *body = swapOf(node);
+	const struct beanGunParts *wasParts = s_parts;
+	const struct gevrBeanMesh *wasMesh = s_partsMesh;
+	const int wasWant = s_partWant;
+	unsigned char *eligible = calloc((size_t)(mesh->ntris ? mesh->ntris : 1), 1);
+	struct gevrBeanMagInfo *info = NULL;
+	GevrBeanMagBuilt built;
+	if (!body || body->ours == s_blank || !eligible || !parts->of) {
+		free(eligible);
+		return;
+	}
+	for (int t = 0; t < mesh->ntris; t++)
+		eligible[t] = parts->of[t] == parts->body && !gunGloveTri(mesh, &mesh->tris[t]) &&
+		              !(mesh->tris[t].flags & (GEVR_BEAN_F_FLASH | GEVR_BEAN_F_SLIDE | GEVR_BEAN_F_ROUND));
+	if (!gevrBeanMagBuild(def, mesh->tris, mesh->ntris, eligible, &built)) {
+		GEVR_BEAN_LOG("gevr bean: %s: no magazine to cut\n", fit->source);
+		free(eligible);
+		return;
+	}
+	free(eligible);
+	for (int pass = 0; pass < 2; pass++) {
+		struct gevrBeanMesh piece = *mesh;
+		struct beanGunParts of = *parts;
+		void *g = NULL, *v = NULL;
+		piece.tris = pass ? built.mag : built.open;
+		piece.ntris = pass ? built.nmag : built.nopen;
+		piece.draws = NULL;
+		piece.ndraws = 0;
+		piece.triSrc = NULL;
+		of.of = malloc((size_t)piece.ntris);
+		if (!of.of)
+			break;
+		for (int t = 0; t < piece.ntris; t++)
+			of.of[t] = pass || built.openSrc[t] < 0 ? (int8_t)parts->body : parts->of[built.openSrc[t]];
+		s_parts = &of;
+		s_partsMesh = &piece;
+		s_partWant = parts->body;
+		if (emitRigid(&piece, kind, hasHead, node, fit, NULL, -1, rest, 0, &g, &v)) {
+			keepAlloc(g);
+			keepAlloc(v);
+			*(pass ? &body->magazine : &body->open) = wrapEmitted(node, g);
+		}
+		free(of.of);
+	}
+	s_parts = wasParts;
+	s_partsMesh = wasMesh;
+	s_partWant = wasWant;
+	if (body->open && body->magazine)
+		info = malloc(sizeof(*info));
+	if (info && keepAlloc(info)) {
+		const float *from[3] = { built.mouth, built.top, built.foot };
+		float *to[3] = { info->mouth, info->top, info->foot };
+		info->node = node;
+		info->matrix = nodeMatrix(node);
+		for (int p = 0; p < 3; p++) {
+			fitPoint(fit, from[p], to[p]);
+			for (int k = 0; k < 3; k++)
+				to[p][k] -= rest ? rest[k] : 0.0f;
+		}
+		for (int k = 0; k < 3; k++)
+			info->axis[k] = built.axis[fit->perm[k]] * fit->sign[k];
+		body->magInfo = info;
+		GEVR_BEAN_LOG("gevr bean: %s: magazine of %d triangles (%d its foot), the gun without it %d\n", fit->source,
+		              built.nmag, built.nfoot, built.nopen);
+	} else {
+		free(info);
+		body->open = body->magazine = NULL;
+	}
+	gevrBeanMagFree(&built);
+}
+
 static int emitSkinned(const struct gevrBeanMesh *mesh, int sk, int hasHead,
                        const float R[GEVR_BEAN_SK_COUNT][9], float scale, const struct beanGrp *grp, int ng,
                        const ModelFileHeader *header, int cuff, int whole, void **gdl, void **vtx)
@@ -2797,6 +2910,10 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 					}
 					s_noRound = 0;
 				}
+				/* a magazine-fed gun's magazine, to take out by hand (gevr_beanmag.h) */
+				if (gun && mainEmitted && !mesh->triggerCuffs && parts.of && fit && gevrBeanMagFor(fit->source))
+					gunMagazine(gevrBeanMagFor(fit->source), mesh, kind, hasHead, dls[best].node, fit,
+					            grp[dls[best].grp].o, &parts);
 				/* the watch items' pressing hand on GoldenEye's palm and finger */
 				for (int k = 1; press.of && k <= 2; k++) {
 					const int list = k == 1 ? press.palm : press.finger;

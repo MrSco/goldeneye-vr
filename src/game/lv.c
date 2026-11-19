@@ -1132,15 +1132,16 @@ Gfx* lvlRender(Gfx* DL)
                 /* hand reload: a gun reloads by gesture only (bondview2.c gevrHandReloadTick);
                  * there a GoldenEye X gun drops its magazine out instead (user) */
                 extern void gevrGexDropMagazine(s32 hand);
+                extern s32 gevrReloadButtonDrops(s32 hand);   /* not a Bean gun without a magazine: B reloads it */
 
                 if (reloadMask & 1)
                 {
-                    if (!gevrHandReloadActive()) attempt_reload_item_in_hand(GUNRIGHT);
+                    if (!gevrReloadButtonDrops(GUNRIGHT)) attempt_reload_item_in_hand(GUNRIGHT);
                     else gevrGexDropMagazine(GUNRIGHT);
                 }
                 if (reloadMask & 2)
                 {
-                    if (!gevrHandReloadActive()) attempt_reload_item_in_hand(GUNLEFT);
+                    if (!gevrReloadButtonDrops(GUNLEFT)) attempt_reload_item_in_hand(GUNLEFT);
                     else gevrGexDropMagazine(GUNLEFT);
                 }
 #else

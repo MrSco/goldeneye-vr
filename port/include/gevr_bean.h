@@ -61,6 +61,22 @@ int gevrBeanPreviewPose(struct Model *model, const float root[4][4]);
  * drawn in its mouth then) */
 void gevrBeanSetLoaded(int loaded);
 int gevrBeanHasRound(const void *header);
+/* A magazine-fed gun's removable magazine (gevr_beanmag.h): made with the gun
+ * when the gun is laid out. The gun's body list is drawn with the magazine in
+ * (as the release made it), with it out and the well empty, or as the magazine
+ * alone, which sits in the gun under the body's own matrix. Points are in that
+ * list's space: the body matrix takes them to the view. */
+enum { GEVR_BEAN_MAG_IN, GEVR_BEAN_MAG_OUT, GEVR_BEAN_MAG_ITSELF };
+struct gevrBeanMagInfo {
+	void *node;      /* the body's list */
+	int matrix;      /* and its matrix */
+	float mouth[3];  /* the well's mouth */
+	float top[3];    /* the seated magazine's top */
+	float foot[3];   /* its foot: where a hand takes it */
+	float axis[3];   /* up the well, unit */
+};
+void gevrBeanSetMagazine(int state);
+int gevrBeanGunMagazine(const void *header, struct gevrBeanMagInfo *out);
 /* whether the release draws any of a model's lists now */
 int gevrBeanDrawsModel(const void *header);
 void gevrBeanReset(void);

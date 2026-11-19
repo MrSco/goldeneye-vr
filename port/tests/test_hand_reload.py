@@ -35,7 +35,7 @@ defaults = read("port/vr/vr_settings_defaults.c")
 matrix = read("src/game/matrixmath.c")
 definitions = [re.search(r"typedef enum " + name + r"\b.*?\}\s*" + name + r";",
                          constants, re.S).group() for name in ("GUNHAND", "ITEM_IDS")]
-for first in ("GEVR_GT_HIPDROP", "GEVR_RT_MAGRADIUS", "GEVR_GEXMAG_IN"):
+for first in ("GEVR_GT_HIPDROP", "GEVR_RT_MAGRADIUS", "GEVR_GEXMAG_IN", "GEVR_WC_PISTOLS"):
     definitions.append(re.search(r"enum \{ " + first + r"\b.*?\};", view, re.S).group())
 for name in ("s_gevrGestureTune", "s_gevrReloadTune"):
     definitions.append(re.search(r"static f32 " + name + r"\[.*?\};", view, re.S).group())
@@ -76,7 +76,12 @@ production.extend(function(view, signature) for signature in (
     "static s32 gevrReloadGun(", "s32 gevrReloadSupportGun(void)\n{", "static s32 gevrReloadMagazineFed(",
     "s32 gevrStereoReloadHandMatrix(Mtxf *out)\n{",
     "s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)\n{",
-    "s32 gevrHandReloadActive(", "s32 gevrManualReloadOn(", "static s32 gevrGexByHand(",
+    "static s32 gevrReloadItemByHand(", "static s32 gevrHandReloadBase(",
+    "s32 gevrHandReloadActive(", "s32 gevrManualReloadOn(", "s32 gevrReloadButtonDrops(",
+    "static s32 gevrBeanByHand(", "static s32 gevrGexByHand(",
+    "static s32 gevrReloadSingleRound(", "static s32 gevrReloadHasMagazine(", "static s32 gevrReloadPullsUp(",
+    "static s32 gevrReloadMagPulls(",
+    "static s32 gevrReloadPoints(",
     "s32 gevrGexHeldRoundCount(void)\n{",
     "static void gevrGexHeldDropped(", "static void gevrGexMagOut(",
     "void gevrReloadInventoryReset(", "static void gevrReloadInventoryRelease(",
@@ -89,7 +94,9 @@ production.extend(function(view, signature) for signature in (
     "s32 gevrReloadBeltAmmo(", "s32 gevrReloadBeltHover(", "s32 gevrReloadBeltRound(", "s32 gevrReloadBeltOffers(", "s32 gevrReloadBeltAtHand(", "s32 gevrReloadGrabBelt(", "s32 gevrReloadBeltPoint(", "s32 gevrReloadSeatHover(",
     "void gevrGexReloadReset(",
     "s32 gevrGexClaimsOffHand(void)\n{", "s32 gevrGexHeldPalm(f32 out[3])\n{",
-    "s32 gevrGexMagState(s32 hand, f32 off[3])\n{", "s32 gevrReloadLabel(s32 hand)\n{", "void gevrGexDropMagazine(",
+    "s32 gevrGexMagState(s32 hand, f32 off[3])\n{", "s32 gevrBeanMagState(s32 hand, f32 off[3])\n{",
+    "s32 gevrBeanHeldPalm(f32 out[3])\n{",
+    "s32 gevrReloadLabel(s32 hand)\n{", "void gevrGexDropMagazine(", "s32 gevrReloadClaimsOffHand(void)\n{",
     "static void gevrHandReloadFire(", "static void gevrGexRoundTick(", "void gevrHandReloadTick("))
 for signature in ("static s32 gevrReloadNeedsAmmo(", "static s32 gevrReloadBeltReach("):
     if signature in view:
@@ -97,6 +104,7 @@ for signature in ("static s32 gevrReloadNeedsAmmo(", "static s32 gevrReloadBeltR
 production.extend(function(view, signature) for signature in (
     "s32 gevrReloadHoldsHand(s32 ctrl)\n{", "void gevrHandChopTick(", "s32 gevrHandChopSwinging(", "s32 gevrTaserTouch("))
 production.append(function(view,"s32 gevrReloadFitAvailable(void)\n{"))
+production.append(function(view,"s32 gevrWeaponCategory(s32 item)\n{"))
 production.append(function(view,"void gevrGripGestureInput("))
 production.append(function(view,"void gevrReloadFitSetBelt("))
 production.append(function(view,"void gevrReloadFitSetGrab("))

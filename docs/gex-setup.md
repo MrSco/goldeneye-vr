@@ -226,10 +226,11 @@ The Moonraker laser has no physical reload or magazine fit modes.
 You can also bring an empty GE-X gun to the belt to reload it directly,
 including either gun when dual-wielding. Left GE-X guns are mirrored. For KF7,
 a grip near the magazine or the supporting-hand point takes the nearer one.
-For **PP7**, ordinary cupping favors support; release grip and take a fresh grab
-distinctly below the pistol to pull its magazine, or use button eject. A support
-hold never turns into a magazine pull while grip stays pressed. Both paths give
-haptic feedback when the off hand takes hold.
+The **pistols** (both PP7s, the silver and gold ones, the DD44) are not pulled:
+their magazine is inside the grip, with too little showing to take hold of. Use
+button eject (B / Y), then take a fresh magazine at the belt and push it up into
+the grip. A grip under a pistol is always the supporting hand's. Taking hold
+gives haptic feedback.
 
 Both PP7 variants share their own gun, support and magazine-grab calibration,
 independent of KF7. Their muzzle calibration remains separate. PP7 fit and
