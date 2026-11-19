@@ -46,11 +46,13 @@ struct GfxMeshDrawParams {
     GevrSkinPalette palette; // copied into redraw records, never a frame-arena pointer
 };
 
-/* A depth-tested draw pulled toward the eye as a decal is (-2,-2) and
- * passing ties, but not a decal: no band, no back-face rule. A held
- * model's second list (gfx_pc.cpp VR_DEPTH_PULL_NEXT, model.c). Above the
- * RDP's ZMODE_* bits, so recorded draws carry it in their zmode. */
-#define GEVR_ZMODE_PULL 0x1000
+/* A depth-tested draw pulled toward the eye and passing ties, but not a
+ * decal (no band, no back-face rule): a held model's lists, in GoldenEye's
+ * painter's order (gfx_pc.cpp VR_DEPTH_PULL_NEXT, model.c). A level 1-15,
+ * each a step further, so what was drawn later wins a tie. Above the RDP's
+ * ZMODE_* bits, so recorded draws carry it in their zmode. */
+#define GEVR_ZMODE_PULL_SHIFT 12
+#define GEVR_ZMODE_PULL_MASK 0xF000
 
 struct GfxRenderingAPI {
     const char* (*get_name)(void);
@@ -66,7 +68,7 @@ struct GfxRenderingAPI {
     void (*select_texture)(int tile, uint32_t texture_id, bool linear_filter);
     void (*upload_texture)(const uint8_t* rgba32_buf, uint32_t width, uint32_t height);
     void (*set_sampler_parameters)(int sampler, bool linear_filter, uint32_t cms, uint32_t cmt);
-    /* zmode: the RDP's ZMODE_* bits, plus GEVR_ZMODE_PULL */
+    /* zmode: the RDP's ZMODE_* bits, plus a GEVR_ZMODE_PULL level */
     void (*set_depth_mode)(bool depth_test, bool depth_update, bool depth_compare, bool depth_source_prim, uint16_t zmode);
     void (*set_depth_range)(float znear, float zfar);
     void (*set_viewport)(int x, int y, int width, int height);

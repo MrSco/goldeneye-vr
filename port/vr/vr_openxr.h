@@ -167,7 +167,8 @@ extern void gfx_vr_hud_capture_end_P(void);
 // quad must not hang over an edge. A model's decals lie on its own surface.
 #define VR_IMPACT_DL_BEGIN 0x56610000
 #define VR_IMPACT_DL_END   0x56610001
-/* the render mode set next pulls toward the eye (gfx_pc.cpp s_depthPull): a held model's second list */
+/* the render mode set next pulls toward the eye from level (low byte) 1 (a held model's
+ * first list) or 8 (its second), each picture a level further (gfx_pc.cpp s_depthPull) */
 #define VR_DEPTH_PULL_NEXT 0x56630000
 extern void gfx_vr_hud_capture_begin_H(void);
 extern void gfx_vr_hud_capture_end_H(void);

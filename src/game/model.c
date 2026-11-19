@@ -3857,6 +3857,12 @@ void modelApplyRenderModeType3(ModelRenderData *renderdata, bool isPrimary)
 
             if (renderdata->zbufferenabled)
             {
+#ifdef GEVR
+                /* depth-tested, in GoldenEye's painter's order (VR_DEPTH_PULL_NEXT,
+                 * gfx_pc.cpp): the rocket launcher's grip draws a pattern over
+                 * its grey in this one list, and the two tied (user 2026-11-19) */
+                gDPNoOpTag(renderdata->gdl++, 0x56630001);   /* VR_DEPTH_PULL_NEXT, level 1 */
+#endif
                 gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_ZB_OPA_SURF2);
             }
             else
@@ -3881,11 +3887,11 @@ void modelApplyRenderModeType3(ModelRenderData *renderdata, bool isPrimary)
                  * It lies on the first list in places - the rocket launcher's
                  * labels on its tube - which GoldenEye's order drew it over;
                  * depth-tested, the two tied and the labels flickered (user,
-                 * 2026-11-19). Pulled toward the eye as a decal is, it wins
-                 * (VR_DEPTH_PULL_NEXT, gfx_pc.cpp): still solid, still culled
-                 * by what stands in front of it.
+                 * 2026-11-19). Pulled toward the eye past the first list, it
+                 * wins (VR_DEPTH_PULL_NEXT, gfx_pc.cpp): still solid, still
+                 * culled by what stands in front of it.
                  */
-                gDPNoOpTag(renderdata->gdl++, 0x56630000);   /* VR_DEPTH_PULL_NEXT */
+                gDPNoOpTag(renderdata->gdl++, 0x56630008);   /* VR_DEPTH_PULL_NEXT, level 8 */
                 gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_ZB_TEX_EDGE2);
 #else
                 gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_ZB_XLU_SURF2);
