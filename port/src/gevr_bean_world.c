@@ -769,6 +769,90 @@ static int markBackdrop(const struct gevrBeanMesh *mesh, float fileScale, int nr
 	return marked;
 }
 
+/*
+ * DAB gebeanstage.c markOverlaps() (port/licenses/dabs-mod.txt): Bean's solid
+ * faces drawn culled where GoldenEye's own face under them has another room's
+ * space behind it - the first of GoldenEye's faces a line back from it meets,
+ * within 64 units, faces the same way (a wall of the space behind, not the far
+ * side of a slab), and that space is closed on all six sides by GoldenEye's
+ * faces turned into it (not the open air under a roof's edge or behind a
+ * gantry's panel). GoldenEye's rooms overlap and rely on their faces being
+ * culled: Aztec's computer room by the exhaust vent is a box whose west wall
+ * runs through the vent's last 50 units, and from the vent GoldenEye shows the
+ * room through the back of that wall, the body armour on the floor. Bean's
+ * wall, drawn two-sided, was a stone face across the vent. Marked as a sheet's
+ * face (GEVR_BEAN_SIDE_BACKED): its back culled.
+ */
+#define OVERLAP_REACH 64.0f
+#define OVERLAP_SPACE 400.0f
+
+static int markOverlaps(struct gevrBeanMesh *mesh, float fileScale)
+{
+	static const float axes[6][3] = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 } };
+	int count = 0;
+	if (!s_tree)
+		return 0;
+	for (int i = 0; i < mesh->ntris; i++) {
+		struct gevrBeanTri *t = &mesh->tris[i];
+		float p[3][3], e1[3], e2[3], n[3], mid[3], o[3], back[3], nf[3], best = OVERLAP_REACH, len, pd;
+		if ((t->flags & (GEVR_BEAN_F_DECAL | GEVR_BEAN_F_PAINTED)) || t->alpha < 255 || t->side ||
+		    (t->tex >= 0 && t->tex < mesh->ntex && mesh->texCut[t->tex]))
+			continue;
+		for (int v = 0; v < 3; v++)
+			for (int k = 0; k < 3; k++)
+				p[v][k] = t->p[v * 3 + k] * fileScale;
+		for (int k = 0; k < 3; k++) {
+			e1[k] = p[1][k] - p[0][k];
+			e2[k] = p[2][k] - p[0][k];
+		}
+		n[0] = e1[1] * e2[2] - e1[2] * e2[1];
+		n[1] = e1[2] * e2[0] - e1[0] * e2[2];
+		n[2] = e1[0] * e2[1] - e1[1] * e2[0];
+		len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+		if (!(len > 0.0f))
+			continue;
+		for (int k = 0; k < 3; k++) {
+			n[k] /= len;
+			mid[k] = (p[0][k] + p[1][k] + p[2][k]) / 3.0f;
+			back[k] = -n[k];
+			o[k] = mid[k] - n[k];
+		}
+		pd = n[0] * mid[0] + n[1] * mid[1] + n[2] * mid[2];
+		/* GoldenEye has a face here, facing the same way */
+		{
+			float dist = 16.0f;   /* 4 units, squared */
+			int ref = -1;
+			roomReferenceNearestTri(0, mid, &dist, &ref);
+			if (ref < 0 || !roomReferenceNormal(ref, nf))
+				continue;
+			const float dot = nf[0] * n[0] + nf[1] * n[1] + nf[2] * n[2];
+			if (dot < 0.9f)
+				continue;
+		}
+		/* the first of GoldenEye's faces behind it faces the same way: a space */
+		if (roomRayFirst(o, back, n, pd, OVERLAP_REACH, &best, nf) < 0 ||
+		    nf[0] * n[0] + nf[1] * n[1] + nf[2] * n[2] < 0.5f || best < 8.0f)
+			continue;
+		/* and the space between is closed all round */
+		{
+			const float in[3] = { o[0] + back[0] * best * 0.5f, o[1] + back[1] * best * 0.5f, o[2] + back[2] * best * 0.5f };
+			int closed = 1;
+			for (int a = 0; a < 6 && closed; a++) {
+				float far = OVERLAP_SPACE, na[3];
+				closed = roomRayFirst(in, axes[a], n, pd, OVERLAP_SPACE, &far, na) >= 0 &&
+				         na[0] * axes[a][0] + na[1] * axes[a][1] + na[2] * axes[a][2] < 0.0f;
+			}
+			if (!closed)
+				continue;
+		}
+		t->side = GEVR_BEAN_SIDE_BACKED;
+		count++;
+	}
+	if (count)
+		GEVR_BEAN_LOG("gevr bean: %d faces over another room's space drawn culled\n", count);
+	return count;
+}
+
 static int roomFor(const float c[3], int nrooms)
 {
 	if (s_tree) {
@@ -1107,6 +1191,7 @@ static int buildStage(int stage)
 		if (nofogs)
 			GEVR_BEAN_LOG("gevr bean: %s: %d triangles over GoldenEye's surfaces drawn without fog\n", st->bg, nofogs);
 	}
+	markOverlaps(mesh, fileScale);
 	markWater(mesh, fileScale);
 	markUnderSea(mesh, fileScale);
 	shotsBuild(mesh, assign, st->scale);
