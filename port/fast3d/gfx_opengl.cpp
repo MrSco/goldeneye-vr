@@ -388,7 +388,7 @@ struct ShaderProgram {
     bool opt_fog, opt_grayscale, is_mesh;
     float motion_cut;   // SpaceWarp: the alpha a cutout discards below, 0 for none (gfx_vr_motion_pass)
     GLint meshTintLocation, meshLitLocation, meshAmbientLocation, meshLightDirLocation, meshLightColorLocation,
-        meshNumLightsLocation, meshFogLocation, meshFogParamsLocation, meshValidLocation;
+        meshNumLightsLocation, meshFogLocation, meshFogParamsLocation, meshFogEyeLocation, meshValidLocation;
     // each array element on its own: the compiler keeps only those the shader uses
     GLint meshWoundCountLocation, meshWoundLocation;
     GLint meshNormalTexLocation, meshNormalAxisLocation, meshMPLocation, meshTexLocation[2], meshTexRotationLocation[2], meshInSelLocation[GFX_MESH_MAX_INPUTS],
@@ -465,7 +465,11 @@ static void gevr_decal_switch_poll(void)
 {
     static unsigned n;
     if ((n++ % 240) != 0) return;
+#ifdef GEVR_PC
+    FILE *f = fopen("gevr_decal.txt", "r");   /* the data folder (Apple's, the PC's) */
+#else
     FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_decal.txt", "r");
+#endif
     int mode = 0;
     float a = 0.0f, b = 0.0f;
     if (f) {
@@ -500,7 +504,11 @@ static void gevr_zdebug_poll(void)
     static unsigned n;
     unsigned frame = n++;
     if ((frame % 120) != 0) return;
+#ifdef GEVR_PC
+    FILE *f = fopen("gevr_zdebug.txt", "r");   /* the data folder (Apple's, the PC's) */
+#else
     FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_zdebug.txt", "r");
+#endif
     int mode = 0;
     if (f) {
         if (fscanf(f, "%d", &mode) < 1) mode = 0;
@@ -1491,6 +1499,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         append_line(vs_buf, &vs_len, "uniform vec3 uMeshAmbient, uMeshLightDir[7], uMeshLightColor[7];");
         append_line(vs_buf, &vs_len, "uniform vec4 uMeshFog;");
         append_line(vs_buf, &vs_len, "uniform vec4 uMeshFogParams;");
+        append_line(vs_buf, &vs_len, "uniform vec4 uMeshFogEye;");   // GEVR_ROOM_RADIAL (gfx_pc.cpp gevr_fog_radial_scale)
         append_line(vs_buf, &vs_len, "void skinAdd(int b, float w, vec3 p, vec3 n, inout vec3 pos, inout vec3 norm, inout float total) {");
         append_line(vs_buf, &vs_len, "  if (w == 0.0 || (uSkinValid[b / 32] & (1u << uint(b % 32))) == 0u) return;");
         append_line(vs_buf, &vs_len, "  vec4 r0 = uSkinRows[b*3], r1 = uSkinRows[b*3+1], r2 = uSkinRows[b*3+2];");
@@ -1573,7 +1582,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         if (cc_features.opt_fog) {
             append_line(vs_buf, &vs_len, "    float fw = abs(aVtxPos.w) < 0.001 ? 0.001 : aVtxPos.w;");
             append_line(vs_buf, &vs_len, "    float wi = fw < 0.0 ? 32767.0 : 1.0 / fw;");
-            append_line(vs_buf, &vs_len, "    vec4 aFog = vec4(uMeshFog.rgb, uMeshFogParams.z != 0.0 ? clamp((uMeshFogParams.w != 0.0 ? aVtxPos.w : aVtxPos.z * wi) * uMeshFogParams.x + uMeshFogParams.y, 0.0, 255.0) / 255.0 : uMeshFog.a);");
+            append_line(vs_buf, &vs_len, "    vec4 aFog = vec4(uMeshFog.rgb, uMeshFogParams.z != 0.0 ? clamp((uMeshFogParams.w != 0.0 ? (uMeshFogEye.w > 0.0 ? length(vec3(aVtxPos.x * uMeshFogEye.x, aVtxPos.y * uMeshFogEye.y, aVtxPos.w)) : aVtxPos.w) : aVtxPos.z * wi) * uMeshFogParams.x + uMeshFogParams.y, 0.0, 255.0) / 255.0 : uMeshFog.a);");
         }
         if (s_meshClipDistance) {
             // gfx_sp_tri1 drops a triangle past the squashed far plane at all three
@@ -1843,11 +1852,14 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         // the edge in the texture becomes coverage: alpha sharpened to about a pixel
         // of its slope, half coverage at the cut, through alpha-to-coverage. Writing
         // gl_SampleMask instead dropped the whole draw on Quest 3's multiview MSAA.
+        // A soft cut-out's solid core (GEVR_NODE_CORE, DAB G_ALPHA_CORE_EXT): three quarters
+        // alpha and more, the rest blended over it by the list's fringe batch
+        const char *cut = cc_features.opt_alpha_core ? "0.75" : "0.19";
         append_line(fs_buf, &fs_len, "    if (uEdgeA2C != 0) {");
-        append_line(fs_buf, &fs_len,
-                    "        texel.a = clamp((texel.a - 0.19) / max(fwidth(texel.a), 0.0001) + 0.5, 0.0, 1.0);");
+        fs_len += sprintf(fs_buf + fs_len,
+                    "        texel.a = clamp((texel.a - %s) / max(fwidth(texel.a), 0.0001) + 0.5, 0.0, 1.0);\n", cut);
         append_line(fs_buf, &fs_len, "        if (texel.a <= 0.0) discard;");
-        append_line(fs_buf, &fs_len, "    } else if (texel.a > 0.19) texel.a = 1.0; else discard;");
+        fs_len += sprintf(fs_buf + fs_len, "    } else if (texel.a > %s) texel.a = 1.0; else discard;\n", cut);
     }
 
     if (cc_features.opt_alpha && cc_features.opt_noise) {
@@ -2016,7 +2028,8 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     prg->opt_grayscale = cc_features.opt_grayscale;
     prg->is_mesh = s_buildMesh;
     prg->motion_cut = !cc_features.opt_alpha || !cc_features.used_textures[0] ? 0.0f
-        : cc_features.opt_texture_edge ? 0.1901f : cc_features.opt_alpha_threshold ? 8.0f / 256.0f : 0.0f;
+        : cc_features.opt_texture_edge ? (cc_features.opt_alpha_core ? 0.7501f : 0.1901f)
+        : cc_features.opt_alpha_threshold ? 8.0f / 256.0f : 0.0f;
     prg->meshNormalTexLocation=s_buildMesh ? glGetUniformLocation(shader_program,"uNormalTex1") : -1;
     prg->meshWoundCountLocation=s_buildMesh ? glGetUniformLocation(shader_program,"uWoundCount") : -1;
     prg->meshWoundLocation=s_buildMesh ? glGetUniformLocation(shader_program,"uWound") : -1;
@@ -2048,6 +2061,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     prg->meshNumLightsLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshNumLights") : -1;
     prg->meshFogLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshFog") : -1;
     prg->meshFogParamsLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshFogParams") : -1;
+    prg->meshFogEyeLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshFogEye") : -1;
     prg->meshValidLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uSkinValid") : -1;
     glUseProgram(shader_program);
 
@@ -3170,8 +3184,28 @@ static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalD
 
     if (decalDepth) {
         if (decalPull != 0.0f) gevr_set_decal_bias(gfx_decal_proj_z * decalPull);
-        if (!current_depth_mask) glDepthMask(GL_TRUE);
+        /*
+         * Colour first without depth, as the RDP draws a decal, then its depth
+         * alone at the surface (no offset). Writing depth in the colour pass
+         * left a later decal on the same spot (Bunker II's bullet holes over
+         * their stain, Frigate's hull letters) only an exact tie against the
+         * earlier one. GPUs break such ties their own way: ANGLE on Metal
+         * tile by tile and frame by frame (#261, Bunker II's holes in blocks),
+         * the Quest along the letters' edges (Frigate's "06", N64 art, user
+         * 2026-11-19; written depth since v0.5.10), the PC not at all. Pushed
+         * back by the offset, the written depth leaves the next decal the same
+         * margin it has over its wall.
+         */
+        if (current_depth_mask) glDepthMask(GL_FALSE);
         gevr_draw_range(first, count);
+        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+        glDepthMask(GL_TRUE);
+        glPolygonOffset(0.0f, 0.0f);
+        if (decalPull != 0.0f) gevr_set_decal_bias(0.0f);   /* the surface itself */
+        gevr_draw_range(first, count);
+        if (s_decalMode == 1) glPolygonOffset(s_decalA, s_decalB);   /* as set_depth_mode left it */
+        else glPolygonOffset(-2.0f, -2.0f);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         if (!current_depth_mask) glDepthMask(GL_FALSE);
         if (decalPull != 0.0f) {
             gevr_set_decal_bias(0.0f);
@@ -3498,6 +3532,7 @@ static void gevr_mesh_uniforms(const struct ShaderProgram* prg, const struct Gfx
     if (prg->meshFogParamsLocation >= 0 && (changed(p->fog_mul,old.fog_mul) || changed(p->fog_offset,old.fog_offset) ||
         changed(p->fog_enabled,old.fog_enabled) || changed(p->fog_linear,old.fog_linear)))
         glUniform4f(prg->meshFogParamsLocation, p->fog_mul, p->fog_offset, p->fog_enabled, p->fog_linear);
+    if (prg->meshFogEyeLocation >= 0 && changed(p->fog_radial,old.fog_radial)) glUniform4fv(prg->meshFogEyeLocation, 1, p->fog_radial);
     if(prg->meshWoundCountLocation>=0 && changed(p->num_wounds,old.num_wounds))
         glUniform1i(prg->meshWoundCountLocation,p->num_wounds);
     if(prg->meshWoundLocation>=0 && p->num_wounds && changed(p->wounds,old.wounds))

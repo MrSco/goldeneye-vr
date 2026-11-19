@@ -20,6 +20,9 @@
 extern "C" {
 void sysLogPrintf(int level, const char *fmt, ...);
 void netVoicePermissionResult(int granted);   // net_voice.c
+#ifdef GEVR_TVOS
+int gevrIosMicAvailable(void);                // ios_app.m
+#endif
 }
 
 std::string pcLobbyEvent(void);              // pc_lobby.cpp: LobbyClient, ported
@@ -76,8 +79,15 @@ void pcServiceCommand(const char *method, const char *arg)
         return;
     }
     if (!strcmp(method, "requestVoicePermission")) {
+#ifdef GEVR_TVOS
+        // Apple TV has no microphone of its own, and opening SDL's capture
+        // device without one ended the app the moment a game started
+        // (reports 86a85fd7, 51bf4ffb): listen only unless an input exists.
+        netVoicePermissionResult(gevrIosMicAvailable());
+#else
         // a desktop's microphone needs no runtime permission
         netVoicePermissionResult(1);
+#endif
         return;
     }
     sysLogPrintf(0, "services: %s is not on PC yet (%s)", method, arg);

@@ -28,6 +28,7 @@ import hashlib
 import json
 import os
 import queue
+import re
 import signal
 import socket
 import ssl
@@ -66,6 +67,17 @@ def encode(text):
 def decode(text):
     return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4)).decode("utf-8")
 
+
+
+def devices_json(devices):
+    """devices|key@build,... as the Worker takes it: [{device, build}], at most eight,
+    odd entries left out (the game's LobbyClient.java devicesJson)."""
+    out = []
+    for entry in devices.split(",") if devices else []:
+        key, _, build = entry.partition("@")
+        if re.fullmatch(r"[a-z-]{1,16}", key) and re.fullmatch(r"[0-9a-z.-]{0,23}", build) and len(out) < 8:
+            out.append({"device": key, "build": build})
+    return out
 
 class HttpError(Exception):
     def __init__(self, status, message):
@@ -245,6 +257,7 @@ class Lobby:
         self.max_players = 4
         self.vr_only = None        # "VR players only" as the server last said; None: not said
         self.flat_players = None   # how many play flat, as the server last counted; None: not said
+        self.devices = None        # devices|key@build,... as the server last said; None: not said
         self.open = True
         self.phase = "waiting"
         self.next_heartbeat = 0.0
@@ -264,6 +277,7 @@ class Lobby:
             self.max_players = int(f[6])
             self.vr_only = f[7] == "1" if len(f) == 8 else None
             self.flat_players = None
+            self.devices = None
             self.open = True
             self.phase = "waiting"
             self.pending = {"visibility": f[1], "name": f[2], "version": int(f[3]), "stage": int(f[4]),
@@ -282,6 +296,11 @@ class Lobby:
             state = (players, open_, max_players, vr_only, flat)
             if state != (self.players, self.open, self.max_players, self.vr_only, self.flat_players):
                 self.players, self.open, self.max_players, self.vr_only, self.flat_players = state
+                self.next_heartbeat = 0
+        elif f[0] == "devices" and len(f) == 2:   # devices|key@build,...: what each person runs
+            devices = devices_json(f[1])
+            if devices != self.devices:
+                self.devices = devices
                 self.next_heartbeat = 0
         elif f[0] == "phase" and len(f) == 3 and f[1] in ("warmup", "in_progress"):
             self.last_keepalive = now
@@ -413,6 +432,8 @@ class Lobby:
                     state["vrOnly"] = self.vr_only
                 if self.flat_players is not None:
                     state["flatPlayers"] = min(self.flat_players, self.players)
+                if self.devices is not None:
+                    state["devices"] = self.devices
                 if self.name:
                     state["name"] = self.name
                 sent = False

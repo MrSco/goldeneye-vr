@@ -1536,6 +1536,25 @@ static std::string gevrLobbyRefreshCommand(int players)
            gevrVrOnlyField() + "|" + std::to_string(flat);
 }
 
+/* devices|key@build,...: what each person in the game runs (net_core.c
+ * netGetSlotDeviceKey, netGetSlotBuild), for the lobby service's live board
+ * and its platform and build totals. Its own command: an older lobby client
+ * or bridge ignores it, where a longer refresh would be dropped whole. */
+static std::string gevrLobbyDevicesCommand(void)
+{
+    std::string out = "devices|";
+    bool first = true;
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+        const char *key = netGetSlotDeviceKey(i);   // "" for a bot, a server seat, an empty slot
+        if (!key[0]) continue;
+        char build[24];
+        netGetSlotBuild(i, build, sizeof(build));
+        out += (first ? "" : ",") + std::string(key) + "@" + build;
+        first = false;
+    }
+    return out;
+}
+
 /* list|version|inputClass[|1]: a VR player who chose "Hide games with flat
  * players" asks the service to leave them out. */
 static bool gevrLocalPlaysVr(void) { return gevrNetLocalInputClass() == 0; }   // NET_INPUT_VR
@@ -1923,7 +1942,7 @@ static void gevrLobbyRoster(const ImVec4 &gold, bool showCount = true) {
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Character", ImGuiTableColumnFlags_WidthFixed, font * 9);
         ImGui::TableSetupColumn("Team", ImGuiTableColumnFlags_WidthFixed, font * 5);
-        ImGui::TableSetupColumn("Plays", ImGuiTableColumnFlags_WidthFixed, font * 4.5f);
+        ImGui::TableSetupColumn("Device", ImGuiTableColumnFlags_WidthFixed, font * 7.5f);
         ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthFixed, font * 6);
         ImGui::TableSetupColumn("Ping (ms)", ImGuiTableColumnFlags_WidthFixed, font * 6);
         if (canKick) ImGui::TableSetupColumn("Host", ImGuiTableColumnFlags_WidthFixed, font * 3.2f);
@@ -1948,10 +1967,11 @@ static void gevrLobbyRoster(const ImVec4 &gold, bool showCount = true) {
             ImGui::TextUnformatted(gevrLobbyHasTeams(&lobby->config) ? netTeamName(slot.team) : "—");
             ImGui::TableNextColumn();
             {
-                // what each person plays with (net_protocol.h NET_INPUT_*); an older build says nothing
-                static const char *const kPlays[] = {"VR", "Mouse", "Pad", "Touch"};
+                // what each person plays on and with (net_core.c netGetSlotDeviceName, NET_INPUT_*);
+                // an older build says nothing
+                const char *device = slot.is_bot ? "" : netGetSlotDeviceName(i);
                 const int c = netGetSlotInputClass(i);
-                ImGui::TextUnformatted(c >= 0 && c <= 3 ? kPlays[c] : "—");
+                ImGui::TextUnformatted(device[0] ? device : "—");
                 if (ImGui::IsItemHovered() && c >= 0 && c <= 3)
                     gevrTooltip("%s", c == 0 ? "In VR, with tracked controllers"
                                       : c == 1 ? "Flat: keyboard and mouse"
@@ -2398,6 +2418,7 @@ void gevrMultiplayerTick(GevrLauncherTabs &tabs, bool &startMatch, bool romReady
         if (netIsHost() && (heartbeatNow - lastHeartbeatMs > 5000 || lastHeartbeatMs == 0)) {
             lastHeartbeatMs = heartbeatNow;
             // the count too: the host may change it after registering the lobby
+            gevrJavaCommand("lobbyCommand", gevrLobbyDevicesCommand().c_str());
             gevrJavaCommand("lobbyCommand", gevrLobbyRefreshCommand(pCount).c_str());
         }
     }
@@ -2939,6 +2960,7 @@ extern "C" void gevrLobbyGameTick(void)
             } else {
                 // live connections: a player yet to come back after a host
                 // change must find the lobby open
+                gevrJavaCommand("lobbyCommand", gevrLobbyDevicesCommand().c_str());
                 gevrJavaCommand("lobbyCommand", gevrLobbyRefreshCommand(netGetLivePlayerCount()).c_str());
             }
         }
@@ -3476,6 +3498,7 @@ extern "C" void gevrLauncherRun(void)
         vr_screen_set_width_scale((float)canvasW / (float)kTexW);
         ImGui_ImplOpenGL3_NewFrame();
         ImGui::NewFrame();
+        gevrFriendsNavCross();   // a pad or the remote into the Friends panel and back
         ImGui::SetNextWindowPos(ImVec2(0, 0));
         ImGui::SetNextWindowSize(ImVec2((float)kTexW, (float)kTexH));
         ImGui::Begin("##launcher", nullptr,
@@ -3769,7 +3792,12 @@ extern "C" void gevrLauncherRun(void)
                 break;
             }
             case GEVR_LTAB_CONTROLS:
-                if (sub < 0) {   // a flat game: one page, the touch screen's rows
+                if (sub < 0) {   // a flat game: one page, the pad's and the touch screen's rows
+#ifdef GEVR_TVOS
+                    note("Siri Remote: swipe to move between items, click to choose, Back to go back; swipe "
+                         "right past the last item for Friends. A game pad works here too, and takes player 1 "
+                         "from the remote.");
+#endif
                     gevrSettingsSection(settings, GEVR_LSEC_HANDS, GEVR_SET_LAUNCHER);
                 } else if (sub == GEVR_LSUB_HANDS) {
                     gevrSettingsSection(settings, GEVR_LSEC_HANDS, GEVR_SET_LAUNCHER);

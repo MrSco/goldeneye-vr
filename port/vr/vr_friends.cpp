@@ -54,6 +54,9 @@ static const char *gevrFriendsCampaignName(int campaign)
     }
 }
 
+// net_core.c: NET_INPUT_*, for presence - every build sends it, not only Android
+extern "C" int gevrNetLocalInputClass(void);
+
 namespace {
 const char *kPendingJoinFile = "gevr_pending_join.txt";   // beside goldeneye-vr.ini
 const uint32_t kNoticeMs = 8000;
@@ -294,8 +297,13 @@ std::string presenceLine(bool inGame) {
     // Discord friends may join a public or friends-only lobby this headset hosts; the rest go by invite
     const char *visibility = online && netIsHost() ? gevrHostedLobbyVisibility() : "";
     s_presence.joinable = strcmp(visibility, "public") == 0 || strcmp(visibility, "friends") == 0;
+    // then what this player runs, its build and what it plays with, for the
+    // service's daily totals (net_core.c; NET_INPUT_*, 255 unknown)
+    char build[24];
+    netGetLocalBuild(build, sizeof(build));
     return std::string("presence|") + state + "|" + field(lobby) + "|" + std::to_string(GEVR_NET_VERSION) + "|" +
-           field(VrPlayerName) + "|" + field(detail);
+           field(VrPlayerName) + "|" + field(detail) + "|" + netGetLocalDeviceKey() + "|" + build + "|" +
+           std::to_string(gevrNetLocalInputClass());
 }
 
 std::string pendingJoinPath() { return kPendingJoinFile; }

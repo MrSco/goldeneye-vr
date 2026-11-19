@@ -114,6 +114,7 @@ public class FriendsClientTest {
         assertEquals("ABCDEFGH", presence.body.getString("lobby"));
         assertEquals(25, presence.body.getInt("version"));
         assertEquals("Deathmatch, Facility, 1/4", presence.body.getString("detail"));
+        assertFalse(presence.body.has("device"));   // an older native side says no device
 
         List<String> events = drain();
         assertTrue(events.contains("ME|ready|7K3QX2|ABCDEFGHJKLMNPQR|1|0|1"));
@@ -126,6 +127,24 @@ public class FriendsClientTest {
         // Thirty seconds until the next one; a changed lobby goes sooner, but not at once again.
         poll();
         assertEquals(2, calls.size());
+    }
+
+    @Test public void presenceCarriesTheDeviceBuildAndInput() throws Exception {
+        drain();
+        command("presence|launcher||26|Bond||quest-flat|0.5.21|2");
+        poll();
+        JSONObject body = calls.get(1).body;
+        assertEquals("quest-flat", body.getString("device"));
+        assertEquals("0.5.21", body.getString("build"));
+        assertEquals(2, body.getInt("input"));
+        assertFalse(body.has("detail"));
+        calls.clear();
+        command("presence|launcher||26|Bond|||255");   // nothing known: none of them sent
+        poll();
+        if (!calls.isEmpty()) {
+            JSONObject next = calls.get(0).body;
+            assertFalse(next.has("device") || next.has("build") || next.has("input"));
+        }
     }
 
     @Test public void aSavedIdentityIsUsedAndASignOutStopsPresence() throws Exception {

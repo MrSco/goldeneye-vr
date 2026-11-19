@@ -2820,6 +2820,61 @@ after_position_update:
                 hat = get_hat_model(chr->handle_positiondata_hat);
 
 #ifdef GEVR
+                {
+                    /*
+                     * A hat on a head Bean draws: seated by the HD meshes (DAB
+                     * xblaMeshHatSeat(), port/src/gevr_bean_hats.inc.h), not by the
+                     * table's fit for the N64 heads, which floated a side cap over 4J's
+                     * hair or left hair standing through it: set on the hair, sized
+                     * about the middle of its rim to cover it, (offset + anchor) *
+                     * size(anchor). A beret and a fur hat are worn as modelled.
+                     */
+                    extern int gevrBeanHatSeat(void *chrModel, const void *headHeader, void *hatModel,
+                                               const float joint[4][4], int hattype, float seat[7]);
+                    ModelFileHeader *gevrHead = NULL;
+                    f32 seat[7];
+
+                    if (model->obj->Switches[4] != NULL)
+                    {
+                        gevrHead = modelGetNodeRwData(model, model->obj->Switches[4])->HeadPlaceholder.ModelFileHeader;
+                    }
+
+                    if ((gevrHead != NULL) && (renderdata.basemtx != NULL)
+                        && gevrBeanHatSeat(model, gevrHead, hatmodel, renderdata.basemtx->m, hat, seat))
+                    {
+                        Mtxf seatmtx;
+                        Mtxf moved;
+                        coord3d hatpos;
+                        s32 i;
+                        s32 j;
+
+                        hatpos.x = seat[0] + seat[4] * (1.0f - seat[3]);
+                        hatpos.y = seat[1] + seat[5] * (1.0f - seat[3]);
+                        hatpos.z = seat[2] + seat[6] * (1.0f - seat[3]);
+                        matrix_4x4_set_identity_and_position(&hatpos, &seatmtx);
+
+                        for (i = 0; i < 3; i++)
+                        {
+                            for (j = 0; j < 3; j++)
+                            {
+                                seatmtx.m[i][j] *= seat[3];
+                            }
+                        }
+
+                        matrix_4x4_multiply_homogeneous((Mtxf *)hatmodel->render_pos, &seatmtx, &moved);
+                        matrix_4x4_copy(&moved, (Mtxf *)hatmodel->render_pos);
+
+                        if (hat == HATTYPE_PEAKED)
+                        {
+                            headVisible = 0;
+                        }
+
+                        goto gevr_hat_seated;
+                    }
+                }
+#endif
+
+#ifdef GEVR
                 headindex = chr->headnum - gevrHatFirst;
                 entry = &((struct headHat (*)[6]) gevrHats)[headindex][hat];
 #else
@@ -2938,6 +2993,9 @@ after_position_update:
                 }
             }
 
+#ifdef GEVR
+gevr_hat_seated:
+#endif
             if ((!(chr->hidden & CHRHIDDEN_DROP_HELD_ITEMS)) || (!(hatobj->runtime_bitflags & RUNTIMEBITFLAG_00000080)))
             {
                 chr->field_20 = sub_GAME_7F06B120(chr->field_20, hatmodel);
@@ -3651,6 +3709,78 @@ after_opcode:
  * assert(hits && hits->HasHits());
  * #endif
  */
+#ifdef GEVR
+/*
+ * The hit box a shot on a Bean body counts as (DAB xblamesh.c: the bbox on the
+ * hit bone's matrix, the nearest one where that bone has none): a body is one
+ * mesh, so the part cannot come from where a list sits in the tree as the
+ * game's does. The damage a head shot does depends on it. The boxes are the
+ * ones the game's own walk reads (objecthandler.c), on the model as drawn.
+ */
+static ModelNode *gevrChrHitBox(Model *model, s32 matrix, const coord3d *at)
+{
+    ModelNode *node = model->obj->RootNode;
+    ModelNode *nearest = NULL;
+    f32 best = 1e30f;
+    s32 guard = 0;
+
+    while (node != NULL && guard++ < 4096)
+    {
+        if ((node->Opcode & 0xff) == MODELNODE_OPCODE_BBOX)
+        {
+            s32 m = modelFindNodeMtxIndex(node, 0);
+
+            if (m == matrix)
+            {
+                return node;
+            }
+
+            if (m >= 0 && m < model->obj->numMatrices)
+            {
+                struct ModelRoData_BoundingBoxRecord *box = &node->Data->BoundingBox;
+                f32 (*mtx)[4] = model->render_pos[m].pos.m;
+                f32 c[3];
+                f32 w[3];
+                f32 dist = 0.0f;
+                s32 k;
+
+                c[0] = (box->Bounds.xmin + box->Bounds.xmax) * 0.5f;
+                c[1] = (box->Bounds.ymin + box->Bounds.ymax) * 0.5f;
+                c[2] = (box->Bounds.zmin + box->Bounds.zmax) * 0.5f;
+
+                for (k = 0; k < 3; k++)
+                {
+                    w[k] = c[0] * mtx[0][k] + c[1] * mtx[1][k] + c[2] * mtx[2][k] + mtx[3][k] - at->f[k];
+                    dist += w[k] * w[k];
+                }
+
+                if (dist < best)
+                {
+                    best = dist;
+                    nearest = node;
+                }
+            }
+        }
+
+        if (node->Child != NULL)
+        {
+            node = node->Child;
+        }
+        else
+        {
+            while (node != NULL && node->Next == NULL)
+            {
+                node = node->Parent;
+            }
+
+            node = node != NULL ? node->Next : NULL;
+        }
+    }
+
+    return nearest;
+}
+#endif
+
 static void chrTestHitAnimated(PropRecord *prop, ShotData *shotdata)
 {
     ChrRecord *chr;
@@ -3750,6 +3880,48 @@ static void chrTestHitAnimated(PropRecord *prop, ShotData *shotdata)
             }
         }
     }
+
+#ifdef GEVR
+    /*
+     * DAB xblamesh.c xblaMeshHitTest(): where the boxes miss a guard whose
+     * Bean body or head is drawn, his HD triangles are shot (gevr_bean.c,
+     * gevr_bean_bodyhit.inc.h) and the part is the box on the hit bone. A
+     * guard only: players are shot at their boxes, as Dab's walk is not
+     * reached with two or more human players.
+     */
+    extern int gevrBeanModelHasHd(const void *header);   /* port/src/gevr_bean.c */
+    extern int gevrBeanChrRayHit(void *chrModel, const float origin[3], const float dir[3], float *t, int *matrix);
+    if ((hitpart == HIT_NULL_PART) && hitbounds && (prop->type == PROP_TYPE_CHR) && gevrBeanModelHasHd(model->obj))
+    {
+        f32 t;
+        s32 matrix;
+
+        if (gevrBeanChrRayHit(model, shotdata->viewOrigin.f, shotdata->viewDir.f, &t, &matrix))
+        {
+            coord3d at;
+            ModelNode *box;
+
+            at.x = shotdata->viewOrigin.x + shotdata->viewDir.x * t;
+            at.y = shotdata->viewOrigin.y + shotdata->viewDir.y * t;
+            at.z = shotdata->viewOrigin.z + shotdata->viewDir.z * t;
+            box = gevrChrHitBox(model, matrix, &at);
+
+            if (box != NULL)
+            {
+                static s32 told;
+
+                hitmodel = model;
+                hitnode = box;
+                hitpart = *(s32 *)box->Data;
+
+                if (told++ < 8)
+                {
+                    osSyncPrintf("gevr bean: a shot on a guard's HD body outside his boxes: part %d (matrix %d)\n", hitpart, matrix);
+                }
+            }
+        }
+    }
+#endif
 
     if (hitpart > HIT_NULL_PART)
     {

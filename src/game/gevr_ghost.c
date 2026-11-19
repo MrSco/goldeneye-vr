@@ -57,7 +57,9 @@
 
 extern bool netIsActive(void);
 extern s32 g_gevrStereo;
+extern int gevrVrReady(void);              /* vr_openxr.cpp, flat_headset.c */
 extern int VrGhostRace, VrSpeedrunTimer;   /* vr_settings_defaults.c */
+extern int VrPlayMode;
 extern int VrBeanModels, VrGexGuns, VrForcePull, VrAlly, VrThirdPerson, VrCampaign, VrMovementSpeed;
 extern const char gevrBuildId[];
 
@@ -132,7 +134,8 @@ struct gevrghostheader {
     /*0x28*/ u32 timestamp;
     /*0x2c*/ u8 body;
     /*0x2d*/ u8 head;
-    /*0x2e*/ u16 pad;
+    /*0x2e*/ u8 vrcounted;            /* 1: flags' VR is counted over the whole run (ghostSave); 0: an older file */
+    /*0x2f*/ u8 pad;
     /*0x30*/ char player[32];
     /*0x50*/ char build[32];
     /*0x70*/ char owner[16];
@@ -261,6 +264,8 @@ int gevrGhostFileInfo(const char *rel, GevrGhostInfo *out)
     out->difficulty = hdr.difficulty;
     out->campaign = hdr.campaign;
     out->flags = hdr.flags;
+    /* a run from before the VR count was stamped flat on every headset: most were VR (the Worker's ghosts.ts too) */
+    if (!hdr.vrcounted) out->flags |= GEVR_GHF_STEREO;
     out->timestamp = hdr.timestamp;
     memcpy(out->owner, hdr.owner, sizeof(hdr.owner));
     out->owner[sizeof(hdr.owner)] = '\0';
@@ -383,7 +388,8 @@ static s32 s_recFull;
 static s32 s_recStage = -1;
 static s32 s_recDifficulty = -1;
 static s32 s_recCampaign;
-static u8 s_recFlags;
+static u8 s_recFlags;        /* every setting the run used at any time (ghostRunFlags) */
+static s32 s_recVrSamples;   /* how many of the run's samples were played in VR */
 
 static s8 ghostSpeed(f32 v)
 {
@@ -415,17 +421,34 @@ static s32 ghostEligible(void)
     return !netIsActive() && getPlayerCount() == 1 && g_CurrentPlayer != NULL && g_CurrentPlayer->prop != NULL;
 }
 
-/* what changes a run, stamped into its file */
+/*
+ * The run is played in VR, by the setting the player chose, not by whether
+ * this frame is drawn in stereo: that is off for the intro, pause, cutscenes
+ * and death, and is set at the top of the frame, a frame behind the first
+ * tick out of the intro (every run before this was stamped flat, 2026-11-19).
+ */
+static s32 ghostPlayingVr(void)
+{
+    return VrPlayMode != 0 && gevrVrReady();
+}
+
+/*
+ * What changes a run, stamped into its file. Taken at every sample and kept
+ * if used at any time: a setting switched on mid-run (force pull, the
+ * Movement speed) still counts. VR is counted apart (s_recVrSamples):
+ * holding the right stick click switches it mid-run, and ghostSave stamps
+ * VR only for a run played wholly in VR, mixed for a run of both.
+ */
 static u8 ghostRunFlags(void)
 {
     u8 f = 0;
+    s32 vr = ghostPlayingVr();
 
-    if (g_gevrStereo) f |= GEVR_GHF_STEREO;
     if (VrBeanModels && gevrBeanIsAvailable()) f |= GEVR_GHF_BEAN;
     if (VrGexGuns) f |= GEVR_GHF_GEX;
     if (VrForcePull) f |= GEVR_GHF_FORCEPULL;
     if (VrAlly) f |= GEVR_GHF_ALLY;
-    if (VrThirdPerson && !g_gevrStereo) f |= GEVR_GHF_THIRD;
+    if (VrThirdPerson && !vr) f |= GEVR_GHF_THIRD;
     /* the launcher's Movement speed (net_rules.h NET_MOVE_NORMAL is 0) */
     if (VrMovementSpeed != 0) f |= GEVR_GHF_SPEED;
     return f;
@@ -478,7 +501,8 @@ void gevrGhostRecord(void)
         s_recStage = bossGetStageNum();
         s_recDifficulty = lvlGetSelectedDifficulty();
         s_recCampaign = VrCampaign;
-        s_recFlags = ghostRunFlags();
+        s_recFlags = 0;
+        s_recVrSamples = 0;
     }
     time60 = getMissiontimer();
     while (s_recCount * GHOST_RATE60 <= time60)
@@ -512,6 +536,8 @@ void gevrGhostRecord(void)
         if (pl->hands[GUNRIGHT].field_87D) s->flags |= GSF_FIRE_RIGHT;
         if (pl->hands[GUNLEFT].field_87D) s->flags |= GSF_FIRE_LEFT;
         if (pl->bonddead) s->flags |= GSF_DEAD;
+        s_recFlags |= ghostRunFlags();
+        if (ghostPlayingVr()) s_recVrSamples++;
     }
 }
 
@@ -561,6 +587,9 @@ static void ghostSave(s32 force)
     hdr.difficulty = (u8)s_recDifficulty;
     hdr.campaign = (u8)s_recCampaign;
     hdr.flags = s_recFlags;
+    if (s_recVrSamples >= s_recCount) hdr.flags |= GEVR_GHF_STEREO;
+    else if (s_recVrSamples > 0) hdr.flags |= GEVR_GHF_MIXED;
+    hdr.vrcounted = 1;
     hdr.hash = ghostHash(s_rec, s_recCount * sizeof(*s_rec));
     hdr.timestamp = (u32)time(NULL);
     gevrSoloBondBodyHead(&body, &head);
@@ -686,6 +715,8 @@ void gevrGhostStageReset(s32 stage)
         s_recCount = 0;
         s_recFull = FALSE;
         s_recStage = -1;
+        s_recFlags = 0;
+        s_recVrSamples = 0;
     }
 }
 
@@ -898,7 +929,12 @@ static void ghostPose(const struct gevrghostsample *s)
         prop->stan = tile;
     }
     prop->pos = pos;
-    chrpropActivateThisFrame(prop);
+    /* No chrpropActivateThisFrame here: ghostBuild put the body in the active
+     * list once, and it stays there. Relisting it every tick without
+     * chrpropDelist cut off whatever sat at the list's head. objTick moves
+     * every falling object there (a dropped gun, ammo, a key, a grenade), so
+     * none of them was ticked, drawn or picked up again: kills dropped nothing
+     * in a race (#263). */
 
     s_ghostPlayer.speedforwards = s->forwards / 100.0f;
     s_ghostPlayer.speedsideways = s->sideways / 100.0f;

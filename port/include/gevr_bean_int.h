@@ -98,8 +98,10 @@ struct gevrBeanMesh {
 	float boneBind[64][3];
 	char boneName[64][64];
 	uint8_t boneSk[64];
+	uint8_t boneMuzzle[64];   /* DAB muzzlebone (bit 0: SKEL_MUZZLE*, *FLASH* or under one), muzzleroot (bit 1) */
 	int tricaps;
 	int mirrorPieces;   /* Mirror Mode turned its pieces over in place (gevr_mirror.c) */
+	int seamsWelded;    /* its seams' copies skinned one way (gevr_bean_seams.inc.h) */
 };
 
 struct gevrEmitVert {
@@ -116,6 +118,8 @@ struct gevrEmitVert {
     uint8_t reflectionDiffuse; /* 0 screen, 1 diffuse-tinted, 2 coloured */
     uint8_t reflectionAlphaBase;
     uint32_t reflectionColour;
+	uint8_t nofog;  /* 1 GoldenEye draws it without fog, 2 fogged by distance (the backdrop): a level's list only */
+	uint8_t fringe; /* a soft cut-out's blended copy over its core (gevrBeanSoftSpans()): skinned lists */
 };
 
 int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out);
@@ -128,6 +132,10 @@ const void *gevrBeanTexDecode(const struct gevrCaff *c, int fileIndex, const cha
 		int *outW, int *outH, int *outAlpha);
 int gevrBeanTexture(const void *addr, const uint8_t **rgba, int *w, int *h);
 int gevrBeanTexIsPlaceholder(const void *addr);
+/* a registered picture with patches turned over along u (gevr_bean_tex.c) */
+const void *gevrBeanTexTurnPatches(const void *from, const char *key, const float (*patch)[4], int npatch);
+/* lettering painted on black: the black made clear, in place (DAB beanKeyStencil) */
+int gevrBeanTexKeyStencil(const void *standin);
 void gevrBeanTexScrollSet(const void *addr, float s, float t);
 /* GoldenEye's moving water on a Bean picture (gevr_bean_tex.c): marks one,
  * sets the rate (quarter texels a frame; 0 measured for GoldenEye's own). */
@@ -157,5 +165,9 @@ void *gevrBeanWorldSky(void *gdl, int *drew);
 /* 1 and room `room`'s Bean geometry bounds (the room table's world units, as
  * g_BgRoomInfo's), built with the stage; 0 when the room has none. */
 int gevrBeanWorldRoomBounds(int room, float lo[3], float hi[3]);
+int gevrBeanWorldRoomHidden(int room);
+int gevrBeanWorldHidesProp(const float pos[3], const unsigned char *rooms, int nrooms, int camRoom);
+int gevrBeanWorldRoomWantsWater(int room);
+float gevrBeanWorldReach(void);
 
 #endif

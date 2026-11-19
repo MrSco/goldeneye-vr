@@ -707,6 +707,44 @@ EXPORT int test_core_flat_count(void) {
     s_client_input[2]=NET_INPUT_VR;netHostInputTableTick();CHECK(sent_size==9+GEVR_MAX_PLAYERS && sent_data[9+2]==NET_INPUT_VR);
     s_lobby_state.slots[1].is_bot=1;sent_size=0;netHostInputTableTick();CHECK(sent_data[9+1]==NET_INPUT_UNKNOWN);
     s_lobby_state.slots[1].is_bot=0;
+    /* the platforms beside it (the roster's "Device"): sent when one changes */
+    netHostInputTableTick();sent_size=0;netHostInputTableTick();CHECK(sent_size==0);
+    s_client_platform[1]=NET_PLATFORM_PC;netHostInputTableTick();
+    CHECK(sent_size==9+GEVR_MAX_PLAYERS && sent_data[6]==NET_MSG_PLATFORMS && sent_data[8]==GEVR_MAX_PLAYERS);
+    CHECK(sent_data[9+1]==NET_PLATFORM_PC && sent_data[9+2]==NET_PLATFORM_UNKNOWN);
+    sent_size=0;netHostInputTableTick();CHECK(sent_size==0);
+    /* the device each slot shows: platform and input together, the input alone from an older build */
+    CHECK(!strcmp(netGetSlotDeviceKey(1),"pc") && !strcmp(netGetSlotDeviceName(1),"PC"));   /* touch on a PC: flat */
+    s_client_input[1]=NET_INPUT_VR;CHECK(!strcmp(netGetSlotDeviceKey(1),"pcvr") && !strcmp(netGetSlotDeviceName(1),"PC VR"));
+    s_client_platform[2]=NET_PLATFORM_QUEST;s_client_input[2]=NET_INPUT_PAD;
+    CHECK(!strcmp(netGetSlotDeviceKey(2),"quest-flat") && !strcmp(netGetSlotDeviceName(2),"Quest (flat)"));
+    s_client_input[2]=NET_INPUT_VR;CHECK(!strcmp(netGetSlotDeviceKey(2),"quest"));
+    s_client_platform[2]=NET_PLATFORM_VISIONOS;CHECK(!strcmp(netGetSlotDeviceName(2),"Vision Pro"));
+    s_client_platform[2]=NET_PLATFORM_UNKNOWN;CHECK(!strcmp(netGetSlotDeviceKey(2),"vr"));
+    s_client_input[2]=NET_INPUT_UNKNOWN;CHECK(!strcmp(netGetSlotDeviceKey(2),"") && !strcmp(netGetSlotDeviceName(2),""));
+    s_lobby_state.slots[1].is_bot=1;CHECK(!strcmp(netGetSlotDeviceKey(1),""));s_lobby_state.slots[1].is_bot=0;
+    CHECK(!strcmp(netGetSlotDeviceKey(9),"") && netGetSlotPlatform(-1)==NET_PLATFORM_UNKNOWN);
+    /* the build the lobby service counts: the version without its "v" and commit */
+    {char b[24];
+     strcpy(s_slot_app_version[1],"v0.5.20 (5a3b786)");netGetSlotBuild(1,b,sizeof(b));CHECK(!strcmp(b,"0.5.20"));
+     strcpy(s_slot_app_version[1],"v0.5.15-test.5 (abc)");netGetSlotBuild(1,b,sizeof(b));CHECK(!strcmp(b,"0.5.15-test.5"));
+     strcpy(s_slot_app_version[1],"v0.5|20");netGetSlotBuild(1,b,sizeof(b));CHECK(!strcmp(b,""));
+     strcpy(s_slot_app_version[1],"beta");netGetSlotBuild(1,b,sizeof(b));CHECK(!strcmp(b,""));
+     s_slot_app_version[1][0]=0;netGetSlotBuild(1,b,sizeof(b));CHECK(!strcmp(b,""));}
+    /* a client keeps the host's table, only from the host's peer and at its size */
+    s_state=NET_STATE_CLIENT_LOBBY;s_local_slot=2;s_server_peer=&hit_peers[0];
+    memset(s_client_platform,NET_PLATFORM_UNKNOWN,sizeof(s_client_platform));
+    {u8 raw[16]={GEVR_MAX_PLAYERS,NET_PLATFORM_QUEST,NET_PLATFORM_TVOS,NET_PLATFORM_IOS,99,0,0,0,0};
+     struct netbuf b={.data=raw,.size=sizeof(raw)};
+     netbufStartReadData(&b,raw,1+GEVR_MAX_PLAYERS);netReceivePlatforms(&hit_peers[1],&b,9+GEVR_MAX_PLAYERS);
+     CHECK(s_client_platform[1]==NET_PLATFORM_UNKNOWN);   /* not from the host's peer */
+     netbufStartReadData(&b,raw,1+GEVR_MAX_PLAYERS);netReceivePlatforms(&hit_peers[0],&b,8+GEVR_MAX_PLAYERS);
+     CHECK(s_client_platform[1]==NET_PLATFORM_UNKNOWN);   /* the wrong size */
+     netbufStartReadData(&b,raw,1+GEVR_MAX_PLAYERS);netReceivePlatforms(&hit_peers[0],&b,9+GEVR_MAX_PLAYERS);}
+    CHECK(s_client_platform[0]==NET_PLATFORM_QUEST && s_client_platform[1]==NET_PLATFORM_TVOS && s_client_platform[3]==NET_PLATFORM_UNKNOWN);
+    CHECK(netGetSlotPlatform(1)==NET_PLATFORM_TVOS && !strcmp(netGetSlotDeviceName(1),"Apple TV"));
+    CHECK(netGetSlotPlatform(2)==NET_PLATFORM_UNKNOWN);   /* this player's own (unknown here), not the table's */
+    s_server_peer=NULL;
     s_host=NULL;
     return 0;
 }

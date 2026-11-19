@@ -88,6 +88,7 @@ void gevrIosSetHostView(void *view)
         }
         return;
     }
+    if (!s_hostView) return;   // ios_angle.mm: a context that failed to come up
     /*
      * Game controllers to the game alone (SDL reads them through
      * GameController). Without this, visionOS (the iPad app on Vision Pro,
@@ -186,6 +187,11 @@ int gevrIosGraftWindows(void)
  * UIKit_WaitUntilMessageBoxClosed on an empty launch screen. Attach an alert
  * window directly to the active UIWindowScene instead, and bail out immediately
  * if no scene is connected or if called off the main thread.
+ * A fatal error on iOS and Apple TV (port/src/system.c sysFatalError), from
+ * #260 (e-ee): SDL's message box makes a window with no scene, which UIKit
+ * never shows, and waits on it forever. An Apple TV 4K (1st gen) sat on a grey
+ * screen there when ANGLE refused it ES 3.0. The alert goes on the app's scene
+ * instead; off the main thread, or with no scene, it is only logged.
  */
 void gevrIosFatalError(const char *msg)
 {
@@ -224,6 +230,17 @@ void gevrIosFatalError(const char *msg)
         if (!CGRectIsEmpty(sceneBounds)) {
             alertWindow.frame = sceneBounds;
         }
+#if TARGET_OS_TV
+        // the remote and pads drive the alert (Select or Back closes it)
+        SDL_SetHintWithPriority(SDL_HINT_APPLE_TV_CONTROLLER_UI_EVENTS, "1", SDL_HINT_OVERRIDE);
+#endif
+        NSString *text = msg ? [NSString stringWithUTF8String:msg] : nil;
+        if (!text && msg) text = [NSString stringWithCString:msg encoding:NSISOLatin1StringEncoding];
+        if (!text.length) text = @"An unrecoverable error occurred.";
+
+        UIWindow *alertWindow = [[UIWindow alloc] initWithWindowScene:scene];
+        const CGRect sceneBounds = scene.coordinateSpace.bounds;
+        if (!CGRectIsEmpty(sceneBounds)) alertWindow.frame = sceneBounds;
         alertWindow.windowLevel = UIWindowLevelAlert + 1;
         UIViewController *host = [[UIViewController alloc] init];
         host.view.backgroundColor = [UIColor blackColor];
@@ -253,6 +270,12 @@ void gevrIosFatalError(const char *msg)
         [host presentViewController:alert animated:YES completion:^{
             presented = YES;
         }];
+        __block BOOL dismissed = NO, presented = NO;
+        UIAlertAction *close = [UIAlertAction actionWithTitle:@"Close" style:UIAlertActionStyleCancel
+                                                      handler:^(UIAlertAction *action) { (void)action; dismissed = YES; }];
+        [alert addAction:close];
+        alert.preferredAction = close;
+        [host presentViewController:alert animated:YES completion:^{ presented = YES; }];
 
         NSDate *presentDeadline = [NSDate dateWithTimeIntervalSinceNow:2.0];
         while (!dismissed) {
@@ -265,6 +288,9 @@ void gevrIosFatalError(const char *msg)
                 if (host.presentedViewController == nil) {
                     break;
                 }
+            if (![UIApplication.sharedApplication.connectedScenes containsObject:scene]) break;
+            if (presented) {
+                if (host.presentedViewController == nil) break;
             } else if (host.presentedViewController == alert) {
                 presented = YES;
             } else if ([presentDeadline timeIntervalSinceNow] <= 0.0) {
@@ -420,4 +446,10 @@ void gevrIosVoiceChatMode(void)
     if (![s setCategory:s.category mode:AVAudioSessionModeVoiceChat options:s.categoryOptions error:&err]) {
         NSLog(@"GoldenEyeVR: voice chat mode refused: %@", err);
     }
+}
+
+/* Apple TV: a microphone only when one is connected (port/pc/pc_services.cpp) */
+int gevrIosMicAvailable(void)
+{
+    return AVAudioSession.sharedInstance.isInputAvailable ? 1 : 0;
 }

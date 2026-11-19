@@ -107,6 +107,17 @@ void load_resource(u8 *ptrdata, s32 bytes,  fileentry *srcfile,  resource_lookup
                     srcfile->filename, lookupdata->rom_size, bytes, result);
         }
         lookupdata->poolRemaining = written;
+
+        /* the Community Edition's fixes to GoldenEye's own stage data, not a
+         * ROM hack's (gevr_romswap.c, DAB g_RomPatches[]) */
+        {
+            extern int gevrRomIsVariant(void);   /* gevr_romlayout.h */
+
+            if (srcfile->filename != NULL && !gevrRomIsVariant())
+            {
+                gevrRomFixData(srcfile->filename, ptrdata, lookupdata->poolRemaining);
+            }
+        }
 #else
         lookupdata->poolRemaining = decompressdata(source, ptrdata, buffer);
 #endif

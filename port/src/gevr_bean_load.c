@@ -25,6 +25,9 @@ struct beanDraw {
     uint32_t reflectSpot,reflectLand; uint8_t reflectAmount[4],reflectionDiffuse,reflectionAlphaBase; uint32_t reflectionColour;
 	int16_t inst;
 	uint8_t blend, alpha, alphatest, terrainBlend, tree, ownmat;
+	uint8_t scratch;   /* its material lays the glass map over it: a pane, never a stencil */
+	uint8_t repaint;   /* 1 + its s_repaints[] row: another picture, laid from the position */
+	uint8_t alpharef;  /* its alpha test's reference (render state 0x64), 0 for none set */
 	uint8_t pal[GEVR_BEAN_MAXPAL];
 	uint8_t numpal;
 	uint32_t colour;
@@ -57,6 +60,189 @@ static int fpGunFile(const char *source)
 		if (strstr(source, folder))
 			return 1;
 	}
+	return 0;
+}
+
+/*
+ * DAB gebean.c fpMends[] and fpMendVertex() (port/licenses/dabs-mod.txt):
+ * pieces of the release's first-person guns modelled out of line, moved back
+ * where GoldenEye's own model has them. Each is the release's vertices past
+ * zmin along the barrel and above ymin, in the file's own units, moved dx
+ * across. The KF7's front sight ring stands 26 units left of the barrel's
+ * middle (its ring centred at x -24.1 over a barrel centred at 2.2), so at the
+ * sights the post leant off the bore: "crooked ironsight". GoldenEye's own KF7
+ * has its post on the bore's line to within half a unit.
+ */
+static const struct { const char *gun; float zmin, ymin, dx; } s_fpMends[] = {
+	{ "ak47", 2950.0f, 150.0f, 26.3f },
+};
+
+static int fpMendOf(const char *source)
+{
+	for (unsigned i = 0; i < sizeof(s_fpMends) / sizeof(s_fpMends[0]); i++) {
+		char folder[48];
+		snprintf(folder, sizeof(folder), "/gun/%s/", s_fpMends[i].gun);
+		if (strstr(source, folder))
+			return (int)i;
+	}
+	return -1;
+}
+
+/* path names .../new/prop/NAME/default.bin (below) */
+static int sourceIs(const char *path, const char *source);
+
+/*
+ * DAB gebean.c beanRepaints[], beanRepaintDraws(), beanRepaintUv()
+ * (port/licenses/dabs-mod.txt): pictures the release's HD props wear that do
+ * not fit them, swapped for another of the same file's and laid again from
+ * the vertex position, a repeat every unit of the file's own units from origin
+ * (x or z across by the face's normal, y up; UVs in repeats).
+ *
+ * - cryptdoor1b, the 200x100 block under Egyptian's hieroglyph slab: its
+ *   front and back carry a 512x512 photograph of an Akhenaten relief at UV
+ *   0..1, the whole square squashed into the 2:1 face, which read as a strip
+ *   of carved wood under the door. On the cartridge the block wears the wall's
+ *   sandstone. The block-stone picture its sides already wear, at the sides'
+ *   own 75 units a repeat up the face and square texels across it.
+ */
+static const struct {
+	const char *source, *oldpic, *newpic;
+	float unit, origin[2];
+} s_repaints[] = {
+	{ "new/prop/cryptdoor1b", "_0x01460E75", "_0x08A255B5", 75.0f, { 2750.0f, 400.0f } },
+};
+
+static void repaintDraws(struct beanDraw *draws, int ndraws, const char *source, const struct gevrCaff *c,
+                         const int *texfile, int ntex)
+{
+	for (unsigned k = 0; k < sizeof(s_repaints) / sizeof(s_repaints[0]); k++) {
+		int from = -1, to = -1;
+		if (!sourceIs(source, s_repaints[k].source))
+			continue;
+		for (int t = 0; t < ntex; t++) {
+			const char *name = gevrCaffAssetName(c, c->files[texfile[t]].asset);
+			if (!name)
+				continue;
+			if (!strncmp(name, s_repaints[k].oldpic, strlen(s_repaints[k].oldpic)))
+				from = t;
+			else if (!strncmp(name, s_repaints[k].newpic, strlen(s_repaints[k].newpic)))
+				to = t;
+		}
+		if (from < 0 || to < 0) {
+			GEVR_BEAN_LOG("gevr bean: %s: repaint %s -> %s: picture not in the file\n", source, s_repaints[k].oldpic,
+			              s_repaints[k].newpic);
+			continue;
+		}
+		int n = 0;
+		for (int i = 0; i < ndraws; i++)
+			if (draws[i].tex == (uint32_t)from) {
+				draws[i].tex = (uint32_t)to;
+				draws[i].repaint = (uint8_t)(k + 1);
+				n++;
+			}
+		GEVR_BEAN_LOG("gevr bean: %s: %d draws repainted %s -> %s\n", source, n, s_repaints[k].oldpic,
+		              s_repaints[k].newpic);
+	}
+}
+
+static void repaintUv(int repaint, const float pos[3], const float nrm[3], float uv[2])
+{
+	const int k = repaint - 1;
+	const float across = fabsf(nrm[0]) > fabsf(nrm[2]) ? pos[2] : pos[0];
+	uv[0] = (across - s_repaints[k].origin[0]) / s_repaints[k].unit;
+	uv[1] = (pos[1] - s_repaints[k].origin[1]) / s_repaints[k].unit;
+}
+
+/*
+ * DAB gebean.c beanVertexColourFixes[] and beanFixVertexColour(): vertex
+ * colours the release's HD props got wrong, mended where the release's own
+ * colour is still there (the Community Edition's copy already carries the
+ * mended one, and is left alone). By file, vertex buffer (its .gpu offset) and
+ * vertex range, checked against GoldenEye's own:
+ *
+ * - doorprison1, Bunker 2's cell door: every vertex white where GoldenEye's
+ *   are dark grey, so the door stood out bright against the dark bars of the
+ *   cells either side; the Community Edition's greys, a step lighter for the
+ *   HD texture.
+ * - woodentable1: its legs opaque black in the HD file and in GoldenEye's own;
+ *   the Community Edition's dark grey keeps them dark.
+ * - cryptdoor1b: its two end faces are baked dark (10% and 35%) for Egyptian,
+ *   where the block sits in the wall. Temple's six doors are the same model
+ *   squashed across that axis, so those ends are the doors' big faces - near
+ *   black on one side and dim on the other ("lit wrong on certain sides").
+ *   They take the release's front's mean colour.
+ */
+static const struct {
+	const char *source;
+	uint32_t vboff;
+	uint16_t first, last;
+	uint32_t old, fix;
+} s_colourFixes[] = {
+	{ "new/prop/doorprison1", 0, 0, 5, 0xffffffffu, 0xff4a4a4au },
+	{ "new/prop/doorprison1", 0, 6, 7, 0xffffffffu, 0xff666666u },
+	{ "new/prop/doorprison1", 0, 8, 9, 0xffffffffu, 0xff4a4a4au },
+	{ "new/prop/doorprison1", 0, 10, 11, 0xffffffffu, 0xff666666u },
+	{ "new/prop/woodentable1", 0, 0, 67, 0xff000000u, 0xff292929u },
+	{ "new/prop/cryptdoor1b", 0, 12, 15, 0xff584a3bu, 0xffab9173u },
+	{ "new/prop/cryptdoor1b", 0, 20, 23, 0xff191510u, 0xffab9173u },
+};
+
+static int colourFixesFor(const char *source)
+{
+	for (unsigned i = 0; i < sizeof(s_colourFixes) / sizeof(s_colourFixes[0]); i++)
+		if (sourceIs(source, s_colourFixes[i].source))
+			return 1;
+	return 0;
+}
+
+static uint32_t fixVertexColour(const char *source, uint32_t vboff, uint32_t vi, uint32_t argb)
+{
+	for (unsigned i = 0; i < sizeof(s_colourFixes) / sizeof(s_colourFixes[0]); i++)
+		if (s_colourFixes[i].vboff == vboff && vi >= s_colourFixes[i].first && vi <= s_colourFixes[i].last &&
+		    argb == s_colourFixes[i].old && sourceIs(source, s_colourFixes[i].source))
+			return s_colourFixes[i].fix;
+	return argb;
+}
+
+/*
+ * DAB gebean.c beanVertexUvFixes, beanFixVertexUv() (port/licenses/dabs-mod.txt):
+ * UVs the release got wrong, mended where its own UV is still there (the
+ * Community Edition's copy carries the mended one). By file, vertex buffer
+ * (.gpu offset) and vertex; UVs raw, as the file has them. stool1: the seat's
+ * rim quad (vertices 40-43) stops 3% short of its strip of the picture at one
+ * end and runs a 32nd past it at the other, so a band of the wrong texels
+ * showed round the seat's edge.
+ */
+static const struct {
+	const char *source;
+	uint32_t vboff;
+	uint16_t vi;
+	int16_t old[2], fix[2];
+} s_uvFixes[] = {
+	{ "new/prop/stool1", 0, 40, { -8191, 15455 }, { -7936, 16384 } },
+	{ "new/prop/stool1", 0, 41, { 0, 15455 }, { 0, 16384 } },
+	{ "new/prop/stool1", 0, 42, { 0, 8191 }, { 0, 8192 } },
+	{ "new/prop/stool1", 0, 43, { -8192, 8192 }, { -7936, 8192 } },
+};
+
+static int uvFixesFor(const char *source)
+{
+	for (unsigned i = 0; i < sizeof(s_uvFixes) / sizeof(s_uvFixes[0]); i++)
+		if (sourceIs(source, s_uvFixes[i].source))
+			return 1;
+	return 0;
+}
+
+static int fixVertexUv(const char *source, uint32_t vboff, uint32_t vi, float uvscale, float uv[2])
+{
+	for (unsigned i = 0; i < sizeof(s_uvFixes) / sizeof(s_uvFixes[0]); i++)
+		if (s_uvFixes[i].vboff == vboff && s_uvFixes[i].vi == vi &&
+		    (int32_t)floorf(uv[0] * uvscale + 0.5f) == s_uvFixes[i].old[0] &&
+		    (int32_t)floorf(uv[1] * uvscale + 0.5f) == s_uvFixes[i].old[1] && sourceIs(source, s_uvFixes[i].source)) {
+			uv[0] = s_uvFixes[i].fix[0] / uvscale;
+			uv[1] = s_uvFixes[i].fix[1] / uvscale;
+			return 1;
+		}
 	return 0;
 }
 
@@ -104,6 +290,128 @@ static uint32_t beanShadeTint(uint32_t argb, const float *nrm, const float *ligh
 	}
 	return out;
 }
+
+/*
+ * DAB gebean.c beanFixLettering() (port/licenses/dabs-mod.txt): the
+ * release's first-person guns are mostly symmetric and paint both sides from
+ * one picture, the far side's triangles the near side's mirrored on the same
+ * texels, so their lettering reads backwards on one side. In the headset a
+ * gun is turned over in the hand and both are seen. Each patch below is where
+ * a piece of lettering lies in its picture (u across, v down), DAB's, found
+ * by eye in the release's textures; a triangle over one whose picture is laid
+ * the other way round from its surface (the mirrored side) draws from a copy
+ * of the picture with each patch turned over along u, the gun's length. A
+ * dual-wielded left gun is mirrored whole by GoldenEye (MIRROR_DUAL), which
+ * no picture can undo.
+ */
+struct beanLettering {
+	const char *gun;   /* the folder under gun/ */
+	int tex;           /* the model's picture index */
+	float patch[4];    /* u0, v0, u1, v1 */
+};
+static const struct beanLettering s_lettering[] = {
+	/* "Ракетно-картофельная пусковая установка", "сброс горячий", "оптический прицел" */
+	{ "rocketlauncher", 1, { 0.330f, 0.600f, 0.520f, 0.710f } },
+	{ "rocketlauncher", 2, { 0.215f, 0.150f, 0.410f, 0.185f } },
+	{ "rocketlauncher", 2, { 0.400f, 0.855f, 0.795f, 0.905f } },
+	/* "P90 cal 5.7x28", and "P90 - 50 ROUND MAGAZINE" on the magazine */
+	{ "fnp90", 5, { 0.160f, 0.520f, 0.510f, 0.590f } },
+	{ "fnp90", 6, { 0.310f, 0.460f, 0.730f, 0.530f } },
+	/* "KLOBB" */
+	{ "skorpion", 0, { 0.650f, 0.460f, 0.760f, 0.520f } },
+	/* the scope's maker's plate (not its rings' numbers, which run round it) */
+	{ "sniperrifle", 0, { 0.310f, 0.670f, 0.410f, 0.720f } },
+	/* the AR33's receiver: maker, selector, serial block */
+	{ "m16", 1, { 0.510f, 0.560f, 0.850f, 0.625f } },
+	{ "m16", 1, { 0.120f, 0.570f, 0.260f, 0.800f } },
+	/* the Phantom's slide */
+	{ "spectre", 5, { 0.330f, 0.205f, 0.820f, 0.240f } },
+	/* the D5K's receiver serial */
+	{ "mp5k", 5, { 0.170f, 0.005f, 0.310f, 0.040f } },
+	{ "mp5ksilenced", 5, { 0.170f, 0.005f, 0.310f, 0.040f } },
+};
+
+/* the picture laid on a triangle the other way round from its surface: the
+ * mirrored half of a mirrored gun (DAB beanTriFacesBack()) */
+static int letteringFacesBack(const struct gevrBeanTri *t)
+{
+	float e1[3], e2[3], g[3], d = 0.0f;
+	for (int k = 0; k < 3; k++) {
+		e1[k] = t->p[3 + k] - t->p[k];
+		e2[k] = t->p[6 + k] - t->p[k];
+	}
+	g[0] = e1[1] * e2[2] - e1[2] * e2[1];
+	g[1] = e1[2] * e2[0] - e1[0] * e2[2];
+	g[2] = e1[0] * e2[1] - e1[1] * e2[0];
+	for (int k = 0; k < 3; k++)
+		d += g[k] * (t->n[k] + t->n[3 + k] + t->n[6 + k]);
+	const float s = (t->uv[2] - t->uv[0]) * (t->uv[5] - t->uv[1]) - (t->uv[4] - t->uv[0]) * (t->uv[3] - t->uv[1]);
+	return s != 0.0f && d != 0.0f && (s > 0.0f) == (d > 0.0f);
+}
+
+/* a triangle's corners in the picture on a patch, in the repeat its middle is in */
+static int letteringOnPatch(const struct gevrBeanTri *t, const float patch[4])
+{
+	float lo[2] = { 1e30f, 1e30f }, hi[2] = { -1e30f, -1e30f }, mid[2];
+	for (int a = 0; a < 2; a++)
+		mid[a] = floorf((t->uv[a] + t->uv[2 + a] + t->uv[4 + a]) / 3.0f);
+	for (int k = 0; k < 3; k++)
+		for (int a = 0; a < 2; a++) {
+			const float c = t->uv[k * 2 + a] - mid[a];
+			if (c < lo[a]) lo[a] = c;
+			if (c > hi[a]) hi[a] = c;
+		}
+	return hi[0] > patch[0] && lo[0] < patch[2] && hi[1] > patch[1] && lo[1] < patch[3];
+}
+
+static void fixLettering(struct gevrBeanMesh *mesh, const char *source)
+{
+	char folder[48];
+	for (int tex = 0; tex < mesh->ntex && mesh->ntex < 256; tex++) {
+		float patches[8][4];
+		int npatch = 0, count = 0;
+		for (unsigned i = 0; i < sizeof(s_lettering) / sizeof(s_lettering[0]) && npatch < 8; i++) {
+			snprintf(folder, sizeof(folder), "/gun/%s/", s_lettering[i].gun);
+			if (s_lettering[i].tex == tex && strstr(source, folder))
+				memcpy(patches[npatch++], s_lettering[i].patch, sizeof(patches[0]));
+		}
+		if (!npatch || !mesh->standin[tex])
+			continue;
+		const int turned = mesh->ntex;
+		for (int t = 0; t < mesh->ntris; t++) {
+			struct gevrBeanTri *tri = &mesh->tris[t];
+			if (tri->tex != tex || !letteringFacesBack(tri))
+				continue;
+			for (int k = 0; k < npatch; k++)
+				if (letteringOnPatch(tri, patches[k])) {
+					tri->tex = (int16_t)turned;
+					count++;
+					break;
+				}
+		}
+		if (!count)
+			continue;
+		char key[160];
+		snprintf(key, sizeof(key), "%s:%d:lettering", source, tex);
+		const void *standin = gevrBeanTexTurnPatches(mesh->standin[tex], key, (const float (*)[4])patches, npatch);
+		if (!standin) {
+			for (int t = 0; t < mesh->ntris; t++)
+				if (mesh->tris[t].tex == turned)
+					mesh->tris[t].tex = (int16_t)tex;
+			continue;
+		}
+		mesh->standin[turned] = standin;
+		mesh->texW[turned] = mesh->texW[tex];
+		mesh->texH[turned] = mesh->texH[tex];
+		mesh->texCut[turned] = mesh->texCut[tex];
+		mesh->texClamp[turned] = mesh->texClamp[tex];
+		memcpy(mesh->texClampBase[turned], mesh->texClampBase[tex], sizeof(mesh->texClampBase[0]));
+		mesh->ntex++;
+		GEVR_BEAN_LOG("gevr bean: %s: %d triangles of the mirrored side's lettering on picture %d turned round\n",
+		              source, count, tex);
+	}
+}
+
 
 struct beanIb {
 	uint32_t obj, off, size, width;
@@ -305,6 +613,99 @@ static int readVtx(const uint8_t *gpu, const struct beanVb *vb, uint32_t i, floa
 	return 1;
 }
 
+/*
+ * DAB gebean.c beanDrawIsSphereMapped(), beanSphereFrame(), beanSphereUv()
+ * (port/licenses/dabs-mod.txt): a draw the release sphere-maps. Its vertices
+ * carry no UV (stride 16, or 20 with a colour) and its material has a picture
+ * of its own, the round reflection map the shader looks up by the normal as
+ * GoldenEye's texgen did: the satellite's blue panels in Silo, the car's
+ * windows, the Yale key. With no UV to read they drew the map's first texel -
+ * black, the corner outside the sphere. Each vertex takes where its normal
+ * would land for a viewer square to the draw, the draw's surface spread across
+ * the middle of the map as a mirror's reflection travels across it: the draw's
+ * mean normal is the view, up the model's +y (+z for a face looking straight
+ * up or down), so the map's sky stays above its horizon; a draw round a solid
+ * (the key) has no mean to speak of and is looked at from the front. Kept
+ * within the sphere's disc.
+ */
+struct beanSphere {
+	float t[3], b[3];   /* across and up the map */
+	float c[3];         /* the draw's middle */
+	float reach;        /* half its biggest extent */
+	float spread;       /* how far its surface travels across the map */
+};
+
+static void sphereCross(const float a[3], const float b[3], float out[3])
+{
+	out[0] = a[1] * b[2] - a[2] * b[1];
+	out[1] = a[2] * b[0] - a[0] * b[2];
+	out[2] = a[0] * b[1] - a[1] * b[0];
+}
+
+static void sphereFrame(const struct beanVtx *v, int count, struct beanSphere *sp)
+{
+	float n[3] = { 0, 0, 0 }, lo[3] = { 1e30f, 1e30f, 1e30f }, hi[3] = { -1e30f, -1e30f, -1e30f };
+	float up[3] = { 0, 1, 0 }, len;
+	for (int i = 0; i < count; i++) {
+		/* a panel's back is in the same draw as its front, facing the other
+		 * way: both sides are square to one view */
+		const float side = v[i].nrm[0] * v[0].nrm[0] + v[i].nrm[1] * v[0].nrm[1] + v[i].nrm[2] * v[0].nrm[2] < 0.0f ? -1.0f : 1.0f;
+		for (int k = 0; k < 3; k++) {
+			n[k] += v[i].nrm[k] * side;
+			lo[k] = fminf(lo[k], v[i].pos[k]);
+			hi[k] = fmaxf(hi[k], v[i].pos[k]);
+		}
+	}
+	len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+	sp->spread = 0.2f;
+	if (count == 0 || len < 0.5f * count) {
+		n[0] = n[1] = 0.0f;
+		n[2] = 1.0f;
+		sp->spread = 0.0f;
+	} else {
+		for (int k = 0; k < 3; k++)
+			n[k] /= len;
+	}
+	if (fabsf(n[1]) > 0.9f) {
+		up[1] = 0.0f;
+		up[2] = 1.0f;
+	}
+	sphereCross(up, n, sp->t);
+	len = sqrtf(sp->t[0] * sp->t[0] + sp->t[1] * sp->t[1] + sp->t[2] * sp->t[2]);
+	for (int k = 0; k < 3; k++)
+		sp->t[k] /= len > 0.0f ? len : 1.0f;
+	sphereCross(n, sp->t, sp->b);
+	sp->reach = 0.0f;
+	for (int k = 0; k < 3 && count > 0; k++) {
+		sp->c[k] = (lo[k] + hi[k]) * 0.5f;
+		sp->reach = fmaxf(sp->reach, (hi[k] - lo[k]) * 0.5f);
+	}
+	if (sp->reach <= 0.0f) {
+		sp->spread = 0.0f;
+		sp->reach = 1.0f;
+	}
+}
+
+static void sphereUv(const struct beanSphere *sp, struct beanVtx *v)
+{
+	float d[3], s, w, r;
+	for (int k = 0; k < 3; k++)
+		d[k] = (v->pos[k] - sp->c[k]) / sp->reach;
+	s = 0.45f * (v->nrm[0] * sp->t[0] + v->nrm[1] * sp->t[1] + v->nrm[2] * sp->t[2]) +
+	    sp->spread * (d[0] * sp->t[0] + d[1] * sp->t[1] + d[2] * sp->t[2]);
+	w = 0.45f * (v->nrm[0] * sp->b[0] + v->nrm[1] * sp->b[1] + v->nrm[2] * sp->b[2]) +
+	    sp->spread * (d[0] * sp->b[0] + d[1] * sp->b[1] + d[2] * sp->b[2]) + sp->spread * 0.5f;
+	r = sqrtf(s * s + w * w);
+	if (r > 0.45f) {
+		s *= 0.45f / r;
+		w *= 0.45f / r;
+	}
+	v->uv[0] = 0.5f + s;
+	v->uv[1] = 0.5f - w;
+	v->hasuv = 1;
+}
+
+
 #include "gevr_bean_tree.inc.h"
 
 /* A tree's first copy has no instance record. Mark every draw of a buffer
@@ -340,6 +741,47 @@ static void clampLevelCutouts(struct gevrBeanMesh *mesh, const uint8_t *texAlpha
 			mesh->texClampBase[tex][1] = base;
 		}
 	}
+}
+
+/*
+ * DAB gebean.c beanClampCards() (port/licenses/dabs-mod.txt): a rigid prop's
+ * cut-out pictures laid once across their triangles - every UV of every
+ * triangle with the picture within 0 to 1, give or take a texel - are sampled
+ * clamped. Repeating, the filter at a card's edge reads the opposite edge's
+ * texels: Jungle's vine tree (prop/jungle3tree) hangs its vines from the top
+ * of their picture, so the foot of every vine card drew a row of the vines'
+ * tops as dark dashes floating in the air under it. Glass (a draw laying the
+ * scratch map over it) is left repeating. Returns how many were clamped.
+ */
+static int clampPropCards(struct gevrBeanMesh *mesh, const uint8_t *texAlpha, const struct beanDraw *draws, int ndraws)
+{
+	const float slack = 1.0f / 64.0f;   /* the vine cards reach a texel or so past 0 */
+	uint8_t inside[MAX_TEX], used[MAX_TEX], glass[MAX_TEX];
+	int num = 0;
+	memset(inside, 1, sizeof(inside));
+	memset(used, 0, sizeof(used));
+	memset(glass, 0, sizeof(glass));
+	for (int i = 0; i < ndraws; i++)
+		if (draws[i].scratch && draws[i].blend && draws[i].tex < MAX_TEX)
+			glass[draws[i].tex] = 1;
+	for (int t = 0; t < mesh->ntris; t++) {
+		const struct gevrBeanTri *tri = &mesh->tris[t];
+		if (tri->tex < 0 || tri->tex >= mesh->ntex || tri->tex >= MAX_TEX)
+			continue;
+		used[tri->tex] = 1;
+		for (int k = 0; k < 3; k++) {
+			const float u = tri->uv[k * 2], v = tri->uv[k * 2 + 1];
+			if (u < -slack || u > 1.0f + slack || v < -slack || v > 1.0f + slack)
+				inside[tri->tex] = 0;
+		}
+	}
+	for (int x = 0; x < mesh->ntex && x < MAX_TEX; x++)
+		if (used[x] && inside[x] && texAlpha[x] && !glass[x]) {
+			mesh->texClamp[x] = 3;
+			mesh->texClampBase[x][0] = mesh->texClampBase[x][1] = 0.0f;
+			num++;
+		}
+	return num;
 }
 
 static void applyInst(float *p, const float *m)
@@ -1825,6 +2267,112 @@ static int paintLevelUnlit(struct gevrBeanMesh *mesh, const uint8_t *pass, int n
 	return painted;
 }
 
+/*
+ * DAB gebeanstage.c dropTwins() (port/licenses/dabs-mod.txt): opaque triangles
+ * the release's draws repeat corner for corner in another picture, of which it
+ * shows only the first it draws. Its level draws in its stream's order, the
+ * opaque pass with the depth test LESS: a second triangle at exactly the first
+ * one's depth fails it everywhere and is never seen. Facility's walls carry
+ * GoldenEye's yellow and black hazard stripes this way, under the concrete the
+ * release shows, and Dam's, Runway's and Frigate's have more (445 twins over
+ * the levels). The decal pass took both as lying wholly on each other and drew
+ * the later one on top. A blended twin is kept (the blended pass wins its ties)
+ * and left to the decal pass; so is the next twin under a first that is a
+ * cut-out, which shows where the cut-out is clear (the Cradle's walkway plate
+ * under its braces); and a twin in the same picture and colour is drawn the
+ * same anyway. Corners compared to the bit, as the release's buffers have
+ * them. Before the level's other passes, its pass bytes compacted with it.
+ */
+struct twinKey {
+	float c[9];
+	int tri;
+};
+
+static int twinCornerCmp(const void *a, const void *b)
+{
+	return memcmp(a, b, 3 * sizeof(float));
+}
+
+static int twinCmp(const void *a, const void *b)
+{
+	const struct twinKey *x = a, *y = b;
+	const int r = memcmp(x->c, y->c, sizeof(x->c));
+	return r ? r : (x->tri > y->tri) - (x->tri < y->tri);
+}
+
+static int dropLevelTwins(struct gevrBeanMesh *mesh, uint8_t *pass, int npass, const uint8_t *texAlpha)
+{
+	const int n = mesh->ntris;
+	struct twinKey *keys = malloc((size_t)(n > 0 ? n : 1) * sizeof(*keys));
+	uint8_t *drop = calloc((size_t)(n > 0 ? n : 1), 1);
+	int dropped = 0, kept = 0;
+	if (!keys || !drop) {
+		free(keys);
+		free(drop);
+		return 0;
+	}
+	for (int t = 0; t < n; t++) {
+		float corner[3][3];
+		memcpy(corner, mesh->tris[t].p, sizeof(corner));
+		qsort(corner, 3, sizeof(corner[0]), twinCornerCmp);
+		memcpy(keys[t].c, corner, sizeof(keys[t].c));
+		keys[t].tri = t;
+	}
+	qsort(keys, (size_t)n, sizeof(*keys), twinCmp);
+/* blended, or a plain shader-only overlay fixPlainLevelFaces() may leave out */
+#define TWIN_BLEND(t) (((t) < npass && (pass[(t)] & LDECAL_PASS_BLEND)) || (mesh->tris[(t)].flags & GEVR_BEAN_F_PLAIN))
+	for (int a = 0; a < n;) {
+		int b = a + 1, first = -1, second = -1;
+		while (b < n && !memcmp(keys[b].c, keys[a].c, sizeof(keys[a].c)))
+			b++;
+		/* of the opaque ones, the one the release draws first */
+		for (int k = a; k < b; k++) {
+			const int t = keys[k].tri;
+			if (!TWIN_BLEND(t) && (first < 0 || t < first))
+				first = t;
+		}
+		/* a first that is a cut-out shows the next one where it is clear */
+		if (first >= 0 && mesh->tris[first].alphatest && mesh->tris[first].tex >= 0 &&
+		    mesh->tris[first].tex < MAX_TEX && texAlpha[mesh->tris[first].tex])
+			for (int k = a; k < b; k++) {
+				const int t = keys[k].tri;
+				if (t != first && !TWIN_BLEND(t) && mesh->tris[t].tex != mesh->tris[first].tex &&
+				    (second < 0 || t < second))
+					second = t;
+			}
+		for (int k = a; k < b && first >= 0; k++) {
+			const int t = keys[k].tri;
+			if (t == first || t == second || TWIN_BLEND(t))
+				continue;
+			if (mesh->tris[t].tex != mesh->tris[first].tex ||
+			    memcmp(mesh->tris[t].rgba, mesh->tris[first].rgba, sizeof(mesh->tris[t].rgba))) {
+				drop[t] = 1;
+				dropped++;
+			}
+		}
+		a = b;
+	}
+#undef TWIN_BLEND
+	for (int t = 0; t < n && dropped; t++) {
+		if (drop[t])
+			continue;
+		if (kept != t) {
+			mesh->tris[kept] = mesh->tris[t];
+			if (kept < npass)
+				pass[kept] = t < npass ? pass[t] : 0;
+		}
+		kept++;
+	}
+	if (dropped) {
+		for (int t = kept; t < npass; t++)
+			pass[t] = 0;
+		mesh->ntris = kept;
+	}
+	free(keys);
+	free(drop);
+	return dropped;
+}
+
 /* DAB gebeanLevelTriangles()/gebeanstage.c (aae28c8): a draw without UVs
  * or a material since its vertex shader was set has no picture of its own.
  * Bunker's helipad has 107 white triangles shaded entirely by that shader.
@@ -2405,6 +2953,50 @@ static void keepScreenDraw(struct gevrBeanDrawSrc *ds, const char *path, const s
 	ds->nverts = vb->count;
 }
 
+/*
+ * DAB gebean.c beanApplyCeFixes() (port/licenses/dabs-mod.txt): the Community
+ * Edition's vertex colours, built in, so a retail copy gets them too - the
+ * crates' and the ammo crate's shading, the runway gun's greys, the metal
+ * chair, the tuning console's trim, Complex's railings. Byte for byte against
+ * the release's own file as it is read, before anything is made of it, and
+ * only where the file is the size listed and still has the bytes listed: the
+ * Community Edition's own copy (gevr_bean_ce.c) is another size, left alone.
+ * Colours only; Dab's generator refuses anything else.
+ */
+#define CEFIX(src, size, off, len, old, new) { src, size, off, len, old, new }
+static const struct {
+	const char *source;
+	uint32_t size;
+	uint32_t off;
+	uint8_t len;
+	const char *old;
+	const char *fix;
+} s_ceFixes[] = {
+#include "gevr_bean_cefixes.h"
+};
+#undef CEFIX
+
+static void applyCeFixes(const char *path, uint8_t *file, uint32_t size)
+{
+	const char *last = NULL;
+	int applied = 0, matches = 0;
+	for (unsigned i = 0; i < sizeof(s_ceFixes) / sizeof(s_ceFixes[0]); i++) {
+		if (s_ceFixes[i].size != size || s_ceFixes[i].off + s_ceFixes[i].len > size)
+			continue;
+		/* one name test per file: the table runs file by file */
+		if (s_ceFixes[i].source != last) {
+			last = s_ceFixes[i].source;
+			matches = sourceIs(path, last);
+		}
+		if (matches && memcmp(file + s_ceFixes[i].off, s_ceFixes[i].old, s_ceFixes[i].len) == 0) {
+			memcpy(file + s_ceFixes[i].off, s_ceFixes[i].fix, s_ceFixes[i].len);
+			applied++;
+		}
+	}
+	if (applied)
+		GEVR_BEAN_LOG("gevr bean: %s: %d of the Community Edition's vertex colours\n", path, applied);
+}
+
 int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 {
 	FILE *fp;
@@ -2429,7 +3021,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	int numbones = 0;
 	float insts[MAX_INST][16];
 	int ninst = 0;
-	int original, levelFade, rigidDecals;
+	int original, levelFade, rigidDecals, untested = 0;
 	uint8_t texAlpha[MAX_TEX], texSoft[MAX_TEX], *triPass = NULL;
 	int passCap = 0;
 	int section = -1, afterpieces = 0;
@@ -2437,12 +3029,13 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	int triggerCuffs;
 	uint32_t end, pc, vb = 0, tex = 0, matpc = 0, vs = 0, masktex = ~0u;
 	uint8_t maskslot = 0;
-    uint32_t reflectSpot=~0u,reflectLand=~0u; int reflectForm=0;
+    uint32_t reflectSpot=~0u,reflectLand=~0u; int reflectForm=0, glassMat=0;
     uint8_t reflectAmount[4]={0},reflectionAlphaBase=0; uint32_t reflectionColour=0;
 	uint8_t pal[GEVR_BEAN_MAXPAL];
 	uint16_t remap[GEVR_BEAN_MAXPAL];
 	int numremap = 0;
 	uint8_t numpal = 1, passblend = 0, blend = 0, alphatest = 0;
+	uint8_t alpharef = 0;   /* DAB beandraw.alpharef */
 	uint8_t alpha = 0xff;
 	uint8_t ownmat = 0;
 	uint32_t colour = 0xffffffu;
@@ -2474,6 +3067,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		return 0;
 	}
 	fclose(fp);
+	applyCeFixes(source, file, (uint32_t)size);
 	memset(&caff, 0, sizeof(caff));
 	if (!gevrCaffOpen(&caff, file, (uint32_t)size)) {
 		free(file);
@@ -2660,6 +3254,10 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		} else if (type == 0x15 && sz >= 12) {
 			secend = be32(stream + pc + 4);
 			secblend = (be32(stream + pc + 8) & 0xff) == 2;
+		} else if (type == 0x0c && sz >= 12 && be32(stream + pc + 4) == 0x64) {
+			/* the alpha test's reference, 0 to 255 (its function, 0x68, is greater on
+			 * every level draw that sets one: DAB gebean.c) */
+			alpharef = (uint8_t)(be32(stream + pc + 8) > 255 ? 255 : be32(stream + pc + 8));
 		} else if (type == 0x0c && sz >= 12 && be32(stream + pc + 4) == 0x60) {
 			alphatest = be32(stream + pc + 8) != 0;
 		} else if (type == 0x2d && sz >= 20) {
@@ -2669,7 +3267,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 			matpc = pc;
             masktex = ~0u;
             maskslot = 0;
-            reflectSpot=reflectLand=~0u; reflectForm=0;
+            reflectSpot=reflectLand=~0u; reflectForm=0; glassMat=0;
             memset(reflectAmount,0,sizeof(reflectAmount)); reflectionColour=0; reflectionAlphaBase=0;
             int spotSlot=-1,landSlot=-1,pictureSlot=-1,scratchSlot=-1,validInputs=0;uint32_t scratch=~0u;
             for (uint32_t k = 0; 12 + 8*k + 8 <= sz && fits(pc+12+8*k, 8, slen); k++) {
@@ -2680,7 +3278,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
                 if(sphere==1){reflectSpot=other;spotSlot=slot;}
                 else if(sphere==2){reflectLand=other;landSlot=slot;}
                 else if(other==tex)pictureSlot=slot;
-                if(scratchTex(&caff,texfile,ntex,other)){scratch=other;scratchSlot=slot;}
+                if(scratchTex(&caff,texfile,ntex,other)){scratch=other;scratchSlot=slot;glassMat|=other!=tex;}
                 if (other != tex && other < (uint32_t)ntex && masktex == ~0u) {
                     masktex = other;
                     maskslot = be32(stream+pc+16+8*k) >> 16;
@@ -2792,6 +3390,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
                 if (paneForm) memcpy(d->reflectAmount,reflectAmount,4);
                 else memset(d->reflectAmount,0,4);
                 d->masktex = masktex;
+                d->scratch = (uint8_t)glassMat;
                 d->maskslot = maskslot;
                 d->matpc = matpc;
 				d->prim = be32(stream + pc + 4);
@@ -2801,6 +3400,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 				d->blend = blend;
 				d->alpha = alpha;
 				d->alphatest = alphatest;
+				d->alpharef = alpharef;
 				d->numpal = numpal;
 				d->colour = colour;
 				for (int k = 0; k < numpal; k++) {
@@ -2888,6 +3488,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	for (int i = 0; i < numbones; i++) {
 		memcpy(mesh->boneBind[i], bind[i], sizeof(bind[i]));
 		mesh->boneSk[i] = boneSk[i] < 0 ? 0 : boneSk[i];
+		mesh->boneMuzzle[i] = (uint8_t)((muzzle[i] ? 1 : 0) |
+		                                (i < numnames && !strcmp(names[i], "SKEL_MUZZLE") ? 2 : 0));
 		if (i < numnames)
 			snprintf(mesh->boneName[i], 64, "%s", names[i]);
 	}
@@ -2914,7 +3516,27 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	}
 	/* Props also own scrolling pictures (the helicopter at 0.9 repeats/s). */
 	readTextureScroll(mesh, data, dlen, stream, slen, &caff, texfile);
+	repaintDraws(draws, ndraws, source, &caff, texfile, ntex);
 	fixPlaceholders(mesh, draws, ndraws, source);
+	/* DAB beanTexBlendedOnly() and beanKeyStencil(): a picture every draw of
+	 * which is in the release's blended pass, never a glass pane, drawn with no
+	 * alpha of its own, is a stencil the release painted on black: the black
+	 * made clear (gevr_bean_tex.c), and cut out where it is not blended */
+	for (int t = 0; t < mesh->ntex; t++) {
+		int blended = 0, other = 0;
+		for (int di = 0; di < ndraws && !other; di++) {
+			if (draws[di].tex != (uint32_t)t)
+				continue;
+			if (!draws[di].blend || draws[di].scratch)
+				other = 1;
+			else
+				blended = 1;
+		}
+		if (blended && !other && gevrBeanTexKeyStencil(mesh->standin[t])) {
+			mesh->texCut[t] = 1;
+			GEVR_BEAN_LOG("gevr bean: %s: texture %d is lettering on black, the black made clear\n", source, t);
+		}
+	}
 	textureAlphaFlags(mesh, texAlpha, texSoft);
     if (levelFade) markLevelBlendShaders(mesh, draws, ndraws, ibs, nibs, data, dlen, gpu, glen, uv20);
 	if (levelFade) markTreeBuffers(draws, ndraws);
@@ -2991,8 +3613,34 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 			mesh->draws[di].prim = (uint8_t)d->prim;
 			mesh->draws[di].alphatest = (uint8_t)(d->alphatest != 0);
 		}
+		/* a sphere-mapped draw's lookup (sphereFrame()): a prop's own material
+		 * on a picture, its vertices without UV */
+		/* a gun's mended piece (fpMendOf()); never its flash cards (piece 0, DAB
+		 * fpDrawIsCard()), which DAB lays apart and which stand on the bore */
+		const int fpMend = !original && fpGunFile(source) && d->piece != 0 ? fpMendOf(source) : -1;
+		const int colourFixes = !original && colourFixesFor(source);
+		int coloursFixed = 0;
+		const int uvFixes = !original && uvFixesFor(source);
+		int uvsFixed = 0;
+		struct beanSphere sphere;
+		int sphered = 0;
+		if (!levelFade && d->ownmat && d->tex < (uint32_t)ntex &&
+		    (vbrec.stride == 16 || (vbrec.stride == 20 && !vbrec.uv20))) {
+			struct beanVtx *all = malloc((size_t)(ntris > 0 ? ntris : 1) * 3 * sizeof(*all));
+			int nall = 0;
+			for (int c = 0; all && c < ntris * 3; c++)
+				nall += readVtx(gpu, &vbrec, tris[c], uvscale, numbones > 0, &all[nall]);
+			if (all && nall > 0) {
+				sphereFrame(all, nall, &sphere);
+				sphered = 1;
+				GEVR_BEAN_LOG("gevr bean: %s: draw %d sphere-mapped, its %d corners without UV\n", source, di, nall);
+			}
+			free(all);
+		}
+
 		for (int t = 0; t < ntris; t++) {
 			struct beanVtx corner[3];
+			uint8_t rawAlpha[3] = { 255, 255, 255 };
 			int ok = 1;
 			for (int k = 0; k < 3; k++) {
 				if (!(isTree ? readTreeVtx(gpu, &vbrec, tris[t * 3 + k], &corner[k])
@@ -3005,10 +3653,24 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
                     corner[k].uv[0] = (int16_t)be16(raw+20)/uvscale;
                     corner[k].uv[1] = (int16_t)be16(raw+22)/uvscale;
                 }
+                if (colourFixes)
+                {
+                    const uint32_t was = corner[k].argb;
+                    corner[k].argb = fixVertexColour(source, vbrec.off, tris[t * 3 + k], corner[k].argb);
+                    coloursFixed += corner[k].argb != was;
+                }
+                if (uvFixes && fixVertexUv(source, vbrec.off, tris[t * 3 + k], uvscale, corner[k].uv))
+                    uvsFixed++;
+                if (d->repaint)
+                    repaintUv(d->repaint, corner[k].pos, corner[k].nrm, corner[k].uv);
+                if (fpMend >= 0 && corner[k].pos[2] > s_fpMends[fpMend].zmin && corner[k].pos[1] > s_fpMends[fpMend].ymin)
+                    corner[k].pos[0] += s_fpMends[fpMend].dx;
+                if (sphered) sphereUv(&sphere, &corner[k]);
                 for (int j=0; j<3; j++) if (fabsf(corner[k].pos[j]) > 1e8f) ok = 0;
 				/* DAB ignores the native/fog alpha outside a fading material.
 				 * Nintendo's blended shader has no material fade and many zeros.
 				 * A first-person gun's material alpha fades nothing (below). */
+				rawAlpha[k] = (uint8_t)(corner[k].argb >> 24);
 				if (!(d->blend && ((d->alpha < 255 && !fpCards) || levelFade)))
 					corner[k].argb |= 0xff000000u;
                 if (mask) corner[k].argb = (corner[k].argb & 0xffffff) | (uint32_t)raw[24]<<24;
@@ -3023,6 +3685,17 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 					| ((corner[k].argb & 255) * (cr & 255) / 255));
 			}
 			if (ok) {
+				/* DAB gebeanstage.c alphaTested(): the release's alpha test on its opaque
+				 * level draws passes alpha greater than the draw's reference (127),
+				 * of the picture's alpha times the vertex's. Control's yellow stripes
+				 * down its stairs are cut-outs on vertices of alpha 0x7f: never
+				 * drawn. Its floor's cross, at 0x80, is drawn whole. Not a blended
+				 * draw's, whose vertex alpha blends as well. */
+				if (levelFade && d->alphatest && !d->blend && !mask && d->alpharef &&
+				    rawAlpha[0] <= d->alpharef && rawAlpha[1] <= d->alpharef && rawAlpha[2] <= d->alpharef) {
+					untested++;
+					continue;
+				}
 				if (isTree) beanTreeUvs(gpu, &vbrec, &tree, &tris[t * 3], corner);
 				if (d->inst >= 0 && d->inst < ninst)
 					for (int k = 0; k < 3; k++) {
@@ -3135,9 +3808,18 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
                 }
 			}
 		}
+		if (coloursFixed)
+			GEVR_BEAN_LOG("gevr bean: %s: draw %d: %d corners' colours mended\n", source, di, coloursFixed);
+		if (uvsFixed)
+			GEVR_BEAN_LOG("gevr bean: %s: draw %d: %d corners' UVs mended\n", source, di, uvsFixed);
 		free(tris);
 	}
 	if (levelFade) {
+		if (untested)
+			GEVR_BEAN_LOG("gevr bean: %s: %d alpha-tested faces whose vertex alpha never passes left out\n", source, untested);
+		const int twins = dropLevelTwins(mesh, triPass, passCap < mesh->ntris ? passCap : mesh->ntris, texAlpha);
+		if (twins)
+			GEVR_BEAN_LOG("gevr bean: %s: %d opaque twins the release never shows left out\n", source, twins);
 		const int unlit = paintLevelUnlit(mesh, triPass, passCap < mesh->ntris ? passCap : mesh->ntris, texAlpha,
 		                                 levelDecalScale(source), 0);
 		if (unlit)
@@ -3163,6 +3845,11 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		clampLevelCutouts(mesh, texAlpha);
 	} else if (rigidDecals)
 		markRigidDecals(mesh, texAlpha);
+	if (!levelFade && (strstr(source, "/prop/") || strstr(source, "\\prop\\"))) {
+		const int clamped = clampPropCards(mesh, texAlpha, draws, ndraws);
+		if (clamped)
+			GEVR_BEAN_LOG("gevr bean: %s: %d cut-out cards sampled clamped\n", source, clamped);
+	}
 	free(triPass);
 	free(draws);
 	free(ibs);
@@ -3173,6 +3860,9 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		return 0;
 	}
 	GEVR_BEAN_LOG("gevr bean: %s %d tris, uv %.0f\n", source, mesh->ntris, uvscale);
+	/* the mirrored side of a gun's lettering, once its triangles are built */
+	if (!original && fpGunFile(source))
+		fixLettering(mesh, source);
 	*out = mesh;
 	return 1;
 }

@@ -327,9 +327,14 @@ f32 gevrFogPropVisRange(f32 maxvisrange)
 
         edge = (255.0f - line[1]) / (line[0] * scale);
         viGetZRange(zrange);
-        if (edge > zrange[1] / scale)
+        /* never past what is drawn: the HD level's reach (DAB's raised far plane),
+         * the far plane until it is built */
+        const f32 reach = gevrBeanFarReach();
+        const f32 cap = reach > 0.0f ? reach : zrange[1] / scale;
+
+        if (edge > cap)
         {
-            edge = zrange[1] / scale;
+            edge = cap;
         }
     }
     return edge > maxvisrange ? edge : maxvisrange;
@@ -711,13 +716,26 @@ s32 fogPositionIsVisibleThroughFog(coord3d *pos, f32 range)
 
 #ifdef GEVR
     /* issue #39: as far as the rooms draw (bg.h GEVR_FAR_EXTEND) */
-    if (ff > (g_ScaledFarFogIntensity * GEVR_FAR_EXTEND + range))
+    {
+        /* and the HD level's whole reach (gevrBeanFarReach()) */
+        f32 reach = g_ScaledFarFogIntensity * GEVR_FAR_EXTEND;
+
+        if (reach < gevrBeanFarReach())
+        {
+            reach = gevrBeanFarReach();
+        }
+
+        if (ff > (reach + range))
+        {
+            return 0;
+        }
+    }
 #else
     if (ff > (g_ScaledFarFogIntensity + range))
-#endif
     {
         return 0;
     }
+#endif
 
     return 1;
 }

@@ -22,6 +22,12 @@ Mirror), Java 46x3, server gate passed.
 port is a guess) and the placeholders; Apple TV's remote and pads on a
 device; Mario Characters' dismemberment caps use GoldenEye's neck sizes.
 Untested with two headsets: #245/#246 and co-op in the hack campaigns.
+PR #261's stage data fixes (gevr_romswap.c gevrRomFixData: Bunker II's
+stair tiles, the Silo, Control, Surface and Egyptian setups) change what
+peers load: the release that ships them needs protocol 27.
+At that release close #241, #245, #246, #250-#253 (main), #31 and #32
+(reports) and PR #260 (in #261), each with a note to reopen with details
+if still broken (the user, 2026-11-19). #249 stays open.
 
 ## Platforms (docs/pc-platforms.md, docs/mobile-platforms.md)
 
@@ -35,7 +41,19 @@ Untested with two headsets: #245/#246 and co-op in the hack campaigns.
   Android phone (`mobile` flavor, emulator only), Steam Frame (`frame`
   flavor, Khronos loader), iOS (simulator and one development iPhone).
 - **Crossplay:** NET_INPUT classes in HELLO and NET_MSG 59/60 (additive), VR
-  players only / hide flat (Worker), roster "Plays", LAN beacon tail.
+  players only / hide flat (Worker), LAN beacon tail.
+- **Unreleased, branch t3/multiplayer-player-platform:** each player's
+  device (Quest, Quest flat, PC VR, PC, Android, iPhone/iPad, Apple TV,
+  Vision Pro, Steam Frame) in the launcher roster ("Device", was "Plays")
+  and the in-game pause table: NET_PLATFORM_TVOS/VISIONOS/FRAME, the host's
+  NET_MSG_PLATFORMS 62 table beside 60 (additive, no bump),
+  net_core.c netGetSlotDeviceKey/Name/Build. The lobby service gets
+  `devices|key@build,...` (own command; LobbyClient, pc_lobby, the bridge
+  and server_lobby.c) and presence gains device, build and input for
+  everyone online, solo too. Worker side: goldeneyevr.com branch
+  claude/platform-build-stats (usage.ts, "Who's playing" on
+  lobbies.goldeneyevr.com, privacy policy updated). Deploy the Worker
+  before the release; older Workers ignore the new fields.
 
 ## Help wanted (listed in the v0.5.15 and v0.5.16 notes)
 

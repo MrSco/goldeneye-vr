@@ -1,5 +1,6 @@
 package com.gevr.port;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 import org.junit.After;
 import org.junit.Before;
@@ -169,6 +170,22 @@ public class LobbyClientTest {
         requests.clear();
         command("join|abcdefgh|26");
         assertFalse(new JSONObject(requests.get(0).body.toString("UTF-8")).has("inputClass"));
+    }
+
+    @Test public void devicesGoWithTheHeartbeat() throws Exception {
+        resume();
+        command("devices|quest@0.5.21,pcvr@0.5.21,ios@,BAD@1,tvos@0.5 rc");
+        command("refresh|4|1|4|0|1");
+        poll();
+        JSONArray devices = new JSONObject(requests.get(0).body.toString("UTF-8")).getJSONArray("devices");
+        assertEquals(3, devices.length());   // the odd entries are left out
+        assertEquals("quest", devices.getJSONObject(0).getString("device"));
+        assertEquals("0.5.21", devices.getJSONObject(1).getString("build"));
+        assertEquals("", devices.getJSONObject(2).getString("build"));
+        requests.clear();
+        resume();                           // a new host: not sent until it says them
+        poll();
+        assertFalse(new JSONObject(requests.get(0).body.toString("UTF-8")).has("devices"));
     }
 
     @Test public void flatPlayersGoWithTheHeartbeatAndHideFlatWithTheList() throws Exception {

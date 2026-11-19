@@ -165,6 +165,7 @@ extern "C" void gevrNativePauseRender(void) {
     gevrTextInputFeed(io);
     gevrFeedPauseInput(!wasOpen || panel!=wasPanel || hold!=wasHold);wasOpen=true;wasPanel=panel;wasHold=hold;
     ImGui_ImplOpenGL3_NewFrame();ImGui::NewFrame();
+    gevrFriendsNavCross();   /* a pad or the remote into the Friends panel and back */
     const bool popupWasOpen=ImGui::IsPopupOpen(nullptr,ImGuiPopupFlags_AnyPopupId|ImGuiPopupFlags_AnyPopupLevel);
     int action=GEVR_PAUSE_NONE,panelAction=GEVR_PANEL_NONE;
     bool joinFriend=false;
@@ -208,6 +209,7 @@ extern "C" void gevrNativePauseRender(void) {
         auto&p=view.players[view.count++];snprintf(p.name,sizeof(p.name),"%s",netGetSlotName(slot)?netGetSlotName(slot):"Player");
         p.slot=slot;p.loaded=lobby->slots[slot].loaded!=0;p.spectator=lobby->slots[slot].spectator!=0;p.canKick=netHostCanKickPlayer(slot)!=0;p.bot=lobby->slots[slot].is_bot!=0;
         snprintf(p.character,sizeof(p.character),"%s",netCharacterName(gevrNetSlotChr(slot)));p.host=slot==netGetHostSlot();
+        snprintf(p.device,sizeof(p.device),"%s",netGetSlotDeviceName(slot));
         p.ready=lobby->slots[slot].ready!=0;p.down=view.coop&&gevrCoopDowned(slot);p.ping=netGetSlotPing(slot);
         if(!view.coop)gevrPausePlayerStats(slot,&p.points,&p.kills,&p.losses);
     }

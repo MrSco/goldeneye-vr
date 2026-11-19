@@ -61,6 +61,8 @@ static bool s_beanNormalTex1, s_beanReflectDiffuse;
 static const uint8_t *s_beanVertexTint;
 static unsigned s_beanVertexTintStride;
 static bool s_beanRoomFogLinear;
+static bool s_beanAlphaCore;   /* GEVR_NODE_CORE: a soft cut-out's core (gfx_bean_node_state) */
+static bool s_beanRoomFogRadial;   /* GEVR_ROOM_RADIAL: by the vertex's distance from the eye */
 /* G_GEVR_BEAN_FADE: a fading chr's Bean draws (chrRenderProp's PropType 8). The
  * game's own lists fade through their render mode (modelApplyRenderModeType3:
  * env alpha, G_RM_AA_ZB_XLU_SURF2); Bean's set theirs, so the renderer applies
@@ -2301,6 +2303,25 @@ static void gevr_reflect_frame(float f[4][3]) {
         f[3][col] = -(m[3][0] * inv[0][col] + m[3][1] * inv[1][col] + m[3][2] * inv[2][col]);
 }
 
+/*
+ * Fog by distance (GEVR_ROOM_RADIAL) from clip space. GoldenEye loads its
+ * camera into the projection (P = camera x projection, see the decal note in
+ * gfx_sp_matrix), and the camera is a rotation: the length of each of P's
+ * columns over its top three rows is the projection's own scale for clip x,
+ * y and w. A vertex's distance from the eye in w's units is then
+ * sqrt((x kx)^2 + (y ky)^2 + w^2), kx and ky being w's scale over x's and
+ * y's; the projection is symmetric (the headset's head projection too), so
+ * clip x and y are the eye's x and y scaled.
+ */
+static void gevr_fog_radial_scale(float k[2]) {
+    float s[4];
+    for (int c = 0; c < 4; c++)
+        s[c] = sqrtf(rsp.P_matrix[0][c] * rsp.P_matrix[0][c] + rsp.P_matrix[1][c] * rsp.P_matrix[1][c] +
+                     rsp.P_matrix[2][c] * rsp.P_matrix[2][c]);
+    k[0] = s[0] > 1e-9f ? s[3] / s[0] : 0.0f;
+    k[1] = s[1] > 1e-9f ? s[3] / s[1] : 0.0f;
+}
+
 static void gevr_reflect_uv(const float f[4][3], const float pos[3], const float normal[3], float uv[2]) {
     float e[3] = { pos[0] - f[3][0], pos[1] - f[3][1], pos[2] - f[3][2] };
     const float el = sqrtf(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
@@ -2593,6 +2614,8 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
     if (probe) ++s_surfaceVertexBatches;
     float reflectFrame[4][3];   // gevr_reflect_frame, once a batch
     bool haveReflectFrame = false;
+    float fogRadial[2] = { 0.0f, 0.0f };   // GEVR_ROOM_RADIAL's scales, once a batch
+    bool haveFogRadial = false;
     for (size_t i = 0; i < n_vertices; i++, dest_index++) {
         Vtx packed = {};
         if (world) {
@@ -2805,7 +2828,12 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
                 winv = std::numeric_limits<int16_t>::max();
             }
 
-            float fog_z = s_beanRoomFogLinear ? w * s_beanRoomFogLine[0] + s_beanRoomFogLine[1] :
+            float fogDepth = w;
+            if (s_beanRoomFogLinear && s_beanRoomFogRadial) {
+                if (!haveFogRadial) { gevr_fog_radial_scale(fogRadial); haveFogRadial = true; }
+                fogDepth = sqrtf(x * fogRadial[0] * x * fogRadial[0] + y * fogRadial[1] * y * fogRadial[1] + w * w);
+            }
+            float fog_z = s_beanRoomFogLinear ? fogDepth * s_beanRoomFogLine[0] + s_beanRoomFogLine[1] :
                 z * winv * rsp.fog_mul + rsp.fog_offset;
             d->fog = clampf(fog_z, 0.f, 255.f);
         } else {
@@ -3244,6 +3272,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     }
     if (texture_edge) {
         cc_options |= (uint64_t)SHADER_OPT_TEXTURE_EDGE;
+        if (s_beanAlphaCore) cc_options |= (uint64_t)SHADER_OPT_ALPHA_CORE;   // GEVR_NODE_CORE
     }
     if (use_noise) {
         cc_options |= (uint64_t)SHADER_OPT_NOISE;
@@ -4545,6 +4574,7 @@ static void gfx_dp_set_other_mode(uint32_t h, uint32_t l) {
     rdp.other_mode_l = l;
 }
 
+static bool s_beanNodeOnTop;   /* GEVR_NODE_ONTOP */
 static void gfx_bean_node_state(uint32_t w0, uint32_t ownMode) {
     static struct RGBA s_beanNodePrim;
     switch (w0 & 0xff) {
@@ -4554,6 +4584,12 @@ static void gfx_bean_node_state(uint32_t w0, uint32_t ownMode) {
             break;
         case GEVR_NODE_CULL:
             s_beanModelCull = ownMode != 0;
+            break;
+        case GEVR_NODE_CORE:
+            s_beanAlphaCore = ownMode != 0;
+            break;
+        case GEVR_NODE_ONTOP:
+            s_beanNodeOnTop = ownMode != 0;
             break;
         case GEVR_NODE_PASS:
             s_beanPass = (uint8_t)ownMode;
@@ -4587,7 +4623,10 @@ static void gfx_bean_node_state(uint32_t w0, uint32_t ownMode) {
             /* A node mode without a depth test (the first-person hands: the N64 drew
              * them over everything) leaves the list its own depth test and write;
              * under it Bean's arm drew over the watch on the wrist (user, 2026-10-14). */
-            if (!(s_beanNodeMode & Z_CMP)) {
+            /* ...but not a prop the game flags to draw on top (Cuba's jungle
+             * plants, GEVR_NODE_ONTOP): its lists draw over what is there, as
+             * GoldenEye's do and DAB's follow (xblamesh.c zbufferenabled) */
+            if (!(s_beanNodeMode & Z_CMP) && !s_beanNodeOnTop) {
                 const uint32_t depth = Z_CMP | Z_UPD | ZMODE_DEC;
                 mode = (mode & ~depth) | (ownMode & depth);
             }
@@ -4999,6 +5038,8 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, 
         params.fog_offset = rsp.fog_offset;
         params.fog_linear = s_beanRoomFogLinear;
         if (params.fog_linear) { params.fog_mul = s_beanRoomFogLine[0]; params.fog_offset = s_beanRoomFogLine[1]; }
+        memset(params.fog_radial, 0, sizeof(params.fog_radial));
+        if (params.fog_linear && s_beanRoomFogRadial) { gevr_fog_radial_scale(params.fog_radial); params.fog_radial[3] = 1.0f; }
     }
     if (!skin) {
         // an HD room seen from outside the level (G_GEVR_ROOM_STATE): its backs culled
@@ -5425,8 +5466,9 @@ static void gfx_run_dl(Gfx* cmd) {
                 s_beanBackPush = false;
                 if (model && s_beanModelCull) rsp.geometry_mode = (rsp.geometry_mode & ~G_CULL_BOTH) | G_CULL_BACK;
                 if (model && s_beanNodeSaved) break;   // the node's fog and mode stand (G_GEVR_NODE_STATE)
-                s_beanRoomFogLinear = !(cmd->words.w0 & 2) && (model ? !vr_dl_is_pause_or_menu : gevrRoomDl && (rsp.geometry_mode & G_FOG))
+                s_beanRoomFogLinear = !(cmd->words.w0 & (2 | GEVR_ROOM_NOFOG)) && (model ? !vr_dl_is_pause_or_menu : gevrRoomDl && (rsp.geometry_mode & G_FOG))
                     && gevrBeanRoomFog(s_beanRoomFogLine, rgb);
+                s_beanRoomFogRadial = s_beanRoomFogLinear && !model && (cmd->words.w0 & GEVR_ROOM_RADIAL);
                 if (model) {
                     if (s_beanRoomFogLinear) rsp.geometry_mode |= G_FOG;
                     else rsp.geometry_mode &= ~G_FOG;
@@ -5455,7 +5497,8 @@ static void gfx_run_dl(Gfx* cmd) {
                     // as the game's own fading lists (model.c): solid pixels write depth
                     mode = G_RM_PASS | ((mode & Z_CMP) ? G_RM_CUSTOM_AA_ZB_XLU_SURF2 : G_RM_XLU_SURF2);
                 }
-                gfx_sp_set_other_mode(3, 29, gevrBeanRoomMode(mode, rsp.geometry_mode & G_FOG));
+                gfx_sp_set_other_mode(3, 29, gevrBeanRoomMode(mode, !(cmd->words.w0 & GEVR_ROOM_NOFOG) &&
+                                                                 (rsp.geometry_mode & G_FOG)));
                 break;
             }
             case G_GEVR_NODE_STATE:

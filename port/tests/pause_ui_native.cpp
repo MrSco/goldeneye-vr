@@ -105,11 +105,12 @@ int main(){
     view.players[6].spectator=true;view.players[7].loaded=false;
     frame();frame();
     auto*window=ImGui::FindWindowByName("##match-window");auto*table=ImGui::GetCurrentContext()->Tables.GetByKey(window->GetID("players"));
-    check(table && table->CurrentRow==8 && table->ColumnsCount==8,"host sees eight connected rows, including spectators/loading, plus kick column");
+    check(table && table->CurrentRow==8 && table->ColumnsCount==9,"host sees eight connected rows, including spectators/loading, plus device and kick columns");
     check(table->RowPosY2<=table->InnerClipRect.Max.y,"last player fits without scrolling");
-    check(table->Columns[6].WorkMaxX-table->Columns[6].WorkMinX>=ImGui::CalcTextSize("Spectator").x,"ready/loading/spectator status fits at headset font scale");
-    check(table->Columns[7].WorkMaxX-table->Columns[7].WorkMinX>=88,"host kick buttons fit inside their column");
-    float kickX=table->Columns[7].WorkMinX+40,kickY=table->RowPosY1+16;
+    check(table->Columns[2].WorkMaxX-table->Columns[2].WorkMinX>=ImGui::CalcTextSize("Steam Frame (flat)").x,"the longest device name fits at headset font scale");
+    check(table->Columns[7].WorkMaxX-table->Columns[7].WorkMinX>=ImGui::CalcTextSize("Spectator").x,"ready/loading/spectator status fits at headset font scale");
+    check(table->Columns[8].WorkMaxX-table->Columns[8].WorkMinX>=88,"host kick buttons fit inside their column");
+    float kickX=table->Columns[8].WorkMinX+40,kickY=table->RowPosY1+16;
     click(kickX,kickY);frame();
     auto*kickModal=ImGui::FindWindowByName("Kick player?");
     check(kickModal && kickModal->Active && ui.kickSlot==7 && action==0,"host kick requires confirmation and retains the loading player's slot");
@@ -119,7 +120,7 @@ int main(){
     click(kickModal->Pos.x+kickModal->Size.x-100,kickModal->Pos.y+kickModal->Size.y-40);
     check(action==GEVR_PAUSE_KICK_BASE+7,"confirmed kick targets the correct slot");action=0;
     view.host=false;frame();frame();table=ImGui::GetCurrentContext()->Tables.GetByKey(window->GetID("players"));
-    check(table->ColumnsCount==7,"clients have no kick controls");view.host=true;
+    check(table->ColumnsCount==8,"clients have no kick controls");view.host=true;
     view.voting=true;frame();frame();click(500,736);
     check(action==GEVR_PAUSE_REQUEST_VOTES,"host can request votes without opening players' menus");action=0;view.voting=false;
     for(bool coop:{false,true})for(float health:{0.f,.125f,.35f,.75f,1.f}) {
@@ -162,7 +163,7 @@ int main(){
     click(18+150,830);check(action==GEVR_PAUSE_TEXPACK,"HD textures on the Settings tab");action=0;
     { const ImVec2 t=tabCentre(GEVR_PAUSE_MATCH);click(t.x,t.y); }
     view.coop=true;view.count=4;frame();frame();table=ImGui::GetCurrentContext()->Tables.GetByKey(window->GetID("players"));
-    check(table && table->CurrentRow==4 && table->ColumnsCount==4,"co-op party uses four rows and status columns");
+    check(table && table->CurrentRow==4 && table->ColumnsCount==5,"co-op party uses four rows and status columns");
     click(1100,912);check(action==0,"leave requires confirmation");frame();
     auto*modal=ImGui::FindWindowByName("Leave session?");check(modal && modal->Active,"leave confirmation is visible");
     // Cancel and verify that no disconnect action is produced.

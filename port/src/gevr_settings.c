@@ -129,6 +129,7 @@ typedef struct Row {
     int cdefault;                   /* its default position, -1 none */
     int headset;                    /* a headset's own: hidden in the flat PC game (docs/pc-platforms.md) */
     int flat;                       /* a flat game's own (touch, gyro): hidden on the headset */
+    int pad;                        /* a flat game's pad: hidden on the headset, shown on every flat game */
 } Row;
 
 /* ---- the special cases (as options.c had them) ---- */
@@ -221,6 +222,23 @@ static void moveText(int i, char *b, int n)
     else snprintf(b, n, "%d%%", pct);
 }
 static const char *blockedMove(void) { return netIsActive() && !netIsHost() ? "Host's choice" : NULL; }
+
+/* Pad vibration (input.c's rumble scale, the ini's Vibration): 0 to 100% */
+extern float inputRumbleGetStrength(int cidx);
+extern void inputRumbleSetStrength(int cidx, float val);
+static int padVibPositions(void) { return 11; }
+static int padVibGet(void)
+{
+    int i = (int)floorf(inputRumbleGetStrength(0) * 10.0f + 0.5f);
+    return i < 0 ? 0 : i > 10 ? 10 : i;
+}
+static void padVibSet(int i) { inputRumbleSetStrength(0, (float)i / 10.0f); }
+static void padVibText(int i, char *b, int n)
+{
+    if (i == 0) snprintf(b, n, "Off");
+    else if (i == 5) snprintf(b, n, "50%% (default)");
+    else snprintf(b, n, "%d%%", i * 10);
+}
 
 /* Fast reinforcements: a solo preference; in co-op the host's rule */
 static int fastGet(void)
@@ -423,6 +441,9 @@ static const Row s_rows[] = {
     TOGGLE(GEVR_SEC_COMFORT, "Hit flash", VrDamageFlash, "The screen flashes red when you're hit."),
 
     /* Controls */
+    { .label = "Pad vibration", .pad = 1, .tooltip = "How strongly a game pad rumbles: shots, hits and explosions.",
+      .kind = GEVR_SET_RANGE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .def = NAN,
+      .cpositions = padVibPositions, .cget = padVibGet, .cset = padVibSet, .ctext = padVibText, .cdefault = 5 },
     { .label = "Touch vibration", .flat = 1, .tooltip = "A short buzz when you press an on-screen button.",
       .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .ivar = &VrTouchHaptics, .def = NAN },
     { .label = "Gyro aim", .flat = 1, .tooltip = "Turn and tilt the phone or tablet to look and aim: while AIM is held, or always.",
@@ -683,7 +704,7 @@ int gevrSettingShown(int id)
     if (r && r->flat) return 0;      /* touch and gyro: a phone's, and Apple TV has neither */
 #endif
 #else
-    if (r && r->flat) return 0;      /* touch and gyro: a phone's */
+    if (r && (r->flat || r->pad)) return 0;   /* touch, gyro and a pad: a flat game's */
 #endif
     return r && (!r->shown || r->shown());
 }

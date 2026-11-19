@@ -1911,6 +1911,16 @@ void modelUpdateDistanceRelations(Model* model, ModelNode* node)
          * could.
          */
         distance *= 0.25f;
+        /*
+         * A model the HD look draws takes its near detail level at any distance
+         * (DAB src/lib/model.c modelDistanceIsFullDetail()): Bean's mesh is one
+         * model, and a far list on another matrix than the one that carries it
+         * dropped a distant prop back to GoldenEye's low-detail model.
+         */
+        if (gevrBeanModelHasHd(model->obj))
+        {
+            distance = 0;
+        }
 #endif
 
         if (g_ModelDistanceScale != 1)
@@ -6009,6 +6019,13 @@ s32 sub_GAME_7F074CAC(Model *model, ModelNode *node, coord3d *raypos, coord3d *r
 /**
  * Address: 7F0752FC
  */
+#ifdef GEVR
+/* propobj.c: a prop Bean draws is shot over every box of the model, not only
+ * the boxes the ray meets - the release's prop is not the N64's shape
+ * (DAB xblaMeshObjShotTest(), gevr_bean.c gevrBeanHitNode) */
+s32 gevrHitAllBoxes;
+#endif
+
 u32 modelFindNextProjectileHitCandidate(Model *model, coord3d *arg1, coord3d *arg2, ModelNode **nodeptr)
 {
     ModelNode *node;
@@ -6055,7 +6072,11 @@ u32 modelFindNextProjectileHitCandidate(Model *model, coord3d *arg1, coord3d *ar
             */
             switch (opcode - 1) {
             case MODELNODE_OPCODE_BBOX - 1:
+#ifdef GEVR
+                if (gevrHitAllBoxes || modelTestRayIntersectsNodeBBox(model, node, arg1, arg2) != 0) {
+#else
                 if (modelTestRayIntersectsNodeBBox(model, node, arg1, arg2) != 0) {
+#endif
                     *nodeptr = node;
                     return *(u32 *)node->Data;
                 }

@@ -15,6 +15,7 @@ void gevrIosWatchTouches(void *view);
 int gevrIosTouchIsLive(long long fingerId);
 void gevrIosHaptic(void);
 void gevrIosVoiceChatMode(void);
+int gevrIosMicAvailable(void);   /* Apple TV: a microphone is connected */
 void gevrIosFatalError(const char *msg);
 
 #ifdef __cplusplus

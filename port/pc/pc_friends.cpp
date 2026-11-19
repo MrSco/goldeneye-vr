@@ -155,8 +155,13 @@ private:
         const long long now = nowMs();
         const std::string &c = f[0];
         if (c == "presence") {
-            // presence|state|lobby|version|name|detail (detail last: it may hold anything but '|')
+            // presence|state|lobby|version|name|detail[|device|build|input] (no field holds '|')
             if (f.size() < 6) return;
+            if (f.size() >= 9) {
+                device_ = f[6];
+                build_ = f[7];
+                input_ = atoi(f[8].c_str());
+            }
             const bool changed = f[1] != state_ || f[2] != lobby_;
             const bool first = name_.empty();
             state_ = f[1];
@@ -477,6 +482,9 @@ private:
         std::string body = "{\"state\":" + q(state_) + ",\"version\":" + std::to_string(version_) + ",\"name\":" + q(name_);
         if (!detail_.empty()) body += ",\"detail\":" + q(detail_);
         if (!lobby_.empty()) body += ",\"lobby\":" + q(lobby_);
+        if (!device_.empty()) body += ",\"device\":" + q(device_);
+        if (!build_.empty()) body += ",\"build\":" + q(build_);
+        if (input_ >= 0 && input_ <= 3) body += ",\"input\":" + std::to_string(input_);
         body += "}";
         lastSent_ = now;
         nextPresence_ = now + kPresenceMs;
@@ -587,6 +595,8 @@ private:
     std::string discordRefresh_, discordName_;
     std::string state_ = "launcher", lobby_, name_, detail_;
     int version_ = 0;
+    std::string device_, build_;   // what this player runs and its build, for the daily totals
+    int input_ = -1;               // NET_INPUT_*; -1 not said
     bool showDetail_ = true, appearOffline_ = false, searchable_ = true;
     std::string refusedName_;   // a rename the Worker kept back (ten a day), said once
     bool settingsDirty_ = false;
