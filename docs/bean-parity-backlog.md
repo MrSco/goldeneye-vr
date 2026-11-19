@@ -25,8 +25,6 @@ xm = `port/src/xblamesh.c`, all Dab's. Size S/M/L.
   hair strands sort wrong or show through. M
 - **GoldenEye's translucent water leaves the Bean room lacks** (gbs
   `fileWaterLeaves`): Egyptian's pillared-hall pool is a dry basin. S-M
-- **Hidden native rooms still stop shots** (Dab's prop.c/collision.c skip
-  `gebeanStageRoomHidden` rooms): shots stop in mid-air near the dam. S
 - **Faces over another room's space drawn culled** (gbs `markOverlaps`): a stone
   wall across Aztec's exhaust vent. M
 - **Aztec armour closet kept out** (gbs `keepOutOfRooms`, `gebeanStageRoomByPortals`,
@@ -98,7 +96,7 @@ level cut-out clamps; doorway gaps, reveals and slots; markBacked and markFights
 dealing; hidden rooms not drawn; release sky table and cap fade; release and CE
 fog; scrolling pictures; tinted glass; third-person muzzle flash; cut-out edge
 bleed; tree UVs; vertex drops; markUnderSea, Frigate's hull reflection
-(bbd5ff40); the monitors' pictures (DAB gemonitor.c); shots against HD props (DAB xblaMeshObjShotTest, 31754136); shot-out lamps darken HD rooms (DAB gelights.c, not yet seen on screen); first-person HD muzzle-flash cards (DAB fpBuildCards); mirrored gun lettering (DAB beanFixLettering); hat seating on HD heads (DAB xblaMeshHatSeat); seam weld and neck weights on HD bodies and heads; the sky colour under the dome (DAB gebeanSkyRender's fill).
+(bbd5ff40); the monitors' pictures (DAB gemonitor.c); shots against HD props (DAB xblaMeshObjShotTest, 31754136); shot-out lamps darken HD rooms (DAB gelights.c, not yet seen on screen); first-person HD muzzle-flash cards (DAB fpBuildCards); mirrored gun lettering (DAB beanFixLettering); hat seating on HD heads (DAB xblaMeshHatSeat); seam weld and neck weights on HD bodies and heads; the sky colour under the dome (DAB gebeanSkyRender's fill); hidden native rooms stop no shot (DAB shotGeRooms).
 
 Not needed in the port: weldVertices, markDecalLifts and markDecalCorners and
 the far-off triangle moves (Dab's s16 room vertices; the port's are floats);

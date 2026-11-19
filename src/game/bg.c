@@ -3863,6 +3863,19 @@ bool bgTestBulletHitBackground(coord3d *from, coord3d *to, s32 roomnum, struct H
     s32 dy;
     s32 dz;
 
+#ifdef GEVR
+    /*
+     * A room the HD level leaves out and draws nothing for (gevr_bean_world.c
+     * hiddenRoom(): Dam's far cliffs, a patch Bean's own surface replaced) stops
+     * no shot: shots stopped in mid-air near the dam (DAB prop.c shotGeRooms(),
+     * gebeanStageRoomHidden()). Every user of this test is a line that should
+     * pass where nothing is seen: shots, the camera's ceiling, a thrown prop.
+     */
+    if (gevrBeanRoomHidden(roomnum))
+    {
+        return FALSE;
+    }
+#endif
     found = FALSE;
     bestdist = 0x7fffffff;
 

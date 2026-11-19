@@ -161,5 +161,6 @@ void *gevrBeanWorldSky(void *gdl, int *drew);
 /* 1 and room `room`'s Bean geometry bounds (the room table's world units, as
  * g_BgRoomInfo's), built with the stage; 0 when the room has none. */
 int gevrBeanWorldRoomBounds(int room, float lo[3], float hi[3]);
+int gevrBeanWorldRoomHidden(int room);
 
 #endif

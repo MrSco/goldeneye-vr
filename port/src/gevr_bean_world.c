@@ -1518,6 +1518,14 @@ void gevrBeanWorldLampsReset(void)
 	}
 }
 
+/* a room hiddenRoom() left out, on the level built now (bg.c's shot test:
+ * never builds one) */
+int gevrBeanWorldRoomHidden(int room)
+{
+	return s_tried && s_ok && s_stage == (int)bossGetStageNum() && room >= 0 && room < s_nrooms &&
+	       s_room[room].hidden;
+}
+
 int gevrBeanWorldRoomBounds(int room, float lo[3], float hi[3])
 {
 	if (!ensureStage() || room < 0 || room >= s_nrooms || !s_room[room].has)

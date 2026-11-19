@@ -188,6 +188,8 @@ int gevrBeanScreenQuad(struct Model *model, void *node, struct Vertex *vertices)
 /* HD level rooms. Advances the display list. *replaced is 1 when the N64
  * room list should be left out. The second call is the transparent pass. */
 void *gevrBeanRoomAppend(void *gdl, int room, int *replaced);
+/* a GoldenEye room the HD level hides: it stops no shot (bg.c) */
+int gevrBeanRoomHidden(int room);
 void *gevrBeanRoomAppendSecondary(void *gdl, int room, int *replaced);
 
 /* HD sky. *drew is 1 when GoldenEye's sky plane should be left out. */
