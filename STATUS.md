@@ -120,18 +120,8 @@ Apple TV's remote and pads on a device.
 
 ## Releases
 
-Each has docs/releases/vX.Y.Z.md. v0.5.21 Bean parity with Dab's Mod,
-Device, ghost race fixes; v0.5.20 Bean hand reloading, Apple TV; v0.5.19
-Mario Characters, co-op in hacks, native Vision Pro; v0.5.18 push signaling, voice, GE-X
-reload aids, co-op Frigate; v0.5.17 PC fixes, crash context, perf
-pass; v0.5.16 speedrunning; v0.5.15 new platforms, crossplay, Friends
-and invites, unified launcher, force pull; v0.5.14 all maps in
-Horde/Deathmatch, dedicated server; v0.5.13 co-op world from the host
-([#216](docs/issue-216-coop-world.md)); v0.5.12 Bean frame rate; v0.5.11
-XBLA Community Edition; v0.5.10 Facility fog flash; v0.5.7 Horde maps,
-Mirror Mode; v0.5.4/5 Horde, AI ally, SpaceWarp; v0.5.3 ragdolls; v0.5.0-2
-XBLA 120 Hz; v0.4.20 hack campaigns, Project Bean
-([PR #172](docs/pr172-handoff.md)).
+Each has docs/releases/vX.Y.Z.md; v0.5.21 back to v0.4.20 (hack campaigns,
+Project Bean, [PR #172](docs/pr172-handoff.md)) are summarised there.
 
 ## What it is
 
