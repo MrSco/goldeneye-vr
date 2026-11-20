@@ -431,6 +431,7 @@ if(GEVR_MOBILE)
     "${CMAKE_SOURCE_DIR}/port/vr/vr_ghosts.cpp"
     "${CMAKE_SOURCE_DIR}/port/vr/vr_discord.cpp"
     "${CMAKE_SOURCE_DIR}/port/vr/vr_pause_menu.cpp"
+    "${CMAKE_SOURCE_DIR}/port/vr/vr_haptics.cpp"
     "${CMAKE_SOURCE_DIR}/port/vr/vr_android_jni.cpp"
     "${CMAKE_SOURCE_DIR}/port/vr/imgui/imgui.cpp"
     "${CMAKE_SOURCE_DIR}/port/vr/imgui/imgui_draw.cpp"
@@ -446,6 +447,8 @@ if(GEVR_PC)
   # fast3d stays (it draws into the window) without its Android window.
   list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/vr/.*")
   list(APPEND SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/vr/vr_settings.cpp")
+  # the per-gun vibration table: a pad's rumble reads it (input.c gevrRumbleGunfire)
+  list(APPEND SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/vr/vr_haptics.cpp")
   # the Quest's virtual-screen target: the flat frame is drawn as on the headset
   list(APPEND SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/vr/vr_screen.cpp")
   # the Quest's launcher and friends list in the window (port/pc/pc_launcher.cpp)

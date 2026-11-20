@@ -276,6 +276,12 @@ XrResult trigger_haptic_vibration_freq_c(int hand_index, float amplitude, float 
 }
 XrResult stop_haptic_vibration_c(int hand_index) { (void)hand_index; return XR_SUCCESS; }
 int vr_haptics_ready(void) { return 0; }
+#ifdef GEVR_HEADLESS
+/* The server has no pads. The flat games link port/vr/vr_haptics.cpp: a pad's
+ * rumble takes its strength and length from that per-gun table
+ * (input.c gevrRumbleGunfire, gevrRumbleDamage), and these zeros stopped
+ * every pulse before it reached the pad on iOS, Apple TV, the phone and the
+ * PC flat game (#268). */
 void vrHapticsInit(void) { }
 void vrHapticsDumpCTable(void) { }
 int vrHapticsLoadLine(const char *key, const char *val) { (void)key; (void)val; return 0; }
@@ -287,5 +293,6 @@ void vrHapticsGetRumble(int id, float *out_amplitude, float *out_duration, float
 	if (out_duration) *out_duration = 0.0f;
 	if (out_frequency) *out_frequency = 0.0f;
 }
+#endif
 void vrRecoilKick(int gunhand, int recoilClass, float strength) { (void)gunhand; (void)recoilClass; (void)strength; }
 

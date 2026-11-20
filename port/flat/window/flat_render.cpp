@@ -268,16 +268,8 @@ JNIEXPORT jint JNICALL Java_org_libsdl_app_SDLSurface_get_1targetH(JNIEnv *, job
 
 }   // extern "C"
 
-/* --- vr_haptics.cpp: the Touch controllers' rumble table, which the launcher's
- * Haptics page tunes. No tracked controllers on the flat PC: an empty table. */
-#include "../../vr/vr_haptics.h"
-extern "C" {
-void vrHapticsResetAll(void) { }
-void vrHapticsResetCategory(HapticCategory cat) { (void)cat; }
-int vrHapticsGetCount(void) { return 0; }
-HapticProfile *vrHapticsGetProfileByIndex(int index) { (void)index; return nullptr; }
-void vrHapticsTriggerTest(int id) { (void)id; }
-}
+/* port/vr/vr_haptics.cpp is linked here too (CMakeLists.txt): its per-gun
+ * table sets a pad's rumble (input.c gevrRumbleGunfire, #268). */
 
 GLuint g_multiviewFBO = 0;   // vr_openxr.cpp's eye buffer; vr_screen.cpp hands fast3d back to it (none: the window)
 
