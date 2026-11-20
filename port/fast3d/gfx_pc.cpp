@@ -4773,12 +4773,20 @@ extern "C" void gfx_static_mesh_release(GevrStaticMesh* m) {
 static void gevr_mesh_frame(void) {
     static unsigned n;
     if ((n++ % 240) == 0) {
+#ifdef ANDROID
         FILE* f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_nomesh.txt", "r");
+#else
+        FILE* f = fopen("gevr_nomesh.txt", "r");   // the PC and Apple games' own folder
+#endif
         const bool on = f == nullptr;
         if (f != nullptr) {
             fclose(f);
         }
+#ifdef ANDROID
         FILE* skin = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_noskin.txt", "r");
+#else
+        FILE* skin = fopen("gevr_noskin.txt", "r");
+#endif
         const bool skinOn = skin == nullptr;
         if (skin) fclose(skin);
         if (skinOn != s_gevrSkinOn) {

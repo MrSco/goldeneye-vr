@@ -4359,9 +4359,22 @@ struct GevrMeshGpu {
     uint32_t generation;
 };
 
+/*
+ * The headset's two views, or a flat game's one (Apple TV, iPhone, iPad, an
+ * Android phone: GLES 3 too). The mesh variants have the single view's
+ * gl_Position = aVtxPos as every flat program does. Without them a flat game
+ * walked every Bean room, prop and body on the CPU: an Apple TV HD spent 61%
+ * of its time in gfx_sp_vertex and gfx_sp_tri1 and ran Dam at 15 fps
+ * (2026-11-20); the PC's desktop GL keeps the CPU path.
+ */
 static bool gevr_mesh_supported(void)
 {
-    return use_multiview && gl_es && GLVersion.major >= 3 && opengl_vao != 0 && !s_meshBroken;
+#ifdef GEVR_FLAT
+    const bool views = true;
+#else
+    const bool views = use_multiview;
+#endif
+    return views && gl_es && GLVersion.major >= 3 && opengl_vao != 0 && !s_meshBroken;
 }
 
 static GevrMeshGpu* gevr_mesh_gpu(void** slot, const void* vertices, uint32_t num_vertices,
