@@ -69,6 +69,9 @@ if [ "$APP" = 1 ]; then
   ( cd port/tvos && xcodegen generate --quiet )
   DEST="generic/platform=tvOS Simulator"
   [ "$KIND" = device ] && DEST="generic/platform=tvOS"
+  # one paired Apple TV (GEVR_DEST=id=<udid>): a development build for it, so
+  # -allowProvisioningDeviceRegistration can add it to the team's profile
+  DEST="${GEVR_DEST:-$DEST}"
   if [ -z "$ARCHIVE" ]; then
     xcodebuild -project port/tvos/GoldenEyeVR.xcodeproj -scheme GoldenEyeVR -configuration Release \
       -sdk "$SYSROOT" -destination "$DEST" -derivedDataPath "$BUILD/dd" \
