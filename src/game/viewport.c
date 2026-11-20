@@ -76,6 +76,17 @@ Gfx *zbufInit(Gfx *gdl) {
     } else {
         phi_a3 = 0;
     }
+#ifdef GEVR
+    /*
+     * The port's depth buffer is the GPU's, cleared once a frame, and the
+     * renderer drops a fill into the depth image as that clear (gfx_pc.cpp
+     * gfx_dp_fill_rectangle). The N64's second depth image, for the 2-player
+     * split's lower view and the 3-4 player split's lower pair, made those
+     * players' clears (a fill of z_buffer) look like a colour fill: a cream
+     * sheet over the views drawn before them.
+     */
+    phi_a3 = 0;
+#endif
     test = (z_buffer - phi_a3);
     test = test & ~(uintptr_t)0x3F;
     gDPPipeSync(gdl++);

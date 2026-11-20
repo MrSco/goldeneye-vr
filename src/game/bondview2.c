@@ -12953,7 +12953,8 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
             static s32 wascrouchtoggled = FALSE;
             s32 crouchtoggled = gevrCrouchToggled();
 
-            if (!netIsActive() || get_cur_playernum() == netGetLocalSlot())
+            /* the local player's: online this headset's slot, offline player 1 (a local split screen's others have no toggle) */
+            if (get_cur_playernum() == (netIsActive() ? netGetLocalSlot() : 0))
             {
 
             if (crouchtoggled

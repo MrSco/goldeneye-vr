@@ -573,7 +573,7 @@ static s8 vkPrevState[VK_TOTAL_COUNT];
 void inputSetDefaultKeyBinds(s32 cidx, s32 n64mode)
 {
     // TODO: make VK constants for all these
-#ifdef GEVR_PC
+#if defined(GEVR_PC) || defined(GEVR_MOBILE)   /* the flat games: the Android phone has pads too */
     /*
      * The PC game's defaults, for GoldenEye's own buttons (the Perfect Dark
      * port's tables below bind PD's extras). Keyboard: WASD on the C buttons
@@ -879,42 +879,45 @@ static s32 inputIsFullPad(SDL_GameController *ctrl)
 
 static void inputTvPadFirst(void)
 {
-    if (pads[0] && inputIsFullPad(pads[0])) {
+    /*
+     * The full pads first, in the order they came, then what is less (the
+     * remote): player 1 is a pad's when there is one, and a local split
+     * screen's players are the pads, in a row from player 1 as the game
+     * counts them (joy.c joyGetControllerCount).
+     */
+    SDL_GameController *order[INPUT_MAX_CONTROLLERS];
+    s32 rumble[INPUT_MAX_CONTROLLERS], device[INPUT_MAX_CONTROLLERS];
+    s32 n = 0, changed = 0;
+    for (s32 pass = 0; pass < 2; ++pass) {
+        for (s32 i = 0; i < INPUT_MAX_CONTROLLERS; ++i) {
+            if (pads[i] && (inputIsFullPad(pads[i]) != 0) == (pass == 0)) {
+                order[n] = pads[i];
+                rumble[n] = padsCfg[i].rumbleOn;
+                device[n] = padsCfg[i].deviceIndex;
+                changed |= n != i;
+                n++;
+            }
+        }
+    }
+    if (!changed) {
         return;
     }
-    s32 best = -1;
-    for (s32 i = 1; i < INPUT_MAX_CONTROLLERS; ++i) {
-        if (!pads[i]) {
-            continue;
+    for (s32 i = 0; i < INPUT_MAX_CONTROLLERS; ++i) {
+        pads[i] = i < n ? order[i] : NULL;
+        padsCfg[i].rumbleOn = i < n ? rumble[i] : 0;
+        padsCfg[i].deviceIndex = i < n ? device[i] : -1;
+        if (pads[i]) {
+            SDL_GameControllerSetPlayerIndex(pads[i], i);
+            connectedMask |= 1 << i;
+        } else if (i > 0) {
+            connectedMask &= ~(1 << i);
         }
-        if (inputIsFullPad(pads[i])) {
-            best = i;
-            break;
-        }
-        if (!pads[0] && best < 0) {
-            best = i;   // player 1 has nothing: anything is better
-        }
-    }
-    if (best < 0) {
-        return;
-    }
-    SDL_GameController *const was = pads[0];
-    const s32 wasRumble = padsCfg[0].rumbleOn, wasDevice = padsCfg[0].deviceIndex;
-    pads[0] = pads[best];
-    padsCfg[0].rumbleOn = padsCfg[best].rumbleOn;
-    padsCfg[0].deviceIndex = padsCfg[best].deviceIndex;
-    pads[best] = was;
-    padsCfg[best].rumbleOn = was ? wasRumble : 0;
-    padsCfg[best].deviceIndex = was ? wasDevice : -1;
-    SDL_GameControllerSetPlayerIndex(pads[0], 0);
-    if (was) {
-        SDL_GameControllerSetPlayerIndex(was, best);
-    } else {
-        connectedMask &= ~(1 << best);
     }
     connectedMask |= 1;
-    sysLogPrintf(LOG_NOTE, "input: '%s' is player 1's%s%s", SDL_GameControllerName(pads[0]),
-                 was ? ", ahead of " : "", was ? SDL_GameControllerName(was) : "");
+    if (pads[0]) {
+        sysLogPrintf(LOG_NOTE, "input: '%s' is player 1's (%d controller%s, full pads first)", SDL_GameControllerName(pads[0]),
+                     n, n == 1 ? "" : "s");
+    }
 }
 #endif
 
@@ -1481,6 +1484,49 @@ static inline s32 inputAxisScale(s32 x, const s32 deadzone, const f32 scale)
     }
 }
 
+#ifdef GEVR_FLAT
+/*
+ * A pad's sticks in the flat game, as the Quest's screen mode reads the Touch
+ * sticks (GoldenEye's 1.2 Solitaire): the right stick is the game's stick
+ * (look and turn), the left one walks and strafes on the C buttons past a
+ * quarter; in menus the stick pushed further navigates, and the d-pad (bound
+ * to the C buttons for play) moves the cursor too. What the keyboard's stick
+ * keys already set wins. Player 1's pad and, in a local split screen, each
+ * further player's.
+ */
+static void inputFlatPadSticks(SDL_GameController *pad, const struct controllercfg *pcfg, bool menu,
+                               f32 lx, f32 ly, OSContPad *npad)
+{
+    const f32 rx = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTX) / 32767.0f;
+    const f32 ry = -SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTY) / 32767.0f;
+    f32 sx = rx, sy = ry;
+    if (menu && lx * lx + ly * ly >= rx * rx + ry * ry) {
+        sx = lx;
+        sy = ly;
+    }
+    if (menu) {
+        if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT)) sx = -1.0f;
+        if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) sx = 1.0f;
+        if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_UP)) sy = 1.0f;
+        if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN)) sy = -1.0f;
+    }
+    if (npad->stick_x == 0) {
+        npad->stick_x = inputAxisScale((s32)(sx * 32767.0f),
+                pcfg->deadzone[SDL_CONTROLLER_AXIS_RIGHTX], pcfg->sens[SDL_CONTROLLER_AXIS_RIGHTX]) / 256;
+    }
+    if (npad->stick_y == 0) {
+        npad->stick_y = inputAxisScale((s32)(sy * 32767.0f),
+                pcfg->deadzone[SDL_CONTROLLER_AXIS_RIGHTY], pcfg->sens[SDL_CONTROLLER_AXIS_RIGHTY]) / 256;
+    }
+    if (!menu) {
+        if (lx < -0.25f) npad->button |= L_CBUTTONS;
+        if (lx >  0.25f) npad->button |= R_CBUTTONS;
+        if (ly < -0.25f) npad->button |= D_CBUTTONS;
+        if (ly >  0.25f) npad->button |= U_CBUTTONS;
+    }
+}
+#endif
+
 s32 inputReadController(s32 idx, OSContPad *npad)
 {
     extern bool netIsActive(void);
@@ -1623,35 +1669,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 }
             }
 #endif
-            const f32 rx = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTX) / 32767.0f;
-            const f32 ry = -SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTY) / 32767.0f;
-            f32 sx = rx, sy = ry;
-            if (menu && lx * lx + ly * ly >= rx * rx + ry * ry) {
-                sx = lx;
-                sy = ly;
-            }
-            /* GoldenEye's menus move the cursor with the stick; the D-pad,
-             * bound to the C buttons for play, moves it there too */
-            if (menu) {
-                if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT)) sx = -1.0f;
-                if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) sx = 1.0f;
-                if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_UP)) sy = 1.0f;
-                if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN)) sy = -1.0f;
-            }
-            if (npad->stick_x == 0) {
-                npad->stick_x = inputAxisScale((s32)(sx * 32767.0f),
-                        pcfg->deadzone[SDL_CONTROLLER_AXIS_RIGHTX], pcfg->sens[SDL_CONTROLLER_AXIS_RIGHTX]) / 256;
-            }
-            if (npad->stick_y == 0) {
-                npad->stick_y = inputAxisScale((s32)(sy * 32767.0f),
-                        pcfg->deadzone[SDL_CONTROLLER_AXIS_RIGHTY], pcfg->sens[SDL_CONTROLLER_AXIS_RIGHTY]) / 256;
-            }
-            if (!menu) {
-                if (lx < -0.25f) npad->button |= L_CBUTTONS;
-                if (lx >  0.25f) npad->button |= R_CBUTTONS;
-                if (ly < -0.25f) npad->button |= D_CBUTTONS;
-                if (ly >  0.25f) npad->button |= U_CBUTTONS;
-            }
+            inputFlatPadSticks(pad, pcfg, menu, lx, ly, npad);
         }
         /* The on-screen touch controls (port/flat/window/flat_touch.cpp, from
          * Midas-ios and PD Android): the floating stick as a pad's left stick,
@@ -1736,6 +1754,17 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             }
             if (t < s_gevrStartUntil) npad->button |= START_BUTTON;
         }
+    } else if (!netIsActive() && idx < INPUT_MAX_CONTROLLERS && pads[idx]) {
+        /*
+         * A local split screen (GoldenEye's own, 2 to 4 players, offline):
+         * each further pad is its own player's, its buttons from its binds
+         * above and its sticks read as player 1's pad's. The keyboard, the
+         * mouse, the touch controls and the panel stay player 1's.
+         */
+        SDL_GameController *pad = pads[idx];
+        inputFlatPadSticks(pad, &padsCfg[idx], bossGetStageNum() == LEVELID_TITLE,
+                           SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX) / 32767.0f,
+                           -SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY) / 32767.0f, npad);
     } else   /* never true below: the headset's mapping is for the local slot */
 #endif
     /* Quest screen mode: ordinary GoldenEye 1.2 controls, no tracked-hand
@@ -3002,6 +3031,19 @@ s32 inputControllerConnected(s32 idx)
         if (bossGetStageNum() == 90 /* LEVELID_TITLE */) return idx == 0;
         return (idx == netGetLocalSlot() || netIsRemotePlayerActive(idx)) ? 1 : 0;
     }
+#ifndef GEVR_FLAT
+    /* A headset plays one player offline: a pad paired to it is player 1's,
+     * never a split screen's (Input.FakeGamepads still makes them, to test) */
+    if (idx > 0 && !fakeControllers) {
+        return 0;
+    }
+#endif
+#ifdef GEVR_TVOS
+    /* the Siri Remote is never a split screen's player; the pads come first (inputTvPadFirst) */
+    if (idx > 0 && pads[idx] && !inputIsFullPad(pads[idx])) {
+        return 0;
+    }
+#endif
     return pads[idx] || (connectedMask & (1 << idx));
 }
 
@@ -3053,7 +3095,7 @@ static void inputPadRumble(s32 idx, f32 amp, f32 seconds)
  * default 50% is a full buzz; Off is off).
  */
 extern int VrTriggerFeedback;
-static u64 trigBuzzUntilUs[2];   /* a DualSense trigger's buzz: [0] left, [1] right */
+static u64 trigBuzzUntilUs[INPUT_MAX_CONTROLLERS][2];   /* each pad's DualSense trigger buzz: [0] left, [1] right */
 
 static s32 inputPadIsDualSense(SDL_GameController *pad)
 {
@@ -3104,14 +3146,14 @@ static void inputDualSenseTrigger(SDL_GameController *pad, s32 right, f32 amp)
 #endif
 }
 
-static void inputTriggerShot(s32 hand)
+static void inputTriggerShot(s32 slot, s32 hand)
 {
     static SDL_GameController *told;
-    SDL_GameController *pad = pads[0];
-    if (!VrTriggerFeedback || !pad || padsCfg[0].rumbleScale <= 0.f) {
+    SDL_GameController *pad = pads[slot];
+    if (!VrTriggerFeedback || !pad || padsCfg[slot].rumbleScale <= 0.f) {
         return;
     }
-    const f32 amp = padsCfg[0].rumbleScale * 2.f > 1.f ? 1.f : padsCfg[0].rumbleScale * 2.f;
+    const f32 amp = padsCfg[slot].rumbleScale * 2.f > 1.f ? 1.f : padsCfg[slot].rumbleScale * 2.f;
     const s32 right = hand != 1;
     const s32 dualSense = inputPadIsDualSense(pad);
 #if SDL_VERSION_ATLEAST(2, 0, 18)
@@ -3126,7 +3168,7 @@ static void inputTriggerShot(s32 hand)
     }
     if (dualSense) {
         inputDualSenseTrigger(pad, right, amp);
-        trigBuzzUntilUs[right] = sysGetMicroseconds() + 120000;
+        trigBuzzUntilUs[slot][right] = sysGetMicroseconds() + 120000;
     }
 #if SDL_VERSION_ATLEAST(2, 0, 18)
     else if (motors) {
@@ -3139,17 +3181,31 @@ static void inputTriggerShot(s32 hand)
 /* each frame: a DualSense trigger's buzz ends */
 static void inputTriggerTick(void)
 {
-    s32 i;
     u64 now = 0;
-    for (i = 0; i < 2; i++) {
-        if (!trigBuzzUntilUs[i]) continue;
-        if (!now) now = sysGetMicroseconds();
-        if (now < trigBuzzUntilUs[i]) continue;
-        trigBuzzUntilUs[i] = 0;
-        if (inputPadIsDualSense(pads[0])) {
-            inputDualSenseTrigger(pads[0], i, 0.f);
+    for (s32 p = 0; p < INPUT_MAX_CONTROLLERS; p++) {
+        for (s32 i = 0; i < 2; i++) {
+            if (!trigBuzzUntilUs[p][i]) continue;
+            if (!now) now = sysGetMicroseconds();
+            if (now < trigBuzzUntilUs[p][i]) continue;
+            trigBuzzUntilUs[p][i] = 0;
+            if (inputPadIsDualSense(pads[p])) {
+                inputDualSenseTrigger(pads[p], i, 0.f);
+            }
         }
     }
+}
+
+/* The pad a shot or a hit belongs to: player 1's, or in a local split
+ * screen the current player's own (each player's slot is its pad's) */
+static s32 inputRumbleSlot(void)
+{
+    extern s32 get_cur_playernum(void);
+    extern s32 getPlayerCount(void);
+    if (!netIsActive() && getPlayerCount() >= 2) {
+        const s32 p = get_cur_playernum();
+        if (p >= 0 && p < INPUT_MAX_CONTROLLERS) return p;
+    }
+    return 0;
 }
 
 /*
@@ -3452,10 +3508,11 @@ void gevrRumbleGunfire(s32 hand, s32 item_id) {
     // pad (bondgun.c bgunRumble: pakRumble 0.2 s, the motor full on, times
     // the pad's Vibration). The table's Touch pulse (half strength, 60 ms,
     // halved again by Vibration) was too faint to feel on a pad (#268).
-    if (pads[0] && padsCfg[0].rumbleOn && padsCfg[0].rumbleScale > 0.f) {
-        inputPadRumble(0, padsCfg[0].rumbleScale > 1.f ? 1.f : padsCfg[0].rumbleScale, 0.2f);
+    const s32 slot = inputRumbleSlot();
+    if (pads[slot] && padsCfg[slot].rumbleOn && padsCfg[slot].rumbleScale > 0.f) {
+        inputPadRumble(slot, padsCfg[slot].rumbleScale > 1.f ? 1.f : padsCfg[slot].rumbleScale, 0.2f);
     }
-    inputTriggerShot(hand);
+    inputTriggerShot(slot, hand);
 }
 
 s32 s_gevrExplosionDamage = 0;
@@ -3478,8 +3535,9 @@ void gevrRumbleDamage(f32 damage_amount, s32 is_explosion) {
 
     // Gamepad controller rumble: a hit as Dab's Mod gives a pad
     // (chraction.c: pakRumble 0.25 s, the motor full on, times Vibration)
-    if (pads[0] && padsCfg[0].rumbleOn && padsCfg[0].rumbleScale > 0.f) {
-        inputPadRumble(0, padsCfg[0].rumbleScale > 1.f ? 1.f : padsCfg[0].rumbleScale, 0.25f);
+    const s32 slot = inputRumbleSlot();
+    if (pads[slot] && padsCfg[slot].rumbleOn && padsCfg[slot].rumbleScale > 0.f) {
+        inputPadRumble(slot, padsCfg[slot].rumbleScale > 1.f ? 1.f : padsCfg[slot].rumbleScale, 0.25f);
     }
 }
 
@@ -3495,7 +3553,14 @@ s32 inputControllerMask(void)
         }
         return mask ? mask : 1;
     }
-    return connectedMask;
+    /* offline: the slots inputControllerConnected counts (a local split screen's players) */
+    s32 mask = 0;
+    for (s32 i = 0; i < INPUT_MAX_CONTROLLERS; ++i) {
+        if (inputControllerConnected(i)) {
+            mask |= 1 << i;
+        }
+    }
+    return mask ? mask : 1;
 }
 
 s32 inputControllerGetSticksSwapped(s32 cidx)
@@ -3711,7 +3776,7 @@ s32 inputKeyPressed(u32 vk)
         return (mouseButtons & SDL_BUTTON(vk - VK_MOUSE_BEGIN + 1)) != 0;
     }
 
-#ifdef GEVR_PC
+#if defined(GEVR_PC) || defined(GEVR_MOBILE)
     // A pad's buttons and triggers (the Perfect Dark port's, removed for VR)
     if (vk >= VK_JOY_BEGIN && vk < VK_VR_BEGIN) {
         vk -= VK_JOY_BEGIN;
