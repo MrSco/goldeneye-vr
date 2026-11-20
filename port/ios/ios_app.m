@@ -485,3 +485,20 @@ int gevrTvRemoteMenu(int *step, int *select)
     return ring;
 }
 #endif
+
+/*
+ * A DualSense's adaptive trigger buzzes as a shot fires (input.c
+ * inputTriggerShot): SDL's Apple driver sends a DualSense no effects, so
+ * GameController's own, on every DualSense connected (one, in practice).
+ * amp 0 turns the trigger's effect off.
+ */
+void gevrIosDualSenseTrigger(int right, float amp)
+{
+    for (GCController *c in GCController.controllers) {
+        if (![c.extendedGamepad isKindOfClass:[GCDualSenseGamepad class]]) continue;
+        GCDualSenseGamepad *ds = (GCDualSenseGamepad *)c.extendedGamepad;
+        GCDualSenseAdaptiveTrigger *t = right ? ds.rightTrigger : ds.leftTrigger;
+        if (amp > 0.f) [t setModeVibrationWithStartPosition:0.f amplitude:amp frequency:0.6f];
+        else [t setModeOff];
+    }
+}

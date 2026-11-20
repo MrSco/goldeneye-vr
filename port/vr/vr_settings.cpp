@@ -31,6 +31,9 @@
 /* A phone or tablet's touch controls (port/flat/window/flat_touch.cpp): a
  * buzz on an on-screen button, and turning the device to look and aim. */
 int VrTouchHaptics = 1;
+/* A pad's triggers (input.c inputTriggerShot): a shot buzzes the trigger that
+ * fired it, an Xbox pad's trigger motors or a DualSense's adaptive triggers. */
+int VrTriggerFeedback = 1;
 /* 0: no on-screen controls at all, for a mouse and keyboard whose clicks
  * arrive as touches (the iOS app on a Mac through PlayCover, #254). Only in
  * the ini: a phone with it off would have no way back to the panel. */
@@ -338,6 +341,9 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; 0 = no on-screen touch controls, for a mouse and keyboard whose clicks arrive\n");
     fprintf(f, "; as touches (the iOS app on a Mac through PlayCover). 1 = shown (the default).\n");
     fprintf(f, "TouchControls=%d\n", VrTouchControls);
+    fprintf(f, "; A pad's triggers: 1 = a shot buzzes the trigger that fired it (an Xbox pad's\n");
+    fprintf(f, "; trigger motors, a DualSense's adaptive triggers), 0 = off.\n");
+    fprintf(f, "TriggerFeedback=%d\n", VrTriggerFeedback);
     fprintf(f, "; The touch layout editor's buttons (NAME x y radius;...), empty for the built-in layout.\n");
     fprintf(f, "TouchLayout=%s\n", VrTouchLayout);
     fprintf(f, "; Metres above (+) or below (-) eye level; set by grabbing the screen with both grips.\n");
@@ -919,6 +925,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "ScreenShape") == 0) VrScreenShape = ival == 1 ? 1 : 0;
             else if (strcmp(key, "TouchHaptics") == 0) VrTouchHaptics = ival != 0;
             else if (strcmp(key, "TouchControls") == 0) VrTouchControls = ival != 0;
+            else if (strcmp(key, "TriggerFeedback") == 0) VrTriggerFeedback = ival != 0;
             else if (strcmp(key, "GyroAim") == 0) VrGyroAim = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             /* Keep saved DisplayHz preferences. The obsolete RefreshRate key
              * was never user-selectable and remains ignored. */

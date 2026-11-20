@@ -19,6 +19,7 @@ int gevrIosMicAvailable(void);   /* Apple TV: a microphone is connected */
 void gevrIosFatalError(const char *msg);
 void gevrTvRemoteLogPoll(void);   /* Apple TV: the Siri Remote's raw input to the log (#268) */
 int gevrTvRemoteMenu(int *step, int *select);   /* Apple TV: a 2nd generation remote's clicks */
+void gevrIosDualSenseTrigger(int right, float amp);   /* a DualSense trigger's buzz; 0 turns it off */
 
 #ifdef __cplusplus
 }

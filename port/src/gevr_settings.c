@@ -66,6 +66,7 @@ extern float VrScreenDistance, VrScreenFov;
 extern int VrScreenCurved, VrScreenPassthrough;
 extern int VrScreenShape;   /* vr_settings.cpp: every flat mode's 2D screen, 4:3 or 16:9 */
 extern int VrTouchHaptics, VrGyroAim;   /* vr_settings.cpp: a phone's touch controls */
+extern int VrTriggerFeedback;            /* vr_settings.cpp: a pad's triggers */
 extern float VrGyroSpeed;
 static const char *const s_gyroNames[] = { "Off", "While aiming", "Always" };
 extern void vr_screen_resize(float dist, float fov);
@@ -446,6 +447,9 @@ static const Row s_rows[] = {
     { .label = "Pad vibration", .pad = 1, .tooltip = "How strongly a game pad rumbles: shots, hits and explosions.",
       .kind = GEVR_SET_RANGE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .def = NAN,
       .cpositions = padVibPositions, .cget = padVibGet, .cset = padVibSet, .ctext = padVibText, .cdefault = 5 },
+    { .label = "Trigger feedback", .pad = 1,
+      .tooltip = "A shot buzzes the trigger that fired it: an Xbox pad's trigger motors, a DualSense's adaptive triggers.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .ivar = &VrTriggerFeedback, .def = NAN },
     { .label = "Touch vibration", .flat = 1, .tooltip = "A short buzz when you press an on-screen button.",
       .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .ivar = &VrTouchHaptics, .def = NAN },
     { .label = "Gyro aim", .flat = 1, .tooltip = "Turn and tilt the phone or tablet to look and aim: while AIM is held, or always.",

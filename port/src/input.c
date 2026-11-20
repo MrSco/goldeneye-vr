@@ -997,6 +997,7 @@ static s32 inputIosPadKeyIgnored(const u32 scancode)
 
 #ifdef GEVR_IOS
 void pcReportForeground(int active);   // port/pc/pc_reports.cpp
+void gevrIosDualSenseTrigger(int right, float amp);   // port/ios/ios_app.m
 #endif
 
 static int inputEventFilter(void *data, SDL_Event *event)
@@ -2838,6 +2839,7 @@ s32 inputMenuPointer(f32 *u, f32 *v)
 void inputUpdate(void)
 {
     SDL_GameControllerUpdate();
+    inputTriggerTick();
 
 
     if (mouseEnabled) {
@@ -2953,6 +2955,117 @@ static void inputPadRumble(s32 idx, f32 amp, f32 seconds)
         refused[idx] = pads[idx];
         sysLogPrintf(LOG_WARNING, "input: player %d's pad '%s' refused rumble: %s", idx,
                      SDL_GameControllerName(pads[idx]), SDL_GetError());
+    }
+}
+
+/*
+ * Trigger feedback (a player's suggestion, 2026-11-20; the settings' row,
+ * VrTriggerFeedback): a shot buzzes the trigger that fired it. The right gun
+ * fires on Z, the right trigger, and the left gun on R, the left trigger (the
+ * pad binds above). An Xbox One or Series pad has a motor in each trigger
+ * (SDL_GameControllerRumbleTriggers: Windows, and Apple's GameController);
+ * a DualSense's adaptive trigger strikes the finger in its vibration mode
+ * (SDL's DualSense effects on the PC; Apple's own GCDualSenseAdaptiveTrigger
+ * on iPhone, iPad and Apple TV, where SDL sends none). A DualSense trigger
+ * keeps a mode until told otherwise, so inputUpdate turns it off again once a
+ * shot's buzz is over. The strength follows Pad vibration (twice it, so the
+ * default 50% is a full buzz; Off is off).
+ */
+extern int VrTriggerFeedback;
+static u64 trigBuzzUntilUs[2];   /* a DualSense trigger's buzz: [0] left, [1] right */
+
+static s32 inputPadIsDualSense(SDL_GameController *pad)
+{
+#if SDL_VERSION_ATLEAST(2, 0, 14)
+    return pad && SDL_GameControllerGetType(pad) == SDL_CONTROLLER_TYPE_PS5;
+#else
+    return 0;
+#endif
+}
+
+/* SDL's DualSense output from SDL_GameControllerSendEffect's data on, as
+ * SDL's testgamecontroller.c lays it out (DS5EffectsState_t) */
+typedef struct {
+    Uint8 enableBits1;   /* 0x04: the right trigger's effect, 0x08: the left's */
+    Uint8 enableBits2;
+    Uint8 rumbleRight, rumbleLeft;
+    Uint8 headphoneVolume, speakerVolume, micVolume, audioEnableBits;
+    Uint8 micLightMode, audioMuteBits;
+    Uint8 rightTriggerEffect[11];
+    Uint8 leftTriggerEffect[11];
+} InputDualSenseFx;
+
+/* amp 0 turns the trigger's effect off */
+static void inputDualSenseTrigger(SDL_GameController *pad, s32 right, f32 amp)
+{
+#ifdef GEVR_IOS
+    (void)pad;
+    gevrIosDualSenseTrigger(right, amp);
+#elif SDL_VERSION_ATLEAST(2, 0, 16)
+    InputDualSenseFx fx;
+    Uint8 *effect = right ? fx.rightTriggerEffect : fx.leftTriggerEffect;
+    memset(&fx, 0, sizeof(fx));
+    fx.enableBits1 = right ? 0x04 : 0x08;
+    if (amp > 0.f) {
+        /* the simple vibration: 40 Hz, the amplitude, from the trigger's rest on */
+        effect[0] = 0x06;
+        effect[1] = 40;
+        effect[2] = (Uint8)(amp * 255.f);
+        effect[3] = 0;
+    } else {
+        effect[0] = 0x05;   /* off */
+    }
+    SDL_GameControllerSendEffect(pad, &fx, sizeof(fx));
+#else
+    (void)pad; (void)right; (void)amp;
+#endif
+}
+
+static void inputTriggerShot(s32 hand)
+{
+    static SDL_GameController *told;
+    SDL_GameController *pad = pads[0];
+    if (!VrTriggerFeedback || !pad || padsCfg[0].rumbleScale <= 0.f) {
+        return;
+    }
+    const f32 amp = padsCfg[0].rumbleScale * 2.f > 1.f ? 1.f : padsCfg[0].rumbleScale * 2.f;
+    const s32 right = hand != 1;
+    const s32 dualSense = inputPadIsDualSense(pad);
+#if SDL_VERSION_ATLEAST(2, 0, 18)
+    const s32 motors = !dualSense && SDL_GameControllerHasRumbleTriggers(pad);
+#else
+    const s32 motors = 0;
+#endif
+    if (told != pad) {
+        told = pad;
+        sysLogPrintf(LOG_NOTE, "input: pad '%s' trigger feedback: %s", SDL_GameControllerName(pad),
+                     dualSense ? "DualSense adaptive triggers" : motors ? "trigger motors" : "none");
+    }
+    if (dualSense) {
+        inputDualSenseTrigger(pad, right, amp);
+        trigBuzzUntilUs[right] = sysGetMicroseconds() + 120000;
+    }
+#if SDL_VERSION_ATLEAST(2, 0, 18)
+    else if (motors) {
+        const u16 level = (u16)(amp * 65535.f);
+        SDL_GameControllerRumbleTriggers(pad, right ? 0 : level, right ? level : 0, 90);
+    }
+#endif
+}
+
+/* each frame: a DualSense trigger's buzz ends */
+static void inputTriggerTick(void)
+{
+    s32 i;
+    u64 now = 0;
+    for (i = 0; i < 2; i++) {
+        if (!trigBuzzUntilUs[i]) continue;
+        if (!now) now = sysGetMicroseconds();
+        if (now < trigBuzzUntilUs[i]) continue;
+        trigBuzzUntilUs[i] = 0;
+        if (inputPadIsDualSense(pads[0])) {
+            inputDualSenseTrigger(pads[0], i, 0.f);
+        }
     }
 }
 
@@ -3201,6 +3314,7 @@ void gevrRumbleGunfire(s32 hand, s32 item_id) {
     if (pads[0] && padsCfg[0].rumbleOn && padsCfg[0].rumbleScale > 0.f) {
         inputPadRumble(0, padsCfg[0].rumbleScale > 1.f ? 1.f : padsCfg[0].rumbleScale, 0.2f);
     }
+    inputTriggerShot(hand);
 }
 
 s32 s_gevrExplosionDamage = 0;
