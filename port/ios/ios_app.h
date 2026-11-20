@@ -17,6 +17,7 @@ void gevrIosHaptic(void);
 void gevrIosVoiceChatMode(void);
 int gevrIosMicAvailable(void);   /* Apple TV: a microphone is connected */
 void gevrIosFatalError(const char *msg);
+void gevrTvRemoteLogPoll(void);   /* Apple TV: the Siri Remote's raw input to the log (#268) */
 
 #ifdef __cplusplus
 }

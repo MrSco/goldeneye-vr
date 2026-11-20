@@ -16,6 +16,8 @@
  */
 #import <UIKit/UIKit.h>
 #import <GameController/GameController.h>
+#import <QuartzCore/QuartzCore.h>
+#include <math.h>
 
 #include <SDL.h>
 
@@ -338,3 +340,104 @@ int gevrIosMicAvailable(void)
 {
     return AVAudioSession.sharedInstance.isInputAvailable ? 1 : 0;
 }
+
+#if TARGET_OS_TV
+/*
+ * #268: what the Siri Remote sends, from GameController itself (SDL's view of
+ * it is the launcher's stick; tvSwipeTrack logs the steps it takes from that).
+ * Polled by the menus each frame (flat_launcher.cpp), so nothing replaces a
+ * handler SDL might set. Its elements once, then every button's press and
+ * release, each touch of the surface (where it lands, a sample every 0.1 s
+ * while it moves, where it lifts) and the ring's clicks (Cardinal Direction
+ * Pad, 2nd generation). Capped per run so a long session stays readable.
+ */
+void gevrTvRemoteLogPoll(void)
+{
+    static unsigned lines;
+    static NSMutableDictionary<NSString *, NSNumber *> *pressed;
+    static NSMutableSet<NSString *> *described;
+    static float touchX[8], touchY[8], startX[8], startY[8], maxX[8], maxY[8];
+    static double touchAt[8], sampleAt[8];
+    if (lines > 6000) return;
+    if (!pressed) {
+        pressed = [NSMutableDictionary dictionary];
+        described = [NSMutableSet set];
+    }
+    const double now = CACurrentMediaTime();
+    for (GCController *c in GCController.controllers) {
+        if (!c.microGamepad || c.extendedGamepad) continue;   // the remote: a micro gamepad alone
+        GCPhysicalInputProfile *p = c.physicalInputProfile;
+        NSString *who = c.productCategory ?: c.vendorName ?: @"remote";
+        if (![described containsObject:who]) {
+            [described addObject:who];
+            NSArray *buttons = [p.buttons.allKeys sortedArrayUsingSelector:@selector(compare:)];
+            NSArray *dpads = [p.dpads.allKeys sortedArrayUsingSelector:@selector(compare:)];
+            sysLogPrintf(0, "tvremote: %s: buttons [%s], dpads [%s], absolute %d, rotation %d", who.UTF8String,
+                         [buttons componentsJoinedByString:@", "].UTF8String,
+                         [dpads componentsJoinedByString:@", "].UTF8String,
+                         c.microGamepad.reportsAbsoluteDpadValues, c.microGamepad.allowsRotation);
+            lines++;
+        }
+        for (NSString *name in p.buttons) {
+            GCControllerButtonInput *b = p.buttons[name];
+            NSString *key = [who stringByAppendingFormat:@"/%@", name];
+            const BOOL now_ = b.isPressed;
+            if ([pressed[key] boolValue] != now_) {
+                pressed[key] = @(now_);
+                sysLogPrintf(0, "tvremote: %s %s (%.2f)", name.UTF8String, now_ ? "pressed" : "released", b.value);
+                lines++;
+            }
+        }
+        int slot = 0;
+        for (NSString *name in [p.dpads.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
+            if (slot >= 8) break;
+            GCControllerDirectionPad *d = p.dpads[name];
+            const int i = slot++;
+            // a clicking pad (the ring): its four directions as presses
+            const BOOL ring = [name rangeOfString:@"Cardinal"].location != NSNotFound;
+            if (ring) {
+                const char *dirs[4] = { "up", "down", "left", "right" };
+                GCControllerButtonInput *bs[4] = { d.up, d.down, d.left, d.right };
+                for (int k = 0; k < 4; k++) {
+                    NSString *key = [who stringByAppendingFormat:@"/%@/%s", name, dirs[k]];
+                    const BOOL on = bs[k].isPressed;
+                    if ([pressed[key] boolValue] != on) {
+                        pressed[key] = @(on);
+                        sysLogPrintf(0, "tvremote: %s %s %s", name.UTF8String, dirs[k], on ? "pressed" : "released");
+                        lines++;
+                    }
+                }
+                continue;
+            }
+            const float x = d.xAxis.value, y = d.yAxis.value;
+            const BOOL touched = x != 0.0f || y != 0.0f;
+            const BOOL was = touchAt[i] > 0.0;
+            if (touched && !was) {
+                touchAt[i] = sampleAt[i] = now;
+                startX[i] = maxX[i] = x;
+                startY[i] = maxY[i] = y;
+                sysLogPrintf(0, "tvremote: %s touch at (%.2f %.2f)", name.UTF8String, x, y);
+                lines++;
+            } else if (touched) {
+                if (fabsf(x - startX[i]) > fabsf(maxX[i] - startX[i])) maxX[i] = x;
+                if (fabsf(y - startY[i]) > fabsf(maxY[i] - startY[i])) maxY[i] = y;
+                if (now - sampleAt[i] >= 0.1 && (x != touchX[i] || y != touchY[i])) {
+                    sampleAt[i] = now;
+                    sysLogPrintf(0, "tvremote: %s at (%.2f %.2f) +%.0f ms", name.UTF8String, x, y,
+                                 (now - touchAt[i]) * 1000.0);
+                    lines++;
+                }
+            } else if (was) {
+                sysLogPrintf(0, "tvremote: %s lifted after %.0f ms at (%.2f %.2f), from (%.2f %.2f), furthest (%.2f %.2f)",
+                             name.UTF8String, (now - touchAt[i]) * 1000.0, touchX[i], touchY[i], startX[i], startY[i],
+                             maxX[i], maxY[i]);
+                lines++;
+                touchAt[i] = 0.0;
+            }
+            touchX[i] = x;
+            touchY[i] = y;
+        }
+    }
+    if (lines > 6000) sysLogPrintf(0, "tvremote: enough for one run, the rest unlogged");
+}
+#endif

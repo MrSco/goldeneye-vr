@@ -151,6 +151,9 @@ void flatLauncherShutdown(void)
  * repeating. As tvOS's own menus do, each third of the surface swiped is one
  * step, a d-pad press for one frame and its release on the next.
  */
+extern "C" void sysLogPrintf(int level, const char *fmt, ...);
+extern "C" void gevrTvRemoteLogPoll(void);   // port/ios/ios_app.m
+
 struct TvSwipe {
     float anchorX = 0.0f, anchorY = 0.0f;   // where the last step was taken
     int pending = 0;                        // steps still to send: 1 up, 2 down, 3 left, 4 right
@@ -170,6 +173,11 @@ static void tvSwipeTrack(float x, float y)
     if (fabsf(dx) >= step && fabsf(dx) >= fabsf(dy)) dir = dx > 0.0f ? 4 : 3;
     else if (fabsf(dy) >= step) dir = dy > 0.0f ? 2 : 1;   // SDL's y is down-positive
     if (!dir) return;
+    {
+        static const char *names[] = { "", "up", "down", "left", "right" };
+        sysLogPrintf(0, "tvremote: launcher step %s (SDL stick %.2f %.2f, from %.2f %.2f)", names[dir], x, y,
+                     s_swipe.anchorX, s_swipe.anchorY);
+    }
     s_swipe.anchorX = x;
     s_swipe.anchorY = y;
     if (s_swipe.queued && s_swipe.pending != dir) s_swipe.queued = 0;   // turned: drop the old way's steps
@@ -194,6 +202,9 @@ static int tvSwipeStep(void)
 /* This frame's mouse, keys and pad for ImGui. */
 void flatLauncherFeedInput(ImGuiIO &io)
 {
+#ifdef GEVR_TVOS
+    gevrTvRemoteLogPoll();   // port/ios/ios_app.m: what the Siri Remote sends (#268)
+#endif
     // Drain the queue (the launcher reads its input through event watches and
     // state): on Android SDL completes a pause, unbinding the context, only once
     // the app has taken its SDL_APP_DIDENTERBACKGROUND. A quit is the window's own.
