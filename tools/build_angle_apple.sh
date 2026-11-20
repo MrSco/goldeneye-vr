@@ -45,9 +45,13 @@ if [ "$(git rev-parse --short=12 HEAD)" != "$ANGLE_REV" ] || [ ! -f "$SRC/.gclie
 fi
 export DEPOT_TOOLS_UPDATE=0
 
-# Apple TV 4K Gen 1 (A10X Fusion, MTLGPUFamilyApple3) compatibility patches for
-# ANGLE's Metal backend (idempotent; applied before gn gen / autoninja):
-#  1. Revert ANGLE 09a869c245's Apple4-only ES 3.0 gate back to Apple3.
+# Older Apple GPU compatibility patches for ANGLE's Metal backend: Apple TV 4K
+# Gen 1 (A10X Fusion, MTLGPUFamilyApple3) and Apple TV HD (A8, Apple2)
+# (idempotent; applied before gn gen / autoninja):
+#  1. ES 3.0 from Apple2 up: ANGLE 09a869c245 gates it on Apple4, for the
+#     twelve uniform blocks ES 3 promises; the game binds one. The Apple TV HD
+#     failed at startup without it ("no ES 3 config", 2026-11-20). What Apple2
+#     lacks besides (base vertex draws) ANGLE already works around.
 #  2. Cap maxVertexOutputComponents/maxFragmentInputComponents at 60 on < Apple4
 #     per Apple's Metal Feature Set Tables (keeping 16384 max2DTextureSize on Apple3+).
 #  3. Guard hasShaderStencilOutput ([[stencil]]) on Apple5+ / Mac2+.
@@ -59,20 +63,32 @@ src = path.read_text(encoding="utf-8")
 
 patches = [
     (
-        "getMaxSupportedESVersion Apple3 gate",
-        """#else
+        "getMaxSupportedESVersion Apple2 gate",
+        ("""#else
     if (supportsEitherGPUFamily(4, 1))
     {
         return mtl::kMaxSupportedGLVersion;
     }
     return gl::Version(2, 0);
 #endif""",
-        """#else
+         # this script's earlier Apple3 gate, on a checkout it already patched
+         """#else
     // GoldenEye VR: revert ANGLE 09a869c245 (Apple4-only ES3 gate) back to
     // Apple3 so Apple TV 4K Gen 1 (A10X Fusion, MTLGPUFamilyApple3) gets
     // OpenGL ES 3.0. GoldenEye VR's flat/tvOS shaders use at most 1 UBO
     // (well within Apple3's 31 buffer-entry/stage limit).
     if (supportsEitherGPUFamily(3, 1))
+    {
+        return mtl::kMaxSupportedGLVersion;
+    }
+    return gl::Version(2, 0);
+#endif"""),
+        """#else
+    // GoldenEye VR: ES 3.0 from Apple2 up (Apple TV HD's A8; Apple TV 4K Gen
+    // 1's A10X is Apple3), where ANGLE 09a869c245 asks Apple4 for the twelve
+    // uniform blocks ES 3 promises. GoldenEye VR binds at most 1 UBO (well
+    // within the 31 buffer entries a stage these families have).
+    if (supportsEitherGPUFamily(2, 1))
     {
         return mtl::kMaxSupportedGLVersion;
     }
@@ -111,10 +127,11 @@ patches = [
 ]
 
 changed = False
-for label, old, new in patches:
+for label, olds, new in patches:
     if new in src:
         continue
-    if old not in src:
+    old = next((o for o in ((olds,) if isinstance(olds, str) else olds) if o in src), None)
+    if old is None:
         raise SystemExit(f"build_angle_apple.sh: patch '{label}' did not match {path}")
     if src.count(old) != 1:
         raise SystemExit(f"build_angle_apple.sh: patch '{label}' matched {src.count(old)} times in {path}")
@@ -123,7 +140,7 @@ for label, old, new in patches:
 
 if changed:
     path.write_text(src, encoding="utf-8")
-    print(f"patched {path} for Apple GPU Family 3 (A10X) compatibility")
+    print(f"patched {path} for Apple GPU Families 2 and 3 (A8, A10X)")
 PY
 
 for slice in $SLICES; do
