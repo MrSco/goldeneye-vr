@@ -2836,6 +2836,8 @@ s32 inputMenuPointer(f32 *u, f32 *v)
 
 
 
+static void inputTriggerTick(void);   /* below, with the trigger feedback */
+
 void inputUpdate(void)
 {
     SDL_GameControllerUpdate();
