@@ -1069,6 +1069,30 @@ u16 color_palette_entries_50_percent[] = {1, 0x1F, 0x3C1, 0x3DF, 0x7801, 0x781F,
 
 // forward declarations
 
+#ifdef GEVR_FLAT
+/*
+ * Local split screen (flat builds): Multiplayer opens on a join page, where
+ * each device presses to play (port/src/input.c inputJoinFrame); the order
+ * is the player numbers. Multiplayer is there to choose with two devices
+ * that could play (the keyboard counts), and the players are the joined ones
+ * until the mode select again.
+ */
+extern s32 netIsActive(void);   /* the game's bool */
+extern s32 inputJoinDeviceCount(void);
+extern void inputJoinBegin(void);
+extern s32 inputJoinFrame(s32 onPrevTab, s32 onStartTab);
+extern s32 inputJoinCount(void);
+extern const char *inputJoinName(s32 player);
+extern void inputSeatsClear(void);
+extern s32 inputSeated(void);
+static s32 gevrJoinOpen = FALSE;
+#define GEVR_MP_PADS() (inputSeated() ? inputSeated() : joyGetControllerCount())
+#define GEVR_MP_SELECTABLE() (netIsActive() ? (joyGetControllerCount() >= 2) : (inputJoinDeviceCount() >= 2))
+#else
+#define GEVR_MP_PADS() joyGetControllerCount()
+#define GEVR_MP_SELECTABLE() (joyGetControllerCount() >= 2)
+#endif
+
 Gfx* frontAddPreviousTabText(Gfx* DL);
 s32 check_if_stage_completed_on_difficulty(int stage, DIFFICULTY difficulty);
 s32 get_highest_unlocked_difficulty_for_level(s32 arg0);
@@ -3062,6 +3086,11 @@ Gfx *constructor_menu05_fileselect(Gfx *DL)
 //********************************************************************************************************
 void init_menu06_modeselect(void)
 {
+#ifdef GEVR_FLAT
+    /* out of Multiplayer: every device is player 1's again (a join's seats) */
+    gevrJoinOpen = FALSE;
+    inputSeatsClear();
+#endif
     gamemode = GAMEMODE_INTRO;
     tab_next_selected = FALSE;
     tab_prev_selected = FALSE;
@@ -3125,7 +3154,7 @@ void interface_menu06_modesel(void)
             sndPlaySfx(g_musicSfxBufferPtr, DOOR_METAL_CLOSE_SFX, 0);
         }
     }
-    else if ((243.0f <= cursor_v_pos) && (joyGetControllerCount() >= 2))
+    else if ((243.0f <= cursor_v_pos) && GEVR_MP_SELECTABLE())
     {
         mission_difficulty_highlighted = DIFFICULTY_SECRET;
         if (joyGetButtonsPressedThisFrame(PLAYER_1, START_BUTTON|Z_TRIG|A_BUTTON))
@@ -3158,6 +3187,13 @@ void interface_menu06_modesel(void)
     }
     if (gamemode == GAMEMODE_MULTI)
     {
+#ifdef GEVR_FLAT
+        if (!netIsActive())
+        {
+            gevrJoinOpen = TRUE;
+            inputJoinBegin();
+        }
+#endif
         frontChangeMenu(MENU_MP_OPTIONS, FALSE);
         return;
     }
@@ -3328,7 +3364,7 @@ Gfx* constructor_menu06_modesel(Gfx* DL)
 
     x = 0x96;
     y = 0xFC;
-    if (joyGetControllerCount() >= 2)
+    if (GEVR_MP_SELECTABLE())
     {
         text_color = 0xFF;
     }
@@ -4756,15 +4792,51 @@ void interface_menu0E_mpoptions(void)
     viSetZRange(100.0f, 10000.0f);
     viSetUseZBuf(0);
 
-    if (joyGetControllerCount() < 2)
+#ifdef GEVR_FLAT
+    if (gevrJoinOpen)
+    {
+        s32 r;
+
+        tab_prev_highlight = frontCheckCursorOnPreviousTab();
+        tab_start_highlight = frontCheckCursorOnStartTab();
+        r = inputJoinFrame(tab_prev_highlight, tab_start_highlight);
+        disable_all_switches(walletinst[0]);
+        set_item_visibility_in_objinstance(walletinst[0], SW_TABS, 1);
+        set_item_visibility_in_objinstance(walletinst[0], SW_PAPER, 1);
+        set_item_visibility_in_objinstance(walletinst[0], SW_OHMSS, 1);
+        set_item_visibility_in_objinstance(walletinst[0], SW_CONFIDENTIAL2, 1);
+        frontUpdateControlStickPosition();
+        if (r < 0)
+        {
+            gevrJoinOpen = FALSE;
+            sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, NULL);
+            frontChangeMenu(MENU_MODE_SELECT, 0);
+            setCursorPOSforMode(gamemode);
+        }
+        else if (r == 1)
+        {
+            /* seated: the options, with as many players as joined */
+            gevrJoinOpen = FALSE;
+            init_mp_options_for_scenario(inputSeated());
+            sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE_SFX, NULL);
+        }
+        else if (r == 2)
+        {
+            sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, NULL);
+        }
+        return;
+    }
+#endif
+
+    if (GEVR_MP_PADS() < 2)
     {
         frontChangeMenu(MENU_MODE_SELECT, 0);
         setCursorPOSforMode(gamemode);
     }
 
-    if (joyGetControllerCount() < selected_num_players)
+    if (GEVR_MP_PADS() < selected_num_players)
     {
-        init_mp_options_for_scenario(joyGetControllerCount());
+        init_mp_options_for_scenario(GEVR_MP_PADS());
     }
 
     if (joyGetButtons(PLAYER_1, Z_TRIG|A_BUTTON) == 0)
@@ -4933,7 +5005,7 @@ void interface_menu0E_mpoptions(void)
     {
         s32 tmpNumPlayers;
 
-        if (joyGetControllerCount() < selected_num_players + 1)
+        if (GEVR_MP_PADS() < selected_num_players + 1)
         {
             tmpNumPlayers = 2;
         }
@@ -4988,6 +5060,72 @@ void interface_menu0E_mpoptions(void)
 }
 
 
+#ifdef GEVR_FLAT
+/* The join page (interface_menu0E_mpoptions): who plays, in the order they joined */
+static Gfx *gevrJoinPageDraw(Gfx *DL)
+{
+    char line[48];
+    s32 x;
+    s32 y;
+    s32 i;
+    const s32 joined = inputJoinCount();
+
+    x = 0x37;
+    y = 0x5f;
+    DL = frontPrintText(DL, &x, &y, (s8 *)"MULTIPLAYER:", ptrFontZurichBoldChars, ptrFontZurichBold, 0xff, viGetX(), viGetY(), 0, 0);
+    x = 0x39;
+    y = 0x79;
+    DL = frontPrintText(DL, &x, &y, (s8 *)"Press A on a controller to join", ptrFontZurichBoldChars, ptrFontZurichBold, 0xff, viGetX(), viGetY(), 0, 0);
+#ifndef GEVR_TVOS
+    x = 0x39;
+    y = 0x8d;
+#if defined(GEVR_MOBILE) || defined(GEVR_IOS)
+    DL = frontPrintText(DL, &x, &y, (s8 *)"or tap the screen.", ptrFontZurichBoldChars, ptrFontZurichBold, 0xff, viGetX(), viGetY(), 0, 0);
+#else
+    DL = frontPrintText(DL, &x, &y, (s8 *)"or Enter on the keyboard.", ptrFontZurichBoldChars, ptrFontZurichBold, 0xff, viGetX(), viGetY(), 0, 0);
+#endif
+#endif
+
+    for (i = 0; i < 4; i++)
+    {
+        const char *name = inputJoinName(i);
+
+        sprintf(line, "%d.", i + 1);
+        x = 0x39;
+        y = 0xa5 + i * 0x14;
+        DL = frontPrintText(DL, &x, &y, (s8 *)line, ptrFontZurichBoldChars, ptrFontZurichBold, name ? 0xff : 0x70, viGetX(), viGetY(), 0, 0);
+        if (name)
+        {
+            x = 0x4b;
+            y = 0xa5 + i * 0x14;
+            DL = frontPrintText(DL, &x, &y, (s8 *)name, ptrFontZurichBoldChars, ptrFontZurichBold, 0xff, viGetX(), viGetY(), 0, 0);
+        }
+    }
+
+    x = 0x39;
+    y = 0xf9;
+    if (joined >= 2)
+    {
+#ifdef GEVR_TVOS
+        DL = frontPrintText(DL, &x, &y, (s8 *)"START to play, B to leave.", ptrFontZurichBoldChars, ptrFontZurichBold, 0xff, viGetX(), viGetY(), 0, 0);
+#else
+        DL = frontPrintText(DL, &x, &y, (s8 *)"START or Enter to play,", ptrFontZurichBoldChars, ptrFontZurichBold, 0xff, viGetX(), viGetY(), 0, 0);
+        x = 0x39;
+        y = 0x10d;
+        DL = frontPrintText(DL, &x, &y, (s8 *)"B or Escape to leave.", ptrFontZurichBoldChars, ptrFontZurichBold, 0xff, viGetX(), viGetY(), 0, 0);
+#endif
+    }
+    else
+    {
+        DL = frontPrintText(DL, &x, &y, (s8 *)"Two players are needed.", ptrFontZurichBoldChars, ptrFontZurichBold, 0x70, viGetX(), viGetY(), 0, 0);
+    }
+    DL = frontAddPreviousTabText(DL);
+    DL = frontAddStartTabText(DL);
+    DL = frontDrawCursor(DL);
+    return DL;
+}
+#endif
+
 Gfx * constructor_menu0E_mpoptions(Gfx *DL)
 {
     u8 *text;
@@ -5010,6 +5148,11 @@ Gfx * constructor_menu0E_mpoptions(Gfx *DL)
   #endif
   DL = frontSetupMenuBackground(DL);
   DL = microcode_constructor(DL);
+#ifdef GEVR_FLAT
+  if (gevrJoinOpen) {
+    return gevrJoinPageDraw(DL);
+  }
+#endif
   text = langGet(getStringID(LTITLE, TITLE_STR_76_MPOPTIONS));
   x = 0x37;
   y = 0x5f;

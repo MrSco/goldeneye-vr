@@ -11805,6 +11805,7 @@ void bondviewApplyVertaTheta(void)
  */
 s32 inputLookDirect(void);                       /* port/src/input.c: the mouse is captured, or a finger looked */
 void inputMouseGetLookDeg(f32 *dxdeg, f32 *dydeg);
+s32 inputOwnPlayer(void);   /* port/src/input.c: the keyboard and mouse's player offline (a split screen's join) */
 
 f32 g_portMouseYawDeg;      /* this tick's mouse turn in degrees, gated and inverted */
 f32 g_portMousePitchDeg;
@@ -11961,11 +11962,12 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
      * player, drained every tick but kept only when the stick could move Bond,
      * so motion never banks up and snaps the camera when control returns.
      * Online that is the local slot, not player 1: a phone that joined a
-     * Quest's game could walk but never look (user, 2026-11-09). */
+     * Quest's game could walk but never look (user, 2026-11-09). Offline,
+     * the keyboard and mouse's player (a local split screen's join). */
     g_portMouseYawDeg = 0.0f;
     g_portMousePitchDeg = 0.0f;
     g_portMouseDirect = 0;
-    if (get_cur_playernum() == (netIsActive() ? netGetLocalSlot() : 0))
+    if (get_cur_playernum() == (netIsActive() ? netGetLocalSlot() : inputOwnPlayer()))
     {
         inputMouseGetLookDeg(&g_portMouseYawDeg, &g_portMousePitchDeg);
         if (!portMouseLookPermitted())
@@ -12953,8 +12955,8 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
             static s32 wascrouchtoggled = FALSE;
             s32 crouchtoggled = gevrCrouchToggled();
 
-            /* the local player's: online this headset's slot, offline player 1 (a local split screen's others have no toggle) */
-            if (get_cur_playernum() == (netIsActive() ? netGetLocalSlot() : 0))
+            /* the local player's: online this headset's slot, offline the own controls' (a local split screen's others have no toggle) */
+            if (get_cur_playernum() == (netIsActive() ? netGetLocalSlot() : inputOwnPlayer()))
             {
 
             if (crouchtoggled
@@ -13473,11 +13475,12 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     {
         gunSetAimType(0);
 #if defined(GEVR_PC) || defined(GEVR_FLAT)
-        { /* the stick's position plus the mouse's offset (player 1's), same clamp */
+        { /* the stick's position plus the mouse's offset (its player's), same clamp */
+            const s32 mouseplayer = netIsActive() ? netGetLocalSlot() : inputOwnPlayer();
             f32 swx = (((f32) moveData.controlStickXRaw * 0.65f) / 80.0f)
-                + (get_cur_playernum() == 0 ? g_bondviewMouseSwivelX : 0.0f);
+                + (get_cur_playernum() == mouseplayer ? g_bondviewMouseSwivelX : 0.0f);
             f32 swy = (((f32) moveData.controlStickYRaw * 0.65f) / 80.0f)
-                + (get_cur_playernum() == 0 ? g_bondviewMouseSwivelY : 0.0f);
+                + (get_cur_playernum() == mouseplayer ? g_bondviewMouseSwivelY : 0.0f);
             if (swx >  0.65f) swx =  0.65f;
             if (swx < -0.65f) swx = -0.65f;
             if (swy >  0.65f) swy =  0.65f;

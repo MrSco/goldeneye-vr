@@ -164,6 +164,18 @@ s32 inputControllerConnected(s32 idx);
 // returns bitmask of players with assigned controllers
 s32 inputControllerMask(void);
 
+// local split screen (flat builds): the join page before a Multiplayer match
+// (src/game/front.c) and the players it seats
+s32 inputJoinDeviceCount(void);           // devices that could join: pads, the own controls
+void inputJoinBegin(void);                // open it: the device that chose Multiplayer is player 1
+s32 inputJoinFrame(s32 onPrevTab, s32 onStartTab);   // 0 stay, 1 play (seated), -1 back
+s32 inputJoinCount(void);
+const char *inputJoinName(s32 player);    // the device player joined with
+void inputSeatsClear(void);               // back to no join (the mode select)
+s32 inputSeated(void);                    // the seated players, 0: none
+s32 inputPlayerSlot(s32 player);          // the slot (device) a player reads
+s32 inputOwnPlayer(void);                 // the player the keyboard and mouse or touch drive
+
 // get/set Input.Player%d.SwapSticks
 s32 inputControllerGetSticksSwapped(s32 cidx);
 void inputControllerSetSticksSwapped(s32 cidx, s32 swapped);

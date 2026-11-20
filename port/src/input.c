@@ -864,6 +864,30 @@ static inline s32 inputTryController(const s32 cidx, const s32 jidx)
     return 0;
 }
 
+#ifdef GEVR_FLAT
+/*
+ * Local split screen: who plays. Before a Multiplayer match, a join page
+ * (front.c, the Multiplayer options' first page) lists the devices that
+ * pressed to join, in that order: the player numbers. The own controls (the
+ * keyboard and mouse, or the touch controls) are one device, a pad another.
+ * Player p reads slot s_seatSlot[p]. The own controls are slot 0's always
+ * (its binds, the mouse, the touch controls, the panel), so when they join,
+ * slot 0 holds no pad and the joined pads take the slots after it. With no
+ * join (solo play, the menus before Multiplayer) each slot is its own
+ * player's, as GoldenEye counts pads, and the own controls are player 1's.
+ */
+#define JOIN_NONE (-1)
+#define JOIN_OWN  (-2)
+static s32 s_seated;                                        /* the joined players; 0: no join */
+static s32 s_seatSlot[INPUT_MAX_CONTROLLERS] = { 0, 1, 2, 3 };
+static s32 s_ownSeat;                                       /* the player the own controls drive */
+static s32 s_ownSeated;                                     /* they joined: slot 0 is theirs alone */
+static s32 s_joinDev[INPUT_MAX_CONTROLLERS];                /* the join page's list: JOIN_OWN or a pad's SDL_JoystickID */
+static s32 s_joinCount;
+static s32 s_lastDevice = JOIN_NONE;                        /* the device that pressed something last */
+static s32 s_ownTap;                                        /* a finger came down since the join page looked */
+#endif
+
 #ifdef GEVR_TVOS
 /*
  * Apple TV: the Siri Remote is always connected, and SDL lists it as a pad so
@@ -888,6 +912,9 @@ static void inputTvPadFirst(void)
     SDL_GameController *order[INPUT_MAX_CONTROLLERS];
     s32 rumble[INPUT_MAX_CONTROLLERS], device[INPUT_MAX_CONTROLLERS];
     s32 n = 0, changed = 0;
+    if (s_seated) {
+        return;   /* a split screen's players keep their slots (inputSeatsCommit) */
+    }
     for (s32 pass = 0; pass < 2; ++pass) {
         for (s32 i = 0; i < INPUT_MAX_CONTROLLERS; ++i) {
             if (pads[i] && (inputIsFullPad(pads[i]) != 0) == (pass == 0)) {
@@ -945,6 +972,415 @@ static s32 inputPadIgnored(s32 jidx)
     (void)jidx;
 #endif
     return 0;
+}
+
+#ifdef GEVR_FLAT
+/* ---- The local split screen's join page (front.c) and seats ---- */
+
+#define JOINP_JOIN  1   /* A, START, Enter, Space, a tap */
+#define JOINP_GO    2   /* START, Enter: play */
+#define JOINP_LEAVE 4   /* B, Escape, Backspace, a right click */
+#define JOINP_CLICK 8   /* the left button: the page's tabs, or join */
+
+static u32 s_joinWasOwn;
+static u32 s_joinWasPad[INPUT_MAX_CONTROLLERS];
+static s32 s_joinPadWasId[INPUT_MAX_CONTROLLERS];
+
+/* A pad that can join: any, but a TV's Siri Remote (the TV's own controls) */
+static s32 inputJoinablePad(SDL_GameController *ctrl)
+{
+#ifdef GEVR_TVOS
+    return inputIsFullPad(ctrl);
+#else
+    return ctrl != NULL;
+#endif
+}
+
+/* The own controls can join: the keyboard and mouse, or the touch controls; a TV has none */
+static s32 inputOwnJoins(void)
+{
+#ifdef GEVR_TVOS
+    return 0;
+#else
+    return 1;
+#endif
+}
+
+/* The devices that could join: Multiplayer is there to choose with two */
+s32 inputJoinDeviceCount(void)
+{
+    s32 n = inputOwnJoins();
+    for (s32 i = 0; i < INPUT_MAX_CONTROLLERS; ++i) {
+        n += inputJoinablePad(pads[i]) != 0;
+    }
+    return n;
+}
+
+static s32 inputJoinSlotOf(s32 dev)
+{
+    return dev >= 0 ? inputControllerGetIndexById((SDL_JoystickID)dev) : -1;
+}
+
+static s32 inputJoinKey(SDL_Scancode sc)
+{
+    return inputKeyPressed(VK_KEYBOARD_BEGIN + sc) != 0;   /* a test script's keys too */
+}
+
+static u32 inputJoinOwnHeld(void)
+{
+    u32 b = 0;
+    if (inputJoinKey(SDL_SCANCODE_RETURN) || inputJoinKey(SDL_SCANCODE_KP_ENTER)) b |= JOINP_JOIN | JOINP_GO;
+    if (inputJoinKey(SDL_SCANCODE_SPACE)) b |= JOINP_JOIN;
+    if (inputJoinKey(SDL_SCANCODE_ESCAPE) || inputJoinKey(SDL_SCANCODE_BACKSPACE)) b |= JOINP_LEAVE;
+    if (!mouseLocked && (mouseButtons & SDL_BUTTON_LMASK)) b |= JOINP_CLICK;
+    if (!mouseLocked && (mouseButtons & SDL_BUTTON_RMASK)) b |= JOINP_LEAVE;
+    return b;
+}
+
+static u32 inputJoinPadHeld(SDL_GameController *pad)
+{
+    u32 b = 0;
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A)) b |= JOINP_JOIN;
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_START)) b |= JOINP_JOIN | JOINP_GO;
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_B)) b |= JOINP_LEAVE;
+    return b;
+}
+
+static s32 inputJoinFind(s32 dev)
+{
+    for (s32 i = 0; i < s_joinCount; ++i) {
+        if (s_joinDev[i] == dev) return i;
+    }
+    return -1;
+}
+
+static void inputJoinAdd(s32 dev)
+{
+    if (s_joinCount < INPUT_MAX_CONTROLLERS && inputJoinFind(dev) < 0) {
+        s_joinDev[s_joinCount++] = dev;
+        sysLogPrintf(LOG_NOTE, "input: join: %s is player %d", inputJoinName(s_joinCount - 1), s_joinCount);
+    }
+}
+
+static void inputJoinRemove(s32 at)
+{
+    sysLogPrintf(LOG_NOTE, "input: join: player %d (%s) left", at + 1, inputJoinName(at));
+    for (s32 i = at; i + 1 < s_joinCount; ++i) {
+        s_joinDev[i] = s_joinDev[i + 1];
+    }
+    s_joinCount--;
+}
+
+/* Player p's device on the join page, as the page shows it */
+const char *inputJoinName(s32 player)
+{
+    static char names[INPUT_MAX_CONTROLLERS][28];
+    if (player < 0 || player >= s_joinCount) {
+        return NULL;
+    }
+    if (s_joinDev[player] == JOIN_OWN) {
+#if defined(GEVR_MOBILE) || defined(GEVR_IOS)
+        return "Touch controls";
+#else
+        return "Keyboard and mouse";
+#endif
+    }
+    const s32 slot = inputJoinSlotOf(s_joinDev[player]);
+    const char *src = slot >= 0 ? SDL_GameControllerName(pads[slot]) : NULL;
+    char *out = names[player];
+    s32 n = 0;
+    if (!src || !*src) {
+        src = "Controller";
+    }
+    /* the folder's font: printable ASCII, and the page's width */
+    for (; *src && n < (s32)sizeof(names[0]) - 1; ++src) {
+        if (*src >= 32 && *src < 127) out[n++] = *src;
+    }
+    out[n] = '\0';
+    return out;
+}
+
+s32 inputJoinCount(void)
+{
+    return s_joinCount;
+}
+
+/*
+ * The join page opens with the device that chose Multiplayer as player 1:
+ * one still holding its press, else the one that pressed last. What is held
+ * now is no press of the page's.
+ */
+void inputJoinBegin(void)
+{
+    const u32 own = inputJoinOwnHeld();
+    s32 first = JOIN_NONE;
+    s_joinCount = 0;
+    s_ownTap = 0;
+    if (inputOwnJoins() && (own & (JOINP_JOIN | JOINP_CLICK))) {
+        first = JOIN_OWN;
+    }
+    for (s32 i = 0; i < INPUT_MAX_CONTROLLERS; ++i) {
+        s_joinWasPad[i] = pads[i] ? inputJoinPadHeld(pads[i]) : 0;
+        s_joinPadWasId[i] = pads[i] ? (s32)inputControllerGetId(pads[i]) : JOIN_NONE;
+        if (first == JOIN_NONE && inputJoinablePad(pads[i]) && (s_joinWasPad[i] & JOINP_JOIN)) {
+            first = s_joinPadWasId[i];
+        }
+    }
+    s_joinWasOwn = own;
+    if (first == JOIN_NONE) {
+        first = s_lastDevice;
+    }
+    if (first == JOIN_OWN ? !inputOwnJoins()
+            : (first < 0 || inputJoinSlotOf(first) < 0 || !inputJoinablePad(pads[inputJoinSlotOf(first)]))) {
+        first = JOIN_NONE;
+    }
+    sysLogPrintf(LOG_NOTE, "input: join page open (%d device%s could play)", inputJoinDeviceCount(),
+                 inputJoinDeviceCount() == 1 ? "" : "s");
+    if (first != JOIN_NONE) {
+        inputJoinAdd(first);
+    }
+}
+
+/*
+ * The players sit down: the joined pads move to their slots (the own
+ * controls' slot 0 left to them alone when they joined), the pads that did
+ * not join wait in the slots left over, read by no player. One with no slot
+ * left is closed until the seats clear. Each pad's lights show its player.
+ */
+static void inputSeatsCommit(void)
+{
+    SDL_GameController *order[INPUT_MAX_CONTROLLERS] = { NULL };
+    s32 rumble[INPUT_MAX_CONTROLLERS] = { 0 };
+    s32 device[INPUT_MAX_CONTROLLERS] = { -1, -1, -1, -1 };
+    s32 placed[INPUT_MAX_CONTROLLERS] = { 0 };
+    const s32 ownAt = inputJoinFind(JOIN_OWN);
+    s32 slot = ownAt >= 0 ? 1 : 0;
+
+    for (s32 p = 0; p < s_joinCount; ++p) {
+        const s32 k = inputJoinSlotOf(s_joinDev[p]);
+        if (s_joinDev[p] == JOIN_OWN || k < 0) {
+            s_seatSlot[p] = 0;
+            continue;
+        }
+        order[slot] = pads[k];
+        rumble[slot] = padsCfg[k].rumbleOn;
+        device[slot] = padsCfg[k].deviceIndex;
+        placed[k] = 1;
+        s_seatSlot[p] = slot++;
+    }
+    for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) {
+        if (!pads[k] || placed[k]) {
+            continue;
+        }
+        if (slot < INPUT_MAX_CONTROLLERS) {
+            order[slot] = pads[k];
+            rumble[slot] = padsCfg[k].rumbleOn;
+            device[slot] = padsCfg[k].deviceIndex;
+            slot++;
+        } else {
+            sysLogPrintf(LOG_NOTE, "input: '%s' waits for the next join (no slot left)", SDL_GameControllerName(pads[k]));
+            SDL_GameControllerSetPlayerIndex(pads[k], -1);
+            SDL_GameControllerClose(pads[k]);
+        }
+    }
+    for (s32 i = 0; i < INPUT_MAX_CONTROLLERS; ++i) {
+        pads[i] = order[i];
+        padsCfg[i].rumbleOn = rumble[i];
+        padsCfg[i].deviceIndex = order[i] ? device[i] : -1;
+        connectedMask = order[i] ? (connectedMask | (1 << i)) : (connectedMask & ~(1 << i));
+    }
+    connectedMask |= 1;
+    for (s32 p = s_joinCount; p < INPUT_MAX_CONTROLLERS; ++p) {
+        s_seatSlot[p] = p;
+    }
+    s_seated = s_joinCount;
+    s_ownSeated = ownAt >= 0;
+    s_ownSeat = ownAt >= 0 ? ownAt : 0;
+    for (s32 i = 0; i < INPUT_MAX_CONTROLLERS; ++i) {
+        if (pads[i]) {
+            s32 lights = -1;
+            for (s32 p = 0; p < s_seated; ++p) {
+                if (s_seatSlot[p] == i) lights = p;
+            }
+            SDL_GameControllerSetPlayerIndex(pads[i], lights);
+        }
+    }
+    for (s32 p = 0; p < s_seated; ++p) {
+        sysLogPrintf(LOG_NOTE, "input: seat: player %d is %s (slot %d)", p + 1, inputJoinName(p), s_seatSlot[p]);
+    }
+}
+
+/* Back to no join: the pads in a row from slot 0 again (a TV's full pads first) */
+void inputSeatsClear(void)
+{
+    SDL_GameController *order[INPUT_MAX_CONTROLLERS] = { NULL };
+    s32 rumble[INPUT_MAX_CONTROLLERS] = { 0 };
+    s32 device[INPUT_MAX_CONTROLLERS] = { -1, -1, -1, -1 };
+    s32 n = 0;
+
+    s_joinCount = 0;
+    if (!s_seated) {
+        return;
+    }
+    s_seated = 0;
+    s_ownSeated = 0;
+    s_ownSeat = 0;
+    for (s32 i = 0; i < INPUT_MAX_CONTROLLERS; ++i) {
+        s_seatSlot[i] = i;
+        if (pads[i]) {
+            order[n] = pads[i];
+            rumble[n] = padsCfg[i].rumbleOn;
+            device[n] = padsCfg[i].deviceIndex;
+            n++;
+        }
+    }
+    for (s32 i = 0; i < INPUT_MAX_CONTROLLERS; ++i) {
+        pads[i] = order[i];
+        padsCfg[i].rumbleOn = rumble[i];
+        padsCfg[i].deviceIndex = order[i] ? device[i] : -1;
+        connectedMask = order[i] ? (connectedMask | (1 << i)) : (connectedMask & ~(1 << i));
+        if (pads[i]) {
+            SDL_GameControllerSetPlayerIndex(pads[i], i);
+        }
+    }
+    connectedMask |= 1;
+    /* a pad closed for want of a slot (inputSeatsCommit) opens again */
+    numJoysticks = SDL_NumJoysticks();
+    for (s32 jidx = 0; jidx < numJoysticks; ++jidx) {
+        if (SDL_IsGameController(jidx) && !inputPadIgnored(jidx)
+                && inputControllerGetIndexById(SDL_JoystickGetDeviceInstanceID(jidx)) < 0) {
+            for (s32 cidx = 0; cidx < INPUT_MAX_CONTROLLERS; ++cidx) {
+                if (inputTryController(cidx, jidx)) {
+                    break;
+                }
+            }
+        }
+    }
+#ifdef GEVR_TVOS
+    inputTvPadFirst();
+#endif
+    sysLogPrintf(LOG_NOTE, "input: seats cleared: every device is player 1's again, a further pad its own");
+}
+
+/* A device's new presses on the join page: -1 back to the mode select */
+static s32 inputJoinPress(s32 dev, u32 fresh, s32 *go)
+{
+    const s32 at = inputJoinFind(dev);
+    if (fresh & JOINP_LEAVE) {
+        if (at >= 0) {
+            inputJoinRemove(at);
+            if (s_joinCount == 0) {
+                return -1;   /* the last one out */
+            }
+        } else if (s_joinCount == 0) {
+            return -1;
+        }
+        return 0;
+    }
+    if (at >= 0) {
+        if (fresh & JOINP_GO) {
+            *go = 1;
+        }
+    } else if (fresh & JOINP_JOIN) {
+        inputJoinAdd(dev);
+    }
+    return 0;
+}
+
+/*
+ * The join page's tick: 0 stays, 1 plays (the players are seated), 2 stays
+ * with someone new or gone, -1 goes back. A device joins with A or START (Enter or Space, a click or a tap for
+ * the own controls) and leaves with B (Escape or Backspace, a right click);
+ * a joined one's START (Enter) plays once two have joined. A click on the
+ * folder's tabs is theirs: the start tab plays, the previous one goes back.
+ */
+s32 inputJoinFrame(s32 onPrevTab, s32 onStartTab)
+{
+    s32 go = 0;
+    s32 before[INPUT_MAX_CONTROLLERS];
+    const s32 beforeCount = s_joinCount;
+    memcpy(before, s_joinDev, sizeof(before));
+
+    for (s32 p = s_joinCount - 1; p >= 0; --p) {
+        if (s_joinDev[p] != JOIN_OWN && inputJoinSlotOf(s_joinDev[p]) < 0) {
+            inputJoinRemove(p);   /* unplugged */
+        }
+    }
+
+    const u32 ownHeld = inputJoinOwnHeld();
+    u32 fresh = (ownHeld & ~s_joinWasOwn) | (s_ownTap ? JOINP_JOIN : 0);
+    s_joinWasOwn = ownHeld;
+    s_ownTap = 0;
+    if (inputOwnJoins() && fresh) {
+        if (fresh & JOINP_CLICK) {
+            if (onPrevTab) {
+                s_joinCount = 0;
+                return -1;
+            }
+            if (onStartTab) {
+                go = 1;
+            } else {
+                fresh |= JOINP_JOIN;
+            }
+        }
+        if (inputJoinPress(JOIN_OWN, fresh, &go) < 0) {
+            return -1;
+        }
+    }
+
+    for (s32 i = 0; i < INPUT_MAX_CONTROLLERS; ++i) {
+        const s32 id = pads[i] ? (s32)inputControllerGetId(pads[i]) : JOIN_NONE;
+        const u32 held = pads[i] ? inputJoinPadHeld(pads[i]) : 0;
+        if (id != s_joinPadWasId[i]) {
+            s_joinPadWasId[i] = id;   /* a pad new to the slot: what it holds is no press */
+            s_joinWasPad[i] = held;
+            continue;
+        }
+        const u32 padFresh = held & ~s_joinWasPad[i];
+        s_joinWasPad[i] = held;
+        if (padFresh && inputJoinablePad(pads[i]) && inputJoinPress(id, padFresh, &go) < 0) {
+            return -1;
+        }
+    }
+
+    if (go && s_joinCount >= 2) {
+        inputSeatsCommit();
+        return 1;
+    }
+    /* 2: someone joined or left (the page clicks) */
+    return s_joinCount != beforeCount || memcmp(before, s_joinDev, sizeof(before)) != 0 ? 2 : 0;
+}
+#endif
+
+/* The players the join page seated (0: none, every pad its slot's player) */
+s32 inputSeated(void)
+{
+#ifdef GEVR_FLAT
+    return s_seated;
+#else
+    return 0;
+#endif
+}
+
+/* The slot (device) a player reads: its seat's, else its own number's */
+s32 inputPlayerSlot(s32 player)
+{
+#ifdef GEVR_FLAT
+    if (s_seated && player >= 0 && player < INPUT_MAX_CONTROLLERS) {
+        return s_seatSlot[player];
+    }
+#endif
+    return player;
+}
+
+/* The player the keyboard and mouse (or the touch controls) drive offline */
+s32 inputOwnPlayer(void)
+{
+#ifdef GEVR_FLAT
+    return s_ownSeat;
+#else
+    return 0;
+#endif
 }
 
 static inline void inputInitAllControllers(void)
@@ -1072,6 +1508,11 @@ static int inputEventFilter(void *data, SDL_Event *event)
                 break;
             }
             for (s32 i = firstController; i < INPUT_MAX_CONTROLLERS; ++i) {
+#ifdef GEVR_FLAT
+                if (i == 0 && s_ownSeated) {
+                    continue;   /* the own controls' slot in a split screen (inputSeatsCommit) */
+                }
+#endif
                 if (!pads[i]) {
                     pads[i] = SDL_GameControllerOpen(event->cdevice.which);
                     if (pads[i]) {
@@ -1130,6 +1571,9 @@ static int inputEventFilter(void *data, SDL_Event *event)
             if (!lastKey) {
                 lastKey = VK_MOUSE_BEGIN - 1 + event->button.button;
             }
+#ifdef GEVR_FLAT
+            s_lastDevice = JOIN_OWN;
+#endif
             break;
 
         case SDL_KEYDOWN:
@@ -1141,9 +1585,22 @@ static int inputEventFilter(void *data, SDL_Event *event)
             if (!lastKey) {
                 lastKey = VK_KEYBOARD_BEGIN + event->key.keysym.scancode;
             }
+#ifdef GEVR_FLAT
+            s_lastDevice = JOIN_OWN;   /* the join page's player 1, if it chose Multiplayer */
+#endif
             break;
 
+#ifdef GEVR_FLAT
+        case SDL_FINGERDOWN:
+            s_lastDevice = JOIN_OWN;
+            s_ownTap = 1;
+            break;
+#endif
+
         case SDL_CONTROLLERBUTTONDOWN:
+#ifdef GEVR_FLAT
+            s_lastDevice = event->cbutton.which;
+#endif
             if (!lastKey) {
                 lastKey = VK_JOY1_BEGIN + event->cbutton.button;
                 SDL_GameController *ctrl = SDL_GameControllerFromInstanceID(event->cdevice.which);
@@ -1485,6 +1942,16 @@ static inline s32 inputAxisScale(s32 x, const s32 deadzone, const f32 scale)
 }
 
 #ifdef GEVR_FLAT
+/* The player a read is for: in a split screen's level its own, else the current one */
+static struct player *inputReadPlayer(s32 player)
+{
+    extern s32 getPlayerCount(void);
+    if (bossGetStageNum() != LEVELID_TITLE && getPlayerCount() >= 2 && player >= 0 && player < getPlayerCount()) {
+        return g_playerPointers[player];
+    }
+    return g_CurrentPlayer;
+}
+
 /*
  * A pad's sticks in the flat game, as the Quest's screen mode reads the Touch
  * sticks (GoldenEye's 1.2 Solitaire): the right stick is the game's stick
@@ -1537,6 +2004,23 @@ s32 inputReadController(s32 idx, OSContPad *npad)
     if (idx < 0 || (idx >= INPUT_MAX_CONTROLLERS && !slotPad) || !npad) {
         return -1;
     }
+
+#ifdef GEVR_FLAT
+    /*
+     * Offline the game asks for player idx: in a local split screen that is
+     * the slot of the device that joined as it (inputSeatsCommit). A player
+     * with no device reads as no pad, so a pad plugged in or out is counted
+     * at the next read (joy.c joyCheckStatus on the error's change), not a
+     * couple of seconds later.
+     */
+    const s32 player = idx;
+    if (!slotPad && !netIsActive()) {
+        if (!inputControllerConnected(idx)) {
+            return -1;
+        }
+        idx = inputPlayerSlot(idx);
+    }
+#endif
 
     npad->button = 0;
 
@@ -1622,7 +2106,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
          * the right one is the game's stick (look and turn), the left one
          * walks and strafes on the C buttons past a quarter; in menus the
          * stick pushed further navigates. The keyboard's stick keys win. */
-        const bool paused = g_CurrentPlayer && g_CurrentPlayer->pause_state != 0;
+        struct player *const me = inputReadPlayer(player);
+        const bool paused = me && me->pause_state != 0;
         const bool menu = bossGetStageNum() == LEVELID_TITLE || paused ||
                           (netIsActive() && g_CurrentPlayer && g_CurrentPlayer->mpmenuon);
         SDL_GameController *pad = pads[0];
@@ -1758,11 +2243,13 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         /*
          * A local split screen (GoldenEye's own, 2 to 4 players, offline):
          * each further pad is its own player's, its buttons from its binds
-         * above and its sticks read as player 1's pad's. The keyboard, the
-         * mouse, the touch controls and the panel stay player 1's.
+         * above and its sticks read as player 1's pad's; in its pause the
+         * d-pad moves the cursor too. The keyboard, the mouse, the touch
+         * controls and the panel stay with slot 0 (the own controls' player).
          */
         SDL_GameController *pad = pads[idx];
-        inputFlatPadSticks(pad, &padsCfg[idx], bossGetStageNum() == LEVELID_TITLE,
+        struct player *const me = inputReadPlayer(player);
+        inputFlatPadSticks(pad, &padsCfg[idx], bossGetStageNum() == LEVELID_TITLE || (me && me->pause_state != 0),
                            SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX) / 32767.0f,
                            -SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY) / 32767.0f, npad);
     } else   /* never true below: the headset's mapping is for the local slot */
@@ -3031,6 +3518,11 @@ s32 inputControllerConnected(s32 idx)
         if (bossGetStageNum() == 90 /* LEVELID_TITLE */) return idx == 0;
         return (idx == netGetLocalSlot() || netIsRemotePlayerActive(idx)) ? 1 : 0;
     }
+#ifdef GEVR_FLAT
+    if (s_seated) {
+        return idx < s_seated;   /* the join page's players (inputJoinFrame) */
+    }
+#endif
 #ifndef GEVR_FLAT
     /* A headset plays one player offline: a pad paired to it is player 1's,
      * never a split screen's (Input.FakeGamepads still makes them, to test) */
@@ -3203,9 +3695,9 @@ static s32 inputRumbleSlot(void)
     extern s32 getPlayerCount(void);
     if (!netIsActive() && getPlayerCount() >= 2) {
         const s32 p = get_cur_playernum();
-        if (p >= 0 && p < INPUT_MAX_CONTROLLERS) return p;
+        if (p >= 0 && p < INPUT_MAX_CONTROLLERS) return inputPlayerSlot(p);
     }
-    return 0;
+    return inputPlayerSlot(0);
 }
 
 /*
