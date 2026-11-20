@@ -76,6 +76,7 @@ targets:
       - sdk: CoreAudio.framework
       - sdk: CoreGraphics.framework
       - sdk: CoreHaptics.framework
+      - sdk: CoreImage.framework   # the file page's QR code (tvos_upload.mm)
       - sdk: GameController.framework
       # SDL's HIDAPI pad code links it (its Bluetooth backend stays off: ios_app.m)
       - sdk: CoreBluetooth.framework

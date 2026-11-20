@@ -18,6 +18,7 @@
  * game's otherwise), so the remote or a pad can press Cancel.
  */
 #import <UIKit/UIKit.h>
+#import <CoreImage/CoreImage.h>
 
 #include <SDL.h>
 #include <arpa/inet.h>
@@ -412,6 +413,154 @@ UIViewController *topController(void)
 }   // namespace
 
 /*
+ * The page the dialog shows (2026-11-20, as House of the Dead VR's ROM page,
+ * src/flat/tvos/main_tvos.m showUpload): the title, how to send the file, a
+ * QR code of this TV's address for a phone's camera beside every address it
+ * has, and the transfer's progress. A UIAlertController holds text only, so
+ * the address was all a player had. Menu, or Cancel, gives up.
+ */
+@interface GevrUploadController : UIViewController
+- (instancetype)initWithTitle:(NSString *)title how:(NSString *)how urls:(NSString *)urls qr:(NSString *)qr;
+@property (nonatomic, copy) void (^onCancel)(void);
+@property (nonatomic, copy) NSString *status;
+@end
+
+static UILabel *gevrUploadLabel(CGFloat size, UIFontWeight weight, UIColor *color, NSString *text)
+{
+    UILabel *l = [[UILabel alloc] init];
+    l.font = [UIFont systemFontOfSize:size weight:weight];
+    l.textColor = color;
+    l.numberOfLines = 0;
+    l.text = text;
+    return l;
+}
+
+static UIImage *gevrUploadQr(NSString *text)
+{
+    if (!text.length) return nil;
+    CIFilter *f = [CIFilter filterWithName:@"CIQRCodeGenerator"];
+    [f setValue:[text dataUsingEncoding:NSUTF8StringEncoding] forKey:@"inputMessage"];
+    [f setValue:@"M" forKey:@"inputCorrectionLevel"];
+    CIImage *img = [f.outputImage imageByApplyingTransform:CGAffineTransformMakeScale(12, 12)];
+    if (!img) return nil;
+    CGImageRef cg = [[CIContext contextWithOptions:nil] createCGImage:img fromRect:img.extent];
+    if (!cg) return nil;
+    UIImage *u = [UIImage imageWithCGImage:cg];
+    CGImageRelease(cg);
+    return u;
+}
+
+@implementation GevrUploadController {
+    NSString *_titleText, *_how, *_urls, *_qr;
+    UILabel *_statusLabel;
+    UIButton *_cancel;
+}
+
+- (instancetype)initWithTitle:(NSString *)title how:(NSString *)how urls:(NSString *)urls qr:(NSString *)qr
+{
+    if ((self = [super initWithNibName:nil bundle:nil])) {
+        _titleText = title;
+        _how = how;
+        _urls = urls;
+        _qr = qr;
+        self.modalPresentationStyle = UIModalPresentationFullScreen;
+    }
+    return self;
+}
+
+- (void)viewDidLoad
+{
+    [super viewDidLoad];
+    UIView *v = self.view;
+    v.backgroundColor = [UIColor colorWithRed:0.047 green:0.075 blue:0.114 alpha:1];
+    UIColor *text = [UIColor colorWithRed:0.93 green:0.95 blue:0.96 alpha:1];
+    UIColor *muted = [UIColor colorWithRed:0.6 green:0.65 blue:0.7 alpha:1];
+    UIColor *gold = [UIColor colorWithRed:1 green:0.79 blue:0.43 alpha:1];
+    UIColor *cyan = [UIColor colorWithRed:0.21 green:0.72 blue:0.81 alpha:1];
+
+    NSMutableArray<UIView *> *row = [NSMutableArray array];
+    UIImage *qr = gevrUploadQr(_qr);
+    if (qr) {
+        // on white, with a margin a phone's camera needs to find the code
+        UIView *box = [[UIView alloc] init];
+        box.backgroundColor = UIColor.whiteColor;
+        box.layer.cornerRadius = 18;
+        UIImageView *code = [[UIImageView alloc] initWithImage:qr];
+        code.layer.magnificationFilter = kCAFilterNearest;
+        code.translatesAutoresizingMaskIntoConstraints = NO;
+        [box addSubview:code];
+        [NSLayoutConstraint activateConstraints:@[
+            [box.widthAnchor constraintEqualToConstant:460],
+            [box.heightAnchor constraintEqualToConstant:460],
+            [code.centerXAnchor constraintEqualToAnchor:box.centerXAnchor],
+            [code.centerYAnchor constraintEqualToAnchor:box.centerYAnchor],
+            [code.widthAnchor constraintEqualToConstant:404],
+            [code.heightAnchor constraintEqualToConstant:404],
+        ]];
+        [row addObject:box];
+    }
+
+    _statusLabel = gevrUploadLabel(30, UIFontWeightMedium, gold, self.status ?: @"Waiting for the file.");
+    _cancel = [UIButton buttonWithType:UIButtonTypeSystem];
+    [_cancel setTitle:@"Cancel" forState:UIControlStateNormal];
+    [_cancel addTarget:self action:@selector(cancelPressed) forControlEvents:UIControlEventPrimaryActionTriggered];
+    NSMutableArray<UIView *> *col = [NSMutableArray arrayWithObjects:
+        gevrUploadLabel(54, UIFontWeightBold, gold, _titleText),
+        gevrUploadLabel(30, UIFontWeightRegular, text, _how), nil];
+    if (_urls.length) [col addObject:gevrUploadLabel(44, UIFontWeightSemibold, cyan, _urls)];
+    [col addObjectsFromArray:@[_statusLabel, _cancel,
+        gevrUploadLabel(24, UIFontWeightRegular, muted,
+                        @"The file goes from your device to this Apple TV only, nowhere else. Menu: cancel.")]];
+    UIStackView *column = [[UIStackView alloc] initWithArrangedSubviews:col];
+    column.axis = UILayoutConstraintAxisVertical;
+    column.alignment = UIStackViewAlignmentLeading;
+    column.spacing = 30;
+    [row addObject:column];
+
+    UIStackView *page = [[UIStackView alloc] initWithArrangedSubviews:row];
+    page.axis = UILayoutConstraintAxisHorizontal;
+    page.alignment = UIStackViewAlignmentCenter;
+    page.spacing = 90;
+    page.translatesAutoresizingMaskIntoConstraints = NO;
+    [v addSubview:page];
+    UILayoutGuide *g = v.safeAreaLayoutGuide;
+    [NSLayoutConstraint activateConstraints:@[
+        [page.centerXAnchor constraintEqualToAnchor:g.centerXAnchor],
+        [page.centerYAnchor constraintEqualToAnchor:g.centerYAnchor],
+        [page.widthAnchor constraintLessThanOrEqualToAnchor:g.widthAnchor multiplier:0.92],
+        [column.widthAnchor constraintLessThanOrEqualToConstant:1000],
+    ]];
+}
+
+- (NSArray<id<UIFocusEnvironment>> *)preferredFocusEnvironments
+{
+    return _cancel ? @[_cancel] : @[];
+}
+
+- (void)setStatus:(NSString *)status
+{
+    _status = [status copy];
+    _statusLabel.text = status;
+}
+
+- (void)cancelPressed
+{
+    if (self.onCancel) self.onCancel();
+}
+
+- (void)pressesBegan:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event
+{
+    for (UIPress *p in presses) {
+        if (p.type == UIPressTypeMenu) {
+            [self cancelPressed];
+            return;
+        }
+    }
+    [super pressesBegan:presses withEvent:event];
+}
+@end
+
+/*
  * Shows the dialog and waits. Returns 1 with the received file's path in out
  * (in the app's temporary folder; the caller copies or reads it), 0 when
  * cancelled, -1 when it could not be shown.
@@ -440,14 +589,13 @@ extern "C" int gevrIosChooseFile(const char *title, char *out, int outLen)
         }
         NSString *how = where.empty()
             ? @"This Apple TV is not on a network. Connect it to Wi-Fi or Ethernet, then choose again."
-            : [NSString stringWithFormat:@"On a phone or computer on the same network, open\n\n%@\n\n"
-                                          "in a web browser, and send the file from there.", urls];
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@(r.title.c_str())
-                                                                       message:how
-                                                                preferredStyle:UIAlertControllerStyleAlert];
+            : @"On a phone or computer on the same network, scan the code with the camera or open the address "
+               "in a web browser, and send the file from there.";
+        NSString *qr = where.empty() ? nil : [NSString stringWithFormat:@"http://%s:%d", where[0].c_str(), r.port];
+        GevrUploadController *alert = [[GevrUploadController alloc] initWithTitle:@(r.title.c_str())
+                                                                              how:how urls:urls qr:qr];
         __block bool cancelled = false;
-        [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel
-                                                handler:^(UIAlertAction *) { cancelled = true; }]];
+        alert.onCancel = ^{ cancelled = true; };
         // the remote and pads to UIKit while the dialog is up, so Cancel can be pressed
         SDL_SetHintWithPriority(SDL_HINT_APPLE_TV_CONTROLLER_UI_EVENTS, "1", SDL_HINT_OVERRIDE);
         [top presentViewController:alert animated:YES completion:nil];
@@ -466,7 +614,8 @@ extern "C" int gevrIosChooseFile(const char *title, char *out, int outLen)
                     std::lock_guard<std::mutex> g(r.lock);
                     name = r.name;
                 }
-                alert.message = pct < 0 ? how : [NSString stringWithFormat:@"Receiving %@: %d%%", @(name.c_str()) ?: @"the file", pct];
+                alert.status = pct < 0 ? @"Waiting for the file."
+                                       : [NSString stringWithFormat:@"Receiving %@: %d%%", @(name.c_str()) ?: @"the file", pct];
             }
         }
         const bool received = r.state.load() == 1;
@@ -476,7 +625,7 @@ extern "C" int gevrIosChooseFile(const char *title, char *out, int outLen)
             path = r.path;
         }
         finish(r);
-        if (!cancelled) {
+        {   // given up or done: the page goes either way now (Menu no longer dismisses it itself)
             __block bool gone = false;
             [alert dismissViewControllerAnimated:YES completion:^{ gone = true; }];
             for (int i = 0; i < 120 && !gone; i++) {   // the launcher draws again once it is off the screen
