@@ -143,6 +143,98 @@ if changed:
     print(f"patched {path} for Apple GPU Families 2 and 3 (A8, A10X)")
 PY
 
+# 4. Frame pacing on iOS and tvOS: eglSwapInterval 2 or more holds each frame
+#    that many refreshes (presentDrawable:afterMinimumDuration:, Metal's frame
+#    pacing). ANGLE ignored the interval there and offered only 1. The game
+#    asks for 2, a steady 30 instead of an uneven 40, on an A8 with Bean on in
+#    a level (port/ios/ios_angle.mm, 2026-11-20).
+python3 - "$SRC/src/libANGLE/renderer/metal" <<'PY'
+import pathlib, sys
+
+base = pathlib.Path(sys.argv[1])
+patches = {
+    "DisplayMtl.mm": [(
+        """#else
+    config.minSwapInterval = 1;
+    config.maxSwapInterval = 1;
+#endif""",
+        """#else
+    // GoldenEye VR: 2 = every other refresh (WindowSurfaceMtl::setSwapInterval)
+    config.minSwapInterval = 1;
+    config.maxSwapInterval = 2;
+#endif""")],
+    "SurfaceMtl.h": [(
+        "    angle::ObjCPtr<CAMetalLayer> mMetalLayer = nil;\n",
+        "    angle::ObjCPtr<CAMetalLayer> mMetalLayer = nil;\n"
+        "    // GoldenEye VR: a swap interval of 2 or more on iOS and tvOS (setSwapInterval)\n"
+        "    double mPresentMinDuration = 0.0;\n")],
+    "SurfaceMtl.mm": [(
+        """void WindowSurfaceMtl::setSwapInterval(const egl::Display *display, EGLint interval)
+{
+#if TARGET_OS_OSX || TARGET_OS_MACCATALYST
+    mMetalLayer.get().displaySyncEnabled = interval != 0;
+#endif
+}""",
+        """void WindowSurfaceMtl::setSwapInterval(const egl::Display *display, EGLint interval)
+{
+#if TARGET_OS_OSX || TARGET_OS_MACCATALYST
+    mMetalLayer.get().displaySyncEnabled = interval != 0;
+#else
+    // GoldenEye VR: each frame held `interval` refreshes of a 60 Hz screen,
+    // 2 ms short so the refresh it lands on counts (a 50 Hz screen holds it
+    // two of its own)
+    mPresentMinDuration = interval >= 2 ? interval / 60.0 - 0.002 : 0.0;
+#endif
+}"""), (
+        "        contextMtl->present(context, mCurrentDrawable);\n",
+        "        contextMtl->present(context, mCurrentDrawable, mPresentMinDuration);\n")],
+    "ContextMtl.h": [(
+        "    void present(const gl::Context *context, id<CAMetalDrawable> presentationDrawable);\n",
+        "    void present(const gl::Context *context,\n"
+        "                 id<CAMetalDrawable> presentationDrawable,\n"
+        "                 double minDuration = 0.0);   // GoldenEye VR: frame pacing\n")],
+    "ContextMtl.mm": [(
+        "void ContextMtl::present(const gl::Context *context, id<CAMetalDrawable> presentationDrawable)\n",
+        "void ContextMtl::present(const gl::Context *context,\n"
+        "                         id<CAMetalDrawable> presentationDrawable,\n"
+        "                         double minDuration)\n"), (
+        "    mCmdBuffer.present(presentationDrawable);\n",
+        "    mCmdBuffer.present(presentationDrawable, minDuration);\n")],
+    "mtl_command_buffer.h": [(
+        "    void present(id<CAMetalDrawable> presentationDrawable);\n",
+        "    void present(id<CAMetalDrawable> presentationDrawable, double minDuration = 0.0);   // GoldenEye VR\n")],
+    "mtl_command_buffer.mm": [(
+        """void CommandBuffer::present(id<CAMetalDrawable> presentationDrawable)
+{
+    [get() presentDrawable:presentationDrawable];
+}""",
+        """void CommandBuffer::present(id<CAMetalDrawable> presentationDrawable, double minDuration)
+{
+    // GoldenEye VR: frame pacing (WindowSurfaceMtl::setSwapInterval)
+    if (minDuration > 0.0)
+    {
+        [get() presentDrawable:presentationDrawable afterMinimumDuration:minDuration];
+        return;
+    }
+    [get() presentDrawable:presentationDrawable];
+}""")],
+}
+for name, pairs in patches.items():
+    path = base / name
+    src = path.read_text(encoding="utf-8")
+    changed = False
+    for old, new in pairs:
+        if new in src:
+            continue
+        if src.count(old) != 1:
+            raise SystemExit(f"build_angle_apple.sh: frame pacing patch did not match {path} ({src.count(old)})")
+        src = src.replace(old, new, 1)
+        changed = True
+    if changed:
+        path.write_text(src, encoding="utf-8")
+        print(f"patched {path} for frame pacing")
+PY
+
 for slice in $SLICES; do
   OUT="$ANGLE_DIR/out/$slice"
   mkdir -p "$OUT"

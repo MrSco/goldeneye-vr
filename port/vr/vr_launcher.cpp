@@ -90,6 +90,9 @@ void flatLauncherFeedInput(ImGuiIO &io);
 #pragma pop_macro("BLOCKSIZE")
 #include "../visionos/vos_bridging.h"
 #endif
+#if defined(GEVR_IOS) && !defined(GEVR_VISIONOS)   // ios_angle.mm: iPhone, iPad, Apple TV
+extern "C" int gevrIosSlowGpu(void);   // port/ios/ios_angle.mm: an A8, Bean's levels at 30
+#endif
 #include "vr_input.h"
 #include "vr_log.h"
 #include "vr_screen.h"
@@ -1283,6 +1286,17 @@ static void gevrModsPage(Uint32 now, const ImVec4 &gold, const ImVec4 &good, con
     if (!gevrCampaignRetailArt(VrCampaign) && gevrBeanIsAvailable())
         ImGui::TextWrapped("XBLA / Bean is off while the Goldfinger 64, Tomorrow Never Dies or Mario Characters campaign is chosen.");
     else if (gevrBeanIsEnabled()) {
+#if defined(GEVR_IOS) && !defined(GEVR_VISIONOS)
+        // an A8 holds Bean's levels at 30 (port/ios/ios_angle.mm gevrIosSlowGpu)
+        if (gevrIosSlowGpu())
+#ifdef GEVR_TVOS
+            ImGui::TextWrapped("This Apple TV plays XBLA / Bean's levels at a steady 30 frames a second: its A8 can't "
+                               "hold 60 with Bean's models. The N64 graphics play at 60.");
+#else
+            ImGui::TextWrapped("This device plays XBLA / Bean's levels at a steady 30 frames a second: its A8 can't "
+                               "hold 60 with Bean's models. The N64 graphics play at 60.");
+#endif
+#endif
         // How to toggle Bean in game is the Bean row's tooltip: with the HD fill
         // row and Done's blood patch, its two lines ran the page past the panel.
         // the pictures Bean leaves at the cartridge's, from an installed HD pack (gfx_pc.cpp tp_find)
