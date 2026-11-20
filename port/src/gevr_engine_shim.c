@@ -589,8 +589,20 @@ static void gevrPerfFrameDone(void)
 					(unsigned)(gevr_perf_verts / gevrPerfFrames / 1000), (unsigned)(gevr_perf_tri_calls / gevrPerfFrames / 1000),
 					(unsigned)(gevr_perf_clipped / gevrPerfFrames / 1000), (unsigned)(gevr_perf_room_tris / gevrPerfFrames / 1000),
 					(unsigned)gevr_perf_present_passes, (unsigned)gevr_perf_passes);
-				if (VrShowStats) {
-					sysLogPrintf(LOG_NOTE, "perf: %s", gevrPerfBuf);
+				/* Vision Pro: every 10 s anyway, so a player's report says
+				 * where a frame goes when the game falls to 45 fps */
+				static u32 perfSeconds;
+				perfSeconds++;
+#ifdef GEVR_VISIONOS
+				const int perfLog = VrShowStats || perfSeconds % 10 == 0;
+#else
+				const int perfLog = VrShowStats;
+#endif
+				if (perfLog) {
+					char oneLine[sizeof(gevrPerfBuf)];
+					snprintf(oneLine, sizeof(oneLine), "%s", gevrPerfBuf);
+					for (char *c = oneLine; *c; c++) if (*c == 10) *c = ' ';
+					sysLogPrintf(LOG_NOTE, "perf: %s", oneLine);
 				}
 				gameAcc = 0;
 				gevrPerfWorstGame = 0;
@@ -883,7 +895,12 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 			if (sStatUs == 0) sStatUs = now;
 			if (now - sStatUs >= 1000000) {
 				/* diagnostics only: Show stats or a profile trace */
+#ifdef GEVR_VISIONOS
+				static u32 pumpSeconds;
+				if (VrShowStats || gevrFrameTimingTracing() || ++pumpSeconds % 10 == 0)
+#else
 				if (VrShowStats || gevrFrameTimingTracing())
+#endif
 				sysLogPrintf(LOG_NOTE, "pump: %u retraces (%u game frames), %u xr frames (%u redrawn) in %llu ms; early ticks %u unused %u late %u, other display time %u",
 					sRetraces, sSlots, gevrXrFramesBegun, gevrRedraws, (unsigned long long)((now - sStatUs) / 1000),
 					gevrEarlyTicks, gevrEarlyUnused, gevrLateTicks, vr_early_poses_missed());
