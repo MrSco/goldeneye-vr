@@ -201,9 +201,14 @@ int main(void) {
     Gfx depth_commands[2];
     zbufInit(depth_commands);
     assert(depth_commands[1].words.w1 == z_buffer);
+    /* every split-screen view's depth image is the one buffer: the renderer
+     * drops a fill of it as the GPU's depth clear (viewport.c zbufInit) */
     player_count = 2; current_player = 1;
     zbufInit(depth_commands);
-    assert(depth_commands[1].words.w1 == ((z_buffer - SCREEN_WIDTH * SCREEN_HEIGHT) & ~(uintptr_t)63));
+    assert(depth_commands[1].words.w1 == z_buffer);
+    player_count = 4; current_player = 3;
+    zbufInit(depth_commands);
+    assert(depth_commands[1].words.w1 == z_buffer);
     player_count = 1; current_player = 0;
     g_MenuTimer = 181; interface_menu18_displaycast();
     assert(changed_menu == MENU_DISPLAY_CAST && intro_character_index == 2);

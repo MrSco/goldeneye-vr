@@ -886,6 +886,7 @@ static s32 s_joinDev[INPUT_MAX_CONTROLLERS];                /* the join page's l
 static s32 s_joinCount;
 static s32 s_lastDevice = JOIN_NONE;                        /* the device that pressed something last */
 static s32 s_ownTap;                                        /* a finger came down since the join page looked */
+static s32 s_soloPadSlot;                                   /* solo: the slot of the pad played last (its rumble) */
 #endif
 
 #ifdef GEVR_TVOS
@@ -1381,6 +1382,50 @@ s32 inputOwnPlayer(void)
 #else
     return 0;
 #endif
+}
+
+#ifdef GEVR_FLAT
+/*
+ * Solo (offline, no join): every pad is player 1's, whichever slot it took,
+ * so one plugged in mid-mission plays at once (as does one a saved device
+ * index put in a later slot). The slots player 1's read takes in, a bit each.
+ */
+static s32 inputSoloSlots(s32 idx)
+{
+    s32 mask = 1 << idx;
+    if (idx == 0 && !s_seated && !netIsActive()) {
+        for (s32 k = 1; k < INPUT_MAX_CONTROLLERS; ++k) {
+            if (inputJoinablePad(pads[k])) {
+                mask |= 1 << k;
+            }
+        }
+    }
+    return mask;
+}
+
+/* A pad in use this frame: a button, or a stick or trigger well off rest */
+static s32 inputPadActive(SDL_GameController *pad)
+{
+    for (s32 b = 0; b < SDL_CONTROLLER_BUTTON_MAX; ++b) {
+        if (SDL_GameControllerGetButton(pad, (SDL_GameControllerButton)b)) return 1;
+    }
+    for (s32 a = 0; a < SDL_CONTROLLER_AXIS_MAX; ++a) {
+        const s32 v = SDL_GameControllerGetAxis(pad, (SDL_GameControllerAxis)a);
+        if (v > 12000 || v < -12000) return 1;
+    }
+    return 0;
+}
+#endif
+
+/* The slot whose pad rumbles for a player: its seat's; solo, the pad played last */
+s32 inputPlayerRumbleSlot(s32 player)
+{
+#ifdef GEVR_FLAT
+    if (!s_seated && player == 0 && s_soloPadSlot > 0 && pads[s_soloPadSlot]) {
+        return s_soloPadSlot;
+    }
+#endif
+    return inputPlayerSlot(player);
 }
 
 static inline void inputInitAllControllers(void)
@@ -2034,14 +2079,24 @@ s32 inputReadController(s32 idx, OSContPad *npad)
     }
 
     if (!slotPad) {
-        for (u32 i = 0; i < CONT_NUM_BUTTONS; ++i) {
-            if (inputBindPressed(idx, i)) {
-                npad->button |= 1U << i;
+#ifdef GEVR_FLAT
+        const s32 slots = inputSoloSlots(idx);
+#else
+        const s32 slots = 1 << idx;
+#endif
+        s32 xdiff = 0, ydiff = 0;
+        for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) {
+            if (!(slots & (1 << k))) {
+                continue;
             }
+            for (u32 i = 0; i < CONT_NUM_BUTTONS; ++i) {
+                if (inputBindPressed(k, i)) {
+                    npad->button |= 1U << i;
+                }
+            }
+            if (!xdiff) xdiff = (inputBindPressed(k, CK_STICK_XPOS) - inputBindPressed(k, CK_STICK_XNEG));
+            if (!ydiff) ydiff = (inputBindPressed(k, CK_STICK_YPOS) - inputBindPressed(k, CK_STICK_YNEG));
         }
-
-        const s32 xdiff = (inputBindPressed(idx, CK_STICK_XPOS) - inputBindPressed(idx, CK_STICK_XNEG));
-        const s32 ydiff = (inputBindPressed(idx, CK_STICK_YPOS) - inputBindPressed(idx, CK_STICK_YNEG));
         npad->stick_x = xdiff < 0 ? -0x80 : (xdiff > 0 ? 0x7F : 0);
         npad->stick_y = ydiff < 0 ? -0x80 : (ydiff > 0 ? 0x7F : 0);
     }
@@ -2155,6 +2210,21 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             }
 #endif
             inputFlatPadSticks(pad, pcfg, menu, lx, ly, npad);
+            if (!s_seated && !netIsActive() && inputPadActive(pad)) {
+                s_soloPadSlot = 0;
+            }
+        }
+        /* solo: the pads in later slots are player 1's too (inputSoloSlots) */
+        for (s32 k = 1; k < INPUT_MAX_CONTROLLERS; ++k) {
+            if (!(inputSoloSlots(idx) & (1 << k))) {
+                continue;
+            }
+            inputFlatPadSticks(pads[k], &padsCfg[k], menu,
+                               SDL_GameControllerGetAxis(pads[k], SDL_CONTROLLER_AXIS_LEFTX) / 32767.0f,
+                               -SDL_GameControllerGetAxis(pads[k], SDL_CONTROLLER_AXIS_LEFTY) / 32767.0f, npad);
+            if (inputPadActive(pads[k])) {
+                s_soloPadSlot = k;
+            }
         }
         /* The on-screen touch controls (port/flat/window/flat_touch.cpp, from
          * Midas-ios and PD Android): the floating stick as a pad's left stick,
@@ -2214,7 +2284,14 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 #ifdef GEVR_PC
             if (pcTestInputActive()) f10 = pcTestInputKey(SDL_SCANCODE_F10) != 0;
 #endif
-            const bool back = pad && SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_BACK);
+            bool back = false;
+            for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) {
+                /* player 1's pad's Back, or (solo) any pad's */
+                if ((k == 0 ? pad != NULL : (inputSoloSlots(idx) & (1 << k)) != 0)
+                        && SDL_GameControllerGetButton(pads[k], SDL_CONTROLLER_BUTTON_BACK)) {
+                    back = true;
+                }
+            }
             const bool toggle = (f10 && !f10Was) | (back && !backWas) | (flatTouchTakePanel() != 0);
             f10Was = f10;
             backWas = back;
@@ -3697,7 +3774,7 @@ static s32 inputRumbleSlot(void)
         const s32 p = get_cur_playernum();
         if (p >= 0 && p < INPUT_MAX_CONTROLLERS) return inputPlayerSlot(p);
     }
-    return inputPlayerSlot(0);
+    return inputPlayerRumbleSlot(0);
 }
 
 /*

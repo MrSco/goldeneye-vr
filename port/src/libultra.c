@@ -411,10 +411,10 @@ void osContGetQuery(OSContStatus *status)
 /* Motor */
 
 /* The game's channel is a player: in a local split screen, the slot of the
- * device that joined as it (input.c inputPlayerSlot) */
+ * device that joined as it; solo, the pad played last (input.c) */
 s32 osMotorProbe(OSMesgQueue *ctrlrqueue, OSPfs* pfs, s32 channel)
 {
-	if (pfs && inputRumbleSupported(inputPlayerSlot(channel))) {
+	if (pfs && inputRumbleSupported(inputPlayerRumbleSlot(channel))) {
 		pfs->queue = ctrlrqueue;
 		pfs->channel = channel;
 		pfs->activebank = 0xff;
@@ -431,7 +431,7 @@ s32 __osMotorAccess(OSPfs *pfs, s32 cmd)
 	}
 
 	const f32 strength = (f32)(cmd == MOTOR_START);
-	inputRumble(inputPlayerSlot(pfs->channel), strength, 5.f); // hope someone turns it off in those 5 seconds
+	inputRumble(inputPlayerRumbleSlot(pfs->channel), strength, 5.f); // hope someone turns it off in those 5 seconds
 
 	return 0;
 }
@@ -546,7 +546,7 @@ s32 osPfsIsPlug(OSMesgQueue *queue, u8 *pattern)
 	if (pattern) {
 		*pattern = 0;
 		for (s32 i = 0; i < MAXCONTROLLERS; ++i) {
-			if (inputRumbleSupported(inputPlayerSlot(i))) {
+			if (inputRumbleSupported(inputPlayerRumbleSlot(i))) {
 				*pattern |= 1 << i;
 			}
 		}
@@ -557,7 +557,7 @@ s32 osPfsIsPlug(OSMesgQueue *queue, u8 *pattern)
 s32 osPfsInitPak(OSMesgQueue *queue, OSPfs *pfs, int channel)
 {
 	// if rumble is supported, indicate that we have a rumble pak instead
-	return inputRumbleSupported(inputPlayerSlot(channel)) ? PFS_ERR_DEVICE : PFS_ERR_NOPACK;
+	return inputRumbleSupported(inputPlayerRumbleSlot(channel)) ? PFS_ERR_DEVICE : PFS_ERR_NOPACK;
 }
 
 s32 osPfsChecker(OSPfs *pfs)

@@ -174,6 +174,7 @@ const char *inputJoinName(s32 player);    // the device player joined with
 void inputSeatsClear(void);               // back to no join (the mode select)
 s32 inputSeated(void);                    // the seated players, 0: none
 s32 inputPlayerSlot(s32 player);          // the slot (device) a player reads
+s32 inputPlayerRumbleSlot(s32 player);    // the slot that rumbles for it (solo: the pad played last)
 s32 inputOwnPlayer(void);                 // the player the keyboard and mouse or touch drive
 
 // get/set Input.Player%d.SwapSticks
