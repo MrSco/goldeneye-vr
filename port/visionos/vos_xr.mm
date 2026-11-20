@@ -651,7 +651,8 @@ static const char *kVosShaders = R"(
 #include <metal_stdlib>
 using namespace metal;
 struct VOut { float4 pos [[position]]; float2 uv; };
-struct ProjParams { float4 dst; float4 src; float4 rect; float4 r0; float4 r1; float4 r2; float opaque; };
+struct ProjParams { float4 dst; float4 src; float4 rect; float4 r0; float4 r1; float4 r2;
+                    float4 mvRect; float4 q0; float4 q1; float4 q2; float opaque; float phase; };
 struct QuadParams { float4x4 mvp; float4 rect; float opaque; };
 vertex VOut vos_full_vs(uint vid [[vertex_id]], constant float &depth [[buffer(0)]]) {
     float2 p = float2((vid << 1) & 2, vid & 2);
@@ -661,6 +662,7 @@ vertex VOut vos_full_vs(uint vid [[vertex_id]], constant float &depth [[buffer(0
     return o;
 }
 fragment float4 vos_proj_fs(VOut in [[stage_in]], texture2d<float> tex [[texture(0)]],
+                            texture2d<float> mvTex [[texture(1)]],
                             sampler s [[sampler(0)]], constant ProjParams &p [[buffer(0)]]) {
     // this view's pixel as a ray (tangents), turned into the eye the picture
     // was drawn from (the head has moved since: the rotation is exact for
@@ -673,8 +675,27 @@ fragment float4 vos_proj_fs(VOut in [[stage_in]], texture2d<float> tex [[texture
     float u = (tx - p.src.x) / (p.src.y - p.src.x);
     float vtop = (p.src.z - ty) / (p.src.z - p.src.w);
     if (u < 0.0 || u > 1.0 || vtop < 0.0 || vtop > 1.0) return float4(0.0, 0.0, 0.0, p.opaque);
+    // the picture's own place (0..1, y up as GL's NDC and rows)
+    float2 local = float2(u, 1.0 - vtop);
+    if (p.phase > 0.0) {
+        // SpaceWarp: a held picture moved on by its motion vectors (this
+        // frame's NDC minus the frame before's), phase frames' worth. The
+        // head's turn between the two frames is in them too, and the turn
+        // above already took the head to this slot: it comes out first.
+        float2 mv = mvTex.sample(s, p.mvRect.xy + local * p.mvRect.zw).xy;
+        if (mv.x != 0.0 || mv.y != 0.0) {   // 0: nothing drawn there (the clear)
+            float3 r = float3(tx, ty, -1.0);
+            float3 rp = float3(dot(p.q0.xyz, r), dot(p.q1.xyz, r), dot(p.q2.xyz, r));
+            if (rp.z < -1e-4) {
+                float2 was = float2((rp.x / -rp.z - p.src.x) / (p.src.y - p.src.x),
+                                    (rp.y / -rp.z - p.src.w) / (p.src.z - p.src.w));
+                mv -= 2.0 * (local - was);
+            }
+            local = clamp(local - 0.5 * mv * p.phase, 0.0, 1.0);
+        }
+    }
     // the image's rows run bottom-up (GL's)
-    float2 st = float2(p.rect.x + u * p.rect.z, p.rect.y + (1.0 - vtop) * p.rect.w);
+    float2 st = float2(p.rect.x + local.x * p.rect.z, p.rect.y + local.y * p.rect.w);
     float4 c = tex.sample(s, st);
     return p.opaque > 0.5 ? float4(c.rgb, 1.0) : c;
 }
@@ -784,6 +805,14 @@ static int s_paceGoodNeeded = 2;   // clean windows before a step down; doubles 
 static bool s_paceSteppedDown;
 static uint64_t s_paceFrames, s_paceOverruns;
 
+/* vr_openxr.cpp: SpaceWarp's motion vectors are wanted while pictures are
+ * held over more than one panel slot (they cost the game a second pass of
+ * its draws, which at a full 90 Hz would buy nothing) */
+extern "C" int vosHoldsFrames(void)
+{
+    return s_paceDiv >= 2;
+}
+
 /* the compositor, each slot (s_paceLock held) */
 static void vosPaceSlot(double present)
 {
@@ -881,9 +910,9 @@ static bool vosWorldFromSpace(const VosSpaceObj *s, double seconds, simd_float4x
 // Swapchains
 // ============================================================================
 
-static id<MTLTexture> vosNewTexture(uint32_t w, uint32_t h)
+static id<MTLTexture> vosNewTexture(uint32_t w, uint32_t h, MTLPixelFormat format = MTLPixelFormatRGBA8Unorm)
 {
-    MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+    MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format
                                                                                   width:w height:h mipmapped:NO];
     td.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead | MTLTextureUsagePixelFormatView;
     // shared, not private: ANGLE reads an EGL image back with getBytes (Midas)
@@ -919,6 +948,12 @@ struct VosLayerDraw {
     simd_float4x4 eyeWorld[2];       // the eye it was drawn from (world from eye)
     float eyeTan[2][4];
     float eyeRect[2][4];
+    // SpaceWarp (XR_FB_space_warp): this picture's motion since the frame
+    // before it, in the eye's NDC, and that frame's eye (for the head's share)
+    id<MTLTexture> mvTex[2];
+    float mvRect[2][4];
+    simd_float4x4 prevEyeWorld[2];
+    std::shared_ptr<std::atomic<uint64_t>> mvUse;
     // quad
     id<MTLTexture> tex;
     simd_float4x4 worldFromQuad;     // scaled by its size
@@ -933,6 +968,8 @@ struct VosPublished {
     std::vector<VosLayerDraw> draws;
     simd_float4x4 head;              // the head its eye images were drawn from
     ar_device_anchor_t anchor;       // ...and its anchor, for the drawable
+    double display = 0.0;            // the time it was drawn for (seconds)
+    double motionSpan = 0.0;         // SpaceWarp: the time its motion vectors span, 0 none
     id<MTLSharedEvent> glEvent;      // its GL work, before Metal reads it
     uint64_t glValue = 0;
 };
@@ -1040,6 +1077,7 @@ static std::shared_ptr<VosPublished> vosBuildFrame(const XrFrameEndInfo *info)
     }
     pub->head = compHead;
     pub->anchor = compAnchor;
+    pub->display = t;
 
     for (uint32_t i = 0; i < info->layerCount; i++) {
         const XrCompositionLayerBaseHeader *base = info->layers[i];
@@ -1072,6 +1110,39 @@ static std::shared_ptr<VosPublished> vosBuildFrame(const XrFrameEndInfo *info)
                 d.eyeRect[e][1] = (float)r.offset.y / (float)sc->h;
                 d.eyeRect[e][2] = (float)(r.extent.width > 0 ? r.extent.width : (int32_t)sc->w) / (float)sc->w;
                 d.eyeRect[e][3] = (float)(r.extent.height > 0 ? r.extent.height : (int32_t)sc->h) / (float)sc->h;
+                // SpaceWarp: the motion vectors chained to this view
+                for (auto *n = (const XrBaseInStructure *)pv.next; n; n = n->next) {
+                    if (n->type != XR_TYPE_COMPOSITION_LAYER_SPACE_WARP_INFO_FB) continue;
+                    const auto *sw = (const XrCompositionLayerSpaceWarpInfoFB *)n;
+                    auto *msc = (VosSwapchainObj *)sw->motionVectorSubImage.swapchain;
+                    VosImage *mimg = vosReleasedImage(sw->motionVectorSubImage.swapchain);
+                    if (!msc || !mimg || msc->format != GL_RGBA16F || !vosCopyArrayImage(msc)) break;
+                    const uint32_t layer = sw->motionVectorSubImage.imageArrayIndex < 2 ? sw->motionVectorSubImage.imageArrayIndex : 0;
+                    d.mvTex[e] = mimg->copyMtl[layer];
+                    d.mvUse = mimg->lastUse;
+                    const XrRect2Di &mr = sw->motionVectorSubImage.imageRect;
+                    d.mvRect[e][0] = (float)mr.offset.x / (float)msc->w;
+                    d.mvRect[e][1] = (float)mr.offset.y / (float)msc->h;
+                    d.mvRect[e][2] = (float)(mr.extent.width > 0 ? mr.extent.width : (int32_t)msc->w) / (float)msc->w;
+                    d.mvRect[e][3] = (float)(mr.extent.height > 0 ? mr.extent.height : (int32_t)msc->h) / (float)msc->h;
+                    break;
+                }
+            }
+            // the frame before this one: its eyes, and the time between
+            static double s_prevDisplay;
+            static simd_float4x4 s_prevEyes[2];
+            if (ok && d.mvTex[0] && d.mvTex[1] && s_prevDisplay > 0.0 && t - s_prevDisplay > 0.001
+                && t - s_prevDisplay < 0.1) {
+                pub->motionSpan = t - s_prevDisplay;
+                d.prevEyeWorld[0] = s_prevEyes[0];
+                d.prevEyeWorld[1] = s_prevEyes[1];
+            } else {
+                d.mvTex[0] = d.mvTex[1] = nil;
+            }
+            if (ok) {
+                s_prevDisplay = t;
+                s_prevEyes[0] = d.eyeWorld[0];
+                s_prevEyes[1] = d.eyeWorld[1];
             }
             if (ok && d.eyeTex[0] && d.eyeTex[1]) draws.push_back(d);
         } else if (base->type == XR_TYPE_COMPOSITION_LAYER_QUAD) {
@@ -1125,10 +1196,12 @@ static std::shared_ptr<VosPublished> vosBuildFrame(const XrFrameEndInfo *info)
     return pub;
 }
 
+static unsigned s_warpSlots;   // SpaceWarp: views composited from motion vectors (logged with the frames)
+
 /* The compositor's thread, every slot: a published frame (or none: black)
- * into the frame's drawables. */
+ * into the frame's drawables; present: this slot's presentation time. */
 static void vosEncodeFrame(cp_drawable_array_t drawables, const VosPublished *pub, ar_device_anchor_t displayAnchor,
-                           const simd_float4x4 &displayHead)
+                           const simd_float4x4 &displayHead, double present)
 {
     cp_drawable_t main = cp_drawable_array_get_drawable(drawables, 0);
     if (!vosEnsureMetal(main)) return;
@@ -1146,6 +1219,7 @@ static void vosEncodeFrame(cp_drawable_array_t drawables, const VosPublished *pu
         for (int k = 0; k < 2; k++) {
             if (d.use[k]) d.use[k]->store(slot);   // the game waits for this slot before writing it again
         }
+        if (d.mvUse && d.mvTex[0]) d.mvUse->store(slot);
     }
 
     id<MTLCommandBuffer> cmd = [s_queue commandBuffer];
@@ -1206,7 +1280,26 @@ static void vosEncodeFrame(cp_drawable_array_t drawables, const VosPublished *pu
         const simd_float4x4 viewFromHead = simd_mul(simd_inverse(vi.deviceFromView), deviceFromHead);
         for (const VosLayerDraw &d : draws) {
             if (d.projection) {
-                struct { simd_float4 dst, src, rect, r0, r1, r2; float opaque; } p;
+                struct {
+                    simd_float4 dst, src, rect, r0, r1, r2, mvRect, q0, q1, q2;
+                    float opaque, phase;
+                } p{};
+                p.phase = 0.0f;
+                if (d.mvTex[eye] && pub->motionSpan > 0.0) {
+                    // how many of its frames this slot is past the picture's time
+                    const double phase = (present - pub->display) / pub->motionSpan;
+                    if (phase > 0.05) {
+                        p.phase = (float)std::min(phase, 1.5);
+                        p.mvRect = simd_make_float4(d.mvRect[eye][0], d.mvRect[eye][1], d.mvRect[eye][2],
+                                                    d.mvRect[eye][3]);
+                        // the frame before's eye from this picture's eye (rotation only)
+                        const simd_float4x4 q = simd_mul(simd_inverse(d.prevEyeWorld[eye]), d.eyeWorld[eye]);
+                        p.q0 = simd_make_float4(q.columns[0].x, q.columns[1].x, q.columns[2].x, 0.0f);
+                        p.q1 = simd_make_float4(q.columns[0].y, q.columns[1].y, q.columns[2].y, 0.0f);
+                        p.q2 = simd_make_float4(q.columns[0].z, q.columns[1].z, q.columns[2].z, 0.0f);
+                        s_warpSlots++;
+                    }
+                }
                 // the turn from this view to the eye the picture was drawn from
                 // (rotation only: rows of eyeFromWorld x worldFromView)
                 const simd_float4x4 rel = simd_mul(simd_inverse(d.eyeWorld[eye]), worldFromView);
@@ -1221,6 +1314,7 @@ static void vosEncodeFrame(cp_drawable_array_t drawables, const VosPublished *pu
                 [enc setVertexBytes:&eyeDepth length:sizeof(eyeDepth) atIndex:0];
                 [enc setFragmentBytes:&p length:sizeof(p) atIndex:0];
                 [enc setFragmentTexture:d.eyeTex[eye] atIndex:0];
+                [enc setFragmentTexture:p.phase > 0.0f ? d.mvTex[eye] : d.eyeTex[eye] atIndex:1];
                 [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
             } else {
                 if (d.eyes == XR_EYE_VISIBILITY_LEFT && eye != 0) continue;
@@ -1326,7 +1420,7 @@ static void *vosCompositorMain(void *)
             // this slot's head, at its presentation: the picture is turned to it
             simd_float4x4 displayHead;
             ar_device_anchor_t displayAnchor = vosQueryHead(present, &displayHead, nullptr);
-            vosEncodeFrame(drawables, pub.get(), displayAnchor, displayHead);
+            vosEncodeFrame(drawables, pub.get(), displayAnchor, displayHead, present);
             cp_frame_end_submission(frame);
             s_compMsSum += (vosNow() - t0) * 1000.0;
             s_compFrames++;
@@ -1367,6 +1461,9 @@ static const XrExtensionProperties kVosExtensions[] = {
     VOS_EXT("XR_KHR_opengl_es_enable", 10),
     VOS_EXT("XR_MNDX_egl_enable", 2),
     VOS_EXT("XR_EXT_local_floor", 1),
+    // the game's motion vectors for the panel slots a picture is held over
+    // (the composite's vos_proj_fs), as Meta's runtime makes its frames between
+    VOS_EXT("XR_FB_space_warp", 2),
 };
 
 static void vosProbeViews(void);
@@ -1457,6 +1554,15 @@ XRAPI_ATTR XrResult XRAPI_CALL xrGetSystemProperties(XrInstance, XrSystemId, XrS
     p->graphicsProperties.maxLayerCount = 16;
     p->trackingProperties.orientationTracking = XR_TRUE;
     p->trackingProperties.positionTracking = XR_TRUE;
+    for (auto *n = (XrBaseOutStructure *)p->next; n; n = n->next) {
+        if (n->type == XR_TYPE_SYSTEM_SPACE_WARP_PROPERTIES_FB) {
+            // a quarter of the eye each way: the motion is smooth, and the
+            // game draws its eye pass once more into it
+            auto *sw = (XrSystemSpaceWarpPropertiesFB *)n;
+            sw->recommendedMotionVectorImageRectWidth = (s_eyeW + 3) / 4;
+            sw->recommendedMotionVectorImageRectHeight = (s_eyeH + 3) / 4;
+        }
+    }
     return XR_SUCCESS;
 }
 
@@ -1655,7 +1761,11 @@ XRAPI_ATTR XrResult XRAPI_CALL xrEnumerateSwapchainFormats(XrSession, uint32_t c
 
 XRAPI_ATTR XrResult XRAPI_CALL xrCreateSwapchain(XrSession, const XrSwapchainCreateInfo *ci, XrSwapchain *out)
 {
-    if (ci->format != GL_RGBA8) return XR_ERROR_SWAPCHAIN_FORMAT_UNSUPPORTED;
+    // GL_RGBA8 for pictures; SpaceWarp's motion vectors (GL_RGBA16F, read by
+    // the composite) and depth (GL_DEPTH24_STENCIL8, the game's own: GL only)
+    const bool motion = ci->format == GL_RGBA16F, depthOnly = ci->format == GL_DEPTH24_STENCIL8;
+    if (ci->format != GL_RGBA8 && !motion && !depthOnly) return XR_ERROR_SWAPCHAIN_FORMAT_UNSUPPORTED;
+    if ((motion || depthOnly) && ci->arraySize != 2) return XR_ERROR_FEATURE_UNSUPPORTED;
     if (ci->arraySize < 1 || ci->arraySize > 2 || ci->faceCount != 1 || ci->mipCount > 1 || ci->sampleCount > 1 ||
         ci->width < 1 || ci->height < 1) {
         vosLog("visionos: xrCreateSwapchain %ux%u x%u faces %u mips %u samples %u: not supported", ci->width,
@@ -1682,13 +1792,15 @@ XRAPI_ATTR XrResult XRAPI_CALL xrCreateSwapchain(XrSession, const XrSwapchainCre
         } else {
             glGenTextures(1, &img.tex);
             glBindTexture(GL_TEXTURE_2D_ARRAY, img.tex);
-            glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA8, (GLsizei)sc->w, (GLsizei)sc->h, (GLsizei)sc->arraySize);
-            glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            for (uint32_t l = 0; l < sc->arraySize; l++) {
-                img.copyMtl[l] = vosNewTexture(sc->w, sc->h);
+            glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, (GLenum)ci->format, (GLsizei)sc->w, (GLsizei)sc->h,
+                           (GLsizei)sc->arraySize);
+            glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, depthOnly ? GL_NEAREST : GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, depthOnly ? GL_NEAREST : GL_LINEAR);
+            for (uint32_t l = 0; l < sc->arraySize && !depthOnly; l++) {
+                img.copyMtl[l] = vosNewTexture(sc->w, sc->h, motion ? MTLPixelFormatRGBA16Float : MTLPixelFormatRGBA8Unorm);
                 img.copyTex[l] = img.copyMtl[l] ? vosGLTextureFromMetal((__bridge void *)img.copyMtl[l]) : 0;
-                img.copySrgb[l] = img.copyMtl[l] ? vosSrgbView(img.copyMtl[l]) : nil;
+                // motion vectors are read as they are; pictures as sRGB
+                img.copySrgb[l] = img.copyMtl[l] ? (motion ? img.copyMtl[l] : vosSrgbView(img.copyMtl[l])) : nil;
                 ok &= img.copyTex[l] != 0 && img.copySrgb[l] != nil;
             }
         }
@@ -1701,7 +1813,8 @@ XRAPI_ATTR XrResult XRAPI_CALL xrCreateSwapchain(XrSession, const XrSwapchainCre
         delete sc;
         return XR_ERROR_RUNTIME_FAILURE;
     }
-    vosLog("visionos: xr: swapchain %ux%u x%u", sc->w, sc->h, sc->arraySize);
+    vosLog("visionos: xr: swapchain %ux%u x%u%s", sc->w, sc->h, sc->arraySize,
+           motion ? " (SpaceWarp motion)" : depthOnly ? " (SpaceWarp depth)" : "");
     *out = (XrSwapchain)sc;
     return XR_SUCCESS;
 }
@@ -1825,9 +1938,11 @@ XRAPI_ATTR XrResult XRAPI_CALL xrEndFrame(XrSession, const XrFrameEndInfo *info)
                frames, info->layerCount, 1.0 / s_period, s_paceDiv, (unsigned long long)s_paceOverruns,
                (unsigned long long)s_paceFrames, pub->head.columns[3].x, pub->head.columns[3].y,
                pub->head.columns[3].z);
-        vosLog("visionos: xr: the game's frame %.1f ms average, %.1f worst; the compositor's slot %.2f ms of %.1f",
+        vosLog("visionos: xr: the game's frame %.1f ms average, %.1f worst; the compositor's slot %.2f ms of %.1f; "
+               "%u view(s) moved on by SpaceWarp",
                s_costFrames ? s_gameMsSum / s_costFrames : 0.0, s_gameMsMax,
-               s_compFrames ? s_compMsSum / s_compFrames : 0.0, s_period * 1000.0);
+               s_compFrames ? s_compMsSum / s_compFrames : 0.0, s_period * 1000.0, s_warpSlots);
+        s_warpSlots = 0;
         s_gameMsSum = s_gameMsMax = s_compMsSum = 0.0;
         s_costFrames = s_compFrames = 0;
     }

@@ -1676,10 +1676,22 @@ static float vr_spacewarp_display_hz(void)
  * walking judders at a 15 Hz beat under a smooth head (crash report
  * c4cc34bf, Control at 90 Hz: "feels like it's skipping frames"). Read
  * every frame, so turning Bean on or off in game takes SpaceWarp with it. */
+#ifdef GEVR_VISIONOS
+extern "C" int vosHoldsFrames(void);   // port/visionos/vos_xr.mm
+#endif
 extern "C" int vr_spacewarp_setting_on(void)
 {
     if (VrSpaceWarp >= 0) return VrSpaceWarp != 0;
+#ifdef GEVR_VISIONOS
+    /* Vision Pro: while the runtime holds each picture over two or more panel
+     * slots, its composite moves the held ones on by these motion vectors
+     * (vos_xr.mm vos_proj_fs); at a full 90 Hz they would cost a pass for
+     * nothing. The held 45 fps doubled every edge while walking or turning
+     * (tester, 2026-11-19). */
+    return vosHoldsFrames();
+#else
     return gevrBeanIsEnabled() != 0 && vr_spacewarp_display_hz() > 115.0f;
+#endif
 }
 
 static bool vr_spacewarp_wanted(void)
