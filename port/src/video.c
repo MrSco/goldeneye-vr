@@ -52,6 +52,9 @@ static s32 vidAllowHiDpi = false;
 static s32 vidVsync = 1;
 static s32 vidMSAA = 1;
 static s32 vidFramerateLimit = 0;
+/* 1: a level the device can't hold at the screen's rate plays at a steady
+ * half (port/flat/window/flat_window.cpp, half rate) */
+s32 vidAutoHalfRate = 1;
 
 static s32 vidDisplayFPS = 0;
 static f32 vidDisplayFPSInterval = 1.f;
@@ -650,6 +653,7 @@ PD_CONSTRUCTOR static void videoConfigInit(void)
 	configRegisterInt("Video.VSync", &vidVsync, -1, 10);
 	configRegisterInt("Video.FramebufferEffects", &vidFramebuffers, 0, 1);
 	configRegisterInt("Video.FramerateLimit", &vidFramerateLimit, 0, VIDEO_MAX_FPS);
+	configRegisterInt("Video.AutoHalfRate", &vidAutoHalfRate, 0, 1);
 	configRegisterInt("Video.DisplayFPS", &vidDisplayFPS, 0, 1);
 	configRegisterFloat("Video.DisplayFPSInterval", &vidDisplayFPSInterval, 0.01f, 32.f);
 	configRegisterInt("Video.MSAA", &vidMSAA, 1, 16);

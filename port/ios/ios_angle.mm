@@ -23,9 +23,6 @@
 
 #include "ios_app.h"
 
-extern "C" int gevrBeanIsEnabled(void);   // port/src/gevr_bean.c
-extern "C" int bossGetStageNum(void);     // src/boss.c (LEVELID_TITLE 90: the menus)
-
 #ifndef EGL_PLATFORM_ANGLE_ANGLE
 #define EGL_PLATFORM_ANGLE_ANGLE 0x3202
 #endif
@@ -49,7 +46,6 @@ static EGLSurface s_surf = EGL_NO_SURFACE;
 static SDL_MetalView s_view;
 static CAMetalLayer *s_layer;
 static int s_interval;
-static int s_appliedInterval = -1;   // what eglSwapInterval last got (gevrIosGLSwapWindow)
 static volatile bool s_background;
 
 /* SDL's app events, as they happen (an event watch runs inside the pump) */
@@ -252,43 +248,9 @@ extern "C" int gevrIosGLMakeCurrent(SDL_Window *window, SDL_GLContext context)
     return ok ? 0 : SDL_SetError("eglMakeCurrent: 0x%x", eglGetError());
 }
 
-/*
- * An A8 (Apple GPU family 2: the Apple TV HD, the A8 iPads) can't hold 60
- * with Project Bean's models: measured on an Apple TV HD, Dam ran at an
- * uneven 40, which judders on a 60 Hz screen (2026-11-20; the N64 graphics
- * held 60). Cached: Metal's answer doesn't change.
- */
-extern "C" int gevrIosSlowGpu(void)
-{
-    static int slow = -1;
-    if (slow < 0) {
-        slow = 0;
-        if (@available(iOS 13.0, tvOS 13.0, *)) {
-            id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
-            slow = dev && ![dev supportsFamily:MTLGPUFamilyApple3];
-        }
-    }
-    return slow;
-}
-
 extern "C" void gevrIosGLSwapWindow(SDL_Window *)
 {
     if (s_dpy == EGL_NO_DISPLAY) return;
-    {
-        // There, a level with Bean on runs at a steady 30: each frame held two
-        // refreshes (swap interval 2, ANGLE's frame pacing patch in
-        // tools/build_angle_apple.sh). The launcher and the menus stay at 60.
-        const int want = s_interval > 0 && gevrIosSlowGpu() && gevrBeanIsEnabled() && bossGetStageNum() != 90
-                       ? 2 : s_interval;
-        if (want != s_appliedInterval) {
-            eglSwapInterval(s_dpy, want);
-            if (want == 2 || s_appliedInterval == 2) {
-                IOS_LOG("ios: %s", want == 2 ? "an A8 with Bean in a level: 30 fps, every other refresh"
-                                             : "every refresh again");
-            }
-            s_appliedInterval = want;
-        }
-    }
     if (s_background) {
         // in the background: no GPU work until the app is back
         IOS_LOG("ios: in the background, drawing paused");
@@ -326,7 +288,6 @@ extern "C" int gevrIosGLSetSwapInterval(int interval)
     s_interval = interval;
     if (s_dpy != EGL_NO_DISPLAY) {
         eglSwapInterval(s_dpy, interval);
-        s_appliedInterval = interval;
     }
     return 0;
 }

@@ -106,7 +106,135 @@ static int target_fps = 0;   // the frame pump paces the game (flat_headset.c)
 static uint64_t previous_time;
 static uint64_t qpc_freq;
 #define FRAME_INTERVAL_US_NUMERATOR 1000000
-#define FRAME_INTERVAL_US_DENOMINATOR (target_fps)
+#define FRAME_INTERVAL_US_DENOMINATOR (flatTimerFps())
+
+/*
+ * Half rate (2026-11-20): a device that can't hold the screen's rate in a
+ * level plays it at a steady half instead. An uneven rate judders on a TV: an
+ * Apple TV HD ran Dam with XBLA / Bean at 40 fps, each frame shown for one
+ * refresh or two (the N64 graphics held 60 there). Measured in levels with
+ * VSync on, after each level's first 3 seconds (loading, first draws): 5
+ * seconds in a row under 92% of the screen's rate (55 of 60) turn it on, for
+ * the rest of the session in levels with the same graphics (the N64's or
+ * Bean's), and it is remembered for this build (gevr_halfrate.txt in the save
+ * folder), so the next launch starts there and the launcher says so. It never
+ * turns back on its own: no flapping. Menus and the launcher keep the full
+ * rate; screens of 48 to 61 Hz only (a faster one is a fast device's).
+ * Every other refresh where the swap allows it (Apple through ANGLE's frame
+ * pacing patch, tools/build_angle_apple.sh; the PC's WGL and GLX), the
+ * game's frame timer otherwise (an Android surface swaps every refresh at
+ * most). Video.AutoHalfRate=0 turns it off.
+ */
+extern "C" int gevrBeanIsEnabled(void);
+extern "C" s32 bossGetStageNum(void);
+extern "C" const char *fsFullPath(const char *relPath);
+extern "C" const char gevrBuildId[];
+extern "C" s32 vidAutoHalfRate;
+static int s_baseInterval = -1;   // the VSync setting, as gfx_sdl_set_swap_interval last had it
+static bool s_halfOn;
+static int s_halfTimerFps;        // half rate by the frame timer instead of the swap
+static unsigned s_halfModes;      // 1: the N64 graphics, 2: XBLA / Bean
+static bool s_halfLoaded;
+
+static void halfRateLoad(void)
+{
+    s_halfLoaded = true;
+    FILE *f = fopen(fsFullPath("$S/gevr_halfrate.txt"), "r");
+    if (!f) return;
+    char build[128] = {0};
+    unsigned modes = 0;
+    if (fgets(build, sizeof(build), f) && fscanf(f, "%u", &modes) == 1) {
+        build[strcspn(build, "\r\n")] = 0;
+        if (strcmp(build, gevrBuildId) == 0) s_halfModes = modes & 3u;   // another build measures again
+    }
+    fclose(f);
+}
+
+static void halfRateSave(void)
+{
+    FILE *f = fopen(fsFullPath("$S/gevr_halfrate.txt"), "w");
+    if (!f) return;
+    fprintf(f, "%s\n%u\n", gevrBuildId, s_halfModes);
+    fclose(f);
+}
+
+/* the launcher's note: this device's levels with those graphics play at half rate */
+extern "C" int flatHalfRate(int bean)
+{
+    if (!s_halfLoaded) halfRateLoad();
+    return (s_halfModes & (bean ? 2u : 1u)) != 0;
+}
+
+static int halfRateScreenHz(void)
+{
+    SDL_DisplayMode m;
+    if (wnd && SDL_GetCurrentDisplayMode(SDL_GetWindowDisplayIndex(wnd), &m) == 0 && m.refresh_rate > 0) {
+        return m.refresh_rate;
+    }
+    return 60;
+}
+
+/* before each swap */
+static void halfRateFrame(void)
+{
+    static int hz;
+    static int lastStage = -1, slowSeconds, frames;
+    static Uint64 stageSince, secondSince;
+    if (!hz) hz = halfRateScreenHz();
+    if (!s_halfLoaded) halfRateLoad();
+    const int stage = bossGetStageNum();
+    const bool level = stage > 0 && stage != 90;   // 90: the title stage, the menus
+    const unsigned mode = gevrBeanIsEnabled() ? 2u : 1u;
+    const bool able = vidAutoHalfRate && s_baseInterval > 0 && hz >= 48 && hz <= 61;
+    const Uint64 now = SDL_GetTicks64();
+    if (stage != lastStage || !able) {
+        lastStage = stage;
+        stageSince = now;
+        secondSince = 0;
+        slowSeconds = 0;
+    }
+    if (able && level && !(s_halfModes & mode) && now - stageSince >= 3000) {
+        if (!secondSince) {
+            secondSince = now;
+            frames = 0;
+        }
+        frames++;
+        if (now - secondSince >= 1000) {
+            const double fps = frames * 1000.0 / (double)(now - secondSince);
+            slowSeconds = fps < hz * 0.92 ? slowSeconds + 1 : 0;
+            secondSince = now;
+            frames = 0;
+            if (slowSeconds >= 5) {
+                s_halfModes |= mode;
+                halfRateSave();
+                sysLogPrintf(LOG_NOTE, "video: %s levels can't hold %d fps here (%.1f for 5 s): half rate, a steady %d",
+                             mode == 2u ? "XBLA / Bean" : "N64", hz, fps, hz / 2);
+            }
+        }
+    }
+    const bool half = able && level && (s_halfModes & mode);
+    if (half == s_halfOn) return;
+    s_halfOn = half;
+    s_halfTimerFps = 0;
+#ifdef ANDROID
+    if (half) s_halfTimerFps = hz / 2;   // an Android surface swaps every refresh at most
+#else
+    if (SDL_GL_SetSwapInterval(half ? 2 : s_baseInterval) < 0 && half) {
+        SDL_GL_SetSwapInterval(s_baseInterval);
+        s_halfTimerFps = hz / 2;   // no interval 2 here: the frame timer
+    }
+#endif
+    sysLogPrintf(LOG_NOTE, "video: %s", half ? (s_halfTimerFps ? "half rate in this level (frame timer)"
+                                                               : "half rate in this level (every other refresh)")
+                                             : "full rate");
+}
+
+/* the frame timer's rate: the FramerateLimit setting's, or half rate's if lower */
+static int flatTimerFps(void)
+{
+    if (s_halfTimerFps && (!target_fps || s_halfTimerFps < target_fps)) return s_halfTimerFps;
+    return target_fps;
+}
 
 static int32_t gfx_sdl_get_maximized_state(void) {
     return (int32_t)maximized_state;
@@ -491,7 +619,8 @@ static inline void sync_framerate_with_timer(void) {
 }
 
 static void gfx_sdl_swap_buffers_begin(void) {
-    if (target_fps) {
+    halfRateFrame();
+    if (flatTimerFps()) {
         sync_framerate_with_timer();
     }
     flatSwapWindow();
@@ -526,11 +655,15 @@ static void gfx_sdl_set_window_title(const char *title) {
 }
 
 static int gfx_sdl_get_swap_interval(void) {
-    return SDL_GL_GetSwapInterval();
+    // the VSync setting, not half rate's 2 (gevr's settings save it)
+    return s_baseInterval >= 0 ? s_baseInterval : SDL_GL_GetSwapInterval();
 }
 
 static bool gfx_sdl_set_swap_interval(int interval) {
     const bool success = SDL_GL_SetSwapInterval(interval) >= 0;
+    s_baseInterval = success ? interval : 0;
+    s_halfOn = false;   // half rate applies itself again over the new setting
+    s_halfTimerFps = 0;
     vsync_enabled = success && (interval != 0);
     if (!success) {
         sysLogPrintf(LOG_WARNING, "SDL: failed to set vsync %d: %s", interval, SDL_GetError());
