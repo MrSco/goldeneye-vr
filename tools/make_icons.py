@@ -10,6 +10,8 @@ The artwork (the user's, 2026-11-09):
 - docs/art/wordmark.png (the "GoldenEye VR" reticle logo): the smaller logo
   places, the launcher's and the in-game panel's header (gevr_logo.rgba).
 - docs/art/banner_source.jpg (the wide scope-eye): docs/banner.png.
+- docs/art/tv_icon.jpg ("Frozen Inferno", 2026-11-20: app_icon.jpg's scene,
+  wide): the Apple TV's home-screen icon.
 Android's monochrome (themed) icon must be a single-colour silhouette: the
 logo's reticle, drawn below. Needs Pillow.
 """
@@ -297,14 +299,14 @@ def ios_app_icon():
 
 
 # Apple TV (port/tvos/project.yml): the home screen's icon is a wide (5:3)
-# layered stack that tilts under the focus: the README's Dam banner
-# (docs/banner.png, the user's art since 2026-10-16, not banner_source.jpg)
-# filling it, cut around its logo, behind a clear front layer (tvOS asks for
-# two layers or more); until 2026-11-20 it was the square app icon on a blur
-# of itself, as House of the Dead VR's was. The Top Shelf, shown while the
-# icon is focused, is the banner too. Every size App Store validation asks
-# for, at 1x and 2x. The opaque pictures are JPEG, which the asset catalog
-# takes, so the repository stays small.
+# layered stack that tilts under the focus: "Frozen Inferno" (docs/art/
+# tv_icon.jpg, 16:9, the user's choice 2026-11-20) filling it behind a clear
+# front layer (tvOS asks for two layers or more); before that the square app
+# icon on a blur of itself, then the Dam banner. The Top Shelf, shown while
+# the icon is focused, is the README's Dam banner (docs/banner.png, the
+# user's art since 2026-10-16, not banner_source.jpg). Every size App Store
+# validation asks for, at 1x and 2x. The opaque pictures are JPEG, which the
+# asset catalog takes, so the repository stays small.
 TV_INFO = {'author': 'xcode', 'version': 1}
 
 
@@ -334,14 +336,9 @@ def tv_cover(src, w, h, cx=0.5):
     return src.crop((x0, y0, x0 + w, y0 + h))
 
 
-# docs/banner.png's logo, the middle of its golden letters (x 454-903 of 1635):
-# the icon's 5:3 keeps 700 of the banner's 1635 columns, and centred it cut the G
-BANNER_LOGO_X = 0.415
-
-
 def tv_back(w, h):
-    """The stack's back: the Dam banner across the whole shape, the logo in the middle."""
-    return tv_cover(Image.open(os.path.join(ROOT, 'docs', 'banner.png')).convert('RGB'), w, h, BANNER_LOGO_X)
+    """The stack's back: Frozen Inferno across the whole shape (5:3 keeps 94% of its 16:9 width)."""
+    return tv_cover(Image.open(os.path.join(ART, 'tv_icon.jpg')).convert('RGB'), w, h)
 
 
 def tv_front(w, h):
