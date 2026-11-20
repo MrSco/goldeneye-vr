@@ -82,7 +82,12 @@ void flatLauncherFeedInput(ImGuiIO &io);
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_opengl3.h"
 #ifdef GEVR_VISIONOS
-#include "imgui/imgui_internal.h"   // the active text box's state (the keyboard window)
+// the active text box's state (the keyboard window); PR/os.h's BLOCKSIZE
+// macro would break its template parameter of that name
+#pragma push_macro("BLOCKSIZE")
+#undef BLOCKSIZE
+#include "imgui/imgui_internal.h"
+#pragma pop_macro("BLOCKSIZE")
 #include "../visionos/vos_bridging.h"
 #endif
 #include "vr_input.h"
