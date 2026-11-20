@@ -589,12 +589,15 @@ static void gevrPerfFrameDone(void)
 					(unsigned)(gevr_perf_verts / gevrPerfFrames / 1000), (unsigned)(gevr_perf_tri_calls / gevrPerfFrames / 1000),
 					(unsigned)(gevr_perf_clipped / gevrPerfFrames / 1000), (unsigned)(gevr_perf_room_tris / gevrPerfFrames / 1000),
 					(unsigned)gevr_perf_present_passes, (unsigned)gevr_perf_passes);
-				/* Vision Pro: every 10 s anyway, so a player's report says
-				 * where a frame goes when the game falls to 45 fps */
+				/* Apple (Vision Pro, iPhone, Apple TV): every 10 s anyway, so a
+				 * player's report says where a frame goes when the game slows;
+				 * --perf-log every second, for a benchmark run unattended */
 				static u32 perfSeconds;
 				perfSeconds++;
-#ifdef GEVR_VISIONOS
-				const int perfLog = VrShowStats || perfSeconds % 10 == 0;
+#if defined(GEVR_VISIONOS) || defined(GEVR_IOS)
+				static int perfEvery;
+				if (!perfEvery) perfEvery = sysArgCheck("--perf-log") ? 1 : 10;
+				const int perfLog = VrShowStats || perfSeconds % perfEvery == 0;
 #else
 				const int perfLog = VrShowStats;
 #endif
@@ -602,7 +605,7 @@ static void gevrPerfFrameDone(void)
 					char oneLine[sizeof(gevrPerfBuf)];
 					snprintf(oneLine, sizeof(oneLine), "%s", gevrPerfBuf);
 					for (char *c = oneLine; *c; c++) if (*c == 10) *c = ' ';
-					sysLogPrintf(LOG_NOTE, "perf: %s", oneLine);
+					sysLogPrintf(LOG_NOTE, "perf: %.1f fps %s", n * 1e9 / (double)(now - gevrPerfSecStart), oneLine);
 				}
 				gameAcc = 0;
 				gevrPerfWorstGame = 0;
