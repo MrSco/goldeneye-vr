@@ -314,5 +314,7 @@ u32 inputGetKeyModState(void);
 // setup default VR bindings for player cidx
 void inputSetupVRBindings(s32 cidx); // VR
 
+#include "gevr_vrpad.h"   // player 1's pad in the headset (inputPadVrState)
+
 
 #endif

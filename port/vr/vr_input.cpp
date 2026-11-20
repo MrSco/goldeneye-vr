@@ -20,6 +20,7 @@
 #include "vr_log.h"
 #include "vr_openxr.h"
 #include "gevr_recoil.h"
+#include "gevr_vrpad.h"
 
 
 #ifdef ANDROID
@@ -532,6 +533,67 @@ XrResult create_vr_controllers_complete() {
     return XR_SUCCESS;
 }
 
+/*
+ * A game pad in the headset (a player's suggestion, 2026-11-20): player 1's
+ * pad (input.c inputPadVrState) answers as a Touch pair, as the Vision Pro
+ * build's does (port/visionos/vos_input.mm, which answers it in its OpenXR
+ * runtime instead): the left stick, trigger and shoulder, X and Y as the left
+ * controller; the right ones, A and B as the right; Start or Back as the menu
+ * button; the d-pad as the left stick. Each is added to what the controllers
+ * say themselves (a button held on either, a stick or trigger pushed further),
+ * so the launcher, the game and its panels take a pad as they take Touch: the
+ * virtual screen's play (PlayMode 0) as the flat game. In stereo the gun
+ * still points where a controller does.
+ */
+static void gevrPadAsTouch(void)
+{
+#ifndef GEVR_VISIONOS
+    float sticks[4], triggers[2];
+    unsigned int buttons = 0;
+    static bool said;
+    if (!inputPadVrState(sticks, triggers, &buttons)) {
+        said = false;
+        return;
+    }
+    if (!said) {
+        said = true;
+        vr_log("[VR_INPUT] a game pad answers as a Touch pair");
+    }
+    auto press = [](XrActionStateBoolean& st, bool on) {
+        if (!st.isActive) {
+            st.isActive = XR_TRUE;
+            st.currentState = XR_FALSE;
+        }
+        if (on) st.currentState = XR_TRUE;
+    };
+    auto pull = [](XrActionStateFloat& st, float v) {
+        if (!st.isActive || v > st.currentState) st.currentState = v;
+        st.isActive = XR_TRUE;
+    };
+    auto push = [](XrActionStateVector2f& st, float x, float y) {
+        const float mine = x * x + y * y;
+        const float theirs = st.currentState.x * st.currentState.x + st.currentState.y * st.currentState.y;
+        if (!st.isActive || mine > theirs) st.currentState = XrVector2f{ x, y };
+        st.isActive = XR_TRUE;
+    };
+    for (int h = 0; h < 2; h++) {
+        ControllerInputState& st = gControllerStates[h];
+        const bool shoulder = (buttons & (h ? INPUT_VRPAD_RB : INPUT_VRPAD_LB)) != 0;
+        push(st.thumbstick, sticks[h * 2], sticks[h * 2 + 1]);
+        pull(st.trigger_value, triggers[h]);
+        press(st.select, triggers[h] > 0.5f);
+        pull(st.grip_value, shoulder ? 1.0f : 0.0f);
+        press(st.grip_click, shoulder);
+        press(st.thumbstick_click, (buttons & (h ? INPUT_VRPAD_RS : INPUT_VRPAD_LS)) != 0);
+    }
+    press(gControllerStates[0].button_x, (buttons & INPUT_VRPAD_X) != 0);
+    press(gControllerStates[0].button_y, (buttons & INPUT_VRPAD_Y) != 0);
+    press(gControllerStates[0].menu, (buttons & (INPUT_VRPAD_START | INPUT_VRPAD_BACK)) != 0);
+    press(gControllerStates[1].button_a, (buttons & INPUT_VRPAD_A) != 0);
+    press(gControllerStates[1].button_b, (buttons & INPUT_VRPAD_B) != 0);
+#endif
+}
+
 // === INPUT READING FUNCTION (called every frame) ===
 XrResult update_vr_controllers(XrTime predicted_time) {
     // 1. Sync the ActionSet
@@ -657,6 +719,7 @@ XrResult update_vr_controllers(XrTime predicted_time) {
         }
     }
 
+    gevrPadAsTouch();
     return XR_SUCCESS;
 }
 

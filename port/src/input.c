@@ -1373,6 +1373,17 @@ s32 inputInit(void)
     }
 #endif
 
+#if defined(ANDROID) && !defined(GEVR_PC)
+    /* The headset (and an Android phone) opens a pad too: in the headset it
+     * answers as a Touch pair (inputPadVrState, vr_input.cpp gevrPadAsTouch).
+     * SDL's Java side already passes a pad's events on (SDLActivity). */
+    if (!SDL_WasInit(SDL_INIT_GAMECONTROLLER)) {
+        if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) != 0) {
+            sysLogPrintf(LOG_WARNING, "input: no game controllers: %s", SDL_GetError());
+        }
+    }
+#endif
+
     inputInitAllControllers();
 
     // since the main event loop is elsewhere, we can receive some events we need using a watcher
@@ -3069,6 +3080,64 @@ static void inputTriggerTick(void)
             inputDualSenseTrigger(pads[0], i, 0.f);
         }
     }
+}
+
+/*
+ * A game pad in the headset (a player's suggestion, 2026-11-20): player 1's
+ * pad for vr_input.cpp's gevrPadAsTouch, which answers it as a Touch pair, as
+ * the Vision Pro build does (port/visionos/vos_input.mm). sticks: the left's
+ * x and y, the right's x and y, up positive as OpenXR's, past a dead zone;
+ * the d-pad pushes the left stick (the launcher and the menus' arrows);
+ * triggers: left, right; buttons: INPUT_VRPAD_*. 0 with no pad.
+ */
+int inputPadVrState(float sticks[4], float triggers[2], unsigned int *buttons)
+{
+    static const SDL_GameControllerAxis axes[4] = {
+        SDL_CONTROLLER_AXIS_LEFTX, SDL_CONTROLLER_AXIS_LEFTY, SDL_CONTROLLER_AXIS_RIGHTX, SDL_CONTROLLER_AXIS_RIGHTY,
+    };
+    static const struct { SDL_GameControllerButton b; u32 bit; } map[] = {
+        { SDL_CONTROLLER_BUTTON_A, INPUT_VRPAD_A }, { SDL_CONTROLLER_BUTTON_B, INPUT_VRPAD_B },
+        { SDL_CONTROLLER_BUTTON_X, INPUT_VRPAD_X }, { SDL_CONTROLLER_BUTTON_Y, INPUT_VRPAD_Y },
+        { SDL_CONTROLLER_BUTTON_LEFTSHOULDER, INPUT_VRPAD_LB }, { SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, INPUT_VRPAD_RB },
+        { SDL_CONTROLLER_BUTTON_START, INPUT_VRPAD_START }, { SDL_CONTROLLER_BUTTON_BACK, INPUT_VRPAD_BACK },
+        { SDL_CONTROLLER_BUTTON_LEFTSTICK, INPUT_VRPAD_LS }, { SDL_CONTROLLER_BUTTON_RIGHTSTICK, INPUT_VRPAD_RS },
+    };
+    SDL_GameController *pad = pads[0];
+    s32 i;
+    if (!pad || !SDL_GameControllerGetAttached(pad)) {
+        return 0;
+    }
+    for (i = 0; i < 4; i++) {
+        const f32 v = SDL_GameControllerGetAxis(pad, axes[i]) / 32767.f;
+        sticks[i] = (i & 1) ? -v : v;   // SDL's y is down-positive
+    }
+    for (i = 0; i < 2; i++) {
+        f32 *s = &sticks[i * 2];
+        const f32 len = sqrtf(s[0] * s[0] + s[1] * s[1]);
+        const f32 dead = 0.15f;
+        const f32 k = len <= dead ? 0.f : (len > 1.f ? 1.f : (len - dead) / (1.f - dead)) / len;
+        s[0] *= k;
+        s[1] *= k;
+    }
+    {
+        const s32 dx = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)
+            - SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT);
+        const s32 dy = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_UP)
+            - SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+        if (dx || dy) {
+            sticks[0] = (f32)dx;
+            sticks[1] = (f32)dy;
+        }
+    }
+    triggers[0] = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT) / 32767.f;
+    triggers[1] = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) / 32767.f;
+    *buttons = 0;
+    for (i = 0; i < (s32)(sizeof(map) / sizeof(map[0])); i++) {
+        if (SDL_GameControllerGetButton(pad, map[i].b)) {
+            *buttons |= map[i].bit;
+        }
+    }
+    return 1;
 }
 
 /* The settings' Vibration row (gevr_settings.c): one shot's buzz at the new strength */
