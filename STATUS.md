@@ -24,6 +24,20 @@ roster's Device column on a real headset; Bean throat gaps (Dab's
 beanAddNeckTube, still on the backlog); the round-at-a-time Bean reloads;
 Apple TV's remote and pads on a device.
 
+## Batch after v0.5.21 (branch t3/visionos-ghosting-issue, not pushed)
+
+- Vision Pro ghosting while walking or turning (Discord, report 29ca74ce):
+  ANGLE has no buffer storage, so the eye pass was never kept: no redraw
+  between game frames, and at 45 fps each picture held two slots. Staged
+  vertex ring (5c2ff86e), the runtime's own SpaceWarp for held slots
+  (5f941b37), GLES 3.0 UBO calls filled (cf84def0). Simulator only.
+- Vision Pro keyboard for report notes and text boxes (a07a30e6, sim-tested);
+  perf/pump lines every 10 s (ea1f9771).
+- Apple TV: SIGPIPE ignored (mid-match home-screen crash, #268/report 33);
+  flat builds' pads vibrate (ee647dbf: the haptics table was a zero stub).
+- Open: #268's Siri Remote (needs a remote: ring clicks are GameController's
+  cardinal pad, not SDL's), #249. Device checks for all of the above.
+
 ## Platforms (docs/pc-platforms.md, docs/mobile-platforms.md)
 
 - **Quest** (main target): `quest` flavor, com.gevr.port.
