@@ -153,19 +153,39 @@ void flatLauncherShutdown(void)
  */
 extern "C" void sysLogPrintf(int level, const char *fmt, ...);
 extern "C" void gevrTvRemoteLogPoll(void);   // port/ios/ios_app.m
+extern "C" int gevrTvRemoteMenu(int *step, int *select);
 
 struct TvSwipe {
     float anchorX = 0.0f, anchorY = 0.0f;   // where the last step was taken
+    int touchDir = 0;                       // this touch's way (a touch steps one way only)
     int pending = 0;                        // steps still to send: 1 up, 2 down, 3 left, 4 right
     int queued = 0, held = 0;               // steps waiting; the frame a step is down
 };
 static TvSwipe s_swipe;
 
+static void tvQueueStep(int dir)
+{
+    static const char *names[] = { "", "up", "down", "left", "right" };
+    sysLogPrintf(0, "tvremote: launcher step %s", names[dir]);
+    if (s_swipe.queued && s_swipe.pending != dir) s_swipe.queued = 0;   // turned: drop the old way's steps
+    s_swipe.pending = dir;
+    if (s_swipe.queued < 3) s_swipe.queued++;
+}
+
+/*
+ * A 1st generation remote, touch only. SDL's stick is the finger's travel
+ * from where it landed. Logged on a 2nd generation one (#268): a third of
+ * the surface per step made two or three steps of an ordinary swipe; the
+ * last reading before the lift (a few hundredths, not 0) read as travel
+ * back, a step the other way; and a long drag wandered every way. Now half
+ * the surface a step, one way per touch, and near 0 is lifted.
+ */
 static void tvSwipeTrack(float x, float y)
 {
-    const float step = 0.33f;
-    if (x == 0.0f && y == 0.0f) {   // lifted: the next touch starts its own travel
+    const float step = 0.5f;
+    if (fabsf(x) < 0.05f && fabsf(y) < 0.05f) {   // lifted: the next touch starts its own travel
         s_swipe.anchorX = s_swipe.anchorY = 0.0f;
+        s_swipe.touchDir = 0;
         return;
     }
     const float dx = x - s_swipe.anchorX, dy = y - s_swipe.anchorY;
@@ -173,16 +193,11 @@ static void tvSwipeTrack(float x, float y)
     if (fabsf(dx) >= step && fabsf(dx) >= fabsf(dy)) dir = dx > 0.0f ? 4 : 3;
     else if (fabsf(dy) >= step) dir = dy > 0.0f ? 2 : 1;   // SDL's y is down-positive
     if (!dir) return;
-    {
-        static const char *names[] = { "", "up", "down", "left", "right" };
-        sysLogPrintf(0, "tvremote: launcher step %s (SDL stick %.2f %.2f, from %.2f %.2f)", names[dir], x, y,
-                     s_swipe.anchorX, s_swipe.anchorY);
-    }
     s_swipe.anchorX = x;
     s_swipe.anchorY = y;
-    if (s_swipe.queued && s_swipe.pending != dir) s_swipe.queued = 0;   // turned: drop the old way's steps
-    s_swipe.pending = dir;
-    if (s_swipe.queued < 3) s_swipe.queued++;
+    if (s_swipe.touchDir && dir != s_swipe.touchDir) return;   // the finger turned: not a step back
+    s_swipe.touchDir = dir;
+    tvQueueStep(dir);
 }
 
 /* this frame's step, 0 none: down one frame, up the next */
@@ -330,8 +345,16 @@ void flatLauncherFeedInput(ImGuiIO &io)
 #ifdef GEVR_TVOS
         // the Siri Remote: no right stick, and its stick is the touch surface
         if (!SDL_GameControllerHasAxis(pad, SDL_CONTROLLER_AXIS_RIGHTX)) {
-            tvSwipeTrack(lx, ly);
-            faceA = faceA || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A);
+            int ringStep = 0, centre = 0;
+            if (gevrTvRemoteMenu(&ringStep, &centre)) {
+                // 2nd generation: the ring's clicks move, the centre click
+                // chooses (SDL's A is any click, the ring's too)
+                if (ringStep) tvQueueStep(ringStep);
+                faceA = faceA || centre;
+            } else {
+                tvSwipeTrack(lx, ly);
+                faceA = faceA || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A);
+            }
             faceB = faceB || SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_B);
             SDL_GameControllerClose(pad);
             continue;

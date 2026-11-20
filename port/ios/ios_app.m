@@ -441,3 +441,47 @@ void gevrTvRemoteLogPoll(void)
     if (lines > 6000) sysLogPrintf(0, "tvremote: enough for one run, the rest unlogged");
 }
 #endif
+
+#if TARGET_OS_TV
+/*
+ * #268: the 2nd generation Siri Remote in the menus, click only (the tester's
+ * ask; on an Apple TV 4K its swipes stepped two or three items, and stepped
+ * back as the finger lifted). Its ring clicks are the Cardinal Direction Pad,
+ * and its centre click is Button Center; Button A, which SDL passes on as the
+ * pad's A, is any click, the ring's too, so a ring click both moved and chose.
+ * Returns 1 when such a remote is connected: *step a direction this frame
+ * (1 up, 2 down, 3 left, 4 right; a held ring repeats as tvOS's menus do),
+ * *select the centre click held.
+ */
+int gevrTvRemoteMenu(int *step, int *select)
+{
+    static int heldDir;
+    static double heldSince, lastRepeat;
+    int ring = 0, dir = 0;
+    *step = 0;
+    *select = 0;
+    for (GCController *c in GCController.controllers) {
+        if (!c.microGamepad || c.extendedGamepad) continue;
+        GCPhysicalInputProfile *p = c.physicalInputProfile;
+        GCControllerDirectionPad *d = p.dpads[@"Cardinal Direction Pad"];
+        GCControllerButtonInput *center = p.buttons[@"Button Center"];
+        if (!d || !center) continue;   // a 1st generation remote: swipes (flat_launcher.cpp)
+        ring = 1;
+        if (d.up.isPressed) dir = 1;
+        else if (d.down.isPressed) dir = 2;
+        else if (d.left.isPressed) dir = 3;
+        else if (d.right.isPressed) dir = 4;
+        if (center.isPressed) *select = 1;
+    }
+    const double now = CACurrentMediaTime();
+    if (dir && dir != heldDir) {
+        *step = dir;   // a new click
+        heldSince = lastRepeat = now;
+    } else if (dir && now - heldSince > 0.45 && now - lastRepeat > 0.12) {
+        *step = dir;   // held: the next item every 0.12 s after a moment
+        lastRepeat = now;
+    }
+    heldDir = dir;
+    return ring;
+}
+#endif
