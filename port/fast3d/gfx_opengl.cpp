@@ -4798,6 +4798,22 @@ static void gfx_opengl_init(void) {
     if (!glad_glTexStorage3D) {
         glad_glTexStorage3D = (PFNGLTEXSTORAGE3DPROC)SDL_GL_GetProcAddress("glTexStorage3D");
     }
+    // The same for GLES 3.0's uniform blocks and instancing, which glad files
+    // under GL 3.1: ANGLE says "OpenGL ES 3.0", so the Apple builds had none,
+    // and SpaceWarp's skinned motion programs called a null
+    // glUniformBlockBinding on Vision Pro.
+#define GEVR_GL_FILL(name, type) \
+    if (!glad_##name) glad_##name = (type)SDL_GL_GetProcAddress(#name)
+    GEVR_GL_FILL(glGetUniformBlockIndex, PFNGLGETUNIFORMBLOCKINDEXPROC);
+    GEVR_GL_FILL(glUniformBlockBinding, PFNGLUNIFORMBLOCKBINDINGPROC);
+    GEVR_GL_FILL(glGetActiveUniformBlockiv, PFNGLGETACTIVEUNIFORMBLOCKIVPROC);
+    GEVR_GL_FILL(glBindBufferBase, PFNGLBINDBUFFERBASEPROC);
+    GEVR_GL_FILL(glBindBufferRange, PFNGLBINDBUFFERRANGEPROC);
+    GEVR_GL_FILL(glGetIntegeri_v, PFNGLGETINTEGERI_VPROC);
+    GEVR_GL_FILL(glCopyBufferSubData, PFNGLCOPYBUFFERSUBDATAPROC);
+    GEVR_GL_FILL(glDrawArraysInstanced, PFNGLDRAWARRAYSINSTANCEDPROC);
+    GEVR_GL_FILL(glDrawElementsInstanced, PFNGLDRAWELEMENTSINSTANCEDPROC);
+#undef GEVR_GL_FILL
 
     // check if we're using ES or core, which have more limited feature sets
     int val = 0;
