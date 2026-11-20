@@ -3877,11 +3877,11 @@ extern "C" void gevrLauncherRun(void)
             case GEVR_LTAB_CONTROLS:
                 if (sub < 0) {   // a flat game: one page, the pad's and the touch screen's rows
 #ifdef GEVR_TVOS
-                    note("Siri Remote: click the ring's edge to move between items (hold to keep going), click "
-                         "the centre to choose, Back to go back; right past the last item for Friends. A 1st "
-                         "generation remote swipes instead. In the game: the ring walks and strafes, the "
-                         "centre fires, Play/Pause changes gun (hold it to pause), Back opens doors. A game "
-                         "pad works too, and takes player 1 from the remote.");
+                    note("Siri Remote: click the ring's edge (a 1st generation remote: the touch surface's "
+                         "edge) to move between items (hold to keep going), click the centre to choose, Back "
+                         "to go back; right past the last item for Friends. In the game: the edges walk and "
+                         "strafe, the centre fires, Play/Pause changes gun (hold it to pause), Back opens "
+                         "doors. A game pad works too, and takes player 1 from the remote.");
 #endif
                     gevrSettingsSection(settings, GEVR_LSEC_HANDS, GEVR_SET_LAUNCHER);
                 } else if (sub == GEVR_LSUB_HANDS) {

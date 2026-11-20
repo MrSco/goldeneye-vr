@@ -1561,11 +1561,11 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 #ifdef GEVR_TVOS
             /*
              * The Siri Remote, when it is player 1's (#268; its buttons are
-             * this block's alone, inputKeyPressed leaves them out). A 2nd
-             * generation's ring clicks are the stick (the menus' cursor;
-             * walking and strafing in play), not its touch surface, too
-             * touchy; a 1st generation's touch surface stays the stick. The
-             * click (a 2nd's centre) fires in play and chooses in menus: it
+             * this block's alone, inputKeyPressed leaves them out). Its edge
+             * clicks (a 2nd generation's ring, a 1st's touch surface clicked
+             * at an edge: ios_app.m) are the stick (the menus' cursor;
+             * walking and strafing in play), not its touch, too touchy. The
+             * centre click fires in play and chooses in menus: it
              * was A, GoldenEye's weapon change, and nothing fired. Play/Pause
              * tapped is A, held half a second START (the watch, the remote's
              * only way to pause). Back stays B.

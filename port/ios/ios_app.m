@@ -212,10 +212,9 @@ void gevrIosPrepare(void)
     // landscape only, so SDL never lays its view out portrait (Info.plist agrees)
     SDL_SetHintWithPriority(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight", SDL_HINT_OVERRIDE);
 #if TARGET_OS_TV
-    // Apple TV: the Siri Remote is a pad, read through GameController (a 2nd
-    // generation's ring clicks and centre click, gevrTvRemoteHeld; a 1st's
-    // touch surface and click; Back as B, Play/Pause as X), and it drives the
-    // launcher. Every controller's presses are the game's alone,
+    // Apple TV: the Siri Remote is a pad, read through GameController (its
+    // edge and centre clicks, either generation: tvRemoteButtons; Back as B,
+    // Play/Pause as X), and it drives the launcher. Every controller's presses are the game's alone,
     // so Back never leaves the app (the TV button still does). As keys
     // instead, its presses never reached SDL's view (simulator, 2026-11-18:
     // the system's Settings took the same presses). tvos_upload.mm hands
@@ -449,35 +448,67 @@ void gevrTvRemoteLogPoll(void)
 
 #if TARGET_OS_TV
 /*
- * #268: the 2nd generation Siri Remote in the menus, click only (the tester's
- * ask; on an Apple TV 4K its swipes stepped two or three items, and stepped
- * back as the finger lifted). Its ring clicks are the Cardinal Direction Pad,
- * and its centre click is Button Center; Button A, which SDL passes on as the
- * pad's A, is any click, the ring's too, so a ring click both moved and chose.
- * Returns 1 when such a remote is connected: *step a direction this frame
- * (1 up, 2 down, 3 left, 4 right; a held ring repeats as tvOS's menus do),
- * *select the centre click held.
+ * The Siri Remote's buttons, either generation (#268: its touch alone does
+ * nothing, too touchy to steer with; on an Apple TV 4K a 2nd generation's
+ * swipes stepped two or three items, and back as the finger lifted). A 2nd
+ * generation's ring clicks (its Cardinal Direction Pad) and centre click
+ * (Button Center): SDL's A is any click, the ring's too. A 1st generation
+ * has one click, the whole touch surface: sorted by where the finger is when
+ * it clicks (reportsAbsoluteDpadValues, the surface's centre 0), an edge is
+ * that way and the middle is the centre click, kept for as long as it is held.
+ * Its swipes never stepped the launcher on an Apple TV HD (2026-11-20: tvOS
+ * 26 calls it "Coalesced Remote"), so its click only ever chose START.
+ * *dir: 1 up, 2 down, 3 left, 4 right, 0 none. 1 with a remote connected.
+ */
+static int tvRemoteButtons(int *dir, int *centre)
+{
+    static int firstGenClick = -1;   // the 1st generation's click as sorted at its press
+    int found = 0;
+    *dir = 0;
+    *centre = 0;
+    for (GCController *c in GCController.controllers) {
+        GCMicroGamepad *m = c.microGamepad;
+        if (!m || c.extendedGamepad) continue;
+        GCPhysicalInputProfile *p = c.physicalInputProfile;
+        GCControllerDirectionPad *ring = p.dpads[@"Cardinal Direction Pad"];
+        GCControllerButtonInput *center = p.buttons[@"Button Center"];
+        found = 1;
+        if (ring && center) {   // 2nd generation
+            if (ring.up.isPressed) *dir = 1;
+            else if (ring.down.isPressed) *dir = 2;
+            else if (ring.left.isPressed) *dir = 3;
+            else if (ring.right.isPressed) *dir = 4;
+            if (center.isPressed) *centre = 1;
+            continue;
+        }
+        if (!m.reportsAbsoluteDpadValues) m.reportsAbsoluteDpadValues = YES;   // where the finger is
+        if (m.buttonA.isPressed) {
+            if (firstGenClick < 0) {
+                const float x = m.dpad.xAxis.value, y = m.dpad.yAxis.value;
+                const float ax = fabsf(x), ay = fabsf(y);
+                firstGenClick = ax < 0.5f && ay < 0.5f ? 0 : ax > ay ? (x > 0 ? 4 : 3) : (y > 0 ? 1 : 2);
+            }
+            if (firstGenClick == 0) *centre = 1;
+            else *dir = firstGenClick;
+        } else {
+            firstGenClick = -1;
+        }
+    }
+    return found;
+}
+
+/*
+ * The launcher and the panels (flat_launcher.cpp): *step a direction this
+ * frame (1 up, 2 down, 3 left, 4 right; a held click repeats as tvOS's menus
+ * do), *select the centre click held. 1 with a remote connected.
  */
 int gevrTvRemoteMenu(int *step, int *select)
 {
     static int heldDir;
     static double heldSince, lastRepeat;
-    int ring = 0, dir = 0;
+    int dir = 0;
     *step = 0;
-    *select = 0;
-    for (GCController *c in GCController.controllers) {
-        if (!c.microGamepad || c.extendedGamepad) continue;
-        GCPhysicalInputProfile *p = c.physicalInputProfile;
-        GCControllerDirectionPad *d = p.dpads[@"Cardinal Direction Pad"];
-        GCControllerButtonInput *center = p.buttons[@"Button Center"];
-        if (!d || !center) continue;   // a 1st generation remote: swipes (flat_launcher.cpp)
-        ring = 1;
-        if (d.up.isPressed) dir = 1;
-        else if (d.down.isPressed) dir = 2;
-        else if (d.left.isPressed) dir = 3;
-        else if (d.right.isPressed) dir = 4;
-        if (center.isPressed) *select = 1;
-    }
+    const int found = tvRemoteButtons(&dir, select);
     const double now = CACurrentMediaTime();
     if (dir && dir != heldDir) {
         *step = dir;   // a new click
@@ -487,33 +518,20 @@ int gevrTvRemoteMenu(int *step, int *select)
         lastRepeat = now;
     }
     heldDir = dir;
-    return ring;
+    return found;
 }
 
 /*
- * The 2nd generation remote in the game (input.c): the ring's clicks as a
- * d-pad (*dx -1 left, 1 right; *dy 1 up, -1 down) and the centre click, as
- * held. 1 with such a remote connected. Its touch surface is left out: too
- * touchy to steer with (#268), and SDL's A is any click, the ring's too.
+ * The game (input.c): the same clicks as held, a d-pad (*dx -1 left, 1 right;
+ * *dy 1 up, -1 down) and the centre click. 1 with a remote connected.
  */
 int gevrTvRemoteHeld(int *dx, int *dy, int *centre)
 {
-    int ring = 0;
-    *dx = *dy = *centre = 0;
-    for (GCController *c in GCController.controllers) {
-        if (!c.microGamepad || c.extendedGamepad) continue;
-        GCPhysicalInputProfile *p = c.physicalInputProfile;
-        GCControllerDirectionPad *d = p.dpads[@"Cardinal Direction Pad"];
-        GCControllerButtonInput *center = p.buttons[@"Button Center"];
-        if (!d || !center) continue;   // a 1st generation remote: its touch surface is the stick
-        ring = 1;
-        if (d.up.isPressed) *dy = 1;
-        else if (d.down.isPressed) *dy = -1;
-        if (d.left.isPressed) *dx = -1;
-        else if (d.right.isPressed) *dx = 1;
-        if (center.isPressed) *centre = 1;
-    }
-    return ring;
+    int dir = 0;
+    const int found = tvRemoteButtons(&dir, centre);
+    *dx = dir == 3 ? -1 : dir == 4 ? 1 : 0;
+    *dy = dir == 1 ? 1 : dir == 2 ? -1 : 0;
+    return found;
 }
 #endif
 

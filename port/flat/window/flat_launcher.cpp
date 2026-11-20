@@ -347,8 +347,9 @@ void flatLauncherFeedInput(ImGuiIO &io)
         if (!SDL_GameControllerHasAxis(pad, SDL_CONTROLLER_AXIS_RIGHTX)) {
             int ringStep = 0, centre = 0;
             if (gevrTvRemoteMenu(&ringStep, &centre)) {
-                // 2nd generation: the ring's clicks move, the centre click
-                // chooses (SDL's A is any click, the ring's too)
+                // the remote's edge clicks move, the centre click chooses,
+                // either generation (port/ios/ios_app.m); SDL's A is any click
+                // (the swipes below only if GameController has no remote)
                 if (ringStep) tvQueueStep(ringStep);
                 faceA = faceA || centre;
             } else {
