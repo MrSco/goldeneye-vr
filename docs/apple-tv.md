@@ -143,10 +143,10 @@ opening a document picker:
 
 `python tools/make_icons.py tvos` writes `port/tvos/Assets.xcassets`:
 
-- **Home screen:** a layered icon that tilts under the focus. The app icon
-  (`docs/art/app_icon.jpg`) floats in front of a blurred copy that fills the
-  TV's wider shape.
-- **Top Shelf:** the README's Dam banner (`docs/banner.png`).
+- **Home screen:** a layered icon that tilts under the focus: "Frozen
+  Inferno" (`docs/art/banner_frozen_inferno.jpg`), the app icon's scene in
+  16:9, filling it.
+- **Top Shelf:** the README's Dam banner (`docs/art/banner_dam.png`).
 - **Sizes:** every size App Store validation asks for, at 1x and 2x.
 - **Resolution:** the banner is 420 pixels tall, so the 2x Top Shelf images
   (1440) are upscaled. A taller source would sharpen them.

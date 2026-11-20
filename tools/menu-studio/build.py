@@ -14,7 +14,7 @@ ROOT = HERE.parents[1]
 BRANDING = {
     "launcher-icon.png": HERE / "assets/launcher-icon.png",
     "icon.png": HERE / "assets/favicon-64.png",
-    "banner.png": ROOT / "docs/banner.png",
+    "banner.png": ROOT / "docs/art/banner_dam.png",
     "native-ui.ttf": HERE / "assets/native-ui.ttf",
 }
 MODULES = ["model.js", "templates.js", "render.js", "storage.js", "app.js"]

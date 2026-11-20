@@ -1,4 +1,4 @@
-"""Writes every app icon, the headers' logo and the banner.
+"""Writes every app icon, the headers' logo and the Apple TV's brand assets.
 
     python tools/make_icons.py
 
@@ -9,9 +9,12 @@ The artwork (the user's, 2026-11-09):
   window (gevr_icon.rgba).
 - docs/art/wordmark.png (the "GoldenEye VR" reticle logo): the smaller logo
   places, the launcher's and the in-game panel's header (gevr_logo.rgba).
-- docs/art/banner_source.jpg (the wide scope-eye): docs/banner.png.
-- docs/art/tv_icon.jpg ("Frozen Inferno", 2026-11-20: app_icon.jpg's scene,
-  wide): the Apple TV's home-screen icon.
+- docs/art/banner_frozen_inferno.jpg ("Frozen Inferno": app_icon.jpg's
+  scene, 16:9): the Apple TV's home-screen icon.
+- docs/art/banner_dam.png (the Dam feature banner, 1635x420, as made): the
+  README's banner and the Apple TV's Top Shelf.
+The two banners are the user's originals (2026-11-20; the PNG, and Frozen
+Inferno as JPEG); nothing here writes them.
 Android's monochrome (themed) icon must be a single-colour silhouette: the
 logo's reticle, drawn below. Needs Pillow.
 """
@@ -215,33 +218,6 @@ def write_raw(img, *paths):
         print('wrote', os.path.relpath(full, ROOT), img.size)
 
 
-def art_banner(w, h, title=True):
-    """banner_source.jpg scaled to cover w x h, darkened at the bottom for the title."""
-    src = Image.open(os.path.join(ART, 'banner_source.jpg')).convert('RGB')
-    k = max(w / src.width, h / src.height)
-    src = src.resize((int(src.width * k + 0.5), int(src.height * k + 0.5)), Image.LANCZOS)
-    x0 = (src.width - w) // 2
-    y0 = (src.height - h) // 2
-    img = src.crop((x0, y0, x0 + w, y0 + h)).convert('RGBA')
-    if not title:
-        return img
-    shade = Image.new('L', (1, h))
-    for y in range(h):
-        t = max(0.0, (y / h - 0.55) / 0.45)
-        shade.putpixel((0, y), int(215 * t))
-    black = Image.new('RGBA', (w, h), (0, 0, 0, 255))
-    black.putalpha(shade.resize((w, h)))
-    img = Image.alpha_composite(img, black)
-    d = ImageDraw.Draw(img)
-    big = ImageFont.truetype('C:/Windows/Fonts/bahnschrift.ttf', int(h * 0.13))
-    small = ImageFont.truetype('C:/Windows/Fonts/bahnschrift.ttf', int(h * 0.050))
-    d.text((int(w * 0.04), int(h * 0.74)), 'GoldenEye VR', font=big, fill=GOLD_HI)
-    d.text((int(w * 0.045), int(h * 0.885)),
-           'A native Meta Quest port of the N64 decomp  -  bring your own ROM',
-           font=small, fill=(225, 230, 238))
-    return img
-
-
 def main():
     dens = {'mdpi': 1, 'hdpi': 1.5, 'xhdpi': 2, 'xxhdpi': 3, 'xxxhdpi': 4}
     for name, k in dens.items():
@@ -254,7 +230,6 @@ def main():
         save(reticle(adaptive), 'mipmap-' + name, 'ic_launcher_monochrome.png')
     save(art_icon(512).convert('RGB'), 'drawable-nodpi', 'ic_launcher_quest.png')
     save(art_icon(512).convert('RGB'), '@', 'android', 'app', 'src', 'main', 'play_store_512.png')
-    save(art_banner(1280, 560).convert('RGB'), '@', 'docs', 'banner.png')
     # the headers' logo, 3:1 (vr_launcher.cpp, vr_pause_menu.cpp), and the PC window's icon
     logo = wordmark(384, 128)
     write_raw(logo, ('android', 'app', 'src', 'main', 'assets', 'gevr_logo.rgba'),
@@ -300,11 +275,11 @@ def ios_app_icon():
 
 # Apple TV (port/tvos/project.yml): the home screen's icon is a wide (5:3)
 # layered stack that tilts under the focus: "Frozen Inferno" (docs/art/
-# tv_icon.jpg, 16:9, the user's choice 2026-11-20) filling it behind a clear
-# front layer (tvOS asks for two layers or more); before that the square app
-# icon on a blur of itself, then the Dam banner. The Top Shelf, shown while
-# the icon is focused, is the README's Dam banner (docs/banner.png, the
-# user's art since 2026-10-16, not banner_source.jpg). Every size App Store
+# banner_frozen_inferno.jpg, 16:9, the user's choice 2026-11-20) filling it
+# behind a clear front layer (tvOS asks for two layers or more); before that
+# the square app icon on a blur of itself, then the Dam banner. The Top Shelf,
+# shown while the icon is focused, is the README's Dam banner
+# (docs/art/banner_dam.png). Every size App Store
 # validation asks for, at 1x and 2x. The opaque pictures are JPEG, which the
 # asset catalog takes, so the repository stays small.
 TV_INFO = {'author': 'xcode', 'version': 1}
@@ -338,7 +313,7 @@ def tv_cover(src, w, h, cx=0.5):
 
 def tv_back(w, h):
     """The stack's back: Frozen Inferno across the whole shape (5:3 keeps 94% of its 16:9 width)."""
-    return tv_cover(Image.open(os.path.join(ART, 'tv_icon.jpg')).convert('RGB'), w, h)
+    return tv_cover(Image.open(os.path.join(ART, 'banner_frozen_inferno.jpg')).convert('RGB'), w, h)
 
 
 def tv_front(w, h):
@@ -348,7 +323,7 @@ def tv_front(w, h):
 
 def tv_shelf(w, h):
     """The Top Shelf: the README's Dam banner, its logo kept in the crop."""
-    return tv_cover(Image.open(os.path.join(ROOT, 'docs', 'banner.png')).convert('RGB'), w, h)
+    return tv_cover(Image.open(os.path.join(ART, 'banner_dam.png')).convert('RGB'), w, h)
 
 
 def tvos_brand_assets():
