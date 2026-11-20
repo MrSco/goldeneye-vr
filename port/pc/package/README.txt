@@ -47,6 +47,12 @@ Gamepad:
   LB             L                         Start     pause
   D-pad          the C buttons
 
+Split screen (2 to 4 players, one screen):
+  Choose Multiplayer, then everyone presses to join: A or Start on a
+  gamepad, Enter on the keyboard. The order is the player numbers; B or
+  Escape leaves, Start or Enter plays. The keyboard and mouse are one
+  player, each gamepad another. On your own, every gamepad plays you.
+
 PC VR
 -----
 GoldenEyeVR-VR.exe is the Quest's VR game on a PC VR headset, through

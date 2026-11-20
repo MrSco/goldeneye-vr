@@ -278,6 +278,10 @@ ROM, as on the Quest.
     [SideStore](https://sidestore.io/).
 - **Crossplay:** flat players (mouse, pad, touch) can join VR players. A host can tick
   **VR players only**, and VR players can tick **Hide games with flat players** on the Join page.
+- **Split screen** (from v0.5.22): GoldenEye's own 2 to 4 player split on one screen (Windows,
+  Linux, Apple TV, phones and tablets), offline. Choose **Multiplayer**, then each player presses
+  to join (A or Start on a pad, Enter on the keyboard); the order is the player numbers. The
+  keyboard and mouse count as one player, each pad as another; the Siri Remote doesn't join.
 
 ## Mirrored missions (optional)
 
