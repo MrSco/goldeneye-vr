@@ -5,87 +5,32 @@ in docs/archive/ (the v0.5.15 batch as it stood before release is
 [status-2026-11-10](docs/archive/status-2026-11-10.md)); features keep their
 own notes. No game data is shipped; building publishes nothing.
 
-**Release:** v0.5.21 (versionCode 134, protocol 27), 2026-11-19, tag on
-f501fbff ([notes](docs/releases/v0.5.21.md)): the rest of Dab's Mod's Bean
-fixes (docs/bean-parity-backlog.md; the HD level drawn to its fog, HD hit
-tests, monitors, hats, seams, the Community Edition's level, colour and sea
-fixes, the Aztec closet, mines on the HD surface), held guns' labels and
-overlapping faces in painter's order (VR_DEPTH_PULL_NEXT, #267), each
-player's device in the roster and the lobby service's player totals (#262),
-ghost races' drops (#263) and VR count (#265), the Apple TV fixes (#260).
-Protocol 27 for the stage data fixes (gevr_romswap.c gevrRomFixData): plays
-online only with v0.5.21. 9 downloads from one commit; TestFlight iOS 141,
-visionOS 17, tvOS 3. Gates: suite 113/113 (93 Windows + 20 WSL), Java 48x3,
-server gate passed. Closed at release with a reopen note: #241, #245, #246,
-#250-#253, reports #31 and #32, PR #260. #249 stays open.
-**Next:** headset checks of the Aztec closet, the RPG-7 held by the grip, a
-grenade or mine left in hand after a throw, and a ghost race's drops; the
-roster's Device column on a real headset; Bean throat gaps (Dab's
-beanAddNeckTube, still on the backlog); the round-at-a-time Bean reloads;
-Apple TV's remote and pads on a device.
+**Release:** v0.5.22 (versionCode 135, protocol 27), 2026-11-20, tag on
+a8866dde ([notes](docs/releases/v0.5.22.md)): local split screen on flat
+builds (2-4 players, a join page, docs/pc-platforms.md), Bean drawn on the
+GPU on flat GLES games (Apple TV HD Dam 15 -> 40 fps) and a steady half rate
+for slow devices (gevr_halfrate.txt, Video.AutoHalfRate), the Siri Remote as
+buttons (both generations), the Apple TV HD's ANGLE ES 3 gate, pad rumble
+and Xbox/DualSense trigger feedback on flat builds, pads in the headset as a
+Touch pair, Vision Pro's ghosting fix and keyboard, the Frozen Inferno TV
+icon and the file page's QR code. Protocol 27 unchanged: plays online with
+v0.5.21. 9 downloads from one commit; TestFlight iOS 143, visionOS 19, tvOS
+5. Gates: suite 113/113 (96 Windows + 17 WSL-only, all 20 WSL passing), Java
+48x3, server gate passed, Quest smoke test (Dam, Bean) clean. Closed at
+release with a reopen note: #268, reports #33-#35. #249 stays open.
+**Next:** device checks: split screen with two real pads on an Apple TV and
+a phone, 3-4 players on a slow device; trigger feedback on Xbox and
+DualSense pads; a pad in the Quest and PC VR headsets; Vision Pro's ghosting
+fix on the device; the 1st generation remote on the HD; the half rate on
+Android and PC. Then: phase 2 of split screen (local guests in online
+matches, a protocol bump); true drop-in mid-match; Bean throat gaps (Dab's
+beanAddNeckTube); the round-at-a-time Bean reloads.
 
-## Batch after v0.5.21 (branch t3/visionos-ghosting-issue, not pushed)
-
-- Vision Pro ghosting while walking or turning (Discord, report 29ca74ce):
-  ANGLE has no buffer storage, so the eye pass was never kept: no redraw
-  between game frames, and at 45 fps each picture held two slots. Staged
-  vertex ring (5c2ff86e), the runtime's own SpaceWarp for held slots
-  (5f941b37), GLES 3.0 UBO calls filled (cf84def0). Simulator only.
-- Vision Pro keyboard for report notes and text boxes (a07a30e6, sim-tested);
-  perf/pump lines every 10 s (ea1f9771).
-- Apple TV: SIGPIPE ignored (mid-match home-screen crash, #268/report 33).
-- Pads vibrate on flat builds (#268): the haptics table was a zero stub
-  (ee647dbf), then Dab's Mod's Rumble Pak pulse for pads (0.2 s shot, 0.25 s
-  hit, times Vibration; the row buzzes). User-confirmed 2026-11-19 on iPhone
-  (Switch Pro Controller) and Apple TV 4K (8BitDo SN30 Pro+).
-- Dev installs without TestFlight: iPhone, Apple TV 4K and Apple TV HD paired
-  to the Mac (gevr-dev-ios/tvos(-hd).command; GEVR_DEST in build_tvos.sh).
-  Benchmarks unattended: `--boot-stage 33 --perf-log` (perf and mesh lines
-  each second; the perf line every 10 s on Apple anyway, with its fps),
-  xctrace --all-processes from the desktop session.
-- Siri Remote (#268): 2nd gen is buttons only, ring clicks as a d-pad in the
-  launcher and the game; touches make no mouse (it dragged the sound slider);
-  1st gen clicks the touch surface's edges the same way (its swipes never
-  stepped on the HD). In play the centre fires, Play/Pause changes gun (held:
-  pause), Back opens doors. 2nd gen user-tested; retest the 1st on the HD.
-- Apple TV HD (A8) stopped at startup ("no ES 3 config"): ANGLE's ES 3 gate
-  down to Apple2 (tools/build_angle_apple.sh). Runs.
-- Bean on flat GLES games (Apple TV, iPhone, iPad, Android phone): static
-  meshes and GPU skinning were headset-only (gevr_mesh_supported asked for
-  multiview), so every Bean vertex went through gfx_sp_vertex. Apple TV HD,
-  Dam with Bean: 15 -> 40 fps; simulator 32 -> 59; same picture (A/B with
-  gevr_nomesh.txt). For e-ee's A10X (#268, "Bean <30 fps"); retest.
-- Half rate (flat games, any device): a level under 55 of 60 fps for 5 s plays
-  at a steady 30 for that graphics mode (N64 or Bean), remembered per build
-  (gevr_halfrate.txt), launcher note; Video.AutoHalfRate=0 off. Apple via an
-  ANGLE pacing patch, PC by swap interval, Android by the frame timer
-  (untested). HD: Bean 43 -> 30 steady, N64 holds 60, ragdolls not the cause.
-- Trigger feedback (a player's suggestion): Xbox trigger motors, DualSense
-  adaptive triggers (SDL effects on PC, GCDualSenseAdaptiveTrigger on Apple);
-  Controls row, on. Untested on a pad.
-- Pads in the headset (Quest, PC VR) as a Touch pair, as Vision Pro does:
-  the virtual screen's play like the flat game. PC VR built; Quest not built
-  here (no keystore in this worktree); untested.
-- Apple TV home-screen icon: Frozen Inferno (docs/art/banner_frozen_inferno.jpg, make_icons
-  tvos), wide like HotD's; the file page (ROM, XBLA, CE updater) shows a QR code of
-  the address, as HotD's ROM page (simulator: decodes, 40 MB sent, progress).
-- Reports #35: the dev install's relaunch, not a crash.
-- Open: #249. Device checks for all of the above.
-
-## Local split screen (branch t3/local-split-screen, from v0.5.22, not pushed)
-
-GoldenEye's own 2-4 player split on flat builds (Windows, Linux, Apple TV,
-iPhone, iPad, Android phones), offline; phase 2 (local guests online) later.
-Multiplayer opens on a join page: each device presses to play (a pad A or
-START, the keyboard Enter, a tap), the order is the player numbers, B or
-Escape leaves. The keyboard can be any player (mouse look follows it). No
-join, no change: solo keeps every pad on player 1, so a pad plugged in
-mid-mission plays at once. Depth-clear fix for the lower views (a cream
-sheet over player 1). Windows-tested with scripted virtual pads (2 and 4
-players, keyboard first or second); suite + WSL gate pass. Open: a real
-pad pair on Windows, the Apple TV (two pads; the remote never joins), a
-phone; 3-4 player frame rate on slow devices; true drop-in mid-match (a pad
-that did not join waits for the next join page).
+Dev installs without TestFlight: the iPhone and both Apple TVs are paired to
+the Mac (gevr-dev-ios/tvos(-hd).command build ~/src/gevr-vos-kb); unattended
+benchmarks with `--boot-stage 33 --perf-log`. Scripted PC tests drive up to
+four virtual pads (`pad2`..`pad4`, port/pc/pc_testinput.c); the game runs in
+the exe's folder, so give `--input-script` an absolute path.
 
 ## Platforms (docs/pc-platforms.md, docs/mobile-platforms.md)
 
@@ -147,7 +92,7 @@ that did not join waits for the next join page).
 
 ## Releases
 
-Each has docs/releases/vX.Y.Z.md; v0.5.21 back to v0.4.20 (hack campaigns,
+Each has docs/releases/vX.Y.Z.md; v0.5.22 back to v0.4.20 (hack campaigns,
 Project Bean, [PR #172](docs/pr172-handoff.md)) are summarised there.
 
 ## What it is
