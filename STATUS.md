@@ -36,8 +36,8 @@ Apple TV's remote and pads on a device.
 - Apple TV: SIGPIPE ignored (mid-match home-screen crash, #268/report 33).
 - Pads vibrate on flat builds (#268): the haptics table was a zero stub
   (ee647dbf), then Dab's Mod's Rumble Pak pulse for pads (0.2 s shot, 0.25 s
-  hit, times Vibration; the row buzzes). User-confirmed on iPhone with a
-  Switch Pro Controller, 2026-11-19.
+  hit, times Vibration; the row buzzes). User-confirmed 2026-11-19 on iPhone
+  (Switch Pro Controller) and Apple TV 4K (8BitDo SN30 Pro+).
 - Dev installs without TestFlight: iPhone and Apple TV 4K paired to the Mac
   (gevr-dev-ios/tvos.command on the Mac; GEVR_DEST in build_tvos.sh).
 - Open: #268's Siri Remote (needs a remote: ring clicks are GameController's
