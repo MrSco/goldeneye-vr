@@ -902,7 +902,9 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 				static u32 pumpSeconds;
 				if (VrShowStats || gevrFrameTimingTracing() || ++pumpSeconds % 10 == 0)
 #else
-				if (VrShowStats || gevrFrameTimingTracing())
+				static int perfArg = -1;   /* --perf-log: a benchmark run unattended */
+				if (perfArg < 0) perfArg = sysArgCheck("--perf-log") != 0;
+				if (VrShowStats || gevrFrameTimingTracing() || perfArg)
 #endif
 				sysLogPrintf(LOG_NOTE, "pump: %u retraces (%u game frames), %u xr frames (%u redrawn) in %llu ms; early ticks %u unused %u late %u, other display time %u",
 					sRetraces, sSlots, gevrXrFramesBegun, gevrRedraws, (unsigned long long)((now - sStatUs) / 1000),
