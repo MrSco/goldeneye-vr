@@ -6308,9 +6308,11 @@ extern "C" void gfx_run(Gfx* commands) {
                 static uint32_t sFrames; static uint32_t sTris; static uint32_t sFlushes;
                 sFrames++; sTris += g_gevrTrisThisFrame; sFlushes += g_gevrFlushesThisFrame;
                 if (sFrames >= 72) {
-                    /* Diagnostics only (Show stats, or a profile trace): five lines a
-                     * second and a log-file write on the render thread otherwise. */
-                    const bool report = VrShowStats || gevrFrameTimingTracing();
+                    /* Diagnostics only (Show stats, a profile trace, or a benchmark run
+                     * with --perf-log): five lines a second and a log-file write on
+                     * the render thread otherwise. */
+                    static const bool perfArg = sysArgCheck("--perf-log") != 0;
+                    const bool report = VrShowStats || gevrFrameTimingTracing() || perfArg;
                     if (report) {
                     vr_log("gfx: %u frames, %u tris, %u flushes, cimg %p", sFrames, sTris, sFlushes, rdp.color_image_address);
                     vr_log("mesh: %u draws, %u tris, %u runs on the CPU, %u meshes in buffers%s", s_gevrMeshDraws,
