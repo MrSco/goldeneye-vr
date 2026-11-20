@@ -45,8 +45,9 @@ Apple TV's remote and pads on a device.
   xctrace --all-processes from the desktop session.
 - Siri Remote (#268): 2nd gen is buttons only, ring clicks as a d-pad in the
   launcher and the game; touches make no mouse (it dragged the sound slider);
-  1st gen keeps swiping. In play the click fires, Play/Pause changes gun
-  (held: pause), Back opens doors. Launcher user-tested; retest the game.
+  1st gen clicks the touch surface's edges the same way (its swipes never
+  stepped on the HD). In play the centre fires, Play/Pause changes gun (held:
+  pause), Back opens doors. 2nd gen user-tested; retest the 1st on the HD.
 - Apple TV HD (A8) stopped at startup ("no ES 3 config"): ANGLE's ES 3 gate
   down to Apple2 (tools/build_angle_apple.sh). Runs.
 - Bean on flat GLES games (Apple TV, iPhone, iPad, Android phone): static
