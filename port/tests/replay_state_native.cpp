@@ -39,6 +39,10 @@ static bool s_issueGunDecal; /* gfx_opengl.cpp: a hand-held model's decal band *
 static uint16_t s_depthZmode;
 static GLint s_curViewport[4],s_curScissor[4];
 static GLuint opengl_vao=7,opengl_vbo=9,s_boundTex[2]={777,888};
+/* gfx_opengl.cpp: the mapped ring here, so replays draw from fast3d's own buffer */
+static int s_eyeSeg=-1; static long s_eyeNeed;
+static GLuint gevr_ring_replay_vbo(int,long) { return opengl_vbo; }
+static void gevr_ring_replay_done(void) {}
 static int gCurIsMenuLoc=23,gevrZDebugMode=0,s_activeTexUnit=1;
 static GLuint boundTex[2]={777,888},boundProgram;
 static int activeTexture=1,textureCalls,filterCalls,issued;

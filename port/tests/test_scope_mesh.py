@@ -48,6 +48,11 @@ static bool s_depthArgs[4],s_alphaArgs[2]; static uint16_t s_depthZmode;
 static float s_drawDecalPull; static bool current_depth_mask,s_isDecal,s_decalZ,s_opaqueDepthWrite,s_uniCacheValid;
 static uint8_t gevrFadeDepthAlpha=255;   // gfx_opengl.cpp: VR_FADE_DEPTH
 static GLuint opengl_vao=7, opengl_vbo=8; static int s_activeTexUnit,gevrZDebugMode;
+// gfx_opengl.cpp: the mapped ring here, so replays draw from fast3d's own buffer
+using GLsizeiptr=long; static int s_pmSeg,s_scopeSeg=-1; static GLsizeiptr s_pmOff,s_scopeNeed;
+static GLsizeiptr gevr_pm_base(void) {return 0;}
+static GLuint gevr_ring_replay_vbo(int,GLsizeiptr) {return opengl_vbo;}
+static void gevr_ring_replay_done(void) {}
 static bool s_drawElements; static GLuint boundVao; static int cull; static GfxMeshDrawParams savedParams;
 struct Draw {GLuint vao; int first,count,cull; bool indexed; GfxMeshDrawParams params;};
 static std::vector<Draw> issued;

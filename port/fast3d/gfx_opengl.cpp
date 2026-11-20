@@ -697,11 +697,7 @@ static unsigned s_pmFallbacks;
  * segment's start. No fences: the GPU never reads this memory.
  */
 static bool s_stageRing;
-static GLuint s_stageVbo[GEVR_PM_SEGMENTS];
 static GLsizeiptr s_stageUsed[GEVR_PM_SEGMENTS], s_stageUploaded[GEVR_PM_SEGMENTS];
-static int s_eyeSeg = -1, s_scopeSeg = -1;          // the segment their ring draws are in
-static GLsizeiptr s_eyeNeed, s_scopeNeed;            // ... and how much of it they use
-static inline GLsizeiptr gevr_pm_base(void) { return s_stageRing ? (GLsizeiptr)s_pmSeg * s_pmSegSize : 0; }
 static unsigned gevr_pm_poll(void *context, uint64_t timeout) {
     return glClientWaitSync(*(GLsync *)context, GL_SYNC_FLUSH_COMMANDS_BIT, timeout);
 }
@@ -783,6 +779,37 @@ static int s_uniFlat, s_uniMenu, s_uniHudSize;
  * (gfx_vr_scope_render) can put it back after drawing with its own.
  */
 static struct ShaderProgram* s_curPrg;
+
+/* The staged ring's buffers (see s_stageRing), and where the kept passes'
+ * ring draws are: the segment, and how much of it they use. */
+static GLuint s_stageVbo[GEVR_PM_SEGMENTS];
+static int s_eyeSeg = -1, s_scopeSeg = -1;
+static GLsizeiptr s_eyeNeed, s_scopeNeed;
+static inline GLsizeiptr gevr_pm_base(void) { return s_stageRing ? (GLsizeiptr)s_pmSeg * s_pmSegSize : 0; }
+/* The buffer a replay's ring draws come from: the mapped ring itself, or a
+ * staged segment, uploaded whole when it has grown past what was sent. */
+static GLuint gevr_ring_replay_vbo(int seg, GLsizeiptr need)
+{
+    if (!s_stageRing || seg < 0 || seg >= GEVR_PM_SEGMENTS) return opengl_vbo;
+    if (!s_stageVbo[seg]) glGenBuffers(1, &s_stageVbo[seg]);
+    glBindBuffer(GL_ARRAY_BUFFER, s_stageVbo[seg]);
+    if (s_stageUploaded[seg] < need) {
+        const GLsizeiptr used = std::max(s_stageUsed[seg], need);
+        glBufferData(GL_ARRAY_BUFFER, used, s_pmPtr + (size_t)seg * (size_t)s_pmSegSize, GL_STREAM_DRAW);
+        s_stageUploaded[seg] = used;
+    }
+    return s_stageVbo[seg];
+}
+/* After a replay from a staged segment: the ring's attributes back on fast3d's
+ * own buffer (they follow the buffer bound when a program was loaded). */
+static void gfx_opengl_vertex_array_set_attribs(struct ShaderProgram* prg);
+static void gevr_ring_replay_done(void)
+{
+    if (!s_stageRing) return;
+    glBindVertexArray(opengl_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+    if (s_curPrg) gfx_opengl_vertex_array_set_attribs(s_curPrg);
+}
 static bool s_depthArgs[4];
 static uint16_t s_depthZmode;
 static bool s_opaqueDepthWrite;
@@ -2468,30 +2495,6 @@ struct GevrReplayBindings {
     bool haveVao = false, mesh = false, haveCull = false, paletteBound = false;
 };
 static void gevr_replay_vao(GevrReplayBindings&, GLuint, bool);
-/* The buffer a replay's ring draws come from: the mapped ring itself, or a
- * staged segment, uploaded whole when it has grown past what was sent. */
-static GLuint gevr_ring_replay_vbo(int seg, GLsizeiptr need)
-{
-    if (!s_stageRing || seg < 0 || seg >= GEVR_PM_SEGMENTS) return opengl_vbo;
-    if (!s_stageVbo[seg]) glGenBuffers(1, &s_stageVbo[seg]);
-    glBindBuffer(GL_ARRAY_BUFFER, s_stageVbo[seg]);
-    if (s_stageUploaded[seg] < need) {
-        const GLsizeiptr used = std::max(s_stageUsed[seg], need);
-        glBufferData(GL_ARRAY_BUFFER, used, s_pmPtr + (size_t)seg * (size_t)s_pmSegSize, GL_STREAM_DRAW);
-        s_stageUploaded[seg] = used;
-    }
-    return s_stageVbo[seg];
-}
-/* After a replay from a staged segment: the ring's attributes back on fast3d's
- * own buffer (they follow the buffer bound when a program was loaded). */
-static void gfx_opengl_vertex_array_set_attribs(struct ShaderProgram* prg);
-static void gevr_ring_replay_done(void)
-{
-    if (!s_stageRing) return;
-    glBindVertexArray(opengl_vao);
-    glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
-    if (s_curPrg) gfx_opengl_vertex_array_set_attribs(s_curPrg);
-}
 static void gevr_replay_mesh(GevrReplayBindings&, const ShaderProgram*, const GfxMeshDrawParams*, int);
 static bool s_scopeRec;
 static bool s_scopeTaken[2], s_scopeDrawn[2];   // per hand: recording this frame / image ready
