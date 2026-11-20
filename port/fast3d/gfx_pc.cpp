@@ -6171,6 +6171,26 @@ extern "C" int gevrTexpackWarmDl(const void* dl, const void* seg5) {
 }
 #endif
 
+/* The flat game's mesh counters each second or so, as the headset's
+ * run_display_list logs them (Show stats, or a benchmark run with --perf-log;
+ * Apple TV, 2026-11-20): how much of Bean the GPU draws and what the CPU still
+ * transforms. The headset path resets them itself. */
+static void gevr_flat_mesh_report(void) {
+    static uint32_t frames;
+    static const bool perfArg = sysArgCheck("--perf-log") != 0;
+    if (++frames < 60) return;
+    if (VrShowStats || perfArg) {
+        sysLogPrintf(LOG_NOTE, "mesh: %u frames: %u draws, %u tris, %u runs on the CPU, %u meshes in buffers; "
+                     "skin %u draws, %u tris, %u CPU poses; culled %u chunks, %u tris", frames, s_gevrMeshDraws,
+                     s_gevrMeshTris, s_gevrMeshFallbacks, (unsigned)s_gevrMeshLive.size(), s_gevrSkinDraws,
+                     s_gevrSkinTris, s_gevrSkinPoses, s_gevrMeshCulled, s_gevrMeshCulledTris);
+    }
+    frames = 0;
+    s_gevrSkinDraws = s_gevrSkinTris = s_gevrSkinPoses = 0;
+    s_gevrMeshCulled = s_gevrMeshCulledTris = 0;
+    s_gevrMeshDraws = s_gevrMeshTris = s_gevrMeshFallbacks = 0;
+}
+
 extern "C" void gfx_run(Gfx* commands) {
     ++num_dls;
     s_surfaceSampleFrame = false;
@@ -6566,6 +6586,7 @@ extern "C" void gfx_run(Gfx* commands) {
         rdp.viewport_or_scissor_changed = true;
         gfx_run_dl(commands);
         gfx_flush();
+        gevr_flat_mesh_report();
         if (screenTarget) {
             vr_screen_target_end();
             vr_screen_present(vr_screen_target_tex(), (int)w, (int)h);
