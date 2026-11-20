@@ -1559,14 +1559,41 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             f32 lx = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX) / 32767.0f;
             f32 ly = -SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY) / 32767.0f;
 #ifdef GEVR_TVOS
-            /* The Siri Remote (2nd generation), when it is player 1's: the
-             * ring's clicks are the stick (the menus' cursor; walking and
-             * strafing in play), not its touch surface, too touchy (#268) */
-            {
+            /*
+             * The Siri Remote, when it is player 1's (#268; its buttons are
+             * this block's alone, inputKeyPressed leaves them out). A 2nd
+             * generation's ring clicks are the stick (the menus' cursor;
+             * walking and strafing in play), not its touch surface, too
+             * touchy; a 1st generation's touch surface stays the stick. The
+             * click (a 2nd's centre) fires in play and chooses in menus: it
+             * was A, GoldenEye's weapon change, and nothing fired. Play/Pause
+             * tapped is A, held half a second START (the watch, the remote's
+             * only way to pause). Back stays B.
+             */
+            if (!SDL_GameControllerHasAxis(pad, SDL_CONTROLLER_AXIS_RIGHTX)) {
+                static u64 playSince;
+                static s32 tapReads;
                 int rdx, rdy, centre;
-                if (!SDL_GameControllerHasAxis(pad, SDL_CONTROLLER_AXIS_RIGHTX) && gevrTvRemoteHeld(&rdx, &rdy, &centre)) {
+                if (gevrTvRemoteHeld(&rdx, &rdy, &centre)) {
                     lx = (f32)rdx;
                     ly = (f32)rdy;
+                } else {
+                    centre = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A);
+                }
+                if (centre) {
+                    npad->button |= menu ? A_BUTTON : Z_TRIG;
+                }
+                const u64 now = sysGetMicroseconds();
+                if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_X)) {
+                    if (!playSince) playSince = now;
+                    if (now - playSince >= 500000) npad->button |= START_BUTTON;
+                } else if (playSince) {
+                    if (now - playSince < 500000) tapReads = 4;   // a tap: A, long enough for a tick to see it
+                    playSince = 0;
+                }
+                if (tapReads > 0) {
+                    tapReads--;
+                    npad->button |= A_BUTTON;
                 }
             }
 #endif
@@ -3670,12 +3697,11 @@ s32 inputKeyPressed(u32 vk)
             return SDL_GameControllerGetAxis(pads[idx], trig) > TRIG_THRESHOLD;
         }
 #ifdef GEVR_TVOS
-        /* the Siri Remote's A is any click to SDL, the ring's too: the centre's alone */
-        if (vk == SDL_CONTROLLER_BUTTON_A && !SDL_GameControllerHasAxis(pads[idx], SDL_CONTROLLER_AXIS_RIGHTX)) {
-            int dx, dy, centre;
-            if (gevrTvRemoteHeld(&dx, &dy, &centre)) {
-                return centre;
-            }
+        /* the Siri Remote's click and Play/Pause: inputReadController's own
+         * (SDL's A is any click, the ring's too, and in play the click fires) */
+        if ((vk == SDL_CONTROLLER_BUTTON_A || vk == SDL_CONTROLLER_BUTTON_X)
+            && !SDL_GameControllerHasAxis(pads[idx], SDL_CONTROLLER_AXIS_RIGHTX)) {
+            return 0;
         }
 #endif
         return SDL_GameControllerGetButton(pads[idx], vk);
