@@ -232,7 +232,9 @@ static int padVibGet(void)
     int i = (int)floorf(inputRumbleGetStrength(0) * 10.0f + 0.5f);
     return i < 0 ? 0 : i > 10 ? 10 : i;
 }
-static void padVibSet(int i) { inputRumbleSetStrength(0, (float)i / 10.0f); }
+extern void inputRumbleTest(int cidx);
+/* each change buzzes the pad at the new strength, as the VR Haptics page does */
+static void padVibSet(int i) { inputRumbleSetStrength(0, (float)i / 10.0f); inputRumbleTest(0); }
 static void padVibText(int i, char *b, int n)
 {
     if (i == 0) snprintf(b, n, "Off");

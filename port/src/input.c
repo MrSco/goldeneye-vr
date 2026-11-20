@@ -2941,12 +2941,29 @@ s32 inputRumbleSupported(s32 idx) {
 static void inputPadRumble(s32 idx, f32 amp, f32 seconds)
 {
     static SDL_GameController *refused[INPUT_MAX_CONTROLLERS];
+    static u32 told;   // the first few pulses in the log: sent, or never asked for
     const u16 level = (u16)(amp * 65535.f);
-    if (SDL_GameControllerRumble(pads[idx], level, level, (u32)(seconds * 1000.f)) != 0 && refused[idx] != pads[idx]) {
+    const int rc = SDL_GameControllerRumble(pads[idx], level, level, (u32)(seconds * 1000.f));
+    if (amp > 0.f && told < 3) {
+        told++;
+        sysLogPrintf(LOG_NOTE, "input: player %d's pad '%s' rumbles %.2f for %u ms (%s)", idx,
+                     SDL_GameControllerName(pads[idx]), amp, (unsigned)(seconds * 1000.f), rc == 0 ? "sent" : "refused");
+    }
+    if (rc != 0 && refused[idx] != pads[idx]) {
         refused[idx] = pads[idx];
         sysLogPrintf(LOG_WARNING, "input: player %d's pad '%s' refused rumble: %s", idx,
                      SDL_GameControllerName(pads[idx]), SDL_GetError());
     }
+}
+
+/* The settings' Vibration row (gevr_settings.c): one shot's buzz at the new strength */
+void inputRumbleTest(s32 idx)
+{
+    if (idx < 0 || idx >= INPUT_MAX_CONTROLLERS || !pads[idx] || !padsCfg[idx].rumbleOn
+        || padsCfg[idx].rumbleScale <= 0.f) {
+        return;
+    }
+    inputPadRumble(idx, padsCfg[idx].rumbleScale > 1.f ? 1.f : padsCfg[idx].rumbleScale, 0.2f);
 }
 
 void inputRumble(s32 idx, f32 strength, f32 time) {
@@ -3177,10 +3194,12 @@ void gevrRumbleGunfire(s32 hand, s32 item_id) {
         }
     }
 
-    // Gamepad controller rumble
+    // Gamepad controller rumble: a Rumble Pak's shot, as Dab's Mod gives a
+    // pad (bondgun.c bgunRumble: pakRumble 0.2 s, the motor full on, times
+    // the pad's Vibration). The table's Touch pulse (half strength, 60 ms,
+    // halved again by Vibration) was too faint to feel on a pad (#268).
     if (pads[0] && padsCfg[0].rumbleOn && padsCfg[0].rumbleScale > 0.f) {
-        f32 padAmp = amp * padsCfg[0].rumbleScale;
-        inputPadRumble(0, padAmp > 1.f ? 1.f : padAmp, p.duration);
+        inputPadRumble(0, padsCfg[0].rumbleScale > 1.f ? 1.f : padsCfg[0].rumbleScale, 0.2f);
     }
 }
 
@@ -3202,10 +3221,10 @@ void gevrRumbleDamage(f32 damage_amount, s32 is_explosion) {
         trigger_haptic_vibration_freq_c(1, base_amp, base_dur, freq);
     }
 
-    // Gamepad controller rumble
+    // Gamepad controller rumble: a hit as Dab's Mod gives a pad
+    // (chraction.c: pakRumble 0.25 s, the motor full on, times Vibration)
     if (pads[0] && padsCfg[0].rumbleOn && padsCfg[0].rumbleScale > 0.f) {
-        f32 padAmp = base_amp * padsCfg[0].rumbleScale;
-        inputPadRumble(0, padAmp > 1.f ? 1.f : padAmp, base_dur);
+        inputPadRumble(0, padsCfg[0].rumbleScale > 1.f ? 1.f : padsCfg[0].rumbleScale, 0.25f);
     }
 }
 

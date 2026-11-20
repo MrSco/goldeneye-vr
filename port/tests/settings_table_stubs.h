@@ -23,6 +23,7 @@ int VrScreenShape, VrTouchHaptics = 1, VrGyroAim;   /* flat games: the screen, a
 static float s_padRumble = 0.5f;   /* input.c's pad rumble scale (Pad vibration) */
 float inputRumbleGetStrength(int cidx) { (void)cidx; return s_padRumble; }
 void inputRumbleSetStrength(int cidx, float val) { (void)cidx; s_padRumble = val; }
+void inputRumbleTest(int cidx) { (void)cidx; }   /* input.c: the Vibration row's buzz */
 float VrGyroSpeed = 1.5f;
 int VrMinesStickToGuards, VrBodiesStay, VrFastReinforcements, VrRagdolls, VrDismemberment, VrDismemberChance = 40;
 int VrGexGuns, VrBeanFillTextures, VrBloodPatch, VrOddjobHat, VrEyeMsaa = 1;
