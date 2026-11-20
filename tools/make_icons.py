@@ -296,12 +296,13 @@ def ios_app_icon():
     print('wrote port/ios/Assets.xcassets/AppIcon.appiconset')
 
 
-# Apple TV (port/tvos/project.yml): the home screen's icon is a layered image
-# stack that tilts under the focus: the app icon everywhere else
-# (app_icon.jpg, whole) floating in front of a blurred, darkened copy of
-# itself that fills the TV's wider shape. The Top Shelf, shown while the icon
-# is focused, is the README's Dam banner (docs/banner.png, the user's art since
-# 2026-10-16, not banner_source.jpg). Every size App Store validation asks
+# Apple TV (port/tvos/project.yml): the home screen's icon is a wide (5:3)
+# layered stack that tilts under the focus: the README's Dam banner
+# (docs/banner.png, the user's art since 2026-10-16, not banner_source.jpg)
+# filling it, cut around its logo, behind a clear front layer (tvOS asks for
+# two layers or more); until 2026-11-20 it was the square app icon on a blur
+# of itself, as House of the Dead VR's was. The Top Shelf, shown while the
+# icon is focused, is the banner too. Every size App Store validation asks
 # for, at 1x and 2x. The opaque pictures are JPEG, which the asset catalog
 # takes, so the repository stays small.
 TV_INFO = {'author': 'xcode', 'version': 1}
@@ -323,27 +324,29 @@ def tv_save(img, path):
     print('wrote', os.path.relpath(path, ROOT), img.size)
 
 
-def tv_cover(src, w, h):
-    """src scaled to cover w x h, centred, the overflow cut."""
+def tv_cover(src, w, h, cx=0.5):
+    """src scaled to cover w x h, the overflow cut; cx: the fraction of src's
+    width to keep in the middle, where the crop allows."""
     k = max(w / src.width, h / src.height)
     src = src.resize((int(src.width * k + 0.5), int(src.height * k + 0.5)), Image.LANCZOS)
-    x0, y0 = (src.width - w) // 2, (src.height - h) // 2
+    x0 = min(max(int(src.width * cx - w / 2), 0), src.width - w)
+    y0 = (src.height - h) // 2
     return src.crop((x0, y0, x0 + w, y0 + h))
 
 
+# docs/banner.png's logo, the middle of its golden letters (x 454-903 of 1635):
+# the icon's 5:3 keeps 700 of the banner's 1635 columns, and centred it cut the G
+BANNER_LOGO_X = 0.415
+
+
 def tv_back(w, h):
-    """The stack's back: the app icon across the whole shape, blurred and darker."""
-    img = tv_cover(Image.open(os.path.join(ART, 'app_icon.jpg')).convert('RGB'), w, h)
-    img = img.filter(ImageFilter.GaussianBlur(w * 0.025))
-    return Image.blend(img, Image.new('RGB', (w, h), BLACK), 0.35)
+    """The stack's back: the Dam banner across the whole shape, the logo in the middle."""
+    return tv_cover(Image.open(os.path.join(ROOT, 'docs', 'banner.png')).convert('RGB'), w, h, BANNER_LOGO_X)
 
 
 def tv_front(w, h):
-    """The stack's front: the app icon, whole, in the middle, on transparency."""
-    side = int(h * 0.88)
-    out = Image.new('RGBA', (w, h), (0, 0, 0, 0))
-    out.paste(art_icon(side), ((w - side) // 2, (h - side) // 2))
-    return out
+    """The stack's front: clear (the banner is the picture)."""
+    return Image.new('RGBA', (w, h), (0, 0, 0, 0))
 
 
 def tv_shelf(w, h):
