@@ -995,6 +995,9 @@ static s32 inputIosPadKeyIgnored(const u32 scancode)
 }
 #endif
 
+#ifdef GEVR_TVOS
+int gevrTvRemoteHeld(int *dx, int *dy, int *centre);   // port/ios/ios_app.m
+#endif
 #ifdef GEVR_IOS
 void pcReportForeground(int active);   // port/pc/pc_reports.cpp
 void gevrIosDualSenseTrigger(int right, float amp);   // port/ios/ios_app.m
@@ -1553,8 +1556,20 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         SDL_GameController *pad = pads[0];
         if (pad) {
             const struct controllercfg *pcfg = &padsCfg[0];
-            const f32 lx = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX) / 32767.0f;
-            const f32 ly = -SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY) / 32767.0f;
+            f32 lx = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX) / 32767.0f;
+            f32 ly = -SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY) / 32767.0f;
+#ifdef GEVR_TVOS
+            /* The Siri Remote (2nd generation), when it is player 1's: the
+             * ring's clicks are the stick (the menus' cursor; walking and
+             * strafing in play), not its touch surface, too touchy (#268) */
+            {
+                int rdx, rdy, centre;
+                if (!SDL_GameControllerHasAxis(pad, SDL_CONTROLLER_AXIS_RIGHTX) && gevrTvRemoteHeld(&rdx, &rdy, &centre)) {
+                    lx = (f32)rdx;
+                    ly = (f32)rdy;
+                }
+            }
+#endif
             const f32 rx = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTX) / 32767.0f;
             const f32 ry = -SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTY) / 32767.0f;
             f32 sx = rx, sy = ry;
@@ -3654,6 +3669,15 @@ s32 inputKeyPressed(u32 vk)
             const s32 trig = SDL_CONTROLLER_AXIS_TRIGGERLEFT + vk - 30;
             return SDL_GameControllerGetAxis(pads[idx], trig) > TRIG_THRESHOLD;
         }
+#ifdef GEVR_TVOS
+        /* the Siri Remote's A is any click to SDL, the ring's too: the centre's alone */
+        if (vk == SDL_CONTROLLER_BUTTON_A && !SDL_GameControllerHasAxis(pads[idx], SDL_CONTROLLER_AXIS_RIGHTX)) {
+            int dx, dy, centre;
+            if (gevrTvRemoteHeld(&dx, &dy, &centre)) {
+                return centre;
+            }
+        }
+#endif
         return SDL_GameControllerGetButton(pads[idx], vk);
     }
 #endif

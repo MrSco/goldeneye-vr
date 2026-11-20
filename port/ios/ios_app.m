@@ -212,15 +212,20 @@ void gevrIosPrepare(void)
     // landscape only, so SDL never lays its view out portrait (Info.plist agrees)
     SDL_SetHintWithPriority(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight", SDL_HINT_OVERRIDE);
 #if TARGET_OS_TV
-    // Apple TV: the Siri Remote is a pad, read through GameController (its
-    // touch surface or ring, the click as A, Back as B, Play/Pause as X), and
-    // it drives the launcher. Every controller's presses are the game's alone,
+    // Apple TV: the Siri Remote is a pad, read through GameController (a 2nd
+    // generation's ring clicks and centre click, gevrTvRemoteHeld; a 1st's
+    // touch surface and click; Back as B, Play/Pause as X), and it drives the
+    // launcher. Every controller's presses are the game's alone,
     // so Back never leaves the app (the TV button still does). As keys
     // instead, its presses never reached SDL's view (simulator, 2026-11-18:
     // the system's Settings took the same presses). tvos_upload.mm hands
     // controllers to UIKit while its dialog is up.
     SDL_SetHintWithPriority(SDL_HINT_TV_REMOTE_AS_JOYSTICK, "1", SDL_HINT_OVERRIDE);
     SDL_SetHintWithPriority(SDL_HINT_APPLE_TV_CONTROLLER_UI_EVENTS, "0", SDL_HINT_OVERRIDE);
+    // No touch screen: SDL made a mouse of the remote's touch surface too (a
+    // touch a press, a swipe a drag wherever the pointer was), which grabbed
+    // the launcher's sliders and dragged them (#268, Apple TV 4K)
+    SDL_SetHintWithPriority(SDL_HINT_TOUCH_MOUSE_EVENTS, "0", SDL_HINT_OVERRIDE);
 #endif
     // which controllers the system hands the app (the iPad app on Vision Pro)
     [NSNotificationCenter.defaultCenter addObserverForName:GCControllerDidConnectNotification object:nil queue:nil
@@ -482,6 +487,32 @@ int gevrTvRemoteMenu(int *step, int *select)
         lastRepeat = now;
     }
     heldDir = dir;
+    return ring;
+}
+
+/*
+ * The 2nd generation remote in the game (input.c): the ring's clicks as a
+ * d-pad (*dx -1 left, 1 right; *dy 1 up, -1 down) and the centre click, as
+ * held. 1 with such a remote connected. Its touch surface is left out: too
+ * touchy to steer with (#268), and SDL's A is any click, the ring's too.
+ */
+int gevrTvRemoteHeld(int *dx, int *dy, int *centre)
+{
+    int ring = 0;
+    *dx = *dy = *centre = 0;
+    for (GCController *c in GCController.controllers) {
+        if (!c.microGamepad || c.extendedGamepad) continue;
+        GCPhysicalInputProfile *p = c.physicalInputProfile;
+        GCControllerDirectionPad *d = p.dpads[@"Cardinal Direction Pad"];
+        GCControllerButtonInput *center = p.buttons[@"Button Center"];
+        if (!d || !center) continue;   // a 1st generation remote: its touch surface is the stick
+        ring = 1;
+        if (d.up.isPressed) *dy = 1;
+        else if (d.down.isPressed) *dy = -1;
+        if (d.left.isPressed) *dx = -1;
+        else if (d.right.isPressed) *dx = 1;
+        if (center.isPressed) *centre = 1;
+    }
     return ring;
 }
 #endif
