@@ -57,8 +57,8 @@ Apple TV's remote and pads on a device.
 - Pads in the headset (Quest, PC VR) as a Touch pair, as Vision Pro does:
   the virtual screen's play like the flat game. PC VR built; Quest not built
   here (no keystore in this worktree); untested.
-- Apple TV home-screen icon: the wide Dam banner around its logo (make_icons
-  tvos), as HotD's; the file page (ROM, XBLA, CE updater) shows a QR code of
+- Apple TV home-screen icon: Frozen Inferno (docs/art/tv_icon.jpg, make_icons
+  tvos), wide like HotD's; the file page (ROM, XBLA, CE updater) shows a QR code of
   the address, as HotD's ROM page (simulator: decodes, 40 MB sent, progress).
 - Reports #35: the dev install's relaunch, not a crash.
 - Open: #249. Device checks for all of the above.
