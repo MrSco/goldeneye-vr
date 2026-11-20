@@ -72,6 +72,21 @@ Apple TV's remote and pads on a device.
 - Reports #35: the dev install's relaunch, not a crash.
 - Open: #249. Device checks for all of the above.
 
+## Local split screen (branch t3/local-split-screen, from v0.5.22, not pushed)
+
+GoldenEye's own 2-4 player split on flat builds (Windows, Linux, Apple TV,
+iPhone, iPad, Android phones), offline; phase 2 (local guests online) later.
+Multiplayer opens on a join page: each device presses to play (a pad A or
+START, the keyboard Enter, a tap), the order is the player numbers, B or
+Escape leaves. The keyboard can be any player (mouse look follows it). No
+join, no change: solo keeps every pad on player 1, so a pad plugged in
+mid-mission plays at once. Depth-clear fix for the lower views (a cream
+sheet over player 1). Windows-tested with scripted virtual pads (2 and 4
+players, keyboard first or second); suite + WSL gate pass. Open: a real
+pad pair on Windows, the Apple TV (two pads; the remote never joins), a
+phone; 3-4 player frame rate on slow devices; true drop-in mid-match (a pad
+that did not join waits for the next join page).
+
 ## Platforms (docs/pc-platforms.md, docs/mobile-platforms.md)
 
 - **Quest** (main target): `quest` flavor, com.gevr.port.

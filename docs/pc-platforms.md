@@ -257,6 +257,23 @@ policy cases, the redaction patterns, the gzip member, the crash record, the upd
   and turns (the game's stick), right trigger fires, left trigger or RB
   aims, A/X are A, B/Y are B, LB is L, Start, the d-pad is the C buttons;
   in menus the stick pushed further navigates.
+- **Local split screen** (GoldenEye's own, 2-4 players, offline). Multiplayer
+  opens on a join page (front.c, the options folder's first page; input.c
+  inputJoinFrame): each device presses to play and the order is the player
+  numbers. A pad joins with A or START and leaves with B; the keyboard and
+  mouse (one device; on phones the touch controls) with Enter, Space, a
+  click or a tap, and leave with Escape, Backspace or a right click. A
+  joined START or Enter plays once two have joined; the last one out goes
+  back. Multiplayer is there to choose with two devices that could play.
+  Player p reads slot `s_seatSlot[p]`: the keyboard is always slot 0's (its
+  binds, the mouse, the touch controls, the F10 panel), so when it joins
+  the joined pads move to the slots after it, and mouse look, its crosshair
+  swivel and the crouch toggle follow its player (bondview2.c
+  inputOwnPlayer). Each further pad's sticks read as player 1's pad's. The
+  HUD keeps the game's own per-view layout (hudaspect.h), rumble goes to the
+  player's pad (libultra.c maps the Rumble Pak channel), and the mode select
+  clears the seats. With no join (solo, the menus before it) every pad is
+  player 1's, whichever slot it took. A TV's Siri Remote never joins.
 - The Perfect Dark port's pad support was off for VR: its controller
   setup in inputInit and the pad branch of inputKeyPressed run again on PC.
   Custom binds from the ini are not loaded yet (inputLoadBinds is off).
@@ -269,8 +286,9 @@ the tank it turns the turret. Not ported yet: Midas's aim lock, wide-window
 aim reach, pad look stick, crosshair snap and aim-mode edge turn.
 
 **Testing without the desktop:** `--input-script FILE` (port/pc/pc_testinput.c)
-feeds timed mouse moves, clicks, held keys, a virtual gamepad (SDL's,
-seen by the game as a real pad), a launcher pointer (`point X Y`, canvas
+feeds timed mouse moves, clicks, held keys, virtual gamepads (SDL's,
+seen by the game as real pads: `pad`/`axis` for the first, `pad2`..`pad4`
+and `axis2`..`axis4` for a split screen's others), a launcher pointer (`point X Y`, canvas
 units), the free mouse over the game's window (`mouse X Y`, thousandths of
 the window: the front end's pointer) and typed text into the game, `pick PATH` answers the next file
 picker (a scripted run never opens the Open dialog; with no pick waiting the
