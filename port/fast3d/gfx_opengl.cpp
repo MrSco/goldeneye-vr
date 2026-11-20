@@ -684,6 +684,24 @@ static int s_pmSeg = -1;
 static uint32_t s_pmFrame = 0xffffffffu;
 static GLsync s_pmFence[GEVR_PM_SEGMENTS];
 static unsigned s_pmFallbacks;
+/*
+ * Vision Pro: ANGLE on Metal has no GL_EXT_buffer_storage, and with
+ * glBufferData per draw nothing kept a draw's vertices, so the eye pass could
+ * not be kept: no redraw between game frames (issue #53), no early tick's
+ * deferred eye pass, no SpaceWarp motion pass. The frame stood still for a
+ * panel slot in three at 90 Hz, or every other at 45, and stick walking or
+ * turning showed every edge twice (tester, 2026-11-19). The staged ring is
+ * the same three segments in plain memory: a draw made at once still uploads
+ * its own vertices, and a replay first uploads its segment whole, once, into
+ * that segment's own buffer (gevr_ring_replay_vbo). Its firsts count from the
+ * segment's start. No fences: the GPU never reads this memory.
+ */
+static bool s_stageRing;
+static GLuint s_stageVbo[GEVR_PM_SEGMENTS];
+static GLsizeiptr s_stageUsed[GEVR_PM_SEGMENTS], s_stageUploaded[GEVR_PM_SEGMENTS];
+static int s_eyeSeg = -1, s_scopeSeg = -1;          // the segment their ring draws are in
+static GLsizeiptr s_eyeNeed, s_scopeNeed;            // ... and how much of it they use
+static inline GLsizeiptr gevr_pm_base(void) { return s_stageRing ? (GLsizeiptr)s_pmSeg * s_pmSegSize : 0; }
 static unsigned gevr_pm_poll(void *context, uint64_t timeout) {
     return glClientWaitSync(*(GLsync *)context, GL_SYNC_FLUSH_COMMANDS_BIT, timeout);
 }
@@ -698,6 +716,12 @@ static void gevr_pm_fallback(const char *what, unsigned result) {
 }
 static void gevr_pm_next_segment(void)
 {
+    if (s_stageRing) {
+        s_pmSeg = (s_pmSeg + 1) % GEVR_PM_SEGMENTS;
+        s_pmOff = (GLsizeiptr)s_pmSeg * s_pmSegSize;
+        s_stageUsed[s_pmSeg] = s_stageUploaded[s_pmSeg] = 0;
+        return;
+    }
     if (s_pmSeg >= 0) {
         if (s_pmFence[s_pmSeg]) glDeleteSync(s_pmFence[s_pmSeg]);
         s_pmFence[s_pmSeg] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
@@ -2438,11 +2462,36 @@ static void gevr_mesh_cull(int);
 // Owned by one scope/eye pass. External renderers never inherit this cache.
 struct GevrReplayBindings {
     GLuint vao = 0;
+    GLuint ring = 0;   // the ring draws' buffer (gevr_ring_replay_vbo), 0 opengl_vbo
     GLuint attribs = 0;
     int cull = 0;
     bool haveVao = false, mesh = false, haveCull = false, paletteBound = false;
 };
 static void gevr_replay_vao(GevrReplayBindings&, GLuint, bool);
+/* The buffer a replay's ring draws come from: the mapped ring itself, or a
+ * staged segment, uploaded whole when it has grown past what was sent. */
+static GLuint gevr_ring_replay_vbo(int seg, GLsizeiptr need)
+{
+    if (!s_stageRing || seg < 0 || seg >= GEVR_PM_SEGMENTS) return opengl_vbo;
+    if (!s_stageVbo[seg]) glGenBuffers(1, &s_stageVbo[seg]);
+    glBindBuffer(GL_ARRAY_BUFFER, s_stageVbo[seg]);
+    if (s_stageUploaded[seg] < need) {
+        const GLsizeiptr used = std::max(s_stageUsed[seg], need);
+        glBufferData(GL_ARRAY_BUFFER, used, s_pmPtr + (size_t)seg * (size_t)s_pmSegSize, GL_STREAM_DRAW);
+        s_stageUploaded[seg] = used;
+    }
+    return s_stageVbo[seg];
+}
+/* After a replay from a staged segment: the ring's attributes back on fast3d's
+ * own buffer (they follow the buffer bound when a program was loaded). */
+static void gfx_opengl_vertex_array_set_attribs(struct ShaderProgram* prg);
+static void gevr_ring_replay_done(void)
+{
+    if (!s_stageRing) return;
+    glBindVertexArray(opengl_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+    if (s_curPrg) gfx_opengl_vertex_array_set_attribs(s_curPrg);
+}
 static void gevr_replay_mesh(GevrReplayBindings&, const ShaderProgram*, const GfxMeshDrawParams*, int);
 static bool s_scopeRec;
 static bool s_scopeTaken[2], s_scopeDrawn[2];   // per hand: recording this frame / image ready
@@ -2584,6 +2633,8 @@ static void gevr_scope_keep(GLint first, const float* buf_vbo, size_t buf_vbo_le
     if (s_curPrg == NULL || gForceFlatShaderForMenu || vr_dl_is_pause_or_menu || buf_vbo[3] == 1.0f) {
         return;
     }
+    s_scopeSeg = s_pmSeg;
+    s_scopeNeed = s_pmOff - gevr_pm_base();
     uint8_t mask = s_scopeOnlyMask;
     if (mask == 0) {
         for (int h = 0; h < 2; h++) {
@@ -2690,7 +2741,8 @@ void gfx_vr_scope_render(void)
     if (opengl_vao) {
         glBindVertexArray(opengl_vao);
     }
-    glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+    const GLuint ringVbo = gevr_ring_replay_vbo(s_scopeSeg, s_scopeNeed);
+    glBindBuffer(GL_ARRAY_BUFFER, ringVbo);
 
     static std::vector<struct ShaderProgram*> touched;
     touched.clear();
@@ -2712,6 +2764,7 @@ void gfx_vr_scope_render(void)
         // camera, depth and blend state whatever the previous pass left
         const GevrScopeDraw* last = NULL;
         GevrReplayBindings bindings;
+        bindings.ring = ringVbo;
         GLuint replayTex[2] = {};
         bool haveTexture[2] = {};
         int replayFilter[2] = { -1, -1 };
@@ -2856,6 +2909,7 @@ void gfx_vr_scope_render(void)
     if (blendOn) glEnable(GL_BLEND); else glDisable(GL_BLEND);
     glBlendFuncSeparate((GLenum)blendSrcRgb, (GLenum)blendDstRgb, (GLenum)blendSrcA, (GLenum)blendDstA);
     glClearColor(clearCol[0], clearCol[1], clearCol[2], clearCol[3]);
+    gevr_ring_replay_done();
     glBindVertexArray((GLuint)prevVao);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint)prevDraw);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)prevRead);
@@ -2914,18 +2968,19 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
             s_pmFrame = frame_count;
             gevr_pm_next_segment();
         }
-        GLsizeiptr off = (s_pmOff + stride - 1) / stride * stride;
+        GLsizeiptr off = gevr_pm_base() + (s_pmOff - gevr_pm_base() + stride - 1) / stride * stride;
         if (off + bytes > (GLsizeiptr)(s_pmSeg + 1) * s_pmSegSize) {
             static unsigned s_spills;
             if (!(s_spills++ & (s_spills - 1)))   /* the 1st, 2nd, 4th... */
                 sysLogPrintf(LOG_WARNING, "vertex-ring: a frame outgrew its %d MB segment (%u so far): "
                              "its redraws may show stale vertices", (int)(s_pmSegSize >> 20), s_spills);
             gevr_pm_next_segment();   /* a frame too big for one segment: take the next */
-            off = (s_pmOff + stride - 1) / stride * stride;
+            off = gevr_pm_base() + (s_pmOff - gevr_pm_base() + stride - 1) / stride * stride;
         }
         memcpy(s_pmPtr + off, buf_vbo, (size_t)bytes);
         s_pmOff = off + bytes;
-        first = (GLint)(off / stride);
+        first = (GLint)((off - gevr_pm_base()) / stride);
+        if (s_stageRing) s_stageUsed[s_pmSeg] = s_pmOff - gevr_pm_base();
     } else {
         glBufferData(GL_ARRAY_BUFFER, sizeof(float) * buf_vbo_len, buf_vbo, GL_STREAM_DRAW);
     }
@@ -2946,6 +3001,11 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
     }
     if (gevr_eye_draw_deferred()) {
         return;   // the replay draws it in its XR frame
+    }
+    if (s_stageRing) {
+        // drawn now: its own vertices up (the segment goes up whole for a replay)
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(sizeof(float) * buf_vbo_len), buf_vbo, GL_STREAM_DRAW);
+        first = 0;
     }
 
 
@@ -3436,6 +3496,10 @@ static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode)
     if (s_curPrg == NULL || gForceFlatShaderForMenu || gVrFlatPass) {
         return;
     }
+    if (!s_eyeKeepMesh) {
+        s_eyeSeg = s_pmSeg;
+        s_eyeNeed = s_pmOff - gevr_pm_base();
+    }
     GevrEyeDraw d;
     d.prg = s_curPrg;
     d.first = first;
@@ -3610,7 +3674,7 @@ static void gevr_replay_vao(GevrReplayBindings& state, GLuint vao, bool mesh)
     }
     if (!state.haveVao || state.mesh != mesh) {
         gevr_mesh_clip(mesh);
-        if (!mesh) glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+        if (!mesh) glBindBuffer(GL_ARRAY_BUFFER, state.ring ? state.ring : opengl_vbo);
     }
     if (!mesh && (!state.haveCull || state.cull != 0)) {
         gevr_mesh_cull(0);
@@ -3681,7 +3745,8 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
     if (opengl_vao) {
         glBindVertexArray(opengl_vao);
     }
-    glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+    const GLuint ringVbo = gevr_ring_replay_vbo(s_eyeSeg, s_eyeNeed);
+    glBindBuffer(GL_ARRAY_BUFFER, ringVbo);
 
     static std::vector<struct ShaderProgram*> touched;
     touched.clear();
@@ -3693,6 +3758,7 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
     bool haveTexture[2] = {};
     int replayFilter[2] = { -1, -1 };
     GevrReplayBindings bindings;
+    bindings.ring = ringVbo;
     for (const GevrEyeDraw& d : s_eyeDraws) {
         gevr_replay_vao(bindings, d.mesh ? s_eyeMeshes[d.mesh - 1].vao : opengl_vao, d.mesh != 0);
         if (last == NULL || d.prg != bound) {
@@ -3796,6 +3862,7 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
     glBlendFuncSeparate((GLenum)blendSrcRgb, (GLenum)blendDstRgb, (GLenum)blendSrcA, (GLenum)blendDstA);
     gfx_opengl_set_viewport(savedViewport[0], savedViewport[1], savedViewport[2], savedViewport[3]);
     gfx_opengl_set_scissor(savedScissor[0], savedScissor[1], savedScissor[2], savedScissor[3]);
+    gevr_ring_replay_done();
     glBindVertexArray((GLuint)prevVao);
     s_uniCacheValid = false;
 }
@@ -4114,6 +4181,7 @@ void gfx_vr_motion_pass(const float* const cur[4], const float* const prev[4], b
     glBindBufferBase(GL_UNIFORM_BUFFER, 3, s_motionPalette[1]);
 
     const GevrMotionProgram* bound = NULL;
+    const GLuint ringVbo = gevr_ring_replay_vbo(s_eyeSeg, s_eyeNeed);
     GLuint vao = 0, tex = 0;
     GLsizei stride = -1;
     bool texCoords = false;
@@ -4147,7 +4215,7 @@ void gfx_vr_motion_pass(const float* const cur[4], const float* const prev[4], b
         const GLuint want = mesh ? mesh->vao : opengl_vao;
         if (want != vao) {
             glBindVertexArray(want);
-            if (!mesh) glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+            if (!mesh) glBindBuffer(GL_ARRAY_BUFFER, ringVbo);
             vao = want;
             stride = -1;
         }
@@ -4904,7 +4972,16 @@ static void gfx_opengl_init(void) {
                 glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
             }
         }
-        sysLogPrintf(LOG_NOTE, "GL: persistent vertex buffer %s", s_pmPtr ? "on (3 x 16 MB)" : "off (glBufferData per draw)");
+#ifdef GEVR_VISIONOS
+        // Vision Pro: the staged ring (see s_stageRing)
+        if (!s_pmPtr) {
+            s_pmPtr = (uint8_t *)malloc((size_t)segment * GEVR_PM_SEGMENTS);
+            s_stageRing = s_pmPtr != NULL;
+            if (s_stageRing) s_pmSegSize = segment;
+        }
+#endif
+        sysLogPrintf(LOG_NOTE, "GL: persistent vertex buffer %s", s_stageRing ? "staged (3 x 16 MB in memory, a segment a replay)"
+                     : s_pmPtr ? "on (3 x 16 MB)" : "off (glBufferData per draw)");
     }
 
     if (gl_core_profile || gl_es) {
