@@ -54,10 +54,11 @@ Apple TV's remote and pads on a device.
   multiview), so every Bean vertex went through gfx_sp_vertex. Apple TV HD,
   Dam with Bean: 15 -> 40 fps; simulator 32 -> 59; same picture (A/B with
   gevr_nomesh.txt). For e-ee's A10X (#268, "Bean <30 fps"); retest.
-- A8 (Apple TV HD, A8 iPads): Bean's levels at a steady 30 (swap interval 2;
-  ANGLE patched for Metal's frame pacing), launcher note; N64 graphics hold
-  60 there; ragdolls cost nothing lasting. Game speed checked (60 game frames
-  a second). Batching or a render thread would be the next steps.
+- Half rate (flat games, any device): a level under 55 of 60 fps for 5 s plays
+  at a steady 30 for that graphics mode (N64 or Bean), remembered per build
+  (gevr_halfrate.txt), launcher note; Video.AutoHalfRate=0 off. Apple via an
+  ANGLE pacing patch, PC by swap interval, Android by the frame timer
+  (untested). HD: Bean 43 -> 30 steady, N64 holds 60, ragdolls not the cause.
 - Trigger feedback (a player's suggestion): Xbox trigger motors, DualSense
   adaptive triggers (SDL effects on PC, GCDualSenseAdaptiveTrigger on Apple);
   Controls row, on. Untested on a pad.
