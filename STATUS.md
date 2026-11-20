@@ -38,10 +38,27 @@ Apple TV's remote and pads on a device.
   (ee647dbf), then Dab's Mod's Rumble Pak pulse for pads (0.2 s shot, 0.25 s
   hit, times Vibration; the row buzzes). User-confirmed 2026-11-19 on iPhone
   (Switch Pro Controller) and Apple TV 4K (8BitDo SN30 Pro+).
-- Dev installs without TestFlight: iPhone and Apple TV 4K paired to the Mac
-  (gevr-dev-ios/tvos.command on the Mac; GEVR_DEST in build_tvos.sh).
-- Open: #268's Siri Remote (needs a remote: ring clicks are GameController's
-  cardinal pad, not SDL's), #249. Device checks for all of the above.
+- Dev installs without TestFlight: iPhone, Apple TV 4K and Apple TV HD paired
+  to the Mac (gevr-dev-ios/tvos(-hd).command; GEVR_DEST in build_tvos.sh).
+  Benchmarks unattended: `--boot-stage 33 --perf-log` (perf and mesh lines
+  each second; the perf line every 10 s on Apple anyway, with its fps),
+  xctrace --all-processes from the desktop session.
+- Siri Remote 2nd gen clicks through the menus (189d81f4, #268); retest.
+- Apple TV HD (A8) stopped at startup ("no ES 3 config"): ANGLE's ES 3 gate
+  down to Apple2 (tools/build_angle_apple.sh). Runs.
+- Bean on flat GLES games (Apple TV, iPhone, iPad, Android phone): static
+  meshes and GPU skinning were headset-only (gevr_mesh_supported asked for
+  multiview), so every Bean vertex went through gfx_sp_vertex. Apple TV HD,
+  Dam with Bean: 15 -> 40 fps; simulator 32 -> 59; same picture (A/B with
+  gevr_nomesh.txt). For e-ee's A10X (#268, "Bean <30 fps"); retest.
+- Trigger feedback (a player's suggestion): Xbox trigger motors, DualSense
+  adaptive triggers (SDL effects on PC, GCDualSenseAdaptiveTrigger on Apple);
+  Controls row, on. Untested on a pad.
+- Pads in the headset (Quest, PC VR) as a Touch pair, as Vision Pro does:
+  the virtual screen's play like the flat game. PC VR built; Quest not built
+  here (no keystore in this worktree); untested.
+- Reports #35: the dev install's relaunch, not a crash.
+- Open: #249. Device checks for all of the above.
 
 ## Platforms (docs/pc-platforms.md, docs/mobile-platforms.md)
 
