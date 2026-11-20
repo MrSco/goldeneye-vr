@@ -918,6 +918,32 @@ static void inputTvPadFirst(void)
 }
 #endif
 
+/*
+ * The headset's own controllers are OpenXR's, not a pad's: Android shows the
+ * Quest's Touch controllers to SDL as a game pad too (vendor 0x2833, Oculus
+ * VR; "Device 0x..." with no name), and vr_input.cpp's gevrPadAsTouch then
+ * added them to themselves a second time (the v0.5.22 release's smoke test on
+ * a Quest 3, 2026-11-20). The Steam Frame's are Valve's (0x28DE). A pad
+ * paired to the headset keeps its own vendor.
+ */
+static s32 inputPadIgnored(s32 jidx)
+{
+#if defined(ANDROID) && !defined(GEVR_FLAT)
+    const Uint16 vendor = SDL_JoystickGetDeviceVendor(jidx);
+    if (vendor == 0x2833 || vendor == 0x28de) {
+        static s32 told;
+        if (!told) {
+            told = 1;
+            sysLogPrintf(LOG_NOTE, "input: the headset's own controllers (vendor %04x) are OpenXR's, not a pad", vendor);
+        }
+        return 1;
+    }
+#else
+    (void)jidx;
+#endif
+    return 0;
+}
+
 static inline void inputInitAllControllers(void)
 {
     SDL_GameControllerUpdate();
@@ -931,7 +957,7 @@ static inline void inputInitAllControllers(void)
     for (s32 cidx = 0; cidx < INPUT_MAX_CONTROLLERS; ++cidx) {
         const s32 jidx = padsCfg[cidx].deviceIndex;
         if (jidx >= 0 && jidx < numJoysticks) {
-            if (SDL_IsGameController(jidx) && inputControllerGetIndexByDeviceIndex(jidx) < 0) {
+            if (SDL_IsGameController(jidx) && !inputPadIgnored(jidx) && inputControllerGetIndexByDeviceIndex(jidx) < 0) {
                 // using the full assign function in case user sets same index for several players
                 if (inputTryController(cidx, jidx)) {
                     // success
@@ -945,7 +971,7 @@ static inline void inputInitAllControllers(void)
 
     // now try autofilling the rest, starting with firstController
     for (s32 jidx = 0; jidx < numJoysticks; ++jidx) {
-        if (SDL_IsGameController(jidx) && inputControllerGetIndexByDeviceIndex(jidx) < 0) {
+        if (SDL_IsGameController(jidx) && !inputPadIgnored(jidx) && inputControllerGetIndexByDeviceIndex(jidx) < 0) {
             for (s32 cidx = firstController; cidx < INPUT_MAX_CONTROLLERS; ++cidx) {
                 if (inputTryController(cidx, jidx)) {
                     break;
@@ -1039,7 +1065,7 @@ static int inputEventFilter(void *data, SDL_Event *event)
         case SDL_CONTROLLERDEVICEADDED:
             // inputInitAllControllers() may have opened it already (MFi pads connect
             // asynchronously); a second slot for it would outlive its removal
-            if (inputControllerGetIndexById(event->cdevice.which) >= 0) {
+            if (inputControllerGetIndexById(event->cdevice.which) >= 0 || inputPadIgnored(event->cdevice.which)) {
                 break;
             }
             for (s32 i = firstController; i < INPUT_MAX_CONTROLLERS; ++i) {
@@ -3053,7 +3079,9 @@ typedef struct {
 /* amp 0 turns the trigger's effect off */
 static void inputDualSenseTrigger(SDL_GameController *pad, s32 right, f32 amp)
 {
-#ifdef GEVR_IOS
+#if defined(GEVR_VISIONOS)
+    (void)pad; (void)right; (void)amp;   /* no ios_app.m there, and SDL's Apple driver sends no effects */
+#elif defined(GEVR_IOS)
     (void)pad;
     gevrIosDualSenseTrigger(right, amp);
 #elif SDL_VERSION_ATLEAST(2, 0, 16)
@@ -3605,7 +3633,7 @@ s32 inputAssignController(s32 cidx, s32 id)
     }
 
     const s32 jidx = inputDeviceIndexFromId(id);
-    if (jidx < 0 || jidx >= SDL_NumJoysticks() || !SDL_IsGameController(jidx)) {
+    if (jidx < 0 || jidx >= SDL_NumJoysticks() || !SDL_IsGameController(jidx) || inputPadIgnored(jidx)) {
         return 0;
     }
 
