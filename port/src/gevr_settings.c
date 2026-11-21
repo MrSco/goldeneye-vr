@@ -830,10 +830,10 @@ int gevrSettingDefault(int id)
     return -1;
 }
 
-void gevrSettingSet(int id, int index)
+/* The value set and applied, not saved */
+static void settingApply(int id, int index)
 {
     const Row *r = row(id);
-    if (!r || gevrSettingBlocked(id)) return;
     index = clampi(index, 0, gevrSettingPositions(id) - 1);
     if (r->cset) {
         r->cset(index);
@@ -848,7 +848,44 @@ void gevrSettingSet(int id, int index)
         else *r->ivar = (int)floorf(v + 0.5f);
     }
     if (r->after) r->after();
+}
+
+void gevrSettingSet(int id, int index)
+{
+    if (!row(id) || gevrSettingBlocked(id)) return;
+    settingApply(id, index);
     vrSettingsSave();
+}
+
+/*
+ * The built-in positions, read before goldeneye-vr.ini is (vr_settings.cpp
+ * vrSettingsLoad): the default of a toggle or choice the table names none for.
+ */
+static int s_builtIn[ROWS];
+static int s_builtInRead;
+
+void gevrSettingsReadBuiltIn(void)
+{
+    int id;
+    if (s_builtInRead) return;
+    for (id = 0; id < ROWS; id++) s_builtIn[id] = gevrSettingIndex(id);
+    s_builtInRead = 1;
+}
+
+/* #269 #10: every row back to its default (Reset's, else the built-in value),
+ * then one save. Rows that can't change now (online, the host's) keep theirs. */
+int gevrSettingResetAll(void)
+{
+    int id, changed = 0;
+    for (id = 0; id < ROWS; id++) {
+        const int named = gevrSettingDefault(id);
+        const int def = named >= 0 ? named : s_builtInRead ? s_builtIn[id] : -1;
+        if (def < 0 || gevrSettingBlocked(id) || gevrSettingIndex(id) == def) continue;
+        settingApply(id, def);
+        changed++;
+    }
+    if (changed) vrSettingsSave();
+    return changed;
 }
 
 void gevrSettingStep(int id, int dir)

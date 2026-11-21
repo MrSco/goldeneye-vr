@@ -30,6 +30,7 @@
 #include "gevr_scope.h"
 #include "vr_screen.h"
 #include "vr_haptics.h"
+#include "gevr_settings.h"
 #include "../src/net/net_match.h"
 #include "../src/net/net_rules.h" /* NET_FUN_MASK: the deathmatch fun rules */
 
@@ -688,6 +689,7 @@ extern "C" void vrSettingsLoad(void)
     if (s_settingsLoaded) return;
     vrSettingsFlush();   // a save still being written
     s_settingsLoaded = true;   // with no file yet, the defaults are the settings
+    gevrSettingsReadBuiltIn();   // gevr_settings.c: the defaults Reset all settings returns to
     vrHapticsInit();
     FILE *f = fopen(VR_INI_PATH, "r");
     if (!f) return;

@@ -234,9 +234,34 @@ int main(void)
         gevrSettingSet(sfx, 10);
         check(VrSfxVolume > 0.49f && VrSfxVolume < 0.51f && s_sfxApplied == (50 * 32767 + 50) / 100, "sound effects apply at once");
     }
+    {
+        /* #269 #10: Reset all settings puts every row back, in one save: a
+         * slider to its Reset, a toggle or choice to its value before the ini */
+        int before[256], moved = 0;
+        const int rows = gevrSettingCount();
+        check(rows <= 256, "rows fit the test's table");
+        gevrSettingsReadBuiltIn();
+        for (int id = 0; id < rows; id++) before[id] = gevrSettingIndex(id);
+        for (int id = 0; id < rows; id++) {
+            if (gevrSettingBlocked(id) || gevrSettingPositions(id) < 2) continue;
+            const int def = gevrSettingDefault(id) >= 0 ? gevrSettingDefault(id) : before[id];
+            gevrSettingSet(id, def == 0 ? 1 : 0);
+            moved += gevrSettingIndex(id) != def;
+        }
+        check(moved > 30, "rows moved off their defaults, toggles too");
+        const int saves = s_saves;
+        check(gevrSettingResetAll() > 0, "the moved rows reset (rows sharing a value count once)");
+        check(s_saves == saves + 1, "Reset all settings saves once");
+        for (int id = 0; id < rows; id++) {
+            if (gevrSettingBlocked(id)) continue;
+            const int def = gevrSettingDefault(id) >= 0 ? gevrSettingDefault(id) : before[id];
+            check(gevrSettingIndex(id) == def, "every row at its default");
+        }
+        check(gevrSettingResetAll() == 0, "a second reset changes nothing");
+    }
     for (int s = 0; s < GEVR_LSEC_COUNT; s++)
         check(gevrSettingSectionRows(s, GEVR_SET_LAUNCHER, ids, 48) <= 14, "a launcher place fills at most two columns of seven");
     puts("PASS: settings table: every row round-trips, Reset, hidden and blocked rows, the host's online rules, "
-         "the launcher's places and the ally, each section fits two columns");
+         "the launcher's places and the ally, each section fits two columns, Reset all settings");
     return 0;
 }

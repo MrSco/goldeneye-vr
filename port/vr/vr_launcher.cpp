@@ -3869,6 +3869,23 @@ extern "C" void gevrLauncherRun(void)
                 }
                 if (ImGui::IsItemHovered()) gevrTooltip("Pre-release builds show up as updates too.");
 #endif
+                // #269 #10: the settings table's rows, every tab's, back to their defaults
+                ImGui::Spacing();
+                if (ImGui::Button("Reset all settings")) ImGui::OpenPopup("Reset all settings?");
+                if (ImGui::IsItemHovered())
+                    gevrTooltip("Every setting in these tabs back to its default. Saves, the ROM, packs, "
+                                "your name and friends stay.");
+                if (ImGui::BeginPopupModal("Reset all settings?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                    ImGui::TextUnformatted("Every setting in these tabs goes back to its default.");
+                    ImGui::TextDisabled("Saves, the ROM, packs, your name and friends stay.");
+                    if (ImGui::Button("Cancel", ImVec2(220, 52))) ImGui::CloseCurrentPopup();
+                    ImGui::SameLine();
+                    if (ImGui::Button("Reset", ImVec2(220, 52))) {
+                        vr_log("launcher: reset all settings (%d changed)", gevrSettingResetAll());
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::EndPopup();
+                }
                 break;
             }
             case GEVR_LTAB_CONTROLS:

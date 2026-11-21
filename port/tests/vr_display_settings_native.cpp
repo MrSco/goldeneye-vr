@@ -36,6 +36,7 @@ void musicTrack3ApplySeqpVol(unsigned short) {}
 void gevrSndApplySfxVolume(unsigned short) {}
 void vrHapticsInit() {}
 void vrHapticsSaveIni(void *) {}
+extern "C" void gevrSettingsReadBuiltIn(void) {}
 int vrHapticsLoadLine(const char *, const char *) { return 0; }
 void vrHapticsDumpCTable() {}
 void vr_log(const char *, ...) {}

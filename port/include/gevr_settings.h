@@ -78,6 +78,12 @@ int gevrSettingIndex(int id);
 int gevrSettingDefault(int id);
 /* Clamped; applies (the display rate, the screen, the host's rule online) and saves. */
 void gevrSettingSet(int id, int index);
+/* Every row that has a default back to it (Reset all settings), saved once;
+ * the rows changed. */
+int gevrSettingResetAll(void);
+/* vrSettingsLoad, before reading the file: each row's built-in value, the
+ * default Reset all settings gives a row that has no Reset of its own. */
+void gevrSettingsReadBuiltIn(void);
 /* dir -1 or +1 one position (clamped), 2 the next (wrapping): the stepper's. */
 void gevrSettingStep(int id, int dir);
 /* index < 0: the current value as it should read (online: the host's). */
