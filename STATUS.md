@@ -40,8 +40,13 @@ its own (vrSettingsFlush at load, background, restart, exit); HD folds now
 clean. The perf line has AUDIO/VOICES: Frigate's engine room mixes at ~1-1.7
 ms a frame on the HD (peaks 5-6 ms, ~4x upstairs) and holds ~55-60 at full
 rate; the deck and big rooms are draw-bound (41-55). Reset all settings
-(#10, launcher Play tab). Open from #269: the Dam grate (#8, likely the band
-fix), a texture size cap (#6); #11 skipped (user).
+(#10, launcher Play tab). #8 (Dam's grates, Bean): Bean's own grate faces
+fought its wall; the wall's long diagonal triangles pass the decal grid's
+4096-cell limit (DAB's too), so levelBigBases() now takes solid faces as well
+(only Dam's 16 grate faces change; HD checked by the user). #6 texture size
+cap measured on the HD (512: +3-7% at Dam Bean, 256 breaks the grate):
+dropped (user). #11 skipped (user). Flicker checks need frame bursts, not
+stills.
 **Next:** device checks: split screen with two real pads on an Apple TV and
 a phone, 3-4 players on a slow device; trigger feedback on Xbox and
 DualSense pads; a pad in the Quest and PC VR headsets; Vision Pro's ghosting
