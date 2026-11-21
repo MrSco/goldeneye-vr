@@ -1510,6 +1510,14 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         append_line(vs_buf, &vs_len, "uniform int uReproj;");
         append_line(vs_buf, &vs_len, "uniform mat4 uReprojVP;");
 
+    } else {
+        // The decal band's nudge (gevr_set_decal_bias) on a flat game too (#269):
+        // without it the band's stencil passes ran with no push or pull, so a
+        // decal drew only where it lay exactly on the depth already there.
+        // Bullet holes a fraction of a unit off their wall (Bean's rebuilt
+        // walls, a hole's rounded corners) and the rooms' own decals (Dam's
+        // grates) vanished, or showed as slivers, on the PC, phones and Apple TV.
+        append_line(vs_buf, &vs_len, "uniform vec2 uDecalBias;");
     }
 
 
@@ -1684,6 +1692,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         // Only the VR prelude above wrote gl_Position, so without it every draw
         // was clipped away and the flat frame stayed black.
         append_line(vs_buf, &vs_len, "    gl_Position = aVtxPos;");
+        append_line(vs_buf, &vs_len, "    gl_Position.z += uDecalBias.x / max(gl_Position.w, max(uDecalBias.y, 0.0001));");
     }
 
 
@@ -2167,6 +2176,8 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         prg->vrFlatLocation = glGetUniformLocation(shader_program, "uVrFlat");
         prg->decalBiasLocation = glGetUniformLocation(shader_program, "uDecalBias");
 
+    } else {
+        prg->decalBiasLocation = glGetUniformLocation(shader_program, "uDecalBias");   /* the flat band (#269) */
     }
 
     gfx_opengl_load_shader(prg);
