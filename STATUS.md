@@ -5,20 +5,17 @@ in docs/archive/ (the v0.5.15 batch as it stood before release is
 [status-2026-11-10](docs/archive/status-2026-11-10.md)); features keep their
 own notes. No game data is shipped; building publishes nothing.
 
-**Release:** v0.5.22 (versionCode 135, protocol 27), 2026-11-20, tag on
-a8866dde ([notes](docs/releases/v0.5.22.md)): local split screen on flat
-builds (2-4 players, a join page, docs/pc-platforms.md), Bean drawn on the
-GPU on flat GLES games (Apple TV HD Dam 15 -> 40 fps) and a steady half rate
-for slow devices (gevr_halfrate.txt, Video.AutoHalfRate), the Siri Remote as
-buttons (both generations), the Apple TV HD's ANGLE ES 3 gate, pad rumble
-and Xbox/DualSense trigger feedback on flat builds, pads in the headset as a
-Touch pair, Vision Pro's ghosting fix and keyboard, the Frozen Inferno TV
-icon and the file page's QR code. Protocol 27 unchanged: plays online with
-v0.5.21. 9 downloads from one commit; TestFlight iOS 143, visionOS 19, tvOS
-5. Gates: suite 113/113 (96 Windows + 17 WSL-only, all 20 WSL passing), Java
-48x3, server gate passed, Quest smoke test (Dam, Bean) clean. Closed at
-release with a reopen note: #268, reports #33-#35. #249 stays open.
-**Batch on t3/discuss-issue-269 (2026-11-21, not pushed):** #269's Apple TV
+**Release:** v0.5.23 (versionCode 136, protocol 27), 2026-11-21, tag on
+e227de35 ([notes](docs/releases/v0.5.23.md)): #269 (pads, Head bob, Frame
+rate Auto/Full/Half, the 2nd generation Siri Remote on tvOS 26, bullet holes
+and Dam's grates, menu saves off the game thread, Reset all settings), flat
+online guests' keys and mouse look, and a loading screen on every platform
+with Bean's level front-loaded, shaders compiled at boot and Bean's level
+work cached in $S/gevr_cache. Protocol 27 unchanged: plays online with
+v0.5.22. 9 downloads from one commit; TestFlight iOS 144, visionOS 20, tvOS
+6. Gates: suite 113/113 (96 Windows + 17 WSL-only, all 20 WSL passing), Java
+x3, server gate passed, Quest smoke test (Dam, Bean) clean. PR #271.
+**In v0.5.23 (from t3/discuss-issue-269):** #269's Apple TV
 list: the Info.plist's GCSupportsMultipleMicroGamepads + DirectionalGamepad
 (tvOS 26 merged a 2nd generation remote into a ring-less "Coalesced Remote";
 the HD's 1st generation remote checked after it), Pad vibration 30%, Trigger
