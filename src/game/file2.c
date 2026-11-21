@@ -1346,6 +1346,29 @@ void fileLoadSettingsForFolder(u32 folder)
         }
 
         set_screen_ratio((options & OPTION_SCREENRATIO) != FALSE);
+#ifdef GEVR
+        /*
+         * Folders made before Upright was the options table's default saved
+         * Reverse without anyone choosing it, and every stage start loads it
+         * back: online the flat game's mouse looked inverted (a player's
+         * report, 2026-11-21). Once per folder (goldeneye-vr.ini's
+         * LookUprightFolders), a Reverse folder is made Upright and saved;
+         * Reverse chosen on the watch after that stays.
+         */
+        {
+            extern int VrLookUprightFolders;
+            extern void vrSettingsSave(void);
+            void fileClearSavefileForFolder(s32 folder);   /* below */
+            if (folder < 32 && !(VrLookUprightFolders & (1 << folder))) {
+                VrLookUprightFolders |= 1 << folder;
+                if (!(options & OPTION_INVERTLOOK)) {
+                    set_cur_player_look_vertical_inverted(1);
+                    fileClearSavefileForFolder(folder);   /* writes the folder's options, all loaded above */
+                }
+                vrSettingsSave();
+            }
+        }
+#endif
     }
 }
 

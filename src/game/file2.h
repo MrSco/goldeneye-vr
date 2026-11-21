@@ -20,7 +20,12 @@
 #define OPTION_CONTROLTYPE   0x0700
 #define OPTION_SCREENCINEMA  0x0800
 
+#ifdef GEVR
+/* a new folder looks upright, as the options table starts (options.c) */
+#define DEFAULT_OPTIONS (OPTION_INVERTLOOK | OPTION_AUTOAIM | OPTION_SIGHTONSCREEN | OPTION_LOOKAHEAD | OPTION_DISPLAYAMMO)
+#else
 #define DEFAULT_OPTIONS (OPTION_AUTOAIM | OPTION_SIGHTONSCREEN | OPTION_LOOKAHEAD | OPTION_DISPLAYAMMO)
+#endif
 
 extern ChrRecord *g_CurModelChr;
 
