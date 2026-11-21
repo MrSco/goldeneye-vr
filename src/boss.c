@@ -363,16 +363,16 @@ void bossEntry(void) {
  */
 #ifdef GEVR
 /*
- * A level's Bean work, done as the stage loads, behind a loading screen on a
- * flat screen (#269): Bean's level and sky (gevr_bean_world.c built them on
+ * A level's loading screen (port/vr/gevr_loading.cpp, every platform, every
+ * level) and what is loaded behind it (#269). With Bean on: Bean's level and sky (gevr_bean_world.c built them on
  * their first frame, a frozen picture of about 1.3 s at the Dam on a PC and
  * far longer on an Apple TV HD), the level's pictures to the GPU (each first
  * sight stalled a frame through the fly-in), and the watch arm's mesh (the
  * first pause, and the GEVR menu's, loaded it mid-frame). Before netStageLoaded
  * and netCoopStageLoaded, so an online player says it has loaded once it has
- * all of it. Nothing with Bean off.
+ * all of it.
  */
-static void gevrBeanFrontLoad(void)
+static void gevrStageFrontLoad(void)
 {
     extern int gevrBeanIsEnabled(void);
     extern void gevrBeanLoadingBegin(void);
@@ -380,15 +380,22 @@ static void gevrBeanFrontLoad(void)
     extern int gevrBeanWorldPrepare(void);
     extern void gevrBeanPrewarm(const char *name);
     extern int gfx_prewarm_bean_textures(void);
-    if (!gevrBeanIsEnabled()) return;
+    extern void gevrLoadingBegin(void);     /* port/vr/gevr_loading.cpp: the loading screen */
+    extern void gevrLoadingEnd(void);
     const u64 t0 = sysGetMicroseconds();
-    gevrBeanLoadingBegin();
-    const s32 world = gevrBeanWorldPrepare();
-    gevrBeanPrewarm("Csuit_lf_handZ");
-    const s32 uploaded = gfx_prewarm_bean_textures();
-    gevrBeanLoadingEnd();
-    sysLogPrintf(LOG_NOTE, "stage: Bean front-load %s, %d pictures to the GPU, %llu ms", world ? "built the level" : "no Bean level",
-                 uploaded, (unsigned long long)((sysGetMicroseconds() - t0) / 1000));
+    s32 world = 0, uploaded = 0;
+    gevrLoadingBegin();
+    if (gevrBeanIsEnabled()) {
+        gevrBeanLoadingBegin();
+        world = gevrBeanWorldPrepare();
+        gevrBeanPrewarm("Csuit_lf_handZ");
+        uploaded = gfx_prewarm_bean_textures();
+        gevrBeanLoadingEnd();
+    }
+    gevrLoadingEnd();
+    sysLogPrintf(LOG_NOTE, "stage: front-load %s, %d pictures to the GPU, %llu ms",
+                 world ? "built Bean's level" : "no Bean level", uploaded,
+                 (unsigned long long)((sysGetMicroseconds() - t0) / 1000));
 }
 #endif
 
@@ -595,7 +602,7 @@ void bossMainloop(void)
         lvlStageLoad(g_StageNum);
 #ifdef GEVR
         if (g_StageNum != LEVELID_TITLE) {
-            gevrBeanFrontLoad();
+            gevrStageFrontLoad();
         }
         /* a co-op party's menus are the title stage: the session goes on (#94) */
         if (s_net_session_started && g_StageNum == LEVELID_TITLE && !netCoopSession())

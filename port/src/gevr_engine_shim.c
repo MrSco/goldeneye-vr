@@ -529,6 +529,31 @@ void gevrVrPumpEnd(void)
 }
 
 /*
+ * The loading screen's frames (port/vr/gevr_loading.cpp, #269), from inside a
+ * game tick (a stage load): the tick's own frame, open or waited for early,
+ * is given up first (it would only have held a frozen picture), then each
+ * loading picture is a frame of its own, as the launcher's are. The game's
+ * next pump opens the next frame as usual.
+ */
+int gevrVrLoadingFrameBegin(void)
+{
+	if (gevrVrBeginDeferred) {
+		gevrVrBeginDeferred = 0;
+		gevrEarlyTickUs = 0;
+		vr_cancel_next_frame();
+		gevrPipelineSkip = 1;
+	}
+	gevrVrFrameEnd();
+	gevrVrFrameBegin();
+	return gevrVrFrameBegun;
+}
+
+void gevrVrLoadingFrameEnd(void)
+{
+	gevrVrFrameEnd();
+}
+
+/*
  * Performance readout (Show stats): where a frame's CPU time goes, averaged
  * each second - WAIT for the headset (xrWaitFrame), DRAW (fast3d running the
  * display lists and issuing GL: videoSubmitCommands), END (finishing and

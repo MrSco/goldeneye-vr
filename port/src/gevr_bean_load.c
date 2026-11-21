@@ -20,8 +20,7 @@
 
 /*
  * A level's front-load (boss.c gevrBeanFrontLoad, #269): a hook that draws a
- * loading screen between steps on a flat screen
- * (port/flat/window/flat_loading.cpp). progress 0..1 moves the bar, < 0 only
+ * loading screen between steps (port/vr/gevr_loading.cpp). progress 0..1 moves the bar, < 0 only
  * keeps it moving, > 1 ends it. Nothing is drawn outside a front-load.
  */
 static void (*s_beanLoadingHook)(float progress);
@@ -29,7 +28,7 @@ static int s_beanLoading;
 void gevrBeanSetLoadingHook(void (*hook)(float progress)) { s_beanLoadingHook = hook; }
 void gevrBeanLoadingTick(float progress) { if (s_beanLoading) s_beanLoadingHook(progress); }
 void gevrBeanLoadingBegin(void) { s_beanLoading = s_beanLoadingHook != NULL; gevrBeanLoadingTick(0.0f); }
-void gevrBeanLoadingEnd(void) { gevrBeanLoadingTick(2.0f); s_beanLoading = 0; }
+void gevrBeanLoadingEnd(void) { gevrBeanLoadingTick(1.0f); s_beanLoading = 0; }
 #define MAX_TRIS  500000
 
 struct beanDraw {
