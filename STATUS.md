@@ -18,6 +18,18 @@ v0.5.21. 9 downloads from one commit; TestFlight iOS 143, visionOS 19, tvOS
 5. Gates: suite 113/113 (96 Windows + 17 WSL-only, all 20 WSL passing), Java
 48x3, server gate passed, Quest smoke test (Dam, Bean) clean. Closed at
 release with a reopen note: #268, reports #33-#35. #249 stays open.
+**Batch on t3/discuss-issue-269 (2026-11-21, not pushed):** #269's Apple TV
+list: the Info.plist's GCSupportsMultipleMicroGamepads + DirectionalGamepad
+(tvOS 26 merged a 2nd generation remote into a ring-less "Coalesced Remote";
+the HD's 1st generation remote checked after it), Pad vibration 30%, Trigger
+feedback / Look speed / Look deadzone / Invert look rows, Head bob, Frame
+rate Auto/Full/Half (Auto tries the full rate again, nothing saved) and at
+half rate two game steps a frame (HD A/B: steps 1/2/3+ 5/21/5 before, 0/30/0
+after). Then a flat online report: a guest now reads slot 0's keyboard
+binds (it couldn't move), and Upright look is the real default with a
+once-per-folder fix (the mouse was inverted in matches). Open from #269:
+decal fights on Apple (#8/#9, no repro yet; depth is 24-bit already), the
+Frigate engine room audio drop (#7), a texture size cap (#6).
 **Next:** device checks: split screen with two real pads on an Apple TV and
 a phone, 3-4 players on a slow device; trigger feedback on Xbox and
 DualSense pads; a pad in the Quest and PC VR headsets; Vision Pro's ghosting
