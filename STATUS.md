@@ -32,8 +32,16 @@ once-per-folder fix (the mouse was inverted in matches). Bullet holes
 into Dam's walls) and flat shaders get the decal band's uDecalBias nudge
 (RenderDoc: it was multiview-only, so on PC/phones/Apple TV a decal drew
 only where it matched the wall's depth exactly); PC and the HD with Bean
-checked. Open from #269: the Dam grate (#8, likely the same band fix), the
-Frigate engine room audio drop (#7), a texture size cap (#6).
+checked. #7 on the HD: every settings save took ~130 ms (vrHapticsDumpCTable's
+~60 vr_log lines, a file open each, ~115 ms; the file 12-14 ms), longer than
+the ~100 ms of queued sound, so the menus' saves (folding Friends) broke the
+sound up: the dump is gone from saves and the file is written on a thread of
+its own (vrSettingsFlush at load, background, restart, exit); HD folds now
+clean. The perf line has AUDIO/VOICES: Frigate's engine room mixes at ~1-1.7
+ms a frame on the HD (peaks 5-6 ms, ~4x upstairs) and holds ~55-60 at full
+rate; the deck and big rooms are draw-bound (41-55). Reset all settings
+(#10, launcher Play tab). Open from #269: the Dam grate (#8, likely the band
+fix), a texture size cap (#6); #11 skipped (user).
 **Next:** device checks: split screen with two real pads on an Apple TV and
 a phone, 3-4 players on a slow device; trigger feedback on Xbox and
 DualSense pads; a pad in the Quest and PC VR headsets; Vision Pro's ghosting
