@@ -558,6 +558,14 @@ int main(int argc, const char **argv)
             sysLogPrintf(LOG_NOTE, "unlock all: missions, 007 mode and cheats");
         }
     }
+#ifndef GEVR_HEADLESS
+    /* the loading screen from START until the title (#269): the ROM, packs and
+     * the game's set-up, then the shaders this install has needed (gfx_pc.cpp) */
+    {
+        extern void gevrLoadingBegin(void);
+        gevrLoadingBegin();
+    }
+#endif
 #endif
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "romdataInit starting");
     if (romdataInit() != 0) {
@@ -629,6 +637,17 @@ int main(int argc, const char **argv)
 
 
 
+#if (defined(ANDROID) || defined(GEVR_PC)) && !defined(GEVR_HEADLESS)
+    {
+        extern int gfx_prewarm_shaders(void);
+        extern void gevrLoadingEnd(void);
+        const u64 t0 = sysGetMicroseconds();
+        const int made = gfx_prewarm_shaders();
+        gevrLoadingEnd();
+        sysLogPrintf(LOG_NOTE, "boot: %d shaders compiled ahead of play, %llu ms", made,
+                     (unsigned long long)((sysGetMicroseconds() - t0) / 1000));
+    }
+#endif
     bossEntry();
 
     return 0;

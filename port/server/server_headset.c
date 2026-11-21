@@ -48,6 +48,11 @@ void gfx_set_texture_filter(enum FilteringMode mode) { (void)mode; }
 void gfx_texture_cache_clear(void) { }
 void gfx_texture_cache_delete(const uint8_t *orig_addr) { (void)orig_addr; }
 int gfx_prewarm_bean_textures(void) { return 0; }
+/* port/vr/gevr_loading.cpp: no screen to load behind */
+void gevrLoadingBegin(void) { }
+void gevrLoadingProgress(float progress) { (void)progress; }
+void gevrLoadingEnd(void) { }
+int gfx_prewarm_shaders(void) { return 0; }
 int gfx_create_framebuffer(uint32_t width, uint32_t height, int upscale, int autoresize)
 {
 	(void)width; (void)height; (void)upscale; (void)autoresize;

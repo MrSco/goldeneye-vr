@@ -549,6 +549,63 @@ void gfx_flush(void) {
 
 
 
+#ifdef GEVR
+/*
+ * The shaders this install has needed (#269), like a driver's shader cache:
+ * each combiner the game first draws with is compiled on the spot, a stall of
+ * a frame (15 at a level's first frame on a PC, more as new effects appear),
+ * so their ids are kept in a list beside the game and compiled again behind
+ * the boot's loading screen (gfx_prewarm_shaders, main.c). A list that is
+ * missing or cut short only means those are compiled when first drawn again.
+ */
+#ifdef GEVR_FLAT
+static const char *const kShaderList = "gevr_shaders_flat.txt";
+#else
+static const char *const kShaderList = "gevr_shaders_vr.txt";
+#endif
+static std::set<std::pair<uint64_t, uint32_t>> s_shadersKnown;
+static bool s_shadersKnownRead;
+
+static void gevr_shaders_read(void) {
+    if (s_shadersKnownRead) return;
+    s_shadersKnownRead = true;
+    FILE *f = fopen(kShaderList, "r");
+    if (!f) return;
+    unsigned long long id0;
+    unsigned int id1;
+    while (fscanf(f, "%llx %x", &id0, &id1) == 2) s_shadersKnown.insert(std::make_pair((uint64_t)id0, (uint32_t)id1));
+    fclose(f);
+}
+
+static void gevr_shader_note(uint64_t id0, uint32_t id1) {
+    gevr_shaders_read();
+    if (!s_shadersKnown.insert(std::make_pair(id0, id1)).second) return;
+    if (FILE *f = fopen(kShaderList, "a")) {
+        fprintf(f, "%016llx %08x\n", (unsigned long long)id0, (unsigned int)id1);
+        fclose(f);
+    }
+}
+
+extern "C" void gevrLoadingProgress(float progress);   /* port/vr/gevr_loading.cpp */
+
+/* Every shader the list names that is not compiled yet; the number compiled */
+extern "C" int gfx_prewarm_shaders(void) {
+    gevr_shaders_read();
+    const size_t total = s_shadersKnown.size();
+    size_t i = 0;
+    int made = 0;
+    for (const auto &id : s_shadersKnown) {
+        if (!gfx_rapi->lookup_shader(id.first, id.second)) {
+            gfx_rapi->unload_shader(rendering_state.shader_program);
+            rendering_state.shader_program = gfx_rapi->create_and_load_new_shader(id.first, id.second);
+            made++;
+        }
+        gevrLoadingProgress(0.6f + 0.4f * (float)++i / (float)(total ? total : 1));
+    }
+    return made;
+}
+#endif
+
 static struct ShaderProgram* gfx_lookup_or_create_shader_program(uint64_t shader_id0, uint32_t shader_id1) {
     struct ShaderProgram* prg = gfx_rapi->lookup_shader(shader_id0, shader_id1);
     if (prg == NULL) {
@@ -556,6 +613,9 @@ static struct ShaderProgram* gfx_lookup_or_create_shader_program(uint64_t shader
         prg = gfx_rapi->create_and_load_new_shader(shader_id0, shader_id1);
 
         rendering_state.shader_program = prg;
+#ifdef GEVR
+        gevr_shader_note(shader_id0, shader_id1);
+#endif
     }
     return prg;
 }
