@@ -55,6 +55,16 @@ void gevrBeanForgetWounds(struct Model *model);
 void gevrBeanModelApply(struct ModelFileHeader *header, const char *name);
 /* Load a model's Bean mesh now, ahead of its first use (the watch arm at level load) */
 void gevrBeanPrewarm(const char *name);
+/* A level's front-load (#269): the loading screen's hook (flat screens) and
+ * its steps; gevr_bean_load.c */
+void gevrBeanSetLoadingHook(void (*hook)(float progress));
+void gevrBeanLoadingBegin(void);
+void gevrBeanLoadingTick(float progress);
+void gevrBeanLoadingEnd(void);
+/* Bean's level and sky built now, not on their first frame (gevr_bean_world.c) */
+int gevrBeanWorldPrepare(void);
+/* The level's decoded Bean pictures: stand-in address, RGBA, size (gevr_bean_tex.c) */
+int gevrBeanTexEach(int index, const void **addr, const unsigned char **rgba, int *w, int *h);
 /* The watch initializes only native preview joints. Fit every replaced rigid
  * part under its own rest pivot; return whether this is a Bean preview. */
 int gevrBeanPreviewPose(struct Model *model, const float root[4][4]);

@@ -47,6 +47,7 @@ int gfx_vr_redraw_frame(void) { return 0; }
 void gfx_set_texture_filter(enum FilteringMode mode) { (void)mode; }
 void gfx_texture_cache_clear(void) { }
 void gfx_texture_cache_delete(const uint8_t *orig_addr) { (void)orig_addr; }
+int gfx_prewarm_bean_textures(void) { return 0; }
 int gfx_create_framebuffer(uint32_t width, uint32_t height, int upscale, int autoresize)
 {
 	(void)width; (void)height; (void)upscale; (void)autoresize;

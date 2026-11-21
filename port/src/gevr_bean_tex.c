@@ -457,6 +457,21 @@ int gevrBeanTexture(const void *addr, const uint8_t **rgba, int *w, int *h)
 	return s_tex[i].rgba != NULL;
 }
 
+/* The level's decoded pictures one by one, for the front-load's upload
+ * (gfx_pc.cpp, #269): 0 past the last, -1 for a slot with no picture. */
+int gevrBeanTexEach(int index, const void **addr, const unsigned char **rgba, int *w, int *h)
+{
+	if (index < 0 || index >= s_ntex)
+		return 0;
+	if (!s_tex[index].standin || !s_tex[index].rgba || s_tex[index].w <= 0 || s_tex[index].h <= 0)
+		return -1;
+	*addr = s_tex[index].standin;
+	*rgba = s_tex[index].rgba;
+	*w = s_tex[index].w;
+	*h = s_tex[index].h;
+	return 1;
+}
+
 /* DAB's placeholder test: at least 90% magenta, no larger than 16x16. */
 int gevrBeanTexIsPlaceholder(const void *addr)
 {

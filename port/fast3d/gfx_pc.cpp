@@ -930,6 +930,36 @@ static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key) {
     return false;
 }
 
+#ifdef GEVR
+/*
+ * A level's front-load (boss.c, #269): every Bean picture the level decoded,
+ * to the GPU now, as import_texture would on its first use (the same key).
+ * Each first sight cost a frame its upload and mipmaps: the fly-ins stalled
+ * for seconds with Bean on, an Apple TV HD the worst.
+ */
+extern "C" int gfx_prewarm_bean_textures(void) {
+    int uploaded = 0, total = 0;
+    const void *addr;
+    const unsigned char *rgba;
+    int w, h, r;
+    while (gevrBeanTexEach(total, &addr, &rgba, &w, &h) != 0) total++;
+    for (int i = 0; (r = gevrBeanTexEach(i, &addr, &rgba, &w, &h)) != 0; i++) {
+        if (r < 0) continue;
+        TextureCacheKey key = { (const uint8_t *)addr, {}, G_IM_FMT_RGBA, G_IM_SIZ_32b, 0, 0, 0 };
+        key.width = (uint32_t)w;
+        key.height = (uint32_t)h;
+        if (!gfx_texture_cache_lookup(0, key)) {
+            gfx_rapi->upload_texture_hd(rgba, (uint32_t)w, (uint32_t)h);
+            uploaded++;
+        }
+        gevrBeanLoadingTick(0.8f + 0.2f * (float)i / (float)(total ? total : 1));
+    }
+    rdp.textures_changed[0] = rdp.textures_changed[1] = true;
+    rendering_state.textures[0] = nullptr;
+    return uploaded;
+}
+#endif
+
 void gfx_texture_cache_delete(const uint8_t* orig_addr) {
     gfx_flush();
 

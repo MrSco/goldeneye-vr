@@ -17,6 +17,19 @@
 #define MAX_IBS   4096
 #define MAX_INST  256
 #define MAX_TEX   256
+
+/*
+ * A level's front-load (boss.c gevrBeanFrontLoad, #269): a hook that draws a
+ * loading screen between steps on a flat screen
+ * (port/flat/window/flat_loading.cpp). progress 0..1 moves the bar, < 0 only
+ * keeps it moving, > 1 ends it. Nothing is drawn outside a front-load.
+ */
+static void (*s_beanLoadingHook)(float progress);
+static int s_beanLoading;
+void gevrBeanSetLoadingHook(void (*hook)(float progress)) { s_beanLoadingHook = hook; }
+void gevrBeanLoadingTick(float progress) { if (s_beanLoading) s_beanLoadingHook(progress); }
+void gevrBeanLoadingBegin(void) { s_beanLoading = s_beanLoadingHook != NULL; gevrBeanLoadingTick(0.0f); }
+void gevrBeanLoadingEnd(void) { gevrBeanLoadingTick(2.0f); s_beanLoading = 0; }
 #define MAX_TRIS  500000
 
 struct beanDraw {
@@ -2044,6 +2057,8 @@ static void markLevelDecals(struct gevrBeanMesh *mesh, const uint8_t *pass, int 
 	markLevelSides(&l, mesh);
 	for (int i = 0; i < n; i++) {
 		int strip, o;
+		if (!(i & 2047))
+			gevrBeanLoadingTick(-1.0f);
 		if (l.decal[i])
 			continue;
 		o = levelPick(&l, i, 0, &strip);
@@ -3514,6 +3529,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		int w = 0, h = 0, cut = 0;
 		snprintf(key, sizeof(key), "%s:%d", source, i);
 		mesh->standin[mesh->ntex] = gevrBeanTexDecode(&caff, texfile[i], key, &w, &h, &cut);
+		gevrBeanLoadingTick(-1.0f);
 		mesh->texW[mesh->ntex] = w;
 		mesh->texH[mesh->ntex] = h;
 		mesh->texCut[mesh->ntex] = cut;

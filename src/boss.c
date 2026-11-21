@@ -361,6 +361,37 @@ void bossEntry(void) {
  *         700067D8 tests if "u64.taskgrab.#.core" activated and dumps memory
  *         70006854 follows... (700068BC - stop demos)
  */
+#ifdef GEVR
+/*
+ * A level's Bean work, done as the stage loads, behind a loading screen on a
+ * flat screen (#269): Bean's level and sky (gevr_bean_world.c built them on
+ * their first frame, a frozen picture of about 1.3 s at the Dam on a PC and
+ * far longer on an Apple TV HD), the level's pictures to the GPU (each first
+ * sight stalled a frame through the fly-in), and the watch arm's mesh (the
+ * first pause, and the GEVR menu's, loaded it mid-frame). Before netStageLoaded
+ * and netCoopStageLoaded, so an online player says it has loaded once it has
+ * all of it. Nothing with Bean off.
+ */
+static void gevrBeanFrontLoad(void)
+{
+    extern int gevrBeanIsEnabled(void);
+    extern void gevrBeanLoadingBegin(void);
+    extern void gevrBeanLoadingEnd(void);
+    extern int gevrBeanWorldPrepare(void);
+    extern void gevrBeanPrewarm(const char *name);
+    extern int gfx_prewarm_bean_textures(void);
+    if (!gevrBeanIsEnabled()) return;
+    const u64 t0 = sysGetMicroseconds();
+    gevrBeanLoadingBegin();
+    const s32 world = gevrBeanWorldPrepare();
+    gevrBeanPrewarm("Csuit_lf_handZ");
+    const s32 uploaded = gfx_prewarm_bean_textures();
+    gevrBeanLoadingEnd();
+    sysLogPrintf(LOG_NOTE, "stage: Bean front-load %s, %d pictures to the GPU, %llu ms", world ? "built the level" : "no Bean level",
+                 uploaded, (unsigned long long)((sysGetMicroseconds() - t0) / 1000));
+}
+#endif
+
 void bossMainloop(void)
 {
     // declarations
@@ -563,6 +594,9 @@ void bossMainloop(void)
         joyCheckStatusThreadSafe();
         lvlStageLoad(g_StageNum);
 #ifdef GEVR
+        if (g_StageNum != LEVELID_TITLE) {
+            gevrBeanFrontLoad();
+        }
         /* a co-op party's menus are the title stage: the session goes on (#94) */
         if (s_net_session_started && g_StageNum == LEVELID_TITLE && !netCoopSession())
             gevrLobbySessionStopped();
@@ -574,12 +608,6 @@ void bossMainloop(void)
             extern void gevrSndPathStageLoaded(void);
             gevrBotStageLoaded();   /* the bots' props, routes and players were the last stage's */
             gevrSndPathStageLoaded();   /* how sound travels between this stage's rooms */
-            if (g_StageNum != LEVELID_TITLE) {
-                /* the watch arm's Bean mesh, which the first pause (and the
-                 * GEVR menu's) loaded mid-frame (#269) */
-                extern void gevrBeanPrewarm(const char *name);
-                gevrBeanPrewarm("Csuit_lf_handZ");
-            }
         }
         netStageLoaded();
 #endif

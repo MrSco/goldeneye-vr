@@ -42,6 +42,8 @@
 #include "gevr_bean_holes.inc.h"
 #include "gevr_bean_doors.inc.h"
 static int ensureStage(void);
+static int ensureSky(void);
+void gevrBeanLoadingTick(float progress);   /* gevr_bean_load.c: the front-load's screen (#269) */
 #include "gevr_bean_shots.inc.h"
 #include "chrai.h"
 #include "loadobjectmodel.h"
@@ -1308,6 +1310,7 @@ static int buildStage(int stage)
 	shotsBuild(mesh, assign, st->scale);
 	for (int r = 0; r < nrooms; r++) {
 		int nopa = 0, nxlu = 0;
+		gevrBeanLoadingTick(0.6f + 0.2f * (float)r / (float)nrooms);
 		struct gevrEmitVert *opa = NULL, *xlu = NULL;
 		void *gdl = NULL, *vtx = NULL;
 		for (int i = 0; i < mesh->ntris; i++) {
@@ -1590,6 +1593,14 @@ static int buildSky(int stage)
 	GEVR_BEAN_LOG("gevr bean: HD sky %s, %d tris, extent %.0f\n", name, mesh->ntris, extent);
 	gevrBeanMeshFree(mesh);
 	return 1;
+}
+
+int gevrBeanWorldPrepare(void)
+{
+	gevrBeanLoadingTick(0.05f);
+	ensureSky();
+	gevrBeanLoadingTick(0.15f);
+	return ensureStage();
 }
 
 static int ensureSky(void)
