@@ -671,7 +671,8 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "; 0 = off (every tap cycles).\n");
     iniPrintf(f, "AutoSwitchKeepMs=%d\n", VrAutoSwitchKeepMs);
     vrHapticsSaveIni(f);
-    vrHapticsDumpCTable();
+    // no vrHapticsDumpCTable here: ~60 log lines, a file open each, took
+    // ~115 ms of every save on the Apple TV HD (#269 #7); a debug log's Send has it
 
     if (!s_asyncSaves) {
         vrSettingsWrite(text);
