@@ -1,3 +1,4 @@
+#include <string>
 #include "vr_haptics.h"
 #include "vr_input.h"
 #include "vr_log.h"
@@ -167,14 +168,17 @@ extern "C" void vrHapticsGetRumble(int id, float *out_amplitude, float *out_dura
     if (out_frequency) *out_frequency = p->frequencyHz;
 }
 
-extern "C" void vrHapticsSaveIni(void *file_handle) {
-    FILE *f = (FILE *)file_handle;
-    if (!f) return;
+// out: the std::string vrSettingsSave builds the ini in
+extern "C" void vrHapticsSaveIni(void *out) {
+    std::string *text = (std::string *)out;
+    if (!text) return;
 
-    fprintf(f, "\n[Haptics]\n");
-    fprintf(f, "; GoldenEye VR custom haptics: Intensity (0..10), Duration (ms)\n");
+    char line[160];
+    *text += "\n[Haptics]\n";
+    *text += "; GoldenEye VR custom haptics: Intensity (0..10), Duration (ms)\n";
     for (int i = 0; i < kNumProfiles; ++i) {
-        fprintf(f, "%s=%d,%d\n", s_profiles[i].iniKey, s_profiles[i].intensity, s_profiles[i].durationMs);
+        snprintf(line, sizeof(line), "%s=%d,%d\n", s_profiles[i].iniKey, s_profiles[i].intensity, s_profiles[i].durationMs);
+        *text += line;
     }
 }
 

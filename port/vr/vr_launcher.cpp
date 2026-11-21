@@ -354,8 +354,10 @@ void pollInjected(Injected &in)
 // The launcher runs before the ROM loads, so the app restarts into it.
 #ifdef ANDROID
 extern "C" int gevrAndroidJava;
+extern "C" void vrSettingsFlush(void);   // vr_settings.cpp: a save on its writer thread
 extern "C" void gevrRestartToLauncher(void)
 {
+    vrSettingsFlush();   // the new run reads the settings file
     if (!gevrAndroidJava) {
         vr_log("launcher: no restart without MainActivity");
         return;
@@ -379,8 +381,10 @@ extern "C" void gevrRestartToLauncher(void)
     env->DeleteLocalRef(activity);
 }
 #else
+extern "C" void vrSettingsFlush(void);   // vr_settings.cpp: a save on its writer thread
 extern "C" void gevrRestartToLauncher(void)
 {
+    vrSettingsFlush();   // the new run reads the settings file
     vr_log("launcher: restarting into the launcher");
     pcRestartSelf();
 }

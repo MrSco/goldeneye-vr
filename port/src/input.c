@@ -1527,6 +1527,12 @@ static int inputEventFilter(void *data, SDL_Event *event)
         case SDL_APP_WILLENTERBACKGROUND:
         case SDL_APP_DIDENTERBACKGROUND:
             g_gevrAppBackgrounded = 1;
+            {
+                /* a settings save the writer thread still has: on disk before
+                 * the system may end the app in the background */
+                extern void vrSettingsFlush(void);
+                vrSettingsFlush();
+            }
 #ifdef GEVR_IOS
             /*
              * The crash-report marker out of the foreground, as the Quest's

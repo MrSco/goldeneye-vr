@@ -5,6 +5,11 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <cmath>
+#include <condition_variable>
+#include <cstdarg>
+#include <mutex>
+#include <string>
+#include <thread>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -161,10 +166,41 @@ static void gevrEnsureWritable(const char *path)
 #endif
 }
 
-extern "C" void vrSettingsSave(void)
+/*
+ * The ini's text is made here, on the game's thread, and written to the file
+ * by a thread of its own once the game turns that on (vrSettingsAsyncSaves).
+ * The menus save on every change, and on the Apple TV HD writing the file took
+ * 120-140 ms of a frame: longer than the ~100 ms of sound queued, so folding
+ * the Friends panel or changing a setting broke the sound up (#269 #7).
+ * vrSettingsFlush waits for the write: before the file is read again, when
+ * the app leaves the foreground, and at exit.
+ */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((format(printf, 2, 3)))
+#endif
+static void iniPrintf(std::string *out, const char *format, ...)
 {
-    if (!s_settingsLoaded) return;
+    char line[1024];
+    va_list args;
+    va_start(args, format);
+    const int n = vsnprintf(line, sizeof(line), format, args);
+    va_end(args);
+    if (n < 0) return;
+    if ((size_t)n < sizeof(line)) {
+        out->append(line, (size_t)n);
+        return;
+    }
+    std::string big((size_t)n + 1, '\0');
+    va_start(args, format);
+    vsnprintf(&big[0], big.size(), format, args);
+    va_end(args);
+    out->append(big.data(), (size_t)n);
+}
 
+extern "C" void vrSettingsSave(void);
+
+static void vrSettingsWrite(const std::string &text)
+{
     const char *tmpPath = "goldeneye-vr.ini.tmp";
     gevrEnsureWritable(tmpPath);
     gevrEnsureWritable(VR_INI_PATH);
@@ -185,362 +221,9 @@ extern "C" void vrSettingsSave(void)
         return;
     }
 
-    fprintf(f, "[VR]\n");
-    fprintf(f, "ManualReloading=%d\n", VrManualReloading ? 1 : 0);
-    fprintf(f, "LaserDotForAll=%d\n", VrlaserDotForALL ? 1 : 0);
-    fprintf(f, "SeatedMode=%d\n", VrSeatedMode ? 1 : 0);
-    fprintf(f, "MotionThrowing=%d\n", VrMotionThrowing ? 1 : 0);
-    fprintf(f, "MotionThrowPitch=%.1f\n", VrMotionThrowPitch);
-    fprintf(f, "MotionThrowGazeAssist=%.2f\n", VrMotionThrowGazeAssist);
-    fprintf(f, "MotionThrowStrength=%.2f\n", VrMotionThrowStrength);
-    fprintf(f, "Vibration=%.4f\n", inputRumbleGetStrength(g_ExtMenuPlayer));
-    fprintf(f, "PadDefaults=2\n");   // #269: Vibration's default is 30%; an older ini's 0.5 was the old default
-    fprintf(f, "PadLookSpeed=%.2f\nPadLookDeadzone=%.4f\nPadLookInvert=%d\n", inputPadLookSpeed(),
-            inputPadLookDeadzone(), inputPadLookInverted());
-    fprintf(f, "HeadBob=%d\n", VrHeadBob);
-    fprintf(f, "; A flat game's levels: 0 = Auto (half the screen's rate while it can't hold the full one), 1 = Full, 2 = Half.\n");
-    fprintf(f, "FrameRate=%d\n", VrFrameRate);
-    fprintf(f, "LookUprightFolders=%d\n", VrLookUprightFolders);
-    fprintf(f, "StereoCrosshair=%.4f\n", VrStereoCrosshair);
-    fprintf(f, "HudDistance=%.4f\n", VrHudDistance);
-    fprintf(f, "WeaponRecoil=%d\n", VrWeaponRecoil ? 1 : 0);
-    fprintf(f, "WorldScale=%.4f\n", VrSetWorldScale);
-    fprintf(f, "PauseHub=%d\n", VrPauseHub ? 1 : 0);
-    fprintf(f, "StickClickToCrouch=%d\n", VrStickClickToCrouch ? 1 : 0);
-    fprintf(f, "; 1 = holding the aim trigger no longer leans or ducks: the move stick keeps moving (issue #81).\n");
-    fprintf(f, "AimNoLean=%d\n", VrAimNoLean ? 1 : 0);
-    fprintf(f, "; 0 = no crosshair (nor scope sight) while holding a grip to aim, in stereo.\n");
-    fprintf(f, "AimSight=%d\n", VrAimSight ? 1 : 0);
-    fprintf(f, "SnapTurn=%.1f\n", VrUseSnapTurn);
-    fprintf(f, "; Smooth turning speed in degrees per second, %d..%d.\n", SMOOTHTURN_MIN, SMOOTHTURN_MAX);
-    fprintf(f, "SmoothTurnSpeed=%d\n", VrSmoothTurnSpeed);
-    fprintf(f, "MovementSpeed=%d\nMpMovementSpeed=%d\n",
-            netMovementSpeedPercent(VrMovementSpeed), netMovementSpeedPercent(VrMpMovementSpeed));
-    fprintf(f, "; Grip gestures (stereo), 1 = on: use a door or switch at the hand, take back your own mine.\n");
-    fprintf(f, "GestureGripUse=%d\nGestureMineGrab=%d\n",
-            VrGestureGripUse, VrGestureMineGrab);
-    fprintf(f, "; Force pull (stereo), 1 = on: point an empty hand at something out of reach, squeeze to lock, flick to pull, grip to catch.\n");
-    fprintf(f, "; PullDisarm: pull a guard's gun out of his hand. AutoPickup 0: walking over a gun leaves it.\n");
-    fprintf(f, "; PullVisuals: the target's halo and the pull line.\n");
-    // ForcePull, not test.11-16's GestureForcePull: every ini those builds wrote
-    // holds their default on, so the new default (off) reaches them once
-    fprintf(f, "ForcePull=%d\nPullDisarm=%d\nAutoPickup=%d\nPullVisuals=%d\n",
-            VrForcePull, VrPullDisarm, VrAutoPickup, VrPullVisuals);
-    fprintf(f, "; Body slots (stereo), 1 = on: pistols at the hips, long guns over the shoulders,\n");
-    fprintf(f, "; thrown on the chest, gadgets at the belt. Show: 1 = draw what they hold.\n");
-    fprintf(f, "; Size: zones 0 small, 1 normal, 2 large.\n");
-    fprintf(f, "BodySlots=%d\nBodySlotShow=%d\nBodySlotSize=%d\n", VrBodySlots, VrBodySlotShow, VrBodySlotSize);
-    fprintf(f, "; Each slot's centre, set with Gun fit's Slots mode: cm below the eye, out to its\n");
-    fprintf(f, "; side and ahead, in the torso's frame. 0 0 0 = the default for your height.\n");
-    for (int s = 0; s < GEVR_BODY_SLOTS; s++) {
-        fprintf(f, "BodySlot%s=%.2f %.2f %.2f\n", kBodySlotKeys[s],
-                VrBodySlotFit[s][0], VrBodySlotFit[s][1], VrBodySlotFit[s][2]);
-    }
-    fprintf(f, "; 1 = each gun kicks with its own recoil (Perfect Dark VR's table), 0 = one generic kick.\n");
-    fprintf(f, "PerWeaponRecoil=%d\n", VrPerWeaponRecoil);
-    fprintf(f, "; Game rules (single player). 1 = thrown mines stick to guards.\n");
-    fprintf(f, "MinesStickToGuards=%d\n", VrMinesStickToGuards);
-    fprintf(f, "; Bodies kept on the floor: 0 = they fade as in the original game, or 12, 24.\n");
-    fprintf(f, "BodiesStay=%d\n", VrBodiesStay);
-    fprintf(f, "; 1 = alerted guards can call multiple reinforcements (solo, default off; any body count).\n");
-    fprintf(f, "; GoldenEye solo/co-op/Horde AI ally; host chooses, next mission or retry.\n");
-    fprintf(f, "Ally=%d\nAllyWeapon=%d\nAllyAggression=%d\nAllyHealth=%d\nAllyDamage=%d\nAllyInvincible=%d\n",
-            VrAlly != 0, VrAllyWeapon, VrAllyAggression, VrAllyHealth, VrAllyDamage, VrAllyInvincible != 0);
-    fprintf(f, "FastReinforcements=%d\n", VrFastReinforcements ? 1 : 0);
-    fprintf(f, "; Host's co-op Fast reinforcements preference, independent of solo; default off.\n");
-    fprintf(f, "CoopFastReinforcements=%d\n", VrCoopFastReinforcements ? 1 : 0);
-    fprintf(f, "TwoHandedAiming=%d\n", VrTwoHandAim ? 1 : 0);
-    fprintf(f, "LeftHandedMode=%d\n", VrLeftHandedMode ? 1 : 0);
-    fprintf(f, "; Watch face: 0 Off, 1 On (also standard HUD), 2 Only (gameplay).\n");
-    fprintf(f, "WatchFaceStatus=%d\n", gevrWatchStatusChoice(VrWatchFaceStatus));
-    fprintf(f, "WatchGesturePause=%d\n", VrWatchGesturePause ? 1 : 0);
-    fprintf(f, "SwapJoysticks=%d\n", VrSwapJoysticks ? 1 : 0);
-    fprintf(f, "AimSteadying=%d\n", VrAimSteady);
-    fprintf(f, "; The watch's Controls page: 0 = this headset's controllers, 1 = Quest 1, 2 = Quest 2,\n");
-    fprintf(f, "; 3 = Touch Plus (Quest 3 and 3S), 4 = Touch Pro.\n");
-    fprintf(f, "TouchControllers=%d\n", VrTouchModel);
-    fprintf(f, "ShowStats=%d\n", VrShowStats ? 1 : 0);
-    fprintf(f, "; 1 = the mission time in the lower left, to the hundredth (as the debrief counts it).\n");
-    fprintf(f, "SpeedrunTimer=%d\n", VrSpeedrunTimer ? 1 : 0);
-    fprintf(f, "; 1 = race your best run of each mission as a see-through Bond (files/ghosts).\n");
-    fprintf(f, "GhostRace=%d\n", VrGhostRace ? 1 : 0);
-    fprintf(f, "; 1 = the mission clock to LiveSplit's TCP server (LiveSplit: Control > Start TCP Server),\n");
-    fprintf(f, "; at LiveSplitHost (empty: this computer; on a headset, the PC's address).\n");
-    fprintf(f, "LiveSplit=%d\n", VrLiveSplit ? 1 : 0);
-    fprintf(f, "LiveSplitHost=%s\n", VrLiveSplitHost);
-    fprintf(f, "; 1 = Application SpaceWarp: the game renders at half the display rate and the\n");
-    fprintf(f, "; headset makes the frames between from motion vectors. 0 = off, -1 = on with Bean.\n");
-    fprintf(f, "SpaceWarp=%d\n", VrSpaceWarp < 0 ? -1 : VrSpaceWarp ? 1 : 0);
-    fprintf(f, "; Anti-aliasing of the eye images: 1 = off, 2 = 2 samples per pixel.\n");
-    fprintf(f, "EyeMsaa=%d\n", VrEyeMsaa);
-    fprintf(f, "; CPU performance level asked of the headset at start: -1 = none, 0 = power savings,\n");
-    fprintf(f, "; 1 = sustained low, 2 = sustained high (lifts the CPU cap on battery).\n");
-    fprintf(f, "CpuLevel=%d\n", VrCpuLevel);
-    fprintf(f, "Cheats=%llx\n", (unsigned long long)VrCheatMask);
-    fprintf(f, "GunSizeCheat=%d\n", VrGunSizeCheat);
-    fprintf(f, "; 1 = every mission at every difficulty, 007 mode and every cheat unlocked.\n");
-    fprintf(f, "UnlockAll=%d\n", VrUnlockAll ? 1 : 0);
-    fprintf(f, "HideArms=%d\n", VrHideArms ? 1 : 0);
-    fprintf(f, "ActiveTexturePack=%s\n", g_ActiveExtTexPack);
-    fprintf(f, "; Your standing EYE height in cm -- where your eyes are off the floor, which is\n");
-    fprintf(f, "; what the headset reports, roughly 13 cm below the top of your head. Set it from\n");
-    fprintf(f, "; the live reading beside the menu slider rather than from your stature.\n");
-    fprintf(f, "PlayerHeight=%.1f\n", VrPlayerHeight);
-    fprintf(f, "; 1 = stand at the height of the character you are playing instead of your own,\n");
-    fprintf(f, "; so Elvis is short and Mr Blonde towers. 0 = you are your own height throughout.\n");
-    fprintf(f, "MatchCharacterHeight=%d\n", VrMatchCharacterHeight ? 1 : 0);
-
-    // --- GoldenEye presentation -------------------------------------------------------------------
-    fprintf(f, "\n");
-    fprintf(f, "; 1 = true stereo in first-person play (menus, cutscenes and the watch stay on the\n");
-    fprintf(f, "; virtual screen), 0 = everything on the virtual screen. Hold the right stick click\n");
-    fprintf(f, "; in game to switch.\n");
-#ifdef GEVR_FLAT
-    fprintf(f, "PlayMode=%d\n", s_iniPlayMode);   // PC VR's: the flat game plays on the screen
-#else
-    fprintf(f, "PlayMode=%d\n", VrPlayMode);
-#endif
-    fprintf(f, "; 1 = Project Bean characters, guns, rooms and skies, when the files are in\n");
-    fprintf(f, "; added-content/xbla. Hold one grip and the right stick click to switch.\n");
-    fprintf(f, "XblaVisualsMode=%d\n", VrBeanModels);
-    fprintf(f, "; 1 = with Project Bean on, the pictures it leaves as the cartridge's (the stage\n");
-    fprintf(f, "; pictures and the like) come from the HD + AI or HD texture pack, if one is installed.\n");
-    fprintf(f, "BeanFillTextures=%d\n", VrBeanFillTextures ? 1 : 0);
-    fprintf(f, "; 1 = with Project Bean on, the Community Edition's files, once its updater is applied.\n");
-    fprintf(f, "BeanCommunityEdition=%d\n", VrBeanCommunityEdition ? 1 : 0);
-    fprintf(f, "; 1 = Wreck's blood patch: shot guards spray the red sparks Rare left in the game.\n");
-    fprintf(f, "BloodPatch=%d\n", VrBloodPatch ? 1 : 0);
-    fprintf(f, "; 1 = Oddjob's hat in place of the throwing knife, from files/mods/oddjob_hat.bin.\n");
-    fprintf(f, "OddjobHat=%d\n", VrOddjobHat ? 1 : 0);
-    fprintf(f, "Ragdolls=%d\n", VrRagdolls ? 1 : 0);
-    fprintf(f, "Dismemberment=%d\n", VrDismemberment ? 1 : 0);
-    fprintf(f, "DismemberDamage=%.1f\n", VrDismemberDamage);
-    fprintf(f, "DismemberChance=%d\n", VrDismemberChance);
-    fprintf(f, "MicMuted=%d\n", VrMicMuted ? 1 : 0);
-    fprintf(f, "MusicVolume=%.2f\n", VrMusicVolume);
-    fprintf(f, "VoiceVolume=%.2f\n", VrVoiceVolume);
-    fprintf(f, "SfxVolume=%.2f\n", VrSfxVolume);
-    fprintf(f, "; Your name in multiplayer, up to 15 characters.\n");
-    fprintf(f, "PlayerName=%s\n", VrPlayerName);
-    fprintf(f, "; The multiplayer page's last choices. MpStage is the level id; the sets,\n");
-    fprintf(f, "; scenario, length and health are the launcher's list positions; the guns are\n");
-    fprintf(f, "; item ids; the favorites are bitmasks over the stage and weapon-set lists.\n");
-    fprintf(f, "MpStage=%d\nMpWeaponSet=%d\nMpChr=%d\nMpVisibility=%d\nMpVrOnly=%d\nMpHideFlat=%d\n", VrMpStage, VrMpWeaponSet, VrMpChr, VrMpVisibility, VrMpVrOnly, VrMpHideFlat);
-    fprintf(f, "MpScenario=%d\nMpLength=%d\nMpHealth=%d\nMpDual=%d\nMpLoadouts=%d\nMpNextRound=%d\n",
-            VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound);
-    fprintf(f, "MpVoiceMode=%d\n", VrMpVoiceMode);
-    fprintf(f, "FriendsShowDetail=%d\nFriendsAppearOffline=%d\nFriendsRestoreNoted=%d\n",
-            VrFriendsShowDetail, VrFriendsAppearOffline, VrFriendsRestoreNoted);
-    fprintf(f, "FriendsSidebar=%d\nFriendsSearchable=%d\n", VrFriendsSidebar, VrFriendsSearchable);
-    fprintf(f, "MpFriendlyFire=%d\n", VrMpFriendlyFire);
-    fprintf(f, "HordeFriendlyFire=%d\n", VrHordeFriendlyFire);
-    fprintf(f, "HordeStage=%d\n", VrHordeStage);
-    fprintf(f, "HordeStartWave=%d\n", VrHordeStartWave);
-    fprintf(f, "HostEqualization=%d\nHostLatencyCapMs=%d\n", VrHostEqualization, VrHostLatencyCapMs);
-    fprintf(f, "MpFunFlags=%d\nMpGunSize=%d\nMpMaxPlayers=%d\n", VrMpFunFlags, VrMpGunSize, VrMpMaxPlayers);
-    fprintf(f, "MpBotMode=%d\nMpBotCount=%d\nMpBotDifficulty=%d\n", VrMpBotMode, VrMpBotCount, VrMpBotDifficulty);
-    fprintf(f, "; 1 = guards and other players hold the detailed first-person gun models, 0 = the game's own.\n");
-    fprintf(f, "DetailedGuns=%d\n", VrDetailedGuns ? 1 : 0);
-    fprintf(f, "; 1 = GoldenEye X's first-person guns from data/gex.z64 (experimental, docs/gex-weapons.md).\n");
-    /* a hack campaign turns the models off for its run only (gevr_romload.c) */
-    fprintf(f, "GexGuns=%d\n", (VrGexGuns || gevrGexCampaignOff) ? 1 : 0);
-    fprintf(f, "; Campaign at Start: 0 GoldenEye, 1 Goldfinger 64, 2 Tomorrow Never Dies, 3 Mirror Mode.\n");
-    fprintf(f, "; The four ROMs stay installed together (docs/rom-hacks.md).\n");
-    fprintf(f, "Campaign=%d\n", VrCampaign);
-    fprintf(f, "; 1 = in the headset GoldenEye X's arms are every arm, the left wearing the watch; 0 = the watch arm.\n");
-    for (int i = 0; i < 4; i++) fprintf(f, "MpCustom%d=%d\n", i + 1, VrMpCustom[i]);
-    for (int i = 0; i < 4; i++) fprintf(f, "MpLoadout%d=%d\n", i + 1, VrMpLoadout[i]);
-    fprintf(f, "MpFavStages=%llu\nMpFavSets=%u\n", VrMpFavStages, VrMpFavSets);
-    fprintf(f, "; MpMode 2 = Horde (Archives). Co-op: MpMode 1, the mission's level id and the difficulty (0 Agent .. 3 007).\n");
-    fprintf(f, "MpMode=%d\nMpMission=%d\nMpDifficulty=%d\n", VrMpMode, VrMpMission, VrMpDifficulty);
-    fprintf(f, "; The virtual screen: metres in front of you, and the degrees of view it spans.\n");
-    fprintf(f, "; Hold both grips and use the right stick while the screen is up to change them.\n");
-    fprintf(f, "ScreenDistance=%.2f\n", VrScreenDistance);
-    fprintf(f, "ScreenFov=%.1f\n", VrScreenFov);
-    fprintf(f, "; 1 = a curved screen (a section of a cylinder around you), 0 = flat.\n");
-    fprintf(f, "ScreenCurved=%d\n", VrScreenCurved);
-    fprintf(f, "; 1 = passthrough background behind the 2D screen, 0 = black void.\n");
-    fprintf(f, "ScreenPassthrough=%d\n", VrScreenPassthrough);
-    fprintf(f, "; The 2D screen's shape (a phone, a PC window, the virtual screen): 0 = 4:3, 1 = 16:9.\n");
-    fprintf(f, "ScreenShape=%d\n", VrScreenShape);
-    fprintf(f, "; A phone or tablet: 1 = a buzz on an on-screen button; 1 = turn the device to look and aim.\n");
-    fprintf(f, "TouchHaptics=%d\nGyroAim=%d\nGyroSpeed=%.2f\n", VrTouchHaptics, VrGyroAim, VrGyroSpeed);
-    fprintf(f, "; 0 = no on-screen touch controls, for a mouse and keyboard whose clicks arrive\n");
-    fprintf(f, "; as touches (the iOS app on a Mac through PlayCover). 1 = shown (the default).\n");
-    fprintf(f, "TouchControls=%d\n", VrTouchControls);
-    fprintf(f, "; A pad's triggers: a shot buzzes the trigger that fired it (an Xbox pad's\n");
-    fprintf(f, "; trigger motors, a DualSense's adaptive triggers), 0 to 100 (%%), 0 = off.\n");
-    fprintf(f, "TriggerFeedback=%d\n", VrTriggerFeedback);
-    fprintf(f, "; The touch layout editor's buttons (NAME x y radius;...), empty for the built-in layout.\n");
-    fprintf(f, "TouchLayout=%s\n", VrTouchLayout);
-    fprintf(f, "; Metres above (+) or below (-) eye level; set by grabbing the screen with both grips.\n");
-    fprintf(f, "ScreenHeight=%.2f\n", VrScreenHeight);
-    fprintf(f, "; Preferred display refresh rate in Hz. 0 = Auto (no app preference), the\n");
-    fprintf(f, "; Quest default for new settings. The launcher offers this headset's supported\n");
-    fprintf(f, "; rates. Saved choices are retained; the runtime decides the actual rate.\n");
-    fprintf(f, "DisplayHz=%d\n", VrRefreshRate);
-    fprintf(f, "; Stereo: darken the edges of the view while moving or smooth-turning, to\n");
-    fprintf(f, "; ease motion sickness. 0 = off, up to 1 = strongest.\n");
-    fprintf(f, "ComfortVignette=%.2f\n", VrComfortVignette);
-    fprintf(f, "; Stereo, when you're hit: 1 = the hit doesn't push you, 1 = the trigger still\n");
-    fprintf(f, "; fires while the hit shows (no hitstun), 0 = no red flash.\n");
-    fprintf(f, "NoKnockback=%d\nNoHitstun=%d\nDamageFlash=%d\n", VrNoKnockback ? 1 : 0, VrNoHitstun ? 1 : 0,
-            VrDamageFlash ? 1 : 0);
-    fprintf(f, "; Flat screen: 1 = third person (the camera behind Bond). Its offset from\n");
-    fprintf(f, "; the eye in world units (about cm): back, up, right shoulder (- = left).\n");
-    fprintf(f, "ThirdPerson=%d\nThirdPersonDistance=%d\nThirdPersonHeight=%d\nThirdPersonSideways=%d\n",
-            VrThirdPerson ? 1 : 0, VrThirdPersonDist, VrThirdPersonHeight, VrThirdPersonSide);
-
-    // --- VR hand placement (no menu UI; edit here) --------------------------------------------
-    fprintf(f, "\n");
-    fprintf(f, "; Where the gun sits in your hand, in the CONTROLLER's own frame (cm). Set them\n");
-    fprintf(f, "; in game with the launcher's Gun fit..., or here. X = right, Y = up, Z = back\n");
-    fprintf(f, "; toward you (negative is forward). All three 0 means the fitted defaults.\n");
-    fprintf(f, "GunOffX=%.4f\n", VrGunOffX);
-    fprintf(f, "GunOffY=%.4f\n", VrGunOffY);
-    fprintf(f, "GunOffZ=%.4f\n", VrGunOffZ);
-    fprintf(f, "; The holding hand of a two-handed hold (issue #35), set with Gun fit while\n");
-    fprintf(f, "; holding a gun with both hands: cm outward, up, forward, then degrees of turn\n");
-    fprintf(f, "; about the hand's X, Y, Z. GripPistol for handguns, GripRifle for long guns.\n");
-    fprintf(f, "GripPistol=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrGripTrim[0][0], VrGripTrim[0][1],
-            VrGripTrim[0][2], VrGripTrim[0][3], VrGripTrim[0][4], VrGripTrim[0][5]);
-    fprintf(f, "GripRifle=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrGripTrim[1][0], VrGripTrim[1][1],
-            VrGripTrim[1][2], VrGripTrim[1][3], VrGripTrim[1][4], VrGripTrim[1][5]);
-    fprintf(f, "; GoldenEye X's models (MODS) sit differently in the hand, so Gun fit keeps\n");
-    fprintf(f, "; theirs apart: GexGunOff is GunOffX, Y and Z; GexGrip* as above.\n");
-    fprintf(f, "GexGunOff=%.4f %.4f %.4f\n", VrGexGunOff[0], VrGexGunOff[1], VrGexGunOff[2]);
-    fprintf(f, "GexGripPistol=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrGexGripTrim[0][0], VrGexGripTrim[0][1],
-            VrGexGripTrim[0][2], VrGexGripTrim[0][3], VrGexGripTrim[0][4], VrGexGripTrim[0][5]);
-    fprintf(f, "GexGripRifle=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrGexGripTrim[1][0], VrGexGripTrim[1][1],
-            VrGexGripTrim[1][2], VrGexGripTrim[1][3], VrGexGripTrim[1][4], VrGexGripTrim[1][5]);
-    fprintf(f, "; Bean's models (MODS) keep theirs apart too: BeanGunOff, BeanGrip*, and BeanReloadGrab,\n");
-    fprintf(f, "; BeanScope* and BeanMuzzle* below.\n");
-    fprintf(f, "BeanGunOff=%.4f %.4f %.4f\n", VrBeanGunOff[0], VrBeanGunOff[1], VrBeanGunOff[2]);
-    fprintf(f, "BeanGripPistol=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrBeanGripTrim[0][0], VrBeanGripTrim[0][1],
-            VrBeanGripTrim[0][2], VrBeanGripTrim[0][3], VrBeanGripTrim[0][4], VrBeanGripTrim[0][5]);
-    fprintf(f, "BeanGripRifle=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrBeanGripTrim[1][0], VrBeanGripTrim[1][1],
-            VrBeanGripTrim[1][2], VrBeanGripTrim[1][3], VrBeanGripTrim[1][4], VrBeanGripTrim[1][5]);
-    fprintf(f, "; Each gun's own, once Gun fit has moved it (the models hold the hand their own\n");
-    fprintf(f, "; way): GunFit<gun> as GunOffX, Y and Z, GripFit<gun> as GripPistol; Bean* for\n");
-    fprintf(f, "; Bean's models. A gun without its own takes the ones above.\n");
-    for (int m = 0; m < 3; m++) {
-        const int set = gevrPerGunSet(m);
-        if (set < 0) continue;
-        for (const auto &w : kMuzzleWeapons) {
-            if (VrGunOffPerSet[set][w.item]) {
-                const float *t = VrGunOffPer[set][w.item];
-                fprintf(f, "%sGunFit%s=%.4f %.4f %.4f\n", kFitLookPrefix[m], w.name, t[0], t[1], t[2]);
-            }
-            if (VrGripTrimPerSet[set][w.item]) {
-                const float *t = VrGripTrimPer[set][w.item];
-                fprintf(f, "%sGripFit%s=%.2f %.2f %.2f %.1f %.1f %.1f\n", kFitLookPrefix[m], w.name,
-                        t[0], t[1], t[2], t[3], t[4], t[5]);
-            }
-        }
-    }
-    fprintf(f, "; Hand reload, set with Gun fit's reload mode (X): where the off hand takes the\n");
-    fprintf(f, "; magazine, cm right, up and back from the gun hand's grip (Gex* for GoldenEye X);\n");
-    fprintf(f, "; the belt, cm below the eye, out to the side and ahead; and where a GoldenEye X\n");
-    fprintf(f, "; magazine sits in the off hand, cm right, up and back from its grip.\n");
-    fprintf(f, "ReloadGrab=%.2f %.2f %.2f\n", VrReloadGrab[0][0], VrReloadGrab[0][1], VrReloadGrab[0][2]);
-    fprintf(f, "GexReloadGrab=%.2f %.2f %.2f\n", VrReloadGrab[1][0], VrReloadGrab[1][1], VrReloadGrab[1][2]);
-    fprintf(f, "BeanReloadGrab=%.2f %.2f %.2f\n", VrBeanReloadGrab[0], VrBeanReloadGrab[1], VrBeanReloadGrab[2]);
-    fprintf(f, "ReloadBelt=%.2f %.2f %.2f\n", VrReloadBelt[0], VrReloadBelt[1], VrReloadBelt[2]);
-    fprintf(f, "GexHeldMag=%.2f %.2f %.2f\n", VrGexHeldMag[0], VrGexHeldMag[1], VrGexHeldMag[2]);
-    fprintf(f, "; The watch on GoldenEye X's left wrist (Gun fit's off hand mode, right grip):\n");
-    fprintf(f, "; cm ahead of the sleeve's end, up and out, and its size.\n");
-    fprintf(f, "GexWatch=%.2f %.2f %.2f %.2f\n", VrGexWatch[0], VrGexWatch[1], VrGexWatch[2], VrGexWatch[3]);
-    fprintf(f, "; GoldenEye X's off hand (and its watch arm) turned about its palm, degrees\n");
-    fprintf(f, "; (Gun fit's off hand mode, left grip).\n");
-    fprintf(f, "GexOffRot=%.1f %.1f %.1f\n", VrGexOffRot[0], VrGexOffRot[1], VrGexOffRot[2]);
-    fprintf(f, "; Where GoldenEye X's left hand holds a gun with both hands (Gun fit, both hands):\n");
-    fprintf(f, "; cm forward, up and out along the gun.\n");
-    fprintf(f, "GexForeHold=%.2f %.2f %.2f\n", VrGexForeHold[0], VrGexForeHold[1], VrGexForeHold[2]);
-    fprintf(f, "; The sniper rifle's butt held as a bat (Gun fit with it out): GexBat the rifle on\n");
-    fprintf(f, "; the fist, cm right, up and back (down slides the fist toward the butt);\n");
-    fprintf(f, "; GexBatHand and GexBatHandRot the gun hand on it (all 0: the rifle's own).\n");
-    fprintf(f, "GexBat=%.4f %.4f %.4f\n", VrGexBatFit[0][0], VrGexBatFit[0][1], VrGexBatFit[0][2]);
-    fprintf(f, "GexBatHand=%.4f %.4f %.4f\n", VrGexBatFit[1][0], VrGexBatFit[1][1], VrGexBatFit[1][2]);
-    fprintf(f, "GexBatHandRot=%.4f %.4f %.4f\n", VrGexBatFit[2][0], VrGexBatFit[2][1], VrGexBatFit[2][2]);
-    fprintf(f, "; GexBatOff and GexBatOffRot: the off hand where it holds the rifle (both hands).\n");
-    fprintf(f, "GexBatOff=%.4f %.4f %.4f\n", VrGexBatFit[3][0], VrGexBatFit[3][1], VrGexBatFit[3][2]);
-    fprintf(f, "GexBatOffRot=%.4f %.4f %.4f\n", VrGexBatFit[4][0], VrGexBatFit[4][1], VrGexBatFit[4][2]);
-    fprintf(f, "; Bean guns' magazines: item number / vector (0 held magazine, 1 magazine well); fitted ones only.\n");
-    for (int item=0; item<64; item++)
-        for (int which=0; which<2; which++) {
-            const float *v=VrBeanMagFits[item][which];
-            if (v[0] != 0.0f || v[1] != 0.0f || v[2] != 0.0f)
-                fprintf(f, "BeanMagFit%d_%d=%.4f %.4f %.4f\n", item, which, v[0], v[1], v[2]);
-        }
-    fprintf(f, "; Per-weapon fits: item number / vector (0 gun, 1 grab, 2 support, 3 rotation, 4 held mag, 5 well, 6 installed mesh).\n");
-    for (int item=0; item<64; item++) {
-        /* Do not write zero overrides for models implemented by future builds. */
-        /* 5, 20 and 21 share the PP7's (item 4's) fits; 11 the D5K's (10); 3 the knife's (2) */
-        if (!gevrGexWeaponGet(item) || item == 3 || item == 5 || item == 11 || item == 20 || item == 21) continue;
-        /* item 4's 0..5 are the legacy GexPP7* keys; 7 and 8 the gun hand (or item), 9 item size */
-        for (int component=(item == 4 ? 6 : 0); component<10; component++) {
-            const float *v=VrGexWeaponFits[item][component];
-            fprintf(f, "GexFit%d_%d=%.4f %.4f %.4f\n", item, component, v[0], v[1], v[2]);
-        }
-    }
-    fprintf(f, "GexPP7Grab=%.2f %.2f %.2f\n", VrGexPp7Grab[0], VrGexPp7Grab[1], VrGexPp7Grab[2]);
-    fprintf(f, "GexPP7Support=%.2f %.2f %.2f\n", VrGexPp7Support[0], VrGexPp7Support[1], VrGexPp7Support[2]);
-    fprintf(f, "GexPP7SupportRot=%.1f %.1f %.1f\n", VrGexPp7SupportRot[0], VrGexPp7SupportRot[1], VrGexPp7SupportRot[2]);
-    fprintf(f, "GexPP7GunOff=%.4f %.4f %.4f\n", VrGexPp7GunOff[0], VrGexPp7GunOff[1], VrGexPp7GunOff[2]);
-    fprintf(f, "; Held magazine only (Gun fit, X): cm right, up and back on the off controller.\n");
-    fprintf(f, "GexKF7MagOff=%.2f %.2f %.2f\n", VrGexKf7MagOff[0], VrGexKf7MagOff[1], VrGexKf7MagOff[2]);
-    fprintf(f, "GexPP7MagOff=%.2f %.2f %.2f\n", VrGexPp7MagOff[0], VrGexPp7MagOff[1], VrGexPp7MagOff[2]);
-    fprintf(f, "; Magazine-well entrance (Gun fit, X): cm right, up and back on the gun.\n");
-    fprintf(f, "GexKF7WellOff=%.2f %.2f %.2f\n", VrGexKf7WellOff[0], VrGexKf7WellOff[1], VrGexKf7WellOff[2]);
-    fprintf(f, "GexPP7WellOff=%.2f %.2f %.2f\n", VrGexPp7WellOff[0], VrGexPp7WellOff[1], VrGexPp7WellOff[2]);
-    fprintf(f, "; A scope's lens, set with Gun fit holding the gun (X switches to its scope):\n");
-    fprintf(f, "; cm right, up and back from the eyepiece, then cm wider. GexScope* for\n");
-    fprintf(f, "; GoldenEye X's models.\n");
-    for (int m = 0; m < 3; m++) {
-        for (int s = 0; s < GEVR_SCOPE_FITS; s++) {
-            const float *t = gevrScopeFitOf(m, s);
-            fprintf(f, "%sScope%s=%.2f %.2f %.2f %.2f\n", kFitLookPrefix[m], kScopeFitNames[s], t[0], t[1], t[2], t[3]);
-        }
-    }
-    fprintf(f, "\n");
-    fprintf(f, "; Barrel tip / muzzle fit, set with Gun fit holding the gun (X switches to barrel tip):\n");
-    fprintf(f, "; cm right (side), up and forward from the default barrel tip. GexMuzzle* for\n");
-    fprintf(f, "; GoldenEye X's models.\n");
-    for (int m = 0; m < 3; m++) {
-        for (const auto &w : kMuzzleWeapons) {
-            const float *t = gevrMuzzleTrimOf(m, w.item);
-            if (t[0] != 0.0f || t[1] != 0.0f || t[2] != 0.0f) {
-                fprintf(f, "%sMuzzle%s=%.2f %.2f %.2f\n", kFitLookPrefix[m], w.name, t[0], t[1], t[2]);
-            }
-        }
-    }
-
-
-
-    fprintf(f, "\n");
-    fprintf(f, "; 0..1. How tightly the elbows are pulled in toward your body. 0 leaves them at the\n");
-    fprintf(f, "; animation's rest pose (they splay outward), 1 pins them hard against the torso.\n");
-    fprintf(f, "ArmElbowTuck=%.4f\n", VrArmElbowTuck);
-    fprintf(f, "\n");
-    fprintf(f, "; How fast the virtual torso turns to follow your head, per tick. The elbow anchor\n");
-    fprintf(f, "; is held steady relative to that torso, so this trades two things off: too LOW and\n");
-    fprintf(f, "; the elbows lag behind when you physically turn your whole body; too HIGH and they\n");
-    fprintf(f, "; drift when you merely glance around. ~0.02 suits most people. Body slots ride\n");
-    fprintf(f, "; on the same torso.\n");
-    fprintf(f, "ArmBodyFollow=%.4f\n", VrArmBodyFollow);
-    fprintf(f, "\n");
-    fprintf(f, "; 1 = with GE-X's arms, a free or unarmed hand closes into a fist while you\n");
-    fprintf(f, "; squeeze its grip, 0 = it stays open. (FistClench, before it did this, saved 0.)\n");
-    fprintf(f, "GexFistClench=%d\n", VrFistClench);
-    fprintf(f, "\n");
-    fprintf(f, "; Milliseconds after a gun runs dry and switches itself during which the first\n");
-    fprintf(f, "; weapon-cycle tap keeps the gun it switched to instead of stepping past it.\n");
-    fprintf(f, "; 0 = off (every tap cycles).\n");
-    fprintf(f, "AutoSwitchKeepMs=%d\n", VrAutoSwitchKeepMs);
-    vrHapticsSaveIni(f);
+    fwrite(text.data(), 1, text.size(), f);
     fflush(f);
     fclose(f);
-    vrHapticsDumpCTable();
 
     if (useTmp) {
 #ifdef _WIN32
@@ -572,9 +255,438 @@ extern "C" void vrEnsurePlayerName(void)
     vrSettingsSave();
 }
 
+namespace {
+struct GevrSaveQueue {
+    std::mutex lock;
+    std::condition_variable changed;
+    std::string pending;
+    bool waiting = false, writing = false, started = false;
+};
+// never destroyed: the writer thread may still wait on it while the process exits
+GevrSaveQueue &gevrSaveQueue() { static GevrSaveQueue *q = new GevrSaveQueue; return *q; }
+bool s_asyncSaves = false;
+
+void gevrSaveWriter()
+{
+    GevrSaveQueue &q = gevrSaveQueue();
+    std::unique_lock<std::mutex> hold(q.lock);
+    for (;;) {
+        q.changed.wait(hold, [&q] { return q.waiting; });
+        std::string text;
+        text.swap(q.pending);   // the newest save only: older ones it replaced are skipped
+        q.waiting = false;
+        q.writing = true;
+        hold.unlock();
+        vrSettingsWrite(text);
+        hold.lock();
+        q.writing = false;
+        q.changed.notify_all();
+    }
+}
+}
+
+extern "C" void vrSettingsFlush(void)
+{
+    GevrSaveQueue &q = gevrSaveQueue();
+    std::unique_lock<std::mutex> hold(q.lock);
+    if (!q.started) return;
+    q.changed.wait(hold, [&q] { return !q.waiting && !q.writing; });
+}
+
+/* The game's builds (main.c): saves go to the writer thread. Tests and the
+ * dedicated server keep writing at once. */
+extern "C" void vrSettingsAsyncSaves(int on)
+{
+    GevrSaveQueue &q = gevrSaveQueue();
+    {
+        std::lock_guard<std::mutex> hold(q.lock);
+        if (on && !q.started) {
+            q.started = true;
+            std::thread(gevrSaveWriter).detach();
+            atexit(vrSettingsFlush);
+        }
+    }
+    if (!on) vrSettingsFlush();
+    s_asyncSaves = on != 0;
+}
+
+extern "C" void vrSettingsSave(void)
+{
+    if (!s_settingsLoaded) return;
+
+    std::string text;
+    text.reserve(32768);
+    std::string *f = &text;
+    iniPrintf(f, "[VR]\n");
+    iniPrintf(f, "ManualReloading=%d\n", VrManualReloading ? 1 : 0);
+    iniPrintf(f, "LaserDotForAll=%d\n", VrlaserDotForALL ? 1 : 0);
+    iniPrintf(f, "SeatedMode=%d\n", VrSeatedMode ? 1 : 0);
+    iniPrintf(f, "MotionThrowing=%d\n", VrMotionThrowing ? 1 : 0);
+    iniPrintf(f, "MotionThrowPitch=%.1f\n", VrMotionThrowPitch);
+    iniPrintf(f, "MotionThrowGazeAssist=%.2f\n", VrMotionThrowGazeAssist);
+    iniPrintf(f, "MotionThrowStrength=%.2f\n", VrMotionThrowStrength);
+    iniPrintf(f, "Vibration=%.4f\n", inputRumbleGetStrength(g_ExtMenuPlayer));
+    iniPrintf(f, "PadDefaults=2\n");   // #269: Vibration's default is 30%; an older ini's 0.5 was the old default
+    iniPrintf(f, "PadLookSpeed=%.2f\nPadLookDeadzone=%.4f\nPadLookInvert=%d\n", inputPadLookSpeed(),
+            inputPadLookDeadzone(), inputPadLookInverted());
+    iniPrintf(f, "HeadBob=%d\n", VrHeadBob);
+    iniPrintf(f, "; A flat game's levels: 0 = Auto (half the screen's rate while it can't hold the full one), 1 = Full, 2 = Half.\n");
+    iniPrintf(f, "FrameRate=%d\n", VrFrameRate);
+    iniPrintf(f, "LookUprightFolders=%d\n", VrLookUprightFolders);
+    iniPrintf(f, "StereoCrosshair=%.4f\n", VrStereoCrosshair);
+    iniPrintf(f, "HudDistance=%.4f\n", VrHudDistance);
+    iniPrintf(f, "WeaponRecoil=%d\n", VrWeaponRecoil ? 1 : 0);
+    iniPrintf(f, "WorldScale=%.4f\n", VrSetWorldScale);
+    iniPrintf(f, "PauseHub=%d\n", VrPauseHub ? 1 : 0);
+    iniPrintf(f, "StickClickToCrouch=%d\n", VrStickClickToCrouch ? 1 : 0);
+    iniPrintf(f, "; 1 = holding the aim trigger no longer leans or ducks: the move stick keeps moving (issue #81).\n");
+    iniPrintf(f, "AimNoLean=%d\n", VrAimNoLean ? 1 : 0);
+    iniPrintf(f, "; 0 = no crosshair (nor scope sight) while holding a grip to aim, in stereo.\n");
+    iniPrintf(f, "AimSight=%d\n", VrAimSight ? 1 : 0);
+    iniPrintf(f, "SnapTurn=%.1f\n", VrUseSnapTurn);
+    iniPrintf(f, "; Smooth turning speed in degrees per second, %d..%d.\n", SMOOTHTURN_MIN, SMOOTHTURN_MAX);
+    iniPrintf(f, "SmoothTurnSpeed=%d\n", VrSmoothTurnSpeed);
+    iniPrintf(f, "MovementSpeed=%d\nMpMovementSpeed=%d\n",
+            netMovementSpeedPercent(VrMovementSpeed), netMovementSpeedPercent(VrMpMovementSpeed));
+    iniPrintf(f, "; Grip gestures (stereo), 1 = on: use a door or switch at the hand, take back your own mine.\n");
+    iniPrintf(f, "GestureGripUse=%d\nGestureMineGrab=%d\n",
+            VrGestureGripUse, VrGestureMineGrab);
+    iniPrintf(f, "; Force pull (stereo), 1 = on: point an empty hand at something out of reach, squeeze to lock, flick to pull, grip to catch.\n");
+    iniPrintf(f, "; PullDisarm: pull a guard's gun out of his hand. AutoPickup 0: walking over a gun leaves it.\n");
+    iniPrintf(f, "; PullVisuals: the target's halo and the pull line.\n");
+    // ForcePull, not test.11-16's GestureForcePull: every ini those builds wrote
+    // holds their default on, so the new default (off) reaches them once
+    iniPrintf(f, "ForcePull=%d\nPullDisarm=%d\nAutoPickup=%d\nPullVisuals=%d\n",
+            VrForcePull, VrPullDisarm, VrAutoPickup, VrPullVisuals);
+    iniPrintf(f, "; Body slots (stereo), 1 = on: pistols at the hips, long guns over the shoulders,\n");
+    iniPrintf(f, "; thrown on the chest, gadgets at the belt. Show: 1 = draw what they hold.\n");
+    iniPrintf(f, "; Size: zones 0 small, 1 normal, 2 large.\n");
+    iniPrintf(f, "BodySlots=%d\nBodySlotShow=%d\nBodySlotSize=%d\n", VrBodySlots, VrBodySlotShow, VrBodySlotSize);
+    iniPrintf(f, "; Each slot's centre, set with Gun fit's Slots mode: cm below the eye, out to its\n");
+    iniPrintf(f, "; side and ahead, in the torso's frame. 0 0 0 = the default for your height.\n");
+    for (int s = 0; s < GEVR_BODY_SLOTS; s++) {
+        iniPrintf(f, "BodySlot%s=%.2f %.2f %.2f\n", kBodySlotKeys[s],
+                VrBodySlotFit[s][0], VrBodySlotFit[s][1], VrBodySlotFit[s][2]);
+    }
+    iniPrintf(f, "; 1 = each gun kicks with its own recoil (Perfect Dark VR's table), 0 = one generic kick.\n");
+    iniPrintf(f, "PerWeaponRecoil=%d\n", VrPerWeaponRecoil);
+    iniPrintf(f, "; Game rules (single player). 1 = thrown mines stick to guards.\n");
+    iniPrintf(f, "MinesStickToGuards=%d\n", VrMinesStickToGuards);
+    iniPrintf(f, "; Bodies kept on the floor: 0 = they fade as in the original game, or 12, 24.\n");
+    iniPrintf(f, "BodiesStay=%d\n", VrBodiesStay);
+    iniPrintf(f, "; 1 = alerted guards can call multiple reinforcements (solo, default off; any body count).\n");
+    iniPrintf(f, "; GoldenEye solo/co-op/Horde AI ally; host chooses, next mission or retry.\n");
+    iniPrintf(f, "Ally=%d\nAllyWeapon=%d\nAllyAggression=%d\nAllyHealth=%d\nAllyDamage=%d\nAllyInvincible=%d\n",
+            VrAlly != 0, VrAllyWeapon, VrAllyAggression, VrAllyHealth, VrAllyDamage, VrAllyInvincible != 0);
+    iniPrintf(f, "FastReinforcements=%d\n", VrFastReinforcements ? 1 : 0);
+    iniPrintf(f, "; Host's co-op Fast reinforcements preference, independent of solo; default off.\n");
+    iniPrintf(f, "CoopFastReinforcements=%d\n", VrCoopFastReinforcements ? 1 : 0);
+    iniPrintf(f, "TwoHandedAiming=%d\n", VrTwoHandAim ? 1 : 0);
+    iniPrintf(f, "LeftHandedMode=%d\n", VrLeftHandedMode ? 1 : 0);
+    iniPrintf(f, "; Watch face: 0 Off, 1 On (also standard HUD), 2 Only (gameplay).\n");
+    iniPrintf(f, "WatchFaceStatus=%d\n", gevrWatchStatusChoice(VrWatchFaceStatus));
+    iniPrintf(f, "WatchGesturePause=%d\n", VrWatchGesturePause ? 1 : 0);
+    iniPrintf(f, "SwapJoysticks=%d\n", VrSwapJoysticks ? 1 : 0);
+    iniPrintf(f, "AimSteadying=%d\n", VrAimSteady);
+    iniPrintf(f, "; The watch's Controls page: 0 = this headset's controllers, 1 = Quest 1, 2 = Quest 2,\n");
+    iniPrintf(f, "; 3 = Touch Plus (Quest 3 and 3S), 4 = Touch Pro.\n");
+    iniPrintf(f, "TouchControllers=%d\n", VrTouchModel);
+    iniPrintf(f, "ShowStats=%d\n", VrShowStats ? 1 : 0);
+    iniPrintf(f, "; 1 = the mission time in the lower left, to the hundredth (as the debrief counts it).\n");
+    iniPrintf(f, "SpeedrunTimer=%d\n", VrSpeedrunTimer ? 1 : 0);
+    iniPrintf(f, "; 1 = race your best run of each mission as a see-through Bond (files/ghosts).\n");
+    iniPrintf(f, "GhostRace=%d\n", VrGhostRace ? 1 : 0);
+    iniPrintf(f, "; 1 = the mission clock to LiveSplit's TCP server (LiveSplit: Control > Start TCP Server),\n");
+    iniPrintf(f, "; at LiveSplitHost (empty: this computer; on a headset, the PC's address).\n");
+    iniPrintf(f, "LiveSplit=%d\n", VrLiveSplit ? 1 : 0);
+    iniPrintf(f, "LiveSplitHost=%s\n", VrLiveSplitHost);
+    iniPrintf(f, "; 1 = Application SpaceWarp: the game renders at half the display rate and the\n");
+    iniPrintf(f, "; headset makes the frames between from motion vectors. 0 = off, -1 = on with Bean.\n");
+    iniPrintf(f, "SpaceWarp=%d\n", VrSpaceWarp < 0 ? -1 : VrSpaceWarp ? 1 : 0);
+    iniPrintf(f, "; Anti-aliasing of the eye images: 1 = off, 2 = 2 samples per pixel.\n");
+    iniPrintf(f, "EyeMsaa=%d\n", VrEyeMsaa);
+    iniPrintf(f, "; CPU performance level asked of the headset at start: -1 = none, 0 = power savings,\n");
+    iniPrintf(f, "; 1 = sustained low, 2 = sustained high (lifts the CPU cap on battery).\n");
+    iniPrintf(f, "CpuLevel=%d\n", VrCpuLevel);
+    iniPrintf(f, "Cheats=%llx\n", (unsigned long long)VrCheatMask);
+    iniPrintf(f, "GunSizeCheat=%d\n", VrGunSizeCheat);
+    iniPrintf(f, "; 1 = every mission at every difficulty, 007 mode and every cheat unlocked.\n");
+    iniPrintf(f, "UnlockAll=%d\n", VrUnlockAll ? 1 : 0);
+    iniPrintf(f, "HideArms=%d\n", VrHideArms ? 1 : 0);
+    iniPrintf(f, "ActiveTexturePack=%s\n", g_ActiveExtTexPack);
+    iniPrintf(f, "; Your standing EYE height in cm -- where your eyes are off the floor, which is\n");
+    iniPrintf(f, "; what the headset reports, roughly 13 cm below the top of your head. Set it from\n");
+    iniPrintf(f, "; the live reading beside the menu slider rather than from your stature.\n");
+    iniPrintf(f, "PlayerHeight=%.1f\n", VrPlayerHeight);
+    iniPrintf(f, "; 1 = stand at the height of the character you are playing instead of your own,\n");
+    iniPrintf(f, "; so Elvis is short and Mr Blonde towers. 0 = you are your own height throughout.\n");
+    iniPrintf(f, "MatchCharacterHeight=%d\n", VrMatchCharacterHeight ? 1 : 0);
+
+    // --- GoldenEye presentation -------------------------------------------------------------------
+    iniPrintf(f, "\n");
+    iniPrintf(f, "; 1 = true stereo in first-person play (menus, cutscenes and the watch stay on the\n");
+    iniPrintf(f, "; virtual screen), 0 = everything on the virtual screen. Hold the right stick click\n");
+    iniPrintf(f, "; in game to switch.\n");
+#ifdef GEVR_FLAT
+    iniPrintf(f, "PlayMode=%d\n", s_iniPlayMode);   // PC VR's: the flat game plays on the screen
+#else
+    iniPrintf(f, "PlayMode=%d\n", VrPlayMode);
+#endif
+    iniPrintf(f, "; 1 = Project Bean characters, guns, rooms and skies, when the files are in\n");
+    iniPrintf(f, "; added-content/xbla. Hold one grip and the right stick click to switch.\n");
+    iniPrintf(f, "XblaVisualsMode=%d\n", VrBeanModels);
+    iniPrintf(f, "; 1 = with Project Bean on, the pictures it leaves as the cartridge's (the stage\n");
+    iniPrintf(f, "; pictures and the like) come from the HD + AI or HD texture pack, if one is installed.\n");
+    iniPrintf(f, "BeanFillTextures=%d\n", VrBeanFillTextures ? 1 : 0);
+    iniPrintf(f, "; 1 = with Project Bean on, the Community Edition's files, once its updater is applied.\n");
+    iniPrintf(f, "BeanCommunityEdition=%d\n", VrBeanCommunityEdition ? 1 : 0);
+    iniPrintf(f, "; 1 = Wreck's blood patch: shot guards spray the red sparks Rare left in the game.\n");
+    iniPrintf(f, "BloodPatch=%d\n", VrBloodPatch ? 1 : 0);
+    iniPrintf(f, "; 1 = Oddjob's hat in place of the throwing knife, from files/mods/oddjob_hat.bin.\n");
+    iniPrintf(f, "OddjobHat=%d\n", VrOddjobHat ? 1 : 0);
+    iniPrintf(f, "Ragdolls=%d\n", VrRagdolls ? 1 : 0);
+    iniPrintf(f, "Dismemberment=%d\n", VrDismemberment ? 1 : 0);
+    iniPrintf(f, "DismemberDamage=%.1f\n", VrDismemberDamage);
+    iniPrintf(f, "DismemberChance=%d\n", VrDismemberChance);
+    iniPrintf(f, "MicMuted=%d\n", VrMicMuted ? 1 : 0);
+    iniPrintf(f, "MusicVolume=%.2f\n", VrMusicVolume);
+    iniPrintf(f, "VoiceVolume=%.2f\n", VrVoiceVolume);
+    iniPrintf(f, "SfxVolume=%.2f\n", VrSfxVolume);
+    iniPrintf(f, "; Your name in multiplayer, up to 15 characters.\n");
+    iniPrintf(f, "PlayerName=%s\n", VrPlayerName);
+    iniPrintf(f, "; The multiplayer page's last choices. MpStage is the level id; the sets,\n");
+    iniPrintf(f, "; scenario, length and health are the launcher's list positions; the guns are\n");
+    iniPrintf(f, "; item ids; the favorites are bitmasks over the stage and weapon-set lists.\n");
+    iniPrintf(f, "MpStage=%d\nMpWeaponSet=%d\nMpChr=%d\nMpVisibility=%d\nMpVrOnly=%d\nMpHideFlat=%d\n", VrMpStage, VrMpWeaponSet, VrMpChr, VrMpVisibility, VrMpVrOnly, VrMpHideFlat);
+    iniPrintf(f, "MpScenario=%d\nMpLength=%d\nMpHealth=%d\nMpDual=%d\nMpLoadouts=%d\nMpNextRound=%d\n",
+            VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound);
+    iniPrintf(f, "MpVoiceMode=%d\n", VrMpVoiceMode);
+    iniPrintf(f, "FriendsShowDetail=%d\nFriendsAppearOffline=%d\nFriendsRestoreNoted=%d\n",
+            VrFriendsShowDetail, VrFriendsAppearOffline, VrFriendsRestoreNoted);
+    iniPrintf(f, "FriendsSidebar=%d\nFriendsSearchable=%d\n", VrFriendsSidebar, VrFriendsSearchable);
+    iniPrintf(f, "MpFriendlyFire=%d\n", VrMpFriendlyFire);
+    iniPrintf(f, "HordeFriendlyFire=%d\n", VrHordeFriendlyFire);
+    iniPrintf(f, "HordeStage=%d\n", VrHordeStage);
+    iniPrintf(f, "HordeStartWave=%d\n", VrHordeStartWave);
+    iniPrintf(f, "HostEqualization=%d\nHostLatencyCapMs=%d\n", VrHostEqualization, VrHostLatencyCapMs);
+    iniPrintf(f, "MpFunFlags=%d\nMpGunSize=%d\nMpMaxPlayers=%d\n", VrMpFunFlags, VrMpGunSize, VrMpMaxPlayers);
+    iniPrintf(f, "MpBotMode=%d\nMpBotCount=%d\nMpBotDifficulty=%d\n", VrMpBotMode, VrMpBotCount, VrMpBotDifficulty);
+    iniPrintf(f, "; 1 = guards and other players hold the detailed first-person gun models, 0 = the game's own.\n");
+    iniPrintf(f, "DetailedGuns=%d\n", VrDetailedGuns ? 1 : 0);
+    iniPrintf(f, "; 1 = GoldenEye X's first-person guns from data/gex.z64 (experimental, docs/gex-weapons.md).\n");
+    /* a hack campaign turns the models off for its run only (gevr_romload.c) */
+    iniPrintf(f, "GexGuns=%d\n", (VrGexGuns || gevrGexCampaignOff) ? 1 : 0);
+    iniPrintf(f, "; Campaign at Start: 0 GoldenEye, 1 Goldfinger 64, 2 Tomorrow Never Dies, 3 Mirror Mode.\n");
+    iniPrintf(f, "; The four ROMs stay installed together (docs/rom-hacks.md).\n");
+    iniPrintf(f, "Campaign=%d\n", VrCampaign);
+    iniPrintf(f, "; 1 = in the headset GoldenEye X's arms are every arm, the left wearing the watch; 0 = the watch arm.\n");
+    for (int i = 0; i < 4; i++) iniPrintf(f, "MpCustom%d=%d\n", i + 1, VrMpCustom[i]);
+    for (int i = 0; i < 4; i++) iniPrintf(f, "MpLoadout%d=%d\n", i + 1, VrMpLoadout[i]);
+    iniPrintf(f, "MpFavStages=%llu\nMpFavSets=%u\n", VrMpFavStages, VrMpFavSets);
+    iniPrintf(f, "; MpMode 2 = Horde (Archives). Co-op: MpMode 1, the mission's level id and the difficulty (0 Agent .. 3 007).\n");
+    iniPrintf(f, "MpMode=%d\nMpMission=%d\nMpDifficulty=%d\n", VrMpMode, VrMpMission, VrMpDifficulty);
+    iniPrintf(f, "; The virtual screen: metres in front of you, and the degrees of view it spans.\n");
+    iniPrintf(f, "; Hold both grips and use the right stick while the screen is up to change them.\n");
+    iniPrintf(f, "ScreenDistance=%.2f\n", VrScreenDistance);
+    iniPrintf(f, "ScreenFov=%.1f\n", VrScreenFov);
+    iniPrintf(f, "; 1 = a curved screen (a section of a cylinder around you), 0 = flat.\n");
+    iniPrintf(f, "ScreenCurved=%d\n", VrScreenCurved);
+    iniPrintf(f, "; 1 = passthrough background behind the 2D screen, 0 = black void.\n");
+    iniPrintf(f, "ScreenPassthrough=%d\n", VrScreenPassthrough);
+    iniPrintf(f, "; The 2D screen's shape (a phone, a PC window, the virtual screen): 0 = 4:3, 1 = 16:9.\n");
+    iniPrintf(f, "ScreenShape=%d\n", VrScreenShape);
+    iniPrintf(f, "; A phone or tablet: 1 = a buzz on an on-screen button; 1 = turn the device to look and aim.\n");
+    iniPrintf(f, "TouchHaptics=%d\nGyroAim=%d\nGyroSpeed=%.2f\n", VrTouchHaptics, VrGyroAim, VrGyroSpeed);
+    iniPrintf(f, "; 0 = no on-screen touch controls, for a mouse and keyboard whose clicks arrive\n");
+    iniPrintf(f, "; as touches (the iOS app on a Mac through PlayCover). 1 = shown (the default).\n");
+    iniPrintf(f, "TouchControls=%d\n", VrTouchControls);
+    iniPrintf(f, "; A pad's triggers: a shot buzzes the trigger that fired it (an Xbox pad's\n");
+    iniPrintf(f, "; trigger motors, a DualSense's adaptive triggers), 0 to 100 (%%), 0 = off.\n");
+    iniPrintf(f, "TriggerFeedback=%d\n", VrTriggerFeedback);
+    iniPrintf(f, "; The touch layout editor's buttons (NAME x y radius;...), empty for the built-in layout.\n");
+    iniPrintf(f, "TouchLayout=%s\n", VrTouchLayout);
+    iniPrintf(f, "; Metres above (+) or below (-) eye level; set by grabbing the screen with both grips.\n");
+    iniPrintf(f, "ScreenHeight=%.2f\n", VrScreenHeight);
+    iniPrintf(f, "; Preferred display refresh rate in Hz. 0 = Auto (no app preference), the\n");
+    iniPrintf(f, "; Quest default for new settings. The launcher offers this headset's supported\n");
+    iniPrintf(f, "; rates. Saved choices are retained; the runtime decides the actual rate.\n");
+    iniPrintf(f, "DisplayHz=%d\n", VrRefreshRate);
+    iniPrintf(f, "; Stereo: darken the edges of the view while moving or smooth-turning, to\n");
+    iniPrintf(f, "; ease motion sickness. 0 = off, up to 1 = strongest.\n");
+    iniPrintf(f, "ComfortVignette=%.2f\n", VrComfortVignette);
+    iniPrintf(f, "; Stereo, when you're hit: 1 = the hit doesn't push you, 1 = the trigger still\n");
+    iniPrintf(f, "; fires while the hit shows (no hitstun), 0 = no red flash.\n");
+    iniPrintf(f, "NoKnockback=%d\nNoHitstun=%d\nDamageFlash=%d\n", VrNoKnockback ? 1 : 0, VrNoHitstun ? 1 : 0,
+            VrDamageFlash ? 1 : 0);
+    iniPrintf(f, "; Flat screen: 1 = third person (the camera behind Bond). Its offset from\n");
+    iniPrintf(f, "; the eye in world units (about cm): back, up, right shoulder (- = left).\n");
+    iniPrintf(f, "ThirdPerson=%d\nThirdPersonDistance=%d\nThirdPersonHeight=%d\nThirdPersonSideways=%d\n",
+            VrThirdPerson ? 1 : 0, VrThirdPersonDist, VrThirdPersonHeight, VrThirdPersonSide);
+
+    // --- VR hand placement (no menu UI; edit here) --------------------------------------------
+    iniPrintf(f, "\n");
+    iniPrintf(f, "; Where the gun sits in your hand, in the CONTROLLER's own frame (cm). Set them\n");
+    iniPrintf(f, "; in game with the launcher's Gun fit..., or here. X = right, Y = up, Z = back\n");
+    iniPrintf(f, "; toward you (negative is forward). All three 0 means the fitted defaults.\n");
+    iniPrintf(f, "GunOffX=%.4f\n", VrGunOffX);
+    iniPrintf(f, "GunOffY=%.4f\n", VrGunOffY);
+    iniPrintf(f, "GunOffZ=%.4f\n", VrGunOffZ);
+    iniPrintf(f, "; The holding hand of a two-handed hold (issue #35), set with Gun fit while\n");
+    iniPrintf(f, "; holding a gun with both hands: cm outward, up, forward, then degrees of turn\n");
+    iniPrintf(f, "; about the hand's X, Y, Z. GripPistol for handguns, GripRifle for long guns.\n");
+    iniPrintf(f, "GripPistol=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrGripTrim[0][0], VrGripTrim[0][1],
+            VrGripTrim[0][2], VrGripTrim[0][3], VrGripTrim[0][4], VrGripTrim[0][5]);
+    iniPrintf(f, "GripRifle=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrGripTrim[1][0], VrGripTrim[1][1],
+            VrGripTrim[1][2], VrGripTrim[1][3], VrGripTrim[1][4], VrGripTrim[1][5]);
+    iniPrintf(f, "; GoldenEye X's models (MODS) sit differently in the hand, so Gun fit keeps\n");
+    iniPrintf(f, "; theirs apart: GexGunOff is GunOffX, Y and Z; GexGrip* as above.\n");
+    iniPrintf(f, "GexGunOff=%.4f %.4f %.4f\n", VrGexGunOff[0], VrGexGunOff[1], VrGexGunOff[2]);
+    iniPrintf(f, "GexGripPistol=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrGexGripTrim[0][0], VrGexGripTrim[0][1],
+            VrGexGripTrim[0][2], VrGexGripTrim[0][3], VrGexGripTrim[0][4], VrGexGripTrim[0][5]);
+    iniPrintf(f, "GexGripRifle=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrGexGripTrim[1][0], VrGexGripTrim[1][1],
+            VrGexGripTrim[1][2], VrGexGripTrim[1][3], VrGexGripTrim[1][4], VrGexGripTrim[1][5]);
+    iniPrintf(f, "; Bean's models (MODS) keep theirs apart too: BeanGunOff, BeanGrip*, and BeanReloadGrab,\n");
+    iniPrintf(f, "; BeanScope* and BeanMuzzle* below.\n");
+    iniPrintf(f, "BeanGunOff=%.4f %.4f %.4f\n", VrBeanGunOff[0], VrBeanGunOff[1], VrBeanGunOff[2]);
+    iniPrintf(f, "BeanGripPistol=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrBeanGripTrim[0][0], VrBeanGripTrim[0][1],
+            VrBeanGripTrim[0][2], VrBeanGripTrim[0][3], VrBeanGripTrim[0][4], VrBeanGripTrim[0][5]);
+    iniPrintf(f, "BeanGripRifle=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrBeanGripTrim[1][0], VrBeanGripTrim[1][1],
+            VrBeanGripTrim[1][2], VrBeanGripTrim[1][3], VrBeanGripTrim[1][4], VrBeanGripTrim[1][5]);
+    iniPrintf(f, "; Each gun's own, once Gun fit has moved it (the models hold the hand their own\n");
+    iniPrintf(f, "; way): GunFit<gun> as GunOffX, Y and Z, GripFit<gun> as GripPistol; Bean* for\n");
+    iniPrintf(f, "; Bean's models. A gun without its own takes the ones above.\n");
+    for (int m = 0; m < 3; m++) {
+        const int set = gevrPerGunSet(m);
+        if (set < 0) continue;
+        for (const auto &w : kMuzzleWeapons) {
+            if (VrGunOffPerSet[set][w.item]) {
+                const float *t = VrGunOffPer[set][w.item];
+                iniPrintf(f, "%sGunFit%s=%.4f %.4f %.4f\n", kFitLookPrefix[m], w.name, t[0], t[1], t[2]);
+            }
+            if (VrGripTrimPerSet[set][w.item]) {
+                const float *t = VrGripTrimPer[set][w.item];
+                iniPrintf(f, "%sGripFit%s=%.2f %.2f %.2f %.1f %.1f %.1f\n", kFitLookPrefix[m], w.name,
+                        t[0], t[1], t[2], t[3], t[4], t[5]);
+            }
+        }
+    }
+    iniPrintf(f, "; Hand reload, set with Gun fit's reload mode (X): where the off hand takes the\n");
+    iniPrintf(f, "; magazine, cm right, up and back from the gun hand's grip (Gex* for GoldenEye X);\n");
+    iniPrintf(f, "; the belt, cm below the eye, out to the side and ahead; and where a GoldenEye X\n");
+    iniPrintf(f, "; magazine sits in the off hand, cm right, up and back from its grip.\n");
+    iniPrintf(f, "ReloadGrab=%.2f %.2f %.2f\n", VrReloadGrab[0][0], VrReloadGrab[0][1], VrReloadGrab[0][2]);
+    iniPrintf(f, "GexReloadGrab=%.2f %.2f %.2f\n", VrReloadGrab[1][0], VrReloadGrab[1][1], VrReloadGrab[1][2]);
+    iniPrintf(f, "BeanReloadGrab=%.2f %.2f %.2f\n", VrBeanReloadGrab[0], VrBeanReloadGrab[1], VrBeanReloadGrab[2]);
+    iniPrintf(f, "ReloadBelt=%.2f %.2f %.2f\n", VrReloadBelt[0], VrReloadBelt[1], VrReloadBelt[2]);
+    iniPrintf(f, "GexHeldMag=%.2f %.2f %.2f\n", VrGexHeldMag[0], VrGexHeldMag[1], VrGexHeldMag[2]);
+    iniPrintf(f, "; The watch on GoldenEye X's left wrist (Gun fit's off hand mode, right grip):\n");
+    iniPrintf(f, "; cm ahead of the sleeve's end, up and out, and its size.\n");
+    iniPrintf(f, "GexWatch=%.2f %.2f %.2f %.2f\n", VrGexWatch[0], VrGexWatch[1], VrGexWatch[2], VrGexWatch[3]);
+    iniPrintf(f, "; GoldenEye X's off hand (and its watch arm) turned about its palm, degrees\n");
+    iniPrintf(f, "; (Gun fit's off hand mode, left grip).\n");
+    iniPrintf(f, "GexOffRot=%.1f %.1f %.1f\n", VrGexOffRot[0], VrGexOffRot[1], VrGexOffRot[2]);
+    iniPrintf(f, "; Where GoldenEye X's left hand holds a gun with both hands (Gun fit, both hands):\n");
+    iniPrintf(f, "; cm forward, up and out along the gun.\n");
+    iniPrintf(f, "GexForeHold=%.2f %.2f %.2f\n", VrGexForeHold[0], VrGexForeHold[1], VrGexForeHold[2]);
+    iniPrintf(f, "; The sniper rifle's butt held as a bat (Gun fit with it out): GexBat the rifle on\n");
+    iniPrintf(f, "; the fist, cm right, up and back (down slides the fist toward the butt);\n");
+    iniPrintf(f, "; GexBatHand and GexBatHandRot the gun hand on it (all 0: the rifle's own).\n");
+    iniPrintf(f, "GexBat=%.4f %.4f %.4f\n", VrGexBatFit[0][0], VrGexBatFit[0][1], VrGexBatFit[0][2]);
+    iniPrintf(f, "GexBatHand=%.4f %.4f %.4f\n", VrGexBatFit[1][0], VrGexBatFit[1][1], VrGexBatFit[1][2]);
+    iniPrintf(f, "GexBatHandRot=%.4f %.4f %.4f\n", VrGexBatFit[2][0], VrGexBatFit[2][1], VrGexBatFit[2][2]);
+    iniPrintf(f, "; GexBatOff and GexBatOffRot: the off hand where it holds the rifle (both hands).\n");
+    iniPrintf(f, "GexBatOff=%.4f %.4f %.4f\n", VrGexBatFit[3][0], VrGexBatFit[3][1], VrGexBatFit[3][2]);
+    iniPrintf(f, "GexBatOffRot=%.4f %.4f %.4f\n", VrGexBatFit[4][0], VrGexBatFit[4][1], VrGexBatFit[4][2]);
+    iniPrintf(f, "; Bean guns' magazines: item number / vector (0 held magazine, 1 magazine well); fitted ones only.\n");
+    for (int item=0; item<64; item++)
+        for (int which=0; which<2; which++) {
+            const float *v=VrBeanMagFits[item][which];
+            if (v[0] != 0.0f || v[1] != 0.0f || v[2] != 0.0f)
+                iniPrintf(f, "BeanMagFit%d_%d=%.4f %.4f %.4f\n", item, which, v[0], v[1], v[2]);
+        }
+    iniPrintf(f, "; Per-weapon fits: item number / vector (0 gun, 1 grab, 2 support, 3 rotation, 4 held mag, 5 well, 6 installed mesh).\n");
+    for (int item=0; item<64; item++) {
+        /* Do not write zero overrides for models implemented by future builds. */
+        /* 5, 20 and 21 share the PP7's (item 4's) fits; 11 the D5K's (10); 3 the knife's (2) */
+        if (!gevrGexWeaponGet(item) || item == 3 || item == 5 || item == 11 || item == 20 || item == 21) continue;
+        /* item 4's 0..5 are the legacy GexPP7* keys; 7 and 8 the gun hand (or item), 9 item size */
+        for (int component=(item == 4 ? 6 : 0); component<10; component++) {
+            const float *v=VrGexWeaponFits[item][component];
+            iniPrintf(f, "GexFit%d_%d=%.4f %.4f %.4f\n", item, component, v[0], v[1], v[2]);
+        }
+    }
+    iniPrintf(f, "GexPP7Grab=%.2f %.2f %.2f\n", VrGexPp7Grab[0], VrGexPp7Grab[1], VrGexPp7Grab[2]);
+    iniPrintf(f, "GexPP7Support=%.2f %.2f %.2f\n", VrGexPp7Support[0], VrGexPp7Support[1], VrGexPp7Support[2]);
+    iniPrintf(f, "GexPP7SupportRot=%.1f %.1f %.1f\n", VrGexPp7SupportRot[0], VrGexPp7SupportRot[1], VrGexPp7SupportRot[2]);
+    iniPrintf(f, "GexPP7GunOff=%.4f %.4f %.4f\n", VrGexPp7GunOff[0], VrGexPp7GunOff[1], VrGexPp7GunOff[2]);
+    iniPrintf(f, "; Held magazine only (Gun fit, X): cm right, up and back on the off controller.\n");
+    iniPrintf(f, "GexKF7MagOff=%.2f %.2f %.2f\n", VrGexKf7MagOff[0], VrGexKf7MagOff[1], VrGexKf7MagOff[2]);
+    iniPrintf(f, "GexPP7MagOff=%.2f %.2f %.2f\n", VrGexPp7MagOff[0], VrGexPp7MagOff[1], VrGexPp7MagOff[2]);
+    iniPrintf(f, "; Magazine-well entrance (Gun fit, X): cm right, up and back on the gun.\n");
+    iniPrintf(f, "GexKF7WellOff=%.2f %.2f %.2f\n", VrGexKf7WellOff[0], VrGexKf7WellOff[1], VrGexKf7WellOff[2]);
+    iniPrintf(f, "GexPP7WellOff=%.2f %.2f %.2f\n", VrGexPp7WellOff[0], VrGexPp7WellOff[1], VrGexPp7WellOff[2]);
+    iniPrintf(f, "; A scope's lens, set with Gun fit holding the gun (X switches to its scope):\n");
+    iniPrintf(f, "; cm right, up and back from the eyepiece, then cm wider. GexScope* for\n");
+    iniPrintf(f, "; GoldenEye X's models.\n");
+    for (int m = 0; m < 3; m++) {
+        for (int s = 0; s < GEVR_SCOPE_FITS; s++) {
+            const float *t = gevrScopeFitOf(m, s);
+            iniPrintf(f, "%sScope%s=%.2f %.2f %.2f %.2f\n", kFitLookPrefix[m], kScopeFitNames[s], t[0], t[1], t[2], t[3]);
+        }
+    }
+    iniPrintf(f, "\n");
+    iniPrintf(f, "; Barrel tip / muzzle fit, set with Gun fit holding the gun (X switches to barrel tip):\n");
+    iniPrintf(f, "; cm right (side), up and forward from the default barrel tip. GexMuzzle* for\n");
+    iniPrintf(f, "; GoldenEye X's models.\n");
+    for (int m = 0; m < 3; m++) {
+        for (const auto &w : kMuzzleWeapons) {
+            const float *t = gevrMuzzleTrimOf(m, w.item);
+            if (t[0] != 0.0f || t[1] != 0.0f || t[2] != 0.0f) {
+                iniPrintf(f, "%sMuzzle%s=%.2f %.2f %.2f\n", kFitLookPrefix[m], w.name, t[0], t[1], t[2]);
+            }
+        }
+    }
+
+
+
+    iniPrintf(f, "\n");
+    iniPrintf(f, "; 0..1. How tightly the elbows are pulled in toward your body. 0 leaves them at the\n");
+    iniPrintf(f, "; animation's rest pose (they splay outward), 1 pins them hard against the torso.\n");
+    iniPrintf(f, "ArmElbowTuck=%.4f\n", VrArmElbowTuck);
+    iniPrintf(f, "\n");
+    iniPrintf(f, "; How fast the virtual torso turns to follow your head, per tick. The elbow anchor\n");
+    iniPrintf(f, "; is held steady relative to that torso, so this trades two things off: too LOW and\n");
+    iniPrintf(f, "; the elbows lag behind when you physically turn your whole body; too HIGH and they\n");
+    iniPrintf(f, "; drift when you merely glance around. ~0.02 suits most people. Body slots ride\n");
+    iniPrintf(f, "; on the same torso.\n");
+    iniPrintf(f, "ArmBodyFollow=%.4f\n", VrArmBodyFollow);
+    iniPrintf(f, "\n");
+    iniPrintf(f, "; 1 = with GE-X's arms, a free or unarmed hand closes into a fist while you\n");
+    iniPrintf(f, "; squeeze its grip, 0 = it stays open. (FistClench, before it did this, saved 0.)\n");
+    iniPrintf(f, "GexFistClench=%d\n", VrFistClench);
+    iniPrintf(f, "\n");
+    iniPrintf(f, "; Milliseconds after a gun runs dry and switches itself during which the first\n");
+    iniPrintf(f, "; weapon-cycle tap keeps the gun it switched to instead of stepping past it.\n");
+    iniPrintf(f, "; 0 = off (every tap cycles).\n");
+    iniPrintf(f, "AutoSwitchKeepMs=%d\n", VrAutoSwitchKeepMs);
+    vrHapticsSaveIni(f);
+    vrHapticsDumpCTable();
+
+    if (!s_asyncSaves) {
+        vrSettingsWrite(text);
+        return;
+    }
+    GevrSaveQueue &q = gevrSaveQueue();
+    std::lock_guard<std::mutex> hold(q.lock);
+    q.pending.swap(text);
+    q.waiting = true;
+    q.changed.notify_all();
+}
+
 extern "C" void vrSettingsLoad(void)
 {
     if (s_settingsLoaded) return;
+    vrSettingsFlush();   // a save still being written
     s_settingsLoaded = true;   // with no file yet, the defaults are the settings
     vrHapticsInit();
     FILE *f = fopen(VR_INI_PATH, "r");

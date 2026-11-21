@@ -9,8 +9,9 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 fixture = (ROOT / "port/tests/ally_ui_native.cpp").read_text()
 settings = (ROOT / "port/vr/vr_settings.cpp").read_text()
-start = settings.index('    fprintf(f, "Ally=%d')
-save = settings[start:settings.index(');', start) + 2]
+start = settings.index('    iniPrintf(f, "Ally=%d')
+# vrSettingsSave builds the text in memory (iniPrintf); the fixture writes a FILE
+save = settings[start:settings.index(');', start) + 2].replace('iniPrintf(', 'fprintf(')
 start = settings.index('            else if (strcmp(key, "Ally")')
 load = settings[start:settings.index('            else if (strcmp(key, "FastReinforcements")', start)]
 load = load.replace('else if', 'if', 1)

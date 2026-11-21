@@ -195,6 +195,8 @@ static void gameInit(void)
 }
 
 extern void vrSettingsSave(void);
+extern void vrSettingsFlush(void);          /* vr_settings.cpp: the writer thread's save written */
+extern void vrSettingsAsyncSaves(int on);
 #ifdef GEVR_PCVR
 extern void vr_shutdown(void);   /* port/vr/vr_openxr.cpp */
 #endif
@@ -207,6 +209,7 @@ static void cleanup(void)
     inputSaveBinds();
     configSave(CONFIG_PATH);
     vrSettingsSave();
+    vrSettingsFlush();
 #ifdef GEVR_PCVR
     /* End and destroy the XR session and instance before the process goes:
      * left running, the runtime's DLL (Virtual Desktop's VDXR) was unloaded
@@ -265,6 +268,7 @@ JNIEXPORT void JNICALL
 Java_com_gevr_port_MainActivity_nativeDestroy(JNIEnv* env, jobject thiz) {
     extern void audioShutdown(void);
     vrSettingsSave();
+    vrSettingsFlush();
     audioShutdown();
     g_initialized = 0;
 }
@@ -577,6 +581,11 @@ int main(int argc, const char **argv)
     }
 
     atexit(cleanup);
+#ifndef GEVR_HEADLESS
+    /* the settings file written off the game's thread (#269: 120-140 ms on the
+     * Apple TV HD, a stutter in the menus that save on every change) */
+    vrSettingsAsyncSaves(1);
+#endif
 
     bootCreateSched();
 
