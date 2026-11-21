@@ -2080,7 +2080,18 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 
     if (!slotPad) {
 #ifdef GEVR_FLAT
-        const s32 slots = inputSoloSlots(idx);
+        /*
+         * Online, this machine's player is its slot in the match (the host's
+         * 0, a guest's 1 or more), but its keyboard, mouse and first pad are
+         * slot 0's binds: inputSetDefaultKeyBinds gives the keys to slot 0
+         * alone. Read by the slot, a guest's WASD, fire and use read nothing
+         * and it couldn't move (a player's report, 2026-11-21: "you can't move
+         * if you join as a flat player"). Every other slot online is a remote
+         * copy, filled below.
+         */
+        extern int netGetLocalSlot(void);
+        const s32 bindIdx = netIsActive() && bossGetStageNum() != LEVELID_TITLE && idx == netGetLocalSlot() ? 0 : idx;
+        const s32 slots = inputSoloSlots(bindIdx);
 #else
         const s32 slots = 1 << idx;
 #endif
