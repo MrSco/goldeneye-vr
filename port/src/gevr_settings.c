@@ -132,6 +132,7 @@ typedef struct Row {
     int headset;                    /* a headset's own: hidden in the flat PC game (docs/pc-platforms.md) */
     int flat;                       /* a flat game's own (touch, gyro): hidden on the headset */
     int pad;                        /* a flat game's pad: hidden on the headset, shown on every flat game */
+    int flatgame;                   /* a flat game's own (its window): hidden on the headset, shown on every flat game */
 } Row;
 
 /* ---- the special cases (as options.c had them) ---- */
@@ -244,6 +245,24 @@ static void padVibText(int i, char *b, int n)
     if (i == 0) snprintf(b, n, "Off");
     else if (i == 3) snprintf(b, n, "30%% (default)");   /* #269: 50% was too strong */
     else snprintf(b, n, "%d%%", i * 10);
+}
+
+/* A flat game's frame rate in levels (#269, flat_window.cpp): Auto, the screen's, or half it */
+extern int VrFrameRate;
+#ifdef GEVR_FLAT
+extern int flatScreenHz(void);
+#else
+static int flatScreenHz(void) { return 60; }
+#endif
+static int frameRatePositions(void) { return 3; }
+static int frameRateGet(void) { return VrFrameRate >= 0 && VrFrameRate <= 2 ? VrFrameRate : 0; }
+static void frameRateSet(int i) { VrFrameRate = i; }
+static void frameRateText(int i, char *b, int n)
+{
+    const int hz = flatScreenHz();
+    if (i == 1) snprintf(b, n, "%d fps", hz);
+    else if (i == 2) snprintf(b, n, "%d fps", hz / 2);
+    else snprintf(b, n, "Auto (default)");
 }
 
 /* A pad's look (#269, input.c inputPadLookSet): every pad's right stick */
@@ -577,6 +596,11 @@ static const Row s_rows[] = {
     { .label = "Screen shape", .tooltip = "The flat game's shape: 4:3 as the N64 drew it, or 16:9 with a wider view and the HUD at the edges.",
       .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_SCREEN), .where = GEVR_SET_BOTH,
       .ivar = &VrScreenShape, .ivalues = s_two, .names = s_shapeNames, .count = 2, .def = NAN },
+    { .label = "Frame rate", .flatgame = 1,
+      .tooltip = "Levels: Auto drops to half the screen's rate (30 on a 60 Hz screen) while this device can't hold the full one, "
+                 "and tries the full rate again a little later. A steady half is smoother than an uneven rate.",
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_SCREEN), .where = GEVR_SET_BOTH, .def = NAN,
+      .cpositions = frameRatePositions, .cget = frameRateGet, .cset = frameRateSet, .ctext = frameRateText, .cdefault = 0 },
     { .label = "Third person", .tooltip = "The camera follows behind Bond in the flat screen, solo. "
                                           "Aiming, the watch and the tank go back to first person.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_BOTH, .ivar = &VrThirdPerson,
@@ -755,7 +779,7 @@ int gevrSettingShown(int id)
     if (r && r->flat) return 0;      /* touch and gyro: a phone's, and Apple TV has neither */
 #endif
 #else
-    if (r && (r->flat || r->pad)) return 0;   /* touch, gyro and a pad: a flat game's */
+    if (r && (r->flat || r->pad || r->flatgame)) return 0;   /* touch, gyro, a pad and the window: a flat game's */
 #endif
     return r && (!r->shown || r->shown());
 }

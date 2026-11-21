@@ -38,6 +38,9 @@ int VrTriggerFeedback = 100;
 /* The walk's head bob in a flat game (src/game/bondhead.c, #269); stereo has
  * none either way. */
 int VrHeadBob = 1;
+/* A flat game's frame rate in levels (flat_window.cpp, #269): 0 Auto (half
+ * rate while the device can't hold the screen's), 1 Full, 2 Half. */
+int VrFrameRate = 0;
 /* A pad's look (input.c inputPadLookSet, #269), written to every pad when the
  * ini has them; until then the engine ini's own (1x, 12.5%, not inverted). */
 static float s_padLookSpeed = -1.0f, s_padLookDeadzone = -1.0f;
@@ -192,6 +195,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "PadLookSpeed=%.2f\nPadLookDeadzone=%.4f\nPadLookInvert=%d\n", inputPadLookSpeed(),
             inputPadLookDeadzone(), inputPadLookInverted());
     fprintf(f, "HeadBob=%d\n", VrHeadBob);
+    fprintf(f, "; A flat game's levels: 0 = Auto (half the screen's rate while it can't hold the full one), 1 = Full, 2 = Half.\n");
+    fprintf(f, "FrameRate=%d\n", VrFrameRate);
     fprintf(f, "StereoCrosshair=%.4f\n", VrStereoCrosshair);
     fprintf(f, "HudDistance=%.4f\n", VrHudDistance);
     fprintf(f, "WeaponRecoil=%d\n", VrWeaponRecoil ? 1 : 0);
@@ -947,6 +952,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "PadDefaults") == 0) s_padDefaults = ival;
             else if (strcmp(key, "PadLookInvert") == 0) s_padLookInvert = ival != 0;
             else if (strcmp(key, "HeadBob") == 0) VrHeadBob = ival != 0;
+            else if (strcmp(key, "FrameRate") == 0) VrFrameRate = ival >= 0 && ival <= 2 ? ival : 0;
             else if (strcmp(key, "GyroAim") == 0) VrGyroAim = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             /* Keep saved DisplayHz preferences. The obsolete RefreshRate key
              * was never user-selectable and remains ignored. */

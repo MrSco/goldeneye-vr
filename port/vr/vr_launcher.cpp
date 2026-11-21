@@ -91,7 +91,6 @@ void flatLauncherFeedInput(ImGuiIO &io);
 #include "../visionos/vos_bridging.h"
 #endif
 #if defined(GEVR_FLAT) && !defined(GEVR_HEADLESS)
-extern "C" int flatHalfRate(int bean);   // port/flat/window/flat_window.cpp: levels held to half rate here
 #endif
 #include "vr_input.h"
 #include "vr_log.h"
@@ -1286,12 +1285,6 @@ static void gevrModsPage(Uint32 now, const ImVec4 &gold, const ImVec4 &good, con
     if (!gevrCampaignRetailArt(VrCampaign) && gevrBeanIsAvailable())
         ImGui::TextWrapped("XBLA / Bean is off while the Goldfinger 64, Tomorrow Never Dies or Mario Characters campaign is chosen.");
     else if (gevrBeanIsEnabled()) {
-#if defined(GEVR_FLAT) && !defined(GEVR_HEADLESS)
-        // measured in an earlier level (flat_window.cpp half rate)
-        if (flatHalfRate(1))
-            ImGui::TextWrapped("This device couldn't keep up with the screen in Bean's levels, so they play at a steady "
-                               "half rate (30 frames a second on a 60 Hz screen) instead of an uneven one.");
-#endif
         // How to toggle Bean in game is the Bean row's tooltip: with the HD fill
         // row and Done's blood patch, its two lines ran the page past the panel.
         // the pictures Bean leaves at the cartridge's, from an installed HD pack (gfx_pc.cpp tp_find)

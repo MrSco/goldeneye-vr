@@ -109,61 +109,41 @@ static uint64_t qpc_freq;
 #define FRAME_INTERVAL_US_DENOMINATOR (flatTimerFps())
 
 /*
- * Half rate (2026-11-20): a device that can't hold the screen's rate in a
- * level plays it at a steady half instead. An uneven rate judders on a TV: an
- * Apple TV HD ran Dam with XBLA / Bean at 40 fps, each frame shown for one
- * refresh or two (the N64 graphics held 60 there). Measured in levels with
- * VSync on, after each level's first 3 seconds (loading, first draws): 5
- * seconds in a row under 92% of the screen's rate (55 of 60) turn it on, for
- * the rest of the session in levels with the same graphics (the N64's or
- * Bean's), and it is remembered for this build (gevr_halfrate.txt in the save
- * folder), so the next launch starts there and the launcher says so. It never
- * turns back on its own: no flapping. Menus and the launcher keep the full
- * rate; screens of 48 to 61 Hz only (a faster one is a fast device's).
+ * Frame rate (2026-11-20, reworked for #269): a device that can't hold the
+ * screen's rate in a level plays it at a steady half instead. An uneven rate
+ * judders on a TV: an Apple TV HD ran Dam with XBLA / Bean at 40 fps, each
+ * frame shown for one refresh or two (the N64 graphics held 60 there).
+ *
+ * The settings' Frame rate row (VrFrameRate): Auto, Full (the screen's rate
+ * always) or Half (always, in levels). Auto measures in levels with VSync on,
+ * after each level's first 3 seconds (loading, first draws): 5 seconds in a
+ * row under 92% of the screen's rate (55 of 60) turn half rate on. It is no
+ * longer a verdict for good (#269: Dam's mountains once locked every later
+ * run, Bean or not, until a reinstall): after a stretch at half rate it tries
+ * the full rate again, and stays there if 2 seconds hold it; if they don't,
+ * the next try waits twice as long (15 s, then 30, 60 ... 4 minutes). A new
+ * level of the same graphics (the N64's or Bean's) starts where the last one
+ * ended, this session only: nothing is saved (an older build's
+ * gevr_halfrate.txt is deleted). Menus and the launcher keep the full rate;
+ * screens of 48 to 61 Hz only (a faster one is a fast device's).
+ *
  * Every other refresh where the swap allows it (Apple through ANGLE's frame
  * pacing patch, tools/build_angle_apple.sh; the PC's WGL and GLX), the
  * game's frame timer otherwise (an Android surface swaps every refresh at
- * most). Video.AutoHalfRate=0 turns it off.
+ * most). At half rate the frame pump steps the game two sixtieths a frame
+ * (gevr_engine_shim.c, flatHalfRateActive), not by when the CPU started it.
+ * Video.AutoHalfRate=0 makes Auto the full rate, as before.
  */
 extern "C" int gevrBeanIsEnabled(void);
 extern "C" s32 bossGetStageNum(void);
 extern "C" const char *fsFullPath(const char *relPath);
-extern "C" const char gevrBuildId[];
 extern "C" s32 vidAutoHalfRate;
+extern "C" int VrFrameRate;       // vr_settings.cpp: 0 Auto, 1 Full, 2 Half
 static int s_baseInterval = -1;   // the VSync setting, as gfx_sdl_set_swap_interval last had it
 static bool s_halfOn;
 static int s_halfTimerFps;        // half rate by the frame timer instead of the swap
-static unsigned s_halfModes;      // 1: the N64 graphics, 2: XBLA / Bean
-static bool s_halfLoaded;
-
-static void halfRateLoad(void)
-{
-    s_halfLoaded = true;
-    FILE *f = fopen(fsFullPath("$S/gevr_halfrate.txt"), "r");
-    if (!f) return;
-    char build[128] = {0};
-    unsigned modes = 0;
-    if (fgets(build, sizeof(build), f) && fscanf(f, "%u", &modes) == 1) {
-        build[strcspn(build, "\r\n")] = 0;
-        if (strcmp(build, gevrBuildId) == 0) s_halfModes = modes & 3u;   // another build measures again
-    }
-    fclose(f);
-}
-
-static void halfRateSave(void)
-{
-    FILE *f = fopen(fsFullPath("$S/gevr_halfrate.txt"), "w");
-    if (!f) return;
-    fprintf(f, "%s\n%u\n", gevrBuildId, s_halfModes);
-    fclose(f);
-}
-
-/* the launcher's note: this device's levels with those graphics play at half rate */
-extern "C" int flatHalfRate(int bean)
-{
-    if (!s_halfLoaded) halfRateLoad();
-    return (s_halfModes & (bean ? 2u : 1u)) != 0;
-}
+static unsigned s_halfModes;      // Auto's verdict this session: 1 the N64 graphics, 2 XBLA / Bean
+static int s_screenHz;
 
 static int halfRateScreenHz(void)
 {
@@ -174,45 +154,93 @@ static int halfRateScreenHz(void)
     return 60;
 }
 
+/* the settings' Frame rate row: the screen's rate, for its names (60 and 30, 50 and 25) */
+extern "C" int flatScreenHz(void)
+{
+    return s_screenHz ? s_screenHz : (wnd ? halfRateScreenHz() : 60);
+}
+
+/* the frame pump (gevr_engine_shim.c): each frame is two of the screen's refreshes */
+extern "C" int flatHalfRateActive(void)
+{
+    return s_halfOn ? 1 : 0;
+}
+
 /* before each swap */
 static void halfRateFrame(void)
 {
-    static int hz;
-    static int lastStage = -1, slowSeconds, frames;
+    static int lastStage = -1, slowSeconds, goodSeconds, frames;
     static Uint64 stageSince, secondSince;
-    if (!hz) hz = halfRateScreenHz();
-    if (!s_halfLoaded) halfRateLoad();
+    static bool probing;              // Auto: trying the full rate again
+    static Uint64 probeAt;            // Auto: when the next try is due
+    static unsigned probeWaitMs = 15000;
+    static bool cleaned;
+    if (!cleaned) {
+        cleaned = true;
+        remove(fsFullPath("$S/gevr_halfrate.txt"));   // an older build's lasting verdict (#269)
+    }
+    if (!s_screenHz) s_screenHz = halfRateScreenHz();
+    const int hz = s_screenHz;
     const int stage = bossGetStageNum();
     const bool level = stage > 0 && stage != 90;   // 90: the title stage, the menus
     const unsigned mode = gevrBeanIsEnabled() ? 2u : 1u;
-    const bool able = vidAutoHalfRate && s_baseInterval > 0 && hz >= 48 && hz <= 61;
+    const int pref = VrFrameRate == 1 || (VrFrameRate == 0 && !vidAutoHalfRate) ? 1 : VrFrameRate == 2 ? 2 : 0;
+    const bool vsync = s_baseInterval > 0;
+    const bool able = vsync && hz >= 48 && hz <= 61;   // Auto: a 60 or 50 Hz screen
     const Uint64 now = SDL_GetTicks64();
-    if (stage != lastStage || !able) {
+    if (stage != lastStage || !able || pref != 0) {
         lastStage = stage;
         stageSince = now;
         secondSince = 0;
-        slowSeconds = 0;
+        slowSeconds = goodSeconds = 0;
+        probing = false;
+        probeWaitMs = 15000;
+        probeAt = now + probeWaitMs;
     }
-    if (able && level && !(s_halfModes & mode) && now - stageSince >= 3000) {
-        if (!secondSince) {
-            secondSince = now;
-            frames = 0;
-        }
-        frames++;
-        if (now - secondSince >= 1000) {
-            const double fps = frames * 1000.0 / (double)(now - secondSince);
-            slowSeconds = fps < hz * 0.92 ? slowSeconds + 1 : 0;
-            secondSince = now;
-            frames = 0;
-            if (slowSeconds >= 5) {
-                s_halfModes |= mode;
-                halfRateSave();
-                sysLogPrintf(LOG_NOTE, "video: %s levels can't hold %d fps here (%.1f for 5 s): half rate, a steady %d",
-                             mode == 2u ? "XBLA / Bean" : "N64", hz, fps, hz / 2);
+    if (able && level && pref == 0 && now - stageSince >= 3000) {
+        const bool atHalf = (s_halfModes & mode) && !probing;
+        if (atHalf) {
+            secondSince = 0;   // nothing to measure at half rate: the swap holds it at half
+            if (now >= probeAt) {
+                probing = true;
+                goodSeconds = slowSeconds = 0;
+                sysLogPrintf(LOG_NOTE, "video: trying the full %d fps again", hz);
+            }
+        } else {
+            if (!secondSince) {
+                secondSince = now;
+                frames = 0;
+            }
+            frames++;
+            if (now - secondSince >= 1000) {
+                const double fps = frames * 1000.0 / (double)(now - secondSince);
+                const bool slow = fps < hz * 0.92;
+                slowSeconds = slow ? slowSeconds + 1 : 0;
+                goodSeconds = slow ? 0 : goodSeconds + 1;
+                secondSince = now;
+                frames = 0;
+                if (probing && slow) {
+                    probing = false;
+                    probeWaitMs = probeWaitMs >= 120000 ? 240000 : probeWaitMs * 2;
+                    probeAt = now + probeWaitMs;
+                    sysLogPrintf(LOG_NOTE, "video: the full rate didn't hold (%.1f fps): half rate, next try in %u s",
+                                 fps, probeWaitMs / 1000);
+                } else if (probing && goodSeconds >= 2) {
+                    probing = false;
+                    s_halfModes &= ~mode;
+                    probeWaitMs = 15000;
+                    sysLogPrintf(LOG_NOTE, "video: the full %d fps holds again (%.1f fps)", hz, fps);
+                } else if (!probing && slowSeconds >= 5) {
+                    s_halfModes |= mode;
+                    probeWaitMs = 15000;
+                    probeAt = now + probeWaitMs;
+                    sysLogPrintf(LOG_NOTE, "video: %s levels can't hold %d fps here (%.1f for 5 s): half rate, a steady %d",
+                                 mode == 2u ? "XBLA / Bean" : "N64", hz, fps, hz / 2);
+                }
             }
         }
     }
-    const bool half = able && level && (s_halfModes & mode);
+    const bool half = level && ((pref == 2 && vsync) || (pref == 0 && able && (s_halfModes & mode) && !probing));
     if (half == s_halfOn) return;
     s_halfOn = half;
     s_halfTimerFps = 0;

@@ -877,6 +877,31 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 		 * the N64 stepped its own frame rate (frametiming.c waitForNextFrame).
 		 */
 		u32 slots = 1;
+#ifdef GEVR_FLAT
+		/*
+		 * A flat game at half rate (flat_window.cpp, #269): each frame is on
+		 * the screen for two refreshes, so it steps the game two sixtieths.
+		 * Counted from when the CPU got here, as below, the steps came out 1,
+		 * 3, 2, 2, 1, 3: the swap no longer waits in step with the screen
+		 * (Metal's presentDrawable:afterMinimumDuration: holds the picture,
+		 * not the CPU), so a steady 30 moved as if it were 15 to 20 ("very
+		 * un-smooth 30fps, feels more like 15fps"). Two a frame, as the N64
+		 * stepped GoldenEye at its own rate; a slot more only once the frame
+		 * is most of a slot behind the steady timeline (a frame that really
+		 * missed its refresh, or a hitch), and the timeline starts again
+		 * from here if the game is far ahead of it.
+		 */
+		extern int flatHalfRateActive(void);
+		if (flatHalfRateActive()) {
+			if (now + 50000 < nextRetraceUs) {
+				nextRetraceUs = now;
+			}
+			slots = now + 25000 < nextRetraceUs ? 1 : 2;   /* the swap not holding two refreshes after all */
+			while (slots < 6 && now >= nextRetraceUs + 16667ULL * (slots - 1) + 12500) {
+				slots++;
+			}
+		} else
+#endif
 		while (slots < 4 && now + 2000 >= nextRetraceUs + 16667ULL * slots) {
 			slots++;
 		}
@@ -893,8 +918,10 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 		{
 			/* PORT probe: measured pacing */
 			static u64 sStatUs; static u32 sRetraces, sSlots;
+			static u32 sSteps[3];   /* frames that stepped the game 1, 2, 3+ sixtieths (#269: an even 30 is all 2s) */
 			sRetraces++;
 			sSlots += slots;
+			sSteps[slots >= 3 ? 2 : slots - 1]++;
 			if (sStatUs == 0) sStatUs = now;
 			if (now - sStatUs >= 1000000) {
 				/* diagnostics only: Show stats or a profile trace */
@@ -906,10 +933,10 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 				if (perfArg < 0) perfArg = sysArgCheck("--perf-log") != 0;
 				if (VrShowStats || gevrFrameTimingTracing() || perfArg)
 #endif
-				sysLogPrintf(LOG_NOTE, "pump: %u retraces (%u game frames), %u xr frames (%u redrawn) in %llu ms; early ticks %u unused %u late %u, other display time %u",
-					sRetraces, sSlots, gevrXrFramesBegun, gevrRedraws, (unsigned long long)((now - sStatUs) / 1000),
+				sysLogPrintf(LOG_NOTE, "pump: %u retraces (%u game frames: steps 1/2/3+ %u/%u/%u), %u xr frames (%u redrawn) in %llu ms; early ticks %u unused %u late %u, other display time %u",
+					sRetraces, sSlots, sSteps[0], sSteps[1], sSteps[2], gevrXrFramesBegun, gevrRedraws, (unsigned long long)((now - sStatUs) / 1000),
 					gevrEarlyTicks, gevrEarlyUnused, gevrLateTicks, vr_early_poses_missed());
-				sStatUs = now; sRetraces = 0; sSlots = 0; gevrXrFramesBegun = 0; gevrRedraws = 0;
+				sStatUs = now; sRetraces = 0; sSlots = 0; sSteps[0] = sSteps[1] = sSteps[2] = 0; gevrXrFramesBegun = 0; gevrRedraws = 0;
 				gevrEarlyTicks = gevrEarlyUnused = gevrLateTicks = 0;
 			}
 		}
