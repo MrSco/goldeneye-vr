@@ -46,7 +46,18 @@ fought its wall; the wall's long diagonal triangles pass the decal grid's
 (only Dam's 16 grate faces change; HD checked by the user). #6 texture size
 cap measured on the HD (512: +3-7% at Dam Bean, 256 breaks the grate):
 dropped (user). #11 skipped (user). Flicker checks need frame bursts, not
-stills.
+stills. Loading (user asked: everything, every platform): one loading screen
+(port/vr/gevr_loading.cpp, logo + gold bar, fades) at START until the title
+and at every level, Bean on or off, headsets on their screen quad (engine
+shim gevrVrLoadingFrameBegin/End; Quest 3 checked); flat screens hold it over
+a level's slow first frames (HD: 0.96-1.8 s hidden). Behind it: Bean's level,
+sky, pictures to the GPU and the watch arm built at stage load
+(boss.c gevrStageFrontLoad, before net*StageLoaded); shaders from
+$S/gevr_shaders_*.txt compiled at boot; Bean's level passes and room matching
+cached in $S/gevr_cache (build-stamped, input-hashed, 8 files): Dam Bean
+front-load PC 1.83 -> 1.23 s, Quest 3.4 -> 1.8 s, HD 6.3 -> 3.7 s. The first
+menu open no longer loads the watch arm (HD 137 ms). Not done: Bean guns and
+hands kept across levels (memory on HD/phones/Quest).
 **Next:** device checks: split screen with two real pads on an Apple TV and
 a phone, 3-4 players on a slow device; trigger feedback on Xbox and
 DualSense pads; a pad in the Quest and PC VR headsets; Vision Pro's ghosting
