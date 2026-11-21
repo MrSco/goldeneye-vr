@@ -376,7 +376,7 @@ static SDL_GameController *pads[INPUT_MAX_CONTROLLERS];
 
 #define CONTROLLERCFG_DEFAULT { \
 	.rumbleOn = 0, \
-	.rumbleScale = 0.5f, \
+	.rumbleScale = 0.3f,   /* #269: 50% was far too strong on an Xbox pad */ \
 	.axisMap = { \
 		{ SDL_CONTROLLER_AXIS_LEFTX,  SDL_CONTROLLER_AXIS_LEFTY  }, \
 		{ SDL_CONTROLLER_AXIS_RIGHTX, SDL_CONTROLLER_AXIS_RIGHTY }, \
@@ -3660,8 +3660,9 @@ static void inputPadRumble(s32 idx, f32 amp, f32 seconds)
  * (SDL's DualSense effects on the PC; Apple's own GCDualSenseAdaptiveTrigger
  * on iPhone, iPad and Apple TV, where SDL sends none). A DualSense trigger
  * keeps a mode until told otherwise, so inputUpdate turns it off again once a
- * shot's buzz is over. The strength follows Pad vibration (twice it, so the
- * default 50% is a full buzz; Off is off).
+ * shot's buzz is over. Its strength is its own row, 0 to 100% (#269: it
+ * followed Pad vibration, twice it, so the triggers couldn't stay strong
+ * with the rumble turned down).
  */
 extern int VrTriggerFeedback;
 static u64 trigBuzzUntilUs[INPUT_MAX_CONTROLLERS][2];   /* each pad's DualSense trigger buzz: [0] left, [1] right */
@@ -3719,10 +3720,10 @@ static void inputTriggerShot(s32 slot, s32 hand)
 {
     static SDL_GameController *told;
     SDL_GameController *pad = pads[slot];
-    if (!VrTriggerFeedback || !pad || padsCfg[slot].rumbleScale <= 0.f) {
+    if (VrTriggerFeedback <= 0 || !pad) {
         return;
     }
-    const f32 amp = padsCfg[slot].rumbleScale * 2.f > 1.f ? 1.f : padsCfg[slot].rumbleScale * 2.f;
+    const f32 amp = VrTriggerFeedback >= 100 ? 1.f : VrTriggerFeedback / 100.f;
     const s32 right = hand != 1;
     const s32 dualSense = inputPadIsDualSense(pad);
 #if SDL_VERSION_ATLEAST(2, 0, 18)
@@ -3972,6 +3973,52 @@ f32 inputRumbleGetStrength(s32 cidx)
 void inputRumbleSetStrength(s32 cidx, f32 val)
 {
     padsCfg[cidx].rumbleScale = val;
+}
+
+/*
+ * The settings' look rows (#269, gevr_settings.c; goldeneye-vr.ini's PadLook*):
+ * the right stick of every pad, a split screen's too. Perfect Dark's port
+ * kept these per pad in the engine's ini (Input.PlayerN.RStickScale*,
+ * RStickDeadzone*) with no way to set them; the rows write all pads alike.
+ * Speed scales the stick (2x reaches full turn at half way, 0.5x never past
+ * half); a negative Y scale is an inverted look. The deadzone is the X axis's,
+ * Y's half again as much, as the defaults are (4096 and 6144 of 32767).
+ */
+f32 inputPadLookSpeed(void)
+{
+    return fabsf(padsCfg[0].sens[SDL_CONTROLLER_AXIS_RIGHTX]);
+}
+
+s32 inputPadLookInverted(void)
+{
+    return padsCfg[0].sens[SDL_CONTROLLER_AXIS_RIGHTY] < 0.f;
+}
+
+f32 inputPadLookDeadzone(void)
+{
+    return padsCfg[0].deadzone[SDL_CONTROLLER_AXIS_RIGHTX] / 32767.f;
+}
+
+void inputPadLookSet(f32 speed, f32 deadzone, s32 inverted)
+{
+    if (!(speed > 0.f)) speed = 1.f;
+    if (speed > 4.f) speed = 4.f;
+    if (!(deadzone >= 0.f)) deadzone = 0.f;
+    if (deadzone > 0.5f) deadzone = 0.5f;
+    for (s32 c = 0; c < INPUT_MAX_CONTROLLERS; c++) {
+        padsCfg[c].sens[SDL_CONTROLLER_AXIS_RIGHTX] = speed;
+        padsCfg[c].sens[SDL_CONTROLLER_AXIS_RIGHTY] = inverted ? -speed : speed;
+        padsCfg[c].deadzone[SDL_CONTROLLER_AXIS_RIGHTX] = (s32)(deadzone * 32767.f + 0.5f);
+        padsCfg[c].deadzone[SDL_CONTROLLER_AXIS_RIGHTY] = (s32)(deadzone * 1.5f * 32767.f + 0.5f);
+    }
+}
+
+/* Pad vibration for every pad alike (the settings' row; goldeneye-vr.ini's Vibration) */
+void inputRumbleSetStrengthAll(f32 val)
+{
+    for (s32 c = 0; c < INPUT_MAX_CONTROLLERS; c++) {
+        padsCfg[c].rumbleScale = val;
+    }
 }
 
 struct WeaponRumbleProfile {

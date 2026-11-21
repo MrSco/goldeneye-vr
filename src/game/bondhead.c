@@ -14,6 +14,7 @@
 
 #ifdef GEVR
 extern s32 g_gevrStereo;   /* bondview2.c: this frame is drawn in stereo */
+extern int VrHeadBob;      /* vr_settings.cpp: 0, a flat game's view walks without the bob too (#269) */
 /* a hack's own (1 - 0.93), which Mario Characters' scripts set; -1: GoldenEye's (gevr_romcampaign.c) */
 extern float g_GevrHeadPosOut;
 #endif
@@ -302,9 +303,10 @@ void bheadUpdate(f32 percent_speed, f32 speedsideways)
          * term keeps only the strafe input added below; the forward term
          * is Bond's locomotion and stays. Perfect Dark VR's bondhead.c
          * does the vertical half; the physical head's rise and duck are
-         * added elsewhere (gevrStereoHeadHeight).
+         * added elsewhere (gevrStereoHeadHeight). With Head bob off a
+         * flat game's view does the same, and keeps its head level (#269).
          */
-        if (g_gevrStereo)
+        if (g_gevrStereo || !VrHeadBob)
         {
             g_CurrentPlayer->bondheadmatrices[0].m[3][0] = 0.0f;
         }
@@ -322,7 +324,7 @@ void bheadUpdate(f32 percent_speed, f32 speedsideways)
         headpos.f[1] = ((g_CurrentPlayer->bondheadmatrices[0].m[3][1] - g_CurrentPlayer->standheight) * g_CurrentPlayer->headamplitude) + g_CurrentPlayer->standheight;
         headpos.f[2] =   g_CurrentPlayer->bondheadmatrices[0].m[3][2] * g_CurrentPlayer->headamplitude;
 #ifdef GEVR
-        if (g_gevrStereo)
+        if (g_gevrStereo || !VrHeadBob)
         {
             headpos.f[1] = g_CurrentPlayer->standheight;
         }
@@ -372,6 +374,14 @@ void bheadUpdate(f32 percent_speed, f32 speedsideways)
 
             bheadSetdamp(0.85f);
         }
+#ifdef GEVR
+        /* Head bob off (#269): the walk's nod and tilt too, not only its rise */
+        if (!g_gevrStereo && !VrHeadBob)
+        {
+            lookvel.f[0] = 0.0f; lookvel.f[1] = 0.0f; lookvel.f[2] = 1.0f;
+            upvel.f[0] = 0.0f;   upvel.f[1] = 1.0f;   upvel.f[2] = 0.0f;
+        }
+#endif
     }
     else
     {

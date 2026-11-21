@@ -19,10 +19,17 @@ int VrForcePull, VrPullDisarm, VrAutoPickup, VrPullVisuals, VrBodySlots, VrBodyS
 int VrWatchGesturePause, VrManualReloading, VrPerWeaponRecoil, VrNoKnockback, VrNoHitstun, VrDamageFlash;
 int VrThirdPerson, VrThirdPersonDist = 150, VrThirdPersonHeight = 20, VrThirdPersonSide = 35;
 int VrLeftHandedMode, VrSwapJoysticks, VrGunFitArmed, VrShowStats, VrGunSizeCheat, VrSpeedrunTimer, VrGhostRace;
-int VrScreenShape, VrTouchHaptics = 1, VrGyroAim, VrTriggerFeedback = 1;   /* flat games: the screen, a phone's touch controls */
-static float s_padRumble = 0.5f;   /* input.c's pad rumble scale (Pad vibration) */
+int VrScreenShape, VrTouchHaptics = 1, VrGyroAim, VrTriggerFeedback = 100, VrHeadBob = 1;   /* flat games: the screen, a phone's touch controls */
+static float s_padRumble = 0.3f;   /* input.c's pad rumble scale (Pad vibration) */
 float inputRumbleGetStrength(int cidx) { (void)cidx; return s_padRumble; }
 void inputRumbleSetStrength(int cidx, float val) { (void)cidx; s_padRumble = val; }
+void inputRumbleSetStrengthAll(float val) { s_padRumble = val; }
+static float s_lookSpeed = 1.0f, s_lookDead = 4096.0f / 32767.0f;   /* input.c's pad look (#269) */
+static int s_lookInvert;
+float inputPadLookSpeed(void) { return s_lookSpeed; }
+float inputPadLookDeadzone(void) { return s_lookDead; }
+int inputPadLookInverted(void) { return s_lookInvert; }
+void inputPadLookSet(float speed, float deadzone, int inverted) { s_lookSpeed = speed; s_lookDead = deadzone; s_lookInvert = inverted; }
 void inputRumbleTest(int cidx) { (void)cidx; }   /* input.c: the Vibration row's buzz */
 float VrGyroSpeed = 1.5f;
 int VrMinesStickToGuards, VrBodiesStay, VrFastReinforcements, VrRagdolls, VrDismemberment, VrDismemberChance = 40;

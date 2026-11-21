@@ -32,8 +32,18 @@
  * buzz on an on-screen button, and turning the device to look and aim. */
 int VrTouchHaptics = 1;
 /* A pad's triggers (input.c inputTriggerShot): a shot buzzes the trigger that
- * fired it, an Xbox pad's trigger motors or a DualSense's adaptive triggers. */
-int VrTriggerFeedback = 1;
+ * fired it, an Xbox pad's trigger motors or a DualSense's adaptive triggers.
+ * 0 to 100%, its own strength (#269); an ini's 1 is the old toggle's on. */
+int VrTriggerFeedback = 100;
+/* The walk's head bob in a flat game (src/game/bondhead.c, #269); stereo has
+ * none either way. */
+int VrHeadBob = 1;
+/* A pad's look (input.c inputPadLookSet, #269), written to every pad when the
+ * ini has them; until then the engine ini's own (1x, 12.5%, not inverted). */
+static float s_padLookSpeed = -1.0f, s_padLookDeadzone = -1.0f;
+static int s_padLookInvert = -1;
+/* the ini was written by a build that knew Vibration's 30% default (#269) */
+static int s_padDefaults;
 /* 0: no on-screen controls at all, for a mouse and keyboard whose clicks
  * arrive as touches (the iOS app on a Mac through PlayCover, #254). Only in
  * the ini: a phone with it off would have no way back to the panel. */
@@ -53,6 +63,10 @@ int VrScreenShape = 0;   // the headset's virtual screen: 4:3 until its cost is 
 
 extern "C" float inputRumbleGetStrength(int playernum);
 extern "C" void inputRumbleSetStrength(int playernum, float strength);   // input.c takes an f32
+extern "C" void inputRumbleSetStrengthAll(float strength);
+extern "C" float inputPadLookSpeed(void), inputPadLookDeadzone(void);
+extern "C" int inputPadLookInverted(void);
+extern "C" void inputPadLookSet(float speed, float deadzone, int inverted);
 
 #define FS_MAXPATH 256
 
@@ -174,6 +188,10 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "MotionThrowGazeAssist=%.2f\n", VrMotionThrowGazeAssist);
     fprintf(f, "MotionThrowStrength=%.2f\n", VrMotionThrowStrength);
     fprintf(f, "Vibration=%.4f\n", inputRumbleGetStrength(g_ExtMenuPlayer));
+    fprintf(f, "PadDefaults=2\n");   // #269: Vibration's default is 30%; an older ini's 0.5 was the old default
+    fprintf(f, "PadLookSpeed=%.2f\nPadLookDeadzone=%.4f\nPadLookInvert=%d\n", inputPadLookSpeed(),
+            inputPadLookDeadzone(), inputPadLookInverted());
+    fprintf(f, "HeadBob=%d\n", VrHeadBob);
     fprintf(f, "StereoCrosshair=%.4f\n", VrStereoCrosshair);
     fprintf(f, "HudDistance=%.4f\n", VrHudDistance);
     fprintf(f, "WeaponRecoil=%d\n", VrWeaponRecoil ? 1 : 0);
@@ -341,8 +359,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; 0 = no on-screen touch controls, for a mouse and keyboard whose clicks arrive\n");
     fprintf(f, "; as touches (the iOS app on a Mac through PlayCover). 1 = shown (the default).\n");
     fprintf(f, "TouchControls=%d\n", VrTouchControls);
-    fprintf(f, "; A pad's triggers: 1 = a shot buzzes the trigger that fired it (an Xbox pad's\n");
-    fprintf(f, "; trigger motors, a DualSense's adaptive triggers), 0 = off.\n");
+    fprintf(f, "; A pad's triggers: a shot buzzes the trigger that fired it (an Xbox pad's\n");
+    fprintf(f, "; trigger motors, a DualSense's adaptive triggers), 0 to 100 (%%), 0 = off.\n");
     fprintf(f, "TriggerFeedback=%d\n", VrTriggerFeedback);
     fprintf(f, "; The touch layout editor's buttons (NAME x y radius;...), empty for the built-in layout.\n");
     fprintf(f, "TouchLayout=%s\n", VrTouchLayout);
@@ -925,7 +943,10 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "ScreenShape") == 0) VrScreenShape = ival == 1 ? 1 : 0;
             else if (strcmp(key, "TouchHaptics") == 0) VrTouchHaptics = ival != 0;
             else if (strcmp(key, "TouchControls") == 0) VrTouchControls = ival != 0;
-            else if (strcmp(key, "TriggerFeedback") == 0) VrTriggerFeedback = ival != 0;
+            else if (strcmp(key, "TriggerFeedback") == 0) VrTriggerFeedback = ival == 1 ? 100 : ival < 0 ? 0 : ival > 100 ? 100 : ival;
+            else if (strcmp(key, "PadDefaults") == 0) s_padDefaults = ival;
+            else if (strcmp(key, "PadLookInvert") == 0) s_padLookInvert = ival != 0;
+            else if (strcmp(key, "HeadBob") == 0) VrHeadBob = ival != 0;
             else if (strcmp(key, "GyroAim") == 0) VrGyroAim = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             /* Keep saved DisplayHz preferences. The obsolete RefreshRate key
              * was never user-selectable and remains ignored. */
@@ -937,6 +958,8 @@ extern "C" void vrSettingsLoad(void)
             // 2. OTHERWISE, is it a floating-point number (%f)?
         else if (sscanf(line, "%63[^=]=%f", key, &fval) == 2) {
             if (strcmp(key, "Vibration") == 0) inputRumbleSetStrength(0, fval);
+            else if (strcmp(key, "PadLookSpeed") == 0) s_padLookSpeed = fval;
+            else if (strcmp(key, "PadLookDeadzone") == 0) s_padLookDeadzone = fval;
             else if (strcmp(key, "StereoCrosshair") == 0) {
                 if (fval < HUD_STEREO_DEPTH_MIN) fval = HUD_STEREO_DEPTH_MIN;
                 if (fval > HUD_STEREO_DEPTH_MAX) fval = HUD_STEREO_DEPTH_MAX;
@@ -1057,6 +1080,20 @@ extern "C" void vrSettingsLoad(void)
         memcpy(VrBeanReloadGrab, VrReloadGrab[0], sizeof(VrBeanReloadGrab));
         memcpy(VrBeanScopeFit, VrScopeFit[0], sizeof(VrBeanScopeFit));
         memcpy(VrBeanMuzzleTrim, VrMuzzleTrim[0], sizeof(VrBeanMuzzleTrim));
+    }
+
+    // Pads (#269). Every install wrote Vibration=0.5000, the old default, so an
+    // ini from before PadDefaults keeps 0.5 only as that default: 30% now.
+    // Then one strength for every pad, a split screen's too, and the look rows'.
+    {
+        float vib = inputRumbleGetStrength(0);
+        if (s_padDefaults < 2 && std::fabs(vib - 0.5f) < 0.001f) vib = 0.3f;
+        inputRumbleSetStrengthAll(vib);
+        if (s_padLookSpeed > 0.0f || s_padLookDeadzone >= 0.0f || s_padLookInvert >= 0) {
+            inputPadLookSet(s_padLookSpeed > 0.0f ? s_padLookSpeed : inputPadLookSpeed(),
+                            s_padLookDeadzone >= 0.0f ? s_padLookDeadzone : inputPadLookDeadzone(),
+                            s_padLookInvert >= 0 ? s_padLookInvert : inputPadLookInverted());
+        }
     }
 
     // Tell the engine to use external textures.

@@ -22,6 +22,11 @@ int VrScreenPassthrough = 0;
 int vr_passthrough_supported(void) { return 1; }
 float inputRumbleGetStrength(int) { return 1; }
 void inputRumbleSetStrength(int, float) {}
+void inputRumbleSetStrengthAll(float) {}
+float inputPadLookSpeed(void) { return 1; }
+float inputPadLookDeadzone(void) { return 0.125f; }
+int inputPadLookInverted(void) { return 0; }
+void inputPadLookSet(float, float, int) {}
 void inputRumbleTest(int) {}
 void extTexSetPack(const char *) {}
 void videoSetExternalTextures(bool) {}

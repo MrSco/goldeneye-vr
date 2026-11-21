@@ -37,6 +37,7 @@ extern int VrWatchGesturePause;
 extern int VrManualReloading;
 extern int VrPerWeaponRecoil;
 extern int VrNoKnockback, VrNoHitstun, VrDamageFlash;
+extern int VrHeadBob;   /* vr_settings.cpp: the walk's head bob in a flat game (#269) */
 extern int VrThirdPerson, VrThirdPersonDist, VrThirdPersonHeight, VrThirdPersonSide;
 extern int VrLeftHandedMode, VrSwapJoysticks, VrGunFitArmed, VrShowStats, VrGunSizeCheat, VrSpeedrunTimer, VrGhostRace;
 extern int VrMinesStickToGuards, VrBodiesStay, VrFastReinforcements;
@@ -234,14 +235,47 @@ static int padVibGet(void)
     return i < 0 ? 0 : i > 10 ? 10 : i;
 }
 extern void inputRumbleTest(int cidx);
-/* each change buzzes the pad at the new strength, as the VR Haptics page does */
-static void padVibSet(int i) { inputRumbleSetStrength(0, (float)i / 10.0f); inputRumbleTest(0); }
+extern void inputRumbleSetStrengthAll(float val);
+/* each change buzzes the pad at the new strength, as the VR Haptics page does;
+ * every pad alike (a split screen's) */
+static void padVibSet(int i) { inputRumbleSetStrengthAll((float)i / 10.0f); inputRumbleTest(0); }
 static void padVibText(int i, char *b, int n)
 {
     if (i == 0) snprintf(b, n, "Off");
-    else if (i == 5) snprintf(b, n, "50%% (default)");
+    else if (i == 3) snprintf(b, n, "30%% (default)");   /* #269: 50% was too strong */
     else snprintf(b, n, "%d%%", i * 10);
 }
+
+/* A pad's look (#269, input.c inputPadLookSet): every pad's right stick */
+extern float inputPadLookSpeed(void), inputPadLookDeadzone(void);
+extern int inputPadLookInverted(void);
+extern void inputPadLookSet(float speed, float deadzone, int inverted);
+/* speed: 0.5x to 2x in tenths, 1x at 5 */
+static int lookSpeedPositions(void) { return 16; }
+static int lookSpeedGet(void)
+{
+    int i = (int)floorf((inputPadLookSpeed() - 0.5f) * 10.0f + 0.5f);
+    return i < 0 ? 0 : i > 15 ? 15 : i;
+}
+static void lookSpeedSet(int i) { inputPadLookSet(0.5f + i * 0.1f, inputPadLookDeadzone(), inputPadLookInverted()); }
+static void lookSpeedText(int i, char *b, int n) { snprintf(b, n, i == 5 ? "%.1fx (default)" : "%.1fx", 0.5f + i * 0.1f); }
+/* deadzone: 0 to 30% in 2.5% steps, 12.5% at 5 (the stick's X; Y half again) */
+static int lookDeadPositions(void) { return 13; }
+static int lookDeadGet(void)
+{
+    int i = (int)floorf(inputPadLookDeadzone() * 40.0f + 0.5f);
+    return i < 0 ? 0 : i > 12 ? 12 : i;
+}
+static void lookDeadSet(int i) { inputPadLookSet(inputPadLookSpeed(), i / 40.0f, inputPadLookInverted()); }
+static void lookDeadText(int i, char *b, int n)
+{
+    if (i == 0) snprintf(b, n, "None");
+    else snprintf(b, n, i == 5 ? "%.1f%% (default)" : "%.1f%%", i * 2.5f);
+}
+static int lookInvertPositions(void) { return 2; }
+static int lookInvertGet(void) { return inputPadLookInverted() != 0; }
+static void lookInvertSet(int i) { inputPadLookSet(inputPadLookSpeed(), inputPadLookDeadzone(), i != 0); }
+static void lookInvertText(int i, char *b, int n) { snprintf(b, n, "%s", i ? "On" : "Off"); }
 
 /* Fast reinforcements: a solo preference; in co-op the host's rule */
 static int fastGet(void)
@@ -442,14 +476,25 @@ static const Row s_rows[] = {
     TOGGLE(GEVR_SEC_COMFORT, "No knockback", VrNoKnockback, "Hits don't push you around."),
     TOGGLE(GEVR_SEC_COMFORT, "No hitstun", VrNoHitstun, "Hits don't stop you moving."),
     TOGGLE(GEVR_SEC_COMFORT, "Hit flash", VrDamageFlash, "The screen flashes red when you're hit."),
+    TOGGLE(GEVR_SEC_COMFORT, "Head bob", VrHeadBob, "The view bobs as Bond walks, on a flat screen. The headset never bobs."),
 
     /* Controls */
     { .label = "Pad vibration", .pad = 1, .tooltip = "How strongly a game pad rumbles: shots, hits and explosions.",
       .kind = GEVR_SET_RANGE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .def = NAN,
-      .cpositions = padVibPositions, .cget = padVibGet, .cset = padVibSet, .ctext = padVibText, .cdefault = 5 },
+      .cpositions = padVibPositions, .cget = padVibGet, .cset = padVibSet, .ctext = padVibText, .cdefault = 3 },
     { .label = "Trigger feedback", .pad = 1,
-      .tooltip = "A shot buzzes the trigger that fired it: an Xbox pad's trigger motors, a DualSense's adaptive triggers.",
-      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .ivar = &VrTriggerFeedback, .def = NAN },
+      .tooltip = "How strongly a shot buzzes the trigger that fired it: an Xbox pad's trigger motors, a DualSense's adaptive triggers.",
+      .kind = GEVR_SET_RANGE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .ivar = &VrTriggerFeedback,
+      .lo = 0, .hi = 100, .step = 10, .scale = 1, .fmt = "%.0f%%", .zero = "Off", .def = 100 },
+    { .label = "Look speed", .pad = 1, .tooltip = "How fast a pad's right stick turns and looks: faster reaches full speed with less push.",
+      .kind = GEVR_SET_RANGE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .def = NAN,
+      .cpositions = lookSpeedPositions, .cget = lookSpeedGet, .cset = lookSpeedSet, .ctext = lookSpeedText, .cdefault = 5 },
+    { .label = "Look deadzone", .pad = 1, .tooltip = "How far the right stick moves before it turns: more if the view drifts, less for finer aim.",
+      .kind = GEVR_SET_RANGE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .def = NAN,
+      .cpositions = lookDeadPositions, .cget = lookDeadGet, .cset = lookDeadSet, .ctext = lookDeadText, .cdefault = 5 },
+    { .label = "Invert look", .pad = 1, .tooltip = "Push the right stick up to look down, as a flight stick.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .def = NAN,
+      .cpositions = lookInvertPositions, .cget = lookInvertGet, .cset = lookInvertSet, .ctext = lookInvertText, .cdefault = 0 },
     { .label = "Touch vibration", .flat = 1, .tooltip = "A short buzz when you press an on-screen button.",
       .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .ivar = &VrTouchHaptics, .def = NAN },
     { .label = "Gyro aim", .flat = 1, .tooltip = "Turn and tilt the phone or tablet to look and aim: while AIM is held, or always.",
