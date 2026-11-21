@@ -58,11 +58,24 @@
 	     a pad, and the Siri Remote for the launcher. -->
 	<key>GCSupportsControllerUserInteraction</key>
 	<true/>
+	<!-- #269: without these two a 2nd generation Siri Remote comes as a
+	     "Coalesced Remote" with the 1st generation's inputs only (tvOS 26):
+	     no Cardinal Direction Pad, no Button Center, and its ring clicks
+	     nowhere ("the combined micro gamepads won't have the extra inputs
+	     of the 2nd Generation Siri Remote", GCSupportsMultipleMicroGamepads).
+	     DirectionalGamepad is the 2nd generation's profile. A remote is
+	     never a player's pad while a full pad is there (input.c). -->
+	<key>GCSupportsMultipleMicroGamepads</key>
+	<true/>
 	<key>GCSupportedGameControllers</key>
 	<array>
 		<dict>
 			<key>ProfileName</key>
 			<string>ExtendedGamepad</string>
+		</dict>
+		<dict>
+			<key>ProfileName</key>
+			<string>DirectionalGamepad</string>
 		</dict>
 		<dict>
 			<key>ProfileName</key>
