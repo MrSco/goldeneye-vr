@@ -27,8 +27,12 @@ rate Auto/Full/Half (Auto tries the full rate again, nothing saved) and at
 half rate two game steps a frame (HD A/B: steps 1/2/3+ 5/21/5 before, 0/30/0
 after). Then a flat online report: a guest now reads slot 0's keyboard
 binds (it couldn't move), and Upright look is the real default with a
-once-per-folder fix (the mouse was inverted in matches). Open from #269:
-decal fights on Apple (#8/#9, no repro yet; depth is 24-bit already), the
+once-per-folder fix (the mouse was inverted in matches). Bullet holes
+(#9): corners stored in eighths of a unit (whole units tilted a hole ~8 deg
+into Dam's walls) and flat shaders get the decal band's uDecalBias nudge
+(RenderDoc: it was multiview-only, so on PC/phones/Apple TV a decal drew
+only where it matched the wall's depth exactly); PC and the HD with Bean
+checked. Open from #269: the Dam grate (#8, likely the same band fix), the
 Frigate engine room audio drop (#7), a texture size cap (#6).
 **Next:** device checks: split screen with two real pads on an Apple TV and
 a phone, 3-4 players on a slow device; trigger feedback on Xbox and
