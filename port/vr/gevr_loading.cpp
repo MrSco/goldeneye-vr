@@ -27,6 +27,7 @@ extern "C" {
 bool vr_screen_present_tex2d(unsigned int srcTex, int w, int h);   // the window, or the headset's screen quad
 void vr_screen_set_visible(int visible);
 void gevrBeanSetLoadingHook(void (*hook)(float progress));         // gevr_bean_load.c
+void sysLogPrintf(int level, const char *fmt, ...);               // system.c
 #ifndef GEVR_FLAT
 int gevrVrLoadingFrameBegin(void);                                 // gevr_engine_shim.c
 void gevrVrLoadingFrameEnd(void);
@@ -51,6 +52,9 @@ const Uint32 kFadeMs = 220, kFrameMs = 33;
 GLuint s_tex, s_fbo;
 GLuint s_logoTex[kFadeSteps + 1], s_logoFbo[kFadeSteps + 1];
 bool s_ready, s_tried, s_active;
+bool s_holding;                    // a flat game: loaded, the screen held over its first frames
+Uint32 s_holdStart, s_holdLast;
+int s_holdFrames, s_holdQuick;
 float s_shown;
 Uint32 s_start, s_last;
 
@@ -228,11 +232,47 @@ extern "C" void gevrLoadingProgress(float progress)
     progressHook(progress);
 }
 
+/*
+ * The end of a load. A level's first frames are slow too (its models,
+ * pictures and shaders as they are first drawn: 0.4-0.6 s on an Apple TV HD),
+ * so a flat game keeps the screen up over them (gevrLoadingHoldFrame, in place
+ * of their swaps) and fades out once frames come quickly, into a picture that
+ * moves smoothly from its first frame. A headset fades out at once: its
+ * compositor holds that last, black, frame through the slow ones.
+ */
 extern "C" void gevrLoadingEnd(void)
 {
     if (!s_active) return;
     s_shown = 1.0f;
     frame(1.0f);
+#ifdef GEVR_FLAT
+    s_holding = true;
+    s_holdStart = s_holdLast = SDL_GetTicks();
+    s_holdFrames = s_holdQuick = 0;
+#else
     fadeTo(false);
     s_active = false;
+#endif
+}
+
+/* flat_window.cpp, at each of the game's swaps: 1 if the loading screen was
+ * shown in its place (the game's picture is not) */
+extern "C" int gevrLoadingHoldFrame(void)
+{
+    if (!s_holding) return 0;
+    const Uint32 now = SDL_GetTicks();
+    const Uint32 took = now - s_holdLast;
+    s_holdFrames++;
+    s_holdQuick = took < 45 ? s_holdQuick + 1 : 0;
+    // three quick frames in a row (the slow first ones are done), or 4 s at most
+    if (s_holdQuick >= 3 || now - s_holdStart > 4000) {
+        sysLogPrintf(0, "loading: held over the first %d frames, %u ms", s_holdFrames, (unsigned)(now - s_holdStart));
+        s_holding = false;
+        fadeTo(false);
+        s_active = false;
+        return 1;
+    }
+    frame(1.0f);
+    s_holdLast = SDL_GetTicks();
+    return 1;
 }

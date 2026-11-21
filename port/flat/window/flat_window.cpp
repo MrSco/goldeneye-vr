@@ -646,7 +646,11 @@ static inline void sync_framerate_with_timer(void) {
     previous_time = t;
 }
 
+extern "C" int gevrLoadingHoldFrame(void);   // port/vr/gevr_loading.cpp
+
 static void gfx_sdl_swap_buffers_begin(void) {
+    // the loading screen held over a level's slow first frames, in their place (#269)
+    if (gevrLoadingHoldFrame()) return;
     halfRateFrame();
     if (flatTimerFps()) {
         sync_framerate_with_timer();
