@@ -218,3 +218,36 @@ static void levelPaintedChecks(void)
 #undef BOARD
     puts("Bean blended faces a later opaque blended face paints over wholly are left out (Archives' bulletin board)");
 }
+
+/* levelBigBases(): a face lying on a face too big for the decal grid. #269 #8:
+ * Dam's dam-top wall is long diagonal triangles past the grid's limit, and its
+ * drain grates are solid faces in its plane; left undecided they fought it. */
+static void levelBigBaseChecks(void)
+{
+    /* a wall in z = 0, 6400 units square (100 x 100 cells at scale 1) */
+    static const float wallA[9] = {0,0,0, 6400,0,0, 6400,6400,0};
+    static const float wallB[9] = {0,0,0, 6400,6400,0, 0,6400,0};
+    static const float grate[9] = {1000,100,0, 1200,100,0, 1200,160,0};
+    static const float other[9] = {0,0,0, 6400,0,0, 6400,6400,0};
+    struct gevrBeanTri tris[3];
+    uint8_t texAlpha[MAX_TEX] = {0}, pass[3] = {0};
+    struct gevrBeanMesh mesh = {.tris=tris,.ntris=3,.ntex=3};
+    levelSideTri(&tris[0],wallA,0);
+    levelSideTri(&tris[1],wallB,0);
+    levelSideTri(&tris[2],grate,1);
+    markLevelDecals(&mesh,pass,3,texAlpha,1);
+    assert(!(tris[0].flags & GEVR_BEAN_F_DECAL) && !(tris[1].flags & GEVR_BEAN_F_DECAL));
+    assert(tris[2].flags & GEVR_BEAN_F_DECAL);   /* the grate, drawn as the wall's decal */
+
+    /* a solid face that is itself too big stays as it is */
+    levelSideTri(&tris[2],other,1);
+    markLevelDecals(&mesh,pass,3,texAlpha,1);
+    assert(!(tris[2].flags & GEVR_BEAN_F_DECAL));
+
+    /* a solid face a little off the plane (more than DECAL_DIST) is apart */
+    levelSideTri(&tris[2],grate,1);
+    for (int v=0;v<3;v++) tris[2].p[v*3+2]=2.0f;
+    markLevelDecals(&mesh,pass,3,texAlpha,1);
+    assert(!(tris[2].flags & GEVR_BEAN_F_DECAL));
+    puts("Bean solid faces on a face too big for the decal grid are its decals (Dam's grates)");
+}

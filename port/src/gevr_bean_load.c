@@ -1828,7 +1828,13 @@ static int levelPick(struct levelDecals *l, int i, int redo, int *bystrip)
  * no depth, so the overlay wins there too. Undecided, the overlay was drawn
  * GL_LESS against its own plane and lost: a hard line where the wall's opaque
  * top met the ring (#250). Only exact planes count (levelCandidate()'s reach,
- * one DAB unit), and the face's middle must lie on the big face. */
+ * one DAB unit), and the face's middle must lie on the big face.
+ * A solid face too (#269 #8): the dam top's low wall is long triangles laid
+ * diagonally, past the grid's limit, and its drain grates (texture 37) lie in
+ * its plane to 0.0001. Left undecided, 30 of the grates' 66 faces were drawn
+ * GL_LESS against the wall and fought it frame by frame as the view swayed,
+ * on the PC and the Apple TV alike. DAB has the same limit (tgridAdd()). A
+ * solid face that is itself too big for the grid is left alone. */
 static int levelBigBases(struct levelDecals *l)
 {
 	enum { G = 64 };   /* a G x G plan grid over the big faces */
@@ -1901,7 +1907,7 @@ static int levelBigBases(struct levelDecals *l)
 		const float *tp = mesh->tris[i].p;
 		float mid[3];
 		int cell[2], out = 0;
-		if (l->decal[i] || !levelBlend(l, i) || l->nrm[i][3] <= 0)
+		if (l->decal[i] || l->nrm[i][3] <= 0 || (!levelBlend(l, i) && levelDecalCells(l, i) > LDECAL_MAX_CELLS))
 			continue;
 		for (int j = 0; j < 3; j++)
 			mid[j] = (tp[j] + tp[3 + j] + tp[6 + j]) / 3.0f;
@@ -2073,7 +2079,7 @@ static void markLevelDecals(struct gevrBeanMesh *mesh, const uint8_t *pass, int 
 	{
 		const int big = levelBigBases(&l);
 		if (big)
-			GEVR_BEAN_LOG("gevr bean: %d blended faces on faces too big for the decal grid drawn as their decals\n", big);
+			GEVR_BEAN_LOG("gevr bean: %d faces on faces too big for the decal grid drawn as their decals\n", big);
 	}
 	/* A twin stays marked: it is drawn blended over its own draw */
 	for (int i = 0; i < n; i++)

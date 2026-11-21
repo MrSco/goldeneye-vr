@@ -172,6 +172,7 @@ int main(void)
 	free(mesh.tris);
     levelSameTextureDecalChecks();
     levelPaintedChecks();
+    levelBigBaseChecks();
     puts("Bean vertex layout and palette checks passed");
     return 0;
 }
