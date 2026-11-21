@@ -82,6 +82,8 @@ extern unsigned long long VrMpFavStages;
 extern unsigned VrMpFavSets;
 // GoldenEye comfort vignette strength while moving in stereo, 0 = off .. 1.
 extern float VrComfortVignette;
+// Movement in the headset: 0 the stick walks, 1 it aims a teleport (gevr_teleport.c).
+extern int VrTeleport;
 // Being hit in stereo (issue #95). VrNoKnockback: 1 = a hit doesn't push you
 // (the default). VrNoHitstun: 1 = the trigger still fires while the hit
 // shows. VrDamageFlash: 0 = no red flash.

@@ -55,6 +55,15 @@ cached in $S/gevr_cache (build-stamped, input-hashed, 8 files): Dam Bean
 front-load PC 1.83 -> 1.23 s, Quest 3.4 -> 1.8 s, HD 6.3 -> 3.7 s. The first
 menu open no longer loads the watch arm (HD 137 ms). Not done: Bean guns and
 hands kept across levels (memory on HD/phones/Quest).
+**Unreleased (t3/multiplayer-teleport-locomotion):** teleport locomotion
+([docs/teleport.md](docs/teleport.md)), Comfort > Movement: Teleport, headset
+only, off by default. The move stick aims an arc from its hand, letting go
+jumps behind a 0.17 s blink, a flick hops 1 m. A jump goes only where the
+walk's own collision test passes in 20 cm steps (no doors, glass, objects,
+edges) and is paid from a 6 m stamina filling at 90% of the forward run, so
+it never out-travels running; no protocol change (others see a dash). Played
+on a Quest 3 by the user ("works really well"); the doc's test sheet (stairs,
+two headsets) has not been gone through item by item.
 **Next:** device checks: split screen with two real pads on an Apple TV and
 a phone, 3-4 players on a slow device; trigger feedback on Xbox and
 DualSense pads; a pad in the Quest and PC VR headsets; Vision Pro's ghosting

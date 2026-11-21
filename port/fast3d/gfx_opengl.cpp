@@ -6230,13 +6230,15 @@ struct GfxRenderingAPI gfx_opengl_api = {
 // fragment works in tangent space and both eyes draw one ring at infinity.
 // ============================================================================
 static GLuint s_vignetteProg = 0, s_vignetteVao = 0;
-static GLint s_vignetteStrengthLoc = -1, s_vignetteEyeLoc = -1;
+static GLint s_vignetteStrengthLoc = -1, s_vignetteEyeLoc = -1, s_vignetteBlinkLoc = -1;
 float* vr_get_eye_proj_mtx(int eye);   // vr_openxr.cpp
 
-void gfx_opengl_draw_vignette(float strength)
+// blink 0..1 darkens the whole view: the teleport's blink (src/game/gevr_teleport.c),
+// black for the frame the body moves. It needs no vignette setting.
+void gfx_opengl_draw_vignette(float strength, float blink)
 {
     gevr_mesh_settle();
-    if (strength <= 0.001f || !use_multiview) {
+    if ((strength <= 0.001f && blink <= 0.001f) || !use_multiview) {
         return;
     }
 
@@ -6259,6 +6261,7 @@ void gfx_opengl_draw_vignette(float strength)
             "precision mediump float;\n"
             "in vec2 vTan;\n"
             "uniform float uStrength;\n"
+            "uniform float uBlink;\n"
             "out vec4 outColor;\n"
             "void main() {\n"
             // radius as an angle from straight ahead: 48 deg clear at the
@@ -6266,7 +6269,7 @@ void gfx_opengl_draw_vignette(float strength)
             "    float ang = atan(length(vTan));\n"
             "    float inner = mix(0.84, 0.31, uStrength);\n"
             "    float a = smoothstep(inner, inner + 0.38, ang);\n"
-            "    outColor = vec4(0.0, 0.0, 0.0, a * min(1.0, uStrength * 1.5));\n"
+            "    outColor = vec4(0.0, 0.0, 0.0, max(a * min(1.0, uStrength * 1.5), uBlink));\n"
             "}\n";
         GLuint v = glCreateShader(GL_VERTEX_SHADER);
         glShaderSource(v, 1, &vs, nullptr);
@@ -6291,6 +6294,7 @@ void gfx_opengl_draw_vignette(float strength)
             return;
         }
         s_vignetteStrengthLoc = glGetUniformLocation(s_vignetteProg, "uStrength");
+        s_vignetteBlinkLoc = glGetUniformLocation(s_vignetteProg, "uBlink");
         s_vignetteEyeLoc = glGetUniformLocation(s_vignetteProg, "uEye");
         glGenVertexArrays(1, &s_vignetteVao);
     }
@@ -6316,6 +6320,7 @@ void gfx_opengl_draw_vignette(float strength)
 
     glUseProgram(s_vignetteProg);
     glUniform1f(s_vignetteStrengthLoc, strength);
+    glUniform1f(s_vignetteBlinkLoc, blink < 0.0f ? 0.0f : blink > 1.0f ? 1.0f : blink);
     float eyes[8];
     for (int i = 0; i < 2; i++) {
         const float *p = vr_get_eye_proj_mtx(i);

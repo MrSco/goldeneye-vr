@@ -70,6 +70,7 @@ extern int flatTouchTakeLookDeg(float *yaw, float *pitch);
  */
 extern s32 g_gevrStereo;          /* bondview2.c: this frame is stereo */
 extern s32 gevrScopeZoomStick(void);  /* bondview2.c: aiming the sniper, this stick zooms */
+extern s32 gevrTeleportTakesStick(void);   /* gevr_teleport.c: the move stick aims a jump */
 extern s32 gevrStereoWatchItem(s32 item);  /* bondview2.c: the watch laser, the detonator, the watch gadgets (#31) */
 extern int gevrVrScreenMode;      /* gfx_pc.cpp: this frame is on the virtual screen */
 extern int VrPlayMode;            /* vr_settings: 1 = stereo gameplay */
@@ -3325,10 +3326,15 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             // or with the sniper zooms - and then side to side does not strafe
             // the scope off its target (issue #58, user).
             const bool zoomStick = gevrScopeZoomStick() != 0;
-            if (!zoomStick && left.x < -0.25f) npad->button |= L_CBUTTONS;
-            if (!zoomStick && left.x >  0.25f) npad->button |= R_CBUTTONS;
-            if (left.y < -0.25f) npad->button |= D_CBUTTONS;
-            if (left.y >  0.25f) npad->button |= U_CBUTTONS;
+            // Teleport (Comfort > Movement, gevr_teleport.c): the stick aims the
+            // jump and walks nobody; the sniper's zoom keeps its up and down.
+            const bool teleport = g_gevrStereo && !zoomStick && gevrTeleportTakesStick() != 0;
+            if (!teleport) {
+                if (!zoomStick && left.x < -0.25f) npad->button |= L_CBUTTONS;
+                if (!zoomStick && left.x >  0.25f) npad->button |= R_CBUTTONS;
+                if (left.y < -0.25f) npad->button |= D_CBUTTONS;
+                if (left.y >  0.25f) npad->button |= U_CBUTTONS;
+            }
         }
     }
 

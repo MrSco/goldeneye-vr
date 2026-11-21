@@ -67,7 +67,7 @@ Every platform runs the same game from **your own ROM**, with the same launcher,
 - Gadgets, mines and knives in your hand, thrown with your arm
 - Working scopes, two-handed guns, melee with either hand, shell casings
 - Optional **force pull**: tug a gun out of a guard's hand or catch a grenade
-- Smooth or snap turning, comfort vignette, left-handed mode, seated play
+- Smooth or snap turning, comfort vignette, optional teleport movement, left-handed mode, seated play
 
 **🌐 Online, together**
 - Deathmatch for up to **eight**, with **bots** for empty slots
@@ -116,6 +116,7 @@ Every platform runs the same game from **your own ROM**, with the same launcher,
 | Hold any gun with **both hands**: put your left hand on it and squeeze the grip. A rifle then aims along the line between your hands. | |
 | Spent **shell casings** fly from the ejection port. | |
 | Smooth or snap turning, and an optional **comfort vignette** for motion sickness. | |
+| Optional **teleport** movement for players the stick makes ill: aim an arc with the move stick, let go to jump, flick to hop. It goes only where you could walk and is no faster than running, online too. See [teleport](docs/teleport.md). | |
 
 Also:
 - An **in-VR launcher** with **Play**, **Ghosts**, **Multiplayer**, **Controls** (**Hands**, **Gestures**, **Throwing**, **Haptics**), **Comfort**, **Screen**, **Rules** (**Game rules**, **AI ally**, **Cheats**) and **Mods** tabs: ROM check, display mode, screen shape and size, turning, comfort, **display rate** (Auto and the headset's supported rates), **aim steadying**, a **left-handed** mode, **swap sticks**, **gun fit** (set where the gun sits in your hand), an in-game **stats** readout for troubleshooting, and **Cheats** (the classic cheats, tiny or big guns, and **unlock all missions and cheats**).
@@ -372,7 +373,7 @@ GE-X and the ROM section's **Choose ROM file...** for your GoldenEye ROM.
 | **Hand at your own stuck mine** + **grip** | Take it back (remote mines, and proximity mines still arming; single player and the co-op host) |
 | **Point an empty hand** at a gun or item + **grip**, then **flick** | With **Force pull WIP** on (off by default): the grip locks it, a flick of the wrist or a pull of the hand back flies it over, and a fresh squeeze catches it. See [force pull](docs/force-pull.md) |
 | **Grip** a throwable, swing, **release** the grip | Throw it from your hand: throwing knives, grenades, mines (**Motion throw**, on by default). The trigger cooks a grenade meanwhile |
-| **Left stick** | Walk and strafe |
+| **Left stick** | Walk and strafe. With **Movement: Teleport** (Comfort, off by default): forward aims an arc from that hand, letting go jumps there; a flick back or sideways hops a metre. See [teleport](docs/teleport.md) |
 | **Right stick** | Turn: smooth (with its speed) or snap, set in the launcher |
 | **Left stick click** | Crouch (toggle) |
 | **Left stick up/down** (aiming the sniper rifle) | Zoom the scope (the stick doesn't strafe then) |
@@ -719,7 +720,9 @@ the release, then copy them back.
 <summary><b>Moving around makes me queasy</b></summary>
 
 On the launcher's **Comfort** tab, raise **Vignette** (darkens the edges while you move) and try
-**Snap** turning. Or play on the virtual screen, which has no artificial motion at all.
+**Snap** turning. If walking with the stick is the trouble, set **Movement** to **Teleport**: you point
+where to go and the view blinks there, with no slide ([teleport](docs/teleport.md)). Or play on the
+virtual screen, which has no artificial motion at all.
 </details>
 
 <details>

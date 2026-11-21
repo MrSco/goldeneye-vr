@@ -24,6 +24,7 @@ extern float VrUseSnapTurn;          /* 0 smooth, else the snap angle */
 extern int VrMovementSpeed;
 extern int VrSmoothTurnSpeed;
 extern float VrComfortVignette;
+extern int VrTeleport;
 extern int VrWatchFaceStatus;
 extern int VrAimSteady;
 extern int VrTouchModel;
@@ -385,6 +386,7 @@ static const int s_msaa[] = { 1, 2 };
 static const char *const s_msaaNames[] = { "Off", "2x" };
 #endif
 static const int s_two[] = { 0, 1 };
+static const char *const s_moveNames[] = { "Smooth", "Teleport" };
 static const char *const s_shapeNames[] = { "4:3", "16:9" };
 static const char *const s_playNames[] = { "Flat screen", "Stereo VR" };
 static const int s_ten[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
@@ -481,6 +483,8 @@ static void voiceModeText(int i, char *b, int n) { snprintf(b, n, "%s", netVoice
 
 static const Row s_rows[] = {
     /* Comfort */
+    CHOICE_VR(GEVR_SEC_COMFORT, "Movement", VrTeleport, s_two, s_moveNames,
+           "Smooth: the stick walks. Teleport: push it forward to aim, let go to jump there; flick it back or sideways to hop."),
     CUSTOM(GEVR_SEC_COMFORT, "Movement speed", GEVR_SET_RANGE, movePositions, moveGet, moveSet, moveText, 2,
            "How fast Bond walks and runs. Online it is the host's rule."),
     CUSTOM_VR(GEVR_SEC_COMFORT, "Turning", GEVR_SET_CHOICE, turnPositions, turnGet, turnSet, turnText, 0,

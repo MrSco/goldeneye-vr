@@ -143,6 +143,9 @@ int VrTouchModel = 0;
 
 /* GoldenEye: comfort vignette while moving in stereo, 0 = off .. 1. */
 float VrComfortVignette = 0.0f;
+/* Movement in the headset: 0 the stick walks, 1 it aims a teleport
+ * (src/game/gevr_teleport.c, docs/teleport.md). */
+int VrTeleport = 0;
 /* Being hit in stereo (issue #95): no push (on: motion you didn't make),
  * hitstun kept, the red flash kept. */
 int VrNoKnockback = 1;

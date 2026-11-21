@@ -195,8 +195,9 @@ static bool s_gevrWeaponPanelCapture = false;
 extern "C" void vr_get_eye_view_proj_gl(int eye, float outVP[16]);
 extern "C" void gevrVrMarkEyesRendered(int stereo); // vr_openxr.cpp
 void gfx_vr_hud_H_new_frame(void);                  // gfx_opengl.cpp
-void gfx_opengl_draw_vignette(float strength);      // gfx_opengl.cpp
+void gfx_opengl_draw_vignette(float strength, float blink);   // gfx_opengl.cpp
 extern "C" float gevrStereoVignette(void);          // bondview2.c
+extern "C" float gevrTeleportBlink(void);           // gevr_teleport.c: the teleport's blink, 0..1
 void gfx_vr_scope_record(bool on, bool invert_y);   // gfx_opengl.cpp (issue #40)
 void gfx_vr_scope_only(int hand);                   // GUNRIGHT 0 / GUNLEFT 1, -1 ends
 void gfx_vr_scope_render(void);
@@ -6591,7 +6592,7 @@ extern "C" void gfx_run(Gfx* commands) {
                 gevrVrMarkEyesRendered(1);
                 gfx_vr_scope_render();   // issue #40: the world again, through the sniper scope
                 s_gevrLastVignette = gevrStereoVignette();
-                gfx_opengl_draw_vignette(s_gevrLastVignette);
+                gfx_opengl_draw_vignette(s_gevrLastVignette, gevrTeleportBlink());
 
                 if (VrPauseHub && VrIsPaused) {
                     float vp[2][16];
@@ -6745,7 +6746,7 @@ static int gevr_vr_replay_frame(bool fresh) {
     const bool have1 = recorded && gevrVrRedrawHandDelta(1, hand[1]) != 0;
     const bool haveBody = recorded && gevrVrRedrawBodyDelta(body) != 0;
     gfx_vr_eye_replay(delta, have0 ? hand[0] : nullptr, have1 ? hand[1] : nullptr, haveBody ? body : nullptr);
-    gfx_opengl_draw_vignette(s_gevrLastVignette);
+    gfx_opengl_draw_vignette(s_gevrLastVignette, gevrTeleportBlink());
     gfx_vr_gpu_end();
     vr_end_eye_render();
     // SpaceWarp: this game frame's motion vectors and depth, from the same moves

@@ -331,6 +331,11 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "PadLookSpeed=%.2f\nPadLookDeadzone=%.4f\nPadLookInvert=%d\n", inputPadLookSpeed(),
             inputPadLookDeadzone(), inputPadLookInverted());
     iniPrintf(f, "HeadBob=%d\n", VrHeadBob);
+    iniPrintf(f, "; Movement in the headset: 0 = the move stick walks, 1 = teleport: push it forward to\n");
+    iniPrintf(f, "; aim an arc, let go to jump there; flick it back or sideways for a short hop. A jump\n");
+    iniPrintf(f, "; goes only where you could walk in a straight line, and is paid for from a stamina\n");
+    iniPrintf(f, "; that fills a little slower than running.\n");
+    iniPrintf(f, "Teleport=%d\n", VrTeleport ? 1 : 0);
     iniPrintf(f, "; A flat game's levels: 0 = Auto (half the screen's rate while it can't hold the full one), 1 = Full, 2 = Half.\n");
     iniPrintf(f, "FrameRate=%d\n", VrFrameRate);
     iniPrintf(f, "LookUprightFolders=%d\n", VrLookUprightFolders);
@@ -1071,6 +1076,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "PadDefaults") == 0) s_padDefaults = ival;
             else if (strcmp(key, "PadLookInvert") == 0) s_padLookInvert = ival != 0;
             else if (strcmp(key, "HeadBob") == 0) VrHeadBob = ival != 0;
+            else if (strcmp(key, "Teleport") == 0) VrTeleport = ival != 0;
             else if (strcmp(key, "FrameRate") == 0) VrFrameRate = ival >= 0 && ival <= 2 ? ival : 0;
             else if (strcmp(key, "LookUprightFolders") == 0) VrLookUprightFolders = ival;
             else if (strcmp(key, "GyroAim") == 0) VrGyroAim = ival < 0 ? 0 : ival > 2 ? 2 : ival;

@@ -485,6 +485,88 @@ s32 gevrCoopPlaceBeside(s32 target)
 }
 
 /*
+ * Teleport locomotion (gevr_teleport.c, docs/teleport.md): how far the
+ * current player's body gets walking dist units along the unit direction
+ * (dirx, dirz) from where it stands, with where and on which tile that is.
+ * Nothing is moved. Each 20 units is the walk's own step
+ * (bondviewTryMoveToStan: the line to it and the body's volume there against
+ * walls, doors, glass, objects, guards and players, and the low ceilings a
+ * crouch is needed for), without the walk's slide along what it meets, so a
+ * jump lands only where a straight walk would have brought the player. The
+ * steps are shorter than the body is wide: nothing it would not fit through
+ * is stepped over.
+ */
+#define GEVR_TELEPORT_STEP 20.0f
+
+static s32 s_gevrMoveProbe;   /* bondviewTryMoveToStan asked by the probe: its refusals are not logged */
+
+f32 gevrTeleportWalk(f32 dirx, f32 dirz, f32 dist, coord3d *end, StandTile **endstan)
+{
+    struct player *pl = g_CurrentPlayer;
+    const coord3d from = pl->field_488.collision_position;
+    StandTile *const fromtile = pl->field_488.current_tile_ptr;
+    const s32 autocrouch = pl->autocrouchpos;
+    PropRecord *const tank = g_WorldTankProp;
+    f32 reached = 0.0f;
+    f32 floor0;
+    f32 d;
+
+    *end = from;
+    *endstan = fromtile;
+    if (fromtile == NULL || !(dist > 0.0f))
+    {
+        return 0.0f;
+    }
+    floor0 = bondviewYPositionRelated(fromtile, from.x, from.z);
+    s_gevrMoveProbe = TRUE;
+    for (d = GEVR_TELEPORT_STEP; ; d += GEVR_TELEPORT_STEP)
+    {
+        coord3d next;
+        StandTile *stan = NULL;
+
+        if (d > dist)
+        {
+            d = dist;
+        }
+        next.x = from.x + dirx * d;
+        next.y = pl->field_488.collision_position.y;
+        next.z = from.z + dirz * d;
+        stanResetHits();
+        if (!bondviewTryMoveToStan(&next, &stan) || stan == NULL)
+        {
+            break;
+        }
+        /* stand there for the next step, at that floor's height (the ceiling test reads it) */
+        pl->field_488.collision_position.x = next.x;
+        pl->field_488.collision_position.z = next.z;
+        pl->field_488.collision_position.y = from.y + bondviewYPositionRelated(stan, next.x, next.z) - floor0;
+        pl->field_488.current_tile_ptr = stan;
+        reached = d;
+        if (d >= dist)
+        {
+            break;
+        }
+    }
+    s_gevrMoveProbe = FALSE;
+    end->x = pl->field_488.collision_position.x;
+    end->z = pl->field_488.collision_position.z;
+    *endstan = pl->field_488.current_tile_ptr;
+    end->y = bondviewYPositionRelated(*endstan, end->x, end->z);
+    pl->field_488.collision_position = from;
+    pl->field_488.current_tile_ptr = fromtile;
+    pl->autocrouchpos = autocrouch;
+    g_WorldTankProp = tank;   /* a tank met on the way is not one stood beside */
+    stanResetHits();
+    return reached;
+}
+
+/* The jump: the body there as a respawn puts it, the view with it at once (no glide). */
+void gevrTeleportPlace(const coord3d *pos, StandTile *stan)
+{
+    gevrPlaceCurrentPlayer(pos, stan);
+}
+
+/*
  * Online soft collision between players (user, 2026-10-08: an enemy
  * standing in front could pin a player in a corner; as other shooters do
  * it). Players pass through one another's cylinders (stan.c
@@ -9037,7 +9119,7 @@ block_20:
              * after reloading. Record the actual movement failure, including
              * scenery, guards and floor/ceiling checks omitted by older logs.
              * Volume -2 means the failed line test short-circuited it. */
-            if (gevrCoopActive() && get_cur_playernum() == netGetLocalSlot()
+            if (!s_gevrMoveProbe && gevrCoopActive() && get_cur_playernum() == netGetLocalSlot()
                 && (fabsf(arg0->x - g_CurrentPlayer->field_488.collision_position.x) > 0.01f
                     || fabsf(arg0->z - g_CurrentPlayer->field_488.collision_position.z) > 0.01f))
             {
@@ -9059,7 +9141,7 @@ block_20:
                 }
             }
             /* a move refused for a door: which, and how open (Facility double door that opens but blocks, user 2026-09-30) */
-            if (stanSavedColl_posData != NULL && stanSavedColl_posData->type == PROP_TYPE_DOOR && stanSavedColl_posData->door != NULL)
+            if (!s_gevrMoveProbe && stanSavedColl_posData != NULL && stanSavedColl_posData->type == PROP_TYPE_DOOR && stanSavedColl_posData->door != NULL)
             {
                 extern void gevrBotNoteBlockingDoor(s32 slot, PropRecord *doorprop);   /* gevr_bot.c */
 
@@ -9103,7 +9185,7 @@ block_20:
                 }
             }
             /* playtest 2026-09-30 ("players stuck in each other"): a move refused for another player's prop */
-            if (netIsActive() && stanSavedColl_posData != NULL && stanSavedColl_posData->type == PROP_TYPE_VIEWER)
+            if (!s_gevrMoveProbe && netIsActive() && stanSavedColl_posData != NULL && stanSavedColl_posData->type == PROP_TYPE_VIEWER)
             {
                 static u64 s_next_block_log_us;
                 u64 now = sysGetMicroseconds();
@@ -14001,6 +14083,10 @@ static void gevrScalePlayerWalk(f32 *x, f32 *z) {
     *x *= factor;
     *z *= factor;
 }
+/* The movement speed rule's factor, for teleport's stamina (gevr_teleport.c). */
+f32 gevrTeleportSpeedFactor(void) {
+    return netMovementSpeedFactor(netIsActive() ? netActiveMovementSpeed() : VrMovementSpeed);
+}
 #endif
 
 void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
@@ -14066,6 +14152,12 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         /* the boat carries him; he still turns (the 2D screen's right stick) */
         g_CurrentPlayer->speedforwards = 0.0f;
         g_CurrentPlayer->speedsideways = 0.0f;
+    }
+    if (!netIsActive() || get_cur_playernum() == netGetLocalSlot())
+    {
+        extern void gevrTeleportTick(void);   /* gevr_teleport.c: the move stick's arc, and the jump */
+
+        gevrTeleportTick();
     }
 #endif
 
@@ -21976,6 +22068,11 @@ Gfx *maybe_mp_interface(Gfx *gdl)
 
         gdl = gevrBodySlotsDrawLabels(gdl);
         gdl = gevrPullDraw(gdl);
+        {
+            extern Gfx *gevrTeleportDraw(Gfx *gdl);      /* gevr_teleport.c: the arc and where it lands */
+
+            gdl = gevrTeleportDraw(gdl);
+        }
     }
     /*
      * Stereo: the ammo count goes on a small panel at the right controller,
