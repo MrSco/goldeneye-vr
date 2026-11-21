@@ -53,6 +53,8 @@ void gevrBeanForgetModelStorage(const void *base, u32 size);
 /* An instance's runtime records are about to be initialized or reused. */
 void gevrBeanForgetWounds(struct Model *model);
 void gevrBeanModelApply(struct ModelFileHeader *header, const char *name);
+/* Load a model's Bean mesh now, ahead of its first use (the watch arm at level load) */
+void gevrBeanPrewarm(const char *name);
 /* The watch initializes only native preview joints. Fit every replaced rigid
  * part under its own rest pivot; return whether this is a Bean preview. */
 int gevrBeanPreviewPose(struct Model *model, const float root[4][4]);

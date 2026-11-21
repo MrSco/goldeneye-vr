@@ -3797,6 +3797,25 @@ static void folderRepaint(struct ModelFileHeader *header)
 	free(file);
 }
 
+/*
+ * A model Bean would load in the middle of play, loaded with the level
+ * instead (boss.c): its mesh waits in the cache for gevrBeanModelApply.
+ * The watch arm (Csuit_lf_handZ) loads the first time the watch opens, and
+ * opening the GEVR menu in a mission opens it: 7,246 triangles decoded and
+ * the sleeve sealed took 137 ms of that frame on the Apple TV HD (40 ms on a
+ * PC), longer than the sound queued (#269).
+ */
+void gevrBeanPrewarm(const char *name)
+{
+	char source[128], path[192];
+	if (!name || !gevrBeanIsAvailable() || !gevrBeanIsEnabled() || !gevrRomRetailArt())
+		return;
+	const int kind = sourceForName(name, source, sizeof(source));
+	if (kind == BEAN_NONE || !findFile(source, path, sizeof(path)))
+		return;
+	cachedLoad(path, 1, kind);
+}
+
 void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
 {
 	char source[128], path[192];

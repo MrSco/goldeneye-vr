@@ -574,6 +574,12 @@ void bossMainloop(void)
             extern void gevrSndPathStageLoaded(void);
             gevrBotStageLoaded();   /* the bots' props, routes and players were the last stage's */
             gevrSndPathStageLoaded();   /* how sound travels between this stage's rooms */
+            if (g_StageNum != LEVELID_TITLE) {
+                /* the watch arm's Bean mesh, which the first pause (and the
+                 * GEVR menu's) loaded mid-frame (#269) */
+                extern void gevrBeanPrewarm(const char *name);
+                gevrBeanPrewarm("Csuit_lf_handZ");
+            }
         }
         netStageLoaded();
 #endif
