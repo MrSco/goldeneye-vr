@@ -29,6 +29,91 @@ void gevrBeanSetLoadingHook(void (*hook)(float progress)) { s_beanLoadingHook = 
 void gevrBeanLoadingTick(float progress) { if (s_beanLoading) s_beanLoadingHook(progress); }
 void gevrBeanLoadingBegin(void) { s_beanLoading = s_beanLoadingHook != NULL; gevrBeanLoadingTick(0.0f); }
 void gevrBeanLoadingEnd(void) { gevrBeanLoadingTick(1.0f); s_beanLoading = 0; }
+
+#include "gevr_bean_cache.inc.h"
+
+const char *gevrBeanCacheStamp = NULL;   /* main.c: the build id; NULL keeps the cache off */
+const char *gevrBeanCacheDir = NULL;     /* main.c: $S/gevr_cache */
+
+/* The level passes' results: the triangles (reflections by slot), the cast
+ * shadows' flag and the cut-outs' clamps */
+struct beanLevelCache {
+	int32_t ntris, shadows;
+	uint8_t texClamp[256];
+	float texClampBase[256][2];
+};
+
+static int beanCacheLevelApply(struct gevrBeanMesh *mesh, const char *source, uint64_t key)
+{
+	size_t size = 0;
+	uint8_t *blob = (uint8_t *)beanCacheRead(source, "passes", key, &size);
+	struct beanLevelCache head;
+	struct gevrBeanTri *tris;
+	if (!blob)
+		return 0;
+	if (size < sizeof(head)) {
+		free(blob);
+		return 0;
+	}
+	memcpy(&head, blob, sizeof(head));
+	if (head.ntris <= 0 || size != sizeof(head) + (size_t)head.ntris * sizeof(struct gevrBeanTri)) {
+		free(blob);
+		return 0;
+	}
+	tris = (struct gevrBeanTri *)malloc((size_t)head.ntris * sizeof(*tris));
+	if (!tris) {
+		free(blob);
+		return 0;
+	}
+	memcpy(tris, blob + sizeof(head), (size_t)head.ntris * sizeof(*tris));
+	free(blob);
+	for (int i = 0; i < head.ntris; i++) {
+		const intptr_t r = (intptr_t)tris[i].reflection;
+		if (r < 0 || r > 256 || (r > 0 && !mesh->reflection[r - 1])) {
+			free(tris);
+			return 0;
+		}
+		tris[i].reflection = r ? mesh->reflection[r - 1] : NULL;
+	}
+	free(mesh->tris);
+	mesh->tris = tris;
+	mesh->ntris = head.ntris;
+	mesh->tricaps = head.ntris;
+	mesh->shadows = head.shadows;
+	memcpy(mesh->texClamp, head.texClamp, sizeof(head.texClamp));
+	memcpy(mesh->texClampBase, head.texClampBase, sizeof(head.texClampBase));
+	return 1;
+}
+
+static void beanCacheLevelStore(const struct gevrBeanMesh *mesh, const char *source, uint64_t key)
+{
+	struct beanLevelCache head;
+	const size_t size = sizeof(head) + (size_t)mesh->ntris * sizeof(struct gevrBeanTri);
+	uint8_t *blob;
+	if (mesh->ntris <= 0)
+		return;
+	blob = (uint8_t *)malloc(size);
+	if (!blob)
+		return;
+	memset(&head, 0, sizeof(head));
+	head.ntris = mesh->ntris;
+	head.shadows = mesh->shadows;
+	memcpy(head.texClamp, mesh->texClamp, sizeof(head.texClamp));
+	memcpy(head.texClampBase, mesh->texClampBase, sizeof(head.texClampBase));
+	memcpy(blob, &head, sizeof(head));
+	struct gevrBeanTri *tris = (struct gevrBeanTri *)(blob + sizeof(head));
+	memcpy(tris, mesh->tris, (size_t)mesh->ntris * sizeof(*tris));
+	for (int i = 0; i < mesh->ntris; i++) {
+		const int r = beanCacheReflection(mesh, tris[i].reflection);
+		if (r < 0) {   /* a picture this mesh does not hold: not kept */
+			free(blob);
+			return;
+		}
+		tris[i].reflection = (const void *)(intptr_t)r;
+	}
+	beanCacheWrite(source, "passes", key, blob, size);
+	free(blob);
+}
 #define MAX_TRIS  500000
 
 struct beanDraw {
@@ -3835,7 +3920,25 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 			GEVR_BEAN_LOG("gevr bean: %s: draw %d: %d corners' UVs mended\n", source, di, uvsFixed);
 		free(tris);
 	}
-	if (levelFade) {
+	int levelCached = 0;
+	uint64_t levelKey = 0;
+	if (levelFade && gevrBeanCacheStamp) {
+		/* everything the passes read: the triangles, the clamps so far, the
+		 * draws' passes and the pictures' alpha (#269, gevr_bean_cache.inc.h) */
+		const int np = passCap < mesh->ntris ? passCap : mesh->ntris;
+		levelKey = beanCacheTris(mesh, 1469598103934665603ull);
+		levelKey = beanCacheFnv(levelKey, mesh->texClamp, sizeof(mesh->texClamp));
+		levelKey = beanCacheFnv(levelKey, mesh->texClampBase, sizeof(mesh->texClampBase));
+		if (triPass && np > 0)
+			levelKey = beanCacheFnv(levelKey, triPass, (size_t)np);
+		levelKey = beanCacheFnv(levelKey, texAlpha, sizeof(texAlpha));
+		levelKey = beanCacheFnv(levelKey, texSoft, sizeof(texSoft));
+		levelKey = beanCacheFnv(levelKey, source, strlen(source));
+		levelCached = beanCacheLevelApply(mesh, source, levelKey);
+		if (levelCached)
+			GEVR_BEAN_LOG("gevr bean: %s: the level passes from the cache\n", source);
+	}
+	if (levelFade && !levelCached) {
 		if (untested)
 			GEVR_BEAN_LOG("gevr bean: %s: %d alpha-tested faces whose vertex alpha never passes left out\n", source, untested);
 		const int twins = dropLevelTwins(mesh, triPass, passCap < mesh->ntris ? passCap : mesh->ntris, texAlpha);
@@ -3864,7 +3967,9 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 			GEVR_BEAN_LOG("gevr bean: %s: %d blended triangles a later blended one paints over left out\n",
 			              source, painted);
 		clampLevelCutouts(mesh, texAlpha);
-	} else if (rigidDecals)
+		if (gevrBeanCacheStamp)
+			beanCacheLevelStore(mesh, source, levelKey);
+	} else if (!levelFade && rigidDecals)
 		markRigidDecals(mesh, texAlpha);
 	if (!levelFade && (strstr(source, "/prop/") || strstr(source, "\\prop\\"))) {
 		const int clamped = clampPropCards(mesh, texAlpha, draws, ndraws);

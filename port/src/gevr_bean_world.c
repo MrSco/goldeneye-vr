@@ -40,6 +40,7 @@
 #include "gevr_bean_room_scale.inc.h"
 #include "gevr_static_mesh.h"
 #include "gevr_bean_holes.inc.h"
+#include "gevr_bean_cache.inc.h"
 #include "gevr_bean_doors.inc.h"
 static int ensureStage(void);
 static int ensureSky(void);
@@ -1275,7 +1276,30 @@ static int buildStage(int stage)
 		gevrBeanMeshFree(mesh);
 		return 0;
 	}
-	for (int i = 0; i < mesh->ntris; i++) {
+	/* from the cache when it is the same level, mesh and rooms (#269) */
+	uint64_t roomsKey = 0;
+	int roomsCached = 0;
+	if (gevrBeanCacheStamp) {
+		roomsKey = beanCacheTris(mesh, 1469598103934665603ull);
+		roomsKey = beanCacheFnv(roomsKey, &stage, sizeof(stage));
+		roomsKey = beanCacheFnv(roomsKey, &nrooms, sizeof(nrooms));
+		roomsKey = beanCacheFnv(roomsKey, &fileScale, sizeof(fileScale));
+		const int mirrored = gevrRomMirrored() != 0, tree = s_tree != NULL;
+		roomsKey = beanCacheFnv(roomsKey, &mirrored, sizeof(mirrored));
+		roomsKey = beanCacheFnv(roomsKey, &tree, sizeof(tree));
+		for (int r = 0; r < nrooms; r++)
+			roomsKey = beanCacheFnv(beanCacheFnv(roomsKey, &g_BgRoomInfo[r].minbounds, sizeof(g_BgRoomInfo[r].minbounds)), &g_BgRoomInfo[r].maxbounds, sizeof(g_BgRoomInfo[r].maxbounds));
+		size_t size = 0;
+		uint8_t *blob = (uint8_t *)beanCacheRead(path, "rooms", roomsKey, &size);
+		if (blob && size == (size_t)mesh->ntris * (sizeof(int) + 1)) {
+			memcpy(assign, blob, (size_t)mesh->ntris * sizeof(int));
+			memcpy(nofog, blob + (size_t)mesh->ntris * sizeof(int), (size_t)mesh->ntris);
+			roomsCached = 1;
+			GEVR_BEAN_LOG("gevr bean: %s: rooms from the cache\n", st->bg);
+		}
+		free(blob);
+	}
+	for (int i = 0; i < mesh->ntris && !roomsCached; i++) {
 		const struct gevrBeanTri *t = &mesh->tris[i];
 		float c[3] = { 0, 0, 0 };
 		for (int k = 0; k < 3; k++) {
@@ -1294,6 +1318,16 @@ static int buildStage(int stage)
 			roomReferenceNearestTri(0, c, &distance, &ref);
 		assign[i] = (t->flags & GEVR_BEAN_F_PAINTED) ? -1 : ref >= 0 ? s_reference[ref].room : roomFor(c, nrooms);
 		nofog[i] = ref >= 0 && s_reference[ref].nofog;
+	}
+	if (gevrBeanCacheStamp && !roomsCached) {
+		const size_t size = (size_t)mesh->ntris * (sizeof(int) + 1);
+		uint8_t *blob = (uint8_t *)malloc(size);
+		if (blob) {
+			memcpy(blob, assign, (size_t)mesh->ntris * sizeof(int));
+			memcpy(blob + (size_t)mesh->ntris * sizeof(int), nofog, (size_t)mesh->ntris);
+			beanCacheWrite(path, "rooms", roomsKey, blob, size);
+			free(blob);
+		}
 	}
 	markBackdrop(mesh, fileScale, nrooms, nofog);
 	{

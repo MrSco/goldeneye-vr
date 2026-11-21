@@ -558,18 +558,26 @@ void gfx_flush(void) {
  * the boot's loading screen (gfx_prewarm_shaders, main.c). A list that is
  * missing or cut short only means those are compiled when first drawn again.
  */
+extern "C" const char *fsFullPath(const char *relPath);   /* fs.c */
+/* in the save folder ($S): the PC's beside the game, Apple's Caches, the Quest's files */
+static const char *gevr_shader_list(void) {
+    static char path[512];
+    if (!path[0]) {
 #ifdef GEVR_FLAT
-static const char *const kShaderList = "gevr_shaders_flat.txt";
+        snprintf(path, sizeof(path), "%s", fsFullPath("$S/gevr_shaders_flat.txt"));
 #else
-static const char *const kShaderList = "gevr_shaders_vr.txt";
+        snprintf(path, sizeof(path), "%s", fsFullPath("$S/gevr_shaders_vr.txt"));
 #endif
+    }
+    return path;
+}
 static std::set<std::pair<uint64_t, uint32_t>> s_shadersKnown;
 static bool s_shadersKnownRead;
 
 static void gevr_shaders_read(void) {
     if (s_shadersKnownRead) return;
     s_shadersKnownRead = true;
-    FILE *f = fopen(kShaderList, "r");
+    FILE *f = fopen(gevr_shader_list(), "r");
     if (!f) return;
     unsigned long long id0;
     unsigned int id1;
@@ -580,7 +588,7 @@ static void gevr_shaders_read(void) {
 static void gevr_shader_note(uint64_t id0, uint32_t id1) {
     gevr_shaders_read();
     if (!s_shadersKnown.insert(std::make_pair(id0, id1)).second) return;
-    if (FILE *f = fopen(kShaderList, "a")) {
+    if (FILE *f = fopen(gevr_shader_list(), "a")) {
         fprintf(f, "%016llx %08x\n", (unsigned long long)id0, (unsigned int)id1);
         fclose(f);
     }

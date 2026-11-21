@@ -563,6 +563,13 @@ int main(int argc, const char **argv)
      * the game's set-up, then the shaders this install has needed (gfx_pc.cpp) */
     {
         extern void gevrLoadingBegin(void);
+        extern const char *gevrBeanCacheStamp;   /* gevr_bean_load.c: Bean's disk cache, this build's */
+        extern const char *gevrBeanCacheDir;
+        extern const char gevrBuildId[];
+        static char cacheDir[512];
+        snprintf(cacheDir, sizeof(cacheDir), "%s", fsFullPath("$S/gevr_cache"));
+        gevrBeanCacheDir = cacheDir;
+        gevrBeanCacheStamp = gevrBuildId;
         gevrLoadingBegin();
     }
 #endif
