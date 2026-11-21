@@ -551,8 +551,9 @@ static u64 gevrPerfNs(void)
 static u64 gevrPerfAcc[3], gevrPerfFrameStart, gevrPerfSecStart, gevrPerfWorstGame;
 static u64 gevrPerfFrameAcc[3];
 static u64 gevrPerfPeakDraw;
+static u64 gevrPerfAudioNs, gevrPerfAudioPeak;   /* the synthesizer and mixer (#269 #7) */
 static u32 gevrPerfFrames;
-static char gevrPerfBuf[256];
+static char gevrPerfBuf[320];
 const char *gevrPerfText(void) { return gevrPerfBuf; }
 void gevrPerfAdd(int section, u64 ns)
 {
@@ -561,6 +562,14 @@ void gevrPerfAdd(int section, u64 ns)
 	if (section == 1 && ns > gevrPerfPeakDraw) gevrPerfPeakDraw = ns;
 }
 u64 gevrPerfNow(void) { return gevrPerfNs(); }
+/* the voices the synthesizer is playing (synthesizer.c) */
+static u32 gevrPerfVoices(void)
+{
+	extern void gevrSynStats(u32 *, u32 *, u32 *, u32 *, u32 *, u32 *);
+	u32 a, b, c, voices, d, e;
+	gevrSynStats(&a, &b, &c, &voices, &d, &e);
+	return voices;
+}
 /* at the end of each presented frame */
 static void gevrPerfFrameDone(void)
 {
@@ -582,13 +591,14 @@ static void gevrPerfFrameDone(void)
 				const double n = (double)gevrPerfFrames;
 				snprintf(gevrPerfBuf, sizeof(gevrPerfBuf),
 					"CPU GAME %.1f MAX %.1f MS\nDRAW/TICK %.1f PEAK %.1f MS\nFINISH %.1f WAIT %.1f MS\nDRAWS %u TRIS %uK"
-					"\nVTX %uK TRI1 %uK CLIP %uK ROOM %uK PRES %u/%u",
+					"\nVTX %uK TRI1 %uK CLIP %uK ROOM %uK PRES %u/%u\nAUDIO %.2f PEAK %.2f MS VOICES %u",
 					gameAcc / n / 1e6, gevrPerfWorstGame / 1e6, gevrPerfAcc[1] / n / 1e6,
 					gevrPerfPeakDraw / 1e6, gevrPerfAcc[2] / n / 1e6, gevrPerfAcc[0] / n / 1e6,
 					(unsigned)(gevr_perf_draws / gevrPerfFrames), (unsigned)(gevr_perf_tris / gevrPerfFrames / 1000),
 					(unsigned)(gevr_perf_verts / gevrPerfFrames / 1000), (unsigned)(gevr_perf_tri_calls / gevrPerfFrames / 1000),
 					(unsigned)(gevr_perf_clipped / gevrPerfFrames / 1000), (unsigned)(gevr_perf_room_tris / gevrPerfFrames / 1000),
-					(unsigned)gevr_perf_present_passes, (unsigned)gevr_perf_passes);
+					(unsigned)gevr_perf_present_passes, (unsigned)gevr_perf_passes,
+					gevrPerfAudioNs / n / 1e6, gevrPerfAudioPeak / 1e6, gevrPerfVoices());
 				/* Apple (Vision Pro, iPhone, Apple TV): every 10 s anyway, so a
 				 * player's report says where a frame goes when the game slows;
 				 * --perf-log every second, for a benchmark run unattended */
@@ -614,6 +624,7 @@ static void gevrPerfFrameDone(void)
 				gevr_perf_draws = gevr_perf_tris = 0;
 				gevr_perf_verts = gevr_perf_tri_calls = gevr_perf_clipped = gevr_perf_room_tris = 0;
 				gevr_perf_present_passes = gevr_perf_passes = 0;
+				gevrPerfAudioNs = gevrPerfAudioPeak = 0;
 				for (i = 0; i < 3; i++) gevrPerfAcc[i] = 0;
 				gevrPerfSecStart = now;
 			}
@@ -778,8 +789,14 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 	{
         extern void gevrAudioFrame(void);
         const uint64_t audioStart=gevrFrameTimingNow();
+		const u64 audioNs0 = gevrPerfNs();
 		for (u32 slot = 0; slot < gevrRetraceSlots; slot++) {
 			gevrAudioFrame();
+		}
+		{
+			const u64 ns = gevrPerfNs() - audioNs0;
+			gevrPerfAudioNs += ns;
+			if (ns > gevrPerfAudioPeak) gevrPerfAudioPeak = ns;
 		}
         if(audioStart) gevrFrameTimingOutside(GEVR_TIME_AUDIO,gevrFrameTimingNow()-audioStart);
 		gevrPumpStage = 7;
