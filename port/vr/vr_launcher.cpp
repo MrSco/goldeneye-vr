@@ -3881,7 +3881,7 @@ extern "C" void gevrLauncherRun(void)
                     if (ImGui::Button("Cancel", ImVec2(220, 52))) ImGui::CloseCurrentPopup();
                     ImGui::SameLine();
                     if (ImGui::Button("Reset", ImVec2(220, 52))) {
-                        vr_log("launcher: reset all settings (%d changed)", gevrSettingResetAll());
+                        gevrSettingResetAll();
                         ImGui::CloseCurrentPopup();
                     }
                     ImGui::EndPopup();
