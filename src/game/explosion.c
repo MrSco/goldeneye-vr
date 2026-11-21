@@ -219,6 +219,9 @@ u32 D_800408FC = 0;
 Vtx g_ExplosionRenderPartDefaultVertex = {0, 0, 0, 0, 0, 0, 0xff, 0xff, 0xff, 0xff };
 Vtx g_SmokeRenderPartDefaultVertex = {0, 0, 0, 0, 0, 0, 0x0, 0x0, 0x0, 0x0 };
 Vtx g_ScorchDefaultVertex = {0, 0, 0, 0, 0, 0, 0x0, 0x0, 0x0, 0xDC };
+#ifdef GEVR
+#define GEVR_IMPACT_FINE_MAX 8   /* a hole's corners in eighths of a unit (explosionCreateBulletImpact) */
+#endif
 Vtx g_BulletImpactDefaultVertex = {0, 0, 0, 0, 0, 0, 0x0, 0x0, 0x0, 0xDC };
 
 
@@ -2498,6 +2501,56 @@ void explosionCreateBulletImpact(struct coord3d *pos, struct coord3d *arg1, s16 
     assert(IsBadVec3d((vec3d *)g_BulletImpactBuffer[g_NumImpactEntries].vertex_list[3].v.ob));
 #endif
 
+#ifdef GEVR
+    /*
+     * A hole's corners are whole units of the room's (or the prop's) own
+     * space, the N64's 16-bit vertex. On the levels drawn at a small scale a
+     * hole is only a few units across (Dam's 2.8: a room unit is ~0.2 of a
+     * world one), so rounding each corner turned the quad several degrees
+     * off its wall (a 45 degree corner diagonal on a 37 degree wall) and up
+     * to half a unit off it. The quad then crossed the wall: the decal band
+     * kept the strip where the two planes met and plain depth the half in
+     * front, the thin rectangles and half holes players saw on Apple TV,
+     * stock and Bean (#269; the PC and Quest the same). The N64's coarse
+     * depth hid it. The corners are kept in eighths (fewer when a big room
+     * needs the range) and the draw scales them back
+     * (explosionRenderBulletImpactOnProp), the factor in the vertex's unused
+     * flag field.
+     */
+    {
+        const f32 corners[4][3] = {
+            { (spA0.f[0] - (sp9C * spC4)) - (sp98 * spB8), spA0.f[1] - (sp98 * spB4), (spA0.f[2] - (sp9C * spBC)) - (sp98 * spB0) },
+            { (spA0.f[0] - (sp9C * spC4)) + (sp98 * spB8), spA0.f[1] + (sp98 * spB4), (spA0.f[2] - (sp9C * spBC)) + (sp98 * spB0) },
+            { (spA0.f[0] + (sp9C * spC4)) + (sp98 * spB8), spA0.f[1] + (sp98 * spB4), (spA0.f[2] + (sp9C * spBC)) + (sp98 * spB0) },
+            { (spA0.f[0] + (sp9C * spC4)) - (sp98 * spB8), spA0.f[1] - (sp98 * spB4), (spA0.f[2] + (sp9C * spBC)) - (sp98 * spB0) },
+        };
+        s32 j, k;
+        s32 fine = GEVR_IMPACT_FINE_MAX;
+        f32 most = 0.0f;
+
+        for (j = 0; j < 4; j++)
+        {
+            for (k = 0; k < 3; k++)
+            {
+                const f32 a = corners[j][k] < 0.0f ? -corners[j][k] : corners[j][k];
+                if (a > most) most = a;
+            }
+        }
+        while (fine > 1 && most * fine > 32000.0f)
+        {
+            fine >>= 1;
+        }
+        for (j = 0; j < 4; j++)
+        {
+            for (k = 0; k < 3; k++)
+            {
+                g_BulletImpactBuffer[g_NumImpactEntries].vertex_list[j].v.ob[k] = explosionRoundFloat(corners[j][k] * fine);
+            }
+            g_BulletImpactBuffer[g_NumImpactEntries].vertex_list[j].v.flag = fine;
+        }
+    }
+#endif
+
     for (i = 0; i < 4; i++)
     {
         switch (sp50->apptype)
@@ -2556,6 +2609,23 @@ void explosionCreateBulletImpact(struct coord3d *pos, struct coord3d *arg1, s16 
  *
  * NTSC address 0x7F0A1A94.
 */
+#ifdef GEVR
+/* 1/fine for a hole's finer corners (explosionCreateBulletImpact): 1/2, 1/4, 1/8 */
+static Mtx *gevrImpactFineMtx(s32 fine)
+{
+    static Mtx mtx[4];
+    static s32 made;
+    s32 n = fine >= 8 ? 3 : fine >= 4 ? 2 : 1;
+
+    if (!(made & (1 << n)))
+    {
+        made |= 1 << n;
+        guScale(&mtx[n], 1.0f / (f32)(1 << n), 1.0f / (f32)(1 << n), 1.0f / (f32)(1 << n));
+    }
+    return &mtx[n];
+}
+#endif
+
 Gfx *explosionRenderBulletImpactOnProp(Gfx *gdl, PropRecord *arg1, s32 arg2)
 {
     s32 padding1;
@@ -2576,6 +2646,9 @@ Gfx *explosionRenderBulletImpactOnProp(Gfx *gdl, PropRecord *arg1, s32 arg2)
     sp50 = 0;
     sp4C = NULL;
     sp48 = -1;
+#ifdef GEVR
+    s32 gevrFineApplied = 1;   /* the factor the matrix in force scales by */
+#endif
 
     if (arg1 != NULL)
     {
@@ -2609,6 +2682,12 @@ Gfx *explosionRenderBulletImpactOnProp(Gfx *gdl, PropRecord *arg1, s32 arg2)
 
                     if (var_v0)
                     {
+#ifdef GEVR
+                        const u16 fineFlag = g_BulletImpactBuffer[i].vertex_list[0].v.flag;
+                        const s32 fine = fineFlag > 1 ? fineFlag : 1;
+                        const s16 baseBefore = (fine != gevrFineApplied) ? -1 : var_s5;
+                        var_s5 = baseBefore;   /* a new factor: the base matrix again, then the scale */
+#endif
                         sp50 = 1;
 
                         if (arg1 != NULL)
@@ -2628,6 +2707,17 @@ Gfx *explosionRenderBulletImpactOnProp(Gfx *gdl, PropRecord *arg1, s32 arg2)
                                 gdl = applyRoomMatrixToDisplayList(gdl, g_BulletImpactBuffer[i].room);
                             }
                         }
+#ifdef GEVR
+                        if (var_s5 != baseBefore)
+                        {
+                            gevrFineApplied = 1;
+                            if (fine > 1)
+                            {
+                                gSPMatrix(gdl++, osVirtualToPhysical(gevrImpactFineMtx(fine)), G_MTX_NOPUSH | G_MTX_MUL | G_MTX_MODELVIEW);
+                                gevrFineApplied = fine;
+                            }
+                        }
+#endif
 
                         if (sp48 != impact_type)
                         {
