@@ -115,7 +115,8 @@ static uint64_t qpc_freq;
  * frame shown for one refresh or two (the N64 graphics held 60 there).
  *
  * The settings' Frame rate row (VrFrameRate): Auto, Full (the screen's rate
- * always) or Half (always, in levels). Auto measures in levels with VSync on,
+ * always, 60 at most: flatFullFps) or Half (always, in levels; of the game's
+ * 60 on a faster screen, and by the frame timer with VSync off). Auto measures in levels with VSync on,
  * after each level's first 3 seconds (loading, first draws): 5 seconds in a
  * row under 92% of the screen's rate (55 of 60) turn half rate on. It is no
  * longer a verdict for good (#269: Dam's mountains once locked every later
@@ -154,10 +155,21 @@ static int halfRateScreenHz(void)
     return 60;
 }
 
-/* the settings' Frame rate row: the screen's rate, for its names (60 and 30, 50 and 25) */
 extern "C" int flatScreenHz(void)
 {
     return s_screenHz ? s_screenHz : (wnd ? halfRateScreenHz() : 60);
+}
+
+/*
+ * The settings' Frame rate row, for its names (60 and 30, 50 and 25): the full rate a flat
+ * game reaches on this screen. The game is GoldenEye's 60 Hz one (the frame pump's clock,
+ * flat_headset.c), so a faster screen shows 60 too: the row read "180 fps" on a 180 Hz
+ * monitor and the game ran at 60 (#274: "the game wont uncap the fps to 180").
+ */
+extern "C" int flatFullFps(void)
+{
+    const int hz = flatScreenHz();
+    return hz > 61 ? 60 : hz;
 }
 
 /* the frame pump (gevr_engine_shim.c): each frame is two of the screen's refreshes */
@@ -240,16 +252,22 @@ static void halfRateFrame(void)
             }
         }
     }
-    const bool half = level && ((pref == 2 && vsync) || (pref == 0 && able && (s_halfModes & mode) && !probing));
+    const bool half = level && (pref == 2 || (pref == 0 && able && (s_halfModes & mode) && !probing));
     if (half == s_halfOn) return;
     s_halfOn = half;
     s_halfTimerFps = 0;
+    // half the game's rate, not the screen's: 30 on a 120 or 180 Hz screen too (#274)
+    const int halfFps = flatFullFps() / 2;
 #ifdef ANDROID
-    if (half) s_halfTimerFps = hz / 2;   // an Android surface swaps every refresh at most
+    if (half) s_halfTimerFps = halfFps;   // an Android surface swaps every refresh at most
 #else
-    if (SDL_GL_SetSwapInterval(half ? 2 : s_baseInterval) < 0 && half) {
+    // the refreshes each frame is shown for: 2 at 60 and 50 Hz, 4 at 120, 6 at 180; none that fits at 144
+    const int every = vsync && halfFps > 0 && hz % halfFps == 0 ? hz / halfFps : 0;
+    if (!half) {
         SDL_GL_SetSwapInterval(s_baseInterval);
-        s_halfTimerFps = hz / 2;   // no interval 2 here: the frame timer
+    } else if (!every || SDL_GL_SetSwapInterval(every) < 0) {
+        SDL_GL_SetSwapInterval(s_baseInterval);
+        s_halfTimerFps = halfFps;   // no such interval here: the frame timer
     }
 #endif
     sysLogPrintf(LOG_NOTE, "video: %s", half ? (s_halfTimerFps ? "half rate in this level (frame timer)"

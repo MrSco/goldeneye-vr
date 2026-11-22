@@ -4405,6 +4405,10 @@ extern "C" int vr_eye_multisampled(void)
     return vr_eye_samples() > 1;
 }
 
+static GLenum g_eyeFboStatus;       // the status a refused eye framebuffer had (the fatal message)
+static bool g_eyeFboRefused;        // start-up failed there
+static bool g_eyeFboCheckAcquired;  // the runtime's image is checked once it has been acquired
+
 static bool vr_attach_eye_fbo(GLuint colorTexture, bool validate)
 {
     GLsizei samples = vr_eye_samples();
@@ -4413,7 +4417,11 @@ static bool vr_attach_eye_fbo(GLuint colorTexture, bool validate)
     g_msTarget = 0;
     if (samples > 1) {
         attached = vr_desktop_ms_attach(samples, colorTexture);
-        if (!attached) samples = 1;
+        if (!attached) {
+            samples = 1;
+            // the refused attach's errors are not the single-sampled one's (report 976b1e15)
+            for (int i = 0; i < 16 && glGetError() != GL_NO_ERROR; ++i) {}
+        }
     }
 #endif
     if (attached) {
@@ -4436,15 +4444,78 @@ static bool vr_attach_eye_fbo(GLuint colorTexture, bool validate)
     const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
     if (error != GL_NO_ERROR || status != GL_FRAMEBUFFER_COMPLETE) {
         LOGE("Eye framebuffer incomplete: error=0x%x, status=0x%x", error, status);
+        g_eyeFboStatus = status;
         return false;
     }
     return true;
 }
 
+#ifndef GEVR_XR_ES
+/*
+ * Report 976b1e15 (v0.5.22 to v0.5.24, SteamVR 2.18.4 on a Windows PC, 22 starts, none
+ * worked): the runtime's eye image attached without a GL error and the framebuffer was
+ * FRAMEBUFFER_INCOMPLETE_ATTACHMENT, at start-up, before any image had been acquired. The
+ * same SteamVR completes it on the PC this was written on, so it is the graphics driver's
+ * answer. A runtime may hand out images the driver only lets a framebuffer use between
+ * xrWaitSwapchainImage and xrReleaseSwapchainImage (a Direct3D texture shared into GL is
+ * such a one, WGL_NV_DX_interop: unlocked, its framebuffer is incomplete), and start-up
+ * checked image 0 outside them. Not confirmed: the report doesn't name the GPU.
+ *
+ * So the start-up check falls back on a texture of the game's own, of the image's format
+ * and size: that tells whether the driver takes a two-view framebuffer with this depth
+ * buffer at all. If it does, the runtime's image is checked once it has been acquired
+ * (vr_begin_eye_render); if not, VR can't start and the log says which part was refused.
+ */
+static bool vr_eye_fbo_own_image_completes(GLuint swapchainTex)
+{
+    if (!glFramebufferTextureMultiviewOVR || !glFramebufferTextureLayer) return false;
+    const char *vendor = (const char *)glGetString(GL_VENDOR);
+    const char *renderer = (const char *)glGetString(GL_RENDERER);
+    const char *version = (const char *)glGetString(GL_VERSION);
+    LOGI("GL: %s / %s / %s", vendor ? vendor : "?", renderer ? renderer : "?", version ? version : "?");
+    for (int i = 0; i < 16 && glGetError() != GL_NO_ERROR; ++i) {}
+    GLint prevArray = 0, format = 0, w = 0, h = 0, layers = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D_ARRAY, &prevArray);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, swapchainTex);
+    const GLenum bindError = glGetError();   // not an array texture: GL_INVALID_OPERATION
+    if (bindError == GL_NO_ERROR) {
+        glGetTexLevelParameteriv(GL_TEXTURE_2D_ARRAY, 0, GL_TEXTURE_INTERNAL_FORMAT, &format);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D_ARRAY, 0, GL_TEXTURE_WIDTH, &w);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D_ARRAY, 0, GL_TEXTURE_HEIGHT, &h);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D_ARRAY, 0, GL_TEXTURE_DEPTH, &layers);
+    }
+    LOGI("Eye image as GL sees it before it is acquired: bind error 0x%x, format 0x%x, %d x %d, %d layers",
+         bindError, format, w, h, layers);
+    for (int i = 0; i < 16 && glGetError() != GL_NO_ERROR; ++i) {}
+    GLuint own = 0;
+    glGenTextures(1, &own);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, own);
+    glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, format ? format : GL_SRGB8_ALPHA8,
+                 g_internalRenderWidth, g_internalRenderHeight, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    const GLenum allocError = glGetError();
+    glBindTexture(GL_TEXTURE_2D_ARRAY, (GLuint)prevArray);
+    glFramebufferTextureMultiviewOVR(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, own, 0, 0, 2);
+    glFramebufferTextureMultiviewOVR(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, g_multiviewDepthArray, 0, 0, 2);
+    const GLenum attachError = glGetError();
+    const GLenum both = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, 0, 0, 0);
+    const GLenum colourOnly = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, 0, 0, 0);
+    glDeleteTextures(1, &own);
+    for (int i = 0; i < 16 && glGetError() != GL_NO_ERROR; ++i) {}
+    LOGI("Eye framebuffer on the game's own image: allocation error 0x%x, attach error 0x%x, status 0x%x "
+         "(without the depth buffer 0x%x)", allocError, attachError, both, colourOnly);
+    return allocError == GL_NO_ERROR && both == GL_FRAMEBUFFER_COMPLETE;
+}
+#endif
+
 static bool vr_create_eye_fbos()
 {
     if (use_multiview) {
         if (!vr_ensure_swapchain_images() || g_swapchainImages[0].empty()) return false;
+        g_eyeFboRefused = g_eyeFboCheckAcquired = false;
+        g_eyeFboStatus = 0;
         // Discard errors from earlier setup before checking this allocation.
         for (int i = 0; i < 16 && glGetError() != GL_NO_ERROR; ++i) {}
         GLint previousTexture = 0, previousFbo = 0;
@@ -4465,9 +4536,19 @@ static bool vr_create_eye_fbos()
 
         glGenFramebuffers(1, &g_multiviewFBO);
         glBindFramebuffer(GL_FRAMEBUFFER, g_multiviewFBO);
-        const bool complete = g_multiviewFBO && vr_attach_eye_fbo(g_swapchainImages[0][0].image, true);
+        bool complete = g_multiviewFBO && vr_attach_eye_fbo(g_swapchainImages[0][0].image, true);
+#ifndef GEVR_XR_ES
+        if (g_multiviewFBO && !complete && vr_eye_fbo_own_image_completes(g_swapchainImages[0][0].image)) {
+            LOGI("Eye framebuffer: complete on the game's own image; the runtime's is checked once acquired");
+            g_eyeFboCheckAcquired = true;
+            complete = true;
+        }
+#endif
         glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)previousFbo);
-        if (!complete) return false;
+        if (!complete) {
+            g_eyeFboRefused = true;
+            return false;
+        }
         gfx_opengl_connect_multiview_fbo(g_multiviewFBO, g_internalRenderWidth, g_internalRenderHeight);
         return true;
     }
@@ -6212,7 +6293,16 @@ extern "C" void vr_initialize()
     if (!initialized) {
         LOGE("vr_initialize: Failed to initialize OpenXR");
         const int width = g_internalRenderWidth, height = g_internalRenderHeight;
+        const bool refused = g_eyeFboRefused;
+        const unsigned status = (unsigned)g_eyeFboStatus;
         vr_shutdown();
+        if (refused) {
+            // not the render scale's doing: say what was refused (report 976b1e15)
+            sysFatalError("VR could not start: the graphics driver refused the headset's eye image "
+                          "(framebuffer status 0x%x at %d x %d). Updating the graphics driver may help. "
+                          "Please send a report from the launcher so this can be fixed.",
+                          status, width, height);
+        } else
         sysFatalError("OpenXR initialization failed at %d x %d (requested scale %.2f). "
                       "Check the VR log and lower Video.VRRenderScale or the external resolution profile.",
                       width, height, RENDER_SCALE);
@@ -6698,6 +6788,18 @@ bool vr_begin_eye_render()
     if (!vr_attach_eye_fbo(swapchainTex, false)) {
         vr_shutdown();
         sysFatalError("Could not attach the VR eye framebuffer. Lower the render scale or external resolution profile.");
+    }
+    if (g_eyeFboCheckAcquired) {
+        // start-up could not check the runtime's image before it was acquired (vr_eye_fbo_own_image_completes)
+        g_eyeFboCheckAcquired = false;
+        const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        LOGI("Eye framebuffer on the runtime's acquired image: status 0x%x", status);
+        if (status != GL_FRAMEBUFFER_COMPLETE) {
+            vr_shutdown();
+            sysFatalError("VR could not start: the graphics driver refused the headset's eye image "
+                          "(framebuffer status 0x%x, acquired). Updating the graphics driver may help. "
+                          "Please send a report from the launcher so this can be fixed.", (unsigned)status);
+        }
     }
 
     glViewport(0, 0, g_internalRenderWidth, g_internalRenderHeight);

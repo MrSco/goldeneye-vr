@@ -256,16 +256,16 @@ static void padVibText(int i, char *b, int n)
 /* A flat game's frame rate in levels (#269, flat_window.cpp): Auto, the screen's, or half it */
 extern int VrFrameRate;
 #ifdef GEVR_FLAT
-extern int flatScreenHz(void);
+extern int flatFullFps(void);
 #else
-static int flatScreenHz(void) { return 60; }
+static int flatFullFps(void) { return 60; }
 #endif
 static int frameRatePositions(void) { return 3; }
 static int frameRateGet(void) { return VrFrameRate >= 0 && VrFrameRate <= 2 ? VrFrameRate : 0; }
 static void frameRateSet(int i) { VrFrameRate = i; }
 static void frameRateText(int i, char *b, int n)
 {
-    const int hz = flatScreenHz();
+    const int hz = flatFullFps();   /* 60 on a faster screen too: the game's own rate (#274) */
     if (i == 1) snprintf(b, n, "%d fps", hz);
     else if (i == 2) snprintf(b, n, "%d fps", hz / 2);
     else snprintf(b, n, "Auto (default)");
@@ -607,7 +607,8 @@ static const Row s_rows[] = {
       .ivar = &VrScreenShape, .ivalues = s_two, .names = s_shapeNames, .count = 2, .def = NAN },
     { .label = "Frame rate", .flatgame = 1,
       .tooltip = "Levels: Auto drops to half the screen's rate (30 on a 60 Hz screen) while this device can't hold the full one, "
-                 "and tries the full rate again a little later. A steady half is smoother than an uneven rate.",
+                 "and tries the full rate again a little later. A steady half is smoother than an uneven rate. "
+                 "The game runs at 60 at most, on a faster screen too.",
       .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_SCREEN), .where = GEVR_SET_BOTH, .def = NAN,
       .cpositions = frameRatePositions, .cget = frameRateGet, .cset = frameRateSet, .ctext = frameRateText, .cdefault = 0 },
     { .label = "Third person", .tooltip = "The camera follows behind Bond in the flat screen, solo. "
