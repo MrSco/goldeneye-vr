@@ -356,6 +356,9 @@ bool vr_begin_frame_and_update_poses(void)
 	if (next > now) {
 		flatSleepUntil(next);
 	}
+#ifndef GEVR_HEADLESS
+	s_flatFrameTimeNs = (int64_t)gevrFlatNowNs();
+#endif
 	return false;
 }
 
