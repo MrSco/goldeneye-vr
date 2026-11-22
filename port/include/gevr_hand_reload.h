@@ -21,6 +21,8 @@ int gevrReloadBeltRound(int ctrl, int *rounds, int *hover);
 /* Either kind of ammo offered at this belt (the hip's holster hides), and the hand at it (the grip is the belt's). */
 int gevrReloadBeltOffers(int ctrl);
 int gevrReloadBeltAtHand(int ctrl);
+/* ... or it is the free hand and its gun's magazine is out: a hip or the belt is the magazine's, wherever in their zones */
+int gevrReloadBeltWanted(int ctrl);
 int gevrReloadGrabBelt(int ctrl);
 int gevrReloadBeltPoint(int ctrl, float out[3]);
 int gevrReloadSeatHover(float out[3]);

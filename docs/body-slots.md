@@ -80,7 +80,13 @@ gesture was removed in test.22: body slots replace it.
   the category highlight. Gun fit's Slots mode rings every slot. Only slots
   in view draw models; shoulders stay behind the body. A hip's reload-ammo
   guide replaces its pistol preview while active and leaves chest and belt
-  previews visible. GoldenEye X players see GoldenEye's slot models for now.
+  previews visible. With a gun's magazine out (hand reload), the free hand
+  finds no holster at either hip or the belt, anywhere in their zones: no
+  ring, label or wheel, and its grip there takes no pistol (owner, headset,
+  2026-11-21: "you can end up grabbing a pistol instead of the magazine";
+  `bondview2.c gevrReloadBeltWanted`). The gun hand's hip still takes the gun
+  back, and the holsters return when the magazine is in.
+  GoldenEye X players see GoldenEye's slot models for now.
 
 Defaults at 170 cm eye height (PlayerHeight), in cm below the eye / out to
 that side / ahead. The torso frame's eye is the eye held upright over the

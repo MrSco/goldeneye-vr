@@ -1371,16 +1371,23 @@ static void rackSeat(int item, int magSize, int loaded)
     at(1, 20, 20, 40);
     at(0, 20, -20, 40);
     gevrHandReloadTick();
+    assert(!gevrReloadBeltWanted(0) && !gevrReloadBeltWanted(1));   /* its magazine in: the holsters are holsters */
     gevrGexDropMagazine(GUNRIGHT);
     assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_OUT && reserve == 50 + loaded);
+    /* its magazine out: the free hand at a hip is after a magazine wherever it is there
+     * (gevr_bodyslots.c: no holster for it); the gun hand only at the belt's own place */
+    assert(gevrReloadBeltWanted(0) && !gevrReloadBeltAtHand(0) && !gevrReloadBeltWanted(1));
+    belt(1, 0); assert(gevrReloadBeltWanted(1)); at(1, 20, 20, 40);
     belt(0, 0); gripHeld[0] = 1; gevrHandReloadTick();
-    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_INHAND);
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_INHAND && gevrReloadBeltWanted(0));
     beanPoints = 3;
     memset(wellPoint, 0, sizeof(wellPoint));
     memset(heldPoint, 0, sizeof(heldPoint));
     heldPoint[1] = 20 * cm; gevrHandReloadTick();
     heldPoint[1] = 0; gevrHandReloadTick();
     assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN && s_gevrGexGripSpent);
+    at(0, 20, -20, 40);
+    assert(!gevrReloadBeltWanted(0));   /* in again (racked or not): the holsters are back */
 }
 
 /* the off hand at the rear of the slide or at the bolt handle, pulled back by `back` cm */

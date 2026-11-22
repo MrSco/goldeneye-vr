@@ -73,6 +73,8 @@ static int getCurrentPlayerWeaponId(int hand) { return player.hands[hand].item; 
 static int gevrBodyHandSelected(int hand) { return getCurrentPlayerWeaponId(hand); }
 int gevrIsThrowable(int item) { return item == ITEM_GRENADE || item == ITEM_KNIFE; }
 static int gevrReloadBeltAtHand(int ctrl) { (void)ctrl; return 0; }
+static int beltWanted[2];   /* bondview2.c gevrReloadBeltWanted: the free hand, its gun's magazine out */
+static int gevrReloadBeltWanted(int ctrl) { return beltWanted[ctrl]; }
 static int getPlayerCount(void) { return 1; }
 static int get_scenario(void) { return 0; }
 static int bondinvIsAliveWithFlag(void) { return 0; }
@@ -161,6 +163,26 @@ int main(void) {
         reset(ITEM_GRENADE); VrMotionThrowing = 0;
         s_bodyHand[ctrl].slot = GEVR_BS_BACK_GUN; s_bodyHand[ctrl].pick = 9;
         frame(ctrl, 0.9f); gevrGripGestureTick(); assert(changes == 1);
+    }
+    /* Hand reload (user, 2026-11-21: "you can end up grabbing a pistol instead of the
+     * magazine"): with its gun's magazine out the free hand's grip at a hip or the belt
+     * is the magazine's, never a holster's; the shoulders and the chest are as ever. */
+    for (int ctrl = 0; ctrl < 2; ctrl++) {
+        static const int hips[] = { GEVR_BS_HIP_GUN, GEVR_BS_HIP_OFF, GEVR_BS_BELT };
+        for (unsigned n = 0; n < sizeof(hips) / sizeof(hips[0]); n++) {
+            reset(7); VrMotionThrowing = 0;
+            s_bodyHand[ctrl].slot = hips[n]; s_bodyHand[ctrl].pick = 9; s_bodyHand[ctrl].ms = 1000;
+            beltWanted[ctrl] = 1;
+            assert(!gevrBodySlotGrip(ctrl) && changes == 0);
+            beltWanted[ctrl] = 0; beltWanted[1 - ctrl] = 1;   /* the other hand's reload is no bar */
+            assert(gevrBodySlotGrip(ctrl) && changes == 1);
+            beltWanted[1 - ctrl] = 0;
+        }
+        reset(7); VrMotionThrowing = 0;
+        s_bodyHand[ctrl].slot = GEVR_BS_BACK_GUN; s_bodyHand[ctrl].pick = 9; s_bodyHand[ctrl].ms = 1000;
+        beltWanted[ctrl] = 1;
+        assert(gevrBodySlotGrip(ctrl) && changes == 1);
+        beltWanted[ctrl] = 0;
     }
     /* The actual poll: a hand hanging in a slot that isn't looked at leaves
      * the sticks, A/X and the wheel alone; the looked-at slot's wheel captures

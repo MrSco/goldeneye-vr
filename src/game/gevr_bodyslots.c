@@ -454,7 +454,7 @@ static void gevrBodyHandUpdate(s32 ctrl)
         dist[s] = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
         /* a slot with nothing for this hand isn't there for it */
         eligible[s] = offOk && (gevrBodySlotHands(s) & (1 << ctrl)) && gevrBodyChoicesFor(s, hand, choices) > 0
-            && !(gevrReloadBeltAtHand(ctrl) && (s == GEVR_BS_HIP_GUN || s == GEVR_BS_HIP_OFF || s == GEVR_BS_BELT));
+            && !(gevrReloadBeltWanted(ctrl) && (s == GEVR_BS_HIP_GUN || s == GEVR_BS_HIP_OFF || s == GEVR_BS_BELT));
         if (eligible[s] && s != GEVR_BS_BACK_GUN && s != GEVR_BS_BACK_OFF && dist[s] < 1.25f * s_bodyRadius[s])
         {
             h->nearFront = TRUE;
@@ -602,6 +602,11 @@ int gevrBodySlotGrip(int ctrl)
         return FALSE;
     }
     h = &s_bodyHand[ctrl];
+    /* the free hand with its gun's magazine out: a hip or the belt is for the magazine (bondview2.c) */
+    if (gevrReloadBeltWanted(ctrl) && (h->slot == GEVR_BS_HIP_GUN || h->slot == GEVR_BS_HIP_OFF || h->slot == GEVR_BS_BELT))
+    {
+        return FALSE;
+    }
     hand = ctrl ? GUNRIGHT : GUNLEFT;
     held = gevrBodyHandSelected(hand);
     if (VrMotionThrowing && gevrIsThrowable(held))

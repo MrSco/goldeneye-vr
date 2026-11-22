@@ -19981,6 +19981,26 @@ s32 gevrReloadBeltAtHand(s32 ctrl)
     return gevrReloadBeltRound(ctrl, &rounds, &hover) >= 0 && hover;
 }
 
+/*
+ * gevr_bodyslots.c: at the hips and the belt this controller's hand is after a
+ * magazine, not a holster: it is at the belt's own place, or it is the free
+ * hand and its gun's magazine is out, wherever in a holster's zone it is
+ * (user, 2026-11-21, headset: "when we have the magazine out of the gun, we
+ * shouldn't show the pistol where the magazine is in our hip ... the grip
+ * there still can light up and show the wheel and everything, and you can end
+ * up grabbing a pistol instead of the magazine"). The gun hand's own hip still
+ * takes the gun back unless it is at the belt's place, and a gun loaded a round
+ * at a time (a shotgun is rarely full) leaves the holsters be.
+ */
+s32 gevrReloadBeltWanted(s32 ctrl)
+{
+    s32 offered;
+
+    if (gevrReloadBeltAtHand(ctrl)) return TRUE;
+    offered = gevrReloadBeltAmmo(ctrl);
+    return offered >= 0 && offered != (ctrl ? GUNRIGHT : GUNLEFT);
+}
+
 /* A gun hand squeezing at its own ammo replaces its missing magazine at
  * once. A free off hand instead takes the magazine to the well in Tick. */
 s32 gevrReloadGrabBelt(s32 ctrl)
