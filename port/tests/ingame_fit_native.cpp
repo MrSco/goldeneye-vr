@@ -107,6 +107,28 @@ static void sweep(bool online, const char *state) {
         (void)footer;
         screens++;
     }
+    // Check Jedi & Ninja sub-tabs inside Mods and fun at their fullest (NPCs & Ally on)
+    for (int sub = 1; sub <= 2; sub++) {
+        const int lsec = sub == 1 ? GEVR_LSEC_JEDI : GEVR_LSEC_NINJA;
+        const char *subName = sub == 1 ? "Mods/Jedi" : "Mods/Ninja";
+        for (int pass = 0; pass < 3; pass++) {
+            if (pass == 0) { panelUi.openSection = GEVR_SEC_MODS; pauseUi.openSection = GEVR_SEC_MODS; panelUi.openModSub = sub; pauseUi.openModSub = sub; }
+            ImGui::NewFrame();
+            if (online) gevrDrawPauseWindow(pause, pauseUi);
+            else gevrDrawPanelWindow(panel, panelUi);
+            ImGui::Render();
+        }
+        ImGuiWindow *rows = activeRows();
+        char what[200];
+        std::snprintf(what, sizeof(what), "%s: %s is drawn", state, subName);
+        settingsFitFail(rows != nullptr, what);
+        std::snprintf(what, sizeof(what), "%s: %s fits without scrolling (content %.0f, box %.0f)", state, subName,
+                      rows->ContentSize.y, rows->Size.y);
+        settingsFitFail(rows->ContentSize.y <= rows->Size.y && rows->ScrollMax.y <= 0.5f, what);
+        std::snprintf(what, sizeof(what), "%s: %s fits the width", state, subName);
+        settingsFitFail(rows->ContentSize.x + rows->WindowPadding.x * 2 <= rows->Size.x + 1, what);
+        settingsFitControls(api, lsec, GEVR_SET_LAUNCHER, rows->Size.x - rows->WindowPadding.x * 2, state);
+    }
     // the tab rows fit without shrinking
     ImGuiContext &g = *ImGui::GetCurrentContext();
     for (int t = 0; t < g.TabBars.GetMapSize(); t++)
@@ -120,8 +142,9 @@ int main() {
     io.IniFilename = nullptr; io.DisplaySize = ImVec2(1280, 960); io.DeltaTime = 1.f / 72; io.FontGlobalScale = 2.2f;
     ImGui::StyleColorsDark(); ImGui::GetStyle().ScaleAllSizes(2.2f); ImGui::GetStyle().WindowRounding = 0;
     unsigned char *px; int w, h; io.Fonts->GetTexDataAsRGBA32(&px, &w, &h);
-    // every row there is: ragdolls with dismemberment, body slots, motion throw, force pull, GE-X
+    // every row there is: ragdolls with dismemberment, body slots, motion throw, force pull, GE-X, Jedi/Ninja NPCs, Ally
     VrRagdolls = VrDismemberment = 1; VrBodySlots = 1; VrMotionThrowing = VrForcePull = 1; VrGexGuns = 1;
+    VrSithNpc = 1; VrNinjaNpc = 1; VrAlly = 1;
     VrRefreshRate = 120; VrSpaceWarp = -1;
     VrPlayMode = 0; VrThirdPerson = 1;
     sweep(false, "solo, flat, third person");

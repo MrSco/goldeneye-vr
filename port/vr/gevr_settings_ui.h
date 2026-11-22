@@ -164,8 +164,9 @@ inline void gevrSettingsSection(const GevrSettingsApi &a, int section, unsigned 
 // never scrolls: the solo panel's whole body, the online screen's Settings tab
 // (gevr_panel_ui.h, gevr_pause_widgets.h). openSection >= 0 brings that tab up
 // once (the layout tests).
-inline void gevrSettingsTabs(const GevrSettingsApi &a, int &openSection) {
+inline void gevrSettingsTabs(const GevrSettingsApi &a, int &openSection, int *openModSub = nullptr) {
     const int sections = a.sectionCount ? a.sectionCount() : 0;
+    const int wantedSub = openModSub ? *openModSub : -1;
     if (ImGui::BeginTabBar("##panel-sections", ImGuiTabBarFlags_FittingPolicyResizeDown)) {
         for (int s = 0; s < sections; s++) {
             // a section with nothing to set here (a flat game's Gestures) has no tab
@@ -180,15 +181,15 @@ inline void gevrSettingsTabs(const GevrSettingsApi &a, int &openSection) {
                 && a.info(probe[0], &probeInfo) && probeInfo.launcherSection == GEVR_LSEC_JEDI);
             if (hasModSubtabs) {
                 if (ImGui::BeginTabBar("##mods-subtabs", ImGuiTabBarFlags_FittingPolicyResizeDown)) {
-                    if (ImGui::BeginTabItem("General")) {
+                    if (ImGui::BeginTabItem("General", nullptr, wantedSub == 0 ? ImGuiTabItemFlags_SetSelected : 0)) {
                         gevrSettingsSection(a, GEVR_SEC_MODS, GEVR_SET_INGAME);
                         ImGui::EndTabItem();
                     }
-                    if (ImGui::BeginTabItem("Jedi")) {
+                    if (ImGui::BeginTabItem("Jedi", nullptr, wantedSub == 1 ? ImGuiTabItemFlags_SetSelected : 0)) {
                         gevrSettingsSection(a, GEVR_LSEC_JEDI, GEVR_SET_LAUNCHER);
                         ImGui::EndTabItem();
                     }
-                    if (ImGui::BeginTabItem("Ninja")) {
+                    if (ImGui::BeginTabItem("Ninja", nullptr, wantedSub == 2 ? ImGuiTabItemFlags_SetSelected : 0)) {
                         gevrSettingsSection(a, GEVR_LSEC_NINJA, GEVR_SET_LAUNCHER);
                         ImGui::EndTabItem();
                     }
@@ -203,5 +204,6 @@ inline void gevrSettingsTabs(const GevrSettingsApi &a, int &openSection) {
         ImGui::EndTabBar();
     }
     openSection = -1;
+    if (openModSub) *openModSub = -1;
 }
 #endif

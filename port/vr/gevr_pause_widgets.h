@@ -33,6 +33,7 @@ struct GevrPauseUi {
     int tab=0;
     int shownTab=-1;      /* the tab the tab row shows; another tab asked for is brought up */
     int openSection=-1;   /* the Settings tab's section to bring up (the layout tests) */
+    int openModSub=-1;    /* Mods sub-tab to bring up (the layout tests) */
     bool focusResume=true,confirmLeave=false,confirmAbort=false;
     int kickSlot=-1;
     char kickName[64]="";
@@ -327,7 +328,7 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
     } else if(ui.tab==GEVR_PAUSE_SETTINGS) {
         ImGui::SetCursorPos(ImVec2(18,184));
         ImGui::BeginChild("##pause-settings",ImVec2(1244,612),false,ImGuiWindowFlags_NoScrollbar);
-        gevrSettingsTabs(model.settings,ui.openSection);
+        gevrSettingsTabs(model.settings,ui.openSection,&ui.openModSub);
         ImGui::EndChild();
         if(model.texpack>=0) {
             ImGui::SetCursorPos(ImVec2(18,806));

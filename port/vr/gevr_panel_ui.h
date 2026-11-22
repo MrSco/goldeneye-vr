@@ -27,6 +27,7 @@ struct GevrPanelView {
 struct GevrPanelUi {
     bool focusLauncher = true;   // hold Menu then A still goes back to the launcher
     int openSection = -1;        // >= 0: bring that tab up on the next frame (the layout test's)
+    int openModSub = -1;         // >= 0: bring that Mods sub-tab up on the next frame (the layout test's)
 };
 enum { GEVR_PANEL_NONE, GEVR_PANEL_RESUME, GEVR_PANEL_LAUNCHER, GEVR_PANEL_TEXPACK, GEVR_PANEL_RESET_SOUND,
        GEVR_PANEL_TOUCH_LAYOUT };
@@ -49,7 +50,7 @@ inline int gevrDrawPanelWindow(const GevrPanelView &v, GevrPanelUi &ui, ImTextur
 #else
     ImGui::TextColored(gold, "VR SETTINGS");
 #endif
-    gevrSettingsTabs(v.settings, ui.openSection);
+    gevrSettingsTabs(v.settings, ui.openSection, &ui.openModSub);
     ImGui::EndChild();
     if (v.note[0]) {
         ImGui::SetCursorPos(ImVec2(18, 822));
