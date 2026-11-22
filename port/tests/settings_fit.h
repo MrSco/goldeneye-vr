@@ -17,17 +17,26 @@ inline void settingsFitFail(bool ok, const char *what) {
 inline void settingsFitControls(const GevrSettingsApi &api, int section, unsigned where, float pageWidth, const char *state) {
     int ids[48];
     const int n = api.sectionRows(section, where, ids, 48);
-    const int columns = n > GEVR_SETTINGS_ONE_COLUMN ? 2 : 1;
+    if (n <= 0) return;
+    const GevrColumnPlan plan = gevrSettingsPlan(api, ids, n, pageWidth, 0.0f);
     const ImGuiStyle &style = ImGui::GetStyle();
-    const float half = (pageWidth - (columns > 1 ? style.ItemSpacing.x * 4 : 0)) / columns;
-    const float labelW = half * (columns > 1 ? 0.44f : 0.40f);
-    const float controlW = half - labelW - style.CellPadding.x * 2;
+    const float cellPadX = style.CellPadding.x * 2.0f;
+    float totalW = (plan.columns * 2 - 1) * cellPadX + (plan.columns - 1) * plan.gap;
+    for (int c = 0; c < plan.columns; c++)
+        totalW += plan.colLabelWidth[c] + plan.colControlWidth[c];
+    char what[220];
+    std::snprintf(what, sizeof(what), "%s: table width (%.0f) fits pane (%.0f)", state, totalW, pageWidth);
+    settingsFitFail(totalW <= pageWidth + 1.0f, what);
     for (int i = 0; i < n; i++) {
+        const int col = plan.columns > 1 && i >= plan.perColumn ? 1 : 0;
+        const float lblW = plan.colLabelWidth[col];
+        const float ctlW = plan.colControlWidth[col];
         GevrSettingInfo info{};
         api.info(ids[i], &info);
-        char what[220], value[64];
-        std::snprintf(what, sizeof(what), "%s: the label \"%s\" fits its column", state, info.label);
-        settingsFitFail(ImGui::CalcTextSize(info.label).x + style.CellPadding.x * 2 <= labelW, what);
+        char value[64];
+        std::snprintf(what, sizeof(what), "%s: the label \"%s\" fits its column (%.0f of %.0f)", state, info.label,
+                      ImGui::CalcTextSize(info.label).x + cellPadX, lblW);
+        settingsFitFail(ImGui::CalcTextSize(info.label).x + cellPadX <= lblW + 1.0f, what);
         api.text(ids[i], -1, value, sizeof(value));
         const char *reason = api.blocked ? api.blocked(ids[i]) : nullptr;
         float need = 0;
@@ -43,8 +52,8 @@ inline void settingsFitControls(const GevrSettingsApi &api, int section, unsigne
                 need += ImGui::CalcTextSize("Reset").x + style.FramePadding.x * 2 + style.ItemSpacing.x;
         }
         std::snprintf(what, sizeof(what), "%s: \"%s\" (%s%s%s) fits its control column (%.0f of %.0f)", state, info.label,
-                      value, reason ? ", " : "", reason ? reason : "", need, controlW);
-        settingsFitFail(need <= controlW + 1, what);
+                      value, reason ? ", " : "", reason ? reason : "", need, ctlW);
+        settingsFitFail(need <= ctlW + 1.0f, what);
     }
 }
 #endif

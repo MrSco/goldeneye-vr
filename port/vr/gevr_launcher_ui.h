@@ -5,6 +5,7 @@
 #include <cmath>
 #include <string>
 #include <cstdio>
+#include "gevr_layout_ui.h"
 struct GevrPointerOwner {
     bool owns = false;
     float u = -1, v = -1;

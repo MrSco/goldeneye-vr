@@ -1757,30 +1757,27 @@ static void gevrSendLoadout() {
     netLobbySetLoadout(items);
 }
 
-// This player's character: the one combo for the host, a joiner and a connected client.
-static void characterRow(const char *label, const char *id) {
-    ImGui::TextUnformatted(label);
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
-    if (namedCombo(id, netCharacterCount(), netCharacterName, &VrMpChr, true)) {
-        vrSettingsSave();
-        if (netIsActive())
-            netLobbySetCharacter((uint8_t)VrMpChr);
-    }
-    netSetPreferredCharacter((uint8_t)VrMpChr);
-}
-
 // This player's four spawn guns, for a match with loadouts on.
 static void loadoutRows(const char *idprefix) {
-    ImGui::TextUnformatted("Your loadout, when the host turns loadouts on:");
+    ImGui::Spacing();
+    gevrSectionHeader(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "LOADOUT (WHEN HOST ENABLES LOADOUTS)");
     bool changed = false;
-    for (int i = 0; i < 4; i++) {
-        char id[32];
-        snprintf(id, sizeof(id), "##%sloadout%d", idprefix, i);
-        ImGui::Text("Gun %d:", i + 1);
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
-        changed |= gunCombo(id, &VrMpLoadout[i]);
+    const float avail = ImGui::GetContentRegionAvail().x;
+    const float labelW = ImGui::CalcTextSize("Gun 4").x + ImGui::GetStyle().CellPadding.x * 2.0f + 12.0f;
+    const float ctrlW = std::min(ImGui::GetFontSize() * 14.0f, std::max(120.0f, avail - labelW - 16.0f));
+    if (ImGui::BeginTable("##loadout-rows", 2, ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthFixed, labelW);
+        ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthFixed, ctrlW + 8.0f);
+        for (int i = 0; i < 4; i++) {
+            char label[16], id[32];
+            snprintf(label, sizeof(label), "Gun %d", i + 1);
+            snprintf(id, sizeof(id), "##%sloadout%d", idprefix, i);
+            gevrSettingRow(label, ctrlW, [&](float w) {
+                ImGui::SetNextItemWidth(w);
+                changed |= gunCombo(id, &VrMpLoadout[i]);
+            });
+        }
+        ImGui::EndTable();
     }
     if (changed) {
         vrSettingsSave();
@@ -1789,23 +1786,20 @@ static void loadoutRows(const char *idprefix) {
     }
 }
 
-// A row of favorite toggles over a bitmask: the shuffle and the playlist draw from them.
+// A wrapping grid of favorite toggles over a bitmask: measures the left pane's
+// available width so checkboxes never spill past the pane into Friends.
 template <typename Mask>
-static bool favoriteRow(const char *label, int count, const char *(*name)(int), Mask *mask, int perRow) {
-    bool changed = false;
-    ImGui::TextUnformatted(label);
-    for (int i = 0; i < count && i < (int)(8 * sizeof(Mask)); i++) {
-        bool on = ((*mask >> i) & 1u) != 0;
-        if (i % perRow != 0)
-            ImGui::SameLine();
-        char id[48];
-        snprintf(id, sizeof(id), "%s##%s%d", name(i), label, i);
-        if (ImGui::Checkbox(id, &on)) {
-            *mask = on ? (*mask | (Mask(1) << i)) : (*mask & ~(Mask(1) << i));
-            changed = true;
-        }
-    }
-    return changed;
+static bool favoriteRow(const char *label, int count, const char *(*name)(int), Mask *mask, int maxCols) {
+    ImGui::TextColored(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "%s", label);
+    const int n = count < (int)(8 * sizeof(Mask)) ? count : (int)(8 * sizeof(Mask));
+    char gridId[64];
+    snprintf(gridId, sizeof(gridId), "##favgrid_%s", label);
+    return gevrCheckGrid(
+        gridId, n,
+        [&](int i) { return name(i); },
+        [&](int i) { return ((*mask >> i) & 1u) != 0; },
+        [&](int i, bool on) { *mask = on ? (*mask | (Mask(1) << i)) : (*mask & ~(Mask(1) << i)); },
+        maxCols);
 }
 
 // The host's match options: a section of the Host tab, before and while hosting.
@@ -1814,38 +1808,46 @@ static void gevrMatchOptions(bool favorites = false) {
     bool changed = false;
     if (!favorites && ImGui::BeginTable("match-columns", 2, ImGuiTableFlags_SizingStretchSame)) {
         ImGui::TableNextColumn();
-        ImGui::TextColored(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "MATCH SETUP");
-        ImGui::Text("Scenario:");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-        changed |= namedCombo("##scenario", netScenarioCount(), netScenarioName, &VrMpScenario);
-        if (VrMpScenario == SCENARIO_YOLT) {
-            ImGui::TextDisabled("Length: last one standing");
-        } else {
-            ImGui::Text("Length:");
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-            // The Living Daylights takes the time limits only, as the game's own menu has it
-            changed |= namedCombo("##length", VrMpScenario == SCENARIO_TLD ? 4 : 7, netGameLengthName, &VrMpLength);
+        gevrSectionHeader(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "MATCH SETUP");
+        {
+            const float colW = ImGui::GetContentRegionAvail().x;
+            const float labelW = std::max(ImGui::CalcTextSize("Next round").x + ImGui::GetStyle().CellPadding.x * 2.0f + 8.0f,
+                                          colW * 0.34f);
+            const float ctrlW = std::max(80.0f, colW - labelW - ImGui::GetStyle().CellPadding.x * 2.0f);
+            if (ImGui::BeginTable("##match-setup-rows", 2, ImGuiTableFlags_SizingFixedFit)) {
+                ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthFixed, labelW);
+                ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthFixed, ctrlW);
+                gevrSettingRow("Scenario", ctrlW, [&](float w) {
+                    ImGui::SetNextItemWidth(w);
+                    changed |= namedCombo("##scenario", netScenarioCount(), netScenarioName, &VrMpScenario);
+                });
+                gevrSettingRow("Length", ctrlW, [&](float w) {
+                    if (VrMpScenario == SCENARIO_YOLT) {
+                        ImGui::AlignTextToFramePadding();
+                        ImGui::TextDisabled("Last one standing");
+                    } else {
+                        ImGui::SetNextItemWidth(w);
+                        changed |= namedCombo("##length", VrMpScenario == SCENARIO_TLD ? 4 : 7, netGameLengthName, &VrMpLength);
+                    }
+                });
+                gevrSettingRow("Health", ctrlW, [&](float w) {
+                    ImGui::SetNextItemWidth(w);
+                    changed |= namedCombo("##health", netHealthCount(), netHealthName, &VrMpHealth);
+                });
+                gevrSettingRow("Dual wield", ctrlW, [&](float w) {
+                    ImGui::SetNextItemWidth(w);
+                    changed |= namedCombo("##dual", 3, netDualWieldName, &VrMpDual);
+                }, VrMpDual == NET_DUAL_DOUBLES ? "a second copy of your gun makes a pair"
+                 : VrMpDual == NET_DUAL_ANY     ? "hold X for the left hand's panel" : nullptr);
+                gevrSettingRow("Next round", ctrlW, [&](float w) {
+                    ImGui::SetNextItemWidth(w);
+                    changed |= namedCombo("##nextround", 3, netNextRoundName, &VrMpNextRound);
+                }, VrMpNextRound == NET_NEXT_SHUFFLE  ? "a random favorite map and set"
+                 : VrMpNextRound == NET_NEXT_PLAYLIST ? "your favorites in order"
+                                                      : "the players vote in the pause menu");
+                ImGui::EndTable();
+            }
         }
-        ImGui::Text("Health:");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-        changed |= namedCombo("##health", netHealthCount(), netHealthName, &VrMpHealth);
-        ImGui::Text("Dual wield:");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-        changed |= namedCombo("##dual", 3, netDualWieldName, &VrMpDual);
-        if (ImGui::IsItemHovered()) gevrTooltip("%s", VrMpDual == NET_DUAL_DOUBLES ? "a second copy of your gun makes a pair"
-                            : VrMpDual == NET_DUAL_ANY   ? "hold X for the left hand's panel"
-                                                         : "");
-        ImGui::Text("Next round:");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-        changed |= namedCombo("##nextround", 3, netNextRoundName, &VrMpNextRound);
-        if (ImGui::IsItemHovered()) gevrTooltip("%s", VrMpNextRound == NET_NEXT_SHUFFLE    ? "a random favorite map and set"
-                                  : VrMpNextRound == NET_NEXT_PLAYLIST ? "your favorites in order"
-                                                                       : "the players vote in the pause menu");
         ImGui::Spacing();
         bool loadouts = VrMpLoadouts != 0;
         if (ImGui::Checkbox("Use player loadouts", &loadouts)) {
@@ -1854,7 +1856,7 @@ static void gevrMatchOptions(bool favorites = false) {
         }
         if (ImGui::IsItemHovered()) gevrTooltip("Players spawn with their own four selected guns.");
         ImGui::TableNextColumn();
-        ImGui::TextColored(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "BOTS AND LIVE SETTINGS");
+        gevrSectionHeader(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "BOTS AND LIVE SETTINGS");
         // Bots: player slots the host runs (gevr_bot.c); they change between rounds only
         if (VrMpMode == NET_MODE_DEATHMATCH) {
             ImGui::BeginDisabled(netIsActive() && !gevrNetBotRowsEditable());
@@ -1885,8 +1887,9 @@ static void gevrMatchOptions(bool favorites = false) {
     }
 
     if (favorites) {
-        changed |= favoriteRow("Favorite maps:", netStageCount(), netStageName, &VrMpFavStages, 6);
-        changed |= favoriteRow("Favorite sets:", netWeaponSetCount(), netWeaponSetName, &VrMpFavSets, 5);
+        changed |= favoriteRow("FAVORITE MAPS", netStageCount(), netStageName, &VrMpFavStages, 6);
+        ImGui::Spacing();
+        changed |= favoriteRow("FAVORITE WEAPON SETS", netWeaponSetCount(), netWeaponSetName, &VrMpFavSets, 5);
     }
 
     if (changed)
@@ -2479,23 +2482,40 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
     auto &lastListMs = s_mp.lastListMs;
     auto &lastHeartbeatMs = s_mp.lastHeartbeatMs;
     auto playerOptions = [&]() {
-        ImGui::TextUnformatted("Your name:");
-        ImGui::SameLine();
-        ImGui::BeginDisabled(netIsActive());
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16);
-        ImGui::InputText("##playername", VrPlayerName, sizeof(VrPlayerName), ImGuiInputTextFlags_CallbackCharFilter,
-                         nameCharFilter);
-        if (ImGui::IsItemDeactivatedAfterEdit()) {
-            size_t n = strlen(VrPlayerName);
-            while (n > 0 && VrPlayerName[n - 1] == ' ')
-                VrPlayerName[--n] = '\0';
-            if (VrPlayerName[0] == ' ')
-                memmove(VrPlayerName, VrPlayerName + strspn(VrPlayerName, " "), n + 1);
-            vrEnsurePlayerName();
-            vrSettingsSave();
+        const float avail = ImGui::GetContentRegionAvail().x;
+        const float labelW = std::max(ImGui::CalcTextSize("Your name").x, ImGui::CalcTextSize("Character").x)
+                             + ImGui::GetStyle().CellPadding.x * 2.0f + 12.0f;
+        const float ctrlW = std::min(ImGui::GetFontSize() * 16.0f, std::max(120.0f, avail - labelW - 16.0f));
+        if (ImGui::BeginTable("##player-rows", 2, ImGuiTableFlags_SizingFixedFit)) {
+            ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthFixed, labelW);
+            ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthFixed, ctrlW + 8.0f);
+            gevrSettingRow("Your name", ctrlW, [&](float w) {
+                ImGui::BeginDisabled(netIsActive());
+                ImGui::SetNextItemWidth(w);
+                ImGui::InputText("##playername", VrPlayerName, sizeof(VrPlayerName),
+                                 ImGuiInputTextFlags_CallbackCharFilter, nameCharFilter);
+                if (ImGui::IsItemDeactivatedAfterEdit()) {
+                    size_t n = strlen(VrPlayerName);
+                    while (n > 0 && VrPlayerName[n - 1] == ' ')
+                        VrPlayerName[--n] = '\0';
+                    if (VrPlayerName[0] == ' ')
+                        memmove(VrPlayerName, VrPlayerName + strspn(VrPlayerName, " "), n + 1);
+                    vrEnsurePlayerName();
+                    vrSettingsSave();
+                }
+                ImGui::EndDisabled();
+            });
+            gevrSettingRow("Character", ctrlW, [&](float w) {
+                ImGui::SetNextItemWidth(w);
+                if (namedCombo("##mpcharacter", netCharacterCount(), netCharacterName, &VrMpChr, true)) {
+                    vrSettingsSave();
+                    if (netIsActive())
+                        netLobbySetCharacter((uint8_t)VrMpChr);
+                }
+                netSetPreferredCharacter((uint8_t)VrMpChr);
+            });
+            ImGui::EndTable();
         }
-        ImGui::EndDisabled();
-        characterRow("Character:", "##mpcharacter");
         loadoutRows("mpplayer");
         gevrTeamChoiceRow("##playerteam");
     };
