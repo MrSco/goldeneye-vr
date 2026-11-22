@@ -1704,6 +1704,95 @@ s32 gevrJnGetGripAxes(s32 ctrl, f32 pos[3], f32 right[3], f32 up[3], f32 back[3]
     return g_gevrStereo ? gevrGripAxesRaw(ctrl, pos, right, up, back) : FALSE;
 }
 
+static void gevrJnNormVec(f32 v[3])
+{
+    f32 l2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+    if (l2 > 1e-10f)
+    {
+        f32 inv = 1.0f / sqrtf(l2);
+        v[0] *= inv;
+        v[1] *= inv;
+        v[2] *= inv;
+    }
+}
+
+s32 gevrJnGetHandPoseWorld(s32 ctrl, f32 posW[3], f32 rightW[3], f32 upW[3], f32 fwdW[3])
+{
+    Mtxf *v2w = currentPlayerGetViewToWorldMtxf();
+    f32 p[3], r[3], u[3], b[3], s;
+    coord3d c;
+
+    if (!g_gevrStereo || ctrl < 0 || ctrl > 1 || v2w == NULL || !gevrGripAxesRaw(ctrl, p, r, u, b))
+    {
+        return FALSE;
+    }
+    s = D_800364CC > 1e-6f ? D_800364CC : 1.0f;
+    c.x = p[0] / s;
+    c.y = p[1] / s;
+    c.z = p[2] / s;
+    mtx4TransformVecInPlace(v2w, &c);
+    if (posW)
+    {
+        posW[0] = c.x;
+        posW[1] = c.y;
+        posW[2] = c.z;
+    }
+    if (rightW)
+    {
+        c.x = r[0]; c.y = r[1]; c.z = r[2];
+        mtx4RotateVecInPlace(v2w, &c);
+        rightW[0] = c.x; rightW[1] = c.y; rightW[2] = c.z;
+        gevrJnNormVec(rightW);
+    }
+    if (upW)
+    {
+        c.x = u[0]; c.y = u[1]; c.z = u[2];
+        mtx4RotateVecInPlace(v2w, &c);
+        upW[0] = c.x; upW[1] = c.y; upW[2] = c.z;
+        gevrJnNormVec(upW);
+    }
+    if (fwdW)
+    {
+        c.x = -b[0]; c.y = -b[1]; c.z = -b[2];
+        mtx4RotateVecInPlace(v2w, &c);
+        fwdW[0] = c.x; fwdW[1] = c.y; fwdW[2] = c.z;
+        gevrJnNormVec(fwdW);
+    }
+    return TRUE;
+}
+
+static void gevrWorldToLocal(const f32 q[4], const f32 v[3], f32 out[3]);
+
+s32 gevrJnGetHandVelocityWorld(s32 ctrl, f32 velCmS[3])
+{
+    extern float vr_ctrl_quat_play[2][4];
+    extern float vr_ctrl_velocity_play[2][3];
+    extern float vr_head_velocity_play[3];
+    Mtxf *v2w = currentPlayerGetViewToWorldMtxf();
+    f32 at[3], right[3], up[3], back[3], rel[3], loc[3];
+    coord3d v;
+    s32 i;
+
+    if (!g_gevrStereo || ctrl < 0 || ctrl > 1 || velCmS == NULL || v2w == NULL
+        || !gevrGripAxesRaw(ctrl, at, right, up, back))
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        rel[i] = vr_ctrl_velocity_play[ctrl][i] - vr_head_velocity_play[i];
+    }
+    gevrWorldToLocal(vr_ctrl_quat_play[ctrl], rel, loc);
+    v.x = loc[0] * right[0] + loc[1] * back[0] - loc[2] * up[0];
+    v.y = loc[0] * right[1] + loc[1] * back[1] - loc[2] * up[1];
+    v.z = loc[0] * right[2] + loc[1] * back[2] - loc[2] * up[2];
+    mtx4RotateVecInPlace(v2w, &v);
+    velCmS[0] = v.x * 100.0f;
+    velCmS[1] = v.y * 100.0f;
+    velCmS[2] = v.z * 100.0f;
+    return TRUE;
+}
+
 static s32 gevrGripAxes(s32 ctrl, f32 pos[3], f32 right[3], f32 up[3], f32 back[3])
 {
     if (!gevrGripAxesRaw(ctrl, pos, right, up, back))
@@ -18036,7 +18125,7 @@ s32 gevrWeaponPanelLeft;       /* input.c: the left hand's panel, opened with X 
 s32 gevrWeaponPanelBody;       /* vr_openxr.cpp: a body-slot category is in front of the eyes */
 float gevrWeaponPanelRect[4];  /* the panel's box in the game's screen, 0..1 (vr_openxr.cpp crops to it) */
 float gevrWeaponPanelAspect = 1.0f;   /* its width over height in screen units (the capture's pixels aren't square) */
-extern int VrControllerWheel, VrJediNinjaMode, VrJediBlasters;
+extern int VrJediNinjaMode, VrJediBlasters;
 s32 gevrJnSelectedPower = 0;     /* GEVR_JN_FORCE_* */
 s32 gevrJnSelectedNinjaSlot = 0; /* GEVR_JN_NINJA_SLOT_* */
 
@@ -21370,7 +21459,7 @@ static Gfx *gevrDrawBodySlotWheel(Gfx *gdl, const GevrBodySlotWheel *slot)
 
 static s32 gevrControllerWheelAllowed(void)
 {
-    return VrControllerWheel != 0 || VrJediNinjaMode != 0;
+    return VrJediNinjaMode != 0;
 }
 
 static Gfx *gevrJnDrawModeWheel(Gfx *gdl, s32 lh, s32 lp)
@@ -21821,13 +21910,19 @@ Gfx *maybe_mp_interface(Gfx *gdl)
 
         {
             extern s32 gevrJnHideNormalGun(void);
-            extern s32 gevrJnDrawBlasterActive(void);
             if (!gevrJnHideNormalGun()) gunRenderFirstPersonGunModels(&gdl);
-            if (gevrJnDrawBlasterActive()) gdl = beforegun;
         }
         /* Third person: the guns' matrices (muzzle, throw, casings) are still
          * worked out; only what they drew is dropped. */
-        if (gevrTpHidesGun()) gdl = beforegun;
+        if (gevrTpHidesGun())
+        {
+            gdl = beforegun;
+        }
+        else
+        {
+            extern Gfx *gevrJnDrawFirstPerson(Gfx *gdl);
+            gdl = gevrJnDrawFirstPerson(gdl);
+        }
     }
 #else
     if (!(netIsActive() && g_CurrentPlayer->mpmenuon)) gunRenderFirstPersonGunModels(&gdl);
@@ -22090,10 +22185,6 @@ Gfx *maybe_mp_interface(Gfx *gdl)
 
         gdl = gevrBodySlotsDrawLabels(gdl);
         gdl = gevrPullDraw(gdl);
-        {
-            extern Gfx *gevrJnDrawFirstPerson(Gfx *gdl);
-            gdl = gevrJnDrawFirstPerson(gdl);
-        }
     }
     /*
      * Stereo: the ammo count goes on a small panel at the right controller,

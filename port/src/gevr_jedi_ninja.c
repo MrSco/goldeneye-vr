@@ -455,6 +455,121 @@ int gevrJnCheckBlock(int mode, int blocking, int hasNinjaShield,
     return GEVR_JN_BLOCK_ABSORB;
 }
 
+int gevrJnBulletTravelToShooter(const float bulletTravel[3], float outToShooter[3])
+{
+    float dir[3];
+    if (!bulletTravel || !outToShooter) return 0;
+    if (jnNormalize3(bulletTravel, dir) <= 0.0f) return 0;
+    outToShooter[0] = -dir[0];
+    outToShooter[1] = -dir[1];
+    outToShooter[2] = -dir[2];
+    return 1;
+}
+
+int gevrJnCheckVrBladeBlock(int mode, int blocking, int hasNinjaShield,
+                            const float playerFwd[3], const float bladeDirW[3],
+                            const float handAimW[3], const float toShooterDir[3],
+                            float outReflectDir[3])
+{
+    float fwdN[3], bladeN[3], aimN[3], toShooterN[3];
+    if (!blocking || !playerFwd || !bladeDirW || !handAimW || !toShooterDir) {
+        return GEVR_JN_BLOCK_NONE;
+    }
+    if (mode != GEVR_JN_JEDI && mode != GEVR_JN_NINJA) {
+        return GEVR_JN_BLOCK_NONE;
+    }
+    if (jnNormalize3(playerFwd, fwdN) <= 0.0f
+        || jnNormalize3(bladeDirW, bladeN) <= 0.0f
+        || jnNormalize3(handAimW, aimN) <= 0.0f
+        || jnNormalize3(toShooterDir, toShooterN) <= 0.0f) {
+        return GEVR_JN_BLOCK_NONE;
+    }
+
+    if (mode == GEVR_JN_NINJA && hasNinjaShield) {
+        if (jnDot3(aimN, toShooterN) < 0.45f) {
+            return GEVR_JN_BLOCK_NONE;
+        }
+        if (outReflectDir) {
+            const float blend[3] = {
+                aimN[0] * 0.65f + toShooterN[0] * 0.35f,
+                aimN[1] * 0.65f + toShooterN[1] * 0.35f,
+                aimN[2] * 0.65f + toShooterN[2] * 0.35f
+            };
+            if (jnNormalize3(blend, outReflectDir) <= 0.0f) {
+                memcpy(outReflectDir, toShooterN, sizeof(toShooterN));
+            }
+        }
+        return GEVR_JN_BLOCK_DEFLECT;
+    }
+
+    if (jnDot3(fwdN, toShooterN) < 0.30f) {
+        return GEVR_JN_BLOCK_NONE;
+    }
+    if (fabsf(jnDot3(bladeN, toShooterN)) > 0.88f) {
+        return GEVR_JN_BLOCK_NONE;
+    }
+    if (mode == GEVR_JN_JEDI) {
+        if (outReflectDir) {
+            const float *src = (jnDot3(aimN, fwdN) >= 0.25f) ? aimN : toShooterN;
+            outReflectDir[0] = src[0];
+            outReflectDir[1] = src[1];
+            outReflectDir[2] = src[2];
+        }
+        return GEVR_JN_BLOCK_DEFLECT;
+    }
+    return GEVR_JN_BLOCK_ABSORB;
+}
+
+int gevrJnSegmentHitCylinder(const float segA[3], const float segB[3],
+                             const float cylBase[3], float cylRadius, float cylHeight,
+                             float outHitPt[3])
+{
+    if (!segA || !segB || !cylBase || cylRadius <= 0.0f || cylHeight <= 0.0f) {
+        return 0;
+    }
+    const float yLo = cylBase[1] - 12.0f;
+    const float yHi = cylBase[1] + cylHeight + 12.0f;
+    const float dy = segB[1] - segA[1];
+    float tMin = 0.0f;
+    float tMax = 1.0f;
+
+    if (fabsf(dy) < 1e-6f) {
+        if (segA[1] < yLo || segA[1] > yHi) return 0;
+    } else {
+        float t0 = (yLo - segA[1]) / dy;
+        float t1 = (yHi - segA[1]) / dy;
+        if (t0 > t1) { float tmp = t0; t0 = t1; t1 = tmp; }
+        if (t0 > tMin) tMin = t0;
+        if (t1 < tMax) tMax = t1;
+        if (tMin > tMax) return 0;
+    }
+
+    const float dx = segB[0] - segA[0];
+    const float dz = segB[2] - segA[2];
+    const float len2xz = dx * dx + dz * dz;
+    float t = 0.5f * (tMin + tMax);
+    if (len2xz > 1e-8f) {
+        t = ((cylBase[0] - segA[0]) * dx + (cylBase[2] - segA[2]) * dz) / len2xz;
+        if (t < tMin) t = tMin;
+        if (t > tMax) t = tMax;
+    }
+
+    const float hx = segA[0] + dx * t;
+    const float hy = segA[1] + dy * t;
+    const float hz = segA[2] + dz * t;
+    const float ex = hx - cylBase[0];
+    const float ez = hz - cylBase[2];
+    if (ex * ex + ez * ez > cylRadius * cylRadius) {
+        return 0;
+    }
+    if (outHitPt) {
+        outHitPt[0] = hx;
+        outHitPt[1] = hy;
+        outHitPt[2] = hz;
+    }
+    return 1;
+}
+
 static int s_jnFlatRtDown;
 static int s_jnFlatLtDown;
 static int s_jnFlatIsMouse;

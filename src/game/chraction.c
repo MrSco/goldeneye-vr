@@ -7331,9 +7331,12 @@ void chrlvTriggerFireWeapon(ChrRecord *self)
 {
     self->hidden &= ~CHRHIDDEN_FIRE_TRACER;
 #ifdef GEVR
-    if (!gevrHordeXeniaWeapon(self)) {
-        self->hidden &= ~(CHRHIDDEN_FIRE_WEAPON_RIGHT | CHRHIDDEN_FIRE_WEAPON_LEFT);
-        return;
+    {
+        extern s32 gevrJnIsMeleeNpc(ChrRecord *chr);
+        if (!gevrHordeXeniaWeapon(self) || gevrJnIsMeleeNpc(self)) {
+            self->hidden &= ~(CHRHIDDEN_FIRE_WEAPON_RIGHT | CHRHIDDEN_FIRE_WEAPON_LEFT);
+            return;
+        }
     }
 #endif
 

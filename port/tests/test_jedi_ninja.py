@@ -63,19 +63,22 @@ int main(void) {
     assert(VrJediBlasters == 1);
     assert(VrJediPickupGuns == 0);
     assert(VrNinjaPickupGuns == 0);
+    assert(VrRagdolls == 0 && VrDismemberment == 0 && VrBodiesStay == 0);
 
     const int jedi = find("Jedi mode");
     const int ninja = find("Ninja mode");
     const int blasters = find("Blasters");
     const int jPickup = find("Pick up guns");
     assert(jedi >= 0 && ninja >= 0 && blasters >= 0 && jPickup >= 0);
+    assert(find("Weapon wheel") == -1);
 
     gevrSettingSet(jedi, 1);
     assert(VrJediNinjaMode == 1 && gevrSettingIndex(jedi) == 1 && gevrSettingIndex(ninja) == 0);
-    assert(VrRagdolls == 1 && VrDismemberment == 1 && VrBodiesStay == 24);
+    assert(VrRagdolls == 0 && VrDismemberment == 0 && VrBodiesStay == 0);
 
     gevrSettingSet(ninja, 1);
     assert(VrJediNinjaMode == 2 && gevrSettingIndex(jedi) == 0 && gevrSettingIndex(ninja) == 1);
+    assert(VrRagdolls == 0 && VrDismemberment == 0 && VrBodiesStay == 0);
 
     gevrSettingSet(blasters, 0);
     gevrSettingSet(jPickup, 1);
@@ -112,7 +115,7 @@ int VrJediNinjaMode, VrJediHand, VrSaberColor, VrSaberStyle, VrNinjaSword, VrNin
 int VrJediForcePowers = 1, VrJediCatchProjectiles = 1, VrJnPerfectParry = 1, VrJnBladeTrails = 1, VrJnAudio = 1;
 int VrNinjaShield = 1, VrNinjaRicochet = 1, VrNinjaShadowStep = 1, VrNinjaBulletSlice = 1;
 int VrSithNpc, VrSithInNormalMode, VrSithScale, VrNinjaNpc, VrNinjaInNormalMode;
-int VrAllyJedi, VrControllerWheel;
+int VrAllyJedi;
 int VrJediBlasters = 1, VrJediPickupGuns, VrNinjaPickupGuns;
 
 static void saveJn(FILE *f) {{
@@ -135,7 +138,7 @@ int main() {{
     VrNinjaShield = 0; VrNinjaRicochet = 0; VrNinjaShadowStep = 0; VrNinjaBulletSlice = 0;
     VrSithNpc = 2; VrSithInNormalMode = 1; VrSithScale = 3;
     VrNinjaNpc = 2; VrNinjaInNormalMode = 1;
-    VrAllyJedi = 1; VrControllerWheel = 1;
+    VrAllyJedi = 1;
     VrJediBlasters = 0; VrJediPickupGuns = 1; VrNinjaPickupGuns = 1;
 
     FILE *f = tmpfile();
@@ -147,7 +150,7 @@ int main() {{
     VrJediForcePowers = VrJediCatchProjectiles = VrJnPerfectParry = VrJnBladeTrails = VrJnAudio = 1;
     VrNinjaShield = VrNinjaRicochet = VrNinjaShadowStep = VrNinjaBulletSlice = 1;
     VrSithNpc = VrSithInNormalMode = VrSithScale = VrNinjaNpc = VrNinjaInNormalMode = 0;
-    VrAllyJedi = VrControllerWheel = VrJediPickupGuns = VrNinjaPickupGuns = 0;
+    VrAllyJedi = VrJediPickupGuns = VrNinjaPickupGuns = 0;
     VrJediBlasters = 1;
 
     char line[256];
@@ -160,7 +163,7 @@ int main() {{
     assert(!VrNinjaShield && !VrNinjaRicochet && !VrNinjaShadowStep && !VrNinjaBulletSlice);
     assert(VrSithNpc == 2 && VrSithInNormalMode == 1 && VrSithScale == 3);
     assert(VrNinjaNpc == 2 && VrNinjaInNormalMode == 1);
-    assert(VrAllyJedi == 1 && VrControllerWheel == 1);
+    assert(VrAllyJedi == 1);
     assert(VrJediBlasters == 0 && VrJediPickupGuns == 1 && VrNinjaPickupGuns == 1);
 
     loadJn("JediNinjaMode=99"); loadJn("SaberColor=-5"); loadJn("SaberStyle=9");

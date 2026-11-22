@@ -309,7 +309,7 @@ extern f32 gevrWeaponPanelStickX, gevrWeaponPanelStickY;
 f32 gevrMoveStickX, gevrMoveStickY;
 extern s32 gevrWeaponPanelStep;            /* bondview2.c: trigger steps through the wheel's category */
 extern s32 gevrWeaponPanelLeft;            /* bondview2.c, issue #56: the left hand's panel */
-extern int VrControllerWheel, VrJediNinjaMode;
+extern int VrJediNinjaMode;
 extern s32 gevrLeftPanelAvailable(void);
 extern void gevrCycleHandWeapon(s32 hand, s32 dir);
 #define GEVR_WEAPON_PANEL_HOLD_MS 350
@@ -2372,7 +2372,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 const bool ltNow = padLt || mouseLt || flatTouchAim;
                 gevrJnInputFeedFlat(rtNow ? 1 : 0, ltNow ? 1 : 0, (mouseRt || mouseLt) && !(padRt || padLt || flatTouchFire || flatTouchAim) ? 1 : 0);
 
-                if (VrControllerWheel || VrJediNinjaMode) {
+                if (VrJediNinjaMode) {
                     if (wheelBtn) {
                         if (!s_flatWheelWas) {
                             s_kbdWheelX = s_kbdWheelY = 0.0f;

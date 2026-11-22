@@ -454,7 +454,7 @@ extern "C" void vrSettingsSave(void)
             VrNinjaShield ? 1 : 0, VrNinjaRicochet ? 1 : 0, VrNinjaShadowStep ? 1 : 0, VrNinjaBulletSlice ? 1 : 0);
     iniPrintf(f, "SithNpc=%d\nSithInNormalMode=%d\nSithScale=%d\nNinjaNpc=%d\nNinjaInNormalMode=%d\n",
             VrSithNpc, VrSithInNormalMode ? 1 : 0, VrSithScale, VrNinjaNpc, VrNinjaInNormalMode ? 1 : 0);
-    iniPrintf(f, "AllyJedi=%d\nControllerWheel=%d\n", VrAllyJedi ? 1 : 0, VrControllerWheel ? 1 : 0);
+    iniPrintf(f, "AllyJedi=%d\n", VrAllyJedi ? 1 : 0);
     iniPrintf(f, "JediBlasters=%d\nJediPickupGuns=%d\nNinjaPickupGuns=%d\n",
             VrJediBlasters ? 1 : 0, VrJediPickupGuns ? 1 : 0, VrNinjaPickupGuns ? 1 : 0);
     iniPrintf(f, "Ragdolls=%d\n", VrRagdolls ? 1 : 0);
@@ -1049,7 +1049,6 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "NinjaNpc") == 0) VrNinjaNpc = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             else if (strcmp(key, "NinjaInNormalMode") == 0) VrNinjaInNormalMode = ival != 0;
             else if (strcmp(key, "AllyJedi") == 0) VrAllyJedi = ival != 0;
-            else if (strcmp(key, "ControllerWheel") == 0) VrControllerWheel = ival != 0;
             else if (strcmp(key, "JediBlasters") == 0) VrJediBlasters = ival != 0;
             else if (strcmp(key, "JediPickupGuns") == 0) VrJediPickupGuns = ival != 0;
             else if (strcmp(key, "NinjaPickupGuns") == 0) VrNinjaPickupGuns = ival != 0;

@@ -47,7 +47,7 @@ extern int VrJediNinjaMode, VrJediHand, VrSaberColor, VrSaberStyle, VrNinjaSword
 extern int VrJediForcePowers, VrJediCatchProjectiles, VrJnPerfectParry, VrJnBladeTrails, VrJnAudio;
 extern int VrNinjaShield, VrNinjaRicochet, VrNinjaShadowStep, VrNinjaBulletSlice;
 extern int VrSithNpc, VrSithInNormalMode, VrSithScale, VrNinjaNpc, VrNinjaInNormalMode;
-extern int VrAllyJedi, VrControllerWheel;
+extern int VrAllyJedi;
 extern int VrJediBlasters, VrJediPickupGuns, VrNinjaPickupGuns;
 extern int VrRagdolls;
 extern int VrDismemberment;

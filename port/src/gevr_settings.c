@@ -49,7 +49,7 @@ extern int VrJediNinjaMode, VrJediHand, VrSaberColor, VrSaberStyle, VrNinjaSword
 extern int VrJediForcePowers, VrJediCatchProjectiles, VrJnPerfectParry, VrJnBladeTrails, VrJnAudio;
 extern int VrNinjaShield, VrNinjaRicochet, VrNinjaShadowStep, VrNinjaBulletSlice;
 extern int VrSithNpc, VrSithInNormalMode, VrSithScale, VrNinjaNpc, VrNinjaInNormalMode;
-extern int VrAllyJedi, VrControllerWheel;
+extern int VrAllyJedi;
 extern int VrJediBlasters, VrJediPickupGuns, VrNinjaPickupGuns;
 extern int VrEyeMsaa;
 extern int VrPlayMode, VrBodySlotShow, VrCampaign;
@@ -194,21 +194,11 @@ static int jediModeGet(void) { return VrJediNinjaMode == 1 ? 1 : 0; }
 static void jediModeSet(int on)
 {
     VrJediNinjaMode = on ? 1 : (VrJediNinjaMode == 1 ? 0 : VrJediNinjaMode);
-    if (on) {
-        VrRagdolls = 1;
-        VrDismemberment = 1;
-        if (VrBodiesStay == 0) VrBodiesStay = 24;
-    }
 }
 static int ninjaModeGet(void) { return VrJediNinjaMode == 2 ? 1 : 0; }
 static void ninjaModeSet(int on)
 {
     VrJediNinjaMode = on ? 2 : (VrJediNinjaMode == 2 ? 0 : VrJediNinjaMode);
-    if (on) {
-        VrRagdolls = 1;
-        VrDismemberment = 1;
-        if (VrBodiesStay == 0) VrBodiesStay = 24;
-    }
 }
 
 static void setScreenFov(float v) { vr_screen_resize(VrScreenDistance, v); }
@@ -554,8 +544,6 @@ static const Row s_rows[] = {
     { .label = "Invert look", .pad = 1, .tooltip = "Push the right stick up to look down, as a flight stick.",
       .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .def = NAN,
       .cpositions = lookInvertPositions, .cget = lookInvertGet, .cset = lookInvertSet, .ctext = lookInvertText, .cdefault = 0 },
-    { .label = "Weapon wheel", .pad = 1, .tooltip = "Hold LB (or Q) on controller or keyboard to open the weapon wheel. Always on in Jedi/Ninja modes.",
-      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .ivar = &VrControllerWheel, .def = NAN },
     { .label = "Touch vibration", .flat = 1, .tooltip = "A short buzz when you press an on-screen button.",
       .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .ivar = &VrTouchHaptics, .def = NAN },
     { .label = "Gyro aim", .flat = 1, .tooltip = "Turn and tilt the phone or tablet to look and aim: while AIM is held, or always.",
@@ -750,7 +738,7 @@ static const Row s_rows[] = {
       .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_JEDI), .where = GEVR_SET_LAUNCHER, .ivar = &VrJnBladeTrails, .def = NAN },
     { .label = "Custom SFX", .tooltip = "Procedural lightsaber hum, Doppler swings, clashes and Force sound effects.",
       .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_JEDI), .where = GEVR_SET_LAUNCHER, .ivar = &VrJnAudio, .def = NAN },
-    { .label = "Blasters", .tooltip = "NPCs fire visible GoldenEye laser bolts and you start with a Star Wars DL-44 blaster equipped.",
+    { .label = "Blasters", .tooltip = "NPCs fire visible GoldenEye laser bolts and you start with GoldenEye's Moonraker Laser equipped.",
       .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_JEDI), .where = GEVR_SET_LAUNCHER, .ivar = &VrJediBlasters, .def = NAN },
     { .label = "Pick up guns", .tooltip = "Allow picking up dropped guns and ammo in Jedi mode (keycards, armour and gadgets always work).",
       .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_JEDI), .where = GEVR_SET_LAUNCHER, .ivar = &VrJediPickupGuns, .def = NAN },

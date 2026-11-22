@@ -84,8 +84,6 @@ enum {
 };
 
 #define GEVR_JN_MAX_LIMBS          24
-#define GEVR_JN_BODY_FADE_SEC      24.0f
-#define GEVR_JN_DEFAULT_BODIES_STAY 24
 #define GEVR_JN_IGNITE_SEC         0.42f
 #define GEVR_JN_CHOKE_DIST_CM      92.0f
 #define GEVR_JN_PULL_RANGE_CM      1400.0f
@@ -199,6 +197,14 @@ enum {
 int gevrJnCheckBlock(int mode, int blocking, int hasNinjaShield,
                      const float playerFwd[3], const float toShooterDir[3],
                      float outReflectDir[3]);
+int gevrJnBulletTravelToShooter(const float bulletTravel[3], float outToShooter[3]);
+int gevrJnCheckVrBladeBlock(int mode, int blocking, int hasNinjaShield,
+                            const float playerFwd[3], const float bladeDirW[3],
+                            const float handAimW[3], const float toShooterDir[3],
+                            float outReflectDir[3]);
+int gevrJnSegmentHitCylinder(const float segA[3], const float segB[3],
+                             const float cylBase[3], float cylRadius, float cylHeight,
+                             float outHitPt[3]);
 
 /* Flat trigger input feed from port/src/input.c */
 void gevrJnInputFeedFlat(int rtDown, int ltDown, int isMouse);

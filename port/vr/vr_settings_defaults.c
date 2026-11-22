@@ -150,7 +150,6 @@ int VrSithScale = 0;
 int VrNinjaNpc = 0;
 int VrNinjaInNormalMode = 0;
 int VrAllyJedi = 0;
-int VrControllerWheel = 0;
 int VrJediBlasters = 1;
 int VrJediPickupGuns = 0;
 int VrNinjaPickupGuns = 0;

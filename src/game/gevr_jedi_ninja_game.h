@@ -16,9 +16,10 @@ s32 gevrJnInterceptPlayerDamage(f32 damageAmount, f32 vecX, f32 vecZ);
 s32 gevrJnSuppressNormalFire(void);
 s32 gevrJnHideNormalGun(void);
 s32 gevrJnBlastersActive(void);
-s32 gevrJnDrawBlasterActive(void);
 s32 gevrJnCanPickupProp(PropRecord *prop);
 s32 gevrJnAllyThink(ChrRecord *ally);
+s32 gevrJnIsMeleeNpc(ChrRecord *chr);
+void gevrJnNoteNpcHand(ChrRecord *chr, s32 hand, const Mtxf *handMtxCam);
 
 #ifdef __cplusplus
 }

@@ -26,9 +26,8 @@ extern int VrJediNinjaMode, VrJediHand, VrSaberColor, VrSaberStyle, VrNinjaSword
 extern int VrJediForcePowers, VrJediCatchProjectiles, VrJnPerfectParry, VrJnBladeTrails, VrJnAudio;
 extern int VrNinjaShield, VrNinjaRicochet, VrNinjaShadowStep, VrNinjaBulletSlice;
 extern int VrSithNpc, VrSithInNormalMode, VrSithScale, VrNinjaNpc, VrNinjaInNormalMode, VrAllyJedi;
-extern int VrJediBlasters, VrJediPickupGuns, VrNinjaPickupGuns, VrLeftHandedMode;
-extern int VrRagdolls, VrDismemberment, VrBodiesStay;
-extern s32 g_gevrStereo, g_StageNum, g_ClockTimer, g_GlobalTimer;
+extern int VrJediBlasters, VrJediPickupGuns, VrNinjaPickupGuns;
+extern s32 g_gevrStereo, g_gevrExtraPass, g_StageNum, g_ClockTimer, g_GlobalTimer;
 extern f32 D_800364CC;
 extern s32 g_PlayerIsInTank;
 extern s32 gevrJnSelectedPower, gevrJnSelectedNinjaSlot;
@@ -41,18 +40,17 @@ extern s32 lvlGetControlsLockedFlag(void);
 extern s32 gevrSpectating(void);
 extern s32 gevrCoopLocalDowned(void);
 extern s32 gevrJnGetGripAxes(s32 ctrl, f32 pos[3], f32 right[3], f32 up[3], f32 back[3]);
+extern s32 gevrJnGetHandPoseWorld(s32 ctrl, f32 posW[3], f32 rightW[3], f32 upW[3], f32 fwdW[3]);
+extern s32 gevrJnGetHandVelocityWorld(s32 ctrl, f32 velCmS[3]);
 extern int bondinvAddInvItem(ITEM_IDS item);
 extern s32 currentPlayerEquipWeaponWrapper(GUNHAND hand, s32 next_weapon);
 extern s32 getCurrentPlayerWeaponId(GUNHAND hand);
-extern Gfx *sub_GAME_7F061E18(Gfx *gdl, BeamRecord *flash, s32 arg2);
 extern float get_analog_value(int hand_index, const char *input_name);
-extern float vr_ctrl_velocity_play[2][3];
 extern int vr_haptics_ready(void);
 extern s32 trigger_haptic_vibration_c(int hand_index, float amplitude, float duration);
 extern s32 plot_course_for_actor(ChrRecord *chr, coord3d *pos, StandTile *tile, SPEED speed);
-extern s32 chrIsNotDeadOrShot(ChrRecord *chr);
+extern StandTile *stanFindGroundAtCyl(coord3d *pos, f32 radius, u8 *rooms, StandTile *prefer, f32 *groundy, s32 *incentre);
 extern Gfx *combiner_bayer_lod_perspective(Gfx *gdl);
-extern Gfx *microcode_constructor(Gfx *gdl);
 
 /* -------------------------------------------------------------------------- */
 /* State                                                                      */
@@ -65,6 +63,7 @@ extern Gfx *microcode_constructor(Gfx *gdl);
 #define JN_MAX_SPECIAL   8
 #define JN_MAX_SMOKE     12
 #define JN_TRAIL_SAMPLES 7
+#define JN_VR_HIT_SLOTS  16
 
 enum {
     JN_NPC_SITH = 1,
@@ -72,6 +71,7 @@ enum {
     JN_NPC_ALLY_JEDI = 3
 };
 
+/* World-space motion ribbon samples pushed once per tick, transformed per eye */
 typedef struct {
     int count;
     float hilt[JN_TRAIL_SAMPLES][3];
@@ -126,6 +126,11 @@ typedef struct {
     GevrJnIgnition ignite;
     float meleeCd;
     float powerCd;
+    float swingTimer;
+    int handValid;
+    s32 handTick;
+    float handPosW[3];
+    float handDirW[3];
     GevrJnThrown boomerang;
 } JnSpecialNpc;
 
@@ -148,10 +153,23 @@ static int s_caughtProjIdx = -1;
 static float s_wallSparkCd;
 static float s_swingAudio01;
 static float s_time;
-static float s_vrSlashCd[2];
 static float s_vrPowerCd;
 static int s_vrTrigWas[2];
 static float s_vrThrowGuard;
+static float s_vrWhooshCd[2];
+
+/* Cached world-space tracked hand/blade state for damage interception & swept VR melee */
+static int s_vrBladeValid;
+static float s_vrBladeHiltW[3], s_vrBladeDirW[3], s_vrBladeAimW[3], s_vrBladeTipW[3];
+static float s_vrBladeBackW[3];
+static int s_vrOffBladeValid;
+static float s_vrOffHiltW[3], s_vrOffDirW[3], s_vrOffTipW[3];
+static int s_vrForceValid;
+static float s_vrForcePosW[3], s_vrForceAimW[3];
+static int s_prevTipValid[2];
+static float s_prevTipW[2][3];
+static ChrRecord *s_vrHitChr[2][JN_VR_HIT_SLOTS];
+static float s_vrHitCd[2][JN_VR_HIT_SLOTS];
 
 static ChrRecord *s_chokeChr;
 static s16 s_chokeChrnum;
@@ -187,7 +205,6 @@ static JnBladeTrail s_trails[3];
 static JnSpecialNpc s_specials[JN_MAX_SPECIAL];
 static int s_specialsSpawned;
 static int s_blasterGranted;
-static float s_blasterRecoil;
 static int s_lastStage = -1;
 static float s_sithLightningShow;
 static float s_sithLightningFrom[3], s_sithLightningTo[3];
@@ -195,6 +212,11 @@ static float s_sithLightningFrom[3], s_sithLightningTo[3];
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
+
+static float jnViewScale(void)
+{
+    return (D_800364CC > 1e-6f) ? D_800364CC : 1.0f;
+}
 
 static float jnNorm3(const float v[3], float out[3])
 {
@@ -265,16 +287,15 @@ static void jnTrailStepAge(float dt)
     }
 }
 
-static void jnTrailPush(int idx, const float hiltView[3], const float tipView[3], float scale)
+static void jnTrailPushWorld(int idx, const float hiltW[3], const float tipW[3])
 {
     if (idx < 0 || idx >= 3 || !VrJnBladeTrails) return;
     JnBladeTrail *tr = &s_trails[idx];
     if (tr->count > 0) {
-        const float dx = tipView[0] - tr->tip[0][0];
-        const float dy = tipView[1] - tr->tip[0][1];
-        const float dz = tipView[2] - tr->tip[0][2];
-        const float minD = 1.6f * scale;
-        if (dx * dx + dy * dy + dz * dz < minD * minD) return;
+        const float dx = tipW[0] - tr->tip[0][0];
+        const float dy = tipW[1] - tr->tip[0][1];
+        const float dz = tipW[2] - tr->tip[0][2];
+        if (dx * dx + dy * dy + dz * dz < 4.0f * 4.0f) return;
     }
     const int n = tr->count < JN_TRAIL_SAMPLES ? tr->count : JN_TRAIL_SAMPLES - 1;
     for (int i = n; i > 0; i--) {
@@ -282,8 +303,8 @@ static void jnTrailPush(int idx, const float hiltView[3], const float tipView[3]
         memcpy(tr->tip[i], tr->tip[i - 1], sizeof(tr->tip[0]));
         tr->age[i] = tr->age[i - 1];
     }
-    memcpy(tr->hilt[0], hiltView, sizeof(tr->hilt[0]));
-    memcpy(tr->tip[0], tipView, sizeof(tr->tip[0]));
+    memcpy(tr->hilt[0], hiltW, sizeof(tr->hilt[0]));
+    memcpy(tr->tip[0], tipW, sizeof(tr->tip[0]));
     tr->age[0] = 0.0f;
     if (tr->count < JN_TRAIL_SAMPLES) tr->count++;
 }
@@ -368,6 +389,25 @@ static JnSpecialNpc *jnFindSpecial(ChrRecord *c)
         }
     }
     return NULL;
+}
+
+/* Wall, door, and pathblocker/glass line-of-sight verification */
+static int jnHasLos(const float from[3], StandTile *fromStan, const float tileOrigin[3], const float to[3])
+{
+    if (!from || !to) return 0;
+    if (fromStan != NULL) {
+        StandTile *stan = fromStan;
+        const float *o = tileOrigin ? tileOrigin : from;
+        if (stanTestLineUnobstructed(&stan, o[0], o[2], to[0], to[2],
+                                     CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER,
+                                     from[1], from[1], to[1], to[1]) == 0) {
+            return 0;
+        }
+    }
+    if (pdphysIsReady() && pdphysRaycastAnyRoom(from, to, NULL, NULL, NULL)) {
+        return 0;
+    }
+    return 1;
 }
 
 static void jnAddSpark(const float pos[3], unsigned int rgba, float radius, float maxAge)
@@ -489,6 +529,20 @@ static void jnGetPlayerCameraWorld(float eye[3], float right[3], float up[3], fl
     jnNorm3(fwd, fwd);
 }
 
+static void jnGetPlayerTileOrigin(float outOrigin[3], StandTile **outStan)
+{
+    PropRecord *me = getCurrentPlayerProp();
+    if (me && me->stan) {
+        outOrigin[0] = me->pos.x;
+        outOrigin[1] = me->pos.y;
+        outOrigin[2] = me->pos.z;
+        *outStan = me->stan;
+    } else {
+        outOrigin[0] = outOrigin[1] = outOrigin[2] = 0.0f;
+        *outStan = NULL;
+    }
+}
+
 static void jnMoveChrProp(ChrRecord *c, const float w[3])
 {
     PropRecord *prop = c->prop;
@@ -512,28 +566,30 @@ static void jnMoveChrProp(ChrRecord *c, const float w[3])
     }
 }
 
-static void jnHitGuardWithBlade(ChrRecord *c, const float dir[3], float dmgAmount, int forceCutCount)
+static void jnHitGuardWithBlade(ChrRecord *c, const float dir[3], float dmgAmount, int forceCutCount, int isBlade)
 {
     if (!jnChrAliveValid(c, -1)) return;
     coord3d d;
     d.x = dir[0]; d.y = dir[1]; d.z = dir[2];
     JnSpecialNpc *sp = jnFindSpecial(c);
-    if (sp && (sp->kind == JN_NPC_SITH || sp->kind == JN_NPC_NINJA)) {
-        c->chrflags |= CHRFLAG_WAS_DAMAGED;
-        c->damage += dmgAmount;
-        if (c->damage >= c->maxdamage) {
-            handles_shot_actors(c, HIT_CHEST, &d, ITEM_GOLDENGUN, TRUE);
+    const s32 wep = (isBlade || forceCutCount > 0) ? ITEM_KNIFE : ITEM_FIST;
+    const f32 targetDmg = c->damage + dmgAmount;
+
+    if (targetDmg < c->maxdamage) {
+        /* Non-lethal hit: raise maxdamage temporarily so handles_shot_actors runs
+         * flinch, blood and audio without falsely triggering lethal death or stats. */
+        const f32 savedMax = c->maxdamage;
+        c->maxdamage = targetDmg + 1000.0f;
+        handles_shot_actors(c, HIT_CHEST, &d, wep, FALSE);
+        c->maxdamage = savedMax;
+        if (!chrIsDead(c)) {
+            c->damage = targetDmg;
         }
     } else {
-        handles_shot_actors(c, HIT_CHEST, &d, ITEM_GOLDENGUN, TRUE);
-        if (!chrIsDead(c)) {
-            c->chrflags |= CHRFLAG_WAS_DAMAGED;
-            c->damage += dmgAmount;
-            if (c->damage >= c->maxdamage) {
-                handles_shot_actors(c, HIT_CHEST, &d, ITEM_GOLDENGUN, TRUE);
-            }
-        }
+        c->damage = c->maxdamage;
+        handles_shot_actors(c, HIT_CHEST, &d, wep, TRUE);
     }
+
     const float cpos[3] = { c->prop->pos.x, c->prop->pos.y + 115.0f, c->prop->pos.z };
     unsigned int core = 0xFFFFFFFFu, glow = 0xFFD040FFu;
     if (VrJediNinjaMode == GEVR_JN_JEDI) gevrJnSaberPalette(VrSaberColor, &core, &glow);
@@ -546,26 +602,104 @@ static void jnHitGuardWithBlade(ChrRecord *c, const float dir[3], float dmgAmoun
 
 static void jnPerformMeleeSweep(const float eye[3], const float fwd[3], float reachCm, float dmg)
 {
+    float pOrigin[3];
+    StandTile *pStan = NULL;
+    jnGetPlayerTileOrigin(pOrigin, &pStan);
+
     const float reach2 = (reachCm + 55.0f) * (reachCm + 55.0f);
     const s32 n = get_numguards();
     for (s32 i = 0; i < n; i++) {
         ChrRecord *c = &g_ChrSlots[i];
         if (!jnIsEnemyGuard(c)) continue;
-        const float dx = c->prop->pos.x - eye[0];
-        const float dy = (c->prop->pos.y + 100.0f) - eye[1];
-        const float dz = c->prop->pos.z - eye[2];
+        const float tgt[3] = { c->prop->pos.x, c->prop->pos.y + 100.0f, c->prop->pos.z };
+        const float dx = tgt[0] - eye[0];
+        const float dy = tgt[1] - eye[1];
+        const float dz = tgt[2] - eye[2];
         const float d2 = dx * dx + dy * dy + dz * dz;
         if (d2 > reach2 || d2 < 1.0f) continue;
         const float d = sqrtf(d2);
         const float to[3] = { dx / d, dy / d, dz / d };
         if (jnDot3(fwd, to) < 0.35f) continue;
-        jnHitGuardWithBlade(c, to, dmg, 2);
+        if (!jnHasLos(eye, pStan, pOrigin, tgt)) continue;
+        jnHitGuardWithBlade(c, to, dmg, 2, 1);
         jnHaptic(VrJediHand ? 0 : 1, 0.8f, 0.08f);
     }
 }
 
+static int jnVrCanHitChr(int handSlot, ChrRecord *c)
+{
+    for (int i = 0; i < JN_VR_HIT_SLOTS; i++) {
+        if (s_vrHitChr[handSlot][i] == c && s_vrHitCd[handSlot][i] > 0.0f) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static void jnVrMarkHitChr(int handSlot, ChrRecord *c, float cd)
+{
+    int freeIdx = 0;
+    float minCd = 1e9f;
+    for (int i = 0; i < JN_VR_HIT_SLOTS; i++) {
+        if (s_vrHitChr[handSlot][i] == c) {
+            s_vrHitCd[handSlot][i] = cd;
+            return;
+        }
+        if (s_vrHitCd[handSlot][i] <= 0.0f) {
+            freeIdx = i;
+            break;
+        }
+        if (s_vrHitCd[handSlot][i] < minCd) {
+            minCd = s_vrHitCd[handSlot][i];
+            freeIdx = i;
+        }
+    }
+    s_vrHitChr[handSlot][freeIdx] = c;
+    s_vrHitCd[handSlot][freeIdx] = cd;
+}
+
+static int jnVrSweepBladeAgainstGuards(int handSlot, const float hiltW[3], const float tipW[3],
+                                       const float backTipW[3], int hasBackTip,
+                                       const float prevTipW[3], int hasPrevTip,
+                                       const float velDirW[3], float dmg, int hapticCtrl)
+{
+    float pOrigin[3];
+    StandTile *pStan = NULL;
+    jnGetPlayerTileOrigin(pOrigin, &pStan);
+
+    int hits = 0;
+    const s32 n = get_numguards();
+    for (s32 i = 0; i < n; i++) {
+        ChrRecord *c = &g_ChrSlots[i];
+        if (!jnIsEnemyGuard(c) || !jnVrCanHitChr(handSlot, c)) continue;
+
+        JnSpecialNpc *sp = jnFindSpecial(c);
+        const float r = (c->chrwidth > 12.0f ? c->chrwidth : 20.0f) + 18.0f;
+        const float h = 185.0f * (sp ? sp->scale : 1.0f);
+        float hitPt[3];
+        int hit = gevrJnSegmentHitCylinder(hiltW, tipW, c->prop->pos.f, r, h, hitPt);
+        if (!hit && hasBackTip) {
+            hit = gevrJnSegmentHitCylinder(hiltW, backTipW, c->prop->pos.f, r, h, hitPt);
+        }
+        if (!hit && hasPrevTip) {
+            hit = gevrJnSegmentHitCylinder(prevTipW, tipW, c->prop->pos.f, r, h, hitPt);
+        }
+        if (!hit) continue;
+
+        const float tgt[3] = { c->prop->pos.x, c->prop->pos.y + 100.0f, c->prop->pos.z };
+        if (!jnHasLos(hiltW, pStan, pOrigin, tgt)) continue;
+
+        jnVrMarkHitChr(handSlot, c, 0.24f);
+        jnHitGuardWithBlade(c, velDirW, dmg, 2, 1);
+        jnAddSpark(hitPt, 0xFFF480FFu, 22.0f, 0.18f);
+        jnHaptic(hapticCtrl, 0.85f, 0.08f);
+        hits++;
+    }
+    return hits;
+}
+
 /* -------------------------------------------------------------------------- */
-/* Lifecycle                                                                  */
+/* Lifecycle & NPC Hand Hooks                                                 */
 /* -------------------------------------------------------------------------- */
 
 void gevrJnGameReset(void)
@@ -581,6 +715,8 @@ void gevrJnGameReset(void)
     memset(s_tracers, 0, sizeof(s_tracers));
     memset(s_smoke, 0, sizeof(s_smoke));
     memset(s_specials, 0, sizeof(s_specials));
+    memset(s_vrHitChr, 0, sizeof(s_vrHitChr));
+    memset(s_vrHitCd, 0, sizeof(s_vrHitCd));
     jnTrailClear();
     gevrJnAudioReset();
     jnRestoreShadowSpeed();
@@ -598,10 +734,14 @@ void gevrJnGameReset(void)
     s_wallSparkCd = 0.0f;
     s_swingAudio01 = 0.0f;
     s_time = 0.0f;
-    s_vrSlashCd[0] = s_vrSlashCd[1] = 0.0f;
     s_vrPowerCd = 0.0f;
     s_vrTrigWas[0] = s_vrTrigWas[1] = 0;
     s_vrThrowGuard = 0.0f;
+    s_vrWhooshCd[0] = s_vrWhooshCd[1] = 0.0f;
+    s_vrBladeValid = 0;
+    s_vrOffBladeValid = 0;
+    s_vrForceValid = 0;
+    s_prevTipValid[0] = s_prevTipValid[1] = 0;
     s_chokeChr = NULL;
     s_chokeChrnum = -1;
     s_chokeActive = 0;
@@ -616,14 +756,8 @@ void gevrJnGameReset(void)
     s_throwHitCount = 0;
     s_specialsSpawned = 0;
     s_blasterGranted = 0;
-    s_blasterRecoil = 0.0f;
     s_sithLightningShow = 0.0f;
     s_lastStage = g_StageNum;
-    if (VrJediNinjaMode != 0) {
-        VrRagdolls = 1;
-        VrDismemberment = 1;
-        if (VrBodiesStay == 0) VrBodiesStay = GEVR_JN_DEFAULT_BODIES_STAY;
-    }
 }
 
 s32 gevrJnSuppressNormalFire(void)
@@ -641,12 +775,47 @@ s32 gevrJnBlastersActive(void)
     return jnModeActive() && VrJediNinjaMode == GEVR_JN_JEDI && VrJediBlasters != 0;
 }
 
-s32 gevrJnDrawBlasterActive(void)
+s32 gevrJnIsMeleeNpc(ChrRecord *chr)
 {
-    return gevrJnBlastersActive()
-        && jnUsingGunsOverride()
-        && jnInGameplay()
-        && getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_LASER;
+    return (jnFindSpecial(chr) != NULL) ? 1 : 0;
+}
+
+void gevrJnNoteNpcHand(ChrRecord *chr, s32 hand, const Mtxf *handMtxCam)
+{
+    JnSpecialNpc *sp = jnFindSpecial(chr);
+    Mtxf *v2w;
+    coord3d c, upC, fwdC;
+
+    if (!sp || !handMtxCam || g_gevrExtraPass || (v2w = currentPlayerGetViewToWorldMtxf()) == NULL) {
+        return;
+    }
+    if (hand != GUNRIGHT && sp->handValid) {
+        return;
+    }
+    c.x = handMtxCam->m[3][0];
+    c.y = handMtxCam->m[3][1];
+    c.z = handMtxCam->m[3][2];
+    if (!isfinite(c.x) || !isfinite(c.y) || !isfinite(c.z)
+        || fabsf(c.x) > 1.0e6f || fabsf(c.y) > 1.0e6f || fabsf(c.z) > 1.0e6f) {
+        return;
+    }
+    mtx4TransformVecInPlace(v2w, &c);
+    sp->handPosW[0] = c.x;
+    sp->handPosW[1] = c.y;
+    sp->handPosW[2] = c.z;
+
+    upC.x = handMtxCam->m[1][0]; upC.y = handMtxCam->m[1][1]; upC.z = handMtxCam->m[1][2];
+    fwdC.x = handMtxCam->m[2][0]; fwdC.y = handMtxCam->m[2][1]; fwdC.z = handMtxCam->m[2][2];
+    mtx4RotateVecInPlace(v2w, &upC);
+    mtx4RotateVecInPlace(v2w, &fwdC);
+    const float mix[3] = {
+        upC.x * 0.72f + fwdC.x * 0.68f,
+        upC.y * 0.72f + fwdC.y * 0.68f,
+        upC.z * 0.72f + fwdC.z * 0.68f
+    };
+    jnNorm3(mix, sp->handDirW);
+    sp->handValid = 1;
+    sp->handTick = g_GlobalTimer;
 }
 
 s32 gevrJnCanPickupProp(PropRecord *prop)
@@ -748,6 +917,10 @@ static void jnSpawnSpecialNpcs(void)
 
 static void jnTickSpecialNpcs(const float playerPos[3], float dt)
 {
+    float pOrigin[3];
+    StandTile *pStan = NULL;
+    jnGetPlayerTileOrigin(pOrigin, &pStan);
+
     for (int i = 0; i < JN_MAX_SPECIAL; i++) {
         JnSpecialNpc *sp = &s_specials[i];
         if (!sp->used) continue;
@@ -763,6 +936,7 @@ static void jnTickSpecialNpcs(const float playerPos[3], float dt)
         gevrJnIgnitionUpdate(&sp->ignite, 1, 0, dt);
         if (sp->meleeCd > 0.0f) sp->meleeCd -= dt;
         if (sp->powerCd > 0.0f) sp->powerCd -= dt;
+        if (sp->swingTimer > 0.0f) sp->swingTimer -= dt;
 
         /* Enemy thrown boomerang update */
         if (sp->boomerang.active) {
@@ -782,43 +956,58 @@ static void jnTickSpecialNpcs(const float playerPos[3], float dt)
             const float pdy = sp->boomerang.pos[1] - playerPos[1];
             const float pdz = sp->boomerang.pos[2] - playerPos[2];
             if (pdx * pdx + pdy * pdy + pdz * pdz <= 65.0f * 65.0f) {
-                const float vx = c->prop->pos.x - playerPos[0];
-                const float vz = c->prop->pos.z - playerPos[2];
+                /* Bullet/projectile travel direction: attacker -> player */
+                const float vx = playerPos[0] - sp->boomerang.pos[0];
+                const float vz = playerPos[2] - sp->boomerang.pos[2];
                 if (!gevrJnInterceptPlayerDamage(1.2f, vx, vz)) {
                     record_damage_kills(1.2f, vx, vz, -1, 1);
                 }
                 sp->boomerang.returning = 1;
             }
-            gevrJnThrownStep(&sp->boomerang, handPos, hitWall, dt);
+            gevrJnThrownStep(&sp->boomerang, sp->handValid ? sp->handPosW : handPos, hitWall, dt);
         }
 
         if (sp->kind == JN_NPC_ALLY_JEDI) continue;
         if (s_chokeActive && s_chokeChr == c) continue; /* suspended & helpless */
 
+        const float npcEye[3] = { c->prop->pos.x, c->prop->pos.y + 115.0f * sp->scale, c->prop->pos.z };
         const float dx = playerPos[0] - c->prop->pos.x;
         const float dy = playerPos[1] - (c->prop->pos.y + 100.0f * sp->scale);
         const float dz = playerPos[2] - c->prop->pos.z;
         const float d2 = dx * dx + dy * dy + dz * dz;
         if (d2 > 2200.0f * 2200.0f) continue;
 
-        /* Only engage once within visual range or alerted */
         if (c->alertness < 50 && d2 > 900.0f * 900.0f) continue;
 
         const float d = sqrtf(fmaxf(1.0f, d2));
+        const int hasLos = jnHasLos(npcEye, c->prop->stan, c->prop->pos.f, playerPos);
+        if (!hasLos) continue;
+
         if (d > 110.0f && g_CurrentPlayer && g_CurrentPlayer->prop && g_CurrentPlayer->prop->stan) {
             if (c->actiontype != ACT_GOPOS) {
                 plot_course_for_actor(c, &g_CurrentPlayer->prop->pos, g_CurrentPlayer->prop->stan, SPEED_RUN);
             }
-            /* Super speed lunge step toward player */
+            /* Ground/stair-validated chase step toward player */
             if (d > 140.0f && d < 1200.0f) {
                 const float spd = (sp->kind == JN_NPC_SITH ? 220.0f : 185.0f) * dt;
-                float nxt[3] = {
-                    c->prop->pos.x + (dx / d) * spd,
-                    c->prop->pos.y,
-                    c->prop->pos.z + (dz / d) * spd
-                };
-                if (!pdphysIsReady() || !pdphysRaycastAnyRoom(c->prop->pos.f, nxt, NULL, NULL, NULL)) {
-                    jnMoveChrProp(c, nxt);
+                coord3d probe;
+                probe.x = c->prop->pos.x + (dx / d) * spd;
+                probe.y = c->prop->pos.y + 40.0f;
+                probe.z = c->prop->pos.z + (dz / d) * spd;
+                StandTile *walkTile = c->prop->stan;
+                f32 groundY = c->prop->pos.y;
+                s32 incentre = 0;
+                if (walkTile && stanTestLineUnobstructed(&walkTile, c->prop->pos.x, c->prop->pos.z, probe.x, probe.z,
+                                                         CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER,
+                                                         c->prop->pos.y + 50.0f, c->prop->pos.y + 50.0f,
+                                                         c->prop->pos.y + 50.0f, c->prop->pos.y + 50.0f) != 0) {
+                    StandTile *groundTile = stanFindGroundAtCyl(&probe, c->chrwidth, c->prop->rooms, walkTile, &groundY, &incentre);
+                    if (groundTile && fabsf(groundY - c->prop->pos.y) <= 45.0f) {
+                        const float nxt[3] = { probe.x, groundY, probe.z };
+                        if (!pdphysIsReady() || !pdphysRaycastAnyRoom(npcEye, nxt, NULL, NULL, NULL)) {
+                            jnMoveChrProp(c, nxt);
+                        }
+                    }
                 }
             }
         }
@@ -826,6 +1015,7 @@ static void jnTickSpecialNpcs(const float playerPos[3], float dt)
         /* Melee saber / katana swing */
         const float meleeRange = 145.0f * (sp->scale > 1.0f ? sp->scale : 1.0f);
         if (d <= meleeRange && sp->meleeCd <= 0.0f) {
+            sp->swingTimer = 0.28f;
             if (sp->kind == JN_NPC_SITH && VrJediNinjaMode == GEVR_JN_JEDI
                 && VrJnPerfectParry && (s_blocking || s_slash.active)
                 && jnModeActive() && !jnUsingGunsOverride() && s_saberLockTimer <= 0.0f) {
@@ -844,36 +1034,43 @@ static void jnTickSpecialNpcs(const float playerPos[3], float dt)
                 jnHaptic(VrJediHand ? 0 : 1, 1.0f, 0.10f);
             } else {
                 sp->meleeCd = 0.85f;
-                const float vx = c->prop->pos.x - playerPos[0];
-                const float vz = c->prop->pos.z - playerPos[2];
+                const float vx = playerPos[0] - c->prop->pos.x;
+                const float vz = playerPos[2] - c->prop->pos.z;
                 if (!gevrJnInterceptPlayerDamage(1.5f, vx, vz)) {
                     record_damage_kills(1.5f, vx, vz, -1, 1);
                 }
             }
         }
 
-        /* Special attack: Sith Force Lightning / Push, Evil Ninja Boomerang */
+        /* Special attack: Sith Force Lightning / Evil Ninja Boomerang */
         if (sp->powerCd <= 0.0f && d > 180.0f && d < 950.0f) {
             if (sp->kind == JN_NPC_SITH) {
                 sp->powerCd = 4.5f;
-                const float vx = c->prop->pos.x - playerPos[0];
-                const float vz = c->prop->pos.z - playerPos[2];
+                const float vx = playerPos[0] - c->prop->pos.x;
+                const float vz = playerPos[2] - c->prop->pos.z;
                 s_sithLightningShow = 0.45f;
-                s_sithLightningFrom[0] = c->prop->pos.x;
-                s_sithLightningFrom[1] = c->prop->pos.y + 115.0f * sp->scale;
-                s_sithLightningFrom[2] = c->prop->pos.z;
+                if (sp->handValid) {
+                    memcpy(s_sithLightningFrom, sp->handPosW, sizeof(s_sithLightningFrom));
+                } else {
+                    s_sithLightningFrom[0] = c->prop->pos.x;
+                    s_sithLightningFrom[1] = c->prop->pos.y + 115.0f * sp->scale;
+                    s_sithLightningFrom[2] = c->prop->pos.z;
+                }
                 memcpy(s_sithLightningTo, playerPos, sizeof(s_sithLightningTo));
                 if (!gevrJnInterceptPlayerDamage(0.9f, vx, vz)) {
                     record_damage_kills(0.9f, vx, vz, -1, 1);
                 }
             } else if (sp->kind == JN_NPC_NINJA && !sp->boomerang.active) {
                 sp->powerCd = 4.2f;
-                const float origin[3] = { c->prop->pos.x, c->prop->pos.y + 115.0f, c->prop->pos.z };
+                const float fallback[3] = { c->prop->pos.x, c->prop->pos.y + 115.0f, c->prop->pos.z };
+                const float *origin = sp->handValid ? sp->handPosW : fallback;
                 const float aim[3] = { dx / d, dy / d, dz / d };
                 gevrJnThrownLaunch(&sp->boomerang, 1, origin, aim);
             }
         }
     }
+    (void)pOrigin;
+    (void)pStan;
 }
 
 s32 gevrJnAllyThink(ChrRecord *ally)
@@ -897,18 +1094,22 @@ s32 gevrJnAllyThink(ChrRecord *ally)
         }
     }
     if (sp && sp->meleeCd <= 0.0f) {
-        /* Melee strike against closest enemy guard */
         const s32 n = get_numguards();
         ChrRecord *best = NULL;
         float bestD2 = 175.0f * 175.0f;
+        const float allyPt[3] = { ally->prop->pos.x, ally->prop->pos.y + 100.0f, ally->prop->pos.z };
         for (s32 i = 0; i < n; i++) {
             ChrRecord *e = &g_ChrSlots[i];
             if (!jnIsEnemyGuard(e)) continue;
-            const float dx = e->prop->pos.x - ally->prop->pos.x;
+            const float tgt[3] = { e->prop->pos.x, e->prop->pos.y + 100.0f, e->prop->pos.z };
+            const float dx = tgt[0] - allyPt[0];
             const float dy = e->prop->pos.y - ally->prop->pos.y;
-            const float dz = e->prop->pos.z - ally->prop->pos.z;
+            const float dz = tgt[2] - allyPt[2];
             const float d2 = dx * dx + dy * dy + dz * dz;
-            if (d2 < bestD2) { bestD2 = d2; best = e; }
+            if (d2 < bestD2 && jnHasLos(allyPt, ally->prop->stan, ally->prop->pos.f, tgt)) {
+                bestD2 = d2;
+                best = e;
+            }
         }
         if (best) {
             const float dir[3] = {
@@ -918,84 +1119,99 @@ s32 gevrJnAllyThink(ChrRecord *ally)
             };
             float nd[3];
             jnNorm3(dir, nd);
-            jnHitGuardWithBlade(best, nd, 10.0f, 1);
+            jnHitGuardWithBlade(best, nd, 10.0f, 1, 1);
+            sp->swingTimer = 0.28f;
             sp->meleeCd = 0.7f;
         }
     }
     return 0; /* let gevrAllyThink run normal follow/target pathing too */
 }
 
-static ChrRecord *jnFindForceTarget(const float eye[3], const float fwd[3], float maxRangeCm, float minDot)
+static ChrRecord *jnFindForceTarget(const float origin[3], const float dir[3], float maxRangeCm, float minDot)
 {
+    float pOrigin[3];
+    StandTile *pStan = NULL;
+    jnGetPlayerTileOrigin(pOrigin, &pStan);
+
     ChrRecord *best = NULL;
     float bestScore = 1e30f;
     const s32 n = get_numguards();
     for (s32 i = 0; i < n; i++) {
         ChrRecord *c = &g_ChrSlots[i];
         if (!jnIsEnemyGuard(c)) continue;
-        const float dx = c->prop->pos.x - eye[0];
-        const float dy = (c->prop->pos.y + 100.0f) - eye[1];
-        const float dz = c->prop->pos.z - eye[2];
+        const float tgt[3] = { c->prop->pos.x, c->prop->pos.y + 100.0f, c->prop->pos.z };
+        const float dx = tgt[0] - origin[0];
+        const float dy = tgt[1] - origin[1];
+        const float dz = tgt[2] - origin[2];
         const float d2 = dx * dx + dy * dy + dz * dz;
         if (d2 < 100.0f || d2 > maxRangeCm * maxRangeCm) continue;
         const float d = sqrtf(d2);
-        const float dot = (dx * fwd[0] + dy * fwd[1] + dz * fwd[2]) / d;
+        const float dot = (dx * dir[0] + dy * dir[1] + dz * dir[2]) / d;
         if (dot < minDot) continue;
+        if (!jnHasLos(origin, pStan, pOrigin, tgt)) continue;
         const float score = d * (1.4f - dot);
         if (score < bestScore) { bestScore = score; best = c; }
     }
     return best;
 }
 
-static void jnTriggerForcePush(const float eye[3], const float fwd[3])
+static void jnTriggerForcePush(const float origin[3], const float dir[3])
 {
+    float pOrigin[3];
+    StandTile *pStan = NULL;
+    jnGetPlayerTileOrigin(pOrigin, &pStan);
+
     const s32 n = get_numguards();
     for (s32 i = 0; i < n; i++) {
         ChrRecord *c = &g_ChrSlots[i];
         if (!jnIsEnemyGuard(c)) continue;
-        const float dx = c->prop->pos.x - eye[0];
-        const float dy = (c->prop->pos.y + 90.0f) - eye[1];
-        const float dz = c->prop->pos.z - eye[2];
+        const float tgt[3] = { c->prop->pos.x, c->prop->pos.y + 90.0f, c->prop->pos.z };
+        const float dx = tgt[0] - origin[0];
+        const float dy = tgt[1] - origin[1];
+        const float dz = tgt[2] - origin[2];
         const float d2 = dx * dx + dy * dy + dz * dz;
         if (d2 > 650.0f * 650.0f || d2 < 1.0f) continue;
         const float d = sqrtf(d2);
-        const float dir[3] = { dx / d, dy / d, dz / d };
-        if (jnDot3(fwd, dir) < 0.55f) continue;
-        jnHitGuardWithBlade(c, dir, 14.0f, 0);
+        const float to[3] = { dx / d, dy / d, dz / d };
+        if (jnDot3(dir, to) < 0.55f) continue;
+        if (!jnHasLos(origin, pStan, pOrigin, tgt)) continue;
+        jnHitGuardWithBlade(c, to, 1.2f, 0, 0);
         const float spark[3] = { c->prop->pos.x, c->prop->pos.y + 105.0f, c->prop->pos.z };
         jnAddSpark(spark, 0xA0D8FFE0u, 24.0f, 0.25f);
     }
     for (int slot = 0; slot < 24; slot++) {
         float pos[3];
         if (!gevrRagdollGetBodyPos(slot, pos)) continue;
-        const float dx = pos[0] - eye[0], dy = pos[1] - eye[1], dz = pos[2] - eye[2];
+        const float dx = pos[0] - origin[0], dy = pos[1] - origin[1], dz = pos[2] - origin[2];
         const float d2 = dx * dx + dy * dy + dz * dz;
         if (d2 > 750.0f * 750.0f || d2 < 1.0f) continue;
         const float d = sqrtf(d2);
-        const float dir[3] = { dx / d, dy / d, dz / d };
-        if (jnDot3(fwd, dir) < 0.50f) continue;
-        const float vel[3] = { fwd[0] * 1350.0f, fwd[1] * 1350.0f + 260.0f, fwd[2] * 1350.0f };
+        const float to[3] = { dx / d, dy / d, dz / d };
+        if (jnDot3(dir, to) < 0.50f) continue;
+        if (!jnHasLos(origin, pStan, pOrigin, pos)) continue;
+        const float vel[3] = { dir[0] * 1350.0f, dir[1] * 1350.0f + 260.0f, dir[2] * 1350.0f };
         gevrRagdollThrowBody(slot, vel);
     }
     if (VrJediForcePowers && VrJediCatchProjectiles && g_CurrentPlayer && g_CurrentPlayer->prop) {
         for (int i = 0; i < PROJECTILES_ARR_MAX; i++) {
             if (!jnProjValidAirborne(i)) continue;
             Projectile *pr = &g_Projectiles[i];
-            const float dx = pr->obj->prop->pos.x - eye[0];
-            const float dy = pr->obj->prop->pos.y - eye[1];
-            const float dz = pr->obj->prop->pos.z - eye[2];
+            const float dx = pr->obj->prop->pos.x - origin[0];
+            const float dy = pr->obj->prop->pos.y - origin[1];
+            const float dz = pr->obj->prop->pos.z - origin[2];
             const float d2 = dx * dx + dy * dy + dz * dz;
             if (i != s_caughtProjIdx) {
                 if (d2 > 750.0f * 750.0f || d2 < 1.0f) continue;
                 const float d = sqrtf(d2);
-                const float dir[3] = { dx / d, dy / d, dz / d };
-                if (jnDot3(fwd, dir) < 0.55f) continue;
+                const float to[3] = { dx / d, dy / d, dz / d };
+                if (jnDot3(dir, to) < 0.55f) continue;
+                if (!jnHasLos(origin, pStan, pOrigin, pr->obj->prop->pos.f)) continue;
             }
             float spd = sqrtf(pr->speed.x * pr->speed.x + pr->speed.y * pr->speed.y + pr->speed.z * pr->speed.z);
             if (spd < 18.0f) spd = 22.0f;
-            pr->speed.x = fwd[0] * spd;
-            pr->speed.y = fwd[1] * spd;
-            pr->speed.z = fwd[2] * spd;
+            pr->speed.x = dir[0] * spd;
+            pr->speed.y = dir[1] * spd;
+            pr->speed.z = dir[2] * spd;
             pr->ownerprop = g_CurrentPlayer->prop;
             jnAddSpark(pr->obj->prop->pos.f, 0x88E0FFFFu, 26.0f, 0.25f);
         }
@@ -1003,6 +1219,33 @@ static void jnTriggerForcePush(const float eye[3], const float fwd[3])
     }
     jnSfx(GEVR_JN_SFX_FORCE_PUSH, 1.15f);
     jnHaptic(VrJediHand ? 1 : 0, 0.7f, 0.08f);
+}
+
+/* Compute flat-screen animated world blade segment so trails advance once per tick cleanly */
+static void jnFlatBladeWorld(const float eye[3], const float right[3], const float up[3], const float fwd[3],
+                             float sideSign, float reachCm, float hiltW[3], float tipW[3])
+{
+    float lx, ly, lz, dx, dy, dz;
+    if (s_blocking) {
+        lx = -14.0f * sideSign; ly = -6.0f; lz = -34.0f;
+        dx = 0.65f * sideSign; dy = 0.72f; dz = -0.22f;
+    } else if (s_slash.active) {
+        const float u = s_slash.duration > 0.0f ? s_slash.t / s_slash.duration : 0.0f;
+        const float swing = (s_slash.dir == 0 ? 1.0f - 2.0f * u : -1.0f + 2.0f * u) * sideSign;
+        lx = 14.0f * swing; ly = -10.0f - 4.0f * sinf(u * 3.14159f); lz = -36.0f;
+        dx = -0.55f * swing; dy = 0.35f - 0.5f * u; dz = -0.75f;
+    } else {
+        lx = 17.0f * sideSign; ly = -14.0f; lz = -32.0f;
+        dx = -0.22f * sideSign; dy = 0.72f; dz = -0.66f;
+    }
+    float localDir[3] = { dx, dy, dz };
+    jnNorm3(localDir, localDir);
+    float worldDir[3];
+    for (int k = 0; k < 3; k++) {
+        hiltW[k] = eye[k] + right[k] * lx + up[k] * ly - fwd[k] * lz;
+        worldDir[k] = right[k] * localDir[0] + up[k] * localDir[1] - fwd[k] * localDir[2];
+        tipW[k] = hiltW[k] + worldDir[k] * reachCm;
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1021,6 +1264,13 @@ void gevrJnGameTick(s32 ticks60)
     jnTrailStepAge(dt);
     if (s_wallSparkCd > 0.0f) s_wallSparkCd -= dt;
     if (s_shadowDashCd > 0.0f) s_shadowDashCd -= dt;
+    if (s_vrWhooshCd[0] > 0.0f) s_vrWhooshCd[0] -= dt;
+    if (s_vrWhooshCd[1] > 0.0f) s_vrWhooshCd[1] -= dt;
+    for (int h = 0; h < 2; h++) {
+        for (int i = 0; i < JN_VR_HIT_SLOTS; i++) {
+            if (s_vrHitCd[h][i] > 0.0f) s_vrHitCd[h][i] -= dt;
+        }
+    }
     if (s_shadowDashTimer > 0.0f) {
         s_shadowDashTimer -= dt;
         if (s_shadowDashTimer <= 0.0f) {
@@ -1072,6 +1322,8 @@ void gevrJnGameTick(s32 ticks60)
         s_lightningActive = 0;
         s_saberLockTimer = 0.0f;
         s_caughtProjIdx = -1;
+        s_vrBladeValid = s_vrOffBladeValid = s_vrForceValid = 0;
+        s_prevTipValid[0] = s_prevTipValid[1] = 0;
         jnRestoreShadowSpeed();
         gevrJnAudioSetState(0, 0, 0.0f, 0.0f, 0, 0, 0, 0);
         return;
@@ -1101,14 +1353,6 @@ void gevrJnGameTick(s32 ticks60)
         s_blasterGranted = 1;
     }
 
-    if (s_blasterRecoil > 0.0f) {
-        s_blasterRecoil = fmaxf(0.0f, s_blasterRecoil - dt * 6.0f);
-    }
-    if (gevrJnDrawBlasterActive() && g_CurrentPlayer->hands[GUNRIGHT].weapon_beam.unk00 >= 0
-        && g_CurrentPlayer->hands[GUNRIGHT].weapon_beam.unk00 <= 1) {
-        s_blasterRecoil = 1.0f;
-    }
-
     if (!jnModeActive() || jnUsingGunsOverride()) {
         s_blocking = 0;
         s_blockHoldSec = 0.0f;
@@ -1116,72 +1360,149 @@ void gevrJnGameTick(s32 ticks60)
         s_lightningActive = 0;
         s_saberLockTimer = 0.0f;
         s_caughtProjIdx = -1;
+        s_vrBladeValid = s_vrOffBladeValid = s_vrForceValid = 0;
+        s_prevTipValid[0] = s_prevTipValid[1] = 0;
         jnRestoreShadowSpeed();
         gevrJnAudioSetState(0, 0, 0.0f, 0.0f, 0, 0, 0, 0);
         return;
     }
 
-    VrRagdolls = 1;
-    VrDismemberment = 1;
-    if (VrBodiesStay == 0) VrBodiesStay = GEVR_JN_DEFAULT_BODIES_STAY;
+    /* Determine RT / LT actions & world-space tracked VR poses */
+    const int bCtrl = VrJediHand ? 0 : 1;
+    const int fCtrl = 1 - bCtrl;
+    const int sword = jnEffectiveNinjaSword();
+    const int dbl = (VrJediNinjaMode == GEVR_JN_JEDI && VrSaberStyle == GEVR_JN_STYLE_DOUBLE);
+    const int dualOffhand = gevrJnIsDualSword(VrJediNinjaMode, sword)
+        || (VrJediNinjaMode == GEVR_JN_JEDI && VrSaberStyle == GEVR_JN_STYLE_DUAL);
+    const float reachCm = (VrJediNinjaMode == GEVR_JN_JEDI) ? 115.0f : gevrJnWeaponReachCm(GEVR_JN_NINJA, sword);
 
-    /* Determine RT / LT actions (Flat vs VR) */
     int bladeTap = 0, bladeBlock = 0, bladeThrow = 0;
     int offHold = 0, offRelease = 0, offDouble = 0;
     float bVelCm[3] = { 0.0f, 0.0f, 0.0f };
     float fVelCm[3] = { 0.0f, 0.0f, 0.0f };
     float vrSwing01 = 0.0f;
-    float bladeHandW[3], forceHandW[3];
+
+    float bladeHandW[3], forceHandW[3], forceDirW[3], bladeAimW[3];
     memcpy(bladeHandW, eye, sizeof(bladeHandW));
     memcpy(forceHandW, eye, sizeof(forceHandW));
+    memcpy(forceDirW, fwd, sizeof(forceDirW));
+    memcpy(bladeAimW, fwd, sizeof(bladeAimW));
     for (int k = 0; k < 3; k++) {
         bladeHandW[k] += right[k] * (VrJediHand ? -18.0f : 18.0f) - up[k] * 12.0f + fwd[k] * 32.0f;
         forceHandW[k] += right[k] * (VrJediHand ? 18.0f : -18.0f) - up[k] * 12.0f + fwd[k] * 32.0f;
     }
 
+    s_vrBladeValid = 0;
+    s_vrOffBladeValid = 0;
+    s_vrForceValid = 0;
+
     if (g_gevrStereo) {
-        const int bCtrl = VrJediHand ? 0 : 1;
-        const int fCtrl = 1 - bCtrl;
         const int bDown = get_analog_value(bCtrl, "trigger") > 0.5f;
         const int fDown = get_analog_value(fCtrl, "trigger") > 0.5f;
-        if (s_vrSlashCd[0] > 0.0f) s_vrSlashCd[0] -= dt;
-        if (s_vrSlashCd[1] > 0.0f) s_vrSlashCd[1] -= dt;
         if (s_vrPowerCd > 0.0f) s_vrPowerCd -= dt;
         if (s_vrThrowGuard > 0.0f) s_vrThrowGuard -= dt;
 
         bladeBlock = bDown;
-        bVelCm[0] = vr_ctrl_velocity_play[bCtrl][0] * 100.0f;
-        bVelCm[1] = vr_ctrl_velocity_play[bCtrl][1] * 100.0f;
-        bVelCm[2] = vr_ctrl_velocity_play[bCtrl][2] * 100.0f;
-        fVelCm[0] = vr_ctrl_velocity_play[fCtrl][0] * 100.0f;
-        fVelCm[1] = vr_ctrl_velocity_play[fCtrl][1] * 100.0f;
-        fVelCm[2] = vr_ctrl_velocity_play[fCtrl][2] * 100.0f;
+        gevrJnGetHandVelocityWorld(bCtrl, bVelCm);
+        gevrJnGetHandVelocityWorld(fCtrl, fVelCm);
 
-        if (!bDown && s_vrTrigWas[bCtrl] && gevrJnVrWristThrow(bVelCm, fwd, 1)) {
+        float br[3], bu[3], bf[3], fr[3], fu[3], ff[3];
+        if (gevrJnGetHandPoseWorld(bCtrl, s_vrBladeHiltW, br, bu, bf)) {
+            const float bd[3] = {
+                bf[0] * 0.35f + bu[0] * 0.94f,
+                bf[1] * 0.35f + bu[1] * 0.94f,
+                bf[2] * 0.35f + bu[2] * 0.94f
+            };
+            jnNorm3(bd, s_vrBladeDirW);
+            jnNorm3(bf, s_vrBladeAimW);
+            const float activeLen = (VrJediNinjaMode == GEVR_JN_JEDI) ? (91.0f * s_fpIgnite.extend + 24.0f) : reachCm;
+            for (int k = 0; k < 3; k++) {
+                s_vrBladeTipW[k] = s_vrBladeHiltW[k] + s_vrBladeDirW[k] * activeLen;
+                s_vrBladeBackW[k] = s_vrBladeHiltW[k] - s_vrBladeDirW[k] * (activeLen * 0.92f);
+            }
+            s_vrBladeValid = 1;
+            memcpy(bladeHandW, s_vrBladeHiltW, sizeof(bladeHandW));
+            memcpy(bladeAimW, s_vrBladeAimW, sizeof(bladeAimW));
+        }
+
+        if (gevrJnGetHandPoseWorld(fCtrl, s_vrForcePosW, fr, fu, ff)) {
+            jnNorm3(ff, s_vrForceAimW);
+            s_vrForceValid = 1;
+            memcpy(forceHandW, s_vrForcePosW, sizeof(forceHandW));
+            memcpy(forceDirW, s_vrForceAimW, sizeof(forceDirW));
+
+            if (dualOffhand) {
+                const float od[3] = {
+                    ff[0] * 0.35f + fu[0] * 0.94f,
+                    ff[1] * 0.35f + fu[1] * 0.94f,
+                    ff[2] * 0.35f + fu[2] * 0.94f
+                };
+                memcpy(s_vrOffHiltW, s_vrForcePosW, sizeof(s_vrOffHiltW));
+                jnNorm3(od, s_vrOffDirW);
+                const float oLen = (VrJediNinjaMode == GEVR_JN_JEDI) ? (81.0f * s_fpIgnite.extend + 24.0f) : 70.0f;
+                for (int k = 0; k < 3; k++) {
+                    s_vrOffTipW[k] = s_vrOffHiltW[k] + s_vrOffDirW[k] * oLen;
+                }
+                s_vrOffBladeValid = 1;
+            }
+        }
+
+        if (!bDown && s_vrTrigWas[bCtrl] && gevrJnVrWristThrow(bVelCm, bladeAimW, 1)) {
             bladeThrow = 1;
         }
         const float bSpeed = sqrtf(jnDot3(bVelCm, bVelCm));
         const float fSpeed = sqrtf(jnDot3(fVelCm, fVelCm));
         vrSwing01 = fminf(1.0f, fmaxf(bSpeed, fSpeed) / 220.0f);
-        if (!bDown && bSpeed >= 135.0f && s_vrSlashCd[bCtrl] <= 0.0f) {
+
+        /* Real tracked VR blade collision */
+        const int allowPrimaryBladeHit = s_vrBladeValid && !bDown && !s_thrown.active
+            && !(VrJediNinjaMode == GEVR_JN_NINJA && gevrJnSelectedNinjaSlot == GEVR_JN_NINJA_SLOT_SHADOW)
+            && !(VrJediNinjaMode == GEVR_JN_NINJA && gevrJnSelectedNinjaSlot == GEVR_JN_NINJA_SLOT_BOOMERANG);
+        if (allowPrimaryBladeHit && bSpeed >= 105.0f) {
+            float vDir[3];
+            jnNorm3(bVelCm, vDir);
+            if (s_vrWhooshCd[0] <= 0.0f && bSpeed >= 145.0f) {
+                jnSfx(VrJediNinjaMode == GEVR_JN_JEDI ? GEVR_JN_SFX_SLASH_SABER : GEVR_JN_SFX_SLASH_STEEL, fminf(1.3f, bSpeed / 180.0f));
+                s_vrWhooshCd[0] = 0.24f;
+            }
+            jnVrSweepBladeAgainstGuards(0, s_vrBladeHiltW, s_vrBladeTipW, s_vrBladeBackW, dbl,
+                                        s_prevTipW[0], s_prevTipValid[0], vDir, 14.0f, bCtrl);
+        } else if (VrJediNinjaMode == GEVR_JN_NINJA
+                   && (gevrJnSelectedNinjaSlot == GEVR_JN_NINJA_SLOT_BOOMERANG || gevrJnSelectedNinjaSlot == GEVR_JN_NINJA_SLOT_SHADOW)
+                   && !bDown && bSpeed >= 150.0f && s_vrWhooshCd[0] <= 0.0f) {
             bladeTap = 1;
-            s_vrSlashCd[bCtrl] = 0.28f;
+            s_vrWhooshCd[0] = 0.30f;
         }
-        const int dualOffhand = gevrJnIsDualSword(VrJediNinjaMode, jnEffectiveNinjaSword())
-            || (VrJediNinjaMode == GEVR_JN_JEDI && VrSaberStyle == GEVR_JN_STYLE_DUAL);
-        if (dualOffhand && !fDown && fSpeed >= 135.0f && s_vrSlashCd[fCtrl] <= 0.0f) {
-            gevrJnSlashStart(&s_offSlash, 0);
-            jnPerformMeleeSweep(eye, fwd, gevrJnWeaponReachCm(VrJediNinjaMode, jnEffectiveNinjaSword()), 12.0f);
-            jnSfx(VrJediNinjaMode == GEVR_JN_JEDI ? GEVR_JN_SFX_SLASH_SABER : GEVR_JN_SFX_SLASH_STEEL, 0.9f);
-            s_vrSlashCd[fCtrl] = 0.28f;
+        if (s_vrBladeValid) {
+            memcpy(s_prevTipW[0], s_vrBladeTipW, sizeof(s_prevTipW[0]));
+            s_prevTipValid[0] = 1;
+        } else {
+            s_prevTipValid[0] = 0;
+        }
+
+        if (dualOffhand && s_vrOffBladeValid && !fDown && fSpeed >= 105.0f) {
+            float vDir[3];
+            jnNorm3(fVelCm, vDir);
+            if (s_vrWhooshCd[1] <= 0.0f && fSpeed >= 145.0f) {
+                jnSfx(VrJediNinjaMode == GEVR_JN_JEDI ? GEVR_JN_SFX_SLASH_SABER : GEVR_JN_SFX_SLASH_STEEL, fminf(1.2f, fSpeed / 180.0f));
+                s_vrWhooshCd[1] = 0.24f;
+            }
+            jnVrSweepBladeAgainstGuards(1, s_vrOffHiltW, s_vrOffTipW, NULL, 0,
+                                        s_prevTipW[1], s_prevTipValid[1], vDir, 12.0f, fCtrl);
+        }
+        if (s_vrOffBladeValid) {
+            memcpy(s_prevTipW[1], s_vrOffTipW, sizeof(s_prevTipW[1]));
+            s_prevTipValid[1] = 1;
+        } else {
+            s_prevTipValid[1] = 0;
         }
 
         offHold = fDown;
         if (!fDown && s_vrTrigWas[fCtrl]) {
             offRelease = 1;
-            if (gevrJnVrWristThrow(fVelCm, fwd, 1)) offDouble = 1;
+            if (gevrJnVrWristThrow(fVelCm, forceDirW, 1)) offDouble = 1;
         }
-        if (fDown && s_vrPowerCd <= 0.0f && gevrJnVrWristPull(fVelCm, fwd, 1)) {
+        if (fDown && s_vrPowerCd <= 0.0f && gevrJnVrWristPull(fVelCm, forceDirW, 1)) {
             s_vrPowerCd = 0.25f;
         }
         s_vrTrigWas[bCtrl] = bDown;
@@ -1232,17 +1553,17 @@ void gevrJnGameTick(s32 ticks60)
                     (eye[2] + s_saberLockChr->prop->pos.z) * 0.5f
                 };
                 jnAddSpark(clashPt, 0xFFF480FFu, 26.0f, 0.18f);
-                jnHaptic(VrJediHand ? 0 : 1, 0.65f, 0.04f);
+                jnHaptic(bCtrl, 0.65f, 0.04f);
             }
-            const float pushIn = g_gevrStereo ? jnDot3(bVelCm, fwd) : 0.0f;
+            const float pushIn = g_gevrStereo ? jnDot3(bVelCm, bladeAimW) : 0.0f;
             if (bladeTap || pushIn > 150.0f) {
                 float dir[3] = { s_saberLockChr->prop->pos.x - eye[0], 0.0f, s_saberLockChr->prop->pos.z - eye[2] };
                 jnNorm3(dir, dir);
-                jnHitGuardWithBlade(s_saberLockChr, dir, 18.0f, 0);
+                jnHitGuardWithBlade(s_saberLockChr, dir, 18.0f, 0, 1);
                 JnSpecialNpc *sp = jnFindSpecial(s_saberLockChr);
                 if (sp) sp->meleeCd = 1.6f;
                 jnSfx(GEVR_JN_SFX_CLASH_SABER, 1.5f);
-                jnHaptic(VrJediHand ? 0 : 1, 1.0f, 0.12f);
+                jnHaptic(bCtrl, 1.0f, 0.12f);
                 s_saberLockTimer = 0.0f;
                 s_saberLockChr = NULL;
             }
@@ -1258,16 +1579,15 @@ void gevrJnGameTick(s32 ticks60)
         }
     }
 
-    /* Melee swing (cannot attack while blocking or while weapon is thrown) */
-    const int sword = jnEffectiveNinjaSword();
-    if (bladeTap && !s_blocking && !s_thrown.active
+    /* Flat-screen melee sweep (VR uses real tracked blade collision above) */
+    if (!g_gevrStereo && bladeTap && !s_blocking && !s_thrown.active
         && !(VrJediNinjaMode == GEVR_JN_NINJA && gevrJnSelectedNinjaSlot == GEVR_JN_NINJA_SLOT_SHADOW)
         && !(VrJediNinjaMode == GEVR_JN_NINJA && gevrJnSelectedNinjaSlot == GEVR_JN_NINJA_SLOT_BOOMERANG)) {
         if (gevrJnSlashStart(&s_slash, s_blocking)) {
-            const float reachMul = (VrJediNinjaMode == GEVR_JN_JEDI && VrSaberStyle == GEVR_JN_STYLE_DOUBLE) ? 1.12f : 1.0f;
+            const float reachMul = dbl ? 1.12f : 1.0f;
             jnPerformMeleeSweep(eye, fwd, gevrJnWeaponReachCm(VrJediNinjaMode, sword) * reachMul, 14.0f);
             jnSfx(VrJediNinjaMode == GEVR_JN_JEDI ? GEVR_JN_SFX_SLASH_SABER : GEVR_JN_SFX_SLASH_STEEL, 1.0f);
-            if (!g_gevrStereo && VrJediNinjaMode == GEVR_JN_JEDI && VrSaberStyle == GEVR_JN_STYLE_DUAL && !s_offSlash.active) {
+            if (VrJediNinjaMode == GEVR_JN_JEDI && VrSaberStyle == GEVR_JN_STYLE_DUAL && !s_offSlash.active) {
                 gevrJnSlashStart(&s_offSlash, 0);
             }
         }
@@ -1275,24 +1595,76 @@ void gevrJnGameTick(s32 ticks60)
     gevrJnSlashStep(&s_slash, dt);
     gevrJnSlashStep(&s_offSlash, dt);
 
-    /* Wall / floor plasma scorch sparks while saber blade scrapes geometry */
+    /* Sample world-space motion ribbons once per tick (fixes stereo per-eye trail corruption) */
+    if (VrJnBladeTrails && !s_thrown.active) {
+        if (VrJediNinjaMode == GEVR_JN_JEDI && s_fpIgnite.extend > 0.25f) {
+            if (g_gevrStereo && s_vrBladeValid) {
+                const float emitOff = dbl ? 16.0f : 24.0f;
+                const float emitW[3] = {
+                    s_vrBladeHiltW[0] + s_vrBladeDirW[0] * emitOff,
+                    s_vrBladeHiltW[1] + s_vrBladeDirW[1] * emitOff,
+                    s_vrBladeHiltW[2] + s_vrBladeDirW[2] * emitOff
+                };
+                jnTrailPushWorld(0, emitW, s_vrBladeTipW);
+                if (dbl) {
+                    const float emitB[3] = {
+                        s_vrBladeHiltW[0] - s_vrBladeDirW[0] * 16.0f,
+                        s_vrBladeHiltW[1] - s_vrBladeDirW[1] * 16.0f,
+                        s_vrBladeHiltW[2] - s_vrBladeDirW[2] * 16.0f
+                    };
+                    jnTrailPushWorld(1, emitB, s_vrBladeBackW);
+                }
+            } else {
+                const float sideSign = VrJediHand ? -1.0f : 1.0f;
+                float hw[3], tw[3];
+                jnFlatBladeWorld(eye, right, up, fwd, sideSign, 91.0f * s_fpIgnite.extend + 24.0f, hw, tw);
+                jnTrailPushWorld(0, hw, tw);
+            }
+            if (VrSaberStyle == GEVR_JN_STYLE_DUAL && g_gevrStereo && s_vrOffBladeValid) {
+                jnTrailPushWorld(2, s_vrOffHiltW, s_vrOffTipW);
+            }
+        } else if (VrJediNinjaMode == GEVR_JN_NINJA && gevrJnSelectedNinjaSlot != GEVR_JN_NINJA_SLOT_BOOMERANG) {
+            if (g_gevrStereo && s_vrBladeValid) {
+                jnTrailPushWorld(0, s_vrBladeHiltW, s_vrBladeTipW);
+            } else {
+                const float sideSign = VrJediHand ? -1.0f : 1.0f;
+                float hw[3], tw[3];
+                jnFlatBladeWorld(eye, right, up, fwd, sideSign, reachCm, hw, tw);
+                jnTrailPushWorld(0, hw, tw);
+            }
+            if (gevrJnIsDualSword(GEVR_JN_NINJA, sword) && g_gevrStereo && s_vrOffBladeValid) {
+                jnTrailPushWorld(2, s_vrOffHiltW, s_vrOffTipW);
+            }
+        }
+    }
+
+    /* Wall / floor plasma scorch sparks along actual tracked blade segment (or flat sweep) */
     if (VrJediNinjaMode == GEVR_JN_JEDI && VrJnBladeTrails && !s_thrown.active
         && s_fpIgnite.extend > 0.45f && pdphysIsReady()) {
-        float wDir[3] = {
-            fwd[0] * 0.65f + up[0] * 0.72f + (s_slash.active ? right[0] * 0.25f : 0.0f),
-            fwd[1] * 0.65f + up[1] * 0.72f,
-            fwd[2] * 0.65f + up[2] * 0.72f
-        };
-        jnNorm3(wDir, wDir);
-        const float tipW[3] = {
-            bladeHandW[0] + wDir[0] * 110.0f,
-            bladeHandW[1] + wDir[1] * 110.0f,
-            bladeHandW[2] + wDir[2] * 110.0f
-        };
         float hitPos[3];
-        if (pdphysRaycastAnyRoom(bladeHandW, tipW, hitPos, NULL, NULL) && s_wallSparkCd <= 0.0f) {
+        int hit = 0;
+        if (g_gevrStereo && s_vrBladeValid) {
+            hit = pdphysRaycastAnyRoom(s_vrBladeHiltW, s_vrBladeTipW, hitPos, NULL, NULL);
+            if (!hit && dbl) {
+                hit = pdphysRaycastAnyRoom(s_vrBladeHiltW, s_vrBladeBackW, hitPos, NULL, NULL);
+            }
+        } else {
+            float wDir[3] = {
+                fwd[0] * 0.65f + up[0] * 0.72f + (s_slash.active ? right[0] * 0.25f : 0.0f),
+                fwd[1] * 0.65f + up[1] * 0.72f,
+                fwd[2] * 0.65f + up[2] * 0.72f
+            };
+            jnNorm3(wDir, wDir);
+            const float tipW[3] = {
+                bladeHandW[0] + wDir[0] * 110.0f,
+                bladeHandW[1] + wDir[1] * 110.0f,
+                bladeHandW[2] + wDir[2] * 110.0f
+            };
+            hit = pdphysRaycastAnyRoom(bladeHandW, tipW, hitPos, NULL, NULL);
+        }
+        if (hit && s_wallSparkCd <= 0.0f) {
             jnAddSpark(hitPos, 0xFF9838FFu, 15.0f, 0.14f);
-            jnHaptic(VrJediHand ? 0 : 1, 0.25f, 0.02f);
+            jnHaptic(bCtrl, 0.25f, 0.02f);
             s_wallSparkCd = 0.055f;
         }
     }
@@ -1302,12 +1674,12 @@ void gevrJnGameTick(s32 ticks60)
         || (VrJediNinjaMode == GEVR_JN_NINJA && gevrJnSelectedNinjaSlot == GEVR_JN_NINJA_SLOT_BOOMERANG && bladeTap);
     if (wantThrow && !s_thrown.active && !s_blocking) {
         const int isBoom = (VrJediNinjaMode == GEVR_JN_NINJA);
-        gevrJnThrownLaunch(&s_thrown, isBoom, bladeHandW, fwd);
+        gevrJnThrownLaunch(&s_thrown, isBoom, bladeHandW, bladeAimW);
         s_thrownBounces = 0;
         s_throwHitCount = 0;
         jnTrailClear();
         jnSfx(isBoom ? GEVR_JN_SFX_SLASH_STEEL : GEVR_JN_SFX_SLASH_SABER, 1.2f);
-        jnHaptic(VrJediHand ? 0 : 1, 0.7f, 0.08f);
+        jnHaptic(bCtrl, 0.7f, 0.08f);
     }
 
     /* Update flying thrown blade / boomerang (+ corridor wall ricochets) */
@@ -1371,7 +1743,7 @@ void gevrJnGameTick(s32 ticks60)
 
             float dir[3];
             jnNorm3(s_thrown.vel, dir);
-            jnHitGuardWithBlade(c, dir, 18.0f, 2);
+            jnHitGuardWithBlade(c, dir, 18.0f, 2, 1);
         }
     }
 
@@ -1379,6 +1751,9 @@ void gevrJnGameTick(s32 ticks60)
     const int allowForce = (VrJediNinjaMode == GEVR_JN_JEDI && VrJediForcePowers != 0)
         || (VrJediNinjaMode == GEVR_JN_NINJA && !jnHasNinjaShield());
     const int useLightning = (VrJediNinjaMode == GEVR_JN_JEDI && gevrJnSelectedPower == GEVR_JN_FORCE_LIGHTNING);
+    const float *forceOrigin = (g_gevrStereo && s_vrForceValid) ? forceHandW : eye;
+    const float *forceAim = (g_gevrStereo && s_vrForceValid) ? forceDirW : fwd;
+
     s_lightningActive = 0;
     s_lightningCount = 0;
 
@@ -1388,6 +1763,10 @@ void gevrJnGameTick(s32 ticks60)
         s_grabBodySlot = -1;
         s_caughtProjIdx = -1;
     } else if (useLightning && offHold) {
+        float pOrigin[3];
+        StandTile *pStan = NULL;
+        jnGetPlayerTileOrigin(pOrigin, &pStan);
+
         s_lightningActive = 1;
         s_lightningTickAccum += dt;
         const int doDmg = (s_lightningTickAccum >= 0.12f);
@@ -1397,28 +1776,34 @@ void gevrJnGameTick(s32 ticks60)
         for (s32 i = 0; i < n && s_lightningCount < JN_MAX_LIGHTNING; i++) {
             ChrRecord *c = &g_ChrSlots[i];
             if (!jnIsEnemyGuard(c)) continue;
-            const float dx = c->prop->pos.x - eye[0];
-            const float dy = (c->prop->pos.y + 100.0f) - eye[1];
-            const float dz = c->prop->pos.z - eye[2];
+            const float tgt[3] = { c->prop->pos.x, c->prop->pos.y + 100.0f, c->prop->pos.z };
+            const float dx = tgt[0] - forceOrigin[0];
+            const float dy = tgt[1] - forceOrigin[1];
+            const float dz = tgt[2] - forceOrigin[2];
             const float d2 = dx * dx + dy * dy + dz * dz;
             if (d2 > 900.0f * 900.0f || d2 < 1.0f) continue;
             const float d = sqrtf(d2);
             const float dir[3] = { dx / d, dy / d, dz / d };
-            if (jnDot3(fwd, dir) < 0.65f) continue;
+            if (jnDot3(forceAim, dir) < 0.65f) continue;
+            if (!jnHasLos(forceOrigin, pStan, pOrigin, tgt)) continue;
             s_lightningChrs[s_lightningCount] = c;
             s_lightningChrnums[s_lightningCount] = c->chrnum;
             s_lightningCount++;
             if (doDmg) {
-                jnHitGuardWithBlade(c, dir, 2.2f, 0);
+                jnHitGuardWithBlade(c, dir, 0.55f, 0, 0);
             }
         }
     } else if (allowForce) {
+        float pOrigin[3];
+        StandTile *pStan = NULL;
+        jnGetPlayerTileOrigin(pOrigin, &pStan);
+
         float chokeTarget[3];
-        gevrJnChokeTargetPos(forceHandW, fwd, chokeTarget);
+        gevrJnChokeTargetPos(forceOrigin, forceAim, chokeTarget);
         float ballCenter[3] = {
-            eye[0] + fwd[0] * 115.0f,
-            eye[1] + fwd[1] * 115.0f - 10.0f,
-            eye[2] + fwd[2] * 115.0f
+            forceOrigin[0] + forceAim[0] * 105.0f,
+            forceOrigin[1] + forceAim[1] * 105.0f - 8.0f,
+            forceOrigin[2] + forceAim[2] * 105.0f
         };
 
         if (offHold) {
@@ -1447,12 +1832,12 @@ void gevrJnGameTick(s32 ticks60)
                         const float slamDir[3] = { 0.0f, -1.0f, 0.0f };
                         const float slamVel[3] = { 0.0f, -900.0f, 0.0f };
                         memcpy(s_thrownBodyStart, s_chokeChr->prop->pos.f, sizeof(s_thrownBodyStart));
-                        jnHitGuardWithBlade(s_chokeChr, slamDir, 45.0f, 0);
+                        jnHitGuardWithBlade(s_chokeChr, slamDir, 45.0f, 0, 0);
                         int bslot = gevrRagdollFindNearestBody(s_thrownBodyStart, slamDir, 260.0f, -1.0f, NULL);
                         if (bslot >= 0) gevrRagdollThrowBody(bslot, slamVel);
                         jnAddSpark(s_thrownBodyStart, 0x88C0FFFFu, 32.0f, 0.25f);
                         jnSfx(GEVR_JN_SFX_FORCE_PUSH, 1.35f);
-                        jnHaptic(VrJediHand ? 1 : 0, 1.0f, 0.12f);
+                        jnHaptic(fCtrl, 1.0f, 0.12f);
                         s_chokeActive = 0;
                         s_chokeChr = NULL;
                     }
@@ -1467,9 +1852,9 @@ void gevrJnGameTick(s32 ticks60)
             } else if (VrJediNinjaMode == GEVR_JN_JEDI && VrJediCatchProjectiles && s_caughtProjIdx >= 0) {
                 if (jnProjValidAirborne(s_caughtProjIdx)) {
                     Projectile *pr = &g_Projectiles[s_caughtProjIdx];
-                    pr->speed.x = (forceHandW[0] - pr->obj->prop->pos.x) * 0.14f;
-                    pr->speed.y = (forceHandW[1] - pr->obj->prop->pos.y) * 0.14f;
-                    pr->speed.z = (forceHandW[2] - pr->obj->prop->pos.z) * 0.14f;
+                    pr->speed.x = (forceOrigin[0] + forceAim[0] * 45.0f - pr->obj->prop->pos.x) * 0.14f;
+                    pr->speed.y = (forceOrigin[1] + forceAim[1] * 45.0f - pr->obj->prop->pos.y) * 0.14f;
+                    pr->speed.z = (forceOrigin[2] + forceAim[2] * 45.0f - pr->obj->prop->pos.z) * 0.14f;
                 } else {
                     s_caughtProjIdx = -1;
                 }
@@ -1481,23 +1866,24 @@ void gevrJnGameTick(s32 ticks60)
                     for (int pi = 0; pi < PROJECTILES_ARR_MAX; pi++) {
                         if (!jnProjValidAirborne(pi)) continue;
                         Projectile *pr = &g_Projectiles[pi];
-                        const float dx = pr->obj->prop->pos.x - eye[0];
-                        const float dy = pr->obj->prop->pos.y - eye[1];
-                        const float dz = pr->obj->prop->pos.z - eye[2];
+                        const float dx = pr->obj->prop->pos.x - forceOrigin[0];
+                        const float dy = pr->obj->prop->pos.y - forceOrigin[1];
+                        const float dz = pr->obj->prop->pos.z - forceOrigin[2];
                         const float d2 = dx * dx + dy * dy + dz * dz;
                         if (d2 >= bestD2 || d2 < 4.0f) continue;
                         const float d = sqrtf(d2);
-                        if ((dx * fwd[0] + dy * fwd[1] + dz * fwd[2]) / d < 0.72f) continue;
+                        if ((dx * forceAim[0] + dy * forceAim[1] + dz * forceAim[2]) / d < 0.72f) continue;
+                        if (!jnHasLos(forceOrigin, pStan, pOrigin, pr->obj->prop->pos.f)) continue;
                         bestD2 = d2;
                         bestIdx = pi;
                     }
                     if (bestIdx >= 0) {
                         s_caughtProjIdx = bestIdx;
                         caughtProj = 1;
-                        jnHaptic(VrJediHand ? 1 : 0, 0.5f, 0.05f);
+                        jnHaptic(fCtrl, 0.5f, 0.05f);
                     }
                 }
-                ChrRecord *closeNpc = caughtProj ? NULL : jnFindForceTarget(eye, fwd, GEVR_JN_GRAB_RANGE_CM, 0.72f);
+                ChrRecord *closeNpc = caughtProj ? NULL : jnFindForceTarget(forceOrigin, forceAim, GEVR_JN_GRAB_RANGE_CM, 0.72f);
                 if (caughtProj) {
                     /* held by off-hand */
                 } else if (closeNpc) {
@@ -1505,25 +1891,25 @@ void gevrJnGameTick(s32 ticks60)
                     s_chokeChrnum = closeNpc->chrnum;
                     s_chokeActive = 1;
                     s_chokeHoldSec = 0.0f;
-                    jnHaptic(VrJediHand ? 1 : 0, 0.5f, 0.06f);
+                    jnHaptic(fCtrl, 0.5f, 0.06f);
                 } else {
                     float bodyPos[3];
-                    int bslot = gevrRagdollFindNearestBody(eye, fwd, 900.0f, 0.75f, bodyPos);
-                    if (bslot >= 0) {
+                    int bslot = gevrRagdollFindNearestBody(forceOrigin, forceAim, 900.0f, 0.75f, bodyPos);
+                    if (bslot >= 0 && jnHasLos(forceOrigin, pStan, pOrigin, bodyPos)) {
                         s_grabBodySlot = bslot;
                         gevrRagdollPullBody(bslot, chokeTarget, 1600.0f, 7.5f);
                     } else if (VrJediNinjaMode == GEVR_JN_JEDI) {
-                        int pulled = gevrRagdollPullLooseLimbs(eye, ballCenter, GEVR_JN_PULL_RANGE_CM, s_time, GEVR_JN_MAX_LIMBS);
+                        int pulled = gevrRagdollPullLooseLimbs(forceOrigin, ballCenter, GEVR_JN_PULL_RANGE_CM, s_time, GEVR_JN_MAX_LIMBS);
                         if (pulled > 0) {
                             s_limbBallSuspended = 1;
                             memcpy(s_limbBallPos, ballCenter, sizeof(s_limbBallPos));
                         }
-                        ChrRecord *farNpc = jnFindForceTarget(eye, fwd, GEVR_JN_PULL_RANGE_CM, 0.84f);
+                        ChrRecord *farNpc = jnFindForceTarget(forceOrigin, forceAim, GEVR_JN_PULL_RANGE_CM, 0.84f);
                         if (farNpc) {
                             float p[3] = { farNpc->prop->pos.x, farNpc->prop->pos.y, farNpc->prop->pos.z };
-                            const float toEye[3] = { eye[0] - p[0], eye[1] - 100.0f - p[1], eye[2] - p[2] };
+                            const float toHand[3] = { forceOrigin[0] - p[0], forceOrigin[1] - 100.0f - p[1], forceOrigin[2] - p[2] };
                             float nd[3];
-                            const float d = jnNorm3(toEye, nd);
+                            const float d = jnNorm3(toHand, nd);
                             if (d > 140.0f) {
                                 const float step = fminf(d - 110.0f, 680.0f * dt);
                                 float nxt[3] = { p[0] + nd[0] * step, p[1] + nd[1] * step, p[2] + nd[2] * step };
@@ -1537,13 +1923,13 @@ void gevrJnGameTick(s32 ticks60)
 
         if (offRelease) {
             if (s_chokeActive && jnChrAliveValid(s_chokeChr, s_chokeChrnum)) {
-                float launchDir[3] = { fwd[0], fwd[1], fwd[2] };
+                float launchDir[3] = { forceAim[0], forceAim[1], forceAim[2] };
                 if (g_gevrStereo && sqrtf(jnDot3(fVelCm, fVelCm)) > 240.0f) {
                     jnNorm3(fVelCm, launchDir);
                 }
                 const float throwVel[3] = { launchDir[0] * 1600.0f, launchDir[1] * 1600.0f + 160.0f, launchDir[2] * 1600.0f };
                 memcpy(s_thrownBodyStart, s_chokeChr->prop->pos.f, sizeof(s_thrownBodyStart));
-                jnHitGuardWithBlade(s_chokeChr, launchDir, 40.0f, 0);
+                jnHitGuardWithBlade(s_chokeChr, launchDir, 40.0f, 0, 0);
                 int bslot = gevrRagdollFindNearestBody(s_thrownBodyStart, launchDir, 260.0f, -1.0f, NULL);
                 if (bslot >= 0) {
                     gevrRagdollThrowBody(bslot, throwVel);
@@ -1555,9 +1941,13 @@ void gevrJnGameTick(s32 ticks60)
                 jnSfx(GEVR_JN_SFX_FORCE_PUSH, 1.0f);
                 s_chokeActive = 0;
                 s_chokeChr = NULL;
-                jnHaptic(VrJediHand ? 1 : 0, 0.9f, 0.10f);
+                jnHaptic(fCtrl, 0.9f, 0.10f);
             } else if (s_grabBodySlot >= 0) {
-                const float throwVel[3] = { fwd[0] * 1600.0f, fwd[1] * 1600.0f + 180.0f, fwd[2] * 1600.0f };
+                float launchDir[3] = { forceAim[0], forceAim[1], forceAim[2] };
+                if (g_gevrStereo && sqrtf(jnDot3(fVelCm, fVelCm)) > 240.0f) {
+                    jnNorm3(fVelCm, launchDir);
+                }
+                const float throwVel[3] = { launchDir[0] * 1600.0f, launchDir[1] * 1600.0f + 180.0f, launchDir[2] * 1600.0f };
                 gevrRagdollGetBodyPos(s_grabBodySlot, s_thrownBodyStart);
                 gevrRagdollThrowBody(s_grabBodySlot, throwVel);
                 s_thrownBodySlot = s_grabBodySlot;
@@ -1566,13 +1956,13 @@ void gevrJnGameTick(s32 ticks60)
                 gevrJnThrownBodyInit(&s_thrownBody, 80.0f, 1600.0f);
                 jnSfx(GEVR_JN_SFX_FORCE_PUSH, 0.95f);
                 s_grabBodySlot = -1;
-                jnHaptic(VrJediHand ? 1 : 0, 0.9f, 0.10f);
+                jnHaptic(fCtrl, 0.9f, 0.10f);
             } else if (s_caughtProjIdx >= 0) {
                 if (jnProjValidAirborne(s_caughtProjIdx) && g_CurrentPlayer && g_CurrentPlayer->prop) {
                     Projectile *pr = &g_Projectiles[s_caughtProjIdx];
-                    pr->speed.x = fwd[0] * 28.0f;
-                    pr->speed.y = fwd[1] * 28.0f;
-                    pr->speed.z = fwd[2] * 28.0f;
+                    pr->speed.x = forceAim[0] * 28.0f;
+                    pr->speed.y = forceAim[1] * 28.0f;
+                    pr->speed.z = forceAim[2] * 28.0f;
                     pr->ownerprop = g_CurrentPlayer->prop;
                     jnAddSpark(pr->obj->prop->pos.f, 0x88E0FFFFu, 22.0f, 0.22f);
                     jnSfx(GEVR_JN_SFX_FORCE_PUSH, 1.05f);
@@ -1585,7 +1975,7 @@ void gevrJnGameTick(s32 ticks60)
         }
 
         if (s_limbBallSuspended && VrJediNinjaMode == GEVR_JN_JEDI) {
-            int kept = gevrRagdollPullLooseLimbs(eye, ballCenter, 360.0f, s_time, GEVR_JN_MAX_LIMBS);
+            int kept = gevrRagdollPullLooseLimbs(forceOrigin, ballCenter, 360.0f, s_time, GEVR_JN_MAX_LIMBS);
             if (kept <= 0 && !offHold) {
                 s_limbBallSuspended = 0;
             } else {
@@ -1595,29 +1985,31 @@ void gevrJnGameTick(s32 ticks60)
 
         if (offDouble && VrJediNinjaMode == GEVR_JN_JEDI) {
             if (s_limbBallSuspended) {
-                gevrRagdollLaunchLooseLimbs(s_limbBallPos, fwd, 1800.0f, 190.0f);
+                gevrRagdollLaunchLooseLimbs(s_limbBallPos, forceAim, 1800.0f, 190.0f);
                 const s32 n = get_numguards();
                 for (s32 i = 0; i < n; i++) {
                     ChrRecord *c = &g_ChrSlots[i];
                     if (!jnIsEnemyGuard(c)) continue;
-                    const float dx = c->prop->pos.x - eye[0];
-                    const float dy = (c->prop->pos.y + 100.0f) - eye[1];
-                    const float dz = c->prop->pos.z - eye[2];
+                    const float tgt[3] = { c->prop->pos.x, c->prop->pos.y + 100.0f, c->prop->pos.z };
+                    const float dx = tgt[0] - forceOrigin[0];
+                    const float dy = tgt[1] - forceOrigin[1];
+                    const float dz = tgt[2] - forceOrigin[2];
                     const float d = sqrtf(dx * dx + dy * dy + dz * dz);
                     if (d < 1.0f || d > 950.0f) continue;
                     const float dir[3] = { dx / d, dy / d, dz / d };
-                    if (jnDot3(fwd, dir) < 0.65f) continue;
+                    if (jnDot3(forceAim, dir) < 0.65f) continue;
+                    if (!jnHasLos(forceOrigin, pStan, pOrigin, tgt)) continue;
                     const float dmg = gevrJnLimbBlastDamage(d);
                     if (dmg >= 80.0f) {
-                        jnHitGuardWithBlade(c, dir, 24.0f, 1);
+                        jnHitGuardWithBlade(c, dir, 24.0f, 1, 0);
                     } else if (dmg > 0.0f) {
-                        jnHitGuardWithBlade(c, dir, dmg * 0.15f, 0);
+                        jnHitGuardWithBlade(c, dir, dmg * 0.05f, 0, 0);
                     }
                 }
                 s_limbBallSuspended = 0;
-                jnHaptic(VrJediHand ? 1 : 0, 1.0f, 0.12f);
+                jnHaptic(fCtrl, 1.0f, 0.12f);
             } else {
-                jnTriggerForcePush(eye, fwd);
+                jnTriggerForcePush(forceOrigin, forceAim);
             }
         }
     }
@@ -1651,11 +2043,11 @@ void gevrJnGameTick(s32 ticks60)
                 float knock = 0.0f;
                 const int impact = gevrJnThrownBodyImpact(&s_thrownBody, travel, &knock);
                 if (impact == GEVR_JN_IMPACT_DISMEMBER) {
-                    jnHitGuardWithBlade(c, fwd, 40.0f, 3);
+                    jnHitGuardWithBlade(c, forceAim, 24.0f, 3, 0);
                 } else if (impact == GEVR_JN_IMPACT_RAGDOLL_KILL) {
-                    jnHitGuardWithBlade(c, fwd, 25.0f, 0);
+                    jnHitGuardWithBlade(c, forceAim, 12.0f, 0, 0);
                 } else if (impact == GEVR_JN_IMPACT_KNOCKDOWN) {
-                    jnHitGuardWithBlade(c, fwd, 5.0f, 0);
+                    jnHitGuardWithBlade(c, forceAim, 0.8f, 0, 0);
                 }
                 if (knock <= 120.0f) {
                     s_thrownBodySlot = -1;
@@ -1689,12 +2081,14 @@ s32 gevrJnInterceptPlayerDamage(f32 damageAmount, f32 vecX, f32 vecZ)
     float eye[3], right[3], up[3], fwd[3];
     jnGetPlayerCameraWorld(eye, right, up, fwd);
 
-    /* Ninja bullet-slice mid-swing */
-    if (VrJediNinjaMode == GEVR_JN_NINJA && VrNinjaBulletSlice && (s_slash.active || s_offSlash.active)) {
+    /* Ninja bullet-slice mid-swing (flat animation OR fast VR tracked blade swing) */
+    const int vrSwinging = g_gevrStereo && s_vrBladeValid && s_vrWhooshCd[0] > 0.05f;
+    if (VrJediNinjaMode == GEVR_JN_NINJA && VrNinjaBulletSlice
+        && (s_slash.active || s_offSlash.active || vrSwinging)) {
         const float cutPt[3] = {
-            eye[0] + fwd[0] * 55.0f,
-            eye[1] + fwd[1] * 55.0f,
-            eye[2] + fwd[2] * 55.0f
+            (g_gevrStereo && s_vrBladeValid) ? (s_vrBladeHiltW[0] + s_vrBladeTipW[0]) * 0.5f : (eye[0] + fwd[0] * 55.0f),
+            (g_gevrStereo && s_vrBladeValid) ? (s_vrBladeHiltW[1] + s_vrBladeTipW[1]) * 0.5f : (eye[1] + fwd[1] * 55.0f),
+            (g_gevrStereo && s_vrBladeValid) ? (s_vrBladeHiltW[2] + s_vrBladeTipW[2]) * 0.5f : (eye[2] + fwd[2] * 55.0f)
         };
         jnAddSpark(cutPt, 0xF0F8FFFFu, 26.0f, 0.18f);
         jnSfx(GEVR_JN_SFX_CLASH_METAL, 1.15f);
@@ -1702,24 +2096,45 @@ s32 gevrJnInterceptPlayerDamage(f32 damageAmount, f32 vecX, f32 vecZ)
         return 1;
     }
 
-    float toShooter[3] = { vecX, 0.0f, vecZ };
-    /* If caller passed zero vector, look for nearest threatening guard in front */
-    if (toShooter[0] * toShooter[0] + toShooter[2] * toShooter[2] < 1e-4f) {
+    /* GoldenEye record_damage_kills passes bullet travel vector (shooter -> player);
+     * negate to obtain direction from player toward the shooter. */
+    const float travel[3] = { vecX, 0.0f, vecZ };
+    float toShooter[3];
+    if (!gevrJnBulletTravelToShooter(travel, toShooter)) {
         toShooter[0] = fwd[0];
         toShooter[1] = fwd[1];
         toShooter[2] = fwd[2];
     }
+
     float reflectDir[3] = { 0.0f, 0.0f, 0.0f };
-    const int res = gevrJnCheckBlock(VrJediNinjaMode, s_blocking || s_ninjaShieldHeld,
-                                     s_ninjaShieldHeld, fwd, toShooter, reflectDir);
+    int res;
+    if (g_gevrStereo && (s_vrBladeValid || s_vrForceValid)) {
+        const float *bDir = s_vrBladeValid ? s_vrBladeDirW : fwd;
+        const float *handAim = s_ninjaShieldHeld
+            ? (s_vrForceValid ? s_vrForceAimW : fwd)
+            : (s_vrBladeValid ? s_vrBladeAimW : fwd);
+        res = gevrJnCheckVrBladeBlock(VrJediNinjaMode, s_blocking || s_ninjaShieldHeld,
+                                      s_ninjaShieldHeld, fwd, bDir, handAim, toShooter, reflectDir);
+    } else {
+        res = gevrJnCheckBlock(VrJediNinjaMode, s_blocking || s_ninjaShieldHeld,
+                               s_ninjaShieldHeld, fwd, toShooter, reflectDir);
+    }
     if (res == GEVR_JN_BLOCK_NONE) return 0;
 
     const int perfect = (VrJnPerfectParry != 0 && s_blockHoldSec <= 0.22f && res == GEVR_JN_BLOCK_DEFLECT);
-    float bladePt[3] = {
-        eye[0] + fwd[0] * 48.0f + right[0] * (s_ninjaShieldHeld ? -10.0f : 6.0f),
-        eye[1] + fwd[1] * 48.0f - up[1] * 6.0f,
-        eye[2] + fwd[2] * 48.0f + right[2] * (s_ninjaShieldHeld ? -10.0f : 6.0f)
-    };
+    float bladePt[3];
+    if (g_gevrStereo && s_ninjaShieldHeld && s_vrForceValid) {
+        memcpy(bladePt, s_vrForcePosW, sizeof(bladePt));
+    } else if (g_gevrStereo && s_vrBladeValid) {
+        bladePt[0] = s_vrBladeHiltW[0] + s_vrBladeDirW[0] * 55.0f;
+        bladePt[1] = s_vrBladeHiltW[1] + s_vrBladeDirW[1] * 55.0f;
+        bladePt[2] = s_vrBladeHiltW[2] + s_vrBladeDirW[2] * 55.0f;
+    } else {
+        bladePt[0] = eye[0] + fwd[0] * 48.0f + right[0] * (s_ninjaShieldHeld ? -10.0f : 6.0f);
+        bladePt[1] = eye[1] + fwd[1] * 48.0f - up[1] * 6.0f;
+        bladePt[2] = eye[2] + fwd[2] * 48.0f + right[2] * (s_ninjaShieldHeld ? -10.0f : 6.0f);
+    }
+
     unsigned int core = 0xFFFFFFFFu, glow = 0xFFD860FFu;
     if (VrJediNinjaMode == GEVR_JN_JEDI) {
         gevrJnSaberPalette(VrSaberColor, &core, &glow);
@@ -1730,8 +2145,10 @@ s32 gevrJnInterceptPlayerDamage(f32 damageAmount, f32 vecX, f32 vecZ)
     jnHaptic(VrJediHand ? 0 : 1, perfect ? 1.0f : 0.85f, perfect ? 0.10f : 0.07f);
 
     if (res == GEVR_JN_BLOCK_DEFLECT) {
-        ChrRecord *shooter = g_gevrStereo ? jnFindForceTarget(eye, fwd, 2200.0f, 0.70f) : NULL;
-        if (!shooter) shooter = jnFindForceTarget(eye, reflectDir, 2200.0f, 0.70f);
+        ChrRecord *shooter = jnFindForceTarget(bladePt, reflectDir, 2200.0f, 0.70f);
+        if (!shooter && g_gevrStereo) {
+            shooter = jnFindForceTarget(eye, fwd, 2200.0f, 0.70f);
+        }
         if (shooter) {
             const float tgt[3] = {
                 shooter->prop->pos.x,
@@ -1745,7 +2162,7 @@ s32 gevrJnInterceptPlayerDamage(f32 damageAmount, f32 vecX, f32 vecZ)
                 ? (perfect ? 0xFFF480FFu : 0x58E8FFFFu)
                 : (VrJediNinjaMode == GEVR_JN_JEDI ? glow : 0xFFD840FFu);
             jnAddTracer(bladePt, tgt, boltCol, 0.18f);
-            jnHitGuardWithBlade(shooter, nd, perfect ? 38.0f : 16.0f, 0);
+            jnHitGuardWithBlade(shooter, nd, perfect ? 18.0f : 3.5f, 0, 1);
         } else {
             const float farPt[3] = {
                 bladePt[0] + reflectDir[0] * 900.0f,
@@ -1762,7 +2179,7 @@ s32 gevrJnInterceptPlayerDamage(f32 damageAmount, f32 vecX, f32 vecZ)
 }
 
 /* -------------------------------------------------------------------------- */
-/* Fast3D Ultra-Performant 3D Rendering Helpers                               */
+/* Fast3D Shaded Geometry Helpers                                             */
 /* -------------------------------------------------------------------------- */
 
 static void jnSetVtx(Vtx *v, f32 x, f32 y, f32 z, u32 rgba)
@@ -1776,6 +2193,16 @@ static void jnSetVtx(Vtx *v, f32 x, f32 y, f32 z, u32 rgba)
     v->v.cn[1] = (rgba >> 16) & 0xff;
     v->v.cn[2] = (rgba >> 8) & 0xff;
     v->v.cn[3] = rgba & 0xff;
+}
+
+static u32 jnShadeRgba(u32 rgba, float mul)
+{
+    if (mul < 0.40f) mul = 0.40f;
+    if (mul > 1.0f) mul = 1.0f;
+    const unsigned int r = (unsigned int)((float)((rgba >> 24) & 0xff) * mul);
+    const unsigned int g = (unsigned int)((float)((rgba >> 16) & 0xff) * mul);
+    const unsigned int b = (unsigned int)((float)((rgba >> 8) & 0xff) * mul);
+    return (r << 24) | (g << 16) | (b << 8) | (rgba & 0xffu);
 }
 
 static Gfx *jnBeginGeom(Gfx *gdl, const float originView[3], float scale, int translucent)
@@ -1814,11 +2241,11 @@ static void jnOrthoFrame(const float dir[3], float uOut[3], float vOut[3])
     jnNorm3(vOut, vOut);
 }
 
-/* 4-sided tapered prism from origin along dir*lenMm (in mm local about originView) */
+/* 6-sided smoothly shaded cylindrical prism from origin along dir*lenMm (mm local) */
 static Gfx *jnEmitPrism(Gfx *gdl, const float aMm[3], const float dir[3], float lenMm,
-                        float r0Mm, float r1Mm, u32 rgbaBase, u32 rgbaTip)
+                        float r0Mm, float r1Mm, u32 rgbaBase, u32 rgbaTip, int emissive)
 {
-    Vtx *v = dynAllocateVertices(8);
+    Vtx *v = dynAllocateVertices(12);
     if (!v) return gdl;
     float u[3], w[3];
     jnOrthoFrame(dir, u, w);
@@ -1827,22 +2254,22 @@ static Gfx *jnEmitPrism(Gfx *gdl, const float aMm[3], const float dir[3], float 
         aMm[1] + dir[1] * lenMm,
         aMm[2] + dir[2] * lenMm
     };
-    const float ox[4] = { 1, 0, -1, 0 };
-    const float oy[4] = { 0, 1, 0, -1 };
-    for (int i = 0; i < 4; i++) {
-        jnSetVtx(&v[i],
-                 aMm[0] + (u[0] * ox[i] + w[0] * oy[i]) * r0Mm,
-                 aMm[1] + (u[1] * ox[i] + w[1] * oy[i]) * r0Mm,
-                 aMm[2] + (u[2] * ox[i] + w[2] * oy[i]) * r0Mm, rgbaBase);
-        jnSetVtx(&v[4 + i],
-                 bMm[0] + (u[0] * ox[i] + w[0] * oy[i]) * r1Mm,
-                 bMm[1] + (u[1] * ox[i] + w[1] * oy[i]) * r1Mm,
-                 bMm[2] + (u[2] * ox[i] + w[2] * oy[i]) * r1Mm, rgbaTip);
+    for (int i = 0; i < 6; i++) {
+        const float theta = (float)i * (6.2831853f / 6.0f);
+        const float ca = cosf(theta), sa = sinf(theta);
+        const float nx = u[0] * ca + w[0] * sa;
+        const float ny = u[1] * ca + w[1] * sa;
+        const float nz = u[2] * ca + w[2] * sa;
+        const float ldot = emissive ? 1.0f : (0.72f + 0.28f * (ny * 0.75f + nx * 0.45f - nz * 0.25f));
+        const u32 c0 = emissive ? rgbaBase : jnShadeRgba(rgbaBase, ldot);
+        const u32 c1 = emissive ? rgbaTip : jnShadeRgba(rgbaTip, ldot);
+        jnSetVtx(&v[i], aMm[0] + nx * r0Mm, aMm[1] + ny * r0Mm, aMm[2] + nz * r0Mm, c0);
+        jnSetVtx(&v[6 + i], bMm[0] + nx * r1Mm, bMm[1] + ny * r1Mm, bMm[2] + nz * r1Mm, c1);
     }
-    gSPVertex(gdl++, osVirtualToPhysical(v), 8, 0);
-    for (int i = 0; i < 4; i++) {
-        int j = (i + 1) & 3;
-        gSP2Triangles(gdl++, i, j, 4 + j, 0, i, 4 + j, 4 + i, 0);
+    gSPVertex(gdl++, osVirtualToPhysical(v), 12, 0);
+    for (int i = 0; i < 6; i++) {
+        int j = (i + 1) % 6;
+        gSP2Triangles(gdl++, i, j, 6 + j, 0, i, 6 + j, 6 + i, 0);
     }
     return gdl;
 }
@@ -1863,21 +2290,21 @@ static Gfx *jnDrawLightsaberExView(Gfx *gdl, const float hiltView[3], const floa
     Gfx *beg = jnBeginGeom(gdl, hiltView, scale, 0);
     if (!beg) return gdl;
     gdl = beg;
-    gdl = jnEmitPrism(gdl, hiltStart, dirView, hiltMm, 17.0f, 15.0f, 0x222428FFu, 0x707882FFu);
+    gdl = jnEmitPrism(gdl, hiltStart, dirView, hiltMm, 17.0f, 15.0f, 0x282A30FFu, 0x808894FFu, 0);
     if (extend01 > 0.02f) {
         const float bladeMm = (lenCm * 10.0f - 240.0f) * extend01;
-        gdl = jnEmitPrism(gdl, emitter, dirView, bladeMm, 11.0f, 6.0f, core, core);
+        gdl = jnEmitPrism(gdl, emitter, dirView, bladeMm, 11.0f, 6.0f, core, core, 1);
         if (doubleEnded) {
-            gdl = jnEmitPrism(gdl, backEmitter, negDir, bladeMm * 0.92f, 11.0f, 6.0f, core, core);
+            gdl = jnEmitPrism(gdl, backEmitter, negDir, bladeMm * 0.92f, 11.0f, 6.0f, core, core, 1);
         }
         beg = jnBeginGeom(gdl, hiltView, scale, 1);
         if (beg) {
             gdl = beg;
             const float pulse = 1.0f + 0.08f * sinf(s_time * 38.0f);
-            gdl = jnEmitPrism(gdl, emitter, dirView, bladeMm + 25.0f, 25.0f * pulse, 14.0f * pulse, glow, glow & 0xFFFFFF90u);
+            gdl = jnEmitPrism(gdl, emitter, dirView, bladeMm + 25.0f, 25.0f * pulse, 14.0f * pulse, glow, glow & 0xFFFFFF90u, 1);
             if (doubleEnded) {
                 gdl = jnEmitPrism(gdl, backEmitter, negDir, bladeMm * 0.92f + 25.0f,
-                                  25.0f * pulse, 14.0f * pulse, glow, glow & 0xFFFFFF90u);
+                                  25.0f * pulse, 14.0f * pulse, glow, glow & 0xFFFFFF90u, 1);
             }
         }
     }
@@ -1890,122 +2317,6 @@ static Gfx *jnDrawLightsaberView(Gfx *gdl, const float hiltView[3], const float 
     return jnDrawLightsaberExView(gdl, hiltView, dirView, lenCm, extend01, colorIdx, scale, 0);
 }
 
-/* Axis-aligned in grip basis (r/u/f) solid 8-vtx box in mm */
-static Gfx *jnEmitBox(Gfx *gdl, const float cMm[3], const float r[3], const float u[3], const float f[3],
-                      float hr, float hu, float hf, u32 rgbaTop, u32 rgbaBot)
-{
-    Vtx *v = dynAllocateVertices(8);
-    if (!v) return gdl;
-    static const float s_corners[8][3] = {
-        { -1, -1, -1 }, {  1, -1, -1 }, {  1,  1, -1 }, { -1,  1, -1 },
-        { -1, -1,  1 }, {  1, -1,  1 }, {  1,  1,  1 }, { -1,  1,  1 }
-    };
-    static const int s_faces[6][4] = {
-        { 0, 1, 2, 3 }, { 5, 4, 7, 6 }, { 4, 0, 3, 7 },
-        { 1, 5, 6, 2 }, { 3, 2, 6, 7 }, { 4, 5, 1, 0 }
-    };
-    for (int i = 0; i < 8; i++) {
-        const float sr = s_corners[i][0] * hr;
-        const float su = s_corners[i][1] * hu;
-        const float sf = s_corners[i][2] * hf;
-        jnSetVtx(&v[i],
-                 cMm[0] + r[0] * sr + u[0] * su + f[0] * sf,
-                 cMm[1] + r[1] * sr + u[1] * su + f[1] * sf,
-                 cMm[2] + r[2] * sr + u[2] * su + f[2] * sf,
-                 s_corners[i][1] > 0.0f ? rgbaTop : rgbaBot);
-    }
-    gSPVertex(gdl++, osVirtualToPhysical(v), 8, 0);
-    for (int q = 0; q < 6; q++) {
-        gSP2Triangles(gdl++, s_faces[q][0], s_faces[q][1], s_faces[q][2], 0,
-                      s_faces[q][0], s_faces[q][2], s_faces[q][3], 0);
-    }
-    return gdl;
-}
-
-/* Han Solo's BlasTech DL-44 Heavy Blaster Pistol (Mauser C96 + offset scope + MG42 flash hider) */
-static Gfx *jnDrawDl44BlasterView(Gfx *gdl, const float gripView[3], const float r[3], const float u[3],
-                                  const float fwd[3], float scale, float scopeSide, int firingFlash)
-{
-    Gfx *beg = jnBeginGeom(gdl, gripView, scale, 0);
-    if (!beg) return gdl;
-    gdl = beg;
-
-    /* 1. Walnut wood "broomhandle" Mauser grip + darker grooved bands + lanyard cap */
-    float gDir[3] = { -0.22f * fwd[0] + 0.975f * u[0], -0.22f * fwd[1] + 0.975f * u[1], -0.22f * fwd[2] + 0.975f * u[2] };
-    jnNorm3(gDir, gDir);
-    const float gBot[3] = { -16.0f * fwd[0] - 88.0f * u[0], -16.0f * fwd[1] - 88.0f * u[1], -16.0f * fwd[2] - 88.0f * u[2] };
-    gdl = jnEmitPrism(gdl, gBot, gDir, 96.0f, 16.5f, 13.5f, 0x4A2612FFu, 0x6A3A1EFFu);
-    const float butt[3] = { -20.0f * fwd[0] - 92.0f * u[0], -20.0f * fwd[1] - 92.0f * u[1], -20.0f * fwd[2] - 92.0f * u[2] };
-    gdl = jnEmitBox(gdl, butt, r, u, fwd, 11.0f, 5.0f, 12.0f, 0x98A2ACFFu, 0x626A74FFu);
-
-    /* 2. Boxy Mauser C96 gunmetal receiver, top strap & exposed rear ring hammer */
-    const float recC[3] = { 30.0f * fwd[0] + 32.0f * u[0], 30.0f * fwd[1] + 32.0f * u[1], 30.0f * fwd[2] + 32.0f * u[2] };
-    gdl = jnEmitBox(gdl, recC, r, u, fwd, 13.5f, 18.0f, 44.0f, 0x3C424CFFu, 0x22262EFFu);
-    const float topStrap[3] = { 36.0f * fwd[0] + 54.0f * u[0], 36.0f * fwd[1] + 54.0f * u[1], 36.0f * fwd[2] + 54.0f * u[2] };
-    gdl = jnEmitBox(gdl, topStrap, r, u, fwd, 11.0f, 5.5f, 40.0f, 0x525A66FFu, 0x363C44FFu);
-    const float hammer[3] = { -22.0f * fwd[0] + 52.0f * u[0], -22.0f * fwd[1] + 52.0f * u[1], -22.0f * fwd[2] + 52.0f * u[2] };
-    gdl = jnEmitBox(gdl, hammer, r, u, fwd, 4.5f, 9.5f, 9.5f, 0x707884FFu, 0x404650FFu);
-
-    /* 3. Forward box magazine well + trigger guard + brass side greeble */
-    const float magWell[3] = { 76.0f * fwd[0] + 16.0f * u[0], 76.0f * fwd[1] + 16.0f * u[1], 76.0f * fwd[2] + 16.0f * u[2] };
-    gdl = jnEmitBox(gdl, magWell, r, u, fwd, 12.0f, 20.0f, 22.0f, 0x30363EFFu, 0x1C2026FFu);
-    const float tGuard[3] = { 32.0f * fwd[0] + 6.0f * u[0], 32.0f * fwd[1] + 6.0f * u[1], 32.0f * fwd[2] + 6.0f * u[2] };
-    gdl = jnEmitBox(gdl, tGuard, r, u, fwd, 5.0f, 3.0f, 18.0f, 0x3A4048FFu, 0x262A30FFu);
-    const float greeble[3] = { -14.5f * scopeSide * r[0] + 68.0f * fwd[0] + 24.0f * u[0],
-                             -14.5f * scopeSide * r[1] + 68.0f * fwd[1] + 24.0f * u[1],
-                             -14.5f * scopeSide * r[2] + 68.0f * fwd[2] + 24.0f * u[2] };
-    gdl = jnEmitBox(gdl, greeble, r, u, fwd, 3.5f, 7.0f, 11.0f, 0xD2A048FFu, 0x8A6424FFu);
-
-    /* 4. Tapered barrel + charcoal cooling/heat-sink fins */
-    const float barS[3] = { 74.0f * fwd[0] + 44.0f * u[0], 74.0f * fwd[1] + 44.0f * u[1], 74.0f * fwd[2] + 44.0f * u[2] };
-    gdl = jnEmitPrism(gdl, barS, fwd, 118.0f, 10.5f, 8.2f, 0x343A44FFu, 0x242830FFu);
-    for (int f = 0; f < 3; f++) {
-        const float ff = 104.0f + (float)f * 20.0f;
-        const float finC[3] = { ff * fwd[0] + 44.0f * u[0], ff * fwd[1] + 44.0f * u[1], ff * fwd[2] + 44.0f * u[2] };
-        gdl = jnEmitBox(gdl, finC, r, u, fwd, 12.5f, 13.0f, 4.0f, 0x282C34FFu, 0x181A20FFu);
-    }
-
-    /* 5. Flared MG42 slotted-cone flash hider muzzle */
-    const float muzS[3] = { 186.0f * fwd[0] + 44.0f * u[0], 186.0f * fwd[1] + 44.0f * u[1], 186.0f * fwd[2] + 44.0f * u[2] };
-    gdl = jnEmitPrism(gdl, muzS, fwd, 52.0f, 11.5f, 18.0f, 0x20242CFFu, 0x16181EFFu);
-    if (firingFlash) {
-        const float tipS[3] = { 234.0f * fwd[0] + 44.0f * u[0], 234.0f * fwd[1] + 44.0f * u[1], 234.0f * fwd[2] + 44.0f * u[2] };
-        gdl = jnEmitPrism(gdl, tipS, fwd, 26.0f, 12.0f, 3.0f, 0xFF6028FFu, 0xFFF088FFu);
-    }
-
-    /* 6. Offset brushed-aluminum mounts + high right-side Hensoldt-Wetzlar sniper scope */
-    const float sOff = 24.0f * scopeSide;
-    const float mnt1[3] = { sOff * 0.55f * r[0] + 18.0f * fwd[0] + 64.0f * u[0],
-                          sOff * 0.55f * r[1] + 18.0f * fwd[1] + 64.0f * u[1],
-                          sOff * 0.55f * r[2] + 18.0f * fwd[2] + 64.0f * u[2] };
-    const float mnt2[3] = { sOff * 0.55f * r[0] + 72.0f * fwd[0] + 64.0f * u[0],
-                          sOff * 0.55f * r[1] + 72.0f * fwd[1] + 64.0f * u[1],
-                          sOff * 0.55f * r[2] + 72.0f * fwd[2] + 64.0f * u[2] };
-    gdl = jnEmitBox(gdl, mnt1, r, u, fwd, 11.0f, 11.0f, 4.5f, 0xC8D0DCFFu, 0x808894FFu);
-    gdl = jnEmitBox(gdl, mnt2, r, u, fwd, 11.0f, 11.0f, 4.5f, 0xC8D0DCFFu, 0x808894FFu);
-    const float scRear[3] = { sOff * r[0] - 10.0f * fwd[0] + 76.0f * u[0],
-                            sOff * r[1] - 10.0f * fwd[1] + 76.0f * u[1],
-                            sOff * r[2] - 10.0f * fwd[2] + 76.0f * u[2] };
-    const float scBody[3] = { sOff * r[0] + 14.0f * fwd[0] + 76.0f * u[0],
-                            sOff * r[1] + 14.0f * fwd[1] + 76.0f * u[1],
-                            sOff * r[2] + 14.0f * fwd[2] + 76.0f * u[2] };
-    const float scFront[3] = { sOff * r[0] + 84.0f * fwd[0] + 76.0f * u[0],
-                             sOff * r[1] + 84.0f * fwd[1] + 76.0f * u[1],
-                             sOff * r[2] + 84.0f * fwd[2] + 76.0f * u[2] };
-    gdl = jnEmitPrism(gdl, scRear, fwd, 26.0f, 11.5f, 8.5f, 0x1C2028FFu, 0x2C323CFFu);
-    gdl = jnEmitPrism(gdl, scBody, fwd, 72.0f, 8.5f, 8.5f, 0x282E38FFu, 0x282E38FFu);
-    gdl = jnEmitPrism(gdl, scFront, fwd, 28.0f, 8.5f, 12.5f, 0x282E38FFu, 0x1A2028FFu);
-    const float scLens[3] = { sOff * r[0] - 11.0f * fwd[0] + 76.0f * u[0],
-                            sOff * r[1] - 11.0f * fwd[1] + 76.0f * u[1],
-                            sOff * r[2] - 11.0f * fwd[2] + 76.0f * u[2] };
-    gdl = jnEmitBox(gdl, scLens, r, u, fwd, 7.5f, 7.5f, 2.0f, 0x2868A8FFu, 0x103060FFu);
-    const float scKnob[3] = { sOff * r[0] + 44.0f * fwd[0] + 88.0f * u[0],
-                            sOff * r[1] + 44.0f * fwd[1] + 88.0f * u[1],
-                            sOff * r[2] + 44.0f * fwd[2] + 88.0f * u[2] };
-    gdl = jnEmitBox(gdl, scKnob, r, u, fwd, 4.5f, 4.5f, 4.5f, 0xB8C0CCFFu, 0x707884FFu);
-    return gdl;
-}
-
 static Gfx *jnDrawKatanaView(Gfx *gdl, const float hiltView[3], const float dirView[3],
                              float lenCm, int isGold, float scale)
 {
@@ -2015,13 +2326,13 @@ static Gfx *jnDrawKatanaView(Gfx *gdl, const float hiltView[3], const float dirV
     Gfx *beg = jnBeginGeom(gdl, hiltView, scale, 0);
     if (!beg) return gdl;
     gdl = beg;
-    gdl = jnEmitPrism(gdl, zero, dirView, hiltMm, 15.0f, 14.0f, 0x1A1A20FFu, 0x2C2E34FFu);
+    gdl = jnEmitPrism(gdl, zero, dirView, hiltMm, 15.0f, 14.0f, 0x1E2028FFu, 0x363A44FFu, 0);
     const float tsuba[3] = { dirView[0] * hiltMm, dirView[1] * hiltMm, dirView[2] * hiltMm };
-    gdl = jnEmitPrism(gdl, tsuba, dirView, 18.0f, 36.0f, 34.0f, isGold ? 0xFFD230FFu : 0xB89838FFu, 0x705820FFu);
+    gdl = jnEmitPrism(gdl, tsuba, dirView, 18.0f, 36.0f, 34.0f, isGold ? 0xFFD230FFu : 0xC0A040FFu, 0x705820FFu, 0);
     const float bladeBase[3] = { dirView[0] * (hiltMm + 18.0f), dirView[1] * (hiltMm + 18.0f), dirView[2] * (hiltMm + 18.0f) };
-    const u32 c0 = isGold ? 0xFFE252FFu : 0xDCE4ECFFu;
+    const u32 c0 = isGold ? 0xFFE252FFu : 0xD4DCE6FFu;
     const u32 c1 = isGold ? 0xFFF4A8FFu : 0xF8FCFFFFu;
-    return jnEmitPrism(gdl, bladeBase, dirView, bladeMm, 14.0f, 3.0f, c0, c1);
+    return jnEmitPrism(gdl, bladeBase, dirView, bladeMm, 13.0f, 2.5f, c0, c1, 0);
 }
 
 static Gfx *jnDrawShieldView(Gfx *gdl, const float centerView[3], const float rightView[3],
@@ -2032,16 +2343,17 @@ static Gfx *jnDrawShieldView(Gfx *gdl, const float centerView[3], const float ri
     gdl = beg;
     Vtx *v = dynAllocateVertices(17);
     if (!v) return gdl;
-    jnSetVtx(&v[0], 0, 0, 0, 0x20242CFFu);
+    jnSetVtx(&v[0], 0, 0, 0, 0x485260FFu);
     for (int i = 0; i < 8; i++) {
         const float a = (float)i * (6.2831853f / 8.0f);
         const float ca = cosf(a), sa = sinf(a);
+        const float sh = 0.72f + 0.28f * sa;
         jnSetVtx(&v[1 + i], (rightView[0] * ca + upView[0] * sa) * 145.0f,
                  (rightView[1] * ca + upView[1] * sa) * 145.0f,
-                 (rightView[2] * ca + upView[2] * sa) * 145.0f, 0x3A424EFFu);
+                 (rightView[2] * ca + upView[2] * sa) * 145.0f, jnShadeRgba(0x363E4AFFu, sh));
         jnSetVtx(&v[9 + i], (rightView[0] * ca + upView[0] * sa) * 180.0f,
                  (rightView[1] * ca + upView[1] * sa) * 180.0f,
-                 (rightView[2] * ca + upView[2] * sa) * 180.0f, 0xE6B830FFu);
+                 (rightView[2] * ca + upView[2] * sa) * 180.0f, jnShadeRgba(0xE6B830FFu, sh));
     }
     gSPVertex(gdl++, osVirtualToPhysical(v), 17, 0);
     for (int i = 0; i < 8; i++) {
@@ -2060,7 +2372,7 @@ static Gfx *jnDrawBoomerangView(Gfx *gdl, const float centerView[3], float spinA
     gdl = beg;
     const int isGold = (variant == GEVR_JN_BOOM_GOLD_SHURIKEN || variant == GEVR_JN_BOOM_GOLD_WING);
     const int isWing = (variant == GEVR_JN_BOOM_WING || variant == GEVR_JN_BOOM_GOLD_WING);
-    const u32 cCenter = isGold ? 0x16181EFFu : 0x303640FFu;
+    const u32 cCenter = isGold ? 0x20242CFFu : 0x3A424EFFu;
     const u32 cTip = isGold ? 0xFFD432FFu : 0xE8F0F8FFu;
 
     if (isWing) {
@@ -2148,11 +2460,21 @@ static Gfx *jnDrawLightningView(Gfx *gdl, const float aView[3], const float bVie
     return gdl;
 }
 
-static Gfx *jnDrawTrailView(Gfx *gdl, const JnBladeTrail *tr, unsigned int rgba, float scale)
+static void jnWorldToView(const Mtxf *w2s, const float w[3], float s, float out[3])
 {
-    if (!tr || tr->count < 2) return gdl;
-    const float *orig = tr->hilt[0];
-    Gfx *beg = jnBeginGeom(gdl, orig, scale, 1);
+    coord3d c;
+    c.x = w[0]; c.y = w[1]; c.z = w[2];
+    mtx4TransformVecInPlace((Mtxf *)w2s, &c);
+    out[0] = c.x * s; out[1] = c.y * s; out[2] = c.z * s;
+}
+
+/* Read-only per-eye transform of world-space motion ribbons (never mutates s_trails[]) */
+static Gfx *jnDrawTrailWorld(Gfx *gdl, const Mtxf *w2s, const JnBladeTrail *tr, unsigned int rgba, float scale)
+{
+    if (!tr || tr->count < 2 || !w2s) return gdl;
+    float origV[3];
+    jnWorldToView(w2s, tr->hilt[0], scale, origV);
+    Gfx *beg = jnBeginGeom(gdl, origV, scale, 1);
     if (!beg) return gdl;
     gdl = beg;
     Vtx *v = dynAllocateVertices(tr->count * 2);
@@ -2161,17 +2483,20 @@ static Gfx *jnDrawTrailView(Gfx *gdl, const JnBladeTrail *tr, unsigned int rgba,
     const unsigned int rgb = rgba & 0xFFFFFF00u;
     const unsigned int maxA = rgba & 0xFFu;
     for (int i = 0; i < tr->count; i++) {
+        float hv[3], tv[3];
+        jnWorldToView(w2s, tr->hilt[i], scale, hv);
+        jnWorldToView(w2s, tr->tip[i], scale, tv);
         const float fade = 1.0f - (float)i / (float)tr->count;
         const unsigned int aTip = (unsigned int)((float)maxA * fade * 0.72f);
         const unsigned int aBase = (unsigned int)((float)maxA * fade * 0.16f);
         jnSetVtx(&v[i * 2 + 0],
-                 (tr->hilt[i][0] - orig[0]) * invS,
-                 (tr->hilt[i][1] - orig[1]) * invS,
-                 (tr->hilt[i][2] - orig[2]) * invS, rgb | aBase);
+                 (hv[0] - origV[0]) * invS,
+                 (hv[1] - origV[1]) * invS,
+                 (hv[2] - origV[2]) * invS, rgb | aBase);
         jnSetVtx(&v[i * 2 + 1],
-                 (tr->tip[i][0] - orig[0]) * invS,
-                 (tr->tip[i][1] - orig[1]) * invS,
-                 (tr->tip[i][2] - orig[2]) * invS, rgb | aTip);
+                 (tv[0] - origV[0]) * invS,
+                 (tv[1] - origV[1]) * invS,
+                 (tv[2] - origV[2]) * invS, rgb | aTip);
     }
     gSPVertex(gdl++, osVirtualToPhysical(v), tr->count * 2, 0);
     for (int i = 0; i < tr->count - 1; i++) {
@@ -2204,14 +2529,6 @@ static Gfx *jnDrawSmokeView(Gfx *gdl, const float centerView[3], float radiusCm,
     return gdl;
 }
 
-static void jnWorldToView(const Mtxf *w2s, const float w[3], float s, float out[3])
-{
-    coord3d c;
-    c.x = w[0]; c.y = w[1]; c.z = w[2];
-    mtx4TransformVecInPlace((Mtxf *)w2s, &c);
-    out[0] = c.x * s; out[1] = c.y * s; out[2] = c.z * s;
-}
-
 /* -------------------------------------------------------------------------- */
 /* World Render (Thrown Weapons, Sith/Ninja/Ally Blades, VFX)                 */
 /* -------------------------------------------------------------------------- */
@@ -2221,7 +2538,7 @@ Gfx *gevrJnDrawWorld(Gfx *gdl)
     if (!g_CurrentPlayer || !jnInGameplay()) return gdl;
     const Mtxf *w2s = camGetWorldToScreenMtxf();
     if (!w2s) return gdl;
-    const float s = g_gevrStereo && D_800364CC > 1e-6f ? D_800364CC : 1.0f;
+    const float s = jnViewScale();
     Gfx *const startGdl = gdl;
 
     /* Player's thrown Lightsaber or Boomerang */
@@ -2252,17 +2569,36 @@ Gfx *gevrJnDrawWorld(Gfx *gdl)
         }
         if (!jnChrAliveValid(sp->chr, sp->chrnum)) continue;
         ChrRecord *c = sp->chr;
-        const float hiltW[3] = { c->prop->pos.x, c->prop->pos.y + 108.0f * sp->scale, c->prop->pos.z };
-        float hv[3];
+
+        float hiltW[3], dirW[3];
+        if (sp->handValid && (g_GlobalTimer - sp->handTick) <= 8) {
+            memcpy(hiltW, sp->handPosW, sizeof(hiltW));
+            memcpy(dirW, sp->handDirW, sizeof(dirW));
+        } else {
+            const float yaw = c->model ? getsubroty(c->model) : 0.0f;
+            const float cy = cosf(yaw), sy = sinf(yaw);
+            hiltW[0] = c->prop->pos.x + cy * 18.0f * sp->scale + sy * 16.0f * sp->scale;
+            hiltW[1] = c->prop->pos.y + 106.0f * sp->scale;
+            hiltW[2] = c->prop->pos.z - sy * 18.0f * sp->scale + cy * 16.0f * sp->scale;
+            dirW[0] = sy * 0.60f;
+            dirW[1] = 0.72f;
+            dirW[2] = cy * 0.60f;
+            jnNorm3(dirW, dirW);
+        }
+        if (sp->swingTimer > 0.0f) {
+            const float swingDrop = sinf((sp->swingTimer / 0.28f) * 3.14159f) * 0.65f;
+            dirW[1] -= swingDrop;
+            jnNorm3(dirW, dirW);
+        }
+
+        const float tipWorld[3] = {
+            hiltW[0] + dirW[0] * 100.0f * sp->scale,
+            hiltW[1] + dirW[1] * 100.0f * sp->scale,
+            hiltW[2] + dirW[2] * 100.0f * sp->scale
+        };
+        float hv[3], tv[3];
         jnWorldToView(w2s, hiltW, s, hv);
         if (hv[2] >= -10.0f) continue;
-
-        float tipWorld[3] = {
-            hiltW[0] + sinf(c->chrwidth + s_time * 3.0f) * 35.0f,
-            hiltW[1] + 55.0f * sp->scale,
-            hiltW[2] + cosf(c->chrwidth + s_time * 3.0f) * 35.0f
-        };
-        float tv[3];
         jnWorldToView(w2s, tipWorld, s, tv);
         float d[3] = { tv[0] - hv[0], tv[1] - hv[1], tv[2] - hv[2] };
         jnNorm3(d, d);
@@ -2327,63 +2663,9 @@ Gfx *gevrJnDrawWorld(Gfx *gdl)
 
 Gfx *gevrJnDrawFirstPerson(Gfx *gdl)
 {
-    if (gevrJnDrawBlasterActive()) {
-        const float s = g_gevrStereo && D_800364CC > 1e-6f ? D_800364CC : 1.0f;
-        const float scopeSide = VrLeftHandedMode ? -1.0f : 1.0f;
-        const int firingFlash = (g_CurrentPlayer->hands[GUNRIGHT].weapon_beam.unk00 >= 0
-                                 && g_CurrentPlayer->hands[GUNRIGHT].weapon_beam.unk00 <= 2) ? 1 : 0;
-        float base[3], r[3], u[3], fwd[3];
-        int haveVr = 0;
-
-        gDPPipeSync(gdl++);
-        gSPMatrix(gdl++, osVirtualToPhysical((void *)currentPlayerGetProjectionMatrix()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
-        gdl = combiner_bayer_lod_perspective(gdl);
-        gdl = sub_GAME_7F061E18(gdl, &g_CurrentPlayer->hands[GUNRIGHT].weapon_beam, 0);
-
-        if (g_gevrStereo) {
-            float b[3];
-            if (gevrJnGetGripAxes(1, base, r, u, b)) {
-                fwd[0] = -b[0]; fwd[1] = -b[1]; fwd[2] = -b[2];
-                jnNorm3(fwd, fwd);
-                jnNorm3(r, r);
-                jnCross3(r, fwd, u);
-                jnNorm3(u, u);
-                haveVr = 1;
-            }
-        }
-        if (!haveVr) {
-            base[0] = 14.5f * scopeSide * s;
-            base[1] = -12.5f * s;
-            base[2] = -28.0f * s;
-            fwd[0] = -0.10f * scopeSide; fwd[1] = 0.04f; fwd[2] = -0.994f;
-            jnNorm3(fwd, fwd);
-            r[0] = 0.994f; r[1] = 0.0f; r[2] = -0.10f * scopeSide;
-            jnNorm3(r, r);
-            jnCross3(r, fwd, u);
-            jnNorm3(u, u);
-        }
-        if (s_blasterRecoil > 0.001f) {
-            const float kick = s_blasterRecoil * 3.0f * s;
-            base[0] -= fwd[0] * kick;
-            base[1] -= fwd[1] * kick;
-            base[2] -= fwd[2] * kick;
-            fwd[0] += u[0] * (s_blasterRecoil * 0.14f);
-            fwd[1] += u[1] * (s_blasterRecoil * 0.14f);
-            fwd[2] += u[2] * (s_blasterRecoil * 0.14f);
-            jnNorm3(fwd, fwd);
-            jnCross3(r, fwd, u);
-            jnNorm3(u, u);
-        }
-        gdl = jnDrawDl44BlasterView(gdl, base, r, u, fwd, s, scopeSide, firingFlash);
-        gDPPipeSync(gdl++);
-        gSPTexture(gdl++, 0x8000, 0x8000, 0, G_TX_RENDERTILE, G_ON);
-        gdl = combiner_bayer_lod_perspective(gdl);
-        return gdl;
-    }
-
     if (!jnModeActive() || jnUsingGunsOverride() || !jnInGameplay()) return gdl;
     const Mtxf *w2s = camGetWorldToScreenMtxf();
-    const float s = g_gevrStereo && D_800364CC > 1e-6f ? D_800364CC : 1.0f;
+    const float s = jnViewScale();
     const float sideSign = VrJediHand ? -1.0f : 1.0f;
     const int bCtrl = VrJediHand ? 0 : 1;
     const int fCtrl = 1 - bCtrl;
@@ -2440,33 +2722,6 @@ Gfx *gevrJnDrawFirstPerson(Gfx *gdl)
             unsigned int core = 0xFFFFFFFFu, glow = 0x2890FFE8u;
             gevrJnSaberPalette(VrSaberColor, &core, &glow);
             gdl = jnDrawLightsaberExView(gdl, hilt, tipDir, 115.0f, s_fpIgnite.extend, VrSaberColor, s, dbl);
-            if (s_fpIgnite.extend > 0.25f) {
-                const float reachView = (91.0f * s_fpIgnite.extend + 24.0f) * s;
-                const float emitV[3] = {
-                    hilt[0] + tipDir[0] * (dbl ? 16.0f : 24.0f) * s,
-                    hilt[1] + tipDir[1] * (dbl ? 16.0f : 24.0f) * s,
-                    hilt[2] + tipDir[2] * (dbl ? 16.0f : 24.0f) * s
-                };
-                const float tipV[3] = {
-                    hilt[0] + tipDir[0] * reachView,
-                    hilt[1] + tipDir[1] * reachView,
-                    hilt[2] + tipDir[2] * reachView
-                };
-                jnTrailPush(0, emitV, tipV, s);
-                if (dbl) {
-                    const float emitB[3] = {
-                        hilt[0] - tipDir[0] * 16.0f * s,
-                        hilt[1] - tipDir[1] * 16.0f * s,
-                        hilt[2] - tipDir[2] * 16.0f * s
-                    };
-                    const float tipB[3] = {
-                        hilt[0] - tipDir[0] * (reachView * 0.92f),
-                        hilt[1] - tipDir[1] * (reachView * 0.92f),
-                        hilt[2] - tipDir[2] * (reachView * 0.92f)
-                    };
-                    jnTrailPush(1, emitB, tipB, s);
-                }
-            }
             if (VrSaberStyle == GEVR_JN_STYLE_DUAL) {
                 float ohilt[3] = {
                     haveVrOff ? offHilt[0] : -17.0f * sideSign * s,
@@ -2481,17 +2736,11 @@ Gfx *gevrJnDrawFirstPerson(Gfx *gdl)
                 }
                 jnNorm3(odir, odir);
                 gdl = jnDrawLightsaberView(gdl, ohilt, odir, 105.0f, s_fpIgnite.extend, VrSaberColor, s);
-                if (s_fpIgnite.extend > 0.25f) {
-                    const float oReach = (81.0f * s_fpIgnite.extend + 24.0f) * s;
-                    const float oEmit[3] = { ohilt[0] + odir[0] * 24.0f * s, ohilt[1] + odir[1] * 24.0f * s, ohilt[2] + odir[2] * 24.0f * s };
-                    const float oTip[3] = { ohilt[0] + odir[0] * oReach, ohilt[1] + odir[1] * oReach, ohilt[2] + odir[2] * oReach };
-                    jnTrailPush(2, oEmit, oTip, s);
-                }
             }
-            if (VrJnBladeTrails) {
-                gdl = jnDrawTrailView(gdl, &s_trails[0], glow, s);
-                if (dbl) gdl = jnDrawTrailView(gdl, &s_trails[1], glow, s);
-                if (VrSaberStyle == GEVR_JN_STYLE_DUAL) gdl = jnDrawTrailView(gdl, &s_trails[2], glow, s);
+            if (VrJnBladeTrails && w2s) {
+                gdl = jnDrawTrailWorld(gdl, w2s, &s_trails[0], glow, s);
+                if (dbl) gdl = jnDrawTrailWorld(gdl, w2s, &s_trails[1], glow, s);
+                if (VrSaberStyle == GEVR_JN_STYLE_DUAL) gdl = jnDrawTrailWorld(gdl, w2s, &s_trails[2], glow, s);
             }
         } else if (VrJediNinjaMode == GEVR_JN_NINJA) {
             const int sw = jnEffectiveNinjaSword();
@@ -2502,9 +2751,6 @@ Gfx *gevrJnDrawFirstPerson(Gfx *gdl)
             } else {
                 const float reachCm = gevrJnWeaponReachCm(GEVR_JN_NINJA, sw);
                 gdl = jnDrawKatanaView(gdl, hilt, tipDir, reachCm, gevrJnIsGoldSword(sw), s);
-                const float emitV[3] = { hilt[0] + tipDir[0] * 24.0f * s, hilt[1] + tipDir[1] * 24.0f * s, hilt[2] + tipDir[2] * 24.0f * s };
-                const float tipV[3] = { hilt[0] + tipDir[0] * reachCm * s, hilt[1] + tipDir[1] * reachCm * s, hilt[2] + tipDir[2] * reachCm * s };
-                jnTrailPush(0, emitV, tipV, s);
             }
             /* Off-hand dual short sword or Ninja Shield */
             if (gevrJnIsDualSword(GEVR_JN_NINJA, sw)) {
@@ -2521,9 +2767,6 @@ Gfx *gevrJnDrawFirstPerson(Gfx *gdl)
                 }
                 jnNorm3(odir, odir);
                 gdl = jnDrawKatanaView(gdl, ohilt, odir, 70.0f, gevrJnIsGoldSword(sw), s);
-                const float oEmit[3] = { ohilt[0] + odir[0] * 24.0f * s, ohilt[1] + odir[1] * 24.0f * s, ohilt[2] + odir[2] * 24.0f * s };
-                const float oTip[3] = { ohilt[0] + odir[0] * 70.0f * s, ohilt[1] + odir[1] * 70.0f * s, ohilt[2] + odir[2] * 70.0f * s };
-                jnTrailPush(2, oEmit, oTip, s);
             } else if (jnHasNinjaShield()) {
                 float sc[3] = {
                     haveVrOff ? offHilt[0] : (s_ninjaShieldHeld ? -4.0f * sideSign * s : -18.0f * sideSign * s),
@@ -2532,9 +2775,9 @@ Gfx *gevrJnDrawFirstPerson(Gfx *gdl)
                 };
                 gdl = jnDrawShieldView(gdl, sc, offRight, offUp, s);
             }
-            if (VrJnBladeTrails) {
-                gdl = jnDrawTrailView(gdl, &s_trails[0], nTrailRgba, s);
-                if (gevrJnIsDualSword(GEVR_JN_NINJA, sw)) gdl = jnDrawTrailView(gdl, &s_trails[2], nTrailRgba, s);
+            if (VrJnBladeTrails && w2s) {
+                gdl = jnDrawTrailWorld(gdl, w2s, &s_trails[0], nTrailRgba, s);
+                if (gevrJnIsDualSword(GEVR_JN_NINJA, sw)) gdl = jnDrawTrailWorld(gdl, w2s, &s_trails[2], nTrailRgba, s);
             }
         }
     }

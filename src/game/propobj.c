@@ -12999,7 +12999,13 @@ void chrRenderHeldWeapon(void *renderContext, GUNHAND hand, Gfx **gdl)
                      * mtxlist is often not written yet here (headset log: NaN, 1e38); the
                      * hand's matrix (basemtx, the chr's, the left one turned) always is */
                     extern void gevrPullNoteHeldGun(PropRecord *gun, const Mtxf *m, s32 drawn);
+                    extern s32 gevrJnIsMeleeNpc(ChrRecord *chr);
+                    extern void gevrJnNoteNpcHand(ChrRecord *chr, s32 hand, const Mtxf *m);
 
+                    if (gevrJnIsMeleeNpc(chr)) {
+                        gevrJnNoteNpcHand(chr, hand, renderData.basemtx);
+                        return;
+                    }
                     gevrPullNoteHeldGun(prop, renderData.basemtx, gdl != NULL);
                 }
 #endif

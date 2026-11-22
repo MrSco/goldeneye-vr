@@ -218,6 +218,54 @@ static void test_block_and_deflect(void)
     assert(fabsf(bounce[0] + 10.0f) < 1e-4f);
     assert(fabsf(bounce[1]) < 1e-4f);
     assert(fabsf(bounce[2] + 10.0f) < 1e-4f);
+
+    /* Bullet travel vector (shooter -> player) must invert to shooter direction */
+    const float zeroVec[3] = { 0.0f, 0.0f, 0.0f };
+    const float frontTravel[3] = { 0.0f, 0.0f, 1.0f };
+    const float rearTravel[3] = { 0.0f, 0.0f, -1.0f };
+    float toShooter[3] = {0};
+    assert(gevrJnBulletTravelToShooter(zeroVec, toShooter) == 0);
+    assert(gevrJnBulletTravelToShooter(frontTravel, toShooter) == 1);
+    assert(fabsf(toShooter[0]) < 1e-4f && fabsf(toShooter[1]) < 1e-4f && fabsf(toShooter[2] + 1.0f) < 1e-4f);
+    assert(gevrJnCheckBlock(GEVR_JN_JEDI, 1, 0, fwd, toShooter, refl) == GEVR_JN_BLOCK_DEFLECT);
+    assert(refl[2] < -0.9f);
+    assert(gevrJnBulletTravelToShooter(rearTravel, toShooter) == 1);
+    assert(fabsf(toShooter[0]) < 1e-4f && fabsf(toShooter[1]) < 1e-4f && fabsf(toShooter[2] - 1.0f) < 1e-4f);
+    assert(gevrJnCheckBlock(GEVR_JN_JEDI, 1, 0, fwd, toShooter, refl) == GEVR_JN_BLOCK_NONE);
+
+    /* Tracked 3D VR blade / shield orientation blocking */
+    const float bladeAcross[3] = { 0.0f, 1.0f, 0.0f };
+    const float bladeInline[3] = { 0.0f, 0.0f, -1.0f };
+    const float toFront[3] = { 0.0f, 0.0f, -1.0f };
+    const float toRear[3] = { 0.0f, 0.0f, 1.0f };
+    const float aimFwd[3] = { 0.0f, 0.0f, -1.0f };
+    const float shieldAim[3] = { 0.2f, 0.0f, -0.98f };
+    const float shieldSide[3] = { 1.0f, 0.0f, 0.0f };
+    assert(gevrJnCheckVrBladeBlock(GEVR_JN_JEDI, 0, 0, fwd, bladeAcross, aimFwd, toFront, refl) == GEVR_JN_BLOCK_NONE);
+    assert(gevrJnCheckVrBladeBlock(GEVR_JN_JEDI, 1, 0, fwd, bladeAcross, aimFwd, toFront, refl) == GEVR_JN_BLOCK_DEFLECT);
+    assert(refl[2] < -0.9f);
+    assert(gevrJnCheckVrBladeBlock(GEVR_JN_JEDI, 1, 0, fwd, bladeInline, aimFwd, toFront, refl) == GEVR_JN_BLOCK_NONE);
+    assert(gevrJnCheckVrBladeBlock(GEVR_JN_JEDI, 1, 0, fwd, bladeAcross, aimFwd, toRear, refl) == GEVR_JN_BLOCK_NONE);
+    assert(gevrJnCheckVrBladeBlock(GEVR_JN_NINJA, 1, 1, fwd, bladeAcross, shieldAim, toFront, refl) == GEVR_JN_BLOCK_DEFLECT);
+    assert(refl[2] < -0.9f);
+    assert(gevrJnCheckVrBladeBlock(GEVR_JN_NINJA, 1, 1, fwd, bladeAcross, shieldSide, toFront, refl) == GEVR_JN_BLOCK_NONE);
+    assert(gevrJnCheckVrBladeBlock(GEVR_JN_NINJA, 1, 0, fwd, bladeAcross, aimFwd, toFront, refl) == GEVR_JN_BLOCK_ABSORB);
+
+    /* Tracked 3D blade segment vs NPC upright cylinder hit tests */
+    const float cylBase[3] = { 0.0f, 0.0f, -100.0f };
+    float hitPt[3] = {0};
+    const float hSegA[3] = { -60.0f, 100.0f, -100.0f }, hSegB[3] = { 60.0f, 100.0f, -100.0f };
+    assert(gevrJnSegmentHitCylinder(hSegA, hSegB, cylBase, 40.0f, 175.0f, hitPt) == 1);
+    assert(fabsf(hitPt[0]) < 1e-3f && fabsf(hitPt[1] - 100.0f) < 1e-3f && fabsf(hitPt[2] + 100.0f) < 1e-3f);
+    const float vSegA[3] = { 10.0f, -50.0f, -100.0f }, vSegB[3] = { 10.0f, 250.0f, -100.0f };
+    assert(gevrJnSegmentHitCylinder(vSegA, vSegB, cylBase, 40.0f, 175.0f, hitPt) == 1);
+    assert(hitPt[1] >= -12.01f && hitPt[1] <= 187.01f);
+    const float outRadA[3] = { 60.0f, 100.0f, -100.0f }, outRadB[3] = { 120.0f, 100.0f, -100.0f };
+    assert(gevrJnSegmentHitCylinder(outRadA, outRadB, cylBase, 40.0f, 175.0f, hitPt) == 0);
+    const float hiA[3] = { -60.0f, 220.0f, -100.0f }, hiB[3] = { 60.0f, 220.0f, -100.0f };
+    assert(gevrJnSegmentHitCylinder(hiA, hiB, cylBase, 40.0f, 175.0f, hitPt) == 0);
+    const float loA[3] = { -60.0f, -40.0f, -100.0f }, loB[3] = { 60.0f, -40.0f, -100.0f };
+    assert(gevrJnSegmentHitCylinder(loA, loB, cylBase, 40.0f, 175.0f, hitPt) == 0);
 }
 
 static void test_procedural_audio(void)
