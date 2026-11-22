@@ -197,7 +197,7 @@ int flatRedrawFrame(void)
 		 * between game frames stop there, and the tick takes the camera the rest. */
 		float yaw = mx * l->yawPerDeg + l->yawRate * t;
 		float pitch = my * l->pitchPerDeg + l->pitchRate * t;
-		const float most = 7.0f * l->yawPerDeg;   /* the zoom's ratio: of the view as it is */
+		const float most = 7.0f * (l->yawPerDeg > 0.0f ? l->yawPerDeg : 1.0f);   /* the zoom's ratio: of the view as it is */
 		if (yaw > most) yaw = most;
 		if (yaw < -most) yaw = -most;
 		if (pitch > most) pitch = most;

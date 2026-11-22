@@ -12034,13 +12034,14 @@ static void gevrFlatLookRecord(void)
     {
         return;
     }
-    /* one view, the first person camera, not aiming (the mouse then moves the crosshair) */
-    l->ok = getPlayerCount() == 1 && portMouseLookPermitted() && !aim && !VrThirdPerson;
+    /* one view, the first person camera; while aiming the mouse moves the crosshair,
+     * not the camera directly, so mouse-look projection stays off while redraws continue */
+    l->ok = getPlayerCount() == 1 && portMouseLookPermitted() && !VrThirdPerson;
     dyaw = g_CurrentPlayer->vv_theta - lastTheta;
     while (dyaw > 180.0f) dyaw -= 360.0f;
     while (dyaw < -180.0f) dyaw += 360.0f;
     dpitch = g_CurrentPlayer->vv_verta - lastVerta;
-    if (g_portMouseDirect)
+    if (g_portMouseDirect && !aim)
     {
         dyaw -= g_portMouseYawDeg * ratio;
         dpitch -= g_portMousePitchDeg * ratio;
@@ -12055,8 +12056,8 @@ static void gevrFlatLookRecord(void)
     l->yawRate = dyaw;
     l->pitchRate = dpitch;
     l->pitchDeg = g_CurrentPlayer->vv_verta;
-    l->yawPerDeg = ratio;
-    l->pitchPerDeg = get_cur_player_look_vertical_inverted() == 0 ? ratio : -ratio;   /* as moveData.invertPitch */
+    l->yawPerDeg = aim ? 0.0f : ratio;
+    l->pitchPerDeg = aim ? 0.0f : (get_cur_player_look_vertical_inverted() == 0 ? ratio : -ratio);   /* as moveData.invertPitch */
     l->stampUs = sysGetMicroseconds();
     lastTheta = g_CurrentPlayer->vv_theta;
     lastVerta = g_CurrentPlayer->vv_verta;
