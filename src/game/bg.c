@@ -835,6 +835,11 @@ Gfx *sub_GAME_7F0B3C8C(Gfx *gdl)
  
     if (sub_GAME_7F0BD8F0())
     {
+#ifdef GEVR
+        /* scorches and bullet holes are coloured by their vertices: no lighting or generated
+         * texture coordinates left on by the last model drawn (a lit Bean prop's list did) */
+        gSPClearGeometryMode(gdl++, G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
+#endif
         gdl = explosionRenderScorchBuffer(gdl);
         gdl = explosionCallRenderBulletImpactOnProp(gdl);
     }

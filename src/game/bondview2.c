@@ -16978,7 +16978,16 @@ static Gfx *gevrRenderWatchStatusAt(Gfx *gdl, const Mtxf *transform)
     gSPSetGeometryMode(gdl++, G_ZBUFFER | G_SHADE | G_SHADING_SMOOTH);
     gSPTexture(gdl++, 0, 0, 0, G_TX_RENDERTILE, G_OFF);
     gDPSetCycleType(gdl++, G_CYC_1CYCLE);
-    gDPSetRenderMode(gdl++, G_RM_AA_ZB_XLU_SURF, G_RM_AA_ZB_XLU_SURF2);
+    /*
+     * A decal on the dial, not a surface of its own: the readout lies a quarter of a model
+     * unit over GoldenEye's dial (gevrWatchStatusFit), and on its watch arm a unit is a tenth
+     * of a millimetre (the dial at 153, the second hand at 154.2: Csuit_lf_handZ), so as a
+     * surface it tied with the dial for depth and flickered (owner, 2026-11-22: "the health
+     * gauge on the watch with the original textures has a flicker to it. Looks like some
+     * Z-fighting. The bean mode doesn't have this problem": its dial lies lower). The decal
+     * mode wins a tie with what it lies on.
+     */
+    gDPSetRenderMode(gdl++, G_RM_AA_ZB_XLU_DECAL, G_RM_AA_ZB_XLU_DECAL2);
     gDPSetAlphaCompare(gdl++, G_AC_NONE);
     gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
     gSPDisplayList(gdl++, osVirtualToPhysical(health));
