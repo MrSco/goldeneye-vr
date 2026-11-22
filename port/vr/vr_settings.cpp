@@ -44,8 +44,9 @@ int VrTriggerFeedback = 100;
 /* The walk's head bob in a flat game (src/game/bondhead.c, #269); stereo has
  * none either way. */
 int VrHeadBob = 1;
-/* A flat game's frame rate in levels (flat_window.cpp, #269): 0 Auto (half
- * rate while the device can't hold the screen's), 1 Full, 2 Half. */
+/* A flat game's frame rate in levels (flat_window.cpp, #269, #274):
+ * 0 Auto (display refresh rate, stepping down if the device can't hold it),
+ * -1 Uncapped, or an explicit FPS cap (>= 25). */
 int VrFrameRate = 0;
 /* Save folders already checked for the old accidental Reverse look, a bit
  * each (src/game/file2.c fileLoadSettingsForFolder). */
@@ -1116,7 +1117,15 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "PadLookInvert") == 0) s_padLookInvert = ival != 0;
             else if (strcmp(key, "HeadBob") == 0) VrHeadBob = ival != 0;
             else if (strcmp(key, "Teleport") == 0) VrTeleport = ival != 0;
-            else if (strcmp(key, "FrameRate") == 0) VrFrameRate = ival >= 0 && ival <= 3 ? ival : 0;
+            else if (strcmp(key, "FrameRate") == 0) {
+                /* 0 Auto, -1 Uncapped, >= 25 explicit cap; legacy 1/2/3 map to 60/30/Auto */
+                if (ival == 0 || ival == 3) VrFrameRate = 0;
+                else if (ival == 1) VrFrameRate = 60;
+                else if (ival == 2) VrFrameRate = 30;
+                else if (ival == -1) VrFrameRate = -1;
+                else if (ival >= 25 && ival <= 1000) VrFrameRate = ival;
+                else VrFrameRate = 0;
+            }
             else if (strcmp(key, "LookUprightFolders") == 0) VrLookUprightFolders = ival;
             else if (strcmp(key, "GyroAim") == 0) VrGyroAim = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             /* Keep saved DisplayHz preferences. The obsolete RefreshRate key

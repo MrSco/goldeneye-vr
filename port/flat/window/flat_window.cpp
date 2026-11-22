@@ -109,41 +109,35 @@ static uint64_t qpc_freq;
 #define FRAME_INTERVAL_US_DENOMINATOR (flatTimerFps())
 
 /*
- * Frame rate (2026-11-20, reworked for #269): a device that can't hold the
- * screen's rate in a level plays it at a steady half instead. An uneven rate
- * judders on a TV: an Apple TV HD ran Dam with XBLA / Bean at 40 fps, each
- * frame shown for one refresh or two (the N64 graphics held 60 there).
- *
- * The settings' Frame rate row (VrFrameRate): Auto, Full (the screen's rate
- * always, 60 at most: flatFullFps) or Half (always, in levels; of the game's
- * 60 on a faster screen, and by the frame timer with VSync off). Auto measures in levels with VSync on,
- * after each level's first 3 seconds (loading, first draws): 5 seconds in a
- * row under 92% of the screen's rate (55 of 60) turn half rate on. It is no
- * longer a verdict for good (#269: Dam's mountains once locked every later
- * run, Bean or not, until a reinstall): after a stretch at half rate it tries
- * the full rate again, and stays there if 2 seconds hold it; if they don't,
- * the next try waits twice as long (15 s, then 30, 60 ... 4 minutes). A new
- * level of the same graphics (the N64's or Bean's) starts where the last one
- * ended, this session only: nothing is saved (an older build's
- * gevr_halfrate.txt is deleted). Menus and the launcher keep the full rate;
- * screens of 48 to 61 Hz only (a faster one is a fast device's).
- *
- * Every other refresh where the swap allows it (Apple through ANGLE's frame
- * pacing patch, tools/build_angle_apple.sh; the PC's WGL and GLX), the
- * game's frame timer otherwise (an Android surface swaps every refresh at
- * most). At half rate the frame pump steps the game two sixtieths a frame
- * (gevr_engine_shim.c, flatHalfRateActive), not by when the CPU started it.
- * Video.AutoHalfRate=0 makes Auto the full rate, as before.
+ * Frame rate (#269, #274):
+ * - Auto (VrFrameRate == 0): matches the display's refresh rate (e.g. 60, 90,
+ *   120, 144, 165, 180, 240 Hz). In levels, after a 3-second warmup, if the
+ *   device can't sustain 92% of its current target for 5 consecutive seconds,
+ *   it steps down to a steady lower tier (display Hz -> 60 fps -> 30/25 fps)
+ *   and probes back up periodically (15 s, 30 s, 60 s ... 4 min). Session-only,
+ *   tracked separately for N64 vs XBLA/Bean graphics. Video.AutoHalfRate=0
+ *   disables automatic step-down.
+ * - Fixed cap (VrFrameRate >= 25): 30 (half rate in levels), 60, 90, 120, 144,
+ *   165, 180, 240, or the monitor's refresh rate. Uses hardware VSync swap
+ *   intervals when the cap evenly divides the display refresh rate under VSync,
+ *   and the high-resolution frame timer otherwise.
+ * - Uncapped (VrFrameRate == -1): disables VSync and the frame timer in levels
+ *   while high-refresh redraws are active; menus/cutscenes/aiming stay paced
+ *   on the 60 Hz clock.
  */
 extern "C" int gevrBeanIsEnabled(void);
 extern "C" s32 bossGetStageNum(void);
 extern "C" const char *fsFullPath(const char *relPath);
 extern "C" s32 vidAutoHalfRate;
-extern "C" int VrFrameRate;       // vr_settings.cpp: 0 Auto, 1 Full, 2 Half, 3 the camera at a faster screen's rate
+extern "C" int VrFrameRate;       // vr_settings.cpp: 0 Auto, -1 Uncapped, >= 25 explicit cap
+extern "C" int flatLookRedrawable(void);   // flat_headset.c: first-person look redraw available
 static int s_baseInterval = -1;   // the VSync setting, as gfx_sdl_set_swap_interval last had it
+static int s_activeInterval = -999;   // what SDL_GL_SetSwapInterval currently holds
 static bool s_halfOn;
-static int s_halfTimerFps;        // half rate by the frame timer instead of the swap
-static unsigned s_halfModes;      // Auto's verdict this session: 1 the N64 graphics, 2 XBLA / Bean
+static bool s_autoHighOn = true;  // Auto: currently targeting > 61 Hz (tier 0 on a fast screen)
+static bool s_uncappedNow;        // Uncapped active in a level
+static int s_capTimerFps;         // timer-paced cap (half rate or non-divisor high-refresh cap)
+static int s_autoTier[2];         // Auto's verdict this session: [0] N64, [1] XBLA / Bean (0=hz, 1=60, 2=half)
 static int s_screenHz;
 
 static int halfRateScreenHz(void)
@@ -160,24 +154,21 @@ extern "C" int flatScreenHz(void)
     return s_screenHz ? s_screenHz : (wnd ? halfRateScreenHz() : 60);
 }
 
-/*
- * The settings' Frame rate row, for its names (60 and 30, 50 and 25): the full rate a flat
- * game reaches on this screen. The game is GoldenEye's 60 Hz one (the frame pump's clock,
- * flat_headset.c), so a faster screen shows 60 too: the row read "180 fps" on a 180 Hz
- * monitor and the game ran at 60 (#274: "the game wont uncap the fps to 180").
- */
+/* The game's own full simulation/render rate on this screen: 60 (or 50 on a 50 Hz TV). */
 extern "C" int flatFullFps(void)
 {
     const int hz = flatScreenHz();
     return hz > 61 ? 60 : hz;
 }
 
-/* The Frame rate row's fourth choice: the camera at the screen's rate, on a screen faster
- * than the game (flat_headset.c). The swap's wait for the screen paces those frames, so
- * only with VSync on. */
+/* Whether in-between camera-look redraws (> 60 fps) should be recorded and presented (#274). */
 extern "C" int flatHighRefreshWanted(void)
 {
-    return VrFrameRate == 3 && s_baseInterval > 0 && !s_halfOn && flatScreenHz() > 61;
+    if (s_halfOn) return 0;
+    if (VrFrameRate == -1) return 1;
+    if (VrFrameRate > 61) return 1;
+    if (VrFrameRate == 0) return flatScreenHz() > 61 && s_autoHighOn;
+    return 0;
 }
 
 /* the frame pump (gevr_engine_shim.c): each frame is two of the screen's refreshes */
@@ -186,12 +177,39 @@ extern "C" int flatHalfRateActive(void)
     return s_halfOn ? 1 : 0;
 }
 
+static int flatAutoTargetFps(int hz, int tier)
+{
+    const int halfFps = (hz > 61 ? 60 : hz) / 2;
+    if (tier <= 0) return hz;
+    if (tier == 1 && hz > 61) return 60;
+    return halfFps;
+}
+
+static int flatAutoMaxTier(int hz)
+{
+    return hz > 61 ? 2 : 1;   // > 61 Hz: 0=hz, 1=60, 2=30; <= 61 Hz: 0=hz, 1=half
+}
+
+static void flatApplySwapInterval(int wantInterval, int fallbackTimerFps)
+{
+    if (wantInterval == s_activeInterval) return;
+    if (SDL_GL_SetSwapInterval(wantInterval) >= 0) {
+        s_activeInterval = wantInterval;
+    } else {
+        if (s_baseInterval >= 0 && s_activeInterval != s_baseInterval) {
+            SDL_GL_SetSwapInterval(s_baseInterval);
+            s_activeInterval = s_baseInterval;
+        }
+        if (fallbackTimerFps > 0) s_capTimerFps = fallbackTimerFps;
+    }
+}
+
 /* before each swap */
 static void halfRateFrame(void)
 {
-    static int lastStage = -1, slowSeconds, goodSeconds, frames;
+    static int lastStage = -1, lastPref = -999, lastMode = -1, slowSeconds, goodSeconds, frames;
     static Uint64 stageSince, secondSince;
-    static bool probing;              // Auto: trying the full rate again
+    static bool probing;              // Auto: trying the next higher tier again
     static Uint64 probeAt;            // Auto: when the next try is due
     static unsigned probeWaitMs = 15000;
     static bool cleaned;
@@ -203,13 +221,17 @@ static void halfRateFrame(void)
     const int hz = s_screenHz;
     const int stage = bossGetStageNum();
     const bool level = stage > 0 && stage != 90;   // 90: the title stage, the menus
-    const unsigned mode = gevrBeanIsEnabled() ? 2u : 1u;
-    const int pref = VrFrameRate == 1 || VrFrameRate == 3 || (VrFrameRate == 0 && !vidAutoHalfRate) ? 1 : VrFrameRate == 2 ? 2 : 0;
+    const int modeIdx = gevrBeanIsEnabled() ? 1 : 0;
+    const bool isAuto = VrFrameRate == 0;
     const bool vsync = s_baseInterval > 0;
-    const bool able = vsync && hz >= 48 && hz <= 61;   // Auto: a 60 or 50 Hz screen
+    const bool autoAble = isAuto && vidAutoHalfRate && (hz >= 48);
+    const int halfFps = flatFullFps() / 2;
     const Uint64 now = SDL_GetTicks64();
-    if (stage != lastStage || !able || pref != 0) {
+
+    if (stage != lastStage || !autoAble || VrFrameRate != lastPref || modeIdx != lastMode) {
         lastStage = stage;
+        lastPref = VrFrameRate;
+        lastMode = modeIdx;
         stageSince = now;
         secondSince = 0;
         slowSeconds = goodSeconds = 0;
@@ -217,78 +239,140 @@ static void halfRateFrame(void)
         probeWaitMs = 15000;
         probeAt = now + probeWaitMs;
     }
-    if (able && level && pref == 0 && now - stageSince >= 3000) {
-        const bool atHalf = (s_halfModes & mode) && !probing;
-        if (atHalf) {
-            secondSince = 0;   // nothing to measure at half rate: the swap holds it at half
+
+    const int maxTier = flatAutoMaxTier(hz);
+    if (s_autoTier[modeIdx] > maxTier) s_autoTier[modeIdx] = maxTier;
+    const int curTier = autoAble ? (probing && s_autoTier[modeIdx] > 0 ? s_autoTier[modeIdx] - 1 : s_autoTier[modeIdx]) : 0;
+    const int curAutoFps = flatAutoTargetFps(hz, curTier);
+
+    if (autoAble && level && now - stageSince >= 3000) {
+        const bool atFloor = s_autoTier[modeIdx] >= maxTier && !probing;
+        // High-refresh Auto only redraws when first-person look redraws are permitted
+        // (not while aiming, in cutscenes, third person, or split screen). Don't penalize those.
+        if (curAutoFps > 61 && !flatLookRedrawable()) {
+            secondSince = 0;
+            frames = 0;
+            slowSeconds = 0;
+        } else if (atFloor) {
+            secondSince = 0;
             if (now >= probeAt) {
                 probing = true;
                 goodSeconds = slowSeconds = 0;
-                sysLogPrintf(LOG_NOTE, "video: trying the full %d fps again", hz);
+                sysLogPrintf(LOG_NOTE, "video: trying %d fps again", flatAutoTargetFps(hz, s_autoTier[modeIdx] - 1));
             }
         } else {
-            if (!secondSince) {
-                secondSince = now;
+            if (!probing && s_autoTier[modeIdx] > 0 && now >= probeAt) {
+                probing = true;
+                goodSeconds = slowSeconds = 0;
+                secondSince = 0;
                 frames = 0;
-            }
-            frames++;
-            if (now - secondSince >= 1000) {
-                const double fps = frames * 1000.0 / (double)(now - secondSince);
-                const bool slow = fps < hz * 0.92;
-                slowSeconds = slow ? slowSeconds + 1 : 0;
-                goodSeconds = slow ? 0 : goodSeconds + 1;
-                secondSince = now;
-                frames = 0;
-                if (probing && slow) {
-                    probing = false;
-                    probeWaitMs = probeWaitMs >= 120000 ? 240000 : probeWaitMs * 2;
-                    probeAt = now + probeWaitMs;
-                    sysLogPrintf(LOG_NOTE, "video: the full rate didn't hold (%.1f fps): half rate, next try in %u s",
-                                 fps, probeWaitMs / 1000);
-                } else if (probing && goodSeconds >= 2) {
-                    probing = false;
-                    s_halfModes &= ~mode;
-                    probeWaitMs = 15000;
-                    sysLogPrintf(LOG_NOTE, "video: the full %d fps holds again (%.1f fps)", hz, fps);
-                } else if (!probing && slowSeconds >= 5) {
-                    s_halfModes |= mode;
-                    probeWaitMs = 15000;
-                    probeAt = now + probeWaitMs;
-                    sysLogPrintf(LOG_NOTE, "video: %s levels can't hold %d fps here (%.1f for 5 s): half rate, a steady %d",
-                                 mode == 2u ? "XBLA / Bean" : "N64", hz, fps, hz / 2);
+                sysLogPrintf(LOG_NOTE, "video: trying %d fps again", flatAutoTargetFps(hz, s_autoTier[modeIdx] - 1));
+            } else {
+                if (!secondSince) {
+                    secondSince = now;
+                    frames = 0;
+                }
+                frames++;
+                if (now - secondSince >= 1000) {
+                    const double fps = frames * 1000.0 / (double)(now - secondSince);
+                    const bool slow = fps < curAutoFps * 0.92;
+                    slowSeconds = slow ? slowSeconds + 1 : 0;
+                    goodSeconds = slow ? 0 : goodSeconds + 1;
+                    secondSince = now;
+                    frames = 0;
+                    if (probing && slow) {
+                        probing = false;
+                        probeWaitMs = probeWaitMs >= 120000 ? 240000 : probeWaitMs * 2;
+                        probeAt = now + probeWaitMs;
+                        sysLogPrintf(LOG_NOTE, "video: %d fps didn't hold (%.1f fps): staying at %d, next try in %u s",
+                                     curAutoFps, fps, flatAutoTargetFps(hz, s_autoTier[modeIdx]), probeWaitMs / 1000);
+                    } else if (probing && goodSeconds >= 2) {
+                        probing = false;
+                        if (s_autoTier[modeIdx] > 0) s_autoTier[modeIdx]--;
+                        probeWaitMs = 15000;
+                        probeAt = now + probeWaitMs;
+                        sysLogPrintf(LOG_NOTE, "video: %d fps holds again (%.1f fps)", curAutoFps, fps);
+                    } else if (!probing && slowSeconds >= 5 && s_autoTier[modeIdx] < maxTier) {
+                        s_autoTier[modeIdx]++;
+                        probeWaitMs = 15000;
+                        probeAt = now + probeWaitMs;
+                        sysLogPrintf(LOG_NOTE, "video: %s levels can't hold %d fps here (%.1f for 5 s): stepping down to %d",
+                                     modeIdx ? "XBLA / Bean" : "N64", curAutoFps, fps,
+                                     flatAutoTargetFps(hz, s_autoTier[modeIdx]));
+                    }
                 }
             }
         }
     }
-    const bool half = level && (pref == 2 || (pref == 0 && able && (s_halfModes & mode) && !probing));
-    if (half == s_halfOn) return;
+
+    const int effTier = autoAble ? (probing && s_autoTier[modeIdx] > 0 ? s_autoTier[modeIdx] - 1 : s_autoTier[modeIdx]) : 0;
+    const int effTarget = VrFrameRate == -1 ? -1
+                        : VrFrameRate >= 25 ? VrFrameRate
+                        : flatAutoTargetFps(hz, effTier);
+    s_autoHighOn = isAuto && effTarget > 61;
+
+    const bool half = level && effTarget > 0 && effTarget <= halfFps;
+    const bool high = level && (effTarget == -1 || effTarget > 61);
+    const bool halfChanged = half != s_halfOn;
     s_halfOn = half;
-    s_halfTimerFps = 0;
-    // half the game's rate, not the screen's: 30 on a 120 or 180 Hz screen too (#274)
-    const int halfFps = flatFullFps() / 2;
+    s_uncappedNow = level && effTarget == -1;
+
+    int wantInterval = s_baseInterval >= 0 ? s_baseInterval : 0;
+    int wantTimerFps = 0;
+    int fallbackTimerFps = 0;
+
+    if (half) {
 #ifdef ANDROID
-    if (half) s_halfTimerFps = halfFps;   // an Android surface swaps every refresh at most
+        wantTimerFps = halfFps;   // an Android surface swaps every refresh at most
 #else
-    // the refreshes each frame is shown for: 2 at 60 and 50 Hz, 4 at 120, 6 at 180. The nearest
-    // where none fits: 5 at 144 Hz, a steady 28.8 (the frame timer under VSync there gave an
-    // uneven 27.5, each frame held to the refresh after its time; measured 2026-11-22)
-    const int every = vsync && halfFps > 0 ? (hz + halfFps / 2) / halfFps : 0;
-    if (!half) {
-        SDL_GL_SetSwapInterval(s_baseInterval);
-    } else if (!every || SDL_GL_SetSwapInterval(every) < 0) {
-        SDL_GL_SetSwapInterval(s_baseInterval);
-        s_halfTimerFps = halfFps;   // no such interval here: the frame timer
-    }
+        // the refreshes each frame is shown for: 2 at 60 and 50 Hz, 4 at 120, 6 at 180. The nearest
+        // where none fits: 5 at 144 Hz, a steady 28.8 (measured 2026-11-22)
+        const int every = vsync && halfFps > 0 ? (hz + halfFps / 2) / halfFps : 0;
+        if (every > 0) {
+            wantInterval = every;
+            fallbackTimerFps = halfFps;
+        } else {
+            wantTimerFps = halfFps;
+        }
 #endif
-    sysLogPrintf(LOG_NOTE, "video: %s", half ? (s_halfTimerFps ? "half rate in this level (frame timer)"
-                                                               : "half rate in this level (every other refresh)")
-                                             : "full rate");
+    } else if (high) {
+#if defined(ANDROID) || defined(GEVR_IOS)
+        wantTimerFps = (effTarget > 0 && effTarget < hz) ? effTarget : 0;
+#else
+        if (effTarget == -1) {
+            wantInterval = 0;   // Uncapped: no swap wait, no timer cap
+            wantTimerFps = 0;
+        } else if (vsync && effTarget <= hz && hz % effTarget == 0) {
+            wantInterval = hz / effTarget;   // exact hardware VSync divisor (1 at native Hz, 2 at half, etc.)
+            wantTimerFps = 0;
+            fallbackTimerFps = effTarget;
+        } else {
+            wantInterval = 0;   // non-divisor cap, cap above monitor Hz, or VSync off: high-res timer paces it
+            wantTimerFps = flatLookRedrawable() ? effTarget : 0;   // 60 Hz clock paces cutscenes/menus/aim
+        }
+#endif
+    } else if (level && effTarget >= 25 && effTarget < 60 && !(vsync && hz == effTarget)) {
+        wantTimerFps = effTarget;
+    }
+
+    if (wantTimerFps != s_capTimerFps) {
+        s_capTimerFps = wantTimerFps;
+        previous_time = 0;
+    }
+    flatApplySwapInterval(wantInterval, fallbackTimerFps);
+
+    if (halfChanged) {
+        sysLogPrintf(LOG_NOTE, "video: %s", half ? (s_capTimerFps ? "half rate in this level (frame timer)"
+                                                                  : "half rate in this level (every other refresh)")
+                                                 : "full rate");
+    }
 }
 
-/* the frame timer's rate: the FramerateLimit setting's, or half rate's if lower */
+/* the frame timer's rate: the Frame rate cap, or Video.FramerateLimit if lower */
 static int flatTimerFps(void)
 {
-    if (s_halfTimerFps && (!target_fps || s_halfTimerFps < target_fps)) return s_halfTimerFps;
+    if (s_capTimerFps > 0) return s_capTimerFps;
+    if (s_uncappedNow) return 0;
     return target_fps;
 }
 
@@ -622,9 +706,16 @@ static void gfx_sdl_handle_events(void) {
             case SDL_WINDOWEVENT:
                 if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
                     get_drawable_size(&window_width, &window_height);
+                    s_screenHz = halfRateScreenHz();
                     if (!fullscreen_state) {
                         maximized_state = SDL_GetWindowFlags(wnd) & SDL_WINDOW_MAXIMIZED ? true : false;
                     }
+                } else if (event.window.event == SDL_WINDOWEVENT_MOVED
+#ifdef SDL_WINDOWEVENT_DISPLAY_CHANGED
+                           || event.window.event == SDL_WINDOWEVENT_DISPLAY_CHANGED
+#endif
+                ) {
+                    s_screenHz = halfRateScreenHz();
                 } else if (event.window.event == SDL_WINDOWEVENT_CLOSE &&
                            event.window.windowID == SDL_GetWindowID(wnd)) {
                     // We listen specifically for main window close because closing main window
@@ -648,30 +739,39 @@ static uint64_t qpc_to_100ns(uint64_t qpc) {
 }
 
 static inline void sync_framerate_with_timer(void) {
-    uint64_t t;
-    t = qpc_to_100ns(SDL_GetPerformanceCounter());
+    const int fps = FRAME_INTERVAL_US_DENOMINATOR;
+    if (fps <= 0) return;
+    const int64_t period = (10LL * FRAME_INTERVAL_US_NUMERATOR) / fps;   // 100 ns units
+    uint64_t t = qpc_to_100ns(SDL_GetPerformanceCounter());
 
-    const int64_t next = previous_time + 10 * FRAME_INTERVAL_US_NUMERATOR / FRAME_INTERVAL_US_DENOMINATOR;
-    int64_t left = next - t;
-    // We want to exit a bit early, so we can busy-wait the rest to never miss the deadline
-    left -= 15000UL;
+    // Keep a phase-locked timeline across each 1/60 s game tick so a heavier game
+    // frame followed by fast in-between redraws lands evenly on the cap grid without
+    // overshooting the next tick or throwing away redraw slots; clamp lag to one
+    // 1/60 s tick so stalls/loads never cause a catch-up burst.
+    if (previous_time == 0 || (int64_t)(t - previous_time) > 166667LL + period) {
+        previous_time = t;
+        return;   // first frame or returning from a stall/menu: present immediately, start the grid here
+    }
+    const int64_t next = (int64_t)previous_time + period;
+    int64_t left = next - (int64_t)t;
     if (left > 0) {
-        sysSleep(left);
+        // Exit a bit early to spin the last 1.5 ms for sub-millisecond accuracy
+        if (left > 15000LL) {
+            sysSleep(left - 15000LL);
+        }
+        do {
+            sysCpuRelax();
+            t = qpc_to_100ns(SDL_GetPerformanceCounter());
+        } while ((int64_t)t < next);
+        previous_time = (uint64_t)next;
+    } else {
+        // Late (e.g. heavy game frame): advance one grid step so fast redraws can
+        // stay on cadence, but never let debt exceed one 1/60 s tick.
+        previous_time = (uint64_t)next;
+        if ((int64_t)(t - previous_time) > 166667LL) {
+            previous_time = t - 166667ULL;
+        }
     }
-
-    do {
-        sysCpuRelax();
-        t = qpc_to_100ns(SDL_GetPerformanceCounter());
-    } while ((int64_t)t < next);
-
-    t = qpc_to_100ns(SDL_GetPerformanceCounter());
-    if (left > 0 && t - next < 10000) {
-        // In case it takes some time for the application to wake up after sleep,
-        // or inaccurate timer,
-        // don't let that slow down the framerate.
-        t = next;
-    }
-    previous_time = t;
 }
 
 extern "C" int gevrLoadingHoldFrame(void);   // port/vr/gevr_loading.cpp
@@ -722,8 +822,10 @@ static int gfx_sdl_get_swap_interval(void) {
 static bool gfx_sdl_set_swap_interval(int interval) {
     const bool success = SDL_GL_SetSwapInterval(interval) >= 0;
     s_baseInterval = success ? interval : 0;
-    s_halfOn = false;   // half rate applies itself again over the new setting
-    s_halfTimerFps = 0;
+    s_activeInterval = s_baseInterval;
+    s_halfOn = false;   // frame pacing applies itself again over the new setting
+    s_capTimerFps = 0;
+    s_uncappedNow = false;
     vsync_enabled = success && (interval != 0);
     if (!success) {
         sysLogPrintf(LOG_WARNING, "SDL: failed to set vsync %d: %s", interval, SDL_GetError());

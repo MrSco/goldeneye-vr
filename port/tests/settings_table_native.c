@@ -94,6 +94,18 @@ int main(void)
     id = find("Movement speed");
     gevrSettingSet(id, 2); text(id, t);
     check(!strcmp(t, "100% (default)") && VrMovementSpeed == 0, "movement speed 100% is the normal mode");
+    id = find("Frame rate");
+    check(gevrSettingDefault(id) == 0 && gevrSettingPositions(id) == 10,
+          "frame rate: Auto, standard caps (30..240), and Uncapped");
+    gevrSettingSet(id, 0); text(id, t);
+    check(VrFrameRate == 0 && !strcmp(t, "Auto (default)"), "frame rate 0 is Auto");
+    gevrSettingSet(id, 2); text(id, t);
+    check(VrFrameRate == 60 && !strcmp(t, "60 fps"), "frame rate cap 60");
+    gevrSettingSet(id, 5); text(id, t);
+    check(VrFrameRate == 144 && !strcmp(t, "144 fps"), "frame rate cap 144");
+    gevrSettingSet(id, gevrSettingPositions(id) - 1); text(id, t);
+    check(VrFrameRate == -1 && !strcmp(t, "Uncapped"), "frame rate last choice is Uncapped");
+    gevrSettingSet(id, 0);
 
     /* The launcher's places: Play holds the play mode, third person, stats, the speedrun timer, the ghost race and the volumes;
      * the watch face is on Hands; the ally has its own sub-tab; gun size is a cheat. */

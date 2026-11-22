@@ -253,26 +253,75 @@ static void padVibText(int i, char *b, int n)
     else snprintf(b, n, "%d%%", i * 10);
 }
 
-/* A flat game's frame rate in levels (#269, flat_window.cpp): Auto, the screen's, or half it */
+/* A flat game's frame rate (#269, #274, flat_window.cpp):
+ * 0 Auto (display refresh rate, stepping down if unstable), standard FPS caps, or -1 Uncapped. */
 extern int VrFrameRate;
 #ifdef GEVR_FLAT
-extern int flatFullFps(void);
 extern int flatScreenHz(void);
 #else
-static int flatFullFps(void) { return 60; }
 static int flatScreenHz(void) { return 60; }
 #endif
-/* a fourth choice on a screen faster than the game: the camera at the screen's rate (#274, flat_headset.c) */
-static int frameRatePositions(void) { return flatScreenHz() > 61 ? 4 : 3; }
-static int frameRateGet(void) { return VrFrameRate >= 0 && VrFrameRate < frameRatePositions() ? VrFrameRate : VrFrameRate == 3 ? 1 : 0; }
-static void frameRateSet(int i) { VrFrameRate = i; }
+static void frameRateInsert(int *vals, int *n, int cap, int v)
+{
+    int i, j;
+    if (v < 25 || *n >= cap) return;
+    for (i = 1; i < *n; i++) {
+        if (vals[i] == v) return;
+        if (vals[i] > v) break;
+    }
+    for (j = *n; j > i; j--) vals[j] = vals[j - 1];
+    vals[i] = v;
+    (*n)++;
+}
+static int frameRateChoices(int *vals, int cap)
+{
+    static const int kStd[] = { 30, 60, 90, 120, 144, 165, 180, 240 };
+    const int hz = flatScreenHz();
+    int n = 0, i;
+    vals[n++] = 0;   /* Auto (default) */
+#if defined(GEVR_MOBILE) || defined(GEVR_IOS)
+    for (i = 0; i < (int)(sizeof(kStd) / sizeof(kStd[0])); i++) {
+        if (kStd[i] <= hz) frameRateInsert(vals, &n, cap, kStd[i]);
+    }
+    if (hz >= 48 && hz < 55) frameRateInsert(vals, &n, cap, hz / 2);
+    frameRateInsert(vals, &n, cap, hz);
+    if (VrFrameRate >= 25 && VrFrameRate <= hz) frameRateInsert(vals, &n, cap, VrFrameRate);
+#else
+    for (i = 0; i < (int)(sizeof(kStd) / sizeof(kStd[0])); i++) {
+        frameRateInsert(vals, &n, cap - 1, kStd[i]);
+    }
+    if (hz >= 48 && hz < 55) frameRateInsert(vals, &n, cap - 1, hz / 2);
+    frameRateInsert(vals, &n, cap - 1, hz);
+    if (VrFrameRate >= 25 && VrFrameRate <= 1000) frameRateInsert(vals, &n, cap - 1, VrFrameRate);
+    if (n < cap) vals[n++] = -1;   /* Uncapped */
+#endif
+    return n;
+}
+static int frameRatePositions(void)
+{
+    int vals[16];
+    return frameRateChoices(vals, 16);
+}
+static int frameRateGet(void)
+{
+    int vals[16], n = frameRateChoices(vals, 16), i;
+    for (i = 0; i < n; i++) {
+        if (vals[i] == VrFrameRate) return i;
+    }
+    return 0;
+}
+static void frameRateSet(int i)
+{
+    int vals[16], n = frameRateChoices(vals, 16);
+    VrFrameRate = (i >= 0 && i < n) ? vals[i] : 0;
+}
 static void frameRateText(int i, char *b, int n)
 {
-    const int hz = flatFullFps();   /* 60 on a faster screen too: the game's own rate (#274) */
-    if (i == 3) snprintf(b, n, "%d fps looking", flatScreenHz());
-    else if (i == 1) snprintf(b, n, "%d fps", hz);
-    else if (i == 2) snprintf(b, n, "%d fps", hz / 2);
-    else snprintf(b, n, "Auto (default)");
+    int vals[16], count = frameRateChoices(vals, 16);
+    const int v = (i >= 0 && i < count) ? vals[i] : 0;
+    if (v == 0) snprintf(b, n, "Auto (default)");
+    else if (v == -1) snprintf(b, n, "Uncapped");
+    else snprintf(b, n, "%d fps", v);
 }
 
 /* A pad's look (#269, input.c inputPadLookSet): every pad's right stick */
@@ -610,9 +659,8 @@ static const Row s_rows[] = {
       .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_SCREEN), .where = GEVR_SET_BOTH,
       .ivar = &VrScreenShape, .ivalues = s_two, .names = s_shapeNames, .count = 2, .def = NAN },
     { .label = "Frame rate", .flatgame = 1,
-      .tooltip = "Levels: Auto drops to half the screen's rate (30 on a 60 Hz screen) while this device can't hold the full one, "
-                 "and tries the full rate again a little later. A steady half is smoother than an uneven rate. "
-                 "The game runs at 60 at most; on a faster screen the last choice draws your looking around at the screen's rate (VSync on).",
+      .tooltip = "Auto matches your display's refresh rate and steps down to a steady lower rate if this device can't hold it. "
+                 "Or choose a fixed cap or Uncapped.",
       .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_SCREEN), .where = GEVR_SET_BOTH, .def = NAN,
       .cpositions = frameRatePositions, .cget = frameRateGet, .cset = frameRateSet, .ctext = frameRateText, .cdefault = 0 },
     { .label = "Third person", .tooltip = "The camera follows behind Bond in the flat screen, solo. "

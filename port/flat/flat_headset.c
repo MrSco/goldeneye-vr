@@ -129,13 +129,32 @@ void vr_poll_events(void) { }
  * screen paces it. A frame that can't be drawn that way (a menu, a cutscene, aiming, two
  * players' views) falls back on the 60 Hz clock until the next tick.
  */
+#ifndef GEVR_HEADLESS
 struct GevrFlatLook { s32 ok; f32 pitchDeg; f32 yawPerDeg, pitchPerDeg; f32 yawRate, pitchRate; u64 stampUs; };
 extern struct GevrFlatLook g_gevrFlatLook;                   /* bondview2.c: the last tick's */
 extern int flatHighRefreshWanted(void);                      /* flat_window.cpp */
+extern int flatScreenHz(void);                               /* flat_window.cpp */
 extern int gfx_flat_redraw_frame(const float *delta);        /* gfx_pc.cpp */
 extern void inputMousePeekLookDeg(f32 *dxdeg, f32 *dydeg);   /* input.c */
 extern u64 sysGetMicroseconds(void);
 static int s_flatRedrawFailed;
+static unsigned s_flatStatRedraw;
+static long long s_flatStatLastPresent;
+static double s_flatStatWorstPresentMs;
+
+int flatLookRedrawable(void)
+{
+	return g_gevrFlatLook.ok != 0;
+}
+
+static void flatStatsNotePresent(long long now)
+{
+	if (s_flatStatLastPresent) {
+		const double gap = (now - s_flatStatLastPresent) / 1e6;
+		if (gap > s_flatStatWorstPresentMs && gap < 1000.0) s_flatStatWorstPresentMs = gap;
+	}
+	s_flatStatLastPresent = now;
+}
 
 /* The camera's move, in the game frame's camera space (x right, y up, z towards the
  * viewer; a GL matrix), for a turn of yaw degrees to the right about the world's upright
@@ -185,22 +204,27 @@ int flatRedrawFrame(void)
 		if (pitch < -most) pitch = -most;
 		flatLookDelta(yaw, pitch, delta);
 		if (gfx_flat_redraw_frame(delta)) {
+			s_flatStatRedraw++;
+			flatStatsNotePresent(gevrFlatNowNs());
 			return 1;
 		}
 	}
 	s_flatRedrawFailed = 1;   /* the 60 Hz clock until the next tick */
 	return 0;
 }
+#endif
 
 bool vr_begin_frame_and_update_poses(void)
 {
 	static long long next;
 	const long long now = gevrFlatNowNs();
 
+#ifndef GEVR_HEADLESS
 	if (!s_flatRedrawFailed && g_gevrFlatLook.ok && flatHighRefreshWanted() && !gevrServerIdle()) {
 		return true;   /* a frame to draw: a game frame if one is due, else flatRedrawFrame */
 	}
 	s_flatRedrawFailed = 0;
+#endif
 	if (next == 0 || now - next > 100000000ll) {
 		next = now;   /* the first wait, or the game stalled: start the clock again */
 	}
@@ -299,6 +323,9 @@ const char *gevrVrStatsText(void)
 		if (gap > worstMs && gap < 1000.0) worstMs = gap;   /* not a pause or the background */
 	}
 	last = now;
+#ifndef GEVR_HEADLESS
+	flatStatsNotePresent(now);
+#endif
 	frames++;
 	if (!since) since = now;
 	if (now - since >= 1000000000ll || !text[0]) {
@@ -309,6 +336,19 @@ const char *gevrVrStatsText(void)
 			if (*c == ' ') { *c = 0; break; }
 		}
 		const char *perf = gevrPerfText();
+#ifndef GEVR_HEADLESS
+		if (s_flatStatRedraw > 0) {
+			const double presentFps = el > 0.0 ? (frames + s_flatStatRedraw) / el : 0.0;
+			snprintf(text, sizeof(text),
+			         "BUILD %s\nSIM %.0f HZ  RENDER %.0f FPS\nGAME %.0f  REDRAW %.0f/S  DISPLAY %d HZ\nWORST GAP %.1f MS%s%s",
+			         build, el > 0.0 ? s_flatStatSim / el : 0.0, presentFps,
+			         el > 0.0 ? frames / el : 0.0, el > 0.0 ? s_flatStatRedraw / el : 0.0,
+			         flatScreenHz(), s_flatStatWorstPresentMs,
+			         perf && perf[0] ? "\n" : "", perf ? perf : "");
+			s_flatStatRedraw = 0;
+			s_flatStatWorstPresentMs = 0.0;
+		} else
+#endif
 		snprintf(text, sizeof(text), "BUILD %s\nSIM %.0f HZ  RENDER %.0f FPS\nWORST RENDER GAP %.1f MS%s%s",
 		         build, el > 0.0 ? s_flatStatSim / el : 0.0, el > 0.0 ? frames / el : 0.0, worstMs,
 		         perf && perf[0] ? "\n" : "", perf ? perf : "");
