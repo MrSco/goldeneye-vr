@@ -143,6 +143,10 @@ static const char *blockedCurved(void) { return vr_screen_curve_supported() ? NU
 static const char *blockedPassthrough(void) { return vr_passthrough_supported() ? NULL : "Not on this headset"; }
 /* GoldenEye X's guns, Bean's, or GoldenEye's own (gevr_n64mag.h): not a ROM hack's own guns */
 static const char *blockedReload(void) { return VrGexGuns || gevrBeanIsEnabled() || gevrRomRetailArt() ? NULL : "Not with this ROM's guns"; }
+/* GoldenEye X's guns are never on in a hack campaign (owner, 2026-11-21: "Golden Eye X guns shouldn't work
+ * for Goldfinger or Tomorrow Never Dies or Mario characters"): the ROM's load turns them off for the run
+ * (gevr_romload.c) and gevr_gex.c will not open its ROM; this row could still be switched back on. */
+static const char *blockedGex(void) { return gevrRomIsVariant() ? "Not with this ROM" : NULL; }
 static const char *blockedHat(void) { return gevrHatAvailable() ? NULL : "Get it in Mods"; }
 static const char *blockedBeanFill(void) { return gevrTexpackFillAvailable() ? NULL : "Needs an HD pack"; }
 /* hand reload takes B, so grip use stays on with it (bondview2.c gevrHandReloadActive): shown on, not the stored value (headset, test.21) */
@@ -681,7 +685,7 @@ static const Row s_rows[] = {
       .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .ivar = &VrBeanFillTextures, .def = NAN, .blocked = blockedBeanFill },
     /* the launcher's Mods tab draws these with their packs (vr_launcher.cpp gevrModsPage) */
     { .label = "GoldenEye X", .tooltip = "GoldenEye X's guns, hands and reloads.", .kind = GEVR_SET_TOGGLE,
-      .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .ivar = &VrGexGuns, .def = NAN },
+      .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .ivar = &VrGexGuns, .def = NAN, .blocked = blockedGex },
     { .label = "Gun size", .headset = 1, .tooltip = "Tiny or big guns, as the cheat.", .kind = GEVR_SET_CHOICE,
       .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_CHEATS), .where = GEVR_SET_BOTH, .ivar = &VrGunSizeCheat,
       .ivalues = s_three, .names = s_gunSizeNames, .count = 3, .def = NAN },

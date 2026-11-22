@@ -82,7 +82,9 @@ int main(int argc, char **argv)
 	}
 	assert(gevrN64MagStats(&header, &triangles, &lists));
 	assert(info.node && info.matrix >= 0 && info.matrix < atoi(argv[5]));
-	assert(info.made == def->made && info.single == def->single && info.pullUp == def->pullUp);
+	/* a made round or rocket is never drawn in the gun: only a made magazine is */
+	assert(info.made == (def->made && !def->single && !def->consumed) && info.single == def->single && info.pullUp == def->pullUp);
+	assert(info.noPull == def->noPull && info.consumed == def->consumed);
 	/* in the gun: every list as the model has it */
 	for (ModelNode *node = header.RootNode; node; node = next(node)) {
 		const ModelRoData_DisplayListRecord *dl;

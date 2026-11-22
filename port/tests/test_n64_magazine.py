@@ -20,8 +20,10 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 # the cartridge's own counts: each hanging magazine is one list of the model
 TRIANGLES = {"GskorpionZ": 18, "Gak47Z": 26, "GuziZ": 10, "Gmp5kZ": 26, "Gmp5ksilZ": 26, "GspectreZ": 26,
-             "Gm16Z": 26, "Gfnp90Z": 12, "GshotgunZ": 32, "GautoshotZ": 30}
-MADE = {"GwppkZ", "GwppksilZ", "GsilverwppkZ", "GgoldwppkZ", "Gtt33Z", "GsniperrifleZ"}
+             "Gm16Z": 26, "Gfnp90Z": 12, "GshotgunZ": 33, "GautoshotZ": 34,
+             # the Cougar's cylinder, the grenade launcher's drum of six chambers: all of a joint's lists
+             "GrugerZ": 20, "GgrenadelaunchZ": 156}
+MADE = {"GwppkZ", "GwppksilZ", "GsilverwppkZ", "GgoldwppkZ", "Gtt33Z", "GsniperrifleZ", "GrocketlaunchZ", "GgoldengunZ"}
 
 
 def table():

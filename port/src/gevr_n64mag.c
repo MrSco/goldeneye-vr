@@ -61,6 +61,17 @@ static const GevrN64MagDef s_defs[] = {
 	/* the saddle on its left: the front shell's two halves (switches 22 and 27) */
 	{ .name = "GautoshotZ", .lo = { -84.0f, 63.0f, 256.0f }, .hi = { 5.0f, 148.0f, 285.0f }, .into = { 0.0f, 1.0f, 0.0f },
 	  .single = 1, .switched = 1, .port = { 0.0f, 4.0f, 120.0f } },
+	/* the Cougar's cylinder and the grenade launcher's drum (its six chambers): the joint switch 4 names */
+	{ .name = "GrugerZ", .joint = 4, .lo = { -40000.0f, -40000.0f, -40000.0f }, .hi = { 40000.0f, 40000.0f, 40000.0f },
+	  .into = { 0.0f, 1.0f, 0.0f }, .noPull = 1 },
+	{ .name = "GgrenadelaunchZ", .joint = 4, .lo = { -40000.0f, -40000.0f, -40000.0f }, .hi = { 40000.0f, 40000.0f, 40000.0f },
+	  .into = { 0.0f, 1.0f, 0.0f }, .noPull = 1 },
+	/* the rocket: a box the tube's length down its middle (-2 127, its mouth at 436), tail first */
+	{ .name = "GrocketlaunchZ", .made = 1, .into = { 0.0f, 0.0f, -1.0f }, .foot = { -2.0f, 127.0f, 440.0f }, .length = 160.0f,
+	  .half = { 13.0f, 13.0f }, .inside = 160.0f, .rgb = { 70, 78, 60 }, .consumed = 1, .noPull = 1 },
+	/* the Golden Gun's one round: a small gold box, in at the breech behind the barrel (0 65 104) */
+	{ .name = "GgoldengunZ", .made = 1, .into = { 0.0f, 0.0f, 1.0f }, .foot = { 0.0f, 65.0f, -12.0f }, .length = 24.0f,
+	  .half = { 4.0f, 4.0f }, .rgb = { 190, 150, 40 }, .single = 1, .port = { 0.0f, 72.0f, 100.0f } },
 };
 
 /* letters alike, whatever their case (glibc's strings.h clashes with ultra64.h's bcopy) */
@@ -191,6 +202,18 @@ static int nmRootMatrix(const ModelNode *node)
 	return group && nmOp(group) == MODELNODE_OPCODE_GROUP && group->Data ? group->Data->Group.MatrixID0 : -1;
 }
 
+/* the joint a row's piece turns on (GevrN64MagDef.joint), when the list hangs from it: its matrix, else -1 */
+static int nmJointMatrix(const ModelFileHeader *header, const GevrN64MagDef *def, const ModelNode *node)
+{
+	const ModelNode *joint = def->joint > 0 && def->joint < header->numSwitches ? header->Switches[def->joint] : NULL;
+	if (!joint || nmOp(joint) != MODELNODE_OPCODE_GROUP || !joint->Data)
+		return -1;
+	for (const ModelNode *up = node->Parent; up; up = up->Parent)
+		if (up == joint)
+			return joint->Data->Group.MatrixID0;
+	return -1;
+}
+
 /* a list as the model's record names it: a pointer, or an offset into its file (segment 5) */
 static Gfx *nmListOf(const ModelRoData_DisplayListRecord *dl, const Gfx *list)
 {
@@ -217,8 +240,11 @@ struct nmScan {
 	const ModelRoData_DisplayListRecord *dl;
 	int rootMatrix;
 	int eligible;        /* the node's triangles may be the magazine's */
+	/* the matrix in force as the list starts: a secondary list loads none of its own and is
+	 * drawn straight after its primary, on the primary's last (a cylinder's, a drum's) */
+	int startMatrix;
 	/* out */
-	int ncmd, ntri, nsel;
+	int ncmd, ntri, nsel, endMatrix;
 	float sum[3], lo[3], hi[3];
 };
 
@@ -241,7 +267,7 @@ static int nmInside(const struct nmScan *s, const Vertex *v)
 static int nmWalk(struct nmScan *s, const Gfx *list, int keep, Gfx *out)
 {
 	const Vertex *cache[NM_VTX_CACHE] = {0};
-	int cacheMtx[NM_VTX_CACHE], mtx = -1, n = 0;
+	int cacheMtx[NM_VTX_CACHE], mtx = s->startMatrix, n = 0;
 
 	for (int i = 0; i < NM_VTX_CACHE; i++)
 		cacheMtx[i] = -1;
@@ -313,6 +339,7 @@ static int nmWalk(struct nmScan *s, const Gfx *list, int keep, Gfx *out)
 		}
 		if (op == (u8)G_ENDDL) {
 			s->ncmd = n + 1;
+			s->endMatrix = mtx;
 			return 1;
 		}
 	}
@@ -397,22 +424,27 @@ void gevrN64MagApply(struct ModelFileHeader *header, const char *name)
 		const ModelRoData_DisplayListRecord *dl;
 		struct nmScan found[2];
 		const Gfx *src[2] = { NULL, NULL };
-		int rootMatrix, any = 0;
+		int rootMatrix, jointMatrix, any = 0;
 
 		if (nmOp(node) != MODELNODE_OPCODE_DL || !node->Data)
 			continue;
 		dl = &node->Data->DisplayList;
 		rootMatrix = nmRootMatrix(node);
-		/* not the hand and sleeve (switches 8-13, 35), the flash, the slide or the finger */
-		if (rootMatrix < 0 || nmUnderSwitch(header, node, 1, 13) || nmUnderSwitch(header, node, 35, 35))
-			continue;
-		/* a made magazine is drawn on the gun's first list that sets its own render mode: its picture too */
-		if (!host || (!host->Data->DisplayList.ModelType && dl->ModelType)) {
-			host = node;
-			hostMatrix = rootMatrix;
+		jointMatrix = nmJointMatrix(header, def, node);
+		if (jointMatrix < 0) {
+			/* not the hand and sleeve (switches 8-13, 35), the flash, the slide or the finger */
+			if (rootMatrix < 0 || nmUnderSwitch(header, node, 1, 13) || nmUnderSwitch(header, node, 35, 35))
+				continue;
+			/* a made magazine is drawn on the gun's first list that sets its own render mode: its picture too */
+			if (!host || (!host->Data->DisplayList.ModelType && dl->ModelType)) {
+				host = node;
+				hostMatrix = rootMatrix;
+			}
+			if (def->made || def->joint)
+				continue;   /* a joint's piece is the joint's lists alone */
+		} else {
+			rootMatrix = jointMatrix;
 		}
-		if (def->made)
-			continue;
 		for (int which = 0; which < 2; which++) {
 			struct nmScan *s = &found[which];
 			const Gfx *list = nmListOf(dl, which ? dl->Secondary : dl->Primary);
@@ -421,6 +453,7 @@ void gevrN64MagApply(struct ModelFileHeader *header, const char *name)
 			s->def = def;
 			s->dl = dl;
 			s->rootMatrix = rootMatrix;
+			s->startMatrix = which && src[0] ? found[0].endMatrix : -1;
 			s->eligible = !def->switched || nmUnderSwitch(header, node, NM_SHELL_FIRST, NM_SHELL_LAST);
 			for (int k = 0; k < 3; k++) {
 				s->lo[k] = 1e9f;
@@ -458,7 +491,7 @@ void gevrN64MagApply(struct ModelFileHeader *header, const char *name)
 	}
 	if (def->made) {
 		/* the host's own list first, every triangle struck out: its picture is the box's */
-		struct nmScan s = { .def = def, .dl = &host->Data->DisplayList, .rootMatrix = hostMatrix };
+		struct nmScan s = { .def = def, .dl = &host->Data->DisplayList, .rootMatrix = hostMatrix, .startMatrix = -1 };
 		const Gfx *list = nmListOf(s.dl, s.dl->Primary);
 		if (!list || !nmWalk(&s, list, 0, NULL)) {
 			memset(m, 0, sizeof(*m));
@@ -482,14 +515,21 @@ void gevrN64MagApply(struct ModelFileHeader *header, const char *name)
 			m->info.mouth[k] = m->info.top[k] - def->into[k] * def->inside;
 			m->info.hold[k] = def->foot[k] + def->into[k] * def->length * 0.4f;
 		}
-		m->info.made = 1;
+		if (def->single) {
+			/* a loose round: held by its middle, its middle to the port */
+			for (int k = 0; k < 3; k++) {
+				m->info.foot[k] = m->info.hold[k] = m->info.top[k] = def->foot[k] + def->into[k] * def->length * 0.5f;
+				m->info.mouth[k] = def->port[k];
+			}
+		}
+		m->info.made = !def->single && !def->consumed;
 		m->triangles = 12;
 	} else {
 		float far = -1e9f, near = 1e9f, topSum[3] = { 0 }, footSum[3] = { 0 };
 		int ntop = 0, nfoot = 0;
 
 		host = m->lists[0].node;
-		hostMatrix = nmRootMatrix(host);
+		hostMatrix = scans[0][0].rootMatrix;
 		m->magazine = malloc((size_t)(cmds + 1) * sizeof(Gfx));
 		if (!m->magazine) {
 			nmFree(m);
@@ -546,6 +586,9 @@ void gevrN64MagApply(struct ModelFileHeader *header, const char *name)
 				/* a shell: taken where it sits, its middle to the port */
 				m->info.foot[k] = m->info.hold[k] = m->info.top[k] = middle;
 				m->info.mouth[k] = def->port[k];
+			} else if (def->joint) {
+				/* a cylinder: held by its middle and seated where it sits, in its joint's own space */
+				m->info.foot[k] = m->info.hold[k] = m->info.top[k] = m->info.mouth[k] = middle;
 			} else {
 				m->info.top[k] = ntop ? topSum[k] / (float)ntop : middle;
 				m->info.foot[k] = nfoot ? footSum[k] / (float)nfoot : middle;
@@ -562,6 +605,8 @@ void gevrN64MagApply(struct ModelFileHeader *header, const char *name)
 	m->info.matrix = hostMatrix;
 	m->info.pullUp = def->pullUp;
 	m->info.single = def->single;
+	m->info.noPull = def->noPull;
+	m->info.consumed = def->consumed;
 	sysLogPrintf(LOG_NOTE, "n64 magazine: %s: %d triangles on %d list(s)%s, top %.0f %.0f %.0f, mouth %.0f %.0f %.0f", name,
 	             m->triangles, m->nlists, def->made ? " (made)" : def->single ? " (a shell)" : "", m->info.top[0],
 	             m->info.top[1], m->info.top[2], m->info.mouth[0], m->info.mouth[1], m->info.mouth[2]);

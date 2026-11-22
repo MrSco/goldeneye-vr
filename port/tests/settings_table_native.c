@@ -160,10 +160,10 @@ int main(void)
     check(gevrSettingBlocked(find("Hand reload WIP")) == NULL, "hand reload works on GoldenEye's own guns");
     s_campaign = 1;   /* GEVR_CAMPAIGN_GF64 */
     check(gevrSettingBlocked(find("Hand reload WIP")) != NULL, "hand reload is not for a hack's own guns");
-    VrGexGuns = 1;
-    check(gevrSettingBlocked(find("Hand reload WIP")) == NULL, "hand reload works on GoldenEye X's guns in a hack");
-    VrGexGuns = 0;
+    /* ... and GoldenEye X's guns are not for a hack either: its row cannot be switched on there */
+    check(gevrSettingBlocked(find("GoldenEye X")) != NULL, "GoldenEye X's guns are blocked in a hack campaign");
     s_campaign = 0;
+    check(gevrSettingBlocked(find("GoldenEye X")) == NULL, "GoldenEye X's guns are offered on GoldenEye's own ROM");
     /* hand reload holds grip use on: blocked, and shown on whatever the ini says */
     VrGexGuns = 1;
     VrManualReloading = 1;

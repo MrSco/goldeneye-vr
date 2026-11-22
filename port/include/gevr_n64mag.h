@@ -19,8 +19,17 @@
  *  - a shotgun's is one of the shells it carries (the cartridge shows as many
  *    as the reserve has, up to five): the round is that shell's own list, the
  *    gun is never opened, and it goes in at a port under the receiver.
- * The Cougar, the grenade launcher, the rocket launcher and the Golden Gun
- * have nothing here: gestures run the game's own reload for them.
+ *  - the Cougar's cylinder and the grenade launcher's drum turn on a joint of
+ *    their own (the model's switch 4): the magazine is every triangle on that
+ *    joint, whole, and the joint is drawn empty while it is out. It leaves by
+ *    B / Y and a full one seats where it sits.
+ *  - the rocket launcher's rocket is GoldenEye's own prop, made when the
+ *    launcher is loaded, and the Golden Gun shows no round: a plain box stands
+ *    for each in the hand and as the placeholder, never drawn in the gun. The
+ *    rocket goes in tail first at the muzzle and is gone once fired; the
+ *    Golden Gun's round is pushed in at the breech, one at a time.
+ * (owner, 2026-11-21: "we need to do the cougar and the golden gun and the
+ * grenade and rocket launchers in the original guns".)
  *
  * Coordinates are the model's as drawn: the root joint's space, 0.085 cm a
  * unit (x the gun's left, y up, z along the barrel), which is the space of
@@ -43,9 +52,17 @@ typedef struct GevrN64MagDef {
 	int pullUp;            /* it lifts off the top of the gun (the RC-P90's) */
 	int single;            /* a loose round (a shotgun's shell): the gun is never opened, the round is a copy */
 	int switched;          /* only lists under one of the shell switches (18-27) */
+	/* the piece turns on a joint of its own, the group this switch of the model names (4: a
+	 * revolver's cylinder, the grenade launcher's drum): every triangle on it, in the joint's
+	 * own space, where its points are too; it seats at its middle */
+	int joint;
+	int noPull;            /* never pulled out by hand: B / Y alone */
+	int consumed;          /* fired, it is gone (the rocket): an empty gun's is out with nothing dropped */
 	float port[3];         /* a loose round goes in here */
 	/* a magazine made here: a box from foot along into, `length` long, half[0]
-	 * wide across the gun and half[1] deep, `inside` of its top in the gun */
+	 * wide across the gun and half[1] deep, `inside` of its top in the gun. Drawn
+	 * in the gun while it is in, but for a loose round's or a consumed one's,
+	 * which the gun never shows (or GoldenEye shows itself: its rocket) */
 	int made;
 	float foot[3], length, half[2];
 	unsigned char rgb[3];
