@@ -22,12 +22,28 @@
 
 Both modes stay **off by default** so standard missions load untouched. Flip either one on from the Launcher or Pause menu and GoldenEye turns into a deflecting, dismembering, physics-driven corridor brawler (ragdolls, dismemberment, and 24-second body retention switch on automatically). Enable Jedi and Ninja turns off; enable Ninja and Jedi turns off.
 
+<sub><i>Images below are N64 GoldenEye-style in-engine concept renders of the implemented gameplay modes.</i></sub>
+
 <a id="jedi-mode"></a>
 ## Jedi Mode
 
 <p align="center">
-  <img src="art/jedi_mode_showcase.jpg" alt="First-person VR lightsaber deflection, Force Lightning, and telekinetic rocket catch in Facility" width="100%">
+  <img src="art/ge64_jedi_deflect.jpg" alt="First-person GE64 lightsaber deflecting an enemy Moonraker laser bolt in Facility" width="100%"><br>
+  <sub><i>Deflecting an incoming laser bolt back down the Facility corridor.</i></sub>
 </p>
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="art/ge64_jedi_force.jpg" alt="First-person GE64 Force Pull catching a rocket while Force Lightning arcs across Facility guards" width="100%"><br>
+      <sub><i>Off-hand Force telekinesis catching a rocket mid-flight &amp; chaining Force Lightning.</i></sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="art/ge64_sith_duel.jpg" alt="First-person GE64 lightsaber clash against a red-saber Sith adversary" width="100%"><br>
+      <sub><i>Clashing blades against a red-saber Sith adversary.</i></sub>
+    </td>
+  </tr>
+</table>
 
 Walk into Facility with an igniting plasma blade in one hand and the Force in the other.
 
@@ -45,7 +61,8 @@ Walk into Facility with an igniting plasma blade in one hand and the Force in th
 ## Blasters & the DL-44
 
 <p align="center">
-  <img src="art/dl44_blaster_showcase.jpg" alt="Custom Star Wars DL-44 Heavy Blaster Pistol beside a lightsaber hilt and Facility security keycard" width="100%">
+  <img src="art/ge64_dl44_blaster.jpg" alt="First-person GE64 custom DL-44 Heavy Blaster Pistol firing a cyan laser bolt down a Facility corridor" width="100%"><br>
+  <sub><i>Bond's custom sculpted DL-44 Heavy Blaster firing native <code>ITEM_LASER</code> bolts in Facility.</i></sub>
 </p>
 
 Deflecting invisible hitscan bullets is mostly guesswork. Turning **Blasters** on (`On` by default whenever Jedi mode is active) fixes that:
@@ -57,9 +74,18 @@ Deflecting invisible hitscan bullets is mostly guesswork. Turning **Blasters** o
 <a id="ninja-mode"></a>
 ## Ninja Mode
 
-<p align="center">
-  <img src="art/ninja_mode_showcase.jpg" alt="First-person VR POV ninja katana bullet-slice, octagonal buckler deflection, bouncing boomerang, and Shadow-Step smoke" width="100%">
-</p>
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="art/ge64_ninja_combat.jpg" alt="First-person GE64 Ninja katana slicing a bullet mid-air while blocking with an octagonal shield" width="100%"><br>
+      <sub><i>Mid-swing bullet slice &amp; octagonal Ninja buckler deflection.</i></sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="art/ge64_ninja_boomerang_smoke.jpg" alt="First-person GE64 spinning gold shuriken ricocheting down a smoke-filled Facility hallway" width="100%"><br>
+      <sub><i>Wall-ricocheting boomerang shuriken through Shadow-Step tactical smoke.</i></sub>
+    </td>
+  </tr>
+</table>
 
 No Force crutches — just steel, momentum, smoke, and timing.
 
@@ -142,36 +168,36 @@ Written for **MrSco** (and **Claude Code** / automated PR review) so you can aud
 
 ### Why This Should Be Clean to Merge
 
-- **Clean base & additive diff:** Branched directly on `a9d3338` (`v0.5.23`) with only 15 deleted lines across existing code — almost all logic lives inside dedicated files (`port/include/gevr_jedi_ninja.h`, `port/src/gevr_jedi_ninja.c`, `src/game/gevr_jedi_ninja_game.h`, `src/game/gevr_jedi_ninja_game.c`, `port/tests/jedi_ninja_native.c`, `port/tests/test_jedi_ninja.py`).
+- **Clean base & additive diff:** Branched directly on `a9d3338` (`v0.5.23`) with minimal deletions across existing code — almost all logic lives inside dedicated files (`port/include/gevr_jedi_ninja.h`, `port/src/gevr_jedi_ninja.c`, `src/game/gevr_jedi_ninja_game.h`, `src/game/gevr_jedi_ninja_game.c`, `port/tests/jedi_ninja_native.c`, `port/tests/test_jedi_ninja.py`).
 - **Safe defaults (100% opt-in):** `VrJediNinjaMode = 0`, `VrControllerWheel = 0`, `VrSithNpc = 0`, `VrNinjaNpc = 0`, and `VrAllyJedi = 0`. Vanilla GoldenEye missions, speedrun timing, co-op, Horde, and deathmatch behave identically unless toggled on.
 - **No protocol bump or online regressions:** Network protocol stays at `27`. Active multi-player matches gate out Jedi/Ninja mode automatically via `jnModeActive()` (`!netIsActive() || getPlayerCount() == 1`).
 - **Zero merge-conflict hotspots touched:** Root `README.md`, `STATUS.md`, `src/game/gevr_ally.c` (`gevrJnAllyThink` dispatches from `gevrJnGameTick` when `VrAllyJedi` is set), and `.github/workflows/` are untouched.
 - **Line endings preserved (`* -text` in `.gitattributes`):** Mixed CRLF/LF files (`port/vr/vr_settings.h`, `port/vr/vr_settings.cpp`, `src/game/chraction.c`, `src/game/propobj.c`, `port/src/audio.c`, `src/game/bg.c`, `CMakeLists.txt`) keep their exact original line endings with zero whitespace/renormalization churn.
 - **Zero new ROM assets, external dependencies, or shader edits:** First-person blades, shields, boomerangs, and the DL-44 Blaster render via standard Fast3D vertex/matrix display lists; NPC blasters reuse native `ITEM_LASER` beams and sound effects; custom SFX is self-contained pure C11 (`port/src/gevr_jedi_ninja.c`, zero `M_PI` or `rand()` dependency).
 - **Cross-platform CMake & headless compatibility:** New files follow `SRC_PORT`/`SRC_GAME` globs (with a 1-line comment bump in `CMakeLists.txt` to refresh the glob). Headless server (`gevr-server`) and flat targets resolve VR/haptic hooks through existing `port/flat/flat_headset.c` symbols and `#ifdef GEVR` guards.
-- **Pause & Launcher UI fit preserved:** `GEVR_SEC_COUNT` remains `8` so the Quest in-game tab bar never overflows — Jedi and Ninja menus sit inside `Mods and fun` as a `General | Jedi | Ninja` sub-tab bar and in Launcher `Rules -> Jedi` / `Ninja`, with `port/tests/launcher_frame_native.cpp` (`4 * 14` = 56 pages) and `port/tests/settings_table_stubs.h` updated to match.
+- **Pause & Launcher UI fit preserved:** `GEVR_SEC_COUNT` remains `8` so the Quest in-game tab bar never overflows — Jedi and Ninja menus sit inside `Mods and fun` as a `General | Jedi | Ninja` sub-tab bar and in Launcher `Rules -> Jedi` / `Ninja`. Both `Mods and fun` sub-tabs (`Jedi` and `Ninja`) are verified by `port/tests/ingame_fit_native.cpp` across solo/online states at Quest font scale, alongside `port/tests/launcher_frame_native.cpp` (`4 * 14` = 56 pages) and `port/tests/settings_table_stubs.h`.
 
 ### Surgical Hook Map
 
 | Layer | Files | Role |
 |---|---|---|
 | **Pure C11 core & synth** | `port/include/gevr_jedi_ninja.h`, `port/src/gevr_jedi_ninja.c` | Trigger tap/hold/double-tap state machine, VR swing/pull/throw heuristics, deflection/parry math, shallow-angle ricochets, NPC melee decisions, 22,050 Hz stereo DSP mixer |
-| **Unit test suite** | `port/tests/jedi_ninja_native.c`, `port/tests/test_jedi_ninja.py` | Verifies pure C11 (`-Wall -Werror`) + GoldenEye math (`math_atan2f`/`asinf`/`acosf`) core behavior |
+| **Unit, settings & INI tests** | `port/tests/jedi_ninja_native.c`, `port/tests/test_jedi_ninja.py` | Verifies pure C11 (`-Wall -Werror`) + GoldenEye math (`math_atan2f`/`asinf`/`acosf`), `gevr_settings.c` defaults/mutual exclusivity/reset, and `vr_settings.cpp` INI round-trip/clamping for all 25 Jedi/Ninja keys |
 | **Gameplay & Fast3D VFX** | `src/game/gevr_jedi_ninja_game.h`, `src/game/gevr_jedi_ninja_game.c` | Combat loop, telekinesis, Force Slam/Lightning/Catch, 7-sample blade trails, sculpted DL-44 viewmodel, blaster grant (`ITEM_LASER`), `gevrJnCanPickupProp()`, Sith/Ninja/Ally AI |
 | **Ragdoll extensions** | `port/include/gevr_ragdoll.h`, `port/src/gevr_ragdoll.c`, `port/tests/ragdoll_native.c` | Directional dismemberment (`gevrRagdollForceCutNear`), body/loose-limb telekinetic grab & throw, 24s retention under `VrJediNinjaMode` |
 | **Audio & input hooks** | `port/src/audio.c`, `port/src/input.c` | Mixes `gevrJnAudioMix()` in `audioEndFrame()`; feeds flat/pad/mouse/touch triggers (`gevrJnInputFeedFlat()`), `LB`/`Q` wheel toggle, and `gevrJnSuppressNormalFire()` |
-| **Settings & two menus** | `port/include/gevr_settings.h`, `port/src/gevr_settings.c`, `port/vr/vr_settings.h`, `port/vr/vr_settings_defaults.c`, `port/vr/vr_settings.cpp`, `port/vr/gevr_launcher_ui.h`, `port/vr/gevr_settings_ui.h`, `port/vr/vr_launcher.cpp`, `port/tests/settings_table_stubs.h`, `port/tests/launcher_frame_native.cpp` | Mutually exclusive Jedi/Ninja toggles, all configurable options, INI load/save, Launcher `Rules` & Pause `Mods and fun` sub-tabs |
+| **Settings & two menus** | `port/include/gevr_settings.h`, `port/src/gevr_settings.c`, `port/vr/vr_settings.h`, `port/vr/vr_settings_defaults.c`, `port/vr/vr_settings.cpp`, `port/vr/gevr_launcher_ui.h`, `port/vr/gevr_settings_ui.h`, `port/vr/gevr_panel_ui.h`, `port/vr/gevr_pause_widgets.h`, `port/vr/vr_launcher.cpp`, `port/tests/settings_table_stubs.h`, `port/tests/launcher_frame_native.cpp`, `port/tests/ingame_fit_native.cpp` | Mutually exclusive Jedi/Ninja toggles, all configurable options, INI load/save, Launcher `Rules` & Pause `Mods and fun` sub-tabs + fit coverage |
 | **Engine & decomp hooks** | `CMakeLists.txt`, `src/game/lv.c`, `src/game/bg.c`, `src/game/initguards.c`, `src/game/bondview2.c`, `src/game/chraction.c`, `src/game/propobj.c`, `src/game/gunfire.c`, `src/game/chrprop.c`, `src/game/gevr_forcepull.c` | Reset/tick/draw entry points, damage & fire interception, VR grip axes helper, wheel `"BLASTER"` / 6-slot Ninja UI, NPC/autogun `ITEM_LASER` blaster bolts & SFX, pickup filtering |
 
 ### Steps Already Taken & Verified Locally
 
 - **Pure C11 core check:** `gcc -std=c11 -O2 -Wall -Werror -Iport/include -fsyntax-only port/src/gevr_jedi_ninja.c` passed.
-- **Six-platform C syntax sweep (`-fsyntax-only`):** Checked `src/game/gevr_jedi_ninja_game.c` (`-Wall -Werror=implicit-function-declaration`, zero warnings in that file) plus all 14 other touched C files across `pc_flat`, `pcvr_quest`, `server`, `tvos_ios`, `android_mobile`, and `win32` define matrices (using minimal temporary SDL2/JNI/EGL/GLES3 header stubs where host SDKs were unavailable).
-- **Local Python & native tests passed:** `test_jedi_ninja.py`, `test_settings_table.py`, `test_ingame_fit.py` (32 sections), `test_launcher_frame.py` (56 pages), `test_launcher_ui.py`, `test_friends_ui.py`, `test_launcher_mods.py`, `test_launcher_loadout.py`, `test_launcher_start_row.py`, `test_pause_ui.py`, `test_ally_ui.py`, `test_ally.py`, `test_body_slot_wheel.py`, `test_force_pull.py`, plus mutual-exclusivity and default assertions for `Jedi mode`, `Ninja mode`, `VrJediBlasters`, `VrJediPickupGuns`, and `VrNinjaPickupGuns`.
+- **Six-platform C syntax sweep (`-fsyntax-only`) & zero implicit declarations:** Checked `src/game/gevr_jedi_ninja_game.c`, `port/src/gevr_jedi_ninja.c`, `port/src/gevr_settings.c`, `port/vr/vr_settings_defaults.c`, `port/src/gevr_ragdoll.c`, and `src/game/gevr_forcepull.c` with `-Werror=implicit-function-declaration`, plus all touched C files across `pc_flat`, `pcvr_quest`, `server`, `tvos_ios`, `android_mobile`, and `win32` define matrices.
+- **Local Python & native tests passed:** `test_jedi_ninja.py` (core physics/synth, settings mutual exclusivity & defaults, 25-key INI round-trip/clamping), `test_settings_table.py`, `test_ingame_fit.py` (32 sections + `Mods/Jedi` and `Mods/Ninja` sub-tabs across solo/online states), `test_launcher_frame.py` (56 pages), `test_launcher_ui.py`, `test_friends_ui.py`, `test_launcher_mods.py`, `test_launcher_loadout.py`, `test_launcher_start_row.py`, `test_pause_ui.py`, `test_ally_ui.py`, `test_force_pull.py`, plus `test_ally.py` and `test_body_slot_wheel.py` (on macOS with `-D_POSIX_C_SOURCE=200809L`).
 - **Clean diff hygiene pass:** Stripped accidental CI workflows and unrelated files, verified zero diff on `src/game/gevr_ally.c`, and restored native CRLF line endings on touched headers/sources.
 
 ### Suggested Checks Before Merging Upstream
 
 - Run the full native CMake build/link across target platforms (Quest NDK, Windows flat/PCVR, Linux, Apple platforms, `gevr-server`) — full builds and CI runs were intentionally skipped on the fork branch.
 - Run `port/tests/test_ragdolls.py` (skipped locally because `cmake` was unavailable on this machine) alongside your full release test gate.
-- Do a quick in-headset / flat playtest pass to tune subjective feel: DL-44 & lightsaber grip offsets (`gevrJnGetGripAxes`), in-game `Mods and fun -> Jedi / Ninja` sub-tab visual layout, and `gevrJnAudioMix()` volume relative to GoldenEye music/SFX.
+- Do a quick in-headset / flat playtest pass to tune subjective feel: DL-44 & lightsaber grip offsets (`gevrJnGetGripAxes`), in-game `Mods and fun -> Jedi / Ninja` sub-tab visual polish, and `gevrJnAudioMix()` volume relative to GoldenEye music/SFX.
