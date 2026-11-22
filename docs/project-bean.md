@@ -156,7 +156,8 @@ with the well. The hands are the player's own. Nothing is animated.
 slide back while the magazine is empty and lets it home once it holds rounds
 (`gun.c sub_GAME_7F05E83C`), and the release's slide rides GoldenEye's matrix.
 With hand reload the gun stays empty until a magazine seats, so the PP7 locks
-open on its last round and closes on a loaded magazine, as GE-X's does.
+open on its last round, as GE-X's does. Fired dry, it closes when the off hand
+racks it after the new magazine ([hand-reload-rack](hand-reload-rack.md)).
 
 **Gun fit** (launcher or in-game): X steps to **held ammo** and **ammo
 insertion** for a Bean magazine too. They move the magazine in the off hand and
@@ -215,8 +216,13 @@ goes by the weapon wheel's pistols.
 
 ### Path to a manual slide rack (both families)
 
-Not built. GE-X has none either: its slide cycles, locks open and closes on its
-own. The plan keeps GoldenEye's `field_A88` as the one slide position for both
+Built on 2026-11-21 in a simpler form: see [hand-reload-rack](hand-reload-rack.md).
+A seated magazine's rounds wait outside the gun until the off hand racks it,
+so GoldenEye's slide clock needed no change; the slide does not follow the
+hand, the grab point is not fitted per gun, and racking a loaded gun does
+nothing. The fuller plan below is what remains.
+
+The plan keeps GoldenEye's `field_A88` as the one slide position for both
 model sets, so the mesh side is already shared (GE-X: part 0x33's matrix,
 `gevrGexSlideTo`; Bean: `Switches[7]`).
 

@@ -35,6 +35,8 @@ static s32 s_gevrWatchPalmKnown;
 static const float *gevrGripTrimOwnOf(int look, int item) { (void)look; return item == ownGripItem ? ownGrip : NULL; }
 static float VrGunOffX, VrGunOffY, VrGunOffZ;
 static const float *s_gevrGunOffOverride;
+#include "gevr_rack.h"
+static GevrRack s_gevrRack[2];   /* bondview2.c: the rack gives the gun a nudge; none here */
 static int s_gevrMuzzleValid[2];
 static float s_gevrMuzzle[2][3];
 static int VrGexGuns, tracked[2] = {1, 1}, usable[2] = {1, 1}, grip[2];

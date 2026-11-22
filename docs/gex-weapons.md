@@ -140,7 +140,8 @@ fields (KF7 13, -23, -27; PP7 8, -19, -26).
 - A rig with PD's slide part (MODELPART_GUN_SLIDE 0x33: the PP7s, DD44)
   moves it by GoldenEye's own slide (field_A88, the gun's BoltRecoilBack),
   as GoldenEye and PD do: back on each shot, locked open on the last round,
-  closed once a loaded magazine is in (no rack then). Guns with no bolt stat
+  closed once the gun is loaded again: by hand, once the off hand has racked
+  it ([hand-reload-rack](hand-reload-rack.md)). Guns with no bolt stat
   or no slide part keep theirs still (gun.c gevrGexSlideTo).
 - Gun fit keeps GE-X's own gun, grip and scope fits, and adds modes (X):
   reload (where the magazine is taken, the belt), off hand (its palm;

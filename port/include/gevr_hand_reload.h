@@ -35,7 +35,9 @@ int gevrReloadSeatHover(float out[3]);
  */
 enum {
     GEVR_RELOAD_LABEL_NONE, GEVR_RELOAD_LABEL_EMPTY, GEVR_RELOAD_LABEL_NOAMMO, GEVR_RELOAD_LABEL_OUT,
-    GEVR_RELOAD_LABEL_INSERT, GEVR_RELOAD_LABEL_GRIPPED, GEVR_RELOAD_LABEL_SEATED, GEVR_RELOAD_LABEL_COUNT
+    GEVR_RELOAD_LABEL_INSERT, GEVR_RELOAD_LABEL_GRIPPED, GEVR_RELOAD_LABEL_SEATED,
+    /* a magazine in on an empty chamber (gevr_rack.h): a pistol's slide, or a bolt handle */
+    GEVR_RELOAD_LABEL_RACK, GEVR_RELOAD_LABEL_BOLT, GEVR_RELOAD_LABEL_COUNT
 };
 static inline int gevrReloadLabelFor(int mag, int loaded, int reserve, int seated)
 {

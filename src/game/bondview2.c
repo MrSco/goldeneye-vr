@@ -2238,6 +2238,12 @@ int gevrFitLook(int hand)
  * or for a GoldenEye X or Bean model its own, since those sit differently in
  * the hand (user): fitting one leaves the others.
  */
+/* Hand reload's rack (gevr_rack.h; gevrHandReloadTick, below): per gun hand, the
+ * empty chamber, a seated magazine's rounds waiting for it, and the off hand
+ * on the slide. Here for the gun's placement, which gives with the pull. */
+#include "gevr_rack.h"
+static GevrRack s_gevrRack[2];
+
 static void gevrGunOff(s32 hand, f32 off[3])
 {
     extern float VrBeanGunOff[3];
@@ -2319,6 +2325,10 @@ s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)
         off[0] = s_gevrGunOffOverride[0];
         off[1] = s_gevrGunOffOverride[1];
         off[2] = s_gevrGunOffOverride[2];
+    }
+    else if (handnum == GUNRIGHT || handnum == GUNLEFT)
+    {
+        off[2] += gevrRackNudge(&s_gevrRack[handnum]);   /* racked: it gives with the pull, and jumps as the bolt goes home */
     }
     for (i = 0; i < 3; i++)
     {
@@ -19378,6 +19388,42 @@ static s32 gevrReloadMagPulls(s32 hand)
 }
 
 /*
+ * The rack (gevr_rack.h; user, 2026-11-21: "slide the rack on pistols, SMGs,
+ * and the AK as a third step. So, drop the clip, put a clip in, and then rack
+ * the slide"): the guns that take it, reloaded by hand through a magazine.
+ * The AR33, the RC-P90 and the rest keep the two steps.
+ */
+static s32 gevrRackItem(s32 item)
+{
+    switch (item)
+    {
+        case ITEM_WPPK: case ITEM_WPPKSIL: case ITEM_SILVERWPPK: case ITEM_GOLDWPPK: case ITEM_TT33:
+        case ITEM_SKORPION: case ITEM_UZI: case ITEM_MP5K: case ITEM_MP5KSIL: case ITEM_SPECTRE:
+        case ITEM_AK47:
+            return TRUE;
+        default:
+            return FALSE;
+    }
+}
+
+static s32 gevrRackGun(s32 hand)
+{
+    return gevrRackItem(getCurrentPlayerWeaponId(hand)) && gevrGexByHand(hand) && gevrReloadHasMagazine(hand);
+}
+
+/* a pistol's slide (the weapon wheel's first wedge), or a bolt handle */
+static s32 gevrRackSlide(s32 hand)
+{
+    extern s32 gevrWeaponCategory(s32 item);
+    return gevrWeaponCategory(getCurrentPlayerWeaponId(hand)) == 0;
+}
+
+static f32 gevrRackThrow(s32 hand)
+{
+    return gevrRackSlide(hand) ? GEVR_RACK_SLIDE_CM : GEVR_RACK_BOLT_CM;
+}
+
+/*
  * Where the off hand is, to take a magazine. GoldenEye X's left hand is posed
  * with its palm on the controller's grip, so that is the place. With Bean's
  * models the off hand is GoldenEye's watch arm, whose hand lies well ahead of
@@ -19393,6 +19439,39 @@ static void gevrReloadOffHandAt(s32 gunHand, const f32 grip[3], f32 out[3])
     {
         memcpy(out, grip, 3 * sizeof(f32));
     }
+}
+
+/*
+ * The off hand from the gun's slide or handle (dist) and its place along the
+ * gun's back (along), cm, off the raw grips as the magazine's places are. The
+ * slide's rear is over the fist; a bolt handle is on the receiver ahead of it.
+ * No model has the part to take hold of (only the pistols' slides move at
+ * all), so the place is a guess with GEVR_RACK_REACH_CM round it.
+ */
+static s32 gevrRackMeasure(s32 gunHand, f32 *dist, f32 *along)
+{
+    const f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    const f32 up = gevrRackSlide(gunHand) ? 7.0f : 6.0f, back = gevrRackSlide(gunHand) ? 1.0f : -6.0f;
+    f32 gun[3], gr[3], gu[3], gb[3], off[3], r[3], u[3], b[3], d2 = 0.0f, a = 0.0f;
+    s32 i;
+
+    *dist = 1e9f;
+    *along = 0.0f;
+    if (cm < 1e-6f || !gevrGripAxesRaw(1 - gunHand, gun, gr, gu, gb) || !gevrGripAxesRaw(gunHand, off, r, u, b))
+    {
+        return FALSE;
+    }
+    gevrReloadOffHandAt(gunHand, off, off);
+    for (i = 0; i < 3; i++)
+    {
+        const f32 p = gun[i] + (up * gu[i] + back * gb[i]) * cm;
+
+        d2 += (off[i] - p) * (off[i] - p);
+        a += (off[i] - gun[i]) * gb[i];
+    }
+    *dist = sqrtf(d2) / cm;
+    *along = a / cm;
+    return TRUE;
 }
 
 /* gun.c: the gun's magazine, its well and the magazine in the hand, as drawn */
@@ -19424,6 +19503,7 @@ static void gevrGexMagOut(s32 hand, s32 state, const char *how)
     struct hand *h = &g_CurrentPlayer->hands[hand];
     WeaponStats *st = get_ptr_item_statistics(getCurrentPlayerWeaponId(hand));
 
+    gevrRackGiveBack(&s_gevrRack[hand], &h->weapon_ammo_in_magazine);   /* not racked yet: its rounds go with it */
     if (state == GEVR_GEXMAG_INHAND)
     {
         s_gevrGexHeldGun = hand;
@@ -19457,7 +19537,7 @@ static void gevrGexHeldDropped(void)
 
 /* Loaded rounds belong to the holstered gun, not the shared reserve. Keep
  * each hand's copy separately, including an empty or missing magazine. */
-typedef struct { s32 valid, rounds, missing, ammoType; } GevrStoredMagazine;
+typedef struct { s32 valid, rounds, missing, ammoType, dry, unracked; } GevrStoredMagazine;
 static GevrStoredMagazine s_gevrStoredMag[2][ITEM_ROCKETLAUNCH + 1];
 
 s32 gevrReloadStoredRounds(s32 hand, s32 item)
@@ -19468,8 +19548,9 @@ s32 gevrReloadStoredRounds(s32 hand, s32 item)
 
 s32 gevrReloadCarriesRounds(s32 hand)
 {
-    return gevrHandReloadBase() && hand == s_gevrGexHeldGun && s_gevrGexMag[hand] == GEVR_GEXMAG_INHAND
-        && s_gevrGexHeldRounds > 0;
+    if (!gevrHandReloadBase() || hand < 0 || hand > 1) return FALSE;
+    if (s_gevrRack[hand].pending > 0) return TRUE;   /* seated, waiting for the rack */
+    return hand == s_gevrGexHeldGun && s_gevrGexMag[hand] == GEVR_GEXMAG_INHAND && s_gevrGexHeldRounds > 0;
 }
 
 s32 gevrReloadReservedRounds(s32 ammoType)
@@ -19482,7 +19563,12 @@ s32 gevrReloadReservedRounds(s32 ammoType)
             GevrStoredMagazine *saved = &s_gevrStoredMag[hand][item];
             if (saved->valid && saved->ammoType == ammoType) total += saved->rounds;
         }
-    if (gevrReloadCarriesRounds(s_gevrGexHeldGun) && s_gevrGexHeldAmmoType == ammoType) total += s_gevrGexHeldRounds;
+    if (s_gevrGexMag[s_gevrGexHeldGun] == GEVR_GEXMAG_INHAND && s_gevrGexHeldRounds > 0
+        && s_gevrGexHeldAmmoType == ammoType) total += s_gevrGexHeldRounds;
+    for (hand = 0; hand < 2; hand++)
+        if (s_gevrRack[hand].pending > 0
+            && get_ptr_item_statistics(getCurrentPlayerWeaponId(hand))->AmmoType == ammoType)
+            total += s_gevrRack[hand].pending;   /* seated, waiting for the rack */
     return total;
 }
 
@@ -19495,12 +19581,19 @@ void gevrReloadInventoryReset(void)
     s_gevrGexSeatArmed = s_gevrGexGripSpent = s_gevrMagGrab = FALSE;
     s_gevrReloadSeatTicks = 0;
     s_gevrGexSeatedTicks[0] = s_gevrGexSeatedTicks[1] = 0;
+    memset(s_gevrRack, 0, sizeof(s_gevrRack));
 }
 
 static void gevrReloadInventoryRelease(void)
 {
     s32 hand, item;
     if (g_CurrentPlayer == NULL) return;
+    for (hand = 0; hand < 2; hand++)
+    {
+        /* hand reload off: a magazine waiting for its rack is simply loaded */
+        gevrRackChamber(&s_gevrRack[hand], &g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine);
+        memset(&s_gevrRack[hand], 0, sizeof(s_gevrRack[hand]));
+    }
     for (hand = 0; hand < 2; hand++)
         for (item = ITEM_WPPK; item <= ITEM_ROCKETLAUNCH; item++)
         {
@@ -19521,6 +19614,10 @@ s32 gevrReloadStow(s32 hand, s32 item)
         gevrGexHeldDropped();
         s_gevrGexMag[hand] = GEVR_GEXMAG_OUT;
     }
+    saved->unracked = s_gevrRack[hand].pending > 0;
+    saved->dry = s_gevrRack[hand].dry;
+    gevrRackGiveBack(&s_gevrRack[hand], &g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine);
+    memset(&s_gevrRack[hand], 0, sizeof(s_gevrRack[hand]));
     saved->valid = TRUE;
     saved->rounds = g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine;
     saved->missing = s_gevrGexMagItem[hand] == item && s_gevrGexMag[hand] == GEVR_GEXMAG_OUT;
@@ -19539,8 +19636,11 @@ s32 gevrReloadDraw(s32 hand)
     saved = &s_gevrStoredMag[hand][item];
     s_gevrGexMag[hand] = saved->valid && saved->missing ? GEVR_GEXMAG_OUT : GEVR_GEXMAG_IN;
     s_gevrGexMagItem[hand] = item;
+    memset(&s_gevrRack[hand], 0, sizeof(s_gevrRack[hand]));
     if (!saved->valid) return FALSE;   /* first draw uses the normal initial load */
     g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine = saved->rounds;
+    s_gevrRack[hand].dry = saved->dry || saved->unracked;
+    if (saved->unracked) gevrRackHold(&s_gevrRack[hand], &g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine);
     saved->valid = FALSE;
     saved->rounds = 0;
     if (item == ITEM_ROCKETLAUNCH && g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine > 0)
@@ -19552,6 +19652,8 @@ s32 gevrReloadDraw(s32 hand)
  * loaded at once from the reserve, by the game's own top-up */
 static void gevrGexMagIn(s32 hand, const char *how, s32 rounds)
 {
+    /* one already in and waiting for its rack (a touch at the belt): chambered, no rack */
+    gevrRackChamber(&s_gevrRack[hand], &g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine);
     if (rounds >= 0)
     {
         g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine = rounds;
@@ -19743,7 +19845,15 @@ static s32 gevrReloadNeedsAmmo(s32 hand)
 {
     WeaponStats *st;
 
-    if (!gevrManualReloadOn(hand) || get_ammo_in_hands_weapon(hand) <= 0)
+    if (!gevrManualReloadOn(hand))
+    {
+        return FALSE;
+    }
+    if (s_gevrRack[hand].pending > 0)
+    {
+        return TRUE;   /* seated, not racked: the belt's touch chambers it (dual wielding's way, no rack) */
+    }
+    if (get_ammo_in_hands_weapon(hand) <= 0)
     {
         return FALSE;
     }
@@ -19950,6 +20060,11 @@ void gevrGexReloadReset(s32 hand)
     s_gevrGexMag[hand] = GEVR_GEXMAG_IN;
     s_gevrGexMagItem[hand] = -1;
     s_gevrGexSeatedTicks[hand] = 0;
+    if (g_CurrentPlayer != NULL)
+    {
+        gevrRackChamber(&s_gevrRack[hand], &g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine);
+    }
+    memset(&s_gevrRack[hand], 0, sizeof(s_gevrRack[hand]));
 }
 
 /*
@@ -19979,13 +20094,20 @@ s32 gevrGexClaimsOffHand(void)
         return FALSE;
     }
     if (s_gevrGexMag[gunHand] == GEVR_GEXMAG_GRIPPED || s_gevrGexMag[gunHand] == GEVR_GEXMAG_INHAND
-        || s_gevrGexGripSpent)
+        || s_gevrGexGripSpent || s_gevrRack[gunHand].held)
     {
         return TRUE;
     }
     if (!gevrGripAxesRaw(gunHand, off, r, u, b))
     {
         return FALSE;
+    }
+    if (s_gevrRack[gunHand].pending > 0)
+    {
+        /* a magazine in, waiting for the rack: a grip at the slide or the handle is that,
+         * ahead of the two-handed hold and the pistol's support */
+        f32 rackDist, rackAlong;
+        return gevrRackMeasure(gunHand, &rackDist, &rackAlong) && rackDist <= GEVR_RACK_REACH_CM;
     }
     gevrReloadOffHandAt(gunHand, off, off);
     const GexWeaponDef *ammoDef = gevrGexWeaponForHand(gunHand);
@@ -20111,6 +20233,10 @@ s32 gevrReloadLabel(s32 hand)
     {
         return GEVR_RELOAD_LABEL_NONE;
     }
+    if (s_gevrRack[hand].pending > 0)
+    {
+        return gevrRackSlide(hand) ? GEVR_RELOAD_LABEL_RACK : GEVR_RELOAD_LABEL_BOLT;
+    }
     return gevrReloadLabelFor(gevrGexWeaponForHand(hand) != NULL ? gevrGexMagState(hand, NULL) : gevrBeanMagState(hand, NULL),
                               g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine,
                               get_ammo_in_hands_weapon(hand), s_gevrGexSeatedTicks[hand]);
@@ -20136,7 +20262,8 @@ s32 gevrReloadHoldsHand(s32 ctrl)
         }
         return FALSE;
     }
-    if (ctrl == gevrReloadSupportGun() && (s_gevrMagGrab != 0 || s_gevrGexMag[gevrReloadSupportGun()] != GEVR_GEXMAG_IN || s_gevrGexGripSpent))
+    if (ctrl == gevrReloadSupportGun() && (s_gevrMagGrab != 0 || s_gevrGexMag[gevrReloadSupportGun()] != GEVR_GEXMAG_IN || s_gevrGexGripSpent
+                                           || s_gevrRack[gevrReloadSupportGun()].held))
     {
         return TRUE;
     }
@@ -20390,7 +20517,10 @@ void gevrHandReloadTick(void)
     gevrReloadTuneRead();
     if (s_gevrReloadSeatTicks > 0) s_gevrReloadSeatTicks -= g_ClockTimer;
     for (i = 0; i < 2; i++)
+    {
         if (s_gevrGexSeatedTicks[i] > 0) s_gevrGexSeatedTicks[i] -= g_ClockTimer;
+        gevrRackTick(&s_gevrRack[i], g_ClockTimer);
+    }
     if (!gevrHandReloadEnabled() || !g_gevrStereo) gevrReloadInventoryRelease();
     if (g_CurrentPlayer != NULL && g_CurrentPlayer->bonddead) gevrReloadInventoryReset();
     if (!gevrHandReloadEnabled() || !g_gevrStereo || g_CurrentPlayer == NULL || g_CurrentPlayer->bonddead
@@ -20413,6 +20543,9 @@ void gevrHandReloadTick(void)
             /* out of play with a magazine in the hand: it drops */
             s_gevrGexMag[i] = s_gevrGexMag[i] == GEVR_GEXMAG_GRIPPED ? GEVR_GEXMAG_IN
                             : s_gevrGexMag[i] == GEVR_GEXMAG_INHAND ? GEVR_GEXMAG_OUT : s_gevrGexMag[i];
+            /* ... and a slide in the hand is let go where it is (its rounds wait on) */
+            s_gevrRack[i].held = s_gevrRack[i].cocked = 0;
+            s_gevrRack[i].pull = 0.0f;
         }
         return;
     }
@@ -20439,9 +20572,22 @@ void gevrHandReloadTick(void)
                 gevrGexHeldDropped();
             }
             const s32 item = getCurrentPlayerWeaponId(i);
+            /* another gun in the hand with no stow between (gevrReloadStow keeps a
+             * waiting magazine with its gun): the rounds back to the old gun's reserve */
+            if (s_gevrRack[i].pending > 0 && s_gevrGexMagItem[i] >= 0)
+            {
+                g_CurrentPlayer->ammoheldarr[get_ptr_item_statistics(s_gevrGexMagItem[i])->AmmoType] += s_gevrRack[i].pending;
+            }
+            memset(&s_gevrRack[i], 0, sizeof(s_gevrRack[i]));
             s_gevrGexMag[i] = gevrReloadGun(item) && s_gevrStoredMag[i][item].valid
                 && s_gevrStoredMag[i][item].missing ? GEVR_GEXMAG_OUT : GEVR_GEXMAG_IN;
             s_gevrGexMagItem[i] = getCurrentPlayerWeaponId(i);
+        }
+        /* the chamber: empty once the gun has run dry with its magazine in */
+        if (gevrRackGun(i))
+        {
+            gevrRackNote(&s_gevrRack[i], s_gevrGexMag[i] == GEVR_GEXMAG_IN || s_gevrGexMag[i] == GEVR_GEXMAG_GRIPPED,
+                         g_CurrentPlayer->hands[i].weapon_ammo_in_magazine);
         }
     }
 
@@ -20516,7 +20662,42 @@ void gevrHandReloadTick(void)
                              sqrtf(dist2) / cm, sqrtf(gevrBeltDist2(gunHand, handAt)), *st);
             }
             pulled = gevrGexPullAmount(gevrReloadPullsUp(gunHand), s_magGrabUp, upnow, gevrGexReloadDistance(GEVR_RT_PULL) * cm);
-            switch (*st)
+            if (*st == GEVR_GEXMAG_IN && s_gevrRack[gunHand].pending > 0)
+            {
+                /* the third step: the off hand takes the slide or the bolt handle, pulls back and lets go */
+                GevrRack *rack = &s_gevrRack[gunHand];
+                f32 rackDist, rackAlong;
+
+                gevrRackMeasure(gunHand, &rackDist, &rackAlong);
+                switch (gevrRackStep(rack, grip, grip && !s_gripWas[gunHand] && !s_gevrGexGripSpent && !gevrStereoTwoHandGrip(),
+                                     rackDist, rackAlong, gevrRackThrow(gunHand)))
+                {
+                    case GEVR_RACK_GRABBED:
+                        gevrOffHandGripBuzz();
+                        sysLogPrintf(LOG_NOTE, "stereo: hand reload, the %s taken hold of, %.1f cm from its place",
+                                     gevrRackSlide(gunHand) ? "slide" : "bolt", rackDist);
+                        break;
+                    case GEVR_RACK_COCKED:
+                        gevrGexBuzz(0.7f);
+                        break;
+                    case GEVR_RACK_DONE:
+                        gevrRackChamber(rack, &g_CurrentPlayer->hands[gunHand].weapon_ammo_in_magazine);
+                        s_gevrGexSeatedTicks[gunHand] = 60;
+                        s_gevrGexGripSpent = grip;   /* still gripped: not the two-handed hold's until let go */
+                        sndPlaySfx(g_musicSfxBufferPtr, GUN_RIFLECOCK_SFX, NULL);
+                        gevrGexBuzz(0.9f);
+                        sysLogPrintf(LOG_NOTE, "stereo: hand reload, %s gun racked (%d rounds)", gunHand == GUNRIGHT ? "right" : "left",
+                                     g_CurrentPlayer->hands[gunHand].weapon_ammo_in_magazine);
+                        break;
+                    case GEVR_RACK_SHORT:
+                        sysLogPrintf(LOG_NOTE, "stereo: hand reload, the %s let go short of its throw",
+                                     gevrRackSlide(gunHand) ? "slide" : "bolt");
+                        break;
+                    default:
+                        break;
+                }
+            }
+            else switch (*st)
             {
                 case GEVR_GEXMAG_IN:
                     if (grip && !s_gripWas[gunHand] && !s_gevrGexGripSpent && !gevrStereoTwoHandGrip()
@@ -20556,6 +20737,13 @@ void gevrHandReloadTick(void)
                         gevrGexMagIn(gunHand, "pushed in", s_gevrGexHeldRounds);
                         s_gevrGexHeldRounds = -1;
                         s_gevrGexGripSpent = TRUE;
+                        /* on an empty chamber it is not ready yet: its rounds wait for the rack */
+                        if (gevrRackGun(gunHand)
+                            && gevrRackHold(&s_gevrRack[gunHand], &g_CurrentPlayer->hands[gunHand].weapon_ammo_in_magazine))
+                        {
+                            s_gevrGexSeatedTicks[gunHand] = 0;
+                            sysLogPrintf(LOG_NOTE, "stereo: hand reload, %d rounds wait for the rack", s_gevrRack[gunHand].pending);
+                        }
                     }
                     break;
                 case GEVR_GEXMAG_OUT:

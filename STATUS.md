@@ -64,6 +64,14 @@ edges) and is paid from a 6 m stamina filling at 90% of the forward run, so
 it never out-travels running; no protocol change (others see a dash). Played
 on a Quest 3 by the user ("works really well"); the doc's test sheet (stairs,
 two headsets) has not been gone through item by item.
+Also unreleased, same branch: hand reload's rack
+([docs/hand-reload-rack.md](docs/hand-reload-rack.md)), part of Hand reload
+WIP. A pistol, a submachine gun or the KF7 fired dry needs its slide or bolt
+racked by the off hand after the new magazine (rounds wait in GevrRack until
+then; a magazine changed with rounds left needs none; the belt's touch and
+dual wielding skip it). The gun gives 1.2 cm with the pull; only the pistols'
+slides move. test_rack.py, test_hand_reload.py (rackReload); not yet played in
+a headset.
 **Next:** device checks: split screen with two real pads on an Apple TV and
 a phone, 3-4 players on a slow device; trigger feedback on Xbox and
 DualSense pads; a pad in the Quest and PC VR headsets; Vision Pro's ghosting

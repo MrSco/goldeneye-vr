@@ -2382,9 +2382,10 @@ static Gfx *gevrReloadLabelOn(Gfx *gdl, s32 hand, const Mtxf *gun)
 {
     extern Gfx *gevrDrawViewTagOverlay(Gfx *gdl, const char *name, const f32 at[3], f32 k, u32 panel);
     static const char *const text[GEVR_RELOAD_LABEL_COUNT] = {
-        NULL, "EMPTY: EJECT B/Y", "NO AMMO", "MAG OUT: GRAB ONE", "INSERT MAGAZINE", "MAG IN: PULL", "MAG IN" };
+        NULL, "EMPTY: EJECT B/Y", "NO AMMO", "MAG OUT: GRAB ONE", "INSERT MAGAZINE", "MAG IN: PULL", "MAG IN",
+        "RACK THE SLIDE", "PULL THE BOLT" };
     static const u32 panel[GEVR_RELOAD_LABEL_COUNT] = {
-        0, 0xB02020C0, 0xB02020C0, 0x2878A8C0, 0x2878A8C0, 0x209040C0, 0x209040C0 };
+        0, 0xB02020C0, 0xB02020C0, 0x2878A8C0, 0x2878A8C0, 0x209040C0, 0x209040C0, 0x2878A8C0, 0x2878A8C0 };
     const s32 label = gevrReloadLabel(hand);
     const f32 up = sqrtf(gun->m[1][0] * gun->m[1][0] + gun->m[1][1] * gun->m[1][1] + gun->m[1][2] * gun->m[1][2]);
     f32 at[3];

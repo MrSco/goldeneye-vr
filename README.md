@@ -333,6 +333,10 @@ reloads by hand ([details](docs/project-bean.md#removable-magazines-hand-reload-
   - The RC-P90's magazine lifts off the top.
   - The pistols (PP7s, DD44) are not pulled: their magazine is inside the grip. B/Y drops
     it, then push a fresh one from the belt up into the grip. A grip under a pistol is support.
+  - **Rack it.** A pistol, a submachine gun or the KF7 that you fired dry needs a third step
+    after its magazine: grip the rear of the slide (or the bolt handle) with your off hand,
+    pull back and let go. Change the magazine before it runs dry and there is nothing to rack.
+    Touching the gun to your belt skips it. See [racking](docs/hand-reload-rack.md).
 - **Shotguns, rocket launcher, Golden Gun and grenade launcher.** Grip one round at your
   belt and insert it at the gun's port. Release the grip before taking another.
 - **Cougar Magnum.** A belt grab takes a speedloader with up to six rounds. The cylinder

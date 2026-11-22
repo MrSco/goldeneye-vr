@@ -5,6 +5,7 @@
 #include "gevr_gexweapon.h"
 #include "gevr_gexgrip.h"
 #include "gevr_hand_reload.h"
+#include "gevr_rack.h"
 typedef int s32;
 typedef float f32;
 typedef unsigned u32;
@@ -28,6 +29,7 @@ static int s_gevrGexHeldGun = GUNRIGHT;
 static float VrGexHeldMag[3];
 static int s_gevrGexHeldAmmoType;
 static int s_gevrReloadSeatTicks, s_gevrGexSeatedTicks[2];
+static GevrRack s_gevrRack[2];   /* bondview2.c: the rack's state per gun hand */
 static float s_gevrReloadSeatAt[3];
 static float poses[2][3];
 static int gex[2], buzzes, fills, tracked[2] = {1, 1};
@@ -49,6 +51,7 @@ static int s_gevrMuzzleValid[2], s_gevrMuzzleItem[2];
 static float s_gevrMuzzle[2][3];
 static void *g_musicSfxBufferPtr;
 #define PUNCHING_AIR_SFX 0
+#define GUN_RIFLECOCK_SFX 7
 struct sfx3 { unsigned short half[3]; };   /* a knife swing's slash sounds (gun.c) */
 struct sfx3 knife_throw_sounds = { { 101, 102, 103 } };
 static unsigned int randomGetNext(void) { return 1; }
@@ -1344,6 +1347,166 @@ static void reversedReloads(void)
     stats.MagSize=30;
 }
 
+/*
+ * The rack (gevr_rack.h; user, 2026-11-21: "drop the clip, put a clip in, and
+ * then rack the slide"): a pistol, a submachine gun or the KF7 that ran dry
+ * takes a third step after its magazine. Bean models here; the states are the
+ * ones GoldenEye X uses.
+ */
+static void rackSeat(int item, int magSize, int loaded)
+{
+    const float cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+
+    reset();
+    VrGexGuns = 0; beanOn = 1; beanMag[GUNRIGHT] = 1;
+    stats.MagSize = magSize;
+    player.hands[GUNRIGHT].weapon = item;
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine = loaded;
+    at(1, 20, 20, 40);
+    at(0, 20, -20, 40);
+    gevrHandReloadTick();
+    gevrGexDropMagazine(GUNRIGHT);
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_OUT && reserve == 50 + loaded);
+    belt(0, 0); gripHeld[0] = 1; gevrHandReloadTick();
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_INHAND);
+    beanPoints = 3;
+    memset(wellPoint, 0, sizeof(wellPoint));
+    memset(heldPoint, 0, sizeof(heldPoint));
+    heldPoint[1] = 20 * cm; gevrHandReloadTick();
+    heldPoint[1] = 0; gevrHandReloadTick();
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN && s_gevrGexGripSpent);
+}
+
+/* the off hand at the rear of the slide or at the bolt handle, pulled back by `back` cm */
+static void rackHand(int pistol, float back)
+{
+    const float cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+
+    memcpy(poses[0], poses[1], sizeof(poses[0]));
+    poses[0][1] += (pistol ? 7.0f : 6.0f) * cm;
+    poses[0][2] += ((pistol ? 1.0f : -6.0f) + back) * cm;
+}
+
+static void rackReload(void)
+{
+    const int magSize = stats.MagSize;
+
+    for (int pistol = 0; pistol < 2; pistol++) {
+        const int item = pistol ? ITEM_WPPK : ITEM_AK47, size = pistol ? 7 : 30;
+        const int label = pistol ? GEVR_RELOAD_LABEL_RACK : GEVR_RELOAD_LABEL_BOLT;
+        const float throwCm = pistol ? GEVR_RACK_SLIDE_CM : GEVR_RACK_BOLT_CM;
+        int before;
+
+        /* a magazine changed with rounds still in the gun: one is chambered, no rack */
+        rackSeat(item, size, 3);
+        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == size && reserve == 53 - size);
+        assert(!s_gevrRack[GUNRIGHT].dry && s_gevrRack[GUNRIGHT].pending == 0);
+        assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_SEATED);
+
+        /* run dry: the rounds of the new magazine wait, and the gun is still empty */
+        rackSeat(item, size, 0);
+        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0 && s_gevrRack[GUNRIGHT].pending == size);
+        assert(reserve == 50 - size && gevrReloadReservedRounds(1) == size && gevrReloadCarriesRounds(GUNRIGHT));
+        assert(gevrReloadLabel(GUNRIGHT) == label);
+        /* the grip that seated it is not a rack, wherever the hand goes */
+        rackHand(pistol, 0); gevrHandReloadTick();
+        rackHand(pistol, throwCm + 1); gevrHandReloadTick();
+        assert(!s_gevrRack[GUNRIGHT].held && s_gevrRack[GUNRIGHT].pending == size);
+        gripHeld[0] = 0; gevrHandReloadTick();
+
+        /* a grip away from the slide takes nothing; at it, the off hand belongs to the rack */
+        rackHand(pistol, 0); poses[0][0] += (GEVR_RACK_REACH_CM + 0.5f) * GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+        assert(!gevrGexClaimsOffHand());
+        gripHeld[0] = 1; gevrHandReloadTick();
+        assert(!s_gevrRack[GUNRIGHT].held);
+        gripHeld[0] = 0; gevrHandReloadTick();
+        rackHand(pistol, 0);
+        assert(gevrGexClaimsOffHand());
+        gripHeld[0] = 1; gevrHandReloadTick();
+        assert(s_gevrRack[GUNRIGHT].held && gevrGexClaimsOffHand() && gevrReloadHoldsHand(0));
+        assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN);   /* not a grip on the magazine */
+
+        /* let go short of the throw: nothing */
+        rackHand(pistol, throwCm - 0.5f); gevrHandReloadTick();
+        assert(s_gevrRack[GUNRIGHT].held && !s_gevrRack[GUNRIGHT].cocked);
+        gripHeld[0] = 0; gevrHandReloadTick();
+        assert(!s_gevrRack[GUNRIGHT].held && s_gevrRack[GUNRIGHT].pending == size);
+        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0 && gevrReloadLabel(GUNRIGHT) == label);
+
+        /* all the way back, then let go: chambered, the rounds in the gun, nothing lost */
+        rackHand(pistol, 0); gripHeld[0] = 1; gevrHandReloadTick();
+        before = whiffs;
+        rackHand(pistol, throwCm + 0.2f); gevrHandReloadTick();
+        assert(s_gevrRack[GUNRIGHT].cocked && player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0);
+        gripHeld[0] = 0; gevrHandReloadTick();
+        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == size && s_gevrRack[GUNRIGHT].pending == 0);
+        assert(!s_gevrRack[GUNRIGHT].dry && reserve == 50 - size && gevrReloadReservedRounds(1) == 0);
+        assert(whiffs == before + 1 && lastSound == GUN_RIFLECOCK_SFX);
+        assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_SEATED && !gevrReloadCarriesRounds(GUNRIGHT));
+
+        /* still gripped, run back in: the same, and that grip is not the two-handed hold */
+        rackSeat(item, size, 0);
+        gripHeld[0] = 0; gevrHandReloadTick();
+        rackHand(pistol, 0); gripHeld[0] = 1; gevrHandReloadTick();
+        rackHand(pistol, throwCm + 0.2f); gevrHandReloadTick();
+        rackHand(pistol, throwCm * 0.4f); gevrHandReloadTick();
+        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == size && s_gevrGexGripSpent && gevrGexClaimsOffHand());
+        gripHeld[0] = 0; gevrHandReloadTick();
+        assert(!s_gevrGexGripSpent);
+
+        /* B / Y before the rack: the magazine drops with its rounds, the chamber still empty */
+        rackSeat(item, size, 0);
+        gripHeld[0] = 0; gevrHandReloadTick();
+        gevrGexDropMagazine(GUNRIGHT);
+        assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_OUT && reserve == 50 && s_gevrRack[GUNRIGHT].pending == 0);
+        assert(s_gevrRack[GUNRIGHT].dry && player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0);
+
+        /* the gun hand touching the belt (as when dual wielding) chambers a waiting magazine: no rack */
+        rackSeat(item, size, 0);
+        gripHeld[0] = 0; gevrHandReloadTick();
+        at(0, 20, -20, 40);
+        belt(1, 13.1f); gevrHandReloadTick();
+        belt(1, 0); gevrHandReloadTick();
+        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == size && s_gevrRack[GUNRIGHT].pending == 0);
+        assert(reserve == 50 - size);
+        gevrHandReloadTick();
+        assert(!s_gevrRack[GUNRIGHT].dry);
+
+        /* ... with nothing left in the reserve too: the last magazine is not lost, nor the gun put away for it */
+        rackSeat(item, size, 0);
+        reserve = 0;
+        gripHeld[0] = 0; gevrHandReloadTick();
+        assert(gevrReloadCarriesRounds(GUNRIGHT) && gevrReloadReservedRounds(1) == size);
+        at(0, 20, -20, 40);
+        belt(1, 13.1f); gevrHandReloadTick();
+        belt(1, 0); gevrHandReloadTick();
+        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == size && reserve == 0);
+
+        /* put away unracked and drawn again: still waiting, the same rounds */
+        rackSeat(item, size, 0);
+        gripHeld[0] = 0; gevrHandReloadTick();
+        assert(gevrReloadStow(GUNRIGHT, item));
+        assert(s_gevrRack[GUNRIGHT].pending == 0 && gevrReloadStoredRounds(GUNRIGHT, item) == size);
+        assert(gevrReloadReservedRounds(1) == size && reserve == 50 - size);
+        assert(gevrReloadDraw(GUNRIGHT));
+        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0 && s_gevrRack[GUNRIGHT].pending == size);
+        assert(gevrReloadReservedRounds(1) == size);
+        gevrHandReloadTick();
+        assert(gevrReloadLabel(GUNRIGHT) == label);
+
+        /* hand reload turned off with one waiting: it is simply loaded */
+        VrManualReloading = 0; gevrHandReloadTick(); VrManualReloading = 1;
+        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == size && s_gevrRack[GUNRIGHT].pending == 0);
+    }
+
+    /* the AR33 (and the rest) keep two steps: dry or not, a seated magazine is ready */
+    rackSeat(ITEM_M16, 30, 0);
+    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 30 && s_gevrRack[GUNRIGHT].pending == 0);
+    assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_SEATED);
+    stats.MagSize = magSize;
+    VrGexGuns = 1;
+}
+
 int main(void)
 {
     const float scales[] = {0.2f, 1.0f};
@@ -1406,6 +1569,7 @@ int main(void)
     at(1, oldBelt[0], oldBelt[1], oldBelt[2]); gevrHandReloadTick(); assert(fills == 0);
     belt(1, 0); gevrHandReloadTick(); assert(fills == 1);
     beanPp7Reload();
-    puts("PASS: calibrated reloads, PP7 fresh-grip ownership, physical seating, partial/fresh magazines, ammo conservation, handedness, belt and lifecycle, Bean's PP7 magazine");
+    rackReload();
+    puts("PASS: calibrated reloads, PP7 fresh-grip ownership, physical seating, partial/fresh magazines, ammo conservation, handedness, belt and lifecycle, Bean's PP7 magazine, the rack");
     return 0;
 }
