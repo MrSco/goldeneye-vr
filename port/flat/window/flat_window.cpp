@@ -261,8 +261,10 @@ static void halfRateFrame(void)
 #ifdef ANDROID
     if (half) s_halfTimerFps = halfFps;   // an Android surface swaps every refresh at most
 #else
-    // the refreshes each frame is shown for: 2 at 60 and 50 Hz, 4 at 120, 6 at 180; none that fits at 144
-    const int every = vsync && halfFps > 0 && hz % halfFps == 0 ? hz / halfFps : 0;
+    // the refreshes each frame is shown for: 2 at 60 and 50 Hz, 4 at 120, 6 at 180. The nearest
+    // where none fits: 5 at 144 Hz, a steady 28.8 (the frame timer under VSync there gave an
+    // uneven 27.5, each frame held to the refresh after its time; measured 2026-11-22)
+    const int every = vsync && halfFps > 0 ? (hz + halfFps / 2) / halfFps : 0;
     if (!half) {
         SDL_GL_SetSwapInterval(s_baseInterval);
     } else if (!every || SDL_GL_SetSwapInterval(every) < 0) {
