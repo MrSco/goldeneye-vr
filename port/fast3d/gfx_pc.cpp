@@ -214,10 +214,11 @@ extern "C" int vr_eye_multisampled(void);         // vr_openxr.cpp: the eye imag
 static int gevr_vr_replay_frame(bool fresh);
 #ifdef GEVR_FLAT
 // a flat game's frames between game frames, on a screen faster than the game (#274)
-void gfx_flat_record(bool on, const float* proj, bool invert_y);   // gfx_opengl.cpp
+void gfx_flat_record(bool on, const float* proj, bool invert_y, const float* presentation);   // gfx_opengl.cpp
 extern "C" int flatHighRefreshWanted(void);                         // flat_window.cpp
 extern "C" int flatRedrawFrame(void);                               // flat_headset.c
 extern "C" void flatLookDelta(float yaw, float pitch, float out[16]);
+extern "C" int flatPresentationDelta(float out[16]);                // flat_headset.c
 static bool gfx_flat_redraw_draw(const float* delta);
 static uint32_t s_flatRedrawW, s_flatRedrawH;
 #endif
@@ -6709,10 +6710,12 @@ extern "C" void gfx_run(Gfx* commands) {
         fbActive = 0;
         rdp.textures_changed[0] = rdp.textures_changed[1] = true;
         rdp.viewport_or_scissor_changed = true;
-        gfx_flat_record(true, keep ? &g_viProjectionMatrixF[0][0] : nullptr, gfx_rapi->get_clip_parameters().invert_y);
+        float flatPresent[16];
+        const bool havePresent = keep && flatPresentationDelta(flatPresent) != 0;
+        gfx_flat_record(true, keep ? &g_viProjectionMatrixF[0][0] : nullptr, gfx_rapi->get_clip_parameters().invert_y, havePresent ? flatPresent : nullptr);
         gfx_run_dl(commands);
         gfx_flush();
-        gfx_flat_record(false, nullptr, false);
+        gfx_flat_record(false, nullptr, false, nullptr);
         s_flatRedrawW = keep ? w : 0;
         s_flatRedrawH = h;
         gevr_flat_mesh_report();

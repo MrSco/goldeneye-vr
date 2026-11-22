@@ -2972,11 +2972,12 @@ GLuint gfx_vr_scope_texture(int hand)
 }
 
 static void gevr_eye_present_draw(void) {
-    /* Presentation-only correction on fresh eye draws. Scope captures and
-     * controller-held geometry retain their original camera-relative poses. */
-    if (use_multiview && s_curPrg && s_curPrg->reprojLocation >= 0) {
+    /* Presentation-only correction on fresh eye and flat high-refresh draws.
+     * Scope captures and held/screen-locked gun geometry keep camera-relative poses. */
+    if ((use_multiview || s_flatRec) && s_curPrg && s_curPrg->reprojLocation >= 0) {
         static int s_uniPresentation = -1;
-        const bool present = s_eyePresent && s_eyeHand < 0 && !gForceFlatShaderForMenu && !gVrFlatPass;
+        const bool present = s_eyePresent && s_eyeHand < 0 && !gForceFlatShaderForMenu
+                          && (use_multiview ? !gVrFlatPass : current_framebuffer == 0);
         if (!s_uniCacheValid || s_uniPresentation != (int)present) {
             glUniform1i(s_curPrg->reprojLocation, present ? 1 : 0);
             if (present) {
@@ -3483,7 +3484,7 @@ bool gfx_vr_eye_replay_ready(void)
  * upside down holds -y, which is the projection with its y row negated: the redraw's
  * rebuilding (y / P11) and its projecting again then both come out that way up.
  */
-void gfx_flat_record(bool on, const float* proj, bool invert_y)
+void gfx_flat_record(bool on, const float* proj, bool invert_y, const float* presentation)
 {
     gevr_mesh_settle();
     if (on) {
@@ -3493,8 +3494,10 @@ void gfx_flat_record(bool on, const float* proj, bool invert_y)
         s_eyeSpilled = false;
         s_eyeClearDepth = false;
         s_eyeHand = -1;
-        s_eyePresent = false;
+        s_eyePresentationPrograms.clear();
+        s_uniCacheValid = false;
         s_flatRec = s_eyeRec = proj != NULL && s_pmPtr != NULL && fabsf(proj[0]) > 1e-6f && fabsf(proj[5]) > 1e-6f;
+        s_eyePresent = s_eyeRec && presentation != NULL;
         if (s_eyeRec) {
             memcpy(s_eyeProj, proj, sizeof(s_eyeProj));
             if (invert_y) {
@@ -3502,10 +3505,18 @@ void gfx_flat_record(bool on, const float* proj, bool invert_y)
             }
             s_eyeHeadP[0] = s_eyeProj[0];
             s_eyeHeadP[1] = s_eyeProj[5];
+            if (s_eyePresent) gevr_eye_proj_times(presentation, s_eyePresentationVP);
         }
     } else {
         s_eyeReady = s_eyeRec && !s_eyeSpilled && !s_eyeDraws.empty();
         s_eyeRec = s_flatRec = false;
+        s_eyePresent = false;
+        for (struct ShaderProgram* p : s_eyePresentationPrograms) {
+            glUseProgram(p->opengl_program_id);
+            glUniform1i(p->reprojLocation, 0);
+        }
+        if (s_curPrg) glUseProgram(s_curPrg->opengl_program_id);
+        s_uniCacheValid = false;
     }
 }
 

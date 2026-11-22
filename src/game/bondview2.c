@@ -16534,6 +16534,20 @@ Gfx *bondviewRenderDebugBondView(Gfx *gdl)
     if (g_gevrStereo && !s_gevrCopyTrace &&
         (!netIsActive() || get_cur_playernum() == netGetLocalSlot()))
         gevrVrCameraWorld(cam_pos.f, cam_look.f, cam_up.f);
+#if defined(GEVR_FLAT) && !defined(GEVR_HEADLESS)
+    if (!g_gevrStereo && !s_gevrCopyTrace &&
+        getPlayerCount() == 1 &&
+        (!netIsActive() || get_cur_playernum() == netGetLocalSlot()))
+    {
+        extern u32 gevrRetraceClockFrames;
+        extern void flatCameraWorld(const float position[3], const float look[3], const float up[3],
+                                    float worldScale, int ok, int stage, int tank, u32 teleportEpoch,
+                                    u32 sequence);
+        flatCameraWorld(cam_pos.f, cam_look.f, cam_up.f, D_800364CC,
+                        g_gevrFlatLook.ok && !gevrDamBoatAboard() && !gevrSpectating() && !gevrCoopLocalDowned(),
+                        bossGetStageNum(), g_PlayerIsInTank, g_gevrTeleportEpoch, gevrRetraceClockFrames);
+    }
+#endif
 #endif
     bondviewUpdateCameraMatrices(&cam_pos, &cam_look, &cam_up);
     sub_GAME_7F068190(&zeropos, &vec);

@@ -10,6 +10,7 @@
  * and here that wait is a 60 Hz clock, the N64's retrace.
  */
 
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -137,11 +138,117 @@ extern int flatScreenHz(void);                               /* flat_window.cpp 
 extern int gfx_flat_redraw_frame(const float *delta);        /* gfx_pc.cpp */
 extern void inputMousePeekLookDeg(f32 *dxdeg, f32 *dydeg);   /* input.c */
 extern u64 sysGetMicroseconds(void);
+void flatLookDelta(float yaw, float pitch, float out[16]);
 static int s_flatRedrawFailed;
 static unsigned s_flatStatRedraw;
 static unsigned s_flatTitleRedraw;
 static long long s_flatStatLastPresent;
 static double s_flatStatWorstPresentMs;
+static GevrLocomotionHistory s_flatLoco;
+static GevrPresentationCamera s_flatSourceCam;
+static float s_flatWorldScale;
+static int s_flatHaveCam;
+static int64_t s_flatFrameTimeNs;
+
+void flatCameraWorld(const float position[3], const float look[3], const float up[3],
+                     float worldScale, int ok, int stage, int tank, u32 teleportEpoch,
+                     u32 sequence)
+{
+	static int s_lastStage = -1, s_lastTank = -1;
+	static u32 s_lastTeleport = 0;
+
+	if (!ok || !flatHighRefreshWanted() || worldScale <= 1e-6f) {
+		gevrLocomotionReset(&s_flatLoco);
+		s_flatHaveCam = 0;
+		return;
+	}
+	if (stage != s_lastStage || tank != s_lastTank || teleportEpoch != s_lastTeleport) {
+		gevrLocomotionReset(&s_flatLoco);
+		s_flatHaveCam = 0;
+		s_lastStage = stage;
+		s_lastTank = tank;
+		s_lastTeleport = teleportEpoch;
+	}
+	if (s_flatHaveCam) {
+		const float dx = position[0] - s_flatSourceCam.position[0];
+		const float dy = position[1] - s_flatSourceCam.position[1];
+		const float dz = position[2] - s_flatSourceCam.position[2];
+		if (dx * dx + dy * dy + dz * dz > 150.0f * 150.0f) {
+			gevrLocomotionReset(&s_flatLoco);
+		}
+	}
+
+	float back[3], right[3], correctedUp[3];
+	float len = sqrtf(look[0] * look[0] + look[1] * look[1] + look[2] * look[2]);
+	if (!isfinite(len) || len < 1e-6f) {
+		gevrLocomotionReset(&s_flatLoco);
+		s_flatHaveCam = 0;
+		return;
+	}
+	for (int i = 0; i < 3; i++) back[i] = -look[i] / len;
+	right[0] = up[1] * back[2] - up[2] * back[1];
+	right[1] = up[2] * back[0] - up[0] * back[2];
+	right[2] = up[0] * back[1] - up[1] * back[0];
+	len = sqrtf(right[0] * right[0] + right[1] * right[1] + right[2] * right[2]);
+	if (!isfinite(len) || len < 1e-6f) {
+		gevrLocomotionReset(&s_flatLoco);
+		s_flatHaveCam = 0;
+		return;
+	}
+	for (int i = 0; i < 3; i++) right[i] /= len;
+	correctedUp[0] = back[1] * right[2] - back[2] * right[1];
+	correctedUp[1] = back[2] * right[0] - back[0] * right[2];
+	correctedUp[2] = back[0] * right[1] - back[1] * right[0];
+	for (int i = 0; i < 3; i++) {
+		s_flatSourceCam.position[i] = position[i];
+		s_flatSourceCam.rotation[i * 3 + 0] = right[i];
+		s_flatSourceCam.rotation[i * 3 + 1] = correctedUp[i];
+		s_flatSourceCam.rotation[i * 3 + 2] = back[i];
+	}
+	s_flatWorldScale = worldScale;
+	s_flatHaveCam = 1;
+
+	const int hz = flatScreenHz();
+	const int64_t period = (hz > 61) ? (1000000000LL / hz) : FLAT_FRAME_NS;
+	const int64_t nowNs = s_flatFrameTimeNs ? s_flatFrameTimeNs : (int64_t)gevrFlatNowNs();
+	const float zero[3] = { 0.0f, 0.0f, 0.0f };
+	gevrLocomotionSnapshot(&s_flatLoco, position, zero, 0.0f, (uint64_t)sequence, nowNs, period);
+}
+
+static void flatApplyLocomotion(float out[16])
+{
+	GevrLocomotionPose presented;
+	if (!s_flatHaveCam || s_flatLoco.count < 2) return;
+	const int64_t nowNs = s_flatFrameTimeNs ? s_flatFrameTimeNs : (int64_t)gevrFlatNowNs();
+	if (!gevrLocomotionQuery(&s_flatLoco, nowNs, &presented)) return;
+
+	const float dw[3] = {
+		(s_flatSourceCam.position[0] - presented.position[0]) * s_flatWorldScale,
+		(s_flatSourceCam.position[1] - presented.position[1]) * s_flatWorldScale,
+		(s_flatSourceCam.position[2] - presented.position[2]) * s_flatWorldScale
+	};
+	float dc[3];
+	for (int c = 0; c < 3; c++) {
+		dc[c] = s_flatSourceCam.rotation[0 * 3 + c] * dw[0]
+		      + s_flatSourceCam.rotation[1 * 3 + c] * dw[1]
+		      + s_flatSourceCam.rotation[2 * 3 + c] * dw[2];
+	}
+	for (int r = 0; r < 3; r++) {
+		out[12 + r] = out[0 * 4 + r] * dc[0]
+		            + out[1 * 4 + r] * dc[1]
+		            + out[2 * 4 + r] * dc[2];
+	}
+}
+
+int flatPresentationDelta(float out[16])
+{
+	if (!g_gevrFlatLook.ok || !flatHighRefreshWanted() || !s_flatHaveCam || s_flatLoco.count < 2) {
+		return 0;
+	}
+	flatLookDelta(0.0f, 0.0f, out);
+	flatApplyLocomotion(out);
+	return 1;
+}
 
 unsigned flatTakeTitleRedraws(void)
 {
@@ -213,6 +320,7 @@ int flatRedrawFrame(void)
 		if (l->pitchDeg + pitch > 90.0f) pitch = 90.0f - l->pitchDeg;
 		if (l->pitchDeg + pitch < -90.0f) pitch = -90.0f - l->pitchDeg;
 		flatLookDelta(yaw, pitch, delta);
+		flatApplyLocomotion(delta);
 		if (gfx_flat_redraw_frame(delta)) {
 			s_flatStatRedraw++;
 			s_flatTitleRedraw++;
@@ -231,6 +339,7 @@ bool vr_begin_frame_and_update_poses(void)
 	const long long now = gevrFlatNowNs();
 
 #ifndef GEVR_HEADLESS
+	s_flatFrameTimeNs = (int64_t)now;
 	if (!s_flatRedrawFailed && g_gevrFlatLook.ok && flatHighRefreshWanted() && !gevrServerIdle()) {
 		return true;   /* a frame to draw: a game frame if one is due, else flatRedrawFrame */
 	}
