@@ -381,12 +381,9 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
     }
     for(int i=0;i<2;i++) {
         const char*title=i?"End mission?":"Leave session?";
-        if(ImGui::BeginPopupModal(title,nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::TextUnformatted(i?"End this mission for the whole party?":"Disconnect this headset and return to the launcher?");
-            if(ImGui::Button("Cancel",ImVec2(220,52))){ImGui::CloseCurrentPopup();ui.confirmLeave=ui.confirmAbort=false;}
-            ImGui::SameLine();if(ImGui::Button(i?"End mission":"Leave",ImVec2(220,52))){action=i?GEVR_PAUSE_ABORT:GEVR_PAUSE_LEAVE;ImGui::CloseCurrentPopup();ui.confirmLeave=ui.confirmAbort=false;}
-            ImGui::EndPopup();
-        }
+        const char*msg=i?"End this mission for the whole party?":"Disconnect and return to the launcher?";
+        const int res=gevrConfirmModal(title,msg,i?"End mission":"Leave");
+        if(res!=0){if(res==1)action=i?GEVR_PAUSE_ABORT:GEVR_PAUSE_LEAVE;ui.confirmLeave=ui.confirmAbort=false;}
     }
     ImGui::End();return action;
 }

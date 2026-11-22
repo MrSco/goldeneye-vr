@@ -12043,8 +12043,26 @@ static void gevrFlatLookRecord(void)
     dpitch = g_CurrentPlayer->vv_verta - lastVerta;
     if (g_portMouseDirect && !aim)
     {
-        dyaw -= g_portMouseYawDeg * ratio;
-        dpitch -= g_portMousePitchDeg * ratio;
+        /* With direct mouse look, only carry non-mouse stick/tank velocity into
+         * redraws; subtracting mouse from clamped/auto-leveled vv_verta or
+         * floating-point wrap residuals would extrapolate in the wrong direction. */
+        if (g_PlayerIsInTank != 1 && fabsf(g_CurrentPlayer->speedtheta) < 1e-4f)
+        {
+            dyaw = 0.0f;
+        }
+        else
+        {
+            dyaw -= g_portMouseYawDeg * ratio;
+        }
+        if (fabsf(g_CurrentPlayer->speedverta) < 1e-4f
+            || g_CurrentPlayer->vv_verta >= 89.9f || g_CurrentPlayer->vv_verta <= -89.9f)
+        {
+            dpitch = 0.0f;
+        }
+        else
+        {
+            dpitch -= g_portMousePitchDeg * ratio;
+        }
     }
     dyaw /= slots;
     dpitch /= slots;

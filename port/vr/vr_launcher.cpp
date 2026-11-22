@@ -68,6 +68,7 @@ std::string pcServiceString(const char *method);
 void pcServiceCommand(const char *method, const char *arg);
 bool pcOpenPicker(const char *method);
 void pcRestartSelf(void);
+void pcQuitApp(void);
 extern "C" int sysArgCheck(const char *arg);   // port/src/system.c
 #endif
 #ifdef GEVR_FLAT
@@ -383,13 +384,57 @@ extern "C" void gevrRestartToLauncher(void)
     env->DeleteLocalRef(cls);
     env->DeleteLocalRef(activity);
 }
+
+extern "C" void gevrLobbySessionStopped(void);
+extern "C" void gevrQuitApp(void)
+{
+    vrSettingsFlush();
+    if (netIsActive()) gevrLobbySessionStopped();
+    if (!gevrAndroidJava) {
+        vr_log("launcher: quitting app");
+        exit(0);
+    }
+    JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
+    jobject activity = (jobject)SDL_AndroidGetActivity();
+    if (env == nullptr || activity == nullptr) {
+        vr_log("launcher: quit fallback exit");
+        exit(0);
+    }
+    jclass cls = env->GetObjectClass(activity);
+    jmethodID m = env->GetMethodID(cls, "quitApp", "()V");
+    if (m != nullptr) {
+        vr_log("launcher: quitting app");
+        env->CallVoidMethod(activity, m);
+    }
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+    env->DeleteLocalRef(cls);
+    env->DeleteLocalRef(activity);
+    if (m == nullptr) exit(0);
+}
 #else
 extern "C" void vrSettingsFlush(void);   // vr_settings.cpp: a save on its writer thread
+extern "C" void gevrLobbySessionStopped(void);
+#ifdef GEVR_PCVR
+extern "C" void vr_shutdown(void);
+#endif
 extern "C" void gevrRestartToLauncher(void)
 {
     vrSettingsFlush();   // the new run reads the settings file
     vr_log("launcher: restarting into the launcher");
     pcRestartSelf();
+}
+
+extern "C" void gevrQuitApp(void)
+{
+    vrSettingsFlush();
+    if (netIsActive()) gevrLobbySessionStopped();
+    vr_log("launcher: quitting app");
+#ifdef GEVR_PCVR
+    vr_shutdown();
+#endif
+    pcQuitApp();
 }
 #endif
 
@@ -3629,16 +3674,29 @@ extern "C" void gevrLauncherRun(void)
                 snprintf(build, sizeof(build), "Build %s", gevrBuildId);
             }
             const float w = ImGui::CalcTextSize(build).x;
-            const float buttonW = ImGui::CalcTextSize("Send debug log").x + ImGui::GetStyle().FramePadding.x * 2;
+            const float padX = ImGui::GetStyle().FramePadding.x * 2.0f;
+            const float debugW = ImGui::CalcTextSize("Send debug log").x + padX;
+            const float quitW = ImGui::CalcTextSize("Quit").x + padX;
+            const float gapX = ImGui::GetStyle().ItemSpacing.x;
             const float right = ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x;
+            const float btnY = headerY + ImGui::GetTextLineHeight() + ImGui::GetStyle().ItemSpacing.y;
             ImGui::SetCursorPos(ImVec2(right - w, headerY));
             ImGui::TextDisabled("%s", build);
-            ImGui::SetCursorPos(ImVec2(right - buttonW,
-                headerY + ImGui::GetTextLineHeight() + ImGui::GetStyle().ItemSpacing.y));
+            ImGui::SetCursorPos(ImVec2(right - quitW - gapX - debugW, btnY));
             if (gevrLauncherDebugButton(launcherSession)) {
                 reportPage = true;
                 reportCrash = false;
             }
+            ImGui::SetCursorPos(ImVec2(right - quitW, btnY));
+            ImGui::PushStyleColor(ImGuiCol_Text, bad);
+            if (ImGui::SmallButton("Quit")) {
+                ImGui::OpenPopup("Quit GoldenEye VR?");
+            }
+            ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered()) gevrTooltip("Exit GoldenEye VR.");
+        }
+        if (gevrConfirmModal("Quit GoldenEye VR?", "Quit GoldenEye VR and close the app?", "Quit") == 1) {
+            gevrQuitApp();
         }
         const float iconBottom = headerY + headerH + ImGui::GetStyle().ItemSpacing.y;
         if (ImGui::GetCursorPosY() < iconBottom) ImGui::SetCursorPosY(iconBottom);

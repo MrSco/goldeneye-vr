@@ -3486,6 +3486,9 @@ static inline void inputUpdateMouse(void)
 
     s32 mdx = 0;
     s32 mdy = 0;
+#ifdef GEVR_FLAT
+    SDL_PumpEvents();
+#endif
     SDL_GetRelativeMouseState(&mdx, &mdy);
     // what a redraw between game frames already read (inputMousePeekLookDeg)
     mdx += s_mousePeekDX;
@@ -3669,6 +3672,7 @@ void inputUpdate(void)
                 inputLockMouse(hold);
             }
             mouseDX = mouseDY = 0;
+            s_mousePeekDX = s_mousePeekDY = 0;
             if (hold) {
                 mouseButtonsWait = 1;   /* the click that took it, or closed the panel */
             }

@@ -241,4 +241,37 @@ inline bool gevrCheckGrid(const char *id, int count, NameFn nameAt, GetFn getAt,
     return changed;
 }
 
+// Shared confirmation modal for destructive actions (Quit, Back to launcher,
+// Leave session, End mission). Centers on the viewport and returns:
+//   0 = still open / not open, -1 = cancelled, 1 = confirmed.
+inline int gevrConfirmModal(const char *popupId, const char *message,
+                            const char *confirmLabel, const char *cancelLabel = "Cancel",
+                            bool danger = true) {
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    int result = 0;
+    if (ImGui::BeginPopupModal(popupId, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
+        ImGui::TextUnformatted(message);
+        ImGui::Spacing();
+        const float btnW = std::max(180.0f, ImGui::GetFontSize() * 7.7f);
+        const float btnH = std::max(36.0f, ImGui::GetFrameHeight() * 1.35f);
+        if (ImGui::Button(cancelLabel, ImVec2(btnW, btnH))) {
+            result = -1;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (danger) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.5f, 0.4f, 1.0f));
+        if (ImGui::Button(confirmLabel, ImVec2(btnW, btnH))) {
+            result = 1;
+            ImGui::CloseCurrentPopup();
+        }
+        if (danger) ImGui::PopStyleColor();
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight)) {
+            result = -1;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+    return result;
+}
+
 #endif

@@ -210,6 +210,8 @@ int flatRedrawFrame(void)
 		if (yaw < -most) yaw = -most;
 		if (pitch > most) pitch = most;
 		if (pitch < -most) pitch = -most;
+		if (l->pitchDeg + pitch > 90.0f) pitch = 90.0f - l->pitchDeg;
+		if (l->pitchDeg + pitch < -90.0f) pitch = -90.0f - l->pitchDeg;
 		flatLookDelta(yaw, pitch, delta);
 		if (gfx_flat_redraw_frame(delta)) {
 			s_flatStatRedraw++;

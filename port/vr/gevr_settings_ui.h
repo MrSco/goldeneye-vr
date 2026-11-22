@@ -189,30 +189,40 @@ inline void gevrSettingsTabs(const GevrSettingsApi &a, int &openSection) {
     const int sections = a.sectionCount ? a.sectionCount() : 0;
     if (ImGui::BeginTabBar("##panel-sections", ImGuiTabBarFlags_FittingPolicyResizeDown)) {
         for (int s = 0; s < sections; s++) {
+            const int rowCount = a.sectionRows ? a.sectionRows(s, GEVR_SET_INGAME, nullptr, 0) : 0;
+            const bool hasControlSubs = (s == GEVR_SEC_CONTROLS) && (a.drawKbm || a.drawGamepad);
             // a section with nothing to set here (a flat game's Gestures) has no tab
-            if (a.sectionRows && a.sectionRows(s, GEVR_SET_INGAME, nullptr, 0) == 0) continue;
+            if (rowCount == 0 && !hasControlSubs) continue;
             const ImGuiTabItemFlags open = s == openSection ? ImGuiTabItemFlags_SetSelected : 0;
             if (ImGui::BeginTabItem(a.sectionName(s), nullptr, open)) {
-                ImGui::BeginChild("##panel-rows", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
-                gevrSettingsSection(a, s, GEVR_SET_INGAME);
-                ImGui::EndChild();
+                if (hasControlSubs) {
+                    if (ImGui::BeginTabBar("##panel-controls-subs", ImGuiTabBarFlags_FittingPolicyResizeDown)) {
+                        if (a.drawKbm && ImGui::BeginTabItem("Keyboard & mouse")) {
+                            ImGui::BeginChild("##panel-rows", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
+                            a.drawKbm();
+                            ImGui::EndChild();
+                            ImGui::EndTabItem();
+                        }
+                        if (a.drawGamepad && ImGui::BeginTabItem("Gamepad")) {
+                            ImGui::BeginChild("##panel-rows", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
+                            a.drawGamepad();
+                            ImGui::EndChild();
+                            ImGui::EndTabItem();
+                        }
+                        if (rowCount > 0 && ImGui::BeginTabItem("Look")) {
+                            ImGui::BeginChild("##panel-rows", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
+                            gevrSettingsSection(a, s, GEVR_SET_INGAME);
+                            ImGui::EndChild();
+                            ImGui::EndTabItem();
+                        }
+                        ImGui::EndTabBar();
+                    }
+                } else {
+                    ImGui::BeginChild("##panel-rows", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
+                    gevrSettingsSection(a, s, GEVR_SET_INGAME);
+                    ImGui::EndChild();
+                }
                 ImGui::EndTabItem();
-            }
-            if (s == GEVR_SEC_CONTROLS && a.drawKbm) {
-                if (ImGui::BeginTabItem("Keys & mouse")) {
-                    ImGui::BeginChild("##panel-rows", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
-                    a.drawKbm();
-                    ImGui::EndChild();
-                    ImGui::EndTabItem();
-                }
-            }
-            if (s == GEVR_SEC_CONTROLS && a.drawGamepad) {
-                if (ImGui::BeginTabItem("Gamepad")) {
-                    ImGui::BeginChild("##panel-rows", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
-                    a.drawGamepad();
-                    ImGui::EndChild();
-                    ImGui::EndTabItem();
-                }
             }
         }
         ImGui::EndTabBar();

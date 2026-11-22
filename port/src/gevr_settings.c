@@ -831,7 +831,7 @@ static const Row s_rows[] = {
 #define ROWS ((int)(sizeof(s_rows) / sizeof(s_rows[0])))
 
 static const char *const s_sections[GEVR_SEC_COUNT] = {
-    "Comfort", "Controls", "Gestures", "Weapons", "Display", "Game rules", "Mods and fun", "Audio",
+    "Comfort", "Controls", "Gestures", "Weapons", "Display", "Game rules", "Mods/Fun", "Audio",
 };
 
 static const Row *row(int id) { return id >= 0 && id < ROWS ? &s_rows[id] : NULL; }

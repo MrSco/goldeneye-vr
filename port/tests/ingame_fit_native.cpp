@@ -165,6 +165,57 @@ int main() {
         }
     }
     settingsFitFail(online == 6, "the online Rules, Player and Audio tabs, as host and joiner");
+    // Flat PC: Controls has Keyboard & mouse / Gamepad / Look sub-tabs so top tab row stays compact
+    // without shrinking, and Back to launcher opens a confirmation modal instead of exiting immediately.
+    {
+        GevrPanelView panel; GevrPanelUi panelUi;
+        panel.settings = gevrSettingsLive();
+        panel.settings.drawKbm = []() { ImGui::TextUnformatted("KBM"); };
+        panel.settings.drawGamepad = []() { ImGui::TextUnformatted("PAD"); };
+        panel.texpack = 1;
+        snprintf(panel.session, sizeof(panel.session), "Dam");
+        snprintf(panel.note, sizeof(panel.note), "Going back to the launcher does not save this mission.");
+        VrPlayMode = 0; s_net = 0;
+        for (int pass = 0; pass < 3; pass++) {
+            if (pass == 0) panelUi.openSection = GEVR_SEC_CONTROLS;
+            ImGui::NewFrame();
+            gevrDrawPanelWindow(panel, panelUi);
+            ImGui::Render();
+        }
+        ImGuiContext &g = *ImGui::GetCurrentContext();
+        for (int t = 0; t < g.TabBars.GetMapSize(); t++)
+            if (ImGuiTabBar *bar = g.TabBars.TryGetMapData(t))
+                settingsFitFail(bar->WidthAllTabsIdeal <= bar->BarRect.GetWidth() + 1,
+                                "flat in-game tab bar and Controls sub-tab bar fit without shrinking");
+        // Clicking Back to launcher (948..1262, 886..938) opens Return to launcher? confirmation modal
+        int panelAction = GEVR_PANEL_NONE;
+        auto runFrame = [&]() {
+            ImGui::NewFrame();
+            const int a = gevrDrawPanelWindow(panel, panelUi);
+            if (a != GEVR_PANEL_NONE) panelAction = a;
+            ImGui::Render();
+        };
+        auto clickPanel = [&](float x, float y) {
+            panelAction = GEVR_PANEL_NONE;
+            io.AddMousePosEvent(x, y); runFrame();
+            io.AddMouseButtonEvent(0, true); runFrame();
+            io.AddMouseButtonEvent(0, false); runFrame();
+            runFrame();
+        };
+        clickPanel(1100.0f, 912.0f);
+        settingsFitFail(panelAction == GEVR_PANEL_NONE, "Back to launcher requires confirmation");
+        ImGuiWindow *modal = ImGui::FindWindowByName("Return to launcher?");
+        settingsFitFail(modal && modal->Active, "Return to launcher? confirmation modal is visible");
+        // Cancel (left button) keeps the game open
+        clickPanel(modal->Pos.x + 100.0f, modal->Pos.y + modal->Size.y - 36.0f);
+        settingsFitFail(panelAction == GEVR_PANEL_NONE, "Cancel closes modal without returning to launcher");
+        // Open again and confirm (second button beside Cancel)
+        clickPanel(1100.0f, 912.0f);
+        modal = ImGui::FindWindowByName("Return to launcher?");
+        settingsFitFail(modal && modal->Active, "Return to launcher? reopens");
+        clickPanel(modal->Pos.x + 320.0f, modal->Pos.y + modal->Size.y - 36.0f);
+        settingsFitFail(panelAction == GEVR_PANEL_LAUNCHER, "Confirm returns GEVR_PANEL_LAUNCHER");
+    }
     ImGui::DestroyContext();
     std::printf("PASS: in-game settings: the solo panel and the online Settings tab, %d sections (flat, stereo, co-op host, "
                 "joiner), and the online Rules, Player and Audio tabs at their fullest (host, joiner): rows, labels, "

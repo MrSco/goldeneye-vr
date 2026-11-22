@@ -364,6 +364,8 @@ int main() {
     checkLayout("VR panel (1280x960)",      1280.0f, 960.0f, 2.2f, 1244.0f, 670.0f, true);
     checkLayout("Pause overlay (1244x560)", 1280.0f, 960.0f, 2.2f, 1244.0f, 560.0f, false);
     checkLayout("Pause overlay (1244x560)", 1280.0f, 960.0f, 2.2f, 1244.0f, 560.0f, true);
+    checkLayout("Pause Controls sub-tab (1244x510)", 1280.0f, 960.0f, 2.2f, 1244.0f, 510.0f, false);
+    checkLayout("Pause Controls sub-tab (1244x510)", 1280.0f, 960.0f, 2.2f, 1244.0f, 510.0f, true);
 
     std::printf("PASS: PC keybinds (capture, Esc cancel, Del clear, duplicates, wheel up/down defaults, "
                 "save/load round-trip, 5 campaign labels, and no-scroll layout at PC/VR/pause sizes)\n");
