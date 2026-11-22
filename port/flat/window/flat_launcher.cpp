@@ -25,6 +25,11 @@
 #include "../../vr/imgui/imgui.h"
 #include <PR/ultratypes.h>
 extern "C" s32 inputIsBindingCapture(void);
+#ifdef GEVR_PC_FLAT
+extern "C" s32 videoGetFullscreen(void);
+extern "C" void videoSetFullscreen(s32 fs);
+extern "C" s32 configSave(const char *fname);
+#endif
 
 #ifdef GEVR_PC
 #include "../../pc/pc_testinput.h"
@@ -53,6 +58,12 @@ static int SDLCALL flatLauncherWheelWatch(void *, SDL_Event *e)
 {
     if (e->type == SDL_MOUSEWHEEL) {
         s_wheel += (float)e->wheel.y;
+#ifdef GEVR_PC_FLAT
+    } else if (e->type == SDL_KEYDOWN && !e->key.repeat && !inputIsBindingCapture()
+               && e->key.keysym.sym == SDLK_RETURN && (e->key.keysym.mod & KMOD_ALT)) {
+        videoSetFullscreen(!videoGetFullscreen());
+        configSave("$S/goldeneye.ini");
+#endif
     } else if ((e->type == SDL_MOUSEBUTTONDOWN || e->type == SDL_MOUSEBUTTONUP) && s_clickCount < 16
                && (e->button.button == SDL_BUTTON_LEFT || e->button.button == SDL_BUTTON_RIGHT)) {
         s_clicks[s_clickCount].button = e->button.button;

@@ -67,6 +67,10 @@ static void gevrSetWindowIcon(SDL_Window *w)
 }
 #endif
 
+#ifdef GEVR_PC_FLAT
+static void flatUpdateTitleBarStats(void);
+#endif
+
 extern "C" void flatSwapWindow(void)
 {
 #ifdef ANDROID
@@ -91,6 +95,9 @@ extern "C" void flatSwapWindow(void)
     }
 #endif
     SDL_GL_SwapWindow(wnd);
+#ifdef GEVR_PC_FLAT
+    flatUpdateTitleBarStats();
+#endif
 }
 static bool vsync_enabled = false;
 
@@ -153,6 +160,68 @@ extern "C" int flatScreenHz(void)
 {
     return s_screenHz ? s_screenHz : (wnd ? halfRateScreenHz() : 60);
 }
+
+#ifdef GEVR_PC_FLAT
+extern "C" unsigned flatTakeTitleRedraws(void);   // flat_headset.c
+
+static void flatUpdateTitleBarStats(void)
+{
+    if (!wnd) return;
+    static Uint64 s_since = 0;
+    static Uint64 s_last = 0;
+    static unsigned s_frames = 0;
+    static double s_worstMs = 0.0;
+    static char s_lastTitle[160] = "";
+
+    const Uint64 now = SDL_GetPerformanceCounter();
+    const double freq = qpc_freq ? (double)qpc_freq : (double)SDL_GetPerformanceFrequency();
+    if (s_last && freq > 0.0) {
+        const double dtMs = (double)(now - s_last) * 1000.0 / freq;
+        if (dtMs > s_worstMs && dtMs < 1000.0) s_worstMs = dtMs;
+    }
+    s_last = now;
+    s_frames++;
+    if (!s_since) {
+        s_since = now;
+        return;
+    }
+    const double elapsed = freq > 0.0 ? (double)(now - s_since) / freq : 0.0;
+    if (elapsed < 0.5) return;
+
+    const unsigned redraws = flatTakeTitleRedraws();
+    const double totalFps = s_frames / elapsed;
+    const double redrawFps = redraws / elapsed;
+    const double gameFps = totalFps > redrawFps ? (totalFps - redrawFps) : 0.0;
+    const double worstMs = s_worstMs;
+    const int hz = flatScreenHz();
+    int w = window_width, h = window_height;
+    SDL_GL_GetDrawableSize(wnd, &w, &h);
+
+    s_since = now;
+    s_frames = 0;
+    s_worstMs = 0.0;
+
+    if (fullscreen_state) {
+        s_lastTitle[0] = '\0';
+        return;
+    }
+
+    char title[160];
+    if (redraws > 0) {
+        snprintf(title, sizeof(title),
+                 "GoldenEye VR — %.0f FPS (%.0f game + %.0f redraw) | max %.1f ms | %d Hz | %dx%d",
+                 totalFps, gameFps, redrawFps, worstMs, hz, w, h);
+    } else {
+        snprintf(title, sizeof(title),
+                 "GoldenEye VR — %.0f FPS | max %.1f ms | %d Hz | %dx%d",
+                 totalFps, worstMs, hz, w, h);
+    }
+    if (strcmp(title, s_lastTitle) != 0) {
+        snprintf(s_lastTitle, sizeof(s_lastTitle), "%s", title);
+        SDL_SetWindowTitle(wnd, title);
+    }
+}
+#endif
 
 /* The game's own full simulation/render rate on this screen: 60 (or 50 on a 50 Hz TV). */
 extern "C" int flatFullFps(void)

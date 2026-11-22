@@ -135,6 +135,7 @@ typedef struct Row {
     int flat;                       /* a flat game's own (touch, gyro): hidden on the headset */
     int pad;                        /* a flat game's pad: hidden on the headset, shown on every flat game */
     int flatgame;                   /* a flat game's own (its window): hidden on the headset, shown on every flat game */
+    int pcflat;                     /* PC flat window only (e.g. Fullscreen) */
 } Row;
 
 /* ---- the special cases (as options.c had them) ---- */
@@ -252,6 +253,33 @@ static void padVibText(int i, char *b, int n)
     else if (i == 3) snprintf(b, n, "30%% (default)");   /* #269: 50% was too strong */
     else snprintf(b, n, "%d%%", i * 10);
 }
+
+/* PC flat fullscreen toggle (Video.DefaultFullscreen in goldeneye.ini, synced with Alt+Enter) */
+#ifdef GEVR_PC_FLAT
+extern s32 videoGetFullscreen(void);
+extern void videoSetFullscreen(s32 fs);
+extern s32 configSave(const char *fname);
+#endif
+static int s_fsFallback = 0;
+static int fullscreenPositions(void) { return 2; }
+static int fullscreenGet(void)
+{
+#ifdef GEVR_PC_FLAT
+    return videoGetFullscreen() != 0;
+#else
+    return s_fsFallback != 0;
+#endif
+}
+static void fullscreenSet(int i)
+{
+#ifdef GEVR_PC_FLAT
+    videoSetFullscreen(i != 0);
+    configSave("$S/goldeneye.ini");
+#else
+    s_fsFallback = i != 0;
+#endif
+}
+static void fullscreenText(int i, char *b, int n) { snprintf(b, n, "%s", i ? "On" : "Off"); }
 
 /* A flat game's frame rate (#269, #274, flat_window.cpp):
  * 0 Auto (display refresh rate, stepping down if unstable), standard FPS caps, or -1 Uncapped. */
@@ -660,6 +688,11 @@ static const Row s_rows[] = {
       .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrScreenCurved, .def = NAN, .blocked = blockedCurved },
     { .label = "Passthrough", .headset = 1, .tooltip = "Your room around the flat screen.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrScreenPassthrough, .def = NAN, .blocked = blockedPassthrough },
+    { .label = "Fullscreen", .pcflat = 1,
+      .tooltip = "Fill the monitor (Alt+Enter also toggles fullscreen at any time).",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_COMFORT_DISPLAY), .where = GEVR_SET_BOTH,
+      .def = NAN, .cpositions = fullscreenPositions, .cget = fullscreenGet, .cset = fullscreenSet, .ctext = fullscreenText,
+      .cdefault = 0 },
     { .label = "Screen shape", .tooltip = "The flat game's shape: 4:3 as the N64 drew it, or 16:9 with a wider view and the HUD at the edges.",
       .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_COMFORT_DISPLAY), .where = GEVR_SET_BOTH,
       .ivar = &VrScreenShape, .ivalues = s_two, .names = s_shapeNames, .count = 2, .def = NAN },
@@ -838,6 +871,7 @@ void gevrSettingsSetContextOverride(unsigned ctx)
 static unsigned rowContexts(const Row *r)
 {
     if (!r) return 0;
+    if (r->pcflat) return GEVR_CTX_PC_FLAT;
     if (r->headset || r->section == GEVR_SEC_GESTURES) return GEVR_CTX_VR;
     if (r->flat) return GEVR_CTX_TOUCH;
     if (r->pad || r->flatgame) return GEVR_CTX_FLAT;

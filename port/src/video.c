@@ -138,8 +138,10 @@ s32 videoInit(void)
 
     gfx_set_texture_filter((enum FilteringMode)texFilter);
 
+#ifndef GEVR_PC_FLAT
     // Force fullscreen OFF VR
     videoSetFullscreen(false);
+#endif
     optionsMenuInit();
 
     initDone = true;
@@ -486,10 +488,16 @@ void videoSetWindowOffset(s32 x, s32 y)
 
 void videoSetFullscreen(s32 fs)
 {
-    if (fs != vidFullscreen) {
-        vidFullscreen = !!fs;
+    const s32 cur = (wmAPI && wmAPI->get_fullscreen_state) ? wmAPI->get_fullscreen_state() : vidFullscreen;
+    fs = !!fs;
+    if (fs != cur || fs != vidFullscreen) {
+        vidFullscreen = fs;
+#ifndef GEVR_PC_FLAT
         wmAPI->set_closest_resolution(vidWidth, vidHeight, vidCenter);
-        wmAPI->set_fullscreen(vidFullscreen);
+#endif
+        if (wmAPI && wmAPI->set_fullscreen) {
+            wmAPI->set_fullscreen(vidFullscreen);
+        }
         if (!vidFullscreen && vidMaximize) {
             wmAPI->set_maximize(false);
             wmAPI->set_maximize(true);

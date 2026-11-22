@@ -136,7 +136,7 @@ inline const GevrTabSpec *gevrLauncherTabTable(int &count) {
 inline const GevrSubSpec *gevrLauncherSubTable(int &count) {
     static const GevrSubSpec kSubs[] = {
         // Play
-        { GEVR_LTAB_PLAY,     GEVR_LSUB_PLAY_MAIN,   "Play",             GEVR_CTX_ALL_LAUNCHER },
+        { GEVR_LTAB_PLAY,     GEVR_LSUB_PLAY_MAIN,   "General",          GEVR_CTX_ALL_LAUNCHER },
         { GEVR_LTAB_PLAY,     GEVR_LSUB_PLAY_GHOSTS, "Ghosts",           GEVR_CTX_ALL_LAUNCHER },
         // Online
         { GEVR_LTAB_ONLINE,   GEVR_LSUB_HOST,        "Host",             GEVR_CTX_ALL_LAUNCHER },

@@ -107,10 +107,10 @@ All top tabs, sub-tabs (`port/vr/gevr_launcher_ui.h`) and settings rows (`port/s
 
 | Top tab | Sub-tabs | Contexts | Contents |
 |---|---|---|---|
-| **Play** | Play · Ghosts | All | Play: play mode, third person (and camera sliders when on), stats, speedrun timer, ghost race, music/SFX volumes, LiveSplit, test builds, Reset all settings. Ghosts: ghost leaderboards and run picker. |
+| **Play** | General · Ghosts | All | General: play mode, third person (and camera sliders when on), stats, speedrun timer, ghost race, music/SFX volumes, LiveSplit, test builds, Reset all settings. Ghosts: ghost leaderboards and run picker. |
 | **Online** | Host · Join · Player · Audio · Favorites | All | Host: lobby/roster, Match, Fun. Join: Public, Private, LAN, Direct IP. Player: name, character, loadout, team. Audio: mic, volumes, voice mode. Favorites: wrapping map & weapon-set checkbox grids. |
 | **Controls** | (Flat) Keyboard & mouse · Gamepad · Look / (VR) Hands · Gestures · Throwing · Haptics · Look | Per-context | Flat: mouse sensitivity (linked or separate X/Y), invert Y, raw input, mouse lock, 16-action bind table (with Previous weapon on wheel up by default), gamepad sticks/deadzones/vibration/pad binds, and look/gyro/touch settings. VR: hands, gestures, throwing, haptics, turning & aim look settings. |
-| **Comfort & display** | none | All (rows filtered per context) | Flat: movement speed, knockback/hitstun, hit flash, head bob, screen shape, frame rate. VR: adds movement mode, vignette, refresh rate, SpaceWarp, anti-aliasing, screen size/distance/curved/passthrough. |
+| **Comfort & display** | none | All (rows filtered per context) | Flat: movement speed, knockback/hitstun, hit flash, head bob, fullscreen (PC flat), screen shape, frame rate. VR: adds movement mode, vignette, refresh rate, SpaceWarp, anti-aliasing, screen size/distance/curved/passthrough. |
 | **Game** | Game rules · AI ally · Cheats | All | Game rules, AI ally (Natalya), and cheats (with gun size). |
 | **Mods** | none | All | Bean, HD fill, GE-X, blood patch, Oddjob's hat, and mod packs. |
 

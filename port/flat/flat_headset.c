@@ -139,8 +139,16 @@ extern void inputMousePeekLookDeg(f32 *dxdeg, f32 *dydeg);   /* input.c */
 extern u64 sysGetMicroseconds(void);
 static int s_flatRedrawFailed;
 static unsigned s_flatStatRedraw;
+static unsigned s_flatTitleRedraw;
 static long long s_flatStatLastPresent;
 static double s_flatStatWorstPresentMs;
+
+unsigned flatTakeTitleRedraws(void)
+{
+	const unsigned n = s_flatTitleRedraw;
+	s_flatTitleRedraw = 0;
+	return n;
+}
 
 int flatLookRedrawable(void)
 {
@@ -205,6 +213,7 @@ int flatRedrawFrame(void)
 		flatLookDelta(yaw, pitch, delta);
 		if (gfx_flat_redraw_frame(delta)) {
 			s_flatStatRedraw++;
+			s_flatTitleRedraw++;
 			flatStatsNotePresent(gevrFlatNowNs());
 			return 1;
 		}

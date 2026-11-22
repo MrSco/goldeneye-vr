@@ -136,17 +136,20 @@ int main(void)
         check(gevrSettingSectionRows(GEVR_LSEC_MODS, GEVR_SET_LAUNCHER, ids, 48) == 0, "the launcher's Mods draws its own rows, with their packs");
         /* Context visibility table: each context shows only what applies */
         gevrSettingsSetContextOverride(GEVR_CTX_PC_FLAT);
-        check(gevrSettingShown(find("Frame rate")) && !gevrSettingShown(find("Turning")) && !gevrSettingShown(find("Gyro aim")),
-              "PC flat shows frame rate, hides VR turning and phone gyro");
+        check(gevrSettingShown(find("Frame rate")) && gevrSettingShown(find("Fullscreen")) &&
+              !gevrSettingShown(find("Turning")) && !gevrSettingShown(find("Gyro aim")),
+              "PC flat shows frame rate and fullscreen, hides VR turning and phone gyro");
         gevrSettingsSetContextOverride(GEVR_CTX_MOBILE);
-        check(gevrSettingShown(find("Frame rate")) && gevrSettingShown(find("Gyro aim")) && !gevrSettingShown(find("SpaceWarp")),
-              "Mobile shows frame rate and gyro, hides VR SpaceWarp");
+        check(gevrSettingShown(find("Frame rate")) && gevrSettingShown(find("Gyro aim")) &&
+              !gevrSettingShown(find("Fullscreen")) && !gevrSettingShown(find("SpaceWarp")),
+              "Mobile shows frame rate and gyro, hides PC fullscreen and VR SpaceWarp");
         gevrSettingsSetContextOverride(GEVR_CTX_APPLE_TV);
-        check(gevrSettingShown(find("Pad vibration")) && !gevrSettingShown(find("Gyro aim")),
-              "Apple TV shows pad rows, hides touch/gyro");
+        check(gevrSettingShown(find("Pad vibration")) && !gevrSettingShown(find("Gyro aim")) && !gevrSettingShown(find("Fullscreen")),
+              "Apple TV shows pad rows, hides touch/gyro and PC fullscreen");
         gevrSettingsSetContextOverride(GEVR_CTX_QUEST);
-        check(gevrSettingShown(find("Turning")) && gevrSettingShown(find("SpaceWarp")) && !gevrSettingShown(find("Frame rate")),
-              "Quest VR shows VR turning and SpaceWarp, hides flat frame rate");
+        check(gevrSettingShown(find("Turning")) && gevrSettingShown(find("SpaceWarp")) &&
+              !gevrSettingShown(find("Frame rate")) && !gevrSettingShown(find("Fullscreen")),
+              "Quest VR shows VR turning and SpaceWarp, hides flat frame rate and PC fullscreen");
         gevrSettingsSetContextOverride(0);
     }
     VrPlayMode = 1;
