@@ -288,12 +288,14 @@ float VrGexForeHold[3] = { 0.0f, 0.0f, 0.0f };
  * place and turn where it holds the rifle (both hands, Gun fit). Headset fit
  * 2026-11-08 (owner): the fist up the stock near the butt, the off hand on the
  * barrel below it. */
-float VrGexBatFit[5][3] = {
+float VrGexBatFit[6][3] = {
     {-7.1910f, -37.9323f, -7.1733f},   /* GexBat */
     {-0.8665f, 0.1285f, -0.0136f},     /* GexBatHand */
     {0.0000f, -7.3751f, 0.0000f},      /* GexBatHandRot */
     {-2.2068f, -5.3252f, 1.1738f},     /* GexBatOff */
     {0.0000f, 0.0000f, 0.0000f},       /* GexBatOffRot */
+    /* Bean's rifle through the PP7's glove (gun.c gevrBeanBatPose), as GexBat: unfitted */
+    {0.0000f, 0.0000f, 0.0000f},       /* BeanBat */
 };
 /* PP7 and PP7 silenced share a model fit, separate from legacy KF7 values.
  * Grab is a cm delta from the actual magazine, not a guessed controller point. */

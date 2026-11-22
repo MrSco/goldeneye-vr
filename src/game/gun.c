@@ -1064,6 +1064,7 @@ extern int netGetLocalSlot(void);
 #include "gevr_pdanim.h"
 #include "system.h"
 #include "gevr_bean.h"
+#include "gevr_scope.h"   /* a gun's own fit (gevrGunOffOwnOf): the PP7's, for the glove on Bean's bat */
 extern int VrGexGuns;   /* goldeneye-vr.ini GexGuns: GoldenEye X's guns (docs/gex-weapons.md) */
 extern s32 g_gevrHandPatchSkip;   /* gevr_handpatch.c: the hand shells are GoldenEye's model's */
 
@@ -1978,6 +1979,8 @@ void gevrGexPoseStill(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
 static f32 s_gevrGexMagAt[3], s_gevrGexWellAt[3], s_gevrGexHeldAt[3];
 static s32 s_gevrGexMagPointsGun = GUNRIGHT;
 static s32 s_gevrGexMagPointsValid;   /* 1 the gun's magazine and well, 2 the held one */
+static f32 s_gevrGexSaddleAt[3];      /* a shotgun's own shells, as drawn (GexWeaponDef.saddle) */
+static s32 s_gevrGexSaddleValid;
 
 /*
  * A magazine that leaves the gun by button, or the hand when let go,
@@ -2196,6 +2199,19 @@ static void gevrGexHandFitAt(const GexWeaponDef *def, Mtxf *rwmtx, s32 numMatric
             }
         }
     }
+}
+
+/* bondview2.c gevrReloadSaddle: the shells a GoldenEye X shotgun carries, as last drawn (camera space) */
+s32 gevrGexSaddlePoint(f32 at[3])
+{
+    if (s_gevrGexMagPointsGun != gevrReloadSupportGun() || !(s_gevrGexMagPointsValid & 1) || !s_gevrGexSaddleValid)
+    {
+        return FALSE;
+    }
+    at[0] = s_gevrGexSaddleAt[0];
+    at[1] = s_gevrGexSaddleAt[1];
+    at[2] = s_gevrGexSaddleAt[2];
+    return TRUE;
 }
 
 s32 gevrGexMagPoints(f32 centre[3], f32 well[3], f32 held[3])
@@ -3772,9 +3788,16 @@ s32 gevrStereoBatOffHand(s32 hand, f32 opos[3], f32 *amt);   /* bondview2.c: bot
  * butt as the grip position") moves the rifle up or down through the fist,
  * anywhere from the muzzle to the butt.
  */
+/* the rifle on the fist as Gun fit has it: GoldenEye X's rig, or Bean's rifle in
+ * the PP7's glove (gevrBeanBatPose, below; goldeneye-vr.ini BeanBat) */
+float *gevrBatFit(void)
+{
+    return VrGexGuns ? gevrGexBatFit() : VrGexBatFit[5];
+}
+
 static f32 gevrGexBatHandle(void)
 {
-    f32 handle = GEVR_GEX_BAT_HANDLE - gevrGexBatFit()[1] / 0.085f;
+    f32 handle = GEVR_GEX_BAT_HANDLE - gevrBatFit()[1] / 0.085f;
 
     if (!(handle > 0.0f)) handle = 0.0f;   /* NaN too */
     if (handle > GEVR_GEX_BAT_LENGTH) handle = GEVR_GEX_BAT_LENGTH;
@@ -3931,6 +3954,127 @@ s32 gevrGexBatLine(s32 hand, f32 at[3], f32 dir[3], f32 *below, f32 *above)
     }
     *below = s_gevrGexBatLine[hand][6];
     *above = s_gevrGexBatLine[hand][7];
+    return TRUE;
+}
+
+/*
+ * Bean's sniper rifle as the bat (owner, 2026-11-21: "we can use the bean
+ * pistol grip hand for the right hand with bean sniper ... and then be able to
+ * grab it with our left off-hand too which would be the same gex logic and it
+ * switches to bat swing mode"). The release's rifle is one rigid mesh with no
+ * hand on it, so the hand is the PP7's glove, drawn where the hand holds a PP7
+ * (gunfire.c gevrBeanBatDrawHand), and the rifle is turned into it: its barrel
+ * down the pistol grip's line through the fist, the butt up out of the thumb
+ * side, the scope ahead. The numbers are the cartridge's models', which the
+ * release's are fitted to: the PP7's grip runs from 0 -63 18 up to 0 27 33
+ * (GwppkZ, the middle of the fingers at -25), the rifle's bore is at 0 53.25
+ * and its muzzle at 804, 1092 from the butt, as GoldenEye X's (GsniperrifleZ).
+ * The slide between two hands, the swing's end and the line the other hand
+ * takes are GoldenEye X's (gevrGexBatPose): one set of records for both.
+ *
+ * rifle: the rifle's gun matrix (bondview2.c gevrStereoGunMatrix's form: rows
+ * 0.85 cm, the model drawn a tenth of them), replaced. FALSE with no
+ * controller: the rifle stays as it was.
+ */
+#define GEVR_BEAN_BAT_BORE_Y 53.25f
+#define GEVR_BEAN_BAT_MUZZLE_Z 804.0f
+#define GEVR_BEAN_BAT_GRIP_Y 0.986f    /* up the PP7's grip, in its own up and forward */
+#define GEVR_BEAN_BAT_GRIP_Z 0.164f
+static const f32 s_gevrBeanBatPalm[3] = { 0.0f, -25.0f, 24.0f };
+static Mtxf s_gevrBeanBatHand[2];      /* the PP7's gun matrix the glove is drawn by */
+
+s32 gevrBeanBatPose(s32 hand, Mtxf *rifle)
+{
+    extern s32 gevrStereoGunMatrixFit(s32 handnum, const f32 off[3], Mtxf *out);   /* bondview2.c */
+    extern float VrBeanGunOff[3];
+    const f32 *own = gevrGunOffOwnOf(2, ITEM_WPPK);
+    const f32 *fit = gevrBatFit();
+    f32 handle = gevrGexBatHandle();
+    Mtxf held;
+    f32 ex[3], up[3], fwd[3], ey[3], ez[3], palm[3], opos[3], row, unit, len, reach, amt;
+    s32 i;
+
+    if ((hand != GUNRIGHT && hand != GUNLEFT) || !gevrStereoGunMatrixFit(hand, own != NULL ? own : VrBeanGunOff, &held))
+    {
+        return FALSE;
+    }
+    row = sqrtf(held.m[2][0] * held.m[2][0] + held.m[2][1] * held.m[2][1] + held.m[2][2] * held.m[2][2]);
+    unit = row * 0.1f;   /* one model unit, drawn */
+    if (unit < 1e-9f)
+    {
+        return FALSE;
+    }
+    len = sqrtf(held.m[0][0] * held.m[0][0] + held.m[0][1] * held.m[0][1] + held.m[0][2] * held.m[0][2]);
+    for (i = 0; i < 3; i++)
+    {
+        ex[i] = len > 1e-9f ? held.m[0][i] / len : 0.0f;
+        fwd[i] = held.m[2][i] / row;
+    }
+    len = sqrtf(held.m[1][0] * held.m[1][0] + held.m[1][1] * held.m[1][1] + held.m[1][2] * held.m[1][2]);
+    for (i = 0; i < 3; i++)
+    {
+        up[i] = len > 1e-9f ? held.m[1][i] / len : 0.0f;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        ey[i] = GEVR_BEAN_BAT_GRIP_Y * up[i] + GEVR_BEAN_BAT_GRIP_Z * fwd[i];    /* the bat's way to the butt */
+        ez[i] = -GEVR_BEAN_BAT_GRIP_Z * up[i] + GEVR_BEAN_BAT_GRIP_Y * fwd[i];   /* the rifle's up: ahead of the fist */
+        palm[i] = held.m[3][i] + (s_gevrBeanBatPalm[0] * ex[i] + s_gevrBeanBatPalm[1] * up[i] + s_gevrBeanBatPalm[2] * fwd[i]) * unit;
+        /* the bat's fit across the fist, cm right and back, as GoldenEye X's */
+        palm[i] += (-fit[0] * ex[i] - fit[2] * ez[i]) * unit / 0.085f;
+    }
+    if (gevrStereoBatOffHand(hand, opos, &amt))
+    {
+        /* both hands: the rifle's end in the off hand, the gun hand where it is along it */
+        f32 at = GEVR_GEX_BAT_OFF + ((palm[0] - opos[0]) * ey[0] + (palm[1] - opos[1]) * ey[1]
+                                    + (palm[2] - opos[2]) * ey[2]) / unit;
+        const f32 top = handle > GEVR_GEX_BAT_OFF + GEVR_GEX_BAT_GAP ? handle : GEVR_GEX_BAT_OFF + GEVR_GEX_BAT_GAP;
+
+        if (!(at > GEVR_GEX_BAT_OFF + GEVR_GEX_BAT_GAP)) at = GEVR_GEX_BAT_OFF + GEVR_GEX_BAT_GAP;   /* NaN too */
+        if (at > top) at = top;
+        if (amt > 1.0f) amt = 1.0f;
+        handle += (at - handle) * amt;
+    }
+    s_gevrBeanBatHand[hand] = held;
+    for (i = 0; i < 3; i++)
+    {
+        rifle->m[0][i] = held.m[0][i];
+        rifle->m[1][i] = ez[i] * row;
+        rifle->m[2][i] = -ey[i] * row;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        /* the bore, the handle's length behind the muzzle, on the palm */
+        rifle->m[3][i] = palm[i] - 0.1f * (GEVR_BEAN_BAT_BORE_Y * rifle->m[1][i]
+                                           + (GEVR_BEAN_BAT_MUZZLE_Z - handle) * rifle->m[2][i]);
+    }
+    rifle->m[0][3] = rifle->m[1][3] = rifle->m[2][3] = 0.0f;
+    rifle->m[3][3] = 1.0f;
+    reach = GEVR_GEX_BAT_LENGTH - handle >= handle ? GEVR_GEX_BAT_LENGTH - handle : -handle;
+    for (i = 0; i < 3; i++)
+    {
+        s_gevrGexBatEnd[hand][i] = palm[i] + ey[i] * reach * unit;
+        s_gevrGexBatLine[hand][i] = palm[i];
+        s_gevrGexBatLine[hand][3 + i] = ey[i];
+        s_gevrGexBatLine[hand][9 + i] = ex[i];
+        s_gevrGexBatLine[hand][12 + i] = ez[i];
+    }
+    s_gevrGexBatLine[hand][6] = handle * unit;
+    s_gevrGexBatLine[hand][7] = (GEVR_GEX_BAT_LENGTH - handle) * unit;
+    s_gevrGexBatLine[hand][8] = unit;
+    s_gevrGexBatAt[hand] = g_GlobalTimer ? g_GlobalTimer : 1;
+    return TRUE;
+}
+
+/* gunfire.c: the gun matrix the bat's glove is drawn by, as the rifle was last posed */
+s32 gevrBeanBatHand(s32 hand, Mtxf *out)
+{
+    if ((hand != GUNRIGHT && hand != GUNLEFT) || s_gevrGexBatAt[hand] == 0 || VrGexGuns
+        || (u32) (g_GlobalTimer - s_gevrGexBatAt[hand]) > 4u)
+    {
+        return FALSE;
+    }
+    *out = s_gevrBeanBatHand[hand];
     return TRUE;
 }
 
@@ -4254,6 +4398,12 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
         gevrGexMtxPoint(&rwmtx[def->heldMatrix], def->heldTop, s_gevrGexHeldAt);
         s_gevrGexMagPointsGun = hand;
         s_gevrGexMagPointsValid = 1 | (offHolds ? 2 : 0);
+        s_gevrGexSaddleValid = def->singleRound
+            && (def->saddle[0] != 0.0f || def->saddle[1] != 0.0f || def->saddle[2] != 0.0f);
+        if (s_gevrGexSaddleValid)
+        {
+            gevrGexMtxPoint(&s_gevrGexLastGun[hand], def->saddle, s_gevrGexSaddleAt);
+        }
     }
     /*
      * A watch item in the headset (user: GE-X's watch laser rig): the tracked

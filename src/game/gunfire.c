@@ -838,6 +838,14 @@ void gunUpdateAndFire(GUNHAND handnum)
             /* as the flat game nests them: item pose, then the keyframe
              * animation, then (instead of sway and aim) the controller */
             Mtxf pose;
+            /* Bean's rifle as the bat: turned whole into the PP7's glove (gun.c) */
+            extern s32 gevrStereoClubBatBean(s32 hand);
+            extern s32 gevrBeanBatPose(s32 hand, Mtxf *rifle);
+
+            if (gevrStereoClubBatBean(handnum))
+            {
+                gevrBeanBatPose(handnum, &vrmtx);
+            }
 
             matrix_4x4_copy(&gevrItemRot, &pose);
             extern s32 gevrMotionThrowOwnsHand(s32 hand);   /* bondview2.c */
@@ -2825,6 +2833,174 @@ static Gfx *gevrRenderWatchGripHand(Gfx *gdl, ModelRenderData *templ)
 
     return gdl;
 }
+
+/*
+ * The hand on Bean's sniper rifle held as a bat (bondview2.c
+ * gevrStereoClubBatBean; owner, 2026-11-21: "we don't have a hand ... we can
+ * use the bean pistol grip hand for the right hand with bean sniper"). The
+ * release's rifle has no hand on it, so the PP7's is borrowed: its model
+ * loaded privately, as the watch's pressing hand above, with every list but
+ * the hand's and the sleeve's emptied. Bean lays its glove on the hand's list
+ * as it does for the PP7 in the hand (gevr_bean.c), and honours an emptied
+ * list, so the pistol itself is not drawn. It is drawn by the gun matrix a PP7
+ * would have in that hand (gun.c gevrBeanBatPose turns the rifle into its
+ * grip), in the rifle's own draw: its tag, mirror and depth.
+ */
+#define GEVR_BATHAND_BUFSIZE 0x48000
+#define GEVR_BATHAND_MODELSIZE 0x18000
+
+static u8 *s_gevrBatHandBuf;
+static struct texpool s_gevrBatHandPool;
+static ModelFileHeader s_gevrBatHandHeader;
+static Model s_gevrBatHandModel;
+static u32 s_gevrBatHandRw[256];
+static s32 s_gevrBatHandStage = -1;
+static s32 s_gevrBatHandReady;
+
+/* GoldenEye's hand and sleeve: under Switches 8-13 and 35 (gun.c sub_GAME_7F05E978) */
+static s32 gevrBatHandNode(const ModelFileHeader *header, ModelNode *node)
+{
+    s32 s;
+
+    for (; node != NULL; node = node->Parent)
+    {
+        for (s = 8; s <= 35 && s < header->numSwitches; s = s == 13 ? 35 : s + 1)
+        {
+            if (header->Switches[s] != NULL && node == header->Switches[s]) return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+static s32 gevrBatHandLoad(void)
+{
+    ModelFileHeader *tmpl;
+    ModelNode *node;
+    s8 *name;
+    s32 kept = 0;
+
+    if (s_gevrBatHandStage == bossGetStageNum() && s_gevrBatHandStage != -1)
+    {
+        return s_gevrBatHandReady;   /* loaded, or failed on this stage already */
+    }
+    s_gevrBatHandReady = FALSE;
+    s_gevrBatHandStage = bossGetStageNum();
+    if (GEVR_ITEM_AS(ITEM_WPPK) != ITEM_WPPK)
+    {
+        return FALSE;   /* a hack campaign's own gun is on the PP7's file */
+    }
+    tmpl = gitem_structs[ITEM_WPPK].item_header;
+    name = (s8 *) gitem_structs[ITEM_WPPK].item_file_name;
+    if (tmpl == NULL || name == NULL)
+    {
+        return FALSE;
+    }
+    if (s_gevrBatHandBuf == NULL && (s_gevrBatHandBuf = malloc(GEVR_BATHAND_BUFSIZE)) == NULL)
+    {
+        return FALSE;
+    }
+    s_gevrBatHandHeader = *tmpl;
+    texInitPool(&s_gevrBatHandPool, s_gevrBatHandBuf + GEVR_BATHAND_MODELSIZE, GEVR_BATHAND_BUFSIZE - GEVR_BATHAND_MODELSIZE);
+    load_object_fill_header(&s_gevrBatHandHeader, (u8 *) name, s_gevrBatHandBuf, GEVR_BATHAND_MODELSIZE, &s_gevrBatHandPool);
+    modelCalculateRwDataLen(&s_gevrBatHandHeader);
+    if (s_gevrBatHandHeader.RootNode == NULL || s_gevrBatHandHeader.numMatrices <= 0
+        || (u32) s_gevrBatHandHeader.numRecords > ARRAYCOUNT(s_gevrBatHandRw))
+    {
+        sysLogPrintf(LOG_ERROR, "stereo: the bat's hand (the PP7's) did not load (%d records)", s_gevrBatHandHeader.numRecords);
+        return FALSE;
+    }
+    for (node = s_gevrBatHandHeader.RootNode; node != NULL; node = gevrNextNode(node))
+    {
+        if ((node->Opcode & 0xFF) != MODELNODE_OPCODE_DL)
+        {
+            continue;
+        }
+        if (gevrBatHandNode(&s_gevrBatHandHeader, node))
+        {
+            kept++;
+        }
+        else
+        {
+            node->Data->DisplayList.Primary = NULL;   /* the pistol, its flash, its slide */
+            node->Data->DisplayList.Secondary = NULL;
+        }
+    }
+    if (kept == 0)
+    {
+        sysLogPrintf(LOG_ERROR, "stereo: the bat's hand: the PP7's model has no hand lists");
+        return FALSE;
+    }
+    sysLogPrintf(LOG_NOTE, "stereo: the bat's hand loaded (%s, %d hand lists, %d matrices)", name, kept,
+                 s_gevrBatHandHeader.numMatrices);
+    s_gevrBatHandReady = TRUE;
+    return TRUE;
+}
+
+static Gfx *gevrBeanBatDrawHand(Gfx *gdl, ModelRenderData *templ, s32 handnum)
+{
+    extern s32 gevrStereoClubBatBean(s32 hand);        /* bondview2.c */
+    extern s32 gevrBeanBatHand(s32 hand, Mtxf *out);   /* gun.c */
+    ModelRenderData renderdata;
+    Mtxf base;
+    Mtxf *rwmtx;
+    ModelNode *node;
+    s32 n, j;
+
+    if (!gevrStereoClubBatBean(handnum) || g_CurrentPlayer->bonddead || !gevrBeanBatHand(handnum, &base)
+        || !gevrBatHandLoad())
+    {
+        return gdl;
+    }
+    /* as the rifle's own matrix is made from its gun matrix (gunUpdateAndFire) */
+    if (bondwalkItemCheckBitflags(get_item_in_hand_or_watch_menu(handnum), WEAPONSTATBITFLAG_MIRROR_DUAL) != 0
+        && handnum == GUNLEFT)
+    {
+        matrix_column_1_scalar_multiply(-1.0f, base.m[0]);
+    }
+    matrix_scalar_multiply(IDO_POINT_ONE, base.m[0]);
+    /* every matrix the placement; a joint's, its offset from the root first */
+    n = s_gevrBatHandHeader.numMatrices;
+    rwmtx = (Mtxf *) dynAllocate(n * ((s32) sizeof(Mtxf)));
+    for (j = 0; j < n; j++)
+    {
+        matrix_4x4_copy(&base, &rwmtx[j]);
+    }
+    for (node = s_gevrBatHandHeader.RootNode; node != NULL; node = gevrNextNode(node))
+    {
+        if ((node->Opcode & 0xFF) == MODELNODE_OPCODE_GROUP && node->Parent != NULL)
+        {
+            s32 idx = node->Data->Group.MatrixID0;
+            coord3d acc = { 0.0f, 0.0f, 0.0f };
+            ModelNode *up;
+
+            for (up = node; up != NULL && up->Parent != NULL; up = up->Parent)
+            {
+                if ((up->Opcode & 0xFF) == MODELNODE_OPCODE_GROUP)
+                {
+                    acc.x += up->Data->Group.Origin.x;
+                    acc.y += up->Data->Group.Origin.y;
+                    acc.z += up->Data->Group.Origin.z;
+                }
+            }
+            if (idx >= 0 && idx < n)
+            {
+                for (j = 0; j < 3; j++)
+                {
+                    rwmtx[idx].m[3][j] = acc.x * base.m[0][j] + acc.y * base.m[1][j] + acc.z * base.m[2][j] + base.m[3][j];
+                }
+            }
+        }
+    }
+    modelInit(&s_gevrBatHandModel, &s_gevrBatHandHeader, (s32 *) s_gevrBatHandRw);
+    sub_GAME_7F05E978(&s_gevrBatHandModel, 1);
+    sub_GAME_7F05EA94(&s_gevrBatHandModel, g_CurrentPlayer->hands[handnum].field_87E);
+    s_gevrBatHandModel.render_pos = (RenderPosView *) rwmtx;
+    renderdata = *templ;
+    renderdata.gdl = gdl;
+    subdraw(&renderdata, &s_gevrBatHandModel);
+    bondviewTransformManyPosToViewMatrix(s_gevrBatHandModel.render_pos, n);
+    return renderdata.gdl;
+}
 #endif
 
 // Address: 0x7F062BE4
@@ -3103,6 +3279,8 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
 #ifdef GEVR
         gevrBeanSetLoaded(1);
         gevrBeanSetMagazine(0);
+        /* Bean's rifle as the bat: the PP7's glove holds it (above) */
+        renderdata.gdl = gevrBeanBatDrawHand(renderdata.gdl, &renderdata, handnum);
         {
             /* a GoldenEye X gun's hands, on its matrices (gun.c) */
             extern s32 gevrGexHeld(s32 hand);

@@ -3629,16 +3629,28 @@ s32 gevrStereoHandClub(s32 hand)
  * rifle turns about the hand, barrel through the fist and butt up (gun.c
  * gevrGexBatPose); the other hand takes it below the fist and stays its own
  * hand (gevrTwoHandBarrel, gevrTwoHandAim). Held so, the off hand keeps the
- * rifle's end and the gun hand slides along it (user, test.30). Other art
- * sets keep GoldenEye's butt-first pose: their hand is part of the rifle's model.
+ * rifle's end and the gun hand slides along it (user, test.30). Bean's rifle
+ * is the bat too (owner, 2026-11-21), held in the PP7's glove: one rigid mesh
+ * turned as a whole (gun.c gevrBeanBatPose). GoldenEye's own models keep its
+ * butt-first pose.
  */
 s32 gevrGexBatEnd(s32 hand, f32 out[3]);   /* gun.c: the bat's butt as drawn */
+
+/* Bean's rifle is the bat: its models are on and GoldenEye X's guns are not */
+s32 gevrStereoClubBatBean(s32 hand)
+{
+    extern int VrGexGuns;   /* vr_settings_defaults.c */
+    extern int gevrBeanIsEnabled(void);
+
+    return g_gevrStereo && !VrGexGuns && gevrBeanIsEnabled() && gevrStereoHandClub(hand);
+}
 
 s32 gevrStereoClubBat(s32 hand)
 {
     extern int VrGexGuns;   /* vr_settings_defaults.c */
 
-    return g_gevrStereo && VrGexGuns && gevrStereoHandClub(hand) && gevrGexHeld(hand);
+    return g_gevrStereo && gevrStereoHandClub(hand)
+        && (VrGexGuns ? gevrGexHeld(hand) : gevrStereoClubBatBean(hand));
 }
 
 /* gun.c gevrGexBatPose: both hands on the bat (hand's) - the off hand's
@@ -18003,7 +18015,7 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
                  "GRIP FIT (THIS %s)%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTILT %.0f  ROLL %.0f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, TILT\nHOLD RIGHT GRIP: TURN STICK ROLLS\nHOLD OFF TRIGGER: PLACE IT BY HAND\nA: SAVE   B: UNDO   MENU + A: DONE",
                  gevrStereoTwoHandClass() ? "GUN" : "PISTOL", gex, t[2], -t[0], t[1], t[3], t[5]);
     }
-    else if (gevrStereoClubBat(GUNRIGHT) && gevrStereoTwoHandGrip())
+    else if (gevrStereoClubBat(GUNRIGHT) && gevrStereoTwoHandGrip() && !gevrStereoClubBatBean(GUNRIGHT))
     {
         /* both hands on the bat: the off hand where it holds (input.c; gun.c gevrGexBatOffFitTo) */
         const float *o = VrGexBatFit[3], *r = VrGexBatFit[4];
@@ -18015,11 +18027,14 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
     else if (gevrStereoClubBat(GUNRIGHT))
     {
         /* the rifle butt as a bat: the rifle through the fist (input.c; gun.c gevrGexBatPose) */
-        const float *b = gevrGexBatFit();
+        extern float *gevrBatFit(void);   /* gun.c: GoldenEye X's, or Bean's rifle in the PP7's glove */
+        const float *b = gevrBatFit();
 
         snprintf(buf, sizeof(buf),
-                 "BAT FIT%s\nTHE RIFLE THROUGH THE FIST\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTURN STICK DOWN: HOLD NEARER THE BUTT\nTURN STICK UP: NEARER THE MUZZLE\nMOVE STICK: FORWARD, SIDEWAYS\nHOLD OFF TRIGGER: MOVE IT BY HAND\nBOTH HANDS ON IT: FIT THE OFF HAND\n%sA: SAVE   B: UNDO   MENU + A: DONE",
-                 gex, -b[2], b[0], b[1], gevrFitNextLine(0));
+                 "BAT FIT%s\nTHE RIFLE THROUGH THE FIST\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTURN STICK DOWN: HOLD NEARER THE BUTT\nTURN STICK UP: NEARER THE MUZZLE\nMOVE STICK: FORWARD, SIDEWAYS\n%s%sA: SAVE   B: UNDO   MENU + A: DONE",
+                 gex, -b[2], b[0], b[1],
+                 gevrStereoClubBatBean(GUNRIGHT) ? "" : "HOLD OFF TRIGGER: MOVE IT BY HAND\nBOTH HANDS ON IT: FIT THE OFF HAND\n",
+                 gevrFitNextLine(0));
     }
     else
     {
@@ -19915,18 +19930,19 @@ static s32 gevrGexAtBelt(s32 ctrl, const f32 at[3])
 }
 
 /*
- * A Bean shotgun's shells are taken from the gun itself: the shells it carries
+ * A shotgun's shells are taken from the gun itself: the shells it carries
  * (across the top of the shotgun's receiver, in the automatic shotgun's saddle
- * on its left; gevr_beanmag.c: the round is a copy of the first one, and the
- * saddle stays full), not at the belt. A shotgun is topped up at any time, so
+ * on its side; Bean's, gevr_beanmag.c: the round is a copy of the first one;
+ * GoldenEye X's, GexWeaponDef.saddle; the saddle stays full), not at the belt. A shotgun is topped up at any time, so
  * its shell at the belt stood where the hip's holstered pistol is whenever it
  * was not full, and hiding the pistol for it would hide it nearly always
  * (user, 2026-11-21: "you could reload at any time, not just when you're
  * completely out of ammo, so you don't want to hide the pistols all the time.
  * Maybe the best thing to do is to move the ... shotgun shells up on top of
- * the shotgun, where there already are some shotgun shells"). at: that shell,
- * camera space, as the gun was last drawn; FALSE for any other gun (GoldenEye
- * X's shotguns, whose models were not looked at for one, keep the belt), and
+ * the shotgun, where there already are some shotgun shells"; and for GoldenEye
+ * X's, whose models carry theirs in the same places: "make sure all the ...
+ * shotgun shell reload replacements ... are the same on GoldenEye X"). at: that
+ * shell, camera space, as the gun was last drawn; FALSE for any other gun, and
  * until the gun has been drawn.
  */
 #define GEVR_RELOAD_SADDLE_CM 8.0f    /* a fresh grip this near the saddle's shell takes one */
@@ -19937,8 +19953,17 @@ static s32 gevrReloadSaddle(s32 gunHand, f32 at[3])
     const s32 item = getCurrentPlayerWeaponId(gunHand);
     f32 well[3], held[3];
 
-    return (item == ITEM_SHOTGUN || item == ITEM_AUTOSHOT) && gunHand == gevrReloadSupportGun()
-        && gevrBeanByHand(gunHand) && gevrReloadSingleRound(gunHand) && (gevrBeanMagPoints(at, well, held) & 1);
+    if ((item != ITEM_SHOTGUN && item != ITEM_AUTOSHOT) || gunHand != gevrReloadSupportGun() || !gevrReloadSingleRound(gunHand))
+    {
+        return FALSE;
+    }
+    if (gevrGexWeaponForHand(gunHand) != NULL)
+    {
+        extern s32 gevrGexSaddlePoint(f32 at[3]);   /* gun.c */
+
+        return gevrGexByHand(gunHand) && gevrGexSaddlePoint(at);
+    }
+    return gevrBeanByHand(gunHand) && (gevrBeanMagPoints(at, well, held) & 1);
 }
 
 /* the off hand (its palm) from the saddle's shell, cm; negative when the gun has none */
@@ -20028,7 +20053,7 @@ s32 gevrReloadBeltRound(s32 ctrl, s32 *rounds, s32 *hover)
     (void)def;
     (void)st;
     if (!gevrReloadSingleRound(gunHand) || s_gevrGexMag[gunHand] == GEVR_GEXMAG_INHAND) return -1;
-    if (gevrReloadSaddle(gunHand, at)) return -1;   /* a Bean shotgun's are on the gun: the belt and its holster are left alone */
+    if (gevrReloadSaddle(gunHand, at)) return -1;   /* a shotgun's are on the gun: the belt and its holster are left alone */
     *rounds = gevrReloadPickup(gunHand);
     if (*rounds <= 0) return -1;
     if (gevrGripAxesRaw(ctrl, at, r, u, b))

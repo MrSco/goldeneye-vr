@@ -397,6 +397,8 @@ static const GexWeaponDef weapons[] = {
         .magCentre={9.293550f,10.093276f,179.409449f},
         .magTop={9.293550f,10.093276f,179.409449f},
         .magWell={9.293550f,10.093276f,179.409449f},
+        /* the five shells across the top of the receiver (texture 0x865: -20 76 71 to 28 101 193) */
+        .saddle={4.0f,88.0f,132.0f},
         .heldTop={0.000000f,0.000000f,41.000000f},
         .muzzle={12.792196f,78.478575f,584.089849f},
         .screenMuzzle={0.000000f,56.375000f,638.000000f},
@@ -427,6 +429,8 @@ static const GexWeaponDef weapons[] = {
         .magCentre={1.114787f,6.744050f,178.514949f},
         .magTop={1.114787f,6.744050f,178.514949f},
         .magWell={1.114787f,6.744050f,178.514949f},
+        /* the saddle on the receiver's side (texture 0x959: -83 64 150 to 4 147 284) */
+        .saddle={-40.0f,105.0f,217.0f},
         .heldTop={0.000000f,0.000000f,41.000000f},
         .muzzle={13.191346f,73.810903f,575.765720f},
         .screenMuzzle={0.384615f,77.923077f,632.000000f},

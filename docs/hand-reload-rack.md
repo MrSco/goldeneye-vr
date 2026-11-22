@@ -185,7 +185,8 @@ Hand reload on, one gun, GoldenEye X's models and then Bean's.
 17. Magazine out, reach for the hip with the free hand: no holster ring,
     label or wheel, and a grip takes no pistol; the magazine's ghost only.
     Magazine in: the holsters are back.
-18. A Bean shotgun: its shells come from the gun (the ring on the shells it
+18. A shotgun, Bean's and GoldenEye X's (new for GoldenEye X, not yet
+    played): its shells come from the gun (the ring on the shells it
     carries), not the belt; the hip's pistol stays shown and takeable. Is the
     ring where the hand goes? Does a grab there ever start the pump or the
     two-handed hold instead?

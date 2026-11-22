@@ -48,7 +48,7 @@ production.extend(function(view, signature) for signature in (
     'static s32 gevrGripAxesRaw(', 'static s32 gevrGripAxes(',
     's32 gevrGexHeldPalm(f32 out[3])\n{',
     's32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)',
-    's32 gevrStereoTwoHandItem(', 's32 gevrStereoHandClub(', 's32 gevrStereoClubBat(', 'static s32 gevrTwoHandBare(',
+    's32 gevrStereoTwoHandItem(', 's32 gevrStereoHandClub(', 's32 gevrStereoClubBatBean(', 's32 gevrStereoClubBat(', 'static s32 gevrTwoHandBare(',
     'static s32 gevrTwoHandGunCandidate(',
     's32 gevrStereoTwoHandGun(void)', 's32 gevrStereoTwoHandSupportCtrl(void)',
     'static s32 gevrTwoHandIsHandgun(', 'static s32 gevrTwoHandBarrel(',

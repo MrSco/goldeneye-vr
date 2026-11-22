@@ -30,7 +30,7 @@ HARNESS = r'''
 #define MAX_PLAYER_COUNT 4
 float VrReloadGrab[2][3], VrGexForeHold[3], VrGexPp7Grab[3], VrGexPp7Support[3], VrGexPp7SupportRot[3];
 float VrGexGunOff[3], VrGexPp7GunOff[3], VrGexKf7MagOff[3], VrGexPp7MagOff[3], VrGexKf7WellOff[3], VrGexPp7WellOff[3];
-float VrGexWeaponFits[64][10][3], VrGexBatFit[5][3];
+float VrGexWeaponFits[64][10][3], VrGexBatFit[6][3];
 typedef struct { f32 m[4][4]; } Mtxf;
 typedef struct { s32 numMatrices; } ModelFileHeader;
 typedef struct { f32 BoltRecoilBack; } WeaponStats;

@@ -58,6 +58,8 @@ static int get_cur_playernum(void) { return playerSlot; }
 static int netGetLocalSlot(void) { return localSlot; }
 static int gexHeld[2];   /* the hand's gun is GoldenEye X's (gun.c) */
 static int gevrGexHeld(int hand) { return gexHeld[hand]; }
+static int beanOn;   /* Bean's models are drawn (gevr_bean.c) */
+int gevrBeanIsEnabled(void) { return beanOn; }
 static int gevrGexPistolSupportAllowed(void) { return 1; }
 static int gevrGexPistolPoint(int support, float out[3]) { (void)support; (void)out; return 0; }
 static int gevrGexForePoint(float out[3]) { memcpy(out,gexFore,sizeof(gexFore)); return gexForeValid; }
@@ -265,6 +267,13 @@ static void testClubBat(void)
     setup(GUNRIGHT, 0, ITEM_FIST);
     tick();
     assert(!gevrStereoClubBat(GUNRIGHT));   /* GoldenEye's own arms: the butt-first club */
+    /* Bean's rifle is the bat too, in the PP7's glove (owner, 2026-11-21); not under GoldenEye X's guns */
+    beanOn = 1;
+    assert(gevrStereoClubBatBean(GUNRIGHT) && gevrStereoClubBat(GUNRIGHT) && !gevrStereoClubBat(GUNLEFT));
+    VrGexGuns = 1;
+    assert(!gevrStereoClubBatBean(GUNRIGHT) && !gevrStereoClubBat(GUNRIGHT));   /* its own rig is not in the hand */
+    VrGexGuns = 0; beanOn = 0;
+    assert(!gevrStereoClubBat(GUNRIGHT));
     VrGexGuns = 1; gexHeld[GUNRIGHT] = 1;
     assert(gevrStereoClubBat(GUNRIGHT) && !gevrStereoClubBat(GUNLEFT));
     /* the other hand 20 cm down the barrel from the gun hand's fist (user: anywhere

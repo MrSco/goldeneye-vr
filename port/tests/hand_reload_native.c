@@ -128,6 +128,14 @@ static int gevrGexMagPoints(float c[3], float w[3], float h[3])
     memcpy(h, heldPoint, sizeof(heldPoint));
     return pointsValid;
 }
+/* gun.c: the shells a GoldenEye X shotgun carries, once it has been drawn */
+static int gexSaddle;
+static float gexSaddleAt[3];
+static int gevrGexSaddlePoint(float at[3])
+{
+    memcpy(at, gexSaddleAt, sizeof(gexSaddleAt));
+    return gexSaddle;
+}
 static int gevrBeanMagPoints(float c[3], float w[3], float h[3])
 {
     memcpy(c, beanFoot, sizeof(beanFoot));
@@ -951,6 +959,41 @@ static void singleRoundReloads(void)
         player.hands[GUNRIGHT].weapon=ITEM_RUGER; stats.AmmoType=0; pistolTick();
         assert(reserve==49 && player.ammoheldarr[0]==0);
         stats.AmmoType=1;
+    }
+    /*
+     * Drawn, a GoldenEye X shotgun's shells are the ones it carries too (owner,
+     * 2026-11-21: the shell replacements "the same on GoldenEye X"): nothing at
+     * the belt, the holster left alone, a fresh grip at the saddle takes one. The
+     * launchers and the Golden Gun carry none and keep the belt.
+     */
+    for (int i=0;i<4;i++) {
+        int rounds, hover;
+        float ring[3];
+        const float cm=GEVR_UNITS_PER_METRE*D_800364CC/100.0f;
+        reset(); stats.MagSize=i>=2 ? 1 : 5; gex[GUNRIGHT]=1;
+        player.hands[GUNRIGHT].weapon=items[i]; player.hands[GUNRIGHT].weapon_ammo_in_magazine=i>=2 ? 0 : 2;
+        pistolTick();
+        memcpy(gexSaddleAt, poses[1], sizeof(gexSaddleAt)); gexSaddleAt[1]+=10*cm; gexSaddle=1;
+        if (i>=2) {
+            assert(gevrReloadBeltRound(0,&rounds,&hover)==GUNRIGHT && !gevrReloadSaddleShown(GUNRIGHT,ring,&hover));
+            gexSaddle=0; continue;
+        }
+        assert(gevrReloadBeltRound(0,&rounds,&hover)==-1 && !gevrReloadBeltOffers(0) && !gevrReloadBeltWanted(0));
+        belt(0,0); gripHeld[0]=1; pistolTick();
+        assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_IN && reserve==50);   /* a grip at the belt: nothing */
+        gripHeld[0]=0; pistolTick();
+        memcpy(poses[0], gexSaddleAt, sizeof(gexSaddleAt)); poses[0][0]+=(GEVR_RELOAD_SADDLE_CM+0.5f)*cm;
+        assert(gevrReloadSaddleShown(GUNRIGHT,ring,&hover) && !hover && !gevrGexClaimsOffHand());
+        assert(fabsf(ring[1]-gexSaddleAt[1])<1e-3f);
+        poses[0][0]-=1.0f*cm;
+        assert(gevrReloadSaddleShown(GUNRIGHT,ring,&hover) && hover && gevrGexClaimsOffHand());
+        gripHeld[0]=1; pistolTick();
+        assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_INHAND && s_gevrGexHeldRounds==1 && reserve==49);
+        pointsValid=3; memset(wellPoint,0,sizeof(wellPoint)); memset(heldPoint,0,sizeof(heldPoint)); pistolTick();
+        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==3 && reserve==49);
+        gripHeld[0]=0; pistolTick();
+        gex[GUNRIGHT]=0; assert(!gevrReloadSaddleShown(GUNRIGHT,ring,&hover)); gex[GUNRIGHT]=1;
+        gexSaddle=0;
     }
     /* Zero reserve, invalid pose, full capacity while held, tracking loss and
      * stage cancellation must conserve the one reserved payload for every rig. */

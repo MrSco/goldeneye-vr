@@ -152,13 +152,15 @@ static struct {
     float kf7Well[3], pp7Well[3];
     float weaponFits[64][10][3];   /* GEVR_GEX_FIT_COMPONENTS, checked below */
     float beanMagFits[64][2][3];   /* Bean guns' magazines (gun.c gevrBeanMagFit) */
-    float batFit[3][3];            /* the rifle butt as a bat (gevr_gexweapon.h) */
+    float batFit[6][3];            /* the rifle butt as a bat (gevr_gexweapon.h) */
     float bodySlots[GEVR_BODY_SLOTS][3];
     float gunPer[2][GEVR_MAX_WEAPONS][3], gripPer[2][GEVR_MAX_WEAPONS][6];   /* each gun's own (gevr_scope.h) */
     unsigned char gunPerSet[2][GEVR_MAX_WEAPONS], gripPerSet[2][GEVR_MAX_WEAPONS];
 } s_gunFitSaved;
 _Static_assert(sizeof(s_gunFitSaved.weaponFits) == sizeof(VrGexWeaponFits), "fit snapshot matches the fits");
 _Static_assert(sizeof(s_gunFitSaved.beanMagFits) == sizeof(VrBeanMagFits), "fit snapshot matches Bean's magazine fits");
+/* it was [3][3] under a five-row copy: an undo took the off hand's two rows from the body slots after it */
+_Static_assert(sizeof(s_gunFitSaved.batFit) == sizeof(VrGexBatFit), "fit snapshot matches the bat's fits");
 
 static void gevrGunFitSaved(bool restore)
 {
@@ -239,7 +241,8 @@ static void gevrGunFitSaved(bool restore)
     }
 }
 extern s32 gevrStereoTwoHandClass(void);  /* bondview2.c: 0 handgun, 1 long gun */
-extern s32 gevrStereoClubBat(s32 hand);   /* bondview2.c: the rifle butt held as a bat (GE-X) */
+extern s32 gevrStereoClubBat(s32 hand);   /* bondview2.c: the rifle butt held as a bat (GE-X, Bean) */
+extern float *gevrBatFit(void);           /* gun.c: its fit, GoldenEye X's or Bean's */
 extern s32 gevrStereoTwoHandFollow(f32 out[6]);   /* bondview2.c: Gun fit's grab, the hold's trims */
 extern s32 gevrGunFitOffHand(f32 out[3]);         /* bondview2.c: the off hand from the gun hand */
 static bool s_gunFitGrab;                         /* the off hand's trigger is Gun fit's, not the game's */
@@ -2431,9 +2434,11 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             /* the rifle butt as a bat: the item is the fist, the model the rifle's; its
              * fits are its own (gevr_gexweapon.h; user: Gun fit could not move it) */
             const bool bat = gex && gevrStereoClubBat(GUNRIGHT);
+            /* ... and Bean's rifle in the PP7's glove: the rifle through the fist alone (gun.c gevrBeanBatPose) */
+            const bool beanBat = fitting && !gex && gevrStereoClubBat(GUNRIGHT);
             const s32 batRifle = bat ? gevrGexWeaponForHand(GUNRIGHT)->item : -1;
-            if (bat) {
-                float *fit = gevrGexBatFit();
+            if (bat || beanBat) {
+                float *fit = gevrBatFit();
                 gunOff[0] = &fit[0];
                 gunOff[1] = &fit[1];
                 gunOff[2] = &fit[2];
@@ -2742,7 +2747,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                         o[2] -= my * rate * dt;
                         o[1] += ry * rate * dt;
                     }
-                } else if (bat) {
+                } else if (bat || beanBat) {
                     /* the rifle butt as a bat, in one hand: the rifle through the fist -
                      * the turn stick down slides the fist toward the butt (gun.c
                      * gevrGexBatPose), the move stick across it (user) */
