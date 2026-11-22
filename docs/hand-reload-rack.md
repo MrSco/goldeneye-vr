@@ -1,11 +1,10 @@
 # Hand reload: racking the slide
 
-A third step for the pistols, the submachine guns and the KF7 when they are
-reloaded by hand (owner, 2026-11-21: "drop the clip, put a clip in, and then
-rack the slide"), and a pump for the shotgun ("we should have to cock pump
-the regular shotgun ... the auto shotgun maybe not since it's auto"). Part of
-**Hand reload WIP** (Controls → Gestures): no setting of its own. GoldenEye
-X's guns and Bean's alike.
+A third step for guns reloaded by hand (owner, 2026-11-21: "drop the clip, put
+a clip in, and then rack the slide"): the pistols' slides, the bolt handles of
+the submachine guns and rifles, and the shotgun's pump. Part of **Hand reload
+WIP** (Controls → Gestures): no setting of its own. GoldenEye X's guns and
+Bean's alike.
 
 Not yet played in a headset: see the test sheet below.
 
@@ -28,11 +27,20 @@ hand's place along the gun.
 A ring on the gun shows where to take hold while it waits, blue, and green
 with the hand on it.
 
-**The shotgun** is loaded a shell at a time, as before. Fired dry, the shells
-put in wait for the pump (`PUMP IT`): grip the pump under the barrel, pull it
-back and run it forward again. More shells can go in before pumping. Shells
-added to a shotgun that still has some are ready at once. The automatic
-shotgun has no pump.
+**The pump shotgun** is pumped for every shot (owner: "we need to make the
+regular shotgun require a pump after each shot"). A shot fired, the shells
+left wait (`PUMP IT`) until the pump is run back and forward. The pump is the
+fore-end the off hand already holds the gun by: with the two-handed hold on,
+slide that hand back 6 cm and forward again, never letting go. With one hand
+on the gun, grip the pump (the ring), run it, let go. Shells can go in between
+shots; they wait with the rest.
+
+**The automatic shotgun** cycles itself: it is racked by its handle only once
+it has run dry, as a magazine gun, after the shells go in (`PULL THE BOLT`).
+
+**The sniper rifle** is bolt-action in name only here: its bolt is run once
+after a magazine goes in on an empty chamber, as the other rifles, not for
+every shot.
 
 ## The rules
 
@@ -55,13 +63,17 @@ shotgun has no pump.
 - **Put away unracked**, a gun comes back unracked, with the same rounds.
 - Hand reload turned off, a level's end or a death with one waiting: it is
   simply loaded (or gone with everything else on a death).
-- **Which guns:** PP7 and its silenced, silver and gold kin, DD44, Klobb, ZMG,
-  D5K and silenced D5K, Phantom, KF7, and the shotgun's pump.
-- **Left out:** AR33, RC-P90 and sniper rifle (each has a charging handle or
-  a bolt, so they could take it: the same mechanism, another place and
-  throw); automatic shotgun (cycles itself); Cougar Magnum (a revolver);
-  Golden Gun (single shot, loaded at the breech); grenade launcher and rocket
-  launcher. The lasers and the tank do not reload.
+- **Which guns:** PP7 and its silenced, silver and gold kin, DD44 (slides);
+  Klobb, ZMG, D5K and silenced D5K, Phantom, KF7, AR33, RC-P90, sniper rifle
+  and the automatic shotgun (bolt handles); the shotgun (its pump, every shot).
+- **Left out:** Cougar Magnum (a revolver); Golden Gun (single shot, loaded at
+  the breech); grenade launcher and rocket launcher. The lasers and the tank
+  do not reload.
+- **Bean's sniper rifle** had no magazine on its model and reloaded at the
+  belt. It has one now, made by the port: a short box under the receiver,
+  below the bolt handle, its foot plate showing (`gevr_beanmag.c`, `made`).
+  It is there only with Hand reload on and comes out as the other rifles'
+  do (pull it down, or B / Y).
 
 ## What moves
 
@@ -80,7 +92,7 @@ bolt out of each mesh, as the magazines were, is the next step.
 | Reach | a fresh grip within 12 cm of the place |
 | A pistol's place, unfitted | 7 cm above the gun hand's grip, 1 cm behind it |
 | A bolt handle's, unfitted | 6 cm above, 6 cm ahead |
-| The pump's, unfitted | 2 cm above, 28 cm ahead |
+| The pump's, unfitted | 2 cm above, 28 cm ahead (held with both hands: wherever that hand is) |
 | Throw | 3.5 cm for a slide, 5 cm for a bolt, 6 cm for the pump |
 | Still gripped | done once the hand is back within half the throw |
 
@@ -106,8 +118,12 @@ place mirrors with the hands.
   given back in `gevrGexMagOut` and `gevrReloadStow`; chambered by
   `gevrGexMagIn` (the belt's paths); the off hand claimed in
   `gevrGexClaimsOffHand`, ahead of the two-handed hold.
-- `gevrGexRoundTick`: the shotgun's shells wait (`gevrRackAdd`) and its pump
-  runs the same `gevrRackRun`.
+- `gevrGexRoundTick`: a shotgun's shells wait (`gevrRackAdd`) and are racked
+  by the same `gevrRackRun`; `gevrRackShot` (the tick) holds the pump
+  shotgun's shells back after each shot; `gevrRackRun` takes the pump with
+  the hand that holds the fore-end.
+- `gevr_beanmag.c` `magBuildMade`, `gevr_bean.c`, `gun.c gevrBeanMagDraw`:
+  Bean's sniper rifle's made magazine.
 - `gevrRackFit`, `gevrRackFitSet`, `gevrRackPointShown`; `input.c` (the left
   grip in the reload fit, the undo snapshot); `vr_settings.cpp` (`*Rack*`).
 - `gun.c`, `gevr_hand_reload.h`: the three labels and the ring.
@@ -143,7 +159,14 @@ Hand reload on, one gun, GoldenEye X's models and then Bean's.
     handle, the pump: the ring moves there; A saves; it is still there after a
     restart; B undoes an unsaved one. Does squeezing there in the fit do
     anything unwanted to the magazine (KF7: the magazine is near)?
-14. The shotgun: fire it dry, two shells in: `PUMP IT`, the trigger clicks.
-    Pump back and forward: fires, twice. More shells before pumping: all of
-    them. A shell added with shells left: no pump. Does the pump's grab get in
-    the way of the two-handed hold? The automatic shotgun: no pump.
+14. The shotgun, held with both hands: fire, `PUMP IT`, the trigger clicks;
+    slide the off hand back and forward without letting go: fires again. Five
+    shots, five pumps. Is 6 cm right? Does the aim wander as the hand slides?
+    One-handed: grip the ring, pump, let go. Shells in between shots.
+15. The automatic shotgun: fires on without a pump; dry, shells in, `PULL THE
+    BOLT`, once.
+16. AR33, RC-P90 (its magazine lifts off the top), sniper rifle: dry, new
+    magazine, `PULL THE BOLT`. The handles' places: fit them (13).
+17. Bean's sniper rifle: the new magazine under the receiver. Does it look
+    right there? Pull it down or B to drop it, one from the belt back in, the
+    ghost shows where. With Hand reload off it is not drawn.

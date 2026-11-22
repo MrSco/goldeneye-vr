@@ -114,6 +114,26 @@ int main(void)
     gevrRackChamber(&r, &loaded);
     CHECK(loaded == 2 && !r.dry);
 
+    /* a gun pumped for every shot: a shot with rounds left, and those wait; loading is no shot */
+    memset(&r, 0, sizeof(r));
+    loaded = 5;
+    CHECK(!gevrRackShot(&r, 1, &loaded) && loaded == 5 && r.last == 5);            /* drawn loaded: ready */
+    loaded = 4;
+    CHECK(gevrRackShot(&r, 1, &loaded) && loaded == 0 && r.pending == 4 && r.dry);
+    CHECK(!gevrRackShot(&r, 1, &loaded) && r.pending == 4);                        /* waiting: nothing more */
+    gevrRackChamber(&r, &loaded);
+    CHECK(loaded == 4 && !gevrRackShot(&r, 1, &loaded) && loaded == 4);            /* pumped: the rounds back are no shot */
+    loaded = 5;
+    CHECK(!gevrRackShot(&r, 1, &loaded) && loaded == 5);                           /* a shell put in */
+    loaded = 4;
+    CHECK(gevrRackShot(&r, 1, &loaded) && r.pending == 4);
+    gevrRackChamber(&r, &loaded);
+    loaded = 0;                                                                    /* (the rest fired off) */
+    r.last = 1;
+    CHECK(!gevrRackShot(&r, 1, &loaded) && r.pending == 0);                        /* the last shell: dry is gevrRackNote's */
+    gevrRackNote(&r, 1, loaded);
+    CHECK(r.dry);
+
     if (s_fail)
     {
         printf("%d failed\n", s_fail);

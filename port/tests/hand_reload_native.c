@@ -1503,18 +1503,28 @@ static void rackReload(void)
         assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == size && s_gevrRack[GUNRIGHT].pending == 0);
     }
 
-    /* the AR33 (and the rest) keep two steps: dry or not, a seated magazine is ready */
-    rackSeat(ITEM_M16, 30, 0);
-    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 30 && s_gevrRack[GUNRIGHT].pending == 0);
+    /* the AR33, the RC-P90 and the sniper rifle have bolt handles too */
+    {
+        static const int bolts[] = { ITEM_M16, ITEM_FNP90, ITEM_SNIPERRIFLE, ITEM_SKORPION, ITEM_SPECTRE };
+        for (unsigned n = 0; n < sizeof(bolts) / sizeof(bolts[0]); n++) {
+            rackSeat(bolts[n], 30, 0);
+            assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0 && s_gevrRack[GUNRIGHT].pending == 30);
+            assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_BOLT);
+        }
+    }
+    /* the Cougar's cylinder is a magazine with nothing to rack: dry or not, seated it is ready */
+    rackSeat(ITEM_RUGER, 6, 0);
+    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 6 && s_gevrRack[GUNRIGHT].pending == 0);
     assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_SEATED);
     stats.MagSize = magSize;
     VrGexGuns = 1;
 }
-
 /*
- * The pump (user, 2026-11-21: "we should have to cock pump the regular shotgun"):
- * shells put into a shotgun that ran dry wait until its pump is run; shells
- * added to one with shells in it are ready. The automatic shotgun has none.
+ * The shotguns (user, 2026-11-21: "we need to make the regular shotgun require
+ * a pump after each shot"; the automatic one cycles itself): the pump shotgun
+ * is pumped for every shot, the off hand running the fore-end it holds the gun
+ * by; the automatic shotgun is racked by its handle once it has run dry, as a
+ * magazine gun.
  */
 static void pumpShell(void)
 {
@@ -1533,14 +1543,27 @@ static void pumpShell(void)
     gripHeld[0] = 0; gevrHandReloadTick();
 }
 
-/* the off hand at the pump (the guess: 2 cm up, 28 ahead of the grip), pulled back by `back` cm */
-static void pumpHand(float back)
+/* the off hand at the pump (the guess: 2 cm up, 28 ahead of the grip), or at the automatic
+ * shotgun's handle (a bolt handle's: 6 up, 6 ahead), pulled back by `back` cm */
+static void pumpHand(int automatic, float back)
 {
     const float cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
 
     memcpy(poses[0], poses[1], sizeof(poses[0]));
-    poses[0][1] += 2.0f * cm;
-    poses[0][2] += (-28.0f + back) * cm;
+    poses[0][1] += (automatic ? 6.0f : 2.0f) * cm;
+    poses[0][2] += ((automatic ? -6.0f : -28.0f) + back) * cm;
+}
+
+static void pumpStart(int item, int loaded)
+{
+    reset();
+    VrGexGuns = 0; beanOn = 1; beanMag[GUNRIGHT] = 1; beanKind = 1 | 4;
+    stats.MagSize = 5;
+    player.hands[GUNRIGHT].weapon = item;
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine = loaded;
+    at(1, 20, 20, 40);
+    at(0, 20, -20, 40);
+    gevrHandReloadTick();
 }
 
 static void pumpReload(void)
@@ -1548,62 +1571,102 @@ static void pumpReload(void)
     const int magSize = stats.MagSize;
     const float cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
 
-    for (int automatic = 0; automatic < 2; automatic++) {
-        reset();
-        VrGexGuns = 0; beanOn = 1; beanMag[GUNRIGHT] = 1; beanKind = 1 | 4;
-        stats.MagSize = 5;
-        player.hands[GUNRIGHT].weapon = automatic ? ITEM_AUTOSHOT : ITEM_SHOTGUN;
-        player.hands[GUNRIGHT].weapon_ammo_in_magazine = 2;
-        at(1, 20, 20, 40);
-        at(0, 20, -20, 40);
-        gevrHandReloadTick();
-        /* shells still in it: another is ready at once */
-        pumpShell();
-        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 3 && s_gevrRack[GUNRIGHT].pending == 0 && reserve == 49);
-        assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_NONE);
-
-        /* fired dry, then two shells */
-        player.hands[GUNRIGHT].weapon_ammo_in_magazine = 0;
-        gevrHandReloadTick();
-        pumpShell();
-        pumpShell();
-        if (automatic) {
-            assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 2 && s_gevrRack[GUNRIGHT].pending == 0);
-            assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_NONE);
-            continue;
-        }
-        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0 && s_gevrRack[GUNRIGHT].pending == 2 && reserve == 47);
-        assert(gevrReloadReservedRounds(1) == 2 && gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_PUMP);
-        {
-            /* the belt still gives shells for the room left, the waiting ones counted */
-            int rounds = 0, hover = 0;
-            belt(0, 0);
-            assert(gevrReloadBeltRound(0, &rounds, &hover) == GUNRIGHT && rounds == 1 && hover && gevrGexClaimsOffHand());
-        }
-        pumpShell(); pumpShell(); pumpShell();
-        assert(s_gevrRack[GUNRIGHT].pending == 5 && reserve == 44);
-        {
-            int rounds = 0, hover = 0;
-            belt(0, 0);
-            assert(gevrReloadBeltRound(0, &rounds, &hover) < 0);   /* full */
-        }
-        /* the pump: back its throw and forward again, the grip held throughout */
-        pumpHand(0);
-        assert(gevrGexClaimsOffHand());
-        gripHeld[0] = 1; gevrHandReloadTick();
-        assert(s_gevrRack[GUNRIGHT].held && s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN);
-        pumpHand(GEVR_RACK_PUMP_CM + 0.5f); gevrHandReloadTick();
-        assert(s_gevrRack[GUNRIGHT].cocked && player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0);
-        pumpHand(1.0f); gevrHandReloadTick();
-        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 5 && s_gevrRack[GUNRIGHT].pending == 0 && reserve == 44);
-        assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_NONE && lastSound == GUN_RIFLECOCK_SFX);
-        gripHeld[0] = 0; gevrHandReloadTick();
-        /* a shell on top of those: ready, no pump */
-        player.hands[GUNRIGHT].weapon_ammo_in_magazine = 4;
-        gevrHandReloadTick();
-        pumpShell();
-        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 5 && s_gevrRack[GUNRIGHT].pending == 0);
+    /* The automatic shotgun: shots need nothing; dry, the shells put in wait for its handle. */
+    pumpStart(ITEM_AUTOSHOT, 3);
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine = 2; gevrHandReloadTick();   /* a shot */
+    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 2 && s_gevrRack[GUNRIGHT].pending == 0);
+    assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_NONE);
+    pumpShell();
+    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 3 && s_gevrRack[GUNRIGHT].pending == 0 && reserve == 49);
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine = 0; gevrHandReloadTick();   /* fired dry */
+    pumpShell(); pumpShell();
+    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0 && s_gevrRack[GUNRIGHT].pending == 2 && reserve == 47);
+    assert(gevrReloadReservedRounds(1) == 2 && gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_BOLT);
+    {
+        /* the belt still gives shells for the room left, the waiting ones counted */
+        int rounds = 0, hover = 0;
+        belt(0, 0);
+        assert(gevrReloadBeltRound(0, &rounds, &hover) == GUNRIGHT && rounds == 1 && hover && gevrGexClaimsOffHand());
     }
+    pumpShell(); pumpShell(); pumpShell();
+    assert(s_gevrRack[GUNRIGHT].pending == 5 && reserve == 44);
+    {
+        int rounds = 0, hover = 0;
+        belt(0, 0);
+        assert(gevrReloadBeltRound(0, &rounds, &hover) < 0);   /* full */
+    }
+    pumpHand(1, 0);
+    assert(gevrGexClaimsOffHand());   /* the handle is the off hand's, not the two-handed hold's */
+    gripHeld[0] = 1; gevrHandReloadTick();
+    assert(s_gevrRack[GUNRIGHT].held);
+    pumpHand(1, GEVR_RACK_BOLT_CM + 0.5f); gevrHandReloadTick();
+    gripHeld[0] = 0; gevrHandReloadTick();
+    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 5 && s_gevrRack[GUNRIGHT].pending == 0 && reserve == 44);
+    assert(lastSound == GUN_RIFLECOCK_SFX);
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine = 4; gevrHandReloadTick();   /* and fires on, unracked */
+    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 4 && s_gevrRack[GUNRIGHT].pending == 0);
+
+    /* The pump shotgun, drawn loaded: the first shell is ready. */
+    pumpStart(ITEM_SHOTGUN, 5);
+    assert(s_gevrRack[GUNRIGHT].pending == 0 && gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_NONE);
+    /* a shot: the four left wait for the pump, and the trigger finds the gun empty */
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine = 4; gevrHandReloadTick();
+    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0 && s_gevrRack[GUNRIGHT].pending == 4);
+    assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_PUMP && gevrReloadReservedRounds(1) == 4 && reserve == 50);
+    assert(gevrReloadCarriesRounds(GUNRIGHT));
+    /* the pump is no claim on the off hand: the two-handed hold takes the fore-end as ever */
+    pumpHand(0, 0);
+    assert(!gevrGexClaimsOffHand());
+    /* held with both hands (the hand wherever on the fore-end): back the throw and forward, the hold kept */
+    at(0, 20, -20, 60);
+    supportHeld = 1; gripHeld[0] = 1; gevrHandReloadTick();
+    assert(s_gevrRack[GUNRIGHT].held);
+    poses[0][2] += (GEVR_RACK_PUMP_CM - 0.5f) * cm; gevrHandReloadTick();
+    assert(!s_gevrRack[GUNRIGHT].cocked);
+    poses[0][2] += 1.0f * cm; gevrHandReloadTick();
+    assert(s_gevrRack[GUNRIGHT].cocked && player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0);
+    poses[0][2] -= GEVR_RACK_PUMP_CM * cm; gevrHandReloadTick();
+    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 4 && s_gevrRack[GUNRIGHT].pending == 0);
+    assert(!s_gevrGexGripSpent && lastSound == GUN_RIFLECOCK_SFX && gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_NONE);
+    /* the next shot, the next pump, the grip never let go */
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine = 3; gevrHandReloadTick();
+    assert(s_gevrRack[GUNRIGHT].pending == 3);
+    gevrHandReloadTick();
+    assert(s_gevrRack[GUNRIGHT].held);
+    poses[0][2] += (GEVR_RACK_PUMP_CM + 0.5f) * cm; gevrHandReloadTick();
+    poses[0][2] -= GEVR_RACK_PUMP_CM * cm; gevrHandReloadTick();
+    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 3 && s_gevrRack[GUNRIGHT].pending == 0);
+    supportHeld = 0; gripHeld[0] = 0; gevrHandReloadTick();
+
+    /* one hand on it: a fresh grip at the pump runs it too, and lets go */
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine = 2; gevrHandReloadTick();
+    assert(s_gevrRack[GUNRIGHT].pending == 2);
+    pumpHand(0, 0); gripHeld[0] = 1; gevrHandReloadTick();
+    assert(s_gevrRack[GUNRIGHT].held);
+    pumpHand(0, GEVR_RACK_PUMP_CM + 0.5f); gevrHandReloadTick();
+    gripHeld[0] = 0; gevrHandReloadTick();
+    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 2 && s_gevrRack[GUNRIGHT].pending == 0);
+
+    /* shells put in between shots wait with the rest; none is lost */
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine = 1; gevrHandReloadTick();
+    assert(s_gevrRack[GUNRIGHT].pending == 1);
+    pumpShell(); pumpShell();
+    assert(s_gevrRack[GUNRIGHT].pending == 3 && player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0 && reserve == 48);
+    /* the last shell fired leaves it dry; a shell then waits as well */
+    pumpHand(0, 0); gripHeld[0] = 1; gevrHandReloadTick();
+    pumpHand(0, GEVR_RACK_PUMP_CM + 0.5f); gevrHandReloadTick();
+    gripHeld[0] = 0; gevrHandReloadTick();
+    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 3);
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine = 0; s_gevrRack[GUNRIGHT].last = 1; gevrHandReloadTick();
+    assert(s_gevrRack[GUNRIGHT].dry && s_gevrRack[GUNRIGHT].pending == 0);
+    pumpShell();
+    assert(s_gevrRack[GUNRIGHT].pending == 1 && gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_PUMP);
+    /* the gun touched to the belt loads and chambers it, as it always has (dual wielding) */
+    at(0, 20, -20, 40);
+    belt(1, 13.1f); gevrHandReloadTick();
+    belt(1, 0); gevrHandReloadTick();
+    assert(s_gevrRack[GUNRIGHT].pending == 0 && player.hands[GUNRIGHT].weapon_ammo_in_magazine > 0);
+    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine + reserve == 48);   /* 55 at the start, 7 fired: none lost */
 
     /*
      * Gun fit sets where a gun is racked: the off hand there, the left grip
@@ -1640,10 +1703,10 @@ static void pumpReload(void)
         assert(!gevrRackPointShown(GUNRIGHT, ring, &held));   /* racked: no ring */
         memset(VrRackFit, 0, sizeof(VrRackFit));
         /* a gun with nothing to rack has no place to set */
-        player.hands[GUNRIGHT].weapon = ITEM_M16;
+        player.hands[GUNRIGHT].weapon = ITEM_RUGER;
         assert(gevrRackFitDistance(&dist) == NULL);
         gevrRackFitSet();
-        assert(VrRackFit[gevrFitLook(GUNRIGHT)][ITEM_M16][1] == 0.0f);
+        assert(VrRackFit[gevrFitLook(GUNRIGHT)][ITEM_RUGER][1] == 0.0f);
     }
     stats.MagSize = magSize;
     beanKind = 0;

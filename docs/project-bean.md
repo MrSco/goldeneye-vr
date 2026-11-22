@@ -76,14 +76,15 @@ guns, whose magazine hangs out of the gun, keep the pull (`bondview2.c
 gevrReloadMagPulls`), so a Bean rifle added to the table gets it too.
 A touch of the gun hand at the belt still loads it one-handed. No gun reloads
 itself or by B / Y while hand reload is on, as with GE-X: one whose model has
-nothing to take (the sniper rifle, the Golden Gun) reloads by the belt's touch
-or the chest cross, which run the game's own reload.
+nothing to take (the Golden Gun) reloads by the belt's touch or the chest
+cross, which run the game's own reload.
 
 | Gun | Magazine | Out by |
 | --- | --- | --- |
 | PP7, silenced, silver, gold (one grip) | cut from the grip | B / Y |
 | DD44 | cut from the grip | B / Y |
 | Klobb, KF7, ZMG, D5K, silenced D5K, Phantom, AR33 | a piece of the mesh on its own | pull down, or B / Y |
+| Sniper rifle | made by the port: a box under the receiver (the mesh has none; owner, 2026-11-21) | pull down, or B / Y |
 | RC-P90 | the see-through one on top, with its rounds | lift up, or B / Y |
 | Cougar | its cylinder (and the plate behind it) | B / Y |
 | Grenade launcher | its drum | B / Y |
@@ -105,8 +106,11 @@ that as the magazine, same with grenade launcher and rocket launcher"):
   tube). Fired, the launcher's is out with nothing to drop; a fresh one from the
   belt goes in tail first at the muzzle.
 
-The sniper rifle's mesh shows no magazine and the Golden Gun's no round, so
-both keep the game's reload (GE-X's models have them).
+The Golden Gun's mesh shows no round, so it keeps the game's reload (GE-X's
+model has one). The sniper rifle's mesh shows no magazine either: the port
+makes one (`gevr_beanmag.h` `made`), a plain dark box with a foot plate, 120
+units of its top inside the stock, drawn by `gun.c` while it is in and only
+with hand reload on.
 
 The release's guns are one skinned mesh each with no magazine bone, and its
 dropped-magazine props are a 28-triangle wedge, so the magazine is made from the

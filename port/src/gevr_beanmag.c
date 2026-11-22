@@ -37,6 +37,10 @@
 	.lid = 1, \
 	.inside = into, \
 }
+/* the sniper rifle's made magazine: its box and how much of its top is in the gun */
+#define SNIPER_MAG_LO -55.0f, -290.0f, -260.0f
+#define SNIPER_MAG_HI 55.0f, -40.0f, 0.0f
+#define SNIPER_MAG_INSIDE 120.0f
 /* the four PP7s are one grip: the silenced, silver and gold files cut alike */
 static const GevrBeanMagDef s_magDefs[] = {
 	PP7_MAGAZINE("gun/ppk"),
@@ -60,7 +64,7 @@ static const GevrBeanMagDef s_magDefs[] = {
 	},
 	/* the rifles and submachine guns: each magazine a piece of its own. The
 	 * boxes are measured from the release's meshes; the sniper rifle's mesh has
-	 * no magazine to take. */
+	 * no magazine, so one is made for it (below). */
 	/* how far each top is inside the gun, from the gun's own lowest corners round
 	 * it: the Klobb's 47, the D5K's housing 114; the KF7's, ZMG's and AR33's end
 	 * where the gun begins (the AR33's well was guessed 120 deep and its floor
@@ -72,6 +76,19 @@ static const GevrBeanMagDef s_magDefs[] = {
 	ISLAND_MAGAZINE("gun/mp5ksilenced", 130.0f, -1160.0f, -220.0f, 800.0f, 1360.0f, 110.0f),
 	ISLAND_MAGAZINE("gun/spectre", 90.0f, -1100.0f, -470.0f, -1020.0f, -630.0f, 30.0f),
 	ISLAND_MAGAZINE("gun/m16", 90.0f, -1000.0f, -180.0f, 380.0f, 970.0f, 0.0f),
+	/* The sniper rifle's mesh has no magazine, so one is made for it: a short box
+	 * under the receiver ahead of the trigger guard, most of it inside the stock
+	 * and its foot plate showing below (measured against the release's mesh with
+	 * tools/gevr_bean_mag_preview.py). */
+	{
+		.source = "gun/sniperrifle",
+		.plane = { 0.0f, 1.0f, 0.0f, 0.0f },
+		.lo = { SNIPER_MAG_LO },
+		.hi = { SNIPER_MAG_HI },
+		.bodyRgb = { 38, 38, 42 },
+		.floorRgb = { 24, 24, 27 },
+		.island = 1, .straight = 1, .made = 1, .inside = SNIPER_MAG_INSIDE,
+	},
 	/* The RC-P90's lies along the top of the gun, see-through, its rounds two
 	 * more pieces inside it: into the gun is down, and it lifts off. */
 	{
@@ -605,6 +622,94 @@ static int magHullPush(struct magList *l, const struct gevrBeanTri *like, const 
 	return 1;
 }
 
+/* a box lo..hi, plain and one colour, its six faces outward */
+static int magBoxPush(struct magList *l, const struct gevrBeanTri *like, const float lo[3], const float hi[3],
+                      const unsigned char rgb[3])
+{
+	int ok = 1;
+	for (int axis = 0; ok && axis < 3; axis++) {
+		const int u = (axis + 1) % 3, v = (axis + 2) % 3;
+		for (int side = 0; ok && side < 2; side++) {
+			float normal[3] = { 0, 0, 0 }, c[4][3];
+			normal[axis] = side ? 1.0f : -1.0f;
+			for (int k = 0; k < 4; k++) {
+				c[k][axis] = side ? hi[axis] : lo[axis];
+				c[k][u] = (k == 1 || k == 2) ? hi[u] : lo[u];
+				c[k][v] = (k >= 2) ? hi[v] : lo[v];
+			}
+			ok = magPlainPush(l, like, c[0], c[1], c[2], normal, rgb, -1)
+			  && magPlainPush(l, like, c[0], c[2], c[3], normal, rgb, -1);
+		}
+	}
+	return ok;
+}
+
+/* A made magazine (gevr_beanmag.h): a box where the mesh has nothing, a foot
+ * plate under it; the gun without it is the whole gun. Its triangles hang from
+ * the bones of the gun's own triangle nearest its middle. */
+static int magBuildMade(const GevrBeanMagDef *def, const struct gevrBeanTri *tris, int ntris,
+                        const unsigned char *eligible, GevrBeanMagBuilt *built)
+{
+	struct magList open = { NULL, NULL, 0, 0, 1 }, mag = { NULL, NULL, 0, 0, 0 };
+	const struct gevrBeanTri *like = NULL;
+	float mid[3], plateLo[3], plateHi[3], bodyLo[3], best = 1e30f;
+	const float height = def->hi[1] - def->lo[1];
+	int ok = 1;
+	if (height < 1.0f)
+		return 0;
+	for (int k = 0; k < 3; k++)
+		mid[k] = 0.5f * (def->lo[k] + def->hi[k]);
+	for (int i = 0; ok && i < ntris; i++) {
+		float d = 0;
+		ok = magListPush(&open, &tris[i], i);
+		if (eligible && !eligible[i])
+			continue;
+		for (int k = 0; k < 3; k++) {
+			const float c = (tris[i].p[k] + tris[i].p[3 + k] + tris[i].p[6 + k]) / 3.0f - mid[k];
+			d += c * c;
+		}
+		if (d < best) {
+			best = d;
+			like = &tris[i];
+		}
+	}
+	if (!ok || !like)
+		goto fail;
+	/* the plate: the bottom eighth, a little wider and longer than the body above it */
+	for (int k = 0; k < 3; k++) {
+		const float grow = k == 1 ? 0.0f : 0.07f * (def->hi[k] - def->lo[k]);
+		plateLo[k] = def->lo[k] - grow;
+		plateHi[k] = def->hi[k] + grow;
+		bodyLo[k] = def->lo[k];
+	}
+	plateHi[1] = bodyLo[1] = def->lo[1] + 0.125f * height;
+	if (!magBoxPush(&mag, like, bodyLo, def->hi, def->bodyRgb) || !magBoxPush(&mag, like, plateLo, plateHi, def->floorRgb))
+		goto fail;
+	built->nfoot = 0;   /* all of it is made here (the preview's orange) */
+	built->axis[0] = built->axis[2] = 0.0f;
+	built->axis[1] = 1.0f;
+	for (int k = 0; k < 3; k++)
+		built->top[k] = built->mouth[k] = built->foot[k] = built->hold[k] = mid[k];
+	built->top[1] = def->hi[1];
+	built->mouth[1] = def->hi[1] - (def->inside < height ? def->inside : height);
+	/* taken by what shows below the gun */
+	built->foot[1] = built->hold[1] = 0.5f * (def->lo[1] + built->mouth[1]);
+	built->mag = mag.tris;
+	built->nmag = mag.n;
+	if (!magGhost(built))
+		goto fail;
+	built->open = open.tris;
+	built->openSrc = open.src;
+	built->nopen = open.n;
+	return 1;
+fail:
+	free(open.tris);
+	free(open.src);
+	free(mag.tris);
+	memset(built, 0, sizeof(*built));
+	return 0;
+}
+
 /* An island magazine (gevr_beanmag.h): the pieces in the box whole, a lid on
  * their top; the gun without them, floored where they went in. Heights run
  * from 0 at the magazine's top (the end inside the gun) down its length. */
@@ -733,6 +838,8 @@ int gevrBeanMagBuild(const GevrBeanMagDef *def, const struct gevrBeanTri *tris, 
 	memset(built, 0, sizeof(*built));
 	if (!def || !tris || ntris <= 0)
 		return 0;
+	if (def->made)
+		return magBuildMade(def, tris, ntris, eligible, built);
 	if (def->island)
 		return magBuildIsland(def, tris, ntris, eligible, built);
 	magFrameOf(def->plane, &f);

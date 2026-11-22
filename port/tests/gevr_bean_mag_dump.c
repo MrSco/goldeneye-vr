@@ -31,8 +31,8 @@ int main(int argc, char **argv)
 	if (argc == 2 && !strcmp(argv[1], "--guns")) {
 		/* the table: a gun a line, and whether its magazine is a piece of its own */
 		for (int n = 0; gevrBeanMagAt(n); n++)
-			printf("%s %d %d %d %d\n", gevrBeanMagAt(n)->source, gevrBeanMagAt(n)->island, gevrBeanMagAt(n)->pullUp,
-			       gevrBeanMagAt(n)->single, gevrBeanMagAt(n)->keep);
+			printf("%s %d %d %d %d %d\n", gevrBeanMagAt(n)->source, gevrBeanMagAt(n)->island, gevrBeanMagAt(n)->pullUp,
+			       gevrBeanMagAt(n)->single, gevrBeanMagAt(n)->keep, gevrBeanMagAt(n)->made);
 		return 0;
 	}
 	if (argc < 3 || !def) {

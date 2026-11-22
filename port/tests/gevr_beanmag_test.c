@@ -164,6 +164,42 @@ static void island(void)
 	assert(!memcmp(built.top, built.hold, sizeof(built.top)) && !memcmp(built.hold, built.foot, sizeof(built.hold)));
 	gevrBeanMagFree(&built);
 	def.keep = def.single = def.hasPort = 0;
+	/* a made magazine (the sniper rifle's): where the mesh has nothing, a box with a foot
+	 * plate under it, 30 of its top in the gun; the gun itself is left whole */
+	{
+		GevrBeanMagDef box = def;
+		box.made = 1;
+		box.inside = 30.0f;
+		box.lo[0] = -10; box.lo[1] = 500; box.lo[2] = 0;
+		box.hi[0] = 10; box.hi[1] = 600; box.hi[2] = 50;
+		box.bodyRgb[0] = 40; box.bodyRgb[1] = 41; box.bodyRgb[2] = 42;
+		box.floorRgb[0] = 20; box.floorRgb[1] = 21; box.floorRgb[2] = 22;
+		assert(gevrBeanMagBuild(&box, s_tris, s_ntris, s_eligible, &built));
+		assert(built.nopen == s_ntris && built.nmag == 24 && built.nfoot == 0 && built.nghost == 24);
+		for (int i = 0; i < built.nopen; i++)
+			assert(built.openSrc[i] == i && !memcmp(&built.open[i], &s_tris[i], sizeof(s_tris[i])));
+		for (int i = 0; i < built.nmag; i++) {
+			const struct gevrBeanTri *t = &built.mag[i];
+			const int plate = i >= 12;   /* the body's twelve, then the plate's */
+			assert(t->tex == -1 && t->rgba[3] == 255 && t->rgba[0] == (plate ? 20 : 40) && t->rgba[2] == (plate ? 22 : 42));
+			for (int c = 0; c < 3; c++) {
+				const float *p = &t->p[c * 3];
+				assert(p[1] >= 500.0f - 1e-3f && p[1] <= 600.0f + 1e-3f);
+				if (plate)   /* the bottom eighth, 7% wider and longer each way */
+					assert(p[1] <= 512.5f + 1e-3f && fabsf(p[0]) <= 11.4f + 1e-3f && p[2] >= -3.5f - 1e-3f && p[2] <= 53.5f + 1e-3f);
+				else
+					assert(p[1] >= 512.5f - 1e-3f && fabsf(p[0]) <= 10.0f + 1e-3f && p[2] >= -1e-3f && p[2] <= 50.0f + 1e-3f);
+			}
+		}
+		assert(built.axis[0] == 0.0f && built.axis[1] == 1.0f && built.axis[2] == 0.0f);
+		assert(built.top[0] == 0.0f && built.top[1] == 600.0f && built.top[2] == 25.0f);
+		assert(built.mouth[1] == 570.0f && built.hold[1] == 535.0f && built.foot[1] == 535.0f && built.hold[2] == 25.0f);
+		gevrBeanMagFree(&built);
+		/* with no gun triangle to hang it from, or no height: none */
+		assert(!gevrBeanMagBuild(&box, s_tris, 0, s_eligible, &built));
+		box.hi[1] = box.lo[1];
+		assert(!gevrBeanMagBuild(&box, s_tris, s_ntris, s_eligible, &built) && !built.mag && !built.open);
+	}
 	/* nothing wholly in the box: no magazine */
 	def.hi[1] = -10.0f;
 	assert(!gevrBeanMagBuild(&def, s_tris, s_ntris, s_eligible, &built) && !built.mag && !built.open);
@@ -179,7 +215,9 @@ int main(void)
 	float whole = 0, kept = 0, foot = 0, made = 0, corner[2][4][3];
 	int hand, outside, floor = 0, body = 0, passed = 0;
 
-	assert(gevrBeanMagFor("gun/ppk") && gevrBeanMagFor("gun/goldppk") && !gevrBeanMagFor("gun/sniperrifle") && !gevrBeanMagFor(NULL));
+	assert(gevrBeanMagFor("gun/ppk") && gevrBeanMagFor("gun/goldppk") && !gevrBeanMagFor("gun/laser") && !gevrBeanMagFor(NULL));
+	/* the sniper rifle's mesh has none: its is made, and no other gun's */
+	assert(gevrBeanMagFor("gun/sniperrifle") && gevrBeanMagFor("gun/sniperrifle")->made && !gevrBeanMagFor("gun/ak47")->made);
 	assert(!gevrBeanMagFor("gun/ppk")->island && gevrBeanMagFor("gun/ak47")->island && gevrBeanMagFor("gun/fnp90")->pullUp);
 	assert(gevrBeanMagAt(0) == gevrBeanMagFor("gun/ppk") && !gevrBeanMagAt(-1) && !gevrBeanMagAt(1000));
 

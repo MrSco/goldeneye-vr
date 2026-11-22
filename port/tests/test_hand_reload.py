@@ -82,7 +82,7 @@ production.extend(function(view, signature) for signature in (
     "static s32 gevrReloadSingleRound(", "static s32 gevrReloadHasMagazine(", "static s32 gevrReloadPickup(",
     "static s32 gevrReloadPullsUp(",
     "static s32 gevrReloadMagPulls(",
-    "static s32 gevrRackItem(", "static s32 gevrRackGun(", "static s32 gevrRackKind(", "static const char *gevrRackName(",
+    "static s32 gevrRackItem(", "static s32 gevrRackGun(", "static s32 gevrRackEveryShot(", "static s32 gevrRackKind(", "static const char *gevrRackName(",
     "static f32 gevrRackThrow(", "static f32 *gevrRackFit(", "static void gevrRackPlace(",
     "static void gevrReloadOffHandAt(", "static s32 gevrRackMeasure(", "static s32 gevrRackRun(",
     "s32 gevrRackPointShown(", "void gevrRackFitSet(", "const char *gevrRackFitDistance(f32 *dist)\n{",

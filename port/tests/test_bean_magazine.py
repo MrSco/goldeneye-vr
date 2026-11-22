@@ -46,7 +46,7 @@ def main():
             print("SKIP: the release's guns (give your xbla files folder to check them)")
             return
         files = Path(sys.argv[1])
-        for source, island, lifts, single, keep in table:
+        for source, island, lifts, single, keep, built in table:
             run = subprocess.run([str(dump), str(files / "new" / source / "default.bin"), source],
                                  capture_output=True, text=True)
             assert run.returncode == 0, f"{source}: {run.stderr.strip()[-400:]}"
@@ -62,7 +62,18 @@ def main():
             hands = sum(1 for kind, _ in sets["g"] if kind == 1)
             assert hands == sum(1 for kind, _ in sets["o"] if kind == 1), f"{source}: the hand was cut"
             floor = [p for kind, p in sets["o"] if kind == 3]
-            assert len(own) >= 20, (source, len(own))
+            if int(built):
+                # the sniper rifle's: the mesh has none, so a box and its foot plate are made,
+                # under the gun (its top inside, its foot below the gun's underside there)
+                assert len(own) == 0 and len(made) == 24, (source, len(own), len(made))
+                under = [p[c + 1] for kind, p in sets["g"] if kind == 0 for c in (0, 3, 6)
+                         if abs(p[c]) < 60 and min(q[2] for q in [m[i:i + 3] for m in made for i in (0, 3, 6)]) <= p[c + 2]
+                         <= max(q[2] for q in [m[i:i + 3] for m in made for i in (0, 3, 6)])]
+                low = min(p[c + 1] for p in made for c in (0, 3, 6))
+                high = max(p[c + 1] for p in made for c in (0, 3, 6))
+                assert under and low < min(under) - 60 and high > min(under) + 60, (source, low, high, min(under))
+            else:
+                assert len(own) >= 20, (source, len(own))
             # a pistol's empty well is floored; where a rifle's magazine went in is left as the
             # release has it (the AR33's floor hung in the air under the receiver)
             assert (len(floor) == 0) if int(island) else (len(floor) >= 3), (source, len(floor))
@@ -93,7 +104,7 @@ def main():
                 assert all(side(p, c) <= 0.3 for p in own for c in (0, 3, 6)), source
                 assert all(side(p, c) >= -0.3 for p in made for c in (0, 3, 6)), source
                 assert top[1] - mouth[1] > 250, (source, mouth, top)   # a pistol's well: most of the grip
-            print(f"{source}: {'a piece of its own' if int(island) else 'cut from the grip'}, "
+            print(f"{source}: {'made for it' if int(built) else 'a piece of its own' if int(island) else 'cut from the grip'}, "
                   f"{len(own)} triangles, {len(made)} made, floor {len(floor)}")
         print(f"PASS: the release's {len(guns)} guns - magazines taken, hands whole, pistols' wells floored")
 

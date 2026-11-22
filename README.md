@@ -325,7 +325,7 @@ from [Wreck's N64 Vault page](https://n64vault.com/pd-multi-levels:goldeneye-x).
 On the virtual screen, GE-X's own fire and reload animations play. To reload by hand in
 stereo VR, also turn on **Hand reload WIP** on **Controls → Gestures**. It needs
 GoldenEye X or Bean's models; with neither on, it's greyed out with
-**Needs GoldenEye X or Bean**. With Bean alone, every gun but the sniper rifle and the Golden Gun
+**Needs GoldenEye X or Bean**. With Bean alone, every gun but the Golden Gun
 reloads by hand ([details](docs/project-bean.md#removable-magazines-hand-reload-wip)).
 - **Magazine guns.** Pull the magazine with your off hand, grip a replacement at your
   belt, and seat it in the gun.
@@ -333,15 +333,15 @@ reloads by hand ([details](docs/project-bean.md#removable-magazines-hand-reload-
   - The RC-P90's magazine lifts off the top.
   - The pistols (PP7s, DD44) are not pulled: their magazine is inside the grip. B/Y drops
     it, then push a fresh one from the belt up into the grip. A grip under a pistol is support.
-  - **Rack it.** A pistol, a submachine gun or the KF7 that you fired dry needs a third step
+  - **Rack it.** A pistol, a submachine gun or a rifle that you fired dry needs a third step
     after its magazine: grip the rear of the slide (or the bolt handle) with your off hand,
     where the ring is, pull back and let go. Change the magazine before it runs dry and there
     is nothing to rack. Touching the gun to your belt skips it. Gun fit's reload page moves the
     ring: squeeze the off hand's grip where you want it. See [racking](docs/hand-reload-rack.md).
 - **Shotguns, rocket launcher, Golden Gun and grenade launcher.** Grip one round at your
   belt and insert it at the gun's port. Release the grip before taking another.
-  - The pump shotgun, fired dry, needs its pump run after the shells go in: grip it under
-    the barrel, pull back and push forward. The automatic shotgun does not.
+  - The pump shotgun is pumped for every shot: slide the hand that holds its fore-end back
+    and forward. The automatic shotgun cycles itself, and is racked once after running dry.
 - **Cougar Magnum.** A belt grab takes a speedloader with up to six rounds. The cylinder
   swings open while you hold it, and inserting seats them all.
 - **Empty guns.** Bring an empty gun to your belt to reload it directly.

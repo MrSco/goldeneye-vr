@@ -2801,6 +2801,12 @@ Gfx *gevrBeanMagDraw(Gfx *gdl, ModelRenderData *templ, GUNHAND hand)
     {
         gdl = gevrBeanMagDrawAt(gdl, templ, hand, &info, &pose);
     }
+    if (info.made && (state == GEVR_GEXMAG_IN || state == GEVR_GEXMAG_GRIPPED))
+    {
+        /* a magazine the mesh has none of (the sniper rifle's): the gun's own list is without it,
+         * so in the gun it is drawn here, under the gun's matrix */
+        gdl = gevrBeanMagDrawAt(gdl, templ, hand, &info, &rw[info.matrix]);
+    }
     hover = hand == gevrReloadSupportGun() && gevrReloadSeatHover(well);
     if ((state == GEVR_GEXMAG_OUT || state == GEVR_GEXMAG_INHAND) && !info.single)
     {

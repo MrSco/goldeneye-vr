@@ -19399,8 +19399,8 @@ static s32 gevrReloadMagPulls(s32 hand)
  * The rack (gevr_rack.h; user, 2026-11-21: "slide the rack on pistols, SMGs,
  * and the AK as a third step. So, drop the clip, put a clip in, and then rack
  * the slide"): the guns that take it, reloaded by hand through a magazine, and
- * the pump shotgun, loaded a shell at a time. The AR33, the RC-P90 and the
- * rest keep their reloads.
+ * the shotguns, loaded a shell at a time. The Cougar, the Golden Gun and the
+ * launchers have nothing to rack.
  */
 static s32 gevrRackItem(s32 item)
 {
@@ -19408,8 +19408,10 @@ static s32 gevrRackItem(s32 item)
     {
         case ITEM_WPPK: case ITEM_WPPKSIL: case ITEM_SILVERWPPK: case ITEM_GOLDWPPK: case ITEM_TT33:
         case ITEM_SKORPION: case ITEM_UZI: case ITEM_MP5K: case ITEM_MP5KSIL: case ITEM_SPECTRE:
-        case ITEM_AK47:
-        case ITEM_SHOTGUN:   /* its pump (user, 2026-11-21); the automatic shotgun cycles itself */
+        case ITEM_AK47: case ITEM_M16: case ITEM_FNP90:
+        case ITEM_SNIPERRIFLE:   /* its bolt (Bean's has a magazine made for it: gevr_beanmag.c) */
+        case ITEM_AUTOSHOT:      /* its charging handle, once dry, as a magazine gun's */
+        case ITEM_SHOTGUN:       /* its pump, after every shot (gevrRackEveryShot) */
             return TRUE;
         default:
             return FALSE;
@@ -19420,6 +19422,16 @@ static s32 gevrRackGun(s32 hand)
 {
     return gevrRackItem(getCurrentPlayerWeaponId(hand)) && gevrGexByHand(hand)
         && (gevrReloadHasMagazine(hand) || gevrReloadSingleRound(hand));
+}
+
+/*
+ * The pump shotgun is pumped for every shot (user, 2026-11-21: "we need to make
+ * the regular shotgun require a pump after each shot"; the automatic shotgun
+ * cycles itself and is racked once dry, as the rest).
+ */
+static s32 gevrRackEveryShot(s32 hand)
+{
+    return getCurrentPlayerWeaponId(hand) == ITEM_SHOTGUN;
 }
 
 /* what is racked: a pistol's slide (the weapon wheel's first wedge), a bolt handle, or the shotgun's pump */
@@ -19532,10 +19544,16 @@ static void gevrGexBuzz(f32 amp);   /* below */
 static s32 gevrRackRun(s32 gunHand, s32 grip, s32 fresh)
 {
     GevrRack *rack = &s_gevrRack[gunHand];
+    /* The pump is the fore-end the off hand already holds the shotgun by: with
+     * the two-handed hold on, that hand has it, from where it is, and keeps the
+     * hold through the pump. Any other gun is let go of first and taken afresh. */
+    const s32 pump = gevrRackKind(gunHand) == GEVR_RACK_KIND_PUMP;
+    const s32 holding = pump && gevrStereoTwoHandGrip();
     f32 rackDist, rackAlong;
 
     gevrRackMeasure(gunHand, &rackDist, &rackAlong, NULL);
-    switch (gevrRackStep(rack, grip, grip && fresh && !s_gevrGexGripSpent && !gevrStereoTwoHandGrip(),
+    if (holding) rackDist = 0.0f;
+    switch (gevrRackStep(rack, grip, grip && !s_gevrGexGripSpent && (holding || (fresh && !gevrStereoTwoHandGrip())),
                          rackDist, rackAlong, gevrRackThrow(gunHand)))
     {
         case GEVR_RACK_GRABBED:
@@ -19548,7 +19566,7 @@ static s32 gevrRackRun(s32 gunHand, s32 grip, s32 fresh)
         case GEVR_RACK_DONE:
             gevrRackChamber(rack, &g_CurrentPlayer->hands[gunHand].weapon_ammo_in_magazine);
             s_gevrGexSeatedTicks[gunHand] = 60;
-            s_gevrGexGripSpent = grip;   /* still gripped: not the two-handed hold's until let go */
+            s_gevrGexGripSpent = grip && !pump;   /* still gripped: not the two-handed hold's until let go (the pump's is) */
             sndPlaySfx(g_musicSfxBufferPtr, GUN_RIFLECOCK_SFX, NULL);
             gevrGexBuzz(0.9f);
             sysLogPrintf(LOG_NOTE, "stereo: hand reload, %s gun racked (%d rounds)", gunHand == GUNRIGHT ? "right" : "left",
@@ -20263,7 +20281,9 @@ s32 gevrGexClaimsOffHand(void)
         /* a magazine in, waiting for the rack: a grip at the slide or the handle is that,
          * ahead of the two-handed hold and the pistol's support */
         f32 rackDist, rackAlong;
-        if (gevrRackMeasure(gunHand, &rackDist, &rackAlong, NULL) && rackDist <= GEVR_RACK_REACH_CM) return TRUE;
+        /* (not the pump: that grip is the two-handed hold's too, and the pump runs under it) */
+        if (gevrRackKind(gunHand) != GEVR_RACK_KIND_PUMP
+            && gevrRackMeasure(gunHand, &rackDist, &rackAlong, NULL) && rackDist <= GEVR_RACK_REACH_CM) return TRUE;
         if (!gevrReloadSingleRound(gunHand)) return FALSE;   /* a magazine gun's has nothing else to take */
     }
     gevrReloadOffHandAt(gunHand, off, off);
@@ -20756,6 +20776,12 @@ void gevrHandReloadTick(void)
         {
             gevrRackNote(&s_gevrRack[i], s_gevrGexMag[i] == GEVR_GEXMAG_IN || s_gevrGexMag[i] == GEVR_GEXMAG_GRIPPED,
                          g_CurrentPlayer->hands[i].weapon_ammo_in_magazine);
+            /* the pump shotgun: a shot fired, the shells left wait for the pump */
+            if (gevrRackEveryShot(i)
+                && gevrRackShot(&s_gevrRack[i], s_gevrGexMag[i] == GEVR_GEXMAG_IN, &g_CurrentPlayer->hands[i].weapon_ammo_in_magazine))
+            {
+                sysLogPrintf(LOG_NOTE, "stereo: hand reload, a shot: %d shell(s) wait for the pump", s_gevrRack[i].pending);
+            }
         }
     }
 

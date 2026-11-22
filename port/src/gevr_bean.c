@@ -2602,6 +2602,7 @@ static void gunMagazine(const GevrBeanMagDef *def, const struct gevrBeanMesh *me
 		info->single = def->single;
 		info->consumed = def->consumed;
 		info->noPull = def->noPull;
+		info->made = def->made;
 		for (int p = 0; p < 4; p++) {
 			fitPoint(fit, from[p], to[p]);
 			for (int k = 0; k < 3; k++)

@@ -36,6 +36,7 @@ typedef struct GevrRack {
     float pull;     /* how far back it is now, 0..throw */
     float throwCm;  /* this gun's throw */
     int kick;       /* ticks left of the jump forward */
+    int last;       /* the rounds in the gun last tick (gevrRackShot) */
 } GevrRack;
 
 /* gevrRackStep's answers */
@@ -79,6 +80,24 @@ static inline int gevrRackAdd(GevrRack *r, int rounds)
     return 1;
 }
 
+/*
+ * A gun pumped for every shot, each tick: fewer rounds in it than last tick
+ * and some left is a shot fired, and those left wait for the pump. (The last
+ * one fired leaves it dry, as any gun: gevrRackNote.) 1 when they start to wait.
+ */
+static inline int gevrRackShot(GevrRack *r, int magIn, int *loaded)
+{
+    int held = 0;
+
+    if (magIn && r->pending == 0 && *loaded > 0 && *loaded < r->last)
+    {
+        r->dry = 1;
+        held = gevrRackHold(r, loaded);
+    }
+    r->last = *loaded;
+    return held;
+}
+
 /* The waiting rounds back into the magazine as it leaves the gun or the hand:
  * they go where it goes. The chamber is as it was. */
 static inline void gevrRackGiveBack(GevrRack *r, int *loaded)
@@ -87,6 +106,7 @@ static inline void gevrRackGiveBack(GevrRack *r, int *loaded)
     r->pending = 0;
     r->held = r->cocked = 0;
     r->pull = 0.0f;
+    r->last = *loaded;
 }
 
 /* Racked (or chambered some other way): the waiting rounds are the gun's. */
@@ -100,6 +120,7 @@ static inline void gevrRackChamber(GevrRack *r, int *loaded)
     r->pending = 0;
     r->held = r->cocked = 0;
     r->pull = 0.0f;
+    r->last = *loaded;   /* the rounds back in it are no shot (gevrRackShot) */
 }
 
 /*

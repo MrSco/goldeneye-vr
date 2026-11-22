@@ -21,6 +21,8 @@
  * as it is: where the magazine went in the release's gun may be open, shut or
  * not there at all (the AR33's hangs off the receiver's front), so no floor is
  * guessed for it. Nothing is cut and no body is made.
+ * The sniper rifle's mesh has no magazine at all: one is made for it, a box
+ * under the receiver (GevrBeanMagDef.made).
  * Everything here is in the release mesh's own units (gevrBeanTri.p), which
  * tools/gevr_bean_mag_preview.py draws.
  */
@@ -63,6 +65,13 @@ typedef struct GevrBeanMagDef {
 	 * GoldenEye's drum matrix), not the body's alone: taken from any part, and
 	 * that part's own list is not drawn while it is out (gevr_bean.c). */
 	int anyPart;
+	/* A magazine the mesh has none of (the sniper rifle's; user, 2026-11-21: "add
+	 * a magazine somewhere ... embed it into the sniper rifle ... have a little
+	 * bit of it sticking out, so that we can grab it"): a plain box lo..hi made
+	 * here, a wider foot plate at its bottom, `inside` of its top in the gun.
+	 * The gun without it is the gun as it is; nothing is cut. gun.c draws it
+	 * under the gun's own matrix while it is in (gevrBeanMagInfo.made). */
+	int made;
 } GevrBeanMagDef;
 
 typedef struct GevrBeanMagBuilt {

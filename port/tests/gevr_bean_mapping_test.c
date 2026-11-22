@@ -881,8 +881,9 @@ int main(int argc, char **argv)
             assert(wants && info.node == s_swap[i].node && info.matrix == nodeMatrix(s_swap[i].node));
             /* some twenty triangles or more left the gun (the floor is not as many); a loose
              * round is a copy, and the gun keeps what it was copied from */
-            assert(nb > 0 && nc >= 3 * 40);
-            assert(info.single ? nb == na : nb <= na - 3 * 20);
+            /* (one the port makes, the sniper rifle's, is its box and plate, and the gun is whole) */
+            assert(nb > 0 && nc >= 3 * (info.made ? 24 : 40));
+            assert(info.single || info.made ? nb == na : nb <= na - 3 * 20);
             /* the well runs up the gun (its y), and the magazine fills it from mouth to top */
             restOf(s_swap[i].node, rest);
             for (int v = 0; v < nc; v++)

@@ -33,7 +33,10 @@ view = (ROOT / "src/game/bondview2.c").read_text(encoding="utf-8")
 items = set(re.findall(r"case (ITEM_\w+):", function(view, "static s32 gevrRackItem(")))
 assert items == {"ITEM_WPPK", "ITEM_WPPKSIL", "ITEM_SILVERWPPK", "ITEM_GOLDWPPK", "ITEM_TT33",
                  "ITEM_SKORPION", "ITEM_UZI", "ITEM_MP5K", "ITEM_MP5KSIL", "ITEM_SPECTRE", "ITEM_AK47",
-                 "ITEM_SHOTGUN"}, items
+                 "ITEM_M16", "ITEM_FNP90", "ITEM_SNIPERRIFLE", "ITEM_AUTOSHOT", "ITEM_SHOTGUN"}, items
+# ... and only the pump shotgun for every shot.
+assert re.findall(r"ITEM_\w+", function(view, "static s32 gevrRackEveryShot(")) == ["ITEM_SHOTGUN"]
+assert "gevrRackEveryShot(i)" in function(view, "void gevrHandReloadTick(")
 
 # Only a magazine pushed in by the off hand waits for the rack: the belt's touch and the gun
 # hand's squeeze there (dual wielding's reloads) go through gevrGexMagIn alone.

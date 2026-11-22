@@ -66,11 +66,13 @@ on a Quest 3 by the user ("works really well"); the doc's test sheet (stairs,
 two headsets) has not been gone through item by item.
 Also unreleased, same branch: hand reload's rack
 ([docs/hand-reload-rack.md](docs/hand-reload-rack.md)), part of Hand reload
-WIP. A pistol, a submachine gun or the KF7 fired dry needs its slide or bolt
+WIP. A pistol, a submachine gun or a rifle fired dry needs its slide or bolt
 racked by the off hand after the new magazine (rounds wait in GevrRack until
 then; a magazine changed with rounds left needs none; the belt's touch and
-dual wielding skip it). The shotgun's shells wait for its pump the same way
-(not the automatic one). The gun gives 1.2 cm with the pull; only the pistols'
+dual wielding skip it). Also the AR33, RC-P90, sniper rifle and automatic
+shotgun (once dry); the pump shotgun is pumped for every shot, by the hand
+that holds its fore-end. Bean's sniper rifle has a magazine made for it
+(gevr_beanmag.c made). The gun gives 1.2 cm with the pull; only the pistols'
 slides move. A ring shows the place; Gun fit's reload page sets it (the off
 hand's grip; ini Rack*, GexRack*, BeanRack*). test_rack.py, test_hand_reload.py
 (rackReload, pumpReload); not yet played in a headset.
