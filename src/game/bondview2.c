@@ -19494,10 +19494,13 @@ static void gevrRackPlace(s32 hand, f32 place[3])
     /* the KF7's charging handle is on its right, a hand's length ahead of the grip: where the
      * owner put it in the headset (2026-11-21, Gun fit: BeanRackKF7=6.97 3.56 -17.18) */
     static const f32 kf7[3] = { 7.0f, 3.6f, -17.2f };
+    /* ... and the AR33's, on its right too, nearer the grip (2026-11-21: BeanRackAR33=5.71 3.58 -9.78) */
+    static const f32 ar33[3] = { 5.7f, 3.6f, -9.8f };
     const f32 *fit = gevrRackFit(hand);
+    const s32 item = getCurrentPlayerWeaponId(hand);
 
     memcpy(place, fit[0] != 0.0f || fit[1] != 0.0f || fit[2] != 0.0f ? fit
-                  : getCurrentPlayerWeaponId(hand) == ITEM_AK47 ? kf7 : guess[gevrRackKind(hand)], 3 * sizeof(f32));
+                  : item == ITEM_AK47 ? kf7 : item == ITEM_M16 ? ar33 : guess[gevrRackKind(hand)], 3 * sizeof(f32));
 }
 
 /*

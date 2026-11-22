@@ -1763,6 +1763,12 @@ static void pumpReload(void)
         assert(gevrRackPointShown(GUNRIGHT, ring, &held));
         assert(fabsf(ring[0] - poses[1][0] - side * 7.0f * cm) < 1e-3f && fabsf(ring[1] - poses[1][1] - 3.6f * cm) < 1e-3f
             && fabsf(ring[2] - poses[1][2] + 17.2f * cm) < 1e-3f);
+        /* ... and the AR33's, nearer the grip */
+        rackSeat(ITEM_M16, 30, 0);
+        gripHeld[0] = 0; gevrHandReloadTick();
+        assert(gevrRackPointShown(GUNRIGHT, ring, &held));
+        assert(fabsf(ring[0] - poses[1][0] - side * 5.7f * cm) < 1e-3f && fabsf(ring[1] - poses[1][1] - 3.6f * cm) < 1e-3f
+            && fabsf(ring[2] - poses[1][2] + 9.8f * cm) < 1e-3f);
     }
     rackSeat(ITEM_UZI, 30, 0);
     gripHeld[0] = 0; gevrHandReloadTick();

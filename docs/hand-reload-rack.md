@@ -104,6 +104,7 @@ bolt out of each mesh, as the magazines were, is the next step.
 | A pistol's place, unfitted | 7 cm above the gun hand's grip, 1 cm behind it |
 | A bolt handle's, unfitted | 6 cm above, 6 cm ahead |
 | The KF7's, unfitted | 7 cm to the right, 3.6 above, 17.2 ahead: the owner's own fit (a real AK's handle is on its right) |
+| The AR33's, unfitted | 5.7 cm to the right, 3.6 above, 9.8 ahead: the owner's own fit |
 | The pump's, unfitted | 2 cm above, 28 cm ahead, or anywhere on the fore-end |
 | Throw | 3.5 cm for a slide, 5 cm for a bolt, 6 cm for the pump |
 | Still gripped | done once the hand is back within half the throw |
