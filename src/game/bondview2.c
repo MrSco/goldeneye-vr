@@ -19186,14 +19186,17 @@ extern float VrReloadGrab[2][3], VrReloadBelt[3], VrGexHeldMag[3];   /* vr_setti
 extern float VrBeanReloadGrab[3];   /* and Bean's models' grab */
 
 extern int VrManualReloading;
-/* Hand reload needs a model set with magazines to take out (user): GoldenEye
- * X's, whose reloads are its magazines and hands, or with GE-X off Bean's, cut
- * from its guns (gevr_beanmag.h; user, 2026-11-18). The setting is kept; with
- * neither set the game reloads itself. */
+/* Hand reload needs magazines to take out (user): GoldenEye X's, whose reloads
+ * are its magazines and hands; with GE-X off Bean's, cut from its guns
+ * (gevr_beanmag.h; user, 2026-11-18); and GoldenEye's own, from the cartridge's
+ * lists (gevr_n64mag.h; owner, 2026-11-21: "also original mode guns"). A ROM
+ * hack's own guns under GoldenEye's names have none: there the setting is kept
+ * and the game reloads itself, as it did. */
 extern int gevrBeanIsEnabled(void);
 extern s32 gevrBeanMagHeld(s32 hand);   /* gun.c: the hand's Bean gun has a magazine to take out */
 extern s32 gevrBeanMagPoints(f32 centre[3], f32 well[3], f32 held[3]);
-#define gevrHandReloadEnabled() (VrManualReloading && (VrGexGuns || gevrBeanIsEnabled()))
+#define gevrReloadModelsOn() (VrGexGuns || gevrBeanIsEnabled() || gevrRomRetailArt())
+#define gevrHandReloadEnabled() (VrManualReloading && gevrReloadModelsOn())
 
 static s32 gevrReloadGun(s32 item)
 {
@@ -19208,7 +19211,7 @@ static s32 gevrReloadGun(s32 item)
  * the belt's touch or the chest cross, the game's own reload from a gesture. */
 static s32 gevrReloadItemByHand(s32 item)
 {
-    return gevrReloadGun(item) && (VrGexGuns || gevrBeanIsEnabled());
+    return gevrReloadGun(item) && gevrReloadModelsOn();
 }
 
 /* The free controller follows the weapon slot, independently of handedness. */

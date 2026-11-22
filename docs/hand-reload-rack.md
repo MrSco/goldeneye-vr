@@ -3,8 +3,9 @@
 A third step for guns reloaded by hand (owner, 2026-11-21: "drop the clip, put
 a clip in, and then rack the slide"): the pistols' slides, the bolt handles of
 the submachine guns and rifles, and the shotgun's pump. Part of **Hand reload
-WIP** (Controls → Gestures): no setting of its own. GoldenEye X's guns and
-Bean's alike.
+WIP** (Controls → Gestures): no setting of its own. GoldenEye X's guns,
+Bean's and GoldenEye's own ([hand-reload-original](hand-reload-original.md))
+alike.
 
 Released in v0.5.24. Played on a Quest 3 with Bean's models by the owner through
 2026-11-21 ("going pretty good"); GoldenEye X's guns and left-handed mode were not.

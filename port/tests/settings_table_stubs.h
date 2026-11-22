@@ -46,6 +46,8 @@ static unsigned short s_music = 32767;
 int gevrHatAvailable(void) { return 1; }
 int gevrBeanIsAvailable(void) { return 1; }
 int gevrBeanIsEnabled(void) { return s_bean; }
+static int s_campaign;   /* gevr_romlayout.h: 0 GoldenEye's own art */
+int gevrRomCampaign(void) { return s_campaign; }
 void gevrBeanSetEnabled(int on) { s_bean = on; }
 int gevrTexpackFillAvailable(void) { return 1; }
 void vr_screen_resize(float dist, float fov) { VrScreenDistance = dist; VrScreenFov = fov; }

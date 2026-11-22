@@ -116,7 +116,8 @@ fields (KF7 13, -23, -27; PP7 8, -19, -26).
   default; also the in-game panel's VR settings, from the next weapon drawn). On
   the screen it fires and reloads with GE-X's animations; its hands are
   the hand model on the gun's skeleton, as PD draws them.
-- In the headset there is no reload animation (hand reload): the off hand
+- In the headset there is no reload animation (hand reload; Bean's and
+  GoldenEye's own guns reload the same way: project-bean.md, hand-reload-original.md): the off hand
   pulls the magazine (or B/Y drops it; it falls), takes one at the belt
   and pushes it into the well. A magazine keeps its rounds while out;
   dropped, they go back to the reserve; one from the belt is full. Either

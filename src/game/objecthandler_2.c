@@ -4,6 +4,8 @@
 #include "gevr_handpatch.h"
 #include "gevr_oddjobhat.h"
 #include "gevr_bean.h"
+#include "gevr_n64mag.h"
+#include "gevr_romlayout.h"
 #include "gevr_gexmodel.h"
 #include "system.h"
 #include "image.h"
@@ -150,6 +152,10 @@ void load_object_fill_header(struct ModelFileHeader *objheader, u8 *name, u8* ds
     gevrBeanForgetModelStorage(filedata, (u32)get_pc_remaining_buffer_for_index(fileGetIndex((char *)name)));
     /* Converted GE-X first-person rigs retain their arms, guns and reloads. */
     if (!gevrGexPendingFile) gevrBeanModelApply(objheader, (const char *)name);
+    /* GoldenEye's own guns' magazines, to take out by hand (gevr_n64mag.h): the cartridge's art only */
+    gevrN64MagForget(objheader);
+    gevrN64MagForgetStorage(filedata, (u32)get_pc_remaining_buffer_for_index(fileGetIndex((char *)name)));
+    if (!gevrGexPendingFile && gevrRomRetailArt()) gevrN64MagApply(objheader, (const char *)name);
 }
 
 

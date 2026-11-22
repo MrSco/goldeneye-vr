@@ -16,6 +16,7 @@
 #include <string.h>
 #include <math.h>
 #include "gevr_settings.h"
+#include "gevr_romlayout.h"   /* gevrRomRetailArt: hand reload's own-model magazines */
 #include "net/net_core.h"
 #include "net/net_game.h"
 #include "net/net_rules.h"
@@ -140,8 +141,8 @@ typedef struct Row {
 
 static const char *blockedCurved(void) { return vr_screen_curve_supported() ? NULL : "Not on this headset"; }
 static const char *blockedPassthrough(void) { return vr_passthrough_supported() ? NULL : "Not on this headset"; }
-/* GoldenEye X's guns, or with them off Bean's that have a magazine (gevr_beanmag.h) */
-static const char *blockedReload(void) { return VrGexGuns || gevrBeanIsEnabled() ? NULL : "Needs GoldenEye X or Bean"; }
+/* GoldenEye X's guns, Bean's, or GoldenEye's own (gevr_n64mag.h): not a ROM hack's own guns */
+static const char *blockedReload(void) { return VrGexGuns || gevrBeanIsEnabled() || gevrRomRetailArt() ? NULL : "Not with this ROM's guns"; }
 static const char *blockedHat(void) { return gevrHatAvailable() ? NULL : "Get it in Mods"; }
 static const char *blockedBeanFill(void) { return gevrTexpackFillAvailable() ? NULL : "Needs an HD pack"; }
 /* hand reload takes B, so grip use stays on with it (bondview2.c gevrHandReloadActive): shown on, not the stored value (headset, test.21) */
@@ -542,7 +543,7 @@ static const Row s_rows[] = {
       .names = s_slotSizeNames, .count = 3, .def = NAN, .blocked = blockedSlots },
     { .label = "Show slots", .headset = 1, .tooltip = "Draw what the hips, chest and belt hold when you look down.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrBodySlotShow, .def = NAN, .blocked = blockedSlots },
-    { .label = "Hand reload WIP", .headset = 1, .tooltip = "Reload by taking a magazine from your belt (GoldenEye X's guns, or Bean's).", .kind = GEVR_SET_TOGGLE,
+    { .label = "Hand reload WIP", .headset = 1, .tooltip = "Reload by hand: drop the magazine, push one in from your belt, rack the slide.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrManualReloading, .def = NAN, .blocked = blockedReload },
     { .label = "Grip use", .headset = 1, .tooltip = "Grip doors, buttons and switches to use them.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrGestureGripUse, .def = NAN, .blocked = blockedGripUse,

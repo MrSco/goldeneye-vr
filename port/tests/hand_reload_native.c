@@ -90,11 +90,14 @@ int gevrFitLook(int hand) { return gevrGexHeld(hand) ? 1 : 0; }
 static int beanOn, beanMag[2], beanPoints;
 static float beanFoot[3], beanFit[2][3];
 static int gevrBeanIsEnabled(void) { return beanOn; }
+/* GoldenEye's own guns' magazines (gevr_n64mag.h): the ROM's art is GoldenEye's, not a hack's */
+static int ownArt;
+static int gevrRomRetailArt(void) { return ownArt; }
 static int gevrBeanPp7(int item)
 { return item == ITEM_WPPK || item == ITEM_WPPKSIL || item == ITEM_SILVERWPPK || item == ITEM_GOLDWPPK; }
 static int beanKind;   /* gun.c gevrBeanMagKind: 1 a loose round, 2 gone once fired, 4 never pulled */
 static int gevrBeanMagKind(int hand);
-static int gevrBeanMagHeld(int hand) { return !VrGexGuns && beanOn && beanMag[hand]; }
+static int gevrBeanMagHeld(int hand) { return !VrGexGuns && (beanOn || ownArt) && beanMag[hand]; }
 static int beanLiftsOff;
 s32 gevrBeanMagPullsUp(s32 hand) { return gevrBeanMagHeld(hand) && beanLiftsOff; }
 static int gevrBeanMagKind(int hand) { return gevrBeanMagHeld(hand) ? beanKind : 0; }
@@ -219,7 +222,7 @@ static void reset(void)
     player.hands[GUNRIGHT].weapon = ITEM_WPPK;
     player.hands[GUNLEFT].weapon = ITEM_UNARMED;
     gex[0] = gex[1] = 0;
-    beanOn = beanMag[0] = beanMag[1] = beanPoints = beanLiftsOff = beanKind = 0;
+    beanOn = beanMag[0] = beanMag[1] = beanPoints = beanLiftsOff = beanKind = ownArt = 0;
     memset(beanFit, 0, sizeof(beanFit));
     pointsValid = supportHeld = supportCtrl = falls = foreEnd = 0;
     readyEvents = 0;
@@ -505,7 +508,24 @@ static void beanPp7Reload(void)
 
     reset();
     VrGexGuns = 0;
-    assert(!gevrHandReloadActive() && !gevrManualReloadOn(GUNRIGHT));   /* neither model set */
+    assert(!gevrHandReloadActive() && !gevrManualReloadOn(GUNRIGHT));   /* a ROM hack's own guns: the game's reload */
+    /* GoldenEye's own guns reload by hand as Bean's do (owner, 2026-11-21: "also original mode
+     * guns"): the same states, by the magazine gevr_n64mag.c lays out of the cartridge's model */
+    ownArt = 1; beanMag[GUNRIGHT] = 1;
+    stats.MagSize = 7;
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine = 3;
+    at(1, 20, 20, 40);
+    at(0, 20, -20, 40);
+    gevrHandReloadTick();
+    assert(gevrHandReloadActive() && gevrManualReloadOn(GUNRIGHT) && gevrReloadButtonDrops(GUNRIGHT));
+    gevrGexDropMagazine(GUNRIGHT);
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_OUT && player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0);
+    assert(gevrBeanMagState(GUNRIGHT, NULL) == GEVR_GEXMAG_OUT && reserve == 53);
+    /* a gun whose model has nothing to take (the Cougar) is still reloaded by a gesture, never by itself */
+    beanMag[GUNRIGHT] = 0;
+    assert(gevrHandReloadActive() && gevrManualReloadOn(GUNRIGHT) && gevrBeanMagState(GUNRIGHT, NULL) == GEVR_GEXMAG_IN);
+    reset();
+    VrGexGuns = 0;
     beanOn = 1; beanMag[GUNRIGHT] = 1;
     stats.MagSize = 7;
     player.hands[GUNRIGHT].weapon_ammo_in_magazine = 3;

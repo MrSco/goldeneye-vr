@@ -342,6 +342,12 @@ void gevrBeanSetMagazine(int state)
 	s_magazine = state;
 }
 
+/* GoldenEye's own guns' magazines follow the same state (gevr_n64mag.c) */
+int gevrBeanMagazineState(void)
+{
+	return s_magazine;
+}
+
 int gevrBeanGunMagazine(const void *header, struct gevrBeanMagInfo *out)
 {
 	for (int i = 0; header && i < s_nswap; i++)

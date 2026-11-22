@@ -41,7 +41,8 @@ pictures use the original game textures, as in Dab's Mod (its explosions are
 the cartridge's); HD / AI and legacy texture packs cannot fill those gaps. Switching during a level clears previous texture uploads and caches.
 With GoldenEye X enabled, its first-person guns, arms, watch and hand-reload rig
 keep priority and their own ROM textures. Bean supplies the other models and rooms.
-With it off, Bean's magazine-fed guns have a magazine to take out by hand (below).
+With it off, Bean's magazine-fed guns have a magazine to take out by hand (below);
+with Bean off too, GoldenEye's own do ([hand-reload-original](hand-reload-original.md)).
 
 During play, use **watch → VR options → Mods and fun → Project Bean** or hold
 exactly one grip + right-stick click for one second. Both switches affect meshes

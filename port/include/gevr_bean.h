@@ -97,6 +97,7 @@ struct gevrBeanMagInfo {
 	int made;        /* the mesh has none: made by the port, and drawn by gun.c while it is in (gevr_beanmag.h) */
 };
 void gevrBeanSetMagazine(int state);
+int gevrBeanMagazineState(void);
 int gevrBeanGunMagazine(const void *header, struct gevrBeanMagInfo *out);
 /* whether the release draws any of a model's lists now */
 int gevrBeanDrawsModel(const void *header);

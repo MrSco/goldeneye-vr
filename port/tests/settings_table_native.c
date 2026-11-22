@@ -154,8 +154,16 @@ int main(void)
     check(!gevrSettingShown(find("  Chance")), "dismemberment's thresholds hide while it is off");
     VrRagdolls = 0;
     check(gevrSettingBlocked(find("Dismemberment")) != NULL, "dismemberment needs ragdolls");
+    /* hand reload has magazines to take with every model set of GoldenEye's own art; a ROM hack's
+     * own guns under GoldenEye's names have none (gevr_n64mag.h) */
     VrGexGuns = 0;
-    check(gevrSettingBlocked(find("Hand reload WIP")) != NULL, "hand reload needs GoldenEye X");
+    check(gevrSettingBlocked(find("Hand reload WIP")) == NULL, "hand reload works on GoldenEye's own guns");
+    s_campaign = 1;   /* GEVR_CAMPAIGN_GF64 */
+    check(gevrSettingBlocked(find("Hand reload WIP")) != NULL, "hand reload is not for a hack's own guns");
+    VrGexGuns = 1;
+    check(gevrSettingBlocked(find("Hand reload WIP")) == NULL, "hand reload works on GoldenEye X's guns in a hack");
+    VrGexGuns = 0;
+    s_campaign = 0;
     /* hand reload holds grip use on: blocked, and shown on whatever the ini says */
     VrGexGuns = 1;
     VrManualReloading = 1;
