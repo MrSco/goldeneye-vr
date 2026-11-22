@@ -5,16 +5,26 @@ in docs/archive/ (the v0.5.15 batch as it stood before release is
 [status-2026-11-10](docs/archive/status-2026-11-10.md)); features keep their
 own notes. No game data is shipped; building publishes nothing.
 
-**Release:** v0.5.23 (versionCode 136, protocol 27), 2026-11-21, tag on
-e227de35 ([notes](docs/releases/v0.5.23.md)): #269 (pads, Head bob, Frame
-rate Auto/Full/Half, the 2nd generation Siri Remote on tvOS 26, bullet holes
-and Dam's grates, menu saves off the game thread, Reset all settings), flat
-online guests' keys and mouse look, and a loading screen on every platform
-with Bean's level front-loaded, shaders compiled at boot and Bean's level
-work cached in $S/gevr_cache. Protocol 27 unchanged: plays online with
-v0.5.22. 9 downloads from one commit; TestFlight iOS 144, visionOS 20, tvOS
-6. Gates: suite 113/113 (96 Windows + 17 WSL-only, all 20 WSL passing), Java
-x3, server gate passed, Quest smoke test (Dam, Bean) clean. PR #271.
+**Release:** v0.5.24 (versionCode 137, protocol 27), 2026-11-21, tag on
+e73c2a4f ([notes](docs/releases/v0.5.24.md)): teleport movement (Comfort >
+Movement, off by default) and hand reload's third step (rack the slide, pull
+the bolt, pump the shotgun), with a magazine made for Bean's sniper rifle,
+Bean shotguns' shells taken from the gun, and no holster in the way of a
+magazine. Protocol 27 unchanged: plays online with v0.5.23 and v0.5.22. 9
+downloads from one commit; TestFlight iOS 146 (145 may have gone up in a run
+stopped mid-upload), visionOS 21, tvOS 7. Gates: suite 115/115 on ae69a075
+(99 Windows + 16 WSL-only; e73c2a4f after it changes one default, its tests
+re-run), Java x3, server gate passed; played on a Quest 3 with Bean by the
+user through the day (no separate smoke test). PR #272.
+**Next, asked for by the user:** the sniper rifle's two-handed bat with Bean's
+models (GoldenEye X has it, gun.c gevrGexBatPose). Their plan: the Bean
+pistol-grip hand as the right hand on the rifle, held as it is now; the left
+hand taking it switches to the bat swing by the GE-X logic. Their latest
+headset screenshot shows the rifle with no hand. Then: a host rule against
+teleporting (protocol 28), bolts that move on the meshes, GE-X shotguns'
+shells from the gun.
+**Before it:** v0.5.23 (versionCode 136), tag on e227de35
+([notes](docs/releases/v0.5.23.md)), PR #271.
 **In v0.5.23 (from t3/discuss-issue-269):** #269's Apple TV
 list: the Info.plist's GCSupportsMultipleMicroGamepads + DirectionalGamepad
 (tvOS 26 merged a 2nd generation remote into a ring-less "Coalesced Remote";
@@ -55,7 +65,7 @@ cached in $S/gevr_cache (build-stamped, input-hashed, 8 files): Dam Bean
 front-load PC 1.83 -> 1.23 s, Quest 3.4 -> 1.8 s, HD 6.3 -> 3.7 s. The first
 menu open no longer loads the watch arm (HD 137 ms). Not done: Bean guns and
 hands kept across levels (memory on HD/phones/Quest).
-**Unreleased (t3/multiplayer-teleport-locomotion):** teleport locomotion
+**In v0.5.24 (from t3/multiplayer-teleport-locomotion):** teleport locomotion
 ([docs/teleport.md](docs/teleport.md)), Comfort > Movement: Teleport, headset
 only, off by default. The move stick aims an arc from its hand, letting go
 jumps behind a 0.17 s blink, a flick hops 1 m. A jump goes only where the
@@ -64,7 +74,7 @@ edges) and is paid from a 6 m stamina filling at 90% of the forward run, so
 it never out-travels running; no protocol change (others see a dash). Played
 on a Quest 3 by the user ("works really well"); the doc's test sheet (stairs,
 two headsets) has not been gone through item by item.
-Also unreleased, same branch: hand reload's rack
+Also in v0.5.24: hand reload's rack
 ([docs/hand-reload-rack.md](docs/hand-reload-rack.md)), part of Hand reload
 WIP. A pistol, a submachine gun or a rifle fired dry needs its slide or bolt
 racked by the off hand after the new magazine (rounds wait in GevrRack until
@@ -77,9 +87,9 @@ shotgun's shells are taken from its own saddle, not the belt. Bean's sniper rifl
 (gevr_beanmag.c made). The gun gives 1.2 cm with the pull; only the pistols'
 slides move. A ring shows the place; Gun fit's reload page sets it (the off
 hand's grip; ini Rack*, GexRack*, BeanRack*). test_rack.py, test_hand_reload.py
-(rackReload, pumpReload). Played on a Quest 3 by the user 2026-11-21 ("pretty
-good"): the KF7's place is theirs, the hold's letting go and the automatic
-shotgun's pump came of it and are not yet played.
+(rackReload, pumpReload). Played on a Quest 3 with Bean by the user through
+2026-11-21 ("going pretty good"): the KF7's and AR33's places are theirs.
+GE-X's guns and left-handed mode were not played.
 **Next:** device checks: split screen with two real pads on an Apple TV and
 a phone, 3-4 players on a slow device; trigger feedback on Xbox and
 DualSense pads; a pad in the Quest and PC VR headsets; Vision Pro's ghosting

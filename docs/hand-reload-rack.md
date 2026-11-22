@@ -6,7 +6,8 @@ the submachine guns and rifles, and the shotgun's pump. Part of **Hand reload
 WIP** (Controls → Gestures): no setting of its own. GoldenEye X's guns and
 Bean's alike.
 
-Played on a Quest 3 by the owner (2026-11-21, "pretty good"); what changed after that is marked in the test sheet.
+Released in v0.5.24. Played on a Quest 3 with Bean's models by the owner through
+2026-11-21 ("going pretty good"); GoldenEye X's guns and left-handed mode were not.
 
 ## What the player does
 
