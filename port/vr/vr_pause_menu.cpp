@@ -66,7 +66,7 @@ void drawFriends() {
     ctx.canJoin=gevrCampaignCoopOk(VrCampaign);   /* co-op in Goldfinger 64, TND and Mirror Mode too */
     ctx.joinHint="A friend's party plays one campaign: choose theirs beside START in the launcher.";
     ctx.canInvite=open;
-    ctx.inviteHint=!netIsActive()?"Invite from a lobby: host one on the launcher's Multiplayer page."
+    ctx.inviteHint=!netIsActive()?"Invite from a lobby: host one on the launcher's Online page."
         :!lobby[0]?"This game has no internet lobby to invite into.":!open?"This match is full.":"Invite them into this match.";
     ctx.lobby=lobby;ctx.netVersion=GEVR_NET_VERSION;ctx.message=gevrFriendsFreshMessage();
     ctx.canRename=!netIsActive();

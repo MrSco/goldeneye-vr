@@ -2380,14 +2380,14 @@ void gevrMultiplayerTick(GevrLauncherTabs &tabs, bool &startMatch, bool romReady
             clientJoinId.clear();
             onlineMessage = "Joining your friend's game...";
             gevrJavaCommand("lobbyCommand", ("join|" + code + "|" + std::to_string(GEVR_NET_VERSION) + gevrInputClassField()).c_str());
-            tabs.open(GEVR_LTAB_MULTIPLAYER, GEVR_LSUB_JOIN);
+            tabs.open(GEVR_LTAB_ONLINE, GEVR_LSUB_JOIN);
         }
     }
     if (gevrFriendsTakeHostRequest() && !netIsActive() && clientJoinId.empty()) {
         // a lobby hosted to invite friends into is private unless friends-only was chosen
         s_hostVisibility = VrMpVisibility == 0 ? "private" : nullptr;
         gevrMpStartHosting();
-        tabs.open(GEVR_LTAB_MULTIPLAYER, GEVR_LSUB_HOST);
+        tabs.open(GEVR_LTAB_ONLINE, GEVR_LSUB_HOST);
     }
     char iceSdp[JUICE_MAX_SDP_STRING_LEN];
     if (!clientJoinId.empty() && netIceTakeDescription(clientJoinId.c_str(), iceSdp, sizeof(iceSdp)))
@@ -2596,7 +2596,7 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                             vrSettingsSave();
                         }
                         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                            gevrTooltip("One companion for the party, from the next mission or Horde retry. Weapon, aggression and durability: Rules > AI ally.");
+                            gevrTooltip("One companion for the party, from the next mission or Horde retry. Weapon, aggression and durability: Game > AI ally.");
                         ImGui::EndDisabled();
                         ImGui::TableNextColumn();
                         ImGui::TextColored(gold, "LIVE SETTINGS");
@@ -3840,7 +3840,7 @@ extern "C" void gevrLauncherRun(void)
             ImGui::PopStyleColor();
         };
         gevrLauncherTabRows(launcherTabs, [&](int tab, int sub) {
-            if (tab == GEVR_LTAB_MULTIPLAYER) {
+            if (tab == GEVR_LTAB_ONLINE) {
                 // Online play: GoldenEye's every mode, a hack campaign's co-op (gevrCampaignCoop).
                 // A join compares the campaign and its ROM (net_core.c NET_CONTENT_*), so both
                 // sides load the same game.
@@ -3850,6 +3850,11 @@ extern "C" void gevrLauncherRun(void)
             gevrLauncherBeginPage("launcher-page", footerH);
             switch (tab) {
             case GEVR_LTAB_PLAY: {
+                if (sub == GEVR_LSUB_PLAY_GHOSTS) {
+                    // the ghost boards and which run each mission races (vr_ghosts.cpp, docs/speedrun.md)
+                    gevrGhostsPage(gold, good, bad);
+                    break;
+                }
                 gevrSettingsSection(settings, GEVR_LSEC_PLAY, GEVR_SET_LAUNCHER);
                 // LiveSplit (port/src/gevr_livesplit.c, docs/speedrun.md): the mission clock
                 // to the TCP server of LiveSplit on the runner's PC
@@ -3891,9 +3896,11 @@ extern "C" void gevrLauncherRun(void)
                     gevrUpdaterCommand(tests ? "testbuilds:1" : "testbuilds:0");
                 }
                 if (ImGui::IsItemHovered()) gevrTooltip("Pre-release builds show up as updates too.");
+                ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x * 2.0f);
+#else
+                ImGui::Spacing();
 #endif
                 // #269 #10: the settings table's rows, every tab's, back to their defaults
-                ImGui::Spacing();
                 if (ImGui::Button("Reset all settings")) ImGui::OpenPopup("Reset all settings?");
                 if (ImGui::IsItemHovered())
                     gevrTooltip("Every setting in these tabs back to its default. Saves, the ROM, packs, "
@@ -3929,13 +3936,11 @@ extern "C" void gevrLauncherRun(void)
                              "strafe, the centre fires, Play/Pause changes gun (hold it to pause), Back opens "
                              "doors. A game pad works too, and takes player 1 from the remote.");
 #endif
-                        gevrSettingsSection(settings, GEVR_LSEC_HANDS, GEVR_SET_LAUNCHER);
+                        gevrSettingsSection(settings, GEVR_LSEC_LOOK, GEVR_SET_LAUNCHER);
                     }
                 }
 #else
-                if (sub < 0) {
-                    gevrSettingsSection(settings, GEVR_LSEC_HANDS, GEVR_SET_LAUNCHER);
-                } else if (sub == GEVR_LSUB_HANDS) {
+                if (sub == GEVR_LSUB_HANDS) {
                     gevrSettingsSection(settings, GEVR_LSEC_HANDS, GEVR_SET_LAUNCHER);
                     note("Gun fit: in the next level, with a gun in hand, the sticks move the gun on your hand; "
                          "A saves, B undoes. In single player, Menu + A starts and ends it during play.");
@@ -3947,29 +3952,30 @@ extern "C" void gevrLauncherRun(void)
                     note("Hold Grip on grenades, knives and mines, swing your arm and let go to throw. "
                          "Grip + Trigger cooks a grenade.");
                     gevrSettingsSection(settings, GEVR_LSEC_THROWING, GEVR_SET_LAUNCHER);
+                } else if (sub == GEVR_LSUB_LOOK) {
+                    gevrSettingsSection(settings, GEVR_LSEC_LOOK, GEVR_SET_LAUNCHER);
                 } else {
                     gevrHapticsPage(gold, good, bad);
                 }
 #endif
                 break;
-            case GEVR_LTAB_COMFORT:
-                gevrSettingsSection(settings, GEVR_LSEC_COMFORT, GEVR_SET_LAUNCHER);
-                break;
-            case GEVR_LTAB_SCREEN:
-                note("Both grips grab the screen; the right stick sets its distance and size. "
-                     "Hold the left stick click to recentre it.");
-                gevrSettingsSection(settings, GEVR_LSEC_SCREEN, GEVR_SET_LAUNCHER);
+            case GEVR_LTAB_COMFORT_DISPLAY:
+                if ((gevrLauncherContext() & GEVR_CTX_VR) != 0) {
+                    note("Both grips grab the screen; the right stick sets its distance and size. "
+                         "Hold the left stick click to recentre it.");
+                }
+                gevrSettingsSection(settings, GEVR_LSEC_COMFORT_DISPLAY, GEVR_SET_LAUNCHER);
                 // XBLA / Bean's frames take longer than 120 Hz's 8.3 ms when turning
                 // in open levels (Dam on Quest 3: 197 missed frames in three
                 // minutes of turning at 120 Hz, 17 at 90).
-                if (gevrBeanIsEnabled() && VrRefreshRate > 90 && !vr_spacewarp_setting_on()) {
+                if ((gevrLauncherContext() & GEVR_CTX_VR) != 0 && gevrBeanIsEnabled() && VrRefreshRate > 90 && !vr_spacewarp_setting_on()) {
                     ImGui::PushStyleColor(ImGuiCol_Text, bad);
                     ImGui::TextWrapped("Bean can stutter at 120 Hz while turning in open levels: "
                                        "90 Hz, or SpaceWarp, holds nearly every frame.");
                     ImGui::PopStyleColor();
                 }
                 break;
-            case GEVR_LTAB_RULES:
+            case GEVR_LTAB_GAME:
                 if (sub == GEVR_LSUB_GAME_RULES) {
                     // Game rules GEVR PC changed (vr450.2, its CORPSEKEEP); off keeps the original game's rule
                     note("Off keeps the original rules. Mines are solo; with ragdolls on, bodies stay in every mode. "
@@ -3994,10 +4000,6 @@ extern "C" void gevrLauncherRun(void)
                     gevrCheatsPage(settings, gold);
                 }
                 break;
-            case GEVR_LTAB_GHOSTS:
-                // the ghost boards and which run each mission races (vr_ghosts.cpp, docs/speedrun.md)
-                gevrGhostsPage(gold, good, bad);
-                break;
             case GEVR_LTAB_MODS:
                 gevrModsPage(now, gold, good, bad);
                 break;
@@ -4009,8 +4011,8 @@ extern "C" void gevrLauncherRun(void)
             inputSetBindingCapture(0);
         }
 #endif
-        if (launcherTabs.top != GEVR_LTAB_MULTIPLAYER) footerTop = ImGui::GetCursorPosY();
-        if (launcherTabs.top != GEVR_LTAB_MULTIPLAYER) {
+        if (launcherTabs.top != GEVR_LTAB_ONLINE) footerTop = ImGui::GetCursorPosY();
+        if (launcherTabs.top != GEVR_LTAB_ONLINE) {
         ImGui::Separator();
         // Update line: only when there is something to say, so an
         // up-to-date launcher looks as it always has.

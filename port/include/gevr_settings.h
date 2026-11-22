@@ -36,20 +36,40 @@ enum {
     GEVR_SEC_COUNT
 };
 
+/* Context visibility flags shared by launcher tabs, sub-tabs and settings rows */
+#define GEVR_CTX_PC_FLAT      (1u << 0)  /* PC flat window */
+#define GEVR_CTX_PC_VR        (1u << 1)  /* PC VR headset (OpenXR) */
+#define GEVR_CTX_QUEST        (1u << 2)  /* Quest / standalone Android VR */
+#define GEVR_CTX_MOBILE       (1u << 3)  /* Android phone / tablet flat */
+#define GEVR_CTX_APPLE        (1u << 4)  /* iOS / visionOS flat (touch + gyro) */
+#define GEVR_CTX_APPLE_TV     (1u << 5)  /* tvOS flat (remote / pad, no touch/gyro) */
+#define GEVR_CTX_PAUSE        (1u << 6)  /* In-game pause / solo panel */
+
+#define GEVR_CTX_VR           (GEVR_CTX_PC_VR | GEVR_CTX_QUEST)
+#define GEVR_CTX_TOUCH        (GEVR_CTX_MOBILE | GEVR_CTX_APPLE)
+#define GEVR_CTX_FLAT         (GEVR_CTX_PC_FLAT | GEVR_CTX_MOBILE | GEVR_CTX_APPLE | GEVR_CTX_APPLE_TV)
+#define GEVR_CTX_ALL_LAUNCHER (GEVR_CTX_VR | GEVR_CTX_FLAT)
+#define GEVR_CTX_ALL          (GEVR_CTX_ALL_LAUNCHER | GEVR_CTX_PAUSE)
+
+/* Active build context (or test override when non-zero) */
+unsigned gevrSettingsContext(void);
+void gevrSettingsSetContextOverride(unsigned ctx);
+
 /* The launcher's places for them: its tabs and sub-tabs (docs/launcher-unify.md) */
 enum {
     GEVR_LSEC_PLAY,
-    GEVR_LSEC_HANDS,       /* Controls > Hands */
-    GEVR_LSEC_GESTURES,    /* Controls > Gestures */
-    GEVR_LSEC_THROWING,    /* Controls > Throwing */
-    GEVR_LSEC_COMFORT,
-    GEVR_LSEC_SCREEN,
-    GEVR_LSEC_RULES,       /* Rules > Game rules */
-    GEVR_LSEC_ALLY,        /* Rules > AI ally */
-    GEVR_LSEC_CHEATS,      /* Rules > Cheats */
+    GEVR_LSEC_HANDS,           /* Controls > Hands (VR) */
+    GEVR_LSEC_GESTURES,        /* Controls > Gestures (VR) */
+    GEVR_LSEC_THROWING,        /* Controls > Throwing (VR) */
+    GEVR_LSEC_LOOK,            /* Controls > Look (VR + flat) */
+    GEVR_LSEC_COMFORT_DISPLAY, /* Comfort & display (VR + flat) */
+    GEVR_LSEC_COMFORT = GEVR_LSEC_COMFORT_DISPLAY,
+    GEVR_LSEC_RULES,           /* Game > Game rules */
+    GEVR_LSEC_ALLY,            /* Game > AI ally */
+    GEVR_LSEC_CHEATS,          /* Game > Cheats */
     GEVR_LSEC_MODS,
-    GEVR_LSEC_MP_FUN,      /* Multiplayer > Host > Fun: the host's, live online */
-    GEVR_LSEC_MP_AUDIO,    /* Multiplayer > Audio */
+    GEVR_LSEC_MP_FUN,          /* Online > Host > Fun: the host's, live online */
+    GEVR_LSEC_MP_AUDIO,        /* Online > Audio */
     GEVR_LSEC_COUNT
 };
 

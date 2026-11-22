@@ -385,8 +385,7 @@ inline void gevrDrawKbmPage(const GevrKeybindApi &api, GevrKeybindUiState &ui, i
             ImGui::SameLine();
             const float resetW = ImGui::CalcTextSize("Reset").x + style.FramePadding.x * 2.0f + style.ItemSpacing.x;
             ImGui::SetNextItemWidth(std::max(120.0f, ImGui::GetContentRegionAvail().x - resetW));
-            char fmt[32];
-            snprintf(fmt, sizeof(fmt), std::fabs(absX - 2.5f) < 0.05f ? "%.1f (default)" : "%.1f");
+            const char *fmt = std::fabs(absX - 2.5f) < 0.05f ? "%.1f (default)" : "%.1f";
             if (ImGui::SliderFloat("##msens", &absX, 0.2f, 15.0f, fmt)) {
                 absY = absX;
                 mouseChanged = true;

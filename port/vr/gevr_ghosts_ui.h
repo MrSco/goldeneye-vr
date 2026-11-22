@@ -14,7 +14,7 @@
 #include <vector>
 
 enum { GEVR_GHOSTS_IDLE, GEVR_GHOSTS_LOADING, GEVR_GHOSTS_LOADED, GEVR_GHOSTS_FAILED };
-const int kGevrGhostRowsPerPage = 8;
+const int kGevrGhostRowsPerPage = 7;
 
 struct GevrGhostRow {
     long long id = 0;
@@ -187,6 +187,7 @@ inline GevrGhostsActions gevrGhostsPageDraw(GevrGhostsView &v, const ImVec4 &gol
     }
 
     // the board, a page at a time: a page never scrolls (docs/launcher-unify.md)
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(ImGui::GetStyle().CellPadding.x, 2.0f));
     if (ImGui::BeginTable("##ghost-board", 5, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
         ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, font * 2.2f);
         ImGui::TableSetupColumn("Player", ImGuiTableColumnFlags_WidthStretch);
@@ -223,6 +224,7 @@ inline GevrGhostsActions gevrGhostsPageDraw(GevrGhostsView &v, const ImVec4 &gol
         }
         ImGui::EndTable();
     }
+    ImGui::PopStyleVar();
 
     // one line: what the board is doing, else the last result
     const char *status = v.state == GEVR_GHOSTS_LOADING ? "Loading the board..."

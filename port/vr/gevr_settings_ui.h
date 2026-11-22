@@ -153,7 +153,7 @@ inline void gevrSettingsSection(const GevrSettingsApi &a, int section, unsigned 
     const ImVec2 avail = ImGui::GetContentRegionAvail();
     const GevrColumnPlan plan = gevrSettingsPlan(a, ids, count, avail.x, avail.y);
     const ImGuiStyle &style = ImGui::GetStyle();
-    if (plan.rowPadY > 0.0f)
+    if (plan.rowPadY != 0.0f)
         ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(style.CellPadding.x, style.CellPadding.y + plan.rowPadY));
     if (ImGui::BeginTable("##settings", plan.columns * 2, ImGuiTableFlags_SizingFixedFit)) {
         for (int c = 0; c < plan.columns; c++) {
@@ -178,7 +178,7 @@ inline void gevrSettingsSection(const GevrSettingsApi &a, int section, unsigned 
         }
         ImGui::EndTable();
     }
-    if (plan.rowPadY > 0.0f) ImGui::PopStyleVar();
+    if (plan.rowPadY != 0.0f) ImGui::PopStyleVar();
 }
 
 // The in-game sections as a tab row, each tab's rows under it in a box that

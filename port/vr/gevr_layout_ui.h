@@ -166,13 +166,16 @@ inline GevrColumnPlan gevrPlanSettingsLayout(int count, float availWidth, float 
         plan.controlWidth = std::min(plan.colControlWidth[0], plan.colControlWidth[1]);
     }
 
-    // Use vertical space gracefully on sparse pages without ever causing scrolling.
-    if (availHeight > 0.0f && plan.perColumn > 0 && plan.perColumn <= 6) {
+    // Use vertical space gracefully on sparse pages, and trim excess cell padding
+    // slightly on dense 2-column pages so nothing ever triggers a scrollbar.
+    if (availHeight > 0.0f && plan.perColumn > 0) {
         const float baseRowH = ImGui::GetFrameHeight() + style.CellPadding.y * 2.0f + style.ItemSpacing.y;
         const float spare = availHeight - baseRowH * (float)plan.perColumn;
-        if (spare > baseRowH * 2.0f) {
+        if (plan.perColumn <= 6 && spare > baseRowH * 2.0f) {
             const float extraPerRow = std::min(ImGui::GetFontSize() * 0.25f, (spare * 0.20f) / (float)plan.perColumn);
             plan.rowPadY = std::floor(extraPerRow * 0.5f);
+        } else if (plan.perColumn >= 8 && style.CellPadding.y > 2.5f) {
+            plan.rowPadY = -std::min(1.5f, style.CellPadding.y - 2.0f);
         }
     }
     return plan;

@@ -540,15 +540,16 @@ static void voiceModeText(int i, char *b, int n) { snprintf(b, n, "%s", netVoice
       .cpositions = pos, .cget = get, .cset = set, .ctext = text, .cdefault = dflt, .headset = 1 }
 
 static const Row s_rows[] = {
-    /* Comfort */
+    /* Comfort & display */
     CHOICE_VR(GEVR_SEC_COMFORT, "Movement", VrTeleport, s_two, s_moveNames,
            "Smooth: the stick walks. Teleport: push it forward to aim, let go to jump there; flick it back or sideways to hop."),
     CUSTOM(GEVR_SEC_COMFORT, "Movement speed", GEVR_SET_RANGE, movePositions, moveGet, moveSet, moveText, 2,
            "How fast Bond walks and runs. Online it is the host's rule."),
-    CUSTOM_VR(GEVR_SEC_COMFORT, "Turning", GEVR_SET_CHOICE, turnPositions, turnGet, turnSet, turnText, 0,
-           "Smooth turning, or snapping by a set angle."),
+    { .label = "Turning", .headset = 1, .tooltip = "Smooth turning, or snapping by a set angle.", .kind = GEVR_SET_CHOICE,
+      .section = GEVR_SEC_COMFORT, .lsection = L(GEVR_LSEC_LOOK), .where = GEVR_SET_BOTH, .def = NAN,
+      .cpositions = turnPositions, .cget = turnGet, .cset = turnSet, .ctext = turnText, .cdefault = 0 },
     { .label = "Turn speed", .headset = 1, .tooltip = "Smooth turning's speed, degrees a second.", .kind = GEVR_SET_RANGE,
-      .section = GEVR_SEC_COMFORT, .where = GEVR_SET_BOTH, .ivar = &VrSmoothTurnSpeed,
+      .section = GEVR_SEC_COMFORT, .lsection = L(GEVR_LSEC_LOOK), .where = GEVR_SET_BOTH, .ivar = &VrSmoothTurnSpeed,
       .lo = SMOOTHTURN_MIN, .hi = SMOOTHTURN_MAX, .step = SMOOTHTURN_STEP, .scale = 1, .fmt = "%.0f", .def = 120,
       .blocked = blockedTurnSpeed },
     { .label = "Vignette", .headset = 1, .tooltip = "Darkens the edges of your view while you move or turn.", .kind = GEVR_SET_RANGE,
@@ -561,34 +562,38 @@ static const Row s_rows[] = {
 
     /* Controls */
     { .label = "Pad vibration", .pad = 1, .tooltip = "How strongly a game pad rumbles: shots, hits and explosions.",
-      .kind = GEVR_SET_RANGE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .def = NAN,
+      .kind = GEVR_SET_RANGE, .section = GEVR_SEC_CONTROLS, .lsection = L(GEVR_LSEC_LOOK), .where = GEVR_SET_BOTH, .def = NAN,
       .cpositions = padVibPositions, .cget = padVibGet, .cset = padVibSet, .ctext = padVibText, .cdefault = 3 },
     { .label = "Trigger feedback", .pad = 1,
       .tooltip = "How strongly a shot buzzes the trigger that fired it: an Xbox pad's trigger motors, a DualSense's adaptive triggers.",
-      .kind = GEVR_SET_RANGE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .ivar = &VrTriggerFeedback,
+      .kind = GEVR_SET_RANGE, .section = GEVR_SEC_CONTROLS, .lsection = L(GEVR_LSEC_LOOK), .where = GEVR_SET_BOTH, .ivar = &VrTriggerFeedback,
       .lo = 0, .hi = 100, .step = 10, .scale = 1, .fmt = "%.0f%%", .zero = "Off", .def = 100 },
     { .label = "Look speed", .pad = 1, .tooltip = "How fast a pad's right stick turns and looks: faster reaches full speed with less push.",
-      .kind = GEVR_SET_RANGE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .def = NAN,
+      .kind = GEVR_SET_RANGE, .section = GEVR_SEC_CONTROLS, .lsection = L(GEVR_LSEC_LOOK), .where = GEVR_SET_BOTH, .def = NAN,
       .cpositions = lookSpeedPositions, .cget = lookSpeedGet, .cset = lookSpeedSet, .ctext = lookSpeedText, .cdefault = 5 },
     { .label = "Look deadzone", .pad = 1, .tooltip = "How far the right stick moves before it turns: more if the view drifts, less for finer aim.",
-      .kind = GEVR_SET_RANGE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .def = NAN,
+      .kind = GEVR_SET_RANGE, .section = GEVR_SEC_CONTROLS, .lsection = L(GEVR_LSEC_LOOK), .where = GEVR_SET_BOTH, .def = NAN,
       .cpositions = lookDeadPositions, .cget = lookDeadGet, .cset = lookDeadSet, .ctext = lookDeadText, .cdefault = 5 },
     { .label = "Invert look", .pad = 1, .tooltip = "Push the right stick up to look down, as a flight stick.",
-      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .def = NAN,
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_CONTROLS, .lsection = L(GEVR_LSEC_LOOK), .where = GEVR_SET_BOTH, .def = NAN,
       .cpositions = lookInvertPositions, .cget = lookInvertGet, .cset = lookInvertSet, .ctext = lookInvertText, .cdefault = 0 },
     { .label = "Touch vibration", .flat = 1, .tooltip = "A short buzz when you press an on-screen button.",
-      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .ivar = &VrTouchHaptics, .def = NAN },
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_CONTROLS, .lsection = L(GEVR_LSEC_LOOK), .where = GEVR_SET_BOTH, .ivar = &VrTouchHaptics, .def = NAN },
     { .label = "Gyro aim", .flat = 1, .tooltip = "Turn and tilt the phone or tablet to look and aim: while AIM is held, or always.",
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .ivar = &VrGyroAim,
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_CONTROLS, .lsection = L(GEVR_LSEC_LOOK), .where = GEVR_SET_BOTH, .ivar = &VrGyroAim,
       .ivalues = s_three, .names = s_gyroNames, .count = 3, .def = NAN },
     { .label = "Gyro speed", .flat = 1, .tooltip = "How far the view turns for a turn of the phone or tablet.",
-      .kind = GEVR_SET_RANGE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .fvar = &VrGyroSpeed,
+      .kind = GEVR_SET_RANGE, .section = GEVR_SEC_CONTROLS, .lsection = L(GEVR_LSEC_LOOK), .where = GEVR_SET_BOTH, .fvar = &VrGyroSpeed,
       .lo = 0.5f, .hi = 4, .step = 0.25f, .scale = 1, .fmt = "%.2fx", .def = 1.5f },
     TOGGLE_VR(GEVR_SEC_CONTROLS, "Left-handed", VrLeftHandedMode, "Swaps the gun hand and the off hand."),
     TOGGLE_VR(GEVR_SEC_CONTROLS, "Swap sticks", VrSwapJoysticks, "Moves walking and turning to the other sticks."),
-    TOGGLE_VR(GEVR_SEC_CONTROLS, "Aim: no lean", VrAimNoLean, "Leaning your head doesn't move your aim."),
-    TOGGLE_VR(GEVR_SEC_CONTROLS, "Aim: crosshair", VrAimSight, "Shows the sight where your gun points."),
-    CHOICE_VR(GEVR_SEC_CONTROLS, "Aim steady", VrAimSteady, s_three, s_steadyNames, "Smooths small shakes of your gun hand."),
+    { .label = "Aim: no lean", .headset = 1, .tooltip = "Leaning your head doesn't move your aim.", .kind = GEVR_SET_TOGGLE,
+      .section = GEVR_SEC_CONTROLS, .lsection = L(GEVR_LSEC_LOOK), .where = GEVR_SET_BOTH, .ivar = &VrAimNoLean, .def = NAN },
+    { .label = "Aim: crosshair", .headset = 1, .tooltip = "Shows the sight where your gun points.", .kind = GEVR_SET_TOGGLE,
+      .section = GEVR_SEC_CONTROLS, .lsection = L(GEVR_LSEC_LOOK), .where = GEVR_SET_BOTH, .ivar = &VrAimSight, .def = NAN },
+    { .label = "Aim steady", .headset = 1, .tooltip = "Smooths small shakes of your gun hand.", .kind = GEVR_SET_CHOICE,
+      .section = GEVR_SEC_CONTROLS, .lsection = L(GEVR_LSEC_LOOK), .where = GEVR_SET_BOTH, .ivar = &VrAimSteady,
+      .ivalues = s_three, .names = s_steadyNames, .count = 3, .def = NAN },
     TOGGLE_VR(GEVR_SEC_CONTROLS, "Gun fit", VrGunFitArmed, "Adjust where guns sit in your hands."),
     CHOICE_VR(GEVR_SEC_CONTROLS, "Controllers", VrTouchModel, s_touch, s_touchNames, "Which Touch controllers the watch's Controls page shows."),
 
@@ -656,12 +661,12 @@ static const Row s_rows[] = {
     { .label = "Passthrough", .headset = 1, .tooltip = "Your room around the flat screen.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrScreenPassthrough, .def = NAN, .blocked = blockedPassthrough },
     { .label = "Screen shape", .tooltip = "The flat game's shape: 4:3 as the N64 drew it, or 16:9 with a wider view and the HUD at the edges.",
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_SCREEN), .where = GEVR_SET_BOTH,
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_COMFORT_DISPLAY), .where = GEVR_SET_BOTH,
       .ivar = &VrScreenShape, .ivalues = s_two, .names = s_shapeNames, .count = 2, .def = NAN },
     { .label = "Frame rate", .flatgame = 1,
       .tooltip = "Auto matches your display's refresh rate and steps down to a steady lower rate if this device can't hold it. "
                  "Or choose a fixed cap or Uncapped.",
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_SCREEN), .where = GEVR_SET_BOTH, .def = NAN,
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_COMFORT_DISPLAY), .where = GEVR_SET_BOTH, .def = NAN,
       .cpositions = frameRatePositions, .cget = frameRateGet, .cset = frameRateSet, .ctext = frameRateText, .cdefault = 0 },
     { .label = "Third person", .tooltip = "The camera follows behind Bond in the flat screen, solo. "
                                           "Aiming, the watch and the tank go back to first person.", .kind = GEVR_SET_TOGGLE,
@@ -800,10 +805,44 @@ static const Row *row(int id) { return id >= 0 && id < ROWS ? &s_rows[id] : NULL
 
 /* The launcher's place for a section's rows, where a row names none */
 static const int s_launcherOf[GEVR_SEC_COUNT] = {
-    GEVR_LSEC_COMFORT, GEVR_LSEC_HANDS, GEVR_LSEC_GESTURES, GEVR_LSEC_THROWING,
-    GEVR_LSEC_SCREEN, GEVR_LSEC_RULES, GEVR_LSEC_MODS, GEVR_LSEC_PLAY,
+    GEVR_LSEC_COMFORT_DISPLAY, GEVR_LSEC_HANDS, GEVR_LSEC_GESTURES, GEVR_LSEC_THROWING,
+    GEVR_LSEC_COMFORT_DISPLAY, GEVR_LSEC_RULES, GEVR_LSEC_MODS, GEVR_LSEC_PLAY,
 };
 static int launcherSection(const Row *r) { return r->lsection ? r->lsection - 1 : s_launcherOf[r->section]; }
+
+static unsigned s_ctxOverride = 0;
+
+unsigned gevrSettingsContext(void)
+{
+    if (s_ctxOverride) return s_ctxOverride;
+#if defined(GEVR_TVOS)
+    return GEVR_CTX_APPLE_TV;
+#elif defined(GEVR_IOS)
+    return GEVR_CTX_APPLE;
+#elif defined(GEVR_MOBILE)
+    return GEVR_CTX_MOBILE;
+#elif defined(GEVR_PC_FLAT) || defined(GEVR_FLAT)
+    return GEVR_CTX_PC_FLAT;
+#elif defined(GEVR_PCVR)
+    return GEVR_CTX_PC_VR;
+#else
+    return GEVR_CTX_QUEST;
+#endif
+}
+
+void gevrSettingsSetContextOverride(unsigned ctx)
+{
+    s_ctxOverride = ctx;
+}
+
+static unsigned rowContexts(const Row *r)
+{
+    if (!r) return 0;
+    if (r->headset || r->section == GEVR_SEC_GESTURES) return GEVR_CTX_VR;
+    if (r->flat) return GEVR_CTX_TOUCH;
+    if (r->pad || r->flatgame) return GEVR_CTX_FLAT;
+    return GEVR_CTX_ALL_LAUNCHER;
+}
 
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
@@ -834,16 +873,9 @@ int gevrSettingInfo(int id, GevrSettingInfo *out)
 int gevrSettingShown(int id)
 {
     const Row *r = row(id);
-#ifdef GEVR_FLAT
-    if (r && r->headset) return 0;   /* no headset: no turning, screen, hands or display rate to set */
-    if (r && r->section == GEVR_SEC_GESTURES) return 0;   /* tracked hands' gestures */
-#ifdef GEVR_TVOS
-    if (r && r->flat) return 0;      /* touch and gyro: a phone's, and Apple TV has neither */
-#endif
-#else
-    if (r && (r->flat || r->pad || r->flatgame)) return 0;   /* touch, gyro, a pad and the window: a flat game's */
-#endif
-    return r && (!r->shown || r->shown());
+    if (!r) return 0;
+    if ((rowContexts(r) & gevrSettingsContext()) == 0) return 0;
+    return !r->shown || r->shown();
 }
 
 int gevrSettingPositions(int id)

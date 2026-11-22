@@ -134,6 +134,20 @@ int main(void)
             check(info.launcherSection != GEVR_LSEC_ALLY, "the ally is the launcher's only");
         }
         check(gevrSettingSectionRows(GEVR_LSEC_MODS, GEVR_SET_LAUNCHER, ids, 48) == 0, "the launcher's Mods draws its own rows, with their packs");
+        /* Context visibility table: each context shows only what applies */
+        gevrSettingsSetContextOverride(GEVR_CTX_PC_FLAT);
+        check(gevrSettingShown(find("Frame rate")) && !gevrSettingShown(find("Turning")) && !gevrSettingShown(find("Gyro aim")),
+              "PC flat shows frame rate, hides VR turning and phone gyro");
+        gevrSettingsSetContextOverride(GEVR_CTX_MOBILE);
+        check(gevrSettingShown(find("Frame rate")) && gevrSettingShown(find("Gyro aim")) && !gevrSettingShown(find("SpaceWarp")),
+              "Mobile shows frame rate and gyro, hides VR SpaceWarp");
+        gevrSettingsSetContextOverride(GEVR_CTX_APPLE_TV);
+        check(gevrSettingShown(find("Pad vibration")) && !gevrSettingShown(find("Gyro aim")),
+              "Apple TV shows pad rows, hides touch/gyro");
+        gevrSettingsSetContextOverride(GEVR_CTX_QUEST);
+        check(gevrSettingShown(find("Turning")) && gevrSettingShown(find("SpaceWarp")) && !gevrSettingShown(find("Frame rate")),
+              "Quest VR shows VR turning and SpaceWarp, hides flat frame rate");
+        gevrSettingsSetContextOverride(0);
     }
     VrPlayMode = 1;
     check(gevrSettingBlocked(find("Third person")) != NULL && !gevrSettingShown(find("  Distance")),
@@ -280,7 +294,7 @@ int main(void)
         check(gevrSettingResetAll() == 0, "a second reset changes nothing");
     }
     for (int s = 0; s < GEVR_LSEC_COUNT; s++)
-        check(gevrSettingSectionRows(s, GEVR_SET_LAUNCHER, ids, 48) <= 14, "a launcher place fills at most two columns of seven");
+        check(gevrSettingSectionRows(s, GEVR_SET_LAUNCHER, ids, 48) <= 16, "a launcher place fills at most two columns of eight");
     puts("PASS: settings table: every row round-trips, Reset, hidden and blocked rows, the host's online rules, "
          "the launcher's places and the ally, each section fits two columns, Reset all settings");
     return 0;
