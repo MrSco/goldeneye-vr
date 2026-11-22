@@ -45,6 +45,12 @@ extern int VrRagdolls, VrDismemberment, VrDismemberChance;
 extern float VrDismemberDamage;
 extern int VrGexGuns;
 extern int VrBeanFillTextures, VrBloodPatch, VrOddjobHat;
+extern int VrJediNinjaMode, VrJediHand, VrSaberColor, VrSaberStyle, VrNinjaSword, VrNinjaBoomerang;
+extern int VrJediForcePowers, VrJediCatchProjectiles, VrJnPerfectParry, VrJnBladeTrails, VrJnAudio;
+extern int VrNinjaShield, VrNinjaRicochet, VrNinjaShadowStep, VrNinjaBulletSlice;
+extern int VrSithNpc, VrSithInNormalMode, VrSithScale, VrNinjaNpc, VrNinjaInNormalMode;
+extern int VrAllyJedi, VrControllerWheel;
+extern int VrJediBlasters, VrJediPickupGuns, VrNinjaPickupGuns;
 extern int VrEyeMsaa;
 extern int VrPlayMode, VrBodySlotShow, VrCampaign;
 extern int VrAlly, VrAllyWeapon, VrAllyAggression, VrAllyHealth, VrAllyDamage, VrAllyInvincible;
@@ -180,6 +186,30 @@ static const char *blockedAllyHealth(void)
 
 static int shownThirdPerson(void) { return VrThirdPerson != 0 && !VrPlayMode; }
 static int shownDismember(void) { return VrRagdolls && VrDismemberment; }
+static int shownSith(void) { return VrSithNpc != 0; }
+static int shownSithNormal(void) { return VrSithNpc != 0 && VrJediNinjaMode == 0; }
+static int shownNinjaNormal(void) { return VrNinjaNpc != 0 && VrJediNinjaMode == 0; }
+static const char *blockedJediAlly(void) { return VrAlly ? NULL : "Needs AI ally"; }
+static int jediModeGet(void) { return VrJediNinjaMode == 1 ? 1 : 0; }
+static void jediModeSet(int on)
+{
+    VrJediNinjaMode = on ? 1 : (VrJediNinjaMode == 1 ? 0 : VrJediNinjaMode);
+    if (on) {
+        VrRagdolls = 1;
+        VrDismemberment = 1;
+        if (VrBodiesStay == 0) VrBodiesStay = 24;
+    }
+}
+static int ninjaModeGet(void) { return VrJediNinjaMode == 2 ? 1 : 0; }
+static void ninjaModeSet(int on)
+{
+    VrJediNinjaMode = on ? 2 : (VrJediNinjaMode == 2 ? 0 : VrJediNinjaMode);
+    if (on) {
+        VrRagdolls = 1;
+        VrDismemberment = 1;
+        if (VrBodiesStay == 0) VrBodiesStay = 24;
+    }
+}
 
 static void setScreenFov(float v) { vr_screen_resize(VrScreenDistance, v); }
 static void setScreenDist(float v) { vr_screen_resize(v, VrScreenFov); }
@@ -385,6 +415,16 @@ static const int s_msaa[] = { 1, 2 };
 static const char *const s_msaaNames[] = { "Off", "2x" };
 #endif
 static const int s_two[] = { 0, 1 };
+static const int s_four[] = { 0, 1, 2, 3 };
+static const int s_six[] = { 0, 1, 2, 3, 4, 5 };
+static const int s_eight[] = { 0, 1, 2, 3, 4, 5, 6, 7 };
+static const char *const s_jnStyleNames[] = { "Single", "Double-Bladed", "Dual Sabers" };
+static const char *const s_jnHandNames[] = { "Right", "Left" };
+static const char *const s_jnColorNames[] = { "Blue", "Green", "Red", "Purple", "Yellow", "White", "Orange", "Gold" };
+static const char *const s_jnSwordNames[] = { "Katana", "Gold Katana", "Short", "Gold Short", "Dual Short", "Dual Gold" };
+static const char *const s_jnBoomNames[] = { "Shuriken", "Wing", "Gold Shuriken", "Gold Wing" };
+static const char *const s_jnNpcNames[] = { "Off", "Random", "Frequent" };
+static const char *const s_jnScaleNames[] = { "Normal", "Random", "Giant", "Tiny" };
 static const char *const s_shapeNames[] = { "4:3", "16:9" };
 static const char *const s_playNames[] = { "Flat screen", "Stereo VR" };
 static const int s_ten[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
@@ -514,6 +554,8 @@ static const Row s_rows[] = {
     { .label = "Invert look", .pad = 1, .tooltip = "Push the right stick up to look down, as a flight stick.",
       .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .def = NAN,
       .cpositions = lookInvertPositions, .cget = lookInvertGet, .cset = lookInvertSet, .ctext = lookInvertText, .cdefault = 0 },
+    { .label = "Weapon wheel", .pad = 1, .tooltip = "Hold LB (or Q) on controller or keyboard to open the weapon wheel. Always on in Jedi/Ninja modes.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .ivar = &VrControllerWheel, .def = NAN },
     { .label = "Touch vibration", .flat = 1, .tooltip = "A short buzz when you press an on-screen button.",
       .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_CONTROLS, .where = GEVR_SET_BOTH, .ivar = &VrTouchHaptics, .def = NAN },
     { .label = "Gyro aim", .flat = 1, .tooltip = "Turn and tilt the phone or tablet to look and aim: while AIM is held, or always.",
@@ -684,6 +726,73 @@ static const Row s_rows[] = {
       .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .ivar = &VrBloodPatch, .def = NAN },
     { .label = "Oddjob's hat", .tooltip = "Oddjob's hat in place of the throwing knife.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .ivar = &VrOddjobHat, .def = NAN, .blocked = blockedHat },
+
+    /* Jedi menu (GEVR_SEC_JEDI / Rules > Jedi; mutually exclusive with Ninja mode) */
+    { .label = "Jedi mode", .tooltip = "Lightsaber, Force powers and Sith enemies. Enabling turns Ninja mode off and enables ragdolls/dismemberment.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_JEDI), .where = GEVR_SET_LAUNCHER, .def = NAN,
+      .cpositions = twoPositions, .cget = jediModeGet, .cset = jediModeSet, .ctext = onOffText, .cdefault = 0 },
+    { .label = "Saber style", .tooltip = "Single blade, double-bladed staff, or dual lightsabers in both hands.",
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_JEDI), .where = GEVR_SET_LAUNCHER, .ivar = &VrSaberStyle,
+      .ivalues = s_three, .names = s_jnStyleNames, .count = 3, .def = NAN },
+    { .label = "Saber colour", .tooltip = "Your lightsaber blade colour.",
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_JEDI), .where = GEVR_SET_LAUNCHER, .ivar = &VrSaberColor,
+      .ivalues = s_eight, .names = s_jnColorNames, .count = 8, .def = NAN },
+    { .label = "Saber hand", .tooltip = "Which hand holds the primary lightsaber (Force powers on the opposite hand).",
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_JEDI), .where = GEVR_SET_LAUNCHER, .ivar = &VrJediHand,
+      .ivalues = s_two, .names = s_jnHandNames, .count = 2, .def = NAN },
+    { .label = "Force powers", .tooltip = "Force Grab/Choke, Pull, Push and Lightning on the opposite hand.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_JEDI), .where = GEVR_SET_LAUNCHER, .ivar = &VrJediForcePowers, .def = NAN },
+    { .label = "Catch rockets", .tooltip = "Force Pull and Push catch or reflect flying rockets and grenades.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_JEDI), .where = GEVR_SET_LAUNCHER, .ivar = &VrJediCatchProjectiles, .def = NAN },
+    { .label = "Perfect parry", .tooltip = "Timed block crits on deflected shots and triggers Sith blade locks.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_JEDI), .where = GEVR_SET_LAUNCHER, .ivar = &VrJnPerfectParry, .def = NAN },
+    { .label = "Blade trails", .tooltip = "Swept motion ribbons and sparks when dragging blades across walls.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_JEDI), .where = GEVR_SET_LAUNCHER, .ivar = &VrJnBladeTrails, .def = NAN },
+    { .label = "Custom SFX", .tooltip = "Procedural lightsaber hum, Doppler swings, clashes and Force sound effects.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_JEDI), .where = GEVR_SET_LAUNCHER, .ivar = &VrJnAudio, .def = NAN },
+    { .label = "Blasters", .tooltip = "NPCs fire visible GoldenEye laser bolts and you start with a Star Wars DL-44 blaster equipped.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_JEDI), .where = GEVR_SET_LAUNCHER, .ivar = &VrJediBlasters, .def = NAN },
+    { .label = "Pick up guns", .tooltip = "Allow picking up dropped guns and ammo in Jedi mode (keycards, armour and gadgets always work).",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_JEDI), .where = GEVR_SET_LAUNCHER, .ivar = &VrJediPickupGuns, .def = NAN },
+    { .label = "Sith NPCs", .tooltip = "Spawn red-saber Sith enemies with Force powers and high speed/health.",
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_JEDI), .where = GEVR_SET_LAUNCHER, .ivar = &VrSithNpc,
+      .ivalues = s_three, .names = s_jnNpcNames, .count = 3, .def = NAN },
+    { .label = "  Sith size", .tooltip = "Height scale of spawned Sith NPCs.",
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_JEDI), .where = GEVR_SET_LAUNCHER, .ivar = &VrSithScale,
+      .ivalues = s_four, .names = s_jnScaleNames, .count = 4, .def = NAN, .shown = shownSith },
+    { .label = "  Sith in normal", .tooltip = "Allow Sith NPCs to spawn even in normal Bond missions.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_JEDI), .where = GEVR_SET_LAUNCHER, .ivar = &VrSithInNormalMode,
+      .def = NAN, .shown = shownSithNormal },
+    { .label = "Jedi ally", .tooltip = "Equips your AI ally with a lightsaber and Force powers.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_JEDI), .where = GEVR_SET_LAUNCHER, .ivar = &VrAllyJedi,
+      .def = NAN, .blocked = blockedJediAlly },
+
+    /* Ninja menu (GEVR_SEC_NINJA / Rules > Ninja; mutually exclusive with Jedi mode) */
+    { .label = "Ninja mode", .tooltip = "Katana, boomerangs, shield and Shadow-Step. Enabling turns Jedi mode off and enables ragdolls/dismemberment.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_NINJA), .where = GEVR_SET_LAUNCHER, .def = NAN,
+      .cpositions = twoPositions, .cget = ninjaModeGet, .cset = ninjaModeSet, .ctext = onOffText, .cdefault = 0 },
+    { .label = "Ninja sword", .tooltip = "Blade style in Ninja mode (short blades need closer range; dual adds an off-hand blade).",
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_NINJA), .where = GEVR_SET_LAUNCHER, .ivar = &VrNinjaSword,
+      .ivalues = s_six, .names = s_jnSwordNames, .count = 6, .def = NAN },
+    { .label = "Boomerang", .tooltip = "Spinning throwing blade style in Ninja mode.",
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_NINJA), .where = GEVR_SET_LAUNCHER, .ivar = &VrNinjaBoomerang,
+      .ivalues = s_four, .names = s_jnBoomNames, .count = 4, .def = NAN },
+    { .label = "Ninja shield", .tooltip = "Carry an off-hand shield to deflect bullets back at shooters.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_NINJA), .where = GEVR_SET_LAUNCHER, .ivar = &VrNinjaShield, .def = NAN },
+    { .label = "Wall ricochet", .tooltip = "Thrown boomerangs bounce cleanly off walls and corridors before returning.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_NINJA), .where = GEVR_SET_LAUNCHER, .ivar = &VrNinjaRicochet, .def = NAN },
+    { .label = "Shadow-Step", .tooltip = "Double-tap LT or use the SHADOW wheel slot for a smoke bomb speed burst.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_NINJA), .where = GEVR_SET_LAUNCHER, .ivar = &VrNinjaShadowStep, .def = NAN },
+    { .label = "Bullet slice", .tooltip = "Slashing through incoming gunfire slices bullets out of the air.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_NINJA), .where = GEVR_SET_LAUNCHER, .ivar = &VrNinjaBulletSlice, .def = NAN },
+    { .label = "Pick up guns", .tooltip = "Allow picking up dropped guns and ammo in Ninja mode (keycards, armour and gadgets always work).",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_NINJA), .where = GEVR_SET_LAUNCHER, .ivar = &VrNinjaPickupGuns, .def = NAN },
+    { .label = "Evil Ninjas", .tooltip = "Spawn sword-and-boomerang Evil Ninja enemies.",
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_NINJA), .where = GEVR_SET_LAUNCHER, .ivar = &VrNinjaNpc,
+      .ivalues = s_three, .names = s_jnNpcNames, .count = 3, .def = NAN },
+    { .label = "  Ninjas in normal", .tooltip = "Allow Evil Ninja NPCs to spawn even in normal Bond missions.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_NINJA), .where = GEVR_SET_LAUNCHER, .ivar = &VrNinjaInNormalMode,
+      .def = NAN, .shown = shownNinjaNormal },
 
     /* Multiplayer > Host > Fun: the host's, live online (applied when the round loads) */
 #define FUN(lab, get, set, tip) \

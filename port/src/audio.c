@@ -278,6 +278,12 @@ void audioEndFrame(void)
             if (nextSize <= sizeof(mixed) && nextSize % (sizeof(s16) * 2) == 0) {
                 memcpy(mixed, nextBuf, nextSize);
                 netVoiceMix(mixed, nextSize / (sizeof(s16) * 2));
+#ifdef GEVR
+                {
+                    extern void gevrJnAudioMix(short *pcmStereo, int frames, int sampleRate);
+                    gevrJnAudioMix((short *)mixed, (int)(nextSize / (sizeof(s16) * 2)), 22050);
+                }
+#endif
                 out = mixed;
             }
 #ifdef GEVR

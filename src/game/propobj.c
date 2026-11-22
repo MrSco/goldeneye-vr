@@ -7062,6 +7062,15 @@ s32 objTick(struct PropRecord *prop)
 
 						beam_local->age = 0;
 						beam_local->weaponnum = ITEM_FNP90;
+#ifdef GEVR
+						{
+							extern s32 gevrJnBlastersActive(void);
+							if (gevrJnBlastersActive())
+							{
+								beam_local->weaponnum = ITEM_LASER;
+							}
+						}
+#endif
 						beam_local->maxdist = dist_local;
 
 						if (dist_local < 500.0f)
@@ -11763,6 +11772,14 @@ TICKOP objTickPlayer(struct PropRecord* prop)
     }
 
 #ifdef GEVR
+    {
+        /* Jedi/Ninja modes: block dropped guns/ammo unless allowed */
+        extern s32 gevrJnCanPickupProp(PropRecord *prop);
+        if (!gevrJnCanPickupProp(prop))
+        {
+            return TICKOP_NONE;
+        }
+    }
     {
         /* force pull (gevr_forcepull.c): not a prop flying to a hand, nor a gun
          * with Auto pickup off (grab or pull it) */

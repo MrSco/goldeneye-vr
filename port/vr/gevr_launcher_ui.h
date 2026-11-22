@@ -55,7 +55,7 @@ enum { GEVR_LTAB_PLAY, GEVR_LTAB_GHOSTS, GEVR_LTAB_MULTIPLAYER, GEVR_LTAB_CONTRO
        GEVR_LTAB_RULES, GEVR_LTAB_MODS, GEVR_LTAB_COUNT };
 enum { GEVR_LSUB_HOST, GEVR_LSUB_JOIN, GEVR_LSUB_PLAYER, GEVR_LSUB_AUDIO, GEVR_LSUB_FAVORITES };  // Multiplayer's
 enum { GEVR_LSUB_HANDS, GEVR_LSUB_GESTURES, GEVR_LSUB_THROWING, GEVR_LSUB_HAPTICS };   // Controls'
-enum { GEVR_LSUB_GAME_RULES, GEVR_LSUB_ALLY, GEVR_LSUB_CHEATS };                       // Rules'
+enum { GEVR_LSUB_GAME_RULES, GEVR_LSUB_ALLY, GEVR_LSUB_CHEATS, GEVR_LSUB_JEDI, GEVR_LSUB_NINJA }; // Rules'
 struct GevrLauncherTabs {
     int top = GEVR_LTAB_PLAY;          // the tab drawn last frame
     int sub[GEVR_LTAB_COUNT] = {};     // each tab's sub-tab drawn last
@@ -73,11 +73,11 @@ inline int gevrLauncherSubCount(int tab) {
 #ifdef GEVR_FLAT
     if (tab == GEVR_LTAB_CONTROLS) return 0;   // a flat game: the sub-tabs are tracked controllers'
 #endif
-    return tab == GEVR_LTAB_MULTIPLAYER ? 5 : tab == GEVR_LTAB_CONTROLS ? 4 : tab == GEVR_LTAB_RULES ? 3 : 0;
+    return tab == GEVR_LTAB_MULTIPLAYER ? 5 : tab == GEVR_LTAB_CONTROLS ? 4 : tab == GEVR_LTAB_RULES ? 5 : 0;
 }
 inline const char *gevrLauncherSubName(int tab, int sub) {
     static const char *const controls[] = { "Hands", "Gestures", "Throwing", "Haptics" };
-    static const char *const rules[] = { "Game rules", "AI ally", "Cheats" };
+    static const char *const rules[] = { "Game rules", "AI ally", "Cheats", "Jedi", "Ninja" };
     static const char *const multiplayer[] = { "Host", "Join", "Player", "Audio", "Favorites" };
     if (sub < 0 || sub >= gevrLauncherSubCount(tab)) return "";
     return tab == GEVR_LTAB_MULTIPLAYER ? multiplayer[sub] : tab == GEVR_LTAB_CONTROLS ? controls[sub] : rules[sub];

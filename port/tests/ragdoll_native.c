@@ -13,6 +13,7 @@
 #include "gevr_ragdoll.c"
 
 int VrRagdolls, VrDismemberment, VrBodiesStay, VrDismemberChance=40;
+int VrJediNinjaMode;
 static int hordeOn;
 int netHordeActive(void) { return hordeOn; }
 float VrDismemberDamage=2.0f; /* CE's defaults: the cut-rule checks are CE's */

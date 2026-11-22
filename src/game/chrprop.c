@@ -2530,6 +2530,13 @@ PropRecord *gevrHandFindProp(const f32 p[3], f32 reach, s32 kind)
             {
                 continue;   /* a thrown mine is the re-grab's, not a pickup */
             }
+            {
+                extern s32 gevrJnCanPickupProp(PropRecord *prop);
+                if (!gevrJnCanPickupProp(prop))
+                {
+                    continue;
+                }
+            }
         }
         else
         {

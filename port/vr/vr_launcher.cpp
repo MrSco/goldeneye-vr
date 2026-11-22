@@ -3952,6 +3952,12 @@ extern "C" void gevrLauncherRun(void)
                     note("GoldenEye solo, campaign co-op and Horde: one companion for the party. The host chooses; "
                          "changes apply from the next mission or Horde retry.");
                     gevrSettingsSection(settings, GEVR_LSEC_ALLY, GEVR_SET_LAUNCHER);
+                } else if (sub == GEVR_LSUB_JEDI) {
+                    note("Lightsaber, Force powers and Sith enemies. Enabling Jedi mode disables Ninja mode.");
+                    gevrSettingsSection(settings, GEVR_LSEC_JEDI, GEVR_SET_LAUNCHER);
+                } else if (sub == GEVR_LSUB_NINJA) {
+                    note("Katana, boomerangs, shield, Shadow-Step and Evil Ninjas. Enabling Ninja mode disables Jedi mode.");
+                    gevrSettingsSection(settings, GEVR_LSEC_NINJA, GEVR_SET_LAUNCHER);
                 } else {
                     gevrCheatsPage(settings, gold);
                 }

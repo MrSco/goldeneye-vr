@@ -8,6 +8,7 @@
 #include "gevr_scope.h"
 #include "gevr_gexweapon.h"
 #include "gevr_bodyslot.h"
+#include "gevr_jedi_ninja.h"
 #endif
 #include <string.h>
 #include <stddef.h>
@@ -308,6 +309,7 @@ extern f32 gevrWeaponPanelStickX, gevrWeaponPanelStickY;
 f32 gevrMoveStickX, gevrMoveStickY;
 extern s32 gevrWeaponPanelStep;            /* bondview2.c: trigger steps through the wheel's category */
 extern s32 gevrWeaponPanelLeft;            /* bondview2.c, issue #56: the left hand's panel */
+extern int VrControllerWheel, VrJediNinjaMode;
 extern s32 gevrLeftPanelAvailable(void);
 extern void gevrCycleHandWeapon(s32 hand, s32 dir);
 #define GEVR_WEAPON_PANEL_HOLD_MS 350
@@ -2243,12 +2245,15 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 s_soloPadSlot = k;
             }
         }
+        bool flatTouchFire = false, flatTouchAim = false;
         /* The on-screen touch controls (port/flat/window/flat_touch.cpp, from
          * Midas-ios and PD Android): the floating stick as a pad's left stick,
          * except in menus, where it moves GoldenEye's cursor and FIRE selects. */
         {
             f32 tx, ty;
             const unsigned touch = flatTouchPoll(menu, &tx, &ty);
+            flatTouchFire = (touch & TOUCH_FIRE) != 0;
+            flatTouchAim = (touch & TOUCH_AIM) != 0;
             if (touch & TOUCH_FIRE) npad->button |= menu ? A_BUTTON : Z_TRIG;
             if (touch & TOUCH_AIM) npad->button |= R_TRIG;
             if (touch & (TOUCH_USE | TOUCH_RELOAD)) npad->button |= B_BUTTON;
@@ -2332,6 +2337,106 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 npad->stick_x = npad->stick_y = 0;
             }
             if (t < s_gevrStartUntil) npad->button |= START_BUTTON;
+        }
+        /* Flat controller & mouse triggers + Weapon Wheel (#270) */
+        {
+            static bool s_flatWheelWas = false, s_flatRtWas = false, s_flatLtWas = false;
+            static f32 s_kbdWheelX = 0.0f, s_kbdWheelY = 0.0f;
+            if (!menu && !gevrNativePauseOpen()) {
+                bool padRt = false, padLt = false, wheelBtn = false;
+                f32 stickX = 0.0f, stickY = 0.0f;
+                for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) {
+                    if (k != 0 && !(inputSoloSlots(idx) & (1 << k))) continue;
+                    SDL_GameController *p = pads[k];
+                    if (!p) continue;
+                    if (SDL_GameControllerGetAxis(p, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > TRIG_THRESHOLD) padRt = true;
+                    if (SDL_GameControllerGetAxis(p, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > TRIG_THRESHOLD) padLt = true;
+                    if (SDL_GameControllerGetButton(p, SDL_CONTROLLER_BUTTON_LEFTSHOULDER)) wheelBtn = true;
+                    const f32 rx = SDL_GameControllerGetAxis(p, SDL_CONTROLLER_AXIS_RIGHTX) / 32767.0f;
+                    const f32 ry = -SDL_GameControllerGetAxis(p, SDL_CONTROLLER_AXIS_RIGHTY) / 32767.0f;
+                    const f32 lx = SDL_GameControllerGetAxis(p, SDL_CONTROLLER_AXIS_LEFTX) / 32767.0f;
+                    const f32 ly = -SDL_GameControllerGetAxis(p, SDL_CONTROLLER_AXIS_LEFTY) / 32767.0f;
+                    if (rx * rx + ry * ry > stickX * stickX + stickY * stickY) { stickX = rx; stickY = ry; }
+                    if ((rx * rx + ry * ry) < 0.25f && (lx * lx + ly * ly > stickX * stickX + stickY * stickY)) {
+                        stickX = lx; stickY = ly;
+                    }
+                }
+                bool mouseRt = false, mouseLt = false;
+#ifdef GEVR_PC_FLAT
+                mouseRt = (mouseButtons & SDL_BUTTON_LMASK) != 0;
+                mouseLt = (mouseButtons & SDL_BUTTON_RMASK) != 0;
+                const Uint8 *keys = SDL_GetKeyboardState(NULL);
+                if (keys && keys[SDL_SCANCODE_Q]) wheelBtn = true;
+#endif
+                const bool rtNow = padRt || mouseRt || flatTouchFire;
+                const bool ltNow = padLt || mouseLt || flatTouchAim;
+                gevrJnInputFeedFlat(rtNow ? 1 : 0, ltNow ? 1 : 0, (mouseRt || mouseLt) && !(padRt || padLt || flatTouchFire || flatTouchAim) ? 1 : 0);
+
+                if (VrControllerWheel || VrJediNinjaMode) {
+                    if (wheelBtn) {
+                        if (!s_flatWheelWas) {
+                            s_kbdWheelX = s_kbdWheelY = 0.0f;
+                            s_flatRtWas = rtNow;
+                            s_flatLtWas = ltNow;
+                        }
+                        gevrWeaponPanelLeft = 0;
+                        gevrWeaponPanelOpen = 1;
+                        npad->button &= ~(L_TRIG | Z_TRIG | R_TRIG);
+                        npad->stick_x = npad->stick_y = 0;
+                        if (stickX * stickX + stickY * stickY >= 0.04f) {
+                            gevrWeaponPanelStickX = stickX;
+                            gevrWeaponPanelStickY = stickY;
+                        } else {
+#ifdef GEVR_PC_FLAT
+                            if (mouseLocked) {
+                                s_kbdWheelX += (f32)mouseDX * 0.02f;
+                                s_kbdWheelY -= (f32)mouseDY * 0.02f;
+                                const f32 mag = sqrtf(s_kbdWheelX * s_kbdWheelX + s_kbdWheelY * s_kbdWheelY);
+                                if (mag > 1.0f) { s_kbdWheelX /= mag; s_kbdWheelY /= mag; }
+                            } else if (keys) {
+                                s_kbdWheelX = (f32)(keys[SDL_SCANCODE_D] - keys[SDL_SCANCODE_A]);
+                                s_kbdWheelY = (f32)(keys[SDL_SCANCODE_W] - keys[SDL_SCANCODE_S]);
+                            }
+                            gevrWeaponPanelStickX = s_kbdWheelX;
+                            gevrWeaponPanelStickY = s_kbdWheelY;
+#else
+                            gevrWeaponPanelStickX = 0.0f;
+                            gevrWeaponPanelStickY = 0.0f;
+#endif
+                        }
+                        if (rtNow && !s_flatRtWas) gevrWeaponPanelStep++;
+                        if (ltNow && !s_flatLtWas) gevrWeaponPanelStep--;
+                        s_flatRtWas = rtNow;
+                        s_flatLtWas = ltNow;
+                        s_flatWheelWas = true;
+                    } else {
+                        if (s_flatWheelWas) {
+                            gevrWeaponPanelRelease = 1;
+                            gevrWeaponPanelOpen = 0;
+                            s_flatWheelWas = false;
+                        }
+                        s_flatRtWas = s_flatLtWas = false;
+                    }
+                } else if (s_flatWheelWas) {
+                    gevrWeaponPanelOpen = 0;
+                    gevrWeaponPanelRelease = 0;
+                    s_flatWheelWas = false;
+                }
+                {
+                    extern s32 gevrJnSuppressNormalFire(void);
+                    if (gevrJnSuppressNormalFire()) {
+                        npad->button &= ~(Z_TRIG | R_TRIG);
+                    }
+                }
+            } else {
+                gevrJnInputFeedFlat(0, 0, 0);
+                if (s_flatWheelWas) {
+                    gevrWeaponPanelOpen = 0;
+                    gevrWeaponPanelRelease = 0;
+                    s_flatWheelWas = false;
+                }
+                s_flatRtWas = s_flatLtWas = false;
+            }
         }
     } else if (!netIsActive() && idx < INPUT_MAX_CONTROLLERS && pads[idx]) {
         /*
@@ -2870,6 +2975,14 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         } else if (get_button_state(1, "trigger") || (get_button_state(0, "trigger") && !gevrGexMineDetonates())) {
             npad->button |= Z_TRIG;
         }
+        if (!g_gevrStereo) {
+            if (!menu && !gevrNativePauseOpen()) {
+                gevrJnInputFeedFlat(get_button_state(1, "trigger") ? 1 : 0,
+                                    get_button_state(0, "trigger") ? 1 : 0, 0);
+            } else {
+                gevrJnInputFeedFlat(0, 0, 0);
+            }
+        }
         if (get_button_state(1, "a")) npad->button |= A_BUTTON;
         if (get_button_state(1, "b")) npad->button |= B_BUTTON;
         // Menu button (issue #16): a tap is START, sent on release, and a 1.5 s
@@ -3365,6 +3478,15 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         npad->button &= ~(Z_TRIG | A_BUTTON | B_BUTTON | L_CBUTTONS | R_CBUTTONS | U_CBUTTONS | D_CBUTTONS);
         gevrTurnAxis = 0;
         if (gevrCoopLocalDowned()) gevrVrTriggerDown[0] = gevrVrTriggerDown[1] = 0;
+    }
+    if (!gevrNativePauseOpen() && !gevrWeaponPanelOpen
+        && g_CurrentPlayer && !g_CurrentPlayer->mpmenuon && bossGetStageNum() != LEVELID_TITLE) {
+        extern s32 gevrJnSuppressNormalFire(void);
+        if (gevrJnSuppressNormalFire()) {
+            npad->button &= ~Z_TRIG;
+            gevrVrTriggerDown[0] = 0;
+            gevrVrTriggerDown[1] = 0;
+        }
     }
     if (npad->button != 0 || npad->stick_x != 0 || npad->stick_y != 0 || npad->rstick_x != 0 || npad->rstick_y != 0) {
         netTouchLocalActivity();

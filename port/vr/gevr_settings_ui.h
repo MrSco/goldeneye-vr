@@ -173,7 +173,30 @@ inline void gevrSettingsTabs(const GevrSettingsApi &a, int &openSection) {
             const ImGuiTabItemFlags open = s == openSection ? ImGuiTabItemFlags_SetSelected : 0;
             if (!ImGui::BeginTabItem(a.sectionName(s), nullptr, open)) continue;
             ImGui::BeginChild("##panel-rows", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
-            gevrSettingsSection(a, s, GEVR_SET_INGAME);
+            int probe[1];
+            GevrSettingInfo probeInfo{};
+            const bool hasModSubtabs = (s == GEVR_SEC_MODS && a.sectionRows
+                && a.sectionRows(GEVR_LSEC_JEDI, GEVR_SET_LAUNCHER, probe, 1) > 0
+                && a.info(probe[0], &probeInfo) && probeInfo.launcherSection == GEVR_LSEC_JEDI);
+            if (hasModSubtabs) {
+                if (ImGui::BeginTabBar("##mods-subtabs", ImGuiTabBarFlags_FittingPolicyResizeDown)) {
+                    if (ImGui::BeginTabItem("General")) {
+                        gevrSettingsSection(a, GEVR_SEC_MODS, GEVR_SET_INGAME);
+                        ImGui::EndTabItem();
+                    }
+                    if (ImGui::BeginTabItem("Jedi")) {
+                        gevrSettingsSection(a, GEVR_LSEC_JEDI, GEVR_SET_LAUNCHER);
+                        ImGui::EndTabItem();
+                    }
+                    if (ImGui::BeginTabItem("Ninja")) {
+                        gevrSettingsSection(a, GEVR_LSEC_NINJA, GEVR_SET_LAUNCHER);
+                        ImGui::EndTabItem();
+                    }
+                    ImGui::EndTabBar();
+                }
+            } else {
+                gevrSettingsSection(a, s, GEVR_SET_INGAME);
+            }
             ImGui::EndChild();
             ImGui::EndTabItem();
         }

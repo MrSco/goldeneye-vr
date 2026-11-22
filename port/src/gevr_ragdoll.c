@@ -17,8 +17,10 @@
 #include "gun.h"
 #include "bgfog.h"
 #include "random.h"
+#include "gevr_jedi_ninja.h"
 
 extern int VrRagdolls, VrDismemberment, VrBodiesStay, VrDismemberChance;
+extern int VrJediNinjaMode;
 extern int netHordeActive(void);
 
 /* Bodies kept: Bodies stay, at most RD_BODIES; a Horde run at most a dozen
@@ -858,6 +860,9 @@ void gevrRagdollTick(int ticks60)
         if(!VrBodiesStay) {
             b->alpha=fmaxf(0,fminf(255,(5.5f-b->age)*170));
             if(b->alpha<=0)rdRelease(b);
+        } else if (VrJediNinjaMode != 0 && b->age > GEVR_JN_BODY_FADE_SEC) {
+            b->alpha = fmaxf(0.0f, fminf(255.0f, (GEVR_JN_BODY_FADE_SEC + 1.5f - b->age) * 170.0f));
+            if (b->alpha <= 0.0f) rdRelease(b);
         }
     }
 }
@@ -1059,4 +1064,165 @@ Gfx *gevrRagdollRender(Gfx *gdl)
         bondviewTransformManyPosToViewMatrix(b->model.render_pos,b->matrices);
     }
     return gdl;
+}
+
+int gevrRagdollForceCutNear(const float pos[3], float radiusCm, const float impulseVel[3], int maxCuts)
+{
+    if (!VrRagdolls || !VrDismemberment || !pdphysIsReady() || !pos || maxCuts <= 0) return 0;
+    const float r2 = radiusCm * radiusCm;
+    int cuts = 0;
+    for (int i = 0; i < RD_BODIES && cuts < maxCuts; i++) {
+        RdBody *b = &s_bodies[i];
+        if (!b->used || b->handle < 0) continue;
+        const float *bp = b->joints[b->root].m[3];
+        const float dx = bp[0] - pos[0], dy = bp[1] - pos[1], dz = bp[2] - pos[2];
+        if (dx * dx + dy * dy + dz * dz > r2) continue;
+        for (int p = 1; p < b->count && cuts < maxCuts; p++) {
+            const int sp = b->skel[p];
+            if (sp <= 0 || sp >= RD_SKEL || g_RdSkelHuman.cutradius[sp] <= 0.0f) continue;
+            if (b->cuts & (1u << p)) continue;
+            if (!rdCut(b, p)) continue;
+            pdphysRagdollKeepAwake(b->handle, 0.5f);
+            b->asleep = 0;
+            if (impulseVel) {
+                const float v[3] = {
+                    impulseVel[0] + (float)((p & 1) ? 90 : -90),
+                    impulseVel[1] + 180.0f,
+                    impulseVel[2] + (float)((p & 2) ? 70 : -70)
+                };
+                pdphysRagdollAddVelocity(b->handle, p, v);
+            }
+            cuts++;
+        }
+    }
+    return cuts;
+}
+
+int gevrRagdollFindNearestBody(const float from[3], const float dir[3], float maxDistCm, float minDot, float outPos[3])
+{
+    if (!VrRagdolls || !pdphysIsReady() || !from || !dir) return -1;
+    int best = -1;
+    float bestScore = 1e30f;
+    for (int i = 0; i < RD_BODIES; i++) {
+        const RdBody *b = &s_bodies[i];
+        if (!b->used || b->handle < 0) continue;
+        const float *bp = b->joints[b->root].m[3];
+        const float dx = bp[0] - from[0], dy = bp[1] - from[1], dz = bp[2] - from[2];
+        const float d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 < 1.0f || d2 > maxDistCm * maxDistCm) continue;
+        const float d = sqrtf(d2);
+        const float dot = (dx * dir[0] + dy * dir[1] + dz * dir[2]) / d;
+        if (dot < minDot) continue;
+        const float score = d * (1.5f - dot);
+        if (score < bestScore) {
+            bestScore = score;
+            best = i;
+            if (outPos) {
+                outPos[0] = bp[0]; outPos[1] = bp[1]; outPos[2] = bp[2];
+            }
+        }
+    }
+    return best;
+}
+
+void gevrRagdollPullBody(int slot, const float target[3], float maxForce, float freq)
+{
+    if (!VrRagdolls || !pdphysIsReady() || !target || slot < 0 || slot >= RD_BODIES) return;
+    RdBody *b = &s_bodies[slot];
+    if (!b->used || b->handle < 0) return;
+    pdphysRagdollPull(b->handle, b->root, target, maxForce, freq);
+    pdphysRagdollKeepAwake(b->handle, 0.25f);
+    b->asleep = 0;
+}
+
+void gevrRagdollThrowBody(int slot, const float vel[3])
+{
+    if (!VrRagdolls || !pdphysIsReady() || !vel || slot < 0 || slot >= RD_BODIES) return;
+    RdBody *b = &s_bodies[slot];
+    if (!b->used || b->handle < 0) return;
+    pdphysRagdollAddVelocity(b->handle, -1, vel);
+    pdphysRagdollKeepAwake(b->handle, 1.0f);
+    b->asleep = 0;
+}
+
+int gevrRagdollGetBodyPos(int slot, float outPos[3])
+{
+    if (!VrRagdolls || !pdphysIsReady() || !outPos || slot < 0 || slot >= RD_BODIES) return 0;
+    const RdBody *b = &s_bodies[slot];
+    if (!b->used || b->handle < 0) return 0;
+    const float *bp = b->joints[b->root].m[3];
+    outPos[0] = bp[0]; outPos[1] = bp[1]; outPos[2] = bp[2];
+    return 1;
+}
+
+int gevrRagdollPullLooseLimbs(const float from[3], const float center[3], float maxDistCm, float timeSec, int maxLimbs)
+{
+    if (!VrRagdolls || !pdphysIsReady() || !from || !center || maxLimbs <= 0) return 0;
+    if (maxLimbs > GEVR_JN_MAX_LIMBS) maxLimbs = GEVR_JN_MAX_LIMBS;
+    struct { RdBody *b; int part; } list[GEVR_JN_MAX_LIMBS];
+    int n = 0;
+    const float maxD2 = maxDistCm * maxDistCm;
+    for (int i = 0; i < RD_BODIES && n < maxLimbs; i++) {
+        RdBody *b = &s_bodies[i];
+        if (!b->used || b->handle < 0 || !b->cuts) continue;
+        for (int p = 0; p < b->count && n < maxLimbs; p++) {
+            if (!(b->cuts & (1u << p))) continue;
+            float ppos[3];
+            pdphysRagdollGetPartPos(b->handle, p, ppos);
+            const float dx = ppos[0] - from[0], dy = ppos[1] - from[1], dz = ppos[2] - from[2];
+            const float cx = ppos[0] - center[0], cy = ppos[1] - center[1], cz = ppos[2] - center[2];
+            if (dx * dx + dy * dy + dz * dz <= maxD2 || cx * cx + cy * cy + cz * cz <= 220.0f * 220.0f) {
+                list[n].b = b;
+                list[n].part = p;
+                n++;
+            }
+        }
+    }
+    for (int i = 0; i < n; i++) {
+        const float y = 1.0f - 2.0f * ((float)i + 0.5f) / (float)n;
+        const float rHoriz = sqrtf(fmaxf(0.0f, 1.0f - y * y));
+        const float theta = (float)i * 2.39996323f + timeSec * (1.6f + 0.15f * (float)(i & 3));
+        const float rad = 22.0f + 16.0f * ((float)(i % 5) / 4.0f);
+        const float tgt[3] = {
+            center[0] + cosf(theta) * rHoriz * rad,
+            center[1] + y * rad + sinf(timeSec * 2.5f + (float)i) * 3.0f,
+            center[2] + sinf(theta) * rHoriz * rad
+        };
+        pdphysRagdollPull(list[i].b->handle, list[i].part, tgt, 900.0f, 8.0f);
+        pdphysRagdollKeepAwake(list[i].b->handle, 0.3f);
+        list[i].b->asleep = 0;
+    }
+    return n;
+}
+
+int gevrRagdollLaunchLooseLimbs(const float center[3], const float aimDir[3], float speedCmS, float radiusCm)
+{
+    if (!VrRagdolls || !pdphysIsReady() || !center || !aimDir) return 0;
+    const float r2 = radiusCm * radiusCm;
+    int launched = 0;
+    for (int i = 0; i < RD_BODIES; i++) {
+        RdBody *b = &s_bodies[i];
+        if (!b->used || b->handle < 0 || !b->cuts) continue;
+        for (int p = 0; p < b->count; p++) {
+            if (!(b->cuts & (1u << p))) continue;
+            float ppos[3];
+            pdphysRagdollGetPartPos(b->handle, p, ppos);
+            const float dx = ppos[0] - center[0], dy = ppos[1] - center[1], dz = ppos[2] - center[2];
+            if (dx * dx + dy * dy + dz * dz > r2) continue;
+            const float vel[3] = {
+                aimDir[0] * speedCmS + (float)((launched % 3) - 1) * 90.0f,
+                aimDir[1] * speedCmS + 140.0f,
+                aimDir[2] * speedCmS + (float)(((launched + 1) % 3) - 1) * 90.0f
+            };
+            for (int k = 0; k < b->count; k++) {
+                if (rdPiece(b, k) == rdPiece(b, p)) {
+                    pdphysRagdollAddVelocity(b->handle, k, vel);
+                }
+            }
+            pdphysRagdollKeepAwake(b->handle, 1.0f);
+            b->asleep = 0;
+            launched++;
+        }
+    }
+    return launched;
 }

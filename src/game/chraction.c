@@ -5890,8 +5890,20 @@ void sub_GAME_7F02BFE4(ChrRecord *self, s32 arg1, s32 arg2)
     temp_v1 = prop->chr;
     phi_a1 = 0;
 
-    sp33 = bondwalkItemGetSoundTriggerRate((s32) chrlvWeaponNumber(temp_v1));
-    sp30 = bondwalkItemGetSound((s32) chrlvWeaponNumber(temp_v1));
+    {
+        s32 sfxItem = (s32) chrlvWeaponNumber(temp_v1);
+#ifdef GEVR
+        {
+            extern s32 gevrJnBlastersActive(void);
+            if (gevrJnBlastersActive() && sfxItem != ITEM_ROCKETLAUNCH && sfxItem != ITEM_GRENADELAUNCH)
+            {
+                sfxItem = ITEM_LASER;
+            }
+        }
+#endif
+        sp33 = bondwalkItemGetSoundTriggerRate(sfxItem);
+        sp30 = bondwalkItemGetSound(sfxItem);
+    }
 
     if (arg2 != 0)
     {
@@ -7267,6 +7279,16 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
                                 case ITEM_LASER:
                                     sp264 = 1;
                                     break;
+#ifdef GEVR
+                                case ITEM_SHOTGUN:
+                                case ITEM_AUTOSHOT:
+                                case ITEM_SNIPERRIFLE:
+                                {
+                                    extern s32 gevrJnBlastersActive(void);
+                                    sp264 = gevrJnBlastersActive() ? 1 : 0;
+                                    break;
+                                }
+#endif
 
                                 default:
                                     sp264 = 0;
@@ -7276,7 +7298,17 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
 
                         if (sp264 != 0)
                         {
-                            CapBeamLengthAndDecideIfRendered(&self->beams[hand], chrlvWeaponNumber(prop_selfchr), &sp240, &sp258);
+                            ITEM_IDS beamItem = chrlvWeaponNumber(prop_selfchr);
+#ifdef GEVR
+                            {
+                                extern s32 gevrJnBlastersActive(void);
+                                if (gevrJnBlastersActive())
+                                {
+                                    beamItem = ITEM_LASER;
+                                }
+                            }
+#endif
+                            CapBeamLengthAndDecideIfRendered(&self->beams[hand], beamItem, &sp240, &sp258);
                         }
                     }
                 }

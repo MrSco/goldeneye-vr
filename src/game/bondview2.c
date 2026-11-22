@@ -1699,6 +1699,11 @@ static s32 gevrGripAxesRaw(s32 ctrl, f32 pos[3], f32 right[3], f32 up[3], f32 ba
  * sight, muzzle and scope - so the two-handed aim (issue #35) turns them all,
  * as Perfect Dark VR's vrBuildGunRotation is the one writer of the gun's
  * rotation. */
+s32 gevrJnGetGripAxes(s32 ctrl, f32 pos[3], f32 right[3], f32 up[3], f32 back[3])
+{
+    return g_gevrStereo ? gevrGripAxesRaw(ctrl, pos, right, up, back) : FALSE;
+}
+
 static s32 gevrGripAxes(s32 ctrl, f32 pos[3], f32 right[3], f32 up[3], f32 back[3])
 {
     if (!gevrGripAxesRaw(ctrl, pos, right, up, back))
@@ -18031,6 +18036,9 @@ s32 gevrWeaponPanelLeft;       /* input.c: the left hand's panel, opened with X 
 s32 gevrWeaponPanelBody;       /* vr_openxr.cpp: a body-slot category is in front of the eyes */
 float gevrWeaponPanelRect[4];  /* the panel's box in the game's screen, 0..1 (vr_openxr.cpp crops to it) */
 float gevrWeaponPanelAspect = 1.0f;   /* its width over height in screen units (the capture's pixels aren't square) */
+extern int VrControllerWheel, VrJediNinjaMode, VrJediBlasters;
+s32 gevrJnSelectedPower = 0;     /* GEVR_JN_FORCE_* */
+s32 gevrJnSelectedNinjaSlot = 0; /* GEVR_JN_NINJA_SLOT_* */
 
 static s32 s_gevrWpShown;
 static s32 s_gevrWpMoved;
@@ -21360,6 +21368,101 @@ static Gfx *gevrDrawBodySlotWheel(Gfx *gdl, const GevrBodySlotWheel *slot)
     return gdl;
 }
 
+static s32 gevrControllerWheelAllowed(void)
+{
+    return VrControllerWheel != 0 || VrJediNinjaMode != 0;
+}
+
+static Gfx *gevrJnDrawModeWheel(Gfx *gdl, s32 lh, s32 lp)
+{
+    static s32 s_jnShown = FALSE;
+    static s32 s_jnIdx = 0;
+    static const char *const kJediLabels[4] = { "FORCE TK", "LIGHTNING", "THROW", "GUNS" };
+    static const char *const kJediBlasterLabels[4] = { "FORCE TK", "LIGHTNING", "THROW", "BLASTER" };
+    static const char *const kNinjaLabels[6] = { "KATANA", "SHORT", "DUAL", "SHIELD", "BOOMERANG", "SHADOW" };
+    const s32 isJedi = (VrJediNinjaMode == 1);
+    const s32 count = isJedi ? 4 : 6;
+    const char *const *labels = isJedi ? (VrJediBlasters ? kJediBlasterLabels : kJediLabels) : kNinjaLabels;
+    s32 categories[6] = { 0, 1, 2, 3, 4, 2 };
+    s32 empty[6] = { 0, 0, 0, 0, 0, 0 };
+    s32 bx0, by0, cx, cy, i;
+
+    if (!gevrWeaponPanelOpen && !gevrWeaponPanelRelease)
+    {
+        gevrWeaponPanelStep = 0;
+        s_jnShown = FALSE;
+        return gdl;
+    }
+    if (!s_jnShown)
+    {
+        s_jnIdx = isJedi ? gevrJnSelectedPower : gevrJnSelectedNinjaSlot;
+        if (s_jnIdx < 0 || s_jnIdx >= count) s_jnIdx = 0;
+        gevrWeaponPanelStep = 0;
+        s_jnShown = TRUE;
+    }
+    if (gevrWeaponPanelRelease)
+    {
+        gevrWeaponPanelRelease = 0;
+        if (s_jnShown && s_jnIdx >= 0 && s_jnIdx < count)
+        {
+            if (isJedi) gevrJnSelectedPower = s_jnIdx;
+            else gevrJnSelectedNinjaSlot = s_jnIdx;
+        }
+        s_jnShown = FALSE;
+    }
+    if (!gevrWeaponPanelOpen)
+    {
+        gevrWeaponPanelStep = 0;
+        s_jnShown = FALSE;
+        return gdl;
+    }
+    if (gevrWeaponPanelStickX * gevrWeaponPanelStickX + gevrWeaponPanelStickY * gevrWeaponPanelStickY >= GEVR_WC_DEAD * GEVR_WC_DEAD)
+    {
+        f32 span = 360.0f / count;
+        f32 deg = atan2f(gevrWeaponPanelStickX, gevrWeaponPanelStickY) * (360.0f / M_TAU_F);
+        if (deg < 0.0f) deg += 360.0f;
+        s_jnIdx = (s32) (deg / span + 0.5f) % count;
+    }
+    if (gevrWeaponPanelStep != 0)
+    {
+        s_jnIdx = ((s_jnIdx + gevrWeaponPanelStep) % count + count) % count;
+        gevrWeaponPanelStep = 0;
+    }
+
+    bx0 = (viGetX() - GEVR_WP_W) / 2;
+    by0 = (viGetY() - GEVR_WP_H) / 2;
+    if (bx0 < 0) bx0 = 0;
+    if (by0 < 0) by0 = 0;
+    cx = bx0 + GEVR_WP_W / 2;
+    cy = by0 + GEVR_WP_H / 2;
+    gevrWeaponPanelRect[0] = (float) bx0 / (float) viGetX();
+    gevrWeaponPanelRect[1] = (float) by0 / (float) viGetY();
+    gevrWeaponPanelRect[2] = (float) (bx0 + GEVR_WP_W) / (float) viGetX();
+    gevrWeaponPanelRect[3] = (float) (by0 + GEVR_WP_H) / (float) viGetY();
+    gevrWeaponPanelAspect = (float) GEVR_WP_W / (float) GEVR_WP_H;
+
+    if (g_gevrStereo) gDPNoOpTag(gdl++, 0x565C0000); /* VR_WEAPON_PANEL_CAPTURE_BEGIN */
+    gdl = gevrWheelDrawSegments(gdl, cx, cy, s_jnIdx, count, categories, empty);
+    gdl = microcode_constructor(gdl);
+    for (i = 0; i < count; i++)
+    {
+        f32 a = i * (360.0f / count) * (M_TAU_F / 360.0f);
+        f32 r = GEVR_WC_TEXTR + (i == s_jnIdx ? GEVR_WC_POP * 0.5f : 0.0f);
+        s32 ty = cy - (s32) lroundf(cosf(a) * r) - lp / 2;
+        s32 pop = i == s_jnIdx ? GEVR_WC_POP : 0;
+        s32 mid, w = gevrWheelSegmentRow(i, count, ty + lp / 2 - cy, pop, &mid);
+        if (w > 0)
+        {
+            gdl = gevrWpText(gdl, labels[i], cx + mid, ty, i == s_jnIdx ? 0xFFE65AFF : 0xFFFFFFFF, lh, w, NULL);
+        }
+    }
+    gdl = gevrWpText(gdl, isJedi ? "JEDI" : "NINJA", cx, cy - lp - 2, 0xC0C8D2FF, lh, GEVR_WC_R0 * 2 - 4, NULL);
+    gdl = gevrWpText(gdl, labels[s_jnIdx], cx, cy + 2, 0xFFE65AFF, lh, GEVR_WC_R0 * 2 - 4, NULL);
+    gdl = combiner_bayer_lod_perspective(gdl);
+    if (g_gevrStereo) gDPNoOpTag(gdl++, 0x565C0001); /* VR_WEAPON_PANEL_CAPTURE_END */
+    return gdl;
+}
+
 Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 {
     s32 count;
@@ -21375,13 +21478,19 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 
     gevrWeaponPanelBody = FALSE;
 
-    if (!g_gevrStereo || g_CurrentPlayer == NULL)
+    if ((!g_gevrStereo && !gevrControllerWheelAllowed()) || g_CurrentPlayer == NULL)
     {
         gevrWeaponPanelOpen = 0;
         gevrWeaponPanelRelease = 0;
         gevrWeaponPanelStep = 0;
         s_gevrWpShown = FALSE;
         return gdl;
+    }
+
+    if (VrJediNinjaMode != 0 && !gevrWeaponPanelLeft && (gevrWeaponPanelOpen || gevrWeaponPanelRelease))
+    {
+        s_gevrWpShown = FALSE;
+        return gevrJnDrawModeWheel(gdl, lh, lp);
     }
 
     GevrBodySlotWheel slot;
@@ -21494,7 +21603,7 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
     gevrWeaponPanelRect[3] = (float) (by0 + GEVR_WP_H) / (float) viGetY();
     gevrWeaponPanelAspect = (float) GEVR_WP_W / (float) GEVR_WP_H;
 
-    gDPNoOpTag(gdl++, 0x565C0000); /* VR_WEAPON_PANEL_CAPTURE_BEGIN */
+    if (g_gevrStereo) gDPNoOpTag(gdl++, 0x565C0000); /* VR_WEAPON_PANEL_CAPTURE_BEGIN */
 
     gdl = gevrWheelDrawRing(gdl, cx, cy, active);
 
@@ -21571,7 +21680,7 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
                                    cx - GEVR_WP_MODEL_W / 2, cy - GEVR_WP_MODEL_H / 2, GEVR_WP_MODEL_W, GEVR_WP_MODEL_H);
 
     gdl = combiner_bayer_lod_perspective(gdl);
-    gDPNoOpTag(gdl++, 0x565C0001); /* VR_WEAPON_PANEL_CAPTURE_END */
+    if (g_gevrStereo) gDPNoOpTag(gdl++, 0x565C0001); /* VR_WEAPON_PANEL_CAPTURE_END */
     return gdl;
 }
 
@@ -21710,7 +21819,12 @@ Gfx *maybe_mp_interface(Gfx *gdl)
     {
         Gfx *beforegun = gdl;
 
-        gunRenderFirstPersonGunModels(&gdl);
+        {
+            extern s32 gevrJnHideNormalGun(void);
+            extern s32 gevrJnDrawBlasterActive(void);
+            if (!gevrJnHideNormalGun()) gunRenderFirstPersonGunModels(&gdl);
+            if (gevrJnDrawBlasterActive()) gdl = beforegun;
+        }
         /* Third person: the guns' matrices (muzzle, throw, casings) are still
          * worked out; only what they drew is dropped. */
         if (gevrTpHidesGun()) gdl = beforegun;
@@ -21976,6 +22090,10 @@ Gfx *maybe_mp_interface(Gfx *gdl)
 
         gdl = gevrBodySlotsDrawLabels(gdl);
         gdl = gevrPullDraw(gdl);
+        {
+            extern Gfx *gevrJnDrawFirstPerson(Gfx *gdl);
+            gdl = gevrJnDrawFirstPerson(gdl);
+        }
     }
     /*
      * Stereo: the ammo count goes on a small panel at the right controller,
@@ -22186,6 +22304,10 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
     if (gevrCoopForwardGuardDamage(damage_amount, vectorx, vectorz)) return;
     /* co-op revive: a downed player takes no more until a teammate brings them back */
     if (gevrCoopDowned(get_cur_playernum())) return;
+    {
+        extern s32 gevrJnInterceptPlayerDamage(f32 damageAmount, f32 vecX, f32 vecZ);
+        if (gevrJnInterceptPlayerDamage(damage_amount, vectorx, vectorz)) return;
+    }
     /*
      * A guard, an autogun or gas has no player (-1), and the bookkeeping
      * below indexes the players with it: g_playerPlayerData[-1] and

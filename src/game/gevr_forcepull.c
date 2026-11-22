@@ -352,6 +352,13 @@ static s32 gevrPullCandidate(PropRecord *prop)
     {
         return FALSE;
     }
+    {
+        extern s32 gevrJnCanPickupProp(PropRecord *prop);
+        if (!gevrJnCanPickupProp(prop))
+        {
+            return FALSE;
+        }
+    }
     if (!gevrPullSightClear(prop->pos.x, prop->pos.y, prop->pos.z, &stan))
     {
         return FALSE;

@@ -128,6 +128,32 @@ int VrBeanCommunityEdition = 1;
 int VrBloodPatch = 0;
 /* Mods: Oddjob's hat, on when its file is there (gevr_oddjobhat.c) */
 int VrOddjobHat = 1;
+/* Jedi & Ninja modes (#270) and flat controller weapon wheel: all off by default. */
+int VrJediNinjaMode = 0;
+int VrJediHand = 0;
+int VrSaberColor = 0;
+int VrSaberStyle = 0;
+int VrJediForcePowers = 1;
+int VrJediCatchProjectiles = 1;
+int VrJnPerfectParry = 1;
+int VrJnBladeTrails = 1;
+int VrJnAudio = 1;
+int VrNinjaSword = 0;
+int VrNinjaBoomerang = 0;
+int VrNinjaShield = 1;
+int VrNinjaRicochet = 1;
+int VrNinjaShadowStep = 1;
+int VrNinjaBulletSlice = 1;
+int VrSithNpc = 0;
+int VrSithInNormalMode = 0;
+int VrSithScale = 0;
+int VrNinjaNpc = 0;
+int VrNinjaInNormalMode = 0;
+int VrAllyJedi = 0;
+int VrControllerWheel = 0;
+int VrJediBlasters = 1;
+int VrJediPickupGuns = 0;
+int VrNinjaPickupGuns = 0;
 int VrRagdolls = 0;       /* optional Jolt death physics, every game mode */
 int VrDismemberment = 0; /* independent preference; requires ragdolls */
 /* CE's Ragdoll.RagdollDismemberDamage / RagdollDismemberChance (ragdoll.c:41).

@@ -165,9 +165,15 @@ static int sweep(const char *state) {
                           sub >= 0 ? gevrLauncherSubName(tab, sub) : "");
             check(pageRight <= pageLimitX + 1, what);
             // the table's labels fit their column (gevrSettingsSection's split)
-            static const int lsec[GEVR_LTAB_COUNT][4] = {
-                { GEVR_LSEC_PLAY }, { -1 }, { -1 }, { GEVR_LSEC_HANDS, GEVR_LSEC_GESTURES, GEVR_LSEC_THROWING, -1 },
-                { GEVR_LSEC_COMFORT }, { GEVR_LSEC_SCREEN }, { GEVR_LSEC_RULES, GEVR_LSEC_ALLY, GEVR_LSEC_CHEATS }, { -1 } };
+            static const int lsec[GEVR_LTAB_COUNT][5] = {
+                { GEVR_LSEC_PLAY, -1, -1, -1, -1 },
+                { -1, -1, -1, -1, -1 },
+                { -1, -1, -1, -1, -1 },
+                { GEVR_LSEC_HANDS, GEVR_LSEC_GESTURES, GEVR_LSEC_THROWING, -1, -1 },
+                { GEVR_LSEC_COMFORT, -1, -1, -1, -1 },
+                { GEVR_LSEC_SCREEN, -1, -1, -1, -1 },
+                { GEVR_LSEC_RULES, GEVR_LSEC_ALLY, GEVR_LSEC_CHEATS, GEVR_LSEC_JEDI, GEVR_LSEC_NINJA },
+                { -1, -1, -1, -1, -1 } };
             const int section = lsec[tab][sub < 0 ? 0 : sub];
             if (section >= 0 && section != GEVR_LSEC_CHEATS) settingsFitControls(api, section, GEVR_SET_LAUNCHER, pageWidth, state);
         }
@@ -199,7 +205,7 @@ int main() {
     pages += sweep("co-op host");
     s_host = 0; s_coop = 0; s_config.mode = 0; s_config.scenario = 1; s_netSpeed = 4;
     pages += sweep("deathmatch joiner");
-    check(pages == 4 * 12, "every settings page, Ghosts, and Multiplayer's Fun and Audio, in four states");
+    check(pages == 4 * 14, "every settings page, Ghosts, and Multiplayer's Fun and Audio, in four states");
     // both tab rows fit without shrinking
     ImGuiContext &g = *ImGui::GetCurrentContext();
     int bars = 0;
