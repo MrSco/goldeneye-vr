@@ -143,6 +143,7 @@ static struct {
     float gun[3], gexGun[3], grip[2][6], gexGrip[2][6], scope[2][GEVR_SCOPE_FITS][4];
     float beanGun[3], beanGrip[2][6], beanReloadGrab[3], beanScope[GEVR_SCOPE_FITS][4];
     float beanMuzzle[GEVR_MAX_WEAPONS][3];
+    float rack[3][64][3];          /* hand reload's rack places (gevr_rack.h) */
     float reloadGrab[2][3], reloadBelt[3], gexHeld[3], gexWatch[4], gexFore[3], gexOffRot[3];
     float muzzle[2][GEVR_MAX_WEAPONS][3];
     float pp7Grab[3], pp7Support[3], pp7Gun[3];
@@ -193,6 +194,7 @@ static void gevrGunFitSaved(bool restore)
         memcpy(VrBeanReloadGrab, s_gunFitSaved.beanReloadGrab, sizeof(VrBeanReloadGrab));
         memcpy(VrBeanScopeFit, s_gunFitSaved.beanScope, sizeof(VrBeanScopeFit));
         memcpy(VrBeanMuzzleTrim, s_gunFitSaved.beanMuzzle, sizeof(VrBeanMuzzleTrim));
+        memcpy(VrRackFit, s_gunFitSaved.rack, sizeof(VrRackFit));
         memcpy(VrGunOffPer, s_gunFitSaved.gunPer, sizeof(VrGunOffPer));
         memcpy(VrGripTrimPer, s_gunFitSaved.gripPer, sizeof(VrGripTrimPer));
         memcpy(VrGunOffPerSet, s_gunFitSaved.gunPerSet, sizeof(VrGunOffPerSet));
@@ -229,6 +231,7 @@ static void gevrGunFitSaved(bool restore)
         memcpy(s_gunFitSaved.beanReloadGrab, VrBeanReloadGrab, sizeof(VrBeanReloadGrab));
         memcpy(s_gunFitSaved.beanScope, VrBeanScopeFit, sizeof(VrBeanScopeFit));
         memcpy(s_gunFitSaved.beanMuzzle, VrBeanMuzzleTrim, sizeof(VrBeanMuzzleTrim));
+        memcpy(s_gunFitSaved.rack, VrRackFit, sizeof(VrRackFit));
         memcpy(s_gunFitSaved.gunPer, VrGunOffPer, sizeof(VrGunOffPer));
         memcpy(s_gunFitSaved.gripPer, VrGripTrimPer, sizeof(VrGripTrimPer));
         memcpy(s_gunFitSaved.gunPerSet, VrGunOffPerSet, sizeof(VrGunOffPerSet));
@@ -2508,6 +2511,14 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 const bool lt = get_button_state(0, "trigger"), yb = get_button_state(0, "y");
                 if (gevrReloadFitting && lt && !ltHeld) gevrReloadFitSetGrab();
                 if (gevrReloadFitting && yb && !yHeld) gevrReloadFitSetBelt();
+                {
+                    /* ... and where the gun is racked (gevr_rack.h): the off hand there, its grip */
+                    static bool rackGrip = true;
+                    extern void gevrRackFitSet(void);   /* bondview2.c */
+                    const bool lg = get_button_state(0, "grip");
+                    if (gevrReloadFitting && lg && !rackGrip) gevrRackFitSet();
+                    rackGrip = lg;
+                }
                 if (gevrWellFitting && lt && !ltHeld) gevrReloadFitSetWell();
                 /* the body slots (gevr_bodyslots.c): the move stick's sideways flick
                  * picks a slot, a fresh grip puts it where that hand is, Y back to

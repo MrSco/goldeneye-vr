@@ -2,8 +2,10 @@
 
 A third step for the pistols, the submachine guns and the KF7 when they are
 reloaded by hand (owner, 2026-11-21: "drop the clip, put a clip in, and then
-rack the slide"). Part of **Hand reload WIP** (Controls → Gestures): no
-setting of its own. GoldenEye X's guns and Bean's alike.
+rack the slide"), and a pump for the shotgun ("we should have to cock pump
+the regular shotgun ... the auto shotgun maybe not since it's auto"). Part of
+**Hand reload WIP** (Controls → Gestures): no setting of its own. GoldenEye
+X's guns and Bean's alike.
 
 Not yet played in a headset: see the test sheet below.
 
@@ -23,6 +25,15 @@ Not yet played in a headset: see the test sheet below.
 Pushing the gun forward against a still hand racks it too: what counts is the
 hand's place along the gun.
 
+A ring on the gun shows where to take hold while it waits, blue, and green
+with the hand on it.
+
+**The shotgun** is loaded a shell at a time, as before. Fired dry, the shells
+put in wait for the pump (`PUMP IT`): grip the pump under the barrel, pull it
+back and run it forward again. More shells can go in before pumping. Shells
+added to a shotgun that still has some are ready at once. The automatic
+shotgun has no pump.
+
 ## The rules
 
 - **Only after running dry.** A magazine changed while rounds are still in the
@@ -36,6 +47,7 @@ hand's place along the gun.
   slide. The grip that pushed the magazine in is not a rack: let go first.
 - **B / Y before the rack** drops the magazine again, its rounds back to the
   reserve. The chamber is still empty.
+- **Racking a loaded gun does nothing**: no round is thrown away.
 - **Dual wielding, or one-handed: no rack.** Reloading a gun by touching it to
   the belt (the only way with a gun in each hand) loads and chambers it, as it
   always has. With one gun, touching it to the belt after pushing a magazine
@@ -44,8 +56,12 @@ hand's place along the gun.
 - Hand reload turned off, a level's end or a death with one waiting: it is
   simply loaded (or gone with everything else on a death).
 - **Which guns:** PP7 and its silenced, silver and gold kin, DD44, Klobb, ZMG,
-  D5K and silenced D5K, Phantom, KF7. The AR33, RC-P90, sniper rifle and the
-  round-at-a-time guns keep their reloads.
+  D5K and silenced D5K, Phantom, KF7, and the shotgun's pump.
+- **Left out:** AR33, RC-P90 and sniper rifle (each has a charging handle or
+  a bolt, so they could take it: the same mechanism, another place and
+  throw); automatic shotgun (cycles itself); Cougar Magnum (a revolver);
+  Golden Gun (single shot, loaded at the breech); grenade launcher and rocket
+  launcher. The lasers and the tank do not reload.
 
 ## What moves
 
@@ -62,13 +78,23 @@ bolt out of each mesh, as the magazines were, is the next step.
 | | |
 | --- | --- |
 | Reach | a fresh grip within 12 cm of the place |
-| A pistol's place | 7 cm above the gun hand's grip, 1 cm behind it |
-| A bolt handle's place | 6 cm above, 6 cm ahead |
-| Throw | 3.5 cm for a slide, 5 cm for a bolt |
+| A pistol's place, unfitted | 7 cm above the gun hand's grip, 1 cm behind it |
+| A bolt handle's, unfitted | 6 cm above, 6 cm ahead |
+| The pump's, unfitted | 2 cm above, 28 cm ahead |
+| Throw | 3.5 cm for a slide, 5 cm for a bolt, 6 cm for the pump |
 | Still gripped | done once the hand is back within half the throw |
 
-The places are guesses from the grip, not fitted per gun: the reach is wide to
-make up for it. A Gun fit mode for them is not built.
+## Fitting the place (Gun fit)
+
+The unfitted places are guesses from the grip. To set one: Gun fit (Controls,
+or Menu + A in a level) with the gun in hand, **X** until `RELOAD FIT`. The
+ring shows where the gun is racked now and the readout how far the off hand
+is from it (`OFF HAND ON THE SLIDE` / `THE BOLT HANDLE` / `THE PUMP`). Put the
+off hand where you want to take hold and squeeze **its grip**: the ring jumps
+there, with a buzz. **A** saves, **B** undoes. Saved per model set and gun as
+`Rack<gun>`, `GexRack<gun>` and `BeanRack<gun>` in goldeneye-vr.ini (cm right,
+up and back of the gun hand's grip); the four PP7s share one. Left-handed, a
+place mirrors with the hands.
 
 ## How it is built
 
@@ -80,7 +106,11 @@ make up for it. A Gun fit mode for them is not built.
   given back in `gevrGexMagOut` and `gevrReloadStow`; chambered by
   `gevrGexMagIn` (the belt's paths); the off hand claimed in
   `gevrGexClaimsOffHand`, ahead of the two-handed hold.
-- `gun.c`, `gevr_hand_reload.h`: the two labels.
+- `gevrGexRoundTick`: the shotgun's shells wait (`gevrRackAdd`) and its pump
+  runs the same `gevrRackRun`.
+- `gevrRackFit`, `gevrRackFitSet`, `gevrRackPointShown`; `input.c` (the left
+  grip in the reload fit, the undo snapshot); `vr_settings.cpp` (`*Rack*`).
+- `gun.c`, `gevr_hand_reload.h`: the three labels and the ring.
 - `port/tests/test_hand_reload.py` runs the whole reload with the rack in it
   (`rackReload`); `port/tests/test_rack.py` the state machine and the wiring.
 
@@ -108,3 +138,12 @@ Hand reload on, one gun, GoldenEye X's models and then Bean's.
 10. The last magazine with an empty reserve: seated and waiting, the game
     does not switch weapons; racked, it fires.
 11. Left-handed mode and Swap sticks: the off hand is the other one.
+12. The ring: on the gun while it waits, where the hand expects it.
+13. Gun fit, `RELOAD FIT`: squeeze the off hand's grip at the slide, the bolt
+    handle, the pump: the ring moves there; A saves; it is still there after a
+    restart; B undoes an unsaved one. Does squeezing there in the fit do
+    anything unwanted to the magazine (KF7: the magazine is near)?
+14. The shotgun: fire it dry, two shells in: `PUMP IT`, the trigger clicks.
+    Pump back and forward: fires, twice. More shells before pumping: all of
+    them. A shell added with shells left: no pump. Does the pump's grab get in
+    the way of the two-handed hold? The automatic shotgun: no pump.

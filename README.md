@@ -335,10 +335,13 @@ reloads by hand ([details](docs/project-bean.md#removable-magazines-hand-reload-
     it, then push a fresh one from the belt up into the grip. A grip under a pistol is support.
   - **Rack it.** A pistol, a submachine gun or the KF7 that you fired dry needs a third step
     after its magazine: grip the rear of the slide (or the bolt handle) with your off hand,
-    pull back and let go. Change the magazine before it runs dry and there is nothing to rack.
-    Touching the gun to your belt skips it. See [racking](docs/hand-reload-rack.md).
+    where the ring is, pull back and let go. Change the magazine before it runs dry and there
+    is nothing to rack. Touching the gun to your belt skips it. Gun fit's reload page moves the
+    ring: squeeze the off hand's grip where you want it. See [racking](docs/hand-reload-rack.md).
 - **Shotguns, rocket launcher, Golden Gun and grenade launcher.** Grip one round at your
   belt and insert it at the gun's port. Release the grip before taking another.
+  - The pump shotgun, fired dry, needs its pump run after the shells go in: grip it under
+    the barrel, pull back and push forward. The automatic shotgun does not.
 - **Cougar Magnum.** A belt grab takes a speedloader with up to six rounds. The cylinder
   swings open while you hold it, and inserting seats them all.
 - **Empty guns.** Bring an empty gun to your belt to reload it directly.

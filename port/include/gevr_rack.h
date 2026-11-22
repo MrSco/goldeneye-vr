@@ -21,6 +21,7 @@
 #define GEVR_RACK_REACH_CM   12.0f   /* a fresh grip this near the slide or the handle takes it */
 #define GEVR_RACK_SLIDE_CM   3.5f    /* a pistol's slide: pulled back this far it is racked */
 #define GEVR_RACK_BOLT_CM    5.0f    /* a bolt handle's longer throw */
+#define GEVR_RACK_PUMP_CM    6.0f    /* the shotgun's pump */
 #define GEVR_RACK_RETURN     0.5f    /* of the throw: back in this far, still gripped, it has gone home */
 #define GEVR_RACK_NUDGE_CM   1.2f    /* the gun gives this much with the pull */
 #define GEVR_RACK_KICK_CM    0.8f    /* and jumps forward this much as the bolt goes home */
@@ -66,6 +67,15 @@ static inline int gevrRackHold(GevrRack *r, int *loaded)
     *loaded = 0;
     r->held = r->cocked = 0;
     r->pull = 0.0f;
+    return 1;
+}
+
+/* A shell into a gun loaded one at a time: on an empty chamber it waits with
+ * the others for the pump. 1 if it does. */
+static inline int gevrRackAdd(GevrRack *r, int rounds)
+{
+    if (!r->dry || rounds <= 0) return 0;
+    r->pending += rounds;
     return 1;
 }
 

@@ -101,6 +101,19 @@ int main(void)
     gevrRackChamber(&r, &loaded);
     CHECK(loaded == 12 && r.dry);
 
+    /* shells, one at a time: on an empty chamber each waits with the others; otherwise none does */
+    memset(&r, 0, sizeof(r));
+    CHECK(!gevrRackAdd(&r, 1) && r.pending == 0);
+    r.dry = 1;
+    CHECK(gevrRackAdd(&r, 1) && gevrRackAdd(&r, 1) && r.pending == 2);
+    CHECK(!gevrRackAdd(&r, 0) && r.pending == 2);
+    CHECK(gevrRackStep(&r, 1, 1, 0.0f, 0.0f, GEVR_RACK_PUMP_CM) == GEVR_RACK_GRABBED);
+    CHECK(gevrRackStep(&r, 1, 0, 0.0f, GEVR_RACK_PUMP_CM, GEVR_RACK_PUMP_CM) == GEVR_RACK_COCKED);
+    CHECK(gevrRackStep(&r, 1, 0, 0.0f, 0.0f, GEVR_RACK_PUMP_CM) == GEVR_RACK_DONE);   /* back, then forward: pumped */
+    loaded = 0;
+    gevrRackChamber(&r, &loaded);
+    CHECK(loaded == 2 && !r.dry);
+
     if (s_fail)
     {
         printf("%d failed\n", s_fail);

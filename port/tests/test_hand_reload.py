@@ -35,14 +35,14 @@ defaults = read("port/vr/vr_settings_defaults.c")
 matrix = read("src/game/matrixmath.c")
 definitions = [re.search(r"typedef enum " + name + r"\b.*?\}\s*" + name + r";",
                          constants, re.S).group() for name in ("GUNHAND", "ITEM_IDS")]
-for first in ("GEVR_GT_HIPDROP", "GEVR_RT_MAGRADIUS", "GEVR_GEXMAG_IN", "GEVR_WC_PISTOLS"):
+for first in ("GEVR_GT_HIPDROP", "GEVR_RT_MAGRADIUS", "GEVR_GEXMAG_IN", "GEVR_WC_PISTOLS", "GEVR_RACK_KIND_SLIDE"):
     definitions.append(re.search(r"enum \{ " + first + r"\b.*?\};", view, re.S).group())
 for name in ("s_gevrGestureTune", "s_gevrReloadTune"):
     definitions.append(re.search(r"static f32 " + name + r"\[.*?\};", view, re.S).group())
 definitions.append(re.search(r"float VrReloadBelt\[3\] = [^;]+;", defaults).group())
 for name in ("VrReloadGrab", "VrBeanReloadGrab", "VrGexGunOff", "VrGexForeHold", "VrGexPp7Grab", "VrGexPp7Support", "VrGexPp7GunOff",
              "VrGexKf7MagOff", "VrGexPp7MagOff", "VrGexKf7WellOff", "VrGexPp7WellOff", "VrGexPp7SupportRot",
-             "VrGexBatFit"):
+             "VrGexBatFit", "VrRackFit"):
     definitions.append(re.search(r"float " + name + r"\[[^;]+;", defaults).group())
 definitions.append(re.search(r"float VrGexWeaponFits\[64\]\[10\]\[3\] = \{.*?^\};", defaults, re.S | re.M).group())
 for name in ("s_gevrGexMagItem", "s_gevrPistolGripOwner"):
@@ -82,8 +82,10 @@ production.extend(function(view, signature) for signature in (
     "static s32 gevrReloadSingleRound(", "static s32 gevrReloadHasMagazine(", "static s32 gevrReloadPickup(",
     "static s32 gevrReloadPullsUp(",
     "static s32 gevrReloadMagPulls(",
-    "static s32 gevrRackItem(", "static s32 gevrRackGun(", "static s32 gevrRackSlide(", "static f32 gevrRackThrow(",
-    "static void gevrReloadOffHandAt(", "static s32 gevrRackMeasure(",
+    "static s32 gevrRackItem(", "static s32 gevrRackGun(", "static s32 gevrRackKind(", "static const char *gevrRackName(",
+    "static f32 gevrRackThrow(", "static f32 *gevrRackFit(", "static void gevrRackPlace(",
+    "static void gevrReloadOffHandAt(", "static s32 gevrRackMeasure(", "static s32 gevrRackRun(",
+    "s32 gevrRackPointShown(", "void gevrRackFitSet(", "const char *gevrRackFitDistance(f32 *dist)\n{",
     "static s32 gevrReloadPoints(",
     "s32 gevrGexHeldRoundCount(void)\n{",
     "static void gevrGexHeldDropped(", "static void gevrGexMagOut(",

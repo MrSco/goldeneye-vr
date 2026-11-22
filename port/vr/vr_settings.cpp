@@ -652,6 +652,18 @@ extern "C" void vrSettingsSave(void)
             }
         }
     }
+    iniPrintf(f, "\n");
+    iniPrintf(f, "; Hand reload's rack, set with Gun fit's reload mode (X) by the left grip: where the off\n");
+    iniPrintf(f, "; hand takes the slide, the bolt handle or the pump, cm right, up and back of the gun\n");
+    iniPrintf(f, "; hand's grip. A gun with no line uses a guess. GexRack* and BeanRack* for those models.\n");
+    for (int m = 0; m < 3; m++) {
+        for (const auto &w : kMuzzleWeapons) {
+            const float *t = VrRackFit[m][w.item];
+            if (t[0] != 0.0f || t[1] != 0.0f || t[2] != 0.0f) {
+                iniPrintf(f, "%sRack%s=%.2f %.2f %.2f\n", kFitLookPrefix[m], w.name, t[0], t[1], t[2]);
+            }
+        }
+    }
 
 
 
@@ -899,6 +911,20 @@ extern "C" void vrSettingsLoad(void)
                 }
                 continue;
             }
+        }
+        if (strncmp(fit, "Rack", 4) == 0) {
+            for (const auto &w : kMuzzleWeapons) {
+                const size_t nameLen = strlen(w.name);
+                if (strncmp(fit + 4, w.name, nameLen) == 0 && fit[4 + nameLen] == '=') {
+                    float t[3];
+                    if (sscanf(fit + 4 + nameLen + 1, "%f %f %f", &t[0], &t[1], &t[2]) == 3) {
+                        for (int i = 0; i < 3; i++) VrRackFit[look][w.item][i] = t[i];
+                        beanFitsRead |= beanFit;
+                    }
+                    break;
+                }
+            }
+            continue;
         }
         if (strncmp(fit, "Muzzle", 6) == 0) {
             for (const auto &w : kMuzzleWeapons) {

@@ -30,6 +30,7 @@ static float VrGexHeldMag[3];
 static int s_gevrGexHeldAmmoType;
 static int s_gevrReloadSeatTicks, s_gevrGexSeatedTicks[2];
 static GevrRack s_gevrRack[2];   /* bondview2.c: the rack's state per gun hand */
+int gevrReloadFitting;   /* input.c: Gun fit is setting the reload's places */
 static float s_gevrReloadSeatAt[3];
 static float poses[2][3];
 static int gex[2], buzzes, fills, tracked[2] = {1, 1};
@@ -1341,7 +1342,10 @@ static void reversedReloads(void)
         assert(s_gevrGexMag[GUNLEFT]==GEVR_GEXMAG_INHAND && s_gevrGexHeldRounds==amount);
         assert(gevrReloadCarriesRounds(GUNLEFT) && reserve==50-amount);
         pointsValid=3; memset(wellPoint,0,sizeof(wellPoint)); memset(heldPoint,0,sizeof(heldPoint)); pistolTick();
-        assert(s_gevrGexMag[GUNLEFT]==GEVR_GEXMAG_IN && player.hands[GUNLEFT].weapon_ammo_in_magazine==amount);
+        /* the empty pump shotgun's shell waits for the pump (gevr_rack.h); the others are loaded */
+        assert(s_gevrGexMag[GUNLEFT]==GEVR_GEXMAG_IN
+            && player.hands[GUNLEFT].weapon_ammo_in_magazine + s_gevrRack[GUNLEFT].pending==amount);
+        assert(s_gevrRack[GUNLEFT].pending == (n==0 ? amount : 0));
         assert(reserve==50-amount);
     }
     stats.MagSize=30;
@@ -1507,6 +1511,145 @@ static void rackReload(void)
     VrGexGuns = 1;
 }
 
+/*
+ * The pump (user, 2026-11-21: "we should have to cock pump the regular shotgun"):
+ * shells put into a shotgun that ran dry wait until its pump is run; shells
+ * added to one with shells in it are ready. The automatic shotgun has none.
+ */
+static void pumpShell(void)
+{
+    const float cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+
+    at(0, 20, -20, 40);
+    gripHeld[0] = 0; gevrHandReloadTick();
+    belt(0, 0); gripHeld[0] = 1; gevrHandReloadTick();
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_INHAND && s_gevrGexHeldRounds == 1);
+    beanPoints = 3;
+    memset(wellPoint, 0, sizeof(wellPoint));
+    memset(heldPoint, 0, sizeof(heldPoint));
+    heldPoint[1] = 20 * cm; gevrHandReloadTick();
+    heldPoint[1] = 0; gevrHandReloadTick();
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN);
+    gripHeld[0] = 0; gevrHandReloadTick();
+}
+
+/* the off hand at the pump (the guess: 2 cm up, 28 ahead of the grip), pulled back by `back` cm */
+static void pumpHand(float back)
+{
+    const float cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+
+    memcpy(poses[0], poses[1], sizeof(poses[0]));
+    poses[0][1] += 2.0f * cm;
+    poses[0][2] += (-28.0f + back) * cm;
+}
+
+static void pumpReload(void)
+{
+    const int magSize = stats.MagSize;
+    const float cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+
+    for (int automatic = 0; automatic < 2; automatic++) {
+        reset();
+        VrGexGuns = 0; beanOn = 1; beanMag[GUNRIGHT] = 1; beanKind = 1 | 4;
+        stats.MagSize = 5;
+        player.hands[GUNRIGHT].weapon = automatic ? ITEM_AUTOSHOT : ITEM_SHOTGUN;
+        player.hands[GUNRIGHT].weapon_ammo_in_magazine = 2;
+        at(1, 20, 20, 40);
+        at(0, 20, -20, 40);
+        gevrHandReloadTick();
+        /* shells still in it: another is ready at once */
+        pumpShell();
+        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 3 && s_gevrRack[GUNRIGHT].pending == 0 && reserve == 49);
+        assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_NONE);
+
+        /* fired dry, then two shells */
+        player.hands[GUNRIGHT].weapon_ammo_in_magazine = 0;
+        gevrHandReloadTick();
+        pumpShell();
+        pumpShell();
+        if (automatic) {
+            assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 2 && s_gevrRack[GUNRIGHT].pending == 0);
+            assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_NONE);
+            continue;
+        }
+        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0 && s_gevrRack[GUNRIGHT].pending == 2 && reserve == 47);
+        assert(gevrReloadReservedRounds(1) == 2 && gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_PUMP);
+        {
+            /* the belt still gives shells for the room left, the waiting ones counted */
+            int rounds = 0, hover = 0;
+            belt(0, 0);
+            assert(gevrReloadBeltRound(0, &rounds, &hover) == GUNRIGHT && rounds == 1 && hover && gevrGexClaimsOffHand());
+        }
+        pumpShell(); pumpShell(); pumpShell();
+        assert(s_gevrRack[GUNRIGHT].pending == 5 && reserve == 44);
+        {
+            int rounds = 0, hover = 0;
+            belt(0, 0);
+            assert(gevrReloadBeltRound(0, &rounds, &hover) < 0);   /* full */
+        }
+        /* the pump: back its throw and forward again, the grip held throughout */
+        pumpHand(0);
+        assert(gevrGexClaimsOffHand());
+        gripHeld[0] = 1; gevrHandReloadTick();
+        assert(s_gevrRack[GUNRIGHT].held && s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN);
+        pumpHand(GEVR_RACK_PUMP_CM + 0.5f); gevrHandReloadTick();
+        assert(s_gevrRack[GUNRIGHT].cocked && player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0);
+        pumpHand(1.0f); gevrHandReloadTick();
+        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 5 && s_gevrRack[GUNRIGHT].pending == 0 && reserve == 44);
+        assert(gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_NONE && lastSound == GUN_RIFLECOCK_SFX);
+        gripHeld[0] = 0; gevrHandReloadTick();
+        /* a shell on top of those: ready, no pump */
+        player.hands[GUNRIGHT].weapon_ammo_in_magazine = 4;
+        gevrHandReloadTick();
+        pumpShell();
+        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 5 && s_gevrRack[GUNRIGHT].pending == 0);
+    }
+
+    /*
+     * Gun fit sets where a gun is racked: the off hand there, the left grip
+     * (gevrRackFitSet). The ring and the grab follow it; the guess no longer
+     * takes it. Left-handed, the same hand places mirror.
+     */
+    rackSeat(ITEM_AK47, 30, 0);
+    gripHeld[0] = 0; gevrHandReloadTick();
+    {
+        float ring[3], dist;
+        int held;
+        const float side = ((VrLeftHandedMode != 0) ? -1.0f : 1.0f);
+
+        assert(gevrRackPointShown(GUNRIGHT, ring, &held) && !held);
+        assert(fabsf(ring[1] - poses[1][1] - 6 * cm) < 1e-3f && fabsf(ring[2] - poses[1][2] + 6 * cm) < 1e-3f);
+        assert(strcmp(gevrRackFitDistance(&dist), "THE BOLT HANDLE") == 0);
+        memcpy(poses[0], poses[1], sizeof(poses[0]));
+        poses[0][0] += 4 * cm; poses[0][1] += 3 * cm; poses[0][2] -= 22 * cm;
+        gevrRackFitSet();
+        assert(fabsf(VrRackFit[gevrFitLook(GUNRIGHT)][ITEM_AK47][0] - side * 4) < 1e-3f && fabsf(VrRackFit[gevrFitLook(GUNRIGHT)][ITEM_AK47][1] - 3) < 1e-3f
+            && fabsf(VrRackFit[gevrFitLook(GUNRIGHT)][ITEM_AK47][2] + 22) < 1e-3f);
+        assert(gevrRackPointShown(GUNRIGHT, ring, &held));
+        assert(fabsf(ring[0] - poses[0][0]) < 1e-3f && fabsf(ring[1] - poses[0][1]) < 1e-3f && fabsf(ring[2] - poses[0][2]) < 1e-3f);
+        assert(gevrRackFitDistance(&dist) && dist < 0.01f);
+        rackHand(0, 0);                       /* the old guess, 17 cm from the fitted place */
+        assert(!gevrGexClaimsOffHand());
+        memcpy(poses[0], ring, sizeof(ring));
+        assert(gevrGexClaimsOffHand());
+        gripHeld[0] = 1; gevrHandReloadTick();
+        assert(s_gevrRack[GUNRIGHT].held && gevrRackPointShown(GUNRIGHT, ring, &held) && held);
+        poses[0][2] += (GEVR_RACK_BOLT_CM + 0.2f) * cm; gevrHandReloadTick();
+        gripHeld[0] = 0; gevrHandReloadTick();
+        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 30);
+        assert(!gevrRackPointShown(GUNRIGHT, ring, &held));   /* racked: no ring */
+        memset(VrRackFit, 0, sizeof(VrRackFit));
+        /* a gun with nothing to rack has no place to set */
+        player.hands[GUNRIGHT].weapon = ITEM_M16;
+        assert(gevrRackFitDistance(&dist) == NULL);
+        gevrRackFitSet();
+        assert(VrRackFit[gevrFitLook(GUNRIGHT)][ITEM_M16][1] == 0.0f);
+    }
+    stats.MagSize = magSize;
+    beanKind = 0;
+    VrGexGuns = 1;
+}
+
 int main(void)
 {
     const float scales[] = {0.2f, 1.0f};
@@ -1570,6 +1713,15 @@ int main(void)
     belt(1, 0); gevrHandReloadTick(); assert(fills == 1);
     beanPp7Reload();
     rackReload();
-    puts("PASS: calibrated reloads, PP7 fresh-grip ownership, physical seating, partial/fresh magazines, ammo conservation, handedness, belt and lifecycle, Bean's PP7 magazine, the rack");
+    pumpReload();
+    {
+        /* the fitted place mirrors with the hands */
+        const int lefty = VrLeftHandedMode;
+        VrLeftHandedMode = !lefty;
+        rackReload();
+        pumpReload();
+        VrLeftHandedMode = lefty;
+    }
+    puts("PASS: calibrated reloads, PP7 fresh-grip ownership, physical seating, partial/fresh magazines, ammo conservation, handedness, belt and lifecycle, Bean's PP7 magazine, the rack, the pump and the rack's fitted place");
     return 0;
 }

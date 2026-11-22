@@ -2383,13 +2383,23 @@ static Gfx *gevrReloadLabelOn(Gfx *gdl, s32 hand, const Mtxf *gun)
     extern Gfx *gevrDrawViewTagOverlay(Gfx *gdl, const char *name, const f32 at[3], f32 k, u32 panel);
     static const char *const text[GEVR_RELOAD_LABEL_COUNT] = {
         NULL, "EMPTY: EJECT B/Y", "NO AMMO", "MAG OUT: GRAB ONE", "INSERT MAGAZINE", "MAG IN: PULL", "MAG IN",
-        "RACK THE SLIDE", "PULL THE BOLT" };
+        "RACK THE SLIDE", "PULL THE BOLT", "PUMP IT" };
     static const u32 panel[GEVR_RELOAD_LABEL_COUNT] = {
-        0, 0xB02020C0, 0xB02020C0, 0x2878A8C0, 0x2878A8C0, 0x209040C0, 0x209040C0, 0x2878A8C0, 0x2878A8C0 };
+        0, 0xB02020C0, 0xB02020C0, 0x2878A8C0, 0x2878A8C0, 0x209040C0, 0x209040C0, 0x2878A8C0, 0x2878A8C0, 0x2878A8C0 };
     const s32 label = gevrReloadLabel(hand);
     const f32 up = sqrtf(gun->m[1][0] * gun->m[1][0] + gun->m[1][1] * gun->m[1][1] + gun->m[1][2] * gun->m[1][2]);
     f32 at[3];
     s32 i;
+    {
+        /* where a gun waiting for its rack is taken hold of (bondview2.c; Gun fit's reload mode sets it) */
+        extern s32 gevrRackPointShown(s32 hand, f32 at[3], s32 *held);
+        extern Gfx *gevrDrawInteractionRing(Gfx *gdl, const f32 at[3], f32 radius, u32 rgba);
+        f32 rack[3];
+        s32 held;
+
+        if (gevrRackPointShown(hand, rack, &held))
+            gdl = gevrDrawInteractionRing(gdl, rack, 3.0f, (held ? GEVR_RELOAD_READY_TINT : GEVR_RELOAD_TINT) | 0xE0);
+    }
     if (label <= GEVR_RELOAD_LABEL_NONE || label >= GEVR_RELOAD_LABEL_COUNT
         || up < 1e-6f || D_800364CC < 1e-6f) return gdl;
     for (i = 0; i < 3; i++)

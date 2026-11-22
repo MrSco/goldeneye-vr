@@ -56,6 +56,7 @@ int gevrMuzzleFitAvailable(void);
  */
 extern float VrBeanScopeFit[GEVR_SCOPE_FITS][4];
 extern float VrBeanMuzzleTrim[GEVR_MAX_WEAPONS][3];
+extern float VrRackFit[3][64][3];   /* hand reload's rack (gevr_rack.h): [look][item], unset while all zero */
 int gevrFitLook(int hand);
 static inline float *gevrScopeFitOf(int look, int scope)
 {

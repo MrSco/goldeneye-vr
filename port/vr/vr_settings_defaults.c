@@ -369,6 +369,10 @@ float VrBeanMagFits[64][2][3] = {
 #undef BEAN_MAG_HELD
 float VrBeanScopeFit[4][4];
 float VrBeanMuzzleTrim[GEVR_MAX_WEAPONS][3];
+/* Where the off hand takes a gun to rack it (gevr_rack.h; Gun fit's reload mode, the left
+ * grip): cm right, up and back of the gun hand's grip, by Gun fit's look (GoldenEye's,
+ * GoldenEye X's, Bean's) and item; all zero: not set, the guess (bondview2.c gevrRackPlace). */
+float VrRackFit[3][64][3];
 /* each gun's own place in the hand and two-handed hold, once Gun fit moves
  * them: [0] GoldenEye's models, [1] Bean's (port/include/gevr_scope.h).
  * Bean's start as the user's, fitted in the headset (2026-10-12), by item:
