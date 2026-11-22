@@ -6,7 +6,7 @@ the submachine guns and rifles, and the shotgun's pump. Part of **Hand reload
 WIP** (Controls → Gestures): no setting of its own. GoldenEye X's guns and
 Bean's alike.
 
-Not yet played in a headset: see the test sheet below.
+Played on a Quest 3 by the owner (2026-11-21, "pretty good"); what changed after that is marked in the test sheet.
 
 ## What the player does
 
@@ -29,14 +29,24 @@ with the hand on it.
 
 **The pump shotgun** is pumped for every shot (owner: "we need to make the
 regular shotgun require a pump after each shot"). A shot fired, the shells
-left wait (`PUMP IT`) until the pump is run back and forward. The pump is the
-fore-end the off hand already holds the gun by: with the two-handed hold on,
-slide that hand back 6 cm and forward again, never letting go. With one hand
-on the gun, grip the pump (the ring), run it, let go. Shells can go in between
-shots; they wait with the rest.
+left wait (`PUMP IT`) until the pump is run back 6 cm and forward again. The
+pump is the fore-end the off hand holds the gun by: keep the grip squeezed and
+slide that hand back and forward. Shells can go in between shots; they wait
+with the rest.
 
-**The automatic shotgun** cycles itself: it is racked by its handle only once
-it has run dry, as a magazine gun, after the shells go in (`PULL THE BOLT`).
+**The automatic shotgun** cycles itself: its pump is run only once it has run
+dry, as a magazine gun's bolt, after the shells go in (`PUMP IT` as well:
+owner, "that should be a pump on the forward grip").
+
+**The two-handed hold lets go while a gun waits.** Held with both hands, a
+gun turns with the off hand, so a hand sliding along it moved the gun instead
+(owner, in the headset: "it does the motion, but it doesn't feel right because
+it moves the gun around instead of letting your hand slide on it ... it should
+prioritize racking the slide instead of two-hand gripping it"). While a gun
+waits for its slide, bolt or pump the hold is off (`gevrStereoTwoHandUpdate`):
+the gun stays in the gun hand, the off hand is free on it, and the hold takes
+the gun again by itself once it is racked. A pump needs no fresh squeeze for
+that: the grip held anywhere on the fore-end has it.
 
 **The sniper rifle** is bolt-action in name only here: its bolt is run once
 after a magazine goes in on an empty chamber, as the other rifles, not for
@@ -64,8 +74,9 @@ every shot.
 - Hand reload turned off, a level's end or a death with one waiting: it is
   simply loaded (or gone with everything else on a death).
 - **Which guns:** PP7 and its silenced, silver and gold kin, DD44 (slides);
-  Klobb, ZMG, D5K and silenced D5K, Phantom, KF7, AR33, RC-P90, sniper rifle
-  and the automatic shotgun (bolt handles); the shotgun (its pump, every shot).
+  Klobb, ZMG, D5K and silenced D5K, Phantom, KF7, AR33, RC-P90 and sniper
+  rifle (bolt handles); the shotgun (its pump, every shot) and the automatic
+  shotgun (its pump, once dry).
 - **Left out:** Cougar Magnum (a revolver); Golden Gun (single shot, loaded at
   the breech); grenade launcher and rocket launcher. The lasers and the tank
   do not reload.
@@ -92,7 +103,8 @@ bolt out of each mesh, as the magazines were, is the next step.
 | Reach | a fresh grip within 12 cm of the place |
 | A pistol's place, unfitted | 7 cm above the gun hand's grip, 1 cm behind it |
 | A bolt handle's, unfitted | 6 cm above, 6 cm ahead |
-| The pump's, unfitted | 2 cm above, 28 cm ahead (held with both hands: wherever that hand is) |
+| The KF7's, unfitted | 7 cm to the right, 3.6 above, 17.2 ahead: the owner's own fit (a real AK's handle is on its right) |
+| The pump's, unfitted | 2 cm above, 28 cm ahead, or anywhere on the fore-end |
 | Throw | 3.5 cm for a slide, 5 cm for a bolt, 6 cm for the pump |
 | Still gripped | done once the hand is back within half the throw |
 
@@ -160,11 +172,12 @@ Hand reload on, one gun, GoldenEye X's models and then Bean's.
     restart; B undoes an unsaved one. Does squeezing there in the fit do
     anything unwanted to the magazine (KF7: the magazine is near)?
 14. The shotgun, held with both hands: fire, `PUMP IT`, the trigger clicks;
-    slide the off hand back and forward without letting go: fires again. Five
-    shots, five pumps. Is 6 cm right? Does the aim wander as the hand slides?
-    One-handed: grip the ring, pump, let go. Shells in between shots.
-15. The automatic shotgun: fires on without a pump; dry, shells in, `PULL THE
-    BOLT`, once.
+    the grip still squeezed, slide the off hand back and forward: the hand
+    slides on the gun, the gun stays put, and it fires again. Five shots, five
+    pumps. Is 6 cm right? How does the gun settle as the hold lets go and
+    takes it again each shot? Shells in between shots.
+15. The automatic shotgun: fires on without a pump; dry, shells in, `PUMP IT`,
+    once, on the fore-end.
 16. AR33, RC-P90 (its magazine lifts off the top), sniper rifle: dry, new
     magazine, `PULL THE BOLT`. The handles' places: fit them (13).
 17. Bean's sniper rifle: the new magazine under the receiver. Does it look

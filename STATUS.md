@@ -70,12 +70,14 @@ WIP. A pistol, a submachine gun or a rifle fired dry needs its slide or bolt
 racked by the off hand after the new magazine (rounds wait in GevrRack until
 then; a magazine changed with rounds left needs none; the belt's touch and
 dual wielding skip it). Also the AR33, RC-P90, sniper rifle and automatic
-shotgun (once dry); the pump shotgun is pumped for every shot, by the hand
-that holds its fore-end. Bean's sniper rifle has a magazine made for it
+shotgun (its pump, once dry); the pump shotgun is pumped for every shot. The
+two-handed hold lets go while a gun waits, so the off hand slides on it. Bean's sniper rifle has a magazine made for it
 (gevr_beanmag.c made). The gun gives 1.2 cm with the pull; only the pistols'
 slides move. A ring shows the place; Gun fit's reload page sets it (the off
 hand's grip; ini Rack*, GexRack*, BeanRack*). test_rack.py, test_hand_reload.py
-(rackReload, pumpReload); not yet played in a headset.
+(rackReload, pumpReload). Played on a Quest 3 by the user 2026-11-21 ("pretty
+good"): the KF7's place is theirs, the hold's letting go and the automatic
+shotgun's pump came of it and are not yet played.
 **Next:** device checks: split screen with two real pads on an Apple TV and
 a phone, 3-4 players on a slow device; trigger feedback on Xbox and
 DualSense pads; a pad in the Quest and PC VR headsets; Vision Pro's ghosting

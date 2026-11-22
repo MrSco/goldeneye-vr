@@ -3911,6 +3911,17 @@ s32 gevrStereoTwoHandUpdate(void)
         s_farFrames = 0;
         why = ", let go";
     }
+    else if (s_gevrRack[s_gevrTwoHandGun].pending > 0)
+    {
+        /* Hand reload (gevr_rack.h): the gun waits for its slide, bolt or pump, and
+         * that is what the off hand's grip is for. The hold would turn the gun with
+         * the hand that has to slide along it (user, 2026-11-21: "it should
+         * prioritize racking the slide instead of two-hand gripping it"); it takes
+         * the gun again by itself once racked, the grip still held. */
+        s_gevrTwoHand = FALSE;
+        s_farFrames = 0;
+        why = ", racking";
+    }
     else
     {
         if (!gevrVrGripTracked(0) || !gevrVrGripTracked(1))
@@ -19410,7 +19421,7 @@ static s32 gevrRackItem(s32 item)
         case ITEM_SKORPION: case ITEM_UZI: case ITEM_MP5K: case ITEM_MP5KSIL: case ITEM_SPECTRE:
         case ITEM_AK47: case ITEM_M16: case ITEM_FNP90:
         case ITEM_SNIPERRIFLE:   /* its bolt (Bean's has a magazine made for it: gevr_beanmag.c) */
-        case ITEM_AUTOSHOT:      /* its charging handle, once dry, as a magazine gun's */
+        case ITEM_AUTOSHOT:      /* its pump on the fore-end, once dry, as a magazine gun's bolt */
         case ITEM_SHOTGUN:       /* its pump, after every shot (gevrRackEveryShot) */
             return TRUE;
         default:
@@ -19442,7 +19453,8 @@ static s32 gevrRackKind(s32 hand)
     extern s32 gevrWeaponCategory(s32 item);
     const s32 item = getCurrentPlayerWeaponId(hand);
 
-    return item == ITEM_SHOTGUN ? GEVR_RACK_KIND_PUMP
+    /* (user, 2026-11-21: "the auto shotgun says pull bolt, but that should be a pump on the forward grip") */
+    return item == ITEM_SHOTGUN || item == ITEM_AUTOSHOT ? GEVR_RACK_KIND_PUMP
          : gevrWeaponCategory(item) == 0 ? GEVR_RACK_KIND_SLIDE : GEVR_RACK_KIND_BOLT;
 }
 
@@ -19479,9 +19491,13 @@ static f32 *gevrRackFit(s32 hand)
 static void gevrRackPlace(s32 hand, f32 place[3])
 {
     static const f32 guess[3][3] = { { 0.0f, 7.0f, 1.0f }, { 0.0f, 6.0f, -6.0f }, { 0.0f, 2.0f, -28.0f } };
+    /* the KF7's charging handle is on its right, a hand's length ahead of the grip: where the
+     * owner put it in the headset (2026-11-21, Gun fit: BeanRackKF7=6.97 3.56 -17.18) */
+    static const f32 kf7[3] = { 7.0f, 3.6f, -17.2f };
     const f32 *fit = gevrRackFit(hand);
 
-    memcpy(place, fit[0] != 0.0f || fit[1] != 0.0f || fit[2] != 0.0f ? fit : guess[gevrRackKind(hand)], 3 * sizeof(f32));
+    memcpy(place, fit[0] != 0.0f || fit[1] != 0.0f || fit[2] != 0.0f ? fit
+                  : getCurrentPlayerWeaponId(hand) == ITEM_AK47 ? kf7 : guess[gevrRackKind(hand)], 3 * sizeof(f32));
 }
 
 /*
@@ -19535,6 +19551,14 @@ static s32 gevrRackMeasure(s32 gunHand, f32 *dist, f32 *along, f32 at[3])
     return TRUE;
 }
 
+/* the off hand on the fore-end a long gun is held by with both hands: the pump is anywhere along it */
+static s32 gevrRackAtForeEnd(void)
+{
+    f32 opos[3], snap[3], dist;
+
+    return gevrTwoHandBarrel(opos, snap, &dist, FALSE) && dist < GEVR_TWOHAND_KEEP_CM;
+}
+
 /*
  * The rack itself, each tick a gun waits for it: the off hand takes the slide,
  * the bolt handle or the pump, pulls back and lets go (or runs it forward
@@ -19544,17 +19568,25 @@ static void gevrGexBuzz(f32 amp);   /* below */
 static s32 gevrRackRun(s32 gunHand, s32 grip, s32 fresh)
 {
     GevrRack *rack = &s_gevrRack[gunHand];
-    /* The pump is the fore-end the off hand already holds the shotgun by: with
-     * the two-handed hold on, that hand has it, from where it is, and keeps the
-     * hold through the pump. Any other gun is let go of first and taken afresh. */
+    /*
+     * The pump is the fore-end the off hand holds a shotgun by. While a gun
+     * waits to be racked the two-handed hold lets go of it
+     * (gevrStereoTwoHandUpdate; user, 2026-11-21: the hold "moves the gun
+     * around instead of letting your hand slide on it"), so the hand slides on
+     * the gun: a grip held anywhere on the fore-end has the pump, from where it
+     * is, with no fresh squeeze, and the hold takes the gun again when the pump
+     * is done. Any other gun's slide or handle is taken by a fresh grip at it.
+     */
     const s32 pump = gevrRackKind(gunHand) == GEVR_RACK_KIND_PUMP;
-    const s32 holding = pump && gevrStereoTwoHandGrip();
     f32 rackDist, rackAlong;
 
     gevrRackMeasure(gunHand, &rackDist, &rackAlong, NULL);
-    if (holding) rackDist = 0.0f;
-    switch (gevrRackStep(rack, grip, grip && !s_gevrGexGripSpent && (holding || (fresh && !gevrStereoTwoHandGrip())),
-                         rackDist, rackAlong, gevrRackThrow(gunHand)))
+    if (pump && (rackDist <= GEVR_RACK_REACH_CM || gevrRackAtForeEnd()))
+    {
+        rackDist = 0.0f;
+        fresh = TRUE;
+    }
+    switch (gevrRackStep(rack, grip, grip && fresh && !s_gevrGexGripSpent, rackDist, rackAlong, gevrRackThrow(gunHand)))
     {
         case GEVR_RACK_GRABBED:
             gevrOffHandGripBuzz();

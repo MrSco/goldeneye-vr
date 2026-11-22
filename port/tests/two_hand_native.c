@@ -465,6 +465,15 @@ int main(void)
     player.bonddead = 1; tick(); assert(!gevrStereoTwoHandGrip());
     player.bonddead = 0; tick(); assert(gevrStereoTwoHandGrip());
     player.watch_animation_state = 1; tick(); assert(!gevrStereoTwoHandGrip());
+    /* Hand reload's rack (gevr_rack.h): while the gun waits for its slide, bolt or pump the
+     * hold lets go, the grip still held, so that hand can slide; racked, it has the gun again */
+    setup(GUNRIGHT, 0, ITEM_AK47);
+    grip[0] = 1; tick(); assert(gevrStereoTwoHandGrip());
+    s_gevrRack[GUNRIGHT].pending = 4; tick(); assert(!gevrStereoTwoHandGrip());
+    tick(); assert(!gevrStereoTwoHandGrip());
+    s_gevrRack[GUNLEFT].pending = 4; s_gevrRack[GUNRIGHT].pending = 0;   /* the other slot's is no bar */
+    tick(); assert(gevrStereoTwoHandGrip());
+    s_gevrRack[GUNLEFT].pending = 0;
     puts("PASS: KF7/rocket support in either slot, both handedness modes, aim/recoil, palm placement, grip lifecycle and sniper-club replacement");
     puts("PASS: Gun fit's grab puts the holding hand where the off hand is, turned as it is, either hand and handedness");
 }

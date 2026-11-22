@@ -341,7 +341,9 @@ reloads by hand ([details](docs/project-bean.md#removable-magazines-hand-reload-
 - **Shotguns, rocket launcher, Golden Gun and grenade launcher.** Grip one round at your
   belt and insert it at the gun's port. Release the grip before taking another.
   - The pump shotgun is pumped for every shot: slide the hand that holds its fore-end back
-    and forward. The automatic shotgun cycles itself, and is racked once after running dry.
+    and forward. The automatic shotgun cycles itself, and is pumped once after running dry.
+  - While a gun waits to be racked or pumped, the two-handed hold lets go so your front hand
+    can slide; it takes the gun again by itself afterwards.
 - **Cougar Magnum.** A belt grab takes a speedloader with up to six rounds. The cylinder
   swings open while you hold it, and inserting seats them all.
 - **Empty guns.** Bring an empty gun to your belt to reload it directly.
