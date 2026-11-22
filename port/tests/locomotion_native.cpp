@@ -318,7 +318,8 @@ static void matricesAndUniforms() {
     s_uniCacheValid=true; gfx_vr_eye_hand(0); gevr_eye_present_draw(); assert(reprojection[1]==0);
     gfx_vr_eye_hand(-1); gevr_eye_present_draw(); assert(reprojection[1]==1);
     gfx_vr_eye_hand(2); gevr_eye_present_draw(); assert(reprojection[1]==0);   // the body: no locomotion
-    gfx_vr_eye_hand(3); gevr_eye_present_draw(); assert(reprojection[1]==1);   // unknown: the world
+    gfx_vr_eye_hand(3); gevr_eye_present_draw(); assert(reprojection[1]==0);   // fixed to the screen (a flat game's gun)
+    gfx_vr_eye_hand(4); gevr_eye_present_draw(); assert(reprojection[1]==1);   // unknown: the world
     gfx_vr_eye_hand(-1); gevr_eye_present_draw(); assert(reprojection[1]==1);
     gForceFlatShaderForMenu=true; gevr_eye_present_draw(); assert(reprojection[1]==0);
     gForceFlatShaderForMenu=false; gVrFlatPass=true; gevr_eye_present_draw(); assert(reprojection[1]==0);

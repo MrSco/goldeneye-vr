@@ -11998,6 +11998,72 @@ static f32 portMouseFovRatio(void)
     return viGetFovY() / 60.0f;
 }
 
+#ifdef GEVR_FLAT
+/*
+ * A flat game on a monitor faster than the game's 60 Hz (#274): the refreshes between game
+ * frames draw the last frame again with the camera turned on by the look since
+ * (port/flat/flat_headset.c flatRedrawFrame). What that needs from the tick, for this
+ * machine's player: whether the camera is the first person one the mouse turns, its pitch
+ * (the turn is about the world's upright, not the camera's), a mouse degree's worth of turn
+ * (the zoom's ratio, the pitch setting's sign), and what the camera turned by this tick
+ * apart from the mouse (a stick held over, the tank), to carry on at until the next tick.
+ */
+struct GevrFlatLook
+{
+    s32 ok;
+    f32 pitchDeg;
+    f32 yawPerDeg, pitchPerDeg;
+    f32 yawRate, pitchRate;   /* degrees a sixtieth */
+    u64 stampUs;
+};
+struct GevrFlatLook g_gevrFlatLook;
+extern s32 VrThirdPerson;
+extern u64 sysGetMicroseconds(void);
+
+static void gevrFlatLookRecord(void)
+{
+    static f32 lastTheta, lastVerta;
+    static s32 have;
+    struct GevrFlatLook *l = &g_gevrFlatLook;
+    const f32 ratio = portMouseFovRatio();
+    const s32 aim = g_CurrentPlayer->insightaimmode != 0;
+    const f32 slots = g_GlobalTimerDelta > 0.5f ? g_GlobalTimerDelta : 1.0f;
+    f32 dyaw, dpitch;
+
+    if (get_cur_playernum() != (netIsActive() ? netGetLocalSlot() : inputOwnPlayer()))
+    {
+        return;
+    }
+    /* one view, the first person camera, not aiming (the mouse then moves the crosshair) */
+    l->ok = getPlayerCount() == 1 && portMouseLookPermitted() && !aim && !VrThirdPerson;
+    dyaw = g_CurrentPlayer->vv_theta - lastTheta;
+    while (dyaw > 180.0f) dyaw -= 360.0f;
+    while (dyaw < -180.0f) dyaw += 360.0f;
+    dpitch = g_CurrentPlayer->vv_verta - lastVerta;
+    if (g_portMouseDirect)
+    {
+        dyaw -= g_portMouseYawDeg * ratio;
+        dpitch -= g_portMousePitchDeg * ratio;
+    }
+    dyaw /= slots;
+    dpitch /= slots;
+    /* not a cut's jump (a new level, a teleport) */
+    if (!have || !l->ok || dyaw > 12.0f || dyaw < -12.0f || dpitch > 12.0f || dpitch < -12.0f)
+    {
+        dyaw = dpitch = 0.0f;
+    }
+    l->yawRate = dyaw;
+    l->pitchRate = dpitch;
+    l->pitchDeg = g_CurrentPlayer->vv_verta;
+    l->yawPerDeg = ratio;
+    l->pitchPerDeg = get_cur_player_look_vertical_inverted() == 0 ? ratio : -ratio;   /* as moveData.invertPitch */
+    l->stampUs = sysGetMicroseconds();
+    lastTheta = g_CurrentPlayer->vv_theta;
+    lastVerta = g_CurrentPlayer->vv_verta;
+    have = 1;
+}
+#endif
+
 static s32 portTankTurretWeaponHeld(void)
 {
     return g_PlayerIsInTank == 1 && getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_TANKSHELLS;
@@ -14644,6 +14710,9 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     }
 
     bondviewApplyVertaTheta();
+#ifdef GEVR_FLAT
+    gevrFlatLookRecord();
+#endif
 
     // Handle crouching, and animation between standing and crouching.
     // Add basic block to declare local variables at the correct stack position.

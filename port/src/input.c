@@ -3410,6 +3410,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
     return 0;
 }
 
+static s32 s_mousePeekDX, s_mousePeekDY;
+
 static inline void inputUpdateMouse(void)
 {
     s32 mx, my;
@@ -3426,6 +3428,10 @@ static inline void inputUpdateMouse(void)
     s32 mdx = 0;
     s32 mdy = 0;
     SDL_GetRelativeMouseState(&mdx, &mdy);
+    // what a redraw between game frames already read (inputMousePeekLookDeg)
+    mdx += s_mousePeekDX;
+    mdy += s_mousePeekDY;
+    s_mousePeekDX = s_mousePeekDY = 0;
     if (mouseLocked) {
         mouseDX = mdx;
         mouseDY = mdy;
@@ -4566,6 +4572,26 @@ void inputMouseGetLookDeg(f32 *dxdeg, f32 *dydeg)
     if (dydeg) *dydeg = my;
 }
 #endif
+
+/*
+ * The mouse's movement since the game last read it, in inputMouseGetLookDeg's degrees, and
+ * left for the game to read: a flat game's redraw between game frames turns the camera by
+ * it (port/flat/flat_headset.c flatRedrawFrame, #274), and the next tick then turns it for
+ * good. SDL hands relative motion out once, so what is read here is kept for that tick.
+ */
+void inputMousePeekLookDeg(f32 *dxdeg, f32 *dydeg)
+{
+    *dxdeg = *dydeg = 0.0f;
+    if (mouseEnabled && mouseLocked) {
+        s32 dx = 0, dy = 0;
+        SDL_PumpEvents();
+        SDL_GetRelativeMouseState(&dx, &dy);
+        s_mousePeekDX += dx;
+        s_mousePeekDY += dy;
+        *dxdeg = ((f32)s_mousePeekDX / 10.0f) * (mouseSensX / 2.5f);
+        *dydeg = ((f32)s_mousePeekDY / 10.0f) * (mouseSensY / 2.5f);
+    }
+}
 
 void inputMouseGetScaledDelta(f32* dx, f32* dy)
 {

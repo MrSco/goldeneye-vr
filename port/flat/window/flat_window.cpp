@@ -139,7 +139,7 @@ extern "C" int gevrBeanIsEnabled(void);
 extern "C" s32 bossGetStageNum(void);
 extern "C" const char *fsFullPath(const char *relPath);
 extern "C" s32 vidAutoHalfRate;
-extern "C" int VrFrameRate;       // vr_settings.cpp: 0 Auto, 1 Full, 2 Half
+extern "C" int VrFrameRate;       // vr_settings.cpp: 0 Auto, 1 Full, 2 Half, 3 the camera at a faster screen's rate
 static int s_baseInterval = -1;   // the VSync setting, as gfx_sdl_set_swap_interval last had it
 static bool s_halfOn;
 static int s_halfTimerFps;        // half rate by the frame timer instead of the swap
@@ -172,6 +172,14 @@ extern "C" int flatFullFps(void)
     return hz > 61 ? 60 : hz;
 }
 
+/* The Frame rate row's fourth choice: the camera at the screen's rate, on a screen faster
+ * than the game (flat_headset.c). The swap's wait for the screen paces those frames, so
+ * only with VSync on. */
+extern "C" int flatHighRefreshWanted(void)
+{
+    return VrFrameRate == 3 && s_baseInterval > 0 && !s_halfOn && flatScreenHz() > 61;
+}
+
 /* the frame pump (gevr_engine_shim.c): each frame is two of the screen's refreshes */
 extern "C" int flatHalfRateActive(void)
 {
@@ -196,7 +204,7 @@ static void halfRateFrame(void)
     const int stage = bossGetStageNum();
     const bool level = stage > 0 && stage != 90;   // 90: the title stage, the menus
     const unsigned mode = gevrBeanIsEnabled() ? 2u : 1u;
-    const int pref = VrFrameRate == 1 || (VrFrameRate == 0 && !vidAutoHalfRate) ? 1 : VrFrameRate == 2 ? 2 : 0;
+    const int pref = VrFrameRate == 1 || VrFrameRate == 3 || (VrFrameRate == 0 && !vidAutoHalfRate) ? 1 : VrFrameRate == 2 ? 2 : 0;
     const bool vsync = s_baseInterval > 0;
     const bool able = vsync && hz >= 48 && hz <= 61;   // Auto: a 60 or 50 Hz screen
     const Uint64 now = SDL_GetTicks64();

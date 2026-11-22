@@ -212,6 +212,15 @@ extern "C" int gevrVrBeginDeferredFrame(void);    // ... begin it now; 1 if it d
 extern "C" void vr_relocate_on_begin(void);       // vr_openxr.cpp: the replay corrects the early poses
 extern "C" int vr_eye_multisampled(void);         // vr_openxr.cpp: the eye images are multisampled
 static int gevr_vr_replay_frame(bool fresh);
+#ifdef GEVR_FLAT
+// a flat game's frames between game frames, on a screen faster than the game (#274)
+void gfx_flat_record(bool on, const float* proj, bool invert_y);   // gfx_opengl.cpp
+extern "C" int flatHighRefreshWanted(void);                         // flat_window.cpp
+extern "C" int flatRedrawFrame(void);                               // flat_headset.c
+extern "C" void flatLookDelta(float yaw, float pitch, float out[16]);
+static bool gfx_flat_redraw_draw(const float* delta);
+static uint32_t s_flatRedrawW, s_flatRedrawH;
+#endif
 extern "C" int gevrVrRedrawDelta(float out[16]);   // vr_openxr.cpp
 extern "C" int gevrVrRedrawHandDelta(int hand, float out[16]);
 extern "C" int gevrVrRedrawBodyDelta(float out[16]);
@@ -6679,6 +6688,15 @@ extern "C" void gfx_run(Gfx* commands) {
         static const float noOffsets[8] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
         gfx_rapi->set_eye_offsets(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
         vr_set_cull_offsets(noOffsets);
+        // kept for a faster screen's refreshes before the next game frame (#274, gfx_flat_redraw_frame)
+        const bool keep = screenTarget && flatHighRefreshWanted() != 0;
+        if (keep) {
+            // those frames turn the camera by up to 7 degrees (flat_headset.c), so they show
+            // triangles that lie wholly past this frame's edges: not rejected here, as the
+            // game does not cull them (bg.c). 0.3 of the half view: 7 degrees of a 60 degree
+            // view is 0.21 of it, and a turn while looking up or down slants the edge.
+            vr_clip_margin_x_w = vr_clip_margin_y_w = 0.3f;
+        }
 
         gevr_screen_pass = true;
         gVrFlatPass = true;
@@ -6691,11 +6709,27 @@ extern "C" void gfx_run(Gfx* commands) {
         fbActive = 0;
         rdp.textures_changed[0] = rdp.textures_changed[1] = true;
         rdp.viewport_or_scissor_changed = true;
+        gfx_flat_record(true, keep ? &g_viProjectionMatrixF[0][0] : nullptr, gfx_rapi->get_clip_parameters().invert_y);
         gfx_run_dl(commands);
         gfx_flush();
+        gfx_flat_record(false, nullptr, false);
+        s_flatRedrawW = keep ? w : 0;
+        s_flatRedrawH = h;
         gevr_flat_mesh_report();
+        static const char* const fake = getenv("GEVR_FLAT_REDRAW_FAKE");   // a test: "yaw pitch", every frame shown redrawn
+        float fakeDelta[16];
+        float fakeYaw = 0.0f, fakePitch = 0.0f;
+        const bool faked = keep && fake && sscanf(fake, "%f %f", &fakeYaw, &fakePitch) >= 1 && gfx_vr_eye_replay_ready();
         if (screenTarget) {
             vr_screen_target_end();
+            if (faked) {
+                flatLookDelta(fakeYaw, fakePitch, fakeDelta);
+                gVrFlatPass = false;
+                gevr_screen_pass = false;
+                gfx_flat_redraw_draw(fakeDelta);
+                gevr_screen_pass = true;
+                gVrFlatPass = true;
+            } else
             vr_screen_present(vr_screen_target_tex(), (int)w, (int)h);
         }
 
@@ -6717,8 +6751,44 @@ extern "C" void gfx_run(Gfx* commands) {
  * is world-locked already, and its eye buffers hold only the pointer).
  */
 extern "C" int gfx_vr_redraw_frame(void) {
+#ifdef GEVR_FLAT
+    return flatRedrawFrame();   // flat_headset.c: the camera's turn since, then gfx_flat_redraw_frame
+#else
     return gevr_vr_replay_frame(false);
+#endif
 }
+
+#ifdef GEVR_FLAT
+/* The last flat game frame's draws again, into the screen target and the window, the
+ * world moved by delta (the camera's turn since the frame, flat_headset.c flatLookDelta);
+ * the gun and what is drawn on the screen stay as they were (gfx_opengl.cpp). */
+static bool gfx_flat_redraw_draw(const float* delta) {
+    if (!s_flatRedrawW || !gfx_vr_eye_replay_ready()) return false;
+    if (!vr_screen_target_begin((int)s_flatRedrawW, (int)s_flatRedrawH)) return false;
+    gevr_screen_pass = true;
+    gVrFlatPass = true;
+    gfx_rapi->start_draw_to_framebuffer(0, 1.0f);
+    gfx_vr_eye_replay(delta, nullptr, nullptr, nullptr);
+    vr_screen_target_end();
+    vr_screen_present(vr_screen_target_tex(), (int)s_flatRedrawW, (int)s_flatRedrawH);
+    gVrFlatPass = false;
+    gevr_screen_pass = false;
+    return true;
+}
+
+extern "C" int gfx_flat_redraw_frame(const float* delta) {
+    static const char* const fake = getenv("GEVR_FLAT_REDRAW_FAKE");   // the test's turn in place of the look's
+    float fakeDelta[16], fakeYaw = 0.0f, fakePitch = 0.0f;
+    if (fake && sscanf(fake, "%f %f", &fakeYaw, &fakePitch) >= 1) {
+        flatLookDelta(fakeYaw, fakePitch, fakeDelta);
+        delta = fakeDelta;
+    }
+    if (!gfx_flat_redraw_draw(delta)) return 0;
+    gfx_rapi->end_frame();
+    gfx_wapi->swap_buffers_begin();
+    return 1;
+}
+#endif
 
 /* fresh: the early tick's own game frame (gfx_run), drawn in its XR frame from
  * the draws its eye pass kept. Without recorded views (no stereo camera this

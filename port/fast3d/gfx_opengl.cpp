@@ -837,6 +837,7 @@ static int s_eyeHand = -1;
 static bool s_eyePresent;
 static std::vector<struct ShaderProgram*> s_eyePresentationPrograms;
 static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode);
+static bool s_flatRec;   // a flat game's frame is being kept (gfx_flat_record)
 static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalDepth, float decalPull, bool lineMode);
 static void gevr_opaque_depth_after_blend(GLint first, GLsizei count);
 
@@ -1518,6 +1519,11 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         // walls, a hole's rounded corners) and the rooms' own decals (Dam's
         // grates) vanished, or showed as slivers, on the PC, phones and Apple TV.
         append_line(vs_buf, &vs_len, "uniform vec2 uDecalBias;");
+        // A flat game's frames between game frames (gfx_flat_redraw_frame): as the
+        // two-view shader's uReproj
+        append_line(vs_buf, &vs_len, "uniform int uReproj;");
+        append_line(vs_buf, &vs_len, "uniform mat4 uReprojVP;");
+        append_line(vs_buf, &vs_len, "uniform vec2 uHeadP;");
     }
 
 
@@ -1692,6 +1698,9 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         // Only the VR prelude above wrote gl_Position, so without it every draw
         // was clipped away and the flat frame stayed black.
         append_line(vs_buf, &vs_len, "    gl_Position = aVtxPos;");
+        // back to the game frame's camera space (x / P00, y / P11, -w), through the
+        // camera's turn since, and the projection; not what is drawn on the screen (w = 1)
+        append_line(vs_buf, &vs_len, "    if (uReproj == 1 && aVtxPos.w != 1.0) gl_Position = uReprojVP * vec4(aVtxPos.x / uHeadP.x, aVtxPos.y / uHeadP.y, -aVtxPos.w, 1.0);");
         append_line(vs_buf, &vs_len, "    gl_Position.z += uDecalBias.x / max(gl_Position.w, max(uDecalBias.y, 0.0001));");
     }
 
@@ -2178,6 +2187,10 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
 
     } else {
         prg->decalBiasLocation = glGetUniformLocation(shader_program, "uDecalBias");   /* the flat band (#269) */
+        // a flat game's redraw (gfx_flat_redraw_frame)
+        prg->reprojLocation = glGetUniformLocation(shader_program, "uReproj");
+        prg->reprojVPLocation = glGetUniformLocation(shader_program, "uReprojVP");
+        prg->scopeHeadPLocation = glGetUniformLocation(shader_program, "uHeadP");
     }
 
     gfx_opengl_load_shader(prg);
@@ -3438,12 +3451,44 @@ void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* p
 void gfx_vr_eye_hand(int ctrl)
 {
     gevr_mesh_settle();
-    s_eyeHand = (ctrl >= 0 && ctrl <= 2) ? ctrl : -1;
+    // 3: fixed to the screen (a flat game's gun, gunfire.c gevrHandTag): not moved at all
+    s_eyeHand = (ctrl >= 0 && ctrl <= 3) ? ctrl : -1;
 }
 
 bool gfx_vr_eye_replay_ready(void)
 {
     return s_eyeReady;
+}
+
+/*
+ * A flat game's frame, kept for the screen's refreshes between game frames (#274: a 144 or
+ * 180 Hz monitor over the 60 Hz game; gfx_pc.cpp gfx_flat_redraw_frame). The eye pass's
+ * record, for the one view the flat pass draws. proj: the game's projection. A target drawn
+ * upside down holds -y, which is the projection with its y row negated: the redraw's
+ * rebuilding (y / P11) and its projecting again then both come out that way up.
+ */
+void gfx_flat_record(bool on, const float* proj, bool invert_y)
+{
+    gevr_mesh_settle();
+    if (on) {
+        s_eyeDraws.clear();
+        s_eyeMeshes.clear();
+        s_eyeReady = false;
+        s_eyeHand = -1;
+        s_eyePresent = false;
+        s_flatRec = s_eyeRec = proj != NULL && s_pmPtr != NULL && fabsf(proj[0]) > 1e-6f && fabsf(proj[5]) > 1e-6f;
+        if (s_eyeRec) {
+            memcpy(s_eyeProj, proj, sizeof(s_eyeProj));
+            if (invert_y) {
+                for (int c = 0; c < 4; c++) s_eyeProj[c * 4 + 1] = -s_eyeProj[c * 4 + 1];
+            }
+            s_eyeHeadP[0] = s_eyeProj[0];
+            s_eyeHeadP[1] = s_eyeProj[5];
+        }
+    } else {
+        s_eyeReady = s_eyeRec && !s_eyeDraws.empty();
+        s_eyeRec = s_flatRec = false;
+    }
 }
 
 // gfx_pc.cpp: whether gfx_vr_eye_record would keep this pass (s_eyeRec's test)
@@ -3507,7 +3552,11 @@ static bool gevr_eye_draw_joins(const GevrEyeDraw& a, const GevrEyeDraw& b)
 static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode)
 {
     // not the HUD captures, which draw into their own targets
-    if (s_curPrg == NULL || gForceFlatShaderForMenu || gVrFlatPass) {
+    if (s_curPrg == NULL || gForceFlatShaderForMenu || (gVrFlatPass && !s_flatRec)) {
+        return;
+    }
+    // a flat game: only what goes to the screen itself, not a capture's own target
+    if (s_flatRec && current_framebuffer != 0) {
         return;
     }
     if (!s_eyeKeepMesh) {
@@ -3793,7 +3842,13 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
             replayFilter[0] = replayFilter[1] = -1;
         }
         if (d.hand != lastMove) {
-            if (d.prg->reprojVPLocation >= 0) glUniformMatrix4fv(d.prg->reprojVPLocation, 1, GL_FALSE, Ms[d.hand + 1]);
+            if (d.hand == 3) {
+                // fixed to the screen (a flat game's gun): as the game frame drew it
+                if (d.prg->reprojLocation >= 0) glUniform1i(d.prg->reprojLocation, 0);
+            } else {
+                if (lastMove == 3 && d.prg->reprojLocation >= 0) glUniform1i(d.prg->reprojLocation, 1);
+                if (d.prg->reprojVPLocation >= 0) glUniformMatrix4fv(d.prg->reprojVPLocation, 1, GL_FALSE, Ms[d.hand + 1]);
+            }
             lastMove = d.hand;
         }
         if ((int)d.isMenu != lastMenu) {

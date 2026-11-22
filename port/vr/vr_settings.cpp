@@ -1116,7 +1116,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "PadLookInvert") == 0) s_padLookInvert = ival != 0;
             else if (strcmp(key, "HeadBob") == 0) VrHeadBob = ival != 0;
             else if (strcmp(key, "Teleport") == 0) VrTeleport = ival != 0;
-            else if (strcmp(key, "FrameRate") == 0) VrFrameRate = ival >= 0 && ival <= 2 ? ival : 0;
+            else if (strcmp(key, "FrameRate") == 0) VrFrameRate = ival >= 0 && ival <= 3 ? ival : 0;
             else if (strcmp(key, "LookUprightFolders") == 0) VrLookUprightFolders = ival;
             else if (strcmp(key, "GyroAim") == 0) VrGyroAim = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             /* Keep saved DisplayHz preferences. The obsolete RefreshRate key

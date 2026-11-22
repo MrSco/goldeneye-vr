@@ -2101,6 +2101,15 @@ static Gfx *gevrHandTag(Gfx *gdl, s32 ctrl)
     {
         gDPNoOpTag(gdl++, 0x565F0000 | (u32)(ctrl + 1)); /* VR_HAND_DRAW */
     }
+#ifdef GEVR_FLAT
+    else
+    {
+        /* A flat game: the gun is fixed to the screen. On a fast monitor's refreshes between
+         * game frames the world is drawn again from the camera's newer turn (#274,
+         * gfx_pc.cpp gfx_flat_redraw_frame) and the gun must not turn with it. */
+        gDPNoOpTag(gdl++, 0x565F0000 | (u32)(ctrl < 0 ? 0 : 4)); /* VR_HAND_DRAW 4: the screen */
+    }
+#endif
     return gdl;
 }
 

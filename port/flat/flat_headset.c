@@ -118,11 +118,89 @@ void vr_poll_events(void) { }
  * xrWaitFrame: sleep to the next 1/60 s. No frame is begun, so the pump never
  * ends or redraws one; it hands the game its retrace when one is due.
  */
+/*
+ * A monitor faster than the game (#274: "i have a 180hz monitor ... the game wont uncap
+ * the fps"). GoldenEye ticks in whole sixtieths, so the game stays at 60; the screen's
+ * refreshes between its frames draw the last frame again with the camera turned on by the
+ * look since, as the headset's frames between game frames are drawn from the head's newer
+ * pose (issue #53). Looking around then moves at the screen's rate; what moves on its own
+ * still moves at 60. The frame pump (gevr_engine_shim.c) asks for such a frame whenever
+ * the wait below says one is open: here that is "draw one", and the swap's wait for the
+ * screen paces it. A frame that can't be drawn that way (a menu, a cutscene, aiming, two
+ * players' views) falls back on the 60 Hz clock until the next tick.
+ */
+struct GevrFlatLook { s32 ok; f32 pitchDeg; f32 yawPerDeg, pitchPerDeg; f32 yawRate, pitchRate; u64 stampUs; };
+extern struct GevrFlatLook g_gevrFlatLook;                   /* bondview2.c: the last tick's */
+extern int flatHighRefreshWanted(void);                      /* flat_window.cpp */
+extern int gfx_flat_redraw_frame(const float *delta);        /* gfx_pc.cpp */
+extern void inputMousePeekLookDeg(f32 *dxdeg, f32 *dydeg);   /* input.c */
+extern u64 sysGetMicroseconds(void);
+static int s_flatRedrawFailed;
+
+/* The camera's move, in the game frame's camera space (x right, y up, z towards the
+ * viewer; a GL matrix), for a turn of yaw degrees to the right about the world's upright
+ * and pitch degrees up: Rx(-(p + pitch)) Ry(yaw) Rx(p), p the frame's own pitch. */
+void flatLookDelta(float yaw, float pitch, float out[16])
+{
+	const float k = 3.14159265f / 180.0f;
+	const float p = g_gevrFlatLook.pitchDeg * k;
+	const float c1 = cosf(p), s1 = sinf(p);
+	const float c2 = cosf(yaw * k), s2 = sinf(yaw * k);
+	const float c3 = cosf(-(p + pitch * k)), s3 = sinf(-(p + pitch * k));
+	/* rows of Ry Rx(p) */
+	const float a[3][3] = { { c2, s2 * s1, s2 * c1 }, { 0.0f, c1, -s1 }, { -s2, c2 * s1, c2 * c1 } };
+	float m[3][3];
+	for (int c = 0; c < 3; c++) {
+		m[0][c] = a[0][c];
+		m[1][c] = c3 * a[1][c] - s3 * a[2][c];
+		m[2][c] = s3 * a[1][c] + c3 * a[2][c];
+	}
+	for (int c = 0; c < 4; c++) {
+		for (int r = 0; r < 4; r++) {
+			out[c * 4 + r] = r < 3 && c < 3 ? m[r][c] : (r == c ? 1.0f : 0.0f);
+		}
+	}
+}
+
+/* the frame pump's frame between game frames (gfx_pc.cpp gfx_vr_redraw_frame) */
+int flatRedrawFrame(void)
+{
+	const struct GevrFlatLook *l = &g_gevrFlatLook;
+	float mx = 0.0f, my = 0.0f, delta[16];
+
+	if (l->ok && flatHighRefreshWanted()) {
+		float t = (float)(sysGetMicroseconds() - l->stampUs) / 16667.0f;   /* sixtieths since the tick */
+		if (t < 0.0f) t = 0.0f;
+		if (t > 2.0f) t = 2.0f;
+		inputMousePeekLookDeg(&mx, &my);
+		/* No further than the game drew past the screen's edges for it (bg.c, an eighth of
+		 * the view: 7 degrees of a 60 degree one, more across): a faster flick's frames
+		 * between game frames stop there, and the tick takes the camera the rest. */
+		float yaw = mx * l->yawPerDeg + l->yawRate * t;
+		float pitch = my * l->pitchPerDeg + l->pitchRate * t;
+		const float most = 7.0f * l->yawPerDeg;   /* the zoom's ratio: of the view as it is */
+		if (yaw > most) yaw = most;
+		if (yaw < -most) yaw = -most;
+		if (pitch > most) pitch = most;
+		if (pitch < -most) pitch = -most;
+		flatLookDelta(yaw, pitch, delta);
+		if (gfx_flat_redraw_frame(delta)) {
+			return 1;
+		}
+	}
+	s_flatRedrawFailed = 1;   /* the 60 Hz clock until the next tick */
+	return 0;
+}
+
 bool vr_begin_frame_and_update_poses(void)
 {
 	static long long next;
 	const long long now = gevrFlatNowNs();
 
+	if (!s_flatRedrawFailed && g_gevrFlatLook.ok && flatHighRefreshWanted() && !gevrServerIdle()) {
+		return true;   /* a frame to draw: a game frame if one is due, else flatRedrawFrame */
+	}
+	s_flatRedrawFailed = 0;
 	if (next == 0 || now - next > 100000000ll) {
 		next = now;   /* the first wait, or the game stalled: start the clock again */
 	}
