@@ -783,13 +783,14 @@ static struct ShaderProgram* s_curPrg;
 /* The staged ring's buffers (see s_stageRing), and where the kept passes'
  * ring draws are: the segment, and how much of it they use. */
 static GLuint s_stageVbo[GEVR_PM_SEGMENTS];
-static int s_eyeSeg = -1, s_scopeSeg = -1;
+static int s_eyeSeg = -1, s_scopeSeg = -1, s_replaySeg = -1;
 static GLsizeiptr s_eyeNeed, s_scopeNeed;
 static inline GLsizeiptr gevr_pm_base(void) { return s_stageRing ? (GLsizeiptr)s_pmSeg * s_pmSegSize : 0; }
 /* The buffer a replay's ring draws come from: the mapped ring itself, or a
  * staged segment, uploaded whole when it has grown past what was sent. */
 static GLuint gevr_ring_replay_vbo(int seg, GLsizeiptr need)
 {
+    s_replaySeg = seg;
     if (!s_stageRing || seg < 0 || seg >= GEVR_PM_SEGMENTS) return opengl_vbo;
     if (!s_stageVbo[seg]) glGenBuffers(1, &s_stageVbo[seg]);
     glBindBuffer(GL_ARRAY_BUFFER, s_stageVbo[seg]);
@@ -800,11 +801,17 @@ static GLuint gevr_ring_replay_vbo(int seg, GLsizeiptr need)
     }
     return s_stageVbo[seg];
 }
-/* After a replay from a staged segment: the ring's attributes back on fast3d's
- * own buffer (they follow the buffer bound when a program was loaded). */
+/* After a replay: fence the mapped ring segment just read so a later frame
+ * cannot overwrite it while the GPU is still drawing, and for a staged segment
+ * put the ring's attributes back on fast3d's own buffer. */
 static void gfx_opengl_vertex_array_set_attribs(struct ShaderProgram* prg);
 static void gevr_ring_replay_done(void)
 {
+    if (!s_stageRing && s_pmPtr != NULL && s_replaySeg >= 0 && s_replaySeg < GEVR_PM_SEGMENTS) {
+        if (s_pmFence[s_replaySeg]) glDeleteSync(s_pmFence[s_replaySeg]);
+        s_pmFence[s_replaySeg] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    }
+    s_replaySeg = -1;
     if (!s_stageRing) return;
     glBindVertexArray(opengl_vao);
     glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
@@ -823,7 +830,7 @@ static bool s_opaqueDepthWrite;
 uint8_t gevrFadeDepthAlpha = 255;
 // ... and for the in-between frame's redraw (issue #53, gfx_vr_eye_replay)
 static GLint s_curViewport[4], s_curScissor[4];
-static bool s_eyeRec, s_eyeReady;   // recording the eye pass / a frame to redraw
+static bool s_eyeRec, s_eyeReady, s_eyeSpilled;   // recording the eye pass / a frame to redraw / spilled across ring segments
 
 /* The early tick's eye pass (gfx_pc.cpp): kept for the replay that draws it once its
  * XR frame has begun, not drawn (nothing may touch the eye image before then). */
@@ -1470,7 +1477,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     // Vertex shader
 
     vs_len += sprintf(vs_buf + vs_len, "#version %s\n", gl_glsl_version_str);
-    if (s_buildMesh && s_meshClipDistance) {
+    if (s_buildMesh && s_meshClipDistance && gl_es) {
         append_line(vs_buf, &vs_len, "#extension GL_EXT_clip_cull_distance : require");
     }
 
@@ -2442,11 +2449,15 @@ static void gfx_opengl_set_depth_range(float znear, float zfar) {
 }
 
 static void gfx_opengl_set_viewport(int x, int y, int width, int height) {
+    if (width < 0) width = 0;
+    if (height < 0) height = 0;
     s_curViewport[0] = x; s_curViewport[1] = y; s_curViewport[2] = width; s_curViewport[3] = height;
     glViewport(x, y, width, height);
 }
 
 static void gfx_opengl_set_scissor(int x, int y, int width, int height) {
+    if (width < 0) width = 0;
+    if (height < 0) height = 0;
     s_curScissor[0] = x; s_curScissor[1] = y; s_curScissor[2] = width; s_curScissor[3] = height;
     glScissor(x, y, width, height);
 }
@@ -2998,9 +3009,11 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
         GLsizeiptr off = gevr_pm_base() + (s_pmOff - gevr_pm_base() + stride - 1) / stride * stride;
         if (off + bytes > (GLsizeiptr)(s_pmSeg + 1) * s_pmSegSize) {
             static unsigned s_spills;
-            if (!(s_spills++ & (s_spills - 1)))   /* the 1st, 2nd, 4th... */
+            s_spills++;
+            if (!(s_spills & (s_spills - 1)))   /* the 1st, 2nd, 4th... */
                 sysLogPrintf(LOG_WARNING, "vertex-ring: a frame outgrew its %d MB segment (%u so far): "
-                             "its redraws may show stale vertices", (int)(s_pmSegSize >> 20), s_spills);
+                             "its redraws skipped to avoid stale vertices", (int)(s_pmSegSize >> 20), s_spills);
+            if (s_eyeRec) s_eyeSpilled = true;
             gevr_pm_next_segment();   /* a frame too big for one segment: take the next */
             off = gevr_pm_base() + (s_pmOff - gevr_pm_base() + stride - 1) / stride * stride;
         }
@@ -3415,6 +3428,7 @@ void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* p
         s_eyeDraws.clear();
         s_eyeMeshes.clear();
         s_eyeReady = false;
+        s_eyeSpilled = false;
         s_eyeHand = -1;
         s_eyePresentationPrograms.clear();
         s_uniCacheValid = false;
@@ -3429,7 +3443,7 @@ void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* p
             if (s_eyePresent) gevr_eye_proj_times(presentation, s_eyePresentationVP);
         }
     } else {
-        s_eyeReady = s_eyeRec && !s_eyeDraws.empty();
+        s_eyeReady = s_eyeRec && !s_eyeSpilled && !s_eyeDraws.empty();
         static uint32_t records;
         if (++records >= 72) {
             if (VrShowStats || gevrFrameTimingTracing())
@@ -3474,6 +3488,7 @@ void gfx_flat_record(bool on, const float* proj, bool invert_y)
         s_eyeDraws.clear();
         s_eyeMeshes.clear();
         s_eyeReady = false;
+        s_eyeSpilled = false;
         s_eyeHand = -1;
         s_eyePresent = false;
         s_flatRec = s_eyeRec = proj != NULL && s_pmPtr != NULL && fabsf(proj[0]) > 1e-6f && fabsf(proj[5]) > 1e-6f;
@@ -3486,7 +3501,7 @@ void gfx_flat_record(bool on, const float* proj, bool invert_y)
             s_eyeHeadP[1] = s_eyeProj[5];
         }
     } else {
-        s_eyeReady = s_eyeRec && !s_eyeDraws.empty();
+        s_eyeReady = s_eyeRec && !s_eyeSpilled && !s_eyeDraws.empty();
         s_eyeRec = s_flatRec = false;
     }
 }
@@ -4427,20 +4442,23 @@ struct GevrMeshGpu {
 
 /*
  * The headset's two views, or a flat game's one (Apple TV, iPhone, iPad, an
- * Android phone: GLES 3 too). The mesh variants have the single view's
- * gl_Position = aVtxPos as every flat program does. Without them a flat game
- * walked every Bean room, prop and body on the CPU: an Apple TV HD spent 61%
- * of its time in gfx_sp_vertex and gfx_sp_tri1 and ran Dam at 15 fps
- * (2026-11-20); the PC's desktop GL keeps the CPU path.
+ * Android phone: GLES 3, and desktop GL 3.0+ with GLSL 330 on PC). The mesh
+ * variants have the single view's gl_Position = aVtxPos as every flat program
+ * does. Without them a flat game walked every Bean room, prop and body on the
+ * CPU: an Apple TV HD spent 61% of its time in gfx_sp_vertex and gfx_sp_tri1
+ * and ran Dam at 15 fps (2026-11-20), and desktop PC Bean + CE Dam spent ~10 ms
+ * per game frame on the CPU and overflowed a 16 MB vertex ring segment at 144 Hz.
  */
 static bool gevr_mesh_supported(void)
 {
 #ifdef GEVR_FLAT
-    const bool views = true;
+    const bool glOk = (gl_es && GLVersion.major >= 3) ||
+                      (!gl_es && GLVersion.major >= 3 && gl_glsl_version >= 330 &&
+                       glUniformBlockBinding != NULL && glBindBufferBase != NULL && glUniform2uiv != NULL);
+    return glOk && opengl_vao != 0 && !s_meshBroken;
 #else
-    const bool views = use_multiview;
+    return use_multiview && gl_es && GLVersion.major >= 3 && opengl_vao != 0 && !s_meshBroken;
 #endif
-    return views && gl_es && GLVersion.major >= 3 && opengl_vao != 0 && !s_meshBroken;
 }
 
 static GevrMeshGpu* gevr_mesh_gpu(void** slot, const void* vertices, uint32_t num_vertices,
@@ -4895,6 +4913,7 @@ static void gfx_opengl_init(void) {
     GEVR_GL_FILL(glCopyBufferSubData, PFNGLCOPYBUFFERSUBDATAPROC);
     GEVR_GL_FILL(glDrawArraysInstanced, PFNGLDRAWARRAYSINSTANCEDPROC);
     GEVR_GL_FILL(glDrawElementsInstanced, PFNGLDRAWELEMENTSINSTANCEDPROC);
+    GEVR_GL_FILL(glUniform2uiv, PFNGLUNIFORM2UIVPROC);
 #undef GEVR_GL_FILL
 
     // check if we're using ES or core, which have more limited feature sets
@@ -4914,7 +4933,9 @@ static void gfx_opengl_init(void) {
     s_skinPaletteUploaded = false;
     s_meshDrawUniforms.clear();
     s_meshClipDistance = false;
-    if (gl_es && glGetStringi && GLVersion.major >= 3) {
+    if (!gl_es && GLVersion.major >= 3) {
+        s_meshClipDistance = true;
+    } else if (gl_es && glGetStringi && GLVersion.major >= 3) {
         GLint n = 0;
         glGetIntegerv(GL_NUM_EXTENSIONS, &n);
         for (GLint i = 0; i < n && !s_meshClipDistance; i++) {
@@ -4922,8 +4943,6 @@ static void gfx_opengl_init(void) {
             s_meshClipDistance = ext && strcmp(ext, "GL_EXT_clip_cull_distance") == 0;
         }
     }
-    sysLogPrintf(LOG_NOTE, "GL: static meshes %s", (!gl_es || GLVersion.major < 3) ? "off (not GLES 3)"
-                 : s_meshClipDistance ? "on (far reject: clip distance)" : "on (far reject: no depth clamp)");
     sysLogPrintf(LOG_NOTE, "GL: depth clamp: %s (EXT %d, NV %d, es %d)", GLAD_GL_ARB_depth_clamp ? "yes" : "no (z *= 0.3 hack)",
                  GLAD_GL_EXT_depth_clamp, GLAD_GL_NV_depth_clamp, gl_es ? 1 : 0);
 
@@ -5051,7 +5070,7 @@ static void gfx_opengl_init(void) {
             bufferStorage = ringOk ? (PFN_BufferStorageEXT)SDL_GL_GetProcAddress("glBufferStorage") : NULL;
         }
         const GLbitfield flags = GL_MAP_WRITE_BIT | 0x0040 /* PERSISTENT */ | 0x0080 /* COHERENT */;
-        const GLsizeiptr segment = 16 << 20;
+        const GLsizeiptr segment = (GLsizeiptr)(!gl_es ? 48 : 16) << 20;
         if (ringOk && bufferStorage != NULL && glMapBufferRange != NULL && glFenceSync != NULL) {
             while (glGetError() != GL_NO_ERROR) {}
             bufferStorage(GL_ARRAY_BUFFER, segment * GEVR_PM_SEGMENTS, NULL, flags);
@@ -5078,17 +5097,31 @@ static void gfx_opengl_init(void) {
             if (s_stageRing) s_pmSegSize = segment;
         }
 #endif
-        sysLogPrintf(LOG_NOTE, "GL: persistent vertex buffer %s", s_stageRing ? "staged (3 x 16 MB in memory, a segment a replay)"
-                     : s_pmPtr ? "on (3 x 16 MB)" : "off (glBufferData per draw)");
+        if (s_stageRing) {
+            sysLogPrintf(LOG_NOTE, "GL: persistent vertex buffer staged (3 x %d MB in memory, a segment a replay)",
+                         (int)(s_pmSegSize >> 20));
+        } else if (s_pmPtr) {
+            sysLogPrintf(LOG_NOTE, "GL: persistent vertex buffer on (3 x %d MB)", (int)(s_pmSegSize >> 20));
+        } else {
+            sysLogPrintf(LOG_NOTE, "GL: persistent vertex buffer off (glBufferData per draw)");
+        }
     }
 
     if (gl_core_profile || gl_es) {
         // warn the user that odd behavior can occur
         sysLogPrintf(LOG_WARNING, "GL: using core profile or ES, watch out for errors");
-        // core/ES will fail badly if we don't use a VAO for our VBO
+    }
+    if (gl_core_profile || gl_es
+#ifdef GEVR_FLAT
+        || (GLVersion.major >= 3 && glGenVertexArrays != NULL)
+#endif
+    ) {
+        // core/ES and static meshes need a VAO for fast3d's vertex ring
         glGenVertexArrays(1, &opengl_vao);
         glBindVertexArray(opengl_vao);
     }
+    sysLogPrintf(LOG_NOTE, "GL: static meshes %s", !gevr_mesh_supported() ? "off"
+                 : s_meshClipDistance ? "on (far reject: clip distance)" : "on (far reject: no depth clamp)");
 
     if (GLAD_GL_ARB_depth_clamp) {
         glEnable(GL_DEPTH_CLAMP);
@@ -5123,6 +5156,7 @@ static void gfx_opengl_on_resize(void) {
 
 static void gfx_opengl_start_frame(void) {
     gevr_mesh_settle();
+    if (opengl_vao) glBindVertexArray(opengl_vao);
     frame_count++;
     gevr_decal_switch_poll();
     gevr_zdebug_poll();

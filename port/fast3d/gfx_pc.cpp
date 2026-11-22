@@ -3999,8 +3999,8 @@ static void gfx_sp_texture(uint16_t sc, uint16_t tc, uint8_t level, uint8_t tile
 static void gfx_dp_set_scissor(uint32_t mode, uint32_t ulx, uint32_t uly, uint32_t lrx, uint32_t lry) {
     float x = ulx / 4.0f;
     float y = lry / 4.0f;
-    float width = (lrx - ulx) / 4.0f;
-    float height = (lry - uly) / 4.0f;
+    float width = lrx > ulx ? (lrx - ulx) / 4.0f : 0.0f;
+    float height = lry > uly ? (lry - uly) / 4.0f : 0.0f;
 
 
     // ----------------------------------------------------------------------------
