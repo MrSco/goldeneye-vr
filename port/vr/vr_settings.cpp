@@ -605,6 +605,8 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "GexBatOffRot=%.4f %.4f %.4f\n", VrGexBatFit[4][0], VrGexBatFit[4][1], VrGexBatFit[4][2]);
     iniPrintf(f, "; BeanBat: Bean's sniper rifle as the bat, the rifle on the fist as GexBat.\n");
     iniPrintf(f, "BeanBat=%.4f %.4f %.4f\n", VrGexBatFit[5][0], VrGexBatFit[5][1], VrGexBatFit[5][2]);
+    iniPrintf(f, "; Bat: the same for GoldenEye's own sniper rifle.\n");
+    iniPrintf(f, "Bat=%.4f %.4f %.4f\n", VrGexBatFit[6][0], VrGexBatFit[6][1], VrGexBatFit[6][2]);
     iniPrintf(f, "; Bean guns' magazines: item number / vector (0 held magazine, 1 magazine well); fitted ones only.\n");
     for (int item=0; item<64; item++)
         for (int which=0; which<2; which++) {
@@ -858,11 +860,12 @@ extern "C" void vrSettingsLoad(void)
             }
             continue;
         }
-        if (strncmp(line, "BeanBat=", 8) == 0) {
+        if (strncmp(line, "BeanBat=", 8) == 0 || strncmp(line, "Bat=", 4) == 0) {
+            const int row = line[0] == 'B' && line[1] == 'e' ? 5 : 6;
             float t[3];
-            if (sscanf(line + 8, "%f %f %f", &t[0], &t[1], &t[2]) == 3
+            if (sscanf(strchr(line, '=') + 1, "%f %f %f", &t[0], &t[1], &t[2]) == 3
                 && std::isfinite(t[0]) && std::isfinite(t[1]) && std::isfinite(t[2])) {
-                for (int i = 0; i < 3; i++) VrGexBatFit[5][i] = t[i];
+                for (int i = 0; i < 3; i++) VrGexBatFit[row][i] = t[i];
             }
             continue;
         }

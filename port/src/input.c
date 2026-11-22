@@ -152,7 +152,7 @@ static struct {
     float kf7Well[3], pp7Well[3];
     float weaponFits[64][10][3];   /* GEVR_GEX_FIT_COMPONENTS, checked below */
     float beanMagFits[64][2][3];   /* Bean guns' magazines (gun.c gevrBeanMagFit) */
-    float batFit[6][3];            /* the rifle butt as a bat (gevr_gexweapon.h) */
+    float batFit[7][3];            /* the rifle butt as a bat (gevr_gexweapon.h) */
     float bodySlots[GEVR_BODY_SLOTS][3];
     float gunPer[2][GEVR_MAX_WEAPONS][3], gripPer[2][GEVR_MAX_WEAPONS][6];   /* each gun's own (gevr_scope.h) */
     unsigned char gunPerSet[2][GEVR_MAX_WEAPONS], gripPerSet[2][GEVR_MAX_WEAPONS];

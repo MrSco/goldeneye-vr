@@ -839,10 +839,10 @@ void gunUpdateAndFire(GUNHAND handnum)
              * animation, then (instead of sway and aim) the controller */
             Mtxf pose;
             /* Bean's rifle as the bat: turned whole into the PP7's glove (gun.c) */
-            extern s32 gevrStereoClubBatBean(s32 hand);
+            extern s32 gevrStereoClubBatGlove(s32 hand);
             extern s32 gevrBeanBatPose(s32 hand, Mtxf *rifle);
 
-            if (gevrStereoClubBatBean(handnum))
+            if (gevrStereoClubBatGlove(handnum))
             {
                 gevrBeanBatPose(handnum, &vrmtx);
             }
@@ -2836,7 +2836,7 @@ static Gfx *gevrRenderWatchGripHand(Gfx *gdl, ModelRenderData *templ)
 
 /*
  * The hand on Bean's sniper rifle held as a bat (bondview2.c
- * gevrStereoClubBatBean; owner, 2026-11-21: "we don't have a hand ... we can
+ * gevrStereoClubBatGlove; owner, 2026-11-21: "we don't have a hand ... we can
  * use the bean pistol grip hand for the right hand with bean sniper"). The
  * release's rifle has no hand on it, so the PP7's is borrowed: its model
  * loaded privately, as the watch's pressing hand above, with every list but
@@ -2938,7 +2938,7 @@ static s32 gevrBatHandLoad(void)
 
 static Gfx *gevrBeanBatDrawHand(Gfx *gdl, ModelRenderData *templ, s32 handnum)
 {
-    extern s32 gevrStereoClubBatBean(s32 hand);        /* bondview2.c */
+    extern s32 gevrStereoClubBatGlove(s32 hand);        /* bondview2.c */
     extern s32 gevrBeanBatHand(s32 hand, Mtxf *out);   /* gun.c */
     ModelRenderData renderdata;
     Mtxf base;
@@ -2946,7 +2946,7 @@ static Gfx *gevrBeanBatDrawHand(Gfx *gdl, ModelRenderData *templ, s32 handnum)
     ModelNode *node;
     s32 n, j;
 
-    if (!gevrStereoClubBatBean(handnum) || g_CurrentPlayer->bonddead || !gevrBeanBatHand(handnum, &base)
+    if (!gevrStereoClubBatGlove(handnum) || g_CurrentPlayer->bonddead || !gevrBeanBatHand(handnum, &base)
         || !gevrBatHandLoad())
     {
         return gdl;

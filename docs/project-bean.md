@@ -184,7 +184,10 @@ through the fist, butt up, the scope ahead, and the other hand can take the
 barrel below the fist to swing it with both hands (owner, 2026-11-21: "we can
 use the bean pistol grip hand for the right hand with bean sniper ... and then
 be able to grab it with our left off-hand too which would be the same gex logic
-and it switches to bat swing mode"). Not yet played in the headset.
+and it switches to bat swing mode"). Played once by the owner (2026-11-22);
+what changed after that is marked. GoldenEye's own rifle is held the same
+way, in its own PP7's hand (owner, 2026-11-22: "we need this to work for
+original sniper melee bat too"; not yet played).
 
 - **The hand** is the PP7's glove. The release's rifle has no hand on it, so
   the PP7's model is loaded privately with every list but its hand's emptied
@@ -195,13 +198,19 @@ and it switches to bat swing mode"). Not yet played in the headset.
   both hands the off hand keeps the rifle's end and the gun hand slides along
   it, the swing's end is the butt, and the hold's rules are GoldenEye X's
   (`bondview2.c gevrStereoClubBat`, `gevrTwoHandBarrel`, `gevrTwoHandBatAim`).
-- **The off hand** stays Bean's watch arm on its own controller: it is not
-  pinned to the rifle as GoldenEye X's left hand is.
+- **The off hand** stays the watch arm on its own controller, not turned to
+  the rifle as GoldenEye X's left hand is. The rifle's end is held in its
+  palm, and the rifle is taken there: that arm's hand lies well ahead of the
+  controller's grip, and held at the grip the end sat at the wrist (owner,
+  2026-11-22: "gripping the barrel at my wrist instead of off-hand";
+  `bondview2.c gevrBatOffPalm`; changed after the owner's test).
 - **Gun fit** with it out: `BAT FIT`, the rifle through the fist (turn stick
   down holds it nearer the butt, the move stick across the fist). Saved as
-  `BeanBat` in goldeneye-vr.ini. The glove follows the PP7's own Gun fit.
+  `BeanBat` in goldeneye-vr.ini, `Bat` for GoldenEye's own rifle. Unfitted,
+  both are the owner's headset fit (2026-11-22): the fist 38 cm up from the
+  muzzle. The glove follows the PP7's own Gun fit.
 
-GoldenEye's own models keep the cartridge's butt-first pose.
+A ROM hack's own rifle keeps the cartridge's butt-first pose.
 
 ### The off-hand arm
 

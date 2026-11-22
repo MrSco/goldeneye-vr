@@ -3631,18 +3631,19 @@ s32 gevrStereoHandClub(s32 hand)
  * hand (gevrTwoHandBarrel, gevrTwoHandAim). Held so, the off hand keeps the
  * rifle's end and the gun hand slides along it (user, test.30). Bean's rifle
  * is the bat too (owner, 2026-11-21), held in the PP7's glove: one rigid mesh
- * turned as a whole (gun.c gevrBeanBatPose). GoldenEye's own models keep its
- * butt-first pose.
+ * turned as a whole (gun.c gevrBeanBatPose). So is GoldenEye's own, in its own
+ * PP7's hand (owner, 2026-11-22: "we need this to work for original sniper
+ * melee bat too"). A ROM hack's own rifle keeps the cartridge's butt-first pose.
  */
 s32 gevrGexBatEnd(s32 hand, f32 out[3]);   /* gun.c: the bat's butt as drawn */
 
-/* Bean's rifle is the bat: its models are on and GoldenEye X's guns are not */
-s32 gevrStereoClubBatBean(s32 hand)
+/* Bean's rifle or GoldenEye's own is the bat, in a PP7's hand: GoldenEye X's guns are off */
+s32 gevrStereoClubBatGlove(s32 hand)
 {
     extern int VrGexGuns;   /* vr_settings_defaults.c */
     extern int gevrBeanIsEnabled(void);
 
-    return g_gevrStereo && !VrGexGuns && gevrBeanIsEnabled() && gevrStereoHandClub(hand);
+    return g_gevrStereo && !VrGexGuns && (gevrBeanIsEnabled() || gevrRomRetailArt()) && gevrStereoHandClub(hand);
 }
 
 s32 gevrStereoClubBat(s32 hand)
@@ -3650,12 +3651,52 @@ s32 gevrStereoClubBat(s32 hand)
     extern int VrGexGuns;   /* vr_settings_defaults.c */
 
     return g_gevrStereo && gevrStereoHandClub(hand)
-        && (VrGexGuns ? gevrGexHeld(hand) : gevrStereoClubBatBean(hand));
+        && (VrGexGuns ? gevrGexHeld(hand) : gevrStereoClubBatGlove(hand));
+}
+
+/*
+ * The off hand on the glove-held bat is the watch arm, whose hand lies well
+ * ahead of its controller's grip, so the rifle's end held at the grip sat at
+ * the wrist (owner, 2026-11-22, headset: "the off hand grip at bottom seems to
+ * be gripping the barrel at my wrist instead of off-hand. we should be doing it
+ * like gex sniper"). Its place is the palm as the arm is drawn
+ * (gevrWatchArmDraw: the wrist frame on the controller, the hand's centre
+ * measured from the model). FALSE with GoldenEye X's hands, whose palm is on
+ * the grip, and until the arm has been drawn once.
+ */
+static s32 gevrBatOffPalm(s32 gun, f32 out[3])
+{
+    const f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f * gevrGunSizeFactor();
+    f32 pos[3], r[3], u[3], b[3], x[3], y[3], z[3];
+    s32 i;
+
+    if (!gevrStereoClubBatGlove(gun) || !s_gevrWatchPalmKnown || !gevrGripAxes(gun, pos, r, u, b))
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        x[i] = -b[i];
+        y[i] = -r[i];
+    }
+    z[0] = x[1] * y[2] - x[2] * y[1];
+    z[1] = x[2] * y[0] - x[0] * y[2];
+    z[2] = x[0] * y[1] - x[1] * y[0];
+    for (i = 0; i < 3; i++)
+    {
+        if (VrLeftHandedMode) y[i] = r[i];   /* drawn mirrored: a right arm */
+    }
+    for (i = 0; i < 3; i++)
+    {
+        out[i] = pos[i] + (GEVR_WRIST_BEHIND_CM + VrGunOffZ) * b[i] * cm
+               + (s_gevrWatchPalmCm[0] * x[i] + s_gevrWatchPalmCm[1] * y[i] + s_gevrWatchPalmCm[2] * z[i]) * cm;
+    }
+    return TRUE;
 }
 
 /* gun.c gevrGexBatPose: both hands on the bat (hand's) - the off hand's
- * controller (camera space) and how far the hold has eased in, also while it
- * eases out after letting go */
+ * controller (camera space; the watch arm's palm, gevrBatOffPalm) and how far
+ * the hold has eased in, also while it eases out after letting go */
 s32 gevrStereoBatOffHand(s32 hand, f32 opos[3], f32 *amt)
 {
     f32 ignore[3];
@@ -3665,6 +3706,7 @@ s32 gevrStereoBatOffHand(s32 hand, f32 opos[3], f32 *amt)
     {
         return FALSE;
     }
+    gevrBatOffPalm(hand, opos);
     *amt = s_gevrTwoHandAmt;
     return TRUE;
 }
@@ -3779,6 +3821,7 @@ static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm, s32 drawn)
             }
         }
         gevrGexBatReachCm(&nearest, &farthest);
+        gevrBatOffPalm(gun, opos);   /* the watch arm takes it with its hand, not its wrist */
         for (i = 0; i < 3; i++)
         {
             d[i] = opos[i] - gpos[i];
@@ -18024,7 +18067,7 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
                  "GRIP FIT (THIS %s)%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTILT %.0f  ROLL %.0f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, TILT\nHOLD RIGHT GRIP: TURN STICK ROLLS\nHOLD OFF TRIGGER: PLACE IT BY HAND\nA: SAVE   B: UNDO   MENU + A: DONE",
                  gevrStereoTwoHandClass() ? "GUN" : "PISTOL", gex, t[2], -t[0], t[1], t[3], t[5]);
     }
-    else if (gevrStereoClubBat(GUNRIGHT) && gevrStereoTwoHandGrip() && !gevrStereoClubBatBean(GUNRIGHT))
+    else if (gevrStereoClubBat(GUNRIGHT) && gevrStereoTwoHandGrip() && !gevrStereoClubBatGlove(GUNRIGHT))
     {
         /* both hands on the bat: the off hand where it holds (input.c; gun.c gevrGexBatOffFitTo) */
         const float *o = VrGexBatFit[3], *r = VrGexBatFit[4];
@@ -18042,7 +18085,7 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
         snprintf(buf, sizeof(buf),
                  "BAT FIT%s\nTHE RIFLE THROUGH THE FIST\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTURN STICK DOWN: HOLD NEARER THE BUTT\nTURN STICK UP: NEARER THE MUZZLE\nMOVE STICK: FORWARD, SIDEWAYS\n%s%sA: SAVE   B: UNDO   MENU + A: DONE",
                  gex, -b[2], b[0], b[1],
-                 gevrStereoClubBatBean(GUNRIGHT) ? "" : "HOLD OFF TRIGGER: MOVE IT BY HAND\nBOTH HANDS ON IT: FIT THE OFF HAND\n",
+                 gevrStereoClubBatGlove(GUNRIGHT) ? "" : "HOLD OFF TRIGGER: MOVE IT BY HAND\nBOTH HANDS ON IT: FIT THE OFF HAND\n",
                  gevrFitNextLine(0));
     }
     else

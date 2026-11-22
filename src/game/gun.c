@@ -3833,11 +3833,12 @@ s32 gevrStereoBatOffHand(s32 hand, f32 opos[3], f32 *amt);   /* bondview2.c: bot
  * butt as the grip position") moves the rifle up or down through the fist,
  * anywhere from the muzzle to the butt.
  */
-/* the rifle on the fist as Gun fit has it: GoldenEye X's rig, or Bean's rifle in
- * the PP7's glove (gevrBeanBatPose, below; goldeneye-vr.ini BeanBat) */
+/* the rifle on the fist as Gun fit has it: GoldenEye X's rig, or Bean's rifle or
+ * GoldenEye's own in a PP7's hand (gevrBeanBatPose, below; goldeneye-vr.ini
+ * BeanBat, Bat) */
 float *gevrBatFit(void)
 {
-    return VrGexGuns ? gevrGexBatFit() : VrGexBatFit[5];
+    return VrGexGuns ? gevrGexBatFit() : VrGexBatFit[gevrBeanIsEnabled() ? 5 : 6];
 }
 
 static f32 gevrGexBatHandle(void)
@@ -4032,14 +4033,18 @@ s32 gevrBeanBatPose(s32 hand, Mtxf *rifle)
 {
     extern s32 gevrStereoGunMatrixFit(s32 handnum, const f32 off[3], Mtxf *out);   /* bondview2.c */
     extern float VrBeanGunOff[3];
-    const f32 *own = gevrGunOffOwnOf(2, ITEM_WPPK);
+    extern float VrGunOffX, VrGunOffY, VrGunOffZ;
+    /* the PP7's own fit in this model set: the hand is where it holds one */
+    const s32 look = gevrBeanIsEnabled() ? 2 : 0;
+    const f32 plain[3] = { VrGunOffX, VrGunOffY, VrGunOffZ };
+    const f32 *own = gevrGunOffOwnOf(look, ITEM_WPPK);
     const f32 *fit = gevrBatFit();
     f32 handle = gevrGexBatHandle();
     Mtxf held;
     f32 ex[3], up[3], fwd[3], ey[3], ez[3], palm[3], opos[3], row, unit, len, reach, amt;
     s32 i;
 
-    if ((hand != GUNRIGHT && hand != GUNLEFT) || !gevrStereoGunMatrixFit(hand, own != NULL ? own : VrBeanGunOff, &held))
+    if ((hand != GUNRIGHT && hand != GUNLEFT) || !gevrStereoGunMatrixFit(hand, own != NULL ? own : look == 2 ? VrBeanGunOff : plain, &held))
     {
         return FALSE;
     }
