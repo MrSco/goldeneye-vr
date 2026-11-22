@@ -2116,14 +2116,19 @@ class SDLClipboardHandler implements
 
     SDLClipboardHandler() {
         mClipMgr = (ClipboardManager) SDL.getContext().getSystemService(Context.CLIPBOARD_SERVICE);
-        mClipMgr.addPrimaryClipChangedListener(this);
+        if (mClipMgr != null) {
+            mClipMgr.addPrimaryClipChangedListener(this);
+        }
     }
 
     public boolean clipboardHasText() {
-        return mClipMgr.hasPrimaryClip();
+        return mClipMgr != null && mClipMgr.hasPrimaryClip();
     }
 
     public String clipboardGetText() {
+        if (mClipMgr == null) {
+            return null;
+        }
         ClipData clip = mClipMgr.getPrimaryClip();
         if (clip != null) {
             ClipData.Item item = clip.getItemAt(0);
@@ -2138,6 +2143,9 @@ class SDLClipboardHandler implements
     }
 
     public void clipboardSetText(String string) {
+        if (mClipMgr == null) {
+            return;
+        }
         mClipMgr.removePrimaryClipChangedListener(this);
         ClipData clip = ClipData.newPlainText(null, string);
         mClipMgr.setPrimaryClip(clip);
