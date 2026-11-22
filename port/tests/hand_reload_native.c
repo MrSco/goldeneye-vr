@@ -685,15 +685,52 @@ static void beanPp7Reload(void)
     heldPoint[1] = 5.9f * cm; gevrHandReloadTick();
     assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN && player.hands[GUNRIGHT].weapon_ammo_in_magazine == 4 && reserve == 49);
     gripHeld[0] = 0; gevrHandReloadTick();
-    /* let go away from the port, the shell goes back to the reserve */
-    belt(0, 0); gripHeld[0] = 1; gevrHandReloadTick();
+    /*
+     * Drawn, the shotgun's shells are the ones it carries (user, 2026-11-21:
+     * "move the ... shotgun shells up on top of the shotgun, where there already
+     * are some"): the belt has none for it, so the hip's holster is never in the
+     * way nor hidden for it; a fresh grip at the saddle takes one. (Above, before
+     * the gun had been drawn, the belt stood in.)
+     */
+    {
+        int rounds = 0, hover = 0;
+        float ring[3];
+
+        memcpy(beanFoot, poses[1], sizeof(beanFoot));
+        beanFoot[1] += 10 * cm;                                   /* the saddle, on top of the receiver */
+        belt(0, 0);
+        assert(gevrReloadBeltRound(0, &rounds, &hover) < 0 && !gevrReloadBeltOffers(0) && !gevrReloadBeltAtHand(0));
+        assert(!gevrReloadBeltWanted(0) && !gevrGexClaimsOffHand());
+        gripHeld[0] = 1; gevrHandReloadTick();
+        assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN && reserve == 49);   /* a grip at the belt: nothing */
+        gripHeld[0] = 0; gevrHandReloadTick();
+        /* the ring on the saddle's shell: with the hand coming for it, green in reach */
+        assert(!gevrReloadSaddleShown(GUNRIGHT, ring, &hover));
+        memcpy(poses[0], beanFoot, sizeof(beanFoot)); poses[0][0] += (GEVR_RELOAD_SADDLE_SHOW_CM - 0.5f) * cm;
+        assert(gevrReloadSaddleShown(GUNRIGHT, ring, &hover) && !hover && !gevrGexClaimsOffHand());
+        assert(fabsf(ring[0] - beanFoot[0]) < 1e-3f && fabsf(ring[1] - beanFoot[1]) < 1e-3f);
+        memcpy(poses[0], beanFoot, sizeof(beanFoot)); poses[0][0] += (GEVR_RELOAD_SADDLE_CM + 0.5f) * cm;
+        assert(gevrReloadSaddleShown(GUNRIGHT, ring, &hover) && !hover && !gevrGexClaimsOffHand());
+        poses[0][0] -= 1.0f * cm;
+        assert(gevrReloadSaddleShown(GUNRIGHT, ring, &hover) && hover && gevrGexClaimsOffHand());
+    }
+    gripHeld[0] = 1; gevrHandReloadTick();
     assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_INHAND && reserve == 48);
+    {
+        float ring[3];
+        int hover;
+        assert(!gevrReloadSaddleShown(GUNRIGHT, ring, &hover));   /* one in the hand already */
+    }
+    /* let go away from the port, the shell goes back to the reserve */
     heldPoint[1] = 30 * cm; gripHeld[0] = 0; gevrHandReloadTick();
     assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN && player.hands[GUNRIGHT].weapon_ammo_in_magazine == 4 && reserve == 49);
-    /* full: the belt has nothing to give */
+    /* full: nothing to take, at the saddle or the belt */
     player.hands[GUNRIGHT].weapon_ammo_in_magazine = 5;
     {
         int rounds = 0, hover = 0;
+        float ring[3];
+        memcpy(poses[0], beanFoot, sizeof(beanFoot));
+        assert(!gevrGexClaimsOffHand() && !gevrReloadSaddleShown(GUNRIGHT, ring, &hover));
         belt(0, 0);
         assert(gevrReloadBeltRound(0, &rounds, &hover) < 0 && !gevrGexClaimsOffHand());
     }
@@ -1535,13 +1572,24 @@ static void rackReload(void)
  * gun by; the automatic shotgun is pumped once it has run dry, as a magazine
  * gun is racked.
  */
+/* the off hand at the shells the shotgun carries (here 10 cm over the gun hand's grip) */
+static void saddleHand(void)
+{
+    const float cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+
+    memcpy(beanFoot, poses[1], sizeof(beanFoot));
+    beanFoot[1] += 10 * cm;
+    beanPoints |= 1;
+    memcpy(poses[0], beanFoot, sizeof(beanFoot));
+}
+
 static void pumpShell(void)
 {
     const float cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
 
     at(0, 20, -20, 40);
     gripHeld[0] = 0; gevrHandReloadTick();
-    belt(0, 0); gripHeld[0] = 1; gevrHandReloadTick();
+    saddleHand(); gripHeld[0] = 1; gevrHandReloadTick();   /* from the shells the gun carries */
     assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_INHAND && s_gevrGexHeldRounds == 1);
     beanPoints = 3;
     memset(wellPoint, 0, sizeof(wellPoint));
@@ -1592,17 +1640,30 @@ static void pumpReload(void)
     /* a pump on its fore-end, as the other shotgun's (user: not "pull bolt") */
     assert(gevrReloadReservedRounds(1) == 2 && gevrReloadLabel(GUNRIGHT) == GEVR_RELOAD_LABEL_PUMP);
     {
-        /* the belt still gives shells for the room left, the waiting ones counted */
+        /* the saddle still gives shells for the room left, the waiting ones counted; the
+         * belt has none (the hip's holster is its own) */
         int rounds = 0, hover = 0;
+        float ring[3];
         belt(0, 0);
-        assert(gevrReloadBeltRound(0, &rounds, &hover) == GUNRIGHT && rounds == 1 && hover && gevrGexClaimsOffHand());
+        assert(gevrReloadBeltRound(0, &rounds, &hover) < 0 && !gevrReloadBeltOffers(0) && !gevrGexClaimsOffHand());
+        saddleHand();
+        assert(gevrGexClaimsOffHand() && gevrReloadSaddleShown(GUNRIGHT, ring, &hover) && hover);
+        /* a fresh grip at the shells is for a shell, though the fore-end is in reach and a pump is due */
+        foreEnd = 1; gripHeld[0] = 1; gevrHandReloadTick();
+        assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_INHAND && !s_gevrRack[GUNRIGHT].held);
+        foreEnd = 0; gripHeld[0] = 0; gevrHandReloadTick();     /* let go: back to the reserve */
+        assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN && s_gevrRack[GUNRIGHT].pending == 2 && reserve == 47);
+        /* the empty gun's ring shows from anywhere */
+        at(0, 20, -20, 40);
+        assert(gevrReloadSaddleShown(GUNRIGHT, ring, &hover) && !hover);
     }
     pumpShell(); pumpShell(); pumpShell();
     assert(s_gevrRack[GUNRIGHT].pending == 5 && reserve == 44);
     {
-        int rounds = 0, hover = 0;
-        belt(0, 0);
-        assert(gevrReloadBeltRound(0, &rounds, &hover) < 0);   /* full */
+        int hover = 0;
+        float ring[3];
+        saddleHand();
+        assert(!gevrGexClaimsOffHand() && !gevrReloadSaddleShown(GUNRIGHT, ring, &hover));   /* full */
     }
     pumpHand(0);
     assert(!gevrGexClaimsOffHand());   /* the pump is no claim on the off hand */
@@ -1815,6 +1876,6 @@ int main(void)
         pumpReload();
         VrLeftHandedMode = lefty;
     }
-    puts("PASS: calibrated reloads, PP7 fresh-grip ownership, physical seating, partial/fresh magazines, ammo conservation, handedness, belt and lifecycle, Bean's PP7 magazine, the rack, the pump and the rack's fitted place");
+    puts("PASS: calibrated reloads, PP7 fresh-grip ownership, physical seating, partial/fresh magazines, ammo conservation, handedness, belt and lifecycle, Bean's PP7 magazine, the rack, the pump, the rack's fitted place and the shotguns' own shells");
     return 0;
 }

@@ -85,7 +85,9 @@ gesture was removed in test.22: body slots replace it.
   ring, label or wheel, and its grip there takes no pistol (owner, headset,
   2026-11-21: "you can end up grabbing a pistol instead of the magazine";
   `bondview2.c gevrReloadBeltWanted`). The gun hand's hip still takes the gun
-  back, and the holsters return when the magazine is in.
+  back, and the holsters return when the magazine is in. A Bean shotgun's
+  shells are taken from the gun's own saddle, not the belt, so it never
+  hides or blocks a holster.
   GoldenEye X players see GoldenEye's slot models for now.
 
 Defaults at 170 cm eye height (PlayerHeight), in cm below the eye / out to

@@ -2397,6 +2397,15 @@ static Gfx *gevrReloadLabelOn(Gfx *gdl, s32 hand, const Mtxf *gun)
         f32 rack[3];
         s32 held;
 
+        {
+            /* ... and the shell on a shotgun's saddle the free hand takes (bondview2.c gevrReloadSaddleShown) */
+            extern s32 gevrReloadSaddleShown(s32 hand, f32 at[3], s32 *hover);
+            f32 shell[3];
+            s32 hover;
+
+            if (gevrReloadSaddleShown(hand, shell, &hover))
+                gdl = gevrDrawInteractionRing(gdl, shell, 3.0f, (hover ? GEVR_RELOAD_READY_TINT : GEVR_RELOAD_TINT) | 0xE0);
+        }
         if (gevrRackPointShown(hand, rack, &held))
             gdl = gevrDrawInteractionRing(gdl, rack, 3.0f, (held ? GEVR_RELOAD_READY_TINT : GEVR_RELOAD_TINT) | 0xE0);
     }

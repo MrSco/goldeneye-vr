@@ -19911,6 +19911,77 @@ static s32 gevrGexAtBelt(s32 ctrl, const f32 at[3])
     return gevrBeltDist2(ctrl, at) <= s_gevrReloadTune[GEVR_RT_BELTRADIUS] * s_gevrReloadTune[GEVR_RT_BELTRADIUS];
 }
 
+/*
+ * A Bean shotgun's shells are taken from the gun itself: the shells it carries
+ * (across the top of the shotgun's receiver, in the automatic shotgun's saddle
+ * on its left; gevr_beanmag.c: the round is a copy of the first one, and the
+ * saddle stays full), not at the belt. A shotgun is topped up at any time, so
+ * its shell at the belt stood where the hip's holstered pistol is whenever it
+ * was not full, and hiding the pistol for it would hide it nearly always
+ * (user, 2026-11-21: "you could reload at any time, not just when you're
+ * completely out of ammo, so you don't want to hide the pistols all the time.
+ * Maybe the best thing to do is to move the ... shotgun shells up on top of
+ * the shotgun, where there already are some shotgun shells"). at: that shell,
+ * camera space, as the gun was last drawn; FALSE for any other gun (GoldenEye
+ * X's shotguns, whose models were not looked at for one, keep the belt), and
+ * until the gun has been drawn.
+ */
+#define GEVR_RELOAD_SADDLE_CM 8.0f    /* a fresh grip this near the saddle's shell takes one */
+#define GEVR_RELOAD_SADDLE_SHOW_CM 20.0f
+
+static s32 gevrReloadSaddle(s32 gunHand, f32 at[3])
+{
+    const s32 item = getCurrentPlayerWeaponId(gunHand);
+    f32 well[3], held[3];
+
+    return (item == ITEM_SHOTGUN || item == ITEM_AUTOSHOT) && gunHand == gevrReloadSupportGun()
+        && gevrBeanByHand(gunHand) && gevrReloadSingleRound(gunHand) && (gevrBeanMagPoints(at, well, held) & 1);
+}
+
+/* the off hand (its palm) from the saddle's shell, cm; negative when the gun has none */
+static f32 gevrReloadSaddleDist(s32 gunHand, const f32 off[3])
+{
+    const f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    f32 saddle[3], d2 = 0.0f;
+    s32 i;
+
+    if (cm < 1e-6f || !gevrReloadSaddle(gunHand, saddle)) return -1.0f;
+    for (i = 0; i < 3; i++) d2 += (off[i] - saddle[i]) * (off[i] - saddle[i]);
+    return sqrtf(d2) / cm;
+}
+
+/* where the free hand takes a loose round: a shotgun's saddle, or the belt */
+static s32 gevrReloadRoundAtHand(s32 gunHand, const f32 off[3])
+{
+    const f32 saddle = gevrReloadSaddleDist(gunHand, off);
+
+    return saddle >= 0.0f ? saddle <= GEVR_RELOAD_SADDLE_CM : gevrGexAtBelt(gunHand, off);
+}
+
+/* gun.c: the ring on the saddle's shell, while there is one to take: with the
+ * hand coming for it, or the gun empty. hover: a grip takes it now. */
+s32 gevrReloadSaddleShown(s32 hand, f32 at[3], s32 *hover)
+{
+    f32 off[3], r[3], u[3], b[3], dist;
+
+    *hover = FALSE;
+    if (hand < 0 || hand > 1 || !gevrHandReloadActive() || g_CurrentPlayer->bonddead || g_CurrentPlayer->watch_animation_state
+        || g_CurrentPlayer->mpmenuon || hand != gevrReloadSupportGun() || gevrReloadGun(getCurrentPlayerWeaponId(1 - hand))
+        || s_gevrGexMag[hand] == GEVR_GEXMAG_INHAND || !gevrReloadSaddle(hand, at) || gevrReloadPickup(hand) <= 0)
+    {
+        return FALSE;
+    }
+    dist = GEVR_RELOAD_SADDLE_SHOW_CM + 1.0f;
+    if (gevrGripAxesRaw(hand, off, r, u, b))
+    {
+        gevrReloadOffHandAt(hand, off, off);
+        dist = gevrReloadSaddleDist(hand, off);
+    }
+    *hover = dist >= 0.0f && dist <= GEVR_RELOAD_SADDLE_CM;
+    return dist <= GEVR_RELOAD_SADDLE_SHOW_CM
+        || g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine + s_gevrRack[hand].pending <= 0;
+}
+
 /* Both fitted hips offer the current gun's magazine. With two guns each
  * gun hand loads its own; with a free off hand it can take the gun's mag. */
 s32 gevrReloadBeltAmmo(s32 ctrl)
@@ -19954,6 +20025,7 @@ s32 gevrReloadBeltRound(s32 ctrl, s32 *rounds, s32 *hover)
     (void)def;
     (void)st;
     if (!gevrReloadSingleRound(gunHand) || s_gevrGexMag[gunHand] == GEVR_GEXMAG_INHAND) return -1;
+    if (gevrReloadSaddle(gunHand, at)) return -1;   /* a Bean shotgun's are on the gun: the belt and its holster are left alone */
     *rounds = gevrReloadPickup(gunHand);
     if (*rounds <= 0) return -1;
     if (gevrGripAxesRaw(ctrl, at, r, u, b))
@@ -20343,7 +20415,7 @@ s32 gevrGexClaimsOffHand(void)
     if (gevrReloadSingleRound(gunHand))
         return g_CurrentPlayer->hands[gunHand].weapon_ammo_in_magazine + s_gevrRack[gunHand].pending
                 < get_ptr_item_statistics(getCurrentPlayerWeaponId(gunHand))->MagSize
-            && gevrGexAtBelt(gunHand, off);
+            && gevrReloadRoundAtHand(gunHand, off);
     if (s_gevrGexMag[gunHand] == GEVR_GEXMAG_IN && !gevrReloadMagPulls(gunHand))
     {
         return FALSE;   /* a pistol's magazine stays in until B / Y drops it */
@@ -20692,8 +20764,12 @@ static void gevrGexRoundTick(s32 gunHand, f32 cm, const f32 grip0[3], s32 grip, 
     /* These guns have no removable magazine. Idle must stay IN so existing
      * fire/melee gates do not treat the gun as permanently disassembled. */
     if (*state != GEVR_GEXMAG_INHAND) *state = GEVR_GEXMAG_IN;
-    /* the pump (gevr_rack.h): shells in on an empty chamber wait for it */
-    if (*state == GEVR_GEXMAG_IN && s_gevrRack[gunHand].pending > 0 && gevrRackRun(gunHand, grip, fresh)) {
+    /* the pump (gevr_rack.h): shells in on an empty chamber wait for it. A fresh grip
+     * at the shells is for a shell first: the saddle is within the fore-end's reach. */
+    const s32 take = grip && fresh && !s_gevrGexGripSpent && *state != GEVR_GEXMAG_INHAND
+        && gevrReloadRoundAtHand(gunHand, off) && gevrReloadPickup(gunHand) > 0;
+    if (*state == GEVR_GEXMAG_IN && s_gevrRack[gunHand].pending > 0 && (s_gevrRack[gunHand].held || !take)
+        && gevrRackRun(gunHand, grip, fresh)) {
         s_gevrMagGrab = 0;
         return;
     }
@@ -20723,19 +20799,19 @@ static void gevrGexRoundTick(s32 gunHand, f32 cm, const f32 grip0[3], s32 grip, 
             } else gevrGexHeldDropped();
             *state=GEVR_GEXMAG_IN; s_gevrGexGripSpent=TRUE;
         }
-    } else if (grip && fresh && !s_gevrGexGripSpent && gevrGexAtBelt(gunHand,off)
-        && gevrReloadPickup(gunHand) > 0) {
+    } else if (take) {
         const s32 rounds = gevrReloadPickup(gunHand);
         g_CurrentPlayer->ammoheldarr[stats->AmmoType] -= rounds;
         s_gevrGexHeldAmmoType=stats->AmmoType; s_gevrGexHeldRounds=rounds;
         *state=GEVR_GEXMAG_INHAND; s_gevrGexHeldGun=gunHand; gevrGexBuzz(0.4f);
-        sysLogPrintf(LOG_NOTE, "stereo: hand reload, %d round(s) taken at the belt (item %d, %d loaded, %d left)",
-                     rounds, roundItem, hand->weapon_ammo_in_magazine, g_CurrentPlayer->ammoheldarr[stats->AmmoType]);
+        sysLogPrintf(LOG_NOTE, "stereo: hand reload, %d round(s) taken at the %s (item %d, %d loaded, %d left)",
+                     rounds, gevrReloadSaddleDist(gunHand, off) >= 0.0f ? "gun's own shells" : "belt", roundItem,
+                     hand->weapon_ammo_in_magazine, g_CurrentPlayer->ammoheldarr[stats->AmmoType]);
     } else if (grip && fresh) {
         /* why a fresh grip took nothing: away from the belt, already full, or no reserve */
-        sysLogPrintf(LOG_NOTE, "stereo: hand reload, grip took no round: %.1f cm from the belt, spent %d, %d/%d loaded, %d in reserve",
-                     sqrtf(gevrBeltDist2(gunHand, off)), s_gevrGexGripSpent, hand->weapon_ammo_in_magazine, stats->MagSize,
-                     g_CurrentPlayer->ammoheldarr[stats->AmmoType]);
+        sysLogPrintf(LOG_NOTE, "stereo: hand reload, grip took no round: %.1f cm from the belt, %.1f from the gun's shells, spent %d, %d/%d loaded, %d in reserve",
+                     sqrtf(gevrBeltDist2(gunHand, off)), gevrReloadSaddleDist(gunHand, off), s_gevrGexGripSpent,
+                     hand->weapon_ammo_in_magazine, stats->MagSize, g_CurrentPlayer->ammoheldarr[stats->AmmoType]);
     }
     s_gevrMagGrab=0;
 }

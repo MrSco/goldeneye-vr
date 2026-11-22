@@ -340,6 +340,8 @@ reloads by hand ([details](docs/project-bean.md#removable-magazines-hand-reload-
     ring: squeeze the off hand's grip where you want it. See [racking](docs/hand-reload-rack.md).
 - **Shotguns, rocket launcher, Golden Gun and grenade launcher.** Grip one round at your
   belt and insert it at the gun's port. Release the grip before taking another.
+  - With Bean's models a shotgun's shells are taken from the gun itself: grip the shells it
+    carries (the ring), not the belt, so the hip holster is never in the way.
   - The pump shotgun is pumped for every shot: slide the hand that holds its fore-end back
     and forward. The automatic shotgun cycles itself, and is pumped once after running dry.
   - While a gun waits to be racked or pumped, the two-handed hold lets go so your front hand

@@ -89,15 +89,21 @@ cross, which run the game's own reload.
 | Cougar | its cylinder (and the plate behind it) | B / Y |
 | Grenade launcher | its drum | B / Y |
 | Rocket launcher | the rocket in its tube | fired, it is gone; loaded, it stays |
-| Shotgun, automatic shotgun | a shell: a copy of one on the gun's saddle | never out: a shell at a time goes in |
+| Shotgun, automatic shotgun | a shell: a copy of one on the gun's saddle, taken there | never out: a shell at a time goes in |
 
 The round-at-a-time guns (user, 2026-11-18: "cut off a shotgun shell from a
 shotgun model and for the cougar magnum you can cut out the chamber and use
 that as the magazine, same with grenade launcher and rocket launcher"):
 
-- **Shotguns** load as GE-X's: grip at the belt takes one shell from the
-  reserve, its middle at the port under the receiver puts it in, let go
-  elsewhere and it goes back. The gun is never open and its saddle stays full.
+- **Shotguns**: a grip at the shells the gun carries (across the top of the
+  shotgun's receiver, in the automatic shotgun's saddle on its left; a ring
+  marks them as the hand comes near, or while the gun is empty) takes one
+  shell from the reserve, its middle at the port under the receiver puts it
+  in, let go elsewhere and it goes back. The gun is never open and its saddle
+  stays full. Not at the belt (owner, 2026-11-21): a shotgun is topped up at
+  any time, so a shell at the belt stood in the hip holster's place whenever
+  the gun was not full (`bondview2.c gevrReloadSaddle`). GE-X's shotguns
+  still take theirs at the belt.
 - **Cougar and grenade launcher**: the cylinder is a magazine. B / Y drops it
   with its rounds, a full one comes from the belt, and it seats at the middle of
   where it sits. A cylinder turns on GoldenEye's drum matrix, so it is taken

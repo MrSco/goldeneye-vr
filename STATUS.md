@@ -71,7 +71,9 @@ racked by the off hand after the new magazine (rounds wait in GevrRack until
 then; a magazine changed with rounds left needs none; the belt's touch and
 dual wielding skip it). Also the AR33, RC-P90, sniper rifle and automatic
 shotgun (its pump, once dry); the pump shotgun is pumped for every shot. The
-two-handed hold lets go while a gun waits, so the off hand slides on it. Bean's sniper rifle has a magazine made for it
+two-handed hold lets go while a gun waits, so the off hand slides on it.
+With a magazine out the free hand has no hip or belt holster; a Bean
+shotgun's shells are taken from its own saddle, not the belt. Bean's sniper rifle has a magazine made for it
 (gevr_beanmag.c made). The gun gives 1.2 cm with the pull; only the pistols'
 slides move. A ring shows the place; Gun fit's reload page sets it (the off
 hand's grip; ini Rack*, GexRack*, BeanRack*). test_rack.py, test_hand_reload.py

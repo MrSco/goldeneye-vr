@@ -49,7 +49,7 @@ for name in ("s_gevrGexMagItem", "s_gevrPistolGripOwner"):
     definitions.append(re.search(r"static s32 " + name + r"[^;]+;", view).group())
 definitions.append(re.search(r"typedef struct \{[^\n]+\} GevrStoredMagazine;", view).group())
 definitions.append(re.search(r"static GevrStoredMagazine s_gevrStoredMag[^;]+;", view).group())
-for name in ("GEVR_UNITS_PER_METRE", "GEVR_RELOAD_BELT_EXIT_CM", "GEVR_VIEWMODEL_CM", "GEVR_GRIP_TO_ORIGIN_CM", "GEVR_GRIP_PEND_POLLS"):
+for name in ("GEVR_RELOAD_SADDLE_CM", "GEVR_RELOAD_SADDLE_SHOW_CM", "GEVR_UNITS_PER_METRE", "GEVR_RELOAD_BELT_EXIT_CM", "GEVR_VIEWMODEL_CM", "GEVR_GRIP_TO_ORIGIN_CM", "GEVR_GRIP_PEND_POLLS"):
     match = re.search(r"^#define " + name + r"\s+[^\n]+", view, re.M)
     if match:
         definitions.append(match.group())
@@ -96,6 +96,8 @@ production.extend(function(view, signature) for signature in (
     "static s32 gevrReloadBeltLocal(", "static f32 gevrBeltDist2(", "static s32 gevrGexAtBelt(",
     "static s32 gevrGexPistolPoint(s32 support, f32 out[3])\n{", "static void gevrReloadMagPoint(",
     "static s32 gevrGexPistolSupportAllowed(void)\n{", "static f32 gevrGexReloadDistance(s32 index)\n{",
+    "static s32 gevrReloadSaddle(", "static f32 gevrReloadSaddleDist(", "static s32 gevrReloadRoundAtHand(",
+    "s32 gevrReloadSaddleShown(",
     "s32 gevrReloadBeltAmmo(", "s32 gevrReloadBeltHover(", "s32 gevrReloadBeltRound(", "s32 gevrReloadBeltOffers(", "s32 gevrReloadBeltAtHand(", "s32 gevrReloadBeltWanted(", "s32 gevrReloadGrabBelt(", "s32 gevrReloadBeltPoint(", "s32 gevrReloadSeatHover(",
     "void gevrGexReloadReset(",
     "s32 gevrGexClaimsOffHand(void)\n{", "s32 gevrGexHeldPalm(f32 out[3])\n{",
