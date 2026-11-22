@@ -27,6 +27,8 @@ struct GevrSettingsApi {
     void (*set)(int id, int index) = nullptr;
     void (*text)(int id, int index, char *buf, int size) = nullptr;
     const char *(*blocked)(int id) = nullptr;
+    void (*drawKbm)() = nullptr;      // optional flat Keyboard & mouse page in gevrSettingsTabs
+    void (*drawGamepad)() = nullptr;  // optional flat Gamepad page in gevrSettingsTabs
 };
 
 // The real table (port/src/gevr_settings.c).
@@ -190,11 +192,28 @@ inline void gevrSettingsTabs(const GevrSettingsApi &a, int &openSection) {
             // a section with nothing to set here (a flat game's Gestures) has no tab
             if (a.sectionRows && a.sectionRows(s, GEVR_SET_INGAME, nullptr, 0) == 0) continue;
             const ImGuiTabItemFlags open = s == openSection ? ImGuiTabItemFlags_SetSelected : 0;
-            if (!ImGui::BeginTabItem(a.sectionName(s), nullptr, open)) continue;
-            ImGui::BeginChild("##panel-rows", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
-            gevrSettingsSection(a, s, GEVR_SET_INGAME);
-            ImGui::EndChild();
-            ImGui::EndTabItem();
+            if (ImGui::BeginTabItem(a.sectionName(s), nullptr, open)) {
+                ImGui::BeginChild("##panel-rows", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
+                gevrSettingsSection(a, s, GEVR_SET_INGAME);
+                ImGui::EndChild();
+                ImGui::EndTabItem();
+            }
+            if (s == GEVR_SEC_CONTROLS && a.drawKbm) {
+                if (ImGui::BeginTabItem("Keys & mouse")) {
+                    ImGui::BeginChild("##panel-rows", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
+                    a.drawKbm();
+                    ImGui::EndChild();
+                    ImGui::EndTabItem();
+                }
+            }
+            if (s == GEVR_SEC_CONTROLS && a.drawGamepad) {
+                if (ImGui::BeginTabItem("Gamepad")) {
+                    ImGui::BeginChild("##panel-rows", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
+                    a.drawGamepad();
+                    ImGui::EndChild();
+                    ImGui::EndTabItem();
+                }
+            }
         }
         ImGui::EndTabBar();
     }

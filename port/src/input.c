@@ -493,7 +493,7 @@ static const char *ckNames[CK_TOTAL_COUNT] = {
         "STICK_YPOS",
         "ACCEPT_BUTTON",
         "CANCEL_BUTTON",
-        "CK_0040",
+        "PREV_WEAPON",
         "CK_0080",
         "CK_0100",
         "CK_0200",
@@ -593,6 +593,7 @@ void inputSetDefaultKeyBinds(s32 cidx, s32 n64mode)
      */
     static const u32 pckbbinds[][3] = {
             { CK_A,             SDL_SCANCODE_Q,      VK_MOUSE_WHEEL_DN   },
+            { CK_PREV_WEAPON,   VK_MOUSE_WHEEL_UP,   0                   },
             { CK_B,             SDL_SCANCODE_E,      SDL_SCANCODE_R      },
             { CK_RTRIG,         VK_MOUSE_RIGHT,      SDL_SCANCODE_Z      },
             { CK_LTRIG,         SDL_SCANCODE_F,      SDL_SCANCODE_X      },
@@ -1640,7 +1641,7 @@ static int inputEventFilter(void *data, SDL_Event *event)
                 break;
             }
 #endif
-            if (!lastKey) {
+            if (!lastKey && !event->key.repeat) {
                 lastKey = VK_KEYBOARD_BEGIN + event->key.keysym.scancode;
             }
 #ifdef GEVR_FLAT
@@ -1670,15 +1671,17 @@ static int inputEventFilter(void *data, SDL_Event *event)
             break;
 
         case SDL_CONTROLLERAXISMOTION:
-            if (!lastKey) {
-                if (event->caxis.axis >= SDL_CONTROLLER_AXIS_TRIGGERLEFT && event->caxis.value > TRIG_THRESHOLD) {
-                    lastKey = VK_JOY1_LTRIG + (event->caxis.axis - SDL_CONTROLLER_AXIS_TRIGGERLEFT);
-                    SDL_GameController *ctrl = SDL_GameControllerFromInstanceID(event->cdevice.which);
-                    const s32 idx = inputControllerGetIndex(ctrl);
-                    if (idx >= 0) {
-                        lastKey += idx * INPUT_MAX_CONTROLLER_BUTTONS;
-                    }
+            if (event->caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT || event->caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT) {
+                static u8 trigDown[INPUT_MAX_CONTROLLERS][2];
+                SDL_GameController *ctrl = SDL_GameControllerFromInstanceID(event->cdevice.which);
+                const s32 idx = inputControllerGetIndex(ctrl);
+                const s32 tidx = event->caxis.axis - SDL_CONTROLLER_AXIS_TRIGGERLEFT;
+                const u8 nowDown = event->caxis.value > TRIG_THRESHOLD ? 1 : 0;
+                const s32 slot = (idx >= 0 && idx < INPUT_MAX_CONTROLLERS) ? idx : 0;
+                if (nowDown && !trigDown[slot][tidx] && !lastKey) {
+                    lastKey = VK_JOY1_LTRIG + tidx + slot * INPUT_MAX_CONTROLLER_BUTTONS;
                 }
+                trigDown[slot][tidx] = nowDown;
             }
             break;
 
@@ -1803,7 +1806,11 @@ static inline void inputParseBindString(const s32 ctrl, const u32 ck, char *bind
         return;
     }
 
-    const char *tok = strtok(bindstr, ", ");
+    char copy[MAX_BIND_STR];
+    strncpy(copy, bindstr, sizeof(copy) - 1);
+    copy[sizeof(copy) - 1] = '\0';
+
+    const char *tok = strtok(copy, ", ");
     while (tok) {
         if (tok[0]) {
             const s32 vk = inputGetKeyByName(tok);
@@ -1822,6 +1829,11 @@ static inline void inputLoadBinds(void)
             inputParseBindString(i, ck, bindStrs[i][ck]);
         }
     }
+}
+
+void inputLoadBindsNow(void)
+{
+    inputLoadBinds();
 }
 
 s32 inputInit(void)
@@ -1962,7 +1974,12 @@ s32 inputInit(void)
         inputControllerSetSticksSwapped(i, padsCfg[i].swapSticks);
     }
 
-    // inputLoadBinds(); Removed for VR
+#ifdef GEVR_FLAT
+    inputLoadBinds();
+#endif
+#if defined(GEVR_PC_FLAT) && SDL_VERSION_ATLEAST(2, 0, 26)
+    SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE, useRawInput ? "0" : "1");
+#endif
 
 
 
@@ -2022,12 +2039,17 @@ static struct player *inputReadPlayer(s32 player)
 static void inputFlatPadSticks(SDL_GameController *pad, const struct controllercfg *pcfg, bool menu,
                                f32 lx, f32 ly, OSContPad *npad)
 {
+    const bool swapped = pcfg->swapSticks == 0;   /* default swapSticks=1 means L=move, R=look */
     const f32 rx = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTX) / 32767.0f;
     const f32 ry = -SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTY) / 32767.0f;
-    f32 sx = rx, sy = ry;
-    if (menu && lx * lx + ly * ly >= rx * rx + ry * ry) {
-        sx = lx;
-        sy = ly;
+    const f32 moveX = swapped ? rx : lx;
+    const f32 moveY = swapped ? ry : ly;
+    const f32 lookX = swapped ? lx : rx;
+    const f32 lookY = swapped ? ly : ry;
+    f32 sx = lookX, sy = lookY;
+    if (menu && moveX * moveX + moveY * moveY >= lookX * lookX + lookY * lookY) {
+        sx = moveX;
+        sy = moveY;
     }
     if (menu) {
         if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT)) sx = -1.0f;
@@ -2044,13 +2066,30 @@ static void inputFlatPadSticks(SDL_GameController *pad, const struct controllerc
                 pcfg->deadzone[SDL_CONTROLLER_AXIS_RIGHTY], pcfg->sens[SDL_CONTROLLER_AXIS_RIGHTY]) / 256;
     }
     if (!menu) {
-        if (lx < -0.25f) npad->button |= L_CBUTTONS;
-        if (lx >  0.25f) npad->button |= R_CBUTTONS;
-        if (ly < -0.25f) npad->button |= D_CBUTTONS;
-        if (ly >  0.25f) npad->button |= U_CBUTTONS;
+        const f32 mx = inputAxisScale((s32)(moveX * 32767.0f),
+                pcfg->deadzone[SDL_CONTROLLER_AXIS_LEFTX], pcfg->sens[SDL_CONTROLLER_AXIS_LEFTX]) / 32767.0f;
+        const f32 my = inputAxisScale((s32)(moveY * 32767.0f),
+                pcfg->deadzone[SDL_CONTROLLER_AXIS_LEFTY], pcfg->sens[SDL_CONTROLLER_AXIS_LEFTY]) / 32767.0f;
+        if (mx < -0.25f) npad->button |= L_CBUTTONS;
+        if (mx >  0.25f) npad->button |= R_CBUTTONS;
+        if (my < -0.25f) npad->button |= D_CBUTTONS;
+        if (my >  0.25f) npad->button |= U_CBUTTONS;
     }
 }
 #endif
+
+static u8 s_prevWeaponHeld[INPUT_MAX_SLOT_PADS];
+static u8 s_prevWeaponPending[INPUT_MAX_SLOT_PADS];
+
+s32 inputConsumePrevWeapon(s32 player)
+{
+    if (player < 0 || player >= INPUT_MAX_SLOT_PADS) {
+        return 0;
+    }
+    const s32 hit = s_prevWeaponPending[player] != 0;
+    s_prevWeaponPending[player] = 0;
+    return hit;
+}
 
 s32 inputReadController(s32 idx, OSContPad *npad)
 {
@@ -2109,6 +2148,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         const s32 slots = 1 << idx;
 #endif
         s32 xdiff = 0, ydiff = 0;
+        u8 prevWeapDown = 0;
         for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) {
             if (!(slots & (1 << k))) {
                 continue;
@@ -2118,9 +2158,28 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     npad->button |= 1U << i;
                 }
             }
+            if (inputBindPressed(k, CK_PREV_WEAPON)) {
+                prevWeapDown = 1;
+            }
             if (!xdiff) xdiff = (inputBindPressed(k, CK_STICK_XPOS) - inputBindPressed(k, CK_STICK_XNEG));
             if (!ydiff) ydiff = (inputBindPressed(k, CK_STICK_YPOS) - inputBindPressed(k, CK_STICK_YNEG));
         }
+#ifdef GEVR_FLAT
+        if (bossGetStageNum() != LEVELID_TITLE && !gevrNativePauseOpen()) {
+            const s32 pslot = netIsActive() ? netGetLocalSlot() : player;
+            if (pslot >= 0 && pslot < INPUT_MAX_SLOT_PADS && (!netIsActive() || idx == pslot)) {
+                if (prevWeapDown && !s_prevWeaponHeld[pslot]) {
+                    s_prevWeaponPending[pslot] = 1;
+                }
+                s_prevWeaponHeld[pslot] = prevWeapDown;
+            }
+        } else {
+            memset(s_prevWeaponHeld, 0, sizeof(s_prevWeaponHeld));
+            memset(s_prevWeaponPending, 0, sizeof(s_prevWeaponPending));
+        }
+#else
+        (void)prevWeapDown;
+#endif
         npad->stick_x = xdiff < 0 ? -0x80 : (xdiff > 0 ? 0x7F : 0);
         npad->stick_y = ydiff < 0 ? -0x80 : (ydiff > 0 ? 0x7F : 0);
     }
@@ -3587,16 +3646,22 @@ void inputUpdate(void)
             if (lock >= 0) mouseCaptureArmed = lock;
             if (pcTestInputKey(SDL_SCANCODE_ESCAPE)) mouseCaptureArmed = 0;
         } else if (focused && !panel) {
+            static s32 prevInPlay = 0;
+            const s32 inPlay = !frontEnd;
+            if (mouseLockMode == MLOCK_ON && inPlay && !prevInPlay) {
+                mouseCaptureArmed = 1;
+            }
+            prevInPlay = inPlay;
             const Uint8 *keys = SDL_GetKeyboardState(NULL);
             if (keys && keys[SDL_SCANCODE_ESCAPE]) {
                 if (mouseCaptureArmed) sysLogPrintf(LOG_NOTE, "input: mouse given back (Escape)");
                 mouseCaptureArmed = 0;
-            } else if ((mouseButtons & SDL_BUTTON_LMASK) && !mouseCaptureArmed) {
+            } else if ((mouseButtons & SDL_BUTTON_LMASK) && !mouseCaptureArmed && mouseLockMode != MLOCK_OFF) {
                 mouseCaptureArmed = 1;
                 sysLogPrintf(LOG_NOTE, "input: mouse taken for looking in play (Escape gives it back)");
             }
         }
-        const s32 hold = mouseCaptureArmed && focused && !frontEnd && !panel;
+        const s32 hold = mouseLockMode != MLOCK_OFF && mouseCaptureArmed && focused && !frontEnd && !panel;
         if (hold != mouseLocked) {
             if (scripted) {
                 mouseLocked = hold;
@@ -4667,11 +4732,231 @@ s32 inputGetMouseLockMode(void)
 void inputSetMouseLockMode(s32 lockmode)
 {
     mouseLockMode = lockmode;
-    if (lockmode == MLOCK_ON) {
-        inputLockMouse(1);
-    } else {
+    if (lockmode == MLOCK_OFF) {
         inputLockMouse(0);
     }
+}
+
+static s32 s_bindingCapture = 0;
+
+s32 inputGetRawInput(void)
+{
+    return useRawInput != 0;
+}
+
+void inputSetRawInput(s32 enable)
+{
+    useRawInput = !!enable;
+#if SDL_VERSION_ATLEAST(2, 0, 26)
+    SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE, useRawInput ? "0" : "1");
+#endif
+    SDL_SetHint(SDL_HINT_JOYSTICK_RAWINPUT, useRawInput ? "1" : "0");
+}
+
+s32 inputIsBindingCapture(void)
+{
+    return s_bindingCapture;
+}
+
+void inputSetBindingCapture(s32 active)
+{
+    s_bindingCapture = !!active;
+    if (s_bindingCapture) {
+        lastKey = 0;
+    }
+}
+
+void inputSaveConfigNow(void)
+{
+    inputSaveBinds();
+    configSave(CONFIG_PATH);
+}
+
+static inline s32 inputVkIsGamepad(u32 vk)
+{
+    return vk >= VK_JOY_BEGIN && vk < VK_VR_BEGIN;
+}
+
+static inline s32 inputVkIsKbm(u32 vk)
+{
+    return vk > 0 && vk < VK_JOY_BEGIN;
+}
+
+u32 inputGetClassBind(s32 cidx, u32 ck, s32 isGamepad, s32 slot)
+{
+    if (cidx < 0 || cidx >= INPUT_MAX_CONTROLLERS || ck >= CK_TOTAL_COUNT || slot < 0 || slot >= 2) {
+        return 0;
+    }
+    s32 seen = 0;
+    for (s32 i = 0; i < INPUT_MAX_BINDS; ++i) {
+        const u32 vk = binds[cidx][ck][i];
+        if (isGamepad ? inputVkIsGamepad(vk) : inputVkIsKbm(vk)) {
+            if (seen == slot) return vk;
+            seen++;
+        }
+    }
+    return 0;
+}
+
+void inputSetClassBind(s32 cidx, u32 ck, s32 isGamepad, s32 slot, u32 vk)
+{
+    if (cidx < 0 || cidx >= INPUT_MAX_CONTROLLERS || ck >= CK_TOTAL_COUNT || slot < 0 || slot >= 2) {
+        return;
+    }
+    if (vk != 0 && (isGamepad ? !inputVkIsGamepad(vk) : !inputVkIsKbm(vk))) {
+        return;
+    }
+    u32 mine[2] = { 0, 0 };
+    s32 nm = 0;
+    u32 other[INPUT_MAX_BINDS] = { 0 };
+    s32 no = 0;
+    for (s32 i = 0; i < INPUT_MAX_BINDS; ++i) {
+        const u32 cur = binds[cidx][ck][i];
+        if (!cur) continue;
+        if (isGamepad ? inputVkIsGamepad(cur) : inputVkIsKbm(cur)) {
+            if (nm < 2) mine[nm++] = cur;
+        } else {
+            if (no < INPUT_MAX_BINDS) other[no++] = cur;
+        }
+    }
+    if (vk == 0) {
+        if (slot < nm) {
+            if (slot == 0) {
+                mine[0] = (nm > 1) ? mine[1] : 0;
+                mine[1] = 0;
+            } else {
+                mine[1] = 0;
+            }
+            if (nm > 0) nm--;
+        }
+    } else {
+        // If vk is already in the other slot of this same action, avoid duplicating it
+        const s32 otherSlot = 1 - slot;
+        if (otherSlot < nm && mine[otherSlot] == vk) {
+            mine[otherSlot] = 0;
+        }
+        mine[slot] = vk;
+        if (mine[0] == 0 && mine[1] != 0) {
+            mine[0] = mine[1];
+            mine[1] = 0;
+        }
+        nm = (mine[0] != 0 ? 1 : 0) + (mine[1] != 0 ? 1 : 0);
+    }
+    memset(binds[cidx][ck], 0, sizeof(binds[cidx][ck]));
+    s32 out = 0;
+    for (s32 i = 0; i < 2 && out < INPUT_MAX_BINDS; ++i) {
+        if (mine[i]) binds[cidx][ck][out++] = mine[i];
+    }
+    for (s32 i = 0; i < no && out < INPUT_MAX_BINDS; ++i) {
+        if (other[i]) binds[cidx][ck][out++] = other[i];
+    }
+}
+
+void inputResetClassBinds(s32 cidx, s32 isGamepad)
+{
+    if (cidx < 0 || cidx >= INPUT_MAX_CONTROLLERS) {
+        return;
+    }
+    if (isGamepad < 0) {
+        inputSetDefaultKeyBinds(cidx, 0);
+        return;
+    }
+    u32 saved[CK_TOTAL_COUNT][2];
+    memset(saved, 0, sizeof(saved));
+    const s32 keepGamepad = !isGamepad;
+    for (u32 ck = 0; ck < CK_TOTAL_COUNT; ++ck) {
+        saved[ck][0] = inputGetClassBind(cidx, ck, keepGamepad, 0);
+        saved[ck][1] = inputGetClassBind(cidx, ck, keepGamepad, 1);
+    }
+    inputSetDefaultKeyBinds(cidx, 0);
+    for (u32 ck = 0; ck < CK_TOTAL_COUNT; ++ck) {
+        inputSetClassBind(cidx, ck, keepGamepad, 0, 0);
+        inputSetClassBind(cidx, ck, keepGamepad, 0, 0);
+        if (saved[ck][0]) inputSetClassBind(cidx, ck, keepGamepad, 0, saved[ck][0]);
+        if (saved[ck][1]) inputSetClassBind(cidx, ck, keepGamepad, 1, saved[ck][1]);
+    }
+}
+
+s32 inputCountKeyBinds(s32 cidx, u32 vk, s32 isGamepad, const u32 *actions, s32 actionCount)
+{
+    if (cidx < 0 || cidx >= INPUT_MAX_CONTROLLERS || vk == 0 || !actions || actionCount <= 0) {
+        return 0;
+    }
+    s32 count = 0;
+    for (s32 a = 0; a < actionCount; ++a) {
+        const u32 ck = actions[a];
+        if (inputGetClassBind(cidx, ck, isGamepad, 0) == vk ||
+            inputGetClassBind(cidx, ck, isGamepad, 1) == vk) {
+            count++;
+        }
+    }
+    return count;
+}
+
+const char *inputGetKeyDisplayName(s32 vk)
+{
+    if (vk <= 0 || vk >= VK_TOTAL_COUNT) {
+        return "—";
+    }
+    switch (vk) {
+        case VK_MOUSE_LEFT:     return "L-Click";
+        case VK_MOUSE_RIGHT:    return "R-Click";
+        case VK_MOUSE_MIDDLE:   return "M-Click";
+        case VK_MOUSE_X1:       return "Mouse 4";
+        case VK_MOUSE_X2:       return "Mouse 5";
+        case VK_MOUSE_WHEEL_UP: return "Wheel Up";
+        case VK_MOUSE_WHEEL_DN: return "Wheel Dn";
+        case VK_SPACE:          return "Space";
+        case VK_RETURN:         return "Enter";
+        case VK_ESCAPE:         return "Esc";
+        case VK_BACKSPACE:      return "Bksp";
+        case VK_DELETE:         return "Del";
+        case VK_LSHIFT:         return "L-Shift";
+        case VK_RSHIFT:         return "R-Shift";
+        case VK_LCTRL:          return "L-Ctrl";
+        case VK_RCTRL:          return "R-Ctrl";
+        case VK_LALT:           return "L-Alt";
+        case SDL_SCANCODE_RALT: return "R-Alt";
+        case SDL_SCANCODE_TAB:  return "Tab";
+        case SDL_SCANCODE_UP:   return "Up";
+        case SDL_SCANCODE_DOWN: return "Down";
+        case SDL_SCANCODE_LEFT: return "Left";
+        case SDL_SCANCODE_RIGHT:return "Right";
+        case SDL_SCANCODE_CAPSLOCK: return "Caps";
+        case VK_MINUS:          return "-";
+        case SDL_SCANCODE_EQUALS: return "=";
+        case VK_LEFTBRACKET:    return "[";
+        case VK_RIGHTBRACKET:   return "]";
+        case VK_SEMICOLON:      return ";";
+        case VK_GRAVE:          return "`";
+        case VK_COMMA:          return ",";
+        case VK_PERIOD:         return ".";
+        default: break;
+    }
+    if (vk >= VK_JOY_BEGIN && vk < VK_VR_BEGIN) {
+        const u32 btn = (u32)(vk - VK_JOY_BEGIN) % INPUT_MAX_CONTROLLER_BUTTONS;
+        switch (btn) {
+            case SDL_CONTROLLER_BUTTON_A:             return "Pad A";
+            case SDL_CONTROLLER_BUTTON_B:             return "Pad B";
+            case SDL_CONTROLLER_BUTTON_X:             return "Pad X";
+            case SDL_CONTROLLER_BUTTON_Y:             return "Pad Y";
+            case SDL_CONTROLLER_BUTTON_BACK:          return "Back";
+            case SDL_CONTROLLER_BUTTON_GUIDE:         return "Guide";
+            case SDL_CONTROLLER_BUTTON_START:         return "Start";
+            case SDL_CONTROLLER_BUTTON_LEFTSTICK:     return "L-Stick";
+            case SDL_CONTROLLER_BUTTON_RIGHTSTICK:    return "R-Stick";
+            case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:  return "LB";
+            case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return "RB";
+            case SDL_CONTROLLER_BUTTON_DPAD_UP:       return "D-Up";
+            case SDL_CONTROLLER_BUTTON_DPAD_DOWN:     return "D-Down";
+            case SDL_CONTROLLER_BUTTON_DPAD_LEFT:     return "D-Left";
+            case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:    return "D-Right";
+            case 30:                                  return "LT";
+            case 31:                                  return "RT";
+            default: break;
+        }
+    }
+    return inputGetKeyName(vk);
 }
 
 const char *inputGetContKeyName(u32 ck)

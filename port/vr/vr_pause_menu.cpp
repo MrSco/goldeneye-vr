@@ -8,6 +8,9 @@
 #include "gevr_pause_widgets.h"
 #include "gevr_panel_ui.h"
 #include "gevr_friends_ui.h"
+#ifdef GEVR_FLAT
+#include "gevr_keybinds_ui.h"
+#endif
 #include "imgui/imgui_impl_opengl3.h"
 #include "vr_screen.h"
 #include "vr_log.h"
@@ -37,6 +40,7 @@ extern "C" const char *gevrCoopStageLabel(unsigned char stage);   /* front.c: a 
 #ifdef GEVR_FLAT
 extern "C" int flatTouchSeenAny(void);     // flat_touch.cpp: a finger has touched the screen
 extern "C" void flatTouchEditBegin(void);  // the touch layout editor, over the paused game
+extern "C" int inputIsBindingCapture(void);
 #endif
 // vr_launcher.cpp: the headset keyboard for text boxes, as in the launcher
 void gevrTextInputBegin();void gevrTextInputFeed(ImGuiIO&);void gevrTextInputShow(const ImGuiIO&);void gevrTextInputEnd();
@@ -48,6 +52,11 @@ bool wasOpen=false,wasPanel=false,wasHold=false;
 GevrPauseUi ui;
 GevrPanelUi panelUi;
 GevrFriendsUiState friendsUi;
+#ifdef GEVR_FLAT
+GevrKeybindUiState keybindUi;
+void drawPauseKbm() { gevrDrawKbmPage(gevrKeybindLive(), keybindUi, VrCampaign); }
+void drawPauseGamepad() { gevrDrawGamepadPage(gevrKeybindLive(), keybindUi, VrCampaign); }
+#endif
 // The Friends side panel here: joining leaves the mission (the launcher joins),
 // and inviting needs this match's lobby to be open.
 void drawFriends() {
@@ -113,6 +122,10 @@ int panelFrame() {
     v.touchLayout=flatTouchSeenAny()!=0;
 #endif
     v.settings=gevrSettingsLive();   /* the settings table (gevr_settings.c) */
+#ifdef GEVR_FLAT
+    v.settings.drawKbm=drawPauseKbm;
+    v.settings.drawGamepad=drawPauseGamepad;
+#endif
     gevrPanelGauges(v.gauges);   /* the online pause's health and armour, solo too */
     gevrPauseLocalRadar(&v.radar);
     const int stage=bossGetStageNum();
@@ -138,7 +151,12 @@ extern "C" void gevrNativePauseRender(void) {
     const bool open=gevrNativePauseOpen()!=0;
     vr_screen_set_overlay(open);
     if(!open){
-        if(wasOpen){vr_screen_set_width_scale(1.0f);gevrTextInputEnd();}   /* the game's own screen is 4:3 */
+        if(wasOpen){
+#ifdef GEVR_FLAT
+            gevrKeybindCancelCapture(gevrKeybindLive(), keybindUi);
+#endif
+            vr_screen_set_width_scale(1.0f);gevrTextInputEnd();
+        }   /* the game's own screen is 4:3 */
         wasOpen=false;return;
     }
     /* hold Menu: solo, the panel; online, the match screen on its Settings tab (one screen) */
@@ -173,7 +191,11 @@ extern "C" void gevrNativePauseRender(void) {
         panelAction=panelFrame();
         drawFriends();
         joinFriend=confirmJoin();
+#ifdef GEVR_FLAT
+        if(!popupWasOpen&&!inputIsBindingCapture()&&ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight))panelAction=GEVR_PANEL_RESUME;
+#else
         if(!popupWasOpen&&ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight))panelAction=GEVR_PANEL_RESUME;
+#endif
     } else {
     GevrPauseView view;view.horde=netHordeActive()!=0;view.hordeDefeated=gevrHordeDefeated()!=0;view.coop=netCoopActive()!=0;view.host=netIsHost();view.capacity=view.coop?4:netGetMaxPlayers();
     view.canStart=!view.coop&&gevrPauseActionAvailable("START MATCH");
@@ -182,6 +204,10 @@ extern "C" void gevrNativePauseRender(void) {
     view.voting=gevrNetConfigGet(CFG_NEXT_ROUND)==NET_NEXT_VOTE;view.warmup=netGetPhase()==NET_PHASE_WARMUP;
     view.canReturn=!view.coop&&gevrPauseActionAvailable("RETURN TO LOBBY");view.countdown=netCountdownSecondsLeft();view.localReady=netLocalReady()!=0;
     view.settings=gevrSettingsLive();view.texpack=gevrTexpackState();
+#ifdef GEVR_FLAT
+    view.settings.drawKbm=drawPauseKbm;
+    view.settings.drawGamepad=drawPauseGamepad;
+#endif
     snprintf(view.session,sizeof(view.session),"%s",view.coop?gevrCoopStageLabel((uint8_t)bossGetStageNum()):netStageName(netStageIndexOf((uint8_t)netGetLobbyStage())));
     snprintf(view.status,sizeof(view.status),"%s",view.coop?netDifficultyName(netGetMatchConfig()->difficulty):view.countdown>0?"Match is starting":netGetPhase()==NET_PHASE_IN_PROGRESS?"Match continues while this menu is open":"Warmup / next round");
     if(view.horde) {
@@ -216,7 +242,11 @@ extern "C" void gevrNativePauseRender(void) {
     action=gevrDrawPauseWindow(view,ui,(ImTextureID)(intptr_t)icon);
     drawFriends();
     joinFriend=confirmJoin();
+#ifdef GEVR_FLAT
+    if(!popupWasOpen&&!inputIsBindingCapture()&&ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight))action=GEVR_PAUSE_RESUME;
+#else
     if(!popupWasOpen&&ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight))action=GEVR_PAUSE_RESUME;
+#endif
     }
 #ifndef GEVR_FLAT   /* the controllers' pointer spot; a window has its own cursor, a phone none */
     if(io.MousePos.x>=0&&io.MousePos.y>=0) {

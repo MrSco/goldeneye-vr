@@ -13547,6 +13547,15 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 
     if (canCycleWeapons)
     {
+#ifdef GEVR_FLAT
+        {
+            extern s32 inputConsumePrevWeapon(s32 player);
+            if (!moveData.detonating && inputConsumePrevWeapon(get_cur_playernum()))
+            {
+                moveData.weaponBackOffset = 1;
+            }
+        }
+#endif
         if (moveData.weaponBackOffset)
         {
             backstep_through_inventory();

@@ -24,6 +24,7 @@
 #endif
 #include "../../vr/imgui/imgui.h"
 #include <PR/ultratypes.h>
+extern "C" s32 inputIsBindingCapture(void);
 
 #ifdef GEVR_PC
 #include "../../pc/pc_testinput.h"
@@ -293,8 +294,43 @@ void flatLauncherFeedInput(ImGuiIO &io)
         }
     }
     if (s_wheel != 0.0f) {
-        io.AddMouseWheelEvent(0.0f, s_wheel);
+        if (!inputIsBindingCapture()) {
+            io.AddMouseWheelEvent(0.0f, s_wheel);
+        }
         s_wheel = 0.0f;
+    }
+
+    // During keybind capture (gevr_keybinds_ui.h), suppress ImGui mouse clicks,
+    // keyboard navigation and gamepad navigation so the launcher never consumes
+    // the key, mouse button, wheel or pad button being bound. Keep a short
+    // cooldown after capture ends so releasing/finishing the bound key does not
+    // immediately activate a button or close the pause menu.
+    static int s_captureCooldown = 0;
+    const bool capturing = inputIsBindingCapture() != 0;
+    if (capturing) {
+        s_captureCooldown = 2;
+    }
+    if (capturing || s_captureCooldown > 0) {
+        if (!capturing) s_captureCooldown--;
+        io.AddMouseButtonEvent(0, false);
+        io.AddMouseButtonEvent(1, false);
+        io.AddKeyEvent(ImGuiKey_UpArrow, false);
+        io.AddKeyEvent(ImGuiKey_DownArrow, false);
+        io.AddKeyEvent(ImGuiKey_LeftArrow, false);
+        io.AddKeyEvent(ImGuiKey_RightArrow, false);
+        io.AddKeyEvent(ImGuiKey_Tab, false);
+        io.AddKeyEvent(ImGuiKey_Space, false);
+        io.AddKeyEvent(ImGuiKey_Escape, false);
+        io.AddKeyEvent(ImGuiKey_Enter, false);
+        io.AddKeyEvent(ImGuiKey_GamepadDpadUp, false);
+        io.AddKeyEvent(ImGuiKey_GamepadDpadDown, false);
+        io.AddKeyEvent(ImGuiKey_GamepadDpadLeft, false);
+        io.AddKeyEvent(ImGuiKey_GamepadDpadRight, false);
+        io.AddKeyEvent(ImGuiKey_GamepadFaceDown, false);
+        io.AddKeyEvent(ImGuiKey_GamepadFaceRight, false);
+        io.AddKeyEvent(ImGuiKey_GamepadL1, false);
+        io.AddKeyEvent(ImGuiKey_GamepadR1, false);
+        return;
     }
 
     // the keyboard: ImGui's own navigation keys (text goes through the launcher's keyboardWatch)
