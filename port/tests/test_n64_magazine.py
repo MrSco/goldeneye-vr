@@ -23,7 +23,8 @@ TRIANGLES = {"GskorpionZ": 18, "Gak47Z": 26, "GuziZ": 10, "Gmp5kZ": 26, "Gmp5ksi
              "Gm16Z": 26, "Gfnp90Z": 12, "GshotgunZ": 33, "GautoshotZ": 34,
              # the Cougar's cylinder, the grenade launcher's drum of six chambers: all of a joint's lists
              "GrugerZ": 20, "GgrenadelaunchZ": 156}
-MADE = {"GwppkZ", "GwppksilZ", "GsilverwppkZ", "GgoldwppkZ", "Gtt33Z", "GsniperrifleZ", "GrocketlaunchZ", "GgoldengunZ"}
+MADE = {"GwppkZ", "GwppksilZ", "GsilverwppkZ", "GgoldwppkZ", "Gtt33Z", "GsniperrifleZ", "GgoldengunZ"}
+PROP = {"GrocketlaunchZ"}
 
 
 def table():
@@ -34,7 +35,7 @@ def table():
 
 def main():
     names = table()
-    assert set(names) == set(TRIANGLES) | MADE, sorted(set(names) ^ (set(TRIANGLES) | MADE))
+    assert set(names) == set(TRIANGLES) | MADE | PROP, sorted(set(names) ^ (set(TRIANGLES) | MADE | PROP))
     assert len(names) == len(set(names)), "a gun twice in the table"
     # every gun the hand reload racks or loads by a magazine has a row, by its file (gun.c gevrN64MagItems)
     rom_path = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("GEVR_GE_ROM")
@@ -69,7 +70,9 @@ def main():
             m = re.match(r"MAGAZINE (\w+) triangles (\d+) lists (\d+) opened (\d+)", line)
             assert m, f"{name}: no magazine laid out"
             triangles, lists, opened = int(m.group(2)), int(m.group(3)), int(m.group(4))
-            if name in MADE:
+            if name in PROP:
+                assert triangles == 0 and lists == 0 and opened == 0, line
+            elif name in MADE:
                 assert triangles == 12 and lists == 0 and opened == 0, line
             else:
                 assert triangles == TRIANGLES[name], f"{name}: {triangles} triangles, the cartridge's is {TRIANGLES[name]}"

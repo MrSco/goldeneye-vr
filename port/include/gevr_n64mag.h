@@ -23,11 +23,12 @@
  *    their own (the model's switch 4): the magazine is every triangle on that
  *    joint, whole, and the joint is drawn empty while it is out. It leaves by
  *    B / Y and a full one seats where it sits.
- *  - the rocket launcher's rocket is GoldenEye's own prop, made when the
- *    launcher is loaded, and the Golden Gun shows no round: a plain box stands
- *    for each in the hand and as the placeholder, never drawn in the gun. The
- *    rocket goes in tail first at the muzzle and is gone once fired; the
- *    Golden Gun's round is pushed in at the breech, one at a time.
+ *  - the rocket launcher's rocket is GoldenEye's own PROP_CHRROCKET prop
+ *    (PchrrocketZ), drawn by gun.c in the off hand, at the belt and as the
+ *    muzzle placeholder (and by GoldenEye itself while loaded). The rocket
+ *    goes in tail first at the muzzle and is gone once fired. The Golden Gun
+ *    shows no round, so a small gold box stands for it, pushed in at the
+ *    breech one at a time.
  * (owner, 2026-11-21: "we need to do the cougar and the golden gun and the
  * grenade and rocket launchers in the original guns".)
  *
@@ -64,6 +65,11 @@ typedef struct GevrN64MagDef {
 	 * in the gun while it is in, but for a loose round's or a consumed one's,
 	 * which the gun never shows (or GoldenEye shows itself: its rocket) */
 	int made;
+	/* a GoldenEye prop model (e.g. PROP_CHRROCKET) drawn by gun.c instead of a
+	 * made box: authored in the gun's frame with origin at propAt (or switch 3) */
+	int prop;
+	float propAt[3];
+	float holdFrac;
 	float foot[3], length, half[2];
 	unsigned char rgb[3];
 } GevrN64MagDef;

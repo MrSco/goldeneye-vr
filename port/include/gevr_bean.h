@@ -95,6 +95,8 @@ struct gevrBeanMagInfo {
 	int consumed;    /* fired, it is gone (the rocket) */
 	int noPull;      /* never pulled out by hand */
 	int made;        /* the mesh has none: made by the port, and drawn by gun.c while it is in (gevr_beanmag.h) */
+	int prop;        /* GoldenEye prop model to draw instead of a made box (PROP_CHRROCKET, gevr_n64mag.h) */
+	float propAt[3]; /* where the prop's origin sits in the gun's space (the muzzle) */
 };
 void gevrBeanSetMagazine(int state);
 int gevrBeanMagazineState(void);

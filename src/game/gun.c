@@ -2697,6 +2697,9 @@ static Gfx *gevrBeanMagDrawAt(Gfx *gdl, ModelRenderData *templ, s32 hand, const 
 
 /* GoldenEye's own magazine's placeholder: how solid, in the gun and (gevrBeanMagDrawBelt) at the belt */
 static u32 s_gevrMagGhostAlpha = 0x50;
+static Model s_gevrN64PropModel;
+static ModelNode *s_gevrN64PropRoot;
+static u32 s_gevrN64PropRw[64];
 
 /* ... as itself, or as its see-through placeholder (GEVR_BEAN_MAG_GHOST, _READY) */
 static Gfx *gevrBeanMagDrawAs(Gfx *gdl, ModelRenderData *templ, s32 hand, const struct gevrBeanMagInfo *info,
@@ -2715,6 +2718,66 @@ static Gfx *gevrBeanMagDrawAs(Gfx *gdl, ModelRenderData *templ, s32 hand, const 
         return gdl;
     }
     gevrGunMagazineOf(hdr, NULL, &own);
+    if (own && info->prop > 0)
+    {
+        /* GoldenEye's own prop (e.g. PROP_CHRROCKET on the original rocket launcher):
+         * draw the actual projectile model in the hand, at the belt, or as the muzzle guide */
+        extern struct ItemModelFileRecord *PitemZ_entries;
+        extern s32 g_GevrPropCount;
+        extern s32 modelLoad(s32 modelid);
+        ModelFileHeader *ph;
+        Mtxf offset, *pm;
+        s32 n;
+
+        if (PitemZ_entries == NULL || info->prop >= g_GevrPropCount)
+        {
+            return gdl;
+        }
+        ph = PitemZ_entries[info->prop].header;
+        if (ph != NULL && ph->RootNode == NULL)
+        {
+            modelLoad(info->prop);
+        }
+        if (ph == NULL || ph->RootNode == NULL || ph->numMatrices <= 0
+            || ph->numRecords > (s32) (sizeof(s_gevrN64PropRw) / sizeof(s_gevrN64PropRw[0])))
+        {
+            return gdl;
+        }
+        if (as == GEVR_BEAN_MAG_GHOST || as == GEVR_BEAN_MAG_GHOST_READY)
+        {
+            rd.flags = 3;
+            rd.PropType = GEVR_MODEL_RELOAD_GHOST;
+            rd.envcolour.word = (as == GEVR_BEAN_MAG_GHOST_READY ? GEVR_RELOAD_READY_TINT : GEVR_RELOAD_TINT) | s_gevrMagGhostAlpha;
+            rd.zbufferenabled = TRUE;
+            rd.cullmode = CULLMODE_NONE;
+        }
+        n = ph->numMatrices;
+        pm = (Mtxf *) dynAllocate(n * (s32) sizeof(Mtxf));
+        matrix_4x4_set_identity(&offset);
+        offset.m[3][0] = info->propAt[0];
+        offset.m[3][1] = info->propAt[1];
+        offset.m[3][2] = info->propAt[2];
+        matrix_4x4_multiply((Mtxf *) pose, &offset, &pm[0]);
+        for (i = 1; i < n; i++)
+        {
+            pm[i] = pm[0];
+        }
+        if (s_gevrN64PropModel.obj != ph || s_gevrN64PropRoot != ph->RootNode)
+        {
+            modelInit(&s_gevrN64PropModel, ph, s_gevrN64PropRw);
+            s_gevrN64PropRoot = ph->RootNode;
+        }
+        s_gevrN64PropModel.render_pos = (RenderPosView *) pm;
+        modelUpdateRelationsQuick(&s_gevrN64PropModel, ph->RootNode);
+        rd.gdl = gdl;
+        if (rd.PropType == GEVR_MODEL_RELOAD_GHOST)
+        {
+            gSPClearGeometryMode(rd.gdl++, G_CULL_BOTH);
+        }
+        subdraw(&rd, &s_gevrN64PropModel);
+        bondviewTransformManyPosToViewMatrix(s_gevrN64PropModel.render_pos, n);
+        return rd.gdl;
+    }
     if (own && (as == GEVR_BEAN_MAG_GHOST || as == GEVR_BEAN_MAG_GHOST_READY))
     {
         /* GoldenEye's own magazine's placeholder: its own triangles in the guide's flat,

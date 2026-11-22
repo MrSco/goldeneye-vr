@@ -82,8 +82,9 @@ int main(int argc, char **argv)
 	}
 	assert(gevrN64MagStats(&header, &triangles, &lists));
 	assert(info.node && info.matrix >= 0 && info.matrix < atoi(argv[5]));
-	/* a made round or rocket is never drawn in the gun: only a made magazine is */
-	assert(info.made == (def->made && !def->single && !def->consumed) && info.single == def->single && info.pullUp == def->pullUp);
+	/* a made round or prop is never drawn in the gun: only a made magazine is */
+	assert(info.made == (def->made && !def->single && !def->consumed) && info.prop == def->prop
+	       && info.single == def->single && info.pullUp == def->pullUp);
 	assert(info.noPull == def->noPull && info.consumed == def->consumed);
 	/* in the gun: every list as the model has it */
 	for (ModelNode *node = header.RootNode; node; node = next(node)) {
@@ -109,7 +110,13 @@ int main(int argc, char **argv)
 		}
 	}
 	s_state = GEVR_BEAN_MAG_ITSELF;
-	{
+	if (def->prop) {
+		/* prop-backed (e.g. PROP_CHRROCKET): gun.c draws the prop model directly; gun lists stay untouched */
+		ModelNode *host = info.node;
+		Gfx *list = host->Data->DisplayList.Primary;
+		assert(gevrN64MagGdl(host, list, 0) == list);
+		alone = 0;
+	} else {
 		ModelNode *host = info.node;
 		Gfx *list = host->Data->DisplayList.Primary;
 		const Gfx *mag = gevrN64MagGdl(host, list, 0);
@@ -121,7 +128,9 @@ int main(int argc, char **argv)
 		assert(gevrN64MagGdl(host, list, 0) == mag && !gevrN64MagGdl(host, list, 1));
 	}
 	s_state = GEVR_BEAN_MAG_IN;
-	if (def->made) {
+	if (def->prop) {
+		assert(open == whole && !opened && !lists && !alone && !triangles);
+	} else if (def->made) {
 		/* nothing of the gun is struck out; the box is its twelve triangles, wound both ways */
 		assert(open == whole && !opened && !lists && alone == 24 && triangles == 12);
 	} else if (def->single) {

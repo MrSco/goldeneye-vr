@@ -66,9 +66,12 @@ static const GevrN64MagDef s_defs[] = {
 	  .into = { 0.0f, 1.0f, 0.0f }, .noPull = 1 },
 	{ .name = "GgrenadelaunchZ", .joint = 4, .lo = { -40000.0f, -40000.0f, -40000.0f }, .hi = { 40000.0f, 40000.0f, 40000.0f },
 	  .into = { 0.0f, 1.0f, 0.0f }, .noPull = 1 },
-	/* the rocket: a box the tube's length down its middle (-2 127, its mouth at 436), tail first */
-	{ .name = "GrocketlaunchZ", .made = 1, .into = { 0.0f, 0.0f, -1.0f }, .foot = { -2.0f, 127.0f, 440.0f }, .length = 160.0f,
-	  .half = { 13.0f, 13.0f }, .inside = 160.0f, .rgb = { 70, 78, 60 }, .consumed = 1, .noPull = 1 },
+	/* the rocket: GoldenEye's own PROP_CHRROCKET (PchrrocketZ), authored in the launcher's
+	 * frame with origin at the muzzle (switch 3: -3.08, 127.55, 436.00), tail at z -126
+	 * (310) and warhead tip at z +343 (779); held on its shaft just behind the warhead */
+	{ .name = "GrocketlaunchZ", .prop = PROP_CHRROCKET, .into = { 0.0f, 0.0f, -1.0f },
+	  .propAt = { -3.0769f, 127.5457f, 436.0021f }, .length = 469.0f, .inside = 126.0f,
+	  .holdFrac = 0.56f, .consumed = 1, .noPull = 1 },
 	/* the Golden Gun's one round: a small gold box, in at the breech behind the barrel (0 65 104) */
 	{ .name = "GgoldengunZ", .made = 1, .into = { 0.0f, 0.0f, 1.0f }, .foot = { 0.0f, 65.0f, -12.0f }, .length = 24.0f,
 	  .half = { 4.0f, 4.0f }, .rgb = { 190, 150, 40 }, .single = 1, .port = { 0.0f, 72.0f, 100.0f } },
@@ -440,7 +443,7 @@ void gevrN64MagApply(struct ModelFileHeader *header, const char *name)
 				host = node;
 				hostMatrix = rootMatrix;
 			}
-			if (def->made || def->joint)
+			if (def->made || def->prop || def->joint)
 				continue;   /* a joint's piece is the joint's lists alone */
 		} else {
 			rootMatrix = jointMatrix;
@@ -484,12 +487,33 @@ void gevrN64MagApply(struct ModelFileHeader *header, const char *name)
 		}
 		m->lists[m->nlists++].node = node;
 	}
-	if (!host || hostMatrix < 0 || (!def->made && !total)) {
+	if (!host || hostMatrix < 0 || (!def->made && !def->prop && !total)) {
 		sysLogPrintf(LOG_NOTE, "n64 magazine: %s: nothing of it found in the model (gestures run the game's reload)", name);
 		memset(m, 0, sizeof(*m));
 		return;
 	}
-	if (def->made) {
+	if (def->prop) {
+		/* GoldenEye's own prop (e.g. PROP_CHRROCKET) drawn by gun.c at the muzzle */
+		float propAt[3] = { def->propAt[0], def->propAt[1], def->propAt[2] };
+		const float holdFrac = def->holdFrac > 0.0f ? def->holdFrac : 0.5f;
+		if (header->Switches && header->numSwitches > 3 && header->Switches[3] && header->Switches[3]->Data) {
+			const coord3d *muzzle = (const coord3d *)header->Switches[3]->Data;
+			propAt[0] = muzzle->x;
+			propAt[1] = muzzle->y;
+			propAt[2] = muzzle->z;
+		}
+		for (int k = 0; k < 3; k++) {
+			m->info.axis[k] = def->into[k];
+			m->info.propAt[k] = propAt[k];
+			m->info.mouth[k] = propAt[k];
+			m->info.top[k] = propAt[k] + def->into[k] * def->inside;
+			m->info.foot[k] = m->info.top[k] - def->into[k] * def->length;
+			m->info.hold[k] = m->info.foot[k] + def->into[k] * (def->length * holdFrac);
+		}
+		m->info.prop = def->prop;
+		m->info.made = 0;
+		m->triangles = 0;
+	} else if (def->made) {
 		/* the host's own list first, every triangle struck out: its picture is the box's */
 		struct nmScan s = { .def = def, .dl = &host->Data->DisplayList, .rootMatrix = hostMatrix, .startMatrix = -1 };
 		const Gfx *list = nmListOf(s.dl, s.dl->Primary);
@@ -608,8 +632,8 @@ void gevrN64MagApply(struct ModelFileHeader *header, const char *name)
 	m->info.noPull = def->noPull;
 	m->info.consumed = def->consumed;
 	sysLogPrintf(LOG_NOTE, "n64 magazine: %s: %d triangles on %d list(s)%s, top %.0f %.0f %.0f, mouth %.0f %.0f %.0f", name,
-	             m->triangles, m->nlists, def->made ? " (made)" : def->single ? " (a shell)" : "", m->info.top[0],
-	             m->info.top[1], m->info.top[2], m->info.mouth[0], m->info.mouth[1], m->info.mouth[2]);
+	             m->triangles, m->nlists, def->prop ? " (prop)" : def->made ? " (made)" : def->single ? " (a shell)" : "",
+	             m->info.top[0], m->info.top[1], m->info.top[2], m->info.mouth[0], m->info.mouth[1], m->info.mouth[2]);
 }
 
 int gevrN64GunMagazine(const void *header, struct gevrBeanMagInfo *out)
@@ -646,7 +670,7 @@ void *gevrN64MagGdl(void *node, void *current, int secondary)
 			continue;
 		if (state != GEVR_BEAN_MAG_OUT) {
 			/* the magazine alone, or its placeholder: on its host's primary */
-			if (m->info.node == node)
+			if (m->info.node == node && m->magazine)
 				return secondary ? NULL : m->magazine;
 			continue;
 		}
