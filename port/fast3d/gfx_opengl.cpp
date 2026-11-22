@@ -830,7 +830,7 @@ static bool s_opaqueDepthWrite;
 uint8_t gevrFadeDepthAlpha = 255;
 // ... and for the in-between frame's redraw (issue #53, gfx_vr_eye_replay)
 static GLint s_curViewport[4], s_curScissor[4];
-static bool s_eyeRec, s_eyeReady, s_eyeSpilled;   // recording the eye pass / a frame to redraw / spilled across ring segments
+static bool s_eyeRec, s_eyeReady, s_eyeSpilled, s_eyeClearDepth;   // recording the eye pass / a frame to redraw / spilled / pending depth clear
 
 /* The early tick's eye pass (gfx_pc.cpp): kept for the replay that draws it once its
  * XR frame has begun, not drawn (nothing may touch the eye image before then). */
@@ -3407,6 +3407,7 @@ struct GevrEyeDraw {
     GLint scissor[4];
     uint32_t mesh;     // a static mesh's draw: 1 + its s_eyeMeshes entry; 0 the vertex ring
     uint8_t faded;     // 255 minus gevrFadeDepthAlpha: 0 a draw that does not fade
+    bool clearDepthBefore;   // G_CLEAR_DEPTH_EXT before this draw (flat viewmodels on their own depth)
 };
 
 static std::vector<GevrEyeDraw> s_eyeDraws;
@@ -3429,6 +3430,7 @@ void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* p
         s_eyeMeshes.clear();
         s_eyeReady = false;
         s_eyeSpilled = false;
+        s_eyeClearDepth = false;
         s_eyeHand = -1;
         s_eyePresentationPrograms.clear();
         s_uniCacheValid = false;
@@ -3489,6 +3491,7 @@ void gfx_flat_record(bool on, const float* proj, bool invert_y)
         s_eyeMeshes.clear();
         s_eyeReady = false;
         s_eyeSpilled = false;
+        s_eyeClearDepth = false;
         s_eyeHand = -1;
         s_eyePresent = false;
         s_flatRec = s_eyeRec = proj != NULL && s_pmPtr != NULL && fabsf(proj[0]) > 1e-6f && fabsf(proj[5]) > 1e-6f;
@@ -3532,7 +3535,7 @@ void gfx_vr_eye_record_only(bool on)
  */
 static bool gevr_eye_draw_joins(const GevrEyeDraw& a, const GevrEyeDraw& b)
 {
-    if (a.lineMode || b.lineMode || a.first + a.count != b.first || a.prg != b.prg
+    if (a.lineMode || b.lineMode || b.clearDepthBefore || a.first + a.count != b.first || a.prg != b.prg
         || a.prg->opaque_depth_pass_location >= 0
         || a.decalZ || b.decalZ || a.decalDepth || b.decalDepth
         || a.gunDecal != b.gunDecal || a.decalPull != b.decalPull
@@ -3601,6 +3604,8 @@ static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode)
     memcpy(d.scissor, s_curScissor, sizeof(d.scissor));
     d.mesh = s_eyeKeepMesh;
     d.faded = (uint8_t)(255 - gevrFadeDepthAlpha);
+    d.clearDepthBefore = s_eyeClearDepth;
+    s_eyeClearDepth = false;
     ++s_eyeKept;
     if (!s_eyeDraws.empty() && gevr_eye_draw_joins(s_eyeDraws.back(), d)) {
         GevrEyeDraw& prev = s_eyeDraws.back();
@@ -3778,6 +3783,17 @@ static void gevr_replay_mesh(GevrReplayBindings& state, const ShaderProgram* prg
     }
 }
 
+static void gevr_replay_clear_depth(void)
+{
+    const GLboolean scissorWasOn = glIsEnabled(GL_SCISSOR_TEST);
+    glDisable(GL_SCISSOR_TEST);
+    glDepthMask(GL_TRUE);
+    glStencilMask(0xff);
+    glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    glDepthMask(current_depth_mask ? GL_TRUE : GL_FALSE);
+    if (scissorWasOn) glEnable(GL_SCISSOR_TEST);
+}
+
 void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand1, const float* body)
 {
     gevr_mesh_settle();
@@ -3903,6 +3919,7 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
         }
         s_issueGunDecal = d.gunDecal;
         gevrFadeDepthAlpha = (uint8_t)(255 - d.faded);
+        if (d.clearDepthBefore) gevr_replay_clear_depth();
         gevr_issue_draw(d.first, d.count, d.decalZ, d.decalDepth, d.decalPull, d.lineMode);
         last = &d;
     }
@@ -5777,8 +5794,12 @@ GLuint gfx_opengl_get_vr_menu_texture_P(void) {
 
 void gfx_opengl_clear_framebuffer(bool clear_color, bool clear_depth) {
     gevr_mesh_settle();
+    if (clear_depth && !clear_color && s_eyeRec && !gForceFlatShaderForMenu &&
+        (!gVrFlatPass || s_flatRec) && (!s_flatRec || current_framebuffer == 0)) {
+        s_eyeClearDepth = true;
+    }
     if (gevr_eye_draw_deferred()) {
-        return;   // the eye image is not this pass's yet; the replay keeps no clears
+        return;   // the eye image is not this pass's yet; the replay runs kept depth clears
     }
     /* The scissor test goes back as it was found: a depth clear in mid-list
      * (G_CLEAR_DEPTH_EXT, a viewmodel on its own depth) that left it on

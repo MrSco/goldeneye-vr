@@ -45,7 +45,8 @@ static GLuint gevr_ring_replay_vbo(int,long) { return opengl_vbo; }
 static void gevr_ring_replay_done(void) {}
 static int gCurIsMenuLoc=23,gevrZDebugMode=0,s_activeTexUnit=1;
 static GLuint boundTex[2]={777,888},boundProgram;
-static int activeTexture=1,textureCalls,filterCalls,issued;
+static int activeTexture=1,textureCalls,filterCalls,issued,depthClears;
+static void gevr_replay_clear_depth(void) { depthClears++; }
 static int filters[3][2];
 static void gevr_eye_proj_times(const float *d,float m[16]) { if(d)std::memcpy(m,d,64); else std::memset(m,0,64); }
 static void glGetIntegerv(GLenum,GLint *v){*v=0;}
@@ -142,9 +143,10 @@ int main(){
     d.prg=&a;d.mesh=0;s_eyeDraws.push_back(d);
     d.prg=&mesh;d.mesh=1;s_eyeDraws.push_back(d);
     auto second=s_eyeMeshes[0];second.vao=43;second.params.cull=2;s_eyeMeshes.push_back(second);
-    d.mesh=2;s_eyeDraws.push_back(d);
-    gfx_vr_eye_replay(delta,nullptr,nullptr,nullptr);assert(issued==6);
-    issued=0;gfx_vr_eye_replay(delta,nullptr,nullptr,nullptr);assert(issued==6);
+    d.mesh=2;d.clearDepthBefore=true;s_eyeDraws.push_back(d);
+    depthClears=0;
+    gfx_vr_eye_replay(delta,nullptr,nullptr,nullptr);assert(issued==6 && depthClears==1);
+    issued=0;depthClears=0;gfx_vr_eye_replay(delta,nullptr,nullptr,nullptr);assert(issued==6 && depthClears==1);
     assert(boundTex[0]==777 && boundTex[1]==888 && activeTexture==1);
     std::puts("PASS: real redraw preserves draw order, shader-local filtering, texture changes, mixed texture usage and frontend restoration while removing redundant calls");
 }
