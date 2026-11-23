@@ -267,6 +267,8 @@ class Lobby:
         self.vr_only = None        # "VR players only" as the server last said; None: not said
         self.flat_players = None   # how many play flat, as the server last counted; None: not said
         self.devices = None        # devices|key@build,... as the server last said; None: not said
+        self.hand_only = None      # "Hand reload only" as the server last said; None: not said
+        self.button_players = None # how many reload with the button; None: not said
         self.open = True
         self.phase = "waiting"
         self.next_heartbeat = 0.0
@@ -287,6 +289,8 @@ class Lobby:
             self.vr_only = f[7] == "1" if len(f) == 8 else None
             self.flat_players = None
             self.devices = None
+            self.hand_only = None
+            self.button_players = None
             self.open = True
             self.phase = "waiting"
             self.pending = {"visibility": f[1], "name": f[2], "version": int(f[3]), "stage": int(f[4]),
@@ -305,6 +309,11 @@ class Lobby:
             state = (players, open_, max_players, vr_only, flat)
             if state != (self.players, self.open, self.max_players, self.vr_only, self.flat_players):
                 self.players, self.open, self.max_players, self.vr_only, self.flat_players = state
+                self.next_heartbeat = 0
+        elif f[0] == "reload" and len(f) == 3:   # reload|handOnly|buttonPlayers: the Join list's filter
+            hand_only, button = f[1] == "1", max(0, int(f[2]))
+            if (hand_only, button) != (self.hand_only, self.button_players):
+                self.hand_only, self.button_players = hand_only, button
                 self.next_heartbeat = 0
         elif f[0] == "devices" and len(f) == 2:   # devices|key@build,...: what each person runs
             devices = devices_json(f[1])
@@ -446,6 +455,10 @@ class Lobby:
                     state["flatPlayers"] = min(self.flat_players, self.players)
                 if self.devices is not None:
                     state["devices"] = self.devices
+                if self.hand_only is not None:
+                    state["handReloadOnly"] = self.hand_only
+                if self.button_players is not None:
+                    state["buttonPlayers"] = min(self.button_players, self.players)
                 if self.name:
                     state["name"] = self.name
                 sent = False

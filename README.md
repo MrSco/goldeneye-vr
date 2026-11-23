@@ -279,6 +279,9 @@ ROM, as on the Quest.
     [SideStore](https://sidestore.io/).
 - **Crossplay:** flat players (mouse, pad, touch) can join VR players. A host can tick
   **VR players only**, and VR players can tick **Hide games with flat players** on the Join page.
+- **Reload mode:** the lobby's Reload column shows who reloads by hand and who uses the button.
+  A host can tick **Hand reload only**, and anyone can tick **Hide games with button reload** on
+  the Join page. Both are off by default, so every game is listed.
 - **Split screen** (from v0.5.22): GoldenEye's own 2 to 4 player split on one screen (Windows,
   Linux, Apple TV, phones and tablets), offline. Choose **Multiplayer**, then each player presses
   to join (A or Start on a pad, Enter on the keyboard); the order is the player numbers. The
@@ -322,11 +325,10 @@ from [Wreck's N64 Vault page](https://n64vault.com/pd-multi-levels:goldeneye-x).
 4. Tick **GE-X guns, hands and watch**. It's off by default. During a mission
    you can switch it in the in-game panel (**both grips + hold the right-stick click**): **VR settings → Mods and fun → GoldenEye X**.
 
-On the virtual screen, GE-X's own fire and reload animations play. To reload by hand in
-stereo VR, also turn on **Hand reload WIP** on **Controls → Gestures**. It needs
-GoldenEye X or Bean's models; with neither on, it's greyed out with
-**Needs GoldenEye X or Bean**. With Bean alone, every gun but the Golden Gun
-reloads by hand ([details](docs/project-bean.md#removable-magazines-hand-reload-wip)).
+On the virtual screen, GE-X's own fire and reload animations play. In stereo VR you
+reload by hand: **Hand reload** on **Controls → Gestures**, on by default from v0.5.26.
+It works with GoldenEye X's guns, Bean's ([details](docs/project-bean.md#removable-magazines-hand-reload-wip))
+and GoldenEye's own ([details](docs/hand-reload-original.md)).
 - **Magazine guns.** Pull the magazine with your off hand, grip a replacement at your
   belt, and seat it in the gun.
   - B/Y drops the magazine. A removed magazine keeps its rounds until you put it back or drop it.
@@ -397,7 +399,7 @@ GE-X and the ROM section's **Choose ROM file...** for your GoldenEye ROM.
 | **Left grip** + **X** | Previous item for your left hand |
 | **Hold A** | Weapon wheel above your gun hand: push the other stick toward a category (pistols top, rifles upper right, heavy lower right, gadgets lower left, thrown upper left), pull a trigger to step through the guns in it (gun hand forward, other hand back), let go of A to equip (dual-wield pairs included) |
 | **Hold X** | Left-hand wheel: anything you carry for your left hand, guns, knives, grenades and mines included (not the watch laser, Detonator or tank shells). Point with the right stick, step with the triggers, let go to equip. In multiplayer, only when the host's **Dual wield** rule isn't Off |
-| **B** / **Y** | Action: doors and switches take priority; dual wielding, reload the gun in that button's hand. With one gun, either button reloads it (not with **Hand reload WIP** on) |
+| **B** / **Y** | Action: doors and switches take priority; dual wielding, reload the gun in that button's hand. With one gun, either button reloads it (not with **Hand reload** on) |
 | **☰ Menu** (left controller) | Pause / Bond's watch (in multiplayer: the pause menu) |
 | **☰ Menu** + **A** | Gun fit on or off (single player) |
 | **☰ Menu** + **B** | Mute or unmute your microphone (multiplayer) |
@@ -416,8 +418,8 @@ after the game switches you off an empty gun, your first tap keeps the gun it pi
 The launcher's **Controls → Gestures** tab turns grip gestures on or off: **Watch gesture**,
 **Body slots WIP**, **Grip use** (doors and switches), **Mine re-grab**, **Force pull WIP**
 (with **Pull disarm** and **Pull visuals**) and **Auto pickup**. Anywhere else the grip aims
-as before. The 25 cm grab of a gun on the floor is always on. **Hand reload WIP** is there
-too, off by default: it needs GoldenEye X, or Bean's models for its magazine-fed guns. Guns stop reloading themselves, and B/Y stop
+as before. The 25 cm grab of a gun on the floor is always on. **Hand reload** is there
+too, on by default from v0.5.26 with every model set (GoldenEye's own, GoldenEye X's and Bean's). Guns stop reloading themselves, and B/Y stop
 reloading. You reload by hand as described under [GoldenEye X](#-goldeneye-x-optional-wip),
 including when dual-wielding.
 

@@ -326,6 +326,8 @@ extern "C" void vrSettingsSave(void)
     std::string *f = &text;
     iniPrintf(f, "[VR]\n");
     iniPrintf(f, "ManualReloading=%d\n", VrManualReloading ? 1 : 0);
+    iniPrintf(f, "; Hand reload was switched on once for everyone in v0.5.26, its default since.\n");
+    iniPrintf(f, "HandReloadDefaulted=1\n");
     iniPrintf(f, "LaserDotForAll=%d\n", VrlaserDotForALL ? 1 : 0);
     iniPrintf(f, "SeatedMode=%d\n", VrSeatedMode ? 1 : 0);
     iniPrintf(f, "MotionThrowing=%d\n", VrMotionThrowing ? 1 : 0);
@@ -480,6 +482,8 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "; scenario, length and health are the launcher's list positions; the guns are\n");
     iniPrintf(f, "; item ids; the favorites are bitmasks over the stage and weapon-set lists.\n");
     iniPrintf(f, "MpStage=%d\nMpWeaponSet=%d\nMpChr=%d\nMpVisibility=%d\nMpVrOnly=%d\nMpHideFlat=%d\n", VrMpStage, VrMpWeaponSet, VrMpChr, VrMpVisibility, VrMpVrOnly, VrMpHideFlat);
+    iniPrintf(f, "; The host's \"Hand reload only\", and the Join list's \"Hide games with button reload\".\n");
+    iniPrintf(f, "MpHandReloadOnly=%d\nMpHideButton=%d\n", VrMpHandReloadOnly ? 1 : 0, VrMpHideButton ? 1 : 0);
     iniPrintf(f, "MpServerFilter=%d\nMpCustomServers=%s\n", VrMpServerFilter, VrMpCustomServers);
     iniPrintf(f, "MpScenario=%d\nMpLength=%d\nMpHealth=%d\nMpDual=%d\nMpLoadouts=%d\nMpNextRound=%d\n",
             VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound);
@@ -743,6 +747,7 @@ extern "C" void vrSettingsLoad(void)
     char line[1100];   // TouchLayout's value is up to 1 KB
     char key[64];
     float fval;
+    bool handReloadDefaulted = false;   // HandReloadDefaulted=1: v0.5.26 switched Hand reload on once
     int ival;
     char sval[256];
 
@@ -1016,6 +1021,7 @@ extern "C" void vrSettingsLoad(void)
         const bool looksFloat = eq != NULL && strchr(eq, '.') != NULL;
         if (!looksFloat && sscanf(line, "%63[^=]=%d", key, &ival) == 2) {
             if (strcmp(key, "ManualReloading") == 0) VrManualReloading = ival != 0;
+            else if (strcmp(key, "HandReloadDefaulted") == 0) handReloadDefaulted = true;
             else if (strcmp(key, "LaserDotForAll") == 0) VrlaserDotForALL = ival != 0;
             else if (strcmp(key, "SeatedMode") == 0) VrSeatedMode = ival != 0;
             else if (strcmp(key, "MotionThrowing") == 0) VrMotionThrowing = ival != 0;
@@ -1106,6 +1112,8 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MpVisibility") == 0) VrMpVisibility = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             else if (strcmp(key, "MpVrOnly") == 0) VrMpVrOnly = ival != 0;
             else if (strcmp(key, "MpHideFlat") == 0) VrMpHideFlat = ival != 0;
+            else if (strcmp(key, "MpHandReloadOnly") == 0) VrMpHandReloadOnly = ival != 0;
+            else if (strcmp(key, "MpHideButton") == 0) VrMpHideButton = ival != 0;
             else if (strcmp(key, "MpServerFilter") == 0) VrMpServerFilter = ival < 0 || ival > 3 ? 0 : ival;
             else if (strcmp(key, "FriendsShowDetail") == 0) VrFriendsShowDetail = ival != 0;
             else if (strcmp(key, "FriendsAppearOffline") == 0) VrFriendsAppearOffline = ival != 0;
@@ -1273,6 +1281,11 @@ extern "C" void vrSettingsLoad(void)
     }
 
     fclose(f);
+
+    // Hand reload works on every gun set since v0.5.26 and is on by default: a file from
+    // before then had it off only by the old default, so it is switched on once (owner,
+    // 2026-11-23); turned off again afterwards, it stays off.
+    if (!handReloadDefaulted) VrManualReloading = 1;
 
     unsigned short mVol = (unsigned short)(VrMusicVolume * 32767.0f);
     set_mTrack2Vol(mVol);
