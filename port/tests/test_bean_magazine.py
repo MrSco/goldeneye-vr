@@ -42,10 +42,11 @@ def main():
         mapped = set(re.findall(r'"new/(gun/[^"]+)"', (ROOT / "port/include/gevr_bean_files.h").read_text()))
         fitted = set(re.findall(r'BEANFIT\("\w+", "(gun/[^"]+)"', (ROOT / "port/include/gevr_bean_fits.h").read_text()))
         assert set(guns) <= mapped and set(guns) <= fitted, (set(guns) - mapped, set(guns) - fitted)
-        if len(sys.argv) < 2:
-            print("SKIP: the release's guns (give your xbla files folder to check them)")
+        files = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("GEVR_BEAN_FILES")
+        if not files:
+            print("SKIP: the release's guns (give your xbla files folder, or GEVR_BEAN_FILES, to check them)")
             return
-        files = Path(sys.argv[1])
+        files = Path(files)
         for source, island, lifts, single, keep, built in table:
             run = subprocess.run([str(dump), str(files / "new" / source / "default.bin"), source],
                                  capture_output=True, text=True)

@@ -95,7 +95,8 @@ int main(void)
 with tempfile.TemporaryDirectory(prefix='gevr-stan-rooms-') as temp:
     source, exe = Path(temp) / 'test.c', Path(temp) / 'test.exe'
     source.write_text(fixture.replace('/* PRODUCTION */', production), encoding='utf-8')
-    subprocess.run([shutil.which('gcc') or 'cc', '-std=gnu11', '-O0', '-fsanitize=bounds', '-fsanitize-undefined-trap-on-error',
+    subprocess.run([shutil.which('gcc') or 'cc', '-std=gnu11', '-O0', '-fms-extensions',   # inherits: anonymous structs
+                    '-fsanitize=bounds', '-fsanitize-undefined-trap-on-error',
                     '-D_LANGUAGE_C', '-DGEVR', '-DVERSION_US',
                     '-I' + str(ROOT), '-I' + str(ROOT / 'include'), '-I' + str(ROOT / 'src'),
                     '-I' + str(ROOT / 'port/include'), str(source), '-lm', '-o', str(exe)], check=True)

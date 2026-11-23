@@ -1,6 +1,6 @@
 # Hand reload on GoldenEye's own guns
 
-**Hand reload WIP** (Controls → Gestures) reloads GoldenEye's own models by
+**Hand reload** (Controls → Gestures, on by default since v0.5.26) reloads GoldenEye's own models by
 hand too, with GoldenEye X's guns and Bean off (owner, 2026-11-21: "and also
 original mode guns ... you'll probably have to cut some meshes to make
 magazines removable"). The states, the belt, the rack and the labels are the

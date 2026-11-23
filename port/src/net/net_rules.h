@@ -78,11 +78,15 @@ static inline int netTeamRosterComplete(int scenario, int slots, const uint8_t *
     }
     return counts[0] == netTeamCapacity(scenario,0) && counts[1] == netTeamCapacity(scenario,1);
 }
+/* Proximity: full volume to 8 m, a cubic fade to silence at 25 m (world units are cm).
+ * The old 30 m / 60 m curve with a 10% floor carried voices across whole MP maps. */
+#define NET_VOICE_FULL_CM 800.0f
+#define NET_VOICE_SILENT_CM 2500.0f
 static inline float netVoiceDistanceGain(int mode, float horizontal_distance) {
-    if (mode == NET_VOICE_COUCH || horizontal_distance <= 3000.0f) return 1.0f;
-    if (horizontal_distance >= 6000.0f) return 0.10f;
-    float remaining = 1.0f - (horizontal_distance - 3000.0f) / 3000.0f;
-    return 0.10f + 0.90f * remaining * remaining * remaining;
+    if (mode == NET_VOICE_COUCH || horizontal_distance <= NET_VOICE_FULL_CM) return 1.0f;
+    if (horizontal_distance >= NET_VOICE_SILENT_CM) return 0.0f;
+    float remaining = 1.0f - (horizontal_distance - NET_VOICE_FULL_CM) / (NET_VOICE_SILENT_CM - NET_VOICE_FULL_CM);
+    return remaining * remaining * remaining;
 }
 static inline int netVoiceGroupsMatch(int running, int scenario, int a_spectator, int b_spectator, int a_team, int b_team) {
     if (!running) return 1;

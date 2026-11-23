@@ -62,7 +62,7 @@ art.
 
 ## Valid Quest measurements
 
-Quest 3 `2G0YC1ZF8Q0JQ6`; Bean pack `2026.10.11.3`, user's quality settings,
+Quest 3; Bean pack `2026.10.11.3`, user's quality settings,
 120 Hz display and 60 Hz simulation. Save/configuration files are restored
 between runs. Benchmark controls must be acknowledged by the renderer.
 Source `95dc1f2` is the first valid whole-body comparison; captures show full

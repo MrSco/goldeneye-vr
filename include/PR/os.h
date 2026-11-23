@@ -996,7 +996,9 @@ extern void		osAckRamromWrite(void);
 
 /* byte string operations */
 
-#if !defined(__ANDROID__) && !defined(GEVR_HEADLESS) && !defined(GEVR_PC) /* the C library (PC: port/pc/pc_compat.h) declares them */
+#if !defined(__ANDROID__) && !defined(GEVR_HEADLESS) && !defined(GEVR_PC) && !defined(GEVR_HOST_LIBC)
+/* the C library declares them: PC port/pc/pc_compat.h; GEVR_HOST_LIBC, the native tests
+ * on a C library that has them (glibc, Apple's: port/tests/gevr_testcc.py host_libc) */
 extern void     bcopy(const void *, void *, int);
 extern int      bcmp(const void *, const void *, int);
 extern void     bzero(void *, int);

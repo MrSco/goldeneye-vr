@@ -12,7 +12,8 @@ with tempfile.TemporaryDirectory(prefix="gevr-dyn-") as temp:
     executable = Path(temp) / "dyn_native.exe"
     source.write_text(fixture, encoding="utf-8")
     command = [shutil.which("gcc") or "gcc", "-std=c11", "-O2", "-fms-extensions",
-               "-Wno-builtin-declaration-mismatch"]
+               "-Wno-builtin-declaration-mismatch",
+               "-U_FORTIFY_SOURCE"]  # the repo's include/limits.h trips glibc's fortified MB_LEN_MAX check
     command += ["-D" + value for value in (
         "GEVR=1", "PLATFORM_64BIT=1", "_LANGUAGE_C=1", "VERSION=2", "VERSION_US=1", "LANG_US=1")]
     command += ["-I" + str(ROOT / directory) for directory in (
