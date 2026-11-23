@@ -4290,7 +4290,7 @@ extern "C" float vr_render_scale(void) { return RENDER_SCALE; }
  * (vr_configure_resolution). A standalone headset's GPU runs out long before its
  * runtime's image limits: on the owner's Quest 3 (2026-11-23, Dam with Bean, plugged
  * in, SpaceWarp off) 1.5x at 90 Hz held, 7.6 ms a frame with the GPU 83% busy, and 2x
- * at 90 Hz did not, 97% busy and 1,596 frames dropped in two minutes. Quest 3 and 3S
+ * at 90 Hz did not, 97% busy and 1,596 frames dropped in 2.5 minutes. Quest 3 and 3S
  * share that chip; Quest 2, Pro and other standalone headsets have about half its GPU
  * and stop at 1.25x. PC VR offers the full list (owner: "PC would get the full suite
  * of ... super resolution"). */

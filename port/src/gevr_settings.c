@@ -545,7 +545,7 @@ static void scaleText(int i, char *b, int n)
 }
 /* Above 1x it warns. On a standalone headset at more than 90 Hz with SpaceWarp off it
  * says what holds it: on the owner's Quest 3 with Bean (2026-11-23, Dam, SpaceWarp off)
- * 1.25x at 120 Hz dropped 151 frames in two minutes with the GPU 83% busy, where 1.5x
+ * 1.25x at 120 Hz dropped 151 frames in 2.5 minutes with the GPU 83% busy, where 1.5x
  * at 90 Hz dropped 22. SpaceWarp draws half the frames. Auto reads the rate the
  * display runs at (vr_openxr.cpp, once a second). */
 static const char *warnScale(void)
