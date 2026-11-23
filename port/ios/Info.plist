@@ -107,5 +107,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<!-- iCloud sync (port/ios/ios_icloud.mm): YES only in a build signed with
+	     port/ios/gevr-icloud.entitlements (tools/build_*.sh with GEVR_ICLOUD=1) -->
+	<key>GEVRICloud</key>
+	<string>$(GEVR_ICLOUD)</string>
 </dict>
 </plist>

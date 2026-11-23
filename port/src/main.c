@@ -87,6 +87,7 @@ extern void bossEntry(void);
 #include "audio.h"
 #include "input.h"
 #include "fs.h"
+#include "gevr_icloud.h"
 #include "romdata.h"
 #include "config.h"
 #include "mod.h"
@@ -498,6 +499,9 @@ int main(int argc, const char **argv)
     sysInit();
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "fsInit starting");
     fsInit();
+    /* Apple builds: the other devices' settings and saves into the files
+     * before they are read, and the ROM/pack sync started (port/ios/ios_icloud.mm) */
+    gevrCloudLaunch();
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "configInit starting");
     configInit();
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "SDL2 init starting");

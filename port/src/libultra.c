@@ -14,6 +14,7 @@
 #include "audio.h"
 #include "fs.h"
 #include "gevr_romlayout.h"
+#include "gevr_icloud.h"
 
 #define EEPROM_SIZE (EEP16K_MAXBLOCKS * 8)
 #define EEPROM_FNAME "eeprom.bin"
@@ -491,6 +492,7 @@ static inline void osEeepromSave(const char *fname)
 		s32 ok = fwrite(eeprom, 1, EEPROM_SIZE, fp) == EEPROM_SIZE;
 		ok = fclose(fp) == 0 && ok;
 		if (ok && rename(tmp, path) == 0) {
+			gevrCloudFileSaved(path);   /* iCloud on the Apple builds (port/ios/ios_icloud.mm) */
 			return;
 		}
 		sysLogPrintf(LOG_WARNING, "could not replace EEPROM `%s`: %s", path, strerror(errno));
@@ -501,6 +503,7 @@ static inline void osEeepromSave(const char *fname)
 	if (fp) {
 		fwrite(eeprom, 1, EEPROM_SIZE, fp);
 		fclose(fp);
+		gevrCloudFileSaved(path);
 	} else {
 		sysLogPrintf(LOG_ERROR, "could not save EEPROM to `%s`: %s", path, strerror(errno));
 	}

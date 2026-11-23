@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- iCloud for every Apple build (iPhone/iPad, Apple TV, Vision Pro): docs/icloud-sync.md.
+     Used only when a build script runs with GEVR_ICLOUD=1 and signs: the App ID
+     needs the iCloud capability (CloudKit) with this container, and the profile
+     has to be made after that. The key-value store id names the iOS app's own id,
+     so the simulator's other bundle ids share it too. -->
+<plist version="1.0">
+<dict>
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>iCloud.com.mrsco.goldeneyevr</string>
+	</array>
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudKit</string>
+	</array>
+	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
+	<string>$(TeamIdentifierPrefix)com.mrsco.goldeneyevr</string>
+</dict>
+</plist>

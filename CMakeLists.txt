@@ -694,7 +694,8 @@ if(GEVR_PC)
     file(GLOB SRC_VOS_OWN CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/port/visionos/*.c"
       "${CMAKE_SOURCE_DIR}/port/visionos/*.cpp" "${CMAKE_SOURCE_DIR}/port/visionos/*.m"
       "${CMAKE_SOURCE_DIR}/port/visionos/*.mm")
-    list(APPEND SRC_VOS ${SRC_VR_ALL} ${SRC_VOS_OWN} "${CMAKE_SOURCE_DIR}/port/ios/ios_http.mm")
+    list(APPEND SRC_VOS ${SRC_VR_ALL} ${SRC_VOS_OWN} "${CMAKE_SOURCE_DIR}/port/ios/ios_http.mm"
+      "${CMAKE_SOURCE_DIR}/port/ios/ios_icloud.mm")
     list(REMOVE_DUPLICATES SRC_VOS)
     add_library(gevr_visionos STATIC ${SRC_VOS})
     add_dependencies(gevr_visionos gevr_buildid)
@@ -703,7 +704,7 @@ if(GEVR_PC)
     target_compile_options(gevr_visionos PRIVATE
       "SHELL:-include \"${CMAKE_BINARY_DIR}/port/include/versioninfo.h\""
       "SHELL:-include \"${CMAKE_SOURCE_DIR}/port/ios/ios_gl.h\"")
-    set(SRC_VOS_OBJC ${SRC_VOS_OWN} "${CMAKE_SOURCE_DIR}/port/ios/ios_http.mm")
+    set(SRC_VOS_OBJC ${SRC_VOS_OWN} "${CMAKE_SOURCE_DIR}/port/ios/ios_http.mm" "${CMAKE_SOURCE_DIR}/port/ios/ios_icloud.mm")
     list(FILTER SRC_VOS_OBJC INCLUDE REGEX "\\.mm?$")
     set_source_files_properties(${SRC_VOS_OBJC} PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
       COMPILE_DEFINITIONS GEVR_IOS_NO_GL_SHIM=1)

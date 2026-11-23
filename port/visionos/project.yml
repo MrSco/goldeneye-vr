@@ -55,6 +55,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: "${GEVR_BUNDLE_ID}"
         PRODUCT_NAME: GoldenEyeVR
         INFOPLIST_FILE: Info.plist
+        # iCloud (docs/icloud-sync.md): both empty unless the build script signs with GEVR_ICLOUD=1
+        GEVR_ICLOUD: "${GEVR_ICLOUD}"
+        CODE_SIGN_ENTITLEMENTS: "${GEVR_ENTITLEMENTS}"
         SWIFT_OBJC_BRIDGING_HEADER: vos_bridging.h
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         MARKETING_VERSION: "${GEVR_VERSION}"
@@ -82,6 +85,7 @@ targets:
       - sdk: CoreMotion.framework
       - sdk: GameController.framework
       - sdk: Foundation.framework
+      - sdk: CloudKit.framework   # iCloud sync (port/ios/ios_icloud.mm)
       - sdk: CoreFoundation.framework
       - sdk: Security.framework
       - sdk: SystemConfiguration.framework

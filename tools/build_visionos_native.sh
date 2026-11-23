@@ -72,6 +72,15 @@ if [ "$APP" = 1 ]; then
   export GEVR_BUILD="${GEVR_BUILD:-$(sed -n 's/.*versionCode \([0-9]*\).*/\1/p' android/app/build.gradle)}"
   export GEVR_BUNDLE_ID="${GEVR_BUNDLE_ID:-com.mrsco.goldeneyevr}"
   export DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-}"
+  # iCloud sync (docs/icloud-sync.md): GEVR_ICLOUD=1 on a signed build adds
+  # port/ios/gevr-icloud.entitlements (the App ID and profile must have iCloud)
+  if [ "${GEVR_ICLOUD:-0}" = 1 ] && { [ -n "${GEVR_SIGN:-}" ] || [ -n "${ARCHIVE:-}" ]; }; then
+    export GEVR_ICLOUD=YES GEVR_ENTITLEMENTS="$ROOT/port/ios/gevr-icloud.entitlements"
+    GEVR_ICLOUD_EXPORT='<key>iCloudContainerEnvironment</key><string>Production</string>'
+  else
+    export GEVR_ICLOUD=NO GEVR_ENTITLEMENTS=""
+    GEVR_ICLOUD_EXPORT=''
+  fi
   ( cd port/visionos && xcodegen generate --quiet )
   if [ -z "$ARCHIVE" ]; then
     xcodebuild -project port/visionos/GoldenEyeVR.xcodeproj -scheme GoldenEyeVR -configuration Release \
@@ -100,6 +109,7 @@ if [ "$APP" = 1 ]; then
   <key>signingCertificate</key><string>Apple Distribution</string>
   <key>provisioningProfiles</key><dict><key>$GEVR_BUNDLE_ID</key><string>$GEVR_PROFILE</string></dict>
   <key>uploadSymbols</key><false/>
+  ${GEVR_ICLOUD_EXPORT}
 </dict></plist>
 PL
   xcodebuild -exportArchive -archivePath "$OUT/GoldenEyeVR.xcarchive" -exportPath "$OUT/export" \

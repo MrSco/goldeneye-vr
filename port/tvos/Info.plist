@@ -94,5 +94,9 @@
 	<!-- Never prompted for (SDL's Steam BLE backend is off, port/ios/ios_app.m) -->
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>GoldenEye VR can connect to Bluetooth game controllers.</string>
+	<!-- iCloud sync (port/ios/ios_icloud.mm): YES only in a build signed with
+	     port/ios/gevr-icloud.entitlements (tools/build_*.sh with GEVR_ICLOUD=1) -->
+	<key>GEVRICloud</key>
+	<string>$(GEVR_ICLOUD)</string>
 </dict>
 </plist>
