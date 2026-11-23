@@ -39,6 +39,10 @@ void gevrCloudSetOptions(int sync, int packs);
 /* One line for the launcher ("iCloud: downloading ge.z64 40%"), "" for none. */
 void gevrCloudStatus(char *buf, int size);
 
+/* An upload or download under way: 1, its share done (0..1) and its line
+ * ("iCloud: uploading ge.z64 40%"); 0 when none is. */
+int gevrCloudProgress(float *done, char *buf, int size);
+
 /* A message that happened once ("ROM downloaded from iCloud."), taken. */
 int gevrCloudTakeMessage(char *buf, int size);
 
@@ -52,6 +56,7 @@ static inline void gevrCloudFileSaved(const char *path) { (void)path; }
 static inline void gevrCloudKick(void) {}
 static inline void gevrCloudSetOptions(int sync, int packs) { (void)sync; (void)packs; }
 static inline void gevrCloudStatus(char *buf, int size) { if (buf && size > 0) buf[0] = 0; }
+static inline int gevrCloudProgress(float *done, char *buf, int size) { (void)done; if (buf && size > 0) buf[0] = 0; return 0; }
 static inline int gevrCloudTakeMessage(char *buf, int size) { if (buf && size > 0) buf[0] = 0; return 0; }
 static inline int gevrCloudAvailable(void) { return 0; }
 

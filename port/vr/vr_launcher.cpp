@@ -3783,17 +3783,6 @@ extern "C" void gevrLauncherRun(void)
                 ImGui::TextDisabled("%s", others[i].path.c_str());
                 ImGui::PopID();
             }
-            {
-                // iCloud on the Apple builds (port/ios/ios_icloud.mm): a ROM from another device, progress
-                char cloud[192];
-                if (gevrCloudTakeMessage(cloud, sizeof(cloud))) {
-                    message = cloud;
-                    romError = false;
-                    scan();
-                }
-                gevrCloudStatus(cloud, sizeof(cloud));
-                if (cloud[0]) ImGui::TextDisabled("%s", cloud);
-            }
             if (!message.empty()) ImGui::TextWrapped("%s", message.c_str());
             ImGui::EndChild();
         }
@@ -4181,9 +4170,27 @@ extern "C" void gevrLauncherRun(void)
                    : gevrCampaignCoop(VrCampaign) ? "Solo or co-op online, its own save. GoldenEye X, Bean and HD packs are off."
                    : "Solo, with its own save. Online play, GoldenEye X, Bean and HD packs are off.";
         footerBad = !campaignFail.empty();
+        {
+            // iCloud on the Apple builds (port/ios/ios_icloud.mm), on the line under
+            // START, which is always in view: a ROM or pack that came, a failure (for
+            // a few seconds), or a transfer's bar. The ROM box may be folded.
+            static std::string s_cloudNote;
+            static Uint32 s_cloudNoteUntil = 0;
+            char cloud[192];
+            if (gevrCloudTakeMessage(cloud, sizeof(cloud))) {
+                s_cloudNote = cloud;
+                s_cloudNoteUntil = SDL_GetTicks() + 8000;
+                scan();   // a ROM that came down
+            }
+            if (footerNote.empty() && !s_cloudNote.empty() && SDL_GetTicks() < s_cloudNoteUntil) footerNote = s_cloudNote;
+        }
         }   // the START footer
         }   // reportPage
-        if (footerNote.empty()) {
+        float cloudDone = 0;
+        char cloudLine[192];
+        if (footerNote.empty() && gevrCloudProgress(&cloudDone, cloudLine, sizeof(cloudLine))) {
+            ImGui::ProgressBar(cloudDone, ImVec2(-1, ImGui::GetTextLineHeight()), cloudLine);
+        } else if (footerNote.empty()) {
 #if defined(GEVR_TVOS)
             ImGui::TextDisabled("Use the remote, or a pad's stick and A.");
 #elif defined(GEVR_MOBILE) || defined(GEVR_IOS)

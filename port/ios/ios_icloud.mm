@@ -79,6 +79,7 @@ bool g_joined = false;                // this device takes part in the key-value
 bool g_sync = true, g_packs = false;
 std::string g_root;                   // the save folder, absolute, no trailing slash
 std::string g_status, g_message;
+float g_progress = -1;                // a transfer's share done, 0..1; -1 none
 
 std::mutex g_kvLock;                  // the key-value merges: settings saves come from several threads
 
@@ -101,6 +102,15 @@ void setStatus(const std::string &s)
 {
     std::lock_guard<std::mutex> hold(g_lock);
     g_status = s;
+    g_progress = -1;
+}
+
+/* an upload or download under way: the launcher's bar under START */
+void setTransfer(const std::string &s, float done)
+{
+    std::lock_guard<std::mutex> hold(g_lock);
+    g_status = s;
+    g_progress = done < 0 ? 0 : done > 1 ? 1 : done;
 }
 
 void setMessage(const std::string &s)
@@ -891,7 +901,7 @@ bool archiveFile(ChunkWriter *w, const std::string &name, const std::string &abs
         ok = w->put(buf.data(), n);
         w->done += (long long)n;
         const int pct = w->total ? (int)(w->done * 100 / w->total) : 0;
-        setStatus("iCloud: uploading " + w->label + " " + std::to_string(pct) + "%");
+        setTransfer("iCloud: uploading " + w->label + " " + std::to_string(pct) + "%", pct / 100.0f);
     }
     fclose(f);
     return ok;
@@ -1197,7 +1207,7 @@ NSError *downloadItem(const Cloud &c, CKRecord *rec, const std::string &relPath,
             u.feed(buf.data(), n);
             got += (long long)n;
             const int pct = size ? (int)std::min<long long>(100, got * 100 / size) : 0;
-            setStatus("iCloud: downloading " + label + " " + std::to_string(pct) + "%");
+            setTransfer("iCloud: downloading " + label + " " + std::to_string(pct) + "%", pct / 100.0f);
         }
         if (f) fclose(f);
         remove(asset.c_str());
@@ -1395,6 +1405,7 @@ void syncFiles(const Cloud &c, bool packs)
     if (moved || failed) cloudLog("files: %d moved, %d failed (%zu items)", moved, failed, paths.size());
     if (failed) {
         setStatus("iCloud: " + std::to_string(failed) + " failed - " + lastError);
+        setMessage("iCloud could not sync " + std::to_string(failed) + (failed == 1 ? " file: " : " files: ") + lastError);
     } else {
         setStatus(moved ? "iCloud: synced" : "iCloud: up to date");
     }
@@ -1681,6 +1692,15 @@ extern "C" void gevrCloudStatus(char *buf, int size)
     if (!buf || size <= 0) return;
     std::lock_guard<std::mutex> hold(g_lock);
     snprintf(buf, (size_t)size, "%s", g_sync ? g_status.c_str() : "");
+}
+
+extern "C" int gevrCloudProgress(float *done, char *buf, int size)
+{
+    std::lock_guard<std::mutex> hold(g_lock);
+    if (!g_sync || g_progress < 0) return 0;
+    if (done) *done = g_progress;
+    if (buf && size > 0) snprintf(buf, (size_t)size, "%s", g_status.c_str());
+    return 1;
 }
 
 extern "C" int gevrCloudTakeMessage(char *buf, int size)
