@@ -897,6 +897,150 @@ mod.on("tick", function() print("tick") end)
     check(not answers(out, "NETSEND"), "solo: a stop told to no one")
 
 
+def ui_placement():
+    """The panel takes a page's ask in both its input passes; both screens draw the pages; the clicks go at the frame"""
+    inp = (ROOT / "port/src/input.c").read_bytes().decode()
+    check(inp.count("panelWas = s_gevrPanel;\n            gevrPanelTakeAsk(t, paused);") == 2,
+          "mod.ui.open: the flat game's and the headset's panel passes both take the ask")
+    menu = (ROOT / "port/vr/vr_pause_menu.cpp").read_bytes().decode()
+    check("gevrModUiAttach(v.settings);" in menu and "gevrModUiAttach(view.settings);" in menu,
+          "the solo panel and the online Settings tab both draw the mods' pages")
+    host = (ROOT / "port/src/gevr_modscript.c").read_bytes().decode()
+    frame = function(host, "void gevrModScriptFrame(int ticks)")
+    check(frame.index("gevrModApiUiFlush();") < frame.index('fire("tick"'), "the screen's clicks reach the mod before its tick")
+    load = function(host, "void gevrModScriptStageLoad(")
+    check(load.index("gevrModApiUiClear();") < load.index("if (!mission) return;"), "a mission loading drops the last one's clicks")
+
+
+UI_PAGE = """
+mod.ui.page("loadout", { title = "Loadout", text = "Pick a sidearm.",
+  rows = {
+    { kind = "choice", id = "gun", label = "Sidearm", choices = { "PP7", "DD44" }, value = 2, tip = "Your pistol." },
+    { kind = "toggle", id = "sil", label = "Silencer", value = true },
+    { kind = "slider", id = "mags", label = "Magazines", min = 1, max = 6, value = 3, blocked = "Not in a mission" },
+    { kind = "slider", id = "cash", label = "Cash", min = -50, max = 50 },
+  },
+  buttons = { { id = "ready", label = "Ready" }, { id = "buy", label = "Buy", blocked = true } } })
+mod.ui.page("shop", { title = "Workshop" })
+"""
+
+
+def ui(exe, temp):
+    play = ("start", "prepare", 9, "begin", 9)
+    lua = r"""
+mod.on("mission_start", function()
+""" + UI_PAGE + r"""
+end)
+mod.on("ui_click", function(page, b) print("click", page, b) end)
+mod.on("ui_change", function(page, row, v) print("change", page, row, v, math.type(v)) end)
+"""
+    out = run(exe, temp, "ui", lua, "start", "prepare", 9, "ui", "begin", 9, "ui", "uiset", 0, 0, 0, "uiset", 0, 1, 0,
+              "uiset", 0, 2, 5, "uiclick", 0, 0, "uiclick", 0, 1, "uiset", 0, 1, 0, "uiset", 0, 3, 7, "uiset", 0, 3, 20,
+              "uiset", 0, 3, 99, "uiset", 0, 0, 5, "uiclick", 1, 0, "frame", "ui")
+    pages = answers(out, "UIPAGE", "UIROW", "UIBUTTON", "UIASKED")
+    shown = ["UIPAGE 0 tactical loadout Loadout|Pick a sidearm.",
+             "UIROW 0 0 2 gun Sidearm|1|0|0|PP7,DD44||Your pistol.",
+             "UIROW 0 1 1 sil Silencer|1|0|0|||",
+             "UIROW 0 2 3 mags Magazines|3|1|6||Not in a mission|",
+             "UIROW 0 3 3 cash Cash|-50|-50|50|||",
+             "UIBUTTON 0 0 ready Ready|",
+             "UIBUTTON 0 1 buy Buy|Not now",
+             "UIPAGE 1 tactical shop Workshop|",
+             "UIASKED -1 of 2"]
+    check(pages[:10] == ["UIASKED -1 of 0"] + shown, "the pages as the screen gets them: " + str(pages[:10]))
+    check(pages[10:] == [l.replace("Sidearm|1|", "Sidearm|0|").replace("Silencer|1|", "Silencer|0|")
+                         .replace("Cash|-50|", "Cash|50|") for l in shown],
+          "the screen's changes kept at once (a blocked row's not; a slider held to its ends): " + str(pages[10:]))
+    check(logs(out) == ["change loadout gun 1 integer", "change loadout sil false nil", "click loadout ready",
+                        "change loadout cash 50 integer"],
+          "ui_change and ui_click at the next frame: a choice's number from 1, a toggle's boolean, a slider's last "
+          "value once; a blocked button and an unchanged value send nothing: " + str(logs(out)))
+
+    # the limits: each a script error, the page left as it was
+    lua = r"""
+local bad = 0
+local function try(id, t) if not pcall(mod.ui.page, id, t) then bad = bad + 1 end end
+local function row(r) return { title = "T", rows = { r } } end
+mod.on("mission_start", function()
+  try("a b", { title = "T" }); try("", { title = "T" }); try(string.rep("x", 33), { title = "T" })
+  try("p", {}); try("p", { title = string.rep("t", 13) }); try("p", { title = "T", text = string.rep("t", 161) })
+  try("p", { title = "T", text = "tab\there" })
+  local nine = {}
+  for i = 1, 9 do nine[i] = { kind = "toggle", id = "r" .. i, label = "R" } end
+  try("p", { title = "T", rows = nine })
+  try("p", row({ kind = "bogus", id = "r", label = "R" })); try("p", row({ kind = "toggle", label = "R" }))
+  try("p", row({ kind = "toggle", id = "r", label = string.rep("l", 25) }))
+  try("p", { title = "T", rows = { { kind = "toggle", id = "r", label = "R" }, { kind = "toggle", id = "r", label = "S" } } })
+  try("p", row({ kind = "toggle", id = "r", label = "R", value = "yes" }))
+  try("p", row({ kind = "choice", id = "r", label = "R", choices = { "one" } }))
+  local many = {}
+  for i = 1, 13 do many[i] = "c" .. i end
+  try("p", row({ kind = "choice", id = "r", label = "R", choices = many }))
+  try("p", row({ kind = "choice", id = "r", label = "R", choices = { "a", string.rep("c", 25) } }))
+  try("p", row({ kind = "choice", id = "r", label = "R", choices = { "a", "b" }, value = 3 }))
+  try("p", row({ kind = "slider", id = "r", label = "R", min = 1 }))
+  try("p", row({ kind = "slider", id = "r", label = "R", min = 5, max = 5 }))
+  try("p", row({ kind = "slider", id = "r", label = "R", min = 0, max = 1001 }))
+  try("p", row({ kind = "slider", id = "r", label = "R", min = -100001, max = 0 }))
+  try("p", row({ kind = "slider", id = "r", label = "R", min = 0, max = 10, value = 11 }))
+  try("p", row({ kind = "slider", id = "r", label = "R", min = 0, max = 10, value = 1.5 }))
+  try("p", row({ kind = "toggle", id = "r", label = "R", blocked = string.rep("b", 33) }))
+  try("p", { title = "T", buttons = { { id = "a", label = "A" }, { id = "b", label = "B" }, { id = "c", label = "C" },
+                                     { id = "d", label = "D" }, { id = "e", label = "E" } } })
+  try("p", { title = "T", buttons = { { id = "a", label = string.rep("b", 15) } } })
+  try("p", { title = "T", buttons = { { id = "a", label = "A" }, { id = "a", label = "B" } } })
+  print("bad", bad)
+  for i = 1, 4 do mod.ui.page("p" .. i, { title = "P" .. i }) end
+  local ok, err = pcall(mod.ui.page, "p5", { title = "P5" })
+  print("fifth", ok, err:match("at most 4 pages") ~= nil)
+  mod.ui.page("p2", { title = "Again" })
+  print("remove", mod.ui.remove("p1"), mod.ui.remove("p1"), (pcall(mod.ui.open, "p1")))
+end)
+"""
+    out = run(exe, temp, "uibad", lua, *play, "ui")
+    check(logs(out) == ["bad 27", "fifth false true", "remove true false false"],
+          "27 pages refused; 4 at most, every mod's together; a page replaced in its place; remove: " + str(logs(out)))
+    check(answers(out, "UIPAGE") == ["UIPAGE 0 tactical p2 Again|", "UIPAGE 1 tactical p3 P3|", "UIPAGE 2 tactical p4 P4|"],
+          "the pages left, in their order: " + str(answers(out, "UIPAGE")))
+
+    # open: the screen asked for, the page's tab up once shown; close; false with no screen
+    lua = r"""
+mod.on("mission_start", function()
+  mod.ui.page("a", { title = "A" }); mod.ui.page("b", { title = "B" })
+  print("open", mod.ui.open("b"))
+end)
+mod.on("tick", function() mod.ui.close() end)
+"""
+    out = run(exe, temp, "uiopen", lua, *play, "ui", "uiopened", "ui", "frame", "ui")
+    check(answers(out, "PANEL", "UIASKED") == ["PANEL open", "UIASKED 1 of 2", "UIASKED -1 of 2", "PANEL close", "UIASKED -1 of 2"]
+          and logs(out) == ["open true"], "mod.ui.open asks for the screen on its page until its tab is up; close: "
+          + str(answers(out, "PANEL", "UIASKED")))
+    out = run(exe, temp, "uiclose", lua, *play, "frame", "ui")
+    check(answers(out, "UIASKED") == ["UIASKED -1 of 2"], "a close drops the ask")
+    out = run(exe, temp, "uinopanel", lua, "panel", 0, *play, "ui")
+    check(logs(out) == ["open false"] and not answers(out, "PANEL open"), "no screen in this build: false")
+    out = run(exe, temp, "uiserver", lua, "online", 1, 1, 1, -1, *play, "ui")
+    check(logs(out) == ["open false"] and answers(out, "UIASKED") == ["UIASKED -1 of 2"], "a dedicated server: false")
+
+    # a stopped mod's pages hide, and come back with it in the next mission; a mission's loading drops the clicks
+    lua = r"""
+mod.on("mission_start", function(stage)
+  if stage == 9 then mod.ui.page("p", { title = "P", buttons = { { id = "go", label = "Go" } } }) end
+end)
+mod.on("ui_click", function(page, b) print("click", page, b) end)
+mod.on("tick", function() if bad then error("stopped") end end)
+mod.on("mission_prepare", function(stage) bad = stage == 9 end)
+mod.ui.page("early", { title = "Early" })
+bad = true
+"""
+    out = run(exe, temp, "uistop", lua, "start", "prepare", 9, "begin", 9, "ui", "frame", "ui", "uiclick", 0, 0,
+              "prepare", 10, "begin", 10, "ui", "uiclick", 1, 0, "prepare", 11, "begin", 11, "frame", "ui")
+    check(answers(out, "UIASKED") == ["UIASKED -1 of 2", "UIASKED -1 of 0", "UIASKED -1 of 2", "UIASKED -1 of 2"]
+          and logs(out) == [],
+          "a stopped mod's pages hide, its clicks go nowhere; next mission they're back; a click before a mission "
+          "loads is dropped: " + str(answers(out, "UIASKED")) + str(logs(out)))
+
+
 def main():
     placement()
     items_placement()
@@ -906,6 +1050,7 @@ def main():
     damage_placement()
     effects_placement()
     net_placement()
+    ui_placement()
     with tempfile.TemporaryDirectory(prefix="gevr-modapi-") as temp:
         temp = Path(temp)
         exe = build(temp)
@@ -988,6 +1133,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
         damage(exe, temp)
         effects(exe, temp)
         net(exe, temp)
+        ui(exe, temp)
         guards_told(temp)
 
     if FAILS:
@@ -1002,7 +1148,8 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
           "spawn, giveWeapon, patrol, paths, guard_spawned, guard_killed's player. Damage and player: before_damage's "
           "answers and refusals, damage_applied, downed, revived, died, mod.player's health and armour; the hooks' places. "
           "Sound and smoke: mod.audio's ids, volumes and places, mod.effect's smokes and places. Network: mod.net's sends, "
-          "limits and rate, held messages by channel and mod, peer_ready, a stop told to the others and taken from them")
+          "limits and rate, held messages by channel and mod, peer_ready, a stop told to the others and taken from them. "
+          "UI: mod.ui's pages and limits, the screen's clicks and changes, open and close, a stopped mod's pages hidden")
 
 
 if __name__ == "__main__":

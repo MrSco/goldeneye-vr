@@ -8,6 +8,7 @@
 #include "gevr_pause_widgets.h"
 #include "gevr_panel_ui.h"
 #include "gevr_friends_ui.h"
+#include "gevr_modui_ui.h"   /* mods' pages under Mods/Fun (mod.ui) */
 #ifdef GEVR_FLAT
 #include "gevr_keybinds_ui.h"
 #endif
@@ -123,6 +124,8 @@ int panelFrame() {
     v.settings.drawKbm=drawPauseKbm;
     v.settings.drawGamepad=drawPauseGamepad;
 #endif
+    gevrModUiAttach(v.settings);
+    if(gevrModUiAsked()>=0)panelUi.openSection=GEVR_SEC_MODS;   /* mod.ui.open: its page's tab */
     gevrPanelGauges(v.gauges);   /* the online pause's health and armour, solo too */
     gevrPauseLocalRadar(&v.radar);
     const int stage=bossGetStageNum();
@@ -153,6 +156,7 @@ extern "C" void gevrNativePauseRender(void) {
             gevrKeybindCancelCapture(gevrKeybindLive(), keybindUi);
 #endif
             vr_screen_set_width_scale(1.0f);gevrTextInputEnd();
+            gevrModUiOpened();   /* a mod's page asked for and not yet shown: the screen closed first */
         }   /* the game's own screen is 4:3 */
         wasOpen=false;return;
     }
@@ -205,6 +209,8 @@ extern "C" void gevrNativePauseRender(void) {
     view.settings.drawKbm=drawPauseKbm;
     view.settings.drawGamepad=drawPauseGamepad;
 #endif
+    gevrModUiAttach(view.settings);
+    if(gevrModUiAsked()>=0){ui.tab=GEVR_PAUSE_SETTINGS;ui.openSection=GEVR_SEC_MODS;}   /* mod.ui.open */
     snprintf(view.session,sizeof(view.session),"%s",view.coop?gevrCoopStageLabel((uint8_t)bossGetStageNum()):netStageName(netStageIndexOf((uint8_t)netGetLobbyStage())));
     snprintf(view.status,sizeof(view.status),"%s",view.coop?netDifficultyName(netGetMatchConfig()->difficulty):view.countdown>0?"Match is starting":netGetPhase()==NET_PHASE_IN_PROGRESS?"Match continues while this menu is open":"Warmup / next round");
     if(view.horde) {

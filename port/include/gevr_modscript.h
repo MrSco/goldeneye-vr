@@ -60,6 +60,9 @@ int gevrModScriptEventFor(const char *id, const char *event, const GevrModArg *a
 /* The mod stopped on another player's headset (NET_MOD_OFF): stopped here for
  * the mission too, without telling the others again. from: their slot, -1 the server */
 void gevrModScriptStopRemote(const char *id, int from);
+/* The mod with that id runs now, in a mission: not stopped, not broken
+ * (mod.ui: a stopped mod's pages hide) */
+int gevrModScriptOn(const char *id);
 /* The id of the mod a Lua state runs (gevr_modapi.c's calls) */
 const char *gevrModScriptIdOf(struct lua_State *L);
 /* A note for the local player's screen (a mod stopped or paused), taken once */

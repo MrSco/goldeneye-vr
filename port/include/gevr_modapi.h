@@ -3,7 +3,7 @@
  * sits"): the game's events into mods' scripts (gevr_modscript.c) and the
  * mod.* tables, in port/src/gevr_modapi.c, over a thin game side in
  * src/game/gevr_modgame.c. The areas so far: weapons, items, hands, guards,
- * damage and the player, sound and smoke.
+ * damage and the player, sound and smoke, the network, the UI.
  */
 #ifndef GEVR_MODAPI_H
 #define GEVR_MODAPI_H
@@ -242,6 +242,71 @@ void gevrModApiStopped(const char *id);
  * mission loads, the last one's go */
 void gevrModApiNetFlush(void);
 void gevrModApiNetClear(void);
+
+/* ---- the UI: mods' pages on the in-game screen (mod.ui) ---- */
+
+/* A page is a sub-tab under the in-game screen's Mods/Fun tab (port/vr/
+ * gevr_modui_ui.h): a line of text, rows drawn as the settings' are, and a
+ * row of buttons. The limits keep the fullest page on the screen without
+ * scrolling (port/tests/ingame_fit_native.cpp). */
+#define GEVR_MODAPI_UI_PAGES 4       /* every mod's together */
+#define GEVR_MODAPI_UI_ROWS 8
+#define GEVR_MODAPI_UI_BUTTONS 4
+#define GEVR_MODAPI_UI_CHOICES 12
+#define GEVR_MODAPI_UI_ID 32         /* a page's, row's or button's id */
+#define GEVR_MODAPI_UI_TITLE 12      /* a page's tab */
+#define GEVR_MODAPI_UI_LABEL 24      /* a row's label, a choice's name */
+#define GEVR_MODAPI_UI_BUTTON 14     /* a button's label */
+#define GEVR_MODAPI_UI_TEXT 160      /* the text above the rows, a tip */
+#define GEVR_MODAPI_UI_REASON 32     /* why a row or button can't be used now */
+#define GEVR_MODAPI_UI_RANGE 100000  /* a slider's ends: -this to this */
+#define GEVR_MODAPI_UI_STEPS 1000    /* and at most this many steps between them */
+#define GEVR_MODAPI_UI_QUEUE 32      /* clicks and changes waiting for the mod's next frame */
+enum { GEVR_MODUI_TOGGLE = 1, GEVR_MODUI_CHOICE, GEVR_MODUI_SLIDER };
+
+typedef struct GevrModUiRow {
+    int kind;                        /* GEVR_MODUI_* */
+    char id[GEVR_MODAPI_UI_ID + 1];
+    char label[GEVR_MODAPI_UI_LABEL + 1];
+    char tip[GEVR_MODAPI_UI_TEXT + 1];          /* "" none */
+    char blocked[GEVR_MODAPI_UI_REASON + 1];    /* "" usable; else greyed, with this reason */
+    int value;                       /* toggle 0 or 1; choice 0 to count - 1; slider min to max */
+    int min, max;                    /* a slider's */
+    int count;                       /* a choice's */
+    char choices[GEVR_MODAPI_UI_CHOICES][GEVR_MODAPI_UI_LABEL + 1];
+} GevrModUiRow;
+typedef struct GevrModUiButton {
+    char id[GEVR_MODAPI_UI_ID + 1];
+    char label[GEVR_MODAPI_UI_BUTTON + 1];
+    char blocked[GEVR_MODAPI_UI_REASON + 1];    /* "" usable */
+} GevrModUiButton;
+typedef struct GevrModUiPage {
+    char mod[64];                    /* the mod that made it: its events go there alone */
+    char id[GEVR_MODAPI_UI_ID + 1];
+    char title[GEVR_MODAPI_UI_TITLE + 1];
+    char text[GEVR_MODAPI_UI_TEXT + 1];
+    int rows, buttons;
+    GevrModUiRow row[GEVR_MODAPI_UI_ROWS];
+    GevrModUiButton button[GEVR_MODAPI_UI_BUTTONS];
+} GevrModUiPage;
+
+/* The in-game screen's side (port/vr/gevr_modui_ui.h, vr_pause_menu.cpp).
+ * Pages shown now: their mods run in a mission (a stopped mod's hide). i is
+ * 0 to gevrModUiCount() - 1, as they're shown this frame. */
+int gevrModUiCount(void);
+const GevrModUiPage *gevrModUiPage(int i);
+/* A row changed: kept at once, and ui_change to its mod at the next frame */
+void gevrModUiSet(int i, int row, int value);
+/* A button pressed: ui_click to its mod at the next frame */
+void gevrModUiClick(int i, int button);
+/* The page mod.ui.open asked for, as shown now (-1 none): asked until its
+ * tab is up (gevrModUiOpened) or the screen closes */
+int gevrModUiAsked(void);
+void gevrModUiOpened(void);
+/* gevr_modscript.c: each frame in play, the clicks and changes to their mods;
+ * as a mission loads, the last one's go (the pages stay) */
+void gevrModApiUiFlush(void);
+void gevrModApiUiClear(void);
 
 /* ---- the game's side (src/game/gevr_modgame.c), for gevr_modapi.c ---- */
 

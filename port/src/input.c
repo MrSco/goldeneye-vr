@@ -298,6 +298,43 @@ static int s_gevrPanelPaused;   /* it opened the watch to pause a solo mission *
 static u32 s_gevrStartUntil;    /* a START pulse until then (a Menu tap, or the panel's pause) */
 int gevrPanelIsOpen(void) { return s_gevrPanel; }
 void gevrPanelClose(void) { s_gevrPanel = 0; }
+/*
+ * A mod's page (gevr_modapi.c mod.ui.open and close): the panel opened on it
+ * as the hold opens it, a solo mission paused under it, or closed as Resume
+ * closes it. The ask is taken by the input pass that owns the panel (the
+ * headset's or the flat game's, gevrPanelTakeAsk).
+ */
+static int s_gevrPanelAsk;
+int gevrPanelAvailable(void)
+{
+#if (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR) || defined(GEVR_FLAT)
+    return 1;
+#else
+    return 0;   /* the dedicated server: no screen */
+#endif
+}
+void gevrPanelOpenAsk(void) { s_gevrPanelAsk = 1; }
+void gevrPanelCloseAsk(void)
+{
+    s_gevrPanelAsk = 0;
+#if (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR) || defined(GEVR_FLAT)
+    gevrNativePauseResume();   /* the online pause too: the match screen */
+#else
+    s_gevrPanel = 0;
+#endif
+}
+static void gevrPanelTakeAsk(u32 t, int paused)
+{
+    if (!s_gevrPanelAsk) return;
+    s_gevrPanelAsk = 0;
+    if (s_gevrPanel) return;
+    s_gevrPanel = 1;
+    if (!netIsActive() && !paused && bossGetStageNum() != LEVELID_TITLE && !lvlGetControlsLockedFlag()) {
+        s_gevrPanelPaused = 1;
+        s_gevrStartUntil = t + 100;
+    }
+    LOGI("input: panel opened for a mod's page%s\n", s_gevrPanelPaused ? " (mission paused)" : "");
+}
 extern int gevrTexpackToggle(void);        /* gfx_pc.cpp: 1 on now, 0 off now, -1 no pack */
 extern int gevrTexpackState(void);         /* gfx_pc.cpp: 1 on, 0 off, -1 no pack */
 s32 gevrTexpackToggleMsg;                  /* bondview2.c says it in a level: 2 off, 3 on */
@@ -2415,6 +2452,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 if (paused) s_gevrStartUntil = t + 100;   /* the watch it opened closes */
             }
             panelWas = s_gevrPanel;
+            gevrPanelTakeAsk(t, paused);   /* a mod's page (mod.ui.open) */
             if (toggle && s_gevrPanel) {
                 s_gevrPanel = 0;
             } else if (toggle) {
@@ -3036,6 +3074,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 if (paused) s_gevrStartUntil = t + 100;   /* the watch it opened closes */
             }
             panelWas = s_gevrPanel;
+            gevrPanelTakeAsk(t, paused);   /* a mod's page (mod.ui.open) */
             if (s_gevrPanel) {
                 /* B, Resume, or a Menu tap closes it; the hold that opened it does not */
                 if (held) {

@@ -32,6 +32,9 @@
  *     online <active> <host> <dedicated> <slot>   the network as this machine sees it
  *     netrecv <mod> <from> <channel> <text> | netoff <mod> <from> | peerready <slot>
  *     frame                        a frame in play (gevrModScriptFrame: the held messages go out)
+ *     panel <0|1>                  this build has the in-game screen (input.c gevrPanelAvailable)
+ *     ui                           the pages the in-game screen shows now (UIPAGE, UIROW, UIBUTTON, UIASKED)
+ *     uiset <page> <row> <value> | uiclick <page> <button> | uiopened   the screen's side
  *     runs <0|1>                   this machine runs the guards (solo, the co-op host) in a stage
  *     gspawned <id>                chrai.c: a guard the game spawned
  *     hurt <target> <id> <amount> <how> <part> <item> <by>    before_damage, then
@@ -66,6 +69,34 @@ bool netIsActive(void) { return s_online != 0; }
 bool netIsHost(void) { return s_hostNet != 0; }
 bool netIsDedicated(void) { return s_dedicated != 0; }
 int netGetLocalSlot(void) { return s_slot; }
+/* input.c: the in-game screen (mod.ui.open and close) */
+static int s_panel = 1;
+int gevrPanelAvailable(void) { return s_panel; }
+void gevrPanelOpenAsk(void) { printf("PANEL open\n"); }
+void gevrPanelCloseAsk(void) { printf("PANEL close\n"); }
+
+/* What the in-game screen would draw */
+static void showPages(void)
+{
+    const int n = gevrModUiCount();
+    int i, r, c;
+
+    for (i = 0; i < n; i++) {
+        const GevrModUiPage *p = gevrModUiPage(i);
+
+        printf("UIPAGE %d %s %s %s|%s\n", i, p->mod, p->id, p->title, p->text);
+        for (r = 0; r < p->rows; r++) {
+            const GevrModUiRow *w = &p->row[r];
+
+            printf("UIROW %d %d %d %s %s|%d|%d|%d|", i, r, w->kind, w->id, w->label, w->value, w->min, w->max);
+            for (c = 0; c < w->count; c++) printf("%s%s", c ? "," : "", w->choices[c]);
+            printf("|%s|%s\n", w->blocked, w->tip);
+        }
+        for (r = 0; r < p->buttons; r++) printf("UIBUTTON %d %d %s %s|%s\n", i, r, p->button[r].id, p->button[r].label, p->button[r].blocked);
+    }
+    printf("UIASKED %d of %d\n", gevrModUiAsked(), n);
+}
+
 int netSendModMessage(int kind, int to, const char *mod, const char *channel, const void *data, int len)
 {
     int i;
@@ -577,6 +608,18 @@ int main(int argc, char **argv)
             i += 2;
         } else if (!strcmp(cmd, "peerready") && i + 1 < argc) {
             gevrModApiPeerReady(atoi(argv[++i]));
+        } else if (!strcmp(cmd, "panel") && i + 1 < argc) {
+            s_panel = atoi(argv[++i]);
+        } else if (!strcmp(cmd, "ui")) {
+            showPages();
+        } else if (!strcmp(cmd, "uiset") && i + 3 < argc) {
+            gevrModUiSet(atoi(argv[i + 1]), atoi(argv[i + 2]), atoi(argv[i + 3]));
+            i += 3;
+        } else if (!strcmp(cmd, "uiclick") && i + 2 < argc) {
+            gevrModUiClick(atoi(argv[i + 1]), atoi(argv[i + 2]));
+            i += 2;
+        } else if (!strcmp(cmd, "uiopened")) {
+            gevrModUiOpened();
         } else if (!strcmp(cmd, "frame")) {
             gevrModScriptFrame(1);
         } else if (!strcmp(cmd, "runs") && i + 1 < argc) {

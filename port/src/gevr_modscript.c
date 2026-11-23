@@ -49,6 +49,8 @@ extern void gevrModApiReset(void);
 extern void gevrModApiStopped(const char *id);   /* mod.net: a stop here, told to the others */
 extern void gevrModApiNetFlush(void);            /* mod.net: the held messages, each frame in play */
 extern void gevrModApiNetClear(void);            /* and the last mission's, as one loads */
+extern void gevrModApiUiFlush(void);             /* mod.ui: the screen's clicks and changes, each frame in play */
+extern void gevrModApiUiClear(void);             /* and the last mission's, as one loads */
 
 #define MAX_MODS 4
 #define PATH_CAP (FS_MAXPATH * 2)
@@ -96,6 +98,8 @@ static const char *const s_events[] = {
     "before_damage", "damage_applied", "player_downed", "player_revived", "player_died",
     /* the network */
     "peer_ready",
+    /* the UI */
+    "ui_click", "ui_change",
 };
 
 static void note(const char *fmt, ...)
@@ -799,6 +803,16 @@ void gevrModScriptStopRemote(const char *id, int from)
     }
 }
 
+int gevrModScriptOn(const char *id)
+{
+    int k;
+
+    for (k = 0; k < s_count && s_inMission && id; k++) {
+        if (!strcmp(s_mods[k].id, id)) return !s_mods[k].broken && !s_mods[k].off;
+    }
+    return 0;
+}
+
 const char *gevrModScriptIdOf(lua_State *L)
 {
     return modOf(L)->id;
@@ -907,6 +921,7 @@ void gevrModScriptStageLoad(int stage, int mission, int done)
             gevrModApiReset();   /* weapon stats and the like: the game's own again */
         }
         gevrModApiNetClear();   /* the last mission's messages */
+        gevrModApiUiClear();    /* and its clicks and changes (the pages stay) */
         if (!mission) return;
         s_inMission = 1;
         s_playing = 0;
@@ -997,6 +1012,7 @@ void gevrModScriptFrame(int ticks)
 
     if (!s_count || !s_inMission || !s_playing) return;
     gevrModApiNetFlush();   /* mod.net's messages, held while the mission loaded */
+    gevrModApiUiFlush();    /* mod.ui's clicks and changes on the in-game screen */
     a.kind = 1;
     a.n = ticks > 0 ? ticks / 60.0 : 0.0;
     if (a.n > GEVR_MODSCRIPT_TICK_CAP) a.n = GEVR_MODSCRIPT_TICK_CAP;

@@ -7,9 +7,145 @@
 // reason beside it, and the footer stays on the canvas.
 #include "gevr_panel_ui.h"
 #include "gevr_pause_widgets.h"
+#include "gevr_modui_ui.h"
 #include "imgui/imgui_internal.h"
 #include "settings_table_stubs.h"
 #include "settings_fit.h"
+
+// Mods' pages (mod.ui, gevr_modui_ui.h) at their fullest: every mod's four,
+// each with the longest title, text, labels, choices and reasons
+// gevr_modapi.c takes, eight rows and four buttons.
+static GevrModUiPage s_modPages[GEVR_MODAPI_UI_PAGES];
+static int s_modAsked = -1, s_modClicked = -1, s_modSetPage = -1, s_modSetRow = -1, s_modSetValue = 0;
+static void fillText(char *out, int n, char c) { for (int i = 0; i < n; i++) out[i] = c; out[n] = '\0'; }
+static void makeModPages() {
+    for (int p = 0; p < GEVR_MODAPI_UI_PAGES; p++) {
+        GevrModUiPage &g = s_modPages[p];
+        g = GevrModUiPage{};
+        snprintf(g.mod, sizeof(g.mod), "tactical");
+        snprintf(g.id, sizeof(g.id), "page%d", p);
+        fillText(g.title, GEVR_MODAPI_UI_TITLE, (char)('A' + p));
+        fillText(g.text, GEVR_MODAPI_UI_TEXT, 'T');
+        for (int i = 9; i < GEVR_MODAPI_UI_TEXT; i += 10) g.text[i] = ' ';   // words, as text wraps
+        g.rows = GEVR_MODAPI_UI_ROWS;
+        for (int r = 0; r < g.rows; r++) {
+            GevrModUiRow &w = g.row[r];
+            snprintf(w.id, sizeof(w.id), "row%d", r);
+            fillText(w.label, GEVR_MODAPI_UI_LABEL, 'L');
+            fillText(w.tip, GEVR_MODAPI_UI_TEXT, 'P');
+            w.kind = r % 3 == 0 ? GEVR_MODUI_TOGGLE : r % 3 == 1 ? GEVR_MODUI_CHOICE : GEVR_MODUI_SLIDER;
+            if (w.kind == GEVR_MODUI_TOGGLE) {
+                fillText(w.blocked, GEVR_MODAPI_UI_REASON, 'R');   // a toggle's reason sits beside it: its widest
+                w.value = 1;
+            } else if (w.kind == GEVR_MODUI_CHOICE) {
+                w.count = GEVR_MODAPI_UI_CHOICES;
+                for (int c = 0; c < w.count; c++) fillText(w.choices[c], GEVR_MODAPI_UI_LABEL, 'C');
+                w.value = 3;
+            } else {
+                w.min = -GEVR_MODAPI_UI_RANGE; w.max = w.min + GEVR_MODAPI_UI_STEPS; w.value = w.min;   // "-100000"
+            }
+        }
+        g.buttons = GEVR_MODAPI_UI_BUTTONS;
+        for (int b = 0; b < g.buttons; b++) {
+            snprintf(g.button[b].id, sizeof(g.button[b].id), "button%d", b);
+            fillText(g.button[b].label, GEVR_MODAPI_UI_BUTTON, 'B');
+            if (b == 3) fillText(g.button[b].blocked, GEVR_MODAPI_UI_REASON, 'R');
+        }
+    }
+}
+static GevrModUiApi fakeModUi() {
+    GevrModUiApi m;
+    m.count = []() { return GEVR_MODAPI_UI_PAGES; };
+    m.page = [](int i) -> const GevrModUiPage * { return i >= 0 && i < GEVR_MODAPI_UI_PAGES ? &s_modPages[i] : nullptr; };
+    m.set = [](int page, int row, int value) { s_modSetPage = page; s_modSetRow = row; s_modSetValue = value; };
+    m.click = [](int page, int button) { s_modClicked = page * 10 + button; };
+    m.asked = []() { return s_modAsked; };
+    m.opened = []() { s_modAsked = -1; };
+    return m;
+}
+// A child drawn this frame by its own name: the last part of its path ("parent/##name_ID"),
+// so ##panel-rows isn't taken for the ##modui-rows inside it
+static ImGuiWindow *activeWindow(const char *name) {
+    ImGuiWindow *found = nullptr;
+    for (ImGuiWindow *x : ImGui::GetCurrentContext()->Windows) {
+        const char *leaf = strrchr(x->Name, '/');
+        leaf = leaf ? leaf + 1 : x->Name;
+        if (!strncmp(leaf, name, strlen(name)) && x->Active && x->LastFrameActive == ImGui::GetFrameCount()) found = x;
+    }
+    return found;
+}
+// Each page brought up as mod.ui.open brings it up (vr_pause_menu.cpp: the Mods/Fun tab
+// while asked, the page's sub-tab by the drawing), and checked to fit.
+static int modScreens;
+static void sweepMods(bool online, const char *state) {
+    GevrPanelView panel; GevrPanelUi panelUi;
+    GevrPauseView pause; GevrPauseUi pauseUi;
+    panel.settings = pause.settings = gevrSettingsLive();
+    panel.settings.extraTabs = pause.settings.extraTabs = gevrModUiTabCount;
+    panel.settings.drawExtraTabs = pause.settings.drawExtraTabs = gevrModUiTabs;
+    gevrModUi() = fakeModUi();
+    for (int p = 0; p < GEVR_MODAPI_UI_PAGES; p++) {
+        s_modAsked = p;
+        for (int pass = 0; pass < 4; pass++) {
+            if (s_modAsked >= 0) {
+                panelUi.openSection = GEVR_SEC_MODS;
+                pauseUi.tab = GEVR_PAUSE_SETTINGS; pauseUi.openSection = GEVR_SEC_MODS;
+            }
+            ImGui::NewFrame();
+            if (online) gevrDrawPauseWindow(pause, pauseUi);
+            else gevrDrawPanelWindow(panel, panelUi);
+            ImGui::Render();
+        }
+        char what[220];
+        std::snprintf(what, sizeof(what), "%s: page %d's tab is up and the ask done", state, p);
+        settingsFitFail(s_modAsked == -1, what);
+        ImGuiWindow *box = activeWindow("##panel-rows"), *rows = activeWindow("##modui-rows");
+        std::snprintf(what, sizeof(what), "%s: page %d is drawn", state, p);
+        settingsFitFail(box && rows, what);
+        std::snprintf(what, sizeof(what), "%s: page %d fits without scrolling (content %.0f, box %.0f; rows %.0f of %.0f)",
+                      state, p, box->ContentSize.y, box->Size.y, rows->ContentSize.y, rows->Size.y);
+        settingsFitFail(box->ContentSize.y <= box->Size.y && rows->ContentSize.y <= rows->Size.y, what);
+        std::snprintf(what, sizeof(what), "%s: page %d and its four buttons fit the width (%.0f of %.0f)", state, p,
+                      box->ContentSize.x + box->WindowPadding.x * 2, box->Size.x);
+        settingsFitFail(box->ContentSize.x + box->WindowPadding.x * 2 <= box->Size.x + 1, what);
+        std::snprintf(what, sizeof(what), "%s, page %d", state, p);
+        settingsFitControls(gevrModUiRowsApi(p), 0, GEVR_SET_INGAME, rows->Size.x - rows->WindowPadding.x * 2, what);
+        for (ImGuiWindow *w : ImGui::GetCurrentContext()->Windows)
+            if (w->WasActive && !(w->Flags & ImGuiWindowFlags_Tooltip) && w->ScrollMax.y > 0.5f) {
+                std::snprintf(what, sizeof(what), "%s: page %d: %s scrolls by %.1f", state, p, w->Name, w->ScrollMax.y);
+                settingsFitFail(false, what);
+            }
+        ImGuiContext &g = *ImGui::GetCurrentContext();
+        for (int t = 0; t < g.TabBars.GetMapSize(); t++)
+            if (ImGuiTabBar *bar = g.TabBars.TryGetMapData(t)) {
+                std::snprintf(what, sizeof(what), "%s: the tab rows with Options and four pages fit without shrinking", state);
+                settingsFitFail(bar->WidthAllTabsIdeal <= bar->BarRect.GetWidth() + 1, what);
+            }
+        modScreens++;
+    }
+    // a button pressed with the pointer: the page's click, a blocked one's none
+    ImGuiIO &io = ImGui::GetIO();
+    for (int b : {1, 3}) {
+        ImGuiWindow *rows = activeWindow("##modui-rows");
+        const ImGuiStyle &style = ImGui::GetStyle();
+        const float x = rows->Pos.x + b * (GEVR_MODUI_BUTTON_W + style.ItemSpacing.x) + GEVR_MODUI_BUTTON_W / 2;
+        const float y = rows->Pos.y + rows->Size.y + style.ItemSpacing.y * 2 + GEVR_MODUI_BUTTON_H / 2;
+        s_modClicked = -1;
+        for (int step = 0; step < 4; step++) {
+            if (step == 0) io.AddMousePosEvent(x, y);
+            if (step == 1) io.AddMouseButtonEvent(0, true);
+            if (step == 2) io.AddMouseButtonEvent(0, false);
+            ImGui::NewFrame();
+            if (online) gevrDrawPauseWindow(pause, pauseUi);
+            else gevrDrawPanelWindow(panel, panelUi);
+            ImGui::Render();
+        }
+        char what[160];
+        std::snprintf(what, sizeof(what), "%s: button %d of the last page %s", state, b, b == 3 ? "is blocked" : "clicks");
+        settingsFitFail(s_modClicked == (b == 3 ? -1 : (GEVR_MODAPI_UI_PAGES - 1) * 10 + b), what);
+    }
+    io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+}
 
 // mpmenu.c's fields at their fullest, with the longest names they can show
 // (net_match.c): a custom weapon set, fixed bots, teams, loadouts
@@ -215,8 +351,45 @@ int main() {
         clickPanel(modal->Pos.x + 320.0f, modal->Pos.y + modal->Size.y - 36.0f);
         settingsFitFail(panelAction == GEVR_PANEL_LAUNCHER, "Confirm returns GEVR_PANEL_LAUNCHER");
     }
+    // Mods' pages under Mods/Fun: solo (flat, stereo) and online, at their fullest
+    makeModPages();
+    VrPlayMode = 0; s_net = 0;
+    sweepMods(false, "mods' pages, solo, flat");
+    VrPlayMode = 1;
+    sweepMods(false, "mods' pages, solo, stereo");
+    VrPlayMode = 0; s_net = 1; s_host = 1; s_coop = 1;
+    sweepMods(true, "mods' pages, online, co-op host");
+    s_net = 0; s_host = 0; s_coop = 0;
+    settingsFitFail(modScreens == 3 * GEVR_MODAPI_UI_PAGES, "every page on both screens");
+    // the rows as the settings renderer reads them: a slider by its steps from min, a choice by its names
+    {
+        gevrModUi() = fakeModUi();
+        const GevrSettingsApi rows = gevrModUiRowsApi(1);
+        GevrSettingInfo info{};
+        char text[64];
+        settingsFitFail(rows.sectionRows(0, GEVR_SET_INGAME, nullptr, 0) == GEVR_MODAPI_UI_ROWS, "a page's rows");
+        settingsFitFail(rows.info(0, &info) && info.kind == GEVR_SET_TOGGLE && rows.positions(0) == 2 && rows.index(0) == 1
+                        && rows.blocked(0) != nullptr, "a toggle: on, blocked with its reason");
+        settingsFitFail(rows.info(1, &info) && info.kind == GEVR_SET_CHOICE && rows.positions(1) == GEVR_MODAPI_UI_CHOICES
+                        && rows.index(1) == 3 && rows.blocked(1) == nullptr, "a choice: its count, its index");
+        settingsFitFail(rows.info(2, &info) && info.kind == GEVR_SET_RANGE && rows.positions(2) == GEVR_MODAPI_UI_STEPS + 1
+                        && rows.index(2) == 0 && rows.defaultIndex(2) < 0, "a slider: steps from min, no Reset");
+        rows.text(2, 7, text, sizeof(text));
+        settingsFitFail(!strcmp(text, "-99993"), "a slider's step shows its value");
+        rows.set(2, 7);
+        settingsFitFail(s_modSetPage == 1 && s_modSetRow == 2 && s_modSetValue == -GEVR_MODAPI_UI_RANGE + 7,
+                        "a slider set by its step: the value goes to the page");
+        rows.set(1, 5);
+        settingsFitFail(s_modSetRow == 1 && s_modSetValue == 5, "a choice set by its index");
+        settingsFitFail(rows.info(GEVR_MODAPI_UI_ROWS, &info) == 0, "past the rows: none");
+        // no pages: Mods/Fun as before, no sub-tabs
+        GevrModUiApi none;
+        gevrModUi() = none;
+        settingsFitFail(gevrModUiTabCount(GEVR_SEC_MODS) == 0, "no pages: no extra tabs");
+    }
     ImGui::DestroyContext();
     std::printf("PASS: in-game settings: the solo panel and the online Settings tab, %d sections (flat, stereo, co-op host, "
                 "joiner), and the online Rules, Player and Audio tabs at their fullest (host, joiner): rows, labels, "
-                "controls and reasons fit without scrolling at Quest font size\n", screens);
+                "controls and reasons fit without scrolling at Quest font size; mods' pages at their fullest (four, "
+                "eight rows, four buttons) under Mods/Fun on both screens, brought up as mod.ui.open asks, clicked\n", screens);
 }

@@ -933,6 +933,239 @@ static const luaL_Reg s_netFuncs[] = {
     { NULL, NULL },
 };
 
+/* ---- mod.ui ---- */
+
+/* input.c: the in-game screen (port/vr/vr_pause_menu.cpp) */
+extern int gevrPanelAvailable(void);   /* this build has it (not the dedicated server) */
+extern void gevrPanelOpenAsk(void);    /* open it as the hold does (a solo mission pauses) */
+extern void gevrPanelCloseAsk(void);   /* close it as Resume does */
+
+static GevrModUiPage s_pages[GEVR_MODAPI_UI_PAGES];
+static int s_pageCount;
+static int s_uiAsk = -1;   /* the s_pages entry mod.ui.open asked for */
+
+/* Text: printable ASCII, spaces too (a name: no spaces), 1 to max characters */
+static int uiTextOk(const char *s, size_t n, size_t max, int name)
+{
+    size_t i;
+
+    if (n == 0 || n > max) return 0;
+    for (i = 0; i < n; i++) {
+        if (s[i] < (name ? 0x21 : 0x20) || s[i] > 0x7e) return 0;
+    }
+    return 1;
+}
+
+/* A text field of the table at t into out: 1 when there, 0 when absent and
+ * not needed; anything else the caller's message as an error */
+static int uiField(lua_State *L, int t, const char *field, char *out, size_t max, int name, int needed, const char *what)
+{
+    size_t n = 0;
+    const char *s;
+    const int type = lua_getfield(L, t, field);
+
+    out[0] = '\0';
+    if (type == LUA_TNIL && !needed) {
+        lua_pop(L, 1);
+        return 0;
+    }
+    s = type == LUA_TSTRING ? lua_tolstring(L, -1, &n) : NULL;
+    if (!s || !uiTextOk(s, n, max, name)) luaL_error(L, "mod.ui.page: %s is %s", field, what);
+    memcpy(out, s, n);
+    out[n] = '\0';
+    lua_pop(L, 1);
+    return 1;
+}
+
+/* blocked: absent, false, or the reason (a string) the row or button can't be used now */
+static void uiBlocked(lua_State *L, int t, char *out)
+{
+    const int type = lua_getfield(L, t, "blocked");
+    const int on = lua_toboolean(L, -1);
+
+    lua_pop(L, 1);
+    out[0] = '\0';
+    if (type == LUA_TNIL || (type == LUA_TBOOLEAN && !on)) return;
+    if (type == LUA_TBOOLEAN) {   /* true: no reason given */
+        snprintf(out, GEVR_MODAPI_UI_REASON + 1, "Not now");
+        return;
+    }
+    uiField(L, t, "blocked", out, GEVR_MODAPI_UI_REASON, 0, 1, "false, or the reason it can't be used now (1 to 32 characters)");
+}
+
+static void uiRow(lua_State *L, int t, GevrModUiRow *r, int index)
+{
+    char kind[16];
+    int k;
+
+    memset(r, 0, sizeof(*r));
+    if (!lua_istable(L, t)) luaL_error(L, "mod.ui.page: rows[%d] is a table", index);
+    uiField(L, t, "kind", kind, sizeof(kind) - 1, 1, 1, "\"toggle\", \"choice\" or \"slider\"");
+    r->kind = !strcmp(kind, "toggle") ? GEVR_MODUI_TOGGLE : !strcmp(kind, "choice") ? GEVR_MODUI_CHOICE
+            : !strcmp(kind, "slider") ? GEVR_MODUI_SLIDER : 0;
+    if (!r->kind) luaL_error(L, "mod.ui.page: kind is \"toggle\", \"choice\" or \"slider\"");
+    uiField(L, t, "id", r->id, GEVR_MODAPI_UI_ID, 1, 1, "1 to 32 printable characters, no spaces");
+    uiField(L, t, "label", r->label, GEVR_MODAPI_UI_LABEL, 0, 1, "1 to 24 printable characters");
+    uiField(L, t, "tip", r->tip, GEVR_MODAPI_UI_TEXT, 0, 0, "1 to 160 printable characters");
+    uiBlocked(L, t, r->blocked);
+    if (r->kind == GEVR_MODUI_TOGGLE) {
+        const int type = lua_getfield(L, t, "value");
+
+        if (type != LUA_TNIL && type != LUA_TBOOLEAN) luaL_error(L, "mod.ui.page: a toggle's value is true or false");
+        r->value = lua_toboolean(L, -1);
+        lua_pop(L, 1);
+    } else if (r->kind == GEVR_MODUI_CHOICE) {
+        if (lua_getfield(L, t, "choices") != LUA_TTABLE) luaL_error(L, "mod.ui.page: a choice has choices, 2 to 12 names");
+        r->count = (int)lua_rawlen(L, -1);
+        if (r->count < 2 || r->count > GEVR_MODAPI_UI_CHOICES) luaL_error(L, "mod.ui.page: a choice has choices, 2 to 12 names");
+        for (k = 0; k < r->count; k++) {
+            size_t n = 0;
+            const char *s = lua_rawgeti(L, -1, k + 1) == LUA_TSTRING ? lua_tolstring(L, -1, &n) : NULL;
+
+            if (!s || !uiTextOk(s, n, GEVR_MODAPI_UI_LABEL, 0)) {
+                luaL_error(L, "mod.ui.page: each choice is 1 to 24 printable characters");
+            }
+            memcpy(r->choices[k], s, n);
+            r->choices[k][n] = '\0';
+            lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
+        if (wholeField(L, t, "value", 1, r->count, &r->value, "mod.ui.page", "a choice's number, 1 to its count")) r->value--;
+    } else {
+        if (!wholeField(L, t, "min", -GEVR_MODAPI_UI_RANGE, GEVR_MODAPI_UI_RANGE, &r->min, "mod.ui.page",
+                        "a whole number, -100000 to 100000")
+            || !wholeField(L, t, "max", -GEVR_MODAPI_UI_RANGE, GEVR_MODAPI_UI_RANGE, &r->max, "mod.ui.page",
+                           "a whole number, -100000 to 100000")) {
+            luaL_error(L, "mod.ui.page: a slider has min and max");
+        }
+        if (r->max <= r->min || r->max - r->min > GEVR_MODAPI_UI_STEPS) {
+            luaL_error(L, "mod.ui.page: a slider's max is above its min, at most 1000 steps");
+        }
+        r->value = r->min;
+        wholeField(L, t, "value", r->min, r->max, &r->value, "mod.ui.page", "a whole number from min to max");
+    }
+}
+
+/* page(id, {title, text, rows, buttons}): a sub-tab under the in-game
+ * screen's Mods/Fun, made or replaced */
+static int l_uiPage(lua_State *L)
+{
+    const char *mod = gevrModScriptIdOf(L);
+    GevrModUiPage p;
+    size_t n;
+    const char *id = luaL_checklstring(L, 1, &n);
+    int i, k, at = -1;
+
+    if (!uiTextOk(id, n, GEVR_MODAPI_UI_ID, 1)) return luaL_argerror(L, 1, "a page's id is 1 to 32 printable characters, no spaces");
+    luaL_checktype(L, 2, LUA_TTABLE);
+    memset(&p, 0, sizeof(p));
+    snprintf(p.mod, sizeof(p.mod), "%s", mod);
+    memcpy(p.id, id, n);
+    uiField(L, 2, "title", p.title, GEVR_MODAPI_UI_TITLE, 0, 1, "1 to 12 printable characters");
+    uiField(L, 2, "text", p.text, GEVR_MODAPI_UI_TEXT, 0, 0, "1 to 160 printable characters");
+    if (lua_getfield(L, 2, "rows") != LUA_TNIL) {
+        if (!lua_istable(L, -1) || lua_rawlen(L, -1) > GEVR_MODAPI_UI_ROWS) luaL_error(L, "mod.ui.page: rows is a list of at most 8");
+        p.rows = (int)lua_rawlen(L, -1);
+        for (i = 0; i < p.rows; i++) {
+            lua_rawgeti(L, -1, i + 1);
+            uiRow(L, lua_gettop(L), &p.row[i], i + 1);
+            lua_pop(L, 1);
+            for (k = 0; k < i; k++) {
+                if (!strcmp(p.row[k].id, p.row[i].id)) luaL_error(L, "mod.ui.page: two rows have the id %s", p.row[i].id);
+            }
+        }
+    }
+    lua_pop(L, 1);
+    if (lua_getfield(L, 2, "buttons") != LUA_TNIL) {
+        if (!lua_istable(L, -1) || lua_rawlen(L, -1) > GEVR_MODAPI_UI_BUTTONS) {
+            luaL_error(L, "mod.ui.page: buttons is a list of at most 4");
+        }
+        p.buttons = (int)lua_rawlen(L, -1);
+        for (i = 0; i < p.buttons; i++) {
+            const int t = lua_gettop(L) + 1;
+
+            if (lua_rawgeti(L, -1, i + 1) != LUA_TTABLE) luaL_error(L, "mod.ui.page: buttons[%d] is a table", i + 1);
+            uiField(L, t, "id", p.button[i].id, GEVR_MODAPI_UI_ID, 1, 1, "1 to 32 printable characters, no spaces");
+            uiField(L, t, "label", p.button[i].label, GEVR_MODAPI_UI_BUTTON, 0, 1, "1 to 14 printable characters");
+            uiBlocked(L, t, p.button[i].blocked);
+            lua_pop(L, 1);
+            for (k = 0; k < i; k++) {
+                if (!strcmp(p.button[k].id, p.button[i].id)) luaL_error(L, "mod.ui.page: two buttons have the id %s", p.button[i].id);
+            }
+        }
+    }
+    lua_pop(L, 1);
+    for (i = 0; i < s_pageCount; i++) {
+        if (!strcmp(s_pages[i].mod, mod) && !strcmp(s_pages[i].id, p.id)) at = i;
+    }
+    if (at < 0) {
+        if (s_pageCount == GEVR_MODAPI_UI_PAGES) return luaL_error(L, "mod.ui.page: at most 4 pages, every mod's together");
+        at = s_pageCount++;
+    }
+    s_pages[at] = p;
+    return 0;
+}
+
+static int ownPage(lua_State *L, int arg)
+{
+    const char *mod = gevrModScriptIdOf(L);
+    const char *id = luaL_checkstring(L, arg);
+    int i;
+
+    for (i = 0; i < s_pageCount; i++) {
+        if (!strcmp(s_pages[i].mod, mod) && !strcmp(s_pages[i].id, id)) return i;
+    }
+    return -1;
+}
+
+/* remove(id): true when the mod had that page */
+static int l_uiRemove(lua_State *L)
+{
+    const int at = ownPage(L, 1);
+
+    if (at >= 0) {
+        memmove(&s_pages[at], &s_pages[at + 1], sizeof(s_pages[0]) * (size_t)(s_pageCount - at - 1));
+        s_pageCount--;
+        s_uiAsk = s_uiAsk == at ? -1 : s_uiAsk > at ? s_uiAsk - 1 : s_uiAsk;
+    }
+    lua_pushboolean(L, at >= 0);
+    return 1;
+}
+
+/* open(id): the in-game screen on that page (a solo mission pauses, as the
+ * hold's does); false where there's no screen (the dedicated server) */
+static int l_uiOpen(lua_State *L)
+{
+    const int at = ownPage(L, 1);
+
+    if (at < 0) return luaL_argerror(L, 1, "no page of this mod's has that id (mod.ui.page)");
+    if (!gevrPanelAvailable() || netIsDedicated()) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    s_uiAsk = at;
+    gevrPanelOpenAsk();
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+/* close(): the in-game screen closed, as Resume closes it */
+static int l_uiClose(lua_State *L)
+{
+    (void)L;
+    s_uiAsk = -1;
+    if (gevrPanelAvailable()) gevrPanelCloseAsk();
+    return 0;
+}
+
+static const luaL_Reg s_uiFuncs[] = {
+    { "page", l_uiPage },
+    { "remove", l_uiRemove },
+    { "open", l_uiOpen },
+    { "close", l_uiClose },
+    { NULL, NULL },
+};
+
 static const luaL_Reg s_handFuncs[] = {
     { "position", l_handPosition },
     { "anchor", l_handAnchor },
@@ -981,6 +1214,9 @@ void gevrModApiOpen(lua_State *L)
     lua_newtable(L);
     luaL_setfuncs(L, s_netFuncs, 0);
     lua_setfield(L, -2, "net");
+    lua_newtable(L);
+    luaL_setfuncs(L, s_uiFuncs, 0);
+    lua_setfield(L, -2, "ui");
 }
 
 void gevrModApiReset(void)
@@ -1615,4 +1851,143 @@ void gevrModApiPeerReady(int slot)
 {
     if (!gevrModScriptRunning() || slot < 0 || slot >= 32) return;
     s_readyHeld |= 1u << slot;
+}
+
+/* ---- the UI's side: the in-game screen ---- */
+
+/* The clicks and changes, for the mods' next frame */
+static struct {
+    char mod[64], page[GEVR_MODAPI_UI_ID + 1], what[GEVR_MODAPI_UI_ID + 1];
+    int kind;    /* 0 a click, else the row's GEVR_MODUI_* */
+    int value;
+} s_uiQueue[GEVR_MODAPI_UI_QUEUE];
+static int s_uiQueued, s_uiDropped;
+
+/* The s_pages entry shown i-th now, -1 none */
+static int uiShown(int i)
+{
+    int k;
+
+    for (k = 0; k < s_pageCount && i >= 0; k++) {
+        if (gevrModScriptOn(s_pages[k].mod) && i-- == 0) return k;
+    }
+    return -1;
+}
+
+int gevrModUiCount(void)
+{
+    int k, n = 0;
+
+    for (k = 0; k < s_pageCount; k++) n += gevrModScriptOn(s_pages[k].mod) != 0;
+    return n;
+}
+
+const GevrModUiPage *gevrModUiPage(int i)
+{
+    const int k = uiShown(i);
+
+    return k >= 0 ? &s_pages[k] : NULL;
+}
+
+static void uiQueue(const GevrModUiPage *p, const char *what, int kind, int value)
+{
+    int q;
+
+    /* a slider dragged: its last value, once */
+    for (q = 0; kind && q < s_uiQueued; q++) {
+        if (s_uiQueue[q].kind == kind && !strcmp(s_uiQueue[q].mod, p->mod) && !strcmp(s_uiQueue[q].page, p->id)
+            && !strcmp(s_uiQueue[q].what, what)) {
+            s_uiQueue[q].value = value;
+            return;
+        }
+    }
+    if (s_uiQueued == GEVR_MODAPI_UI_QUEUE) {
+        s_uiDropped++;
+        return;
+    }
+    q = s_uiQueued++;
+    snprintf(s_uiQueue[q].mod, sizeof(s_uiQueue[q].mod), "%s", p->mod);
+    snprintf(s_uiQueue[q].page, sizeof(s_uiQueue[q].page), "%s", p->id);
+    snprintf(s_uiQueue[q].what, sizeof(s_uiQueue[q].what), "%s", what);
+    s_uiQueue[q].kind = kind;
+    s_uiQueue[q].value = value;
+}
+
+void gevrModUiSet(int i, int row, int value)
+{
+    const int k = uiShown(i);
+    GevrModUiRow *r;
+
+    if (k < 0 || row < 0 || row >= s_pages[k].rows) return;
+    r = &s_pages[k].row[row];
+    if (r->blocked[0]) return;
+    if (r->kind == GEVR_MODUI_TOGGLE) value = value != 0;
+    else if (r->kind == GEVR_MODUI_CHOICE && (value < 0 || value >= r->count)) return;
+    else if (r->kind == GEVR_MODUI_SLIDER) value = value < r->min ? r->min : value > r->max ? r->max : value;
+    if (value == r->value) return;
+    r->value = value;
+    uiQueue(&s_pages[k], r->id, r->kind, value);
+}
+
+void gevrModUiClick(int i, int button)
+{
+    const int k = uiShown(i);
+
+    if (k < 0 || button < 0 || button >= s_pages[k].buttons || s_pages[k].button[button].blocked[0]) return;
+    uiQueue(&s_pages[k], s_pages[k].button[button].id, 0, 0);
+}
+
+int gevrModUiAsked(void)
+{
+    int i;
+
+    if (s_uiAsk < 0 || s_uiAsk >= s_pageCount || !gevrModScriptOn(s_pages[s_uiAsk].mod)) return -1;
+    for (i = 0; uiShown(i) >= 0; i++) {
+        if (uiShown(i) == s_uiAsk) return i;
+    }
+    return -1;
+}
+
+void gevrModUiOpened(void)
+{
+    s_uiAsk = -1;
+}
+
+void gevrModApiUiFlush(void)
+{
+    int q, n = s_uiQueued;
+    static struct {
+        char mod[64], page[GEVR_MODAPI_UI_ID + 1], what[GEVR_MODAPI_UI_ID + 1];
+        int kind, value;
+    } taken[GEVR_MODAPI_UI_QUEUE];
+
+    if (s_uiDropped) {
+        sysLogPrintf(LOG_WARNING, "mods: %d click(s) or change(s) dropped: more than %d waited", s_uiDropped,
+                     GEVR_MODAPI_UI_QUEUE);
+        s_uiDropped = 0;
+    }
+    /* taken first: a handler can change the pages, and the screen queues more only as it draws */
+    memcpy(taken, s_uiQueue, sizeof(s_uiQueue[0]) * (size_t)n);
+    s_uiQueued = 0;
+    for (q = 0; q < n; q++) {
+        GevrModArg a[3];
+
+        a[0].kind = GEVR_MODARG_STRING;
+        a[0].s = taken[q].page;
+        a[1].kind = GEVR_MODARG_STRING;
+        a[1].s = taken[q].what;
+        if (!taken[q].kind) {
+            gevrModScriptEventFor(taken[q].mod, "ui_click", a, 2);
+            continue;
+        }
+        a[2].kind = taken[q].kind == GEVR_MODUI_TOGGLE ? GEVR_MODARG_BOOL : GEVR_MODARG_INTEGER;
+        a[2].n = taken[q].kind == GEVR_MODUI_CHOICE ? taken[q].value + 1 : taken[q].value;   /* a choice's number from 1 */
+        gevrModScriptEventFor(taken[q].mod, "ui_change", a, 3);
+    }
+}
+
+void gevrModApiUiClear(void)
+{
+    s_uiQueued = s_uiDropped = 0;
+    s_uiAsk = -1;
 }

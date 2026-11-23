@@ -49,6 +49,8 @@ void gevrModApiReset(void) { s_resets++; }
 void gevrModApiStopped(const char *id) { printf("STOPPED %s\n", id); }   /* mod.net: told to the others */
 void gevrModApiNetFlush(void) {}
 void gevrModApiNetClear(void) {}
+void gevrModApiUiFlush(void) {}   /* mod.ui */
+void gevrModApiUiClear(void) {}
 
 const char *fsFullPath(const char *rel)
 {

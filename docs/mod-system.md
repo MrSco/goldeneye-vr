@@ -334,7 +334,7 @@ is the proposal to refine with mod authors (Tactical first).
 | Guards | `guard_spawning`, `guard_spawned`, `guard_alerted`, `guard_shot`, `guard_killed`, `corpse_retiring` | read state, give a guard's weapon or outfit (from the ROM's bodies), spawn a guard and send it along a patrol path through the game's own spawn and AI commands |
 | Damage and player | `before_damage`, `damage_applied` (a player's too: no separate `player_damaged`), `player_downed`, `player_revived`, `player_died` | health and armour |
 | Assets | — | load a model or texture from the pack, attach it to a hand, gun or body slot, `mod.audio.play` (ROM sound effects only), `mod.effect.play` |
-| UI | — | a watch page from a simple layout (rows, buttons, sliders) |
+| UI | `ui_click`, `ui_change` | a page on the in-game screen from a simple layout (text, toggles, choices, sliders, buttons): `mod.ui.page`, `remove`, `open`, `close` |
 | Network | `peer_ready`, `mod.net.on` (includes the sender's player ID) | `mod.net.send`, `mod.net.role`, `mod.net.slot` |
 | Storage | — | read and write in `mods/<id>/save/` |
 
@@ -345,7 +345,7 @@ multiplayer modes, anything per vertex or per draw call.
 
 Each event and call is a thin adapter over a system the game already has
 (for example the body slots, hand reload, pickups, guard spawning, the
-watch). We maintain the adapters, not the mods.
+in-game screen). We maintain the adapters, not the mods.
 
 - **In the API:** events for what the game does, a way to cancel or change
   it at that moment (a shot, a pickup, damage, a guard's loadout), and calls
@@ -354,7 +354,8 @@ watch). We maintain the adapters, not the mods.
   state (magazines, chambers, attachments, durability), inventories and
   transfers, loadout and Workshop screens, custom rules, and what the mod
   syncs between players and how it settles conflicts (`mod.net`, the host
-  decides). The mod's menus are built from the watch page layout.
+  decides). The mod's menus are built from the in-game screen's page
+  layout (`mod.ui`).
 - **New game systems** (a new kind of menu, per-instance weapon state, new
   rendering features, new network channels) are not mod requests. They join
   the API only as game features: useful beyond one mod, contributed or
@@ -682,6 +683,43 @@ watch). We maintain the adapters, not the mods.
     starts.
   - A mod stopped on one headset is stopped on all of them
     (`NET_MOD_OFF`; see Multiplayer).
+- **The UI.** A mod's page is a sub-tab under the in-game screen's
+  Mods/Fun tab, beside the section's own rows (now under Options): the
+  hold-Menu screen, the solo panel and the online match screen's Settings
+  tab alike (owner, 2026-11-23: the watch's VR page is gone since the
+  launcher unification, so the in-game screen is the place). Built in
+  `gevr_modapi.c`, drawn by `port/vr/gevr_modui_ui.h`.
+  - `mod.ui.page(id, { title, text, rows, buttons })` makes or replaces a
+    page. `title` (1 to 12 characters) names the tab; `text` (up to 160)
+    sits above the rows. Up to 8 rows, each with an `id`, a `label` (up to
+    24 characters), an optional `tip` (up to 160) and `blocked` (false, or
+    the reason it can't be used now, up to 32: greyed with it):
+    - `{ kind = "toggle", value = true }`;
+    - `{ kind = "choice", choices = { ... }, value = n }`: 2 to 12 names
+      of up to 24 characters, `value` the chosen one's number from 1;
+    - `{ kind = "slider", min = a, max = b, value = v }`: whole numbers,
+      -100000 to 100000, at most 1000 steps.
+    Up to 4 `buttons`, each an `id`, a `label` (up to 14) and `blocked`.
+    The rows are drawn as the settings' rows are, so they look and fit
+    the same (one column, or two when they fit); no Reset.
+  - At most 4 pages, every mod's together. A page stays until the mod
+    removes it (`mod.ui.remove(id)`), across missions; a stopped mod's
+    pages hide until it runs again.
+  - `ui_change(page, row, value)` and `ui_click(page, button)` reach only
+    the page's own mod, at its next frame (before `tick`), even while the
+    solo panel holds the mission paused. A change is kept on the page at
+    once; a value is a toggle's boolean, a choice's number from 1 or a
+    slider's number, and a slider dragged sends its last value once. A
+    blocked row or button sends nothing. A mission's loading drops the
+    clicks not yet sent.
+  - `mod.ui.open(id)` opens the in-game screen on the page, as the hold
+    opens it: a solo mission pauses under it, and online the match screen
+    comes up on Settings. False where there's no screen (the dedicated
+    server). `mod.ui.close()` closes the screen, as Resume does.
+  - The limits keep the fullest page (four pages, eight rows of the
+    longest labels, choices and reasons, four buttons) on both screens
+    without scrolling at the Quest's font size
+    (`port/tests/ingame_fit_native.cpp`).
 
 ### Pickup swaps
 
@@ -785,7 +823,9 @@ Every headset runs the swaps at load, so in co-op the choices come from
    poll in `port/tests/test_body_slot_interactions.py`), then guards'
    events and reads (`test_modapi.py`, which also runs
    `gevr_modgame.c`'s told-once bookkeeping), then the calls that change a
-   guard, then damage and the player, then sound and smoke.
+   guard, then damage and the player, then sound and smoke; after the
+   network (5), the UI's pages on the in-game screen (the fit on both
+   screens in `port/tests/test_ingame_fit.py`). Assets are next.
 5. **Network:** `NET_MSG_MOD`, co-op with mods, the dedicated server.
    `mod.net`, `peer_ready` and a stop told to every headset
    (`port/tests/test_modapi.py`; the routing and checks on the production
