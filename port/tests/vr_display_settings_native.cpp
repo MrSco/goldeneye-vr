@@ -16,6 +16,7 @@ int VrPauseHub = 0, VrLeftHandedMode = 0, VrSwapJoysticks = 0, VrAimSteady = 2, 
 unsigned long long VrCheatMask = 0;
 extern "C" {
 int gevrGexCampaignOff = 0; // gevr_romlayout.c: a hack campaign's GE-X switch-off
+int VrICloudSync = 1, VrICloudPacks = 0; // gevr_settings.c: what iCloud keeps (vr_settings.cpp saves them)
 float VrScreenDistance = 2, VrScreenFov = 70, VrScreenHeight = 0;
 int VrScreenCurved = 1;
 int VrScreenPassthrough = 0;

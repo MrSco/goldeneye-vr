@@ -1,6 +1,7 @@
-"""Windows native regression checks. Run: python port/tests/test_multiplayer.py
+"""Native regression checks, on Windows and Linux. Run: python port/tests/test_multiplayer.py
 Requires gcc on PATH and the pinned Steam Audio archive cached in TEMP (or downloads it).
-Builds the production packet serializer, rules, and binaural adapter into a temporary DLL.
+Builds the production packet serializer, rules, and binaural adapter into temporary
+shared libraries (DLLs on Windows), linked against Steam Audio's own build for the platform.
 """
 import ctypes as C
 import hashlib
@@ -14,12 +15,18 @@ import tempfile
 import unittest
 import urllib.request
 import zipfile
+from gevr_testcc import host_libc  # the C library's bcopy, not os.h's, where it has one
 
 ROOT = Path(__file__).resolve().parents[2]
 SDK_SHA = "4a0aa5ec1176f38f0b0993a37c2259d9e86f27e22d5e24f83ec4c3cb9a1d5449"
 CACHE = Path(tempfile.gettempdir())
 ARCHIVE = CACHE / "gevr-steamaudio-4.8.1.zip"
 NATIVE = CACHE / "gevr-steamaudio-test"
+WINDOWS = os.name == "nt"
+SUFFIX = ".dll" if WINDOWS else ".so"
+# Linux: position-independent shared objects; the fixtures' __declspec(dllexport) is
+# Windows' (every symbol of a shared object is exported there); glibc's own bcopy
+SHARED = [] if WINDOWS else ["-fPIC", "-D__declspec(x)=", *host_libc()]
 
 def build():
     if not ARCHIVE.exists():
@@ -27,18 +34,21 @@ def build():
     if hashlib.sha256(ARCHIVE.read_bytes()).hexdigest() != SDK_SHA:
         raise RuntimeError("Steam Audio archive checksum mismatch")
     NATIVE.mkdir(exist_ok=True)
+    platform, names = ("windows-x64", ("phonon.dll", "phonon.lib")) if WINDOWS else ("linux-x64", ("libphonon.so",))
     with zipfile.ZipFile(ARCHIVE) as z:
-        for name in ("phonon.dll", "phonon.lib"):
-            (NATIVE/name).write_bytes(z.read("steamaudio/lib/windows-x64/"+name))
-    args = [shutil.which("gcc") or "gcc", "-shared", "-O2", "-fms-extensions", "-Wno-builtin-declaration-mismatch"]
+        for name in names:
+            (NATIVE/name).write_bytes(z.read(f"steamaudio/lib/{platform}/"+name))
+    phonon = [str(NATIVE/"phonon.lib")] if WINDOWS else ["-L"+str(NATIVE), "-lphonon", "-Wl,-rpath,"+str(NATIVE)]
+    args = [shutil.which("gcc") or "gcc", "-shared", "-O2", "-fms-extensions", "-Wno-builtin-declaration-mismatch", *SHARED]
     args += ["-D"+v for v in ("GEVR=1", "PLATFORM_64BIT=1", "GEVR_STEAMAUDIO=1", "_LANGUAGE_C=1", "VERSION=2", "VERSION_US=1", "LANG_US=1")]
     args += ["-I"+v for v in (".", "port/include", "include", "src", "port/src", "port/external/steamaudio/include")]
-    args += ["port/tests/multiplayer_native.c", "port/src/net/netbuf.c", "port/src/gevr_avatar_math.c", "port/src/net/net_spatial.c", "port/src/net/net_match.c", str(NATIVE/"phonon.lib"), "-o", str(NATIVE/"multiplayer_native.dll")]
+    args += ["port/tests/multiplayer_native.c", "port/src/net/netbuf.c", "port/src/gevr_avatar_math.c", "port/src/net/net_spatial.c", "port/src/net/net_match.c", *phonon, "-o", str(NATIVE/("multiplayer_native"+SUFFIX))]
     result = subprocess.run(args, cwd=ROOT, capture_output=True, text=True)
     if result.returncode: raise RuntimeError(result.stderr)
-    global DLL_DIRECTORY
-    DLL_DIRECTORY = os.add_dll_directory(str(NATIVE))
-    dll = C.CDLL(str(NATIVE/"multiplayer_native.dll"))
+    if WINDOWS:
+        global DLL_DIRECTORY
+        DLL_DIRECTORY = os.add_dll_directory(str(NATIVE))   # phonon.dll beside it
+    dll = C.CDLL(str(NATIVE/("multiplayer_native"+SUFFIX)))
     dll.test_gain.argtypes = [C.c_int, C.c_float]; dll.test_gain.restype = C.c_float
     dll.test_ping.argtypes = [C.c_uint32]*3
     dll.test_group.argtypes = [C.c_int]*6
@@ -80,13 +90,13 @@ def build_core():
     fixture=(ROOT/"port/tests/net_core_native.c").read_text(encoding="utf-8").replace('../src/net/net_core.c',subset.as_posix())
     generated=NATIVE/"net_core_native.c";generated.write_text(fixture,encoding="utf-8")
     args=[shutil.which("gcc") or "gcc","-std=c11","-shared","-O2","-fms-extensions","-Wno-builtin-declaration-mismatch"]
-    if os.name != "nt": args += ["-fPIC", "-D__ANDROID__"]  # target ABI excludes N64 bcopy/bzero declarations
+    args += SHARED
     args += ["-D"+v for v in ("GEVR=1","PLATFORM_64BIT=1","_LANGUAGE_C=1","VERSION=2","VERSION_US=1","LANG_US=1")]
     args += ["-I"+str(ROOT/v) for v in (".","port/include","include","src","src/game","port/src","port/src/net")]
-    args += [str(generated),str(ROOT/"port/src/net/netbuf.c"),str(ROOT/"port/src/gevr_avatar_math.c"),str(ROOT/"port/src/net/net_match.c"),"-o",str(NATIVE/"net_core_native.dll")]
+    args += [str(generated),str(ROOT/"port/src/net/netbuf.c"),str(ROOT/"port/src/gevr_avatar_math.c"),str(ROOT/"port/src/net/net_match.c"),"-o",str(NATIVE/("net_core_native"+SUFFIX))]
     result=subprocess.run(args,cwd=ROOT,capture_output=True,text=True)
     if result.returncode: raise RuntimeError(result.stderr)
-    return C.CDLL(str(NATIVE/"net_core_native.dll"))
+    return C.CDLL(str(NATIVE/("net_core_native"+SUFFIX)))
 
 def build_fixture(name, source=None, source_ref=None):
     fixture=(ROOT/f"port/tests/{name}.c").read_text(encoding="utf-8")
@@ -237,17 +247,17 @@ def build_fixture(name, source=None, source_ref=None):
     elif name == "objects_native":
         fixture=fixture.replace('../src/net/net_objects.c',(ROOT/'port/src/net/net_objects.c').as_posix())
     path=NATIVE/f"{name}.c";path.write_text(fixture,encoding="utf-8")
-    args=[shutil.which("gcc") or "gcc","-shared","-O2","-fms-extensions","-Wno-builtin-declaration-mismatch"]
+    args=[shutil.which("gcc") or "gcc","-shared","-O2","-fms-extensions","-Wno-builtin-declaration-mismatch",*SHARED]
     args += ["-D"+v for v in ("GEVR=1","PLATFORM_64BIT=1","_LANGUAGE_C=1","VERSION=2","VERSION_US=1","LANG_US=1")]
     args += ["-I"+str(ROOT/v) for v in (".","port/include","include","src","src/game","port/src","port/src/net")]
     if name == "sfx_queue_native":
         args += ["-I"+str(ROOT/"include/PR")]
     if name == "hand_native":
         args += [str(ROOT/'port/src/gevr_bodyslot.c')]
-    args += [str(path),"-o",str(NATIVE/f"{name}.dll")]
+    args += [str(path),"-o",str(NATIVE/f"{name}{SUFFIX}")]
     result=subprocess.run(args,cwd=ROOT,capture_output=True,text=True)
     if result.returncode: raise RuntimeError(result.stderr)
-    return C.CDLL(str(NATIVE/f"{name}.dll"))
+    return C.CDLL(str(NATIVE/f"{name}{SUFFIX}"))
 
 def build_line_renderer():
     source=(ROOT/"port/fast3d/gfx_opengl.cpp").read_text(encoding="utf-8")
@@ -258,8 +268,9 @@ def build_line_renderer():
     if cover>=0: end=source.rindex("/*",start,cover)
     fixture=(ROOT/"port/tests/line_renderer_native.cpp").read_text(encoding="utf-8").replace("/* INSERT_LINE_RENDERER */",source[start:end])
     path=NATIVE/"line_renderer_native.cpp";path.write_text(fixture,encoding="utf-8")
-    out=NATIVE/"line_renderer_native.dll"
-    subprocess.run([shutil.which("g++") or "g++","-shared","-O2","-std=c++17","-static","-I"+str(ROOT/"port/include"),str(path),"-o",str(out)],check=True)
+    out=NATIVE/("line_renderer_native"+SUFFIX)
+    link=["-static"] if WINDOWS else SHARED   # Windows: no MinGW runtime DLLs to find
+    subprocess.run([shutil.which("g++") or "g++","-shared","-O2","-std=c++17",*link,"-I"+str(ROOT/"port/include"),str(path),"-o",str(out)],check=True)
     return C.CDLL(str(out))
 
 class MultiplayerNativeTests(unittest.TestCase):

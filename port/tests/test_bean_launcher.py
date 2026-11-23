@@ -112,7 +112,8 @@ int main(){
 with tempfile.TemporaryDirectory(prefix="gevr-bean-launcher-") as temp:
     cpp, exe = Path(temp) / "mods.cpp", Path(temp) / "mods.exe"
     cpp.write_text("#define IMGUI_DEFINE_MATH_OPERATORS\n" + fixture)
-    subprocess.run([shutil.which("g++") or "g++", "-std=c++17", "-O2", "-I" + str(ROOT / "port/vr"), str(cpp),
+    subprocess.run([shutil.which("g++") or "g++", "-std=c++17", "-O2", "-I" + str(ROOT / "port/vr"),
+                    "-I" + str(ROOT / "port/include"), str(cpp),   # gevr_layout_ui.h's gevr_settings.h
                     *[str(ROOT / "port/vr/imgui" / file) for file in ("imgui.cpp", "imgui_draw.cpp", "imgui_tables.cpp", "imgui_widgets.cpp")],
                     "-o", str(exe)], check=True)
     subprocess.run([str(exe)], cwd=temp, check=True)

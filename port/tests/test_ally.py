@@ -15,5 +15,5 @@ with tempfile.TemporaryDirectory(prefix="gevr-ally-") as temp:
     args += ["-I" + str(ROOT / path) for path in
              (".", "port/include", "include", "src", "src/game", "port/src", "port/src/net")]
     subprocess.run(args + [str(ROOT / "src/game/gevr_ally.c"),
-                           str(ROOT / "port/tests/ally_native.c"), "-o", str(exe)], check=True)
+                           str(ROOT / "port/tests/ally_native.c"), "-lm", "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True)
