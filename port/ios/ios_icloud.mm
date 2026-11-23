@@ -1345,7 +1345,13 @@ void syncFiles(const Cloud &c, bool packs)
         } else if (L.empty() && !R.empty()) {
             down = true;
         } else if (s != synced.end() && s->second.local == L) {
-            down = true;    // changed in the cloud only
+            // changed in the cloud only: unless it is the same content under
+            // another device's stamp (two devices uploaded it at once)
+            if (sameContent(r->second, l->second, l->second.dir ? std::string() : sha256File(g_root + "/" + p))) {
+                synced[p] = { L, R };
+                continue;
+            }
+            down = true;
         } else if (s != synced.end() && s->second.remote == R) {
             up = true;      // changed here only
         } else {
@@ -1389,7 +1395,7 @@ void syncFiles(const Cloud &c, bool packs)
                     setMessage(rom ? "ROM " + baseName(p) + " downloaded from iCloud."
                                    : "Pack " + baseName(p) + " downloaded from iCloud.");
                 } else {
-                    setMessage("A newer " + baseName(p) + " came from iCloud: it is used from the next launch.");
+                    setMessage("An updated " + baseName(p) + " came from another device: it is used from the next launch.");
                 }
             }
         }
