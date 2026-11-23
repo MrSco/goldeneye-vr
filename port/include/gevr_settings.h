@@ -110,6 +110,9 @@ void gevrSettingStep(int id, int dir);
 void gevrSettingText(int id, int index, char *buf, int size);
 /* Why it can't be changed now ("Needs GoldenEye X", "Host's choice"), or NULL. */
 const char *gevrSettingBlocked(int id);
+/* What the value set now can cost ("...can make the game stutter"), or NULL:
+ * the UI tints the value and says it (Resolution above 1x, anisotropy above 2x). */
+const char *gevrSettingWarning(int id);
 
 int gevrSettingSectionCount(void);
 const char *gevrSettingSectionName(int section);

@@ -223,6 +223,7 @@ int32_t g_internalRenderHeight = 0;
 float RENDER_SCALE = 1.0f;
 extern "C" int VrEyeMsaa;          // vr_settings: the launcher's Anti-aliasing (EyeMsaa)
 extern "C" int VrResetRenderScale; // vr_settings: the test build's RenderScale key was read
+extern "C" float VrRenderScale;    // vr_settings: Resolution (EyeResolution), 0 = the config's
 static uint32_t g_systemMaxRenderWidth = 0, g_systemMaxRenderHeight = 0;
 
 // The runtime's name for the headset ("Oculus Quest2", "Meta Quest 3", ...):
@@ -980,6 +981,14 @@ extern "C" bool vr_configure_resolution() {
     if (VrResetRenderScale) {
         VrResetRenderScale = 0;
         RENDER_SCALE = 1.0f;
+    }
+    // Resolution (goldeneye-vr.ini EyeResolution) over Video.VRRenderScale, once:
+    // the eye images are made here as VR starts, so a change waits for the next
+    // start. Once only, so a later restart at another scale isn't undone.
+    static bool s_settingScaleRead = false;
+    if (!s_settingScaleRead) {
+        s_settingScaleRead = true;
+        if (VrRenderScale > 0.0f) RENDER_SCALE = VrRenderScale;
     }
     const GevrRenderSize size = gevrQuestRenderSize(recommendedWidth, recommendedHeight, RENDER_SCALE,
                                                   g_maxRenderWidth, g_maxRenderHeight);
@@ -4265,6 +4274,9 @@ extern "C" void gevrVrSetWorldScale(float unitsPerMetre) { vr_world_scale = unit
 #ifdef GEVR_XR_ES
 extern "C" int vr_eye_msaa_supported(void) { return use_multiview && pfnFramebufferTextureMultisampleMultiviewOVR != nullptr; }
 #endif
+/* gevr_settings.c's Resolution row: the eye images' scale this session, which
+ * a changed setting reaches at the next start. */
+extern "C" float vr_render_scale(void) { return RENDER_SCALE; }
 
 // ============================================================================
 // FBOs - Render Targets

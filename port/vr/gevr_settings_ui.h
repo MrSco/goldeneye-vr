@@ -27,6 +27,7 @@ struct GevrSettingsApi {
     void (*set)(int id, int index) = nullptr;
     void (*text)(int id, int index, char *buf, int size) = nullptr;
     const char *(*blocked)(int id) = nullptr;
+    const char *(*warning)(int id) = nullptr;   // optional: a performance cost of the value set now
     void (*drawKbm)() = nullptr;      // optional flat Keyboard & mouse page in gevrSettingsTabs
     void (*drawGamepad)() = nullptr;  // optional flat Gamepad page in gevrSettingsTabs
 };
@@ -44,6 +45,7 @@ inline GevrSettingsApi gevrSettingsLive() {
     a.set = gevrSettingSet;
     a.text = gevrSettingText;
     a.blocked = gevrSettingBlocked;
+    a.warning = gevrSettingWarning;
     return a;
 }
 
@@ -59,8 +61,16 @@ inline void gevrSettingsEscape(const char *in, char *out, int size) {
     out[o] = '\0';
 }
 
-inline void gevrSettingsTip(const GevrSettingInfo &info, const char *reason) {
+// A warned value's colour (gevrSettingWarning: it can cost frames)
+#define GEVR_SETTINGS_WARN_COLOR ImVec4(1.0f, 0.62f, 0.2f, 1.0f)
+
+inline void gevrSettingsTip(const GevrSettingInfo &info, const char *reason, const char *warning = nullptr) {
     if (!ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) return;
+    if (warning && !reason) {
+        if (info.tooltip) gevrTooltip("%s\nWarning: %s.", info.tooltip, warning);
+        else gevrTooltip("Warning: %s.", warning);
+        return;
+    }
     if (reason && info.tooltip) gevrTooltip("%s\n%s.", info.tooltip, reason);
     else if (reason) gevrTooltip("%s.", reason);
     else if (info.tooltip) gevrTooltip("%s", info.tooltip);
@@ -71,6 +81,7 @@ inline void gevrSettingControl(const GevrSettingsApi &a, int id, float width) {
     GevrSettingInfo info{};
     if (!a.info(id, &info)) return;
     const char *reason = a.blocked ? a.blocked(id) : nullptr;
+    const char *warning = !reason && a.warning ? a.warning(id) : nullptr;
     const int positions = a.positions(id);
     const int index = a.index(id);
     char value[64];
@@ -89,7 +100,11 @@ inline void gevrSettingControl(const GevrSettingsApi &a, int id, float width) {
         }
     } else if (info.kind == GEVR_SET_CHOICE) {
         ImGui::SetNextItemWidth(width);
-        if (ImGui::BeginCombo("##v", value)) {
+        // a warned value (it can cost frames) reads in the warning colour
+        if (warning) ImGui::PushStyleColor(ImGuiCol_Text, GEVR_SETTINGS_WARN_COLOR);
+        const bool open = ImGui::BeginCombo("##v", value);
+        if (warning) ImGui::PopStyleColor();
+        if (open) {
             for (int i = 0; i < positions; i++) {
                 char name[64];
                 a.text(id, i, name, sizeof(name));
@@ -99,7 +114,7 @@ inline void gevrSettingControl(const GevrSettingsApi &a, int id, float width) {
             }
             ImGui::EndCombo();
         }
-        gevrSettingsTip(info, reason);
+        gevrSettingsTip(info, reason, warning);
     } else {
         const int def = a.defaultIndex ? a.defaultIndex(id) : -1;
         const ImGuiStyle &style = ImGui::GetStyle();
@@ -170,8 +185,12 @@ inline void gevrSettingsSection(const GevrSettingsApi &a, int section, unsigned 
                 GevrSettingInfo info{};
                 a.info(ids[k], &info);
                 ImGui::AlignTextToFramePadding();
+                const char *why = a.blocked ? a.blocked(ids[k]) : nullptr;
+                const char *warn = !why && a.warning ? a.warning(ids[k]) : nullptr;
+                if (warn) ImGui::PushStyleColor(ImGuiCol_Text, GEVR_SETTINGS_WARN_COLOR);
                 ImGui::TextUnformatted(info.label);
-                gevrSettingsTip(info, a.blocked ? a.blocked(ids[k]) : nullptr);
+                if (warn) ImGui::PopStyleColor();
+                gevrSettingsTip(info, why, warn);
                 ImGui::TableNextColumn();
                 gevrSettingControl(a, ids[k], plan.colControlWidth[c]);
             }
