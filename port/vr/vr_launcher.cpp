@@ -4021,20 +4021,27 @@ extern "C" void gevrLauncherRun(void)
 #endif
                 break;
             case GEVR_LTAB_COMFORT_DISPLAY:
+                if (sub == GEVR_LSUB_GRAPHICS) {
+                    // Refresh, SpaceWarp, Resolution, Anti-aliasing, Anisotropic and Texture
+                    // filtering, and a flat game's window (gevr_settings.c): a warned value reads
+                    // in the warning colour, its cost in the tooltip
+                    gevrSettingsSection(settings, GEVR_LSEC_GRAPHICS, GEVR_SET_LAUNCHER);
+                    // XBLA / Bean's frames take longer than 120 Hz's 8.3 ms when turning
+                    // in open levels (Dam on Quest 3: 197 missed frames in three
+                    // minutes of turning at 120 Hz, 17 at 90).
+                    if ((gevrLauncherContext() & GEVR_CTX_VR) != 0 && gevrBeanIsEnabled() && VrRefreshRate > 90 && !vr_spacewarp_setting_on()) {
+                        ImGui::PushStyleColor(ImGuiCol_Text, bad);
+                        ImGui::TextWrapped("Bean can stutter at 120 Hz while turning in open levels: "
+                                           "90 Hz, or SpaceWarp, holds nearly every frame.");
+                        ImGui::PopStyleColor();
+                    }
+                    break;
+                }
                 if ((gevrLauncherContext() & GEVR_CTX_VR) != 0) {
                     note("Both grips grab the screen; the right stick sets its distance and size. "
                          "Hold the left stick click to recentre it.");
                 }
                 gevrSettingsSection(settings, GEVR_LSEC_COMFORT_DISPLAY, GEVR_SET_LAUNCHER);
-                // XBLA / Bean's frames take longer than 120 Hz's 8.3 ms when turning
-                // in open levels (Dam on Quest 3: 197 missed frames in three
-                // minutes of turning at 120 Hz, 17 at 90).
-                if ((gevrLauncherContext() & GEVR_CTX_VR) != 0 && gevrBeanIsEnabled() && VrRefreshRate > 90 && !vr_spacewarp_setting_on()) {
-                    ImGui::PushStyleColor(ImGuiCol_Text, bad);
-                    ImGui::TextWrapped("Bean can stutter at 120 Hz while turning in open levels: "
-                                       "90 Hz, or SpaceWarp, holds nearly every frame.");
-                    ImGui::PopStyleColor();
-                }
                 break;
             case GEVR_LTAB_GAME:
                 if (sub == GEVR_LSUB_GAME_RULES) {

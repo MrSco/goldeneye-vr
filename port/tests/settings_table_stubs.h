@@ -43,6 +43,9 @@ int s_configSaves;
 unsigned int videoGetTextureFilter(void) { return s_texFilter; }
 void videoRequestTextureFilter(unsigned int f) { s_texFilter = f; }
 int configSave(const char *fname) { (void)fname; s_configSaves++; return 1; }
+int s_videoMsaa = 1;   /* video.c: Video.MSAA, a flat game's */
+int videoGetMSAA(void) { return s_videoMsaa; }
+void videoSetMSAA(const int msaa) { s_videoMsaa = msaa; }
 float vr_render_scale(void) { return s_liveRenderScale; }
 int VrScreenCurved, VrScreenPassthrough, VrRefreshRate, VrSpaceWarp = -1;
 int VrPlayMode = 1, VrCampaign;

@@ -174,6 +174,7 @@ static int sweep(const char *state) {
             else if (tab == GEVR_LTAB_CONTROLS && sub == GEVR_LSUB_GESTURES) section = GEVR_LSEC_GESTURES;
             else if (tab == GEVR_LTAB_CONTROLS && sub == GEVR_LSUB_THROWING) section = GEVR_LSEC_THROWING;
             else if (tab == GEVR_LTAB_CONTROLS && sub == GEVR_LSUB_LOOK) section = GEVR_LSEC_LOOK;
+            else if (tab == GEVR_LTAB_COMFORT_DISPLAY && sub == GEVR_LSUB_GRAPHICS) section = GEVR_LSEC_GRAPHICS;
             else if (tab == GEVR_LTAB_COMFORT_DISPLAY) section = GEVR_LSEC_COMFORT_DISPLAY;
             else if (tab == GEVR_LTAB_GAME && sub == GEVR_LSUB_GAME_RULES) section = GEVR_LSEC_RULES;
             else if (tab == GEVR_LTAB_GAME && sub == GEVR_LSUB_ALLY) section = GEVR_LSEC_ALLY;
@@ -207,7 +208,8 @@ int main() {
     pages += sweep("co-op host");
     s_host = 0; s_coop = 0; s_config.mode = 0; s_config.scenario = 1; s_netSpeed = 4;
     pages += sweep("deathmatch joiner");
-    check(pages == 4 * 12, "every settings page, Ghosts, and Multiplayer's Fun and Audio, in four states");
+    // 13 a state: Comfort & display > Graphics joined General (the graphics rows had run General out of room)
+    check(pages == 4 * 13, "every settings page, Ghosts, and Multiplayer's Fun and Audio, in four states");
     // both tab rows fit without shrinking
     ImGuiContext &g = *ImGui::GetCurrentContext();
     int bars = 0;

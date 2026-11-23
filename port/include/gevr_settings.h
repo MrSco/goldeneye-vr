@@ -70,6 +70,7 @@ enum {
     GEVR_LSEC_MODS,
     GEVR_LSEC_MP_FUN,          /* Online > Host > Fun: the host's, live online */
     GEVR_LSEC_MP_AUDIO,        /* Online > Audio */
+    GEVR_LSEC_GRAPHICS,        /* Comfort & display > Graphics (VR + flat) */
     GEVR_LSEC_COUNT
 };
 

@@ -5278,10 +5278,27 @@ static int gfx_opengl_create_framebuffer() {
     return i;
 }
 
+#ifndef GL_MAX_SAMPLES
+#define GL_MAX_SAMPLES 0x8D57
+#endif
+// A flat game's Anti-aliasing (video.c Video.MSAA, up to 16 in the config) held to the
+// GPU's most: more samples than it takes leave the framebuffer incomplete, the game black
+static uint32_t gevr_fb_samples(uint32_t msaa_level) {
+    static GLint s_maxSamples = -1;
+    if (msaa_level <= 1) return msaa_level;
+    if (s_maxSamples < 0) {
+        s_maxSamples = 4;
+        glGetIntegerv(GL_MAX_SAMPLES, &s_maxSamples);
+        if (glGetError() != GL_NO_ERROR || s_maxSamples < 1) s_maxSamples = 1;
+    }
+    return msaa_level > (uint32_t)s_maxSamples ? (uint32_t)s_maxSamples : msaa_level;
+}
+
 static void gfx_opengl_update_framebuffer_parameters(int fb_id, uint32_t width, uint32_t height, uint32_t msaa_level,
                                                      bool opengl_invert_y, bool render_target, bool has_depth_buffer,
                                                      bool can_extract_depth) {
     gevr_mesh_settle();
+    msaa_level = gevr_fb_samples(msaa_level);
 
     if (fb_id < 0 || fb_id >= (int)framebuffers.size()) {
         return;

@@ -78,6 +78,8 @@ enum {
 };
 // Game's sub-tabs
 enum { GEVR_LSUB_GAME_RULES, GEVR_LSUB_ALLY, GEVR_LSUB_CHEATS };
+// Comfort & display's sub-tabs: the graphics rows on their own page (the one page ran out of room)
+enum { GEVR_LSUB_COMFORT, GEVR_LSUB_GRAPHICS };
 
 struct GevrTabSpec {
     int id;
@@ -152,6 +154,9 @@ inline const GevrSubSpec *gevrLauncherSubTable(int &count) {
         { GEVR_LTAB_CONTROLS, GEVR_LSUB_THROWING,    "Throwing",         GEVR_CTX_VR },
         { GEVR_LTAB_CONTROLS, GEVR_LSUB_HAPTICS,     "Haptics",          GEVR_CTX_VR },
         { GEVR_LTAB_CONTROLS, GEVR_LSUB_LOOK,        "Look",             GEVR_CTX_ALL_LAUNCHER },
+        // Comfort & display
+        { GEVR_LTAB_COMFORT_DISPLAY, GEVR_LSUB_COMFORT,  "General",      GEVR_CTX_ALL_LAUNCHER },
+        { GEVR_LTAB_COMFORT_DISPLAY, GEVR_LSUB_GRAPHICS, "Graphics",     GEVR_CTX_ALL_LAUNCHER },
         // Game
         { GEVR_LTAB_GAME,     GEVR_LSUB_GAME_RULES,  "Game rules",       GEVR_CTX_ALL_LAUNCHER },
         { GEVR_LTAB_GAME,     GEVR_LSUB_ALLY,        "AI ally",          GEVR_CTX_ALL_LAUNCHER },

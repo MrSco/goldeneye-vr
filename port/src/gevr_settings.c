@@ -592,6 +592,52 @@ static const char *warnTexFilter(void)
           "make the game stutter"
         : NULL;
 }
+/* A flat game's anti-aliasing (video.c, the game config's Video.MSAA, saved there):
+ * the game's framebuffer multisampled, taken up as the next frame starts
+ * (gfx_pc.cpp gfx_start_frame) and held to the GPU's most (gfx_opengl.cpp). A
+ * desktop GPU takes 8x for little; a phone's or an Apple device's 4x at most,
+ * and above 2x it costs there. The headset's eye images have their own row. */
+extern int videoGetMSAA(void);                 /* video.c: s32 */
+extern void videoSetMSAA(const int msaa);
+#if defined(GEVR_PC_FLAT)
+static const int s_flatMsaa[] = { 1, 2, 4, 8 };
+static const char *const s_flatMsaaNames[] = { "Off", "2x", "4x", "8x" };
+#define FLAT_MSAA_WARN_ABOVE 8   /* never */
+#else
+static const int s_flatMsaa[] = { 1, 2, 4 };
+static const char *const s_flatMsaaNames[] = { "Off", "2x", "4x" };
+#define FLAT_MSAA_WARN_ABOVE 2
+#endif
+#define FLAT_MSAA_COUNT ((int)(sizeof(s_flatMsaa) / sizeof(s_flatMsaa[0])))
+static int flatMsaaPositions(void) { return FLAT_MSAA_COUNT; }
+static int flatMsaaGet(void)
+{
+    const int m = videoGetMSAA();
+    int i, at = 0;
+
+    for (i = 0; i < FLAT_MSAA_COUNT; i++)
+    {
+        if (s_flatMsaa[i] <= m) at = i;
+    }
+    return at;
+}
+static void flatMsaaSet(int i)
+{
+    i = i < 0 ? 0 : i >= FLAT_MSAA_COUNT ? FLAT_MSAA_COUNT - 1 : i;
+    videoSetMSAA(s_flatMsaa[i]);
+    configSave("$S/goldeneye.ini");
+}
+static void flatMsaaText(int i, char *b, int n)
+{
+    i = i < 0 ? 0 : i >= FLAT_MSAA_COUNT ? FLAT_MSAA_COUNT - 1 : i;
+    snprintf(b, n, "%s%s", s_flatMsaaNames[i], s_flatMsaa[i] > FLAT_MSAA_WARN_ABOVE ? " (slower)" : "");
+}
+static const char *warnFlatMsaa(void)
+{
+    return s_flatMsaa[flatMsaaGet()] > FLAT_MSAA_WARN_ABOVE
+        ? "Anti-aliasing above 2x costs GPU time every frame on this device and can make the game stutter"
+        : NULL;
+}
 static const int s_two[] = { 0, 1 };
 static const char *const s_moveNames[] = { "Smooth", "Teleport" };
 static const char *const s_shapeNames[] = { "4:3", "16:9" };
@@ -794,36 +840,45 @@ static const Row s_rows[] = {
     { .label = "Play mode", .headset = 1, .tooltip = "Stereo VR: you are Bond. Flat screen: the game on a big screen.", .kind = GEVR_SET_CHOICE,
       .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_LAUNCHER, .ivar = &VrPlayMode,
       .ivalues = s_two, .names = s_playNames, .count = 2, .def = NAN },
-    CUSTOM_VR(GEVR_SEC_DISPLAY, "Refresh", GEVR_SET_CHOICE, refreshPositions, refreshGet, refreshSet, refreshText, 0,
-           "The headset's display rate. Auto leaves it to the headset."),
+    /* Refresh and SpaceWarp: the launcher's with the other graphics rows (Comfort & display >
+     * Graphics), General having run out of room */
+    { .label = "Refresh", .tooltip = "The headset's display rate. Auto leaves it to the headset.", .kind = GEVR_SET_CHOICE,
+      .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH, .def = NAN,
+      .cpositions = refreshPositions, .cget = refreshGet, .cset = refreshSet, .ctext = refreshText, .cdefault = 0, .headset = 1 },
     { .label = "SpaceWarp", .headset = 1, .tooltip = "Draws half the frames and has the headset make the rest. "
                                        "On by default with Bean at 120 Hz.", .kind = GEVR_SET_TOGGLE,
-      .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .def = NAN, .blocked = blockedSpaceWarp,
+      .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH, .def = NAN, .blocked = blockedSpaceWarp,
       .cpositions = swPositions, .cget = swGet, .cset = swSet, .ctext = swText, .cdefault = -1 },
     { .label = "Anti-aliasing", .headset = 1, .tooltip = "Smooths jagged edges. Changes right away; costs GPU time, which is short on battery.",
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrEyeMsaa,
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH,
+      .ivar = &VrEyeMsaa,
       .ivalues = s_msaa, .names = s_msaaNames, .count = sizeof(s_msaa) / sizeof(s_msaa[0]), .def = NAN, .blocked = blockedMsaa,
       .ctext = msaaText, .warning = warnMsaa },
     { .label = "Resolution", .headset = 1, .tooltip = "Draws each eye at this multiple of the size the headset recommends. "
                                         "Above 1x (supersampling) is sharper and costs GPU time: 1.5x draws 2.25 times the pixels. "
                                         "Below 1x is faster and softer. Takes effect the next time the game starts.",
-      /* the launcher's only: it waits for the next start, and the in-game Display tab is full */
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_LAUNCHER, .def = NAN,
+      /* the launcher's only (Comfort & display > Graphics): it waits for the next start, and the
+       * in-game Display tab is full */
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_GRAPHICS),
+      .where = GEVR_SET_LAUNCHER, .def = NAN,
       .cpositions = scalePositions, .cget = scaleGet, .cset = scaleSet, .ctext = scaleText, .cdefault = 1,
       .warning = warnScale },
     { .label = "Anisotropic filtering", .tooltip = "Keeps HD pack and Bean textures sharp on floors and walls seen at an angle. "
                                                    "Higher costs GPU time. The original N64 textures aren't affected. Changes right away.",
-      /* in game beside the HD pack and Bean rows (Mods), where a change shows at once; the
-       * launcher's pages that take table rows are full (a flat game's Comfort & display, General) */
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME,
+      /* in game beside the HD pack and Bean rows (Mods), where a change shows at once, and in
+       * the launcher's Comfort & display > Graphics (owner, 2026-11-22: "it should be in launcher too") */
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_GRAPHICS),
+      .where = GEVR_SET_BOTH,
       .ivar = &VrTextureAniso,
       .ivalues = s_aniso, .names = s_anisoNames, .count = sizeof(s_aniso) / sizeof(s_aniso[0]), .def = NAN,
       .ctext = anisoText, .warning = warnAniso },
     { .label = "Texture filtering", .tooltip = "How the original N64 textures are smoothed. Pixelated: sharp, blocky pixels, which "
                                                "shimmer in the distance. Smooth: softer. N64 accurate: the console's own "
                                                "three-point filtering. HD pack and Bean textures aren't affected. Changes right away.",
-      /* beside Anisotropic filtering, the HD pack's and Bean's, in game where a change shows at once */
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .def = NAN,
+      /* beside Anisotropic filtering, the HD pack's and Bean's, in game where a change shows at
+       * once, and in the launcher's Comfort & display > Graphics as it is */
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_GRAPHICS),
+      .where = GEVR_SET_BOTH, .def = NAN,
       .cpositions = texFilterPositions, .cget = texFilterGet, .cset = texFilterSet, .ctext = texFilterText,
       .cdefault = 1, .warning = warnTexFilter },
     { .label = "Watch face", .headset = 1, .tooltip = "Health, armour and radar on your watch. Only: and nowhere else.", .kind = GEVR_SET_CHOICE,
@@ -841,16 +896,22 @@ static const Row s_rows[] = {
       .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrScreenPassthrough, .def = NAN, .blocked = blockedPassthrough },
     { .label = "Fullscreen", .pcflat = 1,
       .tooltip = "Fill the monitor (Alt+Enter also toggles fullscreen at any time).",
-      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_COMFORT_DISPLAY), .where = GEVR_SET_BOTH,
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH,
       .def = NAN, .cpositions = fullscreenPositions, .cget = fullscreenGet, .cset = fullscreenSet, .ctext = fullscreenText,
       .cdefault = 0 },
     { .label = "Screen shape", .tooltip = "The flat game's shape: 4:3 as the N64 drew it, or 16:9 with a wider view and the HUD at the edges.",
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_COMFORT_DISPLAY), .where = GEVR_SET_BOTH,
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH,
       .ivar = &VrScreenShape, .ivalues = s_two, .names = s_shapeNames, .count = 2, .def = NAN },
+    { .label = "Anti-aliasing", .flatgame = 1,
+      .tooltip = "Smooths jagged edges. Changes right away; higher costs GPU time.",
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH,
+      .def = NAN, .cpositions = flatMsaaPositions, .cget = flatMsaaGet, .cset = flatMsaaSet, .ctext = flatMsaaText,
+      .cdefault = 0, .warning = warnFlatMsaa },
     { .label = "Frame rate", .flatgame = 1,
       .tooltip = "Auto matches your display's refresh rate and steps down to a steady lower rate if this device can't hold it. "
                  "Or choose a fixed cap or Uncapped.",
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_COMFORT_DISPLAY), .where = GEVR_SET_BOTH, .def = NAN,
+      /* with the other graphics rows (Comfort & display > Graphics): General had no room left */
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH, .def = NAN,
       .cpositions = frameRatePositions, .cget = frameRateGet, .cset = frameRateSet, .ctext = frameRateText, .cdefault = 0 },
     { .label = "Third person", .tooltip = "The camera follows behind Bond in the flat screen, solo. "
                                           "Aiming, the watch and the tank go back to first person.", .kind = GEVR_SET_TOGGLE,
