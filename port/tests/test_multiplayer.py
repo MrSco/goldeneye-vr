@@ -372,8 +372,8 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_latency_expiry_and_host_migration(self): self.assertEqual(self.core.test_core_latency_and_migration(),0)
     def test_packet_roundtrip_and_all_truncations(self): self.assertEqual(self.lib.test_protocol(),0)
     def test_invalid_config_and_player_counts(self): self.assertEqual(self.lib.test_config_validation(),0)
-    def test_proximity_bright_dot_and_floor(self):
-        for distance,gain in ((0,1),(3000,1),(4000,.3666666667),(4500,.2125),(5000,.1333333333),(6000,.10),(8000,.10),(100000,.10)):
+    def test_proximity_falls_silent(self):
+        for distance,gain in ((0,1),(800,1),(1650,.125),(2075,.015625),(2500,0),(8000,0),(100000,0)):
             with self.subTest(distance=distance): self.assertAlmostEqual(self.lib.test_gain(0,distance),gain,places=6)
     def test_couch_full_gain(self):
         for distance in (0,4000,8000,100000): self.assertEqual(self.lib.test_gain(1,distance),1)
