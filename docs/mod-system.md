@@ -70,6 +70,10 @@ files.sha256        checksum list of every other file
 - `base`: which cartridge it runs on: `ge`, `gf`, `tnd`, `mirror` or `mario`.
   The base ROM must be installed.
 - `coop`: whether the mod supports online co-op (see Multiplayer).
+- `affectsPlay` (overlays): `true` when the overlay changes rules, not only
+  looks. It is then checked in the lobby (see Multiplayer).
+- `modes` (overlays that affect play): the multiplayer modes it works in,
+  from `coop`, `deathmatch` and `horde`.
 - The content ID is the SHA-256 of `files.sha256`, computed at install. It
   identifies the exact build of the mod.
 
@@ -133,6 +137,36 @@ files.sha256        checksum list of every other file
   today: the API has `mod.net.send` / `mod.net.on` over one generic message
   (`NET_MSG_MOD`, at most 1 KB per message, rate-limited). The mod decides
   what it syncs. The dedicated server runs scripts too.
+- **Where an event fires:** on the machine where the game already settles
+  that outcome (`net_coop.c`).
+  - **Guards:** the host runs every guard's AI and applies all damage to
+    guards; a client only reports its hits. Guard events, and
+    `before_damage` for a guard, fire on the host only (except
+    `guard_spawning` for the setup's guards at load, below). A client's
+    script that needs them gets them from the host over `mod.net`.
+  - **Players:** a player's shots, throws and damage are settled on that
+    player's headset, so `weapon_fire_attempt`, `player_damaged` and
+    `before_damage` for that player fire there.
+  - **World changes:** calls that change the world (spawn a guard or a
+    pickup, give a guard a weapon) work on the host only and return false
+    on a client. The game's co-op sync carries the result to the others,
+    as it does for spawns today.
+- **The same choices on every headset.** Each headset loads the mission
+  itself from a shared seed, and the setup's guards and pickups line up
+  slot for slot. Events during load (`pickup_spawning`, and
+  `guard_spawning` for the setup's guards) run on every headset and must
+  choose the same on all of them. The sandbox replaces `math.random` with
+  `mod.random`, which in co-op is seeded from the seed every headset shares
+  for the mission (`gevrCoopIntroSeed()`). A choice made from anything
+  else, like a player's own save, can differ.
+- **Weapon stats belong to the weapon type** (magazine size, fire rate,
+  damage), not to one gun, so a change applies to everyone holding that
+  weapon. Every headset sets the same values, and the game puts the ROM's
+  values back at mission end.
+- **A mod turned off on one headset** (a script error, or over budget) is
+  turned off on every headset: that headset tells the host and the host
+  tells the others. Otherwise the players drift apart for the rest of the
+  mission.
 
 ## Scripting
 
@@ -141,18 +175,20 @@ files.sha256        checksum list of every other file
 - **Sandbox:** no `io`, `os`, `package`, `debug` or `load` of binary chunks.
   Files only through the API, inside the mod's own folder.
 - **Budget:** 0.25 ms per frame for **all mods together**, script time and
-  garbage collection included. Why: a 120 Hz frame is 8.33 ms; the game's
-  own logic is about 1.5 ms of the early tick (4.1 ms mean), and heavy
-  levels already run DRAW/TICK at 7.3–8.3 ms (docs/bean-performance-*.md,
-  docs/jungle-bean-perf.md). 0.25 ms is about 3% of the frame and a sixth of
-  the game's logic, room for several hundred script calls on Quest. An
-  event-driven mod should use a few hundredths of a millisecond.
+  garbage collection included. Why: the game's own logic is about 1.5 ms
+  of the early tick (4.1 ms mean), and heavy levels already run DRAW/TICK
+  at 7.3–8.3 ms (docs/bean-performance-*.md, docs/jungle-bean-perf.md).
+  0.25 ms is about 2% of a Quest 2 frame at 90 Hz (11.1 ms), 3% of a
+  120 Hz frame (8.33 ms) and a sixth of the game's logic: room for several
+  hundred script calls on Quest. An event-driven mod should use a few
+  hundredths of a millisecond.
   - Checked as an average over one second, so one heavy event (a mission
     start, a burst of pickups) doesn't trip it. Lua's garbage collector runs
     in small steps inside the budget.
   - A count hook stops a single runaway call (an endless loop) at once.
   - Over budget for 3 seconds: the most expensive mod is paused for the
-    mission with a note on the watch.
+    mission with a note on the watch (in co-op on every headset, see
+    Multiplayer).
   - The perf log (`--perf-log`) shows each mod's time; `mission_start`
     and loading are not counted (loading screen).
   - The budget is held on the **Quest 2 at 90 Hz** (11.1 ms frames, the
@@ -165,6 +201,8 @@ files.sha256        checksum list of every other file
 - **Memory:** an allocator cap per mod (start at 32 MB).
 - **Errors:** a script error disables that mod for the rest of the
   mission and logs the error with the mod's name, never crashing the game.
+  Whatever the mod changed goes back (weapon stats return to the ROM's
+  values). In co-op it is turned off on every headset (see Multiplayer).
   Crash reports name the active mods.
 
 ## API v1
@@ -233,8 +271,8 @@ watch). We maintain the adapters, not the mods.
 
 ## Plan
 
-1. **Agree on this spec** with the user, then share it with Kelly and ask
-   for Tactical's list of needs (events and calls) as the first real test.
+1. **Agree on this spec** with mod authors. Tactical's list of needs
+   (events and calls, #291) is its first real test.
 2. **Packs and launcher:** manifest, install from file, the generic mod
    campaign entry, saves, the content check. No scripting yet: a
    data-only mod can be installed and started.
