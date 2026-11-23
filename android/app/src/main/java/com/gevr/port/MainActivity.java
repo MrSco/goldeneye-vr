@@ -7,6 +7,7 @@ import android.view.View;
 import android.util.Log;
 import java.io.File;
 import android.net.Uri;
+import android.os.ParcelFileDescriptor;
 import androidx.core.content.FileProvider;
 
 public class MainActivity extends SDLActivity {
@@ -195,6 +196,7 @@ public class MainActivity extends SDLActivity {
     private static final int REQUEST_PICK_ROM = 0x6e;
     private static final int REQUEST_PICK_XBLA = 0x71;
     private static final int REQUEST_PICK_CE = 0x72;
+    private static final int REQUEST_PICK_MOD = 0x73;
 
     /** What happened to the last pick, for the launcher to show; it reads and clears it. */
     public static volatile String pickResult = null;
@@ -254,6 +256,18 @@ public class MainActivity extends SDLActivity {
         openDocument(REQUEST_PICK_CE);
     }
 
+    /**
+     * The Mods page's Install from file...: a mod's zip (docs/mod-system.md).
+     * Nothing is copied: the launcher's installer (port/src/gevr_modpack.c)
+     * reads it through its descriptor, so a 2 GB mod needs no second 2 GB.
+     */
+    public void openModPicker() {
+        openDocument(REQUEST_PICK_MOD);
+    }
+
+    /** vr_launcher.cpp: the picked zip's descriptor, which the install reads and closes. */
+    private static native void nativeModPicked(int fd);
+
     private void openDocument(int request) {
         runOnUiThread(() -> {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
@@ -294,6 +308,21 @@ public class MainActivity extends SDLActivity {
         if (requestCode == REQUEST_PICK_CE) {
             if (resultCode == RESULT_OK && data != null && data.getData() != null && mods != null) {
                 mods.applyCe(data.getData());
+            }
+            comeBackToVr();
+            return;
+        }
+        if (requestCode == REQUEST_PICK_MOD) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                try (ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(data.getData(), "r")) {
+                    if (pfd == null) throw new java.io.IOException("no descriptor");
+                    nativeModPicked(pfd.detachFd());   // the native side reads and closes it (fdopen)
+                } catch (Exception e) {
+                    Log.e(TAG, "mod pick", e);
+                    pickResult = "Could not read that file.";
+                }
+            } else {
+                pickResult = "No file chosen.";
             }
             comeBackToVr();
             return;

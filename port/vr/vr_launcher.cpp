@@ -6,6 +6,7 @@
 #include "gevr_icloud.h"
 #include "gevr_bean_ce.h"
 #include "gevr_oddjobhat.h"
+#include "gevr_modpack.h"
 /*
  * GoldenEye VR launcher, inside VR.
  *
@@ -45,6 +46,9 @@
 #include <chrono>
 #include <future>
 #include <vector>
+#include <atomic>
+#include <mutex>
+#include <thread>
 #include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -442,6 +446,11 @@ extern "C" void gevrQuitApp(void)
 }
 #endif
 
+// A mod's zip the platform's picker chose, as an open file, for the Mods
+// page's install (below, by gevrLauncherModsTick); removeAfter names a
+// temporary copy to delete once it is installed.
+extern "C" void gevrLauncherModPicked(FILE *f, const char *removeAfter);
+
 #if defined(ANDROID) && defined(GEVR_NATIVE_SERVICES)
 /*
  * No MainActivity (Klepton on Vision Pro): Klepton's file request
@@ -491,6 +500,10 @@ static bool gevrKleptonPick(const char *method)
         dest = std::string(files) + "/.import-ce.zip";
         title = "Choose the GoldenEye XBLA Community Edition updater";
         extensions = "zip";
+    } else if (!strcmp(method, "openModPicker") && files) {
+        dest = std::string(files) + "/.import-mod.zip";
+        title = "Choose a mod's .zip";
+        extensions = "zip";
     } else {
         return false;
     }
@@ -514,6 +527,12 @@ static void gevrKleptonPickPoll()
         vr_log("launcher: file picker (%s) copied", s_klMethod.c_str());
         if (s_klMethod == "openXblaPicker") pcModsImportOwn("ge007-bean", s_klDest);
         else if (s_klMethod == "openCePicker") pcModsApplyCe(s_klDest);
+        else if (s_klMethod == "openModPicker") {
+            // the staged copy goes once it is installed
+            FILE *f = fopen(s_klDest.c_str(), "rb");
+            if (f) gevrLauncherModPicked(f, s_klDest.c_str());
+            else s_klResult = "Could not read that file.";
+        }
     } else {
         s_klResult = status == 2 ? "No file chosen." : "Could not copy that file.";
     }
@@ -1146,8 +1165,43 @@ enum {
     GEVR_START_ROW_PICK_MARIO,
 };
 
+// Installed campaign mods, listed after the hacks (docs/mod-system.md). A mod
+// campaign is its cartridge (VrCampaign) plus its id (VrCampaignMod);
+// gevrLauncherModsRescan fills this and gevrLauncherModsTick keeps reason.
+struct LauncherModCampaign {
+    std::string id, title, by, version;
+    std::string reason;   // why it can't start now ("needs Goldfinger 64"); "" when it can
+    int base = 0;
+};
+static std::vector<LauncherModCampaign> s_modCampaigns;
+
+static const LauncherModCampaign *gevrLauncherModCampaign(const char *id)
+{
+    for (const LauncherModCampaign &m : s_modCampaigns)
+        if (id && id[0] && m.id == id) return &m;
+    return nullptr;
+}
+
+// The Mods page's mod packs row: what the install and the scan report
+// (gevrLauncherModsTick), and what the row asks of them.
+struct LauncherModRow {
+    std::string id, title, by, version;
+    std::string reason;   // why it can't run (a broken install, a missing cartridge); "" when it can
+    bool campaign = false;
+};
+static struct {
+    std::vector<LauncherModRow> mods;
+    bool busy = false;        // an install is running
+    int progress = -1;
+    std::string message;      // the last pick's, install's or remove's outcome
+    bool bad = false;
+    bool wantPick = false, wantCancel = false;
+    std::string wantRemove;
+} s_modsView;
+
 static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool mirrorGood, bool marioGood, bool ready,
-                                bool focus, const char *startLabel = "START", bool online = false)
+                                bool focus, const char *startLabel = "START", bool online = false,
+                                char *mod = nullptr)
 {
     static const char *const names[] = { "GoldenEye", "Goldfinger 64", "Tomorrow Never Dies", "Mirror Mode (Wreck)",
                                          "Mario Characters" };
@@ -1157,22 +1211,49 @@ static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool m
     const float rowY = ImGui::GetCursorPosY();
     int action = GEVR_START_ROW_NONE;
     const int shown = *campaign >= 0 && *campaign < GEVR_CAMPAIGN_COUNT ? *campaign : 0;
+    const LauncherModCampaign *chosen = mod ? gevrLauncherModCampaign(mod) : nullptr;
+    char preview[96];
 
+    if (chosen) snprintf(preview, sizeof(preview), "%s (mod)", chosen->title.c_str());
+    else snprintf(preview, sizeof(preview), "%s", names[shown]);
     ImGui::SetCursorPosY(rowY + (startH - ImGui::GetFrameHeight()) * 0.5f);
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.38f);
     // online the party plays one campaign (net_core.c's join check): not changed mid-session
     ImGui::BeginDisabled(online);
-    if (ImGui::BeginCombo("##campaign", names[shown])) {
+    if (ImGui::BeginCombo("##campaign", preview)) {
         for (int c = 0; c < GEVR_CAMPAIGN_COUNT; c++) {
             char label[64];
 
             snprintf(label, sizeof(label), installed[c] ? "%s" : "%s (not installed)", names[c]);
             ImGui::BeginDisabled(!installed[c]);
-            if (ImGui::Selectable(label, shown == c) && c != shown) {
+            if (ImGui::Selectable(label, shown == c && !chosen) && (c != shown || chosen)) {
                 *campaign = c;
+                if (mod) mod[0] = '\0';
                 action = GEVR_START_ROW_CAMPAIGN;
             }
             ImGui::EndDisabled();
+        }
+        // campaign mods (Mods page), each on its cartridge
+        if (mod && !s_modCampaigns.empty()) {
+            ImGui::Separator();
+            for (const LauncherModCampaign &m : s_modCampaigns) {
+                char label[128];
+
+                if (m.reason.empty()) snprintf(label, sizeof(label), "%s (mod)", m.title.c_str());
+                else snprintf(label, sizeof(label), "%s (%s)", m.title.c_str(), m.reason.c_str());
+                ImGui::PushID(m.id.c_str());
+                ImGui::BeginDisabled(!m.reason.empty());
+                if (ImGui::Selectable(label, chosen == &m) && chosen != &m) {
+                    *campaign = m.base;
+                    snprintf(mod, GEVR_MOD_ID_MAX + 1, "%s", m.id.c_str());
+                    action = GEVR_START_ROW_CAMPAIGN;
+                }
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    gevrTooltip("%s %s by %s\nA mod campaign on %s, with its own save.", m.title.c_str(), m.version.c_str(),
+                                m.by.c_str(), names[m.base >= 0 && m.base < GEVR_CAMPAIGN_COUNT ? m.base : 0]);
+                ImGui::PopID();
+            }
         }
         ImGui::Separator();
         if (ImGui::Selectable("Add Goldfinger 64 ROM...")) action = GEVR_START_ROW_PICK_GF;
@@ -1184,7 +1265,7 @@ static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool m
     ImGui::EndDisabled();
     if (online && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) gevrTooltip("Leave the online game to change campaign.");
     if (ImGui::IsItemHovered())
-        gevrTooltip("Choose GoldenEye, Goldfinger 64, Tomorrow Never Dies, Wreck's Mirror Mode or Mario Characters. Add a patched ROM with this menu.");
+        gevrTooltip("Choose GoldenEye, Goldfinger 64, Tomorrow Never Dies, Wreck's Mirror Mode or Mario Characters. Add a patched ROM with this menu.\nMod campaigns installed on the Mods page are listed here too.");
     ImGui::SameLine();
     ImGui::SetCursorPosY(rowY);
     ImGui::BeginDisabled(!ready);
@@ -1458,6 +1539,63 @@ static void gevrModsPage(Uint32 now, const ImVec4 &gold, const ImVec4 &good, con
         }
         ImGui::PopID();
     }
+
+    // Mod packs (docs/mod-system.md): installed from a mod's zip. One line, as
+    // the page doesn't scroll; the installed list opens over the page.
+    ImGui::Separator();
+    ImGui::PushID("mod-packs");
+    ImGui::TextColored(gold, "MODS");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(s_modsView.busy);
+    if (ImGui::SmallButton("Install from file...")) s_modsView.wantPick = true;
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        gevrTooltip("A mod's .zip, from its author's page. Everything in it is checked\nbefore anything is installed. A campaign mod is then listed beside START.");
+    ImGui::SameLine();
+    char installedLabel[48];
+    snprintf(installedLabel, sizeof(installedLabel), "Installed (%d)...", (int)s_modsView.mods.size());
+    if (ImGui::SmallButton(installedLabel)) ImGui::OpenPopup("installed-mods");
+    ImGui::SameLine();
+    if (s_modsView.busy) {
+        if (ImGui::SmallButton("Cancel")) s_modsView.wantCancel = true;
+        ImGui::SameLine();
+        if (s_modsView.progress >= 0) ImGui::TextColored(gold, "Installing %d%%", s_modsView.progress);
+        else ImGui::TextColored(gold, "Installing...");
+    } else if (!s_modsView.message.empty()) {
+        // cut to the line; hovering shows it whole
+        ImGui::PushStyleColor(ImGuiCol_Text, s_modsView.bad ? bad : good);
+        gevrLauncherStatus(s_modsView.message.c_str());
+        ImGui::PopStyleColor();
+    }
+    if (ImGui::BeginPopup("installed-mods")) {
+        static std::string confirm;   // Remove asks once more
+        if (s_modsView.mods.empty()) ImGui::TextDisabled("No mods installed. Install one from its .zip.");
+        for (const LauncherModRow &m : s_modsView.mods) {
+            ImGui::PushID(m.id.c_str());
+            ImGui::BeginDisabled(s_modsView.busy);
+            if (ImGui::SmallButton(confirm == m.id ? "Sure?" : "Remove")) {
+                if (confirm == m.id) {
+                    s_modsView.wantRemove = m.id;
+                    confirm.clear();
+                } else {
+                    confirm = m.id;
+                }
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::Text("%s %s", m.title.c_str(), m.version.c_str());
+            ImGui::SameLine();
+            ImGui::TextDisabled("by %s, %s", m.by.empty() ? "?" : m.by.c_str(),
+                                m.campaign ? "a campaign beside START" : "an overlay (not used yet)");
+            if (!m.reason.empty()) {
+                ImGui::SameLine();
+                ImGui::TextColored(bad, "%s", m.reason.c_str());
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopID();
 }
 
 // Names: printable ASCII, which the game's font can draw over a player's head,
@@ -2262,10 +2400,12 @@ static void gevrFriendsSidebarWindow(bool onlineGame, const ImVec4 &gold, const 
     const char *lobby = netIsActive() ? netGetLobbyCode() : "";
     GevrFriendsUiContext ctx;
     ctx.canJoin = onlineGame && !netIsActive();
-    ctx.joinHint = !onlineGame ? "Online play needs the chosen campaign's ROM installed."
+    ctx.joinHint = !onlineGame ? (VrCampaignMod[0] ? "Mod campaigns play solo for now."
+                                                   : "Online play needs the chosen campaign's ROM installed.")
                                : "Leave your lobby to join another.";
     ctx.canInvite = onlineGame && (!netIsActive() || lobby[0]);
-    ctx.inviteHint = !onlineGame ? "Online play needs the chosen campaign's ROM installed."
+    ctx.inviteHint = !onlineGame ? (VrCampaignMod[0] ? "Mod campaigns play solo for now."
+                                                     : "Online play needs the chosen campaign's ROM installed.")
                      : lobby[0] ? "Invite them into your lobby."
                      : netIsActive() ? "This game has no internet lobby to invite into."
                      : "Starts a private lobby and invites them into it.";
@@ -2313,6 +2453,249 @@ static const char *gevrCampaignTitle(int campaign)
                                          "Mario Characters" };
     static_assert(sizeof(names) / sizeof(names[0]) == GEVR_CAMPAIGN_COUNT, "a name for every campaign");
     return campaign >= 0 && campaign < GEVR_CAMPAIGN_COUNT ? names[campaign] : "another campaign";
+}
+
+/*
+ * Mod packs (docs/mod-system.md; the installer is port/src/gevr_modpack.c).
+ * The platform's picker hands over the chosen zip as an open file
+ * (pc_launcher.cpp on PC and Apple, MainActivity through nativeModPicked,
+ * Klepton's staged copy); it installs on a thread of its own while the Mods
+ * page's row shows its progress.
+ */
+static std::mutex s_modPickLock;
+static FILE *s_modPicked;              // a pick waiting to be installed
+static std::string s_modPickedRemove;  // its temporary copy, deleted once installed
+static bool s_modPicking;              // our picker is up: a pick result is ours
+
+extern "C" void gevrLauncherModPicked(FILE *f, const char *removeAfter)
+{
+    std::lock_guard<std::mutex> lock(s_modPickLock);
+    if (s_modPicked) fclose(s_modPicked);   // a second pick replaces one not started
+    s_modPicked = f;
+    s_modPickedRemove = removeAfter ? removeAfter : "";
+}
+
+#ifdef ANDROID
+// MainActivity.onActivityResult: the picked zip's descriptor, read and closed here
+extern "C" JNIEXPORT void JNICALL Java_com_gevr_port_MainActivity_nativeModPicked(JNIEnv *, jclass, jint fd)
+{
+    FILE *f = fdopen(fd, "rb");
+    if (f) gevrLauncherModPicked(f, nullptr);
+    else close(fd);
+}
+#endif
+
+static struct {
+    std::atomic<int> progress{-1};
+    std::atomic<bool> cancel{false}, done{false};
+    bool running = false;
+    int rc = 0;
+    gevrModInfo info;
+    char why[300] = "";
+    std::string removeAfter;
+} s_modInstall;
+
+static int gevrLauncherModProgress(int percent, void *)
+{
+    s_modInstall.progress = percent;
+    return s_modInstall.cancel ? 0 : 1;
+}
+
+// The installed mods again: the Mods page's list and the campaign list's mods.
+static std::vector<int> s_modRowBase;   // each row's cartridge (-1: not a campaign, or broken)
+static void gevrLauncherModsRescan()
+{
+    static char ids[128][GEVR_MOD_ID_MAX + 1];
+    const int n = gevrModList(ids, 128);
+
+    s_modsView.mods.clear();
+    s_modRowBase.clear();
+    s_modCampaigns.clear();
+    for (int i = 0; i < n; i++) {
+        gevrModInfo info;
+        char why[300];
+        LauncherModRow row;
+        int base = -1;
+
+        row.id = ids[i];
+        if (gevrModLoad(ids[i], &info, why, sizeof(why)) == 0) {
+            row.title = info.m.title;
+            row.by = info.m.by;
+            row.version = info.m.version;
+            row.campaign = info.m.kind == GEVR_MOD_CAMPAIGN;
+            if (row.campaign) {
+                LauncherModCampaign c;
+                c.id = info.m.id;
+                c.title = info.m.title;
+                c.by = info.m.by;
+                c.version = info.m.version;
+                c.base = base = info.m.base;
+                s_modCampaigns.push_back(c);
+            }
+        } else {
+            row.title = ids[i];
+            row.reason = why;   // listed, so it can be removed
+        }
+        s_modsView.mods.push_back(row);
+        s_modRowBase.push_back(base);
+    }
+}
+
+// Each frame, from the launcher's loop (any tab): the row's asks, a pick that
+// came, an install that ended, and which campaign mods can start now.
+static void gevrLauncherModsTick()
+{
+    static bool started = false;
+    if (!started) {
+        started = true;
+        gevrModStartup();   // here, on the launcher's thread, before any install
+        gevrLauncherModsRescan();
+    }
+    // a campaign mod needs its cartridge's ROM (s_campaignInstalled, checked once a second)
+    for (LauncherModCampaign &c : s_modCampaigns)
+        c.reason = c.base >= 0 && c.base < GEVR_CAMPAIGN_COUNT && s_campaignInstalled[c.base]
+                       ? std::string() : std::string("needs ") + gevrCampaignTitle(c.base);
+    for (size_t i = 0; i < s_modsView.mods.size() && i < s_modRowBase.size(); i++) {
+        const int base = s_modRowBase[i];
+        if (base >= 0) s_modsView.mods[i].reason = s_campaignInstalled[base] ? std::string()
+                                                       : std::string("needs ") + gevrCampaignTitle(base);
+    }
+    // a mod campaign plays on its own cartridge: choosing another, adopting a
+    // hack's ROM, a missing ROM's fallback or a listed game's campaign ends it
+    if (VrCampaignMod[0]) {
+        const LauncherModCampaign *m = gevrLauncherModCampaign(VrCampaignMod);
+        if (!m || m->base != VrCampaign) {
+            if (!m) {
+                s_modsView.message = std::string(VrCampaignMod) + " is no longer installed, or can't start.";
+                s_modsView.bad = true;
+            }
+            VrCampaignMod[0] = '\0';
+            vrSettingsSave();
+        }
+    }
+
+    if (s_modsView.wantPick) {
+        s_modsView.wantPick = false;
+        s_modPicking = gevrOpenPicker("openModPicker");
+        s_modsView.message = s_modPicking ? "Pick the mod's .zip in the window that opened." : "Could not open the file picker.";
+        s_modsView.bad = !s_modPicking;
+#ifndef ANDROID
+        // PC and Apple: the picker has returned already; nothing handed over is a cancel
+        std::lock_guard<std::mutex> lock(s_modPickLock);
+        if (s_modPicking && !s_modPicked) {
+            s_modPicking = false;
+            s_modsView.message.clear();
+        }
+#endif
+    }
+    if (s_modPicking && !s_modInstall.running) {
+        const std::string r = gevrTakePickResult();   // the Quest's or Klepton's cancel or failure
+        if (!r.empty()) {
+            s_modPicking = false;
+            s_modsView.message = r;
+            s_modsView.bad = false;
+        }
+    }
+    if (!s_modInstall.running) {
+        FILE *f = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(s_modPickLock);
+            f = s_modPicked;
+            s_modPicked = nullptr;
+            s_modInstall.removeAfter.swap(s_modPickedRemove);
+            s_modPickedRemove.clear();
+        }
+        if (f) {
+            s_modPicking = false;
+            s_modInstall.running = true;
+            s_modInstall.progress = 0;
+            s_modInstall.cancel = false;
+            s_modInstall.done = false;
+            s_modsView.busy = true;
+            s_modsView.progress = 0;
+            s_modsView.message.clear();
+            vr_log("launcher: installing a mod");
+            // detached: START waits while it runs (gevrLauncherModReady), and quitting
+            // mid-install leaves only a folder the next start tidies
+            std::thread([f]() {
+                s_modInstall.rc = gevrModInstallZipFile(f, &s_modInstall.info, gevrLauncherModProgress, nullptr,
+                                                        s_modInstall.why, sizeof(s_modInstall.why));
+                fclose(f);
+                s_modInstall.done = true;
+            }).detach();
+        }
+    }
+    if (s_modsView.wantCancel) {
+        s_modsView.wantCancel = false;
+        s_modInstall.cancel = true;
+    }
+    if (s_modInstall.running) {
+        s_modsView.progress = s_modInstall.progress;
+        if (s_modInstall.done) {
+            s_modInstall.running = false;
+            s_modsView.busy = false;
+            if (!s_modInstall.removeAfter.empty()) remove(s_modInstall.removeAfter.c_str());
+            const gevrModManifest &m = s_modInstall.info.m;
+            if (s_modInstall.rc == 0) {
+                s_modsView.message = std::string("Installed ") + m.title + " " + m.version
+                                   + (m.kind == GEVR_MOD_CAMPAIGN ? ". Choose it beside START." : ".");
+                s_modsView.bad = false;
+            } else if (s_modInstall.rc == -2) {
+                s_modsView.message = "Install cancelled. Nothing changed.";
+                s_modsView.bad = false;
+            } else {
+                s_modsView.message = std::string("Not installed: ") + s_modInstall.why;
+                s_modsView.bad = true;
+            }
+            vr_log("launcher: mod install: %s", s_modsView.message.c_str());
+            gevrLauncherModsRescan();
+        }
+    }
+    if (!s_modsView.wantRemove.empty()) {
+        const std::string id = s_modsView.wantRemove;
+        char why[300];
+
+        s_modsView.wantRemove.clear();
+        if (!s_modInstall.running) {
+            if (gevrModRemove(id.c_str(), why, sizeof(why)) == 0) {
+                s_modsView.message = "Removed " + id + ".";
+                s_modsView.bad = false;
+                if (id == VrCampaignMod) {
+                    VrCampaignMod[0] = '\0';   // its cartridge's own campaign stays chosen
+                    vrSettingsSave();
+                }
+            } else {
+                s_modsView.message = why;
+                s_modsView.bad = true;
+            }
+            gevrLauncherModsRescan();
+        }
+    }
+}
+
+// The chosen campaign can start: a chosen mod that can run, and no install
+// under way (the game's start tidies the folder it unpacks into).
+static bool gevrLauncherModReady()
+{
+    const LauncherModCampaign *m = gevrLauncherModCampaign(VrCampaignMod);
+    return !s_modInstall.running && (!VrCampaignMod[0] || (m && m->reason.empty()));
+}
+
+// The line under START for a mod campaign: whose it is, what it needs, its terms.
+static std::string gevrLauncherModFooter()
+{
+    const LauncherModCampaign *m = gevrLauncherModCampaign(VrCampaignMod);
+    if (s_modInstall.running) return "START waits for the mod being installed (Mods page).";
+    if (!m) return std::string();
+    if (!m->reason.empty()) return m->title + " " + m->reason + ": add its ROM with this menu.";
+    return m->title + " by " + m->by + ": solo, with its own save.";
+}
+
+// Online play: every cartridge's campaign; a mod campaign plays solo until the
+// lobby's content check knows mods (docs/mod-system.md, plan step 2c).
+static bool gevrLauncherCampaignOnline()
+{
+    return gevrCampaignCoop(VrCampaign) && !VrCampaignMod[0];
 }
 static struct {
     int joinMethod = 0;   // 0 = Public Internet, 1 = Private Code, 2 = LAN Games, 3 = Direct IP
@@ -2506,8 +2889,8 @@ void gevrMultiplayerTick(GevrLauncherTabs &tabs, bool &startMatch, bool romReady
     auto &onlineLobbies = s_mp.onlineLobbies;
     auto &listLoading = s_mp.listLoading;
     auto &lastHeartbeatMs = s_mp.lastHeartbeatMs;
-    if (!gevrCampaignCoop(VrCampaign) && !netIsActive()) {
-        // the tab says why in a hack campaign without co-op
+    if (!gevrLauncherCampaignOnline() && !netIsActive()) {
+        // no lobby to keep: the Online page says why (gevrMultiplayerPage)
         return;
     }
     // A hack campaign plays co-op only: deathmatch, Horde and bots use GoldenEye's
@@ -2677,6 +3060,12 @@ void gevrMultiplayerTick(GevrLauncherTabs &tabs, bool &startMatch, bool romReady
 }
 
 void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad) {
+    if (VrCampaignMod[0] && !netIsActive()) {
+        // a mod campaign plays solo until the lobby's content check knows mods (gevrLauncherCampaignOnline)
+        ImGui::TextWrapped("Mod campaigns play solo for now: online play needs every player to have the same mod, "
+                           "which the lobby can't check yet. Choose a cartridge's own campaign beside START to play online.");
+        return;
+    }
     auto &joinMethod = s_mp.joinMethod;
     auto &directIp = s_mp.directIp;
     auto &privateCode = s_mp.privateCode;
@@ -4038,13 +4427,14 @@ extern "C" void gevrLauncherRun(void)
         s_launcherFrame++;   // the host's idle clock (gevrMultiplayerPage) sees frames it missed
         // Friends: presence and the list, every frame (vr_friends.cpp sends at most once a second).
         gevrFriendsTick(0);
-        const bool onlineGame = romReady && gevrCampaignCoop(VrCampaign);
+        const bool onlineGame = romReady && gevrLauncherCampaignOnline();
         if (gevrFriendsJoinPending() && !onlineGame) {
             vr_log("launcher: friend's lobby %s not joined: this campaign has no online play", gevrFriendsTakeJoin().c_str());
         }
         // the lobby and its connections, whichever tab is open; a friend's lobby,
         // an invite, or a lobby to host for an invite brings up Multiplayer
         gevrMultiplayerTick(launcherTabs, start, romReady);
+        gevrLauncherModsTick();   // mod packs: a pick, an install, the campaign mods (docs/mod-system.md)
         if (!reportPage) gevrFriendsInviteBanner(onlineGame && !netIsActive(), gold);
         {
             // About once a second, not every frame: each check opens a 16-24 MB
@@ -4365,16 +4755,17 @@ extern "C" void gevrLauncherRun(void)
                 ImGui::PopStyleColor();
             }
         }
-        const bool campaignReady = VrCampaign == GEVR_CAMPAIGN_GE
+        const bool campaignReady = (VrCampaign == GEVR_CAMPAIGN_GE
             || (VrCampaign == GEVR_CAMPAIGN_GF64 && gfGood)
             || (VrCampaign == GEVR_CAMPAIGN_TND64 && tndGood)
             || (VrCampaign == GEVR_CAMPAIGN_MIRROR && mirrorGood)
-            || (VrCampaign == GEVR_CAMPAIGN_MARIO && marioGood);
+            || (VrCampaign == GEVR_CAMPAIGN_MARIO && marioGood))
+            && gevrLauncherModReady();   // a chosen mod that can run, and no install under way
         char startLabel[160];
         gevrLauncherLoadout(startLabel, sizeof(startLabel));   /* "START  (Bean, GE-X, 3 cheats)" */
         switch (gevrLauncherStartRow(&VrCampaign, gfGood, tndGood, mirrorGood, marioGood,
                                      !active.empty() && activeInfo.good && campaignReady, focusStart, startLabel,
-                                     netIsActive())) {
+                                     netIsActive(), VrCampaignMod)) {
         case GEVR_START_ROW_START:
             /* a ghost-race or speedrun-timer run that would not count: say so first */
             if ((VrGhostRace || VrSpeedrunTimer) && !netIsActive() && !gevrUnrankedOn().empty())
@@ -4453,8 +4844,10 @@ extern "C" void gevrLauncherRun(void)
         focusStart = false;
         // the line under START: a campaign's news if there is any, its terms if
         // a hack is chosen, the hint otherwise (one line, so the page keeps its height)
+        const std::string modFooter = gevrLauncherModFooter();
         footerNote = !campaignFail.empty() ? campaignFail : !gfNote.empty() ? gfNote : !tndNote.empty() ? tndNote : !mirrorNote.empty() ? mirrorNote
                    : !marioNote.empty() ? marioNote
+                   : !modFooter.empty() ? modFooter
                    : VrCampaign == GEVR_CAMPAIGN_GE ? std::string()
                    : VrCampaign == GEVR_CAMPAIGN_MIRROR ? "Solo or co-op online, with its own save. GoldenEye X is off."
                    : gevrCampaignCoop(VrCampaign) ? "Solo or co-op online, its own save. GoldenEye X, Bean and HD packs are off."

@@ -11,6 +11,8 @@ split_end = source.index('// Issue #25: the Mods page.', split_start)
 fixture = r'''
 #include "gevr_launcher_ui.h"
 #include "gevr_romlayout.h"
+#include "gevr_modpack.h"   /* the START row's mod campaigns (GEVR_MOD_ID_MAX) */
+#include <vector>
 #include "imgui/imgui_internal.h"
 #include <cstdio>
 #include <cstring>
@@ -50,6 +52,10 @@ int main(){
 for(ceApplied=0;ceApplied<2;ceApplied++)
     for(int update=0;update<2;update++)for(bean=0;bean<2;bean++){
         available=bean;raw.clear();
+        // the mod packs row: an install running (Cancel and a percent), or a long failure cut to the line
+        s_modsView.busy=update; s_modsView.progress=update?42:-1; s_modsView.bad=bean;
+        s_modsView.message=bean?"Not installed: tactical-operation-severnaya/assets/models/vest.bin doesn't match its checksum in files.sha256":"Installed Tactical 1.0.0. Choose it beside START.";
+        s_modsView.mods.assign(3, LauncherModRow{});
         for(const char *id : {"ge007-hd","ge007-hd-ai","ge007-bean"})
             raw+=std::string(id)+"\tPack\tCredit\tgithub.com/credit\t2026.10.11.1\t374\t"+state+"\t100\t"+
                 (!strcmp(state,"error")?"A long download failure message that exceeds the column width and must stay on one line.":"")+"\t"+(update?"2026.10.11.2":"")+"\n";

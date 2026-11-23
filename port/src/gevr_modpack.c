@@ -1213,15 +1213,18 @@ done:
     return rc;
 }
 
-int gevrModInstallZip(const char *zipPath, gevrModInfo *out, int (*progress)(int percent, void *ud), void *ud,
-                      char *why, size_t whyLen)
+int gevrModInstallZipFile(FILE *f, gevrModInfo *out, int (*progress)(int percent, void *ud), void *ud,
+                          char *why, size_t whyLen)
 {
     mz_zip_archive z;
     int rc;
 
     memset(out, 0, sizeof(*out));
     memset(&z, 0, sizeof(z));
-    if (!mz_zip_reader_init_file(&z, zipPath, 0)) {
+    /* from its start: miniz takes where the file stands as the archive's start
+     * and measures it (a pipe, which can't seek, fails here: a zip's index is
+     * at its end) */
+    if (fseek(f, 0, SEEK_SET) != 0 || !mz_zip_reader_init_cfile(&z, f, 0, 0)) {
         return say(why, whyLen, "that file isn't a zip, or couldn't be read");
     }
     rc = installFrom(&z, out, progress, ud, why, whyLen);
@@ -1229,6 +1232,21 @@ int gevrModInstallZip(const char *zipPath, gevrModInfo *out, int (*progress)(int
     if (rc != 0) {
         sysLogPrintf(LOG_WARNING, "mods: install failed: %s", why ? why : "");
     }
+    return rc;
+}
+
+int gevrModInstallZip(const char *zipPath, gevrModInfo *out, int (*progress)(int percent, void *ud), void *ud,
+                      char *why, size_t whyLen)
+{
+    FILE *f = fopen(zipPath, "rb");
+    int rc;
+
+    if (!f) {
+        memset(out, 0, sizeof(*out));
+        return say(why, whyLen, "that file couldn't be opened");
+    }
+    rc = gevrModInstallZipFile(f, out, progress, ud, why, whyLen);
+    fclose(f);
     return rc;
 }
 
@@ -1401,12 +1419,17 @@ static void note(const char *fmt, ...)
     }
 }
 
+void gevrModStartup(void)
+{
+    gevrModsRoot();
+    tidy();
+}
+
 void gevrModBoot(void)
 {
     char why[256];
 
-    gevrModsRoot();
-    tidy();
+    gevrModStartup();
     s_hasActive = 0;
     if (!VrCampaignMod[0]) {
         return;

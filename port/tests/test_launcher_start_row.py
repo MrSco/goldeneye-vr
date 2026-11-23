@@ -21,6 +21,8 @@ row = source[start:end]
 fixture = r'''
 #include "gevr_launcher_ui.h"
 #include "gevr_romlayout.h"
+#include "gevr_modpack.h"   /* the START row's mod campaigns (GEVR_MOD_ID_MAX) */
+#include <vector>
 #include "imgui/imgui_internal.h"
 #include <cassert>
 #include <cstdio>
@@ -30,6 +32,7 @@ fixture = r'''
 /* ROW */
 
 static int campaign = 0;
+static char modChosen[GEVR_MOD_ID_MAX + 1];   /* VrCampaignMod */
 static ImRect startRect;
 static float pageBottom, windowBottom;
 
@@ -47,7 +50,7 @@ static void frame(int extraLines, bool openCombo)
     ImGui::Separator();
     for (int i = 0; i < extraLines; i++) ImGui::TextUnformatted("CAMPAIGN");
     if (openCombo) ImGui::OpenPopupEx(ImHashStr("##ComboPopup", 0, ImGui::GetID("##campaign")));  /* BeginCombo's own id */
-    gevrLauncherStartRow(&campaign, true, false, true, true, true, false);
+    gevrLauncherStartRow(&campaign, true, false, true, true, true, false, "START", false, modChosen);
     startRect = ImRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
     gevrLauncherStatus("Goldfinger 64 did not load, so GoldenEye started instead. A long note is cut to one line.");
     pageBottom = ImGui::GetItemRectMax().y;
@@ -96,6 +99,34 @@ int main()
     frame(0, true);
     ImGuiWindow *popup = ImGui::FindWindowByName("##Combo_00");
     assert(popup && popup->Active);
+
+    /* campaign mods (the Mods page) after the hacks: the chosen one, with the
+       longest title a manifest allows, names the row and still fits; the open
+       list holds them, one that can't start among them */
+    const char *titles[] = { "Tactical: Operation Severnaya Long Title Forty-8", "Second Mod", "Third Mod" };
+    for (int i = 0; i < 3; i++) {
+        LauncherModCampaign m;
+        m.id = std::string("mod-") + char('a' + i);
+        m.title = titles[i];
+        m.by = "Kelly-D-Ripper";
+        m.version = "1.0.0";
+        m.base = i == 2 ? GEVR_CAMPAIGN_GF64 : GEVR_CAMPAIGN_GE;
+        if (i == 2) m.reason = "needs Goldfinger 64";
+        s_modCampaigns.push_back(m);
+    }
+    assert(std::strlen(titles[0]) == 48);
+    std::snprintf(modChosen, sizeof(modChosen), "mod-a");
+    campaign = GEVR_CAMPAIGN_GE;
+    frame(0, false);
+    frame(0, false);
+    assert(pageBottom <= windowBottom + 0.5f);
+    assert(win->ScrollMax.y <= 0.5f);
+    assert(startRect.Min.x > 300.0f);
+    frame(0, true);
+    frame(0, true);
+    popup = ImGui::FindWindowByName("##Combo_00");
+    assert(popup && popup->Active);
+    assert(gevrLauncherModCampaign("mod-a") == &s_modCampaigns[0] && !gevrLauncherModCampaign("gone"));
 
     ImGui::DestroyContext();
     std::puts("PASS: campaign dropdown beside START; the main page keeps its height at Quest font size");

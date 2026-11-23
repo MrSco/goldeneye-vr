@@ -13,6 +13,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -62,6 +63,10 @@ int gevrModParseManifest(const char *json, size_t len, gevrModManifest *out, cha
  * installed mods as they were. progress(percent, ud) returning 0 cancels. */
 int gevrModInstallZip(const char *zipPath, gevrModInfo *out, int (*progress)(int percent, void *ud), void *ud,
                       char *why, size_t whyLen);
+/* The same from an open file (a picker's: Windows' wide path, Android's
+ * descriptor); it must be seekable. The caller closes it. */
+int gevrModInstallZipFile(FILE *f, gevrModInfo *out, int (*progress)(int percent, void *ud), void *ud,
+                          char *why, size_t whyLen);
 int gevrModLoad(const char *id, gevrModInfo *out, char *why, size_t whyLen);
 int gevrModRemove(const char *id, char *why, size_t whyLen);
 /* The installed mods' ids (folder names), sorted; returns how many (at most max). */
@@ -72,6 +77,10 @@ int gevrModBaseCampaign(const char *base);
 /* $S/texture-packs/mods, resolved at boot (gevrModBoot) */
 const char *gevrModsRoot(void);
 
+/* The launcher, on its own thread before it lists, installs or removes:
+ * resolves the mods folder (fsFullPath isn't thread-safe) and tidies a
+ * crash's leftovers. gevrModBoot does it too. */
+void gevrModStartup(void);
 /* romdataInit (gevr_romload.c), first: tidies the mods folder and, when
  * VrCampaignMod names a campaign mod, checks it and sets VrCampaign to its
  * cartridge. A mod that can't run is off for this run, with the launcher's

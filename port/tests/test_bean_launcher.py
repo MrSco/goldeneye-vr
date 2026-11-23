@@ -12,6 +12,8 @@ page = source[start:end].replace("ImGui::RadioButton(", "radio(").replace("ImGui
 page = page.replace('ImGui::SmallButton("CE...")', "cePick()").replace('ImGui::Checkbox("CE", &ce)', "ceBox(&ce)")
 fixture = r'''
 #include "gevr_launcher_ui.h"
+#include "gevr_modpack.h"   /* the START row's mod campaigns (GEVR_MOD_ID_MAX) */
+#include <vector>
 #include "imgui/imgui_internal.h"
 #include <cassert>
 #include <cstdio>

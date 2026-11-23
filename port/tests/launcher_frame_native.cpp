@@ -7,6 +7,8 @@
 #include "gevr_launcher_ui.h"
 #include "gevr_settings_ui.h"
 #include "gevr_romlayout.h"
+#include "gevr_modpack.h"   /* the START row's mod campaigns (GEVR_MOD_ID_MAX) */
+#include <vector>
 #include "gevr_ghosts_ui.h"
 #include "imgui/imgui_internal.h"
 #include <cstdio>

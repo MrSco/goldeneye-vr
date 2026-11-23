@@ -111,7 +111,19 @@ files.sha256        checksum list of every other file
   download step in front of it.
 - **One installer for every platform:** `port/src/gevr_modpack.c` (C,
   miniz) on the headset, PC, Apple, Android phones and the dedicated
-  server. Each platform's file picker only hands it a zip.
+  server. Each platform's file picker only hands it a zip, as an open file
+  (`gevrLauncherModPicked`), and it installs on a thread of its own:
+  - Quest and Android phones: the system picker; Java hands over the file's
+    descriptor (`MainActivity.nativeModPicked`), so nothing is copied and
+    a 2 GB mod needs no second 2 GB.
+  - PC (Windows, Linux): the open dialog; the player's own file is read
+    where it is.
+  - iPhone and iPad, Apple TV (its upload page) and Vision Pro: the
+    system's copy, deleted once installed. Klepton: its staged copy, the same.
+- The Mods page's MODS row: **Install from file...**, the install's
+  progress with Cancel, its outcome on the line, and **Installed (n)...**,
+  which lists each mod (version, author, campaign or overlay, why it can't
+  run) with Remove.
 - Install checks, all before anything is in place: the manifest (above),
   `api` in the range this build runs, every file against `files.sha256` as
   it unpacks, the names (above), and the limits: 10,000 files, 256 MB a
@@ -126,7 +138,11 @@ files.sha256        checksum list of every other file
 
 - Installed `campaign` mods appear in the campaign list after the hack
   campaigns, titled from the manifest, with "(mod)" and the author in the
-  tooltip.
+  tooltip. One whose cartridge's ROM is missing is listed greyed, "needs
+  Goldfinger 64". Choosing it sets both the cartridge and the mod.
+- A mod campaign stays on its own cartridge: choosing another campaign,
+  adopting a hack's ROM, a missing ROM's fallback or joining a listed game
+  of another campaign turns the mod off. START waits while an install runs.
 - A mod whose base ROM is missing, or whose `api` this build doesn't
   support, shows as unavailable with the reason. Starting it never falls
   back silently to another campaign without a note (as the hacks do today).
@@ -162,6 +178,9 @@ files.sha256        checksum list of every other file
   today, it doesn't matter what another player sees. An overlay that changes
   rules declares `"affectsPlay": true` and is checked like a campaign mod.
 - Mods with `"coop": false` aren't offered in online co-op.
+- Until the content check knows mods (plan step 2c), a mod campaign plays
+  solo: the Online page says why, and neither the launcher's nor the
+  in-game Friends panel can join or invite.
 - Deathmatch and Horde: campaign mods stay out (those modes use GoldenEye's
   maps and tables). An overlay that changes rules works in any mode **only
   when every player has the same mod** (same content ID, checked in the
