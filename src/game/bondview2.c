@@ -18353,11 +18353,13 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
     {
         /* both hands on Bean's or GoldenEye's own rifle bat: its end in the off hand (input.c; gevrBatOffPalm) */
         extern int gevrBeanIsEnabled(void);
+        extern int VrBatTwoHand;   /* vr_settings_defaults.c: how it swings (gun.c gevrBeanBatPose) */
         const float *o = VrGexBatFit[gevrBeanIsEnabled() ? 7 : 8];
 
         snprintf(buf, sizeof(buf),
-                 "BAT OFF HAND FIT%s\nWHERE THE OFF HAND GRIPS THE RIFLE\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nLET GO: FIT THE RIFLE\n%sA: SAVE   B: UNDO   MENU + A: DONE",
-                 gex, -o[2], o[0], o[1], gevrFitNextLine(0));
+                 "BAT OFF HAND FIT%s\nWHERE THE OFF HAND GRIPS THE RIFLE\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nY: SWING %s\nLET GO: FIT THE RIFLE\n%sA: SAVE   B: UNDO   MENU + A: DONE",
+                 gex, -o[2], o[0], o[1], VrBatTwoHand ? "BY THE HANDS' LINE" : "BY THE WRIST, THE LINE APART",
+                 gevrFitNextLine(0));
     }
     else if (gevrStereoClubBat(GUNRIGHT))
     {

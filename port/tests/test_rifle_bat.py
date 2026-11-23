@@ -88,6 +88,7 @@ s32 gevrStereoBatBetween(s32 h, f32 out[3], f32 *apartCm)
     *apartCm = sqrtf(between[0] * between[0] + between[1] * between[1] + between[2] * between[2]) / cm(1);
     return TRUE;
 }
+int VrBatTwoHand = 1;                       /* 1 the hands' line always; 0 the wrist together, the line apart */
 static f32 s_gevrGexBatEnd[2][3];
 static s32 s_gevrGexBatAt[2];
 static f32 s_gevrGexBatLine[2][15];
@@ -231,6 +232,49 @@ int main(void)
     tick();
     assert(deg(line(), ey) < 0.05f);
 
+    /* The default (VrBatTwoHand 0), GoldenEye X's way: the controllers stacked, the gun
+     * wrist swings it as with one hand; spread, the hands' line, stiff */
+    VrBatTwoHand = 0;
+    letGo();
+    setGun(0);
+    palmOf(&gunHand, palm);
+    hands(ey, 12, ex, 0);
+    tick();
+    assert(deg(line(), ey) < 0.05f);
+    /* stacked, the top hand pushed 3 cm and the fist not turned: the wrist has it, so nothing */
+    hands(ey, 12, ex, 3);
+    tick();
+    assert(deg(line(), ey) < 0.05f);
+    /* ... and the gun wrist broken 30 degrees: all 30, as with one hand */
+    setGun(30);
+    palmOf(&gunHand, palm);
+    tick();
+    turnX(30, ey, want);
+    assert(deg(line(), want) < 0.1f);
+    /* spread 40 cm: the hands' line, a 3 cm push turns it 4.3 degrees */
+    letGo();
+    setGun(0);
+    palmOf(&gunHand, palm);
+    hands(ey, 40, ex, 0);
+    tick();
+    hands(ey, 40, ex, 3);
+    tick();
+    assert(fabsf(deg(line(), ey) - 4.29f) < 0.2f);
+    memcpy(first, line(), sizeof(first));
+    /* the wrist turned with the hands spread: stiff, the line keeps it */
+    setGun(20);
+    tick();
+    assert(deg(line(), first) < 0.1f);
+    /* slid together: it stays where the line left it, then the wrist swings it from there */
+    hands(ey, 12, ex, 0);
+    tick();
+    assert(deg(line(), first) < 0.1f);
+    setGun(40);
+    tick();
+    turnX(20, first, want);
+    assert(deg(line(), want) < 0.2f);
+    VrBatTwoHand = 1;
+
     /* the off hand stuck to the bat (bondview2.c gevrBatOffHandPin) */
     {
         Mtxf arm[2], before[2];
@@ -279,7 +323,7 @@ int main(void)
             assert(offLine(grip) < 0.05f);
         }
     }
-    puts("PASS: the two-handed rifle bat follows the controllers' line: taking hold moves nothing, it swings with both hands, a push breaks it 14 degrees with the hands together and 4 apart, it turns about the fist with the glove, and the off hand is stuck to it");
+    puts("PASS: the two-handed rifle bat: by default the gun wrist swings it with the hands together and the hands' line apart, no jump between; the line always as the other way (a push breaks it 14 degrees together, 4 apart); taking hold moves nothing, it turns about the fist with the glove, and the off hand is stuck to it");
     return 0;
 }
 '''

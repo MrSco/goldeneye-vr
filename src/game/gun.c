@@ -4137,7 +4137,22 @@ static Mtxf s_gevrBeanBatHand[2];      /* the PP7's gun matrix the glove is draw
  * swings kind of like a stiff axe"), and the line only with them apart -
  * the wrong way round. It turns about the fist, the glove with it; the off
  * hand is stuck to it as it took hold (bondview2.c gevrBatOffHandPin).
+ *
+ * That line at every distance still swung wrong (owner, 2026-11-22): with the
+ * fists stacked a wrist break hardly moves it, and between game frames the
+ * headset moves the rifle with the gun controller alone (gunfire.c's hand
+ * tags), which the line then pulls back each frame. So by default
+ * (VrBatTwoHand 0) it is GoldenEye X's (bondview2.c gevrTwoHandBatAim): the
+ * controllers stacked (under GEVR_BEAN_BAT_WRIST_CM) the gun wrist alone
+ * swings it, as with one hand - a wrist break swings it all the way - and
+ * spread past GEVR_BEAN_BAT_SPREAD_CM the hands' line has it, stiff until they
+ * slide together again, with both kept in step so neither takes over with a
+ * jump. VrBatTwoHand 1 is the line at every distance, as above, to compare
+ * (Gun fit, both hands on the bat: Y).
  */
+#define GEVR_BEAN_BAT_WRIST_CM 14.0f    /* the controllers nearer: the gun wrist swings it */
+#define GEVR_BEAN_BAT_SPREAD_CM 20.0f   /* farther: the hands' line */
+extern int VrBatTwoHand;                /* vr_settings_defaults.c: 0 the wrist together, the line apart; 1 the line */
 #define GEVR_BEAN_BAT_LINE_MIN_CM 4.0f   /* nearer, the controllers' line means nothing: it keeps the last */
 #define GEVR_BEAN_BAT_SPREAD 0.5f        /* spread hands: the fist slides up to half the rifle from its end */
 extern s32 gevrStereoBatBetween(s32 hand, f32 between[3], f32 *apartCm);   /* bondview2.c: the gun controller from the off one */
@@ -4320,21 +4335,36 @@ s32 gevrBeanBatPose(s32 hand, Mtxf *rifle)
                 }
             }
         }
-        if (line)
         {
-            gevrBeanBatOut(base[0], e1, e2, e3, t);
-            gevrBeanBatIn(t, ex, up, fwd, grip[1]);   /* kept for a too-short line */
-        }
-        else
-        {
-            /* hands too near for a line: where it last was on the fist, until there is one again */
+            /* how much the hands' line has it: all of it (VrBatTwoHand 1), or none with the
+             * controllers stacked and all spread (0); the gun wrist the rest */
+            f32 w = VrBatTwoHand ? 1.0f : (apart - GEVR_BEAN_BAT_WRIST_CM) / (GEVR_BEAN_BAT_SPREAD_CM - GEVR_BEAN_BAT_WRIST_CM);
+            f32 lineWay[3];
+
+            if (!(w > 0.0f)) w = 0.0f;   /* NaN too */
+            if (w > 1.0f) w = 1.0f;
+            if (!line) w = 0.0f;         /* hands too near for a line: where it last was on the fist */
             gevrBeanBatOut(base[1], ex, up, fwd, t);
-        }
-        if (!gevrBeanBatUnit(t))
-        {
-            for (i = 0; i < 3; i++)
+            if (w > 0.0f)
             {
-                t[i] = ey[i];
+                gevrBeanBatOut(base[0], e1, e2, e3, lineWay);
+                for (i = 0; i < 3; i++)
+                {
+                    t[i] += (lineWay[i] - t[i]) * w;
+                }
+            }
+            if (!gevrBeanBatUnit(t))
+            {
+                for (i = 0; i < 3; i++)
+                {
+                    t[i] = ey[i];
+                }
+            }
+            /* both kept in step, so the one taking over starts where the other left it */
+            gevrBeanBatIn(t, ex, up, fwd, grip[1]);
+            if (line)
+            {
+                gevrBeanBatIn(t, e1, e2, e3, grip[0]);
             }
         }
         if ((g_GlobalTimer % 120) == 0)

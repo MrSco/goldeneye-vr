@@ -2623,6 +2623,12 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 const bool mt = get_button_state(magGun, "trigger"), yb = get_button_state(0, "y");
                 if (gevrReloadFitting && mt && !mtHeld) gevrReloadFitSetGrab();
                 if (gevrReloadFitting && yb && !yHeld) gevrReloadFitSetBelt();
+                if (beanBat && gevrStereoTwoHandGrip() && yb && !yHeld) {
+                    /* both hands on the rifle bat: how it swings, to compare (gun.c gevrBeanBatPose) */
+                    extern int VrBatTwoHand;   /* vr_settings_defaults.c */
+                    VrBatTwoHand = !VrBatTwoHand;
+                    LOGI("input: the rifle bat swings by %s\n", VrBatTwoHand ? "the hands' line" : "the wrist, the line apart");
+                }
                 if (gevrWellFitting && mt && !mtHeld) gevrReloadFitSetWell();
                 s_gunFitMarkCtrl = (gevrReloadFitting || gevrWellFitting) && mt ? magGun : -1;   /* the game's shot or punch waits */
                 mtHeld = mt;

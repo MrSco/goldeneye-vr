@@ -214,6 +214,11 @@ int VrTextureAniso = 2;
  * picks from the game's load, which SpaceWarp keeps low; sustained high lifts
  * that cap from 1.38-1.65 to 1.92 GHz (2026-10-17). Plugged in, no change. */
 int VrCpuLevel = 2;
+/* Both hands on Bean's or GoldenEye's own rifle bat (gun.c gevrBeanBatPose):
+ * 0 the gun wrist swings it with the hands together, the hands' line apart
+ * (GoldenEye X's way); 1 the hands' line at every distance. Gun fit, both
+ * hands on it: Y. */
+int VrBatTwoHand = 0;
 #ifdef ANDROID
 int VrRefreshRate = 0;     /* Auto: no app preference; runtime / external profile manages the rate. */
 #else
