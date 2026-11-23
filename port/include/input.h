@@ -140,6 +140,7 @@ enum contkey {
 	CK_2000,
 	CK_4000,
 	CK_8000,
+	CK_RESTART, // past CONT_'s 32 bits, never a pad button: restart the mission (#280, default: Backspace)
 	CK_TOTAL_COUNT
 };
 

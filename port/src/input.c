@@ -319,6 +319,8 @@ extern s32 gevrLeftPanelAvailable(void);
 extern void gevrCycleHandWeapon(s32 hand, s32 dir);
 #define GEVR_WEAPON_PANEL_HOLD_MS 350
 extern void gevrRestartToLauncher(void);   /* vr_launcher.cpp */
+/* src/game/gevr_speedrun.c (#280): restart this solo mission; 1 if it will */
+extern s32 gevrSpeedrunRestartRequest(void);
 extern void gevrLobbySessionStopped(void); /* vr_launcher.cpp: leave the online game */
 extern bool netIsActive(void);
 extern s32 gevrDualWielding(void);
@@ -502,7 +504,8 @@ static const char *ckNames[CK_TOTAL_COUNT] = {
         "CK_1000",
         "CK_2000",
         "CK_4000",
-        "CK_8000"
+        "CK_8000",
+        "RESTART_MISSION"
 };
 
 static const char *vkPunctNames[] = {
@@ -607,6 +610,7 @@ void inputSetDefaultKeyBinds(s32 cidx, s32 n64mode)
             { CK_STICK_XPOS,    SDL_SCANCODE_RIGHT,  0                   },
             { CK_STICK_YNEG,    SDL_SCANCODE_DOWN,   0                   },
             { CK_STICK_YPOS,    SDL_SCANCODE_UP,     0                   },
+            { CK_RESTART,       SDL_SCANCODE_BACKSPACE, 0                },
     };
 
     static const u32 pcjoybinds[][2] = {
@@ -647,7 +651,8 @@ void inputSetDefaultKeyBinds(s32 cidx, s32 n64mode)
             { CK_STICK_YNEG,    SDL_SCANCODE_DOWN,   0                   },
             { CK_STICK_YPOS,    SDL_SCANCODE_UP,     0                   },
             { CK_4000,          SDL_SCANCODE_LSHIFT, 0                   },
-            { CK_2000,          SDL_SCANCODE_LCTRL,  0                   }
+            { CK_2000,          SDL_SCANCODE_LCTRL,  0                   },
+            { CK_RESTART,       SDL_SCANCODE_BACKSPACE, 0                }
     };
 
     static const u32 pcjoybinds[][2] = {
@@ -2149,6 +2154,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 #endif
         s32 xdiff = 0, ydiff = 0;
         u8 prevWeapDown = 0;
+        bool restartDown = false;
         for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) {
             if (!(slots & (1 << k))) {
                 continue;
@@ -2160,6 +2166,9 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             }
             if (inputBindPressed(k, CK_PREV_WEAPON)) {
                 prevWeapDown = 1;
+            }
+            if (inputBindPressed(k, CK_RESTART)) {
+                restartDown = true;
             }
             if (!xdiff) xdiff = (inputBindPressed(k, CK_STICK_XPOS) - inputBindPressed(k, CK_STICK_XNEG));
             if (!ydiff) ydiff = (inputBindPressed(k, CK_STICK_YPOS) - inputBindPressed(k, CK_STICK_YNEG));
@@ -2180,6 +2189,27 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 #else
         (void)prevWeapDown;
 #endif
+        /*
+         * Restart the mission (#280, a speedrunner's reset): the key's press,
+         * Backspace unless rebound, read for player 1. gevr_speedrun.c says
+         * whether it may (a solo mission, offline) and reloads the stage. Not
+         * under the panel, or while a bind is being captured.
+         */
+        {
+            static bool restartHeld = false;
+#ifdef GEVR_FLAT
+            const bool firstPlayer = player == 0;
+#else
+            const bool firstPlayer = idx == 0;
+#endif
+            if (firstPlayer) {
+                if (restartDown && !restartHeld && !gevrNativePauseOpen() && !inputIsBindingCapture()
+                        && gevrSpeedrunRestartRequest()) {
+                    gevrCrouchToggle = 0;   /* the same stage again: the crouch's reset (below) keys on a new one */
+                }
+                restartHeld = restartDown;
+            }
+        }
         npad->stick_x = xdiff < 0 ? -0x80 : (xdiff > 0 ? 0x7F : 0);
         npad->stick_y = ydiff < 0 ? -0x80 : (ydiff > 0 ? 0x7F : 0);
     }
@@ -3302,6 +3332,30 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                         s_gevrStartUntil = now + 100;
                     }
                     LOGI("input: grips + right stick hold -> panel%s\n", s_gevrPanelPaused ? " (mission paused)" : "");
+                }
+            } else {
+                downat = 0;
+            }
+        }
+        /* Both grips plus a held left-stick click: restart the mission (#280,
+         * the PC's Backspace; user, 2026-11-22), solo and offline only
+         * (gevr_speedrun.c decides). Held a second, as the right stick's
+         * family; the click's crouch acts only on a release inside 700 ms, and
+         * the long hold's screen recentre (gevr_engine_shim.c) skips both grips. */
+        {
+            static u32 downat = 0;
+            static bool fired = false;
+            if (lclick && get_button_state(0, "grip") && get_button_state(1, "grip")) {
+                if (!downat) {
+                    downat = now ? now : 1;
+                    fired = false;
+                }
+                if (!fired && !s_gevrPanel && now - downat >= 1000) {
+                    fired = true;
+                    if (gevrSpeedrunRestartRequest()) {
+                        gevrCrouchToggle = 0;
+                    }
+                    LOGI("input: grips + left stick hold -> restart mission\n");
                 }
             } else {
                 downat = 0;

@@ -36,6 +36,9 @@ Keyboard and mouse (GoldenEye's 1.2 Solitaire style):
   Q, mouse wheel next weapon (A)           E, R      use / reload (B)
   F, X           L                         Enter     Start (pause)
   Alt+Enter      fullscreen                F10       in-game panel
+  Backspace      restart the mission from its intro (solo, offline, with
+                 the Speedrun timer, Ghost race or LiveSplit on: a
+                 speedrunner's reset; rebind it under Controls)
 In the menus the mouse moves the cursor (so do the arrow keys); left click
 selects, right click goes back. The mouse is captured for looking only in
 play, and is free in the menus and the in-game panel.
@@ -77,6 +80,8 @@ controllers (the README on GitHub lists them all):
   Hold the right stick click (1 s)                 screen / stereo play
   One grip + hold the right stick click            Project Bean models on/off
   Both grips + hold the right stick click          the in-game panel
+  Both grips + hold the left stick click (1 s)     restart the mission (as
+                                                   Backspace above)
   Both stick clicks  recenter              Swing a hand at a guard  melee
 
 Online

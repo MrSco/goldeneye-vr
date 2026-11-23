@@ -26,7 +26,7 @@ static void check(bool ok, const char *what) {
 namespace {
 
 struct FakeBackend {
-    unsigned binds[32][4] = {};
+    unsigned binds[40][4] = {};   /* input.h CK_TOTAL_COUNT: the pad's 32 and CK_RESTART */
     int lastKey = 0;
     bool capture = false;
     int saveCount = 0;
@@ -68,10 +68,11 @@ struct FakeBackend {
         binds[GEVR_CK_STICK_YNEG][0] = 81; /* Down */
         binds[GEVR_CK_STICK_YPOS][0] = 82; /* Up */
         binds[GEVR_CK_ACCEPT][0] = GEVR_VK_JOY_BEGIN + 0;
+        binds[GEVR_CK_RESTART][0] = GEVR_VK_BACKSPACE;
     }
 
     unsigned getClassBind(unsigned ck, bool pad, int slot) const {
-        if (ck >= 32 || slot < 0 || slot >= 2) return 0;
+        if (ck >= 40 || slot < 0 || slot >= 2) return 0;
         int seen = 0;
         for (int i = 0; i < 4; i++) {
             const unsigned vk = binds[ck][i];
@@ -84,7 +85,7 @@ struct FakeBackend {
     }
 
     void setClassBind(unsigned ck, bool pad, int slot, unsigned vk) {
-        if (ck >= 32 || slot < 0 || slot >= 2) return;
+        if (ck >= 40 || slot < 0 || slot >= 2) return;
         unsigned mine[2] = {0, 0}; int nm = 0;
         unsigned other[4] = {0}; int no = 0;
         for (int i = 0; i < 4; i++) {
@@ -120,7 +121,7 @@ struct FakeBackend {
     // Serialize/deserialize like inputSaveBinds/inputLoadBinds
     std::map<unsigned, std::string> saveStrings() const {
         std::map<unsigned, std::string> out;
-        for (unsigned ck = 0; ck < 32; ck++) {
+        for (unsigned ck = 0; ck < 40; ck++) {
             std::string s;
             for (int b = 0; b < 4; b++) {
                 if (binds[ck][b]) {
@@ -188,7 +189,7 @@ static GevrKeybindApi makeApi() {
     a.setBind = [](unsigned ck, bool pad, int slot, unsigned vk) { g_b.setClassBind(ck, pad, slot, vk); };
     a.resetBinds = [](bool pad) {
         FakeBackend def; def.setDefaults();
-        for (unsigned ck = 0; ck < 32; ck++) {
+        for (unsigned ck = 0; ck < 40; ck++) {
             g_b.setClassBind(ck, pad, 0, 0); g_b.setClassBind(ck, pad, 0, 0);
             if (unsigned v0 = def.getClassBind(ck, pad, 0)) g_b.setClassBind(ck, pad, 0, v0);
             if (unsigned v1 = def.getClassBind(ck, pad, 1)) g_b.setClassBind(ck, pad, 1, v1);
@@ -287,6 +288,9 @@ int main() {
     check(api.getBind(GEVR_CK_A, false, 0) == 20 && api.getBind(GEVR_CK_A, false, 1) == GEVR_VK_MOUSE_WHEEL_DN,
           "Next weapon defaults to Q and Wheel Down");
     check(api.getBind(GEVR_CK_A, true, 0) == GEVR_VK_JOY_BEGIN + 0, "Gamepad A stays intact alongside K&M binds");
+    check(api.getBind(GEVR_CK_RESTART, false, 0) == GEVR_VK_BACKSPACE, "Restart (#280) defaults to Backspace");
+    check(api.getBind(GEVR_CK_RESTART, true, 0) == 0, "Restart has no pad default");
+    check(std::strcmp(gevrActionLabel(0, GEVR_CK_RESTART), "Restart") == 0, "Restart label");
 
     // 2. Bind capture: key, mouse button, wheel, Esc cancel, Del/Backspace clear
     ui.capturing = true; ui.captureGamepad = false; ui.captureAction = GEVR_CK_PREV_WEAPON; ui.captureSlot = 1;
@@ -326,6 +330,14 @@ int main() {
     check(api.countBinds(20 /* Q */, false, kbmActs, kbmCount) == 2, "duplicate Q detected across two actions");
     api.setBind(GEVR_CK_PREV_WEAPON, false, 1, 0);
     check(api.countBinds(20 /* Q */, false, kbmActs, kbmCount) == 1, "clearing duplicate drops count back to 1");
+    // Restart sits outside the table (on the mouse row): its duplicates count across every bind
+    int allCount = 0;
+    const unsigned *allActs = gevrKbmBindActions(allCount);
+    check(allCount == kbmCount + 1 && allActs[allCount - 1] == GEVR_CK_RESTART, "every K&M bind: the table and Restart");
+    api.setBind(GEVR_CK_RESTART, false, 0, 20 /* Q */);
+    check(api.countBinds(20 /* Q */, false, allActs, allCount) == 2, "Restart on Q is a duplicate of Next weapon");
+    api.setBind(GEVR_CK_RESTART, false, 0, GEVR_VK_BACKSPACE);
+    check(api.getBind(GEVR_CK_RESTART, false, 0) == GEVR_VK_BACKSPACE, "Restart back on Backspace");
 
     // 4. Save / load round-trip + empty config preserves defaults
     api.setBind(GEVR_CK_ZTRIG, false, 1, 15 /* L */);
