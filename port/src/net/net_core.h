@@ -41,6 +41,7 @@ void netEndLocalShot(void);
 /* Session Management */
 bool netHostStart(uint16_t port);
 bool netConnect(const char *host_addr, uint16_t port);
+bool netResolveHost(const char *name, char *ip, size_t cap);   /* blocks on DNS: off the frame thread */
 void netDisconnect(void);
 
 /* Status Queries */
@@ -149,6 +150,10 @@ int netGetSlotInputClass(int slot);         /* NET_INPUT_*: what a slot plays wi
 int netGetSlotPlatform(int slot);           /* NET_PLATFORM_*: what a slot runs on */
 const char *netGetSlotDeviceKey(int slot);  /* "quest", "pcvr", "visionos"...; "" if unknown (the lobby service's devices) */
 const char *netGetSlotDeviceName(int slot); /* "Quest", "PC VR", "Vision Pro"...; "" if unknown (the roster's "Device") */
+/* The roster's Add friend: this player's friend code from the friends service (vr_friends.cpp
+ * gevrFriendsTick), "" none, carried to the lobby (NET_MSG_FRIEND_CODE); each slot's, "" unknown. */
+void netSetLocalFriendCode(const char *code);
+const char *netGetSlotFriendCode(int slot);
 void netGetSlotBuild(int slot, char *out, size_t size);   /* "0.5.20" from the slot's app version; "" if none */
 const char *netGetLocalDeviceKey(void);     /* this player's device key, online or not */
 void netGetLocalBuild(char *out, size_t size);   /* this player's build, as netGetSlotBuild */

@@ -56,7 +56,7 @@ The server starts with the machine and restarts if it stops.
 | List it publicly? | Yes: anyone finds it in the Online list. No: players join with a code. |
 | Map number | From the list it shows; 34 is Facility. |
 | Players | 2 to 8, counting the server's own seat (8 lets 7 people play). Bots fill the empty places. |
-| Server key | Press Enter to skip (see Server keys). |
+| Server key | Press Enter to make a new one, or paste one you have (see Server keys). |
 | Let players on your own network join? | Windows only (see Players on your own network). |
 
 At the end it shows the **join code** (Online > Join by code on the headset).
@@ -113,12 +113,32 @@ server with each release.
 
 ## Server keys
 
-Without a key the server works, but the lobby service renews its listing
-every two hours and a private server's code changes then. A server key from
-the GoldenEye VR project keeps one code for as long as the server runs, and
-marks it as a dedicated server in the lists. Paste the key when the setup
-asks (or run the setup again to add one). The setup stores it where only the
-server can read it.
+Without a listed key the server works, but the lobby service renews its
+listing every two hours and a private server's code changes then. A listed
+server key keeps one code for as long as the server runs, and puts the server
+under **Dedicated servers** in the game's Join list.
+
+You make the key yourself: the setup makes one when you press Enter at its
+key question (or run the setup again to add one), stores it where only the
+server can read it, and prints the key's **hash**. To get listed:
+
+1. Open a [Dedicated server listing](https://github.com/MrSco/goldeneye-vr/issues/new?template=dedicated-server.yml)
+   request and paste the hash, the server's name and its region. Share only
+   the hash, never the key.
+2. When the project approves it, the hash goes into the lobby service's list
+   of server keys. Your server picks it up at its next registration (within
+   two hours, or at once after `sudo systemctl restart gevr-server`). No game
+   update is needed.
+
+Until then the server is listed as an ordinary game. The project removes a
+listing whose server stays offline or breaks the rules; close your request
+when you shut the server down for good. To print the hash again:
+`python3 /opt/gevr-server/gevr_lobby_bridge.py --key-hash /var/lib/gevr-server/server.key`.
+
+Players can also join any server by its address, listed or not: **Join >
+Public > Servers > Custom server** takes a name or IP address, with `:port`
+when the game port is not 27007. That needs the game port open to the
+internet (the setup opens it on the machine; forward it on your router).
 
 ## Players on your own network
 

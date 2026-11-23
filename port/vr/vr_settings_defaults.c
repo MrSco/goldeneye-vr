@@ -46,6 +46,8 @@ char VrPlayerName[16]     = "";     /* multiplayer name; the launcher makes one 
 int VrMpStage = 27, VrMpWeaponSet = 4, VrMpChr = 0, VrMpVisibility = 0;
 int VrMpVrOnly = 0;   /* host: "VR players only" (net_core.c turns flat joiners away) */
 int VrMpHideFlat = 0; /* a VR player's public list: hide games with flat players in them */
+int VrMpServerFilter = 0;      /* the public list: 0 all games, 1 dedicated servers, 2 player-hosted, 3 a custom server */
+char VrMpCustomServers[512] = "";   /* custom dedicated servers, "host[:port]" joined by ';', newest first */
 int VrFriendsShowDetail = 1, VrFriendsAppearOffline = 0, VrFriendsRestoreNoted = 0, VrFriendsSidebar = 1, VrFriendsSearchable = 1;
 int VrMpVoiceMode = 0;
 int VrMpFriendlyFire = 1;
@@ -201,21 +203,29 @@ int VrEyeMsaa = 2;
  * supersampling. 0 = the game config's Video.VRRenderScale. Dropped from the
  * launcher on 2026-10-17 (1.5x slowed Bean at 120 Hz); back on 2026-11-22
  * after the renderer's optimizations, with a performance warning above 1x. */
+/* 0 is Auto: this headset's (gevr_settings.c gevrAutoRenderScale: Quest 3 1.25x
+ * at 90 Hz or less), else the game config's. */
 float VrRenderScale = 0.0f;
 /* Anisotropic filtering (goldeneye-vr.ini TextureAniso) of HD pack and Bean
  * pictures, the mipmapped ones (gfx_opengl.cpp upload_texture_hd), switched
- * live: 1 off, 2, 4, 8 or 16, held to the driver's maximum. 2x by default: 4x
- * cost the pack's big textures GPU time on Quest's outdoor levels (issue #52),
- * so above 2x warns on a phone-class GPU. */
-int VrTextureAniso = 2;
+ * live: 0 Auto (the default), 1 off, 2, 4, 8 or 16, held to the driver's
+ * maximum. Auto is this headset's (gevr_settings.c gevrAutoAniso): 16x on
+ * Quest 3 and a desktop, 4x on Quest 2 and Pro, 2x elsewhere (4x cost the
+ * pack's big textures GPU time on Quest's outdoor levels, issue #52). */
+int VrTextureAniso = 0;
 /* The CPU performance level asked of the headset as each session begins
  * (XR_EXT_performance_settings): -1 none, 0 power savings, 1 sustained low,
  * 2 sustained high. Unplugged, Quest caps the CPU at the level its governor
  * picks from the game's load, which SpaceWarp keeps low; sustained high lifts
  * that cap from 1.38-1.65 to 1.92 GHz (2026-10-17). Plugged in, no change. */
 int VrCpuLevel = 2;
+/* Both hands on Bean's or GoldenEye's own rifle bat (gun.c gevrBeanBatPose):
+ * 0 the gun wrist swings it with the hands together, the hands' line apart
+ * (GoldenEye X's way); 1 the hands' line at every distance. Gun fit, both
+ * hands on it: Y. */
+int VrBatTwoHand = 0;
 #ifdef ANDROID
-int VrRefreshRate = 0;     /* Auto: no app preference; runtime / external profile manages the rate. */
+int VrRefreshRate = 0;     /* Auto: this headset's (gevr_settings.c gevrAutoRefreshHz: Quest 3 90 Hz, Quest 2 and Pro 72 Hz), else no app preference. */
 #else
 int VrRefreshRate = 90;    /* Preserve the desktop default. Saved DisplayHz wins on either platform. */
 #endif
@@ -301,17 +311,23 @@ float VrGexForeHold[3] = { 0.0f, 0.0f, 0.0f };
  * place and turn where it holds the rifle (both hands, Gun fit). Headset fit
  * 2026-11-08 (owner): the fist up the stock near the butt, the off hand on the
  * barrel below it. */
-float VrGexBatFit[7][3] = {
+float VrGexBatFit[9][3] = {
     {-7.1910f, -37.9323f, -7.1733f},   /* GexBat */
     {-0.8665f, 0.1285f, -0.0136f},     /* GexBatHand */
     {0.0000f, -7.3751f, 0.0000f},      /* GexBatHandRot */
     {-2.2068f, -5.3252f, 1.1738f},     /* GexBatOff */
     {0.0000f, 0.0000f, 0.0000f},       /* GexBatOffRot */
-    /* Bean's rifle through the PP7's glove (gun.c gevrBeanBatPose), as GexBat: the owner's
-     * headset fit (2026-11-22, BeanBat=0 -26.8631 0: the fist 38 cm up from the muzzle),
-     * and GoldenEye's own rifle in its own PP7's hand, the same until it is fitted */
-    {0.0000f, -26.8631f, 0.0000f},     /* BeanBat */
-    {0.0000f, -26.8631f, 0.0000f},     /* Bat */
+    /* Bean's rifle through the PP7's glove (gun.c gevrBeanBatPose), as GexBat, and
+     * GoldenEye's own rifle in its own PP7's hand: the owner's headset fits (2026-11-22,
+     * evening), the fist about 18 and 21 cm up from the muzzle, a bat's grip */
+    {0.0000f, -7.2620f, 0.0000f},      /* BeanBat */
+    {0.2021f, -12.5484f, -0.2823f},    /* Bat */
+    /* their end in the off hand with both hands on (bondview2.c gevrBatOffPalm), cm right,
+     * up and back of the hand's measured centre: that centre is the palm's heel, and the
+     * rifle sat against the watch strap (owner, 2026-11-22, headset), so it starts 3 cm
+     * toward the fingers */
+    {0.0000f, 0.0000f, -3.0000f},      /* BeanBatOff */
+    {0.7863f, 0.0000f, 0.4873f},       /* BatOff: the owner's, 2026-11-22 */
 };
 /* PP7 and PP7 silenced share a model fit, separate from legacy KF7 values.
  * Grab is a cm delta from the actual magazine, not a guessed controller point. */
@@ -363,27 +379,36 @@ float VrBeanGripTrim[2][6] = {
 float VrBeanReloadGrab[3] = { 0.0000f, -7.0000f, -8.0000f };
 /* Bean guns' removable magazines (gun.c gevrBeanMagFit), by item: [0] the
  * magazine in the off hand (cm right, up, back of its grip), [1] the well's
- * mouth on the gun from where the mesh has it (unfitted: the mesh's own).
- * The held place is the off hand's, wherever the magazine is held from: the
- * PP7's, headset fit 2026-11-18, for every gun until its own is fitted. */
-#define BEAN_MAG_HELD { { 0.5470f, 6.2007f, -18.4547f }, { 0.0f, 0.0f, 0.0f } }
-float VrBeanMagFits[64][2][3] = {
-    [4] = BEAN_MAG_HELD,    /* PP7 (and the silenced, silver and gold ones) */
-    [6] = BEAN_MAG_HELD,    /* DD44 */
-    [7] = BEAN_MAG_HELD,    /* Klobb */
-    [8] = BEAN_MAG_HELD,    /* KF7 */
-    [9] = BEAN_MAG_HELD,    /* ZMG */
-    [10] = BEAN_MAG_HELD,   /* D5K (and the silenced one) */
-    [12] = BEAN_MAG_HELD,   /* Phantom */
-    [13] = BEAN_MAG_HELD,   /* AR33 */
-    [14] = BEAN_MAG_HELD,   /* RC-P90 */
-    [15] = BEAN_MAG_HELD,   /* shotgun: a shell */
-    [16] = BEAN_MAG_HELD,   /* automatic shotgun: a shell */
-    [17] = BEAN_MAG_HELD,   /* sniper rifle */
-    [18] = BEAN_MAG_HELD,   /* Cougar: its cylinder */
-    [24] = BEAN_MAG_HELD,   /* grenade launcher: its drum */
-    [25] = BEAN_MAG_HELD,   /* rocket launcher: a rocket */
-};
+ * mouth on the gun from where the mesh has it (unfitted: the mesh's own),
+ * [2] the magazine in the primary hand, reloading a gun held in the other
+ * with the primary hand bare (bondview2.c gevrReloadSupportGun): that hand
+ * holds it differently, so it has its own. The held places are the hand's,
+ * wherever the magazine is held from: the PP7's, headset fits 2026-11-18 (the
+ * off hand) and 2026-11-22 (the primary hand), for every gun until its own
+ * is fitted. GoldenEye's own models share these. */
+#define BEAN_MAG_HELD { { 0.5470f, 6.2007f, -18.4547f }, { 0.0f, 0.0f, 0.0f }, { 1.4385f, 1.7183f, -9.3899f } }
+/* the fits as they ship, kept apart so a save writes only the ones fitted
+ * (vr_settings.cpp): an unfitted gun takes a later build's default */
+#define BEAN_MAG_FITS { \
+    [4] = BEAN_MAG_HELD,    /* PP7 (and the silenced, silver and gold ones) */ \
+    [6] = BEAN_MAG_HELD,    /* DD44 */ \
+    [7] = BEAN_MAG_HELD,    /* Klobb */ \
+    [8] = BEAN_MAG_HELD,    /* KF7 */ \
+    [9] = BEAN_MAG_HELD,    /* ZMG */ \
+    [10] = BEAN_MAG_HELD,   /* D5K (and the silenced one) */ \
+    [12] = BEAN_MAG_HELD,   /* Phantom */ \
+    [13] = BEAN_MAG_HELD,   /* AR33 */ \
+    [14] = BEAN_MAG_HELD,   /* RC-P90 */ \
+    [15] = BEAN_MAG_HELD,   /* shotgun: a shell */ \
+    [16] = BEAN_MAG_HELD,   /* automatic shotgun: a shell */ \
+    [17] = BEAN_MAG_HELD,   /* sniper rifle */ \
+    [18] = BEAN_MAG_HELD,   /* Cougar: its cylinder */ \
+    [24] = BEAN_MAG_HELD,   /* grenade launcher: its drum */ \
+    [25] = BEAN_MAG_HELD,   /* rocket launcher: a rocket */ \
+}
+float VrBeanMagFits[64][3][3] = BEAN_MAG_FITS;
+const float VrBeanMagFitsDefault[64][3][3] = BEAN_MAG_FITS;
+#undef BEAN_MAG_FITS
 #undef BEAN_MAG_HELD
 float VrBeanScopeFit[4][4];
 float VrBeanMuzzleTrim[GEVR_MAX_WEAPONS][3];
@@ -397,9 +422,15 @@ float VrRackFit[3][64][3];
  * the PP7 4 (its silenced, gold and silver kin share it), DD44 6, Klobb 7,
  * KF7 8, ZMG 9, D5K 10 (and its silenced), Phantom 12, AR33 13, RCP90 14,
  * shotgun 15, automatic shotgun 16, sniper rifle 17, Cougar 18, golden gun
- * 19, Moonraker laser 22, grenade launcher 24. */
+ * 19, Moonraker laser 22, grenade launcher 24. The unarmed hand (1, the fist)
+ * is the user's too, both looks, fitted in the headset 2026-11-22 for the
+ * primary hand reloading a gun held in the other (ini GunFitFist). */
 float VrGunOffPer[2][GEVR_MAX_WEAPONS][3] = {
+    [0] = {
+        [1] = { 1.2f, -0.4f, -5.8f },
+    },
     [1] = {
+        [1] = { 1.6901f, -1.3318f, -5.8809f },
         [4] = { 2.9164f, -0.1001f, -13.1776f },
         [8] = { 2.9164f, -0.0594f, -13.1352f },
         [17] = { 2.9818f, 0.0549f, -20.5970f },
@@ -426,7 +457,8 @@ float VrGripTrimPer[2][GEVR_MAX_WEAPONS][6] = {
     },
 };
 unsigned char VrGunOffPerSet[2][GEVR_MAX_WEAPONS] = {
-    [1] = { [4] = 1, [8] = 1, [17] = 1 },
+    [0] = { [1] = 1 },
+    [1] = { [1] = 1, [4] = 1, [8] = 1, [17] = 1 },
 };
 unsigned char VrGripTrimPerSet[2][GEVR_MAX_WEAPONS] = {
     [1] = {

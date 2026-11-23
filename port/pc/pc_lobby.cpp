@@ -9,7 +9,7 @@
  *   resume|code|ownerToken|maxPlayers|phase|players[|name]     CREATED|code|ownerToken
  *   refresh|players|open[|maxPlayers[|vrOnly[|flatPlayers]]]   devices|key@build,...   phase|warmup|players   stop   leave
  *   list|version[|inputClass[|hideFlat]]
- *       LIST_BEGIN, LOBBY|code|name|stage|weapons|players|max|phase|flatPlayers|vrOnly|campaign, LIST_END
+ *       LIST_BEGIN, LOBBY|code|name|stage|weapons|players|max|phase|flatPlayers|vrOnly|campaign|dedicated, LIST_END
  *   join|code|version[|inputClass]   JOINED|joinId|user|credential
  * (vrOnly and inputClass: "VR players only"; a flat player neither sees nor joins one.
  *  flatPlayers and hideFlat: a VR player may hide games with flat players in them)
@@ -301,7 +301,8 @@ private:
                          + std::to_string(jsonGetInt(row, "players", 0)) + "|" + std::to_string(jsonGetInt(row, "maxPlayers", 0)) + "|"
                          + jsonGetStr(row, "phase", "waiting") + "|"
                          + std::to_string(jsonGetInt(row, "flatPlayers", -1)) + "|" + (jsonGetBool(row, "vrOnly", false) ? "1" : "0")
-                         + "|" + std::to_string(jsonGetInt(row, "campaign", 0)));
+                         + "|" + std::to_string(jsonGetInt(row, "campaign", 0))
+                         + "|" + (jsonGetBool(row, "dedicated", false) ? "1" : "0"));
                 }
             }
             push("LIST_END");

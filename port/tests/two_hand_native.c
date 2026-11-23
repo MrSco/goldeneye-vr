@@ -60,6 +60,7 @@ static int gexHeld[2];   /* the hand's gun is GoldenEye X's (gun.c) */
 static int gevrGexHeld(int hand) { return gexHeld[hand]; }
 static int beanOn;   /* Bean's models are drawn (gevr_bean.c) */
 int gevrBeanIsEnabled(void) { return beanOn; }
+float VrGexBatFit[9][3];   /* vr_settings_defaults.c: [7], [8] the glove bat's end in the off hand */
 static int ownArt;   /* gevr_romlayout.h: the ROM's art is GoldenEye's own, not a hack's */
 static int gevrRomRetailArt(void) { return ownArt; }
 static int gevrGexPistolSupportAllowed(void) { return 1; }
@@ -295,6 +296,14 @@ static void testClubBat(void)
         for (int i = 0; i < 3; i++) along += (palm[i] - grip[i]) * -gb[i];
         for (int i = 0; i < 3; i++) off2 += (palm[i] - grip[i] + along * gb[i]) * (palm[i] - grip[i] + along * gb[i]);
         assert(fabsf(along / unit - 4.0f) < 0.01f && off2 < 1e-6f);
+        /* Gun fit's BatOff moves it on from there, in the off hand's own axes (owner,
+         * 2026-11-22: it sat at the wrist): 3 cm toward the fingers is 7 cm ahead */
+        VrGexBatFit[8][2] = -3.0f;
+        along = 0;
+        assert(gevrBatOffPalm(GUNRIGHT, palm));
+        for (int i = 0; i < 3; i++) along += (palm[i] - grip[i]) * -gb[i];
+        assert(fabsf(along / unit - 7.0f) < 0.01f);
+        VrGexBatFit[8][2] = 0;
         VrGexGuns = 1;
         assert(!gevrBatOffPalm(GUNRIGHT, palm));   /* GoldenEye X's left hand has its palm on the grip */
         VrGexGuns = 0;

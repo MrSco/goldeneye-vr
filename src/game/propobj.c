@@ -4283,6 +4283,17 @@ s32 sub_GAME_7F0448A8(struct PropRecord *argProp)
                                 {
                                     prop->chr->hidden |= CHRHIDDEN_OFFSCREEN_PATROL;
                                 }
+#ifdef GEVR
+                                /* A kept body would hold the door forever: the door
+                                 * touching it starts its normal fade, and the door
+                                 * stays blocked until it is gone (never clips it).
+                                 * A falling guard still blocks as in the original. */
+                                if ((prop->type == PROP_TYPE_CHR) && (argProp->type == PROP_TYPE_DOOR)
+                                    && (prop->chr != NULL) && (prop->chr->actiontype == ACT_DEAD))
+                                {
+                                    gevrBodyDoorHit(prop->chr);
+                                }
+#endif
 
                                 return 0;
                             }

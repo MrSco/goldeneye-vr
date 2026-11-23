@@ -119,6 +119,7 @@
 #include "gevr_frame_timing.h"
 #include "gevr_xr_metrics.h"
 #include "gevr_hud_bounds.h"
+#include "gevr_settings.h"                           // the graphics defaults' Auto (gevrAutoRefreshHz ...)
 
 // Which build's GL and runtime the code below is for:
 //   GEVR_XR_ES  OpenGL ES 3.0 swapchains and the Quest's GL paths: the Quest,
@@ -564,6 +565,12 @@ static void vr_request_refresh_rate(void)
             return;
         }
         desired = *rate;
+    } else if (gevrAutoRefreshHz() > 0 && haveRates
+               && std::any_of(g_supportedRefreshRates.begin(), g_supportedRefreshRates.end(),
+                              [](float hz) { return std::fabs(hz - float(gevrAutoRefreshHz())) < 0.5f; })) {
+        // Auto on a headset with a measured default (gevr_settings.c gevrAutoRefreshHz:
+        // Quest 3 90 Hz, Quest 2 and Pro 72 Hz)
+        desired = float(gevrAutoRefreshHz());
     } else if (g_sessionRefreshPreference == 0.0f) {
         return; // A fresh Auto session must not override an external profile.
     }
@@ -985,11 +992,22 @@ extern "C" bool vr_configure_resolution() {
     // Resolution (goldeneye-vr.ini EyeResolution) over Video.VRRenderScale, once:
     // the eye images are made here as VR starts, so a change waits for the next
     // start. Once only, so a later restart at another scale isn't undone.
+    // Auto (0): this headset's (gevr_settings.c gevrAutoRenderScale: Quest 3 1.25x at 90 Hz
+    // or less), else the game config's as before.
     static bool s_settingScaleRead = false;
     if (!s_settingScaleRead) {
         s_settingScaleRead = true;
         if (VrRenderScale > 0.0f) RENDER_SCALE = VrRenderScale;
+        else if (gevrAutoRenderScale() > 0.0f) RENDER_SCALE = gevrAutoRenderScale();
     }
+    // This headset's most (vr_render_scale_max): a scale saved on another device, or the
+    // game config's Video.VRRenderScale (up to 4), starts at it, and the setting reads it.
+    const float scaleMax = vr_render_scale_max();
+    if (RENDER_SCALE > scaleMax + 0.001f) {
+        LOGI("HMD render scale %.2f is above this headset's most; using %.2f", RENDER_SCALE, scaleMax);
+        RENDER_SCALE = scaleMax;
+    }
+    if (VrRenderScale > scaleMax + 0.001f) VrRenderScale = scaleMax;
     const GevrRenderSize size = gevrQuestRenderSize(recommendedWidth, recommendedHeight, RENDER_SCALE,
                                                   g_maxRenderWidth, g_maxRenderHeight);
     if (size.width < 2 || size.height < 2) {
@@ -4277,6 +4295,44 @@ extern "C" int vr_eye_msaa_supported(void) { return use_multiview && pfnFramebuf
 /* gevr_settings.c's Resolution row: the eye images' scale this session, which
  * a changed setting reaches at the next start. */
 extern "C" float vr_render_scale(void) { return RENDER_SCALE; }
+
+/* The most Resolution this headset offers, and the most the eye images start at
+ * (vr_configure_resolution). A standalone headset's GPU runs out long before its
+ * runtime's image limits: on the owner's Quest 3 (2026-11-23, Dam with Bean, plugged
+ * in, SpaceWarp off) 1.5x at 90 Hz held, 7.6 ms a frame with the GPU 83% busy, and 2x
+ * at 90 Hz did not, 97% busy and 1,596 frames dropped in 2.5 minutes. Quest 3 and 3S
+ * share that chip; Quest 2, Pro and other standalone headsets have about half its GPU
+ * and stop at 1.25x. PC VR offers the full list (owner: "PC would get the full suite
+ * of ... super resolution"). */
+extern "C" float vr_render_scale_max(void)
+{
+    switch (vr_headset_class()) {
+        case GEVR_HMD_PC: return 2.0f;
+        case GEVR_HMD_QUEST3: return 1.5f;
+        default: return 1.25f;
+    }
+}
+
+/* The class of headset, for the graphics defaults (gevr_settings.c gevrAutoRefreshHz,
+ * gevrAutoRenderScale, gevrAutoAniso) and Resolution's most: by the runtime's name,
+ * "Meta Quest 3" and "Meta Quest 3S" (XR2 Gen 2), "Oculus Quest2" and "Meta Quest Pro"
+ * (XR2 Gen 1). Known once vr_get_system has read it, before the eye images are made. */
+extern "C" int vr_headset_class(void)
+{
+#ifdef GEVR_PCVR
+    return GEVR_HMD_PC;
+#else
+    char name[sizeof(g_hmdName)];
+    size_t n = 0;
+    for (const char *c = g_hmdName; *c && n + 1 < sizeof(name); c++) {
+        if (*c != ' ') name[n++] = *c >= 'A' && *c <= 'Z' ? (char)(*c - 'A' + 'a') : *c;
+    }
+    name[n] = 0;
+    if (std::strstr(name, "quest3")) return GEVR_HMD_QUEST3;
+    if (std::strstr(name, "quest2") || std::strstr(name, "questpro")) return GEVR_HMD_QUEST2;
+    return GEVR_HMD_OTHER;
+#endif
+}
 
 // ============================================================================
 // FBOs - Render Targets

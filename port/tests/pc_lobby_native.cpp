@@ -29,7 +29,7 @@ std::string fakeHttp(const char *method, const std::string &url, const std::stri
     if (m == "POST") return R"({"code":"ABCDEFGH","ownerToken":"owner"})";
     if (m == "GET" && url.find("/joins") != std::string::npos) return R"({"requests":[]})";
     if (m == "GET")
-        return R"({"lobbies":[{"code":"ABCDEFGH","name":"A","stage":1,"weapons":2,"players":2,"maxPlayers":4,"phase":"warmup","flatPlayers":1,"vrOnly":false,"campaign":1},)"
+        return R"({"lobbies":[{"code":"ABCDEFGH","name":"A","stage":1,"weapons":2,"players":2,"maxPlayers":4,"phase":"warmup","flatPlayers":1,"vrOnly":false,"campaign":1,"dedicated":true},)"
                R"({"code":"BCDEFGHJ","name":"B","stage":1,"weapons":2,"players":1,"maxPlayers":4,"vrOnly":true}]})";
     return "{}";
 }
@@ -152,8 +152,8 @@ int main()
             else std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
         CHECK(listed.size() == 4);
-        CHECK(listed.size() == 4 && listed[1] == "LOBBY|ABCDEFGH|A|1|2|2|4|warmup|1|0|1");   // Goldfinger 64's co-op
-        CHECK(listed.size() == 4 && listed[2] == "LOBBY|BCDEFGHJ|B|1|2|1|4|waiting|-1|1|0");  // an older Worker's row
+        CHECK(listed.size() == 4 && listed[1] == "LOBBY|ABCDEFGH|A|1|2|2|4|warmup|1|0|1|1");   // Goldfinger 64's co-op on a dedicated server
+        CHECK(listed.size() == 4 && listed[2] == "LOBBY|BCDEFGHJ|B|1|2|1|4|waiting|-1|1|0|0");  // an older Worker's row: player-hosted
         c.stopAndWait(1000);
     }
 

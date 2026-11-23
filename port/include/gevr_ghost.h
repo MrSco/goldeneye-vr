@@ -18,8 +18,10 @@ extern "C" {
 #define GEVR_GHF_THIRD     0x20
 #define GEVR_GHF_SPEED     0x40   /* a movement speed other than the game's */
 #define GEVR_GHF_MIXED     0x80   /* switched between VR and the flat screen mid-run */
-/* what the boards do not rank (Dab's Ghost Trials: a run outside the trial's rules) */
-#define GEVR_GHF_UNRANKED  (GEVR_GHF_FORCEPULL | GEVR_GHF_ALLY | GEVR_GHF_SPEED)
+#define GEVR_GHF_TELEPORT  0x100  /* teleport movement (the header's flags2; 0 in a file from before it) */
+/* what the boards do not rank (Dab's Ghost Trials: a run outside the trial's rules); teleport
+ * movement too (owner, 2026-11-22: "that's not a regular run") */
+#define GEVR_GHF_UNRANKED  (GEVR_GHF_FORCEPULL | GEVR_GHF_ALLY | GEVR_GHF_SPEED | GEVR_GHF_TELEPORT)
 
 typedef struct {
     int time60;          /* the mission time, sixtieths */

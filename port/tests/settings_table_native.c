@@ -91,28 +91,114 @@ int main(void)
     check(!strcmp(t, "On (auto)"), "SpaceWarp's default reads On (auto) at 120 Hz");
     id = find("Anti-aliasing");
     check(gevrSettingBlocked(id) && !strcmp(gevrSettingBlocked(id), "Not on this headset"), "anti-aliasing blocks where unsupported");
-    /* Resolution: the eye images' scale, made as VR starts; above 1x warns */
+    /* 4x back on Quest, warned as "(slower)" (24a8d14a dropped it for its cost) */
+    VrEyeMsaa = 4; text(id, t);
+    check(!strcmp(t, "4x (slower)") && gevrSettingWarning(id) != NULL, "anti-aliasing 4x reads (slower) and warns on a headset");
+    VrEyeMsaa = 2; text(id, t);
+    check(!strcmp(t, "2x") && !gevrSettingWarning(id), "anti-aliasing 2x has no warning");
+    VrEyeMsaa = 1;
+    /* Resolution: Auto (this headset's, else the scale in use), then the scales, made as VR
+     * starts; above 1x warns */
     id = find("Resolution");
     VrRenderScale = 0.0f; s_liveRenderScale = 1.0f; text(id, t);
-    check(!strcmp(t, "1x") && !gevrSettingWarning(id), "resolution reads the scale in use, no warning at 1x");
-    gevrSettingSet(id, 3); text(id, t);
+    check(gevrSettingIndex(id) == 0 && !strcmp(t, "Auto (1x)") && !gevrSettingWarning(id),
+          "resolution's Auto reads the scale in use on an unknown headset, no warning at 1x");
+    check(gevrSettingDefault(id) == 0, "resolution's default is Auto");
+    gevrSettingSet(id, 4); text(id, t);
     check(VrRenderScale == 1.5f && !strcmp(t, "1.5x (next start)"), "resolution 1.5x waits for the next start");
     check(gevrSettingWarning(id) != NULL, "resolution above 1x warns of the cost");
     s_liveRenderScale = 1.5f; text(id, t);
     check(!strcmp(t, "1.5x"), "resolution in use drops (next start)");
-    gevrSettingSet(id, 0);
+    gevrSettingSet(id, 1);
     check(VrRenderScale == 0.8f && !gevrSettingWarning(id), "resolution below 1x has no warning");
-    check(gevrSettingDefault(id) == 1, "resolution's default is 1x");
-    VrRenderScale = 0.0f; s_liveRenderScale = 1.0f;
-    /* Anisotropic filtering: HD pack and Bean pictures, live */
-    id = find("Anisotropic filtering");
-    check(gevrSettingIndex(id) == 1 && !gevrSettingWarning(id), "anisotropic filtering is 2x by default, no warning");
-    gevrSettingSet(id, 4); text(id, t);
-    check(VrTextureAniso == 16 && !strcmp(t, "16x (slower)"), "anisotropic filtering reaches 16x");
-    check(gevrSettingWarning(id) != NULL, "anisotropic filtering above 2x warns on a headset");
     gevrSettingSet(id, 0);
+    check(VrRenderScale == 0.0f, "resolution back to Auto");
+    /* each headset offers what its GPU holds: Quest 3 up to 1.5x, others 1.25x, PC VR 2x */
+    check(gevrSettingPositions(id) == 5, "resolution on a Quest 3: Auto, then up to 1.5x");
+    s_scaleMax = 1.25f;
+    check(gevrSettingPositions(id) == 4, "resolution on a lesser standalone headset stops at 1.25x");
+    VrRenderScale = 2.0f; text(id, t);
+    check(gevrSettingIndex(id) == 3 && !strncmp(t, "1.25x", 5), "a saved 2x reads as the headset's most");
+    s_scaleMax = 2.0f;
+    check(gevrSettingPositions(id) == 7, "resolution on PC VR reaches 2x");
+    s_scaleMax = 1.5f;
+    /* at more than 90 Hz without SpaceWarp it says what holds it */
+    VrRenderScale = 1.25f; VrRefreshRate = 120; VrSpaceWarp = 0;
+    check(gevrSettingWarning(id) && strstr(gevrSettingWarning(id), "90 Hz"), "resolution at 120 Hz without SpaceWarp says 90 Hz or SpaceWarp");
+    VrSpaceWarp = 1;
+    check(gevrSettingWarning(id) && !strstr(gevrSettingWarning(id), "90 Hz"), "resolution with SpaceWarp warns only of the cost");
+    VrSpaceWarp = 0; VrRefreshRate = 90;
+    check(gevrSettingWarning(id) && !strstr(gevrSettingWarning(id), "90 Hz"), "resolution at 90 Hz warns only of the cost");
+    VrRefreshRate = 0; g_gevrDisplayHz = 120.0f;
+    check(gevrSettingWarning(id) && strstr(gevrSettingWarning(id), "90 Hz"), "Auto reads the display's rate");
+    VrRefreshRate = 120; VrSpaceWarp = -1; g_gevrDisplayHz = 0.0f;
+    VrRenderScale = 0.0f; s_liveRenderScale = 1.0f;
+    /* each headset's defaults (Auto), measured on Quest 3 (2026-11-23): 90 Hz, 1.25x at
+     * 90 Hz or less, 4x anti-aliasing "(slower)" only above 90 Hz without SpaceWarp */
+    s_hmdClass = GEVR_HMD_QUEST3;
+    VrRefreshRate = 0; VrSpaceWarp = -1;
+    text(find("Refresh"), t);
+    check(!strcmp(t, "Auto (90 Hz)") && gevrAutoRefreshHz() == 90, "Quest 3's Auto refresh is 90 Hz");
+    text(id, t);
+    check(!strcmp(t, "Auto (1.25x)") && !gevrSettingWarning(id), "Quest 3's Auto resolution is 1.25x at 90 Hz, no warning");
+    VrRenderScale = 1.5f; VrRefreshRate = 0; g_gevrDisplayHz = 120.0f;
+    check(gevrSettingWarning(id) && !strstr(gevrSettingWarning(id), "90 Hz"), "Quest 3 at Auto refresh: 1.5x warns only of the cost");
+    VrRenderScale = 0.0f; g_gevrDisplayHz = 0.0f;
+    VrRefreshRate = 120; VrSpaceWarp = 0; text(id, t);
+    check(!strcmp(t, "Auto (1x)") && !gevrSettingWarning(id), "Quest 3's Auto resolution is 1x at 120 Hz without SpaceWarp");
+    VrSpaceWarp = 1; text(id, t);
+    check(!strcmp(t, "Auto (1.25x)"), "Quest 3's Auto resolution is 1.25x at 120 Hz with SpaceWarp");
+    {
+        const int aa = find("Anti-aliasing");
+        VrEyeMsaa = 4; VrRefreshRate = 0; VrSpaceWarp = 0; VrRenderScale = 1.0f; text(aa, t);
+        check(!strcmp(t, "4x") && !gevrSettingWarning(aa), "Quest 3: 4x anti-aliasing at 90 Hz and 1x is no slower");
+        VrRenderScale = 0.0f; text(aa, t);
+        check(!strcmp(t, "4x (slower)") && gevrSettingWarning(aa) && strstr(gevrSettingWarning(aa), "Resolution"),
+              "Quest 3: 4x anti-aliasing with Auto's 1.25x is near the limit");
+        VrRenderScale = 1.0f; VrRefreshRate = 120; text(aa, t);
+        check(!strcmp(t, "4x (slower)") && gevrSettingWarning(aa) && strstr(gevrSettingWarning(aa), "90 Hz"),
+              "Quest 3: 4x anti-aliasing at 120 Hz says 90 Hz or SpaceWarp");
+        VrEyeMsaa = 1; VrRenderScale = 0.0f;
+    }
+    /* Quest 2 and Pro: 72 Hz and the scale in use (not measured: scaled from Quest 3's) */
+    s_hmdClass = GEVR_HMD_QUEST2; VrRefreshRate = 0;
+    text(find("Refresh"), t);
+    check(!strcmp(t, "Auto (72 Hz)"), "Quest 2's Auto refresh is 72 Hz");
+    text(id, t);
+    check(!strcmp(t, "Auto (1x)"), "Quest 2's Auto resolution is the scale in use");
+    s_hmdClass = GEVR_HMD_OTHER; VrRefreshRate = 120; VrSpaceWarp = -1;
+    /* Anisotropic filtering: Auto (this headset's), then Off to 16x, live */
+    id = find("Anisotropic filtering");
+    text(id, t);
+    check(gevrSettingIndex(id) == 0 && !strcmp(t, "Auto (2x)") && !gevrSettingWarning(id),
+          "anisotropic filtering is Auto by default, 2x on an unknown headset, no warning");
+    check(gevrSettingDefault(id) == 0, "anisotropic filtering's default is Auto");
+    gevrSettingSet(id, 5); text(id, t);
+    check(VrTextureAniso == 16 && !strcmp(t, "16x (slower)"), "anisotropic filtering reaches 16x");
+    check(gevrSettingWarning(id) != NULL, "anisotropic filtering above Auto warns on an unknown headset");
+    s_hmdClass = GEVR_HMD_QUEST3; text(id, t);
+    check(!strcmp(t, "16x") && !gevrSettingWarning(id), "Quest 3: 16x is its Auto, no warning");
+    gevrSettingSet(id, 0); text(id, t);
+    check(VrTextureAniso == 0 && !strcmp(t, "Auto (16x)") && gevrAutoAniso() == 16, "Quest 3's Auto anisotropic filtering is 16x");
+    s_hmdClass = GEVR_HMD_QUEST2; text(id, t);
+    check(!strcmp(t, "Auto (4x)"), "Quest 2's Auto anisotropic filtering is 4x");
+    s_hmdClass = GEVR_HMD_OTHER;
+    gevrSettingSet(id, 1);
     check(VrTextureAniso == 1 && !gevrSettingWarning(id), "anisotropic filtering off");
-    VrTextureAniso = 2;
+    VrTextureAniso = 0;
+    /* Texture filtering: the N64 pictures, live, saved to the game config */
+    id = find("Texture filtering");
+    text(id, t);
+    check(gevrSettingIndex(id) == 1 && !strcmp(t, "Smooth (default)") && !gevrSettingWarning(id),
+          "texture filtering is Smooth by default, no warning");
+    gevrSettingSet(id, 0); text(id, t);
+    check(s_texFilter == 0 && !strcmp(t, "Pixelated") && !gevrSettingWarning(id) && s_configSaves > 0,
+          "pixelated is the game's FILTER_NONE, saved to the game config");
+    gevrSettingSet(id, 2); text(id, t);
+    check(s_texFilter == 2 && !strcmp(t, "N64 accurate (slower)") && gevrSettingWarning(id) != NULL,
+          "N64 accurate is the three-point filter and warns on a headset");
+    gevrSettingSet(id, 1);
+    check(s_texFilter == 1 && gevrSettingDefault(id) == 1, "texture filtering back to Smooth, its default");
     id = find("Movement speed");
     gevrSettingSet(id, 2); text(id, t);
     check(!strcmp(t, "100% (default)") && VrMovementSpeed == 0, "movement speed 100% is the normal mode");
@@ -147,7 +233,9 @@ int main(void)
         gevrSettingInfo(find("Gun size"), &info);
         check(info.launcherSection == GEVR_LSEC_CHEATS, "gun size is with the cheats");
         check(gevrSettingSectionRows(GEVR_LSEC_ALLY, GEVR_SET_LAUNCHER, ids, 48) == 6, "the ally's six rows");
-        check(gevrSettingSectionRows(GEVR_LSEC_CHEATS, GEVR_SET_INGAME, ids, 48) == 0, "an LSEC asked of the in-game screen is its own section number");
+        /* (an LSEC past the in-game sections: Cheats was, until Graphics made nine) */
+        check(GEVR_LSEC_MP_FUN >= GEVR_SEC_COUNT && gevrSettingSectionRows(GEVR_LSEC_MP_FUN, GEVR_SET_INGAME, ids, 48) == 0,
+              "an LSEC asked of the in-game screen is its own section number");
         n = gevrSettingSectionRows(GEVR_SEC_AUDIO, GEVR_SET_INGAME, ids, 48);
         check(n == 2 && ids[0] == find("Music") && ids[1] == find("Sound effects"), "in game, Audio: the Play tab's music and effects (solo too)");
         n = gevrSettingSectionRows(GEVR_SEC_RULES, GEVR_SET_INGAME, ids, 48);

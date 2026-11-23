@@ -29,9 +29,6 @@
 extern "C" {
 void gevrLobbySessionStopped(void);void gevrRestartToLauncher(void);int bossGetStageNum(void);
 int gevrPanelIsOpen(void);                       /* input.c: hold Menu */
-int gevrTexpackState(void);int gevrTexpackToggle(void);   /* gfx_pc.cpp */
-void audioReset(void);                           /* audio.c: a new output stream (#229) */
-extern int gevrTexpackToggleMsg;                 /* input.c: bondview2.c says it in play */
 int lvlGetSelectedDifficulty(void);
 }
 extern int VrCampaign;
@@ -117,7 +114,7 @@ void initialize() {
 // The in-game panel's frame. Returns a GEVR_PANEL_ action.
 int panelFrame() {
     GevrPanelView v;
-    v.online=netIsActive();v.texpack=gevrTexpackState();
+    v.online=netIsActive();
 #ifdef GEVR_FLAT
     v.touchLayout=flatTouchSeenAny()!=0;
 #endif
@@ -203,7 +200,7 @@ extern "C" void gevrNativePauseRender(void) {
     view.startRequested=netHostStartRequested()!=0;view.rosterReady=netRoundRosterReady()!=0;
     view.voting=gevrNetConfigGet(CFG_NEXT_ROUND)==NET_NEXT_VOTE;view.warmup=netGetPhase()==NET_PHASE_WARMUP;
     view.canReturn=!view.coop&&gevrPauseActionAvailable("RETURN TO LOBBY");view.countdown=netCountdownSecondsLeft();view.localReady=netLocalReady()!=0;
-    view.settings=gevrSettingsLive();view.texpack=gevrTexpackState();
+    view.settings=gevrSettingsLive();
 #ifdef GEVR_FLAT
     view.settings.drawKbm=drawPauseKbm;
     view.settings.drawGamepad=drawPauseGamepad;
@@ -268,16 +265,6 @@ extern "C" void gevrNativePauseRender(void) {
 #ifdef GEVR_FLAT
     if(panelAction==GEVR_PANEL_TOUCH_LAYOUT){vr_log("panel: touch layout editor");flatTouchEditBegin();}
 #endif
-    if(panelAction==GEVR_PANEL_RESET_SOUND){audioReset();gevrFriendsMessage("Sound reset");vr_log("panel: sound reset");}
-    if(panelAction==GEVR_PANEL_TEXPACK && gevrTexpackState()>=0){
-        gevrTexpackToggleMsg=gevrTexpackToggle()+2;   /* 2 off, 3 on */
-        vr_log("panel: texture pack %s",gevrTexpackToggleMsg==3?"on":"off");
-    }
-    if(action==GEVR_PAUSE_RESET_SOUND){audioReset();gevrFriendsMessage("Sound reset");vr_log("pause: sound reset");}
-    if(action==GEVR_PAUSE_TEXPACK && gevrTexpackState()>=0){
-        gevrTexpackToggleMsg=gevrTexpackToggle()+2;   /* 2 off, 3 on */
-        vr_log("pause: texture pack %s",gevrTexpackToggleMsg==3?"on":"off");
-    }
     if(action==GEVR_PAUSE_HORDE_RETRY){gevrNativePauseResume();netHordeRetry();}
     if(action==GEVR_PAUSE_RESUME)gevrNativePauseResume();
     if(action==GEVR_PAUSE_LEAVE)leaveToLauncher();

@@ -98,6 +98,7 @@ struct MuzzleWeaponEntry {
     const char *name;
 };
 static const MuzzleWeaponEntry kMuzzleWeapons[] = {
+    { 1, "Fist" },   /* the unarmed hand: Gun fit moves it as a gun (user, 2026-11-22: its fit was not saved) */
     { 2, "Knife" },
     { 3, "ThrowKnife" },
     { 4, "PP7" },
@@ -416,16 +417,19 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "; 1 = Application SpaceWarp: the game renders at half the display rate and the\n");
     iniPrintf(f, "; headset makes the frames between from motion vectors. 0 = off, -1 = on with Bean.\n");
     iniPrintf(f, "SpaceWarp=%d\n", VrSpaceWarp < 0 ? -1 : VrSpaceWarp ? 1 : 0);
-    iniPrintf(f, "; Anti-aliasing of the eye images: 1 = off, 2 = 2 samples per pixel.\n");
+    iniPrintf(f, "; Anti-aliasing of the eye images: 1 = off, 2, 4 (8 on PC VR) samples per pixel.\n");
     iniPrintf(f, "EyeMsaa=%d\n", VrEyeMsaa);
     iniPrintf(f, "; Resolution: the eye images' size over the headset's recommendation, from the next\n");
-    iniPrintf(f, "; start (above 1 is supersampling). 0 = the game config's Video.VRRenderScale.\n");
+    iniPrintf(f, "; start (above 1 is supersampling). 0 = Auto: this headset's (Quest 3: 1.25 at 90 Hz or less).\n");
     iniPrintf(f, "EyeResolution=%.2f\n", VrRenderScale);
-    iniPrintf(f, "; Anisotropic filtering of HD pack and Bean textures: 1 = off, 2, 4, 8 or 16.\n");
+    iniPrintf(f, "; Anisotropic filtering of HD pack and Bean textures: 0 = Auto (this headset's), 1 = off, 2, 4, 8 or 16.\n");
     iniPrintf(f, "TextureAniso=%d\n", VrTextureAniso);
     iniPrintf(f, "; CPU performance level asked of the headset at start: -1 = none, 0 = power savings,\n");
     iniPrintf(f, "; 1 = sustained low, 2 = sustained high (lifts the CPU cap on battery).\n");
     iniPrintf(f, "CpuLevel=%d\n", VrCpuLevel);
+    iniPrintf(f, "; The rifle bat with both hands (Bean's, GoldenEye's own): 0 = the gun wrist swings it with\n");
+    iniPrintf(f, "; the hands together and the hands' line apart, 1 = the hands' line always.\n");
+    iniPrintf(f, "BatTwoHand=%d\n", VrBatTwoHand);
     iniPrintf(f, "Cheats=%llx\n", (unsigned long long)VrCheatMask);
     iniPrintf(f, "GunSizeCheat=%d\n", VrGunSizeCheat);
     iniPrintf(f, "; 1 = every mission at every difficulty, 007 mode and every cheat unlocked.\n");
@@ -476,6 +480,7 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "; scenario, length and health are the launcher's list positions; the guns are\n");
     iniPrintf(f, "; item ids; the favorites are bitmasks over the stage and weapon-set lists.\n");
     iniPrintf(f, "MpStage=%d\nMpWeaponSet=%d\nMpChr=%d\nMpVisibility=%d\nMpVrOnly=%d\nMpHideFlat=%d\n", VrMpStage, VrMpWeaponSet, VrMpChr, VrMpVisibility, VrMpVrOnly, VrMpHideFlat);
+    iniPrintf(f, "MpServerFilter=%d\nMpCustomServers=%s\n", VrMpServerFilter, VrMpCustomServers);
     iniPrintf(f, "MpScenario=%d\nMpLength=%d\nMpHealth=%d\nMpDual=%d\nMpLoadouts=%d\nMpNextRound=%d\n",
             VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound);
     iniPrintf(f, "MpVoiceMode=%d\n", VrMpVoiceMode);
@@ -525,8 +530,8 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "TouchLayout=%s\n", VrTouchLayout);
     iniPrintf(f, "; Metres above (+) or below (-) eye level; set by grabbing the screen with both grips.\n");
     iniPrintf(f, "ScreenHeight=%.2f\n", VrScreenHeight);
-    iniPrintf(f, "; Preferred display refresh rate in Hz. 0 = Auto (no app preference), the\n");
-    iniPrintf(f, "; Quest default for new settings. The launcher offers this headset's supported\n");
+    iniPrintf(f, "; Preferred display refresh rate in Hz. 0 = Auto (Quest 3: 90, Quest 2 and Pro: 72,\n");
+    iniPrintf(f, "; others: no app preference), the Quest default. The launcher offers this headset's supported\n");
     iniPrintf(f, "; rates. Saved choices are retained; the runtime decides the actual rate.\n");
     iniPrintf(f, "DisplayHz=%d\n", VrRefreshRate);
     iniPrintf(f, "; Stereo: darken the edges of the view while moving or smooth-turning, to\n");
@@ -619,11 +624,18 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "BeanBat=%.4f %.4f %.4f\n", VrGexBatFit[5][0], VrGexBatFit[5][1], VrGexBatFit[5][2]);
     iniPrintf(f, "; Bat: the same for GoldenEye's own sniper rifle.\n");
     iniPrintf(f, "Bat=%.4f %.4f %.4f\n", VrGexBatFit[6][0], VrGexBatFit[6][1], VrGexBatFit[6][2]);
-    iniPrintf(f, "; Bean guns' magazines: item number / vector (0 held magazine, 1 magazine well); fitted ones only.\n");
+    iniPrintf(f, "; BeanBatOff and BatOff: with both hands on, the rifle's end in the off hand, cm right,\n");
+    iniPrintf(f, "; up and back of the hand's middle.\n");
+    iniPrintf(f, "BeanBatOff=%.4f %.4f %.4f\n", VrGexBatFit[7][0], VrGexBatFit[7][1], VrGexBatFit[7][2]);
+    iniPrintf(f, "BatOff=%.4f %.4f %.4f\n", VrGexBatFit[8][0], VrGexBatFit[8][1], VrGexBatFit[8][2]);
+    iniPrintf(f, "; Bean guns' magazines: item number / vector (0 held magazine, 1 magazine well, 2 held\n");
+    iniPrintf(f, "; magazine in the primary hand, reloading a gun in the other); fitted ones only.\n");
     for (int item=0; item<64; item++)
-        for (int which=0; which<2; which++) {
+        for (int which=0; which<3; which++) {
             const float *v=VrBeanMagFits[item][which];
-            if (v[0] != 0.0f || v[1] != 0.0f || v[2] != 0.0f)
+            /* the fitted ones: an unfitted gun takes a later build's default (owner,
+             * 2026-11-22: the shipped place, written out, outlived a better default) */
+            if (memcmp(v, VrBeanMagFitsDefault[item][which], sizeof(float) * 3) != 0)
                 iniPrintf(f, "BeanMagFit%d_%d=%.4f %.4f %.4f\n", item, which, v[0], v[1], v[2]);
         }
     iniPrintf(f, "; Per-weapon fits: item number / vector (0 gun, 1 grab, 2 support, 3 rotation, 4 held mag, 5 well, 6 installed mesh).\n");
@@ -746,6 +758,11 @@ extern "C" void vrSettingsLoad(void)
             VrTouchLayout[strcspn(VrTouchLayout, "\r\n")] = 0;
             continue;
         }
+        if (strncmp(line, "MpCustomServers=", 16) == 0) {   // a string too
+            snprintf(VrMpCustomServers, sizeof(VrMpCustomServers), "%s", line + 16);
+            VrMpCustomServers[strcspn(VrMpCustomServers, "\r\n")] = 0;
+            continue;
+        }
         if (strncmp(line, "WatchFaceStatus=", 16) == 0) {
             char *end;
             const char *value = line + 16;
@@ -835,7 +852,7 @@ extern "C" void vrSettingsLoad(void)
         if (strncmp(line, "BeanMagFit", 10) == 0) {
             int item, which, consumed=0; float t[3];
             if (sscanf(line, "BeanMagFit%d_%d=%n", &item, &which, &consumed) == 2 && consumed > 0
-                && item >= 0 && item < 64 && which >= 0 && which < 2
+                && item >= 0 && item < 64 && which >= 0 && which < 3
                 && sscanf(line+consumed, "%f %f %f", &t[0], &t[1], &t[2]) == 3
                 && std::isfinite(t[0]) && std::isfinite(t[1]) && std::isfinite(t[2]))
                 memcpy(VrBeanMagFits[item][which], t, sizeof(t));
@@ -872,8 +889,10 @@ extern "C" void vrSettingsLoad(void)
             }
             continue;
         }
-        if (strncmp(line, "BeanBat=", 8) == 0 || strncmp(line, "Bat=", 4) == 0) {
-            const int row = line[0] == 'B' && line[1] == 'e' ? 5 : 6;
+        if (strncmp(line, "BeanBat=", 8) == 0 || strncmp(line, "Bat=", 4) == 0
+            || strncmp(line, "BeanBatOff=", 11) == 0 || strncmp(line, "BatOff=", 7) == 0) {
+            const bool off = strstr(line, "BatOff=") != nullptr;
+            const int row = (line[0] == 'B' && line[1] == 'e' ? 5 : 6) + (off ? 2 : 0);
             float t[3];
             if (sscanf(strchr(line, '=') + 1, "%f %f %f", &t[0], &t[1], &t[2]) == 3
                 && std::isfinite(t[0]) && std::isfinite(t[1]) && std::isfinite(t[2])) {
@@ -1056,12 +1075,13 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "LiveSplit") == 0) VrLiveSplit = (ival != 0);
             else if (strcmp(key, "SpaceWarp") == 0) VrSpaceWarp = ival < 0 ? -1 : ival != 0;
 #ifdef GEVR_PCVR
-            else if (strcmp(key, "EyeMsaa") == 0) VrEyeMsaa = ival >= 4 ? 4 : ival >= 2 ? 2 : 1;
+            else if (strcmp(key, "EyeMsaa") == 0) VrEyeMsaa = ival >= 8 ? 8 : ival >= 4 ? 4 : ival >= 2 ? 2 : 1;
 #else
-            else if (strcmp(key, "EyeMsaa") == 0) VrEyeMsaa = ival >= 2 ? 2 : 1;   // a saved 4x is 2x now
+            else if (strcmp(key, "EyeMsaa") == 0) VrEyeMsaa = ival >= 4 ? 4 : ival >= 2 ? 2 : 1;   // 4x is back, warned
 #endif
-            else if (strcmp(key, "TextureAniso") == 0) VrTextureAniso = ival >= 16 ? 16 : ival >= 8 ? 8 : ival >= 4 ? 4 : ival >= 2 ? 2 : 1;
+            else if (strcmp(key, "TextureAniso") == 0) VrTextureAniso = ival <= 0 ? 0 : ival >= 16 ? 16 : ival >= 8 ? 8 : ival >= 4 ? 4 : ival >= 2 ? 2 : 1;
             else if (strcmp(key, "CpuLevel") == 0) VrCpuLevel = ival < 0 ? -1 : ival > 2 ? 2 : ival;
+            else if (strcmp(key, "BatTwoHand") == 0) VrBatTwoHand = ival ? 1 : 0;
             else if (strcmp(key, "RenderScale") == 0) VrResetRenderScale = 1;
             else if (strcmp(key, "GunSizeCheat") == 0) VrGunSizeCheat = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             else if (strcmp(key, "UnlockAll") == 0) VrUnlockAll = ival != 0;
@@ -1086,6 +1106,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MpVisibility") == 0) VrMpVisibility = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             else if (strcmp(key, "MpVrOnly") == 0) VrMpVrOnly = ival != 0;
             else if (strcmp(key, "MpHideFlat") == 0) VrMpHideFlat = ival != 0;
+            else if (strcmp(key, "MpServerFilter") == 0) VrMpServerFilter = ival < 0 || ival > 3 ? 0 : ival;
             else if (strcmp(key, "FriendsShowDetail") == 0) VrFriendsShowDetail = ival != 0;
             else if (strcmp(key, "FriendsAppearOffline") == 0) VrFriendsAppearOffline = ival != 0;
             else if (strcmp(key, "FriendsRestoreNoted") == 0) VrFriendsRestoreNoted = ival != 0;
