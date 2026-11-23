@@ -420,9 +420,9 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "; Anti-aliasing of the eye images: 1 = off, 2, 4 (8 on PC VR) samples per pixel.\n");
     iniPrintf(f, "EyeMsaa=%d\n", VrEyeMsaa);
     iniPrintf(f, "; Resolution: the eye images' size over the headset's recommendation, from the next\n");
-    iniPrintf(f, "; start (above 1 is supersampling). 0 = the game config's Video.VRRenderScale.\n");
+    iniPrintf(f, "; start (above 1 is supersampling). 0 = Auto: this headset's (Quest 3: 1.25 at 90 Hz or less).\n");
     iniPrintf(f, "EyeResolution=%.2f\n", VrRenderScale);
-    iniPrintf(f, "; Anisotropic filtering of HD pack and Bean textures: 1 = off, 2, 4, 8 or 16.\n");
+    iniPrintf(f, "; Anisotropic filtering of HD pack and Bean textures: 0 = Auto (this headset's), 1 = off, 2, 4, 8 or 16.\n");
     iniPrintf(f, "TextureAniso=%d\n", VrTextureAniso);
     iniPrintf(f, "; CPU performance level asked of the headset at start: -1 = none, 0 = power savings,\n");
     iniPrintf(f, "; 1 = sustained low, 2 = sustained high (lifts the CPU cap on battery).\n");
@@ -529,8 +529,8 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "TouchLayout=%s\n", VrTouchLayout);
     iniPrintf(f, "; Metres above (+) or below (-) eye level; set by grabbing the screen with both grips.\n");
     iniPrintf(f, "ScreenHeight=%.2f\n", VrScreenHeight);
-    iniPrintf(f, "; Preferred display refresh rate in Hz. 0 = Auto (no app preference), the\n");
-    iniPrintf(f, "; Quest default for new settings. The launcher offers this headset's supported\n");
+    iniPrintf(f, "; Preferred display refresh rate in Hz. 0 = Auto (Quest 3: 90, Quest 2 and Pro: 72,\n");
+    iniPrintf(f, "; others: no app preference), the Quest default. The launcher offers this headset's supported\n");
     iniPrintf(f, "; rates. Saved choices are retained; the runtime decides the actual rate.\n");
     iniPrintf(f, "DisplayHz=%d\n", VrRefreshRate);
     iniPrintf(f, "; Stereo: darken the edges of the view while moving or smooth-turning, to\n");
@@ -1073,7 +1073,7 @@ extern "C" void vrSettingsLoad(void)
 #else
             else if (strcmp(key, "EyeMsaa") == 0) VrEyeMsaa = ival >= 4 ? 4 : ival >= 2 ? 2 : 1;   // 4x is back, warned
 #endif
-            else if (strcmp(key, "TextureAniso") == 0) VrTextureAniso = ival >= 16 ? 16 : ival >= 8 ? 8 : ival >= 4 ? 4 : ival >= 2 ? 2 : 1;
+            else if (strcmp(key, "TextureAniso") == 0) VrTextureAniso = ival <= 0 ? 0 : ival >= 16 ? 16 : ival >= 8 ? 8 : ival >= 4 ? 4 : ival >= 2 ? 2 : 1;
             else if (strcmp(key, "CpuLevel") == 0) VrCpuLevel = ival < 0 ? -1 : ival > 2 ? 2 : ival;
             else if (strcmp(key, "BatTwoHand") == 0) VrBatTwoHand = ival ? 1 : 0;
             else if (strcmp(key, "RenderScale") == 0) VrResetRenderScale = 1;

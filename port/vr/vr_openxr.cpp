@@ -119,6 +119,7 @@
 #include "gevr_frame_timing.h"
 #include "gevr_xr_metrics.h"
 #include "gevr_hud_bounds.h"
+#include "gevr_settings.h"                           // the graphics defaults' Auto (gevrAutoRefreshHz ...)
 
 // Which build's GL and runtime the code below is for:
 //   GEVR_XR_ES  OpenGL ES 3.0 swapchains and the Quest's GL paths: the Quest,
@@ -564,6 +565,12 @@ static void vr_request_refresh_rate(void)
             return;
         }
         desired = *rate;
+    } else if (gevrAutoRefreshHz() > 0 && haveRates
+               && std::any_of(g_supportedRefreshRates.begin(), g_supportedRefreshRates.end(),
+                              [](float hz) { return std::fabs(hz - float(gevrAutoRefreshHz())) < 0.5f; })) {
+        // Auto on a headset with a measured default (gevr_settings.c gevrAutoRefreshHz:
+        // Quest 3 90 Hz, Quest 2 and Pro 72 Hz)
+        desired = float(gevrAutoRefreshHz());
     } else if (g_sessionRefreshPreference == 0.0f) {
         return; // A fresh Auto session must not override an external profile.
     }
@@ -985,10 +992,13 @@ extern "C" bool vr_configure_resolution() {
     // Resolution (goldeneye-vr.ini EyeResolution) over Video.VRRenderScale, once:
     // the eye images are made here as VR starts, so a change waits for the next
     // start. Once only, so a later restart at another scale isn't undone.
+    // Auto (0): this headset's (gevr_settings.c gevrAutoRenderScale: Quest 3 1.25x at 90 Hz
+    // or less), else the game config's as before.
     static bool s_settingScaleRead = false;
     if (!s_settingScaleRead) {
         s_settingScaleRead = true;
         if (VrRenderScale > 0.0f) RENDER_SCALE = VrRenderScale;
+        else if (gevrAutoRenderScale() > 0.0f) RENDER_SCALE = gevrAutoRenderScale();
     }
     // This headset's most (vr_render_scale_max): a scale saved on another device, or the
     // game config's Video.VRRenderScale (up to 4), starts at it, and the setting reads it.
@@ -4296,8 +4306,21 @@ extern "C" float vr_render_scale(void) { return RENDER_SCALE; }
  * of ... super resolution"). */
 extern "C" float vr_render_scale_max(void)
 {
+    switch (vr_headset_class()) {
+        case GEVR_HMD_PC: return 2.0f;
+        case GEVR_HMD_QUEST3: return 1.5f;
+        default: return 1.25f;
+    }
+}
+
+/* The class of headset, for the graphics defaults (gevr_settings.c gevrAutoRefreshHz,
+ * gevrAutoRenderScale, gevrAutoAniso) and Resolution's most: by the runtime's name,
+ * "Meta Quest 3" and "Meta Quest 3S" (XR2 Gen 2), "Oculus Quest2" and "Meta Quest Pro"
+ * (XR2 Gen 1). Known once vr_get_system has read it, before the eye images are made. */
+extern "C" int vr_headset_class(void)
+{
 #ifdef GEVR_PCVR
-    return 2.0f;
+    return GEVR_HMD_PC;
 #else
     char name[sizeof(g_hmdName)];
     size_t n = 0;
@@ -4305,7 +4328,9 @@ extern "C" float vr_render_scale_max(void)
         if (*c != ' ') name[n++] = *c >= 'A' && *c <= 'Z' ? (char)(*c - 'A' + 'a') : *c;
     }
     name[n] = 0;
-    return std::strstr(name, "quest3") ? 1.5f : 1.25f;   /* "Meta Quest 3", "Meta Quest 3S" */
+    if (std::strstr(name, "quest3")) return GEVR_HMD_QUEST3;
+    if (std::strstr(name, "quest2") || std::strstr(name, "questpro")) return GEVR_HMD_QUEST2;
+    return GEVR_HMD_OTHER;
 #endif
 }
 

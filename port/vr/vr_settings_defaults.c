@@ -201,13 +201,16 @@ int VrEyeMsaa = 2;
  * supersampling. 0 = the game config's Video.VRRenderScale. Dropped from the
  * launcher on 2026-10-17 (1.5x slowed Bean at 120 Hz); back on 2026-11-22
  * after the renderer's optimizations, with a performance warning above 1x. */
+/* 0 is Auto: this headset's (gevr_settings.c gevrAutoRenderScale: Quest 3 1.25x
+ * at 90 Hz or less), else the game config's. */
 float VrRenderScale = 0.0f;
 /* Anisotropic filtering (goldeneye-vr.ini TextureAniso) of HD pack and Bean
  * pictures, the mipmapped ones (gfx_opengl.cpp upload_texture_hd), switched
- * live: 1 off, 2, 4, 8 or 16, held to the driver's maximum. 2x by default: 4x
- * cost the pack's big textures GPU time on Quest's outdoor levels (issue #52),
- * so above 2x warns on a phone-class GPU. */
-int VrTextureAniso = 2;
+ * live: 0 Auto (the default), 1 off, 2, 4, 8 or 16, held to the driver's
+ * maximum. Auto is this headset's (gevr_settings.c gevrAutoAniso): 16x on
+ * Quest 3 and a desktop, 4x on Quest 2 and Pro, 2x elsewhere (4x cost the
+ * pack's big textures GPU time on Quest's outdoor levels, issue #52). */
+int VrTextureAniso = 0;
 /* The CPU performance level asked of the headset as each session begins
  * (XR_EXT_performance_settings): -1 none, 0 power savings, 1 sustained low,
  * 2 sustained high. Unplugged, Quest caps the CPU at the level its governor
@@ -220,7 +223,7 @@ int VrCpuLevel = 2;
  * hands on it: Y. */
 int VrBatTwoHand = 0;
 #ifdef ANDROID
-int VrRefreshRate = 0;     /* Auto: no app preference; runtime / external profile manages the rate. */
+int VrRefreshRate = 0;     /* Auto: this headset's (gevr_settings.c gevrAutoRefreshHz: Quest 3 90 Hz, Quest 2 and Pro 72 Hz), else no app preference. */
 #else
 int VrRefreshRate = 90;    /* Preserve the desktop default. Saved DisplayHz wins on either platform. */
 #endif

@@ -86,6 +86,7 @@ extern int vr_screen_curve_supported(void);
 extern int vr_passthrough_supported(void);
 extern int vr_eye_msaa_supported(void);
 extern float vr_render_scale_max(void);   /* vr_openxr.cpp: the most Resolution this headset offers */
+extern int vr_headset_class(void);        /* vr_openxr.cpp: GEVR_HMD_*, by the runtime's name */
 extern float g_gevrDisplayHz;             /* vr_settings_defaults.c: the display's rate as it runs, 0 unknown */
 extern void vrSettingsSave(void);
 
@@ -416,6 +417,57 @@ static const char *blockedFast(void)
     return netIsHost() ? NULL : "Host's choice";
 }
 
+/*
+ * Each headset's graphics defaults: what Refresh, Resolution and Anisotropic filtering
+ * take at Auto (0, the default). Measured on the owner's Quest 3 (2026-11-23, Dam,
+ * plugged in, tools/perf/quest_profile.py): at 90 Hz Bean at 1.25x with 16x held, the
+ * GPU 69% busy and 6 frames dropped in 2.5 minutes, where 120 Hz left no room above 1x
+ * (the HD pack at 1.25x dropped 89, Bean 151) and 16x anisotropy cost 1-5 points of the
+ * GPU. Quest 2 and Pro (XR2 Gen 1) have about 40% of Quest 3's GPU and were not measured:
+ * scaled from Quest 3's, Bean at 90 Hz would take all of theirs and at 72 Hz 70-90%, so
+ * 72 Hz (Quest 2's own), 1x and 4x. Other headsets keep the runtime's rate, the game
+ * config's scale and 2x; a desktop GPU takes 16x. Owner, 2026-11-23: "i'd like the
+ * defaults for quest 2 to be similar".
+ */
+static int deviceClass(void)
+{
+#if defined(GEVR_PCVR) || defined(GEVR_PC_FLAT)
+    return GEVR_HMD_PC;
+#else
+    return vr_headset_class();
+#endif
+}
+int gevrAutoRefreshHz(void)
+{
+    switch (deviceClass()) {
+        case GEVR_HMD_QUEST3: return 90;
+        case GEVR_HMD_QUEST2: return 72;
+        default: return 0;
+    }
+}
+/* the rate the game runs at: the one chosen, else Auto's, else the display's */
+static int rateExpected(void)
+{
+    const int hz = VrRefreshRate > 0 ? VrRefreshRate : gevrAutoRefreshHz();
+    return hz > 0 ? hz : (int)(g_gevrDisplayHz + 0.5f);
+}
+float gevrAutoRenderScale(void)
+{
+    int hz;
+    if (deviceClass() != GEVR_HMD_QUEST3) return 0.0f;
+    hz = rateExpected();
+    return (hz > 0 && hz <= 90) || vr_spacewarp_setting_on() ? 1.25f : 1.0f;
+}
+int gevrAutoAniso(void)
+{
+    switch (deviceClass()) {
+        case GEVR_HMD_PC:
+        case GEVR_HMD_QUEST3: return 16;
+        case GEVR_HMD_QUEST2: return 4;
+        default: return 2;
+    }
+}
+
 /* The display rate: Auto, then the rates this headset offers */
 static int refreshRates(int *rates)
 {
@@ -442,7 +494,11 @@ static void refreshSet(int i)
 static void refreshText(int i, char *b, int n)
 {
     int rates[16], count = refreshRates(rates);
-    if (i <= 0 || i > count) snprintf(b, n, "Auto");
+    if (i <= 0 || i > count) {
+        const int hz = gevrAutoRefreshHz();
+        if (hz > 0) snprintf(b, n, "Auto (%d Hz)", hz);
+        else snprintf(b, n, "Auto");
+    }
     else snprintf(b, n, "%d Hz", rates[i - 1]);
 }
 
@@ -475,7 +531,6 @@ static const char *const s_touchNames[] = { "Auto", "Quest", "Quest 2", "Plus", 
  * (vr_openxr.cpp vr_eye_samples, and no more than the GPU's own most) */
 static const int s_msaa[] = { 1, 2, 4, 8 };
 static const char *const s_msaaNames[] = { "Off", "2x", "4x", "8x" };
-#define MSAA_WARN_ABOVE 8   /* never */
 #else
 /* Quest: 4x at most (vr_eye_samples). Dropped once (24a8d14a): it looked like 2x
  * once Bean's pictures were mipmapped and cutouts took alpha-to-coverage, cost
@@ -483,20 +538,40 @@ static const char *const s_msaaNames[] = { "Off", "2x", "4x", "8x" };
  * owner's word (2026-11-22), as "(slower)" with the warning. */
 static const int s_msaa[] = { 1, 2, 4 };
 static const char *const s_msaaNames[] = { "Off", "2x", "4x" };
-#define MSAA_WARN_ABOVE 2
 #endif
 #define MSAA_COUNT ((int)(sizeof(s_msaa) / sizeof(s_msaa[0])))
+/* "(slower)" above this. On Quest 3, 4x held at 90 Hz and 1x (Bean: 63% busy, 7 frames
+ * dropped in 2.5 minutes), was near the limit at 90 Hz and 1.25x (Bean 79%, 16 dropped:
+ * where reruns dropped 2-3 times as many) and dropped frames at 120 Hz (Bean 46, the HD
+ * pack 69). So on Quest 3 it warns above 1x or at more than 90 Hz with SpaceWarp off;
+ * other headsets above 2x; PC VR never. */
+static float scaleChosen(void);
+static int msaaWarnAbove(void)
+{
+#ifdef GEVR_PCVR
+    return 8;
+#else
+    if (deviceClass() == GEVR_HMD_QUEST3)
+        return (rateExpected() > 90 && !vr_spacewarp_setting_on()) || scaleChosen() > 1.01f ? 2 : 4;
+    return 2;
+#endif
+}
 static void msaaText(int i, char *b, int n)
 {
     i = i < 0 ? 0 : i >= MSAA_COUNT ? MSAA_COUNT - 1 : i;
-    snprintf(b, n, "%s%s", s_msaaNames[i], s_msaa[i] > MSAA_WARN_ABOVE ? " (slower)" : "");
+    snprintf(b, n, "%s%s", s_msaaNames[i], s_msaa[i] > msaaWarnAbove() ? " (slower)" : "");
 }
 static const char *warnMsaa(void)
 {
-    return VrEyeMsaa > MSAA_WARN_ABOVE
-        ? "Anti-aliasing above 2x costs GPU time every frame, most with Bean, and on battery can drop the "
-          "frame rate"
-        : NULL;
+    if (VrEyeMsaa <= msaaWarnAbove()) return NULL;
+    if (deviceClass() == GEVR_HMD_QUEST3 && rateExpected() > 90 && !vr_spacewarp_setting_on())
+        return "Anti-aliasing above 2x at more than 90 Hz drops frames, most with Bean. Choose 90 Hz in "
+               "Refresh or turn SpaceWarp on";
+    if (deviceClass() == GEVR_HMD_QUEST3)
+        return "Anti-aliasing above 2x with Resolution above 1x is near what the GPU holds, most with "
+               "Bean. Lower one of them if frames drop";
+    return "Anti-aliasing above 2x costs GPU time every frame, most with Bean, and on battery can drop the "
+           "frame rate";
 }
 
 /* Resolution: the eye images over the headset's recommended size (vr_openxr.cpp
@@ -509,36 +584,55 @@ static const char *warnMsaa(void)
 static const float s_scales[] = { 0.8f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
 static const char *const s_scaleNames[] = { "0.8x", "1x", "1.25x", "1.5x", "1.75x", "2x" };
 #define SCALE_ALL ((int)(sizeof(s_scales) / sizeof(s_scales[0])))
-static int scalePositions(void)
+/* the scales this headset offers: 0.8x and 1x always */
+static int scaleCount(void)
 {
     const float most = vr_render_scale_max();
-    int n = 2;   /* 0.8x and 1x always */
+    int n = 2;
     while (n < SCALE_ALL && s_scales[n] <= most + 0.001f) n++;
     return n;
 }
+/* Auto (position 0, the default): this headset's (gevrAutoRenderScale), else the game
+ * config's in use */
+static float scaleAuto(void)
+{
+    const float a = gevrAutoRenderScale();
+    return a > 0.0f ? a : vr_render_scale();
+}
+static int scalePositions(void) { return 1 + scaleCount(); }
 static float scaleChosen(void)
 {
-    const float v = VrRenderScale > 0.0f ? VrRenderScale : vr_render_scale();
-    return fminf(v, s_scales[scalePositions() - 1]);
+    const float v = VrRenderScale > 0.0f ? VrRenderScale : scaleAuto();
+    return fminf(v, s_scales[scaleCount() - 1]);
 }
-static int scaleGet(void)
+/* the nearest offered scale to v, an index into s_scales */
+static int scaleNearest(float v)
 {
-    const float v = scaleChosen();
-    const int n = scalePositions();
+    const int n = scaleCount();
     int i, best = 1;
     for (i = 0; i < n; i++) {
         if (fabsf(s_scales[i] - v) < fabsf(s_scales[best] - v)) best = i;
     }
     return best;
 }
+static int scaleGet(void)
+{
+    return VrRenderScale > 0.0f ? 1 + scaleNearest(scaleChosen()) : 0;
+}
 static void scaleSet(int i)
 {
-    const int n = scalePositions();
-    VrRenderScale = s_scales[i < 0 ? 0 : i >= n ? n - 1 : i];
+    const int n = scaleCount();
+    VrRenderScale = i <= 0 ? 0.0f : s_scales[i > n ? n - 1 : i - 1];
 }
 static void scaleText(int i, char *b, int n)
 {
-    const int pending = i == scaleGet() && fabsf(s_scales[i] - vr_render_scale()) >= 0.01f;
+    int pending;
+    if (i <= 0) {
+        snprintf(b, n, "Auto (%s)", s_scaleNames[scaleNearest(fminf(scaleAuto(), s_scales[scaleCount() - 1]))]);
+        return;
+    }
+    i = i > scaleCount() ? scaleCount() - 1 : i - 1;
+    pending = 1 + i == scaleGet() && fabsf(s_scales[i] - vr_render_scale()) >= 0.01f;
     /* above 1x its cost is the warning's (the value and label in the warning colour, the
      * tooltip's reason): "(slower)" beside "(next start)" ran the launcher's page to one column */
     snprintf(b, n, "%s%s", s_scaleNames[i], pending ? " (next start)" : "");
@@ -546,15 +640,15 @@ static void scaleText(int i, char *b, int n)
 /* Above 1x it warns. On a standalone headset at more than 90 Hz with SpaceWarp off it
  * says what holds it: on the owner's Quest 3 with Bean (2026-11-23, Dam, SpaceWarp off)
  * 1.25x at 120 Hz dropped 151 frames in 2.5 minutes with the GPU 83% busy, where 1.5x
- * at 90 Hz dropped 22. SpaceWarp draws half the frames. Auto reads the rate the
- * display runs at (vr_openxr.cpp, once a second). */
+ * at 90 Hz dropped 22. SpaceWarp draws half the frames. Refresh's Auto is this
+ * headset's rate (gevrAutoRefreshHz), else the display's (vr_openxr.cpp, once a second). */
 static const char *warnScale(void)
 {
-    if (scaleChosen() <= 1.01f) return NULL;
+    /* Auto is this headset's measured default (gevrAutoRenderScale): no warning */
+    if (VrRenderScale <= 0.0f || scaleChosen() <= 1.01f) return NULL;
 #ifndef GEVR_PCVR
     {
-        const int hz = VrRefreshRate > 0 ? VrRefreshRate : (int)(g_gevrDisplayHz + 0.5f);
-        if (hz > 90 && !vr_spacewarp_setting_on())
+        if (rateExpected() > 90 && !vr_spacewarp_setting_on())
             return "Resolution above 1x at more than 90 Hz drops frames, most with Bean. Choose 90 Hz in "
                    "Refresh or turn SpaceWarp on";
     }
@@ -569,22 +663,39 @@ static const char *warnScale(void)
  * outdoor levels (issue #52). */
 static const int s_aniso[] = { 1, 2, 4, 8, 16 };
 static const char *const s_anisoNames[] = { "Off", "2x", "4x", "8x", "16x" };
-#if defined(GEVR_PCVR) || defined(GEVR_PC_FLAT)
-#define ANISO_WARN_ABOVE 16   /* a desktop GPU: never */
-#else
-#define ANISO_WARN_ABOVE 2
-#endif
+#define ANISO_COUNT ((int)(sizeof(s_aniso) / sizeof(s_aniso[0])))
+/* Auto (position 0, the default) is this headset's (gevrAutoAniso); "(slower)" above it.
+ * 16x on Quest 3 and a desktop: never. */
+static int anisoPositions(void) { return 1 + ANISO_COUNT; }
+static int anisoGet(void)
+{
+    int i;
+    if (VrTextureAniso <= 0) return 0;
+    for (i = 0; i < ANISO_COUNT - 1 && s_aniso[i] < VrTextureAniso; i++) {}
+    return 1 + i;
+}
+static void anisoSet(int i)
+{
+    VrTextureAniso = i <= 0 ? 0 : s_aniso[i > ANISO_COUNT ? ANISO_COUNT - 1 : i - 1];
+}
 static const char *warnAniso(void)
 {
-    return VrTextureAniso > ANISO_WARN_ABOVE
-        ? "Anisotropic filtering above 2x costs GPU time with an HD pack or Bean, most in outdoor "
-          "levels, and can make the game stutter"
+    const int a = VrTextureAniso > 0 ? VrTextureAniso : gevrAutoAniso();
+    return a > gevrAutoAniso()
+        ? "Anisotropic filtering above this headset's Auto costs GPU time with an HD pack or Bean, most "
+          "in outdoor levels, and can make the game stutter"
         : NULL;
 }
 static void anisoText(int i, char *b, int n)
 {
-    i = i < 0 ? 0 : i > 4 ? 4 : i;
-    snprintf(b, n, "%s%s", s_anisoNames[i], s_aniso[i] > ANISO_WARN_ABOVE ? " (slower)" : "");
+    int k;
+    if (i <= 0) {
+        for (k = 0; k < ANISO_COUNT - 1 && s_aniso[k] < gevrAutoAniso(); k++) {}
+        snprintf(b, n, "Auto (%s)", s_anisoNames[k]);
+        return;
+    }
+    i = i > ANISO_COUNT ? ANISO_COUNT - 1 : i - 1;
+    snprintf(b, n, "%s%s", s_anisoNames[i], s_aniso[i] > gevrAutoAniso() ? " (slower)" : "");
 }
 /* Texture filtering of the cartridge's own pictures (video.c, the game config's
  * Video.TextureFilter, saved there): FILTER_NONE, FILTER_LINEAR, FILTER_THREE_POINT
@@ -893,7 +1004,7 @@ static const Row s_rows[] = {
        * "(next start)" until the game starts again */
       .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS),
       .where = GEVR_SET_BOTH, .def = NAN,
-      .cpositions = scalePositions, .cget = scaleGet, .cset = scaleSet, .ctext = scaleText, .cdefault = 1,
+      .cpositions = scalePositions, .cget = scaleGet, .cset = scaleSet, .ctext = scaleText, .cdefault = 0,
       .warning = warnScale },
     { .label = "Anisotropic filtering", .tooltip = "Keeps HD pack and Bean textures sharp on floors and walls seen at an angle. "
                                                    "Higher costs GPU time. The original N64 textures aren't affected. Changes right away.",
@@ -901,9 +1012,8 @@ static const Row s_rows[] = {
        * the launcher's Comfort & display > Graphics (owner, 2026-11-22: "it should be in launcher too") */
       .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS),
       .where = GEVR_SET_BOTH,
-      .ivar = &VrTextureAniso,
-      .ivalues = s_aniso, .names = s_anisoNames, .count = sizeof(s_aniso) / sizeof(s_aniso[0]), .def = NAN,
-      .ctext = anisoText, .warning = warnAniso },
+      .def = NAN, .cpositions = anisoPositions, .cget = anisoGet, .cset = anisoSet, .ctext = anisoText,
+      .cdefault = 0, .warning = warnAniso },
     { .label = "Texture filtering", .tooltip = "How the original N64 textures are smoothed. Pixelated: sharp, blocky pixels, which "
                                                "shimmer in the distance. Smooth: softer. N64 accurate: the console's own "
                                                "three-point filtering. HD pack and Bean textures aren't affected. Changes right away.",

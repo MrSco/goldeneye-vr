@@ -195,6 +195,7 @@ int main() {
     // motion throw and force pull; an update to offer; Bean's 120 Hz warning
     VrRagdolls = VrDismemberment = 1; VrBodySlots = 1; VrAlly = 1;
     VrMotionThrowing = VrForcePull = 1; s_bean = 1; VrRefreshRate = 120; VrSpaceWarp = 0;
+    s_hmdClass = GEVR_HMD_QUEST3;   // the Quest 3's Auto values, the widest ("Auto (16x)")
     upd.state = "available"; upd.offered = "0.5.15-test.99";
     upd.message = "Notes: a long line about what the update brings, longer than the row it shares with Update.";
     int pages = 0;

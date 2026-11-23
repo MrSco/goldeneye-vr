@@ -2263,7 +2263,8 @@ static std::vector<uint8_t> s_texIsHd;
 static GLuint s_boundTex[2];
 static int s_activeTexUnit;
 static GLfloat s_maxAniso = -1.0f;
-extern "C" int VrTextureAniso;   // vr_settings_defaults.c: the Anisotropic filtering row, 1 off .. 16
+extern "C" int VrTextureAniso;   // vr_settings_defaults.c: the Anisotropic filtering row, 0 Auto, 1 off .. 16
+extern "C" int gevrAutoAniso(void);   // gevr_settings.c: Auto's, this headset's (Quest 3 and a desktop 16x)
 
 static bool gevr_tex_is_hd(GLuint id) {
     return id < s_texIsHd.size() && s_texIsHd[id];
@@ -2277,10 +2278,12 @@ static void gevr_tex_mark_hd(GLuint id, uint8_t aniso) {
     s_texIsHd[id] = aniso;
 }
 
-// The setting, 1..16: what a pack/Bean texture is marked with. 2x by default
-// (4x cost the pack's big textures GPU time on Quest's outdoor levels, #52).
+// The setting, 1..16: what a pack/Bean texture is marked with. Auto (0, the default)
+// is this headset's: 16x on Quest 3 and a desktop (1-5 points of Quest 3's GPU,
+// 2026-11-23), 4x on Quest 2 and Pro, 2x elsewhere (4x cost the pack's big textures
+// GPU time on Quest's outdoor levels, #52).
 static uint8_t gevr_hd_aniso_wanted(void) {
-    const int a = VrTextureAniso;
+    const int a = VrTextureAniso > 0 ? VrTextureAniso : gevrAutoAniso();
     return (uint8_t)(a < 1 ? 1 : a > 16 ? 16 : a);
 }
 

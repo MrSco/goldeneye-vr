@@ -36,7 +36,7 @@ float VrGyroSpeed = 1.5f;
 int VrMinesStickToGuards, VrBodiesStay, VrFastReinforcements, VrRagdolls, VrDismemberment, VrDismemberChance = 40;
 int VrGexGuns, VrBeanFillTextures, VrBloodPatch, VrOddjobHat, VrEyeMsaa = 1;
 float VrRenderScale;          /* Resolution: the config's scale */
-int VrTextureAniso = 2;       /* anisotropic filtering: the default 2x */
+int VrTextureAniso;           /* anisotropic filtering: 0, Auto (the default) */
 float s_liveRenderScale = 1.0f;
 unsigned int s_texFilter = 1;   /* video.c: Video.TextureFilter, FILTER_LINEAR */
 int s_configSaves;
@@ -49,6 +49,8 @@ void videoSetMSAA(const int msaa) { s_videoMsaa = msaa; }
 float vr_render_scale(void) { return s_liveRenderScale; }
 float s_scaleMax = 1.5f;   /* vr_openxr.cpp vr_render_scale_max: a Quest 3 */
 float vr_render_scale_max(void) { return s_scaleMax; }
+int s_hmdClass;            /* vr_openxr.cpp vr_headset_class: gevr_settings.h GEVR_HMD_*, 0 other */
+int vr_headset_class(void) { return s_hmdClass; }
 float g_gevrDisplayHz;     /* vr_settings_defaults.c: the display's rate as it runs */
 int VrScreenCurved, VrScreenPassthrough, VrRefreshRate, VrSpaceWarp = -1;
 int VrPlayMode = 1, VrCampaign;

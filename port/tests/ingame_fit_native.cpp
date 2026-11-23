@@ -123,6 +123,7 @@ int main() {
     // every row there is: ragdolls with dismemberment, body slots, motion throw, force pull, GE-X
     VrRagdolls = VrDismemberment = 1; VrBodySlots = 1; VrMotionThrowing = VrForcePull = 1; VrGexGuns = 1;
     VrRefreshRate = 120; VrSpaceWarp = -1;
+    s_hmdClass = GEVR_HMD_QUEST3;   // the Quest 3's Auto values, the widest ("Auto (16x)")
     VrPlayMode = 0; VrThirdPerson = 1;
     sweep(false, "solo, flat, third person");
     VrPlayMode = 1;

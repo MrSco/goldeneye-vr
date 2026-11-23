@@ -379,6 +379,7 @@ int vr_passthrough_supported(void) { return 0; }
 int vr_eye_msaa_supported(void) { return 0; }   /* the settings table's anti-aliasing row (gevr_settings.c) */
 float vr_render_scale(void) { return RENDER_SCALE; }   /* its Resolution row, a headset's only */
 float vr_render_scale_max(void) { return 2.0f; }
+int vr_headset_class(void) { return 0; }   /* gevr_settings.h GEVR_HMD_OTHER: no headset */
 int vr_screen_curve_supported(void) { return 0; }
 void vr_screen_grab(int active) { (void)active; }
 void vr_screen_recenter(void) { }
