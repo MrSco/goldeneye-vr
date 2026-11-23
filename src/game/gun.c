@@ -1064,6 +1064,7 @@ extern int netGetLocalSlot(void);
 #include "gevr_pdanim.h"
 #include "system.h"
 #include "gevr_bean.h"
+#include "gevr_scope.h"   /* a gun's own fit (gevrGunOffOwnOf): the PP7's, for the glove on Bean's bat */
 extern int VrGexGuns;   /* goldeneye-vr.ini GexGuns: GoldenEye X's guns (docs/gex-weapons.md) */
 extern s32 g_gevrHandPatchSkip;   /* gevr_handpatch.c: the hand shells are GoldenEye's model's */
 
@@ -1978,6 +1979,8 @@ void gevrGexPoseStill(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
 static f32 s_gevrGexMagAt[3], s_gevrGexWellAt[3], s_gevrGexHeldAt[3];
 static s32 s_gevrGexMagPointsGun = GUNRIGHT;
 static s32 s_gevrGexMagPointsValid;   /* 1 the gun's magazine and well, 2 the held one */
+static f32 s_gevrGexSaddleAt[3];      /* a shotgun's own shells, as drawn (GexWeaponDef.saddle) */
+static s32 s_gevrGexSaddleValid;
 
 /*
  * A magazine that leaves the gun by button, or the hand when let go,
@@ -2196,6 +2199,19 @@ static void gevrGexHandFitAt(const GexWeaponDef *def, Mtxf *rwmtx, s32 numMatric
             }
         }
     }
+}
+
+/* bondview2.c gevrReloadSaddle: the shells a GoldenEye X shotgun carries, as last drawn (camera space) */
+s32 gevrGexSaddlePoint(f32 at[3])
+{
+    if (s_gevrGexMagPointsGun != gevrReloadSupportGun() || !(s_gevrGexMagPointsValid & 1) || !s_gevrGexSaddleValid)
+    {
+        return FALSE;
+    }
+    at[0] = s_gevrGexSaddleAt[0];
+    at[1] = s_gevrGexSaddleAt[1];
+    at[2] = s_gevrGexSaddleAt[2];
+    return TRUE;
 }
 
 s32 gevrGexMagPoints(f32 centre[3], f32 well[3], f32 held[3])
@@ -2455,6 +2471,29 @@ extern s32 gevrReloadSeatHover(f32 out[3]);
 extern float VrBeanMagFits[64][2][3];                /* vr_settings_defaults.c */
 extern s32 g_gevrStereo;
 
+/*
+ * The magazine the gun's model has to take out, whichever model set draws it:
+ * Bean's, cut from the release's mesh (gevr_beanmag.h), where Bean draws the
+ * gun; else GoldenEye's own, from the cartridge's lists (gevr_n64mag.h; owner,
+ * 2026-11-21: "and also original mode guns"). One state, one set of fits and
+ * one draw for both: everything below named for Bean's serves either.
+ * own: GoldenEye's own model's.
+ */
+#include "gevr_n64mag.h"
+
+static s32 gevrGunMagazineOf(const void *header, struct gevrBeanMagInfo *out, s32 *own)
+{
+    const s32 bean = gevrBeanIsEnabled() && gevrBeanDrawsModel(header);
+
+    if (own != NULL) *own = !bean;
+    return bean ? gevrBeanGunMagazine(header, out) : gevrN64GunMagazine(header, out);
+}
+
+static s32 gevrGunMagazine(const void *header, struct gevrBeanMagInfo *out)
+{
+    return gevrGunMagazineOf(header, out, NULL);
+}
+
 static Mtxf s_gevrBeanMagGun[2], s_gevrBeanMagInHand;
 static s32 s_gevrBeanMagGunValid[2], s_gevrBeanMagInHandValid, s_gevrBeanMagInHandGun = GUNRIGHT;
 static f32 s_gevrBeanMagAt[3], s_gevrBeanWellAt[3], s_gevrBeanTipAt[3];
@@ -2478,13 +2517,13 @@ s32 gevrBeanMagHeld(s32 hand)
 {
     Model *model;
 
-    if (VrGexGuns || g_CurrentPlayer == NULL || (hand != GUNRIGHT && hand != GUNLEFT) || !gevrBeanIsEnabled())
+    if (VrGexGuns || g_CurrentPlayer == NULL || (hand != GUNRIGHT && hand != GUNLEFT))
     {
         return FALSE;
     }
     model = &g_CurrentPlayer->hands[hand].weaponModel;
     return model->obj != NULL && g_CurrentPlayer->hand_item[hand] == getCurrentPlayerWeaponId(hand)
-        && gevrBeanGunMagazine(model->obj, NULL);
+        && gevrGunMagazine(model->obj, NULL);
 }
 
 /* bondview2.c: the hand's Bean gun's magazine lifts off its top (the RC-P90's) */
@@ -2492,7 +2531,7 @@ s32 gevrBeanMagPullsUp(s32 hand)
 {
     struct gevrBeanMagInfo info;
 
-    return gevrBeanMagHeld(hand) && gevrBeanGunMagazine(g_CurrentPlayer->hands[hand].weaponModel.obj, &info)
+    return gevrBeanMagHeld(hand) && gevrGunMagazine(g_CurrentPlayer->hands[hand].weaponModel.obj, &info)
         && info.pullUp;
 }
 
@@ -2503,7 +2542,7 @@ s32 gevrBeanMagKind(s32 hand)
 {
     struct gevrBeanMagInfo info;
 
-    if (!gevrBeanMagHeld(hand) || !gevrBeanGunMagazine(g_CurrentPlayer->hands[hand].weaponModel.obj, &info))
+    if (!gevrBeanMagHeld(hand) || !gevrGunMagazine(g_CurrentPlayer->hands[hand].weaponModel.obj, &info))
     {
         return 0;
     }
@@ -2656,6 +2695,12 @@ static Gfx *gevrBeanMagDrawAt(Gfx *gdl, ModelRenderData *templ, s32 hand, const 
     return gevrBeanMagDrawAs(gdl, templ, hand, info, pose, GEVR_BEAN_MAG_ITSELF);
 }
 
+/* GoldenEye's own magazine's placeholder: how solid, in the gun and (gevrBeanMagDrawBelt) at the belt */
+static u32 s_gevrMagGhostAlpha = 0x50;
+static Model s_gevrN64PropModel;
+static ModelNode *s_gevrN64PropRoot;
+static u32 s_gevrN64PropRw[64];
+
 /* ... as itself, or as its see-through placeholder (GEVR_BEAN_MAG_GHOST, _READY) */
 static Gfx *gevrBeanMagDrawAs(Gfx *gdl, ModelRenderData *templ, s32 hand, const struct gevrBeanMagInfo *info,
                               const Mtxf *pose, s32 as)
@@ -2665,12 +2710,84 @@ static Gfx *gevrBeanMagDrawAs(Gfx *gdl, ModelRenderData *templ, s32 hand, const 
     ModelRenderData rd = *templ;
     Model copy;
     Mtxf *matrices;
-    s32 i;
+    s32 i, own = FALSE;
 
     if (hdr == NULL || info->node == NULL || info->matrix < 0 || hdr->numMatrices <= info->matrix || hdr->numMatrices > 64
         || hdr->numRecords <= 0 || source->datas == NULL)
     {
         return gdl;
+    }
+    gevrGunMagazineOf(hdr, NULL, &own);
+    if (own && info->prop > 0)
+    {
+        /* GoldenEye's own prop (e.g. PROP_CHRROCKET on the original rocket launcher):
+         * draw the actual projectile model in the hand, at the belt, or as the muzzle guide */
+        extern struct ItemModelFileRecord *PitemZ_entries;
+        extern s32 g_GevrPropCount;
+        extern s32 modelLoad(s32 modelid);
+        ModelFileHeader *ph;
+        Mtxf offset, *pm;
+        s32 n;
+
+        if (PitemZ_entries == NULL || info->prop >= g_GevrPropCount)
+        {
+            return gdl;
+        }
+        ph = PitemZ_entries[info->prop].header;
+        if (ph != NULL && ph->RootNode == NULL)
+        {
+            modelLoad(info->prop);
+        }
+        if (ph == NULL || ph->RootNode == NULL || ph->numMatrices <= 0
+            || ph->numRecords > (s32) (sizeof(s_gevrN64PropRw) / sizeof(s_gevrN64PropRw[0])))
+        {
+            return gdl;
+        }
+        if (as == GEVR_BEAN_MAG_GHOST || as == GEVR_BEAN_MAG_GHOST_READY)
+        {
+            rd.flags = 3;
+            rd.PropType = GEVR_MODEL_RELOAD_GHOST;
+            rd.envcolour.word = (as == GEVR_BEAN_MAG_GHOST_READY ? GEVR_RELOAD_READY_TINT : GEVR_RELOAD_TINT) | s_gevrMagGhostAlpha;
+            rd.zbufferenabled = TRUE;
+            rd.cullmode = CULLMODE_NONE;
+        }
+        n = ph->numMatrices;
+        pm = (Mtxf *) dynAllocate(n * (s32) sizeof(Mtxf));
+        matrix_4x4_set_identity(&offset);
+        offset.m[3][0] = info->propAt[0];
+        offset.m[3][1] = info->propAt[1];
+        offset.m[3][2] = info->propAt[2];
+        matrix_4x4_multiply((Mtxf *) pose, &offset, &pm[0]);
+        for (i = 1; i < n; i++)
+        {
+            pm[i] = pm[0];
+        }
+        if (s_gevrN64PropModel.obj != ph || s_gevrN64PropRoot != ph->RootNode)
+        {
+            modelInit(&s_gevrN64PropModel, ph, s_gevrN64PropRw);
+            s_gevrN64PropRoot = ph->RootNode;
+        }
+        s_gevrN64PropModel.render_pos = (RenderPosView *) pm;
+        modelUpdateRelationsQuick(&s_gevrN64PropModel, ph->RootNode);
+        rd.gdl = gdl;
+        if (rd.PropType == GEVR_MODEL_RELOAD_GHOST)
+        {
+            gSPClearGeometryMode(rd.gdl++, G_CULL_BOTH);
+        }
+        subdraw(&rd, &s_gevrN64PropModel);
+        bondviewTransformManyPosToViewMatrix(s_gevrN64PropModel.render_pos, n);
+        return rd.gdl;
+    }
+    if (own && (as == GEVR_BEAN_MAG_GHOST || as == GEVR_BEAN_MAG_GHOST_READY))
+    {
+        /* GoldenEye's own magazine's placeholder: its own triangles in the guide's flat,
+         * see-through colour, as GoldenEye X's parts (gevrGexDrawPartGuide; model.c
+         * modelApplyReloadGhost). Bean's has lists made in the colours. */
+        rd.flags = 3;
+        rd.PropType = GEVR_MODEL_RELOAD_GHOST;
+        rd.envcolour.word = (as == GEVR_BEAN_MAG_GHOST_READY ? GEVR_RELOAD_READY_TINT : GEVR_RELOAD_TINT) | s_gevrMagGhostAlpha;
+        rd.zbufferenabled = TRUE;
+        rd.cullmode = CULLMODE_NONE;
     }
     copy = *source;
     copy.datas = dynAllocate(hdr->numRecords * sizeof(u32));
@@ -2684,6 +2801,10 @@ static Gfx *gevrBeanMagDrawAs(Gfx *gdl, ModelRenderData *templ, s32 hand, const 
     matrices[info->matrix] = *pose;
     copy.render_pos = (RenderPosView *) matrices;
     rd.gdl = gdl;
+    if (rd.PropType == GEVR_MODEL_RELOAD_GHOST)
+    {
+        gSPClearGeometryMode(rd.gdl++, G_CULL_BOTH);
+    }
     gSPSegment(rd.gdl++, 3, osVirtualToPhysical(copy.render_pos));
     gevrBeanSetMagazine(as);
     sub_GAME_7F074534(&rd, &copy, (ModelNode *) info->node);
@@ -2707,7 +2828,7 @@ Gfx *gevrBeanMagDrawBelt(Gfx *gdl, ModelRenderData *templ, s32 hand, const Mtxf 
 
     if ((hand != GUNRIGHT && hand != GUNLEFT) || !gevrHandReloadActive() || !gevrBeanMagHeld(hand)
         || !s_gevrBeanMagGunValid[hand]
-        || !gevrBeanGunMagazine(g_CurrentPlayer->hands[hand].weaponModel.obj, &info))
+        || !gevrGunMagazine(g_CurrentPlayer->hands[hand].weaponModel.obj, &info))
     {
         return gdl;
     }
@@ -2726,9 +2847,12 @@ Gfx *gevrBeanMagDrawBelt(Gfx *gdl, ModelRenderData *templ, s32 hand, const Mtxf 
     rd.PropType = PROP_TYPE_CHR + 1;
     rd.cullmode = CULLMODE_NONE;
     gSPClearGeometryMode(gdl++, G_CULL_BOTH);
-    return gevrBeanMagDrawAs(gdl, &rd, hand, &info, &pose,
-                             (tint & 0xFFFFFF00u) == GEVR_RELOAD_READY_TINT ? GEVR_BEAN_MAG_GHOST_READY
-                                                                            : GEVR_BEAN_MAG_GHOST);
+    s_gevrMagGhostAlpha = 0xA0;
+    gdl = gevrBeanMagDrawAs(gdl, &rd, hand, &info, &pose,
+                            (tint & 0xFFFFFF00u) == GEVR_RELOAD_READY_TINT ? GEVR_BEAN_MAG_GHOST_READY
+                                                                           : GEVR_BEAN_MAG_GHOST);
+    s_gevrMagGhostAlpha = 0x50;
+    return gdl;
 }
 
 /* gunfire.c, after the gun's own draw and before its matrices leave the view's
@@ -2747,7 +2871,7 @@ Gfx *gevrBeanMagDraw(Gfx *gdl, ModelRenderData *templ, GUNHAND hand)
     {
         return gdl;
     }
-    if (g_CurrentPlayer != NULL && !VrGexGuns && gevrBeanIsEnabled()
+    if (g_CurrentPlayer != NULL && !VrGexGuns
         && !(netIsActive() && get_cur_playernum() != netGetLocalSlot()))
     {
         const s32 loaded = g_CurrentPlayer->hand_item[hand];
@@ -2755,11 +2879,11 @@ Gfx *gevrBeanMagDraw(Gfx *gdl, ModelRenderData *templ, GUNHAND hand)
         if (loaded == getCurrentPlayerWeaponId(hand) && loaded >= 0 && loaded < ITEM_IDS_MAX
             && g_CurrentPlayer->hands[hand].weaponModel.obj != NULL)
         {
-            const s8 has = gevrBeanGunMagazine(g_CurrentPlayer->hands[hand].weaponModel.obj, NULL) ? 1 : -1;
+            const s8 has = gevrGunMagazine(g_CurrentPlayer->hands[hand].weaponModel.obj, NULL) ? 1 : -1;
 
             if (has != s_gevrBeanMagKnown[loaded])
             {
-                sysLogPrintf(LOG_NOTE, "stereo: bean magazine: item %d's model %s", loaded,
+                sysLogPrintf(LOG_NOTE, "stereo: magazine: item %d's model %s", loaded,
                              has > 0 ? "has one to take" : "has none: gestures run the game's reload");
                 s_gevrBeanMagKnown[loaded] = has;
             }
@@ -2777,7 +2901,7 @@ Gfx *gevrBeanMagDraw(Gfx *gdl, ModelRenderData *templ, GUNHAND hand)
     }
     model = &g_CurrentPlayer->hands[hand].weaponModel;
     rw = (Mtxf *) model->render_pos;
-    if (rw == NULL || !gevrBeanGunMagazine(model->obj, &info) || info.matrix < 0 || info.matrix >= model->obj->numMatrices)
+    if (rw == NULL || !gevrGunMagazine(model->obj, &info) || info.matrix < 0 || info.matrix >= model->obj->numMatrices)
     {
         return gdl;
     }
@@ -2810,7 +2934,7 @@ Gfx *gevrBeanMagDraw(Gfx *gdl, ModelRenderData *templ, GUNHAND hand)
     {
         gdl = gevrBeanMagDrawAt(gdl, templ, hand, &info, &pose);
     }
-    if (info.made && (state == GEVR_GEXMAG_IN || state == GEVR_GEXMAG_GRIPPED))
+    if (info.made && gevrManualReloadOn(hand) && (state == GEVR_GEXMAG_IN || state == GEVR_GEXMAG_GRIPPED))
     {
         /* a magazine the mesh has none of (the sniper rifle's): the gun's own list is without it,
          * so in the gun it is drawn here, under the gun's matrix */
@@ -3772,9 +3896,17 @@ s32 gevrStereoBatOffHand(s32 hand, f32 opos[3], f32 *amt);   /* bondview2.c: bot
  * butt as the grip position") moves the rifle up or down through the fist,
  * anywhere from the muzzle to the butt.
  */
+/* the rifle on the fist as Gun fit has it: GoldenEye X's rig, or Bean's rifle or
+ * GoldenEye's own in a PP7's hand (gevrBeanBatPose, below; goldeneye-vr.ini
+ * BeanBat, Bat) */
+float *gevrBatFit(void)
+{
+    return VrGexGuns ? gevrGexBatFit() : VrGexBatFit[gevrBeanIsEnabled() ? 5 : 6];
+}
+
 static f32 gevrGexBatHandle(void)
 {
-    f32 handle = GEVR_GEX_BAT_HANDLE - gevrGexBatFit()[1] / 0.085f;
+    f32 handle = GEVR_GEX_BAT_HANDLE - gevrBatFit()[1] / 0.085f;
 
     if (!(handle > 0.0f)) handle = 0.0f;   /* NaN too */
     if (handle > GEVR_GEX_BAT_LENGTH) handle = GEVR_GEX_BAT_LENGTH;
@@ -3931,6 +4063,131 @@ s32 gevrGexBatLine(s32 hand, f32 at[3], f32 dir[3], f32 *below, f32 *above)
     }
     *below = s_gevrGexBatLine[hand][6];
     *above = s_gevrGexBatLine[hand][7];
+    return TRUE;
+}
+
+/*
+ * Bean's sniper rifle as the bat (owner, 2026-11-21: "we can use the bean
+ * pistol grip hand for the right hand with bean sniper ... and then be able to
+ * grab it with our left off-hand too which would be the same gex logic and it
+ * switches to bat swing mode"). The release's rifle is one rigid mesh with no
+ * hand on it, so the hand is the PP7's glove, drawn where the hand holds a PP7
+ * (gunfire.c gevrBeanBatDrawHand), and the rifle is turned into it: its barrel
+ * down the pistol grip's line through the fist, the butt up out of the thumb
+ * side, the scope ahead. The numbers are the cartridge's models', which the
+ * release's are fitted to: the PP7's grip runs from 0 -63 18 up to 0 27 33
+ * (GwppkZ, the middle of the fingers at -25), the rifle's bore is at 0 53.25
+ * and its muzzle at 804, 1092 from the butt, as GoldenEye X's (GsniperrifleZ).
+ * The slide between two hands, the swing's end and the line the other hand
+ * takes are GoldenEye X's (gevrGexBatPose): one set of records for both.
+ *
+ * rifle: the rifle's gun matrix (bondview2.c gevrStereoGunMatrix's form: rows
+ * 0.85 cm, the model drawn a tenth of them), replaced. FALSE with no
+ * controller: the rifle stays as it was.
+ */
+#define GEVR_BEAN_BAT_BORE_Y 53.25f
+#define GEVR_BEAN_BAT_MUZZLE_Z 804.0f
+#define GEVR_BEAN_BAT_GRIP_Y 0.986f    /* up the PP7's grip, in its own up and forward */
+#define GEVR_BEAN_BAT_GRIP_Z 0.164f
+static const f32 s_gevrBeanBatPalm[3] = { 0.0f, -25.0f, 24.0f };
+static Mtxf s_gevrBeanBatHand[2];      /* the PP7's gun matrix the glove is drawn by */
+
+s32 gevrBeanBatPose(s32 hand, Mtxf *rifle)
+{
+    extern s32 gevrStereoGunMatrixFit(s32 handnum, const f32 off[3], Mtxf *out);   /* bondview2.c */
+    extern float VrBeanGunOff[3];
+    extern float VrGunOffX, VrGunOffY, VrGunOffZ;
+    /* the PP7's own fit in this model set: the hand is where it holds one */
+    const s32 look = gevrBeanIsEnabled() ? 2 : 0;
+    const f32 plain[3] = { VrGunOffX, VrGunOffY, VrGunOffZ };
+    const f32 *own = gevrGunOffOwnOf(look, ITEM_WPPK);
+    const f32 *fit = gevrBatFit();
+    f32 handle = gevrGexBatHandle();
+    Mtxf held;
+    f32 ex[3], up[3], fwd[3], ey[3], ez[3], palm[3], opos[3], row, unit, len, reach, amt;
+    s32 i;
+
+    if ((hand != GUNRIGHT && hand != GUNLEFT) || !gevrStereoGunMatrixFit(hand, own != NULL ? own : look == 2 ? VrBeanGunOff : plain, &held))
+    {
+        return FALSE;
+    }
+    row = sqrtf(held.m[2][0] * held.m[2][0] + held.m[2][1] * held.m[2][1] + held.m[2][2] * held.m[2][2]);
+    unit = row * 0.1f;   /* one model unit, drawn */
+    if (unit < 1e-9f)
+    {
+        return FALSE;
+    }
+    len = sqrtf(held.m[0][0] * held.m[0][0] + held.m[0][1] * held.m[0][1] + held.m[0][2] * held.m[0][2]);
+    for (i = 0; i < 3; i++)
+    {
+        ex[i] = len > 1e-9f ? held.m[0][i] / len : 0.0f;
+        fwd[i] = held.m[2][i] / row;
+    }
+    len = sqrtf(held.m[1][0] * held.m[1][0] + held.m[1][1] * held.m[1][1] + held.m[1][2] * held.m[1][2]);
+    for (i = 0; i < 3; i++)
+    {
+        up[i] = len > 1e-9f ? held.m[1][i] / len : 0.0f;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        ey[i] = GEVR_BEAN_BAT_GRIP_Y * up[i] + GEVR_BEAN_BAT_GRIP_Z * fwd[i];    /* the bat's way to the butt */
+        ez[i] = -GEVR_BEAN_BAT_GRIP_Z * up[i] + GEVR_BEAN_BAT_GRIP_Y * fwd[i];   /* the rifle's up: ahead of the fist */
+        palm[i] = held.m[3][i] + (s_gevrBeanBatPalm[0] * ex[i] + s_gevrBeanBatPalm[1] * up[i] + s_gevrBeanBatPalm[2] * fwd[i]) * unit;
+        /* the bat's fit across the fist, cm right and back, as GoldenEye X's */
+        palm[i] += (-fit[0] * ex[i] - fit[2] * ez[i]) * unit / 0.085f;
+    }
+    if (gevrStereoBatOffHand(hand, opos, &amt))
+    {
+        /* both hands: the rifle's end in the off hand, the gun hand where it is along it */
+        f32 at = GEVR_GEX_BAT_OFF + ((palm[0] - opos[0]) * ey[0] + (palm[1] - opos[1]) * ey[1]
+                                    + (palm[2] - opos[2]) * ey[2]) / unit;
+        const f32 top = handle > GEVR_GEX_BAT_OFF + GEVR_GEX_BAT_GAP ? handle : GEVR_GEX_BAT_OFF + GEVR_GEX_BAT_GAP;
+
+        if (!(at > GEVR_GEX_BAT_OFF + GEVR_GEX_BAT_GAP)) at = GEVR_GEX_BAT_OFF + GEVR_GEX_BAT_GAP;   /* NaN too */
+        if (at > top) at = top;
+        if (amt > 1.0f) amt = 1.0f;
+        handle += (at - handle) * amt;
+    }
+    s_gevrBeanBatHand[hand] = held;
+    for (i = 0; i < 3; i++)
+    {
+        rifle->m[0][i] = held.m[0][i];
+        rifle->m[1][i] = ez[i] * row;
+        rifle->m[2][i] = -ey[i] * row;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        /* the bore, the handle's length behind the muzzle, on the palm */
+        rifle->m[3][i] = palm[i] - 0.1f * (GEVR_BEAN_BAT_BORE_Y * rifle->m[1][i]
+                                           + (GEVR_BEAN_BAT_MUZZLE_Z - handle) * rifle->m[2][i]);
+    }
+    rifle->m[0][3] = rifle->m[1][3] = rifle->m[2][3] = 0.0f;
+    rifle->m[3][3] = 1.0f;
+    reach = GEVR_GEX_BAT_LENGTH - handle >= handle ? GEVR_GEX_BAT_LENGTH - handle : -handle;
+    for (i = 0; i < 3; i++)
+    {
+        s_gevrGexBatEnd[hand][i] = palm[i] + ey[i] * reach * unit;
+        s_gevrGexBatLine[hand][i] = palm[i];
+        s_gevrGexBatLine[hand][3 + i] = ey[i];
+        s_gevrGexBatLine[hand][9 + i] = ex[i];
+        s_gevrGexBatLine[hand][12 + i] = ez[i];
+    }
+    s_gevrGexBatLine[hand][6] = handle * unit;
+    s_gevrGexBatLine[hand][7] = (GEVR_GEX_BAT_LENGTH - handle) * unit;
+    s_gevrGexBatLine[hand][8] = unit;
+    s_gevrGexBatAt[hand] = g_GlobalTimer ? g_GlobalTimer : 1;
+    return TRUE;
+}
+
+/* gunfire.c: the gun matrix the bat's glove is drawn by, as the rifle was last posed */
+s32 gevrBeanBatHand(s32 hand, Mtxf *out)
+{
+    if ((hand != GUNRIGHT && hand != GUNLEFT) || s_gevrGexBatAt[hand] == 0 || VrGexGuns
+        || (u32) (g_GlobalTimer - s_gevrGexBatAt[hand]) > 4u)
+    {
+        return FALSE;
+    }
+    *out = s_gevrBeanBatHand[hand];
     return TRUE;
 }
 
@@ -4254,6 +4511,12 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
         gevrGexMtxPoint(&rwmtx[def->heldMatrix], def->heldTop, s_gevrGexHeldAt);
         s_gevrGexMagPointsGun = hand;
         s_gevrGexMagPointsValid = 1 | (offHolds ? 2 : 0);
+        s_gevrGexSaddleValid = def->singleRound
+            && (def->saddle[0] != 0.0f || def->saddle[1] != 0.0f || def->saddle[2] != 0.0f);
+        if (s_gevrGexSaddleValid)
+        {
+            gevrGexMtxPoint(&s_gevrGexLastGun[hand], def->saddle, s_gevrGexSaddleAt);
+        }
     }
     /*
      * A watch item in the headset (user: GE-X's watch laser rig): the tracked

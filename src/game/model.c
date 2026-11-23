@@ -7,6 +7,7 @@
 #ifdef GEVR
 #include "gevr_hand_reload.h"
 #include "gevr_bean.h"
+#include "gevr_n64mag.h"
 #include "vtxstore.h"
 #include "gevr_oddjobhat.h"
 #endif
@@ -4405,8 +4406,17 @@ void modelRenderNodeGundl(ModelRenderData* renderdata, Model* model, ModelNode* 
     /* Pose ordinary replacements once; transparent-only glass is handled below. */
     if (!hat && renderdata->unk18 == 0 && (renderdata->flags & 1))
         shownPrimary = (Gfx *)gevrBeanRenderGdl(arg1, rodata->Primary, model);
+    /* GoldenEye's own gun with its magazine out, or the magazine alone (gevr_n64mag.h): its
+     * lists with the triangles of the other struck out. Not a list Bean or the hat drew over. */
+    Gfx *shownSecondary = rodata->Secondary;
+    if (!hat && shownPrimary == rodata->Primary)
+    {
+        shownPrimary = (Gfx *)gevrN64MagGdl(arg1, shownPrimary, 0);
+        shownSecondary = (Gfx *)gevrN64MagGdl(arg1, shownSecondary, 1);
+    }
 #else
     Gfx *shownPrimary = rodata->Primary;
+    Gfx *shownSecondary = rodata->Secondary;
     s32 shownType = rodata->ModelType;
     s32 nodeType = shownType;
 #endif
@@ -4459,10 +4469,10 @@ void modelRenderNodeGundl(ModelRenderData* renderdata, Model* model, ModelNode* 
             gSPDisplayList(renderdata->gdl++, shownPrimary);
 #endif
 
-            if ((shownType == 3) && rodata->Secondary)
+            if ((shownType == 3) && shownSecondary)
             {
                 modelApplyRenderModeType3(renderdata, 0);
-                gSPDisplayList(renderdata->gdl++, rodata->Secondary);
+                gSPDisplayList(renderdata->gdl++, shownSecondary);
             }
         }
 
@@ -4478,7 +4488,7 @@ void modelRenderNodeGundl(ModelRenderData* renderdata, Model* model, ModelNode* 
         }
         else
 #endif
-        if ((renderdata->flags & 2) && shownPrimary && (shownType == 4) && rodata->Secondary)
+        if ((renderdata->flags & 2) && shownPrimary && (shownType == 4) && shownSecondary)
         {
             gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->BaseAddr));
 
@@ -4488,7 +4498,7 @@ void modelRenderNodeGundl(ModelRenderData* renderdata, Model* model, ModelNode* 
             }
 
             modelApplyRenderModeType4(renderdata, 0);
-            gSPDisplayList(renderdata->gdl++, rodata->Secondary);
+            gSPDisplayList(renderdata->gdl++, shownSecondary);
         }
     }
 }

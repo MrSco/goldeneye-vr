@@ -783,13 +783,14 @@ static struct ShaderProgram* s_curPrg;
 /* The staged ring's buffers (see s_stageRing), and where the kept passes'
  * ring draws are: the segment, and how much of it they use. */
 static GLuint s_stageVbo[GEVR_PM_SEGMENTS];
-static int s_eyeSeg = -1, s_scopeSeg = -1;
+static int s_eyeSeg = -1, s_scopeSeg = -1, s_replaySeg = -1;
 static GLsizeiptr s_eyeNeed, s_scopeNeed;
 static inline GLsizeiptr gevr_pm_base(void) { return s_stageRing ? (GLsizeiptr)s_pmSeg * s_pmSegSize : 0; }
 /* The buffer a replay's ring draws come from: the mapped ring itself, or a
  * staged segment, uploaded whole when it has grown past what was sent. */
 static GLuint gevr_ring_replay_vbo(int seg, GLsizeiptr need)
 {
+    s_replaySeg = seg;
     if (!s_stageRing || seg < 0 || seg >= GEVR_PM_SEGMENTS) return opengl_vbo;
     if (!s_stageVbo[seg]) glGenBuffers(1, &s_stageVbo[seg]);
     glBindBuffer(GL_ARRAY_BUFFER, s_stageVbo[seg]);
@@ -800,11 +801,17 @@ static GLuint gevr_ring_replay_vbo(int seg, GLsizeiptr need)
     }
     return s_stageVbo[seg];
 }
-/* After a replay from a staged segment: the ring's attributes back on fast3d's
- * own buffer (they follow the buffer bound when a program was loaded). */
+/* After a replay: fence the mapped ring segment just read so a later frame
+ * cannot overwrite it while the GPU is still drawing, and for a staged segment
+ * put the ring's attributes back on fast3d's own buffer. */
 static void gfx_opengl_vertex_array_set_attribs(struct ShaderProgram* prg);
 static void gevr_ring_replay_done(void)
 {
+    if (!s_stageRing && s_pmPtr != NULL && s_replaySeg >= 0 && s_replaySeg < GEVR_PM_SEGMENTS) {
+        if (s_pmFence[s_replaySeg]) glDeleteSync(s_pmFence[s_replaySeg]);
+        s_pmFence[s_replaySeg] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    }
+    s_replaySeg = -1;
     if (!s_stageRing) return;
     glBindVertexArray(opengl_vao);
     glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
@@ -823,7 +830,7 @@ static bool s_opaqueDepthWrite;
 uint8_t gevrFadeDepthAlpha = 255;
 // ... and for the in-between frame's redraw (issue #53, gfx_vr_eye_replay)
 static GLint s_curViewport[4], s_curScissor[4];
-static bool s_eyeRec, s_eyeReady;   // recording the eye pass / a frame to redraw
+static bool s_eyeRec, s_eyeReady, s_eyeSpilled, s_eyeClearDepth;   // recording the eye pass / a frame to redraw / spilled / pending depth clear
 
 /* The early tick's eye pass (gfx_pc.cpp): kept for the replay that draws it once its
  * XR frame has begun, not drawn (nothing may touch the eye image before then). */
@@ -837,6 +844,7 @@ static int s_eyeHand = -1;
 static bool s_eyePresent;
 static std::vector<struct ShaderProgram*> s_eyePresentationPrograms;
 static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode);
+static bool s_flatRec;   // a flat game's frame is being kept (gfx_flat_record)
 static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalDepth, float decalPull, bool lineMode);
 static void gevr_opaque_depth_after_blend(GLint first, GLsizei count);
 
@@ -1469,7 +1477,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     // Vertex shader
 
     vs_len += sprintf(vs_buf + vs_len, "#version %s\n", gl_glsl_version_str);
-    if (s_buildMesh && s_meshClipDistance) {
+    if (s_buildMesh && s_meshClipDistance && gl_es) {
         append_line(vs_buf, &vs_len, "#extension GL_EXT_clip_cull_distance : require");
     }
 
@@ -1518,6 +1526,11 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         // walls, a hole's rounded corners) and the rooms' own decals (Dam's
         // grates) vanished, or showed as slivers, on the PC, phones and Apple TV.
         append_line(vs_buf, &vs_len, "uniform vec2 uDecalBias;");
+        // A flat game's frames between game frames (gfx_flat_redraw_frame): as the
+        // two-view shader's uReproj
+        append_line(vs_buf, &vs_len, "uniform int uReproj;");
+        append_line(vs_buf, &vs_len, "uniform mat4 uReprojVP;");
+        append_line(vs_buf, &vs_len, "uniform vec2 uHeadP;");
     }
 
 
@@ -1692,6 +1705,9 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         // Only the VR prelude above wrote gl_Position, so without it every draw
         // was clipped away and the flat frame stayed black.
         append_line(vs_buf, &vs_len, "    gl_Position = aVtxPos;");
+        // back to the game frame's camera space (x / P00, y / P11, -w), through the
+        // camera's turn since, and the projection; not what is drawn on the screen (w = 1)
+        append_line(vs_buf, &vs_len, "    if (uReproj == 1 && aVtxPos.w != 1.0) gl_Position = uReprojVP * vec4(aVtxPos.x / uHeadP.x, aVtxPos.y / uHeadP.y, -aVtxPos.w, 1.0);");
         append_line(vs_buf, &vs_len, "    gl_Position.z += uDecalBias.x / max(gl_Position.w, max(uDecalBias.y, 0.0001));");
     }
 
@@ -2178,6 +2194,10 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
 
     } else {
         prg->decalBiasLocation = glGetUniformLocation(shader_program, "uDecalBias");   /* the flat band (#269) */
+        // a flat game's redraw (gfx_flat_redraw_frame)
+        prg->reprojLocation = glGetUniformLocation(shader_program, "uReproj");
+        prg->reprojVPLocation = glGetUniformLocation(shader_program, "uReprojVP");
+        prg->scopeHeadPLocation = glGetUniformLocation(shader_program, "uHeadP");
     }
 
     gfx_opengl_load_shader(prg);
@@ -2429,11 +2449,15 @@ static void gfx_opengl_set_depth_range(float znear, float zfar) {
 }
 
 static void gfx_opengl_set_viewport(int x, int y, int width, int height) {
+    if (width < 0) width = 0;
+    if (height < 0) height = 0;
     s_curViewport[0] = x; s_curViewport[1] = y; s_curViewport[2] = width; s_curViewport[3] = height;
     glViewport(x, y, width, height);
 }
 
 static void gfx_opengl_set_scissor(int x, int y, int width, int height) {
+    if (width < 0) width = 0;
+    if (height < 0) height = 0;
     s_curScissor[0] = x; s_curScissor[1] = y; s_curScissor[2] = width; s_curScissor[3] = height;
     glScissor(x, y, width, height);
 }
@@ -2948,11 +2972,12 @@ GLuint gfx_vr_scope_texture(int hand)
 }
 
 static void gevr_eye_present_draw(void) {
-    /* Presentation-only correction on fresh eye draws. Scope captures and
-     * controller-held geometry retain their original camera-relative poses. */
-    if (use_multiview && s_curPrg && s_curPrg->reprojLocation >= 0) {
+    /* Presentation-only correction on fresh eye and flat high-refresh draws.
+     * Scope captures and held/screen-locked gun geometry keep camera-relative poses. */
+    if ((use_multiview || s_flatRec) && s_curPrg && s_curPrg->reprojLocation >= 0) {
         static int s_uniPresentation = -1;
-        const bool present = s_eyePresent && s_eyeHand < 0 && !gForceFlatShaderForMenu && !gVrFlatPass;
+        const bool present = s_eyePresent && s_eyeHand < 0 && !gForceFlatShaderForMenu
+                          && (use_multiview ? !gVrFlatPass : current_framebuffer == 0);
         if (!s_uniCacheValid || s_uniPresentation != (int)present) {
             glUniform1i(s_curPrg->reprojLocation, present ? 1 : 0);
             if (present) {
@@ -2985,9 +3010,11 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
         GLsizeiptr off = gevr_pm_base() + (s_pmOff - gevr_pm_base() + stride - 1) / stride * stride;
         if (off + bytes > (GLsizeiptr)(s_pmSeg + 1) * s_pmSegSize) {
             static unsigned s_spills;
-            if (!(s_spills++ & (s_spills - 1)))   /* the 1st, 2nd, 4th... */
+            s_spills++;
+            if (!(s_spills & (s_spills - 1)))   /* the 1st, 2nd, 4th... */
                 sysLogPrintf(LOG_WARNING, "vertex-ring: a frame outgrew its %d MB segment (%u so far): "
-                             "its redraws may show stale vertices", (int)(s_pmSegSize >> 20), s_spills);
+                             "its redraws skipped to avoid stale vertices", (int)(s_pmSegSize >> 20), s_spills);
+            if (s_eyeRec) s_eyeSpilled = true;
             gevr_pm_next_segment();   /* a frame too big for one segment: take the next */
             off = gevr_pm_base() + (s_pmOff - gevr_pm_base() + stride - 1) / stride * stride;
         }
@@ -3381,6 +3408,7 @@ struct GevrEyeDraw {
     GLint scissor[4];
     uint32_t mesh;     // a static mesh's draw: 1 + its s_eyeMeshes entry; 0 the vertex ring
     uint8_t faded;     // 255 minus gevrFadeDepthAlpha: 0 a draw that does not fade
+    bool clearDepthBefore;   // G_CLEAR_DEPTH_EXT before this draw (flat viewmodels on their own depth)
 };
 
 static std::vector<GevrEyeDraw> s_eyeDraws;
@@ -3402,6 +3430,8 @@ void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* p
         s_eyeDraws.clear();
         s_eyeMeshes.clear();
         s_eyeReady = false;
+        s_eyeSpilled = false;
+        s_eyeClearDepth = false;
         s_eyeHand = -1;
         s_eyePresentationPrograms.clear();
         s_uniCacheValid = false;
@@ -3416,7 +3446,7 @@ void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* p
             if (s_eyePresent) gevr_eye_proj_times(presentation, s_eyePresentationVP);
         }
     } else {
-        s_eyeReady = s_eyeRec && !s_eyeDraws.empty();
+        s_eyeReady = s_eyeRec && !s_eyeSpilled && !s_eyeDraws.empty();
         static uint32_t records;
         if (++records >= 72) {
             if (VrShowStats || gevrFrameTimingTracing())
@@ -3438,12 +3468,56 @@ void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* p
 void gfx_vr_eye_hand(int ctrl)
 {
     gevr_mesh_settle();
-    s_eyeHand = (ctrl >= 0 && ctrl <= 2) ? ctrl : -1;
+    // 3: fixed to the screen (a flat game's gun, gunfire.c gevrHandTag): not moved at all
+    s_eyeHand = (ctrl >= 0 && ctrl <= 3) ? ctrl : -1;
 }
 
 bool gfx_vr_eye_replay_ready(void)
 {
     return s_eyeReady;
+}
+
+/*
+ * A flat game's frame, kept for the screen's refreshes between game frames (#274: a 144 or
+ * 180 Hz monitor over the 60 Hz game; gfx_pc.cpp gfx_flat_redraw_frame). The eye pass's
+ * record, for the one view the flat pass draws. proj: the game's projection. A target drawn
+ * upside down holds -y, which is the projection with its y row negated: the redraw's
+ * rebuilding (y / P11) and its projecting again then both come out that way up.
+ */
+void gfx_flat_record(bool on, const float* proj, bool invert_y, const float* presentation)
+{
+    gevr_mesh_settle();
+    if (on) {
+        s_eyeDraws.clear();
+        s_eyeMeshes.clear();
+        s_eyeReady = false;
+        s_eyeSpilled = false;
+        s_eyeClearDepth = false;
+        s_eyeHand = -1;
+        s_eyePresentationPrograms.clear();
+        s_uniCacheValid = false;
+        s_flatRec = s_eyeRec = proj != NULL && s_pmPtr != NULL && fabsf(proj[0]) > 1e-6f && fabsf(proj[5]) > 1e-6f;
+        s_eyePresent = s_eyeRec && presentation != NULL;
+        if (s_eyeRec) {
+            memcpy(s_eyeProj, proj, sizeof(s_eyeProj));
+            if (invert_y) {
+                for (int c = 0; c < 4; c++) s_eyeProj[c * 4 + 1] = -s_eyeProj[c * 4 + 1];
+            }
+            s_eyeHeadP[0] = s_eyeProj[0];
+            s_eyeHeadP[1] = s_eyeProj[5];
+            if (s_eyePresent) gevr_eye_proj_times(presentation, s_eyePresentationVP);
+        }
+    } else {
+        s_eyeReady = s_eyeRec && !s_eyeSpilled && !s_eyeDraws.empty();
+        s_eyeRec = s_flatRec = false;
+        s_eyePresent = false;
+        for (struct ShaderProgram* p : s_eyePresentationPrograms) {
+            glUseProgram(p->opengl_program_id);
+            glUniform1i(p->reprojLocation, 0);
+        }
+        if (s_curPrg) glUseProgram(s_curPrg->opengl_program_id);
+        s_uniCacheValid = false;
+    }
 }
 
 // gfx_pc.cpp: whether gfx_vr_eye_record would keep this pass (s_eyeRec's test)
@@ -3472,7 +3546,7 @@ void gfx_vr_eye_record_only(bool on)
  */
 static bool gevr_eye_draw_joins(const GevrEyeDraw& a, const GevrEyeDraw& b)
 {
-    if (a.lineMode || b.lineMode || a.first + a.count != b.first || a.prg != b.prg
+    if (a.lineMode || b.lineMode || b.clearDepthBefore || a.first + a.count != b.first || a.prg != b.prg
         || a.prg->opaque_depth_pass_location >= 0
         || a.decalZ || b.decalZ || a.decalDepth || b.decalDepth
         || a.gunDecal != b.gunDecal || a.decalPull != b.decalPull
@@ -3507,7 +3581,11 @@ static bool gevr_eye_draw_joins(const GevrEyeDraw& a, const GevrEyeDraw& b)
 static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode)
 {
     // not the HUD captures, which draw into their own targets
-    if (s_curPrg == NULL || gForceFlatShaderForMenu || gVrFlatPass) {
+    if (s_curPrg == NULL || gForceFlatShaderForMenu || (gVrFlatPass && !s_flatRec)) {
+        return;
+    }
+    // a flat game: only what goes to the screen itself, not a capture's own target
+    if (s_flatRec && current_framebuffer != 0) {
         return;
     }
     if (!s_eyeKeepMesh) {
@@ -3537,6 +3615,8 @@ static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode)
     memcpy(d.scissor, s_curScissor, sizeof(d.scissor));
     d.mesh = s_eyeKeepMesh;
     d.faded = (uint8_t)(255 - gevrFadeDepthAlpha);
+    d.clearDepthBefore = s_eyeClearDepth;
+    s_eyeClearDepth = false;
     ++s_eyeKept;
     if (!s_eyeDraws.empty() && gevr_eye_draw_joins(s_eyeDraws.back(), d)) {
         GevrEyeDraw& prev = s_eyeDraws.back();
@@ -3714,6 +3794,17 @@ static void gevr_replay_mesh(GevrReplayBindings& state, const ShaderProgram* prg
     }
 }
 
+static void gevr_replay_clear_depth(void)
+{
+    const GLboolean scissorWasOn = glIsEnabled(GL_SCISSOR_TEST);
+    glDisable(GL_SCISSOR_TEST);
+    glDepthMask(GL_TRUE);
+    glStencilMask(0xff);
+    glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    glDepthMask(current_depth_mask ? GL_TRUE : GL_FALSE);
+    if (scissorWasOn) glEnable(GL_SCISSOR_TEST);
+}
+
 void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand1, const float* body)
 {
     gevr_mesh_settle();
@@ -3793,7 +3884,13 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
             replayFilter[0] = replayFilter[1] = -1;
         }
         if (d.hand != lastMove) {
-            if (d.prg->reprojVPLocation >= 0) glUniformMatrix4fv(d.prg->reprojVPLocation, 1, GL_FALSE, Ms[d.hand + 1]);
+            if (d.hand == 3) {
+                // fixed to the screen (a flat game's gun): as the game frame drew it
+                if (d.prg->reprojLocation >= 0) glUniform1i(d.prg->reprojLocation, 0);
+            } else {
+                if (lastMove == 3 && d.prg->reprojLocation >= 0) glUniform1i(d.prg->reprojLocation, 1);
+                if (d.prg->reprojVPLocation >= 0) glUniformMatrix4fv(d.prg->reprojVPLocation, 1, GL_FALSE, Ms[d.hand + 1]);
+            }
             lastMove = d.hand;
         }
         if ((int)d.isMenu != lastMenu) {
@@ -3833,6 +3930,7 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
         }
         s_issueGunDecal = d.gunDecal;
         gevrFadeDepthAlpha = (uint8_t)(255 - d.faded);
+        if (d.clearDepthBefore) gevr_replay_clear_depth();
         gevr_issue_draw(d.first, d.count, d.decalZ, d.decalDepth, d.decalPull, d.lineMode);
         last = &d;
     }
@@ -4372,20 +4470,23 @@ struct GevrMeshGpu {
 
 /*
  * The headset's two views, or a flat game's one (Apple TV, iPhone, iPad, an
- * Android phone: GLES 3 too). The mesh variants have the single view's
- * gl_Position = aVtxPos as every flat program does. Without them a flat game
- * walked every Bean room, prop and body on the CPU: an Apple TV HD spent 61%
- * of its time in gfx_sp_vertex and gfx_sp_tri1 and ran Dam at 15 fps
- * (2026-11-20); the PC's desktop GL keeps the CPU path.
+ * Android phone: GLES 3, and desktop GL 3.0+ with GLSL 330 on PC). The mesh
+ * variants have the single view's gl_Position = aVtxPos as every flat program
+ * does. Without them a flat game walked every Bean room, prop and body on the
+ * CPU: an Apple TV HD spent 61% of its time in gfx_sp_vertex and gfx_sp_tri1
+ * and ran Dam at 15 fps (2026-11-20), and desktop PC Bean + CE Dam spent ~10 ms
+ * per game frame on the CPU and overflowed a 16 MB vertex ring segment at 144 Hz.
  */
 static bool gevr_mesh_supported(void)
 {
 #ifdef GEVR_FLAT
-    const bool views = true;
+    const bool glOk = (gl_es && GLVersion.major >= 3) ||
+                      (!gl_es && GLVersion.major >= 3 && gl_glsl_version >= 330 &&
+                       glUniformBlockBinding != NULL && glBindBufferBase != NULL && glUniform2uiv != NULL);
+    return glOk && opengl_vao != 0 && !s_meshBroken;
 #else
-    const bool views = use_multiview;
+    return use_multiview && gl_es && GLVersion.major >= 3 && opengl_vao != 0 && !s_meshBroken;
 #endif
-    return views && gl_es && GLVersion.major >= 3 && opengl_vao != 0 && !s_meshBroken;
 }
 
 static GevrMeshGpu* gevr_mesh_gpu(void** slot, const void* vertices, uint32_t num_vertices,
@@ -4840,6 +4941,7 @@ static void gfx_opengl_init(void) {
     GEVR_GL_FILL(glCopyBufferSubData, PFNGLCOPYBUFFERSUBDATAPROC);
     GEVR_GL_FILL(glDrawArraysInstanced, PFNGLDRAWARRAYSINSTANCEDPROC);
     GEVR_GL_FILL(glDrawElementsInstanced, PFNGLDRAWELEMENTSINSTANCEDPROC);
+    GEVR_GL_FILL(glUniform2uiv, PFNGLUNIFORM2UIVPROC);
 #undef GEVR_GL_FILL
 
     // check if we're using ES or core, which have more limited feature sets
@@ -4859,7 +4961,9 @@ static void gfx_opengl_init(void) {
     s_skinPaletteUploaded = false;
     s_meshDrawUniforms.clear();
     s_meshClipDistance = false;
-    if (gl_es && glGetStringi && GLVersion.major >= 3) {
+    if (!gl_es && GLVersion.major >= 3) {
+        s_meshClipDistance = true;
+    } else if (gl_es && glGetStringi && GLVersion.major >= 3) {
         GLint n = 0;
         glGetIntegerv(GL_NUM_EXTENSIONS, &n);
         for (GLint i = 0; i < n && !s_meshClipDistance; i++) {
@@ -4867,8 +4971,6 @@ static void gfx_opengl_init(void) {
             s_meshClipDistance = ext && strcmp(ext, "GL_EXT_clip_cull_distance") == 0;
         }
     }
-    sysLogPrintf(LOG_NOTE, "GL: static meshes %s", (!gl_es || GLVersion.major < 3) ? "off (not GLES 3)"
-                 : s_meshClipDistance ? "on (far reject: clip distance)" : "on (far reject: no depth clamp)");
     sysLogPrintf(LOG_NOTE, "GL: depth clamp: %s (EXT %d, NV %d, es %d)", GLAD_GL_ARB_depth_clamp ? "yes" : "no (z *= 0.3 hack)",
                  GLAD_GL_EXT_depth_clamp, GLAD_GL_NV_depth_clamp, gl_es ? 1 : 0);
 
@@ -4996,7 +5098,7 @@ static void gfx_opengl_init(void) {
             bufferStorage = ringOk ? (PFN_BufferStorageEXT)SDL_GL_GetProcAddress("glBufferStorage") : NULL;
         }
         const GLbitfield flags = GL_MAP_WRITE_BIT | 0x0040 /* PERSISTENT */ | 0x0080 /* COHERENT */;
-        const GLsizeiptr segment = 16 << 20;
+        const GLsizeiptr segment = (GLsizeiptr)(!gl_es ? 48 : 16) << 20;
         if (ringOk && bufferStorage != NULL && glMapBufferRange != NULL && glFenceSync != NULL) {
             while (glGetError() != GL_NO_ERROR) {}
             bufferStorage(GL_ARRAY_BUFFER, segment * GEVR_PM_SEGMENTS, NULL, flags);
@@ -5023,17 +5125,31 @@ static void gfx_opengl_init(void) {
             if (s_stageRing) s_pmSegSize = segment;
         }
 #endif
-        sysLogPrintf(LOG_NOTE, "GL: persistent vertex buffer %s", s_stageRing ? "staged (3 x 16 MB in memory, a segment a replay)"
-                     : s_pmPtr ? "on (3 x 16 MB)" : "off (glBufferData per draw)");
+        if (s_stageRing) {
+            sysLogPrintf(LOG_NOTE, "GL: persistent vertex buffer staged (3 x %d MB in memory, a segment a replay)",
+                         (int)(s_pmSegSize >> 20));
+        } else if (s_pmPtr) {
+            sysLogPrintf(LOG_NOTE, "GL: persistent vertex buffer on (3 x %d MB)", (int)(s_pmSegSize >> 20));
+        } else {
+            sysLogPrintf(LOG_NOTE, "GL: persistent vertex buffer off (glBufferData per draw)");
+        }
     }
 
     if (gl_core_profile || gl_es) {
         // warn the user that odd behavior can occur
         sysLogPrintf(LOG_WARNING, "GL: using core profile or ES, watch out for errors");
-        // core/ES will fail badly if we don't use a VAO for our VBO
+    }
+    if (gl_core_profile || gl_es
+#ifdef GEVR_FLAT
+        || (GLVersion.major >= 3 && glGenVertexArrays != NULL)
+#endif
+    ) {
+        // core/ES and static meshes need a VAO for fast3d's vertex ring
         glGenVertexArrays(1, &opengl_vao);
         glBindVertexArray(opengl_vao);
     }
+    sysLogPrintf(LOG_NOTE, "GL: static meshes %s", !gevr_mesh_supported() ? "off"
+                 : s_meshClipDistance ? "on (far reject: clip distance)" : "on (far reject: no depth clamp)");
 
     if (GLAD_GL_ARB_depth_clamp) {
         glEnable(GL_DEPTH_CLAMP);
@@ -5068,6 +5184,7 @@ static void gfx_opengl_on_resize(void) {
 
 static void gfx_opengl_start_frame(void) {
     gevr_mesh_settle();
+    if (opengl_vao) glBindVertexArray(opengl_vao);
     frame_count++;
     gevr_decal_switch_poll();
     gevr_zdebug_poll();
@@ -5688,8 +5805,12 @@ GLuint gfx_opengl_get_vr_menu_texture_P(void) {
 
 void gfx_opengl_clear_framebuffer(bool clear_color, bool clear_depth) {
     gevr_mesh_settle();
+    if (clear_depth && !clear_color && s_eyeRec && !gForceFlatShaderForMenu &&
+        (!gVrFlatPass || s_flatRec) && (!s_flatRec || current_framebuffer == 0)) {
+        s_eyeClearDepth = true;
+    }
     if (gevr_eye_draw_deferred()) {
-        return;   // the eye image is not this pass's yet; the replay keeps no clears
+        return;   // the eye image is not this pass's yet; the replay runs kept depth clears
     }
     /* The scissor test goes back as it was found: a depth clear in mid-list
      * (G_CLEAR_DEPTH_EXT, a viewmodel on its own depth) that left it on

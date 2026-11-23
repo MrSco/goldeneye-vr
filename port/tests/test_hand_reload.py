@@ -55,6 +55,7 @@ for name in ("GEVR_RELOAD_SADDLE_CM", "GEVR_RELOAD_SADDLE_SHOW_CM", "GEVR_UNITS_
         definitions.append(match.group())
 definitions.extend(re.findall(r"^#define GEVR_CHOP_[^\n]+", view, re.M))
 definitions.extend(re.findall(r"^#define GEVR_TASER_[^\n]+", view, re.M))
+definitions.extend(re.findall(r"^#define gevrReloadModelsOn\(\)[^\n]+", view, re.M))
 definitions.extend(re.findall(r"^#define gevrHandReloadEnabled\(\)[^\n]+", view, re.M))
 definitions.append("#define GEVR_ITEM_AS(item) (item)  /* bondconstants.h: GoldenEye's own behaviour */")
 for name in ("s_gevrClubButt", "s_gevrChopSwing", "s_gevrBeltMeleeTaken", "s_gevrThrowWindup"):

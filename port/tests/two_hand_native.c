@@ -58,6 +58,10 @@ static int get_cur_playernum(void) { return playerSlot; }
 static int netGetLocalSlot(void) { return localSlot; }
 static int gexHeld[2];   /* the hand's gun is GoldenEye X's (gun.c) */
 static int gevrGexHeld(int hand) { return gexHeld[hand]; }
+static int beanOn;   /* Bean's models are drawn (gevr_bean.c) */
+int gevrBeanIsEnabled(void) { return beanOn; }
+static int ownArt;   /* gevr_romlayout.h: the ROM's art is GoldenEye's own, not a hack's */
+static int gevrRomRetailArt(void) { return ownArt; }
 static int gevrGexPistolSupportAllowed(void) { return 1; }
 static int gevrGexPistolPoint(int support, float out[3]) { (void)support; (void)out; return 0; }
 static int gevrGexForePoint(float out[3]) { memcpy(out,gexFore,sizeof(gexFore)); return gexForeValid; }
@@ -265,6 +269,38 @@ static void testClubBat(void)
     setup(GUNRIGHT, 0, ITEM_FIST);
     tick();
     assert(!gevrStereoClubBat(GUNRIGHT));   /* GoldenEye's own arms: the butt-first club */
+    /* Bean's rifle is the bat too, in the PP7's glove (owner, 2026-11-21); not under GoldenEye X's guns */
+    beanOn = 1;
+    assert(gevrStereoClubBatGlove(GUNRIGHT) && gevrStereoClubBat(GUNRIGHT) && !gevrStereoClubBat(GUNLEFT));
+    VrGexGuns = 1;
+    assert(!gevrStereoClubBatGlove(GUNRIGHT) && !gevrStereoClubBat(GUNRIGHT));   /* its own rig is not in the hand */
+    VrGexGuns = 0; beanOn = 0;
+    assert(!gevrStereoClubBat(GUNRIGHT));   /* a ROM hack's own rifle: the cartridge's butt-first club */
+    /* GoldenEye's own rifle is the bat too, in its own PP7's hand (owner, 2026-11-22) */
+    ownArt = 1;
+    assert(gevrStereoClubBatGlove(GUNRIGHT) && gevrStereoClubBat(GUNRIGHT) && !gevrStereoClubBat(GUNLEFT));
+    {
+        /* its off hand is the watch arm: the rifle is taken, and its end held, at that arm's
+         * palm, not at the controller's grip behind it (owner, 2026-11-22: "gripping the
+         * barrel at my wrist"). The palm 10 cm toward the fingers of a wrist 6 cm behind the
+         * grip is 4 cm ahead of the grip. Not until the arm has been drawn and measured. */
+        float grip[3], gr[3], gu[3], gb[3], palm[3], along = 0, off2 = 0;
+        const float unit = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+        VrGunOffZ = 0;
+        s_gevrWatchPalmKnown = 0;
+        assert(!gevrBatOffPalm(GUNRIGHT, palm));
+        s_gevrWatchPalmKnown = 1;
+        s_gevrWatchPalmCm[0] = 10; s_gevrWatchPalmCm[1] = s_gevrWatchPalmCm[2] = 0;
+        assert(gevrGripAxes(GUNRIGHT, grip, gr, gu, gb) && gevrBatOffPalm(GUNRIGHT, palm));
+        for (int i = 0; i < 3; i++) along += (palm[i] - grip[i]) * -gb[i];
+        for (int i = 0; i < 3; i++) off2 += (palm[i] - grip[i] + along * gb[i]) * (palm[i] - grip[i] + along * gb[i]);
+        assert(fabsf(along / unit - 4.0f) < 0.01f && off2 < 1e-6f);
+        VrGexGuns = 1;
+        assert(!gevrBatOffPalm(GUNRIGHT, palm));   /* GoldenEye X's left hand has its palm on the grip */
+        VrGexGuns = 0;
+        s_gevrWatchPalmKnown = 0;
+    }
+    ownArt = 0;
     VrGexGuns = 1; gexHeld[GUNRIGHT] = 1;
     assert(gevrStereoClubBat(GUNRIGHT) && !gevrStereoClubBat(GUNLEFT));
     /* the other hand 20 cm down the barrel from the gun hand's fist (user: anywhere

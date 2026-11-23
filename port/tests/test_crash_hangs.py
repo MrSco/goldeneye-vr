@@ -77,11 +77,16 @@ def main():
     briefing = briefing.replace("/* INSERT_LEVEL */", function(
         "src/game/front.c", "static s32 gevrBriefingLevel(void)"))
 
+    blood = (ROOT / "port/tests/blood_stain_native.c").read_text(encoding="utf-8")
+    blood = blood.replace("/* INSERT_BLOOD_STAIN */", function(
+        "src/game/chr.c", "static void chrPaintBloodStainVertices("))
+
     with tempfile.TemporaryDirectory(prefix="gevr-crash-hangs-") as temp:
         directory = Path(temp)
         build(directory, "coop-menu", menu)
         build(directory, "music-wait", music)
         build(directory, "briefing-level", briefing)
+        build(directory, "blood-stain", blood)
     print("crash hang regressions passed")
 
 

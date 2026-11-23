@@ -52,8 +52,8 @@ using GLint = int;
 struct ShaderProgram { int opengl_program_id, reprojLocation=1, reprojVPLocation=2, scopeHeadPLocation=3; };
 static ShaderProgram program{1}, secondProgram{2}, *s_curPrg = &program;
 static bool use_multiview = true, gForceFlatShaderForMenu, gVrFlatPass, s_uniCacheValid;
-static bool s_eyePresent, s_eyeRec, s_eyeReady;
-static int s_eyeHand=-1, boundProgram=1;
+static bool s_eyePresent, s_eyeRec, s_flatRec, s_eyeReady, s_eyeSpilled, s_eyeClearDepth;
+static int s_eyeHand=-1, boundProgram=1, current_framebuffer=0;
 static float s_eyeProj[16], s_eyeHeadP[2], s_eyePresentationVP[16];
 static std::vector<ShaderProgram*> s_eyePresentationPrograms;
 static std::vector<int> s_eyeDraws;
@@ -318,7 +318,8 @@ static void matricesAndUniforms() {
     s_uniCacheValid=true; gfx_vr_eye_hand(0); gevr_eye_present_draw(); assert(reprojection[1]==0);
     gfx_vr_eye_hand(-1); gevr_eye_present_draw(); assert(reprojection[1]==1);
     gfx_vr_eye_hand(2); gevr_eye_present_draw(); assert(reprojection[1]==0);   // the body: no locomotion
-    gfx_vr_eye_hand(3); gevr_eye_present_draw(); assert(reprojection[1]==1);   // unknown: the world
+    gfx_vr_eye_hand(3); gevr_eye_present_draw(); assert(reprojection[1]==0);   // fixed to the screen (a flat game's gun)
+    gfx_vr_eye_hand(4); gevr_eye_present_draw(); assert(reprojection[1]==1);   // unknown: the world
     gfx_vr_eye_hand(-1); gevr_eye_present_draw(); assert(reprojection[1]==1);
     gForceFlatShaderForMenu=true; gevr_eye_present_draw(); assert(reprojection[1]==0);
     gForceFlatShaderForMenu=false; gVrFlatPass=true; gevr_eye_present_draw(); assert(reprojection[1]==0);

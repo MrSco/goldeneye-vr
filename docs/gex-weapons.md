@@ -116,7 +116,8 @@ fields (KF7 13, -23, -27; PP7 8, -19, -26).
   default; also the in-game panel's VR settings, from the next weapon drawn). On
   the screen it fires and reloads with GE-X's animations; its hands are
   the hand model on the gun's skeleton, as PD draws them.
-- In the headset there is no reload animation (hand reload): the off hand
+- In the headset there is no reload animation (hand reload; Bean's and
+  GoldenEye's own guns reload the same way: project-bean.md, hand-reload-original.md): the off hand
   pulls the magazine (or B/Y drops it; it falls), takes one at the belt
   and pushes it into the well. A magazine keeps its rounds while out;
   dropped, they go back to the reserve; one from the belt is full. Either
@@ -125,7 +126,10 @@ fields (KF7 13, -23, -27; PP7 8, -19, -26).
   where the magazine is and the next step: EMPTY (red), MAG OUT / INSERT
   MAGAZINE (blue), MAG IN while the off hand holds it and for a second
   after one seats (green); none while loaded (gun.c gevrGexDrawReloadLabel).
-  The single-round guns (shotguns, launchers, Cougar, Golden Gun) show their
+  The shotguns' shells are taken from the shells the model carries (the top of
+  the shotgun's receiver, the automatic shotgun's side saddle: `GexWeaponDef.saddle`,
+  bondview2.c gevrReloadSaddle), where a ring marks them, so the belt and its
+  holster are left alone. The other single-round guns (launchers, Cougar, Golden Gun) show their
   payload at the belt as the magazine guns do their magazine, while the gun
   has room and the reserve has rounds: the held shell, rocket or round (the
   Cougar's speedloader with what a grip takes), turned as it sits in the gun

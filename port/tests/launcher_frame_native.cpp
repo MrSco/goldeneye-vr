@@ -128,30 +128,33 @@ static int sweep(const char *state) {
     const GevrSettingsApi api = gevrSettingsLive();
     int pages = 0;
     for (int tab = 0; tab < GEVR_LTAB_COUNT; tab++) {
+        if (!gevrLauncherTabVisible(tab)) continue;
         const int subs = gevrLauncherSubCount(tab);
-        for (int sub = subs ? 0 : -1; sub < (subs ? subs : 0); sub++) {
+        const int count = subs > 0 ? subs : 1;
+        for (int si = 0; si < count; si++) {
+            const int sub = subs > 0 ? gevrLauncherSubId(tab, si) : -1;
             launcherTabs.open(tab, sub);
             frame(); frame(); frame();
             check(launcherTabs.top == tab && (sub < 0 || launcherTabs.sub[tab] == sub), "each tab and sub-tab opens");
-            check(startBottom <= 960 - 4 || tab == GEVR_LTAB_MULTIPLAYER, "START stays on the canvas");
+            check(startBottom <= 960 - 4 || tab == GEVR_LTAB_ONLINE, "START stays on the canvas");
             check(hintBottom <= 960 - 4, "the hint line stays on the canvas");
-            if (tab == GEVR_LTAB_MULTIPLAYER && (sub == GEVR_LSUB_HOST || sub == GEVR_LSUB_AUDIO)) {
+            if (tab == GEVR_LTAB_ONLINE && (sub == GEVR_LSUB_HOST || sub == GEVR_LSUB_AUDIO)) {
                 char what[160];
-                std::snprintf(what, sizeof(what), "%s: Multiplayer > %s fits its body (content %.0f, body %.0f)", state,
-                              gevrLauncherSubName(tab, sub), mpBottom, mpLimit);
+                std::snprintf(what, sizeof(what), "%s: Online > %s fits its body (content %.0f, body %.0f)", state,
+                              gevrLauncherSubNameById(tab, sub), mpBottom, mpLimit);
                 check(mpBottom <= mpLimit && mpRight <= mpLimitX + 1, what);
-                check(mpButtons <= 960 - 4, "Multiplayer's buttons stay on the canvas");
+                check(mpButtons <= 960 - 4, "Online's buttons stay on the canvas");
                 settingsFitControls(api, sub == GEVR_LSUB_HOST ? GEVR_LSEC_MP_FUN : GEVR_LSEC_MP_AUDIO, GEVR_SET_LAUNCHER,
                               1280 - ImGui::GetStyle().WindowPadding.x * 2, state);
                 pages++;
                 continue;
             }
-            if (tab == GEVR_LTAB_MULTIPLAYER || (tab == GEVR_LTAB_CONTROLS && sub == GEVR_LSUB_HAPTICS) || tab == GEVR_LTAB_MODS)
+            if (tab == GEVR_LTAB_ONLINE || (tab == GEVR_LTAB_CONTROLS && sub == GEVR_LSUB_HAPTICS) || tab == GEVR_LTAB_MODS)
                 continue;   // their own pages (launcher_compact, the haptics box, test_launcher_mods)
             pages++;
             char what[160];
             std::snprintf(what, sizeof(what), "%s: %s%s%s fits without scrolling (content %.0f, page %.0f)", state, gevrLauncherTabName(tab),
-                          sub >= 0 ? " > " : "", sub >= 0 ? gevrLauncherSubName(tab, sub) : "", pageBottom, pageLimit);
+                          sub >= 0 ? " > " : "", sub >= 0 ? gevrLauncherSubNameById(tab, sub) : "", pageBottom, pageLimit);
             check(pageTab == tab && pageSub == sub, "the page drawn is the tab's");
             // nor scrolls inside (v0.5.4 put the rules in a scrolling child that fit the page)
             for (ImGuiWindow *w : ImGui::GetCurrentContext()->Windows)
@@ -162,14 +165,19 @@ static int sweep(const char *state) {
                 }
             check(pageBottom <= pageLimit, what);
             std::snprintf(what, sizeof(what), "%s: %s%s%s fits the width", state, gevrLauncherTabName(tab), sub >= 0 ? " > " : "",
-                          sub >= 0 ? gevrLauncherSubName(tab, sub) : "");
+                          sub >= 0 ? gevrLauncherSubNameById(tab, sub) : "");
             check(pageRight <= pageLimitX + 1, what);
             // the table's labels fit their column (gevrSettingsSection's split)
-            static const int lsec[GEVR_LTAB_COUNT][4] = {
-                { GEVR_LSEC_PLAY }, { -1 }, { -1 }, { GEVR_LSEC_HANDS, GEVR_LSEC_GESTURES, GEVR_LSEC_THROWING, -1 },
-                { GEVR_LSEC_COMFORT }, { GEVR_LSEC_SCREEN }, { GEVR_LSEC_RULES, GEVR_LSEC_ALLY, GEVR_LSEC_CHEATS }, { -1 } };
-            const int section = lsec[tab][sub < 0 ? 0 : sub];
-            if (section >= 0 && section != GEVR_LSEC_CHEATS) settingsFitControls(api, section, GEVR_SET_LAUNCHER, pageWidth, state);
+            int section = -1;
+            if (tab == GEVR_LTAB_PLAY && sub == GEVR_LSUB_PLAY_MAIN) section = GEVR_LSEC_PLAY;
+            else if (tab == GEVR_LTAB_CONTROLS && sub == GEVR_LSUB_HANDS) section = GEVR_LSEC_HANDS;
+            else if (tab == GEVR_LTAB_CONTROLS && sub == GEVR_LSUB_GESTURES) section = GEVR_LSEC_GESTURES;
+            else if (tab == GEVR_LTAB_CONTROLS && sub == GEVR_LSUB_THROWING) section = GEVR_LSEC_THROWING;
+            else if (tab == GEVR_LTAB_CONTROLS && sub == GEVR_LSUB_LOOK) section = GEVR_LSEC_LOOK;
+            else if (tab == GEVR_LTAB_COMFORT_DISPLAY) section = GEVR_LSEC_COMFORT_DISPLAY;
+            else if (tab == GEVR_LTAB_GAME && sub == GEVR_LSUB_GAME_RULES) section = GEVR_LSEC_RULES;
+            else if (tab == GEVR_LTAB_GAME && sub == GEVR_LSUB_ALLY) section = GEVR_LSEC_ALLY;
+            if (section >= 0) settingsFitControls(api, section, GEVR_SET_LAUNCHER, pageWidth, state);
         }
     }
     return pages;

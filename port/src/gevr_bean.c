@@ -342,6 +342,12 @@ void gevrBeanSetMagazine(int state)
 	s_magazine = state;
 }
 
+/* GoldenEye's own guns' magazines follow the same state (gevr_n64mag.c) */
+int gevrBeanMagazineState(void)
+{
+	return s_magazine;
+}
+
 int gevrBeanGunMagazine(const void *header, struct gevrBeanMagInfo *out)
 {
 	for (int i = 0; header && i < s_nswap; i++)
@@ -1078,6 +1084,11 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 		}
 	}
     if (!mesh->roomMaterial) gSPClearGeometryMode(g++, G_FOG);
+    /* nor lighting past a lit list: what GoldenEye draws next without setting its own (the
+     * bullet holes after the last room's props, bg.c) read its vertex colours as normals and
+     * came out lit, white for dark, by whichever Bean model the view drew last (owner,
+     * 2026-11-22: "go from white to black if I just move my head slightly") */
+    if (lit) gSPClearGeometryMode(g++, G_LIGHTING);
     /* no FACES/BACKS cull past a level's list */
     if (sided) gSPClearGeometryMode(g++, G_CULL_BOTH);
     if (coreOn) {

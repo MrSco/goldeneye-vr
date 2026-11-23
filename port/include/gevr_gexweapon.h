@@ -84,6 +84,9 @@ typedef struct GexWeaponDef {
     f32 holdFrame, screenOffset[3];
     f32 magCentre[3], magTop[3], heldTop[3];
     f32 magWell[3]; /* insertion entrance in installed-magazine coordinates, not its seated top */
+    /* a shotgun's own shells (its saddle), in the gun joint's coordinates: the free hand takes
+     * a shell there, not at the belt (bondview2.c gevrReloadSaddle). All 0: it carries none */
+    f32 saddle[3];
     /* Rigid transform from held mesh coordinates to installed mesh coordinates. */
     f32 heldToMag[4][4];
     f32 muzzle[3];
@@ -142,7 +145,7 @@ float *gevrGexItemSizeFit(s32 item);
  * fist (cm right, up, back), and the gun hand on it - the rifle's own (rifle) until
  * Gun fit moves it; gevrGexBatHandOwn makes it the bat's own and returns its place,
  * the turn following (VrGexBatFit[1], [2]). */
-extern float VrGexBatFit[5][3];
+extern float VrGexBatFit[7][3];   /* [5], [6]: Bean's rifle, GoldenEye's own on the fist (gun.c gevrBatFit) */
 float *gevrGexBatFit(void);
 const float *gevrGexBatHandFit(s32 rifle);
 const float *gevrGexBatHandRotFit(s32 rifle);

@@ -68,6 +68,7 @@ std::string pcServiceString(const char *method);
 void pcServiceCommand(const char *method, const char *arg);
 bool pcOpenPicker(const char *method);
 void pcRestartSelf(void);
+void pcQuitApp(void);
 extern "C" int sysArgCheck(const char *arg);   // port/src/system.c
 #endif
 #ifdef GEVR_FLAT
@@ -136,6 +137,9 @@ extern int player_handicap[];
 #include "net_discovery.h"
 #include "net_ice.h"
 #include "juice/juice.h"
+#ifdef GEVR_FLAT
+#include "gevr_keybinds_ui.h"
+#endif
 bool vr_begin_eye_render();           // vr_openxr.cpp
 void vr_end_eye_render();
 
@@ -380,13 +384,57 @@ extern "C" void gevrRestartToLauncher(void)
     env->DeleteLocalRef(cls);
     env->DeleteLocalRef(activity);
 }
+
+extern "C" void gevrLobbySessionStopped(void);
+extern "C" void gevrQuitApp(void)
+{
+    vrSettingsFlush();
+    if (netIsActive()) gevrLobbySessionStopped();
+    if (!gevrAndroidJava) {
+        vr_log("launcher: quitting app");
+        exit(0);
+    }
+    JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
+    jobject activity = (jobject)SDL_AndroidGetActivity();
+    if (env == nullptr || activity == nullptr) {
+        vr_log("launcher: quit fallback exit");
+        exit(0);
+    }
+    jclass cls = env->GetObjectClass(activity);
+    jmethodID m = env->GetMethodID(cls, "quitApp", "()V");
+    if (m != nullptr) {
+        vr_log("launcher: quitting app");
+        env->CallVoidMethod(activity, m);
+    }
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+    env->DeleteLocalRef(cls);
+    env->DeleteLocalRef(activity);
+    if (m == nullptr) exit(0);
+}
 #else
 extern "C" void vrSettingsFlush(void);   // vr_settings.cpp: a save on its writer thread
+extern "C" void gevrLobbySessionStopped(void);
+#ifdef GEVR_PCVR
+extern "C" void vr_shutdown(void);
+#endif
 extern "C" void gevrRestartToLauncher(void)
 {
     vrSettingsFlush();   // the new run reads the settings file
     vr_log("launcher: restarting into the launcher");
     pcRestartSelf();
+}
+
+extern "C" void gevrQuitApp(void)
+{
+    vrSettingsFlush();
+    if (netIsActive()) gevrLobbySessionStopped();
+    vr_log("launcher: quitting app");
+#ifdef GEVR_PCVR
+    vr_shutdown();
+#endif
+    pcQuitApp();
 }
 #endif
 
@@ -1757,30 +1805,27 @@ static void gevrSendLoadout() {
     netLobbySetLoadout(items);
 }
 
-// This player's character: the one combo for the host, a joiner and a connected client.
-static void characterRow(const char *label, const char *id) {
-    ImGui::TextUnformatted(label);
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
-    if (namedCombo(id, netCharacterCount(), netCharacterName, &VrMpChr, true)) {
-        vrSettingsSave();
-        if (netIsActive())
-            netLobbySetCharacter((uint8_t)VrMpChr);
-    }
-    netSetPreferredCharacter((uint8_t)VrMpChr);
-}
-
 // This player's four spawn guns, for a match with loadouts on.
 static void loadoutRows(const char *idprefix) {
-    ImGui::TextUnformatted("Your loadout, when the host turns loadouts on:");
+    ImGui::Spacing();
+    gevrSectionHeader(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "LOADOUT (WHEN HOST ENABLES LOADOUTS)");
     bool changed = false;
-    for (int i = 0; i < 4; i++) {
-        char id[32];
-        snprintf(id, sizeof(id), "##%sloadout%d", idprefix, i);
-        ImGui::Text("Gun %d:", i + 1);
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
-        changed |= gunCombo(id, &VrMpLoadout[i]);
+    const float avail = ImGui::GetContentRegionAvail().x;
+    const float labelW = ImGui::CalcTextSize("Gun 4").x + ImGui::GetStyle().CellPadding.x * 2.0f + 12.0f;
+    const float ctrlW = std::min(ImGui::GetFontSize() * 14.0f, std::max(120.0f, avail - labelW - 16.0f));
+    if (ImGui::BeginTable("##loadout-rows", 2, ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthFixed, labelW);
+        ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthFixed, ctrlW + 8.0f);
+        for (int i = 0; i < 4; i++) {
+            char label[16], id[32];
+            snprintf(label, sizeof(label), "Gun %d", i + 1);
+            snprintf(id, sizeof(id), "##%sloadout%d", idprefix, i);
+            gevrSettingRow(label, ctrlW, [&](float w) {
+                ImGui::SetNextItemWidth(w);
+                changed |= gunCombo(id, &VrMpLoadout[i]);
+            });
+        }
+        ImGui::EndTable();
     }
     if (changed) {
         vrSettingsSave();
@@ -1789,23 +1834,20 @@ static void loadoutRows(const char *idprefix) {
     }
 }
 
-// A row of favorite toggles over a bitmask: the shuffle and the playlist draw from them.
+// A wrapping grid of favorite toggles over a bitmask: measures the left pane's
+// available width so checkboxes never spill past the pane into Friends.
 template <typename Mask>
-static bool favoriteRow(const char *label, int count, const char *(*name)(int), Mask *mask, int perRow) {
-    bool changed = false;
-    ImGui::TextUnformatted(label);
-    for (int i = 0; i < count && i < (int)(8 * sizeof(Mask)); i++) {
-        bool on = ((*mask >> i) & 1u) != 0;
-        if (i % perRow != 0)
-            ImGui::SameLine();
-        char id[48];
-        snprintf(id, sizeof(id), "%s##%s%d", name(i), label, i);
-        if (ImGui::Checkbox(id, &on)) {
-            *mask = on ? (*mask | (Mask(1) << i)) : (*mask & ~(Mask(1) << i));
-            changed = true;
-        }
-    }
-    return changed;
+static bool favoriteRow(const char *label, int count, const char *(*name)(int), Mask *mask, int maxCols) {
+    ImGui::TextColored(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "%s", label);
+    const int n = count < (int)(8 * sizeof(Mask)) ? count : (int)(8 * sizeof(Mask));
+    char gridId[64];
+    snprintf(gridId, sizeof(gridId), "##favgrid_%s", label);
+    return gevrCheckGrid(
+        gridId, n,
+        [&](int i) { return name(i); },
+        [&](int i) { return ((*mask >> i) & 1u) != 0; },
+        [&](int i, bool on) { *mask = on ? (*mask | (Mask(1) << i)) : (*mask & ~(Mask(1) << i)); },
+        maxCols);
 }
 
 // The host's match options: a section of the Host tab, before and while hosting.
@@ -1814,38 +1856,46 @@ static void gevrMatchOptions(bool favorites = false) {
     bool changed = false;
     if (!favorites && ImGui::BeginTable("match-columns", 2, ImGuiTableFlags_SizingStretchSame)) {
         ImGui::TableNextColumn();
-        ImGui::TextColored(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "MATCH SETUP");
-        ImGui::Text("Scenario:");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-        changed |= namedCombo("##scenario", netScenarioCount(), netScenarioName, &VrMpScenario);
-        if (VrMpScenario == SCENARIO_YOLT) {
-            ImGui::TextDisabled("Length: last one standing");
-        } else {
-            ImGui::Text("Length:");
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-            // The Living Daylights takes the time limits only, as the game's own menu has it
-            changed |= namedCombo("##length", VrMpScenario == SCENARIO_TLD ? 4 : 7, netGameLengthName, &VrMpLength);
+        gevrSectionHeader(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "MATCH SETUP");
+        {
+            const float colW = ImGui::GetContentRegionAvail().x;
+            const float labelW = std::max(ImGui::CalcTextSize("Next round").x + ImGui::GetStyle().CellPadding.x * 2.0f + 8.0f,
+                                          colW * 0.34f);
+            const float ctrlW = std::max(80.0f, colW - labelW - ImGui::GetStyle().CellPadding.x * 2.0f);
+            if (ImGui::BeginTable("##match-setup-rows", 2, ImGuiTableFlags_SizingFixedFit)) {
+                ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthFixed, labelW);
+                ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthFixed, ctrlW);
+                gevrSettingRow("Scenario", ctrlW, [&](float w) {
+                    ImGui::SetNextItemWidth(w);
+                    changed |= namedCombo("##scenario", netScenarioCount(), netScenarioName, &VrMpScenario);
+                });
+                gevrSettingRow("Length", ctrlW, [&](float w) {
+                    if (VrMpScenario == SCENARIO_YOLT) {
+                        ImGui::AlignTextToFramePadding();
+                        ImGui::TextDisabled("Last one standing");
+                    } else {
+                        ImGui::SetNextItemWidth(w);
+                        changed |= namedCombo("##length", VrMpScenario == SCENARIO_TLD ? 4 : 7, netGameLengthName, &VrMpLength);
+                    }
+                });
+                gevrSettingRow("Health", ctrlW, [&](float w) {
+                    ImGui::SetNextItemWidth(w);
+                    changed |= namedCombo("##health", netHealthCount(), netHealthName, &VrMpHealth);
+                });
+                gevrSettingRow("Dual wield", ctrlW, [&](float w) {
+                    ImGui::SetNextItemWidth(w);
+                    changed |= namedCombo("##dual", 3, netDualWieldName, &VrMpDual);
+                }, VrMpDual == NET_DUAL_DOUBLES ? "a second copy of your gun makes a pair"
+                 : VrMpDual == NET_DUAL_ANY     ? "hold X for the left hand's panel" : nullptr);
+                gevrSettingRow("Next round", ctrlW, [&](float w) {
+                    ImGui::SetNextItemWidth(w);
+                    changed |= namedCombo("##nextround", 3, netNextRoundName, &VrMpNextRound);
+                }, VrMpNextRound == NET_NEXT_SHUFFLE  ? "a random favorite map and set"
+                 : VrMpNextRound == NET_NEXT_PLAYLIST ? "your favorites in order"
+                                                      : "the players vote in the pause menu");
+                ImGui::EndTable();
+            }
         }
-        ImGui::Text("Health:");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-        changed |= namedCombo("##health", netHealthCount(), netHealthName, &VrMpHealth);
-        ImGui::Text("Dual wield:");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-        changed |= namedCombo("##dual", 3, netDualWieldName, &VrMpDual);
-        if (ImGui::IsItemHovered()) gevrTooltip("%s", VrMpDual == NET_DUAL_DOUBLES ? "a second copy of your gun makes a pair"
-                            : VrMpDual == NET_DUAL_ANY   ? "hold X for the left hand's panel"
-                                                         : "");
-        ImGui::Text("Next round:");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-        changed |= namedCombo("##nextround", 3, netNextRoundName, &VrMpNextRound);
-        if (ImGui::IsItemHovered()) gevrTooltip("%s", VrMpNextRound == NET_NEXT_SHUFFLE    ? "a random favorite map and set"
-                                  : VrMpNextRound == NET_NEXT_PLAYLIST ? "your favorites in order"
-                                                                       : "the players vote in the pause menu");
         ImGui::Spacing();
         bool loadouts = VrMpLoadouts != 0;
         if (ImGui::Checkbox("Use player loadouts", &loadouts)) {
@@ -1854,7 +1904,7 @@ static void gevrMatchOptions(bool favorites = false) {
         }
         if (ImGui::IsItemHovered()) gevrTooltip("Players spawn with their own four selected guns.");
         ImGui::TableNextColumn();
-        ImGui::TextColored(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "BOTS AND LIVE SETTINGS");
+        gevrSectionHeader(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "BOTS AND LIVE SETTINGS");
         // Bots: player slots the host runs (gevr_bot.c); they change between rounds only
         if (VrMpMode == NET_MODE_DEATHMATCH) {
             ImGui::BeginDisabled(netIsActive() && !gevrNetBotRowsEditable());
@@ -1885,8 +1935,9 @@ static void gevrMatchOptions(bool favorites = false) {
     }
 
     if (favorites) {
-        changed |= favoriteRow("Favorite maps:", netStageCount(), netStageName, &VrMpFavStages, 6);
-        changed |= favoriteRow("Favorite sets:", netWeaponSetCount(), netWeaponSetName, &VrMpFavSets, 5);
+        changed |= favoriteRow("FAVORITE MAPS", netStageCount(), netStageName, &VrMpFavStages, 6);
+        ImGui::Spacing();
+        changed |= favoriteRow("FAVORITE WEAPON SETS", netWeaponSetCount(), netWeaponSetName, &VrMpFavSets, 5);
     }
 
     if (changed)
@@ -2374,14 +2425,14 @@ void gevrMultiplayerTick(GevrLauncherTabs &tabs, bool &startMatch, bool romReady
             clientJoinId.clear();
             onlineMessage = "Joining your friend's game...";
             gevrJavaCommand("lobbyCommand", ("join|" + code + "|" + std::to_string(GEVR_NET_VERSION) + gevrInputClassField()).c_str());
-            tabs.open(GEVR_LTAB_MULTIPLAYER, GEVR_LSUB_JOIN);
+            tabs.open(GEVR_LTAB_ONLINE, GEVR_LSUB_JOIN);
         }
     }
     if (gevrFriendsTakeHostRequest() && !netIsActive() && clientJoinId.empty()) {
         // a lobby hosted to invite friends into is private unless friends-only was chosen
         s_hostVisibility = VrMpVisibility == 0 ? "private" : nullptr;
         gevrMpStartHosting();
-        tabs.open(GEVR_LTAB_MULTIPLAYER, GEVR_LSUB_HOST);
+        tabs.open(GEVR_LTAB_ONLINE, GEVR_LSUB_HOST);
     }
     char iceSdp[JUICE_MAX_SDP_STRING_LEN];
     if (!clientJoinId.empty() && netIceTakeDescription(clientJoinId.c_str(), iceSdp, sizeof(iceSdp)))
@@ -2479,23 +2530,40 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
     auto &lastListMs = s_mp.lastListMs;
     auto &lastHeartbeatMs = s_mp.lastHeartbeatMs;
     auto playerOptions = [&]() {
-        ImGui::TextUnformatted("Your name:");
-        ImGui::SameLine();
-        ImGui::BeginDisabled(netIsActive());
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16);
-        ImGui::InputText("##playername", VrPlayerName, sizeof(VrPlayerName), ImGuiInputTextFlags_CallbackCharFilter,
-                         nameCharFilter);
-        if (ImGui::IsItemDeactivatedAfterEdit()) {
-            size_t n = strlen(VrPlayerName);
-            while (n > 0 && VrPlayerName[n - 1] == ' ')
-                VrPlayerName[--n] = '\0';
-            if (VrPlayerName[0] == ' ')
-                memmove(VrPlayerName, VrPlayerName + strspn(VrPlayerName, " "), n + 1);
-            vrEnsurePlayerName();
-            vrSettingsSave();
+        const float avail = ImGui::GetContentRegionAvail().x;
+        const float labelW = std::max(ImGui::CalcTextSize("Your name").x, ImGui::CalcTextSize("Character").x)
+                             + ImGui::GetStyle().CellPadding.x * 2.0f + 12.0f;
+        const float ctrlW = std::min(ImGui::GetFontSize() * 16.0f, std::max(120.0f, avail - labelW - 16.0f));
+        if (ImGui::BeginTable("##player-rows", 2, ImGuiTableFlags_SizingFixedFit)) {
+            ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthFixed, labelW);
+            ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthFixed, ctrlW + 8.0f);
+            gevrSettingRow("Your name", ctrlW, [&](float w) {
+                ImGui::BeginDisabled(netIsActive());
+                ImGui::SetNextItemWidth(w);
+                ImGui::InputText("##playername", VrPlayerName, sizeof(VrPlayerName),
+                                 ImGuiInputTextFlags_CallbackCharFilter, nameCharFilter);
+                if (ImGui::IsItemDeactivatedAfterEdit()) {
+                    size_t n = strlen(VrPlayerName);
+                    while (n > 0 && VrPlayerName[n - 1] == ' ')
+                        VrPlayerName[--n] = '\0';
+                    if (VrPlayerName[0] == ' ')
+                        memmove(VrPlayerName, VrPlayerName + strspn(VrPlayerName, " "), n + 1);
+                    vrEnsurePlayerName();
+                    vrSettingsSave();
+                }
+                ImGui::EndDisabled();
+            });
+            gevrSettingRow("Character", ctrlW, [&](float w) {
+                ImGui::SetNextItemWidth(w);
+                if (namedCombo("##mpcharacter", netCharacterCount(), netCharacterName, &VrMpChr, true)) {
+                    vrSettingsSave();
+                    if (netIsActive())
+                        netLobbySetCharacter((uint8_t)VrMpChr);
+                }
+                netSetPreferredCharacter((uint8_t)VrMpChr);
+            });
+            ImGui::EndTable();
         }
-        ImGui::EndDisabled();
-        characterRow("Character:", "##mpcharacter");
         loadoutRows("mpplayer");
         gevrTeamChoiceRow("##playerteam");
     };
@@ -2573,7 +2641,7 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                             vrSettingsSave();
                         }
                         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                            gevrTooltip("One companion for the party, from the next mission or Horde retry. Weapon, aggression and durability: Rules > AI ally.");
+                            gevrTooltip("One companion for the party, from the next mission or Horde retry. Weapon, aggression and durability: Game > AI ally.");
                         ImGui::EndDisabled();
                         ImGui::TableNextColumn();
                         ImGui::TextColored(gold, "LIVE SETTINGS");
@@ -3606,16 +3674,29 @@ extern "C" void gevrLauncherRun(void)
                 snprintf(build, sizeof(build), "Build %s", gevrBuildId);
             }
             const float w = ImGui::CalcTextSize(build).x;
-            const float buttonW = ImGui::CalcTextSize("Send debug log").x + ImGui::GetStyle().FramePadding.x * 2;
+            const float padX = ImGui::GetStyle().FramePadding.x * 2.0f;
+            const float debugW = ImGui::CalcTextSize("Send debug log").x + padX;
+            const float quitW = ImGui::CalcTextSize("Quit").x + padX;
+            const float gapX = ImGui::GetStyle().ItemSpacing.x;
             const float right = ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x;
+            const float btnY = headerY + ImGui::GetTextLineHeight() + ImGui::GetStyle().ItemSpacing.y;
             ImGui::SetCursorPos(ImVec2(right - w, headerY));
             ImGui::TextDisabled("%s", build);
-            ImGui::SetCursorPos(ImVec2(right - buttonW,
-                headerY + ImGui::GetTextLineHeight() + ImGui::GetStyle().ItemSpacing.y));
+            ImGui::SetCursorPos(ImVec2(right - quitW - gapX - debugW, btnY));
             if (gevrLauncherDebugButton(launcherSession)) {
                 reportPage = true;
                 reportCrash = false;
             }
+            ImGui::SetCursorPos(ImVec2(right - quitW, btnY));
+            ImGui::PushStyleColor(ImGuiCol_Text, bad);
+            if (ImGui::SmallButton("Quit")) {
+                ImGui::OpenPopup("Quit GoldenEye VR?");
+            }
+            ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered()) gevrTooltip("Exit GoldenEye VR.");
+        }
+        if (gevrConfirmModal("Quit GoldenEye VR?", "Quit GoldenEye VR and close the app?", "Quit") == 1) {
+            gevrQuitApp();
         }
         const float iconBottom = headerY + headerH + ImGui::GetStyle().ItemSpacing.y;
         if (ImGui::GetCursorPosY() < iconBottom) ImGui::SetCursorPosY(iconBottom);
@@ -3817,7 +3898,7 @@ extern "C" void gevrLauncherRun(void)
             ImGui::PopStyleColor();
         };
         gevrLauncherTabRows(launcherTabs, [&](int tab, int sub) {
-            if (tab == GEVR_LTAB_MULTIPLAYER) {
+            if (tab == GEVR_LTAB_ONLINE) {
                 // Online play: GoldenEye's every mode, a hack campaign's co-op (gevrCampaignCoop).
                 // A join compares the campaign and its ROM (net_core.c NET_CONTENT_*), so both
                 // sides load the same game.
@@ -3827,6 +3908,11 @@ extern "C" void gevrLauncherRun(void)
             gevrLauncherBeginPage("launcher-page", footerH);
             switch (tab) {
             case GEVR_LTAB_PLAY: {
+                if (sub == GEVR_LSUB_PLAY_GHOSTS) {
+                    // the ghost boards and which run each mission races (vr_ghosts.cpp, docs/speedrun.md)
+                    gevrGhostsPage(gold, good, bad);
+                    break;
+                }
                 gevrSettingsSection(settings, GEVR_LSEC_PLAY, GEVR_SET_LAUNCHER);
                 // LiveSplit (port/src/gevr_livesplit.c, docs/speedrun.md): the mission clock
                 // to the TCP server of LiveSplit on the runner's PC
@@ -3868,9 +3954,11 @@ extern "C" void gevrLauncherRun(void)
                     gevrUpdaterCommand(tests ? "testbuilds:1" : "testbuilds:0");
                 }
                 if (ImGui::IsItemHovered()) gevrTooltip("Pre-release builds show up as updates too.");
+                ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x * 2.0f);
+#else
+                ImGui::Spacing();
 #endif
                 // #269 #10: the settings table's rows, every tab's, back to their defaults
-                ImGui::Spacing();
                 if (ImGui::Button("Reset all settings")) ImGui::OpenPopup("Reset all settings?");
                 if (ImGui::IsItemHovered())
                     gevrTooltip("Every setting in these tabs back to its default. Saves, the ROM, packs, "
@@ -3889,16 +3977,28 @@ extern "C" void gevrLauncherRun(void)
                 break;
             }
             case GEVR_LTAB_CONTROLS:
-                if (sub < 0) {   // a flat game: one page, the pad's and the touch screen's rows
+#ifdef GEVR_FLAT
+                {
+                    static GevrKeybindUiState s_kbUi;
+                    const GevrKeybindApi kbApi = gevrKeybindLive();
+                    if (sub == GEVR_LSUB_KBM) {
+                        gevrDrawKbmPage(kbApi, s_kbUi, VrCampaign);
+                    } else if (sub == GEVR_LSUB_GAMEPAD) {
+                        gevrDrawGamepadPage(kbApi, s_kbUi, VrCampaign);
+                    } else {
+                        gevrKeybindCancelCapture(kbApi, s_kbUi);
 #ifdef GEVR_TVOS
-                    note("Siri Remote: click the ring's edge (a 1st generation remote: the touch surface's "
-                         "edge) to move between items (hold to keep going), click the centre to choose, Back "
-                         "to go back; right past the last item for Friends. In the game: the edges walk and "
-                         "strafe, the centre fires, Play/Pause changes gun (hold it to pause), Back opens "
-                         "doors. A game pad works too, and takes player 1 from the remote.");
+                        note("Siri Remote: click the ring's edge (a 1st generation remote: the touch surface's "
+                             "edge) to move between items (hold to keep going), click the centre to choose, Back "
+                             "to go back; right past the last item for Friends. In the game: the edges walk and "
+                             "strafe, the centre fires, Play/Pause changes gun (hold it to pause), Back opens "
+                             "doors. A game pad works too, and takes player 1 from the remote.");
 #endif
-                    gevrSettingsSection(settings, GEVR_LSEC_HANDS, GEVR_SET_LAUNCHER);
-                } else if (sub == GEVR_LSUB_HANDS) {
+                        gevrSettingsSection(settings, GEVR_LSEC_LOOK, GEVR_SET_LAUNCHER);
+                    }
+                }
+#else
+                if (sub == GEVR_LSUB_HANDS) {
                     gevrSettingsSection(settings, GEVR_LSEC_HANDS, GEVR_SET_LAUNCHER);
                     note("Gun fit: in the next level, with a gun in hand, the sticks move the gun on your hand; "
                          "A saves, B undoes. In single player, Menu + A starts and ends it during play.");
@@ -3910,28 +4010,30 @@ extern "C" void gevrLauncherRun(void)
                     note("Hold Grip on grenades, knives and mines, swing your arm and let go to throw. "
                          "Grip + Trigger cooks a grenade.");
                     gevrSettingsSection(settings, GEVR_LSEC_THROWING, GEVR_SET_LAUNCHER);
+                } else if (sub == GEVR_LSUB_LOOK) {
+                    gevrSettingsSection(settings, GEVR_LSEC_LOOK, GEVR_SET_LAUNCHER);
                 } else {
                     gevrHapticsPage(gold, good, bad);
                 }
+#endif
                 break;
-            case GEVR_LTAB_COMFORT:
-                gevrSettingsSection(settings, GEVR_LSEC_COMFORT, GEVR_SET_LAUNCHER);
-                break;
-            case GEVR_LTAB_SCREEN:
-                note("Both grips grab the screen; the right stick sets its distance and size. "
-                     "Hold the left stick click to recentre it.");
-                gevrSettingsSection(settings, GEVR_LSEC_SCREEN, GEVR_SET_LAUNCHER);
+            case GEVR_LTAB_COMFORT_DISPLAY:
+                if ((gevrLauncherContext() & GEVR_CTX_VR) != 0) {
+                    note("Both grips grab the screen; the right stick sets its distance and size. "
+                         "Hold the left stick click to recentre it.");
+                }
+                gevrSettingsSection(settings, GEVR_LSEC_COMFORT_DISPLAY, GEVR_SET_LAUNCHER);
                 // XBLA / Bean's frames take longer than 120 Hz's 8.3 ms when turning
                 // in open levels (Dam on Quest 3: 197 missed frames in three
                 // minutes of turning at 120 Hz, 17 at 90).
-                if (gevrBeanIsEnabled() && VrRefreshRate > 90 && !vr_spacewarp_setting_on()) {
+                if ((gevrLauncherContext() & GEVR_CTX_VR) != 0 && gevrBeanIsEnabled() && VrRefreshRate > 90 && !vr_spacewarp_setting_on()) {
                     ImGui::PushStyleColor(ImGuiCol_Text, bad);
                     ImGui::TextWrapped("Bean can stutter at 120 Hz while turning in open levels: "
                                        "90 Hz, or SpaceWarp, holds nearly every frame.");
                     ImGui::PopStyleColor();
                 }
                 break;
-            case GEVR_LTAB_RULES:
+            case GEVR_LTAB_GAME:
                 if (sub == GEVR_LSUB_GAME_RULES) {
                     // Game rules GEVR PC changed (vr450.2, its CORPSEKEEP); off keeps the original game's rule
                     note("Off keeps the original rules. Mines are solo; with ragdolls on, bodies stay in every mode. "
@@ -3956,18 +4058,19 @@ extern "C" void gevrLauncherRun(void)
                     gevrCheatsPage(settings, gold);
                 }
                 break;
-            case GEVR_LTAB_GHOSTS:
-                // the ghost boards and which run each mission races (vr_ghosts.cpp, docs/speedrun.md)
-                gevrGhostsPage(gold, good, bad);
-                break;
             case GEVR_LTAB_MODS:
                 gevrModsPage(now, gold, good, bad);
                 break;
             }
             ImGui::EndChild();
         });
-        if (launcherTabs.top != GEVR_LTAB_MULTIPLAYER) footerTop = ImGui::GetCursorPosY();
-        if (launcherTabs.top != GEVR_LTAB_MULTIPLAYER) {
+#ifdef GEVR_FLAT
+        if (launcherTabs.top != GEVR_LTAB_CONTROLS) {
+            inputSetBindingCapture(0);
+        }
+#endif
+        if (launcherTabs.top != GEVR_LTAB_ONLINE) footerTop = ImGui::GetCursorPosY();
+        if (launcherTabs.top != GEVR_LTAB_ONLINE) {
         ImGui::Separator();
         // Update line: only when there is something to say, so an
         // up-to-date launcher looks as it always has.

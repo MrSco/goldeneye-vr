@@ -3629,21 +3629,74 @@ s32 gevrStereoHandClub(s32 hand)
  * rifle turns about the hand, barrel through the fist and butt up (gun.c
  * gevrGexBatPose); the other hand takes it below the fist and stays its own
  * hand (gevrTwoHandBarrel, gevrTwoHandAim). Held so, the off hand keeps the
- * rifle's end and the gun hand slides along it (user, test.30). Other art
- * sets keep GoldenEye's butt-first pose: their hand is part of the rifle's model.
+ * rifle's end and the gun hand slides along it (user, test.30). Bean's rifle
+ * is the bat too (owner, 2026-11-21), held in the PP7's glove: one rigid mesh
+ * turned as a whole (gun.c gevrBeanBatPose). So is GoldenEye's own, in its own
+ * PP7's hand (owner, 2026-11-22: "we need this to work for original sniper
+ * melee bat too"). A ROM hack's own rifle keeps the cartridge's butt-first pose.
  */
 s32 gevrGexBatEnd(s32 hand, f32 out[3]);   /* gun.c: the bat's butt as drawn */
+
+/* Bean's rifle or GoldenEye's own is the bat, in a PP7's hand: GoldenEye X's guns are off */
+s32 gevrStereoClubBatGlove(s32 hand)
+{
+    extern int VrGexGuns;   /* vr_settings_defaults.c */
+    extern int gevrBeanIsEnabled(void);
+
+    return g_gevrStereo && !VrGexGuns && (gevrBeanIsEnabled() || gevrRomRetailArt()) && gevrStereoHandClub(hand);
+}
 
 s32 gevrStereoClubBat(s32 hand)
 {
     extern int VrGexGuns;   /* vr_settings_defaults.c */
 
-    return g_gevrStereo && VrGexGuns && gevrStereoHandClub(hand) && gevrGexHeld(hand);
+    return g_gevrStereo && gevrStereoHandClub(hand)
+        && (VrGexGuns ? gevrGexHeld(hand) : gevrStereoClubBatGlove(hand));
+}
+
+/*
+ * The off hand on the glove-held bat is the watch arm, whose hand lies well
+ * ahead of its controller's grip, so the rifle's end held at the grip sat at
+ * the wrist (owner, 2026-11-22, headset: "the off hand grip at bottom seems to
+ * be gripping the barrel at my wrist instead of off-hand. we should be doing it
+ * like gex sniper"). Its place is the palm as the arm is drawn
+ * (gevrWatchArmDraw: the wrist frame on the controller, the hand's centre
+ * measured from the model). FALSE with GoldenEye X's hands, whose palm is on
+ * the grip, and until the arm has been drawn once.
+ */
+static s32 gevrBatOffPalm(s32 gun, f32 out[3])
+{
+    const f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f * gevrGunSizeFactor();
+    f32 pos[3], r[3], u[3], b[3], x[3], y[3], z[3];
+    s32 i;
+
+    if (!gevrStereoClubBatGlove(gun) || !s_gevrWatchPalmKnown || !gevrGripAxes(gun, pos, r, u, b))
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        x[i] = -b[i];
+        y[i] = -r[i];
+    }
+    z[0] = x[1] * y[2] - x[2] * y[1];
+    z[1] = x[2] * y[0] - x[0] * y[2];
+    z[2] = x[0] * y[1] - x[1] * y[0];
+    for (i = 0; i < 3; i++)
+    {
+        if (VrLeftHandedMode) y[i] = r[i];   /* drawn mirrored: a right arm */
+    }
+    for (i = 0; i < 3; i++)
+    {
+        out[i] = pos[i] + (GEVR_WRIST_BEHIND_CM + VrGunOffZ) * b[i] * cm
+               + (s_gevrWatchPalmCm[0] * x[i] + s_gevrWatchPalmCm[1] * y[i] + s_gevrWatchPalmCm[2] * z[i]) * cm;
+    }
+    return TRUE;
 }
 
 /* gun.c gevrGexBatPose: both hands on the bat (hand's) - the off hand's
- * controller (camera space) and how far the hold has eased in, also while it
- * eases out after letting go */
+ * controller (camera space; the watch arm's palm, gevrBatOffPalm) and how far
+ * the hold has eased in, also while it eases out after letting go */
 s32 gevrStereoBatOffHand(s32 hand, f32 opos[3], f32 *amt)
 {
     f32 ignore[3];
@@ -3653,6 +3706,7 @@ s32 gevrStereoBatOffHand(s32 hand, f32 opos[3], f32 *amt)
     {
         return FALSE;
     }
+    gevrBatOffPalm(hand, opos);
     *amt = s_gevrTwoHandAmt;
     return TRUE;
 }
@@ -3767,6 +3821,7 @@ static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm, s32 drawn)
             }
         }
         gevrGexBatReachCm(&nearest, &farthest);
+        gevrBatOffPalm(gun, opos);   /* the watch arm takes it with its hand, not its wrist */
         for (i = 0; i < 3; i++)
         {
             d[i] = opos[i] - gpos[i];
@@ -11943,6 +11998,91 @@ static f32 portMouseFovRatio(void)
     return viGetFovY() / 60.0f;
 }
 
+#ifdef GEVR_FLAT
+/*
+ * A flat game on a monitor faster than the game's 60 Hz (#274): the refreshes between game
+ * frames draw the last frame again with the camera turned on by the look since
+ * (port/flat/flat_headset.c flatRedrawFrame). What that needs from the tick, for this
+ * machine's player: whether the camera is the first person one the mouse turns, its pitch
+ * (the turn is about the world's upright, not the camera's), a mouse degree's worth of turn
+ * (the zoom's ratio, the pitch setting's sign), and what the camera turned by this tick
+ * apart from the mouse (a stick held over, the tank), to carry on at until the next tick.
+ */
+struct GevrFlatLook
+{
+    s32 ok;
+    f32 pitchDeg;
+    f32 yawPerDeg, pitchPerDeg;
+    f32 yawRate, pitchRate;   /* degrees a sixtieth */
+    u64 stampUs;
+};
+struct GevrFlatLook g_gevrFlatLook;
+extern s32 VrThirdPerson;
+extern u64 sysGetMicroseconds(void);
+
+static void gevrFlatLookRecord(void)
+{
+    static f32 lastTheta, lastVerta;
+    static s32 have;
+    struct GevrFlatLook *l = &g_gevrFlatLook;
+    const f32 ratio = portMouseFovRatio();
+    const s32 aim = g_CurrentPlayer->insightaimmode != 0;
+    const f32 slots = g_GlobalTimerDelta > 0.5f ? g_GlobalTimerDelta : 1.0f;
+    f32 dyaw, dpitch;
+
+    if (get_cur_playernum() != (netIsActive() ? netGetLocalSlot() : inputOwnPlayer()))
+    {
+        return;
+    }
+    /* one view, the first person camera; while aiming the mouse moves the crosshair,
+     * not the camera directly, so mouse-look projection stays off while redraws continue */
+    l->ok = getPlayerCount() == 1 && portMouseLookPermitted() && !VrThirdPerson;
+    dyaw = g_CurrentPlayer->vv_theta - lastTheta;
+    while (dyaw > 180.0f) dyaw -= 360.0f;
+    while (dyaw < -180.0f) dyaw += 360.0f;
+    dpitch = g_CurrentPlayer->vv_verta - lastVerta;
+    if (g_portMouseDirect && !aim)
+    {
+        /* With direct mouse look, only carry non-mouse stick/tank velocity into
+         * redraws; subtracting mouse from clamped/auto-leveled vv_verta or
+         * floating-point wrap residuals would extrapolate in the wrong direction. */
+        if (g_PlayerIsInTank != 1 && fabsf(g_CurrentPlayer->speedtheta) < 1e-4f)
+        {
+            dyaw = 0.0f;
+        }
+        else
+        {
+            dyaw -= g_portMouseYawDeg * ratio;
+        }
+        if (fabsf(g_CurrentPlayer->speedverta) < 1e-4f
+            || g_CurrentPlayer->vv_verta >= 89.9f || g_CurrentPlayer->vv_verta <= -89.9f)
+        {
+            dpitch = 0.0f;
+        }
+        else
+        {
+            dpitch -= g_portMousePitchDeg * ratio;
+        }
+    }
+    dyaw /= slots;
+    dpitch /= slots;
+    /* not a cut's jump (a new level, a teleport) */
+    if (!have || !l->ok || dyaw > 12.0f || dyaw < -12.0f || dpitch > 12.0f || dpitch < -12.0f)
+    {
+        dyaw = dpitch = 0.0f;
+    }
+    l->yawRate = dyaw;
+    l->pitchRate = dpitch;
+    l->pitchDeg = g_CurrentPlayer->vv_verta;
+    l->yawPerDeg = aim ? 0.0f : ratio;
+    l->pitchPerDeg = aim ? 0.0f : (get_cur_player_look_vertical_inverted() == 0 ? ratio : -ratio);   /* as moveData.invertPitch */
+    l->stampUs = sysGetMicroseconds();
+    lastTheta = g_CurrentPlayer->vv_theta;
+    lastVerta = g_CurrentPlayer->vv_verta;
+    have = 1;
+}
+#endif
+
 static s32 portTankTurretWeaponHeld(void)
 {
     return g_PlayerIsInTank == 1 && getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_TANKSHELLS;
@@ -13425,6 +13565,15 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 
     if (canCycleWeapons)
     {
+#ifdef GEVR_FLAT
+        {
+            extern s32 inputConsumePrevWeapon(s32 player);
+            if (!moveData.detonating && inputConsumePrevWeapon(get_cur_playernum()))
+            {
+                moveData.weaponBackOffset = 1;
+            }
+        }
+#endif
         if (moveData.weaponBackOffset)
         {
             backstep_through_inventory();
@@ -14589,6 +14738,9 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     }
 
     bondviewApplyVertaTheta();
+#ifdef GEVR_FLAT
+    gevrFlatLookRecord();
+#endif
 
     // Handle crouching, and animation between standing and crouching.
     // Add basic block to declare local variables at the correct stack position.
@@ -16382,6 +16534,20 @@ Gfx *bondviewRenderDebugBondView(Gfx *gdl)
     if (g_gevrStereo && !s_gevrCopyTrace &&
         (!netIsActive() || get_cur_playernum() == netGetLocalSlot()))
         gevrVrCameraWorld(cam_pos.f, cam_look.f, cam_up.f);
+#if defined(GEVR_FLAT) && !defined(GEVR_HEADLESS)
+    if (!g_gevrStereo && !s_gevrCopyTrace &&
+        getPlayerCount() == 1 &&
+        (!netIsActive() || get_cur_playernum() == netGetLocalSlot()))
+    {
+        extern u32 gevrRetraceClockFrames;
+        extern void flatCameraWorld(const float position[3], const float look[3], const float up[3],
+                                    float worldScale, int ok, int stage, int tank, u32 teleportEpoch,
+                                    u32 sequence);
+        flatCameraWorld(cam_pos.f, cam_look.f, cam_up.f, D_800364CC,
+                        g_gevrFlatLook.ok && !gevrDamBoatAboard() && !gevrSpectating() && !gevrCoopLocalDowned(),
+                        bossGetStageNum(), g_PlayerIsInTank, g_gevrTeleportEpoch, gevrRetraceClockFrames);
+    }
+#endif
 #endif
     bondviewUpdateCameraMatrices(&cam_pos, &cam_look, &cam_up);
     sub_GAME_7F068190(&zeropos, &vec);
@@ -16966,7 +17132,16 @@ static Gfx *gevrRenderWatchStatusAt(Gfx *gdl, const Mtxf *transform)
     gSPSetGeometryMode(gdl++, G_ZBUFFER | G_SHADE | G_SHADING_SMOOTH);
     gSPTexture(gdl++, 0, 0, 0, G_TX_RENDERTILE, G_OFF);
     gDPSetCycleType(gdl++, G_CYC_1CYCLE);
-    gDPSetRenderMode(gdl++, G_RM_AA_ZB_XLU_SURF, G_RM_AA_ZB_XLU_SURF2);
+    /*
+     * A decal on the dial, not a surface of its own: the readout lies a quarter of a model
+     * unit over GoldenEye's dial (gevrWatchStatusFit), and on its watch arm a unit is a tenth
+     * of a millimetre (the dial at 153, the second hand at 154.2: Csuit_lf_handZ), so as a
+     * surface it tied with the dial for depth and flickered (owner, 2026-11-22: "the health
+     * gauge on the watch with the original textures has a flicker to it. Looks like some
+     * Z-fighting. The bean mode doesn't have this problem": its dial lies lower). The decal
+     * mode wins a tie with what it lies on.
+     */
+    gDPSetRenderMode(gdl++, G_RM_AA_ZB_XLU_DECAL, G_RM_AA_ZB_XLU_DECAL2);
     gDPSetAlphaCompare(gdl++, G_AC_NONE);
     gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
     gSPDisplayList(gdl++, osVirtualToPhysical(health));
@@ -18003,7 +18178,7 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
                  "GRIP FIT (THIS %s)%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTILT %.0f  ROLL %.0f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, TILT\nHOLD RIGHT GRIP: TURN STICK ROLLS\nHOLD OFF TRIGGER: PLACE IT BY HAND\nA: SAVE   B: UNDO   MENU + A: DONE",
                  gevrStereoTwoHandClass() ? "GUN" : "PISTOL", gex, t[2], -t[0], t[1], t[3], t[5]);
     }
-    else if (gevrStereoClubBat(GUNRIGHT) && gevrStereoTwoHandGrip())
+    else if (gevrStereoClubBat(GUNRIGHT) && gevrStereoTwoHandGrip() && !gevrStereoClubBatGlove(GUNRIGHT))
     {
         /* both hands on the bat: the off hand where it holds (input.c; gun.c gevrGexBatOffFitTo) */
         const float *o = VrGexBatFit[3], *r = VrGexBatFit[4];
@@ -18015,11 +18190,14 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
     else if (gevrStereoClubBat(GUNRIGHT))
     {
         /* the rifle butt as a bat: the rifle through the fist (input.c; gun.c gevrGexBatPose) */
-        const float *b = gevrGexBatFit();
+        extern float *gevrBatFit(void);   /* gun.c: GoldenEye X's, or Bean's rifle in the PP7's glove */
+        const float *b = gevrBatFit();
 
         snprintf(buf, sizeof(buf),
-                 "BAT FIT%s\nTHE RIFLE THROUGH THE FIST\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTURN STICK DOWN: HOLD NEARER THE BUTT\nTURN STICK UP: NEARER THE MUZZLE\nMOVE STICK: FORWARD, SIDEWAYS\nHOLD OFF TRIGGER: MOVE IT BY HAND\nBOTH HANDS ON IT: FIT THE OFF HAND\n%sA: SAVE   B: UNDO   MENU + A: DONE",
-                 gex, -b[2], b[0], b[1], gevrFitNextLine(0));
+                 "BAT FIT%s\nTHE RIFLE THROUGH THE FIST\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTURN STICK DOWN: HOLD NEARER THE BUTT\nTURN STICK UP: NEARER THE MUZZLE\nMOVE STICK: FORWARD, SIDEWAYS\n%s%sA: SAVE   B: UNDO   MENU + A: DONE",
+                 gex, -b[2], b[0], b[1],
+                 gevrStereoClubBatGlove(GUNRIGHT) ? "" : "HOLD OFF TRIGGER: MOVE IT BY HAND\nBOTH HANDS ON IT: FIT THE OFF HAND\n",
+                 gevrFitNextLine(0));
     }
     else
     {
@@ -19171,14 +19349,17 @@ extern float VrReloadGrab[2][3], VrReloadBelt[3], VrGexHeldMag[3];   /* vr_setti
 extern float VrBeanReloadGrab[3];   /* and Bean's models' grab */
 
 extern int VrManualReloading;
-/* Hand reload needs a model set with magazines to take out (user): GoldenEye
- * X's, whose reloads are its magazines and hands, or with GE-X off Bean's, cut
- * from its guns (gevr_beanmag.h; user, 2026-11-18). The setting is kept; with
- * neither set the game reloads itself. */
+/* Hand reload needs magazines to take out (user): GoldenEye X's, whose reloads
+ * are its magazines and hands; with GE-X off Bean's, cut from its guns
+ * (gevr_beanmag.h; user, 2026-11-18); and GoldenEye's own, from the cartridge's
+ * lists (gevr_n64mag.h; owner, 2026-11-21: "also original mode guns"). A ROM
+ * hack's own guns under GoldenEye's names have none: there the setting is kept
+ * and the game reloads itself, as it did. */
 extern int gevrBeanIsEnabled(void);
 extern s32 gevrBeanMagHeld(s32 hand);   /* gun.c: the hand's Bean gun has a magazine to take out */
 extern s32 gevrBeanMagPoints(f32 centre[3], f32 well[3], f32 held[3]);
-#define gevrHandReloadEnabled() (VrManualReloading && (VrGexGuns || gevrBeanIsEnabled()))
+#define gevrReloadModelsOn() (VrGexGuns || gevrBeanIsEnabled() || gevrRomRetailArt())
+#define gevrHandReloadEnabled() (VrManualReloading && gevrReloadModelsOn())
 
 static s32 gevrReloadGun(s32 item)
 {
@@ -19193,7 +19374,7 @@ static s32 gevrReloadGun(s32 item)
  * the belt's touch or the chest cross, the game's own reload from a gesture. */
 static s32 gevrReloadItemByHand(s32 item)
 {
-    return gevrReloadGun(item) && (VrGexGuns || gevrBeanIsEnabled());
+    return gevrReloadGun(item) && gevrReloadModelsOn();
 }
 
 /* The free controller follows the weapon slot, independently of handedness. */
@@ -19915,18 +20096,19 @@ static s32 gevrGexAtBelt(s32 ctrl, const f32 at[3])
 }
 
 /*
- * A Bean shotgun's shells are taken from the gun itself: the shells it carries
+ * A shotgun's shells are taken from the gun itself: the shells it carries
  * (across the top of the shotgun's receiver, in the automatic shotgun's saddle
- * on its left; gevr_beanmag.c: the round is a copy of the first one, and the
- * saddle stays full), not at the belt. A shotgun is topped up at any time, so
+ * on its side; Bean's, gevr_beanmag.c: the round is a copy of the first one;
+ * GoldenEye X's, GexWeaponDef.saddle; the saddle stays full), not at the belt. A shotgun is topped up at any time, so
  * its shell at the belt stood where the hip's holstered pistol is whenever it
  * was not full, and hiding the pistol for it would hide it nearly always
  * (user, 2026-11-21: "you could reload at any time, not just when you're
  * completely out of ammo, so you don't want to hide the pistols all the time.
  * Maybe the best thing to do is to move the ... shotgun shells up on top of
- * the shotgun, where there already are some shotgun shells"). at: that shell,
- * camera space, as the gun was last drawn; FALSE for any other gun (GoldenEye
- * X's shotguns, whose models were not looked at for one, keep the belt), and
+ * the shotgun, where there already are some shotgun shells"; and for GoldenEye
+ * X's, whose models carry theirs in the same places: "make sure all the ...
+ * shotgun shell reload replacements ... are the same on GoldenEye X"). at: that
+ * shell, camera space, as the gun was last drawn; FALSE for any other gun, and
  * until the gun has been drawn.
  */
 #define GEVR_RELOAD_SADDLE_CM 8.0f    /* a fresh grip this near the saddle's shell takes one */
@@ -19937,8 +20119,17 @@ static s32 gevrReloadSaddle(s32 gunHand, f32 at[3])
     const s32 item = getCurrentPlayerWeaponId(gunHand);
     f32 well[3], held[3];
 
-    return (item == ITEM_SHOTGUN || item == ITEM_AUTOSHOT) && gunHand == gevrReloadSupportGun()
-        && gevrBeanByHand(gunHand) && gevrReloadSingleRound(gunHand) && (gevrBeanMagPoints(at, well, held) & 1);
+    if ((item != ITEM_SHOTGUN && item != ITEM_AUTOSHOT) || gunHand != gevrReloadSupportGun() || !gevrReloadSingleRound(gunHand))
+    {
+        return FALSE;
+    }
+    if (gevrGexWeaponForHand(gunHand) != NULL)
+    {
+        extern s32 gevrGexSaddlePoint(f32 at[3]);   /* gun.c */
+
+        return gevrGexByHand(gunHand) && gevrGexSaddlePoint(at);
+    }
+    return gevrBeanByHand(gunHand) && (gevrBeanMagPoints(at, well, held) & 1);
 }
 
 /* the off hand (its palm) from the saddle's shell, cm; negative when the gun has none */
@@ -20028,7 +20219,7 @@ s32 gevrReloadBeltRound(s32 ctrl, s32 *rounds, s32 *hover)
     (void)def;
     (void)st;
     if (!gevrReloadSingleRound(gunHand) || s_gevrGexMag[gunHand] == GEVR_GEXMAG_INHAND) return -1;
-    if (gevrReloadSaddle(gunHand, at)) return -1;   /* a Bean shotgun's are on the gun: the belt and its holster are left alone */
+    if (gevrReloadSaddle(gunHand, at)) return -1;   /* a shotgun's are on the gun: the belt and its holster are left alone */
     *rounds = gevrReloadPickup(gunHand);
     if (*rounds <= 0) return -1;
     if (gevrGripAxesRaw(ctrl, at, r, u, b))

@@ -51,6 +51,8 @@ std::vector<Image> g_swapchainImages[1], g_menuSwapchainImages, g_menuSwapchainI
                    g_menuSwapchainImagesH, g_menuSwapchainImagesP, g_scopeSwapchainImages[2];
 XrSwapchain g_menuSwapchain{}, g_menuSwapchainR{}, g_menuSwapchainH{}, g_menuSwapchainP{}, g_scopeSwapchain[2]{};
 GLuint g_multiviewFBO = 0, g_multiviewDepthArray = 0, g_currentMultiviewSwapchainTex = 0;
+static GLenum g_eyeFboStatus;
+static bool g_eyeFboRefused, g_eyeFboCheckAcquired;
 uint32_t g_menuSwapchainWidth = 0, g_menuSwapchainHeight = 0;
 std::vector<XrTime> g_screenRecenterTimes;
 int32_t g_internalRenderWidth = 0, g_internalRenderHeight = 0;

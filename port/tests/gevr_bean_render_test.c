@@ -57,6 +57,8 @@ int gevrBeanWorldAuthoredView(void) { return 0; }
 /* Oddjob's hat (PR #196): off, so the knife draws as Bean's */
 int gevrHatOwnsNode(const void *node) { (void)node; return 0; }
 int gevrHatNodeGdl(struct ModelNode *node, struct Model *model, void **gdl) { (void)node; (void)model; (void)gdl; return 0; }
+/* GoldenEye's own guns' magazines (gevr_n64mag.c): none here, every list as the model has it */
+void *gevrN64MagGdl(void *node, void *current, int secondary) { (void)node; (void)secondary; return current; }
 
 #include "gevr_bean_pose_test.inc.h"
 #include "gevr_bean_plane_test.inc.h"

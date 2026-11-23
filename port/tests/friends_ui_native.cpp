@@ -61,7 +61,7 @@ static const int fullestCount = sizeof(fullest) / sizeof(fullest[0]);
 static int fakeIndex[GEVR_SEC_COUNT * 16];
 static const FakeRow &fakeRow(int id) { return fullest[(id % 16) % fullestCount]; }
 static int fakeSectionCount() { return GEVR_SEC_COUNT; }
-static const char *fakeSectionName(int s) { static const char *n[] = {"Comfort", "Controls", "Gestures", "Weapons", "Display", "Game rules", "Mods and fun", "Audio"}; return n[s]; }
+static const char *fakeSectionName(int s) { static const char *n[] = {"Comfort", "Controls", "Gestures", "Weapons", "Display", "Game rules", "Mods/Fun", "Audio"}; return n[s]; }
 static int fakeSectionRows(int s, unsigned, int *ids, int max) {
     const int n = s == GEVR_SEC_DISPLAY ? fullestCount : s == GEVR_SEC_GESTURES ? 12 : 7;
     for (int i = 0; i < n && i < max; i++) ids[i] = s * 16 + i;

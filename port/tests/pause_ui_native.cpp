@@ -26,7 +26,7 @@ extern "C" int gevrPauseObjective(int i,char*b,unsigned size){if(i>1)return -1;s
 // The Settings tab's rows (the settings table's, faked): seven sections, the fullest thirteen
 static int fakeIndex[16*16];
 static int fakeSectionCount(){return 7;}
-static const char*fakeSectionName(int s){static const char*n[]={"Comfort","Controls","Gestures","Weapons","Display","Game rules","Mods and fun"};return n[s];}
+static const char*fakeSectionName(int s){static const char*n[]={"Comfort","Controls","Gestures","Weapons","Display","Game rules","Mods/Fun"};return n[s];}
 static int fakeSectionRows(int s,unsigned,int*ids,int max){const int n=s==4?13:7;for(int i=0;i<n&&i<max;i++)ids[i]=s*16+i;return n;}
 static int fakeInfo(int id,GevrSettingInfo*out){out->label=id%3?"Fast reinforcements":"Screen dist";out->tooltip=nullptr;
     out->kind=id%3;out->section=id/16;out->launcherSection=0;out->where=GEVR_SET_BOTH;return 1;}

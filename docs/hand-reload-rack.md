@@ -3,8 +3,9 @@
 A third step for guns reloaded by hand (owner, 2026-11-21: "drop the clip, put
 a clip in, and then rack the slide"): the pistols' slides, the bolt handles of
 the submachine guns and rifles, and the shotgun's pump. Part of **Hand reload
-WIP** (Controls → Gestures): no setting of its own. GoldenEye X's guns and
-Bean's alike.
+WIP** (Controls → Gestures): no setting of its own. GoldenEye X's guns,
+Bean's and GoldenEye's own ([hand-reload-original](hand-reload-original.md))
+alike.
 
 Released in v0.5.24. Played on a Quest 3 with Bean's models by the owner through
 2026-11-21 ("going pretty good"); GoldenEye X's guns and left-handed mode were not.
@@ -185,7 +186,8 @@ Hand reload on, one gun, GoldenEye X's models and then Bean's.
 17. Magazine out, reach for the hip with the free hand: no holster ring,
     label or wheel, and a grip takes no pistol; the magazine's ghost only.
     Magazine in: the holsters are back.
-18. A Bean shotgun: its shells come from the gun (the ring on the shells it
+18. A shotgun, Bean's and GoldenEye X's (new for GoldenEye X, not yet
+    played): its shells come from the gun (the ring on the shells it
     carries), not the belt; the hip's pistol stays shown and takeable. Is the
     ring where the hand goes? Does a grab there ever start the pump or the
     two-handed hold instead?

@@ -281,7 +281,7 @@ void gevrDiscordInvite(uint64_t userId) {
     if (std::find(s_inviteQueue.begin(), s_inviteQueue.end(), userId) == s_inviteQueue.end()) s_inviteQueue.push_back(userId);
     if (!gevrFriendsRequestLobby()) {
         s_inviteQueue.clear();
-        gevrFriendsMessage("Invite from a lobby: host one on the launcher's Multiplayer page.");
+        gevrFriendsMessage("Invite from a lobby: host one on the launcher's Online page.");
     }
 }
 

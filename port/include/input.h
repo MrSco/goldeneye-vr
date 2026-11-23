@@ -129,7 +129,8 @@ enum contkey {
 	CK_STICK_YPOS,
 	CK_ACCEPT,
 	CK_CANCEL,
-	CK_0040,
+	CK_PREV_WEAPON, // gap in CONT_: previous weapon (default: mouse wheel up)
+	CK_0040 = CK_PREV_WEAPON,
 	CK_0080,
 	CK_0100,
 	CK_0200,
@@ -291,9 +292,27 @@ void inputUpdate(void);
 
 // call this before configSave()
 void inputSaveBinds(void);
+void inputSaveConfigNow(void);
+void inputLoadBindsNow(void);
 
 // reset given player's binds to either PC or N64 defaults
 void inputSetDefaultKeyBinds(s32 cidx, s32 n64mode);
+void inputResetClassBinds(s32 cidx, s32 isGamepad);
+
+// per-device-class (keyboard/mouse vs gamepad) Primary (0) / Secondary (1) bind helpers
+u32 inputGetClassBind(s32 cidx, u32 ck, s32 isGamepad, s32 slot);
+void inputSetClassBind(s32 cidx, u32 ck, s32 isGamepad, s32 slot, u32 vk);
+const char *inputGetKeyDisplayName(s32 vk);
+s32 inputCountKeyBinds(s32 cidx, u32 vk, s32 isGamepad, const u32 *actions, s32 actionCount);
+
+// rising-edge check for CK_PREV_WEAPON (consumed once per press)
+s32 inputConsumePrevWeapon(s32 player);
+
+// raw input & capture-mode suppression for the launcher/pause keybind UI
+s32 inputGetRawInput(void);
+void inputSetRawInput(s32 enable);
+s32 inputIsBindingCapture(void);
+void inputSetBindingCapture(s32 active);
 
 // clear or get the last pressed button
 void inputClearLastKey(void);

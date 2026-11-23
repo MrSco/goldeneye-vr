@@ -44,8 +44,9 @@ int VrTriggerFeedback = 100;
 /* The walk's head bob in a flat game (src/game/bondhead.c, #269); stereo has
  * none either way. */
 int VrHeadBob = 1;
-/* A flat game's frame rate in levels (flat_window.cpp, #269): 0 Auto (half
- * rate while the device can't hold the screen's), 1 Full, 2 Half. */
+/* A flat game's frame rate in levels (flat_window.cpp, #269, #274):
+ * 0 Auto (display refresh rate, stepping down if the device can't hold it),
+ * -1 Uncapped, or an explicit FPS cap (>= 25). */
 int VrFrameRate = 0;
 /* Save folders already checked for the old accidental Reverse look, a bit
  * each (src/game/file2.c fileLoadSettingsForFolder). */
@@ -603,6 +604,10 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "; GexBatOff and GexBatOffRot: the off hand where it holds the rifle (both hands).\n");
     iniPrintf(f, "GexBatOff=%.4f %.4f %.4f\n", VrGexBatFit[3][0], VrGexBatFit[3][1], VrGexBatFit[3][2]);
     iniPrintf(f, "GexBatOffRot=%.4f %.4f %.4f\n", VrGexBatFit[4][0], VrGexBatFit[4][1], VrGexBatFit[4][2]);
+    iniPrintf(f, "; BeanBat: Bean's sniper rifle as the bat, the rifle on the fist as GexBat.\n");
+    iniPrintf(f, "BeanBat=%.4f %.4f %.4f\n", VrGexBatFit[5][0], VrGexBatFit[5][1], VrGexBatFit[5][2]);
+    iniPrintf(f, "; Bat: the same for GoldenEye's own sniper rifle.\n");
+    iniPrintf(f, "Bat=%.4f %.4f %.4f\n", VrGexBatFit[6][0], VrGexBatFit[6][1], VrGexBatFit[6][2]);
     iniPrintf(f, "; Bean guns' magazines: item number / vector (0 held magazine, 1 magazine well); fitted ones only.\n");
     for (int item=0; item<64; item++)
         for (int which=0; which<2; which++) {
@@ -856,6 +861,15 @@ extern "C" void vrSettingsLoad(void)
             }
             continue;
         }
+        if (strncmp(line, "BeanBat=", 8) == 0 || strncmp(line, "Bat=", 4) == 0) {
+            const int row = line[0] == 'B' && line[1] == 'e' ? 5 : 6;
+            float t[3];
+            if (sscanf(strchr(line, '=') + 1, "%f %f %f", &t[0], &t[1], &t[2]) == 3
+                && std::isfinite(t[0]) && std::isfinite(t[1]) && std::isfinite(t[2])) {
+                for (int i = 0; i < 3; i++) VrGexBatFit[row][i] = t[i];
+            }
+            continue;
+        }
         if (strncmp(line, "GexBat", 6) == 0) {
             /* GexBat=, GexBatHand=, GexBatHandRot= (the rifle butt as a bat) */
             const int which = strncmp(line, "GexBat=", 7) == 0 ? 0 : strncmp(line, "GexBatHand=", 11) == 0 ? 1
@@ -1103,7 +1117,15 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "PadLookInvert") == 0) s_padLookInvert = ival != 0;
             else if (strcmp(key, "HeadBob") == 0) VrHeadBob = ival != 0;
             else if (strcmp(key, "Teleport") == 0) VrTeleport = ival != 0;
-            else if (strcmp(key, "FrameRate") == 0) VrFrameRate = ival >= 0 && ival <= 2 ? ival : 0;
+            else if (strcmp(key, "FrameRate") == 0) {
+                /* 0 Auto, -1 Uncapped, >= 25 explicit cap; legacy 1/2/3 map to 60/30/Auto */
+                if (ival == 0 || ival == 3) VrFrameRate = 0;
+                else if (ival == 1) VrFrameRate = 60;
+                else if (ival == 2) VrFrameRate = 30;
+                else if (ival == -1) VrFrameRate = -1;
+                else if (ival >= 25 && ival <= 1000) VrFrameRate = ival;
+                else VrFrameRate = 0;
+            }
             else if (strcmp(key, "LookUprightFolders") == 0) VrLookUprightFolders = ival;
             else if (strcmp(key, "GyroAim") == 0) VrGyroAim = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             /* Keep saved DisplayHz preferences. The obsolete RefreshRate key

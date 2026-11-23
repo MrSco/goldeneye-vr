@@ -773,6 +773,7 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 	gevrPumpStage = 3;
 
 
+#ifndef GEVR_FLAT
     const uint64_t inputStart=gevrFrameTimingNow();
     inputUpdate();
 
@@ -787,6 +788,7 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
         osContStartReadData(&g_ContInputMessageQueue);
     }
     if(inputStart) gevrFrameTimingOutside(GEVR_TIME_INPUT,gevrFrameTimingNow()-inputStart);
+#endif
 
 	/*
 	 * __scHandleRetrace() called this right after joyPoll(), and nothing in
@@ -841,6 +843,7 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 	 */
 	{
 		static u64 nextRetraceUs;
+		static u32 nextRetraceSub;
 		u64 now;
 
 		s32 earlyFailed = 0, lateTick = 0;
@@ -908,6 +911,7 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 		}
 		if (nextRetraceUs == 0 || now > nextRetraceUs + 100000) {
 			nextRetraceUs = now;
+			nextRetraceSub = 0;
 		}
 		/*
 		 * The 1/60 s slots this retrace covers. Under SpaceWarp the runtime runs
@@ -937,6 +941,7 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 		if (flatHalfRateActive()) {
 			if (now + 50000 < nextRetraceUs) {
 				nextRetraceUs = now;
+				nextRetraceSub = 0;
 			}
 			slots = now + 25000 < nextRetraceUs ? 1 : 2;   /* the swap not holding two refreshes after all */
 			while (slots < 6 && now >= nextRetraceUs + 16667ULL * (slots - 1) + 12500) {
@@ -944,10 +949,14 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 			}
 		} else
 #endif
-		while (slots < 4 && now + 2000 >= nextRetraceUs + 16667ULL * slots) {
+		while (slots < 4 && now + 2000 >= nextRetraceUs + (50000ULL * slots + nextRetraceSub) / 3ULL) {
 			slots++;
 		}
-		nextRetraceUs += 16667ULL * slots;
+		{
+			const u64 advance = 50000ULL * slots + nextRetraceSub;
+			nextRetraceUs += advance / 3ULL;
+			nextRetraceSub = (u32)(advance % 3ULL);
+		}
 		gevrRetraceSlots = slots;
 
 		{
@@ -983,6 +992,25 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 			}
 		}
 	}
+
+#ifdef GEVR_FLAT
+	/*
+	 * On flat high-refresh displays (#274), sample mouse and controller input right
+	 * after the in-between redraw pump finishes and immediately before the upcoming
+	 * 60 Hz game tick runs. Running inputUpdate() before the pump drained the mouse
+	 * into mouseDX and zeroed s_mousePeekDX while redraws were still running,
+	 * causing each 60 Hz game frame to snap back to an older angle (60 Hz ghosting).
+	 */
+	{
+		const uint64_t inputStart = gevrFrameTimingNow();
+		inputUpdate();
+		joyPoll();
+		if (g_ContInputMessageQueue.validCount == 0) {
+			osContStartReadData(&g_ContInputMessageQueue);
+		}
+		if (inputStart) gevrFrameTimingOutside(GEVR_TIME_INPUT, gevrFrameTimingNow() - inputStart);
+	}
+#endif
 
 	gevrPumpStage = 6;
 	os_scheduler.frameCount++;

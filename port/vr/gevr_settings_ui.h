@@ -12,6 +12,7 @@
 #include "imgui/imgui.h"
 #include "gevr_settings.h"
 #include "gevr_tooltip.h"
+#include "gevr_layout_ui.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -26,6 +27,8 @@ struct GevrSettingsApi {
     void (*set)(int id, int index) = nullptr;
     void (*text)(int id, int index, char *buf, int size) = nullptr;
     const char *(*blocked)(int id) = nullptr;
+    void (*drawKbm)() = nullptr;      // optional flat Keyboard & mouse page in gevrSettingsTabs
+    void (*drawGamepad)() = nullptr;  // optional flat Gamepad page in gevrSettingsTabs
 };
 
 // The real table (port/src/gevr_settings.c).
@@ -126,38 +129,56 @@ inline void gevrSettingControl(const GevrSettingsApi &a, int id, float width) {
     ImGui::PopID();
 }
 
-// A section's rows shown now in `where`: label and control, one column or two.
+// Measure the column/label/control plan for a section's rows in the given box.
+inline GevrColumnPlan gevrSettingsPlan(const GevrSettingsApi &a, const int *ids, int count, float availWidth, float availHeight) {
+    return gevrPlanSettingsLayout(count, availWidth, availHeight, [&](int i, float &labelW, float &ctrlW) {
+        GevrSettingInfo info{};
+        if (!a.info(ids[i], &info)) return;
+        labelW = ImGui::CalcTextSize(info.label ? info.label : "").x;
+        char value[64] = "";
+        a.text(ids[i], -1, value, sizeof(value));
+        const char *reason = a.blocked ? a.blocked(ids[i]) : nullptr;
+        const bool hasDef = a.defaultIndex && a.defaultIndex(ids[i]) >= 0;
+        ctrlW = gevrMeasureControlNeed(info.kind, value, reason, hasDef);
+    });
+}
+
+// A section's rows shown now in `where`: label and control, one column or two
+// when each column is wide enough for every label and value without truncation.
 inline void gevrSettingsSection(const GevrSettingsApi &a, int section, unsigned where) {
     int ids[48];
     const int n = a.sectionRows ? a.sectionRows(section, where, ids, 48) : 0;
     const int count = n > 48 ? 48 : n;
-    const int columns = count > GEVR_SETTINGS_ONE_COLUMN ? 2 : 1;
-    const int perColumn = (count + columns - 1) / columns;
-    if (!ImGui::BeginTable("##settings", columns * 2, ImGuiTableFlags_SizingFixedFit)) return;
-    const float avail = ImGui::GetContentRegionAvail().x;
-    const float gap = columns > 1 ? ImGui::GetStyle().ItemSpacing.x * 4 : 0;
-    const float half = (avail - gap) / columns;
-    const float labelW = half * (columns > 1 ? 0.44f : 0.40f);
-    for (int c = 0; c < columns; c++) {
-        ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthFixed, labelW);
-        ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthFixed, half - labelW);
-    }
-    for (int r = 0; r < perColumn; r++) {
-        ImGui::TableNextRow();
-        for (int c = 0; c < columns; c++) {
-            const int k = c * perColumn + r;
-            ImGui::TableNextColumn();
-            if (k >= count) { ImGui::TableNextColumn(); continue; }
-            GevrSettingInfo info{};
-            a.info(ids[k], &info);
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted(info.label);
-            gevrSettingsTip(info, a.blocked ? a.blocked(ids[k]) : nullptr);
-            ImGui::TableNextColumn();
-            gevrSettingControl(a, ids[k], half - labelW - (columns > 1 ? gap : ImGui::GetStyle().ItemSpacing.x));
+    if (count <= 0) return;
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const GevrColumnPlan plan = gevrSettingsPlan(a, ids, count, avail.x, avail.y);
+    const ImGuiStyle &style = ImGui::GetStyle();
+    if (plan.rowPadY != 0.0f)
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(style.CellPadding.x, style.CellPadding.y + plan.rowPadY));
+    if (ImGui::BeginTable("##settings", plan.columns * 2, ImGuiTableFlags_SizingFixedFit)) {
+        for (int c = 0; c < plan.columns; c++) {
+            ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthFixed, plan.colLabelWidth[c]);
+            ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthFixed,
+                                    plan.colControlWidth[c] + (c + 1 < plan.columns ? plan.gap : 0.0f));
         }
+        for (int r = 0; r < plan.perColumn; r++) {
+            ImGui::TableNextRow();
+            for (int c = 0; c < plan.columns; c++) {
+                const int k = c * plan.perColumn + r;
+                ImGui::TableNextColumn();
+                if (k >= count) { ImGui::TableNextColumn(); continue; }
+                GevrSettingInfo info{};
+                a.info(ids[k], &info);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted(info.label);
+                gevrSettingsTip(info, a.blocked ? a.blocked(ids[k]) : nullptr);
+                ImGui::TableNextColumn();
+                gevrSettingControl(a, ids[k], plan.colControlWidth[c]);
+            }
+        }
+        ImGui::EndTable();
     }
-    ImGui::EndTable();
+    if (plan.rowPadY != 0.0f) ImGui::PopStyleVar();
 }
 
 // The in-game sections as a tab row, each tab's rows under it in a box that
@@ -168,14 +189,41 @@ inline void gevrSettingsTabs(const GevrSettingsApi &a, int &openSection) {
     const int sections = a.sectionCount ? a.sectionCount() : 0;
     if (ImGui::BeginTabBar("##panel-sections", ImGuiTabBarFlags_FittingPolicyResizeDown)) {
         for (int s = 0; s < sections; s++) {
+            const int rowCount = a.sectionRows ? a.sectionRows(s, GEVR_SET_INGAME, nullptr, 0) : 0;
+            const bool hasControlSubs = (s == GEVR_SEC_CONTROLS) && (a.drawKbm || a.drawGamepad);
             // a section with nothing to set here (a flat game's Gestures) has no tab
-            if (a.sectionRows && a.sectionRows(s, GEVR_SET_INGAME, nullptr, 0) == 0) continue;
+            if (rowCount == 0 && !hasControlSubs) continue;
             const ImGuiTabItemFlags open = s == openSection ? ImGuiTabItemFlags_SetSelected : 0;
-            if (!ImGui::BeginTabItem(a.sectionName(s), nullptr, open)) continue;
-            ImGui::BeginChild("##panel-rows", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
-            gevrSettingsSection(a, s, GEVR_SET_INGAME);
-            ImGui::EndChild();
-            ImGui::EndTabItem();
+            if (ImGui::BeginTabItem(a.sectionName(s), nullptr, open)) {
+                if (hasControlSubs) {
+                    if (ImGui::BeginTabBar("##panel-controls-subs", ImGuiTabBarFlags_FittingPolicyResizeDown)) {
+                        if (a.drawKbm && ImGui::BeginTabItem("Keyboard & mouse")) {
+                            ImGui::BeginChild("##panel-rows", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
+                            a.drawKbm();
+                            ImGui::EndChild();
+                            ImGui::EndTabItem();
+                        }
+                        if (a.drawGamepad && ImGui::BeginTabItem("Gamepad")) {
+                            ImGui::BeginChild("##panel-rows", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
+                            a.drawGamepad();
+                            ImGui::EndChild();
+                            ImGui::EndTabItem();
+                        }
+                        if (rowCount > 0 && ImGui::BeginTabItem("Look")) {
+                            ImGui::BeginChild("##panel-rows", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
+                            gevrSettingsSection(a, s, GEVR_SET_INGAME);
+                            ImGui::EndChild();
+                            ImGui::EndTabItem();
+                        }
+                        ImGui::EndTabBar();
+                    }
+                } else {
+                    ImGui::BeginChild("##panel-rows", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar);
+                    gevrSettingsSection(a, s, GEVR_SET_INGAME);
+                    ImGui::EndChild();
+                }
+                ImGui::EndTabItem();
+            }
         }
         ImGui::EndTabBar();
     }

@@ -124,6 +124,14 @@ found with the user in the headset, and what the game does about it
   Not the game's; a headset on SteamVR directly does not do it.
 - Tried and dropped: swapchain priming (each image cleared and released at creation)
   made it worse - blur and both eyes cut - and was taken out.
+- **A player's PC where VR never started** (report 976b1e15, 2026-11-22, v0.5.22 to
+  v0.5.24, 22 starts): the eye framebuffer on the runtime's image 0 was
+  `FRAMEBUFFER_INCOMPLETE_ATTACHMENT` at start-up, with no GL error. The GPU is not in
+  the report. Guess, not confirmed: its driver only lets a framebuffer use the
+  runtime's images once they are acquired. Start-up now falls back on a check with a
+  texture of the game's own and checks the runtime's image on the first frame
+  (`vr_openxr.cpp vr_eye_fbo_own_image_completes`), and logs the GPU and what GL
+  makes of the image. Not tested on such a PC: the next report from one settles it.
 
 **Launcher:** `port/vr/vr_launcher.cpp` itself, the Quest's, drawn in the
 window (`port/pc/pc_launcher.cpp`: its texture letterboxed into the window,

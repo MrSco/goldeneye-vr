@@ -101,20 +101,22 @@ body and one footer.
 
 ## Screens and tabs (proposal, for the owner to check)
 
-### Launcher
+### Launcher (regrouped, with single context visibility table)
 
-| Top tab | Sub-tabs | Contents |
-|---|---|---|
-| **Play** | none | Play mode (stereo or flat). Third person, with its sliders shown only while it is on. Show stats. Offer test builds. |
-| **Multiplayer** | Host · Join · Player · Audio · Favorites | Host: lobby and roster, then Match, Fun. Join: the Public, Private, LAN and Direct lists. Footer: Launch, Ready, Stop or Disconnect. |
-| **Controls** | Hands · Gestures · Throwing · Haptics | Hands: hands, sticks, aim, gun fit, watch face, controllers. Gestures: the grips and force pull. Throwing: motion throw and recoil. |
-| **Comfort** | none | Turning, turn speed, movement speed, vignette, when hit. |
-| **Screen** | none | Flat or curved, passthrough, size, distance, refresh rate, SpaceWarp, anti-aliasing. |
-| **Rules** | Game rules · AI ally · Cheats | |
-| **Mods** | none | Bean, HD fill, GE-X, blood, Oddjob's hat, gun size, and the mod packs. |
+All top tabs, sub-tabs (`port/vr/gevr_launcher_ui.h`) and settings rows (`port/src/gevr_settings.c`) declare the contexts they appear in via `GEVR_CTX_*` flags (`GEVR_CTX_PC_FLAT`, `GEVR_CTX_PC_VR`, `GEVR_CTX_QUEST`, `GEVR_CTX_MOBILE`, `GEVR_CTX_APPLE`, `GEVR_CTX_APPLE_TV`, `GEVR_CTX_PAUSE`). Visibility comes from that table only.
 
-- **Report** becomes a header button.
-- **START** stays in the footer.
+| Top tab | Sub-tabs | Contexts | Contents |
+|---|---|---|---|
+| **Play** | General · Ghosts | All | General: play mode, third person (and camera sliders when on), stats, speedrun timer, ghost race, music/SFX volumes, LiveSplit, test builds, Reset all settings. Ghosts: ghost leaderboards and run picker. |
+| **Online** | Host · Join · Player · Audio · Favorites | All | Host: lobby/roster, Match, Fun. Join: Public, Private, LAN, Direct IP. Player: name, character, loadout, team. Audio: mic, volumes, voice mode. Favorites: wrapping map & weapon-set checkbox grids. |
+| **Controls** | (Flat) Keyboard & mouse · Gamepad · Look / (VR) Hands · Gestures · Throwing · Haptics · Look | Per-context | Flat: mouse sensitivity (linked or separate X/Y), invert Y, raw input, mouse lock, 16-action bind table (with Previous weapon on wheel up by default), gamepad sticks/deadzones/vibration/pad binds, and look/gyro/touch settings. VR: hands, gestures, throwing, haptics, turning & aim look settings. |
+| **Comfort & display** | none | All (rows filtered per context) | Flat: movement speed, knockback/hitstun, hit flash, head bob, fullscreen (PC flat), screen shape, frame rate. VR: adds movement mode, vignette, refresh rate, SpaceWarp, anti-aliasing, screen size/distance/curved/passthrough. |
+| **Game** | Game rules · AI ally · Cheats | All | Game rules, AI ally (Natalya), and cheats (with gun size). |
+| **Mods** | none | All | Bean, HD fill, GE-X, blood patch, Oddjob's hat, and mod packs. |
+
+- **Shared layout helpers (`port/vr/gevr_layout_ui.h`):** `gevrSettingRow`, `gevrSettingColumns`, `gevrPlanSettingsLayout`, `gevrSectionHeader`, and `gevrCheckGrid` measure labels, values, and available pane widths so no page scrolls and no label or value truncates at PC window, VR panel, or pause-overlay sizes.
+- **PC keybinds (`port/vr/gevr_keybinds_ui.h`):** shared by the launcher's Controls tab and the in-game solo panel / online pause Settings tabs (`Keys & mouse`, `Gamepad`). Changes save immediately (`goldeneye.ini` / `goldeneye-vr.ini`) and take effect live.
+- **Report** is a header button; **START** and the campaign selector stay in the footer.
 
 ### Multiplayer's Host sub-tab
 

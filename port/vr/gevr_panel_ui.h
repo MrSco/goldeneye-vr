@@ -77,12 +77,21 @@ inline int gevrDrawPanelWindow(const GevrPanelView &v, GevrPanelUi &ui, ImTextur
     ImGui::PushStyleColor(ImGuiCol_Text, bad);
 #ifdef GEVR_IOS
     // an iOS app cannot start itself again: going back to the launcher closes it
-    if (ImGui::Button(v.online ? "Leave and close" : "Close the game", ImVec2(314, 52))) action = GEVR_PANEL_LAUNCHER;
+    const char *leaveBtn = v.online ? "Leave and close" : "Close the game";
+    const char *confirmTitle = v.online ? "Leave and close?" : "Close the game?";
+    const char *confirmBtn = v.online ? "Leave" : "Close";
 #else
-    if (ImGui::Button(v.online ? "Leave to launcher" : "Back to launcher", ImVec2(314, 52))) action = GEVR_PANEL_LAUNCHER;
+    const char *leaveBtn = v.online ? "Leave to launcher" : "Back to launcher";
+    const char *confirmTitle = v.online ? "Leave session?" : "Return to launcher?";
+    const char *confirmBtn = v.online ? "Leave" : "Return";
 #endif
+    if (ImGui::Button(leaveBtn, ImVec2(314, 52))) ImGui::OpenPopup(confirmTitle);
     ImGui::PopStyleColor();
     if (ui.focusLauncher) { ImGui::SetItemDefaultFocus(); ImGui::SetKeyboardFocusHere(-1); ui.focusLauncher = false; }
+    const char *confirmMsg = v.online
+        ? "Disconnect from this match and return to the launcher?"
+        : (v.note[0] ? v.note : "Return to the launcher?");
+    if (gevrConfirmModal(confirmTitle, confirmMsg, confirmBtn) == 1) action = GEVR_PANEL_LAUNCHER;
     ImGui::End();
     return action;
 }

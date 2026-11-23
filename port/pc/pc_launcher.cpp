@@ -276,3 +276,10 @@ void pcRestartSelf(void)
 #endif
     exit(0);
 }
+
+void pcQuitApp(void)
+{
+    pcReportCleanExit();
+    gevrLogClose();
+    exit(0);
+}

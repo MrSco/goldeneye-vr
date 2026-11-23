@@ -3453,6 +3453,49 @@ void chrCreateHitPuffs(PropRecord *prop, s32 anim_id, coord3d *vec, coord3d *pos
 }
 
 
+static void chrPaintBloodStainVertices(
+    const ModelRoData_DisplayList_CollisionRecord *rodata,
+    ModelRwData_DisplayList_CollisionRecord *rwdata,
+    s32 colIndex,
+    s32 paintval)
+{
+    s32 index;
+    s32 steps;
+
+    if (rodata == NULL || rwdata == NULL || rwdata->Vertices == NULL || rwdata->Vertices == rodata->Vertices)
+    {
+        return;
+    }
+
+    if (rodata->CollisionVertices == NULL || rodata->PointUsage == NULL
+        || rodata->numVertices <= 0 || colIndex < 0 || colIndex >= rodata->numCollisionVertices)
+    {
+        return;
+    }
+
+    index = rodata->CollisionVertices[colIndex].index;
+    steps = 0;
+
+    /*
+     * PointUsage is a -1-terminated singly-linked list over [0, numVertices).
+     * Malformed custom models (e.g. ROM hacks with zero-filled or cyclic
+     * PointUsage tables, report #41) would otherwise spin forever here.
+     */
+    while (index >= 0 && index < rodata->numVertices && steps < rodata->numVertices)
+    {
+        s32 next = rodata->PointUsage[index];
+
+        rwdata->Vertices[index].a = paintval;
+        if (next == index)
+        {
+            break;
+        }
+        index = next;
+        steps++;
+    }
+}
+
+
 void chrCreateBloodStain(Model *model, s32 arg1, ModelNode *root, struct coord3d *pos)
 {
     s32 sp_pos[3];
@@ -3473,6 +3516,7 @@ void chrCreateBloodStain(Model *model, s32 arg1, ModelNode *root, struct coord3d
     s32 n;
     s32 paintval;
     s32 relatedindex;
+    s32 guard;
 
     sp_pos[0] = pos->x;
     sp_pos[1] = pos->y;
@@ -3482,8 +3526,9 @@ void chrCreateBloodStain(Model *model, s32 arg1, ModelNode *root, struct coord3d
     bestindex = 0;
     bestdist = 0x7fffffff;
     node = root;
+    guard = 0;
 
-    while (node != NULL)
+    while (node != NULL && guard++ < 4096)
     {
         opcode = node->Opcode & 0xff;
 
@@ -3510,7 +3555,7 @@ void chrCreateBloodStain(Model *model, s32 arg1, ModelNode *root, struct coord3d
         rodata = &node->Data->DisplayListCollisions;
         n = 0;
 
-        if (rodata->numCollisionVertices > 0)
+        if (rodata->numCollisionVertices > 0 && rodata->CollisionVertices != NULL)
         {
             vtx = rodata->CollisionVertices;
 
@@ -3585,6 +3630,10 @@ after_opcode:
 
     node = (ModelNode *) bestnode->Data;
     rwdata = (ModelNode *) modelGetNodeRwData(model, bestnode);
+    if (node == NULL || rwdata == NULL)
+    {
+        return;
+    }
     relatedrodata = NULL;
     relatedrwdata = NULL;
     relatedindex = 0;
@@ -3603,20 +3652,22 @@ after_opcode:
     /* a segment-5 offset into the model file; the record's BaseAddr is that file */
     relatednode = NULL;
 
-    if (((ModelRoData_DisplayList_CollisionRecord *) node)->CollisionVertices[bestindex].CollisionRelatedNode != 0)
+    if (((ModelRoData_DisplayList_CollisionRecord *) node)->BaseAddr != NULL
+        && ((ModelRoData_DisplayList_CollisionRecord *) node)->CollisionVertices[bestindex].CollisionRelatedNode != 0)
     {
         relatednode = (ModelNode *)((u8 *)((ModelRoData_DisplayList_CollisionRecord *) node)->BaseAddr
                 + (((ModelRoData_DisplayList_CollisionRecord *) node)->CollisionVertices[bestindex].CollisionRelatedNode & 0x00ffffff));
     }
 
-    if (relatednode != NULL)
+    if (relatednode != NULL && (relatednode->Opcode & 0xff) == MODELNODE_OPCODE_DLCOLLISION && relatednode->Data != NULL)
     {
         relatedrodata = &relatednode->Data->DisplayListCollisions;
         relatedrwdata = (ModelRwData_DisplayList_CollisionRecord *) modelGetNodeRwData(model, relatednode);
         relatedindex = ((ModelRoData_DisplayList_CollisionRecord *) node)->CollisionVertices[bestindex].CollisionRelatedIndex;
     }
 
-    if (((ModelRwData_DisplayList_CollisionRecord *) rwdata)->Vertices == ((ModelRoData_DisplayList_CollisionRecord *) node)->Vertices)
+    if (((ModelRwData_DisplayList_CollisionRecord *) rwdata)->Vertices == ((ModelRoData_DisplayList_CollisionRecord *) node)->Vertices
+        && ((ModelRoData_DisplayList_CollisionRecord *) node)->numVertices > 0)
     {
         newvertices = (Vertex *) vtxstore_allocate(((ModelRoData_DisplayList_CollisionRecord *) node)->numVertices, 0xcccc, 0, 0);
 
@@ -3633,7 +3684,8 @@ after_opcode:
         }
     }
 
-    if ((relatedrwdata != NULL) && (relatedrwdata->Vertices == relatedrodata->Vertices))
+    if ((relatedrwdata != NULL) && (relatedrwdata->Vertices == relatedrodata->Vertices)
+        && (relatedrodata->numVertices > 0))
     {
         newvertices = (Vertex *) vtxstore_allocate(relatedrodata->numVertices, 0xcccc, 0, 0);
 
@@ -3650,18 +3702,9 @@ after_opcode:
         }
     }
 
-    if (((ModelRwData_DisplayList_CollisionRecord *) rwdata)->Vertices != ((ModelRoData_DisplayList_CollisionRecord *) node)->Vertices)
-    {
-        s32 index;
-
-        index = ((ModelRoData_DisplayList_CollisionRecord *) node)->CollisionVertices[bestindex].index;
-
-        while (index >= 0)
-        {
-            ((ModelRwData_DisplayList_CollisionRecord *) rwdata)->Vertices[index].a = paintval;
-            index = ((ModelRoData_DisplayList_CollisionRecord *) node)->PointUsage[index];
-        }
-    }
+    chrPaintBloodStainVertices((ModelRoData_DisplayList_CollisionRecord *) node,
+                               (ModelRwData_DisplayList_CollisionRecord *) rwdata,
+                               bestindex, paintval);
 
 #ifdef GEVR
     /* the bruise, for a Bean body's own vertices (gevr_bean_wounds.inc.h) */
@@ -3673,18 +3716,7 @@ after_opcode:
                           pos, paintval);
     }
 #endif
-    if ((relatedrwdata != NULL) && (relatedrwdata->Vertices != relatedrodata->Vertices))
-    {
-        s32 index;
-
-        index = relatedrodata->CollisionVertices[relatedindex].index;
-
-        while (index >= 0)
-        {
-            relatedrwdata->Vertices[index].a = paintval;
-            index = relatedrodata->PointUsage[index];
-        }
-    }
+    chrPaintBloodStainVertices(relatedrodata, relatedrwdata, relatedindex, paintval);
 }
 
 

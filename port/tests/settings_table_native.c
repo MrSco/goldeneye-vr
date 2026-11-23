@@ -94,6 +94,18 @@ int main(void)
     id = find("Movement speed");
     gevrSettingSet(id, 2); text(id, t);
     check(!strcmp(t, "100% (default)") && VrMovementSpeed == 0, "movement speed 100% is the normal mode");
+    id = find("Frame rate");
+    check(gevrSettingDefault(id) == 0 && gevrSettingPositions(id) == 10,
+          "frame rate: Auto, standard caps (30..240), and Uncapped");
+    gevrSettingSet(id, 0); text(id, t);
+    check(VrFrameRate == 0 && !strcmp(t, "Auto (default)"), "frame rate 0 is Auto");
+    gevrSettingSet(id, 2); text(id, t);
+    check(VrFrameRate == 60 && !strcmp(t, "60 fps"), "frame rate cap 60");
+    gevrSettingSet(id, 5); text(id, t);
+    check(VrFrameRate == 144 && !strcmp(t, "144 fps"), "frame rate cap 144");
+    gevrSettingSet(id, gevrSettingPositions(id) - 1); text(id, t);
+    check(VrFrameRate == -1 && !strcmp(t, "Uncapped"), "frame rate last choice is Uncapped");
+    gevrSettingSet(id, 0);
 
     /* The launcher's places: Play holds the play mode, third person, stats, the speedrun timer, the ghost race and the volumes;
      * the watch face is on Hands; the ally has its own sub-tab; gun size is a cheat. */
@@ -122,6 +134,23 @@ int main(void)
             check(info.launcherSection != GEVR_LSEC_ALLY, "the ally is the launcher's only");
         }
         check(gevrSettingSectionRows(GEVR_LSEC_MODS, GEVR_SET_LAUNCHER, ids, 48) == 0, "the launcher's Mods draws its own rows, with their packs");
+        /* Context visibility table: each context shows only what applies */
+        gevrSettingsSetContextOverride(GEVR_CTX_PC_FLAT);
+        check(gevrSettingShown(find("Frame rate")) && gevrSettingShown(find("Fullscreen")) &&
+              !gevrSettingShown(find("Turning")) && !gevrSettingShown(find("Gyro aim")),
+              "PC flat shows frame rate and fullscreen, hides VR turning and phone gyro");
+        gevrSettingsSetContextOverride(GEVR_CTX_MOBILE);
+        check(gevrSettingShown(find("Frame rate")) && gevrSettingShown(find("Gyro aim")) &&
+              !gevrSettingShown(find("Fullscreen")) && !gevrSettingShown(find("SpaceWarp")),
+              "Mobile shows frame rate and gyro, hides PC fullscreen and VR SpaceWarp");
+        gevrSettingsSetContextOverride(GEVR_CTX_APPLE_TV);
+        check(gevrSettingShown(find("Pad vibration")) && !gevrSettingShown(find("Gyro aim")) && !gevrSettingShown(find("Fullscreen")),
+              "Apple TV shows pad rows, hides touch/gyro and PC fullscreen");
+        gevrSettingsSetContextOverride(GEVR_CTX_QUEST);
+        check(gevrSettingShown(find("Turning")) && gevrSettingShown(find("SpaceWarp")) &&
+              !gevrSettingShown(find("Frame rate")) && !gevrSettingShown(find("Fullscreen")),
+              "Quest VR shows VR turning and SpaceWarp, hides flat frame rate and PC fullscreen");
+        gevrSettingsSetContextOverride(0);
     }
     VrPlayMode = 1;
     check(gevrSettingBlocked(find("Third person")) != NULL && !gevrSettingShown(find("  Distance")),
@@ -154,8 +183,16 @@ int main(void)
     check(!gevrSettingShown(find("  Chance")), "dismemberment's thresholds hide while it is off");
     VrRagdolls = 0;
     check(gevrSettingBlocked(find("Dismemberment")) != NULL, "dismemberment needs ragdolls");
+    /* hand reload has magazines to take with every model set of GoldenEye's own art; a ROM hack's
+     * own guns under GoldenEye's names have none (gevr_n64mag.h) */
     VrGexGuns = 0;
-    check(gevrSettingBlocked(find("Hand reload WIP")) != NULL, "hand reload needs GoldenEye X");
+    check(gevrSettingBlocked(find("Hand reload WIP")) == NULL, "hand reload works on GoldenEye's own guns");
+    s_campaign = 1;   /* GEVR_CAMPAIGN_GF64 */
+    check(gevrSettingBlocked(find("Hand reload WIP")) != NULL, "hand reload is not for a hack's own guns");
+    /* ... and GoldenEye X's guns are not for a hack either: its row cannot be switched on there */
+    check(gevrSettingBlocked(find("GoldenEye X")) != NULL, "GoldenEye X's guns are blocked in a hack campaign");
+    s_campaign = 0;
+    check(gevrSettingBlocked(find("GoldenEye X")) == NULL, "GoldenEye X's guns are offered on GoldenEye's own ROM");
     /* hand reload holds grip use on: blocked, and shown on whatever the ini says */
     VrGexGuns = 1;
     VrManualReloading = 1;
@@ -260,7 +297,7 @@ int main(void)
         check(gevrSettingResetAll() == 0, "a second reset changes nothing");
     }
     for (int s = 0; s < GEVR_LSEC_COUNT; s++)
-        check(gevrSettingSectionRows(s, GEVR_SET_LAUNCHER, ids, 48) <= 14, "a launcher place fills at most two columns of seven");
+        check(gevrSettingSectionRows(s, GEVR_SET_LAUNCHER, ids, 48) <= 16, "a launcher place fills at most two columns of eight");
     puts("PASS: settings table: every row round-trips, Reset, hidden and blocked rows, the host's online rules, "
          "the launcher's places and the ally, each section fits two columns, Reset all settings");
     return 0;

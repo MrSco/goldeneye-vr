@@ -75,7 +75,7 @@ static void reset() {
 }
 static GevrLauncherSession session;
 static bool romReady = false, romError = false, romOpen = false, debugClicked = false;
-static ImVec2 romHeader, debugButton, tabButtons[GEVR_LTAB_COUNT], subButtons[4];
+static ImVec2 romHeader, debugButton, tabButtons[GEVR_LTAB_COUNT], subButtons[8];
 static int activeTab = -1, activeSub = -1;
 static GevrLauncherTabs tabs;
 static ImVec2 tabCentre(ImGuiTabBar *b, int i) {
@@ -148,21 +148,47 @@ static void settingsChecks() {
     check(!romOpen, "valid ROM can be manually collapsed");
     romError = true; settingsFrame(); check(romOpen, "selection error reopens a valid ROM section");
     romError = false; settingsFrame(); check(!romOpen, "cleared ROM error collapses the section");
-    for (int tab : {2, 3, 4, 5, 6, 1, 0}) {
+    for (int tab : {1, 2, 3, 4, 5, 0}) {
         settingsClick(tabButtons[tab]);
         check(activeTab == tab && tabs.top == tab, "each top tab can be selected with the pointer");
     }
     settingsClick(tabButtons[GEVR_LTAB_CONTROLS]);
-    check(activeSub == GEVR_LSUB_HANDS, "Controls opens on Hands");
-    settingsClick(subButtons[GEVR_LSUB_THROWING]);
+    check(activeSub == GEVR_LSUB_HANDS, "Controls opens on Hands in VR");
+    settingsClick(subButtons[2]); // Throwing is visible index 2 in VR (Hands, Gestures, Throwing, Haptics, Look)
     check(activeTab == GEVR_LTAB_CONTROLS && activeSub == GEVR_LSUB_THROWING, "a sub-tab can be selected with the pointer");
-    settingsClick(tabButtons[GEVR_LTAB_RULES]);
-    check(activeSub == GEVR_LSUB_GAME_RULES, "Rules keeps its own sub-tab");
+    settingsClick(tabButtons[GEVR_LTAB_GAME]);
+    check(activeSub == GEVR_LSUB_GAME_RULES, "Game keeps its own sub-tab");
     settingsClick(tabButtons[GEVR_LTAB_CONTROLS]);
     check(activeSub == GEVR_LSUB_THROWING, "Controls remembers its sub-tab");
-    tabs.open(GEVR_LTAB_RULES, GEVR_LSUB_CHEATS);
+    tabs.open(GEVR_LTAB_GAME, GEVR_LSUB_CHEATS);
     for (int i = 0; i < 4; i++) settingsFrame();   // a tab, then its sub-tab: a frame each
-    check(activeTab == GEVR_LTAB_RULES && activeSub == GEVR_LSUB_CHEATS, "the launcher can bring up a tab and sub-tab (a friend's invite)");
+    check(activeTab == GEVR_LTAB_GAME && activeSub == GEVR_LSUB_CHEATS, "the launcher can bring up a tab and sub-tab (a friend's invite)");
+    tabs.open(GEVR_LTAB_ONLINE, GEVR_LSUB_JOIN);
+    for (int i = 0; i < 4; i++) settingsFrame();
+    check(activeTab == GEVR_LTAB_ONLINE && activeSub == GEVR_LSUB_JOIN, "deep link lands on Online > Join");
+    tabs.open(GEVR_LTAB_PLAY, GEVR_LSUB_PLAY_GHOSTS);
+    for (int i = 0; i < 4; i++) settingsFrame();
+    check(activeTab == GEVR_LTAB_PLAY && activeSub == GEVR_LSUB_PLAY_GHOSTS, "deep link lands on Play > Ghosts");
+
+    // Visibility table checks across all contexts: PC flat, PC VR, Quest, Mobile, iOS, tvOS
+    check(gevrLauncherSubCount(GEVR_LTAB_CONTROLS, GEVR_CTX_PC_FLAT) == 3 &&
+          gevrLauncherSubId(GEVR_LTAB_CONTROLS, 0, GEVR_CTX_PC_FLAT) == GEVR_LSUB_KBM &&
+          gevrLauncherSubId(GEVR_LTAB_CONTROLS, 1, GEVR_CTX_PC_FLAT) == GEVR_LSUB_GAMEPAD &&
+          gevrLauncherSubId(GEVR_LTAB_CONTROLS, 2, GEVR_CTX_PC_FLAT) == GEVR_LSUB_LOOK,
+          "PC flat Controls shows Keyboard & mouse, Gamepad, Look");
+    check(gevrLauncherSubCount(GEVR_LTAB_CONTROLS, GEVR_CTX_APPLE_TV) == 2 &&
+          gevrLauncherSubId(GEVR_LTAB_CONTROLS, 0, GEVR_CTX_APPLE_TV) == GEVR_LSUB_GAMEPAD &&
+          gevrLauncherSubId(GEVR_LTAB_CONTROLS, 1, GEVR_CTX_APPLE_TV) == GEVR_LSUB_LOOK,
+          "Apple TV Controls hides Keyboard & mouse");
+    check(gevrLauncherSubCount(GEVR_LTAB_CONTROLS, GEVR_CTX_QUEST) == 5 &&
+          gevrLauncherSubId(GEVR_LTAB_CONTROLS, 0, GEVR_CTX_QUEST) == GEVR_LSUB_HANDS &&
+          gevrLauncherSubId(GEVR_LTAB_CONTROLS, 4, GEVR_CTX_QUEST) == GEVR_LSUB_LOOK,
+          "Quest/PC VR Controls shows Hands, Gestures, Throwing, Haptics, Look");
+    check(gevrLauncherSubCount(GEVR_LTAB_CONTROLS, GEVR_CTX_PC_VR) == 5, "PC VR matches Quest Controls sub-tabs");
+    check(gevrLauncherSubCount(GEVR_LTAB_PLAY, GEVR_CTX_PC_FLAT) == 2, "Play has Play and Ghosts sub-tabs");
+    check(gevrLauncherSubCount(GEVR_LTAB_COMFORT_DISPLAY, GEVR_CTX_PC_FLAT) == 0 &&
+          gevrLauncherSubCount(GEVR_LTAB_COMFORT_DISPLAY, GEVR_CTX_QUEST) == 0,
+          "Comfort & display is a single page in both flat and VR");
     session = GevrLauncherSession{};
     session.updateDebugCombo(true, true);
     check(!session.debugUnlocked, "returning to launcher relocks and requires a fresh combo");

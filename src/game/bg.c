@@ -835,6 +835,11 @@ Gfx *sub_GAME_7F0B3C8C(Gfx *gdl)
  
     if (sub_GAME_7F0BD8F0())
     {
+#ifdef GEVR
+        /* scorches and bullet holes are coloured by their vertices: no lighting or generated
+         * texture coordinates left on by the last model drawn (a lit Bean prop's list did) */
+        gSPClearGeometryMode(gdl++, G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
+#endif
         gdl = explosionRenderScorchBuffer(gdl);
         gdl = explosionCallRenderBulletImpactOnProp(gdl);
     }
@@ -5541,6 +5546,29 @@ void bgUpdateCurrentPlayerScreenMinMax(void)
             g_CurrentPlayer->screensize.min.y -= extra;
             g_CurrentPlayer->screensize.max.y += extra;
         }
+#ifdef GEVR_FLAT
+        else
+        {
+            /*
+             * A flat game on a screen faster than the game (#274, flat_headset.c): the
+             * refreshes between game frames draw this frame again with the camera turned
+             * on by the look since, which shows a little past each edge. An eighth of the
+             * view each way, which is the most such a frame turns (flatRedrawFrame).
+             */
+            extern int flatHighRefreshWanted(void);
+
+            if (flatHighRefreshWanted())
+            {
+                f32 extra = (g_CurrentPlayer->screensize.max.x - g_CurrentPlayer->screensize.min.x) * 0.125f;
+
+                g_CurrentPlayer->screensize.min.x -= extra;
+                g_CurrentPlayer->screensize.max.x += extra;
+                extra = (g_CurrentPlayer->screensize.max.y - g_CurrentPlayer->screensize.min.y) * 0.125f;
+                g_CurrentPlayer->screensize.min.y -= extra;
+                g_CurrentPlayer->screensize.max.y += extra;
+            }
+        }
+#endif
     }
 #endif
 }

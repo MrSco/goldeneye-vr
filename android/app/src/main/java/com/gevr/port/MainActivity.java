@@ -179,6 +179,18 @@ public class MainActivity extends SDLActivity {
         });
     }
 
+    public void quitApp() {
+        if (reporter != null) reporter.foreground(false);
+        if (lobbies != null) lobbies.stopAndWait(
+                android.os.Looper.myLooper() == android.os.Looper.getMainLooper() ? 1000 : 2000);
+        if (friends != null) friends.shutdown();
+        runOnUiThread(() -> {
+            Log.i(TAG, "Quitting app from launcher");
+            finishAndRemoveTask();
+            android.os.Process.killProcess(android.os.Process.myPid());
+        });
+    }
+
     // --- ROM file picker (called from the in-VR launcher, port/vr/vr_launcher.cpp) ---
     private static final int REQUEST_PICK_ROM = 0x6e;
     private static final int REQUEST_PICK_XBLA = 0x71;

@@ -90,11 +90,14 @@ int gevrFitLook(int hand) { return gevrGexHeld(hand) ? 1 : 0; }
 static int beanOn, beanMag[2], beanPoints;
 static float beanFoot[3], beanFit[2][3];
 static int gevrBeanIsEnabled(void) { return beanOn; }
+/* GoldenEye's own guns' magazines (gevr_n64mag.h): the ROM's art is GoldenEye's, not a hack's */
+static int ownArt;
+static int gevrRomRetailArt(void) { return ownArt; }
 static int gevrBeanPp7(int item)
 { return item == ITEM_WPPK || item == ITEM_WPPKSIL || item == ITEM_SILVERWPPK || item == ITEM_GOLDWPPK; }
 static int beanKind;   /* gun.c gevrBeanMagKind: 1 a loose round, 2 gone once fired, 4 never pulled */
 static int gevrBeanMagKind(int hand);
-static int gevrBeanMagHeld(int hand) { return !VrGexGuns && beanOn && beanMag[hand]; }
+static int gevrBeanMagHeld(int hand) { return !VrGexGuns && (beanOn || ownArt) && beanMag[hand]; }
 static int beanLiftsOff;
 s32 gevrBeanMagPullsUp(s32 hand) { return gevrBeanMagHeld(hand) && beanLiftsOff; }
 static int gevrBeanMagKind(int hand) { return gevrBeanMagHeld(hand) ? beanKind : 0; }
@@ -127,6 +130,14 @@ static int gevrGexMagPoints(float c[3], float w[3], float h[3])
     memcpy(w, wellPoint, sizeof(wellPoint));
     memcpy(h, heldPoint, sizeof(heldPoint));
     return pointsValid;
+}
+/* gun.c: the shells a GoldenEye X shotgun carries, once it has been drawn */
+static int gexSaddle;
+static float gexSaddleAt[3];
+static int gevrGexSaddlePoint(float at[3])
+{
+    memcpy(at, gexSaddleAt, sizeof(gexSaddleAt));
+    return gexSaddle;
 }
 static int gevrBeanMagPoints(float c[3], float w[3], float h[3])
 {
@@ -211,7 +222,7 @@ static void reset(void)
     player.hands[GUNRIGHT].weapon = ITEM_WPPK;
     player.hands[GUNLEFT].weapon = ITEM_UNARMED;
     gex[0] = gex[1] = 0;
-    beanOn = beanMag[0] = beanMag[1] = beanPoints = beanLiftsOff = beanKind = 0;
+    beanOn = beanMag[0] = beanMag[1] = beanPoints = beanLiftsOff = beanKind = ownArt = 0;
     memset(beanFit, 0, sizeof(beanFit));
     pointsValid = supportHeld = supportCtrl = falls = foreEnd = 0;
     readyEvents = 0;
@@ -497,7 +508,24 @@ static void beanPp7Reload(void)
 
     reset();
     VrGexGuns = 0;
-    assert(!gevrHandReloadActive() && !gevrManualReloadOn(GUNRIGHT));   /* neither model set */
+    assert(!gevrHandReloadActive() && !gevrManualReloadOn(GUNRIGHT));   /* a ROM hack's own guns: the game's reload */
+    /* GoldenEye's own guns reload by hand as Bean's do (owner, 2026-11-21: "also original mode
+     * guns"): the same states, by the magazine gevr_n64mag.c lays out of the cartridge's model */
+    ownArt = 1; beanMag[GUNRIGHT] = 1;
+    stats.MagSize = 7;
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine = 3;
+    at(1, 20, 20, 40);
+    at(0, 20, -20, 40);
+    gevrHandReloadTick();
+    assert(gevrHandReloadActive() && gevrManualReloadOn(GUNRIGHT) && gevrReloadButtonDrops(GUNRIGHT));
+    gevrGexDropMagazine(GUNRIGHT);
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_OUT && player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0);
+    assert(gevrBeanMagState(GUNRIGHT, NULL) == GEVR_GEXMAG_OUT && reserve == 53);
+    /* a gun whose model has nothing to take (the Cougar) is still reloaded by a gesture, never by itself */
+    beanMag[GUNRIGHT] = 0;
+    assert(gevrHandReloadActive() && gevrManualReloadOn(GUNRIGHT) && gevrBeanMagState(GUNRIGHT, NULL) == GEVR_GEXMAG_IN);
+    reset();
+    VrGexGuns = 0;
     beanOn = 1; beanMag[GUNRIGHT] = 1;
     stats.MagSize = 7;
     player.hands[GUNRIGHT].weapon_ammo_in_magazine = 3;
@@ -951,6 +979,41 @@ static void singleRoundReloads(void)
         player.hands[GUNRIGHT].weapon=ITEM_RUGER; stats.AmmoType=0; pistolTick();
         assert(reserve==49 && player.ammoheldarr[0]==0);
         stats.AmmoType=1;
+    }
+    /*
+     * Drawn, a GoldenEye X shotgun's shells are the ones it carries too (owner,
+     * 2026-11-21: the shell replacements "the same on GoldenEye X"): nothing at
+     * the belt, the holster left alone, a fresh grip at the saddle takes one. The
+     * launchers and the Golden Gun carry none and keep the belt.
+     */
+    for (int i=0;i<4;i++) {
+        int rounds, hover;
+        float ring[3];
+        const float cm=GEVR_UNITS_PER_METRE*D_800364CC/100.0f;
+        reset(); stats.MagSize=i>=2 ? 1 : 5; gex[GUNRIGHT]=1;
+        player.hands[GUNRIGHT].weapon=items[i]; player.hands[GUNRIGHT].weapon_ammo_in_magazine=i>=2 ? 0 : 2;
+        pistolTick();
+        memcpy(gexSaddleAt, poses[1], sizeof(gexSaddleAt)); gexSaddleAt[1]+=10*cm; gexSaddle=1;
+        if (i>=2) {
+            assert(gevrReloadBeltRound(0,&rounds,&hover)==GUNRIGHT && !gevrReloadSaddleShown(GUNRIGHT,ring,&hover));
+            gexSaddle=0; continue;
+        }
+        assert(gevrReloadBeltRound(0,&rounds,&hover)==-1 && !gevrReloadBeltOffers(0) && !gevrReloadBeltWanted(0));
+        belt(0,0); gripHeld[0]=1; pistolTick();
+        assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_IN && reserve==50);   /* a grip at the belt: nothing */
+        gripHeld[0]=0; pistolTick();
+        memcpy(poses[0], gexSaddleAt, sizeof(gexSaddleAt)); poses[0][0]+=(GEVR_RELOAD_SADDLE_CM+0.5f)*cm;
+        assert(gevrReloadSaddleShown(GUNRIGHT,ring,&hover) && !hover && !gevrGexClaimsOffHand());
+        assert(fabsf(ring[1]-gexSaddleAt[1])<1e-3f);
+        poses[0][0]-=1.0f*cm;
+        assert(gevrReloadSaddleShown(GUNRIGHT,ring,&hover) && hover && gevrGexClaimsOffHand());
+        gripHeld[0]=1; pistolTick();
+        assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_INHAND && s_gevrGexHeldRounds==1 && reserve==49);
+        pointsValid=3; memset(wellPoint,0,sizeof(wellPoint)); memset(heldPoint,0,sizeof(heldPoint)); pistolTick();
+        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==3 && reserve==49);
+        gripHeld[0]=0; pistolTick();
+        gex[GUNRIGHT]=0; assert(!gevrReloadSaddleShown(GUNRIGHT,ring,&hover)); gex[GUNRIGHT]=1;
+        gexSaddle=0;
     }
     /* Zero reserve, invalid pose, full capacity while held, tracking loss and
      * stage cancellation must conserve the one reserved payload for every rig. */

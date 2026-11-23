@@ -35,8 +35,8 @@ page = page.replace('            ImGui::EndChild();\n        });',
                     '            ImGui::EndChild();\n        });')
 assert 'pageBottom = ' in page
 update = source[source.index('        // Update line: only when there is something to say'):source.index('        const bool campaignReady')]
-footer = ('        if (launcherTabs.top != GEVR_LTAB_MULTIPLAYER) footerTop = ImGui::GetCursorPosY();\n'
-          '        if (launcherTabs.top != GEVR_LTAB_MULTIPLAYER) {\n        ImGui::Separator();\n' + update +
+footer = ('        if (launcherTabs.top != GEVR_LTAB_ONLINE) footerTop = ImGui::GetCursorPosY();\n'
+          '        if (launcherTabs.top != GEVR_LTAB_ONLINE) {\n        ImGui::Separator();\n' + update +
           '        int campaign = 0;\n        gevrLauncherStartRow(&campaign, true, true, true, true, true, false);\n'
           '        startBottom = ImGui::GetItemRectMax().y;\n        }\n')
 row = source[source.index('enum {\n    GEVR_START_ROW_NONE,'):source.index('static void gevrModsPage(')]
