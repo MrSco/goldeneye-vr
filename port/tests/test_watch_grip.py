@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from gevr_testcc import host_libc  # the C library's bcopy, not os.h's, where it has one
 
 ROOT = Path(__file__).resolve().parents[2]
 view = (ROOT / "src/game/bondview2.c").read_text(encoding="utf-8")
@@ -402,7 +403,7 @@ with tempfile.TemporaryDirectory(prefix="gevr-watch-grip-") as temp:
     exe = Path(temp) / "watch_grip.exe"
     source.write_text(fixture, encoding="utf-8")
     args = [shutil.which("gcc") or "gcc", "-std=gnu11", "-O2", "-D_LANGUAGE_C=1",
-            "-Wno-builtin-declaration-mismatch"]
+            "-Wno-builtin-declaration-mismatch", *host_libc()]
     args += ["-I" + str(ROOT / folder) for folder in (".", "include", "src", "port/include")]
     subprocess.run(args + [str(source), "-o", str(exe), "-lm"], check=True)
     subprocess.run([str(exe)], check=True)

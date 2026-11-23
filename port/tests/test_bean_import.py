@@ -31,6 +31,8 @@ def build(directory):
     sanitizers = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] if os.environ.get("BEAN_SANITIZE") else []
     subprocess.run([
         shutil.which("gcc") or "cc", "-std=c11", "-O2", "-Wall", "-Wextra", *sanitizers,
+        # Windows: as the PC build compiles it (its one-argument mkdir, the LZMA SDK's stdio file)
+        *(["-DGEVR_PC=1", "-include", str(ROOT / "port/pc/pc_compat.h")] if os.name == "nt" else []),
         "-I" + str(ROOT / "port/include"),
         str(ROOT / "port/tests/gevr_bean_import_test.c"), str(ROOT / "port/src/gevr_bean_import.c"),
         *[str(ROOT / "port/external/lzma" / (name + ".c")) for name in LZMA],

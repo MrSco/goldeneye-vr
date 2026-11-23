@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import zlib
+from gevr_testcc import host_libc  # the C library's bcopy, not os.h's, where it has one
 
 ROOT = Path(__file__).resolve().parents[2]
 V = 0x80020D90
@@ -179,7 +180,8 @@ def anim_tables(folder):
 def build(harness="port/tests/romcampaign_native.c", extra=()):
     out = Path(tempfile.mkdtemp(prefix="gevr-romcampaign-")) / (Path(harness).stem + ".exe")
     anim_tables(out.parent)
-    args = [shutil.which("gcc") or "gcc", "-O1", "-fms-extensions", "-Wno-builtin-declaration-mismatch", "-static"]
+    args = [shutil.which("gcc") or "gcc", "-O1", "-fms-extensions", "-Wno-builtin-declaration-mismatch", "-static",
+            *host_libc()]
     args += ["-I" + str(out.parent)]
     args += ["-D" + v for v in ("GEVR=1", "PLATFORM_64BIT=1", "_LANGUAGE_C=1", "VERSION=2", "VERSION_US=1", "LANG_US=1")]
     args += ["-I" + str(ROOT / v) for v in (".", "port/include", "include", "src", "src/game", "port/src")]

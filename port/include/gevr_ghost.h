@@ -19,6 +19,11 @@ extern "C" {
 #define GEVR_GHF_SPEED     0x40   /* a movement speed other than the game's */
 #define GEVR_GHF_MIXED     0x80   /* switched between VR and the flat screen mid-run */
 #define GEVR_GHF_TELEPORT  0x100  /* teleport movement (the header's flags2; 0 in a file from before it) */
+/* How the player reloaded, noted and never ranked (owner, 2026-11-23: "almost different
+ * categories when comparing runs"): by hand in VR, with the button (flat, or Hand reload
+ * off), both when it changed mid-run, neither in a run from before v0.5.26. */
+#define GEVR_GHF_HANDRELOAD   0x200
+#define GEVR_GHF_BUTTONRELOAD 0x400
 /* what the boards do not rank (Dab's Ghost Trials: a run outside the trial's rules); teleport
  * movement too (owner, 2026-11-22: "that's not a regular run") */
 #define GEVR_GHF_UNRANKED  (GEVR_GHF_FORCEPULL | GEVR_GHF_ALLY | GEVR_GHF_SPEED | GEVR_GHF_TELEPORT)

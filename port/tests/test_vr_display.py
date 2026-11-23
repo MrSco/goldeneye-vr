@@ -117,6 +117,14 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
             # 48 was an option until 2026-10-30: a saved 48 keeps 24
             subprocess.run([str(exe), "rules_write", str(fast), "48", "0"], cwd=temp, check=True)
             subprocess.run([str(exe), "rules_read", str(fast), "24", "0"], cwd=temp, check=True)
+        # Hand reload: on once for a file from before v0.5.26 (it was off by the old default),
+        # then the player's own choice; on for a new install
+        ini.write_text("ManualReloading=0\n", encoding="utf-8")
+        subprocess.run([str(exe), "reload_read", "1"], cwd=temp, check=True)
+        ini.write_text("ManualReloading=0\nHandReloadDefaulted=1\n", encoding="utf-8")
+        subprocess.run([str(exe), "reload_read", "0"], cwd=temp, check=True)
+        ini.unlink(missing_ok=True)
+        subprocess.run([str(exe), "reload_read", "1"], cwd=temp, check=True)
         ini.unlink(missing_ok=True)
         ini.write_text("[VR]\nRefreshRate=120\n", encoding="utf-8")
         subprocess.run([str(exe)], cwd=temp, check=True, stdout=subprocess.DEVNULL)

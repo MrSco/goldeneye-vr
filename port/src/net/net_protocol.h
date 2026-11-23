@@ -122,6 +122,8 @@ typedef enum {
     NET_MSG_PLATFORMS = 62,     /* Host -> all: u8 n, then n x u8 NET_PLATFORM_* by slot (the roster's "Device" column) */
     /* Additive, no bump: an older build ignores the type, sends none, and its row offers no Add. */
     NET_MSG_FRIEND_CODE = 63,   /* Player -> host -> all: str the slot's friend code, "" none (the roster's Add friend) */
+    /* Additive, no bump: an older build ignores the type, and its row says nothing of its reload. */
+    NET_MSG_RELOAD_MODE = 64,   /* Player -> host -> all: u8 the slot's reload, NET_RELOAD_* (the roster's Reload) */
 } NetMsgType;
 
 #define NET_DISCONNECT_KICKED 0x47454b49u
@@ -166,6 +168,16 @@ typedef enum {
 #define NET_PLATFORM_FRAME 8u           /* the Steam Frame APK (GEVR_FRAME) */
 #define NET_PLATFORM_MAX NET_PLATFORM_FRAME
 #define NET_DISCONNECT_VR_ONLY 0x47455652u   /* 'GEVR' */
+/*
+ * How each player reloads (the roster's Reload, the host's "Hand reload only", the Join
+ * list's filter): by hand in VR (Hand reload on), or with the button. After the platform,
+ * HELLO carries the joiner's u8: additive, without a protocol bump; an older joiner sends
+ * none and is let in, an older host reads past it.
+ */
+#define NET_RELOAD_UNKNOWN 0u
+#define NET_RELOAD_BUTTON 1u
+#define NET_RELOAD_HAND 2u
+#define NET_DISCONNECT_HAND_RELOAD 0x47454852u   /* 'GEHR': "Hand reload only", and the joiner reloads with the button */
 #define NET_CLIENT_CAP_KICK 1u
 /* The guest reads NET_FUN_NO_RADAR (protocol 19 has it). A guest that says otherwise
  * is removed while the rule is pending or live (net_core.c netHostRemoveOldForNoRadar). */

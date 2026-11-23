@@ -58,6 +58,7 @@ extern char VrPlayerName[16];  // multiplayer name, up to 15 characters (launche
 // the guns are ITEM_IDS values; the favorites are bitmasks over net_match.c's lists.
 // VrMpVisibility: 0 public, 1 private, 2 friends only (listed to the host's friends).
 extern int VrMpStage, VrMpWeaponSet, VrMpChr, VrMpVisibility, VrMpVrOnly, VrMpHideFlat;
+extern int VrMpHandReloadOnly, VrMpHideButton;   // the host's "Hand reload only"; the Join list's filter
 // The Join page's server choice (0 all games, 1 dedicated servers, 2 player-hosted,
 // 3 a custom server) and the custom servers typed there, "host[:port]" joined by ';'.
 extern int VrMpServerFilter;
@@ -129,8 +130,8 @@ extern int VrMovementSpeed, VrMpMovementSpeed;
 // GEVR PC's grip gestures, one toggle each (vr_settings_defaults.c). Grabbing within
 // reach is always on; the hip holster gave way to body slots (test.22).
 extern int VrGestureGripUse, VrGestureMineGrab;
-// Force pull (docs/force-pull.md): the pull, pull and disarm, walk-over pickup of guns, the halo and line.
-extern int VrForcePull, VrPullDisarm, VrAutoPickup, VrPullVisuals;
+// Force pull (docs/force-pull.md): the pull, a guard's gun included, with its halo and line.
+extern int VrForcePull;
 // Body slots (gevr_bodyslot.h): on/off, draw what they hold, zone size 0..2,
 // and each slot's fitted centre (cm below the eye, out, ahead; 0 0 0 default).
 extern int VrBodySlots, VrBodySlotShow, VrBodySlotSize;

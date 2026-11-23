@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from gevr_testcc import sanitize  # the sanitizers where the compiler links them
 
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE = "80792b12"
@@ -64,7 +65,7 @@ def run(ghost, directory, name):
         "-include", "stdarg.h", "-include", "stddef.h", "-include", "limits.h",
         "-fms-extensions", "-fno-strict-aliasing", "-Wno-incompatible-pointer-types",
         "-Wno-implicit-function-declaration", "-Wno-int-conversion",
-        "-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer",
+        *sanitize("-fsanitize=address,undefined", "-fno-sanitize-recover=all"), "-fno-omit-frame-pointer",
         "-DPLATFORM_64BIT=1", "-D_LANGUAGE_C", "-DGEVR", "-DVERSION_US",
         *["-I" + str(ROOT / p) for p in (".", "include", "src", "src/game", "port/include")],
         str(source), "-lm", "-o", str(exe)], capture_output=True, text=True)

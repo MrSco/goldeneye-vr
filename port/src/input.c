@@ -507,7 +507,8 @@ static const char *ckNames[CK_TOTAL_COUNT] = {
         "CK_2000",
         "CK_4000",
         "CK_8000",
-        "RESTART_MISSION"
+        "RESTART_MISSION",
+        "CROUCH"
 };
 
 static const char *vkPunctNames[] = {
@@ -613,6 +614,7 @@ void inputSetDefaultKeyBinds(s32 cidx, s32 n64mode)
             { CK_STICK_YNEG,    SDL_SCANCODE_DOWN,   0                   },
             { CK_STICK_YPOS,    SDL_SCANCODE_UP,     0                   },
             { CK_RESTART,       SDL_SCANCODE_BACKSPACE, 0                },
+            { CK_CROUCH,        SDL_SCANCODE_C,      SDL_SCANCODE_LCTRL  },
     };
 
     static const u32 pcjoybinds[][2] = {
@@ -2157,6 +2159,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         s32 xdiff = 0, ydiff = 0;
         u8 prevWeapDown = 0;
         bool restartDown = false;
+        bool crouchKeyDown = false;
         for (s32 k = 0; k < INPUT_MAX_CONTROLLERS; ++k) {
             if (!(slots & (1 << k))) {
                 continue;
@@ -2171,6 +2174,9 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             }
             if (inputBindPressed(k, CK_RESTART)) {
                 restartDown = true;
+            }
+            if (inputBindPressed(k, CK_CROUCH)) {
+                crouchKeyDown = true;
             }
             if (!xdiff) xdiff = (inputBindPressed(k, CK_STICK_XPOS) - inputBindPressed(k, CK_STICK_XNEG));
             if (!ydiff) ydiff = (inputBindPressed(k, CK_STICK_YPOS) - inputBindPressed(k, CK_STICK_YNEG));
@@ -2210,6 +2216,32 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     gevrCrouchToggle = 0;   /* the same stage again: the crouch's reset (below) keys on a new one */
                 }
                 restartHeld = restartDown;
+            }
+        }
+        /*
+         * Crouch toggles on its own key (5.25 report: flat had none; aim + Back
+         * crouches as on the N64, and stays crouched once aim is let go). As the
+         * Quest's left stick click: bondview2.c reads gevrCrouchToggled, a new
+         * level stands.
+         */
+        {
+            static bool crouchKeyHeld = false;
+            static s32 crouchKeyStage = -1;
+#ifdef GEVR_FLAT
+            const bool firstPlayer = player == 0;
+#else
+            const bool firstPlayer = idx == 0;
+#endif
+            if (firstPlayer) {
+                if (bossGetStageNum() != crouchKeyStage) {
+                    crouchKeyStage = bossGetStageNum();
+                    gevrCrouchToggle = 0;
+                }
+                if (crouchKeyDown && !crouchKeyHeld && bossGetStageNum() != LEVELID_TITLE
+                        && !gevrNativePauseOpen() && !inputIsBindingCapture()) {
+                    gevrCrouchToggle = !gevrCrouchToggle;
+                }
+                crouchKeyHeld = crouchKeyDown;
             }
         }
         npad->stick_x = xdiff < 0 ? -0x80 : (xdiff > 0 ? 0x7F : 0);

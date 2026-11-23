@@ -3,6 +3,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import re
+from gevr_testcc import sanitize  # the sanitizers where the compiler links them
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -22,7 +23,7 @@ if __name__ == "__main__":
         binary = Path(temp) / "avatar"
         flags = ["-std=c11", "-D_XOPEN_SOURCE=700", "-fms-extensions", "-include", "stddef.h",
                  "-Wno-builtin-declaration-mismatch", "-g", "-O1",
-                 "-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
+                 *sanitize("-fsanitize=address,undefined"), "-fno-omit-frame-pointer"]
         flags += ["-D" + d for d in ("GEVR=1", "PLATFORM_64BIT=1", "_LANGUAGE_C=1", "VERSION_US=1")]
         flags += ["-I" + str(ROOT / p) for p in (".", "port/include", "include", "src", "src/game", "port/src", "port/src/net")]
         sources = [ROOT / p for p in ("port/tests/avatar_math_native.c", "port/src/gevr_avatar_math.c", "port/src/net/netbuf.c")]

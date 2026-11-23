@@ -47,7 +47,8 @@ static void gevrGhostsPage(const ImVec4 &gold, const ImVec4 &good, const ImVec4 
     v.rows.clear();
     for (int i = 0; i < 100; i++) {
         GevrGhostRow r;
-        r.id = i; r.time60 = 216000 + i; r.flags = i & 1; r.code = "7K3QX2"; r.name = std::string(32, 'W');
+        r.id = i; r.time60 = 216000 + i; r.flags = (i & 1) | (i % 4 == 0 ? 0x200 : i % 4 == 1 ? 0x400 : i % 4 == 2 ? 0x600 : 0); r.code = "7K3QX2";
+        r.name = std::string(32, 'W');
         r.mine = i == 1; r.racing = i == 2;
         v.rows.push_back(r);
     }
