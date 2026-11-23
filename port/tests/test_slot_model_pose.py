@@ -3,6 +3,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+from gevr_testcc import sanitize  # the sanitizers where the compiler links them
 
 ROOT = Path(__file__).resolve().parents[2]
 source = (ROOT / 'src/game/gevr_heldgun.c').read_text()
@@ -56,6 +57,6 @@ with tempfile.TemporaryDirectory(prefix='gevr-slot-pose-') as directory:
     source, exe = temp / 'pose.c', temp / 'pose'
     source.write_text(fixture.replace('/* PRODUCTION */', production))
     subprocess.run([shutil.which('gcc') or 'gcc', '-std=c11', '-O2', '-Wall', '-Werror',
-                    '-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-no-pie',
+                    *sanitize('-fsanitize=address,undefined'), '-fno-omit-frame-pointer', '-no-pie',
                     str(source), '-o', str(exe)], check=True)
     subprocess.run([str(exe)], check=True)

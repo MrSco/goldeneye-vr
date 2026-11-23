@@ -6,6 +6,7 @@ only the parser/audio output is stubbed by music_buffers_native.c.
 import argparse
 from pathlib import Path
 import shutil
+from gevr_testcc import unused_stubs  # MinGW's ld keeps what --gc-sections drops
 import subprocess
 import tempfile
 import zlib
@@ -73,6 +74,12 @@ def main():
                        [str(fixture),
                         str(directory / "gevr_romcheck.o"),
                         str(directory / "gevr_rom_manifest.o"),
+                        # the audio manager and sound init music.c reaches, never run here
+                        *unused_stubs(directory, functions=(
+                            "alBnkfNew", "alCSPNew", "alSeqpSetBank", "amCreateAudioManager", "amStartAudioThread",
+                            "gevrAudioMarkReady", "sndApplyVolumeAllSfxSlot", "sndNewPlayerInit", "sysMemZeroAlloc"),
+                            data=("VrSfxVolume", "_instrumentsctlSegmentRomStart", "_instrumentstblSegmentRomStart",
+                                  "_sfxctlSegmentRomStart", "_sfxtblSegmentRomStart")),
                         "-Wl,--gc-sections", "-lz", "-o", str(exe)], check=True)
         result = subprocess.run([str(exe), str(directory / "bank.bin"),
                                  str(directory / "sizes.txt")])
