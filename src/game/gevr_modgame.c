@@ -19,6 +19,9 @@
 #include "chr.h"
 #include "chrobjdata.h"
 #include <bondaicommands.h>
+#include "music.h"       /* g_musicSfxBufferPtr: the sound effects bank */
+#include "snd.h"
+#include "explosion.h"
 
 extern bool netIsActive(void);       /* net_core.c */
 extern int netGetLocalSlot(void);
@@ -43,6 +46,8 @@ extern PropRecord *chrGiveWeapon(ChrRecord *self, s32 PropID, ITEM_IDS ItemID, s
 extern void objFreePermanently(ObjectRecord *obj, bool freeprop);
 extern int gevrCoopLocalDowned(void);                              /* net_coop.c */
 extern s32 s_gevrExplosionDamage;                                   /* explosion.c: the damage being dealt is a blast's */
+extern s32 sub_GAME_7F053894(coord3d *pos, f32 low, f32 high);      /* propobj.c: a placed sound's volume, heard from here */
+extern void gevrSndSpatialPlace(ALSoundState *state, const coord3d *pos);   /* gevr_sndpath.c */
 
 /* a spawned guard's named behaviours are these global lists */
 typedef char aiNamesAreTheGlobalLists[(int)GEVR_MODAI_STANDARD == (int)GAILIST_STANDARD_GUARD
@@ -955,4 +960,89 @@ int gevrModGameSetPlayerArmour(float armour)
     if (pl) pl->bondarmour = armour;
     set_cur_player(was);
     return pl != NULL;
+}
+
+/* ---- the assets area, part 1: sound effects and smoke ---- */
+
+int gevrModGameSoundCount(void)
+{
+    const ALBank *bank = g_musicSfxBufferPtr;
+
+    return bank != NULL && bank->instCount > 0 && bank->instArray[0] != NULL ? bank->instArray[0]->soundCount : 0;
+}
+
+/* sndPlaySfx, as the game plays one; placed, as chrobjSndCreatePostEvent
+ * places it (its distance volume, scaled; the port's spatial place), heard
+ * by this headset's player */
+int gevrModGamePlaySound(int id, float volume, const float *pos)
+{
+    ALSoundState *state;
+
+    if (!gevrModGamePlayerReady() || id < 1 || id > gevrModGameSoundCount()) return 0;
+    state = sndPlaySfx((struct ALBankAlt_s *)g_musicSfxBufferPtr, (s16)id, NULL);
+    if (state == NULL) return 0;
+    if (pos != NULL)
+    {
+        coord3d at;
+        s32 was = get_cur_playernum();
+
+        at.x = pos[0];
+        at.y = pos[1];
+        at.z = pos[2];
+        set_cur_player(localSlot());
+        sndCreatePostEvent(state, 8, (s32)(sub_GAME_7F053894(&at, GEVR_MODAPI_SOUND_NEAR, GEVR_MODAPI_SOUND_FAR)
+                                           * (volume >= 0.0f ? volume : 1.0f)));
+        gevrSndSpatialPlace(state, &at);
+        set_cur_player(was);
+    }
+    else if (volume >= 0.0f)
+    {
+        sndCreatePostEvent(state, 8, (s32)(0x7FFF * volume));
+    }
+    return 1;
+}
+
+int gevrModGameSmoke(int type, int at, int which)
+{
+    PropRecord *prop = NULL;
+    StandTile *stan = NULL;
+    coord3d pos;
+    u8 rooms[2];
+    u8 *roomList = rooms;
+
+    if (!gevrModGamePlayerReady() || type < 1 || type > GEVR_MODAPI_SMOKE_TYPES) return 0;
+    if (at == GEVR_MODAT_PLAYER)
+    {
+        prop = g_playerPointers[localSlot()]->prop;
+    }
+    else if (at == GEVR_MODAT_GUARD)
+    {
+        ChrRecord *chr = guardById(which);
+
+        prop = chr != NULL ? chr->prop : NULL;
+        if (prop == NULL) return 0;
+    }
+    else if (at == GEVR_MODAT_PAD && padOk(which))
+    {
+        const PadRecord *pad = which >= 10000 ? (const PadRecord *)&g_CurrentSetup.boundpads[which - 10000]
+                                              : &g_CurrentSetup.pads[which];
+
+        pos = pad->pos;
+        stan = pad->stan;
+        rooms[0] = stan != NULL ? stan->room : 0xFF;
+        rooms[1] = 0xFF;
+    }
+    else
+    {
+        return 0;
+    }
+    if (prop != NULL)
+    {
+        pos = prop->pos;
+        stan = prop->stan;
+        roomList = prop->rooms;
+    }
+    if (stan == NULL) return 0;
+    explosionCreateSmoke(&pos, stan, (s16)type, roomList, 0);   /* dropped when its 20 smokes are all in use */
+    return 1;
 }

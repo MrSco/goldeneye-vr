@@ -179,6 +179,21 @@ int gevrModGameBodyOk(int body)
 int gevrModGameHeadOk(int head) { return head >= 46 && head < 88; }
 int gevrModGameGuardGun(int item) { return item >= 4 && item <= 25 && item != 23; }
 
+/* sound and smoke: a bank of 120; guard 99 isn't there */
+int gevrModGameSoundCount(void) { return 120; }
+int gevrModGamePlaySound(int id, float volume, const float *pos)
+{
+    if (pos) printf("SOUND %d %.2f %g %g %g\n", id, volume, pos[0], pos[1], pos[2]);
+    else printf("SOUND %d %.2f -\n", id, volume);
+    return 1;
+}
+int gevrModGameSmoke(int type, int at, int which)
+{
+    if (at == GEVR_MODAT_GUARD && which == 99) return 0;
+    printf("SMOKE %d %d %d\n", type, at, which);
+    return 1;
+}
+
 /* the damage and player area: this machine's player */
 static float s_health = 1.0f, s_armour = 0.0f;
 static int s_dead, s_down;

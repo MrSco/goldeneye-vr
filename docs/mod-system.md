@@ -618,6 +618,28 @@ watch). We maintain the adapters, not the mods.
   `mod.effect.play` selects built-in effects such as smoke and bullet
   impacts through `explosionCreateSmoke()` and
   `explosionCreateBulletImpact()`.
+  - Built (`port/src/gevr_modapi.c` over `src/game/gevr_modgame.c`), on
+    this headset only: a mod that wants every player to hear or see one
+    plays it on every headset, sending the choice over `mod.net`.
+  - `mod.audio.count()`: the cartridge's sound effects bank's size; ids
+    are 1 to it, as `sndPlaySfx()` takes them (the hack's own bank on a
+    hack cartridge). `mod.audio.play(id, volume)` plays one as the game
+    plays its own; `mod.audio.playAt(id, x, y, z, volume)` from a place in
+    world units, as `chrobjSndCreatePostEvent()` places one (the
+    distance's volume, 5000 to 6000 units as `...Default` has it, scaled
+    by `volume`; the port's spatial place). `volume` is 0 to 1; without
+    it the sound keeps its own. False outside a stage or when the game
+    has no voice free.
+  - `mod.effect.play(name, at)`: smoke from `explosionCreateSmoke()`'s
+    own kinds, `"puff"`, `"smoke_small"`, `"smoke"`, `"smoke_light"`,
+    `"smoke_dark"`, `"smoke_large"` and `"smoke_huge"`, where something is:
+    `"player"` (this headset's), a guard's id, or `{ pad = n }`. Smoke needs
+    a tile to stand on and its rooms, which a bare point doesn't give.
+    False when there's no such place; the game drops it when its 20
+    smokes are all in use.
+  - Not built: bullet impacts. `explosionCreateBulletImpact()` marks a
+    surface a shot hit, with its normal and room; a mod has no shot's hit
+    to give it.
 - **Co-op.** Emit `peer_ready` on the validated stage-ready transition
   in `netReceiveStageReady()`. `mod.net.role` uses `netIsHost()` and
   `netIsDedicated()`. The sender ID in `mod.net.on` comes from the
@@ -725,7 +747,7 @@ Every headset runs the swaps at load, so in co-op the choices come from
    poll in `port/tests/test_body_slot_interactions.py`), then guards'
    events and reads (`test_modapi.py`, which also runs
    `gevr_modgame.c`'s told-once bookkeeping), then the calls that change a
-   guard, then damage and the player.
+   guard, then damage and the player, then sound and smoke.
 5. **Network:** `NET_MSG_MOD`, co-op with mods, the dedicated server.
 6. **Sample mod and API reference.**
 7. **Platform check:** Quest, PC, Apple, server, with the sample mod.

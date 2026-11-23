@@ -674,6 +674,123 @@ static const luaL_Reg s_playerFuncs[] = {
     { NULL, NULL },
 };
 
+/* ---- mod.audio, mod.effect: the cartridge's own, on this headset ---- */
+
+/* A sound id from 1 to the bank's count */
+static int soundArg(lua_State *L, int arg)
+{
+    const lua_Integer id = luaL_checkinteger(L, arg);
+
+    if (id < 1 || id > gevrModGameSoundCount()) {
+        return luaL_argerror(L, arg, "a sound is an id from 1 to mod.audio.count()");
+    }
+    return (int)id;
+}
+
+/* An optional volume, 0 to 1; -1 when not given (the sound's own) */
+static float volumeArg(lua_State *L, int arg)
+{
+    lua_Number v;
+
+    if (lua_isnoneornil(L, arg)) return -1.0f;
+    v = luaL_checknumber(L, arg);
+    if (!(v >= 0 && v <= 1)) return (float)luaL_argerror(L, arg, "a volume is 0 to 1");
+    return (float)v;
+}
+
+/* count(): the sound effects bank's ids, 1 to it */
+static int l_audioCount(lua_State *L)
+{
+    lua_pushinteger(L, gevrModGameSoundCount());
+    return 1;
+}
+
+/* play(id, volume): heard as the game's own are, not from a place */
+static int l_audioPlay(lua_State *L)
+{
+    const int id = soundArg(L, 1);
+    const float volume = volumeArg(L, 2);
+
+    lua_pushboolean(L, gevrModGamePlaySound(id, volume, NULL));
+    return 1;
+}
+
+/* playAt(id, x, y, z, volume): heard from there (world units) */
+static int l_audioPlayAt(lua_State *L)
+{
+    const int id = soundArg(L, 1);
+    float pos[3];
+    int i;
+    float volume;
+
+    for (i = 0; i < 3; i++) {
+        const lua_Number v = luaL_checknumber(L, 2 + i);
+
+        if (!(v >= -1e7 && v <= 1e7)) return luaL_argerror(L, 2 + i, "a place is in world units");
+        pos[i] = (float)v;
+    }
+    volume = volumeArg(L, 5);
+    lua_pushboolean(L, gevrModGamePlaySound(id, volume, pos));
+    return 1;
+}
+
+static const luaL_Reg s_audioFuncs[] = {
+    { "count", l_audioCount },
+    { "play", l_audioPlay },
+    { "playAt", l_audioPlayAt },
+    { NULL, NULL },
+};
+
+/* The smoke a mod may raise: g_SmokeTypes' rows by name */
+static const struct {
+    const char *name;
+    int type;
+} s_effects[] = {
+    { "puff", 7 }, { "smoke_small", 2 }, { "smoke", 1 }, { "smoke_light", 3 },
+    { "smoke_dark", 4 }, { "smoke_large", 5 }, { "smoke_huge", 6 },
+};
+
+/* play(name, at): at is "player", a guard's id, or { pad = n } */
+static int l_effectPlay(lua_State *L)
+{
+    const char *name = luaL_checkstring(L, 1);
+    size_t i;
+    int at, which = 0;
+
+    for (i = 0; i < sizeof(s_effects) / sizeof(s_effects[0]) && strcmp(name, s_effects[i].name); i++) {
+    }
+    if (i == sizeof(s_effects) / sizeof(s_effects[0])) {
+        return luaL_argerror(L, 1, "an effect is \"puff\", \"smoke_small\", \"smoke\", \"smoke_light\", \"smoke_dark\", "
+                                   "\"smoke_large\" or \"smoke_huge\"");
+    }
+    if (lua_type(L, 2) == LUA_TSTRING && !strcmp(lua_tostring(L, 2), "player")) {
+        at = GEVR_MODAT_PLAYER;
+    } else if (lua_type(L, 2) == LUA_TNUMBER) {
+        const lua_Integer id = luaL_checkinteger(L, 2);
+
+        if (id < -32768 || id > 32767) {
+            lua_pushboolean(L, 0);
+            return 1;
+        }
+        at = GEVR_MODAT_GUARD;
+        which = (int)id;
+    } else if (lua_istable(L, 2)) {
+        if (!wholeField(L, 2, "pad", 0, 0x7FFF, &which, "mod.effect.play", "a setup pad's number (10000 and up: a bound pad's)")) {
+            return luaL_argerror(L, 2, "a place is \"player\", a guard's id or { pad = n }");
+        }
+        at = GEVR_MODAT_PAD;
+    } else {
+        return luaL_argerror(L, 2, "a place is \"player\", a guard's id or { pad = n }");
+    }
+    lua_pushboolean(L, gevrModGameSmoke(s_effects[i].type, at, which));
+    return 1;
+}
+
+static const luaL_Reg s_effectFuncs[] = {
+    { "play", l_effectPlay },
+    { NULL, NULL },
+};
+
 static const luaL_Reg s_handFuncs[] = {
     { "position", l_handPosition },
     { "anchor", l_handAnchor },
@@ -713,6 +830,12 @@ void gevrModApiOpen(lua_State *L)
     lua_newtable(L);
     luaL_setfuncs(L, s_playerFuncs, 0);
     lua_setfield(L, -2, "player");
+    lua_newtable(L);
+    luaL_setfuncs(L, s_audioFuncs, 0);
+    lua_setfield(L, -2, "audio");
+    lua_newtable(L);
+    luaL_setfuncs(L, s_effectFuncs, 0);
+    lua_setfield(L, -2, "effect");
 }
 
 void gevrModApiReset(void)

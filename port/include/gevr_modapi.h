@@ -3,7 +3,7 @@
  * sits"): the game's events into mods' scripts (gevr_modscript.c) and the
  * mod.* tables, in port/src/gevr_modapi.c, over a thin game side in
  * src/game/gevr_modgame.c. The areas so far: weapons, items, hands, guards,
- * damage and the player.
+ * damage and the player, sound and smoke.
  */
 #ifndef GEVR_MODAPI_H
 #define GEVR_MODAPI_H
@@ -211,6 +211,14 @@ void gevrModPlayerDamaged(float amount, int by, int affectsArmour, float healthB
 /* bondview2.c bondviewKillCurrentPlayer: the current player died */
 void gevrModPlayerDied(void);
 
+/* ---- the assets area, part 1: the cartridge's own sound effects and smoke,
+ * on this headset (a mod tells the others over mod.net) ---- */
+
+enum { GEVR_MODAT_PLAYER = 1, GEVR_MODAT_GUARD, GEVR_MODAT_PAD };
+#define GEVR_MODAPI_SMOKE_TYPES 10   /* explosion.c g_SmokeTypes' rows past the empty first */
+#define GEVR_MODAPI_SOUND_NEAR 5000.0f   /* a placed sound: full within, as chrobjSndCreatePostEventDefault */
+#define GEVR_MODAPI_SOUND_FAR 6000.0f
+
 /* ---- the game's side (src/game/gevr_modgame.c), for gevr_modapi.c ---- */
 
 typedef struct GevrModWeaponStats {
@@ -289,6 +297,14 @@ int gevrModGamePlayerHealth(float *health, float *armour);
  * dead, down (co-op) or not in a stage */
 int gevrModGameSetPlayerHealth(float health);
 int gevrModGameSetPlayerArmour(float armour);
+/* The sound effects bank's count: ids 1 to it (sndPlaySfx's, 1-based) */
+int gevrModGameSoundCount(void);
+/* Play one in a stage: volume 0 to 1 sets it, -1 keeps its own; pos (world
+ * units) places it, heard from there; 0 when it couldn't */
+int gevrModGamePlaySound(int id, float volume, const float *pos);
+/* Smoke (a g_SmokeTypes row, 1 to GEVR_MODAPI_SMOKE_TYPES) where this
+ * headset's player, a guard or a pad is; 0 when there's no such place */
+int gevrModGameSmoke(int type, int at, int which);
 
 #ifdef __cplusplus
 }

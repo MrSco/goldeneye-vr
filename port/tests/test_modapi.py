@@ -766,6 +766,45 @@ end)
     check(logs(out) == ["down ok"], "a downed player's health isn't set: " + out[-400:])
 
 
+def effects_placement():
+    """the cartridge's own: sndPlaySfx placed as the game places one; explosionCreateSmoke where something is"""
+    game = (ROOT / "src/game/gevr_modgame.c").read_bytes().decode()
+    play = function(game, "int gevrModGamePlaySound(")
+    check("id > gevrModGameSoundCount()" in play and play.index("sndPlaySfx(") < play.index("sub_GAME_7F053894(&at,")
+          < play.index("gevrSndSpatialPlace(state, &at);"), "a sound: an id the bank has, placed as chrobjSndCreatePostEvent does")
+    smoke = function(game, "int gevrModGameSmoke(")
+    check("padOk(which)" in smoke and "guardById(which)" in smoke and smoke.index("if (stan == NULL) return 0;")
+          < smoke.index("explosionCreateSmoke("), "smoke: at a pad the stage has, a guard there is, a tile to stand on")
+
+
+def effects(exe, temp):
+    play = ("start", "prepare", 9, "begin", 9)
+    lua = r"""
+mod.on("mission_start", function()
+  local a, e = mod.audio, mod.effect
+  assert(a.count() == 120)
+  assert(a.play(5) and a.play(120, 0.5) and a.playAt(7, 10, 20, 30) and a.playAt(8, 1, 2, 3, 0.25))
+  for _, bad in ipairs({ { 0 }, { 121 }, { 1.5 }, { "x" }, { 5, 1.5 }, { 5, -0.1 }, { 5, 0 / 0 } }) do
+    assert(not pcall(a.play, table.unpack(bad)), "a bad sound or volume")
+  end
+  assert(not pcall(a.playAt, 5, 1, 2) and not pcall(a.playAt, 5, 1, 2, 0 / 0) and not pcall(a.playAt, 5, 1, 2, 3, 2))
+  assert(e.play("smoke", "player") and e.play("puff", 7) and e.play("smoke_huge", { pad = 12 }))
+  assert(e.play("smoke_dark", 99) == false, "no such guard")
+  for _, bad in ipairs({ { "fire", "player" }, { "smoke" }, { "smoke", "enemy" }, { "smoke", {} },
+                         { "smoke", { pad = -1 } }, { "smoke", { pad = 1.5 } } }) do
+    assert(not pcall(e.play, table.unpack(bad)), "a bad effect or place")
+  end
+  print("effects ok")
+end)
+"""
+    out = run(exe, temp, "effects", lua, *play)
+    check(logs(out) == ["effects ok"], "mod.audio and mod.effect: " + out[-600:])
+    check(answers(out, "SOUND", "SMOKE") == ["SOUND 5 -1.00 -", "SOUND 120 0.50 -", "SOUND 7 -1.00 10 20 30",
+                                             "SOUND 8 0.25 1 2 3", "SMOKE 1 1 0", "SMOKE 7 2 7", "SMOKE 6 3 12"],
+          "the sounds and smokes as the game gets them (the sound's own volume unless given): "
+          + str(answers(out, "SOUND", "SMOKE")))
+
+
 def main():
     placement()
     items_placement()
@@ -773,6 +812,7 @@ def main():
     guards_placement()
     guards2_placement()
     damage_placement()
+    effects_placement()
     with tempfile.TemporaryDirectory(prefix="gevr-modapi-") as temp:
         temp = Path(temp)
         exe = build(temp)
@@ -853,6 +893,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
         guards(exe, temp)
         guards2(exe, temp)
         damage(exe, temp)
+        effects(exe, temp)
         guards_told(temp)
 
     if FAILS:
@@ -865,7 +906,8 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
           "mod.hands' positions, anchors and pulses; the hooks' places. Guards area: guard_spawning's body, head and gun, "
           "refusals, alerts, kills and corpses told once on the host, mod.guards' reads; the hooks' places. Guards, part 2: "
           "spawn, giveWeapon, patrol, paths, guard_spawned, guard_killed's player. Damage and player: before_damage's "
-          "answers and refusals, damage_applied, downed, revived, died, mod.player's health and armour; the hooks' places")
+          "answers and refusals, damage_applied, downed, revived, died, mod.player's health and armour; the hooks' places. "
+          "Sound and smoke: mod.audio's ids, volumes and places, mod.effect's smokes and places")
 
 
 if __name__ == "__main__":
