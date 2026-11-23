@@ -173,6 +173,24 @@ typedef int32_t s32;
     load(b"\x11\x72" + bytes(9), 19, copied=False)  # rounded compressed size needs space
     print("resource loader: valid bank converted; bad input/insufficient space rejected before conversion")
 
+    # a model file: the run's mod's own, converted already, in the cartridge's place; never over GoldenEye X's
+    resource.test_load_model.argtypes = [C.c_void_p, C.c_uint, C.c_void_p, C.c_int, C.POINTER(C.c_uint),
+                                         C.c_uint, C.c_int]
+
+    def model(mod, gex):
+        blob = compressed(payload)
+        source = C.create_string_buffer(blob)
+        output = C.create_string_buffer(len(payload) + 32)
+        written = C.c_uint(0)
+        assert resource.test_load_model(source, len(blob), output, len(payload), C.byref(written), mod, gex)
+        return (written.value, resource.test_conversions(), resource.test_mod_asks(), resource.test_mod_last(),
+                output.raw[:written.value])
+
+    assert model(0, 0) == (len(payload), 1, 1, 0, payload)          # none: the cartridge's, converted as ever
+    assert model(100, 0) == (100, 0, 1, 1, b"M" * 100)              # the mod's, not converted again
+    assert model(100, 1) == (3, 1, 0, 0, b"GEX")                    # GoldenEye X's gun: the mod isn't asked
+    print("resource loader: a mod's model file in the cartridge's place; never over GoldenEye X's")
+
     class File(C.Structure):
         _fields_ = [("offset", C.c_uint), ("size", C.c_uint), ("compressed", C.c_uint)]
     count = C.c_uint.in_dll(lib, "g_GevrRomFileCount").value

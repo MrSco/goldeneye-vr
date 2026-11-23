@@ -39,7 +39,7 @@ health = function(bond, "int bondviewGetIfCurrentPlayerHealthShowTime(void)")
 update_start = bond.index("    if (g_CurrentPlayer->healthshowtime >= 0)")
 update = function(bond[update_start:], "    if (g_CurrentPlayer->healthshowtime >= 0)")
 hook_source = (ROOT / "src/game/objecthandler_2.c").read_text()
-hook = hook_source[hook_source.index("    if (!gevrGexPendingFile) gevrBeanModelApply"):].split("\n", 1)[0]
+hook = hook_source[hook_source.index("    if (!gevrGexPendingFile && !modModel) gevrBeanModelApply"):].split("\n", 1)[0]
 input_source = (ROOT / "port/src/input.c").read_text()
 shortcut_start = input_source.index("        {", input_source.index("/* One grip (not both:"))
 # This block shares the same state machine each tick; extract its balanced braces.
@@ -79,7 +79,7 @@ fixture = r'''
 #define GE_HUD_ASPECT_CENTER 0x30u
 #define PORT_HUD_ASPECT(gdl, mode) ((void)0)
 using s32=int; using u32=unsigned; using f32=float;
-struct Entry {std::string path;uint8_t fmt,siz;bool bean=false;};
+struct Entry {std::string path;uint8_t fmt,siz;bool bean=false;bool mod=false;};
 static std::vector<Entry> s_entries;
 static std::unordered_map<uint64_t,std::vector<int>> s_index;
 static bool s_ready=true;
@@ -92,7 +92,11 @@ void gevrBeanSetEnabled(int on){enabled=on;}
 void gevrBeanToggle(){enabled=!enabled;}
 static int clears=0,lastBean=-1,lastFill=-1,s_tpUserOff=0,VrBeanFillTextures=1;
 static bool s_tpFillOnly=false;
-namespace gevrtp { int find(uint64_t k,uint8_t f,uint8_t s,bool b){return ::find(k,f,s,b);} }
+/* a mod's textures (gevr_modassets.h): none in these runs */
+static bool s_tpModLive=false,s_tpPackOff=false;
+static int lastOff=-1,lastMod=-1;
+namespace gevrtp { int find(uint64_t k,uint8_t f,uint8_t s,bool b){return ::find(k,f,s,b);}
+                   int findMod(uint64_t,uint8_t,uint8_t){return -1;} }
 /* TPFIND */
 static bool s_tpActive=true,s_tpIndexed=true;
 static std::unordered_map<const void*,bool> s_tpRepaintFill;
@@ -100,10 +104,10 @@ static std::vector<int> s_tpUploads,s_tpPending;
 void gfx_texture_cache_clear(){clears++;}
 void sysLogPrintf(int,const char*,...){}
 #define LOG_NOTE 0
-void tick(){ /* MODE */ }
+void tick(){ const int modLive=0; const int off=s_tpUserOff!=0; /* MODE */ }
 static int loads=0;static void* gevrGexPendingFile=nullptr;
 void gevrBeanModelApply(void*,const char*){loads++;}
-void apply(){void* objheader=nullptr;const char* name="Gak47Z"; /* HOOK */ }
+void apply(){void* objheader=nullptr;const char* name="Gak47Z";const int modModel=0; /* HOOK */ }
 static bool grips[2]; bool get_button_state(int hand,const char*){return grips[hand];}
 void vrSettingsSave(){}
 void shortcutTick(unsigned now,bool rclick){ /* SHORTCUT */ }

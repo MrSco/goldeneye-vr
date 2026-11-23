@@ -39,7 +39,9 @@ A pack is a zip that unpacks into `texture-packs/mods/<id>/` (the Quest's
 ```
 mod.json            manifest (below)
 scripts/main.lua    entry point; other .lua files under scripts/
-assets/...          models, textures, data the scripts load
+assets/...          models, textures, data the scripts load:
+  models/<Name>     a cartridge model file in the cartridge's place (Assets)
+  textures/...      PNGs named as GLideN64 ("Rice") packs name them
 files.sha256        checksum list of every other file
 ```
 
@@ -333,7 +335,7 @@ is the proposal to refine with mod authors (Tactical first).
 | Items | `pickup_spawning` (can swap a weapon, ammo or armour pickup at its existing pad), `item_pickup`, `item_spawned` | spawn a pickup, take or give an item |
 | Guards | `guard_spawning`, `guard_spawned`, `guard_alerted`, `guard_shot`, `guard_killed`, `corpse_retiring` | read state, give a guard's weapon or outfit (from the ROM's bodies), spawn a guard and send it along a patrol path through the game's own spawn and AI commands |
 | Damage and player | `before_damage`, `damage_applied` (a player's too: no separate `player_damaged`), `player_downed`, `player_revived`, `player_died` | health and armour |
-| Assets | — | load a model or texture from the pack, attach it to a hand, gun or body slot, `mod.audio.play` (ROM sound effects only), `mod.effect.play` |
+| Assets | — | the pack's model files in the cartridge's place and its textures over the HD pack (no call: they're there); attach a model to a hand, gun or body slot (next); `mod.audio.play` (ROM sound effects only), `mod.effect.play` |
 | UI | `ui_click`, `ui_change` | a page on the in-game screen from a simple layout (text, toggles, choices, sliders, buttons): `mod.ui.page`, `remove`, `open`, `close` |
 | Network | `peer_ready`, `mod.net.on` (includes the sender's player ID) | `mod.net.send`, `mod.net.role`, `mod.net.slot` |
 | Storage | — | read and write in `mods/<id>/save/` |
@@ -720,6 +722,37 @@ in-game screen). We maintain the adapters, not the mods.
     longest labels, choices and reasons, four buttons) on both screens
     without scrolling at the Quest's font size
     (`port/tests/ingame_fit_native.cpp`).
+- **Assets, part one: the pack's files** (owner, 2026-11-23: these first,
+  attachments after). A GoldenEye model file has no header of its own: its
+  switch and texture counts and its skeleton are the game's, for the file
+  it is (SubDrag's editors import into an existing object's slot). So a
+  mod's model takes a cartridge model's place, and a mod's textures go over
+  the player's HD pack. Both are the run's mod campaign's, the same build on
+  every machine of a party (the content check), and need no call.
+  `port/src/gevr_modassets.c`.
+  - `assets/models/<Name>`: a model file (a gun, prop or character:
+    `GpistolZ`, `PcartonZ`, `CdjbondZ`) in place of the cartridge's,
+    wherever the game loads it (`ob.c` `load_resource`), on the dedicated
+    server too. As the cartridge stores it (Rare's 1172 compression) or
+    decompressed, at most 4 MB. It keeps the cartridge's header, so it must
+    fit it: one that won't decompress into the room the game makes for the
+    cartridge's file, or that `gevr_model.c` can't rebuild with the
+    header's counts, leaves the cartridge's, with a log line.
+  - GoldenEye X's guns, when they're on, are drawn instead of a mod's
+    (theirs are whole models of their own). The patches made for the
+    cartridge's meshes leave a mod's model alone: the VR hands' closed
+    shells, Oddjob's hat, Bean's meshes and the magazines taken out by
+    hand (all measured on the cartridge's). So with Bean on, a model the
+    mod replaces keeps the mod's look, and a gun it replaces has no
+    cartridge magazine to take out.
+  - `assets/textures/`: PNGs named `IDENT#CRC#F#S[#PAL]_all.png` as an HD
+    pack's are, in any folders, read as a layer of their own
+    (`gevr_texpack.cpp`): asked first, over the player's pack and Bean's
+    fill, and kept when the player switches HD textures off. Bean's own
+    pictures are bound before any pack is asked, so they win where Bean
+    has one. No HD pack needs to be chosen. A mod that can't start shows
+    none. They match textures by content, so a mod over Goldfinger 64 or
+    Tomorrow Never Dies names that cartridge's own.
 
 ### Pickup swaps
 
@@ -825,7 +858,9 @@ Every headset runs the swaps at load, so in co-op the choices come from
    `gevr_modgame.c`'s told-once bookkeeping), then the calls that change a
    guard, then damage and the player, then sound and smoke; after the
    network (5), the UI's pages on the in-game screen (the fit on both
-   screens in `port/tests/test_ingame_fit.py`). Assets are next.
+   screens in `port/tests/test_ingame_fit.py`). Then assets: the pack's
+   files first (`port/tests/test_modassets.py`, the routing in
+   `port/tests/test_romcheck.py`), attachments next.
 5. **Network:** `NET_MSG_MOD`, co-op with mods, the dedicated server.
    `mod.net`, `peer_ready` and a stop told to every headset
    (`port/tests/test_modapi.py`; the routing and checks on the production

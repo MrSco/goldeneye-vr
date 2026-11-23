@@ -14,9 +14,10 @@
 
 namespace gevrtp {
 
-// Once: scan the selected pack plus Bean/GOLDENEYE in the background.
+// Once: scan the selected pack plus Bean/GOLDENEYE in the background, and the
+// run's mod's textures (gevr_modassets.h) first, as a layer of their own.
 // Entries retain their owner so a live toggle never mixes packs.
-void start(const char *dir, const char *beanDir = nullptr);
+void start(const char *dir, const char *beanDir = nullptr, const char *modDir = nullptr);
 // True once, the first time it's asked after the scan finished with textures in it.
 bool takeIndexReady();
 // Wait up to ms for a started scan to finish (at once if none was started).
@@ -24,8 +25,12 @@ void waitIndex(int ms);
 // The file name of an entry (for the log), or "".
 const char *name(int id);
 // The entry for a checksum key (see gfx_pc.cpp gevr_texpack_lookup) and the draw
-// tile's format and size, or -1.
+// tile's format and size, or -1. Never the mod's: findMod asks for those.
 int find(uint64_t key, uint8_t fmt, uint8_t siz, bool bean = false);
+// The run's mod's own entry for it, or -1.
+int findMod(uint64_t key, uint8_t fmt, uint8_t siz);
+// The mod's textures indexed (at least one).
+bool hasMod();
 // The decoded image (RGBA8, top row first) when it's ready; otherwise NULL, and
 // the decode is queued.
 const uint8_t *image(int id, uint32_t *w, uint32_t *h);

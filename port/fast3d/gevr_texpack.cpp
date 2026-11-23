@@ -56,6 +56,7 @@ enum { UNLOADED, QUEUED, DECODING, READY, FAILED };
 struct Entry {
     std::string path;
     bool bean = false;
+    bool mod = false;            // the run's mod's assets/textures (gevr_modassets.h)
     uint8_t fmt, siz;
     int state = UNLOADED;
     std::vector<uint8_t> rgba;
@@ -82,6 +83,7 @@ static std::vector<int> s_done;
 static std::atomic<bool> s_started{false};
 static std::atomic<bool> s_ready{false};
 static std::atomic<bool> s_scanned{false};   // the scan is over, textures in it or not
+static std::atomic<bool> s_hasMod{false};    // the mod's layer has textures
 static bool s_announced = false;
 static uint64_t s_tick = 0;
 static size_t s_held = 0;                                     // bytes of decoded images
@@ -234,7 +236,7 @@ static bool parseName(const char *name, uint64_t *key, uint8_t *fmt, uint8_t *si
 }
 
 static void scan(const std::string &dir, std::vector<Entry> &out,
-                 std::unordered_map<uint64_t, std::vector<int>> &index, bool bean) {
+                 std::unordered_map<uint64_t, std::vector<int>> &index, bool bean, bool mod = false) {
     DIR *d = opendir(dir.c_str());
     if (d == nullptr) {
         TPLOG("texpack: can't open %s (%s)", dir.c_str(), strerror(errno));
@@ -258,7 +260,7 @@ static void scan(const std::string &dir, std::vector<Entry> &out,
             isDir = stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
         }
         if (isDir) {
-            scan(path, out, index, bean);
+            scan(path, out, index, bean, mod);
             continue;
         }
         uint64_t key;
@@ -270,7 +272,7 @@ static void scan(const std::string &dir, std::vector<Entry> &out,
         std::vector<int> &slot = index[key];
         bool dup = false;
         for (int i : slot) {
-            if (out[i].fmt == fmt && out[i].siz == siz && out[i].bean == bean) {
+            if (out[i].fmt == fmt && out[i].siz == siz && out[i].bean == bean && out[i].mod == mod) {
                 dup = true;
                 break;
             }
@@ -278,6 +280,7 @@ static void scan(const std::string &dir, std::vector<Entry> &out,
         if (dup) continue;
         Entry e;
         e.bean = bean;
+        e.mod = mod;
         e.path = path;
         e.fmt = fmt;
         e.siz = siz;
@@ -309,13 +312,16 @@ static void shrink(std::vector<uint8_t> &px, uint32_t &w, uint32_t &h) {
     }
 }
 
-static void worker(std::string dir, std::string beanDir) {
+static void worker(std::string dir, std::string beanDir, std::string modDir) {
 #ifdef __ANDROID__
     // issue #52: never ahead of the game's own thread (it decodes flat out as a level starts)
     setpriority(PRIO_PROCESS, (id_t)gettid(), 10);
 #endif
     std::vector<Entry> entries;
     std::unordered_map<uint64_t, std::vector<int>> index;
+    if (!modDir.empty()) scan(modDir, entries, index, false, true);   // the mod's, a layer apart (findMod)
+    const size_t modded = entries.size();
+    if (modded > 0) TPLOG("texpack: %zu of the mod's textures indexed in %s", modded, modDir.c_str());
     if (!dir.empty()) scan(dir, entries, index, false);
     if (!beanDir.empty()) scan(beanDir + "/GOLDENEYE", entries, index, true);
     TPLOG("texpack: %zu textures indexed in %s", entries.size(), dir.c_str());
@@ -331,6 +337,7 @@ static void worker(std::string dir, std::string beanDir) {
         TPLOG("texpack: boot preload queued %zu font glyphs, %zu menu textures, %zu background rows (8/8/4 MiB)",
               s_bootFonts.size(), s_bootMenu.size(), s_bootBackground.size());
         s_ready = !s_entries.empty();
+        s_hasMod = modded > 0;
         s_scanned = true;
     }
 
@@ -407,11 +414,11 @@ static void worker(std::string dir, std::string beanDir) {
     }
 }
 
-void start(const char *dir, const char *beanDir) {
+void start(const char *dir, const char *beanDir, const char *modDir) {
     bool expected = false;
-    if ((!dir || !*dir) && (!beanDir || !*beanDir)) return;
+    if ((!dir || !*dir) && (!beanDir || !*beanDir) && (!modDir || !*modDir)) return;
     if (!s_started.compare_exchange_strong(expected, true)) return;
-    std::thread(worker, dir ? dir : "", beanDir ? beanDir : "").detach();
+    std::thread(worker, dir ? dir : "", beanDir ? beanDir : "", modDir ? modDir : "").detach();
 }
 
 bool takeIndexReady() {
@@ -438,9 +445,23 @@ int find(uint64_t key, uint8_t fmt, uint8_t siz, bool bean) {
     auto it = s_index.find(key);   // read-only after publishing
     if (it == s_index.end()) return -1;
     for (int i : it->second) {
-        if (s_entries[i].fmt == fmt && s_entries[i].siz == siz && s_entries[i].bean == bean) return i;
+        if (s_entries[i].fmt == fmt && s_entries[i].siz == siz && s_entries[i].bean == bean && !s_entries[i].mod) return i;
     }
     return -1;
+}
+
+int findMod(uint64_t key, uint8_t fmt, uint8_t siz) {
+    if (!s_ready || !s_hasMod) return -1;
+    auto it = s_index.find(key);   // read-only after publishing
+    if (it == s_index.end()) return -1;
+    for (int i : it->second) {
+        if (s_entries[i].fmt == fmt && s_entries[i].siz == siz && s_entries[i].mod) return i;
+    }
+    return -1;
+}
+
+bool hasMod() {
+    return s_ready && s_hasMod;
 }
 
 const uint8_t *image(int id, uint32_t *w, uint32_t *h) {
