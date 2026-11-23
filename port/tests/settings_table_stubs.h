@@ -47,6 +47,9 @@ int s_videoMsaa = 1;   /* video.c: Video.MSAA, a flat game's */
 int videoGetMSAA(void) { return s_videoMsaa; }
 void videoSetMSAA(const int msaa) { s_videoMsaa = msaa; }
 float vr_render_scale(void) { return s_liveRenderScale; }
+float s_scaleMax = 1.5f;   /* vr_openxr.cpp vr_render_scale_max: a Quest 3 */
+float vr_render_scale_max(void) { return s_scaleMax; }
+float g_gevrDisplayHz;     /* vr_settings_defaults.c: the display's rate as it runs */
 int VrScreenCurved, VrScreenPassthrough, VrRefreshRate, VrSpaceWarp = -1;
 int VrPlayMode = 1, VrCampaign;
 int VrAlly, VrAllyWeapon, VrAllyAggression = 1, VrAllyHealth = 100, VrAllyDamage = 100, VrAllyInvincible;

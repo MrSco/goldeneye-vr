@@ -48,6 +48,7 @@ int vr_spacewarp_supported(void);   /* vr_openxr.cpp: Application SpaceWarp is a
 int vr_spacewarp_setting_on(void);  /* vr_openxr.cpp: SpaceWarp chosen, or on with Bean by default */
 int vr_eye_msaa_supported(void);    /* vr_openxr.cpp: the eye images can be multisampled */
 float vr_render_scale(void);        /* vr_openxr.cpp: the eye images' scale this session */
+float vr_render_scale_max(void);    /* vr_openxr.cpp: the most Resolution this headset offers */
 
 /* Tunables, metres and degrees; saved in goldeneye-vr.ini. */
 extern float VrScreenDistance;

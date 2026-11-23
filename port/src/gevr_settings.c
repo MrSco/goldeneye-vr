@@ -85,6 +85,8 @@ extern void vr_apply_refresh_rate(void);
 extern int vr_screen_curve_supported(void);
 extern int vr_passthrough_supported(void);
 extern int vr_eye_msaa_supported(void);
+extern float vr_render_scale_max(void);   /* vr_openxr.cpp: the most Resolution this headset offers */
+extern float g_gevrDisplayHz;             /* vr_settings_defaults.c: the display's rate as it runs, 0 unknown */
 extern void vrSettingsSave(void);
 
 /* port/vr/vr_settings.h's ranges (that header is C++-side) */
@@ -500,22 +502,40 @@ static const char *warnMsaa(void)
 /* Resolution: the eye images over the headset's recommended size (vr_openxr.cpp
  * vr_configure_resolution), made as VR starts, so a change shows "(next start)".
  * Above 1x is supersampling. Before a choice it reads the scale in use (the
- * game config's Video.VRRenderScale). */
+ * game config's Video.VRRenderScale). Each headset offers what its GPU holds
+ * (vr_render_scale_max): PC VR all of them, Quest 3 and 3S up to 1.5x, other
+ * standalone headsets up to 1.25x (owner, 2026-11-23: "hide options for devices
+ * that can't run them"). */
 static const float s_scales[] = { 0.8f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
 static const char *const s_scaleNames[] = { "0.8x", "1x", "1.25x", "1.5x", "1.75x", "2x" };
-#define SCALE_COUNT ((int)(sizeof(s_scales) / sizeof(s_scales[0])))
-static float scaleChosen(void) { return VrRenderScale > 0.0f ? VrRenderScale : vr_render_scale(); }
-static int scalePositions(void) { return SCALE_COUNT; }
+#define SCALE_ALL ((int)(sizeof(s_scales) / sizeof(s_scales[0])))
+static int scalePositions(void)
+{
+    const float most = vr_render_scale_max();
+    int n = 2;   /* 0.8x and 1x always */
+    while (n < SCALE_ALL && s_scales[n] <= most + 0.001f) n++;
+    return n;
+}
+static float scaleChosen(void)
+{
+    const float v = VrRenderScale > 0.0f ? VrRenderScale : vr_render_scale();
+    return fminf(v, s_scales[scalePositions() - 1]);
+}
 static int scaleGet(void)
 {
     const float v = scaleChosen();
+    const int n = scalePositions();
     int i, best = 1;
-    for (i = 0; i < SCALE_COUNT; i++) {
+    for (i = 0; i < n; i++) {
         if (fabsf(s_scales[i] - v) < fabsf(s_scales[best] - v)) best = i;
     }
     return best;
 }
-static void scaleSet(int i) { VrRenderScale = s_scales[i]; }
+static void scaleSet(int i)
+{
+    const int n = scalePositions();
+    VrRenderScale = s_scales[i < 0 ? 0 : i >= n ? n - 1 : i];
+}
 static void scaleText(int i, char *b, int n)
 {
     const int pending = i == scaleGet() && fabsf(s_scales[i] - vr_render_scale()) >= 0.01f;
@@ -523,12 +543,24 @@ static void scaleText(int i, char *b, int n)
      * tooltip's reason): "(slower)" beside "(next start)" ran the launcher's page to one column */
     snprintf(b, n, "%s%s", s_scaleNames[i], pending ? " (next start)" : "");
 }
+/* Above 1x it warns. On a standalone headset at more than 90 Hz with SpaceWarp off it
+ * says what holds it: on the owner's Quest 3 with Bean (2026-11-23, Dam, SpaceWarp off)
+ * 1.25x at 120 Hz dropped 151 frames in two minutes with the GPU 83% busy, where 1.5x
+ * at 90 Hz dropped 22. SpaceWarp draws half the frames. Auto reads the rate the
+ * display runs at (vr_openxr.cpp, once a second). */
 static const char *warnScale(void)
 {
-    return scaleChosen() > 1.01f
-        ? "Resolution above 1x draws more pixels every frame (1.5x is 2.25 times as many) and can make "
-          "the game stutter, most with Bean at 120 Hz. Lower it if frames drop"
-        : NULL;
+    if (scaleChosen() <= 1.01f) return NULL;
+#ifndef GEVR_PCVR
+    {
+        const int hz = VrRefreshRate > 0 ? VrRefreshRate : (int)(g_gevrDisplayHz + 0.5f);
+        if (hz > 90 && !vr_spacewarp_setting_on())
+            return "Resolution above 1x at more than 90 Hz drops frames, most with Bean. Choose 90 Hz in "
+                   "Refresh or turn SpaceWarp on";
+    }
+#endif
+    return "Resolution above 1x draws more pixels every frame (1.5x is 2.25 times as many) and can make "
+           "the game stutter, most with Bean. Lower it if frames drop";
 }
 
 /* Anisotropic filtering of the HD pack's and Bean's mipmapped pictures

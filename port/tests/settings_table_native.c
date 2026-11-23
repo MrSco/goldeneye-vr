@@ -109,6 +109,25 @@ int main(void)
     gevrSettingSet(id, 0);
     check(VrRenderScale == 0.8f && !gevrSettingWarning(id), "resolution below 1x has no warning");
     check(gevrSettingDefault(id) == 1, "resolution's default is 1x");
+    /* each headset offers what its GPU holds: Quest 3 up to 1.5x, others 1.25x, PC VR 2x */
+    check(gevrSettingPositions(id) == 4, "resolution on a Quest 3 stops at 1.5x");
+    s_scaleMax = 1.25f;
+    check(gevrSettingPositions(id) == 3, "resolution on a lesser standalone headset stops at 1.25x");
+    VrRenderScale = 2.0f; text(id, t);
+    check(gevrSettingIndex(id) == 2 && !strncmp(t, "1.25x", 5), "a saved 2x reads as the headset's most");
+    s_scaleMax = 2.0f;
+    check(gevrSettingPositions(id) == 6, "resolution on PC VR reaches 2x");
+    s_scaleMax = 1.5f;
+    /* at more than 90 Hz without SpaceWarp it says what holds it */
+    VrRenderScale = 1.25f; VrRefreshRate = 120; VrSpaceWarp = 0;
+    check(gevrSettingWarning(id) && strstr(gevrSettingWarning(id), "90 Hz"), "resolution at 120 Hz without SpaceWarp says 90 Hz or SpaceWarp");
+    VrSpaceWarp = 1;
+    check(gevrSettingWarning(id) && !strstr(gevrSettingWarning(id), "90 Hz"), "resolution with SpaceWarp warns only of the cost");
+    VrSpaceWarp = 0; VrRefreshRate = 90;
+    check(gevrSettingWarning(id) && !strstr(gevrSettingWarning(id), "90 Hz"), "resolution at 90 Hz warns only of the cost");
+    VrRefreshRate = 0; g_gevrDisplayHz = 120.0f;
+    check(gevrSettingWarning(id) && strstr(gevrSettingWarning(id), "90 Hz"), "Auto reads the display's rate");
+    VrRefreshRate = 120; VrSpaceWarp = -1; g_gevrDisplayHz = 0.0f;
     VrRenderScale = 0.0f; s_liveRenderScale = 1.0f;
     /* Anisotropic filtering: HD pack and Bean pictures, live */
     id = find("Anisotropic filtering");
