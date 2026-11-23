@@ -78,6 +78,7 @@ extern int VrMpBotMode, VrMpBotCount, VrMpBotDifficulty; // bots: NET_BOT_OFF/FI
 extern int VrDetailedGuns;   // guards and other players hold the first-person gun models (#95); 0 = the game's own
 extern int VrGexGuns;        // GoldenEye X's first-person models (guns, items, hands, the watch arm) from data/gex.z64
 extern int VrCampaign;       // 0 GoldenEye, 1 Goldfinger 64, 2 Tomorrow Never Dies, 3 Mirror Mode, 4 Mario Characters. The retail ROM stays put.
+extern char VrCampaignMod[33]; // a mod campaign's id (gevr_modpack.h), played on VrCampaign's cartridge; empty: none
 extern int VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound;
 extern int VrMpCustom[4];       // the host's custom set
 // Co-op (NET_MODE_COOP): the mode, the mission's LEVELID and the solo difficulty (0..3).

@@ -67,6 +67,11 @@ void gevrRomBindSegments() { ++bankCalls; }
 void gevrFootstepsBind() {}
 static void gevrRomBindFileTable() { ++retailBinds; }
 static int gevrRomCheckFiles(void*, unsigned, char*, size_t) { return 1; }
+/* mod campaigns (gevr_modpack.c) are test_modpack.py's: none here */
+struct ModStub { struct { char id[33]; } m; };
+static void gevrModBoot() {}
+static void gevrModBaseFailed(const char*) {}
+static const ModStub *gevrModActive() { return nullptr; }
 static const struct gevrRomFile g_GevrRomSegments[GEVR_SEG_COUNT] = {
     {}, {}, {}, {0, 26608, 0}
 };

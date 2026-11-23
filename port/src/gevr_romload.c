@@ -35,6 +35,7 @@
 #include "gevr_romcheck.h"
 #include "gevr_rom_segments.h"
 #include "gevr_romlayout.h"
+#include "gevr_modpack.h"
 #include "gevr_texpack_preload.h"
 
 extern int VrCampaign;
@@ -296,6 +297,8 @@ s32 romdataInit(void)
 		return 0;
 	}
 
+	/* a mod campaign names its own cartridge (gevr_modpack.c) */
+	gevrModBoot();
 	if (VrCampaign < GEVR_CAMPAIGN_GE || VrCampaign >= GEVR_CAMPAIGN_COUNT) {
 		VrCampaign = GEVR_CAMPAIGN_GE;
 	}
@@ -349,6 +352,7 @@ s32 romdataInit(void)
 				fclose(f);
 			}
 		}
+		gevrModBaseFailed(want ? want->name : NULL);   /* its mod campaign is off too (and says so) */
 		free(data);
 		data = NULL;
 		gevrRomCampaignSet(GEVR_CAMPAIGN_GE);

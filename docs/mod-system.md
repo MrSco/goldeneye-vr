@@ -43,6 +43,20 @@ assets/...          models, textures, data the scripts load
 files.sha256        checksum list of every other file
 ```
 
+- The zip holds these at its top, or inside one folder (as a release zip
+  often does). What a computer adds by itself (`__MACOSX/`, `.DS_Store`,
+  `Thumbs.db`, `desktop.ini`) is left out. Anything outside `scripts/`
+  (`.lua` only) and `assets/` is refused, except `.md` and `.txt` files at
+  the top (a readme, a licence).
+- `files.sha256` is `sha256sum`'s own output: a `<sha256>  <path>` line
+  (or `<sha256> *<path>`) for every file but itself, each once, with `/`
+  between folders. From the mod's folder:
+  `find . -type f ! -name files.sha256 -printf '%P\0' | xargs -0 sha256sum > files.sha256`
+- Names are printable ASCII without `\ : * ? " < > |`; no part is `.` or
+  `..`, ends in a dot or a space, or is a Windows device name (`CON`,
+  `NUL`, `COM1`...); no two names differ only in case. Every platform can
+  then hold the same files.
+
 `mod.json`:
 
 ```json
@@ -60,8 +74,10 @@ files.sha256        checksum list of every other file
 }
 ```
 
-- `id`: lowercase letters, digits and `-`, unique. It names the save file,
-  the ghost tag and the folder.
+- `id`: 1 to 32 lowercase letters, digits and `-`, not starting or ending
+  with `-`; unique. It names the save file, the ghost tag and the folder.
+- `title` and `by`: up to 48 plain ASCII characters. `version`: up to 24,
+  no spaces. `site` (optional): an `https://` address.
 - `api`: the API version the mod was written for (see Versioning).
 - `kind`:
   - `campaign`: a separate entry in the campaign list, its own saves.
@@ -69,11 +85,13 @@ files.sha256        checksum list of every other file
     the Mods page like Oddjob's hat today.
 - `base`: which cartridge it runs on: `ge`, `gf`, `tnd`, `mirror` or `mario`.
   The base ROM must be installed.
-- `coop`: whether the mod supports online co-op (see Multiplayer).
+- `coop` (optional, `false` when left out): whether the mod supports
+  online co-op (see Multiplayer).
 - `affectsPlay` (overlays): `true` when the overlay changes rules, not only
   looks. It is then checked in the lobby (see Multiplayer).
 - `modes` (overlays that affect play): the multiplayer modes it works in,
   from `coop`, `deathmatch` and `horde`.
+- Keys this build doesn't know are skipped, so a later format can add some.
 - The content ID is the SHA-256 of `files.sha256`, computed at install. It
   identifies the exact build of the mod.
 
@@ -91,8 +109,16 @@ files.sha256        checksum list of every other file
   a mod that doesn't hold 90 fps there is listed with a performance warning
   on its row. We can delist it. Design the v1 installer so the browser only adds a
   download step in front of it.
-- Install checks: manifest syntax, `api` supported, checksums match,
-  no paths outside the folder, size limits. Failure leaves nothing installed.
+- **One installer for every platform:** `port/src/gevr_modpack.c` (C,
+  miniz) on the headset, PC, Apple, Android phones and the dedicated
+  server. Each platform's file picker only hands it a zip.
+- Install checks, all before anything is in place: the manifest (above),
+  `api` in the range this build runs, every file against `files.sha256` as
+  it unpacks, the names (above), and the limits: 10,000 files, 256 MB a
+  file, 2 GB in all, `mod.json` 64 KB, `files.sha256` 2 MB. The zip unpacks
+  beside the installed mods (`.<id>.unpacking`) and only then replaces
+  `<id>`. A failure or a cancel leaves the installed mods as they were; a
+  crash's leftovers are tidied at the next start.
 - Update: same as packs today (a newer release in the index or a newer zip).
 - Today's own packs (HD, Bean, GE-X, Oddjob's hat) don't change.
 
@@ -104,17 +130,26 @@ files.sha256        checksum list of every other file
 - A mod whose base ROM is missing, or whose `api` this build doesn't
   support, shows as unavailable with the reason. Starting it never falls
   back silently to another campaign without a note (as the hacks do today).
-- The campaign tables that list every campaign (names, ghost tags,
-  friends, net names) get one generic "mod campaign" entry. The mod's
-  `id` supplies its tag. No per-mod entries in our code.
+- A mod campaign is a cartridge plus a mod: `VrCampaign` keeps naming the
+  cartridge (the manifest's `base`) and `CampaignMod=<id>` in
+  goldeneye-vr.ini names the mod. The tables keyed by cartridge (ROM
+  layouts, names, the lobby's campaign part) don't change. Only what sets
+  a mod campaign apart reads the id: the save file, the ghost tag, the
+  launcher's list, the friends and lobby names, the content check. No
+  per-mod entries in our code.
+- At start (`romdataInit`) the chosen mod is checked again: its manifest,
+  its `api`, every listed file present. One that can't run is off for that
+  run, and the launcher says why (`gevr_campaign_failed.txt`, as for the
+  hacks). If its cartridge doesn't load, the mod is off too and GoldenEye
+  starts, with a note naming both.
 
 ## Saves and records
 
 - A campaign mod saves to `eeprom-mod-<id>.bin`.
 - Mod settings and data the script stores: `mods/<id>/save/` through the
   API, at most 1 MB.
-- Speedrun ghosts and boards use tag `mod-<id>`. Online ghost boards are off
-  for mods in v1 (the content ID would need to be part of the board key).
+- Speedrun ghosts use the tag `mod-<id>`. Online ghost boards are off for
+  mods in v1 (the content ID would need to be part of the board key).
 - iCloud sync leaves mods out in v1.
 
 ## Multiplayer
@@ -370,7 +405,14 @@ Every headset runs the swaps at load, so in co-op the choices come from
    its first real test, is in from #291.
 2. **Packs and launcher:** manifest, install from file, the generic mod
    campaign entry, saves, the content check. No scripting yet: a
-   data-only mod can be installed and started.
+   data-only mod can be installed and started. In three parts:
+   - **2a, core (C):** the manifest, install from a zip with every check,
+     the installed list and remove, the content ID, the run's mod
+     campaign, its save file and ghost tag, boards and iCloud leaving mods
+     out (`port/src/gevr_modpack.c`, `port/tests/test_modpack.py`).
+   - **2b, launcher:** the Mods page's install from file and installed
+     mods, campaign mods in the campaign list, each platform's file picker.
+   - **2c, co-op:** the content check's mod part and the refusal message.
 3. **Scripting core:** Lua, sandbox, budget, errors, the lifecycle and
    storage calls, the perf log line.
 4. **API areas** one at a time, each with native tests (as the repo's

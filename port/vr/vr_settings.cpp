@@ -502,6 +502,8 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "; Campaign at Start: 0 GoldenEye, 1 Goldfinger 64, 2 Tomorrow Never Dies, 3 Mirror Mode.\n");
     iniPrintf(f, "; The four ROMs stay installed together (docs/rom-hacks.md).\n");
     iniPrintf(f, "Campaign=%d\n", VrCampaign);
+    iniPrintf(f, "; A mod campaign's id (texture-packs/mods/<id>), played on Campaign's cartridge; empty: none.\n");
+    iniPrintf(f, "CampaignMod=%s\n", VrCampaignMod);
     iniPrintf(f, "; 1 = in the headset GoldenEye X's arms are every arm, the left wearing the watch; 0 = the watch arm.\n");
     for (int i = 0; i < 4; i++) iniPrintf(f, "MpCustom%d=%d\n", i + 1, VrMpCustom[i]);
     for (int i = 0; i < 4; i++) iniPrintf(f, "MpLoadout%d=%d\n", i + 1, VrMpLoadout[i]);
@@ -986,6 +988,12 @@ extern "C" void vrSettingsLoad(void)
         }
         if (strncmp(line, "Cheats=", 7) == 0) {        // hex bitmask of CHEAT_IDS
             VrCheatMask = strtoull(line + 7, NULL, 16);
+            continue;
+        }
+        if (strncmp(line, "CampaignMod=", 12) == 0) {   // text, even when it reads as a number; gevrModBoot checks it
+            strncpy(VrCampaignMod, line + 12, sizeof(VrCampaignMod) - 1);
+            VrCampaignMod[sizeof(VrCampaignMod) - 1] = '\0';
+            VrCampaignMod[strcspn(VrCampaignMod, "\r\n \t")] = '\0';
             continue;
         }
         if (strncmp(line, "LiveSplitHost=", 14) == 0) {   // text: an address or a name

@@ -6,7 +6,8 @@
  * Nothing here touches the network.
  *
  *   clang -c port/vr/miniz/miniz.c -o miniz.o
- *   clang++ -std=c++20 -I port/pc -I port/include port/tests/pc_services_native.cpp port/pc/pc_http.cpp port/pc/pc_files.cpp miniz.o -lwinhttp -lbcrypt -o pc_services_test.exe
+ *   clang -I port/include -c port/src/gevr_sha256.c -o sha256.o
+ *   clang++ -std=c++20 -I port/pc -I port/include port/tests/pc_services_native.cpp port/pc/pc_http.cpp port/pc/pc_files.cpp miniz.o sha256.o -lwinhttp -o pc_services_test.exe
  *
  * Run it from an empty folder: it writes its zips and their unpacked files there.
  */
@@ -78,8 +79,8 @@ static bool throws(const std::function<void()> &f, int status = 0)
     return false;
 }
 
-/* sha256File (the updater's download check): BCrypt on Windows, the built-in
- * one on Linux; FIPS 180-4's known answers, the last over many read chunks */
+/* sha256File (the updater's download check): port/src/gevr_sha256.c on every
+ * platform; FIPS 180-4's known answers, the last over many read chunks */
 static void testSha256()
 {
     CHECK(writeFileAtomic("sha_abc.bin", "abc"));

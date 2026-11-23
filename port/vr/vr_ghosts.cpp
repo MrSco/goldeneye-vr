@@ -19,6 +19,7 @@
 #include "gevr_romlayout.h"
 #include "vr_friends.h"
 #include "vr_settings.h"
+#include "gevr_modpack.h"
 #include "vr_log.h"
 #include "net_match.h"
 #include <cstdio>
@@ -293,8 +294,8 @@ void gevrGhostsEvent(const std::vector<std::string> &f) {
 
 void gevrGhostsPage(const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad) {
     if (!s_started) start();
-    s_view.note = VrCampaign != GEVR_CAMPAIGN_GE
-        ? "The ghost boards are GoldenEye's: choose GoldenEye beside START. A hack's missions still race your own best run."
+    s_view.note = VrCampaign != GEVR_CAMPAIGN_GE || VrCampaignMod[0] || gevrModActive()
+        ? "The ghost boards are GoldenEye's: choose GoldenEye beside START. A hack's or a mod's missions still race your own best run."
         : nullptr;
     if (s_view.note) {
         gevrGhostsPageDraw(s_view, gold, good, bad);

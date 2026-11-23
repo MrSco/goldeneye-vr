@@ -455,7 +455,8 @@ void iniSaved(const IniFile &f)
 bool isSaveName(const char *n)
 {
     const size_t l = strlen(n);
-    return strncmp(n, "eeprom", 6) == 0 && l > 4 && strcmp(n + l - 4, ".bin") == 0;
+    // a mod campaign's save stays on the device in v1 (docs/mod-system.md)
+    return strncmp(n, "eeprom", 6) == 0 && strncmp(n, "eeprom-mod-", 11) != 0 && l > 4 && strcmp(n + l - 4, ".bin") == 0;
 }
 
 long long fileTime(const std::string &path)
@@ -651,6 +652,7 @@ std::vector<LocalItem> localItems(bool packs)
             const std::string n = e->d_name;
             // our own leftovers (".old-icloud", ".icloud-tmp") and half-made downloads
             if (n[0] == '.' || n.find("icloud") != std::string::npos || n.find(".part") != std::string::npos) continue;
+            if (n == "mods") continue;   // installed mods stay on the device in v1 (docs/mod-system.md)
             struct stat st;
             if (stat((tp + "/" + n).c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) continue;
             std::vector<std::pair<std::string, long long>> files;

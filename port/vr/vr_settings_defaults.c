@@ -17,6 +17,7 @@
 #include <PR/ultratypes.h>
 #include "gevr_watch_status.h"
 #include "vr_settings.h"
+#include "gevr_modpack.h"
 
 /* --- Comfort and control options ---------------------------------------- */
 
@@ -61,6 +62,7 @@ int VrMpBotMode = 0, VrMpBotCount = 3, VrMpBotDifficulty = 2;   /* off; three bo
 int VrDetailedGuns = 1;     /* guards and other players hold the first-person gun models (gevr_heldgun.c) */
 int VrGexGuns = 0;          /* GoldenEye X's first-person models: guns, items, hands and the watch arm, on the
                                screen and in the headset (gevr_gexmodel.c, gun.c); off, as the original */
+char VrCampaignMod[GEVR_MOD_ID_MAX + 1] = "";   /* a mod campaign (docs/mod-system.md): its id; empty: none */
 int VrCampaign = 0;         /* 0 GoldenEye, 1 Goldfinger 64 (data/goldfinger64.z64), 2 Tomorrow Never Dies, 3 Mirror Mode, 4 Mario Characters (data/mario.z64) */
 int VrMpScenario = 0, VrMpLength = 2, VrMpHealth = 5, VrMpDual = 0, VrMpLoadouts = 0, VrMpNextRound = 0;
 int VrMpCustom[4] = { 6, 7, 8, 25 };    /* ITEM_TT33, ITEM_SKORPION, ITEM_AK47, ITEM_ROCKETLAUNCH */
