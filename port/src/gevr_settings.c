@@ -469,13 +469,33 @@ static const char *const s_slotSizeNames[] = { "Small", "Normal", "Large" };
 static const int s_touch[] = { 0, 1, 2, 3, 4 };
 static const char *const s_touchNames[] = { "Auto", "Quest", "Quest 2", "Plus", "Pro" };
 #ifdef GEVR_PCVR
-/* PC VR: a desktop GPU takes 4x for little (vr_openxr.cpp's multisampled eye array) */
+/* PC VR: a desktop GPU takes 4x for little, and 8x, the most the eye images take
+ * (vr_openxr.cpp vr_eye_samples, and no more than the GPU's own most) */
+static const int s_msaa[] = { 1, 2, 4, 8 };
+static const char *const s_msaaNames[] = { "Off", "2x", "4x", "8x" };
+#define MSAA_WARN_ABOVE 8   /* never */
+#else
+/* Quest: 4x at most (vr_eye_samples). Dropped once (24a8d14a): it looked like 2x
+ * once Bean's pictures were mipmapped and cutouts took alpha-to-coverage, cost
+ * Bean's eye pass 1.2 ms, and on battery took Dam to 47-52 fps. Back on the
+ * owner's word (2026-11-22), as "(slower)" with the warning. */
 static const int s_msaa[] = { 1, 2, 4 };
 static const char *const s_msaaNames[] = { "Off", "2x", "4x" };
-#else
-static const int s_msaa[] = { 1, 2 };
-static const char *const s_msaaNames[] = { "Off", "2x" };
+#define MSAA_WARN_ABOVE 2
 #endif
+#define MSAA_COUNT ((int)(sizeof(s_msaa) / sizeof(s_msaa[0])))
+static void msaaText(int i, char *b, int n)
+{
+    i = i < 0 ? 0 : i >= MSAA_COUNT ? MSAA_COUNT - 1 : i;
+    snprintf(b, n, "%s%s", s_msaaNames[i], s_msaa[i] > MSAA_WARN_ABOVE ? " (slower)" : "");
+}
+static const char *warnMsaa(void)
+{
+    return VrEyeMsaa > MSAA_WARN_ABOVE
+        ? "Anti-aliasing above 2x costs GPU time every frame, most with Bean, and on battery can drop the "
+          "frame rate"
+        : NULL;
+}
 
 /* Resolution: the eye images over the headset's recommended size (vr_openxr.cpp
  * vr_configure_resolution), made as VR starts, so a change shows "(next start)".
@@ -782,7 +802,8 @@ static const Row s_rows[] = {
       .cpositions = swPositions, .cget = swGet, .cset = swSet, .ctext = swText, .cdefault = -1 },
     { .label = "Anti-aliasing", .headset = 1, .tooltip = "Smooths jagged edges. Changes right away; costs GPU time, which is short on battery.",
       .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrEyeMsaa,
-      .ivalues = s_msaa, .names = s_msaaNames, .count = sizeof(s_msaa) / sizeof(s_msaa[0]), .def = NAN, .blocked = blockedMsaa },
+      .ivalues = s_msaa, .names = s_msaaNames, .count = sizeof(s_msaa) / sizeof(s_msaa[0]), .def = NAN, .blocked = blockedMsaa,
+      .ctext = msaaText, .warning = warnMsaa },
     { .label = "Resolution", .headset = 1, .tooltip = "Draws each eye at this multiple of the size the headset recommends. "
                                         "Above 1x (supersampling) is sharper and costs GPU time: 1.5x draws 2.25 times the pixels. "
                                         "Below 1x is faster and softer. Takes effect the next time the game starts.",

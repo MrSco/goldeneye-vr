@@ -91,6 +91,12 @@ int main(void)
     check(!strcmp(t, "On (auto)"), "SpaceWarp's default reads On (auto) at 120 Hz");
     id = find("Anti-aliasing");
     check(gevrSettingBlocked(id) && !strcmp(gevrSettingBlocked(id), "Not on this headset"), "anti-aliasing blocks where unsupported");
+    /* 4x back on Quest, warned as "(slower)" (24a8d14a dropped it for its cost) */
+    VrEyeMsaa = 4; text(id, t);
+    check(!strcmp(t, "4x (slower)") && gevrSettingWarning(id) != NULL, "anti-aliasing 4x reads (slower) and warns on a headset");
+    VrEyeMsaa = 2; text(id, t);
+    check(!strcmp(t, "2x") && !gevrSettingWarning(id), "anti-aliasing 2x has no warning");
+    VrEyeMsaa = 1;
     /* Resolution: the eye images' scale, made as VR starts; above 1x warns */
     id = find("Resolution");
     VrRenderScale = 0.0f; s_liveRenderScale = 1.0f; text(id, t);
