@@ -15,10 +15,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define GEVR_LAYOUT_COUNT GEVR_CAMPAIGN_COUNT
 #define GEVR_AI_OPS 253
 
-static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
+static const struct gevrRomLayout g_Layouts[] = {
 	{
 		"GoldenEye 007 (US)", "ge", "GOLDENEYE", "NGEE",
 		{ 0xdc, 0xbc, 0x50, 0xd1, 0x09, 0xfd, 0x1a, 0xa3 },
@@ -330,12 +329,14 @@ int gevrRomCampaign(void)
 
 const struct gevrRomLayout *gevrRomActiveLayout(void)
 {
-	return &g_Layouts[g_Campaign];
+	/* Tactical selects its own save and rules while using the retail cartridge. */
+	const int layoutCampaign = g_Campaign == GEVR_CAMPAIGN_TACTICAL ? GEVR_CAMPAIGN_GE : g_Campaign;
+	return &g_Layouts[layoutCampaign];
 }
 
 int gevrRomIsVariant(void)
 {
-	return g_Layouts[g_Campaign].variant != 0;
+	return gevrRomActiveLayout()->variant != 0;
 }
 
 const struct gevrRomLayout *gevrRomLayoutMatchHeader(const uint8_t *header, uint32_t size)
@@ -345,7 +346,7 @@ const struct gevrRomLayout *gevrRomLayoutMatchHeader(const uint8_t *header, uint
 	if (!header) {
 		return NULL;
 	}
-	for (i = 0; i < GEVR_LAYOUT_COUNT; i++) {
+	for (i = 0; i < (int)(sizeof(g_Layouts) / sizeof(g_Layouts[0])); i++) {
 		const struct gevrRomLayout *L = &g_Layouts[i];
 		size_t title = strlen(L->title);
 

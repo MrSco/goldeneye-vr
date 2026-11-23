@@ -2,6 +2,7 @@
 #include "gevr_settings_ui.h"
 #include "gevr_romcheck.h"
 #include "gevr_romlayout.h"
+#include "gevr_tactical_pack.h"
 #include "gevr_bean.h"
 #include "gevr_icloud.h"
 #include "gevr_bean_ce.h"
@@ -1143,12 +1144,13 @@ enum {
     GEVR_START_ROW_PICK_MARIO,
 };
 
-static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool mirrorGood, bool marioGood, bool ready,
-                                bool focus, const char *startLabel = "START", bool online = false)
+static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool mirrorGood, bool marioGood,
+                                bool tacticalGood, bool ready, bool focus, const char *startLabel = "START",
+                                bool online = false)
 {
     static const char *const names[] = { "GoldenEye", "Goldfinger 64", "Tomorrow Never Dies", "Mirror Mode (Wreck)",
-                                         "Mario Characters" };
-    const bool installed[] = { true, gfGood, tndGood, mirrorGood, marioGood };
+                                         "Mario Characters", "Tactical" };
+    const bool installed[] = { true, gfGood, tndGood, mirrorGood, marioGood, tacticalGood };
     static_assert(sizeof(names) / sizeof(names[0]) == GEVR_CAMPAIGN_COUNT, "a name for every campaign");
     const float startH = ImGui::GetFrameHeight() * 1.6f;
     const float rowY = ImGui::GetCursorPosY();
@@ -1181,7 +1183,7 @@ static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool m
     ImGui::EndDisabled();
     if (online && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) gevrTooltip("Leave the online game to change campaign.");
     if (ImGui::IsItemHovered())
-        gevrTooltip("Choose GoldenEye, Goldfinger 64, Tomorrow Never Dies, Wreck's Mirror Mode or Mario Characters. Add a patched ROM with this menu.");
+        gevrTooltip("Choose a campaign or add a patched ROM. Tactical uses the GoldenEye ROM and an installed asset pack.");
     ImGui::SameLine();
     ImGui::SetCursorPosY(rowY);
     ImGui::BeginDisabled(!ready);
@@ -2285,7 +2287,7 @@ static bool s_campaignInstalled[GEVR_CAMPAIGN_COUNT] = { true };
 static const char *gevrCampaignTitle(int campaign)
 {
     static const char *const names[] = { "GoldenEye", "Goldfinger 64", "Tomorrow Never Dies", "Mirror Mode",
-                                         "Mario Characters" };
+                                         "Mario Characters", "Tactical" };
     static_assert(sizeof(names) / sizeof(names[0]) == GEVR_CAMPAIGN_COUNT, "a name for every campaign");
     return campaign >= 0 && campaign < GEVR_CAMPAIGN_COUNT ? names[campaign] : "another campaign";
 }
@@ -3440,6 +3442,7 @@ extern "C" void gevrLauncherRun(void)
     std::string footerNote;    // the line under START (gevrLauncherStartRow), this frame
     bool footerBad = false;
     bool gfGood = false, tndGood = false, mirrorGood = false, marioGood = false;   // the hack ROMs' header checks, refreshed about once a second
+    bool tacticalGood = false;
     Uint32 hackCheckMs = 0;
     {
         // gevr_romload.c leaves this when a chosen campaign did not load
@@ -3852,6 +3855,8 @@ extern "C" void gevrLauncherRun(void)
                 s_campaignInstalled[GEVR_CAMPAIGN_TND64] = tndGood;
                 s_campaignInstalled[GEVR_CAMPAIGN_MIRROR] = mirrorGood;
                 s_campaignInstalled[GEVR_CAMPAIGN_MARIO] = marioGood;
+                tacticalGood = gevrTacticalPackInstalled(nullptr) != 0;
+                s_campaignInstalled[GEVR_CAMPAIGN_TACTICAL] = tacticalGood;
                 if (VrCampaign == GEVR_CAMPAIGN_GF64 && !gfGood) {
                     VrCampaign = GEVR_CAMPAIGN_GE;
                     gevrRomCampaignSet(VrCampaign);
@@ -3872,6 +3877,11 @@ extern "C" void gevrLauncherRun(void)
                     gevrRomCampaignSet(VrCampaign);
                     vrSettingsSave();
                     if (marioNote.empty()) marioNote = "Mario Characters is not installed. This start uses GoldenEye.";
+                } else if (VrCampaign == GEVR_CAMPAIGN_TACTICAL && !tacticalGood) {
+                    VrCampaign = GEVR_CAMPAIGN_GE;
+                    gevrRomCampaignSet(VrCampaign);
+                    vrSettingsSave();
+                    campaignFail = "Tactical is not installed. This start uses GoldenEye.";
                 }
             }
         }
@@ -4121,10 +4131,11 @@ extern "C" void gevrLauncherRun(void)
             || (VrCampaign == GEVR_CAMPAIGN_GF64 && gfGood)
             || (VrCampaign == GEVR_CAMPAIGN_TND64 && tndGood)
             || (VrCampaign == GEVR_CAMPAIGN_MIRROR && mirrorGood)
-            || (VrCampaign == GEVR_CAMPAIGN_MARIO && marioGood);
+            || (VrCampaign == GEVR_CAMPAIGN_MARIO && marioGood)
+            || (VrCampaign == GEVR_CAMPAIGN_TACTICAL && tacticalGood);
         char startLabel[160];
         gevrLauncherLoadout(startLabel, sizeof(startLabel));   /* "START  (Bean, GE-X, 3 cheats)" */
-        switch (gevrLauncherStartRow(&VrCampaign, gfGood, tndGood, mirrorGood, marioGood,
+        switch (gevrLauncherStartRow(&VrCampaign, gfGood, tndGood, mirrorGood, marioGood, tacticalGood,
                                      !active.empty() && activeInfo.good && campaignReady, focusStart, startLabel,
                                      netIsActive())) {
         case GEVR_START_ROW_START:
@@ -4167,6 +4178,7 @@ extern "C" void gevrLauncherRun(void)
                    : !marioNote.empty() ? marioNote
                    : VrCampaign == GEVR_CAMPAIGN_GE ? std::string()
                    : VrCampaign == GEVR_CAMPAIGN_MIRROR ? "Solo or co-op online, with its own save. GoldenEye X is off."
+                   : VrCampaign == GEVR_CAMPAIGN_TACTICAL ? "Tactical integration preview, with its own save."
                    : gevrCampaignCoop(VrCampaign) ? "Solo or co-op online, its own save. GoldenEye X, Bean and HD packs are off."
                    : "Solo, with its own save. Online play, GoldenEye X, Bean and HD packs are off.";
         footerBad = !campaignFail.empty();

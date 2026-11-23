@@ -162,7 +162,7 @@ static const char *ghostCampaignTag(s32 campaign)
 {
     /* one per campaign: a missing one would file that campaign's runs as GoldenEye's
      * and overwrite GoldenEye's best (Mario Characters, campaign 4, had none) */
-    static const char *const tags[] = { "ge", "gf", "tnd", "mirror", "mario" };
+    static const char *const tags[] = { "ge", "gf", "tnd", "mirror", "mario", "tactical" };
     typedef char tagsForEveryCampaign[sizeof(tags) / sizeof(tags[0]) == GEVR_CAMPAIGN_COUNT ? 1 : -1];
 
     (void)sizeof(tagsForEveryCampaign);

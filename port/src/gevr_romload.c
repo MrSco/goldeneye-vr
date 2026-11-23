@@ -35,6 +35,7 @@
 #include "gevr_romcheck.h"
 #include "gevr_rom_segments.h"
 #include "gevr_romlayout.h"
+#include "gevr_tactical_pack.h"
 #include "gevr_texpack_preload.h"
 
 extern int VrCampaign;
@@ -297,6 +298,16 @@ s32 romdataInit(void)
 	}
 
 	if (VrCampaign < GEVR_CAMPAIGN_GE || VrCampaign >= GEVR_CAMPAIGN_COUNT) {
+		VrCampaign = GEVR_CAMPAIGN_GE;
+	}
+	if (VrCampaign == GEVR_CAMPAIGN_TACTICAL && !gevrTacticalPackInstalled(NULL)) {
+		const char *message = "Tactical pack missing or incomplete. Starting GoldenEye.";
+		sysLogPrintf(LOG_NOTE, "rom: %s", message);
+		FILE *f = fsFileOpenWrite(GEVR_CAMPAIGN_FAILED_FILE);
+		if (f) {
+			fputs(message, f);
+			fclose(f);
+		}
 		VrCampaign = GEVR_CAMPAIGN_GE;
 	}
 	gevrRomCampaignSet(VrCampaign);

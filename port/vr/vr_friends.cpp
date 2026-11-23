@@ -50,6 +50,7 @@ static const char *gevrFriendsCampaignName(int campaign)
     case GEVR_CAMPAIGN_TND64: return "Tomorrow Never Dies 64";
     case GEVR_CAMPAIGN_MIRROR: return "Mirror Mode";
     case GEVR_CAMPAIGN_MARIO: return "Mario Characters";
+    case GEVR_CAMPAIGN_TACTICAL: return "Tactical";
     default: return "";
     }
 }

@@ -1133,7 +1133,7 @@ static uint64_t netContentPart(uint32_t part) {
 /* gevr_romlayout.h GEVR_CAMPAIGN_*, as the launcher names them */
 static const char *netCampaignName(int campaign) {
     static const char *const names[] = { "GoldenEye", "Goldfinger 64", "Tomorrow Never Dies 64", "Mirror Mode",
-                                         "Mario Characters" };
+                                         "Mario Characters", "Tactical" };
     typedef char namesForEveryCampaign[sizeof(names) / sizeof(names[0]) == GEVR_CAMPAIGN_COUNT ? 1 : -1];
     (void)sizeof(namesForEveryCampaign);
     return campaign >= 0 && campaign < GEVR_CAMPAIGN_COUNT ? names[campaign] : "another campaign";

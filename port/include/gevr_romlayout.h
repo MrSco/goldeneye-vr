@@ -32,7 +32,8 @@ extern "C" {
 #define GEVR_CAMPAIGN_TND64 2
 #define GEVR_CAMPAIGN_MIRROR 3
 #define GEVR_CAMPAIGN_MARIO 4
-#define GEVR_CAMPAIGN_COUNT 5
+#define GEVR_CAMPAIGN_TACTICAL 5
+#define GEVR_CAMPAIGN_COUNT 6
 
 #define GEVR_ROM_GF_FILE  "goldfinger64.z64"
 #define GEVR_ROM_TND_FILE "tnd64.z64"
@@ -170,12 +171,13 @@ void gevrRomCampaignSet(int campaign);
 int gevrRomCampaign(void);
 /* The campaign this machine plays: the loaded one, or before the game loads the launcher's (gevr_romload.c). */
 int gevrRomPlayCampaign(void);
-/* Online co-op: every campaign. Mario Characters' level-script pokes reach the teammates as the bytes the
+/* Online co-op: Tactical needs its content and gear handshake before joining. Mario Characters' level-script pokes reach the teammates as the bytes the
  * host's scripts wrote (net_coop.c NET_MSG_COOP_POKES). Deathmatch, Horde and bots stay GoldenEye's: they use
  * its multiplayer maps and tables. */
 static inline int gevrCampaignCoop(int campaign)
 {
-	return campaign >= GEVR_CAMPAIGN_GE && campaign < GEVR_CAMPAIGN_COUNT;
+	return campaign >= GEVR_CAMPAIGN_GE && campaign < GEVR_CAMPAIGN_COUNT
+		&& campaign != GEVR_CAMPAIGN_TACTICAL;
 }
 int gevrRomIsVariant(void);
 /* GoldenEye's own models and pictures: retail, or Mirror Mode's (flipped,
@@ -183,7 +185,8 @@ int gevrRomIsVariant(void);
  * their own under GoldenEye's names. */
 static inline int gevrCampaignRetailArt(int campaign)
 {
-	return campaign == GEVR_CAMPAIGN_GE || campaign == GEVR_CAMPAIGN_MIRROR;
+	return campaign == GEVR_CAMPAIGN_GE || campaign == GEVR_CAMPAIGN_MIRROR
+		|| campaign == GEVR_CAMPAIGN_TACTICAL;
 }
 static inline int gevrRomRetailArt(void)
 {

@@ -449,6 +449,8 @@ static inline void osEepromSetPath(void)
 			// just a filename, look for it in the save dir
 			snprintf(eepromPath, FS_MAXPATH, "$S/%s", extPath);
 		}
+	} else if (gevrRomCampaign() == GEVR_CAMPAIGN_TACTICAL) {
+		strncpy(eepromPath, "$S/eeprom-tactical.bin", FS_MAXPATH);
 	} else if (gevrRomIsVariant()) {
 		/* a hack's missions use the same save slots as GoldenEye's: its own file */
 		snprintf(eepromPath, FS_MAXPATH, "$S/eeprom-%s.bin", gevrRomActiveLayout()->tag);
