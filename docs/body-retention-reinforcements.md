@@ -42,6 +42,9 @@ bodies. If their original fade time has not expired, fading resumes from
 that elapsed time. Once an ID is retired, changing the retention setting
 does not restore it. Corpses still yield slots for real spawns.
 
+Doors pass through dying and dead guards, including retained bodies. Living
+guards and players still block a door in its path.
+
 ## Optional difficulty behavior
 
 Fast reinforcements explicitly allows the existing AI's “my clone does
@@ -83,6 +86,11 @@ a full client spawn queue, late joining, and repeated roster packets.
 
 `python port/tests/test_vr_display.py` also verifies the default Off value
 and independent persistence with every body count on Quest and desktop.
+
+`python port/tests/test_door_obstruction.py` checks door obstruction with
+dying and dead guards, living guards, players, and solid objects. It also
+checks that the shared collision routine still blocks a moving non-door
+object when it meets a corpse.
 
 Headset acceptance is pending: compare spawning on Archives and other
 missions with each body count and Fast mode on/off, change the settings
