@@ -56,6 +56,7 @@ static const char *gevrFriendsCampaignName(int campaign)
 
 // net_core.c: NET_INPUT_*, for presence - every build sends it, not only Android
 extern "C" int gevrNetLocalInputClass(void);
+extern "C" int gevrHandReloadOn(void);   // bondview2.c: Hand reload on, with guns that take it
 
 namespace {
 const char *kPendingJoinFile = "gevr_pending_join.txt";   // beside goldeneye-vr.ini
@@ -414,6 +415,14 @@ extern "C" void gevrFriendsTick(int inGame) {
     static bool settingsSent = false;
     const uint32_t now = SDL_GetTicks();
     s_inGame = inGame != 0;
+    // the lobby roster's Add friend (vr_launcher.cpp gevrLobbyRoster): this player's friend
+    // code, shared with the players in the lobby while signed in and findable (Friends >
+    // the search setting), "" otherwise (net_core.c NET_MSG_FRIEND_CODE)
+    netSetLocalFriendCode(s_model.status == "ready" && s_model.searchable ? s_model.friendCode.c_str() : "");
+    // and how this player reloads (the roster's Reload, the host's "Hand reload only"):
+    // by hand in VR with Hand reload on, else with the button
+    netSetLocalReloadMode(gevrNetLocalInputClass() == NET_INPUT_VR && gevrHandReloadOn() ? NET_RELOAD_HAND
+                                                                                       : NET_RELOAD_BUTTON);
     gevrDiscordTick();   // the SDK's callbacks, every frame it is given
     // a few times a second: each look crosses into Java
     if (now - lastDrain < 200 && lastDrain) return;

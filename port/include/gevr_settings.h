@@ -30,6 +30,7 @@ enum {
     GEVR_SEC_GESTURES,
     GEVR_SEC_WEAPONS,
     GEVR_SEC_DISPLAY,
+    GEVR_SEC_GRAPHICS,     /* Refresh, Resolution, Anti-aliasing, filtering: as the launcher's Comfort & display > Graphics */
     GEVR_SEC_RULES,
     GEVR_SEC_MODS,
     GEVR_SEC_AUDIO,        /* the volumes: the Play tab's in the launcher */
@@ -70,6 +71,7 @@ enum {
     GEVR_LSEC_MODS,
     GEVR_LSEC_MP_FUN,          /* Online > Host > Fun: the host's, live online */
     GEVR_LSEC_MP_AUDIO,        /* Online > Audio */
+    GEVR_LSEC_GRAPHICS,        /* Comfort & display > Graphics (VR + flat) */
     GEVR_LSEC_COUNT
 };
 
@@ -119,6 +121,13 @@ const char *gevrSettingSectionName(int section);
 /* The section's rows shown now in `where`, in order: their ids into ids[max].
  * GEVR_SET_LAUNCHER takes a GEVR_LSEC_* section, GEVR_SET_INGAME a GEVR_SEC_*. */
 int gevrSettingSectionRows(int section, unsigned where, int *ids, int max);
+
+/* Each headset's graphics defaults, what Refresh, Resolution and Anisotropic filtering
+ * mean at Auto (gevr_settings.c), by the class of headset (vr_openxr.cpp vr_headset_class) */
+enum { GEVR_HMD_OTHER, GEVR_HMD_QUEST2, GEVR_HMD_QUEST3, GEVR_HMD_PC };
+int gevrAutoRefreshHz(void);       /* the rate Auto asks for, 0 none (the runtime's) */
+float gevrAutoRenderScale(void);   /* Resolution's Auto at the next start, 0 the game config's */
+int gevrAutoAniso(void);           /* Anisotropic filtering's Auto: 2, 4 or 16 */
 
 #ifdef __cplusplus
 }

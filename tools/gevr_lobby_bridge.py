@@ -2,6 +2,7 @@
 """Put a dedicated server in the internet lobby (docs/dedicated-server.md, P2).
 
     tools/gevr_lobby_bridge.py [--public] [--restart] [--key-file FILE] -- SERVER [SERVER ARGS...]
+    tools/gevr_lobby_bridge.py --key-hash FILE
 
 Starts the server with --lobby-fd and does for it what the headset's
 LobbyClient.java does for the launcher: registers the lobby at
@@ -18,7 +19,10 @@ as a fresh lobby. SIGTERM or Ctrl+C stops the server and removes the lobby.
 service: the lobby is then listed as a dedicated server, never times out
 while the server runs, and keeps the same code each time it registers.
 Without one it is an ordinary lobby, ended after two hours (and registered
-again, under a new code).
+again, under a new code). An operator makes their own key and asks for it to
+be listed with its SHA-256 (--key-hash FILE prints it; the key never leaves
+the server): docs/dedicated-server-operators.md, "Server keys". Until it is
+listed the lobby is an ordinary one, and each registration tries the key again.
 
 Python 3.8+, standard library only.
 """
@@ -50,6 +54,11 @@ SOCKET_RETRY = 60     # s after a failed or dropped socket
 SOCKET_PING = 30      # s; the Worker answers "ping" without waking
 SOCKET_SILENCE = 75   # s heard nothing: the socket is dead
 STATE_REPLY = 10      # s a heartbeat may go unanswered before HTTP takes over
+
+
+def key_hash(key):
+    """The SHA-256 the lobby service lists an approved server key under (the key itself stays secret)."""
+    return hashlib.sha256(key.strip().encode("utf-8")).hexdigest()
 
 
 def log(message):
@@ -258,6 +267,8 @@ class Lobby:
         self.vr_only = None        # "VR players only" as the server last said; None: not said
         self.flat_players = None   # how many play flat, as the server last counted; None: not said
         self.devices = None        # devices|key@build,... as the server last said; None: not said
+        self.hand_only = None      # "Hand reload only" as the server last said; None: not said
+        self.button_players = None # how many reload with the button; None: not said
         self.open = True
         self.phase = "waiting"
         self.next_heartbeat = 0.0
@@ -278,6 +289,8 @@ class Lobby:
             self.vr_only = f[7] == "1" if len(f) == 8 else None
             self.flat_players = None
             self.devices = None
+            self.hand_only = None
+            self.button_players = None
             self.open = True
             self.phase = "waiting"
             self.pending = {"visibility": f[1], "name": f[2], "version": int(f[3]), "stage": int(f[4]),
@@ -297,6 +310,11 @@ class Lobby:
             if state != (self.players, self.open, self.max_players, self.vr_only, self.flat_players):
                 self.players, self.open, self.max_players, self.vr_only, self.flat_players = state
                 self.next_heartbeat = 0
+        elif f[0] == "reload" and len(f) == 3:   # reload|handOnly|buttonPlayers: the Join list's filter
+            hand_only, button = f[1] == "1", max(0, int(f[2]))
+            if (hand_only, button) != (self.hand_only, self.button_players):
+                self.hand_only, self.button_players = hand_only, button
+                self.next_heartbeat = 0
         elif f[0] == "devices" and len(f) == 2:   # devices|key@build,...: what each person runs
             devices = devices_json(f[1])
             if devices != self.devices:
@@ -315,22 +333,25 @@ class Lobby:
     def register(self):
         if self.pending is None:
             return
+        dedicated = bool(self.key)
         try:
             result = http("POST", BASE, self.pending, self.key)
         except HttpError as e:
-            if e.status != 403:
+            if e.status != 403 or not self.key:
                 raise
-            # not retried: the operator fixes the key (or leaves it out)
-            log("the lobby service refused the server key (%s); not registering" % e)
-            self.pending = None
-            self.send("ERROR|" + clean("Lobby service: %s" % e))
-            return
+            # A key the project has not approved yet (or has withdrawn): listed as an
+            # ordinary lobby meanwhile. Each registration tries the key again, so the
+            # server becomes a dedicated one at its next lobby once the hash is listed.
+            log("the lobby service does not know the server key yet (%s); registering as an ordinary lobby."
+                " Its SHA-256 for the request: %s" % (e, key_hash(self.key)))
+            result = http("POST", BASE, self.pending, "")
+            dedicated = False
         self.code, self.token = result["code"], result["ownerToken"]
         visibility = self.pending["visibility"]
         self.pending = None
         self.next_heartbeat = self.next_requests = 0
         self.seen.clear()
-        log("lobby %s registered (%s%s)" % (self.code, visibility, ", dedicated" if self.key else ""))
+        log("lobby %s registered (%s%s)" % (self.code, visibility, ", dedicated" if dedicated else ""))
         self.send("CREATED|%s|%s" % (self.code, self.token))
 
     def lost(self, e):
@@ -434,6 +455,10 @@ class Lobby:
                     state["flatPlayers"] = min(self.flat_players, self.players)
                 if self.devices is not None:
                     state["devices"] = self.devices
+                if self.hand_only is not None:
+                    state["handReloadOnly"] = self.hand_only
+                if self.button_players is not None:
+                    state["buttonPlayers"] = min(self.button_players, self.players)
                 if self.name:
                     state["name"] = self.name
                 sent = False
@@ -547,6 +572,13 @@ def run_server(argv, public, stopping, key):
 
 def main():
     argv = sys.argv[1:]
+    if len(argv) == 2 and argv[0] == "--key-hash":
+        try:
+            with open(argv[1], encoding="utf-8") as f:
+                print(key_hash(f.read()))
+        except OSError as e:
+            sys.exit("cannot read the server key: %s" % e)
+        return
     if "--" not in argv:
         sys.exit(__doc__)
     split = argv.index("--")

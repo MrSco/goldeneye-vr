@@ -8,6 +8,7 @@
 #define GEVR_GHOSTS_UI_H
 #include "imgui/imgui.h"
 #include "gevr_tooltip.h"
+#include "gevr_add_friend_ui.h"   // the Friend column, as the lobby roster's
 #include <algorithm>
 #include <cstdio>
 #include <string>
@@ -22,6 +23,8 @@ struct GevrGhostRow {
     std::string code, name;
     bool mine = false;     // this headset's friend code
     bool racing = false;   // the run this mission races
+    int relation = GEVR_RELATION_NONE;   // what the friends list says of code (gevrFriendRelation)
+    std::string requestId;               // their friend request's, when relation is REQUEST
 };
 
 struct GevrGhostsView {
@@ -32,7 +35,7 @@ struct GevrGhostsView {
     // this headset's run of the mission
     bool haveBest = false;
     int bestTime60 = 0, bestFlags = 0, bestRank = 0;   // rank 0: not on the board shown
-    bool bestUnranked = false;                         // force pull, the ally or a changed speed
+    bool bestUnranked = false;                         // teleport, force pull, the ally or a changed speed
     // what the mission races
     std::string racing;                        // "Your best run", "Natty (GE-7K3QX2), 1:58.20", ...
     bool racingOther = false;                  // a downloaded run (Race my best puts it back)
@@ -44,6 +47,7 @@ struct GevrGhostsView {
     bool busy = false;                         // an upload or a download on its way
     std::string message;                       // the last result
     bool messageBad = false;
+    bool friendsReady = false;                 // signed in to friends: Add and Accept work
 };
 
 struct GevrGhostsActions {
@@ -54,6 +58,8 @@ struct GevrGhostsActions {
     bool raceMine = false;
     bool raceOn = false;       // turn the Ghost race setting on
     long long race = -1;       // a board row's run to download and race
+    std::string addFriend;     // a row's friend code to send a request to
+    std::string acceptFriend;  // a row's player's friend request to accept (its id)
 };
 
 // 1:58.20, 12:03.05, 1:02:03.05
@@ -65,10 +71,21 @@ inline std::string gevrGhostTimeText(int time60) {
     return text;
 }
 
+// how a run reloaded (gevr_ghost.h GEVR_GHF_HANDRELOAD, _BUTTONRELOAD): "Hand", "Button",
+// "Both" (changed mid-run), or "" in a run from before it was noted
+inline const char *gevrGhostReloadText(int flags) {
+    const bool hand = (flags & 0x200) != 0, button = (flags & 0x400) != 0;
+    return hand && button ? "Both" : hand ? "Hand" : button ? "Button" : "";
+}
+
 // what a run was set with beyond VR or flat, for a row's tooltip (gevr_ghost.h GEVR_GHF_*)
 inline std::string gevrGhostFlagsText(int flags) {
     std::string out = flags & 0x01 ? "VR" : flags & 0x80 ? "VR and flat screen" : "Flat screen";
     if (flags & 0x20) out += ", third person";
+    if (flags & 0x100) out += ", teleport";
+    const std::string reload = gevrGhostReloadText(flags);
+    if (reload == "Both") out += ", hand and button reload";
+    else if (!reload.empty()) out += ", " + std::string(reload == "Hand" ? "hand" : "button") + " reload";
     out += flags & 0x02 ? ", Bean's art" : flags & 0x04 ? ", GoldenEye X guns" : ", N64 art";
     return out;
 }
@@ -149,7 +166,12 @@ inline GevrGhostsActions gevrGhostsPageDraw(GevrGhostsView &v, const ImVec4 &gol
     // this headset's run of the mission, and every mission's to the boards
     ImGui::AlignTextToFramePadding();
     if (v.haveBest) {
-        ImGui::Text("Your best: %s%s", gevrGhostTimeText(v.bestTime60).c_str(), v.bestFlags & 0x01 ? " (VR)" : " (flat)");
+        {
+            const std::string reload = gevrGhostReloadText(v.bestFlags);
+            ImGui::Text("Your best: %s (%s%s%s)", gevrGhostTimeText(v.bestTime60).c_str(), v.bestFlags & 0x01 ? "VR" : "flat",
+                        reload.empty() ? "" : ", ", reload == "Both" ? "hand and button reload"
+                                                  : reload == "Hand" ? "hand reload" : reload == "Button" ? "button reload" : "");
+        }
         if (v.bestRank > 0) {
             ImGui::SameLine();
             ImGui::TextColored(gold, "#%d", v.bestRank);
@@ -159,7 +181,7 @@ inline GevrGhostsActions gevrGhostsPageDraw(GevrGhostsView &v, const ImVec4 &gol
         if (ImGui::Button("Upload")) act.upload = true;
         ImGui::EndDisabled();
         if (v.bestUnranked && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            gevrTooltip("Set with force pull, the AI ally or a changed movement speed: the boards rank the original rules.");
+            gevrTooltip("Set with teleport movement, force pull, the AI ally or a changed movement speed: the boards rank the original rules.");
     } else {
         ImGui::TextDisabled("No run of yours yet.");
         if (ImGui::IsItemHovered()) gevrTooltip("Finish the mission with Ghost race or the speedrun timer on.");
@@ -188,11 +210,17 @@ inline GevrGhostsActions gevrGhostsPageDraw(GevrGhostsView &v, const ImVec4 &gol
 
     // the board, a page at a time: a page never scrolls (docs/launcher-unify.md)
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(ImGui::GetStyle().CellPadding.x, 2.0f));
-    if (ImGui::BeginTable("##ghost-board", 5, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+    // Friend: Add, Accept, Sent, Friends, as the lobby roster (owner, 2026-11-23: "reuse add
+    // friend stuff from lobby for the ghost screen too")
+    // Reload: by hand or with the button, noted beside the time and never ranked (owner,
+    // 2026-11-23: "should know how the player ran the race when looking at their run times")
+    if (ImGui::BeginTable("##ghost-board", 7, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
         ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, font * 2.2f);
         ImGui::TableSetupColumn("Player", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, font * 5.5f);
         ImGui::TableSetupColumn("Plays", ImGuiTableColumnFlags_WidthFixed, font * 3.2f);
+        ImGui::TableSetupColumn("Reload", ImGuiTableColumnFlags_WidthFixed, font * 3.8f);
+        ImGui::TableSetupColumn("Friend", ImGuiTableColumnFlags_WidthFixed, font * 4.2f);
         ImGui::TableSetupColumn("##race", ImGuiTableColumnFlags_WidthFixed, font * 4.2f);
         ImGui::TableHeadersRow();
         const int first = v.page * kGevrGhostRowsPerPage;
@@ -212,6 +240,24 @@ inline GevrGhostsActions gevrGhostsPageDraw(GevrGhostsView &v, const ImVec4 &gol
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(r.flags & 0x01 ? "VR" : r.flags & 0x80 ? "Mixed" : "Flat");
             if (ImGui::IsItemHovered()) gevrTooltip("%s", gevrGhostFlagsText(r.flags).c_str());
+            ImGui::TableNextColumn();
+            {
+                const std::string reload = gevrGhostReloadText(r.flags);
+                if (!reload.empty()) {
+                    ImGui::TextUnformatted(reload.c_str());
+                    if (ImGui::IsItemHovered())
+                        gevrTooltip("%s", reload == "Both" ? "Reloaded by hand and with the button (changed mid-run)."
+                                          : reload == "Hand" ? "Reloaded by hand." : "Reloaded with the button.");
+                } else {
+                    ImGui::TextDisabled("—");
+                    if (ImGui::IsItemHovered()) gevrTooltip("Not noted: a run from before v0.5.26.");
+                }
+            }
+            ImGui::TableNextColumn();
+            if (!r.mine && gevrAddFriendCell(r.relation, v.friendsReady, r.name.c_str(), r.code)) {
+                if (r.relation == GEVR_RELATION_REQUEST) act.acceptFriend = r.requestId;
+                else act.addFriend = r.code;
+            }
             ImGui::TableNextColumn();
             if (r.racing) {
                 ImGui::TextColored(good, "Racing");

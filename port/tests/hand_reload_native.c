@@ -88,7 +88,7 @@ int gevrFitLook(int hand) { return gevrGexHeld(hand) ? 1 : 0; }
 /* Bean's models (gevr_bean.c, gun.c gevrBeanMag*): on or off, whose hand holds
  * a model with a magazine cut from it, and that magazine's foot as drawn */
 static int beanOn, beanMag[2], beanPoints;
-static float beanFoot[3], beanFit[2][3];
+static float beanFoot[3], beanFit[3][3];
 static int gevrBeanIsEnabled(void) { return beanOn; }
 /* GoldenEye's own guns' magazines (gevr_n64mag.h): the ROM's art is GoldenEye's, not a hack's */
 static int ownArt;
@@ -1346,6 +1346,13 @@ static void reloadGrabFitMirroring(void)
     player.hands[GUNLEFT].weapon=ITEM_SKORPION; player.hands[GUNRIGHT].weapon=ITEM_FIST;
     gex[GUNLEFT]=1; gex[GUNRIGHT]=0;
     fittedGrabPoint(GUNLEFT,target); assert(gevrGexPistolPoint(0,actual));
+    for (int i=0;i<3;i++) assert(fabsf(actual[i]-target[i])/cm<0.001f);
+    /* Gun fit with that left-hand gun (user, 2026-11-22): offered, and the reloading
+     * hand - controller 1, the bare right - sets the place, not the gun's hand. */
+    assert(gevrReloadFitAvailable());
+    target[0]-=cm; target[1]+=2*cm; target[2]-=cm;
+    memcpy(poses[1],target,sizeof(target)); gevrReloadFitSetGrab();
+    assert(gevrGexPistolPoint(0,actual));
     for (int i=0;i<3;i++) assert(fabsf(actual[i]-target[i])/cm<0.001f);
     memcpy(fit,saved,sizeof(saved));
     /* KF7 uses the calibrated controller-relative point, without a root point. */

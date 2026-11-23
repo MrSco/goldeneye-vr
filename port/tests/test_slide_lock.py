@@ -4,6 +4,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+from gevr_testcc import host_libc  # the C library's bcopy, not os.h's, where it has one
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -30,7 +31,7 @@ HARNESS = r'''
 #define MAX_PLAYER_COUNT 4
 float VrReloadGrab[2][3], VrGexForeHold[3], VrGexPp7Grab[3], VrGexPp7Support[3], VrGexPp7SupportRot[3];
 float VrGexGunOff[3], VrGexPp7GunOff[3], VrGexKf7MagOff[3], VrGexPp7MagOff[3], VrGexKf7WellOff[3], VrGexPp7WellOff[3];
-float VrGexWeaponFits[64][10][3], VrGexBatFit[7][3];
+float VrGexWeaponFits[64][10][3], VrGexBatFit[9][3];
 typedef struct { f32 m[4][4]; } Mtxf;
 typedef struct { s32 numMatrices; } ModelFileHeader;
 typedef struct { f32 BoltRecoilBack; } WeaponStats;
@@ -131,7 +132,7 @@ assert "gevrGexPartMatrix(def->model, GEVR_PD_PART_GUN_SLIDE)" in function(gun, 
 with tempfile.TemporaryDirectory(prefix="gevr-slide-lock-") as temp:
     source, exe = Path(temp) / "test.c", Path(temp) / "test.exe"
     source.write_text(HARNESS.replace("/* PRODUCTION */", "\n".join(production)), encoding="utf-8")
-    subprocess.run([shutil.which("gcc") or "gcc", "-std=gnu11", "-O2", "-D_LANGUAGE_C",
+    subprocess.run([shutil.which("gcc") or "gcc", "-std=gnu11", "-O2", "-D_LANGUAGE_C", *host_libc(),
                     "-I" + str(ROOT), "-I" + str(ROOT / "include"), "-I" + str(ROOT / "src"),
                     "-I" + str(ROOT / "port/include"),
                     str(source), str(ROOT / "port/src/gevr_gexweapon.c"), "-lm", "-o", str(exe)], check=True)

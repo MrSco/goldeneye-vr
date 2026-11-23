@@ -212,6 +212,37 @@ static void physics_handoff(void)
     physicsBody=NULL;
 }
 
+#ifndef GEVR_BASELINE
+/* Doors keep the original timing (propobj.c): a kept body past the original lifetime
+ * fades in a third of it and the door does not wait; within it the body goes back to
+ * the original clock and the door waits as in the original. Never recaptured, ID retired. */
+static void door_release(void)
+{
+    ChrRecord *parent = reset(24, 0), *clone = spawn(parent);
+    die(clone); tick(clone, CHRLV_TICK_DEAD_CHECK); assert(gevrBodyKept(clone));
+    assert(gevrBodyDoorHit(clone));
+    assert(!gevrBodyKept(clone) && gone(parent, (u8)CHR_CLONE));
+    assert(gevrBodyDoorHit(clone));                       /* a door asks every tick */
+    tick(clone, 1); assert(!gevrBodyKept(clone) && clone->fadealpha < 255 && clone->fadealpha > 0);
+    tick(clone, CHRLV_TICK_DEAD_CHECK / 3 - 2); assert(!(clone->hidden & CHRHIDDEN_REMOVE));
+    tick(clone, 1); assert(clone->hidden & CHRHIDDEN_REMOVE);
+
+    /* within the original lifetime the body resumes its own clock and holds the door;
+     * another kept body stays */
+    parent = reset(24, 0); clone = spawn(parent);
+    ChrRecord *other = make_chr(9, 77);
+    die(other); die(clone); tick(clone, 20);
+    assert(!gevrBodyDoorHit(clone));
+    assert(!gevrBodyKept(clone) && clone->act_init.padding[0] == 20 && gevrBodyKept(other));
+
+    /* retention off: the body is fading on the original clock; it holds the door */
+    parent = reset(0, 0); clone = spawn(parent);
+    die(clone); tick(clone, 30);
+    assert(!gevrBodyDoorHit(clone));
+    assert(!gevrBodyKept(clone) && clone->act_init.padding[0] == 30);
+}
+#endif
+
 static void coop_mode(void)
 {
     ChrRecord *parent=reset(48,1), *latest=spawn(parent);
@@ -233,6 +264,9 @@ int main(int argc, char **argv)
     if (argc > 1 && !strcmp(argv[1], "timing")) { timing(); return 0; }
     if (argc > 1 && !strcmp(argv[1], "tracking")) { tracking(); return 0; }
     timing(); tracking(); retention_changes(); physics_handoff(); fast_mode(); coop_mode();
+#ifndef GEVR_BASELINE
+    door_release();
+#endif
     printf("PASS: %d-tick fade parity, all body counts, replacement IDs, optional swarm and host-controlled co-op\n",
            CHRLV_TICK_DEAD_CHECK);
     return 0;

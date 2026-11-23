@@ -22,5 +22,5 @@ with tempfile.TemporaryDirectory(prefix="gevr-collision-slide-") as temp:
     subprocess.run([shutil.which("gcc") or "gcc", "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
                     "-I" + str(root / "port/include"), str(test),
                     str(root / "port/src/gevr_collision_slide.c"),
-                    str(root / "port/src/gevr_frame_timing.c"), "-o", str(exe)], check=True)
+                    str(root / "port/src/gevr_frame_timing.c"), "-lm", "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True)

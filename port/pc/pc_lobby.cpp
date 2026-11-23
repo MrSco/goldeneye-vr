@@ -7,9 +7,10 @@
  *
  *   create|visibility|name|version|stage|weapons|maxPlayers[|vrOnly[|campaign]]   CREATED|code|ownerToken
  *   resume|code|ownerToken|maxPlayers|phase|players[|name]     CREATED|code|ownerToken
- *   refresh|players|open[|maxPlayers[|vrOnly[|flatPlayers]]]   devices|key@build,...   phase|warmup|players   stop   leave
+ *   refresh|players|open[|maxPlayers[|vrOnly[|flatPlayers]]]   devices|key@build,...   reload|handOnly|buttonPlayers
+ *   phase|warmup|players   stop   leave
  *   list|version[|inputClass[|hideFlat]]
- *       LIST_BEGIN, LOBBY|code|name|stage|weapons|players|max|phase|flatPlayers|vrOnly|campaign, LIST_END
+ *       LIST_BEGIN, LOBBY|code|name|stage|weapons|players|max|phase|flatPlayers|vrOnly|campaign|dedicated|handOnly|buttonPlayers, LIST_END
  *   join|code|version[|inputClass]   JOINED|joinId|user|credential
  * (vrOnly and inputClass: "VR players only"; a flat player neither sees nor joins one.
  *  flatPlayers and hideFlat: a VR player may hide games with flat players in them)
@@ -219,6 +220,8 @@ private:
                 + ",\"maxPlayers\":" + std::to_string(atoi(f[6].c_str()));
             vrOnly_ = f.size() >= 8 ? (f[7] == "1" ? 1 : 0) : -1;
             flatPlayers_ = -1;
+            handOnly_ = -1;
+            buttonPlayers_ = -1;
             devicesKnown_ = false;
             if (vrOnly_ >= 0) pendingCreate_ += std::string(",\"vrOnly\":") + (vrOnly_ ? "true" : "false");
             // the game's campaign (gevr_romlayout.h GEVR_CAMPAIGN_*): a ROM hack's co-op game says which
@@ -240,6 +243,8 @@ private:
             maxPlayers_ = atoi(f[3].c_str());
             vrOnly_ = -1;   // the Worker keeps it; the next refresh says it again
             flatPlayers_ = -1;
+            handOnly_ = -1;
+            buttonPlayers_ = -1;
             devicesKnown_ = false;
             phase_ = f[4];
             players_ = atoi(f[5].c_str());
@@ -266,6 +271,17 @@ private:
                     maxPlayers_ = newMax;
                     vrOnly_ = newVrOnly;
                     flatPlayers_ = newFlat;
+                    nextHeartbeat_ = 0;
+                }
+            }
+        } else if (c == "reload") {
+            // "Hand reload only" and how many reload with the button: passed on when they change
+            if (f.size() == 3) {
+                const int nextHand = f[1] == "1" ? 1 : 0;
+                const int nextButton = std::max(0, atoi(f[2].c_str()));
+                if (nextHand != handOnly_ || nextButton != buttonPlayers_) {
+                    handOnly_ = nextHand;
+                    buttonPlayers_ = nextButton;
                     nextHeartbeat_ = 0;
                 }
             }
@@ -301,7 +317,10 @@ private:
                          + std::to_string(jsonGetInt(row, "players", 0)) + "|" + std::to_string(jsonGetInt(row, "maxPlayers", 0)) + "|"
                          + jsonGetStr(row, "phase", "waiting") + "|"
                          + std::to_string(jsonGetInt(row, "flatPlayers", -1)) + "|" + (jsonGetBool(row, "vrOnly", false) ? "1" : "0")
-                         + "|" + std::to_string(jsonGetInt(row, "campaign", 0)));
+                         + "|" + std::to_string(jsonGetInt(row, "campaign", 0))
+                         + "|" + (jsonGetBool(row, "dedicated", false) ? "1" : "0")
+                         + "|" + (jsonGetBool(row, "handReloadOnly", false) ? "1" : "0")
+                         + "|" + std::to_string(jsonGetInt(row, "buttonPlayers", -1)));
                 }
             }
             push("LIST_END");
@@ -374,6 +393,8 @@ private:
                         + ",\"phase\":" + q(phase_) + ",\"maxPlayers\":" + std::to_string(maxPlayers_);
                     if (vrOnly_ >= 0) state += std::string(",\"vrOnly\":") + (vrOnly_ ? "true" : "false");
                     if (flatPlayers_ >= 0) state += ",\"flatPlayers\":" + std::to_string(std::min(flatPlayers_, players_));
+                    if (handOnly_ >= 0) state += std::string(",\"handReloadOnly\":") + (handOnly_ ? "true" : "false");
+                    if (buttonPlayers_ >= 0) state += ",\"buttonPlayers\":" + std::to_string(std::min(buttonPlayers_, players_));
                     if (devicesKnown_) state += ",\"devices\":" + devicesJson(devices_);
                     if (!name_.empty()) state += ",\"name\":" + q(name_);
                     state += "}";
@@ -624,6 +645,8 @@ private:
     int players_ = 1, maxPlayers_ = 4;
     int vrOnly_ = -1;   // "VR players only" as the host last sent it; -1 not known (a resume before its refresh)
     int flatPlayers_ = -1;   // how many play flat, as the host last counted them; -1 not known
+    int handOnly_ = -1;      // "Hand reload only" as the host last sent it; -1 not known
+    int buttonPlayers_ = -1; // how many reload with the button; -1 not known
     std::string devices_;     // devices|key@build,... as the host last sent it
     bool devicesKnown_ = false;
     long long nextHeartbeat_ = 0, nextRequests_ = 0, lastKeepalive_ = 0;

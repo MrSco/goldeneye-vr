@@ -2,8 +2,12 @@
 #include "imgui/imgui_internal.h"
 #include "net_match.h"
 #include "net_rules.h"
+#include "vr_friends.h"
+#include "gevr_add_friend_ui.h"
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
 static ImVec4 gold(1, .84f, .47f, 1);
 static int VrMpScenario, VrMpLength, VrMpHealth=5, VrMpDual, VrMpLoadouts, VrMpNextRound;
@@ -45,6 +49,20 @@ static int netGetSlotInputClass(int slot){return slot==1?1:0;}   /* the roster's
 static const char *netGetSlotDeviceName(int slot){return slot==1?"PC":"Quest";}   /* the roster's "Device" */
 static const char *netGetSlotName(int slot){return lobby.slots[slot].name;}
 static void netHostKickPlayer(int){}
+/* the roster's Friend column: a code from every third player but none from the next */
+static int netGetLocalSlot(){return 0;}
+static const char *netGetSlotFriendCode(int slot){return slot%3==2?"":"ABC123";}
+/* the roster's Reload: by hand, with the button, and an older build's none in turn; the
+ * host's "Hand reload only" on, its note the widest */
+#define NET_RELOAD_UNKNOWN 0u
+#define NET_RELOAD_BUTTON 1u
+#define NET_RELOAD_HAND 2u
+static int VrMpHandReloadOnly=1;
+static int netGetSlotReloadMode(int slot){return slot%3==0?NET_RELOAD_HAND:slot%3==1?NET_RELOAD_BUTTON:NET_RELOAD_UNKNOWN;}
+static GevrFriendsModel s_friendsModel;
+const GevrFriendsModel &gevrFriends(void){return s_friendsModel;}
+void gevrFriendsSend(const std::string &){}
+std::string gevrFriendCodeText(const std::string &code){return "GE-"+code;}
 static bool gevrLobbyHasTeams(const FixtureConfig *c){return c->mode!=NET_MODE_COOP && netScenarioHasTeams(c->scenario);}
 static bool netTeamRosterReady(){return false;}
 static int netLobbyMinPlayers(){return 2;}
@@ -125,6 +143,18 @@ static void layout(int page) {
             if(w->DC.CursorMaxPos.y>w->ClipRect.Max.y) std::fprintf(stderr,"page=%d scenario=%d bots=%d content=%f limit=%f\n",page,VrMpScenario,VrMpBotMode,w->DC.CursorMaxPos.y,w->ClipRect.Max.y);
             check(w->DC.CursorMaxPos.y<=w->ClipRect.Max.y,"production tab fits vertically without scrolling");
             check(w->DC.CursorMaxPos.x<=w->ClipRect.Max.x,"production tab fits horizontally");
+            /* the roster's names stay readable: at least eight font sizes (owner, 2026-11-23: the
+             * Friend and Kick columns had taken the Name column down to 20 px at Quest size) */
+            for(int t=0;t<ImGui::GetCurrentContext()->Tables.GetMapSize();t++) {
+                ImGuiTable *table=ImGui::GetCurrentContext()->Tables.TryGetMapData(t);
+                if(!table || table->LastFrameActive!=ImGui::GetFrameCount() || table->ColumnsCount<6) continue;
+                const char *first=ImGui::TableGetColumnName(table,0);
+                if(!first || std::strcmp(first,"Name")!=0) continue;
+                if(table->Columns[0].WidthGiven<ImGui::GetFontSize()*8)
+                    std::fprintf(stderr,"page=%d host=%d online=%d scenario=%d: roster name %.0f px\n",page,host,online,VrMpScenario,
+                                 table->Columns[0].WidthGiven);
+                check(table->Columns[0].WidthGiven>=ImGui::GetFontSize()*8,"the roster's Name column keeps eight font sizes");
+            }
             if(page==3 && !netModePve(VrMpMode)) {
                 check(stageComboWidth>0,"the host's stage chooser is drawn");
                 for(int i=0;i<netStageCount();i++) {

@@ -207,18 +207,44 @@ public class LobbyClientTest {
         assertFalse(new JSONObject(requests.get(0).body.toString("UTF-8")).has("flatPlayers"));
         requests.clear();
         listedLobbies = "[{\"code\":\"ABCDEFGH\",\"name\":\"A\",\"stage\":1,\"weapons\":2,\"players\":2,"
-                + "\"maxPlayers\":4,\"phase\":\"warmup\",\"flatPlayers\":1,\"vrOnly\":false,\"campaign\":1},"
+                + "\"maxPlayers\":4,\"phase\":\"warmup\",\"flatPlayers\":1,\"vrOnly\":false,\"campaign\":1,\"dedicated\":true},"
                 + "{\"code\":\"BCDEFGHJ\",\"name\":\"B\",\"stage\":1,\"weapons\":2,\"players\":1,"
                 + "\"maxPlayers\":4,\"vrOnly\":true}]";
         command("list|26|0|1");
         assertEquals("version=26&inputClass=0&hideFlat=1", requests.get(0).getURL().getQuery());
         assertEquals("LIST_BEGIN", client.event());
-        assertEquals("LOBBY|ABCDEFGH|A|1|2|2|4|warmup|1|0|1", client.event());   // Goldfinger 64's co-op
-        assertEquals("LOBBY|BCDEFGHJ|B|1|2|1|4|waiting|-1|1|0", client.event());   // an older Worker's row: GoldenEye
+        assertEquals("LOBBY|ABCDEFGH|A|1|2|2|4|warmup|1|0|1|1|0|-1", client.event());   // Goldfinger 64's co-op on a dedicated server
+        assertEquals("LOBBY|BCDEFGHJ|B|1|2|1|4|waiting|-1|1|0|0|0|-1", client.event());   // an older Worker's row: GoldenEye, player-hosted
         assertEquals("LIST_END", client.event());
         requests.clear();
         command("list|26|0|0");
         assertEquals("version=26&inputClass=0", requests.get(0).getURL().getQuery());
+    }
+
+    @Test public void reloadGoesWithTheHeartbeatAndTheList() throws Exception {
+        resume();
+        command("reload|1|2");   // "Hand reload only", two reload with the button
+        command("refresh|3|1|4|0|0");
+        poll();
+        JSONObject state = new JSONObject(requests.get(0).body.toString("UTF-8"));
+        assertTrue(state.getBoolean("handReloadOnly"));
+        assertEquals(2, state.getInt("buttonPlayers"));
+        requests.clear();
+        command("phase|warmup|1");   // never sent above the players
+        poll();
+        assertEquals(1, new JSONObject(requests.get(0).body.toString("UTF-8")).getInt("buttonPlayers"));
+        requests.clear();
+        resume();                    // a new host: not sent until it says them
+        poll();
+        JSONObject fresh = new JSONObject(requests.get(0).body.toString("UTF-8"));
+        assertFalse(fresh.has("handReloadOnly") || fresh.has("buttonPlayers"));
+        requests.clear();
+        listedLobbies = "[{\"code\":\"ABCDEFGH\",\"name\":\"A\",\"stage\":1,\"weapons\":2,\"players\":2,"
+                + "\"maxPlayers\":4,\"phase\":\"warmup\",\"handReloadOnly\":true,\"buttonPlayers\":0}]";
+        command("list|26|0");
+        assertEquals("LIST_BEGIN", client.event());
+        assertEquals("LOBBY|ABCDEFGH|A|1|2|2|4|warmup|-1|0|0|0|1|0", client.event());
+        assertEquals("LIST_END", client.event());
     }
 
     @Test public void unchangedPhaseAlsoRenewsKeepalive() throws Exception {

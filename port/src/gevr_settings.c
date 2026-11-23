@@ -34,7 +34,7 @@ extern int VrAimNoLean, VrAimSight;
 extern int VrMotionThrowing;
 extern float VrMotionThrowStrength, VrMotionThrowPitch, VrMotionThrowGazeAssist;
 extern int VrGestureGripUse, VrGestureMineGrab;
-extern int VrForcePull, VrPullDisarm, VrAutoPickup, VrPullVisuals;
+extern int VrForcePull;
 extern int VrBodySlots, VrBodySlotSize;
 extern int VrWatchGesturePause;
 extern int VrManualReloading;
@@ -85,6 +85,9 @@ extern void vr_apply_refresh_rate(void);
 extern int vr_screen_curve_supported(void);
 extern int vr_passthrough_supported(void);
 extern int vr_eye_msaa_supported(void);
+extern float vr_render_scale_max(void);   /* vr_openxr.cpp: the most Resolution this headset offers */
+extern int vr_headset_class(void);        /* vr_openxr.cpp: GEVR_HMD_*, by the runtime's name */
+extern float g_gevrDisplayHz;             /* vr_settings_defaults.c: the display's rate as it runs, 0 unknown */
 extern void vrSettingsSave(void);
 
 /* port/vr/vr_settings.h's ranges (that header is C++-side) */
@@ -155,15 +158,16 @@ static const char *blockedReload(void) { return VrGexGuns || gevrBeanIsEnabled()
 static const char *blockedGex(void) { return gevrRomIsVariant() ? "Not with this ROM" : NULL; }
 static const char *blockedHat(void) { return gevrHatAvailable() ? NULL : "Get it in Mods"; }
 static const char *blockedBeanFill(void) { return gevrTexpackFillAvailable() ? NULL : "Needs an HD pack"; }
-/* hand reload takes B, so grip use stays on with it (bondview2.c gevrHandReloadActive): shown on, not the stored value (headset, test.21) */
-static int forcedGripUse(void) { return VrManualReloading && VrGexGuns; }
+/* hand reload takes B, so grip use stays on with it, with any model set hand reload works with
+ * (bondview2.c gevrHandReloadGripUse): shown on, not the stored value (headset, test.21; owner,
+ * 2026-11-23: "we need to require grip use if you're using hand reload") */
+static int forcedGripUse(void) { return VrManualReloading && blockedReload() == NULL; }
 static const char *blockedGripUse(void) { return forcedGripUse() ? "On for hand reload" : NULL; }
 static const char *blockedMsaa(void) { return vr_eye_msaa_supported() ? NULL : "Not on this headset"; }
 static const char *blockedDismember(void) { return VrRagdolls ? NULL : "Needs ragdolls"; }
 static const char *blockedBean(void) { return gevrBeanIsAvailable() ? NULL : "Needs Bean's files"; }
 static const char *blockedSpaceWarp(void) { return vr_spacewarp_supported() ? NULL : "Not on this headset"; }
 static const char *blockedSlots(void) { return VrBodySlots ? NULL : "Needs body slots"; }
-static const char *blockedPull(void) { return VrForcePull ? NULL : "Needs force pull"; }
 static const char *blockedThrow(void) { return VrMotionThrowing ? NULL : "Needs motion throw"; }
 static const char *blockedTurnSpeed(void) { return VrUseSnapTurn > 0.0f ? "Smooth turning only" : NULL; }
 static const char *blockedThirdPerson(void) { return VrPlayMode ? "Flat screen only" : NULL; }
@@ -414,6 +418,57 @@ static const char *blockedFast(void)
     return netIsHost() ? NULL : "Host's choice";
 }
 
+/*
+ * Each headset's graphics defaults: what Refresh, Resolution and Anisotropic filtering
+ * take at Auto (0, the default). Measured on the owner's Quest 3 (2026-11-23, Dam,
+ * plugged in, tools/perf/quest_profile.py): at 90 Hz Bean at 1.25x with 16x held, the
+ * GPU 69% busy and 6 frames dropped in 2.5 minutes, where 120 Hz left no room above 1x
+ * (the HD pack at 1.25x dropped 89, Bean 151) and 16x anisotropy cost 1-5 points of the
+ * GPU. Quest 2 and Pro (XR2 Gen 1) have about 40% of Quest 3's GPU and were not measured:
+ * scaled from Quest 3's, Bean at 90 Hz would take all of theirs and at 72 Hz 70-90%, so
+ * 72 Hz (Quest 2's own), 1x and 4x. Other headsets keep the runtime's rate, the game
+ * config's scale and 2x; a desktop GPU takes 16x. Owner, 2026-11-23: "i'd like the
+ * defaults for quest 2 to be similar".
+ */
+static int deviceClass(void)
+{
+#if defined(GEVR_PCVR) || defined(GEVR_PC_FLAT)
+    return GEVR_HMD_PC;
+#else
+    return vr_headset_class();
+#endif
+}
+int gevrAutoRefreshHz(void)
+{
+    switch (deviceClass()) {
+        case GEVR_HMD_QUEST3: return 90;
+        case GEVR_HMD_QUEST2: return 72;
+        default: return 0;
+    }
+}
+/* the rate the game runs at: the one chosen, else Auto's, else the display's */
+static int rateExpected(void)
+{
+    const int hz = VrRefreshRate > 0 ? VrRefreshRate : gevrAutoRefreshHz();
+    return hz > 0 ? hz : (int)(g_gevrDisplayHz + 0.5f);
+}
+float gevrAutoRenderScale(void)
+{
+    int hz;
+    if (deviceClass() != GEVR_HMD_QUEST3) return 0.0f;
+    hz = rateExpected();
+    return (hz > 0 && hz <= 90) || vr_spacewarp_setting_on() ? 1.25f : 1.0f;
+}
+int gevrAutoAniso(void)
+{
+    switch (deviceClass()) {
+        case GEVR_HMD_PC:
+        case GEVR_HMD_QUEST3: return 16;
+        case GEVR_HMD_QUEST2: return 4;
+        default: return 2;
+    }
+}
+
 /* The display rate: Auto, then the rates this headset offers */
 static int refreshRates(int *rates)
 {
@@ -440,7 +495,11 @@ static void refreshSet(int i)
 static void refreshText(int i, char *b, int n)
 {
     int rates[16], count = refreshRates(rates);
-    if (i <= 0 || i > count) snprintf(b, n, "Auto");
+    if (i <= 0 || i > count) {
+        const int hz = gevrAutoRefreshHz();
+        if (hz > 0) snprintf(b, n, "Auto (%d Hz)", hz);
+        else snprintf(b, n, "Auto");
+    }
     else snprintf(b, n, "%d Hz", rates[i - 1]);
 }
 
@@ -452,6 +511,24 @@ static void swText(int i, char *b, int n)
 {
     snprintf(b, n, "%s%s", i ? "On" : "Off", VrSpaceWarp < 0 ? " (auto)" : "");
 }
+
+/* HD textures: the texture pack, or Bean's pictures, off and on for this session to
+ * compare (gfx_pc.cpp gevrTexpackToggle); the launcher's Mods page picks the pack. It was a
+ * button in the in-game footer (owner, 2026-11-23: under Mods/Fun "is probably where that
+ * should live"). Shown while a pack or Bean is in use. */
+extern int gevrTexpackState(void);    /* gfx_pc.cpp: 1 on, 0 off, -1 no pack in use */
+extern int gevrTexpackToggle(void);   /* gfx_pc.cpp: 1 on now, 0 off now, -1 no pack */
+extern int gevrTexpackToggleMsg;      /* input.c: bondview2.c says it in play, 2 off, 3 on */
+static int texpackShown(void) { return gevrTexpackState() >= 0; }
+static int texpackPositions(void) { return 2; }
+static int texpackGet(void) { return gevrTexpackState() == 1; }
+static void texpackSet(int i)
+{
+    const int now = gevrTexpackState();
+    if (now < 0 || (i != 0) == (now == 1)) return;
+    gevrTexpackToggleMsg = gevrTexpackToggle() + 2;
+}
+static void texpackText(int i, char *b, int n) { snprintf(b, n, "%s", i ? "On" : "Off"); }
 
 /* Project Bean */
 static int beanPositions(void) { return 2; }
@@ -469,46 +546,134 @@ static const char *const s_slotSizeNames[] = { "Small", "Normal", "Large" };
 static const int s_touch[] = { 0, 1, 2, 3, 4 };
 static const char *const s_touchNames[] = { "Auto", "Quest", "Quest 2", "Plus", "Pro" };
 #ifdef GEVR_PCVR
-/* PC VR: a desktop GPU takes 4x for little (vr_openxr.cpp's multisampled eye array) */
+/* PC VR: a desktop GPU takes 4x for little, and 8x, the most the eye images take
+ * (vr_openxr.cpp vr_eye_samples, and no more than the GPU's own most) */
+static const int s_msaa[] = { 1, 2, 4, 8 };
+static const char *const s_msaaNames[] = { "Off", "2x", "4x", "8x" };
+#else
+/* Quest: 4x at most (vr_eye_samples). Dropped once (24a8d14a): it looked like 2x
+ * once Bean's pictures were mipmapped and cutouts took alpha-to-coverage, cost
+ * Bean's eye pass 1.2 ms, and on battery took Dam to 47-52 fps. Back on the
+ * owner's word (2026-11-22), as "(slower)" with the warning. */
 static const int s_msaa[] = { 1, 2, 4 };
 static const char *const s_msaaNames[] = { "Off", "2x", "4x" };
-#else
-static const int s_msaa[] = { 1, 2 };
-static const char *const s_msaaNames[] = { "Off", "2x" };
 #endif
+#define MSAA_COUNT ((int)(sizeof(s_msaa) / sizeof(s_msaa[0])))
+/* "(slower)" above this. On Quest 3, 4x held at 90 Hz and 1x (Bean: 63% busy, 7 frames
+ * dropped in 2.5 minutes), was near the limit at 90 Hz and 1.25x (Bean 79%, 16 dropped:
+ * where reruns dropped 2-3 times as many) and dropped frames at 120 Hz (Bean 46, the HD
+ * pack 69). So on Quest 3 it warns above 1x or at more than 90 Hz with SpaceWarp off;
+ * other headsets above 2x; PC VR never. */
+static float scaleChosen(void);
+static int msaaWarnAbove(void)
+{
+#ifdef GEVR_PCVR
+    return 8;
+#else
+    if (deviceClass() == GEVR_HMD_QUEST3)
+        return (rateExpected() > 90 && !vr_spacewarp_setting_on()) || scaleChosen() > 1.01f ? 2 : 4;
+    return 2;
+#endif
+}
+static void msaaText(int i, char *b, int n)
+{
+    i = i < 0 ? 0 : i >= MSAA_COUNT ? MSAA_COUNT - 1 : i;
+    snprintf(b, n, "%s%s", s_msaaNames[i], s_msaa[i] > msaaWarnAbove() ? " (slower)" : "");
+}
+static const char *warnMsaa(void)
+{
+    if (VrEyeMsaa <= msaaWarnAbove()) return NULL;
+    if (deviceClass() == GEVR_HMD_QUEST3 && rateExpected() > 90 && !vr_spacewarp_setting_on())
+        return "Anti-aliasing above 2x at more than 90 Hz drops frames, most with Bean. Choose 90 Hz in "
+               "Refresh or turn SpaceWarp on";
+    if (deviceClass() == GEVR_HMD_QUEST3)
+        return "Anti-aliasing above 2x with Resolution above 1x is near what the GPU holds, most with "
+               "Bean. Lower one of them if frames drop";
+    return "Anti-aliasing above 2x costs GPU time every frame, most with Bean, and on battery can drop the "
+           "frame rate";
+}
 
 /* Resolution: the eye images over the headset's recommended size (vr_openxr.cpp
  * vr_configure_resolution), made as VR starts, so a change shows "(next start)".
  * Above 1x is supersampling. Before a choice it reads the scale in use (the
- * game config's Video.VRRenderScale). */
+ * game config's Video.VRRenderScale). Each headset offers what its GPU holds
+ * (vr_render_scale_max): PC VR all of them, Quest 3 and 3S up to 1.5x, other
+ * standalone headsets up to 1.25x (owner, 2026-11-23: "hide options for devices
+ * that can't run them"). */
 static const float s_scales[] = { 0.8f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
 static const char *const s_scaleNames[] = { "0.8x", "1x", "1.25x", "1.5x", "1.75x", "2x" };
-#define SCALE_COUNT ((int)(sizeof(s_scales) / sizeof(s_scales[0])))
-static float scaleChosen(void) { return VrRenderScale > 0.0f ? VrRenderScale : vr_render_scale(); }
-static int scalePositions(void) { return SCALE_COUNT; }
-static int scaleGet(void)
+#define SCALE_ALL ((int)(sizeof(s_scales) / sizeof(s_scales[0])))
+/* the scales this headset offers: 0.8x and 1x always */
+static int scaleCount(void)
 {
-    const float v = scaleChosen();
+    const float most = vr_render_scale_max();
+    int n = 2;
+    while (n < SCALE_ALL && s_scales[n] <= most + 0.001f) n++;
+    return n;
+}
+/* Auto (position 0, the default): this headset's (gevrAutoRenderScale), else the game
+ * config's in use */
+static float scaleAuto(void)
+{
+    const float a = gevrAutoRenderScale();
+    return a > 0.0f ? a : vr_render_scale();
+}
+static int scalePositions(void) { return 1 + scaleCount(); }
+static float scaleChosen(void)
+{
+    const float v = VrRenderScale > 0.0f ? VrRenderScale : scaleAuto();
+    return fminf(v, s_scales[scaleCount() - 1]);
+}
+/* the nearest offered scale to v, an index into s_scales */
+static int scaleNearest(float v)
+{
+    const int n = scaleCount();
     int i, best = 1;
-    for (i = 0; i < SCALE_COUNT; i++) {
+    for (i = 0; i < n; i++) {
         if (fabsf(s_scales[i] - v) < fabsf(s_scales[best] - v)) best = i;
     }
     return best;
 }
-static void scaleSet(int i) { VrRenderScale = s_scales[i]; }
+static int scaleGet(void)
+{
+    return VrRenderScale > 0.0f ? 1 + scaleNearest(scaleChosen()) : 0;
+}
+static void scaleSet(int i)
+{
+    const int n = scaleCount();
+    VrRenderScale = i <= 0 ? 0.0f : s_scales[i > n ? n - 1 : i - 1];
+}
 static void scaleText(int i, char *b, int n)
 {
-    const int pending = i == scaleGet() && fabsf(s_scales[i] - vr_render_scale()) >= 0.01f;
+    int pending;
+    if (i <= 0) {
+        snprintf(b, n, "Auto (%s)", s_scaleNames[scaleNearest(fminf(scaleAuto(), s_scales[scaleCount() - 1]))]);
+        return;
+    }
+    i = i > scaleCount() ? scaleCount() - 1 : i - 1;
+    pending = 1 + i == scaleGet() && fabsf(s_scales[i] - vr_render_scale()) >= 0.01f;
     /* above 1x its cost is the warning's (the value and label in the warning colour, the
      * tooltip's reason): "(slower)" beside "(next start)" ran the launcher's page to one column */
     snprintf(b, n, "%s%s", s_scaleNames[i], pending ? " (next start)" : "");
 }
+/* Above 1x it warns. On a standalone headset at more than 90 Hz with SpaceWarp off it
+ * says what holds it: on the owner's Quest 3 with Bean (2026-11-23, Dam, SpaceWarp off)
+ * 1.25x at 120 Hz dropped 151 frames in 2.5 minutes with the GPU 83% busy, where 1.5x
+ * at 90 Hz dropped 22. SpaceWarp draws half the frames. Refresh's Auto is this
+ * headset's rate (gevrAutoRefreshHz), else the display's (vr_openxr.cpp, once a second). */
 static const char *warnScale(void)
 {
-    return scaleChosen() > 1.01f
-        ? "Resolution above 1x draws more pixels every frame (1.5x is 2.25 times as many) and can make "
-          "the game stutter, most with Bean at 120 Hz. Lower it if frames drop"
-        : NULL;
+    /* Auto is this headset's measured default (gevrAutoRenderScale): no warning */
+    if (VrRenderScale <= 0.0f || scaleChosen() <= 1.01f) return NULL;
+#ifndef GEVR_PCVR
+    {
+        if (rateExpected() > 90 && !vr_spacewarp_setting_on())
+            return "Resolution above 1x at more than 90 Hz drops frames, most with Bean. Choose 90 Hz in "
+                   "Refresh or turn SpaceWarp on";
+    }
+#endif
+    return "Resolution above 1x draws more pixels every frame (1.5x is 2.25 times as many) and can make "
+           "the game stutter, most with Bean. Lower it if frames drop";
 }
 
 /* Anisotropic filtering of the HD pack's and Bean's mipmapped pictures
@@ -517,22 +682,123 @@ static const char *warnScale(void)
  * outdoor levels (issue #52). */
 static const int s_aniso[] = { 1, 2, 4, 8, 16 };
 static const char *const s_anisoNames[] = { "Off", "2x", "4x", "8x", "16x" };
-#if defined(GEVR_PCVR) || defined(GEVR_PC_FLAT)
-#define ANISO_WARN_ABOVE 16   /* a desktop GPU: never */
-#else
-#define ANISO_WARN_ABOVE 2
-#endif
+#define ANISO_COUNT ((int)(sizeof(s_aniso) / sizeof(s_aniso[0])))
+/* Auto (position 0, the default) is this headset's (gevrAutoAniso); "(slower)" above it.
+ * 16x on Quest 3 and a desktop: never. */
+static int anisoPositions(void) { return 1 + ANISO_COUNT; }
+static int anisoGet(void)
+{
+    int i;
+    if (VrTextureAniso <= 0) return 0;
+    for (i = 0; i < ANISO_COUNT - 1 && s_aniso[i] < VrTextureAniso; i++) {}
+    return 1 + i;
+}
+static void anisoSet(int i)
+{
+    VrTextureAniso = i <= 0 ? 0 : s_aniso[i > ANISO_COUNT ? ANISO_COUNT - 1 : i - 1];
+}
 static const char *warnAniso(void)
 {
-    return VrTextureAniso > ANISO_WARN_ABOVE
-        ? "Anisotropic filtering above 2x costs GPU time with an HD pack or Bean, most in outdoor "
-          "levels, and can make the game stutter"
+    const int a = VrTextureAniso > 0 ? VrTextureAniso : gevrAutoAniso();
+    return a > gevrAutoAniso()
+        ? "Anisotropic filtering above this headset's Auto costs GPU time with an HD pack or Bean, most "
+          "in outdoor levels, and can make the game stutter"
         : NULL;
 }
 static void anisoText(int i, char *b, int n)
 {
-    i = i < 0 ? 0 : i > 4 ? 4 : i;
-    snprintf(b, n, "%s%s", s_anisoNames[i], s_aniso[i] > ANISO_WARN_ABOVE ? " (slower)" : "");
+    int k;
+    if (i <= 0) {
+        for (k = 0; k < ANISO_COUNT - 1 && s_aniso[k] < gevrAutoAniso(); k++) {}
+        snprintf(b, n, "Auto (%s)", s_anisoNames[k]);
+        return;
+    }
+    i = i > ANISO_COUNT ? ANISO_COUNT - 1 : i - 1;
+    snprintf(b, n, "%s%s", s_anisoNames[i], s_aniso[i] > gevrAutoAniso() ? " (slower)" : "");
+}
+/* Texture filtering of the cartridge's own pictures (video.c, the game config's
+ * Video.TextureFilter, saved there): FILTER_NONE, FILTER_LINEAR, FILTER_THREE_POINT
+ * (gfx_rendering_api.h), switched live as the next frame starts. HD pack and Bean
+ * pictures keep their mipmapped filtering (gfx_opengl.cpp select_texture). The
+ * console's three-point filter reads each picture three times a pixel, so on a
+ * headset or phone it says so. */
+extern unsigned int videoGetTextureFilter(void);          /* video.c: u32 */
+extern void videoRequestTextureFilter(unsigned int filter);
+extern int configSave(const char *fname);
+static const char *const s_texFilterNames[] = { "Pixelated", "Smooth", "N64 accurate" };
+#if defined(GEVR_PCVR) || defined(GEVR_PC_FLAT)
+#define TEXFILTER_WARNS 0   /* a desktop GPU */
+#else
+#define TEXFILTER_WARNS 1
+#endif
+static int texFilterPositions(void) { return 3; }
+static int texFilterGet(void)
+{
+    const unsigned int f = videoGetTextureFilter();
+    return f > 2 ? 1 : (int)f;
+}
+static void texFilterSet(int i)
+{
+    videoRequestTextureFilter((unsigned int)(i < 0 ? 1 : i > 2 ? 2 : i));
+    configSave("$S/goldeneye.ini");
+}
+static void texFilterText(int i, char *b, int n)
+{
+    i = i < 0 ? 0 : i > 2 ? 2 : i;
+    snprintf(b, n, "%s%s", s_texFilterNames[i], i == 1 ? " (default)" : TEXFILTER_WARNS && i == 2 ? " (slower)" : "");
+}
+static const char *warnTexFilter(void)
+{
+    return TEXFILTER_WARNS && texFilterGet() == 2
+        ? "The console's filtering reads each texture three times a pixel, which costs GPU time and can "
+          "make the game stutter"
+        : NULL;
+}
+/* A flat game's anti-aliasing (video.c, the game config's Video.MSAA, saved there):
+ * the game's framebuffer multisampled, taken up as the next frame starts
+ * (gfx_pc.cpp gfx_start_frame) and held to the GPU's most (gfx_opengl.cpp). A
+ * desktop GPU takes 8x for little; a phone's or an Apple device's 4x at most,
+ * and above 2x it costs there. The headset's eye images have their own row. */
+extern int videoGetMSAA(void);                 /* video.c: s32 */
+extern void videoSetMSAA(const int msaa);
+#if defined(GEVR_PC_FLAT)
+static const int s_flatMsaa[] = { 1, 2, 4, 8 };
+static const char *const s_flatMsaaNames[] = { "Off", "2x", "4x", "8x" };
+#define FLAT_MSAA_WARN_ABOVE 8   /* never */
+#else
+static const int s_flatMsaa[] = { 1, 2, 4 };
+static const char *const s_flatMsaaNames[] = { "Off", "2x", "4x" };
+#define FLAT_MSAA_WARN_ABOVE 2
+#endif
+#define FLAT_MSAA_COUNT ((int)(sizeof(s_flatMsaa) / sizeof(s_flatMsaa[0])))
+static int flatMsaaPositions(void) { return FLAT_MSAA_COUNT; }
+static int flatMsaaGet(void)
+{
+    const int m = videoGetMSAA();
+    int i, at = 0;
+
+    for (i = 0; i < FLAT_MSAA_COUNT; i++)
+    {
+        if (s_flatMsaa[i] <= m) at = i;
+    }
+    return at;
+}
+static void flatMsaaSet(int i)
+{
+    i = i < 0 ? 0 : i >= FLAT_MSAA_COUNT ? FLAT_MSAA_COUNT - 1 : i;
+    videoSetMSAA(s_flatMsaa[i]);
+    configSave("$S/goldeneye.ini");
+}
+static void flatMsaaText(int i, char *b, int n)
+{
+    i = i < 0 ? 0 : i >= FLAT_MSAA_COUNT ? FLAT_MSAA_COUNT - 1 : i;
+    snprintf(b, n, "%s%s", s_flatMsaaNames[i], s_flatMsaa[i] > FLAT_MSAA_WARN_ABOVE ? " (slower)" : "");
+}
+static const char *warnFlatMsaa(void)
+{
+    return s_flatMsaa[flatMsaaGet()] > FLAT_MSAA_WARN_ABOVE
+        ? "Anti-aliasing above 2x costs GPU time every frame on this device and can make the game stutter"
+        : NULL;
 }
 static const int s_two[] = { 0, 1 };
 static const char *const s_moveNames[] = { "Smooth", "Teleport" };
@@ -703,20 +969,15 @@ static const Row s_rows[] = {
       .names = s_slotSizeNames, .count = 3, .def = NAN, .blocked = blockedSlots },
     { .label = "Show slots", .headset = 1, .tooltip = "Draw what the hips, chest and belt hold when you look down.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrBodySlotShow, .def = NAN, .blocked = blockedSlots },
-    { .label = "Hand reload WIP", .headset = 1, .tooltip = "Reload by hand: drop the magazine, push one in from your belt, rack the slide.", .kind = GEVR_SET_TOGGLE,
+    { .label = "Hand reload", .headset = 1, .tooltip = "Reload by hand: drop the magazine, push one in from your belt, rack the slide.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrManualReloading, .def = NAN, .blocked = blockedReload },
     { .label = "Grip use", .headset = 1, .tooltip = "Grip doors, buttons and switches to use them.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrGestureGripUse, .def = NAN, .blocked = blockedGripUse,
       .forced = forcedGripUse },
     TOGGLE(GEVR_SEC_GESTURES, "Mine re-grab", VrGestureMineGrab, "Grip your own stuck mine to take it back."),
-    TOGGLE(GEVR_SEC_GESTURES, "Force pull WIP", VrForcePull, "Point an empty hand at a gun or item, squeeze to lock, flick to pull, and grip to catch it."),
-    { .label = "Pull disarm", .headset = 1, .tooltip = "Force pull can take a gun out of a guard's hand. Never another player's.",
-      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrPullDisarm,
-      .def = NAN, .blocked = blockedPull },
-    TOGGLE(GEVR_SEC_GESTURES, "Auto pickup", VrAutoPickup, "Walking over a gun picks it up. Off: grab or pull guns."),
-    { .label = "Pull visuals", .headset = 1, .tooltip = "The glow, ring and line on what force pull points at. The buzz stays.",
-      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrPullVisuals,
-      .def = NAN, .blocked = blockedPull },
+    /* one setting (owner, 2026-11-23): the line and glow, and pulling a guard's gun, are always
+     * part of it, and walking over a gun always picks it up */
+    TOGGLE(GEVR_SEC_GESTURES, "Force pull WIP", VrForcePull, "Point an empty hand at a gun or item, squeeze to lock, flick to pull, and grip to catch it. It can take a guard's gun out of their hand."),
 
     /* Weapons */
     { .label = "Gun recoil", .headset = 1, .tooltip = "Each gun's own kick, or one for all.", .kind = GEVR_SET_TOGGLE,
@@ -736,30 +997,46 @@ static const Row s_rows[] = {
     { .label = "Play mode", .headset = 1, .tooltip = "Stereo VR: you are Bond. Flat screen: the game on a big screen.", .kind = GEVR_SET_CHOICE,
       .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_LAUNCHER, .ivar = &VrPlayMode,
       .ivalues = s_two, .names = s_playNames, .count = 2, .def = NAN },
-    CUSTOM_VR(GEVR_SEC_DISPLAY, "Refresh", GEVR_SET_CHOICE, refreshPositions, refreshGet, refreshSet, refreshText, 0,
-           "The headset's display rate. Auto leaves it to the headset."),
+    /* Refresh and SpaceWarp: the launcher's with the other graphics rows (Comfort & display >
+     * Graphics), General having run out of room */
+    { .label = "Refresh", .tooltip = "The headset's display rate. Auto leaves it to the headset.", .kind = GEVR_SET_CHOICE,
+      .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH, .def = NAN,
+      .cpositions = refreshPositions, .cget = refreshGet, .cset = refreshSet, .ctext = refreshText, .cdefault = 0, .headset = 1 },
     { .label = "SpaceWarp", .headset = 1, .tooltip = "Draws half the frames and has the headset make the rest. "
                                        "On by default with Bean at 120 Hz.", .kind = GEVR_SET_TOGGLE,
-      .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .def = NAN, .blocked = blockedSpaceWarp,
+      .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH, .def = NAN, .blocked = blockedSpaceWarp,
       .cpositions = swPositions, .cget = swGet, .cset = swSet, .ctext = swText, .cdefault = -1 },
     { .label = "Anti-aliasing", .headset = 1, .tooltip = "Smooths jagged edges. Changes right away; costs GPU time, which is short on battery.",
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrEyeMsaa,
-      .ivalues = s_msaa, .names = s_msaaNames, .count = sizeof(s_msaa) / sizeof(s_msaa[0]), .def = NAN, .blocked = blockedMsaa },
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH,
+      .ivar = &VrEyeMsaa,
+      .ivalues = s_msaa, .names = s_msaaNames, .count = sizeof(s_msaa) / sizeof(s_msaa[0]), .def = NAN, .blocked = blockedMsaa,
+      .ctext = msaaText, .warning = warnMsaa },
     { .label = "Resolution", .headset = 1, .tooltip = "Draws each eye at this multiple of the size the headset recommends. "
                                         "Above 1x (supersampling) is sharper and costs GPU time: 1.5x draws 2.25 times the pixels. "
                                         "Below 1x is faster and softer. Takes effect the next time the game starts.",
-      /* the launcher's only: it waits for the next start, and the in-game Display tab is full */
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_LAUNCHER, .def = NAN,
-      .cpositions = scalePositions, .cget = scaleGet, .cset = scaleSet, .ctext = scaleText, .cdefault = 1,
+      /* the launcher's Comfort & display > Graphics and the in-game Graphics tab, saying
+       * "(next start)" until the game starts again */
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS),
+      .where = GEVR_SET_BOTH, .def = NAN,
+      .cpositions = scalePositions, .cget = scaleGet, .cset = scaleSet, .ctext = scaleText, .cdefault = 0,
       .warning = warnScale },
     { .label = "Anisotropic filtering", .tooltip = "Keeps HD pack and Bean textures sharp on floors and walls seen at an angle. "
                                                    "Higher costs GPU time. The original N64 textures aren't affected. Changes right away.",
-      /* in game beside the HD pack and Bean rows (Mods), where a change shows at once; the
-       * launcher's pages that take table rows are full (a flat game's Comfort & display, General) */
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME,
-      .ivar = &VrTextureAniso,
-      .ivalues = s_aniso, .names = s_anisoNames, .count = sizeof(s_aniso) / sizeof(s_aniso[0]), .def = NAN,
-      .ctext = anisoText, .warning = warnAniso },
+      /* in game beside the HD pack and Bean rows (Mods), where a change shows at once, and in
+       * the launcher's Comfort & display > Graphics (owner, 2026-11-22: "it should be in launcher too") */
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS),
+      .where = GEVR_SET_BOTH,
+      .def = NAN, .cpositions = anisoPositions, .cget = anisoGet, .cset = anisoSet, .ctext = anisoText,
+      .cdefault = 0, .warning = warnAniso },
+    { .label = "Texture filtering", .tooltip = "How the original N64 textures are smoothed. Pixelated: sharp, blocky pixels, which "
+                                               "shimmer in the distance. Smooth: softer. N64 accurate: the console's own "
+                                               "three-point filtering. HD pack and Bean textures aren't affected. Changes right away.",
+      /* beside Anisotropic filtering, the HD pack's and Bean's, in game where a change shows at
+       * once, and in the launcher's Comfort & display > Graphics as it is */
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS),
+      .where = GEVR_SET_BOTH, .def = NAN,
+      .cpositions = texFilterPositions, .cget = texFilterGet, .cset = texFilterSet, .ctext = texFilterText,
+      .cdefault = 1, .warning = warnTexFilter },
     { .label = "Watch face", .headset = 1, .tooltip = "Health, armour and radar on your watch. Only: and nowhere else.", .kind = GEVR_SET_CHOICE,
       .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_HANDS), .where = GEVR_SET_BOTH, .ivar = &VrWatchFaceStatus,
       .ivalues = s_three, .names = s_watchNames, .count = 3, .def = NAN },
@@ -775,16 +1052,22 @@ static const Row s_rows[] = {
       .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrScreenPassthrough, .def = NAN, .blocked = blockedPassthrough },
     { .label = "Fullscreen", .pcflat = 1,
       .tooltip = "Fill the monitor (Alt+Enter also toggles fullscreen at any time).",
-      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_COMFORT_DISPLAY), .where = GEVR_SET_BOTH,
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH,
       .def = NAN, .cpositions = fullscreenPositions, .cget = fullscreenGet, .cset = fullscreenSet, .ctext = fullscreenText,
       .cdefault = 0 },
     { .label = "Screen shape", .tooltip = "The flat game's shape: 4:3 as the N64 drew it, or 16:9 with a wider view and the HUD at the edges.",
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_COMFORT_DISPLAY), .where = GEVR_SET_BOTH,
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH,
       .ivar = &VrScreenShape, .ivalues = s_two, .names = s_shapeNames, .count = 2, .def = NAN },
+    { .label = "Anti-aliasing", .flatgame = 1,
+      .tooltip = "Smooths jagged edges. Changes right away; higher costs GPU time.",
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH,
+      .def = NAN, .cpositions = flatMsaaPositions, .cget = flatMsaaGet, .cset = flatMsaaSet, .ctext = flatMsaaText,
+      .cdefault = 0, .warning = warnFlatMsaa },
     { .label = "Frame rate", .flatgame = 1,
       .tooltip = "Auto matches your display's refresh rate and steps down to a steady lower rate if this device can't hold it. "
                  "Or choose a fixed cap or Uncapped.",
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_COMFORT_DISPLAY), .where = GEVR_SET_BOTH, .def = NAN,
+      /* with the other graphics rows (Comfort & display > Graphics): General had no room left */
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH, .def = NAN,
       .cpositions = frameRatePositions, .cget = frameRateGet, .cset = frameRateSet, .ctext = frameRateText, .cdefault = 0 },
     { .label = "Third person", .tooltip = "The camera follows behind Bond in the flat screen, solo. "
                                           "Aiming, the watch and the tank go back to first person.", .kind = GEVR_SET_TOGGLE,
@@ -867,6 +1150,10 @@ static const Row s_rows[] = {
       .cpositions = beanPositions, .cget = beanGet, .cset = beanSet, .ctext = beanText, .cdefault = -1 },
     { .label = "Bean HD fill", .tooltip = "Fills Bean's missing pictures from the HD pack.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .ivar = &VrBeanFillTextures, .def = NAN, .blocked = blockedBeanFill },
+    { .label = "HD textures", .tooltip = "Turns the texture pack, or Bean's pictures, off and on for this session, to compare. "
+                                         "The launcher's Mods page picks the pack.", .kind = GEVR_SET_TOGGLE,
+      .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .def = NAN, .shown = texpackShown,
+      .cpositions = texpackPositions, .cget = texpackGet, .cset = texpackSet, .ctext = texpackText, .cdefault = 1 },
     /* the launcher's Mods tab draws these with their packs (vr_launcher.cpp gevrModsPage) */
     { .label = "GoldenEye X", .tooltip = "GoldenEye X's guns, hands and reloads.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .ivar = &VrGexGuns, .def = NAN, .blocked = blockedGex },
@@ -914,7 +1201,7 @@ static const Row s_rows[] = {
     { .label = "Voices", .tooltip = "The other players' voices.", .kind = GEVR_SET_RANGE, .section = GEVR_SEC_RULES,
       .lsection = L(GEVR_LSEC_MP_AUDIO), .where = GEVR_SET_LAUNCHER, .fvar = &VrVoiceVolume,
       .lo = 0, .hi = 1, .step = 0.05f, .scale = 100, .fmt = "%.0f%%", .def = 1.0f },
-    { .label = "Voice mode", .tooltip = "Proximity: opponents fade with distance, to 10%. Couch: everyone at full volume. "
+    { .label = "Voice mode", .tooltip = "Proximity: opponents are full volume within 8 m and silent past 25 m. Couch: everyone at full volume. "
                                         "Teammates are always at full volume.", .kind = GEVR_SET_CHOICE,
       .section = GEVR_SEC_RULES, .lsection = L(GEVR_LSEC_MP_AUDIO), .where = GEVR_SET_LAUNCHER, .def = NAN,
       .blocked = blockedHostRule, .cpositions = twoPositions, .cget = voiceModeGet, .cset = voiceModeSet,
@@ -924,7 +1211,7 @@ static const Row s_rows[] = {
 #define ROWS ((int)(sizeof(s_rows) / sizeof(s_rows[0])))
 
 static const char *const s_sections[GEVR_SEC_COUNT] = {
-    "Comfort", "Controls", "Gestures", "Weapons", "Display", "Game rules", "Mods/Fun", "Audio",
+    "Comfort", "Controls", "Gestures", "Weapons", "Display", "Graphics", "Rules", "Mods/Fun", "Audio",
 };
 
 static const Row *row(int id) { return id >= 0 && id < ROWS ? &s_rows[id] : NULL; }
@@ -932,7 +1219,7 @@ static const Row *row(int id) { return id >= 0 && id < ROWS ? &s_rows[id] : NULL
 /* The launcher's place for a section's rows, where a row names none */
 static const int s_launcherOf[GEVR_SEC_COUNT] = {
     GEVR_LSEC_COMFORT_DISPLAY, GEVR_LSEC_HANDS, GEVR_LSEC_GESTURES, GEVR_LSEC_THROWING,
-    GEVR_LSEC_COMFORT_DISPLAY, GEVR_LSEC_RULES, GEVR_LSEC_MODS, GEVR_LSEC_PLAY,
+    GEVR_LSEC_COMFORT_DISPLAY, GEVR_LSEC_GRAPHICS, GEVR_LSEC_RULES, GEVR_LSEC_MODS, GEVR_LSEC_PLAY,
 };
 static int launcherSection(const Row *r) { return r->lsection ? r->lsection - 1 : s_launcherOf[r->section]; }
 

@@ -61,6 +61,8 @@ float RENDER_SCALE = 1.0f;
 bool g_refreshRateSupported = true, g_refreshRatesEnumerated = false;
 float g_sessionRefreshPreference = 0.0f;
 int VrRefreshRate = 0;
+static int s_autoRefreshHz = 0;   // gevr_settings.c: Auto's rate on this headset, 0 none
+extern "C" int gevrAutoRefreshHz(void) { return s_autoRefreshHz; }
 std::vector<float> g_supportedRefreshRates;
 std::vector<float> offeredRates = {72, 80, 90, 120}, requests;
 XrResult enumCountResult = XR_SUCCESS, enumDataResult = XR_SUCCESS, requestResult = XR_SUCCESS;
@@ -254,6 +256,18 @@ static void refreshChecks() {
     VrRefreshRate = 90; procFailure = true; vr_request_refresh_rate(); assert(requests.empty());
     procFailure = false; vr_request_refresh_rate(); assert(requests.back() == 90);
     clean(); VrRefreshRate = 0;
+    // Auto on a headset with a measured default (Quest 3: 90 Hz) asks for it when offered,
+    // and none when it isn't (the runtime's, as on other headsets)
+    offeredRates = {72, 80, 90, 120}; requests.clear();
+    vr_initialize(); g_vrState.sessionRunning = true;
+    s_autoRefreshHz = 90; vr_request_refresh_rate();
+    assert(requests.size() == 1 && requests.back() == 90 && g_sessionRefreshPreference == 90);
+    clean(); requests.clear();
+    offeredRates = {72, 120};
+    vr_initialize(); g_vrState.sessionRunning = true;
+    vr_request_refresh_rate();
+    assert(requests.empty());
+    clean(); s_autoRefreshHz = 0; offeredRates = {72, 80, 90, 120};
 }
 static void failureChecks() {
     for (int failure = 0; failure < 7; ++failure) {

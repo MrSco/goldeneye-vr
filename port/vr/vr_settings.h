@@ -3,7 +3,8 @@
 #include "gevr_watch_status.h"
 #include "gevr_bodyslot.h"
 extern int VrManualReloading;
-extern float VrBeanMagFits[64][2][3];   /* Bean guns' magazines (gun.c gevrBeanMagFit) */
+extern float VrBeanMagFits[64][3][3];   /* Bean guns' magazines (gun.c gevrBeanMagFit) */
+extern const float VrBeanMagFitsDefault[64][3][3];   /* ... as they ship: a save writes the others only */
 extern bool VrlaserDotForALL;
 extern bool inputRumbleSupported(int playernum);
 extern int g_ExtMenuPlayer;
@@ -57,6 +58,11 @@ extern char VrPlayerName[16];  // multiplayer name, up to 15 characters (launche
 // the guns are ITEM_IDS values; the favorites are bitmasks over net_match.c's lists.
 // VrMpVisibility: 0 public, 1 private, 2 friends only (listed to the host's friends).
 extern int VrMpStage, VrMpWeaponSet, VrMpChr, VrMpVisibility, VrMpVrOnly, VrMpHideFlat;
+extern int VrMpHandReloadOnly, VrMpHideButton;   // the host's "Hand reload only"; the Join list's filter
+// The Join page's server choice (0 all games, 1 dedicated servers, 2 player-hosted,
+// 3 a custom server) and the custom servers typed there, "host[:port]" joined by ';'.
+extern int VrMpServerFilter;
+extern char VrMpCustomServers[512];
 // Friends page (vr_friends.cpp): what friends see, and whether the restore code was noted.
 extern int VrFriendsShowDetail, VrFriendsAppearOffline, VrFriendsRestoreNoted;
 extern int VrFriendsSidebar;
@@ -124,8 +130,8 @@ extern int VrMovementSpeed, VrMpMovementSpeed;
 // GEVR PC's grip gestures, one toggle each (vr_settings_defaults.c). Grabbing within
 // reach is always on; the hip holster gave way to body slots (test.22).
 extern int VrGestureGripUse, VrGestureMineGrab;
-// Force pull (docs/force-pull.md): the pull, pull and disarm, walk-over pickup of guns, the halo and line.
-extern int VrForcePull, VrPullDisarm, VrAutoPickup, VrPullVisuals;
+// Force pull (docs/force-pull.md): the pull, a guard's gun included, with its halo and line.
+extern int VrForcePull;
 // Body slots (gevr_bodyslot.h): on/off, draw what they hold, zone size 0..2,
 // and each slot's fitted centre (cm below the eye, out, ahead; 0 0 0 default).
 extern int VrBodySlots, VrBodySlotShow, VrBodySlotSize;
@@ -157,6 +163,7 @@ extern int VrEyeMsaa;           // eye images' anti-aliasing: 1 off, 2 samples (
 extern float VrRenderScale;     // Resolution: eye images over the headset's size, next start; 0 = the config's
 extern int VrTextureAniso;      // anisotropic filtering of HD pack and Bean pictures: 1 off, 2..16 (live)
 extern int VrCpuLevel;          // CPU performance level asked at session start: -1 none, 0..2
+extern int VrBatTwoHand;        // the glove-held rifle bat with both hands: 0 wrist together/line apart, 1 the line
 extern unsigned long long VrCheatMask; // launcher cheats: bit n = CHEAT_IDS n
 extern int VrGunSizeCheat;      // VR fun cheat: 0 normal, 1 tiny, 2 big guns
 extern int VrUnlockAll;         // every mission, 007 mode and every cheat unlocked (issue #54)
@@ -185,7 +192,7 @@ extern float VrGexHeldMag[3];      // a GE-X magazine's palm from the off hand's
 extern float VrGexWatch[4];        // the watch on GE-X's left wrist: cm ahead, up, out; its size
 extern float VrGexOffRot[3];       // GE-X's off hand turned about its palm: degrees about the grip's x, y, z
 extern float VrGexForeHold[3];     // GE-X's two-handed hold on the gun: cm forward, up, out
-extern float VrGexBatFit[7][3];    // the rifle butt as a bat: the rifle on the fist, the hand's place, its turn, the off hand's place, its turn; [5] Bean's rifle on the fist
+extern float VrGexBatFit[9][3];    // the rifle butt as a bat: the rifle on the fist, the hand's place, its turn, the off hand's place, its turn; [5] Bean's rifle on the fist, [6] GoldenEye's own; [7], [8] their end in the off hand
 extern float VrGexWeaponFits[64][10][3];
 extern float VrGexPp7Grab[3], VrGexPp7Support[3]; // shared by both PP7 variants
 extern float VrGexPp7GunOff[3];

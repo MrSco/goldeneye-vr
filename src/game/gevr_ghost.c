@@ -61,6 +61,8 @@ extern int gevrVrReady(void);              /* vr_openxr.cpp, flat_headset.c */
 extern int VrGhostRace, VrSpeedrunTimer;   /* vr_settings_defaults.c */
 extern int VrPlayMode;
 extern int VrBeanModels, VrGexGuns, VrForcePull, VrAlly, VrThirdPerson, VrCampaign, VrMovementSpeed;
+extern int VrTeleport;   /* vr_settings_defaults.c: the Movement row's Teleport */
+extern s32 gevrHandReloadOn(void);   /* bondview2.c: Hand reload on, with guns that take it */
 extern const char gevrBuildId[];
 
 extern struct weapon_firing_animation_table *gevrPlayerBodyChooseAnim(struct player *pl, ChrRecord *chr, s32 crouchpos);
@@ -135,7 +137,7 @@ struct gevrghostheader {
     /*0x2c*/ u8 body;
     /*0x2d*/ u8 head;
     /*0x2e*/ u8 vrcounted;            /* 1: flags' VR is counted over the whole run (ghostSave); 0: an older file */
-    /*0x2f*/ u8 pad;
+    /*0x2f*/ u8 flags2;               /* GEVR_GHF_* above 0x80, shifted down (teleport); 0 in an older file */
     /*0x30*/ char player[32];
     /*0x50*/ char build[32];
     /*0x70*/ char owner[16];
@@ -263,7 +265,7 @@ int gevrGhostFileInfo(const char *rel, GevrGhostInfo *out)
     out->stage = hdr.stage;
     out->difficulty = hdr.difficulty;
     out->campaign = hdr.campaign;
-    out->flags = hdr.flags;
+    out->flags = hdr.flags | (hdr.flags2 << 8);
     /* a run from before the VR count was stamped flat on every headset: most were VR (the Worker's ghosts.ts too) */
     if (!hdr.vrcounted) out->flags |= GEVR_GHF_STEREO;
     out->timestamp = hdr.timestamp;
@@ -388,7 +390,7 @@ static s32 s_recFull;
 static s32 s_recStage = -1;
 static s32 s_recDifficulty = -1;
 static s32 s_recCampaign;
-static u8 s_recFlags;        /* every setting the run used at any time (ghostRunFlags) */
+static u16 s_recFlags;       /* every setting the run used at any time (ghostRunFlags) */
 static s32 s_recVrSamples;   /* how many of the run's samples were played in VR */
 
 static s8 ghostSpeed(f32 v)
@@ -439,9 +441,9 @@ static s32 ghostPlayingVr(void)
  * holding the right stick click switches it mid-run, and ghostSave stamps
  * VR only for a run played wholly in VR, mixed for a run of both.
  */
-static u8 ghostRunFlags(void)
+static u16 ghostRunFlags(void)
 {
-    u8 f = 0;
+    u16 f = 0;
     s32 vr = ghostPlayingVr();
 
     if (VrBeanModels && gevrBeanIsAvailable()) f |= GEVR_GHF_BEAN;
@@ -451,6 +453,8 @@ static u8 ghostRunFlags(void)
     if (VrThirdPerson && !vr) f |= GEVR_GHF_THIRD;
     /* the launcher's Movement speed (net_rules.h NET_MOVE_NORMAL is 0) */
     if (VrMovementSpeed != 0) f |= GEVR_GHF_SPEED;
+    if (VrTeleport) f |= GEVR_GHF_TELEPORT;
+    f |= vr && gevrHandReloadOn() ? GEVR_GHF_HANDRELOAD : GEVR_GHF_BUTTONRELOAD;
     return f;
 }
 
@@ -566,6 +570,14 @@ static void ghostSave(s32 force)
     if (!force && ghostRead(rel, &old, &oldsamples))
     {
         free(oldsamples);
+        /* a run outside the original rules never takes a ranked best's place, however fast
+         * (owner, 2026-11-22: such a run "is not going to count") */
+        if ((s_recFlags & GEVR_GHF_UNRANKED) && !((old.flags | (old.flags2 << 8)) & GEVR_GHF_UNRANKED))
+        {
+            sysLogPrintf(LOG_NOTE, "ghost: %d:%02d was set outside the original rules (flags %03x): "
+                         "the ranked run on file stays", time60 / 3600, (time60 / 60) % 60, s_recFlags);
+            return;
+        }
         if ((s32)old.time60 <= time60)
         {
             sysLogPrintf(LOG_NOTE, "ghost: %d:%02d does not beat the ghost on file (%d:%02d)",
@@ -586,7 +598,8 @@ static void ghostSave(s32 force)
     hdr.stage = (u8)s_recStage;
     hdr.difficulty = (u8)s_recDifficulty;
     hdr.campaign = (u8)s_recCampaign;
-    hdr.flags = s_recFlags;
+    hdr.flags = (u8)(s_recFlags & 0xff);
+    hdr.flags2 = (u8)(s_recFlags >> 8);
     if (s_recVrSamples >= s_recCount) hdr.flags |= GEVR_GHF_STEREO;
     else if (s_recVrSamples > 0) hdr.flags |= GEVR_GHF_MIXED;
     hdr.vrcounted = 1;

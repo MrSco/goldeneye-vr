@@ -56,9 +56,19 @@ typedef struct {
     uint8_t vr_only;
     uint8_t flat_players;
 } NetDiscoveryBeaconTail;
+/* Additive, no bump: after that tail, a reload tail: "Hand reload only" and how many reload
+ * with the button. An older build reads up to the tail above. */
+#define NET_BEACON_RELOAD_TAG 0x52u   /* 'R' */
+typedef struct {
+    NetDiscoveryBeaconTail tail;
+    uint8_t reload_tag;
+    uint8_t hand_only;
+    uint8_t button_players;
+} NetDiscoveryBeaconReload;
 #pragma pack(pop)
 
 extern int VrMpVrOnly;   /* the host's "VR players only" (vr_settings_defaults.c) */
+extern int VrMpHandReloadOnly;   /* the host's "Hand reload only" */
 
 static SOCKET s_disc_socket = INVALID_SOCKET;
 static bool s_broadcasting = false;
@@ -172,6 +182,7 @@ void netDiscoveryUpdate(uint32_t current_time_ms) {
         beacon.phase = (uint8_t)netGetPhase();
         beacon.joinable = beacon.player_count < beacon.max_players;
         beacon.host_id = PD_LE32(s_self_id);
+        NetDiscoveryBeaconReload sentReload;
         NetDiscoveryBeaconTail sent;
         sent.base = beacon;
         sent.tail_tag = NET_BEACON_TAIL_TAG;
@@ -180,6 +191,13 @@ void netDiscoveryUpdate(uint32_t current_time_ms) {
             const int flat = netGetFlatPlayerCount();
             sent.flat_players = (uint8_t)(flat < beacon.player_count ? flat : beacon.player_count);
         }
+        sentReload.tail = sent;
+        sentReload.reload_tag = NET_BEACON_RELOAD_TAG;
+        sentReload.hand_only = VrMpHandReloadOnly ? 1 : 0;
+        {
+            const int button = netGetButtonReloadCount();
+            sentReload.button_players = (uint8_t)(button < beacon.player_count ? button : beacon.player_count);
+        }
         
         struct sockaddr_in broadcast_addr;
         memset(&broadcast_addr, 0, sizeof(broadcast_addr));
@@ -187,10 +205,10 @@ void netDiscoveryUpdate(uint32_t current_time_ms) {
         broadcast_addr.sin_port = htons(GEVR_DISCOVERY_PORT);
         broadcast_addr.sin_addr.s_addr = INADDR_BROADCAST;
         
-        sendto(s_disc_socket, (const char *)&sent, sizeof(sent), 0,
+        sendto(s_disc_socket, (const char *)&sentReload, sizeof(sentReload), 0,
                (struct sockaddr *)&broadcast_addr, sizeof(broadcast_addr));
         if (s_also_to.sin_family == AF_INET) {
-            sendto(s_disc_socket, (const char *)&sent, sizeof(sent), 0,
+            sendto(s_disc_socket, (const char *)&sentReload, sizeof(sentReload), 0,
                    (struct sockaddr *)&s_also_to, sizeof(s_also_to));
         }
     }
@@ -243,6 +261,15 @@ void netDiscoveryUpdate(uint32_t current_time_ms) {
                 } else {
                     srv->vr_only = 0;
                     srv->flat_players = 0xFF;   /* an older host: not said */
+                }
+                if (bytes >= (int)sizeof(NetDiscoveryBeaconReload) &&
+                    ((const NetDiscoveryBeaconReload *)buffer)->reload_tag == NET_BEACON_RELOAD_TAG) {
+                    const NetDiscoveryBeaconReload *r = (const NetDiscoveryBeaconReload *)buffer;
+                    srv->hand_only = r->hand_only != 0;
+                    srv->button_players = r->button_players;
+                } else {
+                    srv->hand_only = 0;
+                    srv->button_players = 0xFF;   /* an older host: not said */
                 }
                 srv->last_seen_ms = current_time_ms;
             }

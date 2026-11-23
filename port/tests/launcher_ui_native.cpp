@@ -186,9 +186,10 @@ static void settingsChecks() {
           "Quest/PC VR Controls shows Hands, Gestures, Throwing, Haptics, Look");
     check(gevrLauncherSubCount(GEVR_LTAB_CONTROLS, GEVR_CTX_PC_VR) == 5, "PC VR matches Quest Controls sub-tabs");
     check(gevrLauncherSubCount(GEVR_LTAB_PLAY, GEVR_CTX_PC_FLAT) == 2, "Play has Play and Ghosts sub-tabs");
-    check(gevrLauncherSubCount(GEVR_LTAB_COMFORT_DISPLAY, GEVR_CTX_PC_FLAT) == 0 &&
-          gevrLauncherSubCount(GEVR_LTAB_COMFORT_DISPLAY, GEVR_CTX_QUEST) == 0,
-          "Comfort & display is a single page in both flat and VR");
+    check(gevrLauncherSubCount(GEVR_LTAB_COMFORT_DISPLAY, GEVR_CTX_PC_FLAT) == 2 &&
+          gevrLauncherSubCount(GEVR_LTAB_COMFORT_DISPLAY, GEVR_CTX_QUEST) == 2 &&
+          gevrLauncherSubId(GEVR_LTAB_COMFORT_DISPLAY, 1, GEVR_CTX_QUEST) == GEVR_LSUB_GRAPHICS,
+          "Comfort & display has General and Graphics in both flat and VR");
     session = GevrLauncherSession{};
     session.updateDebugCombo(true, true);
     check(!session.debugUnlocked, "returning to launcher relocks and requires a fresh combo");

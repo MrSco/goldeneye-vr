@@ -18,7 +18,6 @@ struct GevrPanelView {
     char status[128] = "";       // under it: the difficulty, or the match's state
     char note[128] = "";         // what leaving costs ("... does not save this mission.")
     bool online = false;         // leaving says goodbye to the match
-    int texpack = -1;            // 1 HD textures on, 0 off, -1 no pack
     bool touchLayout = false;    // a touch screen: "Edit touch layout" (flat_touch.cpp)
     GevrPauseGaugeVertex gauges[92]{};
     GevrPauseRadarView radar{};
@@ -28,8 +27,9 @@ struct GevrPanelUi {
     bool focusLauncher = true;   // hold Menu then A still goes back to the launcher
     int openSection = -1;        // >= 0: bring that tab up on the next frame (the layout test's)
 };
-enum { GEVR_PANEL_NONE, GEVR_PANEL_RESUME, GEVR_PANEL_LAUNCHER, GEVR_PANEL_TEXPACK, GEVR_PANEL_RESET_SOUND,
-       GEVR_PANEL_TOUCH_LAYOUT };
+// HD textures is the Mods/Fun tab's row now, and Reset sound (#229's crunchy sound) is gone
+// with the bug (owner, 2026-11-23)
+enum { GEVR_PANEL_NONE, GEVR_PANEL_RESUME, GEVR_PANEL_LAUNCHER, GEVR_PANEL_TOUCH_LAYOUT };
 
 inline int gevrDrawPanelWindow(const GevrPanelView &v, GevrPanelUi &ui, ImTextureID icon = 0) {
     int action = GEVR_PANEL_NONE;
@@ -64,15 +64,6 @@ inline int gevrDrawPanelWindow(const GevrPanelView &v, GevrPanelUi &ui, ImTextur
     ImGui::Separator();
     ImGui::SetCursorPos(ImVec2(18, 886));
     if (ImGui::Button("Resume", ImVec2(244, 52))) action = GEVR_PANEL_RESUME;
-    if (v.texpack >= 0) {
-        ImGui::SetCursorPos(ImVec2(282, 886));
-        if (ImGui::Button(v.texpack ? "HD textures off" : "HD textures on", ImVec2(300, 52))) action = GEVR_PANEL_TEXPACK;
-        if (ImGui::IsItemHovered()) gevrTooltip("Switches the texture pack for this session.");
-    }
-    // #229: sound gone bit-crushed with an echo comes back with a new output stream
-    ImGui::SetCursorPos(ImVec2(600, 886));
-    if (ImGui::Button("Reset sound", ImVec2(330, 52))) action = GEVR_PANEL_RESET_SOUND;
-    if (ImGui::IsItemHovered()) gevrTooltip("If the sound turns crunchy or echoes, this restarts it.");
     ImGui::SetCursorPos(ImVec2(948, 886));
     ImGui::PushStyleColor(ImGuiCol_Text, bad);
 #ifdef GEVR_IOS

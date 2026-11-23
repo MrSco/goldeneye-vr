@@ -41,7 +41,7 @@ float VrGexOffRot[3];   /* gun.c gevrGexOffHandPose: the off hand's turn, none h
 s32 g_GlobalTimer; float VrGunOffX, VrGunOffY, VrGunOffZ;
 s32 gevrGadgetFitPose(s32 item, f32 ofs[3], f32 rot[3], f32 *scale) { (void)item; (void)ofs; (void)rot; (void)scale; return 0; }
 float VrGexKf7MagOff[3], VrGexPp7MagOff[3];
-float VrGexPp7SupportRot[3], VrGexWeaponFits[64][10][3], VrGexBatFit[7][3];
+float VrGexPp7SupportRot[3], VrGexWeaponFits[64][10][3], VrGexBatFit[9][3];
 float VrGexKf7WellOff[3],VrGexPp7WellOff[3];
 static int gevrScopeFitting,gevrReloadFitting,gevrOffHandFitting,gevrHeldMagFitting,gevrMuzzleFitting,gevrGunHandFitting;
 static int gevrWellFitting,gevrInstalledMagFitting,gevrBodySlotFitting,bodySlots;
@@ -82,7 +82,7 @@ static s32 g_ClockTimer=1;
 #define GEVR_GEX_PALM_Z 50.0f
 enum { GEVR_GEXMAG_IN, GEVR_GEXMAG_GRIPPED, GEVR_GEXMAG_INHAND, GEVR_GEXMAG_OUT };
 static Mtxf s_gevrGexLastGun[2];
-static s32 s_gevrGexMagPointsValid;
+static s32 s_gevrGexMagPointsValid, s_gevrGexMagPointsGun;   /* gun.c: whose points (GUNRIGHT) */
 static f32 s_gevrGexWellAt[3],s_gevrGexHeldAt[3];
 static Mtxf s_gevrGexOffR2, s_gevrGexOffChain[33], s_gevrGexOffEmpty[33];
 static ModelNode *s_gevrGexOffFrom;
@@ -926,7 +926,9 @@ production.append(function(view,"static const char *gevrFitNextLine("))
 production.append(function(view,"static void gevrScopeLensPlace("))
 input_source=(ROOT/"port/src/input.c").read_text()
 cycle=function(input_source,"if (x && !xHeld && gadget < 0)")
-production.append('static void cycleFit(void) { const int gex=active!=NULL,scope=fitScope,bat=0,beanMag=0; '+cycle[cycle.index('{')+1:-1]+' }')
+production.append('static void cycleFit(void) { const int gex=active!=NULL,scope=fitScope,bat=0,beanMag=0,'
+                  'magAmmo=active!=NULL&&gevrGexHasAmmo(active),magInstalled=active!=NULL&&gevrGexHasMagazine(active); '
+                  +cycle[cycle.index('{')+1:-1]+' }')
 fit=function(input_source,'if (gevrStereoTwoHandGrip() && gevrGexHeld(gevrStereoTwoHandGun()) && VrGexGuns)')
 production.append('static void fitSupport(float mx,float my,float ry,float rate,float dt) { '+fit+' }')
 fire=(ROOT/"src/game/gunfire.c").read_text(encoding="utf-8")

@@ -3,7 +3,8 @@
 Passing these checks does not establish correct meshes, materials or visual fit.
 
 python port/tests/test_bean_mapping.py ROM.z64 path/to/xbla/files
-The cartridge and extracted models are read locally and never committed.
+(or set GEVR_GE_ROM and GEVR_BEAN_FILES). The cartridge and extracted models
+are read locally and never committed; without them this says SKIP.
 """
 from pathlib import Path
 import json
@@ -136,9 +137,16 @@ def check_placement(results):
 
 
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) > 3:
         raise SystemExit(__doc__)
-    rom, assets = load_rom(sys.argv[1]), Path(sys.argv[2]).resolve()
+    # as the other Bean checks: the arguments, else GEVR_GE_ROM and GEVR_BEAN_FILES; both
+    # are the player's own, so without them this is a skip, not a failure
+    rom_path = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("GEVR_GE_ROM")
+    files = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("GEVR_BEAN_FILES")
+    if not rom_path or not files:
+        print("SKIP: pass a GoldenEye 007 (USA) ROM and the XBLA files folder to check the native catalog")
+        return
+    rom, assets = load_rom(rom_path), Path(files).resolve()
     # gevr_bean_tex.c keys a model's pictures by "<path>:<n>" in 160 characters:
     # a longer path cuts every key to one, and all of them share one picture
     assert len(str(assets / "new/char/suitlfhand/default.bin:11")) < 160, \

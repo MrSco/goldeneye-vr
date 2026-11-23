@@ -6,6 +6,7 @@ This is an experimental native Quest multiplayer mode. It uses ENet and borrows 
 
 - Use the same APK version on every headset. The game and discovery protocol in this source is **26** (force pull, catch and disarm; 25 added Horde's briefcase powers, 24 all 26 maps in Horde and Deathmatch, #219). Earlier builds cannot join; LAN discovery and the internet lobby list filter by protocol.
 - The host's lobby is **Public** (listed for everyone under Join > Public), **Friends** (unlisted, offered to the host's friends on their Friends panel; anyone else needs the code) or **Private** (the code or an invite). The friends service and its invites do not touch the game protocol.
+- Join > Public has a **Servers** choice: All games (the default), Dedicated servers (keyed servers, `docs/dedicated-server-operators.md` "Server keys"), Player-hosted games, or **Custom server**, which joins a server by name or IP (`host[:port]`, default port 27007) and remembers the last eight. Direct IP takes names and ports the same way.
 - The host listens for ENet game traffic on UDP `27007`.
 - LAN discovery broadcasts on UDP `27008`. If discovery does not work on the Wi-Fi network, connect to the host's local IP directly.
 - Internet games use the lobby service at `lobbies.goldeneyevr.com` for discovery and ICE signaling. Native libjuice carries ENet datagrams directly where possible and through Cloudflare TURN when needed, so players do not configure router forwarding. The host can have a mix of LAN and internet players in the same lobby of up to eight.

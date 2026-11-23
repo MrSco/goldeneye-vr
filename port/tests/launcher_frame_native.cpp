@@ -47,7 +47,8 @@ static void gevrGhostsPage(const ImVec4 &gold, const ImVec4 &good, const ImVec4 
     v.rows.clear();
     for (int i = 0; i < 100; i++) {
         GevrGhostRow r;
-        r.id = i; r.time60 = 216000 + i; r.flags = i & 1; r.code = "7K3QX2"; r.name = std::string(32, 'W');
+        r.id = i; r.time60 = 216000 + i; r.flags = (i & 1) | (i % 4 == 0 ? 0x200 : i % 4 == 1 ? 0x400 : i % 4 == 2 ? 0x600 : 0); r.code = "7K3QX2";
+        r.name = std::string(32, 'W');
         r.mine = i == 1; r.racing = i == 2;
         v.rows.push_back(r);
     }
@@ -174,6 +175,7 @@ static int sweep(const char *state) {
             else if (tab == GEVR_LTAB_CONTROLS && sub == GEVR_LSUB_GESTURES) section = GEVR_LSEC_GESTURES;
             else if (tab == GEVR_LTAB_CONTROLS && sub == GEVR_LSUB_THROWING) section = GEVR_LSEC_THROWING;
             else if (tab == GEVR_LTAB_CONTROLS && sub == GEVR_LSUB_LOOK) section = GEVR_LSEC_LOOK;
+            else if (tab == GEVR_LTAB_COMFORT_DISPLAY && sub == GEVR_LSUB_GRAPHICS) section = GEVR_LSEC_GRAPHICS;
             else if (tab == GEVR_LTAB_COMFORT_DISPLAY) section = GEVR_LSEC_COMFORT_DISPLAY;
             else if (tab == GEVR_LTAB_GAME && sub == GEVR_LSUB_GAME_RULES) section = GEVR_LSEC_RULES;
             else if (tab == GEVR_LTAB_GAME && sub == GEVR_LSUB_ALLY) section = GEVR_LSEC_ALLY;
@@ -194,6 +196,7 @@ int main() {
     // motion throw and force pull; an update to offer; Bean's 120 Hz warning
     VrRagdolls = VrDismemberment = 1; VrBodySlots = 1; VrAlly = 1;
     VrMotionThrowing = VrForcePull = 1; s_bean = 1; VrRefreshRate = 120; VrSpaceWarp = 0;
+    s_hmdClass = GEVR_HMD_QUEST3;   // the Quest 3's Auto values, the widest ("Auto (16x)")
     upd.state = "available"; upd.offered = "0.5.15-test.99";
     upd.message = "Notes: a long line about what the update brings, longer than the row it shares with Update.";
     int pages = 0;
@@ -207,7 +210,8 @@ int main() {
     pages += sweep("co-op host");
     s_host = 0; s_coop = 0; s_config.mode = 0; s_config.scenario = 1; s_netSpeed = 4;
     pages += sweep("deathmatch joiner");
-    check(pages == 4 * 12, "every settings page, Ghosts, and Multiplayer's Fun and Audio, in four states");
+    // 13 a state: Comfort & display > Graphics joined General (the graphics rows had run General out of room)
+    check(pages == 4 * 13, "every settings page, Ghosts, and Multiplayer's Fun and Audio, in four states");
     // both tab rows fit without shrinking
     ImGuiContext &g = *ImGui::GetCurrentContext();
     int bars = 0;
