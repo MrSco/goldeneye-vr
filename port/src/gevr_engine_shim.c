@@ -691,7 +691,8 @@ static void gevrVrFrameBegin(void)
 	/* Hold the left stick click for about a second to bring the virtual screen back in front of you. */
 	if (gevrVrFrameBegun) {
 		static u32 held;
-		if (get_button_state(0, "thumbstick_click")) {
+		/* not with both grips: that hold restarts the mission (input.c, #280) */
+		if (get_button_state(0, "thumbstick_click") && !(get_button_state(0, "grip") && get_button_state(1, "grip"))) {
 			if (++held == 72) {
 				vr_screen_recenter();
 			}

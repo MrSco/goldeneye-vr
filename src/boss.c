@@ -768,6 +768,13 @@ void bossMainloop(void)
                                     netPlayerSyncAfterTick(playernum);
 #endif
                                 }
+#ifdef GEVR
+                                {
+                                    /* the restart key or chord (#280): this stage again, after the ticks */
+                                    extern void gevrSpeedrunRestartTick(void);
+                                    gevrSpeedrunRestartTick();
+                                }
+#endif
                             }
 
                             gdl = lvlRender(gdl);

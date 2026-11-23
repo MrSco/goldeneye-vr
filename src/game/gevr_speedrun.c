@@ -36,6 +36,11 @@
 #include "textrelated.h"
 #include "hudaspect.h"
 #include "gevr_livesplit.h"
+#include "system.h"
+#include "boss.h"
+#include "front.h"
+#include "lv.h"
+#include "mp_music.h"
 
 extern bool netIsActive(void);
 extern int netGetLocalSlot(void);
@@ -436,4 +441,63 @@ Gfx *gevrSpeedrunTimerRender(Gfx *gdl)
     }
     PORT_HUD_ASPECT(gdl, GE_HUD_ASPECT_NONE);
     return gdl;
+}
+
+/*
+ * Restart the mission (#280, a speedrunner's reset): Backspace on PC (input.c,
+ * the Restart mission bind), both grips and a held left stick click in VR.
+ * The mission from the top, as the menus' Start would load it: the same stage
+ * at the same difficulty, so the intro, the guards, the doors, the ammo and
+ * the clock are a fresh load's (lvlStageLoad; bondview_r.c zeroes
+ * mission_timer), and the ghost, LiveSplit and the debrief's stamp start
+ * again with the stage (prop.c). Nothing is teleported. LiveSplit resets on
+ * a run's first mission, as for any try that ends unfinished
+ * (gevr_livesplit.c).
+ *
+ * A solo mission, offline only: online the stage is the host's or the
+ * party's, and a local split screen's is everyone's. And only when running:
+ * the Speedrun timer, Ghost race or LiveSplit on, as for the debrief's stamp
+ * (user, 2026-11-22), so a stray Backspace never throws away a played mission.
+ */
+extern s32 g_MainStageNum;   /* boss.c: the stage to load, LEVELID_NONE while one plays */
+static s32 s_restartPending;
+
+static s32 gevrSpeedrunRestartAllowed(void)
+{
+    return (VrSpeedrunTimer || VrGhostRace || VrLiveSplit)
+        && !netIsActive() && gamemode != GAMEMODE_MULTI && getPlayerCount() == 1
+        && bossGetStageNum() != LEVELID_TITLE;
+}
+
+/* input.c: the key or the chord; 1 if the mission will restart */
+s32 gevrSpeedrunRestartRequest(void)
+{
+    if (!gevrSpeedrunRestartAllowed() || g_MainStageNum >= 0)   /* not once the stage is ending */
+    {
+        return FALSE;
+    }
+    s_restartPending = TRUE;
+    return TRUE;
+}
+
+/*
+ * boss.c, after the frame's player ticks (paused on the watch or not), so a
+ * death's or an exit's return to the title in the same frame gives way to it
+ * (the exit has saved its time by then: bossReturnTitleStage). Offline solo,
+ * the title is the only other stage a mission's frame can ask for.
+ */
+void gevrSpeedrunRestartTick(void)
+{
+    if (!s_restartPending)
+    {
+        return;
+    }
+    s_restartPending = FALSE;
+    if (!gevrSpeedrunRestartAllowed())
+    {
+        return;
+    }
+    sysLogPrintf(LOG_NOTE, "speedrun: restarting stage %d, difficulty %d", bossGetStageNum(), lvlGetSelectedDifficulty());
+    set_missionstate(MISSION_STATE_0);   /* as the watch's abort leaves it (options.c) */
+    bossSetLoadedStage(bossGetStageNum());
 }

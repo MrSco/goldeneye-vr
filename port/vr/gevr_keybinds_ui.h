@@ -38,7 +38,8 @@ enum {
     GEVR_CK_STICK_YPOS = 19,
     GEVR_CK_ACCEPT = 20,
     GEVR_CK_CANCEL = 21,
-    GEVR_CK_PREV_WEAPON = 22
+    GEVR_CK_PREV_WEAPON = 22,
+    GEVR_CK_RESTART = 32       // past the pad's buttons (input.h CK_RESTART, #280)
 };
 
 enum {
@@ -115,6 +116,7 @@ inline const char *gevrActionLabel(int campaign, unsigned ck, const char **toolt
         case GEVR_CK_PREV_WEAPON: label = "Prev weapon";  tip = "Cycle backward through weapons (default: mouse wheel up)."; break;
         case GEVR_CK_LTRIG:       label = "Alt aim";      tip = "Secondary aim trigger (N64 L button)."; break;
         case GEVR_CK_START:       label = "Pause";        tip = "Open Bond's watch / pause menu."; break;
+        case GEVR_CK_RESTART:     label = "Restart";      tip = "Restart the mission from its intro, as a fresh load: the speedrunner's reset (default: Backspace). Solo, offline, with the Speedrun timer, Ghost race or LiveSplit on."; break;
         case GEVR_CK_DPAD_D:      label = "Crouch / Dn";  tip = "Crouch while aiming / D-pad down."; break;
         case GEVR_CK_C_U:         label = "Forward";      tip = "Walk forward (C-Up)."; break;
         case GEVR_CK_C_D:         label = "Back";         tip = "Walk backward (C-Down)."; break;
@@ -158,12 +160,38 @@ inline const unsigned *gevrKbmActions(int &count) {
     return kActions;
 }
 
+// Every keyboard and mouse bind, for duplicates: the table's and Restart, which the
+// page draws on the mouse settings' second row (a 17th table row scrolls the pause page).
+inline const unsigned *gevrKbmBindActions(int &count) {
+    static const unsigned kActions[] = {
+        GEVR_CK_ZTRIG, GEVR_CK_RTRIG, GEVR_CK_B, GEVR_CK_A,
+        GEVR_CK_PREV_WEAPON, GEVR_CK_LTRIG, GEVR_CK_START, GEVR_CK_DPAD_D,
+        GEVR_CK_C_U, GEVR_CK_C_D, GEVR_CK_C_L, GEVR_CK_C_R,
+        GEVR_CK_STICK_YPOS, GEVR_CK_STICK_YNEG, GEVR_CK_STICK_XNEG, GEVR_CK_STICK_XPOS,
+        GEVR_CK_RESTART
+    };
+    count = (int)(sizeof(kActions) / sizeof(kActions[0]));
+    return kActions;
+}
+
 inline const unsigned *gevrGamepadActions(int &count) {
     static const unsigned kActions[] = {
         GEVR_CK_ZTRIG, GEVR_CK_RTRIG, GEVR_CK_B, GEVR_CK_A,
         GEVR_CK_PREV_WEAPON, GEVR_CK_LTRIG,
         GEVR_CK_START, GEVR_CK_C_U, GEVR_CK_C_D, GEVR_CK_C_L,
         GEVR_CK_C_R, GEVR_CK_ACCEPT
+    };
+    count = (int)(sizeof(kActions) / sizeof(kActions[0]));
+    return kActions;
+}
+
+// Every gamepad bind, for duplicates: the table's and Restart (on the settings' first row).
+inline const unsigned *gevrGamepadBindActions(int &count) {
+    static const unsigned kActions[] = {
+        GEVR_CK_ZTRIG, GEVR_CK_RTRIG, GEVR_CK_B, GEVR_CK_A,
+        GEVR_CK_PREV_WEAPON, GEVR_CK_LTRIG,
+        GEVR_CK_START, GEVR_CK_C_U, GEVR_CK_C_D, GEVR_CK_C_L,
+        GEVR_CK_C_R, GEVR_CK_ACCEPT, GEVR_CK_RESTART
     };
     count = (int)(sizeof(kActions) / sizeof(kActions[0]));
     return kActions;
@@ -213,11 +241,95 @@ inline bool gevrKeybindPollCapture(const GevrKeybindApi &api, GevrKeybindUiState
     return false;
 }
 
+// One bind: its button (click to capture the next key) and its clear (X) button. The
+// table's cells, and the keyboard page's Restart. Duplicates count across dupActions.
+inline void gevrDrawBindSlot(const GevrKeybindApi &api, GevrKeybindUiState &ui, unsigned ck,
+                             const char *label, bool isGamepad, int slot,
+                             const unsigned *dupActions, int dupCount,
+                             float btnW, float clearW, bool &anyDuplicate) {
+    const ImGuiStyle &style = ImGui::GetStyle();
+    const ImVec4 gold(1.0f, 0.84f, 0.47f, 1.0f);
+    const ImVec4 dupBg(0.55f, 0.28f, 0.08f, 1.0f);
+    const ImVec4 dupHover(0.68f, 0.36f, 0.10f, 1.0f);
+    const ImVec4 capBg(0.45f, 0.36f, 0.08f, 1.0f);
+    ImGui::PushID((int)(ck * 4 + slot + (isGamepad ? 1000 : 0)));
+    const unsigned vk = api.getBind ? api.getBind(ck, isGamepad, slot) : 0;
+    const bool isCap = ui.capturing && ui.captureGamepad == isGamepad &&
+                       ui.captureAction == ck && ui.captureSlot == slot;
+    const bool isDup = !isCap && vk != 0 && api.countBinds &&
+                       api.countBinds(vk, isGamepad, dupActions, dupCount) >= 2;
+    if (isDup) anyDuplicate = true;
+
+    const char *btnText = isCap ? "Press..." : (api.keyDisplayName ? api.keyDisplayName((int)vk) : "—");
+    int pushedCols = 0;
+    if (isCap) {
+        ImGui::PushStyleColor(ImGuiCol_Button, capBg);
+        ImGui::PushStyleColor(ImGuiCol_Text, gold);
+        pushedCols = 2;
+    } else if (isDup) {
+        ImGui::PushStyleColor(ImGuiCol_Button, dupBg);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, dupHover);
+        pushedCols = 2;
+    }
+
+    if (ImGui::Button(btnText, ImVec2(btnW, 0))) {
+        ui.capturing = true;
+        ui.captureGamepad = isGamepad;
+        ui.captureAction = ck;
+        ui.captureSlot = slot;
+        if (api.clearLastKey) api.clearLastKey();
+        if (api.setCapture) api.setCapture(true);
+        snprintf(ui.status, sizeof(ui.status), isGamepad
+                 ? "Press a gamepad button for %s (Esc cancels, Del clears)..."
+                 : "Press a key, mouse button or wheel for %s (Esc cancels, Del clears)...", label);
+    }
+    if (pushedCols) ImGui::PopStyleColor(pushedCols);
+    if (ImGui::IsItemHovered()) {
+        if (isDup) gevrTooltip("Duplicate bind: %s is assigned to another action.", btnText);
+        else gevrTooltip("Click or press Enter/A to bind %s (%s).", label, slot == 0 ? "Primary" : "Secondary");
+    }
+
+    ImGui::SameLine(0.0f, style.ItemInnerSpacing.x);
+    ImGui::BeginDisabled(vk == 0 || ui.capturing);
+    if (ImGui::Button("X", ImVec2(clearW, 0))) {
+        if (api.setBind) api.setBind(ck, isGamepad, slot, 0);
+        if (api.save) api.save();
+        snprintf(ui.status, sizeof(ui.status), "Cleared %s.", label);
+    }
+    ImGui::EndDisabled();
+    if (vk != 0 && ImGui::IsItemHovered()) gevrTooltip("Clear this bind.");
+    ImGui::PopID();
+}
+
+// Restart (#280) on a settings row's free width, after what the row already holds: its
+// primary bind (the table has no room for a further row without scrolling the pause page).
+inline void gevrDrawRestartBind(const GevrKeybindApi &api, GevrKeybindUiState &ui, int campaign, bool isGamepad) {
+    const ImGuiStyle &style = ImGui::GetStyle();
+    int nAll = 0;
+    const unsigned *all = isGamepad ? gevrGamepadBindActions(nAll) : gevrKbmBindActions(nAll);
+    const char *tip = nullptr;
+    const char *label = gevrActionLabel(campaign, GEVR_CK_RESTART, &tip);
+    const float clearW = std::max(26.0f, ImGui::CalcTextSize("X").x + style.FramePadding.x * 1.4f);
+    const float btnW = std::max(100.0f, ImGui::CalcTextSize("Backspace").x + style.FramePadding.x * 4.0f);
+    bool dup = false;
+    ImGui::SameLine(0.0f, style.ItemSpacing.x * 4.0f);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(label);
+    if (tip && ImGui::IsItemHovered()) gevrTooltip("%s", tip);
+    ImGui::SameLine();
+    gevrDrawBindSlot(api, ui, GEVR_CK_RESTART, label, isGamepad, 0, all, nAll, btnW, clearW, dup);
+}
+
 // Reusable 2-column-pair bind table (Action | Primary | Secondary | Action | Primary | Secondary).
 // Fits all actions on one screen with zero scrolling, big tap targets, clear (X) buttons
 // for touch/pad users, and duplicate-bind highlighting.
 inline void gevrDrawBindTable(const char *id, const GevrKeybindApi &api, GevrKeybindUiState &ui,
-                              int campaign, bool isGamepad, const unsigned *actions, int count) {
+                              int campaign, bool isGamepad, const unsigned *actions, int count,
+                              const unsigned *dupActions = nullptr, int dupCount = 0) {
+    if (!dupActions) {
+        dupActions = actions;
+        dupCount = count;
+    }
     if (ui.capturing && ui.captureGamepad == isGamepad) {
         gevrKeybindPollCapture(api, ui);
     }
@@ -241,9 +353,6 @@ inline void gevrDrawBindTable(const char *id, const GevrKeybindApi &api, GevrKey
     const float btnW = std::max(60.0f, slotColW - clearW - style.ItemInnerSpacing.x);
 
     const ImVec4 gold(1.0f, 0.84f, 0.47f, 1.0f);
-    const ImVec4 dupBg(0.55f, 0.28f, 0.08f, 1.0f);
-    const ImVec4 dupHover(0.68f, 0.36f, 0.10f, 1.0f);
-    const ImVec4 capBg(0.45f, 0.36f, 0.08f, 1.0f);
 
     bool anyDuplicate = false;
 
@@ -279,53 +388,8 @@ inline void gevrDrawBindTable(const char *id, const GevrKeybindApi &api, GevrKey
 
                 for (int slot = 0; slot < 2; slot++) {
                     ImGui::TableNextColumn();
-                    ImGui::PushID((int)(ck * 4 + slot + (isGamepad ? 1000 : 0)));
-                    const unsigned vk = api.getBind ? api.getBind(ck, isGamepad, slot) : 0;
-                    const bool isCap = ui.capturing && ui.captureGamepad == isGamepad &&
-                                       ui.captureAction == ck && ui.captureSlot == slot;
-                    const bool isDup = !isCap && vk != 0 && api.countBinds &&
-                                       api.countBinds(vk, isGamepad, actions, count) >= 2;
-                    if (isDup) anyDuplicate = true;
-
-                    const char *btnText = isCap ? "Press..." : (api.keyDisplayName ? api.keyDisplayName((int)vk) : "—");
-                    int pushedCols = 0;
-                    if (isCap) {
-                        ImGui::PushStyleColor(ImGuiCol_Button, capBg);
-                        ImGui::PushStyleColor(ImGuiCol_Text, gold);
-                        pushedCols = 2;
-                    } else if (isDup) {
-                        ImGui::PushStyleColor(ImGuiCol_Button, dupBg);
-                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, dupHover);
-                        pushedCols = 2;
-                    }
-
-                    if (ImGui::Button(btnText, ImVec2(btnW, 0))) {
-                        ui.capturing = true;
-                        ui.captureGamepad = isGamepad;
-                        ui.captureAction = ck;
-                        ui.captureSlot = slot;
-                        if (api.clearLastKey) api.clearLastKey();
-                        if (api.setCapture) api.setCapture(true);
-                        snprintf(ui.status, sizeof(ui.status), isGamepad
-                                 ? "Press a gamepad button for %s (Esc cancels, Del clears)..."
-                                 : "Press a key, mouse button or wheel for %s (Esc cancels, Del clears)...", label);
-                    }
-                    if (pushedCols) ImGui::PopStyleColor(pushedCols);
-                    if (ImGui::IsItemHovered()) {
-                        if (isDup) gevrTooltip("Duplicate bind: %s is assigned to another action.", btnText);
-                        else gevrTooltip("Click or press Enter/A to bind %s (%s).", label, slot == 0 ? "Primary" : "Secondary");
-                    }
-
-                    ImGui::SameLine(0.0f, style.ItemInnerSpacing.x);
-                    ImGui::BeginDisabled(vk == 0 || ui.capturing);
-                    if (ImGui::Button("X", ImVec2(clearW, 0))) {
-                        if (api.setBind) api.setBind(ck, isGamepad, slot, 0);
-                        if (api.save) api.save();
-                        snprintf(ui.status, sizeof(ui.status), "Cleared %s.", label);
-                    }
-                    ImGui::EndDisabled();
-                    if (vk != 0 && ImGui::IsItemHovered()) gevrTooltip("Clear this bind.");
-                    ImGui::PopID();
+                    gevrDrawBindSlot(api, ui, ck, label, isGamepad, slot, dupActions, dupCount,
+                                     btnW, clearW, anyDuplicate);
                 }
             }
         }
@@ -353,7 +417,7 @@ inline void gevrDrawBindTable(const char *id, const GevrKeybindApi &api, GevrKey
     }
 }
 
-// Keyboard & mouse page: mouse settings + 16-action bind table (no scrolling).
+// Keyboard & mouse page: mouse settings (and Restart) + 16-action bind table (no scrolling).
 inline void gevrDrawKbmPage(const GevrKeybindApi &api, GevrKeybindUiState &ui, int campaign) {
     float mx = 2.5f, my = 2.5f;
     if (api.getMouseSpeed) api.getMouseSpeed(&mx, &my);
@@ -432,6 +496,7 @@ inline void gevrDrawKbmPage(const GevrKeybindApi &api, GevrKeybindUiState &ui, i
             if (api.save) api.save();
         }
         if (ImGui::IsItemHovered()) gevrTooltip("Bypass OS pointer acceleration for 1:1 mouse movement.");
+        gevrDrawRestartBind(api, ui, campaign, false);
 
         ImGui::TableNextColumn();
         int lockMode = api.getMouseLockMode ? api.getMouseLockMode() : 2;
@@ -464,9 +529,10 @@ inline void gevrDrawKbmPage(const GevrKeybindApi &api, GevrKeybindUiState &ui, i
     (void)avail;
     ImGui::Separator();
 
-    int n = 0;
+    int n = 0, nAll = 0;
     const unsigned *actions = gevrKbmActions(n);
-    gevrDrawBindTable("##kbm-binds", api, ui, campaign, false, actions, n);
+    const unsigned *all = gevrKbmBindActions(nAll);
+    gevrDrawBindTable("##kbm-binds", api, ui, campaign, false, actions, n, all, nAll);
 }
 
 // Gamepad page: stick deadzones/scales, swap sticks, vibration, look & trigger feedback + pad bind table.
@@ -509,6 +575,7 @@ inline void gevrDrawGamepadPage(const GevrKeybindApi &api, GevrKeybindUiState &u
             if (api.save) api.save();
         }
         if (ImGui::IsItemHovered()) gevrTooltip("Push the look stick up to look down.");
+        gevrDrawRestartBind(api, ui, campaign, true);
 
         // Row 2: Move deadzone | Look deadzone
         ImGui::TableNextRow();
@@ -579,9 +646,10 @@ inline void gevrDrawGamepadPage(const GevrKeybindApi &api, GevrKeybindUiState &u
     ImGui::PopStyleVar(2);
     ImGui::Separator();
 
-    int n = 0;
+    int n = 0, nAll = 0;
     const unsigned *actions = gevrGamepadActions(n);
-    gevrDrawBindTable("##pad-binds", api, ui, campaign, true, actions, n);
+    const unsigned *all = gevrGamepadBindActions(nAll);
+    gevrDrawBindTable("##pad-binds", api, ui, campaign, true, actions, n, all, nAll);
 }
 
 #ifndef GEVR_KEYBINDS_NO_LIVE

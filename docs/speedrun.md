@@ -102,6 +102,28 @@ version is below.
   any time. Checked on PC through the menus: Dam, the watch's abort, the
   debrief's statistics page.
 
+- **Restart** (#280; `gevr_speedrun.c gevrSpeedrunRestartRequest`): the
+  speedrunner's reset, the research's "one-button restart that lands before
+  the intro". PC: the **Restart** bind, Backspace by default (`input.h
+  CK_RESTART`, ini `RESTART_MISSION`, past the pad's 32 button bits so it never
+  reaches the game; on the Controls page's mouse row, and the gamepad page's
+  first row, since a 17th table row scrolled the pause page). VR: both grips and
+  a left stick click held a second (input.c, beside the right stick's chords;
+  the long left-click hold's screen recentre skips both grips). The stage is
+  loaded again at the same difficulty (`bossSetLoadedStage` from `boss.c`'s
+  frame, after the player ticks, so it wins over a death's return to the title
+  in the same frame, and works on the watch): a fresh load, so the intro, the
+  guards, doors, ammo and the clock are a new mission's, not Bond moved back to
+  his spawn. The ghost, the stamp and LiveSplit start again with the stage
+  (prop.c); LiveSplit resets on a run's first mission, as for any try that
+  ends unfinished. Solo and offline only: online the stage is the host's or
+  the party's, a local split screen's everyone's. And only with the Speedrun
+  timer, Ghost race or LiveSplit on, the stamp's own test (user, 2026-11-22):
+  a stray Backspace in a played mission does nothing. Checked on PC with
+  `--boot-stage 33 --input-script`: Backspace in play and on the watch, both
+  back to Dam's intro, the clock from zero (the same scripted skips read
+  00:03:96 each time).
+
 ## Strafe running is kept
 
 GoldenEye's strafe running (forward and sideways at once is faster than

@@ -41,6 +41,9 @@ Keyboard and mouse (GoldenEye's 1.2 Solitaire style):
   Q, mouse wheel next weapon (A)           E, R      use / reload (B)
   F, X           L                         Enter     Start (pause)
   F10            the in-game panel         Alt+Enter fullscreen
+  Backspace      restart the mission from its intro (solo, offline, with
+                 the Speedrun timer, Ghost race or LiveSplit on: a
+                 speedrunner's reset; rebind it under Controls)
 
 Gamepad:
   Left stick     walk and strafe           Right stick   look and turn
