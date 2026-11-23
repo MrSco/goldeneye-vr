@@ -78,6 +78,8 @@ typedef struct RdBody {
     unsigned lastpush;
     float colroompos[3];
     int asleep, onscreen, crossed;
+    int doorhit;      /* a moving door touched it: it fades in RD_DOOR_FADE_S (gevrRagdollDoorFade) */
+    float doorfade;   /* seconds since */
     u8 visrooms[16];
     RdCap caps[RD_MAXCAPS];
     int ncaps, ndiscs;

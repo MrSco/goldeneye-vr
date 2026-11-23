@@ -3,7 +3,7 @@
 Report: on XBLA (Bean) Facility, walls and floors flicker green. It happens
 with AI fill on or off and with SpaceWarp on or off. Evidence: the player's 43 s
 video, then headset recordings (`adb shell screenrecord`, both eyes at about
-60 fps) on Quest 3 2G0YC1ZF8Q0JQ6.
+60 fps) on Quest 3.
 
 ![Frame before (top) and the flash (bottom): 207, 693, 717, 852, 1018, 1168](facility-fog-flash.jpg)
 

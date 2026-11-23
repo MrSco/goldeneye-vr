@@ -29,7 +29,7 @@ std::string fakeHttp(const char *method, const std::string &url, const std::stri
     if (m == "POST") return R"({"code":"ABCDEFGH","ownerToken":"owner"})";
     if (m == "GET" && url.find("/joins") != std::string::npos) return R"({"requests":[]})";
     if (m == "GET")
-        return R"({"lobbies":[{"code":"ABCDEFGH","name":"A","stage":1,"weapons":2,"players":2,"maxPlayers":4,"phase":"warmup","flatPlayers":1,"vrOnly":false,"campaign":1,"dedicated":true},)"
+        return R"({"lobbies":[{"code":"ABCDEFGH","name":"A","stage":1,"weapons":2,"players":2,"maxPlayers":4,"phase":"warmup","flatPlayers":1,"vrOnly":false,"campaign":1,"dedicated":true,"handReloadOnly":true,"buttonPlayers":0},)"
                R"({"code":"BCDEFGHJ","name":"B","stage":1,"weapons":2,"players":1,"maxPlayers":4,"vrOnly":true}]})";
     return "{}";
 }
@@ -140,6 +140,12 @@ int main()
         c.command("phase|warmup|1");
         beat = waitCall([](const Call &x) { return x.method == "PUT"; });
         CHECK(beat.body.find("\"flatPlayers\":1") != std::string::npos);
+        // how they reload: "Hand reload only" and the button count, never above the players
+        clearCalls();
+        c.command("reload|1|2");
+        beat = waitCall([](const Call &x) { return x.method == "PUT"; });
+        CHECK(beat.body.find("\"handReloadOnly\":true") != std::string::npos);
+        CHECK(beat.body.find("\"buttonPlayers\":1") != std::string::npos);
         while (!c.event().empty()) {}
         clearCalls();
         c.command("list|26|0|1");
@@ -152,8 +158,8 @@ int main()
             else std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
         CHECK(listed.size() == 4);
-        CHECK(listed.size() == 4 && listed[1] == "LOBBY|ABCDEFGH|A|1|2|2|4|warmup|1|0|1|1");   // Goldfinger 64's co-op on a dedicated server
-        CHECK(listed.size() == 4 && listed[2] == "LOBBY|BCDEFGHJ|B|1|2|1|4|waiting|-1|1|0|0");  // an older Worker's row: player-hosted
+        CHECK(listed.size() == 4 && listed[1] == "LOBBY|ABCDEFGH|A|1|2|2|4|warmup|1|0|1|1|1|0");   // Goldfinger 64's co-op on a dedicated server, hand reload only
+        CHECK(listed.size() == 4 && listed[2] == "LOBBY|BCDEFGHJ|B|1|2|1|4|waiting|-1|1|0|0|0|-1");  // an older Worker's row: player-hosted
         c.stopAndWait(1000);
     }
 

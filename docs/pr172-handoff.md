@@ -152,7 +152,7 @@ first) before designing anything Bean, XBLA or GE-X.
 
 ## Repository and build
 
-- Worktree: `C:/Users/Occor/.codex/worktrees/abe0/goldeneye-vr`.
+- Worktree: `<worktree>`.
 - Local branch: `codex/pr172-gpu-skinning`.
 - PR branch: `cursor/rom-hack-layouts-026b`, PR #172.
 - Signed material checkpoint: `16f18ad`; newer local build identities and
@@ -165,7 +165,7 @@ first) before designing anything Bean, XBLA or GE-X.
 
 ## Evidence and diagnostics
 
-Quest 3 serial `2G0YC1ZF8Q0JQ6`, Bean pack `2026.10.11.3`. Current defaults:
+Quest 3, Bean pack `2026.10.11.3`. Current defaults:
 world batching on, body batching on, retained prop threshold 256 triangles.
 The GPU-body anchor retains heads/hats/weapons and native gameplay traversal.
 Both regional gameplay joint walkers are covered by an executed fixture.
@@ -230,7 +230,7 @@ done and not listed.
 ## Assets and references
 
 The player's ROM and extracted files stay local and must not be committed:
-`C:/Users/Occor/Documents/other_projects/goldeneye-vr/007 - GoldenEye.z64` and
+`<roms>/007 - GoldenEye.z64` and
 `added-content/xbla/files` in that checkout. DAB reference is pinned at
 `adef1dc2d4eca1a5c453a7f2bf03a3b6cdad99b8`, locally in
 `build/bean-reference/upstream`, under `port/licenses/dabs-mod.txt`.

@@ -15,6 +15,11 @@ target_include_directories(ragdoll_native PRIVATE
 target_include_directories(ragdoll_native PRIVATE "${GEVR_ROOT}/port/tests")
 target_compile_definitions(ragdoll_native PRIVATE GEVR=1 PLATFORM_64BIT=1 _LANGUAGE_C=1 VERSION_US=1)
 target_compile_options(ragdoll_native PRIVATE -fms-extensions -Wno-incompatible-pointer-types
-  -Wno-builtin-declaration-mismatch -include stddef.h -g -UNDEBUG -fsanitize=address,undefined -fno-omit-frame-pointer)
-target_link_options(ragdoll_native PRIVATE -fsanitize=address,undefined)
+  -Wno-builtin-declaration-mismatch -include stddef.h -g -UNDEBUG -fno-omit-frame-pointer)
+# the sanitizers where the compiler links them (test_ragdolls.py asks; MinGW's gcc has none)
+option(GEVR_TEST_SANITIZE "AddressSanitizer and UndefinedBehaviorSanitizer" ON)
+if(GEVR_TEST_SANITIZE)
+  target_compile_options(ragdoll_native PRIVATE -fsanitize=address,undefined)
+  target_link_options(ragdoll_native PRIVATE -fsanitize=address,undefined)
+endif()
 target_link_libraries(ragdoll_native PRIVATE gevr_physics m pthread)
