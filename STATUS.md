@@ -5,26 +5,28 @@ in docs/archive/ (the v0.5.15 batch as it stood before release is
 [status-2026-11-10](docs/archive/status-2026-11-10.md)); features keep their
 own notes. No game data is shipped; building publishes nothing.
 
-**Release:** v0.5.24 (versionCode 137, protocol 27), 2026-11-21, tag on
-e73c2a4f ([notes](docs/releases/v0.5.24.md)): teleport movement (Comfort >
-Movement, off by default) and hand reload's third step (rack the slide, pull
-the bolt, pump the shotgun), with a magazine made for Bean's sniper rifle,
-Bean shotguns' shells taken from the gun, and no holster in the way of a
-magazine. Protocol 27 unchanged: plays online with v0.5.23 and v0.5.22. 9
-downloads from one commit; TestFlight iOS 146 (145 may have gone up in a run
-stopped mid-upload), visionOS 21, tvOS 7. Gates: suite 115/115 on ae69a075
-(99 Windows + 16 WSL-only; e73c2a4f after it changes one default, its tests
-re-run), Java x3, server gate passed; played on a Quest 3 with Bean by the
-user through the day (no separate smoke test). PR #272.
-**Next, asked for by the user:** the sniper rifle's two-handed bat with Bean's
-models (GoldenEye X has it, gun.c gevrGexBatPose). Their plan: the Bean
-pistol-grip hand as the right hand on the rifle, held as it is now; the left
-hand taking it switches to the bat swing by the GE-X logic. Their latest
-headset screenshot shows the rifle with no hand. Then: a host rule against
-teleporting (protocol 28), bolts that move on the meshes, GE-X shotguns'
-shells from the gun.
-**Before it:** v0.5.23 (versionCode 136), tag on e227de35
-([notes](docs/releases/v0.5.23.md)), PR #271.
+**Release:** v0.5.25 (versionCode 138, protocol 27), 2026-11-22, tag on
+c4218068 ([notes](docs/releases/v0.5.25.md)): original GoldenEye gun hand
+reloads (magazines, Cougar, launchers with `PchrrocketZ`, Golden Gun) and
+two-handed rifle bat (Bean sniper + GoldenEye's own rifle), GE-X shotgun shells
+from the gun, Bean bullet-hole/watch fixes, PC VR eye-image startup fix, flat
+high-refresh frame rates (`Auto` at monitor Hz / caps / `Uncapped`) with live
+mouse redraws + interpolated 3D locomotion + desktop static meshes + depth-clear
+replay, regrouped launcher & nested Controls sub-tabs, PC keybinds / Fullscreen
+setting / live Windows title-bar stats / Quit confirmation modals, Steam Frame /
+Lepton null-clipboard guard (#276), and bounded `PointUsage` blood-stain walk
+(reports #41). Protocol 27 unchanged: plays online with v0.5.24, v0.5.23 and
+v0.5.22. 9 downloads from one commit; TestFlight iOS 147, visionOS 22, tvOS 8.
+Gates: native unit suites (`test_locomotion.py`, `test_frame_timing.py`,
+`test_crash_hangs.py`, `test_launcher_layout.py`, `test_ingame_fit.py`,
+`test_pc_keybinds.py`), Java release tests x3, dedicated server gate passed
+(31 kills, 7.8% peak CPU); user-tested on Quest 3 and Windows PC flat 144 Hz.
+PR #278.
+**Next:** host rule against teleporting (protocol 28), bolts that move on the
+meshes, and device checks listed below.
+**Before it:** v0.5.24 (versionCode 137), tag on e73c2a4f
+([notes](docs/releases/v0.5.24.md)), PR #272; v0.5.23 (versionCode 136), tag on
+e227de35 ([notes](docs/releases/v0.5.23.md)), PR #271.
 **In v0.5.23 (from t3/discuss-issue-269):** #269's Apple TV
 list: the Info.plist's GCSupportsMultipleMicroGamepads + DirectionalGamepad
 (tvOS 26 merged a 2nd generation remote into a ring-less "Coalesced Remote";
