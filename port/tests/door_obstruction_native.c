@@ -40,7 +40,8 @@ f32 sub_GAME_7F03CFE8(PropRecord *prop) { (void)prop; return 0.f; }
 
 static ChrRecord *doorHit;
 static int doorHits;
-void gevrBodyDoorHit(ChrRecord *chr) { doorHit = chr; doorHits++; }
+static s32 doorPast;   /* chraction.c: TRUE for a body past the original lifetime */
+s32 gevrBodyDoorHit(ChrRecord *chr) { doorHit = chr; doorHits++; return doorPast; }
 
 /* The door's outline: everything with x below 50 (an occupant stands at 0) */
 s32 chrpropTestPointInPolygon(coord3d *point, struct rect4f *polygon, s32 edges)
@@ -110,7 +111,10 @@ int main(void)
     guard.actiontype = ACT_DIE;
     failures += check("dying guard blocks door without fading", 0, 0);
     guard.actiontype = ACT_DEAD;
-    failures += check("dead guard blocks door and starts fading", 0, 1);
+    failures += check("a body within the original lifetime blocks the door", 0, 1);
+    doorPast = TRUE;
+    failures += check("a body past the original lifetime fades and never holds the door", 1, 1);
+    doorPast = FALSE;
 
     guard.actiontype = ACT_STAND;
     guard.hidden = 0;

@@ -42,10 +42,14 @@ bodies. If their original fade time has not expired, fading resumes from
 that elapsed time. Once an ID is retired, changing the retention setting
 does not restore it. Corpses still yield slots for real spawns.
 
-A guard who is falling or dead still blocks a closing door, as in the
-original. A door that touches a kept body releases it: the body fades over
-the original 90/75 ticks and the door closes once it is gone, so it never
-clips through a corpse.
+Doors keep the original game's timing whatever the body settings, so runs
+compare with Bodies stay and ragdolls on or off, and online matches see the
+same doors. A falling guard blocks a closing door, as in the original. A dead
+body blocks it for the original lifetime of the body (90/75 ticks): a door
+touching a kept body within that time puts it back on the original clock, so
+it is gone just when the original would have removed it. Past that lifetime
+a kept body, like a ragdoll's, is the player's own: a door touching it fades
+it in half a second (30/25 ticks) and does not wait.
 
 ## Optional difficulty behavior
 

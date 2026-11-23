@@ -4248,7 +4248,8 @@ s32 sub_GAME_7F0448A8(struct PropRecord *argProp)
 #ifdef GEVR
     /* Ragdoll bodies (gevr_ragdoll.c) are not props, so a door closed through
      * them: each one this door touches fades away in half a second. The door
-     * never waits for one, a body only this player sees. */
+     * never waits for one: the dead guard's own body holds it for the original
+     * lifetime below, so doors keep the original timing with ragdolls on or off. */
     if (argProp->type == PROP_TYPE_DOOR)
     {
         coord3d parts[GEVR_RAGDOLL_PARTS_MAX];
@@ -4317,14 +4318,17 @@ s32 sub_GAME_7F0448A8(struct PropRecord *argProp)
                                     prop->chr->hidden |= CHRHIDDEN_OFFSCREEN_PATROL;
                                 }
 #ifdef GEVR
-                                /* A kept body would hold the door forever: the door
-                                 * touching it starts its normal fade, and the door
-                                 * stays blocked until it is gone (never clips it).
-                                 * A falling guard still blocks as in the original. */
+                                /* A dead body holds the door for the original game's
+                                 * lifetime of it, as in the original, whatever Bodies
+                                 * stay says; past it the door fades the body and does
+                                 * not wait (chraction.c gevrBodyDoorHit), as for a
+                                 * ragdoll's above. A falling guard blocks as in the
+                                 * original. */
                                 if ((prop->type == PROP_TYPE_CHR) && (argProp->type == PROP_TYPE_DOOR)
-                                    && (prop->chr != NULL) && (prop->chr->actiontype == ACT_DEAD))
+                                    && (prop->chr != NULL) && (prop->chr->actiontype == ACT_DEAD)
+                                    && gevrBodyDoorHit(prop->chr))
                                 {
-                                    gevrBodyDoorHit(prop->chr);
+                                    continue;
                                 }
 #endif
 

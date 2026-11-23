@@ -873,9 +873,10 @@ void gevrRagdollTick(int ticks60)
  * prop, so a door never saw one: it closed through the body, which lay there
  * clipped for good with Bodies stay on (owner, 2026-11-23, Bean in a doorway).
  * Now a body the door touches fades in RD_DOOR_FADE_S. The door does not wait
- * for it, as it waits for a dead guard kept without ragdolls (chraction.c
- * gevrBodyDoorHit): a ragdoll is this player's own copy, and door timing must
- * stay the same for everyone online and in ghost runs.
+ * for it, as it does not wait for a kept body past the original lifetime
+ * (chraction.c gevrBodyDoorHit): the dead guard's own body holds the door for
+ * that lifetime, so door timing is the original's with ragdolls on or off, for
+ * everyone online and in ghost runs (owner, 2026-11-23).
  */
 int gevrRagdollBodies(void) { return VrRagdolls ? RD_BODIES : 0; }
 
