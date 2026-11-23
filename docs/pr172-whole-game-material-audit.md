@@ -70,7 +70,7 @@ only coincident triangles, and does not determine visibility, partial overlap,
 room ownership or rounding after room placement. Automatically deleting these
 faces could remove visible geometry. The committed JSON lists all 15 files.
 
-Fresh ADB reads succeeded on Quest 3 `2G0YC1ZF8Q0JQ6`. The installed package's
+Fresh ADB reads succeeded on Quest 3. The installed package's
 last update is **2026-10-11 21:23:46**, and the pack marker is `2026.10.11.3`.
 The retained 04:45 log still reports approximately 711,500 triangles / 8,900
 flushes per 72 frames, including 936 room-mesh draws and 432 GPU skin draws,

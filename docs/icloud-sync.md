@@ -77,7 +77,7 @@ message when a ROM arrives; the launcher's ROM scan picks it up.
 Builds are unchanged until a build script runs with `GEVR_ICLOUD=1` on a
 signed build (device dev install or archive); the simulator never gets it.
 
-1. App ID `com.mrsco.goldeneyevr` (team 449Y259APN only): enable **iCloud**
+1. App ID `com.mrsco.goldeneyevr` (the project's team only): enable **iCloud**
    with **CloudKit**, and create/assign container `iCloud.com.mrsco.goldeneyevr`.
    (Xcode's automatic signing with `-allowProvisioningUpdates` can do both for a
    development build.)
@@ -96,22 +96,22 @@ signed build (device dev install or archive); the simulator never gets it.
 - 2026-11-22, branch `t3/icloud-settings-sync`: App ID iCloud capability (API)
   and container (user, developer site) done; development profiles "GEVR iCloud
   Dev iOS/tvOS" made through the API (Xcode cannot log in with the team key;
-  `~/gevr-perf/asc.py` on the Mac). Signed dev builds on the iPhone, iPad and
-  Living Room Apple TV (`~/src/gevr-icloud-dev-ios.command`, `-tvos.command`).
+  an App Store Connect API script on the Mac). Signed dev builds on an iPhone,
+  an iPad and an Apple TV.
 - Device test: iPhone joined first (settings + save up, 6 ROMs, Bean, HD-AI,
   Oddjob hat up); iPad joined and took the iPhone's settings, matched the ROMs
   and packs without downloading; identical saves left alone. Apple TV pending.
 - `bash port/tests/test_icloud.sh` (Mac, iOS simulator) passes.
 - v0.5.26 (2026-11-23): the App Store profiles "GoldenEye VR App Store" and
   "GoldenEye VR tvOS App Store" had gone INVALID when the App ID gained iCloud;
-  remade through the API with iCloud (uuids 52cdc231..., ab61ee6e...) and the
+  remade through the API with iCloud, and the
   TestFlight archives built with `GEVR_ICLOUD=1`. The CloudKit schema (GevrItem,
   GevrChunk, GevrJoined) was deployed to Production the same day, for TestFlight's
   ROM and pack sync (the key-value store needs none).
   TestFlight iOS 148 and visionOS 23 have iCloud. tvOS 9 went up without it: App
   Store validation wants `aps-environment` beside iCloud on tvOS (error 90575).
   So the App ID got Push Notifications, both App Store profiles were remade again
-  (uuids fa7181af..., 551666a4...), and `tools/build_tvos.sh` adds
+  and `tools/build_tvos.sh` adds
   `aps-environment` (production for an archive, development for a dev build):
   tvOS 10 carries iCloud. That capability change left the development profiles
   "GEVR iCloud Dev iOS/tvOS" INVALID: remake them before the next signed dev build.

@@ -380,7 +380,7 @@ def run(args, out):
     adb('shell', 'am', 'force-stop', PACKAGE)
     for marker in MARKERS:
         adb('shell', 'rm', '-f', f'{FILES}/{marker}')
-    aapt = Path('C:/Users/Occor/AppData/Local/Android/Sdk/build-tools/36.0.0/aapt2.exe')
+    aapt = Path(os.environ.get('ANDROID_HOME') or Path(os.environ.get('LOCALAPPDATA', '')) / 'Android/Sdk') / 'build-tools/36.0.0/aapt2.exe'
     badging = subprocess.run([str(aapt), 'dump', 'badging', str(args.apk)], capture_output=True,
                              encoding='utf-8', errors='replace').stdout
     if "name='oculus.software.handtracking'" not in badging:

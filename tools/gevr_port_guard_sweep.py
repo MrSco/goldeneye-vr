@@ -1,7 +1,8 @@
 import re, pathlib, collections, json, os, sys
 
-REF = pathlib.Path(r'C:\Users\Occor\Documents\other_projects\gepc-ref')
-OURS = pathlib.Path(r'C:\Users\Occor\Documents\other_projects\goldeneye-vr')
+# this checkout, and gepc-ref beside it (GEPC_REF to point elsewhere)
+OURS = pathlib.Path(__file__).resolve().parents[1]
+REF = pathlib.Path(os.environ.get('GEPC_REF') or OURS.parent / 'gepc-ref')
 
 
 def sources(root, subs):

@@ -79,7 +79,7 @@ Queue deadlines run on polls; render cadence and network jitter still matter.
 
 ## Release artifact
 
-- APK: `C:/Users/Occor/Documents/other_projects/goldeneye-vr/.claude/worktrees/playtest-logging-feedback-731f59/android/app/build/outputs/symbols/8a640467ed3f0a4a5e2513c903eaafb25d8bb5e5/gevr-v0.3.7-release.apk`
+- APK: `<worktree>/android/app/build/outputs/symbols/8a640467ed3f0a4a5e2513c903eaafb25d8bb5e5/gevr-v0.3.7-release.apk`
 - Bytes: 21564614
 - SHA-256: `2442b1e8a5060daab4b30dd2f097f935b20ca2e9f15ff94065aff7fee745432c`
 - Native build ID: `8a640467ed3f0a4a5e2513c903eaafb25d8bb5e5`
