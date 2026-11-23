@@ -479,7 +479,7 @@ if __name__ == '__main__':
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--apk', type=Path)
     parser.add_argument('--label', default='baseline120')
-    parser.add_argument('--hz', type=int, choices=[90, 120], default=120)
+    parser.add_argument('--hz', type=int, choices=[72, 80, 90, 120], default=120)
     parser.add_argument('--pad', type=int, default=0)
     parser.add_argument('--cold', type=lambda s: [int(p) for p in s.split(',')],
                         help='first-view cost: comma-separated route pads, each a fresh process '
