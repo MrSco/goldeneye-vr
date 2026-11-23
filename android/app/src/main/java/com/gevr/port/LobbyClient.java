@@ -200,7 +200,7 @@ final class LobbyClient {
                             + row.getInt("players") + "|" + row.getInt("maxPlayers") + "|"
                             + row.optString("phase", "waiting") + "|"
                             + row.optInt("flatPlayers", -1) + "|" + (row.optBoolean("vrOnly", false) ? "1" : "0") + "|"
-                            + row.optInt("campaign", 0));
+                            + row.optInt("campaign", 0) + "|" + (row.optBoolean("dedicated", false) ? "1" : "0"));
                 }
                 events.add("LIST_END");
                 break;

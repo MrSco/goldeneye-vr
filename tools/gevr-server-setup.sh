@@ -367,12 +367,18 @@ elif [ -s "$KEY" ]; then
 else
 	k=""
 	if [ -n "$TTY" ]; then
-		note "Without a key the server works, but its lobby is renewed every two"
-		note "hours with a new code. A key from the GoldenEye VR project keeps one"
-		note "code for good. Paste it here, or press Enter to skip."
+		note "A server key, once the GoldenEye VR project lists it, puts this server"
+		note "under Dedicated servers in the game and keeps one join code for good."
+		note "Paste a key you already have, or press Enter to make a new one."
 		printf '    Key: ' >/dev/tty
 		IFS= read -rs k <&3 || true
 		echo >/dev/tty
+	fi
+	# a new key: 32 random bytes as hex. Until it is listed the server is an
+	# ordinary lobby, and the bridge tries the key again at each registration
+	# (an older release's bridge would not register at all: no key for it).
+	if [ -z "$k" ] && grep -q -- '--key-hash' "$APP/gevr_lobby_bridge.py"; then
+		k=$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')
 	fi
 	if [ -n "$k" ]; then
 		(umask 077; printf '%s\n' "$k" >"$KEY")
@@ -381,6 +387,13 @@ else
 	else
 		note "skipped"
 	fi
+fi
+if [ -s "$KEY" ]; then
+	# the hash the lobby service lists, as the bridge sends the key (trimmed)
+	note "To be listed under Dedicated servers, request a listing with this hash"
+	note "(it is not the key: never share the key itself):"
+	note "  $(printf '%s' "$(tr -d ' \t\r\n' <"$KEY")" | sha256sum | cut -d' ' -f1)"
+	note "  https://github.com/MrSco/goldeneye-vr/issues/new?template=dedicated-server.yml"
 fi
 
 # ---- the network ---------------------------------------------------------

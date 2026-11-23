@@ -41,6 +41,7 @@ void netEndLocalShot(void);
 /* Session Management */
 bool netHostStart(uint16_t port);
 bool netConnect(const char *host_addr, uint16_t port);
+bool netResolveHost(const char *name, char *ip, size_t cap);   /* blocks on DNS: off the frame thread */
 void netDisconnect(void);
 
 /* Status Queries */

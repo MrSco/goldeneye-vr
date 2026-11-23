@@ -46,6 +46,8 @@ char VrPlayerName[16]     = "";     /* multiplayer name; the launcher makes one 
 int VrMpStage = 27, VrMpWeaponSet = 4, VrMpChr = 0, VrMpVisibility = 0;
 int VrMpVrOnly = 0;   /* host: "VR players only" (net_core.c turns flat joiners away) */
 int VrMpHideFlat = 0; /* a VR player's public list: hide games with flat players in them */
+int VrMpServerFilter = 0;      /* the public list: 0 all games, 1 dedicated servers, 2 player-hosted, 3 a custom server */
+char VrMpCustomServers[512] = "";   /* custom dedicated servers, "host[:port]" joined by ';', newest first */
 int VrFriendsShowDetail = 1, VrFriendsAppearOffline = 0, VrFriendsRestoreNoted = 0, VrFriendsSidebar = 1, VrFriendsSearchable = 1;
 int VrMpVoiceMode = 0;
 int VrMpFriendlyFire = 1;

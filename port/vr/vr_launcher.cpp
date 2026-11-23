@@ -42,6 +42,8 @@
 #include <string>
 #include <utility>
 #include <algorithm>
+#include <chrono>
+#include <future>
 #include <vector>
 #include <dirent.h>
 #include <sys/stat.h>
@@ -2297,6 +2299,7 @@ struct GevrOnlineLobby {
     int flatPlayers = -1;   // -1: the service did not say
     bool vrOnly = false;
     int campaign = 0;       // GEVR_CAMPAIGN_*: a ROM hack's co-op game; 0 from an older host
+    bool dedicated = false; // a dedicated server with a key from the project (the lobby service says)
 };
 
 // Which campaigns' ROMs are installed (the main frame's header checks, about once a
@@ -2321,6 +2324,11 @@ static struct {
     bool listLoading = false;
     uint32_t lastListMs = 0, lastHeartbeatMs = 0;
     int sentSlot = -1;
+    char customServer[128] = "";
+    // a server address being looked up off the frame thread (gevrJoinAddress): its IP, "" if not found
+    std::future<std::string> resolving;
+    std::string resolvingName;
+    uint16_t resolvingPort = 0;
 } s_mp;
 
 static void gevrMpDisconnect()
@@ -2332,6 +2340,132 @@ static void gevrMpDisconnect()
     s_mp.hostedCode.clear();
     s_mp.hostJoinIds.clear();
     s_mp.clientJoinId.clear();
+}
+
+/* A server's address as the player typed it (Direct IP, a custom dedicated
+ * server): "host", "host:port", "[IPv6]:port" or a bare IPv6 address. False
+ * when it names no host or a bad port. */
+static bool gevrParseServerAddress(const std::string &text, std::string *host, uint16_t *port)
+{
+    std::string s = text;
+    s.erase(0, s.find_first_not_of(" \t"));
+    s.erase(s.find_last_not_of(" \t") + 1);
+    *port = GEVR_DEFAULT_PORT;
+    std::string portText;
+    if (!s.empty() && s[0] == '[') {
+        const size_t close = s.find(']');
+        if (close == std::string::npos) return false;
+        *host = s.substr(1, close - 1);
+        if (close + 1 < s.size()) {
+            if (s[close + 1] != ':') return false;
+            portText = s.substr(close + 2);
+            if (portText.empty()) return false;
+        }
+    } else if (std::count(s.begin(), s.end(), ':') == 1) {
+        const size_t colon = s.find(':');
+        *host = s.substr(0, colon);
+        portText = s.substr(colon + 1);
+        if (portText.empty()) return false;
+    } else {
+        *host = s;
+    }
+    if (!portText.empty()) {
+        char *end = nullptr;
+        const long value = strtol(portText.c_str(), &end, 10);
+        if (*end || value < 1 || value > 65535) return false;
+        *port = (uint16_t)value;
+    }
+    // ';' separates the saved custom servers (MpCustomServers)
+    return !host->empty() && host->find_first_of(" \t;|#") == std::string::npos;
+}
+
+// The Join page's server choice (MpServerFilter)
+enum { GEVR_SERVERS_ALL, GEVR_SERVERS_DEDICATED, GEVR_SERVERS_PLAYER, GEVR_SERVERS_CUSTOM };
+
+// The custom servers the player has joined, newest first (MpCustomServers).
+static const size_t GEVR_CUSTOM_SERVERS_MAX = 8;
+static std::vector<std::string> gevrCustomServers()
+{
+    std::vector<std::string> out;
+    const std::string all = VrMpCustomServers;
+    size_t start = 0;
+    while (start <= all.size() && out.size() < GEVR_CUSTOM_SERVERS_MAX) {
+        const size_t end = std::min(all.find(';', start), all.size());
+        if (end > start) out.push_back(all.substr(start, end - start));
+        start = end + 1;
+    }
+    return out;
+}
+
+static void gevrSaveCustomServers(const std::vector<std::string> &servers)
+{
+    std::string all;
+    for (size_t i = 0; i < servers.size() && i < GEVR_CUSTOM_SERVERS_MAX; i++) {
+        const std::string next = (all.empty() ? "" : ";") + servers[i];
+        if (all.size() + next.size() >= sizeof(VrMpCustomServers)) break;
+        all += next;
+    }
+    snprintf(VrMpCustomServers, sizeof(VrMpCustomServers), "%s", all.c_str());
+    vrSettingsSave();
+}
+
+static void gevrRememberCustomServer(const std::string &address)
+{
+    std::vector<std::string> servers = gevrCustomServers();
+    servers.erase(std::remove(servers.begin(), servers.end(), address), servers.end());
+    servers.insert(servers.begin(), address);
+    gevrSaveCustomServers(servers);
+}
+
+/* Joins a server by its address (Direct IP, or a custom server, which is
+ * remembered). The name is looked up off the frame thread;
+ * gevrMultiplayerTick connects when it has the IP. Returns false when the
+ * address does not parse. */
+static bool gevrJoinAddress(const std::string &text, bool remember = false)
+{
+    std::string host, address = text;
+    uint16_t port = 0;
+    address.erase(0, address.find_first_not_of(" \t"));
+    address.erase(address.find_last_not_of(" \t") + 1);
+    if (!gevrParseServerAddress(address, &host, &port)) {
+        s_mp.onlineMessage = "Enter the server as a name or IP address, with :port if it is not " +
+                             std::to_string(GEVR_DEFAULT_PORT) + ".";
+        return false;
+    }
+    if (s_mp.resolving.valid()) return true;   // one lookup at a time
+    if (remember) gevrRememberCustomServer(address);
+    gevrJavaCommand("requestVoicePermission", "");
+    gevrJavaCommand("lobbyCommand", "stop");
+    netIceStop();
+    s_mp.clientJoinId.clear();
+    g_joinedViaInternet = false;
+    if (!netInit()) {
+        s_mp.onlineMessage = "Could not start networking";
+        return true;
+    }
+    s_mp.resolvingName = host;
+    s_mp.resolvingPort = port;
+    s_mp.onlineMessage = "Looking up " + host + "...";
+    s_mp.resolving = std::async(std::launch::async, [host]() {
+        char ip[64] = "";
+        return netResolveHost(host.c_str(), ip, sizeof(ip)) ? std::string(ip) : std::string();
+    });
+    return true;
+}
+
+static void gevrJoinAddressTick()
+{
+    if (!s_mp.resolving.valid() || s_mp.resolving.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+        return;
+    const std::string ip = s_mp.resolving.get();
+    if (ip.empty()) {
+        s_mp.onlineMessage = "Could not find " + s_mp.resolvingName + ". Check the name and your connection.";
+    } else if (netIsActive()) {
+        s_mp.onlineMessage.clear();   // hosting or joined another game meanwhile
+    } else {
+        s_mp.onlineMessage.clear();
+        netConnect(ip.c_str(), s_mp.resolvingPort);
+    }
 }
 
 static void gevrMpStartHosting()
@@ -2380,6 +2514,7 @@ void gevrMultiplayerTick(GevrLauncherTabs &tabs, bool &startMatch, bool romReady
     // multiplayer maps and tables, which a hack's levels do not fit.
     if (VrCampaign != GEVR_CAMPAIGN_GE && VrMpMode != NET_MODE_COOP && !netIsActive()) VrMpMode = NET_MODE_COOP;
     vrEnsurePlayerName(); // here, not at launcher start: the settings load on the first frame
+    gevrJoinAddressTick();
     for (int i = 0; i < 32; ++i) {
         const std::string raw = gevrJavaString("lobbyEvent");
         if (raw.empty())
@@ -2406,8 +2541,9 @@ void gevrMultiplayerTick(GevrLauncherTabs &tabs, bool &startMatch, bool romReady
         } else if (f[0] == "LIST_END") {
             listLoading = false;
         } else if (f[0] == "LOBBY" && f.size() >= 8) {
-            // LOBBY|code|name|stage|weapons|players|max|phase[|flatPlayers|vrOnly[|campaign]]
+            // LOBBY|code|name|stage|weapons|players|max|phase[|flatPlayers|vrOnly[|campaign[|dedicated]]]
             GevrOnlineLobby game{f[1], f[2], f[7], atoi(f[3].c_str()), atoi(f[4].c_str()), atoi(f[5].c_str()), atoi(f[6].c_str())};
+            if (f.size() >= 12) game.dedicated = f[11] == "1";
             if (f.size() >= 11) game.campaign = atoi(f[10].c_str());
             if (f.size() >= 10) {
                 game.flatPlayers = atoi(f[8].c_str());
@@ -2544,6 +2680,7 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
     auto &joinMethod = s_mp.joinMethod;
     auto &directIp = s_mp.directIp;
     auto &privateCode = s_mp.privateCode;
+    auto &customServer = s_mp.customServer;
     auto &hostedCode = s_mp.hostedCode;
     auto &onlineMessage = s_mp.onlineMessage;
     auto &clientJoinId = s_mp.clientJoinId;
@@ -2717,7 +2854,7 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                     gevrLobbyRoster(gold);
                     ImGui::TextDisabled("Waiting for the host to launch.");
                 } else {
-                    const bool joiningOnline = !clientJoinId.empty();
+                    const bool joiningOnline = !clientJoinId.empty() || s_mp.resolving.valid();
                     if (!clientJoinId.empty()) {
                         if (ImGui::SmallButton("Cancel internet join")) {
                             gevrJavaCommand("lobbyCommand", "stop");
@@ -2732,8 +2869,65 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                     if (joiningOnline)
                         ImGui::BeginDisabled();
 
-                    // 1. Public Internet Games
+                    // 1. Public Internet Games: every game, dedicated servers or player-hosted
+                    // ones (MpServerFilter), or a custom server joined by its address
                     if (joinMethod == 0) {
+                        static const char *const filters[] = {"All games", "Dedicated servers", "Player-hosted games",
+                                                              "Custom server"};
+                        const int filter = VrMpServerFilter >= 0 && VrMpServerFilter <= GEVR_SERVERS_CUSTOM ? VrMpServerFilter : 0;
+                        ImGui::AlignTextToFramePadding();
+                        ImGui::TextUnformatted("Servers");
+                        ImGui::SameLine();
+                        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.5f);
+                        if (ImGui::BeginCombo("##serverfilter", filters[filter])) {
+                            for (int i = 0; i <= GEVR_SERVERS_CUSTOM; i++) {
+                                if (ImGui::Selectable(filters[i], filter == i) && i != filter) {
+                                    VrMpServerFilter = i;
+                                    vrSettingsSave();
+                                }
+                            }
+                            ImGui::EndCombo();
+                        }
+                        if (ImGui::IsItemHovered())
+                            gevrTooltip("Dedicated servers run all the time, hosted by the project or the community. "
+                                        "Custom server joins one by its name or IP address.");
+                    }
+                    if (joinMethod == 0 && VrMpServerFilter == GEVR_SERVERS_CUSTOM) {
+                        ImGui::TextWrapped("A dedicated server's name or IP address, with :port if it is not %d.",
+                                           GEVR_DEFAULT_PORT);
+                        ImGui::SetNextItemWidth(-1);
+                        const bool enter = ImGui::InputText("##customserver", customServer, sizeof(customServer),
+                                                            ImGuiInputTextFlags_EnterReturnsTrue);
+                        if (ImGui::Button("Join server", ImVec2(-1, 0)) || enter)
+                            gevrJoinAddress(customServer, true);
+                        const std::vector<std::string> saved = gevrCustomServers();
+                        if (!saved.empty()) {
+                            ImGui::Spacing();
+                            ImGui::TextDisabled("Recent servers");
+                            int forget = -1;
+                            const float forgetW = ImGui::CalcTextSize("Forget").x + ImGui::GetStyle().FramePadding.x * 2;
+                            for (int i = 0; i < (int)saved.size(); i++) {
+                                ImGui::PushID(i);
+                                const float joinW = ImGui::GetContentRegionAvail().x - forgetW - ImGui::GetStyle().ItemSpacing.x;
+                                if (ImGui::Button(saved[i].c_str(), ImVec2(joinW, 0)))
+                                    gevrJoinAddress(saved[i], true);
+                                ImGui::SameLine();
+                                if (ImGui::Button("Forget"))
+                                    forget = i;
+                                ImGui::PopID();
+                            }
+                            if (forget >= 0) {
+                                std::vector<std::string> kept = saved;
+                                kept.erase(kept.begin() + forget);
+                                gevrSaveCustomServers(kept);
+                            }
+                        }
+                        ImGui::Spacing();
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                        ImGui::TextWrapped("Run a server? Ask for a server key on GitHub to be listed under Dedicated servers.");
+                        ImGui::PopStyleColor();
+                    }
+                    if (joinMethod == 0 && VrMpServerFilter != GEVR_SERVERS_CUSTOM) {
                         const uint32_t listNow = SDL_GetTicks();
                         if (gevrHideFlatCheckbox())
                             lastListMs = 0;   // the list again, now
@@ -2746,12 +2940,26 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                             listLoading = true;
                             gevrJavaCommand("lobbyCommand", gevrLobbyListCommand().c_str());
                         }
+                        // MpServerFilter: 1 dedicated servers only, 2 player-hosted games only
+                        auto listed = [](const GevrOnlineLobby &game) {
+                            return VrMpServerFilter == GEVR_SERVERS_DEDICATED ? game.dedicated
+                                 : VrMpServerFilter == GEVR_SERVERS_PLAYER    ? !game.dedicated
+                                                                              : true;
+                        };
+                        const bool anyListed = std::any_of(onlineLobbies.begin(), onlineLobbies.end(), listed);
                         if (listLoading)
                             ImGui::TextDisabled("Loading internet games...");
-                        else if (onlineLobbies.empty())
+                        else if (!anyListed && VrMpServerFilter == GEVR_SERVERS_DEDICATED)
+                            ImGui::TextWrapped("No dedicated servers are online right now. To join one by its address, "
+                                               "choose Custom server.");
+                        else if (!anyListed && VrMpServerFilter == GEVR_SERVERS_PLAYER)
+                            ImGui::TextDisabled("No player-hosted games found.");
+                        else if (!anyListed)
                             ImGui::TextDisabled("No open internet games found.");
                         for (const GevrOnlineLobby &game : onlineLobbies) {
-                            char label[200], flat[24];
+                            if (!listed(game))
+                                continue;
+                            char label[220], flat[24];
                             gevrFlatNote(flat, sizeof(flat), game.vrOnly, game.flatPlayers);
                             // A ROM hack's co-op game: its campaign, not GoldenEye's mission names for its
                             // stages. Another campaign is switched to first if its ROM is installed.
@@ -2761,8 +2969,8 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                                                    s_campaignInstalled[game.campaign] && gevrCampaignCoop(game.campaign);
                             const std::string where = hack ? std::string("Co-op in ") + gevrCampaignTitle(game.campaign)
                                                            : listedGameLabel(game.stage, game.weapons);
-                            snprintf(label, sizeof(label), "%s  -  %s  -  %d/%d players%s%s##online%s",
-                                     game.name.c_str(), where.c_str(),
+                            snprintf(label, sizeof(label), "%s%s  -  %s  -  %d/%d players%s%s##online%s",
+                                     game.name.c_str(), game.dedicated ? " [Dedicated]" : "", where.c_str(),
                                      game.players, game.maxPlayers, flat,
                                      game.phase == "warmup"        ? " (warmup)"
                                      : game.phase == "in_progress" ? " (in progress)"
@@ -2794,8 +3002,9 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                                             gevrCampaignTitle(game.campaign));
                             } else if (ImGui::IsItemHovered()) {
                                 gevrTooltip(
-                                    "Game: %s\nRoom Code: %s\nPhase: %s\nPlayers: %d/%d%s\nProtocol: %d",
-                                    game.name.c_str(), game.code.c_str(), game.phase.c_str(), game.players,
+                                    "Game: %s\nHost: %s\nRoom Code: %s\nPhase: %s\nPlayers: %d/%d%s\nProtocol: %d",
+                                    game.name.c_str(), game.dedicated ? "a dedicated server" : "a player",
+                                    game.code.c_str(), game.phase.c_str(), game.players,
                                     game.maxPlayers,
                                     game.vrOnly ? " (VR players only)"
                                     : game.flatPlayers > 0 ? (game.flatPlayers == 1 ? " (1 plays flat)" : " (some play flat)")
@@ -2874,17 +3083,11 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
 
                     // 4. Connect Directly via IP
                     if (joinMethod == 3) {
-                        ImGui::Text("Enter host IP address:");
+                        ImGui::Text("Enter host IP address (or name, :port optional):");
                         ImGui::SetNextItemWidth(-1);
                         ImGui::InputText("##directip", directIp, sizeof(directIp));
-                        if (ImGui::Button("Connect", ImVec2(-1, 0))) {
-                            gevrJavaCommand("requestVoicePermission", "");
-                            gevrJavaCommand("lobbyCommand", "stop");
-                            netIceStop();
-                            clientJoinId.clear();
-                            g_joinedViaInternet = false;
-                            netConnect(directIp, GEVR_DEFAULT_PORT);
-                        }
+                        if (ImGui::Button("Connect", ImVec2(-1, 0)))
+                            gevrJoinAddress(directIp);
                     }
                     if (joiningOnline)
                         ImGui::EndDisabled();
