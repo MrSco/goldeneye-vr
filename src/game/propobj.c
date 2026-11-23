@@ -4249,6 +4249,14 @@ s32 sub_GAME_7F0448A8(struct PropRecord *argProp)
 
         if (prop != argProp)
         {
+#ifdef GEVR
+            /* A guard's death animation and retained body cannot hold the door open. */
+            if (argProp->type == PROP_TYPE_DOOR && prop->type == PROP_TYPE_CHR
+                && prop->chr && chrIsDead(prop->chr))
+            {
+                continue;
+            }
+#endif
             if ((prop->type == PROP_TYPE_VIEWER) || (prop->type == PROP_TYPE_CHR))
             {
                 temp_v0_2 = prop->obj;
