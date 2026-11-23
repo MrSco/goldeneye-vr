@@ -147,10 +147,17 @@ files.sha256        checksum list of every other file
   - **Players:** a player's shots, throws and damage are settled on that
     player's headset, so `weapon_fire_attempt`, `player_damaged` and
     `before_damage` for that player fire there.
-  - **World changes:** calls that change the world (spawn a guard or a
-    pickup, give a guard a weapon) work on the host only and return false
-    on a client. The game's co-op sync carries the result to the others,
-    as it does for spawns today.
+  - **Guards:** calls that change a guard (spawn one, give one a weapon)
+    work on the host only and return false on a client. The game's co-op
+    sync carries the result to the others, as it does for the host's
+    spawns today.
+  - **Pickups:** ordinary pickups aren't synced in co-op; each headset has
+    its own copy (`docs/issue-94-coop.md`). Spawning a pickup only places
+    it on the headset that calls it, so a mod that wants every player to
+    have it calls it on every headset: at load with `mod.random` (below),
+    mid-mission by sending the choice over `mod.net` (say, from the host's
+    `guard_killed`). Which player may take it, if the mod limits that, is
+    the mod's to settle over `mod.net`.
 - **The same choices on every headset.** Each headset loads the mission
   itself from a shared seed, and the setup's guards and pickups line up
   slot for slot. Events during load (`pickup_spawning`, and
@@ -276,8 +283,11 @@ watch). We maintain the adapters, not the mods.
   `AI_StartPatrol` (`if_actor_able_set_on_path()`). Emit `guard_alerted`
   once per transition into alert. Report `heard` for noise through
   `chrCheckGuardsHeardSound()` and `chrlvAlertGuardToPlayerPosition()`,
-  `saw` for player sighting through `chrlvSetTargetToPlayer()`, or `alarm`
-  for an alert through `alarmActivate()`. Emit `corpse_retiring` in
+  `saw` when the sight check finds the player (`chrCheckTargetInSight()`),
+  `shot` when a guard turns on the player after being hit
+  (`chrlvTickArgh()`), or `alarm` for an alert through `alarmActivate()`.
+  Not `chrlvSetTargetToPlayer()` itself: it also runs on every tick of an
+  attack and after a sidestep or jump-out. Emit `corpse_retiring` in
   `chrlvTickDead()` before the body is marked for removal, while its
   position is available.
 - **Damage and revives.** Emit `before_damage` and `damage_applied` around
