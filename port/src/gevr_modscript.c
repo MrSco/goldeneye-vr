@@ -82,6 +82,7 @@ static const char *const s_events[] = {
     "campaign_enter", "mission_prepare", "mission_start", "mission_end", "tick",
     /* the weapons area (docs/mod-system.md, Where each hook sits) */
     "weapon_fire_attempt", "weapon_fire", "reload_start", "reload_end", "weapon_drawn",
+    "reload_attempt",
 };
 
 static void note(const char *fmt, ...)
