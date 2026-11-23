@@ -1,0 +1,48 @@
+name: Dedicated server listing
+description: List your GoldenEye VR server under "Dedicated servers" in the game's online list.
+title: "Dedicated server: "
+labels: ["dedicated-server"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for running a server. Set it up first with the guide in
+        [docs/dedicated-server-operators.md](https://github.com/MrSco/goldeneye-vr/blob/main/docs/dedicated-server-operators.md).
+        The setup prints your key's **hash**. Paste that hash here, **never the key itself**.
+        Once the hash is approved, your server shows under Dedicated servers within a couple of hours, with no game update needed.
+  - type: input
+    id: name
+    attributes:
+      label: Server name
+      description: As it appears in the game's list (up to 32 characters).
+    validations:
+      required: true
+  - type: input
+    id: hash
+    attributes:
+      label: Key hash (SHA-256)
+      description: 64 hex characters, from the setup or `python3 /opt/gevr-server/gevr_lobby_bridge.py --key-hash /var/lib/gevr-server/server.key`.
+      placeholder: 3f9a...
+    validations:
+      required: true
+  - type: input
+    id: region
+    attributes:
+      label: Region
+      description: Where the server runs, for example "US East" or "Germany".
+    validations:
+      required: true
+  - type: input
+    id: address
+    attributes:
+      label: Address (optional)
+      description: A name or IP address players can enter under Custom server, if your game port is open to the internet.
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Checks
+      options:
+        - label: I keep the server on the latest GoldenEye VR release.
+          required: true
+        - label: I will close this listing (comment here) when the server shuts down for good.
+          required: true

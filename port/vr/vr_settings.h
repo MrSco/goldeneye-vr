@@ -57,6 +57,10 @@ extern char VrPlayerName[16];  // multiplayer name, up to 15 characters (launche
 // the guns are ITEM_IDS values; the favorites are bitmasks over net_match.c's lists.
 // VrMpVisibility: 0 public, 1 private, 2 friends only (listed to the host's friends).
 extern int VrMpStage, VrMpWeaponSet, VrMpChr, VrMpVisibility, VrMpVrOnly, VrMpHideFlat;
+// The Join page's server choice (0 all games, 1 dedicated servers, 2 player-hosted,
+// 3 a custom server) and the custom servers typed there, "host[:port]" joined by ';'.
+extern int VrMpServerFilter;
+extern char VrMpCustomServers[512];
 // Friends page (vr_friends.cpp): what friends see, and whether the restore code was noted.
 extern int VrFriendsShowDetail, VrFriendsAppearOffline, VrFriendsRestoreNoted;
 extern int VrFriendsSidebar;

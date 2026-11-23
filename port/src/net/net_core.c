@@ -758,6 +758,16 @@ bool netConnect(const char *host_addr, uint16_t port) {
     return true;
 }
 
+/* A server's name or address as netConnect takes it (an IP), for a custom
+ * dedicated server the player typed (the launcher's Join page). It blocks on
+ * DNS, so the launcher calls it off its own thread, after netInit. */
+bool netResolveHost(const char *name, char *ip, size_t cap) {
+    ENetAddress address;
+    if (!name || !name[0] || !ip || !cap) return false;
+    if (enet_address_set_hostname(&address, name) != 0) return false;
+    return enet_address_get_ip(&address, ip, cap) == 0;
+}
+
 void netDisconnect(void) {
     netClearHostHits();s_combat_epoch=0;memset(s_clock_sync,0,sizeof(s_clock_sync));
     netVoiceReset();

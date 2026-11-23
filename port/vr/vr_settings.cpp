@@ -476,6 +476,7 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "; scenario, length and health are the launcher's list positions; the guns are\n");
     iniPrintf(f, "; item ids; the favorites are bitmasks over the stage and weapon-set lists.\n");
     iniPrintf(f, "MpStage=%d\nMpWeaponSet=%d\nMpChr=%d\nMpVisibility=%d\nMpVrOnly=%d\nMpHideFlat=%d\n", VrMpStage, VrMpWeaponSet, VrMpChr, VrMpVisibility, VrMpVrOnly, VrMpHideFlat);
+    iniPrintf(f, "MpServerFilter=%d\nMpCustomServers=%s\n", VrMpServerFilter, VrMpCustomServers);
     iniPrintf(f, "MpScenario=%d\nMpLength=%d\nMpHealth=%d\nMpDual=%d\nMpLoadouts=%d\nMpNextRound=%d\n",
             VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound);
     iniPrintf(f, "MpVoiceMode=%d\n", VrMpVoiceMode);
@@ -744,6 +745,11 @@ extern "C" void vrSettingsLoad(void)
         if (strncmp(line, "TouchLayout=", 12) == 0) {   // a string: before the number parsers
             snprintf(VrTouchLayout, sizeof(VrTouchLayout), "%s", line + 12);
             VrTouchLayout[strcspn(VrTouchLayout, "\r\n")] = 0;
+            continue;
+        }
+        if (strncmp(line, "MpCustomServers=", 16) == 0) {   // a string too
+            snprintf(VrMpCustomServers, sizeof(VrMpCustomServers), "%s", line + 16);
+            VrMpCustomServers[strcspn(VrMpCustomServers, "\r\n")] = 0;
             continue;
         }
         if (strncmp(line, "WatchFaceStatus=", 16) == 0) {
@@ -1086,6 +1092,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MpVisibility") == 0) VrMpVisibility = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             else if (strcmp(key, "MpVrOnly") == 0) VrMpVrOnly = ival != 0;
             else if (strcmp(key, "MpHideFlat") == 0) VrMpHideFlat = ival != 0;
+            else if (strcmp(key, "MpServerFilter") == 0) VrMpServerFilter = ival < 0 || ival > 3 ? 0 : ival;
             else if (strcmp(key, "FriendsShowDetail") == 0) VrFriendsShowDetail = ival != 0;
             else if (strcmp(key, "FriendsAppearOffline") == 0) VrFriendsAppearOffline = ival != 0;
             else if (strcmp(key, "FriendsRestoreNoted") == 0) VrFriendsRestoreNoted = ival != 0;
