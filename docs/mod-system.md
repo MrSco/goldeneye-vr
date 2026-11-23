@@ -267,6 +267,7 @@ watch). We maintain the adapters, not the mods.
   replace an eligible pickup before its placement by `weaponAssignToHome()`
   or `domakedefaultobj()`. Keys and other mission items use their native
   setup. Weapons flagged `PROPFLAG_ASSIGNEDTOCHR` use `guard_spawning`.
+  Which pickups qualify, and what a swap can do: "Pickup swaps" below.
 - **Guards and corpses.** Emit `guard_spawning` during
   `expand_09_characters()` and `chrSpawnAtPad()`. Allow a ROM body and
   head choice before the model is created and a native weapon choice
@@ -297,6 +298,42 @@ watch). We maintain the adapters, not the mods.
   `netIsDedicated()`. The sender ID in `mod.net.on` comes from the
   engine's peer-to-player slot mapping in `netHandlePacket()`.
 
+### Pickup swaps
+
+`pickup_spawning` rewrites a pickup's setup record before the game places
+it, the way multiplayer weapon sets already do in `weaponAssignToHome()`:
+a new `weaponnum`, `obj` and `extrascale`, or no pickup at all. A gun
+swapped in is then preloaded through `weaponLoadProjectileModels()` like
+any other gun in the level.
+
+A pickup can be swapped only when both of these hold:
+
+- **It's an eligible kind.** Of the kinds a player can collect
+  (`objIsCollectable()`):
+  - Weapons (`PROPDEF_COLLECTABLE`, not `PROPFLAG_ASSIGNEDTOCHR`) whose
+    item is a gun or a thrown weapon: `ITEM_KNIFE` to `ITEM_ROCKETLAUNCH`
+    except `ITEM_WATCHLASER`, and `ITEM_GRENADE`, `ITEM_TIMEDMINE`,
+    `ITEM_PROXIMITYMINE` and `ITEM_REMOTEMINE`. The item is read through
+    `gevrItemAs()`, so a hack campaign's gun on a special item's slot
+    (Goldfinger's Luger on the taser's) counts as the gun it is.
+  - Ammo: single-type boxes (`PROPDEF_MAGAZINE`) and crates
+    (`PROPDEF_AMMO`).
+  - Body armour (`PROPDEF_ARMOUR`).
+  - Never keys (`PROPDEF_KEY`), hats, gadgets or mission items.
+- **No setup tag points at it.** Objectives and level scripts find their
+  objects through tags (`PROPDEF_TAG`, `objFindByTagId()`), so a tagged
+  pickup can be a mission item even when it's a gun. It keeps its setup.
+
+A swap keeps the pickup's kind, since each kind is a different setup
+record:
+
+- a weapon becomes another eligible weapon, or nothing;
+- ammo changes its type and amount, or becomes nothing;
+- armour changes its amount, or becomes nothing.
+
+Every headset runs the swaps at load, so in co-op the choices come from
+`mod.random` (see Multiplayer).
+
 ## Versioning
 
 - `api` is one integer. A build supports a range (for example 1–2).
@@ -319,8 +356,8 @@ watch). We maintain the adapters, not the mods.
 
 ## Plan
 
-1. **Agree on this spec** with mod authors. Tactical's list of needs
-   (events and calls, #291) is its first real test.
+1. **Agree on this spec** (done 2026-11-23): Tactical's list of needs,
+   its first real test, is in from #291.
 2. **Packs and launcher:** manifest, install from file, the generic mod
    campaign entry, saves, the content check. No scripting yet: a
    data-only mod can be installed and started.
