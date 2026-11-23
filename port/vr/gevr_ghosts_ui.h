@@ -32,7 +32,7 @@ struct GevrGhostsView {
     // this headset's run of the mission
     bool haveBest = false;
     int bestTime60 = 0, bestFlags = 0, bestRank = 0;   // rank 0: not on the board shown
-    bool bestUnranked = false;                         // force pull, the ally or a changed speed
+    bool bestUnranked = false;                         // teleport, force pull, the ally or a changed speed
     // what the mission races
     std::string racing;                        // "Your best run", "Natty (GE-7K3QX2), 1:58.20", ...
     bool racingOther = false;                  // a downloaded run (Race my best puts it back)
@@ -69,6 +69,7 @@ inline std::string gevrGhostTimeText(int time60) {
 inline std::string gevrGhostFlagsText(int flags) {
     std::string out = flags & 0x01 ? "VR" : flags & 0x80 ? "VR and flat screen" : "Flat screen";
     if (flags & 0x20) out += ", third person";
+    if (flags & 0x100) out += ", teleport";
     out += flags & 0x02 ? ", Bean's art" : flags & 0x04 ? ", GoldenEye X guns" : ", N64 art";
     return out;
 }
@@ -159,7 +160,7 @@ inline GevrGhostsActions gevrGhostsPageDraw(GevrGhostsView &v, const ImVec4 &gol
         if (ImGui::Button("Upload")) act.upload = true;
         ImGui::EndDisabled();
         if (v.bestUnranked && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            gevrTooltip("Set with force pull, the AI ally or a changed movement speed: the boards rank the original rules.");
+            gevrTooltip("Set with teleport movement, force pull, the AI ally or a changed movement speed: the boards rank the original rules.");
     } else {
         ImGui::TextDisabled("No run of yours yet.");
         if (ImGui::IsItemHovered()) gevrTooltip("Finish the mission with Ghost race or the speedrun timer on.");

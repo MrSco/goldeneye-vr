@@ -138,7 +138,7 @@ bool startUpload(int mission, int difficulty, std::string *why) {
     GevrGhostInfo info;
     if (!gevrGhostFileInfo(rel.c_str(), &info)) { *why = "No run of yours on " + missionText(mission, difficulty) + "."; return false; }
     if (info.flags & GEVR_GHF_UNRANKED) {
-        *why = missionText(mission, difficulty) + " was set with force pull, the AI ally or a changed movement speed: "
+        *why = missionText(mission, difficulty) + " was set with teleport movement, force pull, the AI ally or a changed movement speed: "
                "the boards rank the original rules.";
         return false;
     }
@@ -180,7 +180,7 @@ void uploadAll() {
             s_uploadQueue.push_back({ m, d });
         }
     if (s_uploadQueue.empty()) {
-        say(skipped ? "Nothing new to upload (runs with force pull, the AI ally or a changed speed are not ranked)."
+        say(skipped ? "Nothing new to upload (runs with teleport, force pull, the AI ally or a changed speed are not ranked)."
                     : "Nothing new to upload.", false);
         return;
     }

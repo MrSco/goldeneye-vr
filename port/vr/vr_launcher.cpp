@@ -3152,6 +3152,22 @@ bool feedPointer(ImGuiIO &io, bool navUsed, bool blockClick=false) {
     return owns;
 }
 
+// What of the rules the ghost boards do not rank is on now (gevr_ghost.h GEVR_GHF_UNRANKED,
+// gevr_ghost.c ghostRunFlags), "" if none: the warning before a run that would not count
+static std::string gevrUnrankedOn() {
+    std::string out;
+    auto add = [&out](bool on, const char *name) {
+        if (!on) return;
+        if (!out.empty()) out += ", ";
+        out += name;
+    };
+    add(VrTeleport != 0, "Teleport movement");
+    add(VrForcePull != 0, out.empty() ? "Force pull" : "force pull");
+    add(VrAlly != 0, out.empty() ? "The AI ally" : "the AI ally");
+    add(VrMovementSpeed != 0, out.empty() ? "A changed movement speed" : "a changed movement speed");
+    return out;
+}
+
 // Returns whether the stick or a button drove the focus this frame.
 // The test hook's START (1000) presses the launcher's Start directly.
 bool s_injectStart = false;
@@ -4135,7 +4151,11 @@ extern "C" void gevrLauncherRun(void)
                                      !active.empty() && activeInfo.good && campaignReady, focusStart, startLabel,
                                      netIsActive())) {
         case GEVR_START_ROW_START:
-            start = true;
+            /* a ghost-race or speedrun-timer run that would not count: say so first */
+            if ((VrGhostRace || VrSpeedrunTimer) && !netIsActive() && !gevrUnrankedOn().empty())
+                ImGui::OpenPopup("This run won't count");
+            else
+                start = true;
             break;
         case GEVR_START_ROW_CAMPAIGN:
             gevrRomCampaignSet(VrCampaign);
@@ -4162,6 +4182,40 @@ extern "C" void gevrLauncherRun(void)
             marioNote = gevrOpenPicker("openMarioPicker") ? "Pick the Mario Characters ROM in the window that opened."
                                                           : "Could not open the file picker.";
             break;
+        }
+        /*
+         * The ghost boards and their races rank only the original rules (gevr_ghost.h
+         * GEVR_GHF_UNRANKED): a run with teleport movement, force pull, the AI ally or a
+         * changed movement speed is kept but never ranked, nor takes a ranked best's place
+         * (owner, 2026-11-22: "it really shouldn't let them start the game ... a warning
+         * saying ... it's not going to count"). The test hook's START (s_injectStart)
+         * is not asked: it starts the benchmark with whatever the player had.
+         */
+        if (ImGui::BeginPopupModal("This run won't count", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            const std::string on = gevrUnrankedOn();
+            ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.0f);
+            ImGui::TextWrapped("%s %s on. Ghost race and the speedrun timer rank only the original rules, "
+                               "so this run won't count.", on.c_str(), on.find(',') != std::string::npos ? "are" : "is");
+            ImGui::TextDisabled("It is still kept, but never replaces a ranked best or goes on the ghost boards.");
+            ImGui::PopTextWrapPos();
+            const ImVec2 size(ImGui::GetFontSize() * 9.0f, ImGui::GetFrameHeight() * 1.4f);
+            if (ImGui::Button("Turn off and start", size)) {
+                VrTeleport = 0;
+                VrForcePull = 0;
+                VrAlly = 0;
+                VrMovementSpeed = 0;   /* net_rules.h NET_MOVE_NORMAL */
+                vrSettingsSave();
+                start = true;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Start anyway", size)) {
+                start = true;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Back", size)) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
         }
         if (s_injectStart && !active.empty() && activeInfo.good && campaignReady) {
             start = true;
