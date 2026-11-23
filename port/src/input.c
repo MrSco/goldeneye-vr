@@ -3019,12 +3019,11 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         }
         if (get_button_state(1, "a")) npad->button |= A_BUTTON;
         if (get_button_state(1, "b")) npad->button |= B_BUTTON;
-        // Menu button (issue #16): a tap is START, sent on release, and a 1.5 s
-        // hold opens the in-game panel (vr_pause_menu.cpp: back to the launcher,
-        // HD textures, the VR settings and Friends) - in play, on the watch and
-        // in the menus alike. In a solo mission it opens the watch under the
-        // panel too, so the game pauses as the watch pauses it, and closes it
-        // again with the panel. The chords below fire first and take the hold.
+        // Menu button (issue #16): a tap is START, sent on release. A tap also
+        // closes the in-game panel, which both grips and a held right-stick
+        // click open (below; a Menu hold opened it until 2026-11-09). Menu + B
+        // is the microphone and Menu + A Gun fit: a chord takes the press, so
+        // no START follows it.
         {
             static u32 downat = 0;
             static bool consumed = false;
