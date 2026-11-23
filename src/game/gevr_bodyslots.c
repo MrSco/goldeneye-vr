@@ -39,6 +39,8 @@
 #include "gevr_bodyslot.h"
 #include "gevr_bodyslots.h"
 #include "gevr_hand_reload.h"
+#include "gevr_modapi.h"      /* mods' hands area: hand_near, the torso's frame */
+#include "gevr_modscript.h"
 
 extern int VrBodySlots, VrBodySlotShow, VrBodySlotSize, VrLeftHandedMode;
 extern float VrBodySlotFit[GEVR_BODY_SLOTS][3];
@@ -477,6 +479,7 @@ static void gevrBodyHandUpdate(s32 ctrl)
         h->pick = gevrBodyDefaultPick(&s_bodyMru[slot], h->choices, h->n);
         h->dist = dist[slot];
         gevrBodyBuzz(ctrl, GEVR_ACTION_SLOT_HOVER);
+        gevrModApiHandNear(ctrl, slot);   /* a mod's hand_near (gevr_modapi.c) */
         gevrBodySlotFitFrom(&s_bodyFrame, slot, h->at, VrLeftHandedMode, loc);
         gevrBodyPickName(hand, h->pick, name, sizeof(name));
         sysLogPrintf(LOG_NOTE, "bodyslot: hover (%s) %s: %.0f below %.0f out %.0f ahead, %.2f r, takes %d %s (%d choice%s)",
@@ -547,8 +550,9 @@ void gevrBodySlotsTick(void)
             gevrBodyIdle(VrBodySlots ? "not in play" : "off");
         }
         /* Hand reload still needs the same torso with holsters disabled,
-         * while choosing a weapon, and while calibrating its belt. */
-        if (gevrHandReloadActive() && !g_CurrentPlayer->bonddead && !g_CurrentPlayer->watch_animation_state
+         * while choosing a weapon, and while calibrating its belt; so do a
+         * mod's hands (gevrBodyLocal) in stereo play. */
+        if ((gevrHandReloadActive() || (g_gevrStereo && gevrModScriptRunning())) && !g_CurrentPlayer->bonddead && !g_CurrentPlayer->watch_animation_state
             && !g_CurrentPlayer->mpmenuon && g_PlayerIsInTank != 1 && !gevrSpectating()
             && !gevrCoopLocalDowned() && D_800364CC > 1e-6f)
             s_bodyFrameValid = gevrBodyFrameUpdate();
@@ -1420,4 +1424,40 @@ int gevrBodySlotsOn(void)
 int gevrBodySlotHover(int ctrl)
 {
     return ctrl >= 0 && ctrl < 2 && s_bodyLive ? s_bodyHand[ctrl].slot : -1;
+}
+
+/* A level-frame point (cm, the eye at the origin) in the torso's frame: x
+ * toward the gun hand's side, y up, z ahead, from the frame's origin */
+static void gevrBodyToTorso(const f32 at[3], f32 out[3])
+{
+    const f32 d[3] = { at[0] - s_bodyFrame.origin[0], at[1] - s_bodyFrame.origin[1], at[2] - s_bodyFrame.origin[2] };
+    const f32 x = d[0] * s_bodyFrame.right[0] + d[1] * s_bodyFrame.right[1] + d[2] * s_bodyFrame.right[2];
+
+    out[0] = VrLeftHandedMode ? -x : x;
+    out[1] = d[0] * s_bodyFrame.up[0] + d[1] * s_bodyFrame.up[1] + d[2] * s_bodyFrame.up[2];
+    out[2] = d[0] * s_bodyFrame.fwd[0] + d[1] * s_bodyFrame.fwd[1] + d[2] * s_bodyFrame.fwd[2];
+}
+
+int gevrBodyLocalHand(int ctrl, float out[3])
+{
+    f32 at[3];
+
+    if (ctrl < 0 || ctrl > 1 || !s_bodyFrameValid || g_CurrentPlayer == NULL || D_800364CC <= 1e-6f
+        || (netIsActive() && get_cur_playernum() != netGetLocalSlot()) || !gevrBodyHandAt(ctrl, at))
+    {
+        return FALSE;
+    }
+    gevrBodyToTorso(at, out);
+    return TRUE;
+}
+
+int gevrBodyLocalSlot(int slot, float out[3], float *radius)
+{
+    if (slot < 0 || slot >= GEVR_BODY_SLOTS || !s_bodyFrameValid)
+    {
+        return FALSE;
+    }
+    gevrBodyToTorso(s_bodyCentre[slot], out);
+    *radius = s_bodyRadius[slot];
+    return TRUE;
 }

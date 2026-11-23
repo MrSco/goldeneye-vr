@@ -252,9 +252,84 @@ end)
           "given, taken (the gun hand to its fist), the rounds set: " + str(answers(out, "INV", "AMMO")))
 
 
+def hands_placement():
+    """hand_near at the game's own reach; the torso's frame kept for a mod; grips told on the tick"""
+    body = (ROOT / "src/game/gevr_bodyslots.c").read_bytes().decode()
+    view = (ROOT / "src/game/bondview2.c").read_bytes().decode()
+    game = (ROOT / "src/game/gevr_modgame.c").read_bytes().decode()
+    haptics_h = (ROOT / "port/vr/vr_haptics.h").read_bytes().decode()
+    haptics = (ROOT / "port/vr/vr_haptics.cpp").read_bytes().decode()
+    entered = body.index("        h->slot = slot;\n        h->looking = gevrBodyLookedAt(slot, FALSE);")
+    near = body.index("gevrModApiHandNear(ctrl, slot);")
+    check(entered < near < body.index("        return;", near) and body.index("gevrBodyBuzz(ctrl, GEVR_ACTION_SLOT_HOVER);") < near,
+          "hand_near as a hand comes into a slot, with the reach's own buzz")
+    check("(gevrHandReloadActive() || (g_gevrStereo && gevrModScriptRunning()))" in body,
+          "the torso's frame kept in stereo play while a mod runs, the slots off")
+    check("out[0] = VrLeftHandedMode ? -x : x;" in body, "x toward the gun hand's side, either handedness")
+    check(body.index('#include "gevr_modapi.h"') < body.index("gevrModApi"), "gevr_bodyslots.c includes the header first")
+    inp = view[view.index("void gevrGripGestureInput("):]
+    check(inp.index("s_gevrModGripDown[ctrl] = 1;") < inp.index("    if (!held)\n"), "a press or a let go noted before the let go returns")
+    tick = view[view.index("void gevrGripGestureTick(void)"):]
+    tick = tick[:tick.index("\n}\n")]
+    check(tick.index("gevrGripGestureTry(ctrl) ? 2 : 3;") < tick.index("gevrModApiGrip(ctrl, anchor, s_gevrGripGesture[ctrl] == 2)")
+          and "get_cur_playernum() == netGetLocalSlot()" in tick[tick.index("s_gevrModGripDown[ctrl] ||"):],
+          "a grip told once the game decided it, on the local player's tick")
+    check("#define GEVR_ACTION_MOD 1008" in game and "#define GEVR_ACTION_MOD              1008" in haptics_h
+          and '{ GEVR_ACTION_MOD,              "Mods"' in haptics, "a mod's pulses go through the player's Mods haptics row")
+
+
+def hands(exe, temp):
+    play = ("start", "prepare", 9, "begin", 9)
+
+    lua = """
+mod.on("grip", function(hand, anchor, taken) print("grip", hand, anchor, taken) end)
+mod.on("release", function(hand, anchor) print("release", hand, anchor) end)
+mod.on("hand_near", function(hand, anchor) print("near", hand, anchor) end)
+"""
+    out = run(exe, temp, "grips", lua, "start", "prepare", 9, "grip", 1, 4, 1, "begin", 9, "grip", 1, 4, 1,
+              "grip", 0, -1, 0, "release", 1, -1, "release", 0, 5, "near", 0, 5, "near", 1, 0, "local", 0,
+              "grip", 1, 0, 1, "near", 1, 2)
+    check(logs(out) == ["grip right chest true", "grip left nil false", "release right nil", "release left belt",
+                        "near left belt", "near right hip_gun"],
+          "grip, release and hand_near in play, for this machine's player: " + str(logs(out)))
+
+    lua = r"""
+mod.on("mission_start", function()
+  local h = mod.hands
+  local x, y, z = h.position("right")
+  assert(x == 20 and y == -40 and z == 30, "the gun hand")
+  assert(h.position(1) == nil, "untracked")
+  local ax, ay, az, r = h.anchor("hip_gun")
+  assert(ax == 18 and ay == -55 and az == 5 and r == 12)
+  assert(select(4, h.anchor("belt")) == 10)
+  assert(not pcall(h.anchor, "pocket") and not pcall(h.anchor))
+  assert(h.haptic("left", 0.5, 0.1) == true and h.haptic("right", 0, 0) == true)
+  for _, bad in ipairs({ { "right", 1.5, 0.1 }, { "right", -0.1, 0.1 }, { "right", 0.5, 0.6 }, { "right", 0.5, -1 },
+                         { "middle", 0.5, 0.1 }, { "right", 0 / 0, 0.1 } }) do
+    assert(not pcall(h.haptic, table.unpack(bad)), "past a limit")
+  end
+  print("hands ok")
+end)
+"""
+    out = run(exe, temp, "hands", lua, "handat", 0, 20, -40, 30, "untracked", 1, *play)
+    check(logs(out) == ["hands ok"] and answers(out, "HAPTIC") == ["HAPTIC 1 0.50 0.10", "HAPTIC 0 0.00 0.00"],
+          "mod.hands: positions, anchors, pulses within limits: " + out[-700:])
+
+    lua = r"""
+mod.on("mission_start", function()
+  local h = mod.hands
+  assert(h.position("right") == nil and h.anchor("chest") == nil and h.haptic("right", 0.5, 0.1) == false)
+  print("flat ok")
+end)
+"""
+    out = run(exe, temp, "flat", lua, "torso", 0, *play)
+    check(logs(out) == ["flat ok"] and answers(out, "HAPTIC") == [], "without VR hands: nil and false: " + out[-500:])
+
+
 def main():
     placement()
     items_placement()
+    hands_placement()
     with tempfile.TemporaryDirectory(prefix="gevr-modapi-") as temp:
         temp = Path(temp)
         exe = build(temp)
@@ -331,6 +406,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
               "an error: the shot happens, the mod stops, its stats go back: " + str(answers(out, "STATS", "FIRED", "DECLINED")))
 
         items(exe, temp)
+        hands(exe, temp)
 
     if FAILS:
         print(f"{len(FAILS)} check(s) failed")
@@ -338,7 +414,8 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
     print("PASS: mods' weapons area: fire attempts declined or not, weapon_fire, reloads, draws, the local player only, "
           "mod.weapon's calls and limits, mod.items, the stats put back; the hooks' places in the gun code. "
           "Items area: pickup_spawning's swaps, turns and refusals, item_pickup, mod.inventory, mod.ammo; "
-          "the hooks' places in the stage's setup and the pickup")
+          "the hooks' places in the stage's setup and the pickup. Hands area: grip, release, hand_near, "
+          "mod.hands' positions, anchors and pulses; the hooks' places")
 
 
 if __name__ == "__main__":

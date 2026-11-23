@@ -437,6 +437,35 @@ watch). We maintain the adapters, not the mods.
     `magnum`, `goldengun` (1 to 13).
   - Not built yet: spawning a pickup at run time, `item_spawned`, and a
     pickup a mod can refuse.
+- **Hands (VR).** Built (`port/src/gevr_modapi.c` over
+  `src/game/gevr_modgame.c`; the hooks in `bondview2.c` and
+  `gevr_bodyslots.c`), for this machine's human player in stereo play.
+  `hand` is the game's, as in the weapons area: `"right"` is the gun hand
+  and `"left"` the off hand, whichever controller holds each (left-handed
+  mode swaps them).
+  - `grip(hand, anchor, taken)` and `release(hand, anchor)`: the grip as
+    the game reads it (`port/src/input.c`'s poll, the press the grip
+    gestures take), told on the next game tick, once
+    `gevrGripGestureTick()` has decided the press. `anchor` is the body
+    slot the hand is in, or nil. `taken` is true when one of the game's
+    grips used it: a slot drew or put away, the reload belt, a force
+    pull's catch, a door or a switch. A mod can't take a grip from the game.
+  - `hand_near(hand, anchor)`: the hand came into a body slot, with the
+    slot's own buzz. Only with the Body slots option on, and only at a slot
+    with something there for that hand.
+  - Anchors: `hip_gun`, `hip_off`, `back_gun`, `back_off`, `chest` and
+    `belt`, the body slots' places, each named for the hand whose side
+    it's on.
+  - Calls: `mod.hands.position(hand)` gives x, y, z and
+    `mod.hands.anchor(name)` x, y, z and the anchor's reach, in cm, in the
+    body slots' torso frame: x toward the gun hand's side, y up, z ahead,
+    from the eye's place upright over the torso. They work with either
+    handedness and with the slots off, so a mod can place its own pouches
+    from them; nil without VR hands in play or for a hand that isn't
+    tracked. `mod.hands.haptic(hand, amplitude, seconds)`: a pulse,
+    amplitude 0 to 1, up to 0.5 s. The player's Haptics settings have a
+    Mods row that scales its strength and caps its length (0 turns mods'
+    pulses off); false without VR haptics.
 - **Guards and corpses.** Emit `guard_spawning` during
   `expand_09_characters()` and `chrSpawnAtPad()`. Allow a ROM body and
   head choice before the model is created and a native weapon choice
@@ -567,8 +596,9 @@ Every headset runs the swaps at load, so in co-op the choices come from
    storage calls, the perf log line.
 4. **API areas** one at a time, each with native tests (as the repo's
    `port/tests/` do): weapons and items, hands and body slots, guards,
-   player, assets, UI. Weapons first, then pickups and items (both
-   `port/tests/test_modapi.py`).
+   player, assets, UI. Weapons, then pickups and items, then hands
+   (`port/tests/test_modapi.py`; the grips' timing on the production
+   poll in `port/tests/test_body_slot_interactions.py`).
 5. **Network:** `NET_MSG_MOD`, co-op with mods, the dedicated server.
 6. **Sample mod and API reference.**
 7. **Platform check:** Quest, PC, Apple, server, with the sample mod.

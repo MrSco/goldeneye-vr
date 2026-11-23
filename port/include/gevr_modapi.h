@@ -2,7 +2,7 @@
  * The mod API's areas (docs/mod-system.md, API v1 and "Where each hook
  * sits"): the game's events into mods' scripts (gevr_modscript.c) and the
  * mod.* tables, in port/src/gevr_modapi.c, over a thin game side in
- * src/game/gevr_modgame.c. The areas so far: weapons, items.
+ * src/game/gevr_modgame.c. The areas so far: weapons, items, hands.
  */
 #ifndef GEVR_MODAPI_H
 #define GEVR_MODAPI_H
@@ -88,6 +88,22 @@ int gevrModPickupSpawn(struct PropDefHeaderRecord *rec, int index);
 /* propobj.c propPickupByPlayer, the pickup taken and not yet freed: item_pickup */
 void gevrModPickupTaken(struct PropDefHeaderRecord *rec);
 
+/* ---- the hands area: the local human player's VR hands, the body's anchors, haptics ---- */
+
+/* The body's anchors: the body slots' places (port/include/gevr_bodyslot.h
+ * GEVR_BS_*, the same order), whether the slots option is on or not */
+#define GEVR_MODAPI_ANCHORS 6
+#define GEVR_MODAPI_HAPTIC_MAX_S 0.5f   /* one pulse at most */
+
+/* ctrl is the body slots' (0 the off hand, 1 the gun hand); anchor a
+ * GEVR_BS_* or -1 for none */
+/* bondview2.c gevrGripGestureTick: the grip went down (taken: one of the
+ * game's grips used it: a slot, the reload belt, a pull, a use) or up */
+void gevrModApiGrip(int ctrl, int anchor, int taken);
+void gevrModApiRelease(int ctrl, int anchor);
+/* gevr_bodyslots.c: a hand came into a body slot that has something for it */
+void gevrModApiHandNear(int ctrl, int anchor);
+
 /* ---- the game's side (src/game/gevr_modgame.c), for gevr_modapi.c ---- */
 
 typedef struct GevrModWeaponStats {
@@ -120,6 +136,15 @@ int gevrModGameTake(int item);
 int gevrModGameAmmo(int type);
 void gevrModGameSetAmmo(int type, int rounds);
 int gevrModGameAmmoMax(int type);
+/* The torso's frame (gevr_bodyslots.c, this tick's), cm: x toward the gun
+ * hand's side, y up, z ahead, from the eye's place upright over the torso.
+ * A hand (0 right, the gun hand; 1 left) or an anchor's centre and reach;
+ * 0 when there's no frame (no VR hands in play) or the hand isn't tracked */
+int gevrModGameHandAt(int hand, float out[3]);
+int gevrModGameAnchorAt(int anchor, float out[3], float *radius);
+/* A pulse on a hand's controller, scaled by the player's Mods haptics
+ * setting; 0 when there are no VR haptics */
+int gevrModGameHaptic(int hand, float amplitude, float seconds);
 
 #ifdef __cplusplus
 }

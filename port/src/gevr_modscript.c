@@ -84,6 +84,8 @@ static const char *const s_events[] = {
     "weapon_fire_attempt", "weapon_fire", "reload_start", "reload_end", "weapon_drawn",
     /* the items area */
     "pickup_spawning", "item_pickup",
+    /* the hands area */
+    "grip", "release", "hand_near",
 };
 
 static void note(const char *fmt, ...)
@@ -713,6 +715,7 @@ static int fire(const char *event, const Arg *args, int nargs, int load, int can
                 if (args[a].kind == GEVR_MODARG_NUMBER) lua_pushnumber(L, args[a].n);
                 else if (args[a].kind == GEVR_MODARG_INTEGER) lua_pushinteger(L, (lua_Integer)args[a].n);
                 else if (args[a].kind == GEVR_MODARG_BOOL) lua_pushboolean(L, args[a].n != 0);
+                else if (args[a].kind == GEVR_MODARG_NIL) lua_pushnil(L);
                 else lua_pushstring(L, args[a].s ? args[a].s : "");
             }
             if (modCall(m, nargs, cancellable ? 1 : 0, load, event) == 0 && cancellable) {

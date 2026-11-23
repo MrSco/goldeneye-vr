@@ -21,7 +21,7 @@ extern "C" {
 #define GEVR_MODSCRIPT_TICK_CAP 0.25          /* tick(dt): dt is at most this, in seconds */
 
 /* An event's argument (gevrModScriptEvent) */
-enum { GEVR_MODARG_NUMBER = 1, GEVR_MODARG_STRING = 2, GEVR_MODARG_INTEGER = 3, GEVR_MODARG_BOOL = 4 };
+enum { GEVR_MODARG_NUMBER = 1, GEVR_MODARG_STRING = 2, GEVR_MODARG_INTEGER = 3, GEVR_MODARG_BOOL = 4, GEVR_MODARG_NIL = 5 };
 typedef struct GevrModArg {
     int kind;        /* GEVR_MODARG_* */
     double n;        /* a number, an integer or a boolean (0 or 1) */

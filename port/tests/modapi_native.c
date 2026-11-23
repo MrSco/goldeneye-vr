@@ -21,6 +21,11 @@
  *                                  crate <t:n,...>, armour <amount>, key, object
  *     own <item> | inv             an item in the inventory; what's there
  *     ammois <type>                the spare rounds of a type
+ *     torso <0|1>                  VR hands in play (the torso's frame) and haptics, or not
+ *     handat <hand> <x> <y> <z>    a hand's place in the torso's frame (hand 0 right)
+ *     untracked <hand>
+ *     grip <ctrl> <anchor> <taken> | release <ctrl> <anchor> | near <ctrl> <anchor>
+ *                                  bondview2.c's grip tick, gevr_bodyslots.c's reach (ctrl 1 the gun hand)
  *
  * Prints LOG lines, DECLINED/FIRED per shot, SPAWN per pickup placed, and
  * the answers. Run in a
@@ -124,6 +129,33 @@ int gevrModGameTake(int item)
 int gevrModGameAmmo(int type) { return s_ammo[type]; }
 void gevrModGameSetAmmo(int type, int rounds) { s_ammo[type] = rounds; }
 int gevrModGameAmmoMax(int type) { return type >= 1 && type <= GEVR_MODAPI_AMMO_TYPES ? s_ammoMax[type] : 0; }
+
+/* the hands area: the torso's frame, two hands, the six anchors */
+static int s_torso = 1, s_tracked[2] = { 1, 1 };
+static float s_handAt[2][3];
+static const float s_anchorAt[GEVR_MODAPI_ANCHORS][4] = {
+    { 18, -55, 5, 12 }, { -18, -55, 5, 12 }, { 15, -5, -20, 15 }, { -15, -5, -20, 15 }, { 0, -30, 15, 14 }, { -10, -60, 15, 10 },
+};
+
+int gevrModGameHandAt(int hand, float out[3])
+{
+    if (!s_torso || !s_tracked[hand]) return 0;
+    memcpy(out, s_handAt[hand], sizeof(s_handAt[hand]));
+    return 1;
+}
+int gevrModGameAnchorAt(int anchor, float out[3], float *radius)
+{
+    if (!s_torso) return 0;
+    memcpy(out, s_anchorAt[anchor], 3 * sizeof(float));
+    *radius = s_anchorAt[anchor][3];
+    return 1;
+}
+int gevrModGameHaptic(int hand, float amplitude, float seconds)
+{
+    if (!s_torso) return 0;
+    printf("HAPTIC %d %.2f %.2f\n", hand, amplitude, seconds);
+    return 1;
+}
 
 static void crateArg(GevrModPickup *p, const char *list)
 {
@@ -283,6 +315,27 @@ int main(int argc, char **argv)
                 if (s_inv[k]) printf(" %d", k);
             }
             printf(" held %d %d\n", s_held[0], s_held[1]);
+        } else if (!strcmp(cmd, "torso") && i + 1 < argc) {
+            s_torso = atoi(argv[++i]);
+        } else if (!strcmp(cmd, "handat") && i + 4 < argc) {
+            const int hand = atoi(argv[i + 1]);
+
+            s_tracked[hand] = 1;
+            s_handAt[hand][0] = (float)atof(argv[i + 2]);
+            s_handAt[hand][1] = (float)atof(argv[i + 3]);
+            s_handAt[hand][2] = (float)atof(argv[i + 4]);
+            i += 4;
+        } else if (!strcmp(cmd, "untracked") && i + 1 < argc) {
+            s_tracked[atoi(argv[++i])] = 0;
+        } else if (!strcmp(cmd, "grip") && i + 3 < argc) {
+            gevrModApiGrip(atoi(argv[i + 1]), atoi(argv[i + 2]), atoi(argv[i + 3]));
+            i += 3;
+        } else if (!strcmp(cmd, "release") && i + 2 < argc) {
+            gevrModApiRelease(atoi(argv[i + 1]), atoi(argv[i + 2]));
+            i += 2;
+        } else if (!strcmp(cmd, "near") && i + 2 < argc) {
+            gevrModApiHandNear(atoi(argv[i + 1]), atoi(argv[i + 2]));
+            i += 2;
         } else if (!strcmp(cmd, "ammois") && i + 1 < argc) {
             const int type = atoi(argv[++i]);
 

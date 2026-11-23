@@ -79,7 +79,7 @@ extern s32 gevrCrouchToggled(void); // port/src/input.c
 #include "textrelated.h"
 
 #ifdef GEVR
-#include "gevr_modapi.h"   /* mods' weapons area: motion throws, hand reloads (before their first use) */
+#include "gevr_modapi.h"   /* mods' weapons and hands areas: throws, reloads, grips (before their first use) */
 extern bool netIsActive(void);
 extern int netGetLocalSlot(void);
 extern void netSendRespawnEvent(u8 pad_index, f32 theta);
@@ -18986,6 +18986,9 @@ static f32 s_gevrGestureTune[GEVR_GT_COUNT] = {
 #define GEVR_GRIP_B_REACH_CM 50.0f     /* grip use: the hand this near to what B would use */
 
 static s32 s_gevrGripGesture[2];   /* per controller: 0 idle, 1 a press to decide, 2 taken until let go, 3 aims */
+/* a mod's grip and release (gevr_modapi.c), told on the next game tick: the
+ * pad is read every retrace, scripts run on the tick */
+static s32 s_gevrModGripHeld[2], s_gevrModGripDown[2], s_gevrModGripUp[2];
 static s32 s_gevrGripPendAge[2];
 #define GEVR_GRIP_PEND_POLLS 30   /* pad reads, about half a second */
 
@@ -18998,6 +19001,9 @@ void gevrGripGestureInput(s32 ctrl, s32 pressed, s32 held)
         return;
     }
     gevrPullGripInput(ctrl, held);
+    if (held && !s_gevrModGripHeld[ctrl]) s_gevrModGripDown[ctrl] = 1;
+    if (!held && s_gevrModGripHeld[ctrl]) s_gevrModGripUp[ctrl] = 1;
+    s_gevrModGripHeld[ctrl] = held != 0;
     if (!held)
     {
         extern void gevrBodySlotGripLetGo(int ctrl);   /* gevr_bodyslots.c */
@@ -19404,6 +19410,20 @@ void gevrGripGestureTick(void)
                     gevrHordeHoldInput(ctrl+1,0,1,world.f,g_ClockTimer>0?(unsigned)g_ClockTimer:0);
                 else gevrHordeHoldInput(ctrl+1,0,0,NULL,0);
             } else gevrHordeHoldInput(ctrl+1,0,0,NULL,0);
+        }
+        if ((s_gevrModGripDown[ctrl] || s_gevrModGripUp[ctrl])
+            && (!netIsActive() || get_cur_playernum() == netGetLocalSlot()))
+        {
+            /* a mod's grip once the game has decided it, then its release;
+             * let go and pressed again within a tick: the release first */
+            extern int gevrBodySlotHover(int ctrl);
+            const s32 anchor = gevrBodySlotHover(ctrl);
+            const s32 down = s_gevrModGripDown[ctrl], up = s_gevrModGripUp[ctrl];
+
+            s_gevrModGripDown[ctrl] = s_gevrModGripUp[ctrl] = 0;
+            if (up && down && s_gevrModGripHeld[ctrl]) gevrModApiRelease(ctrl, anchor);
+            if (down) gevrModApiGrip(ctrl, anchor, s_gevrGripGesture[ctrl] == 2);
+            if (up && !(down && s_gevrModGripHeld[ctrl])) gevrModApiRelease(ctrl, anchor);
         }
     }
 }

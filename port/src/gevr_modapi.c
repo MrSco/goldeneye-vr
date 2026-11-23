@@ -50,6 +50,12 @@ static const char *const s_ammoNames[GEVR_MODAPI_AMMO_TYPES + 1] = {
     "knife", "grenaderound", "magnum", "goldengun",
 };
 
+/* The body's anchors, the body slots' places (GEVR_BS_*): each named for
+ * the hand whose side it's on, gun or off */
+static const char *const s_anchorNames[GEVR_MODAPI_ANCHORS] = {
+    "hip_gun", "hip_off", "back_gun", "back_off", "chest", "belt",
+};
+
 /* GEVR_MODPICKUP_*: a pickup's kind in pickup_spawning and item_pickup */
 static const char *const s_pickupKinds[] = { NULL, "weapon", "ammo", "crate", "armour", "key", "object" };
 
@@ -352,6 +358,70 @@ static const luaL_Reg s_ammoFuncs[] = {
     { NULL, NULL },
 };
 
+/* ---- mod.hands ---- */
+
+/* position(hand): x, y, z in cm in the torso's frame, or nil */
+static int l_handPosition(lua_State *L)
+{
+    const int hand = handArg(L, 1);
+    float at[3];
+
+    if (!gevrModGameHandAt(hand, at)) {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_pushnumber(L, at[0]);
+    lua_pushnumber(L, at[1]);
+    lua_pushnumber(L, at[2]);
+    return 3;
+}
+
+/* anchor(name): x, y, z and its reach in cm, or nil */
+static int l_handAnchor(lua_State *L)
+{
+    const char *name = luaL_checkstring(L, 1);
+    float at[3], reach;
+    int a;
+
+    for (a = 0; a < GEVR_MODAPI_ANCHORS && strcmp(name, s_anchorNames[a]); a++) {
+    }
+    if (a == GEVR_MODAPI_ANCHORS) return luaL_argerror(L, 1, "no anchor has that name (see the spec's hands area)");
+    if (!gevrModGameAnchorAt(a, at, &reach)) {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_pushnumber(L, at[0]);
+    lua_pushnumber(L, at[1]);
+    lua_pushnumber(L, at[2]);
+    lua_pushnumber(L, reach);
+    return 4;
+}
+
+/* haptic(hand, amplitude, seconds): true when a controller was pulsed */
+static int l_haptic(lua_State *L)
+{
+    const int hand = handArg(L, 1);
+    const lua_Number amp = luaL_checknumber(L, 2);
+    const lua_Number secs = luaL_checknumber(L, 3);
+
+    if (!(amp >= 0 && amp <= 1)) return luaL_argerror(L, 2, "an amplitude is 0 to 1");
+    if (!(secs >= 0 && secs <= GEVR_MODAPI_HAPTIC_MAX_S)) {
+        char most[48];   /* Lua's own formats have no %g */
+
+        snprintf(most, sizeof(most), "a pulse lasts 0 to %g seconds", (double)GEVR_MODAPI_HAPTIC_MAX_S);
+        return luaL_argerror(L, 3, most);
+    }
+    lua_pushboolean(L, gevrModGameHaptic(hand, (float)amp, (float)secs));
+    return 1;
+}
+
+static const luaL_Reg s_handFuncs[] = {
+    { "position", l_handPosition },
+    { "anchor", l_handAnchor },
+    { "haptic", l_haptic },
+    { NULL, NULL },
+};
+
 void gevrModApiOpen(lua_State *L)
 {
     int i;
@@ -375,6 +445,9 @@ void gevrModApiOpen(lua_State *L)
         lua_setfield(L, -2, s_ammoNames[i]);
     }
     lua_setfield(L, -2, "ammo");
+    lua_newtable(L);
+    luaL_setfuncs(L, s_handFuncs, 0);
+    lua_setfield(L, -2, "hands");
 }
 
 void gevrModApiReset(void)
@@ -614,4 +687,47 @@ void gevrModApiItemPickup(const GevrModPickup *p)
         pickupNote("object", 1, 0, 0, -1);
         break;
     }
+}
+
+/* ---- the hands area's events ---- */
+
+/* hand (the body slots' ctrl: 1 the gun hand, "right"), then the anchor or nil */
+static int handAnchor(GevrModArg *a, int ctrl, int anchor)
+{
+    a[0].kind = GEVR_MODARG_STRING;
+    a[0].s = handName(ctrl ? 0 : 1);
+    if (anchor >= 0 && anchor < GEVR_MODAPI_ANCHORS) {
+        a[1].kind = GEVR_MODARG_STRING;
+        a[1].s = s_anchorNames[anchor];
+    } else {
+        a[1].kind = GEVR_MODARG_NIL;
+    }
+    return 2;
+}
+
+void gevrModApiGrip(int ctrl, int anchor, int taken)
+{
+    GevrModArg a[3];
+
+    if (!forLocal()) return;
+    handAnchor(a, ctrl, anchor);
+    a[2].kind = GEVR_MODARG_BOOL;
+    a[2].n = taken != 0;
+    gevrModScriptEvent("grip", a, 3, 0);
+}
+
+void gevrModApiRelease(int ctrl, int anchor)
+{
+    GevrModArg a[2];
+
+    if (!forLocal()) return;
+    gevrModScriptEvent("release", a, handAnchor(a, ctrl, anchor), 0);
+}
+
+void gevrModApiHandNear(int ctrl, int anchor)
+{
+    GevrModArg a[2];
+
+    if (!forLocal() || anchor < 0) return;
+    gevrModScriptEvent("hand_near", a, handAnchor(a, ctrl, anchor), 0);
 }

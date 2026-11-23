@@ -11,6 +11,7 @@ extern "C" {
 #define GEVR_ACTION_SLOT_TAKE        1005   // a weapon taken from or put in a slot
 #define GEVR_ACTION_SLOT_DENY        1006   // the slot can't give that hand anything
 #define GEVR_ACTION_SLOT_STEP        1007   // stepping through a slot's category
+#define GEVR_ACTION_MOD              1008   // a mod's pulse (src/game/gevr_modgame.c): its strength's scale, its longest
 
 typedef enum {
     HAPTIC_CAT_PISTOLS = 0,

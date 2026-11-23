@@ -52,6 +52,12 @@ int gevrBodySlotQuiet(int ctrl);
  * Local: view point into cm below/out/ahead. Pose: unit view-space axes
  * (right/up/back), then the belt centre in view units. */
 int gevrBodyReloadLocal(int ctrl, const float at[3], float out[3]);
+/* Mods' hands (gevr_modgame.c): a hand, or a slot's centre and radius, in
+ * the torso's frame this tick, cm: x toward the gun hand's side, y up, z
+ * ahead of the frame's origin (the eye upright over the torso). 0 with no
+ * frame (not in stereo play) or the hand untracked. */
+int gevrBodyLocalHand(int ctrl, float out[3]);
+int gevrBodyLocalSlot(int slot, float out[3], float *radius);
 int gevrBodyReloadPose(int ctrl, const float fit[3], float out[4][3]);
 
 #endif

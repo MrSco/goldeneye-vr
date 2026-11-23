@@ -37,6 +37,7 @@ static int gex[2], buzzes, fills, tracked[2] = {1, 1};
 #define reserve player.ammoheldarr[1]
 static int online, playerSlot, localSlot;
 static int s_gevrGripGesture[2], gripHeld[2];
+static int s_gevrModGripHeld[2], s_gevrModGripDown[2], s_gevrModGripUp[2];   /* bondview2.c's: a mod's grips */
 static int s_gevrGripPendAge[2], VrGestureGripUse, VrGestureMineGrab, VrForcePull;
 typedef struct { int MagSize, AmmoType; } WeaponStats;
 static WeaponStats stats = {30, 1};

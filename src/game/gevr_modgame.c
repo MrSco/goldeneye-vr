@@ -15,6 +15,7 @@
 #include "loadobjectmodel.h"
 #include "gevr_modapi.h"
 #include "gevr_modscript.h"
+#include "gevr_bodyslots.h"
 
 extern bool netIsActive(void);       /* net_core.c */
 extern int netGetLocalSlot(void);
@@ -24,6 +25,10 @@ extern f32 g_SoloAmmoMultiplier;          /* propobj.h */
 extern PROP getPropForHeldItem(ITEM_IDS item);                  /* player.c */
 extern s32 get_ammo_in_magazine(AmmoCrateRecord *crate);        /* propobj.c */
 extern void gunRequestHandWeaponChange(enum GUNHAND hand, s32 nextWeapon, s32 cycleDirection);   /* gun.c */
+extern int vr_haptics_ready(void);                                              /* port/vr, port/flat */
+extern void vrHapticsGetRumble(int id, float *amp, float *dur, float *freq);
+extern s32 trigger_haptic_vibration_freq_c(int hand_index, float amplitude, float duration, float frequency);
+#define GEVR_ACTION_MOD 1008   /* port/vr/vr_haptics.h: the player's Mods row */
 
 /* mod.items names every item from ITEM_UNARMED; mod.ammo every type a pickup carries */
 typedef char itemNamesForEveryItem[GEVR_MODAPI_ITEMS == ITEM_IDS_MAX ? 1 : -1];
@@ -366,4 +371,41 @@ void gevrModPickupTaken(PropDefHeaderRecord *rec)
             break;
     }
     gevrModApiItemPickup(&got);
+}
+
+/* ---- the hands area ---- */
+
+/* hand 0 right (the gun hand), 1 left: the body slots' ctrl 1 and 0; the
+ * local player's view, whoever the game is ticking (a mod's tick runs
+ * after every player's) */
+int gevrModGameHandAt(int hand, float out[3])
+{
+    s32 was;
+    int ok;
+
+    if (!gevrModGamePlayerReady()) return 0;
+    was = get_cur_playernum();
+    set_cur_player(localSlot());
+    ok = gevrBodyLocalHand(hand ? 0 : 1, out);
+    set_cur_player(was);
+    return ok;
+}
+
+int gevrModGameAnchorAt(int anchor, float out[3], float *radius)
+{
+    return gevrBodyLocalSlot(anchor, out, radius);
+}
+
+/* As the body slots' own buzz (gevr_bodyslots.c gevrBodyBuzz): the logical
+ * controller, the left-handed swap done in trigger_haptic_vibration. The
+ * player's Mods row scales the strength and caps the length. */
+int gevrModGameHaptic(int hand, float amplitude, float seconds)
+{
+    float scale, most, freq;
+
+    if (!vr_haptics_ready()) return 0;
+    vrHapticsGetRumble(GEVR_ACTION_MOD, &scale, &most, &freq);
+    if (scale <= 0.0f || most <= 0.0f || amplitude <= 0.0f || seconds <= 0.0f) return 1;   /* off: nothing to feel */
+    trigger_haptic_vibration_freq_c(hand ? 0 : 1, amplitude * scale, seconds < most ? seconds : most, freq);
+    return 1;
 }
