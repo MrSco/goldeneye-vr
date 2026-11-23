@@ -48,6 +48,9 @@ extern float VrDismemberDamage;
 extern int VrGexGuns;
 extern int VrBeanFillTextures, VrBloodPatch, VrOddjobHat;
 extern int VrEyeMsaa;
+extern float VrRenderScale;          /* Resolution: 0 = the game config's, else the next start's scale */
+extern int VrTextureAniso;           /* anisotropic filtering of HD pack and Bean pictures */
+extern float vr_render_scale(void);  /* the eye images' scale this session */
 extern int VrPlayMode, VrBodySlotShow, VrCampaign;
 extern int VrAlly, VrAllyWeapon, VrAllyAggression, VrAllyHealth, VrAllyDamage, VrAllyInvincible;
 /* Multiplayer's Fun and Audio: the host's preferences offline, the match's online */
@@ -121,6 +124,7 @@ typedef struct Row {
     /* a toggle's two names, when not Off/On */
     const char *off, *on;
     const char *(*blocked)(void);   /* why it can't change now */
+    const char *(*warning)(void);   /* what the value set now can cost (performance), or NULL */
     int (*forced)(void);            /* a toggle shown on (and on in play) while this says 1 */
     int (*shown)(void);             /* hidden while this says 0 */
     void (*fset)(float v);          /* sets it instead of the variable */
@@ -471,6 +475,56 @@ static const char *const s_msaaNames[] = { "Off", "2x", "4x" };
 static const int s_msaa[] = { 1, 2 };
 static const char *const s_msaaNames[] = { "Off", "2x" };
 #endif
+
+/* Resolution: the eye images over the headset's recommended size (vr_openxr.cpp
+ * vr_configure_resolution), made as VR starts, so a change shows "(next start)".
+ * Above 1x is supersampling. Before a choice it reads the scale in use (the
+ * game config's Video.VRRenderScale). */
+static const float s_scales[] = { 0.8f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
+static const char *const s_scaleNames[] = { "0.8x", "1x", "1.25x", "1.5x", "1.75x", "2x" };
+#define SCALE_COUNT ((int)(sizeof(s_scales) / sizeof(s_scales[0])))
+static float scaleChosen(void) { return VrRenderScale > 0.0f ? VrRenderScale : vr_render_scale(); }
+static int scalePositions(void) { return SCALE_COUNT; }
+static int scaleGet(void)
+{
+    const float v = scaleChosen();
+    int i, best = 1;
+    for (i = 0; i < SCALE_COUNT; i++) {
+        if (fabsf(s_scales[i] - v) < fabsf(s_scales[best] - v)) best = i;
+    }
+    return best;
+}
+static void scaleSet(int i) { VrRenderScale = s_scales[i]; }
+static void scaleText(int i, char *b, int n)
+{
+    const int pending = i == scaleGet() && fabsf(s_scales[i] - vr_render_scale()) >= 0.01f;
+    snprintf(b, n, "%s%s", s_scaleNames[i], pending ? " (next start)" : "");
+}
+static const char *warnScale(void)
+{
+    return scaleChosen() > 1.01f
+        ? "Resolution above 1x draws more pixels every frame (1.5x is 2.25 times as many) and can make "
+          "the game stutter, most with Bean at 120 Hz. Lower it if frames drop"
+        : NULL;
+}
+
+/* Anisotropic filtering of the HD pack's and Bean's mipmapped pictures
+ * (gfx_opengl.cpp upload_texture_hd), live. A desktop GPU takes 16x for
+ * little; on a headset's or phone's above 2x cost the pack GPU time in
+ * outdoor levels (issue #52). */
+static const int s_aniso[] = { 1, 2, 4, 8, 16 };
+static const char *const s_anisoNames[] = { "Off", "2x", "4x", "8x", "16x" };
+static const char *warnAniso(void)
+{
+#if defined(GEVR_PCVR) || defined(GEVR_PC_FLAT)
+    return NULL;
+#else
+    return VrTextureAniso > 2
+        ? "Anisotropic filtering above 2x costs GPU time with an HD pack or Bean, most in outdoor "
+          "levels, and can make the game stutter"
+        : NULL;
+#endif
+}
 static const int s_two[] = { 0, 1 };
 static const char *const s_moveNames[] = { "Smooth", "Teleport" };
 static const char *const s_shapeNames[] = { "4:3", "16:9" };
@@ -675,6 +729,17 @@ static const Row s_rows[] = {
     { .label = "Anti-aliasing", .headset = 1, .tooltip = "Smooths jagged edges. Changes right away; costs GPU time, which is short on battery.",
       .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrEyeMsaa,
       .ivalues = s_msaa, .names = s_msaaNames, .count = sizeof(s_msaa) / sizeof(s_msaa[0]), .def = NAN, .blocked = blockedMsaa },
+    { .label = "Resolution", .headset = 1, .tooltip = "Draws each eye at this multiple of the size the headset recommends. "
+                                        "Above 1x (supersampling) is sharper and costs GPU time: 1.5x draws 2.25 times the pixels. "
+                                        "Below 1x is faster and softer. Takes effect the next time the game starts.",
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .def = NAN,
+      .cpositions = scalePositions, .cget = scaleGet, .cset = scaleSet, .ctext = scaleText, .cdefault = 1,
+      .warning = warnScale },
+    { .label = "Anisotropic filtering", .tooltip = "Keeps HD pack and Bean textures sharp on floors and walls seen at an angle. "
+                                                   "Higher costs GPU time. The original N64 textures aren't affected. Changes right away.",
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrTextureAniso,
+      .ivalues = s_aniso, .names = s_anisoNames, .count = sizeof(s_aniso) / sizeof(s_aniso[0]), .def = NAN,
+      .warning = warnAniso },
     { .label = "Watch face", .headset = 1, .tooltip = "Health, armour and radar on your watch. Only: and nowhere else.", .kind = GEVR_SET_CHOICE,
       .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_HANDS), .where = GEVR_SET_BOTH, .ivar = &VrWatchFaceStatus,
       .ivalues = s_three, .names = s_watchNames, .count = 3, .def = NAN },
@@ -1063,6 +1128,12 @@ const char *gevrSettingBlocked(int id)
     if (r->cpositions == movePositions) return blockedMove();
     if (r->cpositions == fastPositions) return blockedFast();
     return NULL;
+}
+
+const char *gevrSettingWarning(int id)
+{
+    const Row *r = row(id);
+    return r && r->warning ? r->warning() : NULL;
 }
 
 int gevrSettingSectionCount(void) { return GEVR_SEC_COUNT; }

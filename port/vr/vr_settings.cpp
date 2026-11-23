@@ -412,6 +412,11 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "SpaceWarp=%d\n", VrSpaceWarp < 0 ? -1 : VrSpaceWarp ? 1 : 0);
     iniPrintf(f, "; Anti-aliasing of the eye images: 1 = off, 2 = 2 samples per pixel.\n");
     iniPrintf(f, "EyeMsaa=%d\n", VrEyeMsaa);
+    iniPrintf(f, "; Resolution: the eye images' size over the headset's recommendation, from the next\n");
+    iniPrintf(f, "; start (above 1 is supersampling). 0 = the game config's Video.VRRenderScale.\n");
+    iniPrintf(f, "EyeResolution=%.2f\n", VrRenderScale);
+    iniPrintf(f, "; Anisotropic filtering of HD pack and Bean textures: 1 = off, 2, 4, 8 or 16.\n");
+    iniPrintf(f, "TextureAniso=%d\n", VrTextureAniso);
     iniPrintf(f, "; CPU performance level asked of the headset at start: -1 = none, 0 = power savings,\n");
     iniPrintf(f, "; 1 = sustained low, 2 = sustained high (lifts the CPU cap on battery).\n");
     iniPrintf(f, "CpuLevel=%d\n", VrCpuLevel);
@@ -1047,6 +1052,7 @@ extern "C" void vrSettingsLoad(void)
 #else
             else if (strcmp(key, "EyeMsaa") == 0) VrEyeMsaa = ival >= 2 ? 2 : 1;   // a saved 4x is 2x now
 #endif
+            else if (strcmp(key, "TextureAniso") == 0) VrTextureAniso = ival >= 16 ? 16 : ival >= 8 ? 8 : ival >= 4 ? 4 : ival >= 2 ? 2 : 1;
             else if (strcmp(key, "CpuLevel") == 0) VrCpuLevel = ival < 0 ? -1 : ival > 2 ? 2 : ival;
             else if (strcmp(key, "RenderScale") == 0) VrResetRenderScale = 1;
             else if (strcmp(key, "GunSizeCheat") == 0) VrGunSizeCheat = ival < 0 ? 0 : ival > 2 ? 2 : ival;
@@ -1173,6 +1179,8 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "GunOffY") == 0) { gunOff[1] = fval; gunOffRead = true; }
             else if (strcmp(key, "GunOffZ") == 0) { gunOff[2] = fval; gunOffRead = true; }
             else if (strcmp(key, "RenderScale") == 0) VrResetRenderScale = 1;
+            /* 0 (or nonsense) leaves the game config's scale; else the eye images' range */
+            else if (strcmp(key, "EyeResolution") == 0) VrRenderScale = fval >= 0.5f && fval <= 2.0f ? fval : 0.0f;
             else if (strcmp(key, "ScreenDistance") == 0) {
                 if (fval < VR_SCREEN_DISTANCE_MIN) fval = VR_SCREEN_DISTANCE_MIN;
                 if (fval > VR_SCREEN_DISTANCE_MAX) fval = VR_SCREEN_DISTANCE_MAX;

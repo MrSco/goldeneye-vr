@@ -35,6 +35,10 @@ void inputRumbleTest(int cidx) { (void)cidx; }   /* input.c: the Vibration row's
 float VrGyroSpeed = 1.5f;
 int VrMinesStickToGuards, VrBodiesStay, VrFastReinforcements, VrRagdolls, VrDismemberment, VrDismemberChance = 40;
 int VrGexGuns, VrBeanFillTextures, VrBloodPatch, VrOddjobHat, VrEyeMsaa = 1;
+float VrRenderScale;          /* Resolution: the config's scale */
+int VrTextureAniso = 2;       /* anisotropic filtering: the default 2x */
+float s_liveRenderScale = 1.0f;
+float vr_render_scale(void) { return s_liveRenderScale; }
 int VrScreenCurved, VrScreenPassthrough, VrRefreshRate, VrSpaceWarp = -1;
 int VrPlayMode = 1, VrCampaign;
 int VrAlly, VrAllyWeapon, VrAllyAggression = 1, VrAllyHealth = 100, VrAllyDamage = 100, VrAllyInvincible;

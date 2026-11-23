@@ -2257,21 +2257,40 @@ static void gfx_opengl_delete_texture(uint32_t texID) {
  * minified without them shimmers in VR. Tracked per GL texture name, since
  * the texture cache reuses names for native uploads.
  */
+// Per GL name: 0 a native texture, else a pack/Bean one, holding the
+// anisotropy it was last given (the setting can change while it lives).
 static std::vector<uint8_t> s_texIsHd;
 static GLuint s_boundTex[2];
 static int s_activeTexUnit;
 static GLfloat s_maxAniso = -1.0f;
+extern "C" int VrTextureAniso;   // vr_settings_defaults.c: the Anisotropic filtering row, 1 off .. 16
 
 static bool gevr_tex_is_hd(GLuint id) {
     return id < s_texIsHd.size() && s_texIsHd[id];
 }
 
-static void gevr_tex_mark_hd(GLuint id, bool hd) {
+static void gevr_tex_mark_hd(GLuint id, uint8_t aniso) {
     if (id >= s_texIsHd.size()) {
-        if (!hd) return;
+        if (!aniso) return;
         s_texIsHd.resize(id + 256, 0);
     }
-    s_texIsHd[id] = hd;
+    s_texIsHd[id] = aniso;
+}
+
+// The setting, 1..16: what a pack/Bean texture is marked with. 2x by default
+// (4x cost the pack's big textures GPU time on Quest's outdoor levels, #52).
+static uint8_t gevr_hd_aniso_wanted(void) {
+    const int a = VrTextureAniso;
+    return (uint8_t)(a < 1 ? 1 : a > 16 ? 16 : a);
+}
+
+// Gives the bound pack/Bean texture the setting's anisotropy, held to the driver's maximum.
+static void gevr_hd_apply_aniso(GLuint id, uint8_t wanted) {
+    if (s_maxAniso > 1.0f) {
+        const GLfloat level = (GLfloat)wanted < s_maxAniso ? (GLfloat)wanted : s_maxAniso;
+        glTexParameterf(GL_TEXTURE_2D, 0x84FE /* GL_TEXTURE_MAX_ANISOTROPY_EXT */, level);
+    }
+    gevr_tex_mark_hd(id, wanted);
 }
 
 static void gfx_opengl_select_texture(int tile, GLuint texture_id, bool linear_filter) {
@@ -2280,6 +2299,13 @@ static void gfx_opengl_select_texture(int tile, GLuint texture_id, bool linear_f
 
     glActiveTexture(GL_TEXTURE0 + tile);
     glBindTexture(GL_TEXTURE_2D, texture_id);
+
+    // a changed Anisotropic filtering row reaches pack/Bean textures already
+    // cached as each is next bound (the cache's hits come through here)
+    if (gevr_tex_is_hd(texture_id)) {
+        const uint8_t wanted = gevr_hd_aniso_wanted();
+        if (s_texIsHd[texture_id] != wanted) gevr_hd_apply_aniso(texture_id, wanted);
+    }
 
     current_textures_linear_filter[tile] = linear_filter;
 }
@@ -2294,7 +2320,7 @@ static void gfx_opengl_upload_texture(const uint8_t* rgba32_buf, uint32_t width,
         // ... and its anisotropy, which a native texture doesn't need (issue #52)
         glTexParameterf(GL_TEXTURE_2D, 0x84FE /* GL_TEXTURE_MAX_ANISOTROPY_EXT */, 1.0f);
     }
-    gevr_tex_mark_hd(s_boundTex[s_activeTexUnit], false);
+    gevr_tex_mark_hd(s_boundTex[s_activeTexUnit], 0);
 }
 
 static void gfx_opengl_upload_texture_hd(const uint8_t* rgba32_buf, uint32_t width, uint32_t height) {
@@ -2319,11 +2345,9 @@ static void gfx_opengl_upload_texture_hd(const uint8_t* rgba32_buf, uint32_t wid
         glGetFloatv(0x84FF /* GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT */, &s_maxAniso);
         if (glGetError() != GL_NO_ERROR) s_maxAniso = 0.0f;
     }
-    if (s_maxAniso > 1.0f) {
-        // 2x: 4x cost the pack's big textures a lot of GPU time on outdoor levels (issue #52)
-        glTexParameterf(GL_TEXTURE_2D, 0x84FE /* GL_TEXTURE_MAX_ANISOTROPY_EXT */, s_maxAniso < 2.0f ? s_maxAniso : 2.0f);
-    }
-    gevr_tex_mark_hd(s_boundTex[s_activeTexUnit], true);
+    // the Anisotropic filtering row: 2x by default, as 4x cost the pack's big
+    // textures a lot of GPU time on outdoor levels (issue #52)
+    gevr_hd_apply_aniso(s_boundTex[s_activeTexUnit], gevr_hd_aniso_wanted());
 }
 
 static uint32_t gfx_cm_to_opengl(uint32_t val) {

@@ -195,6 +195,19 @@ int VrEyeMsaa = 4;   /* PC VR: a desktop GPU, no battery */
 #else
 int VrEyeMsaa = 2;
 #endif
+/* Resolution (goldeneye-vr.ini EyeResolution): the eye images' size over the
+ * headset's recommendation, made as VR starts (vr_openxr.cpp
+ * vr_configure_resolution), so a change waits for the next start. Above 1 is
+ * supersampling. 0 = the game config's Video.VRRenderScale. Dropped from the
+ * launcher on 2026-10-17 (1.5x slowed Bean at 120 Hz); back on 2026-11-22
+ * after the renderer's optimizations, with a performance warning above 1x. */
+float VrRenderScale = 0.0f;
+/* Anisotropic filtering (goldeneye-vr.ini TextureAniso) of HD pack and Bean
+ * pictures, the mipmapped ones (gfx_opengl.cpp upload_texture_hd), switched
+ * live: 1 off, 2, 4, 8 or 16, held to the driver's maximum. 2x by default: 4x
+ * cost the pack's big textures GPU time on Quest's outdoor levels (issue #52),
+ * so above 2x warns on a phone-class GPU. */
+int VrTextureAniso = 2;
 /* The CPU performance level asked of the headset as each session begins
  * (XR_EXT_performance_settings): -1 none, 0 power savings, 1 sustained low,
  * 2 sustained high. Unplugged, Quest caps the CPU at the level its governor

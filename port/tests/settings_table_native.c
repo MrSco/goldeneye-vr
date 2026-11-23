@@ -91,6 +91,28 @@ int main(void)
     check(!strcmp(t, "On (auto)"), "SpaceWarp's default reads On (auto) at 120 Hz");
     id = find("Anti-aliasing");
     check(gevrSettingBlocked(id) && !strcmp(gevrSettingBlocked(id), "Not on this headset"), "anti-aliasing blocks where unsupported");
+    /* Resolution: the eye images' scale, made as VR starts; above 1x warns */
+    id = find("Resolution");
+    VrRenderScale = 0.0f; s_liveRenderScale = 1.0f; text(id, t);
+    check(!strcmp(t, "1x") && !gevrSettingWarning(id), "resolution reads the scale in use, no warning at 1x");
+    gevrSettingSet(id, 3); text(id, t);
+    check(VrRenderScale == 1.5f && !strcmp(t, "1.5x (next start)"), "resolution 1.5x waits for the next start");
+    check(gevrSettingWarning(id) != NULL, "resolution above 1x warns of the cost");
+    s_liveRenderScale = 1.5f; text(id, t);
+    check(!strcmp(t, "1.5x"), "resolution in use drops (next start)");
+    gevrSettingSet(id, 0);
+    check(VrRenderScale == 0.8f && !gevrSettingWarning(id), "resolution below 1x has no warning");
+    check(gevrSettingDefault(id) == 1, "resolution's default is 1x");
+    VrRenderScale = 0.0f; s_liveRenderScale = 1.0f;
+    /* Anisotropic filtering: HD pack and Bean pictures, live */
+    id = find("Anisotropic filtering");
+    check(gevrSettingIndex(id) == 1 && !gevrSettingWarning(id), "anisotropic filtering is 2x by default, no warning");
+    gevrSettingSet(id, 4); text(id, t);
+    check(VrTextureAniso == 16 && !strcmp(t, "16x"), "anisotropic filtering reaches 16x");
+    check(gevrSettingWarning(id) != NULL, "anisotropic filtering above 2x warns on a headset");
+    gevrSettingSet(id, 0);
+    check(VrTextureAniso == 1 && !gevrSettingWarning(id), "anisotropic filtering off");
+    VrTextureAniso = 2;
     id = find("Movement speed");
     gevrSettingSet(id, 2); text(id, t);
     check(!strcmp(t, "100% (default)") && VrMovementSpeed == 0, "movement speed 100% is the normal mode");
