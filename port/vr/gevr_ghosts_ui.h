@@ -8,6 +8,7 @@
 #define GEVR_GHOSTS_UI_H
 #include "imgui/imgui.h"
 #include "gevr_tooltip.h"
+#include "gevr_add_friend_ui.h"   // the Friend column, as the lobby roster's
 #include <algorithm>
 #include <cstdio>
 #include <string>
@@ -22,6 +23,8 @@ struct GevrGhostRow {
     std::string code, name;
     bool mine = false;     // this headset's friend code
     bool racing = false;   // the run this mission races
+    int relation = GEVR_RELATION_NONE;   // what the friends list says of code (gevrFriendRelation)
+    std::string requestId;               // their friend request's, when relation is REQUEST
 };
 
 struct GevrGhostsView {
@@ -44,6 +47,7 @@ struct GevrGhostsView {
     bool busy = false;                         // an upload or a download on its way
     std::string message;                       // the last result
     bool messageBad = false;
+    bool friendsReady = false;                 // signed in to friends: Add and Accept work
 };
 
 struct GevrGhostsActions {
@@ -54,6 +58,8 @@ struct GevrGhostsActions {
     bool raceMine = false;
     bool raceOn = false;       // turn the Ghost race setting on
     long long race = -1;       // a board row's run to download and race
+    std::string addFriend;     // a row's friend code to send a request to
+    std::string acceptFriend;  // a row's player's friend request to accept (its id)
 };
 
 // 1:58.20, 12:03.05, 1:02:03.05
@@ -189,11 +195,14 @@ inline GevrGhostsActions gevrGhostsPageDraw(GevrGhostsView &v, const ImVec4 &gol
 
     // the board, a page at a time: a page never scrolls (docs/launcher-unify.md)
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(ImGui::GetStyle().CellPadding.x, 2.0f));
-    if (ImGui::BeginTable("##ghost-board", 5, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+    // Friend: Add, Accept, Sent, Friends, as the lobby roster (owner, 2026-11-23: "reuse add
+    // friend stuff from lobby for the ghost screen too")
+    if (ImGui::BeginTable("##ghost-board", 6, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
         ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, font * 2.2f);
         ImGui::TableSetupColumn("Player", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, font * 5.5f);
         ImGui::TableSetupColumn("Plays", ImGuiTableColumnFlags_WidthFixed, font * 3.2f);
+        ImGui::TableSetupColumn("Friend", ImGuiTableColumnFlags_WidthFixed, font * 4.2f);
         ImGui::TableSetupColumn("##race", ImGuiTableColumnFlags_WidthFixed, font * 4.2f);
         ImGui::TableHeadersRow();
         const int first = v.page * kGevrGhostRowsPerPage;
@@ -213,6 +222,11 @@ inline GevrGhostsActions gevrGhostsPageDraw(GevrGhostsView &v, const ImVec4 &gol
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(r.flags & 0x01 ? "VR" : r.flags & 0x80 ? "Mixed" : "Flat");
             if (ImGui::IsItemHovered()) gevrTooltip("%s", gevrGhostFlagsText(r.flags).c_str());
+            ImGui::TableNextColumn();
+            if (!r.mine && gevrAddFriendCell(r.relation, v.friendsReady, r.name.c_str(), r.code)) {
+                if (r.relation == GEVR_RELATION_REQUEST) act.acceptFriend = r.requestId;
+                else act.addFriend = r.code;
+            }
             ImGui::TableNextColumn();
             if (r.racing) {
                 ImGui::TextColored(good, "Racing");

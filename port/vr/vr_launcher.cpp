@@ -100,6 +100,7 @@ void flatLauncherFeedInput(ImGuiIO &io);
 #include "vr_settings.h"
 #include "vr_haptics.h"
 #include "vr_friends.h"
+#include "gevr_add_friend_ui.h"                      // the roster's Add friend, as the ghost boards'
 #include "vr_ghosts.h"
 #include "gevr_livesplit.h"
 #include "gevr_friends_ui.h"
@@ -2061,38 +2062,13 @@ static void gevrLobbyRoster(const ImVec4 &gold, bool showCount = true) {
             // can't be found, and none for a bot or yourself
             ImGui::TableNextColumn();
             if (i != netGetLocalSlot() && !slot.is_bot) {
-                static std::vector<std::string> asked;   // sent from here, until the list says so
                 const std::string code = netGetSlotFriendCode(i);
                 const GevrFriendsModel &fm = gevrFriends();
-                auto listed = [&code](const std::vector<GevrFriendPerson> &list) -> const GevrFriendPerson * {
-                    for (const GevrFriendPerson &p : list) if (p.code == code) return &p;
-                    return nullptr;
-                };
-                bool friends = false;
-                for (const GevrFriend &f : fm.friends) friends |= !code.empty() && f.code == code;
-                const GevrFriendPerson *request = code.empty() ? nullptr : listed(fm.requests);
+                std::string requestId;
+                const int relation = gevrFriendRelation(fm, code, &requestId);
                 ImGui::PushID(1000 + i);
-                if (code.empty()) {
-                    ImGui::TextDisabled("—");
-                    if (ImGui::IsItemHovered())
-                        gevrTooltip("No friend code from this player: an older build, or they can't be found (Friends).");
-                } else if (friends) {
-                    ImGui::TextDisabled("Friends");
-                } else if (listed(fm.blocked)) {
-                    ImGui::TextDisabled("Blocked");
-                } else if (listed(fm.sent) || std::find(asked.begin(), asked.end(), code) != asked.end()) {
-                    ImGui::TextDisabled("Sent");
-                } else {
-                    ImGui::BeginDisabled(fm.status != "ready");
-                    if (ImGui::SmallButton(request ? "Accept" : "Add")) {
-                        if (request) gevrFriendsSend("answer|" + request->id + "|1");
-                        else { gevrFriendsSend("add|" + code); asked.push_back(code); }
-                    }
-                    ImGui::EndDisabled();
-                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                        gevrTooltip(fm.status != "ready" ? "Friends are still signing in."
-                                    : request ? "%s asked to be your friend: accept." : "Send %s a friend request.", slot.name);
-                }
+                if (gevrAddFriendCell(relation, fm.status == "ready", slot.name, code))
+                    gevrFriendsSend(relation == GEVR_RELATION_REQUEST ? "answer|" + requestId + "|1" : "add|" + code);
                 ImGui::PopID();
             }
             if (canKick) {

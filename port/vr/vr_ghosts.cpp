@@ -306,7 +306,16 @@ void gevrGhostsPage(const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad) {
     }
     s_view.raceOn = VrGhostRace != 0;
     s_view.busy = !s_uploads.empty() || !s_uploadQueue.empty() || !s_downloads.empty();
+    // each row's Friend cell (gevr_add_friend_ui.h): what the friends list says of its code
+    const GevrFriendsModel &friends = gevrFriends();
+    s_view.friendsReady = friends.status == "ready";
+    for (GevrGhostRow &r : s_view.rows) {
+        r.requestId.clear();
+        r.relation = gevrFriendRelation(friends, r.code, &r.requestId);
+    }
     const GevrGhostsActions act = gevrGhostsPageDraw(s_view, gold, good, bad);
+    if (!act.addFriend.empty()) gevrFriendsSend("add|" + act.addFriend);
+    if (!act.acceptFriend.empty()) gevrFriendsSend("answer|" + act.acceptFriend + "|1");
     if (act.selection || act.refresh) {
         readLocal();
         requestBoard();

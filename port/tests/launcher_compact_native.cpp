@@ -3,6 +3,7 @@
 #include "net_match.h"
 #include "net_rules.h"
 #include "vr_friends.h"
+#include "gevr_add_friend_ui.h"
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
