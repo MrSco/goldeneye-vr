@@ -403,6 +403,7 @@ GE-X and the ROM section's **Choose ROM file...** for your GoldenEye ROM.
 | **☰ Menu** + **B** | Mute or unmute your microphone (multiplayer) |
 | **Both grips + hold right-stick click** (1 s) | The in-game panel: VR settings, HD textures, **Reset sound**, Friends and **Back to launcher** (in multiplayer: the pause menu's **Settings** tab) |
 | **Raise left wrist to your face** | Open Bond's watch when **Watch gesture** is on |
+| **Both grips + hold left-stick click** (1 s) | Restart the mission from its intro (solo, offline, with the Speedrun timer, Ghost race or LiveSplit on): a speedrunner's reset |
 | **Both stick clicks** | Recenter the view |
 | **Hold right stick click** (1 s) | Switch to the virtual screen |
 
@@ -482,6 +483,7 @@ to read your wrist without opening the pause menu; the Menu button still pauses.
 | **Both stick clicks** | Recenter the view and the screen |
 | **☰ Menu** | Pause (the in-game panel: both grips + hold the right-stick click) |
 | **Hold left stick click** (1 s) | Bring the screen back in front of you |
+| **Both grips + hold left-stick click** (1 s) | Restart the mission (solo, offline, speedrun features on) |
 | **Hold right stick click** (1 s) | Switch to stereo VR |
 | **Grips** (in Bond's watch) | Turn the watch pages |
 
@@ -506,6 +508,12 @@ All of it is on the launcher's **Play** and **Ghosts** tabs. See
 - **Debrief stamp:** with any of these on, the debrief lists the version,
   platform, VR or flat, rules, frame steps, auto-aim, turning and display
   rate, for anyone checking a run's video.
+- **Restart:** **Backspace** on PC (rebind it under **Controls**), **both grips +
+  hold the left-stick click** for a second in VR. The mission starts again from
+  its intro as a fresh load: guards, doors, ammo and the clock, with LiveSplit
+  reset on a run's first mission. Solo and offline only, and only with the
+  Speedrun timer, Ghost race or LiveSplit on, so a stray key never costs you
+  a mission.
 - **Strafe running** works as on the N64, with every controller.
 
 ## 🌐 Multiplayer (experimental)
