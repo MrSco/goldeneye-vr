@@ -1,0 +1,229 @@
+# Mod system (spec, draft)
+
+Status: proposal, nothing implemented. Written 2026-11-23 after the Tactical
+PRs (#285–#289) were declined. This spec lives on the `mod-system` branch
+and is tuned with mod authors' feedback: propose changes as pull requests
+against that branch (or an issue). Tactical is the first mod built to it.
+
+## Goals and rules
+
+- GoldenEye VR carries **no mod's code**. A mod is a pack the player
+  installs; the launcher lists it and can start it.
+- Mods work on **every platform** we ship: Quest, PC (flat and PC VR),
+  Linux, Android, iOS, Apple TV, Vision Pro, and the dedicated server.
+  So mod logic is a script, never a native library (Apple platforms can't
+  load one).
+- **The mod's author owns the mod.** We own the spec and the API. If a
+  game release breaks a mod that only uses the API as documented, that's
+  our bug. If it relies on anything else, it's theirs. A release never waits
+  for a mod.
+- We take a mod only when it's finished. A mod in development is the
+  author's local install, not a launcher entry.
+- The game stays fast: rendering stays native, scripts react to events,
+  and mods share a per-frame time budget.
+- **Performance floor: Quest 2 at 90 fps or better.** The slowest headset we
+  support sets the bar. A mod that can't hold 90 fps on a Quest 2 in its
+  heaviest mission isn't ready, and fixing it is its author's job. It can
+  still be listed, with a performance warning. Faster headsets get the same mod at their own rates
+  (Quest 3 at 120 Hz).
+
+## Pack format
+
+A pack is a zip that unpacks into `texture-packs/mods/<id>/` (the Quest's
+`files/`, `$S` on PC and Apple), beside today's packs:
+
+```
+mod.json            manifest (below)
+scripts/main.lua    entry point; other .lua files under scripts/
+assets/...          models, textures, sounds, data the scripts load
+files.sha256        checksum list of every other file
+```
+
+`mod.json`:
+
+```json
+{
+  "format": 1,
+  "id": "tactical",
+  "title": "Tactical",
+  "by": "Kelly-D-Ripper",
+  "version": "1.0.0",
+  "api": 1,
+  "kind": "campaign",
+  "base": "ge",
+  "coop": true,
+  "site": "https://github.com/..."
+}
+```
+
+- `id`: lowercase letters, digits and `-`, unique. It names the save file,
+  the ghost tag and the folder.
+- `api`: the API version the mod was written for (see Versioning).
+- `kind`:
+  - `campaign`: a separate entry in the campaign list, its own saves.
+  - `overlay`: changes the current campaign (a look or a rule), selected on
+    the Mods page like Oddjob's hat today.
+- `base`: which cartridge it runs on: `ge`, `gf`, `tnd`, `mirror` or `mario`.
+  The base ROM must be installed.
+- `coop`: whether the mod supports online co-op (see Multiplayer).
+- The content ID is the SHA-256 of `files.sha256`, computed at install. It
+  identifies the exact build of the mod.
+
+## Installing
+
+- **v1: install from file** on the Mods page (zip picker; adb push or a file
+  manager on the Quest). We don't distribute mod content.
+- **Later: a mod browser.** A `mods.json` index in the public
+  goldeneye-vr-mods repo, holding only names, authors, descriptions,
+  screenshots links and release URLs (no assets). The launcher's Mods page
+  browses it under "Community mods", downloads from the author's release
+  and installs it the same way as a file, with a line saying these are
+  third-party. A mod gets listed when it's finished and its author asks.
+  The author shows a perf log from a Quest 2 in the mod's heaviest mission;
+  a mod that doesn't hold 90 fps there is listed with a performance warning
+  on its row. We can delist it. Design the v1 installer so the browser only adds a
+  download step in front of it.
+- Install checks: manifest syntax, `api` supported, checksums match,
+  no paths outside the folder, size limits. Failure leaves nothing installed.
+- Update: same as packs today (a newer release in the index or a newer zip).
+- Today's own packs (HD, Bean, GE-X, Oddjob's hat) don't change.
+
+## Launcher
+
+- Installed `campaign` mods appear in the campaign list after the hack
+  campaigns, titled from the manifest, with "(mod)" and the author in the
+  tooltip.
+- A mod whose base ROM is missing, or whose `api` this build doesn't
+  support, shows as unavailable with the reason. Starting it never falls
+  back silently to another campaign without a note (as the hacks do today).
+- The campaign tables that list every campaign (names, ghost tags,
+  friends, net names) get one generic "mod campaign" entry. The mod's
+  `id` supplies its tag. No per-mod entries in our code.
+
+## Saves and records
+
+- A campaign mod saves to `eeprom-mod-<id>.bin`.
+- Mod settings and data the script stores: `mods/<id>/save/` through the
+  API, at most 1 MB.
+- Speedrun ghosts and boards use tag `mod-<id>`. Online ghost boards are off
+  for mods in v1 (the content ID would need to be part of the board key).
+- iCloud sync leaves mods out in v1.
+
+## Multiplayer
+
+- Co-op in a mod campaign needs the same mod on every machine. The lobby's
+  content check (`net_protocol.h` `NET_CONTENT_*`) gets one part: the mod's
+  content ID. The host refuses a joiner without the same mod, and says
+  which mod and version is needed.
+- An `overlay` mod that changes only looks is not checked: like Bean or HD
+  today, it doesn't matter what another player sees. An overlay that changes
+  rules declares `"affectsPlay": true` and is checked like a campaign mod.
+- Mods with `"coop": false` aren't offered in online co-op.
+- Deathmatch and Horde: campaign mods stay out (those modes use GoldenEye's
+  maps and tables). An overlay that changes rules works in any mode **only
+  when every player has the same mod** (same content ID, checked in the
+  lobby like co-op). It declares the modes it supports in the manifest
+  (`"modes": ["coop", "deathmatch", "horde"]`); a lobby whose host has
+  it on refuses joiners without it. Bots follow the host's rules.
+- Scripts run on every machine. The host is authoritative, as for guards
+  today: the API has `mod.net.send` / `mod.net.on` over one generic message
+  (`NET_MSG_MOD`, at most 1 KB per message, rate-limited). The mod decides
+  what it syncs. The dedicated server runs scripts too.
+
+## Scripting
+
+- **Language:** Lua 5.4 (MIT licence, plain C, builds on all our targets
+  including the server). The interpreter only: no JIT (iOS forbids it).
+- **Sandbox:** no `io`, `os`, `package`, `debug` or `load` of binary chunks.
+  Files only through the API, inside the mod's own folder.
+- **Budget:** 0.25 ms per frame for **all mods together**, script time and
+  garbage collection included. Why: a 120 Hz frame is 8.33 ms; the game's
+  own logic is about 1.5 ms of the early tick (4.1 ms mean), and heavy
+  levels already run DRAW/TICK at 7.3–8.3 ms (docs/bean-performance-*.md,
+  docs/jungle-bean-perf.md). 0.25 ms is about 3% of the frame and a sixth of
+  the game's logic, room for several hundred script calls on Quest. An
+  event-driven mod should use a few hundredths of a millisecond.
+  - Checked as an average over one second, so one heavy event (a mission
+    start, a burst of pickups) doesn't trip it. Lua's garbage collector runs
+    in small steps inside the budget.
+  - A count hook stops a single runaway call (an endless loop) at once.
+  - Over budget for 3 seconds: the most expensive mod is paused for the
+    mission with a note on the watch.
+  - The perf log (`--perf-log`) shows each mod's time; `mission_start`
+    and loading are not counted (loading screen).
+  - The budget is held on the **Quest 2 at 90 Hz** (11.1 ms frames, the
+    slowest CPU we support), not only on faster headsets. On a Quest 3 the
+    same scripts take less time.
+  - The number is a starting value, dialed in as the first mod (Tactical)
+    is built to the spec and we see how it runs. Phase 7's runs on the heaviest levels
+    (Jungle, Bean, body piles) with the sample mod, on a Quest 2 at 90 Hz
+    and a Quest 3 at 120 Hz, confirm or change it.
+- **Memory:** an allocator cap per mod (start at 32 MB).
+- **Errors:** a script error disables that mod for the rest of the
+  mission and logs the error with the mod's name, never crashing the game.
+  Crash reports name the active mods.
+
+## API v1
+
+Events and calls, all on the game's tick, never per draw call. This list
+is the proposal to refine with mod authors (Tactical first).
+
+| Area | Events | Calls |
+|---|---|---|
+| Lifecycle | `mission_start`, `mission_end`, `tick(dt)` (capped) | `mod.log`, `mod.setting` |
+| Weapons | `weapon_fire`, `reload_start/end`, `weapon_drawn`, `weapon_dropped` | read and set ammo, magazine size, fire rate, damage (within limits) |
+| Hands (VR) | `grip`, `release`, `hand_near(anchor)` | hand pose, body anchors (body slots), haptics |
+| Items | `item_pickup`, `item_spawned` | spawn a pickup, take or give an item |
+| Guards | `guard_spawned`, `guard_shot`, `guard_killed` | read state, give a guard's weapon or outfit (from the ROM's bodies) |
+| Player | `player_damaged`, `player_died` | health and armour |
+| Assets | — | load a model or texture from the pack, attach it to a hand, gun or body slot, play a sound |
+| UI | — | a watch page from a simple layout (rows, buttons, sliders) |
+| Network | `mod.net.on` | `mod.net.send` |
+| Storage | — | read and write in `mods/<id>/save/` |
+
+Not in v1: drawing, shaders, level geometry, AI scripts, the
+multiplayer modes, anything per vertex or per draw call.
+
+Each event and call is a thin adapter over code we already have (for
+example the body slots, hand reload, pickups). We maintain the adapters,
+not the mods.
+
+## Versioning
+
+- `api` is one integer. A build supports a range (for example 1–2).
+- Within a version, we only add events and calls, never change or remove
+  them.
+- A breaking change makes a new version. The old version stays
+  supported for at least two releases after it, with a note in the release
+  notes and in the launcher when an installed mod uses it.
+- The API reference (`docs/mod-api.md`) lists each call with the API
+  version that added it.
+
+## For mod authors
+
+- A sample mod (in goldeneye-vr-mods) that uses every area of the API.
+- A desktop editor or tool for a mod stays in the mod's own repo.
+- Test on a Quest 2 at 90 Hz with `--perf-log` before release. The log's
+  per-mod line shows script time against the budget.
+- Asking for a new event or call: an issue with the use case. We add it
+  generically if it fits the API; we don't add mod-specific hooks.
+
+## Plan
+
+1. **Agree on this spec** with the user, then share it with Kelly and ask
+   for Tactical's list of needs (events and calls) as the first real test.
+2. **Packs and launcher:** manifest, install from file, the generic mod
+   campaign entry, saves, the content check. No scripting yet: a
+   data-only mod can be installed and started.
+3. **Scripting core:** Lua, sandbox, budget, errors, the lifecycle and
+   storage calls, the perf log line.
+4. **API areas** one at a time, each with native tests (as the repo's
+   `port/tests/` do): weapons and items, hands and body slots, guards,
+   player, assets, UI.
+5. **Network:** `NET_MSG_MOD`, co-op with mods, the dedicated server.
+6. **Sample mod and API reference.**
+7. **Platform check:** Quest, PC, Apple, server, with the sample mod.
+   Quest 2 at 90 Hz and Quest 3 at 120 Hz on the heaviest levels settle the
+   script budget; the Quest 2 must hold 90 fps.
+8. **Mod browser** (after v1): the community index and the Mods page's
+   "Community mods" list.
