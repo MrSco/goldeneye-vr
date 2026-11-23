@@ -200,26 +200,6 @@ inline void gevrSettingsSection(const GevrSettingsApi &a, int section, unsigned 
     if (plan.rowPadY != 0.0f) ImGui::PopStyleVar();
 }
 
-// The warnings of a section's rows shown now (gevrSettingWarning), each a
-// wrapped line in `color` under the table: the launcher's pages, which have
-// the room. Returns how many it drew.
-inline int gevrSettingsWarnings(const GevrSettingsApi &a, int section, unsigned where, const ImVec4 &color) {
-    if (!a.warning || !a.sectionRows) return 0;
-    int ids[48];
-    const int n = a.sectionRows(section, where, ids, 48);
-    int drawn = 0;
-    for (int k = 0; k < n && k < 48; k++) {
-        if (a.blocked && a.blocked(ids[k])) continue;
-        const char *warn = a.warning(ids[k]);
-        if (!warn) continue;
-        ImGui::PushStyleColor(ImGuiCol_Text, color);
-        ImGui::TextWrapped("%s.", warn);
-        ImGui::PopStyleColor();
-        drawn++;
-    }
-    return drawn;
-}
-
 // The in-game sections as a tab row, each tab's rows under it in a box that
 // never scrolls: the solo panel's whole body, the online screen's Settings tab
 // (gevr_panel_ui.h, gevr_pause_widgets.h). openSection >= 0 brings that tab up

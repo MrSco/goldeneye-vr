@@ -108,7 +108,7 @@ int main(void)
     id = find("Anisotropic filtering");
     check(gevrSettingIndex(id) == 1 && !gevrSettingWarning(id), "anisotropic filtering is 2x by default, no warning");
     gevrSettingSet(id, 4); text(id, t);
-    check(VrTextureAniso == 16 && !strcmp(t, "16x"), "anisotropic filtering reaches 16x");
+    check(VrTextureAniso == 16 && !strcmp(t, "16x (slower)"), "anisotropic filtering reaches 16x");
     check(gevrSettingWarning(id) != NULL, "anisotropic filtering above 2x warns on a headset");
     gevrSettingSet(id, 0);
     check(VrTextureAniso == 1 && !gevrSettingWarning(id), "anisotropic filtering off");

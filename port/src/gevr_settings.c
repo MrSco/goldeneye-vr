@@ -498,6 +498,8 @@ static void scaleSet(int i) { VrRenderScale = s_scales[i]; }
 static void scaleText(int i, char *b, int n)
 {
     const int pending = i == scaleGet() && fabsf(s_scales[i] - vr_render_scale()) >= 0.01f;
+    /* above 1x its cost is the warning's (the value and label in the warning colour, the
+     * tooltip's reason): "(slower)" beside "(next start)" ran the launcher's page to one column */
     snprintf(b, n, "%s%s", s_scaleNames[i], pending ? " (next start)" : "");
 }
 static const char *warnScale(void)
@@ -514,16 +516,22 @@ static const char *warnScale(void)
  * outdoor levels (issue #52). */
 static const int s_aniso[] = { 1, 2, 4, 8, 16 };
 static const char *const s_anisoNames[] = { "Off", "2x", "4x", "8x", "16x" };
+#if defined(GEVR_PCVR) || defined(GEVR_PC_FLAT)
+#define ANISO_WARN_ABOVE 16   /* a desktop GPU: never */
+#else
+#define ANISO_WARN_ABOVE 2
+#endif
 static const char *warnAniso(void)
 {
-#if defined(GEVR_PCVR) || defined(GEVR_PC_FLAT)
-    return NULL;
-#else
-    return VrTextureAniso > 2
+    return VrTextureAniso > ANISO_WARN_ABOVE
         ? "Anisotropic filtering above 2x costs GPU time with an HD pack or Bean, most in outdoor "
           "levels, and can make the game stutter"
         : NULL;
-#endif
+}
+static void anisoText(int i, char *b, int n)
+{
+    i = i < 0 ? 0 : i > 4 ? 4 : i;
+    snprintf(b, n, "%s%s", s_anisoNames[i], s_aniso[i] > ANISO_WARN_ABOVE ? " (slower)" : "");
 }
 static const int s_two[] = { 0, 1 };
 static const char *const s_moveNames[] = { "Smooth", "Teleport" };
@@ -732,14 +740,18 @@ static const Row s_rows[] = {
     { .label = "Resolution", .headset = 1, .tooltip = "Draws each eye at this multiple of the size the headset recommends. "
                                         "Above 1x (supersampling) is sharper and costs GPU time: 1.5x draws 2.25 times the pixels. "
                                         "Below 1x is faster and softer. Takes effect the next time the game starts.",
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .def = NAN,
+      /* the launcher's only: it waits for the next start, and the in-game Display tab is full */
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_LAUNCHER, .def = NAN,
       .cpositions = scalePositions, .cget = scaleGet, .cset = scaleSet, .ctext = scaleText, .cdefault = 1,
       .warning = warnScale },
     { .label = "Anisotropic filtering", .tooltip = "Keeps HD pack and Bean textures sharp on floors and walls seen at an angle. "
                                                    "Higher costs GPU time. The original N64 textures aren't affected. Changes right away.",
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrTextureAniso,
+      /* in game beside the HD pack and Bean rows (Mods), where a change shows at once; the
+       * launcher's pages that take table rows are full (a flat game's Comfort & display, General) */
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME,
+      .ivar = &VrTextureAniso,
       .ivalues = s_aniso, .names = s_anisoNames, .count = sizeof(s_aniso) / sizeof(s_aniso[0]), .def = NAN,
-      .warning = warnAniso },
+      .ctext = anisoText, .warning = warnAniso },
     { .label = "Watch face", .headset = 1, .tooltip = "Health, armour and radar on your watch. Only: and nowhere else.", .kind = GEVR_SET_CHOICE,
       .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_HANDS), .where = GEVR_SET_BOTH, .ivar = &VrWatchFaceStatus,
       .ivalues = s_three, .names = s_watchNames, .count = 3, .def = NAN },

@@ -4023,8 +4023,6 @@ extern "C" void gevrLauncherRun(void)
                          "Hold the left stick click to recentre it.");
                 }
                 gevrSettingsSection(settings, GEVR_LSEC_COMFORT_DISPLAY, GEVR_SET_LAUNCHER);
-                // Resolution above 1x, anisotropy above 2x on a headset: they can cost frames
-                gevrSettingsWarnings(settings, GEVR_LSEC_COMFORT_DISPLAY, GEVR_SET_LAUNCHER, bad);
                 // XBLA / Bean's frames take longer than 120 Hz's 8.3 ms when turning
                 // in open levels (Dam on Quest 3: 197 missed frames in three
                 // minutes of turning at 120 Hz, 17 at 90).
