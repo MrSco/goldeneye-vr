@@ -74,6 +74,7 @@ std::mutex g_lock;                    // the options, the status and the message
 bool g_available = false;             // signed with the entitlements (Info.plist GEVRICloud)
 bool g_launched = false;
 bool g_workerStarted = false;
+bool g_launchDone = false;           // gevrCloudLaunch finished
 bool g_joined = false;                // this device takes part in the key-value sync (see gevrCloudLaunch)
 bool g_sync = true, g_packs = false;
 std::string g_root;                   // the save folder, absolute, no trailing slash
@@ -723,11 +724,15 @@ NSError *ckEnsureZone(const Cloud &c)
     });
 }
 
-NSError *ckFetchItems(const Cloud &c, std::map<std::string, CKRecord *> *items)
+struct ChunkRef { std::string name; double age; };   // a GevrChunk's record name and seconds since it was made
+
+NSError *ckFetchItems(const Cloud &c, std::map<std::string, CKRecord *> *items, std::vector<ChunkRef> *chunks)
 {
     NSMutableArray<CKRecord *> *got = [NSMutableArray array];
+    NSMutableArray<CKRecord *> *parts = [NSMutableArray array];
     NSError *err = ckWait([&](void (^finish)(NSError *)) {
         [got removeAllObjects];
+        [parts removeAllObjects];
         CKFetchRecordZoneChangesConfiguration *cfg = [[CKFetchRecordZoneChangesConfiguration alloc] init];
         cfg.desiredKeys = @[ @"path", @"stamp", @"size", @"chunks", @"gen", @"pack", @"dir", @"hash" ];
         CKFetchRecordZoneChangesOperation *op =
@@ -738,6 +743,8 @@ NSError *ckFetchItems(const Cloud &c, std::map<std::string, CKRecord *> *items)
         op.recordWasChangedBlock = ^(CKRecordID *rid, CKRecord *rec, NSError *e) {
             if (rec && [rec.recordType isEqualToString:@"GevrItem"]) {
                 @synchronized(got) { [got addObject:rec]; }
+            } else if (rec && [rec.recordType isEqualToString:@"GevrChunk"]) {
+                @synchronized(parts) { [parts addObject:rec]; }
             }
         };
         op.fetchRecordZoneChangesCompletionBlock = ^(NSError *e) { finish(e); };
@@ -748,7 +755,32 @@ NSError *ckFetchItems(const Cloud &c, std::map<std::string, CKRecord *> *items)
         NSString *p = r[@"path"];
         if ([p isKindOfClass:[NSString class]]) (*items)[p.UTF8String] = r;
     }
+    for (CKRecord *r in parts) {
+        const double age = r.creationDate ? -[r.creationDate timeIntervalSinceNow] : 0;
+        chunks->push_back({ r.recordID.recordName.UTF8String, age });
+    }
     return nil;
+}
+
+/* one item record as it is now: nil when there is none */
+NSError *ckFetchItem(const Cloud &c, const std::string &id, CKRecord **out)
+{
+    *out = nil;
+    CKRecordID *rid = [[CKRecordID alloc] initWithRecordName:ns("i-" + id) zoneID:c.zone];
+    NSMutableArray<CKRecord *> *box = [NSMutableArray array];
+    NSError *err = ckWait([&](void (^finish)(NSError *)) {
+        CKFetchRecordsOperation *op = [[CKFetchRecordsOperation alloc] initWithRecordIDs:@[ rid ]];
+        configure(op, true);
+        op.desiredKeys = @[ @"path", @"stamp", @"size", @"chunks", @"gen", @"pack", @"dir", @"hash" ];
+        op.fetchRecordsCompletionBlock = ^(NSDictionary<CKRecordID *, CKRecord *> *recs, NSError *e) {
+            if (recs[rid]) [box addObject:recs[rid]];
+            NSError *one = e && e.code == CKErrorPartialFailure ? e.userInfo[CKPartialErrorsByItemIDKey][rid] : e;
+            finish(one && one.code != CKErrorUnknownItem && one.code != CKErrorZoneNotFound ? one : nil);
+        };
+        [c.db addOperation:op];
+    });
+    if (!err && box.count) *out = box.firstObject;
+    return err;
 }
 
 NSError *ckSave(const Cloud &c, NSArray<CKRecord *> *records, NSArray<CKRecordID *> *deletes, bool cellular)
@@ -865,36 +897,95 @@ bool archiveFile(ChunkWriter *w, const std::string &name, const std::string &abs
     return ok;
 }
 
-NSError *uploadItem(const Cloud &c, const LocalItem &it, CKRecord *old)
+/* the item record holds this content already: a ROM's hash, a pack's file count and size */
+bool sameContent(CKRecord *rec, const LocalItem &it, const std::string &hash)
 {
+    if ([rec[@"size"] longLongValue] != it.bytes) return false;
+    if (it.dir) {
+        NSString *st = rec[@"stamp"];
+        if (![st isKindOfClass:[NSString class]]) return false;
+        const std::string R = st.UTF8String;
+        return R.substr(0, R.find(':')) == it.stamp.substr(0, it.stamp.find(':'));
+    }
+    NSString *h = rec[@"hash"];
+    return [h isKindOfClass:[NSString class]] && h.length && hash == h.UTF8String;
+}
+
+NSString *genOf(CKRecord *rec)
+{
+    NSString *g = rec ? rec[@"gen"] : nil;
+    return [g isKindOfClass:[NSString class]] ? g : nil;
+}
+
+/* Up: chunks first, the item record last. Another device may upload the same
+ * item at the same time (two devices with the same pack, 2026-11-22): the
+ * record is looked at before and after; if it already holds this content,
+ * ours is dropped and theirs adopted (*adopted). */
+NSError *uploadItem(const Cloud &c, const LocalItem &it, CKRecord *old, CKRecord **adopted)
+{
+    *adopted = nil;
+    const std::string id = itemId(it.path);
+    const std::string abs = g_root + "/" + it.path;
+    const std::string hash = it.dir ? std::string() : sha256File(abs);
+    CKRecord *now = nil;
+    NSError *err = ckFetchItem(c, id, &now);
+    if (err) return err;
+    if (now && ![genOf(now) isEqualToString:genOf(old)]) {
+        if (sameContent(now, it, hash)) {
+            *adopted = now;
+            cloudLog("%s: already in iCloud from another device", it.path.c_str());
+            return nil;
+        }
+        old = now;
+    }
+
     ChunkWriter w;
     w.cloud = &c;
-    w.id = itemId(it.path);
-    uint32_t r = arc4random();
+    w.id = id;
     char gen[16];
-    snprintf(gen, sizeof(gen), "%08x", r);
+    snprintf(gen, sizeof(gen), "%08x", arc4random());
     w.gen = gen;
     w.cellular = !it.pack;
     w.total = it.bytes;
     w.label = baseName(it.path);
     cloudLog("uploading %s (%lld bytes)", it.path.c_str(), it.bytes);
     bool ok = w.put(kMagic, sizeof(kMagic));
-    const std::string abs = g_root + "/" + it.path;
-    std::string hash;
     if (it.dir) {
         std::vector<std::pair<std::string, long long>> files;
         long long maxMtime = 0;
         walkDir(abs, "", &files, &maxMtime);
         for (size_t i = 0; ok && i < files.size(); i++) ok = archiveFile(&w, files[i].first, abs + "/" + files[i].first);
     } else {
-        hash = sha256File(abs);
         ok = ok && archiveFile(&w, "", abs);
     }
     const uint32_t end = 0xffffffffu;
     ok = ok && w.put(&end, 4) && w.flush();
-    if (!ok) return w.err ?: [NSError errorWithDomain:NSPOSIXErrorDomain code:EIO userInfo:nil];
+    auto chunkIds = [&](const std::string &g, int n) {
+        NSMutableArray<CKRecordID *> *ids = [NSMutableArray array];
+        for (int i = 0; i < n; i++) {
+            [ids addObject:[[CKRecordID alloc] initWithRecordName:ns("c-" + id + "-" + g + "-" + std::to_string(i))
+                                                           zoneID:c.zone]];
+        }
+        return ids;
+    };
+    if (!ok) {
+        if (w.chunks) ckSave(c, nil, chunkIds(w.gen, w.chunks), w.cellular);   // what did go up
+        return w.err ?: [NSError errorWithDomain:NSPOSIXErrorDomain code:EIO userInfo:nil];
+    }
 
-    CKRecordID *rid = [[CKRecordID alloc] initWithRecordName:ns("i-" + w.id) zoneID:c.zone];
+    // another device may have finished the same item meanwhile
+    err = ckFetchItem(c, id, &now);
+    if (!err && now && ![genOf(now) isEqualToString:genOf(old)]) {
+        if (sameContent(now, it, hash)) {
+            ckSave(c, nil, chunkIds(w.gen, w.chunks), w.cellular);
+            *adopted = now;
+            cloudLog("%s: another device finished it first, its copy kept", it.path.c_str());
+            return nil;
+        }
+        old = now;
+    }
+
+    CKRecordID *rid = [[CKRecordID alloc] initWithRecordName:ns("i-" + id) zoneID:c.zone];
     CKRecord *rec = [[CKRecord alloc] initWithRecordType:@"GevrItem" recordID:rid];
     rec[@"path"] = ns(it.path);
     rec[@"stamp"] = ns(it.stamp);
@@ -904,17 +995,10 @@ NSError *uploadItem(const Cloud &c, const LocalItem &it, CKRecord *old)
     rec[@"pack"] = @(it.pack ? 1 : 0);
     rec[@"dir"] = @(it.dir ? 1 : 0);
     rec[@"hash"] = ns(hash);
-    NSMutableArray<CKRecordID *> *stale = [NSMutableArray array];
-    if (old) {
-        NSString *og = old[@"gen"];
-        const int oc = [old[@"chunks"] intValue];
-        for (int i = 0; [og isKindOfClass:[NSString class]] && i < oc; i++) {
-            [stale addObject:[[CKRecordID alloc] initWithRecordName:
-                                 [NSString stringWithFormat:@"c-%s-%@-%d", w.id.c_str(), og, i] zoneID:c.zone]];
-        }
+    err = ckSave(c, @[ rec ], nil, w.cellular);
+    if (!err && genOf(old)) {
+        ckSave(c, nil, chunkIds(genOf(old).UTF8String, [old[@"chunks"] intValue]), w.cellular);   // best effort
     }
-    NSError *err = ckSave(c, @[ rec ], nil, w.cellular);
-    if (!err && stale.count) ckSave(c, nil, stale, w.cellular);   // the old generation: best effort
     return err;
 }
 
@@ -1193,11 +1277,30 @@ void syncFiles(const Cloud &c, bool packs)
         return;
     }
     std::map<std::string, CKRecord *> remote;
-    err = ckFetchItems(c, &remote);
+    std::vector<ChunkRef> chunkRefs;
+    err = ckFetchItems(c, &remote, &chunkRefs);
     if (err) {
         setStatus("iCloud: " + errText(err));
         cloudLog("fetch: %s", errText(err).c_str());
         return;
+    }
+    {
+        std::set<std::string> named;
+        for (const auto &kv : remote) {
+            NSString *g = genOf(kv.second);
+            const int n = [kv.second[@"chunks"] intValue];
+            for (int i = 0; g && i < n; i++) named.insert("c-" + itemId(kv.first) + "-" + g.UTF8String + "-" + std::to_string(i));
+        }
+        NSMutableArray<CKRecordID *> *orphans = [NSMutableArray array];
+        for (const ChunkRef &ch : chunkRefs) {
+            if (!named.count(ch.name) && ch.age > 24 * 3600) {
+                [orphans addObject:[[CKRecordID alloc] initWithRecordName:ns(ch.name) zoneID:c.zone]];
+            }
+        }
+        for (NSUInteger i = 0; i < orphans.count; i += 200) {
+            NSArray *part = [orphans subarrayWithRange:NSMakeRange(i, MIN((NSUInteger)200, orphans.count - i))];
+            if (!ckSave(c, nil, part, false)) cloudLog("removed %lu unused chunk%s", (unsigned long)part.count, part.count == 1 ? "" : "s");
+        }
     }
     std::map<std::string, Synced> synced = readSynced();
     std::map<std::string, LocalItem> local;
@@ -1254,8 +1357,12 @@ void syncFiles(const Cloud &c, bool packs)
             down = true;    // the cloud's copy wins a conflict: it is what the other devices have
         }
         if (up) {
-            err = uploadItem(c, l->second, r != remote.end() ? r->second : nil);
-            if (!err) {
+            CKRecord *adopted = nil;
+            err = uploadItem(c, l->second, r != remote.end() ? r->second : nil, &adopted);
+            if (!err && adopted) {
+                NSString *st = adopted[@"stamp"];
+                synced[p] = { L, [st isKindOfClass:[NSString class]] ? st.UTF8String : std::string() };
+            } else if (!err) {
                 synced[p] = { L, l->second.stamp };
                 moved++;
             }
@@ -1475,7 +1582,7 @@ extern "C" void gevrCloudLaunch(void)
                         if (reason.integerValue == NSUbiquitousKeyValueStoreQuotaViolationChange) {
                             cloudLog("key-value store over its quota");
                         }
-                        if (!g_joined && storeHasData()) {
+                        if (g_launchDone && !g_joined && storeHasData()) {
                             cloudLog("the other devices' settings arrived: used from the next launch");
                             setMessage("Your settings from your other devices arrived from iCloud: they are used from the next launch.");
                         }
@@ -1520,6 +1627,7 @@ extern "C" void gevrCloudLaunch(void)
         }
     }
 
+    g_launchDone = true;
     startWorker();
     cloudLog("on (%s, packs %s, root %s)", kFamily, g_packs ? "on" : "off", g_root.c_str());
 }
