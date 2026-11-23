@@ -69,7 +69,17 @@ void vrSettingsSave(void) {}
 void netVoiceForgetSlot(uint8_t slot) { (void)slot;voice_resets++; }
 void netCoopHostLost(int oldhost,int elected) { (void)oldhost;(void)elected; }
 ENetPacket *enet_packet_create(const void *data,size_t size,uint32_t flags) { (void)flags;if(size<=sizeof(sent_data)) { memcpy(sent_data,data,size);sent_size=size; }return NULL; }
-int enet_peer_send(ENetPeer *peer,uint8_t channel,ENetPacket *packet) { (void)peer;(void)channel;(void)packet;return 0; }
+static ENetPeer *sent_peer;   /* the last peer sent to, and how many sends */
+static int send_count;
+int enet_peer_send(ENetPeer *peer,uint8_t channel,ENetPacket *packet) { (void)channel;(void)packet;sent_peer=peer;send_count++;return 0; }
+/* mods' messages and peer_ready (gevr_modapi.c), as net_core.c hands them over */
+static char mod_got[4096];
+static void modNote(const char *line) { size_t n=strlen(mod_got);snprintf(mod_got+n,sizeof(mod_got)-n,"%s",line); }
+void gevrModNetReceive(const char *mod,int from,const char *channel,const void *data,int len) {
+    char line[160];snprintf(line,sizeof(line),"recv %s %d %s %d %02x;",mod,from,channel,len,len>3?((const u8*)data)[3]:0);modNote(line);
+}
+void gevrModNetStopped(const char *mod,int from) { char line[96];snprintf(line,sizeof(line),"off %s %d;",mod,from);modNote(line); }
+void gevrModApiPeerReady(int slot) { char line[32];snprintf(line,sizeof(line),"ready %d;",slot);modNote(line); }
 int enet_address_get_ip(const ENetAddress *address,char *buffer,size_t size) { (void)address;snprintf(buffer,size,"127.0.0.1");return 0; }
 static ENetPeer *disconnected_peer;
 static uint32_t disconnect_reason;
@@ -664,6 +674,111 @@ static void modRefusal(const char *packet, size_t size) {
     netbufStartReadData(&b, packet + 8, (u32)(size - 8));   /* past magic, version, type, slot */
     fixture(0);s_local_slot = 2;s_host_slot = 0;s_state = NET_STATE_CONNECTING;s_server_peer = &hit_peers[0];
     netReceiveModRequired(&hit_peers[0], &b);
+}
+/* A NET_MSG_MOD packet: badlen says more payload than there is; bare writes the channel with no terminator */
+static size_t modPacket(u8 *raw,size_t cap,uint8_t from,uint8_t kind,uint8_t to,const char *mod,const char *channel,
+                        const void *data,int len,int badlen,int bare) {
+    struct netbuf w={.data=raw,.size=(u32)cap};
+    netbufStartWrite(&w);
+    netbufWriteU32(&w,GEVR_NET_MAGIC);netbufWriteU16(&w,GEVR_NET_VERSION);netbufWriteU8(&w,NET_MSG_MOD);netbufWriteU8(&w,from);
+    netbufWriteU8(&w,kind);netbufWriteU8(&w,to);netbufWriteStr(&w,mod);
+    if(kind==NET_MOD_DATA) {
+        if(bare) { netbufWriteU16(&w,(u16)strlen(channel));netbufWriteData(&w,channel,(u32)strlen(channel)); }
+        else netbufWriteStr(&w,channel);
+        netbufWriteU16(&w,(u16)(len+badlen));if(len) netbufWriteData(&w,data,(u32)len);
+    }
+    return w.wp;
+}
+/* as netHandlePacket reads the header, then netReceiveMod */
+static void modArrives(ENetPeer *peer,const u8 *raw,size_t n) {
+    struct netbuf r;netbufStartReadData(&r,raw,(u32)n);
+    netbufReadU32(&r);netbufReadU16(&r);netbufReadU8(&r);
+    const uint8_t slot=netbufReadU8(&r);
+    netReceiveMod(peer,slot,raw,n,&r);
+}
+EXPORT int test_core_mod_messages(void) {
+    static u8 raw[1200];
+    static ENetHost mod_host;
+    char big[1100];
+    size_t n;
+    fixture(NET_SCENARIO_4V4);
+    s_state=NET_STATE_INGAME;s_host=&mod_host;
+    for(int i=1;i<4;i++) {s_client_peers[i]=&hit_peers[i];hit_peers[i].data=(void*)(intptr_t)(i+1);s_lobby_state.slots[i].connected=1;}
+    /* the host: a player's to everyone is delivered here and relayed to the others, not back */
+    mod_got[0]=0;send_count=0;
+    n=modPacket(raw,sizeof(raw),1,NET_MOD_DATA,0xFF,"tactical","pos","ab\0z",4,0,0);
+    modArrives(&hit_peers[1],raw,n);
+    CHECK(!strcmp(mod_got,"recv tactical 1 pos 4 7a;") && send_count==2 && sent_peer!=&hit_peers[1]);
+    /* the sender is its peer's own: another seat claimed is dropped */
+    mod_got[0]=0;send_count=0;
+    n=modPacket(raw,sizeof(raw),2,NET_MOD_DATA,0xFF,"tactical","pos","x",1,0,0);
+    modArrives(&hit_peers[1],raw,n);CHECK(!mod_got[0] && !send_count);
+    n=modPacket(raw,sizeof(raw),0xFF,NET_MOD_DATA,0xFF,"tactical","pos","x",1,0,0);
+    modArrives(&hit_peers[1],raw,n);CHECK(!mod_got[0] && !send_count);
+    /* to one player: forwarded to that peer alone, not delivered here; to the host: here alone */
+    n=modPacket(raw,sizeof(raw),1,NET_MOD_DATA,3,"tactical","pos","x",1,0,0);
+    modArrives(&hit_peers[1],raw,n);CHECK(!mod_got[0] && send_count==1 && sent_peer==&hit_peers[3]);
+    send_count=0;n=modPacket(raw,sizeof(raw),1,NET_MOD_DATA,1,"tactical","pos","x",1,0,0);
+    modArrives(&hit_peers[1],raw,n);CHECK(!mod_got[0] && !send_count);   /* back to itself: no one */
+    n=modPacket(raw,sizeof(raw),1,NET_MOD_DATA,0,"tactical","pos","x",1,0,0);
+    modArrives(&hit_peers[1],raw,n);CHECK(!strcmp(mod_got,"recv tactical 1 pos 1 00;") && !send_count);
+    /* malformed: dropped whole */
+    mod_got[0]=0;
+    n=modPacket(raw,sizeof(raw),1,NET_MOD_DATA,0,"tactical","a b","x",1,0,0);modArrives(&hit_peers[1],raw,n);
+    n=modPacket(raw,sizeof(raw),1,NET_MOD_DATA,0,"tactical","pos","x",1,1,0);modArrives(&hit_peers[1],raw,n);
+    n=modPacket(raw,sizeof(raw),1,NET_MOD_DATA,0,"tactical","pos","x",1,0,1);modArrives(&hit_peers[1],raw,n);
+    n=modPacket(raw,sizeof(raw),1,NET_MOD_DATA,0,"","pos","x",1,0,0);modArrives(&hit_peers[1],raw,n);
+    n=modPacket(raw,sizeof(raw),1,7,0,"tactical","pos","x",1,0,0);modArrives(&hit_peers[1],raw,n);
+    n=modPacket(raw,sizeof(raw),1,NET_MOD_DATA,0,"tactical","123456789012345678901234567890123","x",1,0,0);
+    modArrives(&hit_peers[1],raw,n);
+    memset(big,'q',sizeof(big));
+    n=modPacket(raw,sizeof(raw),1,NET_MOD_DATA,0,"tactical","pos",big,NET_MOD_PAYLOAD_MAX+1,0,0);modArrives(&hit_peers[1],raw,n);
+    CHECK(!mod_got[0]);
+    n=modPacket(raw,sizeof(raw),1,NET_MOD_DATA,0,"tactical","pos",big,NET_MOD_PAYLOAD_MAX,0,0);modArrives(&hit_peers[1],raw,n);
+    CHECK(!strcmp(mod_got,"recv tactical 1 pos 1024 71;"));   /* the most there may be */
+    /* the host's relay: 64 of a player's a second, then none until the next */
+    mod_got[0]=0;clock_us+=2000000;
+    n=modPacket(raw,sizeof(raw),2,NET_MOD_DATA,0,"tactical","pos","x",1,0,0);
+    for(int i=0;i<70;i++) modArrives(&hit_peers[2],raw,n);
+    {
+        int got=0;for(const char *p=mod_got;(p=strstr(p,"recv"))!=NULL;p++) got++;
+        CHECK(got==NET_MOD_HOST_RELAY_A_SECOND);
+    }
+    mod_got[0]=0;clock_us+=1000000;modArrives(&hit_peers[2],raw,n);CHECK(!strcmp(mod_got,"recv tactical 2 pos 1 00;"));
+    /* a mod stopped on a player's headset: stopped here, and told to the others */
+    mod_got[0]=0;send_count=0;
+    n=modPacket(raw,sizeof(raw),3,NET_MOD_OFF,0xFF,"tactical",NULL,NULL,0,0,0);
+    modArrives(&hit_peers[3],raw,n);CHECK(!strcmp(mod_got,"off tactical 3;") && send_count==2);
+    /* nothing outside a game */
+    mod_got[0]=0;s_state=NET_STATE_HOSTING_LOBBY;
+    n=modPacket(raw,sizeof(raw),1,NET_MOD_DATA,0xFF,"tactical","pos","x",1,0,0);modArrives(&hit_peers[1],raw,n);
+    CHECK(!mod_got[0]);
+    /* the host sends: to everyone, to one, never to itself or a seat with no one */
+    s_state=NET_STATE_INGAME;send_count=0;
+    CHECK(netSendModMessage(NET_MOD_DATA,0xFF,"tactical","pos","xyz",3) && send_count==3);
+    send_count=0;CHECK(netSendModMessage(NET_MOD_DATA,3,"tactical","pos","xyz",3) && send_count==1 && sent_peer==&hit_peers[3]);
+    CHECK(sent_data[6]==NET_MSG_MOD && sent_data[7]==0 && sent_data[8]==NET_MOD_DATA && sent_data[9]==3);
+    send_count=0;
+    CHECK(!netSendModMessage(NET_MOD_DATA,0,"tactical","pos","x",1) && !netSendModMessage(NET_MOD_DATA,5,"tactical","pos","x",1));
+    CHECK(!netSendModMessage(NET_MOD_DATA,0xFF,"tactical","pos",big,NET_MOD_PAYLOAD_MAX+1));
+    CHECK(!netSendModMessage(NET_MOD_DATA,0xFF,"tactical","","x",1) && !netSendModMessage(NET_MOD_DATA,0xFF,"","pos","x",1));
+    CHECK(!netSendModMessage(NET_MOD_DATA,0xFF,"tactical","123456789012345678901234567890123","x",1) && !send_count);
+    CHECK(netSendModMessage(NET_MOD_OFF,0xFF,"tactical",NULL,NULL,0) && send_count==3 && sent_data[8]==NET_MOD_OFF);
+    /* a player (slot 2): to the host; the host's or a relayed one to all or to it, from the host's peer alone */
+    s_local_slot=2;s_host_slot=0;s_server_peer=&hit_peers[0];
+    for(int i=1;i<4;i++) s_client_peers[i]=NULL;
+    CHECK(!netIsHost());
+    send_count=0;CHECK(netSendModMessage(NET_MOD_DATA,0xFF,"tactical","pos","x",1) && send_count==1 && sent_peer==&hit_peers[0]);
+    CHECK(sent_data[7]==2 && !netSendModMessage(NET_MOD_DATA,2,"tactical","pos","x",1));
+    mod_got[0]=0;
+    n=modPacket(raw,sizeof(raw),1,NET_MOD_DATA,0xFF,"tactical","pos","x",1,0,0);modArrives(&hit_peers[0],raw,n);
+    n=modPacket(raw,sizeof(raw),1,NET_MOD_DATA,3,"tactical","pos","x",1,0,0);modArrives(&hit_peers[0],raw,n);
+    n=modPacket(raw,sizeof(raw),0,NET_MOD_DATA,2,"tactical","hi","x",1,0,0);modArrives(&hit_peers[0],raw,n);
+    n=modPacket(raw,sizeof(raw),0xFF,NET_MOD_DATA,0xFF,"tactical","srv","x",1,0,0);modArrives(&hit_peers[0],raw,n);
+    n=modPacket(raw,sizeof(raw),1,NET_MOD_DATA,0xFF,"tactical","pos","x",1,0,0);modArrives(&hit_peers[1],raw,n);
+    CHECK(!strcmp(mod_got,"recv tactical 1 pos 1 00;recv tactical 0 hi 1 00;recv tactical -1 srv 1 00;"));
+    s_server_peer=NULL;
+    return 0;
 }
 EXPORT int test_core_content_mod(void) {
     u8 raw[40], sent[256];

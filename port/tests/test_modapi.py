@@ -805,6 +805,98 @@ end)
           + str(answers(out, "SOUND", "SMOKE")))
 
 
+def net_placement():
+    """the sender by its peer; the relay never back to the sender; peer_ready at the first stage-ready"""
+    core = (ROOT / "port/src/net/net_core.c").read_bytes().decode()
+    recv = function(core, "static void netReceiveMod(")
+    check(recv.index("s_client_peers[slot_id] != peer") < recv.index("netBroadcastPacket(data, size, NET_CHAN_RELIABLE,")
+          and "ENET_PACKET_FLAG_RELIABLE, peer);" in recv and "peer != s_server_peer" in recv,
+          "a player's message: checked by its peer, relayed to the others; a host's from its own peer alone")
+    ready = function(core, "static void netReceiveStageReady(")
+    check(ready.index("s_lobby_state.slots[slot].loaded = 1;") < ready.index("if (!was_ready) gevrModApiPeerReady(slot);"),
+          "peer_ready as a player first reaches the stage")
+    check("case NET_MSG_MOD: netReceiveMod(peer, slot_id, data, size, &buf); break;" in core, "NET_MSG_MOD dispatched")
+
+
+def net(exe, temp):
+    play = ("start", "prepare", 9, "begin", 9)
+    lua = r"""
+mod.net.on("pos", function(data, from) print("pos", #data, data:byte(3), data:sub(4), from) end)
+mod.net.on("pos", function(data, from) print("pos again", from) end)
+mod.net.on("chat", function(data, from) print("chat", data, from) end)
+mod.on("peer_ready", function(slot) print("ready", slot) end)
+mod.on("mission_start", function()
+  local n = mod.net
+  print("role", n.role(), n.slot())
+  assert(n.send("pos", "ab\0cd") and n.send("chat", "hi", 1))
+  assert(n.send("chat", "me", 2) == false, "not to oneself")
+  for _, bad in ipairs({ { "", "x" }, { "a b", "x" }, { string.rep("c", 33), "x" }, { "pos", string.rep("x", 1025) },
+                         { "pos", "x", 8 }, { "pos", "x", -1 }, { "pos", "x", 1.5 }, { "pos" } }) do
+    assert(not pcall(n.send, table.unpack(bad)), "refused")
+  end
+  assert(not pcall(n.on, "pos") and not pcall(n.on, "a b", print))
+  local sent = 0
+  for i = 1, 40 do if n.send("chat", "x") then sent = sent + 1 end end
+  print("rate", sent)
+end)
+"""
+    out = run(exe, temp, "net", lua, "online", 1, 0, 0, 2, "start", "prepare", 9, "netrecv", "tactical", 0, "pos", "xy\\0zz",
+              "netrecv", "other", 0, "pos", "q", "peerready", 3, "begin", 9, "netrecv", "tactical", 3, "chat", "yo",
+              "netrecv", "tactical", -1, "chat", "srv", "peerready", 1, "frame")
+    check(logs(out) == ["role client 2", "rate 28", "ready 1", "ready 3", "pos 5 0 zz 0", "pos again 0", "chat yo 3",
+                        "chat srv nil"],
+          "mod.net: role, slot, the rate, held messages handed over at the next frame, by channel and mod; peer_ready "
+          "held too, as a player who loads before the mission starts is told as it does: " + str(logs(out)))
+    check(answers(out, "NETSEND") == ["NETSEND 0 255 tactical pos 5 61 62 00 63 64", "NETSEND 0 1 tactical chat 2 68 69"]
+          + ["NETSEND 0 255 tactical chat 1 78"] * 28,
+          "what went out, to everyone or one: " + str(answers(out, "NETSEND"))[:300])
+
+    lua = 'mod.on("mission_start", function() print(mod.net.role(), mod.net.slot(), mod.net.send("x", "y")) end)'
+    out = run(exe, temp, "netsolo", lua, *play)
+    check(logs(out) == ["solo 0 false"] and not answers(out, "NETSEND"), "solo: no one else, nothing sent")
+    out = run(exe, temp, "nethost", lua, "online", 1, 1, 0, 0, *play)
+    check(logs(out) == ["host 0 true"], "the host: " + str(logs(out)))
+    out = run(exe, temp, "netserver", lua, "online", 1, 1, 1, -1, *play)
+    check(logs(out) == ["server nil true"], "a dedicated server: no slot of its own: " + str(logs(out)))
+
+    # the last mission's held messages go as the next loads; a flood past the inbox is dropped
+    lua = """
+mod.net.on("c", function(data) print("got", data) end)
+mod.on("peer_ready", function(slot) print("ready", slot) end)
+"""
+    out = run(exe, temp, "netclear", lua, "online", 1, 1, 0, 0, "start", "prepare", 9, "netrecv", "tactical", 1, "c", "old",
+              "peerready", 2, "prepare", 10, "netrecv", "tactical", 1, "c", "new", "peerready", 1, "begin", 10, "frame")
+    check(logs(out) == ["ready 1", "got new"], "a mission loading drops the last one's: " + str(logs(out)))
+    flood = []
+    for k in range(70):
+        flood += ["netrecv", "tactical", 0, "c", "m%d" % k]
+    lua = """
+local got, first, last = 0
+mod.net.on("c", function(data) got = got + 1; first = first or data; last = data end)
+mod.on("tick", function() print(got, first, last) end)
+"""
+    out = run(exe, temp, "netflood", lua, "online", 1, 0, 0, 2, *play, *flood, "frame")
+    check(logs(out) == ["64 m0 m63"] and "6 message(s) dropped" in out,
+          "64 held, the rest dropped and logged: " + str(logs(out)))
+
+    # a mod stopped here is told to the others; one stopped elsewhere stops here, untold
+    lua = """
+mod.net.on("boom", function() error("bad message") end)
+mod.on("tick", function() print("tick") end)
+"""
+    out = run(exe, temp, "netstop", lua, "online", 1, 0, 0, 2, *play, "netrecv", "tactical", 0, "boom", "x", "frame", "frame")
+    check(answers(out, "NETSEND") == ["NETSEND 1 255 tactical - 0"] and logs(out) == [],
+          "an error in play: the mod off here and told to everyone: " + out[-500:])
+    lua = 'mod.on("tick", function() print("tick") end)'
+    out = run(exe, temp, "netremote", lua, "online", 1, 0, 0, 2, *play, "frame", "netoff", "tactical", 1, "frame",
+              "netoff", "other", 1)
+    check(logs(out) == ["tick"] and not answers(out, "NETSEND")
+          and any("stopped on another player's headset" in l for l in out.splitlines()),
+          "stopped on another headset: off here, and not told again: " + out[-500:])
+    out = run(exe, temp, "netsolostop", 'mod.on("tick", function() error("x") end)', *play, "frame")
+    check(not answers(out, "NETSEND"), "solo: a stop told to no one")
+
+
 def main():
     placement()
     items_placement()
@@ -813,6 +905,7 @@ def main():
     guards2_placement()
     damage_placement()
     effects_placement()
+    net_placement()
     with tempfile.TemporaryDirectory(prefix="gevr-modapi-") as temp:
         temp = Path(temp)
         exe = build(temp)
@@ -894,6 +987,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
         guards2(exe, temp)
         damage(exe, temp)
         effects(exe, temp)
+        net(exe, temp)
         guards_told(temp)
 
     if FAILS:
@@ -907,7 +1001,8 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
           "refusals, alerts, kills and corpses told once on the host, mod.guards' reads; the hooks' places. Guards, part 2: "
           "spawn, giveWeapon, patrol, paths, guard_spawned, guard_killed's player. Damage and player: before_damage's "
           "answers and refusals, damage_applied, downed, revived, died, mod.player's health and armour; the hooks' places. "
-          "Sound and smoke: mod.audio's ids, volumes and places, mod.effect's smokes and places")
+          "Sound and smoke: mod.audio's ids, volumes and places, mod.effect's smokes and places. Network: mod.net's sends, "
+          "limits and rate, held messages by channel and mod, peer_ready, a stop told to the others and taken from them")
 
 
 if __name__ == "__main__":

@@ -205,8 +205,9 @@ files.sha256        checksum list of every other file
   it on refuses joiners without it. Bots follow the host's rules.
 - Scripts run on every machine. The host is authoritative, as for guards
   today: the API has `mod.net.send` / `mod.net.on` over one generic message
-  (`NET_MSG_MOD`, at most 1 KB per message, rate-limited). The mod decides
-  what it syncs. The dedicated server runs scripts too.
+  (`NET_MSG_MOD`, at most 1 KB per message, rate-limited; the calls are
+  under API v1's "Where each hook sits", Network). The mod decides what it
+  syncs. The dedicated server runs scripts too.
 - **Where an event fires:** on the machine where the game already settles
   that outcome (`net_coop.c`).
   - **Guards:** the host runs every guard's AI and applies all damage to
@@ -248,7 +249,10 @@ files.sha256        checksum list of every other file
 - **A mod turned off on one headset** (a script error, or over budget) is
   turned off on every headset: that headset tells the host and the host
   tells the others. Otherwise the players drift apart for the rest of the
-  mission.
+  mission. Built as `NET_MSG_MOD`'s `NET_MOD_OFF`: each headset that hears
+  it stops the mod for the mission, puts back what it changed and shows a
+  note ("it stopped on another player's headset"), without telling anyone
+  again. In solo a stop is told to no one.
 
 ## Scripting
 
@@ -331,7 +335,7 @@ is the proposal to refine with mod authors (Tactical first).
 | Damage and player | `before_damage`, `damage_applied` (a player's too: no separate `player_damaged`), `player_downed`, `player_revived`, `player_died` | health and armour |
 | Assets | — | load a model or texture from the pack, attach it to a hand, gun or body slot, `mod.audio.play` (ROM sound effects only), `mod.effect.play` |
 | UI | — | a watch page from a simple layout (rows, buttons, sliders) |
-| Network | `peer_ready`, `mod.net.on` (includes the sender's player ID) | `mod.net.send`, `mod.net.role` |
+| Network | `peer_ready`, `mod.net.on` (includes the sender's player ID) | `mod.net.send`, `mod.net.role`, `mod.net.slot` |
 | Storage | — | read and write in `mods/<id>/save/` |
 
 Not in v1: drawing, shaders, level geometry, new AI behaviour, the
@@ -640,10 +644,44 @@ watch). We maintain the adapters, not the mods.
   - Not built: bullet impacts. `explosionCreateBulletImpact()` marks a
     surface a shot hit, with its normal and room; a mod has no shot's hit
     to give it.
-- **Co-op.** Emit `peer_ready` on the validated stage-ready transition
-  in `netReceiveStageReady()`. `mod.net.role` uses `netIsHost()` and
-  `netIsDedicated()`. The sender ID in `mod.net.on` comes from the
-  engine's peer-to-player slot mapping in `netHandlePacket()`.
+- **Network.** One message, `NET_MSG_MOD` (protocol 28), sent and
+  checked in `net_core.c` (`netSendModMessage()`, `netReceiveMod()`);
+  the calls and the held messages are in `gevr_modapi.c`.
+  - `mod.net.send(channel, data [, to])`: `data` is a string of any
+    bytes, at most 1024; `channel` is 1 to 32 printable characters with
+    no spaces; `to` is a player's slot (0 to 7), or left out for everyone
+    else. True when sent. False in solo, to this headset's own slot, or
+    past the mod's rate: 30 messages and 16 KB a second. The host's to an
+    empty seat is false too; a player's goes to the host, which drops it.
+    A channel, message or slot past its limits is a script error.
+  - `mod.net.on(channel, fn(data, from))`: each message of this mod's on
+    that channel, to its handlers in the order they were added. `from`
+    is the sender's slot, nil for a dedicated server (it has no slot). A
+    mod hears only messages sent by the same mod.
+  - Messages wait for the next frame in play and reach the handlers
+    before its `tick`, so one that comes while the mission loads waits
+    for it to start. A mission preparing drops the last one's. At most 64
+    wait; more are dropped, with a log line.
+  - Routing: a player's message goes to the host. The host relays one
+    for everyone to the others, never back to its sender, and forwards
+    one for a single player to that player alone. The sender's slot is
+    the seat of the connection it came on: the host drops a message whose
+    slot isn't its connection's, and a player takes messages only from
+    the host's connection, and only those for everyone or for it. The
+    host relays at most 64 a second of each player's. A malformed one (a
+    name with spaces or no end, a length that doesn't match) is dropped
+    whole.
+  - `mod.net.role()`: `"solo"`, `"host"`, `"client"` or `"server"` (a
+    dedicated server), from `netIsHost()` and `netIsDedicated()`.
+    `mod.net.slot()`: this headset's player's slot, 0 in solo, nil on a
+    dedicated server.
+  - `peer_ready(slot)` on the host (or the dedicated server) as each
+    other player first reaches the stage: the validated stage-ready
+    transition in `netReceiveStageReady()`. It waits like a message, so a
+    player who loads before the host's mission starts is told as it
+    starts.
+  - A mod stopped on one headset is stopped on all of them
+    (`NET_MOD_OFF`; see Multiplayer).
 
 ### Pickup swaps
 
@@ -749,6 +787,10 @@ Every headset runs the swaps at load, so in co-op the choices come from
    `gevr_modgame.c`'s told-once bookkeeping), then the calls that change a
    guard, then damage and the player, then sound and smoke.
 5. **Network:** `NET_MSG_MOD`, co-op with mods, the dedicated server.
+   `mod.net`, `peer_ready` and a stop told to every headset
+   (`port/tests/test_modapi.py`; the routing and checks on the production
+   `net_core.c` in `port/tests/test_multiplayer.py`). Co-op's content
+   check came in 2c.
 6. **Sample mod and API reference.**
 7. **Platform check:** Quest, PC, Apple, server, with the sample mod.
    Quest 2 at 90 Hz and Quest 3 at 120 Hz on the heaviest levels settle the

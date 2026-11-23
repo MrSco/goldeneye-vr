@@ -21,11 +21,12 @@ extern "C" {
 #define GEVR_MODSCRIPT_TICK_CAP 0.25          /* tick(dt): dt is at most this, in seconds */
 
 /* An event's argument (gevrModScriptEvent) */
-enum { GEVR_MODARG_NUMBER = 1, GEVR_MODARG_STRING = 2, GEVR_MODARG_INTEGER = 3, GEVR_MODARG_BOOL = 4, GEVR_MODARG_NIL = 5 };
+enum { GEVR_MODARG_NUMBER = 1, GEVR_MODARG_STRING = 2, GEVR_MODARG_INTEGER = 3, GEVR_MODARG_BOOL = 4, GEVR_MODARG_NIL = 5,
+       GEVR_MODARG_BYTES = 6 };
 typedef struct GevrModArg {
     int kind;        /* GEVR_MODARG_* */
-    double n;        /* a number, an integer or a boolean (0 or 1) */
-    const char *s;   /* a string */
+    double n;        /* a number, an integer, a boolean (0 or 1); BYTES: their count */
+    const char *s;   /* a string; BYTES: the bytes (any, NULs too) */
 } GevrModArg;
 
 /* main.c, after romdataInit: the mod campaign's scripts/main.lua, then campaign_enter */
@@ -54,6 +55,13 @@ struct lua_State;
  * how many handlers answered. */
 int gevrModScriptAsk(const char *event, int (*push)(struct lua_State *L, void *ud),
                      int (*answer)(struct lua_State *L, void *ud), void *ud, int play);
+/* As gevrModScriptEvent, for the mod with that id only (mod.net's messages) */
+int gevrModScriptEventFor(const char *id, const char *event, const GevrModArg *args, int nargs);
+/* The mod stopped on another player's headset (NET_MOD_OFF): stopped here for
+ * the mission too, without telling the others again. from: their slot, -1 the server */
+void gevrModScriptStopRemote(const char *id, int from);
+/* The id of the mod a Lua state runs (gevr_modapi.c's calls) */
+const char *gevrModScriptIdOf(struct lua_State *L);
 /* A note for the local player's screen (a mod stopped or paused), taken once */
 const char *gevrModScriptTakeNote(void);
 /* A mod's scripts are running now */

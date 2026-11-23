@@ -46,6 +46,9 @@ const char *gevrModsRoot(void) { return "mods"; }
 static int s_resets;
 void gevrModApiOpen(lua_State *L) { (void)L; }
 void gevrModApiReset(void) { s_resets++; }
+void gevrModApiStopped(const char *id) { printf("STOPPED %s\n", id); }   /* mod.net: told to the others */
+void gevrModApiNetFlush(void) {}
+void gevrModApiNetClear(void) {}
 
 const char *fsFullPath(const char *rel)
 {

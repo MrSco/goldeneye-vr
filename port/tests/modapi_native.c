@@ -29,6 +29,9 @@
  *     spawning <id> <index> <body> <head> <weapon>   expand_09_characters: guard_spawning (-1 none)
  *     addguard <id> <body> <head> <alive> <w> <wl> <health> <max> <x> <y> <z>   a guard in the stage
  *     alerted <id> <how> <player> | killed <id> <how> <item> <player> | retiring <id> <x> <y> <z>
+ *     online <active> <host> <dedicated> <slot>   the network as this machine sees it
+ *     netrecv <mod> <from> <channel> <text> | netoff <mod> <from> | peerready <slot>
+ *     frame                        a frame in play (gevrModScriptFrame: the held messages go out)
  *     runs <0|1>                   this machine runs the guards (solo, the co-op host) in a stage
  *     gspawned <id>                chrai.c: a guard the game spawned
  *     hurt <target> <id> <amount> <how> <part> <item> <by>    before_damage, then
@@ -58,7 +61,21 @@ static unsigned long long s_clock = 1000000;
 s32 g_gevrStereo = 1;
 int gevrVrReady(void) { return 1; }
 unsigned int gevrCoopIntroSeed(void) { return 12345u; }
-bool netIsActive(void) { return false; }
+static int s_online, s_hostNet, s_dedicated, s_slot;
+bool netIsActive(void) { return s_online != 0; }
+bool netIsHost(void) { return s_hostNet != 0; }
+bool netIsDedicated(void) { return s_dedicated != 0; }
+int netGetLocalSlot(void) { return s_slot; }
+int netSendModMessage(int kind, int to, const char *mod, const char *channel, const void *data, int len)
+{
+    int i;
+
+    if (to == s_slot) return 0;
+    printf("NETSEND %d %d %s %s %d", kind, to, mod, channel ? channel : "-", len);
+    for (i = 0; i < len; i++) printf(" %02x", ((const unsigned char *)data)[i]);
+    printf("\n");
+    return 1;
+}
 const gevrModInfo *gevrModActive(void) { return &s_info; }
 const char *gevrModsRoot(void) { return "mods"; }
 const char *fsFullPath(const char *rel)
@@ -533,6 +550,35 @@ int main(int argc, char **argv)
             s_dead = atoi(argv[i + 3]);
             s_down = atoi(argv[i + 4]);
             i += 4;
+        } else if (!strcmp(cmd, "online") && i + 4 < argc) {
+            s_online = atoi(argv[i + 1]);
+            s_hostNet = atoi(argv[i + 2]);
+            s_dedicated = atoi(argv[i + 3]);
+            s_slot = atoi(argv[i + 4]);
+            i += 4;
+        } else if (!strcmp(cmd, "netrecv") && i + 4 < argc) {
+            /* the text, \0 standing for a NUL */
+            char data[1100];
+            int len = 0;
+            const char *t = argv[i + 4];
+
+            while (*t && len < (int)sizeof(data)) {
+                if (t[0] == '\\' && t[1] == '0') {
+                    data[len++] = 0;
+                    t += 2;
+                } else {
+                    data[len++] = *t++;
+                }
+            }
+            gevrModNetReceive(argv[i + 1], atoi(argv[i + 2]), argv[i + 3], data, len);
+            i += 4;
+        } else if (!strcmp(cmd, "netoff") && i + 2 < argc) {
+            gevrModNetStopped(argv[i + 1], atoi(argv[i + 2]));
+            i += 2;
+        } else if (!strcmp(cmd, "peerready") && i + 1 < argc) {
+            gevrModApiPeerReady(atoi(argv[++i]));
+        } else if (!strcmp(cmd, "frame")) {
+            gevrModScriptFrame(1);
         } else if (!strcmp(cmd, "runs") && i + 1 < argc) {
             s_runsGuards = atoi(argv[++i]);
         } else if (!strcmp(cmd, "gspawned") && i + 1 < argc) {

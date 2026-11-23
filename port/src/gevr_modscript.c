@@ -46,6 +46,9 @@ extern bool netIsActive(void);               /* net_core.c */
  * stats...) back to the game's own, at a mission's end and when a mod stops */
 extern void gevrModApiOpen(lua_State *L);
 extern void gevrModApiReset(void);
+extern void gevrModApiStopped(const char *id);   /* mod.net: a stop here, told to the others */
+extern void gevrModApiNetFlush(void);            /* mod.net: the held messages, each frame in play */
+extern void gevrModApiNetClear(void);            /* and the last mission's, as one loads */
 
 #define MAX_MODS 4
 #define PATH_CAP (FS_MAXPATH * 2)
@@ -71,6 +74,7 @@ typedef struct ModScript {
 
 static ModScript s_mods[MAX_MODS];
 static int s_count;
+static const char *s_fireOnly;   /* fire() for this mod's id alone (gevrModScriptEventFor), NULL all */
 static int s_inMission, s_missionStage, s_missionComplete, s_playing;
 static u64 s_windowStart, s_windowUs;
 static int s_windowFrames, s_overSeconds;
@@ -90,6 +94,8 @@ static const char *const s_events[] = {
     "guard_spawning", "guard_alerted", "guard_killed", "corpse_retiring", "guard_spawned",
     /* the damage and player area */
     "before_damage", "damage_applied", "player_downed", "player_revived", "player_died",
+    /* the network */
+    "peer_ready",
 };
 
 static void note(const char *fmt, ...)
@@ -220,6 +226,7 @@ static void modFail(ModScript *m, const char *what, const char *err)
     if (s_inMission && !m->broken) {
         m->off = 1;
         gevrModApiReset();   /* what it changed goes back */
+        gevrModApiStopped(m->id);   /* and in co-op it stops on every headset (mod.net) */
         note("%s stopped for this mission: a script error (see the log).", m->title);
     } else {
         m->broken = 1;
@@ -704,7 +711,7 @@ static int fire(const char *event, const Arg *args, int nargs, int load, int can
         const u64 start = sysGetMicroseconds();
         lua_Integer i, n;
 
-        if (m->broken || m->off) continue;
+        if (m->broken || m->off || (s_fireOnly && strcmp(m->id, s_fireOnly) != 0)) continue;
         lua_getfield(L, LUA_REGISTRYINDEX, "gevr.on");
         if (lua_getfield(L, -1, event) != LUA_TTABLE) {
             lua_pop(L, 2);
@@ -720,6 +727,7 @@ static int fire(const char *event, const Arg *args, int nargs, int load, int can
                 else if (args[a].kind == GEVR_MODARG_INTEGER) lua_pushinteger(L, (lua_Integer)args[a].n);
                 else if (args[a].kind == GEVR_MODARG_BOOL) lua_pushboolean(L, args[a].n != 0);
                 else if (args[a].kind == GEVR_MODARG_NIL) lua_pushnil(L);
+                else if (args[a].kind == GEVR_MODARG_BYTES) lua_pushlstring(L, args[a].s ? args[a].s : "", (size_t)args[a].n);
                 else lua_pushstring(L, args[a].s ? args[a].s : "");
             }
             if (modCall(m, nargs, cancellable ? 1 : 0, load, event) == 0 && cancellable) {
@@ -762,6 +770,38 @@ static int askOne(lua_State *L)
     lua_call(L, nargs, 1);
     lua_pushboolean(L, a->answer(L, a->ud) != 0);
     return 1;
+}
+
+int gevrModScriptEventFor(const char *id, const char *event, const GevrModArg *args, int nargs)
+{
+    int r;
+
+    if (!s_count || !s_inMission || !s_playing || !id) return 0;
+    s_fireOnly = id;
+    r = fire(event, args, nargs, 0, 0);
+    s_fireOnly = NULL;
+    return r;
+}
+
+void gevrModScriptStopRemote(const char *id, int from)
+{
+    int k;
+
+    for (k = 0; k < s_count && id; k++) {
+        ModScript *m = &s_mods[k];
+
+        if (strcmp(m->id, id) != 0 || m->broken || m->off || !s_inMission) continue;
+        m->off = 1;
+        gevrModApiReset();
+        sysLogPrintf(LOG_WARNING, "mods: %s: stopped on %s's headset; stopped here too", m->id,
+                     from >= 0 ? "another player" : "the server");
+        note("%s stopped for this mission: it stopped on another player's headset.", m->title);
+    }
+}
+
+const char *gevrModScriptIdOf(lua_State *L)
+{
+    return modOf(L)->id;
 }
 
 int gevrModScriptAsk(const char *event, int (*push)(lua_State *L, void *ud), int (*answer)(lua_State *L, void *ud),
@@ -866,6 +906,7 @@ void gevrModScriptStageLoad(int stage, int mission, int done)
             s_inMission = 0;
             gevrModApiReset();   /* weapon stats and the like: the game's own again */
         }
+        gevrModApiNetClear();   /* the last mission's messages */
         if (!mission) return;
         s_inMission = 1;
         s_playing = 0;
@@ -937,6 +978,7 @@ static void closeWindow(void)
             costliest->off = 1;
             costliest->paused = 1;
             gevrModApiReset();
+            gevrModApiStopped(costliest->id);   /* on every headset (mod.net) */
             sysLogPrintf(LOG_WARNING, "mods: %s paused for this mission: %.3f ms a frame for %d seconds (budget %.2f)",
                          costliest->id, avg / 1000.0, s_overSeconds, GEVR_MODSCRIPT_BUDGET_US / 1000.0);
             note("%s paused for this mission: its scripts took too long.", costliest->title);
@@ -954,6 +996,7 @@ void gevrModScriptFrame(int ticks)
     u64 now;
 
     if (!s_count || !s_inMission || !s_playing) return;
+    gevrModApiNetFlush();   /* mod.net's messages, held while the mission loaded */
     a.kind = 1;
     a.n = ticks > 0 ? ticks / 60.0 : 0.0;
     if (a.n > GEVR_MODSCRIPT_TICK_CAP) a.n = GEVR_MODSCRIPT_TICK_CAP;

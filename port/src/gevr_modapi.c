@@ -17,14 +17,23 @@
  * All of it for this machine's human player only, never a copy or a bot.
  */
 /* the C library's first: see gevr_modscript.c (MB_LEN_MAX) */
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "gevr_modapi.h"
 #include "gevr_modscript.h"
+#include "system.h"
 #include "../external/lua/lua.h"
 #include "../external/lua/lauxlib.h"
+
+/* the network (port/src/net/net_core.h) */
+extern bool netIsActive(void);
+extern bool netIsHost(void);
+extern bool netIsDedicated(void);
+extern int netGetLocalSlot(void);
+extern int netSendModMessage(int kind, int to, const char *mod, const char *channel, const void *data, int len);
 
 /* ITEM_IDS from ITEM_UNARMED (0): mod.items, and a name for an item argument */
 static const char *const s_itemNames[GEVR_MODAPI_ITEMS] = {
@@ -791,6 +800,139 @@ static const luaL_Reg s_effectFuncs[] = {
     { NULL, NULL },
 };
 
+/* ---- mod.net ---- */
+
+/* A channel: 1 to GEVR_MODAPI_NET_CHANNEL printable characters, no spaces */
+static const char *channelArg(lua_State *L, int arg)
+{
+    size_t n, i;
+    const char *c = luaL_checklstring(L, arg, &n);
+
+    for (i = 0; i < n && c[i] > 0x20 && c[i] < 0x7f; i++) {
+    }
+    if (n == 0 || n > GEVR_MODAPI_NET_CHANNEL || i != n) {
+        luaL_argerror(L, arg, "a channel is 1 to 32 printable characters, no spaces");
+    }
+    return c;
+}
+
+/* What each mod sent this second (sendAllowed); four, as many mods as the
+ * script host runs (gevr_modscript.c MAX_MODS) */
+static struct {
+    char id[64];
+    unsigned long long since;
+    int sends, bytes;
+} s_sent[4];
+
+static int sendAllowed(const char *id, int len)
+{
+    const unsigned long long now = sysGetMicroseconds();
+    int k, unused = -1;
+
+    for (k = 0; k < 4 && strcmp(s_sent[k].id, id) != 0; k++) {
+        if (unused < 0 && !s_sent[k].id[0]) unused = k;
+    }
+    if (k == 4) {
+        if (unused < 0) return 0;
+        k = unused;
+        snprintf(s_sent[k].id, sizeof(s_sent[k].id), "%s", id);
+        s_sent[k].since = now;
+    }
+    if (now - s_sent[k].since >= 1000000ull) {
+        s_sent[k].since = now;
+        s_sent[k].sends = 0;
+        s_sent[k].bytes = 0;
+    }
+    if (s_sent[k].sends + 1 > GEVR_MODAPI_NET_SENDS || s_sent[k].bytes + len > GEVR_MODAPI_NET_BYTES) return 0;
+    s_sent[k].sends++;
+    s_sent[k].bytes += len;
+    return 1;
+}
+
+/* send(channel, data, to): to everyone else, or the player in slot to; false
+ * in solo, outside a game, past the rate (30 a second, 16 KB) or to no one */
+static int l_netSend(lua_State *L)
+{
+    const char *channel = channelArg(L, 1);
+    size_t len;
+    const char *data = luaL_checklstring(L, 2, &len);
+    int to = 0xFF;
+
+    if (!lua_isnoneornil(L, 3)) {
+        const lua_Integer t = luaL_checkinteger(L, 3);
+
+        if (t < 0 || t > 7) return luaL_argerror(L, 3, "to is a player's slot, 0 to 7");
+        to = (int)t;
+    }
+    if (len > GEVR_MODAPI_NET_PAYLOAD) return luaL_argerror(L, 2, "a message is at most 1024 bytes");
+    lua_pushboolean(L, netIsActive() && to != netGetLocalSlot() && sendAllowed(gevrModScriptIdOf(L), (int)len)
+                           && netSendModMessage(GEVR_MODNET_DATA, to, gevrModScriptIdOf(L), channel, data, (int)len));
+    return 1;
+}
+
+/* A handler for one channel: net_message's arguments (channel, data, from)
+ * to fn(data, from) when the channel is its own */
+static int netFilter(lua_State *L)
+{
+    if (lua_rawequal(L, 1, lua_upvalueindex(1))) {
+        lua_pushvalue(L, lua_upvalueindex(2));
+        lua_pushvalue(L, 2);
+        lua_pushvalue(L, 3);
+        lua_call(L, 2, 0);
+    }
+    return 0;
+}
+
+/* on(channel, fn): fn(data, from) for each message on the channel; from is
+ * the sender's slot, nil a dedicated server */
+static int l_netOn(lua_State *L)
+{
+    size_t n;
+
+    channelArg(L, 1);
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    lua_pushvalue(L, 1);
+    lua_pushvalue(L, 2);
+    lua_pushcclosure(L, netFilter, 2);
+    /* into the host's own lists, as mod.on keeps them: an event mods reach only through here */
+    lua_getfield(L, LUA_REGISTRYINDEX, "gevr.on");
+    if (lua_getfield(L, -1, "net_message") != LUA_TTABLE) {
+        lua_pop(L, 1);
+        lua_newtable(L);
+        lua_pushvalue(L, -1);
+        lua_setfield(L, -3, "net_message");
+    }
+    n = (size_t)lua_rawlen(L, -1);
+    lua_pushvalue(L, -3);
+    lua_rawseti(L, -2, (lua_Integer)n + 1);
+    return 0;
+}
+
+/* role(): "solo", "host", "client" or "server" (a dedicated server) */
+static int l_netRole(lua_State *L)
+{
+    lua_pushstring(L, !netIsActive() ? "solo" : netIsDedicated() ? "server" : netIsHost() ? "host" : "client");
+    return 1;
+}
+
+/* slot(): this machine's player's slot (0 in solo), nil on a dedicated server */
+static int l_netSlot(lua_State *L)
+{
+    const int slot = netIsActive() ? netGetLocalSlot() : 0;
+
+    if (slot < 0) lua_pushnil(L);
+    else lua_pushinteger(L, slot);
+    return 1;
+}
+
+static const luaL_Reg s_netFuncs[] = {
+    { "send", l_netSend },
+    { "on", l_netOn },
+    { "role", l_netRole },
+    { "slot", l_netSlot },
+    { NULL, NULL },
+};
+
 static const luaL_Reg s_handFuncs[] = {
     { "position", l_handPosition },
     { "anchor", l_handAnchor },
@@ -836,6 +978,9 @@ void gevrModApiOpen(lua_State *L)
     lua_newtable(L);
     luaL_setfuncs(L, s_effectFuncs, 0);
     lua_setfield(L, -2, "effect");
+    lua_newtable(L);
+    luaL_setfuncs(L, s_netFuncs, 0);
+    lua_setfield(L, -2, "net");
 }
 
 void gevrModApiReset(void)
@@ -1378,4 +1523,96 @@ void gevrModApiPlayerDowned(int slot, int down)
 void gevrModApiPlayerDied(int slot)
 {
     slotEvent("player_died", slot);
+}
+
+/* ---- the network's events ---- */
+
+/* Messages held until the next frame in play (one that came while the
+ * mission loaded waits for it) */
+static struct {
+    char mod[64], channel[GEVR_MODAPI_NET_CHANNEL + 1];
+    int from, len;
+    unsigned char data[GEVR_MODAPI_NET_PAYLOAD];
+} s_inbox[GEVR_MODAPI_NET_INBOX];
+static int s_inStart, s_inCount, s_inDropped;
+static unsigned s_readyHeld;   /* peer_ready's slots, held as the messages are (a bit each) */
+
+void gevrModNetReceive(const char *mod, int from, const char *channel, const void *data, int len)
+{
+    int at;
+
+    if (!gevrModScriptRunning() || !mod || !channel || len < 0 || len > GEVR_MODAPI_NET_PAYLOAD
+        || strlen(mod) >= sizeof(s_inbox[0].mod) || strlen(channel) > GEVR_MODAPI_NET_CHANNEL) {
+        return;
+    }
+    if (s_inCount == GEVR_MODAPI_NET_INBOX) {
+        s_inDropped++;   /* logged as the frame flushes */
+        return;
+    }
+    at = (s_inStart + s_inCount++) % GEVR_MODAPI_NET_INBOX;
+    snprintf(s_inbox[at].mod, sizeof(s_inbox[at].mod), "%s", mod);
+    snprintf(s_inbox[at].channel, sizeof(s_inbox[at].channel), "%s", channel);
+    s_inbox[at].from = from;
+    s_inbox[at].len = len;
+    if (len > 0) memcpy(s_inbox[at].data, data, (size_t)len);
+}
+
+void gevrModApiNetFlush(void)
+{
+    int slot;
+
+    for (slot = 0; s_readyHeld && slot < 32; slot++) {
+        if (s_readyHeld & (1u << slot)) {
+            GevrModArg a[1];
+
+            s_readyHeld &= ~(1u << slot);
+            a[0].kind = GEVR_MODARG_INTEGER;
+            a[0].n = slot;
+            gevrModScriptEvent("peer_ready", a, 1, 0);
+        }
+    }
+    if (s_inDropped) {
+        sysLogPrintf(LOG_WARNING, "mods: %d message(s) dropped: more than %d waited", s_inDropped, GEVR_MODAPI_NET_INBOX);
+        s_inDropped = 0;
+    }
+    while (s_inCount > 0) {
+        const int at = s_inStart;
+        GevrModArg a[3];
+
+        s_inStart = (s_inStart + 1) % GEVR_MODAPI_NET_INBOX;
+        s_inCount--;
+        a[0].kind = GEVR_MODARG_STRING;
+        a[0].s = s_inbox[at].channel;
+        a[1].kind = GEVR_MODARG_BYTES;
+        a[1].s = (const char *)s_inbox[at].data;
+        a[1].n = s_inbox[at].len;
+        a[2].kind = s_inbox[at].from >= 0 ? GEVR_MODARG_INTEGER : GEVR_MODARG_NIL;
+        a[2].n = s_inbox[at].from;
+        gevrModScriptEventFor(s_inbox[at].mod, "net_message", a, 3);
+    }
+}
+
+void gevrModApiNetClear(void)
+{
+    s_inStart = s_inCount = s_inDropped = 0;
+    s_readyHeld = 0;
+}
+
+void gevrModNetStopped(const char *mod, int from)
+{
+    gevrModScriptStopRemote(mod, from);
+}
+
+void gevrModApiStopped(const char *id)
+{
+    if (netIsActive()) netSendModMessage(GEVR_MODNET_OFF, 0xFF, id, NULL, NULL, 0);
+}
+
+/* A player reached the stage (the host's netReceiveStageReady): told at the
+ * next frame in play, so one who loads before the host's mission starts
+ * is told as it does */
+void gevrModApiPeerReady(int slot)
+{
+    if (!gevrModScriptRunning() || slot < 0 || slot >= 32) return;
+    s_readyHeld |= 1u << slot;
 }

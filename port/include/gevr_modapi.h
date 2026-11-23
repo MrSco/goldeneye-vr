@@ -219,6 +219,30 @@ enum { GEVR_MODAT_PLAYER = 1, GEVR_MODAT_GUARD, GEVR_MODAT_PAD };
 #define GEVR_MODAPI_SOUND_NEAR 5000.0f   /* a placed sound: full within, as chrobjSndCreatePostEventDefault */
 #define GEVR_MODAPI_SOUND_FAR 6000.0f
 
+/* ---- the network (plan step 5): mod.net between the players' machines ---- */
+
+#define GEVR_MODAPI_NET_PAYLOAD 1024      /* a message's bytes (net_protocol.h NET_MOD_PAYLOAD_MAX) */
+#define GEVR_MODAPI_NET_CHANNEL 32        /* a channel's name (NET_MOD_CHANNEL_MAX) */
+#define GEVR_MODAPI_NET_INBOX 64          /* messages held until play */
+#define GEVR_MODAPI_NET_SENDS 30          /* a mod's sends a second */
+#define GEVR_MODAPI_NET_BYTES 16384       /* and their bytes */
+enum { GEVR_MODNET_DATA = 0, GEVR_MODNET_OFF = 1 };   /* net_protocol.h NET_MOD_* */
+
+/* net_core.c: a mod's message arrived (from: the sender's slot, -1 a
+ * dedicated server); held, and handed to the mod at the next frame in play */
+void gevrModNetReceive(const char *mod, int from, const char *channel, const void *data, int len);
+/* net_core.c: the mod stopped on another player's headset */
+void gevrModNetStopped(const char *mod, int from);
+/* net_core.c netReceiveStageReady, the host: a player is in the stage;
+ * peer_ready at the next frame in play */
+void gevrModApiPeerReady(int slot);
+/* gevr_modscript.c: a mod stopped here (an error, over budget): the others too */
+void gevrModApiStopped(const char *id);
+/* gevr_modscript.c: each frame in play, the held messages to their mods; as a
+ * mission loads, the last one's go */
+void gevrModApiNetFlush(void);
+void gevrModApiNetClear(void);
+
 /* ---- the game's side (src/game/gevr_modgame.c), for gevr_modapi.c ---- */
 
 typedef struct GevrModWeaponStats {

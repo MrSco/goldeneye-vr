@@ -33,6 +33,7 @@
 #include "system.h"
 #include "gevr_romlayout.h"   /* the campaign: the content check and co-op in a hack (gevrCampaignCoop) */
 #include "gevr_modpack.h"     /* a mod campaign: the content check's mod part (gevrModPlay) */
+#include "gevr_modapi.h"      /* mods' messages and peer_ready (gevr_modapi.c) */
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -1293,6 +1294,114 @@ static void netReadPrintable(struct netbuf *buf, char *dst, size_t cap) {
         src++;
     }
     dst[n] = '\0';
+}
+
+/* ---- Mods' messages (NET_MSG_MOD; docs/mod-system.md, mod.net) ---- */
+
+_Static_assert(NET_MOD_PAYLOAD_MAX == GEVR_MODAPI_NET_PAYLOAD && NET_MOD_CHANNEL_MAX == GEVR_MODAPI_NET_CHANNEL
+               && (int)NET_MOD_DATA == (int)GEVR_MODNET_DATA && (int)NET_MOD_OFF == (int)GEVR_MODNET_OFF,
+               "mod.net's limits as the wire's");
+
+/* A mod's id or channel: 1 to cap - 1 printable characters, no spaces; 0 else */
+static int netReadModName(struct netbuf *buf, char *dst, size_t cap) {
+    const char *src = netbufReadStr(buf);
+    const char *end = (const char *)buf->data + buf->rp;
+    size_t n = 0;
+
+    if (!src || buf->error) return 0;
+    while (src + n < end && src[n]) {
+        if (n + 1 >= cap || src[n] <= 0x20 || src[n] >= 0x7f) return 0;
+        dst[n] = src[n];
+        n++;
+    }
+    if (src + n >= end || n == 0) return 0;   /* no terminator inside, or empty */
+    dst[n] = '\0';
+    return 1;
+}
+
+int netSendModMessage(int kind, int to, const char *mod, const char *channel, const void *data, int len) {
+    static u8 raw[16 + GEVR_MOD_ID_MAX + NET_MOD_CHANNEL_MAX + NET_MOD_PAYLOAD_MAX + 8];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+
+    if (s_state != NET_STATE_INGAME || !s_host || !mod || !mod[0] || strlen(mod) > GEVR_MOD_ID_MAX) return 0;
+    if (kind != NET_MOD_DATA && kind != NET_MOD_OFF) return 0;
+    if (kind == NET_MOD_DATA && (!channel || !channel[0] || strlen(channel) > NET_MOD_CHANNEL_MAX || len < 0 ||
+                                 len > NET_MOD_PAYLOAD_MAX || (len > 0 && !data))) return 0;
+    if (to != 0xFF && (to < 0 || to >= GEVR_MAX_PLAYERS || to == s_local_slot)) return 0;
+    netbufStartWrite(&buf);
+    netbufWriteU32(&buf, GEVR_NET_MAGIC);netbufWriteU16(&buf, GEVR_NET_VERSION);
+    netbufWriteU8(&buf, NET_MSG_MOD);netbufWriteU8(&buf, (uint8_t)(s_local_slot >= 0 ? s_local_slot : 0xFF));
+    netbufWriteU8(&buf, (uint8_t)kind);netbufWriteU8(&buf, (uint8_t)to);
+    netbufWriteStr(&buf, mod);
+    if (kind == NET_MOD_DATA) {
+        netbufWriteStr(&buf, channel);
+        netbufWriteU16(&buf, (uint16_t)len);
+        if (len > 0) netbufWriteData(&buf, data, (u32)len);
+    }
+    if (buf.error) return 0;
+    if (netIsHost()) {
+        if (to == 0xFF) {
+            netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+        } else {
+            if (!s_client_peers[to]) return 0;
+            enet_peer_send(s_client_peers[to], NET_CHAN_RELIABLE, enet_packet_create(buf.data, buf.wp, ENET_PACKET_FLAG_RELIABLE));
+        }
+    } else {
+        if (!s_server_peer) return 0;
+        netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);   /* to the host */
+    }
+    return 1;
+}
+
+/* What the host relays of a player's, a second at a time (a flood stops here) */
+static uint64_t s_mod_relay_since[GEVR_MAX_PLAYERS];
+static int s_mod_relay_count[GEVR_MAX_PLAYERS];
+
+static void netReceiveMod(ENetPeer *peer, uint8_t slot_id, const uint8_t *data, size_t size, struct netbuf *buf) {
+    char mod[GEVR_MOD_ID_MAX + 1], channel[NET_MOD_CHANNEL_MAX + 1];
+    const uint8_t *payload = NULL;
+    uint8_t kind, to;
+    uint16_t len = 0;
+
+    if (s_state != NET_STATE_INGAME) return;
+    kind = netbufReadU8(buf);
+    to = netbufReadU8(buf);
+    if (buf->error || (kind != NET_MOD_DATA && kind != NET_MOD_OFF) || !netReadModName(buf, mod, sizeof(mod))) return;
+    channel[0] = '\0';
+    if (kind == NET_MOD_DATA) {
+        if (!netReadModName(buf, channel, sizeof(channel))) return;
+        len = netbufReadU16(buf);
+        if (buf->error || len > NET_MOD_PAYLOAD_MAX || netbufReadLeft(buf) != len) return;
+        payload = buf->data + buf->rp;
+    } else if (netbufReadLeft(buf) != 0) {
+        return;
+    }
+    if (netIsHost()) {
+        /* a player's own: the peer in that seat */
+        if (slot_id >= GEVR_MAX_PLAYERS || s_client_peers[slot_id] != peer || ((int)(intptr_t)peer->data - 1) != slot_id) return;
+        {
+            const uint64_t now = sysGetMicroseconds();
+
+            if (now - s_mod_relay_since[slot_id] >= 1000000u) {
+                s_mod_relay_since[slot_id] = now;
+                s_mod_relay_count[slot_id] = 0;
+            }
+            if (++s_mod_relay_count[slot_id] > NET_MOD_HOST_RELAY_A_SECOND) return;
+        }
+        if (to == 0xFF) {
+            netBroadcastPacket(data, size, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, peer);
+        } else if (to != s_local_slot) {
+            /* forwarded to the one it names, as it came */
+            if (to < GEVR_MAX_PLAYERS && s_client_peers[to] && s_client_peers[to] != peer)
+                enet_peer_send(s_client_peers[to], NET_CHAN_RELIABLE, enet_packet_create(data, size, ENET_PACKET_FLAG_RELIABLE));
+            return;
+        }
+    } else {
+        /* the host's, or a player's it relays */
+        if (peer != s_server_peer || (to != 0xFF && to != s_local_slot)) return;
+    }
+    if (kind == NET_MOD_DATA) gevrModNetReceive(mod, slot_id < GEVR_MAX_PLAYERS ? slot_id : -1, channel, payload, len);
+    else gevrModNetStopped(mod, slot_id < GEVR_MAX_PLAYERS ? slot_id : -1);
 }
 
 /* The host, turning a joiner away for its mod: which mod it plays ("" none) */
@@ -3633,6 +3742,7 @@ static void netReceiveStageReady(ENetPeer *peer, struct netbuf *buf, size_t size
     s_lobby_state.slots[slot].loaded = 1;
     netBroadcastLobbyState();
     netReadyProgress();
+    if (!was_ready) gevrModApiPeerReady(slot);   /* a mod's peer_ready: the host may send it the mission's state */
     /* co-op: its guards and where to start (a mission under way), or the new host's slots */
     if (!was_ready || returning) { netCoopPlayerJoined(slot, returning); netHordeSend(slot); }
 }
@@ -3669,6 +3779,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
     switch (msg_type) {
         case NET_MSG_CLOCK: netReceiveClock(peer,slot_id,&buf);break;
         case NET_MSG_MOD_REQUIRED: netReceiveModRequired(peer, &buf); break;
+        case NET_MSG_MOD: netReceiveMod(peer, slot_id, data, size, &buf); break;
         case NET_MSG_HELLO: {
             if (!netIsHost()) break;
             if (peer->data) break;
