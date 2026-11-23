@@ -62,6 +62,7 @@ extern int VrGhostRace, VrSpeedrunTimer;   /* vr_settings_defaults.c */
 extern int VrPlayMode;
 extern int VrBeanModels, VrGexGuns, VrForcePull, VrAlly, VrThirdPerson, VrCampaign, VrMovementSpeed;
 extern int VrTeleport;   /* vr_settings_defaults.c: the Movement row's Teleport */
+extern s32 gevrHandReloadOn(void);   /* bondview2.c: Hand reload on, with guns that take it */
 extern const char gevrBuildId[];
 
 extern struct weapon_firing_animation_table *gevrPlayerBodyChooseAnim(struct player *pl, ChrRecord *chr, s32 crouchpos);
@@ -453,6 +454,7 @@ static u16 ghostRunFlags(void)
     /* the launcher's Movement speed (net_rules.h NET_MOVE_NORMAL is 0) */
     if (VrMovementSpeed != 0) f |= GEVR_GHF_SPEED;
     if (VrTeleport) f |= GEVR_GHF_TELEPORT;
+    f |= vr && gevrHandReloadOn() ? GEVR_GHF_HANDRELOAD : GEVR_GHF_BUTTONRELOAD;
     return f;
 }
 

@@ -968,7 +968,7 @@ static const Row s_rows[] = {
       .names = s_slotSizeNames, .count = 3, .def = NAN, .blocked = blockedSlots },
     { .label = "Show slots", .headset = 1, .tooltip = "Draw what the hips, chest and belt hold when you look down.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrBodySlotShow, .def = NAN, .blocked = blockedSlots },
-    { .label = "Hand reload WIP", .headset = 1, .tooltip = "Reload by hand: drop the magazine, push one in from your belt, rack the slide.", .kind = GEVR_SET_TOGGLE,
+    { .label = "Hand reload", .headset = 1, .tooltip = "Reload by hand: drop the magazine, push one in from your belt, rack the slide.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrManualReloading, .def = NAN, .blocked = blockedReload },
     { .label = "Grip use", .headset = 1, .tooltip = "Grip doors, buttons and switches to use them.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrGestureGripUse, .def = NAN, .blocked = blockedGripUse,

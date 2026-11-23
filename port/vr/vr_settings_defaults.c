@@ -20,7 +20,9 @@
 
 /* --- Comfort and control options ---------------------------------------- */
 
-int  VrManualReloading    = 0;      /* reload by gesture rather than automatically (int: game code reads it) */
+/* reload by gesture rather than automatically (int: game code reads it). On by default
+ * since v0.5.26: it works on the original guns, GoldenEye X's and Bean's (owner, 2026-11-23). */
+int  VrManualReloading    = 1;
 int  VrMotionThrowing     = 1;      /* throw grenades, knives and mines by arm motion (int: game code reads it) */
 float VrMotionThrowPitch  = 0.0f;   /* vertical pitch offset in degrees for motion throws */
 float VrMotionThrowGazeAssist = 0.50f; /* 0..1 gaze direction assist for overhand throws */

@@ -296,9 +296,9 @@ int main(void)
     /* hand reload has magazines to take with every model set of GoldenEye's own art; a ROM hack's
      * own guns under GoldenEye's names have none (gevr_n64mag.h) */
     VrGexGuns = 0;
-    check(gevrSettingBlocked(find("Hand reload WIP")) == NULL, "hand reload works on GoldenEye's own guns");
+    check(gevrSettingBlocked(find("Hand reload")) == NULL, "hand reload works on GoldenEye's own guns");
     s_campaign = 1;   /* GEVR_CAMPAIGN_GF64 */
-    check(gevrSettingBlocked(find("Hand reload WIP")) != NULL, "hand reload is not for a hack's own guns");
+    check(gevrSettingBlocked(find("Hand reload")) != NULL, "hand reload is not for a hack's own guns");
     /* ... and GoldenEye X's guns are not for a hack either: its row cannot be switched on there */
     check(gevrSettingBlocked(find("GoldenEye X")) != NULL, "GoldenEye X's guns are blocked in a hack campaign");
     s_campaign = 0;

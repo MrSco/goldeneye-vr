@@ -19587,6 +19587,12 @@ static s32 gevrHandReloadBase(void)
         && (!netIsActive() || get_cur_playernum() == netGetLocalSlot());
 }
 
+/* gevr_ghost.c: a ghost run notes how the player reloaded, by hand or with the button */
+s32 gevrHandReloadOn(void)
+{
+    return gevrHandReloadEnabled();
+}
+
 /* gunfire.c and lv.c: the local player reloads by hand. With Bean's models
  * that is while a gun is out. */
 s32 gevrHandReloadActive(void)
