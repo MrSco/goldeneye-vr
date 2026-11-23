@@ -33,6 +33,7 @@
 
 #include "gevr_bean_import.h"
 #include "gevr_bean_log.h"
+#include "gevr_icloud.h"
 
 #include <stdarg.h>
 #include <stdint.h>
@@ -1545,6 +1546,7 @@ int gevrBeanImportStream(FILE *src, const char *dest, char *msg, size_t msgLen)
 	GEVR_BEAN_LOG("bean import: %d files, %llu MB%s%s", j.written, (unsigned long long)(j.total >> 20),
 			j.failed ? ": " : "", j.failed ? msg : "");
 	s_percent = 100;
+	if (!j.failed) gevrCloudKick();   /* a new pack: iCloud may carry it (port/ios/ios_icloud.mm) */
 
 	return j.failed ? -1 : j.written;
 }

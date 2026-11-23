@@ -3,6 +3,7 @@
 #include "gevr_romcheck.h"
 #include "gevr_romlayout.h"
 #include "gevr_bean.h"
+#include "gevr_icloud.h"
 #include "gevr_bean_ce.h"
 #include "gevr_oddjobhat.h"
 /*
@@ -3482,6 +3483,7 @@ extern "C" void gevrLauncherRun(void)
                 if (r.good && rename(picked.c_str(), (dataDir() + "/ge.z64").c_str()) == 0) {
                     message = "ROM chosen.";
                     romError = false;
+                    gevrCloudKick();   // to the player's other Apple devices
                     vr_log("launcher: picked ROM adopted");
                 } else {
                     message = r.good ? "Could not replace the ROM in the data folder." :
@@ -3501,6 +3503,7 @@ extern "C" void gevrLauncherRun(void)
                     && rename(r.path.c_str(), (dir + "ge.z64").c_str()) == 0) {
                     message = "Found " + r.path.substr(dir.size()) + " - using it.";
                     romError = false;
+                    gevrCloudKick();
                     launcherSession.romSelectionFinished();
                     vr_log("launcher: renamed %s to ge.z64", r.path.c_str());
                     active = activeRomPath();
@@ -3779,6 +3782,17 @@ extern "C" void gevrLauncherRun(void)
                 ImGui::SameLine();
                 ImGui::TextDisabled("%s", others[i].path.c_str());
                 ImGui::PopID();
+            }
+            {
+                // iCloud on the Apple builds (port/ios/ios_icloud.mm): a ROM from another device, progress
+                char cloud[192];
+                if (gevrCloudTakeMessage(cloud, sizeof(cloud))) {
+                    message = cloud;
+                    romError = false;
+                    scan();
+                }
+                gevrCloudStatus(cloud, sizeof(cloud));
+                if (cloud[0]) ImGui::TextDisabled("%s", cloud);
             }
             if (!message.empty()) ImGui::TextWrapped("%s", message.c_str());
             ImGui::EndChild();

@@ -1,5 +1,8 @@
 #include "gevr_gexweapon.h"
 #include "gevr_romlayout.h"
+#include "gevr_icloud.h"
+
+extern "C" int VrICloudSync, VrICloudPacks;   // gevr_settings.c
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -245,6 +248,7 @@ static void vrSettingsWrite(const std::string &text)
         }
 #endif
     }
+    gevrCloudFileSaved(VR_INI_PATH);   // iCloud on the Apple builds (port/ios/ios_icloud.mm)
 }
 
 // A multiplayer name for a player who hasn't chosen one. The Meta account name
@@ -399,6 +403,8 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "; 3 = Touch Plus (Quest 3 and 3S), 4 = Touch Pro.\n");
     iniPrintf(f, "TouchControllers=%d\n", VrTouchModel);
     iniPrintf(f, "ShowStats=%d\n", VrShowStats ? 1 : 0);
+    iniPrintf(f, "; Apple builds: iCloud sync of settings, saves and ROMs; and the texture packs\n");
+    iniPrintf(f, "ICloudSync=%d\nICloudPacks=%d\n", VrICloudSync ? 1 : 0, VrICloudPacks ? 1 : 0);
     iniPrintf(f, "; 1 = the mission time in the lower left, to the hundredth (as the debrief counts it).\n");
     iniPrintf(f, "SpeedrunTimer=%d\n", VrSpeedrunTimer ? 1 : 0);
     iniPrintf(f, "; 1 = race your best run of each mission as a see-through Bond (files/ghosts).\n");
@@ -1038,6 +1044,8 @@ extern "C" void vrSettingsLoad(void)
                  * near its limit (2026-10-30): a saved 48 keeps 24 */
                 VrBodiesStay = ival >= 24 ? 24 : ival >= 12 ? 12 : 0;
             else if (strcmp(key, "ShowStats") == 0) VrShowStats = (ival != 0);
+            else if (strcmp(key, "ICloudSync") == 0) VrICloudSync = (ival != 0);
+            else if (strcmp(key, "ICloudPacks") == 0) VrICloudPacks = (ival != 0);
             else if (strcmp(key, "SpeedrunTimer") == 0) VrSpeedrunTimer = (ival != 0);
             else if (strcmp(key, "GhostRace") == 0) VrGhostRace = (ival != 0);
             else if (strcmp(key, "LiveSplit") == 0) VrLiveSplit = (ival != 0);
