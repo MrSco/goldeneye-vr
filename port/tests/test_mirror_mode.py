@@ -68,7 +68,7 @@ void gevrFootstepsBind() {}
 static void gevrRomBindFileTable() { ++retailBinds; }
 static int gevrRomCheckFiles(void*, unsigned, char*, size_t) { return 1; }
 /* mod campaigns (gevr_modpack.c) are test_modpack.py's: none here */
-struct ModStub { struct { char id[33]; } m; };
+struct ModStub { struct { char id[33]; int coop; } m; };
 static void gevrModBoot() {}
 static void gevrModBaseFailed(const char*) {}
 static const ModStub *gevrModActive() { return nullptr; }

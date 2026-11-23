@@ -88,6 +88,11 @@ void gevrModStartup(void);
 void gevrModBoot(void);
 /* romdataInit, when the cartridge did not load: the mod is off too. */
 void gevrModBaseFailed(const char *campaignName);
+/* The mod campaign this machine plays, for the lobby's content check and
+ * presence: this run's, or before the game starts the launcher's choice
+ * (VrCampaignMod), as gevrRomPlayCampaign does for the cartridge. NULL: none,
+ * or one that can't be read. */
+const gevrModInfo *gevrModPlay(void);
 /* The mod campaign this run plays, or NULL. */
 const gevrModInfo *gevrModActive(void);
 

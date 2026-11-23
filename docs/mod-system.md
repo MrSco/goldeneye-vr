@@ -174,13 +174,28 @@ files.sha256        checksum list of every other file
   content check (`net_protocol.h` `NET_CONTENT_*`) gets one part: the mod's
   content ID. The host refuses a joiner without the same mod, and says
   which mod and version is needed.
+  - The part (`NET_CONTENT_MOD`) is the content ID's first 8 bytes, or 1
+    for "no mod". Every peer sends it (protocol 28), since a part that is 0
+    on either side counts as unknown and is let through.
+  - A host with a mod refuses a joiner without it or with another build;
+    a host without one refuses a joiner with one. The mod is named before
+    the campaign, as it names its cartridge too.
+  - Before the refusal the host sends `NET_MSG_MOD_REQUIRED` (its mod's id,
+    title and version), so the joiner reads "this party plays the mod
+    Tactical 1.0.0: install it on the Mods page", "...and yours is 0.9", "a
+    different build", or "this party plays without a mod".
+  - Before the game starts, the launcher's chosen mod is the one checked
+    (`gevrModPlay`), as the chosen cartridge is.
+- The internet lobby lists a mod campaign's game under its cartridge (the
+  lobby service is unchanged); friends see the mod's title in presence.
 - An `overlay` mod that changes only looks is not checked: like Bean or HD
   today, it doesn't matter what another player sees. An overlay that changes
   rules declares `"affectsPlay": true` and is checked like a campaign mod.
-- Mods with `"coop": false` aren't offered in online co-op.
-- Until the content check knows mods (plan step 2c), a mod campaign plays
-  solo: the Online page says why, and neither the launcher's nor the
-  in-game Friends panel can join or invite.
+- Mods with `"coop": false` aren't offered in online co-op: the Online
+  page says the campaign is for one player, and neither Friends panel
+  joins or invites. A mod campaign plays co-op only, like a hack's.
+- A dedicated server's mod campaign comes from `CampaignMod=` in its
+  goldeneye-vr.ini, checked at its start like any other.
 - Deathmatch and Horde: campaign mods stay out (those modes use GoldenEye's
   maps and tables). An overlay that changes rules works in any mode **only
   when every player has the same mod** (same content ID, checked in the

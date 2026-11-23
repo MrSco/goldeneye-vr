@@ -13,7 +13,7 @@
 #include "gevr_pull.h"
 
 #define GEVR_NET_MAGIC           0x47455652  /* "GEVR" */
-#define GEVR_NET_VERSION         27  /* 27: the Community Edition's fixes to GoldenEye's own stage setups and tiles (gevr_romswap.c gevrRomFixData), which change what peers load; 26: force pull, catch and disarm (NET_MSG_FORCE_PULL); 25: Horde briefcase powers and consumable buys; 24: all gameplay maps in Horde and Deathmatch (older peers reject the expanded stage set); 23: bounded Horde ammo drops and pickup grants, the Horde map, starting wave and two-gun lists; 22: Horde and guard generations, tracked head/both wrists and torso yaw for multiplayer IK, the synchronized PvE companion (all peers must update); 21: host movement speed; 20: v0.4.14, the hit immunity rule's bits (NET_FUN_HIT_IMMUNITY, NET_FUN_HIT_EVERY), which v0.4.11-v0.4.13 refuse, and soft collision; 19: the No radar match rule (NET_FUN_NO_RADAR), which v0.4.11 rejects, and bots (the match config's bot fields, the lobby slot's is_bot); 18: v0.4.6, a match config may name Statue (22) and Cradle (41), which v0.4.5 rejects; 17: v0.4.0, the released form of 16 (16 named only unreleased test builds, whose packet layout changed under it); 16: eight player slots and the host's player count; co-op mode (mode, difficulty in the match config; guard, mission, menu and revive messages); 15: clock synchronization, timestamped shots, epoch/life IDs; 14: next-round fun settings; 13: team voice routing; 12: friendly fire and authoritative ammo transforms; 11: voice modes, pending/active teams, elimination, ping; 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
+#define GEVR_NET_VERSION         28  /* 28: the content check's mod part (NET_CONTENT_MOD), which every peer sends, so a mod campaign's party all play the same mod build; 27: the Community Edition's fixes to GoldenEye's own stage setups and tiles (gevr_romswap.c gevrRomFixData), which change what peers load; 26: force pull, catch and disarm (NET_MSG_FORCE_PULL); 25: Horde briefcase powers and consumable buys; 24: all gameplay maps in Horde and Deathmatch (older peers reject the expanded stage set); 23: bounded Horde ammo drops and pickup grants, the Horde map, starting wave and two-gun lists; 22: Horde and guard generations, tracked head/both wrists and torso yaw for multiplayer IK, the synchronized PvE companion (all peers must update); 21: host movement speed; 20: v0.4.14, the hit immunity rule's bits (NET_FUN_HIT_IMMUNITY, NET_FUN_HIT_EVERY), which v0.4.11-v0.4.13 refuse, and soft collision; 19: the No radar match rule (NET_FUN_NO_RADAR), which v0.4.11 rejects, and bots (the match config's bot fields, the lobby slot's is_bot); 18: v0.4.6, a match config may name Statue (22) and Cradle (41), which v0.4.5 rejects; 17: v0.4.0, the released form of 16 (16 named only unreleased test builds, whose packet layout changed under it); 16: eight player slots and the host's player count; co-op mode (mode, difficulty in the match config; guard, mission, menu and revive messages); 15: clock synchronization, timestamped shots, epoch/life IDs; 14: next-round fun settings; 13: team voice routing; 12: friendly fire and authoritative ammo transforms; 11: voice modes, pending/active teams, elimination, ping; 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
 #define GEVR_DEFAULT_PORT        27007
 #define GEVR_DISCOVERY_PORT      27008
 #define GEVR_MAX_PLAYERS         8   /* protocol 16; every slot is a game player number (src/bondconstants.h MAX_PLAYER_COUNT) */
@@ -122,6 +122,10 @@ typedef enum {
     NET_MSG_PLATFORMS = 62,     /* Host -> all: u8 n, then n x u8 NET_PLATFORM_* by slot (the roster's "Device" column) */
     /* Additive, no bump: an older build ignores the type, sends none, and its row offers no Add. */
     NET_MSG_FRIEND_CODE = 63,   /* Player -> host -> all: str the slot's friend code, "" none (the roster's Add friend) */
+    /* Host -> a joiner it is turning away for its mod (NET_CONTENT_MOD), just before
+     * the disconnect: str id, str title, str version of the host's mod campaign
+     * ("" id: the host plays none), so the refusal can say which to install. */
+    NET_MSG_MOD_REQUIRED = 64,
 } NetMsgType;
 
 #define NET_DISCONNECT_KICKED 0x47454b49u
@@ -136,6 +140,12 @@ typedef enum {
  */
 #define NET_CONTENT_ROM 1u              /* the cartridge's bytes (gevr_romload.c): the hack's in a hack campaign */
 #define NET_CONTENT_CAMPAIGN 2u         /* the campaign + 1 (gevr_romlayout.h GEVR_CAMPAIGN_*): co-op in a hack */
+/* A mod campaign's content ID (docs/mod-system.md: SHA-256 of its files.sha256),
+ * its first 8 bytes, never 0 or 1; NET_CONTENT_MOD_NONE without one. Sent by
+ * every peer since protocol 28: 0 would be "unknown" and let anyone in. A host
+ * turning a joiner away for it says first which mod (NET_MSG_MOD_REQUIRED). */
+#define NET_CONTENT_MOD 3u
+#define NET_CONTENT_MOD_NONE 1u
 #define NET_CONTENT_MAX_PARTS 8
 #define NET_DISCONNECT_CONTENT 0x47454300u   /* | part */
 /* A joiner on another campaign: | the host's campaign. An older joiner sees an

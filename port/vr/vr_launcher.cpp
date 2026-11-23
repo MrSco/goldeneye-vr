@@ -1172,6 +1172,7 @@ struct LauncherModCampaign {
     std::string id, title, by, version;
     std::string reason;   // why it can't start now ("needs Goldfinger 64"); "" when it can
     int base = 0;
+    bool coop = false;    // its manifest offers online co-op
 };
 static std::vector<LauncherModCampaign> s_modCampaigns;
 
@@ -2301,7 +2302,7 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
             if (ImGui::IsItemHovered()) gevrTooltip("Only players in VR can join: not a PC, phone or tablet, or a headset's flat screen.");
         }
         ImGui::TextUnformatted("Mode:");ImGui::SameLine();
-        const bool hackCoopOnly = VrCampaign != GEVR_CAMPAIGN_GE;   // a hack campaign: co-op only
+        const bool hackCoopOnly = VrCampaign != GEVR_CAMPAIGN_GE || VrCampaignMod[0];   // a hack or mod campaign: co-op only
         ImGui::BeginDisabled(hackCoopOnly);
         if (ImGui::RadioButton("Deathmatch", VrMpMode == NET_MODE_DEATHMATCH)) { VrMpMode=NET_MODE_DEATHMATCH;gevrHostChoiceChanged(); }
         ImGui::EndDisabled();
@@ -2400,11 +2401,11 @@ static void gevrFriendsSidebarWindow(bool onlineGame, const ImVec4 &gold, const 
     const char *lobby = netIsActive() ? netGetLobbyCode() : "";
     GevrFriendsUiContext ctx;
     ctx.canJoin = onlineGame && !netIsActive();
-    ctx.joinHint = !onlineGame ? (VrCampaignMod[0] ? "Mod campaigns play solo for now."
+    ctx.joinHint = !onlineGame ? (VrCampaignMod[0] ? "This mod campaign is for one player."
                                                    : "Online play needs the chosen campaign's ROM installed.")
                                : "Leave your lobby to join another.";
     ctx.canInvite = onlineGame && (!netIsActive() || lobby[0]);
-    ctx.inviteHint = !onlineGame ? (VrCampaignMod[0] ? "Mod campaigns play solo for now."
+    ctx.inviteHint = !onlineGame ? (VrCampaignMod[0] ? "This mod campaign is for one player."
                                                      : "Online play needs the chosen campaign's ROM installed.")
                      : lobby[0] ? "Invite them into your lobby."
                      : netIsActive() ? "This game has no internet lobby to invite into."
@@ -2530,6 +2531,7 @@ static void gevrLauncherModsRescan()
                 c.by = info.m.by;
                 c.version = info.m.version;
                 c.base = base = info.m.base;
+                c.coop = info.m.coop != 0;
                 s_modCampaigns.push_back(c);
             }
         } else {
@@ -2688,14 +2690,17 @@ static std::string gevrLauncherModFooter()
     if (s_modInstall.running) return "START waits for the mod being installed (Mods page).";
     if (!m) return std::string();
     if (!m->reason.empty()) return m->title + " " + m->reason + ": add its ROM with this menu.";
-    return m->title + " by " + m->by + ": solo, with its own save.";
+    return m->title + " by " + m->by + (m->coop ? ": solo or co-op online (every player needs this mod), its own save."
+                                                : ": for one player, with its own save.");
 }
 
-// Online play: every cartridge's campaign; a mod campaign plays solo until the
-// lobby's content check knows mods (docs/mod-system.md, plan step 2c).
+// Online play: every cartridge's campaign, and a mod campaign whose manifest
+// offers co-op. The lobby's content check (net_core.c NET_CONTENT_MOD) holds
+// every player to the same mod build, and names it to one who hasn't it.
 static bool gevrLauncherCampaignOnline()
 {
-    return gevrCampaignCoop(VrCampaign) && !VrCampaignMod[0];
+    const LauncherModCampaign *m = gevrLauncherModCampaign(VrCampaignMod);
+    return gevrCampaignCoop(VrCampaign) && (!VrCampaignMod[0] || (m && m->coop));
 }
 static struct {
     int joinMethod = 0;   // 0 = Public Internet, 1 = Private Code, 2 = LAN Games, 3 = Direct IP
@@ -2895,7 +2900,7 @@ void gevrMultiplayerTick(GevrLauncherTabs &tabs, bool &startMatch, bool romReady
     }
     // A hack campaign plays co-op only: deathmatch, Horde and bots use GoldenEye's
     // multiplayer maps and tables, which a hack's levels do not fit.
-    if (VrCampaign != GEVR_CAMPAIGN_GE && VrMpMode != NET_MODE_COOP && !netIsActive()) VrMpMode = NET_MODE_COOP;
+    if ((VrCampaign != GEVR_CAMPAIGN_GE || VrCampaignMod[0]) && VrMpMode != NET_MODE_COOP && !netIsActive()) VrMpMode = NET_MODE_COOP;
     vrEnsurePlayerName(); // here, not at launcher start: the settings load on the first frame
     gevrJoinAddressTick();
     for (int i = 0; i < 32; ++i) {
@@ -3060,10 +3065,10 @@ void gevrMultiplayerTick(GevrLauncherTabs &tabs, bool &startMatch, bool romReady
 }
 
 void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad) {
-    if (VrCampaignMod[0] && !netIsActive()) {
-        // a mod campaign plays solo until the lobby's content check knows mods (gevrLauncherCampaignOnline)
-        ImGui::TextWrapped("Mod campaigns play solo for now: online play needs every player to have the same mod, "
-                           "which the lobby can't check yet. Choose a cartridge's own campaign beside START to play online.");
+    if (VrCampaignMod[0] && !gevrLauncherCampaignOnline() && !netIsActive()) {
+        // a mod campaign whose manifest offers no co-op (gevrLauncherCampaignOnline)
+        ImGui::TextWrapped("This mod campaign is for one player: its author made it without online co-op. "
+                           "Choose another campaign beside START to play online.");
         return;
     }
     auto &joinMethod = s_mp.joinMethod;

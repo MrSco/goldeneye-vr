@@ -62,6 +62,9 @@ static u64 fixture_rom_hash = 0x1122334455667788ull;
 u64 gevrRomContentHash(void) { return fixture_rom_hash; }
 static int fixture_campaign;   /* GEVR_CAMPAIGN_GE */
 int gevrRomPlayCampaign(void) { return fixture_campaign; }
+static gevrModInfo fixture_mod;   /* the mod campaign this machine plays (gevr_modpack.c gevrModPlay) */
+static int fixture_mod_on;
+const gevrModInfo *gevrModPlay(void) { return fixture_mod_on ? &fixture_mod : NULL; }
 void vrSettingsSave(void) {}
 void netVoiceForgetSlot(uint8_t slot) { (void)slot;voice_resets++; }
 void netCoopHostLost(int oldhost,int elected) { (void)oldhost;(void)elected; }
@@ -607,7 +610,7 @@ EXPORT int test_core_content_check(void) {
     u8 raw[32];
     struct netbuf w = { .data = raw, .size = sizeof(raw) }, r;
     netbufStartWrite(&w);netContentWrite(&w);
-    CHECK(!w.error && w.wp == 19);
+    CHECK(!w.error && w.wp == 28);   /* the ROM, the campaign and the mod */
     netbufStartReadData(&r, raw, w.wp);CHECK(netContentDiffers(&r) == 0);
     fixture_rom_hash ^= 1;
     netbufStartReadData(&r, raw, w.wp);CHECK(netContentDiffers(&r) == NET_CONTENT_ROM);
@@ -651,6 +654,98 @@ EXPORT int test_core_content_check(void) {
     CHECK(netClientContentRefused(&hit_peers[0], NET_DISCONNECT_CAMPAIGN | 2u));
     why = netTakeJoinRefusal();
     CHECK(why && strstr(why, "Tomorrow Never Dies 64") && strstr(why, "START"));
+    return 0;
+}
+/* The mod part (NET_CONTENT_MOD, docs/mod-system.md): every peer sends one, a
+ * mod or none, so a party plays one mod build. The mod is named before the
+ * campaign, and the joiner turned away hears which mod (NET_MSG_MOD_REQUIRED). */
+static void modRefusal(const char *packet, size_t size) {
+    struct netbuf b;
+    netbufStartReadData(&b, packet + 8, (u32)(size - 8));   /* past magic, version, type, slot */
+    fixture(0);s_local_slot = 2;s_host_slot = 0;s_state = NET_STATE_CONNECTING;s_server_peer = &hit_peers[0];
+    netReceiveModRequired(&hit_peers[0], &b);
+}
+EXPORT int test_core_content_mod(void) {
+    u8 raw[40], sent[256];
+    size_t sentSize;
+    struct netbuf w = { .data = raw, .size = sizeof(raw) }, r;
+    const char *why;
+    fixture_rom_hash = 0x1122334455667788ull;fixture_campaign = 0;fixture_mod_on = 0;
+    memset(&fixture_mod, 0, sizeof(fixture_mod));
+    strcpy(fixture_mod.m.id, "tactical");strcpy(fixture_mod.m.title, "Tactical");strcpy(fixture_mod.m.version, "1.0.0");
+    fixture_mod.m.kind = GEVR_MOD_CAMPAIGN;fixture_mod.m.coop = 1;
+    for (int i = 0; i < 32; i++) fixture_mod.content[i] = (u8)(0xA0 + i);
+    /* none on either side: both send the part (1), nothing differs */
+    netbufStartWrite(&w);netContentWrite(&w);
+    CHECK(!w.error && w.wp == 28 && netModPart() == NET_CONTENT_MOD_NONE);
+    netbufStartReadData(&r, raw, w.wp);CHECK(netContentDiffers(&r) == 0);
+    /* a joiner without the host's mod; then one with a mod at a host without */
+    fixture_mod_on = 1;
+    netbufStartReadData(&r, raw, w.wp);CHECK(netContentDiffers(&r) == NET_CONTENT_MOD);
+    netbufStartWrite(&w);netContentWrite(&w);
+    netbufStartReadData(&r, raw, w.wp);CHECK(netContentDiffers(&r) == 0);   /* the same build */
+    fixture_mod_on = 0;
+    netbufStartReadData(&r, raw, w.wp);CHECK(netContentDiffers(&r) == NET_CONTENT_MOD);
+    /* another build of the same mod */
+    fixture_mod_on = 1;fixture_mod.content[3] ^= 1;
+    netbufStartReadData(&r, raw, w.wp);CHECK(netContentDiffers(&r) == NET_CONTENT_MOD);
+    fixture_mod.content[3] ^= 1;
+    /* a mod on another cartridge: the mod is said, not the campaign nor its ROM */
+    fixture_campaign = 1;fixture_rom_hash ^= 8;fixture_mod.content[0] ^= 1;
+    netbufStartReadData(&r, raw, w.wp);CHECK(netContentDiffers(&r) == NET_CONTENT_MOD);
+    fixture_campaign = 0;fixture_rom_hash ^= 8;fixture_mod.content[0] ^= 1;
+    CHECK(strcmp(netContentPartName(NET_CONTENT_MOD), "mod") == 0);
+    /* a content ID starting with 0 or 1 still reads as neither "none" nor "unknown" */
+    {
+        const gevrModInfo keep = fixture_mod;
+        memset(fixture_mod.content, 0, 8);CHECK(netModPart() == 2);
+        fixture_mod.content[0] = 1;CHECK(netModPart() == 3);
+        fixture_mod = keep;
+    }
+    /* the host's word to the joiner it turns away, and what the joiner is told */
+    sent_size = 0;netSendModRequired(&hit_peers[1]);
+    CHECK(sent_size > 8 && sent_data[6] == NET_MSG_MOD_REQUIRED);
+    sentSize = sent_size;memcpy(sent, sent_data, sentSize);
+    fixture_mod_on = 0;   /* the joiner has none */
+    modRefusal((const char *)sent, sentSize);
+    CHECK(netClientContentRefused(&hit_peers[0], NET_DISCONNECT_CONTENT | NET_CONTENT_MOD));
+    why = netTakeJoinRefusal();
+    CHECK(why && strstr(why, "the mod Tactical 1.0.0") && strstr(why, "Mods page") && strstr(why, "beside START"));
+    fixture_mod_on = 1;strcpy(fixture_mod.m.version, "0.9");   /* an older version of it */
+    modRefusal((const char *)sent, sentSize);
+    CHECK(netClientContentRefused(&hit_peers[0], NET_DISCONNECT_CONTENT | NET_CONTENT_MOD));
+    why = netTakeJoinRefusal();
+    CHECK(why && strstr(why, "Tactical 1.0.0, and yours is 0.9"));
+    strcpy(fixture_mod.m.version, "1.0.0");   /* the same version, another build */
+    modRefusal((const char *)sent, sentSize);
+    CHECK(netClientContentRefused(&hit_peers[0], NET_DISCONNECT_CONTENT | NET_CONTENT_MOD));
+    why = netTakeJoinRefusal();
+    CHECK(why && strstr(why, "different build"));
+    /* a host with none */
+    fixture_mod_on = 0;sent_size = 0;netSendModRequired(&hit_peers[1]);
+    sentSize = sent_size;memcpy(sent, sent_data, sentSize);
+    fixture_mod_on = 1;
+    modRefusal((const char *)sent, sentSize);
+    CHECK(netClientContentRefused(&hit_peers[0], NET_DISCONNECT_CONTENT | NET_CONTENT_MOD));
+    why = netTakeJoinRefusal();
+    CHECK(why && strstr(why, "without a mod"));
+    /* no word from the host: still refused, said plainly */
+    fixture(0);s_local_slot = 2;s_host_slot = 0;s_state = NET_STATE_CONNECTING;s_server_peer = &hit_peers[0];
+    CHECK(netClientContentRefused(&hit_peers[0], NET_DISCONNECT_CONTENT | NET_CONTENT_MOD));
+    why = netTakeJoinRefusal();
+    CHECK(why && strstr(why, "mod is not the same"));
+    /* a hostile word: unprintable bytes become '?', and nothing runs past the packet */
+    {
+        u8 bad[64];
+        struct netbuf b = { .data = bad, .size = sizeof(bad) };
+        netbufStartWrite(&b);
+        netbufWriteU32(&b, GEVR_NET_MAGIC);netbufWriteU16(&b, GEVR_NET_VERSION);netbufWriteU8(&b, NET_MSG_MOD_REQUIRED);netbufWriteU8(&b, 0);
+        netbufWriteStr(&b, "evil");netbufWriteStr(&b, "Ta\x01" "ctical");   /* split: "\x01c" would be one escape */
+        netbufWriteU16(&b, 40);netbufWriteData(&b, "1.0", 3);   /* a version longer than the packet */
+        modRefusal((const char *)bad, b.wp);
+        CHECK(strcmp(s_refusal_mod_title, "Ta?ctical") == 0 && !s_refusal_mod_known);
+    }
+    fixture_mod_on = 0;
     return 0;
 }
 /* Who plays flat: the host's count for the lobby list and the LAN beacon,

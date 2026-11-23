@@ -119,8 +119,8 @@ static const char *const gevrRomNames[] = {
 /* gevrCampaignCoop for callers that cannot include gevr_romlayout.h (vr_pause_menu.cpp) */
 int gevrCampaignCoopOk(int campaign)
 {
-	/* a mod campaign plays solo until the lobby's content check knows mods (docs/mod-system.md, 2c) */
-	return gevrCampaignCoop(campaign) && !gevrModActive();
+	/* a mod campaign: when its manifest offers co-op (the lobby's content check holds the party to it) */
+	return gevrCampaignCoop(campaign) && (!gevrModActive() || gevrModActive()->m.coop);
 }
 
 int gevrRomPlayCampaign(void)

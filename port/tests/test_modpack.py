@@ -346,6 +346,22 @@ def main():
         check(run("load", "tactical").startswith("OK tactical"), "an interrupted update gets its old version back")
         shutil.rmtree(mods / "a-mod")
 
+        # ---- the mod a machine plays before the game starts (the lobby's content check) ----
+        check(run("play", "nope") == "play=- - -", "play: a choice not installed")
+        listed1 = make_zip(zips / "play1.zip")
+        run("install", zips / "play1.zip")
+        same_size = {**MANIFEST, "version": "1.0.1"}   # files.sha256 keeps its size: only a digit changes
+        listed2 = make_zip(zips / "play2.zip", manifest=same_size)
+        check(len(listed1) == len(listed2), "the two builds' lists are the same size")
+        out = run("play", "tactical", zips / "play2.zip").splitlines()
+        check(out == ["play=tactical 1.0.0 " + hashlib.sha256(listed1).hexdigest(),
+                      "play=tactical 1.0.1 " + hashlib.sha256(listed2).hexdigest()],
+              "play: the choice, then an update read at once: " + str(out))
+        check(run("install", z("play-overlay", manifest={**MANIFEST, "id": "looks", "kind": "overlay"})).startswith("OK looks"),
+              "an overlay installs")
+        check(run("play", "looks") == "play=- - -", "play: an overlay is no campaign")
+        run("install", zips / "good.zip")
+
         # ---- the run's mod campaign ----
         out = run("boot", "tactical", 0)
         check("campaign=1 active=tactical setting=tactical" in out, "a mod campaign picks its cartridge: " + out)

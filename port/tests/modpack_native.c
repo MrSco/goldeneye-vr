@@ -222,6 +222,27 @@ int main(int argc, char **argv)
         printf("\n");
         return 0;
     }
+    if (!strcmp(cmd, "play") && argc > 2) {
+        /* play <CampaignMod> [zip]: the launcher's choice before the game starts
+         * (the lobby's content check), and again after an update installed in
+         * this process, within the same second */
+        gevrModInfo info;
+        const gevrModInfo *mod;
+        char sum[65];
+
+        strncpy(VrCampaignMod, argv[2], GEVR_MOD_ID_MAX);
+        VrCampaignMod[GEVR_MOD_ID_MAX] = '\0';
+        mod = gevrModPlay();
+        if (mod) hex(mod->content, sum);
+        printf("play=%s %s %s\n", mod ? mod->m.id : "-", mod ? mod->m.version : "-", mod ? sum : "-");
+        if (argc > 3) {
+            if (gevrModInstallZip(argv[3], &info, NULL, NULL, why, sizeof(why)) != 0) printf("FAIL %s\n", why);
+            mod = gevrModPlay();
+            if (mod) hex(mod->content, sum);
+            printf("play=%s %s %s\n", mod ? mod->m.id : "-", mod ? mod->m.version : "-", mod ? sum : "-");
+        }
+        return 0;
+    }
     if (!strcmp(cmd, "boot") && argc > 3) {
         /* boot <CampaignMod or -> <Campaign> [basefail] */
         strncpy(VrCampaignMod, strcmp(argv[2], "-") ? argv[2] : "", GEVR_MOD_ID_MAX);

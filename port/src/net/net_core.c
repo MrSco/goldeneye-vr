@@ -32,6 +32,7 @@
 #include "snd.h"
 #include "system.h"
 #include "gevr_romlayout.h"   /* the campaign: the content check and co-op in a hack (gevrCampaignCoop) */
+#include "gevr_modpack.h"     /* a mod campaign: the content check's mod part (gevrModPlay) */
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -1140,10 +1141,21 @@ const char *netGetSlotAppVersion(int slot) {
     return s_slot_app_version[slot];
 }
 
+/* NET_CONTENT_MOD: the mod campaign's content ID, its first 8 bytes, never 0 or
+ * 1; NET_CONTENT_MOD_NONE without one. */
+static uint64_t netModPart(void) {
+    const gevrModInfo *mod = gevrModPlay();
+    uint64_t v = 0;
+    if (!mod) return NET_CONTENT_MOD_NONE;
+    for (int i = 0; i < 8; i++) v |= (uint64_t)mod->content[i] << (8 * i);
+    return v > NET_CONTENT_MOD_NONE ? v : v + 2;
+}
+
 /* The content check (net_protocol.h NET_CONTENT_*): this machine's parts. */
 static uint64_t netContentPart(uint32_t part) {
     extern u64 gevrRomContentHash(void);   /* gevr_romload.c */
     if (part == NET_CONTENT_CAMPAIGN) return (uint64_t)gevrRomPlayCampaign() + 1u;
+    if (part == NET_CONTENT_MOD) return netModPart();
     return part == NET_CONTENT_ROM ? gevrRomContentHash() : 0;
 }
 
@@ -1159,13 +1171,14 @@ static const char *netCampaignName(int campaign) {
 static const char *netContentPartName(uint32_t part) {
     static char rom[48];
     if (part == NET_CONTENT_CAMPAIGN) return "campaign";
+    if (part == NET_CONTENT_MOD) return "mod";
     if (part != NET_CONTENT_ROM) return "game content";
     snprintf(rom, sizeof(rom), "%s ROM", netCampaignName(gevrRomPlayCampaign()));
     return rom;
 }
 
 static void netContentWrite(struct netbuf *buf) {
-    static const uint32_t parts[] = { NET_CONTENT_ROM, NET_CONTENT_CAMPAIGN };
+    static const uint32_t parts[] = { NET_CONTENT_ROM, NET_CONTENT_CAMPAIGN, NET_CONTENT_MOD };
     netbufWriteU8(buf, (uint8_t)(sizeof(parts) / sizeof(parts[0])));
     for (size_t i = 0; i < sizeof(parts) / sizeof(parts[0]); i++) {
         const uint64_t v = netContentPart(parts[i]);
@@ -1244,7 +1257,7 @@ static const char *netInputClassName(uint8_t c) {
 static uint32_t netContentDiffers(struct netbuf *buf) {
     if (netbufReadLeft(buf) < 1) return 0;
     int n = netbufReadU8(buf);
-    uint32_t first = 0;
+    uint32_t first = 0, campaign = 0, mod = 0;
     for (int i = 0; i < n && netbufReadLeft(buf) >= 9; i++) {
         const uint32_t part = netbufReadU8(buf);
         uint64_t theirs = netbufReadU32(buf);
@@ -1252,15 +1265,76 @@ static uint32_t netContentDiffers(struct netbuf *buf) {
         if (i >= NET_CONTENT_MAX_PARTS) continue;
         const uint64_t ours = netContentPart(part);
         if (!buf->error && part && theirs && ours && theirs != ours) {
-            if (part == NET_CONTENT_CAMPAIGN) return part;
-            if (!first) first = part;
+            if (part == NET_CONTENT_MOD) mod = part;
+            else if (part == NET_CONTENT_CAMPAIGN) campaign = part;
+            else if (!first) first = part;
         }
     }
-    return first;
+    /* the mod is said first (it names its cartridge too), then the campaign
+     * (whose ROM differs as well) */
+    return mod ? mod : campaign ? campaign : first;
 }
 
 /* A join this host refused for its content: the launcher shows why. */
-static char s_join_refusal[128];
+static char s_join_refusal[256];
+
+/* NET_MSG_MOD_REQUIRED: the host's mod campaign, as the joiner it turned away heard it */
+static char s_refusal_mod_id[GEVR_MOD_ID_MAX + 1], s_refusal_mod_title[GEVR_MOD_TITLE_MAX + 1],
+    s_refusal_mod_version[GEVR_MOD_VERSION_MAX + 1];
+static bool s_refusal_mod_known;
+
+/* A string from a packet, kept to printable ASCII and to the packet's bytes */
+static void netReadPrintable(struct netbuf *buf, char *dst, size_t cap) {
+    const char *src = netbufReadStr(buf);
+    const char *end = (const char *)buf->data + buf->rp;
+    size_t n = 0;
+    while (src && src < end && *src && n + 1 < cap) {
+        dst[n++] = (*src >= 0x20 && *src < 0x7f) ? *src : '?';
+        src++;
+    }
+    dst[n] = '\0';
+}
+
+/* The host, turning a joiner away for its mod: which mod it plays ("" none) */
+static void netSendModRequired(ENetPeer *peer) {
+    const gevrModInfo *mod = gevrModPlay();
+    u8 raw[160];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    netbufStartWrite(&buf);
+    netbufWriteU32(&buf, GEVR_NET_MAGIC);netbufWriteU16(&buf, GEVR_NET_VERSION);
+    netbufWriteU8(&buf, NET_MSG_MOD_REQUIRED);netbufWriteU8(&buf, (uint8_t)s_local_slot);
+    netbufWriteStr(&buf, mod ? mod->m.id : "");
+    netbufWriteStr(&buf, mod ? mod->m.title : "");
+    netbufWriteStr(&buf, mod ? mod->m.version : "");
+    if (!buf.error) enet_peer_send(peer, NET_CHAN_RELIABLE, enet_packet_create(buf.data, buf.wp, ENET_PACKET_FLAG_RELIABLE));
+}
+
+static void netReceiveModRequired(ENetPeer *peer, struct netbuf *buf) {
+    if (netIsHost() || !peer || peer != s_server_peer) return;
+    netReadPrintable(buf, s_refusal_mod_id, sizeof(s_refusal_mod_id));
+    netReadPrintable(buf, s_refusal_mod_title, sizeof(s_refusal_mod_title));
+    netReadPrintable(buf, s_refusal_mod_version, sizeof(s_refusal_mod_version));
+    s_refusal_mod_known = !buf->error;
+}
+
+/* Why a mod turned this joiner away, and what to do about it */
+static void netModRefusalText(char *out, size_t n) {
+    const gevrModInfo *mine = gevrModPlay();
+    if (!s_refusal_mod_known)
+        snprintf(out, n, "Cannot join: this game's mod is not the same as yours.");
+    else if (!s_refusal_mod_id[0])
+        snprintf(out, n, "Cannot join: this party plays without a mod. Choose its campaign beside START.");
+    else if (mine && !strcmp(mine->m.id, s_refusal_mod_id) && strcmp(mine->m.version, s_refusal_mod_version) != 0)
+        snprintf(out, n, "Cannot join: this party plays %s %s, and yours is %s. Install theirs on the Mods page.",
+                 s_refusal_mod_title, s_refusal_mod_version, mine->m.version);
+    else if (mine && !strcmp(mine->m.id, s_refusal_mod_id))
+        snprintf(out, n, "Cannot join: your %s %s is a different build from the party's. Install the same zip as the host.",
+                 s_refusal_mod_title, s_refusal_mod_version);
+    else
+        snprintf(out, n, "Cannot join: this party plays the mod %s %s. Install it on the Mods page and choose it beside START.",
+                 s_refusal_mod_title, s_refusal_mod_version);
+    s_refusal_mod_known = false;
+}
 
 static bool netClientContentRefused(ENetPeer *peer, uint32_t reason) {
     if (!peer || netIsHost() || peer != s_server_peer) return false;
@@ -1269,6 +1343,8 @@ static bool netClientContentRefused(ENetPeer *peer, uint32_t reason) {
     } else if ((reason & 0xFFFFFF00u) == NET_DISCONNECT_CAMPAIGN) {
         snprintf(s_join_refusal, sizeof(s_join_refusal), "Cannot join: this party plays %s. Choose it beside START.",
                  netCampaignName((int)(reason & 0xFFu)));
+    } else if (reason == (NET_DISCONNECT_CONTENT | NET_CONTENT_MOD)) {
+        netModRefusalText(s_join_refusal, sizeof(s_join_refusal));
     } else if ((reason & 0xFFFFFF00u) == NET_DISCONNECT_CONTENT) {
         snprintf(s_join_refusal, sizeof(s_join_refusal),
                  "Cannot join: this game's %s is not the same as yours.", netContentPartName(reason & 0xFFu));
@@ -3592,6 +3668,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
     
     switch (msg_type) {
         case NET_MSG_CLOCK: netReceiveClock(peer,slot_id,&buf);break;
+        case NET_MSG_MOD_REQUIRED: netReceiveModRequired(peer, &buf); break;
         case NET_MSG_HELLO: {
             if (!netIsHost()) break;
             if (peer->data) break;
@@ -3604,6 +3681,13 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             netCleanName(clean, name, name_end);
             int previous = netbufReadLeft(&buf) >= 1 ? netbufReadU8(&buf) : 0xFF;
             const uint32_t differs = netContentDiffers(&buf);
+            if (differs == NET_CONTENT_MOD) {
+                /* which mod to install goes first; "later" sends it before the disconnect */
+                NET_ERR("Turning %s away: its mod differs from this host's", clean);
+                netSendModRequired(peer);
+                enet_peer_disconnect_later(peer, NET_DISCONNECT_CONTENT | NET_CONTENT_MOD);
+                break;
+            }
             if (differs) {
                 NET_ERR("Turning %s away: its %s differs from this host's", clean, netContentPartName(differs));
                 enet_peer_disconnect(peer, differs == NET_CONTENT_CAMPAIGN

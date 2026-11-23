@@ -9,6 +9,7 @@
 #if defined(ANDROID) || defined(GEVR_PC)
 // The launcher's order: the campaign header first, the game's headers (net_*) after SDL.
 #include "gevr_romlayout.h"
+#include "gevr_modpack.h"   /* a mod campaign's title in presence */
 #include "vr_friends.h"
 #include "vr_discord.h"
 #include "vr_ghosts.h"
@@ -42,9 +43,15 @@ void vrSettingsSave(void);
 const char *gevrCoopStageLabel(unsigned char stage);   /* front.c: a hack's missions by its names */
 }
 
-/* GEVR_CAMPAIGN_*, as the launcher names them; GoldenEye's is not named. */
+/* GEVR_CAMPAIGN_*, as the launcher names them; GoldenEye's is not named. A mod
+ * campaign is named by its title (gevr_modpack.c gevrModPlay), on any cartridge. */
 static const char *gevrFriendsCampaignName(int campaign)
 {
+    static char modName[GEVR_MOD_TITLE_MAX + 8];
+    if (const gevrModInfo *mod = gevrModPlay()) {
+        snprintf(modName, sizeof(modName), "%s (mod)", mod->m.title);
+        return modName;
+    }
     switch (campaign) {
     case GEVR_CAMPAIGN_GF64: return "Goldfinger 64";
     case GEVR_CAMPAIGN_TND64: return "Tomorrow Never Dies 64";
@@ -269,7 +276,7 @@ std::string presenceLine(bool inGame) {
             // the people, as the lobby service counts them: a joiner takes a bot's place
             const int players = netGetHumanPlayerCount(), max = netGetMaxPlayers();
             if (cfg->mode == NET_MODE_COOP)
-                snprintf(text, sizeof(text), "Co-op%s%s, %s, %d/%d", VrCampaign != GEVR_CAMPAIGN_GE ? " in " : "",
+                snprintf(text, sizeof(text), "Co-op%s%s, %s, %d/%d", gevrFriendsCampaignName(VrCampaign)[0] ? " in " : "",
                          gevrFriendsCampaignName(VrCampaign),
                          inGame ? gevrCoopStageLabel((uint8_t)bossGetStageNum()) : "lobby", players, max);
             else if (cfg->mode == NET_MODE_HORDE)
@@ -278,7 +285,7 @@ std::string presenceLine(bool inGame) {
                 snprintf(text, sizeof(text), "%s, %s, %d/%d", cfg->scenario ? netScenarioName(cfg->scenario) : "Deathmatch",
                          netStageName(netStageIndexOf(cfg->stage)), players, max);
         } else if (inGame) {
-            if (VrCampaign != GEVR_CAMPAIGN_GE && VrCampaign != GEVR_CAMPAIGN_MIRROR)
+            if ((VrCampaign != GEVR_CAMPAIGN_GE && VrCampaign != GEVR_CAMPAIGN_MIRROR) || gevrModPlay())
                 snprintf(text, sizeof(text), "%s", gevrFriendsCampaignName(VrCampaign));
             else {
                 const int stage = bossGetStageNum();

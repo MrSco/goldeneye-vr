@@ -135,7 +135,11 @@ int main(int argc, char **argv)
     /* its cartridge's ROM decides whether it can start */
     VrCampaign = GEVR_CAMPAIGN_GF64;
     strcpy(VrCampaignMod, "tactical");
-    CHECK(gevrLauncherModReady() && !gevrLauncherCampaignOnline());
+    /* online when its manifest offers co-op (the lobby's content check holds the party to it) */
+    CHECK(gevrLauncherModReady() && s_modCampaigns[0].coop && gevrLauncherCampaignOnline());
+    s_modCampaigns[0].coop = false;
+    CHECK(!gevrLauncherCampaignOnline());
+    s_modCampaigns[0].coop = true;
     s_campaignInstalled[GEVR_CAMPAIGN_GF64] = false;
     gevrLauncherModsTick();
     CHECK(s_modCampaigns[0].reason == "needs Goldfinger 64" && s_modsView.mods[0].reason == "needs Goldfinger 64");
@@ -187,7 +191,7 @@ int main(int argc, char **argv)
     CHECK(!VrCampaignMod[0] && s_modsView.bad && s_modsView.message == "ghost is no longer installed, or can't start.");
 
     puts("PASS: launcher mod packs: picks handed over, installs on their thread, cancel, failures, copies deleted, "
-         "removal, a mod campaign on its own cartridge, solo for now");
+         "removal, a mod campaign on its own cartridge, online when it offers co-op");
     return 0;
 }
 '''.replace("/* STATE */", state).replace("/* MACHINERY */", machinery)

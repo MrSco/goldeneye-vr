@@ -20,6 +20,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <sys/stat.h>
 #ifdef _WIN32
@@ -36,6 +37,8 @@ extern char VrCampaignMod[GEVR_MOD_ID_MAX + 1];
 static char s_root[FS_MAXPATH + 1];
 static gevrModInfo s_active;
 static int s_hasActive;
+/* each install and remove: gevrModPlay reads its choice again (the install's thread counts) */
+static atomic_uint s_generation;
 
 static int say(char *why, size_t n, const char *fmt, ...)
 {
@@ -1197,6 +1200,7 @@ static int installFrom(mz_zip_archive *z, gevrModInfo *out, int (*progress)(int,
     if (progress) {
         progress(100, ud);
     }
+    atomic_fetch_add(&s_generation, 1u);
     sysLogPrintf(LOG_NOTE, "mods: installed %s %s (%d files)", out->m.id, out->m.version, count);
     rc = 0;
 done:
@@ -1252,7 +1256,9 @@ int gevrModInstallZip(const char *zipPath, gevrModInfo *out, int (*progress)(int
 
 /* ---- installed mods ---- */
 
-int gevrModLoad(const char *id, gevrModInfo *out, char *why, size_t whyLen)
+/* checkFiles: each listed file is there too (a start, the launcher's list);
+ * without, only what names the mod and its build (the lobby's check) */
+static int loadMod(const char *id, gevrModInfo *out, char *why, size_t whyLen, int checkFiles)
 {
     char dir[PATH_CAP], path[PATH_CAP], shown[96];
     char *text;
@@ -1298,7 +1304,7 @@ int gevrModLoad(const char *id, gevrModInfo *out, char *why, size_t whyLen)
         return -1;
     }
     /* each listed file is there (install checked their contents) */
-    for (i = 0; i < count; i++) {
+    for (i = 0; checkFiles && i < count; i++) {
         if (joinPath(path, sizeof(path), dir, list[i].path) != 0 || !isFile(path)) {
             say(why, whyLen, "%s is missing %s; install it again", id, printable(list[i].path, shown, sizeof(shown)));
             freeList(list, count);
@@ -1307,6 +1313,45 @@ int gevrModLoad(const char *id, gevrModInfo *out, char *why, size_t whyLen)
     }
     freeList(list, count);
     return 0;
+}
+
+int gevrModLoad(const char *id, gevrModInfo *out, char *why, size_t whyLen)
+{
+    return loadMod(id, out, why, whyLen, 1);
+}
+
+const gevrModInfo *gevrModPlay(void)
+{
+    /* the launcher's choice, read again only when it or its files.sha256 changes */
+    static gevrModInfo chosen;
+    static char chosenId[GEVR_MOD_ID_MAX + 1];
+    static long long chosenStamp = -2;
+    static unsigned chosenGeneration = ~0u;
+    static int chosenOk;
+    char dir[PATH_CAP], path[PATH_CAP], why[256];
+    struct stat st;
+    long long stamp = -1;
+
+    if (s_hasActive) {
+        return &s_active;
+    }
+    if (!gevrModIdValid(VrCampaignMod)) {
+        return NULL;
+    }
+    if (joinPath(dir, sizeof(dir), gevrModsRoot(), VrCampaignMod) == 0 && joinPath(path, sizeof(path), dir, "files.sha256") == 0
+        && stat(path, &st) == 0) {
+        stamp = (long long)st.st_mtime * 1000003LL + (long long)st.st_size;
+    }
+    const unsigned generation = atomic_load(&s_generation);
+
+    /* an update installed within the same second can leave the list's time and size as they were */
+    if (strcmp(chosenId, VrCampaignMod) != 0 || stamp != chosenStamp || generation != chosenGeneration) {
+        strcpy(chosenId, VrCampaignMod);
+        chosenStamp = stamp;
+        chosenGeneration = generation;
+        chosenOk = loadMod(VrCampaignMod, &chosen, why, sizeof(why), 0) == 0 && chosen.m.kind == GEVR_MOD_CAMPAIGN;
+    }
+    return chosenOk ? &chosen : NULL;
 }
 
 int gevrModRemove(const char *id, char *why, size_t whyLen)
@@ -1326,6 +1371,7 @@ int gevrModRemove(const char *id, char *why, size_t whyLen)
         return say(why, whyLen, "couldn't remove %s (is it in use?)", id);
     }
     removeTree(gone);
+    atomic_fetch_add(&s_generation, 1u);
     sysLogPrintf(LOG_NOTE, "mods: removed %s", id);
     return 0;
 }

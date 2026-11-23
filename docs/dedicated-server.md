@@ -356,6 +356,12 @@ from outside the ROM; here every setup, pad, tile and BG file comes from the
 ROM, so the same ROM and the same build load the same stage. The part list
 can grow if something outside the ROM ever decides the simulation.
 
+It has: a mod campaign (docs/mod-system.md) decides what peers load, so
+protocol 28 adds `NET_CONTENT_MOD`, the mod's content ID or 1 for none, which
+every peer sends. A server plays the mod campaign named by `CampaignMod=` in
+its goldeneye-vr.ini, and turns away joiners without that mod build after
+telling them which one (`NET_MSG_MOD_REQUIRED`).
+
 **ARM64.** `tools/gevr_build_server.sh --aarch64` cross-builds on x86-64
 Ubuntu 24.04 with Ubuntu's arm64 cross libraries, lld and binutils, unpacked
 without root; zlib is built from source for the target. Under qemu the ARM64
