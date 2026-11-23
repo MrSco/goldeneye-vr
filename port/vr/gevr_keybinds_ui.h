@@ -39,7 +39,8 @@ enum {
     GEVR_CK_ACCEPT = 20,
     GEVR_CK_CANCEL = 21,
     GEVR_CK_PREV_WEAPON = 22,
-    GEVR_CK_RESTART = 32       // past the pad's buttons (input.h CK_RESTART, #280)
+    GEVR_CK_RESTART = 32,      // past the pad's buttons (input.h CK_RESTART, #280)
+    GEVR_CK_CROUCH = 33        // input.h CK_CROUCH: the crouch toggle
 };
 
 enum {
@@ -117,6 +118,7 @@ inline const char *gevrActionLabel(int campaign, unsigned ck, const char **toolt
         case GEVR_CK_LTRIG:       label = "Alt aim";      tip = "Secondary aim trigger (N64 L button)."; break;
         case GEVR_CK_START:       label = "Pause";        tip = "Open Bond's watch / pause menu."; break;
         case GEVR_CK_RESTART:     label = "Restart";      tip = "Restart the mission from its intro, as a fresh load: the speedrunner's reset (default: Backspace). Solo, offline, with the Speedrun timer, Ghost race or LiveSplit on."; break;
+        case GEVR_CK_CROUCH:      label = "Crouch";       tip = "Crouch, or stand again (default: C or Left Ctrl; keyboard only, as a 13th pad row would scroll the pause page). Aim + Back also crouches, as on the N64; aim alone stands."; break;
         case GEVR_CK_DPAD_D:      label = "Crouch / Dn";  tip = "Crouch while aiming / D-pad down."; break;
         case GEVR_CK_C_U:         label = "Forward";      tip = "Walk forward (C-Up)."; break;
         case GEVR_CK_C_D:         label = "Back";         tip = "Walk backward (C-Down)."; break;
@@ -152,7 +154,7 @@ inline const char *gevrActionLabel(int campaign, unsigned ck, const char **toolt
 inline const unsigned *gevrKbmActions(int &count) {
     static const unsigned kActions[] = {
         GEVR_CK_ZTRIG, GEVR_CK_RTRIG, GEVR_CK_B, GEVR_CK_A,
-        GEVR_CK_PREV_WEAPON, GEVR_CK_LTRIG, GEVR_CK_START, GEVR_CK_DPAD_D,
+        GEVR_CK_PREV_WEAPON, GEVR_CK_LTRIG, GEVR_CK_START, GEVR_CK_CROUCH,
         GEVR_CK_C_U, GEVR_CK_C_D, GEVR_CK_C_L, GEVR_CK_C_R,
         GEVR_CK_STICK_YPOS, GEVR_CK_STICK_YNEG, GEVR_CK_STICK_XNEG, GEVR_CK_STICK_XPOS
     };
@@ -165,7 +167,7 @@ inline const unsigned *gevrKbmActions(int &count) {
 inline const unsigned *gevrKbmBindActions(int &count) {
     static const unsigned kActions[] = {
         GEVR_CK_ZTRIG, GEVR_CK_RTRIG, GEVR_CK_B, GEVR_CK_A,
-        GEVR_CK_PREV_WEAPON, GEVR_CK_LTRIG, GEVR_CK_START, GEVR_CK_DPAD_D,
+        GEVR_CK_PREV_WEAPON, GEVR_CK_LTRIG, GEVR_CK_START, GEVR_CK_CROUCH,
         GEVR_CK_C_U, GEVR_CK_C_D, GEVR_CK_C_L, GEVR_CK_C_R,
         GEVR_CK_STICK_YPOS, GEVR_CK_STICK_YNEG, GEVR_CK_STICK_XNEG, GEVR_CK_STICK_XPOS,
         GEVR_CK_RESTART
