@@ -38,6 +38,11 @@ int VrGexGuns, VrBeanFillTextures, VrBloodPatch, VrOddjobHat, VrEyeMsaa = 1;
 float VrRenderScale;          /* Resolution: the config's scale */
 int VrTextureAniso = 2;       /* anisotropic filtering: the default 2x */
 float s_liveRenderScale = 1.0f;
+unsigned int s_texFilter = 1;   /* video.c: Video.TextureFilter, FILTER_LINEAR */
+int s_configSaves;
+unsigned int videoGetTextureFilter(void) { return s_texFilter; }
+void videoRequestTextureFilter(unsigned int f) { s_texFilter = f; }
+int configSave(const char *fname) { (void)fname; s_configSaves++; return 1; }
 float vr_render_scale(void) { return s_liveRenderScale; }
 int VrScreenCurved, VrScreenPassthrough, VrRefreshRate, VrSpaceWarp = -1;
 int VrPlayMode = 1, VrCampaign;

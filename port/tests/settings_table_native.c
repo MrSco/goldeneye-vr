@@ -113,6 +113,19 @@ int main(void)
     gevrSettingSet(id, 0);
     check(VrTextureAniso == 1 && !gevrSettingWarning(id), "anisotropic filtering off");
     VrTextureAniso = 2;
+    /* Texture filtering: the N64 pictures, live, saved to the game config */
+    id = find("Texture filtering");
+    text(id, t);
+    check(gevrSettingIndex(id) == 1 && !strcmp(t, "Smooth (default)") && !gevrSettingWarning(id),
+          "texture filtering is Smooth by default, no warning");
+    gevrSettingSet(id, 0); text(id, t);
+    check(s_texFilter == 0 && !strcmp(t, "Pixelated") && !gevrSettingWarning(id) && s_configSaves > 0,
+          "pixelated is the game's FILTER_NONE, saved to the game config");
+    gevrSettingSet(id, 2); text(id, t);
+    check(s_texFilter == 2 && !strcmp(t, "N64 accurate (slower)") && gevrSettingWarning(id) != NULL,
+          "N64 accurate is the three-point filter and warns on a headset");
+    gevrSettingSet(id, 1);
+    check(s_texFilter == 1 && gevrSettingDefault(id) == 1, "texture filtering back to Smooth, its default");
     id = find("Movement speed");
     gevrSettingSet(id, 2); text(id, t);
     check(!strcmp(t, "100% (default)") && VrMovementSpeed == 0, "movement speed 100% is the normal mode");

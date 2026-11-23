@@ -534,6 +534,44 @@ static void anisoText(int i, char *b, int n)
     i = i < 0 ? 0 : i > 4 ? 4 : i;
     snprintf(b, n, "%s%s", s_anisoNames[i], s_aniso[i] > ANISO_WARN_ABOVE ? " (slower)" : "");
 }
+/* Texture filtering of the cartridge's own pictures (video.c, the game config's
+ * Video.TextureFilter, saved there): FILTER_NONE, FILTER_LINEAR, FILTER_THREE_POINT
+ * (gfx_rendering_api.h), switched live as the next frame starts. HD pack and Bean
+ * pictures keep their mipmapped filtering (gfx_opengl.cpp select_texture). The
+ * console's three-point filter reads each picture three times a pixel, so on a
+ * headset or phone it says so. */
+extern unsigned int videoGetTextureFilter(void);          /* video.c: u32 */
+extern void videoRequestTextureFilter(unsigned int filter);
+extern int configSave(const char *fname);
+static const char *const s_texFilterNames[] = { "Pixelated", "Smooth", "N64 accurate" };
+#if defined(GEVR_PCVR) || defined(GEVR_PC_FLAT)
+#define TEXFILTER_WARNS 0   /* a desktop GPU */
+#else
+#define TEXFILTER_WARNS 1
+#endif
+static int texFilterPositions(void) { return 3; }
+static int texFilterGet(void)
+{
+    const unsigned int f = videoGetTextureFilter();
+    return f > 2 ? 1 : (int)f;
+}
+static void texFilterSet(int i)
+{
+    videoRequestTextureFilter((unsigned int)(i < 0 ? 1 : i > 2 ? 2 : i));
+    configSave("$S/goldeneye.ini");
+}
+static void texFilterText(int i, char *b, int n)
+{
+    i = i < 0 ? 0 : i > 2 ? 2 : i;
+    snprintf(b, n, "%s%s", s_texFilterNames[i], i == 1 ? " (default)" : TEXFILTER_WARNS && i == 2 ? " (slower)" : "");
+}
+static const char *warnTexFilter(void)
+{
+    return TEXFILTER_WARNS && texFilterGet() == 2
+        ? "The console's filtering reads each texture three times a pixel, which costs GPU time and can "
+          "make the game stutter"
+        : NULL;
+}
 static const int s_two[] = { 0, 1 };
 static const char *const s_moveNames[] = { "Smooth", "Teleport" };
 static const char *const s_shapeNames[] = { "4:3", "16:9" };
@@ -760,6 +798,13 @@ static const Row s_rows[] = {
       .ivar = &VrTextureAniso,
       .ivalues = s_aniso, .names = s_anisoNames, .count = sizeof(s_aniso) / sizeof(s_aniso[0]), .def = NAN,
       .ctext = anisoText, .warning = warnAniso },
+    { .label = "Texture filtering", .tooltip = "How the original N64 textures are smoothed. Pixelated: sharp, blocky pixels, which "
+                                               "shimmer in the distance. Smooth: softer. N64 accurate: the console's own "
+                                               "three-point filtering. HD pack and Bean textures aren't affected. Changes right away.",
+      /* beside Anisotropic filtering, the HD pack's and Bean's, in game where a change shows at once */
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .def = NAN,
+      .cpositions = texFilterPositions, .cget = texFilterGet, .cset = texFilterSet, .ctext = texFilterText,
+      .cdefault = 1, .warning = warnTexFilter },
     { .label = "Watch face", .headset = 1, .tooltip = "Health, armour and radar on your watch. Only: and nowhere else.", .kind = GEVR_SET_CHOICE,
       .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_HANDS), .where = GEVR_SET_BOTH, .ivar = &VrWatchFaceStatus,
       .ivalues = s_three, .names = s_watchNames, .count = 3, .def = NAN },

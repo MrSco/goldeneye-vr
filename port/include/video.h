@@ -59,6 +59,7 @@ void videoSetWindowOffset(s32 x, s32 y);
 void videoSetFullscreen(s32 fs);
 void videoSetFullscreenMode(s32 mode);
 void videoSetTextureFilter(u32 filter);
+void videoRequestTextureFilter(u32 filter);   /* made as the next frame starts */
 void videoSetTextureFilter2D(s32 filter);
 void videoSetDetailTextures(s32 detail);
 void videoSetExternalTextures(s32 external);

@@ -68,6 +68,7 @@ static f32 vidGlareBrightness = 1.f;
 static f32 vidOverexposureScale = 1.f;
 
 static s32 texFilter = FILTER_LINEAR;
+static s32 texFilterAsked;   /* videoRequestTextureFilter: made as the next frame starts */
 static s32 texFilter2D = true;
 static s32 texDetail = false;
 static s32 texExternal = false;
@@ -152,6 +153,11 @@ s32 videoInit(void)
 void videoStartFrame(void)
 {
     if (initDone) {
+        if (texFilterAsked) {
+            /* between frames: the switch empties the texture cache and the shaders */
+            texFilterAsked = 0;
+            gfx_set_texture_filter((enum FilteringMode)texFilter);
+        }
         startTime = wmAPI->get_time();
         gfx_start_frame();
     }
@@ -538,6 +544,17 @@ void videoSetCenterWindow(s32 center)
         wmAPI->get_centered_positions(vidWidth, vidHeight, &posX, &posY);
         wmAPI->set_dimensions(vidWidth, vidHeight, posX, posY);
     }
+}
+
+/* The settings table's Texture filtering row (gevr_settings.c): the choice at
+ * once, for the game config to save, and the switch as the next frame starts,
+ * not in the middle of one */
+void videoRequestTextureFilter(u32 filter)
+{
+    if (filter > FILTER_THREE_POINT) filter = FILTER_THREE_POINT;
+    if (texFilter == (s32)filter) return;
+    texFilter = filter;
+    texFilterAsked = 1;
 }
 
 void videoSetTextureFilter(u32 filter)

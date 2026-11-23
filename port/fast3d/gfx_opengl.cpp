@@ -2307,7 +2307,9 @@ static void gfx_opengl_select_texture(int tile, GLuint texture_id, bool linear_f
         if (s_texIsHd[texture_id] != wanted) gevr_hd_apply_aniso(texture_id, wanted);
     }
 
-    current_textures_linear_filter[tile] = linear_filter;
+    // the console's three-point filter (Texture filtering's N64 accurate) is for the
+    // cartridge's pictures: an HD pack or Bean one keeps its mipmapped filtering
+    current_textures_linear_filter[tile] = linear_filter && !gevr_tex_is_hd(texture_id);
 }
 
 static void gfx_opengl_upload_texture(const uint8_t* rgba32_buf, uint32_t width, uint32_t height) {
@@ -2348,6 +2350,8 @@ static void gfx_opengl_upload_texture_hd(const uint8_t* rgba32_buf, uint32_t wid
     // the Anisotropic filtering row: 2x by default, as 4x cost the pack's big
     // textures a lot of GPU time on outdoor levels (issue #52)
     gevr_hd_apply_aniso(s_boundTex[s_activeTexUnit], gevr_hd_aniso_wanted());
+    // ... and not the three-point filter, bound before it was known to be one (select_texture)
+    current_textures_linear_filter[s_activeTexUnit] = false;
 }
 
 static uint32_t gfx_cm_to_opengl(uint32_t val) {
