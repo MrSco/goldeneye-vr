@@ -366,6 +366,36 @@ watch). We maintain the adapters, not the mods.
   for VR throws. A script can cancel either action. Loaded ammo uses the
   hand's existing `weapon_ammo_in_magazine` count, read by
   `get_ammo_in_hands_magazine()`.
+  - Built (`port/src/gevr_modapi.c` over `src/game/gevr_modgame.c`; the
+    hooks in `gunfire.c` and `bondview2.c`): a shot is asked once per
+    shot (an automatic, at each of its rate's ticks), after the firing
+    switch and before the round, the sound, the beam and the damage. A
+    declined shot clicks dry as an empty gun does (`DRY_FIRE`, nothing
+    more until the trigger is let go). A grenade, knife or mine is asked
+    as the hand lets go, a motion throw before it leaves the hand, a
+    cooked grenade's drop too; declined, nothing leaves the hand and a
+    cooking grenade stops cooking. Melee isn't asked.
+  - `weapon_fire(hand, item, loaded)` after each spend; `reload_start` as
+    the native reload lowers the gun or a hand reload's magazine leaves
+    it (`gevrGexMagOut`); `reload_end(hand, item, loaded)` after the
+    native reload's ammo move or a magazine seated (`gevrGexMagIn`);
+    `weapon_drawn` at a switch's end. A hand reload's single rounds
+    (`gevrGexRoundTick`) send nothing yet.
+  - Only for this machine's human player (`!netIsActive() || the current
+    player == netGetLocalSlot()`), never a copy or the host's bot. `hand`
+    is `"right"` or `"left"` (the game's gun hands); `item` an id from
+    `mod.items`.
+  - Calls: `mod.weapon.held(hand)`, `loaded(hand)`, `setLoaded(hand,
+    rounds)` (0 to the held weapon's magazine), `stats(item)` (`magazine`,
+    `fireRate` for an automatic, `damage`) and `setStats(item, t)`:
+    magazine 1 to 255, fireRate 1 to 60 ticks (automatics only), damage 0
+    to 10 times the weapon's own; only items with stats of their own.
+    Stats are per weapon type, guards' too, and go back to the game's own
+    at a mission's end and when a mod stops.
+  - Known gaps: on a pump gun a lower `setLoaded` reads as a shot (the
+    rack, `gevr_rack.h`); in co-op another headset's copy of the player
+    still shows a declined shot's fire (the fire bit comes from the
+    trigger and the rounds), for the network step (5).
 - **Pickups.** During `proplvreset2()`, emit `pickup_spawning` only for
   loose weapon, ammo and armour pickups at existing pads. A script can
   replace an eligible pickup before its placement by `weaponAssignToHome()`
@@ -479,7 +509,8 @@ Every headset runs the swaps at load, so in co-op the choices come from
    storage calls, the perf log line.
 4. **API areas** one at a time, each with native tests (as the repo's
    `port/tests/` do): weapons and items, hands and body slots, guards,
-   player, assets, UI.
+   player, assets, UI. Weapons first (`port/tests/test_modapi.py`), then
+   pickups and items.
 5. **Network:** `NET_MSG_MOD`, co-op with mods, the dedicated server.
 6. **Sample mod and API reference.**
 7. **Platform check:** Quest, PC, Apple, server, with the sample mod.

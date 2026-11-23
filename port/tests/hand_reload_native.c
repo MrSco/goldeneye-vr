@@ -78,6 +78,10 @@ static int netGetLocalSlot(void) { return localSlot; }
 static int gevrSpectating(void) { return 0; }
 static int gevrCoopLocalDowned(void) { return 0; }
 static int getCurrentPlayerWeaponId(int h) { return player.hands[h].weapon; }
+/* mods' weapons area (gevr_modapi.c): a magazine out is a reload_start, one seated a reload_end */
+static int modReloadStarts, modReloadEnds;
+void gevrModApiReloadStart(int hand, int item) { (void)hand; (void)item; modReloadStarts++; }
+void gevrModApiReloadEnd(int hand, int item) { (void)hand; (void)item; modReloadEnds++; }
 static int get_ammo_in_hands_weapon(int h) { (void)h; return reserve; }
 static int get_ammo_type_for_weapon(int item) { return item != ITEM_UNARMED; }
 static int gevrGexHeld(int hand) { return gex[hand]; }
@@ -1952,6 +1956,8 @@ int main(void)
         pumpReload();
         VrLeftHandedMode = lefty;
     }
+    /* every physical magazine swap above told the mods' weapons area */
+    assert(modReloadStarts > 0 && modReloadEnds > 0);
     puts("PASS: calibrated reloads, PP7 fresh-grip ownership, physical seating, partial/fresh magazines, ammo conservation, handedness, belt and lifecycle, Bean's PP7 magazine, the rack, the pump, the rack's fitted place and the shotguns' own shells");
     return 0;
 }

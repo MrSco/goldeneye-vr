@@ -4907,6 +4907,19 @@ void gevrMotionThrowTick(s32 hand)
                     final_vel.z += s_gevrCamLook.z * look_boost;
                 }
 
+                /* a mod's weapon_fire_attempt (gevr_modapi.c) may decline it: nothing
+                 * leaves the hand, and a grenade cooking on the trigger stops cooking
+                 * (the trigger's own throw would take it) */
+                if (gevrModApiFireAttempt(hand, item))
+                {
+                    if (item == ITEM_GRENADE && handptr->weapon_action_state == GUN_ANIM_STATE_TRIGGER_PRESS)
+                    {
+                        handptr->weapon_action_state = GUN_ANIM_STATE_IDLE;
+                        handptr->field_890 = 0.0f;
+                        handptr->field_88C = 0;
+                    }
+                    return;
+                }
                 g_gevrMotionThrowActive[hand] = 1;
                 s_gevrMotionRecover[hand] = TRUE;
                 g_gevrMotionThrowVel[hand] = final_vel;
@@ -4951,6 +4964,7 @@ void gevrMotionThrowTick(s32 hand)
 
                 extern void gevrRumbleGunfire(s32 hand, s32 item_id);
                 gevrRumbleGunfire(hand, item);
+                gevrModApiFired(hand, item);   /* weapon_fire */
 
                 sysLogPrintf(LOG_NOTE, "stereo: motion throw hand %d item %d speed %.2f m/s (mag %.1f)",
                              hand, item, peak_speed, throw_mag);
@@ -4958,7 +4972,15 @@ void gevrMotionThrowTick(s32 hand)
         }
         else
         {
-            if (item == ITEM_GRENADE && handptr->weapon_action_state == GUN_ANIM_STATE_TRIGGER_PRESS)
+            if (item == ITEM_GRENADE && handptr->weapon_action_state == GUN_ANIM_STATE_TRIGGER_PRESS
+                && gevrModApiFireAttempt(hand, item))
+            {
+                /* a mod declined the drop: the grenade stops cooking, still in the hand */
+                handptr->weapon_action_state = GUN_ANIM_STATE_IDLE;
+                handptr->field_890 = 0.0f;
+                handptr->field_88C = 0;
+            }
+            else if (item == ITEM_GRENADE && handptr->weapon_action_state == GUN_ANIM_STATE_TRIGGER_PRESS)
             {
                 /* The grenade was cooked and gently dropped at player's feet */
                 struct coord3d drop_vel;
@@ -4979,6 +5001,7 @@ void gevrMotionThrowTick(s32 hand)
 
                 extern void gevrRumbleGunfire(s32 hand, s32 item_id);
                 gevrRumbleGunfire(hand, item);
+                gevrModApiFired(hand, item);   /* weapon_fire */
                 sysLogPrintf(LOG_NOTE, "stereo: dropped cooked grenade at feet (timer %d)",
                              g_CurrentPlayer->last_z_trigger_timer);
             }
@@ -18942,6 +18965,7 @@ void gevrAutoAdvanceHand(s32 hand)
  */
 #include "gevr_grip_gesture.h"
 #include "gevr_pull.h"
+#include "gevr_modapi.h"   /* mods' weapons area: motion throws, hand reloads */
 
 extern int VrGestureGripUse, VrGestureMineGrab;
 extern int VrForcePull;   /* force pull (gevr_forcepull.c) */
@@ -20088,6 +20112,7 @@ static void gevrGexMagOut(s32 hand, s32 state, const char *how)
     }
     gevrGexBuzz(0.5f);
     sysLogPrintf(LOG_NOTE, "stereo: hand reload, %s gun's magazine %s", hand == GUNRIGHT ? "right" : "left", how);
+    gevrModApiReloadStart(hand, getCurrentPlayerWeaponId(hand));   /* reload_start (gevr_modapi.c) */
 }
 
 /* the magazine in the off hand let go: its rounds back to the reserve */
@@ -20239,6 +20264,7 @@ static void gevrGexMagIn(s32 hand, const char *how, s32 rounds)
     gevrGexBuzz(0.6f);
     sysLogPrintf(LOG_NOTE, "stereo: hand reload, %s gun's magazine %s (%d rounds)", hand == GUNRIGHT ? "right" : "left", how,
                  g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine);
+    gevrModApiReloadEnd(hand, getCurrentPlayerWeaponId(hand));   /* reload_end: a magazine seated */
 }
 
 /*

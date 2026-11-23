@@ -13,6 +13,8 @@
  *     frames <n> <ticks> <us>  n frames; each clock read moves <us> on
  *     online <0|1>     netIsActive (the mission's shared seed)
  *     note             the note for the screen, taken
+ *     event <name> <cancellable>  gevrModScriptEvent(name, "right", 12): CANCEL 0/1
+ *     resets           how often gevrModApiReset ran (the API areas' put-back)
  *     running          gevrModScriptRunning
  *
  * Prints "LOG <level> <line>" for every log line, and the answers. Run in
@@ -26,6 +28,7 @@
 
 #include "fs.h"
 #include "system.h"
+#include "../external/lua/lua.h"
 #include "gevr_modpack.h"
 #include "gevr_modscript.h"
 
@@ -39,6 +42,10 @@ unsigned int gevrCoopIntroSeed(void) { return 12345u; }
 bool netIsActive(void) { return s_online != 0; }
 const gevrModInfo *gevrModActive(void) { return s_info.m.id[0] ? &s_info : NULL; }
 const char *gevrModsRoot(void) { return "mods"; }
+/* the API areas (src/game/gevr_modapi.c) are test_modapi's: here only their put-back is counted */
+static int s_resets;
+void gevrModApiOpen(lua_State *L) { (void)L; }
+void gevrModApiReset(void) { s_resets++; }
 
 const char *fsFullPath(const char *rel)
 {
@@ -114,6 +121,18 @@ int main(int argc, char **argv)
             const char *note = gevrModScriptTakeNote();
 
             printf("NOTE %s\n", note ? note : "-");
+        } else if (!strcmp(cmd, "event") && i + 2 < argc) {
+            GevrModArg args[2];
+            const int cancellable = atoi(argv[i + 2]);
+
+            args[0].kind = GEVR_MODARG_STRING;
+            args[0].s = "right";
+            args[1].kind = GEVR_MODARG_INTEGER;
+            args[1].n = 12;
+            printf("CANCEL %d\n", gevrModScriptEvent(argv[i + 1], args, 2, cancellable));
+            i += 2;
+        } else if (!strcmp(cmd, "resets")) {
+            printf("RESETS %d\n", s_resets);
         } else if (!strcmp(cmd, "running")) {
             printf("RUNNING %d\n", gevrModScriptRunning());
         } else {

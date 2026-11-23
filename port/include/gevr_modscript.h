@@ -20,6 +20,14 @@ extern "C" {
 #define GEVR_MODSCRIPT_SCRIPT_CAP (1u << 20)  /* one .lua file */
 #define GEVR_MODSCRIPT_TICK_CAP 0.25          /* tick(dt): dt is at most this, in seconds */
 
+/* An event's argument (gevrModScriptEvent) */
+enum { GEVR_MODARG_NUMBER = 1, GEVR_MODARG_STRING = 2, GEVR_MODARG_INTEGER = 3, GEVR_MODARG_BOOL = 4 };
+typedef struct GevrModArg {
+    int kind;        /* GEVR_MODARG_* */
+    double n;        /* a number, an integer or a boolean (0 or 1) */
+    const char *s;   /* a string */
+} GevrModArg;
+
 /* main.c, after romdataInit: the mod campaign's scripts/main.lua, then campaign_enter */
 void gevrModScriptStart(void);
 /* lv.c lvlStageLoad: done 0 before proplvreset2 (the last mission's
@@ -30,6 +38,10 @@ void gevrModScriptStageLoad(int stage, int mission, int done);
 void gevrModScriptMissionComplete(void);
 /* boss.c, each frame after the players' ticks: tick(dt), the budget, the perf log */
 void gevrModScriptFrame(int ticks);
+/* An event in play from the game's code (the API areas, src/game/gevr_modapi.c),
+ * counted in the budget; nothing outside a mission's play. cancellable: a
+ * handler returning false asks the game not to do it, and the result is 1. */
+int gevrModScriptEvent(const char *event, const GevrModArg *args, int nargs, int cancellable);
 /* A note for the local player's screen (a mod stopped or paused), taken once */
 const char *gevrModScriptTakeNote(void);
 /* A mod's scripts are running now */

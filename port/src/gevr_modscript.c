@@ -41,6 +41,11 @@ extern s32 g_gevrStereo;                     /* bondview2.c: this frame is drawn
 extern int gevrVrReady(void);                /* vr_openxr.cpp; port/flat: 0 */
 extern unsigned int gevrCoopIntroSeed(void); /* net_core.c: the same on every headset for the mission */
 extern bool netIsActive(void);               /* net_core.c */
+/* src/game/gevr_modapi.c: the API areas' tables into the mod table on the
+ * stack's top (mod.weapon, mod.items...), and what the mods changed (weapon
+ * stats...) back to the game's own, at a mission's end and when a mod stops */
+extern void gevrModApiOpen(lua_State *L);
+extern void gevrModApiReset(void);
 
 #define MAX_MODS 4
 #define PATH_CAP (FS_MAXPATH * 2)
@@ -73,7 +78,11 @@ static char s_note[192];
 static int s_hasNote;
 static int s_perfLog = -1;
 
-static const char *const s_events[] = { "campaign_enter", "mission_prepare", "mission_start", "mission_end", "tick" };
+static const char *const s_events[] = {
+    "campaign_enter", "mission_prepare", "mission_start", "mission_end", "tick",
+    /* the weapons area (docs/mod-system.md, Where each hook sits) */
+    "weapon_fire_attempt", "weapon_fire", "reload_start", "reload_end", "weapon_drawn",
+};
 
 static void note(const char *fmt, ...)
 {
@@ -202,6 +211,7 @@ static void modFail(ModScript *m, const char *what, const char *err)
     sysLogPrintf(LOG_ERROR, "mods: %s: %s: %s", m->id, what, err);
     if (s_inMission && !m->broken) {
         m->off = 1;
+        gevrModApiReset();   /* what it changed goes back */
         note("%s stopped for this mission: a script error (see the log).", m->title);
     } else {
         m->broken = 1;
@@ -209,8 +219,9 @@ static void modFail(ModScript *m, const char *what, const char *err)
     }
 }
 
-/* The function and its nargs arguments on the stack's top, run protected */
-static int modCall(ModScript *m, int nargs, int load, const char *what)
+/* The function and its nargs arguments on the stack's top, run protected.
+ * cancel: given, the call's result is read, and false sets it */
+static int modCall(ModScript *m, int nargs, int load, const char *what, int *cancel)
 {
     lua_State *L = m->L;
     const int base = lua_gettop(L) - nargs;
@@ -221,8 +232,12 @@ static int modCall(ModScript *m, int nargs, int load, const char *what)
     m->runaway = load ? GEVR_MODSCRIPT_LOAD_RUNAWAY_US : GEVR_MODSCRIPT_RUNAWAY_US;
     m->callStart = sysGetMicroseconds();
     if (!m->callStart) m->callStart = 1;
-    rc = lua_pcall(L, nargs, 0, base);
+    rc = lua_pcall(L, nargs, cancel ? 1 : 0, base);
     m->callStart = 0;
+    if (rc == LUA_OK && cancel) {
+        if (lua_type(L, -1) == LUA_TBOOLEAN && !lua_toboolean(L, -1)) *cancel = 1;
+        lua_pop(L, 1);
+    }
     if (rc != LUA_OK) {
         const char *err = lua_tostring(L, -1);
 
@@ -644,6 +659,7 @@ static int openSandbox(lua_State *L)
 
     lua_newtable(L);
     luaL_setfuncs(L, s_modFuncs, 0);
+    gevrModApiOpen(L);
     lua_newtable(L);
     luaL_setfuncs(L, s_saveFuncs, 0);
     lua_setfield(L, -2, "save");
@@ -661,11 +677,7 @@ static int openSandbox(lua_State *L)
 
 /* ---- events ---- */
 
-typedef struct Arg {
-    int kind;   /* 1 number, 2 string, 3 integer */
-    double n;
-    const char *s;
-} Arg;
+typedef GevrModArg Arg;
 
 static unsigned long long hashId(const char *id)
 {
@@ -676,10 +688,11 @@ static unsigned long long hashId(const char *id)
 }
 
 /* Each running mod's handlers for event; load: a loading event, its own
- * runaway limit and not in the budget */
-static void fire(const char *event, const Arg *args, int nargs, int load)
+ * runaway limit and not in the budget. cancellable: returns 1 when a handler
+ * returned false. */
+static int fire(const char *event, const Arg *args, int nargs, int load, int cancellable)
 {
-    int k;
+    int k, cancel = 0;
 
     for (k = 0; k < s_count; k++) {
         ModScript *m = &s_mods[k];
@@ -699,11 +712,12 @@ static void fire(const char *event, const Arg *args, int nargs, int load)
 
             lua_rawgeti(L, -1, i);
             for (a = 0; a < nargs; a++) {
-                if (args[a].kind == 1) lua_pushnumber(L, args[a].n);
-                else if (args[a].kind == 3) lua_pushinteger(L, (lua_Integer)args[a].n);
-                else lua_pushstring(L, args[a].s);
+                if (args[a].kind == GEVR_MODARG_NUMBER) lua_pushnumber(L, args[a].n);
+                else if (args[a].kind == GEVR_MODARG_INTEGER) lua_pushinteger(L, (lua_Integer)args[a].n);
+                else if (args[a].kind == GEVR_MODARG_BOOL) lua_pushboolean(L, args[a].n != 0);
+                else lua_pushstring(L, args[a].s ? args[a].s : "");
             }
-            modCall(m, nargs, load, event);
+            modCall(m, nargs, load, event, cancellable ? &cancel : NULL);
         }
         lua_pop(L, 2);
         if (!load) {
@@ -713,6 +727,13 @@ static void fire(const char *event, const Arg *args, int nargs, int load)
             s_windowUs += spent;
         }
     }
+    return cancel;
+}
+
+int gevrModScriptEvent(const char *event, const GevrModArg *args, int nargs, int cancellable)
+{
+    if (!s_count || !s_inMission || !s_playing) return 0;
+    return fire(event, args, nargs, 0, cancellable);
 }
 
 void gevrModScriptStart(void)
@@ -748,11 +769,11 @@ void gevrModScriptStart(void)
     s_count++;
     sysLogPrintf(LOG_NOTE, "mods: starting %s's scripts (Lua %s.%s)", m->id, LUA_VERSION_MAJOR, LUA_VERSION_MINOR);
     lua_pushcfunction(m->L, openSandbox);
-    if (modCall(m, 0, 1, "the sandbox") != 0) return;
+    if (modCall(m, 0, 1, "the sandbox", NULL) != 0) return;
     lua_pushcfunction(m->L, l_require);
     lua_pushstring(m->L, "main");
-    if (modCall(m, 1, 1, "scripts/main.lua") != 0) return;
-    fire("campaign_enter", NULL, 0, 1);
+    if (modCall(m, 1, 1, "scripts/main.lua", NULL) != 0) return;
+    fire("campaign_enter", NULL, 0, 1, 0);
 }
 
 void gevrModScriptStageLoad(int stage, int mission, int done)
@@ -769,8 +790,9 @@ void gevrModScriptStageLoad(int stage, int mission, int done)
             end[1].kind = 2;
             end[1].s = s_missionComplete ? "complete" : "left";
             s_playing = 0;
-            fire("mission_end", end, 2, 1);
+            fire("mission_end", end, 2, 1, 0);
             s_inMission = 0;
+            gevrModApiReset();   /* weapon stats and the like: the game's own again */
         }
         if (!mission) return;
         s_inMission = 1;
@@ -797,14 +819,15 @@ void gevrModScriptStageLoad(int stage, int mission, int done)
 
             a.kind = 3;
             a.n = stage;
-            fire("mission_prepare", &a, 1, 1);
+            gevrModApiReset();
+            fire("mission_prepare", &a, 1, 1, 0);
         }
     } else if (mission && s_inMission) {
         Arg a;
 
         a.kind = 3;
         a.n = stage;
-        fire("mission_start", &a, 1, 1);
+        fire("mission_start", &a, 1, 1, 0);
         s_playing = 1;
     }
 }
@@ -841,6 +864,7 @@ static void closeWindow(void)
         if (costliest) {
             costliest->off = 1;
             costliest->paused = 1;
+            gevrModApiReset();
             sysLogPrintf(LOG_WARNING, "mods: %s paused for this mission: %.3f ms a frame for %d seconds (budget %.2f)",
                          costliest->id, avg / 1000.0, s_overSeconds, GEVR_MODSCRIPT_BUDGET_US / 1000.0);
             note("%s paused for this mission: its scripts took too long.", costliest->title);
@@ -861,7 +885,7 @@ void gevrModScriptFrame(int ticks)
     a.kind = 1;
     a.n = ticks > 0 ? ticks / 60.0 : 0.0;
     if (a.n > GEVR_MODSCRIPT_TICK_CAP) a.n = GEVR_MODSCRIPT_TICK_CAP;
-    fire("tick", &a, 1, 0);
+    fire("tick", &a, 1, 0, 0);
     s_windowFrames++;
     now = sysGetMicroseconds();
     if (!s_windowStart) {

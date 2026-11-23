@@ -67,6 +67,9 @@ extern bool netIsActive(void);
 #include "gbi_extension.h"
 #ifdef GEVR
 #include "hudaspect.h"   /* Screen shape 16:9 (gepc-ref D334/D335) */
+#ifdef GEVR
+#include "gevr_modapi.h"   /* mods' weapons area: fire, reload, draw */
+#endif
 #endif
 
 
@@ -5194,6 +5197,21 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
                 break;
             }
 
+#ifdef GEVR
+            /* a mod's weapon_fire_attempt (gevr_modapi.c): asked before the round,
+             * the sound, the beam or the damage; a shot it declines clicks dry, as
+             * an empty gun does (DRY_FIRE: nothing more until the trigger is let go) */
+            if ((handptr->weapon_firing_status != 0) && gevrModApiFireAttempt(hand, var_s1))
+            {
+                handptr->weapon_firing_status = 0;
+                handptr->field_87D = 0;
+                handptr->field_A8C = 0;
+                handptr->weapon_action_state = GUN_ANIM_STATE_DRY_FIRE;
+                handptr->field_890 = 0;
+                handptr->field_88C = 0;
+                gevrPlaceRemoteHandSound(sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, EMPTY_GUN_FIRE_SFX, NULL), hand);
+            }
+#endif
             if (handptr->weapon_firing_status != 0)
             {
                 if (var_s1 != ITEM_CAMERA)
@@ -5204,6 +5222,9 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
 
                 handptr->weapon_ammo_in_magazine -= 1;
                 handptr->volley += 1;
+#ifdef GEVR
+                gevrModApiFired(hand, var_s1);   /* weapon_fire: the round spent */
+#endif
             }
 
             if (handptr->weapon_action_state == GUN_ANIM_STATE_FIRE)
@@ -5726,6 +5747,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             handptr->field_88C = 0;
 #ifdef GEVR
             g_gevrSwitchInstant[hand] = 0;
+            gevrModApiDrawn(hand, var_s1);   /* weapon_drawn (gevr_modapi.c) */
 #endif
         }
         else
@@ -5746,6 +5768,9 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             && ((get_ammo_in_hands_weapon(hand) > 0)))
         {
             handptr->weapon_action_state = GUN_ANIM_STATE_RELOAD_LOWER;
+#ifdef GEVR
+            gevrModApiReloadStart(hand, var_s1);   /* reload_start (gevr_modapi.c) */
+#endif
         }
         else
         {
@@ -5907,6 +5932,9 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
         {
             sub_GAME_7F0649D8(hand);
             g_CurrentPlayer->trigger_released = 0;
+#ifdef GEVR
+            gevrModApiReloadEnd(hand, var_s1);   /* reload_end: the rounds are in */
+#endif
         }
 
         if ((handptr->field_890 >= WHEN_C_FLD890)
@@ -6161,11 +6189,23 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             {
                 handptr->field_92C = 1;
             }
+#ifdef GEVR
+            else if (gevrModApiFireAttempt(hand, var_s1))
+            {
+                /* a mod's weapon_fire_attempt declined the throw: nothing leaves the hand */
+                handptr->weapon_action_state = GUN_ANIM_STATE_IDLE;
+                handptr->field_890 = 0.0f;
+                handptr->field_88C = 0;
+            }
+#endif
             else
             {
                 handptr->field_87E = 0;
                 handptr->weapon_firing_status = 1;
                 handptr->weapon_ammo_in_magazine -= 1;
+#ifdef GEVR
+                gevrModApiFired(hand, var_s1);
+#endif
                 handptr->weapon_action_state = GUN_ANIM_STATE_GRENADE_RECOVER;
                 handptr->field_890 = 0.0f;
                 handptr->field_88C = 0;
@@ -6238,11 +6278,23 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             {
                 handptr->field_92C = 1;
             }
+#ifdef GEVR
+            else if (gevrModApiFireAttempt(hand, var_s1))
+            {
+                /* a mod's weapon_fire_attempt declined the throw */
+                handptr->weapon_action_state = GUN_ANIM_STATE_IDLE;
+                handptr->field_890 = 0.0f;
+                handptr->field_88C = 0;
+            }
+#endif
             else
             {
                 handptr->field_87E = 0;
                 handptr->weapon_firing_status = 1;
                 handptr->weapon_ammo_in_magazine -= 1;
+#ifdef GEVR
+                gevrModApiFired(hand, var_s1);
+#endif
                 handptr->weapon_action_state = GUN_ANIM_STATE_THROWKNIFE_RECOVER;
                 handptr->field_890 = 0.0f;
                 handptr->field_88C = 0;
@@ -6283,11 +6335,23 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             {
                 handptr->field_92C = 1;
             }
+#ifdef GEVR
+            else if (gevrModApiFireAttempt(hand, var_s1))
+            {
+                /* a mod's weapon_fire_attempt declined the placing */
+                handptr->weapon_action_state = GUN_ANIM_STATE_IDLE;
+                handptr->field_890 = 0.0f;
+                handptr->field_88C = 0;
+            }
+#endif
             else
             {
                 handptr->field_87E = 0;
                 handptr->weapon_firing_status = 1;
                 handptr->weapon_ammo_in_magazine -= 1;
+#ifdef GEVR
+                gevrModApiFired(hand, var_s1);
+#endif
                 handptr->weapon_action_state = GUN_ANIM_STATE_MINE_RECOVER;
                 handptr->field_890 = 0.0f;
                 handptr->field_88C = 0;

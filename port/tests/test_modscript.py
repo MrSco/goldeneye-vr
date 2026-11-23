@@ -206,6 +206,28 @@ end)
         check(first == second and first[0] != other[0], "random: one seed a mission online: " + str((first, other)))
         check(first[1] == "true true false pc", "capabilities: " + str(first))
 
+        # ---- events from the game: in play only, cancellable by false, and the API's put-back ----
+        s = Scenario(exe, temp, "events", {"main.lua": """
+local shots = 0
+mod.on("weapon_fire_attempt", function(hand, item) shots = shots + 1; print("attempt", hand, item, shots); return shots ~= 2 end)
+mod.on("weapon_fire", function(hand, item) print("fire", hand, item) end)
+"""})
+        out = s.run("event", "weapon_fire_attempt", 1, "start", "event", "weapon_fire_attempt", 1, "prepare", 9,
+                    "event", "weapon_fire_attempt", 1, "begin", 9, "event", "weapon_fire_attempt", 1,
+                    "event", "weapon_fire_attempt", 1, "event", "weapon_fire", 0, "event", "weapon_fire_attempt", 1,
+                    "title", "resets")
+        check(s.logs(out) == ["attempt right 12 1", "attempt right 12 2", "fire right 12", "attempt right 12 3"],
+              "events: only in play, in order: " + str(s.logs(out)))
+        check([l for l in out.splitlines() if l.startswith("CANCEL")] == ["CANCEL 0"] * 3 + ["CANCEL 0", "CANCEL 1", "CANCEL 0", "CANCEL 0"],
+              "events: a handler's false cancels: " + out)
+        check("RESETS 2" in out, "the API's put-back at mission_prepare and mission_end: " + out)
+        s = Scenario(exe, temp, "event-error", {"main.lua": "mod.on('weapon_fire_attempt', function() error('jam') end)\n"})
+        out = s.run("start", "prepare", 9, "begin", 9, "resets", "event", "weapon_fire_attempt", 1,
+                    "event", "weapon_fire_attempt", 1, "resets")
+        answers = [l for l in out.splitlines() if l.startswith(("CANCEL", "RESETS"))]
+        check(answers == ["RESETS 1", "CANCEL 0", "CANCEL 0", "RESETS 2"],
+              "an error: no cancel, the mod off and its changes put back: " + str(answers))
+
         # ---- the log's rate ----
         s = Scenario(exe, temp, "chatty", {"main.lua": "for i = 1, 100 do print(i) end\n"})
         out = s.run("start")
