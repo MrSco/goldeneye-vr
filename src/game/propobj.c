@@ -4229,11 +4229,19 @@ s32 sub_GAME_7F0448A8(struct PropRecord *argProp)
     f32 radius;
     f32 ground;
     PropRecord *propss;
+#ifndef GEVR
     ObjectRecord *temp_v0_2;
+#endif
     struct rect4f *polygon;
     s32 edges;
     f32 top;
     f32 bottom;
+#ifdef GEVR
+    /* Dam's truck (PROPDEF_VEHICHLE) moves by this check as a door does */
+    const s32 gevrTruck = (argProp->type == PROP_TYPE_OBJ) && (argProp->obj != NULL)
+        && (argProp->obj->type == PROPDEF_VEHICHLE);
+    extern s32 gevrGhostIsChr(ChrRecord *chr);   /* gevr_ghost.c: the race's see-through Bond */
+#endif
 
     chraiGetCollisionBounds(argProp, &polygon2, &edges2, &chrTop, &chrBottom);
 
@@ -4249,8 +4257,10 @@ s32 sub_GAME_7F0448A8(struct PropRecord *argProp)
     /* Ragdoll bodies (gevr_ragdoll.c) are not props, so a door closed through
      * them: each one this door touches fades away in half a second. The door
      * never waits for one: the dead guard's own body holds it for the original
-     * lifetime below, so doors keep the original timing with ragdolls on or off. */
-    if (argProp->type == PROP_TYPE_DOOR)
+     * lifetime below, so doors keep the original timing with ragdolls on or off.
+     * Dam's truck does the same (owner, 2026-11-23: in the original it stops for
+     * a dead guard until he fades). */
+    if ((argProp->type == PROP_TYPE_DOOR) || gevrTruck)
     {
         coord3d parts[GEVR_RAGDOLL_PARTS_MAX];
         s32 body;
@@ -4285,8 +4295,20 @@ s32 sub_GAME_7F0448A8(struct PropRecord *argProp)
         {
             if ((prop->type == PROP_TYPE_VIEWER) || (prop->type == PROP_TYPE_CHR))
             {
+#ifdef GEVR
+                /* CHRFLAG_HIDDEN: a hidden chr never blocks. The decomp reads it through
+                 * an object's model pointer, which on the N64 sits where a chr's flags
+                 * do (0x14). On 64-bit Android, Linux and Apple builds that read the chr's prop pointer,
+                 * so whether a guard, a body or a player with a body stopped a door or
+                 * Dam's truck depended on where its prop happened to be in memory. The
+                 * race's ghost is a picture of a run: it holds no door or truck, as it
+                 * stops no shot and no walker (chrprop.c propIsOfCdType). */
+                if (((prop->chr == NULL) || !(prop->chr->chrflags & CHRFLAG_HIDDEN))
+                    && !((prop->type == PROP_TYPE_CHR) && gevrGhostIsChr(prop->chr)))
+#else
                 temp_v0_2 = prop->obj;
                 if ((temp_v0_2 == NULL) || !((s32) temp_v0_2->model & 0x400))
+#endif
                 {
                     chrpropGetCollisionBounds(prop, &radius, &height, &arbitratyNumber);
 
@@ -4318,13 +4340,14 @@ s32 sub_GAME_7F0448A8(struct PropRecord *argProp)
                                     prop->chr->hidden |= CHRHIDDEN_OFFSCREEN_PATROL;
                                 }
 #ifdef GEVR
-                                /* A dead body holds the door for the original game's
-                                 * lifetime of it, as in the original, whatever Bodies
-                                 * stay says; past it the door fades the body and does
-                                 * not wait (chraction.c gevrBodyDoorHit), as for a
-                                 * ragdoll's above. A falling guard blocks as in the
-                                 * original. */
-                                if ((prop->type == PROP_TYPE_CHR) && (argProp->type == PROP_TYPE_DOOR)
+                                /* A dead body holds the door, or Dam's truck, for the
+                                 * original game's lifetime of it, as in the original,
+                                 * whatever Bodies stay says; past it the body fades and
+                                 * the door or truck does not wait (chraction.c
+                                 * gevrBodyDoorHit), as for a ragdoll's above. A falling
+                                 * guard blocks as in the original. */
+                                if ((prop->type == PROP_TYPE_CHR)
+                                    && ((argProp->type == PROP_TYPE_DOOR) || gevrTruck)
                                     && (prop->chr != NULL) && (prop->chr->actiontype == ACT_DEAD)
                                     && gevrBodyDoorHit(prop->chr))
                                 {

@@ -51,6 +51,20 @@ it is gone just when the original would have removed it. Past that lifetime
 a kept body, like a ragdoll's, is the player's own: a door touching it fades
 it in half a second (30/25 ticks) and does not wait.
 
+Dam's truck moves by the same overlap check (`propobj.c` `sub_GAME_7F0448A8`)
+and follows the same rule (owner, 2026-11-23: in the original it stops for Bond,
+for guards, and for a dead guard until he fades). A body within the original
+lifetime stops it, and a kept body past it fades instead of stopping the truck
+for good. A ragdoll body the truck touches fades.
+
+That check skips a chr with `CHRFLAG_HIDDEN`. The decomp read the flag through
+an object's model pointer, which on the N64 sits where a chr's flags do. On
+64-bit Linux, Android and Apple builds the same read reached the chr's prop
+pointer, so whether a guard, a body, or a player with a body (third person)
+stopped a door or the truck depended on its address. Windows lays the record
+out differently and happened to read the flag. The check now reads
+`chr->chrflags` on every build.
+
 ## Optional difficulty behavior
 
 Fast reinforcements explicitly allows the existing AI's “my clone does
@@ -95,7 +109,9 @@ and independent persistence with every body count on Quest and desktop.
 
 `python port/tests/test_door_obstruction.py` checks door obstruction with
 dying and dead guards, living guards, players, and solid objects, and that
-only a door touching a dead body starts its fade. `test_reinforcements.py`
+only a door or Dam's truck touching a dead body starts its fade. It also
+checks that a chr's prop address never decides whether it blocks, and that a
+hidden chr never does. `test_reinforcements.py`
 covers the release itself: a kept body fades on the original clock and is
 not recaptured.
 

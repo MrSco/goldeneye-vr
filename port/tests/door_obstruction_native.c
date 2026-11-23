@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <stdio.h>
 #include "bondtypes.h"
 #include "bondconstants.h"
@@ -42,6 +43,9 @@ static ChrRecord *doorHit;
 static int doorHits;
 static s32 doorPast;   /* chraction.c: TRUE for a body past the original lifetime */
 s32 gevrBodyDoorHit(ChrRecord *chr) { doorHit = chr; doorHits++; return doorPast; }
+
+static ChrRecord *ghost;   /* gevr_ghost.c: the race's see-through Bond */
+s32 gevrGhostIsChr(ChrRecord *chr) { return chr != NULL && chr == ghost; }
 
 /* The door's outline: everything with x below 50 (an occupant stands at 0) */
 s32 chrpropTestPointInPolygon(coord3d *point, struct rect4f *polygon, s32 edges)
@@ -120,6 +124,17 @@ int main(void)
     guard.hidden = 0;
     failures += check("living guard blocks door", 0, 0);
     failures += !(guard.hidden & CHRHIDDEN_OFFSCREEN_PATROL);
+    /* 64-bit builds read the chr's prop pointer as its flags: an address with
+     * bit 10 set let the guard through. Only CHRFLAG_HIDDEN does. */
+    guard.prop = (PropRecord *)(uintptr_t)0x7400;
+    failures += check("a guard blocks whatever its prop's address", 0, 0);
+    guard.prop = NULL;
+    guard.chrflags = CHRFLAG_HIDDEN;
+    failures += check("a hidden guard never blocks", 1, 0);
+    guard.chrflags = 0;
+    ghost = &guard;
+    failures += check("the race's ghost never blocks", 1, 0);
+    ghost = NULL;
     g_Props[1] = (PropRecord){.type = PROP_TYPE_VIEWER};
     failures += check("player blocks door", 0, 0);
     g_Props[1] = (PropRecord){.type = PROP_TYPE_OBJ, .obj = &crate};
@@ -142,9 +157,38 @@ int main(void)
     ragdollFaded[0] = 0;
     failures += check("corpse blocks non-door objects without fading", 0, 0);
     if (ragdollFaded[0]) {
-        fprintf(stderr, "FAIL: only a door fades ragdoll bodies\n");
+        fprintf(stderr, "FAIL: only a door or the truck fades ragdoll bodies\n");
         failures++;
     }
+
+    /* Dam's truck (owner, 2026-11-23): it stops for Bond, a guard, and a body
+     * until it fades, as in the original; a body kept past that fades, and a
+     * ragdoll it touches fades, as at a door */
+    ObjectRecord truck = {.type = PROPDEF_VEHICHLE};
+    g_Props[0] = (PropRecord){.type = PROP_TYPE_OBJ, .obj = &truck};
+    g_Props[1] = (PropRecord){.type = PROP_TYPE_VIEWER};
+    failures += check("the player stops the truck", 0, 0);
+    g_Props[1] = (PropRecord){.type = PROP_TYPE_CHR, .chr = &guard};
+    guard.actiontype = ACT_STAND;
+    guard.hidden = 0;
+    failures += check("a guard stops the truck", 0, 0);
+    failures += (guard.hidden & CHRHIDDEN_OFFSCREEN_PATROL) != 0;   /* a door's mark only */
+    ghost = &guard;
+    failures += check("the race's ghost never stops the truck", 1, 0);
+    ghost = NULL;
+    guard.actiontype = ACT_DEAD;
+    failures += check("a body within the original lifetime stops the truck", 0, 1);
+    doorPast = TRUE;
+    failures += check("a body past the original lifetime fades and never holds the truck", 1, 1);
+    doorPast = FALSE;
+    roomProps[1] = -1;
+    ragdollFaded[0] = 0;
+    failures += check("ragdoll bodies never stop the truck", 1, 0);
+    if (ragdollFaded[0] != 1) {
+        fprintf(stderr, "FAIL: the truck fades the ragdoll body it touches\n");
+        failures++;
+    }
+    roomProps[1] = 1;
     if (!failures) puts("PASS: door obstruction");
     return failures != 0;
 }
