@@ -10,11 +10,12 @@ Other libraries are grouped by name (the GL driver has no symbols).
 """
 import argparse
 from collections import Counter
+import os
 from pathlib import Path
 import subprocess
 import sys
 
-NDK = Path('C:/Users/Occor/AppData/Local/Android/Sdk/ndk/25.1.8937393')
+NDK = Path(os.environ.get('ANDROID_HOME') or Path(os.environ.get('LOCALAPPDATA', '')) / 'Android/Sdk') / 'ndk/25.1.8937393'
 sys.path.insert(0, str(NDK / 'simpleperf'))
 from simpleperf_report_lib import ReportLib  # noqa: E402
 

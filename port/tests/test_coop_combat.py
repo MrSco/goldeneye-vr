@@ -2,6 +2,7 @@
 from pathlib import Path
 import subprocess, tempfile
 from test_reinforcements import block
+from gevr_testcc import sanitize  # the sanitizers where the compiler links them
 ROOT=Path(__file__).resolve().parents[2]
 coop=(ROOT/'port/src/net/net_coop.c').read_text()
 action=(ROOT/'src/game/chraction.c').read_text()
@@ -18,7 +19,7 @@ production+='\n'+'\n'.join(block(action,name) for name in ('f32 chrlvGetAimLimit
 with tempfile.TemporaryDirectory(prefix='gevr-coop-combat-') as t:
     path=Path(t);source=path/'combat.c';exe=path/'combat'
     source.write_text((ROOT/'port/tests/coop_combat_native.c').read_text().replace('/* PRODUCTION */',production))
-    flags=['-std=c11','-O1','-g','-fms-extensions','-Wno-builtin-declaration-mismatch','-fsanitize=address,undefined','-fno-omit-frame-pointer','-no-pie']
+    flags=['-std=c11','-O1','-g','-fms-extensions','-Wno-builtin-declaration-mismatch',*sanitize('-fsanitize=address,undefined'),'-fno-omit-frame-pointer','-no-pie']
     flags+=['-D'+x for x in ('GEVR=1','PLATFORM_64BIT=1','_LANGUAGE_C=1','VERSION_US=1')]
     flags+=['-I'+str(ROOT/x) for x in ('.','include','src','src/game','port/include','port/src','port/src/net')]
     subprocess.run(['gcc',*flags,str(source),str(ROOT/'port/src/net/netbuf.c'),'-lm','-o',str(exe)],check=True)

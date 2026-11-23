@@ -68,7 +68,7 @@ water pass when a Bean dome is drawn.
 
 ## Removable magazines (hand reload, WIP)
 
-With GoldenEye X off, Bean on and **Hand reload WIP** on (Controls → Gestures), a
+With GoldenEye X off, Bean on and **Hand reload** on (Controls → Gestures), a
 Bean gun that has a magazine reloads by hand through the same states as GE-X's:
 B / Y drops the magazine out, take a fresh one at the belt, bring its top to the
 well. A pistol's magazine is not pulled out by hand, GE-X's or Bean's: it is

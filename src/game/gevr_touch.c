@@ -49,6 +49,7 @@
 
 extern int VrTouchModel, VrLeftHandedMode, VrSwapJoysticks, VrPlayMode, VrMotionThrowing;
 extern int VrGestureGripUse;
+extern s32 gevrHandReloadGripUse(void);   /* bondview2.c: hand reload forces grip use */
 extern s32 gevrIsThrowable(s32 item);              /* port/src/input.c */
 extern const char *gevrHmdName(void);              /* vr_openxr.cpp */
 extern const char *gevrTouchProfileName(void);     /* vr_input.cpp */
@@ -541,7 +542,7 @@ static s32 gevrTouchRows(s32 phys, const GevrTouchPad *pad, GevrTouchRow rows[6]
     }
     else if (gun)
     {
-        rows[n].action = VrGestureGripUse ? "Aim / use" : "Aim";
+        rows[n].action = VrGestureGripUse || gevrHandReloadGripUse() ? "Aim / use" : "Aim";
     }
     else
     {

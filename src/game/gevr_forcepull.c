@@ -49,7 +49,7 @@
 #include "loadobjectmodel.h"
 #include "gevr_pull.h"
 
-extern int VrForcePull, VrPullDisarm, VrPullVisuals, VrAutoPickup;
+extern int VrForcePull;   /* one setting: the disarm, the visuals and walk-over pickup are always on */
 extern s32 g_gevrStereo;
 extern f32 D_800364CC;
 extern bool netIsActive(void);
@@ -249,27 +249,12 @@ static void gevrPullSendAt(s32 phase, s32 ctrl, PropRecord *prop, s32 item, s32 
 
 /*
  * propobj.c objTickPlayer: walking over doesn't collect a prop in flight to
- * a hand, nor (Auto pickup off, GEVR PC) a gun at all: grab or pull it.
+ * a hand. Anything else is picked up as the game does (GEVR PC's Auto pickup
+ * off left guns on the floor; owner, 2026-11-23: always on, no setting).
  */
 s32 gevrPullBlocksWalkOver(PropRecord *prop)
 {
-    ObjectRecord *obj;
-
-    if (prop == NULL)
-    {
-        return FALSE;
-    }
-    if (gevrPullBusy(prop))
-    {
-        return TRUE;
-    }
-    if (VrAutoPickup || !g_gevrStereo || (netIsActive() && get_cur_playernum() != netGetLocalSlot()))
-    {
-        return FALSE;
-    }
-    obj = prop->obj;
-    return prop->type == PROP_TYPE_WEAPON && obj != NULL && obj->type == PROPDEF_COLLECTABLE
-        && gevrPullIsGun(((WeaponObjRecord *) obj)->weaponnum);
+    return prop != NULL && gevrPullBusy(prop);
 }
 
 /*
@@ -404,7 +389,7 @@ static s32 gevrPullAimRay(s32 ctrl, f32 p[3], f32 f[3])
 }
 
 /*
- * Pull and disarm (VrPullDisarm, GEVR PC vr457): the gun in a living guard's
+ * Pull and disarm (GEVR PC vr457; always part of force pull): the gun in a living guard's
  * hand h, one the AI may drop, in line of sight; the guard's own tile and
  * position stand for the gun's (a held gun has neither).
  */
@@ -414,7 +399,7 @@ static PropRecord *gevrPullDisarmable(PropRecord *chrprop, s32 h)
     PropRecord *gun, *me = getCurrentPlayerProp();
     StandTile *stan;
 
-    if (!VrPullDisarm || chr == NULL || chrprop->stan == NULL || me == NULL || me->stan == NULL
+    if (chr == NULL || chrprop->stan == NULL || me == NULL || me->stan == NULL
         || !(chrprop->flags & PROPFLAG_ONSCREEN) || chr->actiontype == ACT_DIE || chr->actiontype == ACT_DEAD)
     {
         return NULL;
@@ -552,7 +537,7 @@ s32 gevrPullHeldGlow(Model *model, u32 *fog)
     static s32 s_seen, s_at;
     s32 ctrl;
 
-    if (model == NULL || !VrPullVisuals || !VrForcePull || !g_gevrStereo)
+    if (model == NULL || !VrForcePull || !g_gevrStereo)
     {
         return FALSE;
     }
@@ -1933,12 +1918,9 @@ void gevrPullTick(void)
             s_aimAt[ctrl][0] = at[0]; s_aimAt[ctrl][1] = at[1]; s_aimAt[ctrl][2] = at[2];
             s_handAt[ctrl][0] = p[0]; s_handAt[ctrl][1] = p[1]; s_handAt[ctrl][2] = p[2];
             s_aimValid[ctrl] = TRUE;
-            if (VrPullVisuals)
-            {
-                lock->obj->shadecol.r = 0xFF;
-                lock->obj->shadecol.g = 0xE6;
-                lock->obj->shadecol.b = 0x9A;
-            }
+            lock->obj->shadecol.r = 0xFF;
+            lock->obj->shadecol.g = 0xE6;
+            lock->obj->shadecol.b = 0x9A;
             if (s_lockAge[ctrl] > 0.05f && gevrPullFlicked(ctrl, dt, at))
             {
                 gevrPullStart(ctrl, lock, p, at);
@@ -1968,13 +1950,10 @@ void gevrPullTick(void)
                 s_aimAt[ctrl][0] = at[0]; s_aimAt[ctrl][1] = at[1]; s_aimAt[ctrl][2] = at[2];
                 s_handAt[ctrl][0] = p[0]; s_handAt[ctrl][1] = p[1]; s_handAt[ctrl][2] = p[2];
                 s_aimValid[ctrl] = TRUE;
-                if (VrPullVisuals)
-                {
-                    /* the glow: its light at full, gold, eased back by objTick when it's no longer aimed at */
-                    aim->obj->shadecol.r = 0xFF;
-                    aim->obj->shadecol.g = 0xE6;
-                    aim->obj->shadecol.b = 0x9A;
-                }
+                /* the glow: its light at full, gold, eased back by objTick when it's no longer aimed at */
+                aim->obj->shadecol.r = 0xFF;
+                aim->obj->shadecol.g = 0xE6;
+                aim->obj->shadecol.b = 0x9A;
             }
         }
     }
@@ -2208,15 +2187,14 @@ static Gfx *gevrPullDrawWatchGlow(Gfx *gdl)
 /*
  * bondview2.c, beside the body slots' labels: each hand's target ring and
  * line while it points, the line to a gun on its way, and the watch glow
- * while one flies. Pull visuals off draws nothing (the haptics and the hum
- * stay).
+ * while one flies.
  */
 Gfx *gevrPullDraw(Gfx *gdl)
 {
     s32 ctrl;
     f32 s = gevrPullViewScale();
 
-    if (!g_gevrStereo || !VrPullVisuals || !VrForcePull)
+    if (!g_gevrStereo || !VrForcePull)
     {
         return gdl;
     }
