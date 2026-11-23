@@ -1,4 +1,4 @@
-"""Check the real door obstruction routine with living and dead occupants."""
+"""Check the real door obstruction routine with living, dying and dead occupants."""
 
 import argparse
 import os
@@ -22,9 +22,7 @@ def function(source, signature):
 
 
 def run(directory, collision, expect_pass):
-    action = (ROOT / "src/game/chraction.c").read_text(encoding="utf-8")
-    code = "\n".join((function(action, "bool chrIsDead("),
-                      function(collision, "s32 sub_GAME_7F0448A8(")))
+    code = function(collision, "s32 sub_GAME_7F0448A8(")
     fixture = (ROOT / "port/tests/door_obstruction_native.c").read_text(encoding="utf-8")
     source = directory / "door_obstruction.c"
     exe = directory / "door_obstruction.exe"
@@ -44,9 +42,8 @@ def run(directory, collision, expect_pass):
         print(result.stdout.strip())
     else:
         assert result.returncode != 0, "baseline unexpectedly passed"
-        assert result.stderr.splitlines() == ["FAIL: dying guard clears door",
-                                              "FAIL: dead guard clears door"], result.stderr
-        print("PASS: baseline reproduces the dying and dead guard obstructions")
+        assert result.stderr.splitlines() == ["FAIL: dead guard blocks door and starts fading"],             result.stderr
+        print("PASS: baseline never releases a kept body that blocks a door")
 
 
 if __name__ == "__main__":

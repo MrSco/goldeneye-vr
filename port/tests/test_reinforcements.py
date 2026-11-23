@@ -18,7 +18,7 @@ def block(source, signature):
     return source[start:end]
 
 
-def build(directory, sources, name, pal=False):
+def build(directory, sources, name, pal=False, baseline=False):
     action, chr_source, ai = sources
     start = action.index("#ifdef GEVR\n/*\n * Bodies stay")
     end = action.index("\n#endif", start) + len("\n#endif")
@@ -41,6 +41,8 @@ def build(directory, sources, name, pal=False):
                                 "VERSION=2", "VERSION_US=1", "LANG_US=1")]
     if pal:
         args.append("-DREFRESH_PAL=1")
+    if baseline:
+        args.append("-DGEVR_BASELINE=1")
     args += ["-I" + str(ROOT / path) for path in
              (".", "port/include", "include", "src", "src/game", "port/src")]
     result = subprocess.run(args + [str(source), "-o", str(exe)], capture_output=True, text=True)
@@ -63,7 +65,7 @@ if __name__ == "__main__":
         if options.verify_baseline:
             old = [subprocess.check_output(["git", "show", "3ecab3b:" + path], cwd=ROOT, text=True)
                    for path in paths]
-            exe = build(directory, old, "baseline")
+            exe = build(directory, old, "baseline", baseline=True)
             for mode in ("timing", "tracking"):
                 result = subprocess.run([str(exe), mode], capture_output=True, text=True)
                 assert result.returncode, "baseline unexpectedly passed " + mode

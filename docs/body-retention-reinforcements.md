@@ -42,8 +42,10 @@ bodies. If their original fade time has not expired, fading resumes from
 that elapsed time. Once an ID is retired, changing the retention setting
 does not restore it. Corpses still yield slots for real spawns.
 
-Doors pass through dying and dead guards, including retained bodies. Living
-guards and players still block a door in its path.
+A guard who is falling or dead still blocks a closing door, as in the
+original. A door that touches a kept body releases it: the body fades over
+the original 90/75 ticks and the door closes once it is gone, so it never
+clips through a corpse.
 
 ## Optional difficulty behavior
 
@@ -88,9 +90,10 @@ a full client spawn queue, late joining, and repeated roster packets.
 and independent persistence with every body count on Quest and desktop.
 
 `python port/tests/test_door_obstruction.py` checks door obstruction with
-dying and dead guards, living guards, players, and solid objects. It also
-checks that the shared collision routine still blocks a moving non-door
-object when it meets a corpse.
+dying and dead guards, living guards, players, and solid objects, and that
+only a door touching a dead body starts its fade. `test_reinforcements.py`
+covers the release itself: a kept body fades on the original clock and is
+not recaptured.
 
 Headset acceptance is pending: compare spawning on Archives and other
 missions with each body count and Fast mode on/off, change the settings

@@ -37,6 +37,10 @@ void chrpropGetCollisionBounds(PropRecord *prop, f32 *radius, f32 *top, f32 *bot
 
 f32 sub_GAME_7F03CFE8(PropRecord *prop) { (void)prop; return 0.f; }
 
+static ChrRecord *doorHit;
+static int doorHits;
+void gevrBodyDoorHit(ChrRecord *chr) { doorHit = chr; doorHits++; }
+
 s32 chrpropTestPointInPolygon(coord3d *point, struct rect4f *polygon, s32 edges)
 {
     (void)point;
@@ -65,10 +69,13 @@ s32 chrobjTestPolygonsTouchingOrOverlap2D(struct rect4f *a, s32 na, struct rect4
 
 /* INSERT_PRODUCTION_CODE */
 
-static int check(const char *name, s32 expected)
+static int check(const char *name, s32 expected, int hits)
 {
+    doorHit = NULL;
+    doorHits = 0;
     const s32 result = sub_GAME_7F0448A8(&g_Props[0]);
-    if (result != expected) {
+    if (result != expected || doorHits != hits
+        || (hits && doorHit != g_Props[1].chr)) {
         fprintf(stderr, "FAIL: %s\n", name);
         return 1;
     }
@@ -82,28 +89,30 @@ int main(void)
     int failures = 0;
     g_Props[0].type = PROP_TYPE_DOOR;
     roomProps[1] = -1;
-    failures += check("clear door", 1);
+    failures += check("clear door", 1, 0);
     roomProps[1] = 1;
 
+    /* A falling guard blocks as in the original; a body on the floor also
+     * blocks, but the door touching it starts its fade. */
     g_Props[1] = (PropRecord){.type = PROP_TYPE_CHR, .chr = &guard};
     guard.actiontype = ACT_DIE;
-    failures += check("dying guard clears door", 1);
+    failures += check("dying guard blocks door without fading", 0, 0);
     guard.actiontype = ACT_DEAD;
-    failures += check("dead guard clears door", 1);
-    failures += !!guard.hidden;
+    failures += check("dead guard blocks door and starts fading", 0, 1);
 
     guard.actiontype = ACT_STAND;
-    failures += check("living guard blocks door", 0);
+    guard.hidden = 0;
+    failures += check("living guard blocks door", 0, 0);
     failures += !(guard.hidden & CHRHIDDEN_OFFSCREEN_PATROL);
     g_Props[1] = (PropRecord){.type = PROP_TYPE_VIEWER};
-    failures += check("player blocks door", 0);
+    failures += check("player blocks door", 0, 0);
     g_Props[1] = (PropRecord){.type = PROP_TYPE_OBJ, .obj = &crate};
-    failures += check("crate blocks door", 0);
+    failures += check("crate blocks door", 0, 0);
 
     g_Props[0].type = PROP_TYPE_OBJ;
     g_Props[1] = (PropRecord){.type = PROP_TYPE_CHR, .chr = &guard};
     guard.actiontype = ACT_DEAD;
-    failures += check("corpse still blocks non-door objects", 0);
+    failures += check("corpse blocks non-door objects without fading", 0, 0);
     if (!failures) puts("PASS: door obstruction");
     return failures != 0;
 }
