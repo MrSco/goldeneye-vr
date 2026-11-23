@@ -35,19 +35,33 @@ LiveSplit, and the two iCloud rows themselves; in `goldeneye.ini` the `Video.`,
 vibration, gameplay, cheats, gun fits, multiplayer choices, the player name,
 the active pack, Bean mode) is shared.
 
-**Merging.** `.gevr-icloud/` in the save folder keeps the copy last synced of
-each file. At launch: a key changed here since then goes up; otherwise the
-cloud's value comes down. A device joining for the first time takes the
-cloud's values (it waits up to 5 s for the store's first download). Saves are
-whole files; when both sides changed, the newer one wins. Settings changed on
-another device while this one runs apply at its next launch (the game has its
-settings in memory by then).
+**Joining.** A device pushes nothing to the key-value store until it joins:
+when the store already has the other devices' settings (they win; only keys
+the cloud lacks go up), or when CloudKit has no `GevrJoined` record (it is the
+first device; its settings go up and it leaves the record). Otherwise it waits;
+settings that arrive late are used from the next launch. (First device test,
+2026-11-22: a new iPad whose store had not come down in 5 s pushed its own
+settings over the iPhone's. Store names are `ini2`/`cfg2`/`save2:` since.)
+
+**Settings** merge key by key against `.gevr-icloud/last-*` (the copy last
+synced): a key changed here goes up, otherwise the cloud's comes down. Settings
+changed on another device while this one runs apply at its next launch.
+
+**Saves are never merged** (user: choose the right one). The save the game
+wrote last wins, by the file's own time carried in the store and put back on
+the file when it comes down. A save with no progress (no level time, cheat or
+007 mode in a used slot of GoldenEye's EEPROM layout) never replaces one with
+progress. A replaced save is kept as `eeprom.bin.before-icloud-<date>`, the
+last five.
 
 **Files.** An item is a `GevrItem` record (path, stamp, size, chunk count,
 generation, content hash for ROMs) and `GevrChunk` records of 32 MB, each one
 asset, holding a small archive (one entry for a ROM, every file for a pack).
 Chunks are written before the item, so a reader never sees half an upload; a
-re-upload is a new generation and the old chunks are deleted after. A
+re-upload is a new generation and the old chunks are deleted after. The item
+record is read before and after an upload: if another device put the same
+content there meanwhile, ours is dropped. Chunks no item names and a day old
+are deleted on each pass. A
 download whose target is already there (the game may be using it) waits in
 `.gevr-icloud/ready/` and is put in place at the next launch. Same content on
 both sides (ROM hash, pack file count and size) is recorded as synced without
@@ -79,12 +93,15 @@ signed build (device dev install or archive); the simulator never gets it.
 
 ## State
 
-- 2026-11-22: implemented on branch `t3/icloud-settings-sync`. Not yet run on a
-  signed device: needs steps 1-3 above.
-- Checked: iOS, tvOS and visionOS simulator builds; the unsigned iOS build
-  launches with the rows hidden; `bash port/tests/test_icloud.sh` (Mac, iOS
-  simulator) passes: ini rewrite, device keys, archive round trip, unsafe
-  names, item scan, install. The merges against a real store and CloudKit
-  are untested until a build is signed for iCloud.
-- Open: live apply of settings that arrive mid-session; deleting from iCloud;
-  speedrun ghosts (`ghosts/`) are not carried.
+- 2026-11-22, branch `t3/icloud-settings-sync`: App ID iCloud capability (API)
+  and container (user, developer site) done; development profiles "GEVR iCloud
+  Dev iOS/tvOS" made through the API (Xcode cannot log in with the team key;
+  `~/gevr-perf/asc.py` on the Mac). Signed dev builds on the iPhone, iPad and
+  Living Room Apple TV (`~/src/gevr-icloud-dev-ios.command`, `-tvos.command`).
+- Device test: iPhone joined first (settings + save up, 6 ROMs, Bean, HD-AI,
+  Oddjob hat up); iPad joined and took the iPhone's settings, matched the ROMs
+  and packs without downloading; identical saves left alone. Apple TV pending.
+- `bash port/tests/test_icloud.sh` (Mac, iOS simulator) passes.
+- Before TestFlight: CloudKit schema to Production (Console), App Store
+  profiles remade with iCloud, archives with `GEVR_ICLOUD=1`.
+- Open: deleting from iCloud; speedrun ghosts (`ghosts/`) are not carried.
