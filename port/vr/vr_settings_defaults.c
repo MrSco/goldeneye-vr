@@ -288,17 +288,23 @@ float VrGexForeHold[3] = { 0.0f, 0.0f, 0.0f };
  * place and turn where it holds the rifle (both hands, Gun fit). Headset fit
  * 2026-11-08 (owner): the fist up the stock near the butt, the off hand on the
  * barrel below it. */
-float VrGexBatFit[7][3] = {
+float VrGexBatFit[9][3] = {
     {-7.1910f, -37.9323f, -7.1733f},   /* GexBat */
     {-0.8665f, 0.1285f, -0.0136f},     /* GexBatHand */
     {0.0000f, -7.3751f, 0.0000f},      /* GexBatHandRot */
     {-2.2068f, -5.3252f, 1.1738f},     /* GexBatOff */
     {0.0000f, 0.0000f, 0.0000f},       /* GexBatOffRot */
-    /* Bean's rifle through the PP7's glove (gun.c gevrBeanBatPose), as GexBat: the owner's
-     * headset fit (2026-11-22, BeanBat=0 -26.8631 0: the fist 38 cm up from the muzzle),
-     * and GoldenEye's own rifle in its own PP7's hand, the same until it is fitted */
-    {0.0000f, -26.8631f, 0.0000f},     /* BeanBat */
-    {0.0000f, -26.8631f, 0.0000f},     /* Bat */
+    /* Bean's rifle through the PP7's glove (gun.c gevrBeanBatPose), as GexBat, and
+     * GoldenEye's own rifle in its own PP7's hand: the owner's headset fits (2026-11-22,
+     * evening), the fist about 18 and 21 cm up from the muzzle, a bat's grip */
+    {0.0000f, -7.2620f, 0.0000f},      /* BeanBat */
+    {0.2021f, -12.5484f, -0.2823f},    /* Bat */
+    /* their end in the off hand with both hands on (bondview2.c gevrBatOffPalm), cm right,
+     * up and back of the hand's measured centre: that centre is the palm's heel, and the
+     * rifle sat against the watch strap (owner, 2026-11-22, headset), so it starts 3 cm
+     * toward the fingers */
+    {0.0000f, 0.0000f, -3.0000f},      /* BeanBatOff */
+    {0.7863f, 0.0000f, 0.4873f},       /* BatOff: the owner's, 2026-11-22 */
 };
 /* PP7 and PP7 silenced share a model fit, separate from legacy KF7 values.
  * Grab is a cm delta from the actual magazine, not a guessed controller point. */
@@ -350,27 +356,36 @@ float VrBeanGripTrim[2][6] = {
 float VrBeanReloadGrab[3] = { 0.0000f, -7.0000f, -8.0000f };
 /* Bean guns' removable magazines (gun.c gevrBeanMagFit), by item: [0] the
  * magazine in the off hand (cm right, up, back of its grip), [1] the well's
- * mouth on the gun from where the mesh has it (unfitted: the mesh's own).
- * The held place is the off hand's, wherever the magazine is held from: the
- * PP7's, headset fit 2026-11-18, for every gun until its own is fitted. */
-#define BEAN_MAG_HELD { { 0.5470f, 6.2007f, -18.4547f }, { 0.0f, 0.0f, 0.0f } }
-float VrBeanMagFits[64][2][3] = {
-    [4] = BEAN_MAG_HELD,    /* PP7 (and the silenced, silver and gold ones) */
-    [6] = BEAN_MAG_HELD,    /* DD44 */
-    [7] = BEAN_MAG_HELD,    /* Klobb */
-    [8] = BEAN_MAG_HELD,    /* KF7 */
-    [9] = BEAN_MAG_HELD,    /* ZMG */
-    [10] = BEAN_MAG_HELD,   /* D5K (and the silenced one) */
-    [12] = BEAN_MAG_HELD,   /* Phantom */
-    [13] = BEAN_MAG_HELD,   /* AR33 */
-    [14] = BEAN_MAG_HELD,   /* RC-P90 */
-    [15] = BEAN_MAG_HELD,   /* shotgun: a shell */
-    [16] = BEAN_MAG_HELD,   /* automatic shotgun: a shell */
-    [17] = BEAN_MAG_HELD,   /* sniper rifle */
-    [18] = BEAN_MAG_HELD,   /* Cougar: its cylinder */
-    [24] = BEAN_MAG_HELD,   /* grenade launcher: its drum */
-    [25] = BEAN_MAG_HELD,   /* rocket launcher: a rocket */
-};
+ * mouth on the gun from where the mesh has it (unfitted: the mesh's own),
+ * [2] the magazine in the primary hand, reloading a gun held in the other
+ * with the primary hand bare (bondview2.c gevrReloadSupportGun): that hand
+ * holds it differently, so it has its own. The held places are the hand's,
+ * wherever the magazine is held from: the PP7's, headset fits 2026-11-18 (the
+ * off hand) and 2026-11-22 (the primary hand), for every gun until its own
+ * is fitted. GoldenEye's own models share these. */
+#define BEAN_MAG_HELD { { 0.5470f, 6.2007f, -18.4547f }, { 0.0f, 0.0f, 0.0f }, { 1.4385f, 1.7183f, -9.3899f } }
+/* the fits as they ship, kept apart so a save writes only the ones fitted
+ * (vr_settings.cpp): an unfitted gun takes a later build's default */
+#define BEAN_MAG_FITS { \
+    [4] = BEAN_MAG_HELD,    /* PP7 (and the silenced, silver and gold ones) */ \
+    [6] = BEAN_MAG_HELD,    /* DD44 */ \
+    [7] = BEAN_MAG_HELD,    /* Klobb */ \
+    [8] = BEAN_MAG_HELD,    /* KF7 */ \
+    [9] = BEAN_MAG_HELD,    /* ZMG */ \
+    [10] = BEAN_MAG_HELD,   /* D5K (and the silenced one) */ \
+    [12] = BEAN_MAG_HELD,   /* Phantom */ \
+    [13] = BEAN_MAG_HELD,   /* AR33 */ \
+    [14] = BEAN_MAG_HELD,   /* RC-P90 */ \
+    [15] = BEAN_MAG_HELD,   /* shotgun: a shell */ \
+    [16] = BEAN_MAG_HELD,   /* automatic shotgun: a shell */ \
+    [17] = BEAN_MAG_HELD,   /* sniper rifle */ \
+    [18] = BEAN_MAG_HELD,   /* Cougar: its cylinder */ \
+    [24] = BEAN_MAG_HELD,   /* grenade launcher: its drum */ \
+    [25] = BEAN_MAG_HELD,   /* rocket launcher: a rocket */ \
+}
+float VrBeanMagFits[64][3][3] = BEAN_MAG_FITS;
+const float VrBeanMagFitsDefault[64][3][3] = BEAN_MAG_FITS;
+#undef BEAN_MAG_FITS
 #undef BEAN_MAG_HELD
 float VrBeanScopeFit[4][4];
 float VrBeanMuzzleTrim[GEVR_MAX_WEAPONS][3];
@@ -384,9 +399,15 @@ float VrRackFit[3][64][3];
  * the PP7 4 (its silenced, gold and silver kin share it), DD44 6, Klobb 7,
  * KF7 8, ZMG 9, D5K 10 (and its silenced), Phantom 12, AR33 13, RCP90 14,
  * shotgun 15, automatic shotgun 16, sniper rifle 17, Cougar 18, golden gun
- * 19, Moonraker laser 22, grenade launcher 24. */
+ * 19, Moonraker laser 22, grenade launcher 24. The unarmed hand (1, the fist)
+ * is the user's too, both looks, fitted in the headset 2026-11-22 for the
+ * primary hand reloading a gun held in the other (ini GunFitFist). */
 float VrGunOffPer[2][GEVR_MAX_WEAPONS][3] = {
+    [0] = {
+        [1] = { 1.2f, -0.4f, -5.8f },
+    },
     [1] = {
+        [1] = { 1.6901f, -1.3318f, -5.8809f },
         [4] = { 2.9164f, -0.1001f, -13.1776f },
         [8] = { 2.9164f, -0.0594f, -13.1352f },
         [17] = { 2.9818f, 0.0549f, -20.5970f },
@@ -413,7 +434,8 @@ float VrGripTrimPer[2][GEVR_MAX_WEAPONS][6] = {
     },
 };
 unsigned char VrGunOffPerSet[2][GEVR_MAX_WEAPONS] = {
-    [1] = { [4] = 1, [8] = 1, [17] = 1 },
+    [0] = { [1] = 1 },
+    [1] = { [1] = 1, [4] = 1, [8] = 1, [17] = 1 },
 };
 unsigned char VrGripTrimPerSet[2][GEVR_MAX_WEAPONS] = {
     [1] = {

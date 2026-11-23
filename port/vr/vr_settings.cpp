@@ -95,6 +95,7 @@ struct MuzzleWeaponEntry {
     const char *name;
 };
 static const MuzzleWeaponEntry kMuzzleWeapons[] = {
+    { 1, "Fist" },   /* the unarmed hand: Gun fit moves it as a gun (user, 2026-11-22: its fit was not saved) */
     { 2, "Knife" },
     { 3, "ThrowKnife" },
     { 4, "PP7" },
@@ -608,11 +609,18 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "BeanBat=%.4f %.4f %.4f\n", VrGexBatFit[5][0], VrGexBatFit[5][1], VrGexBatFit[5][2]);
     iniPrintf(f, "; Bat: the same for GoldenEye's own sniper rifle.\n");
     iniPrintf(f, "Bat=%.4f %.4f %.4f\n", VrGexBatFit[6][0], VrGexBatFit[6][1], VrGexBatFit[6][2]);
-    iniPrintf(f, "; Bean guns' magazines: item number / vector (0 held magazine, 1 magazine well); fitted ones only.\n");
+    iniPrintf(f, "; BeanBatOff and BatOff: with both hands on, the rifle's end in the off hand, cm right,\n");
+    iniPrintf(f, "; up and back of the hand's middle.\n");
+    iniPrintf(f, "BeanBatOff=%.4f %.4f %.4f\n", VrGexBatFit[7][0], VrGexBatFit[7][1], VrGexBatFit[7][2]);
+    iniPrintf(f, "BatOff=%.4f %.4f %.4f\n", VrGexBatFit[8][0], VrGexBatFit[8][1], VrGexBatFit[8][2]);
+    iniPrintf(f, "; Bean guns' magazines: item number / vector (0 held magazine, 1 magazine well, 2 held\n");
+    iniPrintf(f, "; magazine in the primary hand, reloading a gun in the other); fitted ones only.\n");
     for (int item=0; item<64; item++)
-        for (int which=0; which<2; which++) {
+        for (int which=0; which<3; which++) {
             const float *v=VrBeanMagFits[item][which];
-            if (v[0] != 0.0f || v[1] != 0.0f || v[2] != 0.0f)
+            /* the fitted ones: an unfitted gun takes a later build's default (owner,
+             * 2026-11-22: the shipped place, written out, outlived a better default) */
+            if (memcmp(v, VrBeanMagFitsDefault[item][which], sizeof(float) * 3) != 0)
                 iniPrintf(f, "BeanMagFit%d_%d=%.4f %.4f %.4f\n", item, which, v[0], v[1], v[2]);
         }
     iniPrintf(f, "; Per-weapon fits: item number / vector (0 gun, 1 grab, 2 support, 3 rotation, 4 held mag, 5 well, 6 installed mesh).\n");
@@ -824,7 +832,7 @@ extern "C" void vrSettingsLoad(void)
         if (strncmp(line, "BeanMagFit", 10) == 0) {
             int item, which, consumed=0; float t[3];
             if (sscanf(line, "BeanMagFit%d_%d=%n", &item, &which, &consumed) == 2 && consumed > 0
-                && item >= 0 && item < 64 && which >= 0 && which < 2
+                && item >= 0 && item < 64 && which >= 0 && which < 3
                 && sscanf(line+consumed, "%f %f %f", &t[0], &t[1], &t[2]) == 3
                 && std::isfinite(t[0]) && std::isfinite(t[1]) && std::isfinite(t[2]))
                 memcpy(VrBeanMagFits[item][which], t, sizeof(t));
@@ -861,8 +869,10 @@ extern "C" void vrSettingsLoad(void)
             }
             continue;
         }
-        if (strncmp(line, "BeanBat=", 8) == 0 || strncmp(line, "Bat=", 4) == 0) {
-            const int row = line[0] == 'B' && line[1] == 'e' ? 5 : 6;
+        if (strncmp(line, "BeanBat=", 8) == 0 || strncmp(line, "Bat=", 4) == 0
+            || strncmp(line, "BeanBatOff=", 11) == 0 || strncmp(line, "BatOff=", 7) == 0) {
+            const bool off = strstr(line, "BatOff=") != nullptr;
+            const int row = (line[0] == 'B' && line[1] == 'e' ? 5 : 6) + (off ? 2 : 0);
             float t[3];
             if (sscanf(strchr(line, '=') + 1, "%f %f %f", &t[0], &t[1], &t[2]) == 3
                 && std::isfinite(t[0]) && std::isfinite(t[1]) && std::isfinite(t[2])) {

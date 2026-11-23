@@ -145,6 +145,12 @@ int main(int argc, char **argv) {
         /* Bean guns' magazines (gun.c gevrBeanMagFit): the PP7's held magazine and well */
         VrBeanMagFits[4][0][1] = 1.75f;
         VrBeanMagFits[4][1][2] = -0.5f;
+        VrBeanMagFits[4][2][0] = -2.5f;   /* ... and held in the primary hand, for a gun in the other */
+        /* the unarmed hand's own place (Gun fit moves it as a gun): GoldenEye's and Bean's */
+        VrGunOffPer[0][1][0] = 1.25f; VrGunOffPer[0][1][1] = -0.5f; VrGunOffPer[0][1][2] = -3.75f;
+        VrGunOffPerSet[0][1] = 1;
+        VrGunOffPer[1][1][2] = -4.5f;
+        VrGunOffPerSet[1][1] = 1;
         VrBodySlotFit[GEVR_BS_BELT][1] = 6.5f;
         newFamilyFits(-5,false);
         gevrGunFitSaved(false);
@@ -181,6 +187,9 @@ int main(int argc, char **argv) {
         assert(VrBeanMagFits[4][0][1] == 1.75f && VrBeanMagFits[4][1][2] == -0.5f);
         assert(VrBeanMagFits[4][0][0] == 0.5470f && VrBeanMagFits[8][0][1] == 6.2007f);   // the headset's default
         assert(VrBeanMagFits[4][1][0] == 0 && VrBeanMagFits[0][0][0] == 0);
+        assert(VrBeanMagFits[4][2][0] == -2.5f && VrBeanMagFits[8][2][0] == 1.4385f);   // the primary hand's, and its default
+        assert(VrGunOffPerSet[0][1] && VrGunOffPer[0][1][0] == 1.25f && VrGunOffPer[0][1][2] == -3.75f);
+        assert(VrGunOffPerSet[1][1] && VrGunOffPer[1][1][2] == -4.5f);   // "Fist" round trips, both looks
         assert(VrGexGunOff[0] == 1.5f && VrGexGunOff[2] == -19.1169f && VrGunOffX == 2.74f);
         assert(VrGexGripTrim[1][3] == 45.0f && VrGripTrim[1][3] == 86.3f);
         assert(VrScopeFit[0][0][0] == 0.5f && VrScopeFit[1][2][3] == -1.25f && VrScopeFit[0][2][3] == 0.0f);

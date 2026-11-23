@@ -2468,7 +2468,7 @@ extern s32 gevrBeanMagState(s32 hand, f32 off[3]);   /* bondview2.c: GEVR_GEXMAG
 extern s32 gevrBeanHeldPalm(f32 out[3]);             /* bondview2.c: the off hand's palm, Gun fit's held magazine */
 extern s32 gevrStereoReloadHandMatrix(Mtxf *out);    /* bondview2.c */
 extern s32 gevrReloadSeatHover(f32 out[3]);
-extern float VrBeanMagFits[64][2][3];                /* vr_settings_defaults.c */
+extern float VrBeanMagFits[64][3][3];                /* vr_settings_defaults.c */
 extern s32 g_gevrStereo;
 
 /*
@@ -2500,12 +2500,14 @@ static f32 s_gevrBeanMagAt[3], s_gevrBeanWellAt[3], s_gevrBeanTipAt[3];
 static s32 s_gevrBeanMagPointsGun = GUNRIGHT, s_gevrBeanMagPointsValid;
 
 /* Gun fit's magazine modes for a Bean gun: 0 the magazine in the off hand (cm
- * right, up, back of its grip), 1 the well's mouth on the gun. The PP7s share one. */
+ * right, up, back of its grip), 1 the well's mouth on the gun, 2 the magazine
+ * in the primary hand, for a gun in the other (bondview2.c gevrBeanHeldPalm). The PP7s
+ * share one. */
 float *gevrBeanMagFit(s32 item, s32 which)
 {
     if (item == ITEM_WPPKSIL || item == ITEM_SILVERWPPK || item == ITEM_GOLDWPPK) item = ITEM_WPPK;
     if (item == ITEM_MP5KSIL) item = ITEM_MP5K;
-    return VrBeanMagFits[item >= 0 && item < 64 ? item : 0][which ? 1 : 0];
+    return VrBeanMagFits[item >= 0 && item < 64 ? item : 0][which < 0 || which > 2 ? 0 : which];
 }
 
 /* Whether each gun's model, once drawn, had a magazine to take (gevr_beanmag.c's
@@ -2623,19 +2625,21 @@ static void gevrBeanMagWell(const struct gevrBeanMagInfo *info, const Mtxf *gun,
 }
 
 /* Gun fit's magazine well, the off hand's trigger (input.c): the held magazine's
- * top is the mouth. Moves the gun-local target only, never the ammunition. */
+ * top is the mouth. Moves the gun-local target only, never the ammunition.
+ * The gun is the hand reload's, the left one with the right hand bare. */
 s32 gevrBeanMagFitSetWell(void)
 {
-    const Mtxf *gun = &s_gevrBeanMagGun[GUNRIGHT];
+    const s32 hand = gevrReloadSupportGun();
+    const Mtxf *gun = &s_gevrBeanMagGun[hand];
     f32 *fit, axis[3], along;
     s32 r, i;
 
-    if (!gevrBeanMagHeld(GUNRIGHT) || !s_gevrBeanMagGunValid[GUNRIGHT] || (s_gevrBeanMagPointsValid & 3) != 3
-        || D_800364CC < 1e-6f)
+    if (!gevrBeanMagHeld(hand) || !s_gevrBeanMagGunValid[hand] || s_gevrBeanMagPointsGun != hand
+        || (s_gevrBeanMagPointsValid & 3) != 3 || D_800364CC < 1e-6f)
     {
         return FALSE;
     }
-    fit = gevrBeanMagFit(getCurrentPlayerWeaponId(GUNRIGHT), 1);
+    fit = gevrBeanMagFit(getCurrentPlayerWeaponId(hand), 1);
     for (r = 0; r < 3; r++)
     {
         gevrBeanMagAxisCm(gun, r, axis);
@@ -3040,8 +3044,9 @@ static void gevrGexWellPoint(const GexWeaponDef *def, const Mtxf *mag, const Mtx
  * entrance. Change the gun-local target only, never the ammunition state. */
 void gevrReloadFitSetWell(void)
 {
-    const GexWeaponDef *def = gevrGexWeaponForHand(GUNRIGHT);
-    const Mtxf *gun = &s_gevrGexLastGun[GUNRIGHT];
+    const s32 hand = gevrReloadSupportGun();   /* the gun the hands reload, either hand */
+    const GexWeaponDef *def = gevrGexWeaponForHand(hand);
+    const Mtxf *gun = &s_gevrGexLastGun[hand];
     f32 length2[3], projection;
     f32 *fit;
     s32 r, i;
@@ -3051,7 +3056,7 @@ void gevrReloadFitSetWell(void)
         gevrBeanMagFitSetWell();
         return;
     }
-    if ((s_gevrGexMagPointsValid & 3) != 3) return;
+    if (s_gevrGexMagPointsGun != hand || (s_gevrGexMagPointsValid & 3) != 3) return;
     for (r = 0; r < 3; r++)
     {
         length2[r] = 0;
@@ -3760,7 +3765,8 @@ static s32 gevrGexInstalledMagazineFitting(void)
 {
     extern int gevrInstalledMagFitting, gevrGunFitActive;
     extern s32 g_gevrStereo;
-    return g_gevrStereo && gevrGunFitActive == 1 && gevrInstalledMagFitting && gevrGexHeld(GUNRIGHT) && gevrGexHasMagazine(gevrGexWeaponForHand(GUNRIGHT));
+    const s32 hand = gevrReloadSupportGun();   /* the gun the hands reload, either hand (input.c) */
+    return g_gevrStereo && gevrGunFitActive == 1 && gevrInstalledMagFitting && gevrGexHeld(hand) && gevrGexHasMagazine(gevrGexWeaponForHand(hand));
 }
 
 /* Fitting gets a visual magazine even when physical reload is disabled.
@@ -3769,7 +3775,8 @@ static s32 gevrGexMagazineFitting(void)
 {
     extern int gevrHeldMagFitting, gevrWellFitting, gevrGunFitActive;
     extern s32 g_gevrStereo;
-    return g_gevrStereo && gevrGunFitActive == 1 && (gevrHeldMagFitting || gevrWellFitting) && gevrGexHeld(GUNRIGHT) && gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT));
+    const s32 hand = gevrReloadSupportGun();   /* the gun the hands reload, either hand (input.c) */
+    return g_gevrStereo && gevrGunFitActive == 1 && (gevrHeldMagFitting || gevrWellFitting) && gevrGexHeld(hand) && gevrGexHasAmmo(gevrGexWeaponForHand(hand));
 }
 
 static s32 gevrGexOffHandConsumed(s32 mag, s32 *drawn)
@@ -4066,6 +4073,27 @@ s32 gevrGexBatLine(s32 hand, f32 at[3], f32 dir[3], f32 *below, f32 *above)
     return TRUE;
 }
 
+/* bondview2.c gevrBatOffHandPin: the bat as last drawn (camera space), within a
+ * few ticks - the point on it at the fist, its right, its way to the butt and its up */
+s32 gevrGexBatFrame(s32 hand, f32 at[3], f32 ex[3], f32 ey[3], f32 ez[3])
+{
+    s32 i;
+
+    if ((hand != GUNRIGHT && hand != GUNLEFT) || s_gevrGexBatAt[hand] == 0
+        || (u32) (g_GlobalTimer - s_gevrGexBatAt[hand]) > 4u)
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        at[i] = s_gevrGexBatLine[hand][i];
+        ey[i] = s_gevrGexBatLine[hand][3 + i];
+        ex[i] = s_gevrGexBatLine[hand][9 + i];
+        ez[i] = s_gevrGexBatLine[hand][12 + i];
+    }
+    return TRUE;
+}
+
 /*
  * Bean's sniper rifle as the bat (owner, 2026-11-21: "we can use the bean
  * pistol grip hand for the right hand with bean sniper ... and then be able to
@@ -4092,6 +4120,83 @@ s32 gevrGexBatLine(s32 hand, f32 at[3], f32 dir[3], f32 *below, f32 *above)
 static const f32 s_gevrBeanBatPalm[3] = { 0.0f, -25.0f, 24.0f };
 static Mtxf s_gevrBeanBatHand[2];      /* the PP7's gun matrix the glove is drawn by */
 
+/*
+ * Both hands on it, the bat is held as a bat is (owner, 2026-11-22, headset:
+ * "the offhand snaps to the right spot, but it then pivots on that instead of
+ * staying pinned like the primary hand does ... if we were swinging a baseball
+ * bat in real life, you'd pivot both your wrists. Your hands would be stuck to
+ * the bat, but your wrists would pivot around together in unison"). As it
+ * takes hold, where the bat lies is kept in each hand's own axes - the fist's,
+ * and the off hand's controller's - and from then both wrists turn it: it lies
+ * between where the two have it, so both turning together swing it all the
+ * way and one alone half as far. Hands spread past GEVR_BEAN_BAT_LINE_MIN_CM
+ * (a sledgehammer, not a bat's stacked fists) take it onto the line through
+ * both grip points (bondview2.c gevrBatOffPalm: the palm, moved by Gun fit)
+ * by GEVR_BEAN_BAT_LINE_FULL_CM, and the grips follow it there, so brought
+ * together again the bat stays where the line left it (GoldenEye X's,
+ * bondview2.c gevrTwoHandBatAim, alike). It turns about the fist, the glove
+ * with it; the off hand is stuck to it as it took hold (bondview2.c
+ * gevrBatOffHandPin). Before this it lay on one line through both grip points
+ * and turned on the off hand as on a pin, the off hand free on it.
+ */
+#define GEVR_BEAN_BAT_LINE_MIN_CM 14.0f
+#define GEVR_BEAN_BAT_LINE_FULL_CM 20.0f
+#define GEVR_BEAN_BAT_SPREAD 0.5f      /* spread hands: the fist slides up to half the rifle from its end */
+extern s32 gevrStereoBatOffAxes(s32 hand, f32 r[3], f32 u[3], f32 b[3]);   /* bondview2.c: the off controller's axes */
+extern unsigned gevrVrGripSnapshotId(void);                                  /* vr_input.cpp */
+static f32 s_gevrBeanBatGrip[2][2][3];       /* the bat's way to the butt in [0] the fist's right, up, forward, [1] the off controller's right, up, back */
+static f32 s_gevrBeanBatGripBase[2][2][3];   /* the same as this controller snapshot began: every draw of it agrees */
+static unsigned s_gevrBeanBatGripSnap[2];
+static s32 s_gevrBeanBatGripAt[2];           /* g_GlobalTimer when last held, 0 never: a lapse is a new hold */
+
+/* v in the unit axes a, b, c, and back out of them */
+static void gevrBeanBatIn(const f32 v[3], const f32 a[3], const f32 b[3], const f32 c[3], f32 out[3])
+{
+    out[0] = v[0] * a[0] + v[1] * a[1] + v[2] * a[2];
+    out[1] = v[0] * b[0] + v[1] * b[1] + v[2] * b[2];
+    out[2] = v[0] * c[0] + v[1] * c[1] + v[2] * c[2];
+}
+
+static void gevrBeanBatOut(const f32 g[3], const f32 a[3], const f32 b[3], const f32 c[3], f32 out[3])
+{
+    s32 i;
+
+    for (i = 0; i < 3; i++)
+    {
+        out[i] = g[0] * a[i] + g[1] * b[i] + g[2] * c[i];
+    }
+}
+
+static s32 gevrBeanBatUnit(f32 v[3])
+{
+    const f32 len = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+
+    if (!(len > 1e-6f))
+    {
+        return FALSE;
+    }
+    v[0] /= len;
+    v[1] /= len;
+    v[2] /= len;
+    return TRUE;
+}
+
+/* v turned about the unit axis k by the angle whose sine and cosine are s and c (Rodrigues) */
+static void gevrBeanBatTurn(const f32 k[3], f32 s, f32 c, f32 v[3])
+{
+    const f32 kv = k[0] * v[0] + k[1] * v[1] + k[2] * v[2];
+    f32 kx[3];
+    s32 i;
+
+    kx[0] = k[1] * v[2] - k[2] * v[1];
+    kx[1] = k[2] * v[0] - k[0] * v[2];
+    kx[2] = k[0] * v[1] - k[1] * v[0];
+    for (i = 0; i < 3; i++)
+    {
+        v[i] = v[i] * c + kx[i] * s + k[i] * kv * (1.0f - c);
+    }
+}
+
 s32 gevrBeanBatPose(s32 hand, Mtxf *rifle)
 {
     extern s32 gevrStereoGunMatrixFit(s32 handnum, const f32 off[3], Mtxf *out);   /* bondview2.c */
@@ -4104,7 +4209,7 @@ s32 gevrBeanBatPose(s32 hand, Mtxf *rifle)
     const f32 *fit = gevrBatFit();
     f32 handle = gevrGexBatHandle();
     Mtxf held;
-    f32 ex[3], up[3], fwd[3], ey[3], ez[3], palm[3], opos[3], row, unit, len, reach, amt;
+    f32 ex[3], up[3], fwd[3], ey[3], ez[3], palm[3], opos[3], orr[3], ou[3], ob[3], row, unit, len, reach, amt;
     s32 i;
 
     if ((hand != GUNRIGHT && hand != GUNLEFT) || !gevrStereoGunMatrixFit(hand, own != NULL ? own : look == 2 ? VrBeanGunOff : plain, &held))
@@ -4136,16 +4241,121 @@ s32 gevrBeanBatPose(s32 hand, Mtxf *rifle)
         /* the bat's fit across the fist, cm right and back, as GoldenEye X's */
         palm[i] += (-fit[0] * ex[i] - fit[2] * ez[i]) * unit / 0.085f;
     }
-    if (gevrStereoBatOffHand(hand, opos, &amt))
+    if (gevrStereoBatOffHand(hand, opos, &amt) && gevrStereoBatOffAxes(hand, orr, ou, ob))
     {
-        /* both hands: the rifle's end in the off hand, the gun hand where it is along it */
-        f32 at = GEVR_GEX_BAT_OFF + ((palm[0] - opos[0]) * ey[0] + (palm[1] - opos[1]) * ey[1]
-                                    + (palm[2] - opos[2]) * ey[2]) / unit;
-        const f32 top = handle > GEVR_GEX_BAT_OFF + GEVR_GEX_BAT_GAP ? handle : GEVR_GEX_BAT_OFF + GEVR_GEX_BAT_GAP;
+        /* both hands: between where the two wrists have it (above), its end in the off
+         * hand and the gun hand where it is along it */
+        f32 (*grip)[3] = s_gevrBeanBatGrip[hand];
+        f32 (*base)[3] = s_gevrBeanBatGripBase[hand];
+        f32 d[3], aim[3], wrist[3], t[3], k[3], g[3], sep, w, s, c, len2, at, top;
+        s32 j;
 
+        if (amt > 1.0f) amt = 1.0f;
+        if (s_gevrBeanBatGripAt[hand] == 0 || (u32) (g_GlobalTimer - s_gevrBeanBatGripAt[hand]) > 4u)
+        {
+            /* a new hold: the bat where the fist has it, in both hands' axes */
+            gevrBeanBatIn(ey, ex, up, fwd, grip[0]);
+            gevrBeanBatIn(ey, orr, ou, ob, grip[1]);
+            s_gevrBeanBatGripSnap[hand] = gevrVrGripSnapshotId() - 1u;
+        }
+        s_gevrBeanBatGripAt[hand] = g_GlobalTimer ? g_GlobalTimer : 1;
+        if (s_gevrBeanBatGripSnap[hand] != gevrVrGripSnapshotId())
+        {
+            s_gevrBeanBatGripSnap[hand] = gevrVrGripSnapshotId();
+            for (j = 0; j < 2; j++)
+            {
+                for (i = 0; i < 3; i++)
+                {
+                    base[j][i] = grip[j][i];
+                }
+            }
+        }
+        gevrBeanBatOut(base[0], ex, up, fwd, aim);
+        gevrBeanBatOut(base[1], orr, ou, ob, wrist);
+        for (i = 0; i < 3; i++)
+        {
+            t[i] = aim[i] + wrist[i];
+        }
+        if (!gevrBeanBatUnit(t))
+        {
+            for (i = 0; i < 3; i++)
+            {
+                t[i] = ey[i];
+            }
+        }
+        /* hands spread: onto the line through both grip points, the grips with it */
+        for (i = 0; i < 3; i++)
+        {
+            d[i] = palm[i] - opos[i];
+        }
+        sep = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        w = (sep / unit * 0.085f - GEVR_BEAN_BAT_LINE_MIN_CM) / (GEVR_BEAN_BAT_LINE_FULL_CM - GEVR_BEAN_BAT_LINE_MIN_CM);
+        if (!(w > 0.0f)) w = 0.0f;   /* NaN too */
+        if (w > 1.0f) w = 1.0f;
+        if (w > 0.0f && sep > 1e-9f)
+        {
+            /* the off hand above the fist: still through both, the end the other way */
+            const f32 sign = d[0] * t[0] + d[1] * t[1] + d[2] * t[2] < 0.0f ? -1.0f : 1.0f;
+
+            for (i = 0; i < 3; i++)
+            {
+                t[i] += (sign * d[i] / sep - t[i]) * w;
+            }
+            gevrBeanBatUnit(t);
+            gevrBeanBatIn(t, ex, up, fwd, g);
+            for (i = 0; i < 3; i++)
+            {
+                grip[0][i] = base[0][i] + (g[i] - base[0][i]) * w;
+            }
+            gevrBeanBatIn(t, orr, ou, ob, g);
+            for (i = 0; i < 3; i++)
+            {
+                grip[1][i] = base[1][i] + (g[i] - base[1][i]) * w;
+            }
+            gevrBeanBatUnit(grip[0]);
+            gevrBeanBatUnit(grip[1]);
+        }
+        /* eased in from the fist's own line */
+        for (i = 0; i < 3; i++)
+        {
+            t[i] = ey[i] + (t[i] - ey[i]) * amt;
+        }
+        len2 = sqrtf(t[0] * t[0] + t[1] * t[1] + t[2] * t[2]);
+        k[0] = ey[1] * t[2] - ey[2] * t[1];
+        k[1] = ey[2] * t[0] - ey[0] * t[2];
+        k[2] = ey[0] * t[1] - ey[1] * t[0];
+        s = sqrtf(k[0] * k[0] + k[1] * k[1] + k[2] * k[2]);
+        if (len2 > 1e-6f && s > 1e-6f * len2)
+        {
+            c = (ey[0] * t[0] + ey[1] * t[1] + ey[2] * t[2]) / len2;
+            s /= len2;
+            for (i = 0; i < 3; i++)
+            {
+                k[i] /= s * len2;
+            }
+            /* the bat, and the glove's matrix with it, about the fist */
+            gevrBeanBatTurn(k, s, c, ex);
+            gevrBeanBatTurn(k, s, c, ey);
+            gevrBeanBatTurn(k, s, c, ez);
+            for (i = 0; i < 3; i++)
+            {
+                held.m[3][i] -= palm[i];
+            }
+            gevrBeanBatTurn(k, s, c, held.m[0]);
+            gevrBeanBatTurn(k, s, c, held.m[1]);
+            gevrBeanBatTurn(k, s, c, held.m[2]);
+            gevrBeanBatTurn(k, s, c, held.m[3]);
+            for (i = 0; i < 3; i++)
+            {
+                held.m[3][i] += palm[i];
+            }
+        }
+        at = GEVR_GEX_BAT_OFF + (d[0] * ey[0] + d[1] * ey[1] + d[2] * ey[2]) / unit;
+        /* hands spread, as on a sledgehammer, the fist slides further up than its own place */
+        top = handle > GEVR_GEX_BAT_LENGTH * GEVR_BEAN_BAT_SPREAD ? handle : GEVR_GEX_BAT_LENGTH * GEVR_BEAN_BAT_SPREAD;
+        if (top < GEVR_GEX_BAT_OFF + GEVR_GEX_BAT_GAP) top = GEVR_GEX_BAT_OFF + GEVR_GEX_BAT_GAP;
         if (!(at > GEVR_GEX_BAT_OFF + GEVR_GEX_BAT_GAP)) at = GEVR_GEX_BAT_OFF + GEVR_GEX_BAT_GAP;   /* NaN too */
         if (at > top) at = top;
-        if (amt > 1.0f) amt = 1.0f;
         handle += (at - handle) * amt;
     }
     s_gevrBeanBatHand[hand] = held;
@@ -4261,9 +4471,9 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
     extern s32 g_gevrStereo;
     f32 off[3];
     const s32 mag = g_gevrStereo ? gevrGexMagState(hand, off) : GEVR_GEXMAG_IN;
-    const s32 preview = hand == GUNRIGHT && gevrGexMagazineFitting()
+    const s32 preview = hand == gevrReloadSupportGun() && gevrGexMagazineFitting()
         && mag != GEVR_GEXMAG_GRIPPED && mag != GEVR_GEXMAG_INHAND;
-    const s32 installedPreview = hand == GUNRIGHT && gevrGexInstalledMagazineFitting();
+    const s32 installedPreview = hand == gevrReloadSupportGun() && gevrGexInstalledMagazineFitting();
     const s32 offHolds = preview || (hand == gevrReloadSupportGun() && (mag == GEVR_GEXMAG_GRIPPED || mag == GEVR_GEXMAG_INHAND));
     s32 p = get_cur_playernum();
     f32 phase = gevrReloadPhase(hand);
@@ -4776,7 +4986,7 @@ Model *gevrGexHands(GUNHAND hand)
     ModelFileHeader *hdr = &s_gevrGexHandHeader;
     const s32 mag = gevrGexMagState(hand, NULL);
     const s32 leftShown = mag == GEVR_GEXMAG_GRIPPED || mag == GEVR_GEXMAG_INHAND   /* it holds the magazine */
-                       || gevrGexSupportHandShown(hand) || (hand == GUNRIGHT && gevrGexMagazineFitting());
+                       || gevrGexSupportHandShown(hand) || (hand == gevrReloadSupportGun() && gevrGexMagazineFitting());
     const s32 dual = getCurrentPlayerWeaponId(GUNLEFT) != ITEM_UNARMED;
     const s32 watch = g_CurrentPlayer->watch_animation_state != 0;   /* its arm is up */
     s32 i;

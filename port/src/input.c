@@ -121,9 +121,10 @@ extern float VrGexKf7MagOff[3], VrGexPp7MagOff[3];
 extern float *gevrGexHeldMagFit(s32 item);
 extern float VrGexKf7WellOff[3], VrGexPp7WellOff[3];
 extern float *gevrGexWellFit(s32 item);
-extern float *gevrBeanMagFit(s32 item, s32 which);   /* gun.c: a Bean gun's held magazine (0) and well (1) */
+extern float *gevrBeanMagFit(s32 item, s32 which);   /* gun.c: a Bean gun's held magazine (0; 2 in the primary hand) and well (1) */
 extern s32 gevrBeanMagFitAvailable(void);            /* bondview2.c */
-extern float VrBeanMagFits[64][2][3];
+extern int gevrReloadSupportGun(void);               /* bondview2.c: the hand whose gun reloads by hand */
+extern float VrBeanMagFits[64][3][3];
 extern void gevrReloadFitSetWell(void);
 extern int VrGexGuns;                     /* vr_settings_defaults.c: GoldenEye X's models */
 extern int VrManualReloading;
@@ -151,8 +152,8 @@ static struct {
     float pp7SupportRot[3];
     float kf7Well[3], pp7Well[3];
     float weaponFits[64][10][3];   /* GEVR_GEX_FIT_COMPONENTS, checked below */
-    float beanMagFits[64][2][3];   /* Bean guns' magazines (gun.c gevrBeanMagFit) */
-    float batFit[7][3];            /* the rifle butt as a bat (gevr_gexweapon.h) */
+    float beanMagFits[64][3][3];   /* Bean guns' magazines (gun.c gevrBeanMagFit) */
+    float batFit[9][3];            /* the rifle butt as a bat (gevr_gexweapon.h) */
     float bodySlots[GEVR_BODY_SLOTS][3];
     float gunPer[2][GEVR_MAX_WEAPONS][3], gripPer[2][GEVR_MAX_WEAPONS][6];   /* each gun's own (gevr_scope.h) */
     unsigned char gunPerSet[2][GEVR_MAX_WEAPONS], gripPerSet[2][GEVR_MAX_WEAPONS];
@@ -246,6 +247,7 @@ extern float *gevrBatFit(void);           /* gun.c: its fit, GoldenEye X's or Be
 extern s32 gevrStereoTwoHandFollow(f32 out[6]);   /* bondview2.c: Gun fit's grab, the hold's trims */
 extern s32 gevrGunFitOffHand(f32 out[3]);         /* bondview2.c: the off hand from the gun hand */
 static bool s_gunFitGrab;                         /* the off hand's trigger is Gun fit's, not the game's */
+static int s_gunFitMarkCtrl = -1;                 /* the controller whose trigger marks the magazine well */
 static float gevrTurnAxis = 0.0f;
 static s32 gevrRecenterPending = 0;
 extern float gevrInjectTurn;   /* libultra.c: the PC input hook's turn */
@@ -2472,7 +2474,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // switches a scoped gun's fit to its scope's lens and back (user).
         bool fitting = false;
         {
-            static bool fitWas = false, aHeld = true, bHeld = true, xHeld = true, ltHeld = true, yHeld = true;
+            static bool fitWas = false, aHeld = true, bHeld = true, xHeld = true, yHeld = true, mtHeld = true;
             static u32 fitLast;
             const u32 now = SDL_GetTicks();
             fitting = VrGunFitArmed && !menu && g_gevrStereo && gevrGunFitAvailable();
@@ -2516,18 +2518,33 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             if (scope < 0) gevrScopeFitting = 0;
             if (!fitting || !gevrReloadFitAvailable()) gevrReloadFitting = 0;
             if (!gex) gevrOffHandFitting = 0;
-            /* a Bean gun's magazine has the held and well fits too (gun.c gevrBeanMagFit) */
-            const bool beanMag = fitting && !gex && gevrBeanMagFitAvailable();
-            if (!beanMag && (!gex || bat || !gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)))) gevrHeldMagFitting = 0;
-            if (!beanMag && (!gex || bat || !gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)))) gevrWellFitting = 0;
-            if (!gex || bat || !gevrGexHasMagazine(gevrGexWeaponForHand(GUNRIGHT))) gevrInstalledMagFitting = 0;
+            /* The reload places and the magazine's fits are the gun the hands reload,
+             * whichever hand holds it and whichever models draw it: a gun in the left
+             * hand with the right bare is reloaded by the right (bondview2.c
+             * gevrReloadSupportGun; user, 2026-11-22: no magazine fit for it). The
+             * reloading hand's controller has that gun slot's index; its trigger sets
+             * the places, and the sticks' sideways follow it as the gun on a left hand
+             * does. A Bean or GoldenEye model's magazine has the held and well fits
+             * too (gun.c gevrBeanMagFit). */
+            const int magGun = fitting ? gevrReloadSupportGun() : GUNRIGHT;
+            const bool magGex = fitting && gevrGexHeld(magGun);
+            const GexWeaponDef *magDef = magGex ? gevrGexWeaponForHand(magGun) : NULL;
+            const bool magBat = magGex && gevrStereoClubBat(magGun);
+            const bool beanMag = fitting && !magGex && gevrBeanMagFitAvailable();
+            const bool magAmmo = beanMag || (magDef != NULL && !magBat && gevrGexHasAmmo(magDef));
+            const bool magInstalled = magDef != NULL && !magBat && gevrGexHasMagazine(magDef);
+            const s32 magItem = fitting ? (s32)getCurrentPlayerWeaponId(magGun) : -1;
+            const float magSide = (VrLeftHandedMode != (magGun == GUNLEFT)) ? -1.0f : 1.0f;
+            if (!magAmmo) gevrHeldMagFitting = 0;
+            if (!magAmmo) gevrWellFitting = 0;
+            if (!magInstalled) gevrInstalledMagFitting = 0;
             if (!fitting || !gevrMuzzleFitAvailable()) gevrMuzzleFitting = 0;
             if (!gex) gevrGunHandFitting = 0;
             if (!fitting || !gevrBodySlotFitAvailable()) gevrBodySlotFitting = 0;
             if (fitting && !fitWas) {
                 gevrGunFitSaved(false);
                 gevrGadgetFitBegin();
-                aHeld = bHeld = xHeld = ltHeld = yHeld = true;   /* a button already down does not answer */
+                aHeld = bHeld = xHeld = yHeld = mtHeld = true;   /* a button already down does not answer */
                 fitLast = now;
                 LOGI("input: gun fit on (%.1f %.1f %.1f%s)\n", *gunOff[0], *gunOff[1], *gunOff[2], lookName);
             }
@@ -2546,11 +2563,11 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 const bool x = get_button_state(0, "x");
                 if (x && !xHeld && gadget < 0) {
                     static const char *const names[10] = { "gun", "scope", "reload", "off hand", "held magazine", "magazine well", "installed magazine", "barrel tip", "gun hand", "body slots" };
-                    /* the bat has no magazine to fit (bondview2.c gevrFitNextLine alike) */
-                    const bool ammo = beanMag || (!bat && gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)));
+                    /* the bat has no magazine to fit; the reloaded gun's, either hand (bondview2.c gevrFitNextLine alike) */
+                    const bool ammo = magAmmo;
                     const bool can[10] = { true, scope >= 0, gevrReloadFitAvailable() != 0, gex != 0,
                         ammo, ammo,
-                        !bat && gevrGexHasMagazine(gevrGexWeaponForHand(GUNRIGHT)), gevrMuzzleFitAvailable() != 0,
+                        magInstalled, gevrMuzzleFitAvailable() != 0,
                         gex != 0, gevrBodySlotFitAvailable() != 0 };
                     int mode = gevrScopeFitting ? 1 : gevrReloadFitting ? 2 : gevrOffHandFitting ? 3
                         : gevrHeldMagFitting ? 4 : gevrWellFitting ? 5 : gevrInstalledMagFitting ? 6 : gevrMuzzleFitting ? 7
@@ -2570,20 +2587,23 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     LOGI("input: gun fit on the %s\n", names[mode]);
                 }
                 xHeld = x;
-                /* the reload mode: the off hand where the magazine is taken (the left
-                 * trigger) and where the belt is (Y), shown, not steered */
-                const bool lt = get_button_state(0, "trigger"), yb = get_button_state(0, "y");
-                if (gevrReloadFitting && lt && !ltHeld) gevrReloadFitSetGrab();
+                /* the reload mode: the reloading hand where the magazine is taken (its
+                 * trigger) and where the belt is (Y), shown, not steered; the well mode:
+                 * its trigger sets the well at the held magazine's tip */
+                const bool mt = get_button_state(magGun, "trigger"), yb = get_button_state(0, "y");
+                if (gevrReloadFitting && mt && !mtHeld) gevrReloadFitSetGrab();
                 if (gevrReloadFitting && yb && !yHeld) gevrReloadFitSetBelt();
+                if (gevrWellFitting && mt && !mtHeld) gevrReloadFitSetWell();
+                s_gunFitMarkCtrl = (gevrReloadFitting || gevrWellFitting) && mt ? magGun : -1;   /* the game's shot or punch waits */
+                mtHeld = mt;
                 {
-                    /* ... and where the gun is racked (gevr_rack.h): the off hand there, its grip */
+                    /* ... and where the gun is racked (gevr_rack.h): the reloading hand there, its grip */
                     static bool rackGrip = true;
                     extern void gevrRackFitSet(void);   /* bondview2.c */
-                    const bool lg = get_button_state(0, "grip");
+                    const bool lg = get_button_state(magGun, "grip");
                     if (gevrReloadFitting && lg && !rackGrip) gevrRackFitSet();
                     rackGrip = lg;
                 }
-                if (gevrWellFitting && lt && !ltHeld) gevrReloadFitSetWell();
                 /* the body slots (gevr_bodyslots.c): the move stick's sideways flick
                  * picks a slot, a fresh grip puts it where that hand is, Y back to
                  * its default for your height; shown, not steered */
@@ -2602,7 +2622,6 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     }
                     if (gevrBodySlotFitting && yb && !yHeld) gevrBodySlotFitReset();
                 }
-                ltHeld = lt;
                 yHeld = yb;
                 /* Grab to fit (user: turning the holding hand with the sticks was
                  * awkward): holding the off hand's trigger, the holding hand takes the
@@ -2708,17 +2727,19 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                         }
                     }
                 } else if (gevrInstalledMagFitting) {
-                    float *fit = gevrGexInstalledMagFit(fitItem);
-                    fit[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
+                    float *fit = gevrGexInstalledMagFit(magItem);
+                    fit[0] += mx * rate * dt * magSide;
                     fit[2] -= my * rate * dt;
                     fit[1] += ry * rate * dt;
                 } else if (gevrWellFitting) {
-                    float *wellFit = beanMag ? gevrBeanMagFit(fitItem, 1) : gevrGexWellFit(fitItem);
-                    wellFit[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
+                    float *wellFit = beanMag ? gevrBeanMagFit(magItem, 1) : gevrGexWellFit(magItem);
+                    wellFit[0] += mx * rate * dt * magSide;
                     wellFit[2] -= my * rate * dt;
                     wellFit[1] += ry * rate * dt;
                 } else if (gevrHeldMagFitting) {
-                    float *magFit = beanMag ? gevrBeanMagFit(fitItem, 0) : gevrGexHeldMagFit(fitItem);
+                    /* the primary hand reloading a gun in the other has its own (gun.c);
+                     * the palm's sideways is the holder's right whichever hand holds it */
+                    float *magFit = beanMag ? gevrBeanMagFit(magItem, magGun == GUNLEFT ? 2 : 0) : gevrGexHeldMagFit(magItem);
                     magFit[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
                     magFit[2] -= my * rate * dt;
                     magFit[1] += ry * rate * dt;
@@ -2806,6 +2827,15 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                         o[2] -= my * rate * dt;
                         o[1] += ry * rate * dt;
                     }
+                } else if (beanBat && gevrStereoTwoHandGrip()) {
+                    /* both hands on Bean's or GoldenEye's own rifle bat: where its end sits
+                     * in the off hand (bondview2.c gevrBatOffPalm; owner, 2026-11-22: it sat
+                     * at the wrist) - the sticks move it, its sideways as the hand is mirrored */
+                    float *o = VrGexBatFit[gevrBeanIsEnabled() ? 7 : 8];
+                    const s32 batGun = gevrStereoTwoHandGun();
+                    o[0] += mx * rate * dt * ((VrLeftHandedMode != (batGun == GUNLEFT)) ? -1.0f : 1.0f);
+                    o[2] -= my * rate * dt;
+                    o[1] += ry * rate * dt;
                 } else if (bat || beanBat) {
                     /* the rifle butt as a bat, in one hand: the rifle through the fist -
                      * the turn stick down slides the fist toward the butt (gun.c
@@ -2901,6 +2931,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 left.x = left.y = right.x = right.y = 0.0f;
             }
             if (!fitting) s_gunFitGrab = false;
+            if (!fitting) s_gunFitMarkCtrl = -1;
             if (fitWas && !fitting) gevrGadgetFitEnd(-1);   /* paused, put away or switched off: the edits stay, unsaved */
             if (!fitting) gevrScopeFitting = gevrOffHandFitting = gevrHeldMagFitting = gevrWellFitting = gevrInstalledMagFitting = gevrMuzzleFitting = gevrGunHandFitting = 0;
             fitWas = fitting;
@@ -2928,6 +2959,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         if (s_gunFitGrab) {
             /* Gun fit's grab holds the off hand's trigger: neither gun fires */
             gevrVrTriggerDown[gevrStereoTwoHandGrip() && gevrStereoTwoHandSupportCtrl() == 1 ? 0 : 1] = 0;
+        }
+        if (s_gunFitMarkCtrl >= 0) {
+            /* ... and setting a reload place takes that hand's trigger (controller 1 is GUNRIGHT's) */
+            gevrVrTriggerDown[1 - s_gunFitMarkCtrl] = 0;
         }
         /* GE-X's remote mines (gun.c): the off hand's trigger detonates them, on
          * the screen and in the headset, instead of aiming or firing */

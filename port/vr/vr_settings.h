@@ -3,7 +3,8 @@
 #include "gevr_watch_status.h"
 #include "gevr_bodyslot.h"
 extern int VrManualReloading;
-extern float VrBeanMagFits[64][2][3];   /* Bean guns' magazines (gun.c gevrBeanMagFit) */
+extern float VrBeanMagFits[64][3][3];   /* Bean guns' magazines (gun.c gevrBeanMagFit) */
+extern const float VrBeanMagFitsDefault[64][3][3];   /* ... as they ship: a save writes the others only */
 extern bool VrlaserDotForALL;
 extern bool inputRumbleSupported(int playernum);
 extern int g_ExtMenuPlayer;
@@ -183,7 +184,7 @@ extern float VrGexHeldMag[3];      // a GE-X magazine's palm from the off hand's
 extern float VrGexWatch[4];        // the watch on GE-X's left wrist: cm ahead, up, out; its size
 extern float VrGexOffRot[3];       // GE-X's off hand turned about its palm: degrees about the grip's x, y, z
 extern float VrGexForeHold[3];     // GE-X's two-handed hold on the gun: cm forward, up, out
-extern float VrGexBatFit[7][3];    // the rifle butt as a bat: the rifle on the fist, the hand's place, its turn, the off hand's place, its turn; [5] Bean's rifle on the fist
+extern float VrGexBatFit[9][3];    // the rifle butt as a bat: the rifle on the fist, the hand's place, its turn, the off hand's place, its turn; [5] Bean's rifle on the fist, [6] GoldenEye's own; [7], [8] their end in the off hand
 extern float VrGexWeaponFits[64][10][3];
 extern float VrGexPp7Grab[3], VrGexPp7Support[3]; // shared by both PP7 variants
 extern float VrGexPp7GunOff[3];

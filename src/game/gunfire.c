@@ -2865,17 +2865,30 @@ static Model s_gevrBatHandModel;
 static u32 s_gevrBatHandRw[256];
 static s32 s_gevrBatHandStage = -1;
 static s32 s_gevrBatHandReady;
+static s32 s_gevrBatHandBean = -1;   /* the hand was cut for Bean (1) or GoldenEye's own model (0) */
 
-/* GoldenEye's hand and sleeve: under Switches 8-13 and 35 (gun.c sub_GAME_7F05E978) */
-static s32 gevrBatHandNode(const ModelFileHeader *header, ModelNode *node)
+/*
+ * GoldenEye's hand and sleeve: under Switches 8-13. The game shows 35 with
+ * them (gun.c sub_GAME_7F05E978), but in GwppkZ that is a piece of the
+ * pistol - a short tube ahead of the grip, 18 units across and 54 long -
+ * left floating by the fist on GoldenEye's own rifle bat (owner, 2026-11-22,
+ * headset: "leftover barrel on original sniper melee hand"). Bean draws its
+ * glove on the hand's lists and blanks the pistol itself, so for Bean it is
+ * kept as it was (cuff).
+ */
+static s32 gevrBatHandNode(const ModelFileHeader *header, ModelNode *node, s32 cuff)
 {
     s32 s;
 
     for (; node != NULL; node = node->Parent)
     {
-        for (s = 8; s <= 35 && s < header->numSwitches; s = s == 13 ? 35 : s + 1)
+        for (s = 8; s <= 13 && s < header->numSwitches; s++)
         {
             if (header->Switches[s] != NULL && node == header->Switches[s]) return TRUE;
+        }
+        if (cuff && header->numSwitches > 35 && header->Switches[35] != NULL && node == header->Switches[35])
+        {
+            return TRUE;
         }
     }
     return FALSE;
@@ -2887,13 +2900,16 @@ static s32 gevrBatHandLoad(void)
     ModelNode *node;
     s8 *name;
     s32 kept = 0;
+    extern int gevrBeanIsEnabled(void);
+    const s32 bean = gevrBeanIsEnabled() ? 1 : 0;
 
-    if (s_gevrBatHandStage == bossGetStageNum() && s_gevrBatHandStage != -1)
+    if (s_gevrBatHandStage == bossGetStageNum() && s_gevrBatHandStage != -1 && s_gevrBatHandBean == bean)
     {
         return s_gevrBatHandReady;   /* loaded, or failed on this stage already */
     }
     s_gevrBatHandReady = FALSE;
     s_gevrBatHandStage = bossGetStageNum();
+    s_gevrBatHandBean = bean;
     if (GEVR_ITEM_AS(ITEM_WPPK) != ITEM_WPPK)
     {
         return FALSE;   /* a hack campaign's own gun is on the PP7's file */
@@ -2924,7 +2940,7 @@ static s32 gevrBatHandLoad(void)
         {
             continue;
         }
-        if (gevrBatHandNode(&s_gevrBatHandHeader, node))
+        if (gevrBatHandNode(&s_gevrBatHandHeader, node, bean))
         {
             kept++;
         }
@@ -3361,7 +3377,13 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
 
         /* also for the watch laser and the detonator: it is their arm (issue #31),
          * held by the original right watch hand (#60, gevrRenderWatchGripHand) */
-        gdl = gevrHandTag(gdl, 0);
+        {
+            /* stuck to the glove-held bat, it moves with the bat's controller between game
+             * frames (#53), or it slid against the rifle (bondview2.c gevrBatOffHandPin) */
+            extern s32 gevrStereoBatOffPinned(void);
+
+            gdl = gevrHandTag(gdl, gevrStereoBatOffPinned() ? 1 - gevrStereoTwoHandGun() : 0);
+        }
         /* #35: holding the gun, the hand was drawn before the guns, instead of the watch arm */
         extern s32 gevrStereoTwoHandGrip(void);
 
