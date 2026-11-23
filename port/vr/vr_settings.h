@@ -155,6 +155,8 @@ extern char VrLiveSplitHost[64]; // its computer's address; empty: this one
 extern int VrSpaceWarp;         // Application SpaceWarp: 1 on, 0 off, -1 on while Bean is, at 120 Hz
 extern int VrResetRenderScale;  // the test build's RenderScale key was read: scale back to 1
 extern int VrEyeMsaa;           // eye images' anti-aliasing: 1 off, 2 samples (live)
+extern float VrRenderScale;     // Resolution: eye images over the headset's size, next start; 0 = the config's
+extern int VrTextureAniso;      // anisotropic filtering of HD pack and Bean pictures: 1 off, 2..16 (live)
 extern int VrCpuLevel;          // CPU performance level asked at session start: -1 none, 0..2
 extern unsigned long long VrCheatMask; // launcher cheats: bit n = CHEAT_IDS n
 extern int VrGunSizeCheat;      // VR fun cheat: 0 normal, 1 tiny, 2 big guns
