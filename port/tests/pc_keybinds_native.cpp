@@ -299,6 +299,9 @@ int main() {
         int n = 0; const unsigned *acts = gevrKbmActions(n); bool found = false;
         for (int i = 0; i < n; i++) found |= acts[i] == GEVR_CK_CROUCH;
         check(n == 16 && found, "Crouch is on the 16-row keyboard table");
+        acts = gevrGamepadBindActions(n); found = false;
+        for (int i = 0; i < n; i++) found |= acts[i] == GEVR_CK_CROUCH;
+        check(found, "Crouch is bindable on the gamepad page too");
     }
 
     // 2. Bind capture: key, mouse button, wheel, Esc cancel, Del/Backspace clear

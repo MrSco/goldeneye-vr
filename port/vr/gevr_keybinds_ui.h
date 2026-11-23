@@ -118,7 +118,7 @@ inline const char *gevrActionLabel(int campaign, unsigned ck, const char **toolt
         case GEVR_CK_LTRIG:       label = "Alt aim";      tip = "Secondary aim trigger (N64 L button)."; break;
         case GEVR_CK_START:       label = "Pause";        tip = "Open Bond's watch / pause menu."; break;
         case GEVR_CK_RESTART:     label = "Restart";      tip = "Restart the mission from its intro, as a fresh load: the speedrunner's reset (default: Backspace). Solo, offline, with the Speedrun timer, Ghost race or LiveSplit on."; break;
-        case GEVR_CK_CROUCH:      label = "Crouch";       tip = "Crouch, or stand again (default: C or Left Ctrl; keyboard only, as a 13th pad row would scroll the pause page). Aim + Back also crouches, as on the N64; aim alone stands."; break;
+        case GEVR_CK_CROUCH:      label = "Crouch";       tip = "Crouch, or stand again (default: C or Left Ctrl; no pad default). Aim + Back also crouches, as on the N64; aim alone stands."; break;
         case GEVR_CK_DPAD_D:      label = "Crouch / Dn";  tip = "Crouch while aiming / D-pad down."; break;
         case GEVR_CK_C_U:         label = "Forward";      tip = "Walk forward (C-Up)."; break;
         case GEVR_CK_C_D:         label = "Back";         tip = "Walk backward (C-Down)."; break;
@@ -162,8 +162,10 @@ inline const unsigned *gevrKbmActions(int &count) {
     return kActions;
 }
 
-// Every keyboard and mouse bind, for duplicates: the table's and Restart, which the
-// page draws on the mouse settings' second row (a 17th table row scrolls the pause page).
+// Every keyboard and mouse bind, for duplicates: the table's and Restart, which the page
+// draws on the mouse settings' second row (a 17th table row scrolls the pause page).
+// Crouch has the table row D-pad down had: unbound by default on a keyboard, it only
+// crouched while aiming, as Back (C-Down) does.
 inline const unsigned *gevrKbmBindActions(int &count) {
     static const unsigned kActions[] = {
         GEVR_CK_ZTRIG, GEVR_CK_RTRIG, GEVR_CK_B, GEVR_CK_A,
@@ -187,13 +189,13 @@ inline const unsigned *gevrGamepadActions(int &count) {
     return kActions;
 }
 
-// Every gamepad bind, for duplicates: the table's and Restart (on the settings' first row).
+// Every gamepad bind, for duplicates: the table's, Restart and Crouch (on the settings' first row).
 inline const unsigned *gevrGamepadBindActions(int &count) {
     static const unsigned kActions[] = {
         GEVR_CK_ZTRIG, GEVR_CK_RTRIG, GEVR_CK_B, GEVR_CK_A,
         GEVR_CK_PREV_WEAPON, GEVR_CK_LTRIG,
         GEVR_CK_START, GEVR_CK_C_U, GEVR_CK_C_D, GEVR_CK_C_L,
-        GEVR_CK_C_R, GEVR_CK_ACCEPT, GEVR_CK_RESTART
+        GEVR_CK_C_R, GEVR_CK_ACCEPT, GEVR_CK_RESTART, GEVR_CK_CROUCH
     };
     count = (int)(sizeof(kActions) / sizeof(kActions[0]));
     return kActions;
@@ -303,23 +305,26 @@ inline void gevrDrawBindSlot(const GevrKeybindApi &api, GevrKeybindUiState &ui, 
     ImGui::PopID();
 }
 
-// Restart (#280) on a settings row's free width, after what the row already holds: its
-// primary bind (the table has no room for a further row without scrolling the pause page).
-inline void gevrDrawRestartBind(const GevrKeybindApi &api, GevrKeybindUiState &ui, int campaign, bool isGamepad) {
+// Restart (#280) and Crouch on a settings row's free width, after what the row already
+// holds: their primary binds (the tables have no room for a further row without
+// scrolling the pause page, and every action must stay bindable on every page).
+// sameLine false starts it at the cell's left (a table cell of its own).
+inline void gevrDrawExtraBind(const GevrKeybindApi &api, GevrKeybindUiState &ui, int campaign, bool isGamepad,
+                              unsigned ck, bool sameLine = true) {
     const ImGuiStyle &style = ImGui::GetStyle();
     int nAll = 0;
     const unsigned *all = isGamepad ? gevrGamepadBindActions(nAll) : gevrKbmBindActions(nAll);
     const char *tip = nullptr;
-    const char *label = gevrActionLabel(campaign, GEVR_CK_RESTART, &tip);
+    const char *label = gevrActionLabel(campaign, ck, &tip);
     const float clearW = std::max(26.0f, ImGui::CalcTextSize("X").x + style.FramePadding.x * 1.4f);
-    const float btnW = std::max(100.0f, ImGui::CalcTextSize("Backspace").x + style.FramePadding.x * 4.0f);
+    const float btnW = std::max(100.0f, ImGui::CalcTextSize(isGamepad ? "L-Stick" : "Backspace").x + style.FramePadding.x * 4.0f);
     bool dup = false;
-    ImGui::SameLine(0.0f, style.ItemSpacing.x * 4.0f);
+    if (sameLine) ImGui::SameLine(0.0f, style.ItemSpacing.x * 4.0f);
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(label);
     if (tip && ImGui::IsItemHovered()) gevrTooltip("%s", tip);
     ImGui::SameLine();
-    gevrDrawBindSlot(api, ui, GEVR_CK_RESTART, label, isGamepad, 0, all, nAll, btnW, clearW, dup);
+    gevrDrawBindSlot(api, ui, ck, label, isGamepad, 0, all, nAll, btnW, clearW, dup);
 }
 
 // Reusable 2-column-pair bind table (Action | Primary | Secondary | Action | Primary | Secondary).
@@ -498,7 +503,7 @@ inline void gevrDrawKbmPage(const GevrKeybindApi &api, GevrKeybindUiState &ui, i
             if (api.save) api.save();
         }
         if (ImGui::IsItemHovered()) gevrTooltip("Bypass OS pointer acceleration for 1:1 mouse movement.");
-        gevrDrawRestartBind(api, ui, campaign, false);
+        gevrDrawExtraBind(api, ui, campaign, false, GEVR_CK_RESTART);
 
         ImGui::TableNextColumn();
         int lockMode = api.getMouseLockMode ? api.getMouseLockMode() : 2;
@@ -552,12 +557,12 @@ inline void gevrDrawGamepadPage(const GevrKeybindApi &api, GevrKeybindUiState &u
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.FramePadding.x, 3.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(style.CellPadding.x, 2.0f));
     if (ImGui::BeginTable("##pad-settings", 4, ImGuiTableFlags_SizingStretchProp)) {
-        ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthStretch, 0.21f);
-        ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthStretch, 0.29f);
-        ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthStretch, 0.21f);
+        ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthStretch, 0.19f);
+        ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthStretch, 0.27f);
+        ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthStretch, 0.25f);
         ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthStretch, 0.29f);
 
-        // Row 1: Swap sticks | Invert look
+        // Row 1: Swap sticks + Invert look | Crouch | Restart (the binds outside the table)
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
         ImGui::AlignTextToFramePadding();
@@ -568,16 +573,16 @@ inline void gevrDrawGamepadPage(const GevrKeybindApi &api, GevrKeybindUiState &u
             if (api.save) api.save();
         }
         if (ImGui::IsItemHovered()) gevrTooltip("Swap left (move) and right (look) sticks.");
-        ImGui::TableNextColumn();
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted("Invert look");
-        ImGui::TableNextColumn();
-        if (ImGui::Checkbox("##padinv", &lookInv)) {
+        ImGui::SameLine(0.0f, style.ItemSpacing.x * 4.0f);
+        if (ImGui::Checkbox("Invert look##padinv", &lookInv)) {
             if (api.setLook) api.setLook(lookSpd, lookDz, lookInv ? 1 : 0);
             if (api.save) api.save();
         }
         if (ImGui::IsItemHovered()) gevrTooltip("Push the look stick up to look down.");
-        gevrDrawRestartBind(api, ui, campaign, true);
+        ImGui::TableNextColumn();
+        gevrDrawExtraBind(api, ui, campaign, true, GEVR_CK_CROUCH, false);
+        ImGui::TableNextColumn();
+        gevrDrawExtraBind(api, ui, campaign, true, GEVR_CK_RESTART, false);
 
         // Row 2: Move deadzone | Look deadzone
         ImGui::TableNextRow();
