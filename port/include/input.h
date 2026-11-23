@@ -141,6 +141,7 @@ enum contkey {
 	CK_4000,
 	CK_8000,
 	CK_RESTART, // past CONT_'s 32 bits, never a pad button: restart the mission (#280, default: Backspace)
+	CK_CROUCH,  // toggle crouch, as the Quest's left stick click (default: C / Left Ctrl; no pad default: a pad playing VR clicks the stick for it)
 	CK_TOTAL_COUNT
 };
 

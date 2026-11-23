@@ -500,6 +500,22 @@ crash/log upload". Do it once, in P3, with the backends above in mind.
   flat player does not see VR-only games, a VR player with "Hide games
   with flat players" does not see games with any, and each shows "VR
   only" or "N flat". A host from before the tail lists as before.
+- **Reload mode** (v0.5.26, additive, protocol 27 unchanged). Owner, 2026-11-23: show
+  everybody by default, and let players choose to filter by reload mode.
+  - Each player's reload (`NET_RELOAD_BUTTON` 1 or `NET_RELOAD_HAND` 2; 0 for unknown,
+    bots and older builds) follows the platform byte in HELLO. Changes go in
+    `NET_MSG_RELOAD_MODE` (64), player to host to all. The host takes a slot's value only
+    from that slot's peer, as with `NET_MSG_FRIEND_CODE`.
+  - The roster's Reload column shows Hand, Button or "-".
+  - Host rule "Hand reload only" (`MpHandReloadOnly`) refuses a joiner whose HELLO says
+    button reload, with `NET_DISCONNECT_HAND_RELOAD`. An older build with no byte is let in.
+  - The Join list's "Hide games with button reload" (`MpHideButton`, off by default) hides
+    games with any button-reload player. A button-reload player never sees "Hand reload
+    only" games. Each game's note says "hand reload only" or "N button reload".
+  - Online, the game sends `reload|handOnly|buttonPlayers` with the heartbeat
+    (`vr_launcher.cpp`, `LobbyClient.java`, `pc_lobby.cpp`). The dedicated server sends it
+    through `gevr_lobby_bridge.py`. The lobby service keeps and lists `handReloadOnly` and
+    `buttonPlayers` (-1 until the host says). On LAN, the beacon gets a tail tagged 'R'.
 - **Aim data:**
   - Flat clients already have to fill `PLAYER_STATE`'s barrel
     (`UCMD_AIMVALID`) from the camera ray so VR peers draw them aiming

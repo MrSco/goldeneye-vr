@@ -196,7 +196,6 @@ batch's branch.
 - **Rows that depend on another** are greyed out, with the reason:
   - turn speed under snap turning;
   - the throw rows without motion throw;
-  - Pull disarm and Pull visuals without force pull;
   - the slot rows without body slots;
   - third person in stereo.
 - **Frame.** `gevrLauncherTabRows` in `gevr_launcher_ui.h` draws:

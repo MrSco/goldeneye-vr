@@ -264,7 +264,7 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
                 if(ImGui::Button("Request votes",ImVec2(350,48)))action=GEVR_PAUSE_REQUEST_VOTES;
                 ImGui::EndDisabled();
             }
-            ImGui::SetCursorPos(ImVec2(18,832));ImGui::TextDisabled("Ready players start after warmup; the host can start early.");
+            ImGui::SetCursorPos(ImVec2(18,832));ImGui::TextDisabled("%s",model.host?"Map, weapon and scenario changes apply next round: press the button beside Resume.":"The host's map, weapon and scenario changes apply next round, once players ready up.");
         }
         ImGui::SetCursorPos(ImVec2(18,276));ImGui::TextColored(gold,"%s  (%d / %d)",model.coop?"PARTY":"PLAYERS & SCORES",model.count,model.capacity);
         ImGui::SetCursorPos(ImVec2(18,320));

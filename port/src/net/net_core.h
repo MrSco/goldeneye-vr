@@ -154,6 +154,13 @@ const char *netGetSlotDeviceName(int slot); /* "Quest", "PC VR", "Vision Pro"...
  * gevrFriendsTick), "" none, carried to the lobby (NET_MSG_FRIEND_CODE); each slot's, "" unknown. */
 void netSetLocalFriendCode(const char *code);
 const char *netGetSlotFriendCode(int slot);
+/* How each player reloads, NET_RELOAD_* (net_protocol.h): this player's from vr_friends.cpp
+ * every tick, each slot's (UNKNOWN for a bot, a server seat or an older build), and how many
+ * reload with the button (the lobby list's count). */
+void netSetLocalReloadMode(int mode);
+int netGetLocalReloadMode(void);
+int netGetSlotReloadMode(int slot);
+int netGetButtonReloadCount(void);
 void netGetSlotBuild(int slot, char *out, size_t size);   /* "0.5.20" from the slot's app version; "" if none */
 const char *netGetLocalDeviceKey(void);     /* this player's device key, online or not */
 void netGetLocalBuild(char *out, size_t size);   /* this player's build, as netGetSlotBuild */

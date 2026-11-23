@@ -24,6 +24,8 @@ typedef struct {
     uint8_t  joinable;
     uint8_t  vr_only;       /* the host's "VR players only" */
     uint8_t  flat_players;  /* how many play flat; 0xFF: an older host did not say */
+    uint8_t  hand_only;     /* the host's "Hand reload only" */
+    uint8_t  button_players;/* how many reload with the button; 0xFF: an older host did not say */
     uint32_t last_seen_ms;
 } NetDiscoveredServer;
 
