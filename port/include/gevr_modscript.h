@@ -42,6 +42,18 @@ void gevrModScriptFrame(int ticks);
  * counted in the budget; nothing outside a mission's play. cancellable: a
  * handler returning false asks the game not to do it, and the result is 1. */
 int gevrModScriptEvent(const char *event, const GevrModArg *args, int nargs, int cancellable);
+struct lua_State;
+/* An event whose handlers answer (pickup_spawning): each running mod's
+ * handlers in turn, during a mission (loading or play). Both run inside the
+ * handler's protected call: push(L, ud) pushes its arguments and returns how
+ * many; answer(L, ud) reads its one result (the stack's top), so the next
+ * handler is given what the last decided, and raises a Lua error (luaL_error)
+ * for an answer it can't take, which stops that mod as any script error
+ * does. answer returns nonzero when no further handler is to be asked.
+ * play: counted in the budget (else loading's limit, uncounted). Returns
+ * how many handlers answered. */
+int gevrModScriptAsk(const char *event, int (*push)(struct lua_State *L, void *ud),
+                     int (*answer)(struct lua_State *L, void *ud), void *ud, int play);
 /* A note for the local player's screen (a mod stopped or paused), taken once */
 const char *gevrModScriptTakeNote(void);
 /* A mod's scripts are running now */

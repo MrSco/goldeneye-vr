@@ -58,6 +58,7 @@
 #include "gevr_bean.h" /* monitor screens under Bean's meshes */
 #include "net_objects.h"
 #include "net_coop.h"
+#include "gevr_modapi.h"   /* mods' items area: item_pickup */
 extern bool netIsActive(void);
 extern bool netIsHost(void);
 extern int netGetLocalSlot(void);
@@ -11521,6 +11522,12 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
         }
     }
 
+#ifdef GEVR
+    if (op != TICKOP_NONE)
+    {
+        gevrModPickupTaken((PropDefHeaderRecord *)obj);   /* a mod's item_pickup, before a freed pickup goes */
+    }
+#endif
     if ((op == TICKOP_FREE) && ((obj->runtime_bitflags & RUNTIMEBITFLAG_TAGGED) == 0))
     {
         objFree(obj, 0, (obj->state & RUNTIMEBITFLAG_REMOVE));

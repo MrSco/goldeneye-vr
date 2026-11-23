@@ -221,13 +221,18 @@ files.sha256        checksum list of every other file
     work on the host only and return false on a client. The game's co-op
     sync carries the result to the others, as it does for the host's
     spawns today.
-  - **Pickups:** ordinary pickups aren't synced in co-op; each headset has
-    its own copy (`docs/issue-94-coop.md`). Spawning a pickup only places
-    it on the headset that calls it, so a mod that wants every player to
-    have it calls it on every headset: at load with `mod.random` (below),
-    mid-mission by sending the choice over `mod.net` (say, from the host's
-    `guard_killed`). Which player may take it, if the mod limits that, is
-    the mod's to settle over `mod.net`.
+  - **Pickups:** the setup's pickups are shared. Each headset places its
+    own copy at load, and when a player takes one the others' copy goes too
+    (`NET_MSG_OBJECT_STATE`, by the record's setup index; `net_core.c`
+    `netSendObjectEvent`). A swap keeps the record's index and kind, so
+    this holds for swapped pickups as long as every headset swaps the same
+    way (`mod.random`, below). What the game makes at run time, such as a
+    dead guard's gun, is per headset (`docs/issue-94-coop.md`). So is a
+    pickup a mod spawns (not built yet): it's placed only on the headset
+    that calls it, so a mod that wants every player to have it calls it on
+    every headset (mid-mission, by sending the choice over `mod.net`, say
+    from the host's `guard_killed`), and settles over `mod.net` which
+    player may take it, if it limits that.
 - **The same choices on every headset.** Each headset loads the mission
   itself from a shared seed, and the setup's guards and pickups line up
   slot for slot. Events during load (`pickup_spawning`, and
@@ -306,7 +311,9 @@ files.sha256        checksum list of every other file
   crashing the game; a note on screen says so. One in `scripts/main.lua` or
   `campaign_enter` turns it off for the run (it plays without its scripts).
   Whatever the mod changed goes back (weapon stats return to the ROM's
-  values). In co-op it is turned off on every headset (see Multiplayer).
+  values); pickups it swapped stay as they were placed until the mission
+  ends, and what it gave or took stays the player's. In co-op it is turned
+  off on every headset (see Multiplayer).
   Crash reports name the active mods.
 
 ## API v1
@@ -402,6 +409,34 @@ watch). We maintain the adapters, not the mods.
   or `domakedefaultobj()`. Keys and other mission items use their native
   setup. Weapons flagged `PROPFLAG_ASSIGNEDTOCHR` use `guard_spawning`.
   Which pickups qualify, and what a swap can do: "Pickup swaps" below.
+  - Built (`port/src/gevr_modapi.c` over `src/game/gevr_modgame.c`; the
+    hooks in `prop.c` and `propobj.c`): before the stage's first record is
+    placed, `gevrModPickupScan()` notes the records a swap leaves alone.
+    Each eligible record is asked as it's about to be placed: a weapon in
+    `weaponAssignToHome()` after multiplayer's weapon set, before its
+    models load; armour once its amount is read; a box or a crate before
+    `domakedefaultobj()` and the crate's rounds' models. Asked while the
+    mission loads (the loading time limit, outside the frame budget).
+  - `item_pickup(kind, id, rounds)` in `propPickupByPlayer()` once the
+    game has taken the pickup, before a freed one is gone, for this
+    machine's human player: `"weapon", item`; `"ammo", type, rounds` (a
+    crate sends one for each type it held, its 9mm_2 as 9mm, solo's
+    multiplier applied); `"armour", amount`; `"key"`; `"object"` for
+    anything else (a mission document, say). It reports; it can't refuse.
+  - Calls: `mod.inventory.has(item)` (any item), `give(item)` and
+    `take(item)` (guns and thrown weapons only, the swap list below).
+    `give` returns true when the item is new and brings no rounds; remote
+    mines bring the detonator, as picking them up does. `take` returns
+    true when the item was there, takes its dual pair too, and a hand
+    holding it goes empty (the gun hand to its fist, the other unarmed).
+    `mod.ammo.get(type)` and `set(type, rounds)` read and set the spare
+    rounds (not the loaded ones, `mod.weapon.loaded`), 0 to
+    `mod.ammo.max(type)`. `mod.ammo` also names the types: `9mm`,
+    `9mm_2` (the Klobb's), `rifle`, `shotgun`, `grenade`, `rockets`,
+    `remotemine`, `proxmine`, `timedmine`, `knife`, `grenaderound`,
+    `magnum`, `goldengun` (1 to 13).
+  - Not built yet: spawning a pickup at run time, `item_spawned`, and a
+    pickup a mod can refuse.
 - **Guards and corpses.** Emit `guard_spawning` during
   `expand_09_characters()` and `chrSpawnAtPad()`. Allow a ROM body and
   head choice before the model is created and a native weapon choice
@@ -457,16 +492,39 @@ A pickup can be swapped only when both of these hold:
     (`PROPDEF_AMMO`).
   - Body armour (`PROPDEF_ARMOUR`).
   - Never keys (`PROPDEF_KEY`), hats, gadgets or mission items.
-- **No setup tag points at it.** Objectives and level scripts find their
-  objects through tags (`PROPDEF_TAG`, `objFindByTagId()`), so a tagged
-  pickup can be a mission item even when it's a gun. It keeps its setup.
+- **No setup record points at it.** Objectives and level scripts find
+  their objects through tags (`PROPDEF_TAG`, `objFindByTagId()`), so a
+  tagged pickup can be a mission item even when it's a gun. A rename
+  (`PROPDEF_RENAME`) gives a mission item its own name, a link
+  (`PROPDEF_LINK`) pairs two guns as a dual pickup, and a safe's record
+  (`PROPDEF_SAFE_ITEM`) names what's inside it. A pickup any of these
+  point at keeps its setup, and so does one inside another object
+  (`PROPFLAG_INSIDEANOTHEROBJ`).
 
 A swap keeps the pickup's kind, since each kind is a different setup
 record:
 
-- a weapon becomes another eligible weapon, or nothing;
-- ammo changes its type and amount, or becomes nothing;
-- armour changes its amount, or becomes nothing.
+- a weapon becomes another eligible weapon (it takes that gun's floor
+  model, `getPropForHeldItem()`), or nothing;
+- an ammo box changes its type (1 to 13, `mod.ammo`), or becomes
+  nothing; the rounds come with the type, as for any box
+  (`get_ammo_in_magazine()`), and the box takes the type's look (its
+  magazine or shells, or the round or thrown weapon itself);
+- an ammo crate changes how many rounds of each type it holds (0 to the
+  type's most), or becomes nothing;
+- armour changes its amount (more than 0, up to 1, a full vest), or
+  becomes nothing.
+
+A handler gets a table: `kind` (`"weapon"`, `"ammo"`, `"crate"` or
+`"armour"`), `index` (the record's, the same on every headset), and
+`item`, `ammo`, `crate` (type = rounds) or `amount`. It returns nil to
+keep the pickup, false for none, or a table of the same kind; a field
+it leaves out keeps the pickup's own, so a handler can change the table
+it was given and return it. Handlers run in turn, each given what the
+last decided; after a false none are asked. An answer the game can't
+take (another kind, an item off the list, a value past its limit) is a
+script error: the mod stops for the mission and the pickup keeps its
+setup.
 
 Every headset runs the swaps at load, so in co-op the choices come from
 `mod.random` (see Multiplayer).
@@ -509,8 +567,8 @@ Every headset runs the swaps at load, so in co-op the choices come from
    storage calls, the perf log line.
 4. **API areas** one at a time, each with native tests (as the repo's
    `port/tests/` do): weapons and items, hands and body slots, guards,
-   player, assets, UI. Weapons first (`port/tests/test_modapi.py`), then
-   pickups and items.
+   player, assets, UI. Weapons first, then pickups and items (both
+   `port/tests/test_modapi.py`).
 5. **Network:** `NET_MSG_MOD`, co-op with mods, the dedicated server.
 6. **Sample mod and API reference.**
 7. **Platform check:** Quest, PC, Apple, server, with the sample mod.

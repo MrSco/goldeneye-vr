@@ -1,8 +1,9 @@
 /*
- * The mod API's weapons area (port/src/gevr_modapi.c) end to end: the real
- * script host (gevr_modscript.c) and Lua, over a fake game standing in for
- * src/game/gevr_modgame.c (two hands, a stats table, local or not), driven
- * as the gun code drives it, so test_modapi.py can check each rule.
+ * The mod API's weapons and items areas (port/src/gevr_modapi.c) end to
+ * end: the real script host (gevr_modscript.c) and Lua, over a fake game
+ * standing in for src/game/gevr_modgame.c (two hands, a stats table, an
+ * inventory and spare rounds, local or not), driven as the gun code and the
+ * stage's setup drive it, so test_modapi.py can check each rule.
  *
  *   modapi_test <command>...
  *     start | prepare <stage> | begin <stage> | title   as modscript_native.c
@@ -13,8 +14,16 @@
  *     draw <hand> <item>           a switch's end
  *     show <item>                  the item's stats now
  *     loadedis <hand>              the hand's rounds now
+ *     weapon|box <index> <id>      prop.c: a weapon (item) or ammo box (type) about to be placed
+ *     crate <index> <t:n,...>      an ammo crate: rounds by type
+ *     armour <index> <amount>
+ *     took <kind> [id] [rounds]    propPickupByPlayer: weapon <item>, ammo <type> <rounds>,
+ *                                  crate <t:n,...>, armour <amount>, key, object
+ *     own <item> | inv             an item in the inventory; what's there
+ *     ammois <type>                the spare rounds of a type
  *
- * Prints LOG lines, DECLINED/FIRED per shot, and the answers. Run in a
+ * Prints LOG lines, DECLINED/FIRED per shot, SPAWN per pickup placed, and
+ * the answers. Run in a
  * folder holding mods/tactical/scripts and save/.
  */
 #include <stdarg.h>
@@ -86,6 +95,69 @@ void gevrModGameSetStats(int item, const GevrModWeaponStats *in)
     if (item >= 0 && item < GEVR_MODAPI_ITEMS && s_hasStats[item]) s_stats[item] = *in;
 }
 
+/* the items area: guns and thrown weapons as gevr_modgame.c lists them for
+ * GoldenEye (ITEM_KNIFE to ITEM_ROCKETLAUNCH but the watch laser, the
+ * grenade and the mines); gun.c's ammo_related maxima */
+static int s_inv[GEVR_MODAPI_ITEMS];
+static int s_ammo[GEVR_MODAPI_AMMO_TYPES + 1];
+static const int s_ammoMax[GEVR_MODAPI_AMMO_TYPES + 1] = { 0, 800, 200, 400, 100, 12, 3, 10, 10, 10, 10, 12, 200, 100 };
+
+int gevrModGameSwappable(int item) { return (item >= 2 && item <= 25 && item != 23) || (item >= 26 && item <= 29); }
+int gevrModGameHas(int item) { return s_inv[item]; }
+int gevrModGameGive(int item)
+{
+    const int given = !s_inv[item];
+
+    s_inv[item] = 1;
+    if (item == 29) s_inv[30] = 1;   /* remote mines bring the detonator */
+    return given;
+}
+int gevrModGameTake(int item)
+{
+    const int had = s_inv[item];
+
+    s_inv[item] = 0;
+    if (s_held[0] == item) s_held[0] = 1;   /* the gun hand to its fist */
+    if (s_held[1] == item) s_held[1] = 0;
+    return had;
+}
+int gevrModGameAmmo(int type) { return s_ammo[type]; }
+void gevrModGameSetAmmo(int type, int rounds) { s_ammo[type] = rounds; }
+int gevrModGameAmmoMax(int type) { return type >= 1 && type <= GEVR_MODAPI_AMMO_TYPES ? s_ammoMax[type] : 0; }
+
+static void crateArg(GevrModPickup *p, const char *list)
+{
+    while (*list) {
+        int t = 0, n = 0, used = 0;
+
+        if (sscanf(list, "%d:%d%n", &t, &n, &used) != 2) break;
+        if (t >= 1 && t <= GEVR_MODAPI_AMMO_TYPES) p->crate[t] = n;
+        list += used;
+        if (*list == ',') list++;
+    }
+}
+
+static void spawned(const GevrModPickup *p)
+{
+    int t;
+
+    if (p->none) {
+        printf("SPAWN %d none\n", p->index);
+        return;
+    }
+    switch (p->kind) {
+    case GEVR_MODPICKUP_WEAPON: printf("SPAWN %d weapon %d\n", p->index, p->item); break;
+    case GEVR_MODPICKUP_AMMO: printf("SPAWN %d ammo %d\n", p->index, p->ammo); break;
+    case GEVR_MODPICKUP_ARMOUR: printf("SPAWN %d armour %.2f\n", p->index, p->armour); break;
+    default:
+        printf("SPAWN %d crate", p->index);
+        for (t = 1; t <= GEVR_MODAPI_AMMO_TYPES; t++) {
+            if (p->crate[t]) printf(" %d:%d", t, p->crate[t]);
+        }
+        printf("\n");
+    }
+}
+
 static void stats(int item, int magazine, int rate, float damage)
 {
     s_hasStats[item] = 1;
@@ -154,6 +226,67 @@ int main(int argc, char **argv)
             printf("STATS %d %d %d %.2f\n", item, s_stats[item].magazine, s_stats[item].fireRate, s_stats[item].damage);
         } else if (!strcmp(cmd, "loadedis") && i + 1 < argc) {
             printf("LOADED %d\n", s_loaded[atoi(argv[++i])]);
+        } else if ((!strcmp(cmd, "weapon") || !strcmp(cmd, "box") || !strcmp(cmd, "crate") || !strcmp(cmd, "armour"))
+                   && i + 2 < argc) {
+            /* prop.c: a pickup's record about to be placed */
+            GevrModPickup p;
+
+            memset(&p, 0, sizeof(p));
+            p.index = atoi(argv[i + 1]);
+            if (cmd[0] == 'w') {
+                p.kind = GEVR_MODPICKUP_WEAPON;
+                p.item = atoi(argv[i + 2]);
+            } else if (cmd[0] == 'b') {
+                p.kind = GEVR_MODPICKUP_AMMO;
+                p.ammo = atoi(argv[i + 2]);
+            } else if (cmd[0] == 'c') {
+                p.kind = GEVR_MODPICKUP_CRATE;
+                crateArg(&p, argv[i + 2]);
+            } else {
+                p.kind = GEVR_MODPICKUP_ARMOUR;
+                p.armour = (float)atof(argv[i + 2]);
+            }
+            i += 2;
+            gevrModApiPickupSpawning(&p);
+            spawned(&p);
+        } else if (!strcmp(cmd, "took") && i + 1 < argc) {
+            /* propPickupByPlayer: the local player took it */
+            GevrModPickup got;
+            const char *kind = argv[++i];
+
+            memset(&got, 0, sizeof(got));
+            if (!strcmp(kind, "weapon") && i + 1 < argc) {
+                got.kind = GEVR_MODPICKUP_WEAPON;
+                got.item = atoi(argv[++i]);
+            } else if (!strcmp(kind, "ammo") && i + 2 < argc) {
+                got.kind = GEVR_MODPICKUP_AMMO;
+                got.ammo = atoi(argv[i + 1]);
+                got.rounds = atoi(argv[i + 2]);
+                i += 2;
+            } else if (!strcmp(kind, "crate") && i + 1 < argc) {
+                got.kind = GEVR_MODPICKUP_CRATE;
+                crateArg(&got, argv[++i]);
+            } else if (!strcmp(kind, "armour") && i + 1 < argc) {
+                got.kind = GEVR_MODPICKUP_ARMOUR;
+                got.armour = (float)atof(argv[++i]);
+            } else {
+                got.kind = !strcmp(kind, "key") ? GEVR_MODPICKUP_KEY : GEVR_MODPICKUP_OBJECT;
+            }
+            gevrModApiItemPickup(&got);
+        } else if (!strcmp(cmd, "own") && i + 1 < argc) {
+            s_inv[atoi(argv[++i])] = 1;
+        } else if (!strcmp(cmd, "inv")) {
+            int k;
+
+            printf("INV");
+            for (k = 0; k < GEVR_MODAPI_ITEMS; k++) {
+                if (s_inv[k]) printf(" %d", k);
+            }
+            printf(" held %d %d\n", s_held[0], s_held[1]);
+        } else if (!strcmp(cmd, "ammois") && i + 1 < argc) {
+            const int type = atoi(argv[++i]);
+
+            printf("AMMO %d %d\n", type, s_ammo[type]);
         } else {
             fprintf(stderr, "unknown command %s\n", cmd);
             return 2;

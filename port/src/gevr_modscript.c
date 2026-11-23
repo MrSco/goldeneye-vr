@@ -82,6 +82,8 @@ static const char *const s_events[] = {
     "campaign_enter", "mission_prepare", "mission_start", "mission_end", "tick",
     /* the weapons area (docs/mod-system.md, Where each hook sits) */
     "weapon_fire_attempt", "weapon_fire", "reload_start", "reload_end", "weapon_drawn",
+    /* the items area */
+    "pickup_spawning", "item_pickup",
 };
 
 static void note(const char *fmt, ...)
@@ -219,9 +221,9 @@ static void modFail(ModScript *m, const char *what, const char *err)
     }
 }
 
-/* The function and its nargs arguments on the stack's top, run protected.
- * cancel: given, the call's result is read, and false sets it */
-static int modCall(ModScript *m, int nargs, int load, const char *what, int *cancel)
+/* The function and its nargs arguments on the stack's top, run protected:
+ * 0 with its nresults results left on the stack, or -1 (an error: none) */
+static int modCall(ModScript *m, int nargs, int nresults, int load, const char *what)
 {
     lua_State *L = m->L;
     const int base = lua_gettop(L) - nargs;
@@ -232,12 +234,8 @@ static int modCall(ModScript *m, int nargs, int load, const char *what, int *can
     m->runaway = load ? GEVR_MODSCRIPT_LOAD_RUNAWAY_US : GEVR_MODSCRIPT_RUNAWAY_US;
     m->callStart = sysGetMicroseconds();
     if (!m->callStart) m->callStart = 1;
-    rc = lua_pcall(L, nargs, cancel ? 1 : 0, base);
+    rc = lua_pcall(L, nargs, nresults, base);
     m->callStart = 0;
-    if (rc == LUA_OK && cancel) {
-        if (lua_type(L, -1) == LUA_TBOOLEAN && !lua_toboolean(L, -1)) *cancel = 1;
-        lua_pop(L, 1);
-    }
     if (rc != LUA_OK) {
         const char *err = lua_tostring(L, -1);
 
@@ -717,7 +715,10 @@ static int fire(const char *event, const Arg *args, int nargs, int load, int can
                 else if (args[a].kind == GEVR_MODARG_BOOL) lua_pushboolean(L, args[a].n != 0);
                 else lua_pushstring(L, args[a].s ? args[a].s : "");
             }
-            modCall(m, nargs, load, event, cancellable ? &cancel : NULL);
+            if (modCall(m, nargs, cancellable ? 1 : 0, load, event) == 0 && cancellable) {
+                if (lua_type(L, -1) == LUA_TBOOLEAN && !lua_toboolean(L, -1)) cancel = 1;
+                lua_pop(L, 1);
+            }
         }
         lua_pop(L, 2);
         if (!load) {
@@ -734,6 +735,70 @@ int gevrModScriptEvent(const char *event, const GevrModArg *args, int nargs, int
 {
     if (!s_count || !s_inMission || !s_playing) return 0;
     return fire(event, args, nargs, 0, cancellable);
+}
+
+/* One handler asked, inside its protected call: the arguments pushed, the
+ * handler run, its answer read (an answer refused is that mod's error) */
+typedef struct Ask {
+    int (*push)(lua_State *L, void *ud);
+    int (*answer)(lua_State *L, void *ud);
+    void *ud;
+} Ask;
+
+static int askOne(lua_State *L)
+{
+    const Ask *a = (const Ask *)lua_touserdata(L, 1);
+    int nargs;
+
+    lua_remove(L, 1);   /* the handler alone */
+    nargs = a->push(L, a->ud);
+    lua_call(L, nargs, 1);
+    lua_pushboolean(L, a->answer(L, a->ud) != 0);
+    return 1;
+}
+
+int gevrModScriptAsk(const char *event, int (*push)(lua_State *L, void *ud), int (*answer)(lua_State *L, void *ud),
+                     void *ud, int play)
+{
+    Ask a;
+    int k, ran = 0, stop = 0;
+
+    if (!s_count || !s_inMission || (play && !s_playing)) return 0;
+    a.push = push;
+    a.answer = answer;
+    a.ud = ud;
+    for (k = 0; k < s_count && !stop; k++) {
+        ModScript *m = &s_mods[k];
+        lua_State *L = m->L;
+        const u64 start = sysGetMicroseconds();
+        lua_Integer i, n;
+
+        if (m->broken || m->off) continue;
+        lua_getfield(L, LUA_REGISTRYINDEX, "gevr.on");
+        if (lua_getfield(L, -1, event) != LUA_TTABLE) {
+            lua_pop(L, 2);
+            continue;
+        }
+        n = (lua_Integer)lua_rawlen(L, -1);
+        for (i = 1; i <= n && !stop && !m->broken && !m->off; i++) {
+            lua_pushcfunction(L, askOne);
+            lua_pushlightuserdata(L, &a);
+            lua_rawgeti(L, -3, i);
+            if (modCall(m, 2, 1, !play, event) == 0) {
+                stop = lua_toboolean(L, -1);
+                lua_pop(L, 1);
+                ran++;
+            }
+        }
+        lua_pop(L, 2);
+        if (play) {
+            const u64 spent = sysGetMicroseconds() - start;
+
+            m->windowUs += spent;
+            s_windowUs += spent;
+        }
+    }
+    return ran;
 }
 
 void gevrModScriptStart(void)
@@ -769,10 +834,10 @@ void gevrModScriptStart(void)
     s_count++;
     sysLogPrintf(LOG_NOTE, "mods: starting %s's scripts (Lua %s.%s)", m->id, LUA_VERSION_MAJOR, LUA_VERSION_MINOR);
     lua_pushcfunction(m->L, openSandbox);
-    if (modCall(m, 0, 1, "the sandbox", NULL) != 0) return;
+    if (modCall(m, 0, 0, 1, "the sandbox") != 0) return;
     lua_pushcfunction(m->L, l_require);
     lua_pushstring(m->L, "main");
-    if (modCall(m, 1, 1, "scripts/main.lua", NULL) != 0) return;
+    if (modCall(m, 1, 0, 1, "scripts/main.lua") != 0) return;
     fire("campaign_enter", NULL, 0, 1, 0);
 }
 
