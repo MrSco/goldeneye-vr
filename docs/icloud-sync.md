@@ -109,7 +109,10 @@ signed build (device dev install or archive); the simulator never gets it.
   GevrChunk, GevrJoined) was deployed to Production the same day, for TestFlight's
   ROM and pack sync (the key-value store needs none).
   TestFlight iOS 148 and visionOS 23 have iCloud. tvOS 9 went up without it: App
-  Store validation wants `aps-environment` beside iCloud on tvOS (error 90575), so
-  Apple TV needs the Push Notifications capability, a remade profile and that
-  entitlement in its build.
+  Store validation wants `aps-environment` beside iCloud on tvOS (error 90575).
+  So the App ID got Push Notifications, both App Store profiles were remade again
+  (uuids fa7181af..., 551666a4...), and `tools/build_tvos.sh` adds
+  `aps-environment` (production for an archive, development for a dev build):
+  tvOS 10 carries iCloud. That capability change left the development profiles
+  "GEVR iCloud Dev iOS/tvOS" INVALID: remake them before the next signed dev build.
 - Open: deleting from iCloud; speedrun ghosts (`ghosts/`) are not carried.

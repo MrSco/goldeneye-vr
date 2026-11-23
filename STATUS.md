@@ -20,15 +20,14 @@ Crouch key and pause Enter fix; back to launcher waits for the old process; the
 Join list's server filter (#281, service #18); iCloud sync on TestFlight (App
 Store profiles remade with iCloud, archives with `GEVR_ICLOUD=1`). Protocol 27
 unchanged: plays online with v0.5.25 to v0.5.22. 9 downloads from one commit;
-TestFlight iOS 148 and visionOS 23 with iCloud, tvOS 9 without
-(tvOS wants aps-environment beside iCloud: push capability, profile, entitlement). Gates: port/tests 120/120 on Windows and 120/120 on
+TestFlight iOS 148 and visionOS 23 with iCloud; tvOS 9 without it, then tvOS 10
+with it (aps-environment beside iCloud: Push on the App ID, profiles remade). Gates: port/tests 120/120 on Windows and 120/120 on
 Linux (#302's toolchain fixes), the 12 asset tests on both, Java 147 (three
 flavours), dedicated server gate passed (26 kills, 3.6% peak CPU); played by the
 user on a Quest 3 (the truck, third person, gestures, launcher). PR #295.
 **Next:** volumetric smoke and explosions (#249, design thread), the mod system
 (`mod-system`, #292), host rule against teleporting (protocol 28), bolts that
-move on the meshes, Apple TV's iCloud (push capability, remade profiles,
-`aps-environment` in its entitlements).
+move on the meshes, the iCloud dev profiles remade (INVALID since Push).
 **Before it:** v0.5.25 (versionCode 138), tag on c4218068
 ([notes](docs/releases/v0.5.25.md)), PR #278; v0.5.24 (versionCode 137), tag on
 e73c2a4f ([notes](docs/releases/v0.5.24.md)), PR #272.
