@@ -404,6 +404,25 @@ int main(void)
     Gfx *g=calloc(16384,sizeof(Gfx));drawn=0;
     gevrRagdollRender(g);assert(drawn==1);frameFree();
     view.m[3][0]=200;gevrRagdollRender(g);frameFree();free(g);view=identity();
+    /* A moving door touching a body (propobj.c sub_GAME_7F0448A8) fades it in half a
+     * second; the others stay. Its parts are read in world units, once. */
+    capture(0);
+    {
+        RdBody *d=newest();
+        const int doorBody=(int)(d-s_bodies), kept=countBodies();
+        coord3d parts[GEVR_RAGDOLL_PARTS_MAX];
+        assert(d!=b && gevrRagdollBodies()==RD_BODIES);
+        const int n=gevrRagdollBodyParts(doorBody,parts,GEVR_RAGDOLL_PARTS_MAX);
+        assert(n==d->count && n>0);
+        for(int i=0;i<n;i++)assert(parts[i].f[0]==d->joints[i].m[3][0] && parts[i].f[1]==d->joints[i].m[3][1]);
+        gevrRagdollDoorFade(doorBody);
+        assert(!gevrRagdollBodyParts(doorBody,parts,GEVR_RAGDOLL_PARTS_MAX));
+        for(int i=0;i<15;i++){g_GlobalTimer++;gevrRagdollTick(1);}
+        assert(d->used && d->alpha>0 && d->alpha<255);
+        for(int i=0;i<30;i++){g_GlobalTimer++;gevrRagdollTick(1);}
+        assert(!d->used && countBodies()==kept-1 && b->used);
+        VrRagdolls=0;assert(!gevrRagdollBodies());VrRagdolls=1;
+    }
     VrBodiesStay=0;
     for(int i=0;i<340;i++){g_GlobalTimer++;gevrRagdollTick(1);}
     assert(!countBodies());

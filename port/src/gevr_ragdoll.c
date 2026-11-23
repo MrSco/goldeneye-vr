@@ -66,6 +66,7 @@ const RdSkel g_RdSkelHuman = {
 #define RD_PUSH_MAXMULT 1.45f
 #define RD_PUSH_SCALE 0.8f
 #define RD_KILLFLOOR_Y -32000.0f
+#define RD_DOOR_FADE_S 0.5f   /* a body a moving door touched is gone this soon */
 #define RD_COLROOM_MOVE 12.0f
 #define RD_FAR 2000.0f
 
@@ -857,9 +858,46 @@ void gevrRagdollTick(int ticks60)
         }
         if(!VrBodiesStay) {
             b->alpha=fmaxf(0,fminf(255,(5.5f-b->age)*170));
+            if(b->alpha<=0){rdRelease(b);continue;}
+        }
+        if(b->doorhit) {
+            b->doorfade+=dt;
+            b->alpha=fminf(b->alpha,255.0f*(1.0f-b->doorfade/RD_DOOR_FADE_S));
             if(b->alpha<=0)rdRelease(b);
         }
     }
+}
+
+/*
+ * A moving door and the bodies (propobj.c sub_GAME_7F0448A8). A ragdoll is not a
+ * prop, so a door never saw one: it closed through the body, which lay there
+ * clipped for good with Bodies stay on (owner, 2026-11-23, Bean in a doorway).
+ * Now a body the door touches fades in RD_DOOR_FADE_S. The door does not wait
+ * for it, as it waits for a dead guard kept without ragdolls (chraction.c
+ * gevrBodyDoorHit): a ragdoll is this player's own copy, and door timing must
+ * stay the same for everyone online and in ghost runs.
+ */
+int gevrRagdollBodies(void) { return VrRagdolls ? RD_BODIES : 0; }
+
+int gevrRagdollBodyParts(int body, coord3d *pos, int max)
+{
+    if (body<0 || body>=RD_BODIES || !pos || max<=0) return 0;
+    const RdBody *b=&s_bodies[body];
+    if (!b->used || b->doorhit) return 0;
+    const int n=b->count<max?b->count:max;
+    for (int i=0;i<n;i++)
+        for (int k=0;k<3;k++) pos[i].f[k]=b->joints[i].m[3][k];
+    return n;
+}
+
+void gevrRagdollDoorFade(int body)
+{
+    if (body<0 || body>=RD_BODIES) return;
+    RdBody *b=&s_bodies[body];
+    if (!b->used || b->doorhit) return;
+    b->doorhit=1;
+    b->doorfade=0;
+    sysLogPrintf(LOG_NOTE,"ragdoll: body %u is in a moving door's way; it fades",b->serial);
 }
 
 /* A shot body bleeds where it was hit, as a living guard does

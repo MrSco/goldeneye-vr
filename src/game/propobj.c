@@ -4208,6 +4208,10 @@ s32 chrobjTestPointPolygonCollision(struct coord3d *point, f32 collision_radius,
 }
 
 
+#ifdef GEVR
+#include "gevr_ragdoll.h"   /* a moving door fades the ragdoll bodies it touches */
+#endif
+
 /**
  * NTSC address 0x7F0448A8.
 */
@@ -4240,6 +4244,35 @@ s32 sub_GAME_7F0448A8(struct PropRecord *argProp)
 
     chraiGetPropRoomIds(argProp, (s32*)&roomids);
     roomGetProps((s32*)&roomids);
+
+#ifdef GEVR
+    /* Ragdoll bodies (gevr_ragdoll.c) are not props, so a door closed through
+     * them: each one this door touches fades away in half a second. The door
+     * never waits for one, a body only this player sees. */
+    if (argProp->type == PROP_TYPE_DOOR)
+    {
+        coord3d parts[GEVR_RAGDOLL_PARTS_MAX];
+        s32 body;
+        s32 part;
+        s32 count;
+
+        for (body = 0; body < gevrRagdollBodies(); body++)
+        {
+            count = gevrRagdollBodyParts(body, parts, GEVR_RAGDOLL_PARTS_MAX);
+
+            for (part = 0; part < count; part++)
+            {
+                if ((parts[part].f[1] >= chrBottom - 30.0f) && (parts[part].f[1] <= chrTop)
+                    && (chrpropTestPointInPolygon(&parts[part], polygon2, edges2)
+                        || chrobjTestPointPolygonCollision(&parts[part], 10.0f, polygon2, edges2)))
+                {
+                    gevrRagdollDoorFade(body);
+                    break;
+                }
+            }
+        }
+    }
+#endif
 
     propss = (PropRecord *)&g_Props;
 

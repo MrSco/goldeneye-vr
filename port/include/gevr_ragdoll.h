@@ -7,6 +7,7 @@ extern "C" {
 struct ChrRecord;
 struct Model;
 struct ShotData;
+struct coord3d;
 
 /* Cosmetic snapshots own their runtime model data and survive actor reuse.
  * Never change authoritative health, position, hitboxes or network messages. */
@@ -32,6 +33,13 @@ unsigned gevrRagdollModelBody(const struct Model *model);
 int gevrRagdollPiece(const struct Model *model, int matrix);
 int gevrRagdollRemap(const struct Model *model, int owner, int matrix, float p[3], float n[3]);
 void gevrRagdollBeanCap(const struct Model *model, int matrix, const s16 (*rim)[2][3], int nedges, int piece, int other);
+/* A moving door (propobj.c sub_GAME_7F0448A8): the body slots to look at (0 with ragdolls
+ * off), a body's part positions in world units (0 when the slot is empty or already
+ * fading), and the half-second fade of one it touched. Cosmetic: the door never waits. */
+#define GEVR_RAGDOLL_PARTS_MAX 16
+int gevrRagdollBodies(void);
+int gevrRagdollBodyParts(int body, struct coord3d *pos, int max);
+void gevrRagdollDoorFade(int body);
 #ifdef __cplusplus
 }
 #endif

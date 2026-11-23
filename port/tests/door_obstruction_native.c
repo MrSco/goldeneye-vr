@@ -4,6 +4,7 @@
 #include "game/chrai.h"
 #include "game/chraction.h"
 #include "game/propobj.h"
+#include "gevr_ragdoll.h"
 
 PropRecord g_Props[2];
 static s16 roomProps[] = {0, 1, -1};
@@ -41,22 +42,33 @@ static ChrRecord *doorHit;
 static int doorHits;
 void gevrBodyDoorHit(ChrRecord *chr) { doorHit = chr; doorHits++; }
 
+/* The door's outline: everything with x below 50 (an occupant stands at 0) */
 s32 chrpropTestPointInPolygon(coord3d *point, struct rect4f *polygon, s32 edges)
 {
-    (void)point;
     (void)polygon;
     (void)edges;
-    return 1;
+    return point->f[0] < 50.f;
 }
 
 s32 chrobjTestPointPolygonCollision(coord3d *point, f32 radius, struct rect4f *polygon, s32 edges)
 {
-    (void)point;
-    (void)radius;
     (void)polygon;
     (void)edges;
-    return 1;
+    return point->f[0] < 50.f + radius;
 }
+
+/* gevr_ragdoll.c: body 0 lies in the doorway, body 1 away from it, body 2 above the door */
+static coord3d ragdollParts[3][2] = {{{{{10, 5, 0}}}, {{{30, 8, 0}}}}, {{{{400, 5, 0}}}, {{{420, 5, 0}}}},
+                                     {{{{10, 160, 0}}}, {{{12, 170, 0}}}}};
+static int ragdolls, ragdollFaded[3];
+int gevrRagdollBodies(void) { return ragdolls; }
+int gevrRagdollBodyParts(int body, coord3d *pos, int max)
+{
+    int i;
+    for (i = 0; i < 2 && i < max; i++) pos[i] = ragdollParts[body][i];
+    return i;
+}
+void gevrRagdollDoorFade(int body) { ragdollFaded[body]++; }
 
 s32 chrobjTestPolygonsTouchingOrOverlap2D(struct rect4f *a, s32 na, struct rect4f *b, s32 nb)
 {
@@ -109,10 +121,26 @@ int main(void)
     g_Props[1] = (PropRecord){.type = PROP_TYPE_OBJ, .obj = &crate};
     failures += check("crate blocks door", 0, 0);
 
+    /* A ragdoll body in the doorway fades and never holds the door; one beside the
+     * door or above it is left alone */
+    roomProps[1] = -1;
+    ragdolls = 3;
+    failures += check("ragdoll bodies never block a door", 1, 0);
+    if (ragdollFaded[0] != 1 || ragdollFaded[1] || ragdollFaded[2]) {
+        fprintf(stderr, "FAIL: a door fades only the ragdoll body it touches\n");
+        failures++;
+    }
+    roomProps[1] = 1;
+
     g_Props[0].type = PROP_TYPE_OBJ;
     g_Props[1] = (PropRecord){.type = PROP_TYPE_CHR, .chr = &guard};
     guard.actiontype = ACT_DEAD;
+    ragdollFaded[0] = 0;
     failures += check("corpse blocks non-door objects without fading", 0, 0);
+    if (ragdollFaded[0]) {
+        fprintf(stderr, "FAIL: only a door fades ragdoll bodies\n");
+        failures++;
+    }
     if (!failures) puts("PASS: door obstruction");
     return failures != 0;
 }
