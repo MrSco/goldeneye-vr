@@ -67,4 +67,25 @@ inline bool gevrAddFriendCell(int relation, bool ready, const char *name, const 
     if (pressed && !request) gevrFriendsAsked().push_back(code);
     return pressed;
 }
+
+// The same in a player's menu (the lobby roster): a button, or what stands in its place.
+inline bool gevrAddFriendButton(int relation, bool ready, const char *name, const std::string &code) {
+    switch (relation) {
+    case GEVR_RELATION_SELF: return false;
+    case GEVR_RELATION_UNKNOWN: ImGui::TextDisabled("No friend code: an older build, or they can't be found."); return false;
+    case GEVR_RELATION_FRIENDS: ImGui::TextDisabled("Friends"); return false;
+    case GEVR_RELATION_BLOCKED: ImGui::TextDisabled("Blocked"); return false;
+    case GEVR_RELATION_SENT: ImGui::TextDisabled("Friend request sent"); return false;
+    default: break;
+    }
+    const bool request = relation == GEVR_RELATION_REQUEST;
+    ImGui::BeginDisabled(!ready);
+    const bool pressed = ImGui::Button(request ? "Accept friend request" : "Add friend");
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        gevrTooltip(!ready ? "Friends are still signing in." : request ? "%s asked to be your friend: accept."
+                                                                       : "Send %s a friend request.", name);
+    if (pressed && !request) gevrFriendsAsked().push_back(code);
+    return pressed;
+}
 #endif

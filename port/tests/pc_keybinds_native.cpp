@@ -26,7 +26,7 @@ static void check(bool ok, const char *what) {
 namespace {
 
 struct FakeBackend {
-    unsigned binds[40][4] = {};   /* input.h CK_TOTAL_COUNT: the pad's 32 and CK_RESTART */
+    unsigned binds[40][4] = {};   /* input.h CK_TOTAL_COUNT: the pad's 32, CK_RESTART and CK_CROUCH */
     int lastKey = 0;
     bool capture = false;
     int saveCount = 0;
@@ -69,6 +69,7 @@ struct FakeBackend {
         binds[GEVR_CK_STICK_YPOS][0] = 82; /* Up */
         binds[GEVR_CK_ACCEPT][0] = GEVR_VK_JOY_BEGIN + 0;
         binds[GEVR_CK_RESTART][0] = GEVR_VK_BACKSPACE;
+        binds[GEVR_CK_CROUCH][0] = 6; /* C */ binds[GEVR_CK_CROUCH][1] = 224; /* Left Ctrl */
     }
 
     unsigned getClassBind(unsigned ck, bool pad, int slot) const {
@@ -291,6 +292,17 @@ int main() {
     check(api.getBind(GEVR_CK_RESTART, false, 0) == GEVR_VK_BACKSPACE, "Restart (#280) defaults to Backspace");
     check(api.getBind(GEVR_CK_RESTART, true, 0) == 0, "Restart has no pad default");
     check(std::strcmp(gevrActionLabel(0, GEVR_CK_RESTART), "Restart") == 0, "Restart label");
+    check(api.getBind(GEVR_CK_CROUCH, false, 0) == 6 && api.getBind(GEVR_CK_CROUCH, false, 1) == 224,
+          "Crouch defaults to C and Left Ctrl");
+    check(std::strcmp(gevrActionLabel(0, GEVR_CK_CROUCH), "Crouch") == 0, "Crouch label");
+    {
+        int n = 0; const unsigned *acts = gevrKbmActions(n); bool found = false;
+        for (int i = 0; i < n; i++) found |= acts[i] == GEVR_CK_CROUCH;
+        check(n == 16 && found, "Crouch is on the 16-row keyboard table");
+        acts = gevrGamepadBindActions(n); found = false;
+        for (int i = 0; i < n; i++) found |= acts[i] == GEVR_CK_CROUCH;
+        check(found, "Crouch is bindable on the gamepad page too");
+    }
 
     // 2. Bind capture: key, mouse button, wheel, Esc cancel, Del/Backspace clear
     ui.capturing = true; ui.captureGamepad = false; ui.captureAction = GEVR_CK_PREV_WEAPON; ui.captureSlot = 1;
