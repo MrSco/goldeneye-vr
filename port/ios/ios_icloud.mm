@@ -36,6 +36,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -73,6 +74,7 @@ std::mutex g_lock;                    // the options, the status and the message
 bool g_available = false;             // signed with the entitlements (Info.plist GEVRICloud)
 bool g_launched = false;
 bool g_workerStarted = false;
+bool g_joined = false;                // this device takes part in the key-value sync (see gevrCloudLaunch)
 bool g_sync = true, g_packs = false;
 std::string g_root;                   // the save folder, absolute, no trailing slash
 std::string g_status, g_message;
@@ -227,8 +229,13 @@ struct IniFile {
     const char *kvBase;    // "ini" or "cfg"
     bool sections;         // goldeneye.ini: keys are "Section.key"
 };
-const IniFile kIni = { "goldeneye-vr.ini", "ini", false };
-const IniFile kCfg = { "goldeneye.ini", "cfg", true };
+/* "2": the store's names since the join rule (gevrCloudLaunch). The first
+ * device test (2026-11-22) had a new iPad push its settings over the iPhone's
+ * under the old rule; the old names are left alone. */
+const IniFile kIni = { "goldeneye-vr.ini", "ini2", false };
+const IniFile kCfg = { "goldeneye.ini", "cfg2", true };
+NSString *const kSavePrefix = @"save2:";
+const char *const kJoinedMarker = "joined2";
 
 bool isLocalKey(const IniFile &f, const std::string &k)
 {
@@ -379,14 +386,15 @@ void iniPush(const IniFile &f, const std::map<std::string, std::string> &before,
     if (mineChanged) kvSetDict(familyKey(f), mine);
 }
 
-/* At launch: the three-way merge of the file, the copy last synced and the cloud. */
-void iniLaunchMerge(const IniFile &f)
+/* At launch. Joined: the three-way merge of the file, the copy last synced
+ * and the cloud. Joining: the cloud's values win, and only what it lacks goes up. */
+void iniLaunchMerge(const IniFile &f, bool joined)
 {
     const std::string path = g_root + "/" + f.name;
     const std::string lastPath = statePath(std::string("last-") + f.name);
     std::string text, lastText;
     const bool haveLocal = readFile(path, &text);
-    const bool joined = readFile(lastPath, &lastText);
+    if (joined) readFile(lastPath, &lastText);
     const std::map<std::string, std::string> local = iniMap(f, text), last = iniMap(f, lastText);
     std::map<std::string, std::string> remote = kvDict(sharedKey(f));
     for (const auto &kv : kvDict(familyKey(f))) remote[kv.first] = kv.second;
@@ -411,11 +419,8 @@ void iniLaunchMerge(const IniFile &f)
         }
         cloudLog("%s: %zu value%s from iCloud", f.name, take.size(), take.size() == 1 ? "" : "s");
     }
-    // up: what changed here (everything, on a first sync with an empty cloud)
-    const std::map<std::string, std::string> now = iniMap(f, merged);
-    // joined: what changed here since the last sync; joining: what the cloud
-    // lacks; an empty cloud: everything
-    iniPush(f, joined ? last : remote, now);
+    // joined: what changed here since the last sync; joining: what the cloud lacks
+    iniPush(f, joined ? last : remote, iniMap(f, merged));
     if (haveLocal || !take.empty()) writeFileAtomic(lastPath, merged);
 }
 
@@ -430,47 +435,73 @@ void iniSaved(const IniFile &f)
     writeFileAtomic(lastPath, text);
 }
 
-/* Saves: whole files, the newer one when both changed. */
-std::map<std::string, std::string> readHashes()
-{
-    std::map<std::string, std::string> m;
-    std::string text;
-    if (!readFile(statePath("saves.txt"), &text)) return m;
-    size_t pos = 0;
-    while (pos < text.size()) {
-        size_t nl = text.find('\n', pos);
-        if (nl == std::string::npos) nl = text.size();
-        const std::string line = text.substr(pos, nl - pos);
-        pos = nl + 1;
-        const size_t tab = line.find('\t');
-        if (tab != std::string::npos) m[line.substr(0, tab)] = line.substr(tab + 1);
-    }
-    return m;
-}
-
-void writeHashes(const std::map<std::string, std::string> &m)
-{
-    std::string text;
-    for (const auto &kv : m) text += kv.first + "\t" + kv.second + "\n";
-    writeFileAtomic(statePath("saves.txt"), text);
-}
-
+/* Saves: whole files, never merged (user, 2026-11-22: choose the right one,
+ * don't combine them). The one the game wrote last wins: the file's own time,
+ * kept with it in the store and put back on the file when it comes down. Two
+ * guards: a save with no progress never replaces one with progress (a new
+ * install's blank save), and a save that is replaced is kept beside it as
+ * <name>.before-icloud-<date>, the last five. */
 bool isSaveName(const char *n)
 {
     const size_t l = strlen(n);
     return strncmp(n, "eeprom", 6) == 0 && l > 4 && strcmp(n + l - 4, ".bin") == 0;
 }
 
-void savePush(const std::string &name, const std::string &data, std::map<std::string, std::string> *hashes)
+long long fileTime(const std::string &path)
+{
+    struct stat st;
+    return stat(path.c_str(), &st) == 0 ? (long long)st.st_mtime : 0;
+}
+
+void savePush(const std::string &name, const std::string &data, long long mtime)
 {
     NSData *d = [NSData dataWithBytes:data.data() length:data.size()];
-    [kvs() setDictionary:@{ @"d": d, @"t": @((long long)time(nullptr)) } forKey:ns("save:" + name)];
-    (*hashes)[name] = sha256Text(data);
+    [kvs() setDictionary:@{ @"d": d, @"t": @(mtime) } forKey:[kSavePrefix stringByAppendingString:ns(name)]];
+}
+
+/* Read only, to choose: GoldenEye's EEPROM holds a 32-byte header, then five
+ * 0x60-byte save slots (src/game/file2.c fileValidateSaves). A slot in use
+ * (flag 0x80 clear) with a finished level (its times), an unlocked cheat or 007
+ * mode is progress. Another layout (bytes there in use) reads as progress: no guard. */
+bool saveHasProgress(const std::string &data)
+{
+    if (data.size() < 32 + 5 * 0x60) return true;
+    for (int slot = 0; slot < 5; slot++) {
+        const unsigned char *s = (const unsigned char *)data.data() + 32 + slot * 0x60;
+        if (s[8] & 0x80) continue;   // completion_bitflags: SAVEFLAG_DORESET, a free slot
+        if (s[9] & 1) return true;   // flag_007
+        for (int i = 14; i < 17; i++) {
+            if (s[i]) return true;   // unlocked_cheats_1..3
+        }
+        for (int i = 18; i < 0x60; i++) {
+            if (s[i]) return true;   // times
+        }
+    }
+    return false;   // every slot free or empty: a blank save
+}
+
+void saveBackup(const std::string &name, const std::string &data)
+{
+    char stamp[32];
+    const time_t now = time(nullptr);
+    struct tm tm;
+    localtime_r(&now, &tm);
+    strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &tm);
+    const std::string prefix = name + ".before-icloud-";
+    writeFileAtomic(g_root + "/" + prefix + stamp, data);
+    std::vector<std::string> old;
+    if (DIR *d = opendir(g_root.c_str())) {
+        while (struct dirent *e = readdir(d)) {
+            if (strncmp(e->d_name, prefix.c_str(), prefix.size()) == 0) old.push_back(e->d_name);
+        }
+        closedir(d);
+    }
+    std::sort(old.begin(), old.end());
+    for (size_t i = 0; i + 5 < old.size(); i++) remove((g_root + "/" + old[i]).c_str());
 }
 
 void savesLaunchMerge()
 {
-    std::map<std::string, std::string> hashes = readHashes();
     std::set<std::string> names;
     if (DIR *d = opendir(g_root.c_str())) {
         while (struct dirent *e = readdir(d)) {
@@ -479,8 +510,8 @@ void savesLaunchMerge()
         closedir(d);
     }
     for (NSString *k in [kvs() dictionaryRepresentation]) {
-        if ([k hasPrefix:@"save:"]) {
-            const std::string n = [[k substringFromIndex:5] UTF8String];
+        if ([k hasPrefix:kSavePrefix]) {
+            const std::string n = [[k substringFromIndex:kSavePrefix.length] UTF8String];
             if (isSaveName(n.c_str()) && n.find('/') == std::string::npos) names.insert(n);
         }
     }
@@ -488,51 +519,53 @@ void savesLaunchMerge()
         const std::string path = g_root + "/" + n;
         std::string local;
         const bool haveLocal = readFile(path, &local);
-        NSDictionary *r = [kvs() dictionaryForKey:ns("save:" + n)];
+        const long long lt = haveLocal ? fileTime(path) : 0;
+        NSDictionary *r = [kvs() dictionaryForKey:[kSavePrefix stringByAppendingString:ns(n)]];
         NSData *rd = [r[@"d"] isKindOfClass:[NSData class]] ? r[@"d"] : nil;
         const long long rt = [r[@"t"] respondsToSelector:@selector(longLongValue)] ? [r[@"t"] longLongValue] : 0;
         const std::string remote = rd ? std::string((const char *)rd.bytes, rd.length) : std::string();
-        auto h = hashes.find(n);
-        const std::string lh = haveLocal ? sha256Text(local) : std::string();
-        const std::string rh = rd ? sha256Text(remote) : std::string();
-        if (haveLocal && rd && lh == rh) {
-            hashes[n] = lh;
+        if (haveLocal && rd && local == remote) continue;
+        bool keepLocal = haveLocal && (!rd || lt >= rt);
+        // the guard: progress is never replaced by a save without any
+        if (haveLocal && rd) {
+            const bool lp = saveHasProgress(local), rp = saveHasProgress(remote);
+            if (lp != rp) keepLocal = lp;
+        }
+        if (keepLocal) {
+            savePush(n, local, lt);
+            cloudLog("%s to iCloud (written %lld, iCloud's %lld)", n.c_str(), lt, rt);
             continue;
         }
-        const bool localChanged = haveLocal && (h == hashes.end() || h->second != lh);
-        const bool remoteChanged = rd && (h == hashes.end() || h->second != rh);
-        bool pull = false, push = false;
-        if (localChanged && remoteChanged) {
-            struct stat st;
-            const long long lt = stat(path.c_str(), &st) == 0 ? (long long)st.st_mtime : 0;
-            (rt > lt ? pull : push) = true;
-        } else {
-            pull = remoteChanged;
-            push = localChanged;
-        }
-        if (pull) {
-            if (writeFileAtomic(path, remote)) {
-                hashes[n] = rh;
-                cloudLog("%s from iCloud", n.c_str());
-            }
-        } else if (push) {
-            savePush(n, local, &hashes);
-            cloudLog("%s to iCloud", n.c_str());
+        if (haveLocal) saveBackup(n, local);
+        if (writeFileAtomic(path, remote)) {
+            struct timeval tv[2] = { { (time_t)rt, 0 }, { (time_t)rt, 0 } };
+            utimes(path.c_str(), tv);
+            cloudLog("%s from iCloud (written %lld, this device's %lld%s)", n.c_str(), rt, lt,
+                     haveLocal ? ", kept as .before-icloud" : "");
         }
     }
-    writeHashes(hashes);
 }
 
+/* the game just wrote it: the newest, unless it is a blank save and iCloud's has progress */
 void saveSaved(const std::string &name)
 {
+    const std::string path = g_root + "/" + name;
     std::string data;
-    if (!readFile(g_root + "/" + name, &data)) return;
-    std::map<std::string, std::string> hashes = readHashes();
-    const std::string h = sha256Text(data);
-    auto it = hashes.find(name);
-    if (it != hashes.end() && it->second == h) return;
-    savePush(name, data, &hashes);
-    writeHashes(hashes);
+    if (!readFile(path, &data)) return;
+    if (!saveHasProgress(data)) {
+        NSDictionary *r = [kvs() dictionaryForKey:[kSavePrefix stringByAppendingString:ns(name)]];
+        NSData *rd = [r[@"d"] isKindOfClass:[NSData class]] ? r[@"d"] : nil;
+        if (rd && saveHasProgress(std::string((const char *)rd.bytes, rd.length))) return;
+    }
+    savePush(name, data, fileTime(path));
+}
+
+bool storeHasData()
+{
+    for (NSString *k in [kvs() dictionaryRepresentation]) {
+        if ([k hasPrefix:@"ini2"] || [k hasPrefix:@"cfg2"] || [k hasPrefix:kSavePrefix]) return true;
+    }
+    return false;
 }
 
 /* ------------------------------------------------------------ CloudKit */
@@ -1252,6 +1285,7 @@ void syncFiles(const Cloud &c, bool packs)
         writeSynced(synced);
     }
     writeSynced(synced);
+    if (moved || failed) cloudLog("files: %d moved, %d failed (%zu items)", moved, failed, paths.size());
     if (failed) {
         setStatus("iCloud: " + std::to_string(failed) + " failed - " + lastError);
     } else {
@@ -1259,17 +1293,71 @@ void syncFiles(const Cloud &c, bool packs)
     }
 }
 
-void fileWorker()
+bool makeCloud(Cloud *c)
 {
     NSString *containerId = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"GEVRICloudContainer"];
     if (![containerId isKindOfClass:[NSString class]] || !containerId.length) containerId = @"iCloud.com.mrsco.goldeneyevr";
-    Cloud c;
     @try {
-        c.container = [CKContainer containerWithIdentifier:containerId];
-        c.db = c.container.privateCloudDatabase;
-        c.zone = [[CKRecordZoneID alloc] initWithZoneName:kZoneName ownerName:CKCurrentUserDefaultName];
+        c->container = [CKContainer containerWithIdentifier:containerId];
+        c->db = c->container.privateCloudDatabase;
+        c->zone = [[CKRecordZoneID alloc] initWithZoneName:kZoneName ownerName:CKCurrentUserDefaultName];
     } @catch (NSException *e) {
         cloudLog("CloudKit unavailable: %s", e.reason.UTF8String ?: "?");
+        return false;
+    }
+    return true;
+}
+
+/* The record a device leaves when it first puts settings in the store: a new
+ * device that finds the store empty but this record there knows the other
+ * devices' settings are still on their way, and pushes nothing.
+ * 1: there, 0: not there, -1: could not tell (no account, no network). */
+int joinedMarker(bool create)
+{
+    Cloud c;
+    if (!makeCloud(&c)) return -1;
+    CKRecordID *rid = [[CKRecordID alloc] initWithRecordName:@"joined" zoneID:c.zone];
+    NSMutableArray<NSNumber *> *box = [NSMutableArray array];
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    CKOperationConfiguration *cfg = [[CKOperationConfiguration alloc] init];
+    cfg.timeoutIntervalForRequest = 8;
+    cfg.timeoutIntervalForResource = 10;
+    cfg.qualityOfService = NSQualityOfServiceUserInitiated;
+    if (create) {
+        if (ckEnsureZone(c)) return -1;
+        CKRecord *rec = [[CKRecord alloc] initWithRecordType:@"GevrJoined" recordID:rid];
+        rec[@"by"] = ns(kFamily);
+        CKModifyRecordsOperation *op = [[CKModifyRecordsOperation alloc] initWithRecordsToSave:@[ rec ] recordIDsToDelete:nil];
+        op.configuration = cfg;
+        op.savePolicy = CKRecordSaveAllKeys;
+        op.modifyRecordsCompletionBlock = ^(NSArray *saved, NSArray *deleted, NSError *e) {
+            [box addObject:@(e ? -1 : 1)];
+            dispatch_semaphore_signal(done);
+        };
+        [c.db addOperation:op];
+    } else {
+        CKFetchRecordsOperation *op = [[CKFetchRecordsOperation alloc] initWithRecordIDs:@[ rid ]];
+        op.configuration = cfg;
+        op.desiredKeys = @[];
+        op.fetchRecordsCompletionBlock = ^(NSDictionary<CKRecordID *, CKRecord *> *recs, NSError *e) {
+            int v = recs[rid] ? 1 : -1;
+            if (!recs[rid] && e) {
+                NSError *one = e.code == CKErrorPartialFailure ? e.userInfo[CKPartialErrorsByItemIDKey][rid] : e;
+                if (one.code == CKErrorUnknownItem || one.code == CKErrorZoneNotFound) v = 0;
+            }
+            [box addObject:@(v)];
+            dispatch_semaphore_signal(done);
+        };
+        [c.db addOperation:op];
+    }
+    if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 12 * NSEC_PER_SEC)) != 0) return -1;
+    return box.firstObject.intValue;
+}
+
+void fileWorker()
+{
+    Cloud c;
+    if (!makeCloud(&c)) {
         setStatus("");
         return;
     }
@@ -1372,10 +1460,13 @@ extern "C" void gevrCloudLaunch(void)
     }
 
     @autoreleasepool {
-        // A device's first sync: give the store a few seconds to bring the
-        // other devices' settings down before the game reads its own.
-        __block dispatch_semaphore_t arrived = dispatch_semaphore_create(0);
-        id observer = [[NSNotificationCenter defaultCenter]
+        // Joining: a device takes part in the settings sync once the store
+        // has the other devices' settings (they win), or once CloudKit says no
+        // device has joined yet (it is the first, and its settings go up).
+        // Until then it pushes nothing: a new device whose store has not come
+        // down yet would otherwise put its own settings over everyone's.
+        dispatch_semaphore_t arrived = dispatch_semaphore_create(0);
+        [[NSNotificationCenter defaultCenter]
             addObserverForName:NSUbiquitousKeyValueStoreDidChangeExternallyNotification
                         object:kvs()
                          queue:[[NSOperationQueue alloc] init]
@@ -1384,26 +1475,49 @@ extern "C" void gevrCloudLaunch(void)
                         if (reason.integerValue == NSUbiquitousKeyValueStoreQuotaViolationChange) {
                             cloudLog("key-value store over its quota");
                         }
+                        if (!g_joined && storeHasData()) {
+                            cloudLog("the other devices' settings arrived: used from the next launch");
+                            setMessage("Your settings from your other devices arrived from iCloud: they are used from the next launch.");
+                        }
                         dispatch_semaphore_signal(arrived);
                     }];
         [kvs() synchronize];
         std::string marker;
-        const bool firstSync = !readFile(statePath("joined"), &marker);
-        if (firstSync && [kvs() dictionaryRepresentation].count == 0) {
-            cloudLog("first sync: waiting for the store");
-            dispatch_semaphore_wait(arrived, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC));
+        const bool joined = readFile(statePath(kJoinedMarker), &marker);
+        bool join = joined;
+        if (!join) {
+            if (!storeHasData()) {
+                cloudLog("first sync: waiting for the store");
+                dispatch_semaphore_wait(arrived, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC));
+            }
+            if (storeHasData()) {
+                join = true;
+                cloudLog("joining: the other devices' settings win");
+            } else {
+                const int there = joinedMarker(false);
+                if (there == 0) {
+                    join = true;
+                    cloudLog("joining as the first device: this device's settings go up");
+                } else {
+                    cloudLog(there > 0 ? "the other devices' settings have not arrived yet: nothing goes up until they do"
+                                       : "could not reach iCloud: settings stay on this device for now");
+                }
+            }
         }
-        {
-            std::lock_guard<std::mutex> hold(g_kvLock);
-            iniLaunchMerge(kIni);
-            iniLaunchMerge(kCfg);
-            savesLaunchMerge();
+        if (join) {
+            {
+                std::lock_guard<std::mutex> hold(g_kvLock);
+                iniLaunchMerge(kIni, joined);
+                iniLaunchMerge(kCfg, joined);
+                savesLaunchMerge();
+                g_joined = true;
+            }
+            if (!joined) {
+                writeFileAtomic(statePath(kJoinedMarker), "1\n");
+                std::thread([] { joinedMarker(true); }).detach();
+            }
+            [kvs() synchronize];
         }
-        // the options may have come from the cloud... except they are this device's own keys
-        writeFileAtomic(statePath("joined"), "1\n");
-        [kvs() synchronize];
-        // later changes from other devices are read at the next launch; keep listening only for the log
-        (void)observer;
     }
 
     startWorker();
@@ -1412,7 +1526,7 @@ extern "C" void gevrCloudLaunch(void)
 
 extern "C" void gevrCloudFileSaved(const char *path)
 {
-    if (!g_available || !path) return;
+    if (!g_available || !g_joined || !path) return;
     {
         std::lock_guard<std::mutex> hold(g_lock);
         if (!g_sync) return;

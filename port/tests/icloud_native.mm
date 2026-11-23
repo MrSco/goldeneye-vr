@@ -178,11 +178,51 @@ int main()
         put(g_root + "/stage2/__file", "NEWROM");
         check(installNow(g_root + "/stage2", "data/ge.z64", false) && get(g_root + "/data/ge.z64") == "NEWROM", "ROM replaced");
     }
+    // saves: blank vs progress (GoldenEye's EEPROM: 32-byte header, five 0x60 slots)
+    {
+        std::string blank(2048, '\0');
+        for (int s = 0; s < 5; s++) blank[32 + s * 0x60 + 8] = (char)0x80;   // every slot free
+        check(!saveHasProgress(blank), "all slots free: no progress");
+        std::string folders = blank;
+        for (int s = 0; s < 4; s++) {
+            folders[32 + s * 0x60 + 8] = (char)s;                 // folder s in use, nothing done
+            folders[32 + s * 0x60 + 10] = (char)0xff;             // volumes and options don't count
+            folders[32 + s * 0x60 + 11] = (char)0xff;
+            folders[32 + s * 0x60 + 0] = 0x12;                    // nor the checksum
+        }
+        check(!saveHasProgress(folders), "four empty folders: no progress");
+        std::string dam = folders;
+        dam[32 + 1 * 0x60 + 18] = 0x20;                           // a time in folder 2
+        check(saveHasProgress(dam), "a finished level is progress");
+        std::string cheat = folders;
+        cheat[32 + 3 * 0x60 + 15] = 0x04;
+        check(saveHasProgress(cheat), "an unlocked cheat is progress");
+        std::string freeSlot = blank;
+        freeSlot[32 + 4 * 0x60 + 18] = 0x20;                      // a time in a free slot is old data
+        check(!saveHasProgress(freeSlot), "a free slot's leftovers are not progress");
+        check(saveHasProgress(std::string(2048, 'x')), "another layout gets no guard");
+        check(saveHasProgress(std::string(100, 'x')), "a short file gets no guard");
+    }
+    // backups: dated, the last five
+    {
+        for (int i = 0; i < 7; i++) put(g_root + "/eeprom.bin.before-icloud-2026010" + std::to_string(i) + "-000000", "old");
+        saveBackup("eeprom.bin", "now");
+        int n = 0;
+        if (DIR *d = opendir(g_root.c_str())) {
+            while (struct dirent *e = readdir(d)) n += strncmp(e->d_name, "eeprom.bin.before-icloud-", 25) == 0;
+            closedir(d);
+        }
+        struct stat st;
+        check(n == 5 && stat((g_root + "/eeprom.bin.before-icloud-20260100-000000").c_str(), &st) != 0,
+              "backups: five kept, the oldest gone");
+        check(!isSaveName("eeprom.bin.before-icloud-20260100-000000") && isSaveName("eeprom-gex.bin"),
+              "a backup is not a save");
+    }
     removeTree(g_root);
     if (s_fail) {
         printf("%d failed\n", s_fail);
         return 1;
     }
-    printf("PASS: icloud: ini rewrite, device keys, archive round trip, unsafe names, item scan, install\n");
+    printf("PASS: icloud: ini rewrite, device keys, archive round trip, unsafe names, item scan, install, save progress guard, backups\n");
     return 0;
 }
