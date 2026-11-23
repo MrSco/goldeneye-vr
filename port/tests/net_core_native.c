@@ -647,6 +647,26 @@ EXPORT int test_core_content_check(void) {
         netbufStartReadData(&r, old, o.wp);CHECK(netContentDiffers(&r) == NET_CONTENT_ROM);
     }
     fixture_rom_hash = 0x1122334455667788ull;fixture_campaign = 0;
+    netSetCampaignPackIdentity(0x1234ull);
+    netbufStartReadData(&r, raw, 0);
+    CHECK(netContentDiffers(&r) == NET_CONTENT_CAMPAIGN_PACK);
+    netbufStartWrite(&w);netContentWrite(&w);
+    CHECK(!w.error && w.wp == 28);
+    netbufStartReadData(&r, raw, w.wp);
+    CHECK(netContentDiffers(&r) == 0);
+    netSetCampaignPackIdentity(0x4321ull);
+    netbufStartReadData(&r, raw, w.wp);
+    CHECK(netContentDiffers(&r) == NET_CONTENT_CAMPAIGN_PACK);
+    netSetCampaignPackIdentity(0);
+    netbufStartReadData(&r, raw, w.wp);
+    CHECK(netContentDiffers(&r) == NET_CONTENT_CAMPAIGN_PACK);
+    netbufStartWrite(&w);netContentWrite(&w);
+    CHECK(!w.error && w.wp == 19);
+    netSetCampaignPackIdentity(0x1234ull);
+    netbufStartReadData(&r, raw, w.wp);
+    CHECK(netContentDiffers(&r) == NET_CONTENT_CAMPAIGN_PACK);
+    CHECK(strstr(netContentPartName(NET_CONTENT_CAMPAIGN_PACK), "campaign asset pack") != NULL);
+    netSetCampaignPackIdentity(0);
     fixture(0);s_local_slot = 2;s_host_slot = 0;s_state = NET_STATE_CONNECTING;s_server_peer = &hit_peers[0];
     CHECK(netClientContentRefused(&hit_peers[0], NET_DISCONNECT_CAMPAIGN | 2u));
     why = netTakeJoinRefusal();

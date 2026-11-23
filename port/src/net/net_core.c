@@ -1123,10 +1123,18 @@ const char *netGetSlotAppVersion(int slot) {
     return s_slot_app_version[slot];
 }
 
+static uint64_t s_campaign_pack_identity;
+
+void netSetCampaignPackIdentity(uint64_t identity)
+{
+    s_campaign_pack_identity = identity;
+}
+
 /* The content check (net_protocol.h NET_CONTENT_*): this machine's parts. */
 static uint64_t netContentPart(uint32_t part) {
     extern u64 gevrRomContentHash(void);   /* gevr_romload.c */
     if (part == NET_CONTENT_CAMPAIGN) return (uint64_t)gevrRomPlayCampaign() + 1u;
+    if (part == NET_CONTENT_CAMPAIGN_PACK) return s_campaign_pack_identity;
     return part == NET_CONTENT_ROM ? gevrRomContentHash() : 0;
 }
 
@@ -1142,15 +1150,17 @@ static const char *netCampaignName(int campaign) {
 static const char *netContentPartName(uint32_t part) {
     static char rom[48];
     if (part == NET_CONTENT_CAMPAIGN) return "campaign";
+    if (part == NET_CONTENT_CAMPAIGN_PACK) return "campaign asset pack";
     if (part != NET_CONTENT_ROM) return "game content";
     snprintf(rom, sizeof(rom), "%s ROM", netCampaignName(gevrRomPlayCampaign()));
     return rom;
 }
 
 static void netContentWrite(struct netbuf *buf) {
-    static const uint32_t parts[] = { NET_CONTENT_ROM, NET_CONTENT_CAMPAIGN };
-    netbufWriteU8(buf, (uint8_t)(sizeof(parts) / sizeof(parts[0])));
-    for (size_t i = 0; i < sizeof(parts) / sizeof(parts[0]); i++) {
+    static const uint32_t parts[] = { NET_CONTENT_ROM, NET_CONTENT_CAMPAIGN, NET_CONTENT_CAMPAIGN_PACK };
+    const size_t count = s_campaign_pack_identity ? 3 : 2;
+    netbufWriteU8(buf, (uint8_t)count);
+    for (size_t i = 0; i < count; i++) {
         const uint64_t v = netContentPart(parts[i]);
         netbufWriteU8(buf, (uint8_t)parts[i]);
         netbufWriteU32(buf, (uint32_t)v);
@@ -1222,23 +1232,31 @@ static const char *netInputClassName(uint8_t c) {
 
 /* A joiner's parts against this host's: the campaign if it differs (its
  * refusal names the host's), else the first part that differs, or 0. A part
- * either side does not know (0: an older build, nothing loaded) is not held
- * against it; an older joiner's ROM part still differs from a hack's. */
+ * either side does not know (0: an older build, nothing loaded) is normally
+ * optional. An external campaign pack requires an exact match. */
 static uint32_t netContentDiffers(struct netbuf *buf) {
-    if (netbufReadLeft(buf) < 1) return 0;
+    if (netbufReadLeft(buf) < 1) return s_campaign_pack_identity ? NET_CONTENT_CAMPAIGN_PACK : 0;
     int n = netbufReadU8(buf);
     uint32_t first = 0;
+    int packParts = 0;
+    bool packMismatch = false;
     for (int i = 0; i < n && netbufReadLeft(buf) >= 9; i++) {
         const uint32_t part = netbufReadU8(buf);
         uint64_t theirs = netbufReadU32(buf);
         theirs |= (uint64_t)netbufReadU32(buf) << 32;
         if (i >= NET_CONTENT_MAX_PARTS) continue;
         const uint64_t ours = netContentPart(part);
+        if (part == NET_CONTENT_CAMPAIGN_PACK) {
+            ++packParts;
+            packMismatch |= !theirs || theirs != ours;
+            continue;
+        }
         if (!buf->error && part && theirs && ours && theirs != ours) {
             if (part == NET_CONTENT_CAMPAIGN) return part;
             if (!first) first = part;
         }
     }
+    if (packMismatch || packParts != (s_campaign_pack_identity != 0)) return NET_CONTENT_CAMPAIGN_PACK;
     return first;
 }
 

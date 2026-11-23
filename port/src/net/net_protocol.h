@@ -134,6 +134,7 @@ typedef enum {
  */
 #define NET_CONTENT_ROM 1u              /* the cartridge's bytes (gevr_romload.c): the hack's in a hack campaign */
 #define NET_CONTENT_CAMPAIGN 2u         /* the campaign + 1 (gevr_romlayout.h GEVR_CAMPAIGN_*): co-op in a hack */
+#define NET_CONTENT_CAMPAIGN_PACK 3u    /* required when the selected campaign uses a versioned external pack */
 #define NET_CONTENT_MAX_PARTS 8
 #define NET_DISCONNECT_CONTENT 0x47454300u   /* | part */
 /* A joiner on another campaign: | the host's campaign. An older joiner sees an
