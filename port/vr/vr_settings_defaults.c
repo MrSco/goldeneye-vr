@@ -87,16 +87,12 @@ int VrMovementSpeed = 0, VrMpMovementSpeed = 0;
 int VrGestureGripUse  = 1;   /* grip with the hand at a door or switch uses it (vr450, #90) */
 int VrGestureMineGrab = 1;   /* grip at your own stuck mine takes it back (vr450.2) */
 /* Force pull (docs/force-pull.md, src/game/gevr_forcepull.c): an empty hand
- * pointed at something out of reach and squeezed flies it to the hand; pull
- * and disarm takes a guard's gun; Auto pickup off leaves guns walked over on
- * the floor; Pull visuals draws the target halo and line. Force pull itself is
- * off until chosen (user, 2026-11-05; GEVR PC vr457 has it on): a squeeze at
- * nothing in reach pulled what the hand pointed at. Its own disarm and
- * visuals keep GEVR PC's on. */
+ * pointed at something out of reach and squeezed flies it to the hand, a
+ * guard's gun included, with the target's halo and line. Off until chosen
+ * (user, 2026-11-05; GEVR PC vr457 has it on): a squeeze at nothing in reach
+ * pulled what the hand pointed at. One setting (owner, 2026-11-23): the disarm,
+ * the visuals and walk-over pickup of guns are no longer settings of their own. */
 int VrForcePull   = 0;
-int VrPullDisarm  = 1;
-int VrAutoPickup  = 1;
-int VrPullVisuals = 1;
 /* Body slots (port/include/gevr_bodyslot.h, src/game/gevr_bodyslots.c): the
  * wheel's categories on the body, pistols at the hips, long guns over the
  * shoulders, thrown on the chest, gadgets at the belt; off by default. */

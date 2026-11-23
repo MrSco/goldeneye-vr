@@ -73,7 +73,7 @@ static struct {struct ModelFileHeader*header;float scale;} PitemZ_entries[PROP_S
 static int g_gevrStereo=1,updates,registrations,deregistrations,poses,variant;
 static float g_GlobalTimerDelta=1,D_800364CC=1;
 static int VrGestureGripUse,handReload;
-static int gevrHandReloadActive(void){return handReload;}
+static int gevrHandReloadGripUse(void){return handReload;}
 static struct ObjectRecord object;
 static struct Model model;
 static struct ModelFileHeader header;

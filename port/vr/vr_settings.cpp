@@ -366,12 +366,10 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "GestureGripUse=%d\nGestureMineGrab=%d\n",
             VrGestureGripUse, VrGestureMineGrab);
     iniPrintf(f, "; Force pull (stereo), 1 = on: point an empty hand at something out of reach, squeeze to lock, flick to pull, grip to catch.\n");
-    iniPrintf(f, "; PullDisarm: pull a guard's gun out of his hand. AutoPickup 0: walking over a gun leaves it.\n");
-    iniPrintf(f, "; PullVisuals: the target's halo and the pull line.\n");
+    iniPrintf(f, "; It takes a guard's gun too, and shows the target's halo and the pull line.\n");
     // ForcePull, not test.11-16's GestureForcePull: every ini those builds wrote
     // holds their default on, so the new default (off) reaches them once
-    iniPrintf(f, "ForcePull=%d\nPullDisarm=%d\nAutoPickup=%d\nPullVisuals=%d\n",
-            VrForcePull, VrPullDisarm, VrAutoPickup, VrPullVisuals);
+    iniPrintf(f, "ForcePull=%d\n", VrForcePull);
     iniPrintf(f, "; Body slots (stereo), 1 = on: pistols at the hips, long guns over the shoulders,\n");
     iniPrintf(f, "; thrown on the chest, gadgets at the belt. Show: 1 = draw what they hold.\n");
     iniPrintf(f, "; Size: zones 0 small, 1 normal, 2 large.\n");
@@ -1053,9 +1051,6 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "GestureGripUse") == 0) VrGestureGripUse = ival != 0;
             else if (strcmp(key, "GestureMineGrab") == 0) VrGestureMineGrab = ival != 0;
             else if (strcmp(key, "ForcePull") == 0) VrForcePull = ival != 0;
-            else if (strcmp(key, "PullDisarm") == 0) VrPullDisarm = ival != 0;
-            else if (strcmp(key, "AutoPickup") == 0) VrAutoPickup = ival != 0;
-            else if (strcmp(key, "PullVisuals") == 0) VrPullVisuals = ival != 0;
             else if (strcmp(key, "BodySlots") == 0) VrBodySlots = ival != 0;
             else if (strcmp(key, "BodySlotShow") == 0) VrBodySlotShow = ival != 0;
             else if (strcmp(key, "BodySlotSize") == 0) VrBodySlotSize = ival < 0 ? 0 : ival > 2 ? 2 : ival;

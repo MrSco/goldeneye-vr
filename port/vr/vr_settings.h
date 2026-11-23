@@ -130,8 +130,8 @@ extern int VrMovementSpeed, VrMpMovementSpeed;
 // GEVR PC's grip gestures, one toggle each (vr_settings_defaults.c). Grabbing within
 // reach is always on; the hip holster gave way to body slots (test.22).
 extern int VrGestureGripUse, VrGestureMineGrab;
-// Force pull (docs/force-pull.md): the pull, pull and disarm, walk-over pickup of guns, the halo and line.
-extern int VrForcePull, VrPullDisarm, VrAutoPickup, VrPullVisuals;
+// Force pull (docs/force-pull.md): the pull, a guard's gun included, with its halo and line.
+extern int VrForcePull;
 // Body slots (gevr_bodyslot.h): on/off, draw what they hold, zone size 0..2,
 // and each slot's fitted centre (cm below the eye, out, ahead; 0 0 0 default).
 extern int VrBodySlots, VrBodySlotShow, VrBodySlotSize;

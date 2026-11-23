@@ -24,7 +24,7 @@ extern bool netIsActive(void);
 extern s32 g_gevrStereo;
 extern f32 gevrHandPropDistance(struct PropRecord *prop, const f32 p[3]);
 extern int VrGestureGripUse;   /* Gestures: grip to use (vr_settings) */
-extern s32 gevrHandReloadActive(void);   /* hand reload with GE-X forces grip use (vr_launcher.cpp) */
+extern s32 gevrHandReloadGripUse(void);   /* hand reload forces grip use (bondview2.c) */
 
 #define GEVR_DAM_BOAT_MAX_PADS 1024
 
@@ -569,9 +569,9 @@ int gevrDamBoatOnB(void)
         return 0;
     }
     /* With grip use (GE-X style) the grip boards and steps off, and B is left
-     * to its own job (user, 2026-10-15): set, or forced on by hand reload with
-     * GE-X, where B ejects magazines - the game's grip checks both */
-    if (g_gevrStereo && (VrGestureGripUse || gevrHandReloadActive()))
+     * to its own job (user, 2026-10-15): set, or forced on by hand reload,
+     * where B ejects magazines - the game's grip checks both */
+    if (g_gevrStereo && (VrGestureGripUse || gevrHandReloadGripUse()))
     {
         return 0;
     }

@@ -11812,8 +11812,7 @@ TICKOP objTickPlayer(struct PropRecord* prop)
 
 #ifdef GEVR
     {
-        /* force pull (gevr_forcepull.c): not a prop flying to a hand, nor a gun
-         * with Auto pickup off (grab or pull it) */
+        /* force pull (gevr_forcepull.c): not a prop flying to a hand */
         extern s32 gevrPullBlocksWalkOver(PropRecord *prop);
 
         if (prop != g_gevrHandGrabProp && gevrPullBlocksWalkOver(prop))

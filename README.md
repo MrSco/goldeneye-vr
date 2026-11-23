@@ -382,7 +382,7 @@ GE-X and the ROM section's **Choose ROM file...** for your GoldenEye ROM.
 | **Left hand on the gun** + **left grip** | Hold it with both hands |
 | **Hand at a body slot** + **grip** | With **Body slots WIP** on (off by default): take that slot's weapon. Pistols sit at the hips, rifles and heavy guns over the shoulders, thrown weapons on the chest, gadgets at the belt. See [body slots](docs/body-slots.md) |
 | **Hand at a door, switch or console** + **grip** | Use it, as B does |
-| **Hand at a gun on the floor** + **grip** | That gun goes into that hand, even one still falling from a guard. Walking over guns still picks them up, unless **Auto pickup** is off |
+| **Hand at a gun on the floor** + **grip** | That gun goes into that hand, even one still falling from a guard. Walking over guns still picks them up |
 | **Hand at your own stuck mine** + **grip** | Take it back (remote mines, and proximity mines still arming; single player and the co-op host) |
 | **Point an empty hand** at a gun or item + **grip**, then **flick** | With **Force pull WIP** on (off by default): the grip locks it, a flick of the wrist or a pull of the hand back flies it over, and a fresh squeeze catches it. See [force pull](docs/force-pull.md) |
 | **Grip** a throwable, swing, **release** the grip | Throw it from your hand: throwing knives, grenades, mines (**Motion throw**, on by default). The trigger cooks a grenade meanwhile |
@@ -416,9 +416,10 @@ A tap of **A** or **X** skips guns with no ammo left; the weapon wheel still lis
 after the game switches you off an empty gun, your first tap keeps the gun it picked.
 
 The launcher's **Controls → Gestures** tab turns grip gestures on or off: **Watch gesture**,
-**Body slots WIP**, **Grip use** (doors and switches), **Mine re-grab**, **Force pull WIP**
-(with **Pull disarm** and **Pull visuals**) and **Auto pickup**. Anywhere else the grip aims
-as before. The 25 cm grab of a gun on the floor is always on. **Hand reload** is there
+**Body slots WIP**, **Grip use** (doors and switches), **Mine re-grab** and **Force pull WIP**
+(it also takes a guard's gun, and shows a glow and a line on what it points at). Anywhere else
+the grip aims as before. Walking over a gun always picks it up.
+**Grip use** stays on while **Hand reload** is on, since B/Y then eject magazines. The 25 cm grab of a gun on the floor is always on. **Hand reload** is there
 too, on by default from v0.5.26 with every model set (GoldenEye's own, GoldenEye X's and Bean's). Guns stop reloading themselves, and B/Y stop
 reloading. You reload by hand as described under [GoldenEye X](#-goldeneye-x-optional-wip),
 including when dual-wielding.
