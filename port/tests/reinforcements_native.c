@@ -212,6 +212,34 @@ static void physics_handoff(void)
     physicsBody=NULL;
 }
 
+#ifndef GEVR_BASELINE
+/* A door touching a kept body (propobj.c) releases it to the original fade:
+ * gone after the normal 90/75 ticks, never recaptured, its ID retired. */
+static void door_release(void)
+{
+    ChrRecord *parent = reset(24, 0), *clone = spawn(parent);
+    die(clone); tick(clone, CHRLV_TICK_DEAD_CHECK); assert(gevrBodyKept(clone));
+    gevrBodyDoorHit(clone);
+    assert(!gevrBodyKept(clone) && clone->act_init.padding[0] == 1);
+    assert(gone(parent, (u8)CHR_CLONE));
+    tick(clone, 1); assert(!gevrBodyKept(clone) && clone->fadealpha < 255);
+    tick(clone, CHRLV_TICK_DEAD_CHECK); assert(clone->hidden & CHRHIDDEN_REMOVE);
+
+    /* a fresh body resumes its own clock; another kept body stays */
+    parent = reset(24, 0); clone = spawn(parent);
+    ChrRecord *other = make_chr(9, 77);
+    die(other); die(clone); tick(clone, 20);
+    gevrBodyDoorHit(clone);
+    assert(!gevrBodyKept(clone) && clone->act_init.padding[0] == 20 && gevrBodyKept(other));
+
+    /* retention off: the body is already fading and the call changes nothing */
+    parent = reset(0, 0); clone = spawn(parent);
+    die(clone); tick(clone, 30);
+    gevrBodyDoorHit(clone);
+    assert(!gevrBodyKept(clone) && clone->act_init.padding[0] == 30);
+}
+#endif
+
 static void coop_mode(void)
 {
     ChrRecord *parent=reset(48,1), *latest=spawn(parent);
@@ -233,6 +261,9 @@ int main(int argc, char **argv)
     if (argc > 1 && !strcmp(argv[1], "timing")) { timing(); return 0; }
     if (argc > 1 && !strcmp(argv[1], "tracking")) { tracking(); return 0; }
     timing(); tracking(); retention_changes(); physics_handoff(); fast_mode(); coop_mode();
+#ifndef GEVR_BASELINE
+    door_release();
+#endif
     printf("PASS: %d-tick fade parity, all body counts, replacement IDs, optional swarm and host-controlled co-op\n",
            CHRLV_TICK_DEAD_CHECK);
     return 0;

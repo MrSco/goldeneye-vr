@@ -5482,6 +5482,24 @@ static void gevrBodyRelease(s32 i)
     }
 }
 
+/* A closing door touched this body (propobj.c sub_GAME_7F0448A8). A kept body
+ * would keep the door from closing forever, so it gives way and fades as the game
+ * would have faded it; the door stays blocked until the body is gone. A body
+ * that is not kept is already fading. */
+void gevrBodyDoorHit(ChrRecord *chr)
+{
+    s32 i;
+
+    for (i = 0; i < s_gevrBodyCount; i++)
+    {
+        if (s_gevrBodies[i] == chr)
+        {
+            gevrBodyRelease(i);
+            return;
+        }
+    }
+}
+
 /* chrlvTickDead: TRUE while the body is kept */
 static s32 gevrBodyKeepTick(ChrRecord *self)
 {
