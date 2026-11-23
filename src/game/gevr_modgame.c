@@ -16,6 +16,8 @@
 #include "gevr_modapi.h"
 #include "gevr_modscript.h"
 #include "gevr_bodyslots.h"
+#include "chr.h"
+#include "chrobjdata.h"
 
 extern bool netIsActive(void);       /* net_core.c */
 extern int netGetLocalSlot(void);
@@ -29,6 +31,9 @@ extern int vr_haptics_ready(void);                                              
 extern void vrHapticsGetRumble(int id, float *amp, float *dur, float *freq);
 extern s32 trigger_haptic_vibration_freq_c(int hand_index, float amplitude, float duration, float frequency);
 #define GEVR_ACTION_MOD 1008   /* port/vr/vr_haptics.h: the player's Mods row */
+extern bool netIsHost(void);
+extern s32 get_cur_playernum(void);
+extern s32 gevrBodyChooseHead(s32 id, s32 head);                   /* chraction.c */
 
 /* mod.items names every item from ITEM_UNARMED; mod.ammo every type a pickup carries */
 typedef char itemNamesForEveryItem[GEVR_MODAPI_ITEMS == ITEM_IDS_MAX ? 1 : -1];
@@ -238,12 +243,15 @@ static int kept(s32 index)
     return index < 0 || index >= PICKUP_SCAN_MAX || ((s_kept[index >> 3] >> (index & 7)) & 1);
 }
 
+static void guardWeaponsReset(void);
+
 void gevrModPickupScan(void)
 {
     PropDefHeaderRecord *rec = g_CurrentSetup.propDefs;
     s32 i;
 
     memset(s_kept, 0, sizeof(s_kept));
+    guardWeaponsReset();   /* a new stage's guards */
     if (!gevrModScriptRunning()) return;
     /* before proplvreset2's loop: the links still hold indices, not pointers */
     for (i = 0; rec && rec->type != PROPDEF_END; i++)
@@ -408,4 +416,241 @@ int gevrModGameHaptic(int hand, float amplitude, float seconds)
     if (scale <= 0.0f || most <= 0.0f || amplitude <= 0.0f || seconds <= 0.0f) return 1;   /* off: nothing to feel */
     trigger_haptic_vibration_freq_c(hand ? 0 : 1, amplitude * scale, seconds < most ? seconds : most, freq);
     return 1;
+}
+
+/* ---- the guards area ---- */
+
+/* Guard events come from where the guards run: solo, or the co-op host
+ * (a client's guards are the host's copies, net_coop.c) */
+static int runsGuards(void)
+{
+    return !netIsActive() || netIsHost();
+}
+
+/* The body table's rows (the cartridge's, ended by a row with no header) */
+static int bodyRows(void)
+{
+    int n = 0;
+
+    while (c_item_entries != NULL && c_item_entries[n].header != NULL && n < 0x7FFF) n++;
+    return n;
+}
+
+int gevrModGameBodyOk(int body)
+{
+    if (body < 0 || body >= bodyRows() || body == BODY_Left_Suit_Hand_Floating_Arm) return 0;
+    if (body >= HEAD_START && body != BODY_Natalya_Jungle_Fatigues) return 0;   /* the heads' rows */
+    return c_item_entries[body].hasHead ? 2 : 1;
+}
+
+int gevrModGameHeadOk(int head)
+{
+    return head >= HEAD_START && head < BODY_Natalya_Jungle_Fatigues && head < bodyRows();
+}
+
+int gevrModGameGuardGun(int item)
+{
+    s32 as;
+
+    if (item <= ITEM_FIST || item >= ITEM_IDS_MAX) return 0;
+    as = GEVR_ITEM_AS(item);
+    return as >= ITEM_WPPK && as <= ITEM_ROCKETLAUNCH && as != ITEM_WATCHLASER && getPropForHeldItem((ITEM_IDS)item) >= 0;
+}
+
+/* guard_spawning's guns, by chrnum, for this stage's weaponAssignToHome */
+#define GUARD_WEAPONS_MAX 512
+static struct { s16 id; s8 item; } s_guardWeapons[GUARD_WEAPONS_MAX];
+static int s_guardWeaponCount;
+
+static void guardWeaponsReset(void)
+{
+    s_guardWeaponCount = 0;
+}
+
+/* The guard's setup gun: its first PROPFLAG_ASSIGNEDTOCHR record (the pad
+ * holds the chrnum), -1 none */
+static int setupGun(s32 chrnum)
+{
+    PropDefHeaderRecord *rec = g_CurrentSetup.propDefs;
+
+    for (; rec && rec->type != PROPDEF_END; rec = (PropDefHeaderRecord *)((u32 *)rec + sizepropdef(rec)))
+    {
+        WeaponObjRecord *w = (WeaponObjRecord *)rec;
+
+        if (rec->type == PROPDEF_COLLECTABLE && (w->flags & PROPFLAG_ASSIGNEDTOCHR) && w->pad == chrnum)
+        {
+            return w->weaponnum;
+        }
+    }
+    return -1;
+}
+
+void gevrModGuardSpawning(GuardRecord *rec, int index, int *body, int *head)
+{
+    GevrModGuardSpawn g;
+
+    if (!gevrModScriptRunning()) return;
+    g.id = rec->chrnum;
+    g.index = index;
+    g.body = *body;
+    g.head = *head;
+    g.weapon = setupGun(rec->chrnum);
+    gevrModApiGuardSpawning(&g);
+    if (g.body != *body || g.head != *head)
+    {
+        *body = g.body;
+        *head = g.head;
+        if (c_item_entries[*body].hasHead) *head = -1;
+        else if (*head < 0) *head = gevrBodyChooseHead(*body, rec->HeadID);   /* as the game picks one */
+    }
+    if (g.weapon >= 0 && g.weapon != setupGun(rec->chrnum) && s_guardWeaponCount < GUARD_WEAPONS_MAX)
+    {
+        s_guardWeapons[s_guardWeaponCount].id = (s16)rec->chrnum;
+        s_guardWeapons[s_guardWeaponCount].item = (s8)g.weapon;
+        s_guardWeaponCount++;
+    }
+}
+
+void gevrModGuardWeapon(WeaponObjRecord *weapon)
+{
+    int i;
+
+    for (i = s_guardWeaponCount - 1; i >= 0; i--)
+    {
+        if (s_guardWeapons[i].id == weapon->pad)
+        {
+            weapon->weaponnum = s_guardWeapons[i].item;
+            weapon->obj = (s16)getPropForHeldItem((ITEM_IDS)weapon->weaponnum);
+            return;
+        }
+    }
+}
+
+/* What each slot's guard has been told: alerted, killed, retiring */
+#define GUARD_SLOTS_MAX 1024
+enum { TOLD_ALERT = 1, TOLD_KILLED = 2, TOLD_RETIRING = 4 };
+static u8 s_told[GUARD_SLOTS_MAX];
+
+static u8 *toldOf(ChrRecord *chr)
+{
+    const uintptr_t at = (uintptr_t)chr, first = (uintptr_t)g_ChrSlots;
+    size_t i;
+
+    if (g_ChrSlots == NULL || at < first || at >= first + (size_t)g_NumChrSlots * sizeof(ChrRecord)) return NULL;
+    i = (at - first) / sizeof(ChrRecord);
+    return i < GUARD_SLOTS_MAX ? &s_told[i] : NULL;
+}
+
+void gevrModGuardFresh(ChrRecord *chr)
+{
+    u8 *told = toldOf(chr);
+
+    if (told) *told = 0;
+}
+
+static int guardAlerted(ChrRecord *chr)
+{
+    const u8 *told = toldOf(chr);
+
+    /* the game's own marks too: a guard that saw or heard a player before a
+     * co-op host change, or before the mod started */
+    return (told && (*told & TOLD_ALERT)) || chr->lastseetarget60 != 0 || chr->lastheartarget60 != 0;
+}
+
+static int guardDying(const ChrRecord *chr)
+{
+    return chr->actiontype == ACT_DIE || chr->actiontype == ACT_DEAD;
+}
+
+void gevrModGuardAlert(ChrRecord *chr, int how)
+{
+    u8 *told;
+
+    if (!gevrModScriptRunning() || !runsGuards() || chr == NULL || chr->prop == NULL || chr->prop->type != PROP_TYPE_CHR
+        || guardDying(chr) || chr->chrnum < 0 || guardAlerted(chr))
+    {
+        return;
+    }
+    told = toldOf(chr);
+    if (told == NULL) return;   /* past the slots tracked: never told twice */
+    *told |= TOLD_ALERT;
+    /* the guard ticks with its target player current (net_coop.c gevrCoopGuardTarget) */
+    gevrModApiGuardAlerted(chr->chrnum, how, get_cur_playernum());
+}
+
+void gevrModGuardKilled(ChrRecord *chr, int how, int item)
+{
+    u8 *told;
+
+    if (!gevrModScriptRunning() || !runsGuards() || chr == NULL || chr->chrnum < 0) return;
+    told = toldOf(chr);
+    if (told == NULL || (*told & TOLD_KILLED)) return;
+    *told |= TOLD_KILLED;
+    gevrModApiGuardKilled(chr->chrnum, how, item);
+}
+
+void gevrModGuardRetiring(ChrRecord *chr)
+{
+    u8 *told;
+    float pos[3];
+
+    if (!gevrModScriptRunning() || !runsGuards() || chr == NULL || chr->prop == NULL || chr->chrnum < 0) return;
+    told = toldOf(chr);
+    if (told == NULL || (*told & TOLD_RETIRING)) return;
+    *told |= TOLD_RETIRING;
+    pos[0] = chr->prop->pos.x;
+    pos[1] = chr->prop->pos.y;
+    pos[2] = chr->prop->pos.z;
+    gevrModApiCorpseRetiring(chr->chrnum, pos);
+}
+
+/* A stage's guard: a character with a model and an id, not a retired body */
+static int isGuard(const ChrRecord *chr)
+{
+    return chr->model != NULL && chr->prop != NULL && chr->prop->type == PROP_TYPE_CHR && chr->chrnum >= 0;
+}
+
+int gevrModGameGuards(int *ids, int max)
+{
+    s32 i;
+    int n = 0;
+
+    for (i = 0; g_ChrSlots != NULL && i < g_NumChrSlots && n < max; i++)
+    {
+        if (isGuard(&g_ChrSlots[i])) ids[n++] = g_ChrSlots[i].chrnum;
+    }
+    return n;
+}
+
+static int heldItem(const ChrRecord *chr, s32 hand)
+{
+    const PropRecord *prop = chr->weapons_held[hand];
+
+    return prop != NULL && prop->weapon != NULL ? prop->weapon->weaponnum : -1;
+}
+
+int gevrModGameGuard(int id, GevrModGuardState *out)
+{
+    s32 i;
+
+    for (i = 0; g_ChrSlots != NULL && i < g_NumChrSlots; i++)
+    {
+        ChrRecord *chr = &g_ChrSlots[i];
+
+        if (!isGuard(chr) || chr->chrnum != id) continue;
+        out->id = chr->chrnum;
+        out->body = chr->bodynum;
+        out->head = chr->bodynum >= 0 && c_item_entries[chr->bodynum].hasHead ? -1 : chr->headnum;
+        out->alive = !guardDying(chr);
+        out->alerted = guardAlerted(chr);
+        out->weapon[0] = heldItem(chr, GUNRIGHT);
+        out->weapon[1] = heldItem(chr, GUNLEFT);
+        out->maxHealth = chr->maxdamage;
+        out->health = chr->maxdamage - chr->damage > 0.0f ? chr->maxdamage - chr->damage : 0.0f;
+        out->pos[0] = chr->prop->pos.x;
+        out->pos[1] = chr->prop->pos.y;
+        out->pos[2] = chr->prop->pos.z;
+        return 1;
+    }
+    return 0;
 }

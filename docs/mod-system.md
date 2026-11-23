@@ -481,6 +481,54 @@ watch). We maintain the adapters, not the mods.
   attack and after a sidestep or jump-out. Emit `corpse_retiring` in
   `chrlvTickDead()` before the body is marked for removal, while its
   position is available.
+  - Built, part 1: the events and reading a guard (`port/src/gevr_modapi.c`
+    over `src/game/gevr_modgame.c`; the hooks in `chraction.c`, `chrai.c`,
+    `chr.c` and `prop.c`). A guard's id is its `chrnum`: the setup's for
+    its own guards, the game's own number for one it spawns.
+  - `guard_spawning(g)` in `expand_09_characters()`, for the setup's
+    guards as the stage loads, on every headset: after the game picks the
+    body and head, before the model is made. `g` has `id`, `index` (the
+    setup record's), `body`, `head` (nil for a body with its own) and
+    `weapon` (its setup gun, nil for none). A handler returns nil to keep
+    the guard, or a table that changes `body` (a body row of the
+    cartridge's table, not a head's), `head` (a head row; none for a body
+    with its own head, and a body that needs one and gets none has the
+    game pick it as it would) or `weapon` (a gun, `ITEM_WPPK` to
+    `ITEM_ROCKETLAUNCH` without the watch laser; it replaces the guard's
+    setup guns in `weaponAssignToHome()`, before the enemy-rockets cheat,
+    so only a guard with a setup gun can get one). Handlers run in turn as
+    for `pickup_spawning`; an answer the game can't take stops the mod for
+    the mission and the guard keeps its setup. A guard can't be left out
+    yet.
+  - `guard_alerted(id, how, player)`, once per guard: `"saw"` before
+    `chrCheckTargetInSight()` sets the target, `"shot"` as `chrlvTickArgh()`'s
+    reaction ends, `"heard"` in `chrlvAlertGuardToPlayerPosition()`,
+    `"alarm"` when the guard's own list runs `AI_AlarmOn`, and `"other"` for
+    anything else that turns it on a player (`chrlvSetTargetToPlayer()`,
+    say a script's attack). A guard that saw or heard a player before
+    (the game's own marks, as a co-op host change carries them) isn't told
+    again. `player` is the player slot the guard was acting on (in co-op
+    the nearest, or for ten seconds whoever shot it).
+  - `guard_killed(id, how, item)` as the death begins: `"shot"` in
+    `triggered_on_shot_hit()` with the gun's item, `"explosion"` in
+    `chrlvExplosionDamage()`. Not yet: who killed it, and deaths by other
+    ways (horde's nuke, the cheats).
+  - `corpse_retiring(id, x, y, z)` in `chrlvTickDead()`, world units, before
+    the body is marked for removal. A body the Bodies stay option keeps is
+    told when the game retires its id (`gevrBodyRetireForAi()`, after the
+    usual fade's time, when reinforcements may take its place), though it
+    may lie there a while longer.
+  - Alerts, deaths and corpses are told on the machine that runs the
+    guards (solo, the co-op host), each once per guard; a slot's new guard
+    starts again (`chrAllocate()`).
+  - Calls: `mod.guards.list()` (the stage's guards' ids, living or dying),
+    `mod.guards.get(id)`: `id`, `body`, `head`, `alive`, `alerted`,
+    `weapon`, `weaponLeft`, `health` (what's left of `maxHealth`) and `x`,
+    `y`, `z` (world units), or nil. On a co-op client it's the host's
+    copy as last sent.
+  - Part 2 (not built yet): `guard_spawned`, spawning a guard, giving one a
+    weapon, sending one along a patrol path. `guard_shot` is left to the
+    damage area's `before_damage` and `damage_applied`.
 - **Damage and revives.** Emit `before_damage` and `damage_applied` around
   native damage in `handles_shot_actors()` and `chrlvExplosionDamage()`
   for guards and `record_damage_kills()` for players. The before event
@@ -598,7 +646,9 @@ Every headset runs the swaps at load, so in co-op the choices come from
    `port/tests/` do): weapons and items, hands and body slots, guards,
    player, assets, UI. Weapons, then pickups and items, then hands
    (`port/tests/test_modapi.py`; the grips' timing on the production
-   poll in `port/tests/test_body_slot_interactions.py`).
+   poll in `port/tests/test_body_slot_interactions.py`), then guards'
+   events and reads (`test_modapi.py`, which also runs
+   `gevr_modgame.c`'s told-once bookkeeping).
 5. **Network:** `NET_MSG_MOD`, co-op with mods, the dedicated server.
 6. **Sample mod and API reference.**
 7. **Platform check:** Quest, PC, Apple, server, with the sample mod.

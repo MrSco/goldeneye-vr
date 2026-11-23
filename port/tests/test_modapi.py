@@ -326,10 +326,260 @@ end)
     check(logs(out) == ["flat ok"] and answers(out, "HAPTIC") == [], "without VR hands: nil and false: " + out[-500:])
 
 
+TOLD_FIXTURE = r"""
+/* gevr_modgame.c's guard bookkeeping over a stub guard table: told once,
+ * fresh slots, the guard's own marks, dying guards, the host only */
+#include <assert.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+typedef unsigned char u8;
+typedef int s32;
+typedef float f32;
+enum { PROP_TYPE_CHR = 3, ACT_DIE = 4, ACT_DEAD = 5, ACT_STAND = 1 };
+enum { GEVR_MODALERT_SAW = 1, GEVR_MODALERT_HEARD, GEVR_MODALERT_SHOT, GEVR_MODALERT_ALARM, GEVR_MODALERT_OTHER };
+enum { GEVR_MODKILL_SHOT = 1, GEVR_MODKILL_EXPLOSION };
+typedef struct { float x, y, z; } coord3d;
+typedef struct PropRecord { int type; coord3d pos; } PropRecord;
+typedef struct ChrRecord { short chrnum; int actiontype; int lastseetarget60, lastheartarget60; PropRecord *prop; } ChrRecord;
+static ChrRecord slots[4];
+static PropRecord props[4];
+static ChrRecord *g_ChrSlots = slots;
+static s32 g_NumChrSlots = 4;
+static int running = 1, online, host, curPlayer;
+static int gevrModScriptRunning(void) { return running; }
+static int netIsActive(void) { return online; }
+static int netIsHost(void) { return host; }
+static int get_cur_playernum(void) { return curPlayer; }
+static char told[512];
+static void note(const char *fmt, int a, int b, int c)
+{
+    const size_t n = strlen(told);
+    snprintf(told + n, sizeof(told) - n, fmt, a, b, c);
+}
+static void gevrModApiGuardAlerted(int id, int how, int player) { note("alerted %d %d %d;", id, how, player); }
+static void gevrModApiGuardKilled(int id, int how, int item) { note("killed %d %d %d;", id, how, item); }
+static void gevrModApiCorpseRetiring(int id, const float pos[3]) { note("retiring %d %d %d;", id, (int)pos[0], (int)pos[2]); }
+/* PRODUCTION */
+int main(void)
+{
+    int i;
+
+    for (i = 0; i < 4; i++) {
+        slots[i].chrnum = (short)(10 + i);
+        slots[i].actiontype = ACT_STAND;
+        slots[i].prop = &props[i];
+        props[i].type = PROP_TYPE_CHR;
+        props[i].pos.x = 100.0f * i;
+        props[i].pos.z = -5.0f;
+        gevrModGuardFresh(&slots[i]);
+    }
+    /* told once, however it's alerted after */
+    curPlayer = 2;
+    gevrModGuardAlert(&slots[0], GEVR_MODALERT_SAW);
+    gevrModGuardAlert(&slots[0], GEVR_MODALERT_OTHER);
+    gevrModGuardAlert(&slots[0], GEVR_MODALERT_HEARD);
+    assert(!strcmp(told, "alerted 10 1 2;"));
+    /* the game's own marks: a guard that saw or heard a player before */
+    told[0] = 0;
+    slots[1].lastheartarget60 = 77;
+    gevrModGuardAlert(&slots[1], GEVR_MODALERT_SAW);
+    assert(!told[0]);
+    /* dying guards, retired bodies (chrnum -1), other props: nothing */
+    slots[2].actiontype = ACT_DIE;
+    gevrModGuardAlert(&slots[2], GEVR_MODALERT_HEARD);
+    slots[2].actiontype = ACT_STAND;
+    slots[2].chrnum = -1;
+    gevrModGuardAlert(&slots[2], GEVR_MODALERT_HEARD);
+    slots[2].chrnum = 12;
+    props[2].type = 1;
+    gevrModGuardAlert(&slots[2], GEVR_MODALERT_HEARD);
+    props[2].type = PROP_TYPE_CHR;
+    assert(!told[0]);
+    /* a co-op client runs no guards: nothing; its host does */
+    online = 1; host = 0;
+    gevrModGuardAlert(&slots[2], GEVR_MODALERT_ALARM);
+    gevrModGuardKilled(&slots[2], GEVR_MODKILL_SHOT, 8);
+    assert(!told[0]);
+    host = 1;
+    gevrModGuardAlert(&slots[2], GEVR_MODALERT_ALARM);
+    assert(!strcmp(told, "alerted 12 4 2;"));
+    online = host = 0;
+    /* killed and retiring once each; a slot's new guard starts over */
+    told[0] = 0;
+    gevrModGuardKilled(&slots[3], GEVR_MODKILL_EXPLOSION, -1);
+    gevrModGuardKilled(&slots[3], GEVR_MODKILL_SHOT, 8);
+    gevrModGuardRetiring(&slots[3]);
+    gevrModGuardRetiring(&slots[3]);
+    assert(!strcmp(told, "killed 13 2 -1;retiring 13 300 -5;"));
+    told[0] = 0;
+    slots[0].chrnum = 5001;
+    gevrModGuardFresh(&slots[0]);
+    gevrModGuardAlert(&slots[0], GEVR_MODALERT_SHOT);
+    assert(!strcmp(told, "alerted 5001 3 2;"));
+    /* outside the slots: never told */
+    told[0] = 0;
+    {
+        ChrRecord stray = slots[1];
+
+        stray.lastheartarget60 = 0;
+        gevrModGuardAlert(&stray, GEVR_MODALERT_SAW);
+        gevrModGuardKilled(&stray, GEVR_MODKILL_SHOT, 4);
+    }
+    assert(!told[0]);
+    /* no mod running: nothing */
+    running = 0;
+    gevrModGuardKilled(&slots[1], GEVR_MODKILL_SHOT, 4);
+    assert(!told[0]);
+    puts("ok");
+    return 0;
+}
+"""
+
+
+def function(source, signature):
+    """A function's definition (not a prototype) from its signature to its closing brace"""
+    start = source.index(signature)
+    while source[source.index(")", start) + 1:].lstrip()[:1] != "{":
+        start = source.index(signature, start + 1)
+    end = source.index("{", start) + 1
+    depth = 1
+    while depth:
+        depth += (source[end] == "{") - (source[end] == "}")
+        end += 1
+    return source[start:end]
+
+
+def guards_told(temp):
+    """gevr_modgame.c's own bookkeeping: alerted, killed and retiring once per guard, on the machine running guards"""
+    game = (ROOT / "src/game/gevr_modgame.c").read_bytes().decode()
+    start = game.index("/* What each slot's guard has been told")
+    told = game[start:game.index("/* A stage's guard:", start)]
+    production = "\n".join([function(game, "static int runsGuards(void)"), told])
+    source = temp / "told.c"
+    source.write_bytes(TOLD_FIXTURE.replace("/* PRODUCTION */", production).encode())
+    exe = temp / ("told.exe" if os.name == "nt" else "told")
+    cc = shutil.which("gcc") or "cc"
+    sanitize = [] if os.name == "nt" else ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
+    subprocess.run([cc, "-std=gnu11", "-O1", "-Wall", "-Werror", "-Wno-unused-function", *sanitize, str(source), "-o", str(exe)],
+                   check=True)
+    out = subprocess.run([str(exe)], capture_output=True, text=True, timeout=60)
+    check(out.returncode == 0 and out.stdout.strip() == "ok", "guards told once, on the host: " + out.stdout + out.stderr)
+
+
+def guards_placement():
+    """guard_spawning before the model; the gun at weaponAssignToHome; alerts once from each way in; deaths; corpses"""
+    act = (ROOT / "src/game/chraction.c").read_bytes().decode().replace("\r\n", "\n")
+    ai = (ROOT / "src/game/chrai.c").read_bytes().decode().replace("\r\n", "\n")
+    chr_ = (ROOT / "src/game/chr.c").read_bytes().decode()
+    prop = (ROOT / "src/game/prop.c").read_bytes().decode()
+    expand = function(act, "void expand_09_characters(")
+    check(expand.index("cmfr->hasHead == 0") < expand.index("gevrModGuardSpawning(arg1, arg2, &bodyid, &headid);")
+          < expand.index("retrieve_header_for_body_and_head(bodyid, headid"),
+          "guard_spawning after the game's own body and head, before the model is made")
+    assign = function(prop, "void weaponAssignToHome(")
+    check(assign.index("chr = chrFindByLiteralId(weapon->pad);") < assign.index("gevrModGuardWeapon(weapon);")
+          < assign.index("cheatIsActive(CHEAT_ENEMY_ROCKETS)"), "a guard's chosen gun before the rockets cheat")
+    sight = function(act, "bool chrCheckTargetInSight(")
+    check(sight.index("gevrModGuardAlert(self, GEVR_MODALERT_SAW)") < sight.rindex("chrlvSetTargetToPlayer(self);"),
+          "saw: told before the sight sets the target")
+    argh = function(act, "void chrlvTickArgh(")
+    check(argh.index("GEVR_MODALERT_SHOT") < argh.index("chrlvSetTargetToPlayer(self);"), "shot: told as the hit's reaction ends")
+    for name, how in (("void chrlvSetTargetToPlayer(", "GEVR_MODALERT_OTHER"),
+                      ("void chrlvAlertGuardToPlayerPosition(", "GEVR_MODALERT_HEARD")):
+        fn = function(act, name)
+        check(fn.index(how) < fn.index("temp_v0 = getCurrentPlayerProp();"), how + ": told before the setter's marks")
+    alarm = ai[ai.rindex("case AI_AlarmOn:"):ai.rindex("case AI_AlarmOff:")]   # the interpreter's, not the size table's
+    check(alarm.index("GEVR_MODALERT_ALARM") < alarm.index("alarmActivate();"), "alarm: the guard whose list raised it")
+    hit = function(act, "void triggered_on_shot_hit(")
+    check(hit.index("increment_num_kills_display_text_in_MP();") < hit.index("gevrModGuardKilled(self, GEVR_MODKILL_SHOT, item);"),
+          "guard_killed for a shot's death")
+    blast = function(act, "s32 chrlvExplosionDamage(")
+    check(blast.index("increment_num_kills_display_text_in_MP();") < blast.index("GEVR_MODKILL_EXPLOSION"),
+          "guard_killed for an explosion's")
+    dead = function(act, "void chrlvTickDead(")
+    check(dead.index("gevrModGuardRetiring(self);") < dead.index("self->hidden |= CHRHIDDEN_REMOVE;"),
+          "corpse_retiring before the body is marked for removal")
+    keep = function(act, "s32 gevrBodyRetireForAi(")
+    check(keep.index("gevrModGuardRetiring(chr);") < keep.index("chr->chrnum = -1;"),
+          "a kept body's corpse_retiring before its id retires")
+    alloc = chr_[chr_.index("var_s0->lastheartarget60 = 0;"):]
+    check(alloc.index("gevrModGuardFresh(var_s0);") < 120, "a slot's new guard starts untold")
+    for name, text in (("chraction.c", act), ("chrai.c", ai), ("chr.c", chr_), ("prop.c", prop)):
+        check(text.index('#include "gevr_modapi.h"') < text.index("gevrMod"), name + " includes gevr_modapi.h before its first hook")
+
+
+def guards(exe, temp):
+    play = ("start", "prepare", 9, "begin", 9)
+
+    # ---- guard_spawning: body, head and gun, as the setup loads ----
+    lua = """
+mod.on("guard_spawning", function(g)
+  print("ask", g.id, g.index, g.body, g.head, g.weapon)
+  if g.id == 1 then return { body = 3, head = 50, weapon = "ak47" } end
+  if g.id == 2 then return { body = 5 } end
+  if g.id == 3 then g.weapon = mod.items.rocketlaunch return g end
+end)
+"""
+    out = run(exe, temp, "spawning", lua, "start", "spawning", 9, 0, 1, 47, 4, "prepare", 9,
+              "spawning", 1, 10, 0, 47, 4, "spawning", 2, 11, 1, 47, 8, "spawning", 3, 12, 6, -1, 13,
+              "spawning", 4, 13, 2, 48, -1)
+    check(answers(out, "GUARD") == ["GUARD 9 body 1 head 47 weapon 4", "GUARD 1 body 3 head 50 weapon 8",
+                                    "GUARD 2 body 5 head -1 weapon 8", "GUARD 3 body 6 head -1 weapon 25",
+                                    "GUARD 4 body 2 head 48 weapon -1"],
+          "guard_spawning: body, head, gun; a body's own head; nothing outside a mission: " + str(answers(out, "GUARD")))
+    check(logs(out) == ["ask 1 10 0 47 4", "ask 2 11 1 47 8", "ask 3 12 6 nil 13", "ask 4 13 2 48 nil"],
+          "asked: " + str(logs(out)))
+
+    bad = [("{ body = 46 }", "not a head"), ("{ body = 45 }", "not a head"), ("{ body = 99 }", "not a head"),
+           ("{ body = 1.5 }", "not a head"), ("{ head = 3 }", "one of the cartridge's heads"),
+           ("{ head = 88 }", "one of the cartridge's heads"), ("{ body = 5, head = 50 }", "has its own head"),
+           ("{ weapon = 'grenade' }", "a gun"), ("{ weapon = 'watchlaser' }", "a gun"), ("{ weapon = 'knife' }", "a gun"),
+           ("false", "answer nil (keep it) or a table"), ("7", "answer nil (keep it) or a table")]
+    for n, (answer, why) in enumerate(bad):
+        lua = 'mod.on("guard_spawning", function(g) print("asked", g.id) return %s end)' % answer
+        out = run(exe, temp, "badguard%d" % n, lua, "start", "prepare", 9, "spawning", 1, 10, 0, 47, 4, "spawning", 2, 11, 0, 47, 4)
+        errors = [l for l in out.splitlines() if l.startswith("LOG ") and "mods: tactical: guard_spawning: " in l]
+        check(len(errors) == 1 and why in errors[0] and answers(out, "GUARD") == ["GUARD 1 body 0 head 47 weapon 4",
+                                                                                 "GUARD 2 body 0 head 47 weapon 4"]
+              and logs(out) == ["asked 1"],
+              "guard_spawning answered %s: refused (%s), the mod stopped, the setup's guard: %s" % (answer, why, out[-600:]))
+    lua = 'mod.on("guard_spawning", function(g) return { weapon = "ak47" } end)'
+    out = run(exe, temp, "nogun", lua, "start", "prepare", 9, "spawning", 1, 10, 0, 47, -1)
+    check(any("this guard has no gun in the setup" in l for l in out.splitlines()), "a gun only replaces a setup gun")
+
+    # ---- the events, and mod.guards' reads ----
+    lua = r"""
+mod.on("guard_alerted", function(id, how, player) print("alerted", id, how, player) end)
+mod.on("guard_killed", function(id, how, item) print("killed", id, how, item) end)
+mod.on("corpse_retiring", function(id, x, y, z) print("corpse", id, x, y, z) end)
+mod.on("mission_start", function()
+  local ids = mod.guards.list()
+  assert(#ids == 2 and ids[1] == 7 and ids[2] == 8)
+  local g = mod.guards.get(7)
+  assert(g.id == 7 and g.body == 2 and g.head == 47 and g.alive and not g.alerted and g.weapon == 8 and g.weaponLeft == nil)
+  assert(g.health == 75 and g.maxHealth == 100 and g.x == 10 and g.y == 20 and g.z == 30)
+  local d = mod.guards.get(8)
+  assert(d.head == nil and not d.alive and d.alerted and d.weapon == nil and d.weaponLeft == 4)
+  assert(mod.guards.get(99) == nil and mod.guards.get(-70000) == nil and not pcall(mod.guards.get, "seven"))
+  print("guards ok")
+end)
+"""
+    out = run(exe, temp, "guardevents", lua, "addguard", 7, 2, 47, 1, 8, -1, 75, 100, 10, 20, 30,
+              "addguard", 8, 6, -1, 0, -1, 4, 0, 100, 0, 0, 0, "start", "prepare", 9, "alerted", 7, 1, 0, "begin", 9,
+              "alerted", 7, 1, 0, "alerted", 8, 2, 1, "alerted", 9, 3, -1, "alerted", 9, 4, 2, "alerted", 9, 5, 0,
+              "killed", 7, 1, 8, "killed", 8, 2, -1, "retiring", 7, 1.5, 2, -3)
+    check(logs(out) == ["guards ok", "alerted 7 saw 0", "alerted 8 heard 1", "alerted 9 shot nil", "alerted 9 alarm 2",
+                        "alerted 9 other 0", "killed 7 shot 8", "killed 8 explosion nil", "corpse 7 1.5 2.0 -3.0"],
+          "guard_alerted, guard_killed, corpse_retiring in play; mod.guards.list and get: " + str(logs(out)))
+
+
 def main():
     placement()
     items_placement()
     hands_placement()
+    guards_placement()
     with tempfile.TemporaryDirectory(prefix="gevr-modapi-") as temp:
         temp = Path(temp)
         exe = build(temp)
@@ -407,6 +657,8 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
 
         items(exe, temp)
         hands(exe, temp)
+        guards(exe, temp)
+        guards_told(temp)
 
     if FAILS:
         print(f"{len(FAILS)} check(s) failed")
@@ -415,7 +667,8 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
           "mod.weapon's calls and limits, mod.items, the stats put back; the hooks' places in the gun code. "
           "Items area: pickup_spawning's swaps, turns and refusals, item_pickup, mod.inventory, mod.ammo; "
           "the hooks' places in the stage's setup and the pickup. Hands area: grip, release, hand_near, "
-          "mod.hands' positions, anchors and pulses; the hooks' places")
+          "mod.hands' positions, anchors and pulses; the hooks' places. Guards area: guard_spawning's body, head and gun, "
+          "refusals, alerts, kills and corpses told once on the host, mod.guards' reads; the hooks' places")
 
 
 if __name__ == "__main__":

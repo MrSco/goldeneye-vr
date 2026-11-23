@@ -541,6 +541,9 @@ void weaponAssignToHome(s32 arg0, WeaponObjRecord* weapon, s32 cmdindex)
 
         if (chr && chr->prop && chr->model)
         {
+#ifdef GEVR
+            gevrModGuardWeapon(weapon);   /* the gun a mod's guard_spawning chose (gevr_modgame.c) */
+#endif
             if (cheatIsActive(CHEAT_ENEMY_ROCKETS))
             {
                 switch ((s8)GEVR_ITEM_AS(weapon->weaponnum))

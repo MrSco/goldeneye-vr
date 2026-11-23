@@ -26,6 +26,9 @@
  *     untracked <hand>
  *     grip <ctrl> <anchor> <taken> | release <ctrl> <anchor> | near <ctrl> <anchor>
  *                                  bondview2.c's grip tick, gevr_bodyslots.c's reach (ctrl 1 the gun hand)
+ *     spawning <id> <index> <body> <head> <weapon>   expand_09_characters: guard_spawning (-1 none)
+ *     addguard <id> <body> <head> <alive> <w> <wl> <health> <max> <x> <y> <z>   a guard in the stage
+ *     alerted <id> <how> <player> | killed <id> <how> <item> | retiring <id> <x> <y> <z>
  *
  * Prints LOG lines, DECLINED/FIRED per shot, SPAWN per pickup placed, and
  * the answers. Run in a
@@ -155,6 +158,38 @@ int gevrModGameHaptic(int hand, float amplitude, float seconds)
     if (!s_torso) return 0;
     printf("HAPTIC %d %.2f %.2f\n", hand, amplitude, seconds);
     return 1;
+}
+
+/* the guards area: GoldenEye's split of the body table (bodies, then heads
+ * 46 to 87, the last row a body); bodies 5 and 6 have their own heads */
+static GevrModGuardState s_guards[8];
+static int s_guardCount;
+
+int gevrModGameBodyOk(int body)
+{
+    if (body < 0 || body > 88 || body == 45 || (body >= 46 && body != 88)) return 0;
+    return body == 5 || body == 6 ? 2 : 1;
+}
+int gevrModGameHeadOk(int head) { return head >= 46 && head < 88; }
+int gevrModGameGuardGun(int item) { return item >= 4 && item <= 25 && item != 23; }
+int gevrModGameGuards(int *ids, int max)
+{
+    int i;
+
+    for (i = 0; i < s_guardCount && i < max; i++) ids[i] = s_guards[i].id;
+    return i;
+}
+int gevrModGameGuard(int id, GevrModGuardState *out)
+{
+    int i;
+
+    for (i = 0; i < s_guardCount; i++) {
+        if (s_guards[i].id == id) {
+            *out = s_guards[i];
+            return 1;
+        }
+    }
+    return 0;
 }
 
 static void crateArg(GevrModPickup *p, const char *list)
@@ -336,6 +371,44 @@ int main(int argc, char **argv)
         } else if (!strcmp(cmd, "near") && i + 2 < argc) {
             gevrModApiHandNear(atoi(argv[i + 1]), atoi(argv[i + 2]));
             i += 2;
+        } else if (!strcmp(cmd, "spawning") && i + 5 < argc) {
+            GevrModGuardSpawn g;
+
+            g.id = atoi(argv[i + 1]);
+            g.index = atoi(argv[i + 2]);
+            g.body = atoi(argv[i + 3]);
+            g.head = atoi(argv[i + 4]);
+            g.weapon = atoi(argv[i + 5]);
+            i += 5;
+            gevrModApiGuardSpawning(&g);
+            printf("GUARD %d body %d head %d weapon %d\n", g.id, g.body, g.head, g.weapon);
+        } else if (!strcmp(cmd, "addguard") && i + 11 < argc && s_guardCount < 8) {
+            GevrModGuardState *g = &s_guards[s_guardCount++];
+
+            g->id = atoi(argv[i + 1]);
+            g->body = atoi(argv[i + 2]);
+            g->head = atoi(argv[i + 3]);
+            g->alive = atoi(argv[i + 4]);
+            g->alerted = !g->alive;
+            g->weapon[0] = atoi(argv[i + 5]);
+            g->weapon[1] = atoi(argv[i + 6]);
+            g->health = (float)atof(argv[i + 7]);
+            g->maxHealth = (float)atof(argv[i + 8]);
+            g->pos[0] = (float)atof(argv[i + 9]);
+            g->pos[1] = (float)atof(argv[i + 10]);
+            g->pos[2] = (float)atof(argv[i + 11]);
+            i += 11;
+        } else if (!strcmp(cmd, "alerted") && i + 3 < argc) {
+            gevrModApiGuardAlerted(atoi(argv[i + 1]), atoi(argv[i + 2]), atoi(argv[i + 3]));
+            i += 3;
+        } else if (!strcmp(cmd, "killed") && i + 3 < argc) {
+            gevrModApiGuardKilled(atoi(argv[i + 1]), atoi(argv[i + 2]), atoi(argv[i + 3]));
+            i += 3;
+        } else if (!strcmp(cmd, "retiring") && i + 4 < argc) {
+            const float pos[3] = { (float)atof(argv[i + 2]), (float)atof(argv[i + 3]), (float)atof(argv[i + 4]) };
+
+            gevrModApiCorpseRetiring(atoi(argv[i + 1]), pos);
+            i += 4;
         } else if (!strcmp(cmd, "ammois") && i + 1 < argc) {
             const int type = atoi(argv[++i]);
 

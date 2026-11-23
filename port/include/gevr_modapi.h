@@ -2,7 +2,7 @@
  * The mod API's areas (docs/mod-system.md, API v1 and "Where each hook
  * sits"): the game's events into mods' scripts (gevr_modscript.c) and the
  * mod.* tables, in port/src/gevr_modapi.c, over a thin game side in
- * src/game/gevr_modgame.c. The areas so far: weapons, items, hands.
+ * src/game/gevr_modgame.c. The areas so far: weapons, items, hands, guards.
  */
 #ifndef GEVR_MODAPI_H
 #define GEVR_MODAPI_H
@@ -104,6 +104,45 @@ void gevrModApiRelease(int ctrl, int anchor);
 /* gevr_bodyslots.c: a hand came into a body slot that has something for it */
 void gevrModApiHandNear(int ctrl, int anchor);
 
+/* ---- the guards area: the setup's guards as they load; alerts, deaths and
+ * corpses on the machine that runs the guards (solo, or the co-op host) ---- */
+
+enum { GEVR_MODALERT_SAW = 1, GEVR_MODALERT_HEARD, GEVR_MODALERT_SHOT, GEVR_MODALERT_ALARM, GEVR_MODALERT_OTHER };
+enum { GEVR_MODKILL_SHOT = 1, GEVR_MODKILL_EXPLOSION };
+
+typedef struct GevrModGuardSpawn {
+    int id;          /* its chrnum, the setup's */
+    int index;       /* the setup record's */
+    int body, head;  /* head -1: the body has its own */
+    int weapon;      /* its setup gun, -1 none; the answer's goes to weaponAssignToHome */
+} GevrModGuardSpawn;
+
+/* guard_spawning: each mod's answer in turn into g (body, head, weapon) */
+void gevrModApiGuardSpawning(GevrModGuardSpawn *g);
+/* guard_alerted(id, how, player): told once per guard */
+void gevrModApiGuardAlerted(int id, int how, int player);
+/* guard_killed(id, how, item): item for a shot, -1 else */
+void gevrModApiGuardKilled(int id, int how, int item);
+/* corpse_retiring(id, x, y, z): the body is about to go */
+void gevrModApiCorpseRetiring(int id, const float pos[3]);
+
+/* The game's hooks (src/game/gevr_modgame.c) */
+struct GuardRecord;
+struct WeaponObjRecord;
+struct ChrRecord;
+/* chraction.c expand_09_characters, before the model is made: guard_spawning */
+void gevrModGuardSpawning(struct GuardRecord *rec, int index, int *body, int *head);
+/* prop.c weaponAssignToHome, a guard's setup gun: the one its guard_spawning chose */
+void gevrModGuardWeapon(struct WeaponObjRecord *weapon);
+/* chr.c chrAllocate: a slot's new guard, told nothing yet */
+void gevrModGuardFresh(struct ChrRecord *chr);
+/* chraction.c, chrai.c: a guard turns on a player (GEVR_MODALERT_*); told once */
+void gevrModGuardAlert(struct ChrRecord *chr, int how);
+/* chraction.c: a guard's death begins (GEVR_MODKILL_*; item for a shot, else -1) */
+void gevrModGuardKilled(struct ChrRecord *chr, int how, int item);
+/* chraction.c chrlvTickDead: the body is marked for removal */
+void gevrModGuardRetiring(struct ChrRecord *chr);
+
 /* ---- the game's side (src/game/gevr_modgame.c), for gevr_modapi.c ---- */
 
 typedef struct GevrModWeaponStats {
@@ -145,6 +184,23 @@ int gevrModGameAnchorAt(int anchor, float out[3], float *radius);
 /* A pulse on a hand's controller, scaled by the player's Mods haptics
  * setting; 0 when there are no VR haptics */
 int gevrModGameHaptic(int hand, float amplitude, float seconds);
+/* A guard as the game has it now (on a co-op client, the host's copy as
+ * last sent). health: what's left of maxHealth; pos: world units */
+typedef struct GevrModGuardState {
+    int id, body, head;   /* head -1: the body's own */
+    int alive, alerted;
+    int weapon[2];        /* right and left hands' items, -1 none */
+    float health, maxHealth;
+    float pos[3];
+} GevrModGuardState;
+/* The guards in the stage (living or dying): their ids, at most max; how many */
+int gevrModGameGuards(int *ids, int max);
+int gevrModGameGuard(int id, GevrModGuardState *out);
+/* guard_spawning's limits: a body (1 takes a head, 2 has its own), a
+ * head, a gun a guard can hold (with a model in this cartridge) */
+int gevrModGameBodyOk(int body);
+int gevrModGameHeadOk(int head);
+int gevrModGameGuardGun(int item);
 
 #ifdef __cplusplus
 }

@@ -28,6 +28,7 @@ bool netIsActive(void) { return network; }
 s32 gevrCoopHostGuards(void) { return network && host && coop; }
 s32 gevrCoopFastReinforcements(void) { return network && coop && host_fast; }
 void gevrCoopChrIdentityChanged(ChrRecord *chr) { (void)chr; }
+void gevrModGuardRetiring(ChrRecord *chr) { (void)chr; }   /* gevr_modgame.c: a mod's corpse_retiring */
 s32 getPlayerCount(void) { return players; }
 s32 chrGetNumFree(void) { return free_slots; }
 AIRecord *ailistFindById(s32 id) { (void)id; return NULL; }

@@ -34,6 +34,7 @@
 #include "gevr_romlayout.h"
 #include "gevr_ragdoll.h"
 #include "gevr_avatar.h"
+#include "gevr_modapi.h"   /* mods' guards area */
 #endif
 #include "propobj.h"
 #include "stan.h"
@@ -1667,6 +1668,9 @@ PropRecord *init_GUARDdata_with_set_values(PropRecord *arg0, Model *arg1, struct
     var_s0->targetTile = NULL;
     var_s0->seen_bond_time = 0;
     var_s0->lastheartarget60 = 0;
+#ifdef GEVR
+    gevrModGuardFresh(var_s0);   /* mods' guards area: a new guard in this slot */
+#endif
     var_s0->numclosearghs = 0;
     var_s0->shotbondsum = 0.0f;
     var_s0->damage = 0.0f;

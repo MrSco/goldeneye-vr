@@ -5,6 +5,9 @@
 #endif
 #include <ultra64.h>
 #ifdef GEVR
+#include "gevr_modapi.h"   /* mods' guards area */
+#endif
+#ifdef GEVR
 #include "gevr_ragdoll.h"
 #include "gevr_ally.h"
 #include "net_horde.h"
@@ -334,6 +337,9 @@ void expand_09_characters(s32 stageid, GuardRecord *arg1, s32 arg2)
 #endif
         }
 
+#ifdef GEVR
+        gevrModGuardSpawning(arg1, arg2, &bodyid, &headid);   /* a mod's guard_spawning (gevr_modgame.c) */
+#endif
         sp38 = retrieve_header_for_body_and_head(bodyid, headid, (u32) arg1->bitflags);
 
         if (sp38 != 0)
@@ -2244,6 +2250,9 @@ void triggered_on_shot_hit(ChrRecord *self, coord3d *arg1, f32 arg2, s32 req_ani
 
             chrDropItems(self);
             increment_num_kills_display_text_in_MP();
+#ifdef GEVR
+            gevrModGuardKilled(self, GEVR_MODKILL_SHOT, item);   /* a mod's guard_killed */
+#endif
 
             if (self->chrflags & CHRFLAG_COUNT_DEATH_AS_CIVILIAN)
             {
@@ -2931,6 +2940,9 @@ s32 chrlvExplosionDamage(ChrRecord *self, coord3d *arg1, f32 damage, s32 arg3)
 
         chrDropItems(self);
         increment_num_kills_display_text_in_MP();
+#ifdef GEVR
+        gevrModGuardKilled(self, GEVR_MODKILL_EXPLOSION, -1);   /* a mod's guard_killed */
+#endif
 
         if (self->chrflags & CHRFLAG_COUNT_DEATH_AS_CIVILIAN)
         {
@@ -4338,6 +4350,9 @@ void chrlvSetTargetToPlayer(ChrRecord *self)
 {
     PropRecord *temp_v0;
 
+#ifdef GEVR
+    gevrModGuardAlert(self, GEVR_MODALERT_OTHER);   /* a mod's guard_alerted: unless told how already */
+#endif
     temp_v0 = getCurrentPlayerProp();
     self->lastseetarget60 = g_GlobalTimer;
     self->lastknowntargetpos.f[0] = temp_v0->pos.f[0];
@@ -4358,6 +4373,9 @@ void chrlvAlertGuardToPlayerPosition(ChrRecord *self)
 {
     PropRecord *temp_v0;
 
+#ifdef GEVR
+    gevrModGuardAlert(self, GEVR_MODALERT_HEARD);   /* a mod's guard_alerted, once */
+#endif
     temp_v0 = getCurrentPlayerProp();
     self->hidden |= CHRHIDDEN_ALERT_GUARD_RELATED;
     self->lastheartarget60 = g_GlobalTimer;
@@ -4486,6 +4504,12 @@ bool chrCheckTargetInSight(ChrRecord *self)
         pass = chrCanSeeBond(self);
     }
 
+#ifdef GEVR
+    if (pass)
+    {
+        gevrModGuardAlert(self, GEVR_MODALERT_SAW);   /* a mod's guard_alerted, once */
+    }
+#endif
     if (pass)
     {
         chrlvSetTargetToPlayer(self);
@@ -5445,6 +5469,7 @@ s32 gevrBodyRetireForAi(ChrRecord *chr)
     {
         if (s_gevrBodies[i] == chr && s_gevrBodyAge[i] >= CHRLV_TICK_DEAD_CHECK)
         {
+            gevrModGuardRetiring(chr);   /* a kept body: a mod's corpse_retiring as its id retires */
             chr->chrnum = -1;
             return TRUE;
         }
@@ -5575,6 +5600,9 @@ void chrlvTickDead(ChrRecord *self)
 
         if (self->act_init.padding[0] >= CHRLV_TICK_DEAD_CHECK)
         {
+#ifdef GEVR
+            gevrModGuardRetiring(self);   /* a mod's corpse_retiring, where the body still lies */
+#endif
             self->hidden |= CHRHIDDEN_REMOVE;
         }
         else
@@ -5744,6 +5772,12 @@ void chrlvTickArgh(ChrRecord *self)
 {
     Model *model = self->model;
 
+#ifdef GEVR
+    if (modelGetAnimFrame(model) >= modelGetAnimEndFrame(model))
+    {
+        gevrModGuardAlert(self, GEVR_MODALERT_SHOT);   /* a mod's guard_alerted, once */
+    }
+#endif
     if (modelGetAnimFrame(model) >= modelGetAnimEndFrame(model))
     {
         chrlvSetTargetToPlayer(self);

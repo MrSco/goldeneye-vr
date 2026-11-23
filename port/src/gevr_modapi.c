@@ -56,6 +56,10 @@ static const char *const s_anchorNames[GEVR_MODAPI_ANCHORS] = {
     "hip_gun", "hip_off", "back_gun", "back_off", "chest", "belt",
 };
 
+/* GEVR_MODALERT_*, GEVR_MODKILL_*: guard_alerted's how, guard_killed's */
+static const char *const s_alertNames[] = { NULL, "saw", "heard", "shot", "alarm", "other" };
+static const char *const s_killNames[] = { NULL, "shot", "explosion" };
+
 /* GEVR_MODPICKUP_*: a pickup's kind in pickup_spawning and item_pickup */
 static const char *const s_pickupKinds[] = { NULL, "weapon", "ammo", "crate", "armour", "key", "object" };
 
@@ -415,6 +419,74 @@ static int l_haptic(lua_State *L)
     return 1;
 }
 
+/* ---- mod.guards ---- */
+
+#define GUARDS_LIST_MAX 512
+
+/* list(): the guards' ids, living or dying */
+static int l_guardList(lua_State *L)
+{
+    static int ids[GUARDS_LIST_MAX];
+    const int n = gevrModGameGuards(ids, GUARDS_LIST_MAX);
+    int i;
+
+    lua_createtable(L, n, 0);
+    for (i = 0; i < n; i++) {
+        lua_pushinteger(L, ids[i]);
+        lua_rawseti(L, -2, i + 1);
+    }
+    return 1;
+}
+
+static void setItem(lua_State *L, const char *field, int item)
+{
+    if (item >= 0) {
+        lua_pushinteger(L, item);
+        lua_setfield(L, -2, field);
+    }
+}
+
+/* get(id): a table of what the game has for it, or nil */
+static int l_guardGet(lua_State *L)
+{
+    const lua_Integer id = luaL_checkinteger(L, 1);
+    GevrModGuardState g;
+
+    if (id < -32768 || id > 32767 || !gevrModGameGuard((int)id, &g)) {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_createtable(L, 0, 12);
+    lua_pushinteger(L, g.id);
+    lua_setfield(L, -2, "id");
+    lua_pushinteger(L, g.body);
+    lua_setfield(L, -2, "body");
+    setItem(L, "head", g.head);
+    lua_pushboolean(L, g.alive);
+    lua_setfield(L, -2, "alive");
+    lua_pushboolean(L, g.alerted);
+    lua_setfield(L, -2, "alerted");
+    setItem(L, "weapon", g.weapon[0]);
+    setItem(L, "weaponLeft", g.weapon[1]);
+    lua_pushnumber(L, g.health);
+    lua_setfield(L, -2, "health");
+    lua_pushnumber(L, g.maxHealth);
+    lua_setfield(L, -2, "maxHealth");
+    lua_pushnumber(L, g.pos[0]);
+    lua_setfield(L, -2, "x");
+    lua_pushnumber(L, g.pos[1]);
+    lua_setfield(L, -2, "y");
+    lua_pushnumber(L, g.pos[2]);
+    lua_setfield(L, -2, "z");
+    return 1;
+}
+
+static const luaL_Reg s_guardFuncs[] = {
+    { "list", l_guardList },
+    { "get", l_guardGet },
+    { NULL, NULL },
+};
+
 static const luaL_Reg s_handFuncs[] = {
     { "position", l_handPosition },
     { "anchor", l_handAnchor },
@@ -448,6 +520,9 @@ void gevrModApiOpen(lua_State *L)
     lua_newtable(L);
     luaL_setfuncs(L, s_handFuncs, 0);
     lua_setfield(L, -2, "hands");
+    lua_newtable(L);
+    luaL_setfuncs(L, s_guardFuncs, 0);
+    lua_setfield(L, -2, "guards");
 }
 
 void gevrModApiReset(void)
@@ -730,4 +805,119 @@ void gevrModApiHandNear(int ctrl, int anchor)
 
     if (!forLocal() || anchor < 0) return;
     gevrModScriptEvent("hand_near", a, handAnchor(a, ctrl, anchor), 0);
+}
+
+/* ---- the guards area's events ---- */
+
+static int pushGuard(lua_State *L, void *ud)
+{
+    const GevrModGuardSpawn *g = (const GevrModGuardSpawn *)ud;
+
+    lua_createtable(L, 0, 5);
+    lua_pushinteger(L, g->id);
+    lua_setfield(L, -2, "id");
+    lua_pushinteger(L, g->index);
+    lua_setfield(L, -2, "index");
+    lua_pushinteger(L, g->body);
+    lua_setfield(L, -2, "body");
+    setItem(L, "head", g->head);
+    setItem(L, "weapon", g->weapon);
+    return 1;
+}
+
+/* A handler's answer: nil keeps the guard as the setup has it; a table
+ * changes its body, head or gun (a field left out keeps its own). A body
+ * with its own head takes no other; a gun replaces a setup gun only. */
+static int answerGuard(lua_State *L, void *ud)
+{
+    GevrModGuardSpawn *g = (GevrModGuardSpawn *)ud;
+    GevrModGuardSpawn next = *g;
+    const int ans = lua_gettop(L);
+    int own;
+
+    if (lua_isnil(L, ans)) return 0;
+    if (!lua_istable(L, ans)) return luaL_error(L, "guard_spawning: answer nil (keep it) or a table of body, head, weapon");
+    if (lua_getfield(L, ans, "body") != LUA_TNIL) {
+        int whole = 0;
+        const lua_Integer v = lua_type(L, -1) == LUA_TNUMBER ? lua_tointegerx(L, -1, &whole) : -1;
+
+        if (!whole || v < 0 || v > 0x7FFF || !gevrModGameBodyOk((int)v)) {
+            return luaL_error(L, "guard_spawning: body is one of the cartridge's bodies (not a head)");
+        }
+        next.body = (int)v;
+    }
+    own = gevrModGameBodyOk(next.body) == 2;
+    if (lua_getfield(L, ans, "head") != LUA_TNIL) {
+        int whole = 0;
+        const lua_Integer v = lua_type(L, -1) == LUA_TNUMBER ? lua_tointegerx(L, -1, &whole) : -1;
+
+        if (own) return luaL_error(L, "guard_spawning: that body has its own head");
+        if (!whole || v < 0 || v > 0x7FFF || !gevrModGameHeadOk((int)v)) {
+            return luaL_error(L, "guard_spawning: head is one of the cartridge's heads");
+        }
+        next.head = (int)v;
+    } else if (own) {
+        next.head = -1;
+    }
+    if (lua_getfield(L, ans, "weapon") != LUA_TNIL) {
+        const int item = lookup(L, -1, s_itemNames, 0, GEVR_MODAPI_ITEMS);
+
+        if (g->weapon < 0) return luaL_error(L, "guard_spawning: this guard has no gun in the setup to change");
+        if (item < 0 || !gevrModGameGuardGun(item)) {
+            return luaL_error(L, "guard_spawning: a guard's weapon is a gun (mod.items)");
+        }
+        next.weapon = item;
+    }
+    lua_settop(L, ans);
+    *g = next;
+    return 0;
+}
+
+void gevrModApiGuardSpawning(GevrModGuardSpawn *g)
+{
+    if (!gevrModScriptRunning()) return;
+    gevrModScriptAsk("guard_spawning", pushGuard, answerGuard, g, 0);
+}
+
+void gevrModApiGuardAlerted(int id, int how, int player)
+{
+    GevrModArg a[3];
+
+    if (!gevrModScriptRunning() || how < GEVR_MODALERT_SAW || how > GEVR_MODALERT_OTHER) return;
+    a[0].kind = GEVR_MODARG_INTEGER;
+    a[0].n = id;
+    a[1].kind = GEVR_MODARG_STRING;
+    a[1].s = s_alertNames[how];
+    a[2].kind = player >= 0 ? GEVR_MODARG_INTEGER : GEVR_MODARG_NIL;
+    a[2].n = player;
+    gevrModScriptEvent("guard_alerted", a, 3, 0);
+}
+
+void gevrModApiGuardKilled(int id, int how, int item)
+{
+    GevrModArg a[3];
+
+    if (!gevrModScriptRunning() || how < GEVR_MODKILL_SHOT || how > GEVR_MODKILL_EXPLOSION) return;
+    a[0].kind = GEVR_MODARG_INTEGER;
+    a[0].n = id;
+    a[1].kind = GEVR_MODARG_STRING;
+    a[1].s = s_killNames[how];
+    a[2].kind = item >= 0 ? GEVR_MODARG_INTEGER : GEVR_MODARG_NIL;
+    a[2].n = item;
+    gevrModScriptEvent("guard_killed", a, 3, 0);
+}
+
+void gevrModApiCorpseRetiring(int id, const float pos[3])
+{
+    GevrModArg a[4];
+    int i;
+
+    if (!gevrModScriptRunning()) return;
+    a[0].kind = GEVR_MODARG_INTEGER;
+    a[0].n = id;
+    for (i = 0; i < 3; i++) {
+        a[i + 1].kind = GEVR_MODARG_NUMBER;
+        a[i + 1].n = pos[i];
+    }
+    gevrModScriptEvent("corpse_retiring", a, 4, 0);
 }

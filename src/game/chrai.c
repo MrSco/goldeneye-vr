@@ -23,6 +23,7 @@
 #include "gevr_footsteps.h"
 #include "gevr_romlayout.h"
 #include "player.h"
+#include "gevr_modapi.h"   /* mods' guards area: an alarm's alert */
 #include "propobj.h"
 #include "stan.h"
 #include <assert.h>
@@ -1582,6 +1583,12 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 }
                 case AI_AlarmOn:
                 {
+#ifdef GEVR
+                    if (ChrEntityp != NULL)
+                    {
+                        gevrModGuardAlert(ChrEntityp, GEVR_MODALERT_ALARM);   /* a mod's guard_alerted, once */
+                    }
+#endif
                     alarmActivate();
                     Offset += sizeof(AiAlarmOnRecord);
                     break;
