@@ -18,6 +18,7 @@
 #include "gevr_bodyslots.h"
 #include "chr.h"
 #include "chrobjdata.h"
+#include <bondaicommands.h>
 
 extern bool netIsActive(void);       /* net_core.c */
 extern int netGetLocalSlot(void);
@@ -34,6 +35,18 @@ extern s32 trigger_haptic_vibration_freq_c(int hand_index, float amplitude, floa
 extern bool netIsHost(void);
 extern s32 get_cur_playernum(void);
 extern s32 gevrBodyChooseHead(s32 id, s32 head);                   /* chraction.c */
+extern AIRecord *ailistFindById(s32 ID);                            /* chrai.c */
+extern PathRecord *pathFindById(s32 ID);
+extern PropRecord *chrSpawnAtPad(ChrRecord *self, s32 bodynum, s32 headnum, s32 padid, AIRecord *ailist, s32 flags);
+extern bool if_actor_able_set_on_path(ChrRecord *self, struct PathRecord *path);   /* chraction.c */
+extern PropRecord *chrGiveWeapon(ChrRecord *self, s32 PropID, ITEM_IDS ItemID, s32 flags);   /* propobj.c */
+extern void objFreePermanently(ObjectRecord *obj, bool freeprop);
+
+/* a spawned guard's named behaviours are these global lists */
+typedef char aiNamesAreTheGlobalLists[(int)GEVR_MODAI_STANDARD == (int)GAILIST_STANDARD_GUARD
+                                      && (int)GEVR_MODAI_DEAF == (int)GAILIST_SIMPLE_GUARD_DEAF
+                                      && (int)GEVR_MODAI_SIMPLE == (int)GAILIST_SIMPLE_GUARD
+                                      && (int)GEVR_MODAI_CHASE == (int)GAILIST_PERSISTENTLY_CHASE_AND_ATTACK_BOND ? 1 : -1];
 
 /* mod.items names every item from ITEM_UNARMED; mod.ammo every type a pickup carries */
 typedef char itemNamesForEveryItem[GEVR_MODAPI_ITEMS == ITEM_IDS_MAX ? 1 : -1];
@@ -530,6 +543,7 @@ void gevrModGuardWeapon(WeaponObjRecord *weapon)
 #define GUARD_SLOTS_MAX 1024
 enum { TOLD_ALERT = 1, TOLD_KILLED = 2, TOLD_RETIRING = 4 };
 static u8 s_told[GUARD_SLOTS_MAX];
+static s8 s_shooter[GUARD_SLOTS_MAX];   /* the player whose shot hit it last, -1 none */
 
 static u8 *toldOf(ChrRecord *chr)
 {
@@ -545,7 +559,18 @@ void gevrModGuardFresh(ChrRecord *chr)
 {
     u8 *told = toldOf(chr);
 
-    if (told) *told = 0;
+    if (told)
+    {
+        *told = 0;
+        s_shooter[told - s_told] = -1;
+    }
+}
+
+void gevrModGuardShotBy(ChrRecord *chr, int player)
+{
+    u8 *told = toldOf(chr);
+
+    if (told) s_shooter[told - s_told] = (s8)(player >= 0 && player < 4 ? player : -1);
 }
 
 static int guardAlerted(ChrRecord *chr)
@@ -586,7 +611,8 @@ void gevrModGuardKilled(ChrRecord *chr, int how, int item)
     told = toldOf(chr);
     if (told == NULL || (*told & TOLD_KILLED)) return;
     *told |= TOLD_KILLED;
-    gevrModApiGuardKilled(chr->chrnum, how, item);
+    /* a shot's death: the player whose shot hit it last (an explosion's owner isn't known here) */
+    gevrModApiGuardKilled(chr->chrnum, how, item, how == GEVR_MODKILL_SHOT ? s_shooter[told - s_told] : -1);
 }
 
 void gevrModGuardRetiring(ChrRecord *chr)
@@ -653,4 +679,130 @@ int gevrModGameGuard(int id, GevrModGuardState *out)
         return 1;
     }
     return 0;
+}
+
+/* ---- guards, part 2: what a mod may change, where the guards run ---- */
+
+void gevrModGuardSpawned(ChrRecord *chr)
+{
+    if (!gevrModScriptRunning() || !runsGuards() || chr == NULL || chr->chrnum < 0) return;
+    gevrModApiGuardSpawned(chr->chrnum);
+}
+
+int gevrModGameRunsGuards(void)
+{
+    return runsGuards() && gevrModGamePlayerReady();
+}
+
+int gevrModGameAiListOk(int id)
+{
+    if (id < 0 || isBGAIListID(id)) return 0;   /* a level script's, not a guard's */
+    if (isGlobalAIListID(id))
+    {
+        /* not the subroutines (they return to a caller), the alarm raiser (it runs
+         * to a preset pad a spawned guard has none of), nor ending the level */
+        return id == GEVR_MODAI_STANDARD || id == GEVR_MODAI_SIMPLE || id == GEVR_MODAI_DEAF || id == GEVR_MODAI_CHASE;
+    }
+    return ailistFindById(id) != NULL;
+}
+
+/* A pad the setup has: its pads, or 10000 and up its bound pads (both end
+ * with no link, as expand_09_characters counts them) */
+static int padOk(int pad)
+{
+    s32 n = 0;
+
+    if (pad >= 10000)
+    {
+        while (g_CurrentSetup.boundpads != NULL && g_CurrentSetup.boundpads[n].plink != NULL) n++;
+        return pad - 10000 < n;
+    }
+    while (g_CurrentSetup.pads != NULL && g_CurrentSetup.pads[n].plink != NULL) n++;
+    return pad >= 0 && pad < n;
+}
+
+static ChrRecord *guardById(int id)
+{
+    s32 i;
+
+    for (i = 0; g_ChrSlots != NULL && i < g_NumChrSlots; i++)
+    {
+        if (isGuard(&g_ChrSlots[i]) && g_ChrSlots[i].chrnum == id) return &g_ChrSlots[i];
+    }
+    return NULL;
+}
+
+/* As the game's own scripts give a spawned guard its guns (AI_TRYGiveMeItem) */
+static int armGuard(ChrRecord *chr, int item, int hand)
+{
+    const s32 g = hand ? GUNLEFT : GUNRIGHT;
+
+    return chrGiveWeapon(chr, getPropForHeldItem((ITEM_IDS)item), (ITEM_IDS)item, hand ? 0x10000000 : 0) != NULL
+        && chr->weapons_held[g] != NULL;
+}
+
+/* AI_TRYSpawningChrAtPad's spawn (chrSpawnAtPad, which tells co-op's others
+ * as it does for the host's scripts), then the guns. Not in the player's
+ * view: the game refuses a spawn there, as its own scripts usually ask. */
+int gevrModGameSpawnGuard(const GevrModGuardOrder *o)
+{
+    PropRecord *prop;
+    AIRecord *ai;
+    s32 h;
+
+    if (!gevrModGameRunsGuards() || !padOk(o->pad) || !gevrModGameBodyOk(o->body) || !gevrModGameAiListOk(o->ai)) return -1;
+    if (o->head >= 0 && (gevrModGameBodyOk(o->body) == 2 || !gevrModGameHeadOk(o->head))) return -1;
+    ai = ailistFindById(o->ai);
+    prop = ai != NULL ? chrSpawnAtPad(NULL, o->body, o->head, o->pad, ai, 0) : NULL;
+    if (prop == NULL || prop->chr == NULL) return -1;
+    for (h = 0; h < 2; h++)
+    {
+        if (o->weapon[h] >= 0 && gevrModGameGuardGun(o->weapon[h])) armGuard(prop->chr, o->weapon[h], h);
+    }
+    return prop->chr->chrnum;
+}
+
+int gevrModGameGiveGuardWeapon(int id, int item, int hand)
+{
+    ChrRecord *chr = guardById(id);
+    const s32 g = hand ? GUNLEFT : GUNRIGHT;
+
+    if (!gevrModGameRunsGuards() || chr == NULL || guardDying(chr) || !gevrModGameGuardGun(item)) return 0;
+    if (chr->weapons_held[g] != NULL)
+    {
+        /* the gun it held goes, as co-op's copies lose theirs (net_coop.c
+         * coopSyncHand); a dual pair's other gun no longer points at it */
+        WeaponObjRecord *old = chr->weapons_held[g]->weapon;
+
+        if (old != NULL && old->dualweapon != NULL)
+        {
+            old->dualweapon->dualweapon = NULL;
+            old->dualweapon = NULL;
+        }
+        if (chr->weapons_held[g]->obj != NULL) objFreePermanently(chr->weapons_held[g]->obj, TRUE);
+        if (chr->weapons_held[g] != NULL) return 0;   /* still held: leave it */
+    }
+    return armGuard(chr, item, hand);
+}
+
+int gevrModGamePatrol(int id, int path)
+{
+    ChrRecord *chr = guardById(id);
+    PathRecord *found;
+
+    if (!gevrModGameRunsGuards() || chr == NULL || guardDying(chr) || g_CurrentSetup.patrolpaths == NULL) return 0;
+    found = pathFindById(path);
+    return found != NULL && if_actor_able_set_on_path(chr, found);
+}
+
+int gevrModGamePaths(int *ids, int max)
+{
+    s32 i;
+    int n = 0;
+
+    for (i = 0; g_CurrentSetup.patrolpaths != NULL && g_CurrentSetup.patrolpaths[i].waypoints != NULL && n < max; i++)
+    {
+        ids[n++] = g_CurrentSetup.patrolpaths[i].ID;
+    }
+    return n;
 }

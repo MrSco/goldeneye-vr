@@ -3697,10 +3697,17 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                         osSyncPrintf("ai_createchrheadthenjumpf : Flag set CHRSTART_FORCENOBLOOD\n");
                     }
     #endif
+#ifdef GEVR
+                    PropRecord *spawned = chrSpawnAtPad(ChrEntityp, ai->BODY_NUM, ai->HEAD_NUM, pad, ailist, flags);
+
+                    if (spawned)
+#else
                     if (chrSpawnAtPad(ChrEntityp, ai->BODY_NUM, ai->HEAD_NUM, pad, ailist, flags))
+#endif
                     {
 #ifdef GEVR
                         gevrScriptSpawnLog(ai->BODY_NUM, pad, ailistid, TRUE);
+                        gevrModGuardSpawned(spawned->chr);   /* a mod's guard_spawned */
 #endif
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
                     }
@@ -3719,8 +3726,17 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     CHRFLAG                          flags    = ntohl(ai->BITFIELD);
                     u16                              ailistid = ntohs(ai->AI_LIST_ID);
                     AIRecord                        *ailist   = ailistFindById(ailistid);
+#ifdef GEVR
+                    PropRecord *spawned = chrSpawnAtChr(ChrEntityp, ai->BODY_NUM, ai->HEAD_NUM, ai->CHR_NUM_TARGET, ailist, flags);
+
+                    if (spawned)
+#else
                     if (chrSpawnAtChr(ChrEntityp, ai->BODY_NUM, ai->HEAD_NUM, ai->CHR_NUM_TARGET, ailist, flags))
+#endif
                     {
+#ifdef GEVR
+                        gevrModGuardSpawned(spawned->chr);   /* a mod's guard_spawned */
+#endif
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
                     }
                     else
@@ -3919,6 +3935,9 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                             // clone->morale     = chr->morale;
                             // clone->alertness  = chr->alertness;
                             // clone->padpreset1 = chr->padpreset1;
+#ifdef GEVR
+                            gevrModGuardSpawned(clone);   /* a mod's guard_spawned: armed, its id settled */
+#endif
                             pass = TRUE;
                         }
                     }

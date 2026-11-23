@@ -509,10 +509,13 @@ watch). We maintain the adapters, not the mods.
     (the game's own marks, as a co-op host change carries them) isn't told
     again. `player` is the player slot the guard was acting on (in co-op
     the nearest, or for ten seconds whoever shot it).
-  - `guard_killed(id, how, item)` as the death begins: `"shot"` in
+  - `guard_killed(id, how, item, player)` as the death begins: `"shot"` in
     `triggered_on_shot_hit()` with the gun's item, `"explosion"` in
-    `chrlvExplosionDamage()`. Not yet: who killed it, and deaths by other
-    ways (horde's nuke, the cheats).
+    `chrlvExplosionDamage()`. `player` is the slot whose shot hit the guard
+    last (`handles_shot_actors()` records every hit, nil for a guard's
+    shot; the host applies a client's hit with the shooter current), nil
+    for an explosion (its owner isn't known there). Not yet: deaths by
+    other ways (horde's nuke, the cheats).
   - `corpse_retiring(id, x, y, z)` in `chrlvTickDead()`, world units, before
     the body is marked for removal. A body the Bodies stay option keeps is
     told when the game retires its id (`gevrBodyRetireForAi()`, after the
@@ -526,9 +529,40 @@ watch). We maintain the adapters, not the mods.
     `weapon`, `weaponLeft`, `health` (what's left of `maxHealth`) and `x`,
     `y`, `z` (world units), or nil. On a co-op client it's the host's
     copy as last sent.
-  - Part 2 (not built yet): `guard_spawned`, spawning a guard, giving one a
-    weapon, sending one along a patrol path. `guard_shot` is left to the
-    damage area's `before_damage` and `damage_applied`.
+  - Built, part 2: the calls that change a guard. They work where the
+    guards run (solo, the co-op host) in a stage; elsewhere they return
+    false. The game's co-op sync carries what they do to the others, as
+    for the host's own scripts (the spawn's announcement, the guns in the
+    guard's state). An order the game can't take (a bad pad, body, head,
+    list or gun) is the mod's error.
+    - `mod.guards.spawn{pad, body, head, ai, weapon, weaponLeft}` spawns
+      through `chrSpawnAtPad()`, as `AI_TRYSpawningChrAtPad` does, then
+      arms it with `chrGiveWeapon()`. `pad` is a setup pad, or 10000 and
+      up a bound pad, checked against the stage's. `body` and `head` as
+      for `guard_spawning`; no head lets the game pick one. `ai` is
+      `"standard"` (the default: idles, then clones or runs to attack),
+      `"simple"` (stands or patrols until it notices), `"deaf"` (the same,
+      by sight only), `"chase"`, or a level's own guard list's id; never a
+      subroutine, the alarm raiser (it runs to a preset pad a spawned
+      guard has none of) or a level script's list. The game tries the pad,
+      then eight spots 60 units around it, each clear and out of the
+      player's view (`chrAdjustPosForSpawn()`, as its own scripts usually
+      ask); none, or no free slot: false.
+    - `mod.guards.giveWeapon(id, item, hand)`: a gun into a living guard's
+      hand (`"right"`, the default, or `"left"`); the gun it held goes
+      (freed, as co-op's copies lose theirs; a dual pair's other gun is
+      unlinked from it).
+    - `mod.guards.patrol(id, path)`: `if_actor_able_set_on_path()` along
+      the stage's path, as `AI_StartPatrol`; `mod.guards.paths()` lists
+      the stage's path ids.
+    - `guard_spawned(id)` for a guard the game spawns in play
+      (`AI_TRYSpawningChrAtPad`, `AI_TRYSpawningChrNextToChr`, a
+      reinforcement's clone once armed and its id settled), where the
+      guards run. A script's guard gets its gun from its own list
+      afterwards. A mod's own spawn returns the id instead: telling it
+      during the mod's call would run its handlers inside that call.
+    - `guard_shot` is left to the damage area's `before_damage` and
+      `damage_applied`.
 - **Damage and revives.** Emit `before_damage` and `damage_applied` around
   native damage in `handles_shot_actors()` and `chrlvExplosionDamage()`
   for guards and `record_damage_kills()` for players. The before event
@@ -648,7 +682,8 @@ Every headset runs the swaps at load, so in co-op the choices come from
    (`port/tests/test_modapi.py`; the grips' timing on the production
    poll in `port/tests/test_body_slot_interactions.py`), then guards'
    events and reads (`test_modapi.py`, which also runs
-   `gevr_modgame.c`'s told-once bookkeeping).
+   `gevr_modgame.c`'s told-once bookkeeping), then the calls that change a
+   guard.
 5. **Network:** `NET_MSG_MOD`, co-op with mods, the dedicated server.
 6. **Sample mod and API reference.**
 7. **Platform check:** Quest, PC, Apple, server, with the sample mod.

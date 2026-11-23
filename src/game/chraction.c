@@ -2558,6 +2558,12 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
         gevrCoopGuardProvoked(self, get_cur_playernum());
     }
 #endif
+#ifdef GEVR
+    if (self->prop->type == PROP_TYPE_CHR)
+    {
+        gevrModGuardShotBy(self, isPlayer ? get_cur_playernum() : -1);   /* guard_killed's player */
+    }
+#endif
     s32 hattype;                     //sp78
     PropRecord *myprop = self->prop; //sp60
     s32 padd;

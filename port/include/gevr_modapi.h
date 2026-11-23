@@ -121,8 +121,29 @@ typedef struct GevrModGuardSpawn {
 void gevrModApiGuardSpawning(GevrModGuardSpawn *g);
 /* guard_alerted(id, how, player): told once per guard */
 void gevrModApiGuardAlerted(int id, int how, int player);
-/* guard_killed(id, how, item): item for a shot, -1 else */
-void gevrModApiGuardKilled(int id, int how, int item);
+/* guard_killed(id, how, item, player): item for a shot, -1 else; player
+ * the slot whose shot killed it, -1 unknown (an explosion) */
+void gevrModApiGuardKilled(int id, int how, int item, int player);
+/* guard_spawned(id): a guard the game spawned in play (its scripts, its
+ * reinforcements); a mod's own spawn returns the id instead */
+void gevrModApiGuardSpawned(int id);
+
+/* The guards a mod may spawn run one of these global AI lists (bondaicommands.h
+ * GAILIST_*; gevr_modgame.c checks the numbers), or a level's own guard list */
+enum {
+    GEVR_MODAI_STANDARD = 2,   /* GAILIST_STANDARD_GUARD: idles, clones or runs to attack */
+    GEVR_MODAI_DEAF = 5,       /* GAILIST_SIMPLE_GUARD_DEAF: stands or patrols; sight only */
+    GEVR_MODAI_SIMPLE = 7,     /* GAILIST_SIMPLE_GUARD: stands or patrols until it notices */
+    GEVR_MODAI_CHASE = 13,     /* GAILIST_PERSISTENTLY_CHASE_AND_ATTACK_BOND */
+};
+
+/* A guard a mod spawns (mod.guards.spawn) */
+typedef struct GevrModGuardOrder {
+    int pad;            /* a setup pad, or 10000 + a bound pad */
+    int body, head;     /* head -1: the game picks it (or the body has its own) */
+    int ai;             /* an AI list id */
+    int weapon[2];      /* the right and left hands' guns, -1 none */
+} GevrModGuardOrder;
 /* corpse_retiring(id, x, y, z): the body is about to go */
 void gevrModApiCorpseRetiring(int id, const float pos[3]);
 
@@ -140,6 +161,11 @@ void gevrModGuardFresh(struct ChrRecord *chr);
 void gevrModGuardAlert(struct ChrRecord *chr, int how);
 /* chraction.c: a guard's death begins (GEVR_MODKILL_*; item for a shot, else -1) */
 void gevrModGuardKilled(struct ChrRecord *chr, int how, int item);
+/* chraction.c handles_shot_actors: a player's shot hit it (the host applies a
+ * client's there too, with the shooter current) */
+void gevrModGuardShotBy(struct ChrRecord *chr, int player);
+/* chrai.c: a guard the game spawned (AI_TRYSpawningChrAtPad, NextToChr, a clone) */
+void gevrModGuardSpawned(struct ChrRecord *chr);
 /* chraction.c chrlvTickDead: the body is marked for removal */
 void gevrModGuardRetiring(struct ChrRecord *chr);
 
@@ -201,6 +227,20 @@ int gevrModGameGuard(int id, GevrModGuardState *out);
 int gevrModGameBodyOk(int body);
 int gevrModGameHeadOk(int head);
 int gevrModGameGuardGun(int item);
+/* The calls that change a guard work where the guards run (solo, the co-op
+ * host) and in a stage; elsewhere these return 0 or -1 */
+int gevrModGameRunsGuards(void);
+/* An AI list a spawned guard may run: one there is, a guard's (not a level
+ * script's), not a subroutine */
+int gevrModGameAiListOk(int id);
+/* The guard's id, or -1 (a bad pad, no room for it there, no free slot) */
+int gevrModGameSpawnGuard(const GevrModGuardOrder *o);
+/* A gun into a living guard's hand (0 right, 1 left), the one it held gone */
+int gevrModGameGiveGuardWeapon(int id, int item, int hand);
+/* The guard along the stage's patrol path, as AI_StartPatrol */
+int gevrModGamePatrol(int id, int path);
+/* The stage's patrol paths' ids, at most max; how many */
+int gevrModGamePaths(int *ids, int max);
 
 #ifdef __cplusplus
 }

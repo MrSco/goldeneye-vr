@@ -28,7 +28,9 @@
  *                                  bondview2.c's grip tick, gevr_bodyslots.c's reach (ctrl 1 the gun hand)
  *     spawning <id> <index> <body> <head> <weapon>   expand_09_characters: guard_spawning (-1 none)
  *     addguard <id> <body> <head> <alive> <w> <wl> <health> <max> <x> <y> <z>   a guard in the stage
- *     alerted <id> <how> <player> | killed <id> <how> <item> | retiring <id> <x> <y> <z>
+ *     alerted <id> <how> <player> | killed <id> <how> <item> <player> | retiring <id> <x> <y> <z>
+ *     runs <0|1>                   this machine runs the guards (solo, the co-op host) in a stage
+ *     gspawned <id>                chrai.c: a guard the game spawned
  *
  * Prints LOG lines, DECLINED/FIRED per shot, SPAWN per pickup placed, and
  * the answers. Run in a
@@ -172,6 +174,59 @@ int gevrModGameBodyOk(int body)
 }
 int gevrModGameHeadOk(int head) { return head >= 46 && head < 88; }
 int gevrModGameGuardGun(int item) { return item >= 4 && item <= 25 && item != 23; }
+
+/* guards part 2: spawns take the next id; pad 999 has no room; paths 3 and 4 */
+static int s_runsGuards = 1, s_nextGuard = 5000;
+
+int gevrModGameRunsGuards(void) { return s_runsGuards; }
+int gevrModGameAiListOk(int id) { return id == 2 || id == 5 || id == 7 || id == 13 || id == 1025; }
+int gevrModGameSpawnGuard(const GevrModGuardOrder *o)
+{
+    GevrModGuardState *g;
+
+    if (!s_runsGuards || o->pad == 999 || s_guardCount >= 8) return -1;
+    printf("SPAWNGUARD pad %d body %d head %d ai %d weapons %d %d\n", o->pad, o->body, o->head, o->ai, o->weapon[0],
+           o->weapon[1]);
+    g = &s_guards[s_guardCount++];
+    memset(g, 0, sizeof(*g));
+    g->id = s_nextGuard;
+    g->body = o->body;
+    g->head = o->head;
+    g->alive = 1;
+    g->weapon[0] = o->weapon[0];
+    g->weapon[1] = o->weapon[1];
+    g->maxHealth = g->health = 1;
+    return s_nextGuard++;
+}
+int gevrModGameGiveGuardWeapon(int id, int item, int hand)
+{
+    int i;
+
+    for (i = 0; i < s_guardCount; i++) {
+        if (s_guards[i].id == id && s_guards[i].alive) {
+            s_guards[i].weapon[hand] = item;
+            printf("GIVEGUARD %d %d %d\n", id, item, hand);
+            return 1;
+        }
+    }
+    return 0;
+}
+int gevrModGamePatrol(int id, int path)
+{
+    int i;
+
+    for (i = 0; i < s_guardCount; i++) {
+        if (s_guards[i].id == id) return s_guards[i].alive && (path == 3 || path == 4);
+    }
+    return 0;
+}
+int gevrModGamePaths(int *ids, int max)
+{
+    if (max < 2) return 0;
+    ids[0] = 3;
+    ids[1] = 4;
+    return 2;
+}
 int gevrModGameGuards(int *ids, int max)
 {
     int i;
@@ -401,9 +456,13 @@ int main(int argc, char **argv)
         } else if (!strcmp(cmd, "alerted") && i + 3 < argc) {
             gevrModApiGuardAlerted(atoi(argv[i + 1]), atoi(argv[i + 2]), atoi(argv[i + 3]));
             i += 3;
-        } else if (!strcmp(cmd, "killed") && i + 3 < argc) {
-            gevrModApiGuardKilled(atoi(argv[i + 1]), atoi(argv[i + 2]), atoi(argv[i + 3]));
-            i += 3;
+        } else if (!strcmp(cmd, "killed") && i + 4 < argc) {
+            gevrModApiGuardKilled(atoi(argv[i + 1]), atoi(argv[i + 2]), atoi(argv[i + 3]), atoi(argv[i + 4]));
+            i += 4;
+        } else if (!strcmp(cmd, "runs") && i + 1 < argc) {
+            s_runsGuards = atoi(argv[++i]);
+        } else if (!strcmp(cmd, "gspawned") && i + 1 < argc) {
+            gevrModApiGuardSpawned(atoi(argv[++i]));
         } else if (!strcmp(cmd, "retiring") && i + 4 < argc) {
             const float pos[3] = { (float)atof(argv[i + 2]), (float)atof(argv[i + 3]), (float)atof(argv[i + 4]) };
 

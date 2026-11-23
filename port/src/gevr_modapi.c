@@ -481,9 +481,153 @@ static int l_guardGet(lua_State *L)
     return 1;
 }
 
+/* A spawned guard's behaviour by name (GEVR_MODAI_*) */
+static const struct {
+    const char *name;
+    int id;
+} s_aiNames[] = {
+    { "standard", GEVR_MODAI_STANDARD },
+    { "simple", GEVR_MODAI_SIMPLE },
+    { "deaf", GEVR_MODAI_DEAF },
+    { "chase", GEVR_MODAI_CHASE },
+};
+
+/* A whole number field of the table at t, lo to hi: 1 with it in *out, 0 when
+ * the field is absent; past them, the caller's message as an error */
+static int wholeField(lua_State *L, int t, const char *field, lua_Integer lo, lua_Integer hi, int *out,
+                      const char *call, const char *what)
+{
+    int whole = 0;
+    lua_Integer v = 0;
+    const int type = lua_getfield(L, t, field);
+
+    if (type == LUA_TNIL) {
+        lua_pop(L, 1);
+        return 0;
+    }
+    if (type == LUA_TNUMBER) v = lua_tointegerx(L, -1, &whole);
+    lua_pop(L, 1);
+    if (!whole || v < lo || v > hi) luaL_error(L, "%s: %s is %s", call, field, what);
+    *out = (int)v;
+    return 1;
+}
+
+/* A gun field (a name or id from mod.items), -1 absent */
+static int gunField(lua_State *L, int t, const char *field, const char *call)
+{
+    int item = -1;
+
+    if (lua_getfield(L, t, field) != LUA_TNIL) {
+        item = lookup(L, -1, s_itemNames, 0, GEVR_MODAPI_ITEMS);
+        if (item < 0 || !gevrModGameGuardGun(item)) luaL_error(L, "%s: %s is a gun (mod.items)", call, field);
+    }
+    lua_pop(L, 1);
+    return item;
+}
+
+/* spawn{pad, body, head, ai, weapon, weaponLeft}: the new guard's id; false
+ * where the guards don't run (a co-op client), outside a stage, or when the
+ * game can't (no room at the pad, no free slot) */
+static int l_guardSpawn(lua_State *L)
+{
+    static const char call[] = "mod.guards.spawn";
+    GevrModGuardOrder o;
+
+    luaL_checktype(L, 1, LUA_TTABLE);
+    if (!wholeField(L, 1, "pad", 0, 0x7FFF, &o.pad, call, "a setup pad's number (10000 and up: a bound pad's)")) {
+        return luaL_error(L, "%s: pad is a setup pad's number (10000 and up: a bound pad's)", call);
+    }
+    if (!wholeField(L, 1, "body", 0, 0x7FFF, &o.body, call, "one of the cartridge's bodies (not a head)")
+        || !gevrModGameBodyOk(o.body)) {
+        return luaL_error(L, "%s: body is one of the cartridge's bodies (not a head)", call);
+    }
+    o.head = -1;
+    if (wholeField(L, 1, "head", 0, 0x7FFF, &o.head, call, "one of the cartridge's heads")) {
+        if (gevrModGameBodyOk(o.body) == 2) return luaL_error(L, "%s: that body has its own head", call);
+        if (!gevrModGameHeadOk(o.head)) return luaL_error(L, "%s: head is one of the cartridge's heads", call);
+    }
+    o.ai = GEVR_MODAI_STANDARD;
+    if (lua_getfield(L, 1, "ai") == LUA_TSTRING) {
+        const char *name = lua_tostring(L, -1);
+        size_t i;
+
+        for (i = 0; i < sizeof(s_aiNames) / sizeof(s_aiNames[0]) && strcmp(name, s_aiNames[i].name); i++) {
+        }
+        if (i == sizeof(s_aiNames) / sizeof(s_aiNames[0])) {
+            return luaL_error(L, "%s: ai is \"standard\", \"simple\", \"deaf\", \"chase\" or a level's guard list id", call);
+        }
+        o.ai = s_aiNames[i].id;
+        lua_pop(L, 1);
+    } else {
+        lua_pop(L, 1);
+        if (wholeField(L, 1, "ai", 0, 0x7FFF, &o.ai, call, "\"standard\", \"simple\", \"deaf\", \"chase\" or a level's guard list id")
+            && !gevrModGameAiListOk(o.ai)) {
+            return luaL_error(L, "%s: AI list %d isn't a guard's list in this stage", call, o.ai);
+        }
+    }
+    o.weapon[0] = gunField(L, 1, "weapon", call);
+    o.weapon[1] = gunField(L, 1, "weaponLeft", call);
+    if (!gevrModGameRunsGuards()) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    {
+        const int id = gevrModGameSpawnGuard(&o);
+
+        if (id < 0) lua_pushboolean(L, 0);
+        else lua_pushinteger(L, id);
+    }
+    return 1;
+}
+
+/* giveWeapon(id, item, hand): true when the guard holds it */
+static int l_guardGiveWeapon(lua_State *L)
+{
+    const lua_Integer id = luaL_checkinteger(L, 1);
+    const int item = itemArg(L, 2);
+    const int hand = lua_isnoneornil(L, 3) ? 0 : handArg(L, 3);
+
+    if (!gevrModGameGuardGun(item)) {
+        return luaL_error(L, "mod.guards.giveWeapon: %s isn't a gun a guard can hold", s_itemNames[item]);
+    }
+    lua_pushboolean(L, id >= -32768 && id <= 32767 && gevrModGameRunsGuards()
+                           && gevrModGameGiveGuardWeapon((int)id, item, hand));
+    return 1;
+}
+
+/* patrol(id, path): true when the guard set out along it */
+static int l_guardPatrol(lua_State *L)
+{
+    const lua_Integer id = luaL_checkinteger(L, 1);
+    const lua_Integer path = luaL_checkinteger(L, 2);
+
+    lua_pushboolean(L, id >= -32768 && id <= 32767 && path >= 0 && path <= 255 && gevrModGameRunsGuards()
+                           && gevrModGamePatrol((int)id, (int)path));
+    return 1;
+}
+
+/* paths(): the stage's patrol paths' ids */
+static int l_guardPaths(lua_State *L)
+{
+    int ids[256];
+    const int n = gevrModGamePaths(ids, 256);
+    int i;
+
+    lua_createtable(L, n, 0);
+    for (i = 0; i < n; i++) {
+        lua_pushinteger(L, ids[i]);
+        lua_rawseti(L, -2, i + 1);
+    }
+    return 1;
+}
+
 static const luaL_Reg s_guardFuncs[] = {
     { "list", l_guardList },
     { "get", l_guardGet },
+    { "spawn", l_guardSpawn },
+    { "giveWeapon", l_guardGiveWeapon },
+    { "patrol", l_guardPatrol },
+    { "paths", l_guardPaths },
     { NULL, NULL },
 };
 
@@ -893,9 +1037,9 @@ void gevrModApiGuardAlerted(int id, int how, int player)
     gevrModScriptEvent("guard_alerted", a, 3, 0);
 }
 
-void gevrModApiGuardKilled(int id, int how, int item)
+void gevrModApiGuardKilled(int id, int how, int item, int player)
 {
-    GevrModArg a[3];
+    GevrModArg a[4];
 
     if (!gevrModScriptRunning() || how < GEVR_MODKILL_SHOT || how > GEVR_MODKILL_EXPLOSION) return;
     a[0].kind = GEVR_MODARG_INTEGER;
@@ -904,7 +1048,19 @@ void gevrModApiGuardKilled(int id, int how, int item)
     a[1].s = s_killNames[how];
     a[2].kind = item >= 0 ? GEVR_MODARG_INTEGER : GEVR_MODARG_NIL;
     a[2].n = item;
-    gevrModScriptEvent("guard_killed", a, 3, 0);
+    a[3].kind = player >= 0 ? GEVR_MODARG_INTEGER : GEVR_MODARG_NIL;
+    a[3].n = player;
+    gevrModScriptEvent("guard_killed", a, 4, 0);
+}
+
+void gevrModApiGuardSpawned(int id)
+{
+    GevrModArg a[1];
+
+    if (!gevrModScriptRunning()) return;
+    a[0].kind = GEVR_MODARG_INTEGER;
+    a[0].n = id;
+    gevrModScriptEvent("guard_spawned", a, 1, 0);
 }
 
 void gevrModApiCorpseRetiring(int id, const float pos[3])

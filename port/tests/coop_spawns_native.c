@@ -84,6 +84,7 @@ int gevrCoopFastReinforcements(void) { return host_fast; }
 int netGetLocalSlot(void) { return (int)(world-worlds); }
 s32 getPlayerCount(void) { return 4; }
 s32 gevrBodyRetireForAi(ChrRecord *chr) { return FALSE; } /* online corpses use ordinary cleanup */
+void gevrModGuardSpawned(ChrRecord *chr) { (void)chr; } /* gevr_modgame.c: a mod's guard_spawned */
 u64 sysGetMicroseconds(void) { return now; }
 void netAllyHostTick(void) {}
 void netAllySend(int slot) {}

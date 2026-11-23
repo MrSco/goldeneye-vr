@@ -87,7 +87,7 @@ static const char *const s_events[] = {
     /* the hands area */
     "grip", "release", "hand_near",
     /* the guards area */
-    "guard_spawning", "guard_alerted", "guard_killed", "corpse_retiring",
+    "guard_spawning", "guard_alerted", "guard_killed", "corpse_retiring", "guard_spawned",
 };
 
 static void note(const char *fmt, ...)
