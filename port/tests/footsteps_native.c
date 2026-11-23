@@ -41,6 +41,14 @@ ALBank *g_musicSfxBufferPtr;
 EnvironmentRecord *g_EnvironmentMainp, *g_EnvironmentAltp;
 static u8 s_retail0D[] = { 0x04 };   /* stands in for GoldenEye's own list 0x000D: not the cartridge's */
 AIListRecord g_GlobalAILists[] = { { (AIRecord *)s_retail0D, 0x0d }, { NULL, 0 } };
+
+/* A teammate's memory: the game's own global lists, as before any bind. A
+ * bind points them into the cartridge's window, which applying the variant
+ * again frees (the game applies it once a run; this harness more than once) */
+static void freshGlobalLists(void)
+{
+	g_GlobalAILists[0].ailist = (AIRecord *)s_retail0D;
+}
 CheatInfo g_CheatInfo[17];   /* cheats 1-16 in their rows, as cheat.c has them; the end row */
 const s32 gevrCheatInfoCount = 17;
 
@@ -235,6 +243,7 @@ int main(int argc, char **argv)
 			memcpy(at, gevrRomWindowBytes(st[i], ln[i]), ln[i]);
 			at += ln[i];
 		}
+		freshGlobalLists();
 		if (romcampaign_main(argc, argv) != 0) {
 			return 5;
 		}
@@ -287,6 +296,7 @@ int main(int argc, char **argv)
 	if (argc > 4) {
 		s32 i;
 
+		freshGlobalLists();
 		if (romcampaign_main(argc, argv) != 0) {
 			return 3;
 		}

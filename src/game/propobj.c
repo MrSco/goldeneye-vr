@@ -4209,6 +4209,10 @@ s32 chrobjTestPointPolygonCollision(struct coord3d *point, f32 collision_radius,
 }
 
 
+#ifdef GEVR
+#include "gevr_ragdoll.h"   /* a moving door fades the ragdoll bodies it touches */
+#endif
+
 /**
  * NTSC address 0x7F0448A8.
 */
@@ -4226,11 +4230,19 @@ s32 sub_GAME_7F0448A8(struct PropRecord *argProp)
     f32 radius;
     f32 ground;
     PropRecord *propss;
+#ifndef GEVR
     ObjectRecord *temp_v0_2;
+#endif
     struct rect4f *polygon;
     s32 edges;
     f32 top;
     f32 bottom;
+#ifdef GEVR
+    /* Dam's truck (PROPDEF_VEHICHLE) moves by this check as a door does */
+    const s32 gevrTruck = (argProp->type == PROP_TYPE_OBJ) && (argProp->obj != NULL)
+        && (argProp->obj->type == PROPDEF_VEHICHLE);
+    extern s32 gevrGhostIsChr(ChrRecord *chr);   /* gevr_ghost.c: the race's see-through Bond */
+#endif
 
     chraiGetCollisionBounds(argProp, &polygon2, &edges2, &chrTop, &chrBottom);
 
@@ -4242,6 +4254,38 @@ s32 sub_GAME_7F0448A8(struct PropRecord *argProp)
     chraiGetPropRoomIds(argProp, (s32*)&roomids);
     roomGetProps((s32*)&roomids);
 
+#ifdef GEVR
+    /* Ragdoll bodies (gevr_ragdoll.c) are not props, so a door closed through
+     * them: each one this door touches fades away in half a second. The door
+     * never waits for one: the dead guard's own body holds it for the original
+     * lifetime below, so doors keep the original timing with ragdolls on or off.
+     * Dam's truck does the same (owner, 2026-11-23: in the original it stops for
+     * a dead guard until he fades). */
+    if ((argProp->type == PROP_TYPE_DOOR) || gevrTruck)
+    {
+        coord3d parts[GEVR_RAGDOLL_PARTS_MAX];
+        s32 body;
+        s32 part;
+        s32 count;
+
+        for (body = 0; body < gevrRagdollBodies(); body++)
+        {
+            count = gevrRagdollBodyParts(body, parts, GEVR_RAGDOLL_PARTS_MAX);
+
+            for (part = 0; part < count; part++)
+            {
+                if ((parts[part].f[1] >= chrBottom - 30.0f) && (parts[part].f[1] <= chrTop)
+                    && (chrpropTestPointInPolygon(&parts[part], polygon2, edges2)
+                        || chrobjTestPointPolygonCollision(&parts[part], 10.0f, polygon2, edges2)))
+                {
+                    gevrRagdollDoorFade(body);
+                    break;
+                }
+            }
+        }
+    }
+#endif
+
     propss = (PropRecord *)&g_Props;
 
     for (temp_s0 = ptr_list_object_lookup_indices; *temp_s0 >= 0; temp_s0++)
@@ -4252,8 +4296,20 @@ s32 sub_GAME_7F0448A8(struct PropRecord *argProp)
         {
             if ((prop->type == PROP_TYPE_VIEWER) || (prop->type == PROP_TYPE_CHR))
             {
+#ifdef GEVR
+                /* CHRFLAG_HIDDEN: a hidden chr never blocks. The decomp reads it through
+                 * an object's model pointer, which on the N64 sits where a chr's flags
+                 * do (0x14). On 64-bit Android, Linux and Apple builds that read the chr's prop pointer,
+                 * so whether a guard, a body or a player with a body stopped a door or
+                 * Dam's truck depended on where its prop happened to be in memory. The
+                 * race's ghost is a picture of a run: it holds no door or truck, as it
+                 * stops no shot and no walker (chrprop.c propIsOfCdType). */
+                if (((prop->chr == NULL) || !(prop->chr->chrflags & CHRFLAG_HIDDEN))
+                    && !((prop->type == PROP_TYPE_CHR) && gevrGhostIsChr(prop->chr)))
+#else
                 temp_v0_2 = prop->obj;
                 if ((temp_v0_2 == NULL) || !((s32) temp_v0_2->model & 0x400))
+#endif
                 {
                     chrpropGetCollisionBounds(prop, &radius, &height, &arbitratyNumber);
 
@@ -4285,14 +4341,18 @@ s32 sub_GAME_7F0448A8(struct PropRecord *argProp)
                                     prop->chr->hidden |= CHRHIDDEN_OFFSCREEN_PATROL;
                                 }
 #ifdef GEVR
-                                /* A kept body would hold the door forever: the door
-                                 * touching it starts its normal fade, and the door
-                                 * stays blocked until it is gone (never clips it).
-                                 * A falling guard still blocks as in the original. */
-                                if ((prop->type == PROP_TYPE_CHR) && (argProp->type == PROP_TYPE_DOOR)
-                                    && (prop->chr != NULL) && (prop->chr->actiontype == ACT_DEAD))
+                                /* A dead body holds the door, or Dam's truck, for the
+                                 * original game's lifetime of it, as in the original,
+                                 * whatever Bodies stay says; past it the body fades and
+                                 * the door or truck does not wait (chraction.c
+                                 * gevrBodyDoorHit), as for a ragdoll's above. A falling
+                                 * guard blocks as in the original. */
+                                if ((prop->type == PROP_TYPE_CHR)
+                                    && ((argProp->type == PROP_TYPE_DOOR) || gevrTruck)
+                                    && (prop->chr != NULL) && (prop->chr->actiontype == ACT_DEAD)
+                                    && gevrBodyDoorHit(prop->chr))
                                 {
-                                    gevrBodyDoorHit(prop->chr);
+                                    continue;
                                 }
 #endif
 
@@ -11782,8 +11842,7 @@ TICKOP objTickPlayer(struct PropRecord* prop)
 
 #ifdef GEVR
     {
-        /* force pull (gevr_forcepull.c): not a prop flying to a hand, nor a gun
-         * with Auto pickup off (grab or pull it) */
+        /* force pull (gevr_forcepull.c): not a prop flying to a hand */
         extern s32 gevrPullBlocksWalkOver(PropRecord *prop);
 
         if (prop != g_gevrHandGrabProp && gevrPullBlocksWalkOver(prop))

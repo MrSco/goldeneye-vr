@@ -5435,10 +5435,16 @@ extern bool netIsActive(void);
 static ChrRecord *s_gevrBodies[GEVR_BODIES_MAX];   /* kept, oldest first */
 static s32 s_gevrBodyAge[GEVR_BODIES_MAX];       /* original fade clock, not visible alpha */
 static s32 s_gevrBodyCount;
+/* Bodies past the original lifetime a door touched (gevrBodyDoorHit): gone in half a second */
+#define GEVR_DOOR_FADE_TICKS (CHRLV_TICK_DEAD_CHECK / 3)
+static ChrRecord *s_gevrDoorFading[GEVR_BODIES_MAX];
+static s32 s_gevrDoorFadeLeft[GEVR_BODIES_MAX];
+static s32 s_gevrDoorFadingCount;
 
 void gevrBodiesReset(void)
 {
     s_gevrBodyCount = 0;
+    s_gevrDoorFadingCount = 0;
 }
 
 s32 gevrBodyKept(ChrRecord *chr)
@@ -5513,22 +5519,85 @@ static void gevrBodyRelease(s32 i)
     }
 }
 
-/* A closing door touched this body (propobj.c sub_GAME_7F0448A8). A kept body
- * would keep the door from closing forever, so it gives way and fades as the game
- * would have faded it; the door stays blocked until the body is gone. A body
- * that is not kept is already fading. */
-void gevrBodyDoorHit(ChrRecord *chr)
+/*
+ * A moving door touched this dead body (propobj.c sub_GAME_7F0448A8). Doors keep
+ * the original game's timing whatever the body settings, so runs compare across
+ * Bodies stay and ragdolls and online matches see the same doors (owner,
+ * 2026-11-23: "make the ragdolls and non-ragdolls behave the same with doors").
+ * Within the original lifetime of the body the door waits, as in the original: a
+ * kept one goes back to the original clock, so it is gone just when the original
+ * would have removed it. Past it, a kept body is the player's own, as a ragdoll's
+ * is: it fades in half a second and the door does not wait (TRUE).
+ */
+s32 gevrBodyDoorHit(ChrRecord *chr)
 {
     s32 i;
 
+    if (chr == NULL || chr->actiontype != ACT_DEAD)
+    {
+        return FALSE;
+    }
+    for (i = 0; i < s_gevrDoorFadingCount; i++)
+    {
+        if (s_gevrDoorFading[i] == chr)
+        {
+            return TRUE;
+        }
+    }
     for (i = 0; i < s_gevrBodyCount; i++)
     {
         if (s_gevrBodies[i] == chr)
         {
+            const s32 past = s_gevrBodyAge[i] >= CHRLV_TICK_DEAD_CHECK;
+
             gevrBodyRelease(i);
-            return;
+            if (!past)
+            {
+                return FALSE;
+            }
+            break;
         }
     }
+    /* past the original lifetime: kept, or released and fading the slow way (its ID retired) */
+    if (chr->chrnum != -1 || s_gevrDoorFadingCount >= GEVR_BODIES_MAX)
+    {
+        return chr->chrnum == -1;
+    }
+    s_gevrDoorFading[s_gevrDoorFadingCount] = chr;
+    s_gevrDoorFadeLeft[s_gevrDoorFadingCount++] = GEVR_DOOR_FADE_TICKS;
+    return TRUE;
+}
+
+/* chrlvTickDead: TRUE while a door's quick fade (gevrBodyDoorHit) has the body */
+static s32 gevrBodyDoorFadeTick(ChrRecord *self)
+{
+    s32 i;
+    s32 j;
+
+    for (i = 0; i < s_gevrDoorFadingCount; i++)
+    {
+        if (s_gevrDoorFading[i] != self)
+        {
+            continue;
+        }
+        s_gevrDoorFadeLeft[i] -= g_ClockTimer;
+        if (s_gevrDoorFadeLeft[i] <= 0)
+        {
+            self->hidden |= CHRHIDDEN_REMOVE;
+            s_gevrDoorFadingCount--;
+            for (j = i; j < s_gevrDoorFadingCount; j++)
+            {
+                s_gevrDoorFading[j] = s_gevrDoorFading[j + 1];
+                s_gevrDoorFadeLeft[j] = s_gevrDoorFadeLeft[j + 1];
+            }
+        }
+        else
+        {
+            self->fadealpha = (u8)((s_gevrDoorFadeLeft[i] * 0xFF) / GEVR_DOOR_FADE_TICKS);
+        }
+        return TRUE;
+    }
+    return FALSE;
 }
 
 /* chrlvTickDead: TRUE while the body is kept */
@@ -5590,6 +5659,10 @@ static s32 gevrBodyKeepTick(ChrRecord *self)
 void chrlvTickDead(ChrRecord *self)
 {
 #ifdef GEVR
+    if (gevrBodyDoorFadeTick(self))
+    {
+        return;
+    }
     if (gevrRagdollSuppress(self)) {
         /* A physics snapshot owns the visible body now. Drop any old native
          * retention entry before this actor slot can be reused. */

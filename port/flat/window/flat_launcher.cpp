@@ -127,6 +127,7 @@ extern "C" bool vr_screen_present_tex2d(unsigned int srcTex, int w, int h)
  */
 void flatLauncherInit(ImGuiIO &io);
 void flatLauncherFeedInput(ImGuiIO &io);
+static bool s_enterHeldAtOpen = false;   // the Enter (Start) that opened the pause
 extern "C" void gevrFeedPauseInput(int opening)
 {
     static bool watching = false;
@@ -135,7 +136,10 @@ extern "C" void gevrFeedPauseInput(int opening)
         flatLauncherInit(io);
         watching = true;
     }
-    if (opening) s_clickCount = 0;   // presses from before it opened
+    if (opening) {
+        s_clickCount = 0;   // presses from before it opened
+        s_enterHeldAtOpen = true;   // its Enter, still down, would press the focused Resume (5.25 report)
+    }
     flatLauncherFeedInput(io);
 }
 
@@ -369,7 +373,11 @@ void flatLauncherFeedInput(ImGuiIO &io)
     io.AddKeyEvent(ImGuiKey_LeftCtrl, key(SDL_SCANCODE_LCTRL));
     // Return activates; in a text box the launcher's queue types it, and ImGui
     // must see it up there: one held as the box opened repeated new lines
-    io.AddKeyEvent(ImGuiKey_Enter, !io.WantTextInput && key(SDL_SCANCODE_RETURN));
+    // An Enter held since the pause opened is the Start that opened it: not a
+    // press until it is let go
+    const bool enterDown = key(SDL_SCANCODE_RETURN);
+    if (!enterDown) s_enterHeldAtOpen = false;
+    io.AddKeyEvent(ImGuiKey_Enter, !io.WantTextInput && !s_enterHeldAtOpen && enterDown);
     bool navKey = key(SDL_SCANCODE_UP) || key(SDL_SCANCODE_DOWN) || key(SDL_SCANCODE_LEFT) || key(SDL_SCANCODE_RIGHT)
                || key(SDL_SCANCODE_TAB) || key(SDL_SCANCODE_SPACE) || key(SDL_SCANCODE_RETURN);
 

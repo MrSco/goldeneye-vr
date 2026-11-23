@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from gevr_testcc import sanitize  # the sanitizers where the compiler links them
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -42,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix="gevr-wounds-") as directory:
         exe = temp / "test"
         subprocess.run([
             shutil.which("gcc") or "cc", "-std=c11", "-O1", "-g", "-fms-extensions",
-            "-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-fno-pie", "-no-pie",
+            *sanitize("-fsanitize=address,undefined"), "-fno-omit-frame-pointer", "-fno-pie", "-no-pie",
             "-Wno-incompatible-pointer-types",
             "-DPLATFORM_64BIT=1", "-D_LANGUAGE_C", "-DGEVR", "-DVERSION_US",
             *(["-DBASELINE"] if baseline else []),

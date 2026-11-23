@@ -126,7 +126,7 @@ Also:
 
   Nothing of theirs ships with the app. New pack releases show up on the Mods page as updates.
 
-  In game, hold **both grips + the right-stick click** to open the in-game panel, then use **HD textures off** and **on** to compare.
+  In game, hold **both grips + the right-stick click** to open the in-game panel, then switch **VR settings → Mods and fun → HD textures** to compare.
 - **Multiplayer** (experimental): deathmatch for up to eight players, with **bots** to fill the empty slots or to play against on your own, endless Horde waves on any map for one to four, or the campaign in co-op for up to four, each in their own headset, over the internet or your Wi-Fi: browse public games, share a private code or invite your friends. See [Multiplayer](#-multiplayer-experimental).
 - **Friends and invites**: the **Friends** panel beside the launcher and the in-game panel shows which friends are online and what they're playing. Find friends by name or friend code, invite them into your lobby, or join theirs. **Link Discord** there to add your Discord friends, show what you're playing on Discord, and send and take invites through it. A lobby's `goldeneyevr.com/join` link shows its code and an **Open in GoldenEye VR** button. See [Friends and invites](docs/friends-and-invites.md).
 - **Optional ragdolls and limb dismemberment** (experimental): Ragdolls and Dismemberment on **Rules → Game rules**. Off by default; works in every mode, with the body count set to fade, 12 or 24. Physics and cuts are local to each headset. See [setup, limits and testing](docs/ragdolls.md).
@@ -279,6 +279,9 @@ ROM, as on the Quest.
     [SideStore](https://sidestore.io/).
 - **Crossplay:** flat players (mouse, pad, touch) can join VR players. A host can tick
   **VR players only**, and VR players can tick **Hide games with flat players** on the Join page.
+- **Reload mode:** the lobby's Reload column shows who reloads by hand and who uses the button.
+  A host can tick **Hand reload only**, and anyone can tick **Hide games with button reload** on
+  the Join page. Both are off by default, so every game is listed.
 - **Split screen** (from v0.5.22): GoldenEye's own 2 to 4 player split on one screen (Windows,
   Linux, Apple TV, phones and tablets), offline. Choose **Multiplayer**, then each player presses
   to join (A or Start on a pad, Enter on the keyboard); the order is the player numbers. The
@@ -322,11 +325,10 @@ from [Wreck's N64 Vault page](https://n64vault.com/pd-multi-levels:goldeneye-x).
 4. Tick **GE-X guns, hands and watch**. It's off by default. During a mission
    you can switch it in the in-game panel (**both grips + hold the right-stick click**): **VR settings → Mods and fun → GoldenEye X**.
 
-On the virtual screen, GE-X's own fire and reload animations play. To reload by hand in
-stereo VR, also turn on **Hand reload WIP** on **Controls → Gestures**. It needs
-GoldenEye X or Bean's models; with neither on, it's greyed out with
-**Needs GoldenEye X or Bean**. With Bean alone, every gun but the Golden Gun
-reloads by hand ([details](docs/project-bean.md#removable-magazines-hand-reload-wip)).
+On the virtual screen, GE-X's own fire and reload animations play. In stereo VR you
+reload by hand: **Hand reload** on **Controls → Gestures**, on by default from v0.5.26.
+It works with GoldenEye X's guns, Bean's ([details](docs/project-bean.md#removable-magazines-hand-reload-wip))
+and GoldenEye's own ([details](docs/hand-reload-original.md)).
 - **Magazine guns.** Pull the magazine with your off hand, grip a replacement at your
   belt, and seat it in the gun.
   - B/Y drops the magazine. A removed magazine keeps its rounds until you put it back or drop it.
@@ -380,7 +382,7 @@ GE-X and the ROM section's **Choose ROM file...** for your GoldenEye ROM.
 | **Left hand on the gun** + **left grip** | Hold it with both hands |
 | **Hand at a body slot** + **grip** | With **Body slots WIP** on (off by default): take that slot's weapon. Pistols sit at the hips, rifles and heavy guns over the shoulders, thrown weapons on the chest, gadgets at the belt. See [body slots](docs/body-slots.md) |
 | **Hand at a door, switch or console** + **grip** | Use it, as B does |
-| **Hand at a gun on the floor** + **grip** | That gun goes into that hand, even one still falling from a guard. Walking over guns still picks them up, unless **Auto pickup** is off |
+| **Hand at a gun on the floor** + **grip** | That gun goes into that hand, even one still falling from a guard. Walking over guns still picks them up |
 | **Hand at your own stuck mine** + **grip** | Take it back (remote mines, and proximity mines still arming; single player and the co-op host) |
 | **Point an empty hand** at a gun or item + **grip**, then **flick** | With **Force pull WIP** on (off by default): the grip locks it, a flick of the wrist or a pull of the hand back flies it over, and a fresh squeeze catches it. See [force pull](docs/force-pull.md) |
 | **Grip** a throwable, swing, **release** the grip | Throw it from your hand: throwing knives, grenades, mines (**Motion throw**, on by default). The trigger cooks a grenade meanwhile |
@@ -397,11 +399,11 @@ GE-X and the ROM section's **Choose ROM file...** for your GoldenEye ROM.
 | **Left grip** + **X** | Previous item for your left hand |
 | **Hold A** | Weapon wheel above your gun hand: push the other stick toward a category (pistols top, rifles upper right, heavy lower right, gadgets lower left, thrown upper left), pull a trigger to step through the guns in it (gun hand forward, other hand back), let go of A to equip (dual-wield pairs included) |
 | **Hold X** | Left-hand wheel: anything you carry for your left hand, guns, knives, grenades and mines included (not the watch laser, Detonator or tank shells). Point with the right stick, step with the triggers, let go to equip. In multiplayer, only when the host's **Dual wield** rule isn't Off |
-| **B** / **Y** | Action: doors and switches take priority; dual wielding, reload the gun in that button's hand. With one gun, either button reloads it (not with **Hand reload WIP** on) |
+| **B** / **Y** | Action: doors and switches take priority; dual wielding, reload the gun in that button's hand. With one gun, either button reloads it (not with **Hand reload** on) |
 | **☰ Menu** (left controller) | Pause / Bond's watch (in multiplayer: the pause menu) |
 | **☰ Menu** + **A** | Gun fit on or off (single player) |
 | **☰ Menu** + **B** | Mute or unmute your microphone (multiplayer) |
-| **Both grips + hold right-stick click** (1 s) | The in-game panel: VR settings, HD textures, **Reset sound**, Friends and **Back to launcher** (in multiplayer: the pause menu's **Settings** tab) |
+| **Both grips + hold right-stick click** (1 s) | The in-game panel: VR settings (HD textures under **Mods and fun**), Friends and **Back to launcher** (in multiplayer: the pause menu's **Settings** tab) |
 | **Raise left wrist to your face** | Open Bond's watch when **Watch gesture** is on |
 | **Both grips + hold left-stick click** (1 s) | Restart the mission from its intro (solo, offline, with the Speedrun timer, Ghost race or LiveSplit on): a speedrunner's reset |
 | **Both stick clicks** | Recenter the view |
@@ -414,10 +416,11 @@ A tap of **A** or **X** skips guns with no ammo left; the weapon wheel still lis
 after the game switches you off an empty gun, your first tap keeps the gun it picked.
 
 The launcher's **Controls → Gestures** tab turns grip gestures on or off: **Watch gesture**,
-**Body slots WIP**, **Grip use** (doors and switches), **Mine re-grab**, **Force pull WIP**
-(with **Pull disarm** and **Pull visuals**) and **Auto pickup**. Anywhere else the grip aims
-as before. The 25 cm grab of a gun on the floor is always on. **Hand reload WIP** is there
-too, off by default: it needs GoldenEye X, or Bean's models for its magazine-fed guns. Guns stop reloading themselves, and B/Y stop
+**Body slots WIP**, **Grip use** (doors and switches), **Mine re-grab** and **Force pull WIP**
+(it also takes a guard's gun, and shows a glow and a line on what it points at). Anywhere else
+the grip aims as before. Walking over a gun always picks it up.
+**Grip use** stays on while **Hand reload** is on, since B/Y then eject magazines. The 25 cm grab of a gun on the floor is always on. **Hand reload** is there
+too, on by default from v0.5.26 with every model set (GoldenEye's own, GoldenEye X's and Bean's). Guns stop reloading themselves, and B/Y stop
 reloading. You reload by hand as described under [GoldenEye X](#-goldeneye-x-optional-wip),
 including when dual-wielding.
 
@@ -442,7 +445,7 @@ levels and no longer causes the reported enemy surge. See
 
 Hold **both grips + the right-stick click** for a second, in a mission or online, to open the **in-game panel** on the
 room screen (a solo mission pauses under it; tap Menu or press B to close it). It has
-**Back to launcher**, **HD textures** on/off with a texture pack, **Reset sound**, your **Friends** (see
+**Back to launcher**, your **Friends** (see
 [Friends and invites](docs/friends-and-invites.md)), and the **VR settings**, which change settings
 mid-mission in seven sections (online, the pause menu's **Settings** tab has the same): **Comfort**, **Controls**, **Gestures**, **Weapons**,
 **Display**, **Game rules**, and **Mods and fun**. These include left-handed mode,
@@ -574,7 +577,7 @@ settings are on the pause menu's **Rules** tab as **Bots**, **Bot count** and
 **In a match.** **☰ Menu** (or the watch gesture) opens the pause menu on its **Match** tab;
 both grips + the right-stick click open it on **Settings**. Its tabs are **Match** (scores, map and votes),
 **Rules** (the host's; a guest sees them greyed, **Host's choice**), **Player**, **Audio**
-and **Settings** (the in-game panel's VR settings, **HD textures** and **Reset sound**).
+and **Settings** (the in-game panel's VR settings).
 The match goes on while it's open.
 - **Navigating.** Point and pull a trigger, or use either stick. A or X selects; B or Y
   goes back, and B resumes.
@@ -747,8 +750,9 @@ virtual screen, which has no artificial motion at all.
 <details>
 <summary><b>The sound turns crunchy or echoes</b></summary>
 
-Hold **both grips + the right-stick click** for the in-game panel (online: the pause menu's **Settings** tab) and press
-**Reset sound**. It restarts the sound output without leaving the mission.
+The cause ([#229](https://github.com/MrSco/goldeneye-vr/issues/229)) is fixed, and the **Reset sound** button that
+worked around it is gone since v0.5.26. If it happens again, restart the app and
+[tell us](https://github.com/MrSco/goldeneye-vr/issues).
 </details>
 
 <details>
