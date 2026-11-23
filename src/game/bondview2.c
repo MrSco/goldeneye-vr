@@ -3723,13 +3723,22 @@ s32 gevrStereoBatOffHand(s32 hand, f32 opos[3], f32 *amt)
 }
 
 /* gun.c gevrBeanBatPose: both hands on the glove-held bat, the off hand's controller's
- * axes (its right, up and back, as it is: the wrist that turns the bat) */
-s32 gevrStereoBatOffAxes(s32 hand, f32 r[3], f32 u[3], f32 b[3])
+ * axes (its right, up and back, as it is: the wrist that turns the bat) and how far
+ * the two controllers are apart, real cm (stacked on a bat, 10-13) */
+s32 gevrStereoBatOffAxes(s32 hand, f32 r[3], f32 u[3], f32 b[3], f32 *apartCm)
 {
-    f32 pos[3];
+    const f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    f32 pos[3], gpos[3], ignore[3];
 
-    return s_gevrTwoHandAmt > 0.001f && s_gevrTwoHandGun == hand && gevrStereoClubBatGlove(hand)
-        && gevrStereoClubBat(hand) && gevrGripAxesRaw(hand, pos, r, u, b);
+    if (!(s_gevrTwoHandAmt > 0.001f) || s_gevrTwoHandGun != hand || !gevrStereoClubBatGlove(hand)
+        || !gevrStereoClubBat(hand) || cm < 1e-6f || !gevrGripAxesRaw(hand, pos, r, u, b)
+        || !gevrGripAxesRaw(1 - hand, gpos, ignore, ignore, ignore))
+    {
+        return FALSE;
+    }
+    *apartCm = sqrtf((pos[0] - gpos[0]) * (pos[0] - gpos[0]) + (pos[1] - gpos[1]) * (pos[1] - gpos[1])
+                     + (pos[2] - gpos[2]) * (pos[2] - gpos[2])) / cm;
+    return TRUE;
 }
 
 /* gunfire.c: the off hand is stuck to the glove-held bat (gevrBatOffHandPin), so it

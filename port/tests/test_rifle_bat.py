@@ -77,13 +77,17 @@ s32 gevrStereoBatOffHand(s32 h, f32 opos[3], f32 *amt)
     *amt = offAmt;
     return TRUE;
 }
-s32 gevrStereoBatOffAxes(s32 h, f32 r[3], f32 u[3], f32 b[3])
+static f32 apart = 11.0f;                   /* the controllers, real cm: stacked on a bat 10-13 */
+s32 gevrStereoBatOffAxes(s32 h, f32 r[3], f32 u[3], f32 b[3], f32 *apartCm)
 {
     (void)h;
     if (offAmt <= 0.0f) return FALSE;
     memcpy(r, offAxes[0], 12); memcpy(u, offAxes[1], 12); memcpy(b, offAxes[2], 12);
+    *apartCm = apart;
     return TRUE;
 }
+#define LOG_NOTE 0
+static void sysLogPrintf(int level, const char *fmt, ...) { (void)level; (void)fmt; }
 static f32 s_gevrGexBatEnd[2][3];
 static s32 s_gevrGexBatAt[2];
 static f32 s_gevrGexBatLine[2][15];
@@ -186,6 +190,7 @@ int main(void)
     assert(deg(line(), want) < 0.05f);
 
     /* hands spread 30 cm, 6 cm across: the line through both grip points */
+    apart = 30;
     setGun(0); setOff(0);
     palmOf(&gunHand, palm);
     for (int i = 0; i < 3; i++) offAt[i] = palm[i] - ey[i] * cm(30) + ex[i] * cm(6);
@@ -193,6 +198,7 @@ int main(void)
     assert(offLine(offAt) < 0.05f && offLine(palm) < 0.01f && deg(line(), ey) > 10.0f);
     memcpy(spread, line(), sizeof(spread));
     /* brought together again: it stays where the line left it */
+    apart = 11;
     for (int i = 0; i < 3; i++) offAt[i] = palm[i] - ey[i] * cm(10);
     tick();
     assert(deg(line(), spread) < 0.05f);
@@ -219,6 +225,30 @@ int main(void)
     tick();
     for (int i = 0; i < 3; i++) want[i] = GEVR_BEAN_BAT_GRIP_Y * gunHand.m[1][i] + GEVR_BEAN_BAT_GRIP_Z * gunHand.m[2][i];
     assert(deg(line(), want) < 0.05f);
+
+    /* fists stacked, controllers 11 cm apart, but the grip points 18 cm apart (they sit
+     * off the controllers): the wrists still have it, and breaking both 40 degrees
+     * swings it all 40, held there (owner, 2026-11-22: "you can't break the wrist to
+     * complete the swing. It swings kind of like a stiff axe") */
+    offAmt = 0;
+    tick(); tick(); tick(); tick(); tick(); tick();
+    offAmt = 1;
+    apart = 11;
+    setGun(0); setOff(0);
+    palmOf(&gunHand, palm);
+    for (int i = 0; i < 3; i++) offAt[i] = palm[i] - ey[i] * cm(18) + ex[i] * cm(3);
+    tick();
+    assert(deg(line(), ey) < 0.05f);
+    setGun(40); setOff(40);
+    palmOf(&gunHand, palm);
+    turnX(40, ey, want);
+    /* the grip points 6 cm across the wrists' line: by them it would lean 18 degrees */
+    for (int i = 0; i < 3; i++) offAt[i] = palm[i] - want[i] * cm(18) + ex[i] * cm(6);
+    for (int k = 0; k < 10; k++)
+    {
+        tick();
+        assert(deg(line(), want) < 0.1f);
+    }
 
     /* the off hand stuck to the bat (bondview2.c gevrBatOffHandPin) */
     {

@@ -4129,12 +4129,17 @@ static Mtxf s_gevrBeanBatHand[2];      /* the PP7's gun matrix the glove is draw
  * takes hold, where the bat lies is kept in each hand's own axes - the fist's,
  * and the off hand's controller's - and from then both wrists turn it: it lies
  * between where the two have it, so both turning together swing it all the
- * way and one alone half as far. Hands spread past GEVR_BEAN_BAT_LINE_MIN_CM
- * (a sledgehammer, not a bat's stacked fists) take it onto the line through
- * both grip points (bondview2.c gevrBatOffPalm: the palm, moved by Gun fit)
- * by GEVR_BEAN_BAT_LINE_FULL_CM, and the grips follow it there, so brought
+ * way and one alone half as far. Controllers spread past
+ * GEVR_BEAN_BAT_LINE_MIN_CM (a sledgehammer, not a bat's stacked fists, whose
+ * controllers are 10-13 cm apart) take it onto the line through both grip
+ * points (bondview2.c gevrBatOffPalm: the palm, moved by Gun fit) by
+ * GEVR_BEAN_BAT_LINE_FULL_CM, and the grips follow it there, so brought
  * together again the bat stays where the line left it (GoldenEye X's,
- * bondview2.c gevrTwoHandBatAim, alike). It turns about the fist, the glove
+ * bondview2.c gevrTwoHandBatAim, alike). The controllers, not the grip points:
+ * those sit off the controllers, and stacked fists' were far enough apart for
+ * the line to take the bat back from the wrists every tick (owner, 2026-11-22,
+ * headset: "you can't break the wrist to complete the swing. It swings kind of
+ * like a stiff axe"). It turns about the fist, the glove
  * with it; the off hand is stuck to it as it took hold (bondview2.c
  * gevrBatOffHandPin). Before this it lay on one line through both grip points
  * and turned on the off hand as on a pin, the off hand free on it.
@@ -4142,7 +4147,7 @@ static Mtxf s_gevrBeanBatHand[2];      /* the PP7's gun matrix the glove is draw
 #define GEVR_BEAN_BAT_LINE_MIN_CM 14.0f
 #define GEVR_BEAN_BAT_LINE_FULL_CM 20.0f
 #define GEVR_BEAN_BAT_SPREAD 0.5f      /* spread hands: the fist slides up to half the rifle from its end */
-extern s32 gevrStereoBatOffAxes(s32 hand, f32 r[3], f32 u[3], f32 b[3]);   /* bondview2.c: the off controller's axes */
+extern s32 gevrStereoBatOffAxes(s32 hand, f32 r[3], f32 u[3], f32 b[3], f32 *apartCm);   /* bondview2.c: the off controller's axes */
 extern unsigned gevrVrGripSnapshotId(void);                                  /* vr_input.cpp */
 static f32 s_gevrBeanBatGrip[2][2][3];       /* the bat's way to the butt in [0] the fist's right, up, forward, [1] the off controller's right, up, back */
 static f32 s_gevrBeanBatGripBase[2][2][3];   /* the same as this controller snapshot began: every draw of it agrees */
@@ -4209,7 +4214,7 @@ s32 gevrBeanBatPose(s32 hand, Mtxf *rifle)
     const f32 *fit = gevrBatFit();
     f32 handle = gevrGexBatHandle();
     Mtxf held;
-    f32 ex[3], up[3], fwd[3], ey[3], ez[3], palm[3], opos[3], orr[3], ou[3], ob[3], row, unit, len, reach, amt;
+    f32 ex[3], up[3], fwd[3], ey[3], ez[3], palm[3], opos[3], orr[3], ou[3], ob[3], row, unit, len, reach, amt, apart;
     s32 i;
 
     if ((hand != GUNRIGHT && hand != GUNLEFT) || !gevrStereoGunMatrixFit(hand, own != NULL ? own : look == 2 ? VrBeanGunOff : plain, &held))
@@ -4241,7 +4246,7 @@ s32 gevrBeanBatPose(s32 hand, Mtxf *rifle)
         /* the bat's fit across the fist, cm right and back, as GoldenEye X's */
         palm[i] += (-fit[0] * ex[i] - fit[2] * ez[i]) * unit / 0.085f;
     }
-    if (gevrStereoBatOffHand(hand, opos, &amt) && gevrStereoBatOffAxes(hand, orr, ou, ob))
+    if (gevrStereoBatOffHand(hand, opos, &amt) && gevrStereoBatOffAxes(hand, orr, ou, ob, &apart))
     {
         /* both hands: between where the two wrists have it (above), its end in the off
          * hand and the gun hand where it is along it */
@@ -4283,15 +4288,21 @@ s32 gevrBeanBatPose(s32 hand, Mtxf *rifle)
                 t[i] = ey[i];
             }
         }
-        /* hands spread: onto the line through both grip points, the grips with it */
+        /* controllers spread: onto the line through both grip points, the grips with it */
         for (i = 0; i < 3; i++)
         {
             d[i] = palm[i] - opos[i];
         }
         sep = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
-        w = (sep / unit * 0.085f - GEVR_BEAN_BAT_LINE_MIN_CM) / (GEVR_BEAN_BAT_LINE_FULL_CM - GEVR_BEAN_BAT_LINE_MIN_CM);
+        w = (apart - GEVR_BEAN_BAT_LINE_MIN_CM) / (GEVR_BEAN_BAT_LINE_FULL_CM - GEVR_BEAN_BAT_LINE_MIN_CM);
         if (!(w > 0.0f)) w = 0.0f;   /* NaN too */
         if (w > 1.0f) w = 1.0f;
+        if ((g_GlobalTimer % 120) == 0)
+        {
+            /* for tuning in the headset: how far apart, and how much the line has it */
+            sysLogPrintf(LOG_NOTE, "bat: controllers %.1f cm apart, grip points %.1f cm, line %.2f, held %.2f",
+                         apart, sep / unit * 0.085f, w, amt);
+        }
         if (w > 0.0f && sep > 1e-9f)
         {
             /* the off hand above the fist: still through both, the end the other way */
