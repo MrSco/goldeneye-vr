@@ -89,6 +89,11 @@ def placement():
     check(throw < commit and "return;" in view[throw:commit], "a motion throw is asked before it leaves the hand")
     drop = view.index("&& gevrModApiFireAttempt(hand, item))")
     check(drop < view.index("The grenade was cooked and gently dropped"), "a cooked grenade's drop is asked first")
+    for name, text in (("gunfire.c", gun), ("bondview2.c", view)):
+        # a call before the prototype is an implicit int declaration, an error
+        # beside the header's void one in clang (every build but the tests')
+        check(text.index('#include "gevr_modapi.h"') < text.index("gevrModApi"),
+              name + " includes gevr_modapi.h before its first hook")
     check("gevrModApiReloadStart(hand, getCurrentPlayerWeaponId(hand));   /* reload_start" in view
           and "gevrModApiReloadEnd(hand, getCurrentPlayerWeaponId(hand));   /* reload_end: a magazine seated" in view,
           "a hand reload's magazine out and in")

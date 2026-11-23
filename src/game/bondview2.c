@@ -79,6 +79,7 @@ extern s32 gevrCrouchToggled(void); // port/src/input.c
 #include "textrelated.h"
 
 #ifdef GEVR
+#include "gevr_modapi.h"   /* mods' weapons area: motion throws, hand reloads (before their first use) */
 extern bool netIsActive(void);
 extern int netGetLocalSlot(void);
 extern void netSendRespawnEvent(u8 pad_index, f32 theta);
@@ -18965,7 +18966,6 @@ void gevrAutoAdvanceHand(s32 hand)
  */
 #include "gevr_grip_gesture.h"
 #include "gevr_pull.h"
-#include "gevr_modapi.h"   /* mods' weapons area: motion throws, hand reloads */
 
 extern int VrGestureGripUse, VrGestureMineGrab;
 extern int VrForcePull;   /* force pull (gevr_forcepull.c) */
