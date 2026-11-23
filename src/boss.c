@@ -774,6 +774,27 @@ void bossMainloop(void)
                                     extern void gevrSpeedrunRestartTick(void);
                                     gevrSpeedrunRestartTick();
                                 }
+                                {
+                                    /* mods' scripts (gevr_modscript.c): tick(dt) once the players have
+                                     * ticked, and a stopped or paused mod's note on this player's screen */
+                                    extern void gevrModScriptFrame(int ticks);
+                                    extern const char *gevrModScriptTakeNote(void);
+                                    extern int netGetLocalSlot(void);
+                                    const char *modNote;
+
+                                    gevrModScriptFrame(speedgraphframes);
+                                    modNote = gevrModScriptTakeNote();
+                                    if (modNote) {
+                                        const s32 local = netIsActive() ? netGetLocalSlot() : 0;
+                                        const s32 was = get_cur_playernum();
+
+                                        if (local >= 0 && local < getPlayerCount() && g_playerPointers[local]) {
+                                            set_cur_player(local);
+                                            hudmsgBottomShow((char *)modNote);
+                                            set_cur_player(was);
+                                        }
+                                    }
+                                }
 #endif
                             }
 

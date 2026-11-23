@@ -521,6 +521,13 @@ void lvlStageLoad(s32 stage)
     init_sound_effects_registers();
     init_guards();
     bodiesReset(stage);
+#ifdef GEVR
+    {
+        /* mods' scripts (gevr_modscript.c): the last mission's mission_end, this one's mission_prepare */
+        extern void gevrModScriptStageLoad(int stage, int mission, int done);
+        gevrModScriptStageLoad(stage, stage != LEVELID_TITLE, 0);
+    }
+#endif
     proplvreset2(stage);
     alloc_explosion_smoke_casing_scorch_impact_buffers();
     alloc_shattered_window_pieces();
@@ -570,6 +577,13 @@ void lvlStageLoad(s32 stage)
     viSetVideoMode(MD_NORMAL);
     D_80048368 = 1.0f;
     lvlSetControlsLockedFlag(0);
+#ifdef GEVR
+    {
+        /* mods' scripts: the stage is in, play begins (mission_start) */
+        extern void gevrModScriptStageLoad(int stage, int mission, int done);
+        gevrModScriptStageLoad(stage, stage != LEVELID_TITLE, 1);
+    }
+#endif
 }
 
 

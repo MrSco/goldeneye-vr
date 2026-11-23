@@ -46,6 +46,9 @@ void end_of_mission_briefing(void)
         extern s32 getMissiontimer(void);
 
         gevrLiveSplitMissionComplete(getMissiontimer());
+        /* mods' scripts: this mission's mission_end says "complete" (gevr_modscript.c) */
+        extern void gevrModScriptMissionComplete(void);
+        gevrModScriptMissionComplete();
     }
 #endif
 

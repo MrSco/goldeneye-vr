@@ -585,6 +585,11 @@ int main(int argc, const char **argv)
                 "GoldenEye VR needs a USA (NGEE) cartridge dump.");
     }
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "romdataInit complete");
+    {
+        /* a mod campaign's scripts, once its cartridge is in: campaign_enter (gevr_modscript.c) */
+        extern void gevrModScriptStart(void);
+        gevrModScriptStart();
+    }
     extTexInit();
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "extTexInit complete");
 

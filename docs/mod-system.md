@@ -162,8 +162,9 @@ files.sha256        checksum list of every other file
 ## Saves and records
 
 - A campaign mod saves to `eeprom-mod-<id>.bin`.
-- Mod settings and data the script stores: `mods/<id>/save/` through the
-  API, at most 1 MB.
+- Mod settings and data the script stores: `$S/mod-data/<id>/` through the
+  API (`mod.save`, `mod.setting`), at most 1 MB. It sits outside the mod's
+  install folder, so an update, which replaces that folder, keeps it.
 - Speedrun ghosts use the tag `mod-<id>`. Online ghost boards are off for
   mods in v1 (the content ID would need to be part of the board key).
 - iCloud sync leaves mods out in v1.
@@ -248,8 +249,32 @@ files.sha256        checksum list of every other file
 
 - **Language:** Lua 5.4 (MIT licence, plain C, builds on all our targets
   including the server). The interpreter only: no JIT (iOS forbids it).
+  Lua 5.4.7, vendored unchanged in `port/external/lua` and built as its own
+  library (`gevr_lua`); the script host is `port/src/gevr_modscript.c`.
 - **Sandbox:** no `io`, `os`, `package`, `debug` or `load` of binary chunks.
   Files only through the API, inside the mod's own folder.
+  - Open: the base, coroutine, math, string, table and utf8 libraries.
+    Gone: `dofile`, `loadfile`, `collectgarbage`, `string.dump`,
+    `math.randomseed`; `load` takes text only; `print` is `mod.log`.
+  - `require "a.b"` loads `scripts/a/b.lua` from the mod, once. The entry
+    point is `scripts/main.lua`; a mod without one is data alone and runs
+    nothing.
+- **The calls of phase 3** (the lifecycle row of API v1, and storage):
+  - `mod.on(event, function)`: `campaign_enter()`, `mission_prepare(stage)`,
+    `mission_start(stage)`, `mission_end(stage, "complete" | "left")`,
+    `tick(dt)` (seconds, at most 0.25). An unknown event is an error.
+  - `mod.log(...)`: one log line, `mod <id>: ...`, at most 30 a second.
+  - `mod.setting(name, default)`: the player's choice for it
+    (`settings.txt` in its data folder, `name=value` lines), as the
+    default's type, else the default.
+  - `mod.capabilities()`: `vr`, `hands`, `headless`, `platform` (`quest`,
+    `android`, `pc`, `ios`, `tvos`, `visionos`, `server`).
+  - `mod.random([m [, n]])`, also `math.random`: seeded each mission, in
+    co-op from the seed every headset shares.
+  - `mod.save.read/write/remove(name)`: files in its data folder; names are
+    letters, digits, `_`, `-` and `.`, not first a dot; writes are whole or
+    not at all.
+  - `mod.id`, `mod.title`, `mod.version`, `mod.api`.
 - **Budget:** 0.25 ms per frame for **all mods together**, script time and
   garbage collection included. Why: the game's own logic is about 1.5 ms
   of the early tick (4.1 ms mean), and heavy levels already run DRAW/TICK
@@ -261,9 +286,10 @@ files.sha256        checksum list of every other file
   - Checked as an average over one second, so one heavy event (a mission
     start, a burst of pickups) doesn't trip it. Lua's garbage collector runs
     in small steps inside the budget.
-  - A count hook stops a single runaway call (an endless loop) at once.
+  - A count hook stops a single runaway call (an endless loop) at once:
+    over 100 ms in play, over 2 s while loading.
   - Over budget for 3 seconds: the most expensive mod is paused for the
-    mission with a note on the watch (in co-op on every headset, see
+    mission with a note on screen (in co-op on every headset, see
     Multiplayer).
   - The perf log (`--perf-log`) shows each mod's time; `mission_start`
     and loading are not counted (loading screen).
@@ -276,7 +302,9 @@ files.sha256        checksum list of every other file
     and a Quest 3 at 120 Hz, confirm or change it.
 - **Memory:** an allocator cap per mod (start at 32 MB).
 - **Errors:** a script error disables that mod for the rest of the
-  mission and logs the error with the mod's name, never crashing the game.
+  mission and logs the error with the mod's name and a traceback, never
+  crashing the game; a note on screen says so. One in `scripts/main.lua` or
+  `campaign_enter` turns it off for the run (it plays without its scripts).
   Whatever the mod changed goes back (weapon stats return to the ROM's
   values). In co-op it is turned off on every headset (see Multiplayer).
   Crash reports name the active mods.
