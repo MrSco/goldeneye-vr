@@ -24,8 +24,12 @@ against that branch (or an issue). Tactical is the first mod built to it.
 - **Performance floor: Quest 2 at 90 fps or better.** The slowest headset we
   support sets the bar. A mod that can't hold 90 fps on a Quest 2 in its
   heaviest mission isn't ready, and fixing it is its author's job. It can
-  still be listed, with a performance warning. Faster headsets get the same mod at their own rates
-  (Quest 3 at 120 Hz).
+  still be listed, with a performance warning. Faster headsets get the same
+  mod at their own rates (Quest 3 at 120 Hz).
+- **A mod's own systems are Lua in the mod.** Its inventory, magazines,
+  menus, loadout screens, rules and network state are the mod's scripts and
+  data. The API only reports what the game does and lets a script steer
+  systems the game already has. See "What the API covers" below.
 
 ## Pack format
 
@@ -174,19 +178,38 @@ is the proposal to refine with mod authors (Tactical first).
 | Weapons | `weapon_fire`, `reload_start/end`, `weapon_drawn`, `weapon_dropped` | read and set ammo, magazine size, fire rate, damage (within limits) |
 | Hands (VR) | `grip`, `release`, `hand_near(anchor)` | hand pose, body anchors (body slots), haptics |
 | Items | `item_pickup`, `item_spawned` | spawn a pickup, take or give an item |
-| Guards | `guard_spawned`, `guard_shot`, `guard_killed` | read state, give a guard's weapon or outfit (from the ROM's bodies) |
+| Guards | `guard_spawned`, `guard_shot`, `guard_killed` | read state, give a guard's weapon or outfit (from the ROM's bodies), spawn a guard and send it along a patrol path through the game's own spawn and AI commands |
 | Player | `player_damaged`, `player_died` | health and armour |
 | Assets | — | load a model or texture from the pack, attach it to a hand, gun or body slot, play a sound |
 | UI | — | a watch page from a simple layout (rows, buttons, sliders) |
 | Network | `mod.net.on` | `mod.net.send` |
 | Storage | — | read and write in `mods/<id>/save/` |
 
-Not in v1: drawing, shaders, level geometry, AI scripts, the
+Not in v1: drawing, shaders, level geometry, new AI behaviour, the
 multiplayer modes, anything per vertex or per draw call.
 
-Each event and call is a thin adapter over code we already have (for
-example the body slots, hand reload, pickups). We maintain the adapters,
-not the mods.
+### What the API covers
+
+Each event and call is a thin adapter over a system the game already has
+(for example the body slots, hand reload, pickups, guard spawning, the
+watch). We maintain the adapters, not the mods.
+
+- **In the API:** events for what the game does, a way to cancel or change
+  it at that moment (a shot, a pickup, damage, a guard's loadout), and calls
+  that drive existing systems.
+- **In the mod, as Lua:** anything the game doesn't already do. Per-item
+  state (magazines, chambers, attachments, durability), inventories and
+  transfers, loadout and Workshop screens, custom rules, and what the mod
+  syncs between players and how it settles conflicts (`mod.net`, the host
+  decides). The mod's menus are built from the watch page layout.
+- **New game systems** (a new kind of menu, per-instance weapon state, new
+  rendering features, new network channels) are not mod requests. They join
+  the API only as game features: useful beyond one mod, contributed or
+  agreed as part of the game, and working on every platform we ship
+  (Quest, PC, Linux, Android, Apple, the dedicated server) with tests. Until
+  then a mod does without them or does them in Lua.
+- A request for the API names the existing game system the adapter would
+  sit on. If there isn't one, it's a new game system (above).
 
 ## Versioning
 
