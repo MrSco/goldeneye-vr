@@ -414,6 +414,10 @@ extern "C" void gevrFriendsTick(int inGame) {
     static bool settingsSent = false;
     const uint32_t now = SDL_GetTicks();
     s_inGame = inGame != 0;
+    // the lobby roster's Add friend (vr_launcher.cpp gevrLobbyRoster): this player's friend
+    // code, shared with the players in the lobby while signed in and findable (Friends >
+    // the search setting), "" otherwise (net_core.c NET_MSG_FRIEND_CODE)
+    netSetLocalFriendCode(s_model.status == "ready" && s_model.searchable ? s_model.friendCode.c_str() : "");
     gevrDiscordTick();   // the SDK's callbacks, every frame it is given
     // a few times a second: each look crosses into Java
     if (now - lastDrain < 200 && lastDrain) return;

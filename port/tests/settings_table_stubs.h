@@ -50,6 +50,10 @@ float vr_render_scale(void) { return s_liveRenderScale; }
 float s_scaleMax = 1.5f;   /* vr_openxr.cpp vr_render_scale_max: a Quest 3 */
 float vr_render_scale_max(void) { return s_scaleMax; }
 int s_hmdClass;            /* vr_openxr.cpp vr_headset_class: gevr_settings.h GEVR_HMD_*, 0 other */
+int s_texpack = 1;         /* gfx_pc.cpp: the texture pack 1 on, 0 off, -1 none in use */
+int gevrTexpackToggleMsg;  /* input.c: bondview2.c says it in play */
+int gevrTexpackState(void) { return s_texpack; }
+int gevrTexpackToggle(void) { if (s_texpack < 0) return -1; s_texpack ^= 1; return s_texpack; }
 int vr_headset_class(void) { return s_hmdClass; }
 float g_gevrDisplayHz;     /* vr_settings_defaults.c: the display's rate as it runs */
 int VrScreenCurved, VrScreenPassthrough, VrRefreshRate, VrSpaceWarp = -1;

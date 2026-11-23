@@ -120,6 +120,8 @@ typedef enum {
     NET_MSG_COOP_POKES = 61,    /* Host -> all: its level scripts' writes to the hack's memory, and the objectives' show/hide (gevr_footsteps.c) */
     /* Additive, no bump: an older build ignores the type and shows no device. */
     NET_MSG_PLATFORMS = 62,     /* Host -> all: u8 n, then n x u8 NET_PLATFORM_* by slot (the roster's "Device" column) */
+    /* Additive, no bump: an older build ignores the type, sends none, and its row offers no Add. */
+    NET_MSG_FRIEND_CODE = 63,   /* Player -> host -> all: str the slot's friend code, "" none (the roster's Add friend) */
 } NetMsgType;
 
 #define NET_DISCONNECT_KICKED 0x47454b49u

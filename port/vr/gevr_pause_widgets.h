@@ -27,7 +27,6 @@ struct GevrPauseView {
     char clock[32]="";   /* time left or played, while a round runs; empty otherwise */
     bool clockEnding=false;   /* the last minute of a timed match */
     GevrSettingsApi settings;   /* the Settings tab: the settings table (gevr_settings.c), or a test's rows */
-    int texpack=-1;             /* the Settings tab's HD textures: 1 on, 0 off, -1 no pack */
 };
 struct GevrPauseUi {
     int tab=0;
@@ -37,8 +36,9 @@ struct GevrPauseUi {
     int kickSlot=-1;
     char kickName[64]="";
 };
+/* HD textures is the Mods/Fun section's row now, and Reset sound gone with #229 (owner, 2026-11-23) */
 enum { GEVR_PAUSE_NONE,GEVR_PAUSE_RESUME,GEVR_PAUSE_LEAVE,GEVR_PAUSE_ABORT,GEVR_PAUSE_REQUEST_VOTES,GEVR_PAUSE_HORDE_RETRY,
-       GEVR_PAUSE_TEXPACK,GEVR_PAUSE_RESET_SOUND,GEVR_PAUSE_KICK_BASE=100 };
+       GEVR_PAUSE_KICK_BASE=100 };
 inline void gevrPauseRadarWidget(const GevrPauseRadarView& radar) {
     if(!radar.visible)return;
     auto* draw=ImGui::GetWindowDrawList();const ImVec2 origin=ImGui::GetWindowPos();
@@ -329,15 +329,6 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
         ImGui::BeginChild("##pause-settings",ImVec2(1244,612),false,ImGuiWindowFlags_NoScrollbar);
         gevrSettingsTabs(model.settings,ui.openSection);
         ImGui::EndChild();
-        if(model.texpack>=0) {
-            ImGui::SetCursorPos(ImVec2(18,806));
-            if(ImGui::Button(model.texpack?"HD textures off":"HD textures on",ImVec2(300,48)))action=GEVR_PAUSE_TEXPACK;
-            if(ImGui::IsItemHovered())gevrTooltip("Switches the texture pack for this session.");
-        }
-        /* #229: sound gone bit-crushed with an echo comes back with a new output stream */
-        ImGui::SetCursorPos(ImVec2(336,806));
-        if(ImGui::Button("Reset sound",ImVec2(330,48)))action=GEVR_PAUSE_RESET_SOUND;
-        if(ImGui::IsItemHovered())gevrTooltip("If the sound turns crunchy or echoes, this restarts it.");
     } else {
         /* Rules, Player, Audio: the rows in one or two columns, as every settings page; none scrolls */
         ImGui::SetCursorPos(ImVec2(18,184));

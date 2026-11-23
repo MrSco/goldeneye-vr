@@ -152,7 +152,6 @@ int main() {
     v.settings.sectionCount = fakeSectionCount; v.settings.sectionName = fakeSectionName; v.settings.sectionRows = fakeSectionRows;
     v.settings.info = fakeInfo; v.settings.positions = fakePositions; v.settings.index = fakeIndexOf;
     v.settings.defaultIndex = fakeDefault; v.settings.set = fakeSet; v.settings.text = fakeText; v.settings.blocked = fakeBlocked;
-    v.texpack = 1;
     snprintf(v.session, sizeof(v.session), "Bunker II");
     snprintf(v.status, sizeof(v.status), "00 Agent");
     snprintf(v.note, sizeof(v.note), "Going back to the launcher does not save this mission.");
@@ -193,7 +192,7 @@ int main() {
         check(tabs->Tabs[t].Width + 0.5f >= tabs->Tabs[t].ContentWidth, "no section's tab is cut short");
     check(tabs->WidthAllTabsIdeal <= tabs->BarRect.GetWidth() + 1, "all seven section tabs fit without scrolling or shrinking");
     check(ImGui::FindWindowByName("##friends-sidebar")->Pos.x == 1280, "the panel has the same Friends side panel as the launcher");
-    check(panel->ContentSize.y + panel->WindowPadding.y <= 960, "the footer (Resume, HD textures, Back to launcher) stays on the canvas");
+    check(panel->ContentSize.y + panel->WindowPadding.y <= 960, "the footer (Resume, Back to launcher) stays on the canvas");
     ImGui::DestroyContext();
     // A pad's way into the side panel and back (gevrFriendsNavCross, #260):
     // right on the surface's right-most item crosses into the panel, right on

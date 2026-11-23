@@ -497,6 +497,11 @@ int netStageEligible(int idx) {
 }
 static char s_slot_app_version[GEVR_MAX_PLAYERS][32];
 static char s_local_app_version[32] = "";
+/* Each player's friend code, "" none (the launcher roster's Add friend): sent as a player
+ * joins or gets one, and passed on by the host (NET_MSG_FRIEND_CODE). Only while that
+ * player lets others find them (vr_friends.cpp gevrFriendsTick). */
+static char s_slot_friend_code[GEVR_MAX_PLAYERS][16];
+static char s_local_friend_code[16] = "";
 
 extern char VrPlayerName[];   /* port/vr/vr_settings_defaults.c: the launcher's "Your name" */
 
@@ -625,6 +630,7 @@ static void netResetLobbyState(void) {
         s_remote_active[i] = false;
         s_client_peers[i] = NULL;
         s_slot_app_version[i][0] = '\0';
+        s_slot_friend_code[i][0] = '\0';
         s_slot_grace_us[i] = 0;
         s_slot_heard_us[i] = 0;
         s_lobby_state.slots[i].team = s_round.team[i] = NET_TEAM_NONE;
@@ -915,6 +921,7 @@ static void netAddBot(int slot, bool in_level) {
     s_slot_grace_us[slot] = 0;
     s_slot_heard_us[slot] = 0;
     s_slot_app_version[slot][0] = '\0';
+    s_slot_friend_code[slot][0] = '\0';
 }
 
 /*
@@ -1457,6 +1464,45 @@ void netGetSlotBuild(int slot, char *out, size_t size) {
     netBuildOf(slot >= 0 && slot < GEVR_MAX_PLAYERS ? netGetSlotAppVersion(slot) : NULL, out, size);
 }
 void netGetLocalBuild(char *out, size_t size) { netBuildOf(s_local_app_version, out, size); }
+
+/* A friend code as the friends service gives one: capitals and digits, at most 12, or "" */
+static bool netFriendCodeValid(const char *c) {
+    if (!c) return false;
+    for (size_t n = 0; c[n]; n++)
+        if (n >= 12 || !((c[n] >= 'A' && c[n] <= 'Z') || (c[n] >= '0' && c[n] <= '9'))) return false;
+    return true;
+}
+static void netSendFriendCode(ENetPeer *target, int slot, const char *code) {
+    u8 raw[48];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    if (slot < 0 || slot >= GEVR_MAX_PLAYERS) return;
+    netbufStartWrite(&buf);
+    netbufWriteU32(&buf, GEVR_NET_MAGIC);
+    netbufWriteU16(&buf, GEVR_NET_VERSION);
+    netbufWriteU8(&buf, NET_MSG_FRIEND_CODE);
+    netbufWriteU8(&buf, (uint8_t)slot);
+    netbufWriteStr(&buf, code ? code : "");
+    if (buf.error) return;
+    if (target) enet_peer_send(target, NET_CHAN_RELIABLE, enet_packet_create(buf.data, buf.wp, ENET_PACKET_FLAG_RELIABLE));
+    else netBroadcastPacket(buf.data, buf.wp, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+}
+/* Called every friends tick: a change goes to the lobby at once (a host's to everyone) */
+void netSetLocalFriendCode(const char *code) {
+    char next[sizeof(s_local_friend_code)] = "";
+    if (netFriendCodeValid(code)) snprintf(next, sizeof(next), "%s", code);
+    if (!strcmp(next, s_local_friend_code)) return;
+    memcpy(s_local_friend_code, next, sizeof(next));
+    if (s_local_slot < 0 || s_local_slot >= GEVR_MAX_PLAYERS) return;
+    memcpy(s_slot_friend_code[s_local_slot], next, sizeof(next));
+    if (netIsHost()) netSendFriendCode(NULL, s_local_slot, next);
+    else if (s_server_peer && (s_state == NET_STATE_CLIENT_LOBBY || s_state == NET_STATE_INGAME))
+        netSendFriendCode(s_server_peer, s_local_slot, next);
+}
+const char *netGetSlotFriendCode(int slot) {
+    if (slot < 0 || slot >= GEVR_MAX_PLAYERS || !s_lobby_state.slots[slot].connected || s_lobby_state.slots[slot].is_bot)
+        return "";
+    return slot == s_local_slot ? s_local_friend_code : s_slot_friend_code[slot];
+}
 
 /* What a slot plays with (NET_INPUT_*): this player's own, or as the host says. */
 int netGetSlotInputClass(int slot) {
@@ -3596,6 +3642,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             s_client_caps_known[assigned] = false;
             s_client_input[assigned] = joiner_input;
             s_client_platform[assigned] = joiner_platform;
+            s_slot_friend_code[assigned][0] = '\0';   /* theirs comes after WELCOME, not the seat's last player's */
             s_input_table_resend = true;   /* the joiner needs everyone's (netHostInputTableTick) */
             peer->data = (void *)(intptr_t)(assigned + 1);
             
@@ -3652,6 +3699,11 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                     enet_peer_send(peer, NET_CHAN_RELIABLE, vp);
                 }
             }
+            /* and the friend codes known, the host's own among them (the roster's Add friend) */
+            for (int k = 0; k < s_max_players; k++) {
+                const char *fc = k == s_local_slot ? s_local_friend_code : s_slot_friend_code[k];
+                if (k != assigned && s_lobby_state.slots[k].connected && fc[0]) netSendFriendCode(peer, k, fc);
+            }
             
             netUpdateBots(false);
             netBroadcastLobbyState();
@@ -3687,6 +3739,8 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             netSendClientCaps();
             strncpy(s_slot_app_version[s_local_slot], s_local_app_version, sizeof(s_slot_app_version[0]) - 1);
             netSendLocalAppVersion(s_server_peer);
+            memcpy(s_slot_friend_code[s_local_slot], s_local_friend_code, sizeof(s_local_friend_code));
+            if (s_local_friend_code[0]) netSendFriendCode(s_server_peer, s_local_slot, s_local_friend_code);
             uint8_t saved_items[4];
             for (int k = 0; k < 4; k++) saved_items[k] = netItemIndexOf(VrMpLoadout[k]) >= 0 ? VrMpLoadout[k] : netItem(0)->item;
             netLobbySetLoadout(saved_items);
@@ -3729,6 +3783,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 if (s_lobby_state.slots[i].connected && !next.slots[i].connected) {
                     netForgetPlayerScore(i);
                     s_slot_app_version[i][0] = 0;
+                    s_slot_friend_code[i][0] = 0;
                     s_remote_active[i] = false;
                 }
             }
@@ -4362,6 +4417,18 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             }
             break;
         }
+        case NET_MSG_FRIEND_CODE: {
+            /* a player's own only: the host takes it from the peer in that seat, a guest from the host */
+            if (slot_id >= GEVR_MAX_PLAYERS) break;
+            if (netIsHost()) {
+                if (s_client_peers[slot_id] != peer || ((int)(intptr_t)peer->data - 1) != slot_id) break;
+            } else if (peer != s_server_peer) break;
+            char *code = netbufReadStr(&buf);
+            if (!code || buf.error || !netFriendCodeValid(code)) break;
+            snprintf(s_slot_friend_code[slot_id], sizeof(s_slot_friend_code[slot_id]), "%s", code);
+            if (netIsHost()) netBroadcastPacket(data, size, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, peer);
+            break;
+        }
         default:
             break;
     }
@@ -4814,6 +4881,7 @@ static void netHostLost(ENetPeer *peer) {
         netVoiceForgetSlot((uint8_t)old);
         netForgetPlayerScore(old);
         s_slot_app_version[old][0] = '\0';
+        s_slot_friend_code[old][0] = '\0';
         netClearVotes(old);
     }
     for (int i = 0; i < s_max_players; i++) {

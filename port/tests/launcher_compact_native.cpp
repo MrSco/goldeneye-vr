@@ -2,8 +2,11 @@
 #include "imgui/imgui_internal.h"
 #include "net_match.h"
 #include "net_rules.h"
+#include "vr_friends.h"
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
 static ImVec4 gold(1, .84f, .47f, 1);
 static int VrMpScenario, VrMpLength, VrMpHealth=5, VrMpDual, VrMpLoadouts, VrMpNextRound;
@@ -45,6 +48,13 @@ static int netGetSlotInputClass(int slot){return slot==1?1:0;}   /* the roster's
 static const char *netGetSlotDeviceName(int slot){return slot==1?"PC":"Quest";}   /* the roster's "Device" */
 static const char *netGetSlotName(int slot){return lobby.slots[slot].name;}
 static void netHostKickPlayer(int){}
+/* the roster's Friend column: a code from every third player but none from the next */
+static int netGetLocalSlot(){return 0;}
+static const char *netGetSlotFriendCode(int slot){return slot%3==2?"":"ABC123";}
+static GevrFriendsModel s_friendsModel;
+const GevrFriendsModel &gevrFriends(void){return s_friendsModel;}
+void gevrFriendsSend(const std::string &){}
+std::string gevrFriendCodeText(const std::string &code){return "GE-"+code;}
 static bool gevrLobbyHasTeams(const FixtureConfig *c){return c->mode!=NET_MODE_COOP && netScenarioHasTeams(c->scenario);}
 static bool netTeamRosterReady(){return false;}
 static int netLobbyMinPlayers(){return 2;}

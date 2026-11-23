@@ -75,7 +75,6 @@ static void sweep(bool online, const char *state) {
     GevrPanelView panel; GevrPanelUi panelUi;
     GevrPauseView pause; GevrPauseUi pauseUi;
     panel.settings = pause.settings = api;
-    panel.texpack = pause.texpack = 1;
     snprintf(panel.session, sizeof(panel.session), "Surface II");
     snprintf(panel.note, sizeof(panel.note), "Going back to the launcher does not save this mission.");
     pauseUi.tab = GEVR_PAUSE_SETTINGS;
@@ -173,7 +172,6 @@ int main() {
         panel.settings = gevrSettingsLive();
         panel.settings.drawKbm = []() { ImGui::TextUnformatted("KBM"); };
         panel.settings.drawGamepad = []() { ImGui::TextUnformatted("PAD"); };
-        panel.texpack = 1;
         snprintf(panel.session, sizeof(panel.session), "Dam");
         snprintf(panel.note, sizeof(panel.note), "Going back to the launcher does not save this mission.");
         VrPlayMode = 0; s_net = 0;

@@ -2004,14 +2004,16 @@ static void gevrLobbyRoster(const ImVec4 &gold, bool showCount = true) {
     const bool canKick = netIsHost();
     if (showCount) ImGui::TextColored(gold, "PLAYERS (%d/%d)", netGetConnectedPlayerCount(), netGetMaxPlayers());
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(ImGui::GetStyle().CellPadding.x, 2.0f));
-    if (ImGui::BeginTable("##lobbyroster", canKick ? 7 : 6, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerH)) {
+    // "Ping" (ms, as its tooltip says) leaves room for the Friend column (Add, Accept, Sent, Friends)
+    if (ImGui::BeginTable("##lobbyroster", canKick ? 8 : 7, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerH)) {
         float font = ImGui::GetFontSize();
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Character", ImGuiTableColumnFlags_WidthFixed, font * 9);
         ImGui::TableSetupColumn("Team", ImGuiTableColumnFlags_WidthFixed, font * 5);
         ImGui::TableSetupColumn("Device", ImGuiTableColumnFlags_WidthFixed, font * 7.5f);
         ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthFixed, font * 6);
-        ImGui::TableSetupColumn("Ping (ms)", ImGuiTableColumnFlags_WidthFixed, font * 6);
+        ImGui::TableSetupColumn("Ping", ImGuiTableColumnFlags_WidthFixed, font * 3.5f);
+        ImGui::TableSetupColumn("Friend", ImGuiTableColumnFlags_WidthFixed, font * 4.2f);
         if (canKick) ImGui::TableSetupColumn("Host", ImGuiTableColumnFlags_WidthFixed, font * 3.2f);
         ImGui::TableHeadersRow();
         for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
@@ -2025,8 +2027,12 @@ static void gevrLobbyRoster(const ImVec4 &gold, bool showCount = true) {
             if (ImGui::IsItemHovered() && slot.is_bot)
                 gevrTooltip("%s\nA bot the host runs (%s)\nSlot: %d", slot.name,
                                   netBotDifficultyName(lobby->config.bot_difficulty), i + 1);
+            else if (ImGui::IsItemHovered() && netGetSlotFriendCode(i)[0])
+                gevrTooltip("%s\nFriend code: %s\nBuild: %s\nProtocol: %d\nSlot: %d\nPing is the round trip to the current host, in ms.",
+                                  slot.name, gevrFriendCodeText(netGetSlotFriendCode(i)).c_str(), netGetSlotAppVersion(i),
+                                  GEVR_NET_VERSION, i + 1);
             else if (ImGui::IsItemHovered())
-                gevrTooltip("%s\nBuild: %s\nProtocol: %d\nSlot: %d\nPing is the round trip to the current host.",
+                gevrTooltip("%s\nBuild: %s\nProtocol: %d\nSlot: %d\nPing is the round trip to the current host, in ms.",
                                   slot.name, netGetSlotAppVersion(i), GEVR_NET_VERSION, i + 1);
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(netCharacterName(slot.chr_id));
@@ -2049,6 +2055,46 @@ static void gevrLobbyRoster(const ImVec4 &gold, bool showCount = true) {
             ImGui::TextUnformatted(host ? "Host" : slot.is_bot ? "Bot" : slot.ready ? "Ready" : "Waiting");
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(slot.is_bot ? "—" : gevrPingText(i).c_str());
+            // Add friend (owner, 2026-11-23: "a way to just click on them and add them as a
+            // friend easily right from the lobby screen"): by the friend code their build sends
+            // (net_core.c NET_MSG_FRIEND_CODE); none from an older build or a player who
+            // can't be found, and none for a bot or yourself
+            ImGui::TableNextColumn();
+            if (i != netGetLocalSlot() && !slot.is_bot) {
+                static std::vector<std::string> asked;   // sent from here, until the list says so
+                const std::string code = netGetSlotFriendCode(i);
+                const GevrFriendsModel &fm = gevrFriends();
+                auto listed = [&code](const std::vector<GevrFriendPerson> &list) -> const GevrFriendPerson * {
+                    for (const GevrFriendPerson &p : list) if (p.code == code) return &p;
+                    return nullptr;
+                };
+                bool friends = false;
+                for (const GevrFriend &f : fm.friends) friends |= !code.empty() && f.code == code;
+                const GevrFriendPerson *request = code.empty() ? nullptr : listed(fm.requests);
+                ImGui::PushID(1000 + i);
+                if (code.empty()) {
+                    ImGui::TextDisabled("—");
+                    if (ImGui::IsItemHovered())
+                        gevrTooltip("No friend code from this player: an older build, or they can't be found (Friends).");
+                } else if (friends) {
+                    ImGui::TextDisabled("Friends");
+                } else if (listed(fm.blocked)) {
+                    ImGui::TextDisabled("Blocked");
+                } else if (listed(fm.sent) || std::find(asked.begin(), asked.end(), code) != asked.end()) {
+                    ImGui::TextDisabled("Sent");
+                } else {
+                    ImGui::BeginDisabled(fm.status != "ready");
+                    if (ImGui::SmallButton(request ? "Accept" : "Add")) {
+                        if (request) gevrFriendsSend("answer|" + request->id + "|1");
+                        else { gevrFriendsSend("add|" + code); asked.push_back(code); }
+                    }
+                    ImGui::EndDisabled();
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                        gevrTooltip(fm.status != "ready" ? "Friends are still signing in."
+                                    : request ? "%s asked to be your friend: accept." : "Send %s a friend request.", slot.name);
+                }
+                ImGui::PopID();
+            }
             if (canKick) {
                 ImGui::TableNextColumn();ImGui::PushID(i);
                 if (!host) {
@@ -4198,7 +4244,11 @@ extern "C" void gevrLauncherRun(void)
                                "so this run won't count.", on.c_str(), on.find(',') != std::string::npos ? "are" : "is");
             ImGui::TextDisabled("It is still kept, but never replaces a ranked best or goes on the ghost boards.");
             ImGui::PopTextWrapPos();
-            const ImVec2 size(ImGui::GetFontSize() * 9.0f, ImGui::GetFrameHeight() * 1.4f);
+            // as wide as the longest label: 9 font sizes cut "Turn off and start" off (owner, 2026-11-23)
+            const float labelW = std::max({ImGui::CalcTextSize("Turn off and start").x,
+                                           ImGui::CalcTextSize("Start anyway").x, ImGui::CalcTextSize("Back").x});
+            const ImVec2 size(labelW + ImGui::GetStyle().FramePadding.x * 2.0f + ImGui::GetFontSize(),
+                              ImGui::GetFrameHeight() * 1.4f);
             if (ImGui::Button("Turn off and start", size)) {
                 VrTeleport = 0;
                 VrForcePull = 0;

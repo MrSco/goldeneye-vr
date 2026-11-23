@@ -143,11 +143,10 @@ int main(){
       click(pop->Pos.x+60,pop->Pos.y+pop->WindowPadding.y+itemH*1.5f);frame(); // select a visible named choice
       check(changed>1 && selected==1,"pointer chooses a named option"); }
     { const ImVec2 t=tabCentre(GEVR_PAUSE_AUDIO);click(t.x,t.y);check(ui.tab==GEVR_PAUSE_AUDIO,"direct Audio tab"); }
-    // Settings (hold Menu online): the panel's sections, each fitting without scrolling, and Reset sound
+    // Settings (hold Menu online): the panel's sections, each fitting without scrolling
     view.settings.sectionCount=fakeSectionCount;view.settings.sectionName=fakeSectionName;view.settings.sectionRows=fakeSectionRows;
     view.settings.info=fakeInfo;view.settings.positions=fakePositions;view.settings.index=fakeIndexOf;
     view.settings.defaultIndex=fakeDefault;view.settings.set=fakeSet;view.settings.text=fakeText;view.settings.blocked=fakeBlocked;
-    view.texpack=1;
     { const ImVec2 t=tabCentre(GEVR_PAUSE_SETTINGS);click(t.x,t.y);check(ui.tab==GEVR_PAUSE_SETTINGS,"direct Settings tab"); }
     for(int s=0;s<7;s++) {
         ui.openSection=s;frame();frame();
@@ -157,10 +156,9 @@ int main(){
         check(rows!=nullptr,"each settings section is drawn on the Settings tab");
         check(rows->ContentSize.y<=rows->Size.y,"a section's rows, thirteen at the fullest, fit the Settings tab without scrolling");
         check(rows->ContentSize.x+rows->WindowPadding.x*2<=rows->Size.x+1,"the rows fit the Settings tab's width");
-        check(rows->Pos.y+rows->Size.y<=806,"the rows end above HD textures and Reset sound");
+        check(rows->Pos.y+rows->Size.y<=806,"the rows end above the footer");
     }
-    click(336+165,830);check(action==GEVR_PAUSE_RESET_SOUND,"Reset sound on the Settings tab");action=0;
-    click(18+150,830);check(action==GEVR_PAUSE_TEXPACK,"HD textures on the Settings tab");action=0;
+    action=0;click(336+165,830);click(18+150,830);check(action==GEVR_PAUSE_NONE,"no HD textures or Reset sound buttons under the Settings tab");
     { const ImVec2 t=tabCentre(GEVR_PAUSE_MATCH);click(t.x,t.y); }
     view.coop=true;view.count=4;frame();frame();table=ImGui::GetCurrentContext()->Tables.GetByKey(window->GetID("players"));
     check(table && table->CurrentRow==4 && table->ColumnsCount==5,"co-op party uses four rows and status columns");

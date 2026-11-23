@@ -511,6 +511,24 @@ static void swText(int i, char *b, int n)
     snprintf(b, n, "%s%s", i ? "On" : "Off", VrSpaceWarp < 0 ? " (auto)" : "");
 }
 
+/* HD textures: the texture pack, or Bean's pictures, off and on for this session to
+ * compare (gfx_pc.cpp gevrTexpackToggle); the launcher's Mods page picks the pack. It was a
+ * button in the in-game footer (owner, 2026-11-23: under Mods/Fun "is probably where that
+ * should live"). Shown while a pack or Bean is in use. */
+extern int gevrTexpackState(void);    /* gfx_pc.cpp: 1 on, 0 off, -1 no pack in use */
+extern int gevrTexpackToggle(void);   /* gfx_pc.cpp: 1 on now, 0 off now, -1 no pack */
+extern int gevrTexpackToggleMsg;      /* input.c: bondview2.c says it in play, 2 off, 3 on */
+static int texpackShown(void) { return gevrTexpackState() >= 0; }
+static int texpackPositions(void) { return 2; }
+static int texpackGet(void) { return gevrTexpackState() == 1; }
+static void texpackSet(int i)
+{
+    const int now = gevrTexpackState();
+    if (now < 0 || (i != 0) == (now == 1)) return;
+    gevrTexpackToggleMsg = gevrTexpackToggle() + 2;
+}
+static void texpackText(int i, char *b, int n) { snprintf(b, n, "%s", i ? "On" : "Off"); }
+
 /* Project Bean */
 static int beanPositions(void) { return 2; }
 static int beanGet(void) { return gevrBeanIsEnabled() != 0; }
@@ -1136,6 +1154,10 @@ static const Row s_rows[] = {
       .cpositions = beanPositions, .cget = beanGet, .cset = beanSet, .ctext = beanText, .cdefault = -1 },
     { .label = "Bean HD fill", .tooltip = "Fills Bean's missing pictures from the HD pack.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .ivar = &VrBeanFillTextures, .def = NAN, .blocked = blockedBeanFill },
+    { .label = "HD textures", .tooltip = "Turns the texture pack, or Bean's pictures, off and on for this session, to compare. "
+                                         "The launcher's Mods page picks the pack.", .kind = GEVR_SET_TOGGLE,
+      .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .def = NAN, .shown = texpackShown,
+      .cpositions = texpackPositions, .cget = texpackGet, .cset = texpackSet, .ctext = texpackText, .cdefault = 1 },
     /* the launcher's Mods tab draws these with their packs (vr_launcher.cpp gevrModsPage) */
     { .label = "GoldenEye X", .tooltip = "GoldenEye X's guns, hands and reloads.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_MODS, .where = GEVR_SET_INGAME, .ivar = &VrGexGuns, .def = NAN, .blocked = blockedGex },
