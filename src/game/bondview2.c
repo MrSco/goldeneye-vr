@@ -3722,22 +3722,26 @@ s32 gevrStereoBatOffHand(s32 hand, f32 opos[3], f32 *amt)
     return TRUE;
 }
 
-/* gun.c gevrBeanBatPose: both hands on the glove-held bat, the off hand's controller's
- * axes (its right, up and back, as it is: the wrist that turns the bat) and how far
- * the two controllers are apart, real cm (stacked on a bat, 10-13) */
-s32 gevrStereoBatOffAxes(s32 hand, f32 r[3], f32 u[3], f32 b[3], f32 *apartCm)
+/* gun.c gevrBeanBatPose: both hands on the glove-held bat, the gun hand's controller from
+ * the off hand's (camera space: the line the bat follows) and how far apart, real cm
+ * (stacked on a bat, 10-13) */
+s32 gevrStereoBatBetween(s32 hand, f32 between[3], f32 *apartCm)
 {
     const f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
     f32 pos[3], gpos[3], ignore[3];
+    s32 i;
 
     if (!(s_gevrTwoHandAmt > 0.001f) || s_gevrTwoHandGun != hand || !gevrStereoClubBatGlove(hand)
-        || !gevrStereoClubBat(hand) || cm < 1e-6f || !gevrGripAxesRaw(hand, pos, r, u, b)
+        || !gevrStereoClubBat(hand) || cm < 1e-6f || !gevrGripAxesRaw(hand, pos, ignore, ignore, ignore)
         || !gevrGripAxesRaw(1 - hand, gpos, ignore, ignore, ignore))
     {
         return FALSE;
     }
-    *apartCm = sqrtf((pos[0] - gpos[0]) * (pos[0] - gpos[0]) + (pos[1] - gpos[1]) * (pos[1] - gpos[1])
-                     + (pos[2] - gpos[2]) * (pos[2] - gpos[2])) / cm;
+    for (i = 0; i < 3; i++)
+    {
+        between[i] = gpos[i] - pos[i];
+    }
+    *apartCm = sqrtf(between[0] * between[0] + between[1] * between[1] + between[2] * between[2]) / cm;
     return TRUE;
 }
 
@@ -3755,10 +3759,10 @@ s32 gevrStereoBatOffPinned(void)
  * As it takes hold, its wrist's axes are kept in the bat's (gun.c
  * gevrGexBatFrame); while it holds, the whole arm (x, y, z its wrist's axes on
  * the controller) is turned about its grip point (gevrBatOffPalm) to keep them
- * there, and that point is put on the bat's line. The bat turns with both
- * wrists (gun.c gevrBeanBatPose), so the hand still goes with its own wrist,
- * half as far as alone. Eased with the hold. GoldenEye X's off hand has its
- * own (gun.c gevrGexBatOffPin).
+ * there, and that point is put on the bat's line. The bat follows the line
+ * between the two controllers (gun.c gevrBeanBatPose), so the hand goes with
+ * the bat its own hand helps to steer. Eased with the hold. GoldenEye X's off
+ * hand has its own (gun.c gevrGexBatOffPin).
  */
 static f32 s_gevrBatOffGrip[3][3];   /* the wrist's axes in the bat's right, butt-ward and up, at the hold */
 static s32 s_gevrBatOffGripAt;       /* g_GlobalTimer when last pinned, 0 never: a lapse is a new hold */

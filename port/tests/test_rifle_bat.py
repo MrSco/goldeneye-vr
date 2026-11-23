@@ -2,14 +2,13 @@
 
 Compiles gun.c's production gevrBeanBatPose and bondview2.c's
 gevrBatOffHandPin against stub hands, and checks the two-handed hold as a
-bat is held (owner, 2026-11-22, headset: "Your hands would be stuck to the
-bat, but your wrists would pivot around together in unison"): taking hold
-does not move it; both wrists turning together swing it all the way, one
-alone half as far; hands spread take it onto the line through both grip
-points, and brought together again it stays where that line left it; it
-turns about the fist, the glove with it; and the off hand is stuck to it,
-turning with the bat, not with its own controller, its grip point on the
-bat's line.
+stick held in two hands (owner, 2026-11-22, headset): taking hold moves
+nothing; the line between the two controllers steers it, so both hands
+swinging together turn it with them, and a push of one hand past the other
+turns it a lot with the hands together and little with them apart ("they
+should be easier to break the wrists when my hands are together"); it turns
+about the fist, the glove with it; and the off hand is stuck to it, turning
+with the bat, not with its own controller, its grip point on the bat's line.
 
 Usage: python port/tests/test_rifle_bat.py
 """
@@ -40,8 +39,8 @@ definitions.extend(re.findall(r'^static (?:f32|s32|unsigned) s_gevrBeanBatGrip\w
 definitions.extend(re.findall(r'^static (?:f32|s32) s_gevrBatOffGrip\w*(?:\[[^;]+)?;', view, re.M))
 production = [function(gun, signature) for signature in (
     'static f32 gevrGexBatHandle(void)', 'static void gevrBeanBatTurn(', 'static void gevrBeanBatIn(',
-    'static void gevrBeanBatOut(', 'static s32 gevrBeanBatUnit(', 's32 gevrBeanBatPose(s32 hand, Mtxf *rifle)',
-    's32 gevrGexBatFrame(s32 hand,')]
+    'static void gevrBeanBatOut(', 'static s32 gevrBeanBatUnit(', 'static s32 gevrBeanBatLineFrame(',
+    's32 gevrBeanBatPose(s32 hand, Mtxf *rifle)', 's32 gevrGexBatFrame(s32 hand,')]
 production.append(function(view, 'static void gevrBatOffHandPin(Mtxf *matrices, s32 n, const f32 x[3], const f32 y[3], const f32 z[3])\n{'))
 
 HARNESS = r'''
@@ -57,6 +56,8 @@ typedef struct { f32 m[4][4]; } Mtxf;
 #define FALSE 0
 enum { GUNRIGHT, GUNLEFT };
 #define ITEM_WPPK 4
+#define LOG_NOTE 0
+static void sysLogPrintf(int level, const char *fmt, ...) { (void)level; (void)fmt; }
 s32 g_GlobalTimer = 1;
 static unsigned snapshot = 1;
 unsigned gevrVrGripSnapshotId(void) { return snapshot; }
@@ -68,7 +69,9 @@ float *gevrBatFit(void) { return batFit; }
 static Mtxf gunHand;                        /* the PP7's gun matrix in the gun hand */
 s32 gevrStereoGunMatrixFit(s32 h, const f32 off[3], Mtxf *out) { (void)h; (void)off; *out = gunHand; return TRUE; }
 static f32 offAt[3], offAmt;                /* the off hand's grip point and the hold's ease */
-static f32 offAxes[3][3];                   /* the off controller's right, up, back */
+static f32 between[3];                      /* the gun controller from the off one */
+static const f32 unit = 0.1f;               /* rows of length 1: a model unit is a tenth */
+static f32 cm(f32 c) { return c / 0.085f * unit; }
 s32 gevrStereoBatOffHand(s32 h, f32 opos[3], f32 *amt)
 {
     (void)h;
@@ -77,17 +80,14 @@ s32 gevrStereoBatOffHand(s32 h, f32 opos[3], f32 *amt)
     *amt = offAmt;
     return TRUE;
 }
-static f32 apart = 11.0f;                   /* the controllers, real cm: stacked on a bat 10-13 */
-s32 gevrStereoBatOffAxes(s32 h, f32 r[3], f32 u[3], f32 b[3], f32 *apartCm)
+s32 gevrStereoBatBetween(s32 h, f32 out[3], f32 *apartCm)
 {
     (void)h;
     if (offAmt <= 0.0f) return FALSE;
-    memcpy(r, offAxes[0], 12); memcpy(u, offAxes[1], 12); memcpy(b, offAxes[2], 12);
-    *apartCm = apart;
+    memcpy(out, between, sizeof(between));
+    *apartCm = sqrtf(between[0] * between[0] + between[1] * between[1] + between[2] * between[2]) / cm(1);
     return TRUE;
 }
-#define LOG_NOTE 0
-static void sysLogPrintf(int level, const char *fmt, ...) { (void)level; (void)fmt; }
 static f32 s_gevrGexBatEnd[2][3];
 static s32 s_gevrGexBatAt[2];
 static f32 s_gevrGexBatLine[2][15];
@@ -100,12 +100,13 @@ static s32 gevrBatOffPalm(s32 g, f32 out[3]) { (void)g; memcpy(out, offAt, sizeo
 /* DEFINITIONS */
 /* PRODUCTION */
 
-static const f32 unit = 0.1f;               /* rows of length 1: a model unit is a tenth */
-static f32 cm(f32 c) { return c / 0.085f * unit; }
 static f32 dot(const f32 *a, const f32 *b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
-static f32 deg(const f32 *a, const f32 *b) { return acosf(fminf(1.0f, dot(a, b) / sqrtf(dot(a, a) * dot(b, b)))) * 57.29578f; }
-
-/* about X by a: a wrist cocking the bat forward or back */
+static f32 deg(const f32 *a, const f32 *b)
+{
+    const double c = dot(a, b) / sqrt((double)dot(a, a) * dot(b, b));
+    return (f32)(acos(c > 1.0 ? 1.0 : c) * 57.29577951);
+}
+/* about X by a: the swing's plane */
 static void turnX(f32 a, const f32 in[3], f32 out[3])
 {
     const f32 r = a / 57.29578f, c = cosf(r), s = sinf(r), y = in[1], z = in[2];
@@ -117,11 +118,6 @@ static void setGun(f32 a)
     memset(&gunHand, 0, sizeof(gunHand));
     for (int r = 0; r < 3; r++) turnX(a, rows[r], gunHand.m[r]);
     gunHand.m[3][3] = 1.0f;
-}
-static void setOff(f32 a)
-{
-    const f32 rows[3][3] = { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, -1 } };
-    for (int r = 0; r < 3; r++) turnX(a, rows[r], offAxes[r]);
 }
 static void palmOf(const Mtxf *h, f32 out[3])
 {
@@ -144,111 +140,96 @@ static f32 offLine(const f32 p[3])
 static Mtxf rifle;
 static const f32 *line(void) { return s_gevrGexBatLine[GUNRIGHT] + 3; }
 static void tick(void) { g_GlobalTimer++; snapshot++; assert(gevrBeanBatPose(GUNRIGHT, &rifle)); }
+static void letGo(void) { offAmt = 0; for (int k = 0; k < 6; k++) tick(); offAmt = 1; }
+/* the controllers apart along v (cm), and pushed across by `across` cm */
+static void hands(const f32 v[3], f32 apartCm, const f32 x[3], f32 across)
+{
+    for (int i = 0; i < 3; i++) between[i] = v[i] * cm(apartCm) + x[i] * cm(across);
+}
 
 int main(void)
 {
-    f32 palm[3], ey[3], ex[3] = { 1, 0, 0 }, glovePalm[3], want[3], spread[3];
+    f32 palm[3], ey[3], ex[3] = { 1, 0, 0 }, glovePalm[3], want[3], first[3];
 
     batFit[1] = -7.262f;   /* the owner's Bean fit: the fist ~18 cm up from the muzzle */
-    setGun(0); setOff(0);
+    setGun(0);
     palmOf(&gunHand, palm);
     for (int i = 0; i < 3; i++) ey[i] = GEVR_BEAN_BAT_GRIP_Y * gunHand.m[1][i] + GEVR_BEAN_BAT_GRIP_Z * gunHand.m[2][i];
+    {
+        const f32 l = sqrtf(dot(ey, ey));
+        for (int i = 0; i < 3; i++) ey[i] /= l;
+    }
+    for (int i = 0; i < 3; i++) offAt[i] = palm[i] - ey[i] * cm(10);
 
     /* one hand: the fist's own line, through the fist */
     offAmt = 0;
     tick();
     assert(deg(line(), ey) < 0.05f && offLine(palm) < 0.01f);
 
-    /* both hands on, stacked 10 cm apart and 4 cm across: taking hold moves nothing */
+    /* both hands on, the controllers stacked 12 cm apart, a little off the bat: taking hold moves nothing */
     offAmt = 1;
-    for (int i = 0; i < 3; i++) offAt[i] = palm[i] - ey[i] * cm(10) + ex[i] * cm(4);
+    {
+        f32 v[3];
+        turnX(-10, ey, v);
+        hands(v, 12, ex, 0);
+    }
     tick();
     assert(deg(line(), ey) < 0.05f);
     /* its end in the off hand: the muzzle 5 cm past it along the rifle */
     assert(fabsf(s_gevrGexBatLine[GUNRIGHT][6] / unit - (GEVR_GEX_BAT_OFF + cm(10) / unit)) < 1.0f);
 
-    /* both wrists cocked 30 degrees together: the bat swings all 30 */
-    setGun(30); setOff(30);
-    palmOf(&gunHand, palm);
+    /* both hands swing it together, 30 degrees: it turns with them */
+    letGo();
+    hands(ey, 12, ex, 0);
     tick();
+    setGun(30);
+    palmOf(&gunHand, palm);
     turnX(30, ey, want);
-    assert(deg(line(), want) < 0.05f);
+    hands(want, 12, ex, 0);
+    tick();
+    assert(deg(line(), want) < 0.1f);
     /* ... about the fist, the glove turned with it, its grip point where the hand is */
     palmOf(&s_gevrBeanBatHand[GUNRIGHT], glovePalm);
     for (int i = 0; i < 3; i++) assert(fabsf(glovePalm[i] - palm[i]) / unit * 0.085f < 0.01f);
     for (int i = 0; i < 3; i++) assert(fabsf(s_gevrGexBatLine[GUNRIGHT][i] - palm[i]) < 1e-5f);
 
-    /* the gun wrist alone: half as far (15) */
-    setGun(30); setOff(0);
-    tick();
-    turnX(15, ey, want);
-    assert(deg(line(), want) < 0.05f);
-    /* the off wrist alone: half as far too */
-    setGun(0); setOff(30);
+    /* hands together (12 cm), the top hand pushed 3 cm past the bottom one, the fist not
+     * turned: the wrists break it, atan(3/12) = 14 degrees */
+    letGo();
+    setGun(0);
     palmOf(&gunHand, palm);
+    hands(ey, 12, ex, 0);
     tick();
-    assert(deg(line(), want) < 0.05f);
-
-    /* hands spread 30 cm, 6 cm across: the line through both grip points */
-    apart = 30;
-    setGun(0); setOff(0);
-    palmOf(&gunHand, palm);
-    for (int i = 0; i < 3; i++) offAt[i] = palm[i] - ey[i] * cm(30) + ex[i] * cm(6);
+    hands(ey, 12, ex, 3);
     tick();
-    assert(offLine(offAt) < 0.05f && offLine(palm) < 0.01f && deg(line(), ey) > 10.0f);
-    memcpy(spread, line(), sizeof(spread));
-    /* brought together again: it stays where the line left it */
-    apart = 11;
-    for (int i = 0; i < 3; i++) offAt[i] = palm[i] - ey[i] * cm(10);
+    assert(fabsf(deg(line(), ey) - 14.04f) < 0.2f && dot(line(), ex) > 0.0f);
+    /* hands apart (40 cm), the same push: stiff, atan(3/40) = 4.3 degrees */
+    letGo();
+    hands(ey, 40, ex, 0);
     tick();
-    assert(deg(line(), spread) < 0.05f);
-    /* ... and both wrists swing it from there */
-    setGun(20); setOff(20);
-    palmOf(&gunHand, palm);
-    for (int i = 0; i < 3; i++) offAt[i] = palm[i] - ey[i] * cm(10);
+    hands(ey, 40, ex, 3);
     tick();
-    turnX(20, spread, want);
-    assert(deg(line(), want) < 0.1f);
+    assert(fabsf(deg(line(), ey) - 4.29f) < 0.2f);
+    /* ... and slid together again, the push breaks it as before */
+    hands(ey, 12, ex, 3);
+    tick();
+    assert(fabsf(deg(line(), ey) - 14.04f) < 0.2f);
 
     /* every draw of one controller snapshot agrees (each eye) */
-    {
-        f32 first[3];
-        memcpy(first, line(), sizeof(first));
-        assert(gevrBeanBatPose(GUNRIGHT, &rifle));
-        assert(deg(line(), first) < 1e-3f);
-    }
+    memcpy(first, line(), sizeof(first));
+    assert(gevrBeanBatPose(GUNRIGHT, &rifle));
+    assert(deg(line(), first) < 0.05f);
+
+    /* controllers too near (3 cm) for a line: it keeps where it was on the fist */
+    hands(ey, 3, ex, 0);
+    tick();
+    assert(deg(line(), first) < 0.1f);
 
     /* let go and taken again: a new hold, from the fist's own line */
-    offAmt = 0;
-    tick(); tick(); tick(); tick(); tick(); tick();
-    offAmt = 1;
-    tick();
-    for (int i = 0; i < 3; i++) want[i] = GEVR_BEAN_BAT_GRIP_Y * gunHand.m[1][i] + GEVR_BEAN_BAT_GRIP_Z * gunHand.m[2][i];
-    assert(deg(line(), want) < 0.05f);
-
-    /* fists stacked, controllers 11 cm apart, but the grip points 18 cm apart (they sit
-     * off the controllers): the wrists still have it, and breaking both 40 degrees
-     * swings it all 40, held there (owner, 2026-11-22: "you can't break the wrist to
-     * complete the swing. It swings kind of like a stiff axe") */
-    offAmt = 0;
-    tick(); tick(); tick(); tick(); tick(); tick();
-    offAmt = 1;
-    apart = 11;
-    setGun(0); setOff(0);
-    palmOf(&gunHand, palm);
-    for (int i = 0; i < 3; i++) offAt[i] = palm[i] - ey[i] * cm(18) + ex[i] * cm(3);
+    letGo();
+    hands(ey, 12, ex, 5);
     tick();
     assert(deg(line(), ey) < 0.05f);
-    setGun(40); setOff(40);
-    palmOf(&gunHand, palm);
-    turnX(40, ey, want);
-    /* the grip points 6 cm across the wrists' line: by them it would lean 18 degrees */
-    for (int i = 0; i < 3; i++) offAt[i] = palm[i] - want[i] * cm(18) + ex[i] * cm(6);
-    for (int k = 0; k < 10; k++)
-    {
-        tick();
-        assert(deg(line(), want) < 0.1f);
-    }
 
     /* the off hand stuck to the bat (bondview2.c gevrBatOffHandPin) */
     {
@@ -257,12 +238,11 @@ int main(void)
         f32 batNow[3][3], at[3], grip[3], g[3];
 
         s_gevrTwoHandAmt = 1;
-        offAmt = 0;
-        tick(); tick(); tick(); tick(); tick(); tick();   /* a fresh hold for the pin too */
-        offAmt = 1;
-        setGun(0); setOff(0);
+        letGo();
+        setGun(0);
         palmOf(&gunHand, palm);
         for (int i = 0; i < 3; i++) offAt[i] = palm[i] - ey[i] * cm(10) + ex[i] * cm(1);
+        hands(ey, 12, ex, 0);
         tick();
         memset(arm, 0, sizeof(arm));
         for (int j = 0; j < 2; j++)
@@ -274,17 +254,19 @@ int main(void)
         memcpy(before, arm, sizeof(arm));
         gevrBatOffHandPin(arm, 2, x, y, z);   /* taking hold: turned by nothing */
         for (int r = 0; r < 3; r++) for (int i = 0; i < 3; i++) assert(fabsf(arm[0].m[r][i] - before[0].m[r][i]) < 1e-5f);
-        /* the gun wrist cocks 30 and the off controller stays: the bat turns 15, and the hand with the bat */
-        setGun(30);
+        /* the swing turns the bat 20 degrees and the off controller does not turn: the hand turns with the bat */
+        setGun(20);
         palmOf(&gunHand, palm);
+        turnX(20, ey, want);
+        hands(want, 12, ex, 0);
         tick();
         memcpy(arm, before, sizeof(arm));
         gevrBatOffHandPin(arm, 2, x, y, z);
         {
             f32 rowWas[3], rowNow[3];
             for (int i = 0; i < 3; i++) { rowWas[i] = before[0].m[0][i]; rowNow[i] = arm[0].m[0][i]; }
-            turnX(15, rowWas, g);
-            assert(deg(rowNow, g) < 0.1f);   /* with the bat, not its controller (0) */
+            turnX(20, rowWas, g);
+            assert(deg(rowNow, g) < 0.2f);   /* with the bat, not its controller (0) */
         }
         /* its grip point on the bat's line: the arm carried it rigidly */
         assert(gevrGexBatFrame(GUNRIGHT, at, batNow[0], batNow[1], batNow[2]));
@@ -297,7 +279,7 @@ int main(void)
             assert(offLine(grip) < 0.05f);
         }
     }
-    puts("PASS: the two-handed rifle bat: taking hold moves nothing, both wrists swing it (one alone half), spread hands put it on their line and it stays there, it turns about the fist with the glove, and the off hand is stuck to it");
+    puts("PASS: the two-handed rifle bat follows the controllers' line: taking hold moves nothing, it swings with both hands, a push breaks it 14 degrees with the hands together and 4 apart, it turns about the fist with the glove, and the off hand is stuck to it");
     return 0;
 }
 '''
