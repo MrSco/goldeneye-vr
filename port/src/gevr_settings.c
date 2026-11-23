@@ -1205,7 +1205,7 @@ static const Row s_rows[] = {
     { .label = "Voices", .tooltip = "The other players' voices.", .kind = GEVR_SET_RANGE, .section = GEVR_SEC_RULES,
       .lsection = L(GEVR_LSEC_MP_AUDIO), .where = GEVR_SET_LAUNCHER, .fvar = &VrVoiceVolume,
       .lo = 0, .hi = 1, .step = 0.05f, .scale = 100, .fmt = "%.0f%%", .def = 1.0f },
-    { .label = "Voice mode", .tooltip = "Proximity: opponents fade with distance, to 10%. Couch: everyone at full volume. "
+    { .label = "Voice mode", .tooltip = "Proximity: opponents are full volume within 8 m and silent past 25 m. Couch: everyone at full volume. "
                                         "Teammates are always at full volume.", .kind = GEVR_SET_CHOICE,
       .section = GEVR_SEC_RULES, .lsection = L(GEVR_LSEC_MP_AUDIO), .where = GEVR_SET_LAUNCHER, .def = NAN,
       .blocked = blockedHostRule, .cpositions = twoPositions, .cget = voiceModeGet, .cset = voiceModeSet,

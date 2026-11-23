@@ -8,8 +8,9 @@ deployed, or installed on a headset.
 ## Behavior
 
 - Host voice mode is persisted and replicated. Proximity is full gain through
-  3,000 horizontal game units, 36.7% at 4,000, 21.25% at 4,500, and 10%
-  from 6,000 onward, with a cubic falloff.
+  800 horizontal game units (8 m), 12.5% at 1,650, and silent from 2,500
+  (25 m) onward, with a cubic falloff. (Through v0.5.25 it was 3,000 full,
+  6,000 and beyond at a 10% floor, which carried voices across whole maps.)
   Couch uses full distance gain in FFA. In team battles, teammates always
   use Couch gain and opponents always use Proximity gain. In Horde and co-op
   every player is a teammate, so all use Couch gain. The host's mode only
@@ -103,7 +104,7 @@ separately authorized. These checks have not been performed here:
 2. Check lobby, FFA, teams, ordinary deaths, YOLT elimination, and spectator
    chat. Speak while changing groups and confirm old speech does not cross.
    Check mute, zero voice volume, live mode changes, and persistence.
-3. In Proximity, compare 0/3,000/4,000/4,500/6,000/8,000/beyond distances, through walls
+3. In Proximity, compare 0/800/1,650/2,500/8,000/beyond distances, through walls
    and with radar hidden. Confirm distant voice stays audible at the floor.
    In both modes, compare left/right/front/back/above/below, head pitch/roll,
    body turns, and recentering. Listen for artifacts and clipping.
