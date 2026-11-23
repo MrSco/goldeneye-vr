@@ -5,6 +5,7 @@ import shutil
 import sys
 import subprocess
 import tempfile
+from gevr_testcc import unused_stubs  # MinGW's ld keeps what --gc-sections drops
 
 ROOT = Path(__file__).resolve().parents[2]
 with tempfile.TemporaryDirectory(prefix="gevr-arena-") as temp:
@@ -21,6 +22,10 @@ with tempfile.TemporaryDirectory(prefix="gevr-arena-") as temp:
                                     "src/game/gevr_botnav.c", "src/game/padhalllv.c",
                                     "src/game/initpathtablelinks.c", "port/src/gevr_setup.c",
                                     "port/src/net/net_match.c")]
+    # gevr_arena.c's tick and kills, never run here
+    args += unused_stubs(temp, functions=("bossGetStageNum", "getPlayerCount", "get_cur_playernum", "netGetLocalSlot",
+                                          "netIsActive", "netPlayerIsSpectator", "record_damage_kills", "set_cur_player"),
+                         data=("g_playerPointers",))
     result = subprocess.run(args + ["-Wl,--gc-sections", "-lm", "-o", str(exe)], capture_output=True, text=True)
     if result.returncode:
         raise RuntimeError(result.stderr)

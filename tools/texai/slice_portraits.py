@@ -7,7 +7,7 @@ Usage:
     python tools/texai/slice_portraits.py <source_dir> <fork_dir> [--clean-legacy]
 
 Example:
-    python tools/texai/slice_portraits.py "C:\\Users\\Occor\\Downloads\\00-All" "C:\\Users\\Occor\\.gemini\\antigravity\\worktrees\\GoldenEye-007-HD\\replace_portrait_b_versions" --clean-legacy
+    python tools/texai/slice_portraits.py "<downloads>\\00-All" "<GoldenEye-007-HD checkout>\\replace_portrait_b_versions" --clean-legacy
 """
 
 import argparse

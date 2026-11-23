@@ -67,9 +67,17 @@ if [ "$APP" = 1 ]; then
   export GEVR_BUILD="${GEVR_BUILD:-$(sed -n 's/.*versionCode \([0-9]*\).*/\1/p' android/app/build.gradle)}"
   export DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-}"
   # iCloud sync (docs/icloud-sync.md): GEVR_ICLOUD=1 on a signed build adds
-  # port/ios/gevr-icloud.entitlements (the App ID and profile must have iCloud)
+  # port/ios/gevr-icloud.entitlements (the App ID and profile must have iCloud).
+  # App Store validation wants aps-environment beside iCloud on tvOS (error
+  # 90575, v0.5.26): production for an archive, development for a dev build,
+  # matching the profile (the App ID needs Push Notifications).
   if [ "${GEVR_ICLOUD:-0}" = 1 ] && { [ -n "${GEVR_SIGN:-}" ] || [ -n "${ARCHIVE:-}" ]; }; then
-    export GEVR_ICLOUD=YES GEVR_ENTITLEMENTS="$ROOT/port/ios/gevr-icloud.entitlements"
+    APS=development
+    [ -n "${ARCHIVE:-}" ] && APS=production
+    mkdir -p "$ROOT/$BUILD"
+    awk -v aps="$APS" '/<\/dict>/ && !done { print "\t<key>aps-environment</key>"; print "\t<string>" aps "</string>"; done = 1 } { print }' \
+      "$ROOT/port/ios/gevr-icloud.entitlements" > "$ROOT/$BUILD/gevr-icloud-tvos.entitlements"
+    export GEVR_ICLOUD=YES GEVR_ENTITLEMENTS="$ROOT/$BUILD/gevr-icloud-tvos.entitlements"
     GEVR_ICLOUD_EXPORT='<key>iCloudContainerEnvironment</key><string>Production</string>'
   else
     export GEVR_ICLOUD=NO GEVR_ENTITLEMENTS=""

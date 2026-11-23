@@ -1,7 +1,7 @@
 # VR render stalls: automated Quest profiling (2026-10-05)
 
 This continues Codex's handoff from 6462f42/d5d9bba (see git history of this
-file). Everything here was measured unattended on Quest 3 `2G0YC1ZF8Q0JQ6`,
+file). Everything here was measured unattended on Quest 3,
 Horizon OS on Android 14, in Dam with the user's own save and quality
 settings, including the HD texture pack. Only the refresh rate, smooth turning
 and the stats readout differ.
@@ -10,7 +10,7 @@ and the stats readout differ.
 
 ```powershell
 $env:JAVA_HOME='C:/Program Files/Java/jdk-20'
-$env:ANDROID_HOME='C:/Users/Occor/AppData/Local/Android/Sdk'
+$env:ANDROID_HOME="$env:LOCALAPPDATA/Android/Sdk"
 ./android/gradlew.bat -p android assembleBenchmark --console=plain
 python tools/perf/archive_apk.py NAME --variant benchmark   # signed copy under outputs/symbols/<build id>/
 python tools/perf/quest_profile.py backup  --out android/app/build/quest-profile   # once
