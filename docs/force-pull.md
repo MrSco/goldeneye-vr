@@ -73,7 +73,7 @@ moves.
   each hand, the MP dual-wield setting allows it). If not, it goes to the gun
   hand when that hand is empty. Otherwise it goes to the inventory.
 
-### Feedback (all on, with one "Pull visuals" toggle for glow and line)
+### Feedback (always on)
 
 - **Target glow:** the targeted item is brightened before the squeeze.
 - **Pull line:** a faint line from the palm to the target while pointing.
@@ -84,16 +84,18 @@ moves.
 
 ### Options (launcher Controls > Gestures and the watch VR page)
 
-The defaults follow GEVR PC, except force pull itself, which is off until chosen
-(owner, 2026-11-05):
+Force pull is one setting, off until chosen (owner, 2026-11-05; GEVR PC has
+it on). Since v0.5.26 the rest is always on, with no setting of its own
+(owner, 2026-11-23: "force pull is always gonna have the lines, and you can
+always pull out of enemies' hands"):
 
 | Option | Default |
 |---|---|
 | Force pull | off (GEVR PC: on) |
-| Pull and disarm | on |
-| Auto pickup | on (new: off means walking over a gun leaves it, so you grab or pull it) |
+| Pull and disarm | always on (a setting until v0.5.26) |
+| Walking over a gun picks it up | always (the Auto pickup setting until v0.5.26) |
 | Grip to hand | always on (no toggle since test.22) |
-| Pull visuals | on |
+| Glow, ring and line | always on with force pull (Pull visuals until v0.5.26) |
 
 ## Online
 
@@ -111,7 +113,7 @@ The defaults follow GEVR PC, except force pull itself, which is off until chosen
 
 ## Not changed
 
-Walk-over pickup rules with Auto pickup on (radius, line of sight, the
+Walk-over pickup rules (radius, line of sight, the
 look-down cutoff, full ammo), the Magnet watch, mine re-grab, hand reload's
 belt grabs, body slots, two-handed hold, the hip holster and motion throwing.
 In the grip order, the pull comes **last**. Everything that already claims a
@@ -155,9 +157,9 @@ Single player first, then online (protocol 26, below).
 - **Instant equip:** `gunfire.c` `g_gevrSwitchInstant[hand]` skips the empty
   hand's lowering and the gun's raise. It clears when the gun is up, or
   after 1 s if no switch came of it.
-- **Auto pickup off** applies to guns only (`gevrPullBlocksWalkOver` in
-  `objTickPlayer`). Ammo, armour and keys are still picked up by walking
-  over them, so a mission can't get stuck.
+- **Walking over** a prop flying to a hand doesn't collect it
+  (`gevrPullBlocksWalkOver` in `objTickPlayer`). Until v0.5.26, Auto pickup
+  off also left guns walked over on the floor.
 - **Disarm:** the target is the hand holding his gun, where the head's view
   last drew it (`chrRenderHeldWeapon` notes the hand's matrix, `basemtx`, in
   world space as it draws, since the extra view passes place guards again in
@@ -181,8 +183,9 @@ Single player first, then online (protocol 26, below).
   - A grenade let go of mid-flight drops where it is, moving as it was.
   - The 25 cm grab (Grip to hand) also takes a live grenade or a refused
     item into an empty hand.
-- **Settings:** `ForcePull` (0 by default), `PullDisarm`, `AutoPickup` and
-  `PullVisuals` (1 by default). Builds test.11 to test.16 saved
+- **Settings:** `ForcePull` (0 by default). `PullDisarm`, `AutoPickup` and
+  `PullVisuals` are no longer read or written (v0.5.26): all three are
+  always on. Builds test.11 to test.16 saved
   `GestureForcePull`, always 1 unless changed; it is no longer read, so the
   new default reaches those inis once. `GestureGripToHand` now also defaults
   to 1, but an ini that already saved 0 keeps it off. These are on the
@@ -193,7 +196,6 @@ Single player first, then online (protocol 26, below).
   pull flies or waits on a guard, and fading over 0.3 s after the catch. It
   sits on the face's tracked frame (`gevrStereoWatchFace` in `bondview2.c`),
   at the watch's size, and fades out as the face turns away from the eye.
-  It is off with Pull visuals.
 
 ## After a disarm (test.22)
 
@@ -301,8 +303,7 @@ headset to the host, which relays it to everyone else. Its phases are in
 8. **Grenade guards (Surface, Bunker).** Pull or grab a live grenade: it
    stays in the hand. Throw it back and the blast kills are yours. Hold it
    and it goes off in your hand.
-9. **Auto pickup off.** Walking over guns leaves them, while ammo and armour
-   still collect.
+9. **Walking over guns** picks them up, with no setting to turn it off.
 10. **No pull should steal the grip** from the two-handed hold, the reload
     belt, body slots, the holster or doors.
 11. **Watch glow:** during any pull, the left watch face glows gold and

@@ -263,7 +263,7 @@ The roadmap's seven-gun table contains every binding, timing and converted size.
 
 ## Read and bake the next fits
 
-Device serial: `2G0YC1ZF8Q0JQ6`. INI:
+Device: the owner's Quest 3. INI:
 `/sdcard/Android/data/com.gevr.port/files/data/goldeneye-vr.ini`.
 Pull read-only into ignored `android/app/build/`; do not push/reset device settings.
 Print only relevant fit keys, not private configuration or signing information.
@@ -342,10 +342,10 @@ not interchangeable with matrix IDs. Extend native fixtures for each new type.
 
 ## Windows build and validation
 
-Current workspace: `C:/Users/Occor/.codex/worktrees/37d1/goldeneye-vr`.
-Local GE-X ROM: `C:/Users/Occor/Documents/other_projects/gex/gex-6a.z64`.
+Current workspace: `<worktree>`.
+Local GE-X ROM: `<roms>/gex-6a.z64`.
 Expected size 33554432; MD5 `640923b68b9281044ac1b518612e979b`.
-GE ROM: `C:/Users/Occor/Documents/other_projects/goldeneye-vr/007 - GoldenEye.z64`.
+GE ROM: `<roms>/007 - GoldenEye.z64`.
 Analysis scripts/data under ignored `android/app/build/` are optional; production
 constants, rig notes and reproducible tools above are the durable handoff.
 
@@ -354,14 +354,14 @@ JBR is Java 25 and fails Gradle 8.4 / AGP 8.1.2 with class version 69.
 
 ```powershell
 $env:PYTHONUTF8='1'
-python port/tests/test_gex_weapons.py 'C:/Users/Occor/Documents/other_projects/gex/gex-6a.z64'
-python port/tests/test_gex_muzzle.py 'C:/Users/Occor/Documents/other_projects/gex/gex-6a.z64'
+python port/tests/test_gex_weapons.py '<roms>/gex-6a.z64'
+python port/tests/test_gex_muzzle.py '<roms>/gex-6a.z64'
 python port/tests/test_hand_reload.py
 python port/tests/test_vr_display.py
 python port/tests/test_watch_grip.py
 python port/tests/test_launcher_ui.py
 $env:JAVA_HOME='C:/Program Files/Java/jdk-20'
-$env:ANDROID_HOME='C:/Users/Occor/AppData/Local/Android/Sdk'
+$env:ANDROID_HOME="$env:LOCALAPPDATA/Android/Sdk"
 $env:CCACHE_DISABLE='1'
 ./android/gradlew.bat -p android assembleRelease
 ```
@@ -375,7 +375,7 @@ The recurring GAME_TICKRATE redefinition warning is pre-existing.
 
 Signing/local configuration are already ignored in `android/`. APK outputs are
 under `android/app/build/outputs/apk/release/`. Verify signatures with
-`C:/Users/Occor/AppData/Local/Android/Sdk/build-tools/33.0.1/apksigner.bat`.
+`%LOCALAPPDATA%/Android/Sdk/build-tools/33.0.1/apksigner.bat`.
 Do not commit ROMs, APKs, keystore, private INI or extracted assets. Attach any
 created PR to the chat, and leave merge/release publication to the user.
 
@@ -390,7 +390,7 @@ new code was compiled. This delivery explicitly refreshed CMake configuration
 before rebuilding and signing. For this checkout's existing release cache:
 
 ```powershell
-& 'C:/Users/Occor/AppData/Local/Android/Sdk/cmake/3.22.1/bin/cmake.exe' -S . -B android/app/.cxx/RelWithDebInfo/5n53247b/arm64-v8a
+& "$env:LOCALAPPDATA/Android/Sdk/cmake/3.22.1/bin/cmake.exe" -S . -B android/app/.cxx/RelWithDebInfo/5n53247b/arm64-v8a
 ```
 
 Use the actual cache directory in another checkout, and inspect its generated

@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+from gevr_testcc import sanitize  # the sanitizers where the compiler links them
 
 ROOT = Path(__file__).resolve().parents[2]
 parser = argparse.ArgumentParser(description=__doc__)
@@ -72,7 +73,7 @@ static struct {struct ModelFileHeader*header;float scale;} PitemZ_entries[PROP_S
 static int g_gevrStereo=1,updates,registrations,deregistrations,poses,variant;
 static float g_GlobalTimerDelta=1,D_800364CC=1;
 static int VrGestureGripUse,handReload;
-static int gevrHandReloadActive(void){return handReload;}
+static int gevrHandReloadGripUse(void){return handReload;}
 static struct ObjectRecord object;
 static struct Model model;
 static struct ModelFileHeader header;
@@ -242,7 +243,7 @@ def build(directory, baseline=False):
     c, exe = directory / ('baseline.c' if baseline else 'test.c'), directory / ('baseline' if baseline else 'test')
     c.write_text(fixture.replace('/* PRODUCTION */', production))
     subprocess.run([shutil.which('gcc') or 'gcc', '-std=c11', '-O1', '-g', '-DGEVR',
-                    '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-no-pie',
+                    *sanitize('-fsanitize=address,undefined', '-fno-sanitize-recover=all'), '-no-pie',
                     '-I' + str(ROOT / 'port/include'), str(c),
                     str(ROOT / 'port/src/gevr_speedboat.c'), '-lm', '-o', str(exe)], check=True)
     return exe

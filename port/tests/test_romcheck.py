@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import tempfile
 import zlib
+from gevr_testcc import load_library  # finds a Windows build's DLL dependencies
 
 ROOT = Path(__file__).resolve().parents[2]
 ROM_SIZE = 12 * 1024 * 1024
@@ -54,7 +55,7 @@ extern "C" int probe(const char *path, char *error, size_t size) {
                     "-I" + str(ROOT / "port/include"), str(source),
                     str(directory / "romcheck.o"), str(directory / "manifest.o"),
                     "-lz", "-o", str(library)], check=True)
-    lib = C.CDLL(str(library))
+    lib = load_library(str(library))
     lib.probe.argtypes = [C.c_char_p, C.c_void_p, C.c_size_t]
     return lib
 
@@ -84,7 +85,7 @@ typedef int32_t s32;
     subprocess.run([compiler, "-shared", str(directory / "romcheck.o"),
                     str(directory / "manifest.o"), str(legacy),
                     "-lz", "-o", str(library)], check=True)
-    lib = C.CDLL(str(library))
+    lib = load_library(str(library))
     lib.gevrInflate1172.argtypes = [C.c_void_p, C.c_uint, C.c_void_p, C.c_uint,
                                    C.POINTER(C.c_uint)]
     lib.gevrRomNormaliseOrder.argtypes = [C.c_void_p, C.c_uint]
@@ -145,7 +146,7 @@ typedef int32_t s32;
                     "-I" + str(ROOT / "port/include"), str(resource_source),
                     str(directory / "romcheck.o"), str(directory / "manifest.o"),
                     "-lz", "-o", str(resource_library)], check=True)
-    resource = C.CDLL(str(resource_library))
+    resource = load_library(str(resource_library))
     resource.test_load.argtypes = [C.c_void_p, C.c_uint, C.c_void_p, C.c_int,
                                   C.POINTER(C.c_uint)]
     resource.test_diagnostic.restype = C.c_char_p
@@ -246,5 +247,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--verify-baseline", action="store_true")
     options = parser.parse_args()
-    with tempfile.TemporaryDirectory(prefix="gevr-romcheck-") as temporary:
+    # a loaded library can't be deleted on Windows: what's left is the temp folder's
+    with tempfile.TemporaryDirectory(prefix="gevr-romcheck-", ignore_cleanup_errors=True) as temporary:
         run(Path(temporary), options.verify_baseline)

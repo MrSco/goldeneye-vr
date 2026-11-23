@@ -198,8 +198,10 @@ off returns those stored rounds to reserve; a new stage clears the saved state.
 Closing the watch also keeps the current magazine's rounds.
 
 B/Y eject only and no longer activate doors or switches. Grip use is forced
-on while GoldenEye X hand reload is active; the launcher and watch show it
-as required. The saved grip-use preference returns when hand reload is off.
+on while hand reload is on, with any model set (GoldenEye's own, GoldenEye X's,
+Bean's) and whatever is in hand (`gevrHandReloadGripUse`; owner, 2026-11-23);
+the launcher and watch show it as required. The saved grip-use preference
+returns when hand reload is off.
 
 A missing removable magazine gets a cyan translucent copy at its fitted
 installed position. The insertion target gets a green ring when the held
