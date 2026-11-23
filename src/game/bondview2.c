@@ -19280,13 +19280,13 @@ static s32 gevrGripGestureTry(s32 ctrl)
         }
         s_gevrGripGrabbing = FALSE;
     }
-    if (done < 0 && (VrGestureGripUse || gevrHandReloadActive())
+    if (done < 0 && (VrGestureGripUse || gevrHandReloadGripUse())
         && (prop = gevrHandFindProp(p, s_gevrGestureTune[GEVR_GT_USE] * cm, GEVR_HAND_USE)) != NULL
         && gevrHandInteract(prop))
     {
         done = 3;
     }
-    if (done < 0 && (VrGestureGripUse || gevrHandReloadActive()))
+    if (done < 0 && (VrGestureGripUse || gevrHandReloadGripUse()))
     {
         /*
          * What B would use here (in reach and in front, propFindForInteract),
@@ -19611,6 +19611,12 @@ static s32 gevrHandReloadBase(void)
         && (!netIsActive() || get_cur_playernum() == netGetLocalSlot());
 }
 
+/* gevr_ghost.c: a ghost run notes how the player reloaded, by hand or with the button */
+s32 gevrHandReloadOn(void)
+{
+    return gevrHandReloadEnabled();
+}
+
 /* gunfire.c and lv.c: the local player reloads by hand. With Bean's models
  * that is while a gun is out. */
 s32 gevrHandReloadActive(void)
@@ -19618,6 +19624,15 @@ s32 gevrHandReloadActive(void)
     return gevrHandReloadBase()
         && (VrGexGuns || gevrReloadItemByHand(getCurrentPlayerWeaponId(GUNRIGHT))
             || gevrReloadItemByHand(getCurrentPlayerWeaponId(GUNLEFT)));
+}
+
+/* Grip use (doors, switches, the Dam boat): on while hand reload is on, with any
+ * model set and whatever is in hand, as the settings show it (gevr_settings.c
+ * forcedGripUse; owner, 2026-11-23: "we need to require grip use if you're
+ * using hand reload"). It was only while a gun that reloads by hand was out. */
+s32 gevrHandReloadGripUse(void)
+{
+    return gevrHandReloadBase();
 }
 
 s32 gevrManualReloadOn(s32 hand)

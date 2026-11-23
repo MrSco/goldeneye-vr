@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 from test_reinforcements import block
+from gevr_testcc import sanitize  # the sanitizers where the compiler links them
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -63,7 +64,7 @@ def main():
         source, exe = Path(temp) / 'world.c', Path(temp) / 'world'
         source.write_text(fixture)
         flags = ['-std=c11', '-O1', '-g', '-fms-extensions',
-                 '-Wno-builtin-declaration-mismatch', '-Wno-incompatible-pointer-types', '-fsanitize=address,undefined',
+                 '-Wno-builtin-declaration-mismatch', '-Wno-incompatible-pointer-types', *sanitize('-fsanitize=address,undefined'),
                  '-fno-omit-frame-pointer', '-no-pie']
         flags += ['-D' + v for v in ('GEVR=1', 'PLATFORM_64BIT=1', '_LANGUAGE_C=1',
                                      'VERSION=2', 'VERSION_US=1', 'LANG_US=1')]

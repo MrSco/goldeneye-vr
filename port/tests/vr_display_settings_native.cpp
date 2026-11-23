@@ -95,6 +95,11 @@ int main(int argc, char **argv) {
         vrSettingsSave();
         return 0;
     }
+    // Hand reload: switched on once for a file from before v0.5.26, then the player's own
+    if (argc > 1 && std::strcmp(argv[1], "reload_read") == 0) {
+        assert(VrManualReloading == std::atoi(argv[2]));
+        return 0;
+    }
     if (argc > 1 && std::strcmp(argv[1], "speed_read") == 0) {
         assert(netMovementSpeedPercent(VrMovementSpeed) == std::atoi(argv[2]));
         assert(netMovementSpeedPercent(VrMpMovementSpeed) == std::atoi(argv[3]));

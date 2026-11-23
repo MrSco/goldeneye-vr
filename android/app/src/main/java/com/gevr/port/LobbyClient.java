@@ -56,6 +56,10 @@ final class LobbyClient {
     private int vrOnly = -1;
     /** How many of the players play flat, as the host last counted them; -1 not known. */
     private int flatPlayers = -1;
+    /** reload|handOnly|buttonPlayers (vr_launcher.cpp): "Hand reload only" (1, 0, -1 not known)
+     *  and how many reload with the button (-1 not known), for the Join list's filter. */
+    private int handOnly = -1;
+    private int buttonPlayers = -1;
     // devices|key@build,...: what each person runs (vr_launcher.cpp); null not said since create/resume
     private String devices = null;
     private boolean open = true;
@@ -109,6 +113,8 @@ final class LobbyClient {
                         .put("maxPlayers", Integer.parseInt(fields[6]));
                 vrOnly = fields.length >= 8 ? ("1".equals(fields[7]) ? 1 : 0) : -1;
                 flatPlayers = -1;
+                handOnly = -1;
+                buttonPlayers = -1;
                 devices = null;
                 if (vrOnly >= 0) pendingCreate.put("vrOnly", vrOnly == 1);
                 // the game's campaign (gevr_romlayout.h GEVR_CAMPAIGN_*): a ROM hack's co-op game says which
@@ -130,6 +136,8 @@ final class LobbyClient {
                 maxPlayers = Integer.parseInt(fields[3]);
                 vrOnly = -1;   // the Worker keeps it; the next refresh says it again
                 flatPlayers = -1;
+                handOnly = -1;
+                buttonPlayers = -1;
                 devices = null;
                 phase = fields[4];
                 players = Integer.parseInt(fields[5]);
@@ -166,6 +174,18 @@ final class LobbyClient {
                     }
                 }
                 break;
+            case "reload": {
+                // reload|handOnly|buttonPlayers: sent before each refresh, passed on when it changes
+                if (fields.length != 3) return;
+                int nextHand = "1".equals(fields[1]) ? 1 : 0;
+                int nextButton = Math.max(0, Integer.parseInt(fields[2]));
+                if (nextHand != handOnly || nextButton != buttonPlayers) {
+                    handOnly = nextHand;
+                    buttonPlayers = nextButton;
+                    nextHeartbeat = 0;
+                }
+                break;
+            }
             case "devices": {
                 // devices|key@build,...: sent before each refresh, passed on when it changes
                 String next = fields.length >= 2 ? fields[1] : "";
@@ -200,7 +220,8 @@ final class LobbyClient {
                             + row.getInt("players") + "|" + row.getInt("maxPlayers") + "|"
                             + row.optString("phase", "waiting") + "|"
                             + row.optInt("flatPlayers", -1) + "|" + (row.optBoolean("vrOnly", false) ? "1" : "0") + "|"
-                            + row.optInt("campaign", 0) + "|" + (row.optBoolean("dedicated", false) ? "1" : "0"));
+                            + row.optInt("campaign", 0) + "|" + (row.optBoolean("dedicated", false) ? "1" : "0") + "|"
+                            + (row.optBoolean("handReloadOnly", false) ? "1" : "0") + "|" + row.optInt("buttonPlayers", -1));
                 }
                 events.add("LIST_END");
                 break;
@@ -279,6 +300,8 @@ final class LobbyClient {
                             .put("maxPlayers", maxPlayers);
                     if (vrOnly >= 0) state.put("vrOnly", vrOnly == 1);
                     if (flatPlayers >= 0) state.put("flatPlayers", Math.min(flatPlayers, players));
+                    if (handOnly >= 0) state.put("handReloadOnly", handOnly == 1);
+                    if (buttonPlayers >= 0) state.put("buttonPlayers", Math.min(buttonPlayers, players));
                     if (devices != null) state.put("devices", devicesJson(devices));
                     if (!name.isEmpty()) state.put("name", name);
                     boolean sent = false;
