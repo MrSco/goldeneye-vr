@@ -76,7 +76,7 @@ The original reason for each cap was not established by this investigation.
 
 ## Artifact
 
-- APK: C:/Users/Occor/Documents/other_projects/goldeneye-vr/.claude/worktrees/playtest-logging-feedback-731f59/android/app/build/outputs/symbols/ae6a71cec360fbe4565ff2e5461859f74e22ec99/gevr-v0.3.7-release.apk
+- APK: <worktree>/android/app/build/outputs/symbols/ae6a71cec360fbe4565ff2e5461859f74e22ec99/gevr-v0.3.7-release.apk
 - Size: 21572806 bytes
 - SHA-256: 4943912e840ceebfa4d9898aecfc13cfe6915f46432bc680945e1507b89e8880
 - Native build ID: ae6a71cec360fbe4565ff2e5461859f74e22ec99

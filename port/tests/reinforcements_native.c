@@ -213,29 +213,32 @@ static void physics_handoff(void)
 }
 
 #ifndef GEVR_BASELINE
-/* A door touching a kept body (propobj.c) releases it to the original fade:
- * gone after the normal 90/75 ticks, never recaptured, its ID retired. */
+/* Doors keep the original timing (propobj.c): a kept body past the original lifetime
+ * fades in a third of it and the door does not wait; within it the body goes back to
+ * the original clock and the door waits as in the original. Never recaptured, ID retired. */
 static void door_release(void)
 {
     ChrRecord *parent = reset(24, 0), *clone = spawn(parent);
     die(clone); tick(clone, CHRLV_TICK_DEAD_CHECK); assert(gevrBodyKept(clone));
-    gevrBodyDoorHit(clone);
-    assert(!gevrBodyKept(clone) && clone->act_init.padding[0] == 1);
-    assert(gone(parent, (u8)CHR_CLONE));
-    tick(clone, 1); assert(!gevrBodyKept(clone) && clone->fadealpha < 255);
-    tick(clone, CHRLV_TICK_DEAD_CHECK); assert(clone->hidden & CHRHIDDEN_REMOVE);
+    assert(gevrBodyDoorHit(clone));
+    assert(!gevrBodyKept(clone) && gone(parent, (u8)CHR_CLONE));
+    assert(gevrBodyDoorHit(clone));                       /* a door asks every tick */
+    tick(clone, 1); assert(!gevrBodyKept(clone) && clone->fadealpha < 255 && clone->fadealpha > 0);
+    tick(clone, CHRLV_TICK_DEAD_CHECK / 3 - 2); assert(!(clone->hidden & CHRHIDDEN_REMOVE));
+    tick(clone, 1); assert(clone->hidden & CHRHIDDEN_REMOVE);
 
-    /* a fresh body resumes its own clock; another kept body stays */
+    /* within the original lifetime the body resumes its own clock and holds the door;
+     * another kept body stays */
     parent = reset(24, 0); clone = spawn(parent);
     ChrRecord *other = make_chr(9, 77);
     die(other); die(clone); tick(clone, 20);
-    gevrBodyDoorHit(clone);
+    assert(!gevrBodyDoorHit(clone));
     assert(!gevrBodyKept(clone) && clone->act_init.padding[0] == 20 && gevrBodyKept(other));
 
-    /* retention off: the body is already fading and the call changes nothing */
+    /* retention off: the body is fading on the original clock; it holds the door */
     parent = reset(0, 0); clone = spawn(parent);
     die(clone); tick(clone, 30);
-    gevrBodyDoorHit(clone);
+    assert(!gevrBodyDoorHit(clone));
     assert(!gevrBodyKept(clone) && clone->act_init.padding[0] == 30);
 }
 #endif

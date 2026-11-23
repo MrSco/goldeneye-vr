@@ -68,7 +68,7 @@ s32 chrSawTargetRecently(ChrRecord *);
 s32 chrIsDead(ChrRecord *chr);
 #ifdef GEVR
 s32 gevrBodyRetireForAi(ChrRecord *chr);
-void gevrBodyDoorHit(ChrRecord *chr);
+s32 gevrBodyDoorHit(ChrRecord *chr);   /* TRUE: past the original lifetime, the door does not wait */
 s32 gevrFastReinforcements(void);
 #endif
 bool actor_steps_sideways(ChrRecord *self);
