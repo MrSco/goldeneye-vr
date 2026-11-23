@@ -21,7 +21,9 @@
 
 /* --- Comfort and control options ---------------------------------------- */
 
-int  VrManualReloading    = 0;      /* reload by gesture rather than automatically (int: game code reads it) */
+/* reload by gesture rather than automatically (int: game code reads it). On by default
+ * since v0.5.26: it works on the original guns, GoldenEye X's and Bean's (owner, 2026-11-23). */
+int  VrManualReloading    = 1;
 int  VrMotionThrowing     = 1;      /* throw grenades, knives and mines by arm motion (int: game code reads it) */
 float VrMotionThrowPitch  = 0.0f;   /* vertical pitch offset in degrees for motion throws */
 float VrMotionThrowGazeAssist = 0.50f; /* 0..1 gaze direction assist for overhand throws */
@@ -47,6 +49,8 @@ char VrPlayerName[16]     = "";     /* multiplayer name; the launcher makes one 
 int VrMpStage = 27, VrMpWeaponSet = 4, VrMpChr = 0, VrMpVisibility = 0;
 int VrMpVrOnly = 0;   /* host: "VR players only" (net_core.c turns flat joiners away) */
 int VrMpHideFlat = 0; /* a VR player's public list: hide games with flat players in them */
+int VrMpHandReloadOnly = 0;   /* host: "Hand reload only" (net_core.c turns button-reload joiners away) */
+int VrMpHideButton = 0;       /* the Join list: hide games where someone reloads with the button */
 int VrMpServerFilter = 0;      /* the public list: 0 all games, 1 dedicated servers, 2 player-hosted, 3 a custom server */
 char VrMpCustomServers[512] = "";   /* custom dedicated servers, "host[:port]" joined by ';', newest first */
 int VrFriendsShowDetail = 1, VrFriendsAppearOffline = 0, VrFriendsRestoreNoted = 0, VrFriendsSidebar = 1, VrFriendsSearchable = 1;
@@ -85,16 +89,12 @@ int VrMovementSpeed = 0, VrMpMovementSpeed = 0;
 int VrGestureGripUse  = 1;   /* grip with the hand at a door or switch uses it (vr450, #90) */
 int VrGestureMineGrab = 1;   /* grip at your own stuck mine takes it back (vr450.2) */
 /* Force pull (docs/force-pull.md, src/game/gevr_forcepull.c): an empty hand
- * pointed at something out of reach and squeezed flies it to the hand; pull
- * and disarm takes a guard's gun; Auto pickup off leaves guns walked over on
- * the floor; Pull visuals draws the target halo and line. Force pull itself is
- * off until chosen (user, 2026-11-05; GEVR PC vr457 has it on): a squeeze at
- * nothing in reach pulled what the hand pointed at. Its own disarm and
- * visuals keep GEVR PC's on. */
+ * pointed at something out of reach and squeezed flies it to the hand, a
+ * guard's gun included, with the target's halo and line. Off until chosen
+ * (user, 2026-11-05; GEVR PC vr457 has it on): a squeeze at nothing in reach
+ * pulled what the hand pointed at. One setting (owner, 2026-11-23): the disarm,
+ * the visuals and walk-over pickup of guns are no longer settings of their own. */
 int VrForcePull   = 0;
-int VrPullDisarm  = 1;
-int VrAutoPickup  = 1;
-int VrPullVisuals = 1;
 /* Body slots (port/include/gevr_bodyslot.h, src/game/gevr_bodyslots.c): the
  * wheel's categories on the body, pistols at the hips, long guns over the
  * shoulders, thrown on the chest, gadgets at the belt; off by default. */

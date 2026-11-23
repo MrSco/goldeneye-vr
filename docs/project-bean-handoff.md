@@ -23,13 +23,13 @@ usage has only 2% remaining. Do not consume reset credits automatically.
 - Report 22ffdb80: c220561 tested without that crash but badly broken visuals.
   Decoded log: build/bean-crash/gevr-22ffdb80-decoded.log. Both supplied .txt
   reports in the user's Temp folder are base64; decode before inspecting.
-- Screenshot: C:/Users/Occor/AppData/Roaming/odh/device-media/2G0YC1ZF8Q0JQ6/
+- Screenshot: %APPDATA%/odh/device-media/<serial>/
   com.gevr.port-20261011-111954.jpg. Nearly absent Dam, overlapping hands,
   native-resolution UI; sky and some props visible.
 - Complete pinned DAB reference in ignored build/bean-reference/upstream,
   SHA adef1dc2d4eca1a5c453a7f2bf03a3b6cdad99b8. Use this instead of the stale
   other_projects/dabs-mod checkout. MIT attribution is in port/licenses.
-- Native ROM: C:/Users/Occor/Documents/other_projects/goldeneye-vr/
+- Native ROM: <checkout>/
   007 - GoldenEye.z64. Local extracted assets: same project's added-content/
   xbla/files. These are local user files; never commit them.
 - Signed diagnostic c220561 (already tested): build/diagnostics/bean-c220561/

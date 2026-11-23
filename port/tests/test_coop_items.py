@@ -109,7 +109,7 @@ with tempfile.TemporaryDirectory(prefix="gevr-coop-items-") as temp:
                                 "VERSION=2", "VERSION_US=1", "LANG_US=1")]
     args += ["-I" + str(ROOT / path) for path in
              (".", "port/include", "include", "src", "src/game", "port/src", "port/src/net")]
-    result = subprocess.run(args + [str(source), str(ROOT / "port/src/net/netbuf.c"), "-o", str(exe)],
+    result = subprocess.run(args + [str(source), str(ROOT / "port/src/net/netbuf.c"), "-lm", "-o", str(exe)],
                             capture_output=True, text=True)
     if result.returncode:
         raise RuntimeError(result.stderr)

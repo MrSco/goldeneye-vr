@@ -1741,6 +1741,15 @@ static std::string gevrLobbyRefreshCommand(int players)
            gevrVrOnlyField() + "|" + std::to_string(flat);
 }
 
+/* reload|handOnly|buttonPlayers: the host's "Hand reload only" and how many reload
+ * with the button (net_core.c netGetButtonReloadCount), for the Join list's filter and
+ * notes. Its own command, as devices: an older lobby client or bridge ignores it. */
+static std::string gevrLobbyReloadCommand(int players)
+{
+    const int button = std::min(netGetButtonReloadCount(), players);
+    return std::string("reload|") + (VrMpHandReloadOnly ? "1" : "0") + "|" + std::to_string(button);
+}
+
 /* devices|key@build,...: what each person in the game runs (net_core.c
  * netGetSlotDeviceKey, netGetSlotBuild), for the lobby service's live board
  * and its platform and build totals. Its own command: an older lobby client
@@ -1772,22 +1781,37 @@ static std::string gevrLobbyListCommand(void)
 /* The same rules for a LAN game, which the lobby service never sees: a flat
  * player is not shown a "VR players only" game, and a VR player who chose to
  * is not shown one with flat players (flat 0xFF: an older host did not say). */
-static bool gevrLanGameListed(bool vrOnly, int flat)
+/* The reload rules, a listed game's (online or LAN): a "Hand reload only" game is not
+ * shown to a player who reloads with the button (it would turn them away), and a player
+ * who chose "Hide games with button reload" is not shown one where someone does (button
+ * below 0 or 0xFF: an older host did not say, and it shows). Off, everything shows
+ * (owner, 2026-11-23: "a filter ... it's gonna show everybody"). */
+static bool gevrReloadListed(bool handOnly, int button)
 {
-    if (vrOnly && !gevrLocalPlaysVr() && gevrNetLocalInputClass() != 0xFF) return false;
-    if (gevrLocalPlaysVr() && VrMpHideFlat && flat > 0 && flat != 0xFF) return false;
+    if (handOnly && netGetLocalReloadMode() == NET_RELOAD_BUTTON) return false;
+    if (VrMpHideButton && button > 0 && button != 0xFF) return false;
     return true;
 }
 
-/* " (VR only)", " (2 flat)" or nothing, after a listed game's players. */
-static void gevrFlatNote(char *out, size_t cap, bool vrOnly, int flat)
+static bool gevrLanGameListed(bool vrOnly, int flat, bool handOnly = false, int button = -1)
 {
-    if (vrOnly)
-        snprintf(out, cap, ", VR only");
-    else if (flat > 0 && flat != 0xFF)
-        snprintf(out, cap, ", %d flat", flat);
-    else if (cap)
-        out[0] = '\0';
+    if (vrOnly && !gevrLocalPlaysVr() && gevrNetLocalInputClass() != 0xFF) return false;
+    if (gevrLocalPlaysVr() && VrMpHideFlat && flat > 0 && flat != 0xFF) return false;
+    return gevrReloadListed(handOnly, button);
+}
+
+/* ", VR only", ", 2 flat", ", hand reload only", ", 3 button reload" or nothing, after a
+ * listed game's players (flat and button 0xFF or below 0: not said). */
+static void gevrFlatNote(char *out, size_t cap, bool vrOnly, int flat, bool handOnly = false, int button = -1)
+{
+    if (!cap) return;
+    out[0] = '\0';
+    size_t n = 0;
+    if (vrOnly) n += snprintf(out + n, cap - n, ", VR only");
+    else if (flat > 0 && flat != 0xFF) n += snprintf(out + n, cap - n, ", %d flat", flat);
+    if (n >= cap) return;
+    if (handOnly) snprintf(out + n, cap - n, ", hand reload only");
+    else if (button > 0 && button != 0xFF) snprintf(out + n, cap - n, ", %d button reload", button);
 }
 
 /* Join's "Hide games with flat players" (a VR player's choice, MpHideFlat).
@@ -1803,6 +1827,27 @@ static bool gevrHideFlatCheckbox(void)
     }
     if (ImGui::IsItemHovered())
         gevrTooltip("Only games where everyone plays in VR: none on a PC, phone or tablet, or a headset's flat screen.");
+    return changed;
+}
+
+/* Join's "Hide games with button reload" (MpHideButton, off: every game shows), beside the
+ * flat filter when it fits. Returns true when it changed. */
+static bool gevrHideButtonCheckbox(void)
+{
+    const char *label = "Hide games with button reload";
+    if (gevrLocalPlaysVr()) {
+        ImGui::SameLine();
+        const float need = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x + ImGui::CalcTextSize(label).x;
+        if (ImGui::GetContentRegionAvail().x < need) ImGui::NewLine();
+    }
+    bool hide = VrMpHideButton != 0;
+    const bool changed = ImGui::Checkbox(label, &hide);
+    if (changed) {
+        VrMpHideButton = hide ? 1 : 0;
+        vrSettingsSave();
+    }
+    if (ImGui::IsItemHovered())
+        gevrTooltip("Only games where everyone reloads by hand (Hand reload, in VR). Games from older builds still show.");
     return changed;
 }
 
@@ -2142,20 +2187,24 @@ static void gevrLobbyRoster(const ImVec4 &gold, bool showCount = true) {
     const NetMsgLobbyState *lobby = netGetLobbyState();
     static int kickSlot = -1;
     static char kickName[GEVR_MAX_NAME_LEN] = "";
+    static int menuSlot = -1;   // the player whose menu is open
+    int openMenu = -1;
     const bool canKick = netIsHost();
+    const bool teams = gevrLobbyHasTeams(&lobby->config);
     if (showCount) ImGui::TextColored(gold, "PLAYERS (%d/%d)", netGetConnectedPlayerCount(), netGetMaxPlayers());
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(ImGui::GetStyle().CellPadding.x, 2.0f));
-    // "Ping" (ms, as its tooltip says) leaves room for the Friend column (Add, Accept, Sent, Friends)
-    if (ImGui::BeginTable("##lobbyroster", canKick ? 8 : 7, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerH)) {
+    // A player's actions, Add friend and the host's Kick, are in a menu on the row (owner,
+    // 2026-11-23: "click on them and add them as a friend"): as columns of their own they
+    // took the Name column down to 20 px at Quest size. Team only where there are teams.
+    if (ImGui::BeginTable("##lobbyroster", teams ? 7 : 6, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerH)) {
         float font = ImGui::GetFontSize();
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Character", ImGuiTableColumnFlags_WidthFixed, font * 9);
-        ImGui::TableSetupColumn("Team", ImGuiTableColumnFlags_WidthFixed, font * 5);
-        ImGui::TableSetupColumn("Device", ImGuiTableColumnFlags_WidthFixed, font * 7.5f);
-        ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthFixed, font * 6);
-        ImGui::TableSetupColumn("Ping", ImGuiTableColumnFlags_WidthFixed, font * 3.5f);
-        ImGui::TableSetupColumn("Friend", ImGuiTableColumnFlags_WidthFixed, font * 4.2f);
-        if (canKick) ImGui::TableSetupColumn("Host", ImGuiTableColumnFlags_WidthFixed, font * 3.2f);
+        ImGui::TableSetupColumn("Character", ImGuiTableColumnFlags_WidthFixed, font * 7.5f);
+        if (teams) ImGui::TableSetupColumn("Team", ImGuiTableColumnFlags_WidthFixed, font * 4.0f);
+        ImGui::TableSetupColumn("Device", ImGuiTableColumnFlags_WidthFixed, font * 6.5f);
+        ImGui::TableSetupColumn("Reload", ImGuiTableColumnFlags_WidthFixed, font * 3.8f);
+        ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthFixed, font * 4.8f);
+        ImGui::TableSetupColumn("Ping", ImGuiTableColumnFlags_WidthFixed, font * 3.0f);
         ImGui::TableHeadersRow();
         for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
             if (!lobby->slots[i].connected)
@@ -2164,21 +2213,30 @@ static void gevrLobbyRoster(const ImVec4 &gold, bool showCount = true) {
             bool host = i == netGetHostSlot();
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(slot.name);
+            ImGui::PushID(i);
+            // the whole row opens the player's menu
+            if (ImGui::Selectable(slot.name, menuSlot == i && ImGui::IsPopupOpen("##player-menu"),
+                                  ImGuiSelectableFlags_SpanAllColumns))
+                openMenu = i;
+            ImGui::PopID();
             if (ImGui::IsItemHovered() && slot.is_bot)
                 gevrTooltip("%s\nA bot the host runs (%s)\nSlot: %d", slot.name,
                                   netBotDifficultyName(lobby->config.bot_difficulty), i + 1);
             else if (ImGui::IsItemHovered() && netGetSlotFriendCode(i)[0])
-                gevrTooltip("%s\nFriend code: %s\nBuild: %s\nProtocol: %d\nSlot: %d\nPing is the round trip to the current host, in ms.",
-                                  slot.name, gevrFriendCodeText(netGetSlotFriendCode(i)).c_str(), netGetSlotAppVersion(i),
-                                  GEVR_NET_VERSION, i + 1);
+                gevrTooltip("%s\nFriend code: %s\nBuild: %s\nProtocol: %d\nSlot: %d\nPing is the round trip to the current host, in ms.\n"
+                            "Select for Add friend%s.", slot.name, gevrFriendCodeText(netGetSlotFriendCode(i)).c_str(),
+                            netGetSlotAppVersion(i), GEVR_NET_VERSION, i + 1, canKick && !host ? " or Kick" : "");
             else if (ImGui::IsItemHovered())
-                gevrTooltip("%s\nBuild: %s\nProtocol: %d\nSlot: %d\nPing is the round trip to the current host, in ms.",
-                                  slot.name, netGetSlotAppVersion(i), GEVR_NET_VERSION, i + 1);
+                gevrTooltip("%s\nBuild: %s\nProtocol: %d\nSlot: %d\nPing is the round trip to the current host, in ms.%s",
+                            slot.name, netGetSlotAppVersion(i), GEVR_NET_VERSION, i + 1,
+                            canKick && !host ? "\nSelect for Kick." : "");
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(netCharacterName(slot.chr_id));
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(gevrLobbyHasTeams(&lobby->config) ? netTeamName(slot.team) : "—");
+            if (ImGui::IsItemHovered()) gevrTooltip("%s", netCharacterName(slot.chr_id));   // a long one is cut
+            if (teams) {
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(netTeamName(slot.team));
+            }
             ImGui::TableNextColumn();
             {
                 // what each person plays on and with (net_core.c netGetSlotDeviceName, NET_INPUT_*);
@@ -2187,48 +2245,73 @@ static void gevrLobbyRoster(const ImVec4 &gold, bool showCount = true) {
                 const int c = netGetSlotInputClass(i);
                 ImGui::TextUnformatted(device[0] ? device : "—");
                 if (ImGui::IsItemHovered() && c >= 0 && c <= 3)
-                    gevrTooltip("%s", c == 0 ? "In VR, with tracked controllers"
-                                      : c == 1 ? "Flat: keyboard and mouse"
-                                      : c == 2 ? "Flat: a gamepad, or a headset's flat screen"
-                                               : "Flat: touch controls");
+                    gevrTooltip("%s%s%s", device, device[0] ? "\n" : "",
+                                c == 0 ? "In VR, with tracked controllers"
+                                : c == 1 ? "Flat: keyboard and mouse"
+                                : c == 2 ? "Flat: a gamepad, or a headset's flat screen"
+                                         : "Flat: touch controls");
+            }
+            ImGui::TableNextColumn();
+            {
+                // how each person reloads (net_core.c NET_MSG_RELOAD_MODE; owner, 2026-11-23)
+                const int rm = netGetSlotReloadMode(i);
+                ImGui::TextUnformatted(rm == NET_RELOAD_HAND ? "Hand" : rm == NET_RELOAD_BUTTON ? "Button" : "—");
+                if (ImGui::IsItemHovered())
+                    gevrTooltip("%s", rm == NET_RELOAD_HAND     ? "Reloads by hand (Hand reload, in VR)."
+                                      : rm == NET_RELOAD_BUTTON ? "Reloads with the button."
+                                      : slot.is_bot             ? "A bot."
+                                                                : "Not said: an older build.");
             }
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(host ? "Host" : slot.is_bot ? "Bot" : slot.ready ? "Ready" : "Waiting");
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(slot.is_bot ? "—" : gevrPingText(i).c_str());
-            // Add friend (owner, 2026-11-23: "a way to just click on them and add them as a
-            // friend easily right from the lobby screen"): by the friend code their build sends
-            // (net_core.c NET_MSG_FRIEND_CODE); none from an older build or a player who
-            // can't be found, and none for a bot or yourself
-            ImGui::TableNextColumn();
-            if (i != netGetLocalSlot() && !slot.is_bot) {
-                const std::string code = netGetSlotFriendCode(i);
-                const GevrFriendsModel &fm = gevrFriends();
-                std::string requestId;
-                const int relation = gevrFriendRelation(fm, code, &requestId);
-                ImGui::PushID(1000 + i);
-                if (gevrAddFriendCell(relation, fm.status == "ready", slot.name, code))
-                    gevrFriendsSend(relation == GEVR_RELATION_REQUEST ? "answer|" + requestId + "|1" : "add|" + code);
-                ImGui::PopID();
-            }
-            if (canKick) {
-                ImGui::TableNextColumn();ImGui::PushID(i);
-                if (!host) {
-                    const bool supported=netHostCanKickPlayer(i)!=0;
-                    ImGui::BeginDisabled(!supported);
-                    if (ImGui::SmallButton("Kick")) {
-                        kickSlot = i;snprintf(kickName,sizeof(kickName),"%s",slot.name);
-                    }
-                    ImGui::EndDisabled();
-                    if (!supported && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                        gevrTooltip("This player needs the updated build for host removal.");
-                }
-                ImGui::PopID();
-            }
         }
         ImGui::EndTable();
     }
     ImGui::PopStyleVar();
+    // A player's menu: their friend code, Add friend (by the code their build sends,
+    // net_core.c NET_MSG_FRIEND_CODE), and the host's Kick.
+    if (openMenu >= 0) {
+        menuSlot = openMenu;
+        ImGui::OpenPopup("##player-menu");
+    }
+    if (ImGui::BeginPopup("##player-menu")) {
+        const int i = menuSlot;
+        if (i < 0 || i >= GEVR_MAX_PLAYERS || !lobby->slots[i].connected) {
+            ImGui::CloseCurrentPopup();
+        } else {
+            const auto &slot = lobby->slots[i];
+            const bool self = i == netGetLocalSlot();
+            ImGui::TextColored(gold, "%s%s", slot.name, self ? " (you)" : "");
+            if (slot.is_bot) {
+                ImGui::TextDisabled("A bot the host runs (%s)", netBotDifficultyName(lobby->config.bot_difficulty));
+            } else {
+                const std::string code = netGetSlotFriendCode(i);
+                if (!code.empty()) ImGui::TextDisabled("Friend code: %s", gevrFriendCodeText(code).c_str());
+                if (!self) {
+                    const GevrFriendsModel &fm = gevrFriends();
+                    std::string requestId;
+                    const int relation = gevrFriendRelation(fm, code, &requestId);
+                    if (gevrAddFriendButton(relation, fm.status == "ready", slot.name, code))
+                        gevrFriendsSend(relation == GEVR_RELATION_REQUEST ? "answer|" + requestId + "|1" : "add|" + code);
+                }
+            }
+            if (canKick && i != netGetHostSlot()) {
+                const bool supported = netHostCanKickPlayer(i) != 0;
+                ImGui::BeginDisabled(!supported);
+                if (ImGui::Button("Kick from lobby")) {
+                    kickSlot = i;
+                    snprintf(kickName, sizeof(kickName), "%s", slot.name);
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndDisabled();
+                if (!supported && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    gevrTooltip("This player needs the updated build for host removal.");
+            }
+        }
+        ImGui::EndPopup();
+    }
     if (kickSlot >= 0 && !ImGui::IsPopupOpen("Kick from lobby?")) ImGui::OpenPopup("Kick from lobby?");
     if (ImGui::BeginPopupModal("Kick from lobby?",nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {
         const bool present = netHostCanKickPlayer(kickSlot) &&
@@ -2299,6 +2382,14 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
             bool vrOnly = VrMpVrOnly != 0;
             if (ImGui::Checkbox("VR players only", &vrOnly)) { VrMpVrOnly = vrOnly ? 1 : 0; vrSettingsSave(); }
             if (ImGui::IsItemHovered()) gevrTooltip("Only players in VR can join: not a PC, phone or tablet, or a headset's flat screen.");
+            // "Hand reload only" beside it, on a row of its own when the column is too narrow
+            ImGui::SameLine();
+            const float needHand = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x +
+                                   ImGui::CalcTextSize("Hand reload only").x;
+            if (ImGui::GetContentRegionAvail().x < needHand) ImGui::NewLine();
+            bool handOnly = VrMpHandReloadOnly != 0;
+            if (ImGui::Checkbox("Hand reload only", &handOnly)) { VrMpHandReloadOnly = handOnly ? 1 : 0; vrSettingsSave(); }
+            if (ImGui::IsItemHovered()) gevrTooltip("Only players who reload by hand can join (Hand reload, in VR).");
         }
         ImGui::TextUnformatted("Mode:");ImGui::SameLine();
         const bool hackCoopOnly = VrCampaign != GEVR_CAMPAIGN_GE;   // a hack campaign: co-op only
@@ -2376,6 +2467,13 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
                     if (ImGui::IsItemHovered()) gevrTooltip("VR players only. Stop hosting to change it.");
                 }
             }
+            if (VrMpHandReloadOnly) {
+                ImGui::SameLine();
+                if (ImGui::GetContentRegionAvail().x >= ImGui::CalcTextSize("Hand reload").x) {
+                    ImGui::TextDisabled("Hand reload");
+                    if (ImGui::IsItemHovered()) gevrTooltip("Hand reload only. Stop hosting to change it.");
+                }
+            }
         }
         ImGui::EndTable();
     }
@@ -2440,6 +2538,8 @@ struct GevrOnlineLobby {
     bool vrOnly = false;
     int campaign = 0;       // GEVR_CAMPAIGN_*: a ROM hack's co-op game; 0 from an older host
     bool dedicated = false; // a dedicated server with a key from the project (the lobby service says)
+    bool handOnly = false;  // the host's "Hand reload only"
+    int buttonPlayers = -1; // how many reload with the button; -1: the service did not say
 };
 
 // Which campaigns' ROMs are installed (the main frame's header checks, about once a
@@ -2924,8 +3024,12 @@ void gevrMultiplayerTick(GevrLauncherTabs &tabs, bool &startMatch, bool romReady
         } else if (f[0] == "LIST_END") {
             listLoading = false;
         } else if (f[0] == "LOBBY" && f.size() >= 8) {
-            // LOBBY|code|name|stage|weapons|players|max|phase[|flatPlayers|vrOnly[|campaign[|dedicated]]]
+            // LOBBY|code|name|stage|weapons|players|max|phase[|flatPlayers|vrOnly[|campaign[|dedicated[|handOnly|buttonPlayers]]]]
             GevrOnlineLobby game{f[1], f[2], f[7], atoi(f[3].c_str()), atoi(f[4].c_str()), atoi(f[5].c_str()), atoi(f[6].c_str())};
+            if (f.size() >= 14) {
+                game.handOnly = f[12] == "1";
+                game.buttonPlayers = atoi(f[13].c_str());
+            }
             if (f.size() >= 12) game.dedicated = f[11] == "1";
             if (f.size() >= 11) game.campaign = atoi(f[10].c_str());
             if (f.size() >= 10) {
@@ -3027,6 +3131,7 @@ void gevrMultiplayerTick(GevrLauncherTabs &tabs, bool &startMatch, bool romReady
             lastHeartbeatMs = heartbeatNow;
             // the count too: the host may change it after registering the lobby
             gevrJavaCommand("lobbyCommand", gevrLobbyDevicesCommand().c_str());
+            gevrJavaCommand("lobbyCommand", gevrLobbyReloadCommand(pCount).c_str());
             gevrJavaCommand("lobbyCommand", gevrLobbyRefreshCommand(pCount).c_str());
         }
     }
@@ -3320,6 +3425,7 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                         const uint32_t listNow = SDL_GetTicks();
                         if (gevrHideFlatCheckbox())
                             lastListMs = 0;   // the list again, now
+                        gevrHideButtonCheckbox();   // filters the list as it is
                         if (listNow - lastListMs > 8000 || lastListMs == 0) {
                             lastListMs = listNow;
                             listLoading = true;
@@ -3331,6 +3437,7 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                         }
                         // MpServerFilter: 1 dedicated servers only, 2 player-hosted games only
                         auto listed = [](const GevrOnlineLobby &game) {
+                            if (!gevrReloadListed(game.handOnly, game.buttonPlayers)) return false;
                             return VrMpServerFilter == GEVR_SERVERS_DEDICATED ? game.dedicated
                                  : VrMpServerFilter == GEVR_SERVERS_PLAYER    ? !game.dedicated
                                                                               : true;
@@ -3348,8 +3455,8 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                         for (const GevrOnlineLobby &game : onlineLobbies) {
                             if (!listed(game))
                                 continue;
-                            char label[220], flat[24];
-                            gevrFlatNote(flat, sizeof(flat), game.vrOnly, game.flatPlayers);
+                            char label[300], flat[72];
+                            gevrFlatNote(flat, sizeof(flat), game.vrOnly, game.flatPlayers, game.handOnly, game.buttonPlayers);
                             // A ROM hack's co-op game: its campaign, not GoldenEye's mission names for its
                             // stages. Another campaign is switched to first if its ROM is installed.
                             const bool hack = game.campaign != GEVR_CAMPAIGN_GE;
@@ -3427,24 +3534,25 @@ void gevrMultiplayerPage(int sub, bool &startMatch, bool romReady, const ImVec4 
                     snprintf(lanLabel, sizeof(lanLabel), "LAN Games Discovered (%d)###acc_lan", count);
                     if (joinMethod == 2) {
                         gevrHideFlatCheckbox();
+                        gevrHideButtonCheckbox();
                         int shown = 0;
                         for (int i = 0; i < count; i++) {
                             const NetDiscoveredServer *srv = netDiscoveryGetServer(i);
-                            shown += gevrLanGameListed(srv->vr_only, srv->flat_players);
+                            shown += gevrLanGameListed(srv->vr_only, srv->flat_players, srv->hand_only, srv->button_players);
                         }
                         if (count == 0) {
                             ImGui::TextDisabled("Searching your Wi-Fi network for GoldenEye VR hosts...");
                         } else if (shown == 0) {
-                            ImGui::TextDisabled("No LAN games for you: the ones found are hidden by the VR rules above.");
+                            ImGui::TextDisabled("No LAN games for you: the ones found are hidden by the rules above.");
                         } else {
                             for (int i = 0; i < count; i++) {
                                 const NetDiscoveredServer *srv = netDiscoveryGetServer(i);
-                                if (!gevrLanGameListed(srv->vr_only, srv->flat_players))
+                                if (!gevrLanGameListed(srv->vr_only, srv->flat_players, srv->hand_only, srv->button_players))
                                     continue;
                                 const int cap = srv->max_players;
                                 const bool full = !srv->joinable;
-                                char label[180], flat[24];
-                                gevrFlatNote(flat, sizeof(flat), srv->vr_only, srv->flat_players);
+                                char label[260], flat[72];
+                                gevrFlatNote(flat, sizeof(flat), srv->vr_only, srv->flat_players, srv->hand_only, srv->button_players);
                                 snprintf(label, sizeof(label), "%s  -  %s  -  %d/%d players%s%s##srv%d",
                                          srv->server_name,
                                          listedGameLabel(srv->stage_num, srv->weapon_set).c_str(),
@@ -3659,6 +3767,7 @@ extern "C" void gevrLobbyGameTick(void)
                 // live connections: a player yet to come back after a host
                 // change must find the lobby open
                 gevrJavaCommand("lobbyCommand", gevrLobbyDevicesCommand().c_str());
+                gevrJavaCommand("lobbyCommand", gevrLobbyReloadCommand(netGetLivePlayerCount()).c_str());
                 gevrJavaCommand("lobbyCommand", gevrLobbyRefreshCommand(netGetLivePlayerCount()).c_str());
             }
         }

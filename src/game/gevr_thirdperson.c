@@ -15,7 +15,8 @@
  * - The trace is the background's drawn triangles (bgTestBulletHitBackground,
  *   the rooms around the eye) plus the walk mesh with doors and path
  *   blockers (stanTestLineUnobstructed, as the retail multiplayer death
- *   camera traces), then the camera is lifted off the floor under it and
+ *   camera traces), and the solid objects the line passes through at its own
+ *   height (Dam's truck), then the camera is lifted off the floor under it and
  *   kept under the ceiling (gevrBgClampCameraCeiling).
  * - Aiming (R), the watch, death, the tank and anything that is not the
  *   ordinary first-person camera put the camera back on the eye, where the
@@ -293,6 +294,49 @@ static f32 gevrTpTrace(const coord3d *eye, const coord3d *to, StandTile **tileou
             sub_GAME_7F03D058(p->prop, 1);
         }
         if (tile != NULL) *tileout = tile;
+    }
+
+    /* Solid objects the line passes through, at its own height, so a crate
+     * under the camera is no block: up against Dam's truck the camera comes in
+     * to the eye, as against a wall (owner, 2026-11-23: "when your camera gets
+     * stuck inside the truck, it should switch to first-person view like it
+     * does when you're up against a wall"). */
+    tile = p->field_488.current_tile_ptr;
+    if (tile != NULL && frac > 0.0f && (dx * dx + dz * dz) > 1.0f)
+    {
+        const f32 endy = from.y + dy * frac;
+        coord3d dir, hitpos;
+        s32 ok;
+
+        stanResetHits();
+        sub_GAME_7F03D058(p->prop, 0);
+        ok = stanTestLineUnobstructed(&tile, from.x, from.z, from.x + dx * frac, from.z + dz * frac,
+            CDTYPE_OBJS, from.y, from.y, endy, endy);
+        sub_GAME_7F03D058(p->prop, 1);
+        if (!ok)
+        {
+            f32 hd, flat;
+
+            dir.x = dx;
+            dir.y = 0.0f;
+            dir.z = dz;
+            chrlvStanPointPointIntersection(&from, &dir, &hitpos);
+            flat = sqrtf(dx * dx + dz * dz);
+            hd = ((hitpos.x - from.x) * dx + (hitpos.z - from.z) * dz) / flat;
+            if (isfinite(hd) && hd >= 0.0f && hd / flat < frac)
+            {
+                frac = hd / flat;
+                /* the tile the shortened line ends on */
+                tile = p->field_488.current_tile_ptr;
+                stanResetHits();
+                sub_GAME_7F03D058(p->prop, 0);
+                stanTestLineUnobstructed(&tile, from.x, from.z,
+                    from.x + dx * frac * 0.98f, from.z + dz * frac * 0.98f,
+                    CDTYPE_DOORS | CDTYPE_PATHBLOCKER | CDTYPE_BG, 0.0f, 1.0f, 0.0f, 1.0f);
+                sub_GAME_7F03D058(p->prop, 1);
+                if (tile != NULL) *tileout = tile;
+            }
+        }
     }
 
     /* keep the clearance off what was hit */
