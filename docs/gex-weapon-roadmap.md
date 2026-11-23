@@ -94,7 +94,7 @@ headset smoke acceptance of the final iteration. The broader handedness, scale,
 dual-wield and lifecycle acceptance matrix below still needs systematic coverage.
 
 Local screenshot evidence is under
-`C:/Users/Occor/AppData/Roaming/odh/device-media/2G0YC1ZF8Q0JQ6/`:
+`%APPDATA%/odh/device-media/<serial>/`:
 `com.gevr.port-20261006-141406.jpg` (twisted magazine wrist),
 `com.gevr.port-20261006-142414.jpg` (magazine position/support pivot),
 `com.gevr.port-20261006-143656.jpg` (support angle/hidden fit mode), and
@@ -238,7 +238,7 @@ until verified. Knives, throwables, mines and gadgets form a separate track.
 
 ## Local verification commands
 
-The development ROM is `C:/Users/Occor/Documents/other_projects/gex/gex-6a.z64`,
+The development ROM is `<roms>/gex-6a.z64`,
 MD5 `640923b68b9281044ac1b518612e979b`, verified as GE-X 6a. It is not copied into
 the repository or packaged. Use your own ROM paths:
 

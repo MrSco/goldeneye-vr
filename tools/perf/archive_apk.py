@@ -21,7 +21,10 @@ args = parser.parse_args()
 assert re.fullmatch('[A-Za-z0-9_-]+', args.name)
 propsfile = root / 'android/keystore.properties'
 if not propsfile.exists():
-    propsfile = Path('C:/Users/Occor/Documents/other_projects/goldeneye-vr/android/keystore.properties')
+    # a worktree: the main checkout's (gitignored, beside the repository's own .git)
+    common = subprocess.run(['git', 'rev-parse', '--path-format=absolute', '--git-common-dir'], cwd=root,
+                            capture_output=True, text=True).stdout.strip()
+    propsfile = Path(common).parent / 'android/keystore.properties'
 props = dict(line.strip().split('=', 1) for line in propsfile.read_text().splitlines()
              if '=' in line and not line.lstrip().startswith('#'))
 key = Path(props['storeFile'])
@@ -29,7 +32,7 @@ if not key.is_absolute():
     relative = props['storeFile'].removeprefix('android/')
     key = propsfile.parent / relative
 assert key.exists()
-sdk = Path('C:/Users/Occor/AppData/Local/Android/Sdk')
+sdk = Path(os.environ.get('ANDROID_HOME') or Path(os.environ.get('LOCALAPPDATA', '')) / 'Android/Sdk')
 java = Path('C:/Program Files/Java/jdk-20/bin/java.exe')
 build = root / 'android/app/build'
 outputs = build / 'outputs/apk' / args.flavor / args.variant

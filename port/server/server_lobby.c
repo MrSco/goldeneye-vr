@@ -112,6 +112,7 @@ static void lobbyCommand(const char *line)
 }
 
 extern int VrMpVrOnly;   /* goldeneye-vr.ini MpVrOnly: net_core.c turns flat joiners away */
+extern int VrMpHandReloadOnly;   /* MpHandReloadOnly: net_core.c turns button-reload joiners away */
 
 static void lobbyCreate(void)
 {
@@ -254,6 +255,11 @@ void serverLobbyTick(void)
 						devices[8] ? "," : "", key, build);
 			}
 			lobbyCommand(devices);
+			/* "Hand reload only" and how many reload with the button (vr_launcher.cpp
+			 * gevrLobbyReloadCommand): the Join list's reload filter */
+			const int button = netGetButtonReloadCount();
+			snprintf(line, sizeof(line), "reload|%d|%d", VrMpHandReloadOnly ? 1 : 0, button < players ? button : players);
+			lobbyCommand(line);
 			const int flat = netGetFlatPlayerCount();
 			/* "VR players only" and how many play flat, as the launcher's heartbeat */
 			snprintf(line, sizeof(line), "refresh|%d|%d|%d|%d|%d", players, players < max ? 1 : 0, max,

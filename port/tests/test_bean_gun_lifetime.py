@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+from gevr_testcc import sanitize, unused_stubs  # the sanitizers where they link; MinGW's ld keeps what --gc-sections drops
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -61,11 +62,14 @@ def main():
                 "-U_FORTIFY_SOURCE",  # the repo's include/limits.h trips glibc's fortified MB_LEN_MAX check
                 "-include", "stdarg.h", "-include", "stddef.h", "-include", "limits.h",
                 "-fms-extensions", "-fno-strict-aliasing", "-Wno-incompatible-pointer-types",
-                "-ffunction-sections", "-fdata-sections", "-fsanitize=address,undefined",
-                "-fno-sanitize-recover=all", "-fno-omit-frame-pointer", "-fno-pie", "-no-pie",
+                "-ffunction-sections", "-fdata-sections", *sanitize("-fsanitize=address,undefined", "-fno-sanitize-recover=all"), "-fno-omit-frame-pointer", "-fno-pie", "-no-pie",
                 "-DPLATFORM_64BIT=1", "-D_LANGUAGE_C", "-DGEVR", "-DVERSION_US",
                 *["-I" + str(ROOT / p) for p in (".", "include", "src", "src/game", "port/include")],
-                str(source), "-Wl,--gc-sections", "-lm", "-o", str(exe)], capture_output=True, text=True)
+                str(source),
+                # the hit and wreck paths gevr_bean.c carries, never run here
+                *unused_stubs(temp, functions=("intersectRayTriangle", "modelFindNodeMtxIndex", "modelGetNodeRwData",
+                                               "vtxstoreIsWreckCopy")),
+                "-Wl,--gc-sections", "-lm", "-o", str(exe)], capture_output=True, text=True)
             if result.returncode:
                 raise RuntimeError(result.stderr)
             for case in (["growth"] if baseline else ["growth", "owner", "storage", "unsupported", "wrap", "mixed"]):

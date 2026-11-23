@@ -1207,7 +1207,7 @@ Next: user opens mission select in the headset, then inspect `menubg-walk:`.
 ### 12.5 Device trace disproves empty node walk — 2026-09-21
 
 User screenshot: mission select still black behind text/cursors. Capture in
-`C:/Users/Occor/AppData/Local/Temp/gevr-menu-walk.log` at 12:46:39 shows 26
+`%TEMP%/gevr-menu-walk.log` at 12:46:39 shows 26
 visited nodes, visible switches restoring their child links, eight opcode-4
 nodes each emitting two commands, and 17 commands total. These first samples
 precede the settled mission-select state; later command totals fall to 11.
@@ -3556,7 +3556,7 @@ Dark leftovers; remove unused assets and purge them from history.
 
 ## 61. v0.1.0 released
 
-- Build d1cdcdb, release-signed (C:/Users/Occor/.android/goldeneye-vr-release.jks,
+- Build d1cdcdb, release-signed (the release keystore,
   android/keystore.properties - both outside git; back them up), APK
   SHA-256 c9895581406d62da3ce9d2cd0517978e63b314bd01844f957f4c6c2ab3d300c9.
   Content scan: no ROM byte runs beyond the stock DEFLATE tables; symbols

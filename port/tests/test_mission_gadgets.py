@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import tempfile
 from test_multiplayer import ROOT, NATIVE, build_fixture
+from gevr_testcc import host_libc  # the C library's bcopy, not os.h's, where it has one
 
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--source-ref',help='Verify the slot regression against earlier inventory code')
@@ -46,7 +47,7 @@ fixture=fixture.replace('/* PRODUCTION */',production).replace('/* USE_ITEM */',
 with tempfile.TemporaryDirectory(prefix='gevr-mission-gadgets-') as temp:
     source,exe=Path(temp)/'test.c',Path(temp)/'test.exe'
     source.write_text(fixture,encoding='utf-8')
-    flags=['-std=c11','-O2','-fms-extensions','-DGEVR=1','-D_LANGUAGE_C']
+    flags=['-std=c11','-O2','-fms-extensions','-DGEVR=1','-D_LANGUAGE_C',*host_libc()]
     flags+=['-I'+str(ROOT/p) for p in ('.','port/include','include','src','src/game')]
     subprocess.run([shutil.which('gcc') or 'gcc',*flags,str(source),'-o',str(exe)],check=True)
     subprocess.run([str(exe)],check=True)
