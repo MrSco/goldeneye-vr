@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 from test_reinforcements import block
+from gevr_testcc import sanitize  # the sanitizers where the compiler links them
 
 ROOT = Path(__file__).resolve().parents[2]
 bg = (ROOT / "src/game/bg.c").read_text(encoding="utf-8")
@@ -22,7 +23,7 @@ with tempfile.TemporaryDirectory(prefix="gevr-camera-ceiling-") as temp:
     source.write_text(fixture, encoding="utf-8")
     subprocess.run([shutil.which("gcc") or "cc", "-std=c11", "-O1", "-g", "-fms-extensions",
                     "-D_POSIX_C_SOURCE=200809L",
-                    "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+                    *sanitize("-fsanitize=address,undefined", "-fno-sanitize-recover=all"),
                     "-D_LANGUAGE_C", "-DGEVR", "-DVERSION_US",
                     "-I" + str(ROOT), "-I" + str(ROOT / "include"),
                     "-I" + str(ROOT / "src"), "-I" + str(ROOT / "port/include"),

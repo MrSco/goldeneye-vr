@@ -6,8 +6,10 @@ checkout; otherwise CMake fetches the pinned upstream source normally.
 from pathlib import Path
 import argparse
 import re
+import shutil
 import subprocess
 import sys
+from gevr_testcc import sanitize  # the sanitizers where the compiler links them
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -47,9 +49,12 @@ if __name__ == "__main__":
     test_source = build / "ragdoll_native.c"
     test_source.write_text(fixture.replace("/* PRODUCTION_LOOKUPS */", lookups))
     configure = ["cmake", "-S", str(ROOT / "port/tests/ragdoll"), "-B", str(build),
-                 "-DCMAKE_BUILD_TYPE=Release", "-DGEVR_TEST_SOURCE=" + str(test_source)]
+                 # forward slashes: CMake reads a Windows path's backslashes as escapes
+                 "-DCMAKE_BUILD_TYPE=Release", "-DGEVR_TEST_SOURCE=" + test_source.as_posix(),
+                 "-DGEVR_TEST_SANITIZE=" + ("ON" if sanitize("-fsanitize=address,undefined", cc=shutil.which("c++") or "c++")
+                                            else "OFF")]
     if args.jolt_source:
-        configure.append("-DFETCHCONTENT_SOURCE_DIR_JOLTPHYSICS=" + str(args.jolt_source.resolve()))
+        configure.append("-DFETCHCONTENT_SOURCE_DIR_JOLTPHYSICS=" + args.jolt_source.resolve().as_posix())
     subprocess.run(configure, check=True)
     subprocess.run(["cmake", "--build", str(build), "--parallel", "4"], check=True)
     subprocess.run([str(build / "ragdoll_native")], check=True)

@@ -71,11 +71,21 @@ inline std::string gevrGhostTimeText(int time60) {
     return text;
 }
 
+// how a run reloaded (gevr_ghost.h GEVR_GHF_HANDRELOAD, _BUTTONRELOAD): "Hand", "Button",
+// "Both" (changed mid-run), or "" in a run from before it was noted
+inline const char *gevrGhostReloadText(int flags) {
+    const bool hand = (flags & 0x200) != 0, button = (flags & 0x400) != 0;
+    return hand && button ? "Both" : hand ? "Hand" : button ? "Button" : "";
+}
+
 // what a run was set with beyond VR or flat, for a row's tooltip (gevr_ghost.h GEVR_GHF_*)
 inline std::string gevrGhostFlagsText(int flags) {
     std::string out = flags & 0x01 ? "VR" : flags & 0x80 ? "VR and flat screen" : "Flat screen";
     if (flags & 0x20) out += ", third person";
     if (flags & 0x100) out += ", teleport";
+    const std::string reload = gevrGhostReloadText(flags);
+    if (reload == "Both") out += ", hand and button reload";
+    else if (!reload.empty()) out += ", " + std::string(reload == "Hand" ? "hand" : "button") + " reload";
     out += flags & 0x02 ? ", Bean's art" : flags & 0x04 ? ", GoldenEye X guns" : ", N64 art";
     return out;
 }
@@ -156,7 +166,12 @@ inline GevrGhostsActions gevrGhostsPageDraw(GevrGhostsView &v, const ImVec4 &gol
     // this headset's run of the mission, and every mission's to the boards
     ImGui::AlignTextToFramePadding();
     if (v.haveBest) {
-        ImGui::Text("Your best: %s%s", gevrGhostTimeText(v.bestTime60).c_str(), v.bestFlags & 0x01 ? " (VR)" : " (flat)");
+        {
+            const std::string reload = gevrGhostReloadText(v.bestFlags);
+            ImGui::Text("Your best: %s (%s%s%s)", gevrGhostTimeText(v.bestTime60).c_str(), v.bestFlags & 0x01 ? "VR" : "flat",
+                        reload.empty() ? "" : ", ", reload == "Both" ? "hand and button reload"
+                                                  : reload == "Hand" ? "hand reload" : reload == "Button" ? "button reload" : "");
+        }
         if (v.bestRank > 0) {
             ImGui::SameLine();
             ImGui::TextColored(gold, "#%d", v.bestRank);
@@ -197,11 +212,14 @@ inline GevrGhostsActions gevrGhostsPageDraw(GevrGhostsView &v, const ImVec4 &gol
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(ImGui::GetStyle().CellPadding.x, 2.0f));
     // Friend: Add, Accept, Sent, Friends, as the lobby roster (owner, 2026-11-23: "reuse add
     // friend stuff from lobby for the ghost screen too")
-    if (ImGui::BeginTable("##ghost-board", 6, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+    // Reload: by hand or with the button, noted beside the time and never ranked (owner,
+    // 2026-11-23: "should know how the player ran the race when looking at their run times")
+    if (ImGui::BeginTable("##ghost-board", 7, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
         ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, font * 2.2f);
         ImGui::TableSetupColumn("Player", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, font * 5.5f);
         ImGui::TableSetupColumn("Plays", ImGuiTableColumnFlags_WidthFixed, font * 3.2f);
+        ImGui::TableSetupColumn("Reload", ImGuiTableColumnFlags_WidthFixed, font * 3.8f);
         ImGui::TableSetupColumn("Friend", ImGuiTableColumnFlags_WidthFixed, font * 4.2f);
         ImGui::TableSetupColumn("##race", ImGuiTableColumnFlags_WidthFixed, font * 4.2f);
         ImGui::TableHeadersRow();
@@ -222,6 +240,19 @@ inline GevrGhostsActions gevrGhostsPageDraw(GevrGhostsView &v, const ImVec4 &gol
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(r.flags & 0x01 ? "VR" : r.flags & 0x80 ? "Mixed" : "Flat");
             if (ImGui::IsItemHovered()) gevrTooltip("%s", gevrGhostFlagsText(r.flags).c_str());
+            ImGui::TableNextColumn();
+            {
+                const std::string reload = gevrGhostReloadText(r.flags);
+                if (!reload.empty()) {
+                    ImGui::TextUnformatted(reload.c_str());
+                    if (ImGui::IsItemHovered())
+                        gevrTooltip("%s", reload == "Both" ? "Reloaded by hand and with the button (changed mid-run)."
+                                          : reload == "Hand" ? "Reloaded by hand." : "Reloaded with the button.");
+                } else {
+                    ImGui::TextDisabled("—");
+                    if (ImGui::IsItemHovered()) gevrTooltip("Not noted: a run from before v0.5.26.");
+                }
+            }
             ImGui::TableNextColumn();
             if (!r.mine && gevrAddFriendCell(r.relation, v.friendsReady, r.name.c_str(), r.code)) {
                 if (r.relation == GEVR_RELATION_REQUEST) act.acceptFriend = r.requestId;
