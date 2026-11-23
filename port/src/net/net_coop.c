@@ -46,6 +46,7 @@
 #include "aicommands2.h"
 #include "game/gevr_footsteps.h"   /* Mario Characters' pokes (NET_MSG_COOP_POKES) */
 #include "gevr_romlayout.h"
+#include "gevr_modapi.h"   /* mods' player_downed and player_revived */
 
 #define COOP_LOG(...) sysLogPrintf(LOG_NOTE, "coop: " __VA_ARGS__)
 
@@ -2345,6 +2346,7 @@ static void coopAnnounceDowned(int slot, bool down)
     snprintf(msg, sizeof(msg), down ? "%s IS DOWN" : "%s IS BACK UP", name && name[0] ? name : "A TEAMMATE");
     coopShowLocal(0, msg);
     COOP_LOG("slot %d %s", slot, down ? "down" : "up");
+    gevrModApiPlayerDowned(slot, down);   /* another player's, told here */
 }
 
 /* This headset's player is down or up: the host's mission packet tells the others */
@@ -2354,6 +2356,7 @@ static void coopSetLocalDowned(bool down)
     if (me < 0 || me >= 4 || s_downed[me] == down) return;
     s_downed[me] = down;
     s_revive_since_us = 0;
+    gevrModApiPlayerDowned(me, down);   /* this headset's own player's */
     if (netIsHost()) s_mission_check_us = 0;
     else {
         coopSendEvent(NET_COOP_EVENT_DOWNED, down ? 1 : 0, 0, 1);

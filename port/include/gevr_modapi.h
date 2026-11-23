@@ -2,7 +2,8 @@
  * The mod API's areas (docs/mod-system.md, API v1 and "Where each hook
  * sits"): the game's events into mods' scripts (gevr_modscript.c) and the
  * mod.* tables, in port/src/gevr_modapi.c, over a thin game side in
- * src/game/gevr_modgame.c. The areas so far: weapons, items, hands, guards.
+ * src/game/gevr_modgame.c. The areas so far: weapons, items, hands, guards,
+ * damage and the player.
  */
 #ifndef GEVR_MODAPI_H
 #define GEVR_MODAPI_H
@@ -169,6 +170,47 @@ void gevrModGuardSpawned(struct ChrRecord *chr);
 /* chraction.c chrlvTickDead: the body is marked for removal */
 void gevrModGuardRetiring(struct ChrRecord *chr);
 
+/* ---- the damage and player area: damage to guards (where they run) and to
+ * this machine's player (on its own headset); co-op's downed and revived ---- */
+
+enum { GEVR_MODTARGET_GUARD = 1, GEVR_MODTARGET_PLAYER };
+enum { GEVR_MODHOW_SHOT = 1, GEVR_MODHOW_EXPLOSION, GEVR_MODHOW_GAS, GEVR_MODHOW_HIT };
+enum { GEVR_MODPART_HEAD = 1, GEVR_MODPART_BODY, GEVR_MODPART_LIMB, GEVR_MODPART_GUN, GEVR_MODPART_HAT };
+#define GEVR_MODAPI_DAMAGE_MAX 1000.0f   /* before_damage's answer: 0 to this */
+
+typedef struct GevrModDamage {
+    int target;       /* GEVR_MODTARGET_* */
+    int id;           /* a guard's chrnum, a player's slot */
+    float amount;     /* the game's units: a guard's as its health; a player's, 1 a full bar */
+    int how;          /* GEVR_MODHOW_* */
+    int part;         /* a guard's shot: GEVR_MODPART_*, 0 none */
+    int item;         /* a shot's gun, -1 */
+    int by;           /* the player slot behind it, -1 none known */
+    float health;     /* damage_applied: what's left (a guard's in its units; a player's 0 to 1) */
+    float armour;     /* damage_applied, a player's: 0 to 1 */
+    int cancelled;    /* before_damage's answer: none at all */
+} GevrModDamage;
+
+/* before_damage: each mod's answer in turn into d (amount, cancelled) */
+void gevrModApiBeforeDamage(GevrModDamage *d);
+/* damage_applied: what it did */
+void gevrModApiDamageApplied(const GevrModDamage *d);
+/* player_downed / player_revived (co-op), player_died */
+void gevrModApiPlayerDowned(int slot, int down);
+void gevrModApiPlayerDied(int slot);
+
+/* The game's hooks (src/game/gevr_modgame.c) */
+/* chraction.c handles_shot_actors, chrlvExplosionDamage: before a guard's
+ * damage; 1 when a mod cancelled it, else *amount is the mod's (or the game's) */
+int gevrModGuardBeforeDamage(struct ChrRecord *chr, float *amount, int how, int hitpart, int item, int player);
+void gevrModGuardDamaged(struct ChrRecord *chr, float amount, int how, int hitpart, int item, int player);
+/* bondview2.c record_damage_kills, for the current player: before (1 cancelled)
+ * and after; by the game's attacker (-1 none), affectsArmour 0 for gas */
+int gevrModPlayerBeforeDamage(float *amount, int by, int affectsArmour);
+void gevrModPlayerDamaged(float amount, int by, int affectsArmour, float healthBefore, float armourBefore);
+/* bondview2.c bondviewKillCurrentPlayer: the current player died */
+void gevrModPlayerDied(void);
+
 /* ---- the game's side (src/game/gevr_modgame.c), for gevr_modapi.c ---- */
 
 typedef struct GevrModWeaponStats {
@@ -241,6 +283,12 @@ int gevrModGameGiveGuardWeapon(int id, int item, int hand);
 int gevrModGamePatrol(int id, int path);
 /* The stage's patrol paths' ids, at most max; how many */
 int gevrModGamePaths(int *ids, int max);
+/* This machine's player's health and armour, 0 to 1; 0 when no player is in a stage */
+int gevrModGamePlayerHealth(float *health, float *armour);
+/* Set them: health more than 0 to 1, armour 0 to 1; 0 when the player is
+ * dead, down (co-op) or not in a stage */
+int gevrModGameSetPlayerHealth(float health);
+int gevrModGameSetPlayerArmour(float armour);
 
 #ifdef __cplusplus
 }

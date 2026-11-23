@@ -2766,6 +2766,12 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
 #ifdef GEVR
             if (isPlayer && damageToCause>0.0f && gevrHordeInstaKill(self))
                 damageToCause=fmaxf(damageToCause,self->maxdamage-self->damage);
+            /* a mod's before_damage (gevr_modgame.c): changed, or none (it still flinches) */
+            if (damageToCause > 0.0f && gevrModGuardBeforeDamage(self, &damageToCause, GEVR_MODHOW_SHOT, hitpart, weaponid,
+                                                                  isPlayer ? get_cur_playernum() : -1))
+            {
+                damageToCause = 0.0f;
+            }
 #endif
             self->chrflags |= CHRFLAG_WAS_DAMAGED;
 #    ifdef XBLA
@@ -2777,6 +2783,11 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
             {
                 extern void gevrHordeNotifyGuardHit(ChrRecord *chr, int attacker, int hitpart);
                 gevrHordeNotifyGuardHit(self, get_cur_playernum(), hitpart);
+            }
+            if (damageToCause > 0.0f)
+            {
+                /* a mod's damage_applied */
+                gevrModGuardDamaged(self, damageToCause, GEVR_MODHOW_SHOT, hitpart, weaponid, isPlayer ? get_cur_playernum() : -1);
             }
 #endif
 
@@ -2867,6 +2878,12 @@ s32 chrlvExplosionDamage(ChrRecord *self, coord3d *arg1, f32 damage, s32 arg3)
         return 0;
     }
 
+#ifdef GEVR
+    if (gevrModGuardBeforeDamage(self, &damage, GEVR_MODHOW_EXPLOSION, 0, -1, -1))
+    {
+        return 0;   /* a mod's before_damage: none */
+    }
+#endif
     self->numarghs += 1;
     self->damage += damage;
     self->chrflags |= CHRFLAG_WAS_DAMAGED;
@@ -2874,6 +2891,9 @@ s32 chrlvExplosionDamage(ChrRecord *self, coord3d *arg1, f32 damage, s32 arg3)
     if (self->damage > 0.0f)
     {
         self->damage = self->maxdamage;
+#ifdef GEVR
+        gevrModGuardDamaged(self, damage, GEVR_MODHOW_EXPLOSION, 0, -1, -1);   /* a mod's damage_applied */
+#endif
 
         subroty = getsubroty(self_model);
 

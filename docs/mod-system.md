@@ -215,8 +215,8 @@ files.sha256        checksum list of every other file
     `guard_spawning` for the setup's guards at load, below). A client's
     script that needs them gets them from the host over `mod.net`.
   - **Players:** a player's shots, throws and damage are settled on that
-    player's headset, so `weapon_fire_attempt`, `player_damaged` and
-    `before_damage` for that player fire there.
+    player's headset, so `weapon_fire_attempt`, and `before_damage` and
+    `damage_applied` for that player, fire there.
   - **Guards:** calls that change a guard (spawn one, give one a weapon)
     work on the host only and return false on a client. The game's co-op
     sync carries the result to the others, as it does for the host's
@@ -328,7 +328,7 @@ is the proposal to refine with mod authors (Tactical first).
 | Hands (VR) | `grip`, `release`, `hand_near(anchor)` | hand pose, body anchors (body slots), haptics |
 | Items | `pickup_spawning` (can swap a weapon, ammo or armour pickup at its existing pad), `item_pickup`, `item_spawned` | spawn a pickup, take or give an item |
 | Guards | `guard_spawning`, `guard_spawned`, `guard_alerted`, `guard_shot`, `guard_killed`, `corpse_retiring` | read state, give a guard's weapon or outfit (from the ROM's bodies), spawn a guard and send it along a patrol path through the game's own spawn and AI commands |
-| Damage and player | `before_damage`, `damage_applied`, `player_damaged`, `player_downed`, `player_revived`, `player_died` | health and armour |
+| Damage and player | `before_damage`, `damage_applied` (a player's too: no separate `player_damaged`), `player_downed`, `player_revived`, `player_died` | health and armour |
 | Assets | — | load a model or texture from the pack, attach it to a hand, gun or body slot, `mod.audio.play` (ROM sound effects only), `mod.effect.play` |
 | UI | — | a watch page from a simple layout (rows, buttons, sliders) |
 | Network | `peer_ready`, `mod.net.on` (includes the sender's player ID) | `mod.net.send`, `mod.net.role` |
@@ -570,6 +570,48 @@ watch). We maintain the adapters, not the mods.
   event reports the result. `player_downed` and `player_revived` report
   the co-op transitions in `coopSetLocalDowned()` and
   `coopAnnounceDowned()`.
+  - Built (`port/src/gevr_modapi.c` over `src/game/gevr_modgame.c`; the
+    hooks in `chraction.c`, `bondview2.c` and `net_coop.c`). A guard's
+    damage is told where the guards run (solo, the co-op host); a
+    player's, on that player's own headset.
+  - `before_damage(d)` and `damage_applied(d)`, each with a table:
+    `target` (`"guard"` or `"player"`), `id` (a guard's chrnum, a
+    player's slot), `amount` (the game's units: a guard's as its health,
+    `mod.guards.get`'s; a player's, 1 a full bar, before the difficulty's
+    handicap), `how` (`"shot"` for a guard; for a player `"explosion"`,
+    `"gas"` or `"hit"`, anything else: a guard's shot, an autogun, another
+    player), `part` (a guard's shot: `"head"`, `"body"`, `"limb"`, `"gun"`,
+    `"hat"`), `item` (a shot's gun) and `by` (the player slot behind it,
+    when the game knows: a player's shot, a player's own blast or another
+    player's). `damage_applied` adds `health` (what's left, in the same
+    units; a player's 0 to 1) and a player's `armour` (0 to 1).
+  - `before_damage` is asked in turn, as `pickup_spawning` is: nil keeps
+    the damage, false leaves none (no one after is asked), a number or a
+    table's `amount` (0 to 1000) changes it. Where: a guard's shot in
+    `handles_shot_actors()` once its damage is reckoned (the gun's, the
+    part's multiplier, horde's) and before the guard takes it; with none,
+    it still flinches, as it was still shot. A shot that does no damage (a
+    hat, a gun) isn't asked. A blast in `chrlvExplosionDamage()` before it
+    touches the guard (declined, it never hit; any blast that lands kills,
+    as GoldenEye has it, so only cancelling changes the outcome). A
+    player's in `record_damage_kills()` after co-op's own checks (a
+    spectator, a teammate's copy, a player who's down) and before the
+    game's own rules (invincibility, the watch, the last hit's flash):
+    those can still take it to nothing, and then `damage_applied` isn't
+    told.
+  - `damage_applied` after the damage is taken: a guard's shot, a blast
+    once the guard is dying, a player's when health or armour moved.
+    An answer the game can't take is the mod's error, as for the other
+    asked events.
+  - `player_downed(slot)` and `player_revived(slot)` on every headset, for
+    every player: this headset's own as it changes
+    (`coopSetLocalDowned()`), the others' as they're announced
+    (`coopAnnounceDowned()`). `player_died(slot)` as this headset's player
+    dies (`bondviewKillCurrentPlayer()`, once per death; in co-op a player
+    goes down instead).
+  - Calls: `mod.player.health()` gives health and armour (0 to 1),
+    `setHealth(x)` (more than 0, up to 1) and `setArmour(x)` (0 to 1) set
+    them; false while the player is dead or down.
 - **Sound and effects.** `mod.audio.play` uses `sndPlaySfx()` to play
   an existing ROM sound effect by ID. Positional playback uses
   `chrobjSndCreatePostEventDefault()`.
@@ -683,7 +725,7 @@ Every headset runs the swaps at load, so in co-op the choices come from
    poll in `port/tests/test_body_slot_interactions.py`), then guards'
    events and reads (`test_modapi.py`, which also runs
    `gevr_modgame.c`'s told-once bookkeeping), then the calls that change a
-   guard.
+   guard, then damage and the player.
 5. **Network:** `NET_MSG_MOD`, co-op with mods, the dedicated server.
 6. **Sample mod and API reference.**
 7. **Platform check:** Quest, PC, Apple, server, with the sample mod.

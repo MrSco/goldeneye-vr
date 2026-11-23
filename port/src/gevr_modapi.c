@@ -631,6 +631,49 @@ static const luaL_Reg s_guardFuncs[] = {
     { NULL, NULL },
 };
 
+/* ---- mod.player ---- */
+
+/* health(): this machine's player's health and armour, 0 to 1, or nil */
+static int l_playerHealth(lua_State *L)
+{
+    float health, armour;
+
+    if (!gevrModGamePlayerHealth(&health, &armour)) {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_pushnumber(L, health);
+    lua_pushnumber(L, armour);
+    return 2;
+}
+
+/* setHealth(x): more than 0, up to 1; false when dead, down or not in a stage */
+static int l_playerSetHealth(lua_State *L)
+{
+    const lua_Number v = luaL_checknumber(L, 1);
+
+    if (!(v > 0 && v <= 1)) return luaL_argerror(L, 1, "health is more than 0, up to 1 (a full bar)");
+    lua_pushboolean(L, gevrModGameSetPlayerHealth((float)v));
+    return 1;
+}
+
+/* setArmour(x): 0 to 1 */
+static int l_playerSetArmour(lua_State *L)
+{
+    const lua_Number v = luaL_checknumber(L, 1);
+
+    if (!(v >= 0 && v <= 1)) return luaL_argerror(L, 1, "armour is 0 to 1 (a full vest)");
+    lua_pushboolean(L, gevrModGameSetPlayerArmour((float)v));
+    return 1;
+}
+
+static const luaL_Reg s_playerFuncs[] = {
+    { "health", l_playerHealth },
+    { "setHealth", l_playerSetHealth },
+    { "setArmour", l_playerSetArmour },
+    { NULL, NULL },
+};
+
 static const luaL_Reg s_handFuncs[] = {
     { "position", l_handPosition },
     { "anchor", l_handAnchor },
@@ -667,6 +710,9 @@ void gevrModApiOpen(lua_State *L)
     lua_newtable(L);
     luaL_setfuncs(L, s_guardFuncs, 0);
     lua_setfield(L, -2, "guards");
+    lua_newtable(L);
+    luaL_setfuncs(L, s_playerFuncs, 0);
+    lua_setfield(L, -2, "player");
 }
 
 void gevrModApiReset(void)
@@ -1076,4 +1122,137 @@ void gevrModApiCorpseRetiring(int id, const float pos[3])
         a[i + 1].n = pos[i];
     }
     gevrModScriptEvent("corpse_retiring", a, 4, 0);
+}
+
+/* ---- the damage and player area ---- */
+
+static const char *const s_targetNames[] = { NULL, "guard", "player" };
+static const char *const s_howNames[] = { NULL, "shot", "explosion", "gas", "hit" };
+static const char *const s_partNames[] = { NULL, "head", "body", "limb", "gun", "hat" };
+
+static void pushDamageFields(lua_State *L, const GevrModDamage *d)
+{
+    lua_pushstring(L, s_targetNames[d->target]);
+    lua_setfield(L, -2, "target");
+    lua_pushinteger(L, d->id);
+    lua_setfield(L, -2, "id");
+    lua_pushnumber(L, d->amount);
+    lua_setfield(L, -2, "amount");
+    lua_pushstring(L, s_howNames[d->how]);
+    lua_setfield(L, -2, "how");
+    if (d->part >= GEVR_MODPART_HEAD && d->part <= GEVR_MODPART_HAT) {
+        lua_pushstring(L, s_partNames[d->part]);
+        lua_setfield(L, -2, "part");
+    }
+    setItem(L, "item", d->item);
+    if (d->by >= 0) {
+        lua_pushinteger(L, d->by);
+        lua_setfield(L, -2, "by");
+    }
+}
+
+static int pushBefore(lua_State *L, void *ud)
+{
+    lua_createtable(L, 0, 7);
+    pushDamageFields(L, (const GevrModDamage *)ud);
+    return 1;
+}
+
+static int pushApplied(lua_State *L, void *ud)
+{
+    const GevrModDamage *d = (const GevrModDamage *)ud;
+
+    lua_createtable(L, 0, 9);
+    pushDamageFields(L, d);
+    lua_pushnumber(L, d->health);
+    lua_setfield(L, -2, "health");
+    if (d->target == GEVR_MODTARGET_PLAYER) {
+        lua_pushnumber(L, d->armour);
+        lua_setfield(L, -2, "armour");
+    }
+    return 1;
+}
+
+/* An amount a handler gave: a number from 0 to GEVR_MODAPI_DAMAGE_MAX */
+static float damageAmount(lua_State *L, int idx)
+{
+    const lua_Number v = lua_tonumber(L, idx);
+
+    if (lua_type(L, idx) != LUA_TNUMBER || !(v >= 0 && v <= GEVR_MODAPI_DAMAGE_MAX)) {
+        char most[48];   /* Lua's own formats have no %g */
+
+        snprintf(most, sizeof(most), "%g", (double)GEVR_MODAPI_DAMAGE_MAX);
+        luaL_error(L, "before_damage: an amount is a number from 0 to %s", most);
+    }
+    return (float)v;
+}
+
+/* nil keeps the damage, false cancels it (no one else is asked), a number
+ * or a table's amount changes it */
+static int answerDamage(lua_State *L, void *ud)
+{
+    GevrModDamage *d = (GevrModDamage *)ud;
+    const int ans = lua_gettop(L);
+
+    if (lua_isnil(L, ans)) return 0;
+    if (lua_type(L, ans) == LUA_TBOOLEAN && !lua_toboolean(L, ans)) {
+        d->cancelled = 1;
+        d->amount = 0.0f;
+        return 1;
+    }
+    if (lua_type(L, ans) == LUA_TNUMBER) {
+        d->amount = damageAmount(L, ans);
+        return 0;
+    }
+    if (!lua_istable(L, ans)) {
+        return luaL_error(L, "before_damage: answer nil (keep it), false (none), an amount or a table of amount");
+    }
+    if (lua_getfield(L, ans, "amount") != LUA_TNIL) d->amount = damageAmount(L, -1);
+    lua_settop(L, ans);
+    return 0;
+}
+
+static int answerNothing(lua_State *L, void *ud)
+{
+    (void)L;
+    (void)ud;
+    return 0;
+}
+
+void gevrModApiBeforeDamage(GevrModDamage *d)
+{
+    if (!gevrModScriptRunning() || d->target < GEVR_MODTARGET_GUARD || d->target > GEVR_MODTARGET_PLAYER
+        || d->how < GEVR_MODHOW_SHOT || d->how > GEVR_MODHOW_HIT) {
+        return;
+    }
+    gevrModScriptAsk("before_damage", pushBefore, answerDamage, d, 1);
+}
+
+void gevrModApiDamageApplied(const GevrModDamage *d)
+{
+    if (!gevrModScriptRunning() || d->target < GEVR_MODTARGET_GUARD || d->target > GEVR_MODTARGET_PLAYER
+        || d->how < GEVR_MODHOW_SHOT || d->how > GEVR_MODHOW_HIT) {
+        return;
+    }
+    gevrModScriptAsk("damage_applied", pushApplied, answerNothing, (void *)d, 1);
+}
+
+static void slotEvent(const char *event, int slot)
+{
+    GevrModArg a[1];
+
+    if (!gevrModScriptRunning() || slot < 0) return;
+    a[0].kind = GEVR_MODARG_INTEGER;
+    a[0].n = slot;
+    gevrModScriptEvent(event, a, 1, 0);
+}
+
+void gevrModApiPlayerDowned(int slot, int down)
+{
+    slotEvent(down ? "player_downed" : "player_revived", slot);
+}
+
+void gevrModApiPlayerDied(int slot)
+{
+    slotEvent("player_died", slot);
 }

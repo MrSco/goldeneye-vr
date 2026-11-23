@@ -31,6 +31,10 @@
  *     alerted <id> <how> <player> | killed <id> <how> <item> <player> | retiring <id> <x> <y> <z>
  *     runs <0|1>                   this machine runs the guards (solo, the co-op host) in a stage
  *     gspawned <id>                chrai.c: a guard the game spawned
+ *     hurt <target> <id> <amount> <how> <part> <item> <by>    before_damage, then
+ *                                  damage_applied with what's left (DAMAGE amount|cancelled)
+ *     downed <slot> <0|1> | died <slot>
+ *     vitals <health> <armour> <dead> <down>   this machine's player
  *
  * Prints LOG lines, DECLINED/FIRED per shot, SPAWN per pickup placed, and
  * the answers. Run in a
@@ -174,6 +178,29 @@ int gevrModGameBodyOk(int body)
 }
 int gevrModGameHeadOk(int head) { return head >= 46 && head < 88; }
 int gevrModGameGuardGun(int item) { return item >= 4 && item <= 25 && item != 23; }
+
+/* the damage and player area: this machine's player */
+static float s_health = 1.0f, s_armour = 0.0f;
+static int s_dead, s_down;
+
+int gevrModGamePlayerHealth(float *health, float *armour)
+{
+    *health = s_health;
+    *armour = s_armour;
+    return 1;
+}
+int gevrModGameSetPlayerHealth(float health)
+{
+    if (s_dead || s_down) return 0;
+    s_health = health;
+    return 1;
+}
+int gevrModGameSetPlayerArmour(float armour)
+{
+    if (s_dead || s_down) return 0;
+    s_armour = armour;
+    return 1;
+}
 
 /* guards part 2: spawns take the next id; pad 999 has no room; paths 3 and 4 */
 static int s_runsGuards = 1, s_nextGuard = 5000;
@@ -458,6 +485,38 @@ int main(int argc, char **argv)
             i += 3;
         } else if (!strcmp(cmd, "killed") && i + 4 < argc) {
             gevrModApiGuardKilled(atoi(argv[i + 1]), atoi(argv[i + 2]), atoi(argv[i + 3]), atoi(argv[i + 4]));
+            i += 4;
+        } else if (!strcmp(cmd, "hurt") && i + 7 < argc) {
+            GevrModDamage d;
+
+            memset(&d, 0, sizeof(d));
+            d.target = atoi(argv[i + 1]);
+            d.id = atoi(argv[i + 2]);
+            d.amount = (float)atof(argv[i + 3]);
+            d.how = atoi(argv[i + 4]);
+            d.part = atoi(argv[i + 5]);
+            d.item = atoi(argv[i + 6]);
+            d.by = atoi(argv[i + 7]);
+            i += 7;
+            gevrModApiBeforeDamage(&d);
+            if (d.cancelled) {
+                printf("DAMAGE cancelled\n");
+            } else {
+                printf("DAMAGE %.2f\n", d.amount);
+                d.health = 3.0f - d.amount;
+                d.armour = 0.25f;
+                gevrModApiDamageApplied(&d);
+            }
+        } else if (!strcmp(cmd, "downed") && i + 2 < argc) {
+            gevrModApiPlayerDowned(atoi(argv[i + 1]), atoi(argv[i + 2]));
+            i += 2;
+        } else if (!strcmp(cmd, "died") && i + 1 < argc) {
+            gevrModApiPlayerDied(atoi(argv[++i]));
+        } else if (!strcmp(cmd, "vitals") && i + 4 < argc) {
+            s_health = (float)atof(argv[i + 1]);
+            s_armour = (float)atof(argv[i + 2]);
+            s_dead = atoi(argv[i + 3]);
+            s_down = atoi(argv[i + 4]);
             i += 4;
         } else if (!strcmp(cmd, "runs") && i + 1 < argc) {
             s_runsGuards = atoi(argv[++i]);

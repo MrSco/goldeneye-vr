@@ -23108,6 +23108,9 @@ void bondviewKillCurrentPlayer(void)
 #endif
         g_isBondKIA = 1;
         g_CurrentPlayer->bonddead = 1;
+#ifdef GEVR
+        gevrModPlayerDied();   /* a mod's player_died */
+#endif
 
         g_CurrentPlayer->previous_collision_info = g_CurrentPlayer->field_488;
 
@@ -23186,6 +23189,9 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
     if (gevrCoopForwardGuardDamage(damage_amount, vectorx, vectorz)) return;
     /* co-op revive: a downed player takes no more until a teammate brings them back */
     if (gevrCoopDowned(get_cur_playernum())) return;
+    /* a mod's before_damage (gevr_modgame.c): this headset's player's, before the game's own rules */
+    if (gevrModPlayerBeforeDamage(&damage_amount, playerid, affects_armor)) return;
+    const s32 gevrModBy = playerid;   /* the attacker as given: -1 a guard, gas, an autogun */
     /*
      * A guard, an autogun or gas has no player (-1), and the bookkeeping
      * below indexes the players with it: g_playerPlayerData[-1] and
@@ -23434,6 +23440,7 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
                      g_CurrentPlayer->bonddead, g_AiDamageModifier, g_AiAccuracyModifier, g_GlobalTimerDelta, g_ClockTimer,
                      aimed, off, held, chance);
     }
+    gevrModPlayerDamaged(damage_amount, gevrModBy, affects_armor, gevrHealthBefore, gevrArmourBefore);   /* damage_applied */
 #endif
 }
 

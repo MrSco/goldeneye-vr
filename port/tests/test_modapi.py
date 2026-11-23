@@ -676,12 +676,103 @@ end)
           "where the guards don't run (a co-op client): false, nothing done: " + out[-500:])
 
 
+def damage_placement():
+    """before_damage before the game's own damage, damage_applied after it; deaths, downs"""
+    act = (ROOT / "src/game/chraction.c").read_bytes().decode().replace("\r\n", "\n")
+    view = (ROOT / "src/game/bondview2.c").read_bytes().decode()
+    coop = (ROOT / "port/src/net/net_coop.c").read_bytes().decode()
+    shot = function(act, "bool handles_shot_actors(")
+    check(shot.index("gevrHordeInstaKill(self)") < shot.index("gevrModGuardBeforeDamage(self, &damageToCause, GEVR_MODHOW_SHOT")
+          < shot.index("self->damage += damageToCause;") < shot.index("gevrModGuardDamaged(self, damageToCause, GEVR_MODHOW_SHOT")
+          < shot.index("play_sound_for_shot_actor(self);\n\n            if (chrlvAttackAnimationRelated7F026F30"),
+          "a guard's shot: asked after its damage is reckoned, before it's taken; told after")
+    blast = function(act, "s32 chrlvExplosionDamage(")
+    check(blast.index("gevrCoopPuppets()") < blast.index("gevrModGuardBeforeDamage(self, &damage, GEVR_MODHOW_EXPLOSION")
+          < blast.index("self->numarghs += 1;") < blast.index("self->damage = self->maxdamage;")
+          < blast.index("gevrModGuardDamaged(self, damage, GEVR_MODHOW_EXPLOSION"),
+          "a blast: asked before it touches the guard (declined, it never hit), told once it's dying")
+    hurt = function(view, "void record_damage_kills(")
+    check(hurt.index("gevrCoopDowned(get_cur_playernum())) return;") < hurt.index("gevrModPlayerBeforeDamage(&damage_amount, playerid,")
+          < hurt.index("playerid = get_cur_playernum();") < hurt.index("f32 damage_dealt = g_playerPerm->handicap * damage_amount;"),
+          "the player's damage: asked after co-op's checks, before the attacker's -1 becomes the player and the handicap")
+    check(hurt.rindex("gevrModPlayerDamaged(damage_amount, gevrModBy,") > hurt.index("bondviewKillCurrentPlayer();"),
+          "damage_applied once the damage is done")
+    kill = function(view, "void bondviewKillCurrentPlayer(")
+    check(kill.index("g_CurrentPlayer->bonddead == FALSE") < kill.index("gevrModPlayerDied();"), "player_died once per death")
+    check(function(coop, "static void coopSetLocalDowned(").index("gevrModApiPlayerDowned(me, down);")
+          > function(coop, "static void coopSetLocalDowned(").index("s_downed[me] == down) return;")
+          and "gevrModApiPlayerDowned(slot, down);" in function(coop, "static void coopAnnounceDowned("),
+          "downed and revived: this headset's player when it changes, the others' as they're announced")
+
+
+def damage(exe, temp):
+    play = ("start", "prepare", 9, "begin", 9)
+    lua = r"""
+mod.on("before_damage", function(d)
+  print("before", d.target, d.id, d.amount, d.how, d.part, d.item, d.by)
+  if d.target == "guard" and d.part == "head" then return d.amount * 2 end
+  if d.how == "gas" then return false end
+  if d.target == "player" then return { amount = 0.25 } end
+end)
+mod.on("before_damage", function(d) print("second", d.amount) end)
+mod.on("damage_applied", function(d) print("applied", d.target, d.id, d.amount, d.health, d.armour) end)
+mod.on("player_downed", function(slot) print("downed", slot) end)
+mod.on("player_revived", function(slot) print("revived", slot) end)
+mod.on("player_died", function(slot) print("died", slot) end)
+"""
+    out = run(exe, temp, "damage", lua, "hurt", 1, 7, 1, 1, 1, 8, 0, *play,
+              "hurt", 1, 7, 1.5, 1, 1, 8, 0, "hurt", 1, 9, 2, 2, 0, -1, -1, "hurt", 2, 0, 0.5, 4, 0, -1, -1,
+              "hurt", 2, 1, 0.1, 3, 0, -1, -1, "downed", 2, 1, "downed", 2, 0, "died", 0)
+    check(answers(out, "DAMAGE") == ["DAMAGE 1.00", "DAMAGE 3.00", "DAMAGE 2.00", "DAMAGE 0.25", "DAMAGE cancelled"],
+          "a changed amount, one kept, a table's, a cancel; nothing asked outside play: " + str(answers(out, "DAMAGE")))
+    check(logs(out) == ["before guard 7 1.5 shot head 8 0", "second 3.0", "applied guard 7 3.0 0.0 nil",
+                        "before guard 9 2.0 explosion nil nil nil", "second 2.0", "applied guard 9 2.0 1.0 nil",
+                        "before player 0 0.5 hit nil nil nil", "second 0.25", "applied player 0 0.25 2.75 0.25",
+                        "before player 1 0.10000000149012 gas nil nil nil",
+                        "downed 2", "revived 2", "died 0"],
+          "before_damage in turn, false ends it; damage_applied; down, up, died: " + str(logs(out)))
+
+    bad = ["-1", "1001", "0/0", "'lots'", "true", "{ amount = -2 }", "{ amount = 'x' }"]
+    for n, answer in enumerate(bad):
+        lua = 'mod.on("before_damage", function(d) print("asked", d.id) return %s end)' % answer
+        out = run(exe, temp, "baddamage%d" % n, lua, *play, "hurt", 1, 7, 1, 1, 2, 8, 0, "hurt", 1, 8, 1, 1, 2, 8, 0)
+        errors = [l for l in out.splitlines() if l.startswith("LOG ") and "mods: tactical: before_damage: " in l]
+        check(len(errors) == 1 and answers(out, "DAMAGE") == ["DAMAGE 1.00", "DAMAGE 1.00"] and logs(out) == ["asked 7"],
+              "before_damage answered %s: refused, the mod stopped, the game's damage: %s" % (answer, out[-500:]))
+
+    lua = r"""
+mod.on("mission_start", function()
+  local p = mod.player
+  local h, a = p.health()
+  assert(h == 0.5 and a == 0.25)
+  assert(p.setHealth(1) and p.setArmour(0) and p.setArmour(1))
+  h, a = p.health()
+  assert(h == 1 and a == 1)
+  for _, bad in ipairs({ 0, -0.1, 1.01, 0 / 0 }) do assert(not pcall(p.setHealth, bad)) end
+  for _, bad in ipairs({ -0.1, 1.5, 0 / 0 }) do assert(not pcall(p.setArmour, bad)) end
+  assert(not pcall(p.setHealth, "full"))
+  print("player ok")
+end)
+"""
+    out = run(exe, temp, "player", lua, "vitals", 0.5, 0.25, 0, 0, *play)
+    check(logs(out) == ["player ok"], "mod.player: health and armour, set within limits: " + out[-500:])
+    lua = r"""
+mod.on("mission_start", function()
+  assert(mod.player.setHealth(1) == false and mod.player.setArmour(1) == false, "down: nothing set")
+  print("down ok")
+end)
+"""
+    out = run(exe, temp, "playerdown", lua, "vitals", 0.1, 0, 0, 1, *play)
+    check(logs(out) == ["down ok"], "a downed player's health isn't set: " + out[-400:])
+
+
 def main():
     placement()
     items_placement()
     hands_placement()
     guards_placement()
     guards2_placement()
+    damage_placement()
     with tempfile.TemporaryDirectory(prefix="gevr-modapi-") as temp:
         temp = Path(temp)
         exe = build(temp)
@@ -761,6 +852,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
         hands(exe, temp)
         guards(exe, temp)
         guards2(exe, temp)
+        damage(exe, temp)
         guards_told(temp)
 
     if FAILS:
@@ -772,7 +864,8 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
           "the hooks' places in the stage's setup and the pickup. Hands area: grip, release, hand_near, "
           "mod.hands' positions, anchors and pulses; the hooks' places. Guards area: guard_spawning's body, head and gun, "
           "refusals, alerts, kills and corpses told once on the host, mod.guards' reads; the hooks' places. Guards, part 2: "
-          "spawn, giveWeapon, patrol, paths, guard_spawned, guard_killed's player")
+          "spawn, giveWeapon, patrol, paths, guard_spawned, guard_killed's player. Damage and player: before_damage's "
+          "answers and refusals, damage_applied, downed, revived, died, mod.player's health and armour; the hooks' places")
 
 
 if __name__ == "__main__":

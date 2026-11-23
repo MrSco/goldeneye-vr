@@ -88,6 +88,8 @@ static const char *const s_events[] = {
     "grip", "release", "hand_near",
     /* the guards area */
     "guard_spawning", "guard_alerted", "guard_killed", "corpse_retiring", "guard_spawned",
+    /* the damage and player area */
+    "before_damage", "damage_applied", "player_downed", "player_revived", "player_died",
 };
 
 static void note(const char *fmt, ...)

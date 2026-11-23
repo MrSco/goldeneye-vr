@@ -41,6 +41,8 @@ extern PropRecord *chrSpawnAtPad(ChrRecord *self, s32 bodynum, s32 headnum, s32 
 extern bool if_actor_able_set_on_path(ChrRecord *self, struct PathRecord *path);   /* chraction.c */
 extern PropRecord *chrGiveWeapon(ChrRecord *self, s32 PropID, ITEM_IDS ItemID, s32 flags);   /* propobj.c */
 extern void objFreePermanently(ObjectRecord *obj, bool freeprop);
+extern int gevrCoopLocalDowned(void);                              /* net_coop.c */
+extern s32 s_gevrExplosionDamage;                                   /* explosion.c: the damage being dealt is a blast's */
 
 /* a spawned guard's named behaviours are these global lists */
 typedef char aiNamesAreTheGlobalLists[(int)GEVR_MODAI_STANDARD == (int)GAILIST_STANDARD_GUARD
@@ -805,4 +807,152 @@ int gevrModGamePaths(int *ids, int max)
         ids[n++] = g_CurrentSetup.patrolpaths[i].ID;
     }
     return n;
+}
+
+/* ---- the damage and player area ---- */
+
+static int partOf(int hitpart)
+{
+    switch (hitpart)
+    {
+        case HIT_HEAD: return GEVR_MODPART_HEAD;
+        case HIT_CHEST:
+        case HIT_PELVIS: return GEVR_MODPART_BODY;
+        case HIT_GUN: return GEVR_MODPART_GUN;
+        case HIT_HAT: return GEVR_MODPART_HAT;
+        case HIT_LEFT_FOOT: case HIT_LEFT_LEG: case HIT_LEFT_THIGH:
+        case HIT_RIGHT_FOOT: case HIT_RIGHT_LEG: case HIT_RIGHT_THIGH:
+        case HIT_LEFT_HAND: case HIT_LEFT_ARM: case HIT_LEFT_SHOULDER:
+        case HIT_RIGHT_HAND: case HIT_RIGHT_ARM: case HIT_RIGHT_SHOULDER: return GEVR_MODPART_LIMB;
+        default: return 0;
+    }
+}
+
+static void guardDamage(GevrModDamage *d, const ChrRecord *chr, float amount, int how, int hitpart, int item, int player)
+{
+    memset(d, 0, sizeof(*d));
+    d->target = GEVR_MODTARGET_GUARD;
+    d->id = chr->chrnum;
+    d->amount = amount;
+    d->how = how;
+    d->part = how == GEVR_MODHOW_SHOT ? partOf(hitpart) : 0;
+    d->item = item >= 0 && item < ITEM_IDS_MAX ? item : -1;
+    d->by = player >= 0 && player < 4 ? player : -1;
+}
+
+/* Where the guards run (solo, the co-op host): a client's guards are the host's copies */
+int gevrModGuardBeforeDamage(ChrRecord *chr, float *amount, int how, int hitpart, int item, int player)
+{
+    GevrModDamage d;
+
+    if (!gevrModScriptRunning() || !runsGuards() || chr == NULL || chr->chrnum < 0) return 0;
+    guardDamage(&d, chr, *amount, how, hitpart, item, player);
+    gevrModApiBeforeDamage(&d);
+    if (d.cancelled) return 1;
+    *amount = d.amount;
+    return 0;
+}
+
+void gevrModGuardDamaged(ChrRecord *chr, float amount, int how, int hitpart, int item, int player)
+{
+    GevrModDamage d;
+
+    if (!gevrModScriptRunning() || !runsGuards() || chr == NULL || chr->chrnum < 0) return;
+    guardDamage(&d, chr, amount, how, hitpart, item, player);
+    d.health = chr->maxdamage - chr->damage > 0.0f ? chr->maxdamage - chr->damage : 0.0f;
+    gevrModApiDamageApplied(&d);
+}
+
+/* What hurt the player: a blast (explosion.c says so), gas (no armour), else a hit */
+static int playerHow(int affectsArmour)
+{
+    return s_gevrExplosionDamage ? GEVR_MODHOW_EXPLOSION : !affectsArmour ? GEVR_MODHOW_GAS : GEVR_MODHOW_HIT;
+}
+
+static void playerDamage(GevrModDamage *d, float amount, int by, int affectsArmour)
+{
+    memset(d, 0, sizeof(*d));
+    d->target = GEVR_MODTARGET_PLAYER;
+    d->id = get_cur_playernum();
+    d->amount = amount;
+    d->how = playerHow(affectsArmour);
+    d->item = -1;
+    d->by = by >= 0 && by < 4 ? by : -1;
+}
+
+/* record_damage_kills runs on the hurt player's own headset; the current player is that player */
+int gevrModPlayerBeforeDamage(float *amount, int by, int affectsArmour)
+{
+    GevrModDamage d;
+
+    if (!gevrModScriptRunning() || g_CurrentPlayer == NULL || !gevrModGameLocal()) return 0;
+    playerDamage(&d, *amount, by, affectsArmour);
+    gevrModApiBeforeDamage(&d);
+    if (d.cancelled) return 1;
+    *amount = d.amount;
+    return 0;
+}
+
+void gevrModPlayerDamaged(float amount, int by, int affectsArmour, float healthBefore, float armourBefore)
+{
+    GevrModDamage d;
+
+    if (!gevrModScriptRunning() || g_CurrentPlayer == NULL || !gevrModGameLocal()) return;
+    /* nothing taken (invincible, the watch, the last hit's flash): nothing to tell */
+    if (g_CurrentPlayer->bondhealth == healthBefore && g_CurrentPlayer->bondarmour == armourBefore) return;
+    playerDamage(&d, amount, by, affectsArmour);
+    d.health = g_CurrentPlayer->bondhealth > 0.0f ? g_CurrentPlayer->bondhealth : 0.0f;
+    d.armour = g_CurrentPlayer->bondarmour > 0.0f ? g_CurrentPlayer->bondarmour : 0.0f;
+    gevrModApiDamageApplied(&d);
+}
+
+void gevrModPlayerDied(void)
+{
+    if (gevrModScriptRunning() && g_CurrentPlayer != NULL && gevrModGameLocal()) gevrModApiPlayerDied(get_cur_playernum());
+}
+
+int gevrModGamePlayerHealth(float *health, float *armour)
+{
+    s32 was;
+
+    if (!gevrModGamePlayerReady()) return 0;
+    was = get_cur_playernum();
+    set_cur_player(localSlot());
+    *health = g_CurrentPlayer->bondhealth > 0.0f ? g_CurrentPlayer->bondhealth : 0.0f;
+    *armour = g_CurrentPlayer->bondarmour > 0.0f ? g_CurrentPlayer->bondarmour : 0.0f;
+    set_cur_player(was);
+    return 1;
+}
+
+/* the local player, alive and up: what to set, else NULL (the caller restores was) */
+static struct player *livingLocal(s32 *was)
+{
+    *was = get_cur_playernum();
+    set_cur_player(localSlot());
+    if (g_CurrentPlayer->bonddead || gevrCoopLocalDowned()) return NULL;
+    return g_CurrentPlayer;
+}
+
+int gevrModGameSetPlayerHealth(float health)
+{
+    struct player *pl;
+    s32 was;
+
+    if (!gevrModGamePlayerReady() || !(health > 0.0f && health <= 1.0f)) return 0;
+    pl = livingLocal(&was);
+    if (pl) pl->bondhealth = health;
+    set_cur_player(was);
+    return pl != NULL;
+}
+
+int gevrModGameSetPlayerArmour(float armour)
+{
+    struct player *pl;
+    s32 was;
+
+    if (!gevrModGamePlayerReady() || !(armour >= 0.0f && armour <= 1.0f)) return 0;
+    pl = livingLocal(&was);
+    if (pl) pl->bondarmour = armour;
+    set_cur_player(was);
+    return pl != NULL;
 }
