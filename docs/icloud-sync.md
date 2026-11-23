@@ -102,6 +102,13 @@ signed build (device dev install or archive); the simulator never gets it.
   Oddjob hat up); iPad joined and took the iPhone's settings, matched the ROMs
   and packs without downloading; identical saves left alone. Apple TV pending.
 - `bash port/tests/test_icloud.sh` (Mac, iOS simulator) passes.
-- Before TestFlight: CloudKit schema to Production (Console), App Store
-  profiles remade with iCloud, archives with `GEVR_ICLOUD=1`.
+- v0.5.26 (2026-11-23): the App Store profiles "GoldenEye VR App Store" and
+  "GoldenEye VR tvOS App Store" had gone INVALID when the App ID gained iCloud;
+  remade through the API with iCloud (uuids 52cdc231..., ab61ee6e...) and the
+  TestFlight archives built with `GEVR_ICLOUD=1`. The CloudKit schema must be in
+  Production for TestFlight's ROM and pack sync (the key-value store needs none).
+  TestFlight iOS 148 and visionOS 23 have iCloud. tvOS 9 went up without it: App
+  Store validation wants `aps-environment` beside iCloud on tvOS (error 90575), so
+  Apple TV needs the Push Notifications capability, a remade profile and that
+  entitlement in its build.
 - Open: deleting from iCloud; speedrun ghosts (`ghosts/`) are not carried.
