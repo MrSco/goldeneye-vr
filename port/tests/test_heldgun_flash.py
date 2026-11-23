@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 from test_reinforcements import block
+from gevr_testcc import sanitize  # the sanitizers where the compiler links them
 
 ROOT = Path(__file__).resolve().parents[2]
 held = (ROOT / "src/game/gevr_heldgun.c").read_text(encoding="utf-8")
@@ -29,7 +30,7 @@ with tempfile.TemporaryDirectory(prefix="gevr-heldgun-flash-") as temp:
     source.write_text(fixture, encoding="utf-8")
     subprocess.run([os.environ.get("CC") or shutil.which("gcc") or "cc", "-std=c11", "-O1", "-g",
                     "-fms-extensions", "-include", "stdarg.h",
-                    "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+                    *sanitize("-fsanitize=address,undefined", "-fno-sanitize-recover=all"),
                     "-DPLATFORM_64BIT=1", "-D_LANGUAGE_C", "-DGEVR", "-DVERSION_US",
                     *["-I" + str(ROOT / p) for p in (".", "include", "src", "src/game", "port/include")],
                     str(source), str(ROOT / "port/tests/gevr_bean_native_model.c"), "-lm", "-o", str(exe)],

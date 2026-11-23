@@ -296,9 +296,9 @@ int main(void)
     /* hand reload has magazines to take with every model set of GoldenEye's own art; a ROM hack's
      * own guns under GoldenEye's names have none (gevr_n64mag.h) */
     VrGexGuns = 0;
-    check(gevrSettingBlocked(find("Hand reload WIP")) == NULL, "hand reload works on GoldenEye's own guns");
+    check(gevrSettingBlocked(find("Hand reload")) == NULL, "hand reload works on GoldenEye's own guns");
     s_campaign = 1;   /* GEVR_CAMPAIGN_GF64 */
-    check(gevrSettingBlocked(find("Hand reload WIP")) != NULL, "hand reload is not for a hack's own guns");
+    check(gevrSettingBlocked(find("Hand reload")) != NULL, "hand reload is not for a hack's own guns");
     /* ... and GoldenEye X's guns are not for a hack either: its row cannot be switched on there */
     check(gevrSettingBlocked(find("GoldenEye X")) != NULL, "GoldenEye X's guns are blocked in a hack campaign");
     s_campaign = 0;
@@ -313,11 +313,24 @@ int main(void)
     check(gevrSettingBlocked(find("Grip use")) == NULL && gevrSettingIndex(find("Grip use")) == 0,
           "grip use is its own again without hand reload");
     VrGexGuns = 0;
+    /* ... with GoldenEye's own guns too (owner, 2026-11-23): hand reload works with every set */
+    VrManualReloading = 1;
+    check(gevrSettingBlocked(find("Grip use")) != NULL && gevrSettingIndex(find("Grip use")) == 1,
+          "grip use shows on with hand reload on GoldenEye's own guns");
+    s_campaign = 1;   /* a hack's own guns: no hand reload, so grip use is the player's */
+    check(gevrSettingBlocked(find("Grip use")) == NULL && gevrSettingIndex(find("Grip use")) == 0,
+          "grip use is the player's where hand reload cannot be on");
+    s_campaign = 0;
+    VrManualReloading = 0;
     VrBodySlots = 0;
     check(gevrSettingBlocked(find("Show slots")) != NULL && gevrSettingBlocked(find("Slot size")) != NULL,
           "the slots' size and display need body slots");
-    VrForcePull = 0;
-    check(gevrSettingBlocked(find("Pull disarm")) != NULL, "disarm needs force pull");
+    /* force pull is one setting (owner, 2026-11-23): no disarm, visuals or auto pickup rows */
+    for (int id = 0; id < gevrSettingCount(); id++) {
+        GevrSettingInfo info;
+        check(!gevrSettingInfo(id, &info) || (strcmp(info.label, "Pull disarm") && strcmp(info.label, "Pull visuals")
+              && strcmp(info.label, "Auto pickup")), "force pull is one setting");
+    }
     VrMotionThrowing = 0;
     check(gevrSettingBlocked(find("Throw power")) != NULL, "throw power needs motion throw");
 

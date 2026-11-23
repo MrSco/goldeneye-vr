@@ -42,10 +42,28 @@ bodies. If their original fade time has not expired, fading resumes from
 that elapsed time. Once an ID is retired, changing the retention setting
 does not restore it. Corpses still yield slots for real spawns.
 
-A guard who is falling or dead still blocks a closing door, as in the
-original. A door that touches a kept body releases it: the body fades over
-the original 90/75 ticks and the door closes once it is gone, so it never
-clips through a corpse.
+Doors keep the original game's timing whatever the body settings, so runs
+compare with Bodies stay and ragdolls on or off, and online matches see the
+same doors. A falling guard blocks a closing door, as in the original. A dead
+body blocks it for the original lifetime of the body (90/75 ticks): a door
+touching a kept body within that time puts it back on the original clock, so
+it is gone just when the original would have removed it. Past that lifetime
+a kept body, like a ragdoll's, is the player's own: a door touching it fades
+it in half a second (30/25 ticks) and does not wait.
+
+Dam's truck moves by the same overlap check (`propobj.c` `sub_GAME_7F0448A8`)
+and follows the same rule (owner, 2026-11-23: in the original it stops for Bond,
+for guards, and for a dead guard until he fades). A body within the original
+lifetime stops it, and a kept body past it fades instead of stopping the truck
+for good. A ragdoll body the truck touches fades.
+
+That check skips a chr with `CHRFLAG_HIDDEN`. The decomp read the flag through
+an object's model pointer, which on the N64 sits where a chr's flags do. On
+64-bit Linux, Android and Apple builds the same read reached the chr's prop
+pointer, so whether a guard, a body, or a player with a body (third person)
+stopped a door or the truck depended on its address. Windows lays the record
+out differently and happened to read the flag. The check now reads
+`chr->chrflags` on every build.
 
 ## Optional difficulty behavior
 
@@ -91,7 +109,9 @@ and independent persistence with every body count on Quest and desktop.
 
 `python port/tests/test_door_obstruction.py` checks door obstruction with
 dying and dead guards, living guards, players, and solid objects, and that
-only a door touching a dead body starts its fade. `test_reinforcements.py`
+only a door or Dam's truck touching a dead body starts its fade. It also
+checks that a chr's prop address never decides whether it blocks, and that a
+hidden chr never does. `test_reinforcements.py`
 covers the release itself: a kept body fades on the original clock and is
 not recaptured.
 

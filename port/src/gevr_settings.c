@@ -34,7 +34,7 @@ extern int VrAimNoLean, VrAimSight;
 extern int VrMotionThrowing;
 extern float VrMotionThrowStrength, VrMotionThrowPitch, VrMotionThrowGazeAssist;
 extern int VrGestureGripUse, VrGestureMineGrab;
-extern int VrForcePull, VrPullDisarm, VrAutoPickup, VrPullVisuals;
+extern int VrForcePull;
 extern int VrBodySlots, VrBodySlotSize;
 extern int VrWatchGesturePause;
 extern int VrManualReloading;
@@ -158,15 +158,16 @@ static const char *blockedReload(void) { return VrGexGuns || gevrBeanIsEnabled()
 static const char *blockedGex(void) { return gevrRomIsVariant() ? "Not with this ROM" : NULL; }
 static const char *blockedHat(void) { return gevrHatAvailable() ? NULL : "Get it in Mods"; }
 static const char *blockedBeanFill(void) { return gevrTexpackFillAvailable() ? NULL : "Needs an HD pack"; }
-/* hand reload takes B, so grip use stays on with it (bondview2.c gevrHandReloadActive): shown on, not the stored value (headset, test.21) */
-static int forcedGripUse(void) { return VrManualReloading && VrGexGuns; }
+/* hand reload takes B, so grip use stays on with it, with any model set hand reload works with
+ * (bondview2.c gevrHandReloadGripUse): shown on, not the stored value (headset, test.21; owner,
+ * 2026-11-23: "we need to require grip use if you're using hand reload") */
+static int forcedGripUse(void) { return VrManualReloading && blockedReload() == NULL; }
 static const char *blockedGripUse(void) { return forcedGripUse() ? "On for hand reload" : NULL; }
 static const char *blockedMsaa(void) { return vr_eye_msaa_supported() ? NULL : "Not on this headset"; }
 static const char *blockedDismember(void) { return VrRagdolls ? NULL : "Needs ragdolls"; }
 static const char *blockedBean(void) { return gevrBeanIsAvailable() ? NULL : "Needs Bean's files"; }
 static const char *blockedSpaceWarp(void) { return vr_spacewarp_supported() ? NULL : "Not on this headset"; }
 static const char *blockedSlots(void) { return VrBodySlots ? NULL : "Needs body slots"; }
-static const char *blockedPull(void) { return VrForcePull ? NULL : "Needs force pull"; }
 static const char *blockedThrow(void) { return VrMotionThrowing ? NULL : "Needs motion throw"; }
 static const char *blockedTurnSpeed(void) { return VrUseSnapTurn > 0.0f ? "Smooth turning only" : NULL; }
 static const char *blockedThirdPerson(void) { return VrPlayMode ? "Flat screen only" : NULL; }
@@ -968,20 +969,15 @@ static const Row s_rows[] = {
       .names = s_slotSizeNames, .count = 3, .def = NAN, .blocked = blockedSlots },
     { .label = "Show slots", .headset = 1, .tooltip = "Draw what the hips, chest and belt hold when you look down.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrBodySlotShow, .def = NAN, .blocked = blockedSlots },
-    { .label = "Hand reload WIP", .headset = 1, .tooltip = "Reload by hand: drop the magazine, push one in from your belt, rack the slide.", .kind = GEVR_SET_TOGGLE,
+    { .label = "Hand reload", .headset = 1, .tooltip = "Reload by hand: drop the magazine, push one in from your belt, rack the slide.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrManualReloading, .def = NAN, .blocked = blockedReload },
     { .label = "Grip use", .headset = 1, .tooltip = "Grip doors, buttons and switches to use them.", .kind = GEVR_SET_TOGGLE,
       .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrGestureGripUse, .def = NAN, .blocked = blockedGripUse,
       .forced = forcedGripUse },
     TOGGLE(GEVR_SEC_GESTURES, "Mine re-grab", VrGestureMineGrab, "Grip your own stuck mine to take it back."),
-    TOGGLE(GEVR_SEC_GESTURES, "Force pull WIP", VrForcePull, "Point an empty hand at a gun or item, squeeze to lock, flick to pull, and grip to catch it."),
-    { .label = "Pull disarm", .headset = 1, .tooltip = "Force pull can take a gun out of a guard's hand. Never another player's.",
-      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrPullDisarm,
-      .def = NAN, .blocked = blockedPull },
-    TOGGLE(GEVR_SEC_GESTURES, "Auto pickup", VrAutoPickup, "Walking over a gun picks it up. Off: grab or pull guns."),
-    { .label = "Pull visuals", .headset = 1, .tooltip = "The glow, ring and line on what force pull points at. The buzz stays.",
-      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_GESTURES, .where = GEVR_SET_BOTH, .ivar = &VrPullVisuals,
-      .def = NAN, .blocked = blockedPull },
+    /* one setting (owner, 2026-11-23): the line and glow, and pulling a guard's gun, are always
+     * part of it, and walking over a gun always picks it up */
+    TOGGLE(GEVR_SEC_GESTURES, "Force pull WIP", VrForcePull, "Point an empty hand at a gun or item, squeeze to lock, flick to pull, and grip to catch it. It can take a guard's gun out of their hand."),
 
     /* Weapons */
     { .label = "Gun recoil", .headset = 1, .tooltip = "Each gun's own kick, or one for all.", .kind = GEVR_SET_TOGGLE,
@@ -1205,7 +1201,7 @@ static const Row s_rows[] = {
     { .label = "Voices", .tooltip = "The other players' voices.", .kind = GEVR_SET_RANGE, .section = GEVR_SEC_RULES,
       .lsection = L(GEVR_LSEC_MP_AUDIO), .where = GEVR_SET_LAUNCHER, .fvar = &VrVoiceVolume,
       .lo = 0, .hi = 1, .step = 0.05f, .scale = 100, .fmt = "%.0f%%", .def = 1.0f },
-    { .label = "Voice mode", .tooltip = "Proximity: opponents fade with distance, to 10%. Couch: everyone at full volume. "
+    { .label = "Voice mode", .tooltip = "Proximity: opponents are full volume within 8 m and silent past 25 m. Couch: everyone at full volume. "
                                         "Teammates are always at full volume.", .kind = GEVR_SET_CHOICE,
       .section = GEVR_SEC_RULES, .lsection = L(GEVR_LSEC_MP_AUDIO), .where = GEVR_SET_LAUNCHER, .def = NAN,
       .blocked = blockedHostRule, .cpositions = twoPositions, .cget = voiceModeGet, .cset = voiceModeSet,
