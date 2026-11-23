@@ -605,7 +605,8 @@ std::vector<LocalItem> localItems(bool packs)
     if (DIR *d = opendir(tp.c_str())) {
         while (struct dirent *e = readdir(d)) {
             const std::string n = e->d_name;
-            if (n[0] == '.' || n.find(".icloud") != std::string::npos || n.find(".part") != std::string::npos) continue;
+            // our own leftovers (".old-icloud", ".icloud-tmp") and half-made downloads
+            if (n[0] == '.' || n.find("icloud") != std::string::npos || n.find(".part") != std::string::npos) continue;
             struct stat st;
             if (stat((tp + "/" + n).c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) continue;
             std::vector<std::pair<std::string, long long>> files;

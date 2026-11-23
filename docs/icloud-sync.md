@@ -22,7 +22,7 @@ Code: [port/ios/ios_icloud.mm](../port/ios/ios_icloud.mm), interface
 | ROMs (`*.z64/v64/n64` in the save folder and `data/`) | CloudKit private database, zone `GevrFiles` | at launch, on return to the foreground, after a ROM is chosen, every 15 min |
 | Texture packs (`texture-packs/<pack>/`: HD, AI, Bean, mods) | the same, only with **Big packs too** on | the same, Wi-Fi only |
 
-Tvos has no iCloud Drive (Apple QA1935), so files go through CloudKit on every
+tvOS has no iCloud Drive (Apple QA1935), so files go through CloudKit on every
 platform. The key-value store holds 1 MB and 1024 keys: the settings are a few
 dictionaries, not one key per setting.
 
@@ -81,5 +81,10 @@ signed build (device dev install or archive); the simulator never gets it.
 
 - 2026-11-22: implemented on branch `t3/icloud-settings-sync`. Not yet run on a
   signed device: needs steps 1-3 above.
+- Checked: iOS, tvOS and visionOS simulator builds; the unsigned iOS build
+  launches with the rows hidden; `bash port/tests/test_icloud.sh` (Mac, iOS
+  simulator) passes: ini rewrite, device keys, archive round trip, unsafe
+  names, item scan, install. The merges against a real store and CloudKit
+  are untested until a build is signed for iCloud.
 - Open: live apply of settings that arrive mid-session; deleting from iCloud;
   speedrun ghosts (`ghosts/`) are not carried.
