@@ -843,31 +843,31 @@ static const Row s_rows[] = {
     /* Refresh and SpaceWarp: the launcher's with the other graphics rows (Comfort & display >
      * Graphics), General having run out of room */
     { .label = "Refresh", .tooltip = "The headset's display rate. Auto leaves it to the headset.", .kind = GEVR_SET_CHOICE,
-      .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH, .def = NAN,
+      .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH, .def = NAN,
       .cpositions = refreshPositions, .cget = refreshGet, .cset = refreshSet, .ctext = refreshText, .cdefault = 0, .headset = 1 },
     { .label = "SpaceWarp", .headset = 1, .tooltip = "Draws half the frames and has the headset make the rest. "
                                        "On by default with Bean at 120 Hz.", .kind = GEVR_SET_TOGGLE,
-      .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH, .def = NAN, .blocked = blockedSpaceWarp,
+      .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH, .def = NAN, .blocked = blockedSpaceWarp,
       .cpositions = swPositions, .cget = swGet, .cset = swSet, .ctext = swText, .cdefault = -1 },
     { .label = "Anti-aliasing", .headset = 1, .tooltip = "Smooths jagged edges. Changes right away; costs GPU time, which is short on battery.",
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH,
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH,
       .ivar = &VrEyeMsaa,
       .ivalues = s_msaa, .names = s_msaaNames, .count = sizeof(s_msaa) / sizeof(s_msaa[0]), .def = NAN, .blocked = blockedMsaa,
       .ctext = msaaText, .warning = warnMsaa },
     { .label = "Resolution", .headset = 1, .tooltip = "Draws each eye at this multiple of the size the headset recommends. "
                                         "Above 1x (supersampling) is sharper and costs GPU time: 1.5x draws 2.25 times the pixels. "
                                         "Below 1x is faster and softer. Takes effect the next time the game starts.",
-      /* the launcher's only (Comfort & display > Graphics): it waits for the next start, and the
-       * in-game Display tab is full */
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_GRAPHICS),
-      .where = GEVR_SET_LAUNCHER, .def = NAN,
+      /* the launcher's Comfort & display > Graphics and the in-game Graphics tab, saying
+       * "(next start)" until the game starts again */
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS),
+      .where = GEVR_SET_BOTH, .def = NAN,
       .cpositions = scalePositions, .cget = scaleGet, .cset = scaleSet, .ctext = scaleText, .cdefault = 1,
       .warning = warnScale },
     { .label = "Anisotropic filtering", .tooltip = "Keeps HD pack and Bean textures sharp on floors and walls seen at an angle. "
                                                    "Higher costs GPU time. The original N64 textures aren't affected. Changes right away.",
       /* in game beside the HD pack and Bean rows (Mods), where a change shows at once, and in
        * the launcher's Comfort & display > Graphics (owner, 2026-11-22: "it should be in launcher too") */
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_GRAPHICS),
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS),
       .where = GEVR_SET_BOTH,
       .ivar = &VrTextureAniso,
       .ivalues = s_aniso, .names = s_anisoNames, .count = sizeof(s_aniso) / sizeof(s_aniso[0]), .def = NAN,
@@ -877,7 +877,7 @@ static const Row s_rows[] = {
                                                "three-point filtering. HD pack and Bean textures aren't affected. Changes right away.",
       /* beside Anisotropic filtering, the HD pack's and Bean's, in game where a change shows at
        * once, and in the launcher's Comfort & display > Graphics as it is */
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_MODS, .lsection = L(GEVR_LSEC_GRAPHICS),
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS),
       .where = GEVR_SET_BOTH, .def = NAN,
       .cpositions = texFilterPositions, .cget = texFilterGet, .cset = texFilterSet, .ctext = texFilterText,
       .cdefault = 1, .warning = warnTexFilter },
@@ -896,22 +896,22 @@ static const Row s_rows[] = {
       .section = GEVR_SEC_DISPLAY, .where = GEVR_SET_BOTH, .ivar = &VrScreenPassthrough, .def = NAN, .blocked = blockedPassthrough },
     { .label = "Fullscreen", .pcflat = 1,
       .tooltip = "Fill the monitor (Alt+Enter also toggles fullscreen at any time).",
-      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH,
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH,
       .def = NAN, .cpositions = fullscreenPositions, .cget = fullscreenGet, .cset = fullscreenSet, .ctext = fullscreenText,
       .cdefault = 0 },
     { .label = "Screen shape", .tooltip = "The flat game's shape: 4:3 as the N64 drew it, or 16:9 with a wider view and the HUD at the edges.",
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH,
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH,
       .ivar = &VrScreenShape, .ivalues = s_two, .names = s_shapeNames, .count = 2, .def = NAN },
     { .label = "Anti-aliasing", .flatgame = 1,
       .tooltip = "Smooths jagged edges. Changes right away; higher costs GPU time.",
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH,
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH,
       .def = NAN, .cpositions = flatMsaaPositions, .cget = flatMsaaGet, .cset = flatMsaaSet, .ctext = flatMsaaText,
       .cdefault = 0, .warning = warnFlatMsaa },
     { .label = "Frame rate", .flatgame = 1,
       .tooltip = "Auto matches your display's refresh rate and steps down to a steady lower rate if this device can't hold it. "
                  "Or choose a fixed cap or Uncapped.",
       /* with the other graphics rows (Comfort & display > Graphics): General had no room left */
-      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_DISPLAY, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH, .def = NAN,
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH, .def = NAN,
       .cpositions = frameRatePositions, .cget = frameRateGet, .cset = frameRateSet, .ctext = frameRateText, .cdefault = 0 },
     { .label = "Third person", .tooltip = "The camera follows behind Bond in the flat screen, solo. "
                                           "Aiming, the watch and the tank go back to first person.", .kind = GEVR_SET_TOGGLE,
@@ -1051,7 +1051,7 @@ static const Row s_rows[] = {
 #define ROWS ((int)(sizeof(s_rows) / sizeof(s_rows[0])))
 
 static const char *const s_sections[GEVR_SEC_COUNT] = {
-    "Comfort", "Controls", "Gestures", "Weapons", "Display", "Game rules", "Mods/Fun", "Audio",
+    "Comfort", "Controls", "Gestures", "Weapons", "Display", "Graphics", "Rules", "Mods/Fun", "Audio",
 };
 
 static const Row *row(int id) { return id >= 0 && id < ROWS ? &s_rows[id] : NULL; }
@@ -1059,7 +1059,7 @@ static const Row *row(int id) { return id >= 0 && id < ROWS ? &s_rows[id] : NULL
 /* The launcher's place for a section's rows, where a row names none */
 static const int s_launcherOf[GEVR_SEC_COUNT] = {
     GEVR_LSEC_COMFORT_DISPLAY, GEVR_LSEC_HANDS, GEVR_LSEC_GESTURES, GEVR_LSEC_THROWING,
-    GEVR_LSEC_COMFORT_DISPLAY, GEVR_LSEC_RULES, GEVR_LSEC_MODS, GEVR_LSEC_PLAY,
+    GEVR_LSEC_COMFORT_DISPLAY, GEVR_LSEC_GRAPHICS, GEVR_LSEC_RULES, GEVR_LSEC_MODS, GEVR_LSEC_PLAY,
 };
 static int launcherSection(const Row *r) { return r->lsection ? r->lsection - 1 : s_launcherOf[r->section]; }
 

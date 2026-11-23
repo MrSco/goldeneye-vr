@@ -30,6 +30,7 @@ enum {
     GEVR_SEC_GESTURES,
     GEVR_SEC_WEAPONS,
     GEVR_SEC_DISPLAY,
+    GEVR_SEC_GRAPHICS,     /* Refresh, Resolution, Anti-aliasing, filtering: as the launcher's Comfort & display > Graphics */
     GEVR_SEC_RULES,
     GEVR_SEC_MODS,
     GEVR_SEC_AUDIO,        /* the volumes: the Play tab's in the launcher */
