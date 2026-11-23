@@ -39,7 +39,7 @@ A pack is a zip that unpacks into `texture-packs/mods/<id>/` (the Quest's
 ```
 mod.json            manifest (below)
 scripts/main.lua    entry point; other .lua files under scripts/
-assets/...          models, textures, sounds, data the scripts load
+assets/...          models, textures, data the scripts load
 files.sha256        checksum list of every other file
 ```
 
@@ -212,15 +212,15 @@ is the proposal to refine with mod authors (Tactical first).
 
 | Area | Events | Calls |
 |---|---|---|
-| Lifecycle | `mission_start`, `mission_end`, `tick(dt)` (capped) | `mod.log`, `mod.setting` |
-| Weapons | `weapon_fire`, `reload_start/end`, `weapon_drawn`, `weapon_dropped` | read and set ammo, magazine size, fire rate, damage (within limits) |
+| Lifecycle | `campaign_enter`, `mission_prepare`, `mission_start`, `mission_end`, `tick(dt)` (capped) | `mod.log`, `mod.setting`, `mod.capabilities` |
+| Weapons | `weapon_fire_attempt`, `weapon_fire`, `reload_start/end`, `weapon_drawn`, `weapon_dropped` | read and set loaded ammo, magazine size, fire rate, damage (within limits) |
 | Hands (VR) | `grip`, `release`, `hand_near(anchor)` | hand pose, body anchors (body slots), haptics |
-| Items | `item_pickup`, `item_spawned` | spawn a pickup, take or give an item |
-| Guards | `guard_spawned`, `guard_shot`, `guard_killed` | read state, give a guard's weapon or outfit (from the ROM's bodies), spawn a guard and send it along a patrol path through the game's own spawn and AI commands |
-| Player | `player_damaged`, `player_died` | health and armour |
-| Assets | — | load a model or texture from the pack, attach it to a hand, gun or body slot, play a sound |
+| Items | `pickup_spawning` (can swap a weapon, ammo or armour pickup at its existing pad), `item_pickup`, `item_spawned` | spawn a pickup, take or give an item |
+| Guards | `guard_spawning`, `guard_spawned`, `guard_alerted`, `guard_shot`, `guard_killed`, `corpse_retiring` | read state, give a guard's weapon or outfit (from the ROM's bodies), spawn a guard and send it along a patrol path through the game's own spawn and AI commands |
+| Damage and player | `before_damage`, `damage_applied`, `player_damaged`, `player_downed`, `player_revived`, `player_died` | health and armour |
+| Assets | — | load a model or texture from the pack, attach it to a hand, gun or body slot, `mod.audio.play` (ROM sound effects only), `mod.effect.play` |
 | UI | — | a watch page from a simple layout (rows, buttons, sliders) |
-| Network | `mod.net.on` | `mod.net.send` |
+| Network | `peer_ready`, `mod.net.on` (includes the sender's player ID) | `mod.net.send`, `mod.net.role` |
 | Storage | — | read and write in `mods/<id>/save/` |
 
 Not in v1: drawing, shaders, level geometry, new AI behaviour, the
@@ -248,6 +248,54 @@ watch). We maintain the adapters, not the mods.
   then a mod does without them or does them in Lua.
 - A request for the API names the existing game system the adapter would
   sit on. If there isn't one, it's a new game system (above).
+
+### Where each hook sits
+
+- **Campaign and mission.** Emit `campaign_enter` once the selected
+  campaign's base ROM is loaded by `romdataInit()`. Emit `mission_prepare`
+  in `lvlStageLoad()` before `proplvreset2()` sets up mission props and
+  guards. `mod.capabilities` reports VR hands from the active stereo
+  mode (`g_gevrStereo`) and VR readiness (`gevrVrReady()`). Headless
+  capability comes from the build state (`GEVR_HEADLESS`).
+- **Shots and throws.** Emit `weapon_fire_attempt` before ammo is spent
+  in `gunTickHandState()` for trigger shots and `gevrMotionThrowTick()`
+  for VR throws. A script can cancel either action. Loaded ammo uses the
+  hand's existing `weapon_ammo_in_magazine` count, read by
+  `get_ammo_in_hands_magazine()`.
+- **Pickups.** During `proplvreset2()`, emit `pickup_spawning` only for
+  loose weapon, ammo and armour pickups at existing pads. A script can
+  replace an eligible pickup before its placement by `weaponAssignToHome()`
+  or `domakedefaultobj()`. Keys and other mission items use their native
+  setup. Weapons flagged `PROPFLAG_ASSIGNEDTOCHR` use `guard_spawning`.
+- **Guards and corpses.** Emit `guard_spawning` during
+  `expand_09_characters()` and `chrSpawnAtPad()`. Allow a ROM body and
+  head choice before the model is created and a native weapon choice
+  through `weaponAssignToHome()` or `chrGiveWeapon()`. Guard spawning and
+  patrol calls use `AI_TRYSpawningChrAtPad` (`chrSpawnAtPad()`) and
+  `AI_StartPatrol` (`if_actor_able_set_on_path()`). Emit `guard_alerted`
+  once per transition into alert. Report `heard` for noise through
+  `chrCheckGuardsHeardSound()` and `chrlvAlertGuardToPlayerPosition()`,
+  `saw` for player sighting through `chrlvSetTargetToPlayer()`, or `alarm`
+  for an alert through `alarmActivate()`. Emit `corpse_retiring` in
+  `chrlvTickDead()` before the body is marked for removal, while its
+  position is available.
+- **Damage and revives.** Emit `before_damage` and `damage_applied` around
+  native damage in `handles_shot_actors()` and `chrlvExplosionDamage()`
+  for guards and `record_damage_kills()` for players. The before event
+  allows the script to change or cancel the pending damage. The after
+  event reports the result. `player_downed` and `player_revived` report
+  the co-op transitions in `coopSetLocalDowned()` and
+  `coopAnnounceDowned()`.
+- **Sound and effects.** `mod.audio.play` uses `sndPlaySfx()` to play
+  an existing ROM sound effect by ID. Positional playback uses
+  `chrobjSndCreatePostEventDefault()`.
+  `mod.effect.play` selects built-in effects such as smoke and bullet
+  impacts through `explosionCreateSmoke()` and
+  `explosionCreateBulletImpact()`.
+- **Co-op.** Emit `peer_ready` on the validated stage-ready transition
+  in `netReceiveStageReady()`. `mod.net.role` uses `netIsHost()` and
+  `netIsDedicated()`. The sender ID in `mod.net.on` comes from the
+  engine's peer-to-player slot mapping in `netHandlePacket()`.
 
 ## Versioning
 
