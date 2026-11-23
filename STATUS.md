@@ -27,7 +27,8 @@ flavours), dedicated server gate passed (26 kills, 3.6% peak CPU); played by the
 user on a Quest 3 (the truck, third person, gestures, launcher). PR #295.
 **Next:** volumetric smoke and explosions (#249, design thread), the mod system
 (`mod-system`, #292), host rule against teleporting (protocol 28), bolts that
-move on the meshes, CloudKit schema in Production if not yet deployed.
+move on the meshes, Apple TV's iCloud (push capability, remade profiles,
+`aps-environment` in its entitlements).
 **Before it:** v0.5.25 (versionCode 138), tag on c4218068
 ([notes](docs/releases/v0.5.25.md)), PR #278; v0.5.24 (versionCode 137), tag on
 e73c2a4f ([notes](docs/releases/v0.5.24.md)), PR #272.
