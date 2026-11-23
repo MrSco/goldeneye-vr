@@ -126,7 +126,7 @@ Also:
 
   Nothing of theirs ships with the app. New pack releases show up on the Mods page as updates.
 
-  In game, hold **both grips + the right-stick click** to open the in-game panel, then use **HD textures off** and **on** to compare.
+  In game, hold **both grips + the right-stick click** to open the in-game panel, then switch **VR settings → Mods and fun → HD textures** to compare.
 - **Multiplayer** (experimental): deathmatch for up to eight players, with **bots** to fill the empty slots or to play against on your own, endless Horde waves on any map for one to four, or the campaign in co-op for up to four, each in their own headset, over the internet or your Wi-Fi: browse public games, share a private code or invite your friends. See [Multiplayer](#-multiplayer-experimental).
 - **Friends and invites**: the **Friends** panel beside the launcher and the in-game panel shows which friends are online and what they're playing. Find friends by name or friend code, invite them into your lobby, or join theirs. **Link Discord** there to add your Discord friends, show what you're playing on Discord, and send and take invites through it. A lobby's `goldeneyevr.com/join` link shows its code and an **Open in GoldenEye VR** button. See [Friends and invites](docs/friends-and-invites.md).
 - **Optional ragdolls and limb dismemberment** (experimental): Ragdolls and Dismemberment on **Rules → Game rules**. Off by default; works in every mode, with the body count set to fade, 12 or 24. Physics and cuts are local to each headset. See [setup, limits and testing](docs/ragdolls.md).
@@ -403,7 +403,7 @@ GE-X and the ROM section's **Choose ROM file...** for your GoldenEye ROM.
 | **☰ Menu** (left controller) | Pause / Bond's watch (in multiplayer: the pause menu) |
 | **☰ Menu** + **A** | Gun fit on or off (single player) |
 | **☰ Menu** + **B** | Mute or unmute your microphone (multiplayer) |
-| **Both grips + hold right-stick click** (1 s) | The in-game panel: VR settings, HD textures, **Reset sound**, Friends and **Back to launcher** (in multiplayer: the pause menu's **Settings** tab) |
+| **Both grips + hold right-stick click** (1 s) | The in-game panel: VR settings (HD textures under **Mods and fun**), Friends and **Back to launcher** (in multiplayer: the pause menu's **Settings** tab) |
 | **Raise left wrist to your face** | Open Bond's watch when **Watch gesture** is on |
 | **Both grips + hold left-stick click** (1 s) | Restart the mission from its intro (solo, offline, with the Speedrun timer, Ghost race or LiveSplit on): a speedrunner's reset |
 | **Both stick clicks** | Recenter the view |
@@ -445,7 +445,7 @@ levels and no longer causes the reported enemy surge. See
 
 Hold **both grips + the right-stick click** for a second, in a mission or online, to open the **in-game panel** on the
 room screen (a solo mission pauses under it; tap Menu or press B to close it). It has
-**Back to launcher**, **HD textures** on/off with a texture pack, **Reset sound**, your **Friends** (see
+**Back to launcher**, your **Friends** (see
 [Friends and invites](docs/friends-and-invites.md)), and the **VR settings**, which change settings
 mid-mission in seven sections (online, the pause menu's **Settings** tab has the same): **Comfort**, **Controls**, **Gestures**, **Weapons**,
 **Display**, **Game rules**, and **Mods and fun**. These include left-handed mode,
@@ -577,7 +577,7 @@ settings are on the pause menu's **Rules** tab as **Bots**, **Bot count** and
 **In a match.** **☰ Menu** (or the watch gesture) opens the pause menu on its **Match** tab;
 both grips + the right-stick click open it on **Settings**. Its tabs are **Match** (scores, map and votes),
 **Rules** (the host's; a guest sees them greyed, **Host's choice**), **Player**, **Audio**
-and **Settings** (the in-game panel's VR settings, **HD textures** and **Reset sound**).
+and **Settings** (the in-game panel's VR settings).
 The match goes on while it's open.
 - **Navigating.** Point and pull a trigger, or use either stick. A or X selects; B or Y
   goes back, and B resumes.
@@ -750,8 +750,9 @@ virtual screen, which has no artificial motion at all.
 <details>
 <summary><b>The sound turns crunchy or echoes</b></summary>
 
-Hold **both grips + the right-stick click** for the in-game panel (online: the pause menu's **Settings** tab) and press
-**Reset sound**. It restarts the sound output without leaving the mission.
+The cause ([#229](https://github.com/MrSco/goldeneye-vr/issues/229)) is fixed, and the **Reset sound** button that
+worked around it is gone since v0.5.26. If it happens again, restart the app and
+[tell us](https://github.com/MrSco/goldeneye-vr/issues).
 </details>
 
 <details>
