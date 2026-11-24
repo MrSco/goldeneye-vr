@@ -49,6 +49,7 @@ extern int VrDismemberment;
 extern float VrDismemberDamage;
 extern int VrDismemberChance;
 extern int VrMicMuted;
+extern float VrMasterVolume;   // the whole output, 0..1, under audio.c's fixed headroom
 extern float VrMusicVolume;
 extern float VrVoiceVolume;
 extern float VrSfxVolume;

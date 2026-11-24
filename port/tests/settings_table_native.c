@@ -228,9 +228,9 @@ int main(void)
      * the watch face is on Hands; the ally has its own sub-tab; gun size is a cheat. */
     {
         static const char *const play[] = { "Play mode", "Third person", "  Distance", "  Height", "  Shoulder", "Show stats",
-                                            "Speedrun timer", "Ghost race", "Music", "Sound effects" };
+                                            "Speedrun timer", "Ghost race", "Master volume", "Music", "Sound effects" };
         int ids[48], n = gevrSettingSectionRows(GEVR_LSEC_PLAY, GEVR_SET_LAUNCHER, ids, 48);
-        check(n == 10, "Play: the play mode, third person and its camera, stats, the speedrun timer and ghost race, music and effects");
+        check(n == 11, "Play: the play mode, third person and its camera, stats, the speedrun timer and ghost race, the volumes");
         for (int i = 0; i < n; i++) {
             GevrSettingInfo info;
             gevrSettingInfo(ids[i], &info);
@@ -246,7 +246,8 @@ int main(void)
         check(GEVR_LSEC_MP_FUN >= GEVR_SEC_COUNT && gevrSettingSectionRows(GEVR_LSEC_MP_FUN, GEVR_SET_INGAME, ids, 48) == 0,
               "an LSEC asked of the in-game screen is its own section number");
         n = gevrSettingSectionRows(GEVR_SEC_AUDIO, GEVR_SET_INGAME, ids, 48);
-        check(n == 2 && ids[0] == find("Music") && ids[1] == find("Sound effects"), "in game, Audio: the Play tab's music and effects (solo too)");
+        check(n == 3 && ids[0] == find("Master volume") && ids[1] == find("Music") && ids[2] == find("Sound effects"),
+              "in game, Audio: the Play tab's volumes (solo too)");
         n = gevrSettingSectionRows(GEVR_SEC_RULES, GEVR_SET_INGAME, ids, 48);
         for (int i = 0; i < n; i++) {
             gevrSettingInfo(ids[i], &info);

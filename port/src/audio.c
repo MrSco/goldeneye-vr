@@ -98,8 +98,44 @@ s32 audioInit(void)
 }
 
 #ifdef GEVR
-/* The game's 22050 Hz stereo, to the device at its own rate. */
+extern float VrMasterVolume;   /* Master volume (gevr_settings.c), the whole output */
+
+/*
+ * Headroom: the N64's mix goes out 6 dB down, on every platform. GoldenEye,
+ * like most N64 games, is mixed near full scale - its title and menus measure
+ * about -14 LUFS with peaks at 0 dBFS, its levels about -20 (a PC capture,
+ * 2026-11-23) - and this port's mixer reproduces it exactly (the envelope
+ * mixer matches mupen64plus's alist_envmix_ge), so at unity it played far
+ * louder than everything else on an iPhone, iPad or Apple TV (the owner,
+ * 2026-11-23). Other N64 ports turn it down the same way: Zelda64Recomp
+ * halves every sample before its main volume, Ship of Harkinian's master
+ * volume starts at 40%, mupen64plus's at 80%.
+ */
+#define GEVR_OUTPUT_HEADROOM 0.5f
+
+static void audioQueueRaw(const s16 *buf, u32 bytes);
+
+/* The game's 22050 Hz stereo (and the voices mixed in), at the headroom and
+ * Master volume */
 static void audioQueue(const s16 *buf, u32 bytes)
+{
+	f32 v = VrMasterVolume < 0.f ? 0.f : VrMasterVolume > 1.f ? 1.f : VrMasterVolume;
+	v *= GEVR_OUTPUT_HEADROOM;
+	static s16 scaled[8192];
+	const s32 gain = (s32)(v * 32768.f + 0.5f);   /* Q15 */
+	while (bytes >= sizeof(s16)) {
+		const u32 n = bytes > sizeof(scaled) ? (u32)sizeof(scaled) : bytes & ~1u;
+		for (u32 i = 0; i < n / sizeof(s16); i++) {
+			scaled[i] = (s16)(((s32)buf[i] * gain) >> 15);
+		}
+		audioQueueRaw(scaled, n);
+		buf += n / sizeof(s16);
+		bytes -= n;
+	}
+}
+
+/* ...to the device at its own rate. */
+static void audioQueueRaw(const s16 *buf, u32 bytes)
 {
 	if (!sConvert) {
 		if (SDL_QueueAudio(dev, buf, bytes) != 0) {

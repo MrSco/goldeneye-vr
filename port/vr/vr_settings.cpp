@@ -44,6 +44,11 @@ int VrTouchHaptics = 1;
  * fired it, an Xbox pad's trigger motors or a DualSense's adaptive triggers.
  * 0 to 100%, its own strength (#269); an ini's 1 is the old toggle's on. */
 int VrTriggerFeedback = 100;
+/* A DualSense's adaptive triggers (input.c inputTriggerTick): 1 = a feel for
+ * what the hand holds (a gun's bump that fires past it, fists, a knife, a
+ * throw, the gadgets) and the shot's buzz in the trigger; 0 = the triggers
+ * left free, the pad's rumble only. */
+int VrAdaptiveTriggers = 1;
 /* The walk's head bob in a flat game (src/game/bondhead.c, #269); stereo has
  * none either way. */
 int VrHeadBob = 1;
@@ -473,6 +478,7 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "DismemberDamage=%.1f\n", VrDismemberDamage);
     iniPrintf(f, "DismemberChance=%d\n", VrDismemberChance);
     iniPrintf(f, "MicMuted=%d\n", VrMicMuted ? 1 : 0);
+    iniPrintf(f, "MasterVolume=%.2f\n", VrMasterVolume);
     iniPrintf(f, "MusicVolume=%.2f\n", VrMusicVolume);
     iniPrintf(f, "VoiceVolume=%.2f\n", VrVoiceVolume);
     iniPrintf(f, "SfxVolume=%.2f\n", VrSfxVolume);
@@ -530,6 +536,9 @@ extern "C" void vrSettingsSave(void)
     iniPrintf(f, "; A pad's triggers: a shot buzzes the trigger that fired it (an Xbox pad's\n");
     iniPrintf(f, "; trigger motors, a DualSense's adaptive triggers), 0 to 100 (%%), 0 = off.\n");
     iniPrintf(f, "TriggerFeedback=%d\n", VrTriggerFeedback);
+    iniPrintf(f, "; A DualSense: 1 = adaptive triggers (a gun's bump to pull past, a feel for each weapon),\n");
+    iniPrintf(f, "; 0 = the triggers left free and the pad's rumble only.\n");
+    iniPrintf(f, "AdaptiveTriggers=%d\n", VrAdaptiveTriggers);
     iniPrintf(f, "; The touch layout editor's buttons (NAME x y radius;...), empty for the built-in layout.\n");
     iniPrintf(f, "TouchLayout=%s\n", VrTouchLayout);
     iniPrintf(f, "; Metres above (+) or below (-) eye level; set by grabbing the screen with both grips.\n");
@@ -1154,6 +1163,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "TouchHaptics") == 0) VrTouchHaptics = ival != 0;
             else if (strcmp(key, "TouchControls") == 0) VrTouchControls = ival != 0;
             else if (strcmp(key, "TriggerFeedback") == 0) VrTriggerFeedback = ival == 1 ? 100 : ival < 0 ? 0 : ival > 100 ? 100 : ival;
+            else if (strcmp(key, "AdaptiveTriggers") == 0) VrAdaptiveTriggers = ival != 0;
             else if (strcmp(key, "PadDefaults") == 0) s_padDefaults = ival;
             else if (strcmp(key, "PadLookInvert") == 0) s_padLookInvert = ival != 0;
             else if (strcmp(key, "HeadBob") == 0) VrHeadBob = ival != 0;
@@ -1252,6 +1262,11 @@ extern "C" void vrSettingsLoad(void)
                 if (fval < VR_SCREEN_FOV_MIN) fval = VR_SCREEN_FOV_MIN;
                 if (fval > VR_SCREEN_FOV_MAX) fval = VR_SCREEN_FOV_MAX;
                 VrScreenFov = fval;
+            }
+            else if (strcmp(key, "MasterVolume") == 0) {
+                if (fval < 0.0f) fval = 0.0f;
+                if (fval > 1.0f) fval = 1.0f;
+                VrMasterVolume = fval;
             }
             else if (strcmp(key, "MusicVolume") == 0) {
                 if (fval < 0.0f) fval = 0.0f;

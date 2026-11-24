@@ -371,8 +371,11 @@ void lvlStageLoad(s32 stage)
 
     sndSetScalerApplyVolumeAllSfxSlot(1.0f);
 #ifdef GEVR
-    /* co-op (#94): the party's menus (the title stage) take solo's volumes */
-    if (netIsActive() && stage != LEVELID_TITLE)
+    /* co-op (#94): the party's menus (the title stage) take solo's volumes.
+     * Those are the player's Music on the title stage, solo or online: at
+     * VOLUME_MAX the intro and the menus ignored the setting, and only a
+     * level heard it (its music start applies get_mTrack2Vol). */
+    if (netIsActive() || stage == LEVELID_TITLE)
     {
         u16 volume = get_mTrack2Vol();
         musicTrack1ApplySeqpVol(volume);

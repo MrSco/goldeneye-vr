@@ -38,6 +38,20 @@
 #include "blood_animation.h"
 #include "game/othermodemicrocode.h"
 #include "game/bondwalk2.h"
+#include "options.h"
+
+#ifdef GEVR
+/* The front end's music and effects: the player's Music and Sound effects
+ * (gevr_settings.c, MusicVolume and SfxVolume in the ini). The N64 game ran
+ * its menus at full volume and applied the save's volumes only in a level,
+ * so the Music setting did nothing in the intro, the folders or the menus. */
+extern float VrSfxVolume;
+#define GEVR_MENU_MUSIC_VOL get_mTrack2Vol()
+#define GEVR_MENU_SFX_VOL ((u16)(VrSfxVolume * 32767.0f))
+#else
+#define GEVR_MENU_MUSIC_VOL VOLUME_MAX
+#define GEVR_MENU_SFX_VOL 0x7fff
+#endif
 #include "game/file2.h"
 #include "objecthandler.h"
 #ifdef GEVR
@@ -4735,8 +4749,8 @@ void init_menu0E_mpoptions(void)
 
     if (maybe_is_in_menu)
     {
-        sndApplyVolumeAllSfxSlot(0x7fff);
-        musicTrack1ApplySeqpVol(0x7fff);
+        sndApplyVolumeAllSfxSlot(GEVR_MENU_SFX_VOL);
+        musicTrack1ApplySeqpVol(GEVR_MENU_MUSIC_VOL);
         g_musicXTrack1Fade = MUSIC_FADESTATE_UNSET;
         musicTrack1Play(M_FOLDERS);
         maybe_is_in_menu = FALSE;
@@ -7524,8 +7538,8 @@ void init_menu0C_missionfailed(void)
   load_briefing_text_for_stage();
   frontSetCursorPositionToNextTab();
   if (maybe_is_in_menu != FALSE) {
-    sndApplyVolumeAllSfxSlot(0x7fff);
-    musicTrack1ApplySeqpVol(0x7fff);
+    sndApplyVolumeAllSfxSlot(GEVR_MENU_SFX_VOL);
+    musicTrack1ApplySeqpVol(GEVR_MENU_MUSIC_VOL);
     g_musicXTrack1Fade = MUSIC_FADESTATE_UNSET;
     musicTrack1Play(M_FOLDERS);
     maybe_is_in_menu = FALSE;
@@ -8457,7 +8471,7 @@ void init_menu18_displaycast(void)
 
     if ((full_actor_intro != 0) && (intro_character_index == 0))
     {
-        musicTrack1ApplySeqpVol(VOLUME_MAX);
+        musicTrack1ApplySeqpVol(GEVR_MENU_MUSIC_VOL);
         g_musicXTrack1Fade = 0;
         musicTrack1Play(M_INTRO);
     }

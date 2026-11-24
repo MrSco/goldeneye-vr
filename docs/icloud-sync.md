@@ -67,6 +67,22 @@ download whose target is already there (the game may be using it) waits in
 both sides (ROM hash, pack file count and size) is recorded as synced without
 moving. Nothing is deleted from iCloud when a file is removed on a device.
 
+**Already here stays.** `.gevr-icloud/files.txt` (each item's stamps as last
+synced) starts with `#cloud <id>`, the id of the CloudKit database it was
+synced with: a `GevrJoined` record `files-db` holding a random id, made by the
+first device to look (an existing record type, so Production needs no schema
+deploy). Development builds and TestFlight's use two databases, so after a
+switch, or with a `files.txt` from before the line, every item counts as never
+synced. An item a device has the first time it syncs with a database is kept
+as it is and recorded as synced, whatever iCloud's copy holds: nothing already
+installed is downloaded again. Only a missing item comes down, and after that
+first sync an item changed on another device does. (Owner, 2026-11-23: TestFlight
+over test builds on an iPhone and an Apple TV downloaded Bean and other packs
+they had. The test builds' stamps made every TestFlight record look changed in
+the cloud, and a pack that differed at all from the first uploader's, by file
+count or size, such as Bean with or without its Community Edition overlay, came
+down whole.)
+
 Launcher: **Play** tab, under Show stats: **iCloud sync** (on) and
 **Big packs too** (off), shown only in a build signed for iCloud. The ROM box
 shows the status line ("iCloud: downloading ge.z64 40%") and a one-time
@@ -115,4 +131,9 @@ signed build (device dev install or archive); the simulator never gets it.
   `aps-environment` (production for an archive, development for a dev build):
   tvOS 10 carries iCloud. That capability change left the development profiles
   "GEVR iCloud Dev iOS/tvOS" INVALID: remake them before the next signed dev build.
+- 2026-11-23: TestFlight installed over development builds downloaded Bean and
+  other packs again on an iPhone and an Apple TV. `files.txt` now belongs to one
+  CloudKit database, and what a device already has stays (above).
+  `bash port/tests/test_icloud.sh` covers the move rules and the per-database
+  `files.txt`.
 - Open: deleting from iCloud; speedrun ghosts (`ghosts/`) are not carried.

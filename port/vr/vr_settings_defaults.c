@@ -37,6 +37,7 @@ int  VrStickClickToCrouch = 0;      /* crouch on stick click instead of physical
 int  VrAimNoLean          = 0;      /* aiming keeps the move stick moving: no lean, no duck (issue #81) */
 int  VrAimSight           = 1;      /* stereo: the crosshair shows while a grip aims; 0 never (user) */
 int  VrMicMuted           = 0;      /* persist multiplayer microphone mute */
+float VrMasterVolume      = 1.0f;   /* the whole output (0..1), under audio.c's fixed headroom */
 float VrMusicVolume       = 1.0f;   /* music volume (0..1) */
 float VrVoiceVolume       = 1.0f;   /* multiplayer voice chat volume (0..1) */
 float VrSfxVolume         = 1.0f;   /* multiplayer sound effects volume (0..1) */

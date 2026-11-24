@@ -57,7 +57,7 @@ extern int VrPlayMode, VrBodySlotShow, VrCampaign;
 extern int VrAlly, VrAllyWeapon, VrAllyAggression, VrAllyHealth, VrAllyDamage, VrAllyInvincible;
 /* Multiplayer's Fun and Audio: the host's preferences offline, the match's online */
 extern int VrMpFunFlags, VrMpGunSize, VrMpVoiceMode;
-extern float VrMusicVolume, VrSfxVolume, VrVoiceVolume;
+extern float VrMasterVolume, VrMusicVolume, VrSfxVolume, VrVoiceVolume;
 extern int netVoiceIsMuted(void);
 extern void netVoiceSetMuted(int muted);
 extern const char *netVoiceModeName(int mode);
@@ -75,6 +75,7 @@ extern int VrScreenCurved, VrScreenPassthrough;
 extern int VrScreenShape;   /* vr_settings.cpp: every flat mode's 2D screen, 4:3 or 16:9 */
 extern int VrTouchHaptics, VrGyroAim;   /* vr_settings.cpp: a phone's touch controls */
 extern int VrTriggerFeedback;            /* vr_settings.cpp: a pad's triggers */
+extern int VrAdaptiveTriggers;           /* vr_settings.cpp: a DualSense's trigger feel */
 extern float VrGyroSpeed;
 static const char *const s_gyroNames[] = { "Off", "While aiming", "Always" };
 static const char *const s_volExpNames[] = { "Classic", "Volumetric" };
@@ -931,9 +932,12 @@ static const Row s_rows[] = {
       .kind = GEVR_SET_RANGE, .section = GEVR_SEC_CONTROLS, .lsection = L(GEVR_LSEC_LOOK), .where = GEVR_SET_BOTH, .def = NAN,
       .cpositions = padVibPositions, .cget = padVibGet, .cset = padVibSet, .ctext = padVibText, .cdefault = 3 },
     { .label = "Trigger feedback", .pad = 1,
-      .tooltip = "How strongly a shot buzzes the trigger that fired it: an Xbox pad's trigger motors, a DualSense's adaptive triggers.",
+      .tooltip = "How strongly the triggers answer: an Xbox pad's trigger motors buzz on a shot, a DualSense's adaptive triggers push back and buzz.",
       .kind = GEVR_SET_RANGE, .section = GEVR_SEC_CONTROLS, .lsection = L(GEVR_LSEC_LOOK), .where = GEVR_SET_BOTH, .ivar = &VrTriggerFeedback,
       .lo = 0, .hi = 100, .step = 10, .scale = 1, .fmt = "%.0f%%", .zero = "Off", .def = 100 },
+    { .label = "Adaptive triggers", .pad = 1,
+      .tooltip = "A DualSense's triggers take a feel from what you hold: a gun's bump to pull past before it fires, fists, a knife, throws and gadgets. Off: free triggers, the pad's rumble only.",
+      .kind = GEVR_SET_TOGGLE, .section = GEVR_SEC_CONTROLS, .lsection = L(GEVR_LSEC_LOOK), .where = GEVR_SET_BOTH, .ivar = &VrAdaptiveTriggers, .def = NAN },
     { .label = "Look speed", .pad = 1, .tooltip = "How fast a pad's right stick turns and looks: faster reaches full speed with less push.",
       .kind = GEVR_SET_RANGE, .section = GEVR_SEC_CONTROLS, .lsection = L(GEVR_LSEC_LOOK), .where = GEVR_SET_BOTH, .def = NAN,
       .cpositions = lookSpeedPositions, .cget = lookSpeedGet, .cset = lookSpeedSet, .ctext = lookSpeedText, .cdefault = 5 },
@@ -1107,6 +1111,9 @@ static const Row s_rows[] = {
      * as multiplayer only): the same two settings as Multiplayer > Audio's
      * rows below, which the match's pause panel shows; in game, the panel's
      * Audio tab (user: the solo in-game menu had no audio settings) */
+    { .label = "Master volume", .tooltip = "Everything this device plays: music, effects and voices.", .kind = GEVR_SET_RANGE,
+      .section = GEVR_SEC_AUDIO, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_BOTH, .fvar = &VrMasterVolume,
+      .lo = 0, .hi = 1, .step = 0.05f, .scale = 100, .fmt = "%.0f%%", .zero = "Off", .def = 1.0f },
     { .label = "Music", .tooltip = "The music's volume, solo and online (the watch's Music slider is the same).", .kind = GEVR_SET_RANGE,
       .section = GEVR_SEC_AUDIO, .lsection = L(GEVR_LSEC_PLAY), .where = GEVR_SET_BOTH, .def = NAN,
       .cpositions = volumePositions, .cget = musicGet, .cset = musicSet, .ctext = percentText, .cdefault = 20 },

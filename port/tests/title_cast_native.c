@@ -96,6 +96,7 @@ void zbufAllocate(void) { abort(); }
 
 static unsigned randomGetNext(void) { return 0; }
 void musicTrack1ApplySeqpVol(u16 value) { (void)value; }
+#define GEVR_MENU_MUSIC_VOL 0x7fff   /* front.c's: the player's Music */
 void musicTrack1Play(int value) { (void)value; }
 static int get_random_head(int body) { (void)body; return 110; }
 int fileIsCradleCompletedAnyFolder(void) { return 1; }

@@ -805,6 +805,8 @@ static inline void inputInitController(const s32 cidx, const s32 jidx)
     }
 }
 
+static void inputTriggerRelease(s32 slot);   /* below, with the trigger feedback */
+
 static inline void inputCloseController(const s32 cidx)
 {
     sysLogPrintf(LOG_NOTE, "input: removed controller '%d: (%s)' (id %d) from player %d",
@@ -812,6 +814,7 @@ static inline void inputCloseController(const s32 cidx)
 
     // reset player LEDs
     SDL_GameControllerSetPlayerIndex(pads[cidx], -1);
+    inputTriggerRelease(cidx);
 
     SDL_GameControllerClose(pads[cidx]);
 
@@ -1198,6 +1201,7 @@ static void inputSeatsCommit(void)
         } else {
             sysLogPrintf(LOG_NOTE, "input: '%s' waits for the next join (no slot left)", SDL_GameControllerName(pads[k]));
             SDL_GameControllerSetPlayerIndex(pads[k], -1);
+            inputTriggerRelease(k);
             SDL_GameControllerClose(pads[k]);
         }
     }
@@ -1527,7 +1531,8 @@ int gevrTvRemoteHeld(int *dx, int *dy, int *centre);   // port/ios/ios_app.m
 #endif
 #ifdef GEVR_IOS
 void pcReportForeground(int active);   // port/pc/pc_reports.cpp
-void gevrIosDualSenseTrigger(int right, float amp);   // port/ios/ios_app.m
+void gevrIosDualSenseFeel(int right, int mode, float start, float end, float force0, float force1);   // port/ios/ios_app.m
+void gevrIosDualSenseBuzz(int right, float start, float amp, float freq);   // port/ios/ios_app.m
 #endif
 
 static int inputEventFilter(void *data, SDL_Event *event)
@@ -3895,17 +3900,130 @@ static void inputPadRumble(s32 idx, f32 amp, f32 seconds)
  * VrTriggerFeedback): a shot buzzes the trigger that fired it. The right gun
  * fires on Z, the right trigger, and the left gun on R, the left trigger (the
  * pad binds above). An Xbox One or Series pad has a motor in each trigger
- * (SDL_GameControllerRumbleTriggers: Windows, and Apple's GameController);
- * a DualSense's adaptive trigger strikes the finger in its vibration mode
- * (SDL's DualSense effects on the PC; Apple's own GCDualSenseAdaptiveTrigger
- * on iPhone, iPad and Apple TV, where SDL sends none). A DualSense trigger
- * keeps a mode until told otherwise, so inputUpdate turns it off again once a
- * shot's buzz is over. Its strength is its own row, 0 to 100% (#269: it
- * followed Pad vibration, twice it, so the triggers couldn't stay strong
- * with the rumble turned down).
+ * (SDL_GameControllerRumbleTriggers: Windows, and Apple's GameController).
+ * Its strength is its own row, 0 to 100% (#269: it followed Pad vibration,
+ * twice it, so the triggers couldn't stay strong with the rumble turned down).
+ *
+ * A DualSense's adaptive triggers (SDL's DualSense effects on the PC; Apple's
+ * own GCDualSenseAdaptiveTrigger on iPhone, iPad and Apple TV, where SDL sends
+ * none) also take a feel from what the hand holds (the owner, 2026-11-23): a
+ * gun's trigger has a bump that gives, as a real trigger breaks, and the shot
+ * goes only once the finger is past it (inputTrigFireAxis: before, it fired
+ * at the old threshold, ahead of the bump); fists push back lightly, a knife
+ * stiffens as it cuts, a throw winds up, the detonator clicks and the camera's
+ * shutter clicks light, the other gadgets hold like a device's button. The
+ * shot's or the strike's buzz is the weapon's own, past the bump, and the
+ * trigger goes back to its feel once the buzz is over. Adaptive triggers off
+ * (VrAdaptiveTriggers) leaves a DualSense's triggers free: the pad's rumble
+ * only. A DualSense trigger keeps a mode until told otherwise, so menus, the
+ * pause, a dead player and a closed pad set it free again.
  */
 extern int VrTriggerFeedback;
+extern int VrAdaptiveTriggers;
+
+enum {
+    TRIGMODE_OFF,
+    TRIGMODE_WEAPON,     /* resistance from start to end, where it gives: a gun's break */
+    TRIGMODE_FEEDBACK,   /* a steady push from start on */
+    TRIGMODE_SLOPE,      /* a push from start to end, start strength to end strength */
+};
+
+enum {
+    TRIGFEEL_NONE,       /* free: menus, an empty off hand, the aim trigger */
+    TRIGFEEL_PISTOL,
+    TRIGFEEL_MAGNUM,
+    TRIGFEEL_AUTO,
+    TRIGFEEL_SHOTGUN,
+    TRIGFEEL_SNIPER,
+    TRIGFEEL_LAUNCHER,
+    TRIGFEEL_BEAM,       /* the lasers and the taser */
+    TRIGFEEL_FIST,
+    TRIGFEEL_KNIFE,
+    TRIGFEEL_THROW,      /* grenades, mines, throwing knives, plastique, bugs */
+    TRIGFEEL_DETONATOR,
+    TRIGFEEL_CAMERA,
+    TRIGFEEL_GADGET,     /* the door decoder, the bomb defuser, the data thief, key items */
+    TRIGFEEL_COUNT
+};
+
+typedef struct {
+    u8 mode;
+    f32 start, end;      /* 0 at rest to 1 pulled full; a DualSense's zones are tenths */
+    f32 force0, force1;  /* 0 to 1, times Trigger feedback */
+    /* the shot's or the strike's buzz: amplitude (times Trigger feedback), SDL's
+     * frequency in Hz, Apple's 0 to 1, how long */
+    f32 buzzAmp;
+    u8 buzzHz;
+    f32 buzzFreq;
+    u16 buzzMs;
+} InputTrigFeel;
+
+static const InputTrigFeel s_trigFeels[TRIGFEEL_COUNT] = {
+    [TRIGFEEL_NONE]      = { TRIGMODE_OFF,      0.0f, 0.0f, 0.0f,  0.0f,  1.0f, 40, 0.60f,  90 },
+    [TRIGFEEL_PISTOL]    = { TRIGMODE_WEAPON,   0.2f, 0.5f, 0.55f, 0.0f,  0.8f, 40, 0.60f,  90 },
+    [TRIGFEEL_MAGNUM]    = { TRIGMODE_WEAPON,   0.3f, 0.6f, 0.9f,  0.0f,  1.0f, 30, 0.45f, 140 },
+    [TRIGFEEL_AUTO]      = { TRIGMODE_WEAPON,   0.2f, 0.4f, 0.35f, 0.0f,  0.7f, 60, 0.80f, 120 },
+    [TRIGFEEL_SHOTGUN]   = { TRIGMODE_WEAPON,   0.3f, 0.6f, 0.9f,  0.0f,  1.0f, 25, 0.35f, 160 },
+    [TRIGFEEL_SNIPER]    = { TRIGMODE_WEAPON,   0.3f, 0.5f, 0.75f, 0.0f,  0.9f, 35, 0.50f, 120 },
+    [TRIGFEEL_LAUNCHER]  = { TRIGMODE_WEAPON,   0.3f, 0.7f, 1.0f,  0.0f,  1.0f, 20, 0.30f, 220 },
+    [TRIGFEEL_BEAM]      = { TRIGMODE_FEEDBACK, 0.2f, 1.0f, 0.3f,  0.3f,  0.5f, 90, 1.00f, 100 },
+    [TRIGFEEL_FIST]      = { TRIGMODE_FEEDBACK, 0.0f, 1.0f, 0.2f,  0.2f,  0.9f, 15, 0.20f,  70 },
+    [TRIGFEEL_KNIFE]     = { TRIGMODE_SLOPE,    0.0f, 0.9f, 0.1f,  0.6f,  0.7f, 50, 0.70f,  80 },
+    [TRIGFEEL_THROW]     = { TRIGMODE_SLOPE,    0.1f, 0.8f, 0.05f, 0.5f,  0.6f, 30, 0.40f,  60 },
+    [TRIGFEEL_DETONATOR] = { TRIGMODE_WEAPON,   0.2f, 0.3f, 1.0f,  0.0f,  0.5f, 150, 1.00f, 50 },
+    [TRIGFEEL_CAMERA]    = { TRIGMODE_WEAPON,   0.2f, 0.3f, 0.4f,  0.0f,  0.0f, 0, 0.00f,    0 },
+    [TRIGFEEL_GADGET]    = { TRIGMODE_FEEDBACK, 0.3f, 1.0f, 0.25f, 0.25f, 0.4f, 100, 0.90f, 60 },
+};
+
+static s32 inputTrigFeelFor(s32 item)
+{
+    switch (GEVR_ITEM_AS(item)) {
+        case ITEM_UNARMED: case ITEM_FIST:
+            return TRIGFEEL_FIST;
+        case ITEM_KNIFE:
+            return TRIGFEEL_KNIFE;
+        case ITEM_WPPK: case ITEM_WPPKSIL: case ITEM_TT33: case ITEM_SILVERWPPK: case ITEM_GOLDWPPK:
+        case ITEM_FLAREPISTOL:
+            return TRIGFEEL_PISTOL;
+        case ITEM_RUGER: case ITEM_GOLDENGUN:
+            return TRIGFEEL_MAGNUM;
+        case ITEM_SKORPION: case ITEM_AK47: case ITEM_UZI: case ITEM_MP5K: case ITEM_MP5KSIL:
+        case ITEM_SPECTRE: case ITEM_M16: case ITEM_FNP90:
+            return TRIGFEEL_AUTO;
+        case ITEM_SHOTGUN: case ITEM_AUTOSHOT:
+            return TRIGFEEL_SHOTGUN;
+        case ITEM_SNIPERRIFLE:
+            return TRIGFEEL_SNIPER;
+        case ITEM_GRENADELAUNCH: case ITEM_ROCKETLAUNCH: case ITEM_TANKSHELLS:
+            return TRIGFEEL_LAUNCHER;
+        case ITEM_LASER: case ITEM_WATCHLASER: case ITEM_TASER:
+            return TRIGFEEL_BEAM;
+        case ITEM_TRIGGER:
+            return TRIGFEEL_DETONATOR;
+        case ITEM_CAMERA:
+            return TRIGFEEL_CAMERA;
+        case ITEM_THROWKNIFE: case ITEM_GRENADE: case ITEM_TIMEDMINE: case ITEM_PROXIMITYMINE:
+        case ITEM_REMOTEMINE: case ITEM_PLASTIQUE: case ITEM_BOMBCASE: case ITEM_BUG: case ITEM_MICROCAMERA:
+            return TRIGFEEL_THROW;
+        default:
+            return item > ITEM_FIST && item < ITEM_IDS_MAX ? TRIGFEEL_GADGET : TRIGFEEL_NONE;
+    }
+}
+
+/* where a feel's shot goes, 0 to 1: a tenth past a gun's bump (the
+ * DualSense gives somewhere in the end's tenth, its zones), else 0
+ * (TRIG_THRESHOLD) */
+static f32 inputTrigFeelFirePoint(s32 feel)
+{
+    const InputTrigFeel *f = &s_trigFeels[feel];
+    return f->mode == TRIGMODE_WEAPON ? (f->end + 0.1f > 0.95f ? 0.95f : f->end + 0.1f) : 0.f;
+}
+
 static u64 trigBuzzUntilUs[INPUT_MAX_CONTROLLERS][2];   /* each pad's DualSense trigger buzz: [0] left, [1] right */
+static s32 trigFeelSet[INPUT_MAX_CONTROLLERS][2];        /* the feel each trigger was given, -1 none yet */
+static s32 trigFeelPct[INPUT_MAX_CONTROLLERS][2];        /* at which Trigger feedback */
+static SDL_GameController *trigFeelPad[INPUT_MAX_CONTROLLERS];
+static f32 trigFirePoint[INPUT_MAX_CONTROLLERS][2];      /* 0, or where the shot goes (inputTrigFireAxis) */
 
 static s32 inputPadIsDualSense(SDL_GameController *pad)
 {
@@ -3914,6 +4032,16 @@ static s32 inputPadIsDualSense(SDL_GameController *pad)
 #else
     return 0;
 #endif
+}
+
+/* The axis a trigger presses its button at: past a gun's bump on a DualSense
+ * that has it, else TRIG_THRESHOLD */
+static s32 inputTrigFireAxis(s32 slot, s32 trig)
+{
+    if (slot >= 0 && slot < INPUT_MAX_CONTROLLERS && trig >= 0 && trig < 2 && trigFirePoint[slot][trig] > 0.f) {
+        return (s32)(trigFirePoint[slot][trig] * 32767.f);
+    }
+    return TRIG_THRESHOLD;
 }
 
 /* SDL's DualSense output from SDL_GameControllerSendEffect's data on, as
@@ -3928,35 +4056,150 @@ typedef struct {
     Uint8 leftTriggerEffect[11];
 } InputDualSenseFx;
 
-/* amp 0 turns the trigger's effect off */
-static void inputDualSenseTrigger(SDL_GameController *pad, s32 right, f32 amp)
+#if !defined(GEVR_VISIONOS) && !defined(GEVR_IOS) && SDL_VERSION_ATLEAST(2, 0, 16)
+/* a position's zone, 0 to 9, and a strength's force, 1 to 8 (the DualSense's own steps) */
+static s32 inputDsZone(f32 pos) { const s32 z = (s32)(pos * 10.f + 0.5f); return z < 0 ? 0 : z > 9 ? 9 : z; }
+static s32 inputDsForce(f32 v) { const s32 f = (s32)(v * 8.f + 0.5f); return f < 1 ? 1 : f > 8 ? 8 : f; }
+
+/* zone strengths (0 none, 1 to 8) as the DualSense's multiple-position
+ * feedback, effect 0x21: ten zones of three bits each, and which are on */
+static void inputDsZoneFeedback(Uint8 *effect, const s32 force[10])
 {
+    u32 active = 0;
+    u64 forces = 0;
+    for (s32 i = 0; i < 10; i++) {
+        if (force[i] > 0) {
+            active |= 1u << i;
+            forces |= (u64)((force[i] - 1) & 7) << (3 * i);
+        }
+    }
+    effect[0] = 0x21;
+    effect[1] = active & 0xff;
+    effect[2] = (active >> 8) & 0xff;
+    effect[3] = forces & 0xff;
+    effect[4] = (forces >> 8) & 0xff;
+    effect[5] = (forces >> 16) & 0xff;
+    effect[6] = (forces >> 24) & 0xff;
+}
+#endif
+
+/* A trigger's feel (scale: Trigger feedback), mode TRIGMODE_OFF sets it free */
+static void inputDualSenseFeel(SDL_GameController *pad, s32 right, const InputTrigFeel *f, f32 scale)
+{
+    const f32 f0 = f->force0 * scale, f1 = f->force1 * scale;
 #if defined(GEVR_VISIONOS)
-    (void)pad; (void)right; (void)amp;   /* no ios_app.m there, and SDL's Apple driver sends no effects */
+    (void)pad; (void)right; (void)f0; (void)f1; (void)f;   /* no ios_app.m there, and SDL's Apple driver sends no effects */
 #elif defined(GEVR_IOS)
     (void)pad;
-    gevrIosDualSenseTrigger(right, amp);
+    gevrIosDualSenseFeel(right, f->mode, f->start, f->end, f0, f1);
 #elif SDL_VERSION_ATLEAST(2, 0, 16)
     InputDualSenseFx fx;
     Uint8 *effect = right ? fx.rightTriggerEffect : fx.leftTriggerEffect;
     memset(&fx, 0, sizeof(fx));
     fx.enableBits1 = right ? 0x04 : 0x08;
-    if (amp > 0.f) {
-        /* the simple vibration: 40 Hz, the amplitude, from the trigger's rest on */
-        effect[0] = 0x06;
-        effect[1] = 40;
-        effect[2] = (Uint8)(amp * 255.f);
-        effect[3] = 0;
-    } else {
-        effect[0] = 0x05;   /* off */
+    switch (f->mode) {
+        case TRIGMODE_WEAPON: {
+            /* effect 0x25: resistance from the start zone (2 to 7) to the end
+             * zone (past it, up to 8), where the trigger gives */
+            s32 start = inputDsZone(f->start), end = inputDsZone(f->end);
+            start = start < 2 ? 2 : start > 7 ? 7 : start;
+            end = end <= start ? start + 1 : end > 8 ? 8 : end;
+            const u32 zones = (1u << start) | (1u << end);
+            effect[0] = 0x25;
+            effect[1] = zones & 0xff;
+            effect[2] = (zones >> 8) & 0xff;
+            effect[3] = (Uint8)(inputDsForce(f0) - 1);
+            break;
+        }
+        case TRIGMODE_FEEDBACK:
+        case TRIGMODE_SLOPE: {
+            s32 force[10];
+            const s32 a = inputDsZone(f->start), b = f->mode == TRIGMODE_SLOPE ? inputDsZone(f->end) : 9;
+            for (s32 i = 0; i < 10; i++) {
+                if (i < a) {
+                    force[i] = 0;
+                } else if (f->mode == TRIGMODE_FEEDBACK || i >= b || b <= a) {
+                    force[i] = inputDsForce(f->mode == TRIGMODE_FEEDBACK ? f0 : f1);
+                } else {
+                    force[i] = inputDsForce(f0 + (f1 - f0) * (f32)(i - a) / (f32)(b - a));
+                }
+            }
+            inputDsZoneFeedback(effect, force);
+            break;
+        }
+        default:
+            effect[0] = 0x05;   /* off */
+            break;
     }
     SDL_GameControllerSendEffect(pad, &fx, sizeof(fx));
 #else
-    (void)pad; (void)right; (void)amp;
+    (void)pad; (void)right; (void)f; (void)f0; (void)f1;
 #endif
 }
 
-static void inputTriggerShot(s32 slot, s32 hand)
+/* A trigger's buzz from start (0 to 1) on: amp 0 to 1, SDL's Hz, Apple's frequency 0 to 1 */
+static void inputDualSenseBuzz(SDL_GameController *pad, s32 right, f32 start, f32 amp, u8 hz, f32 freq)
+{
+#if defined(GEVR_VISIONOS)
+    (void)pad; (void)right; (void)start; (void)amp; (void)hz; (void)freq;
+#elif defined(GEVR_IOS)
+    (void)pad; (void)hz;
+    gevrIosDualSenseBuzz(right, start, amp, freq);
+#elif SDL_VERSION_ATLEAST(2, 0, 16)
+    InputDualSenseFx fx;
+    Uint8 *effect = right ? fx.rightTriggerEffect : fx.leftTriggerEffect;
+    memset(&fx, 0, sizeof(fx));
+    fx.enableBits1 = right ? 0x04 : 0x08;
+    (void)freq;
+    /* the simple vibration: the frequency, the amplitude, from start on */
+    effect[0] = 0x06;
+    effect[1] = hz;
+    effect[2] = (Uint8)(amp * 255.f);
+    effect[3] = (Uint8)(start * 255.f);
+    SDL_GameControllerSendEffect(pad, &fx, sizeof(fx));
+#else
+    (void)pad; (void)right; (void)start; (void)amp; (void)hz; (void)freq;
+#endif
+}
+
+/* The item a slot's trigger holds a feel for: its player's hand, in play only */
+static s32 inputTrigFeelWanted(s32 slot, s32 trig)
+{
+    extern s32 getPlayerCount(void);
+    extern int netGetLocalSlot(void);
+    struct player *pl = NULL;
+#if (defined(ANDROID) && !defined(GEVR_MOBILE)) || defined(GEVR_PCVR) || defined(GEVR_FLAT)
+    const s32 panel = gevrNativePauseOpen();   /* the in-game panel or the online pause */
+#else
+    const s32 panel = 0;
+#endif
+    if (!VrAdaptiveTriggers || VrTriggerFeedback <= 0 || bossGetStageNum() == LEVELID_TITLE
+        || panel || lvlGetControlsLockedFlag()) {
+        return TRIGFEEL_NONE;
+    }
+    if (!netIsActive() && getPlayerCount() >= 2) {
+        for (s32 p = 0; p < getPlayerCount() && p < INPUT_MAX_CONTROLLERS; p++) {
+            if (inputPlayerSlot(p) == slot) {
+                pl = g_playerPointers[p];
+                break;
+            }
+        }
+    } else if (slot == inputPlayerRumbleSlot(0)) {
+        const s32 me = netIsActive() ? netGetLocalSlot() : 0;
+        pl = me >= 0 && me < 4 ? g_playerPointers[me] : NULL;
+    }
+    if (!pl || pl->bonddead || pl->pause_state != 0 || pl->mpmenuon) {
+        return TRIGFEEL_NONE;
+    }
+    /* the left trigger is a gun's only in two hands (one gun: it aims) */
+    const s32 item = pl->hands[trig ? GUNRIGHT : GUNLEFT].weaponnum;
+    if (!trig && item <= ITEM_FIST) {
+        return TRIGFEEL_NONE;
+    }
+    return inputTrigFeelFor(item);
+}
+
+static void inputTriggerShot(s32 slot, s32 hand, s32 item)
 {
     static SDL_GameController *told;
     SDL_GameController *pad = pads[slot];
@@ -3966,6 +4209,7 @@ static void inputTriggerShot(s32 slot, s32 hand)
     const f32 amp = VrTriggerFeedback >= 100 ? 1.f : VrTriggerFeedback / 100.f;
     const s32 right = hand != 1;
     const s32 dualSense = inputPadIsDualSense(pad);
+    const InputTrigFeel *feel = &s_trigFeels[inputTrigFeelFor(item)];
 #if SDL_VERSION_ATLEAST(2, 0, 18)
     const s32 motors = !dualSense && SDL_GameControllerHasRumbleTriggers(pad);
 #else
@@ -3974,34 +4218,79 @@ static void inputTriggerShot(s32 slot, s32 hand)
     if (told != pad) {
         told = pad;
         sysLogPrintf(LOG_NOTE, "input: pad '%s' trigger feedback: %s", SDL_GameControllerName(pad),
-                     dualSense ? "DualSense adaptive triggers" : motors ? "trigger motors" : "none");
+                     dualSense ? (VrAdaptiveTriggers ? "DualSense adaptive triggers" : "none (adaptive triggers off)")
+                     : motors ? "trigger motors" : "none");
+    }
+    if (feel->buzzAmp <= 0.f || feel->buzzMs == 0) {
+        return;
     }
     if (dualSense) {
-        inputDualSenseTrigger(pad, right, amp);
-        trigBuzzUntilUs[slot][right] = sysGetMicroseconds() + 120000;
+        if (!VrAdaptiveTriggers) {
+            return;
+        }
+        /* a gun's buzz is past its bump, where the finger is once it fires */
+        const f32 start = feel->mode == TRIGMODE_WEAPON ? feel->end : 0.f;
+        inputDualSenseBuzz(pad, right, start, feel->buzzAmp * amp, feel->buzzHz, feel->buzzFreq);
+        trigBuzzUntilUs[slot][right] = sysGetMicroseconds() + (u64)feel->buzzMs * 1000u;
+        trigFeelSet[slot][right] = -1;   /* the feel again once the buzz is over */
     }
 #if SDL_VERSION_ATLEAST(2, 0, 18)
     else if (motors) {
-        const u16 level = (u16)(amp * 65535.f);
-        SDL_GameControllerRumbleTriggers(pad, right ? 0 : level, right ? level : 0, 90);
+        const u16 level = (u16)(feel->buzzAmp * amp * 65535.f);
+        SDL_GameControllerRumbleTriggers(pad, right ? 0 : level, right ? level : 0, feel->buzzMs);
     }
 #endif
 }
 
-/* each frame: a DualSense trigger's buzz ends */
+/* each frame: a DualSense trigger's buzz ends, and each trigger takes the
+ * feel of what its hand holds (only when that changes: a DualSense is sent
+ * nothing while its triggers stay as they are) */
 static void inputTriggerTick(void)
 {
     u64 now = 0;
     for (s32 p = 0; p < INPUT_MAX_CONTROLLERS; p++) {
-        for (s32 i = 0; i < 2; i++) {
-            if (!trigBuzzUntilUs[p][i]) continue;
-            if (!now) now = sysGetMicroseconds();
-            if (now < trigBuzzUntilUs[p][i]) continue;
-            trigBuzzUntilUs[p][i] = 0;
-            if (inputPadIsDualSense(pads[p])) {
-                inputDualSenseTrigger(pads[p], i, 0.f);
-            }
+        SDL_GameController *pad = pads[p];
+        if (pad != trigFeelPad[p]) {
+            trigFeelPad[p] = pad;
+            trigFeelSet[p][0] = trigFeelSet[p][1] = -1;
+            trigBuzzUntilUs[p][0] = trigBuzzUntilUs[p][1] = 0;
         }
+        if (!inputPadIsDualSense(pad)) {
+            trigFirePoint[p][0] = trigFirePoint[p][1] = 0.f;
+            continue;
+        }
+        for (s32 i = 0; i < 2; i++) {
+            const s32 want = inputTrigFeelWanted(p, i);
+            trigFirePoint[p][i] = inputTrigFeelFirePoint(want);
+            if (trigBuzzUntilUs[p][i]) {
+                if (!now) now = sysGetMicroseconds();
+                if (now < trigBuzzUntilUs[p][i]) continue;
+                trigBuzzUntilUs[p][i] = 0;
+                trigFeelSet[p][i] = -1;
+            }
+            if (trigFeelSet[p][i] == want && trigFeelPct[p][i] == VrTriggerFeedback) {
+                continue;
+            }
+            trigFeelSet[p][i] = want;
+            trigFeelPct[p][i] = VrTriggerFeedback;
+            inputDualSenseFeel(pad, i, &s_trigFeels[want], VrTriggerFeedback >= 100 ? 1.f : VrTriggerFeedback / 100.f);
+        }
+    }
+}
+
+/* a closing pad's triggers set free: a DualSense keeps its last mode */
+static void inputTriggerRelease(s32 slot)
+{
+    if (slot < 0 || slot >= INPUT_MAX_CONTROLLERS || !inputPadIsDualSense(pads[slot])) {
+        return;
+    }
+    for (s32 i = 0; i < 2; i++) {
+        if (trigFeelSet[slot][i] != TRIGFEEL_NONE || trigBuzzUntilUs[slot][i]) {
+            inputDualSenseFeel(pads[slot], i, &s_trigFeels[TRIGFEEL_NONE], 0.f);
+        }
+        trigFeelSet[slot][i] = TRIGFEEL_NONE;
+        trigBuzzUntilUs[slot][i] = 0;
+        trigFirePoint[slot][i] = 0.f;
     }
 }
 
@@ -4067,6 +4356,14 @@ int inputPadVrState(float sticks[4], float triggers[2], unsigned int *buttons)
     }
     triggers[0] = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT) / 32767.f;
     triggers[1] = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) / 32767.f;
+    for (i = 0; i < 2; i++) {
+        /* a gun's bump on a DualSense (inputTrigFireAxis): the headset's
+         * trigger presses at half a pull, so the bump's far side is half */
+        const f32 fp = trigFirePoint[0][i], v = triggers[i];
+        if (fp > 0.f && fp < 1.f) {
+            triggers[i] = v < fp ? v * 0.49f / fp : 0.5f + (v - fp) * 0.5f / (1.f - fp);
+        }
+    }
     *buttons = 0;
     for (i = 0; i < (s32)(sizeof(map) / sizeof(map[0])); i++) {
         if (SDL_GameControllerGetButton(pad, map[i].b)) {
@@ -4368,7 +4665,7 @@ void gevrRumbleGunfire(s32 hand, s32 item_id) {
     if (pads[slot] && padsCfg[slot].rumbleOn && padsCfg[slot].rumbleScale > 0.f) {
         inputPadRumble(slot, padsCfg[slot].rumbleScale > 1.f ? 1.f : padsCfg[slot].rumbleScale, 0.2f);
     }
-    inputTriggerShot(slot, hand);
+    inputTriggerShot(slot, hand, item_id);
 }
 
 s32 s_gevrExplosionDamage = 0;
@@ -4643,7 +4940,7 @@ s32 inputKeyPressed(u32 vk)
         vk = vk % INPUT_MAX_CONTROLLER_BUTTONS;
         if (vk == 30 || vk == 31) {
             const s32 trig = SDL_CONTROLLER_AXIS_TRIGGERLEFT + vk - 30;
-            return SDL_GameControllerGetAxis(pads[idx], trig) > TRIG_THRESHOLD;
+            return SDL_GameControllerGetAxis(pads[idx], trig) > inputTrigFireAxis(idx, (s32)vk - 30);
         }
 #ifdef GEVR_TVOS
         /* the Siri Remote's click and Play/Pause: inputReadController's own

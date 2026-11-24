@@ -20,7 +20,7 @@ int VrTeleport;
 int VrWatchGesturePause, VrManualReloading, VrPerWeaponRecoil, VrNoKnockback, VrNoHitstun, VrDamageFlash;
 int VrThirdPerson, VrThirdPersonDist = 150, VrThirdPersonHeight = 20, VrThirdPersonSide = 35;
 int VrLeftHandedMode, VrSwapJoysticks, VrGunFitArmed, VrShowStats, VrGunSizeCheat, VrSpeedrunTimer, VrGhostRace;
-int VrScreenShape, VrTouchHaptics = 1, VrGyroAim, VrTriggerFeedback = 100, VrHeadBob = 1, VrFrameRate;   /* flat games: the screen, a phone's touch controls */
+int VrScreenShape, VrTouchHaptics = 1, VrGyroAim, VrTriggerFeedback = 100, VrAdaptiveTriggers = 1, VrHeadBob = 1, VrFrameRate;   /* flat games: the screen, a phone's touch controls */
 static float s_padRumble = 0.3f;   /* input.c's pad rumble scale (Pad vibration) */
 float inputRumbleGetStrength(int cidx) { (void)cidx; return s_padRumble; }
 void inputRumbleSetStrength(int cidx, float val) { (void)cidx; s_padRumble = val; }
@@ -61,7 +61,7 @@ int VrScreenCurved, VrScreenPassthrough, VrRefreshRate, VrSpaceWarp = -1;
 int VrPlayMode = 1, VrCampaign;
 int VrAlly, VrAllyWeapon, VrAllyAggression = 1, VrAllyHealth = 100, VrAllyDamage = 100, VrAllyInvincible;
 int VrMpFunFlags, VrMpGunSize, VrMpVoiceMode;
-float VrMusicVolume = 1, VrSfxVolume = 1, VrVoiceVolume = 1;
+float VrMasterVolume = 1, VrMusicVolume = 1, VrSfxVolume = 1, VrVoiceVolume = 1;
 static int s_bean, s_saves, s_net, s_host, s_coop, s_horde, s_netSpeed, s_netFast, s_applied;
 static int s_cfg[64], s_muted, s_sfxApplied;
 static unsigned short s_music = 32767;

@@ -218,11 +218,37 @@ int main()
         check(!isSaveName("eeprom.bin.before-icloud-20260100-000000") && isSaveName("eeprom-gex.bin"),
               "a backup is not a save");
     }
+    // files: what an item does in a pass (decideMove)
+    {
+        int asked = 0;
+        auto same = [&]() { asked++; return true; };
+        auto differs = [&]() { asked++; return false; };
+        const Synced was{ "L1", "R1" };
+        check(decideMove("L1", "", nullptr, differs) == Move::Up, "only here: up");
+        check(decideMove("", "R1", nullptr, differs) == Move::Down, "only in iCloud: down");
+        check(decideMove("L1", "R1", &was, differs) == Move::None, "in step: nothing");
+        check(decideMove("L1", "R2", &was, differs) == Move::Down, "changed in iCloud only: down");
+        check(decideMove("L1", "R2", &was, same) == Move::Adopt, "another device's stamp, same content: synced");
+        check(decideMove("L2", "R1", &was, differs) == Move::Up, "changed here only: up");
+        check(decideMove("L2", "R2", &was, differs) == Move::Down, "both changed: iCloud's wins");
+        asked = 0;
+        check(decideMove("L9", "R9", nullptr, differs) == Move::Adopt && asked == 0,
+              "never synced with this iCloud: the copy here stays, unread");
+    }
+    // files.txt: one CloudKit database's stamps (a test build's are not TestFlight's)
+    {
+        makeDirs(statePath(""));
+        writeSynced({ { "ge.z64", { "L1", "R1" } } }, "dev-db");
+        check(readSynced("dev-db").count("ge.z64") == 1, "files.txt: read back by its own database");
+        check(readSynced("prod-db").empty(), "files.txt: another database's stamps count as never synced");
+        put(statePath("files.txt"), "ge.z64\tL1\tR1\n");
+        check(readSynced("prod-db").empty(), "files.txt from before the database line: never synced");
+    }
     removeTree(g_root);
     if (s_fail) {
         printf("%d failed\n", s_fail);
         return 1;
     }
-    printf("PASS: icloud: ini rewrite, device keys, archive round trip, unsafe names, item scan, install, save progress guard, backups\n");
+    printf("PASS: icloud: ini rewrite, device keys, archive round trip, unsafe names, item scan, install, save progress guard, backups, file moves, files.txt per database\n");
     return 0;
 }
