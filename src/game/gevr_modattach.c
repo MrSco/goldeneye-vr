@@ -63,6 +63,7 @@ typedef struct
 {
     char model[ATT_NAME], like[ATT_NAME];
     s32 ok;
+    s32 rigid;                   /* joints only an animation poses (a gun file's): drawn at its root */
     u8 *buf;
     struct texpool pool;
     ModelFileHeader header;
@@ -113,6 +114,8 @@ static ModelFileHeader *likeHeader(const char *like, char **file)
     }
     return NULL;
 }
+
+static s32 attachHasJoints(ModelNode *node);
 
 /* the model, loaded once per mission: NULL when it isn't the mod's or doesn't fit */
 static AttachFile *attachLoad(const char *model, const char *like)
@@ -172,8 +175,28 @@ static AttachFile *attachLoad(const char *model, const char *like)
         return NULL;
     }
     f->header.isLoaded = TRUE;
+    f->rigid = attachHasJoints(f->header.RootNode);
     f->ok = TRUE;
     return f;
+}
+
+/* a joint the game poses only from an animation (MODELNODE_OPCODE_GROUP: a gun
+ * file's, a character's). With none to play, model.c's process_02_position
+ * leaves its matrix unset, so such a model is drawn rigid at its root, as the
+ * body slots draw a gun (gevr_heldgun.c gevrHeldGunMatrices). A prop file's
+ * nodes are laid out from their own positions (instcalcmatrices). */
+static s32 attachHasJoints(ModelNode *node)
+{
+    while (node != NULL)
+    {
+        if ((node->Opcode & 0xff) == MODELNODE_OPCODE_GROUP
+            || (node->Child != NULL && attachHasJoints(node->Child)))
+        {
+            return TRUE;
+        }
+        node = node->Next;
+    }
+    return FALSE;
 }
 
 static Attachment *attachFind(s32 id)
@@ -267,12 +290,14 @@ void gevrModGameAttachReset(void)
 }
 
 /* one attachment at its anchor's frame: the offset laid in it, the model's
- * node matrices from there as the game's props get theirs (instcalcmatrices) */
+ * node matrices from there as the game's props get theirs (instcalcmatrices),
+ * or every one the pose for a model with animated joints (attachHasJoints) */
 static Gfx *attachDraw(Gfx *gdl, ModelRenderData *templ, Attachment *a, Mtxf *anchor)
 {
     ModelFileHeader *h = &a->file->header;
     ModelRenderData rd = *templ;
-    Mtxf pose;
+    Mtxf pose, *mtx;
+    s32 i;
 
     if (a->modelOf != h)
     {
@@ -280,9 +305,21 @@ static Gfx *attachDraw(Gfx *gdl, ModelRenderData *templ, Attachment *a, Mtxf *an
         a->modelOf = h;
     }
     matrix_4x4_multiply(anchor, &a->offset, &pose);
-    rd.basemtx = &pose;
-    rd.mtxlist = dynAllocate(h->numMatrices * sizeof(Mtxf));
-    instcalcmatrices(&rd, &a->model);
+    mtx = dynAllocate(h->numMatrices * sizeof(Mtxf));
+    for (i = 0; i < h->numMatrices; i++)
+    {
+        mtx[i] = pose;
+    }
+    if (a->file->rigid)
+    {
+        a->model.render_pos = (RenderPosView *) mtx;
+    }
+    else
+    {
+        rd.basemtx = &pose;
+        rd.mtxlist = mtx;
+        instcalcmatrices(&rd, &a->model);
+    }
     modelUpdateRelationsQuick(&a->model, h->RootNode);
     rd.gdl = gdl;
     subdraw(&rd, &a->model);

@@ -1129,8 +1129,13 @@ def attach_placement():
           < load.index("used = gevrModAssetPendingUsed;") < load.index("gevrModAssetPendingName = NULL;")
           < load.index("if (!used)"), "a model loads under its own name, and the cartridge's in its place is refused")
     one = function(mine, "static Gfx *attachDraw(")
-    check(one.index("matrix_4x4_multiply(anchor, &a->offset, &pose);") < one.index("instcalcmatrices(&rd, &a->model);")
-          < one.index("subdraw(&rd, &a->model);"), "laid in the anchor's frame, its nodes from there as a prop's")
+    check(one.index("matrix_4x4_multiply(anchor, &a->offset, &pose);") < one.index("mtx[i] = pose;")
+          < one.index("if (a->file->rigid)") < one.index("instcalcmatrices(&rd, &a->model);")
+          < one.index("subdraw(&rd, &a->model);"),
+          "laid in the anchor's frame: a prop file's nodes from there, an animated one's every matrix the pose")
+    check("(node->Opcode & 0xff) == MODELNODE_OPCODE_GROUP" in function(mine, "static s32 attachHasJoints(")
+          and "f->rigid = attachHasJoints(f->header.RootNode);" in load,
+          "a model with joints only an animation poses is found as it loads")
     drawgun = function(mine, "Gfx *gevrModAttachDrawGun(")
     check("root = ((Mtxf *) gun->render_pos)[0];" in drawgun and "attachLocal()" in drawgun, "the gun's root as drawn; local")
     drawbody = function(mine, "Gfx *gevrModAttachDrawBody(Gfx *gdl)")

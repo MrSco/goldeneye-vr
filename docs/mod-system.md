@@ -857,9 +857,13 @@ in-game screen). We maintain the adapters, not the mods.
   - `mod.attach.show(id, shown)` hides or shows one, kept attached;
     `mod.attach.remove(id)`. Both answer true only to the mod that
     attached it. None stay past a mission, nor past a mod stopping.
+  - Built over a prop (P) file, a model's parts are laid out by its own
+    nodes, as a prop's are. A gun (G) file's joints are posed only by the
+    gun's animation, so a model built over one is drawn rigid at its root,
+    as the body slots draw a gun: build parts over a prop file. Nothing on
+    an attachment moves of itself.
   - The local player's view only: another player sees none, and a guard's
-    gun none. Rigid: a model's parts are laid out by its own nodes, and
-    nothing on it moves of itself.
+    gun none.
 
 ### Pickup swaps
 
