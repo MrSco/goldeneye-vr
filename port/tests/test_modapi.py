@@ -1041,6 +1041,68 @@ end)
     check(scopes[:2] == ["SCOPE 0 0 0", "SCOPE 1 0 0"], "a mission's reset gives both hands the game's own: " + str(scopes))
 
 
+def gunmodel_placement():
+    """A hand's gun loads the mod's file in GoldenEye X's place; ob.c names it; the fits are the original's"""
+    gun = (ROOT / "src/game/gun.c").read_bytes().decode()
+    load = function(gun, "void used_to_load_1st_person_model_on_demand(GUNHAND hand)")
+    check(load.index("gevrModGunReconcile(hand);") < load.index("item             = g_CurrentPlayer->field_2A44[hand];"),
+          "each tick a hand showing another model than its choice loads again, before the load")
+    regular = load[load.rindex("texInitPool(", 0, load.index("gevrModTried = gevrModGunModelFor(hand, item);")):]
+    check(regular.index("gevrModAssetPendingName = gevrModTried;") < regular.index("if (gevrModTried == NULL)")
+          < regular.index("gevrGexGunPrepare(") < regular.index("load_object_fill_header(")
+          < regular.index("gevrModUsed = gevrModTried != NULL && gevrModAssetPendingUsed;")
+          < regular.index("gevrModAssetPendingName = NULL;"),
+          "the regular gun's load: the mod's file named around it, GoldenEye X's only without one")
+    check(load.count("gevrModAssetPendingName = gevrModTried;") == 1, "only the regular gun's load (not the watch's or the suit's)")
+    tail = load[load.index("g_CurrentPlayer->hand_item[hand]      = item;"):]
+    check("s_gevrModGunShown[p][hand].owner = g_CurrentPlayer;" in tail and "gevrModTried != NULL ? gevrModTried" in tail,
+          "what the hand shows: the name tried, so a broken file isn't tried each tick")
+    reconcile = function(gun, "static void gevrModGunReconcile(s32 hand)")
+    check("hand_invisible[hand] < 0" in reconcile and "lock_hand_model[hand]" in reconcile
+          and "hand_invisible[hand] = -3;" in reconcile, "a reload only of a hand held as it is, as the club's replacement")
+    for name in ("void gevrModGunModelSet(", "void gevrModGunModelReset(void)"):
+        check("g_CurrentPlayer" not in function(gun, name), name + " is only the table: no player that may be gone")
+    check("(netIsActive() && get_cur_playernum() != netGetLocalSlot())" in function(gun, "static const char *gevrModGunModelFor("),
+          "the local human's hands only")
+    ob = (ROOT / "src/game/ob.c").read_bytes().decode()
+    check("gevrModAssetPendingName != NULL ? gevrModAssetPendingName : srcfile->filename" in ob
+          and "gevrModAssetPendingUsed = converted != 0 && gevrModAssetPendingName != NULL;" in ob,
+          "load_resource takes the hand's file's name, and says whether it loaded")
+    view = (ROOT / "src/game/bondview2.c").read_bytes().decode()
+    check("gevrBeanIsEnabled() && !gevrModGunHeld(hand) ? 2 : 0" in function(view, "int gevrFitLook(int hand)"),
+          "a mod's model takes the original models' fits")
+    api = (ROOT / "port/src/gevr_modapi.c").read_bytes().decode()
+    check("gevrModGameGunModelReset();" in function(api, "void gevrModApiReset(void)"), "a reset gives the hands' own back")
+
+
+def gunmodel(exe, temp):
+    """mod.weapon.model: set, missing, cleared, refused; reset; look's "mod\""""
+    play = ("start", "prepare", 9, "begin", 9)
+    lua = r"""
+mod.on("mission_start", function()
+  local bad = 0
+  local function try(...) if not pcall(mod.weapon.model, ...) then bad = bad + 1 end end
+  try("right", "ak47", "")
+  try("right", "ak47", "a/b")
+  try("right", "ak47", string.rep("a", 64))
+  try("right", "fist", "GtacZ")
+  try("right", "watchlaser", "GtacZ")
+  try("middle", "ak47", "GtacZ")
+  try("right", "nothing", "GtacZ")
+  print("bad", bad)
+  print("set", mod.weapon.model("right", "ak47", "GtacAk74Z"))
+  print("missing", mod.weapon.model("left", 8, "GnoneZ"))
+  print("clear", mod.weapon.model("right", "ak47"))
+  print("look", mod.weapon.look("left"))
+end)
+"""
+    out = run(exe, temp, "gunmodel", lua, "start", "prepare", 9, "look", 1, 3, "begin", 9)
+    check(logs(out) == ["bad 7", "set true", "missing false", "clear true", "look mod"],
+          "model's answers and refusals; look's mod: " + str(logs(out)))
+    check(answers(out, "GUNMODEL") == ["GUNMODEL reset", "GUNMODEL 0 8 GtacAk74Z", "GUNMODEL 1 8 GnoneZ", "GUNMODEL 0 8 -"],
+          "the game side: a mission's reset, then each call: " + str(answers(out, "GUNMODEL")))
+
+
 def ui(exe, temp):
     play = ("start", "prepare", 9, "begin", 9)
     lua = r"""
@@ -1169,6 +1231,7 @@ def main():
     net_placement()
     ui_placement()
     scope_placement()
+    gunmodel_placement()
     with tempfile.TemporaryDirectory(prefix="gevr-modapi-") as temp:
         temp = Path(temp)
         exe = build(temp)
@@ -1276,6 +1339,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
         net(exe, temp)
         ui(exe, temp)
         scope(exe, temp)
+        gunmodel(exe, temp)
         guards_told(temp)
 
     if FAILS:
@@ -1293,7 +1357,8 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
           "limits and rate, held messages by channel and mod, peer_ready, a stop told to the others and taken from them. "
           "UI: mod.ui's pages and limits, the screen's clicks and changes, open and close, a stopped mod's pages hidden. "
           "Scopes: mod.weapon.scope's lens, none and the game's own, its limits, a draw's reset; mod.weapon.look; "
-          "the hand's scope wherever the game read the item's")
+          "the hand's scope wherever the game read the item's. Gun models: mod.weapon.model's choices, refusals "
+          "and reset; the hand's load, load_resource's name and the fits")
 
 
 if __name__ == "__main__":

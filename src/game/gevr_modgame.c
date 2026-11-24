@@ -119,10 +119,27 @@ void gevrModGameScope(int hand, int mode, int item, const float at[3], float rad
     gevrScopeModSet(hand, mode, item, at, radius, zoomDeg);
 }
 
+extern s32 gevrModGunHeld(s32 hand);                                        /* gun.c */
+extern void gevrModGunModelSet(s32 hand, s32 item, const char *name);
+extern void gevrModGunModelReset(void);
+extern int gevrModAssetHasModel(const char *name);                           /* gevr_modassets.c */
+
 int gevrModGameLook(int hand)
 {
     if (!gevrModGamePlayerReady() || hand < 0 || hand > 1) return 0;
-    return gevrFitLook(hand);
+    return gevrModGunHeld(hand) ? 3 : gevrFitLook(hand);
+}
+
+int gevrModGameGunModel(int hand, int item, const char *name)
+{
+    if (name != NULL && !gevrModAssetHasModel(name)) return 0;
+    gevrModGunModelSet(hand, item, name);
+    return 1;
+}
+
+void gevrModGameGunModelReset(void)
+{
+    gevrModGunModelReset();
 }
 
 void gevrModGameSetLoaded(int hand, int rounds)

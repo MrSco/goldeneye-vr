@@ -2230,8 +2230,9 @@ f32 gevrGunSizeNow(s32 *setting, s32 *online)
 int gevrFitLook(int hand)
 {
     extern int gevrBeanIsEnabled(void);
+    extern s32 gevrModGunHeld(s32 hand);   /* gun.c: a mod's model, over the cartridge's, takes GoldenEye's fits */
 
-    return gevrGexHeld(hand) ? 1 : gevrBeanIsEnabled() ? 2 : 0;
+    return gevrGexHeld(hand) ? 1 : gevrBeanIsEnabled() && !gevrModGunHeld(hand) ? 2 : 0;
 }
 
 /*

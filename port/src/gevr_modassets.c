@@ -12,6 +12,8 @@
 #include "system.h"
 
 int gevrModAssetLast;
+const char *gevrModAssetPendingName;
+int gevrModAssetPendingUsed;
 
 /* A cartridge file's name: letters, digits and _ (the ROM table's), never a path */
 static int nameOk(const char *name)
@@ -37,6 +39,20 @@ static int assetPath(char *out, size_t cap, const gevrModInfo *mod, const char *
     n = name ? snprintf(out, cap, "%s/%s/assets/%s/%s", root, mod->m.id, kind, name)
              : snprintf(out, cap, "%s/%s/assets/%s", root, mod->m.id, kind);
     return n > 0 && (size_t)n < cap;
+}
+
+int gevrModAssetNameOk(const char *name)
+{
+    return nameOk(name);
+}
+
+int gevrModAssetHasModel(const char *name)
+{
+    char path[1024];
+    struct stat st;
+
+    return nameOk(name) && assetPath(path, sizeof(path), gevrModActive(), "models", name)
+        && stat(path, &st) == 0 && (st.st_mode & S_IFMT) == S_IFREG;
 }
 
 unsigned int gevrModAssetModel(const char *name, unsigned char *dst, unsigned int capacity, int numSwitches,

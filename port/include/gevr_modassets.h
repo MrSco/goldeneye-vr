@@ -28,6 +28,16 @@ extern "C" {
  * (no such file, too big, not a model the header fits) and dst untouched. */
 unsigned int gevrModAssetModel(const char *name, unsigned char *dst, unsigned int capacity, int numSwitches,
                                int numTextures);
+/* gun.c: a mod's model for the gun a hand draws (mod.weapon.model), its
+ * file named here around that one load, in place of the cartridge file's
+ * own name; NULL otherwise. ob.c sets gevrModAssetPendingUsed when that file
+ * was the one loaded (else the cartridge's was). */
+extern const char *gevrModAssetPendingName;
+extern int gevrModAssetPendingUsed;
+/* A name a pack's model can have (a cartridge file's: letters, digits, _) */
+int gevrModAssetNameOk(const char *name);
+/* The run's mod has assets/models/<name> */
+int gevrModAssetHasModel(const char *name);
 /* The last model file loaded was the mod's (objecthandler_2.c): the patches
  * made for the cartridge's meshes (VR hands, magazines, the hat, Bean) leave
  * it alone. Cleared as each load starts. */

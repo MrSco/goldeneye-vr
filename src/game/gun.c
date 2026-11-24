@@ -5697,6 +5697,88 @@ Gfx *gevrGexArmOnWatch(Gfx *gdl, ModelRenderData *templ, const Mtxf *w)
 }
 #endif
 
+#ifdef GEVR
+/*
+ * A mod's model for a hand's gun (mod.weapon.model, gevr_modgame.c): when the
+ * local player's hand draws item, assets/models/<name> from the run's mod in
+ * place of the item's cartridge model, built over the item's header (its
+ * switches, textures and skeleton), as assets/models' replacements are; in
+ * place of GoldenEye X's and Bean's for that hand. A file that doesn't load
+ * leaves the cartridge's (ob.c logs why). The choices are only a table:
+ * each tick, a hand showing another model than its gun's choice loads its gun
+ * again (gevrModGunReconcile), so setting one, clearing one and the reset (a
+ * new mission, a mod stopped) never touch a player that may be gone.
+ */
+#include "gevr_modassets.h"
+#define GEVR_MODGUN_NAME 64
+static char s_gevrModGun[2][ITEM_IDS_MAX][GEVR_MODGUN_NAME];
+static struct
+{
+    const void *owner;           /* the player it was loaded for: another stage's is stale */
+    char name[GEVR_MODGUN_NAME]; /* the mod's model tried at the hand's last load, "" none */
+    s32 in;                      /* and loaded */
+} s_gevrModGunShown[MAX_PLAYER_COUNT][2];
+
+static const char *gevrModGunModelFor(s32 hand, s32 item)
+{
+    if (hand < 0 || hand > 1 || item <= ITEM_UNARMED || item >= ITEM_IDS_MAX || !s_gevrModGun[hand][item][0]
+        || (netIsActive() && get_cur_playernum() != netGetLocalSlot()))
+    {
+        return NULL;   /* the local human's hands only */
+    }
+    return s_gevrModGun[hand][item];
+}
+
+static s32 gevrModGunShownOk(s32 p, s32 hand)
+{
+    return g_CurrentPlayer != NULL && p >= 0 && p < MAX_PLAYER_COUNT && hand >= 0 && hand <= 1
+        && s_gevrModGunShown[p][hand].owner == g_CurrentPlayer;
+}
+
+/* the hand's gun is drawn with a mod's model now (bondview2.c gevrFitLook, gevr_modgame.c) */
+s32 gevrModGunHeld(s32 hand)
+{
+    const s32 p = get_cur_playernum();
+
+    return gevrModGunShownOk(p, hand) && s_gevrModGunShown[p][hand].in;
+}
+
+/* each tick: a hand showing another model than its gun's choice loads it
+ * again, as gevrUnarmedModelUpdate queues the club's replacement */
+static void gevrModGunReconcile(s32 hand)
+{
+    const s32 p = get_cur_playernum();
+    const char *want, *shown;
+    s32 item;
+
+    if (g_CurrentPlayer->lock_hand_model[hand] || g_CurrentPlayer->hand_invisible[hand] < 0)
+    {
+        return;   /* already loading, or held as it is */
+    }
+    item = g_CurrentPlayer->hand_item[hand];
+    want = gevrModGunModelFor(hand, item);
+    shown = gevrModGunShownOk(p, hand) ? s_gevrModGunShown[p][hand].name : "";
+    if (strcmp(want != NULL ? want : "", shown) != 0)
+    {
+        g_CurrentPlayer->field_2A44[hand] = item;
+        g_CurrentPlayer->hand_invisible[hand] = -3;
+    }
+}
+
+void gevrModGunModelSet(s32 hand, s32 item, const char *name)
+{
+    if (hand >= 0 && hand <= 1 && item > ITEM_UNARMED && item < ITEM_IDS_MAX)
+    {
+        snprintf(s_gevrModGun[hand][item], GEVR_MODGUN_NAME, "%s", name != NULL ? name : "");
+    }
+}
+
+void gevrModGunModelReset(void)
+{
+    memset(s_gevrModGun, 0, sizeof(s_gevrModGun));
+}
+#endif
+
 void used_to_load_1st_person_model_on_demand(GUNHAND hand)
 {
     u32              size_buffer_weapon;
@@ -5704,8 +5786,15 @@ void used_to_load_1st_person_model_on_demand(GUNHAND hand)
     ModelFileHeader *ptr_weapon_model;
     u8              *buffer_weapon;
     enum ITEM_IDS    item;
+#ifdef GEVR
+    const char      *gevrModTried = NULL;   /* a mod's model tried at this load (mod.weapon.model) */
+    s32              gevrModUsed = FALSE;
+#endif
 
     if (!g_CurrentPlayer->ptr_hand_weapon_buffer[hand]) return;
+#ifdef GEVR
+    gevrModGunReconcile(hand);
+#endif
 
     if ((g_CurrentPlayer->hand_invisible[hand] < 0) && (g_CurrentPlayer->lock_hand_model[hand] == 0))
     {
@@ -5769,10 +5858,19 @@ void used_to_load_1st_person_model_on_demand(GUNHAND hand)
                 {
                     texInitPool(&g_CurrentPlayer->item_related[hand], &buffer_weapon[D_80032464[hand]], size_buffer_weapon - D_80032464[hand]);
 #ifdef GEVR
-                    gevrGexGunPrepare(hand, item, &g_CurrentPlayer->copy_of_body_obj_header[hand]);
+                    /* a mod's model for this hand's gun (mod.weapon.model), in GoldenEye X's place */
+                    gevrModTried = gevrModGunModelFor(hand, item);
+                    gevrModAssetPendingName = gevrModTried;
+                    gevrModAssetPendingUsed = FALSE;
+                    if (gevrModTried == NULL)
+                    {
+                        gevrGexGunPrepare(hand, item, &g_CurrentPlayer->copy_of_body_obj_header[hand]);
+                    }
 #endif
                     load_object_fill_header(&g_CurrentPlayer->copy_of_body_obj_header[hand], (u8 *)ptr_item_text, buffer_weapon, D_80032464[hand], &g_CurrentPlayer->item_related[hand]);
 #ifdef GEVR
+                    gevrModUsed = gevrModTried != NULL && gevrModAssetPendingUsed;
+                    gevrModAssetPendingName = NULL;
                     gevrGexGunDone();
                     /* the new gun's empty off hand now, not at its first draw after the switch */
                     if (hand == GUNRIGHT && gevrGexHeld(GUNRIGHT)
@@ -5794,6 +5892,20 @@ void used_to_load_1st_person_model_on_demand(GUNHAND hand)
             g_CurrentPlayer->hand_invisible[hand] = 1;
             g_CurrentPlayer->hand_item[hand]      = item;
             g_CurrentPlayer->field_2A44[hand]     = -1;
+#ifdef GEVR
+            {
+                /* what this hand shows now: tried, even when its file fell back to the cartridge's, so a
+                 * broken one isn't tried every tick (gevrModGunReconcile) */
+                const s32 p = get_cur_playernum();
+
+                if (p >= 0 && p < MAX_PLAYER_COUNT)
+                {
+                    s_gevrModGunShown[p][hand].owner = g_CurrentPlayer;
+                    snprintf(s_gevrModGunShown[p][hand].name, GEVR_MODGUN_NAME, "%s", gevrModTried != NULL ? gevrModTried : "");
+                    s_gevrModGunShown[p][hand].in = gevrModUsed;
+                }
+            }
+#endif
         }
         else
         {

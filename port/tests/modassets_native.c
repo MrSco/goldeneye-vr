@@ -79,6 +79,10 @@ EXPORT unsigned test_convert(unsigned char *data, unsigned size, unsigned capaci
     return gevrModelConvert(data, size, capacity, switches, textures, "cartridge");
 }
 
+/* mod.weapon.model's file: a name a pack's model can have, and the run's mod's having it */
+EXPORT int test_name_ok(const char *name) { return gevrModAssetNameOk(name); }
+EXPORT int test_has_model(const char *name) { return gevrModAssetHasModel(name); }
+
 EXPORT const char *test_texture_dir(void)
 {
     const char *dir = gevrModAssetTextureDir();

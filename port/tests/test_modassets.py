@@ -103,6 +103,19 @@ def models(temp):
     check(n == 0 and "empty or over 4 MB" in log, "over 4 MB: " + log)
     (models_dir / "PlegalpageZ").unlink()
 
+    # mod.weapon.model's files: a cartridge file's kind of name, never a path; the run's mod's own
+    check(m.test_name_ok(b"GtacAk74Z") and not m.test_name_ok(b"") and not m.test_name_ok(b"../x")
+          and not m.test_name_ok(b"a b") and not m.test_name_ok(b"a" * 65), "a model's name")
+    (models_dir / "GtacAk74Z").write_bytes(b"\x00" * 8)
+    (models_dir / "GtacDir").mkdir()
+    check(m.test_has_model(b"GtacAk74Z") and not m.test_has_model(b"GtacNoneZ") and not m.test_has_model(b"GtacDir")
+          and not m.test_has_model(b"../x"), "the mod has the file (not a folder, never a path)")
+    m.test_setup(str(root).encode(), b"tactical", 0, 1)
+    check(not m.test_has_model(b"GtacAk74Z"), "no mod running: none")
+    m.test_setup(str(root).encode(), b"tactical", 1, 1)
+    (models_dir / "GtacAk74Z").unlink()
+    (models_dir / "GtacDir").rmdir()
+
     # the textures' folder: the launcher's mod campaign's, when it has one
     check(m.test_texture_dir() == b"", "no assets/textures: none")
     (root / "tactical/assets/textures").mkdir(parents=True)
@@ -208,7 +221,8 @@ def placement():
           "a mod's model: the patches measured on the cartridge's meshes leave it alone")
     ob = (ROOT / "src/game/ob.c").read_bytes().decode().replace("\r\n", "\n")
     load = function(ob, "void load_resource(")
-    check(load.index("gevrGexPendingFile == NULL && srcfile->filename != NULL") < load.index("gevrModAssetModel(")
+    check(load.index("gevrModAssetPendingName != NULL ? gevrModAssetPendingName : srcfile->filename")
+          < load.index("gevrGexPendingFile == NULL && srcfile->filename != NULL") < load.index("gevrModAssetModel(")
           < load.index("converted = gevrModelConvert("), "load_resource: the mod's model, never over GoldenEye X's, else the cartridge's")
 
 

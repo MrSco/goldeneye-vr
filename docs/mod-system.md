@@ -451,7 +451,26 @@ in-game screen). We maintain the adapters, not the mods.
     The reticle is the game's red sight, with the "Aim: crosshair"
     option, as on the game's own scopes. `mod.weapon.look(hand)` says
     which models the hand's gun is drawn with (`"original"`, `"gex"`,
-    `"bean"`), so a mod can keep an eyepiece for each.
+    `"bean"`, or `"mod"` for a mod's own, below), so a mod can keep an
+    eyepiece for each.
+  - A gun's model per hand: `mod.weapon.model(hand, item, file)` draws
+    the mod's `assets/models/<file>` when that hand holds `item`, in place
+    of the item's cartridge model, so several of a mod's guns can share one
+    of the game's items and each hand can show a different one. The file
+    is built over the item's cartridge model as `assets/models`'
+    replacements are (its header: switch and texture counts, skeleton),
+    and must fit the room the game makes for a hand's gun. It wins over
+    GoldenEye X's and Bean's models for that hand, and takes the original
+    models' fits. A hand holding the item now loads it at once; `nil`
+    gives the item's own back. True when set, false when the mod has no
+    such file (a file that won't load leaves the cartridge's, and the log
+    says why). Every hand's own come back at a mission's start and when a
+    mod stops. What stays the item's: its stats, sounds, muzzle point,
+    Gun fit places and hand reload's magazine (a mod's model has none of
+    the cartridge's measured magazines, so its gestures run the game's own
+    reload). `gun.c` keeps the choices as a table, and each tick a hand
+    showing another model than its gun's choice loads it again, so a
+    choice never touches a player mid-load (`gevrModGunReconcile()`).
   - Known gaps: on a pump gun a lower `setLoaded` reads as a shot (the
     rack, `gevr_rack.h`); in co-op another headset's copy of the player
     still shows a declined shot's fire (the fire bit comes from the

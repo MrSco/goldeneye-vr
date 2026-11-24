@@ -353,13 +353,57 @@ static int l_scope(lua_State *L)
 /* look(hand): the models the hand's gun is drawn with, for scope's at */
 static int l_look(lua_State *L)
 {
-    static const char *const s_looks[] = { "original", "gex", "bean" };
+    static const char *const s_looks[] = { "original", "gex", "bean", "mod" };
     const int hand = handArg(L, 1);
     int look;
 
     needPlayer(L, "mod.weapon.look");
     look = gevrModGameLook(hand);
-    lua_pushstring(L, s_looks[look >= 0 && look <= 2 ? look : 0]);
+    lua_pushstring(L, s_looks[look >= 0 && look <= 3 ? look : 0]);
+    return 1;
+}
+
+/* A pack model's name: a cartridge file's (letters, digits, _), 1 to 63 */
+static int modelNameOk(const char *s, size_t n)
+{
+    size_t i;
+
+    if (n < 1 || n > 63) return 0;
+    for (i = 0; i < n; i++) {
+        const char c = s[i];
+
+        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_')) return 0;
+    }
+    return 1;
+}
+
+/*
+ * model(hand, item, file | nil): when the hand draws item, the mod's
+ * assets/models/<file> in place of the item's cartridge model, built over
+ * that model's header (its switch and texture counts, its skeleton); nil, the
+ * item's own. A hand holding item now loads it at once. True when set; false
+ * when the mod has no such file. Every hand's own come back at a mission's
+ * start and when a mod stops.
+ */
+static int l_gunModel(lua_State *L)
+{
+    const int hand = handArg(L, 1);
+    const int item = itemArg(L, 2);
+    const char *name = NULL;
+
+    if (!lua_isnoneornil(L, 3)) {
+        size_t n;
+
+        name = luaL_checklstring(L, 3, &n);
+        if (!modelNameOk(name, n)) {
+            return luaL_argerror(L, 3, "a model's file name: 1 to 63 letters, digits and _ (assets/models/<file>)");
+        }
+    }
+    if (!gevrModGameSwappable(item)) {
+        return luaL_argerror(L, 2, "a gun or thrown weapon with a model in this cartridge");
+    }
+    needPlayer(L, "mod.weapon.model");
+    lua_pushboolean(L, gevrModGameGunModel(hand, item, name));
     return 1;
 }
 
@@ -371,6 +415,7 @@ static const luaL_Reg s_weaponFuncs[] = {
     { "setStats", l_setStats },
     { "scope", l_scope },
     { "look", l_look },
+    { "model", l_gunModel },
     { NULL, NULL },
 };
 
@@ -1319,6 +1364,7 @@ void gevrModApiReset(void)
     s_savedCount = 0;
     gevrModGameScope(0, GEVR_MODSCOPE_GAME, 0, NULL, 0.0f, 0.0f);   /* the game's own scopes again */
     gevrModGameScope(1, GEVR_MODSCOPE_GAME, 0, NULL, 0.0f, 0.0f);
+    gevrModGameGunModelReset();   /* and the hands' own models */
 }
 
 /* ---- the weapons area's events ---- */

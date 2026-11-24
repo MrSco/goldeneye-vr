@@ -350,8 +350,14 @@ void gevrModGameSetStats(int item, const GevrModWeaponStats *in);
  * zoomDeg the angle the lens shows), _NONE none even on a scoped gun */
 void gevrModGameScope(int hand, int mode, int item, const float at[3], float radius, float zoomDeg);
 /* Which models the hand's gun is drawn with: 0 the cartridge's, 1 GoldenEye
- * X's, 2 Bean's (bondview2.c gevrFitLook) */
+ * X's, 2 Bean's (bondview2.c gevrFitLook), 3 a mod's (mod.weapon.model) */
 int gevrModGameLook(int hand);
+/* A mod's model for the gun a hand draws (gun.c gevrModGunModelSet): the
+ * run's mod's assets/models/<name> for item in that hand, or name NULL the
+ * item's own. 0 when the run's mod has no such file (nothing changes) */
+int gevrModGameGunModel(int hand, int item, const char *name);
+/* every hand's own models back (a mod stopped, a new mission) */
+void gevrModGameGunModelReset(void);
 /* A gun or thrown weapon with a model in this cartridge: what a swap or
  * mod.inventory.give/take may use */
 int gevrModGameSwappable(int item);

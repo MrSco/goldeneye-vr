@@ -144,12 +144,15 @@ void load_resource(u8 *ptrdata, s32 bytes,  fileentry *srcfile,  resource_lookup
              * GoldenEye X's. One that doesn't fit or convert leaves the
              * cartridge's here untouched, converted below as ever.
              */
-            u32 converted = gevrGexPendingFile == NULL && srcfile->filename != NULL
-                ? gevrModAssetModel(srcfile->filename, ptrdata, (u32)bytes,
+            /* a mod's model for a hand's gun (gun.c, mod.weapon.model) names its own file */
+            const char *asset = gevrModAssetPendingName != NULL ? gevrModAssetPendingName : srcfile->filename;
+            u32 converted = gevrGexPendingFile == NULL && srcfile->filename != NULL && asset != NULL
+                ? gevrModAssetModel(asset, ptrdata, (u32)bytes,
                                     gevrModelPendingHeader->numSwitches, gevrModelPendingHeader->numtextures)
                 : 0;
 
             gevrModAssetLast = converted != 0;
+            gevrModAssetPendingUsed = converted != 0 && gevrModAssetPendingName != NULL;
             if (converted == 0)
             {
                 converted = gevrModelConvert(ptrdata, lookupdata->poolRemaining, (u32)bytes,

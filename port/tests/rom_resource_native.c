@@ -51,10 +51,14 @@ int gevrRomIsVariant(void) { return 0; }
 int gevrRomFixData(const char *name, u8 *data, u32 size) { (void)name; (void)data; (void)size; return 0; }
 /* gevr_modassets.c: the run's mod's model for a file; answers modModel bytes when it fits */
 int gevrModAssetLast;
+const char *gevrModAssetPendingName;   /* gun.c: a hand's gun's own file (mod.weapon.model) */
+int gevrModAssetPendingUsed;
 static u32 modModel;
 static int modAsks;
+static char modName[64];
 u32 gevrModAssetModel(const char *name, u8 *dst, u32 capacity, int switches, int textures) {
-    (void)name; (void)switches; (void)textures;
+    (void)switches; (void)textures;
+    snprintf(modName, sizeof(modName), "%s", name);
     modAsks++;
     if (!modModel || modModel > capacity) return 0;
     memset(dst, 'M', modModel);
@@ -96,6 +100,9 @@ int test_load_model(u8 *src, u32 srcSize, u8 *dst, s32 capacity, u32 *written, u
     return ok;
 }
 int test_mod_asks(void) { return modAsks; }
+void test_set_pending(const char *name) { gevrModAssetPendingName = name; gevrModAssetPendingUsed = -1; }
+const char *test_mod_name(void) { return modName; }
+int test_pending_used(void) { return gevrModAssetPendingUsed; }
 int test_mod_last(void) { return gevrModAssetLast; }
 int test_copies(void) { return copies; }
 int test_conversions(void) { return conversions; }
