@@ -5548,6 +5548,19 @@ static s32 frontCharSelectPlayerTick(s32 i, s32 count)
                 sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, NULL);
             }
         }
+#ifdef GEVR
+        /*
+         * A flat pad's d-pad (bound to the C buttons) is also its stick in the menus (input.c
+         * inputFlatPadSticks), so a press held past the portrait's slide
+         * (about 7 frames) stepped once as the button and again as the
+         * stick's hold-to-repeat, two characters for one press (owner,
+         * 2026-11-24). On the N64 the d-pad never moved the stick: while it
+         * is held, only its press counts.
+         */
+        else if (joyGetButtons(i, L_JPAD | R_JPAD | L_CBUTTONS | R_CBUTTONS))
+        {
+        }
+#endif
         else if (joyGetStickXInRange(i, -2, 1) > 0)
         {
             if (mp_char_select_scroll_offset[i] == 0)
