@@ -731,6 +731,52 @@ def guards2_placement():
     check("isBGAIListID(id)" in function(game, "int gevrModGameAiListOk("), "a level script's list isn't a guard's")
 
 
+def pads_placement():
+    """goTo and face on the AI's own commands, where the guards run, for a living guard and a pad"""
+    game = (ROOT / "src/game/gevr_modgame.c").read_bytes().decode()
+    goto = function(game, "int gevrModGameGoTo(int id, int pad, int speed)")
+    face = function(game, "int gevrModGameFace(int id, int pad)")
+    for name, text in (("goTo", goto), ("face", face)):
+        check("!gevrModGameRunsGuards() || chr == NULL || guardDying(chr) || !padOk(pad)" in text,
+              name + ": where the guards run, a living guard, a pad the setup has")
+    check("chrGoToPad(chr, pad, speed == 2 ? SPEED_SPRINT : speed == 1 ? SPEED_RUN : SPEED_WALK)" in goto,
+          "goTo: chrGoToPad at the speed asked")
+    check("check_set_actor_standing_still(chr, TARGET_PAD, pad)" in face, "face: as AI_TRYFacingTarget at a pad")
+    pad = function(game, "int gevrModGamePad(int pad, GevrModPad *out)")
+    check("if (!padOk(pad)) return 0;" in pad and "g_CurrentSetup.boundpads[pad - 10000]" in pad
+          and "p->stan != NULL ? p->stan->room : -1" in pad, "a pad by id, bound pads from 10000, its tile's room")
+
+
+def pads(exe, temp):
+    """mod.pads' counts and reads; mod.guards.goTo and face"""
+    lua = r"""
+mod.on("mission_start", function()
+  local n, bound = mod.pads.count()
+  print("count", n, bound)
+  local p = mod.pads.get(2)
+  print("pad", p.x, p.y, p.z, p.room, p.look[3])
+  local b = mod.pads.get(10000)
+  print("bound", b.x, b.room, mod.pads.get(3), mod.pads.get(-1))
+  print("goto", mod.guards.goTo(5000, 1), mod.guards.goTo(5000, 10000, "sprint"), mod.guards.goTo(5000, 7, "run"),
+        mod.guards.goTo(99, 1))
+  print("face", mod.guards.face(5000, 2), mod.guards.face(99, 2))
+  print("badspeed", (pcall(mod.guards.goTo, 5000, 1, "crawl")))
+end)
+"""
+    out = run(exe, temp, "pads", lua, "addguard", 5000, 2, 47, 1, 8, -1, 75, 100, 0, 0, 0, "start", "prepare", 9,
+              "begin", 9)
+    check(logs(out) == ["count 3 1", "pad 200.0 0.0 -20.0 7 1.0", "bound 999.0 nil nil nil",
+                        "goto true true false false", "face true false", "badspeed false"],
+          "pads read; goTo and face answered: " + str(logs(out)))
+    check(answers(out, "GOTO", "FACE") == ["GOTO 5000 1 0", "GOTO 5000 10000 2", "GOTO 5000 7 1", "GOTO 99 1 0",
+                                          "FACE 5000 2", "FACE 99 2"],
+          "the game side: walk, sprint, run; face: " + str(answers(out, "GOTO", "FACE")))
+    out = run(exe, temp, "padsclient", lua, "addguard", 5000, 2, 47, 1, 8, -1, 75, 100, 0, 0, 0, "runs", 0,
+              "start", "prepare", 9, "begin", 9)
+    check("goto false false false false" in logs(out) and "face false false" in logs(out)
+          and not answers(out, "GOTO", "FACE"), "a co-op client sends no guard anywhere: " + str(logs(out)))
+
+
 def guards2(exe, temp):
     play = ("start", "prepare", 9, "begin", 9)
     lua = r"""
@@ -1400,6 +1446,7 @@ def main():
     hands_placement()
     guards_placement()
     guards2_placement()
+    pads_placement()
     damage_placement()
     effects_placement()
     net_placement()
@@ -1523,6 +1570,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
         hands(exe, temp)
         guards(exe, temp)
         guards2(exe, temp)
+        pads(exe, temp)
         damage(exe, temp)
         effects(exe, temp)
         net(exe, temp)
@@ -1543,7 +1591,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
           "the hooks' places in the stage's setup and the pickup. Hands area: grip, release, hand_near, "
           "mod.hands' positions, anchors and pulses; the hooks' places. Guards area: guard_spawning's body, head and gun, "
           "refusals, alerts, kills and corpses told once on the host, mod.guards' reads; the hooks' places. Guards, part 2: "
-          "spawn, giveWeapon, patrol, paths, guard_spawned, guard_killed's player. Damage and player: before_damage's "
+          "spawn, giveWeapon, patrol, paths, goTo, face, mod.pads, guard_spawned, guard_killed's player. Damage and player: before_damage's "
           "answers and refusals, damage_applied, downed, revived, died, mod.player's health and armour; the hooks' places. "
           "Sound and smoke: mod.audio's ids, volumes and places, mod.effect's smokes and places. Network: mod.net's sends, "
           "limits and rate, held messages by channel and mod, peer_ready, a stop told to the others and taken from them. "

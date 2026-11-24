@@ -667,6 +667,22 @@ in-game screen). We maintain the adapters, not the mods.
     - `mod.guards.patrol(id, path)`: `if_actor_able_set_on_path()` along
       the stage's path, as `AI_StartPatrol`; `mod.guards.paths()` lists
       the stage's path ids.
+    - `mod.guards.goTo(id, pad[, speed])`: the guard walks (the default),
+      runs or sprints to the pad by the game's own route (`chrGoToPad()`,
+      as `AI_WalkToPad`, `AI_RunToPad` and `AI_SprintToPad`); true when it
+      set off. The game holds it back while ten or more guards have
+      recently seen the player, as it does for its own scripts.
+      `mod.guards.face(id, pad)`: the guard stands and turns to the pad
+      (`check_set_actor_standing_still()` with `TARGET_PAD`, as
+      `AI_TRYFacingTarget`). Both where the guards run (solo, the co-op
+      host), for a living guard and a pad the setup has; the game's co-op
+      sync carries what they do.
+    - `mod.pads.count()`: the stage's pads (ids from 0) and its bound pads
+      (ids from 10000), as `mod.guards.spawn` and these take them.
+      `mod.pads.get(id)`: `{ x, y, z, room, look = { x, y, z } }` in the
+      game's world units (as `mod.guards.get`), `room` the pad's tile's
+      (left out when it has none), `look` the way the pad faces; nil for
+      no such pad. On every headset: the pads are the setup's.
     - `guard_spawned(id)` for a guard the game spawns in play
       (`AI_TRYSpawningChrAtPad`, `AI_TRYSpawningChrNextToChr`, a
       reinforcement's clone once armed and its id settled), where the

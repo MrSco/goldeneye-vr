@@ -366,6 +366,43 @@ int gevrModGamePatrol(int id, int path)
     }
     return 0;
 }
+/* three pads and a bound one: pad i at (100 i, 0, -10 i) in room 5 + i, bound 10000 at (999, 1, 2) in no room */
+int gevrModGamePadCount(int *bound)
+{
+    *bound = 1;
+    return 3;
+}
+int gevrModGamePad(int pad, GevrModPad *out)
+{
+    if (pad == 10000) {
+        out->pos[0] = 999; out->pos[1] = 1; out->pos[2] = 2; out->room = -1;
+    } else if (pad >= 0 && pad < 3) {
+        out->pos[0] = 100.0f * pad; out->pos[1] = 0; out->pos[2] = -10.0f * pad; out->room = 5 + pad;
+    } else {
+        return 0;
+    }
+    out->look[0] = 0; out->look[1] = 0; out->look[2] = 1;
+    return 1;
+}
+static int guardAlive(int id)
+{
+    int i;
+
+    for (i = 0; i < s_guardCount; i++) {
+        if (s_guards[i].id == id) return s_guards[i].alive;
+    }
+    return 0;
+}
+int gevrModGameGoTo(int id, int pad, int speed)
+{
+    printf("GOTO %d %d %d\n", id, pad, speed);
+    return guardAlive(id) && (pad < 3 || pad == 10000);
+}
+int gevrModGameFace(int id, int pad)
+{
+    printf("FACE %d %d\n", id, pad);
+    return guardAlive(id) && (pad < 3 || pad == 10000);
+}
 int gevrModGamePaths(int *ids, int max)
 {
     if (max < 2) return 0;

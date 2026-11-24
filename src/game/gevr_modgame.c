@@ -968,6 +968,54 @@ int gevrModGamePaths(int *ids, int max)
     return n;
 }
 
+/* ---- the stage's pads, and guards sent to them ---- */
+
+extern bool chrGoToPad(ChrRecord *self, s32 padid, SPEED speed);                                 /* chraction.c */
+extern bool check_set_actor_standing_still(ChrRecord *self, s32 faceentitytype, s32 faceentityid);
+
+int gevrModGamePadCount(int *bound)
+{
+    s32 n = 0, b = 0;
+
+    while (g_CurrentSetup.pads != NULL && g_CurrentSetup.pads[n].plink != NULL) n++;
+    while (g_CurrentSetup.boundpads != NULL && g_CurrentSetup.boundpads[b].plink != NULL) b++;
+    if (bound != NULL) *bound = b;
+    return n;
+}
+
+int gevrModGamePad(int pad, GevrModPad *out)
+{
+    PadRecord *p;
+
+    if (!padOk(pad)) return 0;
+    /* a bound pad begins as a pad does (chrGoToPad reads it so) */
+    p = pad >= 10000 ? (PadRecord *)&g_CurrentSetup.boundpads[pad - 10000] : &g_CurrentSetup.pads[pad];
+    out->pos[0] = p->pos.x;
+    out->pos[1] = p->pos.y;
+    out->pos[2] = p->pos.z;
+    out->look[0] = p->look.x;
+    out->look[1] = p->look.y;
+    out->look[2] = p->look.z;
+    out->room = p->stan != NULL ? p->stan->room : -1;
+    return 1;
+}
+
+int gevrModGameGoTo(int id, int pad, int speed)
+{
+    ChrRecord *chr = guardById(id);
+
+    if (!gevrModGameRunsGuards() || chr == NULL || guardDying(chr) || !padOk(pad)) return 0;
+    return chrGoToPad(chr, pad, speed == 2 ? SPEED_SPRINT : speed == 1 ? SPEED_RUN : SPEED_WALK);
+}
+
+int gevrModGameFace(int id, int pad)
+{
+    ChrRecord *chr = guardById(id);
+
+    if (!gevrModGameRunsGuards() || chr == NULL || guardDying(chr) || !padOk(pad)) return 0;
+    return check_set_actor_standing_still(chr, TARGET_PAD, pad);
+}
+
 /* ---- the damage and player area ---- */
 
 static int partOf(int hitpart)

@@ -806,6 +806,33 @@ static int l_guardPaths(lua_State *L)
     return 1;
 }
 
+/* goTo(id, pad[, speed]): the guard walks ("walk", the default), runs or
+ * sprints to the pad by the game's own route (chrGoToPad); true when it set
+ * off. Where the guards run (solo, the co-op host) */
+static int l_guardGoTo(lua_State *L)
+{
+    static const char *const speeds[] = { "walk", "run", "sprint", NULL };
+    const lua_Integer id = luaL_checkinteger(L, 1);
+    const lua_Integer pad = luaL_checkinteger(L, 2);
+    const int speed = luaL_checkoption(L, 3, "walk", speeds);
+
+    lua_pushboolean(L, id >= -32768 && id <= 32767 && pad >= 0 && pad <= 0x7fffffff && gevrModGameRunsGuards()
+                           && gevrModGameGoTo((int)id, (int)pad, speed));
+    return 1;
+}
+
+/* face(id, pad): the guard stands and turns to face the pad (as
+ * AI_TRYFacingTarget); true when it did */
+static int l_guardFace(lua_State *L)
+{
+    const lua_Integer id = luaL_checkinteger(L, 1);
+    const lua_Integer pad = luaL_checkinteger(L, 2);
+
+    lua_pushboolean(L, id >= -32768 && id <= 32767 && pad >= 0 && pad <= 0x7fffffff && gevrModGameRunsGuards()
+                           && gevrModGameFace((int)id, (int)pad));
+    return 1;
+}
+
 static const luaL_Reg s_guardFuncs[] = {
     { "list", l_guardList },
     { "get", l_guardGet },
@@ -813,6 +840,58 @@ static const luaL_Reg s_guardFuncs[] = {
     { "giveWeapon", l_guardGiveWeapon },
     { "patrol", l_guardPatrol },
     { "paths", l_guardPaths },
+    { "goTo", l_guardGoTo },
+    { "face", l_guardFace },
+    { NULL, NULL },
+};
+
+/* ---- mod.pads ---- */
+
+/* count(): the stage's pads (ids 0 up) and its bound pads (ids 10000 up) */
+static int l_padCount(lua_State *L)
+{
+    int bound = 0;
+    const int n = gevrModGamePadCount(&bound);
+
+    lua_pushinteger(L, n);
+    lua_pushinteger(L, bound);
+    return 2;
+}
+
+/* get(id): { x, y, z, room, look = { x, y, z } } in world units, or nil */
+static int l_padGet(lua_State *L)
+{
+    const lua_Integer id = luaL_checkinteger(L, 1);
+    GevrModPad p;
+    int i;
+
+    if (id < 0 || id > 0x7fffffff || !gevrModGamePad((int)id, &p)) {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_createtable(L, 0, 5);
+    lua_pushnumber(L, p.pos[0]);
+    lua_setfield(L, -2, "x");
+    lua_pushnumber(L, p.pos[1]);
+    lua_setfield(L, -2, "y");
+    lua_pushnumber(L, p.pos[2]);
+    lua_setfield(L, -2, "z");
+    if (p.room >= 0) {
+        lua_pushinteger(L, p.room);
+        lua_setfield(L, -2, "room");
+    }
+    lua_createtable(L, 3, 0);
+    for (i = 0; i < 3; i++) {
+        lua_pushnumber(L, p.look[i]);
+        lua_rawseti(L, -2, i + 1);
+    }
+    lua_setfield(L, -2, "look");
+    return 1;
+}
+
+static const luaL_Reg s_padFuncs[] = {
+    { "count", l_padCount },
+    { "get", l_padGet },
     { NULL, NULL },
 };
 
@@ -1599,6 +1678,9 @@ void gevrModApiOpen(lua_State *L)
     lua_newtable(L);
     luaL_setfuncs(L, s_guardFuncs, 0);
     lua_setfield(L, -2, "guards");
+    lua_newtable(L);
+    luaL_setfuncs(L, s_padFuncs, 0);
+    lua_setfield(L, -2, "pads");
     lua_newtable(L);
     luaL_setfuncs(L, s_playerFuncs, 0);
     lua_setfield(L, -2, "player");

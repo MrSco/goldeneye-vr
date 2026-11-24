@@ -458,6 +458,21 @@ int gevrModGameGiveGuardWeapon(int id, int item, int hand);
 int gevrModGamePatrol(int id, int path);
 /* The stage's patrol paths' ids, at most max; how many */
 int gevrModGamePaths(int *ids, int max);
+/* The setup's pads: how many (ids 0 up), and its bound pads (10000 up) */
+int gevrModGamePadCount(int *bound);
+typedef struct GevrModPad {
+    float pos[3];    /* world units, as mod.guards.get's */
+    float look[3];   /* the way it faces */
+    int room;        /* its tile's room, -1 none */
+} GevrModPad;
+/* A pad by id: 1 when the setup has it */
+int gevrModGamePad(int pad, GevrModPad *out);
+/* The guard to a pad (chrGoToPad, as AI_WalkToPad, AI_RunToPad and
+ * AI_SprintToPad: speed 0 walk, 1 run, 2 sprint), or turned to face one
+ * (check_set_actor_standing_still with TARGET_PAD, as AI_TRYFacingTarget):
+ * 1 when the game took it */
+int gevrModGameGoTo(int id, int pad, int speed);
+int gevrModGameFace(int id, int pad);
 /* This machine's player's health and armour, 0 to 1; 0 when no player is in a stage */
 int gevrModGamePlayerHealth(float *health, float *armour);
 /* Set them: health more than 0 to 1, armour 0 to 1; 0 when the player is
