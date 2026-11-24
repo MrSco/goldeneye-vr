@@ -46,13 +46,19 @@ int gevrModAssetNameOk(const char *name)
     return nameOk(name);
 }
 
+/* a file to read: a folder opens on some systems but gives no byte */
 int gevrModAssetHasModel(const char *name)
 {
     char path[1024];
-    struct stat st;
+    unsigned char first;
+    FILE *f;
+    int has;
 
-    return nameOk(name) && assetPath(path, sizeof(path), gevrModActive(), "models", name)
-        && stat(path, &st) == 0 && (st.st_mode & S_IFMT) == S_IFREG;
+    if (!nameOk(name) || !assetPath(path, sizeof(path), gevrModActive(), "models", name)) return 0;
+    if ((f = fopen(path, "rb")) == NULL) return 0;
+    has = fread(&first, 1, 1, f) == 1;
+    fclose(f);
+    return has;
 }
 
 unsigned int gevrModAssetModel(const char *name, unsigned char *dst, unsigned int capacity, int numSwitches,
