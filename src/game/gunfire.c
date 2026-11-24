@@ -19,6 +19,7 @@
 #include "gun.h"
 #ifdef GEVR
 #include "gevr_modmesh.h"
+#include "gevr_modattach.h"
 #endif
 #include "chrobjdata.h"
 #include "game/propobj.h"
@@ -3147,6 +3148,7 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
     renderdata.zbufferenabled = TRUE;
     renderdata.flags = 3;
 #ifdef GEVR
+    gevrModAttachBeginGunDraw();
     /*
      * The right fist first (issue #19): a gadget held in it does not write
      * depth, so a fist drawn after it painted over the gadget wherever the two
