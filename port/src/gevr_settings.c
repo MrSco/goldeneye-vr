@@ -51,6 +51,7 @@ extern int VrBeanFillTextures, VrBloodPatch, VrOddjobHat;
 extern int VrEyeMsaa;
 extern float VrRenderScale;          /* Resolution: 0 = the game config's, else the next start's scale */
 extern int VrTextureAniso;           /* anisotropic filtering of HD pack and Bean pictures */
+extern int VrVolumetricExplosions;   /* 1 = 3D volumetric smoke/explosions, 0 = classic sprites (#249) */
 extern float vr_render_scale(void);  /* the eye images' scale this session */
 extern int VrPlayMode, VrBodySlotShow, VrCampaign;
 extern int VrAlly, VrAllyWeapon, VrAllyAggression, VrAllyHealth, VrAllyDamage, VrAllyInvincible;
@@ -76,6 +77,7 @@ extern int VrTouchHaptics, VrGyroAim;   /* vr_settings.cpp: a phone's touch cont
 extern int VrTriggerFeedback;            /* vr_settings.cpp: a pad's triggers */
 extern float VrGyroSpeed;
 static const char *const s_gyroNames[] = { "Off", "While aiming", "Always" };
+static const char *const s_volExpNames[] = { "Classic", "Volumetric" };
 extern void vr_screen_resize(float dist, float fov);
 extern int VrRefreshRate;
 extern int VrSpaceWarp;
@@ -1063,6 +1065,9 @@ static const Row s_rows[] = {
       .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH,
       .def = NAN, .cpositions = flatMsaaPositions, .cget = flatMsaaGet, .cset = flatMsaaSet, .ctext = flatMsaaText,
       .cdefault = 0, .warning = warnFlatMsaa },
+    { .label = "Explosions", .tooltip = "Volumetric renders 3D smoke and explosions anchored in the world. Classic keeps the original camera-facing sprites. Changes right away.",
+      .kind = GEVR_SET_CHOICE, .section = GEVR_SEC_GRAPHICS, .lsection = L(GEVR_LSEC_GRAPHICS), .where = GEVR_SET_BOTH,
+      .ivar = &VrVolumetricExplosions, .ivalues = s_two, .names = s_volExpNames, .count = 2, .def = NAN },
     { .label = "Frame rate", .flatgame = 1,
       .tooltip = "Auto matches your display's refresh rate and steps down to a steady lower rate if this device can't hold it. "
                  "Or choose a fixed cap or Uncapped.",

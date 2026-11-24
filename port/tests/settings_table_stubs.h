@@ -37,6 +37,7 @@ int VrMinesStickToGuards, VrBodiesStay, VrFastReinforcements, VrRagdolls, VrDism
 int VrGexGuns, VrBeanFillTextures, VrBloodPatch, VrOddjobHat, VrEyeMsaa = 1;
 float VrRenderScale;          /* Resolution: the config's scale */
 int VrTextureAniso;           /* anisotropic filtering: 0, Auto (the default) */
+int VrVolumetricExplosions = 0; /* volumetric smoke and explosions (#249), off by default */
 float s_liveRenderScale = 1.0f;
 unsigned int s_texFilter = 1;   /* video.c: Video.TextureFilter, FILTER_LINEAR */
 int s_configSaves;
