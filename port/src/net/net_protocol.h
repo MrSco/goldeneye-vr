@@ -134,10 +134,11 @@ typedef enum {
      * NET_MOD_PAYLOAD_MAX). A player's goes to the host, which checks the
      * sender by its peer, then delivers it and relays it to everyone else,
      * or forwards it to the one it names; the host's (0xFF: a dedicated
-     * server's) go out from there. NET_MOD_DROP (the host's alone) and
-     * NET_MOD_TAKEN, a shared pickup's (mod.pickups.drop's shared), go to
-     * everyone with NET_MOD_DROP_BYTES or NET_MOD_TAKEN_BYTES after the id,
-     * read by gevr_modapi.c. Protocol 28 has no release before it. */
+     * server's) go out from there. A shared pickup's (mod.pickups.drop's
+     * shared) carry NET_MOD_DROP_BYTES or NET_MOD_PICKUP_BYTES after the id,
+     * read by gevr_modapi.c: NET_MOD_DROP and NET_MOD_GRANT the host's
+     * alone, to everyone; NET_MOD_CLAIM a player's, to the host alone;
+     * NET_MOD_GONE anyone's. Protocol 28 has no release before it. */
     NET_MSG_MOD = 66,
 } NetMsgType;
 
@@ -145,10 +146,12 @@ enum {
     NET_MOD_DATA = 0,   /* mod.net.send's */
     NET_MOD_OFF = 1,    /* the mod stopped on the sender's headset: stop it everywhere */
     NET_MOD_DROP = 2,   /* the host dropped a shared pickup: every headset drops its copy */
-    NET_MOD_TAKEN = 3,  /* a player took a shared pickup: the others' copies go */
+    NET_MOD_CLAIM = 3,  /* a player would take one: the host decides */
+    NET_MOD_GRANT = 4,  /* the host's decision: the winner takes it, the others' copies go */
+    NET_MOD_GONE = 5,   /* gone without a taker (recycled, used up): every copy goes */
 };
 #define NET_MOD_DROP_BYTES 12
-#define NET_MOD_TAKEN_BYTES 8
+#define NET_MOD_PICKUP_BYTES 8
 #define NET_MOD_PAYLOAD_MAX 1024
 #define NET_MOD_CHANNEL_MAX 32
 #define NET_MOD_HOST_RELAY_A_SECOND 64   /* the host drops a player's past this, each second */

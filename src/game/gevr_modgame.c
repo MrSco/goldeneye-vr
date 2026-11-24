@@ -460,31 +460,73 @@ void gevrModGameDropsClear(void)
     memset(s_modArmour, 0, sizeof(s_modArmour));
 }
 
-/* A shared pickup another player took first (gevr_modapi.c): this
+/* a runtime pickup's record (GEVR_MODAPI_PICKUP_*), or NULL */
+static ObjectRecord *slotObject(int kind, int slot)
+{
+    if (kind == GEVR_MODAPI_PICKUP_WEAPON && slot >= 0 && slot < MAX_WEAPON_SLOTS)
+    {
+        return (ObjectRecord *)&g_WeaponSlots[slot];
+    }
+    if (kind == GEVR_MODAPI_PICKUP_BOX && slot >= 0 && slot < MAX_AMMO_CRATES)
+    {
+        return (ObjectRecord *)&g_AmmoCrates[slot];
+    }
+    if (kind == GEVR_MODAPI_PICKUP_ARMOUR && slot >= 0 && slot < GEVR_MODAPI_ARMOUR_DROPS)
+    {
+        return (ObjectRecord *)&s_modArmour[slot];
+    }
+    return NULL;
+}
+
+/* A shared pickup another player won, or gone (gevr_modapi.c): this
  * headset's copy freed as the game frees a recycled one, so objFree tells
  * pickup_removed */
 int gevrModGamePickupRemove(int kind, int slot)
 {
-    ObjectRecord *obj = NULL;
+    ObjectRecord *obj = slotObject(kind, slot);
 
-    if (kind == GEVR_MODAPI_PICKUP_WEAPON && slot >= 0 && slot < MAX_WEAPON_SLOTS)
-    {
-        obj = (ObjectRecord *)&g_WeaponSlots[slot];
-    }
-    else if (kind == GEVR_MODAPI_PICKUP_BOX && slot >= 0 && slot < MAX_AMMO_CRATES)
-    {
-        obj = (ObjectRecord *)&g_AmmoCrates[slot];
-    }
-    else if (kind == GEVR_MODAPI_PICKUP_ARMOUR && slot >= 0 && slot < GEVR_MODAPI_ARMOUR_DROPS)
-    {
-        obj = (ObjectRecord *)&s_modArmour[slot];
-    }
     if (obj == NULL || obj->prop == NULL)
     {
         return 0;
     }
     objFreePermanently(obj, TRUE);
     return 1;
+}
+
+/* A shared pickup the host awarded this headset's player: the game's own
+ * pickup of it, as the local player, then its tick operation (as
+ * AI_BondCollectObject takes one), so item_pickup comes from the game */
+int gevrModGamePickupGrant(int kind, int slot)
+{
+    ObjectRecord *obj = slotObject(kind, slot);
+    PropRecord *prop;
+    s32 was;
+    TICKOP op;
+
+    if (obj == NULL || (prop = obj->prop) == NULL || !gevrModGamePlayerReady())
+    {
+        return 0;
+    }
+    was = get_cur_playernum();
+    set_cur_player(localSlot());
+    op = propPickupByPlayer(prop, TRUE);
+    propExecuteTickOperation(prop, op);
+    set_cur_player(was);
+    return op != TICKOP_NONE;
+}
+
+/* propobj.c propPickupByPlayer, before anything changes: a shared pickup in
+ * a network game goes through the host (gevr_modapi.c gevrModApiPickupTry);
+ * 1 holds this one back */
+s32 gevrModPickupHold(PropRecord *prop)
+{
+    s32 kind, slot;
+
+    if (prop == NULL || prop->obj == NULL || !runtimeSlot(prop->obj, &kind, &slot))
+    {
+        return FALSE;
+    }
+    return gevrModApiPickupTry(kind, slot, gevrModGameLocal());
 }
 
 /* A pickup the game made while playing: its pool (GEVR_MODAPI_PICKUP_*) and

@@ -587,13 +587,24 @@ in-game screen). We maintain the adapters, not the mods.
     on every headset. The host's drop goes to the others (`NET_MSG_MOD`'s
     `NET_MOD_DROP`), and each drops its own copy from the same chr (a
     guard by its id, or the host's player) with that id, once it's in
-    play and only in the mission it was sent in. The first player to
-    take it has the others' copies removed (`NET_MOD_TAKEN`, through the
-    host), told there as `pickup_removed`. As with the stage's own
-    pickups in co-op, two players taking it within the network's delay
-    both get it, each told `item_pickup` with the same id. A headset that
-    can't make it (no such guard there, no free slot) logs it and goes
-    without; a guard's id is 0 to 32767 for a shared drop.
+    play and only in the mission it was sent in. **The host decides who
+    takes it.** A player's pickup of it (walking over it, a hand grab) is
+    held back, before the game changes anything, and claimed from the
+    host (`NET_MOD_CLAIM`, again each half second while it's held back).
+    The host awards the first claim it has while its own copy's still
+    there, its own player's pickup the same way, and tells everyone
+    (`NET_MOD_GRANT`): the winner's game takes it through its own pickup,
+    so exactly one inventory changes and one `item_pickup` is told; the
+    other copies are freed, told there as `pickup_removed`. A late or
+    repeated claim gets nothing, and the host answers a claim for one it
+    no longer has with `NET_MOD_GONE`, so the claimer's copy goes. A
+    player's pickup lands a round trip after it walks over it; the host's
+    at once. A shared copy the game frees untaken (its slot recycled for
+    room, say) is sent as `NET_MOD_GONE` (through the host), so every copy
+    goes, and the slot's next pickup has a new id. A headset that can't
+    make it (no such guard there, no free slot) logs it and goes without;
+    a guard's id is 0 to 32767 for a shared drop. Stock pickups and
+    drops that aren't shared are taken as before.
   - Calls: `mod.inventory.has(item)` (any item), `give(item)` and
     `take(item)` (guns and thrown weapons only, the swap list below).
     `give` returns true when the item is new and brings no rounds; remote

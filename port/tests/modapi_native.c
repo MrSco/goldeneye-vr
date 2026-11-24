@@ -37,7 +37,9 @@
  *     frame                        a frame in play (gevrModScriptFrame: the held messages go out)
  *     slotid|slottaken|slotfreed <kind> <slot>   gevr_modgame.c: a runtime pickup named (SLOTID id),
  *                                  taken by this player, freed (propobj.c objFree)
- *     netpickup <mod> <from> <kind> <hex>   net_core.c: a shared pickup's drop (2) or take (3)
+ *     netpickup <mod> <from> <kind> <hex>   net_core.c: a shared pickup's drop (2), claim (3),
+ *                                  award (4) or gone (5)
+ *     pickuptry <kind> <slot> <local>   propobj.c propPickupByPlayer's ask (TRY 1: held back)
  *     panel <0|1>                  this build has the in-game screen (input.c gevrPanelAvailable)
  *     ui                           the pages the in-game screen shows now (UIPAGE, UIROW, UIBUTTON, UIASKED)
  *     uiset <page> <row> <value> | uiclick <page> <button> | uiopened   the screen's side
@@ -75,6 +77,7 @@ bool netIsActive(void) { return s_online != 0; }
 bool netIsHost(void) { return s_hostNet != 0; }
 bool netIsDedicated(void) { return s_dedicated != 0; }
 int netGetLocalSlot(void) { return s_slot; }
+int netGetHostSlot(void) { return 0; }
 /* input.c: the in-game screen (mod.ui.open and close) */
 static int s_panel = 1;
 int gevrPanelAvailable(void) { return s_panel; }
@@ -266,6 +269,17 @@ int gevrModGamePickupRemove(int kind, int slot)
 {
     printf("REMOVE %d %d\n", kind, slot);
     gevrModApiPickupSlotFreed(kind, slot);   /* as objFree tells it */
+    return 1;
+}
+/* the game's own pickup of an awarded one: asks first, as propPickupByPlayer does, then taken and freed */
+int gevrModGamePickupGrant(int kind, int slot)
+{
+    const int held = gevrModApiPickupTry(kind, slot, 1);
+
+    printf("GRANTED %d %d %d\n", kind, slot, held);
+    if (held) return 0;
+    gevrModApiPickupSlotTaken(kind, slot);
+    gevrModApiPickupSlotFreed(kind, slot);
     return 1;
 }
 void gevrModGameSetAmmo(int type, int rounds) { s_ammo[type] = rounds; }
@@ -651,6 +665,9 @@ int main(int argc, char **argv)
             gevrModApiItemPickup(&got);
         } else if (!strcmp(cmd, "campaign") && i + 1 < argc) {
             s_modCampaign = atoi(argv[++i]);   /* a mod campaign runs (its own save) */
+        } else if (!strcmp(cmd, "pickuptry") && i + 3 < argc) {
+            printf("TRY %d\n", gevrModApiPickupTry(atoi(argv[i + 1]), atoi(argv[i + 2]), atoi(argv[i + 3])));
+            i += 3;
         } else if (!strcmp(cmd, "netpickup") && i + 4 < argc) {
             unsigned char bytes[64];
             int len = 0;
