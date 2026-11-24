@@ -3439,7 +3439,13 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
             if (!gevrStereoWatchItem(item)) {
                 if (mesh != NULL) {
                     renderdata.gdl = gevrModMeshDraw(renderdata.gdl, (Mtxf *)handptr->weaponModel.render_pos, mesh);
-                    modelDrawGunHand(&renderdata, &handptr->weaponModel);
+                    /* Same stock PP7 tube as the borrowed bat hand (gevrBatHandNode).
+                     * Classify by the loaded cartridge model, not just the item slot. */
+                    const char *carrier = (const char *)get_ptr_item_text_call_line(item);
+                    const int pp7Carrier = gevrRomRetailArt() && carrier != NULL
+                        && (!strcmp(carrier, "GwppkZ") || !strcmp(carrier, "GwppksilZ")
+                            || !strcmp(carrier, "GsilverwppkZ") || !strcmp(carrier, "GgoldwppkZ"));
+                    modelDrawGunHand(&renderdata, &handptr->weaponModel, pp7Carrier);
                 } else {
                     subdraw(&renderdata, &handptr->weaponModel);
                 }
