@@ -4833,7 +4833,9 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
                     /* hand reload (bondview2.c gevrHandReloadTick): the gesture reloads, not the empty magazine */
                     extern s32 gevrManualReloadOn(s32 hand);
 
-                    if (!gevrManualReloadOn(hand))
+                    if (!gevrManualReloadOn(hand)
+                        /* a mod declined it (reload_attempt): not asked again until the item or its reserve changes */
+                        && !gevrModApiReloadDeclined(hand, var_s1, get_ammo_in_hands_weapon(hand)))
 #endif
                     {
                         handptr->weapon_action_state = GUN_ANIM_STATE_RELOAD_START;
@@ -5765,7 +5767,12 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
     {
         if (((handptr->weapon_ammo_in_magazine < get_ptr_item_statistics(var_s1)->MagSize)
              || (bondwalkItemCheckBitflags(var_s1, WEAPONSTATBITFLAG_AMMO_CLIP_LIMIT) != 0))
-            && ((get_ammo_in_hands_weapon(hand) > 0)))
+            && ((get_ammo_in_hands_weapon(hand) > 0))
+#ifdef GEVR
+            /* reload_attempt (gevr_modapi.c): a mod can decline it, and the gun stays as it is */
+            && !gevrModApiReloadAttempt(hand, var_s1, get_ammo_in_hands_weapon(hand))
+#endif
+            )
         {
             handptr->weapon_action_state = GUN_ANIM_STATE_RELOAD_LOWER;
 #ifdef GEVR
