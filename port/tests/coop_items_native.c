@@ -52,6 +52,7 @@ int gevrCoopPuppets(void) { return puppets; }
 int gevrCoopDowned(int player) { return player >= 0 && player < 4 && downed[player]; }
 bool netSlotOccupied(int slot) { return slot >= 0 && slot < 4 && occupied[slot]; }
 bool netSlotIsSpectator(int slot) { return slot >= 0 && slot < 4 && (spectator[slot] || (slot == local_slot && netLocalIsSpectator())); }
+int netSlotChoosingSeen(int slot) { (void)slot; return 0; }
 int bondinvAddInvItem(int item)
 {
     assert(cur_player >= 0 && cur_player < 4);

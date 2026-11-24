@@ -2232,9 +2232,18 @@ static struct player *inputReadPlayer(s32 player)
  * to the C buttons for play) moves the cursor too. What the keyboard's stick
  * keys already set wins. Player 1's pad and, in a local split screen, each
  * further player's.
+ *
+ * rows: an online watch page of rows (mpmenu.c gevrMenuRowsOpen: PAUSE,
+ * LOBBY, FUN), where the stick's up and down step the selected row's value.
+ * There the d-pad's up and down (C-Up and C-Down) and the left stick's only
+ * move the cursor, the right stick steps the value whichever way it is
+ * pushed, and left and right on the d-pad or the left stick still turn the
+ * page, as the headset's sticks work there. The d-pad's up and down had also
+ * stepped the value: moving onto CHARACTER changed it, and the FAV rows
+ * toggled on the way past (user, 2026-11-24).
  */
 static void inputFlatPadSticks(SDL_GameController *pad, const struct controllercfg *pcfg, bool menu,
-                               f32 lx, f32 ly, OSContPad *npad)
+                               bool rows, f32 lx, f32 ly, OSContPad *npad)
 {
     const bool swapped = pcfg->swapSticks == 0;   /* default swapSticks=1 means L=move, R=look */
     const f32 rx = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTX) / 32767.0f;
@@ -2253,6 +2262,15 @@ static void inputFlatPadSticks(SDL_GameController *pad, const struct controllerc
         if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) sx = 1.0f;
         if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_UP)) sy = 1.0f;
         if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN)) sy = -1.0f;
+    }
+    if (menu && rows) {
+        const f32 ax = moveX < 0.0f ? -moveX : moveX, ay = moveY < 0.0f ? -moveY : moveY;
+        const f32 bx = lookX < 0.0f ? -lookX : lookX, by = lookY < 0.0f ? -lookY : lookY;
+        sx = ax > ay ? moveX : 0.0f;
+        if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT)) sx = -1.0f;
+        if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) sx = 1.0f;
+        sy = bx > by ? lookX : lookY;
+        if (ay > 0.5f && ay > ax) npad->button |= moveY > 0.0f ? U_CBUTTONS : D_CBUTTONS;
     }
     if (npad->stick_x == 0) {
         npad->stick_x = inputAxisScale((s32)(sx * 32767.0f),
@@ -2496,6 +2514,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         const bool paused = me && me->pause_state != 0;
         const bool menu = bossGetStageNum() == LEVELID_TITLE || paused ||
                           (netIsActive() && me && me->mpmenuon);
+        extern s32 gevrMenuRowsOpen(s32 slot);
+        const bool rows = menu && gevrMenuRowsOpen(player);
         SDL_GameController *pad = pads[devSlot];
         if (pad) {
             const struct controllercfg *pcfg = &padsCfg[devSlot];
@@ -2540,7 +2560,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 }
             }
 #endif
-            inputFlatPadSticks(pad, pcfg, menu, lx, ly, npad);
+            inputFlatPadSticks(pad, pcfg, menu, rows, lx, ly, npad);
             if (!s_seated && !netIsActive() && inputPadActive(pad)) {
                 s_soloPadSlot = 0;
             }
@@ -2550,7 +2570,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             if (!(inputSoloSlots(idx) & (1 << k))) {
                 continue;
             }
-            inputFlatPadSticks(pads[k], &padsCfg[k], menu,
+            inputFlatPadSticks(pads[k], &padsCfg[k], menu, rows,
                                SDL_GameControllerGetAxis(pads[k], SDL_CONTROLLER_AXIS_LEFTX) / 32767.0f,
                                -SDL_GameControllerGetAxis(pads[k], SDL_CONTROLLER_AXIS_LEFTY) / 32767.0f, npad);
             if (inputPadActive(pads[k])) {
@@ -2670,7 +2690,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         }
         if (pad) {
             const bool menu = bossGetStageNum() == LEVELID_TITLE || (me && (me->pause_state != 0 || (netIsActive() && me->mpmenuon)));
-            inputFlatPadSticks(pad, &padsCfg[pdev], menu,
+            extern s32 gevrMenuRowsOpen(s32 slot);
+            inputFlatPadSticks(pad, &padsCfg[pdev], menu, menu && gevrMenuRowsOpen(player),
                                SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX) / 32767.0f,
                                -SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY) / 32767.0f, npad);
         }

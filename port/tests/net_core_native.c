@@ -1448,6 +1448,15 @@ EXPORT int test_core_online_splitscreen(void) {
         netSetSlotChoosing(2, 1);
         CHECK(!netSlotChoosing(2));
         netSetSlotChoosing(2, 0);
+        /* Seen from the other machines: the moves of a player choosing say so (co-op's guards and revives). */
+        netSetSlotChoosing(1, 1);
+        CHECK(netSlotChoosingSeen(1) && !netSlotChoosingSeen(2));
+        netSetSlotChoosing(1, 0);
+        s_remote_active[2] = true; s_remote_moves[2].ucmd = UCMD_CHOOSING;
+        CHECK(!netSlotChoosingSeen(1) && netSlotChoosingSeen(2));
+        s_remote_active[2] = false;
+        CHECK(!netSlotChoosingSeen(2));
+        s_remote_moves[2].ucmd = 0;
     }
     CHECK(netRequestRemoveLocalGuest(1));
     CHECK(netLocalSlotCount() == 1 && !netSlotIsLocalHuman(1) && !s_lobby_state.slots[1].connected);

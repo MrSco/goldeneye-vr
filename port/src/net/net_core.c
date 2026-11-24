@@ -563,6 +563,17 @@ void netSetSlotChoosing(int slot, int choosing) {
 int netSlotChoosing(int slot) {
     return slot >= 0 && slot < GEVR_MAX_PLAYERS && s_slot_choosing[slot] && netSlotIsLocalHuman(slot);
 }
+/*
+ * The same, seen from any machine: a remote player's moves carry it
+ * (UCMD_CHOOSING). Co-op's guards leave such a player be (they are unhurt
+ * anyway) and they revive nobody until they choose, so a joiner left at the
+ * panel is no invulnerable decoy nor a teammate's automatic revive.
+ */
+int netSlotChoosingSeen(int slot) {
+    if (netSlotChoosing(slot)) return 1;
+    return slot >= 0 && slot < GEVR_MAX_PLAYERS && s_remote_active[slot] &&
+           (s_remote_moves[slot].ucmd & UCMD_CHOOSING) != 0;
+}
 int netDamageAllowed(int attacker, int target) {
     if (!netIsActive()) return 1;
     if (target < 0 || target >= GEVR_MAX_PLAYERS || attacker >= GEVR_MAX_PLAYERS) return 0;

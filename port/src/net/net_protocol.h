@@ -35,6 +35,7 @@ enum {
 #define UCMD_RELOAD         (1 << 2)
 #define UCMD_AIMMODE        (1 << 3)
 #define UCMD_DUCK           (1 << 4)
+#define UCMD_CHOOSING       (1 << 5)    /* dropped in and choosing a character: frozen and unhurt (net_core.c netSetSlotChoosing) */
 #define UCMD_SELECT         (1 << 7)
 #define UCMD_SELECT_DUAL    (1 << 8)
 #define UCMD_AIMVALID       (1 << 9)    /* aimorigin/aimdir hold the right gun's barrel */

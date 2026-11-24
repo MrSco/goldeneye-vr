@@ -473,10 +473,14 @@ int gevrCoopGuardDamageBlocked(void)
 
 s32 g_gevrCoopGuardTick = FALSE;   /* the host is running a guard's AI or fire as its target */
 
+extern int netSlotChoosingSeen(int slot);   /* net_core.c: a joiner choosing their character, on any machine */
+
 static int coopPlayerTargetable(int i)
 {
     struct player *pl = i >= 0 && i < 4 ? g_playerPointers[i] : NULL;
-    return pl && pl->prop && !pl->bonddead && netSlotOccupied(i) && !netSlotIsSpectator(i) && !gevrCoopDowned(i);
+    /* a joiner still choosing their character is frozen and unhurt: not a target */
+    return pl && pl->prop && !pl->bonddead && netSlotOccupied(i) && !netSlotIsSpectator(i) && !gevrCoopDowned(i)
+        && !netSlotChoosingSeen(i);
 }
 
 s32 gevrCoopGuardTarget(ChrRecord *chr)
@@ -2472,7 +2476,7 @@ void netCoopReviveTick(void)
             int by = -1;
             pl->bondhealth = COOP_DOWNED_HEALTH;
             for (int i = 0; i < 4 && by < 0; i++)
-                if (i != me && coopTeammateUp(i) && coopBeside(pl, g_playerPointers[i])) by = i;
+                if (i != me && coopTeammateUp(i) && !netSlotChoosingSeen(i) && coopBeside(pl, g_playerPointers[i])) by = i;
             if (by < 0) {
                 s_revive_since_us[me] = 0;
             } else if (!s_revive_since_us[me]) {

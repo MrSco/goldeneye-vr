@@ -692,6 +692,16 @@ s32 gevrCharSelIsOpen(s32 slot)
     return pl != NULL && pl->mpmenuon && pl->mpmenumode == MENU_CHARSEL;
 }
 
+/* An online player's watch is on a page of rows (PAUSE, LOBBY, FUN): a flat pad's sticks read differently there (input.c) */
+s32 gevrMenuRowsOpen(s32 slot)
+{
+    struct player *pl;
+
+    if (!netIsActive() || slot < 0 || slot >= MAX_PLAYER_COUNT) return 0;
+    pl = g_playerPointers[slot];
+    return pl != NULL && pl->mpmenuon && gevrMenuPageIdx(pl->mpmenumode) >= 0;
+}
+
 void gevrCharSelOpen(s32 slot, s32 dropin)
 {
     struct player *pl;
@@ -800,6 +810,17 @@ static Gfx *gevrMenuPagesDraw(Gfx *gdl, s32 menu_top, s32 two_player_x_offset)
     /* Scores and status have their own pages; audio and lobby rows start at the top. */
     shown = g_CurrentPlayer->mpmenumode == MENU_PAUSE ? page->count : GEVR_MENU_ROWS_SHOWN;
     y0 = 37;
+    /*
+     * As many rows as the view holds above the legend. A split screen's view
+     * is about 110 high, and eight rows and the legend (150) ran past its
+     * foot, the legend unseen; the rest scroll, the legend's arrows show it.
+     */
+    {
+        s32 room = viGetViewTop() + viGetViewHeight() - (menu_top + y0 + MPMENU_YOFF) - 14;
+        s32 fit = room / 13;
+        if (fit < 1) fit = 1;
+        if (shown > fit) shown = fit;
+    }
     gevrPageMoveCursor(page, 0);
     for (i = 0; i < page->count && nvis < 32; i++)
     {
@@ -825,7 +846,15 @@ static Gfx *gevrMenuPagesDraw(Gfx *gdl, s32 menu_top, s32 two_player_x_offset)
         snprintf(label, sizeof(label), "%s%s %s%s", selected ? "> " : "  ", r->name, value, selected ? " <" : "");
         gevrUpper(label);
         textMeasure(&textheight, &textwidth, label, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        if (textwidth > viGetViewWidth() - 4)
+        {
+            /* a quarter of the screen: without the cursor's marks (its colour still shows it) */
+            snprintf(label, sizeof(label), "%s %s", r->name, value);
+            gevrUpper(label);
+            textMeasure(&textheight, &textwidth, label, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        }
         x = viGetViewLeft() + two_player_x_offset + 80 - (textwidth >> 1);
+        if (x < viGetViewLeft() + 2) x = viGetViewLeft() + 2;
         y = menu_top + y0 + i * 13 + MPMENU_YOFF;
         gdl = textRender(gdl, &x, &y, label, ptrFontBankGothicChars, ptrFontBankGothic,
                          dim ? 0x00ff0080 : selected ? 0xa0ffa0f0 : 0x00ff00b0, viGetX(), viGetY(), 0, 0);
@@ -835,7 +864,15 @@ static Gfx *gevrMenuPagesDraw(Gfx *gdl, s32 menu_top, s32 two_player_x_offset)
     snprintf(label, sizeof(label), "%sL-STICK:ROW  %s%s", page->scroll > 0 ? "^ " : "",
              gevrRowEditable(sel) ? sel->hint : "HOST ONLY", page->scroll + shown < nvis ? " v" : "");
     textMeasure(&textheight, &textwidth, label, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+    if (textwidth > viGetViewWidth() - 4)
+    {
+        /* a quarter of the screen holds only the row's own hint (moving the cursor needs none) */
+        snprintf(label, sizeof(label), "%s%s%s", page->scroll > 0 ? "^ " : "",
+                 gevrRowEditable(sel) ? sel->hint : "HOST ONLY", page->scroll + shown < nvis ? " v" : "");
+        textMeasure(&textheight, &textwidth, label, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+    }
     x = viGetViewLeft() + two_player_x_offset + 80 - (textwidth >> 1);
+    if (x < viGetViewLeft() + 2) x = viGetViewLeft() + 2;
     y = menu_top + y0 + shown * 13 + 2 + MPMENU_YOFF;
     gdl = textRender(gdl, &x, &y, label, ptrFontBankGothicChars, ptrFontBankGothic, 0x00ff00b0, viGetX(), viGetY(), 0, 0);
     return gdl;

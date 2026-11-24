@@ -718,6 +718,9 @@ void netPlayerSyncAfterTick(s32 playernum) {
     if (pl->crouchpos != CROUCH_STAND) {
         move.ucmd |= UCMD_DUCK;
     }
+    if (netSlotChoosing(playernum)) {
+        move.ucmd |= UCMD_CHOOSING;   /* the others' co-op guards and revives (net_core.c netSlotChoosingSeen) */
+    }
     
     move.movespeed[0] = pl->speedforwards;
     move.movespeed[1] = pl->speedsideways;

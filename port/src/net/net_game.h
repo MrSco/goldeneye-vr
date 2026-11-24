@@ -46,6 +46,7 @@ int netDamageAllowed(int attacker, int target);
 /* a local player choosing their character after dropping in: no damage (net_core.c) */
 void netSetSlotChoosing(int slot, int choosing);
 int netSlotChoosing(int slot);
+int netSlotChoosingSeen(int slot);   /* any machine's player, from their moves */
 void gevrVoiceListenerBasis(float forward[3], float up[3]);
 int gevrNetSlotLoadout(int slot, int k);
 unsigned char gevrNetItemAt(int idx);

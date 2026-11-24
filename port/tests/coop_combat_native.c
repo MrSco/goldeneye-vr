@@ -36,6 +36,8 @@ int netCoopActive(void) {return 1;}
 bool netSlotOccupied(int slot) {return slot>=0 && slot<2;}
 bool netSlotIsSpectator(int slot) {(void)slot;return false;}
 int gevrCoopDowned(int slot) {return downed[slot];}
+static int choosing[4];
+int netSlotChoosingSeen(int slot) {return choosing[slot];}
 s32 get_cur_playernum(void) {return cur;}
 void set_cur_player(s32 slot) {assert(slot>=0 && slot<4);cur=slot;g_CurrentPlayer=&players[slot];}
 PropRecord *getCurrentPlayerProp(void) {return g_CurrentPlayer->prop;}
@@ -72,6 +74,8 @@ int main(void) {
     assert(gevrCoopGuardTarget(&guards[0])==1); /* joining player is nearest */
     gevrCoopGuardProvoked(&guards[0],0);assert(gevrCoopGuardTarget(&guards[0])==0);
     downed[0]=1;assert(gevrCoopGuardTarget(&guards[0])==1);downed[0]=0;
+    /* a joiner still choosing their character (frozen, unhurt) draws no fire */
+    choosing[0]=1;assert(gevrCoopGuardTarget(&guards[0])==1);choosing[0]=0;
     /* Copies start with a flash timer of zero and never render that flash.
      * It must not prevent probabilistic guard hits on their owner. */
     set_cur_player(1);g_gevrCoopGuardTick=1;
