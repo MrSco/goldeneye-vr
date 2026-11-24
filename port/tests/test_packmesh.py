@@ -87,6 +87,7 @@ def main():
         exe = Path(tmp) / ("packmesh_loader.exe" if os.name == "nt" else "packmesh_loader")
         subprocess.run([cc, "-std=gnu11", "-D_LANGUAGE_C=1", "-DGEVR=1",
                         "-DF3DEX_GBI_2=1", "-DVERSION=2", "-DVERSION_US=1", "-fno-builtin",
+                        *([] if os.name == "nt" else ["-DGEVR_HOST_LIBC=1"]),
                         "-fms-extensions",
                         "-I", str(ROOT), "-I", str(ROOT / "include"), "-I", str(ROOT / "port/include"),
                         "-I", str(ROOT / "src"), "-I", str(ROOT / "src/game"),
