@@ -17,6 +17,9 @@
 #include "bondview.h"
 #include "bondinv.h"
 #include "gun.h"
+#ifdef GEVR
+#include "gevr_modmesh.h"
+#endif
 #include "chrobjdata.h"
 #include "game/propobj.h"
 #include "game/objective_status.h"
@@ -3431,9 +3434,19 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         extern s32 gevrBeanMagShown(s32 hand);
         gevrBeanSetMagazine(gevrBeanMagShown(handnum));
         /* issue #31: the watch items' arm is the tracked watch arm (bondview2.c gevrStereoWatchItem) */
-        if (!gevrStereoWatchItem(item))
-#endif
+        {
+            const GevrModMesh *mesh = gevrModGunMesh(handnum);
+            if (!gevrStereoWatchItem(item)) {
+                if (mesh != NULL) {
+                    renderdata.gdl = gevrModMeshDrawHeld(renderdata.gdl, (Mtxf *)handptr->weaponModel.render_pos, mesh);
+                } else {
+                    subdraw(&renderdata, &handptr->weaponModel);
+                }
+            }
+        }
+#else
         subdraw(&renderdata, &handptr->weaponModel);
+#endif
 #ifdef GEVR
         gevrBeanSetLoaded(1);
         gevrBeanSetMagazine(0);

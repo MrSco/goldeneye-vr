@@ -544,6 +544,12 @@ in-game screen). We maintain the adapters, not the mods.
     measured magazines, so its gestures run the game's own reload). `gun.c` keeps the choices as a table, and each tick a hand
     showing another model than its gun's choice loads it again, so a
     choice never touches a player mid-load (`gevrModGunReconcile()`).
+  - A self-describing `GEVRWPN1` or `GEVRWPN2` mesh can also be used as
+    `file`; leave the exported bytes unchanged. Unlike a cartridge-format
+    replacement it has its own RGBA textures and geometry. It draws at
+    the carrier gun's root with mesh Y forward and Z up. The stock gun
+    still drives animation, fire and reload. The mesh does not add action
+    geometry, muzzle or grip data, optics, or remote weapon looks.
   - Known gaps: on a pump gun a lower `setLoaded` reads as a shot (the
     rack, `gevr_rack.h`); in co-op another headset's copy of the player
     still shows a declined shot's fire (the fire bit comes from the
@@ -1032,6 +1038,12 @@ in-game screen). We maintain the adapters, not the mods.
     and Z, in that order) and `scale` (0.01 to 100) lay it in the anchor's
     frame. Every frame is a gun model's units at the player's gun size,
     with X the holder's left, Y up and Z ahead, as the game's guns are.
+  - For a self-describing pack mesh use `model = "part.bin"` with `like`
+    omitted. A cartridge-format attachment still needs `like`. Pack meshes
+    allow up to 32 RGBA images (each
+    up to 512 by 512), 50,000 triangles and 64 MiB per file; cached mesh data
+    is bounded to 128 files and 192 MiB for the run. A malformed mesh or
+    one beyond the cache budget is refused.
   - The engine places each at its anchor every rendered frame, and a hand's
     follows its controller between game frames as the guns do; a script
     only attaches, hides and removes. (A position set from `tick` would

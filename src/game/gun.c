@@ -5710,6 +5710,7 @@ Gfx *gevrGexArmOnWatch(Gfx *gdl, ModelRenderData *templ, const Mtxf *w)
  * new mission, a mod stopped) never touch a player that may be gone.
  */
 #include "gevr_modassets.h"
+#include "gevr_modmesh.h"
 #define GEVR_MODGUN_NAME 64
 static char s_gevrModGun[2][ITEM_IDS_MAX][GEVR_MODGUN_NAME];
 static struct
@@ -5717,6 +5718,7 @@ static struct
     const void *owner;           /* the player it was loaded for: another stage's is stale */
     char name[GEVR_MODGUN_NAME]; /* the mod's model tried at the hand's last load, "" none */
     s32 in;                      /* and loaded */
+    const GevrModMesh *mesh;      /* self-contained model (the stock skeleton still poses the hand) */
 } s_gevrModGunShown[MAX_PLAYER_COUNT][2];
 
 static const char *gevrModGunModelFor(s32 hand, s32 item)
@@ -5741,6 +5743,12 @@ s32 gevrModGunHeld(s32 hand)
     const s32 p = get_cur_playernum();
 
     return gevrModGunShownOk(p, hand) && s_gevrModGunShown[p][hand].in;
+}
+
+const GevrModMesh *gevrModGunMesh(s32 hand)
+{
+    const s32 p = get_cur_playernum();
+    return gevrModGunShownOk(p, hand) ? s_gevrModGunShown[p][hand].mesh : NULL;
 }
 
 /* each tick: a hand showing another model than its gun's choice loads it
@@ -5775,7 +5783,15 @@ void gevrModGunModelSet(s32 hand, s32 item, const char *name)
 
 void gevrModGunModelReset(void)
 {
+    s32 p, hand;
     memset(s_gevrModGun, 0, sizeof(s_gevrModGun));
+    for (p = 0; p < MAX_PLAYER_COUNT; ++p) {
+        for (hand = 0; hand < 2; ++hand) {
+            if (s_gevrModGunShown[p][hand].mesh != NULL) s_gevrModGunShown[p][hand].in = FALSE;
+            s_gevrModGunShown[p][hand].mesh = NULL;
+        }
+    }
+    gevrModMeshReset();
 }
 #endif
 
@@ -5788,6 +5804,7 @@ void used_to_load_1st_person_model_on_demand(GUNHAND hand)
     enum ITEM_IDS    item;
 #ifdef GEVR
     const char      *gevrModTried = NULL;   /* a mod's model tried at this load (mod.weapon.model) */
+    const GevrModMesh *gevrMesh = NULL;
     s32              gevrModUsed = FALSE;
 #endif
 
@@ -5860,7 +5877,8 @@ void used_to_load_1st_person_model_on_demand(GUNHAND hand)
 #ifdef GEVR
                     /* a mod's model for this hand's gun (mod.weapon.model), in GoldenEye X's place */
                     gevrModTried = gevrModGunModelFor(hand, item);
-                    gevrModAssetPendingName = gevrModTried;
+                    const int packModel = gevrModMeshLoad(gevrModTried, &gevrMesh);
+                    gevrModAssetPendingName = packModel == 0 ? gevrModTried : NULL;
                     gevrModAssetPendingUsed = FALSE;
                     if (gevrModTried == NULL)
                     {
@@ -5869,7 +5887,7 @@ void used_to_load_1st_person_model_on_demand(GUNHAND hand)
 #endif
                     load_object_fill_header(&g_CurrentPlayer->copy_of_body_obj_header[hand], (u8 *)ptr_item_text, buffer_weapon, D_80032464[hand], &g_CurrentPlayer->item_related[hand]);
 #ifdef GEVR
-                    gevrModUsed = gevrModTried != NULL && gevrModAssetPendingUsed;
+                    gevrModUsed = gevrMesh != NULL || (gevrModTried != NULL && gevrModAssetPendingUsed);
                     gevrModAssetPendingName = NULL;
                     gevrGexGunDone();
                     /* the new gun's empty off hand now, not at its first draw after the switch */
@@ -5903,6 +5921,7 @@ void used_to_load_1st_person_model_on_demand(GUNHAND hand)
                     s_gevrModGunShown[p][hand].owner = g_CurrentPlayer;
                     snprintf(s_gevrModGunShown[p][hand].name, GEVR_MODGUN_NAME, "%s", gevrModTried != NULL ? gevrModTried : "");
                     s_gevrModGunShown[p][hand].in = gevrModUsed;
+                    s_gevrModGunShown[p][hand].mesh = gevrMesh;
                 }
             }
 #endif

@@ -46,6 +46,7 @@
 #include "player.h"
 #include "gevr_modapi.h"
 #include "gevr_modassets.h"
+#include "gevr_modmesh.h"
 #include "gevr_modscript.h"
 
 extern bool netIsActive(void);
@@ -73,6 +74,7 @@ typedef struct
     u8 *buf;
     struct texpool pool;
     ModelFileHeader header;
+    const GevrModMesh *mesh;
 } AttachFile;
 
 typedef struct
@@ -156,6 +158,11 @@ static AttachFile *attachLoad(const char *model, const char *like)
     snprintf(f->model, sizeof(f->model), "%s", model);
     snprintf(f->like, sizeof(f->like), "%s", like);
     f->ok = FALSE;   /* tried: not again this mission */
+    used = gevrModMeshLoad(model, &f->mesh);
+    if (used != 0) {
+        f->ok = used > 0;
+        return f->ok ? f : NULL;
+    }
     if ((h = likeHeader(like, &file)) == NULL)
     {
         sysLogPrintf(LOG_WARNING, "mods: attach: the cartridge has no model %s to build %s over", like, model);
@@ -377,6 +384,7 @@ void gevrModGameAttachReset(void)
     {
         s_files[i].model[0] = '\0';
         s_files[i].ok = FALSE;
+        s_files[i].mesh = NULL;
     }
     s_roomWarned = FALSE;
 }
@@ -390,6 +398,11 @@ static Gfx *attachDraw(Gfx *gdl, ModelRenderData *templ, Attachment *a, Mtxf *an
     ModelRenderData rd = *templ;
     Mtxf pose, *mtx;
     s32 i;
+
+    if (a->file->mesh != NULL) {
+        matrix_4x4_multiply(anchor, &a->offset, &pose);
+        return gevrModMeshDraw(gdl, &pose, a->file->mesh);
+    }
 
     /* its matrices, and its commands (a few a node, as subdraw lays them,
      * with margin), else skipped this frame: an overrun stops the game */

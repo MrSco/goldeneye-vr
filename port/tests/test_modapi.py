@@ -1483,12 +1483,12 @@ def gunmodel_placement():
     check(load.index("gevrModGunReconcile(hand);") < load.index("item             = g_CurrentPlayer->field_2A44[hand];"),
           "each tick a hand showing another model than its choice loads again, before the load")
     regular = load[load.rindex("texInitPool(", 0, load.index("gevrModTried = gevrModGunModelFor(hand, item);")):]
-    check(regular.index("gevrModAssetPendingName = gevrModTried;") < regular.index("if (gevrModTried == NULL)")
+    check(regular.index("gevrModAssetPendingName = packModel == 0 ? gevrModTried : NULL;") < regular.index("if (gevrModTried == NULL)")
           < regular.index("gevrGexGunPrepare(") < regular.index("load_object_fill_header(")
-          < regular.index("gevrModUsed = gevrModTried != NULL && gevrModAssetPendingUsed;")
+          < regular.index("gevrModUsed = gevrMesh != NULL || (gevrModTried != NULL && gevrModAssetPendingUsed);")
           < regular.index("gevrModAssetPendingName = NULL;"),
           "the regular gun's load: the mod's file named around it, GoldenEye X's only without one")
-    check(load.count("gevrModAssetPendingName = gevrModTried;") == 1, "only the regular gun's load (not the watch's or the suit's)")
+    check(load.count("gevrModAssetPendingName = packModel == 0 ? gevrModTried : NULL;") == 1, "only the regular gun's load (not the watch's or the suit's)")
     tail = load[load.index("g_CurrentPlayer->hand_item[hand]      = item;"):]
     check("s_gevrModGunShown[p][hand].owner = g_CurrentPlayer;" in tail and "gevrModTried != NULL ? gevrModTried" in tail,
           "what the hand shows: the name tried, so a broken file isn't tried each tick")
@@ -1536,7 +1536,6 @@ end)
           "model's answers and refusals; look's mod: " + str(logs(out)))
     check(answers(out, "GUNMODEL") == ["GUNMODEL reset", "GUNMODEL 0 8 GtacAk74Z", "GUNMODEL 1 8 GnoneZ", "GUNMODEL 0 8 -"],
           "the game side: a mission's reset, then each call: " + str(answers(out, "GUNMODEL")))
-
 
 def attach_placement():
     """Each attachment drawn at its anchor as drawn: the gun's root after the gun, the hands and body with the body"""
@@ -1653,7 +1652,7 @@ mod.on("mission_start", function()
   local bad = 0
   local function try(t) if not pcall(mod.attach.add, t) then bad = bad + 1 end end
   try({ like = "Gak47Z", on = "gun", hand = "right" })
-  try({ model = "GtacAcogZ", on = "gun", hand = "right" })
+  try({ model = "GtacAcogZ", like = false, on = "gun", hand = "right" })
   try({ model = "a/b", like = "Gak47Z", on = "gun", hand = "right" })
   try({ model = "GtacAcogZ", like = "Gak47Z", on = "elbow" })
   try({ model = "GtacAcogZ", like = "Gak47Z", on = "gun" })

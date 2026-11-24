@@ -552,10 +552,11 @@ static int modelNameOk(const char *s, size_t n)
     size_t i;
 
     if (n < 1 || n > 63) return 0;
+    if (n > 4 && !memcmp(s + n - 4, ".bin", 4)) n -= 4;
     for (i = 0; i < n; i++) {
         const char c = s[i];
 
-        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_')) return 0;
+        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-')) return 0;
     }
     return 1;
 }
@@ -579,7 +580,7 @@ static int l_gunModel(lua_State *L)
 
         name = luaL_checklstring(L, 3, &n);
         if (!modelNameOk(name, n)) {
-            return luaL_argerror(L, 3, "a model's file name: 1 to 63 letters, digits and _ (assets/models/<file>)");
+            return luaL_argerror(L, 3, "a flat model file name (assets/models/<file>)");
         }
     }
     if (!gevrModGameSwappable(item)) {
@@ -2046,14 +2047,19 @@ static int l_uiClose(lua_State *L)
 /* which mod attached each (remove and show answer only to it), as ids come back */
 static struct { int id; char mod[64]; } s_attachOwners[GEVR_MODAPI_ATTACH_MAX];
 
-static void attachName(lua_State *L, const char *key, char *out, size_t cap)
+static void attachName(lua_State *L, const char *key, char *out, size_t cap, int optional)
 {
     size_t n;
     const char *s;
 
-    if (lua_getfield(L, 1, key) != LUA_TSTRING) luaL_error(L, "mod.attach.add: %s is a model file's name", key);
+    const int type = lua_getfield(L, 1, key);
+    if (optional && type == LUA_TNIL) {
+        lua_pop(L, 1);
+        return;
+    }
+    if (type != LUA_TSTRING) luaL_error(L, "mod.attach.add: %s is a model file's name", key);
     s = lua_tolstring(L, -1, &n);
-    if (!modelNameOk(s, n)) luaL_error(L, "mod.attach.add: %s is 1 to 63 letters, digits and _", key);
+    if (!modelNameOk(s, n)) luaL_error(L, "mod.attach.add: %s requires a flat model file name", key);
     snprintf(out, cap, "%s", s);
     lua_pop(L, 1);
 }
@@ -2146,8 +2152,8 @@ static int l_attachAdd(lua_State *L)
 
     luaL_checktype(L, 1, LUA_TTABLE);
     memset(&a, 0, sizeof(a));
-    attachName(L, "model", a.model, sizeof(a.model));
-    attachName(L, "like", a.like, sizeof(a.like));
+    attachName(L, "model", a.model, sizeof(a.model), 0);
+    attachName(L, "like", a.like, sizeof(a.like), 1);
     if (lua_getfield(L, 1, "on") != LUA_TSTRING) {
         luaL_error(L, "mod.attach.add: on is \"gun\", \"hand\", a body anchor or \"guard\"");
     }
