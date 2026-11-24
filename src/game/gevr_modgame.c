@@ -446,7 +446,19 @@ int gevrModPickupSpawn(PropDefHeaderRecord *rec, int index)
     return 0;
 }
 
-typedef char pickupPoolsFit[MAX_WEAPON_SLOTS <= GEVR_MODAPI_PICKUP_SLOTS && MAX_AMMO_CRATES <= GEVR_MODAPI_PICKUP_SLOTS ? 1 : -1];
+typedef char pickupPoolsFit[MAX_WEAPON_SLOTS <= GEVR_MODAPI_PICKUP_SLOTS && MAX_AMMO_CRATES <= GEVR_MODAPI_PICKUP_SLOTS
+                            && GEVR_MODAPI_ARMOUR_DROPS <= GEVR_MODAPI_PICKUP_SLOTS ? 1 : -1];
+
+/* Body armour a mod drops (mod.pickups.drop): the game makes none while
+ * playing, only the stage's own, so the records are the mod API's. A record
+ * is free while it has no prop, as the game's weapon slots are (objFree
+ * clears it when the armour's taken); none kept past a stage. */
+static BodyArmourRecord s_modArmour[GEVR_MODAPI_ARMOUR_DROPS];
+
+void gevrModGameDropsClear(void)
+{
+    memset(s_modArmour, 0, sizeof(s_modArmour));
+}
 
 /* A pickup the game made while playing: its pool (GEVR_MODAPI_PICKUP_*) and
  * slot, or FALSE for the stage's own */
@@ -454,6 +466,7 @@ static s32 runtimeSlot(ObjectRecord *obj, s32 *kind, s32 *slot)
 {
     const uintptr_t at = (uintptr_t)obj;
     const uintptr_t weapons = (uintptr_t)&g_WeaponSlots[0], crates = (uintptr_t)&g_AmmoCrates[0];
+    const uintptr_t vests = (uintptr_t)&s_modArmour[0];
 
     (void)sizeof(pickupPoolsFit);
     if (at >= weapons && at < weapons + sizeof(WeaponObjRecord) * MAX_WEAPON_SLOTS
@@ -468,6 +481,12 @@ static s32 runtimeSlot(ObjectRecord *obj, s32 *kind, s32 *slot)
     {
         *kind = GEVR_MODAPI_PICKUP_BOX;
         *slot = (s32)((at - crates) / sizeof(AmmoCrateRecord));
+        return TRUE;
+    }
+    if (at >= vests && at < vests + sizeof(s_modArmour) && (at - vests) % sizeof(BodyArmourRecord) == 0)
+    {
+        *kind = GEVR_MODAPI_PICKUP_ARMOUR;
+        *slot = (s32)((at - vests) / sizeof(BodyArmourRecord));
         return TRUE;
     }
     return FALSE;
@@ -920,7 +939,7 @@ void gevrModWeaponDropped(PropRecord *prop)
     gevrModApiWeaponDropped(pickupId(obj), ((WeaponObjRecord *)obj)->weaponnum, fromChr(prop->parent->chr));
 }
 
-int gevrModGameDrop(int item, int ammo, int from)
+int gevrModGameDrop(int item, int ammo, float armour, int from)
 {
     ChrRecord *chr;
     PropRecord *prop = NULL;
@@ -959,11 +978,44 @@ int gevrModGameDrop(int item, int ammo, int from)
             *(ObjectRecord *)crate = blank_07_object;
             crate->obj = s_boxLook[ammo];
             crate->ammoType = ammo;
+            modelLoad(crate->obj);   /* a box the stage never placed: its file, as a hat's is loaded (hatCreateForChr) */
             if (objInitWithModelDef((ObjectRecord *)crate, PitemZ_entries[crate->obj].header) != NULL)
             {
                 modelSetScale(crate->model, crate->model->scale);
                 chrpropReparent(crate->prop, chr->prop);
                 prop = crate->prop;
+            }
+        }
+    }
+    else if (armour > 0.0f && armour <= 1.0f)
+    {
+        /* as the stage's own armour (PROPDEF_ARMOUR, the body armour model), in a
+         * record of the mod API's pool, then let fall as the box is: taken
+         * by the game's own armour pickup, worn down by shots as the stage's */
+        BodyArmourRecord *vest = NULL;
+        s32 i;
+
+        for (i = 0; i < GEVR_MODAPI_ARMOUR_DROPS && vest == NULL; i++)
+        {
+            if (s_modArmour[i].prop == NULL) vest = &s_modArmour[i];
+        }
+        if (vest != NULL)
+        {
+            *(ObjectRecord *)vest = blank_07_object;
+            vest->type = PROPDEF_ARMOUR;
+            vest->obj = PROP_BODYARMOUR;
+            vest->initialamount = armour;
+            vest->amount = armour;
+            modelLoad(PROP_BODYARMOUR);
+            if (objInitWithModelDef((ObjectRecord *)vest, PitemZ_entries[PROP_BODYARMOUR].header) != NULL)
+            {
+                modelSetScale(vest->model, vest->model->scale);
+                chrpropReparent(vest->prop, chr->prop);
+                prop = vest->prop;
+            }
+            else
+            {
+                vest->prop = NULL;   /* free again */
             }
         }
     }

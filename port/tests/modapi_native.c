@@ -251,13 +251,16 @@ int gevrModGameAmmo(int type) { return s_ammo[type]; }
 /* the game's drops: a weapon slot's id or a box slot's (as gevr_modgame.c
  * names them), none from guard 999 */
 static int s_dropWeapons, s_dropBoxes;
-int gevrModGameDrop(int item, int ammo, int from)
+static int s_dropArmour;
+int gevrModGameDrop(int item, int ammo, float armour, int from)
 {
-    printf("DROP %d %d %d\n", item, ammo, from);
+    printf("DROP %d %d %.2f %d\n", item, ammo, armour, from);
     if (from == 999) return -1;
     return item ? gevrModApiPickupSlotId(GEVR_MODAPI_PICKUP_WEAPON, s_dropWeapons++)
-                : gevrModApiPickupSlotId(GEVR_MODAPI_PICKUP_BOX, s_dropBoxes++);
+         : ammo ? gevrModApiPickupSlotId(GEVR_MODAPI_PICKUP_BOX, s_dropBoxes++)
+         : gevrModApiPickupSlotId(GEVR_MODAPI_PICKUP_ARMOUR, s_dropArmour++);
 }
+void gevrModGameDropsClear(void) { s_dropArmour = 0; }
 void gevrModGameSetAmmo(int type, int rounds) { s_ammo[type] = rounds; }
 int gevrModGameAmmoMax(int type) { return type >= 1 && type <= GEVR_MODAPI_AMMO_TYPES ? s_ammoMax[type] : 0; }
 

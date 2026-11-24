@@ -178,6 +178,27 @@ def reload_placement(gun, view):
           "a drawn gun closes the last one's reload")
 
 
+def armour_placement():
+    """armour dropped from the mod API's own records, as the stage's armour; a box's or armour's model loaded first"""
+    game = (ROOT / "src/game/gevr_modgame.c").read_bytes().decode()
+    drop = function(game, "int gevrModGameDrop(int item, int ammo, float armour, int from)")
+    check(drop.index("modelLoad(crate->obj);") < drop.index("objInitWithModelDef((ObjectRecord *)crate")
+          and drop.index("modelLoad(PROP_BODYARMOUR);") < drop.index("objInitWithModelDef((ObjectRecord *)vest"),
+          "a model the stage never placed is loaded before its prop is made")
+    check(drop.index("if (s_modArmour[i].prop == NULL) vest = &s_modArmour[i];") < drop.index("vest->type = PROPDEF_ARMOUR;")
+          < drop.index("vest->obj = PROP_BODYARMOUR;") < drop.index("vest->amount = armour;")
+          < drop.index("chrpropReparent(vest->prop, chr->prop);"),
+          "a free record (no prop), made the stage's armour with the amount, on the chr to fall")
+    slots = function(game, "static s32 runtimeSlot(ObjectRecord *obj, s32 *kind, s32 *slot)")
+    check("*kind = GEVR_MODAPI_PICKUP_ARMOUR;" in slots, "a dropped armour has a runtime id and pickup_removed")
+    api = (ROOT / "port/src/gevr_modapi.c").read_bytes().decode()
+    check("gevrModGameDropsClear();" in function(api, "void gevrModApiPickupClear(void)"),
+          "the pool's records free as a mission loads")
+    obj = (ROOT / "src/game/propobj.c").read_bytes().decode()
+    check("case PROPDEF_ARMOUR:" in function(obj, "bool objIsCollectable(PropDefHeaderRecord *obj)"),
+          "the game collects armour by its type, so a record of the mod API's is taken as the stage's")
+
+
 def pickup_ids(exe, temp):
     """runtime pickups' ids never given twice in a mission; pickup_removed for one freed untaken, at the next
     frame in play and only then; a new mission's ids afresh"""
@@ -244,9 +265,10 @@ def drops_placement():
     free = function(obj, "void objFree(ObjectRecord* obj, s32 freeprop, s32 canregen)")
     check(free.index("gevrModPickupFreed(obj);") < free.index("if (obj->type == PROPDEF_AUTOGUN)"),
           "every free of an object asks first, while it's whole")
-    drop = function(game, "int gevrModGameDrop(int item, int ammo, int from)")
+    drop = function(game, "int gevrModGameDrop(int item, int ammo, float armour, int from)")
     check(drop.index("s_modDropping = TRUE;") < drop.index("something_with_generating_object(chr, propid, (ITEM_IDS)item, 0x20000000")
           < drop.index("ammocrateAllocate()") < drop.index("chrpropReparent(crate->prop, chr->prop);")
+          < drop.index("vest->type = PROPDEF_ARMOUR;")
           < drop.index("propobjSetDropped(prop, DROPTYPE_DEFAULT);") < drop.index("objDrop(prop);")
           < drop.index("s_modDropping = FALSE;"),
           "a mod's drop: drop_inventory's gun, a shot crate's box, then the game's fall; no weapon_dropped for it")
@@ -388,20 +410,24 @@ mod.on("mission_start", function()
   try({ item = "ak47", from = "guard" })
   try({ item = "ak47", from = -3 })
   try({ ammo = 99, from = "player" })
+  try({ armour = 0, from = "player" })
+  try({ armour = 1.5, from = "player" })
+  try({ armour = "full", from = "player" })
+  try({ armour = 0.5, ammo = "rifle", from = "player" })
   print("bad", bad)
   print("drops", mod.pickups.drop({ item = "ak47", from = "player" }), mod.pickups.drop({ ammo = "rifle", from = 1005 }),
-        mod.pickups.drop({ item = 8, from = 999 }))
+        mod.pickups.drop({ item = 8, from = 999 }), mod.pickups.drop({ armour = 0.5, from = 1005 }))
 end)
 mod.on("weapon_dropped", function(pickup, item, from) print("dropped", pickup, item, from) end)
 """
     out = run(exe, temp, "drop", lua, "start", "prepare", 9, "dropped", 32770, 8, 1005, "begin", 9,
               "dropped", 32770, 8, 1005, "dropped", -1, 4, -1, "dropped", 5, 26, -2)
-    check(logs(out) == ["bad 7", "drops 65536 65537 nil", "dropped 32770 8 1005", "dropped nil 4 player",
+    check(logs(out) == ["bad 11", "drops 65536 65537 nil 65538", "dropped 32770 8 1005", "dropped nil 4 player",
                         "dropped 5 26 nil"],
           "drop's answers and refusals; weapon_dropped's id, item and who (a guard, a player, none), in play: "
           + str(logs(out)))
-    check(answers(out, "DROP") == ["DROP 8 0 -1", "DROP 0 3 1005", "DROP 8 0 999"],
-          "the game side: a gun from the player, a rifle box from a guard, none from a guard that isn't: "
+    check(answers(out, "DROP") == ["DROP 8 0 0.00 -1", "DROP 0 3 0.00 1005", "DROP 8 0 0.00 999", "DROP 0 0 0.50 1005"],
+          "the game side: a gun from the player, a rifle box from a guard, none from a guard that isn't, half armour: "
           + str(answers(out, "DROP")))
 
     # ---- mod.inventory and mod.ammo ----
@@ -1621,6 +1647,7 @@ def main():
     placement()
     items_placement()
     drops_placement()
+    armour_placement()
     hands_placement()
     guards_placement()
     guards2_placement()
@@ -1802,7 +1829,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
     print("PASS: mods' weapons area: fire attempts declined or not, weapon_fire, reloads asked and declined, an "
           "empty gun kept in hand, draws, the local player only, "
           "mod.weapon's calls and limits, mod.items, the stats put back; the hooks' places in the gun code. "
-          "Items area: pickup_spawning's swaps, turns and refusals, item_pickup with its pickup id, ids never reused and pickup_removed, mod.pickups.drop, "
+          "Items area: pickup_spawning's swaps, turns and refusals, item_pickup with its pickup id, ids never reused and pickup_removed, mod.pickups.drop (armour too), "
           "weapon_dropped, mod.inventory, mod.ammo; "
           "the hooks' places in the stage's setup and the pickup. Hands area: grip, release, hand_near, "
           "mod.hands' positions, anchors and pulses; the hooks' places. Guards area: guard_spawning's body, head and gun, "

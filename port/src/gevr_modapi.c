@@ -647,27 +647,40 @@ void gevrModApiPickupClear(void)
     s_pickupNext = GEVR_MODAPI_PICKUP_RUNTIME;
     s_removedQueued = 0;
     s_removedDropped = 0;
+    gevrModGameDropsClear();   /* and the armour pool: the last stage's props are gone */
 }
 
 /*
- * drop{ item = gun, from = "player" | guard } or drop{ ammo = type, from = ... }:
- * the game's own drop of a gun or thrown weapon (as a player's inventory is
- * dropped, drop_inventory) or of an ammo box of that type (as a shot crate
- * drops one), falling from the player or a guard (a mod.guards id, a corpse
- * too). The new pickup's id (as item_pickup and weapon_dropped give it), or
- * nil when the game has no free slot or no such guard. Placed on this
- * headset only: in co-op, every headset that should have it drops it.
+ * drop{ item = gun, from = "player" | guard }, drop{ ammo = type, from = ... }
+ * or drop{ armour = amount, from = ... }: the game's own drop of a gun or
+ * thrown weapon (as a player's inventory is dropped, drop_inventory), of an
+ * ammo box of that type (as a shot crate drops one), or of body armour (more
+ * than 0, up to 1, as the stage's own), falling from the player or a guard (a
+ * mod.guards id, a corpse too). The new pickup's id (as item_pickup and
+ * weapon_dropped give it), or nil when there's no free slot or no such guard.
+ * Placed on this headset only: in co-op, every headset that should have it
+ * drops it.
  */
 static int l_drop(lua_State *L)
 {
     int item = 0, ammo = 0, from, id;
+    float armour = 0.0f;
 
     luaL_checktype(L, 1, LUA_TTABLE);
     if (lua_getfield(L, 1, "item") != LUA_TNIL) item = itemArg(L, lua_gettop(L));
     lua_pop(L, 1);
     if (lua_getfield(L, 1, "ammo") != LUA_TNIL) ammo = ammoArg(L, lua_gettop(L));
     lua_pop(L, 1);
-    if ((item != 0) == (ammo != 0)) return luaL_error(L, "mod.pickups.drop: one of item or ammo");
+    if (lua_getfield(L, 1, "armour") != LUA_TNIL) {
+        const lua_Number a = lua_type(L, -1) == LUA_TNUMBER ? lua_tonumber(L, -1) : -1.0;
+
+        if (!(a > 0.0 && a <= 1.0)) return luaL_error(L, "mod.pickups.drop: armour is more than 0, up to 1");
+        armour = (float)a;
+    }
+    lua_pop(L, 1);
+    if ((item != 0) + (ammo != 0) + (armour > 0.0f) != 1) {
+        return luaL_error(L, "mod.pickups.drop: one of item, ammo or armour");
+    }
     if (item != 0 && !gevrModGameSwappable(item)) {
         return luaL_error(L, "mod.pickups.drop: the item is a gun or thrown weapon with a model in this cartridge");
     }
@@ -683,7 +696,7 @@ static int l_drop(lua_State *L)
     }
     lua_pop(L, 1);
     needPlayer(L, "mod.pickups.drop");
-    id = gevrModGameDrop(item, ammo, from);
+    id = gevrModGameDrop(item, ammo, armour, from);
     if (id < 0) lua_pushnil(L);
     else lua_pushinteger(L, id);
     return 1;

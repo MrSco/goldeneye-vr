@@ -113,7 +113,7 @@ void gevrModApiWeaponDropped(int pickup, int item, int from);
  * is never given again in the mission. Each headset numbers its own. */
 #define GEVR_MODAPI_PICKUP_RUNTIME 0x10000
 #define GEVR_MODAPI_PICKUP_LAST 0x3FFFFFFF
-enum { GEVR_MODAPI_PICKUP_WEAPON, GEVR_MODAPI_PICKUP_BOX, GEVR_MODAPI_PICKUP_KINDS };
+enum { GEVR_MODAPI_PICKUP_WEAPON, GEVR_MODAPI_PICKUP_BOX, GEVR_MODAPI_PICKUP_ARMOUR, GEVR_MODAPI_PICKUP_KINDS };
 #define GEVR_MODAPI_PICKUP_SLOTS 64   /* a pool's slots at most (the game's: 30 weapons, 20 boxes) */
 #define GEVR_MODAPI_PICKUP_QUEUE 64   /* pickup_removed's waiting for the next frame */
 /* the game's side: a runtime slot's id, named now if it has none (-1 past
@@ -125,10 +125,15 @@ void gevrModApiPickupSlotFreed(int kind, int slot);
 void gevrModApiPickupFlush(void);   /* gevr_modscript.c: each frame in play, before tick */
 void gevrModApiPickupClear(void);   /* and as a mission loads: no ids, none waiting */
 /* mod.pickups.drop: the game's own drop (drop_inventory's, a shot crate's box)
- * of a gun or thrown weapon (item, ammo 0) or an ammo box of a type (item 0,
- * ammo 1 to 13), from the local player (from GEVR_MODAPI_FROM_PLAYER) or a
- * guard (its id); the new pickup's id, or -1 (no such guard, no free slot) */
-int gevrModGameDrop(int item, int ammo, int from);
+ * of a gun or thrown weapon (item), an ammo box of a type (ammo 1 to 13), or
+ * body armour (armour, more than 0 up to 1, as the stage's own), one of the
+ * three, from the local player (from GEVR_MODAPI_FROM_PLAYER) or a guard (its
+ * id); the new pickup's id, or -1 (no such guard, no free slot). The game
+ * makes no armour while playing: it comes from a pool of the mod API's own,
+ * GEVR_MODAPI_ARMOUR_DROPS at once */
+#define GEVR_MODAPI_ARMOUR_DROPS 8
+int gevrModGameDrop(int item, int ammo, float armour, int from);
+void gevrModGameDropsClear(void);   /* as a mission loads: the armour pool's records free */
 
 /* The game's hooks (src/game/gevr_modgame.c) */
 struct PropDefHeaderRecord;

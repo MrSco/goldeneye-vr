@@ -566,17 +566,21 @@ in-game screen). We maintain the adapters, not the mods.
     `"player"`, or nil. Each headset drops its own copy of what happens
     there, so ids are this headset's (never reused in the mission). Not
     for a mod's own drop.
-  - `mod.pickups.drop{ item = gun }` or `{ ammo = type }`, with `from =
-    "player"` or a guard's id (a corpse too): the game's own drop, a gun
-    or thrown weapon as a player's inventory is dropped
-    (`drop_inventory()`), an ammo box of that type as a shot crate drops
-    one, falling from that chr. Returns the new pickup's id, or nil with
-    no free slot in the game's (30 weapons, 20 boxes) or no such guard.
-    The box carries the type's own rounds, and a gun the game's usual
-    rounds with it. Placed on this headset only: in co-op, each headset
-    that should have it drops it (from the host's `guard_killed`, say, sent
-    over `mod.net`). Armour isn't made while playing, so it can't be
-    dropped.
+  - `mod.pickups.drop{ item = gun }`, `{ ammo = type }` or `{ armour =
+    amount }`, with `from = "player"` or a guard's id (a corpse too): the
+    game's own drop, a gun or thrown weapon as a player's inventory is
+    dropped (`drop_inventory()`), an ammo box of that type as a shot crate
+    drops one, or body armour (more than 0, up to 1, as the stage's own),
+    falling from that chr. Returns the new pickup's id, or nil with no
+    free slot or no such guard. The box carries the type's own rounds,
+    and a gun the game's usual rounds with it. The game makes no armour
+    while playing, so a dropped one is a record of the mod API's own (8
+    at once, freed as they're taken), the stage's body armour model, taken
+    by the game's own armour pickup (only when it's more than the player
+    has) and worn down by shots as the stage's is. A model the stage
+    never placed is loaded first, as the game loads a hat it gives. Placed
+    on this headset only: in co-op, each headset that should have it
+    drops it (from the host's `guard_killed`, say, sent over `mod.net`).
   - Calls: `mod.inventory.has(item)` (any item), `give(item)` and
     `take(item)` (guns and thrown weapons only, the swap list below).
     `give` returns true when the item is new and brings no rounds; remote
