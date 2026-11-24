@@ -359,6 +359,7 @@ typedef struct GevrModWeaponStats {
     int sound;        /* Sound: the shot's ROM sound effect (mod.audio's ids) */
     float loudnessMin;   /* LoudnessMin, LoudnessMax: how far guards hear a shot */
     float loudnessMax;
+    int automatic;    /* fired automatically while the trigger's held (gunfire.c's firing switch) */
 } GevrModWeaponStats;
 
 /* The current player is this machine's human (not a copy, not a bot) */

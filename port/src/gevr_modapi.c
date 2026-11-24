@@ -218,6 +218,8 @@ static int l_stats(lua_State *L)
         lua_pushinteger(L, st.fireRate);
         lua_setfield(L, -2, "fireRate");
     }
+    lua_pushboolean(L, st.automatic);
+    lua_setfield(L, -2, "automatic");
     lua_pushnumber(L, st.damage);
     lua_setfield(L, -2, "damage");
     lua_pushnumber(L, st.inaccuracy);
@@ -286,11 +288,17 @@ static int l_setStats(lua_State *L)
         next.magazine = (int)v;
     }
     lua_pop(L, 1);
+    if (lua_getfield(L, 2, "automatic") != LUA_TNIL) {
+        if (!lua_isboolean(L, -1)) return luaL_error(L, "mod.weapon.setStats: automatic is true or false");
+        next.automatic = lua_toboolean(L, -1);
+    }
+    lua_pop(L, 1);
     if (lua_getfield(L, 2, "fireRate") != LUA_TNIL) {
         lua_Integer v;
 
-        if (own.fireRate < 0) {
-            return luaL_error(L, "mod.weapon.setStats: %s isn't automatic; it has no fireRate", s_itemNames[item]);
+        if (!next.automatic) {
+            return luaL_error(L, "mod.weapon.setStats: %s isn't automatic; it has no fireRate (automatic = true gives it one)",
+                              s_itemNames[item]);
         }
         if (!lua_isinteger(L, -1) || (v = lua_tointeger(L, -1)) < GEVR_MODAPI_RATE_MIN || v > GEVR_MODAPI_RATE_MAX) {
             return luaL_error(L, "mod.weapon.setStats: fireRate is ticks between shots, %d to %d", GEVR_MODAPI_RATE_MIN,
@@ -299,6 +307,9 @@ static int l_setStats(lua_State *L)
         next.fireRate = (int)v;
     }
     lua_pop(L, 1);
+    if (next.automatic && next.fireRate < 0) {
+        return luaL_error(L, "mod.weapon.setStats: %s has no fireRate of its own; an automatic needs one", s_itemNames[item]);
+    }
     if (lua_getfield(L, 2, "damage") != LUA_TNIL) {
         const double cap = own.damage > 0 ? own.damage * GEVR_MODAPI_DAMAGE_SCALE : 0.0;
         double v;

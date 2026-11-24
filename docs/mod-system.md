@@ -456,8 +456,14 @@ in-game screen). We maintain the adapters, not the mods.
     `mod.audio`'s ids) and `loudnessMin` and `loudnessMax` (how far
     guards hear the shot, a suppressor's lower; 0 to 100, or ten times
     its own most, min at most max); only items with stats of their own.
-    Automatic fire on a gun the game fires one shot at a time isn't a
-    stat: the game decides it by the item, in the firing code.
+    `automatic` (true or false): the gun fires while the trigger's held
+    at its `fireRate` (an automatic's branch of the firing switch,
+    `gunfire.c`), or a shot a press (a pistol's); the game decides it by
+    the item, and `gevrModFireAs()` sends a mod's choice down the other
+    branch. A gun made automatic needs a `fireRate`, its own or given in
+    the same call; `fireRate` is refused on a gun that isn't automatic.
+    `stats` reads it back. Guards holding that weapon fire it the same
+    way.
     Stats are per weapon type, guards' too, and go back to the game's own
     at a mission's end and when a mod stops.
   - Scopes (VR): `mod.weapon.scope(hand, t)` puts the game's per-hand

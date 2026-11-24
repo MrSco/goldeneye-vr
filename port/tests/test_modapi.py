@@ -103,6 +103,19 @@ def placement():
     reload_placement(gun, view)
     empty_placement(gun, view)
     speed_placement(view)
+    automatic_placement(gun)
+
+
+def automatic_placement(gun):
+    """the firing switch asks gevrModFireAs for the item's branch"""
+    fire = gun.index("if (handptr->weapon_action_state == GUN_ANIM_STATE_FIRE)")
+    ask = gun.index("switch (gevrModFireAs(var_s1, GEVR_ITEM_AS(var_s1)))", fire)
+    check(ask < gun.index("case ITEM_CAMERA:", ask) < gun.index("case ITEM_SKORPION:", ask) < ask + 4000,
+          "the firing switch's branch is the mod's choice, else the item's")
+    game = (ROOT / "src/game/gevr_modgame.c").read_bytes().decode()
+    check("s_modFireMode[item] == 1 ? ITEM_AK47 : ITEM_WPPK" in function(game, "s32 gevrModFireAs(s32 item, s32 as)")
+          and "in->fireRate >= 0 ? (u8)in->fireRate : 0xFF" in function(game, "void gevrModGameSetStats("),
+          "an automatic's branch or a pistol's; a rate of none put back as the game's 0xFF")
 
 
 def speed_placement(view):
@@ -1606,12 +1619,21 @@ mod.on("mission_start", function()
   print("bad", bad, w.stats("ak47").sound)
   print("speed", (pcall(mod.player.setSpeed, 0.1)), (pcall(mod.player.setSpeed, 2.5)))
   mod.player.setSpeed(0.8)
+  print("auto", w.stats("wppk").automatic, w.stats("ak47").automatic, (pcall(w.setStats, "wppk", { automatic = true })),
+        (pcall(w.setStats, "wppk", { automatic = 1 })))
+  assert(w.setStats("wppk", { automatic = true, fireRate = 2 }))
+  assert(w.setStats("ak47", { automatic = false }))
+  print("now", w.stats("wppk").automatic, w.stats("wppk").fireRate, w.stats("ak47").automatic,
+        (pcall(w.setStats, "ak47", { fireRate = 4 })))
 end)
 """
-        out = run(exe, temp, "handling", lua, *play, "show2", 8, "title", "show2", 8)
-        check(logs(out) == ["own 0.0 0.0 0 0.0", "bad 6 12", "speed false false"], "handling: " + str(logs(out)))
-        check(answers(out, "STATS2") == ["STATS2 2.50 4.00 1.00 12 1.00 5.00", "STATS2 0.00 0.00 0.00 0 0.00 0.00"],
-              "accuracy, recoil, sound and loudness set, then the game's own again at the mission's end: "
+        out = run(exe, temp, "handling", lua, *play, "show2", 8, "show2", 4, "title", "show2", 8, "show2", 4)
+        check(logs(out) == ["own 0.0 0.0 0 0.0", "bad 6 12", "speed false false", "auto false true false false",
+                            "now true 2 false false"], "handling: " + str(logs(out)))
+        check(answers(out, "STATS2") == ["STATS2 2.50 4.00 1.00 12 1.00 5.00 0 3", "STATS2 0.00 0.00 0.00 0 0.00 0.00 1 2",
+                                         "STATS2 0.00 0.00 0.00 0 0.00 0.00 1 3", "STATS2 0.00 0.00 0.00 0 0.00 0.00 0 -1"],
+              "accuracy, recoil, sound and loudness set; the PP7 automatic at 2 ticks, the KF7 a shot a press; then the "
+          "game's own again at the mission's end: "
               + str(answers(out, "STATS2")))
         check(answers(out, "SPEED")[-3:] == ["SPEED 1.00", "SPEED 0.80", "SPEED 1.00"],
               "the speed: the game's own at the mission's start, the mod's, the game's own after: "

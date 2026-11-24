@@ -5089,7 +5089,14 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
     {
         if ((get_ammo_type_for_weapon(var_s1) == 0) || (handptr->weapon_ammo_in_magazine > 0))
         {
+#ifdef GEVR
+            /* a mod's automatic or a-shot-a-press fire for this gun (setStats' automatic, gevr_modgame.c) */
+            extern s32 gevrModFireAs(s32 item, s32 as);
+
+            switch (gevrModFireAs(var_s1, GEVR_ITEM_AS(var_s1)))
+#else
             switch (GEVR_ITEM_AS(var_s1))
+#endif
             {
             case ITEM_CAMERA:
             case ITEM_WATCHMAGNETATTRACT:

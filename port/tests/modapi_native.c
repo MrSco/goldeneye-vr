@@ -477,6 +477,7 @@ static void stats(int item, int magazine, int rate, float damage)
     s_stats[item].magazine = magazine;
     s_stats[item].fireRate = rate;
     s_stats[item].damage = damage;
+    s_stats[item].automatic = rate >= 0;
 }
 
 int main(int argc, char **argv)
@@ -562,8 +563,8 @@ int main(int argc, char **argv)
         } else if (!strcmp(cmd, "show2") && i + 1 < argc) {
             const GevrModWeaponStats *s = &s_stats[atoi(argv[++i])];
 
-            printf("STATS2 %.2f %.2f %.2f %d %.2f %.2f\n", s->inaccuracy, s->recoilBack, s->recoilUp, s->sound,
-                   s->loudnessMin, s->loudnessMax);
+            printf("STATS2 %.2f %.2f %.2f %d %.2f %.2f %d %d\n", s->inaccuracy, s->recoilBack, s->recoilUp, s->sound,
+                   s->loudnessMin, s->loudnessMax, s->automatic, s->fireRate);
         } else if (!strcmp(cmd, "loadedis") && i + 1 < argc) {
             printf("LOADED %d\n", s_loaded[atoi(argv[++i])]);
         } else if ((!strcmp(cmd, "weapon") || !strcmp(cmd, "box") || !strcmp(cmd, "crate") || !strcmp(cmd, "armour"))

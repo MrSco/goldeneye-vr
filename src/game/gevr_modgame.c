@@ -155,6 +155,31 @@ void gevrModGameSetLoaded(int hand, int rounds)
     set_cur_player(was);
 }
 
+/* Automatic fire by the item, as gunfire.c's firing switch decides it, and a
+ * mod's say per item (setStats' automatic): 0 the game's own, 1 automatic, 2
+ * a shot a press. Put back with the stats (gevrModApiReset) */
+static s8 s_modFireMode[ITEM_IDS_MAX];
+
+static s32 nativeAutomatic(s32 item)
+{
+    switch (GEVR_ITEM_AS(item))
+    {
+        case ITEM_SKORPION: case ITEM_AK47: case ITEM_UZI: case ITEM_MP5K:
+        case ITEM_MP5KSIL: case ITEM_SPECTRE: case ITEM_M16: case ITEM_FNP90:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+/* gunfire.c: the firing switch's case for the item: an automatic's (the
+ * AK47's) or a shot a press (the PP7's) when a mod chose, else as */
+s32 gevrModFireAs(s32 item, s32 as)
+{
+    if (item < 0 || item >= ITEM_IDS_MAX || s_modFireMode[item] == 0) return as;
+    return s_modFireMode[item] == 1 ? ITEM_AK47 : ITEM_WPPK;
+}
+
 int gevrModGameStats(int item, GevrModWeaponStats *out)
 {
     const WeaponStats *st;
@@ -171,6 +196,7 @@ int gevrModGameStats(int item, GevrModWeaponStats *out)
     out->sound = st->Sound;
     out->loudnessMin = st->LoudnessMin;
     out->loudnessMax = st->LoudnessMax;
+    out->automatic = s_modFireMode[item] ? s_modFireMode[item] == 1 : nativeAutomatic(item);
     return 1;
 }
 
@@ -182,7 +208,9 @@ void gevrModGameSetStats(int item, const GevrModWeaponStats *in)
     st = get_ptr_item_statistics((ITEM_IDS)item);
     if (!st || st == &default_weaponstats) return;
     st->MagSize = (s16)in->magazine;
-    if (in->fireRate >= 0) st->AutomaticFiringRate = (u8)in->fireRate;
+    /* -1 is the game's own "none" (0xFF), so a gun made automatic gets it back */
+    st->AutomaticFiringRate = in->fireRate >= 0 ? (u8)in->fireRate : 0xFF;
+    s_modFireMode[item] = (in->automatic != 0) == (nativeAutomatic(item) != 0) ? 0 : in->automatic ? 1 : 2;
     st->DestructionAmount = in->damage;
     st->Inaccuracy = in->inaccuracy;
     st->RecoilBack = in->recoilBack;
