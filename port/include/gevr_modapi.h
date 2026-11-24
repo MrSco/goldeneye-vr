@@ -358,6 +358,28 @@ int gevrModGameLook(int hand);
 int gevrModGameGunModel(int hand, int item, const char *name);
 /* every hand's own models back (a mod stopped, a new mission) */
 void gevrModGameGunModelReset(void);
+
+/* mod.attach (src/game/gevr_modattach.c): a pack's model on the local
+ * player's gun, a hand or the body, placed each rendered frame */
+#define GEVR_MODAPI_ATTACH_MAX 16      /* attached at once, every mod's together */
+#define GEVR_MODAPI_ATTACH_MODELS 8    /* model files loaded in a mission */
+#define GEVR_MODAPI_ATTACH_RANGE 4000.0f   /* at: model units (a gun is about 800 long) */
+#define GEVR_MODAPI_ATTACH_SCALE_MIN 0.01f
+#define GEVR_MODAPI_ATTACH_SCALE_MAX 100.0f
+enum { GEVR_MODATTACH_GUN, GEVR_MODATTACH_HAND, GEVR_MODATTACH_BODY };
+typedef struct GevrModAttach {
+    char model[64];        /* assets/models/<model> */
+    char like[64];         /* the cartridge model file it's built over (a G gun or P prop) */
+    int on;                /* GEVR_MODATTACH_* */
+    int where;             /* the hand (0 right, 1 left), or the body slot (the anchors' order) */
+    float offset[4][4];    /* in the anchor's frame, its units: rows the model's axes, then its place */
+} GevrModAttach;
+/* attach: its id from 1; 0 when the model won't load (no file, no such like,
+ * a file the like's header doesn't fit); -1 with all attached */
+int gevrModGameAttach(const GevrModAttach *a);
+int gevrModGameDetach(int id);
+int gevrModGameAttachShow(int id, int shown);
+void gevrModGameAttachReset(void);   /* none attached (a new mission, a mod stopped) */
 /* A gun or thrown weapon with a model in this cartridge: what a swap or
  * mod.inventory.give/take may use */
 int gevrModGameSwappable(int item);

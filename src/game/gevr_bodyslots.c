@@ -1061,6 +1061,46 @@ static Gfx *gevrReloadBeltDraw(Gfx *gdl)
     return gdl;
 }
 
+/*
+ * mod.attach (gevr_modattach.c): a slot's frame, view space, at the viewmodel's
+ * scale (a gun model's units, 0.085 cm each at the player's gun size): the
+ * slot's centre, the body's left, up and ahead as the model's X, Y and Z, as
+ * an upright item's (gevrBodySlotRoot) without its grip offset. FALSE while
+ * the torso's frame isn't kept.
+ */
+s32 gevrBodySlotFrame(s32 slot, Mtxf *root)
+{
+    const f32 *R = s_bodyFrame.right, *U = s_bodyFrame.up, *F = s_bodyFrame.fwd;
+    f32 x[3], y[3], z[3], xv[3], yv[3], zv[3], cv[3], k;
+    s32 setting, online, i;
+
+    if (slot < 0 || slot >= GEVR_BODY_SLOTS || !s_bodyFrameValid)
+    {
+        return FALSE;
+    }
+    k = 0.085f * D_800364CC * gevrGunSizeNow(&setting, &online);
+    for (i = 0; i < 3; i++)
+    {
+        x[i] = -R[i];
+        y[i] = U[i];
+        z[i] = F[i];
+    }
+    gevrBodyToView(x, 1.0f, xv);
+    gevrBodyToView(y, 1.0f, yv);
+    gevrBodyToView(z, 1.0f, zv);
+    gevrBodyToView(s_bodyCentre[slot], D_800364CC, cv);
+    for (i = 0; i < 3; i++)
+    {
+        root->m[0][i] = xv[i] * k;
+        root->m[1][i] = yv[i] * k;
+        root->m[2][i] = zv[i] * k;
+        root->m[3][i] = cv[i];
+    }
+    root->m[0][3] = root->m[1][3] = root->m[2][3] = 0.0f;
+    root->m[3][3] = 1.0f;
+    return TRUE;
+}
+
 Gfx *gevrBodySlotsDraw(Gfx *gdl)
 {
     static const s32 shown[] = { GEVR_BS_HIP_GUN, GEVR_BS_HIP_OFF, GEVR_BS_CHEST, GEVR_BS_BELT };
@@ -1069,6 +1109,12 @@ Gfx *gevrBodySlotsDraw(Gfx *gdl)
     s32 i, inst = 0, set = FALSE;
 
     gdl = gevrReloadBeltDraw(gdl);
+    {
+        /* a mod's models on the hands and the body (mod.attach): with body slots off too */
+        extern Gfx *gevrModAttachDrawBody(Gfx *gdl);   /* gevr_modattach.c */
+
+        gdl = gevrModAttachDrawBody(gdl);
+    }
 
     if (!s_bodyLive || !s_bodyFrameValid || !VrBodySlotShow || g_gevrExtraPass || g_CurrentPlayer == NULL)
     {

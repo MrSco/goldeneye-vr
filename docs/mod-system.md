@@ -335,7 +335,7 @@ is the proposal to refine with mod authors (Tactical first).
 | Items | `pickup_spawning` (can swap a weapon, ammo or armour pickup at its existing pad), `item_pickup`, `item_spawned` | spawn a pickup, take or give an item |
 | Guards | `guard_spawning`, `guard_spawned`, `guard_alerted`, `guard_shot`, `guard_killed`, `corpse_retiring` | read state, give a guard's weapon or outfit (from the ROM's bodies), spawn a guard and send it along a patrol path through the game's own spawn and AI commands |
 | Damage and player | `before_damage`, `damage_applied` (a player's too: no separate `player_damaged`), `player_downed`, `player_revived`, `player_died` | health and armour |
-| Assets | — | the pack's model files in the cartridge's place and its textures over the HD pack (no call: they're there); attach a model to a hand, gun or body slot (next); `mod.audio.play` (ROM sound effects only), `mod.effect.play` |
+| Assets | — | the pack's model files in the cartridge's place and its textures over the HD pack (no call: they're there); `mod.weapon.model` (a gun's model per hand), `mod.attach` (a model on the gun, a hand or a body slot); `mod.audio.play` (ROM sound effects only), `mod.effect.play` |
 | UI | `ui_click`, `ui_change` | a page on the in-game screen from a simple layout (text, toggles, choices, sliders, buttons): `mod.ui.page`, `remove`, `open`, `close` |
 | Network | `peer_ready`, `mod.net.on` (includes the sender's player ID) | `mod.net.send`, `mod.net.role`, `mod.net.slot` |
 | Storage | — | read and write in `mods/<id>/save/` |
@@ -825,6 +825,41 @@ in-game screen). We maintain the adapters, not the mods.
     has one. No HD pack needs to be chosen. A mod that can't start shows
     none. They match textures by content, so a mod over Goldfinger 64 or
     Tomorrow Never Dies names that cartridge's own.
+- **Assets, part two: a gun's model per hand and attachments** (Tactical's
+  review, #291). The gun's model per hand is `mod.weapon.model`, in the
+  weapons area above. Attachments: `src/game/gevr_modattach.c`.
+  - `mod.attach.add{ model, like, on, hand, at, turn, scale }` draws the
+    pack's `assets/models/<model>` on the local player's gun, a hand or the
+    body. `like` names the cartridge model file it's built over (a G gun
+    or P prop file, its header: `Gak47Z`, `PcartonZ`), as `assets/models`'
+    replacements keep the cartridge's header. Loaded once a mission
+    through `load_resource`, into a buffer of its own as
+    `gevr_heldgun.c`'s guns are; a file that won't load over that header is
+    refused (nil), never drawn as the cartridge's. At most 8 model files a
+    mission, and 16 attached at once, every mod's together; past those,
+    nil. Loading reads the file, so attach at `mission_start` or
+    `weapon_drawn`, not every tick.
+  - `on`: `"gun"` with `hand` (`"right"`, `"left"`): on the gun that hand
+    holds, on its model's root as drawn, so it moves with the gun's
+    recoil, reload and switch, and a mirrored left gun's part mirrors with
+    it; flat too. `"hand"` with `hand`: on that controller's grip (VR). A
+    body anchor (`hip_gun`, `hip_off`, `back_gun`, `back_off`, `chest`,
+    `belt`, as `mod.hands.anchor`): on the slot's centre on the torso, kept
+    while a mod runs even with body slots off (VR).
+  - `at` (model units, ±4000), `turn` (degrees about the anchor's X, Y
+    and Z, in that order) and `scale` (0.01 to 100) lay it in the anchor's
+    frame. Every frame is a gun model's units at the player's gun size,
+    with X the holder's left, Y up and Z ahead, as the game's guns are.
+  - The engine places each at its anchor every rendered frame, and a hand's
+    follows its controller between game frames as the guns do; a script
+    only attaches, hides and removes. (A position set from `tick` would
+    trail the hand: scripts tick at 60 Hz, a headset draws at 72 to 120.)
+  - `mod.attach.show(id, shown)` hides or shows one, kept attached;
+    `mod.attach.remove(id)`. Both answer true only to the mod that
+    attached it. None stay past a mission, nor past a mod stopping.
+  - The local player's view only: another player sees none, and a guard's
+    gun none. Rigid: a model's parts are laid out by its own nodes, and
+    nothing on it moves of itself.
 
 ### Pickup swaps
 
@@ -932,7 +967,8 @@ Every headset runs the swaps at load, so in co-op the choices come from
    network (5), the UI's pages on the in-game screen (the fit on both
    screens in `port/tests/test_ingame_fit.py`). Then assets: the pack's
    files first (`port/tests/test_modassets.py`, the routing in
-   `port/tests/test_romcheck.py`), attachments next.
+   `port/tests/test_romcheck.py`), then a gun's model per hand and
+   attachments (`port/tests/test_modapi.py`).
 5. **Network:** `NET_MSG_MOD`, co-op with mods, the dedicated server.
    `mod.net`, `peer_ready` and a stop told to every headset
    (`port/tests/test_modapi.py`; the routing and checks on the production

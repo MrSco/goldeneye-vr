@@ -1778,6 +1778,36 @@ static s32 gevrGripAxesRaw(s32 ctrl, f32 pos[3], f32 right[3], f32 up[3], f32 ba
     return TRUE;
 }
 
+/*
+ * mod.attach (gevr_modattach.c): a hand's controller grip as a frame, view space,
+ * at the viewmodel's scale (a gun model's units, 0.085 cm each at the player's
+ * gun size): the hand's left, up and ahead as the model's X, Y and Z, as the
+ * body slots' frames. hand: GUNRIGHT the gun hand (controller 1), GUNLEFT the
+ * off hand. The raw pose: a two-handed aim doesn't turn what a hand carries.
+ */
+s32 gevrModAttachHandFrame(s32 hand, Mtxf *root)
+{
+    extern f32 gevrGunSizeNow(s32 *setting, s32 *online);   /* below */
+    f32 pos[3], right[3], up[3], back[3], k;
+    s32 setting, online, i;
+
+    if (!g_gevrStereo || !gevrGripAxesRaw(hand == GUNRIGHT ? 1 : 0, pos, right, up, back))
+    {
+        return FALSE;
+    }
+    k = 0.085f * D_800364CC * gevrGunSizeNow(&setting, &online);
+    for (i = 0; i < 3; i++)
+    {
+        root->m[0][i] = -right[i] * k;
+        root->m[1][i] = up[i] * k;
+        root->m[2][i] = -back[i] * k;
+        root->m[3][i] = pos[i];
+    }
+    root->m[0][3] = root->m[1][3] = root->m[2][3] = 0.0f;
+    root->m[3][3] = 1.0f;
+    return TRUE;
+}
+
 /* Every user of the gun hand's axes comes through here - the gun, its shots,
  * sight, muzzle and scope - so the two-handed aim (issue #35) turns them all,
  * as Perfect Dark VR's vrBuildGunRotation is the one writer of the gun's

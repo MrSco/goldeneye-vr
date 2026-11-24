@@ -1293,6 +1293,181 @@ static int l_uiClose(lua_State *L)
     return 0;
 }
 
+/* ---- mod.attach ---- */
+
+/* which mod attached each (remove and show answer only to it), as ids come back */
+static struct { int id; char mod[64]; } s_attachOwners[GEVR_MODAPI_ATTACH_MAX];
+
+static void attachName(lua_State *L, const char *key, char *out, size_t cap)
+{
+    size_t n;
+    const char *s;
+
+    if (lua_getfield(L, 1, key) != LUA_TSTRING) luaL_error(L, "mod.attach.add: %s is a model file's name", key);
+    s = lua_tolstring(L, -1, &n);
+    if (!modelNameOk(s, n)) luaL_error(L, "mod.attach.add: %s is 1 to 63 letters, digits and _", key);
+    snprintf(out, cap, "%s", s);
+    lua_pop(L, 1);
+}
+
+/* an optional { a, b, c } field within [lo, hi] */
+static void attachTriple(lua_State *L, const char *key, float out[3], float lo, float hi, const char *what)
+{
+    int i;
+
+    if (lua_getfield(L, 1, key) == LUA_TNIL) {
+        lua_pop(L, 1);
+        return;
+    }
+    if (!lua_istable(L, -1) || lua_rawlen(L, -1) != 3) luaL_error(L, "mod.attach.add: %s", what);
+    for (i = 0; i < 3; i++) {
+        int ok;
+        lua_Number v;
+
+        lua_rawgeti(L, -1, i + 1);
+        v = lua_tonumberx(L, -1, &ok);
+        lua_pop(L, 1);
+        if (!ok || !(v >= lo && v <= hi)) luaL_error(L, "mod.attach.add: %s", what);
+        out[i] = (float)v;
+    }
+    lua_pop(L, 1);
+}
+
+/* The offset as the game lays a model in a frame (Mtxf rows: the model's X, Y
+ * and Z axes, then its place): turned about the anchor's X, then Y, then Z,
+ * scaled, at at */
+static void attachOffset(float out[4][4], const float at[3], const float turn[3], float scale)
+{
+    const double r = 3.14159265358979 / 180.0;
+    const double cx = cos(turn[0] * r), sx = sin(turn[0] * r), cy = cos(turn[1] * r), sy = sin(turn[1] * r);
+    const double cz = cos(turn[2] * r), sz = sin(turn[2] * r);
+    /* M = Rz Ry Rx: an axis e_i goes to M's column i */
+    const double m[3][3] = {
+        { cz * cy, cz * sy * sx - sz * cx, cz * sy * cx + sz * sx },
+        { sz * cy, sz * sy * sx + cz * cx, sz * sy * cx - cz * sx },
+        { -sy, cy * sx, cy * cx },
+    };
+    int i, j;
+
+    for (i = 0; i < 3; i++) {
+        for (j = 0; j < 3; j++) out[i][j] = (float)(m[j][i] * scale);
+        out[i][3] = 0.0f;
+        out[3][i] = at[i];
+    }
+    out[3][3] = 1.0f;
+}
+
+/*
+ * add(t): t = { model, like, on, hand, at, turn, scale }. model is the pack's
+ * assets/models/<model>, built over the cartridge's model file like (a G gun
+ * or P prop file: its header). on is "gun" or "hand" (with hand "right" or
+ * "left"), or a body anchor (hip_gun, hip_off, back_gun, back_off, chest,
+ * belt). at (model units), turn (degrees about the anchor's X, Y, Z) and scale
+ * place it in the anchor's frame. Its id, or nil when the model won't load or
+ * 16 are attached already.
+ */
+static int l_attachAdd(lua_State *L)
+{
+    const char *mod = gevrModScriptIdOf(L);
+    GevrModAttach a;
+    float at[3] = { 0.0f, 0.0f, 0.0f }, turn[3] = { 0.0f, 0.0f, 0.0f }, scale = 1.0f;
+    const char *on;
+    int i, id;
+
+    luaL_checktype(L, 1, LUA_TTABLE);
+    memset(&a, 0, sizeof(a));
+    attachName(L, "model", a.model, sizeof(a.model));
+    attachName(L, "like", a.like, sizeof(a.like));
+    if (lua_getfield(L, 1, "on") != LUA_TSTRING) luaL_error(L, "mod.attach.add: on is \"gun\", \"hand\" or a body anchor");
+    on = lua_tostring(L, -1);
+    if (!strcmp(on, "gun") || !strcmp(on, "hand")) {
+        a.on = !strcmp(on, "gun") ? GEVR_MODATTACH_GUN : GEVR_MODATTACH_HAND;
+        lua_getfield(L, 1, "hand");
+        if (lua_type(L, -1) == LUA_TSTRING && !strcmp(lua_tostring(L, -1), "right")) a.where = 0;
+        else if (lua_type(L, -1) == LUA_TSTRING && !strcmp(lua_tostring(L, -1), "left")) a.where = 1;
+        else luaL_error(L, "mod.attach.add: hand is \"right\" or \"left\" for the gun or a hand");
+        lua_pop(L, 1);
+    } else {
+        for (i = 0; i < GEVR_MODAPI_ANCHORS && strcmp(on, s_anchorNames[i]); i++) {
+        }
+        if (i == GEVR_MODAPI_ANCHORS) luaL_error(L, "mod.attach.add: no anchor %s (gun, hand, %s ...)", on, s_anchorNames[0]);
+        a.on = GEVR_MODATTACH_BODY;
+        a.where = i;
+    }
+    lua_pop(L, 1);
+    attachTriple(L, "at", at, -GEVR_MODAPI_ATTACH_RANGE, GEVR_MODAPI_ATTACH_RANGE, "at is { x, y, z }, -4000 to 4000");
+    attachTriple(L, "turn", turn, -360.0f, 360.0f, "turn is { x, y, z } in degrees, -360 to 360");
+    if (lua_getfield(L, 1, "scale") != LUA_TNIL) {
+        int ok;
+        const lua_Number v = lua_tonumberx(L, -1, &ok);
+
+        if (!ok || !(v >= GEVR_MODAPI_ATTACH_SCALE_MIN && v <= GEVR_MODAPI_ATTACH_SCALE_MAX)) {
+            luaL_error(L, "mod.attach.add: scale is 0.01 to 100");
+        }
+        scale = (float)v;
+    }
+    lua_pop(L, 1);
+    attachOffset(a.offset, at, turn, scale);
+    needPlayer(L, "mod.attach.add");
+    id = gevrModGameAttach(&a);
+    if (id <= 0) {
+        lua_pushnil(L);
+        return 1;
+    }
+    for (i = 0; i < GEVR_MODAPI_ATTACH_MAX; i++) {
+        if (s_attachOwners[i].id == 0) {
+            s_attachOwners[i].id = id;
+            snprintf(s_attachOwners[i].mod, sizeof(s_attachOwners[i].mod), "%s", mod);
+            break;
+        }
+    }
+    lua_pushinteger(L, id);
+    return 1;
+}
+
+/* this mod's attachment's place in s_attachOwners, or -1 */
+static int attachOwned(lua_State *L, lua_Integer id)
+{
+    const char *mod = gevrModScriptIdOf(L);
+    int i;
+
+    for (i = 0; id > 0 && i < GEVR_MODAPI_ATTACH_MAX; i++) {
+        if (s_attachOwners[i].id == id && !strcmp(s_attachOwners[i].mod, mod)) return i;
+    }
+    return -1;
+}
+
+/* remove(id): true when this mod had it */
+static int l_attachRemove(lua_State *L)
+{
+    const int at = attachOwned(L, luaL_checkinteger(L, 1));
+
+    if (at >= 0) {
+        gevrModGameDetach(s_attachOwners[at].id);
+        s_attachOwners[at].id = 0;
+    }
+    lua_pushboolean(L, at >= 0);
+    return 1;
+}
+
+/* show(id, shown): hides or shows it, kept attached; true when this mod has it */
+static int l_attachShow(lua_State *L)
+{
+    const int at = attachOwned(L, luaL_checkinteger(L, 1));
+
+    luaL_checktype(L, 2, LUA_TBOOLEAN);
+    if (at >= 0) gevrModGameAttachShow(s_attachOwners[at].id, lua_toboolean(L, 2));
+    lua_pushboolean(L, at >= 0);
+    return 1;
+}
+
+static const luaL_Reg s_attachFuncs[] = {
+    { "add", l_attachAdd },
+    { "remove", l_attachRemove },
+    { "show", l_attachShow },
+    { NULL, NULL },
+};
+
 static const luaL_Reg s_uiFuncs[] = {
     { "page", l_uiPage },
     { "remove", l_uiRemove },
@@ -1352,6 +1527,9 @@ void gevrModApiOpen(lua_State *L)
     lua_newtable(L);
     luaL_setfuncs(L, s_uiFuncs, 0);
     lua_setfield(L, -2, "ui");
+    lua_newtable(L);
+    luaL_setfuncs(L, s_attachFuncs, 0);
+    lua_setfield(L, -2, "attach");
 }
 
 void gevrModApiReset(void)
@@ -1365,6 +1543,8 @@ void gevrModApiReset(void)
     gevrModGameScope(0, GEVR_MODSCOPE_GAME, 0, NULL, 0.0f, 0.0f);   /* the game's own scopes again */
     gevrModGameScope(1, GEVR_MODSCOPE_GAME, 0, NULL, 0.0f, 0.0f);
     gevrModGameGunModelReset();   /* and the hands' own models */
+    gevrModGameAttachReset();     /* and nothing attached */
+    memset(s_attachOwners, 0, sizeof(s_attachOwners));
 }
 
 /* ---- the weapons area's events ---- */

@@ -1103,6 +1103,99 @@ end)
           "the game side: a mission's reset, then each call: " + str(answers(out, "GUNMODEL")))
 
 
+def attach_placement():
+    """Each attachment drawn at its anchor as drawn: the gun's root after the gun, the hands and body with the body"""
+    gun = (ROOT / "src/game/gunfire.c").read_bytes().decode()
+    draw = gun.index("subdraw(&renderdata, &handptr->weaponModel);")
+    att = gun.index("renderdata.gdl = gevrModAttachDrawGun(renderdata.gdl, &renderdata, handnum, &handptr->weaponModel);")
+    check(draw < gun.index("renderdata.gdl = gevrBeanMagDraw(renderdata.gdl, &renderdata, handnum);") < att
+          < gun.index("gdl = renderdata.gdl;", att) < gun.index("VR_CULL_MIRROR_END", att),
+          "the gun's after the gun and its own extras, before the mirrored left gun's culling ends")
+    body = (ROOT / "src/game/gevr_bodyslots.c").read_bytes().decode()
+    slots = function(body, "Gfx *gevrBodySlotsDraw(Gfx *gdl)")
+    check(slots.index("gdl = gevrModAttachDrawBody(gdl);") < slots.index("if (!s_bodyLive || !s_bodyFrameValid || !VrBodySlotShow"),
+          "the hands' and the body's before the body slots' own early return (with body slots off too)")
+    frame = function(body, "s32 gevrBodySlotFrame(s32 slot, Mtxf *root)")
+    view = (ROOT / "src/game/bondview2.c").read_bytes().decode()
+    hand = function(view, "s32 gevrModAttachHandFrame(s32 hand, Mtxf *root)")
+    for name, text in (("the body's", frame), ("a hand's", hand)):
+        check("k = 0.085f * D_800364CC * gevrGunSizeNow(&setting, &online);" in text,
+              name + " frame at a gun model's units and the player's gun size")
+    check("!s_bodyFrameValid" in frame and "gevrGripAxesRaw(hand == GUNRIGHT ? 1 : 0" in hand,
+          "frames only while kept: the torso's, the controller's raw grip")
+    mine = (ROOT / "src/game/gevr_modattach.c").read_bytes().decode()
+    load = function(mine, "static AttachFile *attachLoad(const char *model, const char *like)")
+    check(load.index("gevrModAssetPendingName = model;") < load.index("load_object_fill_header(")
+          < load.index("used = gevrModAssetPendingUsed;") < load.index("gevrModAssetPendingName = NULL;")
+          < load.index("if (!used)"), "a model loads under its own name, and the cartridge's in its place is refused")
+    one = function(mine, "static Gfx *attachDraw(")
+    check(one.index("matrix_4x4_multiply(anchor, &a->offset, &pose);") < one.index("instcalcmatrices(&rd, &a->model);")
+          < one.index("subdraw(&rd, &a->model);"), "laid in the anchor's frame, its nodes from there as a prop's")
+    drawgun = function(mine, "Gfx *gevrModAttachDrawGun(")
+    check("root = ((Mtxf *) gun->render_pos)[0];" in drawgun and "attachLocal()" in drawgun, "the gun's root as drawn; local")
+    drawbody = function(mine, "Gfx *gevrModAttachDrawBody(Gfx *gdl)")
+    check("g_gevrExtraPass" in drawbody and "0x565F0000 | (u32) (a->on == GEVR_MODATTACH_HAND ? (a->where == GUNRIGHT ? 2 : 1) : 3)" in drawbody
+          and drawbody.count("matrix_4x4_7F058C64();") == 1,
+          "a hand's follows its controller between frames, the body's the body; bracketed as the body slots' guns")
+    check("g_CurrentPlayer" not in function(mine, "void gevrModGameAttachReset(void)"), "the reset is only tables")
+    api = (ROOT / "port/src/gevr_modapi.c").read_bytes().decode()
+    check("gevrModGameAttachReset();" in function(api, "void gevrModApiReset(void)"), "a reset detaches everything")
+
+
+def attach(exe, temp):
+    """mod.attach: add on the gun, a hand and the body; the offset; refusals; show and remove, the owner's only"""
+    play = ("start", "prepare", 9, "begin", 9)
+    lua = r"""
+mod.on("mission_start", function()
+  local bad = 0
+  local function try(t) if not pcall(mod.attach.add, t) then bad = bad + 1 end end
+  try({ like = "Gak47Z", on = "gun", hand = "right" })
+  try({ model = "GtacAcogZ", on = "gun", hand = "right" })
+  try({ model = "a/b", like = "Gak47Z", on = "gun", hand = "right" })
+  try({ model = "GtacAcogZ", like = "Gak47Z", on = "elbow" })
+  try({ model = "GtacAcogZ", like = "Gak47Z", on = "gun" })
+  try({ model = "GtacAcogZ", like = "Gak47Z", on = "hand", hand = "middle" })
+  try({ model = "GtacAcogZ", like = "Gak47Z", on = "chest", at = { 1, 2 } })
+  try({ model = "GtacAcogZ", like = "Gak47Z", on = "chest", at = { 1, 2, 4001 } })
+  try({ model = "GtacAcogZ", like = "Gak47Z", on = "chest", turn = { 0, 0, 361 } })
+  try({ model = "GtacAcogZ", like = "Gak47Z", on = "chest", scale = 0 })
+  try({ model = "GtacAcogZ", like = "Gak47Z", on = "chest", scale = 101 })
+  try("x")
+  print("bad", bad)
+  local optic = mod.attach.add({ model = "GtacAcogZ", like = "Gak47Z", on = "gun", hand = "right", at = { 0, 90, -20 } })
+  local mag = mod.attach.add({ model = "GtacMagZ", like = "PcartonZ", on = "hand", hand = "left", turn = { 0, 90, 0 }, scale = 2 })
+  local sheath = mod.attach.add({ model = "GtacSheathZ", like = "GknifeZ", on = "hip_off", turn = { 90, 0, 0 } })
+  print("ids", optic, mag, sheath)
+  print("missing", mod.attach.add({ model = "GnoneZ", like = "Gak47Z", on = "belt" }))
+  print("show", mod.attach.show(mag, false), mod.attach.show(99, true))
+  print("remove", mod.attach.remove(sheath), mod.attach.remove(sheath))
+end)
+"""
+    out = run(exe, temp, "attach", lua, *play)
+    check(logs(out) == ["bad 12", "ids 1 2 3", "missing nil", "show true false", "remove true false"],
+          "attach's answers and refusals: " + str(logs(out)))
+    check(answers(out, "ATTACH", "DETACH") == [
+        "ATTACH reset",
+        "ATTACH 1 0 0 GtacAcogZ Gak47Z |1 0 0 0 |0 1 0 0 |0 0 1 0 |0 90 -20 1",
+        "ATTACH 2 1 1 GtacMagZ PcartonZ |0 0 -2 0 |0 2 0 0 |2 0 0 0 |0 0 0 1",
+        "ATTACH 3 2 1 GtacSheathZ GknifeZ |1 0 0 0 |0 0 1 0 |0 -1 0 0 |0 0 0 1",
+        "ATTACH 0 2 5 GnoneZ Gak47Z |1 0 0 0 |0 1 0 0 |0 0 1 0 |0 0 0 1",
+        "ATTACHSHOW 2 0",
+        "DETACH 3"],
+        "the game side: on the gun, the left hand, the off hip; turned about Y (X to -Z) and X (Y to Z), scaled; "
+        "a model that won't load; show and remove once: " + str(answers(out, "ATTACH", "DETACH")))
+
+    # another mod's attachment isn't this one's to hide or remove
+    lua = r"""
+mod.on("mission_start", function()
+  print("other", mod.attach.show(1, false), mod.attach.remove(1))
+end)
+"""
+    out = run(exe, temp, "attachother", lua, *play)
+    check(logs(out) == ["other false false"] and not answers(out, "DETACH", "ATTACHSHOW"),
+          "an id this mod didn't attach: false, nothing touched")
+
+
 def ui(exe, temp):
     play = ("start", "prepare", 9, "begin", 9)
     lua = r"""
@@ -1232,6 +1325,7 @@ def main():
     ui_placement()
     scope_placement()
     gunmodel_placement()
+    attach_placement()
     with tempfile.TemporaryDirectory(prefix="gevr-modapi-") as temp:
         temp = Path(temp)
         exe = build(temp)
@@ -1340,6 +1434,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
         ui(exe, temp)
         scope(exe, temp)
         gunmodel(exe, temp)
+        attach(exe, temp)
         guards_told(temp)
 
     if FAILS:
@@ -1358,7 +1453,8 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
           "UI: mod.ui's pages and limits, the screen's clicks and changes, open and close, a stopped mod's pages hidden. "
           "Scopes: mod.weapon.scope's lens, none and the game's own, its limits, a draw's reset; mod.weapon.look; "
           "the hand's scope wherever the game read the item's. Gun models: mod.weapon.model's choices, refusals "
-          "and reset; the hand's load, load_resource's name and the fits")
+          "and reset; the hand's load, load_resource's name and the fits. Attachments: mod.attach on the gun, a hand "
+          "and the body, its offset, refusals, show and remove (the owner's only); the draws, frames and load")
 
 
 if __name__ == "__main__":

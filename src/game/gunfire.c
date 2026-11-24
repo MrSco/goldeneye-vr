@@ -3339,6 +3339,12 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
 
                 renderdata.gdl = gevrBeanMagDraw(renderdata.gdl, &renderdata, handnum);
             }
+            {
+                /* a mod's models on this gun, on its root as drawn (mod.attach, gevr_modattach.c) */
+                extern Gfx *gevrModAttachDrawGun(Gfx *gdl, ModelRenderData *templ, s32 hand, Model *gun);
+
+                renderdata.gdl = gevrModAttachDrawGun(renderdata.gdl, &renderdata, handnum, &handptr->weaponModel);
+            }
         }
 #endif
         gdl = renderdata.gdl;
