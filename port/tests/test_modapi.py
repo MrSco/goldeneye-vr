@@ -1323,6 +1323,68 @@ def attach_placement():
     check("gevrModGameAttachReset();" in function(api, "void gevrModApiReset(void)"), "a reset detaches everything")
 
 
+def attach_loadout(exe, temp):
+    """mod.attach at a measured loadout's size (#291) with no pack's files: two rifles of 14 parts (17 files
+    between them), five magazines, a sheath and a scabbard; twice over for a second rig; then the limits"""
+    lua = r"""
+mod.on("mission_start", function()
+  local function rifle(on, hand, finish, extra)
+    local parts = { "PlBaseZ", finish }
+    for i = 1, 9 do parts[#parts + 1] = "PlPart" .. i .. "Z" end
+    for _, p in ipairs(extra) do parts[#parts + 1] = p end
+    local got = 0
+    for _, p in ipairs(parts) do
+      if mod.attach.add({ model = p, like = "PcartonZ", on = on, hand = hand }) then got = got + 1 end
+    end
+    return got
+  end
+  local function rig()
+    local got = rifle("gun", "right", "PlFinishAZ", { "PlRailZ", "PlSightZ", "PlMagZ" })
+      + rifle("back_gun", nil, "PlFinishBZ", { "PlCanZ", "PlSightBZ", "PlMagZ" })
+    for _, on in ipairs({ "chest", "chest", "belt", "hip_off", "hip_off" }) do
+      if mod.attach.add({ model = on == "hip_off" and "PlPistolMagZ" or "PlMagZ", like = "PcartonZ", on = on }) then
+        got = got + 1
+      end
+    end
+    for _, m in ipairs({ "PlSheathZ", "PlScabbardZ" }) do
+      if mod.attach.add({ model = m, like = "PcartonZ", on = "back_off" }) then got = got + 1 end
+    end
+    return got
+  end
+  print("rig", rig(), rig())
+  local more = 0
+  for i = 1, 60 do
+    if mod.attach.add({ model = "PlMagZ", like = "PcartonZ", on = "belt" }) then more = more + 1 end
+  end
+  print("full", more, mod.attach.add({ model = "PlMagZ", like = "PcartonZ", on = "belt" }))
+end)
+"""
+    out = run(exe, temp, "attachloadout", lua, "start", "prepare", 9, "begin", 9)
+    check(logs(out) == ["rig 35 35", "full 58 nil"],
+          "a rig of 35 twice (70 attached, 20 files), then up to 128 attached and none past: " + str(logs(out)))
+    lua = r"""
+mod.on("mission_start", function()
+  local files = 0
+  for i = 1, 64 do
+    if mod.attach.add({ model = "PlFile" .. i .. "Z", like = "PcartonZ", on = "belt" }) then files = files + 1 end
+  end
+  print("files", files, mod.attach.add({ model = "PlFile65Z", like = "PcartonZ", on = "belt" }),
+        mod.attach.add({ model = "PlFile1Z", like = "PcartonZ", on = "chest" }))
+end)
+"""
+    out = run(exe, temp, "attachfiles", lua, "start", "prepare", 9, "begin", 9)
+    check(logs(out) == ["files 64 nil 65"], "64 model files a mission, none past; a loaded one again: " + str(logs(out)))
+    mine = (ROOT / "src/game/gevr_modattach.c").read_bytes().decode()
+    one = function(mine, "static Gfx *attachDraw(")
+    check(one.index("if (!gevrDynRoom(gdl, a->file->nodes * 8 + 64, h->numMatrices * (s32) sizeof(Mtxf) + 0x400))")
+          < one.index("mtx = dynAllocate(h->numMatrices * sizeof(Mtxf));") and "return gdl;" in one,
+          "an attachment without room left this frame is skipped before anything's allocated")
+    dyn = (ROOT / "src/game/dyn.c").read_bytes().decode()
+    room = function(dyn, "s32 gevrDynRoom(Gfx *gdl, s32 gfx, s32 bytes)")
+    check("(end - pos) / sizeof(Gfx) < (uintptr_t)gfx" in room and "vtxEnd - vtx >= (uintptr_t)bytes" in room,
+          "the room: the master list's commands after gdl and dynAllocate's bytes")
+
+
 def attach(exe, temp):
     """mod.attach: add on the gun, a hand and the body; the offset; refusals; show and remove, the owner's only"""
     play = ("start", "prepare", 9, "begin", 9)
@@ -1679,6 +1741,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
         scope(exe, temp)
         gunmodel(exe, temp)
         attach(exe, temp)
+        attach_loadout(exe, temp)
         guards_told(temp)
 
     if FAILS:
@@ -1701,7 +1764,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
           "the hand's scope wherever the game read the item's. Gun models: mod.weapon.model's choices, refusals "
           "and reset; the hand's load, load_resource's name and the fits. Attachments: mod.attach on the gun, a hand "
           "and the body or a gun model's node, its offset, refusals, place, show and remove (the owner's only); the "
-          "draws, frames and load")
+          "draws, frames and load; a measured loadout's size twice over, the limits, and a frame without room skipping one")
 
 
 if __name__ == "__main__":

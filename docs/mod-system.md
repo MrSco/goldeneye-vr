@@ -935,10 +935,15 @@ in-game screen). We maintain the adapters, not the mods.
     replacements keep the cartridge's header. Loaded once a mission
     through `load_resource`, into a buffer of its own as
     `gevr_heldgun.c`'s guns are; a file that won't load over that header is
-    refused (nil), never drawn as the cartridge's. At most 8 model files a
-    mission, and 16 attached at once, every mod's together; past those,
-    nil. Loading reads the file, so attach at `mission_start` or
-    `weapon_drawn`, not every tick.
+    refused (nil), never drawn as the cartridge's. At most 64 model files
+    a mission, and 128 attached at once, every mod's together; past those,
+    nil. The limits come from a measured loadout (#291: two rifles of 14
+    parts each, one in hand and one on the back, five magazines, a sheath
+    and a scabbard; 35 attached and about 20 files for one player), with
+    room for a second player's rig and guards' gear. A frame without room
+    left in the game's per-frame buffers skips an attachment rather than
+    overrun them (logged once a mission). Loading reads the file, so
+    attach at `mission_start` or `weapon_drawn`, not every tick.
   - `on`: `"gun"` with `hand` (`"right"`, `"left"`): on the gun that hand
     holds, on its model's root as drawn, so it moves with the gun's
     recoil, reload and switch, and a mirrored left gun's part mirrors with

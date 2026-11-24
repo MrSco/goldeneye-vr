@@ -64,6 +64,7 @@ typedef struct
     char model[ATT_NAME], like[ATT_NAME];
     s32 ok;
     s32 rigid;                   /* joints only an animation poses (a gun file's): drawn at its root */
+    s32 nodes;                   /* its nodes, for the room a draw takes (attachDraw) */
     u8 *buf;
     struct texpool pool;
     ModelFileHeader header;
@@ -84,6 +85,7 @@ typedef struct
 static AttachFile s_files[GEVR_MODAPI_ATTACH_MODELS];
 static Attachment s_attach[GEVR_MODAPI_ATTACH_MAX];
 static s32 s_nextId = 1;
+static s32 s_roomWarned;   /* a frame ran out of room: logged once a mission */
 
 static s32 attachLocal(void)
 {
@@ -117,6 +119,7 @@ static ModelFileHeader *likeHeader(const char *like, char **file)
 }
 
 static s32 attachHasJoints(ModelNode *node);
+static s32 attachNodes(ModelNode *node);
 
 /* the model, loaded once per mission: NULL when it isn't the mod's or doesn't fit */
 static AttachFile *attachLoad(const char *model, const char *like)
@@ -177,6 +180,7 @@ static AttachFile *attachLoad(const char *model, const char *like)
     }
     f->header.isLoaded = TRUE;
     f->rigid = attachHasJoints(f->header.RootNode);
+    f->nodes = attachNodes(f->header.RootNode);
     f->ok = TRUE;
     return f;
 }
@@ -198,6 +202,17 @@ static s32 attachHasJoints(ModelNode *node)
         node = node->Next;
     }
     return FALSE;
+}
+
+static s32 attachNodes(ModelNode *node)
+{
+    s32 n = 0;
+
+    for (; node != NULL; node = node->Next)
+    {
+        n += 1 + (node->Child != NULL ? attachNodes(node->Child) : 0);
+    }
+    return n;
 }
 
 static Attachment *attachFind(s32 id)
@@ -307,6 +322,7 @@ void gevrModGameAttachReset(void)
         s_files[i].model[0] = '\0';
         s_files[i].ok = FALSE;
     }
+    s_roomWarned = FALSE;
 }
 
 /* one attachment at its anchor's frame: the offset laid in it, the model's
@@ -319,6 +335,18 @@ static Gfx *attachDraw(Gfx *gdl, ModelRenderData *templ, Attachment *a, Mtxf *an
     Mtxf pose, *mtx;
     s32 i;
 
+    /* its matrices, and its commands (a few a node, as subdraw lays them,
+     * with margin), else skipped this frame: an overrun stops the game */
+    if (!gevrDynRoom(gdl, a->file->nodes * 8 + 64, h->numMatrices * (s32) sizeof(Mtxf) + 0x400))
+    {
+        if (!s_roomWarned)
+        {
+            sysLogPrintf(LOG_WARNING, "mods: attach: no room left this frame for %s; skipped while there's none",
+                         a->file->model);
+            s_roomWarned = TRUE;
+        }
+        return gdl;
+    }
     if (a->modelOf != h)
     {
         modelInit(&a->model, h, a->rw);

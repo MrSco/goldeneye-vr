@@ -162,11 +162,25 @@ int gevrModGameGunModel(int hand, int item, const char *name)
     return name == NULL || strncmp(name, "Gtac", 4) == 0;
 }
 void gevrModGameGunModelReset(void) { printf("GUNMODEL reset\n"); }
-/* gevr_modattach.c: models starting Gno won't load; the offset printed whole (-0 as 0) */
-static int s_attachNext = 1, s_attached;
+/* gevr_modattach.c: models starting Gno won't load, nor a file past the
+ * mission's GEVR_MODAPI_ATTACH_MODELS; the offset printed whole (-0 as 0) */
+static int s_attachNext = 1, s_attached, s_attachFiles;
+static char s_attachFile[GEVR_MODAPI_ATTACH_MODELS][64];
+static int attachFileLoads(const char *model)
+{
+    int i;
+
+    for (i = 0; i < s_attachFiles; i++) {
+        if (!strcmp(s_attachFile[i], model)) return 1;
+    }
+    if (s_attachFiles >= GEVR_MODAPI_ATTACH_MODELS) return 0;
+    snprintf(s_attachFile[s_attachFiles++], sizeof(s_attachFile[0]), "%s", model);
+    return 1;
+}
 int gevrModGameAttach(const GevrModAttach *a)
 {
-    int id = strncmp(a->model, "Gno", 3) == 0 ? 0 : s_attached >= GEVR_MODAPI_ATTACH_MAX ? -1 : s_attachNext++;
+    int id = strncmp(a->model, "Gno", 3) == 0 ? 0 : s_attached >= GEVR_MODAPI_ATTACH_MAX ? -1
+           : !attachFileLoads(a->model) ? 0 : s_attachNext++;
     int i;
 
     if (id > 0) s_attached++;
@@ -191,7 +205,7 @@ int gevrModGameAttachPlace(int id, const float offset[4][4])
     printf("\n");
     return 1;
 }
-void gevrModGameAttachReset(void) { printf("ATTACH reset\n"); s_attached = 0; }
+void gevrModGameAttachReset(void) { printf("ATTACH reset\n"); s_attached = 0; s_attachFiles = 0; }
 int gevrModGameLoaded(int hand) { return s_loaded[hand]; }
 void gevrModGameSetLoaded(int hand, int rounds) { s_loaded[hand] = rounds; }
 int gevrModGameStats(int item, GevrModWeaponStats *out)

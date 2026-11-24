@@ -16,6 +16,8 @@ void dynSwapBuffers(void);
 void dynRemovedFunc(Gfx *gdl);
 s32 dynGetFreeGfx(Gfx *gdl);
 s32 dynGetFreeVtx(void);
+/* GEVR: room this frame for gfx commands after gdl and bytes of dynAllocate */
+s32 gevrDynRoom(Gfx *gdl, s32 gfx, s32 bytes);
 void dynDrawMembars(Gfx *gdl);
 
 #endif

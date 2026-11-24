@@ -390,8 +390,11 @@ void gevrModGameGunModelReset(void);
 
 /* mod.attach (src/game/gevr_modattach.c): a pack's model on the local
  * player's gun, a hand or the body, placed each rendered frame */
-#define GEVR_MODAPI_ATTACH_MAX 16      /* attached at once, every mod's together */
-#define GEVR_MODAPI_ATTACH_MODELS 8    /* model files loaded in a mission */
+/* Sized from a measured loadout (#291: two rifles of 14 parts each, five
+ * magazines, a sheath and a scabbard: 35 attached and about 20 files for one
+ * player), with room for a second player's rig and guards' gear */
+#define GEVR_MODAPI_ATTACH_MAX 128     /* attached at once, every mod's together */
+#define GEVR_MODAPI_ATTACH_MODELS 64   /* model files loaded in a mission */
 #define GEVR_MODAPI_ATTACH_RANGE 4000.0f   /* at: model units (a gun is about 800 long) */
 #define GEVR_MODAPI_ATTACH_SCALE_MIN 0.01f
 #define GEVR_MODAPI_ATTACH_SCALE_MAX 100.0f

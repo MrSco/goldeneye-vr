@@ -279,6 +279,30 @@ static int peakLogging(void)
     return 0;
 }
 
+/* gevrDynRoom (gevr_modattach.c asks before each attachment): room for
+ * commands after gdl in the master list and for dynAllocate's bytes, never
+ * past either end; a list elsewhere counts only the bytes */
+static int roomLeft(void)
+{
+    init(1, LEVELID_FACILITY, "70", "50");
+    Gfx *base = dynGetMasterDisplayList();
+    Gfx *end = (Gfx *)g_GfxBuffers[g_GfxActiveBufferIndex + 1];
+    Gfx elsewhere[4];
+    s32 capacity = dynGetFreeVtx();
+
+    CHECK(gevrDynRoom(base, 100, 1024));
+    CHECK(gevrDynRoom(end - 100, 100, 1024));
+    CHECK(!gevrDynRoom(end - 99, 100, 1024));
+    CHECK(!gevrDynRoom(base, 100, capacity + 1));
+    CHECK(gevrDynRoom(base, 0, capacity));
+    CHECK(gevrDynRoom(elsewhere, 1 << 30, 1024));
+    CHECK(!gevrDynRoom(base, -1, 0) && !gevrDynRoom(base, 0, -1));
+    dynAllocate(capacity - 64);
+    CHECK(gevrDynRoom(base, 1, 64) && !gevrDynRoom(base, 1, 65));
+    CHECK(dynGetFreeVtx() == 64);   /* it only asks */
+    return 0;
+}
+
 static int invalidBudgets(void)
 {
     releaseBlocks();
@@ -308,7 +332,8 @@ int main(int argc, char **argv)
     struct { const char *name; int (*test)(void); } cases[] = {
         {"observed_lists", observedLists}, {"budgets_and_reloads", budgetsAndReloads},
         {"auxiliary_allocations", auxiliaryAllocations}, {"exact_capacity_and_failures", exactCapacityAndFailures},
-        {"completed_lists", completedLists}, {"peak_logging", peakLogging}, {"invalid_budgets", invalidBudgets}
+        {"completed_lists", completedLists}, {"peak_logging", peakLogging}, {"room_left", roomLeft},
+        {"invalid_budgets", invalidBudgets}
     };
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
     {
