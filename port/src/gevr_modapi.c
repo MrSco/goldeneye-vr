@@ -2113,10 +2113,63 @@ static void attachOffset(float out[4][4], const float at[3], const float turn[3]
 }
 
 /* table t's at, turn and scale (each optional) as the offset in the anchor's frame */
+/* Four affine rows in the same convention as attachOffset: the attachment's
+ * local axes in anchor coordinates, followed by its origin in model units.
+ * Do not decompose the supplied frame; nested mounts can include scale and
+ * reflection. The model still follows the anchor's engine animation. */
+static int attachFrame(lua_State *L, int t, const char *call, float out[4][4])
+{
+    if (lua_getfield(L, t, "frame") == LUA_TNIL) {
+        lua_pop(L, 1);
+        return 0;
+    }
+    if (!lua_istable(L, -1) || lua_rawlen(L, -1) != 4) {
+        return luaL_error(L, "%s: frame needs four 3-number rows (axes, then origin)", call);
+    }
+    for (int row = 0; row < 4; ++row) {
+        const double limit = row == 3 ? GEVR_MODAPI_ATTACH_RANGE : GEVR_MODAPI_ATTACH_SCALE_MAX;
+        lua_rawgeti(L, -1, row + 1);
+        if (!lua_istable(L, -1) || lua_rawlen(L, -1) != 3) {
+            return luaL_error(L, "%s: frame needs four 3-number rows (axes, then origin)", call);
+        }
+        for (int col = 0; col < 3; ++col) {
+            if (lua_rawgeti(L, -1, col + 1) != LUA_TNUMBER) {
+                return luaL_error(L, "%s: frame needs four 3-number rows (axes, then origin)", call);
+            }
+            const double n = lua_tonumber(L, -1);
+            if (!(n >= -limit && n <= limit)) {
+                return luaL_error(L, "%s: frame component outside its limit", call);
+            }
+            out[row][col] = (float)n;
+            lua_pop(L, 1);
+        }
+        out[row][3] = row == 3;
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+    const double a = out[0][0], b = out[0][1], c = out[0][2];
+    const double d = out[1][0], e = out[1][1], f = out[1][2];
+    const double g = out[2][0], h = out[2][1], i = out[2][2];
+    if (fabs(a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)) < 1e-8) {
+        return luaL_error(L, "%s: frame needs independent axes", call);
+    }
+    return 1;
+}
+
 static void attachPlacement(lua_State *L, int t, const char *call, float offset[4][4])
 {
     float at[3] = { 0.0f, 0.0f, 0.0f }, turn[3] = { 0.0f, 0.0f, 0.0f }, scale = 1.0f;
 
+    if (attachFrame(L, t, call, offset)) {
+        const char *const keys[] = { "at", "turn", "scale" };
+        for (int n = 0; n < 3; ++n) {
+            if (lua_getfield(L, t, keys[n]) != LUA_TNIL) {
+                luaL_error(L, "%s: frame cannot be combined with %s", call, keys[n]);
+            }
+            lua_pop(L, 1);
+        }
+        return;
+    }
     attachTriple(L, t, call, "at", at, -GEVR_MODAPI_ATTACH_RANGE, GEVR_MODAPI_ATTACH_RANGE, "at is { x, y, z }, -4000 to 4000");
     attachTriple(L, t, call, "turn", turn, -360.0f, 360.0f, "turn is { x, y, z } in degrees, -360 to 360");
     if (lua_getfield(L, t, "scale") != LUA_TNIL) {

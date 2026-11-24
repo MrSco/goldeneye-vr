@@ -1068,6 +1068,12 @@ in-game screen). We maintain the adapters, not the mods.
     and Z, in that order) and `scale` (0.01 to 100) lay it in the anchor's
     frame. Every frame is a gun model's units at the player's gun size,
     with X the holder's left, Y up and Z ahead, as the game's guns are.
+    Instead of those three fields, `add` and `place` accept `frame` with
+    four rows of three numbers: the attachment's X, Y and Z axes in the
+    anchor's coordinates, followed by its origin. The axes must be
+    independent, with components between -100 and 100. Origin components
+    are between -4000 and 4000 in model units. An attachment on a gun
+    node follows that node as it animates, even with an authored frame.
   - For a self-describing pack mesh use `model = "part.bin"` with `like`
     omitted. A cartridge-format attachment still needs `like`. See
     **Pack mesh byte layout** under Weapons for the format and limits

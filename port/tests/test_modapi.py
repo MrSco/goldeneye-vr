@@ -1661,6 +1661,33 @@ end)
           "the room: the master list's commands after gdl and dynAllocate's bytes")
 
 
+def attach_authored_frame(exe, temp):
+    """An authored mirrored frame survives both placement calls with the node intact."""
+    lua = r"""
+mod.on("mission_start", function()
+  local frame = {{0, 0, 2}, {0, 1, 0}, {1, 0, 0}, {9, 11, 13}}
+  local id = assert(mod.attach.add{on="gun", hand="right", node=7, model="pack-part.bin", frame=frame})
+  frame[4] = {-2, -3, -5}
+  assert(mod.attach.place(id, {frame=frame}))
+  local invalid = {
+    {frame=frame, at={0, 0, 0}}, {frame=frame, turn={0, 0, 0}}, {frame=frame, scale=1},
+    {frame={{1,0,0},{1,0,0},{0,0,1},{0,0,0}}},
+    {frame={{1,0,0},{0,1,0},{0,0,1},{0,0,4001}}},
+    {frame={{0/0,0,0},{0,1,0},{0,0,1},{0,0,0}}},
+    {frame={{1,0,0},{0,1},{0,0,1},{0,0,0}}},
+  }
+  for _, placement in ipairs(invalid) do assert(not pcall(mod.attach.place, id, placement)) end
+  mod.log("authored frame accepted; invalid frames rejected")
+end)
+"""
+    out = run(exe, temp, "attach_authored_frame", lua, "start", "prepare", 9, "begin", 9)
+    check("authored frame accepted; invalid frames rejected" in logs(out), "authored frame validation: " + out)
+    check(answers(out, "ATTACH 1", "ATTACHPLACE") == [
+          "ATTACH 1 0 0 7 pack-part.bin  |0 0 2 0 |0 1 0 0 |1 0 0 0 |9 11 13 1",
+          "ATTACHPLACE 1 |0 0 2 0 |0 1 0 0 |1 0 0 0 |-2 -3 -5 1"],
+          "authored and moved frames reach the game unchanged: " + str(answers(out, "ATTACH")))
+
+
 def attach(exe, temp):
     """mod.attach: add on the gun, a hand and the body; the offset; refusals; show and remove, the owner's only"""
     play = ("start", "prepare", 9, "begin", 9)
@@ -2071,6 +2098,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
         scope(exe, temp)
         gunmodel(exe, temp)
         attach(exe, temp)
+        attach_authored_frame(exe, temp)
         pack_names(exe, temp)
         attach_loadout(exe, temp)
         guards_told(temp)
