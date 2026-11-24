@@ -7452,6 +7452,29 @@ void bondviewRemovePlayerBody(void)
 }
 
 #ifdef GEVR
+/*
+ * input.c: a page a mod asked for (mod.ui.open) waits while this is true. The
+ * screen pauses a solo mission with a Start press, and Start during the
+ * intro's fly-by and swirl skips them (bondviewTickCamera's skips) instead:
+ * the page would come up over a running mission. Solo plays in
+ * CAMERAMODE_FP (NONE only between modes, or before the intro starts);
+ * local multiplayer plays in NONE after its swirl. Online the screen
+ * doesn't pause, so nothing waits.
+ */
+s32 gevrIntroPlaying(void)
+{
+    if (netIsActive())
+    {
+        return FALSE;
+    }
+    if (g_CameraMode == CAMERAMODE_NONE)
+    {
+        return getPlayerCount() == 1;
+    }
+    return g_CameraMode == CAMERAMODE_INTRO || g_CameraMode == CAMERAMODE_FADESWIRL
+        || g_CameraMode == CAMERAMODE_SWIRL || g_CameraMode == CAMERAMODE_MP;
+}
+
 static s32 gevrCoopIntroActive(void)
 {
     return gevrCoopActive() && (g_CameraMode == CAMERAMODE_INTRO
@@ -19753,6 +19776,7 @@ static s32 s_gevrGexGripSpent;       /* the off hand's grip seated a magazine: h
 static s32 s_gevrReloadSeatTicks;
 static f32 s_gevrReloadSeatAt[3];
 static s32 s_gevrGexSeatedTicks[2];  /* the label's "in" after a magazine seats (gevrReloadLabel) */
+static s32 s_gevrGexReloadOpen[2];   /* a mod's reload_start sent, its reload_end not yet (gevrGexMagOut, gevrGexMagIn) */
 
 extern void sub_GAME_7F0649D8(enum GUNHAND hand);   /* gunfire.c: the reload's ammo move */
 extern void currentPlayerCreateRocket(GUNHAND hand); /* gun.c: the launcher's loaded rocket */
@@ -20148,6 +20172,7 @@ static void gevrGexMagOut(s32 hand, s32 state, const char *how)
     gevrGexBuzz(0.5f);
     sysLogPrintf(LOG_NOTE, "stereo: hand reload, %s gun's magazine %s", hand == GUNRIGHT ? "right" : "left", how);
     gevrModApiReloadStart(hand, getCurrentPlayerWeaponId(hand));   /* reload_start (gevr_modapi.c) */
+    s_gevrGexReloadOpen[hand] = TRUE;
 }
 
 /* the magazine in the off hand let go: its rounds back to the reserve */
@@ -20259,6 +20284,7 @@ s32 gevrReloadDraw(s32 hand)
     item = getCurrentPlayerWeaponId(hand);
     if (!gevrReloadItemByHand(item)) return FALSE;
     saved = &s_gevrStoredMag[hand][item];
+    s_gevrGexReloadOpen[hand] = FALSE;   /* a gun drawn: the last one's reload is over */
     s_gevrGexMag[hand] = saved->valid && saved->missing ? GEVR_GEXMAG_OUT : GEVR_GEXMAG_IN;
     s_gevrGexMagItem[hand] = item;
     memset(&s_gevrRack[hand], 0, sizeof(s_gevrRack[hand]));
@@ -20277,6 +20303,13 @@ s32 gevrReloadDraw(s32 hand)
  * loaded at once from the reserve, by the game's own top-up */
 static void gevrGexMagIn(s32 hand, const char *how, s32 rounds)
 {
+    /* a mod's reload_end always follows a reload_start: a top-up at the belt with
+     * the magazine still in (or one drawn without it) sends its start here */
+    if (!s_gevrGexReloadOpen[hand])
+    {
+        gevrModApiReloadStart(hand, getCurrentPlayerWeaponId(hand));
+    }
+    s_gevrGexReloadOpen[hand] = FALSE;
     /* one already in and waiting for its rack (a touch at the belt): chambered, no rack */
     gevrRackChamber(&s_gevrRack[hand], &g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine);
     if (rounds >= 0)
@@ -20509,6 +20542,10 @@ s32 gevrReloadGrabBelt(s32 ctrl)
 {
     s32 hand = ctrl ? GUNRIGHT : GUNLEFT;
     if (!gevrReloadBeltHover(ctrl) || gevrReloadBeltAmmo(ctrl) != hand) return FALSE;
+    if (gevrModApiReloadAttempt(hand, getCurrentPlayerWeaponId(hand), get_ammo_in_hands_weapon(hand)))
+    {
+        return TRUE;   /* a mod declined it (reload_attempt): the squeeze is spent, nothing taken */
+    }
     gevrGexMagIn(hand, "gripped at the belt", -1);
     return TRUE;
 }
@@ -21205,7 +21242,8 @@ static void gevrGexRoundTick(s32 gunHand, f32 cm, const f32 grip0[3], s32 grip, 
     /* the pump (gevr_rack.h): shells in on an empty chamber wait for it. A fresh grip
      * at the shells is for a shell first: the saddle is within the fore-end's reach. */
     const s32 take = grip && fresh && !s_gevrGexGripSpent && *state != GEVR_GEXMAG_INHAND
-        && gevrReloadRoundAtHand(gunHand, off) && gevrReloadPickup(gunHand) > 0;
+        && gevrReloadRoundAtHand(gunHand, off) && gevrReloadPickup(gunHand) > 0
+        && !gevrModApiReloadAttempt(gunHand, roundItem, get_ammo_in_hands_weapon(gunHand));   /* a mod can decline it */
     if (*state == GEVR_GEXMAG_IN && s_gevrRack[gunHand].pending > 0 && (s_gevrRack[gunHand].held || !take)
         && gevrRackRun(gunHand, grip, fresh)) {
         s_gevrMagGrab = 0;
@@ -21477,7 +21515,9 @@ void gevrHandReloadTick(void)
                     }
                     break;
                 case GEVR_GEXMAG_OUT:
-                    if (grip && !s_gripWas[gunHand] && gevrGexAtBelt(gunHand, handAt) && get_ammo_in_hands_weapon(gunHand) > 0)
+                    if (grip && !s_gripWas[gunHand] && gevrGexAtBelt(gunHand, handAt) && get_ammo_in_hands_weapon(gunHand) > 0
+                        /* a fresh magazine from the reserve: a mod can decline it (reload_attempt) */
+                        && !gevrModApiReloadAttempt(gunHand, getCurrentPlayerWeaponId(gunHand), get_ammo_in_hands_weapon(gunHand)))
                     {
                         *st = GEVR_GEXMAG_INHAND; s_gevrGexHeldGun = gunHand;
                         s_gevrGexSeatArmed = TRUE;
@@ -21601,7 +21641,13 @@ void gevrHandReloadTick(void)
             {
                 if (gevrGexByHand(hand))
                 {
-                    gevrGexMagIn(hand, "loaded at the belt", -1);
+                    /* rounds from the reserve: a mod can decline them (reload_attempt);
+                     * a touch that only chambers a seated magazine takes none */
+                    if (get_ammo_in_hands_weapon(hand) <= 0
+                        || !gevrModApiReloadAttempt(hand, getCurrentPlayerWeaponId(hand), get_ammo_in_hands_weapon(hand)))
+                    {
+                        gevrGexMagIn(hand, "loaded at the belt", -1);
+                    }
                 }
                 else
                 {

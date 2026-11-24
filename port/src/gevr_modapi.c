@@ -9,6 +9,8 @@
  *   (gunfire.c gunTickHandState, bondview2.c gevrMotionThrowTick); a
  *   handler returning false declines it: a gun clicks dry, a throw comes
  *   back. Not melee.
+ * - reload_attempt(hand, item) before a reload takes rounds from the
+ *   reserve; false declines it, and nothing is taken.
  * - weapon_fire(hand, item, loaded), reload_start(hand, item),
  *   reload_end(hand, item, loaded), weapon_drawn(hand, item).
  * - mod.weapon.held / loaded / setLoaded (hand), stats / setStats (item),
@@ -1047,7 +1049,8 @@ static void uiRow(lua_State *L, int t, GevrModUiRow *r, int index)
 }
 
 /* page(id, {title, text, rows, buttons}): a sub-tab under the in-game
- * screen's Mods/Fun, made or replaced */
+ * screen's Mods/Fun, made or replaced (true), or false when the four pages
+ * are taken */
 static int l_uiPage(lua_State *L)
 {
     const char *mod = gevrModScriptIdOf(L);
@@ -1099,11 +1102,16 @@ static int l_uiPage(lua_State *L)
         if (!strcmp(s_pages[i].mod, mod) && !strcmp(s_pages[i].id, p.id)) at = i;
     }
     if (at < 0) {
-        if (s_pageCount == GEVR_MODAPI_UI_PAGES) return luaL_error(L, "mod.ui.page: at most 4 pages, every mod's together");
+        /* every mod's together, so no mod can know: false, not an error */
+        if (s_pageCount == GEVR_MODAPI_UI_PAGES) {
+            lua_pushboolean(L, 0);
+            return 1;
+        }
         at = s_pageCount++;
     }
     s_pages[at] = p;
-    return 0;
+    lua_pushboolean(L, 1);
+    return 1;
 }
 
 static int ownPage(lua_State *L, int arg)
@@ -1262,6 +1270,29 @@ void gevrModApiFired(int hand, int item)
     a[2].kind = GEVR_MODARG_INTEGER;
     a[2].n = gevrModGameLoaded(hand);
     gevrModScriptEvent("weapon_fire", a, 3, 0);
+}
+
+/* reload_attempt's last answer per hand: the item and the reserve it declined
+ * at, -1 none (gunfire.c's automatic reload isn't asked again meanwhile) */
+static int s_reloadDeclined[2] = { -1, -1 }, s_reloadDeclinedReserve[2];
+
+int gevrModApiReloadAttempt(int hand, int item, int reserve)
+{
+    GevrModArg a[2];
+    int declined;
+
+    if (!forLocal() || hand < 0 || hand > 1) return 0;
+    handItem(a, hand, item);
+    declined = gevrModScriptEvent("reload_attempt", a, 2, 1);
+    s_reloadDeclined[hand] = declined ? item : -1;
+    s_reloadDeclinedReserve[hand] = reserve;
+    return declined;
+}
+
+int gevrModApiReloadDeclined(int hand, int item, int reserve)
+{
+    return forLocal() && hand >= 0 && hand <= 1 && s_reloadDeclined[hand] == item
+        && s_reloadDeclinedReserve[hand] == reserve;
 }
 
 void gevrModApiReloadStart(int hand, int item)
