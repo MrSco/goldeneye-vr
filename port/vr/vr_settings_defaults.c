@@ -213,6 +213,9 @@ float VrRenderScale = 0.0f;
  * Quest 3 and a desktop, 4x on Quest 2 and Pro, 2x elsewhere (4x cost the
  * pack's big textures GPU time on Quest's outdoor levels, issue #52). */
 int VrTextureAniso = 0;
+/* Issue #249: 1 = world-anchored 3D volumetric smoke and explosions in all modes,
+ * 0 = classic camera-facing flat sprites (default). Live-toggleable. */
+int VrVolumetricExplosions = 0;
 /* The CPU performance level asked of the headset as each session begins
  * (XR_EXT_performance_settings): -1 none, 0 power savings, 1 sustained low,
  * 2 sustained high. Unplugged, Quest caps the CPU at the level its governor

@@ -23,6 +23,7 @@
 #ifdef GEVR
 #include "net_coop.h"
 #include "gevr_ragdoll.h"
+#include "gevr_volumetric.h"
 #endif
 #include "random.h"
 #include "snd.h"
@@ -240,6 +241,48 @@ Gfx *explosionRenderPart(struct ExplosionPart *arg0, Gfx *gdl, struct coord3d *c
 #define GEVR_HIT_PULL 4.0f              /* stereo pull for the bullet hit (explosionRenderPart) */
 #define GEVR_HIT_SMOKE_PULL 16.0f       /* ... and its smoke, which grows: at 4 it cut into the wall (user) */
 static s32 s_gevrPartExplosionType;
+f32 g_gevrVolumetricTimeSec = 0.0f;     /* advanced once per lvlRender from g_ClockTimer */
+
+/*
+ * Extract an orthonormal column-major 3x3 view->world rotation matrix from
+ * GoldenEye's row-vector view-to-world matrix so 3D noise stays locked to
+ * world axes regardless of camera rotation, head tilt, or stick turn (#249).
+ */
+static void gevrVolumetricViewToWorld3x3(f32 out[9])
+{
+    Mtxf *v2w = currentPlayerGetViewToWorldMtxf();
+    s32 r;
+    if (v2w == NULL) {
+        out[0] = 1.0f; out[1] = 0.0f; out[2] = 0.0f;
+        out[3] = 0.0f; out[4] = 1.0f; out[5] = 0.0f;
+        out[6] = 0.0f; out[7] = 0.0f; out[8] = 1.0f;
+        return;
+    }
+    for (r = 0; r < 3; r++) {
+        f32 x = v2w->m[r][0];
+        f32 y = v2w->m[r][1];
+        f32 z = v2w->m[r][2];
+        f32 len = sqrtf(x * x + y * y + z * z);
+        if (len > 0.0001f) {
+            x /= len;
+            y /= len;
+            z /= len;
+        }
+        out[r * 3 + 0] = x;
+        out[r * 3 + 1] = y;
+        out[r * 3 + 2] = z;
+    }
+}
+
+static void gevrWorldToGameView(const Mtxf *w2s, f32 wx, f32 wy, f32 wz, f32 viewScale, f32 out[3])
+{
+    /* GoldenEye's camera view space (g_viProjectionMatrixF, Z-buffer, stereo IPD
+     * and VR head-move replay delta) is scaled by D_800364CC, while cam64 is in
+     * unscaled world units (bondview2.c bondviewUpdateCameraMatrices). */
+    out[0] = (wx * w2s->m[0][0] + wy * w2s->m[1][0] + wz * w2s->m[2][0] + w2s->m[3][0]) * viewScale;
+    out[1] = (wx * w2s->m[0][1] + wy * w2s->m[1][1] + wz * w2s->m[2][1] + w2s->m[3][1]) * viewScale;
+    out[2] = (wx * w2s->m[0][2] + wy * w2s->m[1][2] + wz * w2s->m[2][2] + w2s->m[3][2]) * viewScale;
+}
 
 /*
  * The view's right and up for a flame or smoke billboard, without the head's
@@ -1187,6 +1230,94 @@ Gfx *explosionRenderPropExplosion(PropRecord *prop, Gfx *gdl, s32 withalpha)
             gdl = bgScissorCurrentPlayerViewDefault(gdl);
         }
 
+#ifdef GEVR
+        {
+            extern int VrVolumetricExplosions;
+            extern f32 g_viProjectionMatrixF[4][4];
+            if (VrVolumetricExplosions)
+            {
+                GevrVolumetricPuff puffs[EXPLOSION_PARTS_LEN];
+                u32 count = 0;
+                Mtxf *w2s = camGetWorldToScreenMtxf();
+                f32 v2w9[9];
+                f32 totalFrames = g_ExplosionTypes[temp_s5->explosion_type].flareanimspeed * 15.0f;
+                s32 isSmall = (temp_s5->explosion_type == 1) ? 1 : 0;
+                s32 expIdx = (s32)(temp_s5 - g_ExplosionBuffer);
+                f32 viewScale = D_800364CC > 0.001f ? D_800364CC : 1.0f;
+
+                if (totalFrames < 1.0f) {
+                    totalFrames = 1.0f;
+                }
+                gevrVolumetricViewToWorld3x3(v2w9);
+
+                for (i = 0; i < EXPLOSION_PARTS_LEN; i++)
+                {
+                    if (temp_s5->parts[i].frame > 0)
+                    {
+                        struct ExplosionPart *part = &temp_s5->parts[i];
+                        f32 life = (f32)(part->frame - 1) / totalFrames;
+                        /* Classic quad corner distance is baseR, half-width is baseR/sqrt(2),
+                         * and the visible flame blob fills ~65% of the sprite (~0.48 * baseR). */
+                        f32 baseR = sqrtf(part->size * part->size + part->rot * part->rot);
+                        f32 worldRadius = isSmall ? (baseR * 1.6f) : (baseR * 0.48f);
+                        f32 wx = part->pos.f[0];
+                        f32 wy = part->pos.f[1];
+                        f32 wz = part->pos.f[2];
+                        f32 alpha;
+                        u32 hash;
+
+                        if (life < 0.0f) life = 0.0f;
+                        if (life > 1.0f) life = 1.0f;
+                        if (isSmall && worldRadius < 2.5f) worldRadius = 2.5f;
+                        if (!isSmall && temp_s5->unk3CD != 0) {
+                            /* Ground blast: slight lift keeps the floor intersection inside the soft outer skirt */
+                            wy += worldRadius * 0.14f;
+                        }
+                        alpha = (life > 0.85f) ? ((1.0f - life) / 0.15f) : 1.0f;
+                        if (alpha < 0.0f) alpha = 0.0f;
+
+                        gevrWorldToGameView(w2s, wx, wy, wz, viewScale, puffs[count].viewPos);
+                        puffs[count].radius = worldRadius * viewScale;
+                        puffs[count].color[0] = 1.0f;
+                        puffs[count].color[1] = 0.92f;
+                        puffs[count].color[2] = 0.78f;
+                        puffs[count].color[3] = alpha;
+                        puffs[count].life = life;
+                        hash = (u32)((expIdx * 41 + i + 1) * 2654435761u);
+                        puffs[count].seed = (f32)(hash & 0xFFFFu) * (1.0f / 65536.0f);
+                        puffs[count].swirl = (f32)((hash >> 16) & 0xFFFFu) * (M_TAU_F / 65536.0f) + life * 1.35f;
+                        puffs[count].worldY = wy;
+                        puffs[count].kind = GEVR_VOL_KIND_FIRE;
+                        puffs[count].smallFx = (u8)isSmall;
+                        puffs[count].detailTier = 1u;
+                        puffs[count].inside = 0u;
+                        count++;
+                    }
+                }
+
+                if (count > 0)
+                {
+                    s32 batchId = gevrVolumetricPushBatch(puffs, count, &g_viProjectionMatrixF[0][0], v2w9,
+                                                          g_gevrVolumetricTimeSec, 1, isSmall);
+                    if (batchId >= 0)
+                    {
+                        gDPNoOpTag(gdl++, GEVR_VOL_DL_TAG_PREFIX | (u32)batchId);
+                    }
+                }
+
+                temp_f10 = (s32)(g_ExplosionTypes[temp_s5->explosion_type].flareanimspeed * 15.0f);
+                for (i = 0; i < EXPLOSION_PARTS_LEN; i++)
+                {
+                    if (temp_f10 < temp_s5->parts[i].frame)
+                    {
+                        temp_s5->parts[i].frame = 0;
+                    }
+                }
+                return gdl;
+            }
+        }
+#endif
+
         gSPClearGeometryMode(gdl++, G_CULL_BOTH | G_FOG);
         gSPMatrix(gdl++, osVirtualToPhysical((void*)get_BONDdata_field_10E0()), (G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION));
 
@@ -1850,6 +1981,94 @@ Gfx *explosionRenderPropSmoke(PropRecord *arg0, Gfx *gdl, s32 withalpha)
     {
         gdl = bgScissorCurrentPlayerViewDefault(gdl);
     }
+
+#ifdef GEVR
+    {
+        extern int VrVolumetricExplosions;
+        extern f32 g_viProjectionMatrixF[4][4];
+        if (VrVolumetricExplosions)
+        {
+            GevrVolumetricPuff puffs[SMOKE_PARTS_LEN];
+            u32 count = 0;
+            Mtxf *w2s = camGetWorldToScreenMtxf();
+            f32 v2w9[9];
+            s_smoketype *stype = &g_SmokeTypes[smoke->smoke_type];
+            s32 isSmall = (smoke->smoke_type == 7 || smoke->smoke_type == 8 || smoke->smoke_type == 9) ? 1 : 0;
+            s32 smokeIdx = (s32)(smoke - g_SmokeBuffer);
+            f32 viewScale = D_800364CC > 0.001f ? D_800364CC : 1.0f;
+
+            gevrVolumetricViewToWorld3x3(v2w9);
+
+            for (i = 0; i < SMOKE_PARTS_LEN; i++)
+            {
+                if (smoke->parts[i].size > 0.0f)
+                {
+                    struct SmokePart *part = &smoke->parts[i];
+                    f32 rawAlpha;
+                    f32 alpha;
+                    /* Classic smoke quad half-width is size/sqrt(2); 0.50 * size matches
+                     * the visible cloud diameter while avoiding wasted outer-skirt overdraw. */
+                    f32 worldRadius = part->size * 0.50f;
+                    f32 wx = part->pos.f[0] + (sinf(part->offset1) * 7.0f);
+                    f32 wy = part->pos.f[1] + (isSmall ? 0.0f : worldRadius * 0.08f);
+                    f32 wz = part->pos.f[2] + (sinf(part->offset2) * 7.0f);
+                    u32 hash;
+
+                    if (stype->rateappear >= part->count && stype->rateappear > 0)
+                    {
+                        rawAlpha = (part->alpha / (f32)stype->rateappear) * (f32)part->count;
+                    }
+                    else
+                    {
+                        rawAlpha = part->alpha;
+                    }
+                    /* Match classic center-cloud sightline occlusion and late lingering visibility
+                     * (gentle gamma lift compensates for Beer-Lambert rim attenuation). */
+                    {
+                        f32 aNorm = rawAlpha * (1.0f / 255.0f);
+                        if (aNorm < 0.0f) aNorm = 0.0f;
+                        if (aNorm > 1.0f) aNorm = 1.0f;
+                        alpha = powf(aNorm, 0.85f) * 1.12f;
+                        if (alpha > 1.0f) alpha = 1.0f;
+                    }
+
+                    gevrWorldToGameView(w2s, wx, wy, wz, viewScale, puffs[count].viewPos);
+                    puffs[count].radius = worldRadius * viewScale;
+                    puffs[count].color[0] = (f32)stype->r * (1.0f / 255.0f);
+                    puffs[count].color[1] = (f32)stype->g * (1.0f / 255.0f);
+                    puffs[count].color[2] = (f32)stype->b * (1.0f / 255.0f);
+                    puffs[count].color[3] = alpha;
+                    puffs[count].life = (stype->duration > 0) ? ((f32)part->count / (f32)stype->duration) : 0.0f;
+                    if (puffs[count].life > 1.0f) puffs[count].life = 1.0f;
+                    puffs[count].swirl = part->rot;
+                    hash = (u32)((smokeIdx * 13 + i + 1) * 2654435761u);
+                    puffs[count].seed = (f32)(hash & 0xFFFFu) * (1.0f / 65536.0f);
+                    puffs[count].worldY = wy;
+                    puffs[count].kind = GEVR_VOL_KIND_SMOKE;
+                    puffs[count].smallFx = (u8)isSmall;
+                    puffs[count].detailTier = 1u;
+                    puffs[count].inside = 0u;
+                    count++;
+                }
+                else
+                {
+                    smoke->parts[i].size = 0.0f;
+                }
+            }
+
+            if (count > 0)
+            {
+                s32 batchId = gevrVolumetricPushBatch(puffs, count, &g_viProjectionMatrixF[0][0], v2w9,
+                                                      g_gevrVolumetricTimeSec, 0, isSmall);
+                if (batchId >= 0)
+                {
+                    gDPNoOpTag(gdl++, GEVR_VOL_DL_TAG_PREFIX | (u32)batchId);
+                }
+            }
+            return gdl;
+        }
+    }
+#endif
 
     gSPClearGeometryMode(gdl++, G_CULL_BOTH | G_FOG);
 

@@ -23,6 +23,14 @@ struct ShaderProgram {
 static std::vector<GevrEyeDraw> s_eyeDraws;
 struct GevrEyeMesh {GLuint vao; GfxMeshDrawParams params;};
 static std::vector<GevrEyeMesh> s_eyeMeshes;
+struct GevrVolRecordedBatch {};
+static std::vector<GevrVolRecordedBatch> s_eyeVolBatches;
+struct Framebuffer { bool invert_y = false; };
+static Framebuffer framebuffers[1];
+static int current_framebuffer = 0;
+static bool s_flatRec = false, use_multiview = true, gVrFlatPass = false;
+static float s_eyeProj[16] = {};
+static void gevr_vol_draw_recorded(const GevrVolRecordedBatch*, const float*, const float*, bool, bool, const float*, bool, bool) {}
 static bool s_drawElements,clip;
 static GLuint boundVao; static int cull,vaoCalls,attribCalls;
 static std::map<GLuint,std::vector<bool>> attributes;

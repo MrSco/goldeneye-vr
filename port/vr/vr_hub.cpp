@@ -86,11 +86,12 @@ static const char* kPrecisionLine = "";
 static const char* kHubVsSrc =
         "layout(num_views = 2) in;\n"
         "layout(location = 0) in vec3 aPos;\n"
-        "uniform mat4 uViewProj[2];\n"
+        "uniform mat4 uViewProj0;\n"
+        "uniform mat4 uViewProj1;\n"
         "out vec3 vWorldPos;\n"
         "void main() {\n"
         "    vWorldPos = aPos;\n"
-        "    gl_Position = uViewProj[gl_ViewID_OVR] * vec4(aPos, 1.0);\n"
+        "    gl_Position = ((gl_ViewID_OVR == 0u) ? uViewProj0 : uViewProj1) * vec4(aPos, 1.0);\n"
         "}\n";
 
 // Floor: procedural grid + distance fog, no texture needed.
@@ -206,7 +207,7 @@ static GLuint sFloorProg = 0, sSkyProg = 0;
 static GLuint sFloorVao = 0, sFloorVbo = 0;
 static GLuint sSkyVbo = 0;
 
-static GLint sFloorVpLoc = -1, sFloorBaseLoc = -1, sFloorLineLoc = -1,
+static GLint sFloorVp0Loc = -1, sFloorVp1Loc = -1, sFloorBaseLoc = -1, sFloorLineLoc = -1,
         sFloorFogColorLoc = -1, sFloorCellLoc = -1, sFloorFogStartLoc = -1, sFloorFogEndLoc = -1;
 
 static bool sInitDone = false;
@@ -304,7 +305,8 @@ void vr_hub_init(void) {
     glDeleteShader(skyFs);
     glDeleteShader(vs);
 
-    sFloorVpLoc       = glGetUniformLocation(sFloorProg, "uViewProj");
+    sFloorVp0Loc      = glGetUniformLocation(sFloorProg, "uViewProj0");
+    sFloorVp1Loc      = glGetUniformLocation(sFloorProg, "uViewProj1");
     sFloorBaseLoc     = glGetUniformLocation(sFloorProg, "uBaseColor");
     sFloorLineLoc     = glGetUniformLocation(sFloorProg, "uLineColor");
     sFloorFogColorLoc = glGetUniformLocation(sFloorProg, "uFogColor");
@@ -449,7 +451,8 @@ void vr_hub_render(const float eyeViewProj[2][16]) {
 // --- Floor ---
     glDepthMask(GL_TRUE);
     glUseProgram(sFloorProg);
-    glUniformMatrix4fv(sFloorVpLoc, 2, GL_FALSE, &eyeViewProj[0][0]);
+    glUniformMatrix4fv(sFloorVp0Loc, 1, GL_FALSE, &eyeViewProj[0][0]);
+    glUniformMatrix4fv(sFloorVp1Loc, 1, GL_FALSE, &eyeViewProj[1][0]);
     glUniform3fv(sFloorBaseLoc, 1, g_HubFloorBase);
     glUniform3fv(sFloorLineLoc, 1, g_HubFloorLine);
     glUniform3fv(sFloorFogColorLoc, 1, g_HubSkyColor);

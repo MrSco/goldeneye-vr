@@ -28,6 +28,7 @@
 #include "gevr_frame_timing.h"
 #include "gevr_hud_bounds.h"
 #include "gevr_vertex_ownership.h"
+#include "gevr_volumetric.h"
 /* Inclusive CPU timings, only with Show stats. RAII balances early returns;
  * draw_issue is nested in draw_batch, shader_bind may nest in shader_compile. */
 class GevrCpuSection {
@@ -2542,6 +2543,7 @@ struct GevrScopeDraw {
     float decalPull;
     uint8_t faded;  // 255 minus gevrFadeDepthAlpha: 0 a draw that does not fade
     uint32_t mesh; // 1 + scope mesh record, zero for the vertex ring
+    uint32_t volumetric; // 1 + s_scopeVolBatches entry, zero for regular draws
     uint8_t mask;   // which scopes see it: bit (1 << hand)
 };
 
@@ -2549,6 +2551,15 @@ struct GevrScopeDraw {
 static std::vector<GevrScopeDraw> s_scopeDraws;
 struct GevrScopeMesh { GLuint vao; GfxMeshDrawParams params; };
 static std::vector<GevrScopeMesh> s_scopeMeshes;
+struct GevrVolRecordedBatch {
+    GevrVolumetricBatch meta;
+    std::vector<GevrVolumetricPuff> puffs;
+};
+static std::vector<GevrVolRecordedBatch> s_scopeVolBatches;
+static std::vector<GevrVolRecordedBatch> s_eyeVolBatches;
+static void gevr_vol_draw_recorded(const GevrVolRecordedBatch* batch, const float delta[16],
+                                   const float proj[16], bool applyStereo, bool depthSquash,
+                                   const float* eyeBase, bool flipProjY, bool flipCullY);
 static void gevr_mesh_uniforms(const ShaderProgram*, const GfxMeshDrawParams*, bool* = NULL);
 static void gevr_mesh_clip(bool);
 static void gevr_mesh_cull(int);
@@ -2567,6 +2578,8 @@ static bool s_scopeTaken[2], s_scopeDrawn[2];   // per hand: recording this fram
 static uint8_t s_scopeOnlyMask;   // VR_SCOPE_ONLY: kept for that scope alone, not drawn to the eyes
 static float s_scopeVP[2][16], s_scopeHeadP[2][2];
 static GLuint s_scopeFbo[2], s_scopeTex[2], s_scopeDepth[2];
+static GLuint s_scopeMvTex[2], s_scopeMvDepth[2], s_scopeReadFbo[2], s_scopeDrawFbo[2];
+static bool s_scopeMultiview[2];
 
 static bool gevr_scope_any_taken(void)
 {
@@ -2582,6 +2595,7 @@ void gfx_vr_scope_record(bool on, bool invert_y)
     }
     s_scopeDraws.clear();
     s_scopeMeshes.clear();
+    s_scopeVolBatches.clear();
     s_scopeTaken[0] = s_scopeTaken[1] = false;
     // needs the mapped ring: without it every draw overwrites the last one's vertices
     if (!gevrScopeOn || s_pmPtr == NULL || gVrFlatPass) {
@@ -2733,20 +2747,99 @@ static void gevr_scope_make_target(int hand)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glGenRenderbuffers(1, &s_scopeDepth[hand]);
-    glBindRenderbuffer(GL_RENDERBUFFER, s_scopeDepth[hand]);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, GEVR_SCOPE_RES, GEVR_SCOPE_RES);
-    glBindRenderbuffer(GL_RENDERBUFFER, 0);
     glGenFramebuffers(1, &s_scopeFbo[hand]);
-    glBindFramebuffer(GL_FRAMEBUFFER, s_scopeFbo[hand]);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_scopeTex[hand], 0);
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, s_scopeDepth[hand]);
-    const GLenum st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    GLenum st = GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
+
+    // Issue #321: when real GL_OVR_multiview is active, Fast3D and volumetric
+    // shaders carry layout(num_views = 2) in;. The GL_OVR_multiview spec
+    // rejects drawing them into a non-multiview 2D FBO with GL_INVALID_OPERATION
+    // (strictly enforced on Mesa/Zink / Steam Frame, leaving the scope black).
+    // Render into a 2-layer multiview array target and blit layer 0 to the
+    // public 2D s_scopeTex[hand] when the pass ends.
+    if (use_multiview && !gevrMvEmuActive && glFramebufferTextureMultiviewOVR && glTexImage3D && glFramebufferTextureLayer) {
+        GLint prevArrTex = 0;
+        glGetIntegerv(GL_TEXTURE_BINDING_2D_ARRAY, &prevArrTex);
+        glGenTextures(1, &s_scopeMvTex[hand]);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, s_scopeMvTex[hand]);
+        glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, GEVR_SCOPE_RES, GEVR_SCOPE_RES, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        glGenTextures(1, &s_scopeMvDepth[hand]);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, s_scopeMvDepth[hand]);
+        glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_DEPTH24_STENCIL8, GEVR_SCOPE_RES, GEVR_SCOPE_RES, 2, 0,
+                     GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, NULL);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, (GLuint)prevArrTex);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, s_scopeFbo[hand]);
+        glFramebufferTextureMultiviewOVR(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, s_scopeMvTex[hand], 0, 0, 2);
+        glFramebufferTextureMultiviewOVR(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, s_scopeMvDepth[hand], 0, 0, 2);
+        st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (st == GL_FRAMEBUFFER_COMPLETE) {
+            glGenFramebuffers(1, &s_scopeReadFbo[hand]);
+            glBindFramebuffer(GL_FRAMEBUFFER, s_scopeReadFbo[hand]);
+            glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, s_scopeMvTex[hand], 0, 0);
+            const GLenum stRead = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+
+            glGenFramebuffers(1, &s_scopeDrawFbo[hand]);
+            glBindFramebuffer(GL_FRAMEBUFFER, s_scopeDrawFbo[hand]);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_scopeTex[hand], 0);
+            const GLenum stDraw = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+
+            if (stRead == GL_FRAMEBUFFER_COMPLETE && stDraw == GL_FRAMEBUFFER_COMPLETE) {
+                s_scopeMultiview[hand] = true;
+            } else {
+                st = (stRead != GL_FRAMEBUFFER_COMPLETE) ? stRead : stDraw;
+                glDeleteFramebuffers(1, &s_scopeReadFbo[hand]);
+                glDeleteFramebuffers(1, &s_scopeDrawFbo[hand]);
+                s_scopeReadFbo[hand] = s_scopeDrawFbo[hand] = 0;
+            }
+        }
+        if (!s_scopeMultiview[hand]) {
+            glBindFramebuffer(GL_FRAMEBUFFER, s_scopeFbo[hand]);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, 0);
+            glDeleteTextures(1, &s_scopeMvTex[hand]);
+            glDeleteTextures(1, &s_scopeMvDepth[hand]);
+            s_scopeMvTex[hand] = s_scopeMvDepth[hand] = 0;
+        }
+    }
+
+    if (!s_scopeMultiview[hand]) {
+        glGenRenderbuffers(1, &s_scopeDepth[hand]);
+        glBindRenderbuffer(GL_RENDERBUFFER, s_scopeDepth[hand]);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, GEVR_SCOPE_RES, GEVR_SCOPE_RES);
+        glBindRenderbuffer(GL_RENDERBUFFER, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, s_scopeFbo[hand]);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_scopeTex[hand], 0);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, s_scopeDepth[hand]);
+        st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    }
+
     sysLogPrintf(st == GL_FRAMEBUFFER_COMPLETE ? LOG_NOTE : LOG_WARNING,
-                 "scope: hand %d %dx%d target %s (0x%x), texture %u", hand, GEVR_SCOPE_RES, GEVR_SCOPE_RES,
+                 "scope: hand %d %dx%d %s target %s (0x%x), texture %u", hand, GEVR_SCOPE_RES, GEVR_SCOPE_RES,
+                 s_scopeMultiview[hand] ? "multiview" : "2D",
                  st == GL_FRAMEBUFFER_COMPLETE ? "ready" : "incomplete", st, (unsigned)s_scopeTex[hand]);
     glBindTexture(GL_TEXTURE_2D, s_boundTex[s_activeTexUnit]);
     glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prevFbo);
+}
+
+static void gevr_scope_resolve_target(int hand)
+{
+    if (!s_scopeMultiview[hand]) {
+        return;
+    }
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, s_scopeReadFbo[hand]);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_scopeDrawFbo[hand]);
+    glBlitFramebuffer(0, 0, GEVR_SCOPE_RES, GEVR_SCOPE_RES,
+                      0, 0, GEVR_SCOPE_RES, GEVR_SCOPE_RES,
+                      GL_COLOR_BUFFER_BIT, GL_NEAREST);
 }
 
 /*
@@ -2841,6 +2934,14 @@ void gfx_vr_scope_render(void)
             if (!(d.mask & (1 << hand))) {
                 continue;
             }
+            if (d.volumetric) {
+                static const float kId[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+                gevr_vol_draw_recorded(&s_scopeVolBatches[d.volumetric - 1], kId, s_scopeVP[hand],
+                                       false, false, gevrScope[hand].origin, false, false);
+                drawn[hand]++;
+                last = NULL;
+                continue;
+            }
             drawn[hand]++;
             gevr_replay_vao(bindings, d.mesh ? s_scopeMeshes[d.mesh - 1].vao : opengl_vao, d.mesh != 0);
             if (last == NULL || d.prg != bound) {
@@ -2889,6 +2990,7 @@ void gfx_vr_scope_render(void)
             gevr_issue_draw(d.first, d.count, false, d.decalDepth, d.decalPull, d.lineMode);
             last = &d;
         }
+        gevr_scope_resolve_target(hand);
         s_scopeDrawn[hand] = true;
 
         // PORT probe: touching files/gevr_scopedump writes this frame's scope
@@ -2994,6 +3096,7 @@ void gfx_vr_scope_render(void)
     }
     s_scopeDraws.clear();
     s_scopeMeshes.clear();
+    s_scopeVolBatches.clear();
 }
 
 // vr_openxr.cpp: this game frame's scope image for a hand, or 0 when there is none
@@ -3438,11 +3541,13 @@ struct GevrEyeDraw {
     GLint viewport[4];
     GLint scissor[4];
     uint32_t mesh;     // a static mesh's draw: 1 + its s_eyeMeshes entry; 0 the vertex ring
+    uint32_t volumetric; // a volumetric smoke/explosion batch: 1 + s_eyeVolBatches entry
     uint8_t faded;     // 255 minus gevrFadeDepthAlpha: 0 a draw that does not fade
     bool clearDepthBefore;   // G_CLEAR_DEPTH_EXT before this draw (flat viewmodels on their own depth)
 };
 
 static std::vector<GevrEyeDraw> s_eyeDraws;
+static float s_eyePresentDelta[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
 static uint32_t s_eyeKept, s_eyeMerged;   // gevr_eye_keep: per second, Show stats / profile traces
 extern "C" int VrShowStats;                 // vr_input.cpp: the stats readout is on
 struct GevrEyeMesh {
@@ -3460,6 +3565,7 @@ void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* p
     if (on) {
         s_eyeDraws.clear();
         s_eyeMeshes.clear();
+        s_eyeVolBatches.clear();
         s_eyeReady = false;
         s_eyeSpilled = false;
         s_eyeClearDepth = false;
@@ -3474,7 +3580,10 @@ void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* p
             memcpy(s_eyeProj, proj, sizeof(s_eyeProj));   // row-vector rows = GL columns
             s_eyeHeadP[0] = proj[0];
             s_eyeHeadP[1] = proj[5];
-            if (s_eyePresent) gevr_eye_proj_times(presentation, s_eyePresentationVP);
+            if (s_eyePresent) {
+                memcpy(s_eyePresentDelta, presentation, sizeof(s_eyePresentDelta));
+                gevr_eye_proj_times(presentation, s_eyePresentationVP);
+            }
         }
     } else {
         s_eyeReady = s_eyeRec && !s_eyeSpilled && !s_eyeDraws.empty();
@@ -3521,6 +3630,7 @@ void gfx_flat_record(bool on, const float* proj, bool invert_y, const float* pre
     if (on) {
         s_eyeDraws.clear();
         s_eyeMeshes.clear();
+        s_eyeVolBatches.clear();
         s_eyeReady = false;
         s_eyeSpilled = false;
         s_eyeClearDepth = false;
@@ -3536,7 +3646,10 @@ void gfx_flat_record(bool on, const float* proj, bool invert_y, const float* pre
             }
             s_eyeHeadP[0] = s_eyeProj[0];
             s_eyeHeadP[1] = s_eyeProj[5];
-            if (s_eyePresent) gevr_eye_proj_times(presentation, s_eyePresentationVP);
+            if (s_eyePresent) {
+                memcpy(s_eyePresentDelta, presentation, sizeof(s_eyePresentDelta));
+                gevr_eye_proj_times(presentation, s_eyePresentationVP);
+            }
         }
     } else {
         s_eyeReady = s_eyeRec && !s_eyeSpilled && !s_eyeDraws.empty();
@@ -3577,7 +3690,7 @@ void gfx_vr_eye_record_only(bool on)
  */
 static bool gevr_eye_draw_joins(const GevrEyeDraw& a, const GevrEyeDraw& b)
 {
-    if (a.lineMode || b.lineMode || b.clearDepthBefore || a.first + a.count != b.first || a.prg != b.prg
+    if (a.volumetric || b.volumetric || a.lineMode || b.lineMode || b.clearDepthBefore || a.first + a.count != b.first || a.prg != b.prg
         || a.prg->opaque_depth_pass_location >= 0
         || a.decalZ || b.decalZ || a.decalDepth || b.decalDepth
         || a.gunDecal != b.gunDecal || a.decalPull != b.decalPull
@@ -3645,6 +3758,7 @@ static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode)
     memcpy(d.viewport, s_curViewport, sizeof(d.viewport));
     memcpy(d.scissor, s_curScissor, sizeof(d.scissor));
     d.mesh = s_eyeKeepMesh;
+    d.volumetric = 0;
     d.faded = (uint8_t)(255 - gevrFadeDepthAlpha);
     d.clearDepthBefore = s_eyeClearDepth;
     s_eyeClearDepth = false;
@@ -3896,6 +4010,21 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
     GevrReplayBindings bindings;
     bindings.ring = ringVbo;
     for (const GevrEyeDraw& d : s_eyeDraws) {
+        if (d.volumetric) {
+            if (last == NULL || memcmp(d.viewport, last->viewport, sizeof(d.viewport)) != 0) {
+                glViewport(d.viewport[0], d.viewport[1], d.viewport[2], d.viewport[3]);
+            }
+            if (last == NULL || memcmp(d.scissor, last->scissor, sizeof(d.scissor)) != 0) {
+                glScissor(d.scissor[0], d.scissor[1], d.scissor[2], d.scissor[3]);
+            }
+            if (d.clearDepthBefore) gevr_replay_clear_depth();
+            const bool stereo = !s_flatRec && use_multiview && !gVrFlatPass && !d.isMenu;
+            const bool invertY = framebuffers[current_framebuffer].invert_y;
+            gevr_vol_draw_recorded(&s_eyeVolBatches[d.volumetric - 1], delta, s_eyeProj,
+                                   stereo, true, NULL, false, invertY);
+            last = NULL;
+            continue;
+        }
         gevr_replay_vao(bindings, d.mesh ? s_eyeMeshes[d.mesh - 1].vao : opengl_vao, d.mesh != 0);
         if (last == NULL || d.prg != bound) {
             if (last != NULL || d.prg != bound) {
@@ -4334,8 +4463,9 @@ void gfx_vr_motion_pass(const float* const cur[4], const float* const prev[4], b
     static uint32_t gapCount;
     for (const GevrEyeDraw& d : s_eyeDraws) {
         const GevrEyeMesh* mesh = d.mesh ? &s_eyeMeshes[d.mesh - 1] : NULL;
-        // decals keep the motion of the surface they lie on (see above)
-        if (d.isMenu || d.decalZ || d.decalDepth) {
+        // decals keep the motion of the surface they lie on (see above);
+        // volumetric smoke/fire is transparent and never writes motion vectors
+        if (d.volumetric || d.isMenu || d.decalZ || d.decalDepth) {
             skipped++;
             continue;
         }
@@ -4972,6 +5102,8 @@ static void gfx_opengl_init(void) {
     GEVR_GL_FILL(glCopyBufferSubData, PFNGLCOPYBUFFERSUBDATAPROC);
     GEVR_GL_FILL(glDrawArraysInstanced, PFNGLDRAWARRAYSINSTANCEDPROC);
     GEVR_GL_FILL(glDrawElementsInstanced, PFNGLDRAWELEMENTSINSTANCEDPROC);
+    GEVR_GL_FILL(glVertexAttribDivisor, PFNGLVERTEXATTRIBDIVISORPROC);
+    GEVR_GL_FILL(glTexImage3D, PFNGLTEXIMAGE3DPROC);
     GEVR_GL_FILL(glUniform2uiv, PFNGLUNIFORM2UIVPROC);
 #undef GEVR_GL_FILL
 
@@ -5213,12 +5345,15 @@ static void gfx_opengl_on_resize(void) {
     gevr_mesh_settle();
 }
 
+static void gevr_vol_prewarm(void);
+
 static void gfx_opengl_start_frame(void) {
     gevr_mesh_settle();
     if (opengl_vao) glBindVertexArray(opengl_vao);
     frame_count++;
     gevr_decal_switch_poll();
     gevr_zdebug_poll();
+    gevr_vol_prewarm();
 
     gVrMenuLWasClearedThisFrame = false;
     gVrMenuLCaptureDepth = 0;
@@ -6509,4 +6644,609 @@ void gfx_opengl_draw_vignette(float strength, float blink)
     if (depth) glEnable(GL_DEPTH_TEST);
     if (scissor) glEnable(GL_SCISSOR_TEST);
     if (!blend) glDisable(GL_BLEND);
+}
+
+// ============================================================================
+// Analytical 3D Volumetric Smoke & Explosions (issue #249)
+// ============================================================================
+// One instanced pass per explosion or smoke prop, drawn in exact transparency
+// order (0x5664xxxx tag from explosion.c) and replayed seamlessly by both
+// gfx_vr_eye_replay (72-120 Hz VR / 144-180 Hz flat) and gfx_vr_scope_render.
+//
+// Each puff renders a unit subdivision-1 icosphere bounding shell; the fragment
+// shader intersects the per-eye view ray analytically with the exact world-
+// anchored sphere and samples a tiny precomputed 32^3 RGBA8 3D noise volume
+// (1-3 taps depending on platform & projected size). Zero MSAA depth resolves
+// (stays tile-local on Quest Adreno).
+// ============================================================================
+struct GevrVolGpuInstance {
+    float posRad[4];   // xyz = center in game-camera view space, w = radius
+    float color[4];    // rgb = tint, a = opacity/intensity
+    float params[4];   // life, swirl, seed, worldY
+    float flags[4];    // isFire, isSmallFx, isInside, detailTier
+};
+
+static uint32_t s_volGeneration = 0;
+static bool s_volBuilt = false;
+static bool s_volFailed = false;
+static bool s_volMultiview = false;
+static GLuint s_volProg = 0;
+static GLuint s_volVao = 0;
+static GLuint s_volSphereVbo = 0;
+static GLuint s_volSphereIbo = 0;
+static GLuint s_volInstVbo = 0;
+static GLuint s_volNoiseTex = 0;
+static GLint s_volDeltaLoc = -1;
+static GLint s_volProjLoc = -1;
+static GLint s_volEyeBaseLoc = -1;
+static GLint s_volApplyStereoLoc = -1;
+static GLint s_volDepthSquashLoc = -1;
+static GLint s_volEyeOffLLoc = -1;
+static GLint s_volEyeOffRLoc = -1;
+static GLint s_volNoiseLoc = -1;
+static GLint s_volViewToWorldLoc = -1;
+static GLint s_volTimeLoc = -1;
+
+static GLuint gevr_vol_compile_shader(GLenum type, const char* src, const char* label)
+{
+    GLuint s = glCreateShader(type);
+    glShaderSource(s, 1, &src, nullptr);
+    glCompileShader(s);
+    GLint ok = 0;
+    glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        char log[1024] = {0};
+        glGetShaderInfoLog(s, sizeof(log) - 1, nullptr, log);
+        vr_log("volumetric: %s shader failed: %s", label, log);
+        glDeleteShader(s);
+        return 0;
+    }
+    return s;
+}
+
+static bool gevr_vol_ensure_resources(void)
+{
+    if (s_volBuilt && s_volGeneration == s_glGeneration && s_volMultiview == use_multiview) {
+        return !s_volFailed;
+    }
+    s_volBuilt = true;
+    s_volFailed = true;
+    s_volGeneration = s_glGeneration;
+    s_volMultiview = use_multiview;
+    s_volProg = s_volVao = s_volSphereVbo = s_volSphereIbo = s_volInstVbo = s_volNoiseTex = 0;
+
+    if (!glTexImage3D || !glDrawElementsInstanced || !glVertexAttribDivisor) {
+        vr_log("volumetric: missing GLES3/GL3.3 instancing or 3D texture entry points");
+        return false;
+    }
+
+    std::string vs = std::string("#version ") + gl_glsl_version_str + "\n";
+    if (use_multiview) {
+        vs += "#extension GL_OVR_multiview2 : require\n"
+              "layout(num_views = 2) in;\n";
+    }
+    vs +=
+        "layout(location = 0) in vec3 aUnitPos;\n"
+        "layout(location = 1) in vec4 aInstPosRad;\n"
+        "layout(location = 2) in vec4 aInstColor;\n"
+        "layout(location = 3) in vec4 aInstParams;\n"
+        "layout(location = 4) in vec4 aInstFlags;\n"
+        "uniform mat4 uDelta;\n"
+        "uniform mat4 uProj;\n"
+        "uniform vec3 uEyeBase;\n"
+        "uniform int uApplyStereo;\n"
+        "uniform int uDepthSquash;\n"
+        "uniform vec4 uEyeOffsetLeft;\n"
+        "uniform vec4 uEyeOffsetRight;\n"
+        "out vec3 vRayVec;\n"
+        "flat out vec3 vCenterRel;\n"
+        "flat out float vRadius;\n"
+        "flat out vec4 vColor;\n"
+        "flat out vec4 vParams;\n"
+        "flat out vec4 vFlags;\n"
+        "flat out vec3 vSwirlInvR;\n"
+        "void main() {\n"
+        "    float r = aInstPosRad.w;\n"
+        "    vec3 cView = (uDelta * vec4(aInstPosRad.xyz, 1.0)).xyz;\n"
+        "    vec3 pView = (uDelta * vec4(aInstPosRad.xyz + aUnitPos * (r * 1.08), 1.0)).xyz;\n"
+        "    vec4 clip = uProj * vec4(pView, 1.0);\n"
+        "    vec3 eyePos = uEyeBase;\n";
+    if (use_multiview) {
+        vs +=
+            "    if (uApplyStereo != 0) {\n"
+            "        vec4 off = (gl_ViewID_OVR == 0u) ? uEyeOffsetLeft : uEyeOffsetRight;\n"
+            "        clip.x -= off.x + off.y * clip.w;\n"
+            "        clip.y -= off.w * clip.w;\n"
+            "        float p00 = uProj[0][0];\n"
+            "        if (abs(p00) > 0.0001) {\n"
+            "            eyePos.x += off.x / p00;\n"
+            "        }\n"
+            "    }\n";
+    }
+    vs +=
+        "    if (uDepthSquash != 0) {\n"
+        "        clip.z *= 0.3;\n"
+        "    }\n"
+        "    gl_Position = clip;\n"
+        "    vRayVec = pView - eyePos;\n"
+        "    vCenterRel = cView - eyePos;\n"
+        "    vRadius = r;\n"
+        "    vColor = aInstColor;\n"
+        "    vParams = aInstParams;\n"
+        "    vFlags = aInstFlags;\n"
+        "    vSwirlInvR = vec3(cos(aInstParams.y), sin(aInstParams.y), 1.0 / max(r, 0.0001));\n"
+        "}\n";
+
+    std::string fs = std::string("#version ") + gl_glsl_version_str + "\n";
+    if (gl_es) {
+        /* FP16 (mediump) doubles ALU throughput & cuts register pressure in half on
+         * Adreno 740 (Quest 3); only ray-sphere intersection stays highp. Keep
+         * sampler3D at mediump (lowp quantizes 3D UVs into horizontal bands on Adreno). */
+        fs += "precision mediump float;\n"
+              "precision mediump sampler3D;\n";
+    }
+    const char* hp = gl_es ? "highp " : "";
+    fs +=
+        "uniform sampler3D uNoiseTex;\n"
+        "uniform mat3 uViewToWorld;\n";
+    fs += std::string("uniform ") + hp + "float uTime;\n";
+    fs += std::string("in ") + hp + "vec3 vRayVec;\n";
+    fs += std::string("flat in ") + hp + "vec3 vCenterRel;\n";
+    fs += std::string("flat in ") + hp + "float vRadius;\n";
+    fs +=
+        "flat in vec4 vColor;\n"
+        "flat in vec4 vParams;\n"
+        "flat in vec4 vFlags;\n"
+        "flat in vec3 vSwirlInvR;\n"
+        "out vec4 outColor;\n"
+        "vec4 samplePuffNoise(vec3 uvw, float cs, float sn, float seed, float riseFrac, float isFire) {\n"
+        "    vec3 rp = vec3(uvw.x * cs - uvw.z * sn, uvw.y, uvw.x * sn + uvw.z * cs);\n"
+        "    float freq = (isFire > 0.5) ? 0.58 : 0.52;\n"
+        "    vec3 off = fract(vec3(seed * 3.71, seed * 1.93 - riseFrac, seed * 2.57));\n"
+        "    vec3 tc = rp * freq + off;\n"
+        "    return texture(uNoiseTex, tc);\n"
+        "}\n"
+        "void main() {\n";
+    fs += std::string("    ") + hp + "vec3 rd = normalize(vRayVec);\n";
+    fs += std::string("    ") + hp + "float b = dot(vCenterRel, rd);\n";
+    fs += std::string("    ") + hp + "vec3 perp = vCenterRel - rd * b;\n";
+    fs += std::string("    ") + hp + "float r2 = vRadius * vRadius;\n";
+    fs += std::string("    ") + hp + "float d2 = dot(perp, perp);\n";
+    fs +=
+        "    if (d2 >= r2) discard;\n";
+    fs += std::string("    ") + hp + "float h = sqrt(max(r2 - d2, 0.0));\n";
+    fs += std::string("    ") + hp + "float tEnter = max(b - h, 0.15);\n";
+    fs += std::string("    ") + hp + "float tExit = b + h;\n";
+    fs +=
+        "    if (tExit <= tEnter) discard;\n"
+        "    float invR = vSwirlInvR.z;\n"
+        "    float chord = clamp(float(tExit - tEnter) * (0.5 * invR), 0.0, 1.0);\n"
+        "    float life = vParams.x;\n"
+        "    float seed = vParams.z;\n"
+        "    float isFire = vFlags.x;\n"
+        "    float isSmall = vFlags.y;\n"
+        "    float isInside = vFlags.z;\n"
+        "    float tier = vFlags.w;\n"
+        "    float cs = vSwirlInvR.x;\n"
+        "    float sn = vSwirlInvR.y;\n";
+    fs += std::string("    ") + hp + "float riseRate = (isFire > 0.5) ? 0.42 : 0.15;\n";
+    fs += std::string("    float riseFrac = float(fract(uTime * riseRate));\n");
+    fs +=
+        "    float avgDens = 0.0;\n"
+        "    float coreFactor = 0.5;\n"
+        "    float litY = 0.5;\n"
+        "    if (tier < 0.5) {\n"
+        "        /* Fast single-tap analytical chord-midpoint evaluation (Quest/Mobile default). */\n";
+    fs += std::string("        ") + hp + "float tMid = 0.5 * (tEnter + tExit);\n";
+    fs += std::string("        vec3 localView = vec3(rd * tMid - vCenterRel);\n");
+    fs +=
+        "        vec3 uvw = (uViewToWorld * localView) * invR;\n"
+        "        float radial = max(0.0, 1.0 - dot(uvw, uvw));\n"
+        "        if (radial <= 0.002) discard;\n"
+        "        vec4 n = samplePuffNoise(uvw, cs, sn, seed, riseFrac, isFire);\n"
+        "        if (isFire > 0.5) {\n"
+        "            float billow = mix(n.r, n.g, 0.55);\n"
+        "            float turb = mix(billow, n.b, 0.42);\n"
+        "            avgDens = smoothstep(0.18, 0.84, turb * (0.36 + 0.96 * radial)) * (0.22 + 0.78 * radial * radial);\n"
+        "            coreFactor = clamp(0.28 + 0.78 * radial + (n.b - 0.48) * 0.65 + (n.g - 0.5) * 0.35, 0.0, 1.2);\n"
+        "        } else {\n"
+        "            float billow = mix(n.r, n.g, 0.66);\n"
+        "            float detail = mix(billow, n.b, 0.26);\n"
+        "            avgDens = smoothstep(0.20, 0.80, detail * (0.40 + 1.00 * radial)) * (0.22 + 0.78 * radial);\n"
+        "            litY = clamp(uvw.y * 0.5 + 0.5 + (n.g - 0.5) * 0.36, 0.0, 1.0);\n"
+        "        }\n"
+        "    } else {\n"
+        "        /* Multi-tap ray integration (PC / high tier). */\n"
+        "        float densSum = 0.0;\n"
+        "        float heatSum = 0.0;\n"
+        "        float litYSum = 0.0;\n"
+        "        float wSum = 0.0001;\n"
+        "        int taps = (tier < 1.5) ? 2 : 3;\n"
+        "        for (int i = 0; i < 3; i++) {\n"
+        "            if (i >= taps) break;\n"
+        "            float frac = (taps == 2) ? (i == 0 ? 0.30 : 0.72) : (0.20 + 0.30 * float(i));\n";
+    fs += std::string("            ") + hp + "float t = mix(tEnter, tExit, frac);\n";
+    fs += std::string("            vec3 localView = vec3(rd * t - vCenterRel);\n");
+    fs +=
+        "            vec3 uvw = (uViewToWorld * localView) * invR;\n"
+        "            float radial = max(0.0, 1.0 - dot(uvw, uvw));\n"
+        "            if (radial <= 0.001) continue;\n"
+        "            vec4 n = samplePuffNoise(uvw, cs, sn, seed, riseFrac, isFire);\n"
+        "            float d;\n"
+        "            if (isFire > 0.5) {\n"
+        "                float billow = mix(n.r, n.g, 0.55);\n"
+        "                float turb = mix(billow, n.b, 0.42);\n"
+        "                d = smoothstep(0.18, 0.84, turb * (0.36 + 0.96 * radial)) * (0.22 + 0.78 * radial * radial);\n"
+        "                heatSum += d * clamp(0.28 + 0.78 * radial + (n.b - 0.48) * 0.65 + (n.g - 0.5) * 0.35, 0.0, 1.2);\n"
+        "            } else {\n"
+        "                float billow = mix(n.r, n.g, 0.66);\n"
+        "                float detail = mix(billow, n.b, 0.26);\n"
+        "                d = smoothstep(0.20, 0.80, detail * (0.40 + 1.00 * radial)) * (0.22 + 0.78 * radial);\n"
+        "                litYSum += d * clamp(uvw.y * 0.5 + 0.5 + (n.g - 0.5) * 0.36, 0.0, 1.0);\n"
+        "            }\n"
+        "            densSum += d;\n"
+        "            wSum += d;\n"
+        "        }\n"
+        "        avgDens = densSum / float(taps);\n"
+        "        coreFactor = heatSum / wSum;\n"
+        "        litY = clamp(litYSum / wSum, 0.0, 1.0);\n"
+        "    }\n"
+        "    if (avgDens <= 0.002) discard;\n"
+        "    float insideScale = (isInside > 0.5) ? (0.62 * smoothstep(0.04, 0.35, chord)) : 1.0;\n"
+        "    if (isFire > 0.5) {\n"
+        "        float cool = life * 0.94;\n"
+        "        float temp = clamp((1.0 - cool) * (0.36 + 0.68 * coreFactor) + (avgDens - 0.42) * 0.34, 0.0, 1.0);\n"
+        "        vec3 colSoot   = vec3(0.10, 0.08, 0.07);\n"
+        "        vec3 colRed    = vec3(0.72, 0.14, 0.02);\n"
+        "        vec3 colOrange = vec3(1.00, 0.46, 0.05);\n"
+        "        vec3 colYellow = vec3(1.00, 0.84, 0.22);\n"
+        "        vec3 colWhite  = vec3(1.00, 0.98, 0.82);\n"
+        "        vec3 col = mix(colSoot, colRed, smoothstep(0.14, 0.34, temp));\n"
+        "        col = mix(col, colOrange, smoothstep(0.32, 0.56, temp));\n"
+        "        col = mix(col, colYellow, smoothstep(0.54, 0.78, temp));\n"
+        "        col = mix(col, colWhite, smoothstep(0.80, 0.98, temp));\n"
+        "        float boost = 1.0 + 0.22 * smoothstep(0.74, 0.98, temp);\n"
+        "        float optical = avgDens * chord * ((isSmall > 0.5) ? 4.2 : 3.2);\n"
+        "        float alpha = clamp((1.0 - exp2(-optical * 1.4427)) * vColor.a * insideScale, 0.0, 1.0);\n"
+        "        if (alpha <= 0.004) discard;\n"
+        "        float absorb = mix(0.72, 0.96, smoothstep(0.08, 0.72, life));\n"
+        "        outColor = vec4(col * boost * alpha, alpha * absorb);\n"
+        "    } else {\n"
+        "        float shade = mix(0.32, 1.08, smoothstep(0.06, 0.94, litY));\n"
+        "        shade *= mix(0.68, 1.08, 1.0 - clamp(avgDens * 0.85, 0.0, 1.0));\n"
+        "        vec3 col = vColor.rgb * shade;\n"
+        "        float optical = avgDens * chord * ((isSmall > 0.5) ? 3.8 : 4.2);\n"
+        "        float alpha = clamp((1.0 - exp2(-optical * 1.4427)) * vColor.a * insideScale, 0.0, 0.96);\n"
+        "        if (alpha <= 0.004) discard;\n"
+        "        outColor = vec4(col * alpha, alpha);\n"
+        "    }\n"
+        "}\n";
+
+    GLuint v = gevr_vol_compile_shader(GL_VERTEX_SHADER, vs.c_str(), "vertex");
+    GLuint f = gevr_vol_compile_shader(GL_FRAGMENT_SHADER, fs.c_str(), "fragment");
+    if (!v || !f) {
+        if (v) glDeleteShader(v);
+        if (f) glDeleteShader(f);
+        return false;
+    }
+    GLuint prg = glCreateProgram();
+    glAttachShader(prg, v);
+    glAttachShader(prg, f);
+    glLinkProgram(prg);
+    glDeleteShader(v);
+    glDeleteShader(f);
+    GLint ok = 0;
+    glGetProgramiv(prg, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char log[1024] = {0};
+        glGetProgramInfoLog(prg, sizeof(log) - 1, nullptr, log);
+        vr_log("volumetric: program link failed: %s", log);
+        glDeleteProgram(prg);
+        return false;
+    }
+
+    s_volProg = prg;
+    s_volDeltaLoc       = glGetUniformLocation(prg, "uDelta");
+    s_volProjLoc        = glGetUniformLocation(prg, "uProj");
+    s_volEyeBaseLoc     = glGetUniformLocation(prg, "uEyeBase");
+    s_volApplyStereoLoc = glGetUniformLocation(prg, "uApplyStereo");
+    s_volDepthSquashLoc = glGetUniformLocation(prg, "uDepthSquash");
+    s_volEyeOffLLoc     = glGetUniformLocation(prg, "uEyeOffsetLeft");
+    s_volEyeOffRLoc     = glGetUniformLocation(prg, "uEyeOffsetRight");
+    s_volNoiseLoc       = glGetUniformLocation(prg, "uNoiseTex");
+    s_volViewToWorldLoc = glGetUniformLocation(prg, "uViewToWorld");
+    s_volTimeLoc        = glGetUniformLocation(prg, "uTime");
+
+    GLint prevVao = 0, prevBuf = 0, prevActiveTex = GL_TEXTURE0;
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVao);
+    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prevBuf);
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActiveTex);
+
+    float verts[GEVR_VOL_ICO_VERTS * 3];
+    uint16_t indices[GEVR_VOL_ICO_INDICES];
+    uint32_t vcount = 0, icount = 0;
+    gevrVolumetricBuildIcosphere(verts, &vcount, indices, &icount);
+
+    glGenVertexArrays(1, &s_volVao);
+    glGenBuffers(1, &s_volSphereVbo);
+    glGenBuffers(1, &s_volSphereIbo);
+    glGenBuffers(1, &s_volInstVbo);
+
+    glBindVertexArray(s_volVao);
+    glBindBuffer(GL_ARRAY_BUFFER, s_volSphereVbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(vcount * 3 * sizeof(float)), verts, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (const void*)0);
+    glVertexAttribDivisor(0, 0);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_volSphereIbo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)(icount * sizeof(uint16_t)), indices, GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ARRAY_BUFFER, s_volInstVbo);
+    glBufferData(GL_ARRAY_BUFFER, 64 * sizeof(GevrVolGpuInstance), nullptr, GL_STREAM_DRAW);
+    for (GLuint loc = 1; loc <= 4; loc++) {
+        glEnableVertexAttribArray(loc);
+        glVertexAttribDivisor(loc, 1);
+    }
+
+    /* Precompute seamless 32^3 RGBA8 3D noise volume once per GL context (~128 KB). */
+    const int nsz = GEVR_VOL_NOISE_SIZE;
+    std::vector<uint8_t> noise((size_t)nsz * (size_t)nsz * (size_t)nsz * 4u);
+    gevrVolumetricBuildNoise3D(noise.data(), nsz);
+
+    glActiveTexture(GL_TEXTURE0 + 2);
+    glGenTextures(1, &s_volNoiseTex);
+    glBindTexture(GL_TEXTURE_3D, s_volNoiseTex);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_REPEAT);
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA8, nsz, nsz, nsz, 0, GL_RGBA, GL_UNSIGNED_BYTE, noise.data());
+    glBindTexture(GL_TEXTURE_3D, 0);
+
+    glActiveTexture((GLenum)prevActiveTex);
+    glBindVertexArray((GLuint)prevVao);
+    glBindBuffer(GL_ARRAY_BUFFER, (GLuint)prevBuf);
+
+    s_volFailed = false;
+    return true;
+}
+
+static void gevr_vol_prewarm(void)
+{
+    if (!s_volBuilt || s_volGeneration != s_glGeneration || s_volMultiview != use_multiview) {
+        gevr_vol_ensure_resources();
+        if (opengl_vao) glBindVertexArray(opengl_vao);
+    }
+}
+
+static void gevr_vol_bind_instance_offset(size_t firstInstance)
+{
+    const size_t base = firstInstance * sizeof(GevrVolGpuInstance);
+    const GLsizei stride = (GLsizei)sizeof(GevrVolGpuInstance);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, stride, (const void*)(base + offsetof(GevrVolGpuInstance, posRad)));
+    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, stride, (const void*)(base + offsetof(GevrVolGpuInstance, color)));
+    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, stride, (const void*)(base + offsetof(GevrVolGpuInstance, params)));
+    glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, stride, (const void*)(base + offsetof(GevrVolGpuInstance, flags)));
+}
+
+static void gevr_vol_draw_recorded(const GevrVolRecordedBatch* batch, const float delta[16],
+                                   const float proj[16], bool applyStereo, bool depthSquash,
+                                   const float* eyeBase, bool flipProjY, bool flipCullY)
+{
+    if (!batch || batch->puffs.empty() || !gevr_vol_ensure_resources()) {
+        return;
+    }
+
+    static std::vector<GevrVolGpuInstance> gpuInst;
+    static std::vector<GevrVolGpuInstance> insideInst;
+    const size_t n = batch->puffs.size();
+    gpuInst.clear();
+    insideInst.clear();
+    gpuInst.reserve(n);
+    const float zNearEst = std::max(0.5f, std::min(20.0f, fabsf(proj[14]) * 0.5f));
+    const float insidePad = zNearEst * 1.25f + 1.5f;
+    const float ex = eyeBase ? eyeBase[0] : 0.0f;
+    const float ey = eyeBase ? eyeBase[1] : 0.0f;
+    const float ez = eyeBase ? eyeBase[2] : 0.0f;
+    for (size_t i = 0; i < n; i++) {
+        const GevrVolumetricPuff& p = batch->puffs[i];
+        /* Evaluate inside-camera against the current (possibly reprojected) eye pose
+         * so leaning into or out of a smoke cloud at 72-120 Hz never pops or clips. */
+        const float cx = delta[0] * p.viewPos[0] + delta[4] * p.viewPos[1] + delta[8]  * p.viewPos[2] + delta[12] - ex;
+        const float cy = delta[1] * p.viewPos[0] + delta[5] * p.viewPos[1] + delta[9]  * p.viewPos[2] + delta[13] - ey;
+        const float cz = delta[2] * p.viewPos[0] + delta[6] * p.viewPos[1] + delta[10] * p.viewPos[2] + delta[14] - ez;
+        const float dist = sqrtf(cx * cx + cy * cy + cz * cz);
+        const bool isInside = dist <= p.radius * 1.12f + insidePad;
+
+        GevrVolGpuInstance g;
+        g.posRad[0] = p.viewPos[0];
+        g.posRad[1] = p.viewPos[1];
+        g.posRad[2] = p.viewPos[2];
+        g.posRad[3] = p.radius;
+        g.color[0] = p.color[0];
+        g.color[1] = p.color[1];
+        g.color[2] = p.color[2];
+        g.color[3] = p.color[3];
+        g.params[0] = p.life;
+        g.params[1] = p.swirl;
+        g.params[2] = p.seed;
+        g.params[3] = p.worldY;
+        g.flags[0] = (float)p.kind;
+        g.flags[1] = (float)p.smallFx;
+        g.flags[2] = isInside ? 1.0f : 0.0f;
+        g.flags[3] = (float)p.detailTier;
+        if (isInside) {
+            insideInst.push_back(g);
+        } else {
+            gpuInst.push_back(g);
+        }
+    }
+    const size_t outsideCount = gpuInst.size();
+    const size_t insideCount = insideInst.size();
+    if (insideCount > 0) {
+        gpuInst.insert(gpuInst.end(), insideInst.begin(), insideInst.end());
+    }
+
+    /* Transform game-view->world rotation by transpose(mat3(delta)) so 3D noise
+     * stays anchored to world axes across head-pose replay frames as well. */
+    float v2w[9];
+    const float* A = batch->meta.viewToWorld;
+    for (int c = 0; c < 3; c++) {
+        for (int r = 0; r < 3; r++) {
+            v2w[c * 3 + r] = A[0 * 3 + r] * delta[0 * 4 + c]
+                           + A[1 * 3 + r] * delta[1 * 4 + c]
+                           + A[2 * 3 + r] * delta[2 * 4 + c];
+        }
+    }
+
+    float projCopy[16];
+    memcpy(projCopy, proj, sizeof(projCopy));
+    if (flipProjY) {
+        for (int c = 0; c < 4; c++) {
+            projCopy[c * 4 + 1] = -projCopy[c * 4 + 1];
+        }
+    }
+
+    /* Save all GL state we touch so Fast3D and replay passes see zero side effects. */
+    GLint prevProg = 0, prevVao = 0, prevBuf = 0, prevActiveTex = GL_TEXTURE0;
+    GLint prevDepthFunc = GL_LEQUAL, prevCullMode = GL_BACK;
+    GLint prevBlendSrcRgb = GL_ONE, prevBlendDstRgb = GL_ZERO;
+    GLint prevBlendSrcA = GL_ONE, prevBlendDstA = GL_ZERO;
+    GLboolean prevDepthMask = GL_TRUE;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg);
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVao);
+    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prevBuf);
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActiveTex);
+    glGetIntegerv(GL_DEPTH_FUNC, &prevDepthFunc);
+    glGetIntegerv(GL_CULL_FACE_MODE, &prevCullMode);
+    glGetIntegerv(GL_BLEND_SRC_RGB, &prevBlendSrcRgb);
+    glGetIntegerv(GL_BLEND_DST_RGB, &prevBlendDstRgb);
+    glGetIntegerv(GL_BLEND_SRC_ALPHA, &prevBlendSrcA);
+    glGetIntegerv(GL_BLEND_DST_ALPHA, &prevBlendDstA);
+    glGetBooleanv(GL_DEPTH_WRITEMASK, &prevDepthMask);
+    const GLboolean prevBlend = glIsEnabled(GL_BLEND);
+    const GLboolean prevDepth = glIsEnabled(GL_DEPTH_TEST);
+    const GLboolean prevCull = glIsEnabled(GL_CULL_FACE);
+    const GLboolean prevOffset = glIsEnabled(GL_POLYGON_OFFSET_FILL);
+
+    glUseProgram(s_volProg);
+    glUniformMatrix4fv(s_volDeltaLoc, 1, GL_FALSE, delta);
+    glUniformMatrix4fv(s_volProjLoc, 1, GL_FALSE, projCopy);
+    if (eyeBase) {
+        glUniform3f(s_volEyeBaseLoc, eyeBase[0], eyeBase[1], eyeBase[2]);
+    } else {
+        glUniform3f(s_volEyeBaseLoc, 0.0f, 0.0f, 0.0f);
+    }
+    glUniform1i(s_volApplyStereoLoc, applyStereo ? 1 : 0);
+    glUniform1i(s_volDepthSquashLoc, depthSquash ? 1 : 0);
+    if (s_volEyeOffLLoc >= 0) glUniform4fv(s_volEyeOffLLoc, 1, &s_eye_offsets[0]);
+    if (s_volEyeOffRLoc >= 0) glUniform4fv(s_volEyeOffRLoc, 1, &s_eye_offsets[4]);
+    glUniformMatrix3fv(s_volViewToWorldLoc, 1, GL_FALSE, v2w);
+    glUniform1f(s_volTimeLoc, batch->meta.timeSec);
+    glUniform1i(s_volNoiseLoc, 2);
+
+    glActiveTexture(GL_TEXTURE0 + 2);
+    glBindTexture(GL_TEXTURE_3D, s_volNoiseTex);
+
+    glBindVertexArray(s_volVao);
+    glBindBuffer(GL_ARRAY_BUFFER, s_volInstVbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(n * sizeof(GevrVolGpuInstance)), gpuInst.data(), GL_STREAM_DRAW);
+
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glEnable(GL_BLEND);
+    /* Premultiplied alpha: unifies glowing fireballs and light-absorbing smoke in one pass. */
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE);
+    glEnable(GL_CULL_FACE);
+
+    if (outsideCount > 0) {
+        gevr_vol_bind_instance_offset(0);
+        glEnable(GL_DEPTH_TEST);
+        glDepthFunc(GL_LEQUAL);
+        glCullFace(flipCullY ? GL_FRONT : GL_BACK);
+        glDrawElementsInstanced(GL_TRIANGLES, (GLsizei)GEVR_VOL_ICO_INDICES, GL_UNSIGNED_SHORT,
+                                (const void*)0, (GLsizei)outsideCount);
+    }
+
+    if (insideCount > 0) {
+        gevr_vol_bind_instance_offset(outsideCount);
+        glDisable(GL_DEPTH_TEST);
+        glCullFace(flipCullY ? GL_BACK : GL_FRONT);
+        glDrawElementsInstanced(GL_TRIANGLES, (GLsizei)GEVR_VOL_ICO_INDICES, GL_UNSIGNED_SHORT,
+                                (const void*)0, (GLsizei)insideCount);
+    }
+
+    glBindTexture(GL_TEXTURE_3D, 0);
+    glActiveTexture((GLenum)prevActiveTex);
+    glBindVertexArray((GLuint)prevVao);
+    glBindBuffer(GL_ARRAY_BUFFER, (GLuint)prevBuf);
+    glUseProgram((GLuint)prevProg);
+    glDepthMask(prevDepthMask);
+    glDepthFunc((GLenum)prevDepthFunc);
+    glCullFace((GLenum)prevCullMode);
+    if (prevDepth) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+    if (prevCull) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE);
+    if (prevOffset) glEnable(GL_POLYGON_OFFSET_FILL); else glDisable(GL_POLYGON_OFFSET_FILL);
+    if (prevBlend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+    glBlendFuncSeparate((GLenum)prevBlendSrcRgb, (GLenum)prevBlendDstRgb,
+                        (GLenum)prevBlendSrcA, (GLenum)prevBlendDstA);
+}
+
+void gfx_opengl_draw_volumetric(int batchId)
+{
+    gevr_mesh_settle();
+#if defined(ANDROID) || defined(GEVR_MOBILE) || defined(GEVR_IOS)
+    const int mobileTier = 1;
+#else
+    const int mobileTier = 0;
+#endif
+    gevrVolumetricPrepareDraw(mobileTier);
+
+    const GevrVolumetricBatch* batch = gevrVolumetricGetBatch(batchId);
+    uint32_t count = 0;
+    const GevrVolumetricPuff* puffs = gevrVolumetricGetBatchPuffs(batch, &count);
+    if (!batch || !puffs || count == 0) {
+        return;
+    }
+
+    GevrVolRecordedBatch rec;
+    rec.meta = *batch;
+    rec.puffs.assign(puffs, puffs + count);
+
+    if (s_eyeRec && !gForceFlatShaderForMenu && !(gVrFlatPass && !s_flatRec) &&
+        !(s_flatRec && current_framebuffer != 0)) {
+        s_eyeVolBatches.push_back(rec);
+        GevrEyeDraw d = {};
+        d.isMenu = vr_dl_is_pause_or_menu;
+        d.hand = -1;
+        memcpy(d.viewport, s_curViewport, sizeof(d.viewport));
+        memcpy(d.scissor, s_curScissor, sizeof(d.scissor));
+        d.volumetric = (uint32_t)s_eyeVolBatches.size();
+        d.clearDepthBefore = s_eyeClearDepth;
+        s_eyeClearDepth = false;
+        s_eyeDraws.push_back(d);
+    }
+
+    if (s_scopeRec && !gForceFlatShaderForMenu && !vr_dl_is_pause_or_menu) {
+        const uint8_t mask = (s_scopeTaken[0] ? 1 : 0) | (s_scopeTaken[1] ? 2 : 0);
+        if (mask) {
+            s_scopeVolBatches.push_back(rec);
+            GevrScopeDraw sd = {};
+            sd.mask = mask;
+            sd.volumetric = (uint32_t)s_scopeVolBatches.size();
+            s_scopeDraws.push_back(sd);
+        }
+    }
+
+    if (gevr_eye_draw_deferred()) {
+        return;
+    }
+
+    static const float kId[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+    const float* delta = s_eyePresent ? s_eyePresentDelta : kId;
+    const bool applyStereo = use_multiview && !gVrFlatPass && !gForceFlatShaderForMenu && !vr_dl_is_pause_or_menu;
+    const bool invertY = framebuffers[current_framebuffer].invert_y;
+    gevr_vol_draw_recorded(&rec, delta, batch->proj, applyStereo, true, NULL, invertY, invertY);
 }
