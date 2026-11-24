@@ -163,9 +163,14 @@ void gevrModGameScope(int hand, int mode, int item, const float at[3], float rad
 }
 int gevrModGameLook(int hand) { return s_look[hand]; }
 /* gun.c's per-hand models: a mod's files are the names starting Gtac */
-int gevrModGameGunModel(int hand, int item, const char *name)
+int gevrModGameGunModel(int hand, int item, const char *name, const float frame[4][4])
 {
     printf("GUNMODEL %d %d %s\n", hand, item, name ? name : "-");
+    if (frame != NULL) {
+        printf("GUNFRAME %d %.1f %.1f %.1f %.1f %.1f\n", hand,
+               frame[0][0], frame[1][2], frame[2][1], frame[3][1], frame[3][3]);
+        return name != NULL && strcmp(name, "pack-body.bin") == 0;
+    }
     return name == NULL || strncmp(name, "Gtac", 4) == 0 || strcmp(name, "pack-body.bin") == 0;
 }
 void gevrModGameGunModelReset(void) { printf("GUNMODEL reset\n"); }

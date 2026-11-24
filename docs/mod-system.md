@@ -552,7 +552,14 @@ in-game screen). We maintain the adapters, not the mods.
     silenced PP7's and the TT-33's, `modelGunHandList()` in `model.c`).
     The fist's stock model is the hand itself, none of it under those
     switches, so a mesh for the fist replaces the hand. The stock gun still
-    drives animation, shot origin and reload. Replacing the gun body
+    drives animation, shot origin and reload. To fit the pack body at an
+    authored offset from the carrier root, use `mod.weapon.model` with a
+    fourth argument `{ frame = ... }`, using the same affine rows as
+    `mod.attach`. Use the converted game model basis below. To place a
+    part from a pack body mount, compose the body's fit and that mount
+    when supplying its frame. Changing only the fit for a loaded file
+    takes effect on the next draw. A legacy file refuses the frame.
+    Replacing the gun body
     hides the stock muzzle flash. This format alone does not add action
     geometry, an authored muzzle or grip, optics, or remote weapon looks.
 

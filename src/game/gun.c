@@ -5713,6 +5713,8 @@ Gfx *gevrGexArmOnWatch(Gfx *gdl, ModelRenderData *templ, const Mtxf *w)
 #include "gevr_modmesh.h"
 #define GEVR_MODGUN_NAME 64
 static char s_gevrModGun[2][ITEM_IDS_MAX][GEVR_MODGUN_NAME];
+static Mtxf s_gevrModGunFit[2][ITEM_IDS_MAX];
+static u8 s_gevrModGunHasFit[2][ITEM_IDS_MAX];
 static struct
 {
     const void *owner;           /* the player it was loaded for: another stage's is stale */
@@ -5751,6 +5753,19 @@ const GevrModMesh *gevrModGunMesh(s32 hand)
     return gevrModGunShownOk(p, hand) ? s_gevrModGunShown[p][hand].mesh : NULL;
 }
 
+/* A new fit for the same file takes effect at the next draw. A different
+ * file or item still loading must not borrow a fit from the pending choice. */
+const Mtxf *gevrModGunFrame(s32 hand)
+{
+    const s32 p = get_cur_playernum();
+    if (!gevrModGunShownOk(p, hand) || s_gevrModGunShown[p][hand].mesh == NULL) return NULL;
+    const s32 item = g_CurrentPlayer->hand_item[hand];
+    const char *name = gevrModGunModelFor(hand, item);
+    if (name == NULL || !s_gevrModGunHasFit[hand][item]
+        || strcmp(name, s_gevrModGunShown[p][hand].name) != 0) return NULL;
+    return &s_gevrModGunFit[hand][item];
+}
+
 /* each tick: a hand showing another model than its gun's choice loads it
  * again, as gevrUnarmedModelUpdate queues the club's replacement */
 static void gevrModGunReconcile(s32 hand)
@@ -5773,11 +5788,15 @@ static void gevrModGunReconcile(s32 hand)
     }
 }
 
-void gevrModGunModelSet(s32 hand, s32 item, const char *name)
+void gevrModGunModelSet(s32 hand, s32 item, const char *name, const float frame[4][4])
 {
     if (hand >= 0 && hand <= 1 && item > ITEM_UNARMED && item < ITEM_IDS_MAX)
     {
         snprintf(s_gevrModGun[hand][item], GEVR_MODGUN_NAME, "%s", name != NULL ? name : "");
+        s_gevrModGunHasFit[hand][item] = name != NULL && frame != NULL;
+        if (s_gevrModGunHasFit[hand][item]) {
+            memcpy(s_gevrModGunFit[hand][item].m, frame, sizeof(s_gevrModGunFit[hand][item].m));
+        }
     }
 }
 
@@ -5785,6 +5804,7 @@ void gevrModGunModelReset(void)
 {
     s32 p, hand;
     memset(s_gevrModGun, 0, sizeof(s_gevrModGun));
+    memset(s_gevrModGunHasFit, 0, sizeof(s_gevrModGunHasFit));
     for (p = 0; p < MAX_PLAYER_COUNT; ++p) {
         for (hand = 0; hand < 2; ++hand) {
             if (s_gevrModGunShown[p][hand].mesh != NULL) s_gevrModGunShown[p][hand].in = FALSE;

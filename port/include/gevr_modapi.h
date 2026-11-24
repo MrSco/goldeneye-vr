@@ -457,7 +457,7 @@ int gevrModGameLook(int hand);
 /* A mod's model for the gun a hand draws (gun.c gevrModGunModelSet): the
  * run's mod's assets/models/<name> for item in that hand, or name NULL the
  * item's own. 0 when the run's mod has no such file (nothing changes) */
-int gevrModGameGunModel(int hand, int item, const char *name);
+int gevrModGameGunModel(int hand, int item, const char *name, const float frame[4][4]);
 /* every hand's own models back (a mod stopped, a new mission) */
 void gevrModGameGunModelReset(void);
 

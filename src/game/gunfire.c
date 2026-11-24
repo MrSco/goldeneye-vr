@@ -3418,7 +3418,14 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
             const GevrModMesh *mesh = gevrModGunMesh(handnum);
             if (!gevrStereoWatchItem(item)) {
                 if (mesh != NULL) {
-                    renderdata.gdl = gevrModMeshDraw(renderdata.gdl, (Mtxf *)handptr->weaponModel.render_pos, mesh);
+                    Mtxf *root = (Mtxf *)handptr->weaponModel.render_pos;
+                    const Mtxf *fit = gevrModGunFrame(handnum);
+                    Mtxf fitted;
+                    if (fit != NULL) {
+                        Mtxf offset = *fit;
+                        matrix_4x4_multiply(root, &offset, &fitted);
+                    }
+                    renderdata.gdl = gevrModMeshDraw(renderdata.gdl, fit != NULL ? &fitted : root, mesh);
                     /* the stock hand, less the gun pieces some models file under it
                      * (model.c modelGunHandList), known by the item's cartridge file */
                     modelDrawGunHand(&renderdata, &handptr->weaponModel,
