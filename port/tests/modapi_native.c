@@ -169,7 +169,7 @@ int gevrModGameAttach(const GevrModAttach *a)
     int i;
 
     if (id > 0) s_attached++;
-    printf("ATTACH %d %d %d %s %s", id, a->on, a->where, a->model, a->like);
+    printf("ATTACH %d %d %d %d %s %s", id, a->on, a->where, a->node, a->model, a->like);
     for (i = 0; i < 4; i++) {
         printf(" |%.0f %.0f %.0f %.0f", a->offset[i][0] + 0.0f, a->offset[i][1] + 0.0f, a->offset[i][2] + 0.0f,
                a->offset[i][3] + 0.0f);
@@ -179,6 +179,17 @@ int gevrModGameAttach(const GevrModAttach *a)
 }
 int gevrModGameDetach(int id) { printf("DETACH %d\n", id); s_attached--; return 1; }
 int gevrModGameAttachShow(int id, int shown) { printf("ATTACHSHOW %d %d\n", id, shown); return 1; }
+int gevrModGameAttachPlace(int id, const float offset[4][4])
+{
+    int i;
+
+    printf("ATTACHPLACE %d", id);
+    for (i = 0; i < 4; i++) {
+        printf(" |%.0f %.0f %.0f %.0f", offset[i][0] + 0.0f, offset[i][1] + 0.0f, offset[i][2] + 0.0f, offset[i][3] + 0.0f);
+    }
+    printf("\n");
+    return 1;
+}
 void gevrModGameAttachReset(void) { printf("ATTACH reset\n"); s_attached = 0; }
 int gevrModGameLoaded(int hand) { return s_loaded[hand]; }
 void gevrModGameSetLoaded(int hand, int rounds) { s_loaded[hand] = rounds; }

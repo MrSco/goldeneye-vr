@@ -846,7 +846,9 @@ in-game screen). We maintain the adapters, not the mods.
   - `on`: `"gun"` with `hand` (`"right"`, `"left"`): on the gun that hand
     holds, on its model's root as drawn, so it moves with the gun's
     recoil, reload and switch, and a mirrored left gun's part mirrors with
-    it; flat too. `"hand"` with `hand`: on that controller's grip (VR). A
+    it; flat too. `node` (0 to 255, the gun model's matrix; 0 the root)
+    puts it on a part the game animates instead (a slide, a bolt), and it
+    isn't drawn on a gun model without that matrix. `"hand"` with `hand`: on that controller's grip (VR). A
     body anchor (`hip_gun`, `hip_off`, `back_gun`, `back_off`, `chest`,
     `belt`, as `mod.hands.anchor`): on the slot's centre on the torso, kept
     while a mod runs even with body slots off (VR).
@@ -859,7 +861,9 @@ in-game screen). We maintain the adapters, not the mods.
     only attaches, hides and removes. (A position set from `tick` would
     trail the hand: scripts tick at 60 Hz, a headset draws at 72 to 120.)
   - `mod.attach.show(id, shown)` hides or shows one, kept attached;
-    `mod.attach.remove(id)`. Both answer true only to the mod that
+    `mod.attach.place(id, { at, turn, scale })` moves it in its anchor's
+    frame from the next frame (a slide locked back after the last shot);
+    `mod.attach.remove(id)`. Each answers true only to the mod that
     attached it. None stay past a mission, nor past a mod stopping.
   - Built over a prop (P) file, a model's parts are laid out by its own
     nodes, as a prop's are. A gun (G) file's joints are posed only by the

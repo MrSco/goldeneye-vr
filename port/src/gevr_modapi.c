@@ -1310,16 +1310,17 @@ static void attachName(lua_State *L, const char *key, char *out, size_t cap)
     lua_pop(L, 1);
 }
 
-/* an optional { a, b, c } field within [lo, hi] */
-static void attachTriple(lua_State *L, const char *key, float out[3], float lo, float hi, const char *what)
+/* an optional { a, b, c } field of table t within [lo, hi] */
+static void attachTriple(lua_State *L, int t, const char *call, const char *key, float out[3], float lo, float hi,
+                         const char *what)
 {
     int i;
 
-    if (lua_getfield(L, 1, key) == LUA_TNIL) {
+    if (lua_getfield(L, t, key) == LUA_TNIL) {
         lua_pop(L, 1);
         return;
     }
-    if (!lua_istable(L, -1) || lua_rawlen(L, -1) != 3) luaL_error(L, "mod.attach.add: %s", what);
+    if (!lua_istable(L, -1) || lua_rawlen(L, -1) != 3) luaL_error(L, "%s: %s", call, what);
     for (i = 0; i < 3; i++) {
         int ok;
         lua_Number v;
@@ -1327,7 +1328,7 @@ static void attachTriple(lua_State *L, const char *key, float out[3], float lo, 
         lua_rawgeti(L, -1, i + 1);
         v = lua_tonumberx(L, -1, &ok);
         lua_pop(L, 1);
-        if (!ok || !(v >= lo && v <= hi)) luaL_error(L, "mod.attach.add: %s", what);
+        if (!ok || !(v >= lo && v <= hi)) luaL_error(L, "%s: %s", call, what);
         out[i] = (float)v;
     }
     lua_pop(L, 1);
@@ -1357,6 +1358,26 @@ static void attachOffset(float out[4][4], const float at[3], const float turn[3]
     out[3][3] = 1.0f;
 }
 
+/* table t's at, turn and scale (each optional) as the offset in the anchor's frame */
+static void attachPlacement(lua_State *L, int t, const char *call, float offset[4][4])
+{
+    float at[3] = { 0.0f, 0.0f, 0.0f }, turn[3] = { 0.0f, 0.0f, 0.0f }, scale = 1.0f;
+
+    attachTriple(L, t, call, "at", at, -GEVR_MODAPI_ATTACH_RANGE, GEVR_MODAPI_ATTACH_RANGE, "at is { x, y, z }, -4000 to 4000");
+    attachTriple(L, t, call, "turn", turn, -360.0f, 360.0f, "turn is { x, y, z } in degrees, -360 to 360");
+    if (lua_getfield(L, t, "scale") != LUA_TNIL) {
+        int ok;
+        const lua_Number v = lua_tonumberx(L, -1, &ok);
+
+        if (!ok || !(v >= GEVR_MODAPI_ATTACH_SCALE_MIN && v <= GEVR_MODAPI_ATTACH_SCALE_MAX)) {
+            luaL_error(L, "%s: scale is 0.01 to 100", call);
+        }
+        scale = (float)v;
+    }
+    lua_pop(L, 1);
+    attachOffset(offset, at, turn, scale);
+}
+
 /*
  * add(t): t = { model, like, on, hand, at, turn, scale }. model is the pack's
  * assets/models/<model>, built over the cartridge's model file like (a G gun
@@ -1370,7 +1391,6 @@ static int l_attachAdd(lua_State *L)
 {
     const char *mod = gevrModScriptIdOf(L);
     GevrModAttach a;
-    float at[3] = { 0.0f, 0.0f, 0.0f }, turn[3] = { 0.0f, 0.0f, 0.0f }, scale = 1.0f;
     const char *on;
     int i, id;
 
@@ -1388,6 +1408,8 @@ static int l_attachAdd(lua_State *L)
         else luaL_error(L, "mod.attach.add: hand is \"right\" or \"left\" for the gun or a hand");
         lua_pop(L, 1);
     } else {
+        if (lua_getfield(L, 1, "node") != LUA_TNIL) luaL_error(L, "mod.attach.add: node is for the gun only");
+        lua_pop(L, 1);
         for (i = 0; i < GEVR_MODAPI_ANCHORS && strcmp(on, s_anchorNames[i]); i++) {
         }
         if (i == GEVR_MODAPI_ANCHORS) luaL_error(L, "mod.attach.add: no anchor %s (gun, hand, %s ...)", on, s_anchorNames[0]);
@@ -1395,19 +1417,19 @@ static int l_attachAdd(lua_State *L)
         a.where = i;
     }
     lua_pop(L, 1);
-    attachTriple(L, "at", at, -GEVR_MODAPI_ATTACH_RANGE, GEVR_MODAPI_ATTACH_RANGE, "at is { x, y, z }, -4000 to 4000");
-    attachTriple(L, "turn", turn, -360.0f, 360.0f, "turn is { x, y, z } in degrees, -360 to 360");
-    if (lua_getfield(L, 1, "scale") != LUA_TNIL) {
-        int ok;
-        const lua_Number v = lua_tonumberx(L, -1, &ok);
+    if (a.on == GEVR_MODATTACH_GUN) {
+        if (lua_getfield(L, 1, "node") != LUA_TNIL) {
+            int whole;
+            const lua_Integer n = lua_tointegerx(L, -1, &whole);
 
-        if (!ok || !(v >= GEVR_MODAPI_ATTACH_SCALE_MIN && v <= GEVR_MODAPI_ATTACH_SCALE_MAX)) {
-            luaL_error(L, "mod.attach.add: scale is 0.01 to 100");
+            if (!whole || n < 0 || n >= GEVR_MODAPI_ATTACH_NODES) {
+                luaL_error(L, "mod.attach.add: node is a gun model's matrix, 0 to 255");
+            }
+            a.node = (int)n;
         }
-        scale = (float)v;
+        lua_pop(L, 1);
     }
-    lua_pop(L, 1);
-    attachOffset(a.offset, at, turn, scale);
+    attachPlacement(L, 1, "mod.attach.add", a.offset);
     needPlayer(L, "mod.attach.add");
     id = gevrModGameAttach(&a);
     if (id <= 0) {
@@ -1461,10 +1483,25 @@ static int l_attachShow(lua_State *L)
     return 1;
 }
 
+/* place(id, { at, turn, scale }): moves it in its anchor's frame (a slide
+ * locked back, say), from the next frame; true when this mod has it */
+static int l_attachPlace(lua_State *L)
+{
+    const int at = attachOwned(L, luaL_checkinteger(L, 1));
+    float offset[4][4];
+
+    luaL_checktype(L, 2, LUA_TTABLE);
+    attachPlacement(L, 2, "mod.attach.place", offset);
+    if (at >= 0) gevrModGameAttachPlace(s_attachOwners[at].id, (const float (*)[4])offset);
+    lua_pushboolean(L, at >= 0);
+    return 1;
+}
+
 static const luaL_Reg s_attachFuncs[] = {
     { "add", l_attachAdd },
     { "remove", l_attachRemove },
     { "show", l_attachShow },
+    { "place", l_attachPlace },
     { NULL, NULL },
 };
 

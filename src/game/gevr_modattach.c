@@ -74,6 +74,7 @@ typedef struct
     s32 id;                      /* 0 free */
     AttachFile *file;
     s32 on, where, shown;
+    s32 node;                    /* on the gun: the matrix of its model it rides */
     Mtxf offset;
     Model model;
     ModelFileHeader *modelOf;    /* the header model was set up for */
@@ -239,6 +240,7 @@ int gevrModGameAttach(const GevrModAttach *a)
     slot->file = f;
     slot->on = a->on;
     slot->where = a->where;
+    slot->node = a->node;
     slot->shown = TRUE;
     for (i = 0; i < 4; i++)
     {
@@ -257,6 +259,24 @@ int gevrModGameDetach(int id)
     if (a != NULL)
     {
         a->id = 0;
+    }
+    return a != NULL;
+}
+
+int gevrModGameAttachPlace(int id, const float offset[4][4])
+{
+    Attachment *a = attachFind(id);
+    s32 i, j;
+
+    if (a != NULL)
+    {
+        for (i = 0; i < 4; i++)
+        {
+            for (j = 0; j < 4; j++)
+            {
+                a->offset.m[i][j] = offset[i][j];
+            }
+        }
     }
     return a != NULL;
 }
@@ -327,24 +347,26 @@ static Gfx *attachDraw(Gfx *gdl, ModelRenderData *templ, Attachment *a, Mtxf *an
     return rd.gdl;
 }
 
-/* gunfire.c, as the hand's gun is drawn: what sits on that gun, on its root as drawn */
+/* gunfire.c, as the hand's gun is drawn: what sits on that gun, on the matrix
+ * of its model it rides as drawn (the root, or a part the game animates: a
+ * slide, a bolt), none on a model without that matrix */
 Gfx *gevrModAttachDrawGun(Gfx *gdl, ModelRenderData *templ, s32 hand, Model *gun)
 {
-    Mtxf root;
+    Mtxf node;
     s32 i;
 
     if (!attachLocal() || gun == NULL || gun->obj == NULL || gun->render_pos == NULL || gun->obj->numMatrices <= 0)
     {
         return gdl;
     }
-    root = ((Mtxf *) gun->render_pos)[0];
     for (i = 0; i < GEVR_MODAPI_ATTACH_MAX; i++)
     {
         Attachment *a = &s_attach[i];
 
-        if (a->id != 0 && a->shown && a->on == GEVR_MODATTACH_GUN && a->where == hand)
+        if (a->id != 0 && a->shown && a->on == GEVR_MODATTACH_GUN && a->where == hand && a->node < gun->obj->numMatrices)
         {
-            gdl = attachDraw(gdl, templ, a, &root);
+            node = ((Mtxf *) gun->render_pos)[a->node];
+            gdl = attachDraw(gdl, templ, a, &node);
         }
     }
     return gdl;
