@@ -479,6 +479,11 @@ int gevrModGamePad(int pad, GevrModPad *out);
  * 1 when the game took it */
 int gevrModGameGoTo(int id, int pad, int speed);
 int gevrModGameFace(int id, int pad);
+/* A hat on a guard that has none, as AI_TRYGiveMeHat (hatCreateForChr):
+ * hat 0 to GEVR_MODAPI_HATS - 1, the cartridge's hats in mod.guards.giveHat's
+ * names' order (PROP_HATFURRY to PROP_HATPEAKED); 1 when it's on */
+#define GEVR_MODAPI_HATS 12
+int gevrModGameGiveHat(int id, int hat);
 /* This machine's player's health and armour, 0 to 1; 0 when no player is in a stage */
 int gevrModGamePlayerHealth(float *health, float *armour);
 /* Set them: health more than 0 to 1, armour 0 to 1; 0 when the player is

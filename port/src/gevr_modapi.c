@@ -889,6 +889,22 @@ static int l_guardFace(lua_State *L)
     return 1;
 }
 
+/* giveHat(id, hat): one of the cartridge's hats on a living guard that has
+ * none, as the game's own scripts give one (AI_TRYGiveMeHat); true when
+ * it's on. A pack's model in the hat's place (assets/models) changes its look */
+static int l_guardGiveHat(lua_State *L)
+{
+    static const char *const hats[GEVR_MODAPI_HATS + 1] = {
+        "fur", "furbrown", "furblack", "sidecap", "sidecapbrown", "helmet", "helmetgrey", "moon",
+        "beret", "beretblue", "beretred", "peaked", NULL,
+    };
+    const lua_Integer id = luaL_checkinteger(L, 1);
+    const int hat = luaL_checkoption(L, 2, NULL, hats);
+
+    lua_pushboolean(L, id >= -32768 && id <= 32767 && gevrModGameRunsGuards() && gevrModGameGiveHat((int)id, hat));
+    return 1;
+}
+
 static const luaL_Reg s_guardFuncs[] = {
     { "list", l_guardList },
     { "get", l_guardGet },
@@ -898,6 +914,7 @@ static const luaL_Reg s_guardFuncs[] = {
     { "paths", l_guardPaths },
     { "goTo", l_guardGoTo },
     { "face", l_guardFace },
+    { "giveHat", l_guardGiveHat },
     { NULL, NULL },
 };
 

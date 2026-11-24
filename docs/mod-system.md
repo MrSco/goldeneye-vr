@@ -685,6 +685,14 @@ in-game screen). We maintain the adapters, not the mods.
       `AI_TRYFacingTarget`). Both where the guards run (solo, the co-op
       host), for a living guard and a pad the setup has; the game's co-op
       sync carries what they do.
+    - `mod.guards.giveHat(id, hat)`: one of the cartridge's hats on a
+      living guard that has none, as the game's own scripts give one
+      (`AI_TRYGiveMeHat`, `hatCreateForChr()`): `fur`, `furbrown`,
+      `furblack`, `sidecap`, `sidecapbrown`, `helmet`, `helmetgrey`,
+      `moon`, `beret`, `beretblue`, `beretred`, `peaked`. True when it's
+      on. A pack's own model in that hat's file (`assets/models`, the
+      hats' `Phat*Z`) changes how it looks; anything else on a guard's
+      body (a vest) isn't built.
     - `mod.pads.count()`: the stage's pads (ids from 0) and its bound pads
       (ids from 10000), as `mod.guards.spawn` and these take them.
       `mod.pads.get(id)`: `{ x, y, z, room, look = { x, y, z } }` in the

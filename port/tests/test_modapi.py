@@ -754,6 +754,9 @@ def pads_placement():
     check("chrGoToPad(chr, pad, speed == 2 ? SPEED_SPRINT : speed == 1 ? SPEED_RUN : SPEED_WALK)" in goto,
           "goTo: chrGoToPad at the speed asked")
     check("check_set_actor_standing_still(chr, TARGET_PAD, pad)" in face, "face: as AI_TRYFacingTarget at a pad")
+    hat = function(game, "int gevrModGameGiveHat(int id, int hat)")
+    check("chr->handle_positiondata_hat != NULL" in hat and "hatCreateForChr(chr, PROP_HATFURRY + hat, 0)" in hat
+          and "!gevrModGameRunsGuards()" in hat, "giveHat: as AI_TRYGiveMeHat, one hat a guard, where the guards run")
     pad = function(game, "int gevrModGamePad(int pad, GevrModPad *out)")
     check("if (!padOk(pad)) return 0;" in pad and "g_CurrentSetup.boundpads[pad - 10000]" in pad
           and "p->stan != NULL ? p->stan->room : -1" in pad, "a pad by id, bound pads from 10000, its tile's room")
@@ -773,20 +776,23 @@ mod.on("mission_start", function()
         mod.guards.goTo(99, 1))
   print("face", mod.guards.face(5000, 2), mod.guards.face(99, 2))
   print("badspeed", (pcall(mod.guards.goTo, 5000, 1, "crawl")))
+  print("hat", mod.guards.giveHat(5000, "helmet"), mod.guards.giveHat(99, "peaked"),
+        (pcall(mod.guards.giveHat, 5000, "crown")))
 end)
 """
     out = run(exe, temp, "pads", lua, "addguard", 5000, 2, 47, 1, 8, -1, 75, 100, 0, 0, 0, "start", "prepare", 9,
               "begin", 9)
     check(logs(out) == ["count 3 1", "pad 200.0 0.0 -20.0 7 1.0", "bound 999.0 nil nil nil",
-                        "goto true true false false", "face true false", "badspeed false"],
+                        "goto true true false false", "face true false", "badspeed false", "hat true false false"],
           "pads read; goTo and face answered: " + str(logs(out)))
-    check(answers(out, "GOTO", "FACE") == ["GOTO 5000 1 0", "GOTO 5000 10000 2", "GOTO 5000 7 1", "GOTO 99 1 0",
-                                          "FACE 5000 2", "FACE 99 2"],
+    check(answers(out, "GOTO", "FACE", "HAT") == ["GOTO 5000 1 0", "GOTO 5000 10000 2", "GOTO 5000 7 1", "GOTO 99 1 0",
+                                                 "FACE 5000 2", "FACE 99 2", "HAT 5000 5", "HAT 99 11"],
           "the game side: walk, sprint, run; face: " + str(answers(out, "GOTO", "FACE")))
     out = run(exe, temp, "padsclient", lua, "addguard", 5000, 2, 47, 1, 8, -1, 75, 100, 0, 0, 0, "runs", 0,
               "start", "prepare", 9, "begin", 9)
     check("goto false false false false" in logs(out) and "face false false" in logs(out)
-          and not answers(out, "GOTO", "FACE"), "a co-op client sends no guard anywhere: " + str(logs(out)))
+          and "hat false false false" in logs(out) and not answers(out, "GOTO", "FACE", "HAT"),
+          "a co-op client sends no guard anywhere, and hats none: " + str(logs(out)))
 
 
 def guards2(exe, temp):
@@ -1629,7 +1635,7 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
           "the hooks' places in the stage's setup and the pickup. Hands area: grip, release, hand_near, "
           "mod.hands' positions, anchors and pulses; the hooks' places. Guards area: guard_spawning's body, head and gun, "
           "refusals, alerts, kills and corpses told once on the host, mod.guards' reads; the hooks' places. Guards, part 2: "
-          "spawn, giveWeapon, patrol, paths, goTo, face, mod.pads, guard_spawned, guard_killed's player. Damage and player: before_damage's "
+          "spawn, giveWeapon, patrol, paths, goTo, face, giveHat, mod.pads, guard_spawned, guard_killed's player. Damage and player: before_damage's "
           "answers and refusals, damage_applied, downed, revived, died, mod.player's health and armour; the hooks' places. "
           "Sound and smoke: mod.audio's ids, volumes and places, mod.effect's smokes and places. Network: mod.net's sends, "
           "limits and rate, held messages by channel and mod, peer_ready, a stop told to the others and taken from them. "

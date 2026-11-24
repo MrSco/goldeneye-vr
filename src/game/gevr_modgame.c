@@ -1033,6 +1033,24 @@ int gevrModGameGoTo(int id, int pad, int speed)
     return chrGoToPad(chr, pad, speed == 2 ? SPEED_SPRINT : speed == 1 ? SPEED_RUN : SPEED_WALK);
 }
 
+extern PropRecord *hatCreateForChr(ChrRecord *chr, s32 modelnum, u32 flags);   /* propobj.c */
+
+/* the hats in mod.guards.giveHat's order */
+typedef char hatsAreTwelve[PROP_HATPEAKED - PROP_HATFURRY + 1 == GEVR_MODAPI_HATS ? 1 : -1];
+
+int gevrModGameGiveHat(int id, int hat)
+{
+    ChrRecord *chr = guardById(id);
+
+    (void)sizeof(hatsAreTwelve);
+    if (!gevrModGameRunsGuards() || chr == NULL || guardDying(chr) || hat < 0 || hat >= GEVR_MODAPI_HATS
+        || chr->prop == NULL || chr->model == NULL || chr->handle_positiondata_hat != NULL)
+    {
+        return 0;   /* one hat a guard: the game's own never stacks them */
+    }
+    return hatCreateForChr(chr, PROP_HATFURRY + hat, 0) != NULL;
+}
+
 int gevrModGameFace(int id, int pad)
 {
     ChrRecord *chr = guardById(id);
