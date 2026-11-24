@@ -152,6 +152,31 @@ def reload_placement(gun, view):
           "a drawn gun closes the last one's reload")
 
 
+def drops_placement():
+    """weapon_dropped at the game's drop; a mod's drop through the game's own; ids as co-op numbers them"""
+    obj = (ROOT / "src/game/propobj.c").read_bytes().decode().replace("\r\n", "\n")
+    setdropped = function(obj, "void propobjSetDropped(PropRecord *prop, DROPTYPE droptype)")
+    check(setdropped.index("gevrModWeaponDropped(prop);") < setdropped.index("sub_GAME_7F03FDA8(prop);"),
+          "weapon_dropped as a held weapon is set to fall, still in its chr's hand")
+    game = (ROOT / "src/game/gevr_modgame.c").read_bytes().decode()
+    ids = function(game, "static int pickupId(ObjectRecord *target)")
+    net = (ROOT / "port/src/net/net_core.c").read_bytes().decode()
+    check("return 0x9000 + slot;" in function(net, "static int netObjectIndex(ObjectRecord *target)")
+          and "return 0x8000 + slot;" in function(net, "static int netObjectIndex(ObjectRecord *target)")
+          and ids.index("g_AmmoCrates[slot]") < ids.index("g_WeaponSlots[slot]") < ids.index("sizepropdef(def)"),
+          "pickup ids numbered as co-op's object messages number them (boxes, weapons, then the setup)")
+    check("got.pickup = pickupId((ObjectRecord *)rec);" in function(game, "void gevrModPickupTaken("),
+          "item_pickup carries the pickup's id")
+    drop = function(game, "int gevrModGameDrop(int item, int ammo, int from)")
+    check(drop.index("s_modDropping = TRUE;") < drop.index("something_with_generating_object(chr, propid, (ITEM_IDS)item, 0x20000000")
+          < drop.index("ammocrateAllocate()") < drop.index("chrpropReparent(crate->prop, chr->prop);")
+          < drop.index("propobjSetDropped(prop, DROPTYPE_DEFAULT);") < drop.index("objDrop(prop);")
+          < drop.index("s_modDropping = FALSE;"),
+          "a mod's drop: drop_inventory's gun, a shot crate's box, then the game's fall; no weapon_dropped for it")
+    check("if (s_modDropping" in function(game, "void gevrModWeaponDropped(PropRecord *prop)"),
+          "a mod's own drop isn't told back to it")
+
+
 def items_placement():
     """pickup_spawning as each record is about to be placed, after the scan; item_pickup before a freed pickup goes"""
     prop = (ROOT / "src/game/prop.c").read_bytes().decode().replace("\r\n", "\n")
@@ -266,13 +291,41 @@ mod.on("pickup_spawning", function(p) print("third", p.index) end)
               "%s answered %s: refused (%s), the mod stopped, the pickups the level's: %s" % (kind, answer, why, out[-700:]))
 
     # ---- item_pickup: what the local player took ----
-    lua = 'mod.on("item_pickup", function(kind, id, rounds) print("took", kind, id, rounds) end)'
+    lua = 'mod.on("item_pickup", function(kind, id, rounds, pickup) print("took", kind, id, rounds, pickup) end)'
     out = run(exe, temp, "took", lua, "start", "prepare", 9, "took", "weapon", 8, "begin", 9, "took", "weapon", 8,
               "took", "ammo", 3, 10, "took", "crate", "3:20,4:5", "took", "armour", 0.5, "took", "key", "took", "object",
               "local", 0, "took", "weapon", 4)
-    check(logs(out) == ["took weapon 8 nil", "took ammo 3 10", "took ammo 3 20", "took ammo 4 5", "took armour 0.5 nil",
-                        "took key nil nil", "took object nil nil"],
+    check(logs(out) == ["took weapon 8 nil 77", "took ammo 3 10 77", "took ammo 3 20 77", "took ammo 4 5 77",
+                        "took armour 0.5 nil 77", "took key nil nil 77", "took object nil nil 77"],
           "item_pickup in play, a crate as its types, never a copy's or a bot's: " + str(logs(out)))
+
+    # ---- mod.pickups.drop and weapon_dropped ----
+    lua = r"""
+mod.on("mission_start", function()
+  local bad = 0
+  local function try(t) if not pcall(mod.pickups.drop, t) then bad = bad + 1 end end
+  try({ from = "player" })
+  try({ item = "ak47", ammo = "rifle", from = "player" })
+  try({ item = "watchlaser", from = "player" })
+  try({ item = "ak47" })
+  try({ item = "ak47", from = "guard" })
+  try({ item = "ak47", from = -3 })
+  try({ ammo = 99, from = "player" })
+  print("bad", bad)
+  print("drops", mod.pickups.drop({ item = "ak47", from = "player" }), mod.pickups.drop({ ammo = "rifle", from = 1005 }),
+        mod.pickups.drop({ item = 8, from = 999 }))
+end)
+mod.on("weapon_dropped", function(pickup, item, from) print("dropped", pickup, item, from) end)
+"""
+    out = run(exe, temp, "drop", lua, "start", "prepare", 9, "dropped", 32770, 8, 1005, "begin", 9,
+              "dropped", 32770, 8, 1005, "dropped", -1, 4, -1, "dropped", 5, 26, -2)
+    check(logs(out) == ["bad 7", "drops 32768 36864 nil", "dropped 32770 8 1005", "dropped nil 4 player",
+                        "dropped 5 26 nil"],
+          "drop's answers and refusals; weapon_dropped's id, item and who (a guard, a player, none), in play: "
+          + str(logs(out)))
+    check(answers(out, "DROP") == ["DROP 8 0 -1", "DROP 0 3 1005", "DROP 8 0 999"],
+          "the game side: a gun from the player, a rifle box from a guard, none from a guard that isn't: "
+          + str(answers(out, "DROP")))
 
     # ---- mod.inventory and mod.ammo ----
     lua = r"""
@@ -1343,6 +1396,7 @@ bad = true
 def main():
     placement()
     items_placement()
+    drops_placement()
     hands_placement()
     guards_placement()
     guards2_placement()
@@ -1484,7 +1538,8 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
     print("PASS: mods' weapons area: fire attempts declined or not, weapon_fire, reloads asked and declined, an "
           "empty gun kept in hand, draws, the local player only, "
           "mod.weapon's calls and limits, mod.items, the stats put back; the hooks' places in the gun code. "
-          "Items area: pickup_spawning's swaps, turns and refusals, item_pickup, mod.inventory, mod.ammo; "
+          "Items area: pickup_spawning's swaps, turns and refusals, item_pickup with its pickup id, mod.pickups.drop, "
+          "weapon_dropped, mod.inventory, mod.ammo; "
           "the hooks' places in the stage's setup and the pickup. Hands area: grip, release, hand_near, "
           "mod.hands' positions, anchors and pulses; the hooks' places. Guards area: guard_spawning's body, head and gun, "
           "refusals, alerts, kills and corpses told once on the host, mod.guards' reads; the hooks' places. Guards, part 2: "

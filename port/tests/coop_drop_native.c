@@ -25,6 +25,8 @@ void objDetach(PropRecord *prop);
 void chrpropReparent(PropRecord *prop, PropRecord *parent);
 void chrpropDelist(PropRecord *prop);
 void propobjSetDropped(PropRecord *prop, DROPTYPE droptype);
+/* gevr_modgame.c: a mod's weapon_dropped (no mod here) */
+void gevrModWeaponDropped(PropRecord *prop) { (void)prop; }
 s32 objDrop(PropRecord *prop);
 
 Projectile *projectileAllocate(void) {

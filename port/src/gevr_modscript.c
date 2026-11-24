@@ -91,7 +91,7 @@ static const char *const s_events[] = {
     "campaign_enter", "mission_prepare", "mission_start", "mission_end", "tick",
     /* the weapons area (docs/mod-system.md, Where each hook sits) */
     "weapon_fire_attempt", "weapon_fire", "reload_start", "reload_end", "weapon_drawn",
-    "reload_attempt", "out_of_ammo",
+    "reload_attempt", "out_of_ammo", "weapon_dropped",
     /* the items area */
     "pickup_spawning", "item_pickup",
     /* the hands area */

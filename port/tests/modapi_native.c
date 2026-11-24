@@ -232,6 +232,14 @@ int gevrModGameTake(int item)
     return had;
 }
 int gevrModGameAmmo(int type) { return s_ammo[type]; }
+/* the game's drops: a weapon slot's id or a box slot's, none from guard 999 */
+static int s_dropWeapons, s_dropBoxes;
+int gevrModGameDrop(int item, int ammo, int from)
+{
+    printf("DROP %d %d %d\n", item, ammo, from);
+    if (from == 999) return -1;
+    return item ? GEVR_MODAPI_PICKUP_WEAPONS + s_dropWeapons++ : GEVR_MODAPI_PICKUP_BOXES + s_dropBoxes++;
+}
 void gevrModGameSetAmmo(int type, int rounds) { s_ammo[type] = rounds; }
 int gevrModGameAmmoMax(int type) { return type >= 1 && type <= GEVR_MODAPI_AMMO_TYPES ? s_ammoMax[type] : 0; }
 
@@ -537,6 +545,7 @@ int main(int argc, char **argv)
             const char *kind = argv[++i];
 
             memset(&got, 0, sizeof(got));
+            got.pickup = 77;   /* the pickup's id, passed through as item_pickup's fourth */
             if (!strcmp(kind, "weapon") && i + 1 < argc) {
                 got.kind = GEVR_MODPICKUP_WEAPON;
                 got.item = atoi(argv[++i]);
@@ -555,6 +564,10 @@ int main(int argc, char **argv)
                 got.kind = !strcmp(kind, "key") ? GEVR_MODPICKUP_KEY : GEVR_MODPICKUP_OBJECT;
             }
             gevrModApiItemPickup(&got);
+        } else if (!strcmp(cmd, "dropped") && i + 3 < argc) {
+            /* propobjSetDropped: a chr's weapon falls */
+            gevrModApiWeaponDropped(atoi(argv[i + 1]), atoi(argv[i + 2]), atoi(argv[i + 3]));
+            i += 3;
         } else if (!strcmp(cmd, "own") && i + 1 < argc) {
             s_inv[atoi(argv[++i])] = 1;
         } else if (!strcmp(cmd, "inv")) {

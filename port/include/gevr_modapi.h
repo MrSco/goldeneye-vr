@@ -92,12 +92,30 @@ typedef struct GevrModPickup {
     int crate[GEVR_MODAPI_AMMO_TYPES + 1];   /* CRATE: rounds by type, [1] to [13] */
     float armour;       /* ARMOUR: 0 to GEVR_MODAPI_ARMOUR_MAX */
     int none;           /* pickup_spawning's answer: no pickup here */
+    int pickup;         /* item_pickup: the pickup's id (gevrModGamePickupId), -1 none */
 } GevrModPickup;
 
 /* pickup_spawning: each mod's answer in turn into p, the same kind, or none */
 void gevrModApiPickupSpawning(GevrModPickup *p);
 /* item_pickup: the local human player took it */
 void gevrModApiItemPickup(const GevrModPickup *p);
+/* weapon_dropped: a weapon a chr held is dropped to the floor (a dead or
+ * disarmed guard's gun, a player's): its pickup id, its item, and who held
+ * it (a guard's id, GEVR_MODAPI_FROM_PLAYER, or GEVR_MODAPI_FROM_NONE) */
+#define GEVR_MODAPI_FROM_PLAYER (-1)
+#define GEVR_MODAPI_FROM_NONE (-2)
+void gevrModApiWeaponDropped(int pickup, int item, int from);
+
+/* A pickup's id: the setup record's index (pickup_spawning's), or one of the
+ * game's runtime slots, as co-op's object messages number them (net_core.c
+ * netObjectIndex): a weapon's 0x8000 + its slot, an ammo box's 0x9000 + its */
+#define GEVR_MODAPI_PICKUP_WEAPONS 0x8000
+#define GEVR_MODAPI_PICKUP_BOXES 0x9000
+/* mod.pickups.drop: the game's own drop (drop_inventory's, a shot crate's box)
+ * of a gun or thrown weapon (item, ammo 0) or an ammo box of a type (item 0,
+ * ammo 1 to 13), from the local player (from GEVR_MODAPI_FROM_PLAYER) or a
+ * guard (its id); the new pickup's id, or -1 (no such guard, no free slot) */
+int gevrModGameDrop(int item, int ammo, int from);
 
 /* The game's hooks (src/game/gevr_modgame.c) */
 struct PropDefHeaderRecord;

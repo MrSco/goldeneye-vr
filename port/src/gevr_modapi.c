@@ -500,6 +500,53 @@ static const luaL_Reg s_ammoFuncs[] = {
     { NULL, NULL },
 };
 
+/* ---- mod.pickups ---- */
+
+/*
+ * drop{ item = gun, from = "player" | guard } or drop{ ammo = type, from = ... }:
+ * the game's own drop of a gun or thrown weapon (as a player's inventory is
+ * dropped, drop_inventory) or of an ammo box of that type (as a shot crate
+ * drops one), falling from the player or a guard (a mod.guards id, a corpse
+ * too). The new pickup's id (as item_pickup and weapon_dropped give it), or
+ * nil when the game has no free slot or no such guard. Placed on this
+ * headset only: in co-op, every headset that should have it drops it.
+ */
+static int l_drop(lua_State *L)
+{
+    int item = 0, ammo = 0, from, id;
+
+    luaL_checktype(L, 1, LUA_TTABLE);
+    if (lua_getfield(L, 1, "item") != LUA_TNIL) item = itemArg(L, lua_gettop(L));
+    lua_pop(L, 1);
+    if (lua_getfield(L, 1, "ammo") != LUA_TNIL) ammo = ammoArg(L, lua_gettop(L));
+    lua_pop(L, 1);
+    if ((item != 0) == (ammo != 0)) return luaL_error(L, "mod.pickups.drop: one of item or ammo");
+    if (item != 0 && !gevrModGameSwappable(item)) {
+        return luaL_error(L, "mod.pickups.drop: the item is a gun or thrown weapon with a model in this cartridge");
+    }
+    lua_getfield(L, 1, "from");
+    if (lua_type(L, -1) == LUA_TSTRING && !strcmp(lua_tostring(L, -1), "player")) {
+        from = GEVR_MODAPI_FROM_PLAYER;
+    } else {
+        int whole;
+        const lua_Integer g = lua_tointegerx(L, -1, &whole);
+
+        if (!whole || g < 0 || g > 0x7fffffff) return luaL_error(L, "mod.pickups.drop: from is \"player\" or a guard's id");
+        from = (int)g;
+    }
+    lua_pop(L, 1);
+    needPlayer(L, "mod.pickups.drop");
+    id = gevrModGameDrop(item, ammo, from);
+    if (id < 0) lua_pushnil(L);
+    else lua_pushinteger(L, id);
+    return 1;
+}
+
+static const luaL_Reg s_pickupFuncs[] = {
+    { "drop", l_drop },
+    { NULL, NULL },
+};
+
 /* ---- mod.hands ---- */
 
 /* position(hand): x, y, z in cm in the torso's frame, or nil */
@@ -1544,6 +1591,9 @@ void gevrModApiOpen(lua_State *L)
     }
     lua_setfield(L, -2, "ammo");
     lua_newtable(L);
+    luaL_setfuncs(L, s_pickupFuncs, 0);
+    lua_setfield(L, -2, "pickups");
+    lua_newtable(L);
     luaL_setfuncs(L, s_handFuncs, 0);
     lua_setfield(L, -2, "hands");
     lua_newtable(L);
@@ -1822,22 +1872,29 @@ void gevrModApiPickupSpawning(GevrModPickup *p)
     gevrModScriptAsk("pickup_spawning", pushPickup, answerPickup, p, 0);
 }
 
-static void pickupNote(const char *kind, int nargs, int id, int rounds, float armour)
+/* item_pickup(kind, id, rounds, pickup): nargs of id and rounds given, the
+ * rest nil; the pickup's id always fourth (nil when it has none) */
+static void pickupNote(const char *kind, int nargs, int id, int rounds, float armour, int pickup)
 {
-    GevrModArg a[3];
+    GevrModArg a[4];
 
     a[0].kind = GEVR_MODARG_STRING;
     a[0].s = kind;
-    if (armour >= 0) {
+    a[1].kind = a[2].kind = GEVR_MODARG_NIL;
+    if (nargs >= 2 && armour >= 0) {
         a[1].kind = GEVR_MODARG_NUMBER;
         a[1].n = armour;
-    } else {
+    } else if (nargs >= 2) {
         a[1].kind = GEVR_MODARG_INTEGER;
         a[1].n = id;
     }
-    a[2].kind = GEVR_MODARG_INTEGER;
-    a[2].n = rounds;
-    gevrModScriptEvent("item_pickup", a, nargs, 0);
+    if (nargs >= 3) {
+        a[2].kind = GEVR_MODARG_INTEGER;
+        a[2].n = rounds;
+    }
+    a[3].kind = pickup >= 0 ? GEVR_MODARG_INTEGER : GEVR_MODARG_NIL;
+    a[3].n = pickup;
+    gevrModScriptEvent("item_pickup", a, 4, 0);
 }
 
 void gevrModApiItemPickup(const GevrModPickup *p)
@@ -1847,26 +1904,45 @@ void gevrModApiItemPickup(const GevrModPickup *p)
     if (!forLocal()) return;
     switch (p->kind) {
     case GEVR_MODPICKUP_WEAPON:
-        pickupNote("weapon", 2, p->item, 0, -1);
+        pickupNote("weapon", 2, p->item, 0, -1, p->pickup);
         break;
     case GEVR_MODPICKUP_AMMO:
-        pickupNote("ammo", 3, p->ammo, p->rounds, -1);
+        pickupNote("ammo", 3, p->ammo, p->rounds, -1, p->pickup);
         break;
-    case GEVR_MODPICKUP_CRATE:   /* as boxes: one for each type it held */
+    case GEVR_MODPICKUP_CRATE:   /* as boxes: one for each type it held, each with the crate's id */
         for (t = 1; t <= GEVR_MODAPI_AMMO_TYPES; t++) {
-            if (p->crate[t] > 0) pickupNote("ammo", 3, t, p->crate[t], -1);
+            if (p->crate[t] > 0) pickupNote("ammo", 3, t, p->crate[t], -1, p->pickup);
         }
         break;
     case GEVR_MODPICKUP_ARMOUR:
-        pickupNote("armour", 2, 0, 0, p->armour);
+        pickupNote("armour", 2, 0, 0, p->armour, p->pickup);
         break;
     case GEVR_MODPICKUP_KEY:
-        pickupNote("key", 1, 0, 0, -1);
+        pickupNote("key", 1, 0, 0, -1, p->pickup);
         break;
     case GEVR_MODPICKUP_OBJECT:
-        pickupNote("object", 1, 0, 0, -1);
+        pickupNote("object", 1, 0, 0, -1, p->pickup);
         break;
     }
+}
+
+void gevrModApiWeaponDropped(int pickup, int item, int from)
+{
+    GevrModArg a[3];
+
+    if (!gevrModScriptRunning()) return;
+    a[0].kind = pickup >= 0 ? GEVR_MODARG_INTEGER : GEVR_MODARG_NIL;
+    a[0].n = pickup;
+    a[1].kind = GEVR_MODARG_INTEGER;
+    a[1].n = item;
+    if (from == GEVR_MODAPI_FROM_PLAYER) {
+        a[2].kind = GEVR_MODARG_STRING;
+        a[2].s = "player";
+    } else {
+        a[2].kind = from >= 0 ? GEVR_MODARG_INTEGER : GEVR_MODARG_NIL;
+        a[2].n = from;
+    }
+    gevrModScriptEvent("weapon_dropped", a, 3, 0);
 }
 
 /* ---- the hands area's events ---- */

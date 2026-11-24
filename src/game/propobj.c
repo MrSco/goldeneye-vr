@@ -8726,6 +8726,15 @@ void propobjSetDropped(PropRecord *prop, DROPTYPE droptype)
 {
     PropRecord *parent = prop->parent;
 
+#ifdef GEVR
+    {
+        /* a mod's weapon_dropped: a weapon a chr held, about to fall (gevr_modgame.c) */
+        extern void gevrModWeaponDropped(PropRecord *prop);
+
+        gevrModWeaponDropped(prop);
+    }
+#endif
+
     if (parent)
     {
         ObjectRecord *obj = prop->obj;

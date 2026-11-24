@@ -506,12 +506,35 @@ in-game screen). We maintain the adapters, not the mods.
     models load; armour once its amount is read; a box or a crate before
     `domakedefaultobj()` and the crate's rounds' models. Asked while the
     mission loads (the loading time limit, outside the frame budget).
-  - `item_pickup(kind, id, rounds)` in `propPickupByPlayer()` once the
+  - `item_pickup(kind, id, rounds, pickup)` in `propPickupByPlayer()` once the
     game has taken the pickup, before a freed one is gone, for this
     machine's human player: `"weapon", item`; `"ammo", type, rounds` (a
     crate sends one for each type it held, its 9mm_2 as 9mm, solo's
     multiplier applied); `"armour", amount`; `"key"`; `"object"` for
     anything else (a mission document, say). It reports; it can't refuse.
+    `pickup` is the pickup's id: the setup record's index for the stage's
+    own (`pickup_spawning`'s `index`), or for one the game made while
+    playing, `0x8000` plus its weapon slot or `0x9000` plus its ammo box
+    slot, as co-op's object messages number them (`net_core.c`
+    `netObjectIndex`). A runtime slot is reused once its pickup is gone,
+    so an id names a pickup until it's taken. A gun the player already
+    has still reports: its rounds go to the reserve first.
+  - `weapon_dropped(pickup, item, from)` when a weapon a chr held is
+    dropped to the floor (`propobjSetDropped()`): a dead or disarmed
+    guard's gun, a player's in multiplayer. `from` is the guard's id,
+    `"player"`, or nil. Each headset drops its own copy of what happens
+    there, so ids are this headset's. Not for a mod's own drop.
+  - `mod.pickups.drop{ item = gun }` or `{ ammo = type }`, with `from =
+    "player"` or a guard's id (a corpse too): the game's own drop, a gun
+    or thrown weapon as a player's inventory is dropped
+    (`drop_inventory()`), an ammo box of that type as a shot crate drops
+    one, falling from that chr. Returns the new pickup's id, or nil with
+    no free slot in the game's (30 weapons, 20 boxes) or no such guard.
+    The box carries the type's own rounds, and a gun the game's usual
+    rounds with it. Placed on this headset only: in co-op, each headset
+    that should have it drops it (from the host's `guard_killed`, say, sent
+    over `mod.net`). Armour isn't made while playing, so it can't be
+    dropped.
   - Calls: `mod.inventory.has(item)` (any item), `give(item)` and
     `take(item)` (guns and thrown weapons only, the swap list below).
     `give` returns true when the item is new and brings no rounds; remote
@@ -524,8 +547,8 @@ in-game screen). We maintain the adapters, not the mods.
     `9mm_2` (the Klobb's), `rifle`, `shotgun`, `grenade`, `rockets`,
     `remotemine`, `proxmine`, `timedmine`, `knife`, `grenaderound`,
     `magnum`, `goldengun` (1 to 13).
-  - Not built yet: spawning a pickup at run time, `item_spawned`, and a
-    pickup a mod can refuse.
+  - Not built yet: `item_spawned`, a pickup a mod can refuse, dropped
+    armour, and a dropped pickup's own round count.
 - **Hands (VR).** Built (`port/src/gevr_modapi.c` over
   `src/game/gevr_modgame.c`; the hooks in `bondview2.c` and
   `gevr_bodyslots.c`), for this machine's human player in stereo play.

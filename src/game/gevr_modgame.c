@@ -22,6 +22,10 @@
 #include "music.h"       /* g_musicSfxBufferPtr: the sound effects bank */
 #include "snd.h"
 #include "explosion.h"
+#include "chrai.h"            /* g_WeaponSlots, g_AmmoCrates: the game's runtime pickups */
+#include "loadobjectmodel.h"  /* sizepropdef */
+#include "propobj.h"
+#include "model.h"            /* modelSetScale */
 
 extern bool netIsActive(void);       /* net_core.c */
 extern int netGetLocalSlot(void);
@@ -389,6 +393,30 @@ int gevrModPickupSpawn(PropDefHeaderRecord *rec, int index)
     return 0;
 }
 
+/* A pickup's id (gevr_modapi.h): numbered as net_core.c's netObjectIndex
+ * numbers objects for co-op, so the same pickup has the same id there */
+static int pickupId(ObjectRecord *target)
+{
+    PropDefHeaderRecord *def = g_CurrentSetup.propDefs;
+    s32 slot, index;
+
+    if (target == NULL) return -1;
+    for (slot = 0; slot < MAX_AMMO_CRATES; slot++)
+    {
+        if ((ObjectRecord *)&g_AmmoCrates[slot] == target) return GEVR_MODAPI_PICKUP_BOXES + slot;
+    }
+    for (slot = 0; slot < MAX_WEAPON_SLOTS; slot++)
+    {
+        if ((ObjectRecord *)&g_WeaponSlots[slot] == target) return GEVR_MODAPI_PICKUP_WEAPONS + slot;
+    }
+    for (index = 0; def != NULL && def->type != PROPDEF_END && index < GEVR_MODAPI_PICKUP_WEAPONS; index++)
+    {
+        if ((ObjectRecord *)def == target) return index;
+        def += sizepropdef(def);
+    }
+    return -1;
+}
+
 void gevrModPickupTaken(PropDefHeaderRecord *rec)
 {
     GevrModPickup got;
@@ -396,6 +424,7 @@ void gevrModPickupTaken(PropDefHeaderRecord *rec)
 
     if (!gevrModScriptRunning() || !gevrModGameLocal()) return;
     memset(&got, 0, sizeof(got));
+    got.pickup = pickupId((ObjectRecord *)rec);
     switch (rec->type)
     {
         case PROPDEF_COLLECTABLE:
@@ -769,6 +798,99 @@ static ChrRecord *guardById(int id)
         if (isGuard(&g_ChrSlots[i]) && g_ChrSlots[i].chrnum == id) return &g_ChrSlots[i];
     }
     return NULL;
+}
+
+/* ---- the pickups a mod drops, and the weapons the game drops ---- */
+
+extern AmmoCrateRecord *ammocrateAllocate(void);   /* propobj.c: a runtime ammo box's slot */
+extern ObjectRecord blank_07_object;               /* propobj.c: a runtime box's blank record */
+
+static s32 s_modDropping;   /* a mod's own drop: its call has the id, so no weapon_dropped */
+
+/* who a chr is, for weapon_dropped and a drop's from */
+static int fromChr(ChrRecord *chr)
+{
+    s32 i;
+
+    if (chr == NULL) return GEVR_MODAPI_FROM_NONE;
+    for (i = 0; i < getPlayerCount(); i++)
+    {
+        if (g_playerPointers[i] != NULL && g_playerPointers[i]->prop != NULL && g_playerPointers[i]->prop->chr == chr)
+        {
+            return GEVR_MODAPI_FROM_PLAYER;
+        }
+    }
+    return isGuard(chr) ? chr->chrnum : GEVR_MODAPI_FROM_NONE;
+}
+
+/* propobj.c propobjSetDropped: a weapon a chr held, dropped */
+void gevrModWeaponDropped(PropRecord *prop)
+{
+    ObjectRecord *obj;
+
+    if (s_modDropping || !gevrModScriptRunning() || prop == NULL || prop->parent == NULL
+        || prop->parent->type != PROP_TYPE_CHR || (obj = prop->obj) == NULL || obj->type != PROPDEF_COLLECTABLE)
+    {
+        return;
+    }
+    gevrModApiWeaponDropped(pickupId(obj), ((WeaponObjRecord *)obj)->weaponnum, fromChr(prop->parent->chr));
+}
+
+int gevrModGameDrop(int item, int ammo, int from)
+{
+    ChrRecord *chr;
+    PropRecord *prop = NULL;
+    s32 id = -1;
+
+    if (!gevrModGamePlayerReady()) return -1;
+    if (from == GEVR_MODAPI_FROM_PLAYER)
+    {
+        struct player *me = g_playerPointers[localSlot()];
+
+        chr = me != NULL && me->prop != NULL ? me->prop->chr : NULL;
+    }
+    else
+    {
+        chr = guardById(from);
+    }
+    if (chr == NULL || chr->prop == NULL) return -1;
+    s_modDropping = TRUE;
+    if (item > 0)
+    {
+        /* as drop_inventory drops a player's guns: made in the chr's hand, then let fall */
+        const s32 propid = getPropForHeldItem((ITEM_IDS)item);
+
+        if (propid >= 0)
+        {
+            prop = something_with_generating_object(chr, propid, (ITEM_IDS)item, 0x20000000, NULL, NULL);
+        }
+    }
+    else if (ammo >= 1 && ammo <= GEVR_MODAPI_AMMO_TYPES && s_boxLook[ammo] >= 0)
+    {
+        /* as a shot crate drops a box of one type (objDamage): a runtime box on the chr, then let fall */
+        AmmoCrateRecord *crate = ammocrateAllocate();
+
+        if (crate != NULL)
+        {
+            *(ObjectRecord *)crate = blank_07_object;
+            crate->obj = s_boxLook[ammo];
+            crate->ammoType = ammo;
+            if (objInitWithModelDef((ObjectRecord *)crate, PitemZ_entries[crate->obj].header) != NULL)
+            {
+                modelSetScale(crate->model, crate->model->scale);
+                chrpropReparent(crate->prop, chr->prop);
+                prop = crate->prop;
+            }
+        }
+    }
+    if (prop != NULL && prop->obj != NULL)
+    {
+        id = pickupId(prop->obj);
+        propobjSetDropped(prop, DROPTYPE_DEFAULT);
+        objDrop(prop);
+    }
+    s_modDropping = FALSE;
+    return id;
 }
 
 /* As the game's own scripts give a spawned guard its guns (AI_TRYGiveMeItem) */
