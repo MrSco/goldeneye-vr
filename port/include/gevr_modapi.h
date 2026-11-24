@@ -50,6 +50,10 @@ int gevrModApiReloadDeclined(int hand, int item, int reserve);
 void gevrModApiReloadStart(int hand, int item);
 /* reload_end: rounds are in (the native reload's ammo move; a magazine seated) */
 void gevrModApiReloadEnd(int hand, int item);
+/* out_of_ammo: a hand's gun and its reserve are empty and the game is about
+ * to switch the hand to its next weapon; 1 when a mod keeps it in hand.
+ * Kept, it isn't asked again until the gun fires, reloads or is drawn */
+int gevrModApiOutOfAmmo(int hand, int item);
 /* weapon_drawn: a switched-to weapon is up and usable (the hand's scope is
  * the game's own again first: mod.weapon.scope) */
 void gevrModApiDrawn(int hand, int item);

@@ -132,6 +132,30 @@ mod.on("tick", function() n = n + 1; print("tick", n); if n == 2 then error("boo
         check("NOTE Tactical stopped for this mission: a script error (see the log)." in out, "error: the note")
         check("RUNNING 1" in out, "error: still running")
 
+        # ---- mod.note: a line on the player's screen; a stopped mod's own note first ----
+        s = Scenario(exe, temp, "note", {"main.lua": """
+local n = 0
+mod.on("tick", function()
+  n = n + 1
+  if n == 1 then
+    local bad = 0
+    for _, t in ipairs({ "", string.rep("x", 81), "two\\nlines", {} }) do
+      if not pcall(mod.note, t) then bad = bad + 1 end
+    end
+    print("bad", bad)
+    mod.note("Magazine dropped")
+  elseif n == 2 then
+    mod.note("M4A1 unlocked")
+    error("boom")
+  end
+end)
+"""})
+        out = s.run("start", "prepare", 9, "begin", 9, "frames", 1, 1, 1, "note", "frames", 1, 1, 1, "note", "note")
+        notes = [line for line in out.splitlines() if line.startswith("NOTE ")]
+        check(s.logs(out) == ["bad 4"], "note: 4 refused: " + str(s.logs(out)))
+        check(notes == ["NOTE Magazine dropped", "NOTE Tactical stopped for this mission: a script error (see the log).",
+                        "NOTE -"], "note: shown once; a stopped mod's note first, the script's dropped: " + str(notes))
+
         # ---- an error at start: off for the run, a data-only mod, an unknown event ----
         s = Scenario(exe, temp, "broken", {"main.lua": "error('no')\n"})
         out = s.run("start", "prepare", 9, "begin", 9, "frames", 2, 1, 1, "note", "running")

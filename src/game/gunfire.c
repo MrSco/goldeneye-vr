@@ -4881,6 +4881,10 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
                                         && ((get_ammo_type_for_weapon(temp_v0_3) != 0))
                                         && ((get_ammo_in_hands_weapon(1 - hand) <= 0)))))
                             {
+#ifdef GEVR
+                                /* a mod can keep the empty gun in hand (out_of_ammo, gevr_modapi.c) */
+                                if (!gevrModApiOutOfAmmo(hand, var_s1))
+#endif
                                 autoadvance_on_deplete_all_ammo();
 
                                 handptr->field_88C = 0;

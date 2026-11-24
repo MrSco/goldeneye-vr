@@ -458,6 +458,8 @@ static int D_80032458;
 void autoadvance_on_deplete_all_ammo(void) { gevrAutoAdvanceHand(0); gevrAutoAdvanceHand(1); }
 /* mods' weapons area (gevr_modapi.c reload_attempt): no mod declines the automatic reload here */
 static int gevrModApiReloadDeclined(int hand, int item, int reserve) { (void)hand; (void)item; (void)reserve; return 0; }
+/* out_of_ammo: no mod keeps an empty gun in hand here */
+int gevrModApiOutOfAmmo(int hand, int item) { (void)hand; (void)item; return 0; }
 static void tickDepletion(GUNHAND hand) {
     struct hand *handptr = &player.hands[hand], *sp1BC;
     int var_s1 = getCurrentPlayerWeaponId(hand);   /* gunTickHandState's item in the hand */

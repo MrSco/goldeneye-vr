@@ -275,6 +275,11 @@ files.sha256        checksum list of every other file
     `mission_start(stage)`, `mission_end(stage, "complete" | "left")`,
     `tick(dt)` (seconds, at most 0.25). An unknown event is an error.
   - `mod.log(...)`: one log line, `mod <id>: ...`, at most 30 a second.
+  - `mod.note(text)`: a short line on this player's screen, the game's own
+    bottom message as a pickup's is ("Magazine dropped"): 1 to 80
+    printable characters, one line. Shown at the frame's end, the last
+    of the frame; a stopped mod's own note goes first, and one waiting as
+    a mission loads is dropped.
   - `mod.setting(name, default)`: the player's choice for it
     (`settings.txt` in its data folder, `name=value` lines), as the
     default's type, else the default.
@@ -410,6 +415,14 @@ in-game screen). We maintain the adapters, not the mods.
     the belt while still in the gun sends its start as it goes in.
     `weapon_drawn` at a switch's end. A hand reload's single rounds
     (`gevrGexRoundTick`) send no `reload_start` or `reload_end` yet.
+  - `out_of_ammo(hand, item)` when a hand's gun and its reserve are both
+    empty and the game is about to switch that hand to its next weapon
+    (`gevrAutoAdvanceHand()` in VR, `autoadvance_on_deplete_all_ammo()`
+    flat, as the trigger is let go). A handler returning false keeps the
+    empty gun in hand; it then waits for a reload, or for the player to put
+    it away. Kept, it isn't asked again until the gun fires, gets rounds
+    (`reload_end`) or is drawn. Leaving the tank isn't asked: its shells go
+    with it.
   - The reserve moves without an event in three places a script that
     keeps magazines itself should know: the native reload and a fresh
     magazine top the gun up from it (loaded becomes the lesser of the

@@ -13,6 +13,7 @@
  *     reload <hand> <rounds>       the native reload: asked, then start, the rounds in, end
  *     autoreload <hand> <reserve>  gunfire.c's automatic reload: ASKED unless still declined
  *     draw <hand> <item>           a switch's end
+ *     empty <hand>                 the out-of-ammo switch asks: KEPT or SWITCH
  *     look <hand> <0|1|2>          the models the hand's gun is drawn with
  *     show <item>                  the item's stats now
  *     loadedis <hand>              the hand's rounds now
@@ -491,6 +492,10 @@ int main(int argc, char **argv)
         } else if (!strcmp(cmd, "look") && i + 2 < argc) {
             s_look[atoi(argv[i + 1])] = atoi(argv[i + 2]);
             i += 2;
+        } else if (!strcmp(cmd, "empty") && i + 1 < argc) {
+            const int hand = atoi(argv[++i]);
+
+            printf("%s\n", gevrModApiOutOfAmmo(hand, s_held[hand]) ? "KEPT" : "SWITCH");
         } else if (!strcmp(cmd, "draw") && i + 2 < argc) {
             const int hand = atoi(argv[i + 1]);
 

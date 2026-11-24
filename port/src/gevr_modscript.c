@@ -82,13 +82,16 @@ static u64 s_windowStart, s_windowUs;
 static int s_windowFrames, s_overSeconds;
 static char s_note[192];
 static int s_hasNote;
+#define MOD_NOTE_MAX 80   /* mod.note: a line the game's bottom message holds */
+static char s_modNote[MOD_NOTE_MAX + 1];   /* a script's own (mod.note), after the host's */
+static int s_hasModNote;
 static int s_perfLog = -1;
 
 static const char *const s_events[] = {
     "campaign_enter", "mission_prepare", "mission_start", "mission_end", "tick",
     /* the weapons area (docs/mod-system.md, Where each hook sits) */
     "weapon_fire_attempt", "weapon_fire", "reload_start", "reload_end", "weapon_drawn",
-    "reload_attempt",
+    "reload_attempt", "out_of_ammo",
     /* the items area */
     "pickup_spawning", "item_pickup",
     /* the hands area */
@@ -321,6 +324,29 @@ static int l_log(lua_State *L)
         used += (size_t)w < sizeof(line) - used ? (size_t)w : sizeof(line) - used - 1;
     }
     sysLogPrintf(LOG_NOTE, "mod %s: %s", m->id, line);
+    return 0;
+}
+
+/*
+ * mod.note(text): a short line on this player's screen, the game's own bottom
+ * message, as a pickup's is ("Magazine dropped"); 1 to 80 printable
+ * characters. Shown at the frame's end, the last one of a frame; a stopped
+ * mod's own note goes first, and a note waiting as a mission loads is dropped.
+ */
+static int l_note(lua_State *L)
+{
+    size_t n, i;
+    const char *s = luaL_checklstring(L, 1, &n);
+
+    if (n < 1 || n > MOD_NOTE_MAX) return luaL_argerror(L, 1, "a note is 1 to 80 characters");
+    for (i = 0; i < n; i++) {
+        if ((unsigned char)s[i] < 32 || (unsigned char)s[i] > 126) {
+            return luaL_argerror(L, 1, "a note is printable characters, one line");
+        }
+    }
+    memcpy(s_modNote, s, n);
+    s_modNote[n] = '\0';
+    s_hasModNote = 1;
     return 0;
 }
 
@@ -623,6 +649,7 @@ static int l_load(lua_State *L)
 static const luaL_Reg s_modFuncs[] = {
     { "on", l_on },
     { "log", l_log },
+    { "note", l_note },
     { "setting", l_setting },
     { "capabilities", l_capabilities },
     { "random", l_random },
@@ -949,6 +976,7 @@ void gevrModScriptStageLoad(int stage, int mission, int done)
             a.kind = 3;
             a.n = stage;
             gevrModApiReset();
+            s_hasModNote = 0;   /* a note from the last mission isn't this one's */
             fire("mission_prepare", &a, 1, 1, 0);
         }
     } else if (mission && s_inMission) {
@@ -1030,9 +1058,16 @@ void gevrModScriptFrame(int ticks)
 
 const char *gevrModScriptTakeNote(void)
 {
-    if (!s_hasNote) return NULL;
-    s_hasNote = 0;
-    return s_note;
+    if (s_hasNote) {
+        s_hasNote = 0;
+        s_hasModNote = 0;   /* the stop's note says more */
+        return s_note;
+    }
+    if (s_hasModNote) {
+        s_hasModNote = 0;
+        return s_modNote;
+    }
+    return NULL;
 }
 
 int gevrModScriptRunning(void)
@@ -1055,7 +1090,7 @@ void gevrModScriptShutdown(void)
     }
     s_count = 0;
     s_inMission = s_playing = s_missionComplete = 0;
-    s_hasNote = 0;
+    s_hasNote = s_hasModNote = 0;
     s_windowStart = s_windowUs = 0;
     s_windowFrames = s_overSeconds = 0;
 }

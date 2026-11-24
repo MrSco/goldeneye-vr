@@ -1569,10 +1569,14 @@ void gevrModApiOpen(lua_State *L)
     lua_setfield(L, -2, "attach");
 }
 
+static void weaponMemosClear(int hand);
+
 void gevrModApiReset(void)
 {
     int i;
 
+    weaponMemosClear(0);   /* a declined reload or a kept empty gun: asked afresh */
+    weaponMemosClear(1);
     for (i = s_savedCount - 1; i >= 0; i--) {
         gevrModGameSetStats(s_saved[i].item, &s_saved[i].own);
     }
@@ -1613,6 +1617,7 @@ void gevrModApiFired(int hand, int item)
     GevrModArg a[3];
 
     if (!forLocal()) return;
+    weaponMemosClear(hand);   /* it had rounds: empty again, it's asked again */
     handItem(a, hand, item);
     a[2].kind = GEVR_MODARG_INTEGER;
     a[2].n = gevrModGameLoaded(hand);
@@ -1636,6 +1641,31 @@ int gevrModApiReloadAttempt(int hand, int item, int reserve)
     return declined;
 }
 
+/* out_of_ammo's answer per hand: the item kept in hand, -1 none. The game asks
+ * each tick the trigger is up (gunfire.c), so a kept gun stays kept until it
+ * has rounds (a shot, a reload), is drawn, or the mission or the mod ends */
+static int s_emptyKept[2] = { -1, -1 };
+
+static void weaponMemosClear(int hand)
+{
+    if (hand < 0 || hand > 1) return;
+    s_reloadDeclined[hand] = -1;
+    s_emptyKept[hand] = -1;
+}
+
+int gevrModApiOutOfAmmo(int hand, int item)
+{
+    GevrModArg a[2];
+    int kept;
+
+    if (!forLocal() || hand < 0 || hand > 1) return 0;
+    if (s_emptyKept[hand] == item) return 1;
+    handItem(a, hand, item);
+    kept = gevrModScriptEvent("out_of_ammo", a, 2, 1);
+    s_emptyKept[hand] = kept ? item : -1;
+    return kept;
+}
+
 int gevrModApiReloadDeclined(int hand, int item, int reserve)
 {
     return forLocal() && hand >= 0 && hand <= 1 && s_reloadDeclined[hand] == item
@@ -1656,6 +1686,7 @@ void gevrModApiReloadEnd(int hand, int item)
     GevrModArg a[3];
 
     if (!forLocal()) return;
+    s_emptyKept[hand ? 1 : 0] = -1;   /* rounds in: empty again, it's asked again */
     handItem(a, hand, item);
     a[2].kind = GEVR_MODARG_INTEGER;
     a[2].n = gevrModGameLoaded(hand);
@@ -1667,6 +1698,7 @@ void gevrModApiDrawn(int hand, int item)
     GevrModArg a[2];
 
     if (!forLocal()) return;
+    weaponMemosClear(hand);   /* another gun, or this one again: asked afresh */
     gevrModGameScope(hand, GEVR_MODSCOPE_GAME, item, NULL, 0.0f, 0.0f);   /* a mod sets this gun's in weapon_drawn */
     handItem(a, hand, item);
     gevrModScriptEvent("weapon_drawn", a, 2, 0);

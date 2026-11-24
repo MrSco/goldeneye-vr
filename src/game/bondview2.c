@@ -19042,6 +19042,8 @@ void gevrAutoAdvanceHand(s32 hand)
 
         if (gevrGexMinesHold(hand))
             return;   /* GE-X's remote mines: the watch detonates them, the hand stays */
+        if (gevrModApiOutOfAmmo(hand, item))
+            return;   /* a mod keeps the empty gun in hand (out_of_ammo, gevr_modapi.c) */
         if (hand == GUNRIGHT && item == ITEM_REMOTEMINE && bondinvItemAvailable(ITEM_TRIGGER) && !VrGexGuns)
             gunRequestHandWeaponChange(hand, ITEM_TRIGGER, 1);
         else

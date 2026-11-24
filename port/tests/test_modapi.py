@@ -100,6 +100,17 @@ def placement():
           and "gevrModApiReloadEnd(hand, getCurrentPlayerWeaponId(hand));   /* reload_end: a magazine seated" in view,
           "a hand reload's magazine out and in")
     reload_placement(gun, view)
+    empty_placement(gun, view)
+
+
+def empty_placement(gun, view):
+    """out_of_ammo asked where the game switches an empty gun away, after its own reasons not to"""
+    switch = function(view, "void gevrAutoAdvanceHand(s32 hand)")
+    check(switch.index("item == ITEM_TANKSHELLS") < switch.index("gevrGexMinesHold(hand)")
+          < switch.index("if (gevrModApiOutOfAmmo(hand, item))") < switch.index("gevrCycleHandWeaponInternal(hand, 1, TRUE);\n    }"),
+          "VR: asked after the tank's own switch and the hand's reasons to stay, before the switch")
+    flat = gun.index("if (!gevrModApiOutOfAmmo(hand, var_s1))")
+    check(flat < gun.index("autoadvance_on_deplete_all_ammo();", flat) < flat + 200, "flat: asked before the switch")
 
 
 def reload_placement(gun, view):
@@ -1373,6 +1384,20 @@ mod.on("weapon_drawn", function(hand, item) print("drawn", hand, item, mod.weapo
         out = run(exe, temp, "outside", lua, "start", "fire", 0, "prepare", 9, "fire", 0)
         check(logs(out) == [] and answers(out, "FIRED") == ["FIRED 6", "FIRED 5"], "nothing asked outside play")
 
+        # ---- out_of_ammo: an empty gun kept in hand until it has rounds or is drawn ----
+        lua = """
+local keep = true
+mod.on("out_of_ammo", function(hand, item) print("out_of_ammo", hand, item); return not keep end)
+"""
+        out = run(exe, temp, "empty", lua, *play, "hold", 0, 8, 0, "empty", 0, "empty", 0, "fire", 0, "empty", 0,
+                  "reload", 0, 5, "empty", 0, "draw", 0, 8, "empty", 0, "local", 0, "empty", 0)
+        check(logs(out) == ["out_of_ammo right 8", "out_of_ammo right 8", "out_of_ammo right 8", "out_of_ammo right 8"],
+              "asked once while kept, again after a shot, a reload and a draw: " + str(logs(out)))
+        check(answers(out, "KEPT", "SWITCH") == ["KEPT", "KEPT", "KEPT", "KEPT", "KEPT", "SWITCH"],
+              "kept each time; a copy's switch isn't asked: " + str(answers(out, "KEPT", "SWITCH")))
+        out = run(exe, temp, "emptyno", 'mod.on("out_of_ammo", function() end)', *play, "hold", 0, 8, 0, "empty", 0)
+        check(answers(out, "KEPT", "SWITCH") == ["SWITCH"], "a handler returning nothing lets the game switch")
+
         # ---- reload_attempt: a reload declined takes nothing; the automatic one waits ----
         lua = """
 local spare = 0
@@ -1456,7 +1481,8 @@ mod.on("weapon_fire_attempt", function() error("jam") end)
     if FAILS:
         print(f"{len(FAILS)} check(s) failed")
         sys.exit(1)
-    print("PASS: mods' weapons area: fire attempts declined or not, weapon_fire, reloads asked and declined, draws, the local player only, "
+    print("PASS: mods' weapons area: fire attempts declined or not, weapon_fire, reloads asked and declined, an "
+          "empty gun kept in hand, draws, the local player only, "
           "mod.weapon's calls and limits, mod.items, the stats put back; the hooks' places in the gun code. "
           "Items area: pickup_spawning's swaps, turns and refusals, item_pickup, mod.inventory, mod.ammo; "
           "the hooks' places in the stage's setup and the pickup. Hands area: grip, release, hand_near, "
