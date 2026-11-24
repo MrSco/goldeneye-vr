@@ -5450,6 +5450,51 @@ static void gfx_run_dl(Gfx* cmd) {
             // RSP commands:
             case G_NOOP: {
                 uint32_t tag_w1 = cmd->words.w1;
+                if (tag_w1 == GEVR_PACKMESH_DRAW_BEGIN || tag_w1 == GEVR_PACKMESH_DRAW_END) {
+                    // Pack texture blocks only load TMEM slot 0. Keep the caller's tile and
+                    // material state: a stock hand or attachment may draw immediately after us.
+                    static struct {
+                        uint32_t geometry, modeL, modeH, paletteFmt;
+                        uint64_t combine;
+                        bool texLod, texDetail;
+                        uint8_t firstTile, maxLod;
+                        decltype(rsp.texture_scaling_factor) scale;
+                        decltype(rdp.texture_to_load) pending;
+                        decltype(rdp.texture_tile) tiles;
+                        LoadedTexture loaded;
+                    } saved;
+                    if (tag_w1 == GEVR_PACKMESH_DRAW_BEGIN) {
+                        saved.geometry = rsp.geometry_mode;
+                        saved.modeL = rdp.other_mode_l;
+                        saved.modeH = rdp.other_mode_h;
+                        saved.paletteFmt = rdp.palette_fmt;
+                        saved.combine = rdp.combine_mode;
+                        saved.texLod = rdp.tex_lod;
+                        saved.texDetail = rdp.tex_detail;
+                        saved.firstTile = rdp.first_tile_index;
+                        saved.maxLod = rdp.tex_max_lod;
+                        saved.scale = rsp.texture_scaling_factor;
+                        saved.pending = rdp.texture_to_load;
+                        memcpy(saved.tiles, rdp.texture_tile, sizeof(saved.tiles));
+                        saved.loaded = rdp.loaded_texture[0];
+                    } else {
+                        rsp.geometry_mode = saved.geometry;
+                        rdp.other_mode_l = saved.modeL;
+                        rdp.other_mode_h = saved.modeH;
+                        rdp.palette_fmt = saved.paletteFmt;
+                        rdp.combine_mode = saved.combine;
+                        rdp.tex_lod = saved.texLod;
+                        rdp.tex_detail = saved.texDetail;
+                        rdp.first_tile_index = saved.firstTile;
+                        rdp.tex_max_lod = saved.maxLod;
+                        rsp.texture_scaling_factor = saved.scale;
+                        rdp.texture_to_load = saved.pending;
+                        memcpy(rdp.texture_tile, saved.tiles, sizeof(saved.tiles));
+                        rdp.loaded_texture[0] = saved.loaded;
+                        rdp.textures_changed[0] = rdp.textures_changed[1] = true;
+                    }
+                    break;
+                }
                 if ((tag_w1 & 0xffff0000) == 0x47450000) {
                     if (tag_w1 == 0x4745ffff) {
                         if (gevrMenuTrace) {

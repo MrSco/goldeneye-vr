@@ -3438,7 +3438,8 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
             const GevrModMesh *mesh = gevrModGunMesh(handnum);
             if (!gevrStereoWatchItem(item)) {
                 if (mesh != NULL) {
-                    renderdata.gdl = gevrModMeshDrawHeld(renderdata.gdl, (Mtxf *)handptr->weaponModel.render_pos, mesh);
+                    renderdata.gdl = gevrModMeshDraw(renderdata.gdl, (Mtxf *)handptr->weaponModel.render_pos, mesh);
+                    modelDrawGunHand(&renderdata, &handptr->weaponModel);
                 } else {
                     subdraw(&renderdata, &handptr->weaponModel);
                 }

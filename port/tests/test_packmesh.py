@@ -34,7 +34,7 @@ def main():
         lib = c.CDLL(str(path))
         lib.gevrPackMeshRead.argtypes = (c.c_void_p, c.c_size_t, c.POINTER(View))
         lib.gevrPackMeshRead.restype = c.c_int
-        lib.gevrPackMeshCorner.argtypes = (c.POINTER(View), c.c_uint, c.POINTER(Corner))
+        lib.gevrPackMeshCorner.argtypes = (c.POINTER(View), c.c_size_t, c.POINTER(Corner))
         lib.gevrPackMeshCorner.restype = None
 
         texel = bytes((29, 71, 251, 191))

@@ -9,6 +9,5 @@ typedef struct GevrModMesh GevrModMesh;
 int gevrModMeshLoad(const char *name, const GevrModMesh **out);
 void gevrModMeshReset(void);
 Gfx *gevrModMeshDraw(Gfx *gdl, const Mtxf *pose, const GevrModMesh *mesh);
-Gfx *gevrModMeshDrawHeld(Gfx *gdl, Mtxf *root, const GevrModMesh *mesh);
 const GevrModMesh *gevrModGunMesh(s32 hand);
 #endif

@@ -9,8 +9,10 @@ extern "C" {
 #endif
 
 #define GEVR_PACKMESH_MAX_TEXTURES 32
-#define GEVR_PACKMESH_MAX_TRIANGLES 50000
-#define GEVR_PACKMESH_MAX_FILE (64u << 20)
+#define GEVR_PACKMESH_MAX_PICTURE 512
+#define GEVR_PACKMESH_CORNER_BYTES 28u
+#define GEVR_PACKMESH_DRAW_BEGIN 0x56670000u
+#define GEVR_PACKMESH_DRAW_END   0x56670001u
 
 typedef struct {
     const uint8_t *rgba;
@@ -33,7 +35,7 @@ typedef struct {
 /* The file owns the bytes referenced by this view. 0: other format;
  * -1: recognized, malformed; 1: valid. */
 int gevrPackMeshRead(const uint8_t *file, size_t length, GevrPackMeshView *out);
-void gevrPackMeshCorner(const GevrPackMeshView *view, unsigned index, GevrPackCorner *out);
+void gevrPackMeshCorner(const GevrPackMeshView *view, size_t index, GevrPackCorner *out);
 
 /* Fast3D's full-colour texture path, shared with other host model assets. */
 int gevrPackMeshTexture(const void *address, const uint8_t **rgba, int *width, int *height);

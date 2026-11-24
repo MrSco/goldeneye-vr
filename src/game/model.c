@@ -5613,7 +5613,22 @@ void gevrModelTraceNextDraw(void)
 }
 #endif
 
-void subdraw(ModelRenderData *mrData, Model *mdl)
+#ifdef GEVR
+/* GoldenEye's first-person hand and sleeve are under switches 8 through 13.
+ * Keep the carrier's fitted matrices and active cuff, but skip its gun and flash. */
+static int modelInGunHand(const ModelFileHeader *obj, const ModelNode *node)
+{
+    for (; node != NULL; node = node->Parent) {
+        s32 i;
+        for (i = 8; i <= 13 && i < obj->numSwitches; ++i) {
+            if (node == obj->Switches[i]) return TRUE;
+        }
+    }
+    return FALSE;
+}
+#endif
+
+static void subdrawFiltered(ModelRenderData *mrData, Model *mdl, int gunHandOnly)
 {
     ModelNode *root = mdl->obj->RootNode;
 #ifdef GEVR
@@ -5645,7 +5660,7 @@ void subdraw(ModelRenderData *mrData, Model *mdl)
     #endif
     gSPSegment(mrData->gdl++, 3, osVirtualToPhysical(mdl->render_pos));
 #ifdef GEVR
-    if(mrData->unk18==0 && (mrData->flags&1))
+    if(!gunHandOnly && mrData->unk18==0 && (mrData->flags&1))
         modelDrawBeanBody(mrData,gevrBeanWholeModelGdl(mdl));
 #endif
 
@@ -5660,6 +5675,11 @@ void subdraw(ModelRenderData *mrData, Model *mdl)
                 (void *)root, (void *)rw, (s32)rw->visible,
                 (void *)root->Data->Switch.Controls);
         }
+#endif
+#ifdef GEVR
+        const u32 op = root->Opcode & 0xff;
+        if (!gunHandOnly || op == MODELNODE_OPCODE_SWITCH || op == MODELNODE_OPCODE_LOD
+            || op == MODELNODE_OPCODE_BSP || (op == MODELNODE_OPCODE_DL && modelInGunHand(mdl->obj, root)))
 #endif
         sub_GAME_7F074534(mrData, mdl, root);
 #ifdef GEVR
@@ -5698,6 +5718,18 @@ void subdraw(ModelRenderData *mrData, Model *mdl)
 #endif
 }
 
+
+void subdraw(ModelRenderData *mrData, Model *mdl)
+{
+    subdrawFiltered(mrData, mdl, 0);
+}
+
+#ifdef GEVR
+void modelDrawGunHand(ModelRenderData *mrData, Model *mdl)
+{
+    subdrawFiltered(mrData, mdl, 1);
+}
+#endif
 
 // unreferenced
 void sub_GAME_7F074790(ModelRenderData* arg0, Model* arg1)

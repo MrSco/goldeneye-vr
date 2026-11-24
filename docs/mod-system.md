@@ -545,11 +545,36 @@ in-game screen). We maintain the adapters, not the mods.
     showing another model than its gun's choice loads it again, so a
     choice never touches a player mid-load (`gevrModGunReconcile()`).
   - A self-describing `GEVRWPN1` or `GEVRWPN2` mesh can also be used as
-    `file`; leave the exported bytes unchanged. Unlike a cartridge-format
-    replacement it has its own RGBA textures and geometry. It draws at
-    the carrier gun's root with mesh Y forward and Z up. The stock gun
-    still drives animation, fire and reload. The mesh does not add action
-    geometry, muzzle or grip data, optics, or remote weapon looks.
+    `file`; leave the exported bytes unchanged. It draws at the stock
+    gun's root and keeps the stock hand and sleeve. The stock gun still
+    drives animation, shot origin and reload. Replacing the gun body
+    hides the stock muzzle flash. This format alone does not add action
+    geometry, an authored muzzle or grip, optics, or remote weapon looks.
+
+    **Pack mesh byte layout.** Integers and IEEE 754 floats are little
+    endian; there is no implicit padding. The same file can be a held
+    model or an attachment, such as a prop or a custom guard helmet.
+
+    | Order | Bytes | Contents |
+    |---|---|---|
+    | Magic | 8 | ASCII `GEVRWPN1` or `GEVRWPN2`, no terminator |
+    | Picture count | 4 | Unsigned count, 1 to 32; the renderer tracks picture passes in a 32-bit mask |
+    | Pictures | repeated | Unsigned 16-bit width and height, then `width * height * 4` bytes of row-major RGBA8 |
+    | Triangle count | 4 | Unsigned, nonzero; exactly three consecutive corners follow for each triangle |
+    | Corner | 28 each | Three float32 position values, two float32 UVs, RGBA8 colour, one zero-based picture index, three reserved bytes (write zero). All three corners of a triangle must use the same picture |
+    | Wrist point (v2 only) | 36 | Nine float32 values: `along[3]`, `normal[3]`, `centre[3]` in the file's own frame. The first two are direction vectors; centre uses the same units as positions. Reserved for a later watch binding; it does not draw a watch |
+
+    Positions are in metres in the file's X-right, Y-forward, Z-up frame.
+    At load, `(x, y, z)` becomes `1000 * (-x, z, y)` in game model units,
+    rounded into the signed 16-bit Fast3D vertex fields. UVs are normalized
+    in picture space and wrap. Each picture dimension is 1 to 512: the
+    renderer uses signed 16-bit 10.5 vertex UVs, with room for a repeated
+    image across a seam, and 10.2 tile bounds. If a picture pixel or a
+    corner using it has alpha below 255, all its triangles use the
+    depth-tested blended pass; other triangles also write depth.
+    Files with invalid counts, non-finite values, missing bytes or extra
+    bytes are refused and logged; an allocation failure is logged too.
+    Pack geometry currently does not inherit world fog on guards.
   - Known gaps: on a pump gun a lower `setLoaded` reads as a shot (the
     rack, `gevr_rack.h`); in co-op another headset's copy of the player
     still shows a declined shot's fire (the fire bit comes from the
