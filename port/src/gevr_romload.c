@@ -154,15 +154,34 @@ u64 gevrRomContentHash(void)
 	return s_RomContentHash;
 }
 
+static char s_RomLastError[384];
+
+const char *romdataLastError(void)
+{
+	return s_RomLastError[0] ? s_RomLastError
+			: "No usable GoldenEye 007 (USA / NGEE) ROM found.\n\n"
+			  "Put your NTSC-U cartridge dump next to the game as 'ge.z64', "
+			  "or launch without --no-launcher / --boot-stage to pick it in the launcher.";
+}
+
 static s32 gevrRomValidate(const u8 *rom, u32 size)
 {
 	if (size != GEVR_ROM_SIZE) {
+		snprintf(s_RomLastError, sizeof(s_RomLastError),
+				"Wrong GoldenEye ROM size: expected %u bytes (12 MiB), got %u bytes.\n\n"
+				"GoldenEye VR needs a USA (NGEE) cartridge dump.",
+				(u32)GEVR_ROM_SIZE, size);
 		sysLogPrintf(LOG_ERROR, "rom: wrong size: expected %u bytes, got %u.",
 				(u32)GEVR_ROM_SIZE, size);
 		return 0;
 	}
 
 	if (memcmp(rom + 0x3b, GEVR_ROM_ID, 4)) {
+		snprintf(s_RomLastError, sizeof(s_RomLastError),
+				"Unsupported GoldenEye ROM region ('%.4s').\n\n"
+				"GoldenEye VR needs a USA (NGEE) cartridge dump. "
+				"PAL and JP cartridges are laid out differently.",
+				(const char *)rom + 0x3b);
 		sysLogPrintf(LOG_ERROR, "rom: cartridge id is '%.4s', expected '%s' (NTSC-U). "
 				"PAL and JP cartridges are laid out differently.",
 				(const char *)rom + 0x3b, GEVR_ROM_ID);
@@ -170,6 +189,10 @@ static s32 gevrRomValidate(const u8 *rom, u32 size)
 	}
 
 	if (memcmp(rom + 0x20, GEVR_ROM_TITLE, sizeof(GEVR_ROM_TITLE) - 1)) {
+		snprintf(s_RomLastError, sizeof(s_RomLastError),
+				"This N64 ROM is not GoldenEye 007 (header name is not %s).\n\n"
+				"GoldenEye VR needs a USA (NGEE) cartridge dump.",
+				GEVR_ROM_TITLE);
 		sysLogPrintf(LOG_ERROR, "rom: header name is not %s.", GEVR_ROM_TITLE);
 		return 0;
 	}
@@ -296,6 +319,8 @@ s32 romdataInit(void)
 		return 0;
 	}
 
+	s_RomLastError[0] = '\0';
+
 	if (VrCampaign < GEVR_CAMPAIGN_GE || VrCampaign >= GEVR_CAMPAIGN_COUNT) {
 		VrCampaign = GEVR_CAMPAIGN_GE;
 	}
@@ -366,6 +391,10 @@ s32 romdataInit(void)
 	}
 
 	if (!data) {
+		snprintf(s_RomLastError, sizeof(s_RomLastError),
+				"No GoldenEye 007 (USA / NGEE) ROM found.\n\n"
+				"Put an NTSC-U cartridge dump you own next to the game as 'ge.z64', "
+				"or launch without --no-launcher / --boot-stage to pick it in the launcher.");
 		sysLogPrintf(LOG_ERROR,
 				"rom: no GoldenEye cartridge found. Put an NTSC-U dump you own "
 				"next to the game as 'ge.z64'.");
@@ -373,6 +402,9 @@ s32 romdataInit(void)
 	}
 
 	if (!gevrRomNormaliseOrder((u8 *)data, size)) {
+		snprintf(s_RomLastError, sizeof(s_RomLastError),
+				"The GoldenEye ROM file is not a valid N64 cartridge image (bad header magic).\n\n"
+				"GoldenEye VR needs an unmodified USA (NGEE) cartridge dump.");
 		sysLogPrintf(LOG_ERROR, "rom: not an N64 cartridge image (bad magic).");
 		free(data);
 		return -1;
@@ -385,6 +417,10 @@ s32 romdataInit(void)
 
 	char error[192];
 	if (!gevrRomCheckFiles(data, size, error, sizeof(error))) {
+		snprintf(s_RomLastError, sizeof(s_RomLastError),
+				"The GoldenEye ROM appears damaged or incompatible (%s).\n\n"
+				"GoldenEye VR needs an unmodified USA (NGEE) cartridge dump.",
+				error);
 		sysLogPrintf(LOG_ERROR, "rom: %s", error);
 		free(data);
 		return -1;
