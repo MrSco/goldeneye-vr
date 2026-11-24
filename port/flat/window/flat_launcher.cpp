@@ -102,6 +102,7 @@ extern "C" bool vr_screen_present_tex2d(unsigned int srcTex, int w, int h)
     s_rectH = dh > 0 ? dh : 1;
 
     if (!readFbo) glGenFramebuffers(1, &readFbo);
+    const GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);
     glDisable(GL_SCISSOR_TEST);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, readFbo);
     glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, srcTex, 0);
@@ -116,6 +117,7 @@ extern "C" bool vr_screen_present_tex2d(unsigned int srcTex, int w, int h)
         pc_write_shot(shot, winW, winH);   // flat_render.cpp
     }
 #endif
+    if (scissor) glEnable(GL_SCISSOR_TEST);
     if (!g_flatPresentNoSwap) flatSwapWindow();
     return true;
 }

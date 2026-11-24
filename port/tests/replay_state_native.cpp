@@ -71,7 +71,8 @@ static void glUniformMatrix4fv(GLint,GLsizei,GLboolean,const GLfloat*){}
 static void glActiveTexture(GLenum t){activeTexture=t-GL_TEXTURE0;}
 static void glBindTexture(GLenum,GLuint t){boundTex[activeTexture]=t;textureCalls++;}
 static void glViewport(GLint,GLint,GLint,GLint){}
-static void glScissor(GLint,GLint,GLint,GLint){}
+static GLint lastScissor[4];
+static void glScissor(GLint x,GLint y,GLint w,GLint h){lastScissor[0]=x;lastScissor[1]=y;lastScissor[2]=w;lastScissor[3]=h;}
 static void glUseProgram(GLuint p){boundProgram=p;}
 static void glEnable(GLenum){} static void glDisable(GLenum){}
 static void glDepthMask(GLboolean){} static void glDepthFunc(GLenum){}
@@ -156,5 +157,22 @@ int main(){
     gfx_vr_eye_replay(delta,nullptr,nullptr,nullptr);assert(issued==6 && depthClears==1);
     issued=0;depthClears=0;gfx_vr_eye_replay(delta,nullptr,nullptr,nullptr);assert(issued==6 && depthClears==1);
     assert(boundTex[0]==777 && boundTex[1]==888 && activeTexture==1);
+    // Flat high-refresh replay: sub-viewport portal scissors shift with the
+    // camera turn (Ms[0]), while screen-locked viewmodels (hand==3) stay put.
+    use_multiview=false; s_eyeHeadP[0]=1.0f; s_eyeHeadP[1]=1.0f;
+    s_eyeDraws.clear(); issued=0;
+    GevrEyeDraw fd={}; fd.prg=&a; fd.first=0; fd.count=3; fd.hand=-1;
+    fd.viewport[0]=0; fd.viewport[1]=0; fd.viewport[2]=1000; fd.viewport[3]=1000;
+    fd.scissor[0]=450; fd.scissor[1]=450; fd.scissor[2]=100; fd.scissor[3]=100;
+    s_eyeDraws.push_back(fd);
+    // Small yaw right: camera-space -z projects toward +x in clip space (Ms[0][8] = -0.2 => -Ms[0][8] = +0.2)
+    float yawProj[16]={}; yawProj[0]=1.0f; yawProj[5]=1.0f; yawProj[8]=-0.2f; yawProj[11]=-1.0f;
+    gfx_vr_eye_replay(yawProj,nullptr,nullptr,nullptr);
+    assert(issued==1 && lastScissor[0]>500 && lastScissor[2]>=100);
+    // Screen-locked viewmodel draw keeps its recorded scissor unchanged.
+    s_eyeDraws.clear(); issued=0; fd.hand=3; s_eyeDraws.push_back(fd);
+    gfx_vr_eye_replay(yawProj,nullptr,nullptr,nullptr);
+    assert(issued==1 && lastScissor[0]==450 && lastScissor[1]==450 && lastScissor[2]==100 && lastScissor[3]==100);
+    use_multiview=true;
     std::puts("PASS: real redraw preserves draw order, shader-local filtering, texture changes, mixed texture usage and frontend restoration while removing redundant calls");
 }

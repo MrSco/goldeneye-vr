@@ -4009,20 +4009,80 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
     int replayFilter[2] = { -1, -1 };
     GevrReplayBindings bindings;
     bindings.ring = ringVbo;
+    GLint curScissor[4] = {};
+    bool haveScissor = false;
+    auto applyReplayScissor = [&](const GevrEyeDraw& d) {
+        GLint sc[4] = { d.scissor[0], d.scissor[1], d.scissor[2], d.scissor[3] };
+        const GLint vx = d.viewport[0], vy = d.viewport[1], vw = d.viewport[2], vh = d.viewport[3];
+        /* Flat high-refresh redraws (#274) rotate world draws by delta while keeping
+         * GL_SCISSOR_TEST on (#337); shift sub-viewport portal scissors by the same
+         * rotation so doorways and tunnels stay aligned as the camera turns. */
+        if (!use_multiview && d.hand != 3 && !d.isMenu && vw > 0 && vh > 0 &&
+            (s_eyeHeadP[0] > 1e-6f || s_eyeHeadP[0] < -1e-6f) &&
+            (s_eyeHeadP[1] > 1e-6f || s_eyeHeadP[1] < -1e-6f) &&
+            (sc[0] > vx || sc[1] > vy || sc[0] + sc[2] < vx + vw || sc[1] + sc[3] < vy + vh)) {
+            const float xs[2] = { (float)sc[0], (float)(sc[0] + sc[2]) };
+            const float ys[2] = { (float)sc[1], (float)(sc[1] + sc[3]) };
+            float minX = (float)(vx + vw), minY = (float)(vy + vh), maxX = (float)vx, maxY = (float)vy;
+            bool ok = true;
+            for (int ix = 0; ix < 2 && ok; ix++) {
+                for (int iy = 0; iy < 2 && ok; iy++) {
+                    const float nx = ((xs[ix] - (float)vx) / (float)vw) * 2.0f - 1.0f;
+                    const float ny = ((ys[iy] - (float)vy) / (float)vh) * 2.0f - 1.0f;
+                    const float cx = nx / s_eyeHeadP[0];
+                    const float cy = ny / s_eyeHeadP[1];
+                    const float cw = Ms[0][3] * cx + Ms[0][7] * cy - Ms[0][11];
+                    if (cw <= 1e-4f) {
+                        ok = false;
+                        break;
+                    }
+                    const float rx = (Ms[0][0] * cx + Ms[0][4] * cy - Ms[0][8]) / cw;
+                    const float ry = (Ms[0][1] * cx + Ms[0][5] * cy - Ms[0][9]) / cw;
+                    const float px = (float)vx + (rx * 0.5f + 0.5f) * (float)vw;
+                    const float py = (float)vy + (ry * 0.5f + 0.5f) * (float)vh;
+                    if (px < minX) minX = px;
+                    if (px > maxX) maxX = px;
+                    if (py < minY) minY = py;
+                    if (py > maxY) maxY = py;
+                }
+            }
+            if (ok) {
+                const GLint pad = 4;
+                GLint x0 = (GLint)minX - pad;
+                GLint y0 = (GLint)minY - pad;
+                GLint x1 = (GLint)maxX + 1 + pad;
+                GLint y1 = (GLint)maxY + 1 + pad;
+                if (x0 < vx) x0 = vx;
+                if (y0 < vy) y0 = vy;
+                if (x1 > vx + vw) x1 = vx + vw;
+                if (y1 > vy + vh) y1 = vy + vh;
+                sc[0] = x0;
+                sc[1] = y0;
+                sc[2] = x1 > x0 ? x1 - x0 : 0;
+                sc[3] = y1 > y0 ? y1 - y0 : 0;
+            } else {
+                sc[0] = vx; sc[1] = vy; sc[2] = vw; sc[3] = vh;
+            }
+        }
+        if (!haveScissor || memcmp(sc, curScissor, sizeof(sc)) != 0) {
+            glScissor(sc[0], sc[1], sc[2], sc[3]);
+            memcpy(curScissor, sc, sizeof(sc));
+            haveScissor = true;
+        }
+    };
     for (const GevrEyeDraw& d : s_eyeDraws) {
         if (d.volumetric) {
             if (last == NULL || memcmp(d.viewport, last->viewport, sizeof(d.viewport)) != 0) {
                 glViewport(d.viewport[0], d.viewport[1], d.viewport[2], d.viewport[3]);
             }
-            if (last == NULL || memcmp(d.scissor, last->scissor, sizeof(d.scissor)) != 0) {
-                glScissor(d.scissor[0], d.scissor[1], d.scissor[2], d.scissor[3]);
-            }
+            applyReplayScissor(d);
             if (d.clearDepthBefore) gevr_replay_clear_depth();
             const bool stereo = !s_flatRec && use_multiview && !gVrFlatPass && !d.isMenu;
             const bool invertY = framebuffers[current_framebuffer].invert_y;
             gevr_vol_draw_recorded(&s_eyeVolBatches[d.volumetric - 1], delta, s_eyeProj,
                                    stereo, true, NULL, false, invertY);
             last = NULL;
+            haveScissor = false;
             continue;
         }
         gevr_replay_vao(bindings, d.mesh ? s_eyeMeshes[d.mesh - 1].vao : opengl_vao, d.mesh != 0);
@@ -4081,9 +4141,7 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
         if (last == NULL || memcmp(d.viewport, last->viewport, sizeof(d.viewport)) != 0) {
             glViewport(d.viewport[0], d.viewport[1], d.viewport[2], d.viewport[3]);
         }
-        if (last == NULL || memcmp(d.scissor, last->scissor, sizeof(d.scissor)) != 0) {
-            glScissor(d.scissor[0], d.scissor[1], d.scissor[2], d.scissor[3]);
-        }
+        applyReplayScissor(d);
         if (d.mesh) {
             const GfxMeshDrawParams* params = &s_eyeMeshes[d.mesh - 1].params;
             gevr_replay_mesh(bindings, d.prg, params, params->cull);
